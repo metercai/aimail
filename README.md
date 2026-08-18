@@ -44,4 +44,31 @@ pnpm install
 npx tsc -b packages/mail-core packages/mail packages/tool-mail packages/mail-inbound packages/agentmail
 ```
 
+## 不发布 npm 的验证(实测通过,2026-08-18)
+
+`dsh plugin add agentmail` = profile 目录 pnpm add + bundle reconcile。不发布时用**本地路径安装**模拟全流程:
+
+```bash
+# 1. 临时把 5 包 dependencies 的 workspace:^ 改为 file: 相对路径
+#    (验证后改回;pnpm 对 link 包内的 file: 依赖按包目录解析)
+# 2. 模拟 dsh plugin add:
+cd ~/.dsh/profiles/web
+pnpm add /path/to/agentmail-dsh-plugin/packages/agentmail
+#    → dependencies 写入 link: 路径,node_modules/agentmail 符号链接
+
+# 3. 运行时加载验证:
+node -e "import('agentmail').then(async m => {
+  const cfg = await m.loadAgentConfig('<sid>', '<addr>'); console.log(cfg.email) })"
+
+# 4. reconcile 模拟(dsh plugin 的 bundle 识别逻辑):
+#    entry 包 package.json 的 dsh.bundle.patch 非空 → 加入
+#    profile 的 dsh.profile.bundles(实测:agentmail 加入,4 条目 patch 就位)
+
+# 5. 模拟卸载(幂等):
+pnpm remove agentmail
+#    → dependencies 清空 + bundles 移除 agentmail
+```
+
+发布前完整链路验证(可选):本地 verdaccio(registry 代理),5 包 `pnpm publish --registry http://127.0.0.1:4873`,再 `dsh plugin --profile web add agentmail --registry http://127.0.0.1:4873`。
+
 发布(需 npm 账号):`pnpm -r publish`(先发布 4 个 @agentmail/*,再发布入口 `agentmail`)。
