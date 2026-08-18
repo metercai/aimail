@@ -1,0 +1,14 @@
+{
+  "name": "agentmail-dsh-plugin",
+  "private": true,
+  "version": "0.1.0-rc.5",
+  "type": "module",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "typescript": "^7.0.2"
+  }
+}

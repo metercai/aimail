@@ -1,0 +1,31 @@
+{
+  "name": "@agentmail/mail-core",
+  "description": "AgentMail shared TS core: gateway client, tool functions, inbound preprocess chain (framework-agnostic, zero deps).",
+  "version": "0.1.0-rc.5",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/email/mail-core"
+  },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/**/*.js",
+    "lib/**/*.d.ts"
+  ],
+  "license": "MIT",
+  "peerDependencies": {},
+  "dependencies": {},
+  "devDependencies": {}
+}

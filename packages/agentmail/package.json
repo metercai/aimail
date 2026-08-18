@@ -1,0 +1,45 @@
+{
+  "name": "agentmail",
+  "description": "AgentMail plugin for dsh — inbound endpoint, 12 bare-name tools, mail preset. Install: dsh plugin --profile web add agentmail",
+  "version": "0.1.0-rc.5",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/metercai/agentmail-dsh-plugin.git"
+  },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/**/*.js",
+    "lib/**/*.d.ts",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "license": "GPL-3.0",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "dependencies": {
+    "@agentmail/mail-core": "workspace:^",
+    "@agentmail/mail": "workspace:^",
+    "@agentmail/tool-mail": "workspace:^",
+    "@agentmail/mail-inbound": "workspace:^"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  }
+}

@@ -1,0 +1,26 @@
+# agentmail bundle layer — mounted via `dsh plugin --profile web add agentmail`.
+# Entry list identical to the mail preset: persona + host services + tools.
+
+# ── identity ────────────────────────────────────────────────────────────────
+
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    text: >-
+      You are an email-capable agent on AgentMail. Use send_mail to reply to
+      inbound mail; manage_contacts for your whitelist; contact_profile /
+      set_contact_profile for contact context; email_summary /
+      set_email_summary for thread notes; board_* tools for A2A board work.
+
+# ── AgentMail host services ─────────────────────────────────────────────────
+
+- id: mail
+  name: '@agentmail/mail'
+
+- id: mail-inbound
+  name: '@agentmail/mail-inbound'
+
+# ── AgentMail tools (bare names) ────────────────────────────────────────────
+
+- id: tool-mail
+  name: '@agentmail/tool-mail'
