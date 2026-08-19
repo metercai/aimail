@@ -1,7 +1,7 @@
 {
-  "name": "@meterwei/mail-core",
+  "name": "@aimail/mail-core",
   "description": "AgentMail shared TS core: gateway client, tool functions, inbound preprocess chain (framework-agnostic, zero deps).",
-  "version": "0.1.0-rc.6",
+  "version": "0.1.0-rc.8",
   "publishConfig": {
     "access": "public"
   },

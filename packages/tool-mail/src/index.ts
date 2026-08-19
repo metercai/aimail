@@ -1,7 +1,7 @@
 /**
- * @meterwei/tool-mail — AgentMail 12 tools (bare names) for the mail
+ * @aimail/tool-mail — AgentMail 12 tools (bare names) for the mail
  * preset. Names/descriptions/params mirror tools/amail_mcp_server.py
- * (agentmail repo); execution calls @meterwei/mail-core.
+ * (agentmail repo); execution calls @aimail/mail-core.
  *
  * Identity: exec.agent.id (dsh session uuid) → ctx.mail.resolveCtx →
  * agentmail.json binding. Unbound sessions fail loud.
@@ -23,8 +23,8 @@ import {
   setPublicWhoami,
   setAgentIdentity,
   type ToolCtx,
-} from '@meterwei/mail-core'
-import type { MailService } from '@meterwei/mail'
+} from '@aimail/mail-core'
+import type { MailService } from '@aimail/mail'
 
 export const name = 'tool-mail'
 export const inject = ['tools', 'mail']
@@ -44,7 +44,7 @@ const run = <T>(p: Promise<T>): Promise<JsonValue> => p as unknown as Promise<Js
 export function apply(ctx: Context, config: { identity?: string } = {}): void {
   const mail = ctx.get('mail') as MailService | undefined
   if (mail === undefined) {
-    throw new Error('tool-mail requires the mail service: mount @meterwei/mail first')
+    throw new Error('tool-mail requires the mail service: mount @aimail/mail first')
   }
   if (config.identity) setAgentIdentity(config.identity)
 

@@ -1,5 +1,5 @@
 /**
- * @meterwei/mail-inbound — AgentMail inbound endpoint.
+ * @aimail/mail-inbound — AgentMail inbound endpoint.
  *
  * node:http listener (headless-friendly). Receives bridge-forwarded raw
  * webhook bodies at POST {path} (default /agentmail/deliver):
@@ -13,8 +13,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { processInboundMail, verifySignature, type InboundPayload } from '@meterwei/mail-core'
-import type { MailService } from '@meterwei/mail'
+import { processInboundMail, verifySignature, type InboundPayload } from '@aimail/mail-core'
+import type { MailService } from '@aimail/mail'
 
 export const name = 'mail-inbound'
 export const inject = ['mail', 'agents']
@@ -53,7 +53,7 @@ function readBody(req: IncomingMessage): Promise<Buffer> {
 export function apply(ctx: Context, config: Config = {}): () => void {
   const mail = ctx.get('mail') as MailService | undefined
   if (mail === undefined) {
-    throw new Error('mail-inbound requires the mail service: mount @meterwei/mail first')
+    throw new Error('mail-inbound requires the mail service: mount @aimail/mail first')
   }
   const host = config.host ?? '127.0.0.1'
   const port = config.port ?? Number(process.env.AMAIL_INBOUND_PORT ?? 9099)

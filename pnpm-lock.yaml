@@ -17,17 +17,17 @@ importers:
 
   packages/agentmail:
     dependencies:
-      '@meterwei/mail':
-        specifier: ^0.1.0-rc.6
+      '@aimail/mail':
+        specifier: ^0.1.0-rc.8
         version: link:../mail
-      '@meterwei/mail-core':
-        specifier: ^0.1.0-rc.6
+      '@aimail/mail-core':
+        specifier: ^0.1.0-rc.8
         version: link:../mail-core
-      '@meterwei/mail-inbound':
-        specifier: ^0.1.0-rc.6
+      '@aimail/mail-inbound':
+        specifier: ^0.1.0-rc.8
         version: link:../mail-inbound
-      '@meterwei/tool-mail':
-        specifier: ^0.1.0-rc.6
+      '@aimail/tool-mail':
+        specifier: ^0.1.0-rc.8
         version: link:../tool-mail
     devDependencies:
       '@deepseek-ai/cordis':
@@ -36,7 +36,7 @@ importers:
 
   packages/mail:
     dependencies:
-      '@meterwei/mail-core':
+      '@aimail/mail-core':
         specifier: workspace:^
         version: link:../mail-core
     devDependencies:
@@ -48,10 +48,10 @@ importers:
 
   packages/mail-inbound:
     dependencies:
-      '@meterwei/mail':
+      '@aimail/mail':
         specifier: workspace:^
         version: link:../mail
-      '@meterwei/mail-core':
+      '@aimail/mail-core':
         specifier: workspace:^
         version: link:../mail-core
     devDependencies:
@@ -67,10 +67,10 @@ importers:
 
   packages/tool-mail:
     dependencies:
-      '@meterwei/mail':
+      '@aimail/mail':
         specifier: workspace:^
         version: link:../mail
-      '@meterwei/mail-core':
+      '@aimail/mail-core':
         specifier: workspace:^
         version: link:../mail-core
     devDependencies:

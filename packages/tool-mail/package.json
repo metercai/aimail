@@ -1,7 +1,7 @@
 {
-  "name": "@meterwei/tool-mail",
+  "name": "@aimail/tool-mail",
   "description": "AgentMail model-facing tools (12, bare names) for the mail agent preset.",
-  "version": "0.1.0-rc.6",
+  "version": "0.1.0-rc.8",
   "publishConfig": {
     "access": "public"
   },
@@ -30,8 +30,8 @@
     "@deepseek-ai/dsh-tools": "^0.0.1-rc.1"
   },
   "dependencies": {
-    "@meterwei/mail-core": "workspace:^",
-    "@meterwei/mail": "workspace:^"
+    "@aimail/mail-core": "workspace:^",
+    "@aimail/mail": "workspace:^"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",

@@ -11,19 +11,19 @@ dsh plugin --profile web remove dsh-aimail
 ```
 
 安装后 profile 自动挂载 bundle 层(`dsh.bundle.patch` = `cordis.patch.yml`):
-- `@meterwei/mail` — host 服务(ctx.mail:session_id → agentmail.json 绑定解析)
-- `@meterwei/mail-inbound` — 入站端点(node:http:验签 → TS 预处理 → ping/pong → followup)
-- `@meterwei/tool-mail` — 12 个裸名工具(send_mail / manage_contacts / contact_profile / set_contact_profile / email_summary / set_email_summary / board_status / board_task_list / board_task_show / board_heartbeat / board_members / set_public_whoami)
+- `@aimail/mail` — host 服务(ctx.mail:session_id → agentmail.json 绑定解析)
+- `@aimail/mail-inbound` — 入站端点(node:http:验签 → TS 预处理 → ping/pong → followup)
+- `@aimail/tool-mail` — 12 个裸名工具(send_mail / manage_contacts / contact_profile / set_contact_profile / email_summary / set_email_summary / board_status / board_task_list / board_task_show / board_heartbeat / board_members / set_public_whoami)
 - persona(邮箱 agent 人设)
 
 ## 包结构
 
 | 包 | 职责 | 依赖 |
 |---|---|---|
-| `@meterwei/mail-core` | TS 共享核心(零框架依赖):gateway client、12 工具函数、入站预处理 13 步全链、agentmail.json 读写 | 无 |
-| `@meterwei/mail` | host 层:ctx.mail 服务(session/agent/email 反查,AMAIL_SYSTEM_ID 限域) | cordis(peer) |
-| `@meterwei/tool-mail` | 12 defineTool(裸名,dsh-tools 裸 JSON-Schema DSL) | cordis/dsh-tools(peer) |
-| `@meterwei/mail-inbound` | node:http 入站端点(默认 127.0.0.1:9099/agentmail/deliver) | cordis/dsh-agent/dsh-llm(peer) |
+| `@aimail/mail-core` | TS 共享核心(零框架依赖):gateway client、12 工具函数、入站预处理 13 步全链、agentmail.json 读写 | 无 |
+| `@aimail/mail` | host 层:ctx.mail 服务(session/agent/email 反查,AMAIL_SYSTEM_ID 限域) | cordis(peer) |
+| `@aimail/tool-mail` | 12 defineTool(裸名,dsh-tools 裸 JSON-Schema DSL) | cordis/dsh-tools(peer) |
+| `@aimail/mail-inbound` | node:http 入站端点(默认 127.0.0.1:9099/agentmail/deliver) | cordis/dsh-agent/dsh-llm(peer) |
 | `dsh-aimail`(入口) | bundle 聚合:`dsh.bundle.patch` + cordis.patch.yml + 导出 mail-core | 4 包 |
 
 ## 契约基准
@@ -71,4 +71,4 @@ pnpm remove dsh-aimail
 
 发布前完整链路验证(可选):本地 verdaccio(registry 代理),5 包 `pnpm publish --registry http://127.0.0.1:4873`,再 `dsh plugin --profile web add dsh-aimail --registry http://127.0.0.1:4873`。
 
-发布(需 npm 账号):`pnpm -r publish`(先发布 4 个 @meterwei/*,再发布入口 `dsh-aimail`)。
+发布(需 npm 账号):`pnpm -r publish`(先发布 4 个 @aimail/*,再发布入口 `dsh-aimail`)。

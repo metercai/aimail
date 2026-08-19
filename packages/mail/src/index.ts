@@ -1,5 +1,5 @@
 /**
- * @meterwei/mail — host-layer AgentMail service (ctx.mail).
+ * @aimail/mail — host-layer AgentMail service (ctx.mail).
  *
  * Provides per-session agentmail config resolution for tool-mail / mail-inbound:
  *   session_id (exec.agent.id) → agentmail.json → ToolCtx {systemId, email}.
@@ -12,7 +12,7 @@ import {
   loadConfigByEmail,
   loadConfigBySessionId,
   type AgentConfig,
-} from '@meterwei/mail-core'
+} from '@aimail/mail-core'
 
 export const name = 'mail'
 export const inject = []
