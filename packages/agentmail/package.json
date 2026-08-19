@@ -1,7 +1,7 @@
 {
-  "name": "agentmail",
-  "description": "AgentMail plugin for dsh — inbound endpoint, 12 bare-name tools, mail preset. Install: dsh plugin --profile web add agentmail",
-  "version": "0.1.0-rc.5",
+  "name": "@meterwei/agentmail",
+  "description": "AgentMail plugin for dsh — install via: dsh plugin --profile web add @meterwei/agentmail",
+  "version": "0.1.0-rc.6",
   "publishConfig": {
     "access": "public"
   },
@@ -35,10 +35,10 @@
     "@deepseek-ai/cordis": "^4.0.1"
   },
   "dependencies": {
-    "@agentmail/mail-core": "workspace:^",
-    "@agentmail/mail": "workspace:^",
-    "@agentmail/tool-mail": "workspace:^",
-    "@agentmail/mail-inbound": "workspace:^"
+    "@meterwei/mail-core": "workspace:^",
+    "@meterwei/mail": "workspace:^",
+    "@meterwei/tool-mail": "workspace:^",
+    "@meterwei/mail-inbound": "workspace:^"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1"

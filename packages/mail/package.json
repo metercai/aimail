@@ -1,7 +1,7 @@
 {
-  "name": "@agentmail/mail",
+  "name": "@meterwei/mail",
   "description": "AgentMail host service: config resolution + gateway client provisioning for dsh sessions.",
-  "version": "0.1.0-rc.5",
+  "version": "0.1.0-rc.6",
   "publishConfig": {
     "access": "public"
   },
@@ -29,7 +29,7 @@
     "@deepseek-ai/cordis": "^4.0.1"
   },
   "dependencies": {
-    "@agentmail/mail-core": "workspace:^"
+    "@meterwei/mail-core": "workspace:^"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1"

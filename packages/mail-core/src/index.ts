@@ -1,5 +1,5 @@
 /**
- * @agentmail/mail-core — AgentMail shared TS core (framework-agnostic).
+ * @meterwei/mail-core — AgentMail shared TS core (framework-agnostic).
  *
  * Zero Cordis/dsh dependencies. Future TS agents (e.g. OpenClaw migration)
  * can import this package directly without touching dsh adapter packages.

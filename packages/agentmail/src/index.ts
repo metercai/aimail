@@ -4,4 +4,4 @@
  * core API for programmatic use. Installed via:
  *   dsh plugin --profile web add agentmail
  */
-export * from '@agentmail/mail-core'
+export * from '@meterwei/mail-core'

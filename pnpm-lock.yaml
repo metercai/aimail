@@ -17,16 +17,16 @@ importers:
 
   packages/agentmail:
     dependencies:
-      '@agentmail/mail':
+      '@meterwei/mail':
         specifier: workspace:^
         version: link:../mail
-      '@agentmail/mail-core':
+      '@meterwei/mail-core':
         specifier: workspace:^
         version: link:../mail-core
-      '@agentmail/mail-inbound':
+      '@meterwei/mail-inbound':
         specifier: workspace:^
         version: link:../mail-inbound
-      '@agentmail/tool-mail':
+      '@meterwei/tool-mail':
         specifier: workspace:^
         version: link:../tool-mail
     devDependencies:
@@ -36,7 +36,7 @@ importers:
 
   packages/mail:
     dependencies:
-      '@agentmail/mail-core':
+      '@meterwei/mail-core':
         specifier: workspace:^
         version: link:../mail-core
     devDependencies:
@@ -48,10 +48,10 @@ importers:
 
   packages/mail-inbound:
     dependencies:
-      '@agentmail/mail':
+      '@meterwei/mail':
         specifier: workspace:^
         version: link:../mail
-      '@agentmail/mail-core':
+      '@meterwei/mail-core':
         specifier: workspace:^
         version: link:../mail-core
     devDependencies:
@@ -67,10 +67,10 @@ importers:
 
   packages/tool-mail:
     dependencies:
-      '@agentmail/mail':
+      '@meterwei/mail':
         specifier: workspace:^
         version: link:../mail
-      '@agentmail/mail-core':
+      '@meterwei/mail-core':
         specifier: workspace:^
         version: link:../mail-core
     devDependencies:
