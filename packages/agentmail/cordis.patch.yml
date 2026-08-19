@@ -15,12 +15,12 @@
 # ── AgentMail host services ─────────────────────────────────────────────────
 
 - id: mail
-  name: '@agentmail/mail'
+  name: '@meterwei/mail'
 
 - id: mail-inbound
-  name: '@agentmail/mail-inbound'
+  name: '@meterwei/mail-inbound'
 
 # ── AgentMail tools (bare names) ────────────────────────────────────────────
 
 - id: tool-mail
-  name: '@agentmail/tool-mail'
+  name: '@meterwei/tool-mail'

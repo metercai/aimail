@@ -18,16 +18,16 @@ importers:
   packages/agentmail:
     dependencies:
       '@meterwei/mail':
-        specifier: workspace:^
+        specifier: ^0.1.0-rc.6
         version: link:../mail
       '@meterwei/mail-core':
-        specifier: workspace:^
+        specifier: ^0.1.0-rc.6
         version: link:../mail-core
       '@meterwei/mail-inbound':
-        specifier: workspace:^
+        specifier: ^0.1.0-rc.6
         version: link:../mail-inbound
       '@meterwei/tool-mail':
-        specifier: workspace:^
+        specifier: ^0.1.0-rc.6
         version: link:../tool-mail
     devDependencies:
       '@deepseek-ai/cordis':
