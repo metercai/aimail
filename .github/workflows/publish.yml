@@ -1,0 +1,53 @@
+# Publish all packages to npmjs via Trusted Publishing (OIDC).
+#
+# Trigger: manual (workflow_dispatch) — publish the current commit's versions.
+# Auth: npmjs Trusted Publisher bound to this repo+workflow; no personal token
+# required. Each package's publishConfig.provenance: true enables provenance.
+#
+# Prerequisite (one-time, npmjs web):
+#   npmjs.com → package → Settings → Publish: enable "Trusted Publishers",
+#   add this repo (metercai/dsh-aimail) + workflow name "publish.yml".
+#   Repeat for @aimail/mail-core, @aimail/mail, dsh-aimail, openclaw-aimail.
+name: publish
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # OIDC → npmjs Trusted Publisher
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build all packages
+        run: |
+          pnpm exec tsc -b packages/mail-core
+          pnpm exec tsc -b packages/mail
+          pnpm exec tsc -b packages/agentmail
+
+      - name: Test
+        run: pnpm test
+
+      - name: Publish (rc tag)
+        run: |
+          pnpm --filter @aimail/mail-core publish --tag rc --no-git-checks --access public
+          pnpm --filter @aimail/mail publish --tag rc --no-git-checks --access public
+          pnpm --filter dsh-aimail publish --tag rc --no-git-checks --access public
+          pnpm --filter openclaw-aimail publish --tag rc --no-git-checks --access public

@@ -3,7 +3,8 @@
   "description": "AgentMail plugin for dsh — install via: dsh plugin --profile web add dsh-aimail",
   "version": "0.1.0-rc.12",
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
   },
   "repository": {
     "type": "git",
