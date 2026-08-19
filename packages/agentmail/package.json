@@ -7,7 +7,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/metercai/dsh-agentmail.git",
+    "url": "git+https://github.com/metercai/dsh-aimail.git",
     "directory": "packages/agentmail"
   },
   "type": "module",
