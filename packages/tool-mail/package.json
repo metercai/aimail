@@ -7,8 +7,8 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
-    "directory": "packages/email/tool-mail"
+    "url": "git+https://github.com/metercai/dsh-agentmail.git",
+    "directory": "packages/tool-mail"
   },
   "type": "module",
   "main": "lib/index.js",
