@@ -7,7 +7,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/metercai/dsh-aimail.git",
+    "url": "git+https://github.com/metercai/aimail-sdk-ts.git",
     "directory": "packages/mail-core"
   },
   "type": "module",
