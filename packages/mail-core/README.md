@@ -1,28 +1,32 @@
-# @deepseek-ai/dsh-mail-core
+# @aimail/mail-core
 
-AgentMail 共享 TS 核心(框架无关,零 Cordis 依赖)。
+Framework-agnostic AgentMail core for TypeScript: gateway HTTP client, mail /
+contact / note / board tool functions, the 13-step inbound preprocess chain,
+and agentmail.json read/write. Zero dependencies — import it directly from any
+TS agent runtime (dsh, OpenClaw, ...).
 
-dsh mail 集成四包之一(`packages/email/`):
-- `mail-core`(本包,共享库):gateway client + 12 工具函数 + 入站预处理全链 + agentmail.json 读写
-- `mail`(host 层):ctx.mail 服务,包装 mail-core
-- `tool-mail`(preset 层):12 defineTool(裸名),包装 mail-core
-- `mail-inbound`(host 层):node:http 端点,验签 + 预处理 + ping/pong + followup
+## Install
 
-未来 OpenClaw 等 TS agent 可直接 import 本包(不碰 dsh 适配包)。
+```bash
+pnpm add @aimail/mail-core
+```
 
-## 契约基准
+Point `AMAIL_HOME` at your agentmail home directory (default
+`~/.agentmail`), where per-address `agentmail.json` bindings live.
 
-- 工具/预处理契约:agentmail 仓库 `DSH-PREPROCESS-CONTRACT.md`(逐行对照表)
-- 配置契约:agentmail 仓库 `AGENTMAIL-JSON-REFERENCE.md`(agentmail.json 唯一信任源)
+## What it does
 
-## 现状(开发中)
-
-- [x] types(AgentConfig/InboundPayload/EnrichedPayload/GatewayResponse)
-- [x] config(agentmail.json 读写:load/save/原子写/cleanAddr/session_id 反查)
-- [x] gateway client(HTTP 封装:send/upload/download/whitelist/contacts/agent-state/thread-summary/board API)
-- [ ] 12 工具函数(包装 gateway client)
-- [ ] 入站预处理全链(13 步,契约对齐)
-
-## Known Limitations
-
-- 预处理链的 raw 快照(save_raw_snapshots)为 Python 侧本地存储,dsh 不实现;日志事件(ping_intercepted/pong_sent/pong_returned)必须保留。
+- `GatewayClient` — authenticated HTTP client for the AgentMail gateway
+  (send / upload / download / whitelist / contacts / agent-state / threads /
+  boards).
+- Tool functions — `sendMail`, `manageContacts`, `contactProfile`,
+  `setContactProfile`, `emailSummary`, `setEmailSummary`, plus the board API
+  (`boardStatus`, `boardTaskList`, `boardTaskShow`, `boardHeartbeat`,
+  `boardMembers`, `setPublicWhoami`).
+- Inbound chain — `processInboundMail` runs the full 13-step preprocess
+  (recipient/sender enrichment, persona normalization, direct-message and
+  mention detection, attachment download, backend-field stripping, inbound
+  logging) and intercepts ping/pong health probes; `verifySignature` checks
+  webhook HMAC signatures.
+- Config — atomic `agentmail.json` load/save and lookup by session id, email,
+  or agent id.

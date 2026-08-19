@@ -7,8 +7,12 @@
   "engines": {
     "node": ">=20"
   },
+  "scripts": {
+    "test": "vitest run"
+  },
   "devDependencies": {
     "@types/node": "^26.2.0",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^3.0.0"
   }
 }
