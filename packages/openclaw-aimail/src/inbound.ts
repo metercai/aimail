@@ -1,0 +1,174 @@
+/**
+ * openclaw-aimail inbound — registers an HTTP route inside the gateway
+ * process (no new port; bridge push target unchanged).
+ *
+ * Handler chain (mirrors dsh inbound):
+ *   recipient resolution (resolveByRecipient: exact → persona-strip fallback,
+ *   so mail to a role alias routes to the owning agent)
+ *   → verifySignature (byte-exact HMAC, mail-core)
+ *   → processInboundMail (13-step chain + ping/pong intercept)
+ *   → agent turn with the full enriched JSON payload (rendering parity =
+ *     json.dumps equivalence, established acceptance bar).
+ *
+ * Delivery: api.runtime.subagent.run (session-scoped run) primary,
+ * api.runtime.gateway.request (explicit agent targeting) fallback (R3).
+ */
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import { verifySignature, processInboundMail, type InboundPayload } from '@aimail/mail-core'
+import type { OpenClawPluginApi } from 'openclaw/plugin-sdk/plugin-entry'
+import { resolveByRecipient } from '@aimail/mail'
+import { readPointer } from './identity.js'
+
+export const INBOUND_PATH = '/agentmail/deliver'
+
+function writeJson(res: ServerResponse, code: number, body: unknown): void {
+  res.writeHead(code, { 'Content-Type': 'application/json' })
+  res.end(JSON.stringify(body))
+}
+
+function readBody(req: IncomingMessage): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = []
+    req.on('data', (c: Buffer) => chunks.push(c))
+    req.on('end', () => resolve(Buffer.concat(chunks)))
+    req.on('error', reject)
+  })
+}
+
+/**
+ * Deliver an enriched inbound payload to the owning agent's session.
+ * Primary: subagent.run (session-scoped). Fallback: gateway.request
+ * ("chat.send" — explicit agent targeting).
+ */
+async function deliverToAgent(
+  api: OpenClawPluginApi,
+  opts: { agentId: string; message: string },
+): Promise<{ status: string; detail: string }> {
+  const { agentId, message } = opts
+  const sessionKey = `agent:${agentId}:main`
+  try {
+    await api.runtime.subagent.run({
+      sessionKey,
+      message,
+      deliver: true,
+    })
+    return { status: 'delivered', detail: `subagent.run → ${sessionKey}` }
+  } catch (e) {
+    const subagentErr = e instanceof Error ? e.message : String(e)
+    try {
+      await api.runtime.gateway.request('chat.send', {
+        sessionKey,
+        agentId,
+        message,
+        deliver: true,
+      })
+      return {
+        status: 'delivered',
+        detail: `gateway.request chat.send → ${sessionKey} (subagent.run failed: ${subagentErr})`,
+      }
+    } catch (e2) {
+      const gwErr = e2 instanceof Error ? e2.message : String(e2)
+      return {
+        status: 'delivery_failed',
+        detail: `subagent.run: ${subagentErr}; chat.send: ${gwErr}`,
+      }
+    }
+  }
+}
+
+/** Build the inbound HTTP route handler for this plugin entry. */
+export function createInboundHandler(api: OpenClawPluginApi) {
+  return async (
+    req: IncomingMessage,
+    res: ServerResponse,
+  ): Promise<void> => {
+    try {
+      if (req.method !== 'POST') {
+        writeJson(res, 405, { status: 'method_not_allowed' })
+        return
+      }
+      const rawBody = await readBody(req)
+      let payload: InboundPayload
+      try {
+        payload = JSON.parse(rawBody.toString('utf-8')) as InboundPayload
+      } catch {
+        writeJson(res, 400, { status: 'bad_json' })
+        return
+      }
+
+      // Recipient routing (exact → persona-strip fallback)
+      const toRaw = Array.isArray(payload.to)
+        ? payload.to
+        : typeof payload.to === 'string'
+          ? [payload.to]
+          : []
+      let agentAddr = ''
+      for (const t of toRaw) {
+        const addr = String(t).trim()
+        if (!addr.includes('@')) continue
+        const cfg = await resolveByRecipient(addr)
+        if (cfg) {
+          agentAddr = addr
+          break
+        }
+      }
+      // Fall back to the pointer email when no recipient matched (e.g. the
+      // bridge forwarded a bare address) — keep no_agent intercept semantics.
+      let cfg: Awaited<ReturnType<typeof resolveByRecipient>>
+      for (const t of toRaw) {
+        cfg = await resolveByRecipient(String(t).trim())
+        if (cfg) {
+          agentAddr = String(t).trim()
+          break
+        }
+      }
+      if (!cfg) {
+        const ptr = await readPointer()
+        if (ptr.email) cfg = await resolveByRecipient(ptr.email)
+        if (cfg && !agentAddr) agentAddr = ptr.email ?? ''
+      }
+      if (!cfg) {
+        writeJson(res, 200, {
+          status: 'no_agent',
+          detail: `no binding for ${toRaw.join(',')}`,
+        })
+        return
+      }
+
+      // HMAC verify (per-address webhook_secret)
+      const sig = (req.headers['x-webhook-signature'] as string) ?? ''
+      if (!verifySignature(rawBody, sig, cfg.webhook_secret ?? '')) {
+        writeJson(res, 401, { status: 'bad_signature' })
+        return
+      }
+
+      // TS preprocess chain (13 steps) + ping/pong intercept
+      const headers = {
+        ...(req.headers as Record<string, string | string[]>),
+        ...(payload.headers ?? {}),
+      }
+      const result = await processInboundMail(
+        payload,
+        headers as Record<string, string>,
+        { systemId: cfg.system_id, email: cfg.email },
+      )
+      if (result === null) {
+        writeJson(res, 200, { status: 'intercepted' })
+        return
+      }
+
+      // Agent turn with the full enriched JSON payload
+      const agentId = cfg.agent_id || 'main'
+      const out = await deliverToAgent(api, {
+        agentId,
+        message: JSON.stringify({ ...result, to: agentAddr }),
+      })
+      writeJson(res, 200, out)
+    } catch (e) {
+      writeJson(res, 500, {
+        status: 'error',
+        detail: e instanceof Error ? e.message : String(e),
+      })
+    }
+  }
+}
