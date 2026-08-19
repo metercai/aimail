@@ -1,5 +1,6 @@
-# agentmail bundle layer — mounted via `dsh plugin --profile web add agentmail`.
-# Entry list identical to the mail preset: persona + host services + tools.
+# dsh-aimail bundle layer — mounted via `dsh plugin --profile web add dsh-aimail`.
+# Self-mounting: all entries resolve to subpaths of this very package
+# (package.json "exports"), so the bundle needs no sibling @aimail/* packages.
 
 # ── identity ────────────────────────────────────────────────────────────────
 
@@ -12,15 +13,17 @@
       set_contact_profile for contact context; email_summary /
       set_email_summary for thread notes; board_* tools for A2A board work.
 
-# ── AgentMail host services ─────────────────────────────────────────────────
+# ── AgentMail host service (ctx.mail) ───────────────────────────────────────
 
 - id: mail
-  name: '@aimail/mail'
+  name: 'dsh-aimail/mail-service'
+
+# ── AgentMail inbound endpoint (node:http + session delivery) ───────────────
 
 - id: mail-inbound
-  name: '@aimail/mail-inbound'
+  name: 'dsh-aimail/inbound'
 
-# ── AgentMail tools (bare names) ────────────────────────────────────────────
+# ── AgentMail tools (12 bare names, semantics from @aimail/mail-core) ───────
 
 - id: tool-mail
-  name: '@aimail/tool-mail'
+  name: 'dsh-aimail/tools'

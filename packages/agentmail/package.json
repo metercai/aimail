@@ -1,7 +1,7 @@
 {
   "name": "dsh-aimail",
   "description": "AgentMail plugin for dsh — install via: dsh plugin --profile web add dsh-aimail",
-  "version": "0.1.0-rc.11",
+  "version": "0.1.0-rc.12",
   "publishConfig": {
     "access": "public"
   },
@@ -18,6 +18,18 @@
       "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./mail-service": {
+      "types": "./lib/mail-service.d.ts",
+      "default": "./lib/mail-service.js"
+    },
+    "./tools": {
+      "types": "./lib/tools.d.ts",
+      "default": "./lib/tools.js"
+    },
+    "./inbound": {
+      "types": "./lib/inbound.d.ts",
+      "default": "./lib/inbound.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -32,15 +44,19 @@
   },
   "license": "GPL-3.0",
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1"
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-agent": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-llm": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-tools": "^0.0.1-rc.1"
   },
   "dependencies": {
-    "@aimail/mail-core": "^0.1.0-rc.8",
-    "@aimail/mail": "^0.1.0-rc.8",
-    "@aimail/tool-mail": "^0.1.0-rc.8",
-    "@aimail/mail-inbound": "^0.1.0-rc.8"
+    "@aimail/mail-core": "^0.1.0-rc.9",
+    "@aimail/mail": "^0.1.0-rc.9"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1"
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-agent": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-llm": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-tools": "^0.0.1-rc.1"
   }
 }

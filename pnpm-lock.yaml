@@ -21,41 +21,10 @@ importers:
   packages/agentmail:
     dependencies:
       '@aimail/mail':
-        specifier: ^0.1.0-rc.8
+        specifier: ^0.1.0-rc.9
         version: link:../mail
       '@aimail/mail-core':
-        specifier: ^0.1.0-rc.8
-        version: link:../mail-core
-      '@aimail/mail-inbound':
-        specifier: ^0.1.0-rc.8
-        version: link:../mail-inbound
-      '@aimail/tool-mail':
-        specifier: ^0.1.0-rc.8
-        version: link:../tool-mail
-    devDependencies:
-      '@deepseek-ai/cordis':
-        specifier: ^4.0.1
-        version: 4.0.1
-
-  packages/mail:
-    dependencies:
-      '@aimail/mail-core':
-        specifier: workspace:^
-        version: link:../mail-core
-    devDependencies:
-      '@deepseek-ai/cordis':
-        specifier: ^4.0.1
-        version: 4.0.1
-
-  packages/mail-core: {}
-
-  packages/mail-inbound:
-    dependencies:
-      '@aimail/mail':
-        specifier: workspace:^
-        version: link:../mail
-      '@aimail/mail-core':
-        specifier: workspace:^
+        specifier: ^0.1.0-rc.9
         version: link:../mail-core
     devDependencies:
       '@deepseek-ai/cordis':
@@ -67,22 +36,17 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: ^0.0.1-rc.1
         version: 0.0.1-rc.1(@deepseek-ai/cordis@4.0.1)
-
-  packages/tool-mail:
-    dependencies:
-      '@aimail/mail':
-        specifier: workspace:^
-        version: link:../mail
-      '@aimail/mail-core':
-        specifier: workspace:^
-        version: link:../mail-core
-    devDependencies:
-      '@deepseek-ai/cordis':
-        specifier: ^4.0.1
-        version: 4.0.1
       '@deepseek-ai/dsh-tools':
         specifier: ^0.0.1-rc.1
         version: 0.0.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-agent@0.1.0-rc.6(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-llm@0.0.1-rc.1(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-llm@0.0.1-rc.1(@deepseek-ai/cordis@4.0.1))
+
+  packages/mail:
+    dependencies:
+      '@aimail/mail-core':
+        specifier: workspace:^
+        version: link:../mail-core
+
+  packages/mail-core: {}
 
 packages:
 

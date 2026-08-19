@@ -1,9 +1,10 @@
 /**
- * @aimail/mail-inbound — AgentMail inbound endpoint.
+ * dsh-aimail inbound — AgentMail inbound endpoint for this profile.
  *
  * node:http listener (headless-friendly). Receives bridge-forwarded raw
  * webhook bodies at POST {path} (default /agentmail/deliver):
- *   HMAC verify (X-Webhook-Signature vs webhook_secret from agentmail.json)
+ *   recipient routing (resolveByRecipient: exact → persona-strip fallback)
+ *   → HMAC verify (X-Webhook-Signature vs webhook_secret from agentmail.json)
  *   → TS preprocess chain (mail-core, DSH-PREPROCESS-CONTRACT.md)
  *   → ping/pong intercept (three-stage logs, swallowed)
  *   → un-intercepted: followup the bound dsh session (live agent), or
@@ -14,7 +15,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { processInboundMail, verifySignature, type InboundPayload } from '@aimail/mail-core'
-import type { MailService } from '@aimail/mail'
+import type { MailService } from './mail-service.js'
 
 export const name = 'mail-inbound'
 export const inject = ['mail', 'agents']
@@ -48,12 +49,10 @@ function readBody(req: IncomingMessage): Promise<Buffer> {
   })
 }
 
-/** Pick the agent's own address from payload recipients (domain match). */
-
 export function apply(ctx: Context, config: Config = {}): () => void {
   const mail = ctx.get('mail') as MailService | undefined
   if (mail === undefined) {
-    throw new Error('mail-inbound requires the mail service: mount @aimail/mail first')
+    throw new Error('mail-inbound requires the mail service: mount dsh-aimail/mail-service first')
   }
   const host = config.host ?? '127.0.0.1'
   const port = config.port ?? Number(process.env.AMAIL_INBOUND_PORT ?? 9099)
@@ -74,22 +73,18 @@ export function apply(ctx: Context, config: Config = {}): () => void {
         return
       }
 
-      // Resolve binding by recipient address (agent's own domain)
+      // Resolve binding by recipient address (exact → persona-strip fallback)
       const toRaw = Array.isArray(payload.to) ? payload.to : typeof payload.to === 'string' ? [payload.to] : []
       let cfg
       let agentAddr = ''
       for (const t of toRaw) {
         const addr = String(t).trim()
         if (!addr.includes('@')) continue
-        try {
-          const c = await mail.resolveByEmail(addr)
-          if (c) {
-            cfg = c
-            agentAddr = addr
-            break
-          }
-        } catch {
-          /* not this address */
+        const c = await mail.resolveByRecipient(addr)
+        if (c) {
+          cfg = c
+          agentAddr = addr
+          break
         }
       }
       if (!cfg) {
