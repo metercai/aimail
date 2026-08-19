@@ -4,10 +4,10 @@ AgentMail ↔ dsh(deepseek-harness)集成插件。**独立发布**,经 dsh 官�
 
 ```bash
 # 安装(幂等)
-dsh plugin --profile web add dsh-amail
+dsh plugin --profile web add dsh-aimail
 
 # 卸载(幂等)
-dsh plugin --profile web remove dsh-amail
+dsh plugin --profile web remove dsh-aimail
 ```
 
 安装后 profile 自动挂载 bundle 层(`dsh.bundle.patch` = `cordis.patch.yml`):
@@ -69,6 +69,6 @@ pnpm remove agentmail
 #    → dependencies 清空 + bundles 移除 agentmail
 ```
 
-发布前完整链路验证(可选):本地 verdaccio(registry 代理),5 包 `pnpm publish --registry http://127.0.0.1:4873`,再 `dsh plugin --profile web add dsh-amail --registry http://127.0.0.1:4873`。
+发布前完整链路验证(可选):本地 verdaccio(registry 代理),5 包 `pnpm publish --registry http://127.0.0.1:4873`,再 `dsh plugin --profile web add dsh-aimail --registry http://127.0.0.1:4873`。
 
 发布(需 npm 账号):`pnpm -r publish`(先发布 4 个 @agentmail/*,再发布入口 `agentmail`)。

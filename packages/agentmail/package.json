@@ -1,7 +1,7 @@
 {
-  "name": "dsh-amail",
-  "description": "AgentMail plugin for dsh — install via: dsh plugin --profile web add dsh-amail",
-  "version": "0.1.0-rc.7",
+  "name": "dsh-aimail",
+  "description": "AgentMail plugin for dsh — install via: dsh plugin --profile web add dsh-aimail",
+  "version": "0.1.0-rc.8",
   "publishConfig": {
     "access": "public"
   },
