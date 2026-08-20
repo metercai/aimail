@@ -53,7 +53,7 @@ jobs:
           python3 -c "import json,base64; d=json.load(open('/tmp/oidc.json')); p=d['value'].split('.')[1]; p+='='*(-len(p)%4); c=json.loads(base64.urlsafe_b64decode(p)); [print(k+':', v) for k,v in sorted(c.items()) if k in ('sub','aud','repository','workflow','environment','ref','job_workflow_ref','job_workflow_sha','sha','event_name','run_id')]"
 
       - name: Publish @aimail/mail-core (rc tag)
-        run: npm publish --tag rc --access public --provenance
+        run: npm publish --tag rc --access public --provenance --loglevel verbose
         working-directory: packages/mail-core
 
       - name: Publish @aimail/mail (rc tag)
