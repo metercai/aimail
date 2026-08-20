@@ -20,8 +20,9 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      id-token: write # OIDC → npmjs Trusted Publisher
-      contents: read
+      # 关键：授予 OIDC 令牌所需的权限
+      contents: write
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
