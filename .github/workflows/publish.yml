@@ -47,7 +47,7 @@ jobs:
 
       - name: Publish (rc tag)
         run: |
-          pnpm --filter @aimail/mail-core publish --tag rc --no-git-checks --access public
-          pnpm --filter @aimail/mail publish --tag rc --no-git-checks --access public
-          pnpm --filter dsh-aimail publish --tag rc --no-git-checks --access public
-          pnpm --filter openclaw-aimail publish --tag rc --no-git-checks --access public
+          pnpm --filter @aimail/mail-core publish --tag rc --no-git-checks --access public --provenance
+          pnpm --filter @aimail/mail publish --tag rc --no-git-checks --access public --provenance
+          pnpm --filter dsh-aimail publish --tag rc --no-git-checks --access public --provenance
+          pnpm --filter openclaw-aimail publish --tag rc --no-git-checks --access public --provenance

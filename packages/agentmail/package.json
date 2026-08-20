@@ -1,7 +1,7 @@
 {
   "name": "dsh-aimail",
   "description": "AgentMail plugin for dsh — install via: dsh plugin --profile web add dsh-aimail",
-  "version": "0.1.0-rc.12",
+  "version": "0.1.0-rc.13",
   "publishConfig": {
     "access": "public",
     "provenance": true
@@ -51,8 +51,8 @@
     "@deepseek-ai/dsh-tools": "^0.0.1-rc.1"
   },
   "dependencies": {
-    "@aimail/mail-core": "^0.1.0-rc.9",
-    "@aimail/mail": "^0.1.0-rc.9"
+    "@aimail/mail-core": "^0.1.0-rc.10",
+    "@aimail/mail": "^0.1.0-rc.10"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",

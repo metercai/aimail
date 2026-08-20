@@ -21,10 +21,10 @@ importers:
   packages/agentmail:
     dependencies:
       '@aimail/mail':
-        specifier: ^0.1.0-rc.9
+        specifier: ^0.1.0-rc.10
         version: link:../mail
       '@aimail/mail-core':
-        specifier: ^0.1.0-rc.9
+        specifier: ^0.1.0-rc.10
         version: link:../mail-core
     devDependencies:
       '@deepseek-ai/cordis':
@@ -51,10 +51,10 @@ importers:
   packages/openclaw-aimail:
     dependencies:
       '@aimail/mail':
-        specifier: 0.1.0-rc.9
+        specifier: 0.1.0-rc.10
         version: link:../mail
       '@aimail/mail-core':
-        specifier: 0.1.0-rc.9
+        specifier: 0.1.0-rc.10
         version: link:../mail-core
       typebox:
         specifier: 1.3.6
