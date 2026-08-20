@@ -2,7 +2,7 @@
  * Gateway HTTP client — mirrors Python `_GatewayClient` (agentmail_tools.py).
  * Auth: X-Api-Key header (agent-scope key); board APIs add dual-credential
  * email query param when memberEmail provided.
- * Contract: gateway REST API (amail-gateway).
+ * Contract: gateway REST API (aimail-gateway).
  */
 import type { GatewayResponse, AttachmentSpec } from './types.js'
 
