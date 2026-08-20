@@ -43,7 +43,7 @@ importers:
   packages/mail:
     dependencies:
       '@aimail/mail-core':
-        specifier: workspace:^
+        specifier: ^0.1.0-rc.10
         version: link:../mail-core
 
   packages/mail-core: {}
