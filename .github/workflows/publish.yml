@@ -8,7 +8,7 @@
 #   npmjs.com → package → Settings → Publish: enable "Trusted Publishers",
 #   add this repo (metercai/dsh-aimail) + workflow name "publish.yml".
 #   Repeat for @aimail/mail-core, @aimail/mail, dsh-aimail, openclaw-aimail.
-name: publish
+name: publish.yml
 
 on:
   workflow_dispatch:
