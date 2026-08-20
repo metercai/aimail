@@ -53,18 +53,21 @@ jobs:
           curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sigstore" > /tmp/oidc.json
           python3 -c "import json,base64; d=json.load(open('/tmp/oidc.json')); p=d['value'].split('.')[1]; p+='='*(-len(p)%4); c=json.loads(base64.urlsafe_b64decode(p)); print('subject:', c.get('sub')); print('workflow:', c.get('workflow')); print('environment:', c.get('environment')); print('ref:', c.get('ref'))"
 
+      - name: Publish openclaw-aimail (rc tag) [isolated test]
+        run: npm publish --tag rc --access public --provenance
+        working-directory: packages/openclaw-aimail
+
       - name: Publish @aimail/mail-core (rc tag)
+        if: false
         run: npm publish --tag rc --access public --provenance
         working-directory: packages/mail-core
 
       - name: Publish @aimail/mail (rc tag)
+        if: false
         run: npm publish --tag rc --access public --provenance
         working-directory: packages/mail
 
       - name: Publish dsh-aimail (rc tag)
+        if: false
         run: npm publish --tag rc --access public --provenance
         working-directory: packages/agentmail
-
-      - name: Publish openclaw-aimail (rc tag)
-        run: npm publish --tag rc --access public --provenance
-        working-directory: packages/openclaw-aimail
