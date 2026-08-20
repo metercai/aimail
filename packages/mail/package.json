@@ -8,8 +8,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/metercai/aimail-sdk-ts.git",
-    "directory": "packages/mail"
+    "url": "git+https://github.com/metercai/aimail-sdk-ts.git"
   },
   "type": "module",
   "main": "lib/index.js",
