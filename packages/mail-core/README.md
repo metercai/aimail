@@ -11,7 +11,7 @@ TS agent runtime (dsh, OpenClaw, ...).
 pnpm add @aimail/mail-core
 ```
 
-Point `AMAIL_HOME` at your agentmail home directory (default
+Point `AIMAIL_HOME` at your agentmail home directory (default
 `~/.agentmail`), where per-address `agentmail.json` bindings live.
 
 ## What it does

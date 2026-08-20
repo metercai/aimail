@@ -6,7 +6,7 @@
 import { promises as fsp } from 'node:fs'
 import * as path from 'node:path'
 import { GatewayClient } from './gateway.js'
-import { AMAIL_HOME, cleanAddr, loadAgentConfig } from './config.js'
+import { AIMAIL_HOME, cleanAddr, loadAgentConfig } from './config.js'
 import type { AgentConfig } from './types.js'
 import type { ToolCtx, ToolResult } from './tools.js'
 
@@ -38,7 +38,7 @@ export function resolveBoard(taskId: string): string {
 
 /** board_creds.json at systems/{sid}/{cleaned_addr}/board_creds.json. */
 function boardCredsPath(systemId: string, email: string): string {
-  return path.join(AMAIL_HOME(), 'systems', systemId, cleanAddr(email), 'board_creds.json')
+  return path.join(AIMAIL_HOME(), 'systems', systemId, cleanAddr(email), 'board_creds.json')
 }
 
 interface BoardCredsFile {

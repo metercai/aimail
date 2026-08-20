@@ -6,7 +6,7 @@
  * (dsh-aimail, openclaw-aimail) binds these to its own identity source.
  *
  * Identity = agentmail.json only (single source of truth); the optional
- * AMAIL_SYSTEM_ID env narrows the scan scope. Unbound resolutions throw.
+ * AIMAIL_SYSTEM_ID env narrows the scan scope. Unbound resolutions throw.
  */
 import { promises as fs } from 'node:fs'
 import * as path from 'node:path'
@@ -27,12 +27,12 @@ export interface MailToolCtx {
 
 /** Resolution options shared by every resolver. */
 export interface ResolveOptions {
-  /** Explicit system scope; defaults to the AMAIL_SYSTEM_ID env (empty = scan all). */
+  /** Explicit system scope; defaults to the AIMAIL_SYSTEM_ID env (empty = scan all). */
   systemId?: string
 }
 
 function systemIdFrom(opts: ResolveOptions): string {
-  return opts.systemId ?? process.env.AMAIL_SYSTEM_ID ?? ''
+  return opts.systemId ?? process.env.AIMAIL_SYSTEM_ID ?? ''
 }
 
 function unbound(what: string): Error {

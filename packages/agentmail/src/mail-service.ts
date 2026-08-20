@@ -3,7 +3,7 @@
  * entries. Thin dsh binding over the platform-neutral @aimail/mail resolvers
  * (sessionId/email/recipient → agentmail.json → AgentConfig).
  *
- * Identity = agentmail.json only; the AMAIL_SYSTEM_ID env narrows scope.
+ * Identity = agentmail.json only; the AIMAIL_SYSTEM_ID env narrows scope.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import {
@@ -20,7 +20,7 @@ export const inject = []
 
 /** The ctx.mail service surface (consumed by the tools + inbound entries). */
 export interface MailService {
-  /** Optional explicit system scope (AMAIL_SYSTEM_ID); empty = scan all. */
+  /** Optional explicit system scope (AIMAIL_SYSTEM_ID); empty = scan all. */
   readonly systemId: string
   /** Resolve config for a dsh session id (uuid). Throws when unbound. */
   resolveConfig(sessionId: string): Promise<AgentConfig>
@@ -33,7 +33,7 @@ export interface MailService {
 }
 
 export function apply(ctx: Context, config: { systemId?: string } = {}): void {
-  const systemId = config.systemId ?? process.env.AMAIL_SYSTEM_ID ?? ''
+  const systemId = config.systemId ?? process.env.AIMAIL_SYSTEM_ID ?? ''
   const service: MailService = {
     systemId,
     resolveConfig: (sessionId) => resolveBySessionId(sessionId),

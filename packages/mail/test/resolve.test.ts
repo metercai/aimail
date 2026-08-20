@@ -1,5 +1,5 @@
 /**
- * @aimail/mail resolver contract tests (sandboxed via AMAIL_HOME → tmp dir).
+ * @aimail/mail resolver contract tests (sandboxed via AIMAIL_HOME → tmp dir).
  *   - resolveBySessionId / resolveByEmail / resolveCtx (existing semantics)
  *   - resolveByRecipient: exact match + persona-strip fallback
  *     (mirror of Python route_agent_for_email)
@@ -10,8 +10,8 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 const TMP = await fs.mkdtemp(path.join(os.tmpdir(), 'amail-mail-test-'))
-process.env.AMAIL_HOME = TMP
-// import AFTER env is set (AMAIL_HOME() is a lazy getter)
+process.env.AIMAIL_HOME = TMP
+// import AFTER env is set (AIMAIL_HOME() is a lazy getter)
 const { resolveBySessionId, resolveByEmail, resolveByRecipient, resolveCtx } =
   await import('../src/index.js')
 

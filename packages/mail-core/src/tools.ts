@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto'
 import { promises as fsp } from 'node:fs'
 import * as path from 'node:path'
 import { GatewayClient } from './gateway.js'
-import { AMAIL_HOME, loadAgentConfig } from './config.js'
+import { AIMAIL_HOME, loadAgentConfig } from './config.js'
 import type { AgentConfig } from './types.js'
 
 export interface ToolResult {
@@ -106,7 +106,7 @@ async function resolveAttachments(rawPaths: string[]): Promise<{ resolved: strin
   const resolved: string[] = []
   const errors: string[] = []
   const cwd = process.cwd()
-  const workspaceRoots = [cwd, AMAIL_HOME()]
+  const workspaceRoots = [cwd, AIMAIL_HOME()]
 
   for (const raw of rawPaths) {
     const r = (raw ?? '').trim()

@@ -4,7 +4,7 @@
  *   - cleanAddr / parseAmailPersona / baseEmail (address contract)
  *   - processInboundMail (13-step preprocess + ping/pong intercept + logs)
  *
- * All filesystem access is sandboxed via AMAIL_HOME → tmp dir.
+ * All filesystem access is sandboxed via AIMAIL_HOME → tmp dir.
  * The gateway URL points at 127.0.0.1:9 (discard, immediate ECONNREFUSED)
  * so no real network I/O happens.
  */
@@ -51,20 +51,20 @@ function sign(body: string | Buffer, secret: string): string {
 
 beforeAll(async () => {
   home = await fs.mkdtemp(path.join(os.tmpdir(), 'amail-test-'))
-  process.env.AMAIL_HOME = home
+  process.env.AIMAIL_HOME = home
 })
 
 beforeEach(async () => {
   // fresh sandbox per test (wipe + rebind the standard agent)
   await fs.rm(home, { recursive: true, force: true })
   await fs.mkdir(home, { recursive: true })
-  process.env.AMAIL_HOME = home
+  process.env.AIMAIL_HOME = home
   await writeAgentConfig(AGENT_EMAIL)
 })
 
 afterAll(async () => {
   await fs.rm(home, { recursive: true, force: true })
-  delete process.env.AMAIL_HOME
+  delete process.env.AIMAIL_HOME
 })
 
 // ── HMAC (X-Webhook-Signature) ─────────────────────────────────

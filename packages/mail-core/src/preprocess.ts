@@ -10,7 +10,7 @@ import { promises as fsp } from 'node:fs'
 import * as path from 'node:path'
 import { createHmac } from 'node:crypto'
 import { GatewayClient } from './gateway.js'
-import { AMAIL_HOME, cleanAddr, loadAgentConfig } from './config.js'
+import { AIMAIL_HOME, cleanAddr, loadAgentConfig } from './config.js'
 import { sendMail, sanitizeMessageId } from './tools.js'
 import { registerBoardGateway } from './board.js'
 import type { AgentConfig, EnrichedPayload, InboundPayload } from './types.js'
@@ -24,7 +24,7 @@ export const PONG_PREFIX = '__amail_pong__:'
 // ── logs ───────────────────────────────────────────────────────
 
 function logPath(email: string): string {
-  return path.join(AMAIL_HOME(), 'logs', `agentmail.${cleanAddr(email)}.log`)
+  return path.join(AIMAIL_HOME(), 'logs', `agentmail.${cleanAddr(email)}.log`)
 }
 
 async function appendLog(email: string, entry: Record<string, unknown>): Promise<void> {
@@ -139,7 +139,7 @@ async function downloadAttachments(
   cfg: AgentConfig,
 ): Promise<string[]> {
   if (!attachments?.length) return []
-  const attchDir = path.join(AMAIL_HOME(), 'mail', cleanAddr(cfg.email), new Date().toISOString().slice(0, 7).replace('-', ''), 'attch', sanitizeMessageId(messageId || 'unknown'))
+  const attchDir = path.join(AIMAIL_HOME(), 'mail', cleanAddr(cfg.email), new Date().toISOString().slice(0, 7).replace('-', ''), 'attch', sanitizeMessageId(messageId || 'unknown'))
   await fsp.mkdir(attchDir, { recursive: true })
   const localPaths: string[] = []
   for (const att of attachments) {
@@ -223,7 +223,7 @@ export async function processInboundMail(
       // token persistence (board_creds.json) when token present
       if (tokenMatch?.[1] && ctx.systemId && ctx.email) {
         try {
-          const credsPath = path.join(AMAIL_HOME(), 'systems', ctx.systemId, cleanAddr(ctx.email), 'board_creds.json')
+          const credsPath = path.join(AIMAIL_HOME(), 'systems', ctx.systemId, cleanAddr(ctx.email), 'board_creds.json')
           const existing = JSON.parse(await fsp.readFile(credsPath, 'utf-8').catch(() => '{}')) as Record<string, unknown>
           existing[bid] = { token: tokenMatch[1] }
           await fsp.writeFile(credsPath, JSON.stringify(existing, null, 2) + '\n', { mode: 0o600 })

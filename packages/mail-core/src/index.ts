@@ -7,7 +7,7 @@
 export * from './types.js'
 export { GatewayClient } from './gateway.js'
 export {
-  AMAIL_HOME,
+  AIMAIL_HOME,
   systemDir,
   cleanAddr,
   agentConfigPath,

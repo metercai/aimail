@@ -38,7 +38,7 @@ aimail-sdk-ts/                      (renamed repo, pnpm monorepo)
 │     Pure resolution: resolveBySessionId / resolveByEmail / resolveByAgentId
 │     + resolveByRecipient (exact match → persona-strip fallback, mirrors
 │       Python route_agent_for_email — inbound routing for single-in-multi-out)
-│     + AMAIL_SYSTEM_ID scope narrowing + unbound error semantics.
+│     + AIMAIL_SYSTEM_ID scope narrowing + unbound error semantics.
 │     No cordis, no dsh-sdk, no apply(). Plain exported functions/factory.
 │
 ├── packages/dsh-aimail/            dsh-aimail             RESTRUCTURED (rc.12)

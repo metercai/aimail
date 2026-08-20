@@ -9,11 +9,11 @@ import * as path from 'node:path'
 import * as os from 'node:os'
 import type { AgentConfig } from './types.js'
 
-export const AMAIL_HOME = (): string =>
-  process.env.AMAIL_HOME || path.join(os.homedir(), '.agentmail')
+export const AIMAIL_HOME = (): string =>
+  process.env.AIMAIL_HOME || path.join(os.homedir(), '.agentmail')
 
 export function systemDir(systemId: string): string {
-  return path.join(AMAIL_HOME(), 'systems', systemId)
+  return path.join(AIMAIL_HOME(), 'systems', systemId)
 }
 
 /** Clean an address into a directory key (must match Python exactly). */

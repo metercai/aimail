@@ -23,7 +23,7 @@ export const inject = ['mail', 'agents']
 export interface Config {
   /** Listen host (default 127.0.0.1). */
   host?: string
-  /** Listen port (default AMAIL_INBOUND_PORT or 9099). */
+  /** Listen port (default AIMAIL_INBOUND_PORT or 9099). */
   port?: number
   /** Deliver path (default /agentmail/deliver). */
   path?: string
@@ -55,7 +55,7 @@ export function apply(ctx: Context, config: Config = {}): () => void {
     throw new Error('mail-inbound requires the mail service: mount dsh-aimail/mail-service first')
   }
   const host = config.host ?? '127.0.0.1'
-  const port = config.port ?? Number(process.env.AMAIL_INBOUND_PORT ?? 9099)
+  const port = config.port ?? Number(process.env.AIMAIL_INBOUND_PORT ?? 9099)
   const deliverPath = config.path ?? '/agentmail/deliver'
 
   const server = createServer(async (req, res) => {
