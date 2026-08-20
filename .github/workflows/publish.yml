@@ -47,6 +47,13 @@ jobs:
       - name: Test
         run: pnpm test
 
+      - name: Inspect OIDC subject (debug)
+        run: |
+          TOKEN=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sigstore")
+          echo "OIDC subject: $(echo "$TOKEN" | python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])' | python3 -c 'import json,sys; print(json.load(sys.stdin)["sub"])')"
+        env:
+          ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
+
       - name: Publish @aimail/mail-core (rc tag)
         run: npm publish --tag rc --access public --provenance
         working-directory: packages/mail-core
