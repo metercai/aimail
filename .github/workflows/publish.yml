@@ -47,11 +47,10 @@ jobs:
       - name: Test
         run: pnpm test
 
-      - name: Inspect OIDC subject (debug)
+      - name: Inspect OIDC claims (debug)
         run: |
-          echo "REQ_URL=$ACTIONS_ID_TOKEN_REQUEST_URL"
           curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sigstore" > /tmp/oidc.json
-          python3 -c "import json,base64; d=json.load(open('/tmp/oidc.json')); p=d['value'].split('.')[1]; p+='='*(-len(p)%4); c=json.loads(base64.urlsafe_b64decode(p)); print('subject:', c.get('sub')); print('workflow:', c.get('workflow')); print('environment:', c.get('environment')); print('ref:', c.get('ref'))"
+          python3 -c "import json,base64; d=json.load(open('/tmp/oidc.json')); p=d['value'].split('.')[1]; p+='='*(-len(p)%4); c=json.loads(base64.urlsafe_b64decode(p)); [print(k+':', v) for k,v in sorted(c.items()) if k in ('sub','aud','repository','workflow','environment','ref','job_workflow_ref','job_workflow_sha','sha','event_name','run_id')]"
 
       - name: Publish openclaw-aimail (rc tag) [isolated test]
         run: npm publish --tag rc --access public --provenance
