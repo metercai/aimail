@@ -1,4 +1,4 @@
-"""agentmail_base — Runtime: preprocessor, hooks, profile, templates."""
+"""aimail_base — Runtime: preprocessor, hooks, profile, templates."""
 from __future__ import annotations
 import json
 import logging
@@ -19,7 +19,7 @@ _TOOLSET = "agentmail"
 # True  = 支持 persona：派生地址 {role}.{profile}@{domain} 保留 + 配置校验 +
 #         LLM session 前 persona 切换（Hermes 全能力，默认值）
 # False = 不支持 persona：角色 = 独立 agent，收件地址归一为基础地址
-#         （OpenClaw 等：agentmail_base 被 import 后由系统层设 False）
+#         （OpenClaw 等：aimail_base 被 import 后由系统层设 False）
 # 处理逻辑框架一致，差异仅由本开关驱动——preprocess 内部读取。
 PERSONA_SUPPORTED = True
 
@@ -162,7 +162,7 @@ def _load_gateway_config(system_id: str = "") -> Optional[dict]:
     return None
 
 
-# ── 注入点（适配层设置；Hermes → tools/hermes/agentmail_hermes.py，
+# ── 注入点（适配层设置；Hermes → tools/hermes/aimail_hermes.py，
 #             OpenClaw → tools/openclaw/amail_base.py）────────────────
 # 平台差异（config 来源/personas/profile 目录/board 登记）由适配层注入，
 # 公共核心保持平台无关。未注入时使用安全默认（None/空/no-op）。
@@ -368,7 +368,7 @@ def _store_board_credential(board_id: str, gateway_url: str, token: str) -> None
 
 
 def _put_contact_profile(address: str, profile: str) -> dict:
-    from agentmail_tools import _GatewayClient
+    from aimail_tools import _GatewayClient
     config = _load_profile_config()
     if not config:
         return {"success": False, "error": "agentmail not configured for this profile"}
@@ -443,13 +443,13 @@ def send_pong(body: dict, pong_id_value: str) -> bool:
     Sends the pong via the gateway HTTP send API (outbound path), so the
     gateway's P0 interception (send.rs matches __amail_pong__:) redirects
     it back as inbound — closing the ping→pong→agent loop. Platform-agnostic:
-    - Hermes:   _CONFIG_LOADER injected → profile config → agentmail_tools
+    - Hermes:   _CONFIG_LOADER injected → profile config → aimail_tools
     - OpenClaw: adapter injects a loader that resolves the agent config
       (CLI/subprocess path handled by the injected loader, not here)
     No platform-specific code lives in this function.
     """
     try:
-        from agentmail_tools import send_mail
+        from aimail_tools import send_mail
         to = body.get("from", "")
         if not to:
             return False
@@ -752,7 +752,7 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
             logger.warning("[agentmail_gateway] Cannot download attachments: no gateway config")
             return result
 
-        from agentmail_tools import _GatewayClient
+        from aimail_tools import _GatewayClient
         client = _GatewayClient(config["gateway_url"], agent_key)
         local_paths = []
 
@@ -761,7 +761,7 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
         # primary landing, not a cache; a per-message dir removes cross-message
         # filename collisions. Function-level import breaks the base<->tools
         # import cycle (resolved at call time, after both modules load).
-        from agentmail_tools import _agentmail_dir, _sanitize_message_id
+        from aimail_tools import _agentmail_dir, _sanitize_message_id
         attch_dir = (
             _agentmail_dir()
             / datetime.now().strftime("%Y%m")
@@ -812,7 +812,7 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
     refs = result.get("references", [])
     my_addr = result.get("my_amail_addr", "")
     if mid and my_addr:
-        from agentmail_tools import store_inbound_message, _log_amail
+        from aimail_tools import store_inbound_message, _log_amail
         store_inbound_message(mid, refs, my_addr, preprocessed_payload=result)
         # Lightweight log entry
         _from = raw_headers.get("from", payload.get("from", ""))
@@ -1006,7 +1006,7 @@ def register_agent_email(client, system_id: str, email: str,
     域由 gateway 从 email 地址自行提取（2026-08-18 起不再传 mx_domain/domain 参数）。
 
     client 须提供：register_email / list_system_domains / update_system_domain /
-    activate_address（agentmail_tools._GatewayClient 全具备；白名单由网关注册接口自动创建）。
+    activate_address（aimail_tools._GatewayClient 全具备；白名单由网关注册接口自动创建）。
     """
     result = client.register_email(
         system_id=system_id, email=email,

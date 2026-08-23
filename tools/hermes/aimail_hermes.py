@@ -1,6 +1,6 @@
-"""agentmail_hermes.py — Hermes 适配层（公共核心的平台接线）
+"""aimail_hermes.py — Hermes 适配层（公共核心的平台接线）
 
-公共核心（tools/agentmail_base.py / agentmail_tools.py / agentmail_board.py）
+公共核心（tools/aimail_base.py / aimail_tools.py / aimail_board.py）
 保持平台无关，通过注入点提供业务逻辑；本模块：
   1. 注入 Hermes 平台实现（config 加载 / personas / profile 目录 / SOUL / skills /
      board 登记 / persona 上下文）
@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
 # ── Hermes 运行时定位:本模块随捆绑落到 {install-root}/tools/hermes/,
- #    共享核心(agentmail_base/tools/board/gateway_api)在父目录。Hermes 以包形式
+ #    共享核心(aimail_base/tools/board/gateway_api)在父目录。Hermes 以包形式
  #    加载工具(tools.*),顶层 import 需要 tools/ 目录在 sys.path 上——父目录
  #    探测位置无关(捆绑 / pip site-packages / 仓库 dev 三态通用)。直接 import
  #    本模块(独立脚本 / register_profiles.py)同样依赖此引导。
@@ -29,11 +29,11 @@ _HERMES_TOOLS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _HERMES_TOOLS_DIR not in sys.path:
     sys.path.insert(0, _HERMES_TOOLS_DIR)
 
-import agentmail_base as core
-import agentmail_tools as tools
-import agentmail_board as board
+import aimail_base as core
+import aimail_tools as tools
+import aimail_board as board
 
-# API 客户端（公共 agentmail_tools._GatewayClient 全方法）
+# API 客户端（公共 aimail_tools._GatewayClient 全方法）
 _GatewayClient = tools._GatewayClient
 
 # ── 公共函数转发（搬移函数/_handle_* 内部裸调用——同源公共核心）──
@@ -96,7 +96,7 @@ def _read_skills() -> list[str]:
 
 def _resolve_agent_email() -> str:
     """Resolve current agent's email from profile config."""
-    from tools.agentmail_tools import _load_profile_config as _lpc
+    from tools.aimail_tools import _load_profile_config as _lpc
     cfg = _lpc()
     if cfg:
         return cfg.get("email", "") or cfg.get("domain", "")
@@ -716,7 +716,7 @@ def _current_persona_name() -> Optional[str]:
 
 
 def _hermes_persona_name() -> Optional[str]:
-    """Hermes 版 persona 名：从 profile 目录派生（原 agentmail_tools 实现）。
+    """Hermes 版 persona 名：从 profile 目录派生（原 aimail_tools 实现）。
     default（~/.hermes）→ None；profiles/<name> → name。"""
     profile_dir = _resolve_profile_dir() or ""
     if not profile_dir:

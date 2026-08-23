@@ -1,4 +1,4 @@
-"""agentmail_inbound.py — AgentMail 入站端点(2026-08-18 重构)。
+"""aimail_inbound.py — AgentMail 入站端点(2026-08-18 重构)。
 
 预处理并入 DeerFlow 本地 gateway 进程(仿 Hermes 进程内预处理),取代
 独立接收进程 amail_deerflow_bridge.py(8798,已退役删除)。
@@ -13,7 +13,7 @@
         会话按地址稳定;assistant_id 从 agentmail.json 读)
       → 立即 200(bridge 即刻 ack pending,agent 后台处理)
 
-依赖:agentmail 仓库(tools/agentmail_base + tools/deer-flow/amail_base)
+依赖:agentmail 仓库(tools/aimail_base + tools/deer-flow/amail_base)
 按共享布局落 agentmail.json(~/.agentmail/systems/{sid}/{cleaned_addr}/)。
 """
 from __future__ import annotations
@@ -93,7 +93,7 @@ def _thread_id_for(email: str) -> str:
 
 
 @router.post("/inbound")
-async def agentmail_inbound(request: Request) -> JSONResponse:
+async def aimail_inbound(request: Request) -> JSONResponse:
     body = await request.body()
     try:
         payload = json.loads(body.decode("utf-8"))

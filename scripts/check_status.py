@@ -48,7 +48,7 @@ BRIDGE_DIR  = AGENTMAIL_HOME / "bridge"
 LOGS_DIR    = AGENTMAIL_HOME / "logs"
 
 def _clean_agent_dir_name(addr: str) -> str:
-    """agent 地址 → 目录名（与 tools/agentmail_base._clean_agent_dir_name 一致）。"""
+    """agent 地址 → 目录名（与 tools/aimail_base._clean_agent_dir_name 一致）。"""
     return re.sub(r"[^\w.\-]", "_", addr)
 
 

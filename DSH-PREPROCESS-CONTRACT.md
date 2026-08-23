@@ -2,7 +2,7 @@
 
 > 状态:P0 产出(2026-08-18)
 > 用途:dsh `mail-core` TS 实现入站预处理全链的**唯一对照基准**——TS 重写只换语言,不换行为。
-> 基准源:agentmail 仓库 `tools/agentmail_base.py` 的 `preprocess_mail_payload` / `process_inbound_mail` / `handle_ping_pong` / `parse_amail_persona`(行号随版本演进,以语义为准)。
+> 基准源:agentmail 仓库 `tools/aimail_base.py` 的 `preprocess_mail_payload` / `process_inbound_mail` / `handle_ping_pong` / `parse_amail_persona`(行号随版本演进,以语义为准)。
 > 铁律:任一字段名/事件名/前缀/路径与本文不一致 = 契约破坏;验收以 `agentmail ping` 三阶段日志 + welcome 双向为锁。
 
 ---
@@ -31,7 +31,7 @@ headers 必读键:`to` / `cc` / `from`(显示名解析源)。
 
 ## 2. 预处理 13 步(逐行对照)
 
-| # | 步骤 | 逻辑(与 agentmail_base 一致) | 输出/副作用 |
+| # | 步骤 | 逻辑(与 aimail_base 一致) | 输出/副作用 |
 |---|------|------------------------------|-------------|
 | 1 | body 检查 | `body` 空 → 记 warning(继续,不中断) | — |
 | 2 | 加载 agent 配置 | 读 agentmail.json(`email` / `system_name`) | 缺失 email → 步骤 3 |

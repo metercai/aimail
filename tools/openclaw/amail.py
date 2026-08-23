@@ -45,7 +45,7 @@ def _amail_bootstrap():
 _amail_bootstrap()
 
 import amail_base as _base            # noqa: E402
-import agentmail_tools as _tools      # noqa: E402
+import aimail_tools as _tools      # noqa: E402
 
 _board = _base.load_board_module()    # noqa: E402  (board_* 函数体)
 

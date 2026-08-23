@@ -2,7 +2,7 @@
 """register_agent.py — DeerFlow agent 注册到 amail(生命周期)。
 
 注册链(register_email → 已存在更新 webhook → manager 白名单 → activate_address)
-走公共核心 agentmail_base.register_agent_email(所有平台共用):
+走公共核心 aimail_base.register_agent_email(所有平台共用):
   1. 计算 email(default → agent@{domain},其余 {agentId}@{domain};共享域加 .{system_name})
   2. 注册链(公共,幂等)→ api_key
   3. 落盘地址键 agentmail.json(systems/{sid}/{cleaned_addr}/agentmail.json,
@@ -31,7 +31,7 @@ load_core()
 load_adapter("deer-flow")
 
 import amail_base as _base            # noqa: E402
-import agentmail_tools as _tools      # noqa: E402
+import aimail_tools as _tools      # noqa: E402
 
 
 def email_for_agent(agent_id: str, domain: str, system_name: str) -> str:

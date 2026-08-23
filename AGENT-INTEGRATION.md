@@ -46,7 +46,7 @@ AgentMail 与任意 agent 系统(LLM 运行时)对接,agent 获得完整邮件�
 
 | 层 | 位置 | 职责 |
 |----|------|------|
-| 共享核心 | `tools/agentmail_base.py`、`agentmail_tools.py`、`agentmail_board.py` | 入站预处理链、ping/pong、地址派生、注册/注销链、邮件工具实现、board 工具 |
+| 共享核心 | `tools/aimail_base.py`、`aimail_tools.py`、`aimail_board.py` | 入站预处理链、ping/pong、地址派生、注册/注销链、邮件工具实现、board 工具 |
 | 平台适配 | `tools/{platform}/` | 配置源、persona 开关、身份注入、工具注册、接收端点 |
 | 运行时 | `bin/register_agent.py`、`deregister_agent.py` | agent 生命周期 |
 | CLI 层 | `scripts/agentmail`(10 子命令)+ `scripts/gateway_api.py` | 安装/检查/测试/卸载/运维 |
@@ -118,7 +118,7 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 - 注册参数 `webhook_url` 由 `resolve_register_webhook_url(gw, local_webhook_url)` 按 webhook_host 三态解析(§3.4);agentmail.json 落盘一律 = 本地端点。
 - 注册后**必调** `register_bridge_route(system_id, email, gw, local_webhook_url)`(POST bridge /api/v1/routes,幂等 upsert)——否则 bridge 拉取后无路由,入站断链。
 - manager 白名单 + domain_addr_meta 由 gateway register_address 自动创建,Python 侧不补。
-- client 必须是 `agentmail_tools._GatewayClient`(全方法集)。
+- client 必须是 `aimail_tools._GatewayClient`(全方法集)。
 
 ### 2.5 身份模型
 
@@ -184,7 +184,7 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 
 | 组件 | 位置 |
 |------|------|
-| 适配层 | `tools/hermes/agentmail_hermes.py`(注入点赋值 + 注册块) |
+| 适配层 | `tools/hermes/aimail_hermes.py`(注入点赋值 + 注册块) |
 | 工具注册 | 6 邮件 + 5 board 工具 → `registry.register`(import 期执行) |
 | 入站 | webhook preprocessor:`register_preprocessor("agentmail_gateway", core.process_inbound_mail)`(进程内) |
 | 生命周期 | `profile_created/deleted` 钩子(事件总线) |
@@ -208,7 +208,7 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 |------|------|
 | 适配层 | `tools/deer-flow/amail_base.py`(`PERSONA_SUPPORTED=False` + 身份注入 `deerflow/{ver}`) |
 | 工具 | `tools/amail_mcp_server.py` 共享 MCP stdio server |
-| 入站 | **进程内预处理**:deer-flow `backend/app/gateway/routers/agentmail_inbound.py` — `POST /agentmail/inbound`:验签 → process_inbound_mail → ping/pong 拦截 → `start_run` 投递(thread=uuid5("amail", email),assistant_id 读 agentmail.json) |
+| 入站 | **进程内预处理**:deer-flow `backend/app/gateway/routers/aimail_inbound.py` — `POST /agentmail/inbound`:验签 → process_inbound_mail → ping/pong 拦截 → `start_run` 投递(thread=uuid5("amail", email),assistant_id 读 agentmail.json) |
 | 生命周期 | `scripts/deer-flow/reconcile.py`(对账)+ register_agent.py(即时注册);安装补充注册 = register_agent.py --all + install-inbound.sh + skill/mcp |
 | 部署 | 共享布局(~/.agentmail/systems/{sid}/{cleaned_addr}/agentmail.json);入站补丁经 `scripts/deer-flow/install-inbound.sh` 幂等安装(拷贝 + app.py 双锚点 patch + py_compile 校验;上游仓保持干净,安装后重启 8001 生效) |
 | 关键坑 | 8001 进程内 import amail_base 需 sys.path 注入(router 模块级);Pyright 误报(运行时路径已插入) |
@@ -253,7 +253,7 @@ install 全非交互:激活 → 从 setup_system JSON stdout 取 server 分配�
 
 ## 6. 新 agent 系统对接清单(8 步)
 
-1. **建共享层引用**:import `tools/agentmail_base` / `agentmail_tools` / `agentmail_board`(sys.path 插入 tools/);不复制、不改共享代码。
+1. **建共享层引用**:import `tools/aimail_base` / `aimail_tools` / `aimail_board`(sys.path 插入 tools/);不复制、不改共享代码。
 2. **写适配层** `tools/<system>/<adapter>.py`:平台三件事(配置源 / personas 或 `PERSONA_SUPPORTED=False` / 身份注入 `_AGENT_IDENTITY_OVERRIDE = "platform/ver"`)+ 赋值注入点(§2.1)。
 3. **暴露工具**:进程内 registry(照 Hermes)或直接复用共享 `tools/amail_mcp_server.py`(平台无关,按共享布局落 agentmail.json 即可)。
 4. **接入站**:接收端点先注入 agent 配置(set_agent_context 等价物)→ 验签 → `process_inbound_mail` → 未拦截投递原始 body;入站拉取复用 aimail-bridge,不写新 poller。

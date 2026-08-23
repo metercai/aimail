@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """_aimail_bootstrap — runtime core location resolution (single source).
 
-Runtime modules are flat-script style (``import agentmail_base``) and must
+Runtime modules are flat-script style (``import aimail_base``) and must
 run from any location: the source repository (tools/), an installed bundle
 (~/.agentmail/... provisioner copies), or site-packages (pip aimail).
 This module resolves the directory containing the shared core modules
-(agentmail_base.py / agentmail_tools.py / agentmail_board.py /
+(aimail_base.py / aimail_tools.py / aimail_board.py /
 gateway_api.py) and puts it — plus the calling entry point's own
 directory, for sibling imports — on sys.path.
 
@@ -37,7 +37,7 @@ Entry points use it like:
 
     _amail_bootstrap()
 
-    import agentmail_base as _base          # noqa: E402
+    import aimail_base as _base          # noqa: E402
 """
 
 import os
@@ -45,7 +45,7 @@ import sys
 
 
 def _core_ok(d):
-    return bool(d) and os.path.isfile(os.path.join(d, "agentmail_base.py"))
+    return bool(d) and os.path.isfile(os.path.join(d, "aimail_base.py"))
 
 
 def ensure_core(self_dir=None):

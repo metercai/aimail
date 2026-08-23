@@ -1,11 +1,11 @@
-"""agentmail_board — Board query tools for A2A Board collaboration."""
+"""aimail_board — Board query tools for A2A Board collaboration."""
 from __future__ import annotations
 import json
 import logging
 from typing import Optional
 
-from agentmail_tools import _GatewayClient
-from agentmail_base import _load_profile_config, _board_gateways, _board_creds_path
+from aimail_tools import _GatewayClient
+from aimail_base import _load_profile_config, _board_gateways, _board_creds_path
 
 
 logger = logging.getLogger(__name__)

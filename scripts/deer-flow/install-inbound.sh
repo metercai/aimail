@@ -2,7 +2,7 @@
 # install-inbound.sh — DeerFlow agentmail 入站捆绑安装(幂等)
 #
 # 背景:DeerFlow 入站预处理并入其本地 gateway(8001)进程。宿主 app.py 经
-#   `from .routers import agentmail_inbound` 加载 router,router 必须留在
+#   `from .routers import aimail_inbound` 加载 router,router 必须留在
 #   backend/app/gateway/routers/ 且与共享 core 同目录(bootstrap case-3 自举)。
 #
 # 本脚本:
@@ -41,7 +41,7 @@ changed = False
 
 # 2a. import 行:挂在 agents 之后(字母序相邻)
 import_marker = "    agents,\n"
-import_line = "    agentmail_inbound,\n"
+import_line = "    aimail_inbound,\n"
 if import_line not in src:
     if import_marker in src:
         src = src.replace(import_marker, import_marker + import_line, 1)
@@ -51,7 +51,7 @@ if import_line not in src:
 
 # 2b. include_router 行:挂在 agents.router 之后
 route_marker = "    app.include_router(agents.router)\n"
-route_line = "    app.include_router(agentmail_inbound.router)\n"
+route_line = "    app.include_router(aimail_inbound.router)\n"
 if route_line not in src:
     if route_marker in src:
         src = src.replace(route_marker, route_marker + route_line, 1)
@@ -63,14 +63,14 @@ if changed:
     open(app_py, "w", encoding="utf-8").write(src)
     print("  ✓ app.py patched (import + include_router)")
 else:
-    print("  ✓ app.py 已含 agentmail_inbound(跳过)")
+    print("  ✓ app.py 已含 aimail_inbound(跳过)")
 PY
 )
 "$DEER_FLOW_ROOT/backend/.venv/bin/python" -c "$PY_PATCH" "$APP_PY"
 
 # ── 3. 校验 ─────────────────────────────────────────────────────────
-"$DEER_FLOW_ROOT/backend/.venv/bin/python" -m py_compile "$DST_ROUTERS/agentmail_inbound.py" "$APP_PY"
-grep -q "agentmail_inbound" "$APP_PY" || { echo "ERROR: app.py 锚点缺失"; exit 1; }
+"$DEER_FLOW_ROOT/backend/.venv/bin/python" -m py_compile "$DST_ROUTERS/aimail_inbound.py" "$APP_PY"
+grep -q "aimail_inbound" "$APP_PY" || { echo "ERROR: app.py 锚点缺失"; exit 1; }
 echo "  ✓ 语法校验通过 + 锚点确认"
 echo ""
 echo "完成。重启 DeerFlow gateway(8001)后生效:"

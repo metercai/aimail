@@ -8,7 +8,7 @@
 平台无关（2026-08-18 从 tools/openclaw/ 提升）:任何 agent 系统只需按共享
 布局落 ~/.agentmail/systems/{sid}/{cleaned_addr}/agentmail.json(register 链
 自动写),即可复用本服务——不 import 任何平台适配层,直接依赖共享核心
-(agentmail_base/agentmail_tools/agentmail_board)。
+(aimail_base/aimail_tools/aimail_board)。
 
 agent 上下文：env AIMAIL_AGENT_ID（mcp.servers.<name>.env 配置,默认 main）。
 每工具也可显式传 agentId 参数覆盖（多 agent 共享 server 时）。
@@ -23,9 +23,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import agentmail_base as _base            # noqa: E402
-import agentmail_tools as _tools          # noqa: E402
-import agentmail_board as _board          # noqa: E402
+import aimail_base as _base            # noqa: E402
+import aimail_tools as _tools          # noqa: E402
+import aimail_board as _board          # noqa: E402
 
 # 平台身份注入:共享 MCP server 不 import 平台适配层(平台无关),
 # 身份由平台安装脚本(install-mcp.sh 等)经 env 注入真实检测结果
@@ -254,9 +254,9 @@ HANDLERS = {
     "set_public_whoami": tool_set_public_whoami,
 }
 
-# board 函数体（共享 agentmail_board 直接 import——顶层无 registry 注册块,
+# board 函数体（共享 aimail_board 直接 import——顶层无 registry 注册块,
 # 2026-08-18 已从 amail_base.load_board_module 的 ast 裁剪方式简化为直接 import）
-_board = _board  # noqa: E741  (显式绑定:共享 agentmail_board 模块,见上注释)
+_board = _board  # noqa: E741  (显式绑定:共享 aimail_board 模块,见上注释)
 
 
 # ── MCP 主循环 ──────────────────────────────────────────────────

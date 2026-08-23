@@ -29,7 +29,7 @@ def register_emails():
         print("no_config")
         return
 
-    from agentmail_hermes import _auto_register_email
+    from aimail_hermes import _auto_register_email
     # 配置补全(幂等):platform_toolsets.webhook/cli 加 agentmail +
     # platforms.webhook enabled。断链根因曾多次出现:安装链从未写这些
     # 配置,全靠手工补——缺 webhook 段 → webhook 会话无 send_mail

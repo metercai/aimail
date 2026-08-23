@@ -233,7 +233,7 @@ Advanced 提供 `AdvancedBoardQuota` 实现，读 `max_active_boards` 和 `archi
 ## 13. 心跳机制（修正）
 
 代码验证结论：
-- `board_heartbeat` toolset 已存在（agentmail_tools.py:2718）
+- `board_heartbeat` toolset 已存在（aimail_tools.py:2718）
 - Webhook session 默认 max_turns=10，无法维持长进程
 - Kanban 的自动心跳依赖 Dispatcher 设置环境变量 + 长进程
 
@@ -304,7 +304,7 @@ Session 2:  assigned 通知 → webhook → read task.summary="60%" → 继续
 | commands.rs | handle_continue | ~20 |
 | commands.rs | 动词表添加 "continue" | ~1 |
 | notify.rs | notify_assigned 复用 | 0 |
-| agentmail_tools.py | board_continue_request | ~15 |
+| aimail_tools.py | board_continue_request | ~15 |
 
 ### 14.4 Worker 行为
 

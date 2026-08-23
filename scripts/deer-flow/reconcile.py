@@ -32,7 +32,7 @@ load_core()
 load_adapter("deer-flow")
 
 import amail_base as _base            # noqa: E402
-import agentmail_tools as _tools      # noqa: E402
+import aimail_tools as _tools      # noqa: E402
 
 
 def _local_agents(system_id: str) -> dict:

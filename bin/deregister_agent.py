@@ -26,7 +26,7 @@ load_core()
 load_adapter("openclaw")
 
 import amail_base as _base            # noqa: E402
-import agentmail_tools as _tools      # noqa: E402
+import aimail_tools as _tools      # noqa: E402
 
 
 def main() -> int:

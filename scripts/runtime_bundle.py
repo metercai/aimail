@@ -11,11 +11,11 @@
   2. 兜底:本仓库 tools/(dev 模式,未 pip install 时)
 
 bundle 定义(源相对路径 → 捆绑内相对路径):
-  hermes     核心4 + bootstrap + hermes/agentmail_hermes.py   (扁平+子目录)
+  hermes     核心4 + bootstrap + hermes/aimail_hermes.py   (扁平+子目录)
   mcp        核心4 + bootstrap + amail_mcp_server.py          (扁平)
   openclaw   核心4 + bootstrap + openclaw/{amail,amail_base,amail_openclaw_bridge}.py
   deer-flow  核心4 + bootstrap + router + 适配层,全扁平铺进宿主 routers/
-             (宿主 app.py 经 `from .routers import agentmail_inbound` 加载;
+             (宿主 app.py 经 `from .routers import aimail_inbound` 加载;
               router/适配层/core 同目录,bootstrap case-3 自举,零 env)
 
 用法:
@@ -41,9 +41,9 @@ STAMP_NAME = ".aimail-runtime.json"
 
 # 核心 4 + bootstrap(所有 bundle 共享)
 _CORE_FILES = {
-    "agentmail_base.py": "agentmail_base.py",
-    "agentmail_tools.py": "agentmail_tools.py",
-    "agentmail_board.py": "agentmail_board.py",
+    "aimail_base.py": "aimail_base.py",
+    "aimail_tools.py": "aimail_tools.py",
+    "aimail_board.py": "aimail_board.py",
     "gateway_api.py": "gateway_api.py",
     "_aimail_bootstrap.py": "_aimail_bootstrap.py",
 }
@@ -51,7 +51,7 @@ _CORE_FILES = {
 BUNDLES = {
     "hermes": {
         "default_dest": "~/.hermes/hermes-agent/tools",
-        "files": dict(_CORE_FILES, **{"hermes/agentmail_hermes.py": "hermes/agentmail_hermes.py"}),
+        "files": dict(_CORE_FILES, **{"hermes/aimail_hermes.py": "hermes/aimail_hermes.py"}),
     },
     "mcp": {
         "default_dest": "~/.agentmail/mcp",
@@ -66,11 +66,11 @@ BUNDLES = {
         }),
     },
     "deer-flow": {
-        # 宿主 app.py 经 `from .routers import agentmail_inbound` 加载 router,
+        # 宿主 app.py 经 `from .routers import aimail_inbound` 加载 router,
         # router 与 core 必须同目录(bootstrap case-3)。目标铺平进宿主 routers/。
         "default_dest": "~/deer-flow/backend/app/gateway/routers",
         "files": dict(_CORE_FILES, **{
-            "deer-flow/agentmail_inbound.py": "agentmail_inbound.py",
+            "deer-flow/aimail_inbound.py": "aimail_inbound.py",
             "deer-flow/amail_base.py": "amail_base.py",
         }),
     },
@@ -113,9 +113,9 @@ def resolve_source_root(explicit: str = "") -> tuple[str, str]:
     """返回 (源根目录, 类型)。类型 ∈ pip|repo。"""
     if explicit:
         root = os.path.abspath(os.path.expanduser(explicit))
-        kind = "repo" if os.path.isfile(os.path.join(root, "agentmail_base.py")) else ""
+        kind = "repo" if os.path.isfile(os.path.join(root, "aimail_base.py")) else ""
         if not kind:
-            raise SystemExit(f"ERROR: --source-root 无效(无 agentmail_base.py): {root}")
+            raise SystemExit(f"ERROR: --source-root 无效(无 aimail_base.py): {root}")
         return root, kind
     # 1) pip 包
     try:
@@ -123,13 +123,13 @@ def resolve_source_root(explicit: str = "") -> tuple[str, str]:
         root = os.path.abspath(os.path.dirname(os.path.dirname(os.path.abspath(aimail.__file__))))
         # aimail.__file__ = site-packages/aimail/__init__.py → 包目录即载荷根
         pkg_dir = os.path.dirname(aimail.__file__)
-        if os.path.isfile(os.path.join(pkg_dir, "agentmail_base.py")):
+        if os.path.isfile(os.path.join(pkg_dir, "aimail_base.py")):
             return pkg_dir, "pip"
     except Exception:
         pass
     # 2) 仓库 tools/(本文件在 scripts/ 下)
     root = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools"))
-    if os.path.isfile(os.path.join(root, "agentmail_base.py")):
+    if os.path.isfile(os.path.join(root, "aimail_base.py")):
         return root, "repo"
     raise SystemExit("ERROR: 运行时源未找到(pip aimail 未安装且仓库 tools/ 缺失)")
 

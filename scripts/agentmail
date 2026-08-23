@@ -283,7 +283,7 @@ def cmd_install(args) -> int:
     if want_domain and sid2:
         load_core()
         try:
-            from agentmail_tools import _GatewayClient
+            from aimail_tools import _GatewayClient
             client = _GatewayClient(gw_url, env.get("INTEGRATE_ADMIN_KEY") or "")
             existing = client.list_system_domains(sid2)
             if isinstance(existing, list):
@@ -469,7 +469,7 @@ def cmd_mailname(args) -> int:
     # 冲突检测:domain_addr_meta 已有同名非默认 agent 地址
     # 通过网关 API 查询该系统的已注册地址(_GatewayClient 带完整方法集)
     load_core()
-    from agentmail_tools import _GatewayClient
+    from aimail_tools import _GatewayClient
     gw = cfg.get("gateway_url", "").rstrip("/")
     ak = cfg.get("admin_key", "")
     if gw and ak:
@@ -729,7 +729,7 @@ def _default_recv_url(sid: str, email: str) -> str:
 # ═══════════════════════════════════════════════════════════════
 
 def _addr_clean(email: str) -> str:
-    """地址 → 目录键(与 agentmail_base._clean_agent_dir_name 一致)。"""
+    """地址 → 目录键(与 aimail_base._clean_agent_dir_name 一致)。"""
     return re.sub(r"[^\w.\-]", "_", email)
 
 
@@ -774,7 +774,7 @@ def cmd_domain(args) -> int:
     if not gw or not ak:
         _fail(f"无网关凭据(system {sid})")
     load_core()
-    from agentmail_tools import _GatewayClient
+    from aimail_tools import _GatewayClient
     client = _GatewayClient(gw, ak)
 
     if args.add:
@@ -972,8 +972,8 @@ def _uninstall_hermes(system_home: Path, sid: str) -> None:
                 if cd.is_dir():
                     for f in cd.glob("*.pyc"):
                         f.unlink()
-        for rel in ("tools/agentmail_tools.py", "tools/agentmail_base.py",
-                    "tools/agentmail_board.py", "tools/hermes"):
+        for rel in ("tools/aimail_tools.py", "tools/aimail_base.py",
+                    "tools/aimail_board.py", "tools/hermes"):
             tgt = ha / rel
             if tgt.exists():
                 shutil.rmtree(tgt) if tgt.is_dir() else tgt.unlink()
@@ -1075,8 +1075,8 @@ def cmd_uninstall(args) -> int:
     # 1. 网关注销(每 agent,公共链:api-key → domain → whitelist)
     load_core()
     try:
-        from agentmail_tools import _GatewayClient
-        from agentmail_base import deregister_agent_email
+        from aimail_tools import _GatewayClient
+        from aimail_base import deregister_agent_email
         sid_dir = SYSTEMS_DIR / sid
         if sid_dir.is_dir():
             for sub in sorted(sid_dir.iterdir()):
@@ -1111,10 +1111,10 @@ def cmd_uninstall(args) -> int:
         _uninstall_openclaw(sid)
     else:  # deerflow
         # 共享布局(systems/{sid}/)由通用段清理;deer-flow 仓入站补丁
-        # (backend routers/agentmail_inbound.py + app.py 锚点)需手动还原
+        # (backend routers/aimail_inbound.py + app.py 锚点)需手动还原
         # (agentmail install 的 install-inbound.sh 是幂等安装,无自动反向)
         print("  deerflow: 共享配置已清理;deer-flow 仓入站补丁请手动还原 "
-              "(删除 routers/agentmail_inbound.py + 移除 app.py 的 import/include_router 两行)")
+              "(删除 routers/aimail_inbound.py + 移除 app.py 的 import/include_router 两行)")
     if platform == "dsh":
         # dsh:绑定文件由通用段清理;dsh 侧插件卸载(dsh-mail-* 插件移除)为 dsh 操作
         print("  dsh: 共享配置已清理;dsh 侧卸载 mail 插件(mail/mail-inbound/tool-mail)+ 删 preset 即可")
@@ -1226,7 +1226,7 @@ WEBHOOK_BLOCK4 = """        # ── Ping-pong interception (end-to-end test) �
                     from datetime import datetime, timezone
                     _tools_dir = _os.path.join(_os.path.dirname(__file__), "..", "..", "tools")
                     _sys.path.insert(0, _os.path.abspath(_tools_dir) + "/hermes")
-                    from agentmail_tools import send_mail as _send_mail
+                    from aimail_tools import send_mail as _send_mail
                     pong_body = _json.dumps({
                         "ping_id": ping_id,
                         "event": {"prompt": prompt, "route": route_name,
@@ -1297,7 +1297,7 @@ def _log_ping_event(dir_: str, ping_id: str, payload: dict, pong_status: str):
 
 PROFILES_HOOK = """    # ── Fire integration hooks (AmailGateway) ──
     try:
-        from tools.agentmail_base import trigger_profile_hooks
+        from tools.aimail_base import trigger_profile_hooks
         trigger_profile_hooks(\"profile_created\", canon, str(profile_dir))
     except ImportError:
         pass  # AmailGateway tools not installed
@@ -1306,7 +1306,7 @@ PROFILES_HOOK = """    # ── Fire integration hooks (AmailGateway) ──
 
 PROFILES_HOOK_DEL = """    # ── Fire integration hooks (AmailGateway) ──
     try:
-        from tools.agentmail_base import trigger_profile_hooks
+        from tools.aimail_base import trigger_profile_hooks
         trigger_profile_hooks(\"profile_deleted\", canon, str(profile_dir))
     except ImportError:
         pass  # AmailGateway tools not installed

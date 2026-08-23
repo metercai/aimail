@@ -2,7 +2,7 @@
 """register_agent.py — OpenClaw agent 注册到 amail（步骤 6）。
 
 注册链（register_email → 已存在更新 webhook → manager 白名单 → activate_address）
-走公共核心 agentmail_base.register_agent_email（Hermes/OpenClaw 共用）：
+走公共核心 aimail_base.register_agent_email（Hermes/OpenClaw 共用）：
   1. 计算 email（main → agent@{domain}，其余 {agentId}@{domain}；共享域加 .{system_name}）
   2. 注册链（公共，幂等）→ api_key
   3. 落盘地址键 agentmail.json（systems/{sid}/{addr}/agentmail.json，含 agent_id）
@@ -29,7 +29,7 @@ load_core()
 load_adapter("openclaw")
 
 import amail_base as _base            # noqa: E402
-import agentmail_tools as _tools      # noqa: E402
+import aimail_tools as _tools      # noqa: E402
 
 
 def email_for_agent(agent_id: str, domain: str, system_name: str) -> str:
@@ -89,7 +89,7 @@ def register_one(client, system_id: str, agent_id: str, email: str,
 
 def register_bridge_route(system_id: str, email: str, gw: dict,
                           local_webhook_url: str) -> dict:
-    """注册后向本机 bridge POST 路由(共享实现,见 agentmail_base)。"""
+    """注册后向本机 bridge POST 路由(共享实现,见 aimail_base)。"""
     return _base.register_bridge_route(system_id, email, gw, local_webhook_url)
 
 

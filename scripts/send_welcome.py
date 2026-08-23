@@ -36,7 +36,7 @@ import uuid
 from pathlib import Path
 
 # ── 共享核心复用(带降级):email_for_agent 地址派生规则单源 ──────
-# 优先 import tools/agentmail_base 的共享实现;不可用时(如纯离线
+# 优先 import tools/aimail_base 的共享实现;不可用时(如纯离线
 # 环境)复刻同一规则,保证共享域/非共享域行为一致。
 _SCRIPTS_DIR = str(Path(__file__).resolve().parent)
 if _SCRIPTS_DIR not in sys.path:
@@ -44,11 +44,11 @@ if _SCRIPTS_DIR not in sys.path:
 from runtime_core import load_core  # noqa: E402
 load_core()
 try:
-    from agentmail_base import email_for_agent  # noqa: E402
+    from aimail_base import email_for_agent  # noqa: E402
 except Exception:
     def email_for_agent(agent_id: str, domain: str, system_name: str = "",
                         default_aliases: tuple = ("default",)) -> str:
-        """复刻 agentmail_base.email_for_agent(仅主 agent 场景)。"""
+        """复刻 aimail_base.email_for_agent(仅主 agent 场景)。"""
         base = "agent" if agent_id in default_aliases else agent_id
         base = re.sub(r"[^A-Za-z0-9!#$%&'*+\-/=?^_`{|}~]", "_", base) or "agent"
         if system_name:
@@ -68,7 +68,7 @@ SYSTEMS_DIR = AGENTMAIL_HOME / "systems"
 
 
 def _clean_agent_dir_name(addr: str) -> str:
-    """agent 地址 → 目录名(与 tools/agentmail_base._clean_agent_dir_name 一致)。"""
+    """agent 地址 → 目录名(与 tools/aimail_base._clean_agent_dir_name 一致)。"""
     return re.sub(r"[^\w.\-]", "_", addr)
 
 

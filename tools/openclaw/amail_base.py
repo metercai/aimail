@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """amail_base — OpenClaw 接入复用层.
 
-复用 Hermes 的 agentmail_base.py（preprocess/parse/persona/board）与
+复用 Hermes 的 aimail_base.py（preprocess/parse/persona/board）与
 scripts/gateway_api.py（标准 amail API 客户端），仅替换 config 加载与
 目录约定为 OpenClaw 形态：
 
@@ -42,14 +42,14 @@ def _amail_bootstrap():
 
 _amail_bootstrap()
 
-import agentmail_base as _ab          # noqa: E402  (Hermes 复用层)
+import aimail_base as _ab          # noqa: E402  (Hermes 复用层)
 import gateway_api as _gw             # noqa: E402  (标准 API 客户端)
-import agentmail_tools as _tools      # noqa: E402  (X-Agentmail-Agent 身份注入)
-# 共享核心目录(agentmail_board.py 等同目录)——取导入源实际位置,与部署形态无关
+import aimail_tools as _tools      # noqa: E402  (X-Agentmail-Agent 身份注入)
+# 共享核心目录(aimail_board.py 等同目录)——取导入源实际位置,与部署形态无关
 _TOOLS = os.path.dirname(os.path.abspath(_ab.__file__))
 
 # ── X-Agentmail-Agent 身份注入 ───────────────────────────────────
-# 多 agent 共存机器上,agentmail_tools 的"目录存在"自动检测会把
+# 多 agent 共存机器上,aimail_tools 的"目录存在"自动检测会把
 # OpenClaw 进程误判为 hermes(~/.hermes 目录同样存在且 registry 在前)。
 # 适配层显式注入 OpenClaw 身份:openclaw/{CLI 版本}。
 _oc_ver = "unknown"
@@ -65,7 +65,7 @@ except Exception:
     pass
 _tools._AGENT_IDENTITY_OVERRIDE = f"openclaw/{_oc_ver}"
 
-# ── 平台注入（公共核心注入点；Hermes → tools/hermes/agentmail_hermes.py 对称）──
+# ── 平台注入（公共核心注入点；Hermes → tools/hermes/aimail_hermes.py 对称）──
 def _openclaw_profile_dir() -> Optional[str]:
     """公共核心 _PROFILE_DIR_RESOLVER 的 OpenClaw 版：当前 system 目录。"""
     sid = detect_system_id()
@@ -73,7 +73,7 @@ def _openclaw_profile_dir() -> Optional[str]:
 
 
 # 公共核心隐含依赖（store_inbound_message/_log_amail/_GatewayClient）已由
-# agentmail_base 函数级 import 自解析，无需适配层注入。
+# aimail_base 函数级 import 自解析，无需适配层注入。
 # 注入点设置（OpenClaw 平台实现；personas 用公共默认空）
 _ab._PROFILE_DIR_RESOLVER = _openclaw_profile_dir
 # ── 系统能力声明（跨系统共享开关，Hermes 默认 True 不变）────────
@@ -117,7 +117,7 @@ def load_agents_registry(system_id: str) -> dict:
 def load_agent_config(agent_id: str, system_id: str = "") -> Optional[dict]:
     """按 agentId 找地址键 config（agentmail.json 中 agent_id 匹配）。
 
-    2026-08-18 起转发共享核心实现（tools/agentmail_base.load_agent_config，
+    2026-08-18 起转发共享核心实现（tools/aimail_base.load_agent_config，
     平台无关布局扫描）——单一权威。
     """
     return _ab.load_agent_config(agent_id, system_id)
@@ -182,7 +182,7 @@ def load_openclaw_hooks() -> Optional[dict]:
 
 
 # ── agent 上下文切换（转发共享核心实现,2026-08-18）──────────────
-# _ACTIVE_AGENT_CONFIG 在 tools/agentmail_base.py 维护;本地仅保留镜像
+# _ACTIVE_AGENT_CONFIG 在 tools/aimail_base.py 维护;本地仅保留镜像
 # 引用(amail.py _patch_config 读取),不再有独立 _openclaw_profile_config。
 
 _ACTIVE_AGENT_CONFIG: Optional[dict] = None
@@ -191,20 +191,20 @@ _ACTIVE_AGENT_CONFIG: Optional[dict] = None
 def set_agent_context(agent_id: str, system_id: str = "") -> None:
     """把当前 agent 的 config 挂到公共核心的注入点上（转发共享实现）。
 
-    preprocess_mail_payload()（agentmail_base）与 6 工具函数
-    （agentmail_tools）内部都调用 _load_profile_config() —— 公共版读
+    preprocess_mail_payload()（aimail_base）与 6 工具函数
+    （aimail_tools）内部都调用 _load_profile_config() —— 公共版读
     _CONFIG_LOADER 注入点，共享 set_agent_context 设置后两处同时生效
     （同一函数对象）。同时设 AIMAIL_AGENT_EMAIL（共享 _resolve_agent_email
     的第一优先来源）——日志 agentmail.{email}.log 按 agent 落位。
 
-    2026-08-18 起转发 tools/agentmail_base.set_agent_context（平台无关，
+    2026-08-18 起转发 tools/aimail_base.set_agent_context（平台无关，
     兜底 MCP 服务共用）——单一权威。_ACTIVE_AGENT_CONFIG 在共享核心维护。
     """
     _ab.set_agent_context(agent_id, system_id)
     global _ACTIVE_AGENT_CONFIG
     _ACTIVE_AGENT_CONFIG = _ab._ACTIVE_AGENT_CONFIG
 
-# ── 从 agentmail_base 转发（复用面）────────────────────────────
+# ── 从 aimail_base 转发（复用面）────────────────────────────
 preprocess_mail_payload = _ab.preprocess_mail_payload
 process_inbound_mail = _ab.process_inbound_mail
 parse_amail_persona = _ab.parse_amail_persona
@@ -231,23 +231,23 @@ def make_client(api_key: str, system_id: str = ""):
 
 
 def load_board_module():
-    """加载 agentmail_board.py 函数体（裁剪顶层 registry.register 注册块）。
+    """加载 aimail_board.py 函数体（裁剪顶层 registry.register 注册块）。
 
-    Hermes 的 agentmail_board.py 顶层注册块引用了本文件不存在的 handler
+    Hermes 的 aimail_board.py 顶层注册块引用了本文件不存在的 handler
     （依赖 Hermes 运行时特殊加载），CLI/MCP 场景用 ast 定位并删除注册块后
     exec，只取其函数体（board_* / set_public_whoami）。所有 OpenClaw 侧
     消费者（amail.py / amail_mcp_server.py）统一走此入口。
 
     同进程内缓存（sys.modules）——避免多次 exec 产生不同函数对象副本。
     """
-    cached = sys.modules.get("agentmail_board")
+    cached = sys.modules.get("aimail_board")
     if cached is not None and hasattr(cached, "board_status"):
         return cached
 
     import ast as _ast
     import importlib.util as _ilu
 
-    board_path = os.path.join(_TOOLS, "agentmail_board.py")
+    board_path = os.path.join(_TOOLS, "aimail_board.py")
     src = open(board_path, encoding="utf-8").read()
     tree = _ast.parse(src)
     drop = []
@@ -259,9 +259,9 @@ def load_board_module():
     lines = src.splitlines()
     src = "\n".join(ln for i, ln in enumerate(lines, 1)
                     if not any(a <= i <= b for a, b in drop))
-    spec = _ilu.spec_from_file_location("agentmail_board", board_path)
+    spec = _ilu.spec_from_file_location("aimail_board", board_path)
     board = _ilu.module_from_spec(spec)
-    sys.modules["agentmail_board"] = board
+    sys.modules["aimail_board"] = board
     exec(compile(src, board_path, "exec"), board.__dict__)
     return board
 
@@ -298,7 +298,7 @@ def http_post(url: str, body: dict, api_key: str = "", token: str = "",
 agent_for_email = _ab.route_agent_for_email  # 多收件人入站路由（共享）
 
 
-# is_ping/is_pong/ping_id/handle_ping_pong come from agentmail_base
+# is_ping/is_pong/ping_id/handle_ping_pong come from aimail_base
 # (the shared Hermes + OpenClaw layer) — single implementation.
 PONG_PREFIX = "__agentmail_pong__:"
 
@@ -311,10 +311,10 @@ ping_id = _ab.ping_id
 handle_ping_pong = _ab.handle_ping_pong
 
 
-# handle_ping_pong is imported from agentmail_base (shared impl).
+# handle_ping_pong is imported from aimail_base (shared impl).
 
 
-# send_pong is SHARED (agentmail_base.send_pong) — no platform-specific
+# send_pong is SHARED (aimail_base.send_pong) — no platform-specific
 # pong sender. Hermes and OpenClaw both reply via the gateway HTTP send
 # API; the injected _CONFIG_LOADER resolves each platform's agent config.
 send_pong = _ab.send_pong
@@ -333,7 +333,7 @@ def dispatch_to_hooks(hooks_url: str, hooks_token: str, agent_id: str,
     """
     set_agent_context(agent_id, system_id)
     enriched = preprocess_mail_payload(dict(payload), headers or {})
-    # persona 差异由共享开关驱动（agentmail_base.PERSONA_SUPPORTED），
+    # persona 差异由共享开关驱动（aimail_base.PERSONA_SUPPORTED），
     # preprocess 内部已按开关归一/保留派生地址——此处无需后处理。
     req = {
         "message": build_message(enriched),

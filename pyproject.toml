@@ -21,7 +21,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
-# The core runtime (agentmail_base / agentmail_tools / agentmail_board /
+# The core runtime (aimail_base / aimail_tools / aimail_board /
 # gateway_api / amail_mcp_server) is stdlib-only: every third-party import
 # (yaml, markitdown) is lazy and host-gated. Keep the hard dep surface at
 # zero so the package installs anywhere.
@@ -46,15 +46,15 @@ packages = ["src/aimail"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "tools/_aimail_bootstrap.py" = "aimail/_aimail_bootstrap.py"
-"tools/agentmail_base.py" = "aimail/agentmail_base.py"
-"tools/agentmail_tools.py" = "aimail/agentmail_tools.py"
-"tools/agentmail_board.py" = "aimail/agentmail_board.py"
+"tools/aimail_base.py" = "aimail/aimail_base.py"
+"tools/aimail_tools.py" = "aimail/aimail_tools.py"
+"tools/aimail_board.py" = "aimail/aimail_board.py"
 "tools/amail_mcp_server.py" = "aimail/amail_mcp_server.py"
-"tools/hermes/agentmail_hermes.py" = "aimail/hermes/agentmail_hermes.py"
+"tools/hermes/aimail_hermes.py" = "aimail/hermes/aimail_hermes.py"
 "tools/openclaw/amail.py" = "aimail/openclaw/amail.py"
 "tools/openclaw/amail_base.py" = "aimail/openclaw/amail_base.py"
 "tools/openclaw/amail_openclaw_bridge.py" = "aimail/openclaw/amail_openclaw_bridge.py"
-"tools/deer-flow/agentmail_inbound.py" = "aimail/deer-flow/agentmail_inbound.py"
+"tools/deer-flow/aimail_inbound.py" = "aimail/deer-flow/aimail_inbound.py"
 "tools/deer-flow/amail_base.py" = "aimail/deer-flow/amail_base.py"
 "tools/gateway_api.py" = "aimail/gateway_api.py"
 "skills/SKILL.md" = "aimail/skills/SKILL.md"

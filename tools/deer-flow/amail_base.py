@@ -6,13 +6,13 @@
   ② 注入点赋值 + 能力开关: PERSONA_SUPPORTED = False
   ③ 平台注册: 身份注入(deerflow/{ver})
 
-共享核心(tools/agentmail_base)已提供平台无关 set_agent_context
+共享核心(tools/aimail_base)已提供平台无关 set_agent_context
 (按 agentmail.json 布局扫描),本适配层在 OpenClaw 基础上仅做:
   - 转发共享函数(与 OpenClaw 同款)
   - 注入 DeerFlow 身份(X-Agentmail-Agent: deerflow/...)
 
 入站(2026-08-18 重构):预处理并入 DeerFlow 本地 gateway(8001)进程,
-agentmail_inbound router 直接 import 本适配层获得注入点;独立接收进程
+aimail_inbound router 直接 import 本适配层获得注入点;独立接收进程
 amail_deerflow_bridge.py(8798)已退役删除——链路 gateway→bridge→
 8001 /agentmail/inbound(验签+预处理+start_run 投递),仿 Hermes 进程内预处理。
 
@@ -49,8 +49,8 @@ def _amail_bootstrap():
 
 _amail_bootstrap()
 
-import agentmail_base as _ab          # noqa: E402  (共享核心)
-import agentmail_tools as _tools      # noqa: E402  (X-Agentmail-Agent 身份注入)
+import aimail_base as _ab          # noqa: E402  (共享核心)
+import aimail_tools as _tools      # noqa: E402  (X-Agentmail-Agent 身份注入)
 
 
 # ── DeerFlow 身份检测(只报真实检测结果)───────────────────────────
@@ -94,7 +94,7 @@ def set_agent_context(agent_id: str, system_id: str = "") -> None:
 
 
 def make_client(api_key: str = "", system_id: str = ""):
-    """Gateway 客户端(agentmail_tools._GatewayClient,全方法集)。
+    """Gateway 客户端(aimail_tools._GatewayClient,全方法集)。
 
     api_key 缺省时从当前 agent 的 agentmail.json 读取。
     """
@@ -161,7 +161,7 @@ _ab._PROFILE_DIR_RESOLVER = _deerflow_profile_dir
 
 # ── ③ 身份注入(在 ② 之上,同 OpenClaw 模式)──────────────────────
 # 注:入站预处理并入 8001 进程后,dispatch_to_deerflow(原 ③)已删除;
-# 投递由 deer-flow backend 的 agentmail_inbound router 内部 start_run 完成。
+# 投递由 deer-flow backend 的 aimail_inbound router 内部 start_run 完成。
 
 # ── 转发共享核心(复用面,与 OpenClaw 同款)────────────────────────
 preprocess_mail_payload = _ab.preprocess_mail_payload

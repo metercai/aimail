@@ -1,4 +1,4 @@
-"""agentmail_tools — Mail toolset: send_mail, contacts, email_summary."""
+"""aimail_tools — Mail toolset: send_mail, contacts, email_summary."""
 from __future__ import annotations
 import json
 import logging
@@ -12,7 +12,7 @@ from datetime import datetime
 import urllib.request
 import urllib.error
 
-from agentmail_base import _load_profile_config
+from aimail_base import _load_profile_config
 import urllib.parse
 
 
@@ -834,7 +834,7 @@ def _workspace_roots() -> list[Path]:
     roots: list[Path] = [Path.cwd()]
 
     # Profile directory (agent's working sandbox)
-    import agentmail_base as _abm
+    import aimail_base as _abm
     _resolver = _abm._PROFILE_DIR_RESOLVER
     profile_dir = _resolver() if _resolver else ""
     if profile_dir:
@@ -927,7 +927,7 @@ def _resolve_agent_email() -> str:
     env_email = os.environ.get("AIMAIL_AGENT_EMAIL", "")
     if env_email:
         return env_email
-    import agentmail_base as _abm
+    import aimail_base as _abm
     _resolver = _abm._PROFILE_DIR_RESOLVER
     pdir = _resolver() if _resolver else ""
     if pdir:
@@ -950,7 +950,7 @@ def _agentmail_dir() -> Path:
     if env:
         return Path(env)
     # Try pointer file first
-    import agentmail_base as _abm
+    import aimail_base as _abm
     email = _resolve_agent_email()
     if email:
         return Path.home() / ".agentmail" / "mail" / _abm._clean_agent_dir_name(email)
@@ -971,7 +971,7 @@ def _log_amail(direction: str, from_addr: str, to_addr: str, subject: str,
     Log is written to {AGENTMAIL_HOME}/agentmail.log for integration test verification.
     """
     import json as _json
-    import agentmail_base as _abm
+    import aimail_base as _abm
     log_path = _abm.agentmail_log_path(_resolve_agent_email())
     entry = _json.dumps({
         "ts": datetime.now().isoformat(),

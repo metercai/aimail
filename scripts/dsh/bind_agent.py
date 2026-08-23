@@ -27,8 +27,8 @@ if _SCRIPTS_DIR not in sys.path:
 from runtime_core import load_core  # noqa: E402
 load_core()
 
-import agentmail_base as _base            # noqa: E402
-import agentmail_tools as _tools          # noqa: E402
+import aimail_base as _base            # noqa: E402
+import aimail_tools as _tools          # noqa: E402
 
 
 def main() -> int:

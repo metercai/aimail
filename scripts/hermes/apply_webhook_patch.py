@@ -220,7 +220,7 @@ else:
     print("WARNING: could not find '# Format prompt from template' — patch 3 skipped", file=sys.stderr)
 
 # ── Patch 4: REMOVE legacy _log_ping_event from webhook.py (2026-08-16) ──
-# _log_ping_event moved to shared core agentmail_base — webhook.py must
+# _log_ping_event moved to shared core aimail_base — webhook.py must
 # not carry its own copy (double-write of ping-pong log lines).
 content, _nr4 = re.subn(
     r'\n+def _log_ping_event\(.*?(?=\n(?:def |\Z))',
@@ -235,7 +235,7 @@ else:
     print("Patch 4: no legacy _log_ping_event found (already clean)", file=sys.stderr)
 # ── Patch 5: REMOVE legacy ping-pong interception block (2026-08-16) ──
 # Ping/pong interception moved into the shared core
-# (agentmail_base.process_inbound_mail, registered as the webhook
+# (aimail_base.process_inbound_mail, registered as the webhook
 # preprocessor). The webhook.py-level block is now dead code that
 # double-handles pings (preprocessor already swallowed them → payload is
 # None) and its __agentmail_pong__ prefix mismatched the gateway's
@@ -318,27 +318,27 @@ if _p6_target in content:
 else:
     print("WARNING: could not find session_chat_id assignment — patch 6 skipped", file=sys.stderr)
 
-# ── Patch 7: import Hermes adapter (agentmail_hermes) — injects platform
+# ── Patch 7: import Hermes adapter (aimail_hermes) — injects platform
 #    implementations into shared core and registers preprocessor/registry/lifecycle
 _p7_block = '''
 # ── AmailGateway Hermes adapter (shared core injection + registration) ──
 try:
-    from tools.hermes import agentmail_hermes  # noqa: F401
+    from tools.hermes import aimail_hermes  # noqa: F401
 except Exception:
     pass
 
 '''
-if "agentmail_hermes" not in content:
+if "aimail_hermes" not in content:
     # Insert after the PREPROCESS_REGISTRY definition block (after register_preprocessor)
     _p7_target = "PREPROCESS_REGISTRY[name] = fn"
     if _p7_target in content:
         content = content.replace(_p7_target + "\n", _p7_target + "\n" + _p7_block, 1)
         patched = True
-        print("Patch 7: agentmail_hermes adapter import added", file=sys.stderr)
+        print("Patch 7: aimail_hermes adapter import added", file=sys.stderr)
     else:
         print("WARNING: could not find PREPROCESS_REGISTRY block — patch 7 skipped", file=sys.stderr)
 else:
-    print("Patch 7: agentmail_hermes already present", file=sys.stderr)
+    print("Patch 7: aimail_hermes already present", file=sys.stderr)
 
 if patched:
     with open(target, "w") as f:

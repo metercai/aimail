@@ -2,7 +2,7 @@
 """deregister_agent.py — DeerFlow agent 从 amail 注销(生命周期)。
 
 注销链(api-key → domain → whitelist)走公共核心
-agentmail_base.deregister_agent_email(所有平台共用,幂等)。
+aimail_base.deregister_agent_email(所有平台共用,幂等)。
 
 用法:
   python3 deregister_agent.py --agent default [--system-id SID] [--manager M]
@@ -23,7 +23,7 @@ load_core()
 load_adapter("deer-flow")
 
 import amail_base as _base            # noqa: E402
-import agentmail_tools as _tools      # noqa: E402
+import aimail_tools as _tools      # noqa: E402
 
 
 def main() -> int:

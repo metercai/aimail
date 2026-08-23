@@ -148,7 +148,7 @@ patched = False
 hook_created = '''
     # ── Fire integration hooks (AmailGateway) ──
     try:
-        from tools.agentmail_base import trigger_profile_hooks
+        from tools.aimail_base import trigger_profile_hooks
         trigger_profile_hooks("profile_created", canon, str(profile_dir))
     except ImportError:
         pass  # AmailGateway tools not installed
@@ -156,7 +156,7 @@ hook_created = '''
 
 hook_deleted = '''            # ── Fire integration hooks (AmailGateway) ──
             try:
-                from tools.agentmail_base import trigger_profile_hooks
+                from tools.aimail_base import trigger_profile_hooks
                 trigger_profile_hooks("profile_deleted", canon, str(profile_dir))
             except ImportError:
                 pass  # AmailGateway tools not installed
@@ -167,7 +167,7 @@ hook_deleted = '''            # ── Fire integration hooks (AmailGateway) ─
 content = re.sub(
     r'    # ── Fire integration hooks \(AmailGateway\) ──\n'
     r'    try:\n'
-    r'        from tools\.agentmail_base import trigger_profile_hooks\n'
+    r'        from tools\.aimail_base import trigger_profile_hooks\n'
     r'        trigger_profile_hooks\("profile_created".*?'
     r'    except ImportError:\n'
     r'        pass  # AmailGateway tools not installed\n',
@@ -194,7 +194,7 @@ else:
 content = re.sub(
     r'    # ── Fire integration hooks \(AmailGateway\) ──\n'
     r'    try:\n'
-    r'            from tools\.agentmail_base import trigger_profile_hooks\n'
+    r'            from tools\.aimail_base import trigger_profile_hooks\n'
     r'        trigger_profile_hooks\("profile_deleted".*?'
     r'    except ImportError:\n'
     r'        pass  # AmailGateway tools not installed\n',

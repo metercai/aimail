@@ -12,7 +12,7 @@
 | 本质 | **per-address(agent 级)配置**,一个文件 = 一个邮件地址的全部运行配置 |
 | 对比 | 系统级配置 = `agentmail_gateway.json`(`systems/{sid}/` 根,唯一文件名,无兼容别名);agentmail.json 在地址子目录,多 agent 系统每 agent 一份 |
 | 共享布局 | 与 `board_creds.json` 同层;`~/.agentmail/` 权限 700,配置文件 600 |
-| 读取方 | 平台无关共享核心:`agentmail_base.load_agent_config` / `_scan_systems_for_agent`(按 `agent_id` 匹配)、`set_agent_context`;`agentmail_tools`(send_mail 等 12 工具经 `_GatewayClient(config["gateway_url"], config["api_key"])`) |
+| 读取方 | 平台无关共享核心:`aimail_base.load_agent_config` / `_scan_systems_for_agent`(按 `agent_id` 匹配)、`set_agent_context`;`aimail_tools`(send_mail 等 12 工具经 `_GatewayClient(config["gateway_url"], config["api_key"])`) |
 | 写入方 | 各平台注册脚本(薄调用共享注册链 register_agent_email 后落盘):Hermes 注册链 / OpenClaw `bin/register_agent.py` / DeerFlow `scripts/deer-flow/register_agent.py`;dsh 由 `scripts/dsh/bind_agent.py` 落盘 |
 | 解析 | dict 加载(`json.loads`),**未知字段无害**(无严格 schema 拒绝)——平台特有字段可自由并入 |
 | 原子写 | 改任何字段 = 整文件 tmp+replace,禁止局部覆盖(防并发写坏) |
@@ -73,7 +73,7 @@
 | `webhook_secret` | string | ✅ | **入站 HMAC 验签密钥,与 webhook_url 成对**(校验 bridge 转发的 `X-Webhook-Signature`)。权威源同 webhook_url:一律落 agentmail.json(Hermes 注册链从 agentmail.json 读取复用,防漂移;profile config 副本值同源) |
 | `system_name` | string | 共享域必填 | 系统名。**共享域下参与地址拼接**:`{base}.{system_name}@{domain}`(如 `agent.weiwei@amail.token.tm`);独立域下为空 → `{base}@{domain}`。两种全地址拼接方式由 `system_id` 前缀判定(shared-* → 共享域,其余独立域) |
 | `manager_address` | string | ✅ | 管理员邮箱。入站白名单判定;welcome 验收的收件人(管理员收到 Re: 回复) |
-| `mx_domain` | string | 冗余 | **历史遗留冗余字段,已从所有实例文件移除**(2026-08-18 代码验证):client.register_email 的 mx_domain 形参从未传给 gateway(gateway 从 email 提取域);agentmail_base 默认构造已简化。**与 domain 同一事物,无功能意义,新平台不写入,存量已清理** |
+| `mx_domain` | string | 冗余 | **历史遗留冗余字段,已从所有实例文件移除**(2026-08-18 代码验证):client.register_email 的 mx_domain 形参从未传给 gateway(gateway 从 email 提取域);aimail_base 默认构造已简化。**与 domain 同一事物,无功能意义,新平台不写入,存量已清理** |
 
 ### 2.2 平台特有字段(按平台,互不冲突)
 
@@ -81,7 +81,7 @@
 |------|------|------|------|
 | `agent_id` | string | OpenClaw / DeerFlow / (Hermes 可选) | 平台内 agent 标识(`main` / `default` / profile 名)。`_scan_systems_for_agent(agent_id)` 的匹配键;Hermes 按 profile 名注册、文件内可缺省 |
 | `deerflow_url` | string | DeerFlow | **已删除**(2026-08-18 重构执行):预处理并入 DeerFlow 本地 gateway(8001)进程后,接收端点统一为 `webhook_url`(`http://127.0.0.1:8001/agentmail/inbound`);旧独立接收进程 amail_deerflow_bridge(8798)退役。存量文件含此字段时忽略 |
-| `assistant_id` | string | DeerFlow | DeerFlow 平台内**助理定义标识**(如 `lead_agent`,预设角色)。**不进地址**:地址 base 来自 `agent_id`(default→agent);assistant_id 是投递目标(agentmail_inbound 调 start_run 时指定哪个 assistant 处理)与 Hermes **profile 同级**(定义/角色层)。**assistant 有 name 字段**(代码实锤:AssistantResponse = assistant_id/graph_id/name,默认三者同名 "lead_agent";自定义 agent 时 name = 配置名,graph 统一 lead_agent)——未来多 assistant 各自收信时,地址 base 直接取 assistant 的 name 即可,无需另设命名体系;当前仅 lead_agent |
+| `assistant_id` | string | DeerFlow | DeerFlow 平台内**助理定义标识**(如 `lead_agent`,预设角色)。**不进地址**:地址 base 来自 `agent_id`(default→agent);assistant_id 是投递目标(aimail_inbound 调 start_run 时指定哪个 assistant 处理)与 Hermes **profile 同级**(定义/角色层)。**assistant 有 name 字段**(代码实锤:AssistantResponse = assistant_id/graph_id/name,默认三者同名 "lead_agent";自定义 agent 时 name = 配置名,graph 统一 lead_agent)——未来多 assistant 各自收信时,地址 base 直接取 assistant 的 name 即可,无需另设命名体系;当前仅 lead_agent |
 
 ### 2.3 dsh 扩展字段(方案已定,待实施)
 
