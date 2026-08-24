@@ -41,11 +41,11 @@ if "--agent-home" in sys.argv:
                 AGENT_HOME = _ah
     except Exception:
         pass
-AGENTMAIL_HOME = Path.home() / ".agentmail"
-SYSTEMS_DIR = AGENTMAIL_HOME / "systems"
-MAIL_DIR    = AGENTMAIL_HOME / "mail"
-BRIDGE_DIR  = AGENTMAIL_HOME / "bridge"
-LOGS_DIR    = AGENTMAIL_HOME / "logs"
+AIMAIL_HOME = Path.home() / ".agentmail"
+SYSTEMS_DIR = AIMAIL_HOME / "systems"
+MAIL_DIR    = AIMAIL_HOME / "mail"
+BRIDGE_DIR  = AIMAIL_HOME / "bridge"
+LOGS_DIR    = AIMAIL_HOME / "logs"
 
 def _clean_agent_dir_name(addr: str) -> str:
     """agent 地址 → 目录名（与 tools/aimail_base._clean_agent_dir_name 一致）。"""

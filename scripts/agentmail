@@ -29,8 +29,8 @@ import urllib.request
 from pathlib import Path
 
 HOME = Path.home()
-AGENTMAIL_HOME = HOME / ".agentmail"
-SYSTEMS_DIR = AGENTMAIL_HOME / "systems"
+AIMAIL_HOME = HOME / ".agentmail"
+SYSTEMS_DIR = AIMAIL_HOME / "systems"
 SCRIPTS_DIR = Path(__file__).resolve().parent
 
 
@@ -373,7 +373,7 @@ def cmd_reset(args) -> int:
         _fail("无法确定 system_id(用 --system-id 指定)")
 
     # 读 admin-key(.system_raw_key 或已有配置)——只读,不写
-    raw_key_path = AGENTMAIL_HOME / ".system_raw_key" / f"{sid}_admin.key"
+    raw_key_path = AIMAIL_HOME / ".system_raw_key" / f"{sid}_admin.key"
     admin_key = ""
     if raw_key_path.is_file():
         try:
@@ -507,10 +507,10 @@ def cmd_mailname(args) -> int:
 #  bridge 维护子命令
 # ═══════════════════════════════════════════════════════════════
 
-BRIDGE_DIR = AGENTMAIL_HOME / "bridge"
+BRIDGE_DIR = AIMAIL_HOME / "bridge"
 BRIDGE_CFG = BRIDGE_DIR / "aimail_bridge.toml"
 BRIDGE_PID = BRIDGE_DIR / "bridge.pid"
-BRIDGE_LOG = AGENTMAIL_HOME / "logs" / "aimail-bridge.log"
+BRIDGE_LOG = AIMAIL_HOME / "logs" / "aimail-bridge.log"
 ROUTES_FILE = BRIDGE_DIR / "aimail_routes.toml"
 BRIDGE_ADDR = "127.0.0.1:38081"
 
@@ -737,7 +737,7 @@ def _addr_clean(email: str) -> str:
 
 def _mail_stats(email: str) -> tuple[int, int]:
     """该 agent 邮件目录的 (收件数, 字节数)。"""
-    mail_dir = AGENTMAIL_HOME / "mail" / _addr_clean(email)
+    mail_dir = AIMAIL_HOME / "mail" / _addr_clean(email)
     count, size = 0, 0
     if mail_dir.is_dir():
         for root, _dirs, files in os.walk(mail_dir):
@@ -1130,13 +1130,13 @@ def cmd_uninstall(args) -> int:
             except Exception:
                 continue
             if email:
-                mdir = AGENTMAIL_HOME / "mail" / _addr_clean(email)
+                mdir = AIMAIL_HOME / "mail" / _addr_clean(email)
                 if mdir.is_dir():
                     shutil.rmtree(mdir)
                     _ok(f"removed mail data {mdir}")
         shutil.rmtree(sid_dir)
         _ok(f"removed system data {sid_dir}")
-    raw = AGENTMAIL_HOME / ".system_raw_key" / f"{sid}_admin.key"
+    raw = AIMAIL_HOME / ".system_raw_key" / f"{sid}_admin.key"
     if raw.is_file():
         raw.unlink()
         _ok(f"removed raw key {raw}")
@@ -1270,7 +1270,7 @@ def _log_ping_event(dir_: str, ping_id: str, payload: dict, pong_status: str):
     }
     if pong_status:
         entry["pong_status"] = pong_status
-    _log_dir = _os.environ.get("AGENTMAIL_HOME", "")
+    _log_dir = _os.environ.get("AIMAIL_HOME") or _os.environ.get("AGENTMAIL_HOME", "")
     if not _log_dir:
         # Resolve email from profile dir .agentmail pointer
         _pdir = _os.environ.get("HERMES_PROFILE_DIR", "")

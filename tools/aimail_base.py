@@ -471,11 +471,11 @@ def send_pong(body: dict, pong_id_value: str) -> bool:
 def agentmail_log_path(email: str = "") -> Path:
     """Canonical per-agent processing log path (user-mandated 2026-08-16).
 
-    All agent logs live under {AGENTMAIL_HOME|~/.agentmail}/logs/, one file
+    All agent logs live under {AIMAIL_HOME|~/.agentmail}/logs/, one file
     per agent: agentmail.{cleaned_addr}.log — NOT inside mail/{addr}/.
     """
     cleaned = _clean_agent_dir_name(email) if email else "default"
-    env = os.environ.get("AGENTMAIL_HOME", "")
+    env = os.environ.get("AIMAIL_HOME") or os.environ.get("AGENTMAIL_HOME", "")
     base = Path(env).expanduser() if env else Path.home() / ".agentmail"
     return base / "logs" / f"agentmail.{cleaned}.log"
 

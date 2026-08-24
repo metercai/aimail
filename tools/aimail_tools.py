@@ -1005,11 +1005,11 @@ def _resolve_agent_email() -> str:
 
 
 def _agentmail_dir() -> Path:
-    """Return the per-agent mail data directory (AGENTMAIL_HOME env or default).
+    """Return the per-agent mail data directory (AIMAIL_HOME env or default).
 
     Layout: ~/.agentmail/mail/{cleaned_addr}/ — email content + attachments,
     isolated from ~/.agentmail/systems/ (config)."""
-    env = os.environ.get("AGENTMAIL_HOME", "")
+    env = os.environ.get("AIMAIL_HOME") or os.environ.get("AGENTMAIL_HOME", "")
     if env:
         return Path(env)
     # Try pointer file first
@@ -1031,7 +1031,7 @@ def _log_amail(direction: str, from_addr: str, to_addr: str, subject: str,
                email_id: str = "") -> None:
     """Append a lightweight email processing log entry (not dependent on save_raw_snapshots).
 
-    Log is written to {AGENTMAIL_HOME}/agentmail.log for integration test verification.
+    Log is written to {AIMAIL_HOME}/agentmail.log for integration test verification.
     """
     import json as _json
     import aimail_base as _abm

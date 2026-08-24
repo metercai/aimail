@@ -71,8 +71,8 @@ def _main_agent_email(cfg: dict) -> str:
     return email_for_agent("default", cfg.get("domain", ""),
                            cfg.get("system_name", ""))
 
-AGENTMAIL_HOME = Path.home() / ".agentmail"
-SYSTEMS_DIR = AGENTMAIL_HOME / "systems"
+AIMAIL_HOME = Path.home() / ".agentmail"
+SYSTEMS_DIR = AIMAIL_HOME / "systems"
 
 
 def _clean_agent_dir_name(addr: str) -> str:

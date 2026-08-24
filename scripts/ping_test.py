@@ -70,9 +70,9 @@ def _main_agent_email(cfg: dict) -> str:
                            cfg.get("system_name", ""))
 
 # ── 路径 ──────────────────────────────────────────────────────────
-AGENTMAIL_HOME = Path.home() / ".agentmail"
-SYSTEMS_DIR = AGENTMAIL_HOME / "systems"
-MAIL_DIR = AGENTMAIL_HOME / "mail"
+AIMAIL_HOME = Path.home() / ".agentmail"
+SYSTEMS_DIR = AIMAIL_HOME / "systems"
+MAIL_DIR = AIMAIL_HOME / "mail"
 
 PING_PREFIX = "__agentmail_ping__:"
 
@@ -232,7 +232,7 @@ def main() -> int:
         return 1
 
     mail_dir = MAIL_DIR / _clean_agent_dir_name(email)          # 快照目录(mail 数据)
-    amail_log = AGENTMAIL_HOME / "logs" / f"agentmail.{_clean_agent_dir_name(email)}.log"
+    amail_log = AIMAIL_HOME / "logs" / f"agentmail.{_clean_agent_dir_name(email)}.log"
 
     # ── 识别 gateway 版本 → 选择 SMTP 入站方式 ──
     edition = _detect_edition(gw_url)
