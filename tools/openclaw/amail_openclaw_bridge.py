@@ -100,9 +100,14 @@ class BridgeHandler(BaseHTTPRequestHandler):
         # pong 由共享 send_pong 出站,回环走完整入站链(设计意图)。
         # 预处理需要 agent 配置注入(set_agent_context)——先按收件地址
         # 解析 agent,再调共享链(与 poll 批级调用同入口)。
-        email = payload.get("to", "")
-        if isinstance(email, list):
-            email = email[0] if email else ""
+        # 路由目标 = X-Amail-Email 头(网关/bridge 按每份投递目标注入的
+        # rcpt 地址)。payload.to 现在是过滤后的全量列表(外投在前),
+        # to[0] 常为外部地址,不能作为路由依据——仅当头缺失时兜底。
+        email = self.headers.get("X-Amail-Email", "")
+        if not email:
+            email = payload.get("to", "")
+            if isinstance(email, list):
+                email = email[0] if email else ""
         agent_id = _base.agent_for_email(self.bridge["registry"], email)
         if not agent_id:
             self._send_json(200, {"status": "no_agent", "email": email})
