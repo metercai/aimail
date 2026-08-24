@@ -509,6 +509,15 @@ def send_mail(
     if upload_errors and not attachment_ids:
         return {"success": False, "error": "All attachments failed", "details": upload_errors}
 
+    # ── 先存再调: meta 常写 + outbox 快照按开关, 随后才调 API ──
+    # Message-ID 本地生成并传给 gateway(仅无 id 时才自动补全), 本地值即线上值。
+    generated_mid = _build_message_id(config)
+    _store_message_meta(generated_mid, references, my_amail_addr=sender)
+    if config.get("save_raw_snapshots"):
+        _save_outbound_snapshot(generated_mid, sender, sender, to, subject, body,
+                                cc_list or [], resolved_paths or [], attachment_ids or [],
+                                in_reply_to or "", references or "")
+
     result = client.send_mail(
         to=",".join(to_list),
         subject=subject,
@@ -518,29 +527,18 @@ def send_mail(
         in_reply_to=in_reply_to,
         references=references,
         sender=sender,
-        message_id=_build_message_id(config),
+        message_id=generated_mid,
         headers={"X-Agentmail-Agent": _agent_identity()},
     )
 
-    # Store outbound message metadata for future replies
-    out_msg_id = result.get("message_id") or result.get("email_id") or ""
-    if out_msg_id:
-        _store_message_meta(out_msg_id, references=references)
-
-    # Optionally save outbound email snapshot
-    if out_msg_id and config.get("save_raw_snapshots"):
-        _save_outbound_snapshot(out_msg_id, sender, sender, to, subject, body,
-                                cc_list or [], attachment_ids or [],
-                                in_reply_to or "", references or "")
-
     # Auto-bootstrap thread summary for new (non-reply) emails
     thread_bootstrapped = False
-    if out_msg_id and not message_id:
+    if not message_id:
         try:
             initial_summary = f"Subject: {subject}\nStatus: awaiting response"
-            set_email_summary(out_msg_id, initial_summary)
+            set_email_summary(generated_mid, initial_summary)
             thread_bootstrapped = True
-            logger.info("[agentmail] Thread summary bootstrapped for new email: %s", out_msg_id)
+            logger.info("[agentmail] Thread summary bootstrapped for new email: %s", generated_mid)
         except Exception as e:
             logger.warning("[agentmail] Failed to bootstrap thread summary: %s", e)
 
@@ -555,7 +553,7 @@ def send_mail(
         # Log outbound to the per-agent agentmail.log for integration test
         # verification (send_welcome polls this file instead of the stats API).
         try:
-            _log_amail("outbound", sender, to, subject, email_id=out_msg_id)
+            _log_amail("outbound", sender, to, subject, email_id=generated_mid)
         except Exception:
             pass
         return out
@@ -923,17 +921,32 @@ def _check_attachment_size(path: str) -> Optional[str]:
 
 def _save_outbound_snapshot(out_msg_id: str, my_addr: str, sender: str,
                              to: str, subject: str, body: str,
-                             cc_list: list, attachment_ids: list,
+                             cc_list: list, resolved_paths: list, attachment_ids: list,
                              in_reply_to: str, references: str) -> None:
     """Save a JSON snapshot of an outbound email to raw_email/.
 
     my_addr determines the snapshot subdirectory (persona or base address).
+    Attachments are copied to {yyyymm}/attch/{safe_mid}/ (same layout as
+    inbound); the snapshot records local paths + gateway attachment_ids.
     """
     safe_mid = _sanitize_message_id(out_msg_id)
     now = datetime.now()
     yyyymm = now.strftime("%Y%m")
     snapshot_dir = _raw_email_dir() / yyyymm
     snapshot_path = snapshot_dir / f"out-{safe_mid}.json"
+    local_atts: list = []
+    if resolved_paths:
+        attch_dir = snapshot_dir / "attch" / safe_mid
+        try:
+            attch_dir.mkdir(parents=True, exist_ok=True)
+            for src in resolved_paths:
+                s = Path(src)
+                if s.is_file():
+                    dest = attch_dir / s.name
+                    dest.write_bytes(s.read_bytes())
+                    local_atts.append(str(dest))
+        except Exception:
+            logger.warning("Failed to copy outbound attachments for %s", safe_mid)
     payload = {
         "message_id": out_msg_id,
         "direction": "outbound",
@@ -942,7 +955,8 @@ def _save_outbound_snapshot(out_msg_id: str, my_addr: str, sender: str,
         "cc": ", ".join(cc_list) if cc_list else "",
         "subject": subject,
         "body": body,
-        "attachments": attachment_ids,
+        "attachments": local_atts,
+        "attachment_ids": attachment_ids,
         "in_reply_to": in_reply_to,
         "references": references,
         "sent_at": now.isoformat(),
