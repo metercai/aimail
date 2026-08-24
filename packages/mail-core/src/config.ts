@@ -18,14 +18,12 @@ export function systemDir(systemId: string): string {
 
 /**
  * Clean an address into a directory key (must match Python exactly).
- * Python `_clean_agent_dir_name` uses `re.sub(r"[^\w.\-]", "_")` where `\w`
- * is Unicode-aware (keeps accented / CJK / Cyrillic letters). JS `\w` is
- * ASCII-only, so we spell the allowed set with Unicode property classes to
- * stay 1:1 — otherwise a non-ASCII local part would land in a different leaf
- * dir on the two sides (breaking the shared `~/.agentmail/` layout).
+ * Email addresses are 7-bit ASCII (RFC 5321); both Python
+ * `_clean_agent_dir_name` (re.ASCII) and this map any non-`[A-Za-z0-9_.-]`
+ * char to `_`. JS `\w` is already ASCII-only, so /[^\\w.-]/g is the 1:1 port.
  */
 export function cleanAddr(email: string): string {
-  return email.replace(/[^\p{L}\p{N}_\.-]/gu, '_')
+  return email.replace(/[^\w.-]/g, '_')
 }
 
 export function agentConfigPath(systemId: string, email: string): string {

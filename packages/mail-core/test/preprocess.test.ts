@@ -108,12 +108,12 @@ describe('cleanAddr', () => {
     expect(cleanAddr('a.b-c_d@x.y')).toBe('a.b-c_d_x.y')
     expect(cleanAddr('has space@x.y')).toBe('has_space_x.y')
   })
-  it('keeps non-ASCII word chars (Python re \\w is Unicode-aware, JS \\w is not)', () => {
-    // 1:1 with Python _clean_agent_dir_name — a non-ASCII local part must land
-    // in the SAME leaf dir on both sides, otherwise the shared ~/.agentmail/
-    // layout splits. Old ASCII-only /[^\\w.-]/ turned ü into _.
-    expect(cleanAddr('münchen.addr@token.tm')).toBe('münchen.addr_token.tm')
-    expect(cleanAddr('中文.用户@x.y')).toBe('中文.用户_x.y')
+  it('keeps only ASCII word chars (email addresses are 7-bit ASCII, RFC 5321)', () => {
+    // 1:1 with Python _clean_agent_dir_name (re.ASCII) — non-ASCII chars,
+    // which can't appear in a valid SMTP address, are defensively mapped to
+    // _ so the leaf dir stays ASCII on both sides.
+    expect(cleanAddr('münchen.addr@token.tm')).toBe('m_nchen.addr_token.tm')
+    expect(cleanAddr('中文.用户@x.y')).toBe('__.___x.y')
   })
 })
 
