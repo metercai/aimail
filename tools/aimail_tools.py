@@ -220,18 +220,6 @@ class _GatewayClient:
             return result.get("results", [])
         return []
 
-    def put_thread_summary(self, message_id: str, summary: str) -> dict:
-        """PUT /api/v1/thread-summary/:message_id — resolve thread_id + write."""
-        return self._request("PUT", f"/api/v1/thread-summary/{message_id}",
-                             body={"summary": summary})
-
-    def get_thread_summary(self, message_id: str) -> Optional[str]:
-        """GET /api/v1/thread-summary/:message_id — resolve + read, returns summary str or None."""
-        result = self._request("GET", f"/api/v1/thread-summary/{message_id}")
-        if result.get("status") == 200:
-            return result.get("summary")
-        return None
-
     # ── Domain / API Key management ─────────────────────────────
 
     def list_system_domains(self, system_id: str) -> list:
@@ -734,12 +722,18 @@ def _sanitize_message_id(message_id: str) -> str:
     return mid
 
 
-# ── Local meta (meta/{xx}/{safe_mid}.json, 前两位分片 256 桶) ────────
+# ── Local meta / thread summary (meta/{xx}/, threads/{xx}/) ─────────
 
 def _local_meta_path(message_id: str) -> Path:
     """meta/{前两位}/{safe_mid}.json — 前两位分片(256 桶)防平铺目录膨胀。"""
     k = _sanitize_message_id(message_id)
     return _agentmail_dir() / "meta" / k[:2] / f"{k}.json"
+
+
+def _thread_path(thread_id: str) -> Path:
+    """threads/{前两位}/{safe_tid}.json — 会话摘要, 与 meta 同分片策略。"""
+    k = _sanitize_message_id(thread_id)
+    return _agentmail_dir() / "threads" / k[:2] / f"{k}.json"
 
 
 def _save_local_meta(message_id, references, my_amail_addr, direction) -> None:
@@ -778,6 +772,12 @@ def _read_local_meta(message_id: str) -> Optional[dict]:
         return json.loads(_local_meta_path(message_id).read_text(encoding="utf-8"))
     except Exception:
         return None
+
+
+def _resolve_thread_id(message_id: str) -> str:
+    """thread_id = 首条 References(线程根), 无则 message_id 本身。"""
+    meta = _read_local_meta(message_id)
+    return (meta or {}).get("thread_id") or (message_id or "").strip()
 
 
 # ── Attachment path resolution ─────────────────────────────────────
@@ -1127,32 +1127,34 @@ def _store_message_meta(message_id: str, references: Optional[str] = None,
 
 
 # ═══════════════════════════════════════════════════════════════
-# email_summary / set_email_summary — via semantic thread-summary endpoints
-#    key: thread:{thread_id}, value: summary text
+# email_summary / set_email_summary — LOCAL threads/{xx}/{thread_id}.json
+#    value: {"thread_id": ..., "summary": ..., "updated_at": ...}
+#    空 summary = 删除线程文件(与原 gateway 语义一致)
 # ═══════════════════════════════════════════════════════════════
 
 def email_summary(message_id: str) -> dict:
     """Look up the stored summary for the email thread containing this message.
 
-    Uses semantic endpoint GET /admin/thread-summary/:message_id which
-    resolves message_id → thread_id internally.
+    Resolves message_id → thread_id via local meta (meta/{xx}/), then reads
+    threads/{xx}/{thread_id}.json. Returns {"thread_id": ..., "summary": ...}.
     """
-    config = _load_profile_config()
-    if not config:
+    mid = (message_id or "").strip()
+    thread_id = _resolve_thread_id(mid) if mid else ""
+    if not thread_id:
         return {"thread_id": "", "summary": ""}
-    client = _GatewayClient(config["gateway_url"], config["api_key"])
-    result = client.get_thread_summary(message_id)
-    if result:
-        # get_thread_summary returns the summary string on success
-        return {"thread_id": message_id, "summary": result}
-    return {"thread_id": message_id, "summary": ""}
+    try:
+        data = json.loads(_thread_path(thread_id).read_text(encoding="utf-8"))
+        return {"thread_id": thread_id, "summary": data.get("summary", "")}
+    except Exception:
+        return {"thread_id": thread_id, "summary": ""}
 
 
 def set_email_summary(message_id: str, summary: str) -> dict:
     """Store or update the summary for the email thread containing this message.
 
-    Resolves message_id → thread_id, then writes the summary to gateway
-    agent_state keyed 'thread:{thread_id}'.
+    Resolves message_id → thread_id via local meta, then writes
+    threads/{xx}/{thread_id}.json. Empty summary deletes the thread file
+    (same semantics as the former gateway endpoint).
     """
     if not message_id or not message_id.strip():
         return {"success": False, "error_code": "MESSAGE_ID_REQUIRED"}
@@ -1161,14 +1163,27 @@ def set_email_summary(message_id: str, summary: str) -> dict:
     if len(summary) > 2000:
         return {"success": False, "error_code": "SUMMARY_TOO_LONG", "max_length": 2000}
 
-    config = _load_profile_config()
-    if not config:
-        return {"success": False, "error": "agentmail not configured for this profile"}
-    client = _GatewayClient(config["gateway_url"], config["api_key"])
-
-    result = client.put_thread_summary(message_id, summary)
-    if result.get("status") == 200:
+    thread_id = _resolve_thread_id(message_id)
+    if not summary.strip():
+        # 空 summary = 删除线程(与原 gateway 语义一致)
+        try:
+            _thread_path(thread_id).unlink(missing_ok=True)
+        except Exception:
+            pass
         return {"success": True}
-    error = result.get("error", f"HTTP {result.get('status')}")
-    return {"success": False, "error": f"Failed to store summary: {error}"}
+    data = {
+        "thread_id": thread_id,
+        "summary": summary,
+        "updated_at": datetime.now().isoformat(),
+    }
+    try:
+        p = _thread_path(thread_id)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2),
+                       encoding="utf-8")
+        tmp.replace(p)
+    except Exception as e:
+        return {"success": False, "error": f"Failed to store summary: {e}"}
+    return {"success": True}
 
