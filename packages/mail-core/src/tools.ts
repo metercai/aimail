@@ -22,7 +22,7 @@ export interface ToolResult {
 
 let _identityOverride = ''
 
-/** Set outbound X-Agentmail-Agent (real detected value only, no guessing). */
+/** Set outbound X-AIMail-Agent (real detected value only, no guessing). */
 export function setAgentIdentity(v: string): void {
   _identityOverride = v
 }
@@ -249,7 +249,7 @@ export async function sendMail(ctx: ToolCtx, args: SendMailArgs): Promise<ToolRe
     body: args.body,
     sender,
     messageId: generatedMid,
-    headers: { 'X-Agentmail-Agent': agentIdentity() },
+    headers: { 'X-AIMail-Agent': agentIdentity() },
   }
   if (ccList?.length) sendOpts.cc = ccList.join(',')
   if (attachmentIds.length) sendOpts.attachments = attachmentIds
@@ -298,8 +298,13 @@ export async function manageContacts(ctx: ToolCtx, args: ManageContactsArgs): Pr
   switch (args.action) {
     case 'check': {
       if (!args.address) return { success: false, error: 'address is required for check' }
+      // gateway returns {whitelisted, domain_addr, value, direction} — read
+      // the `whitelisted` field (mirror Python check_whitelist_value; the
+      // former `in_contacts` read was always false → D6).
       const r = await client.checkWhitelist(emailAddr, args.address, direction)
-      return { success: true, in_contacts: r.in_contacts ?? false, direction: r.direction ?? direction, address: args.address }
+      const whitelisted = r.status === 200 && r.whitelisted === true
+      const entryDirection = (whitelisted && typeof r.direction === 'string' && r.direction) || direction
+      return { success: true, in_contacts: whitelisted, direction: entryDirection, address: args.address }
     }
     case 'add': {
       if (!args.address) return { success: false, error: 'address is required for add' }
@@ -353,20 +358,31 @@ export async function contactProfile(ctx: ToolCtx, args: ContactProfileArgs): Pr
   const cfg = await requireConfig(ctx.systemId, ctx.email)
   const client = new GatewayClient(cfg.gateway_url, cfg.api_key)
   if (args.address) {
+    // exact lookup — gateway returns {address, profile} (404 → none)
     const r = await client.contactGet(args.address)
-    if (r.status === 200) return { success: true, profile: r.profile ?? r }
-    if (r.status === 404) return { success: true, profile: null }
+    if (r.status === 200) return { success: true, address: args.address, profile: r.profile ?? null }
+    if (r.status === 404) return { success: true, address: args.address, profile: null }
     return { success: false, error: r.error ?? `HTTP ${r.status}` }
   }
   const name = args.name
   if (!name) {
     return { success: false, error: 'name is required for name lookup' }
   }
-  const r = await client.contactSearch(name)
+  // server-side search — gateway returns {results: [{address, profile}]}
+  const r = await client.contactSearch(name.trim())
   if (r.status !== 200) {
     return { success: false, error: r.error ?? `HTTP ${r.status}` }
   }
-  return { success: true, data: r.data ?? r }
+  const results = (Array.isArray(r.results) ? r.results : []) as Array<{ address: string; profile?: string }>
+  if (results.length === 0) {
+    return { success: true, address: '', profile: null, searched_name: name }
+  }
+  if (results.length === 1) {
+    const hit = results[0]!
+    return { success: true, address: hit.address, profile: hit.profile ?? null }
+  }
+  // multiple matches — ambiguous, surface the candidates (Python parity)
+  return { success: true, ambiguous: true, candidates: results.map(x => x.address) }
 }
 
 export async function setContactProfile(ctx: ToolCtx, args: { address: string; profile: string }): Promise<ToolResult> {
