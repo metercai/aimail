@@ -8,7 +8,7 @@ import { promises as fsp } from 'node:fs'
 import * as path from 'node:path'
 import { GatewayClient } from './gateway.js'
 import { AIMAIL_HOME, loadAgentConfig } from './config.js'
-import { readLocalMeta, saveLocalMeta } from './meta.js'
+import { readLocalMeta, saveLocalMeta, saveOutboundSnapshot } from './meta.js'
 import type { AgentConfig } from './types.js'
 
 export interface ToolResult {
@@ -162,8 +162,12 @@ export async function sendMail(ctx: ToolCtx, args: SendMailArgs): Promise<ToolRe
   const cfg = await requireConfig(ctx.systemId, ctx.email)
   const client = new GatewayClient(cfg.gateway_url, cfg.api_key)
 
-  const to = Array.isArray(args.to) ? args.to.join(', ') : args.to
-  const cc = Array.isArray(args.cc) ? args.cc.join(', ') : args.cc
+  // Recipients kept as lists end-to-end (no join→split round-trip); joined
+  // with ',' only at send time (mirrors Python to_list/cc_list).
+  const toList = (Array.isArray(args.to) ? args.to : String(args.to).split(','))
+    .map(s => s.trim()).filter(Boolean)
+  const ccList = args.cc == null ? undefined
+    : (Array.isArray(args.cc) ? args.cc : String(args.cc).split(',')).map(s => s.trim()).filter(Boolean)
 
   // Resolve message meta once (threading + persona sender)
   const msgMeta = args.message_id ? await loadMessageMeta(cfg.email, args.message_id) : undefined
@@ -173,9 +177,6 @@ export async function sendMail(ctx: ToolCtx, args: SendMailArgs): Promise<ToolRe
   if (msgMeta?.my_amail_addr && typeof msgMeta.my_amail_addr === 'string' && msgMeta.my_amail_addr.includes('@')) {
     sender = msgMeta.my_amail_addr
   }
-
-  const toList = to.split(',').map(s => s.trim()).filter(Boolean)
-  const ccList = cc ? cc.split(',').map(s => s.trim()).filter(Boolean) : undefined
 
   const isForward = Boolean(args.message_id && args.subject && args.subject.toLowerCase().startsWith('fw:'))
 
@@ -194,10 +195,12 @@ export async function sendMail(ctx: ToolCtx, args: SendMailArgs): Promise<ToolRe
   // attachments: resolve → size check → upload
   const uploadErrors: string[] = []
   const attachmentIds: Array<{ id: string }> = []
+  let resolvedPaths: string[] = []
   if (args.attachments?.length) {
-    const { resolved, errors } = await resolveAttachments(args.attachments)
-    uploadErrors.push(...errors)
-    for (const p of resolved) {
+    const r = await resolveAttachments(args.attachments)
+    resolvedPaths = r.resolved
+    uploadErrors.push(...r.errors)
+    for (const p of resolvedPaths) {
       try {
         const st = await fsp.stat(p)
         if (st.size > ATTACH_MAX_SIZE_MB * 1024 * 1024) {
@@ -220,6 +223,15 @@ export async function sendMail(ctx: ToolCtx, args: SendMailArgs): Promise<ToolRe
     return { success: false, error: 'All attachments failed', details: uploadErrors }
   }
 
+  // ── 先存再调: meta 常写 + outbox 快照按开关, 随后才调 API ──
+  // Message-ID 本地生成并传给 gateway, 本地值即线上值(不再回填 API 返回值)。
+  const generatedMid = buildMessageId(cfg)
+  await storeMessageMeta(cfg.email, generatedMid, references, sender, 'outbound')
+  if (cfg.save_raw_snapshots) {
+    await saveOutboundSnapshot(cfg.email, generatedMid, sender, toList.join(','), args.subject, args.body,
+      ccList ?? [], resolvedPaths, attachmentIds, inReplyTo ?? '', references ?? '')
+  }
+
   const sendOpts: {
     to: string
     subject: string
@@ -236,7 +248,7 @@ export async function sendMail(ctx: ToolCtx, args: SendMailArgs): Promise<ToolRe
     subject: args.subject,
     body: args.body,
     sender,
-    messageId: buildMessageId(cfg),
+    messageId: generatedMid,
     headers: { 'X-Agentmail-Agent': agentIdentity() },
   }
   if (ccList?.length) sendOpts.cc = ccList.join(',')
@@ -246,16 +258,12 @@ export async function sendMail(ctx: ToolCtx, args: SendMailArgs): Promise<ToolRe
 
   const result = await client.sendMail(sendOpts)
 
-  const outMsgId = (result.message_id as string) || (result.email_id as string) || ''
-  if (outMsgId) {
-    await storeMessageMeta(cfg.email, outMsgId, references, sender, 'outbound')
-  }
-
-  // auto-bootstrap thread summary for new (non-reply) emails
+  // auto-bootstrap thread summary for new (non-reply) emails — keyed on the
+  // local generated mid (mirrors Python: `if not message_id:`)
   let threadBootstrapped = false
-  if (outMsgId && !args.message_id) {
+  if (!args.message_id) {
     try {
-      await setEmailSummary(ctx, { message_id: outMsgId, summary: `Subject: ${args.subject}\nStatus: awaiting response` })
+      await setEmailSummary(ctx, { message_id: generatedMid, summary: `Subject: ${args.subject}\nStatus: awaiting response` })
       threadBootstrapped = true
     } catch {
       /* non-fatal */

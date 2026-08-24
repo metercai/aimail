@@ -31,6 +31,8 @@ export interface AgentConfig {
   session_id?: string
   /** dsh: preset name (definition layer) */
   preset?: string
+  /** gate for raw out-/in- snapshot writes (default false); meta is ALWAYS written */
+  save_raw_snapshots?: boolean
   /** internal: absolute path of this config file */
   _config_path?: string
 }

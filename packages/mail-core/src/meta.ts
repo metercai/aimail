@@ -118,3 +118,73 @@ export async function resolveThreadId(email: string, messageId: string): Promise
   const meta = await readLocalMeta(email, messageId)
   return meta?.thread_id || (messageId || '').trim()
 }
+
+/**
+ * Save an outbound email snapshot to {leaf}/{yyyymm}/out-{safe}.json, copying
+ * resolved attachments to {leaf}/{yyyymm}/attch/{safe}/. 1:1 port of Python
+ * `_save_outbound_snapshot`. Gated by save_raw_snapshots at the call site
+ * (meta is always written regardless). Failures are non-fatal (warn only).
+ */
+export async function saveOutboundSnapshot(
+  email: string,
+  outMsgId: string,
+  sender: string,
+  to: string,
+  subject: string,
+  body: string,
+  ccList: string[],
+  resolvedPaths: string[],
+  attachmentIds: Array<{ id: string }>,
+  inReplyTo: string,
+  references: string,
+): Promise<void> {
+  const safeMid = sanitizeMessageId(outMsgId)
+  const now = new Date()
+  const yyyymm = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`
+  const leaf = agentMailDir(email)
+  const snapshotDir = path.join(leaf, yyyymm)
+  const snapshotPath = path.join(snapshotDir, `out-${safeMid}.json`)
+
+  const localAtts: string[] = []
+  if (resolvedPaths.length) {
+    const attchDir = path.join(snapshotDir, 'attch', safeMid)
+    try {
+      await fs.mkdir(attchDir, { recursive: true })
+      for (const src of resolvedPaths) {
+        try {
+          const name = path.basename(src)
+          const dest = path.join(attchDir, name)
+          await fs.copyFile(src, dest)
+          localAtts.push(dest)
+        } catch {
+          /* skip unreadable */
+        }
+      }
+    } catch (e) {
+      console.warn(`Failed to copy outbound attachments for ${safeMid}: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
+  const payload = {
+    message_id: outMsgId,
+    direction: 'outbound',
+    sender,
+    to,
+    cc: ccList.length ? ccList.join(', ') : '',
+    subject,
+    body,
+    attachments: localAtts,
+    attachment_ids: attachmentIds,
+    in_reply_to: inReplyTo,
+    references,
+    sent_at: now.toISOString(),
+  }
+  try {
+    await fs.mkdir(snapshotDir, { recursive: true })
+    const tmp = `${snapshotPath}.tmp`
+    await fs.writeFile(tmp, JSON.stringify(payload, null, 2), 'utf-8')
+    await fs.rename(tmp, snapshotPath)
+  } catch (e) {
+    console.warn(`Failed to save outbound email snapshot for ${safeMid}: ${e instanceof Error ? e.message : String(e)}`)
+  }
+}

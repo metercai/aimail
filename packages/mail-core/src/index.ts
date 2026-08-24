@@ -36,6 +36,7 @@ export {
   saveLocalMeta,
   readLocalMeta,
   resolveThreadId,
+  saveOutboundSnapshot,
 } from './meta.js'
 export type { LocalMeta } from './meta.js'
 export {
