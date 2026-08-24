@@ -41,7 +41,7 @@ else:
     _tools._AGENT_IDENTITY_OVERRIDE = "unknown/unknown"
     print(
         "[amail_mcp] WARNING: AIMAIL_AGENT_IDENTITY not set — "
-        "X-Agentmail-Agent will report unknown/unknown. Set it in the "
+        "X-AIMail-Agent will report unknown/unknown. Set it in the "
         "MCP client config (see scripts/<platform>/install-mcp.sh).",
         file=sys.stderr,
     )

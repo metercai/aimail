@@ -111,7 +111,7 @@ class _GatewayClient:
         if references:
             hdrs["References"] = references
         if headers:
-            # Caller-supplied headers (e.g. X-Agentmail-Agent) merged in.
+            # Caller-supplied headers (e.g. X-AIMail-Agent) merged in.
             hdrs.update(headers)
         if hdrs:
             payload["headers"] = hdrs
@@ -393,7 +393,7 @@ def _detect_agent_identity() -> str:
 
 
 def _agent_identity() -> str:
-    """X-Agentmail-Agent header value: {platform}/{version}.
+    """X-AIMail-Agent header value: {platform}/{version}.
 
     Only real detection results are reported: the host agent system is
     identified by walking the _AGENT_DETECTORS registry (different
@@ -528,7 +528,7 @@ def send_mail(
         references=references,
         sender=sender,
         message_id=generated_mid,
-        headers={"X-Agentmail-Agent": _agent_identity()},
+        headers={"X-AIMail-Agent": _agent_identity()},
     )
 
     # Auto-bootstrap thread summary for new (non-reply) emails

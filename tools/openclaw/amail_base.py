@@ -44,11 +44,11 @@ _amail_bootstrap()
 
 import aimail_base as _ab          # noqa: E402  (Hermes 复用层)
 import gateway_api as _gw             # noqa: E402  (标准 API 客户端)
-import aimail_tools as _tools      # noqa: E402  (X-Agentmail-Agent 身份注入)
+import aimail_tools as _tools      # noqa: E402  (X-AIMail-Agent 身份注入)
 # 共享核心目录(aimail_board.py 等同目录)——取导入源实际位置,与部署形态无关
 _TOOLS = os.path.dirname(os.path.abspath(_ab.__file__))
 
-# ── X-Agentmail-Agent 身份注入 ───────────────────────────────────
+# ── X-AIMail-Agent 身份注入 ────────────────────────────────────────
 # 多 agent 共存机器上,aimail_tools 的"目录存在"自动检测会把
 # OpenClaw 进程误判为 hermes(~/.hermes 目录同样存在且 registry 在前)。
 # 适配层显式注入 OpenClaw 身份:openclaw/{CLI 版本}。

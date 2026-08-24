@@ -88,7 +88,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
         # ── 1. HMAC 验签 ──
         sig = self.headers.get("X-Webhook-Signature", "")
-        ts = self.headers.get("X-Mailrelay-Timestamp", "")
+        ts = self.headers.get("X-AIMail-Timestamp", "") or self.headers.get("X-Mailrelay-Timestamp", "")  # 旧名过渡回退
         secret = self.bridge["webhook_secret"]
         if not verify_hmac(secret, body, sig, ts):
             self._send_json(401, {"error": "bad signature"})
@@ -100,10 +100,10 @@ class BridgeHandler(BaseHTTPRequestHandler):
         # pong 由共享 send_pong 出站,回环走完整入站链(设计意图)。
         # 预处理需要 agent 配置注入(set_agent_context)——先按收件地址
         # 解析 agent,再调共享链(与 poll 批级调用同入口)。
-        # 路由目标 = X-Amail-Email 头(网关/bridge 按每份投递目标注入的
-        # rcpt 地址)。payload.to 现在是过滤后的全量列表(外投在前),
+        # 路由目标 = X-AIMail-Email 头(网关/bridge 按每份投递目标注入的
+        # rcpt 地址; 旧名 X-Amail-Email 过渡回退)。payload.to 现在是过滤后的全量列表(外投在前),
         # to[0] 常为外部地址,不能作为路由依据——仅当头缺失时兜底。
-        email = self.headers.get("X-Amail-Email", "")
+        email = self.headers.get("X-AIMail-Email", "") or self.headers.get("X-Amail-Email", "")  # 旧名过渡回退
         if not email:
             email = payload.get("to", "")
             if isinstance(email, list):

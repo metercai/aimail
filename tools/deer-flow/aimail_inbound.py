@@ -101,10 +101,10 @@ async def aimail_inbound(request: Request) -> JSONResponse:
         return JSONResponse({"error": "invalid body"}, status_code=400)
 
     # ── 1. 收件地址 + 验签(per-address webhook_secret)──
-    # 路由目标 = X-Amail-Email 头(网关/bridge 按每份投递目标注入的 rcpt 地址)。
-    # payload.to 现在是过滤后的全量列表(外投在前),to[0] 常为外部地址,
-    # 不能作为路由依据——仅当头缺失时兜底。
-    email = request.headers.get("X-Amail-Email", "")
+    # 路由目标 = X-AIMail-Email 头(网关/bridge 按每份投递目标注入的 rcpt 地址;
+    # 旧名 X-Amail-Email 过渡回退)。payload.to 现在是过滤后的全量列表(外投在前),
+    # to[0] 常为外部地址,不能作为路由依据——仅当头缺失时兜底。
+    email = request.headers.get("X-AIMail-Email", "") or request.headers.get("X-Amail-Email", "")
     if not email and isinstance(payload, dict):
         email = payload.get("to", "")
         if isinstance(email, list):

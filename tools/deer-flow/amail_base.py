@@ -9,7 +9,7 @@
 共享核心(tools/aimail_base)已提供平台无关 set_agent_context
 (按 agentmail.json 布局扫描),本适配层在 OpenClaw 基础上仅做:
   - 转发共享函数(与 OpenClaw 同款)
-  - 注入 DeerFlow 身份(X-Agentmail-Agent: deerflow/...)
+  - 注入 DeerFlow 身份(X-AIMail-Agent: deerflow/...)
 
 入站(2026-08-18 重构):预处理并入 DeerFlow 本地 gateway(8001)进程,
 aimail_inbound router 直接 import 本适配层获得注入点;独立接收进程
@@ -50,7 +50,7 @@ def _amail_bootstrap():
 _amail_bootstrap()
 
 import aimail_base as _ab          # noqa: E402  (共享核心)
-import aimail_tools as _tools      # noqa: E402  (X-Agentmail-Agent 身份注入)
+import aimail_tools as _tools      # noqa: E402  (X-AIMail-Agent 身份注入)
 
 
 # ── DeerFlow 身份检测(只报真实检测结果)───────────────────────────
