@@ -17,6 +17,34 @@ import { registerBoardGateway } from './board.js'
 import type { AgentConfig, EnrichedPayload, InboundPayload } from './types.js'
 import type { ToolCtx, ToolResult } from './tools.js'
 
+// ── inbound routing (mirror Python bridge routing — Q3) ─────────
+// The gateway/bridge injects a per-recipient X-AIMail-Email header on each
+// forwarded delivery. payload.to is the FILTERED full list (external
+// recipients first), so to[0] is often an external address and must NOT
+// drive routing. The header is authoritative when present; payload.to is
+// only a fallback when the header is absent.
+
+/**
+ * Resolve the authoritative inbound route address from HTTP headers.
+ * New name X-AIMail-Email first, legacy X-Amail-Email as the transition
+ * fallback (mirrors the Python bridge). Case-insensitive (node lowercases
+ * header names; direct callers may pass mixed case). Empty string when
+ * absent — the caller then falls back to payload.to.
+ */
+export function routeAddressFromHeaders(headers: Record<string, unknown>): string {
+  const pick = (names: Set<string>): string => {
+    for (const [k, v] of Object.entries(headers)) {
+      if (!names.has(k.toLowerCase())) continue
+      if (typeof v === 'string' && v.trim()) return v.trim()
+      if (Array.isArray(v)) {
+        for (const x of v) if (typeof x === 'string' && x.trim()) return x.trim()
+      }
+    }
+    return ''
+  }
+  return pick(new Set(['x-aimail-email'])) || pick(new Set(['x-amail-email']))
+}
+
 // ── ping/pong contract (never diverge) ─────────────────────────
 
 export const PING_PREFIX = '__agentmail_ping__:'

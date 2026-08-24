@@ -17,7 +17,7 @@ import { promises as fs } from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { createHash } from 'node:crypto'
-import { processInboundMail, fillTemplate } from '../src/preprocess.js'
+import { processInboundMail, fillTemplate, routeAddressFromHeaders } from '../src/preprocess.js'
 import { readLocalMeta, localMetaPath } from '../src/meta.js'
 import { cleanAddr, systemDir } from '../src/config.js'
 import type { InboundPayload } from '../src/types.js'
@@ -194,5 +194,43 @@ describe('inbound local meta (always written)', () => {
 describe('fillTemplate', () => {
   it('replaces all occurrences of each {{KEY}}', () => {
     expect(fillTemplate('{{A}}-{{B}}-{{A}}', { A: 'x', B: 'y' })).toBe('x-y-x')
+  })
+})
+
+describe('routeAddressFromHeaders (Q3 inbound routing)', () => {
+  it('reads X-AIMail-Email (new canonical name)', () => {
+    expect(routeAddressFromHeaders({ 'x-aimail-email': 'agent1@token.tm' })).toBe('agent1@token.tm')
+  })
+
+  it('falls back to legacy X-Amail-Email when the new name is absent', () => {
+    expect(routeAddressFromHeaders({ 'x-amail-email': 'agent1@token.tm' })).toBe('agent1@token.tm')
+  })
+
+  it('prefers the new name over the legacy when both are present', () => {
+    expect(
+      routeAddressFromHeaders({
+        'x-aimail-email': 'new@token.tm',
+        'x-amail-email': 'old@token.tm',
+      }),
+    ).toBe('new@token.tm')
+  })
+
+  it('is case-insensitive (node lowercases, callers may not)', () => {
+    expect(routeAddressFromHeaders({ 'X-AIMail-Email': 'agent1@token.tm' })).toBe('agent1@token.tm')
+    expect(routeAddressFromHeaders({ 'X-Amail-EMAIL': 'agent1@token.tm' })).toBe('agent1@token.tm')
+  })
+
+  it('handles array header values and trims whitespace', () => {
+    expect(routeAddressFromHeaders({ 'x-aimail-email': ['  agent1@token.tm  '] })).toBe('agent1@token.tm')
+  })
+
+  it('returns empty string when neither header is present (caller falls back to payload.to)', () => {
+    expect(routeAddressFromHeaders({ from: 'a@b', to: 'c@d' })).toBe('')
+    expect(routeAddressFromHeaders({})).toBe('')
+  })
+
+  it('skips empty values (bridge omits the header on batch deliveries)', () => {
+    expect(routeAddressFromHeaders({ 'x-aimail-email': '' })).toBe('')
+    expect(routeAddressFromHeaders({ 'x-aimail-email': '   ' })).toBe('')
   })
 })

@@ -14,7 +14,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { processInboundMail, verifySignature, type InboundPayload } from '@aimail/mail-core'
+import { processInboundMail, verifySignature, routeAddressFromHeaders, type InboundPayload } from '@aimail/mail-core'
 import type { MailService } from './mail-service.js'
 
 export const name = 'mail-inbound'
@@ -73,11 +73,22 @@ export function apply(ctx: Context, config: Config = {}): () => void {
         return
       }
 
-      // Resolve binding by recipient address (exact → persona-strip fallback)
+      // Inbound routing (Q3 — mirror Python bridge routing): the per-delivery
+      // target is authoritative. The bridge injects X-AIMail-Email (legacy
+      // X-Amail-Email fallback) on each single-delivery POST; payload.to is
+      // the FILTERED full list (external recipients first), so to[0] is often
+      // an external address. Use the header when present; only iterate toRaw
+      // when the header is absent (batch deliveries carry no such header).
+      const headers = {
+        ...(req.headers as Record<string, string | string[]>),
+        ...(payload.headers ?? {}),
+      } as Record<string, unknown>
+      const routeAddr = routeAddressFromHeaders(headers)
       const toRaw = Array.isArray(payload.to) ? payload.to : typeof payload.to === 'string' ? [payload.to] : []
+      const routeCandidates: unknown[] = routeAddr ? [routeAddr] : toRaw
       let cfg
       let agentAddr = ''
-      for (const t of toRaw) {
+      for (const t of routeCandidates) {
         const addr = String(t).trim()
         if (!addr.includes('@')) continue
         const c = await mail.resolveByRecipient(addr)
@@ -88,7 +99,7 @@ export function apply(ctx: Context, config: Config = {}): () => void {
         }
       }
       if (!cfg) {
-        writeJson(res, 200, { status: 'no_agent', detail: `no binding for ${toRaw.join(',')}` })
+        writeJson(res, 200, { status: 'no_agent', detail: `no binding for ${routeAddr || toRaw.join(',')}` })
         return
       }
 
@@ -100,7 +111,6 @@ export function apply(ctx: Context, config: Config = {}): () => void {
       }
 
       // TS preprocess chain (13 steps) + ping/pong intercept
-      const headers = { ...(req.headers as Record<string, string | string[]>), ...(payload.headers ?? {}) }
       const result = await processInboundMail(payload, headers as Record<string, string>, {
         systemId: cfg.system_id,
         email: cfg.email,

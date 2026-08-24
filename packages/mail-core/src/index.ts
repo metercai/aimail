@@ -63,4 +63,5 @@ export {
   parseAmailPersona,
   baseEmail,
   fillTemplate,
+  routeAddressFromHeaders,
 } from './preprocess.js'

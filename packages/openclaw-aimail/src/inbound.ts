@@ -14,7 +14,7 @@
  * api.runtime.gateway.request (explicit agent targeting) fallback (R3).
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { verifySignature, processInboundMail, type InboundPayload } from '@aimail/mail-core'
+import { verifySignature, processInboundMail, routeAddressFromHeaders, type InboundPayload } from '@aimail/mail-core'
 import type { OpenClawPluginApi } from 'openclaw/plugin-sdk/plugin-entry'
 import { resolveByRecipient } from '@aimail/mail'
 import { readPointer } from './identity.js'
@@ -96,33 +96,38 @@ export function createInboundHandler(api: OpenClawPluginApi) {
         return
       }
 
-      // Recipient routing (exact → persona-strip fallback)
+      // Inbound routing (Q3 — mirror Python bridge routing): the per-delivery
+      // target is authoritative. The bridge injects X-AIMail-Email (legacy
+      // X-Amail-Email fallback) on each single-delivery POST; payload.to is
+      // the FILTERED full list (external recipients first), so to[0] is often
+      // an external address. Use the header when present; only iterate toRaw
+      // when the header is absent (batch deliveries carry no such header).
+      const headers = {
+        ...(req.headers as Record<string, string | string[]>),
+        ...(payload.headers ?? {}),
+      } as Record<string, unknown>
+      const routeAddr = routeAddressFromHeaders(headers)
       const toRaw = Array.isArray(payload.to)
         ? payload.to
         : typeof payload.to === 'string'
           ? [payload.to]
           : []
+      const routeCandidates: unknown[] = routeAddr ? [routeAddr] : toRaw
       let agentAddr = ''
-      for (const t of toRaw) {
+      let cfg: Awaited<ReturnType<typeof resolveByRecipient>>
+      for (const t of routeCandidates) {
         const addr = String(t).trim()
         if (!addr.includes('@')) continue
-        const cfg = await resolveByRecipient(addr)
-        if (cfg) {
+        const c = await resolveByRecipient(addr)
+        if (c) {
+          cfg = c
           agentAddr = addr
           break
         }
       }
-      // Fall back to the pointer email when no recipient matched (e.g. the
-      // bridge forwarded a bare address) — keep no_agent intercept semantics.
-      let cfg: Awaited<ReturnType<typeof resolveByRecipient>>
-      for (const t of toRaw) {
-        cfg = await resolveByRecipient(String(t).trim())
-        if (cfg) {
-          agentAddr = String(t).trim()
-          break
-        }
-      }
       if (!cfg) {
+        // Fall back to the pointer email when no recipient matched (e.g. the
+        // bridge forwarded a bare address) — keep no_agent intercept semantics.
         const ptr = await readPointer()
         if (ptr.email) cfg = await resolveByRecipient(ptr.email)
         if (cfg && !agentAddr) agentAddr = ptr.email ?? ''
@@ -130,7 +135,7 @@ export function createInboundHandler(api: OpenClawPluginApi) {
       if (!cfg) {
         writeJson(res, 200, {
           status: 'no_agent',
-          detail: `no binding for ${toRaw.join(',')}`,
+          detail: `no binding for ${routeAddr || toRaw.join(',')}`,
         })
         return
       }
@@ -143,10 +148,6 @@ export function createInboundHandler(api: OpenClawPluginApi) {
       }
 
       // TS preprocess chain (13 steps) + ping/pong intercept
-      const headers = {
-        ...(req.headers as Record<string, string | string[]>),
-        ...(payload.headers ?? {}),
-      }
       const result = await processInboundMail(
         payload,
         headers as Record<string, string>,
