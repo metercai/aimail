@@ -1,6 +1,6 @@
 # DSH-PREPROCESS-CONTRACT — dsh TS 预处理逐行对照基准
 
-> 状态:P0 产出(2026-08-18)
+> 状态:P0 产出(2026-08-18);2026-08-24 对齐修订(meta/threads 本地化、outbox 先存再调、X-AIMail-* 头改名、Q3 头路由、D8 board_id 派生、D11 role 模板)
 > 用途:dsh `mail-core` TS 实现入站预处理全链的**唯一对照基准**——TS 重写只换语言,不换行为。
 > 基准源:agentmail 仓库 `tools/aimail_base.py` 的 `preprocess_mail_payload` / `process_inbound_mail` / `handle_ping_pong` / `parse_amail_persona`(行号随版本演进,以语义为准)。
 > 铁律:任一字段名/事件名/前缀/路径与本文不一致 = 契约破坏;验收以 `agentmail ping` 三阶段日志 + welcome 双向为锁。
@@ -48,10 +48,11 @@ headers 必读键:`to` / `cc` / `from`(显示名解析源)。
 | 13 | 存储 + 日志 | `store_inbound_message(message_id, references, my_amail_addr, preprocessed_payload=result)`(save_raw_snapshots=true 时存快照)+ `_log_amail("inbound", from, my_addr, subject)` | 快照 `raw_email/{addr}/{yyyymm}/in-{mid}.json`;日志行 |
 
 附加(board,仅在对应字段存在时):
-- 步骤 12.5 `[WHOAMI]` 主题前缀 → `_whoami_prompt`(模板填充)+ `_whoami_update_public=true`
-- 步骤 12.6 `board_id` + `board_role` → `_role_prompt`(模板填充)+ `_a2a_session_key = "a2a:{board_id}:{from}"`
+- 步骤 12.5 `[WHOAMI]` 主题前缀 → `_whoami_prompt`(role 文件 whoami.md 模板填充)+ `_whoami_update_public=true`,**early-return**(不再走 board extras 与 ping/pong 判定)
+- 步骤 12.6 `board_id` + `board_role` → `_role_prompt`(board 角色文件模板填充,三级查找:地址级 `{sid}/{addr}/role_prompt/{role}.md` → 系统级 `{sid}/board/role_prompt/{role}.md` → 兜底 `common.md`)+ `_a2a_session_key = "a2a:{board_id}:{from}"`
+- board_id 派生(board gateway 注册信):`sha256("{short}.a2a@{gw域名}")[:20]`,与 gateway `derive_board_id` 同算法;board_creds.json 存 `{gateway_url, token}`
 
-**dsh 差异点(允许,契约内明示)**:`store_inbound_message` 的 raw 快照/save_raw_snapshots 为 Python 侧本地存储——dsh 侧等价实现:无快照(save_raw_snapshots 不适用),但 `_log_amail` 日志事件必须保留(三阶段日志判定依赖)。
+**dsh 差异点(允许,契约内明示)**:本地存储已对齐——dsh 与 Python 同写 `meta/{xx}/{mid}.json` 常写(回复链依赖,不受快照开关控制)、`threads/{xx}/{tid}.json`(email_summary);raw 快照(in-/out-{mid}.json)受 save_raw_snapshots 开关控制(默认关);`_log_amail` 日志事件必须保留(三阶段日志判定依赖)。出站:sendMail 本地生成 Message-ID → 先存 meta 再调 API(先存再调,失败不回滚);写端头 `X-AIMail-Agent`(新名,gateway 白名单双名过渡);入站路由:bridge 单投注入 `X-AIMail-Email`(旧名 `X-Amail-Email` 过渡回退)为权威路由,头缺失才遍历 payload.to(批量投递无该头)。
 
 ## 3. 输出契约(富化后 payload,agent 可见)
 
@@ -67,7 +68,7 @@ headers 必读键:`to` / `cc` / `from`(显示名解析源)。
 | PONG_PREFIX | `__amail_pong__:`(agent 侧出站 pong 前缀;gateway send.rs P0 **精确匹配**拦截,不一致 pong 永不回环) |
 | 拦截时机 | 预处理全链**最后一步**(`handle_ping_pong` 在 `preprocess_mail_payload` 之后调用;中间任何一步失败 → 不回 pong) |
 | 判定 | subject 以 PING_PREFIX 开头 = ping;以 PONG_PREFIX 开头 = pong 回环 |
-| 响应 | ping → `send_pong(payload, ping_id)`:调 send_mail 回发 subject=`__amail_pong__:{ping_id}`;pong 回环 → 拦截吞掉 |
+| 响应 | ping → `send_pong(payload, ping_id)`:调 send_mail 回发 subject=`__amail_pong__:{ping_id}`,body=`{"ping_id": ..., "event": {"mail_id": ...}}`(pong 按原 mail_id 键控,回复链可解析);pong 回环 → 拦截吞掉 |
 | 三阶段事件 | `ping_intercepted`(agent 侧拦截入站 ping)→ `pong_sent`(agent 侧发出 pong)→ `pong_returned`(agent 侧收到回环 pong) |
 | 日志 | `_log_ping_event(dir, ping_id, payload, pong_status)`:每事件一行 JSON 落 `~/.agentmail/logs/agentmail.{cleaned_addr}.log`(cleaned_addr = 地址清洗,`.` 保留) |
 | 判定源 | ping_test 只信 agent 侧日志三事件(ping_intercepted / pong_sent / pong_returned 按 ping_id 配对) |
@@ -87,9 +88,11 @@ headers 必读键:`to` / `cc` / `from`(显示名解析源)。
 |------|------|
 | 日志 | `~/.agentmail/logs/agentmail.{cleaned_addr}.log` |
 | 附件 | `~/.agentmail/mail/{addr}/{yyyymm}/attch/{sanitized_mid}/`(Python `_agentmail_dir()`) |
-| 快照(可选) | `~/.agentmail/mail/{addr}/raw_email/{yyyymm}/in-{mid}.json`(Python `_raw_email_dir()`) |
+| meta(常写) | `~/.agentmail/mail/{addr}/meta/{前2位}/{mid}.json`(256 桶分片) |
+| threads | `~/.agentmail/mail/{addr}/threads/{前2位}/{tid}.json`(email_summary 本地化) |
+| 快照(可选,save_raw_snapshots=true) | 入站 `raw_email/{yyyymm}/in-{mid}.json`;出站 `{yyyymm}/out-{mid}.json` + 附件复制 `attch/{mid}/` |
 
-dsh 侧 TS 实现沿用同一 `~/.agentmail/` 根布局(附件/日志落盘与 Python 共享,便于运维与双测判定)。
+dsh 侧 TS 实现沿用同一 `~/.agentmail/` 根布局(附件/日志/meta/threads 落盘与 Python 共享,便于运维与双测判定);数据目录 env 统一为 `AIMAIL_HOME`(Python 侧旧名 `AGENTMAIL_HOME` 过渡兼容读)。
 
 ## 7. 契约验证(双测锁)
 
