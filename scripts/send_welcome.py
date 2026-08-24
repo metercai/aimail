@@ -2,8 +2,9 @@
 """send_welcome.py — 欢迎邮件端到端验证工具(各 agent 系统通用)。
 
 两种模式:
-  API 模式(默认): POST /api/v1/system/welcome, 由网关以固定系统发件人
-    postman@{网关域} 发送, to=agent 地址, cc=manager。agent 按正文指令
+  API 模式(默认): POST /api/v1/system/welcome, 唯一参数 to=agent 地址。
+    其余全部服务器固定: from=postman@{网关域}, subject/body 固定,
+    cc 由网关从 agent 的 manager_address 反查补充。agent 按正文指令
     reply-all 后, manager 先后收到两份邮件(welcome 原文 + Re: 回复),
     比旧模式只收到一份回复不突兀。回 postman 的邮件被网关系统 sink
     吸收(不触发未注册地址通知), 无风暴风险。
@@ -20,7 +21,8 @@
                指针文件 {agent-home}/.agentmail 提供 system_id/email
   --agent:      agent 标识(定位 mail 目录,默认从指针 email)
   --to:         直接指定收件地址(优先于 --agent/指针)
-  --manager:    cc/发件人(manager)地址,默认 config.manager_address
+  --manager:    SMTP 模式发件人(manager)地址,默认 config.manager_address
+               (API 模式无需——cc 由网关反查)
   --smtp:       显式走旧 SMTP 模式(默认走 API 模式)
   --timeout:    等待回复秒数(默认 120)
   --no-wait:    发送后不等待回复,直接退出
@@ -160,31 +162,12 @@ def _smtp_send(gateway_url: str, admin_key: str, agent_email: str,
 
 # ── 新 API 模式(默认)────────────────────────────────────────────
 
-WELCOME_BODY = """Welcome! Your AgentMail address has been set up and is now active.
 
-This is a system message from your mail relay, sent by the fixed system
-sender (postman@) — it is not a registered mailbox.
-
-To confirm your mailbox is fully operational (inbound delivery, agent
-processing, and outbound reply), please **reply-all** to this email with a
-short confirmation (e.g. your server's current time). Keep all original
-recipients in the reply (To + Cc).
-
---
-This confirms: ✓ Inbound delivery  ✓ Agent processing  ✓ Outbound reply
-"""
-
-
-def _api_send(gw_url: str, admin_key: str, recipient: str, manager: str,
-              subject: str, body: str) -> tuple:
-    """POST /api/v1/system/welcome。返回 (ok, email_id, message_id, err)。"""
+def _api_send(gw_url: str, admin_key: str, recipient: str) -> tuple:
+    """POST /api/v1/system/welcome。唯一参数 to; cc/subject/body 服务器固定。
+    返回 (ok, email_id, message_id, err)。"""
     url = f"{gw_url.rstrip('/')}/api/v1/system/welcome"
-    payload = json.dumps({
-        "to": [recipient],
-        "cc": [manager] if manager else [],
-        "subject": subject,
-        "body": body,
-    }).encode()
+    payload = json.dumps({"to": [recipient]}).encode()
     req = urllib.request.Request(url, data=payload, method="POST", headers={
         "X-Api-Key": admin_key,
         "Content-Type": "application/json",
@@ -294,9 +277,6 @@ def main() -> int:
         # 主 agent 地址,自适应共享域/非共享域(见 _main_agent_email)
         recipient = _main_agent_email(cfg)
 
-    if not manager:
-        print("✗ 无 manager 地址(需 --manager 或 config.manager_address)")
-        return 1
     if not gw_url:
         print("✗ Missing gateway_url")
         return 1
@@ -310,11 +290,9 @@ def main() -> int:
         print(f"  Gateway:     {gw_url}")
         print(f"  Mode:        API (system welcome, from postman@)")
         print(f"  To:          {recipient}")
-        print(f"  Cc:          {manager}")
+        print(f"  Cc:          (server-resolved from agent manager_address)")
 
-        ok, email_id, msg_id, err = _api_send(
-            gw_url, admin_key, recipient, manager,
-            "Welcome! Your amail integration is live", WELCOME_BODY)
+        ok, email_id, msg_id, err = _api_send(gw_url, admin_key, recipient)
         if not ok:
             print(f"✗ Welcome API send failed: {err}")
             return 1
@@ -330,6 +308,9 @@ def main() -> int:
         return 1
 
     # ── SMTP 模式(旧, --smtp 显式)──────────────────────────────
+    if not manager:
+        print("✗ SMTP 模式需 manager 地址(发件人): --manager 或 config.manager_address")
+        return 1
     # auth.local 认证 key:只用 agent 的 api_key(最小权限,无 admin_key
     # 回退——回退会破坏 1:1 语义)。agent api_key 是 64 位 hex。
     ak = ""
