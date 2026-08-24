@@ -8,13 +8,14 @@
  */
 import { promises as fsp } from 'node:fs'
 import * as path from 'node:path'
-import { createHmac } from 'node:crypto'
+import { createHmac, createHash } from 'node:crypto'
 import { GatewayClient } from './gateway.js'
-import { AIMAIL_HOME, cleanAddr, loadAgentConfig } from './config.js'
+import { AIMAIL_HOME, cleanAddr, loadAgentConfig, systemDir } from './config.js'
 import { sendMail, sanitizeMessageId } from './tools.js'
+import { saveLocalMeta } from './meta.js'
 import { registerBoardGateway } from './board.js'
 import type { AgentConfig, EnrichedPayload, InboundPayload } from './types.js'
-import type { ToolCtx } from './tools.js'
+import type { ToolCtx, ToolResult } from './tools.js'
 
 // ── ping/pong contract (never diverge) ─────────────────────────
 
@@ -139,7 +140,12 @@ async function downloadAttachments(
   cfg: AgentConfig,
 ): Promise<string[]> {
   if (!attachments?.length) return []
-  const attchDir = path.join(AIMAIL_HOME(), 'mail', cleanAddr(cfg.email), new Date().toISOString().slice(0, 7).replace('-', ''), 'attch', sanitizeMessageId(messageId || 'unknown'))
+  // Attachments land in the per-agent leaf dir:
+  // {leaf}/{yyyymm}/attch/{safe_mid}/ (mirror Python _agentmail_dir() layout —
+  // the leaf already encodes the address; yyyymm in LOCAL time like %Y%m).
+  const now = new Date()
+  const yyyymm = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`
+  const attchDir = path.join(AIMAIL_HOME(), 'mail', cleanAddr(cfg.email), yyyymm, 'attch', sanitizeMessageId(messageId || 'unknown'))
   await fsp.mkdir(attchDir, { recursive: true })
   const localPaths: string[] = []
   for (const att of attachments) {
@@ -182,22 +188,93 @@ async function convertToMarkdown(filePath: string): Promise<string> {
   }
 }
 
+// ── a2a_board role templates (mirror _read_role_file / fill_template /
+//    build_ctx; Q2 — dsh keeps the same role-file layout so the whoami.md /
+//    board role .md files authored for the Python side work unchanged) ──
+
+/** Replace {{KEY}} placeholders with ctx values (all occurrences). */
+export function fillTemplate(text: string, ctx: Record<string, string>): string {
+  let out = text
+  for (const [key, val] of Object.entries(ctx)) {
+    out = out.split(`{{${key}}}`).join(val)
+  }
+  return out
+}
+
+/**
+ * Read an a2a_board role file with the Python three-level lookup:
+ *   1. {home}/systems/{sid}/{addr}/role_prompt/{name}.md  (address override)
+ *   2. {home}/systems/{sid}/board/role_prompt/{name}.md   (system-level)
+ *   3. {home}/systems/{sid}/board/role_prompt/common.md   (fallback)
+ * Empty string when nothing is found.
+ */
+async function readRoleFile(cfg: AgentConfig, name: string): Promise<string> {
+  const sid = cfg.system_id || 'default'
+  const sysRoleDir = path.join(systemDir(sid), 'board', 'role_prompt')
+  if (cfg.email) {
+    const p = path.join(systemDir(sid), cleanAddr(cfg.email), 'role_prompt', `${name}.md`)
+    try {
+      return await fsp.readFile(p, 'utf-8')
+    } catch {
+      /* fall through */
+    }
+  }
+  try {
+    return await fsp.readFile(path.join(sysRoleDir, `${name}.md`), 'utf-8')
+  } catch {
+    /* fall through */
+  }
+  try {
+    return await fsp.readFile(path.join(sysRoleDir, 'common.md'), 'utf-8')
+  } catch {
+    return ''
+  }
+}
+
+/** Template context from the enriched payload (mirror build_ctx). */
+function buildBoardCtx(result: Record<string, unknown>): Record<string, string> {
+  return {
+    AGENTMAIL_ADDRESS: String(result.my_amail_addr ?? ''),
+    BOARD_ID: String(result.board_id ?? ''),
+    BOARD_ROLE: String(result.board_role ?? ''),
+    FROM_ROLE: String(result.from_role ?? ''),
+    INQUIRY_SENDER: String(result.from ?? ''),
+    INQUIRY_SUBJECT: String(result.subject ?? ''),
+    SOUL_MD_CONTENT: '', // Python injects per-platform (Hermes); dsh: none
+    SKILLS_LIST: '',     // Python injects per-platform (Hermes); dsh: none
+  }
+}
+
 // ── ping/pong handling ─────────────────────────────────────────
 
-async function sendPong(cfg: AgentConfig, payload: InboundPayload, pingId: string): Promise<void> {
+/**
+ * SHARED pong sender (mirror Python send_pong): body carries
+ * {"ping_id": ..., "event": {"mail_id": ...}} and the pong is keyed on the
+ * original mail_id so the reply threading resolves. Returns success; the
+ * pong_sent log carries the REAL outcome (ok/error), not a constant.
+ */
+async function sendPong(cfg: AgentConfig, payload: InboundPayload, pingId: string): Promise<boolean> {
+  const from = (payload.from as string) || ''
+  if (!from) return false
+  const mailId = String(payload.mail_id ?? '')
+  let res: ToolResult | undefined
   try {
-    await sendMail(
+    const pongArgs: { to: string; subject: string; body: string; message_id?: string } = {
+      to: from,
+      subject: `${PONG_PREFIX}${pingId}`,
+      body: JSON.stringify({ ping_id: pingId, event: { mail_id: mailId } }),
+    }
+    if (mailId) pongArgs.message_id = mailId
+    res = await sendMail(
       { systemId: cfg.system_id, email: cfg.email },
-      {
-        to: (payload.from as string) || '',
-        subject: `${PONG_PREFIX}${pingId}`,
-        body: '',
-        message_id: payload.message_id as string,
-      },
+      pongArgs,
     )
-  } catch {
-    /* pong best-effort */
+  } catch (e) {
+    await logPingEvent('pong_sent', pingId, payload, e instanceof Error ? e.message : String(e))
+    return false
   }
+  await logPingEvent('pong_sent', pingId, payload, res?.success ? 'ok' : String(res?.error ?? '?'))
+  return Boolean(res?.success)
 }
 
 /**
@@ -217,18 +294,28 @@ export async function processInboundMail(
     const gwMatch = /API:\s*(https?:\/\/\S+)/.exec(bodyRaw)
     const tokenMatch = /Token:\s*(bdt_\S+)/.exec(bodyRaw)
     if (gwMatch && gwMatch[1]) {
-      const boardIdMatch = /board[-_]?id[\s:]+(\w+)/i.exec(bodyRaw)
-      const bid = boardIdMatch?.[1] ?? ''
-      if (bid) registerBoardGateway(bid, gwMatch[1])
-      // token persistence (board_creds.json) when token present
-      if (tokenMatch?.[1] && ctx.systemId && ctx.email) {
-        try {
-          const credsPath = path.join(AIMAIL_HOME(), 'systems', ctx.systemId, cleanAddr(ctx.email), 'board_creds.json')
-          const existing = JSON.parse(await fsp.readFile(credsPath, 'utf-8').catch(() => '{}')) as Record<string, unknown>
-          existing[bid] = { token: tokenMatch[1] }
-          await fsp.writeFile(credsPath, JSON.stringify(existing, null, 2) + '\n', { mode: 0o600 })
-        } catch {
-          /* non-fatal */
+      const gatewayUrl = gwMatch[1].replace(/\/+$/, '')
+      // board_id must match the gateway's derive_board_id: sha256 of the FULL
+      // board address {short}.a2a@{gw-domain} [:20] — embeds the domain, so
+      // no cross-system collision (mirror Python _extract_board_gateway; the
+      // former body-regex guess was not the gateway's id).
+      const fromMatch = /(\S+)\.a2a@/.exec(fromRaw)
+      if (fromMatch?.[1]) {
+        const gwDomain = /:\/\/([^/]+)/.exec(gatewayUrl)?.[1] ?? ''
+        const boardEmail = `${fromMatch[1]}.a2a@${gwDomain}`
+        const bid = createHash('sha256').update(boardEmail, 'utf-8').digest('hex').slice(0, 20)
+        registerBoardGateway(bid, gatewayUrl)
+        // token persistence (board_creds.json) when token present
+        if (tokenMatch?.[1] && ctx.systemId && ctx.email) {
+          try {
+            const credsPath = path.join(systemDir(ctx.systemId), cleanAddr(ctx.email), 'board_creds.json')
+            const existing = JSON.parse(await fsp.readFile(credsPath, 'utf-8').catch(() => '{}')) as Record<string, unknown>
+            existing[bid] = { gateway_url: gatewayUrl, token: tokenMatch[1] }
+            await fsp.mkdir(path.dirname(credsPath), { recursive: true })
+            await fsp.writeFile(credsPath, JSON.stringify(existing, null, 2) + '\n', { mode: 0o600 })
+          } catch {
+            /* non-fatal */
+          }
         }
       }
     }
@@ -327,6 +414,27 @@ export async function processInboundMail(
   }
   result = cleaned
 
+  // step 12b: payload format guard (port of Python store_inbound_message's
+  // RAW-payload guard). dsh preprocesses INSIDE processInboundMail, so the
+  // live mis-format is the reverse of Python's: an ALREADY-enriched payload
+  // passed in (double preprocessing) — it carries 'recipients' and has no
+  // gateway 'mail_id' (stripped by the first pass).
+  if (!payload.mail_id && (payload as Record<string, unknown>).recipients) {
+    console.warn(
+      'processInboundMail received a preprocessed payload instead of the gateway RAW payload ' +
+      '(double preprocessing) — meta/log may be derived from stale fields.',
+    )
+  }
+
+  // step 12c: always-write local meta for inbound (回复链依赖, 不受快照开关
+  // 控制) — mirror Python store_inbound_message (meta/{xx}/{mid}.json).
+  const midRaw = (result.message_id as string) ?? ''
+  const myAddrMeta = result.my_amail_addr as string
+  if (midRaw && myAddrMeta) {
+    const refs = Array.isArray(payload.references) ? payload.references : []
+    await saveLocalMeta(cfg.email, midRaw, refs, myAddrMeta, 'inbound')
+  }
+
   // step 13: inbound log
   const mid = (result.message_id as string) ?? ''
   const myAddr = result.my_amail_addr as string
@@ -336,15 +444,21 @@ export async function processInboundMail(
     await logAmailInbound(cfg.email, fromHdr, myAddr, subjHdr)
   }
 
-  // board extras: [WHOAMI] / board_id+board_role
+  // board extras: [WHOAMI] / board_id+board_role (mirror Python — the
+  // [WHOAMI] branch early-returns, so board extras only run for non-whoami)
   const subj = subjectRaw.trim()
   if (subj.toUpperCase().startsWith('[WHOAMI]')) {
+    const whoamiRaw = await readRoleFile(cfg, 'whoami')
+    if (whoamiRaw) result._whoami_prompt = fillTemplate(whoamiRaw, buildBoardCtx(result))
     result._whoami_update_public = true
+    return result as unknown as EnrichedPayload
   }
-  const boardId = payload.board_id
-  const boardRole = payload.board_role
+  const boardId = (result.board_id as string) ?? ''
+  const boardRole = (result.board_role as string) ?? ''
   if (boardId && boardRole) {
-    result._a2a_session_key = `a2a:${boardId}:${payload.from ?? ''}`
+    const roleRaw = await readRoleFile(cfg, boardRole)
+    if (roleRaw) result._role_prompt = fillTemplate(roleRaw, buildBoardCtx(result))
+    result._a2a_session_key = `a2a:${boardId}:${(result.from as string) ?? ''}`
   }
 
   // ── LAST: ping/pong interception ──

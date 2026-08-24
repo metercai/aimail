@@ -62,4 +62,5 @@ export {
   logAmailInbound,
   parseAmailPersona,
   baseEmail,
+  fillTemplate,
 } from './preprocess.js'
