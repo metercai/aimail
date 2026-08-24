@@ -8,6 +8,7 @@ import { promises as fsp } from 'node:fs'
 import * as path from 'node:path'
 import { GatewayClient } from './gateway.js'
 import { AIMAIL_HOME, loadAgentConfig } from './config.js'
+import { readLocalMeta, saveLocalMeta } from './meta.js'
 import type { AgentConfig } from './types.js'
 
 export interface ToolResult {
@@ -51,39 +52,27 @@ function buildMessageId(cfg: AgentConfig): string {
   return `<${randomUUID().replace(/-/g, '')}@${domain}>`
 }
 
-export function sanitizeMessageId(messageId: string): string {
-  let mid = messageId.trim().replace(/^</, '').replace(/>$/, '')
-  for (const ch of '/\\:*?"<>|@ ') {
-    mid = mid.split(ch).join('_')
-  }
-  return mid
+// sanitizeMessageId is canonicalized in meta.ts (shared with the local meta
+// layer); re-exported here so existing importers (preprocess, index) keep working.
+export { sanitizeMessageId } from './meta.js'
+import type { LocalMeta } from './meta.js'
+
+// ── message meta (LOCAL meta/{xx}/{mid}.json, always written) ─────
+// Replaces the former gateway agent_state msg:{mid} key (removed gateway-side
+// in the 2026-08-24 localization refactor). Zero HTTP round-trips.
+
+async function loadMessageMeta(email: string, messageId: string): Promise<LocalMeta | undefined> {
+  return readLocalMeta(email, messageId)
 }
 
-// ── message meta (gateway agent_state, key msg:{id}) ───────────
-
-interface MsgMeta {
-  references: string[]
-  thread_id: string
-  [k: string]: unknown
-}
-
-async function loadMessageMeta(client: GatewayClient, messageId: string): Promise<MsgMeta | undefined> {
-  const r = await client.agentStateGet(`msg:${messageId.trim()}`)
-  const v = r.value ?? r.data
-  if (typeof v !== 'string' || !v) return undefined
-  try {
-    return JSON.parse(v) as MsgMeta
-  } catch {
-    return undefined
-  }
-}
-
-async function storeMessageMeta(client: GatewayClient, messageId: string, references?: string): Promise<void> {
-  const mid = messageId.trim()
-  if (!mid) return
-  const refs = (references ?? '').split(/\s+/).filter(Boolean)
-  const threadId = refs[0] || mid
-  await client.agentStatePut(`msg:${mid}`, JSON.stringify({ references: refs, thread_id: threadId }))
+async function storeMessageMeta(
+  email: string,
+  messageId: string,
+  references?: string,
+  myAmailAddr = '',
+  direction = 'outbound',
+): Promise<void> {
+  await saveLocalMeta(email, messageId, references, myAmailAddr, direction)
 }
 
 // ── attachment resolution (mirror _resolve_attachments) ────────
@@ -177,7 +166,7 @@ export async function sendMail(ctx: ToolCtx, args: SendMailArgs): Promise<ToolRe
   const cc = Array.isArray(args.cc) ? args.cc.join(', ') : args.cc
 
   // Resolve message meta once (threading + persona sender)
-  const msgMeta = args.message_id ? await loadMessageMeta(client, args.message_id) : undefined
+  const msgMeta = args.message_id ? await loadMessageMeta(cfg.email, args.message_id) : undefined
 
   // sender: dsh has no persona — base email (persona normalization contract)
   let sender = cfg.email
@@ -259,7 +248,7 @@ export async function sendMail(ctx: ToolCtx, args: SendMailArgs): Promise<ToolRe
 
   const outMsgId = (result.message_id as string) || (result.email_id as string) || ''
   if (outMsgId) {
-    await storeMessageMeta(client, outMsgId, references)
+    await storeMessageMeta(cfg.email, outMsgId, references, sender, 'outbound')
   }
 
   // auto-bootstrap thread summary for new (non-reply) emails

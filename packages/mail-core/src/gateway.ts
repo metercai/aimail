@@ -147,10 +147,6 @@ export class GatewayClient {
     return this.request('DELETE', `/api/v1/whitelists?${q}`)
   }
 
-  agentStateGet(key: string): Promise<GatewayResponse> {
-    return this.request('GET', `/api/v1/agent-state/${encodeURIComponent(key)}`)
-  }
-
   agentStatePut(key: string, value: string): Promise<GatewayResponse> {
     return this.request('PUT', `/api/v1/agent-state/${encodeURIComponent(key)}`, { value })
   }

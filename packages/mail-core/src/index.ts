@@ -26,9 +26,18 @@ export {
   setContactProfile,
   emailSummary,
   setEmailSummary,
-  sanitizeMessageId,
 } from './tools.js'
 export type { ToolCtx, ToolResult, SendMailArgs, ManageContactsArgs, ContactProfileArgs, EmailSummaryArgs } from './tools.js'
+export {
+  sanitizeMessageId,
+  agentMailDir,
+  localMetaPath,
+  threadPath,
+  saveLocalMeta,
+  readLocalMeta,
+  resolveThreadId,
+} from './meta.js'
+export type { LocalMeta } from './meta.js'
 export {
   registerBoardGateway,
   boardGatewayUrl,
