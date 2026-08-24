@@ -139,8 +139,11 @@ describe('sendMail 先存再调', () => {
     restore()
     const leaf = agentMailDir(EMAIL)
     const entries = await fs.readdir(leaf)
-    // only meta/ (no yyyymm snapshot dir)
-    expect(entries).toEqual(['meta'])
+    // no {yyyymm} outbox snapshot dir (meta + threads are always written)
+    expect(entries.some(e => /^\d{6}$/.test(e))).toBe(false)
+    expect(entries).toContain('meta')
+    // thread bootstrap did write a thread file
+    expect(entries).toContain('threads')
   })
 
   it('writes outbox snapshot + attch copy when save_raw_snapshots=true', async () => {

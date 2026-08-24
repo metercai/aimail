@@ -8,7 +8,7 @@ import { promises as fsp } from 'node:fs'
 import * as path from 'node:path'
 import { GatewayClient } from './gateway.js'
 import { AIMAIL_HOME, loadAgentConfig } from './config.js'
-import { readLocalMeta, saveLocalMeta, saveOutboundSnapshot } from './meta.js'
+import { readLocalMeta, saveLocalMeta, saveOutboundSnapshot, resolveThreadId, threadPath } from './meta.js'
 import type { AgentConfig } from './types.js'
 
 export interface ToolResult {
@@ -376,7 +376,10 @@ export async function setContactProfile(ctx: ToolCtx, args: { address: string; p
   return { success: r.status >= 200 && r.status < 300, ...r }
 }
 
-// ── email_summary / set_email_summary ──────────────────────────
+// ── email_summary / set_email_summary — LOCAL threads/{xx}/{tid}.json ──
+// Mirror Python email_summary/set_email_summary (2026-08-24 localization):
+// mid → thread_id via local meta, then read/write threads/{xx}/{thread_id}.json.
+// The former gateway /api/v1/thread-summary endpoint was removed (Task 5).
 
 export interface EmailSummaryArgs {
   message_id: string
@@ -384,18 +387,54 @@ export interface EmailSummaryArgs {
 
 export async function emailSummary(ctx: ToolCtx, args: EmailSummaryArgs): Promise<ToolResult> {
   const cfg = await requireConfig(ctx.systemId, ctx.email)
-  const client = new GatewayClient(cfg.gateway_url, cfg.api_key)
-  const r = await client.threadSummaryGet(args.message_id)
-  if (r.status === 200) {
-    return { success: true, summary: r.summary ?? r.value ?? '' }
+  const email = cfg.email
+  const mid = (args.message_id || '').trim()
+  const threadId = mid ? await resolveThreadId(email, mid) : ''
+  if (!threadId) return { success: true, thread_id: '', summary: '' }
+  try {
+    const raw = await fsp.readFile(threadPath(email, threadId), 'utf-8')
+    const data = JSON.parse(raw) as { summary?: string }
+    return { success: true, thread_id: threadId, summary: data.summary ?? '' }
+  } catch {
+    return { success: true, thread_id: threadId, summary: '' }
   }
-  if (r.status === 404) return { success: true, summary: null }
-  return { success: false, error: r.error ?? `HTTP ${r.status}` }
 }
 
 export async function setEmailSummary(ctx: ToolCtx, args: { message_id: string; summary: string }): Promise<ToolResult> {
   const cfg = await requireConfig(ctx.systemId, ctx.email)
-  const client = new GatewayClient(cfg.gateway_url, cfg.api_key)
-  const r = await client.threadSummaryPut(args.message_id, args.summary)
-  return { success: r.status >= 200 && r.status < 300, ...r }
+  const email = cfg.email
+  if (!args.message_id || !args.message_id.trim()) {
+    return { success: false, error_code: 'MESSAGE_ID_REQUIRED' }
+  }
+  if (typeof args.summary !== 'string') {
+    return { success: false, error_code: 'SUMMARY_MUST_BE_STRING' }
+  }
+  if (args.summary.length > 2000) {
+    return { success: false, error_code: 'SUMMARY_TOO_LONG', max_length: 2000 }
+  }
+
+  const threadId = await resolveThreadId(email, args.message_id)
+  if (!args.summary.trim()) {
+    // 空 summary = 删除线程文件(与原 gateway 语义一致)
+    try {
+      await fsp.rm(threadPath(email, threadId), { force: true })
+    } catch {
+      /* ignore */
+    }
+    return { success: true }
+  }
+  const p = threadPath(email, threadId)
+  try {
+    await fsp.mkdir(path.dirname(p), { recursive: true })
+    const tmp = `${p}.tmp`
+    await fsp.writeFile(
+      tmp,
+      JSON.stringify({ thread_id: threadId, summary: args.summary, updated_at: new Date().toISOString() }, null, 2),
+      'utf-8',
+    )
+    await fsp.rename(tmp, p)
+  } catch (e) {
+    return { success: false, error: `Failed to store summary: ${e instanceof Error ? e.message : String(e)}` }
+  }
+  return { success: true }
 }

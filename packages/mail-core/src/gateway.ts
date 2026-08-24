@@ -164,14 +164,6 @@ export class GatewayClient {
     return this.request('GET', `/api/v1/contacts?${q}`)
   }
 
-  threadSummaryPut(messageId: string, summary: string): Promise<GatewayResponse> {
-    return this.request('PUT', `/api/v1/thread-summary/${encodeURIComponent(messageId)}`, { summary })
-  }
-
-  threadSummaryGet(messageId: string): Promise<GatewayResponse> {
-    return this.request('GET', `/api/v1/thread-summary/${encodeURIComponent(messageId)}`)
-  }
-
   // ── Board API (dual-credential: apiKey/token + member email) ─
 
   private async boardRequest(method: string, path: string, memberEmail: string, body?: Record<string, unknown>): Promise<GatewayResponse> {
