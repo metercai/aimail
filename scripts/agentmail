@@ -212,6 +212,8 @@ def cmd_welcome(args) -> int:
         cmd += ["--manager", _env_val("AIMAIL_MANAGER_ADDRESS")]
     if args.no_wait:
         cmd += ["--no-wait"]
+    if getattr(args, "smtp", False):
+        cmd += ["--smtp"]
     return subprocess.call(cmd)
 
 
@@ -1479,6 +1481,8 @@ def main():
     p_welcome.add_argument("--system-id")
     p_welcome.add_argument("--manager")
     p_welcome.add_argument("--no-wait", action="store_true")
+    p_welcome.add_argument("--smtp", action="store_true",
+                           help="显式走旧 SMTP 模式(默认 API 模式, postman@ 发件)")
     p_welcome.set_defaults(func=cmd_welcome)
 
     args = ap.parse_args()

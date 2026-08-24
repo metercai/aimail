@@ -1,22 +1,27 @@
 #!/usr/bin/env python3
-"""send_welcome.py — 通用欢迎邮件验证工具(各 agent 系统通用)。
+"""send_welcome.py — 欢迎邮件端到端验证工具(各 agent 系统通用)。
 
-与 ping_test.py 同一设计:SMTP 入站发送欢迎邮件,验证投递+回复。
-自动识别 gateway 版本并选择入站方式:
-  advanced (/health version 含 "advanced-"):auth.local 认证发送
-    (base64(admin_key)=encoded_manager@auth.local)——三层校验后绕过
-    SPF/白名单(认证即信任)。
-  base:普通 MAIL FROM:<manager> 发送——依赖 manager 地址自动加白
-    (register_address 自动写白名单,无需认证)。
+两种模式:
+  API 模式(默认): POST /api/v1/system/welcome, 由网关以固定系统发件人
+    postman@{网关域} 发送, to=agent 地址, cc=manager。agent 按正文指令
+    reply-all 后, manager 先后收到两份邮件(welcome 原文 + Re: 回复),
+    比旧模式只收到一份回复不突兀。回 postman 的邮件被网关系统 sink
+    吸收(不触发未注册地址通知), 无风暴风险。
+  SMTP 模式(旧, 需 --smtp 显式指定): 裸 socket 直连网关 25 端口,
+    发件人=manager。advanced 版用 auth.local 认证
+    (base64(agent_key)=encoded_manager@auth.local), base 版普通发件
+    (依赖 manager 自动加白)。
 
 用法:
   python3 send_welcome.py [--system-id SID] [--agent-home DIR]
                           [--agent ADDR] [--to ADDR] [--manager ADDR]
+                          [--smtp] [--timeout SECS] [--no-wait]
   --agent-home: agent 系统 home(Hermes=~/.hermes,OpenClaw=~/.openclaw);
                指针文件 {agent-home}/.agentmail 提供 system_id/email
   --agent:      agent 标识(定位 mail 目录,默认从指针 email)
   --to:         直接指定收件地址(优先于 --agent/指针)
-  --manager:    发件人(manager)地址,默认 config.manager_address
+  --manager:    cc/发件人(manager)地址,默认 config.manager_address
+  --smtp:       显式走旧 SMTP 模式(默认走 API 模式)
   --timeout:    等待回复秒数(默认 120)
   --no-wait:    发送后不等待回复,直接退出
 退出码: 0=成功, 1=失败
@@ -32,6 +37,7 @@ import socket
 import sys
 import time
 import urllib.request
+import urllib.error
 import uuid
 from pathlib import Path
 
@@ -71,6 +77,8 @@ def _clean_agent_dir_name(addr: str) -> str:
     """agent 地址 → 目录名(与 tools/aimail_base._clean_agent_dir_name 一致)。"""
     return re.sub(r"[^\w.\-]", "_", addr)
 
+
+# ── 旧 SMTP 模式(--smtp 显式启用)──────────────────────────────────
 
 def _smtp_cmd(s: socket.socket, c: str) -> str:
     """发送 SMTP 命令并完整读取多行响应。
@@ -150,6 +158,51 @@ def _smtp_send(gateway_url: str, admin_key: str, agent_email: str,
         s.close()
 
 
+# ── 新 API 模式(默认)────────────────────────────────────────────
+
+WELCOME_BODY = """Welcome! Your AgentMail address has been set up and is now active.
+
+This is a system message from your mail relay, sent by the fixed system
+sender (postman@) — it is not a registered mailbox.
+
+To confirm your mailbox is fully operational (inbound delivery, agent
+processing, and outbound reply), please **reply-all** to this email with a
+short confirmation (e.g. your server's current time). Keep all original
+recipients in the reply (To + Cc).
+
+--
+This confirms: ✓ Inbound delivery  ✓ Agent processing  ✓ Outbound reply
+"""
+
+
+def _api_send(gw_url: str, admin_key: str, recipient: str, manager: str,
+              subject: str, body: str) -> tuple:
+    """POST /api/v1/system/welcome。返回 (ok, email_id, message_id, err)。"""
+    url = f"{gw_url.rstrip('/')}/api/v1/system/welcome"
+    payload = json.dumps({
+        "to": [recipient],
+        "cc": [manager] if manager else [],
+        "subject": subject,
+        "body": body,
+    }).encode()
+    req = urllib.request.Request(url, data=payload, method="POST", headers={
+        "X-Api-Key": admin_key,
+        "Content-Type": "application/json",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            data = json.loads(r.read())
+        return True, data.get("email_id", ""), data.get("message_id", ""), ""
+    except urllib.error.HTTPError as e:
+        try:
+            detail = json.loads(e.read()).get("error", "")
+        except Exception:
+            detail = ""
+        return False, "", "", f"HTTP {e.code}: {detail}"
+    except Exception as e:
+        return False, "", "", str(e)
+
+
 def _agent_log_path(agent_email: str) -> str:
     """Per-agent processing log: ~/.agentmail/logs/agentmail.{cleaned_addr}.log."""
     cleaned = re.sub(r"[^\w.\-]", "_", agent_email)
@@ -194,13 +247,14 @@ def _poll_reply(agent_email: str, timeout_secs: int) -> tuple:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="欢迎邮件验证工具(共享,自动识别 gateway 版本)")
+    ap = argparse.ArgumentParser(description="欢迎邮件端到端验证工具(API 模式默认, --smtp 走旧 SMTP)")
     ap.add_argument("--system-id", default="")
     ap.add_argument("--agent-home", default="",
                     help="agent 系统 home(Hermes=~/.hermes, OpenClaw=~/.openclaw)")
     ap.add_argument("--agent", default="", help="agent 标识(定位 mail 目录/地址)")
     ap.add_argument("--to", default="", help="直接指定收件地址(优先)")
-    ap.add_argument("--manager", default="", help="发件人(manager)地址,默认 config.manager_address")
+    ap.add_argument("--manager", default="", help="manager 地址(API 模式=cc, SMTP 模式=发件人)")
+    ap.add_argument("--smtp", action="store_true", help="显式走旧 SMTP 模式(默认 API)")
     ap.add_argument("--timeout", type=int, default=120, help="等待回复秒数")
     ap.add_argument("--no-wait", action="store_true", help="发送后不等待回复")
     args = ap.parse_args()
@@ -240,10 +294,44 @@ def main() -> int:
         # 主 agent 地址,自适应共享域/非共享域(见 _main_agent_email)
         recipient = _main_agent_email(cfg)
 
-    # ── SMTP auth.local 认证 key:只用 agent 的 api_key ─────────────
-    # auth.local 模拟 manager 发信与 agent 一对一,必须用 agent 自己的
-    # api_key(最小权限,无 admin_key 回退——回退会破坏 1:1 语义)。
-    # agent api_key 是 64 位 hex(bytes.fromhex 兼容)。
+    if not manager:
+        print("✗ 无 manager 地址(需 --manager 或 config.manager_address)")
+        return 1
+    if not gw_url:
+        print("✗ Missing gateway_url")
+        return 1
+
+    # ── API 模式(默认):admin key 调系统端点 ──
+    admin_key = cfg.get("admin_key", "")
+    if not args.smtp:
+        if not admin_key:
+            print("✗ agentmail_gateway.json 无 admin_key——API 模式需系统 admin key")
+            return 1
+        print(f"  Gateway:     {gw_url}")
+        print(f"  Mode:        API (system welcome, from postman@)")
+        print(f"  To:          {recipient}")
+        print(f"  Cc:          {manager}")
+
+        ok, email_id, msg_id, err = _api_send(
+            gw_url, admin_key, recipient, manager,
+            "Welcome! Your amail integration is live", WELCOME_BODY)
+        if not ok:
+            print(f"✗ Welcome API send failed: {err}")
+            return 1
+        print(f"  ✓ Welcome email sent via API (email_id={email_id or '?'}, message_id={msg_id or '?'})")
+
+        if args.no_wait:
+            return 0
+        ok, reply_id, _to = _poll_reply(recipient, args.timeout)
+        if ok:
+            print(f"  ✓ Bidirectional send/receive verified (reply email_id={reply_id or '?'})")
+            return 0
+        print(f"  ✗ No reply within {args.timeout}s (log: {_agent_log_path(recipient)})")
+        return 1
+
+    # ── SMTP 模式(旧, --smtp 显式)──────────────────────────────
+    # auth.local 认证 key:只用 agent 的 api_key(最小权限,无 admin_key
+    # 回退——回退会破坏 1:1 语义)。agent api_key 是 64 位 hex。
     ak = ""
     try:
         agent_cfg_path = SYSTEMS_DIR / sid / _clean_agent_dir_name(recipient) / "agentmail.json"
@@ -256,19 +344,12 @@ def main() -> int:
         print("✗ agent api_key 未找到(需 systems/{sid}/{agent}/agentmail.json)——auth.local 只接受 agent key")
         return 1
 
-    if not manager:
-        print("✗ 无 manager 地址(需 --manager 或 config.manager_address)")
-        return 1
-    if not all([gw_url, ak]):
-        print("✗ Missing gateway_url/agent api_key")
-        return 1
-
-    # ── 识别 gateway 版本 → 选择 SMTP 入站方式 ──
     edition = _detect_edition(gw_url)
     print(f"  Gateway:     {gw_url}")
+    print(f"  Mode:        SMTP (legacy)")
     print(f"  Edition:     {edition}({'auth.local 认证' if edition == 'advanced' else '白名单直发'})")
     print(f"  To:          {recipient}")
-    print(f"  Manager:     {manager}")
+    print(f"  From:        {manager}")
 
     msg_id = f"<welcome-{int(time.time())}-{uuid.uuid4().hex[:4]}@amail>"
     body = f"""From: {manager}
