@@ -710,8 +710,11 @@ def set_contact_profile(address: str, profile: str) -> dict:
     return client.put_contact(address, profile)
 
 # ═══════════════════════════════════════════════════════════════
-# Message Metadata — stored in gateway agent_state (internal), keyed msg:{message_id}
-#    value: {"references": [...], "thread_id": "..."}
+# Message Metadata — LOCAL meta/{xx}/{safe_mid}.json (always written)
+#    value: {"references": [...], "thread_id": ..., "my_amail_addr": ...,
+#            "direction": "inbound|outbound"}
+#    Sharded by first 2 chars of the sanitized mid (256 buckets).
+#    Replaces the former gateway agent_state msg:{mid} key.
 # ═══════════════════════════════════════════════════════════════
 
 # Local-only helpers for raw email snapshots (not gateway data)
@@ -729,6 +732,52 @@ def _sanitize_message_id(message_id: str) -> str:
     for ch in "/\\:*?\"<>|@ ":
         mid = mid.replace(ch, "_")
     return mid
+
+
+# ── Local meta (meta/{xx}/{safe_mid}.json, 前两位分片 256 桶) ────────
+
+def _local_meta_path(message_id: str) -> Path:
+    """meta/{前两位}/{safe_mid}.json — 前两位分片(256 桶)防平铺目录膨胀。"""
+    k = _sanitize_message_id(message_id)
+    return _agentmail_dir() / "meta" / k[:2] / f"{k}.json"
+
+
+def _save_local_meta(message_id, references, my_amail_addr, direction) -> None:
+    """Per-message lightweight metadata (常写, 不受 save_raw_snapshots 控制).
+
+    回复链依赖: references/thread_id/my_amail_addr 替代 gateway agent_state
+    的 msg:{mid} key(已在 gateway 侧删除)。"""
+    mid = (message_id or "").strip()
+    if not mid:
+        return
+    if isinstance(references, str):
+        refs = [r.strip() for r in references.split() if r.strip()]
+    else:
+        refs = [str(r).strip() for r in (references or []) if str(r).strip()]
+    payload = {
+        "message_id": mid,
+        "references": refs,
+        "thread_id": refs[0] if refs else mid,
+        "my_amail_addr": my_amail_addr or "",
+        "direction": direction,
+        "at": datetime.now().isoformat(),
+    }
+    try:
+        p = _local_meta_path(mid)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2),
+                       encoding="utf-8")
+        tmp.replace(p)
+    except Exception as e:
+        logger.warning("Failed to save local meta for %s: %s", mid, e)
+
+
+def _read_local_meta(message_id: str) -> Optional[dict]:
+    try:
+        return json.loads(_local_meta_path(message_id).read_text(encoding="utf-8"))
+    except Exception:
+        return None
 
 
 # ── Attachment path resolution ─────────────────────────────────────
@@ -1008,8 +1057,10 @@ def store_inbound_message(
         return None
     mid = message_id.strip()
 
-    # Metadata is pre-populated by the Rust gateway before webhook delivery.
-    # Only save local snapshot if configured.
+    # ── Always-write local meta (回复链依赖, 不受快照开关控制) ──
+    _save_local_meta(mid, references, my_amail_addr, direction="inbound")
+
+    # Only save the agent-visible snapshot if configured.
     config = _load_profile_config()
 
     # ── Optionally save agent-visible snapshot ──────────────────
@@ -1060,32 +1111,19 @@ def store_inbound_message(
 
 
 def _load_message_meta(message_id: str) -> Optional[dict]:
-    """Load message metadata from gateway agent_state. Returns None if not found."""
-    config = _load_profile_config()
-    if not config:
-        return None
-    client = _GatewayClient(config["gateway_url"], config["api_key"])
-    value = client.agent_state_get(f"msg:{message_id.strip()}")
-    if not value:
-        return None
-    try:
-        return json.loads(value)
-    except (json.JSONDecodeError, TypeError):
-        return None
+    """Load per-message metadata from the local mail dir. None if not found.
 
-
-def _store_message_meta(message_id: str, references: Optional[str] = None) -> None:
-    """Store outbound message metadata to gateway for future replies."""
+    (Was gateway agent_state msg:{mid}; 本地化后零 HTTP 往返。)
+    """
     if not message_id or not message_id.strip():
-        return
-    mid = message_id.strip()
-    refs = [r.strip() for r in (references or "").split() if r.strip()]
-    thread_id = refs[0] if refs else mid
-    msg_value = json.dumps({"references": refs, "thread_id": thread_id})
-    config = _load_profile_config()
-    if config:
-        client = _GatewayClient(config["gateway_url"], config["api_key"])
-        client.agent_state_put(f"msg:{mid}", msg_value)
+        return None
+    return _read_local_meta(message_id.strip())
+
+
+def _store_message_meta(message_id: str, references: Optional[str] = None,
+                        my_amail_addr: str = "") -> None:
+    """Store outbound message metadata locally for future replies (常写)."""
+    _save_local_meta(message_id, references, my_amail_addr, direction="outbound")
 
 
 # ═══════════════════════════════════════════════════════════════
