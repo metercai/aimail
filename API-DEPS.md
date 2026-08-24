@@ -1,5 +1,8 @@
 # API Dependencies Index
 
+> thread-summary 已本地化(2026-08-24): 会话摘要存 agent 本地 `threads/{前两位}/{thread_id}.json`,
+> 消息元数据存 `meta/{前两位}/{mid}.json`(常写), 不再依赖 gateway 端点。
+
 ## Open
 
 | Endpoint | Method | Purpose | Callers |
@@ -29,7 +32,6 @@ Identity from key, scoped to self.
 | `/api/v1/agent-state/:key` | GET/PUT | Agent KV storage | `tools/aimail_tools.py` |
 | `/api/v1/contacts/:address` | GET/PUT | Contact profile CRUD | `tools/aimail_tools.py` |
 | `/api/v1/contacts?name=` | GET | Search contacts by name | `tools/aimail_tools.py` |
-| `/api/v1/thread-summary/:message_id` | GET/PUT | Email thread summary | `tools/aimail_tools.py` |
 | `/api/v1/whitelists` | GET/POST | List/create whitelist (agent: own; agent_admin: scoped) | `tools/aimail_tools.py` |
 | `/api/v1/whitelists/check?...` | GET | Whitelist lookup | `tools/aimail_tools.py` |
 | `/api/v1/whitelists/:id` | PUT/DELETE | Update/delete whitelist by id | `tools/aimail_tools.py` |

@@ -9,7 +9,7 @@
 
 ## 1. 输入契约(webhook payload)
 
-bridge 转发的是 gateway 原始 body(逐字节透传)+ 头白名单(X-Amail-Email / X-Webhook-Signature / X-Mailrelay-Timestamp)。
+bridge 转发的是 gateway 原始 body(逐字节透传)+ 头白名单(X-AIMail-Email / X-AIMail-Timestamp / X-Webhook-Signature)。
 
 payload 字段(Rust gateway 入站队列产物):
 
@@ -94,5 +94,5 @@ dsh 侧 TS 实现沿用同一 `~/.agentmail/` 根布局(附件/日志落盘与 P
 ## 7. 契约验证(双测锁)
 
 1. `agentmail ping --system-id <dsh>`:三阶段事件齐全且 ping_id 配对 → 预处理链 + pong 出站契约通过。
-2. `agentmail welcome --system-id <dsh>`:管理员收到 Re: 回复(头 `X-Agentmail-Agent: dsh/{ver}`)→ 完整双向契约通过。
+2. `agentmail welcome --system-id <dsh>`:管理员收到 Re: 回复(头 `X-AIMail-Agent: dsh/{ver}`)→ 完整双向契约通过。
 3. 字段级断言(开发期):构造与 Python 相同入站样例,断言输出字段集与 §3 完全一致(recipients/sender/my_amail_addr/direct_message/mentioned/剥离字段)。

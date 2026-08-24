@@ -79,7 +79,7 @@ AgentMail 与任意 agent 系统(LLM 运行时)对接,agent 获得完整邮件�
 | `_SOUL_PROVIDER` / `_SKILLS_PROVIDER` | board 上下文 SOUL/skills |
 | `_BOARD_GATEWAY_SINK` | board 网关注册回调 |
 | `PERSONA_SUPPORTED` | 能力开关(False → 归一基础地址) |
-| `_AGENT_IDENTITY_OVERRIDE`(tools) | 出站身份 header X-Agentmail-Agent = "platform/ver" |
+| `_AGENT_IDENTITY_OVERRIDE`(tools) | 出站身份 header X-AIMail-Agent = "platform/ver" |
 | `_PERSONA_NAME_PROVIDER`(tools) | 当前 persona 名 |
 
 ### 2.2 入站单一入口(中间链铁律)
@@ -135,7 +135,7 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 ```
 云端收信 → gateway 入站队列 → bridge pull(2s 轮询 /pending)
   → 查路由表 aimail_routes.toml(email → 接收端点全 URL)
-  → 透明转发(逐字节 body + 头白名单 X-Amail-Email / X-Webhook-Signature / X-Mailrelay-Timestamp)
+  → 透明转发(逐字节 body + 头白名单 X-AIMail-Email / X-AIMail-Timestamp / X-Webhook-Signature)
   → 接收端点:HMAC 验签(webhook_secret)→ process_inbound_mail
   → ping/pong 拦截(三阶段日志)→ 未拦截投递 agent
 ```
@@ -260,7 +260,7 @@ install 全非交互:激活 → 从 setup_system JSON stdout 取 server 分配�
 5. **接生命周期**:有事件总线 → 挂钩子;无 → 包装 agents add/delete CLI 调共享注册/注销链。
 6. **装 skill**:逐字拷贝 `skills/SKILL.md`(+ DESCRIPTION.md),零改写。
 7. **注册到 CLI**:check_status.py `PLATFORMS` 注册表加 adapter(detect/list_agents/check_config/check_hook 四函数);install/uninstall 平台适配段加分支(含安装补充注册)。
-8. **验收(双测铁律)**:`agentmail check` 全绿 → `agentmail ping` 三阶段闭环 → `agentmail welcome` 管理员收到 Re: 回复(带头 `X-Agentmail-Agent: {platform}/{version}`)。
+8. **验收(双测铁律)**:`agentmail check` 全绿 → `agentmail ping` 三阶段闭环 → `agentmail welcome` 管理员收到 Re: 回复(带头 `X-AIMail-Agent: {platform}/{version}`)。
 
 ---
 
@@ -269,7 +269,7 @@ install 全非交互:激活 → 从 setup_system JSON stdout 取 server 分配�
 - **最小权限 key**:每 agent 独立 api_key;SMTP auth.local 认证只接受 agent 自己的 key(无 admin_key 回退);ping_test 的 pending 轮询用 system scope admin_key。
 - **指针唯一来源**:系统身份 = 指针文件;禁扫描、禁 env 覆盖、禁跨系统借用。
 - **安全论证铁律**:分析攻击面与杠杆;只增复杂度不减少攻击面的缓解是伪优化。
-- **出站自定义头白名单**:X-Agentmail-Agent / X-Board-Members / X-AMRelay-AutoReply 外发透传;X-Board-ID/Role 仅内转;_persona.* 内部专用。
+- **出站自定义头白名单**:X-AIMail-Agent / X-Board-Members / X-AIMail-AutoReply 外发透传;X-Board-ID/Role 仅内转;_persona.* 内部专用。
 
 ---
 
