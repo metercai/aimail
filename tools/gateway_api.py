@@ -13,7 +13,8 @@ from typing import Optional
 
 def gateway_config_path(system_id: str = "") -> Path:
     """Return path to agentmail_gateway.json for a system_id."""
-    base = Path.home() / ".agentmail" / "systems"
+    from aimail_base import aimail_home  # lazy import (avoid module-load cycle)
+    base = aimail_home() / "systems"
     return (base / system_id if system_id else base) / "agentmail_gateway.json"
 
 

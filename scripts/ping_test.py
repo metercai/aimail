@@ -70,7 +70,7 @@ def _main_agent_email(cfg: dict) -> str:
                            cfg.get("system_name", ""))
 
 # ── 路径 ──────────────────────────────────────────────────────────
-AIMAIL_HOME = Path.home() / ".agentmail"
+AIMAIL_HOME = Path(os.environ.get("AIMAIL_HOME") or os.environ.get("AGENTMAIL_HOME", "")) or Path.home() / ".agentmail"
 SYSTEMS_DIR = AIMAIL_HOME / "systems"
 MAIL_DIR = AIMAIL_HOME / "mail"
 
@@ -79,7 +79,7 @@ PING_PREFIX = "__agentmail_ping__:"
 
 def _clean_agent_dir_name(addr: str) -> str:
     """agent 地址 → 目录名(与 tools/aimail_base._clean_agent_dir_name 一致)。"""
-    return re.sub(r"[^\w.\-]", "_", addr)
+    return re.sub(r"[^\w.\-]", "_", addr, flags=re.ASCII)
 
 
 def _smtp_cmd(s: socket.socket, c: str) -> str:

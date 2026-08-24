@@ -1005,20 +1005,18 @@ def _resolve_agent_email() -> str:
 
 
 def _agentmail_dir() -> Path:
-    """Return the per-agent mail data directory (AIMAIL_HOME env or default).
+    """Per-agent mail data leaf: {aimail_home}/mail/{cleaned_addr}/.
 
-    Layout: ~/.agentmail/mail/{cleaned_addr}/ — email content + attachments,
-    isolated from ~/.agentmail/systems/ (config)."""
-    env = os.environ.get("AIMAIL_HOME") or os.environ.get("AGENTMAIL_HOME", "")
-    if env:
-        return Path(env)
-    # Try pointer file first
+    Layout: {aimail_home}/mail/{cleaned_addr}/ — email content + attachments,
+    isolated from {aimail_home}/systems/ (config). aimail_home() is env
+    AIMAIL_HOME (legacy AGENTMAIL_HOME) or ~/.agentmail — the home ROOT, so
+    the env var relocates the whole tree (mirrors TS agentMailDir())."""
     import aimail_base as _abm
+    base = _abm.aimail_home()
     email = _resolve_agent_email()
     if email:
-        return Path.home() / ".agentmail" / "mail" / _abm._clean_agent_dir_name(email)
-    # Fallback: use default directory
-    return Path.home() / ".agentmail" / "mail" / "default"
+        return base / "mail" / _abm._clean_agent_dir_name(email)
+    return base / "mail" / "default"
 
 
 def _raw_email_dir() -> Path:

@@ -41,7 +41,7 @@ if "--agent-home" in sys.argv:
                 AGENT_HOME = _ah
     except Exception:
         pass
-AIMAIL_HOME = Path.home() / ".agentmail"
+AIMAIL_HOME = Path(os.environ.get("AIMAIL_HOME") or os.environ.get("AGENTMAIL_HOME", "")) or Path.home() / ".agentmail"
 SYSTEMS_DIR = AIMAIL_HOME / "systems"
 MAIL_DIR    = AIMAIL_HOME / "mail"
 BRIDGE_DIR  = AIMAIL_HOME / "bridge"
@@ -49,7 +49,7 @@ LOGS_DIR    = AIMAIL_HOME / "logs"
 
 def _clean_agent_dir_name(addr: str) -> str:
     """agent 地址 → 目录名（与 tools/aimail_base._clean_agent_dir_name 一致）。"""
-    return re.sub(r"[^\w.\-]", "_", addr)
+    return re.sub(r"[^\w.\-]", "_", addr, flags=re.ASCII)
 
 
 def _split_host_port(addr: str) -> tuple[str, str]:

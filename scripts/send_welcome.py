@@ -71,13 +71,13 @@ def _main_agent_email(cfg: dict) -> str:
     return email_for_agent("default", cfg.get("domain", ""),
                            cfg.get("system_name", ""))
 
-AIMAIL_HOME = Path.home() / ".agentmail"
+AIMAIL_HOME = Path(os.environ.get("AIMAIL_HOME") or os.environ.get("AGENTMAIL_HOME", "")) or Path.home() / ".agentmail"
 SYSTEMS_DIR = AIMAIL_HOME / "systems"
 
 
 def _clean_agent_dir_name(addr: str) -> str:
     """agent 地址 → 目录名(与 tools/aimail_base._clean_agent_dir_name 一致)。"""
-    return re.sub(r"[^\w.\-]", "_", addr)
+    return re.sub(r"[^\w.\-]", "_", addr, flags=re.ASCII)
 
 
 # ── 旧 SMTP 模式(--smtp 显式启用)──────────────────────────────────

@@ -84,11 +84,24 @@ def build_ctx(payload: dict, headers: dict) -> dict:
 
 # ── Config helpers ──
 
+def aimail_home() -> Path:
+    """Canonical agentmail home root (single source of truth).
+
+    Resolves env AIMAIL_HOME (legacy AGENTMAIL_HOME) to a home-root dir,
+    falling back to ~/.agentmail. All path constructors (mail/{clean},
+    systems/, logs/) derive from this so the env var relocates the whole
+    tree consistently on Python and TS sides (mirrors TS config.ts
+    AIMAIL_HOME()).
+    """
+    env = os.environ.get("AIMAIL_HOME") or os.environ.get("AGENTMAIL_HOME", "")
+    return Path(env).expanduser() if env else Path.home() / ".agentmail"
+
+
 def _agentmail_system_dir(system_id: str = "") -> Path:
     """Return ~/.agentmail/systems/{system_id}/ for config storage.
     
     When system_id is empty, returns ~/.agentmail/systems/ itself."""
-    base = Path.home() / ".agentmail" / "systems"
+    base = aimail_home() / "systems"
     return base / system_id if system_id else base
 
 
@@ -221,7 +234,7 @@ def _scan_systems_for_agent(agent_id: str, system_id: str = "") -> Optional[dict
 
     system_id 缺省时扫描全部 systems/ 目录;命中返回 agentmail.json 内容。
     """
-    base = Path.home() / ".agentmail" / "systems"
+    base = aimail_home() / "systems"
     candidates = [base / system_id] if system_id else (
         sorted(p for p in base.iterdir() if p.is_dir()) if base.is_dir() else [])
     for sys_dir in candidates:
@@ -267,11 +280,14 @@ def set_agent_context(agent_id: str, system_id: str = "") -> None:
 
 
 def _clean_agent_dir_name(addr: str) -> str:
-    """agent 地址 → 目录名：路径不合法字符替换（@ → _ 等）。
+    """agent 地址 → 目录名：非 [A-Za-z0-9_.-] 字符替换为 _。
 
+    邮件地址是 7-bit ASCII(RFC 5321),re.ASCII 让 \\w 退化为 [a-zA-Z0-9_],
+    任何非 ASCII 字符(理论上不出现)也归一为 _,与 TS cleanAddr(/[^\\w.-]/g)
+    1:1 对齐,且文件系统路径始终 ASCII 安全。
     与 bridge 顶层 agent 目录命名同规则（mike_amail.token.tm）。
     """
-    return re.sub(r"[^\w.\-]", "_", addr)
+    return re.sub(r"[^\w.\-]", "_", addr, flags=re.ASCII)
 
 
 def _agent_config_path(system_id: str, email: str) -> Path:
@@ -475,8 +491,7 @@ def agentmail_log_path(email: str = "") -> Path:
     per agent: agentmail.{cleaned_addr}.log — NOT inside mail/{addr}/.
     """
     cleaned = _clean_agent_dir_name(email) if email else "default"
-    env = os.environ.get("AIMAIL_HOME") or os.environ.get("AGENTMAIL_HOME", "")
-    base = Path(env).expanduser() if env else Path.home() / ".agentmail"
+    base = aimail_home()
     return base / "logs" / f"agentmail.{cleaned}.log"
 
 

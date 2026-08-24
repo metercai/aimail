@@ -29,7 +29,7 @@ import urllib.request
 from pathlib import Path
 
 HOME = Path.home()
-AIMAIL_HOME = HOME / ".agentmail"
+AIMAIL_HOME = Path(os.environ.get("AIMAIL_HOME") or os.environ.get("AGENTMAIL_HOME", "")) or HOME / ".agentmail"
 SYSTEMS_DIR = AIMAIL_HOME / "systems"
 SCRIPTS_DIR = Path(__file__).resolve().parent
 
@@ -732,7 +732,7 @@ def _default_recv_url(sid: str, email: str) -> str:
 
 def _addr_clean(email: str) -> str:
     """地址 → 目录键(与 aimail_base._clean_agent_dir_name 一致)。"""
-    return re.sub(r"[^\w.\-]", "_", email)
+    return re.sub(r"[^\w.\-]", "_", email, flags=re.ASCII)
 
 
 def _mail_stats(email: str) -> tuple[int, int]:
