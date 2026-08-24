@@ -16,9 +16,16 @@ export function systemDir(systemId: string): string {
   return path.join(AIMAIL_HOME(), 'systems', systemId)
 }
 
-/** Clean an address into a directory key (must match Python exactly). */
+/**
+ * Clean an address into a directory key (must match Python exactly).
+ * Python `_clean_agent_dir_name` uses `re.sub(r"[^\w.\-]", "_")` where `\w`
+ * is Unicode-aware (keeps accented / CJK / Cyrillic letters). JS `\w` is
+ * ASCII-only, so we spell the allowed set with Unicode property classes to
+ * stay 1:1 — otherwise a non-ASCII local part would land in a different leaf
+ * dir on the two sides (breaking the shared `~/.agentmail/` layout).
+ */
 export function cleanAddr(email: string): string {
-  return email.replace(/[^\w.-]/g, '_')
+  return email.replace(/[^\p{L}\p{N}_\.-]/gu, '_')
 }
 
 export function agentConfigPath(systemId: string, email: string): string {
