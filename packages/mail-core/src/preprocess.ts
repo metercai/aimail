@@ -8,11 +8,11 @@
  */
 import { promises as fsp } from 'node:fs'
 import * as path from 'node:path'
-import { createHmac, createHash } from 'node:crypto'
+import { createHmac, createHash, timingSafeEqual } from 'node:crypto'
 import { GatewayClient } from './gateway.js'
 import { AIMAIL_HOME, cleanAddr, loadAgentConfig, systemDir } from './config.js'
 import { sendMail, sanitizeMessageId } from './tools.js'
-import { saveLocalMeta } from './meta.js'
+import { saveLocalMeta, threadPath } from './meta.js'
 import { registerBoardGateway } from './board.js'
 import type { AgentConfig, EnrichedPayload, InboundPayload } from './types.js'
 import type { ToolCtx, ToolResult } from './tools.js'
@@ -235,8 +235,11 @@ export function fillTemplate(text: string, ctx: Record<string, string>): string 
  *   2. {home}/systems/{sid}/board/role_prompt/{name}.md   (system-level)
  *   3. {home}/systems/{sid}/board/role_prompt/common.md   (fallback)
  * Empty string when nothing is found.
+ * Role names are case-insensitive: the filename is always lowercased
+ * before lookup (mirror Python _read_role_file .lower()).
  */
 async function readRoleFile(cfg: AgentConfig, name: string): Promise<string> {
+  name = name.toLowerCase()
   const sid = cfg.system_id || 'default'
   const sysRoleDir = path.join(systemDir(sid), 'board', 'role_prompt')
   if (cfg.email) {
@@ -427,14 +430,64 @@ export async function processInboundMail(
   const bodyLower = (bodyRaw ?? '').toLowerCase()
   result.mentioned = matchTargets.some(t => t && (bodyLower.includes(`@${t.toLowerCase()}`) || bodyLower.split(/\s+/).includes(t.toLowerCase())))
 
-  // step 10-11: attachments
+  // step 10: B1 batch profile injection — one GET /api/v1/contacts?addresses=
+  // for [sender, ...to, ...cc]; the endpoint treats the FIRST address as the
+  // inbound sender. my_profile is the calling agent's approved persona
+  // (domain_addr_meta — single source of truth). Failures are non-fatal
+  // (no profiles injected), mirroring Python preprocess_inbound B1.
+  const senderBare = String(payload.from ?? '').trim().toLowerCase()
+  {
+    const batchAddrs: string[] = []
+    const seen = new Set<string>()
+    for (const a of [senderBare, ...toBare, ...ccBare]) {
+      if (a && !seen.has(a)) {
+        seen.add(a)
+        batchAddrs.push(a)
+      }
+    }
+    if (batchAddrs.length && cfg.api_key) {
+      try {
+        const client = new GatewayClient(cfg.gateway_url, cfg.api_key)
+        const profiles = await client.getContactProfiles(batchAddrs)
+        if (profiles.my_profile) result.my_profile = profiles.my_profile.profile
+        if (Object.keys(profiles.sender_profile).length) result.sender_profile = profiles.sender_profile
+        if (Object.keys(profiles.recipients_profile).length) result.recipients_profile = profiles.recipients_profile
+      } catch (e) {
+        console.warn(`B1 batch profiles skipped: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
+  }
+
+  // step 11: B2 thread_summary preload (pure local, no gateway round-trip).
+  // thread_id = first References entry (thread root), else the message_id
+  // itself — identical to saveLocalMeta's write-time derivation. Only
+  // pre-existing threads are injected; a first mail in a thread has no file
+  // yet and gets nothing.
+  {
+    const midB2 = String(result.message_id ?? '').trim()
+    const refsB2: string[] = Array.isArray(payload.references)
+      ? payload.references.map(r => String(r).trim()).filter(Boolean)
+      : []
+    const tid = refsB2[0] || midB2
+    if (tid) {
+      try {
+        const raw = await fsp.readFile(threadPath(cfg.email, tid), 'utf-8')
+        const summary = (JSON.parse(raw) as { summary?: string }).summary?.trim()
+        if (summary) result.thread_summary = summary
+      } catch {
+        /* no thread file yet (first mail) or unreadable — nothing to inject */
+      }
+    }
+  }
+
+  // step 12-13: attachments
   if (payload.attachments?.length && cfg.api_key) {
     const client = new GatewayClient(cfg.gateway_url, cfg.api_key)
     const paths = await downloadAttachments(client, payload.attachments, (payload.message_id as string) ?? '', cfg)
     result.attachments = paths
   }
 
-  // step 12: strip backend-only fields
+  // step 14: strip backend-only fields
   const stripFields = new Set(['mail_id', 'to', 'cc', 'headers', 'created_at', 'forwarder', 'forward_at'])
   const cleaned: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(result)) {
@@ -442,7 +495,7 @@ export async function processInboundMail(
   }
   result = cleaned
 
-  // step 12b: payload format guard (port of Python store_inbound_message's
+  // step 14b: payload format guard (port of Python store_inbound_message's
   // RAW-payload guard). dsh preprocesses INSIDE processInboundMail, so the
   // live mis-format is the reverse of Python's: an ALREADY-enriched payload
   // passed in (double preprocessing) — it carries 'recipients' and has no
@@ -454,7 +507,7 @@ export async function processInboundMail(
     )
   }
 
-  // step 12c: always-write local meta for inbound (回复链依赖, 不受快照开关
+  // step 14c: always-write local meta for inbound (回复链依赖, 不受快照开关
   // 控制) — mirror Python store_inbound_message (meta/{xx}/{mid}.json).
   const midRaw = (result.message_id as string) ?? ''
   const myAddrMeta = result.my_amail_addr as string
@@ -463,7 +516,7 @@ export async function processInboundMail(
     await saveLocalMeta(cfg.email, midRaw, refs, myAddrMeta, 'inbound')
   }
 
-  // step 13: inbound log
+  // step 15: inbound log
   const mid = (result.message_id as string) ?? ''
   const myAddr = result.my_amail_addr as string
   if (mid && myAddr) {
@@ -478,7 +531,16 @@ export async function processInboundMail(
   if (subj.toUpperCase().startsWith('[WHOAMI]')) {
     const whoamiRaw = await readRoleFile(cfg, 'whoami')
     if (whoamiRaw) result._whoami_prompt = fillTemplate(whoamiRaw, buildBoardCtx(result))
-    result._whoami_update_public = true
+    return result as unknown as EnrichedPayload
+  }
+  // B3: Role_Calibrator (persona update request) — a manager email whose
+  // subject contains "update persona" asks the agent to draft a new persona
+  // + signature. The gateway does NOT intercept it, so it reaches the agent;
+  // inject the role_calibrator.md role prompt and early-return so a board
+  // role prompt cannot clobber _role_prompt (mirror Python B3).
+  if (subj.toLowerCase().includes('update persona')) {
+    const calibRaw = await readRoleFile(cfg, 'role_calibrator')
+    if (calibRaw) result._role_prompt = fillTemplate(calibRaw, buildBoardCtx(result))
     return result as unknown as EnrichedPayload
   }
   const boardId = (result.board_id as string) ?? ''
@@ -505,9 +567,16 @@ export async function processInboundMail(
   return result as unknown as EnrichedPayload
 }
 
-/** HMAC verify (X-Webhook-Signature, hex sha256 of raw body with webhook_secret). */
+/**
+ * HMAC verify (X-Webhook-Signature, hex sha256 of raw body with
+ * webhook_secret). Constant-time comparison (timingSafeEqual) so the
+ * result does not leak how many leading hex chars matched.
+ */
 export function verifySignature(rawBody: Buffer | string, signature: string, secret: string): boolean {
   if (!signature || !secret) return false
   const expected = createHmac('sha256', secret).update(rawBody).digest('hex')
-  return signature.length === expected.length && createHmac('sha256', secret).update(rawBody).digest('hex') === signature
+  const sigBuf = Buffer.from(signature, 'utf8')
+  const expBuf = Buffer.from(expected, 'utf8')
+  if (sigBuf.length !== expBuf.length) return false
+  return timingSafeEqual(sigBuf, expBuf)
 }

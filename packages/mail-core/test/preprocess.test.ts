@@ -2,13 +2,13 @@
  * Minimal contract tests for the inbound chain:
  *   - verifySignature (webhook HMAC)
  *   - cleanAddr / parseAmailPersona / baseEmail (address contract)
- *   - processInboundMail (13-step preprocess + ping/pong intercept + logs)
+ *   - processInboundMail (15-step preprocess + B1/B2/B3 + ping/pong intercept + logs)
  *
  * All filesystem access is sandboxed via AIMAIL_HOME → tmp dir.
  * The gateway URL points at 127.0.0.1:9 (discard, immediate ECONNREFUSED)
  * so no real network I/O happens.
  */
-import { beforeAll, beforeEach, afterAll, describe, it, expect } from 'vitest'
+import { beforeAll, beforeEach, afterAll, describe, it, expect, vi } from 'vitest'
 import { promises as fs } from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -22,6 +22,7 @@ import {
   PONG_PREFIX,
 } from '../src/preprocess.js'
 import { cleanAddr } from '../src/config.js'
+import { threadPath } from '../src/meta.js'
 import type { InboundPayload } from '../src/types.js'
 
 const SYSTEM_ID = 'system-test'
@@ -63,6 +64,7 @@ beforeEach(async () => {
 })
 
 afterAll(async () => {
+  vi.unstubAllGlobals()
   await fs.rm(home, { recursive: true, force: true })
   delete process.env.AIMAIL_HOME
 })
@@ -223,9 +225,11 @@ describe('processInboundMail', () => {
     expect(r?.my_amail_addr).toBe('')
   })
 
-  it('flags [WHOAMI] subjects for public whoami update', async () => {
+  it('flags [WHOAMI] subjects for whoami prompt (early-return)', async () => {
     const r = await processInboundMail(mail({ subject: '[WHOAMI] who are you' }), {}, CTX)
-    expect(r?._whoami_update_public).toBe(true)
+    // _whoami_update_public was removed (dead field) — only the prompt flag remains
+    expect(r?._whoami_update_public).toBeUndefined()
+    expect(r?._a2a_session_key).toBeUndefined()
   })
 
   it('adds _a2a_session_key when board_id + board_role present', async () => {
@@ -258,5 +262,90 @@ describe('processInboundMail', () => {
     const logFile = path.join(home, 'logs', `agentmail.${cleanAddr(AGENT_EMAIL)}.log`)
     const lines = (await fs.readFile(logFile, 'utf-8')).trim().split('\n')
     expect(lines.some(l => JSON.parse(l).event === 'inbound')).toBe(true)
+  })
+
+  // ── B1: batch profile injection ──────────────────────────────
+
+  it('B1: one batch GET (sender first) → my_profile/sender_profile/recipients_profile', async () => {
+    const mock = vi.fn(async (url: string) => {
+      const u = String(url)
+      if (u.includes('/api/v1/contacts?')) {
+        return new Response(JSON.stringify({
+          my_profile: { address: AGENT_EMAIL, profile: 'Agent One — the agent persona' },
+          sender_profile: { 'boss@corp.com': 'Boss — manager' },
+          recipients_profile: { 'peer@corp.com': 'Peer — teammate' },
+          results: [],
+        }), { status: 200 })
+      }
+      return new Response('{}', { status: 200 })
+    })
+    vi.stubGlobal('fetch', mock)
+    const r = await processInboundMail(mail({ to: [AGENT_EMAIL, 'peer@corp.com'] }), {}, CTX)
+    vi.unstubAllGlobals()
+    expect(r?.my_profile).toBe('Agent One — the agent persona')
+    expect(r?.sender_profile).toEqual({ 'boss@corp.com': 'Boss — manager' })
+    expect(r?.recipients_profile).toEqual({ 'peer@corp.com': 'Peer — teammate' })
+    const call = mock.mock.calls.find(c => String(c[0]).includes('/api/v1/contacts?'))
+    expect(String(call?.[0])).toContain('addresses=boss%40corp.com%2Cagent1%40token.tm%2Cpeer%40corp.com')
+  })
+
+  it('B1: gateway failure → no profile fields (non-fatal)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 500 })))
+    const r = await processInboundMail(mail({}), {}, CTX)
+    vi.unstubAllGlobals()
+    expect(r).not.toBeNull()
+    expect(r?.my_profile).toBeUndefined()
+    expect(r?.sender_profile).toBeUndefined()
+    expect(r?.recipients_profile).toBeUndefined()
+  })
+
+  // ── B2: thread_summary preload ────────────────────────────────
+
+  it('B2: preloads thread_summary from the local threads/ file (refs[0] = thread root)', async () => {
+    const tid = '<root@token.tm>'
+    const p = threadPath(AGENT_EMAIL, tid)
+    await fs.mkdir(path.dirname(p), { recursive: true })
+    await fs.writeFile(p, JSON.stringify({ thread_id: tid, summary: 'Prior context: discussed Q3 roadmap' }), 'utf-8')
+    const r = await processInboundMail(mail({ references: [tid] }), {}, CTX)
+    expect(r?.thread_summary).toBe('Prior context: discussed Q3 roadmap')
+  })
+
+  it('B2: first mail in a thread (no thread file) → no thread_summary', async () => {
+    const r = await processInboundMail(mail({}), {}, CTX)
+    expect(r?.thread_summary).toBeUndefined()
+  })
+
+  // ── B3: Role_Calibrator ───────────────────────────────────────
+
+  it('B3: subject containing "update persona" injects role_calibrator.md (early-return)', async () => {
+    const roleDir = path.join(home, 'systems', SYSTEM_ID, 'board', 'role_prompt')
+    await fs.mkdir(roleDir, { recursive: true })
+    await fs.writeFile(
+      path.join(roleDir, 'role_calibrator.md'),
+      'Draft a persona for {{AGENTMAIL_ADDRESS}}; inquiry: {{INQUIRY_SUBJECT}}',
+      'utf-8',
+    )
+    const r = await processInboundMail(
+      mail({ subject: 'Please update persona for support', board_id: 'B-9', board_role: 'worker' }),
+      {},
+      CTX,
+    )
+    expect(r?._role_prompt).toBe(`Draft a persona for ${AGENT_EMAIL}; inquiry: Please update persona for support`)
+    // early-return: the board session key must NOT be set
+    expect(r?._a2a_session_key).toBeUndefined()
+  })
+
+  it('B3: missing role file → no _role_prompt (persona update proceeds without one)', async () => {
+    const r = await processInboundMail(mail({ subject: 'update persona please' }), {}, CTX)
+    expect(r?._role_prompt).toBeUndefined()
+    expect(r?._a2a_session_key).toBeUndefined()
+  })
+
+  it('role lookup is case-insensitive (readRoleFile lowercases the name)', async () => {
+    const roleDir = path.join(home, 'systems', SYSTEM_ID, 'board', 'role_prompt')
+    await fs.mkdir(roleDir, { recursive: true })
+    await fs.writeFile(path.join(roleDir, 'worker.md'), 'worker role for {{BOARD_ID}}', 'utf-8')
+    const r = await processInboundMail(mail({ board_id: 'B-7', board_role: 'Worker' }), {}, CTX)
+    expect(r?._role_prompt).toBe('worker role for B-7')
   })
 })

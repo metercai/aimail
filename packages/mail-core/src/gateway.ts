@@ -164,6 +164,32 @@ export class GatewayClient {
     return this.request('GET', `/api/v1/contacts?${q}`)
   }
 
+  /**
+   * Batch profile lookup (B1): GET /api/v1/contacts?addresses=a,b,c.
+   * The FIRST address is the inbound sender; the rest are recipients.
+   * Returns {my_profile, sender_profile, recipients_profile} — empty
+   * shapes on failure (caller treats as no profiles available), mirroring
+   * Python `get_contact_profiles`.
+   */
+  async getContactProfiles(addresses: string[]): Promise<{
+    my_profile: { address: string; profile: string } | null
+    sender_profile: Record<string, string>
+    recipients_profile: Record<string, string>
+  }> {
+    const addrs = addresses.map(a => a.trim()).filter(Boolean)
+    const empty = { my_profile: null, sender_profile: {} as Record<string, string>, recipients_profile: {} as Record<string, string> }
+    if (!addrs.length) return empty
+    const q = new URLSearchParams({ addresses: addrs.join(',') })
+    const res = await this.request('GET', `/api/v1/contacts?${q}`)
+    if (res.status !== 200) return empty
+    const my = res.my_profile as { address?: string; profile?: string } | null | undefined
+    return {
+      my_profile: my && my.profile ? { address: my.address ?? '', profile: my.profile } : null,
+      sender_profile: (res.sender_profile ?? {}) as Record<string, string>,
+      recipients_profile: (res.recipients_profile ?? {}) as Record<string, string>,
+    }
+  }
+
   // ── Board API (dual-credential: apiKey/token + member email) ─
 
   private async boardRequest(method: string, path: string, memberEmail: string, body?: Record<string, unknown>): Promise<GatewayResponse> {

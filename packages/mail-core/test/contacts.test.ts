@@ -12,6 +12,7 @@ import { promises as fs } from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { sendMail, manageContacts, contactProfile, setAgentIdentity } from '../src/tools.js'
+import { GatewayClient } from '../src/gateway.js'
 import { cleanAddr } from '../src/config.js'
 
 const SYSTEM_ID = 'system-test'
@@ -188,5 +189,58 @@ describe('D7: contact_profile name search reads `results` + ambiguous', () => {
     expect(r.success).toBe(true)
     expect(r.address).toBe('bob@x')
     expect(r.profile).toBe('Bob — ops')
+  })
+})
+
+describe('B1: getContactProfiles batch endpoint', () => {
+  const client = new GatewayClient(FAKE_GATEWAY, 'deadbeef')
+
+  it('sends comma-joined addresses; maps the real gateway response shapes', async () => {
+    const { calls, restore } = stubFetch({
+      '/api/v1/contacts?': [200, {
+        my_profile: { address: EMAIL, profile: 'Agent One — persona' },
+        sender_profile: { 'a@x': 'A — sender' },
+        recipients_profile: { 'b@x': 'B — recipient' },
+        results: [],
+      }],
+    })
+    const p = await client.getContactProfiles(['a@x', 'b@x'])
+    restore()
+    expect(p.my_profile).toEqual({ address: EMAIL, profile: 'Agent One — persona' })
+    expect(p.sender_profile).toEqual({ 'a@x': 'A — sender' })
+    expect(p.recipients_profile).toEqual({ 'b@x': 'B — recipient' })
+    const call = calls.find(c => c.url.includes('/api/v1/contacts?'))
+    expect(call?.url).toContain('addresses=a%40x%2Cb%40x')
+  })
+
+  it('empty address list → empty shapes, no request', async () => {
+    const { calls, restore } = stubFetch({})
+    const p = await client.getContactProfiles(['   ', '', '  '])
+    restore()
+    expect(p).toEqual({ my_profile: null, sender_profile: {}, recipients_profile: {} })
+    expect(calls.length).toBe(0)
+  })
+
+  it('non-200 → empty shapes (caller treats as no profiles available)', async () => {
+    const { restore } = stubFetch({
+      '/api/v1/contacts?': [500, { error: 'internal' }],
+    })
+    const p = await client.getContactProfiles(['a@x'])
+    restore()
+    expect(p).toEqual({ my_profile: null, sender_profile: {}, recipients_profile: {} })
+  })
+
+  it('null my_profile → null (no approved persona yet)', async () => {
+    const { restore } = stubFetch({
+      '/api/v1/contacts?': [200, {
+        my_profile: null,
+        sender_profile: {},
+        recipients_profile: {},
+        results: [],
+      }],
+    })
+    const p = await client.getContactProfiles(['a@x'])
+    restore()
+    expect(p.my_profile).toBeNull()
   })
 })

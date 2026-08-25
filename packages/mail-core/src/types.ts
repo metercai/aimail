@@ -89,7 +89,12 @@ export interface EnrichedPayload extends Record<string, unknown> {
   references?: string[]
   _preprocess_error?: string
   _whoami_prompt?: string
-  _whoami_update_public?: boolean
   _role_prompt?: string
   _a2a_session_key?: string
+  /** B1 batch profiles (injected only when the gateway returns them). */
+  my_profile?: string
+  sender_profile?: Record<string, string>
+  recipients_profile?: Record<string, string>
+  /** B2 thread_summary preload (existing threads only). */
+  thread_summary?: string
 }

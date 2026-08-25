@@ -154,7 +154,7 @@ describe('D11: role template injection', () => {
       'You are {{AGENTMAIL_ADDRESS}}. Reply whoami for {{INQUIRY_SUBJECT}}.',
     )
     const r = await processInboundMail(mail({ subject: '[WHOAMI] who are you' }), {}, CTX)
-    expect(r?._whoami_update_public).toBe(true)
+    expect(r?._whoami_update_public).toBeUndefined()
     expect(r?._whoami_prompt).toBe(`You are ${EMAIL}. Reply whoami for [WHOAMI] who are you.`)
   })
 
