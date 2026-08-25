@@ -51,7 +51,7 @@ headers 必读键:`to` / `cc` / `from`(显示名解析源)。
 
 附加(仅在对应字段存在时):
 - 步骤 14.5 `[WHOAMI]` 主题前缀 → `_whoami_prompt`(role 文件 whoami.md 模板填充),**early-return**(不再走 board extras 与 ping/pong 判定)
-- 步骤 14.6 **Role_Calibrator(B3)**:subject 含 `update persona`(不区分大小写)→ `_role_prompt`(role 文件 **Role_Calibrator.md** 模板填充,SOUL/skills 经 build_ctx 自动注入),**early-return**(防 board role 覆盖)。网关不拦截该邮件(无 manager 触发词),由 LLM 会话内归纳 draft persona+signature 并回复 manager
+- 步骤 14.6 **Role_Calibrator(B3)**:subject 含 `update persona`(不区分大小写)→ `_role_prompt`(role 文件 **role_calibrator.md** 模板填充,SOUL/skills 经 build_ctx 自动注入),**early-return**(防 board role 覆盖)。role 文件名统一小写,`_read_role_file` 查找前强制 `.lower()`(大小写不敏感)。网关不拦截该邮件(无 manager 触发词),由 LLM 会话内归纳 draft persona+signature 并回复 manager
 - 步骤 14.7 `board_id` + `board_role` → `_role_prompt`(board 角色文件模板填充,三级查找:地址级 `{sid}/{addr}/role_prompt/{role}.md` → 系统级 `{sid}/board/role_prompt/{role}.md` → 兜底 `common.md`)+ `_a2a_session_key = "a2a:{board_id}:{from}"`
 - board_id 派生(board gateway 注册信):`sha256("{short}.a2a@{gw域名}")[:20]`,与 gateway `derive_board_id` 同算法;board_creds.json 存 `{gateway_url, token}`
 

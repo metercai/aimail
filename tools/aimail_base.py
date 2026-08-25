@@ -40,11 +40,15 @@ def fill_template(text: str, ctx: dict) -> str:
 def _read_role_file(name: str) -> str:
     """Read a2a_board role file — address-level first, then system-level.
 
+    Role names are case-insensitive: the filename is always lowercased
+    before lookup, so callers may pass any casing.
+
     Priority:
     1. ~/.agentmail/systems/{sid}/{addr}/role_prompt/{name}.md  (address override)
     2. ~/.agentmail/systems/{sid}/board/role_prompt/{name}.md   (system-level)
     3. common.md fallback (system-level dir)
     """
+    name = name.lower()
     cfg = _load_profile_config()
     sid = cfg.get("system_id", "default") if cfg else "default"
     addr = _clean_agent_dir_name(cfg.get("email", "")) if cfg and cfg.get("email") else ""
@@ -905,7 +909,7 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
     # board role prompt cannot clobber _role_prompt.
     if "update persona" in subject.lower():
         ctx = build_ctx(result, dict(headers))
-        calib_raw = _read_role_file("Role_Calibrator")
+        calib_raw = _read_role_file("role_calibrator")
         if calib_raw:
             result["_role_prompt"] = fill_template(calib_raw, ctx)
         else:
