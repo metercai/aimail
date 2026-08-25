@@ -217,6 +217,21 @@ def cmd_welcome(args) -> int:
     return subprocess.call(cmd)
 
 
+def cmd_persona(args) -> int:
+    """角色管理闭环薄触发 → request_persona.py(替 manager 发 'update persona')。"""
+    sid = args.system_id or ""
+    cmd = [sys.executable, str(SCRIPTS_DIR / "request_persona.py")]
+    if sid:
+        cmd += ["--system-id", sid]
+    if args.manager:
+        cmd += ["--manager", args.manager]
+    elif _env_val("AIMAIL_MANAGER_ADDRESS"):
+        cmd += ["--manager", _env_val("AIMAIL_MANAGER_ADDRESS")]
+    if args.no_wait:
+        cmd += ["--no-wait"]
+    return subprocess.call(cmd)
+
+
 def cmd_install(args) -> int:
     """安装:集成脚本到 check 前的全部步骤(非交互化)。"""
     system_home = Path(args.home).expanduser() if args.home else Path()
@@ -1484,6 +1499,15 @@ def main():
     p_welcome.add_argument("--smtp", action="store_true",
                            help="显式走旧 SMTP 模式(默认 API 模式, postman@ 发件)")
     p_welcome.set_defaults(func=cmd_welcome)
+
+    p_persona = sub.add_parser(
+        "persona",
+        help="角色管理闭环:替 manager 发 'update persona' 邮件,agent 归纳 draft 后回复")
+    p_persona.add_argument("--system-id")
+    p_persona.add_argument("--manager")
+    p_persona.add_argument("--no-wait", action="store_true",
+                           help="发送后不等待 draft 回复")
+    p_persona.set_defaults(func=cmd_persona)
 
     args = ap.parse_args()
     sys.exit(args.func(args) or 0)

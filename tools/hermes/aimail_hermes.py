@@ -54,7 +54,6 @@ board_members = board.board_members
 board_roles = board.board_roles
 board_status = board.board_status
 board_heartbeat = board.board_heartbeat
-set_public_whoami = board.set_public_whoami
 _TOOLSET = "agentmail"
 
 logger = logging.getLogger(__name__)
@@ -867,27 +866,6 @@ if registry is not None:
             },
             handler=board_heartbeat,
             emoji="💓",
-        )
-    except Exception as _e:
-        logger.warning("[a2a_board] tool registration failed: %s", _e)
-
-    try:
-        registry.register(
-            name="set_public_whoami",
-            toolset=_TOOLSET,
-            schema={
-                "name": "a2a_set_public_whoami",
-                "description": "Set the public identity card returned for stranger WHOAMI queries.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "text": {"type": "string", "description": "Public identity text"}
-                    },
-                    "required": ["text"],
-                },
-            },
-            handler=set_public_whoami,
-            emoji="🆔",
         )
     except Exception as _e:
         logger.warning("[a2a_board] tool registration failed: %s", _e)

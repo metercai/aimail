@@ -220,6 +220,27 @@ class _GatewayClient:
             return result.get("results", [])
         return []
 
+    def get_contact_profiles(self, addresses: List[str]) -> dict:
+        """GET /api/v1/contacts?addresses=a,b,c — batch profile lookup.
+
+        Returns {"my_profile": {...}|None, "sender_profile": {addr: profile},
+        "recipients_profile": {addr: profile}, "results": [...]}.
+        Empty dict on failure (caller treats as no profiles available).
+        """
+        addrs = [a.strip() for a in addresses if a and a.strip()]
+        if not addrs:
+            return {}
+        q = urllib.parse.quote(",".join(addrs), safe="@")
+        result = self._request("GET", f"/api/v1/contacts?addresses={q}")
+        if result.get("status") == 200:
+            return {
+                "my_profile": result.get("my_profile"),
+                "sender_profile": result.get("sender_profile", {}),
+                "recipients_profile": result.get("recipients_profile", {}),
+            }
+        logger.warning("[agentmail_gateway] batch contacts lookup failed: HTTP %s", result.get("status"))
+        return {}
+
     # ── Domain / API Key management ─────────────────────────────
 
     def list_system_domains(self, system_id: str) -> list:

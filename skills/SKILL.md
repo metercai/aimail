@@ -28,6 +28,7 @@ Each inbound email arrives as a JSON message. Key fields:
 | `sender_profile` | Known attributes of the sender (auto-populated from contact profile). |
 | `recipients` | `{to: [...], cc: [...]}` — everyone on the thread. Each is `Name <email>`. |
 | `recipients_profile` | Profiles for all recipients except you. |
+| `my_profile` | Your approved persona — who you are (single source of truth, set by your manager via `approve persona`). |
 | `my_amail_addr` | Your identity with persona in this conversation. |
 | `direct_message` | `true` = you're the only recipient. `false` = group conversation. |
 | `mentioned` | Someone wrote `@your-name` in the body (only meaningful when `direct_message: false`). |

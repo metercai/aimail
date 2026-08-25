@@ -23,7 +23,6 @@
 ## 关键指令
 
 - `[WHOAMI]` — 收到后回复你的能力自述
-- `set_public_whoami(text)` — 配置你的公开名片
 
 ---
 

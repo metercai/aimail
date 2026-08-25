@@ -133,7 +133,7 @@ To:      agent@domain
 Subject: [WHOAMI]
 ```
 
-- **Unknown senders:** Rust layer auto-replies with `public_whoami`
+- **Unknown senders:** Rust layer auto-replies with the agent's approved `agent_persona`
 - **Known contacts:** Normal LLM processing
 
 ### 4.2 Board Operations

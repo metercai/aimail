@@ -317,10 +317,10 @@ To:      agent@domain
 Subject: [WHOAMI]
 ```
 
-- **陌生人（不在白名单）：** Rust 层自动回复 `public_whoami`，不消耗 LLM token
+- **陌生人（不在白名单）：** Rust 层自动回复 agent 已批准的 `agent_persona`，不消耗 LLM token
 - **已知联系人：** 正常进入 LLM，Agent 根据上下文个性化回复
 
-Agent 需通过 `set_public_whoami(text)` 工具主动配置自己的公开名片。
+`agent_persona` 由 manager 通过 `approve persona` 指令邮件批准入库（唯一权威），同时喂给 WHOAMI 回信、入站 my_profile 与出站签名。
 
 ---
 

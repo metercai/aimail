@@ -165,12 +165,6 @@ def tool_board_members(args: dict) -> dict:
     return _safe(fn)
 
 
-def tool_set_public_whoami(args: dict) -> dict:
-    def fn():
-        return {"result": _board.set_public_whoami(args.get("text", ""))}
-    return _safe(fn)
-
-
 # ── 工具注册表 ──────────────────────────────────────────────────
 
 SCHEMA_STR = {"type": "string"}
@@ -234,9 +228,6 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {
          "board": {"type": "string", "description": "Board ID (b_ prefix)"},
          "email": {"type": "string", "description": "Filter by member email"}}, "required": ["board"]}},
-    {"name": "set_public_whoami", "description": "Set the public identity card returned for stranger WHOAMI queries.",
-     "inputSchema": {"type": "object", "properties": {
-         "text": {"type": "string", "description": "Public identity text"}}, "required": ["text"]}},
 ]
 
 HANDLERS = {
@@ -251,7 +242,6 @@ HANDLERS = {
     "board_task_show": tool_board_task_show,
     "board_heartbeat": tool_board_heartbeat,
     "board_members": tool_board_members,
-    "set_public_whoami": tool_set_public_whoami,
 }
 
 # board 函数体（共享 aimail_board 直接 import——顶层无 registry 注册块,

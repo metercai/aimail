@@ -184,17 +184,6 @@ def board_heartbeat(task_id: str, note: str = "") -> str:
         return json.dumps({"error": str(e)})
 
 
-def set_public_whoami(text: str) -> str:
-    """Set Agent public WHOAMI card for stranger queries."""
-    cfg = _load_profile_config()
-    if not cfg: return json.dumps({"error": "no profile config"})
-    client = _GatewayClient(cfg["gateway_url"], cfg["api_key"])
-    try:
-        client.agent_state_put("public_whoami", text)
-        return json.dumps({"status": "ok"})
-    except Exception as e:
-        return json.dumps({"error": str(e)})
-
 def _board_request(client, method, path, email, **kwargs):
     """Board API request with the member's email as the second credential
     (dual-credential auth: token + member email must both match)."""

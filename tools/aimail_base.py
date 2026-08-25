@@ -750,6 +750,58 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
         result["direct_message"] = False
         result["mentioned"] = False
 
+    # ── B1: batch profile injection (one gateway round-trip) ──
+    # my_profile / sender_profile / recipients_profile come from a single
+    # GET /api/v1/contacts?addresses=... call. Sender goes FIRST (the
+    # endpoint treats the first address as the inbound sender); the rest
+    # are recipients. my_profile is the calling agent's approved persona
+    # (domain_addr_meta) — the single source of truth for who the agent is.
+    from aimail_tools import _GatewayClient as _GC
+    from aimail_base import _load_gateway_config as _load_gw_cfg
+    sender_bare = payload.get("from", "")
+    if isinstance(sender_bare, str) and sender_bare:
+        sender_bare = sender_bare.strip().lower()
+    batch_addrs = [sender_bare] + to_bare + cc_bare if sender_bare else to_bare + cc_bare
+    _seen = set()
+    batch_addrs = [a for a in batch_addrs if a and not (a in _seen or _seen.add(a))]
+    if batch_addrs:
+        _gw = _load_gw_cfg()
+        _ak = (config or {}).get("api_key", "")
+        if _gw and _ak:
+            profiles = _GC(_gw["gateway_url"], _ak).get_contact_profiles(batch_addrs)
+            if profiles:
+                my_profile = profiles.get("my_profile")
+                if my_profile and isinstance(my_profile, dict):
+                    result["my_profile"] = my_profile.get("profile")
+                if profiles.get("sender_profile"):
+                    result["sender_profile"] = profiles["sender_profile"]
+                if profiles.get("recipients_profile"):
+                    result["recipients_profile"] = profiles["recipients_profile"]
+        else:
+            logger.warning("[agentmail_gateway] batch profiles skipped: no gateway config or api_key")
+
+    # ── B2: thread_summary preload (pure local, no gateway round-trip) ──
+    # thread_id = first References entry (thread root), else the message_id
+    # itself — identical to store_inbound_message's write-time derivation.
+    # Only pre-existing threads are injected; a first mail in a thread has
+    # no file yet and gets nothing.
+    _mid = (result.get("message_id") or "").strip()
+    _refs = result.get("references") or []
+    if isinstance(_refs, str):
+        _refs = [r.strip() for r in _refs.split() if r.strip()]
+    _tid = (_refs[0] if _refs else _mid)
+    if _tid:
+        try:
+            from aimail_tools import _thread_path
+            _tp = _thread_path(_tid)
+            if _tp.exists():
+                _td = json.loads(_tp.read_text(encoding="utf-8"))
+                _summary = (_td.get("summary") or "").strip()
+                if _summary:
+                    result["thread_summary"] = _summary
+        except Exception as _e:
+            logger.warning("[agentmail_gateway] thread_summary preload failed: %s", _e)
+
     attachments = result.get("attachments")
 
     if attachments and isinstance(attachments, list) and len(attachments) > 0:
@@ -842,7 +894,22 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
         whoami_raw = _read_role_file("whoami")
         if whoami_raw:
             result["_whoami_prompt"] = fill_template(whoami_raw, ctx)
-        result["_whoami_update_public"] = True
+        return result
+
+    # ── B3: Role_Calibrator (persona update request) ──
+    # A manager email whose subject contains "update persona" asks the agent
+    # to draft a new persona + signature. The gateway does NOT intercept it
+    # (no manager trigger word), so it reaches the agent; we inject the
+    # Role_Calibrator role prompt (SOUL + skills auto-filled by build_ctx)
+    # and let the LLM draft and reply within the session. Early return so a
+    # board role prompt cannot clobber _role_prompt.
+    if "update persona" in subject.lower():
+        ctx = build_ctx(result, dict(headers))
+        calib_raw = _read_role_file("Role_Calibrator")
+        if calib_raw:
+            result["_role_prompt"] = fill_template(calib_raw, ctx)
+        else:
+            logger.warning("[agentmail_gateway] Role_Calibrator role file missing — persona update will proceed without a role prompt")
         return result
 
     # ── a2a_board: Board上下文检测（由Rust A2aInterceptor注入 board_id / board_role）──

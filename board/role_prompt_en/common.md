@@ -23,7 +23,6 @@ Your AgentMail address is **{{AGENTMAIL_ADDRESS}}**.
 ## Key Instructions
 
 - `[WHOAMI]` — reply with your capabilities when queried
-- `set_public_whoami(text)` — configure your public whoami card
 
 ---
 

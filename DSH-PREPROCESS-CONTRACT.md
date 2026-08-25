@@ -1,6 +1,6 @@
 # DSH-PREPROCESS-CONTRACT — dsh TS 预处理逐行对照基准
 
-> 状态:P0 产出(2026-08-18);2026-08-24 对齐修订(meta/threads 本地化、outbox 先存再调、X-AIMail-* 头改名、Q3 头路由、D8 board_id 派生、D11 role 模板)
+> 状态:P0 产出(2026-08-18);2026-08-24 对齐修订(meta/threads 本地化、outbox 先存再调、X-AIMail-* 头改名、Q3 头路由、D8 board_id 派生、D11 role 模板);2026-08-25 角色管理闭环(批量画像 B1 / thread_summary 预加载 B2 / Role_Calibrator B3;my_role 与 _whoami_update_public 已删)
 > 用途:dsh `mail-core` TS 实现入站预处理全链的**唯一对照基准**——TS 重写只换语言,不换行为。
 > 基准源:agentmail 仓库 `tools/aimail_base.py` 的 `preprocess_mail_payload` / `process_inbound_mail` / `handle_ping_pong` / `parse_amail_persona`(行号随版本演进,以语义为准)。
 > 铁律:任一字段名/事件名/前缀/路径与本文不一致 = 契约破坏;验收以 `agentmail ping` 三阶段日志 + welcome 双向为锁。
@@ -29,7 +29,7 @@ payload 字段(Rust gateway 入站队列产物):
 
 headers 必读键:`to` / `cc` / `from`(显示名解析源)。
 
-## 2. 预处理 13 步(逐行对照)
+## 2. 预处理 15 步(逐行对照)
 
 | # | 步骤 | 逻辑(与 aimail_base 一致) | 输出/副作用 |
 |---|------|------------------------------|-------------|
@@ -42,14 +42,17 @@ headers 必读键:`to` / `cc` / `from`(显示名解析源)。
 | 7 | persona 提取 | 取属于 agent 域的收件人(以 `@agent_domain` 结尾的 to_bare 第一个);`parse_amail_persona(addr, system_name)` → (persona, profile, sys_name) | — |
 | 8 | my_amail_addr | persona 存在且 **PERSONA_SUPPORTED=False → `= agent_email`**(归一基础地址,不做配置校验);支持且 persona 已配置 → `= my_to_addr`;未配置 → 回退 `agent_email`;无 persona → `= my_to_addr or agent_email` | `my_amail_addr` |
 | 9 | direct_message / mentioned | DM = 单一 to 收件人 + 无 cc + 归一 base 相等;mentioned = 正文 `@profile`/`@显示名` 或分词命中(agent_local/profile/agent_display) | `direct_message`(bool)/ `mentioned`(bool) |
-| 10 | 附件下载 | 有 attachments → 用 **agent api_key**(非 admin_key)经 gateway `download_attachment(id)` 下载;落 `_agentmail_dir()/{yyyymm}/attch/{sanitized_mid}/`;文件名取 basename | `attachments` = 本地路径数组 |
-| 11 | 附件转换 | 扩展名 `.docx/.xlsx/.html/.htm` → markitdown 转 md,写同目录 `{stem}.md` 并追加路径;失败保留原文件 | `attachments` += md 路径 |
-| 12 | 剥离 backend-only | pop:`mail_id` / `to` / `cc` / `headers` / `created_at` / `forwarder` / `forward_at` | 清理后 payload |
-| 13 | 存储 + 日志 | `store_inbound_message(message_id, references, my_amail_addr, preprocessed_payload=result)`(save_raw_snapshots=true 时存快照)+ `_log_amail("inbound", from, my_addr, subject)` | 快照 `raw_email/{addr}/{yyyymm}/in-{mid}.json`;日志行 |
+| 10 | 批量画像注入(B1) | 地址列表 `[sender] + to_bare + cc_bare`(去重,首地址=发件人)→ 单次 `GET /api/v1/contacts?addresses=a,b,c`(agent api_key)→ 返回 `{my_profile, sender_profile, recipients_profile}`;`my_profile`= 调用者已批准 persona(domain_addr_meta 唯一权威) | `my_profile`(string\|无)/ `sender_profile`(dict\|无)/ `recipients_profile`(dict\|无) |
+| 11 | thread_summary 预加载(B2) | `thread_id = references[0]`(无则 message_id,与 store_inbound_message 写入同算法)→ 读本地 `threads/{xx}/{tid}.json`;**仅已存在**线程注入(首封无线程文件) | `thread_summary`(string\|无) |
+| 12 | 附件下载 | 有 attachments → 用 **agent api_key**(非 admin_key)经 gateway `download_attachment(id)` 下载;落 `_agentmail_dir()/{yyyymm}/attch/{sanitized_mid}/`;文件名取 basename | `attachments` = 本地路径数组 |
+| 13 | 附件转换 | 扩展名 `.docx/.xlsx/.html/.htm` → markitdown 转 md,写同目录 `{stem}.md` 并追加路径;失败保留原文件 | `attachments` += md 路径 |
+| 14 | 剥离 backend-only | pop:`mail_id` / `to` / `cc` / `headers` / `created_at` / `forwarder` / `forward_at` | 清理后 payload |
+| 15 | 存储 + 日志 | `store_inbound_message(message_id, references, my_amail_addr, preprocessed_payload=result)`(save_raw_snapshots=true 时存快照)+ `_log_amail("inbound", from, my_addr, subject)` | 快照 `raw_email/{addr}/{yyyymm}/in-{mid}.json`;日志行 |
 
-附加(board,仅在对应字段存在时):
-- 步骤 12.5 `[WHOAMI]` 主题前缀 → `_whoami_prompt`(role 文件 whoami.md 模板填充)+ `_whoami_update_public=true`,**early-return**(不再走 board extras 与 ping/pong 判定)
-- 步骤 12.6 `board_id` + `board_role` → `_role_prompt`(board 角色文件模板填充,三级查找:地址级 `{sid}/{addr}/role_prompt/{role}.md` → 系统级 `{sid}/board/role_prompt/{role}.md` → 兜底 `common.md`)+ `_a2a_session_key = "a2a:{board_id}:{from}"`
+附加(仅在对应字段存在时):
+- 步骤 14.5 `[WHOAMI]` 主题前缀 → `_whoami_prompt`(role 文件 whoami.md 模板填充),**early-return**(不再走 board extras 与 ping/pong 判定)
+- 步骤 14.6 **Role_Calibrator(B3)**:subject 含 `update persona`(不区分大小写)→ `_role_prompt`(role 文件 **Role_Calibrator.md** 模板填充,SOUL/skills 经 build_ctx 自动注入),**early-return**(防 board role 覆盖)。网关不拦截该邮件(无 manager 触发词),由 LLM 会话内归纳 draft persona+signature 并回复 manager
+- 步骤 14.7 `board_id` + `board_role` → `_role_prompt`(board 角色文件模板填充,三级查找:地址级 `{sid}/{addr}/role_prompt/{role}.md` → 系统级 `{sid}/board/role_prompt/{role}.md` → 兜底 `common.md`)+ `_a2a_session_key = "a2a:{board_id}:{from}"`
 - board_id 派生(board gateway 注册信):`sha256("{short}.a2a@{gw域名}")[:20]`,与 gateway `derive_board_id` 同算法;board_creds.json 存 `{gateway_url, token}`
 
 **dsh 差异点(允许,契约内明示)**:本地存储已对齐——dsh 与 Python 同写 `meta/{xx}/{mid}.json` 常写(回复链依赖,不受快照开关控制)、`threads/{xx}/{tid}.json`(email_summary);raw 快照(in-/out-{mid}.json)受 save_raw_snapshots 开关控制(默认关);`_log_amail` 日志事件必须保留(三阶段日志判定依赖)。出站:sendMail 本地生成 Message-ID → 先存 meta 再调 API(先存再调,失败不回滚);写端头 `X-AIMail-Agent`(新名,gateway 白名单双名过渡);入站路由:bridge 单投注入 `X-AIMail-Email`(旧名 `X-Amail-Email` 过渡回退)为权威路由,头缺失才遍历 payload.to(批量投递无该头)。
@@ -58,7 +61,7 @@ headers 必读键:`to` / `cc` / `from`(显示名解析源)。
 
 保留:subject / body / message_id / references / recipients{to,cc} / sender / my_amail_addr / direct_message / mentioned / attachments(local paths)+ 原样保留未列字段(from 等)。
 已剥离:mail_id / to / cc / headers / created_at / forwarder / forward_at。
-可选:`_preprocess_error`(未配置短路)/ `_whoami_prompt` / `_whoami_update_public` / `_role_prompt` / `_a2a_session_key`。
+可选:`_preprocess_error`(未配置短路)/ `my_profile` / `sender_profile` / `recipients_profile` / `thread_summary`(批量画像 + 线程预加载,命中才注入)/ `_whoami_prompt` / `_role_prompt` / `_a2a_session_key`。
 
 ## 4. ping/pong 契约(核心不可错)
 
@@ -98,4 +101,4 @@ dsh 侧 TS 实现沿用同一 `~/.agentmail/` 根布局(附件/日志/meta/threa
 
 1. `agentmail ping --system-id <dsh>`:三阶段事件齐全且 ping_id 配对 → 预处理链 + pong 出站契约通过。
 2. `agentmail welcome --system-id <dsh>`:管理员收到 Re: 回复(头 `X-AIMail-Agent: dsh/{ver}`)→ 完整双向契约通过。
-3. 字段级断言(开发期):构造与 Python 相同入站样例,断言输出字段集与 §3 完全一致(recipients/sender/my_amail_addr/direct_message/mentioned/剥离字段)。
+3. 字段级断言(开发期):构造与 Python 相同入站样例,断言输出字段集与 §3 完全一致(recipients/sender/my_amail_addr/direct_message/mentioned/my_profile/thread_summary/剥离字段)。

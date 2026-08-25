@@ -235,7 +235,7 @@ def load_board_module():
 
     Hermes 的 aimail_board.py 顶层注册块引用了本文件不存在的 handler
     （依赖 Hermes 运行时特殊加载），CLI/MCP 场景用 ast 定位并删除注册块后
-    exec，只取其函数体（board_* / set_public_whoami）。所有 OpenClaw 侧
+    exec，只取其函数体（board_* 系列）。所有 OpenClaw 侧
     消费者（amail.py / amail_mcp_server.py）统一走此入口。
 
     同进程内缓存（sys.modules）——避免多次 exec 产生不同函数对象副本。
