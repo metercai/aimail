@@ -6,6 +6,7 @@
  */
 export * from './types.js'
 export { GatewayClient } from './gateway.js'
+export { computeApiSignature, sha256Hex } from './api-signature.js'
 export {
   AIMAIL_HOME,
   systemDir,

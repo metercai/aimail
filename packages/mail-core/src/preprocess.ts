@@ -447,7 +447,7 @@ export async function processInboundMail(
     }
     if (batchAddrs.length && cfg.api_key) {
       try {
-        const client = new GatewayClient(cfg.gateway_url, cfg.api_key)
+        const client = new GatewayClient(cfg.gateway_url, cfg.api_key, 30_000, cfg.email)
         const profiles = await client.getContactProfiles(batchAddrs)
         if (profiles.my_profile) result.my_profile = profiles.my_profile.profile
         if (Object.keys(profiles.sender_profile).length) result.sender_profile = profiles.sender_profile
@@ -482,7 +482,7 @@ export async function processInboundMail(
 
   // step 12-13: attachments
   if (payload.attachments?.length && cfg.api_key) {
-    const client = new GatewayClient(cfg.gateway_url, cfg.api_key)
+    const client = new GatewayClient(cfg.gateway_url, cfg.api_key, 30_000, cfg.email)
     const paths = await downloadAttachments(client, payload.attachments, (payload.message_id as string) ?? '', cfg)
     result.attachments = paths
   }

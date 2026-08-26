@@ -61,7 +61,7 @@ async function boardClient(
   if (!cfg || !cfg.api_key) throw new Error('agentmail not configured for this agent')
   const creds = await loadBoardCreds(ctx.systemId, cfg.email)
   const token = creds[boardId]?.token
-  const client = new GatewayClient(boardGatewayUrl(boardId, cfg), token || cfg.api_key)
+  const client = new GatewayClient(boardGatewayUrl(boardId, cfg), token || cfg.api_key, 30_000, cfg.email)
   return { client, email: cfg.email }
 }
 
@@ -132,7 +132,7 @@ export interface SetPublicWhoamiArgs {
 export async function setPublicWhoami(ctx: ToolCtx, args: SetPublicWhoamiArgs): Promise<ToolResult> {
   const cfg = await loadAgentConfig(ctx.systemId, ctx.email ?? '')
   if (!cfg || !cfg.api_key) throw new Error('agentmail not configured for this agent')
-  const client = new GatewayClient(cfg.gateway_url, cfg.api_key)
+  const client = new GatewayClient(cfg.gateway_url, cfg.api_key, 30_000, cfg.email)
   const r = await client.agentStatePut('public_whoami', args.text)
   if (r.status >= 200 && r.status < 300) return { success: true, status: 'ok' }
   return { success: false, error: r.error ?? `HTTP ${r.status}` }

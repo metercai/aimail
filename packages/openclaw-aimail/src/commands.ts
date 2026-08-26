@@ -277,7 +277,7 @@ async function handleCommand(
       // when the config lacks an admin key (agent-scope registration).
       const { GatewayClient } = await import('@aimail/mail-core')
       const apiKey = gw.admin_key ?? ''
-      const admin = new GatewayClient(gw.gateway_url ?? '', apiKey)
+      const admin = new GatewayClient(gw.gateway_url ?? '', apiKey, 30_000, systemId)
       const reg = await registerAgentEmail(admin, {
         systemId,
         email,
@@ -329,7 +329,7 @@ async function handleCommand(
       const systemId = await resolveSystemId(opts['system-id'] ?? '')
       const gw = await readGatewayConfig(systemId)
       const { GatewayClient } = await import('@aimail/mail-core')
-      const admin = new GatewayClient(gw.gateway_url ?? '', gw.admin_key ?? '')
+      const admin = new GatewayClient(gw.gateway_url ?? '', gw.admin_key ?? '', 30_000, systemId)
       const out = await deregisterAgentEmail(admin, {
         systemId,
         email,

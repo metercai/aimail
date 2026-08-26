@@ -1,20 +1,38 @@
 /**
  * Gateway HTTP client — mirrors Python `_GatewayClient` (agentmail_tools.py).
- * Auth: X-Api-Key header (agent-scope key); board APIs add dual-credential
- * email query param when memberEmail provided.
- * Contract: gateway REST API (aimail-gateway).
+ * Auth: v1 signature (X-Api-Identity + X-Api-Timestamp + X-Api-Signature);
+ * the raw API key stays offline (see api-signature.ts). Board APIs add dual-
+ * credential email query param when memberEmail provided.
+ * Contract: gateway REST API + docs/API-SIGNATURE-PROTOCOL.md.
  */
 import type { GatewayResponse, AttachmentSpec } from './types.js'
+import { computeApiSignature } from './api-signature.js'
 
 export class GatewayClient {
   readonly baseUrl: string
   readonly apiKey: string
   readonly timeoutMs: number
+  /** v1 identity: key's email (address-scoped) or its system_id (system keys). */
+  readonly identity: string
 
-  constructor(gatewayUrl: string, apiKey: string, timeoutMs = 30_000) {
+  constructor(gatewayUrl: string, apiKey: string, timeoutMs = 30_000, identity = '') {
     this.baseUrl = gatewayUrl.replace(/\/+$/, '')
     this.apiKey = apiKey
     this.timeoutMs = timeoutMs
+    this.identity = identity
+  }
+
+  /** v1 signature headers for a request (empty when no key). */
+  private signedHeaders(method: string, path: string, body?: Uint8Array): Record<string, string> {
+    const h: Record<string, string> = {}
+    if (!this.apiKey) return h
+    if (this.identity) h['X-Api-Identity'] = this.identity
+    const sig = computeApiSignature(this.apiKey, method, path, body ?? new Uint8Array(0))
+    if (sig) {
+      h['X-Api-Timestamp'] = sig.timestamp
+      h['X-Api-Signature'] = sig.signature
+    }
+    return h
   }
 
   /** Core request — mirrors _request: JSON in/out, status never overwritten. */
@@ -27,8 +45,6 @@ export class GatewayClient {
   ): Promise<GatewayResponse> {
     const url = `${this.baseUrl}${path}`
     const reqHeaders: Record<string, string> = { Accept: 'application/json' }
-    if (this.apiKey) reqHeaders['X-Api-Key'] = this.apiKey
-    if (headers) Object.assign(reqHeaders, headers)
 
     let data: Uint8Array | undefined
     if (rawBody) {
@@ -37,6 +53,10 @@ export class GatewayClient {
       data = new TextEncoder().encode(JSON.stringify(body))
       reqHeaders['Content-Type'] = reqHeaders['Content-Type'] ?? 'application/json'
     }
+
+    // v1 API signature (raw key stays offline).
+    Object.assign(reqHeaders, this.signedHeaders(method, path, data))
+    if (headers) Object.assign(reqHeaders, headers)
 
     try {
       const init: RequestInit = {
@@ -117,10 +137,11 @@ export class GatewayClient {
   }
 
   async downloadAttachment(attachmentId: string): Promise<Uint8Array | undefined> {
-    const url = `${this.baseUrl}/api/v1/attachments/${encodeURIComponent(attachmentId)}`
+    const path = `/api/v1/attachments/${encodeURIComponent(attachmentId)}`
+    const url = `${this.baseUrl}${path}`
     try {
       const resp = await fetch(url, {
-        headers: { 'X-Api-Key': this.apiKey },
+        headers: this.signedHeaders('GET', path),
         signal: AbortSignal.timeout(this.timeoutMs),
       })
       if (!resp.ok) return undefined

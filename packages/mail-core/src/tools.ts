@@ -160,7 +160,7 @@ export interface SendMailArgs {
 
 export async function sendMail(ctx: ToolCtx, args: SendMailArgs): Promise<ToolResult> {
   const cfg = await requireConfig(ctx.systemId, ctx.email)
-  const client = new GatewayClient(cfg.gateway_url, cfg.api_key)
+  const client = new GatewayClient(cfg.gateway_url, cfg.api_key, 30_000, cfg.email)
 
   // Recipients kept as lists end-to-end (no join→split round-trip); joined
   // with ',' only at send time (mirrors Python to_list/cc_list).
@@ -291,7 +291,7 @@ export interface ManageContactsArgs {
 
 export async function manageContacts(ctx: ToolCtx, args: ManageContactsArgs): Promise<ToolResult> {
   const cfg = await requireConfig(ctx.systemId, ctx.email)
-  const client = new GatewayClient(cfg.gateway_url, cfg.api_key)
+  const client = new GatewayClient(cfg.gateway_url, cfg.api_key, 30_000, cfg.email)
   const direction = args.direction ?? 'all'
   const emailAddr = cfg.email
 
@@ -356,7 +356,7 @@ export async function contactProfile(ctx: ToolCtx, args: ContactProfileArgs): Pr
     return { success: false, error: 'address or name is required' }
   }
   const cfg = await requireConfig(ctx.systemId, ctx.email)
-  const client = new GatewayClient(cfg.gateway_url, cfg.api_key)
+  const client = new GatewayClient(cfg.gateway_url, cfg.api_key, 30_000, cfg.email)
   if (args.address) {
     // exact lookup — gateway returns {address, profile} (404 → none)
     const r = await client.contactGet(args.address)
@@ -387,7 +387,7 @@ export async function contactProfile(ctx: ToolCtx, args: ContactProfileArgs): Pr
 
 export async function setContactProfile(ctx: ToolCtx, args: { address: string; profile: string }): Promise<ToolResult> {
   const cfg = await requireConfig(ctx.systemId, ctx.email)
-  const client = new GatewayClient(cfg.gateway_url, cfg.api_key)
+  const client = new GatewayClient(cfg.gateway_url, cfg.api_key, 30_000, cfg.email)
   const r = await client.contactPut(args.address, args.profile)
   return { success: r.status >= 200 && r.status < 300, ...r }
 }
