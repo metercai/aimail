@@ -271,16 +271,14 @@ build_message = _ab.render_message  # 渲染语义对齐 Hermes webhook.py（共
 
 # ── 共享运行时（C2/C5/CLI/MCP 统一入口，修订一处即全局生效）──────
 
-def http_post(url: str, body: dict, api_key: str = "", token: str = "",
+def http_post(url: str, body: dict, token: str = "",
               timeout: int = 30) -> dict:
-    """统一 JSON POST（amail API 用 X-Api-Key，OpenClaw hooks 用 Bearer）。"""
+    """统一 JSON POST（OpenClaw hooks 用 Bearer token）。"""
     import urllib.request
     import urllib.error
     data = json.dumps(body).encode()
     req = urllib.request.Request(url, data=data,
                                  headers={"Content-Type": "application/json"})
-    if api_key:
-        req.add_header("X-Api-Key", api_key)
     if token:
         req.add_header("Authorization", f"Bearer {token}")
     try:

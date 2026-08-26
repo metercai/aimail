@@ -651,6 +651,36 @@ PLATFORMS = {
 # ═══════════════════════════════════════════════════════════════
 #  Helpers
 # ═══════════════════════════════════════════════════════════════
+def _signed_headers(api_key: str, method: str, path: str,
+                    data: bytes | None = None,
+                    identity: str = "") -> dict:
+    """v1 API 签名头（自包含实现，与 tools/aimail_base.compute_api_signature
+    同一协议：HMAC key = sha256(raw_key)，base = METHOD\\npath\\nts\\nsha256(body)）。
+    check_status 离线自包含，不依赖 tools/ 核心。"""
+    import hashlib, hmac as _hmac, time as _time
+    h = {"Content-Type": "application/json"}
+    if identity:
+        h["X-Api-Identity"] = identity
+    key_hash = hashlib.sha256(api_key.encode()).hexdigest()
+    ts = str(int(_time.time() * 1000))
+    body_hash = hashlib.sha256(data or b"").hexdigest()
+    base = f"{method}\n{path}\n{ts}\n{body_hash}"
+    h["X-Api-Timestamp"] = ts
+    h["X-Api-Signature"] = _hmac.new(key_hash.encode(), base.encode(),
+                                     hashlib.sha256).hexdigest()
+    return h
+
+
+def _signed_get_headers(api_key: str, path: str = "/api/v1/whoami",
+                        identity: str = "") -> dict:
+    return _signed_headers(api_key, "GET", path, identity=identity)
+
+
+def _signed_post_headers(api_key: str, path: str, data: bytes,
+                         identity: str = "") -> dict:
+    return _signed_headers(api_key, "POST", path, data, identity=identity)
+
+
 def _json_req(url: str, headers: dict | None = None,
               data: bytes | None = None, method: str | None = None,
               timeout: int = 10) -> tuple[int, dict | list]:
@@ -755,7 +785,8 @@ def check_gateway(c: Check, sid: str = ""):
               "Run integrate.sh Step 2 to set admin_key")
         return
     code, data = _json_req(f"{gw_url}/api/v1/whoami",
-                           headers={"X-Api-Key": ak})
+                           headers=_signed_get_headers(ak,
+                                                       identity=cfg.get("system_id", "")))
     if code == 200:
         scope = data.get("scope", "")
         cat = data.get("category", "")
@@ -969,7 +1000,8 @@ def _check_bridge_pull_path(c: Check, td: dict, sid: str = "") -> bool:
     body = json.dumps({"limit": 1}).encode()
     code, resp = _json_req(
         f"{amail_url.rstrip('/')}/api/v1/admin/pending",
-        headers={"X-Api-Key": pull_key, "Content-Type": "application/json"},
+        headers=_signed_post_headers(pull_key, "/api/v1/admin/pending", body,
+                                     identity=pull_cfg.get("system_id", "")),
         data=body, method="POST")
 
     if code == 200:

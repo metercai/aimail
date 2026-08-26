@@ -163,15 +163,19 @@ def _smtp_send(gateway_url: str, admin_key: str, agent_email: str,
 # ── 新 API 模式(默认)────────────────────────────────────────────
 
 
-def _api_send(gw_url: str, admin_key: str, recipient: str) -> tuple:
+def _api_send(gw_url: str, admin_key: str, recipient: str,
+              identity: str = "") -> tuple:
     """POST /api/v1/system/welcome。唯一参数 to; cc/subject/body 服务器固定。
     返回 (ok, email_id, message_id, err)。"""
     url = f"{gw_url.rstrip('/')}/api/v1/system/welcome"
+    path = "/api/v1/system/welcome"
     payload = json.dumps({"to": [recipient]}).encode()
-    req = urllib.request.Request(url, data=payload, method="POST", headers={
-        "X-Api-Key": admin_key,
-        "Content-Type": "application/json",
-    })
+    from aimail_base import compute_api_signature
+    headers = {"Content-Type": "application/json"}
+    if identity:
+        headers["X-Api-Identity"] = identity
+    headers.update(compute_api_signature(admin_key, "POST", path, payload) or {})
+    req = urllib.request.Request(url, data=payload, method="POST", headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
             data = json.loads(r.read())
@@ -292,7 +296,8 @@ def main() -> int:
         print(f"  To:          {recipient}")
         print(f"  Cc:          (server-resolved from agent manager_address)")
 
-        ok, email_id, msg_id, err = _api_send(gw_url, admin_key, recipient)
+        ok, email_id, msg_id, err = _api_send(
+            gw_url, admin_key, recipient, identity=cfg.get("system_id", ""))
         if not ok:
             print(f"✗ Welcome API send failed: {err}")
             return 1

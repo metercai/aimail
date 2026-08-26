@@ -4,6 +4,8 @@ import json
 import logging
 import os
 import re
+import time
+import hmac
 import hashlib
 import threading
 from pathlib import Path
@@ -11,9 +13,47 @@ from datetime import datetime
 from typing import Optional, Callable, Dict, List
 
 
-
 logger = logging.getLogger(__name__)
 _TOOLSET = "agentmail"
+
+
+# ═══════════════════════════════════════════════════════════════
+# v1 API signature — canonical helper (single source of truth)
+# Contract: aimail-gateway docs/API-SIGNATURE-PROTOCOL.md
+# ═══════════════════════════════════════════════════════════════
+
+def compute_api_signature(api_key: str, method: str, path: str,
+                          body: bytes = b"",
+                          timestamp_ms: Optional[int] = None) -> Optional[Dict[str, str]]:
+    """Compute the v1 API signature headers.
+
+    Returns ``{"X-Api-Timestamp": <ms>, "X-Api-Signature": <hex>}``, or ``None``
+    when ``api_key`` is empty (caller then sends no signature headers).
+
+    The raw API key never crosses the wire: the HMAC key is
+    ``sha256(raw_key)`` (= the DB ``api_keys.key_hash``), which the client
+    derives offline. The caller separately adds ``X-Api-Identity`` (the key's
+    email for address-scoped keys, or its ``system_id`` for system-level keys).
+
+    base string = ``METHOD\\n path_and_query \\n timestamp \\n sha256_hex(body)``
+    sig = ``hex(HMAC-SHA256(key=sha256(raw_key) bytes, msg=base bytes))``
+
+    ``path`` MUST be the exact request target (path + query, URL-encoded) that
+    is sent on the wire, so the server's ``path_and_query()`` re-computes the
+    identical base string. ``timestamp_ms`` is for tests (fixed vector);
+    defaults to now.
+    """
+    if not api_key:
+        return None
+    key_hash = hashlib.sha256(api_key.encode("utf-8")).hexdigest()
+    timestamp = str(timestamp_ms if timestamp_ms is not None
+                    else int(time.time() * 1000))
+    body_hash = hashlib.sha256(body).hexdigest()
+    base = f"{method.upper()}\n{path}\n{timestamp}\n{body_hash}"
+    sig = hmac.new(key_hash.encode("utf-8"), base.encode("utf-8"),
+                   hashlib.sha256).hexdigest()
+    return {"X-Api-Timestamp": timestamp, "X-Api-Signature": sig}
+
 
 # ── persona 能力开关（跨 agent 系统共享，接入新系统时按能力设置）────
 # True  = 支持 persona：派生地址 {role}.{profile}@{domain} 保留 + 配置校验 +
@@ -392,7 +432,8 @@ def _put_contact_profile(address: str, profile: str) -> dict:
     config = _load_profile_config()
     if not config:
         return {"success": False, "error": "agentmail not configured for this profile"}
-    client = _GatewayClient(config["gateway_url"], config["api_key"])
+    client = _GatewayClient(config["gateway_url"], config["api_key"],
+                            identity=config.get("email", ""))
 
     result = client.put_contact(address, profile)
     if result.get("status") == 200:
@@ -824,7 +865,8 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
             return result
 
         from aimail_tools import _GatewayClient
-        client = _GatewayClient(config["gateway_url"], agent_key)
+        client = _GatewayClient(config["gateway_url"], agent_key,
+                                identity=(profile or {}).get("email", ""))
         local_paths = []
 
         # Attachments land beside the email JSON snapshot (sibling dir keyed by

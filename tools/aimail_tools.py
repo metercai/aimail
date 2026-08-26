@@ -21,10 +21,30 @@ _TOOLSET = "agentmail"
 
 
 class _GatewayClient:
-    def __init__(self, gateway_url: str, api_key: str, timeout: int = 30):
+    def __init__(self, gateway_url: str, api_key: str, timeout: int = 30,
+                 identity: str = ""):
         self.gateway_url = gateway_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
+        # v1 signature identity: the key's email (address-scoped) or its
+        # system_id (system-level). Sent as X-Api-Identity; the raw key stays
+        # offline and only the derived signature crosses the wire.
+        self.identity = identity
+
+    def _signed_headers(self, method: str, path: str,
+                        data: Optional[bytes]) -> Dict[str, str]:
+        """Return the v1 signature headers for a request (empty if no key)."""
+        from aimail_base import compute_api_signature
+        h: Dict[str, str] = {}
+        if not self.api_key:
+            return h
+        if self.identity:
+            h["X-Api-Identity"] = self.identity
+        sig = compute_api_signature(self.api_key, method, path,
+                                    data or b"")
+        if sig:
+            h.update(sig)
+        return h
 
     def _request(
         self,
@@ -37,10 +57,6 @@ class _GatewayClient:
         """"Make an HTTP request to the gateway API. Returns parsed JSON or error dict."""
         url = f"{self.gateway_url}{path}"
         req_headers = {"Accept": "application/json"}
-        if self.api_key:
-            req_headers["X-Api-Key"] = self.api_key
-        if headers:
-            req_headers.update(headers)
 
         data = None
         if raw_body is not None:
@@ -48,6 +64,11 @@ class _GatewayClient:
         elif body is not None:
             data = json.dumps(body).encode("utf-8")
             req_headers.setdefault("Content-Type", "application/json")
+
+        # v1 API signature (raw key stays offline).
+        req_headers.update(self._signed_headers(method, path, data))
+        if headers:
+            req_headers.update(headers)
 
         try:
             req = urllib.request.Request(url, data=data, headers=req_headers, method=method)
@@ -141,10 +162,12 @@ class _GatewayClient:
 
     def download_attachment(self, attachment_id: str) -> Optional[bytes]:
         """GET /api/v1/attachments/{id} -- download attachment bytes."""
-        url = f"{self.gateway_url}/api/v1/attachments/{attachment_id}"
+        path = f"/api/v1/attachments/{attachment_id}"
+        url = f"{self.gateway_url}{path}"
+        req_headers = dict(self._signed_headers("GET", path, None))
         req = urllib.request.Request(
             url,
-            headers={"X-Api-Key": self.api_key},
+            headers=req_headers,
         )
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:

@@ -6,6 +6,8 @@ import urllib.error
 from pathlib import Path
 from typing import Optional
 
+from aimail_base import compute_api_signature  # v1 signature (single source)
+
 
 # ═══════════════════════════════════════════════════════════════
 # Config paths
@@ -37,12 +39,32 @@ def load_gateway_config(system_id: str = "") -> Optional[dict]:
 # ═══════════════════════════════════════════════════════════════
 
 class GatewayClient:
-    """Thin HTTP client for agentmail gateway API."""
+    """Thin HTTP client for agentmail gateway API.
 
-    def __init__(self, gateway_url: str, api_key: str, timeout: int = 30):
+    v1 signature auth (docs/API-SIGNATURE-PROTOCOL.md): the raw API key never
+    crosses the wire; each request carries X-Api-Identity + X-Api-Timestamp +
+    X-Api-Signature. ``identity`` is the key's email (address-scoped) or its
+    system_id (system-level keys, empty domain_addr).
+    """
+
+    def __init__(self, gateway_url: str, api_key: str, timeout: int = 30,
+                 identity: str = ""):
         self.gateway_url = gateway_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
+        self.identity = identity
+
+    def _auth_headers(self, method: str, path: str,
+                      data: bytes) -> dict:
+        h = {}
+        if not self.api_key:
+            return h
+        if self.identity:
+            h["X-Api-Identity"] = self.identity
+        sig = compute_api_signature(self.api_key, method, path, data)
+        if sig:
+            h.update(sig)
+        return h
 
     def _post(self, path: str, body: dict) -> dict:
         data = json.dumps(body).encode()
@@ -50,8 +72,8 @@ class GatewayClient:
             f"{self.gateway_url}{path}", data=data,
             headers={"Content-Type": "application/json"},
         )
-        if self.api_key:
-            req.add_header("X-Api-Key", self.api_key)
+        for k, v in self._auth_headers("POST", path, data).items():
+            req.add_header(k, v)
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 return json.loads(r.read())
@@ -65,7 +87,7 @@ class GatewayClient:
 
     def activate_system(self, code: str, system_name: str = "",
                         domain: str = "") -> dict:
-        """POST /api/v1/activate-system."""
+        """POST /api/v1/activate-system (public — no auth)."""
         body = {"code": code}
         if system_name:
             body["system_name"] = system_name
@@ -91,10 +113,14 @@ class GatewayClient:
 # Standalone API functions (no client instance needed)
 # ═══════════════════════════════════════════════════════════════
 
-def whoami(gw: str, ak: str) -> dict:
+def whoami(gw: str, ak: str, identity: str = "") -> dict:
     """GET /api/v1/whoami — return API key metadata."""
-    req = urllib.request.Request(f"{gw}/api/v1/whoami",
-        headers={"X-Api-Key": ak})
+    path = "/api/v1/whoami"
+    headers = {}
+    if identity:
+        headers["X-Api-Identity"] = identity
+    headers.update(compute_api_signature(ak, "GET", path, b"") or {})
+    req = urllib.request.Request(f"{gw}{path}", headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=10) as r:
             return json.loads(r.read())
@@ -104,13 +130,21 @@ def whoami(gw: str, ak: str) -> dict:
 
 def create_api_key(gw: str, ak: str, system_id: str, email: str,
                    scopes: list, category: str) -> dict:
-    """POST /api/v1/admin/api-keys. Returns {raw_key, error, detail, status}."""
+    """POST /api/v1/admin/api-keys. Returns {raw_key, error, detail, status}.
+
+    ``system_id`` doubles as the caller's identity: system-level keys
+    (admin/system_admin) have an empty domain_addr, so their identity IS the
+    system_id.
+    """
     data = json.dumps({
         "system_id": system_id, "email_address": email,
         "scopes": scopes, "category": category,
     }).encode()
-    req = urllib.request.Request(f"{gw}/api/v1/admin/api-keys", data=data,
-        headers={"X-Api-Key": ak, "Content-Type": "application/json"})
+    path = "/api/v1/admin/api-keys"
+    req = urllib.request.Request(f"{gw}{path}", data=data,
+        headers={"Content-Type": "application/json",
+                 "X-Api-Identity": system_id,
+                 **(compute_api_signature(ak, "POST", path, data) or {})})
     try:
         with urllib.request.urlopen(req, timeout=10) as r:
             return json.loads(r.read())
