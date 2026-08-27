@@ -93,15 +93,6 @@ def _read_skills() -> list[str]:
     return []
 
 
-def _resolve_agent_email() -> str:
-    """Resolve current agent's email from profile config."""
-    from tools.aimail_tools import _load_profile_config as _lpc
-    cfg = _lpc()
-    if cfg:
-        return cfg.get("email", "") or cfg.get("domain", "")
-    return ""
-
-
 def _resolve_profile_dir() -> Optional[str]:
     """Resolve Hermes profile directory via fallback chain.
 

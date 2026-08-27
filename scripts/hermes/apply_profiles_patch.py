@@ -148,29 +148,30 @@ patched = False
 hook_created = '''
     # ── Fire integration hooks (AmailGateway) ──
     try:
-        from tools.aimail_base import trigger_profile_hooks
+        from aimail.aimail_base import trigger_profile_hooks
         trigger_profile_hooks("profile_created", canon, str(profile_dir))
     except ImportError:
-        pass  # AmailGateway tools not installed
+        pass  # aimail (pip) not installed
 '''
 
 hook_deleted = '''            # ── Fire integration hooks (AmailGateway) ──
             try:
-                from tools.aimail_base import trigger_profile_hooks
+                from aimail.aimail_base import trigger_profile_hooks
                 trigger_profile_hooks("profile_deleted", canon, str(profile_dir))
             except ImportError:
-                pass  # AmailGateway tools not installed
+                pass  # aimail (pip) not installed
 '''
 
 # ── Patch 1: profile creation hook (always replace) ───────────
-# Remove old instance if present
+# Remove old instance if present(兼容 tools.aimail_base 旧名与 pip 新名;
+# created/deleted 两实例基础缩进不同(4/12 空格)→ 各行缩进 [ \t]* 不校验)
 content = re.sub(
-    r'    # ── Fire integration hooks \(AmailGateway\) ──\n'
-    r'    try:\n'
-    r'        from tools\.aimail_base import trigger_profile_hooks\n'
-    r'        trigger_profile_hooks\("profile_created".*?'
-    r'    except ImportError:\n'
-    r'        pass  # AmailGateway tools not installed\n',
+    r'[ \t]*# ── Fire integration hooks \(AmailGateway\) ──\n'
+    r'[ \t]*try:\n'
+    r'[ \t]*from [^\n]*import trigger_profile_hooks\n'
+    r'[ \t]*trigger_profile_hooks\("profile_created".*?'
+    r'[ \t]*except ImportError:\n'
+    r'[ \t]*pass[^\n]*\n',
     '',
     content, count=1, flags=re.DOTALL
 )
@@ -190,14 +191,15 @@ else:
     print("WARNING: could not find insertion point — patch 1 skipped", file=sys.stderr)
 
 # ── Patch 2: profile deletion hook (always replace) ───────────
-# Remove old instance if present
+# Remove old instance if present(兼容 tools.aimail_base 旧名与 pip 新名;
+# deleted 实例基础缩进 12 空格 → 各行缩进 [ \t]* 不校验;按 profile_deleted 锚定)
 content = re.sub(
-    r'    # ── Fire integration hooks \(AmailGateway\) ──\n'
-    r'    try:\n'
-    r'            from tools\.aimail_base import trigger_profile_hooks\n'
-    r'        trigger_profile_hooks\("profile_deleted".*?'
-    r'    except ImportError:\n'
-    r'        pass  # AmailGateway tools not installed\n',
+    r'[ \t]*# ── Fire integration hooks \(AmailGateway\) ──\n'
+    r'[ \t]*try:\n'
+    r'[ \t]*from [^\n]*import trigger_profile_hooks\n'
+    r'[ \t]*trigger_profile_hooks\("profile_deleted".*?'
+    r'[ \t]*except ImportError:\n'
+    r'[ \t]*pass[^\n]*\n',
     '',
     content, count=1, flags=re.DOTALL
 )

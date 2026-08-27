@@ -1001,6 +1001,19 @@ def _uninstall_hermes(system_home: Path, sid: str) -> None:
         for bak in ha.glob("gateway/platforms/webhook.py.bak-*"):
             bak.unlink()
             _ok(f"removed backup {bak.name}")
+        # pip 形态:卸载 venv 里的 aimail 包(运行时载荷 = site-packages/aimail)
+        venv_py = ha / "venv" / "bin" / "python"
+        if venv_py.is_file():
+            try:
+                r = subprocess.run(
+                    [str(venv_py), "-m", "pip", "uninstall", "-y", "aimail"],
+                    capture_output=True, text=True, timeout=60)
+                if r.returncode == 0:
+                    _ok("uninstalled aimail (venv pip)")
+                else:
+                    _warn(f"pip uninstall aimail: {(r.stderr or r.stdout).strip()[:120]}")
+            except Exception as e:
+                _warn(f"pip uninstall aimail failed: {e}")
 
 
 def _uninstall_openclaw(sid: str) -> None:
@@ -1317,19 +1330,19 @@ def _log_ping_event(dir_: str, ping_id: str, payload: dict, pong_status: str):
 
 PROFILES_HOOK = """    # ── Fire integration hooks (AmailGateway) ──
     try:
-        from tools.aimail_base import trigger_profile_hooks
+        from aimail.aimail_base import trigger_profile_hooks
         trigger_profile_hooks(\"profile_created\", canon, str(profile_dir))
     except ImportError:
-        pass  # AmailGateway tools not installed
+        pass  # aimail (pip) not installed
 
 """
 
-PROFILES_HOOK_DEL = """    # ── Fire integration hooks (AmailGateway) ──
-    try:
-        from tools.aimail_base import trigger_profile_hooks
-        trigger_profile_hooks(\"profile_deleted\", canon, str(profile_dir))
-    except ImportError:
-        pass  # AmailGateway tools not installed
+PROFILES_HOOK_DEL = """            # ── Fire integration hooks (AmailGateway) ──
+            try:
+                from aimail.aimail_base import trigger_profile_hooks
+                trigger_profile_hooks(\"profile_deleted\", canon, str(profile_dir))
+            except ImportError:
+                pass  # aimail (pip) not installed
 
 """
 
@@ -1360,6 +1373,14 @@ def unpatch_webhook(fp: Path):
         text, ok = strip_block(text, block)
         if ok:
             changes += 1
+
+    # Adapter import block (pip 形态 aimail.hermes / legacy tools.hermes) — remove
+    text, n = re.subn(
+        r'# ── AmailGateway Hermes adapter \(shared core injection \+ registration\) ──\n'
+        r'try:\n    from [^\n]*?# noqa: F401\nexcept Exception:\n    pass\n',
+        '', text, count=0)
+    if n:
+        changes += n
 
     # Block 5: Remove Callable from typing import
     text, n = re.subn(

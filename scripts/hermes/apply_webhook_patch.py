@@ -318,27 +318,40 @@ if _p6_target in content:
 else:
     print("WARNING: could not find session_chat_id assignment — patch 6 skipped", file=sys.stderr)
 
-# ── Patch 7: import Hermes adapter (aimail_hermes) — injects platform
-#    implementations into shared core and registers preprocessor/registry/lifecycle
+# ── Patch 7: import Hermes adapter (pip 形态: aimail.hermes.aimail_hermes) ──
+# 先移除任何旧适配器 import 块(tools.hermes 旧名/新名,或 pip 名),再插入
+# pip 形态 import —— 跨 tools/→pip 迁移幂等。
+_p7_old_re = re.compile(
+    r'# ── AmailGateway Hermes adapter \(shared core injection \+ registration\) ──\n'
+    r'try:\n'
+    r'    from [^\n]*?# noqa: F401\n'
+    r'except Exception:\n'
+    r'    pass\n'
+)
+content, _n7 = _p7_old_re.subn('', content, count=0)
+if _n7:
+    patched = True
+    print(f"Patch 7: removed {_n7} old adapter import block(s)", file=sys.stderr)
+
 _p7_block = '''
 # ── AmailGateway Hermes adapter (shared core injection + registration) ──
 try:
-    from tools.hermes import aimail_hermes  # noqa: F401
+    from aimail.hermes import aimail_hermes  # noqa: F401
 except Exception:
     pass
 
 '''
-if "aimail_hermes" not in content:
+if "from aimail.hermes import aimail_hermes" not in content:
     # Insert after the PREPROCESS_REGISTRY definition block (after register_preprocessor)
     _p7_target = "PREPROCESS_REGISTRY[name] = fn"
     if _p7_target in content:
         content = content.replace(_p7_target + "\n", _p7_target + "\n" + _p7_block, 1)
         patched = True
-        print("Patch 7: aimail_hermes adapter import added", file=sys.stderr)
+        print("Patch 7: aimail_hermes adapter import added (pip form)", file=sys.stderr)
     else:
         print("WARNING: could not find PREPROCESS_REGISTRY block — patch 7 skipped", file=sys.stderr)
 else:
-    print("Patch 7: aimail_hermes already present", file=sys.stderr)
+    print("Patch 7: aimail_hermes already present (pip form)", file=sys.stderr)
 
 if patched:
     with open(target, "w") as f:

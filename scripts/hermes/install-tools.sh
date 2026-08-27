@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# install-tools.sh — 安装 aimail 运行时到 Hermes(捆绑 + toolsets 注册 + board role + skill)。
+# install-tools.sh — 安装 aimail 运行时到 Hermes(pip 库 + toolsets 注册 + board role + skill)。
 #
 # 职责:
-#   1. 运行时捆绑(core+bootstrap+适配器,自包含+版本戳)→ $HERMES_DIR/tools
-#      (源 pip aimail > 仓库 tools/,经 runtime_bundle.py;运行与仓库路径解耦)
+#   1. pip install aimail(本仓库)→ $HERMES_DIR/venv 的 site-packages
+#      (gateway 进程以 venv python 运行;webhook 补丁经
+#       `from aimail.hermes import aimail_hermes` 加载适配器,无 tools/ 拷贝)
 #   2. toolsets.py 注册 _HERMES_CORE_TOOLS tool names(幂等)
 #   3. board role 文件 → ~/.agentmail/systems/${SYSTEM_ID}/board/role_prompt
 #   4. skill(SKILL.md+DESCRIPTION.md)→ 每个 Hermes profile 的 skills/agentmail
@@ -13,21 +14,32 @@ set -euo pipefail
 
 HERMES_DIR="${HERMES_DIR:-$HOME/.hermes/hermes-agent}"
 SYSTEM_ID="${SYSTEM_ID:-default}"
-TOOLS_DST="$HERMES_DIR/tools"
 TOOLSETS_PY="$HERMES_DIR/toolsets.py"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 RB="$REPO_DIR/scripts/runtime_bundle.py"
 PY="${PYTHON:-python3}"
 
-# 源解析(pip 包优先,仓库 tools/ 兜底);不可解析则降级跳过(hermes 未装时)
-if ! $PY "$RB" source >/dev/null 2>&1; then
-    echo "  [WARN] aimail 运行时源不可解析(pip 包 / 仓库 tools/),跳过 hermes tool 安装"
+# ── 解释器:gateway 跑在 hermes venv 的 python 上;pip 形态必须装进 venv ──
+# (system python3 装了也没用——webhook 进程用 venv python import aimail)
+if [ -x "$HERMES_DIR/venv/bin/python" ]; then
+    PY="$HERMES_DIR/venv/bin/python"
+else
+    echo "  [WARN] hermes venv 未找到($HERMES_DIR/venv),跳过 hermes 安装(pip 形态需 venv)"
     exit 0
 fi
 
-# ── 1. 运行时捆绑(自包含 + 版本戳)──────────────────────────────────
-$PY "$RB" install hermes --dest "$TOOLS_DST"
-echo "  hermes tool bundle: $TOOLS_DST"
+# ── 1. pip install aimail(运行时载荷 = venv site-packages/aimail)────────
+# 从仓库目录构建(hatchling force-include tools/ → wheel),单一真源 = 本仓库;
+# webhook 补丁 import aimail.hermes.aimail_hermes(pip 形态,与 tools/ 拷贝解耦)。
+if ! $PY -m pip install --quiet --upgrade "$REPO_DIR"; then
+    echo "  [WARN] pip install aimail 失败,跳过 hermes 安装"
+    exit 1
+fi
+if ! $PY -c "import aimail.hermes.aimail_hermes" >/dev/null 2>&1; then
+    echo "  [WARN] aimail.hermes.aimail_hermes 导入验证失败"
+    exit 1
+fi
+echo "  hermes pip: aimail $($PY -c 'import aimail; print(aimail.__version__)') → $HERMES_DIR/venv"
 
 # ── 2. toolsets.py 注册 _HERMES_CORE_TOOLS tool names(幂等)──────────
 if [ -f "$TOOLSETS_PY" ]; then
