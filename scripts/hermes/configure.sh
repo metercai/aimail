@@ -15,7 +15,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # ── 0. Stop any running gateways BEFORE patching ─────────────────
 echo "  Stopping any running Hermes gateways..."
-pkill -f "hermes.*gateway.*run.*accept-hooks" 2>/dev/null || true
+# 实际命令行是 "venv/bin/python -m hermes_cli.main --profile X gateway run",
+# 旧模式 "hermes.*gateway.*run.*accept-hooks" 永不匹配(无 hermes 字样/无
+# accept-hooks)→ 旧进程永不被杀,重启变双开。[.] 括号技巧避免 pkill 自匹配。
+pkill -f "hermes_cli[.]main.*gateway run" 2>/dev/null || true
 sleep 2
 
 # ── 1. Patch webhook ────────────────────────────────────────────

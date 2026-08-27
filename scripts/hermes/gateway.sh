@@ -17,8 +17,11 @@ except: print(8644)
 _CURL="curl -sf --connect-timeout 2 --max-time 3"
 
 # ── 2. Kill any existing gateway processes ─────────────────────
-# Ensures patched webhook.py is loaded on restart
-pkill -f "hermes.*gateway.*run.*accept-hooks" 2>/dev/null || true
+# Ensures patched webhook.py is loaded on restart。
+# 模式必须匹配实际命令行 "venv/bin/python -m hermes_cli.main --profile X
+# gateway run"(旧模式含 accept-hooks 永不匹配 → 旧进程永不被杀)。
+# [.] 括号技巧避免 pkill 自匹配调用方命令行。
+pkill -f "hermes_cli[.]main.*gateway run" 2>/dev/null || true
 sleep 2
 
 # ── 3. Start root profile gateway ──────────────────────────────

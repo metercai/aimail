@@ -203,8 +203,12 @@ content = re.sub(
     '',
     content, count=1, flags=re.DOTALL
 )
-# Insert after shutil.rmtree line with profile_dir
-for m in re.finditer(r'^.*shutil\.rmtree\(.*profile_dir.*\).*$', content, re.MULTILINE):
+# Insert after the rmtree fallback line. 注意:rmtree 可能在 try/except
+# 内(如 _rmtree_with_retry 的 onexc/onerror fallback 行)——在 try 块内
+# 插钩子会打断宿主 except 链(语法错误)。只匹配 onerror 回退行(重试
+# 成功删除后的安全点),不匹配 try 内首行调用。
+_rmtree_re = r'^.*shutil\.rmtree\([^\n]*onerror[^\n]*\).*?$'
+for m in re.finditer(_rmtree_re, content, re.MULTILINE):
     line_end = content.find('\n', m.end())
     if line_end == -1:
         line_end = len(content)
@@ -213,7 +217,19 @@ for m in re.finditer(r'^.*shutil\.rmtree\(.*profile_dir.*\).*$', content, re.MUL
     print("Patch 2: profile_deleted hook added/updated", file=sys.stderr)
     break
 else:
-    print("WARNING: could not find shutil.rmtree with profile_dir — patch 2 skipped", file=sys.stderr)
+    # 无 onerror 行 → 回退:最后一个 rmtree(profile_dir) 行(旧版布局)
+    _m_last = None
+    for _m in re.finditer(r'^.*shutil\.rmtree\([^\n]*profile_dir[^\n]*\).*$', content, re.MULTILINE):
+        _m_last = _m
+    if _m_last is not None:
+        line_end = content.find('\n', _m_last.end())
+        if line_end == -1:
+            line_end = len(content)
+        content = content[:line_end+1] + hook_deleted + content[line_end+1:]
+        patched = True
+        print("Patch 2: profile_deleted hook added/updated (last-rmtree fallback)", file=sys.stderr)
+    else:
+        print("WARNING: could not find shutil.rmtree with profile_dir — patch 2 skipped", file=sys.stderr)
 
 if patched:
     with open(target, "w") as f:
