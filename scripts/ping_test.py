@@ -34,6 +34,7 @@ import json
 import os
 import re
 import socket
+import ssl
 import sys
 import time
 import urllib.request
@@ -70,7 +71,10 @@ def _main_agent_email(cfg: dict) -> str:
                            cfg.get("system_name", ""))
 
 # ── 路径 ──────────────────────────────────────────────────────────
-AIMAIL_HOME = Path(os.environ.get("AIMAIL_HOME") or os.environ.get("AGENTMAIL_HOME", "")) or Path.home() / ".agentmail"
+# 与 aimail_base.aimail_home() 同语义:空 env 回退 ~/.agentmail。
+# (旧写法 Path("")=PosixPath('.') 恒真,or 回退永不生效——bug。)
+_AH_ENV = os.environ.get("AIMAIL_HOME") or os.environ.get("AGENTMAIL_HOME", "")
+AIMAIL_HOME = Path(_AH_ENV).expanduser() if _AH_ENV else Path.home() / ".agentmail"
 SYSTEMS_DIR = AIMAIL_HOME / "systems"
 MAIL_DIR = AIMAIL_HOME / "mail"
 
@@ -131,7 +135,19 @@ def _smtp_send_ping(gw_url: str, admin_key: str, email: str,
         banner = s.recv(4096).decode(errors="replace").strip()
         if not banner.startswith("220"):
             return f"SMTP banner failed: {banner}"
-        _smtp_cmd(s, "EHLO amail-ping-test")
+        resp = _smtp_cmd(s, "EHLO amail-ping-test")
+        # 生产网关对 auth.local 发件人强制 STARTTLS(550 ... requires TLS);
+        # 服务器通告 STARTTLS 则升级 TLS,升级后按 RFC 3207 重新 EHLO
+        # (会话扩展在 STARTTLS 后重置)。证书校验严格(网关证书 ACME 管理)。
+        if "STARTTLS" in resp.upper():
+            resp = _smtp_cmd(s, "STARTTLS")
+            if not resp.startswith("220"):
+                return f"STARTTLS failed: {resp}"
+            try:
+                s = ssl.create_default_context().wrap_socket(s, server_hostname=host)
+            except ssl.SSLError as e:
+                return f"STARTTLS TLS handshake failed: {e}"
+            _smtp_cmd(s, "EHLO amail-ping-test")
         resp = _smtp_cmd(s, f"MAIL FROM:<{auth_from}>")
         if not resp.startswith("250"):
             return f"MAIL FROM failed: {resp}"

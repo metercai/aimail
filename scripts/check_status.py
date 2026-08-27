@@ -41,7 +41,10 @@ if "--agent-home" in sys.argv:
                 AGENT_HOME = _ah
     except Exception:
         pass
-AIMAIL_HOME = Path(os.environ.get("AIMAIL_HOME") or os.environ.get("AGENTMAIL_HOME", "")) or Path.home() / ".agentmail"
+# 与 aimail_base.aimail_home() 同语义:空 env 回退 ~/.agentmail。
+# (旧写法 Path("")=PosixPath('.') 恒真,or 回退永不生效——bug。)
+_AH_ENV = os.environ.get("AIMAIL_HOME") or os.environ.get("AGENTMAIL_HOME", "")
+AIMAIL_HOME = Path(_AH_ENV).expanduser() if _AH_ENV else Path.home() / ".agentmail"
 SYSTEMS_DIR = AIMAIL_HOME / "systems"
 MAIL_DIR    = AIMAIL_HOME / "mail"
 BRIDGE_DIR  = AIMAIL_HOME / "bridge"
