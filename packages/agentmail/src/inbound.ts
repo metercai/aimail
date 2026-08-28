@@ -17,7 +17,7 @@ import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { processInboundMail, verifySignature, routeAddressFromHeaders, type InboundPayload } from '@aimail/mail-core'
+import { processInboundMail, verifySignature, routeAddressFromHeaders, updateAgentConfig, loadAgentConfig, saveAgentConfig, type InboundPayload } from '@aimail/mail-core'
 import type { MailService } from './mail-service.js'
 
 export const name = 'mail-inbound'
@@ -169,10 +169,23 @@ export function apply(ctx: Context, config: Config = {}): () => void {
       // Fresh disposable session for this email.
       const sessionId = randomUUID()
       try {
+        // Bind this session into the agent's config so the mail tools can
+        // resolve credentials (resolveBySessionId matches agentmail.json's
+        // session_id). Unbind again once the turn settles — but only if the
+        // binding is still OURS (a concurrent email may have re-bound).
+        await updateAgentConfig(cfg.system_id, cfg.email, { session_id: sessionId })
         const handle = await agents.create({ sessionId, meta: { cwd: process.cwd() }, agentOptions })
         handle.agent.followup(message)
-        // The session is disposable: tear it down once the turn settles.
-        void handle.agent.whenIdle().then(() => handle.dispose()).catch(() => {})
+        void handle.agent.whenIdle()
+          .then(async () => {
+            const cur = await loadAgentConfig(cfg.system_id, cfg.email)
+            if (cur && cur.session_id === sessionId) {
+              const { session_id: _drop, ...rest } = cur
+              await saveAgentConfig(rest as typeof cur, cfg.system_id)
+            }
+          })
+          .then(() => handle.dispose())
+          .catch(() => {})
         writeJson(res, 200, { status: 'delivered', detail: `fresh session ${sessionId}` })
       } catch (e) {
         // 503 (not 2xx) so the bridge does NOT ack and will retry; a 200 here
