@@ -12,7 +12,7 @@ from datetime import datetime
 import urllib.request
 import urllib.error
 
-from aimail_base import _load_profile_config
+from aimail_base import _load_profile_config, list_personas
 import urllib.parse
 
 
@@ -102,7 +102,7 @@ class _GatewayClient:
         to: str,
         subject: str,
         body: str,
-        cc: Optional[str] = None,
+        cc: Optional[List[str]] = None,
         attachments: Optional[List[dict]] = None,
         in_reply_to: Optional[str] = None,
         references: Optional[str] = None,
@@ -120,7 +120,7 @@ class _GatewayClient:
         if subject:
             payload["subject"] = subject
         if cc:
-            payload["cc"] = cc
+            payload["cc"] = cc  # list[str] — gateway SendEmailRequest.cc: Option<Vec<String>>
         if attachments:
             payload["attachments"] = attachments
 
@@ -462,11 +462,20 @@ def send_mail(
     automatically resolve In-Reply-To, References headers, and the
     sender persona (from the stored inbound message metadata).
     """
-    # Normalize array args to comma/space-separated strings
+    # Normalize array args
     if isinstance(to, list):
         to = ", ".join(to)
-    if isinstance(cc, list):
-        cc = ", ".join(cc)
+    # NOTE: cc 宽容归一化为 list — LLM 常按 schema 传逗号串 "a@x, b@y",
+    # 而网关 SendEmailRequest.cc: Option<Vec<String>> 要求 JSON 数组
+    # (字符串 → axum 反序列化 422)。list 透传,字符串按逗号拆分。
+    if cc is None:
+        cc_list: Optional[List[str]] = None
+    elif isinstance(cc, str):
+        cc_list = [a.strip() for a in cc.split(",") if a.strip()]
+    else:
+        cc_list = [str(a).strip() for a in cc if str(a).strip()]
+    if not cc_list:
+        cc_list = None
 
     config = _load_profile_config()
     if not config:
@@ -493,12 +502,17 @@ def send_mail(
             sender = stored_persona
             logger.info("[agentmail] Reply detected — using persona sender: %s", sender)
     elif not message_id:
-        # New email: auto-detect current persona from profile directory
+        # New email: use the current persona ONLY if it is an approved persona
+        # (present in agent.personalities). Deriving from the profile dir name
+        # alone produced unregistered sender addresses (agent.<name>.<profile>@)
+        # → gateway 403 Sender mismatch. Unapproved → fall back to base email.
         persona = _current_persona_name()
         if persona:
-            local, domain = base_email.split("@", 1)
-            sender = f"{local}.{persona}@{domain}"
-            logger.info("[agentmail] New email from persona '%s' — sender: %s", persona, sender)
+            approved = list_personas()
+            if persona in approved:
+                local, domain = base_email.split("@", 1)
+                sender = f"{local}.{persona}@{domain}"
+                logger.info("[agentmail] New email from approved persona '%s' — sender: %s", persona, sender)
 
     # Parse recipients
     to_list = [a.strip() for a in to.split(",") if a.strip()]
@@ -566,7 +580,7 @@ def send_mail(
         to=",".join(to_list),
         subject=subject,
         body=body,
-        cc=",".join(cc_list) if cc_list else None,
+        cc=cc_list,
         attachments=attachment_ids if attachment_ids else None,
         in_reply_to=in_reply_to,
         references=references,
