@@ -228,3 +228,4 @@ The 6 agentmail tools are registered with full schemas — parameter names, type
 5. **One `Re:` only**: never stack prefixes ("Re: Re: Re:").
 6. **Do not archive emails in summaries**: distill decisions and actions, not the full chain.
 7. **Process in rounds**: never compress Understanding + Deciding + Replying into one step.
+8. **No out-of-band sending**: every email goes out via `send_mail`, full stop. If it fails, do not work around it — no terminal commands, no curl, no diagnostic scripts that POST to the gateway, no matter what the error says. A `send_mail` failure is terminal: report it in your reply to the sender and move on. (The gateway also rejects duplicate identical sends with 409 — a "duplicate" result means the content is already out.)

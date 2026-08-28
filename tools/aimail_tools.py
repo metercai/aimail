@@ -576,18 +576,50 @@ def send_mail(
                                 cc_list or [], resolved_paths or [], attachment_ids or [],
                                 in_reply_to or "", references or "")
 
-    result = client.send_mail(
-        to=",".join(to_list),
-        subject=subject,
-        body=body,
-        cc=cc_list,
-        attachments=attachment_ids if attachment_ids else None,
-        in_reply_to=in_reply_to,
-        references=references,
-        sender=sender,
-        message_id=generated_mid,
-        headers={"X-AIMail-Agent": _agent_identity()},
+    # ── Submit with bounded retry + terminal semantics ───────────
+    # The LLM must never see a "fixable" failure state — that is what
+    # drove the 2026-08-28 duplicate-reply storm (422 → agent wrote
+    # diag scripts → re-sent the same reply 3× out-of-band). So the
+    # tool owns the whole failure loop:
+    #   - retryable (network drop / 429 / 5xx): retry w/ backoff, ≤5
+    #   - 409 duplicate_send: the email IS already out → success
+    #   - anything else: TERMINAL failure with an explicit guardrail
+    #     instruction to stop, not to work around.
+    _RETRYABLE_STATUSES = {0, 429, 500, 502, 503, 504}
+    _MAX_ATTEMPTS = 5
+    _GUARDRAIL = (
+        "This is terminal. Do NOT retry by any other means "
+        "(no terminal commands, curl, scripts, or direct gateway API "
+        "calls). Report this failure in your reply to the sender."
     )
+
+    status = 0
+    result: Dict[str, Any] = {}
+    for attempt in range(1, _MAX_ATTEMPTS + 1):
+        result = client.send_mail(
+            to=",".join(to_list),
+            subject=subject,
+            body=body,
+            cc=cc_list,
+            attachments=attachment_ids if attachment_ids else None,
+            in_reply_to=in_reply_to,
+            references=references,
+            sender=sender,
+            message_id=generated_mid,
+            headers={"X-AIMail-Agent": _agent_identity()},
+        )
+        status = result.pop("status", 0)
+        if 200 <= status < 300 or (status == 409 and result.get("error") == "duplicate_send"):
+            break
+        if status not in _RETRYABLE_STATUSES or attempt == _MAX_ATTEMPTS:
+            break
+        delay = min(2 ** (attempt - 1), 8)
+        logger.warning(
+            "[agentmail] send attempt %d/%d failed (HTTP %s: %s), retrying in %ds",
+            attempt, _MAX_ATTEMPTS, status,
+            result.get("error") or result.get("detail") or "?", delay,
+        )
+        time.sleep(delay)
 
     # Auto-bootstrap thread summary for new (non-reply) emails
     thread_bootstrapped = False
@@ -601,7 +633,6 @@ def send_mail(
             logger.warning("[agentmail] Failed to bootstrap thread summary: %s", e)
 
     # Flatten status into success/error
-    status = result.pop("status", 0)
     if 200 <= status < 300:
         out = {"success": True, **result}
         if thread_bootstrapped:
@@ -615,9 +646,25 @@ def send_mail(
         except Exception:
             pass
         return out
-    else:
-        error = result.get("error", result.get("detail", f"HTTP {status}"))
-        return {"success": False, "error": f"Send failed: {error}"}
+
+    if status == 409 and result.get("error") == "duplicate_send":
+        # An identical (to/cc/subject/body) email was already accepted by
+        # the gateway within the dedup window. From the agent's perspective
+        # the content IS out — report success, nothing left to do.
+        logger.info("[agentmail] send suppressed by gateway dedup (409) — already sent")
+        return {
+            "success": True,
+            "duplicate": True,
+            "note": "An identical email was already sent (gateway dedup window). "
+                    "The content is already out — no further action needed.",
+        }
+
+    error = result.get("error", result.get("detail", f"HTTP {status}"))
+    return {
+        "success": False,
+        "error": f"Send failed (terminal, HTTP {status}): {error}",
+        "instruction": _GUARDRAIL,
+    }
 
 
 def manage_contacts(
