@@ -133,12 +133,18 @@ export function apply(ctx: Context, config: Config = {}): () => void {
       const agents = ctx.get('agents') as {
         get(id: unknown): Agent | undefined
         resume(opts: unknown): Promise<{ agent: Agent }>
-        create(opts: { sessionId: string; meta?: { cwd?: string } }): Promise<{ agent: Agent; dispose(): Promise<void> }>
+        create(opts: { sessionId: string; meta?: { cwd?: string }; agentOptions?: unknown }): Promise<{ agent: Agent; dispose(): Promise<void> }>
       } | undefined
       if (agents === undefined) {
         writeJson(res, 200, { status: 'no_agents_service', detail: 'dsh-agent not mounted' })
         return
       }
+      // Model route: the deployment's default selection (base bundle's
+      // `agent-default-model` row, e.g. deepseek-official/deepseek-v4-flash)
+      // — same source the web UI's api-proxy uses for agents.create().
+      // Without it the turn dies with "no provider/model".
+      const agentOptions = (ctx.get('agentDefaultModel') as { currentSelection(): unknown } | undefined)
+        ?.currentSelection()
       const boundId = cfg.session_id ?? ''
       const message = createUserMessage({
         content: [{ type: 'text', text: JSON.stringify({ ...result, to: agentAddr }) }],
@@ -152,7 +158,7 @@ export function apply(ctx: Context, config: Config = {}): () => void {
       }
       if (boundId) {
         try {
-          const handle = await agents.resume({ resumeSessionId: boundId })
+          const handle = await agents.resume({ resumeSessionId: boundId, agentOptions })
           handle.agent.followup(message)
           writeJson(res, 200, { status: 'resumed', detail: 'cold session resumed + followup queued' })
           return
@@ -163,7 +169,7 @@ export function apply(ctx: Context, config: Config = {}): () => void {
       // Fresh disposable session for this email.
       const sessionId = randomUUID()
       try {
-        const handle = await agents.create({ sessionId, meta: { cwd: process.cwd() } })
+        const handle = await agents.create({ sessionId, meta: { cwd: process.cwd() }, agentOptions })
         handle.agent.followup(message)
         // The session is disposable: tear it down once the turn settles.
         void handle.agent.whenIdle().then(() => handle.dispose()).catch(() => {})
