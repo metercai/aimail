@@ -555,8 +555,10 @@ export async function processInboundMail(
   if (subj.startsWith(PING_PREFIX)) {
     const pingId = subj.split(':', 1)[1]?.trim() ?? subj.slice(PING_PREFIX.length).trim()
     await logPingEvent('ping_intercepted', pingId, payload)
+    // sendPong logs pong_sent with the REAL outcome (ok/error) internally;
+    // no extra constant log here — that would double-write and lie 'sent'
+    // on the failure path (see sendPong doc, line ~285).
     await sendPong(cfg, payload, pingId)
-    await logPingEvent('pong_sent', pingId, payload, 'sent')
     return null
   }
   if (subj.startsWith(PONG_PREFIX)) {

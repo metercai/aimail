@@ -1,29 +1,38 @@
 # dsh-aimail bundle layer — mounted via `dsh plugin --profile web add dsh-aimail`.
 # Self-mounting: all entries resolve to subpaths of this very package
 # (package.json "exports"), so the bundle needs no sibling @aimail/* packages.
+#
+# Patch dialect (dsh-app-boot): rows that exist in an earlier layer (dsh-base)
+# are targeted by id and their whole `config` is replaced; rows new to this
+# bundle are added under `insert:`. Targeting an absent row only warns.
 
 # ── identity ────────────────────────────────────────────────────────────────
+# Base owns the `system-prompt` row (config.persona defaults to ''). We replace
+# it to set this deployment's persona. (dsh-persona is a scope-only row for
+# agent presets — mounting it globally fails loud, so it is not used here.)
 
-- id: persona
-  name: '@deepseek-ai/dsh-persona'
+- id: system-prompt
   config:
-    text: >-
+    persona: >-
       You are an email-capable agent on AgentMail. Use send_mail to reply to
       inbound mail; manage_contacts for your whitelist; contact_profile /
       set_contact_profile for contact context; email_summary /
       set_email_summary for thread notes; board_* tools for A2A board work.
 
-# ── AgentMail host service (ctx.mail) ───────────────────────────────────────
+# ── rows new to this bundle ─────────────────────────────────────────────────
 
-- id: mail
-  name: 'dsh-aimail/mail-service'
+- insert:
+    # AgentMail host service (ctx.mail)
+    - id: mail
+      name: 'dsh-aimail/mail-service'
 
-# ── AgentMail inbound endpoint (node:http + session delivery) ───────────────
+    # AgentMail inbound endpoint (node:http + session delivery). Port is fixed:
+    # single consumer (this profile); the local bridge routes here.
+    - id: mail-inbound
+      name: 'dsh-aimail/inbound'
+      config:
+        port: 9099
 
-- id: mail-inbound
-  name: 'dsh-aimail/inbound'
-
-# ── AgentMail tools (12 bare names, semantics from @aimail/mail-core) ───────
-
-- id: tool-mail
-  name: 'dsh-aimail/tools'
+    # AgentMail tools (12 bare names, semantics from @aimail/mail-core)
+    - id: tool-mail
+      name: 'dsh-aimail/tools'
