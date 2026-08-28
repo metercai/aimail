@@ -7,10 +7,13 @@
  *   → HMAC verify (X-Webhook-Signature vs webhook_secret from agentmail.json)
  *   → TS preprocess chain (mail-core, DSH-PREPROCESS-CONTRACT.md)
  *   → ping/pong intercept (three-stage logs, swallowed)
- *   → un-intercepted: followup the bound dsh session (live agent), or
- *     resume persisted session when cold; 200 ack either way.
+ *   → un-intercepted: deliver to the bound dsh session (live followup, cold
+ *     resume) or spawn a fresh disposable session when unbound — context
+ *     continuity is aimail's (local meta threading), not the session's.
+ *     200 ack on delivery; 503 on session-create failure (bridge retries).
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -120,38 +123,55 @@ export function apply(ctx: Context, config: Config = {}): () => void {
         return
       }
 
-      // Deliver to the bound session (live followup or cold resume)
-      const sessionId = cfg.session_id ?? ''
-      if (!sessionId) {
-        writeJson(res, 200, { status: 'no_session', detail: `no session_id binding for ${cfg.email}` })
-        return
-      }
-      const message = createUserMessage({
-        content: [{ type: 'text', text: JSON.stringify({ ...result, to: agentAddr }) }],
-        source: { kind: 'user' },
-      })
-
-      const agents = ctx.get('agents') as { get(id: unknown): Agent | undefined; resume(opts: unknown): Promise<{ agent: Agent }> } | undefined
+      // Deliver to a dsh session:
+      //  - cfg.session_id set + live  → followup that session (UI continuity)
+      //  - cfg.session_id set + cold  → resume it, else fall through
+      //  - unbound (or resume failed) → spawn a FRESH session. Context
+      //    continuity is aimail's job (local meta threading + email_summary),
+      //    not the session's — per the deployment decision each inbound email
+      //    gets its own disposable session.
+      const agents = ctx.get('agents') as {
+        get(id: unknown): Agent | undefined
+        resume(opts: unknown): Promise<{ agent: Agent }>
+        create(opts: { sessionId: string; meta?: { cwd?: string } }): Promise<{ agent: Agent; dispose(): Promise<void> }>
+      } | undefined
       if (agents === undefined) {
         writeJson(res, 200, { status: 'no_agents_service', detail: 'dsh-agent not mounted' })
         return
       }
-      const live = agents.get(sessionId)
+      const boundId = cfg.session_id ?? ''
+      const message = createUserMessage({
+        content: [{ type: 'text', text: JSON.stringify({ ...result, to: agentAddr }) }],
+        source: { kind: 'user' },
+      })
+      const live = boundId ? agents.get(boundId) : undefined
       if (live) {
         live.followup(message)
         writeJson(res, 200, { status: 'delivered', detail: 'followup queued' })
         return
       }
-      // cold: resume persisted session (requires sessionPersistence configured)
+      if (boundId) {
+        try {
+          const handle = await agents.resume({ resumeSessionId: boundId })
+          handle.agent.followup(message)
+          writeJson(res, 200, { status: 'resumed', detail: 'cold session resumed + followup queued' })
+          return
+        } catch {
+          // resume failed (no persistence, stale id) — fall through to a fresh session
+        }
+      }
+      // Fresh disposable session for this email.
+      const sessionId = randomUUID()
       try {
-        const handle = await agents.resume({ resumeSessionId: sessionId })
+        const handle = await agents.create({ sessionId, meta: { cwd: process.cwd() } })
         handle.agent.followup(message)
-        writeJson(res, 200, { status: 'resumed', detail: 'cold session resumed + followup queued' })
+        // The session is disposable: tear it down once the turn settles.
+        void handle.agent.whenIdle().then(() => handle.dispose()).catch(() => {})
+        writeJson(res, 200, { status: 'delivered', detail: `fresh session ${sessionId}` })
       } catch (e) {
-        writeJson(res, 200, {
-          status: 'no_live_agent',
-          detail: e instanceof Error ? e.message : String(e),
-        })
+        // 503 (not 2xx) so the bridge does NOT ack and will retry; a 200 here
+        // would silently swallow the email.
+        writeJson(res, 503, { status: 'session_create_failed', detail: e instanceof Error ? e.message : String(e) })
       }
     } catch (e) {
       writeJson(res, 500, { status: 'error', detail: e instanceof Error ? e.message : String(e) })

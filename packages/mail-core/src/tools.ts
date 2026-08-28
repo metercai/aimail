@@ -236,7 +236,7 @@ export async function sendMail(ctx: ToolCtx, args: SendMailArgs): Promise<ToolRe
     to: string
     subject: string
     body: string
-    cc?: string
+    cc?: string[]
     attachments?: Array<{ id: string }>
     inReplyTo?: string
     references?: string
@@ -251,7 +251,8 @@ export async function sendMail(ctx: ToolCtx, args: SendMailArgs): Promise<ToolRe
     messageId: generatedMid,
     headers: { 'X-AIMail-Agent': agentIdentity() },
   }
-  if (ccList?.length) sendOpts.cc = ccList.join(',')
+  // cc 透传数组 — 网关 SendEmailRequest.cc: Option<Vec<String>>,join(',') 会 422
+  if (ccList?.length) sendOpts.cc = ccList
   if (attachmentIds.length) sendOpts.attachments = attachmentIds
   if (inReplyTo) sendOpts.inReplyTo = inReplyTo
   if (references) sendOpts.references = references

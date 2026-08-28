@@ -88,7 +88,7 @@ export class GatewayClient {
     to: string
     subject?: string
     body: string
-    cc?: string
+    cc?: string[]
     attachments?: AttachmentSpec[]
     inReplyTo?: string
     references?: string

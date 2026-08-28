@@ -124,13 +124,15 @@ describe('sendMail 先存再调', () => {
     expect(metaByLocal?.message_id).toBe(raw.message_id)
   })
 
-  it('payload.to/cc are comma-joined lists (Python parity, no space)', async () => {
+  it('payload.to is comma-joined; cc stays a JSON array (gateway Vec<String>)', async () => {
     const { sendBodies, restore } = stubFetch()
     await sendMail(ctx, { to: ['a@x', 'b@x'], cc: ['c@x'], subject: 'hi', body: 'yo' })
     restore()
     const sent = sendBodies[0]!
     expect(sent.to).toBe('a@x,b@x')
-    expect(sent.cc).toBe('c@x')
+    // cc must be a JSON array, NOT a comma string — the gateway's
+    // SendEmailRequest.cc: Option<Vec<String>> 422s on a string.
+    expect(sent.cc).toEqual(['c@x'])
   })
 
   it('does NOT write an outbox snapshot by default (save_raw_snapshots unset)', async () => {
