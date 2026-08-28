@@ -13,7 +13,7 @@ import { beforeAll, beforeEach, afterAll, describe, it, expect, vi } from 'vites
 import { promises as fs } from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { sendMail } from '../src/tools.js'
+import { sendMail, setAgentIdentity } from '../src/tools.js'
 import { readLocalMeta, agentMailDir, saveLocalMeta } from '../src/meta.js'
 import { cleanAddr } from '../src/config.js'
 
@@ -291,5 +291,26 @@ describe('sendMail 先存再调', () => {
     expect(res.error).toContain('terminal')
     expect(res.instruction).toContain('Do NOT retry')
     expect(sendBodies).toHaveLength(5)
+  })
+
+  it('X-AIMail-Agent: real dsh version detected from host package.json (no override)', async () => {
+    // walk-up detection: temp cwd carrying @deepseek-ai/dsh-root package.json
+    const orig = process.cwd()
+    const fakeHost = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-host-'))
+    await fs.writeFile(path.join(fakeHost, 'package.json'),
+      JSON.stringify({ name: '@deepseek-ai/dsh-root', version: '0.1.0-rc.7' }) + '\n')
+    try {
+      process.chdir(fakeHost)
+      setAgentIdentity('') // clear override — exercise the detector
+      const { sendBodies, restore } = stubFetch()
+      const res = await sendMail(ctx, { to: 'a@x', subject: 'hi', body: 'yo' })
+      restore()
+      expect(res.success).toBe(true)
+      const sent = sendBodies[0]!
+      expect((sent.headers as Record<string, string>)['X-AIMail-Agent']).toBe('dsh/0.1.0-rc.7')
+    } finally {
+      process.chdir(orig)
+      await fs.rm(fakeHost, { recursive: true, force: true })
+    }
   })
 })

@@ -6,6 +6,7 @@
 import { randomUUID } from 'node:crypto'
 import { promises as fsp } from 'node:fs'
 import * as path from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
 import { GatewayClient } from './gateway.js'
 import { AIMAIL_HOME, loadAgentConfig } from './config.js'
 import { readLocalMeta, saveLocalMeta, saveOutboundSnapshot, resolveThreadId, threadPath } from './meta.js'
@@ -21,14 +22,43 @@ export interface ToolResult {
 // ── identity ────────────────────────────────────────────────────
 
 let _identityOverride = ''
+let _detectedIdentity = ''
 
 /** Set outbound X-AIMail-Agent (real detected value only, no guessing). */
 export function setAgentIdentity(v: string): void {
   _identityOverride = v
 }
 
+/** Walk up from cwd to find the dsh host package (@deepseek-ai/dsh-root). */
+function detectDshIdentity(): string {
+  let dir = process.cwd()
+  for (let i = 0; i < 10; i++) {
+    try {
+      const pkgPath = path.join(dir, 'package.json')
+      if (existsSync(pkgPath)) {
+        const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as { name?: string; version?: string }
+        if (pkg.name === '@deepseek-ai/dsh-root' && typeof pkg.version === 'string' && pkg.version) {
+          return `dsh/${pkg.version}`
+        }
+      }
+    } catch {
+      /* keep walking */
+    }
+    const parent = path.dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  return 'dsh/unknown'
+}
+
 function agentIdentity(): string {
-  return _identityOverride || 'dsh/unknown'
+  if (_identityOverride) return _identityOverride
+  if (_detectedIdentity) return _detectedIdentity
+  const detected = detectDshIdentity()
+  // Cache only successful detection; unknown is re-probed each call
+  // (cheap) so a later cwd/override change can still resolve.
+  if (detected !== 'dsh/unknown') _detectedIdentity = detected
+  return detected
 }
 
 // ── config/context ─────────────────────────────────────────────
