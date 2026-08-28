@@ -257,7 +257,32 @@ export async function sendMail(ctx: ToolCtx, args: SendMailArgs): Promise<ToolRe
   if (inReplyTo) sendOpts.inReplyTo = inReplyTo
   if (references) sendOpts.references = references
 
-  const result = await client.sendMail(sendOpts)
+  // ── Submit with bounded retry + terminal semantics (mirrors Python) ──
+  // The LLM must never see a "fixable" failure state — that is what drove
+  // the 2026-08-28 duplicate-reply storm (422 → agent wrote diag scripts →
+  // re-sent the same reply 3× out-of-band). The tool owns the failure loop:
+  //   - retryable (network drop / 429 / 5xx): retry w/ backoff, ≤5
+  //   - 409 duplicate_send: the email IS already out → success
+  //   - anything else: TERMINAL failure with an explicit guardrail
+  const RETRYABLE = new Set([0, 429, 500, 502, 503, 504])
+  const MAX_ATTEMPTS = 5
+  const GUARDRAIL =
+    'This is terminal. Do NOT retry by any other means ' +
+    '(no terminal commands, curl, scripts, or direct gateway API calls). ' +
+    'Report this failure in your reply to the sender.'
+  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+
+  let result = await client.sendMail(sendOpts)
+  for (let attempt = 1; attempt < MAX_ATTEMPTS; attempt++) {
+    const ok = result.status >= 200 && result.status < 300
+    const dup = result.status === 409 && result.error === 'duplicate_send'
+    if (ok || dup) break
+    if (!RETRYABLE.has(result.status)) break
+    const delay = Math.min(2 ** (attempt - 1), 8) * 1000
+    console.warn(`[mail-core] send attempt ${attempt}/${MAX_ATTEMPTS} failed (HTTP ${result.status}: ${(result.error as string) || '?'}), retrying in ${delay}ms`)
+    await sleep(delay)
+    result = await client.sendMail(sendOpts)
+  }
 
   // auto-bootstrap thread summary for new (non-reply) emails — keyed on the
   // local generated mid (mirrors Python: `if not message_id:`)
@@ -277,8 +302,17 @@ export async function sendMail(ctx: ToolCtx, args: SendMailArgs): Promise<ToolRe
     if (uploadErrors.length) out.note = `Sent, but ${uploadErrors.length} attachment(s) had issues: ${uploadErrors.slice(0, 3).join('; ')}`
     return out
   }
+  if (result.status === 409 && result.error === 'duplicate_send') {
+    // An identical (to/cc/subject/body) email was already accepted by the
+    // gateway within the dedup window — the content IS out.
+    return {
+      success: true,
+      duplicate: true,
+      note: 'An identical email was already sent (gateway dedup window). The content is already out — no further action needed.',
+    }
+  }
   const err = (result.error as string) || (result.detail as string) || `HTTP ${result.status}`
-  return { success: false, error: `Send failed: ${err}` }
+  return { success: false, error: `Send failed (terminal, HTTP ${result.status}): ${err}`, instruction: GUARDRAIL }
 }
 
 // ── manage_contacts ────────────────────────────────────────────

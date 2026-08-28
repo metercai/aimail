@@ -77,6 +77,24 @@ function stubFetch(
   return { sendBodies, restore: () => vi.unstubAllGlobals() }
 }
 
+/** Make the tool's retry backoff sleeps (1s/2s/4s/8s) elapse instantly.
+ *  Only those exact delays are intercepted — vitest's own test-timeout
+ *  timer (5s) and everything else is left on the real clock, so no
+ *  interference with AbortSignal.timeout or the test runner. */
+function mockImmediateSleep() {
+  const BACKOFFS = new Set([1000, 2000, 4000, 8000])
+  const real = globalThis.setTimeout
+  const spy = vi.spyOn(globalThis, 'setTimeout')
+  spy.mockImplementation(((fn: (...a: unknown[]) => void, delay?: number, ...args: unknown[]) => {
+    if (typeof delay === 'number' && BACKOFFS.has(delay)) {
+      void Promise.resolve().then(() => fn(...args))
+      return 0 as unknown as ReturnType<typeof setTimeout>
+    }
+    return (real as unknown as (...a: unknown[]) => unknown).call(globalThis, fn, delay, ...args)
+  }) as typeof setTimeout)
+  return spy
+}
+
 beforeAll(async () => {
   home = await fs.mkdtemp(path.join(os.tmpdir(), 'amail-send-'))
   process.env.AIMAIL_HOME = home
@@ -188,11 +206,17 @@ describe('sendMail 先存再调', () => {
   })
 
   it('keeps local meta even when the API call fails (failure does not roll back)', async () => {
-    const { restore } = stubFetch({ send: [500, { error: 'boom' }] })
-    const res = await sendMail(ctx, { to: 'a@x', subject: 'hi', body: 'yo' })
-    restore()
-    expect(res.success).toBe(false)
-    expect(await findMetaFiles()).toHaveLength(1)
+    // sleep → immediate (no real backoff wait in tests)
+    const sleepSpy = mockImmediateSleep()
+    try {
+      const { restore } = stubFetch({ send: [500, { error: 'boom' }] })
+      const res = await sendMail(ctx, { to: 'a@x', subject: 'hi', body: 'yo' })
+      restore()
+      expect(res.success).toBe(false)
+      expect(await findMetaFiles()).toHaveLength(1)
+    } finally {
+      sleepSpy.mockRestore()
+    }
   })
 
   it('reply path: threading headers come from the referenced mid local meta', async () => {
@@ -210,5 +234,62 @@ describe('sendMail 先存再调', () => {
     expect(hdrs['References']).toBe(`<root@token.tm> ${refMid}`)
     // sender persona honored from stored inbound meta
     expect(sent.sender).toBe('persona@token.tm')
+  })
+
+  // ── terminal semantics (2026-08-28 duplicate-storm fix) ──
+  // The LLM must never see a "fixable" failure: retryable statuses are
+  // retried inside the tool, 409 duplicate_send → success (already out),
+  // anything else → terminal with a guardrail instruction.
+
+  it('422 (non-retryable) returns terminal failure with guardrail, no retry', async () => {
+    const { sendBodies, restore } = stubFetch({ send: [422, { error: 'bad payload' }] })
+    const res = await sendMail(ctx, { to: 'a@x', subject: 'hi', body: 'yo' })
+    restore()
+    expect(res.success).toBe(false)
+    expect(res.error).toContain('terminal')
+    expect(res.instruction).toContain('Do NOT retry')
+    // exactly ONE attempt — 422 is not retryable
+    expect(sendBodies).toHaveLength(1)
+  })
+
+  it('retryable 500 is retried and succeeds on 3rd attempt', async () => {
+    let calls = 0
+    const mock = vi.fn(async (url: string, init?: RequestInit) => {
+      const u = String(url)
+      if (u.includes('/api/v1/send')) {
+        calls++
+        if (calls < 3) return new Response(JSON.stringify({ error: 'boom' }), { status: 500, headers: { 'Content-Type': 'application/json' } })
+        return new Response(JSON.stringify({ email_id: '<ok@token.tm>' }), { status: 201, headers: { 'Content-Type': 'application/json' } })
+      }
+      return new Response(JSON.stringify({}), { status: 200 })
+    })
+    vi.stubGlobal('fetch', mock)
+    const sleepSpy = mockImmediateSleep()
+    const res = await sendMail(ctx, { to: 'a@x', subject: 'hi', body: 'yo' })
+    sleepSpy.mockRestore()
+    vi.unstubAllGlobals()
+    expect(res.success).toBe(true)
+    expect(calls).toBe(3)
+  })
+
+  it('409 duplicate_send returns success (content already out)', async () => {
+    const { restore } = stubFetch({ send: [409, { error: 'duplicate_send', detail: 'dup' }] })
+    const res = await sendMail(ctx, { to: 'a@x', subject: 'hi', body: 'yo' })
+    restore()
+    expect(res.success).toBe(true)
+    expect(res.duplicate).toBe(true)
+    expect(res.note).toContain('already sent')
+  })
+
+  it('exhausted retries (5×500) → terminal failure with guardrail', async () => {
+    const { sendBodies, restore } = stubFetch({ send: [500, { error: 'boom' }] })
+    const sleepSpy = mockImmediateSleep()
+    const res = await sendMail(ctx, { to: 'a@x', subject: 'hi', body: 'yo' })
+    sleepSpy.mockRestore()
+    restore()
+    expect(res.success).toBe(false)
+    expect(res.error).toContain('terminal')
+    expect(res.instruction).toContain('Do NOT retry')
+    expect(sendBodies).toHaveLength(5)
   })
 })

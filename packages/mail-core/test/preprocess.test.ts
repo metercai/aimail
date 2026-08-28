@@ -29,6 +29,23 @@ const SYSTEM_ID = 'system-test'
 const AGENT_EMAIL = 'agent1@token.tm'
 const FAKE_GATEWAY = 'http://127.0.0.1:9' // discard port → ECONNREFUSED, no real I/O
 
+/** Make the tool's retry backoff sleeps (1s/2s/4s/8s) elapse instantly.
+ *  Only those exact delays are intercepted — vitest's own test-timeout
+ *  timer (5s) and everything else stays on the real clock. */
+function mockImmediateSleep() {
+  const BACKOFFS = new Set([1000, 2000, 4000, 8000])
+  const real = globalThis.setTimeout
+  const spy = vi.spyOn(globalThis, 'setTimeout')
+  spy.mockImplementation(((fn: (...a: unknown[]) => void, delay?: number, ...args: unknown[]) => {
+    if (typeof delay === 'number' && BACKOFFS.has(delay)) {
+      void Promise.resolve().then(() => fn(...args))
+      return 0 as unknown as ReturnType<typeof setTimeout>
+    }
+    return (real as unknown as (...a: unknown[]) => unknown).call(globalThis, fn, delay, ...args)
+  }) as typeof setTimeout)
+  return spy
+}
+
 let home: string
 
 async function writeAgentConfig(email: string, extra: Record<string, unknown> = {}): Promise<void> {
@@ -238,14 +255,22 @@ describe('processInboundMail', () => {
   })
 
   it('intercepts ping: returns null, sends pong (best-effort), logs both stages', async () => {
-    const r = await processInboundMail(mail({ subject: `${PING_PREFIX}ping-123` }), {}, CTX)
-    expect(r).toBeNull()
-    // three-stage contract: ping_intercepted + pong_sent must be logged
-    const logFile = path.join(home, 'logs', `agentmail.${cleanAddr(AGENT_EMAIL)}.log`)
-    const lines = (await fs.readFile(logFile, 'utf-8')).trim().split('\n')
-    const dirs = lines.map(l => JSON.parse(l).dir)
-    expect(dirs).toContain('ping_intercepted')
-    expect(dirs).toContain('pong_sent')
+    // pong goes through sendMail which now retries transient failures
+    // (status 0 = ECONNREFUSED on the discard gateway) — collapse the
+    // backoff sleeps so the test does not wait 15s.
+    const sleepSpy = mockImmediateSleep()
+    try {
+      const r = await processInboundMail(mail({ subject: `${PING_PREFIX}ping-123` }), {}, CTX)
+      expect(r).toBeNull()
+      // three-stage contract: ping_intercepted + pong_sent must be logged
+      const logFile = path.join(home, 'logs', `agentmail.${cleanAddr(AGENT_EMAIL)}.log`)
+      const lines = (await fs.readFile(logFile, 'utf-8')).trim().split('\n')
+      const dirs = lines.map(l => JSON.parse(l).dir)
+      expect(dirs).toContain('ping_intercepted')
+      expect(dirs).toContain('pong_sent')
+    } finally {
+      sleepSpy.mockRestore()
+    }
   })
 
   it('intercepts pong: returns null and logs pong_returned', async () => {
