@@ -1167,6 +1167,37 @@ def register_agent_email(client, system_id: str, email: str,
         act = client.activate_address(activation_code, email_address=email)
         if act.get("success") and act.get("raw_key"):
             api_key = act["raw_key"]
+
+    # ── 5. Bridge route pairing (best-effort, idempotent) ──
+    # Agent startup auto-pairing (2026-08-30, user option A): after the
+    # gateway registration chain succeeds, push the agent's receive endpoint
+    # into the local bridge route table (localhost admin API, no key; bridge
+    # admin default IP allowlist admits loopback). Failure is warn-only —
+    # bridge down at this moment is repaired later via `agentmail repair`
+    # (or the same push runs again on the next registration). Webhook_url
+    # empty = pull mode: the gateway queues, the bridge pulls — pairing the
+    # LOCAL route table is what makes pull-mode delivery reach this agent.
+    if webhook_url:
+        try:
+            import urllib.request
+            from urllib.parse import urlsplit
+            parts = urlsplit(webhook_url)
+            port = parts.port or (443 if parts.scheme == "https" else 80)
+            body = json.dumps({
+                "email": email,
+                "host": f"{parts.scheme}://{parts.hostname}:{port}{parts.path}",
+                "port": port,
+            }).encode()
+            req = urllib.request.Request(
+                "http://127.0.0.1:38081/api/v1/routes",
+                data=body, headers={"Content-Type": "application/json"},
+                method="POST")
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                logging.info("[agentmail] bridge route paired for %s (HTTP %s)",
+                             email, resp.status)
+        except Exception as e:  # warn-only, never blocks registration
+            logging.warning("[agentmail] bridge route pairing skipped for %s: %s",
+                            email, e)
     return {"api_key": api_key, "activation_code": activation_code}
 
 
