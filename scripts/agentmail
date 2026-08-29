@@ -176,6 +176,21 @@ def resolve_platform(system_home: Path) -> str:
 #  子命令
 # ═══════════════════════════════════════════════════════════════
 
+def cmd_repair(args) -> int:
+    """链路自动修复 → repair.py(复用 install/注册链函数)。"""
+    cmd = [sys.executable, str(SCRIPTS_DIR / "repair.py")]
+    sid = args.system_id or ""
+    if sid:
+        cmd += ["--system-id", sid]
+    if getattr(args, "home", None):
+        cmd += ["--home", str(Path(args.home).expanduser())]
+    if getattr(args, "deep", False):
+        cmd += ["--deep"]
+    if getattr(args, "dry_run", False):
+        cmd += ["--dry-run"]
+    return subprocess.call(cmd)
+
+
 def cmd_check(args) -> int:
     """通用状态检查 → check_status.py。"""
     sid = args.system_id or ""
@@ -1532,6 +1547,14 @@ def main():
     p_persona.add_argument("--no-wait", action="store_true",
                            help="发送后不等待 draft 回复")
     p_persona.set_defaults(func=cmd_persona)
+
+    p_repair = sub.add_parser("repair", help="链路自动修复:check ✗ → 复用 install 函数链修复 → 复检")
+    p_repair.add_argument("--system-id")
+    p_repair.add_argument("--home", help="平台 home(默认单指针机自动解析)")
+    p_repair.add_argument("--deep", action="store_true",
+                          help="深修:按 agentmail.json 直接重写 webhook 配对 + 清 stuck pending")
+    p_repair.add_argument("--dry-run", action="store_true", help="只列修复计划,不执行")
+    p_repair.set_defaults(func=cmd_repair)
 
     args = ap.parse_args()
     sys.exit(args.func(args) or 0)
