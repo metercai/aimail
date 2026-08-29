@@ -10,6 +10,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { GatewayClient } from './gateway.js'
 import { AIMAIL_HOME, loadAgentConfig } from './config.js'
 import { readLocalMeta, saveLocalMeta, saveOutboundSnapshot, resolveThreadId, threadPath } from './meta.js'
+import { logAmailOutbound } from './log.js'
 import type { AgentConfig } from './types.js'
 
 export interface ToolResult {
@@ -327,6 +328,10 @@ export async function sendMail(ctx: ToolCtx, args: SendMailArgs): Promise<ToolRe
   }
 
   if (result.status >= 200 && result.status < 300) {
+    // Outbound line to the per-agent agentmail.log (Python parity: _log_amail
+    // "outbound" on the success branch) — the welcome CLI polls this file to
+    // detect the agent's reply; TS used to skip it, breaking that poll.
+    await logAmailOutbound(cfg.email, sender, toList.join(','), args.subject, generatedMid)
     const out: ToolResult = { success: true, ...result }
     if (threadBootstrapped) out.thread_bootstrapped = true
     if (uploadErrors.length) out.note = `Sent, but ${uploadErrors.length} attachment(s) had issues: ${uploadErrors.slice(0, 3).join('; ')}`

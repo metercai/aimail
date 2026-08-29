@@ -12,6 +12,7 @@ import { createHmac, createHash, timingSafeEqual } from 'node:crypto'
 import { GatewayClient } from './gateway.js'
 import { AIMAIL_HOME, cleanAddr, loadAgentConfig, systemDir } from './config.js'
 import { sendMail, sanitizeMessageId } from './tools.js'
+import { appendLog } from './log.js'
 import { saveLocalMeta, threadPath } from './meta.js'
 import { registerBoardGateway } from './board.js'
 import type { AgentConfig, EnrichedPayload, InboundPayload } from './types.js'
@@ -51,20 +52,8 @@ export const PING_PREFIX = '__agentmail_ping__:'
 export const PONG_PREFIX = '__amail_pong__:'
 
 // ── logs ───────────────────────────────────────────────────────
-
-function logPath(email: string): string {
-  return path.join(AIMAIL_HOME(), 'logs', `agentmail.${cleanAddr(email)}.log`)
-}
-
-async function appendLog(email: string, entry: Record<string, unknown>): Promise<void> {
-  try {
-    const p = logPath(email)
-    await fsp.mkdir(path.dirname(p), { recursive: true })
-    await fsp.appendFile(p, JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n', 'utf-8')
-  } catch {
-    /* non-fatal */
-  }
-}
+// Shared helpers live in log.js (also used by tools.ts for outbound lines —
+// keeping one implementation avoids drift between inbound and log formats).
 
 /** Three-stage ping event log (ping_intercepted / pong_sent / pong_returned). */
 export async function logPingEvent(

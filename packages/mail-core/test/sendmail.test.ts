@@ -314,3 +314,35 @@ describe('sendMail 先存再调', () => {
     }
   })
 })
+
+describe('sendMail outbound log parity (Python _log_amail)', () => {
+  const ctx = { systemId: SYSTEM_ID, email: EMAIL }
+  const logPath = () => path.join(home, 'logs', `agentmail.${cleanAddr(EMAIL)}.log`)
+
+  it('appends {ts,dir:outbound,from,to,subj,email_id} on 2xx (mirrors Python success branch)', async () => {
+    const { restore } = stubFetch()
+    const res = await sendMail(ctx, { to: 'a@x', subject: 'hi', body: 'yo' })
+    restore()
+    expect(res.success).toBe(true)
+    const lines = (await fs.readFile(logPath(), 'utf-8')).trim().split('\n')
+    const entry = JSON.parse(lines.at(-1)!) as Record<string, unknown>
+    expect(entry.dir).toBe('outbound')
+    expect(entry.from).toBe(EMAIL)
+    expect(entry.to).toBe('a@x')
+    expect(entry.subj).toBe('hi')
+    expect(typeof entry.email_id).toBe('string')
+    expect((entry.email_id as string).startsWith('<')).toBe(true)
+    expect((entry.email_id as string).endsWith('>')).toBe(true)
+    expect(typeof entry.ts).toBe('string')
+  })
+
+  it('does NOT log on terminal failure (Python parity: only 2xx logs)', async () => {
+    const { restore } = stubFetch({ send: [500, { error: 'boom' }] })
+    const sleepSpy = mockImmediateSleep()
+    const res = await sendMail(ctx, { to: 'a@x', subject: 'hi', body: 'yo' })
+    sleepSpy.mockRestore()
+    restore()
+    expect(res.success).toBe(false)
+    await expect(fs.readFile(logPath(), 'utf-8')).rejects.toThrow()
+  })
+})
