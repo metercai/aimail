@@ -841,6 +841,84 @@ def cmd_domain(args) -> int:
     return 0
 
 
+def _resolve_renew_target(args) -> tuple[str, str, str]:
+    """解析 renew 目标系统 → (system_id, gateway_url, admin_key)。
+
+    --system-id 显式指定;省略时:唯一系统自动选定,多系统报错列出。
+    """
+    load_core()
+    from gateway_api import load_gateway_config
+    candidates: list[str] = []
+    if SYSTEMS_DIR.is_dir():
+        for d in sorted(SYSTEMS_DIR.iterdir()):
+            if d.is_dir() and (d / "agentmail_gateway.json").is_file():
+                candidates.append(d.name)
+    sid = args.system_id
+    if not sid:
+        if not candidates:
+            _fail("no agentmail systems configured; use --system-id")
+        if len(candidates) == 1:
+            sid = candidates[0]
+        else:
+            _fail(f"multiple systems installed: {', '.join(candidates)}; use --system-id")
+    elif sid not in candidates:
+        _fail(f"system not found locally: {sid} (installed: {', '.join(candidates) or 'none'})")
+    cfg = load_gateway_config(sid) or {}
+    gw_url = args.gateway_url or cfg.get("gateway_url") or _env_val("AIMAIL_URL", "https://amail.token.tm")
+    admin_key = cfg.get("admin_key") or ""
+    if not admin_key:
+        _fail(f"no admin_key in agentmail_gateway.json for {sid}")
+    return sid, gw_url, admin_key
+
+
+def cmd_renew(args) -> int:
+    """续期系统(消耗产品激活码)或只读到期状态。
+
+    --code 给出 → POST /api/v1/admin/renew-system(叠加式: max(now,到期)+新码 validity)。
+    --code 省略 → GET /api/v1/quotas 只读展示 expires_at/配额。
+    """
+    sid, gw_url, admin_key = _resolve_renew_target(args)
+    from aimail_tools import _GatewayClient
+    client = _GatewayClient(gw_url, admin_key)
+
+    if getattr(args, "status", False) or not getattr(args, "code", None):
+        r = client._request("GET", "/api/v1/quotas")
+        if not isinstance(r, dict) or r.get("status") != 200:
+            _fail(f"quotas query failed: {r}")
+        exp = r.get("expires_at") or "unlimited"
+        print(f"  system {sid}")
+        print(f"    product: {r.get('product_id')} · validity: {r.get('validity_days')} days")
+        print(f"    expires_at: {exp}")
+        # ≤3 天预警(与 stats 同规则)
+        if r.get("expires_at"):
+            try:
+                from datetime import datetime, timezone
+                dt = datetime.fromisoformat(str(r["expires_at"]).replace("Z", "+00:00"))
+                days = (dt - datetime.now(timezone.utc)).days
+                if days <= 3:
+                    _warn(f"expires in {days} day(s) — renew with: agentmail renew --system-id {sid} --code <activation-code>")
+                else:
+                    print(f"    {days} day(s) remaining")
+            except Exception:
+                pass
+        print(f"    quotas: domains {r.get('max_domains')} · addresses {r.get('max_addresses')} · "
+              f"daily {r.get('max_daily_emails')} · attachments {r.get('max_attachments')}")
+        return 0
+
+    code = str(args.code).strip()
+    print(f"  renewing system {sid} with activation code {code[:12]}...")
+    r = client._request("POST", "/api/v1/admin/renew-system", body={"code": code})
+    if not isinstance(r, dict) or r.get("status") not in (200, "renewed", "200"):
+        _fail(f"renew failed: {r}")
+    _ok(f"renewed: expires_at {r.get('expires_at')}")
+    q = r.get("quota") or {}
+    if q:
+        print(f"    merged quotas: domains {q.get('max_domains')} · addresses {q.get('max_addresses')} · "
+              f"daily {q.get('max_daily_emails')} · attachments {q.get('max_attachments')}")
+    print(f"    product: {r.get('product_id')} ({r.get('product_name')})")
+    return 0
+
+
 def cmd_stats(args) -> int:
     """本机 agentmail 对接状态(只读):系统列表 + agent 实例 + 邮件统计。"""
     if not SYSTEMS_DIR.is_dir() or not any(SYSTEMS_DIR.iterdir()):
@@ -883,7 +961,25 @@ def cmd_stats(args) -> int:
                 "size": sz,
             })
         total_agents += len(agents)
-        print(f"    {sid}   [{platform}]   agents: {len(agents)}")
+        expiry_line = ""
+        try:
+            load_core()
+            from aimail_tools import _GatewayClient
+            gwurl = gw.get("gateway_url") or ""
+            key = gw.get("admin_key") or ""
+            if gwurl and key:
+                qr = _GatewayClient(gwurl, key)._request("GET", "/api/v1/quotas")
+                if isinstance(qr, dict) and qr.get("status") == 200 and qr.get("expires_at"):
+                    from datetime import datetime, timezone
+                    dt = datetime.fromisoformat(str(qr["expires_at"]).replace("Z", "+00:00"))
+                    days = (dt - datetime.now(timezone.utc)).days
+                    mark = f"  {YELLOW}⚠ EXPIRES in {days}d{NC}" if days <= 3 else f"  (expires in {days}d)"
+                    expiry_line = f"   expires: {qr['expires_at'][:10]}{mark}"
+                elif isinstance(qr, dict) and qr.get("status") == 403:
+                    expiry_line = f"   {RED}EXPIRED/SUSPENDED{NC} — renew: agentmail renew --system-id {sid} --code <activation-code>"
+        except Exception:
+            expiry_line = "   expires: (query failed)"
+        print(f"    {sid}   [{platform}]   agents: {len(agents)}{expiry_line}")
     print(f"  Agents ({total_agents}):")
     for sid_dir in sorted(SYSTEMS_DIR.iterdir()):
         if not sid_dir.is_dir():
@@ -1521,6 +1617,13 @@ def main():
     p_reset.add_argument("--system-name")
     p_reset.add_argument("--manager")
     p_reset.set_defaults(func=cmd_reset)
+
+    p_renew = sub.add_parser("renew", help="系统续期(消耗产品激活码)或只读到期状态(--status)")
+    p_renew.add_argument("--system-id", help="目标系统(省略: 唯一系统自动选定,多系统报错列出)")
+    p_renew.add_argument("--code", help="产品激活码(省略则只读展示到期状态)")
+    p_renew.add_argument("--status", action="store_true", help="只读展示到期时间与配额(不消耗码)")
+    p_renew.add_argument("--gateway-url", default=None, help="网关地址(默认取 agentmail_gateway.json)")
+    p_renew.set_defaults(func=cmd_renew)
 
     p_stats = sub.add_parser("stats", help="本机 agentmail 对接状态(系统/agent/邮件统计)")
     p_stats.set_defaults(func=cmd_stats)
