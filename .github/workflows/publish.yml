@@ -70,7 +70,7 @@ jobs:
       - name: Test
         run: pnpm test
 
-      - name: Publish changed packages (TP/OIDC, skip already-published)
+      - name: Publish changed packages (TP/OIDC, latest tag, skip already-published)
         env:
           PKGS: |
             @aimail/mail-core packages/mail-core
@@ -82,6 +82,10 @@ jobs:
           # Skip packages whose current version is already on the registry
           # (re-dispatch of the same commit). npm publish of an existing
           # version is always E403/E404 regardless of auth method.
+          #
+          # No --tag flag: every publish lands on `latest`, so a plain
+          # `npm install <pkg>` always resolves to the freshly published
+          # version. Prerelease-rc consumers should pin `@rc` explicitly.
           echo "$PKGS" | while read -r name dir; do
             [ -z "$name" ] && continue
             ver=$(node -p "require('./$dir/package.json').version")
@@ -90,10 +94,10 @@ jobs:
               echo "skip $name@$ver (already published)"
               continue
             fi
-            echo "publishing $name@$ver"
+            echo "publishing $name@$ver (latest)"
             if [ "$name" = "openclaw-aimail" ] || [ "$name" = "pi-aimail" ]; then
               bash scripts/publish-npm.sh "$dir"
             else
-              (cd "$dir" && npm publish --tag rc --access public --provenance)
+              (cd "$dir" && npm publish --access public --provenance)
             fi
           done

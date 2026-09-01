@@ -65,10 +65,11 @@ PYEOF
   prov="--provenance=false"
   [ -n "${CI:-}" ] && prov="--provenance"
   if [ "${DRY_RUN:-0}" = "1" ]; then
-    npm publish --dry-run "/tmp/$tgz" --access public --tag rc $prov || true
+    npm publish --dry-run "/tmp/$tgz" --access public $prov || true
   else
-    npm publish "/tmp/$tgz" --access public --tag rc $prov
-    echo "  published $name@$ver"
+    # no --tag: lands on `latest` (plain installs resolve to this version)
+    npm publish "/tmp/$tgz" --access public $prov
+    echo "  published $name@$ver (latest)"
   fi
 
   # 5) restore package.json from git
