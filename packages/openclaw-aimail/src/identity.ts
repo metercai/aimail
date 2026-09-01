@@ -1,5 +1,5 @@
 /**
- * openclaw-aimail identity — resolves the AgentMail binding for an OpenClaw
+ * openclaw-aimail identity — resolves the AIMail binding for an OpenClaw
  * agent id.
  *
  * Identity chain (mirrors dsh's exec.agent.id, Python detect_system_id):
@@ -68,7 +68,7 @@ export async function readPointer(): Promise<SystemPointer> {
 }
 
 /**
- * Resolve the AgentMail config for an openclaw agent id.
+ * Resolve the AIMail config for an openclaw agent id.
  * Throws when the pointer is missing or the agent is unbound.
  */
 export async function resolveConfigForAgent(

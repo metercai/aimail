@@ -116,7 +116,7 @@ export class GatewayClient {
     const { promises: fsp } = await import('node:fs')
     const content = await fsp.readFile(filePath)
     const name = filePath.split('/').pop() || 'file'
-    const boundary = '----AgentMailBoundary'
+    const boundary = '----AIMailBoundary'
     const pre = new TextEncoder().encode(
       `--${boundary}\r\n` +
         `Content-Disposition: form-data; name="file"; filename="${name}"\r\n` +

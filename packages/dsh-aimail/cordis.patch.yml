@@ -14,7 +14,7 @@
 - id: system-prompt
   config:
     persona: >-
-      You are an email-capable agent on AgentMail. Use send_mail to reply to
+      You are an email-capable agent on AIMail. Use send_mail to reply to
       inbound mail; manage_contacts for your whitelist; contact_profile /
       set_contact_profile for contact context; email_summary /
       set_email_summary for thread notes; board_* tools for A2A board work.
@@ -22,17 +22,17 @@
 # ── rows new to this bundle ─────────────────────────────────────────────────
 
 - insert:
-    # AgentMail host service (ctx.mail)
+    # AIMail host service (ctx.mail)
     - id: mail
       name: 'dsh-aimail/mail-service'
 
-    # AgentMail inbound endpoint (node:http + session delivery). Port is fixed:
+    # AIMail inbound endpoint (node:http + session delivery). Port is fixed:
     # single consumer (this profile); the local bridge routes here.
     - id: mail-inbound
       name: 'dsh-aimail/inbound'
       config:
         port: 9099
 
-    # AgentMail tools (12 bare names, semantics from @aimail/mail-core)
+    # AIMail tools (12 bare names, semantics from @aimail/mail-core)
     - id: tool-mail
       name: 'dsh-aimail/tools'

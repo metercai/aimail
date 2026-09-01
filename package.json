@@ -1,5 +1,5 @@
 {
-  "name": "agentmail-dsh-plugin",
+  "name": "aimail-sdk-ts",
   "private": true,
   "version": "0.1.0-rc.5",
   "type": "module",
@@ -8,7 +8,9 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run",
+    "build": "pnpm exec tsc -b packages/mail-core packages/mail packages/dsh-aimail && pnpm exec tsc -p packages/openclaw-aimail/tsconfig.json && pnpm exec tsc -p packages/pi-aimail/tsconfig.json",
+    "publish": "bash scripts/publish-npm.sh packages/mail-core packages/mail packages/dsh-aimail packages/openclaw-aimail packages/pi-aimail"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",

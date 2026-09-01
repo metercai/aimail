@@ -1,5 +1,5 @@
 /**
- * pi-aimail identity — resolves the AgentMail binding for a pi agent.
+ * pi-aimail identity — resolves the AIMail binding for a pi agent.
  *
  * Identity chain (single source of truth, mirrors openclaw-aimail):
  *   ~/.pi/.agentmail pointer ({system_id, email})
@@ -68,7 +68,7 @@ export function readPointer(): SystemPointer {
 }
 
 /**
- * Resolve the AgentMail config for the running pi agent.
+ * Resolve the AIMail config for the running pi agent.
  * Order: pointer email (system-scoped) → agent_id 'main' within the
  * pointer's system. Throws loud when unbound.
  */

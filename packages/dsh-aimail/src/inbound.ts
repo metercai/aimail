@@ -1,5 +1,5 @@
 /**
- * dsh-aimail inbound — AgentMail inbound endpoint for this profile.
+ * dsh-aimail inbound — AIMail inbound endpoint for this profile.
  *
  * node:http listener (headless-friendly). Receives bridge-forwarded raw
  * webhook bodies at POST {path} (default /aimail/inbound):

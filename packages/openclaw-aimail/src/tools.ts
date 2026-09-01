@@ -1,5 +1,5 @@
 /**
- * openclaw-aimail tools — registers the 12 AgentMail tools by iterating the
+ * openclaw-aimail tools — registers the 12 AIMail tools by iterating the
  * SINGLE MAIL_TOOLS source from @aimail/mail-core (D7: semantic text defined
  * once; each adapter only binds the platform execute/identity context).
  *

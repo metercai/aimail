@@ -11,7 +11,7 @@
 set -euo pipefail
 
 PKGS=("$@")
-[ ${#PKGS[@]} -eq 0 ] && { echo "usage: $0 packages/mail-core [packages/mail] [packages/agentmail] [packages/openclaw-aimail] [packages/pi-aimail]"; exit 1; }
+[ ${#PKGS[@]} -eq 0 ] && { echo "usage: $0 packages/mail-core [packages/mail] [packages/dsh-aimail] [packages/openclaw-aimail] [packages/pi-aimail]"; exit 1; }
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 ver_of() { python3 -c "import json;print(json.load(open('$1/package.json'))['version'])"; }

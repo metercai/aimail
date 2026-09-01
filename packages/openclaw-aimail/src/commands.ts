@@ -375,7 +375,7 @@ export function createAimailCommands(): OpenClawPluginCommandDefinition[] {
   return [
     {
       name: 'aimail',
-      description: 'AgentMail registration and status: register|deregister|status',
+      description: 'AIMail registration and status: register|deregister|status',
       acceptsArgs: true,
       handler: handleCommand,
     },

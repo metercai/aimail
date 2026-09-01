@@ -1,5 +1,5 @@
 /**
- * MAIL_TOOLS — the single TS source of truth for the 12 AgentMail tool
+ * MAIL_TOOLS — the single TS source of truth for the 12 AIMail tool
  * semantic definitions (names, descriptions, parameter descriptions).
  *
  * Contract: text is verbatim from tools/amail_mcp_server.py TOOLS registry
@@ -49,7 +49,7 @@ export interface MailToolParam {
   description?: string
 }
 
-/** One AgentMail tool: semantic text + its execution handler. */
+/** One AIMail tool: semantic text + its execution handler. */
 export interface MailToolDef {
   name: string
   description: string

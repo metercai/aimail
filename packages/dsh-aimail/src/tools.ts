@@ -1,5 +1,5 @@
 /**
- * dsh-aimail tools — registers the 12 AgentMail bare tools for this profile.
+ * dsh-aimail tools — registers the 12 AIMail bare tools for this profile.
  *
  * Semantic text (names, descriptions, parameter descriptions) comes from
  * the shared MAIL_TOOLS registry in @aimail/mail-core (single source of

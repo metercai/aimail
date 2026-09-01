@@ -1,5 +1,5 @@
 /**
- * pi-aimail tools — registers the 12 AgentMail tools by iterating the
+ * pi-aimail tools — registers the 12 AIMail tools by iterating the
  * SINGLE MAIL_TOOLS source from @aimail/mail-core (same as dsh/openclaw:
  * semantic text defined once; the adapter only binds platform identity).
  *

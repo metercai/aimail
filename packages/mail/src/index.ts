@@ -1,5 +1,5 @@
 /**
- * @aimail/mail — platform-neutral AgentMail config resolution.
+ * @aimail/mail — platform-neutral AIMail config resolution.
  *
  * Pure functions: sessionId / email / agentId → agentmail.json → AgentConfig.
  * No framework imports (no cordis, no dsh-sdk); each platform adapter

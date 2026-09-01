@@ -1,5 +1,5 @@
 /**
- * openclaw-aimail — AgentMail plugin for OpenClaw.
+ * openclaw-aimail — AIMail plugin for OpenClaw.
  *
  * definePluginEntry: 12 tools (factory form, iterating MAIL_TOOLS) + inbound
  * HTTP route + register/deregister/status commands. No plugin-level config
@@ -14,9 +14,9 @@ import { agentIdentity } from './identity.js'
 
 const entry: OpenClawPluginDefinition = definePluginEntry({
   id: 'openclaw-aimail',
-  name: 'AgentMail',
+  name: 'AIMail',
   description:
-    'AgentMail email capability for OpenClaw: 12 mail/board tools, inbound email delivery with HMAC verification, register/deregister/status commands.',
+    'AIMail email capability for OpenClaw: 12 mail/board tools, inbound email delivery with HMAC verification, register/deregister/status commands.',
   register(api) {
     // Outbound X-AIMail-Agent header (real detected host version, no guess)
     setAgentIdentity(agentIdentity())

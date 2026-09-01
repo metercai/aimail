@@ -63,7 +63,7 @@ jobs:
         run: |
           pnpm exec tsc -b packages/mail-core
           pnpm exec tsc -b packages/mail
-          pnpm exec tsc -b packages/agentmail
+          pnpm exec tsc -b packages/dsh-aimail
           pnpm exec tsc -p packages/openclaw-aimail/tsconfig.json
           pnpm exec tsc -p packages/pi-aimail/tsconfig.json
 
@@ -75,7 +75,7 @@ jobs:
           PKGS: |
             @aimail/mail-core packages/mail-core
             @aimail/mail packages/mail
-            dsh-aimail packages/agentmail
+            dsh-aimail packages/dsh-aimail
             openclaw-aimail packages/openclaw-aimail
             pi-aimail packages/pi-aimail
         run: |

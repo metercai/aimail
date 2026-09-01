@@ -1,5 +1,5 @@
 /**
- * pi-aimail — AgentMail extension for pi (earendil-works/pi).
+ * pi-aimail — AIMail extension for pi (earendil-works/pi).
  *
  * Same capability surface as dsh-aimail / openclaw-aimail, adapted to pi's
  * extension API:
