@@ -4,10 +4,18 @@
 # Auth: npmjs Trusted Publisher bound to this repo+workflow; no personal token
 # required. Each package's publishConfig.provenance: true enables provenance.
 #
-# Prerequisite (one-time, npmjs web):
-#   npmjs.com → package → Settings → Publish: enable "Trusted Publishers",
-#   add this repo (metercai/dsh-aimail) + workflow name "publish.yml".
-#   Repeat for @aimail/mail-core, @aimail/mail, dsh-aimail, openclaw-aimail.
+# Prerequisites:
+#   1. npmjs.com → each package → Settings → Publish: enable "Trusted
+#      Publishers", add repo metercai/aimail-sdk-ts + workflow "publish.yml".
+#      (One-time per package: @aimail/mail-core, @aimail/mail, dsh-aimail,
+#      openclaw-aimail, pi-aimail.)
+#   2. Package manifests' repository.url must exactly match this repo
+#      (npm OIDC exchange requirement; npm/cli#8730).
+#
+# Note: pnpm isolated linker rejects bundleDependencies at pack time, so
+# packages with bundled deps (openclaw-aimail, pi-aimail) publish via
+# scripts/publish-npm.sh (npm pack with symlink dereference + explicit
+# workspace:^ rewrite), which supports --dry-run-style no-publish mode.
 name: publish.yml
 
 on:
@@ -20,7 +28,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      # 关键：授予 OIDC 令牌所需的权限
+      # OIDC 令牌所需权限
       contents: write
       id-token: write
     steps:
@@ -46,30 +54,33 @@ jobs:
           pnpm exec tsc -b packages/mail-core
           pnpm exec tsc -b packages/mail
           pnpm exec tsc -b packages/agentmail
+          pnpm exec tsc -p packages/openclaw-aimail/tsconfig.json
+          pnpm exec tsc -p packages/pi-aimail/tsconfig.json
 
       - name: Test
         run: pnpm test
 
-      - name: Inspect OIDC claims (debug)
-        run: |
-          curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sigstore" > /tmp/oidc.json
-          python3 -c "import json,base64; d=json.load(open('/tmp/oidc.json')); p=d['value'].split('.')[1]; p+='='*(-len(p)%4); c=json.loads(base64.urlsafe_b64decode(p)); [print(k+':', v) for k,v in sorted(c.items()) if k in ('sub','aud','repository','workflow','environment','ref','job_workflow_ref','job_workflow_sha','sha','event_name','run_id')]"
-
-      - name: Publish openclaw-aimail (rc tag) [isolated]
-        run: npm publish --tag rc --access public --provenance
-        working-directory: packages/openclaw-aimail
-
       - name: Publish @aimail/mail-core (rc tag)
-        if: false
         run: npm publish --tag rc --access public --provenance
         working-directory: packages/mail-core
 
       - name: Publish @aimail/mail (rc tag)
-        if: false
         run: npm publish --tag rc --access public --provenance
         working-directory: packages/mail
 
       - name: Publish dsh-aimail (rc tag)
-        if: false
         run: npm publish --tag rc --access public --provenance
         working-directory: packages/agentmail
+
+      - name: Publish openclaw-aimail (rc tag, bundled deps)
+        env:
+          NPM_PUBLISH_ARGS: "--tag rc --access public --provenance"
+        run: |
+          # publish-npm.sh rewrites workspace:^ deps and dereferences the
+          # bundled @aimail/* symlinks (pnpm isolated linker cannot pack
+          # bundleDependencies); NPM_PUBLISH_ONLY=1 skips its own publish.
+          bash scripts/publish-npm.sh packages/openclaw-aimail
+
+      - name: Publish pi-aimail (rc tag, bundled deps)
+        run: |
+          bash scripts/publish-npm.sh packages/pi-aimail
