@@ -77,6 +77,11 @@ jobs:
         run: npm publish --tag rc --access public --provenance
         working-directory: packages/agentmail
 
+      - name: Inspect OIDC claims (debug)
+        run: |
+          curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sigstore" > /tmp/oidc.json
+          python3 -c "import json,base64; d=json.load(open('/tmp/oidc.json')); p=d['value'].split('.')[1]; p+='='*(-len(p)%4); c=json.loads(base64.urlsafe_b64decode(p)); [print(k+':', v) for k,v in sorted(c.items()) if k in ('sub','aud','repository','repository_owner','workflow','workflow_ref','job_workflow_ref','ref','event_name')]"
+
       - name: Publish openclaw-aimail (rc tag, bundled deps)
         env:
           NPM_PUBLISH_ARGS: "--tag rc --access public --provenance"
