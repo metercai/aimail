@@ -25,6 +25,10 @@
     "openclaw.plugin.json",
     "README.md"
   ],
+  "bundleDependencies": [
+    "@aimail/mail",
+    "@aimail/mail-core"
+  ],
   "openclaw": {
     "extensions": [
       "./src/index.ts"

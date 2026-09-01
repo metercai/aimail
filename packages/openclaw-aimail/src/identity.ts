@@ -9,7 +9,7 @@
  *   → system_id → @aimail/mail-core loadConfigByAgentId → AgentConfig
  * Unbound agents fail loud ("agentmail not configured for this agent").
  */
-import { promises as fs } from 'node:fs'
+import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { loadConfigByAgentId, type AgentConfig } from '@aimail/mail-core'
 
@@ -25,10 +25,40 @@ export interface SystemPointer {
   email?: string
 }
 
+/**
+ * Outbound X-AIMail-Agent identity: walk up from this module to the host
+ * `openclaw` package.json (managed installs link the host peer at
+ * <plugin>/node_modules/openclaw). Detect, never guess; cached on success;
+ * falls back to 'openclaw/unknown' only when the host cannot be located.
+ */
+let _identity = ''
+export function agentIdentity(): string {
+  if (_identity) return _identity
+  try {
+    let dir = path.dirname(new URL(import.meta.url).pathname)
+    for (let i = 0; i < 8; i++) {
+      const p = path.join(dir, 'node_modules', 'openclaw', 'package.json')
+      if (fs.existsSync(p)) {
+        const v = String(JSON.parse(fs.readFileSync(p, 'utf-8')).version ?? '')
+        if (v) {
+          _identity = `openclaw/${v}`
+          return _identity
+        }
+      }
+      const parent = path.dirname(dir)
+      if (parent === dir) break
+      dir = parent
+    }
+  } catch {
+    /* fallthrough */
+  }
+  return 'openclaw/unknown'
+}
+
 /** Read the ~/.openclaw/.agentmail pointer. Missing/corrupt → {}. */
 export async function readPointer(): Promise<SystemPointer> {
   try {
-    const raw = await fs.readFile(POINTER_PATH, 'utf-8')
+    const raw = fs.readFileSync(POINTER_PATH, 'utf-8')
     const parsed = JSON.parse(raw) as SystemPointer
     if (parsed && typeof parsed === 'object') return parsed
   } catch {
