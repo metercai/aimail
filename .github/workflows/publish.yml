@@ -70,19 +70,15 @@ jobs:
       - name: Test
         run: pnpm test
 
-      # rc.13 published locally; re-publishing same version -> E404. Bump to re-enable.
       - name: Publish @aimail/mail-core (rc tag)
-        if: false
         run: npm publish --tag rc --access public --provenance
         working-directory: packages/mail-core
 
       - name: Publish @aimail/mail (rc tag)
-        if: false
         run: npm publish --tag rc --access public --provenance
         working-directory: packages/mail
 
       - name: Publish dsh-aimail (rc tag)
-        if: false
         run: npm publish --tag rc --access public --provenance
         working-directory: packages/agentmail
 
