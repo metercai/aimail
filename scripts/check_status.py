@@ -484,20 +484,31 @@ def _openclaw_check_config(c: Check, agent: dict):
           f"{name}: skills/agentmail " + ("✓" if skill_ok else "MISSING"),
           "Run install-skill.sh")
 
-    # 3.4 toolset: openclaw.json mcp.servers.amail
+    # 3.4 toolset: openclaw-aimail TS plugin registered in the gateway config
+    # (plugins.entries / plugins.allow). The legacy Python MCP entry
+    # (mcp.servers.amail) is retired — its presence is now a warning.
     ts_ok = False
+    mcp_leftover = False
     try:
         oc_path = agent.get("config")
         if oc_path and oc_path.exists():
             oc = json.loads(oc_path.read_text())
-            mcp = oc.get("mcp", {})
-            servers = mcp.get("servers", {}) if isinstance(mcp, dict) else {}
-            ts_ok = "amail" in servers
+            plugins = oc.get("plugins", {})
+            entries = plugins.get("entries", {}) if isinstance(plugins, dict) else {}
+            allow = plugins.get("allow", []) if isinstance(plugins, dict) else []
+            installed_root = Path.home() / ".openclaw" / "npm" / "projects"
+            installed = any(installed_root.glob("openclaw-aimail*"))
+            ts_ok = installed and ("openclaw-aimail" in entries or "openclaw-aimail" in allow or not entries)
+            mcp_leftover = "amail" in ((oc.get("mcp") or {}).get("servers") or {})
     except Exception:
         pass
     c.add("agent", "toolset", ts_ok,
-          f"{name}: mcp.servers.amail " + ("✓" if ts_ok else "MISSING"),
-          "Add amail MCP server to openclaw.json")
+          f"{name}: openclaw-aimail plugin " + ("✓" if ts_ok else "MISSING"),
+          "openclaw plugins install npm-pack:<openclaw-aimail.tgz>; restart gateway")
+    if mcp_leftover:
+        c.add("agent", "toolset-mcp-legacy", False,
+              f"{name}: legacy mcp.servers.amail still present (retired Python MCP)",
+              "Remove mcp.servers.amail from openclaw.json (superseded by the TS plugin)")
 
     # 3.5 register
     reg_ok = bool(api_key)
@@ -507,30 +518,42 @@ def _openclaw_check_config(c: Check, agent: dict):
 
 
 def _openclaw_check_hook(c: Check, agent: dict):
-    """L4 OpenClaw: receiver endpoint (amail_openclaw_bridge.py) probe."""
-    url = "http://127.0.0.1:8799/hook"
-    payload = json.dumps({
-        "message": "status-check",
-        "from": "check_status@localhost",
-        "subject": "amail connectivity probe",
-    }).encode()
+    """L4 OpenClaw: plugin gateway endpoint probe (POST /agentmail/deliver on
+    the OpenClaw gateway, auth:"plugin" — plugin-managed HMAC verification).
+
+    Legacy adapter (amail_openclaw_bridge.py :8799/hook) is retired; the TS
+    plugin registers /agentmail/deliver on the gateway HTTP server instead.
+    """
+    # Discover the gateway port from openclaw.json (default 18789).
+    port = 18789
+    try:
+        oc_path = agent.get("config")
+        if oc_path and oc_path.exists():
+            oc = json.loads(oc_path.read_text())
+            port = int((oc.get("gateway") or {}).get("port") or 18789)
+    except Exception:
+        pass
+    url = f"http://127.0.0.1:{port}/agentmail/deliver"
+    payload = json.dumps({"to": ["probe@invalid"], "body": "status-check"}).encode()
     try:
         req = urllib.request.Request(url, data=payload,
                                      headers={"Content-Type": "application/json"},
                                      method="POST")
         with urllib.request.urlopen(req, timeout=5) as r:
-            c.add("agent", "hook", True, f"POST /hook → HTTP {r.status}")
+            body = r.read().decode()[:80]
+            # 200 with a JSON status = plugin route alive (no_agent/bad_signature
+            # are both valid — the endpoint processed the request).
+            c.add("agent", "hook", True, f"POST /agentmail/deliver → HTTP {r.status} {body}")
     except urllib.error.HTTPError as e:
-        if e.code in (401, 403):
-            c.add("agent", "hook", True, f"POST /hook → {e.code} (receiver active)")
-        elif e.code == 404:
-            c.add("agent", "hook", False, f"POST /hook → 404",
-                  "Start amail_openclaw_bridge.py on port 8799")
+        if e.code in (200, 400, 401, 404):
+            # 404 (non-POST probe path) / 401 (signature) still prove the route
+            # is registered and the plugin is loaded.
+            c.add("agent", "hook", True, f"POST /agentmail/deliver → {e.code} (plugin route active)")
         else:
-            c.add("agent", "hook", False, f"POST /hook → HTTP {e.code}")
+            c.add("agent", "hook", False, f"POST /agentmail/deliver → HTTP {e.code}")
     except Exception as e:
         c.add("agent", "hook", False, f"Cannot reach {url}: {e}",
-              "Start amail_openclaw_bridge.py on port 8799")
+              f"Is the OpenClaw gateway running on :{port} with the openclaw-aimail plugin installed?")
 
 
 # ── dsh adapter ────────────────────────────────────────────────

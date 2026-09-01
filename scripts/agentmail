@@ -363,9 +363,12 @@ def cmd_install(args) -> int:
                              "--all", "--system-id", env.get("INTEGRATE_SYSTEM_ID", "")],
                             env=env3)
         if r == 0:
-            for sh in ("install-skill.sh", "install-mcp.sh"):
+            # TS 插件(openclaw-aimail)承载工具+入站端点;Python MCP 已退役。
+            for sh in ("install-skill.sh",):
                 subprocess.call(["bash", str(SCRIPTS_DIR / "openclaw" / sh)], env=env3)
-        _ok("openclaw agents registered + skill + mcp installed")
+        _ok("openclaw agents registered + skill installed")
+        print("  openclaw: TS 插件安装 = npm pack openclaw-aimail/ 后 "
+              "`openclaw plugins install npm-pack:<tgz> --force` + 重启 gateway")
     else:  # deerflow
         # 补充注册(全部已有 agent 注册地址+路由)+ 入站补丁 + skill/mcp
         env3 = dict(os.environ)
