@@ -393,6 +393,14 @@ class _GatewayClient:
 # OpenClaw 机器也存在,registry 顺序导致 OpenClaw 进程被检测为 hermes)。
 # 平台适配层(amail_base/hermes adapter)在 import 时注入自己的身份。
 _AGENT_IDENTITY_OVERRIDE = None    # 由适配层设置,如 "openclaw/2026.7.1"
+_AGENT_MODEL_OVERRIDE = None       # 由适配层设置,主/默认模型名(如 "glm-5.3-flash")
+
+
+def set_agent_model(model: str) -> None:
+    """设置 X-AIMail-Agent 的模型段(主/默认模型),头变 {platform}/{ver}+{model}。"""
+    global _AGENT_MODEL_OVERRIDE
+    if isinstance(model, str) and model.strip():
+        _AGENT_MODEL_OVERRIDE = model.strip()
 
 _AGENT_DETECTORS = [
     {
@@ -444,7 +452,10 @@ def _agent_identity() -> str:
     systems are detected differently). If nothing is detected the value
     is unknown/unknown — we never guess.
     """
-    return _detect_agent_identity()
+    ident = _detect_agent_identity()
+    if _AGENT_MODEL_OVERRIDE and '+' not in ident:
+        ident = f"{ident}+{_AGENT_MODEL_OVERRIDE}"
+    return ident
 
 
 def send_mail(

@@ -40,6 +40,23 @@ _GatewayClient = tools._GatewayClient
 _agentmail_system_dir = core._agentmail_system_dir
 _load_gateway_config = core._load_gateway_config
 list_personas = core.list_personas
+# ── 主模型注入 X-AIMail-Agent(profile config.yaml → model.default)──
+def _init_agent_model() -> None:
+    try:
+        profile_dir = os.environ.get("HERMES_PROFILE_DIR", "") or str(Path.home() / ".hermes")
+        cfg = Path(profile_dir) / "config.yaml"
+        if cfg.exists():
+            import yaml
+            data = yaml.safe_load(cfg.read_text(encoding="utf-8")) or {}
+            model = ((data.get("model") or {}).get("default") or "")
+            if isinstance(model, str) and model.strip():
+                tools.set_agent_model(model.strip())
+    except Exception:
+        pass  # identity stays platform/version only
+
+
+_init_agent_model()
+
 # 6 工具函数体（注册表 handler 包装器裸调用）
 send_mail = tools.send_mail
 manage_contacts = tools.manage_contacts
@@ -407,7 +424,7 @@ def _auto_register_email(name: str, profile_dir: str, config: dict) -> None:
     """When a new Profile is created, register its email with agentmail:
     1. Create domain entry for {name}@{domain}
     2. Create activation code for the agent
-    3. Ensure agentmail-inbound webhook route on the gateway
+    3. Ensure aimail-inbound webhook route on the gateway
     4. Inject config into profile directory
     
     The registered address is the agent's identity. Persona switching is
@@ -459,12 +476,12 @@ def _auto_register_email(name: str, profile_dir: str, config: dict) -> None:
             webhook_secret = wh_config["secret"]
             wh_port = wh_config["port"]
             # 本地接收端点(进程内 preprocess 的 webhook 路由)
-            local_webhook_url = f"http://127.0.0.1:{wh_port}/webhooks/agentmail-inbound"
-            # Ensure agentmail-inbound route exists (idempotent)
+            local_webhook_url = f"http://127.0.0.1:{wh_port}/webhooks/aimail-inbound"
+            # Ensure aimail-inbound route exists (idempotent)
             # skills=["agentmail"] so webhook sessions get the agentmail skill
             # (send_mail protocol); without it the agent cannot reply by email.
             _ensure_webhook_route(
-                "agentmail-inbound", webhook_secret, profile_dir=profile_dir,
+                "aimail-inbound", webhook_secret, profile_dir=profile_dir,
                 skills=["agentmail"],
             )
 

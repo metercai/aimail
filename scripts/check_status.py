@@ -357,7 +357,7 @@ def _hermes_check_config(c: Check, agent: dict):
 
 
 def _hermes_check_hook(c: Check, agent: dict):
-    """L4 Hermes: POST /webhooks/agentmail-inbound — route registered & responsive."""
+    """L4 Hermes: POST /webhooks/aimail-inbound — route registered & responsive."""
     port = 8646
     try:
         import yaml
@@ -367,7 +367,7 @@ def _hermes_check_hook(c: Check, agent: dict):
             port = int(wh.get("port") or wh.get("extra", {}).get("port") or 8646)
     except Exception:
         pass
-    route_name = "agentmail-inbound"
+    route_name = "aimail-inbound"
     url = f"http://127.0.0.1:{port}/webhooks/{route_name}"
     payload = json.dumps({
         "message": "status-check",
