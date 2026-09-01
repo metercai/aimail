@@ -104,5 +104,13 @@ jobs:
             else
               (cd "$dir" && npm publish --tag rc --access public --provenance)
             fi
-            npm dist-tag add "$name@$ver" latest
+            # OIDC only covers publish; dist-tag writes need a classic token
+            # (repo secret NPM_TOKEN). Best effort — never fails the release.
+            if [ -n "${NPM_TOKEN:-}" ]; then
+              npm dist-tag add "$name@$ver" latest \
+                --//registry.npmjs.org/:_authToken="$NPM_TOKEN" \
+                || echo "!! dist-tag latest update failed for $name@$ver (fix manually)"
+            else
+              echo "!! NPM_TOKEN secret not set — latest still points at the previous version"
+            fi
           done
