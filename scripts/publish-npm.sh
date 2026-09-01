@@ -70,7 +70,8 @@ PYEOF
     # npm >= 11.5 refuses implicit-latest prerelease publishes: tag `rc`,
     # then move `latest` onto the new version explicitly.
     npm publish "/tmp/$tgz" --access public --tag rc $prov
-    npm dist-tag add "$name@$ver" latest
+    npm dist-tag add "$name@$ver" latest \
+      || echo "!! dist-tag latest update failed for $name@$ver (fix manually)"
     echo "  published $name@$ver (latest)"
   fi
 
