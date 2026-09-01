@@ -70,25 +70,30 @@ jobs:
       - name: Test
         run: pnpm test
 
-      - name: Publish @aimail/mail-core (rc tag)
-        run: npm publish --tag rc --access public --provenance
-        working-directory: packages/mail-core
-
-      - name: Publish @aimail/mail (rc tag)
-        run: npm publish --tag rc --access public --provenance
-        working-directory: packages/mail
-
-      - name: Publish dsh-aimail (rc tag)
-        run: npm publish --tag rc --access public --provenance
-        working-directory: packages/agentmail
-
-      - name: Publish openclaw-aimail (rc tag, bundled deps)
+      - name: Publish changed packages (TP/OIDC, skip already-published)
+        env:
+          PKGS: |
+            @aimail/mail-core packages/mail-core
+            @aimail/mail packages/mail
+            dsh-aimail packages/agentmail
+            openclaw-aimail packages/openclaw-aimail
+            pi-aimail packages/pi-aimail
         run: |
-          # publish-npm.sh rewrites workspace:^ deps and dereferences the
-          # bundled @aimail/* symlinks (pnpm isolated linker cannot pack
-          # bundleDependencies); publishes with provenance under CI.
-          bash scripts/publish-npm.sh packages/openclaw-aimail
-
-      - name: Publish pi-aimail (rc tag, bundled deps)
-        run: |
-          bash scripts/publish-npm.sh packages/pi-aimail
+          # Skip packages whose current version is already on the registry
+          # (re-dispatch of the same commit). npm publish of an existing
+          # version is always E403/E404 regardless of auth method.
+          echo "$PKGS" | while read -r name dir; do
+            [ -z "$name" ] && continue
+            ver=$(node -p "require('./$dir/package.json').version")
+            published=$(npm view "$name@$ver" version 2>/dev/null || true)
+            if [ -n "$published" ]; then
+              echo "skip $name@$ver (already published)"
+              continue
+            fi
+            echo "publishing $name@$ver"
+            if [ "$name" = "openclaw-aimail" ] || [ "$name" = "pi-aimail" ]; then
+              bash scripts/publish-npm.sh "$dir"
+            else
+              (cd "$dir" && npm publish --tag rc --access public --provenance)
+            fi
+          done
