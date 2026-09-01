@@ -485,10 +485,9 @@ def _openclaw_check_config(c: Check, agent: dict):
           "Run install-skill.sh")
 
     # 3.4 toolset: openclaw-aimail TS plugin registered in the gateway config
-    # (plugins.entries / plugins.allow). The legacy Python MCP entry
-    # (mcp.servers.amail) is retired — its presence is now a warning.
+    # (plugins.entries / plugins.allow). No Python/OpenClaw edition ever
+    # shipped, so no MCP coexistence check is needed.
     ts_ok = False
-    mcp_leftover = False
     try:
         oc_path = agent.get("config")
         if oc_path and oc_path.exists():
@@ -499,16 +498,11 @@ def _openclaw_check_config(c: Check, agent: dict):
             installed_root = Path.home() / ".openclaw" / "npm" / "projects"
             installed = any(installed_root.glob("openclaw-aimail*"))
             ts_ok = installed and ("openclaw-aimail" in entries or "openclaw-aimail" in allow or not entries)
-            mcp_leftover = "amail" in ((oc.get("mcp") or {}).get("servers") or {})
     except Exception:
         pass
     c.add("agent", "toolset", ts_ok,
           f"{name}: openclaw-aimail plugin " + ("✓" if ts_ok else "MISSING"),
           "openclaw plugins install npm-pack:<openclaw-aimail.tgz>; restart gateway")
-    if mcp_leftover:
-        c.add("agent", "toolset-mcp-legacy", False,
-              f"{name}: legacy mcp.servers.amail still present (retired Python MCP)",
-              "Remove mcp.servers.amail from openclaw.json (superseded by the TS plugin)")
 
     # 3.5 register
     reg_ok = bool(api_key)
