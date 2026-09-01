@@ -83,9 +83,10 @@ jobs:
           # (re-dispatch of the same commit). npm publish of an existing
           # version is always E403/E404 regardless of auth method.
           #
-          # No --tag flag: every publish lands on `latest`, so a plain
-          # `npm install <pkg>` always resolves to the freshly published
-          # version. Prerelease-rc consumers should pin `@rc` explicitly.
+          # Prerelease publishes must carry an explicit --tag (npm >= 11.5
+          # refuses implicit-latest for prerelease versions). We tag `rc`
+          # and then move `latest` onto the new version with `npm dist-tag
+          # add`, so plain `npm install <pkg>` still resolves to it.
           echo "$PKGS" | while read -r name dir; do
             [ -z "$name" ] && continue
             ver=$(node -p "require('./$dir/package.json').version")
@@ -94,10 +95,14 @@ jobs:
               echo "skip $name@$ver (already published)"
               continue
             fi
-            echo "publishing $name@$ver (latest)"
+            echo "publishing $name@$ver"
+            # npm >= 11.5 refuses implicit-latest prerelease publishes, so
+            # publish under the `rc` tag, then move `latest` onto the new
+            # version explicitly (idempotent, works for bare & scoped names).
             if [ "$name" = "openclaw-aimail" ] || [ "$name" = "pi-aimail" ]; then
               bash scripts/publish-npm.sh "$dir"
             else
-              (cd "$dir" && npm publish --access public --provenance)
+              (cd "$dir" && npm publish --tag rc --access public --provenance)
             fi
+            npm dist-tag add "$name@$ver" latest
           done
