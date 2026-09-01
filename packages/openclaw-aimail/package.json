@@ -48,8 +48,8 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@aimail/mail": "workspace:^",
-    "@aimail/mail-core": "workspace:^",
+    "@aimail/mail": "^",
+    "@aimail/mail-core": "^",
     "typebox": "^1.3.6"
   },
   "peerDependencies": {

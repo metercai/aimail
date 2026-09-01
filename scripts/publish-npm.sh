@@ -60,10 +60,14 @@ PYEOF
   echo "  packed: /tmp/$tgz"
 
   # 4) publish
+  # --provenance requires CI OIDC; local publishes disable it explicitly
+  # (package publishConfig.provenance would otherwise force OIDC lookup).
+  prov="--provenance=false"
+  [ -n "${CI:-}" ] && prov="--provenance"
   if [ "${DRY_RUN:-0}" = "1" ]; then
-    npm publish --dry-run "/tmp/$tgz" --access public --tag rc || true
+    npm publish --dry-run "/tmp/$tgz" --access public --tag rc $prov || true
   else
-    npm publish "/tmp/$tgz" --access public --provenance --tag rc
+    npm publish "/tmp/$tgz" --access public --tag rc $prov
     echo "  published $name@$ver"
   fi
 
