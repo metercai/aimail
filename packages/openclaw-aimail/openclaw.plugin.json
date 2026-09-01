@@ -2,6 +2,11 @@
   "id": "openclaw-aimail",
   "name": "AgentMail",
   "description": "AgentMail email capability for OpenClaw: 12 mail/board tools, inbound email delivery with HMAC verification, and register/deregister/status commands.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
   "enabledByDefault": false,
   "activation": {
     "onStartup": true,

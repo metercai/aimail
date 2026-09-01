@@ -1,0 +1,79 @@
+/**
+ * openclaw-aimail identity — resolves the AgentMail binding for an OpenClaw
+ * agent id.
+ *
+ * Identity chain (mirrors dsh's exec.agent.id, Python detect_system_id):
+ *   factory ctx.agentId
+ *   → ~/.openclaw/.agentmail pointer (sole identity source; no env override,
+ *     no cross-system scan — established convention)
+ *   → system_id → @aimail/mail-core loadConfigByAgentId → AgentConfig
+ * Unbound agents fail loud ("agentmail not configured for this agent").
+ */
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { loadConfigByAgentId } from '@aimail/mail-core';
+/** OpenClaw agent pointer file: {system_id, email}. */
+const POINTER_PATH = path.join(process.env.HOME ?? process.env.USERPROFILE ?? '', '.openclaw', '.agentmail');
+/**
+ * Outbound X-AIMail-Agent identity: walk up from this module to the host
+ * `openclaw` package.json (managed installs link the host peer at
+ * <plugin>/node_modules/openclaw). Detect, never guess; cached on success;
+ * falls back to 'openclaw/unknown' only when the host cannot be located.
+ */
+let _identity = '';
+export function agentIdentity() {
+    if (_identity)
+        return _identity;
+    try {
+        let dir = path.dirname(new URL(import.meta.url).pathname);
+        for (let i = 0; i < 8; i++) {
+            const p = path.join(dir, 'node_modules', 'openclaw', 'package.json');
+            if (fs.existsSync(p)) {
+                const v = String(JSON.parse(fs.readFileSync(p, 'utf-8')).version ?? '');
+                if (v) {
+                    _identity = `openclaw/${v}`;
+                    return _identity;
+                }
+            }
+            const parent = path.dirname(dir);
+            if (parent === dir)
+                break;
+            dir = parent;
+        }
+    }
+    catch {
+        /* fallthrough */
+    }
+    return 'openclaw/unknown';
+}
+/** Read the ~/.openclaw/.agentmail pointer. Missing/corrupt → {}. */
+export async function readPointer() {
+    try {
+        const raw = fs.readFileSync(POINTER_PATH, 'utf-8');
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object')
+            return parsed;
+    }
+    catch {
+        /* missing or unreadable → empty pointer */
+    }
+    return {};
+}
+/**
+ * Resolve the AgentMail config for an openclaw agent id.
+ * Throws when the pointer is missing or the agent is unbound.
+ */
+export async function resolveConfigForAgent(agentId) {
+    const id = agentId && agentId.trim() ? agentId.trim() : 'main';
+    const ptr = await readPointer();
+    const systemId = ptr.system_id ?? '';
+    if (!systemId) {
+        throw new Error('agentmail not configured for this agent — no ~/.openclaw/.agentmail pointer. Run: openclaw aimail register');
+    }
+    const cfg = await loadConfigByAgentId(systemId, id);
+    if (!cfg) {
+        throw new Error(`agentmail not configured for agent '${id}' (system ${systemId}). Run: openclaw aimail register`);
+    }
+    return cfg;
+}
+//# sourceMappingURL=identity.js.map

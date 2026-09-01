@@ -2,12 +2,13 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "lib",
-    "tsBuildInfoFile": "lib/.tsbuildinfo",
+    "outDir": "dist",
+    "tsBuildInfoFile": "dist/.tsbuildinfo",
     "composite": true,
     "types": ["node"],
-    "allowImportingTsExtensions": true,
-    "noEmit": true
+    "noEmit": false,
+    "declaration": true,
+    "skipLibCheck": true
   },
   "include": ["src/**/*.ts"]
 }
