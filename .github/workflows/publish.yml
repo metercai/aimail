@@ -60,15 +60,20 @@ jobs:
       - name: Test
         run: pnpm test
 
+      # rc.13/rc.10/rc.15 already published locally (token); re-publishing the
+      # same version is rejected by npm (E404). Re-enable on a version bump.
       - name: Publish @aimail/mail-core (rc tag)
+        if: false
         run: npm publish --tag rc --access public --provenance
         working-directory: packages/mail-core
 
       - name: Publish @aimail/mail (rc tag)
+        if: false
         run: npm publish --tag rc --access public --provenance
         working-directory: packages/mail
 
       - name: Publish dsh-aimail (rc tag)
+        if: false
         run: npm publish --tag rc --access public --provenance
         working-directory: packages/agentmail
 
