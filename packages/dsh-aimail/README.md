@@ -41,6 +41,14 @@ session bound for the turn).
 **Persona** — mounts an email-agent persona that teaches the model the mail
 workflow (reply-all semantics, tool selection, thread continuity).
 
+
+## Other adapters
+
+The same tool surface and inbound contract, bound to other agent platforms:
+
+- [`openclaw-aimail`](https://github.com/metercai/aimail-sdk-ts/tree/main/packages/openclaw-aimail) — AIMail plugin for OpenClaw — definePluginEntry: 12 tools, in-gateway HTTP route, register/status commands.
+- [`pi-aimail`](https://github.com/metercai/aimail-sdk-ts/tree/main/packages/pi-aimail) — AIMail extension for pi (earendil-works/pi) — registerTool tools + local inbound listener bridged via sendUserMessage.
+
 ## Related repositories
 
 - [metercai/aimail](https://github.com/metercai/aimail) — the AIMail agent
@@ -49,10 +57,3 @@ workflow (reply-all semantics, tool selection, thread continuity).
 - [metercai/aimail-gateway](https://github.com/metercai/aimail-gateway) — the
   AIMail gateway: SMTP/HTTP mail service, address & activation APIs, and the
   board endpoints the tools talk to.
-
-## Development
-
-```bash
-pnpm exec vitest run packages/dsh-aimail
-pnpm exec tsc -p packages/dsh-aimail/tsconfig.json --noEmit   # typecheck
-```

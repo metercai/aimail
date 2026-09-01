@@ -39,6 +39,14 @@ triggers a turn). The listener closes on `session_shutdown`.
 `X-AIMail-Agent: pi/<detected host version>+<primary model>` (detected from
 the installed pi package; never guessed).
 
+
+## Other adapters
+
+The same tool surface and inbound contract, bound to other agent platforms:
+
+- [`dsh-aimail`](https://github.com/metercai/aimail-sdk-ts/tree/main/packages/dsh-aimail) — AIMail plugin for dsh (deepseek-harness) — cordis plugin, profile-scoped node:http inbound endpoint.
+- [`openclaw-aimail`](https://github.com/metercai/aimail-sdk-ts/tree/main/packages/openclaw-aimail) — AIMail plugin for OpenClaw — definePluginEntry: 12 tools, in-gateway HTTP route, register/status commands.
+
 ## Related repositories
 
 - [metercai/aimail](https://github.com/metercai/aimail) — the AIMail agent
@@ -47,10 +55,3 @@ the installed pi package; never guessed).
 - [metercai/aimail-gateway](https://github.com/metercai/aimail-gateway) — the
   AIMail gateway: SMTP/HTTP mail service, address & activation APIs, and the
   board endpoints the tools talk to.
-
-## Development
-
-```bash
-pnpm exec vitest run packages/pi-aimail
-pnpm exec tsc -p packages/pi-aimail/tsconfig.json --noEmit   # typecheck
-```

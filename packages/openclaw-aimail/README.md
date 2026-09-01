@@ -56,6 +56,14 @@ guessed).
 openclaw plugins uninstall openclaw-aimail
 ```
 
+
+## Other adapters
+
+The same tool surface and inbound contract, bound to other agent platforms:
+
+- [`dsh-aimail`](https://github.com/metercai/aimail-sdk-ts/tree/main/packages/dsh-aimail) — AIMail plugin for dsh (deepseek-harness) — cordis plugin, profile-scoped node:http inbound endpoint.
+- [`pi-aimail`](https://github.com/metercai/aimail-sdk-ts/tree/main/packages/pi-aimail) — AIMail extension for pi (earendil-works/pi) — registerTool tools + local inbound listener bridged via sendUserMessage.
+
 ## Related repositories
 
 - [metercai/aimail](https://github.com/metercai/aimail) — the AIMail agent
@@ -64,10 +72,3 @@ openclaw plugins uninstall openclaw-aimail
 - [metercai/aimail-gateway](https://github.com/metercai/aimail-gateway) — the
   AIMail gateway: SMTP/HTTP mail service, address & activation APIs, and the
   board endpoints the tools talk to.
-
-## Development
-
-```bash
-pnpm exec vitest run packages/openclaw-aimail
-pnpm exec tsc -p packages/openclaw-aimail/tsconfig.json --noEmit   # typecheck
-```
