@@ -24,6 +24,18 @@ export interface ToolResult {
 
 let _identityOverride = ''
 let _detectedIdentity = ''
+let _modelOverride = ''
+
+/**
+ * Append the agent's primary/default LLM model to the identity header:
+ * `{platform}/{version}+{model}`. Call once at extension load with the
+ * platform's resolved default model (active model at call time when the
+ * platform exposes it). Empty/undefined input is a no-op — the header then
+ * stays platform/version only.
+ */
+export function setAgentModel(v: string | undefined | null): void {
+  if (typeof v === 'string' && v.trim()) _modelOverride = v.trim()
+}
 
 /** Set outbound X-AIMail-Agent (real detected value only, no guessing). */
 export function setAgentIdentity(v: string): void {
@@ -53,13 +65,14 @@ function detectDshIdentity(): string {
 }
 
 function agentIdentity(): string {
-  if (_identityOverride) return _identityOverride
-  if (_detectedIdentity) return _detectedIdentity
-  const detected = detectDshIdentity()
-  // Cache only successful detection; unknown is re-probed each call
-  // (cheap) so a later cwd/override change can still resolve.
-  if (detected !== 'dsh/unknown') _detectedIdentity = detected
-  return detected
+  const base = _identityOverride || _detectedIdentity || (() => {
+    const detected = detectDshIdentity()
+    // Cache only successful detection; unknown is re-probed each call
+    // (cheap) so a later cwd/override change can still resolve.
+    if (detected !== 'dsh/unknown') _detectedIdentity = detected
+    return detected
+  })()
+  return _modelOverride ? `${base}+${_modelOverride}` : base
 }
 
 // ── config/context ─────────────────────────────────────────────

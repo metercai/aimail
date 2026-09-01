@@ -83,7 +83,7 @@ describe('registerAgentEmail', () => {
   const opts = {
     systemId: 'system-test',
     email: 'agent@test.example',
-    webhookUrl: 'http://127.0.0.1:18789/agentmail/deliver',
+    webhookUrl: 'http://127.0.0.1:18789/aimail/inbound',
     webhookSecret: 's3cret',
   }
 

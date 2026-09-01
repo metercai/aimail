@@ -21,6 +21,7 @@ export {
 } from './config.js'
 export {
   setAgentIdentity,
+  setAgentModel,
   sendMail,
   manageContacts,
   contactProfile,

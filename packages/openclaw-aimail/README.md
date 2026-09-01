@@ -31,7 +31,7 @@ openclaw aimail register --email agent@your.domain
 the `~/.openclaw/.agentmail` pointer plus the bound `agentmail.json`; unbound
 agents fail loud.
 
-**Inbound mail** — an in-gateway HTTP route (`/agentmail/deliver`, no new
+**Inbound mail** — an in-gateway HTTP route (`/aimail/inbound`, no new
 port). Each bridge delivery is HMAC verified against the per-agent secret,
 routed by recipient (exact address, then persona-alias fallback), enriched by
 the shared preprocess chain, and delivered to the agent's main session as an

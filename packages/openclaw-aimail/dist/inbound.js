@@ -1,7 +1,9 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { verifySignature, processInboundMail, routeAddressFromHeaders } from '@aimail/mail-core';
 import { resolveByRecipient } from '@aimail/mail';
 import { readPointer } from './identity.js';
-export const INBOUND_PATH = '/agentmail/deliver';
+export const INBOUND_PATH = '/aimail/inbound';
 function writeJson(res, code, body) {
     res.writeHead(code, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(body));
@@ -15,45 +17,44 @@ function readBody(req) {
     });
 }
 /**
- * Deliver an enriched inbound payload to the owning agent's session.
- * Primary: subagent.run (session-scoped). Fallback: gateway.request
- * ("chat.send" — explicit agent targeting).
+ * Deliver an enriched inbound payload to the owning agent's session via the
+ * gateway's internal /hooks/agent endpoint (loopback + hook token; fixed
+ * sessionKey so all mail converges on one agent session; deliver:false —
+ * the agent replies via send_mail). subagent.run/chat.send were tried first
+ * historically but require operator.write scope the plugin does not have.
  */
 async function deliverToAgent(api, opts) {
-    const { agentId, message } = opts;
-    const sessionKey = `agent:${agentId}:main`;
-    try {
-        await api.runtime.subagent.run({
-            sessionKey,
-            message,
-            deliver: true,
-        });
-        return { status: 'delivered', detail: `subagent.run → ${sessionKey}` };
+    void api;
+    const hooksToken = readHooksToken();
+    const r = await fetch('http://127.0.0.1:18789/hooks/agent', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            ...(hooksToken ? { Authorization: `Bearer ${hooksToken}` } : {}),
+        },
+        body: JSON.stringify({
+            message: opts.message,
+            name: 'agentmail',
+            sessionKey: 'agent:main:hook:amail',
+            deliver: false,
+        }),
+    });
+    if (!r.ok) {
+        return { status: 'dispatch_failed', detail: `hooks/agent HTTP ${r.status}` };
     }
-    catch (e) {
-        const subagentErr = e instanceof Error ? e.message : String(e);
-        try {
-            await api.runtime.gateway.request('chat.send', {
-                sessionKey,
-                agentId,
-                message,
-                deliver: true,
-            });
-            return {
-                status: 'delivered',
-                detail: `gateway.request chat.send → ${sessionKey} (subagent.run failed: ${subagentErr})`,
-            };
-        }
-        catch (e2) {
-            const gwErr = e2 instanceof Error ? e2.message : String(e2);
-            return {
-                status: 'delivery_failed',
-                detail: `subagent.run: ${subagentErr}; chat.send: ${gwErr}`,
-            };
-        }
+    return { status: 'delivered', detail: 'hooks/agent accepted' };
+}
+function readHooksToken() {
+    try {
+        const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
+        const cfgPath = path.join(home, '.openclaw', 'openclaw.json');
+        const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+        return String(cfg.hooks?.token ?? '');
+    }
+    catch {
+        return '';
     }
 }
-/** Build the inbound HTTP route handler for this plugin entry. */
 export function createInboundHandler(api) {
     return async (req, res) => {
         try {

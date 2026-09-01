@@ -11,6 +11,7 @@
 import { Type, type TSchema } from 'typebox'
 import { MAIL_TOOLS, type MailToolParam } from '@aimail/mail-core'
 import { resolveConfig } from './identity.js'
+import { setAgentModel } from '@aimail/mail-core'
 
 /** pi AgentToolResult content block. */
 interface TextBlock {
@@ -81,7 +82,10 @@ export function buildPiTools(): Array<{
     label: tool.name,
     description: tool.description,
     parameters: toTypeBoxParams(tool.parameters),
-    async execute(_toolCallId, params, _signal, _ctx) {
+    async execute(_toolCallId, params, _signal, ctx) {
+      // Primary model at call time (pi ExtensionContext.model.id)
+      const m = (ctx as { model?: { id?: string } } | undefined)?.model
+      setAgentModel(m?.id)
       const cfg = await resolveConfig()
       const result = await tool.handler(
         { systemId: cfg.system_id, email: cfg.email },

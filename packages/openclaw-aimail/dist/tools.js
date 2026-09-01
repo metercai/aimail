@@ -10,6 +10,7 @@ import { Type } from 'typebox';
 import { MAIL_TOOLS } from '@aimail/mail-core';
 import { jsonResult } from 'openclaw/plugin-sdk/tool-results';
 import { resolveConfigForAgent } from './identity.js';
+import { setAgentModel } from '@aimail/mail-core';
 /** Translate one neutral MailToolParam into a TypeBox schema. */
 export function toTypeBoxParam(p) {
     let base;
@@ -47,6 +48,9 @@ export function createMailTools(ctx) {
         description: tool.description,
         parameters: toTypeBoxParams(tool.parameters),
         async execute(_toolCallId, params) {
+            // Primary model at call time (runtime-supplied metadata, informational)
+            const am = ctx.activeModel;
+            setAgentModel(am?.modelId ?? am?.modelRef);
             const cfg = await resolveConfigForAgent(ctx.agentId);
             const result = await tool.handler({ systemId: cfg.system_id, email: cfg.email }, (params ?? {}));
             return jsonResult(result);

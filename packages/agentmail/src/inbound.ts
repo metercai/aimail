@@ -2,7 +2,7 @@
  * dsh-aimail inbound — AgentMail inbound endpoint for this profile.
  *
  * node:http listener (headless-friendly). Receives bridge-forwarded raw
- * webhook bodies at POST {path} (default /agentmail/deliver):
+ * webhook bodies at POST {path} (default /aimail/inbound):
  *   recipient routing (resolveByRecipient: exact → persona-strip fallback)
  *   → HMAC verify (X-Webhook-Signature vs webhook_secret from agentmail.json)
  *   → TS preprocess chain (mail-core, DSH-PREPROCESS-CONTRACT.md)
@@ -28,7 +28,7 @@ export interface Config {
   host?: string
   /** Listen port (default AIMAIL_INBOUND_PORT or 9099). */
   port?: number
-  /** Deliver path (default /agentmail/deliver). */
+  /** Deliver path (default /aimail/inbound). */
   path?: string
 }
 
@@ -59,7 +59,7 @@ export function apply(ctx: Context, config: Config = {}): () => void {
   }
   const host = config.host ?? '127.0.0.1'
   const port = config.port ?? Number(process.env.AIMAIL_INBOUND_PORT ?? 9099)
-  const deliverPath = config.path ?? '/agentmail/deliver'
+  const deliverPath = config.path ?? '/aimail/inbound'
 
   const server = createServer(async (req, res) => {
     try {

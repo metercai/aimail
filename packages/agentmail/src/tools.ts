@@ -12,6 +12,7 @@ import { defineTool, type JsonValue, type ParameterPropertySpec } from '@deepsee
 import {
   MAIL_TOOLS,
   setAgentIdentity,
+  setAgentModel,
   type MailToolDef,
   type MailToolParam,
   type ToolCtx,
@@ -58,6 +59,14 @@ export function apply(ctx: Context, config: { identity?: string } = {}): void {
     throw new Error('tool-mail requires the mail service: mount dsh-aimail/mail-service first')
   }
   if (config.identity) setAgentIdentity(config.identity)
+  // Primary model: same deployment default the inbound router uses for
+  // agents.create() (cordis 'agentDefaultModel' service).
+  const adm = ctx.get('agentDefaultModel') as { currentSelection?: () => unknown } | undefined
+  const sel = adm?.currentSelection?.()
+  const modelId = typeof sel === 'string'
+    ? sel
+    : (sel as { model?: string; id?: string } | null | undefined)?.model ?? (sel as { id?: string } | null | undefined)?.id
+  if (modelId) setAgentModel(modelId)
 
   const resolve = async (exec: { agent?: { id?: string } | null }): Promise<ToolCtx> => {
     const sessionId = String(exec.agent?.id ?? '')

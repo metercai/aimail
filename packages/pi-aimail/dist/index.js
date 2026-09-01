@@ -20,7 +20,7 @@ import { processInboundMail, routeAddressFromHeaders, verifySignature } from '@a
 import { resolveByRecipient } from '@aimail/mail';
 import { agentIdentity, initIdentity, readPointer } from './identity.js';
 import { buildPiTools } from './tools.js';
-export const INBOUND_PATH = '/agentmail/deliver';
+export const INBOUND_PATH = '/aimail/inbound';
 const DEFAULT_INBOUND_PORT = 9101;
 export default function piAimail(pi, options = {}) {
     initIdentity();

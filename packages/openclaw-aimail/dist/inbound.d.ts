@@ -15,7 +15,6 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { OpenClawPluginApi } from 'openclaw/plugin-sdk/plugin-entry';
-export declare const INBOUND_PATH = "/agentmail/deliver";
-/** Build the inbound HTTP route handler for this plugin entry. */
+export declare const INBOUND_PATH = "/aimail/inbound";
 export declare function createInboundHandler(api: OpenClawPluginApi): (req: IncomingMessage, res: ServerResponse) => Promise<void>;
 //# sourceMappingURL=inbound.d.ts.map

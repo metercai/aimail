@@ -11,6 +11,7 @@
 import { Type } from 'typebox';
 import { MAIL_TOOLS } from '@aimail/mail-core';
 import { resolveConfig } from './identity.js';
+import { setAgentModel } from '@aimail/mail-core';
 /** Translate one neutral MailToolParam into a TypeBox schema. */
 export function toTypeBoxParam(p) {
     let base;
@@ -54,7 +55,10 @@ export function buildPiTools() {
         label: tool.name,
         description: tool.description,
         parameters: toTypeBoxParams(tool.parameters),
-        async execute(_toolCallId, params, _signal, _ctx) {
+        async execute(_toolCallId, params, _signal, ctx) {
+            // Primary model at call time (pi ExtensionContext.model.id)
+            const m = ctx?.model;
+            setAgentModel(m?.id);
             const cfg = await resolveConfig();
             const result = await tool.handler({ systemId: cfg.system_id, email: cfg.email }, (params ?? {}));
             return toPiResult(result);
