@@ -1,12 +1,14 @@
 # Publish all packages to npmjs via Trusted Publishing (OIDC).
 #
 # Trigger: manual (workflow_dispatch) — publish the current commit's versions.
-# Auth: npmjs Trusted Publisher bound to this repo+workflow; no personal token
-# required. Each package's publishConfig.provenance: true enables provenance.
+# Auth: npmjs Trusted Publisher bound to this repo+workflow+environment; no
+# personal token required. Each package's publishConfig.provenance: true
+# enables provenance.
 #
 # Prerequisites:
 #   1. npmjs.com → each package → Settings → Publish: enable "Trusted
-#      Publishers", add repo metercai/aimail-sdk-ts + workflow "publish.yml".
+#      Publishers", add repo metercai/aimail-sdk-ts, workflow "publish.yml",
+#      environment "npm-release" (must EXACTLY match the job's environment).
 #      (One-time per package: @aimail/mail-core, @aimail/mail, dsh-aimail,
 #      openclaw-aimail, pi-aimail.)
 #   2. Package manifests' repository.url must exactly match this repo
@@ -15,7 +17,12 @@
 # Note: pnpm isolated linker rejects bundleDependencies at pack time, so
 # packages with bundled deps (openclaw-aimail, pi-aimail) publish via
 # scripts/publish-npm.sh (npm pack with symlink dereference + explicit
-# workspace:^ rewrite), which supports --dry-run-style no-publish mode.
+# workspace:^ rewrite), which supports CI provenance.
+#
+# Environment binding note: the GitHub environment name is part of the OIDC
+# claims npm validates. Pinning it (instead of leaving it unset on the npmjs
+# side) avoids the empty-vs-null environment mismatch that surfaces as a
+# misleading 404 on PUT.
 name: publish.yml
 
 on:
@@ -27,6 +34,9 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # TP binding pins this environment name; OIDC claims include it and npm
+    # compares it exactly against the npmjs-side configuration.
+    environment: npm-release
     permissions:
       # OIDC 令牌所需权限
       contents: write
@@ -44,8 +54,8 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
           cache: pnpm
 
-      - name: Ensure npm >= 11.5.1 (OIDC support)
-        run: npm install -g npm@latest
+      - name: Ensure npm >= 11.5.2 (trusted publishing fixes)
+        run: npm install -g npm@^11.5.2
 
       - run: pnpm install --frozen-lockfile
 
@@ -76,18 +86,11 @@ jobs:
         run: npm publish --tag rc --access public --provenance
         working-directory: packages/agentmail
 
-      - name: Inspect OIDC claims (debug)
-        run: |
-          curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sigstore" > /tmp/oidc.json
-          python3 -c "import json,base64; d=json.load(open('/tmp/oidc.json')); p=d['value'].split('.')[1]; p+='='*(-len(p)%4); c=json.loads(base64.urlsafe_b64decode(p)); [print(k+':', v) for k,v in sorted(c.items()) if k in ('sub','aud','repository','repository_owner','workflow','workflow_ref','job_workflow_ref','ref','event_name')]"
-
       - name: Publish openclaw-aimail (rc tag, bundled deps)
-        env:
-          NPM_PUBLISH_ARGS: "--tag rc --access public --provenance"
         run: |
           # publish-npm.sh rewrites workspace:^ deps and dereferences the
           # bundled @aimail/* symlinks (pnpm isolated linker cannot pack
-          # bundleDependencies); NPM_PUBLISH_ONLY=1 skips its own publish.
+          # bundleDependencies); publishes with provenance under CI.
           bash scripts/publish-npm.sh packages/openclaw-aimail
 
       - name: Publish pi-aimail (rc tag, bundled deps)
