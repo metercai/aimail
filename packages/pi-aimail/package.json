@@ -1,7 +1,7 @@
 {
   "name": "pi-aimail",
   "description": "AIMail plugin for pi (earendil-works/pi): 12 mail tools (MAIL_TOOLS), inbound local HTTP receiver bridged into the active session via sendUserMessage.",
-  "version": "0.1.0-rc.3",
+  "version": "0.1.0-rc.4",
   "publishConfig": {
     "access": "public",
     "provenance": true

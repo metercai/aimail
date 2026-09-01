@@ -38,3 +38,12 @@ Every adapter needs the same three lookups, sourced from the per-address
 
 Unbound resolutions throw loudly (`no agentmail binding for …`) — callers
 surface that to the model/user instead of guessing an identity.
+
+## Related repositories
+
+- [metercai/aimail](https://github.com/metercai/aimail) — the AIMail agent
+  runtime (Python): CLI, gateway config, bridge provisioning, and the
+  `agentmail.json` binding layout these resolvers read.
+- [metercai/aimail-gateway](https://github.com/metercai/aimail-gateway) — the
+  AIMail gateway: SMTP/HTTP mail service and the address & activation APIs
+  that create the bindings being resolved here.

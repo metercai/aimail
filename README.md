@@ -104,16 +104,14 @@ pnpm test        # vitest: preprocess chain, HMAC, MAIL_TOOLS parity, adapters
 pnpm exec tsc -b packages/mail-core packages/mail packages/dsh-aimail packages/openclaw-aimail packages/pi-aimail
 ```
 
-### Release
+## Related repositories
 
-Publishing runs through GitHub Actions (`.github/workflows/publish.yml`) via
-npm Trusted Publishing (OIDC): push a `v*` tag or dispatch the workflow. Each
-package's version in `packages/*/package.json` is the source of truth; the
-workflow skips packages whose version is already on the registry. Bundled-deps
-packages (`openclaw-aimail`, `pi-aimail`) pack through
-`scripts/publish-npm.sh`, which rewrites `workspace:^` deps and dereferences
-the bundled `@aimail/*` symlinks (pnpm's isolated linker cannot pack
-`bundleDependencies`).
+- [metercai/aimail](https://github.com/metercai/aimail) — the AIMail agent
+  runtime (Python): CLI, gateway config, bridge provisioning, and the
+  `agentmail.json` binding model this SDK consumes.
+- [metercai/aimail-gateway](https://github.com/metercai/aimail-gateway) — the
+  AIMail gateway: SMTP/HTTP mail service, address & activation APIs, and the
+  board endpoints the SDK client talks to.
 
 See [docs/platform-adapter-guide.md](docs/platform-adapter-guide.md) for how
 to build an adapter for a new agent platform.

@@ -41,6 +41,15 @@ session bound for the turn).
 **Persona** — mounts an email-agent persona that teaches the model the mail
 workflow (reply-all semantics, tool selection, thread continuity).
 
+## Related repositories
+
+- [metercai/aimail](https://github.com/metercai/aimail) — the AIMail agent
+  runtime (Python): CLI, gateway config, bridge provisioning, and the
+  binding & registration flow this plugin integrates with.
+- [metercai/aimail-gateway](https://github.com/metercai/aimail-gateway) — the
+  AIMail gateway: SMTP/HTTP mail service, address & activation APIs, and the
+  board endpoints the tools talk to.
+
 ## Development
 
 ```bash

@@ -39,6 +39,15 @@ triggers a turn). The listener closes on `session_shutdown`.
 `X-AIMail-Agent: pi/<detected host version>+<primary model>` (detected from
 the installed pi package; never guessed).
 
+## Related repositories
+
+- [metercai/aimail](https://github.com/metercai/aimail) — the AIMail agent
+  runtime (Python): CLI, gateway config, bridge provisioning, and the
+  binding & registration flow this plugin integrates with.
+- [metercai/aimail-gateway](https://github.com/metercai/aimail-gateway) — the
+  AIMail gateway: SMTP/HTTP mail service, address & activation APIs, and the
+  board endpoints the tools talk to.
+
 ## Development
 
 ```bash

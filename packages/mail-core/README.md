@@ -73,3 +73,12 @@ for (const tool of MAIL_TOOLS) { /* bind name/description/params/handler */ }
 - The 13-step chain is the **inbound contract** (not an optional
   preprocessing layer): every platform adapter must call it before handing
   mail to the agent.
+
+## Related repositories
+
+- [metercai/aimail](https://github.com/metercai/aimail) — the AIMail agent
+  runtime (Python): CLI, gateway config, bridge provisioning, and the
+  `agentmail.json` binding model this SDK consumes.
+- [metercai/aimail-gateway](https://github.com/metercai/aimail-gateway) — the
+  AIMail gateway: SMTP/HTTP mail service, address & activation APIs, and the
+  board endpoints this client talks to.
