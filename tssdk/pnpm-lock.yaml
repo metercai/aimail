@@ -21,10 +21,10 @@ importers:
   packages/dsh-aimail:
     dependencies:
       '@aimail/mail':
-        specifier: ^0.1.0-rc.10
+        specifier: workspace:^
         version: link:../mail
       '@aimail/mail-core':
-        specifier: ^0.1.0-rc.10
+        specifier: workspace:^
         version: link:../mail-core
     devDependencies:
       '@deepseek-ai/cordis':
@@ -43,7 +43,7 @@ importers:
   packages/mail:
     dependencies:
       '@aimail/mail-core':
-        specifier: ^0.1.0-rc.10
+        specifier: workspace:^
         version: link:../mail-core
 
   packages/mail-core: {}
@@ -73,11 +73,11 @@ importers:
   packages/pi-aimail:
     dependencies:
       '@aimail/mail':
-        specifier: 0.1.0-rc.10
-        version: 0.1.0-rc.10
+        specifier: workspace:^
+        version: link:../mail
       '@aimail/mail-core':
-        specifier: 0.1.0-rc.13
-        version: 0.1.0-rc.13
+        specifier: workspace:^
+        version: link:../mail-core
       typebox:
         specifier: 1.3.6
         version: 1.3.6
@@ -98,12 +98,6 @@ packages:
     resolution: {integrity: sha512-NT2KqphUJ3w6EksUL51ZhJgIYgq/ZLGcBPkyMKgRSO5PMVwe9DnKKX+Htnvk6KHh6dUuh34UHK4gKp+4te1Mdg==}
     peerDependencies:
       zod: ^3.25.0 || ^4.0.0
-
-  '@aimail/mail-core@0.1.0-rc.13':
-    resolution: {integrity: sha512-CloxFUMPwLjbzsWfPpdMRDufa7LAjAQdIqObOCtYa/q0IiPDXM8EffxB7QCyE1uQNR1FNyKgOYzlGhwU38xNgA==}
-
-  '@aimail/mail@0.1.0-rc.10':
-    resolution: {integrity: sha512-OrxRe+eSk81JghoD/suX5IRpGsKBc8fRK8+BU4TrJICcku77OKNWHynU8cC5xh+1JgQGWJ2qQBhW2TsA5hS6gQ==}
 
   '@anthropic-ai/sdk@0.109.1':
     resolution: {integrity: sha512-q9OnEKLr5H9nxSuXdgDgJhxfYMiE+AaUEBze2Gk91UcaaLnsN+Lx5fbCYywiqurU/APLdwv23x03Wm6WN3EBsg==}
@@ -2336,12 +2330,6 @@ snapshots:
   '@agentclientprotocol/sdk@1.1.0(zod@4.4.3)':
     dependencies:
       zod: 4.4.3
-
-  '@aimail/mail-core@0.1.0-rc.13': {}
-
-  '@aimail/mail@0.1.0-rc.10':
-    dependencies:
-      '@aimail/mail-core': 0.1.0-rc.13
 
   '@anthropic-ai/sdk@0.109.1(zod@4.4.3)':
     dependencies:

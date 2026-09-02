@@ -1,0 +1,108 @@
+# Publish the tssdk/ npm packages (aimail TS SDK) via Trusted Publishing.
+#
+# Trigger: manual (workflow_dispatch) — publish the current commit's versions.
+# Auth: npmjs Trusted Publisher bound to THIS repo (metercai/aimail) +
+# workflow "publish.yml" + environment "npm-release"; no personal token
+# required. Each package's publishConfig.provenance: true enables provenance.
+#
+# Prerequisites (one-time, npmjs.com → each package → Settings → Publish):
+#   1. enable Trusted Publishers, add repo metercai/aimail, workflow
+#      "publish.yml", environment "npm-release" (must EXACTLY match the
+#      job's environment).
+#      Packages: @aimail/mail-core, @aimail/mail, dsh-aimail,
+#      openclaw-aimail, pi-aimail.
+#   2. Package manifests' repository.url must point at metercai/aimail
+#      (npm OIDC exchange requirement; npm/cli#8730).
+#
+# The TS SDK lives in tssdk/ (subtree of the former aimail-sdk-ts repo);
+# all build/publish steps run with tssdk/ as the working directory (it is
+# its own pnpm workspace).
+#
+# Note: pnpm isolated linker rejects bundleDependencies at pack time, so
+# packages with bundled deps (openclaw-aimail, pi-aimail) publish via
+# scripts/publish-npm.sh (npm pack with symlink dereference + explicit
+# workspace:^ rewrite), which supports CI provenance.
+name: publish.yml
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # TP binding pins this environment name; OIDC claims include it and npm
+    # compares it exactly against the npmjs-side configuration.
+    environment: npm-release
+    permissions:
+      # OIDC 令牌所需权限
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: 'https://registry.npmjs.org'
+          cache: pnpm
+
+      - name: Ensure npm >= 11.5.2 (trusted publishing fixes)
+        run: npm install -g npm@^11.5.2
+
+      - name: Install (tssdk workspace)
+        working-directory: tssdk
+        run: pnpm install --frozen-lockfile
+
+      - name: Build all packages
+        working-directory: tssdk
+        run: |
+          pnpm exec tsc -b packages/mail-core
+          pnpm exec tsc -b packages/mail
+          pnpm exec tsc -b packages/dsh-aimail
+          pnpm exec tsc -p packages/openclaw-aimail/tsconfig.json
+          pnpm exec tsc -p packages/pi-aimail/tsconfig.json
+
+      - name: Test
+        working-directory: tssdk
+        run: pnpm test
+
+      - name: Publish changed packages (TP/OIDC, latest, skip already-published)
+        working-directory: tssdk
+        env:
+          PKGS: |
+            @aimail/mail-core packages/mail-core
+            @aimail/mail packages/mail
+            dsh-aimail packages/dsh-aimail
+            openclaw-aimail packages/openclaw-aimail
+            pi-aimail packages/pi-aimail
+        run: |
+          # Skip packages whose current version is already on the registry
+          # (re-dispatch of the same commit). npm publish of an existing
+          # version is always E403/E404 regardless of auth method.
+          #
+          # --tag latest: npm >= 11.5 requires an explicit --tag for
+          # prerelease versions, and `--tag latest` is the explicit form of
+          # the default — the freshly published version lands on `latest`
+          # directly. No dist-tag step, no token needed (OIDC covers it all).
+          echo "$PKGS" | while read -r name dir; do
+            [ -z "$name" ] && continue
+            ver=$(node -p "require('./$dir/package.json').version")
+            published=$(npm view "$name@$ver" version 2>/dev/null || true)
+            if [ -n "$published" ]; then
+              echo "skip $name@$ver (already published)"
+              continue
+            fi
+            echo "publishing $name@$ver -> latest"
+            if [ "$name" = "openclaw-aimail" ] || [ "$name" = "pi-aimail" ]; then
+              bash scripts/publish-npm.sh "$dir"
+            else
+              (cd "$dir" && npm publish --tag latest --access public --provenance)
+            fi
+          done

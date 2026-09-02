@@ -73,6 +73,21 @@ One Profile supports multiple Personas (e.g. `sales.bob@domain` / `support.bob@d
 
 ---
 
+## Repository Layout
+
+Single repo hosting the CLI, the Python runtime SDK and the TypeScript SDK
+side by side:
+
+- `cli/` — `agentmail` maintenance CLI + subcommands + platform installers
+  (migration target for a future Rust binary)
+- `pysdk/` — Python runtime SDK (pip `aimail`): gateway client, platform
+  adapters, board resources; wheel layout mirrors this tree 1:1
+- `tssdk/` — TypeScript SDK (npm `@aimail/*`, `dsh-aimail`, `openclaw-aimail`,
+  `pi-aimail`), migrated from the former aimail-sdk-ts repo
+- `bridge/` — aimail-bridge binary distributions
+- `examples/` — mail templates / A2A examples
+- `docs/` — guides, board docs, maintenance notes
+
 ## Quick Start
 
 ### Prerequisites

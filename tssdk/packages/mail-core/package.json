@@ -1,14 +1,14 @@
 {
   "name": "@aimail/mail-core",
   "description": "AIMail shared TS core: gateway client, tool functions, inbound preprocess chain (framework-agnostic, zero deps).",
-  "version": "0.1.0-rc.15",
+  "version": "0.1.0-rc.16",
   "publishConfig": {
     "access": "public",
     "provenance": true
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/metercai/aimail-sdk-ts"
+    "url": "https://github.com/metercai/aimail"
   },
   "type": "module",
   "main": "lib/index.js",

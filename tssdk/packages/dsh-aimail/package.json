@@ -1,14 +1,14 @@
 {
   "name": "dsh-aimail",
   "description": "AIMail plugin for dsh — install via: dsh plugin --profile web add dsh-aimail",
-  "version": "0.1.0-rc.19",
+  "version": "0.1.0-rc.20",
   "publishConfig": {
     "access": "public",
     "provenance": true
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/metercai/aimail-sdk-ts"
+    "url": "https://github.com/metercai/aimail"
   },
   "type": "module",
   "main": "lib/index.js",
@@ -50,8 +50,8 @@
     "@deepseek-ai/dsh-tools": "^0.0.1-rc.1"
   },
   "dependencies": {
-    "@aimail/mail-core": "^0.1.0-rc.10",
-    "@aimail/mail": "^0.1.0-rc.10"
+    "@aimail/mail-core": "workspace:^",
+    "@aimail/mail": "workspace:^"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",

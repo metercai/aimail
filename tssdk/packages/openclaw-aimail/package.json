@@ -1,14 +1,14 @@
 {
   "name": "openclaw-aimail",
   "description": "AIMail plugin for OpenClaw: 12 mail tools (MAIL_TOOLS), inbound delivery (HMAC + preprocess chain), register/deregister/status commands.",
-  "version": "0.1.0-rc.9",
+  "version": "0.1.0-rc.10",
   "publishConfig": {
     "access": "public",
     "provenance": true
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/metercai/aimail-sdk-ts"
+    "url": "https://github.com/metercai/aimail"
   },
   "type": "module",
   "main": "./dist/index.js",
