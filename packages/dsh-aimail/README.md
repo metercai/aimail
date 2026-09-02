@@ -33,8 +33,8 @@ Identity comes from the session id resolved through `@aimail/mail`
 
 **Inbound mail** — a profile-scoped HTTP endpoint (`POST /aimail/inbound`,
 default port `9099`, override with `AIMAIL_INBOUND_PORT`). Each bridge
-delivery is HMAC verified against the per-agent secret, routed by recipient,
-enriched by the shared preprocess chain (13 steps + ping/pong intercept), and
+delivery is HMAC verified against the per-agent secret, enriched by the
+shared preprocess chain, and
 delivered to the agent's session (live followup, cold resume, or a fresh
 session bound for the turn).
 
@@ -46,8 +46,8 @@ workflow (reply-all semantics, tool selection, thread continuity).
 
 The same tool surface and inbound contract, bound to other agent platforms:
 
-- [`openclaw-aimail`](https://github.com/metercai/aimail-sdk-ts/tree/main/packages/openclaw-aimail) — AIMail plugin for OpenClaw — definePluginEntry: 12 tools, in-gateway HTTP route, register/status commands.
-- [`pi-aimail`](https://github.com/metercai/aimail-sdk-ts/tree/main/packages/pi-aimail) — AIMail extension for pi (earendil-works/pi) — registerTool tools + local inbound listener bridged via sendUserMessage.
+- [openclaw-aimail](https://www.npmjs.com/package/openclaw-aimail) — AIMail plugin for OpenClaw — definePluginEntry: 12 tools, in-gateway HTTP route, register/status commands.
+- [pi-aimail](https://www.npmjs.com/package/pi-aimail) — AIMail extension for pi (earendil-works/pi) — registerTool tools + local inbound listener bridged via sendUserMessage.
 
 ## Related repositories
 

@@ -35,11 +35,8 @@ agents fail loud.
 
 **Inbound mail** — an in-gateway HTTP route (`/aimail/inbound`, no new
 port). Each bridge delivery is HMAC verified against the per-agent secret,
-routed by recipient (exact address, then persona-alias fallback), enriched by
-the shared preprocess chain (13 steps + ping/pong intercept), and delivered
-to the agent's main session via the gateway's internal hooks endpoint. Health
-probes (`__agentmail_ping__:` / `__amail_pong__:` subjects) are answered
-automatically and never trigger an agent run.
+enriched by the shared preprocess chain, and delivered to the agent's main
+session via the gateway's internal hooks endpoint.
 
 **Commands** — `openclaw aimail register|deregister|status`:
 idempotent 4-step registration chain and 3-step deregistration chain against
@@ -61,8 +58,8 @@ openclaw plugins uninstall openclaw-aimail
 
 The same tool surface and inbound contract, bound to other agent platforms:
 
-- [`dsh-aimail`](https://github.com/metercai/aimail-sdk-ts/tree/main/packages/dsh-aimail) — AIMail plugin for dsh (deepseek-harness) — cordis plugin, profile-scoped node:http inbound endpoint.
-- [`pi-aimail`](https://github.com/metercai/aimail-sdk-ts/tree/main/packages/pi-aimail) — AIMail extension for pi (earendil-works/pi) — registerTool tools + local inbound listener bridged via sendUserMessage.
+- [dsh-aimail](https://www.npmjs.com/package/dsh-aimail) — AIMail plugin for dsh (deepseek-harness) — cordis plugin, profile-scoped node:http inbound endpoint.
+- [pi-aimail](https://www.npmjs.com/package/pi-aimail) — AIMail extension for pi (earendil-works/pi) — registerTool tools + local inbound listener bridged via sendUserMessage.
 
 ## Related repositories
 

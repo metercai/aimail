@@ -30,10 +30,9 @@ agents fail loud.
 **Inbound mail** — pi has no HTTP route registration, so the extension owns a
 local listener (`POST /aimail/inbound` on `127.0.0.1:9101`, override with
 `inboundPort`). Each bridge delivery is HMAC verified against the per-agent
-secret, routed by recipient (exact address, then persona-alias fallback),
-enriched by the shared preprocess chain (13 steps + ping/pong intercept), and
-injected into the running session via `pi.sendUserMessage` (steer — always
-triggers a turn). The listener closes on `session_shutdown`.
+secret, enriched by the shared preprocess chain, and injected into the
+running session via `pi.sendUserMessage` (steer — always triggers a turn).
+The listener closes on `session_shutdown`.
 
 **Identity header** — outbound mail carries
 `X-AIMail-Agent: pi/<detected host version>+<primary model>` (detected from
@@ -44,8 +43,8 @@ the installed pi package; never guessed).
 
 The same tool surface and inbound contract, bound to other agent platforms:
 
-- [`dsh-aimail`](https://github.com/metercai/aimail-sdk-ts/tree/main/packages/dsh-aimail) — AIMail plugin for dsh (deepseek-harness) — cordis plugin, profile-scoped node:http inbound endpoint.
-- [`openclaw-aimail`](https://github.com/metercai/aimail-sdk-ts/tree/main/packages/openclaw-aimail) — AIMail plugin for OpenClaw — definePluginEntry: 12 tools, in-gateway HTTP route, register/status commands.
+- [dsh-aimail](https://www.npmjs.com/package/dsh-aimail) — AIMail plugin for dsh (deepseek-harness) — cordis plugin, profile-scoped node:http inbound endpoint.
+- [openclaw-aimail](https://www.npmjs.com/package/openclaw-aimail) — AIMail plugin for OpenClaw — definePluginEntry: 12 tools, in-gateway HTTP route, register/status commands.
 
 ## Related repositories
 
