@@ -52,6 +52,8 @@ jobs:
           node-version: 24
           registry-url: 'https://registry.npmjs.org'
           cache: pnpm
+          # workspace root (with the lockfile) is tssdk/, not the repo root
+          cache-dependency-path: tssdk/pnpm-lock.yaml
 
       - name: Ensure npm >= 11.5.2 (trusted publishing fixes)
         run: npm install -g npm@^11.5.2
