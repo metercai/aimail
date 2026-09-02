@@ -65,13 +65,12 @@ PYEOF
   prov="--provenance=false"
   [ -n "${CI:-}" ] && prov="--provenance"
   if [ "${DRY_RUN:-0}" = "1" ]; then
-    npm publish --dry-run "/tmp/$tgz" --access public --tag rc $prov || true
+    npm publish --dry-run "/tmp/$tgz" --access public --tag latest $prov || true
   else
-    # npm >= 11.5 refuses implicit-latest prerelease publishes: tag `rc`,
-    # then move `latest` onto the new version explicitly.
-    npm publish "/tmp/$tgz" --access public --tag rc $prov
-    npm dist-tag add "$name@$ver" latest \
-      || echo "!! dist-tag latest update failed for $name@$ver (fix manually)"
+    # --tag latest = explicit form of the default: the published version
+    # lands on `latest` directly (no dist-tag step, no token needed —
+    # OIDC covers publish; dist-tag writes would need a classic token).
+    npm publish "/tmp/$tgz" --access public --tag latest $prov
     echo "  published $name@$ver (latest)"
   fi
 
