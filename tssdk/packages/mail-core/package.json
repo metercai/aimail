@@ -1,7 +1,7 @@
 {
   "name": "@aimail/mail-core",
   "description": "AIMail shared TS core: gateway client, tool functions, inbound preprocess chain (framework-agnostic, zero deps).",
-  "version": "0.1.0-rc.17",
+  "version": "0.1.0-rc.18",
   "publishConfig": {
     "access": "public",
     "provenance": true
