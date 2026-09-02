@@ -1,13 +1,18 @@
 # AIMail SDK for TypeScript
 
-AIMail (agent mail) SDK monorepo: a shared framework-agnostic core plus
+AIMail (agent mail) SDK for TypeScript: a shared framework-agnostic core plus
 ready-made platform adapters that give any AI agent a real mailbox — inbound
 email delivered into the agent's session, and 12 plain tools for sending
 mail, managing contacts, keeping thread notes, and working on A2A boards.
 
+This SDK lives in the [metercai/aimail](https://github.com/metercai/aimail)
+monorepo under `tssdk/` (CLI in `cli/`, Python SDK in `pysdk/`, bridge in
+`bridge/` — one repo for the whole AIMail runtime). The npm packages are the
+published surface of this tree.
+
 | Package | npm | Purpose |
 |---|---|---|
-| `@aimail/mail-core` | [![npm](https://img.shields.io/npm/v/@aimail/mail-core)](https://www.npmjs.com/package/@aimail/mail-core) | Framework-agnostic core: gateway HTTP client, 12 tool functions, inbound preprocess chain (13 steps + ping/pong intercept), HMAC verification, `MAIL_TOOLS` semantic registry. Zero dependencies. |
+| `@aimail/mail-core` | [![npm](https://img.shields.io/npm/v/@aimail/mail-core)](https://www.npmjs.com/package/@aimail/mail-core) | Framework-agnostic core: gateway HTTP client, 12 tool functions, inbound preprocess chain, HMAC verification, `MAIL_TOOLS` semantic registry. Zero dependencies. |
 | `@aimail/mail` | [![npm](https://img.shields.io/npm/v/@aimail/mail)](https://www.npmjs.com/package/@aimail/mail) | Platform-neutral config resolution: session id / email / recipient → `agentmail.json` → `AgentConfig`. |
 | `dsh-aimail` | [![npm](https://img.shields.io/npm/v/dsh-aimail)](https://www.npmjs.com/package/dsh-aimail) | dsh (deepseek-harness) plugin. |
 | `openclaw-aimail` | [![npm](https://img.shields.io/npm/v/openclaw-aimail)](https://www.npmjs.com/package/openclaw-aimail) | OpenClaw plugin. |
@@ -53,7 +58,7 @@ dsh plugin --profile web remove dsh-aimail
 ```
 
 Prerequisite: an AIMail binding for the dsh session (run `agentmail install`
-from the agentmail repo).
+from the aimail repository's `cli/`).
 
 What it mounts onto the profile: the mail host service, the inbound endpoint,
 the 12 mail/board tools, and an email-agent persona.

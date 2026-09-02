@@ -102,9 +102,10 @@ jobs:
               continue
             fi
             echo "publishing $name@$ver -> latest"
-            if [ "$name" = "openclaw-aimail" ] || [ "$name" = "pi-aimail" ]; then
-              bash scripts/publish-npm.sh "$dir"
-            else
-              (cd "$dir" && npm publish --tag latest --access public --provenance)
-            fi
+            # Every package goes through publish-npm.sh: it rewrites
+            # workspace:^ deps to concrete registry ranges (a direct npm
+            # publish would ship the literal 'workspace:^' — npm cannot
+            # install that), dereferences bundled symlinks, packs, and
+            # publishes with provenance under CI.
+            bash scripts/publish-npm.sh "$dir"
           done

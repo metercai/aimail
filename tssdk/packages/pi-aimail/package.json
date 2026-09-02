@@ -1,7 +1,7 @@
 {
   "name": "pi-aimail",
   "description": "AIMail plugin for pi (earendil-works/pi): 12 mail tools (MAIL_TOOLS), inbound local HTTP receiver bridged into the active session via sendUserMessage.",
-  "version": "0.1.0-rc.9",
+  "version": "0.1.0-rc.10",
   "publishConfig": {
     "access": "public",
     "provenance": true
@@ -35,5 +35,13 @@
     "@earendil-works/pi-coding-agent": "^0.84.4",
     "@types/node": "^24.0.0",
     "typescript": "^5.9.0"
-  }
+  },
+  "keywords": [
+    "aimail",
+    "agent-mail",
+    "pi",
+    "earendil-works",
+    "extension",
+    "email"
+  ]
 }

@@ -22,21 +22,50 @@ for pkg in "${PKGS[@]}"; do
   ver=$(ver_of "$dir")
   echo "═══ $name@$ver ═══"
 
-  # 1) workspace:^ -> concrete version (bundle carries the real code; the
-  #    manifest version just needs to be resolvable for npm dedupe logic)
-  python3 - "$dir" <<'PYEOF'
-import json, sys, re
-d = sys.argv[1]
+  # 1) workspace:^ -> concrete registry range (^<dep version>). pnpm
+  #    resolves workspace:^ locally, but the published manifest must carry a
+  #    plain semver range npm understands — never a bare '^' or 'workspace:'.
+  python3 - "$root" "$dir" <<'PYEOF'
+import json, sys, re, os
+root, d = sys.argv[1], sys.argv[2]
 p = f"{d}/package.json"
 raw = open(p).read()
 data = json.loads(raw)
+
+# name -> version map of every workspace package (for range rewriting)
+ws_versions = {}
+ws_root = os.path.join(root, "packages")
+if not os.path.isdir(ws_root):
+    ws_root = root  # standalone repo: packages live at the root level
+for sub in os.listdir(ws_root):
+    sub_pkg = os.path.join(ws_root, sub, "package.json")
+    if os.path.isfile(sub_pkg):
+        try:
+            m = json.load(open(sub_pkg))
+            if "name" in m and "version" in m:
+                ws_versions[m["name"]] = m["version"]
+        except Exception:
+            pass
+
 changed = False
 for dep_group in ("dependencies", "peerDependencies", "devDependencies"):
     deps = data.get(dep_group) or {}
     for k, v in list(deps.items()):
-        if isinstance(v, str) and v.startswith("workspace:"):
-            deps[k] = re.sub(r"^workspace:", "", v)
-            changed = True
+        if not isinstance(v, str) or not v.startswith("workspace:"):
+            continue
+        spec = v[len("workspace:"):]
+        ver = ws_versions.get(k)
+        if ver is None:
+            raise SystemExit(f"ERROR: workspace dep {k} not found in {root}/packages")
+        # workspace:^x.y.z / workspace:~x.y.z -> ^x.y.z / ~x.y.z; bare
+        # workspace:^ / ~ / * -> prefix + concrete version
+        if spec in ("", "*"):
+            deps[k] = ver
+        elif spec in ("^", "~"):
+            deps[k] = spec + ver
+        else:
+            deps[k] = spec  # already a full range/version
+        changed = True
 if changed:
     open(p, "w").write(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
     print("  deps rewritten to concrete versions")
@@ -74,7 +103,13 @@ PYEOF
     echo "  published $name@$ver (latest)"
   fi
 
-  # 5) restore package.json from git
-  (cd "$root" && git checkout -- "$pkg/package.json")
+  # 5) restore package.json from git. In the monorepo tssdk/ is not itself a
+  #    git root — resolve the top-level repo and check out the relative path.
+  git_top=$(git -C "$root" rev-parse --show-toplevel 2>/dev/null || true)
+  if [ -n "$git_top" ]; then
+    git -C "$git_top" checkout -- "${root#$git_top/}/$pkg/package.json"
+  else
+    (cd "$root" && git checkout -- "$pkg/package.json")
+  fi
   echo "  package.json restored"
 done

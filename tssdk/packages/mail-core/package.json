@@ -27,5 +27,13 @@
   "license": "MIT",
   "peerDependencies": {},
   "dependencies": {},
-  "devDependencies": {}
+  "devDependencies": {},
+  "keywords": [
+    "aimail",
+    "agent-mail",
+    "email",
+    "agent",
+    "sdk",
+    "gateway"
+  ]
 }

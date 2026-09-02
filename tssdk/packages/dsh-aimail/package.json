@@ -1,7 +1,7 @@
 {
   "name": "dsh-aimail",
   "description": "AIMail plugin for dsh — install via: dsh plugin --profile web add dsh-aimail",
-  "version": "0.1.0-rc.20",
+  "version": "0.1.0-rc.21",
   "publishConfig": {
     "access": "public",
     "provenance": true
@@ -58,5 +58,13 @@
     "@deepseek-ai/dsh-agent": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-llm": "^0.0.1-rc.1",
     "@deepseek-ai/dsh-tools": "^0.0.1-rc.1"
-  }
+  },
+  "keywords": [
+    "aimail",
+    "agent-mail",
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "email"
+  ]
 }

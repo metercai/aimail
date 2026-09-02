@@ -1,7 +1,7 @@
 {
   "name": "@aimail/mail",
   "description": "AIMail platform-neutral config resolution: sessionId/email/recipient → agentmail.json → AgentConfig (pure functions, no framework deps).",
-  "version": "0.1.0-rc.13",
+  "version": "0.1.0-rc.14",
   "publishConfig": {
     "access": "public",
     "provenance": true
@@ -29,5 +29,12 @@
   "dependencies": {
     "@aimail/mail-core": "workspace:^"
   },
-  "devDependencies": {}
+  "devDependencies": {},
+  "keywords": [
+    "aimail",
+    "agent-mail",
+    "config",
+    "resolution",
+    "binding"
+  ]
 }
