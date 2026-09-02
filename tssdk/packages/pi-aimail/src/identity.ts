@@ -10,7 +10,7 @@
  */
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { loadConfigByAgentId, loadConfigByEmail, setAgentIdentity, type AgentConfig } from '@aimail/mail-core'
+import { hasAnySystem,  loadConfigByAgentId, loadConfigByEmail, setAgentIdentity, type AgentConfig } from '@aimail/mail-core'
 
 const POINTER_PATH = path.join(
   process.env.HOME ?? process.env.USERPROFILE ?? '',
@@ -84,6 +84,8 @@ export async function resolveConfig(): Promise<AgentConfig> {
     if (byAgent) return byAgent
   }
   throw new Error(
-    `agentmail not configured for pi — no binding for pointer ${POINTER_PATH} (email ${ptr.email || '-'}, system ${systemId || '-'}). Run: agentmail install --home ~/.pi (或先配置 ~/.pi/.agentmail)`,
+    (hasAnySystem()
+      ? `agentmail not configured for pi — no binding for pointer ${POINTER_PATH} (email ${ptr.email || '-'}, system ${systemId || '-'}). Run: agentmail install --home ~/.pi`
+      : 'Machine has no agentmail environment yet. Run: agentmail init, then agentmail install --home ~/.pi'),
   )
 }

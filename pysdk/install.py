@@ -28,7 +28,7 @@ _CORE = os.path.dirname(os.path.abspath(__file__))
 if _CORE not in sys.path:
     sys.path.insert(0, _CORE)
 
-from _resources_release import release_all_systems, release_resources  # noqa: E402
+from _resources_release import agentmail_home, release_all_systems, release_resources  # noqa: E402
 
 
 def _import_hermes(name: str):
@@ -50,26 +50,47 @@ def _import_deerflow(name: str):
 # 环境自检(加载/安装前置:配置不到位 → 明确指引先跑 CLI)
 # ═══════════════════════════════════════════════════════════════
 
+def _machine_state() -> tuple:
+    """机器环境三态:
+    ('empty', msg)   — ~/.agentmail/systems 无任何系统配置 → init + install
+    ('systems', msg) — 有系统配置(可 install 复用/激活)
+    """
+    systems_root = os.path.join(agentmail_home(), "systems")
+    if not os.path.isdir(systems_root) or not os.listdir(systems_root):
+        return ("empty",
+                "未发现任何系统配置(~/.agentmail/systems 空)。\n"
+                "  先运行: agentmail init(机器网络环境,一次)\n"
+                "  然后:   agentmail install --home <宿主根>(激活系统并绑定)")
+    return ("systems", "")
+
+
 def env_check_hermes(hermes_dir: str) -> int:
     """Hermes 自检:webhook.py/profiles.py 存在、pip aimail 可达。"""
+    state, hint = _machine_state()
     problems = []
     ha = os.path.join(hermes_dir, "hermes-agent")
+    if not os.path.isdir(ha):
+        print("[env-check] ✗ hermes-agent 未安装(hermes 宿主缺失或 --home 指向错误)")
+        print(f"  先安装 hermes 宿主,再: agentmail install --home {hermes_dir}")
+        return 1
     webhook_py = os.path.join(ha, "gateway", "platforms", "webhook.py")
     profiles_py = os.path.join(ha, "hermes_cli", "profiles.py")
     if not os.path.isfile(webhook_py):
-        problems.append(
-            f"webhook.py 缺失:{webhook_py}(hermes 未安装?--home 指向?)\n"
-            f"  先运行: agentmail install --home {hermes_dir}")
+        problems.append(f"webhook.py 缺失:{webhook_py}")
     if not os.path.isfile(profiles_py):
-        candidates = [os.path.join(ha, "cli", "profiles.py")]
-        if not any(os.path.isfile(p) for p in candidates):
-            problems.append(f"profiles.py 缺失(未打 profile 钩子所需文件)")
+        if not os.path.isfile(os.path.join(ha, "cli", "profiles.py")):
+            problems.append("profiles.py 缺失")
+    if state == "empty":
+        for p in problems:
+            print(f"[env-check] ✗ {p}")
+        print(f"[env-check] ✗ {hint}")
+        return 1
     # 配置绑定:系统目录/指针是否已由 CLI 建立
     ptr = os.path.join(os.path.expanduser("~"), ".hermes", ".agentmail")
     if not os.path.isfile(ptr):
         problems.append(
             "未找到绑定配置 ~/.hermes/.agentmail\n"
-            "  先运行: agentmail install(激活系统并建立绑定)")
+            f"  先运行: agentmail install --home {hermes_dir}(激活并绑定)")
     for p in problems:
         print(f"[env-check] ✗ {p}")
     if problems:
@@ -80,11 +101,18 @@ def env_check_hermes(hermes_dir: str) -> int:
 
 
 def env_check_deerflow(backend_dir: str) -> int:
+    state, hint = _machine_state()
     app_py = os.path.join(backend_dir, "app", "gateway", "app.py")
     if not os.path.isfile(app_py):
         print(
-            f"[env-check] ✗ 未找到 deer-flow 入口 {app_py}(--home 应为 backend 目录)\n"
-            "  先运行: agentmail install(配置环境)")
+            f"[env-check] ✗ 未找到 deer-flow 入口 {app_py}(--home 应为 backend 目录)")
+        if state == "empty":
+            print(f"[env-check] ✗ {hint}")
+        else:
+            print("  先运行: agentmail install(配置环境)")
+        return 1
+    if state == "empty":
+        print(f"[env-check] ✗ {hint}")
         return 1
     print("[env-check] deerflow: OK")
     return 0

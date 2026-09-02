@@ -11,7 +11,7 @@
  */
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { loadConfigByAgentId, type AgentConfig } from '@aimail/mail-core'
+import { hasAnySystem, loadConfigByAgentId, type AgentConfig } from '@aimail/mail-core'
 
 /** OpenClaw agent pointer file: {system_id, email}. */
 const POINTER_PATH = path.join(
@@ -78,8 +78,11 @@ export async function resolveConfigForAgent(
   const ptr = await readPointer()
   const systemId = ptr.system_id ?? ''
   if (!systemId) {
+    const fix = hasAnySystem()
+      ? 'Run: agentmail install --home ~/.openclaw (或 openclaw aimail register)'
+      : 'Machine has no agentmail environment yet. Run: agentmail init, then agentmail install --home ~/.openclaw'
     throw new Error(
-      'agentmail not configured for this agent — no ~/.openclaw/.agentmail pointer. Run: openclaw aimail register',
+      `agentmail not configured for this agent — no ~/.openclaw/.agentmail pointer. ${fix}`,
     )
   }
   const cfg = await loadConfigByAgentId(systemId, id)

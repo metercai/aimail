@@ -13,7 +13,7 @@ import {
   resolveCtx,
   type MailToolCtx,
 } from '@aimail/mail'
-import { AIMAIL_HOME, releaseAllSystems, type AgentConfig } from '@aimail/mail-core'
+import { AIMAIL_HOME, hasAnySystem, releaseAllSystems, type AgentConfig } from '@aimail/mail-core'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -50,7 +50,10 @@ export function apply(ctx: Context, config: { systemId?: string } = {}): void {
   try {
     const sysRoot = path.join(AIMAIL_HOME(), 'systems')
     if (!fs.existsSync(sysRoot) || fs.readdirSync(sysRoot).length === 0) {
-      console.warn('[dsh-aimail] no agentmail binding found — run `agentmail install`(dsh) first, then bind this session')
+      const fix = hasAnySystem()
+        ? 'run `agentmail install`(dsh) first, then bind this session'
+        : 'run `agentmail init`, then `agentmail install`(dsh) to build the environment first'
+      console.warn('[dsh-aimail] no agentmail binding found — ' + fix)
     } else if (!systemId) {
       console.warn('[dsh-aimail] no AIMAIL_SYSTEM_ID — mail resolution scans all bound systems')
     }

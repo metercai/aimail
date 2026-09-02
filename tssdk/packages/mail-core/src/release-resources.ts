@@ -88,6 +88,12 @@ export function releaseResources (opts: ReleaseResourcesOptions): ReleaseResourc
  * created later are covered by the next explicit release or by adapters
  * calling this again on startup/registration.
  */
+export function hasAnySystem (): boolean {
+  const systemsRoot = path.join(AIMAIL_HOME(), 'systems')
+  if (!fs.existsSync(systemsRoot)) return false
+  return fs.readdirSync(systemsRoot).length > 0
+}
+
 export function releaseAllSystems (boardRoot: string): ReleaseResourcesResult[] {
   const systemsRoot = path.join(AIMAIL_HOME(), 'systems')
   if (!fs.existsSync(systemsRoot)) return []
