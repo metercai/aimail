@@ -86,7 +86,10 @@ def _env_val(key: str, fallback: str = "") -> str:
 # ═══════════════════════════════════════════════════════════════
 
 def detect_platform_from_home(system_home: Path) -> str:
-    """按 home 目录特征判断平台。返回 'hermes'/'openclaw'/'deerflow'/'dsh'/'unknown'。"""
+    """按 home 目录特征判断平台。返回 'hermes'/'openclaw'/'deerflow'/'dsh'/'pi'/'unknown'。"""
+    if system_home.name == ".pi" and (system_home / "agent").is_dir():
+        # pi coding agent home(~/.pi:agent/ 配置)
+        return "pi"
     if system_home.name == ".dsh" and (system_home / "profiles").is_dir() and (system_home / "storages").is_dir():
         # dsh home(~/.dsh:profiles/ + storages/)——须在 hermes 特征前(dsh 也有 profiles/)
         return "dsh"
@@ -339,6 +342,32 @@ def cmd_init(args) -> int:
     return 0
 
 
+def _write_pi_pointer(sid: str) -> None:
+    """写 ~/.pi/.agentmail {system_id, email}(与 openclaw pointer 同构)。"""
+    try:
+        load_core()
+        from aimail_base import email_for_agent  # noqa: E402
+    except Exception:
+        return
+    cfg_path = SYSTEMS_DIR / sid / "agentmail_gateway.json"
+    if not cfg_path.is_file():
+        return
+    try:
+        cfg = json.loads(cfg_path.read_text())
+    except Exception:
+        return
+    email = email_for_agent("pi", cfg.get("domain", ""), cfg.get("system_name", ""))
+    if not email:
+        return
+    ptr = Path.home() / ".pi" / ".agentmail"
+    try:
+        ptr.parent.mkdir(parents=True, exist_ok=True)
+        ptr.write_text(json.dumps({"system_id": sid, "email": email}))
+        _ok(f"pi pointer written {ptr}")
+    except Exception as e:
+        _warn(f"pi pointer write failed: {e}")
+
+
 def cmd_install(args) -> int:
     """安装:集成脚本到 check 前的全部步骤(非交互化)。"""
     system_home = Path(args.home).expanduser() if args.home else Path()
@@ -463,6 +492,19 @@ def cmd_install(args) -> int:
         _ok("openclaw agents registered + skill installed")
         print("  openclaw: TS 插件安装 = npm pack openclaw-aimail/ 后 "
               "`openclaw plugins install npm-pack:<tgz> --force` + 重启 gateway")
+    elif platform == "pi":
+        # pi:注册 pi agent 地址 + 写 ~/.pi/.agentmail 指针(与 openclaw 同构)。
+        # 扩展(pi-aimail)由宿主命令安装;资源自触发。
+        env3 = dict(os.environ)
+        env3["AIMAIL_SYSTEM_ID"] = env.get("INTEGRATE_SYSTEM_ID", "")
+        r = subprocess.call([sys.executable, str(SCRIPTS_DIR.parent / "bin" / "register_agent.py"),
+                             "--agent", "pi", "--system-id", env.get("INTEGRATE_SYSTEM_ID", ""),
+                             "--manager", manager or _env_val("AIMAIL_MANAGER_ADDRESS")],
+                            env=env3)
+        if r == 0:
+            _write_pi_pointer(env.get("INTEGRATE_SYSTEM_ID", ""))
+            _ok("pi agent registered + pointer written")
+        print("  pi: 扩展安装 = pi install npm:pi-aimail(宿主命令)+ 重启")
     else:  # deerflow
         # SDK 自足安装:register/reconcile + app.py patch + 运行时 bundle + 资源
         rc = _sdk_install("deerflow", system_home, env.get("INTEGRATE_SYSTEM_ID", ""))
@@ -1310,6 +1352,21 @@ def cmd_uninstall(args) -> int:
         _uninstall_hermes(sdk_home, sid)
     elif platform == "openclaw":
         _uninstall_openclaw(sid)
+    elif platform == "pi":
+        # 共享系统配置由通用段清理(网关注销);pi 侧仅 pointer + skill 目录
+        ptr = HOME / ".pi" / ".agentmail"
+        if ptr.is_file():
+            try:
+                if json.loads(ptr.read_text()).get("system_id") == sid:
+                    ptr.unlink()
+                    _ok(f"removed pointer {ptr}")
+            except Exception:
+                pass
+        sk = HOME / ".pi" / "skills" / "agentmail"
+        if sk.is_dir():
+            shutil.rmtree(sk, ignore_errors=True)
+            _ok(f"removed skill {sk}")
+        print("  pi: 扩展移除 = pi 宿主侧移除 pi-aimail 扩展")
     else:  # deerflow
         # SDK 撤销 app.py patch + 删运行时 bundle
         sdk_home = system_home if system_home.is_dir() else Path(gw.get("system_home", ""))
