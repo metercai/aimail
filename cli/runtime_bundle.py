@@ -2,13 +2,13 @@
 """runtime_bundle — 运行时捆绑安装/校验助手(P1a 单一实现)。
 
 背景: 运行时载荷已打包为 aimail Python 包(pip 渠道);各平台 provisioner
-不再把仓库 tools/ 的绝对路径写进宿主配置,而是把自包含捆绑(bundle)拷贝到
+不再把仓库 pysdk/ 的绝对路径写进宿主配置,而是把自包含捆绑(bundle)拷贝到
 平台安装位置,并落版本戳。运行时入口经 _aimail_bootstrap 从捆绑目录自举,
 与仓库路径完全解耦(仓库改名/mv 不影响已部署运行时)。
 
-源解析顺序(单一真源 = pip 包 > 仓库 tools/):
+源解析顺序(单一真源 = pip 包 > 仓库 pysdk/):
   1. `import aimail` 成功 → site-packages/aimail(= 发布载荷)
-  2. 兜底:本仓库 tools/(dev 模式,未 pip install 时)
+  2. 兜底:本仓库 pysdk/(dev 模式,未 pip install 时)
 
 bundle 定义(源相对路径 → 捆绑内相对路径):
   hermes     核心4 + bootstrap + hermes/aimail_hermes.py   (扁平+子目录)
@@ -75,22 +75,22 @@ BUNDLES = {
     # skill bundles:纯 md 资源,无 bootstrap 需求,单独定义(无核心)
     "skill-hermes": {
         "default_dest": "__profile_skills__",  # provisioner 自管目标(逐 profile)
-        "files": {"skills/SKILL.md": "SKILL.md", "skills/DESCRIPTION.md": "DESCRIPTION.md"},
+        "files": {"resources/skills/SKILL.md": "SKILL.md", "resources/skills/DESCRIPTION.md": "DESCRIPTION.md"},
         "no_stamp": True,
     },
     "skill-openclaw": {
         "default_dest": "~/.openclaw/skills/agentmail",
-        "files": {"skills/SKILL.md": "SKILL.md", "skills/DESCRIPTION.md": "DESCRIPTION.md"},
+        "files": {"resources/skills/SKILL.md": "SKILL.md", "resources/skills/DESCRIPTION.md": "DESCRIPTION.md"},
         "no_stamp": True,
     },
     "skill-deerflow": {
         "default_dest": "~/deer-flow/skills/public/agentmail",
-        "files": {"skills/SKILL.md": "SKILL.md", "skills/DESCRIPTION.md": "DESCRIPTION.md"},
+        "files": {"resources/skills/SKILL.md": "SKILL.md", "resources/skills/DESCRIPTION.md": "DESCRIPTION.md"},
         "no_stamp": True,
     },
     "skill-dsh": {
         "default_dest": "~/.dsh/skills/agentmail",
-        "files": {"skills/SKILL.md": "SKILL.md"},
+        "files": {"resources/skills/SKILL.md": "SKILL.md"},
         "no_stamp": True,
     },
 }
@@ -125,11 +125,11 @@ def resolve_source_root(explicit: str = "") -> tuple[str, str]:
             return pkg_dir, "pip"
     except Exception:
         pass
-    # 2) 仓库 tools/(本文件在 scripts/ 下)
-    root = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools"))
+    # 2) 仓库 pysdk/(本文件在 cli/ 下)
+    root = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "pysdk"))
     if os.path.isfile(os.path.join(root, "aimail_base.py")):
         return root, "repo"
-    raise SystemExit("ERROR: 运行时源未找到(pip aimail 未安装且仓库 tools/ 缺失)")
+    raise SystemExit("ERROR: 运行时源未找到(pip aimail 未安装且仓库 pysdk/ 缺失)")
 
 
 def _source_version(root: str, kind: str) -> str:
@@ -266,11 +266,19 @@ def _lt(a: str, b: str) -> bool:
 
 def _resource_path(name: str, root: str, kind: str) -> str:
     """资源目录绝对路径(pip 包内 / 仓库内布局不同)。"""
+    # repo root (pysdk/) and pip package root (site-packages/aimail/) now
+    # share one layout: <root>/resources/{skills,board}/...
+    base = os.path.join(root, "resources")
     if name == "skills":
-        return os.path.join(root, "skills") if kind == "pip" else os.path.join(root, "..", "skills")
+        return os.path.join(base, "skills")
     if name == "board-role":
-        # pip: 包内 board_role_prompt_en/;repo: <repo>/board/role_prompt_en(root=tools/,上 1 级)
-        return os.path.join(root, "board_role_prompt_en") if kind == "pip" else os.path.join(root, "..", "board", "role_prompt_en")
+        return os.path.join(base, "board", "role_prompt_en")
+    if name == "board-role-zh":
+        return os.path.join(base, "board", "role_prompt_zh")
+    if name == "board-soul":
+        return os.path.join(base, "board", "role_soul_en")
+    if name == "board-soul-zh":
+        return os.path.join(base, "board", "role_soul_zh")
     raise SystemExit(f"ERROR: 未知资源 {name}(可选: skills|board-role)")
 
 
@@ -294,7 +302,7 @@ def main() -> int:
             p.add_argument("--force", action="store_true")
     sub.add_parser("source")
     p_res = sub.add_parser("resource")
-    p_res.add_argument("name", choices=["skills", "board-role"])
+    p_res.add_argument("name", choices=["skills", "board-role", "board-role-zh", "board-soul", "board-soul-zh"])
     p_res.add_argument("--source-root", default="")
 
     args = ap.parse_args()

@@ -320,7 +320,7 @@ else:
 
 # ── Patch 7: import Hermes adapter (pip 形态: aimail.hermes.aimail_hermes) ──
 # 先移除任何旧适配器 import 块(tools.hermes 旧名/新名,或 pip 名),再插入
-# pip 形态 import —— 跨 tools/→pip 迁移幂等。
+# pip 形态 import —— 跨 pysdk/→pip 迁移幂等。
 _p7_old_re = re.compile(
     r'# ── AmailGateway Hermes adapter \(shared core injection \+ registration\) ──\n'
     r'try:\n'

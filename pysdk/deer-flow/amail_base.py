@@ -6,7 +6,7 @@
   ② 注入点赋值 + 能力开关: PERSONA_SUPPORTED = False
   ③ 平台注册: 身份注入(deerflow/{ver})
 
-共享核心(tools/aimail_base)已提供平台无关 set_agent_context
+共享核心(pysdk/aimail_base)已提供平台无关 set_agent_context
 (按 agentmail.json 布局扫描),本适配层在 OpenClaw 基础上仅做:
   - 转发共享函数(与 OpenClaw 同款)
   - 注入 DeerFlow 身份(X-AIMail-Agent: deerflow/...)

@@ -7,7 +7,7 @@
 #
 # 本脚本:
 #   1. 用 runtime_bundle.py 把 deer-flow 捆绑(core5 + router + 适配层,扁平)
-#      铺进宿主 routers/,落版本戳;源解析 pip 包 > 仓库 tools/(单一真源)。
+#      铺进宿主 routers/,落版本戳;源解析 pip 包 > 仓库 pysdk/(单一真源)。
 #   2. patch backend/app/gateway/app.py:import + include_router(幂等,宿主侧)。
 #   3. 校验(语法 + 锚点存在)。
 # 安装后需重启 8001 生效。

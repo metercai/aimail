@@ -45,7 +45,7 @@ import uuid
 from pathlib import Path
 
 # ── 共享核心复用(带降级):email_for_agent 地址派生规则单源 ──────
-# 优先 import tools/aimail_base 的共享实现;不可用时(如纯离线
+# 优先 import pysdk/aimail_base 的共享实现;不可用时(如纯离线
 # 环境)复刻同一规则,保证共享域/非共享域行为一致。
 _SCRIPTS_DIR = str(Path(__file__).resolve().parent)
 if _SCRIPTS_DIR not in sys.path:
@@ -80,7 +80,7 @@ SYSTEMS_DIR = AIMAIL_HOME / "systems"
 
 
 def _clean_agent_dir_name(addr: str) -> str:
-    """agent 地址 → 目录名(与 tools/aimail_base._clean_agent_dir_name 一致)。"""
+    """agent 地址 → 目录名(与 pysdk/aimail_base._clean_agent_dir_name 一致)。"""
     return re.sub(r"[^\w.\-]", "_", addr, flags=re.ASCII)
 
 

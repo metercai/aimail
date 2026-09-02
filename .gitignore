@@ -3,7 +3,6 @@ __pycache__/
 .env
 *.log
 .env.swp
-/docs
 
 # local session notes (not project code)
 .hermes/

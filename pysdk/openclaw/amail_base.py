@@ -117,7 +117,7 @@ def load_agents_registry(system_id: str) -> dict:
 def load_agent_config(agent_id: str, system_id: str = "") -> Optional[dict]:
     """按 agentId 找地址键 config（agentmail.json 中 agent_id 匹配）。
 
-    2026-08-18 起转发共享核心实现（tools/aimail_base.load_agent_config，
+    2026-08-18 起转发共享核心实现（pysdk/aimail_base.load_agent_config，
     平台无关布局扫描）——单一权威。
     """
     return _ab.load_agent_config(agent_id, system_id)
@@ -182,7 +182,7 @@ def load_openclaw_hooks() -> Optional[dict]:
 
 
 # ── agent 上下文切换（转发共享核心实现,2026-08-18）──────────────
-# _ACTIVE_AGENT_CONFIG 在 tools/aimail_base.py 维护;本地仅保留镜像
+# _ACTIVE_AGENT_CONFIG 在 pysdk/aimail_base.py 维护;本地仅保留镜像
 # 引用(amail.py _patch_config 读取),不再有独立 _openclaw_profile_config。
 
 _ACTIVE_AGENT_CONFIG: Optional[dict] = None
@@ -197,7 +197,7 @@ def set_agent_context(agent_id: str, system_id: str = "") -> None:
     （同一函数对象）。同时设 AIMAIL_AGENT_EMAIL（共享 _resolve_agent_email
     的第一优先来源）——日志 agentmail.{email}.log 按 agent 落位。
 
-    2026-08-18 起转发 tools/aimail_base.set_agent_context（平台无关，
+    2026-08-18 起转发 pysdk/aimail_base.set_agent_context（平台无关，
     兜底 MCP 服务共用）——单一权威。_ACTIVE_AGENT_CONFIG 在共享核心维护。
     """
     _ab.set_agent_context(agent_id, system_id)

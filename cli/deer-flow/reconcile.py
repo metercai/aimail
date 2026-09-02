@@ -13,7 +13,7 @@ agents/)。本脚本以"目录为真相源"做幂等对账:
   python3 reconcile.py [--system-id SID] [--manager M] [--dry-run]
 
 cron 示例(系统 crontab,每 30 分钟):
-  */30 * * * * python3 /home/ubuntu/agentmail/scripts/deer-flow/reconcile.py --system-id SID
+  */30 * * * * python3 /home/ubuntu/aimail/cli/deer-flow/reconcile.py --system-id SID
 """
 from __future__ import annotations
 

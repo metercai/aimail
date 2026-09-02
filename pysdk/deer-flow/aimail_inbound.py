@@ -13,7 +13,7 @@
         会话按地址稳定;assistant_id 从 agentmail.json 读)
       → 立即 200(bridge 即刻 ack pending,agent 后台处理)
 
-依赖:agentmail 仓库(tools/aimail_base + tools/deer-flow/amail_base)
+依赖:agentmail 仓库(pysdk/aimail_base + tools/deer-flow/amail_base)
 按共享布局落 agentmail.json(~/.agentmail/systems/{sid}/{cleaned_addr}/)。
 """
 from __future__ import annotations

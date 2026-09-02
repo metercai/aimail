@@ -13,7 +13,7 @@ DEER_FLOW_HOME="${DEER_FLOW_HOME:-$HOME/deer-flow}"
 CFG="${DEER_FLOW_EXT_CFG:-$DEER_FLOW_HOME/extensions_config.json}"
 AGENT_ID="${AIMAIL_AGENT_ID:-default}"
 
-# ── 1. 安装/更新 MCP 捆绑(源: pip aimail > 仓库 tools/)────────────
+# ── 1. 安装/更新 MCP 捆绑(源: pip aimail > 仓库 pysdk/)────────────
 python3 "$RB" install mcp --dest "$BUNDLE_DIR"
 SERVER="$BUNDLE_DIR/amail_mcp_server.py"
 [ -f "$SERVER" ] || { echo "MCP bundle missing: $SERVER" >&2; exit 1; }

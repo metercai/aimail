@@ -19,7 +19,7 @@ from pathlib import Path
 _script_dir = str(Path(__file__).resolve().parent)
 if _script_dir not in sys.path:
     sys.path.insert(0, _script_dir)
-# 运行时核心(repo tools/ 优先 > pip aimail 兜底)
+# 运行时核心(repo pysdk/ 优先 > pip aimail 兜底)
 from runtime_core import load_core  # noqa: E402
 load_core()
 

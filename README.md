@@ -86,7 +86,7 @@ One Profile supports multiple Personas (e.g. `sales.bob@domain` / `support.bob@d
 ```bash
 git clone https://github.com/metercai/aimail.git
 cd agentmail
-cp .env.example .env        # fill in AIMAIL_URL, AIMAIL_PRODUCT_CODE (new) or
+cp docs/.env.example .env        # fill in AIMAIL_URL, AIMAIL_PRODUCT_CODE (new) or
                             # AIMAIL_ADMIN_KEY (existing), AIMAIL_MANAGER_ADDRESS;
                             # optionally AIMAIL_DOMAIN / AIMAIL_SYSTEM_NAME
 ./agentmail install --home ~/.hermes

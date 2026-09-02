@@ -10,7 +10,7 @@
 
 # When sourced from integrate.sh, $0 is the parent script; BASH_SOURCE[0]
 # is always this file (scripts/hermes/configure.sh) → repo root is ../.. .
-# Callers below append /scripts/... so SCRIPT_DIR must be the repo root.
+# Callers below append /cli/... so SCRIPT_DIR must be the repo root.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # ── 0. Stop any running gateways BEFORE patching ─────────────────
@@ -22,13 +22,13 @@ pkill -f "hermes_cli[.]main.*gateway run" 2>/dev/null || true
 sleep 2
 
 # ── 1. Patch webhook ────────────────────────────────────────────
-source "$SCRIPT_DIR/scripts/hermes/patch-webhook.sh"
+source "$SCRIPT_DIR/cli/hermes/patch-webhook.sh"
 
 # ── 2. Patch profiles ───────────────────────────────────────────
-source "$SCRIPT_DIR/scripts/hermes/patch-profiles.sh"
+source "$SCRIPT_DIR/cli/hermes/patch-profiles.sh"
 
 # ── 3. Register existing profiles ───────────────────────────────
-REG_OUTPUT=$(python3 "$SCRIPT_DIR/scripts/hermes/register_profiles.py")
+REG_OUTPUT=$(python3 "$SCRIPT_DIR/cli/hermes/register_profiles.py")
 REG_COUNT=0
 while IFS= read -r line; do
     case "$line" in
@@ -44,4 +44,4 @@ else
 fi
 
 # ── 4. Ensure gateway running ──────────────────────────────────
-source "$SCRIPT_DIR/scripts/hermes/gateway.sh"
+source "$SCRIPT_DIR/cli/hermes/gateway.sh"

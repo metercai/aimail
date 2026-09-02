@@ -2,7 +2,7 @@
 """Register existing Hermes profiles as amail addresses in the current system."""
 import sys, os, json
 from pathlib import Path
-# 运行时核心(repo tools/ 优先 > pip aimail 兜底)+ scripts/(gateway_api)
+# 运行时核心(repo pysdk/ 优先 > pip aimail 兜底)+ cli/(gateway_api)
 _SCRIPTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)

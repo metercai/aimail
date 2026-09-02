@@ -128,7 +128,7 @@ def _repair_webhook_pairing(sid: str, deep: bool = False) -> bool:
     if not c:
         _fail(f"gateway 配置缺失,跳过 webhook 配对修复(system {sid})")
         return False
-    sys.path.insert(0, str(SCRIPTS_DIR.parent / "tools"))
+    sys.path.insert(0, str(SCRIPTS_DIR.parent / "pysdk"))
     try:
         pend = c._request("POST", "/api/v1/admin/pending",
                           body={"filter": [], "emails": []})

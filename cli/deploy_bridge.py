@@ -2,7 +2,7 @@
 """Deploy aimail-bridge: bridge config, startup."""
 import sys, os, json, re, subprocess, socket, time
 
-# 运行时核心(repo tools/ 优先 > pip aimail 兜底);维护脚本从 scripts/ 调用
+# 运行时核心(repo pysdk/ 优先 > pip aimail 兜底);维护脚本从 cli/ 调用
 _SCRIPTS_DIR = str(os.path.dirname(os.path.abspath(__file__)))
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)

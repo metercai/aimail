@@ -1,6 +1,6 @@
 """aimail_hermes.py — Hermes 适配层（公共核心的平台接线）
 
-公共核心（tools/aimail_base.py / aimail_tools.py / aimail_board.py）
+公共核心（pysdk/aimail_base.py / aimail_tools.py / aimail_board.py）
 保持平台无关，通过注入点提供业务逻辑；本模块：
   1. 注入 Hermes 平台实现（config 加载 / personas / profile 目录 / SOUL / skills /
      board 登记 / persona 上下文）

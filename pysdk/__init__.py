@@ -85,21 +85,22 @@ def core_dir() -> str:
         import aimail_base
 
     In an installed wheel the flat modules are force-included into the package
-    dir, so this equals ``root()``. In a raw repo checkout it resolves to
-    ``<repo>/tools/``. Either way, the returned dir is guaranteed to contain
-    ``aimail_base.py``.
+    dir, so this equals ``root()``. In a raw repo checkout pysdk/ is the
+    single source of truth and mirrors the wheel layout 1:1, so this equals
+    ``root()`` there as well. Either way, the returned dir is guaranteed to
+    contain ``aimail_base.py``.
     """
     return _resolve_core_dir()
 
 
 def skills_dir() -> str:
     """agentmail SKILL.md / DESCRIPTION.md directory."""
-    return _os.path.join(root(), "skills")
+    return _os.path.join(root(), "resources", "skills")
 
 
 def board_role_prompt_dir() -> str:
-    """Board role prompt templates (English) directory."""
-    return _os.path.join(root(), "board_role_prompt_en")
+    """Board role prompt templates (English, default) directory."""
+    return _os.path.join(root(), "resources", "board", "role_prompt_en")
 
 
 def mcp_server_path() -> str:
@@ -113,22 +114,19 @@ def _resolve_core_dir() -> str:
     """Locate the directory containing the flat core modules.
 
     Resolution order (most specific first):
-      1. installed layout — flat modules sit directly in the package dir
-      2. repo checkout    — ``src/aimail/`` → ``<repo>/tools/``
-      3. AIMAIL_RUNTIME_DIR env override (explicit)
+      1. installed layout / repo pysdk — flat modules sit directly in the
+         package dir (pysdk/ is the single source of truth; the wheel
+         mirrors it 1:1 inside site-packages/aimail/)
+      2. AIMAIL_RUNTIME_DIR env override (explicit)
 
     Returns the first candidate that contains ``aimail_base.py``, falling
     back to ``root()`` (best effort) if none match.
     """
     here = root()
-    # 1. installed / bundle layout: core modules are flat siblings here.
+    # 1. installed / repo pysdk layout: core modules are flat siblings here.
     if _os.path.isfile(_os.path.join(here, "aimail_base.py")):
         return here
-    # 2. raw repo checkout: package lives in src/aimail/, core in tools/.
-    repo_tools = _os.path.abspath(_os.path.join(here, "..", "..", "tools"))
-    if _os.path.isfile(_os.path.join(repo_tools, "aimail_base.py")):
-        return repo_tools
-    # 3. explicit override.
+    # 2. explicit override.
     env = _os.environ.get("AIMAIL_RUNTIME_DIR", "").strip()
     if env:
         d = _os.path.expanduser(env)

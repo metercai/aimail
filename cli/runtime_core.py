@@ -7,9 +7,9 @@
 sys.path,消除各脚本散落的 `sys.path.insert(... "tools"...)` 仓路径耦合。
 
 源解析(repo 优先 > pip 兜底):
-  1. 仓库 tools/(维护脚本 = 仓库自身工具链,应用仓库当前代码;
+  1. 仓库 pysdk/(维护脚本 = 仓库自身工具链,应用仓库当前代码;
      若 pip 优先,开发期装了旧版 aimail 包会用错代码)
-  2. pip aimail(site-packages/aimail,仓库 tools/ 缺失时兜底)
+  2. pip aimail(site-packages/aimail,仓库 pysdk/ 缺失时兜底)
 
 用法(各维护脚本头部):
     import os, sys
@@ -27,12 +27,12 @@ from __future__ import annotations
 import os
 import sys
 
-_CORE_DIR_NAME = "tools"
+_CORE_DIR_NAME = "pysdk"
 _ADAPTERS = ("openclaw", "hermes", "deer-flow")
 
 
-def _repo_tools_dir() -> str:
-    """仓库 tools/ 绝对路径(本文件在 scripts/ 下,上溯一级)。"""
+def _repo_core_dir() -> str:
+    """仓库 pysdk/ 绝对路径(本文件在 cli/ 下,上溯一级)。"""
     return os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", _CORE_DIR_NAME))
 
 
@@ -49,14 +49,14 @@ def _pip_core_dir() -> str | None:
 
 
 def resolve_core_dir() -> str:
-    """返回运行时核心目录(repo tools/ 优先 > pip aimail)。"""
-    repo = _repo_tools_dir()
+    """返回运行时核心目录(repo pysdk/ 优先 > pip aimail)。"""
+    repo = _repo_core_dir()
     if os.path.isfile(os.path.join(repo, "aimail_base.py")):
         return repo
     pip = _pip_core_dir()
     if pip:
         return pip
-    raise SystemExit("ERROR: 运行时核心未找到(仓库 tools/ 与 pip aimail 均不可用)")
+    raise SystemExit("ERROR: 运行时核心未找到(仓库 pysdk/ 与 pip aimail 均不可用)")
 
 
 def load_core() -> str:

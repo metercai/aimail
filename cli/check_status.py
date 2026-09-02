@@ -51,7 +51,7 @@ BRIDGE_DIR  = AIMAIL_HOME / "bridge"
 LOGS_DIR    = AIMAIL_HOME / "logs"
 
 def _clean_agent_dir_name(addr: str) -> str:
-    """agent 地址 → 目录名（与 tools/aimail_base._clean_agent_dir_name 一致）。"""
+    """agent 地址 → 目录名（与 pysdk/aimail_base._clean_agent_dir_name 一致）。"""
     return re.sub(r"[^\w.\-]", "_", addr, flags=re.ASCII)
 
 
@@ -674,9 +674,9 @@ PLATFORMS = {
 def _signed_headers(api_key: str, method: str, path: str,
                     data: bytes | None = None,
                     identity: str = "") -> dict:
-    """v1 API 签名头（自包含实现，与 tools/aimail_base.compute_api_signature
+    """v1 API 签名头（自包含实现，与 pysdk/aimail_base.compute_api_signature
     同一协议：HMAC key = sha256(raw_key)，base = METHOD\\npath\\nts\\nsha256(body)）。
-    check_status 离线自包含，不依赖 tools/ 核心。"""
+    check_status 离线自包含，不依赖 pysdk/ 核心。"""
     import hashlib, hmac as _hmac, time as _time
     h = {"Content-Type": "application/json"}
     if identity:

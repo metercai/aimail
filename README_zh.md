@@ -1,32 +1,32 @@
 > **[English](README.md)**
 
-# AgentMail
+# AIMail
 
 **AI Agent 专属的邮件系统**
 
-**AgentMail** 是为 AI 智能体专属打造的高可控、全网通、开放式协作的邮件基础设施，让 Agent 像人一样与外界进行交流、互动和协作。
+**AIMail** 是为 AI 智能体专属打造的高可控、全网通、可协作的邮件基础设施，让 Agent 像人一样与外界进行交流、互动和协作。
 - **无缝接入全球网络**：依托 [aimail-gateway](https://github.com/metercai/aimail-gateway) 构建 SMTP 与 HTTP 的双向网关，将各类 Agent 平台（如 [Hermes Agent](https://github.com/nousresearch/hermes-agent) ）零门槛接入全球邮件网络。
 - **独立身份与自主交互**：每个 Agent 均拥有全网唯一的邮件地址，可自主发起会话、管理上下文，与个人、团队、业务流或其他 Agent 进行深度交互。
-- **开放协议与人机协同**：去除平台依赖，遵循公共的邮件协议和协作习惯，在去中心化的邮件基础设施上，构建了跨网络、开放的人机混合的智能体协同生态。
+- **开放协议与人机协同**：去除平台依赖，遵循公共的邮件协议和协作习惯，在去中心化的邮件基础设施上，构建了跨网络、开放的人机混合的智能体协作生态。
 
 ---
 
-## 为什么是 AgentMail？
+## 为什么是 AIMail？
 
 Email 是互联网最早最基础的服务，也是人们日常工作中常用的交流工具。它内容形式多样、记录持久留存、具有规范性和正式感。它既可以一对一私密交流，也能快速发起多人协同会话。
 
-AgentMail 既不同于 IM，也不同于传统邮箱。它们之间的异同对比如下：
+AIMail 既不同于 IM，也不是传统邮箱。它是传统邮件系统在AI时代的升级。具体的异同对比如下：
 
-| 维度 | IM | 传统邮箱 | **AgentMail** |
+| 维度 | IM | 传统邮箱 | **AIMail** |
 |------|-----|---------|---------------|
 | **身份标识** | 平台内有效，封闭 | 地址全网唯一，开放 | 地址全网唯一，开放 |
 | **内容形式** | 离散、碎片化、非正式 | 规整、结构化、正式 | 规整、结构化、正式 |
 | **接入方式** | 依赖平台 API/SDK | 依赖服务商及 POP3/IMAP | SMTP + Webhook，自主对接和存储 |
 | **实时性** | 高实时，资源消耗大 | 定时轮询，时延高，资源消耗大 | Webhook 推送，时延低，资源消耗小 |
-| **访问控制** | 通讯录 + 群组权限，受控 | 开放访问，易受垃圾邮件侵扰 | 白名单双向可控，比 IM 更灵活 |
-| **多人协同** | 依赖群聊，无序 | 依赖转发与抄送，可线索追溯 | 新增 A2A 协作看板，支持多角色自主协同 |
+| **访问控制** | 通讯录 + 群组权限，受控 | 开放访问，易受垃圾邮件侵扰 | 联系人双向可控，比 IM 更灵活 |
+| **多人协作** | 依赖群聊，无序 | 依赖转发与抄送，可线索追溯 | A2A 协作看板，支持多角色自主协作 |
 
-**AgentMail 的核心定位：** 不是让 Agent 学会使用邮箱，而是让 Agent 以邮件协议为纽带，与人和其他 Agent 自然地交流与协作。
+**AIMail 的核心定位：** 不是让 Agent 学会操作邮箱，而是让 Agent 以邮件协议为纽带，与人和其他 Agent 自然地交流与协作。
 
 ---
 
@@ -46,35 +46,7 @@ AgentMail 既不同于 IM，也不同于传统邮箱。它们之间的异同对�
 
 - **客服支持：** Agent 直接接管 `support@` 公司邮箱，自动接收客户咨询邮件，解析意图与情感倾向，自动做分类。常见问题（如密码重置、订单查询）由 Agent 自动回复解决方案；复杂或投诉类问题转接人工客服，Agent 同时提供上下文摘要辅助快速响应。全程邮件记录归档，便于服务质量回溯。 [→ 示例](examples/07-customer-support_zh.md)
 
-**Agentmail** 可以将 Agent 非常丝滑无缝的接入任何的邮件工作场景。
-
----
-
-## 优势特性
-
-1. **SMTP-HTTP 双向转发，进出有序**  
-SMTP 收信、Webhook 推送、HTTP 发信、SMTP 外投——四条通道统一调度，全链路日志可追溯。
-
-2. **安全员和白名单多重配置, 访问安全可管可控**  
-默认白名单启用，非授权发件人无法触达 Agent，同时 Agent 也无法向未授权地址外发内容。双向管控，安全闭环。Agent 的关键操作需配置的安全员确认，安全有兜底。
-
-3. **内容格式自动转换，LLM 阅读友好**  
-复杂的邮件格式自动转为 Markdown 纯文本，剥离样式噪音，Agent 直接读取结构化内容。
-
-4. **邮件即会话，会话即指令**  
-邮件收发即会话，自动补全上下文。创新的多种邮件指令，让对话即指令可执行，无缝接入日常工作流。
-
-5. **自带协作原语和看板，人机混合自主协同**  
-原生 A2A 协作看板，自定义工作流引擎。20+ 指令动词 + 10 种自动通知 + 协作原语，支持跨系统异构 Agent 的全网协作。
-
-6. **多模式消息传送，穿透任何网络环境**  
-Webhook Push/Pull 双模式共存，适配各类网络环境中的多样化 Agent。
-
-7. **多角色 Agent 地址，动态身份切换**  
-一个 Profile 的 Agent 可绑定多个 Persona（如 `sales.bob@domain` / `support.bob@domain`），发件自动匹配身份，收件自动识别 Persona，自动身份切换。
-
-8. **一键集成和诊断，低门槛部署和运维**  
-`./agentmail install` 一条命令完成整条链路（激活 → Bridge → 工具与 Skill → 注册）；`check`/`ping`/`welcome` 全链路诊断；`stats`/`domain`/`uninstall` 一站式本机管理。
+**AIMail** 可以将 Agent 非常丝滑无缝的接入任何的邮件工作场景。
 
 ---
 
@@ -91,7 +63,7 @@ Webhook Push/Pull 双模式共存，适配各类网络环境中的多样化 Agen
 ```bash
 git clone https://github.com/metercai/aimail.git
 cd agentmail
-cp .env.example .env        # 填入 AIMAIL_URL、AIMAIL_PRODUCT_CODE（新系统）或
+cp docs/.env.example .env        # 填入 AIMAIL_URL、AIMAIL_PRODUCT_CODE（新系统）或
                             # AIMAIL_ADMIN_KEY（已有系统）、AIMAIL_MANAGER_ADDRESS；
                             # 可选 AIMAIL_DOMAIN / AIMAIL_SYSTEM_NAME
 ./agentmail install --home ~/.hermes
@@ -128,6 +100,34 @@ $ ./agentmail stats
 所有参数优先级：CLI 参数 > shell 环境变量 > `.env` > 内置默认值。
 全部子命令见 `./agentmail --help`（`bridge`、`check`、`domain`、
 `install`、`mailname`、`ping`、`reset`、`stats`、`uninstall`、`welcome`）。
+
+---
+
+## 优势特性
+
+1. **SMTP-HTTP 双向转发，进出有序**  
+SMTP 收信、Webhook 推送、HTTP 发信、SMTP 外投——四条通道统一调度，全链路日志可追溯。
+
+2. **安全员和白名单多重配置, 访问安全可管可控**  
+默认白名单启用，非授权发件人无法触达 Agent，同时 Agent 也无法向未授权地址外发内容。双向管控，安全闭环。Agent 的关键操作需配置的安全员确认，安全有兜底。
+
+3. **内容格式自动转换，LLM 阅读友好**  
+复杂的邮件格式自动转为 Markdown 纯文本，剥离样式噪音，Agent 直接读取结构化内容。
+
+4. **邮件即会话，会话即指令**  
+邮件收发即会话，自动补全上下文。创新的多种邮件指令，让对话即指令可执行，无缝接入日常工作流。
+
+5. **自带协作原语和看板，人机混合自主协同**  
+原生 A2A 协作看板，自定义工作流引擎。20+ 指令动词 + 10 种自动通知 + 协作原语，支持跨系统异构 Agent 的全网协作。
+
+6. **多模式消息传送，穿透任何网络环境**  
+Webhook Push/Pull 双模式共存，适配各类网络环境中的多样化 Agent。
+
+7. **多角色 Agent 地址，动态身份切换**  
+一个 Profile 的 Agent 可绑定多个 Persona（如 `sales.bob@domain` / `support.bob@domain`），发件自动匹配身份，收件自动识别 Persona，自动身份切换。
+
+8. **一键集成和诊断，低门槛部署和运维**  
+`./agentmail install` 一条命令完成整条链路（激活 → Bridge → 工具与 Skill → 注册）；`check`/`ping`/`welcome` 全链路诊断；`stats`/`domain`/`uninstall` 一站式本机管理。
 
 ---
 
