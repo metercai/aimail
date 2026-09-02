@@ -13,7 +13,8 @@ import {
   resolveCtx,
   type MailToolCtx,
 } from '@aimail/mail'
-import { releaseAllSystems, type AgentConfig } from '@aimail/mail-core'
+import { AIMAIL_HOME, releaseAllSystems, type AgentConfig } from '@aimail/mail-core'
+import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -43,6 +44,18 @@ export function apply(ctx: Context, config: { systemId?: string } = {}): void {
     releaseAllSystems(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'resources', 'board'))
   } catch {
     // non-fatal: resources are a seed; explicit release can re-run later
+  }
+  // env self-check: without any binding the mail tools resolve nothing —
+  // point the operator at the CLI instead of failing silently later.
+  try {
+    const sysRoot = path.join(AIMAIL_HOME(), 'systems')
+    if (!fs.existsSync(sysRoot) || fs.readdirSync(sysRoot).length === 0) {
+      console.warn('[dsh-aimail] no agentmail binding found — run `agentmail install`(dsh) first, then bind this session')
+    } else if (!systemId) {
+      console.warn('[dsh-aimail] no AIMAIL_SYSTEM_ID — mail resolution scans all bound systems')
+    }
+  } catch {
+    // non-fatal
   }
   const service: MailService = {
     systemId,

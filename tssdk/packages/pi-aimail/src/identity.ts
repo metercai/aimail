@@ -84,6 +84,6 @@ export async function resolveConfig(): Promise<AgentConfig> {
     if (byAgent) return byAgent
   }
   throw new Error(
-    `agentmail not configured for pi — no binding for pointer ${POINTER_PATH} (email ${ptr.email || '-'}, system ${systemId || '-'})`,
+    `agentmail not configured for pi — no binding for pointer ${POINTER_PATH} (email ${ptr.email || '-'}, system ${systemId || '-'}). Run: agentmail install --home ~/.pi (或先配置 ~/.pi/.agentmail)`,
   )
 }
