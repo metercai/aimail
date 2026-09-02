@@ -20,6 +20,7 @@ import os
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 # ── 双形态自举:本文件位于 core 目录(pysdk/ 或 site-packages/aimail/)──
 # flat core(aimail_base.py…)与 hermes/ deer-flow/ 子模块都在此目录下。
@@ -128,16 +129,20 @@ def install_hermes(hermes_dir: str, system_id: str = "") -> int:
     except Exception as e:  # noqa: BLE001
         print(f"  toolsets patch skipped: {e}")
 
-    # profile 注册(读 env:HERMES_DIR/SYSTEM_ID/HERMES_PROFILES_DIR)
-    env = dict(os.environ)
-    env.setdefault("HERMES_DIR", hermes_dir)
-    if system_id:
-        env["SYSTEM_ID"] = system_id
+    # profile 注册(读 env:HERMES_DIR/SYSTEM_ID/HERMES_PROFILES_DIR)——直接
+    # 函数调用(Rust CLI 终态走 spawn python -m aimail.install register-profiles,
+    # 同 env 契约;repo 形态无 aimail 包名,不能 spawn)
     try:
         rp = _import_hermes("register_profiles")
-        # register_profiles 读环境变量;直接函数调用需要它读 env —— 以
-        # subprocess 复跑本模块的注册子命令,保证 env 契约一致
-        _spawn_self(["register-profiles"], env=env)
+        _old_env = dict(os.environ)
+        os.environ["HERMES_DIR"] = hermes_dir
+        if system_id:
+            os.environ["SYSTEM_ID"] = system_id
+        try:
+            rp.register_emails()
+        finally:
+            os.environ.clear()
+            os.environ.update(_old_env)
     except Exception as e:  # noqa: BLE001
         print(f"  register profiles failed: {e}")
 
@@ -254,12 +259,12 @@ def uninstall_hermes(hermes_dir: str, system_id: str = "") -> int:
         ):
             fp = os.path.join(ha, rel)
             if os.path.exists(fp):
-                fn(fp)
+                fn(Path(fp))
         if pt is not None:
             for rel in ("toolsets.py",):
                 fp = os.path.join(ha, rel)
                 if os.path.exists(fp):
-                    pt.unpatch_toolsets(fp)
+                    pt.unpatch_toolsets(Path(fp))
         # 清 pyc
         for cache in ("gateway/platforms/__pycache__", "hermes_cli/__pycache__",
                       "cli/__pycache__", "tools/__pycache__"):
