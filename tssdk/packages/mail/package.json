@@ -1,0 +1,33 @@
+{
+  "name": "@aimail/mail",
+  "description": "AIMail platform-neutral config resolution: sessionId/email/recipient → agentmail.json → AgentConfig (pure functions, no framework deps).",
+  "version": "0.1.0-rc.12",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/metercai/aimail-sdk-ts"
+  },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/**/*.js",
+    "lib/**/*.d.ts"
+  ],
+  "license": "MIT",
+  "peerDependencies": {},
+  "dependencies": {
+    "@aimail/mail-core": "^0.1.0-rc.10"
+  },
+  "devDependencies": {}
+}

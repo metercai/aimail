@@ -1,0 +1,31 @@
+{
+  "id": "openclaw-aimail",
+  "name": "AIMail",
+  "description": "AIMail email capability for OpenClaw: 12 mail/board tools, inbound email delivery with HMAC verification, and register/deregister/status commands.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "enabledByDefault": false,
+  "activation": {
+    "onStartup": true,
+    "onCapabilities": ["tool"]
+  },
+  "contracts": {
+    "tools": [
+      "send_mail",
+      "manage_contacts",
+      "contact_profile",
+      "set_contact_profile",
+      "email_summary",
+      "set_email_summary",
+      "board_status",
+      "board_task_list",
+      "board_task_show",
+      "board_heartbeat",
+      "board_members",
+      "set_public_whoami"
+    ]
+  }
+}

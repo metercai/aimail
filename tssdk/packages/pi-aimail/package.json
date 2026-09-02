@@ -1,0 +1,39 @@
+{
+  "name": "pi-aimail",
+  "description": "AIMail plugin for pi (earendil-works/pi): 12 mail tools (MAIL_TOOLS), inbound local HTTP receiver bridged into the active session via sendUserMessage.",
+  "version": "0.1.0-rc.8",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/metercai/aimail-sdk-ts"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "bundleDependencies": [
+    "@aimail/mail",
+    "@aimail/mail-core"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepack": "npm run build"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@aimail/mail": "0.1.0-rc.10",
+    "@aimail/mail-core": "0.1.0-rc.13",
+    "typebox": "1.3.6"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.84.4",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}

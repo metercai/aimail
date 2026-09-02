@@ -1,0 +1,27 @@
+# build output
+node_modules/
+packages/*/lib/
+packages/*/dist/
+packages/*/dist.tsbuildinfo
+*.tsbuildinfo
+.pnpm-store/
+
+# local env / secrets — never commit
+.env
+*.local
+*.token
+npm-token*
+
+# platform pointers & secrets that may leak into the repo during local testing
+.openclaw/
+.pi/
+.dsh/
+.agentmail/
+
+# agent session/plan scratch state
+.hermes/
+
+# logs & OS noise
+*.log
+.DS_Store
+Thumbs.db
