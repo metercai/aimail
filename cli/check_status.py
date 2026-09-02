@@ -315,7 +315,7 @@ def _hermes_check_config(c: Check, agent: dict):
         pass
     c.add("agent", "webhook", wh_ok,
           f"{name}: webhook " + ("enabled + secret ✓" if wh_ok else "MISSING (platforms.webhook)"),
-          "Run ensure_webhook_config.py / configure.sh")
+          "Run: python -m aimail.install install --type hermes (SDK 补全配置)")
 
     # 3.3 skill: profile skills/agentmail/
     skill_dir = pd / "skills" / "agentmail" if pd else None

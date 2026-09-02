@@ -250,6 +250,36 @@ def cmd_persona(args) -> int:
     return subprocess.call(cmd)
 
 
+def _sdk_install(kind: str, system_home: Path, sid: str) -> int:
+    """调 pysdk 自足安装入口(A 过渡:仓库同仓 import;Rust CLI 终态
+    走 spawn `python -m aimail.install`——同一进程命令契约)。"""
+    sys.path.insert(0, str(SCRIPTS_DIR.parent / "pysdk"))
+    try:
+        import install as _sdk
+    except Exception as e:  # noqa: BLE001
+        _warn(f"pysdk import failed: {e}(SDK 缺失?)")
+        return 1
+    if kind == "hermes":
+        return _sdk.install_hermes(str(system_home), sid)
+    # deerflow:backend 目录归一
+    backend = system_home if (system_home / "app").is_dir() else system_home / "backend"
+    return _sdk.install_deerflow(str(backend), sid)
+
+
+def _sdk_uninstall(kind: str, system_home: Path, sid: str) -> int:
+    """调 pysdk 自足卸载入口(撤销 SDK 自己打的 patch/装的文件)。"""
+    sys.path.insert(0, str(SCRIPTS_DIR.parent / "pysdk"))
+    try:
+        import install as _sdk
+    except Exception as e:  # noqa: BLE001
+        _warn(f"pysdk import failed: {e}")
+        return 1
+    if kind == "hermes":
+        return _sdk.uninstall_hermes(str(system_home), sid)
+    backend = system_home if (system_home / "app").is_dir() else system_home / "backend"
+    return _sdk.uninstall_deerflow(str(backend))
+
+
 def cmd_install(args) -> int:
     """安装:集成脚本到 check 前的全部步骤(非交互化)。"""
     system_home = Path(args.home).expanduser() if args.home else Path()
@@ -346,16 +376,18 @@ def cmd_install(args) -> int:
 
     # 3) 平台适配
     if platform == "hermes":
-        # install-tools.sh + configure.sh(工具拷贝/注册/配置补全/gateway)
-        for sh in ("install-tools.sh", "configure.sh"):
-            script = SCRIPTS_DIR / "hermes" / sh
-            env3 = dict(os.environ)
-            env3["HERMES_DIR"] = str(system_home / "hermes-agent")
-            env3["SYSTEM_ID"] = env.get("INTEGRATE_SYSTEM_ID", "")
-            env3["PROJECT_ROOT"] = str(SCRIPTS_DIR.parent)
-            r = subprocess.call(["bash", str(script)], env=env3)
+        # SDK 自足安装(pysdk:pip aimail 运行时 + patch/toolsets/register/资源)。
+        # venv pip aimail 是 webhook 运行时载荷,须就位。
+        venv_py = system_home / "hermes-agent" / "venv" / "bin" / "python"
+        if venv_py.is_file():
+            r = subprocess.call(
+                [str(venv_py), "-m", "pip", "install", "-q", "aimail"],
+                env=dict(os.environ))
             if r != 0:
-                _warn(f"{sh} exit {r}")
+                _warn(f"venv pip install aimail exit {r}(webhook 适配运行时缺失?)")
+        rc = _sdk_install("hermes", system_home, env.get("INTEGRATE_SYSTEM_ID", ""))
+        _ok("hermes SDK install done(重启 hermes gateway 生效)" if rc == 0
+            else "hermes SDK install: see warnings")
     elif platform == "openclaw":
         env3 = dict(os.environ)
         env3["AIMAIL_SYSTEM_ID"] = env.get("INTEGRATE_SYSTEM_ID", "")
@@ -370,16 +402,14 @@ def cmd_install(args) -> int:
         print("  openclaw: TS 插件安装 = npm pack openclaw-aimail/ 后 "
               "`openclaw plugins install npm-pack:<tgz> --force` + 重启 gateway")
     else:  # deerflow
-        # 补充注册(全部已有 agent 注册地址+路由)+ 入站补丁 + skill/mcp
+        # SDK 自足安装:register/reconcile + app.py patch + 运行时 bundle + 资源
+        rc = _sdk_install("deerflow", system_home, env.get("INTEGRATE_SYSTEM_ID", ""))
+        _ok("deerflow SDK install done" if rc == 0 else "deerflow SDK install: see warnings")
+        # skill/mcp 宿主机制仍由 CLI 装配
         env3 = dict(os.environ)
         env3["AIMAIL_SYSTEM_ID"] = env.get("INTEGRATE_SYSTEM_ID", "")
-        r = subprocess.call([sys.executable, str(SCRIPTS_DIR / "deer-flow" / "register_agent.py"),
-                             "--all", "--system-id", env.get("INTEGRATE_SYSTEM_ID", "")],
-                            env=env3)
-        if r == 0:
-            for sh in ("install-inbound.sh", "install-skill.sh", "install-mcp.sh"):
-                subprocess.call(["bash", str(SCRIPTS_DIR / "deer-flow" / sh)], env=env3)
-        _ok("deerflow agents registered + inbound patch + skill installed")
+        for sh in ("install-skill.sh", "install-mcp.sh"):
+            subprocess.call(["bash", str(SCRIPTS_DIR / "deer-flow" / sh)], env=env3)
     if platform == "dsh":
         # 安装 = dsh 官方插件命令的薄封装(bundle 自动挂载 mail/mail-inbound/tool-mail)
         r = subprocess.call(["dsh", "plugin", "--profile", "web", "add", "dsh-aimail"])
@@ -389,15 +419,6 @@ def cmd_install(args) -> int:
             _ok("agentmail 插件已安装(dsh bundle 层挂载)")
         print("  dsh: 绑定步骤 = scripts/dsh/bind_agent.py(注册地址+路由+落盘)")
         print("        在 dsh 中创建 session(加入 mail preset)后运行 bind_agent.py")
-
-    # ── 4) 平台无关:释放 board 资源(role_prompt/role_soul × en/zh)到
-    #        系统配置目录 ~/.agentmail/systems/{sid}/board/ —— 所有平台的
-    #        pysdk/tssdk 运行时都从这里读取(用户可个性化)。
-    sid = env.get("INTEGRATE_SYSTEM_ID", "")
-    if sid:
-        r = subprocess.call(["bash", str(SCRIPTS_DIR / "release-board-resources.sh"), sid])
-        if r != 0:
-            _warn(f"board resources release exit {r}")
 
     print(f"  install done. 建议: agentmail check {'--system-id ' + args.system_id if args.system_id else ''}".rstrip())
     return 0
@@ -1079,52 +1100,10 @@ def _uninstall_hermes(system_home: Path, sid: str) -> None:
                         _ok(f"webhook route removed {subs}")
                 except Exception as e:
                     _warn(f"webhook_subscriptions clean failed: {e}")
-    # 2. hermes-agent:tools 删除 + patch 还原(git 精确还原)
+    # 2. venv pip 卸载(SDK 运行时载荷;patch 撤销与 tools 清理已由
+    #    SDK uninstall 完成——谁打谁撤)
     ha = system_home / "hermes-agent"
     if ha.is_dir():
-        if (ha / ".git").exists():
-            try:
-                out = subprocess.check_output(
-                    ["git", "-C", str(ha), "status", "--short"], text=True, timeout=10)
-                modified = [l[3:].strip() for l in out.splitlines() if l.startswith(" M")]
-                if all(m in ("gateway/platforms/webhook.py", "toolsets.py") for m in modified):
-                    for f in modified:
-                        subprocess.call(["git", "-C", str(ha), "checkout", "--", f])
-                        _ok(f"reverted {f} (git)")
-                else:
-                    _warn("hermes-agent 有额外未提交改动——跳过 git 还原,请手动检查 agentmail 痕迹")
-            except Exception as e:
-                _warn(f"git revert failed: {e}")
-        else:
-            # 非 git 环境 → exact-text 块移除(与 apply_*_patch.py 插入完全匹配)
-            for rel, unpatch in (
-                ("gateway/platforms/webhook.py", unpatch_webhook),
-                ("toolsets.py", unpatch_toolsets),
-            ):
-                fp = ha / rel
-                if fp.exists():
-                    unpatch(fp)
-            for rel in ("hermes_cli/profiles.py", "cli/profiles.py"):
-                fp = ha / rel
-                if fp.exists():
-                    unpatch_profiles(fp)
-            # 清 pyc 缓存(旧 uninstall.py 行为)
-            for cache in ("gateway/platforms/__pycache__", "hermes_cli/__pycache__",
-                          "cli/__pycache__", "tools/__pycache__"):
-                cd = ha / cache
-                if cd.is_dir():
-                    for f in cd.glob("*.pyc"):
-                        f.unlink()
-        for rel in ("tools/aimail_tools.py", "tools/aimail_base.py",
-                    "tools/aimail_board.py", "tools/hermes"):
-            tgt = ha / rel
-            if tgt.exists():
-                shutil.rmtree(tgt) if tgt.is_dir() else tgt.unlink()
-                _ok(f"removed {rel}")
-        for bak in ha.glob("gateway/platforms/webhook.py.bak-*"):
-            bak.unlink()
-            _ok(f"removed backup {bak.name}")
-        # pip 形态:卸载 venv 里的 aimail 包(运行时载荷 = site-packages/aimail)
         venv_py = ha / "venv" / "bin" / "python"
         if venv_py.is_file():
             try:
@@ -1262,15 +1241,18 @@ def cmd_uninstall(args) -> int:
 
     # 2. 平台侧清理
     if platform == "hermes":
-        _uninstall_hermes(system_home if system_home.is_dir() else Path(gw.get("system_home", "")), sid)
+        # SDK 撤销自己打的 patch + 清 hermes-agent 内工具(谁打谁撤)
+        sdk_home = system_home if system_home.is_dir() else Path(gw.get("system_home", ""))
+        _sdk_uninstall("hermes", sdk_home, sid)
+        # CLI:profile 级本地配置清理(指针/skill/config 工具集/路由)+ venv pip 卸载
+        _uninstall_hermes(sdk_home, sid)
     elif platform == "openclaw":
         _uninstall_openclaw(sid)
     else:  # deerflow
-        # 共享布局(systems/{sid}/)由通用段清理;deer-flow 仓入站补丁
-        # (backend routers/aimail_inbound.py + app.py 锚点)需手动还原
-        # (agentmail install 的 install-inbound.sh 是幂等安装,无自动反向)
-        print("  deerflow: 共享配置已清理;deer-flow 仓入站补丁请手动还原 "
-              "(删除 routers/aimail_inbound.py + 移除 app.py 的 import/include_router 两行)")
+        # SDK 撤销 app.py patch + 删运行时 bundle
+        sdk_home = system_home if system_home.is_dir() else Path(gw.get("system_home", ""))
+        _sdk_uninstall("deerflow", sdk_home, sid)
+        print("  deerflow: skill/mcp 宿主装配残留可用宿主侧管理清理")
     if platform == "dsh":
         # dsh:绑定文件由通用段清理;dsh 侧插件卸载(dsh-mail-* 插件移除)为 dsh 操作
         print("  dsh: 共享配置已清理;dsh 侧卸载 mail 插件(mail/mail-inbound/tool-mail)+ 删 preset 即可")
@@ -1297,281 +1279,6 @@ def cmd_uninstall(args) -> int:
 
     print(f"  uninstall done for {sid}")
     return 0
-
-
-# ═══════════════════════════════════════════════════════════════
-#  exact-text patch removal (fallback when hermes-agent is not a git
-#  repo) — blocks must match what apply_webhook_patch.py inserts.
-# ═══════════════════════════════════════════════════════════════
-
-def strip_block(text: str, block: str) -> tuple:
-    """Remove a known exact string block from text.
-    Returns (new_text, True if removed).
-    """
-    if block not in text:
-        return text, False
-    return text.replace(block, '', 1), True
-
-
-def strip_trailing_blanks(text: str) -> str:
-    """Remove excess blank lines left after block removal."""
-    return re.sub(r'\n{4,}', '\n\n\n', text)
-
-WEBHOOK_BLOCK1 = """
-# ═══════════════════════════════════════════════════════════════
-# Preprocess Registry — allows tools modules to register payload
-# preprocessors that run before prompt rendering (AmailGateway)
-# ═══════════════════════════════════════════════════════════════
-
-PREPROCESS_REGISTRY: Dict[str, Callable] = {}
-
-
-def register_preprocessor(name: str, fn: Callable) -> None:
-    \"\"\"Register a payload preprocessor function.
-
-    Preprocessors receive (payload: dict, headers: dict) and return
-    the (possibly modified) payload dict. Called before prompt
-    rendering so the Agent sees preprocessed data.
-    \"\"\"
-    PREPROCESS_REGISTRY[name] = fn
-
-
-"""
-
-# Block 2: Preprocessor invocation
-# Inserted BEFORE "# Format prompt from template"
-WEBHOOK_BLOCK2 = """        # ── Preprocess payload (AmailGateway integration) ──────────
-        preprocess_name = route_config.get("preprocess")
-        if preprocess_name:
-            preprocessor = PREPROCESS_REGISTRY.get(preprocess_name)
-            if preprocessor:
-                try:
-                    payload = preprocessor(payload, dict(request.headers))
-                except Exception as e:
-                    logger.error(
-                        "[webhook] preprocessor '%s' failed: %s",
-                        preprocess_name, e
-                    )
-
-"""
-
-# Block 3: a2a_board prompt field consumer
-# Inserted AFTER session_chat_id, BEFORE "# Store delivery info"
-WEBHOOK_BLOCK3 = """        # ── a2a_board: consume preprocessor prompt fields ──
-        _wp = payload.get("_whoami_prompt")
-        if _wp:
-            prompt = prompt + "\n\n---\n" + _wp
-        _rp = payload.get("_role_prompt")
-        if _rp:
-            prompt = prompt + "\n\n---\n" + _rp
-        _sk = payload.get("_a2a_session_key")
-        if _sk:
-            session_chat_id = f"webhook:{route_name}:{_sk}"
-"""
-
-
-# Block 3: Ping-pong interception
-# Inserted BEFORE "# Non-blocking"
-WEBHOOK_BLOCK4 = """        # ── Ping-pong interception (end-to-end test) ────────────────
-        ping_subject = (payload.get("subject") or "").strip()
-        if ping_subject.startswith("__agentmail_ping__:"):
-            ping_id = ping_subject.split(":", 1)[1].strip()
-            if ping_id:
-                try:
-                    import json as _json, os as _os, sys as _sys
-                    from datetime import datetime, timezone
-                    _tools_dir = _os.path.join(_os.path.dirname(__file__), "..", "..", "tools")
-                    _sys.path.insert(0, _os.path.abspath(_tools_dir) + "/hermes")
-                    from aimail_tools import send_mail as _send_mail
-                    pong_body = _json.dumps({
-                        "ping_id": ping_id,
-                        "event": {"prompt": prompt, "route": route_name,
-                                  "delivery_id": delivery_id, "skills": skills},
-                    }, indent=2)
-                    _log_ping_event("ping_intercepted", ping_id, payload, "")
-                    pong_result = _send_mail(
-                        to=payload.get("from", ""),
-                        subject="__agentmail_pong__:" + ping_id, body=pong_body,
-                        message_id=payload.get("message_id") or "",
-                    )
-                    pong_status = "ok" if pong_result.get("success") else pong_result.get("error", "?")
-                except Exception as _e:
-                    pong_status = str(_e)
-                    logger.error("[ping] send_mail failed: %s", _e)
-                _log_ping_event("pong_sent", ping_id, payload, pong_status)
-            return web.json_response({"pong": ping_id, "status": "pong_sent"})
-
-        elif ping_subject.startswith("__agentmail_pong__:"):
-            ping_id = ping_subject.split(":", 1)[1].strip()
-            if ping_id:
-                _log_ping_event("pong_returned", ping_id, payload, "")
-            return web.json_response({"pong": ping_id, "status": "pong_returned"})
-
-"""
-
-# Block 5: _log_ping_event (was Block 4)
-# Inserted AFTER session_chat_id, BEFORE "# Store delivery info" function (appended at end of file)
-WEBHOOK_BLOCK5 = """
-def _log_ping_event(dir_: str, ping_id: str, payload: dict, pong_status: str):
-    \"\"\"Append a JSON line to agentmail.log for ping-pong tracking.\"\"\"
-    import json, os as _os
-    from datetime import datetime, timezone
-    entry = {
-        "ts": datetime.now(timezone.utc).isoformat(),
-        "dir": dir_, "ping_id": ping_id,
-        "from": payload.get("from", ""),
-        "to": payload.get("to", ""),
-    }
-    if pong_status:
-        entry["pong_status"] = pong_status
-    _log_dir = _os.environ.get("AIMAIL_HOME") or _os.environ.get("AGENTMAIL_HOME", "")
-    if not _log_dir:
-        # Resolve email from profile dir .agentmail pointer
-        _pdir = _os.environ.get("HERMES_PROFILE_DIR", "")
-        if not _pdir:
-            _pdir = _os.path.expanduser("~/.hermes")
-        _pointer = _os.path.join(_pdir, ".agentmail")
-        if _os.path.isfile(_pointer):
-            try:
-                import json as _json
-                _pd = _json.load(open(_pointer))
-                _email = _pd.get("email", "")
-                if _email:
-                    _log_dir = _os.path.expanduser("~/.agentmail/mail/" + _email.replace("@", "_"))
-            except:
-                pass
-    if not _log_dir:
-        _log_dir = _os.path.expanduser("~/.agentmail/mail/default")
-    log_path = _os.path.join(_log_dir, "agentmail.log")
-    try:
-        _os.makedirs(_log_dir, exist_ok=True)
-        with open(log_path, "a") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\\n")
-    except Exception:
-        pass
-"""
-
-PROFILES_HOOK = """    # ── Fire integration hooks (AmailGateway) ──
-    try:
-        from aimail.aimail_base import trigger_profile_hooks
-        trigger_profile_hooks(\"profile_created\", canon, str(profile_dir))
-    except ImportError:
-        pass  # aimail (pip) not installed
-
-"""
-
-PROFILES_HOOK_DEL = """            # ── Fire integration hooks (AmailGateway) ──
-            try:
-                from aimail.aimail_base import trigger_profile_hooks
-                trigger_profile_hooks(\"profile_deleted\", canon, str(profile_dir))
-            except ImportError:
-                pass  # aimail (pip) not installed
-
-"""
-
-TOOLSET_AMAIL = """    "agentmail": {
-        "description": "Agent email tools: send, contacts, contact profiles, and thread summaries via amail",
-        "tools": ["send_mail", "manage_contacts", "contact_profile", "set_contact_profile", "email_summary", "set_email_summary"],
-        "includes": [],
-    },
-"""
-# _HERMES_CORE_TOOLS tool names added by install-tools.sh
-CORE_TOOL_NAMES = ["send_mail", "manage_contacts", "contact_profile",
-                   "set_contact_profile", "email_summary", "set_email_summary"]
-
-def unpatch_webhook(fp: Path):
-    if not fp.exists():
-        return 0
-    text = fp.read_text()
-    original = text
-    changes = 0
-
-    for name, block in [
-        ("PREPROCESS_REGISTRY",        WEBHOOK_BLOCK1),
-        ("preprocessor invocation",    WEBHOOK_BLOCK2),
-        ("a2a_board prompt fields",    WEBHOOK_BLOCK3),
-        ("ping-pong interception",     WEBHOOK_BLOCK4),
-        ("_log_ping_event",            WEBHOOK_BLOCK5),
-    ]:
-        text, ok = strip_block(text, block)
-        if ok:
-            changes += 1
-
-    # Adapter import block (pip 形态 aimail.hermes / legacy tools.hermes) — remove
-    text, n = re.subn(
-        r'# ── AmailGateway Hermes adapter \(shared core injection \+ registration\) ──\n'
-        r'try:\n    from [^\n]*?# noqa: F401\nexcept Exception:\n    pass\n',
-        '', text, count=0)
-    if n:
-        changes += n
-
-    # Block 5: Remove Callable from typing import
-    text, n = re.subn(
-        r'(from typing import .+?), Callable\n',
-        r'\1\n',
-        text, count=1
-    )
-    if n:
-        changes += 1
-
-    text = strip_trailing_blanks(text)
-
-    if text != original:
-        fp.write_text(text)
-        print(f"  ✓ webhook.py: {changes} block(s) removed")
-    else:
-        print("  - webhook.py: no changes")
-    return changes
-
-def unpatch_profiles(fp: Path):
-    if not fp.exists():
-        return 0
-    text = fp.read_text()
-    original = text
-    changes = 0
-
-    for block in [PROFILES_HOOK, PROFILES_HOOK_DEL]:
-        text, ok = strip_block(text, block)
-        if ok:
-            changes += 1
-
-    text = strip_trailing_blanks(text)
-
-    if text != original:
-        fp.write_text(text)
-        print(f"  ✓ profiles.py: {changes} hook(s) removed")
-    else:
-        print("  - profiles.py: no changes")
-    return changes
-
-def unpatch_toolsets(fp: Path):
-    if not fp.exists():
-        return 0
-    text = fp.read_text()
-    original = text
-    changes = 0
-
-    text, ok = strip_block(text, TOOLSET_AMAIL)
-    if ok:
-        changes += 1
-
-    # Remove amail tool names from _HERMES_CORE_TOOLS
-    for tool in [
-        "set_email_summary", "email_summary",
-        "set_contact_profile", "contact_profile",
-        "manage_contacts", "send_mail",
-    ]:
-        line = f'    "{tool}",\n'
-        if line in text:
-            text = text.replace(line, '', 1)
-            changes += 1
-
-    if text != original:
-        fp.write_text(text)
-        print(f"  ✓ toolsets.py: {changes} item(s) removed")
-    else:
-        print("  - toolsets.py: no changes")
-    return changes
 
 # ═══════════════════════════════════════════════════════════════
 #  main
