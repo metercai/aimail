@@ -90,61 +90,68 @@ side by side:
 
 ## Quick Start
 
-### Prerequisites
+### New machine: DSH + AgentMail in one shot
 
-- [aimail-gateway](https://github.com/metercai/aimail-gateway) (running)
-- [Hermes Agent](https://github.com/nousresearch/hermes-agent) (installed)
-- Linux + Python 3.10+
-
-### One-Command Integration
+Prerequisites: Linux + Python 3.10+ with the **DSH agent host already
+installed** (see the dsh docs), and a reachable
+[aimail-gateway](https://github.com/metercai/aimail-gateway).
 
 ```bash
-git clone https://github.com/metercai/aimail.git
-cd agentmail
-cp docs/.env.example .env        # fill in AIMAIL_URL, AIMAIL_PRODUCT_CODE (new) or
-                            # AIMAIL_ADMIN_KEY (existing), AIMAIL_MANAGER_ADDRESS;
-                            # optionally AIMAIL_DOMAIN / AIMAIL_SYSTEM_NAME
-./agentmail install --home ~/.hermes
+# 1. Get the CLI (maintenance tool; resources/patches ship inside the SDKs)
+git clone https://github.com/metercai/aimail.git && cd aimail
+cp docs/.env.example .env
+
+# 2. Fill in .env: AIMAIL_URL (gateway), and one credential — either
+#    AIMAIL_ADMIN_KEY (existing system) or AIMAIL_PRODUCT_CODE (new
+#    activation, with AIMAIL_SYSTEM_NAME for a shared domain); set
+#    AIMAIL_MANAGER_ADDRESS (who receives the welcome mail).
+
+# 3. One-command install: activate system → deploy bridge → install the
+#    dsh-aimail plugin into the dsh host.
+./agentmail install --home ~/.dsh
+
+# 4. Bind the dsh session: register the address, add the bridge route and
+#    write the local binding. The system id is auto-detected (single-system
+#    machines); pass --session-id to reuse an existing dsh session, or let
+#    it generate one and create that session in dsh with the mail preset.
+python3 cli/dsh/bind_agent.py
+
+# 5. Close the loop with a welcome mail (delivery verified).
+./agentmail welcome
 ```
 
-`install` runs the whole chain **non-interactively**: system activation (or
-reuse of an existing system), bridge deploy, tool & skill install, webhook
-patch & profile registration. Every value is read from `.env`, so the only
-flag you usually pass is `--home`. Domains named in `AIMAIL_DOMAIN` are
-preset at activation or actively created when missing.
-
-### Verify the Chain
+Step 3 runs the whole chain **non-interactively** — every value is read
+from `.env`, so `--home` is usually the only flag. Step 5 sends a welcome
+email through the gateway to the manager and confirms it was delivered;
+that is the end-to-end proof that activation → bridge → plugin → binding
+all work. Diagnostics if anything is off:
 
 ```bash
-./agentmail check      # 4-layer pipeline diagnostics (gateway → bridge → webhook → profile)
-./agentmail ping       # end-to-end ping/pong round-trip through SMTP
-./agentmail welcome    # sends a welcome email to the manager and verifies delivery
-./agentmail stats      # machine overview: systems, agents, mail statistics
+./agentmail check     # pipeline diagnostics (gateway → bridge → plugin)
+./agentmail ping      # SMTP ping/pong round-trip
+./agentmail stats     # systems / agents / mail overview
 ```
 
-Example output:
+Other hosts work the same way — `--home` selects the platform
+(`~/.hermes`, `~/.openclaw`, `~/.pi`, or a deer-flow backend dir); the
+CLI activates and provisions, the matching SDK (pip `aimail` or the npm
+adapter package) installs its own resources and patches, and the agent
+host loads it.
 
-```
-$ ./agentmail stats
-  Systems installed:
-      shared-token-40b34a66   [hermes]    agents: 1
-      shared-token-9479c607   [openclaw]  agents: 1
-  Agents (2):
-      agent.weiwei@amail.token.tm   [hermes]
-          received: 12 emails · storage: 1.2 MB · manager: 925457@qq.com
-      agent.xianlin@amail.token.tm   [openclaw]
-          received: 8 emails · storage: 0.9 MB · manager: 925457@qq.com
-```
-
-Priority for every flag: CLI argument > shell env > `.env` > built-in default.
-See `./agentmail --help` for all subcommands (`bridge`, `check`, `domain`,
-`install`, `mailname`, `ping`, `reset`, `stats`, `uninstall`, `welcome`).
+Priority for every flag: CLI argument > shell env > `.env` > built-in
+default. See `./agentmail --help` for all subcommands (`bridge`, `check`,
+`domain`, `install`, `mailname`, `ping`, `reset`, `stats`, `uninstall`,
+`welcome`, `persona`, `repair`).
 
 ---
 
 ## Architecture
 
-AgentMail consists of two core components: **aimail-gateway** (mail gateway) and **Hermes Agent** (LLM engine), working together via Webhook and HTTP API at runtime.
+AgentMail connects two sides: **aimail-gateway** (the mail service: SMTP
+ingress/egress, addressing, the activation/domain/admin APIs) and the
+**agent host** (Hermes, dsh, OpenClaw, pi, deer-flow …), wired together by
+an HTTP/bridge runtime that each platform SDK implements. The diagram
+below shows the Hermes wiring as the concrete example:
 
 ```
                      ┌────────────────────┐
