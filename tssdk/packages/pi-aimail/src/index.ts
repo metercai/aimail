@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url'
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
 import { processInboundMail, releaseAllSystems, routeAddressFromHeaders, verifySignature, type InboundPayload } from '@aimail/mail-core'
 import { resolveByRecipient } from '@aimail/mail'
-import { agentIdentity, initIdentity, readPointer } from './identity.js'
+import { agentIdentity, initIdentity, readPointer, setInboundEndpoint } from './identity.js'
 import { buildPiTools } from './tools.js'
 
 export const INBOUND_PATH = '/aimail/inbound'
@@ -154,6 +154,9 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
       })()
     })
     const port = options.inboundPort ?? DEFAULT_INBOUND_PORT
+    // Tell identity where inbound actually listens (auto-bind registers this
+    // URL as the address webhook + bridge route target).
+    setInboundEndpoint(`http://127.0.0.1:${port}${INBOUND_PATH}`)
     server.listen(port, '127.0.0.1', () => {
       log.info(`[pi-aimail] inbound listening on http://127.0.0.1:${port}${INBOUND_PATH}`)
     })

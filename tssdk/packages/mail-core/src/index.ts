@@ -21,6 +21,26 @@ export {
 } from './config.js'
 export * from './release-resources.js'
 export {
+  listSystemDirs,
+  readSystemConfig,
+  emailForAgent,
+  registerAddress,
+  saveBinding,
+  registerBridgeRoute,
+  autoBind,
+} from './auto-bind.js'
+export type {
+  SystemGatewayConfig,
+  AdminClientLike,
+  RegisterAddressOptions,
+  RegisterAddressResult,
+  SaveBindingOptions,
+  BridgeRouteOptions,
+  BridgeRouteResult,
+  AutoBindOptions,
+  AutoBindResult,
+} from './auto-bind.js'
+export {
   setAgentIdentity,
   setAgentModel,
   sendMail,

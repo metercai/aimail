@@ -116,10 +116,10 @@ cp docs/.env.example .env
 ./agentmail install --home ~/.dsh
 
 # 5. Bind the dsh session: register the address, add the bridge route and
-#    write the local binding. The system id is auto-detected (single-system
-#    machines); pass --session-id to reuse an existing dsh session, or let
-#    it generate one and create that session in dsh with the mail preset.
-python3 cli/dsh/bind_agent.py
+#    write the local binding. This happens AUTOMATICALLY on first mail-tool
+#    use inside a dsh session (SDK auto-bind, one address per session) —
+#    just create the session in dsh with the mail preset. (Optional early
+#    bind: python3 cli/dsh/bind_agent.py)
 
 # 6. Close the loop with a welcome mail (delivery verified).
 ./agentmail welcome
