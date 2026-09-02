@@ -10,12 +10,17 @@ See HERMES_PATCH_MAP.md for details.
 Library form of cli/hermes/apply_webhook_patch.py: the 7 sub-patches live in
 patch_webhook(target_path) -> bool (True when the file was modified); stderr
 diagnostics unchanged. Runnable compat: python3 patch_webhook.py <path/to/webhook.py>
+
+Library now also ships the unpatch side: unpatch_webhook(fp) -> int removes the
+patch by exact-text block stripping (WEBHOOK_BLOCK1-5 mirrored verbatim from
+cli/agentmail).
 """
 
 import os
 import re
 import subprocess
 import sys
+from pathlib import Path
 
 # ── 双形态自举(repo pysdk/ ↔ pip site-packages/aimail/)──
 # repo 形态: dirname(dirname(__file__)) = pysdk/(含 aimail_base.py 等 flat core,
@@ -383,6 +388,205 @@ except Exception:
         print("ALREADY PATCHED")
 
     return patched
+
+
+# ═══════════════════════════════════════════════════════════════
+#  exact-text patch removal (fallback when hermes-agent is not a git
+#  repo) — blocks must match what the patch inserts. Migrated from
+#  cli/agentmail (unpatch section, lines 1307-1524).
+# ═══════════════════════════════════════════════════════════════
+
+def strip_block(text: str, block: str) -> tuple:
+    """Remove a known exact string block from text.
+    Returns (new_text, True if removed).
+    """
+    if block not in text:
+        return text, False
+    return text.replace(block, '', 1), True
+
+
+def strip_trailing_blanks(text: str) -> str:
+    """Remove excess blank lines left after block removal."""
+    return re.sub(r'\n{4,}', '\n\n\n', text)
+
+WEBHOOK_BLOCK1 = """
+# ═══════════════════════════════════════════════════════════════
+# Preprocess Registry — allows tools modules to register payload
+# preprocessors that run before prompt rendering (AmailGateway)
+# ═══════════════════════════════════════════════════════════════
+
+PREPROCESS_REGISTRY: Dict[str, Callable] = {}
+
+
+def register_preprocessor(name: str, fn: Callable) -> None:
+    \"\"\"Register a payload preprocessor function.
+
+    Preprocessors receive (payload: dict, headers: dict) and return
+    the (possibly modified) payload dict. Called before prompt
+    rendering so the Agent sees preprocessed data.
+    \"\"\"
+    PREPROCESS_REGISTRY[name] = fn
+
+
+"""
+
+# Block 2: Preprocessor invocation
+# Inserted BEFORE "# Format prompt from template"
+WEBHOOK_BLOCK2 = """        # ── Preprocess payload (AmailGateway integration) ──────────
+        preprocess_name = route_config.get("preprocess")
+        if preprocess_name:
+            preprocessor = PREPROCESS_REGISTRY.get(preprocess_name)
+            if preprocessor:
+                try:
+                    payload = preprocessor(payload, dict(request.headers))
+                except Exception as e:
+                    logger.error(
+                        "[webhook] preprocessor '%s' failed: %s",
+                        preprocess_name, e
+                    )
+
+"""
+
+# Block 3: a2a_board prompt field consumer
+# Inserted AFTER session_chat_id, BEFORE "# Store delivery info"
+WEBHOOK_BLOCK3 = """        # ── a2a_board: consume preprocessor prompt fields ──
+        _wp = payload.get("_whoami_prompt")
+        if _wp:
+            prompt = prompt + "\n\n---\n" + _wp
+        _rp = payload.get("_role_prompt")
+        if _rp:
+            prompt = prompt + "\n\n---\n" + _rp
+        _sk = payload.get("_a2a_session_key")
+        if _sk:
+            session_chat_id = f"webhook:{route_name}:{_sk}"
+"""
+
+
+# Block 3: Ping-pong interception
+# Inserted BEFORE "# Non-blocking"
+WEBHOOK_BLOCK4 = """        # ── Ping-pong interception (end-to-end test) ────────────────
+        ping_subject = (payload.get("subject") or "").strip()
+        if ping_subject.startswith("__agentmail_ping__:"):
+            ping_id = ping_subject.split(":", 1)[1].strip()
+            if ping_id:
+                try:
+                    import json as _json, os as _os, sys as _sys
+                    from datetime import datetime, timezone
+                    _tools_dir = _os.path.join(_os.path.dirname(__file__), "..", "..", "tools")
+                    _sys.path.insert(0, _os.path.abspath(_tools_dir) + "/hermes")
+                    from aimail_tools import send_mail as _send_mail
+                    pong_body = _json.dumps({
+                        "ping_id": ping_id,
+                        "event": {"prompt": prompt, "route": route_name,
+                                  "delivery_id": delivery_id, "skills": skills},
+                    }, indent=2)
+                    _log_ping_event("ping_intercepted", ping_id, payload, "")
+                    pong_result = _send_mail(
+                        to=payload.get("from", ""),
+                        subject="__agentmail_pong__:" + ping_id, body=pong_body,
+                        message_id=payload.get("message_id") or "",
+                    )
+                    pong_status = "ok" if pong_result.get("success") else pong_result.get("error", "?")
+                except Exception as _e:
+                    pong_status = str(_e)
+                    logger.error("[ping] send_mail failed: %s", _e)
+                _log_ping_event("pong_sent", ping_id, payload, pong_status)
+            return web.json_response({"pong": ping_id, "status": "pong_sent"})
+
+        elif ping_subject.startswith("__agentmail_pong__:"):
+            ping_id = ping_subject.split(":", 1)[1].strip()
+            if ping_id:
+                _log_ping_event("pong_returned", ping_id, payload, "")
+            return web.json_response({"pong": ping_id, "status": "pong_returned"})
+
+"""
+
+# Block 5: _log_ping_event (was Block 4)
+# Inserted AFTER session_chat_id, BEFORE "# Store delivery info" function (appended at end of file)
+WEBHOOK_BLOCK5 = """
+def _log_ping_event(dir_: str, ping_id: str, payload: dict, pong_status: str):
+    \"\"\"Append a JSON line to agentmail.log for ping-pong tracking.\"\"\"
+    import json, os as _os
+    from datetime import datetime, timezone
+    entry = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "dir": dir_, "ping_id": ping_id,
+        "from": payload.get("from", ""),
+        "to": payload.get("to", ""),
+    }
+    if pong_status:
+        entry["pong_status"] = pong_status
+    _log_dir = _os.environ.get("AIMAIL_HOME") or _os.environ.get("AGENTMAIL_HOME", "")
+    if not _log_dir:
+        # Resolve email from profile dir .agentmail pointer
+        _pdir = _os.environ.get("HERMES_PROFILE_DIR", "")
+        if not _pdir:
+            _pdir = _os.path.expanduser("~/.hermes")
+        _pointer = _os.path.join(_pdir, ".agentmail")
+        if _os.path.isfile(_pointer):
+            try:
+                import json as _json
+                _pd = _json.load(open(_pointer))
+                _email = _pd.get("email", "")
+                if _email:
+                    _log_dir = _os.path.expanduser("~/.agentmail/mail/" + _email.replace("@", "_"))
+            except:
+                pass
+    if not _log_dir:
+        _log_dir = _os.path.expanduser("~/.agentmail/mail/default")
+    log_path = _os.path.join(_log_dir, "agentmail.log")
+    try:
+        _os.makedirs(_log_dir, exist_ok=True)
+        with open(log_path, "a") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\\n")
+    except Exception:
+        pass
+"""
+
+
+def unpatch_webhook(fp: Path) -> int:
+    if not fp.exists():
+        return 0
+    text = fp.read_text()
+    original = text
+    changes = 0
+
+    for name, block in [
+        ("PREPROCESS_REGISTRY",        WEBHOOK_BLOCK1),
+        ("preprocessor invocation",    WEBHOOK_BLOCK2),
+        ("a2a_board prompt fields",    WEBHOOK_BLOCK3),
+        ("ping-pong interception",     WEBHOOK_BLOCK4),
+        ("_log_ping_event",            WEBHOOK_BLOCK5),
+    ]:
+        text, ok = strip_block(text, block)
+        if ok:
+            changes += 1
+
+    # Adapter import block (pip 形态 aimail.hermes / legacy tools.hermes) — remove
+    text, n = re.subn(
+        r'# ── AmailGateway Hermes adapter \(shared core injection \+ registration\) ──\n'
+        r'try:\n    from [^\n]*?# noqa: F401\nexcept Exception:\n    pass\n',
+        '', text, count=0)
+    if n:
+        changes += n
+
+    # Block 5: Remove Callable from typing import
+    text, n = re.subn(
+        r'(from typing import .+?), Callable\n',
+        r'\1\n',
+        text, count=1
+    )
+    if n:
+        changes += 1
+
+    text = strip_trailing_blanks(text)
+
+    if text != original:
+        fp.write_text(text)
+        print(f"  ✓ webhook.py: {changes} block(s) removed")
+    else:
+        print("  - webhook.py: no changes")
+    return changes
 
 
 if __name__ == "__main__":

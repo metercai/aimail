@@ -9,12 +9,17 @@ See HERMES_PATCH_MAP.md for details.
 Library form of cli/hermes/apply_profiles_patch.py: logic lives in
 patch_profiles(target_path) -> bool (True when the file was modified); stderr
 diagnostics unchanged. Runnable compat: python3 patch_profiles.py <path/to/profiles.py>
+
+Library now also ships the unpatch side: unpatch_profiles(fp) -> int removes the
+profile hooks by exact-text block stripping (PROFILES_HOOK / PROFILES_HOOK_DEL
+mirrored verbatim from cli/agentmail).
 """
 
 import os
 import re
 import subprocess
 import sys
+from pathlib import Path
 
 # ── 双形态自举(repo pysdk/ ↔ pip site-packages/aimail/)──
 # repo 形态: dirname(dirname(__file__)) = pysdk/(含 aimail_base.py 等 flat core,
@@ -285,6 +290,67 @@ def patch_profiles(target_path: str) -> bool:
             print("  ╚═══", file=sys.stderr)
 
     return patched
+
+
+# ═══════════════════════════════════════════════════════════════
+#  exact-text patch removal for hermes_cli/profiles.py — blocks must
+#  match what patch_profiles() inserts. Migrated from cli/agentmail
+#  (unpatch section, lines 1307-1545).
+# ═══════════════════════════════════════════════════════════════
+
+def strip_block(text: str, block: str) -> tuple:
+    """Remove a known exact string block from text.
+    Returns (new_text, True if removed).
+    """
+    if block not in text:
+        return text, False
+    return text.replace(block, '', 1), True
+
+
+def strip_trailing_blanks(text: str) -> str:
+    """Remove excess blank lines left after block removal."""
+    return re.sub(r'\n{4,}', '\n\n\n', text)
+
+
+PROFILES_HOOK = """    # ── Fire integration hooks (AmailGateway) ──
+    try:
+        from aimail.aimail_base import trigger_profile_hooks
+        trigger_profile_hooks(\"profile_created\", canon, str(profile_dir))
+    except ImportError:
+        pass  # aimail (pip) not installed
+
+"""
+
+PROFILES_HOOK_DEL = """            # ── Fire integration hooks (AmailGateway) ──
+            try:
+                from aimail.aimail_base import trigger_profile_hooks
+                trigger_profile_hooks(\"profile_deleted\", canon, str(profile_dir))
+            except ImportError:
+                pass  # aimail (pip) not installed
+
+"""
+
+
+def unpatch_profiles(fp: Path) -> int:
+    if not fp.exists():
+        return 0
+    text = fp.read_text()
+    original = text
+    changes = 0
+
+    for block in [PROFILES_HOOK, PROFILES_HOOK_DEL]:
+        text, ok = strip_block(text, block)
+        if ok:
+            changes += 1
+
+    text = strip_trailing_blanks(text)
+
+    if text != original:
+        fp.write_text(text)
+        print(f"  ✓ profiles.py: {changes} hook(s) removed")
+    else:
+        print("  - profiles.py: no changes")
+    return changes
 
 
 if __name__ == "__main__":
