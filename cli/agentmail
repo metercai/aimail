@@ -390,6 +390,15 @@ def cmd_install(args) -> int:
         print("  dsh: 绑定步骤 = scripts/dsh/bind_agent.py(注册地址+路由+落盘)")
         print("        在 dsh 中创建 session(加入 mail preset)后运行 bind_agent.py")
 
+    # ── 4) 平台无关:释放 board 资源(role_prompt/role_soul × en/zh)到
+    #        系统配置目录 ~/.agentmail/systems/{sid}/board/ —— 所有平台的
+    #        pysdk/tssdk 运行时都从这里读取(用户可个性化)。
+    sid = env.get("INTEGRATE_SYSTEM_ID", "")
+    if sid:
+        r = subprocess.call(["bash", str(SCRIPTS_DIR / "release-board-resources.sh"), sid])
+        if r != 0:
+            _warn(f"board resources release exit {r}")
+
     print(f"  install done. 建议: agentmail check {'--system-id ' + args.system_id if args.system_id else ''}".rstrip())
     return 0
 
