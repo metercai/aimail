@@ -19,6 +19,7 @@ export {
   saveAgentConfig,
   updateAgentConfig,
 } from './config.js'
+export * from './release-resources.js'
 export {
   setAgentIdentity,
   setAgentModel,

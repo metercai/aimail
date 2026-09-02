@@ -6,11 +6,16 @@
  * schema — identity stays pointer + agentmail.json (single source of truth).
  */
 import { definePluginEntry, type OpenClawPluginDefinition } from 'openclaw/plugin-sdk/plugin-entry'
-import { setAgentIdentity } from '@aimail/mail-core'
+import { releaseAllSystems, setAgentIdentity } from '@aimail/mail-core'
+import * as path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createMailTools } from './tools.js'
 import { createInboundHandler, INBOUND_PATH } from './inbound.js'
 import { createAimailCommands } from './commands.js'
 import { agentIdentity } from './identity.js'
+
+// SDK-shipped board resources (role prompts/souls) live at the package root.
+const boardRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'resources', 'board')
 
 const entry: OpenClawPluginDefinition = definePluginEntry({
   id: 'openclaw-aimail',
@@ -20,6 +25,15 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
   register(api) {
     // Outbound X-AIMail-Agent header (real detected host version, no guess)
     setAgentIdentity(agentIdentity())
+
+    // SDK-shipped board resources → ~/.agentmail/systems/*/board/ (idempotent;
+    // never overwrites user-personalized files). Covers openclaw-only
+    // machines that never install the Python SDK/CLI.
+    try {
+      releaseAllSystems(boardRoot)
+    } catch {
+      // non-fatal seed; re-released on register/next start
+    }
 
     // 12 bare-name tools (MAIL_TOOLS single source; identity from ctx.agentId)
     api.registerTool(createMailTools)

@@ -16,8 +16,10 @@
  * package). Binding: create ~/.pi/.agentmail with {system_id, email}.
  */
 import * as http from 'node:http'
+import * as path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
-import { processInboundMail, routeAddressFromHeaders, verifySignature, type InboundPayload } from '@aimail/mail-core'
+import { processInboundMail, releaseAllSystems, routeAddressFromHeaders, verifySignature, type InboundPayload } from '@aimail/mail-core'
 import { resolveByRecipient } from '@aimail/mail'
 import { agentIdentity, initIdentity, readPointer } from './identity.js'
 import { buildPiTools } from './tools.js'
@@ -32,6 +34,14 @@ export interface PiAimailOptions {
 
 export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {}) {
   initIdentity()
+  // SDK-shipped board resources → ~/.agentmail/systems/*/board/ (idempotent;
+  // never overwrites user-personalized files). Covers pi-only machines that
+  // never install the Python SDK/CLI.
+  try {
+    releaseAllSystems(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'resources', 'board'))
+  } catch {
+    // non-fatal seed; re-released on next start
+  }
   const log = {
     info: (m: string) => console.log(m),
     warn: (m: string) => console.warn(m),

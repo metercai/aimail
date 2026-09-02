@@ -13,7 +13,9 @@ import {
   resolveCtx,
   type MailToolCtx,
 } from '@aimail/mail'
-import type { AgentConfig } from '@aimail/mail-core'
+import { releaseAllSystems, type AgentConfig } from '@aimail/mail-core'
+import * as path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 export const name = 'mail'
 export const inject = []
@@ -34,6 +36,14 @@ export interface MailService {
 
 export function apply(ctx: Context, config: { systemId?: string } = {}): void {
   const systemId = config.systemId ?? process.env.AIMAIL_SYSTEM_ID ?? ''
+  // SDK-shipped board resources (role prompts/souls) → local config dir,
+  // so a dsh-only machine (no Python SDK/CLI) still gets them. Idempotent;
+  // never overwrites user-personalized files.
+  try {
+    releaseAllSystems(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'resources', 'board'))
+  } catch {
+    // non-fatal: resources are a seed; explicit release can re-run later
+  }
   const service: MailService = {
     systemId,
     resolveConfig: (sessionId) => resolveBySessionId(sessionId),

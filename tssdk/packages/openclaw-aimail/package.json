@@ -23,7 +23,8 @@
   "files": [
     "dist",
     "openclaw.plugin.json",
-    "README.md"
+    "README.md",
+    "resources/**"
   ],
   "bundleDependencies": [
     "@aimail/mail",
