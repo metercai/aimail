@@ -1,5 +1,4 @@
-#!/usr/bin/env python3
-"""ensure_webhook_config.py — 幂等确保 Hermes profile 的 webhook 入站配置就位。
+"""ensure_config.py — 幂等确保 Hermes profile 的 webhook 入站配置就位(库形态)。
 
 安装断链根因(2026-08-16 多次): 安装链(install-tools.sh / configure.sh /
 register_profiles.py)从未写以下配置,全靠手工补——缺任一项即断链:
@@ -17,21 +16,34 @@ _ensure_webhook_route 创建 `agentmail-inbound`(skills=['agentmail'])——
 (http://127.0.0.1:8646/webhooks/agentmail-inbound),不是旧版硬编码
 拼接 /webhooks/amail-inbound;注册一条 agentmail-inbound 即可。
 
-本脚本幂等: 已存在的配置项保留(尤其 secret——变更会致 bridge 转发
-HMAC 401);只补缺失项。由 register_profiles.py(安装链 per-profile
-落实)调用,也支持独立运维。
+本模块幂等: 已存在的配置项保留(尤其 secret——变更会致 bridge 转发
+HMAC 401);只补缺失项。由 hermes/register_profiles.py(安装链 per-profile
+落实)调用;原 CLI main() 已移除(argparse 入口不再需要)。
 
-用法:
-  ensure_webhook_config.py --profile-dir ~/.hermes/profiles/agentmail
-  ensure_webhook_config.py --profiles-dir ~/.hermes/profiles   # 批量(仅 amail profile)
+从 cli/hermes/ensure_webhook_config.py 迁移:函数体逐字保留,argparse
+main 删除。公开 API: ensure_profile_config(profile_dir) -> list、
+is_amail_profile(profile_dir) -> bool。
 """
-import argparse
-import json
+
+import os
 import secrets
 import sys
-import time
 from pathlib import Path
 
+# ── 双形态自举(repo pysdk/ ↔ pip site-packages/aimail/)──
+# repo 形态: dirname(dirname(__file__)) = pysdk/(含 aimail_base.py 等 flat core,
+# 裸 import 可用)→ 加入 sys.path。pip 形态: 该目录 = site-packages/(无 flat core),
+# 需先 import aimail 触发 aimail/__init__.py glue(把 aimail/ 目录插 sys.path,
+# flat core 裸 import 才可用)。
+_CORE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if os.path.isfile(os.path.join(_CORE_DIR, "aimail_base.py")):
+    if _CORE_DIR not in sys.path:
+        sys.path.insert(0, _CORE_DIR)
+else:
+    try:
+        import aimail  # noqa: F401  (pip 形态 glue)
+    except Exception:
+        pass
 
 # webhook 会话默认工具集(用户批准);仅确保 agentmail 存在,其余不覆盖
 WEBHOOK_TOOLSET = ["agentmail", "web", "file", "terminal", "search", "delegation"]
@@ -129,43 +141,3 @@ def is_amail_profile(profile_dir: Path) -> bool:
     if wh.get("extra", {}).get("secret"):
         return True
     return False
-
-
-def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--profile-dir", help="单个 Hermes profile 目录(显式指定=强制处理)")
-    ap.add_argument("--profiles-dir", default="",
-                    help="Hermes profiles 根目录(批量,仅处理有 amail 标记的 profile)")
-    args = ap.parse_args()
-
-    if args.profile_dir:
-        profile_dirs = [Path(args.profile_dir).expanduser()]
-    elif args.profiles_dir:
-        root = Path(args.profiles_dir).expanduser()
-        profile_dirs = sorted(p for p in root.iterdir() if p.is_dir())
-    else:
-        print("✗ 需 --profile-dir 或 --profiles-dir")
-        return 1
-
-    total_changes = 0
-    for pd in profile_dirs:
-        if not pd.is_dir():
-            print(f"✗ profile dir not found: {pd}")
-            continue
-        # 批量模式只处理 amail 标记 profile(--profile-dir 显式指定不受限,
-        # 但调用方须自知目标);无关 profile 绝不写入,防污染。
-        if args.profiles_dir and not is_amail_profile(pd):
-            continue
-        changes = ensure_profile_config(pd)
-        if changes:
-            total_changes += len(changes)
-            print(f"ensure_webhook_config [{pd.name}]:")
-            for c in changes:
-                print(f"  • {c}")
-    if total_changes == 0:
-        print("ensure_webhook_config: all present (no changes)")
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

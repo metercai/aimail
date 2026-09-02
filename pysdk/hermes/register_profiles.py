@@ -1,14 +1,38 @@
-#!/usr/bin/env python3
-"""Register existing Hermes profiles as amail addresses in the current system."""
+"""Register existing Hermes profiles as amail addresses in the current system.
+
+Hermes 平台安装链入口的库形态(cli/hermes/register_profiles.py 迁移):由新的
+安装入口 import 本模块后调用 register_emails()。不再依赖 cli/runtime_core 的
+load_core()/load_adapter('hermes')——顶部双形态自举 + 同目录兄弟模块导入
+(aimail.hermes 包导入优先,回退本目录裸 import)取代旧 _SCRIPTS_DIR hack 与
+importlib.util 动态加载 ensure_webhook_config。
+"""
+
 import sys, os, json
 from pathlib import Path
-# 运行时核心(repo pysdk/ 优先 > pip aimail 兜底)+ cli/(gateway_api)
-_SCRIPTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _SCRIPTS_DIR not in sys.path:
-    sys.path.insert(0, _SCRIPTS_DIR)
-from runtime_core import load_core, load_adapter  # noqa: E402
-load_core()
-load_adapter("hermes")
+
+# ── 双形态自举(repo pysdk/ ↔ pip site-packages/aimail/)──
+# repo 形态: dirname(dirname(__file__)) = pysdk/(含 aimail_base.py 等 flat core,
+# 裸 import 可用)→ 加入 sys.path。pip 形态: 该目录 = site-packages/(无 flat core),
+# 需先 import aimail 触发 aimail/__init__.py glue(把 aimail/ 目录插 sys.path,
+# flat core 裸 import 才可用)。
+_CORE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if os.path.isfile(os.path.join(_CORE_DIR, "aimail_base.py")):
+    if _CORE_DIR not in sys.path:
+        sys.path.insert(0, _CORE_DIR)
+else:
+    try:
+        import aimail  # noqa: F401  (pip 形态 glue)
+    except Exception:
+        pass
+
+# 同目录兄弟模块统一导入: aimail.hermes 包导入优先(pip 形态 / repo 已装
+# aimail),失败则把本目录(hermes/)插 sys.path 后裸 import(repo namespace 形态)。
+try:
+    from aimail.hermes import aimail_hermes, ensure_config  # noqa: E402,F401
+except ImportError:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import aimail_hermes  # noqa: E402,F401
+    import ensure_config  # noqa: E402,F401
 
 def load_gateway_config():
     # Use SYSTEM_ID env var to locate config directly
@@ -22,14 +46,12 @@ def load_gateway_config():
             except Exception:
                 pass
     return None
-
 def register_emails():
     config = load_gateway_config()
     if not config or not config.get("admin_key"):
         print("no_config")
         return
 
-    from aimail_hermes import _auto_register_email
     # 配置补全(幂等):platform_toolsets.webhook/cli 加 agentmail +
     # platforms.webhook enabled。断链根因曾多次出现:安装链从未写这些
     # 配置,全靠手工补——缺 webhook 段 → webhook 会话无 send_mail
@@ -37,13 +59,6 @@ def register_emails():
     # (agentmail-inbound)由 _auto_register_email → _ensure_webhook_route
     # 创建,**不需要第二个 amail-inbound**(bridge 全 URL 路由直接指
     # /webhooks/agentmail-inbound)。
-    import importlib.util
-    _ensure_spec = importlib.util.spec_from_file_location(
-        "ensure_webhook_config",
-        os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                     "ensure_webhook_config.py"))
-    _ensure_mod = importlib.util.module_from_spec(_ensure_spec)
-    _ensure_spec.loader.exec_module(_ensure_mod)
 
     system_id = config.get("system_id", "")
     home = os.path.expanduser(os.environ.get("HERMES_HOME", "~/.hermes"))
@@ -64,8 +79,8 @@ def register_emails():
     else:
         # Register default profile
         try:
-            _ensure_mod.ensure_profile_config(Path(home))
-            _auto_register_email("default", home, config)
+            ensure_config.ensure_profile_config(Path(home))
+            aimail_hermes._auto_register_email("default", home, config)
             count += 1
         except Exception as e:
             print(f"failed:default:{e}")
@@ -87,8 +102,8 @@ def register_emails():
                 except:
                     continue
             try:
-                _ensure_mod.ensure_profile_config(Path(profile_dir))
-                _auto_register_email(name, profile_dir, config)
+                ensure_config.ensure_profile_config(Path(profile_dir))
+                aimail_hermes._auto_register_email(name, profile_dir, config)
                 count += 1
             except Exception as e:
                 print(f"failed:{name}:{e}")
