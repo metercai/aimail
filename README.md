@@ -106,23 +106,30 @@ cp docs/.env.example .env
 #    activation, with AIMAIL_SYSTEM_NAME for a shared domain); set
 #    AIMAIL_MANAGER_ADDRESS (who receives the welcome mail).
 
-# 3. One-command install: activate system → deploy bridge → install the
-#    dsh-aimail plugin into the dsh host.
+# 3. Machine-level environment (once per machine): locks the network
+#    structure — where the gateway is and whether a bridge is needed
+#    (direct push for a local gateway; bridge push for a remote one).
+./agentmail init
+
+# 4. One-command install: activate system → deploy/complete bridge →
+#    install the dsh-aimail plugin into the dsh host.
 ./agentmail install --home ~/.dsh
 
-# 4. Bind the dsh session: register the address, add the bridge route and
+# 5. Bind the dsh session: register the address, add the bridge route and
 #    write the local binding. The system id is auto-detected (single-system
 #    machines); pass --session-id to reuse an existing dsh session, or let
 #    it generate one and create that session in dsh with the mail preset.
 python3 cli/dsh/bind_agent.py
 
-# 5. Close the loop with a welcome mail (delivery verified).
+# 6. Close the loop with a welcome mail (delivery verified).
 ./agentmail welcome
 ```
 
-Step 3 runs the whole chain **non-interactively** — every value is read
-from `.env`, so `--home` is usually the only flag. Step 5 sends a welcome
-email through the gateway to the manager and confirms it was delivered;
+Step 3 (`init`) runs once per machine — gateway discovery, direct-vs-bridge
+decision, bridge binary + skeleton config. Step 4 (`install`) runs
+per system and is non-interactive — every value is read from `.env`, so
+`--home` is usually the only flag. Step 6 sends a welcome email through
+the gateway to the manager and confirms it was delivered;
 that is the end-to-end proof that activation → bridge → plugin → binding
 all work. Diagnostics if anything is off:
 

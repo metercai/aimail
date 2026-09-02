@@ -323,3 +323,43 @@ install → webhook patch & profile registration. Then verify:
 
 `--home` locates the platform root (`~/.hermes` / `~/.openclaw`); `--system-id`
 is preferred when the platform cannot be auto-detected.
+
+## 8. Machine Migration (moving a system to a new machine)
+
+The gateway stores mail/storage server-side; a machine keeps only local
+configuration, snapshots and the bridge. Moving an existing system to a
+new machine:
+
+```bash
+# 1. On the OLD machine, collect the system credentials:
+ls ~/.agentmail/.system_raw_key/        # {sid}_admin.key — the admin key
+ls ~/.agentmail/systems/{sid}/          # agentmail_gateway.json + per-agent mailboxes
+
+# 2. On the NEW machine — machine environment (once):
+git clone https://github.com/metercai/aimail.git && cd aimail
+cp docs/.env.example .env               # AIMAIL_URL + AIMAIL_MANAGER_ADDRESS
+./agentmail init                        # gateway discovery + bridge skeleton
+
+# 3. Restore the system credentials (copy the two items from step 1):
+mkdir -p ~/.agentmail/.system_raw_key
+cp <old>/{sid}_admin.key ~/.agentmail/.system_raw_key/
+# agentmail_gateway.json can be re-created instead by activating with the
+# admin key: AIMAIL_ADMIN_KEY=$(cat ~/.agentmail/.system_raw_key/{sid}_admin.key)
+
+# 4. Reuse the system (idempotent, no new activation):
+./agentmail install --home <platform-root> --system-id {sid}
+#    — reuses the existing system via the admin key, re-deploys the
+#      platform binding (patch/registration), appends the bridge system
+#      entry and starts the bridge.
+
+# 5. Re-bind the platform agent if needed (dsh: per session) and verify:
+./agentmail check --system-id {sid}
+./agentmail welcome --system-id {sid}
+```
+
+Notes:
+- `install` never activates twice: with an admin key present it reuses the
+  system (`reuse` path), so a migrated machine does not consume an
+  activation code.
+- Mail history stays on the gateway; local `~/.agentmail/mail` snapshots
+  do not need copying (they are for debugging).
