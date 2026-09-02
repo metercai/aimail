@@ -280,6 +280,65 @@ def _sdk_uninstall(kind: str, system_home: Path, sid: str) -> int:
     return _sdk.uninstall_deerflow(str(backend))
 
 
+def _is_local_gateway(url: str) -> bool:
+    """网关是否本机/本地网络(直连 push,无需 bridge)。"""
+    try:
+        from urllib.parse import urlparse
+        host = urlparse(url).netloc.rsplit("@", 1)[-1]
+        if ":" in host and not host.startswith("["):
+            host = host.rsplit(":", 1)[0]
+        host = host.strip("[]")
+        if host in ("127.0.0.1", "localhost", "::1"):
+            return True
+        # 本机所有 IP 也算本地
+        import socket
+        for info in socket.getaddrinfo(socket.gethostname(), None):
+            if info[4][0] == host:
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _probe_local_gateway() -> str:
+    """探测本机网关(默认 127.0.0.1:38080),通则返回其 URL。"""
+    import socket
+    for port in (38080,):
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=1):
+                return f"http://127.0.0.1:{port}"
+        except OSError:
+            pass
+    return ""
+
+
+def cmd_init(args) -> int:
+    """机器级基础环境(一次):锁定网络结构——网关在哪、直连还是 bridge。
+    零系统可跑;激活(install)在其后进行。"""
+    gw = args.gateway_url or _env_val("AIMAIL_URL") or _probe_local_gateway()
+    if not gw:
+        gw = "https://amail.token.tm"  # 默认远程网关
+    print(f"  init: 网关 = {gw}")
+
+    if _is_local_gateway(gw):
+        # 本地自建网关 → 直连 push,无需 bridge(注册三态第 3 支)
+        print("  ✓ 本地网关(直连 push)——无需 bridge,系统注册时直连本地端点")
+        print("  init done. 接下来: agentmail install(激活系统并绑定平台)")
+        return 0
+
+    # 远程网关 → bridge push:二进制 + 骨架配置(首次 install 补 key 并启动)
+    env = dict(os.environ)
+    env["GATEWAY_URL"] = gw
+    env.setdefault("WEBHOOK_MODE", "bridge")
+    r = subprocess.call([sys.executable, str(SCRIPTS_DIR / "deploy_bridge.py"),
+                         "--init"], env=env)
+    if r != 0:
+        _warn(f"bridge init exit {r}")
+        return r
+    print("  init done. 接下来: agentmail install(激活系统,首次将补齐 bridge key 并启动)")
+    return 0
+
+
 def cmd_install(args) -> int:
     """安装:集成脚本到 check 前的全部步骤(非交互化)。"""
     system_home = Path(args.home).expanduser() if args.home else Path()
@@ -366,13 +425,16 @@ def cmd_install(args) -> int:
         except Exception as e:
             _warn(f"domain ensure skipped: {e}")
 
-    # 2) 部署 bridge(单实例多系统合并)
-    env2 = dict(os.environ)
-    env2["GATEWAY_URL"] = env["INTEGRATE_GATEWAY_URL"]
-    env2["ADMIN_KEY"] = env.get("INTEGRATE_ADMIN_KEY", "")
-    env2["SYSTEM_ID"] = env["INTEGRATE_SYSTEM_ID"]
-    r = subprocess.call([sys.executable, str(SCRIPTS_DIR / "deploy_bridge.py")], env=env2)
-    _ok("bridge deployed" if r == 0 else "bridge: see warnings")
+    # 2) 部署 bridge(单实例多系统合并;本地直连网关无需桥)
+    if _is_local_gateway(gw_url):
+        _ok("bridge: 本地网关直连模式,无需 bridge")
+    else:
+        env2 = dict(os.environ)
+        env2["GATEWAY_URL"] = env["INTEGRATE_GATEWAY_URL"]
+        env2["ADMIN_KEY"] = env.get("INTEGRATE_ADMIN_KEY", "")
+        env2["SYSTEM_ID"] = env["INTEGRATE_SYSTEM_ID"]
+        r = subprocess.call([sys.executable, str(SCRIPTS_DIR / "deploy_bridge.py")], env=env2)
+        _ok("bridge deployed" if r == 0 else "bridge: see warnings")
 
     # 3) 平台适配
     if platform == "hermes":
@@ -1306,6 +1368,12 @@ def main():
     p_dom.add_argument("--id", help="域名记录 id(默认自动生成)")
     p_dom.add_argument("--webhook-url", help="创建时指定的 webhook 接收 URL")
     p_dom.set_defaults(func=cmd_domain)
+
+    p_init = sub.add_parser("init", help="机器级基础环境(一次):锁定网关/直连或 bridge")
+    p_init.add_argument("--gateway-url", default=None,
+                        help="网关地址(默认 AIMAIL_URL;本机 38080 可探测;否则 https://amail.token.tm)")
+    p_init.add_argument("--home", help="(兼容)忽略——init 是机器级,无平台 home")
+    p_init.set_defaults(func=cmd_init)
 
     p_install = sub.add_parser("install", help="安装(集成脚本到 check 前)")
     p_install.add_argument("--home", help="系统 home(平台根:hermes=~/.hermes, openclaw=~/.openclaw)")

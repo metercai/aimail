@@ -16,6 +16,73 @@ def log_step(msg: str):
 def log_ok(msg: str):
     print(f"  ✓ {msg}")
 
+def _ensure_binary(bridge_bin: str, bridge_dir: str) -> bool:
+    """Deploy the bridge binary (extract from local zip if missing). Idempotent."""
+    if not os.access(bridge_bin, os.X_OK):
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(script_dir)
+        bridge_dir_local = os.path.join(project_root, "bridge")
+        import platform
+        machine = platform.machine()
+        if machine == "x86_64":
+            arch = "amd64"
+        elif machine in ("aarch64", "arm64"):
+            arch = "arm64"
+        else:
+            arch = "amd64"
+        zip_path = latest_bridge_zip(bridge_dir_local, arch)
+        if not zip_path:
+            log_warn(f"No bridge zip found in {bridge_dir_local} "
+                     f"(aimail-bridge-v*-linux-{arch}.zip)")
+            return False
+        log_step(f"Extracting bridge from {zip_path}...")
+        try:
+            subprocess.run(
+                ["unzip", "-o", zip_path, "-d", bridge_dir],
+                capture_output=True, timeout=30)
+            os.chmod(bridge_bin, 0o755)
+        except Exception as e:
+            log_warn(f"Failed to extract bridge: {e}")
+            return False
+    return os.access(bridge_bin, os.X_OK)
+
+def _config_lines(addr: str, mode: str, merged: list, log_path: str) -> list:
+    """TOML body for a single bridge serving the given system entries."""
+    lines = [
+        f'bind = "{addr}"',
+        f'mode = "{mode}"',
+        '',
+        '[logging]',
+        f'file = "{log_path}"',
+        'level = "info"',
+        '',
+        '[pull]',
+        '# 单 bridge 多系统:每系统一条,独立 key/system_id/dedup/backoff',
+        'systems = [',
+    ]
+    for i, s in enumerate(merged):
+        comma = ',' if i < len(merged) - 1 else ''
+        parts = [
+            f'amail_url = "{s["amail_url"]}"',
+            f'admin_key = "{s["admin_key"]}"',
+            f'system_id = "{s["system_id"]}"',
+            f'poll_interval_sec = {s.get("poll_interval_sec", 2)}',
+        ]
+        if s.get("api_key"):
+            parts.append(f'api_key = "{s["api_key"]}"')
+        if s.get("webhook_secret"):
+            parts.append(f'webhook_secret = "{s["webhook_secret"]}"')
+        lines.append(f'  {{ {", ".join(parts)} }}{comma}')
+    lines.extend([
+        ']',
+        '',
+        '[health]',
+        'check_interval_sec = 30',
+        'fail_threshold = 6',
+        'connect_timeout_sec = 3',
+    ])
+    return lines
+
 def _version_key(name: str):
     """Extract (major, minor, patch) sort key from 'aimail-bridge-vX.Y[.Z]-...'."""
     m = re.search(r"-v(\d+)\.(\d+)(?:\.(\d+))?", name)
@@ -135,41 +202,8 @@ def write_bridge_config(path: str, mode: str, addr: str, gw: str,
     merged = [s for s in existing_systems if s.get("system_id") != sid]
     merged.append(new_entry)
 
-    lines = [
-        f'bind = "{addr}"',
-        f'mode = "{mode}"',
-        '',
-        '[logging]',
-        f'file = "{log_path}"',
-        'level = "info"',
-        '',
-        '[pull]',
-        '# 单 bridge 多系统:每系统一条,独立 key/system_id/dedup/backoff',
-        'systems = [',
-    ]
-    for i, s in enumerate(merged):
-        comma = ',' if i < len(merged) - 1 else ''
-        parts = [
-            f'amail_url = "{s["amail_url"]}"',
-            f'admin_key = "{s["admin_key"]}"',
-            f'system_id = "{s["system_id"]}"',
-            f'poll_interval_sec = {s.get("poll_interval_sec", 2)}',
-        ]
-        if s.get("api_key"):
-            parts.append(f'api_key = "{s["api_key"]}"')
-        if s.get("webhook_secret"):
-            parts.append(f'webhook_secret = "{s["webhook_secret"]}"')
-        lines.append(f'  {{ {", ".join(parts)} }}{comma}')
-    lines.extend([
-        ']',
-        '',
-        '[health]',
-        'check_interval_sec = 30',
-        'fail_threshold = 6',
-        'connect_timeout_sec = 3',
-    ])
     with open(path, 'w') as f:
-        f.write('\n'.join(lines) + '\n')
+        f.write('\n'.join(_config_lines(addr, mode, merged, log_path)) + '\n')
 
 def start_bridge(bin_path: str, cfg_path: str, pid_path: str) -> bool:
     """Start bridge process — SINGLE instance. Returns True if running.
@@ -256,6 +290,44 @@ def main():
         start_bridge(bin_path, cfg_path, pid_path)
         return 0 if os.path.exists(pid_path) else 1
 
+    # Standalone init: machine-level network setup (agentmail init) — runs on
+    # a machine with zero systems. Deploys the binary and writes a skeleton
+    # config (empty systems). Bridge API key + start happen at the FIRST
+    # install (system activation provides the gateway admin key), so
+    # activation and bridge remain decoupled (2026-09-02 init/install split).
+    if "--init" in sys.argv:
+        gw = os.environ.get("GATEWAY_URL", "") or os.environ.get("AIMAIL_URL", "")
+        if not gw:
+            log_warn("init 需要 GATEWAY_URL/AIMAIL_URL(网关在哪)")
+            return 1
+        wh_mode = os.environ.get("WEBHOOK_MODE", "bridge")
+        bridge_mode = "pull" if wh_mode == "bridge" else "push"
+        wh_host = os.environ.get("WEBHOOK_HOST", "") or os.environ.get("AIMAIL_WEBHOOK_HOST", "")
+        if bridge_mode == "pull":
+            wh_host = ""
+        elif not wh_host:
+            wh_host = format_webhook_host(detect_ip())
+            log_step(f"Auto-detected bridge address: {wh_host}")
+
+        bridge_dir = os.path.expanduser("~/.agentmail/bridge/bin")
+        bridge_bin = os.path.join(bridge_dir, "aimail-bridge")
+        if not _ensure_binary(bridge_bin, bridge_dir):
+            log_warn("bridge 二进制不可用;请先在仓库 bridge/ 放置 aimail-bridge zip")
+            return 1
+
+        cfg_path = os.path.expanduser("~/.agentmail/bridge/aimail_bridge.toml")
+        if os.path.exists(cfg_path):
+            log_ok(f"bridge 配置已存在: {cfg_path}(复用,首个 install 将 merge 系统条目)")
+        else:
+            with open(cfg_path, 'w') as f:
+                f.write('\n'.join(_config_lines(
+                    wh_host or "127.0.0.1:38081", bridge_mode, [],
+                    os.path.expanduser("~/.agentmail/logs/aimail-bridge.log"))) + '\n')
+            log_ok(f"bridge 骨架配置已写入: {cfg_path}(systems 空)")
+        print("  init: bridge 二进制+配置就位。首个系统激活(agentmail install)时"
+              "将创建 bridge key、追加系统条目并启动。")
+        return 0
+
     # Read env vars from integrate.sh
     gw = os.environ.get("GATEWAY_URL", "")
     ak = os.environ.get("ADMIN_KEY", "")
@@ -282,35 +354,8 @@ def main():
     bridge_bin = os.path.join(bridge_dir, "aimail-bridge")
     os.makedirs(bridge_dir, exist_ok=True)
 
-    # Extract from local zip if missing
-    if not os.access(bridge_bin, os.X_OK):
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        project_root = os.path.dirname(script_dir)
-        bridge_dir_local = os.path.join(project_root, "bridge")
-        # Detect platform
-        import platform
-        machine = platform.machine()
-        if machine == "x86_64":
-            arch = "amd64"
-        elif machine in ("aarch64", "arm64"):
-            arch = "arm64"
-        else:
-            arch = "amd64"
-        zip_path = latest_bridge_zip(bridge_dir_local, arch)
-        if not zip_path:
-            log_warn(f"No bridge zip found in {bridge_dir_local} (aimail-bridge-v*-linux-{arch}.zip)")
-            return 0
-        log_step(f"Extracting bridge from {zip_path}...")
-        try:
-            subprocess.run(
-                ["unzip", "-o", zip_path, "-d", bridge_dir],
-                capture_output=True, timeout=30)
-            os.chmod(bridge_bin, 0o755)
-        except Exception as e:
-            log_warn(f"Failed to extract bridge: {e}")
-
-    if not os.access(bridge_bin, os.X_OK):
-        log_warn("bridge binary not found")
+    if not _ensure_binary(bridge_bin, bridge_dir):
+        log_warn("bridge 二进制不可用")
         return 0
 
     # Write bridge config
