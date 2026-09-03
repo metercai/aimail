@@ -1,11 +1,11 @@
-# 财务预审 — AgentMail 实现方案
+# 财务预审 — AIMail 实现方案
 
 ## 场景
 员工提交报销时 CC 预审 Agent，Agent 自动核验并回复预审意见。
 
 ## 基础设施
 
-| 能力 | AgentMail 支持 |
+| 能力 | AIMail 支持 |
 |------|:--:|
 | CC 入站检测 | ✅ aimail 预处理器解析 CC |
 | 附件解析 | ✅ Webhook 入站附件提取 |

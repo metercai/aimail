@@ -1,7 +1,7 @@
-# AgentMail Integration Guide — 对接架构与实例示范
+# AIMail Integration Guide — 对接架构与实例示范
 
 > 状态:定稿(2026-08-18,完整审计 + 三平台生产实证)
-> 用途:后续任何 agent 系统对接 AgentMail 的第一参照文档。
+> 用途:后续任何 agent 系统对接 AIMail 的第一参照文档。
 > 表述约定:各主题按 目标 → 方法 → 手段 → 结果 展开,只述现状,不述演变。
 > 权威代码:`tools/`(共享核心 + 平台适配)、`bin/`(运行时)、`scripts/`(CLI 层)、`skills/`(安装源)。
 > 配套文档:`AGENTMAIL-JSON-REFERENCE.md`(配置文件字段权威参考)。
@@ -12,7 +12,7 @@
 
 ### 1.1 目标
 
-AgentMail 与任意 agent 系统(LLM 运行时)对接,agent 获得完整邮件能力:
+AIMail 与任意 agent 系统(LLM 运行时)对接,agent 获得完整邮件能力:
 
 | 能力 | 达成形态 |
 |------|----------|

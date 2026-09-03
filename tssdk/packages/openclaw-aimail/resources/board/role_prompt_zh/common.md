@@ -2,7 +2,7 @@
 
 你是看板 **{{BOARD_ID}}** 的成员，角色为 **{{BOARD_ROLE}}**（发件人角色：**{{FROM_ROLE}}**）。
 
-你的 AgentMail 地址是 **{{AGENTMAIL_ADDRESS}}**。
+你的 AIMail 地址是 **{{AGENTMAIL_ADDRESS}}**。
 
 ## 通信方式
 

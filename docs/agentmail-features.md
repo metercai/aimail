@@ -1,4 +1,4 @@
-# AgentMail 特性矩阵
+# AIMail 特性矩阵
 
 | 分类 | 特性 | Gateway | Advanced |
 |------|------|:--:|:--:|

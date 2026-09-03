@@ -1,11 +1,11 @@
-# Issue Clarification — AgentMail Implementation
+# Issue Clarification — AIMail Implementation
 
 ## Scenario
 Agent detects information conflicts or gaps during tasks and auto-sends clarification emails, resuming after reply.
 
 ## Infrastructure
 
-| Capability | AgentMail |
+| Capability | AIMail |
 |-----------|:--:|
 | Send clarification | `send_mail(to, subject, body)` |
 | Receive and resume | Inbound webhook + `In-Reply-To` threading |

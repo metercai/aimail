@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""aimail — AgentMail runtime SDK (Python). Unified public entry point.
+"""aimail — AIMail runtime SDK (Python). Unified public entry point.
 
 This package is the single public surface for integrating aimail: both the
 platform hosts (Hermes / OpenClaw / DeerFlow) and third-party agents should

@@ -1,11 +1,11 @@
-# Customer Support — AgentMail Implementation
+# Customer Support — AIMail Implementation
 
 ## Scenario
 Agent takes over `support@` inbox, auto-classifies intent, auto-replies to FAQs, and escalates complex issues to human agents.
 
 ## Infrastructure
 
-| Capability | AgentMail |
+| Capability | AIMail |
 |-----------|:--:|
 | Take over support@ | Register agent address |
 | Intent classification | LLM parses email content |

@@ -1,11 +1,11 @@
-# 合同审核 — AgentMail 实现方案
+# 合同审核 — AIMail 实现方案
 
 ## 场景
 法务 Agent 接管合同审核邮箱，自动解析附件条款、识别风险点、回复批注版本。
 
 ## 基础设施
 
-| 能力 | AgentMail 支持 |
+| 能力 | AIMail 支持 |
 |------|:--:|
 | 接管 `legal@` 邮箱 | ✅ 注册 agent 收件地址 |
 | 收附件 | ✅ Webhook 入站，`send_mail` 入参含 `attachments` |

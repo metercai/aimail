@@ -1,11 +1,11 @@
-# 客服支持 — AgentMail 实现方案
+# 客服支持 — AIMail 实现方案
 
 ## 场景
 Agent 接管 `support@` 邮箱，自动分类意图、FAQ 自动回复、复杂问题转人工。
 
 ## 基础设施
 
-| 能力 | AgentMail 支持 |
+| 能力 | AIMail 支持 |
 |------|:--:|
 | 接管 support@ | ✅ 注册 agent 收件地址 |
 | 意图分类 | ✅ LLM 解析邮件内容 |

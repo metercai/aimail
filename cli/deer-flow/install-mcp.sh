@@ -58,7 +58,7 @@ servers["amail"] = {
     "tool_name_prefix": True,
     "session_init_timeout": 60,
     "tool_call_timeout": 60,
-    "description": "AgentMail email tools (shared fallback MCP server)",
+    "description": "AIMail email tools (shared fallback MCP server)",
 }
 
 with open(cfg_path, "w") as f:

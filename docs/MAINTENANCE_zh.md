@@ -1,4 +1,4 @@
-# AgentMail 运维指南
+# AIMail 运维指南
 
 ---
 

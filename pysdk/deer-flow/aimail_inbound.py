@@ -1,4 +1,4 @@
-"""aimail_inbound.py — AgentMail 入站端点(2026-08-18 重构)。
+"""aimail_inbound.py — AIMail 入站端点(2026-08-18 重构)。
 
 预处理并入 DeerFlow 本地 gateway 进程(仿 Hermes 进程内预处理),取代
 独立接收进程 amail_deerflow_bridge.py(8798,已退役删除)。

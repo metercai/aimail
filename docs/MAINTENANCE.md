@@ -1,4 +1,4 @@
-# AgentMail Maintenance Guide
+# AIMail Maintenance Guide
 
 ---
 

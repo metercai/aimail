@@ -1,4 +1,4 @@
-# Workflow Collaboration — AgentMail A2A Board
+# Workflow Collaboration — AIMail A2A Board
 
 ## Scenario
 Designer Agent, Frontend Agent, and PM collaborate via A2A Board. All communication and decisions flow through email commands.

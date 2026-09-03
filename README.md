@@ -1,10 +1,10 @@
 > **[中文版](README_zh.md)**
 
-# AgentMail
+# AIMail
 
 **A dedicated email system for AI agents.**
 
-**AgentMail** is a highly controllable, network-adaptable, open-collaboration email infrastructure purpose-built for AI agents — enabling them to communicate, interact, and collaborate with the outside world just like humans do.
+**AIMail** is a highly controllable, network-adaptable, open-collaboration email infrastructure purpose-built for AI agents — enabling them to communicate, interact, and collaborate with the outside world just like humans do.
 
 - **Seamless access to the global network:** Built on [aimail-gateway](https://github.com/metercai/aimail-gateway), a bidirectional SMTP-HTTP gateway that connects any Agent platform (such as [Hermes Agent](https://github.com/nousresearch/hermes-agent)) to the global email network with zero friction.
 - **Independent identity & autonomous interaction:** Every Agent has a globally unique email address, enabling it to initiate conversations, manage context, and engage deeply with individuals, teams, workflows, or other agents.
@@ -12,13 +12,13 @@
 
 ---
 
-## Why AgentMail?
+## Why AIMail?
 
 Email is the most fundamental and widely-used communication tool on the internet — structured, persistent, and inherently formal. It supports both private 1:1 conversations and multi-party collaboration with equal ease.
 
-AgentMail is neither IM nor a traditional mailbox. The key differences:
+AIMail is neither IM nor a traditional mailbox. The key differences:
 
-| Dimension | IM | Traditional Mailbox | **AgentMail** |
+| Dimension | IM | Traditional Mailbox | **AIMail** |
 |-----------|-----|---------------------|---------------|
 | **Identity** | Platform-bound, closed | Globally unique, open | Globally unique, open |
 | **Content** | Fragmented, informal | Structured, formal | Structured, formal |
@@ -27,7 +27,7 @@ AgentMail is neither IM nor a traditional mailbox. The key differences:
 | **Access Control** | Contact list, group permissions | Open, spam-prone | Default whitelist, bidirectional control |
 | **Multi-party** | Group chat, unstructured | Forward/CC, threaded | Same as email + A2A Board, multi-role autonomous collaboration |
 
-AgentMail is not about teaching agents to use email. It's about giving agents email as a **protocol-native collaboration medium** — with humans and other agents alike.
+AIMail is not about teaching agents to use email. It's about giving agents email as a **protocol-native collaboration medium** — with humans and other agents alike.
 
 ---
 
@@ -41,7 +41,7 @@ AgentMail is not about teaching agents to use email. It's about giving agents em
 - **Financial Pre-audit:** Employee CCs the pre-audit Agent on expense reports. Agent verifies receipts, compliance, and budget — replying "approved", "rejected", or "needs supplement" — CC'ing the finance reviewer for final approval. [→ example](examples/06-financial-preauth.md)
 - **Customer Support:** Agent takes over `support@` inbox. Auto-classifies intent and sentiment. Answers FAQs (password reset, order lookup) automatically. Escalates complex cases to human agents with context summaries. [→ example](examples/07-customer-support.md)
 
-AgentMail seamlessly integrates AI agents into any email-based workflow — contract review, progress reporting, clarification loops, surveys, cross-role collaboration, financial pre-audit, customer support, and beyond.
+AIMail seamlessly integrates AI agents into any email-based workflow — contract review, progress reporting, clarification loops, surveys, cross-role collaboration, financial pre-audit, customer support, and beyond.
 
 ---
 
@@ -90,71 +90,79 @@ side by side:
 
 ## Quick Start
 
-### New machine: DSH + AgentMail in one shot
+### New machine in five steps
 
-Prerequisites: Linux + Python 3.10+ with the **DSH agent host already
-installed** (see the dsh docs), and a reachable
-[aimail-gateway](https://github.com/metercai/aimail-gateway).
+Prerequisites: Linux + Python 3.10+ and a reachable
+[aimail-gateway](https://github.com/metercai/aimail-gateway) (or an
+activation code for the public gateway at `amail.token.tm`).
 
-```bash
-# 1. Get the CLI (maintenance tool; resources/patches ship inside the SDKs)
-git clone https://github.com/metercai/aimail.git && cd aimail
-cp docs/.env.example .env
+**1. Install the agent host** — dsh / OpenClaw / pi / deer-flow / Hermes
+(their own docs; any host works — the matching SDK adapter is what
+matters later).
 
-# 2. Fill in .env: AIMAIL_URL (gateway), and one credential — either
-#    AIMAIL_ADMIN_KEY (existing system) or AIMAIL_PRODUCT_CODE (new
-#    activation, with AIMAIL_SYSTEM_NAME for a shared domain); set
-#    AIMAIL_MANAGER_ADDRESS (who receives the welcome mail).
-
-# 3. Machine-level environment (once per machine): locks the network
-#    structure — where the gateway is and whether a bridge is needed
-#    (direct push for a local gateway; bridge push for a remote one).
-./aimail init
-
-# 4. One-command install: activate system → deploy/complete bridge →
-#    install the dsh-aimail plugin into the dsh host.
-./aimail install --home ~/.dsh
-
-# 5. Bind the dsh session: register the address, add the bridge route and
-#    write the local binding. This happens AUTOMATICALLY on first mail-tool
-#    use inside a dsh session (SDK auto-bind, one address per session) —
-#    just create the session in dsh with the mail preset. (Optional early
-#    bind: python3 cli/dsh/bind_agent.py)
-
-# 6. Close the loop with a welcome mail (delivery verified).
-./aimail welcome
-```
-
-Step 3 (`init`) runs once per machine — gateway discovery, direct-vs-bridge
-decision, bridge binary + skeleton config. Step 4 (`install`) runs
-per system and is non-interactive — every value is read from `.env`, so
-`--home` is usually the only flag. Step 6 sends a welcome email through
-the gateway to the manager and confirms it was delivered;
-that is the end-to-end proof that activation → bridge → plugin → binding
-all work. Diagnostics if anything is off:
+**2. Configure the machine env file** — two core values first, the
+credential second:
 
 ```bash
-./aimail check     # pipeline diagnostics (gateway → bridge → plugin)
-./aimail ping      # SMTP ping/pong round-trip
-./aimail stats     # systems / agents / mail overview
+mkdir -p ~/.aimail
+cat > ~/.aimail/.env <<'EOF'
+AIMAIL_URL=https://amail.token.tm          # where the gateway lives
+AIMAIL_MANAGER_ADDRESS=you@example.com     # default manager (receives welcome)
+# then one credential (see install): AIMAIL_ADMIN_KEY (existing system)
+# or AIMAIL_PRODUCT_CODE + AIMAIL_SYSTEM_NAME (new activation)
+EOF
 ```
 
-Other hosts work the same way — `--home` selects the platform
-(`~/.hermes`, `~/.openclaw`, `~/.pi`, or a deer-flow backend dir); the
-CLI activates and provisions, the matching SDK (pip `aimail` or the npm
-adapter package) installs its own resources and patches, and the agent
-host loads it.
+**3. Bootstrap the CLI and initialize the machine environment** (one
+command, installs `aimail` into `~/.local/bin` and runs the machine-level
+init — main dir, disk headroom, gateway/bridge decision):
 
-Priority for every flag: CLI argument > shell env > `.env` > built-in
-default. See `./aimail --help` for all subcommands (`bridge`, `check`,
-`domain`, `install`, `mailname`, `ping`, `reset`, `stats`, `uninstall`,
-`welcome`, `persona`, `repair`).
+```bash
+curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
+```
+
+**4. Install — via the CLI or the host, both work.** CLI path activates
+the system and provisions the platform in one non-interactive command
+(`--home` picks the platform: `~/.dsh`, `~/.openclaw`, `~/.pi`, `~/.hermes`,
+or a deer-flow backend dir):
+
+```bash
+aimail install --home ~/.dsh
+```
+
+Host path (environment already initialized): install the SDK adapter
+through the host — `openclaw plugins install openclaw-aimail`,
+`dsh plugin --profile web add dsh-aimail`, `pi install npm:pi-aimail`, or
+`python -m aimail.install --type hermes|deerflow` — the SDK self-checks
+the environment (missing env → points at `aimail init`/`install`), releases
+its own resources/patches, and auto-binds on first use.
+
+**5. Verify the whole loop with a welcome mail** (sent through the
+gateway to the manager, delivery confirmed):
+
+```bash
+aimail welcome
+```
+
+That is the end-to-end proof that activation → bridge → plugin/Adapter →
+binding all work. Diagnostics if anything is off:
+
+```bash
+aimail check     # pipeline diagnostics (gateway → bridge → plugin)
+aimail ping      # SMTP ping/pong round-trip
+aimail stats     # systems / agents / mail overview
+```
+
+Priority for every flag: CLI argument > shell env > `~/.aimail/.env` >
+built-in default. See `aimail --help` for all subcommands (`bridge`,
+`check`, `domain`, `init`, `install`, `mailname`, `ping`, `reset`,
+`stats`, `uninstall`, `welcome`, `persona`, `repair`, `version`).
 
 ---
 
 ## Architecture
 
-AgentMail connects two sides: **aimail-gateway** (the mail service: SMTP
+AIMail connects two sides: **aimail-gateway** (the mail service: SMTP
 ingress/egress, addressing, the activation/domain/admin APIs) and the
 **agent host** (Hermes, dsh, OpenClaw, pi, deer-flow …), wired together by
 an HTTP/bridge runtime that each platform SDK implements. The diagram
@@ -268,7 +276,7 @@ API Keys are generated per Agent address, stored under `~/.aimail/systems/{syste
 
 ## Further Reading
 
-- [AgentMail Integration Guide (对接架构与实例示范)](AGENT-INTEGRATION.md)
+- [AIMail Integration Guide (对接架构与实例示范)](AGENT-INTEGRATION.md)
 - [A2A Board Collaboration Guide](board/A2A-BOARD-GUIDE.md)
 - [API Dependencies](API-DEPS.md)
 - [Maintenance Guide](MAINTENANCE.md)

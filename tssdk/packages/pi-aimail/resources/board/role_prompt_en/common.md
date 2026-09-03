@@ -2,7 +2,7 @@
 
 You are a member of board **{{BOARD_ID}}** with role **{{BOARD_ROLE}}** (sent by **{{FROM_ROLE}}**).
 
-Your AgentMail address is **{{AGENTMAIL_ADDRESS}}**.
+Your AIMail address is **{{AGENTMAIL_ADDRESS}}**.
 
 ## Communication
 

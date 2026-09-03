@@ -1,11 +1,11 @@
-# 进度报告 — AgentMail 实现方案
+# 进度报告 — AIMail 实现方案
 
 ## 场景
 Agent 定期汇总项目进度、生成结构化报告，按角色定制内容发送。
 
 ## 基础设施
 
-| 能力 | AgentMail 支持 |
+| 能力 | AIMail 支持 |
 |------|:--:|
 | 定时触发 | ✅ Hermes cron job |
 | 分组发送 | ✅ `send_mail(to=roles, ...)` 批量 |

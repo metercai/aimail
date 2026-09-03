@@ -78,7 +78,7 @@ afterAll(async () => {
 const ctx = { systemId: SYSTEM_ID, email: EMAIL }
 
 describe('D4: X-AIMail-Agent header (new name)', () => {
-  it('sendMail sends X-AIMail-Agent (not X-Agentmail-Agent)', async () => {
+  it('sendMail sends X-AIMail-Agent (not X-Aimail-Agent)', async () => {
     const { calls, restore } = stubFetch({
       '/api/v1/send': [200, { email_id: 'e1', status: 200 }],
     })
@@ -87,7 +87,7 @@ describe('D4: X-AIMail-Agent header (new name)', () => {
     const send = calls.find(c => c.url.includes('/api/v1/send'))!
     const hdrs = send!.body!.headers as Record<string, string>
     expect(hdrs['X-AIMail-Agent']).toBe('dsh/9.9.9')
-    expect(hdrs['X-Agentmail-Agent']).toBeUndefined()
+    expect(hdrs['X-Aimail-Agent']).toBeUndefined()
   })
 })
 

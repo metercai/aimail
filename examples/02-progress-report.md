@@ -1,11 +1,11 @@
-# Progress Report — AgentMail Implementation
+# Progress Report — AIMail Implementation
 
 ## Scenario
 Agent periodically summarizes project progress, generates structured reports, and sends role-tailored content.
 
 ## Infrastructure
 
-| Capability | AgentMail |
+| Capability | AIMail |
 |-----------|:--:|
 | Scheduled trigger | Hermes cron job |
 | Group delivery | `send_mail(to=list, ...)` |

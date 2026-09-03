@@ -1,4 +1,4 @@
-# 流程协同 — AgentMail A2A Board 实现方案
+# 流程协同 — AIMail A2A Board 实现方案
 
 ## 场景
 设计师 Agent、前端 Agent、PM 通过 A2A Board 协作，邮件指令驱动任务流转。

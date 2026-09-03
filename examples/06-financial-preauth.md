@@ -1,11 +1,11 @@
-# Financial Pre-Audit — AgentMail Implementation
+# Financial Pre-Audit — AIMail Implementation
 
 ## Scenario
 Employees CC the pre-audit Agent on expense claims. Agent auto-verifies invoices, checks compliance, and replies with pre-audit opinion.
 
 ## Infrastructure
 
-| Capability | AgentMail |
+| Capability | AIMail |
 |-----------|:--:|
 | CC inbound detection | aimail preprocessor parses CC |
 | Attachment parsing | Webhook inbound attachment extraction |

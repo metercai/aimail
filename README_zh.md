@@ -133,7 +133,7 @@ Webhook Push/Pull 双模式共存，适配各类网络环境中的多样化 Agen
 
 ## 完整架构
 
-AgentMail 由两大部件组成：**aimail-gateway**（邮件网关）和 **Hermes Agent**（LLM 引擎），运行时通过 Webhook 和 HTTP API 协同工作。
+AIMail 由两大部件组成：**aimail-gateway**（邮件网关）和 **Hermes Agent**（LLM 引擎），运行时通过 Webhook 和 HTTP API 协同工作。
 
 ```
                      ┌────────────────────┐
@@ -243,7 +243,7 @@ API Key 按 Agent 地址生成，存储在 `~/.aimail/systems/{system_id}/{addr}
 
 ## 延伸阅读
 
-- [AgentMail 对接指南(架构与实例示范)](AGENT-INTEGRATION.md)
+- [AIMail 对接指南(架构与实例示范)](AGENT-INTEGRATION.md)
 - [A2A Board 项目协作指导手册](board/A2A-BOARD-GUIDE_zh.md)
 - [API 依赖说明](API-DEPS.md)
 - [维护指南](MAINTENANCE_zh.md)

@@ -1,11 +1,11 @@
-# Contract Review — AgentMail Implementation
+# Contract Review — AIMail Implementation
 
 ## Scenario
 A legal AI Agent takes over the `legal@` inbox, auto-parses contract attachments, identifies risks, and replies with annotated versions.
 
 ## Infrastructure
 
-| Capability | AgentMail |
+| Capability | AIMail |
 |-----------|:--:|
 | Take over `legal@` inbox | Register agent address |
 | Receive attachments | Webhook inbound + `send_mail` attachment support |

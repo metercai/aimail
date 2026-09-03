@@ -1,11 +1,11 @@
-# Survey — AgentMail Implementation
+# Survey — AIMail Implementation
 
 ## Scenario
 Agent sends batch surveys, tracks responses, sends reminders, and aggregates results.
 
 ## Infrastructure
 
-| Capability | AgentMail |
+| Capability | AIMail |
 |-----------|:--:|
 | Batch send | `send_mail(to=list, ...)` |
 | Reminder | cron job periodic check |

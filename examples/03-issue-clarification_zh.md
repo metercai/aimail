@@ -1,11 +1,11 @@
-# 问题澄清 — AgentMail 实现方案
+# 问题澄清 — AIMail 实现方案
 
 ## 场景
 Agent 发现信息矛盾或缺失时，自动发送澄清邮件并等待回复后继续推进任务。
 
 ## 基础设施
 
-| 能力 | AgentMail 支持 |
+| 能力 | AIMail 支持 |
 |------|:--:|
 | 发送澄清邮件 | ✅ `send_mail(to, subject, body)` |
 | 接收回复并继续 | ✅ 入站 Webhook + `In-Reply-To` 线程追踪 |
