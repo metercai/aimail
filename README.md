@@ -100,18 +100,22 @@ activation code for the public gateway at `amail.token.tm`).
 (their own docs; any host works — the matching SDK adapter is what
 matters later).
 
-**2. Configure the machine env file** — two core values first, the
-credential second:
+**2. Set the machine env vars** — copy-paste, edit, run. Two core values
+first, the credential second (set only what you need):
 
 ```bash
-mkdir -p ~/.aimail
-cat > ~/.aimail/.env <<'EOF'
-AIMAIL_URL=https://amail.token.tm          # where the gateway lives
-AIMAIL_MANAGER_ADDRESS=you@example.com     # default manager (receives welcome)
-# then one credential (see install): AIMAIL_ADMIN_KEY (existing system)
-# or AIMAIL_PRODUCT_CODE + AIMAIL_SYSTEM_NAME (new activation)
-EOF
+export AIMAIL_URL=https://amail.token.tm        # where the gateway lives
+export AIMAIL_MANAGER_ADDRESS=you@example.com   # default manager (receives welcome)
+# then one credential (see install):
+#   export AIMAIL_ADMIN_KEY=…                  # existing system
+#   export AIMAIL_PRODUCT_CODE=…                # new activation
+#   export AIMAIL_SYSTEM_NAME=…                 # (shared domain: agent.{name}@…)
 ```
+
+That is all — run the next step in this same terminal. The bootstrap
+below persists these into `~/.aimail/.env` for you, so future terminals
+keep working. (To persist them yourself instead: append the same lines
+to `~/.bashrc`.)
 
 **3. Bootstrap the CLI and initialize the machine environment** (one
 command, installs `aimail` into `~/.local/bin` and runs the machine-level
