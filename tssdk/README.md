@@ -57,7 +57,7 @@ dsh plugin --profile web add dsh-aimail
 dsh plugin --profile web remove dsh-aimail
 ```
 
-Prerequisite: an AIMail binding for the dsh session (run `agentmail install`
+Prerequisite: an AIMail binding for the dsh session (run `aimail install`
 from the aimail repository's `cli/`).
 
 What it mounts onto the profile: the mail host service, the inbound endpoint,

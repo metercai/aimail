@@ -9,7 +9,7 @@
  * resolved system id; the resources land in the standard location the
  * preprocess chain reads from:
  *
- *   ~/.agentmail/systems/{system_id}/board/
+ *   ~/.aimail/systems/{system_id}/board/
  *   ├── role_prompt/        en prompt  (role_prompt_en -> role_prompt)
  *   ├── role_prompt_zh/     zh prompt
  *   ├── role_soul/          en souls   (role_soul_en -> role_soul)
@@ -84,7 +84,7 @@ export function releaseResources (opts: ReleaseResourcesOptions): ReleaseResourc
 
 /**
  * Release into every system directory already present under
- * ~/.agentmail/systems/ (single-system machines included). New system dirs
+ * ~/.aimail/systems/ (single-system machines included). New system dirs
  * created later are covered by the next explicit release or by adapters
  * calling this again on startup/registration.
  */

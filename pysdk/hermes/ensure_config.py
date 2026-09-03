@@ -2,19 +2,19 @@
 
 安装断链根因(2026-08-16 多次): 安装链(install-tools.sh / configure.sh /
 register_profiles.py)从未写以下配置,全靠手工补——缺任一项即断链:
-  1. profile config.yaml `platform_toolsets.webhook` 缺 `agentmail`
+  1. profile config.yaml `platform_toolsets.webhook` 缺 `aimail`
      → webhook 会话回退默认工具集(hermes-webhook,无 send_mail),
      agent 物理上无法回邮件("收得到回不出")
-  2. profile config.yaml `platform_toolsets.cli` 缺 `agentmail`
+  2. profile config.yaml `platform_toolsets.cli` 缺 `aimail`
      → CLI 会话无邮件工具(用户定调 2026-08-16:"cli需要加")
   3. profile config.yaml `platforms.webhook.enabled` 缺失
      → 注册链 _ensure_profile_webhook 读不到,webhook_url 为空
 
 路由(webhook_subscriptions.json)由注册链 _auto_register_email →
-_ensure_webhook_route 创建 `agentmail-inbound`(skills=['agentmail'])——
+_ensure_webhook_route 创建 `aimail-inbound`(skills=['aimail'])——
 **不需要第二个 amail-inbound 路由**:bridge 转发路径是路由表全 URL
-(http://127.0.0.1:8646/webhooks/agentmail-inbound),不是旧版硬编码
-拼接 /webhooks/amail-inbound;注册一条 agentmail-inbound 即可。
+(http://127.0.0.1:8646/webhooks/aimail-inbound),不是旧版硬编码
+拼接 /webhooks/amail-inbound;注册一条 aimail-inbound 即可。
 
 本模块幂等: 已存在的配置项保留(尤其 secret——变更会致 bridge 转发
 HMAC 401);只补缺失项。由 hermes/register_profiles.py(安装链 per-profile
@@ -45,8 +45,8 @@ else:
     except Exception:
         pass
 
-# webhook 会话默认工具集(用户批准);仅确保 agentmail 存在,其余不覆盖
-WEBHOOK_TOOLSET = ["agentmail", "web", "file", "terminal", "search", "delegation"]
+# webhook 会话默认工具集(用户批准);仅确保 aimail 存在,其余不覆盖
+WEBHOOK_TOOLSET = ["aimail", "web", "file", "terminal", "search", "delegation"]
 
 
 def _load_yaml(path: Path) -> dict:
@@ -66,7 +66,7 @@ def _dump_yaml(path: Path, data: dict) -> None:
 
 
 def ensure_profile_config(profile_dir: Path) -> list:
-    """确保 platforms.webhook.enabled + platform_toolsets.webhook/cli 含 agentmail。"""
+    """确保 platforms.webhook.enabled + platform_toolsets.webhook/cli 含 aimail。"""
     changes = []
     cfg_path = profile_dir / "config.yaml"
     if not cfg_path.exists():
@@ -93,27 +93,27 @@ def ensure_profile_config(profile_dir: Path) -> list:
         changes.append(f"platforms.webhook enabled (port={port})")
         dirty = True
 
-    # 2) platform_toolsets.webhook 含 agentmail(webhook 会话工具能力)
+    # 2) platform_toolsets.webhook 含 aimail(webhook 会话工具能力)
     pt = cfg.get("platform_toolsets") or {}
     wh_tools = pt.get("webhook") or []
     if not isinstance(wh_tools, list):
         wh_tools = []
-    if "agentmail" not in wh_tools:
+    if "aimail" not in wh_tools:
         if not wh_tools:
             wh_tools = list(WEBHOOK_TOOLSET)
         else:
-            wh_tools.append("agentmail")
+            wh_tools.append("aimail")
         pt["webhook"] = wh_tools
         cfg["platform_toolsets"] = pt
         changes.append(f"platform_toolsets.webhook -> {wh_tools}")
         dirty = True
 
-    # 3) platform_toolsets.cli 含 agentmail(用户定调 cli 也要加)
+    # 3) platform_toolsets.cli 含 aimail(用户定调 cli 也要加)
     cli_tools = pt.get("cli") or []
     if not isinstance(cli_tools, list):
         cli_tools = []
-    if "agentmail" not in cli_tools:
-        cli_tools.append("agentmail")
+    if "aimail" not in cli_tools:
+        cli_tools.append("aimail")
         pt["cli"] = cli_tools
         cfg["platform_toolsets"] = pt
         changes.append(f"platform_toolsets.cli -> {cli_tools}")
@@ -126,7 +126,7 @@ def ensure_profile_config(profile_dir: Path) -> list:
 
 def is_amail_profile(profile_dir: Path) -> bool:
     """判断 profile 是否 amail 相关:有 .agentmail 指针,或已有
-    amail 配置痕迹(platform_toolsets 含 agentmail / platforms.webhook
+    amail 配置痕迹(platform_toolsets 含 aimail / platforms.webhook
     有 secret)。无关 profile(erp/qlbio 等)绝不写入——避免污染非
     amail 目录(2026-08-16 实测污染后清理)。"""
     if (profile_dir / ".agentmail").is_file():
@@ -135,7 +135,7 @@ def is_amail_profile(profile_dir: Path) -> bool:
     pt = cfg.get("platform_toolsets") or {}
     for seg in ("webhook", "cli"):
         tools = pt.get(seg) or []
-        if "agentmail" in (tools if isinstance(tools, list) else []):
+        if "aimail" in (tools if isinstance(tools, list) else []):
             return True
     wh = (cfg.get("platforms") or {}).get("webhook") or {}
     if wh.get("extra", {}).get("secret"):

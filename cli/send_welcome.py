@@ -18,7 +18,7 @@
                           [--agent ADDR] [--to ADDR] [--manager ADDR]
                           [--smtp] [--timeout SECS] [--no-wait]
   --agent-home: agent 系统 home(Hermes=~/.hermes,OpenClaw=~/.openclaw);
-               指针文件 {agent-home}/.agentmail 提供 system_id/email
+               指针文件 {agent-home}/.aimail 提供 system_id/email
   --agent:      agent 标识(定位 mail 目录,默认从指针 email)
   --to:         直接指定收件地址(优先于 --agent/指针)
   --manager:    SMTP 模式发件人(manager)地址,默认 config.manager_address
@@ -72,10 +72,10 @@ def _main_agent_email(cfg: dict) -> str:
     return email_for_agent("default", cfg.get("domain", ""),
                            cfg.get("system_name", ""))
 
-# 与 aimail_base.aimail_home() 同语义:空 env 回退 ~/.agentmail。
+# 与 aimail_base.aimail_home() 同语义:空 env 回退 ~/.aimail。
 # (旧写法 Path("")=PosixPath('.') 恒真,or 回退永不生效——bug。)
-_AH_ENV = os.environ.get("AIMAIL_HOME") or os.environ.get("AGENTMAIL_HOME", "")
-AIMAIL_HOME = Path(_AH_ENV).expanduser() if _AH_ENV else Path.home() / ".agentmail"
+_AH_ENV = os.environ.get("AIMAIL_HOME", "")
+AIMAIL_HOME = Path(_AH_ENV).expanduser() if _AH_ENV else Path.home() / ".aimail"
 SYSTEMS_DIR = AIMAIL_HOME / "systems"
 
 
@@ -206,18 +206,18 @@ def _api_send(gw_url: str, admin_key: str, recipient: str,
 
 
 def _agent_log_path(agent_email: str) -> str:
-    """Per-agent processing log: ~/.agentmail/logs/agentmail.{cleaned_addr}.log."""
+    """Per-agent processing log: ~/.aimail/logs/agentmail.{cleaned_addr}.log."""
     cleaned = re.sub(r"[^\w.\-]", "_", agent_email)
-    return os.path.expanduser(f"~/.agentmail/logs/agentmail.{cleaned}.log")
+    return os.path.expanduser(f"~/.aimail/logs/agentmail.{cleaned}.log")
 
 
 def _poll_reply(agent_email: str, timeout_secs: int) -> tuple:
-    """轮询 agent 侧 agentmail.log,直到 welcome 之后出现新 outbound 记录(agent 回复)。
+    """轮询 agent 侧 aimail.log,直到 welcome 之后出现新 outbound 记录(agent 回复)。
 
     取代旧 stats API 轮询:/api/v1/stats/agent/me 是 advanced 独有端点,
     且 agent 级 key 查他人 stats 必 403(scope 先判 agent)→ 旧逻辑静默
     返回空 dict,sent/received 恒 0。send_mail 成功后共享核心写
-    dir=outbound(含 email_id)到每个 agent 独立的 agentmail.log,
+    dir=outbound(含 email_id)到每个 agent 独立的 aimail.log,
     各 agent 类型通用。返回 (ok, email_id, to)。
     """
     log_path = _agent_log_path(agent_email)
@@ -277,7 +277,7 @@ def main() -> int:
     sid = sid or os.environ.get("SYSTEM_ID", "") or os.environ.get("AIMAIL_SYSTEM_ID", "")
 
     if not sid:
-        print("✗ system_id 未解析(需 --system-id 或 {agent-home}/.agentmail 指针)")
+        print("✗ system_id 未解析(需 --system-id 或 {agent-home}/.aimail 指针)")
         return 1
 
     # ── 读 gateway 配置 ──

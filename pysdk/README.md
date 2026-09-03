@@ -53,11 +53,11 @@ directory in all three layouts: pip site-packages, self-contained bundle
 ## Resources & the local config directory
 
 Board resources are **seeds**, not read-at-runtime-from-the-SDK files. The
-installer (`cli/release-board-resources.sh`, run by `agentmail install`)
+installer (`cli/release-board-resources.sh`, run by `aimail install`)
 copies them to:
 
 ```
-~/.agentmail/systems/{system_id}/board/
+~/.aimail/systems/{system_id}/board/
 ├── role_prompt/        # en (default) — read by the preprocess chain
 ├── role_prompt_zh/     # zh reference (reading point reserved)
 ├── role_soul/          # en souls (distinct from a profile SOUL.md)
@@ -84,7 +84,7 @@ python3 cli/runtime_bundle.py source      # resolves pip > repo pysdk/
 ## Related repositories
 
 - [metercai/aimail](https://github.com/metercai/aimail) — this monorepo:
-  agentmail CLI (`cli/`), Python SDK (`pysdk/`, you are here), TypeScript SDK
+  aimail CLI (`cli/`), Python SDK (`pysdk/`, you are here), TypeScript SDK
   (`tssdk/`), bridge distributions.
 - [metercai/aimail-gateway](https://github.com/metercai/aimail-gateway) — the
   AIMail gateway: SMTP/HTTP mail service, address & activation APIs, and the

@@ -114,7 +114,7 @@ describe('D8: board_id sha256 derivation (gateway derive_board_id)', () => {
 describe('D9: pong body + real pong_sent status', async () => {
   it('sends pong with ping_id/event.mail_id body, keyed on the ping mail_id', async () => {
     const payload = mail({
-      subject: '__agentmail_ping__:ping-abc',
+      subject: '__aimail_ping__:ping-abc',
       mail_id: 'm-ping-1',
     })
     const r = await processInboundMail(payload, {}, CTX)
@@ -131,9 +131,9 @@ describe('D9: pong body + real pong_sent status', async () => {
   })
 
   it('pong_sent log carries the real outcome (ok for a 200 send)', async () => {
-    const payload = mail({ subject: '__agentmail_ping__:ping-xyz', mail_id: 'm-p' })
+    const payload = mail({ subject: '__aimail_ping__:ping-xyz', mail_id: 'm-p' })
     await processInboundMail(payload, {}, CTX)
-    const logPath = path.join(home, 'logs', `agentmail.${cleanAddr(EMAIL)}.log`)
+    const logPath = path.join(home, 'logs', `aimail.${cleanAddr(EMAIL)}.log`)
     const lines = (await fs.readFile(logPath, 'utf-8')).trim().split('\n').map(l => JSON.parse(l))
     const pongSent = lines.find(l => l.dir === 'pong_sent')
     expect(pongSent).toBeDefined()

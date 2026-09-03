@@ -18,7 +18,7 @@
 ```
 1. 法务 Agent 注册 legal@company.com
 2. 业务方发邮件给 legal@，附合同附件
-3. Webhook 推送 → agentmail 预处理 → LLM
+3. Webhook 推送 → aimail 预处理 → LLM
 4. LLM 解析条款、识别风险点
 5. send_mail(to=业务方, body=批注版, cc=审批人) → 回复
 ```

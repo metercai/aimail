@@ -198,7 +198,7 @@ async function resolveSystemId(explicit: string): Promise<string> {
   const ptr = await readPointer()
   if (ptr.system_id) return ptr.system_id
   throw new Error(
-    'no system_id — pass --system-id or activate the agentmail pointer (~/.openclaw/.agentmail)',
+    'no system_id — pass --system-id or activate the aimail pointer (~/.openclaw/.agentmail)',
   )
 }
 

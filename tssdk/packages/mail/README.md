@@ -15,7 +15,7 @@ pnpm add @aimail/mail
 ## What it does
 
 Every adapter needs the same three lookups, sourced from the per-address
-`agentmail.json` bindings under `$AIMAIL_HOME` (default `~/.agentmail`):
+`agentmail.json` bindings under `$AIMAIL_HOME` (default `~/.aimail`):
 
 - `resolveBySessionId(sessionId)` — session-file match first, then agent_id
   field match. For dsh session uuids and OpenClaw/pi agent ids.
@@ -36,13 +36,13 @@ Every adapter needs the same three lookups, sourced from the per-address
 `$AIMAIL_HOME/systems/` are scanned (two-level traversal:
 `systems/{system_id}/{address_dir}/agentmail.json`).
 
-Unbound resolutions throw loudly (`no agentmail binding for …`) — callers
+Unbound resolutions throw loudly (`no aimail binding for …`) — callers
 surface that to the model/user instead of guessing an identity.
 
 ## Related repositories
 
 - [metercai/aimail](https://github.com/metercai/aimail) — the AIMail monorepo:
-  agentmail CLI (`cli/`), Python SDK (`pysdk/`), this TypeScript SDK
+  aimail CLI (`cli/`), Python SDK (`pysdk/`), this TypeScript SDK
   (`tssdk/`), and these resolvers read.
 - [metercai/aimail-gateway](https://github.com/metercai/aimail-gateway) — the
   AIMail gateway: SMTP/HTTP mail service and the address & activation APIs

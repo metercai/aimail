@@ -34,7 +34,7 @@ the runtime's flat imports keep working:
     hermes/aimail_hermes.py   Hermes adapter
     openclaw/                 OpenClaw adapter (CLI / bridge / shared)
     deer-flow/                DeerFlow adapter (inbound router / shared)
-    skills/                   agentmail SKILL.md + DESCRIPTION.md
+    skills/                   aimail SKILL.md + DESCRIPTION.md
     board_role_prompt_en/     board role prompt templates (en)
 """
 
@@ -94,7 +94,7 @@ def core_dir() -> str:
 
 
 def skills_dir() -> str:
-    """agentmail SKILL.md / DESCRIPTION.md directory."""
+    """aimail SKILL.md / DESCRIPTION.md directory."""
     return _os.path.join(root(), "resources", "skills")
 
 

@@ -21,7 +21,7 @@ def gateway_config_path(system_id: str = "") -> Path:
 
 
 def load_gateway_config(system_id: str = "") -> Optional[dict]:
-    """Load gateway connection config from ~/.agentmail/systems/{sid}/agentmail_gateway.json.
+    """Load gateway connection config from ~/.aimail/systems/{sid}/agentmail_gateway.json.
 
     Canonical name: agentmail_gateway.json (scripts/ write this).
     """
@@ -39,7 +39,7 @@ def load_gateway_config(system_id: str = "") -> Optional[dict]:
 # ═══════════════════════════════════════════════════════════════
 
 class GatewayClient:
-    """Thin HTTP client for agentmail gateway API.
+    """Thin HTTP client for aimail gateway API.
 
     v1 signature auth (docs/API-SIGNATURE-PROTOCOL.md): the raw API key never
     crosses the wire; each request carries X-Api-Identity + X-Api-Timestamp +

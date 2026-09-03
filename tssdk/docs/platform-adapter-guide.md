@@ -17,10 +17,10 @@ implementations — each covers a different host shape.
 ## 1. Identity — one pointer, one binding
 
 The **sole identity source** is the per-address `agentmail.json` under
-`$AIMAIL_HOME` (default `~/.agentmail`):
+`$AIMAIL_HOME` (default `~/.aimail`):
 
 ```
-~/.agentmail/systems/{system_id}/{address_dir}/agentmail.json
+~/.aimail/systems/{system_id}/{address_dir}/agentmail.json
    { system_id, agent_id, email, api_key, webhook_secret, gateway_url, ... }
 ```
 
@@ -32,7 +32,7 @@ resolve the full config:
   `@aimail/mail-core`), or the higher-level `resolveByRecipient` from
   `@aimail/mail`
 - pointer `system_id` + agent id → `loadConfigByAgentId(systemId, agentId)`
-- unbound → **fail loud** ("agentmail not configured for this agent — run:
+- unbound → **fail loud** ("aimail not configured for this agent — run:
   …"). Never guess an identity, never fall back to scanning history.
 
 Do **not** use `loadConfigByAgentId('' , …)` / `loadConfigByEmail(email, '')`
@@ -141,5 +141,5 @@ isolated linker cannot pack them — use `scripts/publish-npm.sh`.
 - [ ] `X-AIMail-Agent: {platform}/{version}+{model}` on outbound mail
 - [ ] listener lifecycle tied to the session (close on shutdown)
 - [ ] README mirrors the openclaw-aimail structure (install / what it does /
-      dev), tested against a real gateway round-trip (`agentmail ping` /
-      `agentmail welcome`)
+      dev), tested against a real gateway round-trip (`aimail ping` /
+      `aimail welcome`)

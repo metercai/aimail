@@ -46,7 +46,7 @@ describe('resolvers (existing semantics)', () => {
   })
 
   it('resolveBySessionId throws when unbound', async () => {
-    await expect(resolveBySessionId('nope')).rejects.toThrow(/no agentmail binding/)
+    await expect(resolveBySessionId('nope')).rejects.toThrow(/no aimail binding/)
   })
 
   it('resolveByEmail finds by registered address', async () => {

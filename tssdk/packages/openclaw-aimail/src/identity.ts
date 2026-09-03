@@ -9,7 +9,7 @@
  *   → system_id → @aimail/mail-core loadConfigByAgentId → AgentConfig
  *
  * Auto-bind (SDK auto-binding): when the pointer is missing but the machine
- * has a system config (~/.agentmail/systems/{sid}/agentmail_gateway.json), the
+ * has a system config (~/.aimail/systems/{sid}/agentmail_gateway.json), the
  * first resolution auto-registers the agent's address once per process
  * (register chain + agentmail.json + bridge route via mail-core autoBind),
  * writes the pointer and returns the config — instead of failing loud.
@@ -202,16 +202,16 @@ export async function resolveConfigForAgent(
       if (cfg) return cfg
     }
     const fix = hasAnySystem()
-      ? 'Run: agentmail install --home ~/.openclaw (或 openclaw aimail register)'
-      : 'Machine has no agentmail environment yet. Run: agentmail init, then agentmail install --home ~/.openclaw'
+      ? 'Run: aimail install --home ~/.openclaw (或 openclaw aimail register)'
+      : 'Machine has no aimail environment yet. Run: aimail init, then aimail install --home ~/.openclaw'
     throw new Error(
-      `agentmail not configured for this agent — no ~/.openclaw/.agentmail pointer. ${fix}`,
+      `aimail not configured for this agent — no ~/.openclaw/.agentmail pointer. ${fix}`,
     )
   }
   const cfg = await loadConfigByAgentId(systemId, id)
   if (!cfg) {
     throw new Error(
-      `agentmail not configured for agent '${id}' (system ${systemId}). Run: openclaw aimail register`,
+      `aimail not configured for agent '${id}' (system ${systemId}). Run: openclaw aimail register`,
     )
   }
   return cfg

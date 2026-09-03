@@ -3,13 +3,13 @@
 
 从 check_status.py 的 _run_ping_test 与 verify-e2e.py 独立出来。与
 send_welcome.py 同一机制:SMTP auth 入站(auth.local 认证 FROM)发送
-__agentmail_ping__ 邮件,验证全链路后 pong 回发。
+__aimail_ping__ 邮件,验证全链路后 pong 回发。
 
 Ping/Pong 语义:ping 邮件走完全部中间链(富化/附件/存储)才在调用
 agent 前最后一刻被吞;pong 只在全链路正常时回复 —— 测试通过 =
 进入 agent 之前的所有处理正常。
 
-判定口径(用户定调 2026-08-16):**只信 agent 侧 agentmail.log 的
+判定口径(用户定调 2026-08-16):**只信 agent 侧 aimail.log 的
 三阶段事件** —— ping_intercepted → pong_sent → pong_returned。
 这是 agent 预处理链真实执行 + pong 回环的唯一权威证据,与入站
 投递方式(push 直推 / pull 经 bridge 拉取)无关——无论哪种方式,
@@ -20,7 +20,7 @@ agent 前最后一刻被吞;pong 只在全链路正常时回复 —— 测试通
 用法:
   python3 ping_test.py [--system-id SID] [--agent-home DIR] [--timeout 120]
   --agent-home:  agent 系统 home(Hermes=~/.hermes,OpenClaw=~/.openclaw)
-                 指针文件 {agent-home}/.agentmail 提供 system_id/email
+                 指针文件 {agent-home}/.aimail 提供 system_id/email
   --agent:       可选的 agent 标识(定位 mail 目录,默认从指针 email)
   --timeout:     等待处理的秒数(默认 120)
   --no-snapshot: 跳过原始邮件快照检查
@@ -71,14 +71,14 @@ def _main_agent_email(cfg: dict) -> str:
                            cfg.get("system_name", ""))
 
 # ── 路径 ──────────────────────────────────────────────────────────
-# 与 aimail_base.aimail_home() 同语义:空 env 回退 ~/.agentmail。
+# 与 aimail_base.aimail_home() 同语义:空 env 回退 ~/.aimail。
 # (旧写法 Path("")=PosixPath('.') 恒真,or 回退永不生效——bug。)
-_AH_ENV = os.environ.get("AIMAIL_HOME") or os.environ.get("AGENTMAIL_HOME", "")
-AIMAIL_HOME = Path(_AH_ENV).expanduser() if _AH_ENV else Path.home() / ".agentmail"
+_AH_ENV = os.environ.get("AIMAIL_HOME", "")
+AIMAIL_HOME = Path(_AH_ENV).expanduser() if _AH_ENV else Path.home() / ".aimail"
 SYSTEMS_DIR = AIMAIL_HOME / "systems"
 MAIL_DIR = AIMAIL_HOME / "mail"
 
-PING_PREFIX = "__agentmail_ping__:"
+PING_PREFIX = "__aimail_ping__:"
 
 
 def _clean_agent_dir_name(addr: str) -> str:
@@ -212,7 +212,7 @@ def main() -> int:
     sid = sid or os.environ.get("SYSTEM_ID", "")
 
     if not sid:
-        print("✗ system_id 未解析(需 --system-id 或 {agent-home}/.agentmail 指针)")
+        print("✗ system_id 未解析(需 --system-id 或 {agent-home}/.aimail 指针)")
         return 1
 
     # ── 读 gateway 配置 ──
@@ -248,7 +248,7 @@ def main() -> int:
         return 1
 
     mail_dir = MAIL_DIR / _clean_agent_dir_name(email)          # 快照目录(mail 数据)
-    amail_log = AIMAIL_HOME / "logs" / f"agentmail.{_clean_agent_dir_name(email)}.log"
+    amail_log = AIMAIL_HOME / "logs" / f"aimail.{_clean_agent_dir_name(email)}.log"
 
     # ── 识别 gateway 版本 → 选择 SMTP 入站方式 ──
     edition = _detect_edition(gw_url)
@@ -287,7 +287,7 @@ def main() -> int:
         return (dt - t0).total_seconds() if dt else 0.0
 
     while time.time() < deadline:
-        # ── 三阶段事件:agentmail.log(唯一权威判定,用户定调)──
+        # ── 三阶段事件:aimail.log(唯一权威判定,用户定调)──
         if amail_log.exists():
             for line in reversed(amail_log.read_text().splitlines()):
                 if ping_id not in line:

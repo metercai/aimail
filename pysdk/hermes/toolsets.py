@@ -3,7 +3,7 @@
 patch_toolsets(hermes_dir) registers the 6 amail tool names into the
 _HERMES_CORE_TOOLS list (port of cli/hermes/install-tools.sh step 2);
 unpatch_toolsets(fp) removes them plus the TOOLSET_AMAIL dict block by
-exact-text stripping (blocks mirrored verbatim from cli/agentmail —
+exact-text stripping (blocks mirrored verbatim from cli/aimail —
 who patches, who unpatchs). Runnable compat:
   python3 toolsets.py patch   <hermes-agent-dir>
   python3 toolsets.py unpatch <path/to/toolsets.py>
@@ -32,7 +32,7 @@ else:
 
 # ═══════════════════════════════════════════════════════════════
 #  exact-text patch removal for hermes-agent/toolsets.py — TOOLSET_AMAIL
-#  must match what the installer inserts. Migrated from cli/agentmail
+#  must match what the installer inserts. Migrated from cli/aimail
 #  (unpatch section, lines 1307-1574).
 # ═══════════════════════════════════════════════════════════════
 

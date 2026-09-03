@@ -4,7 +4,7 @@
 原则(用户定调 2026-08-30):
 - 不重新发明检测:逐项跑 check_status.py 的既有检测,✗ 才修,修完复检。
 - 不写第二份注册逻辑:修复动作全部复用 install/共享链函数
-  (deploy_bridge.start_bridge、agentmail scripts/agentmail 的路由重刷、
+  (deploy_bridge.start_bridge、aimail scripts/aimail 的路由重刷、
   aimail_base.register_agent_email 注册链)。
 - agentmail.json 是唯一信任源:修复方向 = 把本地权威值写回云端/bridge。
 - 幂等:重复修复结果一致(webhook 配对、路由注册均幂等)。
@@ -22,9 +22,9 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 import os  # noqa: E402
 
-# 与 scripts/agentmail 同语义:空 env 回退 ~/.agentmail
-_AH_ENV = os.environ.get("AIMAIL_HOME") or os.environ.get("AGENTMAIL_HOME", "")
-AIMAIL_HOME = Path(_AH_ENV).expanduser() if _AH_ENV else Path.home() / ".agentmail"
+# 与 scripts/aimail 同语义:空 env 回退 ~/.aimail
+_AH_ENV = os.environ.get("AIMAIL_HOME", "")
+AIMAIL_HOME = Path(_AH_ENV).expanduser() if _AH_ENV else Path.home() / ".aimail"
 SYSTEMS_DIR = AIMAIL_HOME / "systems"
 
 GREEN, YELLOW, RED, NC = "\033[92m", "\033[93m", "\033[91m", "\033[0m"
@@ -99,14 +99,14 @@ def _ensure_bridge_running() -> bool:
     if start_bridge(str(BRIDGE_BIN), str(BRIDGE_CFG), str(BRIDGE_PID)):
         _ok(f"bridge 已启动 (pid={BRIDGE_PID.read_text().strip() if BRIDGE_PID.exists() else '?'})")
         return True
-    _fail("bridge 启动失败——查日志 ~/.agentmail/logs/aimail-bridge.log")
+    _fail("bridge 启动失败——查日志 ~/.aimail/logs/aimail-bridge.log")
     return False
 
 
 def _refresh_routes(sid: str) -> bool:
-    """重刷该系统路由 = 复用 agentmail 的 bridge --system-id 逻辑(子进程)。"""
+    """重刷该系统路由 = 复用 aimail 的 bridge --system-id 逻辑(子进程)。"""
     r = subprocess.run(
-        [sys.executable, str(SCRIPTS_DIR / "agentmail"), "bridge", "--system-id", sid],
+        [sys.executable, str(SCRIPTS_DIR / "aimail"), "bridge", "--system-id", sid],
         capture_output=True, text=True, timeout=60)
     sys.stdout.write(r.stdout or "")
     if r.returncode != 0:
@@ -291,14 +291,14 @@ def main():
 
     sid = args.system_id
     if not sid:
-        # 权威解析:直接复用 agentmail CLI 的 resolve_system_id(无扩展名 →
+        # 权威解析:直接复用 aimail CLI 的 resolve_system_id(无扩展名 →
         # 显式 SourceFileLoader;仅取函数,CLI main 有 __main__ 守卫不执行)
         from importlib.machinery import SourceFileLoader
-        loader = SourceFileLoader("agentmail_cli", str(SCRIPTS_DIR / "agentmail"))
+        loader = SourceFileLoader("aimail_cli", str(SCRIPTS_DIR / "aimail"))
         import importlib.util
-        spec = importlib.util.spec_from_loader("agentmail_cli", loader)
+        spec = importlib.util.spec_from_loader("aimail_cli", loader)
         if spec is None:
-            print("  无法加载 agentmail CLI 模块(system_id 解析失败)")
+            print("  无法加载 aimail CLI 模块(system_id 解析失败)")
             return 1
         mod = importlib.util.module_from_spec(spec)
         loader.exec_module(mod)

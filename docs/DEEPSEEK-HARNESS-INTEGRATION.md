@@ -1,4 +1,4 @@
-# DeepSeek Harness 集成方案(agentmail ↔ deepseek-harness)
+# DeepSeek Harness 集成方案(aimail ↔ deepseek-harness)
 
 > 状态:**方案定稿**(2026-08-18,经三集成沉淀审计修订)
 > 参照:仓库根 [AGENT-INTEGRATION.md](../AGENT-INTEGRATION.md)(对接架构与实例示范,定稿)
@@ -21,7 +21,7 @@
 
 ## 2. 多 agent 判定:preset = 定义,uuid = 实例
 
-| | agentmail(Hermes/OpenClaw/DeerFlow) | dsh |
+| | aimail(Hermes/OpenClaw/DeerFlow) | dsh |
 |---|---|---|
 | agent 定义(角色) | 与身份融合(profile/agentId) | **preset**(1:N 共享) |
 | agent 实例(身份) | 同一实体 | **uuid / SessionId**(N 个实例) |
@@ -68,7 +68,7 @@ dsh 是 Node,预处理全链由 **mail-core TS 实现**(契约逐字对齐 Pytho
 
 ### 4.4 合理性总评
 
-- **可行**:dsh 扩展点完整覆盖 agentmail 组件需求,无一处改 dsh 核心或 aimail-gateway(gateway 零改动铁律)。
+- **可行**:dsh 扩展点完整覆盖 aimail 组件需求,无一处改 dsh 核心或 aimail-gateway(gateway 零改动铁律)。
 - **新增成本**:mail-core(TS:gateway client + 12 工具 + 预处理全链)+ 3 个 dsh 适配包 + bind/unbind 脚本 + CLI 集成。
 - **预期结果**:dsh 上的 mail-agent(preset 定义 + uuid 实例)获得与 Hermes 同等的邮件能力——出站 12 工具裸名可用;入站 bridge 转发 → 验签 → TS 预处理 → followup 唤醒对应 session。
 
@@ -112,7 +112,7 @@ packages/email/tool-mail/        # preset 层:12 defineTool(裸名),包装 mail-
 ### 5.3 入站链路(dsh 侧 TS 插件)
 
 ```
-aimail-gateway → pending → aimail-bridge pull → 路由表 email → http://127.0.0.1:<port>/agentmail/deliver
+aimail-gateway → pending → aimail-bridge pull → 路由表 email → http://127.0.0.1:<port>/aimail/deliver
 → dsh mail-inbound(node:http):
   → HMAC 验签(webhook_secret)→ TS 预处理全链(mail-core,契约对齐)
     → ping/pong 拦截(三阶段日志)→ 未拦截:
@@ -137,7 +137,7 @@ unbind(一次性,unbind_agent.py):
 
 agentmail.json 读写在 `mail-core` 内唯一实现(原子写 tmp+replace),`mail-inbound` 与 `tool-mail` 都经它读写,无双份。
 
-### 5.5 agentmail 仓库新文件(repo-direct,同 DeerFlow 模式)
+### 5.5 aimail 仓库新文件(repo-direct,同 DeerFlow 模式)
 
 ```
 tools/dsh/
@@ -152,7 +152,7 @@ DSH-PREPROCESS-CONTRACT.md               # P0 契约基准(仓库根,入库;TS �
 
 ## 6. 入站预处理契约(TS 实现基准)
 
-预处理全链 13 步由 **mail-core TS 实现**(不再经外部 Python bridge)。TS 端身份/凭据/目录三类依赖全部从 agentmail.json 读取(唯一信任源)——无需 agent 运行时进程在跑。**逐行对照基准见 [DSH-PREPROCESS-CONTRACT.md](../DSH-PREPROCESS-CONTRACT.md)**:13 步输入/输出/字段名/事件名/前缀/日志路径/目录,以 agentmail_base.py `preprocess_mail_payload` 为准;TS 实现用 `agentmail ping` 双测锁验证契约一致。
+预处理全链 13 步由 **mail-core TS 实现**(不再经外部 Python bridge)。TS 端身份/凭据/目录三类依赖全部从 agentmail.json 读取(唯一信任源)——无需 agent 运行时进程在跑。**逐行对照基准见 [DSH-PREPROCESS-CONTRACT.md](../DSH-PREPROCESS-CONTRACT.md)**:13 步输入/输出/字段名/事件名/前缀/日志路径/目录,以 aimail_base.py `preprocess_mail_payload` 为准;TS 实现用 `aimail ping` 双测锁验证契约一致。
 
 ## 7. 关键约束与铁律(延续既有)
 
@@ -169,12 +169,12 @@ DSH-PREPROCESS-CONTRACT.md               # P0 契约基准(仓库根,入库;TS �
 
 ## 8. 风险、回滚与验证
 
-- **风险 1**:TS 预处理与 Python 语义漂移 → 缓解:契约基准文档逐行对照 + `agentmail ping` 双测锁(三阶段日志事件逐项核对)。
+- **风险 1**:TS 预处理与 Python 语义漂移 → 缓解:契约基准文档逐行对照 + `aimail ping` 双测锁(三阶段日志事件逐项核对)。
 - **风险 2**:session 冷恢复失败(无持久化配置)→ 缓解:bind 脚本强制要求 sessionPersistence 已配,否则 fail-loud。
 - **风险 3**:dsh 多 session 并发写 agentmail.json → 缓解:mail-core 唯一读写实现,原子写(tmp+replace)。
 - **回滚**:dsh 侧卸载 `dsh-mail-*` 插件即移除工具与 listener;gateway 侧 deregister 释放地址;agentmail.json 删除;无 DB 结构改动。
 - **验证**:ping/pong 全链路(验签→TS 预处理→followup)本地闭环;`send_mail` 出站对齐 Hermes 结果;X-AIMail-Agent 头检测;冷恢复路径(resume 后 followup);多 session 隔离(A/B 两 session 各回各的地址)。
-- **验收双测铁律**:`agentmail ping`(三阶段日志闭环)+ `agentmail welcome`(管理员收到 Re: 回复,带 `X-AIMail-Agent: dsh/...` 头)。
+- **验收双测铁律**:`aimail ping`(三阶段日志闭环)+ `aimail welcome`(管理员收到 Re: 回复,带 `X-AIMail-Agent: dsh/...` 头)。
 
 ## 9. 实施步骤(6 阶段)
 
@@ -185,8 +185,8 @@ DSH-PREPROCESS-CONTRACT.md               # P0 契约基准(仓库根,入库;TS �
 | P2 mail + tool-mail | host 层 ctx.mail 服务 + preset 层 12 defineTool(裸名,preset 挂载) | dsh `mail` preset 中 12 工具可见 |
 | P3 mail-inbound | node:http 端点:验签 → TS 预处理 → ping/pong → followup/resume | 端点可接 bridge 路由表 |
 | P4 bind/unbind | 注册链(三态注册参数)+ 路由注册 + agentmail.json 落盘 + install-skill | bind 后 ping 可回 pong |
-| P5 CLI 集成 | check_status PLATFORMS 四函数 + install 平台分支 + 补充注册 | `agentmail check` 识别 dsh 系统 |
-| P6 验收 | 双测铁律 + 云端身份验证 | `agentmail ping` + `agentmail welcome` 均过 |
+| P5 CLI 集成 | check_status PLATFORMS 四函数 + install 平台分支 + 补充注册 | `aimail check` 识别 dsh 系统 |
+| P6 验收 | 双测铁律 + 云端身份验证 | `aimail ping` + `aimail welcome` 均过 |
 
 ---
 

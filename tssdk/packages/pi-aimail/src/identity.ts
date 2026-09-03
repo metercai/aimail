@@ -205,7 +205,7 @@ export async function resolveConfig(): Promise<AgentConfig> {
   }
   throw new Error(
     (hasAnySystem()
-      ? `agentmail not configured for pi — no binding for pointer ${POINTER_PATH} (email ${ptr.email || '-'}, system ${systemId || '-'}). Run: agentmail install --home ~/.pi`
-      : 'Machine has no agentmail environment yet. Run: agentmail init, then agentmail install --home ~/.pi'),
+      ? `aimail not configured for pi — no binding for pointer ${POINTER_PATH} (email ${ptr.email || '-'}, system ${systemId || '-'}). Run: aimail install --home ~/.pi`
+      : 'Machine has no aimail environment yet. Run: aimail init, then aimail install --home ~/.pi'),
   )
 }

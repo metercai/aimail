@@ -36,7 +36,7 @@ function systemIdFrom(opts: ResolveOptions): string {
 }
 
 function unbound(what: string): Error {
-  return new Error(`no agentmail binding for ${what} — run bind_agent.py first`)
+  return new Error(`no aimail binding for ${what} — run bind_agent.py first`)
 }
 
 /** Scan one system dir (or all systems) for every bound AgentConfig. */
@@ -80,7 +80,7 @@ export async function resolveBySessionId(
   sessionId: string,
   opts: ResolveOptions = {},
 ): Promise<AgentConfig> {
-  if (!sessionId) throw new Error('no session id to resolve agentmail config')
+  if (!sessionId) throw new Error('no session id to resolve aimail config')
   const systemId = systemIdFrom(opts)
   let cfg = await loadConfigBySessionId(systemId, sessionId)
   if (!cfg && systemId) cfg = await loadConfigByAgentId(systemId, sessionId)

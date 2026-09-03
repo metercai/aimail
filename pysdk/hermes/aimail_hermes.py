@@ -37,7 +37,7 @@ import aimail_board as board
 _GatewayClient = tools._GatewayClient
 
 # ── 公共函数转发（搬移函数/_handle_* 内部裸调用——同源公共核心）──
-_agentmail_system_dir = core._agentmail_system_dir
+_aimail_system_dir = core._aimail_system_dir
 _load_gateway_config = core._load_gateway_config
 list_personas = core.list_personas
 # ── 主模型注入 X-AIMail-Agent(profile config.yaml → model.default)──
@@ -139,8 +139,8 @@ _profile_config_path = core._agent_config_path  # 地址键 per-agent 配置路�
 def _load_profile_config() -> Optional[dict]:
     """Load per-agent config from the address-keyed directory.
 
-    Uses {profile_dir}/.agentmail pointer → {system_id} + {email} → path:
-      ~/.agentmail/systems/{system_id}/{cleaned_addr}/agentmail.json
+    Uses {profile_dir}/.aimail pointer → {system_id} + {email} → path:
+      ~/.aimail/systems/{system_id}/{cleaned_addr}/agentmail.json
     """
     profile_dir = _resolve_profile_dir() or ""
     
@@ -169,10 +169,10 @@ def _load_profile_config() -> Optional[dict]:
 
 
 def _inject_profile_config(profile_dir: str, config: dict) -> None:
-    """Write per-agent agentmail config.
+    """Write per-agent aimail config.
 
-    Address-keyed: ~/.agentmail/systems/{system_id}/{cleaned_addr}/agentmail.json
-    Pointer file:  {profile_dir}/.agentmail  (contains system_id + email for discovery)
+    Address-keyed: ~/.aimail/systems/{system_id}/{cleaned_addr}/agentmail.json
+    Pointer file:  {profile_dir}/.aimail  (contains system_id + email for discovery)
 
     Merges with existing config — preserves fields not in the new config
     (e.g. api_key from previous activation).
@@ -274,7 +274,7 @@ def _ensure_profile_webhook(profile_dir: str) -> Optional[dict]:
                     "secret": extra.get("secret", ""),
                 }
         except Exception as e:
-            logger.warning("[agentmail_gateway] Failed to read webhook config: %s", e)
+            logger.warning("[aimail_gateway] Failed to read webhook config: %s", e)
     
     # Auto-generate: persist the webhook config, then return it
     port = _next_available_webhook_port()
@@ -306,7 +306,7 @@ def _ensure_profile_webhook(profile_dir: str) -> Optional[dict]:
             "secret": secret,
         }
     except Exception as e:
-        logger.warning("[agentmail_gateway] Failed to write webhook config: %s", e)
+        logger.warning("[aimail_gateway] Failed to write webhook config: %s", e)
         return None
 
 
@@ -347,7 +347,7 @@ def _ensure_webhook_route(
         personas = list_personas()
         if persona not in personas:
             logger.warning(
-                "[agentmail_gateway] Persona '%s' not found in agent.personalities. "
+                "[aimail_gateway] Persona '%s' not found in agent.personalities. "
                 "Available: %s. Route will be created without persona.",
                 persona, ", ".join(personas.keys()) or "(none)"
             )
@@ -367,10 +367,10 @@ def _ensure_webhook_route(
             pass
 
     route_entry = {
-        "description": f"agentmail inbound email route ({route_name})",
+        "description": f"aimail inbound email route ({route_name})",
         "events": [],
         "secret": secret,
-        "preprocess": "agentmail_gateway",    # triggers preprocess_mail_payload
+        "preprocess": "aimail_gateway",    # triggers preprocess_mail_payload
         "prompt": "",
         "skills": skills or [],
         "deliver": deliver,
@@ -405,30 +405,30 @@ def trigger_profile_hooks(event: str, profile_name: str, profile_dir: str) -> No
     try:
         config = _load_gateway_config()
     except RuntimeError:
-        logger.debug("[agentmail_gateway] No gateway config -- skipping hooks for %s", event)
+        logger.debug("[aimail_gateway] No gateway config -- skipping hooks for %s", event)
         return
 
 
     if not config:
-        logger.debug("[agentmail_gateway] No gateway config -- skipping hooks for %s", event)
+        logger.debug("[aimail_gateway] No gateway config -- skipping hooks for %s", event)
         return
 
     for cb in _profile_hooks.get(event, []):
         try:
             cb(profile_name, profile_dir, config)
         except Exception as e:
-            logger.warning("[agentmail_gateway] hook %s for '%s' failed: %s", event, profile_name, e)
+            logger.warning("[aimail_gateway] hook %s for '%s' failed: %s", event, profile_name, e)
 
 
 def _auto_register_email(name: str, profile_dir: str, config: dict) -> None:
-    """When a new Profile is created, register its email with agentmail:
+    """When a new Profile is created, register its email with aimail:
     1. Create domain entry for {name}@{domain}
     2. Create activation code for the agent
     3. Ensure aimail-inbound webhook route on the gateway
     4. Inject config into profile directory
     
     The registered address is the agent's identity. Persona switching is
-    handled at inbound time by parse_amail_persona() — the agentmail skill
+    handled at inbound time by parse_amail_persona() — the aimail skill
     extracts persona from the 'to' address (persona.profile@domain format).
     """
     gateway_url = config.get("gateway_url", "")
@@ -437,13 +437,13 @@ def _auto_register_email(name: str, profile_dir: str, config: dict) -> None:
     system_id = config.get("system_id", "")
 
     if not gateway_url or not admin_key:
-        logger.warning("[agentmail_gateway] Cannot auto-register: gateway_url or admin_key not configured")
+        logger.warning("[aimail_gateway] Cannot auto-register: gateway_url or admin_key not configured")
         return
     if not domain:
-        logger.warning("[agentmail_gateway] Cannot auto-register: domain not configured")
+        logger.warning("[aimail_gateway] Cannot auto-register: domain not configured")
         return
     if not system_id:
-        logger.warning("[agentmail_gateway] Cannot auto-register: system_id not configured")
+        logger.warning("[aimail_gateway] Cannot auto-register: system_id not configured")
         return
 
     client = _GatewayClient(gateway_url, admin_key)
@@ -453,7 +453,7 @@ def _auto_register_email(name: str, profile_dir: str, config: dict) -> None:
     email = core.email_for_agent(name, domain, system_name)
     manager_address = config.get("manager_address", "")
 
-    # 事实源优先:agentmail.json 已有 webhook_url/secret 则复用(agentmail 唯一
+    # 事实源优先:agentmail.json 已有 webhook_url/secret 则复用(aimail 唯一
     # 信任源;profile config 是 Hermes 运行时副本,值同源——重注册不漂移)
     existing_cfg = _load_profile_config()
     if (existing_cfg and existing_cfg.get("webhook_url")
@@ -469,7 +469,7 @@ def _auto_register_email(name: str, profile_dir: str, config: dict) -> None:
         # Auto-configure or read profile webhook config
         wh_config = _ensure_profile_webhook(profile_dir)
         if not wh_config:
-            logger.warning("[agentmail_gateway] Failed to configure webhook for %s — inbound mail disabled", profile_dir)
+            logger.warning("[aimail_gateway] Failed to configure webhook for %s — inbound mail disabled", profile_dir)
             local_webhook_url = ""
             webhook_secret = ""
         else:
@@ -478,11 +478,11 @@ def _auto_register_email(name: str, profile_dir: str, config: dict) -> None:
             # 本地接收端点(进程内 preprocess 的 webhook 路由)
             local_webhook_url = f"http://127.0.0.1:{wh_port}/webhooks/aimail-inbound"
             # Ensure aimail-inbound route exists (idempotent)
-            # skills=["agentmail"] so webhook sessions get the agentmail skill
+            # skills=["aimail"] so webhook sessions get the aimail skill
             # (send_mail protocol); without it the agent cannot reply by email.
             _ensure_webhook_route(
                 "aimail-inbound", webhook_secret, profile_dir=profile_dir,
-                skills=["agentmail"],
+                skills=["aimail"],
             )
 
     # 注册参数三态(webhook_host):push=bridge 公网入口 / pull=空 / 无 bridge=本地端点
@@ -493,14 +493,14 @@ def _auto_register_email(name: str, profile_dir: str, config: dict) -> None:
         client, system_id, email, reg_url, webhook_secret,
         manager_address,
     )
-    logger.info("[agentmail_gateway] Registered email %s (api_key=%s)",
+    logger.info("[aimail_gateway] Registered email %s (api_key=%s)",
                 email, "ok" if reg.get("api_key") else "pending")
     activation_code = reg.get("activation_code", "")
     api_key = reg.get("api_key", "")
 
     if not activation_code:
         # Already registered: profile should have existing api_key or activation_code
-        logger.info("[agentmail_gateway] Email %s already registered — using existing credentials", email)
+        logger.info("[aimail_gateway] Email %s already registered — using existing credentials", email)
         # Don't pass activation_code to inject; merge preserves existing value
         # Check if existing config has a pending activation_code to activate
         try:
@@ -510,7 +510,7 @@ def _auto_register_email(name: str, profile_dir: str, config: dict) -> None:
                     existing_cfg = json.loads(existing_cfg_path.read_text())
                     if existing_cfg.get("activation_code") and not existing_cfg.get("api_key"):
                         activation_code = existing_cfg["activation_code"]
-                        logger.info("[agentmail_gateway] Found pending activation_code for %s — will activate", email)
+                        logger.info("[aimail_gateway] Found pending activation_code for %s — will activate", email)
         except Exception:
             pass
 
@@ -522,7 +522,7 @@ def _auto_register_email(name: str, profile_dir: str, config: dict) -> None:
         "manager_address": manager_address,
         "save_raw_snapshots": config.get("save_raw_snapshots", False),
         "webhook_host": config.get("webhook_host", ""),
-        # agentmail 唯一信任源:webhook_url + webhook_secret 成对落盘
+        # aimail 唯一信任源:webhook_url + webhook_secret 成对落盘
         # (注册链/验签/路由统一从 agentmail.json 读;profile config 的
         # platforms.webhook 只是 Hermes 运行时副本,值同源)
         "webhook_url": local_webhook_url,
@@ -540,7 +540,7 @@ def _auto_register_email(name: str, profile_dir: str, config: dict) -> None:
         try:
             core.register_bridge_route(system_id, email, config, local_webhook_url)
         except Exception as e:
-            logger.warning("[agentmail_gateway] bridge route registration failed for %s: %s", email, e)
+            logger.warning("[aimail_gateway] bridge route registration failed for %s: %s", email, e)
 
     # Activate the profile immediately after registration.
     # register_agent_email already activated when it returned an api_key —
@@ -549,7 +549,7 @@ def _auto_register_email(name: str, profile_dir: str, config: dict) -> None:
         try:
             _auto_activate_profile(profile_dir, config)
         except Exception as e:
-            logger.error("[agentmail_gateway] Activation failed for %s: %s — activation_code retained", email, e)
+            logger.error("[aimail_gateway] Activation failed for %s: %s — activation_code retained", email, e)
 
 
 def _auto_activate_profile(profile_dir: str, config: dict) -> None:
@@ -559,7 +559,7 @@ def _auto_activate_profile(profile_dir: str, config: dict) -> None:
     in the profile config. This ensures the raw_key is only visible to
     the agent process itself.
 
-    Reads from the address-keyed ~/.agentmail/systems/{system_id}/{addr}/ path only.
+    Reads from the address-keyed ~/.aimail/systems/{system_id}/{addr}/ path only.
     """
     # Read system_id + email from pointer file to find address-keyed config
     sid = ""
@@ -575,7 +575,7 @@ def _auto_activate_profile(profile_dir: str, config: dict) -> None:
 
     if not sid:
         logger.warning(
-            "[agentmail_gateway] No system_id in .agentmail pointer for %s — cannot activate",
+            "[aimail_gateway] No system_id in .agentmail pointer for %s — cannot activate",
             profile_dir,
         )
         return
@@ -611,7 +611,7 @@ def _auto_activate_profile(profile_dir: str, config: dict) -> None:
         prof.pop("last_activation_attempt", None)
         with open(config_path, "w") as f:
             json.dump(prof, f, indent=2)
-        logger.info("[agentmail_gateway] Activated profile, api_key saved to %s", config_path)
+        logger.info("[aimail_gateway] Activated profile, api_key saved to %s", config_path)
 
         # ── Sync api_key to address-keyed config ─────────────────────
         try:
@@ -627,9 +627,9 @@ def _auto_activate_profile(profile_dir: str, config: dict) -> None:
                         cfg["api_key"] = result["raw_key"]
                         cfg.pop("activation_code", None)
                         sync_path.write_text(json.dumps(cfg, indent=2))
-                        logger.info("[agentmail_gateway] api_key synced to %s", sync_path)
+                        logger.info("[aimail_gateway] api_key synced to %s", sync_path)
         except Exception as sync_err:
-            logger.warning("[agentmail_gateway] Failed to sync api_key: %s", sync_err)
+            logger.warning("[aimail_gateway] Failed to sync api_key: %s", sync_err)
 
         # 注:旧 "Port refresh"(激活时刷 bridge 路由)已删除(2026-08-18)——
         # bridge 路由表目标 = agentmail.json 的 webhook_url(唯一信任源),
@@ -641,13 +641,13 @@ def _auto_activate_profile(profile_dir: str, config: dict) -> None:
         now_ts = _time.time()
         last = prof.get("last_activation_attempt", 0)
         if last and (now_ts - last) < 300:
-            logger.debug("[agentmail_gateway] Skipping activation retry for %s (last attempt %ds ago)",
+            logger.debug("[aimail_gateway] Skipping activation retry for %s (last attempt %ds ago)",
                          config_path, int(now_ts - last))
         else:
             prof["last_activation_attempt"] = now_ts
             with open(config_path, "w") as f:
                 json.dump(prof, f, indent=2)
-            logger.warning("[agentmail_gateway] Failed to activate profile %s: %s",
+            logger.warning("[aimail_gateway] Failed to activate profile %s: %s",
                            config_path, result.get("error", result))
 
 
@@ -670,9 +670,9 @@ def _auto_deregister_email(name: str, profile_dir: str, config: dict) -> None:
             client, system_id, email,
             manager_address=config.get("manager_address", ""),
         )
-        logger.info("[agentmail_gateway] Deregistered %s: %s", email, status)
+        logger.info("[aimail_gateway] Deregistered %s: %s", email, status)
     except Exception as e:
-        logger.warning("[agentmail_gateway] Deregister failed for %s: %s", email, e)
+        logger.warning("[aimail_gateway] Deregister failed for %s: %s", email, e)
 
 
 def _get_board_gateway_url(board_id: str, profile_cfg: dict) -> str:
@@ -774,8 +774,8 @@ core.PERSONA_SUPPORTED = True  # Hermes 全能力（默认值，显式声明）
 try:
     from gateway.platforms.webhook import register_preprocessor
 
-    register_preprocessor("agentmail_gateway", core.process_inbound_mail)
-    logger.info("agentmail preprocessor registered with webhook gateway")
+    register_preprocessor("aimail_gateway", core.process_inbound_mail)
+    logger.info("aimail preprocessor registered with webhook gateway")
 except ImportError:
     pass
 
@@ -887,7 +887,7 @@ try:
         toolset=_TOOLSET,
         schema={
             "name": "send_mail",
-            "description": "Send an email via your agentmail address. For replies, pass the original email's message_id to thread automatically (In-Reply-To/References/persona).",
+            "description": "Send an email via your aimail address. For replies, pass the original email's message_id to thread automatically (In-Reply-To/References/persona).",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -905,7 +905,7 @@ try:
         emoji="📧",
     )
 except Exception as _e:
-    logger.warning("[agentmail] send_mail registration failed: %s", _e)
+    logger.warning("[aimail] send_mail registration failed: %s", _e)
 
 try:
     registry.register(
@@ -928,7 +928,7 @@ try:
         emoji="📇",
     )
 except Exception as _e:
-    logger.warning("[agentmail] manage_contacts registration failed: %s", _e)
+    logger.warning("[aimail] manage_contacts registration failed: %s", _e)
 
 try:
     registry.register(
@@ -950,7 +950,7 @@ try:
         emoji="👤",
     )
 except Exception as _e:
-    logger.warning("[agentmail] contact_profile registration failed: %s", _e)
+    logger.warning("[aimail] contact_profile registration failed: %s", _e)
 
 try:
     registry.register(
@@ -972,7 +972,7 @@ try:
         emoji="✍️",
     )
 except Exception as _e:
-    logger.warning("[agentmail] set_contact_profile registration failed: %s", _e)
+    logger.warning("[aimail] set_contact_profile registration failed: %s", _e)
 
 try:
     registry.register(
@@ -993,7 +993,7 @@ try:
         emoji="📝",
     )
 except Exception as _e:
-    logger.warning("[agentmail] email_summary registration failed: %s", _e)
+    logger.warning("[aimail] email_summary registration failed: %s", _e)
 
 try:
     registry.register(
@@ -1015,7 +1015,7 @@ try:
         emoji="🗂️",
     )
 except Exception as _e:
-    logger.warning("[agentmail] set_email_summary registration failed: %s", _e)
+    logger.warning("[aimail] set_email_summary registration failed: %s", _e)
 
 # 3c. profile 生命周期钩子（地址自动注册/注销）
 register_profile_hook("profile_created", _auto_register_email)

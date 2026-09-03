@@ -5,16 +5,16 @@
 
 链路:
   aimail-gateway → aimail-bridge(透明代理,跨网 pull / 同内网直连)
-    → POST /agentmail/inbound
+    → POST /aimail/inbound
       → HMAC 验签(X-Webhook-Signature, per-address webhook_secret)
-      → 共享 process_inbound_mail(agentmail 适配层 amail_base)
+      → 共享 process_inbound_mail(aimail 适配层 amail_base)
       → ping/pong 拦截 → 200 吞掉(不触发 agent)
       → 未拦截 → start_run 内部投递(thread = uuid5("amail", email),
         会话按地址稳定;assistant_id 从 agentmail.json 读)
       → 立即 200(bridge 即刻 ack pending,agent 后台处理)
 
-依赖:agentmail 仓库(pysdk/aimail_base + tools/deer-flow/amail_base)
-按共享布局落 agentmail.json(~/.agentmail/systems/{sid}/{cleaned_addr}/)。
+依赖:aimail 仓库(pysdk/aimail_base + tools/deer-flow/amail_base)
+按共享布局落 agentmail.json(~/.aimail/systems/{sid}/{cleaned_addr}/)。
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/agentmail", tags=["agentmail"])
+router = APIRouter(prefix="/aimail", tags=["aimail"])
 
 # ── aimail 运行时核心定位(bundle / site-packages / 仓库 dev;不再依赖仓库路径)──
 def _amail_bootstrap():
@@ -67,7 +67,7 @@ def _verify_hmac(secret: str, body: bytes, signature: str) -> bool:
 
 def _find_agent_config(email: str) -> dict | None:
     """遍历共享布局 systems/{sid}/*/agentmail.json,按收件地址匹配。"""
-    base = Path.home() / ".agentmail" / "systems"
+    base = Path.home() / ".aimail" / "systems"
     if not base.is_dir():
         return None
     for sys_dir in sorted(base.iterdir()):
@@ -111,12 +111,12 @@ async def aimail_inbound(request: Request) -> JSONResponse:
             email = email[0] if email else ""
     cfg = _find_agent_config(email)
     if not cfg:
-        logger.warning("agentmail: no agent config for %s", email)
+        logger.warning("aimail: no agent config for %s", email)
         return JSONResponse({"status": "no_agent", "email": email})
 
     sig = request.headers.get("X-Webhook-Signature", "")
     if not _verify_hmac(cfg.get("webhook_secret", ""), body, sig):
-        logger.warning("agentmail: bad signature for %s", email)
+        logger.warning("aimail: bad signature for %s", email)
         return JSONResponse({"error": "bad signature"}, status_code=401)
 
     # ── 2. 共享入站预处理(与 Hermes/OpenClaw 同一实现)──
@@ -127,13 +127,13 @@ async def aimail_inbound(request: Request) -> JSONResponse:
     try:
         _base.set_agent_context(agent_id, cfg.get("system_id", ""))
     except Exception as e:
-        logger.warning("agentmail: set_agent_context failed for %s: %s", email, e)
+        logger.warning("aimail: set_agent_context failed for %s: %s", email, e)
         return JSONResponse({"status": "no_local_config", "agent": agent_id, "detail": str(e)})
 
     try:
         enriched = _base.process_inbound_mail(payload, dict(request.headers))
     except Exception as e:
-        logger.exception("agentmail: preprocess failed for %s", email)
+        logger.exception("aimail: preprocess failed for %s", email)
         return JSONResponse({"error": f"preprocess failed: {e}"}, status_code=500)
     if enriched is None:
         return JSONResponse({"status": "intercepted"})  # ping/pong,不触发 agent
@@ -158,10 +158,10 @@ async def aimail_inbound(request: Request) -> JSONResponse:
     )
     try:
         record = await start_run(run_body, _thread_id_for(email), request)
-        logger.info("agentmail: delivered %s → thread %s (run %s)",
+        logger.info("aimail: delivered %s → thread %s (run %s)",
                     email, record.thread_id, getattr(record, "run_id", "?"))
     except Exception as e:
-        logger.exception("agentmail: start_run failed for %s", email)
+        logger.exception("aimail: start_run failed for %s", email)
         return JSONResponse({"error": f"start_run failed: {e}"}, status_code=502)
 
     return JSONResponse({"status": "delivered", "email": email})

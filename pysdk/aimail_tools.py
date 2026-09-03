@@ -261,7 +261,7 @@ class _GatewayClient:
                 "sender_profile": result.get("sender_profile", {}),
                 "recipients_profile": result.get("recipients_profile", {}),
             }
-        logger.warning("[agentmail_gateway] batch contacts lookup failed: HTTP %s", result.get("status"))
+        logger.warning("[aimail_gateway] batch contacts lookup failed: HTTP %s", result.get("status"))
         return {}
 
     # ── Domain / API Key management ─────────────────────────────
@@ -466,7 +466,7 @@ def send_mail(
     attachments: Optional[List[str]] = None,
     message_id: Optional[str] = None,
 ) -> dict:
-    """Send an email via your agentmail address.
+    """Send an email via your aimail address.
 
     Attachments (file paths) are automatically uploaded before sending.
     For replies, pass the original email's message_id -- the tool will
@@ -490,15 +490,15 @@ def send_mail(
 
     config = _load_profile_config()
     if not config:
-        return {"success": False, "error": "agentmail not configured for this profile"}
+        return {"success": False, "error": "aimail not configured for this profile"}
 
     if not config.get("api_key"):
-        return {"success": False, "error": "agentmail api_key not available (activation may have failed)"}
+        return {"success": False, "error": "aimail api_key not available (activation may have failed)"}
 
     # ── Guard: email must be configured ──────────────────────
     base_email = config.get("email", "")
     if not base_email:
-        return {"success": False, "error": "agentmail email not configured for this profile — cannot send"}
+        return {"success": False, "error": "aimail email not configured for this profile — cannot send"}
 
     client = _GatewayClient(config["gateway_url"], config["api_key"])
 
@@ -511,7 +511,7 @@ def send_mail(
         stored_persona = msg_meta.get("my_amail_addr", "")
         if stored_persona and "@" in stored_persona:
             sender = stored_persona
-            logger.info("[agentmail] Reply detected — using persona sender: %s", sender)
+            logger.info("[aimail] Reply detected — using persona sender: %s", sender)
     elif not message_id:
         # New email: use the current persona ONLY if it is an approved persona
         # (present in agent.personalities). Deriving from the profile dir name
@@ -523,7 +523,7 @@ def send_mail(
             if persona in approved:
                 local, domain = base_email.split("@", 1)
                 sender = f"{local}.{persona}@{domain}"
-                logger.info("[agentmail] New email from approved persona '%s' — sender: %s", persona, sender)
+                logger.info("[aimail] New email from approved persona '%s' — sender: %s", persona, sender)
 
     # Parse recipients
     to_list = [a.strip() for a in to.split(",") if a.strip()]
@@ -626,7 +626,7 @@ def send_mail(
             break
         delay = min(2 ** (attempt - 1), 8)
         logger.warning(
-            "[agentmail] send attempt %d/%d failed (HTTP %s: %s), retrying in %ds",
+            "[aimail] send attempt %d/%d failed (HTTP %s: %s), retrying in %ds",
             attempt, _MAX_ATTEMPTS, status,
             result.get("error") or result.get("detail") or "?", delay,
         )
@@ -639,9 +639,9 @@ def send_mail(
             initial_summary = f"Subject: {subject}\nStatus: awaiting response"
             set_email_summary(generated_mid, initial_summary)
             thread_bootstrapped = True
-            logger.info("[agentmail] Thread summary bootstrapped for new email: %s", generated_mid)
+            logger.info("[aimail] Thread summary bootstrapped for new email: %s", generated_mid)
         except Exception as e:
-            logger.warning("[agentmail] Failed to bootstrap thread summary: %s", e)
+            logger.warning("[aimail] Failed to bootstrap thread summary: %s", e)
 
     # Flatten status into success/error
     if 200 <= status < 300:
@@ -650,7 +650,7 @@ def send_mail(
             out["thread_bootstrapped"] = True
         if upload_errors:
             out["note"] = f"Sent, but {len(upload_errors)} attachment(s) had issues: {'; '.join(upload_errors[:3])}"
-        # Log outbound to the per-agent agentmail.log for integration test
+        # Log outbound to the per-agent aimail.log for integration test
         # verification (send_welcome polls this file instead of the stats API).
         try:
             _log_amail("outbound", sender, to, subject, email_id=generated_mid)
@@ -662,7 +662,7 @@ def send_mail(
         # An identical (to/cc/subject/body) email was already accepted by
         # the gateway within the dedup window. From the agent's perspective
         # the content IS out — report success, nothing left to do.
-        logger.info("[agentmail] send suppressed by gateway dedup (409) — already sent")
+        logger.info("[aimail] send suppressed by gateway dedup (409) — already sent")
         return {
             "success": True,
             "duplicate": True,
@@ -693,11 +693,11 @@ def manage_contacts(
     """
     config = _load_profile_config()
     if not config:
-        return {"success": False, "error": "agentmail not configured for this profile"}
+        return {"success": False, "error": "aimail not configured for this profile"}
 
     client = _GatewayClient(config["gateway_url"], config["api_key"])
     # Agent whitelist is per-profile, not per-domain.
-    # domain_addr = agentmail address (agent-1@mail.project.com)
+    # domain_addr = aimail address (agent-1@mail.project.com)
     email_addr = config.get("email", "")
 
     if action == "check":
@@ -841,13 +841,13 @@ def _sanitize_message_id(message_id: str) -> str:
 def _local_meta_path(message_id: str) -> Path:
     """meta/{前两位}/{safe_mid}.json — 前两位分片(256 桶)防平铺目录膨胀。"""
     k = _sanitize_message_id(message_id)
-    return _agentmail_dir() / "meta" / k[:2] / f"{k}.json"
+    return _aimail_dir() / "meta" / k[:2] / f"{k}.json"
 
 
 def _thread_path(thread_id: str) -> Path:
     """threads/{前两位}/{safe_tid}.json — 会话摘要, 与 meta 同分片策略。"""
     k = _sanitize_message_id(thread_id)
-    return _agentmail_dir() / "threads" / k[:2] / f"{k}.json"
+    return _aimail_dir() / "threads" / k[:2] / f"{k}.json"
 
 
 def _save_local_meta(message_id, references, my_amail_addr, direction) -> None:
@@ -1102,7 +1102,7 @@ def _current_persona_name() -> Optional[str]:
 def _resolve_agent_email() -> str:
     """Resolve the agent's base email via the pointer file (for log naming)."""
     # 第一优先:显式注入(OpenClaw set_agent_context 设置;Hermes
-    # 不改此环境变量,走指针逻辑)。避免日志落 agentmail.default.log。
+    # 不改此环境变量,走指针逻辑)。避免日志落 aimail.default.log。
     env_email = os.environ.get("AIMAIL_AGENT_EMAIL", "")
     if env_email:
         return env_email
@@ -1120,12 +1120,12 @@ def _resolve_agent_email() -> str:
     return ""
 
 
-def _agentmail_dir() -> Path:
+def _aimail_dir() -> Path:
     """Per-agent mail data leaf: {aimail_home}/mail/{cleaned_addr}/.
 
     Layout: {aimail_home}/mail/{cleaned_addr}/ — email content + attachments,
     isolated from {aimail_home}/systems/ (config). aimail_home() is env
-    AIMAIL_HOME (legacy AGENTMAIL_HOME) or ~/.agentmail — the home ROOT, so
+    AIMAIL_HOME or ~/.aimail — the home ROOT, so
     the env var relocates the whole tree (mirrors TS agentMailDir())."""
     import aimail_base as _abm
     base = _abm.aimail_home()
@@ -1137,7 +1137,7 @@ def _agentmail_dir() -> Path:
 
 def _raw_email_dir() -> Path:
     """Return the directory for raw email snapshots (yyyymm subdir appended by caller)."""
-    return _agentmail_dir()
+    return _aimail_dir()
 
 
 
@@ -1145,7 +1145,7 @@ def _log_amail(direction: str, from_addr: str, to_addr: str, subject: str,
                email_id: str = "") -> None:
     """Append a lightweight email processing log entry (not dependent on save_raw_snapshots).
 
-    Log is written to {AIMAIL_HOME}/agentmail.log for integration test verification.
+    Log is written to {AIMAIL_HOME}/aimail.log for integration test verification.
     """
     import json as _json
     import aimail_base as _abm
@@ -1163,7 +1163,7 @@ def _log_amail(direction: str, from_addr: str, to_addr: str, subject: str,
         with open(log_path, "a") as f:
             f.write(entry + "\n")
     except Exception:
-        logger.debug("Failed to write agentmail log: %s", log_path)
+        logger.debug("Failed to write aimail log: %s", log_path)
 
 def store_inbound_message(
     message_id: str,

@@ -68,8 +68,8 @@ Webhook Push/Pull dual mode coexists, adapting to diverse Agent types and networ
 7. **Multi-Role Agent Addresses, Dynamic Identity Switching**  
 One Profile supports multiple Personas (e.g. `sales.bob@domain` / `support.bob@domain`). Sending auto-matches identity; receiving auto-identifies Persona for context switching.
 
-8. **One-Click Integration & Diagnostics via `agentmail` CLI**  
-`./agentmail install` sets up the whole chain (activation → bridge → tools/skills → registration); `check`/`ping`/`welcome` diagnose the full loop; `stats`/`domain`/`uninstall` manage the machine from one entry.
+8. **One-Click Integration & Diagnostics via `aimail` CLI**  
+`./aimail install` sets up the whole chain (activation → bridge → tools/skills → registration); `check`/`ping`/`welcome` diagnose the full loop; `stats`/`domain`/`uninstall` manage the machine from one entry.
 
 ---
 
@@ -78,7 +78,7 @@ One Profile supports multiple Personas (e.g. `sales.bob@domain` / `support.bob@d
 Single repo hosting the CLI, the Python runtime SDK and the TypeScript SDK
 side by side:
 
-- `cli/` — `agentmail` maintenance CLI + subcommands + platform installers
+- `cli/` — `aimail` maintenance CLI + subcommands + platform installers
   (migration target for a future Rust binary)
 - `pysdk/` — Python runtime SDK (pip `aimail`): gateway client, platform
   adapters, board resources; wheel layout mirrors this tree 1:1
@@ -109,11 +109,11 @@ cp docs/.env.example .env
 # 3. Machine-level environment (once per machine): locks the network
 #    structure — where the gateway is and whether a bridge is needed
 #    (direct push for a local gateway; bridge push for a remote one).
-./agentmail init
+./aimail init
 
 # 4. One-command install: activate system → deploy/complete bridge →
 #    install the dsh-aimail plugin into the dsh host.
-./agentmail install --home ~/.dsh
+./aimail install --home ~/.dsh
 
 # 5. Bind the dsh session: register the address, add the bridge route and
 #    write the local binding. This happens AUTOMATICALLY on first mail-tool
@@ -122,7 +122,7 @@ cp docs/.env.example .env
 #    bind: python3 cli/dsh/bind_agent.py)
 
 # 6. Close the loop with a welcome mail (delivery verified).
-./agentmail welcome
+./aimail welcome
 ```
 
 Step 3 (`init`) runs once per machine — gateway discovery, direct-vs-bridge
@@ -134,9 +134,9 @@ that is the end-to-end proof that activation → bridge → plugin → binding
 all work. Diagnostics if anything is off:
 
 ```bash
-./agentmail check     # pipeline diagnostics (gateway → bridge → plugin)
-./agentmail ping      # SMTP ping/pong round-trip
-./agentmail stats     # systems / agents / mail overview
+./aimail check     # pipeline diagnostics (gateway → bridge → plugin)
+./aimail ping      # SMTP ping/pong round-trip
+./aimail stats     # systems / agents / mail overview
 ```
 
 Other hosts work the same way — `--home` selects the platform
@@ -146,7 +146,7 @@ adapter package) installs its own resources and patches, and the agent
 host loads it.
 
 Priority for every flag: CLI argument > shell env > `.env` > built-in
-default. See `./agentmail --help` for all subcommands (`bridge`, `check`,
+default. See `./aimail --help` for all subcommands (`bridge`, `check`,
 `domain`, `install`, `mailname`, `ping`, `reset`, `stats`, `uninstall`,
 `welcome`, `persona`, `repair`).
 
@@ -183,7 +183,7 @@ below shows the Hermes wiring as the concrete example:
                      │   Hermes Agent     │                   │  │
                      │                    │                   │  │
                      │ ┌────────────────┐ │                   │  │
-                     │ │ agentmail RT   │ │─── Outbound ──────┘  │
+                     │ │ aimail RT   │ │─── Outbound ──────┘  │
                      │ │ · Webhook recv │ │                      │
                      │ │ · Preprocessor │ │                      │
                      │ │ · send_mail()  │ │◄─── Inbound ─────────┘
@@ -200,7 +200,7 @@ below shows the Hermes wiring as the concrete example:
                      └────────────────────┘
 ```
 
-**Inbound flow:** External mail → gateway SMTP Receiver → Webhook → agentmail preprocessing (format conversion, context injection, board role recognition) → LLM engine decision
+**Inbound flow:** External mail → gateway SMTP Receiver → Webhook → aimail preprocessing (format conversion, context injection, board role recognition) → LLM engine decision
 
 **Outbound flow:** LLM decision → `send_mail()` → HTTP API → gateway internal routing (same-domain recipients via Webhook directly) or SMTP Relay (external recipients)
 
@@ -232,12 +232,12 @@ Use an official activation code with a shared domain. Enter `system_name` (3-8 c
 
 ### API Keys and Profiles
 
-API Keys are generated per Agent address, stored under `~/.agentmail/systems/{system_id}/{addr}/agentmail.json`:
+API Keys are generated per Agent address, stored under `~/.aimail/systems/{system_id}/{addr}/agentmail.json`:
 
 ### Runtime Directory
 
 ```
-~/.agentmail/
+~/.aimail/
 ├── systems/
 │   └── {system_id}/
 │       ├── agentmail_gateway.json     # Gateway connection config
@@ -248,7 +248,7 @@ API Keys are generated per Agent address, stored under `~/.agentmail/systems/{sy
 │           └── role_prompt/           # address-level role prompts (takes priority)
 ├── mail/
 │   └── {agent_addr}/                  # received mail per address
-│       ├── agentmail.log              # agent pipeline log
+│       ├── aimail.log              # agent pipeline log
 │       └── {yyyymm}/in-*.json         # monthly snapshots
 ├── bridge/
 │   ├── aimail_bridge.toml              # bridge config
@@ -258,7 +258,7 @@ API Keys are generated per Agent address, stored under `~/.agentmail/systems/{sy
 │   └── bridge.out                     # bridge stdout log
 ├── logs/
 │   ├── aimail-bridge.log               # bridge runtime log
-│   └── agentmail.agent.{addr}.log     # per-agent processing log
+│   └── aimail.agent.{addr}.log     # per-agent processing log
 ├── backup-reset-*/                    # config snapshot before each reset
 └── .system_raw_key/
     └── {system_id}_admin.key          # raw admin key (integration only)

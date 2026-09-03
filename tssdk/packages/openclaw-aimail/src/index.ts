@@ -26,7 +26,7 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
     // Outbound X-AIMail-Agent header (real detected host version, no guess)
     setAgentIdentity(agentIdentity())
 
-    // SDK-shipped board resources → ~/.agentmail/systems/*/board/ (idempotent;
+    // SDK-shipped board resources → ~/.aimail/systems/*/board/ (idempotent;
     // never overwrites user-personalized files). Covers openclaw-only
     // machines that never install the Python SDK/CLI.
     try {

@@ -5,7 +5,7 @@
 scripts/gateway_api.py（标准 amail API 客户端），仅替换 config 加载与
 目录约定为 OpenClaw 形态：
 
-  ~/.agentmail/systems/{system_id}/        ← 独立激活产生的系统目录
+  ~/.aimail/systems/{system_id}/        ← 独立激活产生的系统目录
       agentmail_gateway.json               ← 网关配置（激活时写入，含 mode/bridge_port）
       {cleaned_addr}/agentmail.json        ← 每 agent 配置（api_key + agent_id，地址键）
 
@@ -83,7 +83,7 @@ _ab.PERSONA_SUPPORTED = False
 
 # ── 目录与配置 ─────────────────────────────────────────────────
 
-system_dir = _ab._agentmail_system_dir   # 目录约定统一：共享核心同一 helper
+system_dir = _ab._aimail_system_dir   # 目录约定统一：共享核心同一 helper
 
 
 def load_gateway_config(system_id: str = "") -> Optional[dict]:
@@ -153,7 +153,7 @@ def detect_system_id() -> str:
     (agent_id from AIMAIL_AGENT_ID, default "main").  System identity is
     fixed by config — env override is intentionally NOT supported:
     switching system_id must be an explicit config change, not a process
-    env tweak.  Never scan ~/.agentmail (that picked the wrong system
+    env tweak.  Never scan ~/.aimail (that picked the wrong system
     before, e.g. OpenClaw replying as agent.vfy@).
     """
     pointer = Path.home() / ".openclaw" / ".agentmail"
@@ -195,7 +195,7 @@ def set_agent_context(agent_id: str, system_id: str = "") -> None:
     （aimail_tools）内部都调用 _load_profile_config() —— 公共版读
     _CONFIG_LOADER 注入点，共享 set_agent_context 设置后两处同时生效
     （同一函数对象）。同时设 AIMAIL_AGENT_EMAIL（共享 _resolve_agent_email
-    的第一优先来源）——日志 agentmail.{email}.log 按 agent 落位。
+    的第一优先来源）——日志 aimail.{email}.log 按 agent 落位。
 
     2026-08-18 起转发 pysdk/aimail_base.set_agent_context（平台无关，
     兜底 MCP 服务共用）——单一权威。_ACTIVE_AGENT_CONFIG 在共享核心维护。
@@ -298,7 +298,7 @@ agent_for_email = _ab.route_agent_for_email  # 多收件人入站路由（共享
 
 # is_ping/is_pong/ping_id/handle_ping_pong come from aimail_base
 # (the shared Hermes + OpenClaw layer) — single implementation.
-PONG_PREFIX = "__agentmail_pong__:"
+PONG_PREFIX = "__aimail_pong__:"
 
 
 PING_PREFIX = _ab.PING_PREFIX
@@ -343,7 +343,7 @@ def dispatch_to_hooks(hooks_url: str, hooks_token: str, agent_id: str,
         # allowRequestSessionKey=true 时请求可携带 sessionKey,固定前缀
         # 使所有入站邮件汇聚到同一 agent 会话(线程按 idempotencyKey 幂等)。
         "sessionKey": f"agent:{agent_id}:hook:amail",
-        # deliver=false:agentmail 的回复经 send_mail 工具回发,不依赖
+        # deliver=false:aimail 的回复经 send_mail 工具回发,不依赖
         # OpenClaw 的聊天渠道投递(delivery 目标解析会因无 previous
         # recipient 拒绝 isolated run)。
         "deliver": False,

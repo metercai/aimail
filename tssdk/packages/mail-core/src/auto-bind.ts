@@ -5,7 +5,7 @@
  * Chain (mirrors Python `register_agent_email` + `register_bridge_route`,
  * and the TS openclaw `registerAgentEmail` 4-step port — but independent of
  * any platform host, signing with the SYSTEM admin key read from
- * `~/.agentmail/systems/{sid}/agentmail_gateway.json`):
+ * `~/.aimail/systems/{sid}/agentmail_gateway.json`):
  *
  *   1. readSystemConfig(systemId)          — gateway_url/admin_key/domain/...
  *   2. registerAddress(...)                — 4-step idempotent register chain
@@ -23,7 +23,7 @@ import { agentConfigPath, loadAgentConfig } from './config.js'
 import { GatewayClient } from './gateway.js'
 import type { GatewayResponse } from './types.js'
 
-/** ~/.agentmail/systems/{sid}/agentmail_gateway.json (system-level facts). */
+/** ~/.aimail/systems/{sid}/agentmail_gateway.json (system-level facts). */
 export interface SystemGatewayConfig {
   system_id?: string
   gateway_url?: string
@@ -47,7 +47,7 @@ export interface AdminClientLike {
   ): Promise<GatewayResponse>
 }
 
-/** Enumerate system ids under ~/.agentmail/systems/ (missing → []). */
+/** Enumerate system ids under ~/.aimail/systems/ (missing → []). */
 export async function listSystemDirs(): Promise<string[]> {
   const root = path.join(AIMAIL_HOME(), 'systems')
   try {
@@ -68,7 +68,7 @@ export async function readSystemConfig(systemId: string): Promise<SystemGatewayC
     return JSON.parse(await fs.readFile(p, 'utf-8')) as SystemGatewayConfig
   } catch {
     throw new Error(
-      `gateway config not found (agentmail_gateway.json) for system ${systemId} — run 'agentmail install' first`,
+      `gateway config not found (agentmail_gateway.json) for system ${systemId} — run 'aimail install' first`,
     )
   }
 }
@@ -256,7 +256,7 @@ export interface BridgeRouteResult {
 /**
  * Local bridge admin route upsert (POST /api/v1/routes, port=80 placeholder —
  * the bridge ignores it when host is a full URL). Idempotent; every failure
- * is warn-only — a down bridge is repaired later via `agentmail repair`.
+ * is warn-only — a down bridge is repaired later via `aimail repair`.
  */
 export async function registerBridgeRoute(
   opts: BridgeRouteOptions,
@@ -279,7 +279,7 @@ export async function registerBridgeRoute(
     })
     if (!resp.ok) {
       const err = `bridge route HTTP ${resp.status}`
-      console.warn(`[auto-bind] ${err} for ${opts.email} — run 'agentmail repair' later`)
+      console.warn(`[auto-bind] ${err} for ${opts.email} — run 'aimail repair' later`)
       return { ok: false, status: resp.status, error: err }
     }
     return { ok: true, status: resp.status }
@@ -330,12 +330,12 @@ export async function autoBind(opts: AutoBindOptions): Promise<AutoBindResult> {
   const sids = opts.systemId ? [opts.systemId] : await listSystemDirs()
   if (sids.length === 0) {
     throw new Error(
-      'auto-bind: no agentmail system on this machine (~/.agentmail/systems/) — run `agentmail init` + `agentmail install` first',
+      'auto-bind: no aimail system on this machine (~/.aimail/systems/) — run `aimail init` + `aimail install` first',
     )
   }
   if (sids.length > 1 && !opts.systemId) {
     throw new Error(
-      `auto-bind: multiple agentmail systems (${sids.join(', ')}) — pass an explicit systemId`,
+      `auto-bind: multiple aimail systems (${sids.join(', ')}) — pass an explicit systemId`,
     )
   }
   const systemId = sids[0] as string

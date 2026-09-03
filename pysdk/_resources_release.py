@@ -2,7 +2,7 @@
 """_resources_release — SDK 资源的本地配置目录展开(python 版)。
 
 架构:资源(role_prompt/role_soul × en/zh + skills)是公共种子,随 SDK
-分发;安装/启动时释放到 ~/.agentmail/systems/{sid}/board/ 供运行时读取
+分发;安装/启动时释放到 ~/.aimail/systems/{sid}/board/ 供运行时读取
 (pysdk 与 tssdk 运行时同路径)。只补缺失/更新的文件,绝不覆盖用户已在
 配置目录个性化过的内容。
 
@@ -26,7 +26,7 @@ _DIR_MAP = (
     ("role_soul_zh", "role_soul_zh"),
 )
 
-_AIMAIL_HOME = os.path.join(os.path.expanduser("~"), ".agentmail")
+_AIMAIL_HOME = os.path.join(os.path.expanduser("~"), ".aimail")
 
 
 def agentmail_home() -> str:
@@ -39,7 +39,7 @@ def resources_board_dir() -> str:
 
 
 def release_resources(system_id: str, board_root: str | None = None) -> dict:
-    """释放 board 资源到 ~/.agentmail/systems/{sid}/board/(幂等)。"""
+    """释放 board 资源到 ~/.aimail/systems/{sid}/board/(幂等)。"""
     src_root = board_root or resources_board_dir()
     board_dir = os.path.join(agentmail_home(), "systems", system_id, "board")
     copied = 0
@@ -65,7 +65,7 @@ def release_resources(system_id: str, board_root: str | None = None) -> dict:
 
 
 def release_all_systems(board_root: str | None = None) -> list:
-    """对 ~/.agentmail/systems/ 下全部已有系统展开(单系统机器亦覆盖)。"""
+    """对 ~/.aimail/systems/ 下全部已有系统展开(单系统机器亦覆盖)。"""
     systems_root = os.path.join(agentmail_home(), "systems")
     if not os.path.isdir(systems_root):
         return []

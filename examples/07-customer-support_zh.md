@@ -17,7 +17,7 @@ Agent 接管 `support@` 邮箱，自动分类意图、FAQ 自动回复、复杂�
 
 ```
 1. 客户发邮件给 support@company.com
-2. Webhook → agentmail 预处理 → LLM
+2. Webhook → aimail 预处理 → LLM
 3. LLM 分类：FAQ / 复杂 / 投诉
 4. FAQ → send_mail 自动回复解决方案
 5. 复杂 → send_mail 转接人工 + 附上下文摘要

@@ -155,7 +155,7 @@ Subject: [WHOAMI]
 | **worker** | complete, commit, block, heartbeat, continue, comment, list, show, roles, members, status |
 | **owner** | create, unblock, reassign, comment, list, show, status, members, roles |
 
-New roles: declare in members + define verbs in role_permissions + optionally create `~/.agentmail/{system_id}/board/role_prompt/{role}.md`.
+New roles: declare in members + define verbs in role_permissions + optionally create `~/.aimail/{system_id}/board/role_prompt/{role}.md`.
 
 ### 4.3 Notes
 

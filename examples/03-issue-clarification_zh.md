@@ -16,7 +16,7 @@ Agent 发现信息矛盾或缺失时，自动发送澄清邮件并等待回复�
 ```
 1. LLM 在任务中发现问题
 2. send_mail(to=同事, subject="[澄清] xxx", body=问题描述+上下文)
-3. 同事回复 → Webhook → agentmail 预处理
+3. 同事回复 → Webhook → aimail 预处理
 4. LLM 解析回复，提取答案
 5. 继续原任务
 ```

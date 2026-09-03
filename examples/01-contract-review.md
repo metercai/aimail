@@ -18,7 +18,7 @@ A legal AI Agent takes over the `legal@` inbox, auto-parses contract attachments
 ```
 1. Register legal@company.com as agent inbox
 2. Business team sends email to legal@ with contract attachment
-3. Webhook → agentmail preprocessing → LLM
+3. Webhook → aimail preprocessing → LLM
 4. LLM parses clauses, identifies risk levels
 5. send_mail(to=sender, body=annotated, cc=approver) → reply
 ```

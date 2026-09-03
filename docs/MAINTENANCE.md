@@ -19,7 +19,7 @@
 ### Directory Structure
 
 ```
-~/.agentmail/
+~/.aimail/
 ├── systems/
 │   └── {system_id}/
 │       ├── agentmail_gateway.json     # Gateway connection config (gateway_url, admin_key, system_id, domain)
@@ -30,7 +30,7 @@
 │           └── role_prompt/           # address-level role prompts (takes priority)
 ├── mail/
 │   └── {agent_addr}/
-│       ├── agentmail.log              # agent pipeline log
+│       ├── aimail.log              # agent pipeline log
 │       └── {yyyymm}/in-*.json         # monthly inbound snapshots
 ├── bridge/
 │   ├── aimail_bridge.toml              # bridge config
@@ -40,7 +40,7 @@
 │   └── bridge.out                     # bridge stdout log
 ├── logs/
 │   ├── aimail-bridge.log               # bridge runtime log
-│   └── agentmail.agent.{addr}.log     # per-agent processing log
+│   └── aimail.agent.{addr}.log     # per-agent processing log
 ├── backup-reset-*/                    # config snapshot before each reset
 └── .system_raw_key/
     └── {system_id}_admin.key          # raw admin key (integration only)
@@ -50,11 +50,11 @@
 
 | File | Content | Written By |
 |------|---------|------------|
-| `systems/{sid}/agentmail_gateway.json` | gateway_url, admin_key, system_id, system_name, manager_address, system_home | `agentmail install` / `reset` → `setup_system.py` |
+| `systems/{sid}/agentmail_gateway.json` | gateway_url, admin_key, system_id, system_name, manager_address, system_home | `aimail install` / `reset` → `setup_system.py` |
 | `systems/{sid}/{addr}/agentmail.json` | email, api_key, gateway_url, domain, system_id, manager_address | registration chain (`register_profiles.py` / `register_agent.py`) |
 | `bridge/aimail_bridge.toml` | mode, addr/pull config | `deploy_bridge.py` |
 
-All config lives under `~/.agentmail/`; no gateway config is kept in the agent home
+All config lives under `~/.aimail/`; no gateway config is kept in the agent home
 (pointer files `.agentmail` in profile dirs only reference the system_id).
 
 ---
@@ -65,11 +65,11 @@ All config lives under `~/.agentmail/`; no gateway config is kept in the agent h
 
 | File | Content | Location |
 |------|---------|----------|
-| **agentmail.log** | Mail pipeline logs (ping/pong, inbound/outbound, preprocessing) | `~/.agentmail/mail/{agent_addr}/agentmail.log` |
-| **aimail-bridge.log** | Bridge runtime logs (pull, forward, routing, health) | `~/.agentmail/logs/aimail-bridge.log` |
+| **aimail.log** | Mail pipeline logs (ping/pong, inbound/outbound, preprocessing) | `~/.aimail/mail/{agent_addr}/aimail.log` |
+| **aimail-bridge.log** | Bridge runtime logs (pull, forward, routing, health) | `~/.aimail/logs/aimail-bridge.log` |
 | **gateway.log** | Hermes gateway log (per profile) | `~/.hermes/gateway.log` (root) or `~/.hermes/profiles/{name}/gateway.log` |
 
-### agentmail.log Format
+### aimail.log Format
 
 One JSON object per line:
 
@@ -88,14 +88,14 @@ One JSON object per line:
 No auto-rotation. Configure logrotate or cron:
 
 ```bash
-# /etc/logrotate.d/agentmail
-~/.agentmail/mail/*/agentmail.log {
+# /etc/logrotate.d/aimail
+~/.aimail/mail/*/aimail.log {
     daily
     rotate 7
     compress
     missingok
 }
-~/.agentmail/logs/aimail-bridge.log {
+~/.aimail/logs/aimail-bridge.log {
     daily
     rotate 7
     compress
@@ -111,16 +111,16 @@ No auto-rotation. Configure logrotate or cron:
 
 ```bash
 # Full pipeline diagnostics
-./agentmail check
+./aimail check
 
 # With repair suggestions
-./agentmail check --verbose
+./aimail check --verbose
 
 # End-to-end heartbeat test (ping → pong loop)
-./agentmail ping
+./aimail ping
 
 # Welcome e2e test (send a welcome email to the manager)
-./agentmail welcome
+./aimail welcome
 ```
 
 ### check Layers
@@ -135,13 +135,13 @@ No auto-rotation. Configure logrotate or cron:
 ### Ping/Pong Test
 
 ```bash
-./agentmail ping
+./aimail ping
 ```
 
 Sends ping via SMTP to gateway to bridge to webhook, triggers auto-pong reply, verifies full loop. Expected output:
 
 ```
-  Ping sent: __agentmail_ping__:a1b2c3d4e5f6
+  Ping sent: __aimail_ping__:a1b2c3d4e5f6
   +  1.2s    Webhook Receive (ping)         OK
   +  2.9s    Pong Sent (send_mail)          OK
   +  5.1s    Webhook Return (pong)          OK
@@ -157,18 +157,18 @@ Sends ping via SMTP to gateway to bridge to webhook, triggers auto-pong reply, v
 
 ```bash
 # Status (process / config / route table / log freshness)
-./agentmail bridge
+./aimail bridge
 
 # Restart (single instance)
-./agentmail bridge --restart
+./aimail bridge --restart
 
 # Refresh forward routes for one system
-./agentmail bridge --system-id <sid>
+./aimail bridge --system-id <sid>
 ```
 
 ### Config
 
-`~/.agentmail/bridge/aimail_bridge.toml`:
+`~/.aimail/bridge/aimail_bridge.toml`:
 
 ```toml
 mode = "pull"
@@ -230,18 +230,18 @@ Root profile default port 8644, named profiles from 8645 sequentially.
 
 **Check:**
 ```bash
-grep pong_status ~/.agentmail/mail/*/agentmail.log
+grep pong_status ~/.aimail/mail/*/aimail.log
 ```
 
-**Fix:** Verify email and api_key match in `~/.agentmail/systems/{sid}/{addr}/agentmail.json`.
+**Fix:** Verify email and api_key match in `~/.aimail/systems/{sid}/{addr}/agentmail.json`.
 
 ### Bridge cannot pull emails
 
 **Check:**
 ```bash
-./agentmail bridge
+./aimail bridge
 curl https://amail.token.tm/health
-tail -20 ~/.agentmail/logs/aimail-bridge.log
+tail -20 ~/.aimail/logs/aimail-bridge.log
 ```
 
 ### Gateway won't start
@@ -256,14 +256,14 @@ cat ~/.hermes/gateway.log
 ### Re-integration
 
 ```bash
-# Remove agentmail from the agent system (CLI, preserves ~/.agentmail/ local data)
-./agentmail uninstall --system-id <sid> --yes
+# Remove aimail from the agent system (CLI, preserves ~/.aimail/ local data)
+./aimail uninstall --system-id <sid> --yes
 
 # Re-install
-./agentmail install --home ~/.hermes --system-id <sid>
+./aimail install --home ~/.hermes --system-id <sid>
 ```
 
-`agentmail install` is idempotent — re-runs skip completed steps.
+`aimail install` is idempotent — re-runs skip completed steps.
 
 ### API Key Update
 
@@ -272,14 +272,14 @@ If gateway-side key is rotated or invalidated:
 ```bash
 # Option 1: Clear activation_code and api_key in agentmail.json
 # Option 2: Replace api_key directly
-# Option 3: Re-run ./agentmail reset --system-id <sid>
+# Option 3: Re-run ./aimail reset --system-id <sid>
 ```
 
 ---
 
 ## 7. CLI Reference
 
-`./agentmail` is the single entry point (repo root, symlinked to `scripts/agentmail`).
+`./aimail` is the single entry point (repo root, symlinked to `scripts/aimail`).
 Subcommands (alphabetical): `bridge`, `check`, `domain`, `install`, `mailname`,
 `ping`, `reset`, `stats`, `uninstall`, `welcome`.
 
@@ -292,33 +292,33 @@ Subcommands (alphabetical): `bridge`, `check`, `domain`, `install`, `mailname`,
 # .env: AIMAIL_URL / AIMAIL_ADMIN_KEY | AIMAIL_PRODUCT_CODE / AIMAIL_MANAGER_ADDRESS
 
 # New system — activate with a product code (from .env if not passed)
-./agentmail install --home ~/.hermes --product-code <CODE> --manager admin@example.com
+./aimail install --home ~/.hermes --product-code <CODE> --manager admin@example.com
 
 # Existing system — reuse the stored config or pass the admin key
-./agentmail install --home ~/.hermes --system-id <sid>
-./agentmail install --home ~/.openclaw --system-id <sid>
+./aimail install --home ~/.hermes --system-id <sid>
+./aimail install --home ~/.openclaw --system-id <sid>
 ```
 
 `install` runs the whole chain: system activation → bridge deploy → tool & skill
 install → webhook patch & profile registration. Then verify:
 
 ```bash
-./agentmail check                      # pipeline diagnostics
-./agentmail ping                       # ping-pong round trip
-./agentmail welcome                    # welcome e2e (mail to manager)
-./agentmail stats                      # machine overview (systems/agents/mail counts)
+./aimail check                      # pipeline diagnostics
+./aimail ping                       # ping-pong round trip
+./aimail welcome                    # welcome e2e (mail to manager)
+./aimail stats                      # machine overview (systems/agents/mail counts)
 ```
 
 ### Day-to-day operations
 
 ```bash
-./agentmail stats                      # systems installed + agents + mail stats
-./agentmail domain --system-id <sid>   # list domains of a system
-./agentmail domain --system-id <sid> --add example.com   # create a domain
-./agentmail mailname --system-id <sid> --default NAME    # rename main agent
-./agentmail reset --system-id <sid>    # re-run registration with stored admin key
-./agentmail uninstall --system-id <sid> --yes            # remove the integration
-./agentmail bridge --restart           # restart the local bridge
+./aimail stats                      # systems installed + agents + mail stats
+./aimail domain --system-id <sid>   # list domains of a system
+./aimail domain --system-id <sid> --add example.com   # create a domain
+./aimail mailname --system-id <sid> --default NAME    # rename main agent
+./aimail reset --system-id <sid>    # re-run registration with stored admin key
+./aimail uninstall --system-id <sid> --yes            # remove the integration
+./aimail bridge --restart           # restart the local bridge
 ```
 
 `--home` locates the platform root (`~/.hermes` / `~/.openclaw`); `--system-id`
@@ -332,34 +332,34 @@ new machine:
 
 ```bash
 # 1. On the OLD machine, collect the system credentials:
-ls ~/.agentmail/.system_raw_key/        # {sid}_admin.key — the admin key
-ls ~/.agentmail/systems/{sid}/          # agentmail_gateway.json + per-agent mailboxes
+ls ~/.aimail/.system_raw_key/        # {sid}_admin.key — the admin key
+ls ~/.aimail/systems/{sid}/          # agentmail_gateway.json + per-agent mailboxes
 
 # 2. On the NEW machine — machine environment (once):
 git clone https://github.com/metercai/aimail.git && cd aimail
 cp docs/.env.example .env               # AIMAIL_URL + AIMAIL_MANAGER_ADDRESS
-./agentmail init                        # gateway discovery + bridge skeleton
+./aimail init                        # gateway discovery + bridge skeleton
 
 # 3. Restore the system credentials (copy the two items from step 1):
-mkdir -p ~/.agentmail/.system_raw_key
-cp <old>/{sid}_admin.key ~/.agentmail/.system_raw_key/
+mkdir -p ~/.aimail/.system_raw_key
+cp <old>/{sid}_admin.key ~/.aimail/.system_raw_key/
 # agentmail_gateway.json can be re-created instead by activating with the
-# admin key: AIMAIL_ADMIN_KEY=$(cat ~/.agentmail/.system_raw_key/{sid}_admin.key)
+# admin key: AIMAIL_ADMIN_KEY=$(cat ~/.aimail/.system_raw_key/{sid}_admin.key)
 
 # 4. Reuse the system (idempotent, no new activation):
-./agentmail install --home <platform-root> --system-id {sid}
+./aimail install --home <platform-root> --system-id {sid}
 #    — reuses the existing system via the admin key, re-deploys the
 #      platform binding (patch/registration), appends the bridge system
 #      entry and starts the bridge.
 
 # 5. Re-bind the platform agent if needed (dsh: per session) and verify:
-./agentmail check --system-id {sid}
-./agentmail welcome --system-id {sid}
+./aimail check --system-id {sid}
+./aimail welcome --system-id {sid}
 ```
 
 Notes:
 - `install` never activates twice: with an admin key present it reuses the
   system (`reuse` path), so a migrated machine does not consume an
   activation code.
-- Mail history stays on the gateway; local `~/.agentmail/mail` snapshots
+- Mail history stays on the gateway; local `~/.aimail/mail` snapshots
   do not need copying (they are for debugging).

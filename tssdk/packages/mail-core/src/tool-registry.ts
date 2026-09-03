@@ -3,7 +3,7 @@
  * semantic definitions (names, descriptions, parameter descriptions).
  *
  * Contract: text is verbatim from tools/amail_mcp_server.py TOOLS registry
- * (agentmail repo); a vitest parity case pins TS↔Python so the two cannot
+ * (aimail repo); a vitest parity case pins TS↔Python so the two cannot
  * drift. Platform adapters (dsh-aimail, openclaw-aimail) iterate this array
  * and bind each entry's `handler` to their own identity resolution — no
  * adapter re-declares semantic text.
@@ -62,7 +62,7 @@ export const MAIL_TOOLS: readonly MailToolDef[] = [
   // ── mail tools (6) ──────────────────────────────────────────
   {
     name: 'send_mail',
-    description: 'Send an email from your agentmail address. Returns delivery status.',
+    description: 'Send an email from your aimail address. Returns delivery status.',
     parameters: {
       to: { type: 'string', description: 'Comma-separated recipients', required: true },
       subject: { type: 'string', required: true },

@@ -41,10 +41,10 @@ if "--agent-home" in sys.argv:
                 AGENT_HOME = _ah
     except Exception:
         pass
-# 与 aimail_base.aimail_home() 同语义:空 env 回退 ~/.agentmail。
+# 与 aimail_base.aimail_home() 同语义:空 env 回退 ~/.aimail。
 # (旧写法 Path("")=PosixPath('.') 恒真,or 回退永不生效——bug。)
-_AH_ENV = os.environ.get("AIMAIL_HOME") or os.environ.get("AGENTMAIL_HOME", "")
-AIMAIL_HOME = Path(_AH_ENV).expanduser() if _AH_ENV else Path.home() / ".agentmail"
+_AH_ENV = os.environ.get("AIMAIL_HOME", "")
+AIMAIL_HOME = Path(_AH_ENV).expanduser() if _AH_ENV else Path.home() / ".aimail"
 SYSTEMS_DIR = AIMAIL_HOME / "systems"
 MAIL_DIR    = AIMAIL_HOME / "mail"
 BRIDGE_DIR  = AIMAIL_HOME / "bridge"
@@ -185,7 +185,7 @@ def _detect_agent_type() -> str:
     探测优先级(2026-08-16 双平台共存机器实测):
     ① --agent-home 被显式指定(出现在 argv)→ 视为 Hermes 意图
        (Hermes 是唯一用 agent-home 定位的平台;OpenClaw 固定 ~/.openclaw)。
-       注意:即使值恰是默认 ~/.hermes 也算显式(agentmail CLI 的 check
+       注意:即使值恰是默认 ~/.hermes 也算显式(aimail CLI 的 check
        传 --home 平台根时会落到这里)——只看参数是否出现,不看值。
     ② ~/.openclaw/openclaw.json 存在 → openclaw
     ③ AGENT_HOME 下有 hermes-agent 或 profiles/ → hermes
@@ -212,7 +212,7 @@ def _hermes_list_agents() -> list[dict]:
 
     两种布局:
     - AGENT_HOME = Hermes 根(~/.hermes):default 根 profile + profiles/*/
-    - AGENT_HOME = 某 profile 目录(如 ~/.hermes/profiles/agentmail,
+    - AGENT_HOME = 某 profile 目录(如 ~/.hermes/profiles/aimail,
       check_status --agent-home 常用):该目录自身即 agent
     """
     agents = []
@@ -246,7 +246,7 @@ def _hermes_list_agents() -> list[dict]:
         except Exception:
             pass
     # Named profiles — 只保留有 amail 标记的(与 ensure_webhook_config 的
-    # is_amail_profile 同逻辑):.agentmail 指针或 config 有 agentmail 痕迹;
+    # is_amail_profile 同逻辑):.agentmail 指针或 config 有 aimail 痕迹;
     # 无关 profile(erp/qlbio 等)不报 MISSING 噪音(2026-08-16 实测 22 issue)。
     profiles_dir = AGENT_HOME / "profiles"
     if profiles_dir.is_dir():
@@ -260,7 +260,7 @@ def _hermes_list_agents() -> list[dict]:
             except Exception:
                 pass
             if not email:
-                # 无指针:检查 config 是否有 agentmail 痕迹
+                # 无指针:检查 config 是否有 aimail 痕迹
                 cfg_p = pdir / "config.yaml"
                 if cfg_p.exists():
                     try:
@@ -268,8 +268,8 @@ def _hermes_list_agents() -> list[dict]:
                         pt = (yaml.safe_load(cfg_p.read_text()) or {}).get("platform_toolsets", {})
                         for seg in ("webhook", "cli"):
                             tools = pt.get(seg) or []
-                            if "agentmail" in (tools if isinstance(tools, list) else []):
-                                email = "?"  # 有 agentmail 工具标记,列入
+                            if "aimail" in (tools if isinstance(tools, list) else []):
+                                email = "?"  # 有 aimail 工具标记,列入
                                 break
                     except Exception:
                         pass
@@ -318,13 +318,13 @@ def _hermes_check_config(c: Check, agent: dict):
           "Run: python -m aimail.install install --type hermes (SDK 补全配置)")
 
     # 3.3 skill: profile skills/agentmail/
-    skill_dir = pd / "skills" / "agentmail" if pd else None
+    skill_dir = pd / "skills" / "aimail" if pd else None
     skill_ok = bool(skill_dir and skill_dir.is_dir())
     c.add("agent", "skill", skill_ok,
           f"{name}: skills/agentmail " + ("✓" if skill_ok else "MISSING"),
           "Run install-skill or copy skills/SKILL.md")
 
-    # 3.4 toolset: platform_toolsets.webhook/cli 含 agentmail
+    # 3.4 toolset: platform_toolsets.webhook/cli 含 aimail
     ts_ok = False
     try:
         import yaml
@@ -332,13 +332,13 @@ def _hermes_check_config(c: Check, agent: dict):
             pt = (yaml.safe_load(cfg.read_text()) or {}).get("platform_toolsets", {})
             for seg in ("webhook", "cli"):
                 tools = pt.get(seg) or []
-                if "agentmail" in tools:
+                if "aimail" in tools:
                     ts_ok = True
                     break
     except Exception:
         pass
     c.add("agent", "toolset", ts_ok,
-          f"{name}: platform_toolsets " + ("含 agentmail ✓" if ts_ok else "MISSING"),
+          f"{name}: platform_toolsets " + ("含 aimail ✓" if ts_ok else "MISSING"),
           "Run ensure_webhook_config.py")
 
     # 3.5 register: 云端注册(api_key 存在 + webhook route 存在)
@@ -347,7 +347,7 @@ def _hermes_check_config(c: Check, agent: dict):
     if subs and subs.exists():
         try:
             routes = json.loads(subs.read_text())
-            route_ok = any("agentmail" in k.lower() for k in (routes or {}))
+            route_ok = any("aimail" in k.lower() for k in (routes or {}))
         except Exception:
             pass
     reg_ok = bool(api_key and route_ok)
@@ -479,7 +479,7 @@ def _openclaw_check_config(c: Check, agent: dict):
           "Re-run register_agent.py (persists webhook_secret)")
 
     # 3.3 skill: ~/.openclaw/skills/agentmail/
-    skill_ok = (Path.home() / ".openclaw" / "skills" / "agentmail").is_dir()
+    skill_ok = (Path.home() / ".openclaw" / "skills" / "aimail").is_dir()
     c.add("agent", "skill", skill_ok,
           f"{name}: skills/agentmail " + ("✓" if skill_ok else "MISSING"),
           "Run install-skill.sh")
@@ -512,11 +512,11 @@ def _openclaw_check_config(c: Check, agent: dict):
 
 
 def _openclaw_check_hook(c: Check, agent: dict):
-    """L4 OpenClaw: plugin gateway endpoint probe (POST /agentmail/deliver on
+    """L4 OpenClaw: plugin gateway endpoint probe (POST /aimail/deliver on
     the OpenClaw gateway, auth:"plugin" — plugin-managed HMAC verification).
 
     Legacy adapter (amail_openclaw_bridge.py :8799/hook) is retired; the TS
-    plugin registers /agentmail/deliver on the gateway HTTP server instead.
+    plugin registers /aimail/deliver on the gateway HTTP server instead.
     """
     # Discover the gateway port from openclaw.json (default 18789).
     port = 18789
@@ -527,7 +527,7 @@ def _openclaw_check_hook(c: Check, agent: dict):
             port = int((oc.get("gateway") or {}).get("port") or 18789)
     except Exception:
         pass
-    url = f"http://127.0.0.1:{port}/agentmail/deliver"
+    url = f"http://127.0.0.1:{port}/aimail/deliver"
     payload = json.dumps({"to": ["probe@invalid"], "body": "status-check"}).encode()
     try:
         req = urllib.request.Request(url, data=payload,
@@ -537,14 +537,14 @@ def _openclaw_check_hook(c: Check, agent: dict):
             body = r.read().decode()[:80]
             # 200 with a JSON status = plugin route alive (no_agent/bad_signature
             # are both valid — the endpoint processed the request).
-            c.add("agent", "hook", True, f"POST /agentmail/deliver → HTTP {r.status} {body}")
+            c.add("agent", "hook", True, f"POST /aimail/deliver → HTTP {r.status} {body}")
     except urllib.error.HTTPError as e:
         if e.code in (200, 400, 401, 404):
             # 404 (non-POST probe path) / 401 (signature) still prove the route
             # is registered and the plugin is loaded.
-            c.add("agent", "hook", True, f"POST /agentmail/deliver → {e.code} (plugin route active)")
+            c.add("agent", "hook", True, f"POST /aimail/deliver → {e.code} (plugin route active)")
         else:
-            c.add("agent", "hook", False, f"POST /agentmail/deliver → HTTP {e.code}")
+            c.add("agent", "hook", False, f"POST /aimail/deliver → HTTP {e.code}")
     except Exception as e:
         c.add("agent", "hook", False, f"Cannot reach {url}: {e}",
               f"Is the OpenClaw gateway running on :{port} with the openclaw-aimail plugin installed?")
@@ -742,7 +742,7 @@ def _resolve_platform_sid(agent_type: str) -> str:
 
 
 def _read_gw_cfg(sid: str = "") -> dict | None:
-    """Load ~/.agentmail/system-{sid}/agentmail_gateway.json, return None on failure."""
+    """Load ~/.aimail/system-{sid}/agentmail_gateway.json, return None on failure."""
     if not sid:
         sid = _resolve_system_id(sys.argv)
     p = _system_agent_path(sid) if sid else SYSTEMS_DIR / "agentmail_gateway.json"
@@ -1064,7 +1064,7 @@ def _run_ping_test() -> int:
     """Delegate to the shared, agent-agnostic ping test script.
 
     The implementation moved to scripts/ping_test.py (SMTP auth inbound +
-    agentmail.log three-stage assertion) so every agent system
+    aimail.log three-stage assertion) so every agent system
     (Hermes/OpenClaw/DeerFlow/dsh) uses the SAME ping/pong verification.
     """
     import subprocess
@@ -1090,10 +1090,10 @@ def _run_ping_test() -> int:
 #  Main
 # ═══════════════════════════════════════════════════════════════
 def _detect_default_sid() -> str:
-    """默认检测范围:本机实际安装且已集成 agentmail 的第一个平台。
+    """默认检测范围:本机实际安装且已集成 aimail 的第一个平台。
 
     用户定调 2026-08-16:默认值必须以实际为准——本机装了哪些
-    agent 系统且有 agentmail 指针的第一个,不能扫 ~/.agentmail/systems/
+    agent 系统且有 aimail 指针的第一个,不能扫 ~/.aimail/systems/
     目录(里面有历史遗留的过期旧系统,歧义混淆)。
     按平台注册表顺序探测:平台存在 + 该平台指针(.agentmail)存在且
     有 system_id → 返回该 sid。全部无 → 空。
@@ -1138,7 +1138,7 @@ def main():
         _sid = _resolve_platform_sid(agent_type)
         if _sid:
             sid_platform = None
-            # Hermes 指针:AGENT_HOME/.agentmail + profiles/*/.agentmail
+            # Hermes 指针:AGENT_HOME/.agentmail + profiles/*/.aimail
             ptr_cands = [AGENT_HOME / ".agentmail"]
             profiles_dir = AGENT_HOME / "profiles"
             if profiles_dir.is_dir():
@@ -1166,7 +1166,7 @@ def main():
 
     # ══ system_id 锚点(用户定调 2026-08-16)══════════════════════
     # 入参优先(--system-id / 上位传递);无则默认 = 本机实际安装且
-    # 已集成 agentmail 的第一平台指针(绝不扫 systems/ 目录——历史
+    # 已集成 aimail 的第一平台指针(绝不扫 systems/ 目录——历史
     # 遗留旧系统会造成歧义)。
     platform_sid = _resolve_platform_sid(agent_type)
     if not platform_sid:
@@ -1175,7 +1175,7 @@ def main():
             print(f"  default system_id: {platform_sid} (from {_detect_agent_type()} pointer)")
     if not platform_sid:
         print(f"{YELLOW}⚠ No system_id resolved — 请用 --system-id 指定"
-              f"(或确认本机已安装 agent 平台且有 agentmail 指针){NC}")
+              f"(或确认本机已安装 agent 平台且有 aimail 指针){NC}")
 
     c = Check()
     c.verbose = verbose

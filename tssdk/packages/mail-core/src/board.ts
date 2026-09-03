@@ -1,5 +1,5 @@
 /**
- * Board tools (A2A) — mirror agentmail_board.py. Dual-credential auth:
+ * Board tools (A2A) — mirror aimail_board.py. Dual-credential auth:
  * board token (board_creds.json) when present, else agent api_key; member
  * email passed as query param on every board API call.
  */
@@ -58,7 +58,7 @@ async function boardClient(
   boardId: string,
 ): Promise<{ client: GatewayClient; email: string }> {
   const cfg = await loadAgentConfig(ctx.systemId, ctx.email ?? '')
-  if (!cfg || !cfg.api_key) throw new Error('agentmail not configured for this agent')
+  if (!cfg || !cfg.api_key) throw new Error('aimail not configured for this agent')
   const creds = await loadBoardCreds(ctx.systemId, cfg.email)
   const token = creds[boardId]?.token
   const client = new GatewayClient(boardGatewayUrl(boardId, cfg), token || cfg.api_key, 30_000, cfg.email)
@@ -131,7 +131,7 @@ export interface SetPublicWhoamiArgs {
 
 export async function setPublicWhoami(ctx: ToolCtx, args: SetPublicWhoamiArgs): Promise<ToolResult> {
   const cfg = await loadAgentConfig(ctx.systemId, ctx.email ?? '')
-  if (!cfg || !cfg.api_key) throw new Error('agentmail not configured for this agent')
+  if (!cfg || !cfg.api_key) throw new Error('aimail not configured for this agent')
   const client = new GatewayClient(cfg.gateway_url, cfg.api_key, 30_000, cfg.email)
   const r = await client.agentStatePut('public_whoami', args.text)
   if (r.status >= 200 && r.status < 300) return { success: true, status: 'ok' }

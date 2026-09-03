@@ -1,6 +1,6 @@
 /**
  * AIMail shared types — mirror of agentmail.json schema & gateway API shapes.
- * Contract baseline: AGENTMAIL-JSON-REFERENCE.md (agentmail repo).
+ * Contract baseline: AGENTMAIL-JSON-REFERENCE.md (aimail repo).
  */
 
 /** Per-address agent config (agentmail.json) — the single source of truth. */

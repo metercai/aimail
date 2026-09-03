@@ -2,7 +2,7 @@
  * MAIL_TOOLS contract tests:
  *   - structural: 12 tools, exact names/order, non-empty semantic text
  *   - parity (best-effort): names + descriptions + parameter text must match
- *     the Python TOOLS registry in agentmail/tools/amail_mcp_server.py
+ *     the Python TOOLS registry in aimail/tools/amail_mcp_server.py
  *     (the upstream contract reference). Skipped when the sibling repo or
  *     python3 is unavailable (e.g. CI without the checkout).
  */
@@ -29,10 +29,10 @@ const EXPECTED_NAMES = [
   'set_public_whoami',
 ] as const
 
-/** Sibling-repo layout: dsh-aimail/ and agentmail/ share a parent dir. */
+/** Sibling-repo layout: dsh-aimail/ and aimail/ share a parent dir. */
 const PY_REGISTRY = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  '..', '..', '..', '..', 'agentmail', 'tools', 'amail_mcp_server.py',
+  '..', '..', '..', '..', 'aimail', 'tools', 'amail_mcp_server.py',
 )
 
 interface PyParam { type?: string; enum?: string[]; description?: string }
@@ -87,7 +87,7 @@ describe('MAIL_TOOLS structure', () => {
 describe('MAIL_TOOLS ↔ Python registry parity', () => {
   const py = loadPythonTools()
   if (!py) {
-    it.skip('python registry available (agentmail repo + python3)', () => {})
+    it.skip('python registry available (aimail repo + python3)', () => {})
     return
   }
 

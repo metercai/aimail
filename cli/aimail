@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""agentmail — 统一的 agentmail 维护工具 CLI。
+"""aimail — 统一的 aimail 维护工具 CLI。
 
 子命令:
   install  [--home 平台根] [--system-id] [--product-code] 集成脚本到 check 前
@@ -13,7 +13,7 @@
 平台事实推断(无 --agent-type,用户定调 2026-08-16):
   1. --home 指定 → 目录特征(hermes-agent/profiles=hermes, openclaw.json=openclaw)
   2. --system-id → 配置 system_home 反查 → 目录特征(旧系统回退指针归属)
-  3. 都没有 → 自动探测第一个有 agentmail 指针的平台
+  3. 都没有 → 自动探测第一个有 .agentmail 指针的平台
 home 语义:system_home=系统/平台根(hermes=~/.hermes, openclaw=~/.openclaw);
           agent_home=具体 agent home(adapter 内部派生,非子命令入参)
 """
@@ -29,10 +29,10 @@ import urllib.request
 from pathlib import Path
 
 HOME = Path.home()
-# 与 aimail_base.aimail_home() 同语义:空 env 回退 ~/.agentmail。
+# 与 aimail_base.aimail_home() 同语义:空 env 回退 ~/.aimail。
 # (旧写法 Path("")=PosixPath('.') 恒真,or 回退永不生效——bug。)
-_AH_ENV = os.environ.get("AIMAIL_HOME") or os.environ.get("AGENTMAIL_HOME", "")
-AIMAIL_HOME = Path(_AH_ENV).expanduser() if _AH_ENV else HOME / ".agentmail"
+_AH_ENV = os.environ.get("AIMAIL_HOME", "")
+AIMAIL_HOME = Path(_AH_ENV).expanduser() if _AH_ENV else HOME / ".aimail"
 SYSTEMS_DIR = AIMAIL_HOME / "systems"
 SCRIPTS_DIR = Path(__file__).resolve().parent
 
@@ -107,7 +107,7 @@ def _platform_ptr(platform: str) -> Path:
     """平台指针(.agentmail)路径。
 
     Hermes 指针可能在 ~/.hermes/.agentmail(根)或
-    ~/.hermes/profiles/*/.agentmail(profile 目录,agentmail CLI 传
+    ~/.hermes/profiles/*/.agentmail(profile 目录,aimail CLI 传
     --home 平台根时根指针可能不存在)——返回已存在的那个;都没有则
     返回根路径(调用方按空 sid 处理)。
     """
@@ -144,8 +144,8 @@ def resolve_system_id(system_home: Path, explicit_sid: str = "") -> tuple[str, s
     # 1) 显式 sid:优先配置反查,回退指针
     if explicit_sid:
         sid = explicit_sid
-        # 配置反查:该 sid 的 agentmail_gateway.json 里有 system_home
-        cfg_path = SYSTEMS_DIR / sid / "agentmail_gateway.json"
+        # 配置反查:该 sid 的 aimail_gateway.json 里有 system_home
+        cfg_path = SYSTEMS_DIR / sid / "aimail_gateway.json"
         if cfg_path.is_file():
             try:
                 cfg_sh = json.loads(cfg_path.read_text()).get("system_home", "")
@@ -168,7 +168,7 @@ def resolve_platform(system_home: Path) -> str:
     p = detect_platform_from_home(system_home) if system_home else ""
     if p != "unknown":
         return p
-    # 自动探测:第一个有 agentmail 指针的平台
+    # 自动探测:第一个有 aimail 指针的平台
     for plat in ("openclaw", "hermes"):
         if _ptr_sid(_platform_ptr(plat)):
             return plat
@@ -326,7 +326,7 @@ def cmd_init(args) -> int:
     if _is_local_gateway(gw):
         # 本地自建网关 → 直连 push,无需 bridge(注册三态第 3 支)
         print("  ✓ 本地网关(直连 push)——无需 bridge,系统注册时直连本地端点")
-        print("  init done. 接下来: agentmail install(激活系统并绑定平台)")
+        print("  init done. 接下来: aimail install(激活系统并绑定平台)")
         return 0
 
     # 远程网关 → bridge push:二进制 + 骨架配置(首次 install 补 key 并启动)
@@ -338,7 +338,7 @@ def cmd_init(args) -> int:
     if r != 0:
         _warn(f"bridge init exit {r}")
         return r
-    print("  init done. 接下来: agentmail install(激活系统,首次将补齐 bridge key 并启动)")
+    print("  init done. 接下来: aimail install(激活系统,首次将补齐 bridge key 并启动)")
     return 0
 
 
@@ -349,7 +349,7 @@ def _write_pi_pointer(sid: str) -> None:
         from aimail_base import email_for_agent  # noqa: E402
     except Exception:
         return
-    cfg_path = SYSTEMS_DIR / sid / "agentmail_gateway.json"
+    cfg_path = SYSTEMS_DIR / sid / "aimail_gateway.json"
     if not cfg_path.is_file():
         return
     try:
@@ -377,7 +377,7 @@ def cmd_install(args) -> int:
         _fail(f"home 目录不存在: {system_home}")
     platform = resolve_platform(system_home)
     if not platform:
-        _fail(f"无法确定平台:{system_home} 目录无特征且无 agentmail 指针")
+        _fail(f"无法确定平台:{system_home} 目录无特征且无 aimail 指针")
     print(f"  install platform={platform} system_home={system_home}")
 
     # 1) 激活/复用系统 → setup_system.py(env 契约);参数优先,缺失从 .env 取
@@ -518,13 +518,13 @@ def cmd_install(args) -> int:
         # 安装 = dsh 官方插件命令的薄封装(bundle 自动挂载 mail/mail-inbound/tool-mail)
         r = subprocess.call(["dsh", "plugin", "--profile", "web", "add", "dsh-aimail"])
         if r != 0:
-            print("  ⚠ dsh plugin add agentmail 失败(检查 agentmail npm 包发布与网络)")
+            print("  ⚠ dsh plugin add aimail 失败(检查 aimail npm 包发布与网络)")
         else:
-            _ok("agentmail 插件已安装(dsh bundle 层挂载)")
+            _ok("aimail 插件已安装(dsh bundle 层挂载)")
         print("  dsh: 绑定步骤 = scripts/dsh/bind_agent.py(注册地址+路由+落盘)")
         print("        在 dsh 中创建 session(加入 mail preset)后运行 bind_agent.py")
 
-    print(f"  install done. 建议: agentmail check {'--system-id ' + args.system_id if args.system_id else ''}".rstrip())
+    print(f"  install done. 建议: aimail check {'--system-id ' + args.system_id if args.system_id else ''}".rstrip())
     return 0
 
 
@@ -551,7 +551,7 @@ def cmd_reset(args) -> int:
         except Exception:
             pass
     if not admin_key:
-        cfg_path = SYSTEMS_DIR / sid / "agentmail_gateway.json"
+        cfg_path = SYSTEMS_DIR / sid / "aimail_gateway.json"
         if cfg_path.is_file():
             try:
                 admin_key = json.loads(cfg_path.read_text()).get("admin_key", "")
@@ -561,7 +561,7 @@ def cmd_reset(args) -> int:
         _fail(f"无 admin-key({raw_key_path} 或配置)——reset 只走 admin-key 路径")
 
     # 从已有配置读默认参数(CLI 显式覆盖)——reset 语义=重置为本机当前实际
-    cfg_path = SYSTEMS_DIR / sid / "agentmail_gateway.json"
+    cfg_path = SYSTEMS_DIR / sid / "aimail_gateway.json"
     prev = {}
     if cfg_path.is_file():
         try:
@@ -596,7 +596,7 @@ def cmd_reset(args) -> int:
         subprocess.call([sys.executable, str(SCRIPTS_DIR.parent / "bin" / "register_agent.py"),
                          "--all", "--system-id", sid], env=env3)
     _ok("registration chain re-run (idempotent)")
-    print(f"  建议: agentmail check --system-id {sid}")
+    print(f"  建议: aimail check --system-id {sid}")
     return 0
 
 
@@ -605,7 +605,7 @@ def cmd_mailname(args) -> int:
     sid = args.system_id or ""
     if not sid:
         _fail("mailname 需要 --system-id")
-    cfg_path = SYSTEMS_DIR / sid / "agentmail_gateway.json"
+    cfg_path = SYSTEMS_DIR / sid / "aimail_gateway.json"
     if not cfg_path.is_file():
         _fail(f"无系统配置: {cfg_path}")
     cfg = json.loads(cfg_path.read_text())
@@ -669,7 +669,7 @@ def cmd_mailname(args) -> int:
     tmp.replace(cfg_path)
     _ok(f"默认主 agent 名: {current} → {new_name}")
     print(f"  生效方式:agent 地址将变为 {new_name}@{cfg.get('domain','')}(共享域加 .{cfg.get('system_name','')} 后缀)")
-    print(f"  需重注册:agentmail reset --system-id {sid} 或 agentmail install")
+    print(f"  需重注册:aimail reset --system-id {sid} 或 aimail install")
     return 0
 
 
@@ -784,7 +784,7 @@ def cmd_bridge(args) -> int:
     if not platform:
         _fail(f"无法确定平台(system {sid})")
 
-    cfg_path = SYSTEMS_DIR / sid / "agentmail_gateway.json"
+    cfg_path = SYSTEMS_DIR / sid / "aimail_gateway.json"
     if not cfg_path.is_file():
         _fail(f"系统配置不存在: {cfg_path}")
     gw = json.loads(cfg_path.read_text())
@@ -875,7 +875,7 @@ def _default_recv_url(sid: str, email: str) -> str:
     except Exception:
         pass
     # fallback:平台默认
-    cfg_path = SYSTEMS_DIR / sid / "agentmail_gateway.json"
+    cfg_path = SYSTEMS_DIR / sid / "aimail_gateway.json"
     try:
         gw = json.loads(cfg_path.read_text())
         system_home = gw.get("system_home", "")
@@ -890,7 +890,7 @@ def _default_recv_url(sid: str, email: str) -> str:
                     port = int(wh.get("port") or wh.get("extra", {}).get("port") or 8646)
             except Exception:
                 pass
-            return f"http://127.0.0.1:{port}/webhooks/agentmail-inbound"
+            return f"http://127.0.0.1:{port}/webhooks/aimail-inbound"
     except Exception:
         pass
     return "http://127.0.0.1:8799/hook"
@@ -934,7 +934,7 @@ def cmd_domain(args) -> int:
     sid = args.system_id or ""
     if not sid:
         _fail("domain 需要 --system-id")
-    cfg_path = SYSTEMS_DIR / sid / "agentmail_gateway.json"
+    cfg_path = SYSTEMS_DIR / sid / "aimail_gateway.json"
     if not cfg_path.is_file():
         _fail(f"无系统配置: {cfg_path}")
     try:
@@ -988,12 +988,12 @@ def _resolve_renew_target(args) -> tuple[str, str, str]:
     candidates: list[str] = []
     if SYSTEMS_DIR.is_dir():
         for d in sorted(SYSTEMS_DIR.iterdir()):
-            if d.is_dir() and (d / "agentmail_gateway.json").is_file():
+            if d.is_dir() and (d / "aimail_gateway.json").is_file():
                 candidates.append(d.name)
     sid = args.system_id
     if not sid:
         if not candidates:
-            _fail("no agentmail systems configured; use --system-id")
+            _fail("no aimail systems configured; use --system-id")
         if len(candidates) == 1:
             sid = candidates[0]
         else:
@@ -1004,7 +1004,7 @@ def _resolve_renew_target(args) -> tuple[str, str, str]:
     gw_url = args.gateway_url or cfg.get("gateway_url") or _env_val("AIMAIL_URL", "https://amail.token.tm")
     admin_key = cfg.get("admin_key") or ""
     if not admin_key:
-        _fail(f"no admin_key in agentmail_gateway.json for {sid}")
+        _fail(f"no admin_key in aimail_gateway.json for {sid}")
     return sid, gw_url, admin_key
 
 
@@ -1033,7 +1033,7 @@ def cmd_renew(args) -> int:
                 dt = datetime.fromisoformat(str(r["expires_at"]).replace("Z", "+00:00"))
                 days = (dt - datetime.now(timezone.utc)).days
                 if days <= 3:
-                    _warn(f"expires in {days} day(s) — renew with: agentmail renew --system-id {sid} --code <activation-code>")
+                    _warn(f"expires in {days} day(s) — renew with: aimail renew --system-id {sid} --code <activation-code>")
                 else:
                     print(f"    {days} day(s) remaining")
             except Exception:
@@ -1057,16 +1057,16 @@ def cmd_renew(args) -> int:
 
 
 def cmd_stats(args) -> int:
-    """本机 agentmail 对接状态(只读):系统列表 + agent 实例 + 邮件统计。"""
+    """本机 aimail 对接状态(只读):系统列表 + agent 实例 + 邮件统计。"""
     if not SYSTEMS_DIR.is_dir() or not any(SYSTEMS_DIR.iterdir()):
-        print("  no agentmail systems configured on this machine")
+        print("  no aimail systems configured on this machine")
         return 0
     print("  Systems installed:")
     total_agents = 0
     for sid_dir in sorted(SYSTEMS_DIR.iterdir()):
         if not sid_dir.is_dir():
             continue
-        gw_path = sid_dir / "agentmail_gateway.json"
+        gw_path = sid_dir / "aimail_gateway.json"
         if not gw_path.is_file():
             continue
         sid = sid_dir.name
@@ -1113,7 +1113,7 @@ def cmd_stats(args) -> int:
                     mark = f"  {YELLOW}⚠ EXPIRES in {days}d{NC}" if days <= 3 else f"  (expires in {days}d)"
                     expiry_line = f"   expires: {qr['expires_at'][:10]}{mark}"
                 elif isinstance(qr, dict) and qr.get("status") == 403:
-                    expiry_line = f"   {RED}EXPIRED/SUSPENDED{NC} — renew: agentmail renew --system-id {sid} --code <activation-code>"
+                    expiry_line = f"   {RED}EXPIRED/SUSPENDED{NC} — renew: aimail renew --system-id {sid} --code <activation-code>"
         except Exception:
             expiry_line = "   expires: (query failed)"
         print(f"    {sid}   [{platform}]   agents: {len(agents)}{expiry_line}")
@@ -1121,10 +1121,10 @@ def cmd_stats(args) -> int:
     for sid_dir in sorted(SYSTEMS_DIR.iterdir()):
         if not sid_dir.is_dir():
             continue
-        if not (sid_dir / "agentmail_gateway.json").is_file():
+        if not (sid_dir / "aimail_gateway.json").is_file():
             continue
         try:
-            gw = json.loads((sid_dir / "agentmail_gateway.json").read_text())
+            gw = json.loads((sid_dir / "aimail_gateway.json").read_text())
         except Exception:
             gw = {}
         system_home = gw.get("system_home", "")
@@ -1178,16 +1178,16 @@ def _uninstall_hermes(system_home: Path, sid: str) -> None:
                         _ok(f"removed pointer {ptr}")
                 except Exception:
                     pass
-            sk = p / "skills" / "agentmail"
+            sk = p / "skills" / "aimail"
             if sk.is_dir():
                 shutil.rmtree(sk)
                 _ok(f"removed skill {sk}")
-            # config.yaml:platform_toolsets 移除 agentmail 条目
+            # config.yaml:platform_toolsets 移除 aimail 条目
             cfg = p / "config.yaml"
             if cfg.is_file():
                 try:
                     content = cfg.read_text()
-                    new = re.sub(r"^[ \t]*-[ \t]*agentmail[ \t]*\r?$\n?", "", content, flags=re.M)
+                    new = re.sub(r"^[ \t]*-[ \t]*aimail[ \t]*\r?$\n?", "", content, flags=re.M)
                     if new != content:
                         cfg.write_text(new)
                         _ok(f"config toolset cleaned {cfg}")
@@ -1198,8 +1198,8 @@ def _uninstall_hermes(system_home: Path, sid: str) -> None:
             if subs.is_file():
                 try:
                     data = json.loads(subs.read_text())
-                    if isinstance(data, dict) and "agentmail-inbound" in data:
-                        del data["agentmail-inbound"]
+                    if isinstance(data, dict) and "aimail-inbound" in data:
+                        del data["aimail-inbound"]
                         subs.write_text(json.dumps(data, indent=2, ensure_ascii=False))
                         _ok(f"webhook route removed {subs}")
                 except Exception as e:
@@ -1236,7 +1236,7 @@ def _uninstall_openclaw(sid: str) -> None:
                 _ok(f"removed pointer {ptr}")
         except Exception:
             pass
-    sk = oc_home / "skills" / "agentmail"
+    sk = oc_home / "skills" / "aimail"
     if sk.is_dir():
         shutil.rmtree(sk)
         _ok(f"removed skill {sk}")
@@ -1283,7 +1283,7 @@ def _uninstall_openclaw(sid: str) -> None:
 
 
 def cmd_uninstall(args) -> int:
-    """卸载:与 install 对等,消除 agentmail 在 agent 系统上的配置。"""
+    """卸载:与 install 对等,消除 aimail 在 agent 系统上的配置。"""
     system_home = Path(args.home).expanduser() if args.home else Path()
     sid, platform = resolve_system_id(system_home, args.system_id or "")
     if not sid:
@@ -1299,12 +1299,12 @@ def cmd_uninstall(args) -> int:
         _fail(f"无法确定平台(system {sid})——用 --home 指定平台根")
 
     print(f"  uninstall system={sid} platform={platform}")
-    if not _confirm(f"确认卸载 system {sid} 的 agentmail 对接(含网关注销与本机数据)?", args):
+    if not _confirm(f"确认卸载 system {sid} 的 aimail 对接(含网关注销与本机数据)?", args):
         print("  cancelled")
         return 1
 
     gw = {}
-    gw_path = SYSTEMS_DIR / sid / "agentmail_gateway.json"
+    gw_path = SYSTEMS_DIR / sid / "aimail_gateway.json"
     if gw_path.is_file():
         try:
             gw = json.loads(gw_path.read_text())
@@ -1362,7 +1362,7 @@ def cmd_uninstall(args) -> int:
                     _ok(f"removed pointer {ptr}")
             except Exception:
                 pass
-        sk = HOME / ".pi" / "skills" / "agentmail"
+        sk = HOME / ".pi" / "skills" / "aimail"
         if sk.is_dir():
             shutil.rmtree(sk, ignore_errors=True)
             _ok(f"removed skill {sk}")
@@ -1405,7 +1405,7 @@ def cmd_uninstall(args) -> int:
 
 def main():
     _load_env()
-    ap = argparse.ArgumentParser(prog="agentmail", description="agentmail 维护工具")
+    ap = argparse.ArgumentParser(prog="aimail", description="aimail 维护工具")
     sub = ap.add_subparsers(dest="command", required=True)
 
     p_br = sub.add_parser("bridge", help="本机 bridge 维护(状态/重刷路由/重启)")
@@ -1466,13 +1466,13 @@ def main():
     p_renew.add_argument("--system-id", help="目标系统(省略: 唯一系统自动选定,多系统报错列出)")
     p_renew.add_argument("--code", help="产品激活码(省略则只读展示到期状态)")
     p_renew.add_argument("--status", action="store_true", help="只读展示到期时间与配额(不消耗码)")
-    p_renew.add_argument("--gateway-url", default=None, help="网关地址(默认取 agentmail_gateway.json)")
+    p_renew.add_argument("--gateway-url", default=None, help="网关地址(默认取 aimail_gateway.json)")
     p_renew.set_defaults(func=cmd_renew)
 
-    p_stats = sub.add_parser("stats", help="本机 agentmail 对接状态(系统/agent/邮件统计)")
+    p_stats = sub.add_parser("stats", help="本机 aimail 对接状态(系统/agent/邮件统计)")
     p_stats.set_defaults(func=cmd_stats)
 
-    p_uni = sub.add_parser("uninstall", help="卸载:消除 agentmail 在 agent 系统上的配置")
+    p_uni = sub.add_parser("uninstall", help="卸载:消除 aimail 在 agent 系统上的配置")
     p_uni.add_argument("--system-id")
     p_uni.add_argument("--home", help="系统 home(平台根)")
     p_uni.add_argument("--yes", action="store_true", help="跳过确认")

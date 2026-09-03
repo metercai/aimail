@@ -7,7 +7,7 @@ Employees CC the pre-audit Agent on expense claims. Agent auto-verifies invoices
 
 | Capability | AgentMail |
 |-----------|:--:|
-| CC inbound detection | agentmail preprocessor parses CC |
+| CC inbound detection | aimail preprocessor parses CC |
 | Attachment parsing | Webhook inbound attachment extraction |
 | Invoice verification | LLM recognizes invoice details |
 | Budget check | LLM queries/compares budget data |

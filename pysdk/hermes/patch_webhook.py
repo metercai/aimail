@@ -13,7 +13,7 @@ diagnostics unchanged. Runnable compat: python3 patch_webhook.py <path/to/webhoo
 
 Library now also ships the unpatch side: unpatch_webhook(fp) -> int removes the
 patch by exact-text block stripping (WEBHOOK_BLOCK1-5 mirrored verbatim from
-cli/agentmail).
+cli/aimail).
 """
 
 import os
@@ -265,7 +265,7 @@ def register_preprocessor(name: str, fn: Callable) -> None:
     # (aimail_base.process_inbound_mail, registered as the webhook
     # preprocessor). The webhook.py-level block is now dead code that
     # double-handles pings (preprocessor already swallowed them → payload is
-    # None) and its __agentmail_pong__ prefix mismatched the gateway's
+    # None) and its __aimail_pong__ prefix mismatched the gateway's
     # __amail_pong__ P0 interception. Remove every legacy instance.
     content, _nr5 = re.subn(
         r'        # ── Ping-pong interception.*?pong_returned"\}\)\n+',
@@ -393,7 +393,7 @@ except Exception:
 # ═══════════════════════════════════════════════════════════════
 #  exact-text patch removal (fallback when hermes-agent is not a git
 #  repo) — blocks must match what the patch inserts. Migrated from
-#  cli/agentmail (unpatch section, lines 1307-1524).
+#  cli/aimail (unpatch section, lines 1307-1524).
 # ═══════════════════════════════════════════════════════════════
 
 def strip_block(text: str, block: str) -> tuple:
@@ -466,7 +466,7 @@ WEBHOOK_BLOCK3 = """        # ── a2a_board: consume preprocessor prompt fiel
 # Inserted BEFORE "# Non-blocking"
 WEBHOOK_BLOCK4 = """        # ── Ping-pong interception (end-to-end test) ────────────────
         ping_subject = (payload.get("subject") or "").strip()
-        if ping_subject.startswith("__agentmail_ping__:"):
+        if ping_subject.startswith("__aimail_ping__:"):
             ping_id = ping_subject.split(":", 1)[1].strip()
             if ping_id:
                 try:
@@ -483,7 +483,7 @@ WEBHOOK_BLOCK4 = """        # ── Ping-pong interception (end-to-end test) �
                     _log_ping_event("ping_intercepted", ping_id, payload, "")
                     pong_result = _send_mail(
                         to=payload.get("from", ""),
-                        subject="__agentmail_pong__:" + ping_id, body=pong_body,
+                        subject="__aimail_pong__:" + ping_id, body=pong_body,
                         message_id=payload.get("message_id") or "",
                     )
                     pong_status = "ok" if pong_result.get("success") else pong_result.get("error", "?")
@@ -493,7 +493,7 @@ WEBHOOK_BLOCK4 = """        # ── Ping-pong interception (end-to-end test) �
                 _log_ping_event("pong_sent", ping_id, payload, pong_status)
             return web.json_response({"pong": ping_id, "status": "pong_sent"})
 
-        elif ping_subject.startswith("__agentmail_pong__:"):
+        elif ping_subject.startswith("__aimail_pong__:"):
             ping_id = ping_subject.split(":", 1)[1].strip()
             if ping_id:
                 _log_ping_event("pong_returned", ping_id, payload, "")
@@ -505,7 +505,7 @@ WEBHOOK_BLOCK4 = """        # ── Ping-pong interception (end-to-end test) �
 # Inserted AFTER session_chat_id, BEFORE "# Store delivery info" function (appended at end of file)
 WEBHOOK_BLOCK5 = """
 def _log_ping_event(dir_: str, ping_id: str, payload: dict, pong_status: str):
-    \"\"\"Append a JSON line to agentmail.log for ping-pong tracking.\"\"\"
+    \"\"\"Append a JSON line to aimail.log for ping-pong tracking.\"\"\"
     import json, os as _os
     from datetime import datetime, timezone
     entry = {
@@ -516,7 +516,7 @@ def _log_ping_event(dir_: str, ping_id: str, payload: dict, pong_status: str):
     }
     if pong_status:
         entry["pong_status"] = pong_status
-    _log_dir = _os.environ.get("AIMAIL_HOME") or _os.environ.get("AGENTMAIL_HOME", "")
+    _log_dir = _os.environ.get("AIMAIL_HOME", "")
     if not _log_dir:
         # Resolve email from profile dir .agentmail pointer
         _pdir = _os.environ.get("HERMES_PROFILE_DIR", "")
@@ -529,12 +529,12 @@ def _log_ping_event(dir_: str, ping_id: str, payload: dict, pong_status: str):
                 _pd = _json.load(open(_pointer))
                 _email = _pd.get("email", "")
                 if _email:
-                    _log_dir = _os.path.expanduser("~/.agentmail/mail/" + _email.replace("@", "_"))
+                    _log_dir = _os.path.expanduser("~/.aimail/mail/" + _email.replace("@", "_"))
             except:
                 pass
     if not _log_dir:
-        _log_dir = _os.path.expanduser("~/.agentmail/mail/default")
-    log_path = _os.path.join(_log_dir, "agentmail.log")
+        _log_dir = _os.path.expanduser("~/.aimail/mail/default")
+    log_path = _os.path.join(_log_dir, "aimail.log")
     try:
         _os.makedirs(_log_dir, exist_ok=True)
         with open(log_path, "a") as f:

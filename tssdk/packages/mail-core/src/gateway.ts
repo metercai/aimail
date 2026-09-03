@@ -1,5 +1,5 @@
 /**
- * Gateway HTTP client — mirrors Python `_GatewayClient` (agentmail_tools.py).
+ * Gateway HTTP client — mirrors Python `_GatewayClient` (aimail_tools.py).
  * Auth: v1 signature (X-Api-Identity + X-Api-Timestamp + X-Api-Signature);
  * the raw API key stays offline (see api-signature.ts). Board APIs add dual-
  * credential email query param when memberEmail provided.

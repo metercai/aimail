@@ -1,6 +1,6 @@
 /**
  * Inbound preprocess chain (TS) — line-by-line contract baseline:
- * DSH-PREPROCESS-CONTRACT.md (agentmail repo). Mirrors Python
+ * DSH-PREPROCESS-CONTRACT.md (aimail repo). Mirrors Python
  * preprocess_mail_payload / process_inbound_mail / handle_ping_pong.
  *
  * dsh differences (explicit in contract): no persona (PERSONA_SUPPORTED=false
@@ -48,7 +48,7 @@ export function routeAddressFromHeaders(headers: Record<string, unknown>): strin
 
 // ── ping/pong contract (never diverge) ─────────────────────────
 
-export const PING_PREFIX = '__agentmail_ping__:'
+export const PING_PREFIX = '__aimail_ping__:'
 export const PONG_PREFIX = '__amail_pong__:'
 
 // ── logs ───────────────────────────────────────────────────────
@@ -158,7 +158,7 @@ async function downloadAttachments(
 ): Promise<string[]> {
   if (!attachments?.length) return []
   // Attachments land in the per-agent leaf dir:
-  // {leaf}/{yyyymm}/attch/{safe_mid}/ (mirror Python _agentmail_dir() layout —
+  // {leaf}/{yyyymm}/attch/{safe_mid}/ (mirror Python _aimail_dir() layout —
   // the leaf already encodes the address; yyyymm in LOCAL time like %Y%m).
   const now = new Date()
   const yyyymm = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`
@@ -352,7 +352,7 @@ export async function processInboundMail(
       my_amail_addr: '',
       direct_message: false,
       mentioned: false,
-      _preprocess_error: 'agentmail email not configured',
+      _preprocess_error: 'aimail email not configured',
     } as unknown as EnrichedPayload
   }
 

@@ -10,7 +10,7 @@
     python -m aimail.uninstall  --type hermes   [--home ~/.hermes] [--system-id SID]
     python -m aimail.install    --check-env --type hermes [--home ...]
 
-所有动作幂等;环境自检失败时明确提示"先运行 agentmail CLI"。
+所有动作幂等;环境自检失败时明确提示"先运行 aimail CLI"。
 """
 from __future__ import annotations
 
@@ -52,15 +52,15 @@ def _import_deerflow(name: str):
 
 def _machine_state() -> tuple:
     """机器环境三态:
-    ('empty', msg)   — ~/.agentmail/systems 无任何系统配置 → init + install
+    ('empty', msg)   — ~/.aimail/systems 无任何系统配置 → init + install
     ('systems', msg) — 有系统配置(可 install 复用/激活)
     """
     systems_root = os.path.join(agentmail_home(), "systems")
     if not os.path.isdir(systems_root) or not os.listdir(systems_root):
         return ("empty",
-                "未发现任何系统配置(~/.agentmail/systems 空)。\n"
-                "  先运行: agentmail init(机器网络环境,一次)\n"
-                "  然后:   agentmail install --home <宿主根>(激活系统并绑定)")
+                "未发现任何系统配置(~/.aimail/systems 空)。\n"
+                "  先运行: aimail init(机器网络环境,一次)\n"
+                "  然后:   aimail install --home <宿主根>(激活系统并绑定)")
     return ("systems", "")
 
 
@@ -71,7 +71,7 @@ def env_check_hermes(hermes_dir: str) -> int:
     ha = os.path.join(hermes_dir, "hermes-agent")
     if not os.path.isdir(ha):
         print("[env-check] ✗ hermes-agent 未安装(hermes 宿主缺失或 --home 指向错误)")
-        print(f"  先安装 hermes 宿主,再: agentmail install --home {hermes_dir}")
+        print(f"  先安装 hermes 宿主,再: aimail install --home {hermes_dir}")
         return 1
     webhook_py = os.path.join(ha, "gateway", "platforms", "webhook.py")
     profiles_py = os.path.join(ha, "hermes_cli", "profiles.py")
@@ -90,11 +90,11 @@ def env_check_hermes(hermes_dir: str) -> int:
     if not os.path.isfile(ptr):
         problems.append(
             "未找到绑定配置 ~/.hermes/.agentmail\n"
-            f"  先运行: agentmail install --home {hermes_dir}(激活并绑定)")
+            f"  先运行: aimail install --home {hermes_dir}(激活并绑定)")
     for p in problems:
         print(f"[env-check] ✗ {p}")
     if problems:
-        print("[env-check] 缺失项需 agentmail CLI 先行完成环境配置")
+        print("[env-check] 缺失项需 aimail CLI 先行完成环境配置")
         return 1
     print("[env-check] hermes: OK")
     return 0
@@ -109,7 +109,7 @@ def env_check_deerflow(backend_dir: str) -> int:
         if state == "empty":
             print(f"[env-check] ✗ {hint}")
         else:
-            print("  先运行: agentmail install(配置环境)")
+            print("  先运行: aimail install(配置环境)")
         return 1
     if state == "empty":
         print(f"[env-check] ✗ {hint}")
@@ -182,7 +182,7 @@ def install_hermes(hermes_dir: str, system_id: str = "") -> int:
     # skills 展开(SKILL.md/DESCRIPTION.md → 每个 hermes profile 的 skills/agentmail)
     _release_hermes_skills(hermes_dir)
 
-    print("  hermes install done. 重启 hermes gateway 使补丁生效(agentmail bridge restart 或宿主重启)")
+    print("  hermes install done. 重启 hermes gateway 使补丁生效(aimail bridge restart 或宿主重启)")
     return rc
 
 
@@ -198,7 +198,7 @@ def _release_hermes_skills(hermes_dir: str) -> int:
                     if os.path.isdir(os.path.join(profiles_root, d))]
     n = 0
     for prof in targets:
-        dst_dir = os.path.join(prof, "skills", "agentmail")
+        dst_dir = os.path.join(prof, "skills", "aimail")
         for fname in ("SKILL.md", "DESCRIPTION.md"):
             src = os.path.join(skills_src, fname)
             if not os.path.isfile(src):
@@ -270,7 +270,7 @@ def uninstall_hermes(hermes_dir: str, system_id: str = "") -> int:
                     subprocess.call(["git", "-C", str(ha), "checkout", "--", f])
                     print(f"  ✓ reverted {f} (git)")
             else:
-                print("  ⚠ hermes-agent 有额外未提交改动——跳过 git 还原,请检查 agentmail 痕迹")
+                print("  ⚠ hermes-agent 有额外未提交改动——跳过 git 还原,请检查 aimail 痕迹")
         except Exception as e:  # noqa: BLE001
             print(f"  git revert failed: {e}")
     else:
@@ -307,7 +307,7 @@ def uninstall_hermes(hermes_dir: str, system_id: str = "") -> int:
             shutil.rmtree(tgt) if os.path.isdir(tgt) else os.unlink(tgt)
             print(f"  ✓ removed {rel}")
     # 本 SDK 进程即 pip aimail——不自行卸载(宿主 venv 管理由 CLI 决定)
-    print("  hermes uninstall done(本地配置/网关侧清理由 agentmail CLI 负责)")
+    print("  hermes uninstall done(本地配置/网关侧清理由 aimail CLI 负责)")
     return rc
 
 

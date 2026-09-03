@@ -123,9 +123,9 @@ export function apply(ctx: Context, config: { systemId?: string } = {}): void {
     const sysRoot = path.join(AIMAIL_HOME(), 'systems')
     if (!fs.existsSync(sysRoot) || fs.readdirSync(sysRoot).length === 0) {
       const fix = hasAnySystem()
-        ? 'run `agentmail install`(dsh) first, then bind this session'
-        : 'run `agentmail init`, then `agentmail install`(dsh) to build the environment first'
-      console.warn('[dsh-aimail] no agentmail binding found — ' + fix)
+        ? 'run `aimail install`(dsh) first, then bind this session'
+        : 'run `aimail init`, then `aimail install`(dsh) to build the environment first'
+      console.warn('[dsh-aimail] no aimail binding found — ' + fix)
     } else if (!systemId) {
       console.warn('[dsh-aimail] no AIMAIL_SYSTEM_ID — mail resolution scans all bound systems')
     }
@@ -138,7 +138,7 @@ export function apply(ctx: Context, config: { systemId?: string } = {}): void {
    * config present, auto-bind that session once and retry.
    */
   const resolveOrAutoBindSession = async (sessionId: string): Promise<AgentConfig> => {
-    if (!sessionId) throw new Error('no session id to resolve agentmail config')
+    if (!sessionId) throw new Error('no session id to resolve aimail config')
     try {
       return await resolveBySessionId(sessionId, { systemId })
     } catch (e) {

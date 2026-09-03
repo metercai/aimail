@@ -12,7 +12,7 @@ diagnostics unchanged. Runnable compat: python3 patch_profiles.py <path/to/profi
 
 Library now also ships the unpatch side: unpatch_profiles(fp) -> int removes the
 profile hooks by exact-text block stripping (PROFILES_HOOK / PROFILES_HOOK_DEL
-mirrored verbatim from cli/agentmail).
+mirrored verbatim from cli/aimail).
 """
 
 import os
@@ -294,7 +294,7 @@ def patch_profiles(target_path: str) -> bool:
 
 # ═══════════════════════════════════════════════════════════════
 #  exact-text patch removal for hermes_cli/profiles.py — blocks must
-#  match what patch_profiles() inserts. Migrated from cli/agentmail
+#  match what patch_profiles() inserts. Migrated from cli/aimail
 #  (unpatch section, lines 1307-1545).
 # ═══════════════════════════════════════════════════════════════
 

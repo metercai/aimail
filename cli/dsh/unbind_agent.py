@@ -20,8 +20,8 @@ import aimail_tools as _tools          # noqa: E402
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="解绑 dsh session 与 agentmail 地址")
-    ap.add_argument("--email", required=True, help="agentmail 地址(agent.dsh@domain)")
+    ap = argparse.ArgumentParser(description="解绑 dsh session 与 aimail 地址")
+    ap.add_argument("--email", required=True, help="aimail 地址(agent.dsh@domain)")
     ap.add_argument("--system-id", default=os.environ.get("AIMAIL_SYSTEM_ID", ""))
     args = ap.parse_args()
 
@@ -36,7 +36,7 @@ def main() -> int:
     print(f"  ✓ gateway deregister {args.email} (api-key={st.get('api_key')} "
           f"domain={st.get('domain')} whitelist={st.get('whitelist')})")
 
-    p = os.path.expanduser(f"~/.agentmail/systems/{system_id}/{_base._clean_agent_dir_name(args.email)}/agentmail.json")
+    p = os.path.expanduser(f"~/.aimail/systems/{system_id}/{_base._clean_agent_dir_name(args.email)}/agentmail.json")
     if os.path.isfile(p):
         os.remove(p)
         print(f"  ✓ removed {p}")

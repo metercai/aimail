@@ -64,7 +64,7 @@ The same tool surface and inbound contract, bound to other agent platforms:
 ## Related repositories
 
 - [metercai/aimail](https://github.com/metercai/aimail) — the AIMail monorepo:
-  agentmail CLI (`cli/`), Python SDK (`pysdk/`), this TypeScript SDK
+  aimail CLI (`cli/`), Python SDK (`pysdk/`), this TypeScript SDK
   (`tssdk/`), and this plugin integrates with.
 - [metercai/aimail-gateway](https://github.com/metercai/aimail-gateway) — the
   AIMail gateway: SMTP/HTTP mail service, address & activation APIs, and the

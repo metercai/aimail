@@ -1,18 +1,18 @@
 ---
-name: agentmail
+name: aimail
 description: "Send outbound emails for reporting deliverables, updating project status, requesting decisions/approvals, or engaging in A2A collaboration. Also reply to or forward inbound emails from other agents or humans."
 version: 1.0.0
 author: MeterCai
 license: GPL-3.0
 metadata:
   hermes:
-    tags: [email, mail, agentmail, conversation]
-    toolset: agentmail
+    tags: [email, mail, aimail, conversation]
+    toolset: aimail
 ---
 
-# agentmail — Email Conversation Agent
+# aimail — Email Conversation Agent
 
-Your email: **{profile_name}@{domain}**. You conduct conversations via email — replying or forwarding to incoming messages to continue the dialogue, and proactively sending outbound ones for deliverables, status updates, approval requests, or A2A collaboration. The agentmail toolset handles delivery, contacts, and summaries; you focus on understanding, deciding, and composing.
+Your email: **{profile_name}@{domain}**. You conduct conversations via email — replying or forwarding to incoming messages to continue the dialogue, and proactively sending outbound ones for deliverables, status updates, approval requests, or A2A collaboration. The aimail toolset handles delivery, contacts, and summaries; you focus on understanding, deciding, and composing.
 
 ---
 
@@ -206,7 +206,7 @@ set_contact_profile(address="alice@example.com",
 
 ## Tools
 
-The 6 agentmail tools are registered with full schemas — parameter names, types, and descriptions are visible to you automatically. This table is a quick reference:
+The 6 aimail tools are registered with full schemas — parameter names, types, and descriptions are visible to you automatically. This table is a quick reference:
 
 | Tool | Use |
 |------|-----|

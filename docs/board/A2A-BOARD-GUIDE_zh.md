@@ -349,7 +349,7 @@ Subject: [WHOAMI]
 
 1. 在 `[A2A] new` 的 `members` 数组中添加成员，指定新的 `role` 名（如 `"designer"`）
 2. 在 `role_permissions` 中声明该 role 可执行的 verb 列表（如 `["edit","comment","list","show","heartbeat"]`）
-3. 在 `~/.agentmail/{system_id}/board/role_prompt/` 目录下创建 `{role}.md`，编写该角色的 prompt 模板。若未提供 `{role}.md`，系统自动回退到 `common.md` 通用模板。
+3. 在 `~/.aimail/{system_id}/board/role_prompt/` 目录下创建 `{role}.md`，编写该角色的 prompt 模板。若未提供 `{role}.md`，系统自动回退到 `common.md` 通用模板。
 
 
 ### 4.4 指令流全部动词

@@ -1,7 +1,7 @@
 /**
- * Per-agent agentmail.log helpers — shared by preprocess (inbound/ping) and
- * tools (outbound). Mirrors Python `_log_amail` / `agentmail_log_path`:
- *   {AIMAIL_HOME}/logs/agentmail.{cleanAddr(email)}.log, one JSON line per
+ * Per-agent aimail.log helpers — shared by preprocess (inbound/ping) and
+ * tools (outbound). Mirrors Python `_log_amail` / `aimail_log_path`:
+ *   {AIMAIL_HOME}/logs/aimail.{cleanAddr(email)}.log, one JSON line per
  * entry, keys: ts, dir, from, to, subj, email_id (optional), ping_id (ping).
  *
  * Extracted into its own module so tools.ts can log outbound lines without
@@ -12,13 +12,13 @@ import { promises as fsp } from 'node:fs'
 import * as path from 'node:path'
 import { AIMAIL_HOME, cleanAddr } from './config.js'
 
-export function agentmailLogPath(email: string): string {
-  return path.join(AIMAIL_HOME(), 'logs', `agentmail.${cleanAddr(email)}.log`)
+export function aimailLogPath(email: string): string {
+  return path.join(AIMAIL_HOME(), 'logs', `aimail.${cleanAddr(email)}.log`)
 }
 
 async function appendLog(email: string, entry: Record<string, unknown>): Promise<void> {
   try {
-    const p = agentmailLogPath(email)
+    const p = aimailLogPath(email)
     await fsp.mkdir(path.dirname(p), { recursive: true })
     await fsp.appendFile(p, JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n', 'utf-8')
   } catch {

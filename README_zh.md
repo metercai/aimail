@@ -62,11 +62,11 @@ AIMail 既不同于 IM，也不是传统邮箱。它是传统邮件系统在AI�
 
 ```bash
 git clone https://github.com/metercai/aimail.git
-cd agentmail
+cd aimail
 cp docs/.env.example .env        # 填入 AIMAIL_URL、AIMAIL_PRODUCT_CODE（新系统）或
                             # AIMAIL_ADMIN_KEY（已有系统）、AIMAIL_MANAGER_ADDRESS；
                             # 可选 AIMAIL_DOMAIN / AIMAIL_SYSTEM_NAME
-./agentmail install --home ~/.hermes
+./aimail install --home ~/.hermes
 ```
 
 `install` 全程**非交互**完成整条链路：系统激活（或复用已有系统）→ bridge
@@ -77,16 +77,16 @@ cp docs/.env.example .env        # 填入 AIMAIL_URL、AIMAIL_PRODUCT_CODE（新
 ### 验证链路
 
 ```bash
-./agentmail check      # 4 层流水线诊断（gateway → bridge → webhook → profile）
-./agentmail ping       # 端到端 ping/pong 闭环（经 SMTP）
-./agentmail welcome    # 向 manager 发送欢迎邮件并验证送达
-./agentmail stats      # 本机总览：系统、agent、邮件统计
+./aimail check      # 4 层流水线诊断（gateway → bridge → webhook → profile）
+./aimail ping       # 端到端 ping/pong 闭环（经 SMTP）
+./aimail welcome    # 向 manager 发送欢迎邮件并验证送达
+./aimail stats      # 本机总览：系统、agent、邮件统计
 ```
 
 输出示例：
 
 ```
-$ ./agentmail stats
+$ ./aimail stats
   Systems installed:
       shared-token-40b34a66   [hermes]    agents: 1
       shared-token-9479c607   [openclaw]  agents: 1
@@ -98,7 +98,7 @@ $ ./agentmail stats
 ```
 
 所有参数优先级：CLI 参数 > shell 环境变量 > `.env` > 内置默认值。
-全部子命令见 `./agentmail --help`（`bridge`、`check`、`domain`、
+全部子命令见 `./aimail --help`（`bridge`、`check`、`domain`、
 `install`、`mailname`、`ping`、`reset`、`stats`、`uninstall`、`welcome`）。
 
 ---
@@ -127,7 +127,7 @@ Webhook Push/Pull 双模式共存，适配各类网络环境中的多样化 Agen
 一个 Profile 的 Agent 可绑定多个 Persona（如 `sales.bob@domain` / `support.bob@domain`），发件自动匹配身份，收件自动识别 Persona，自动身份切换。
 
 8. **一键集成和诊断，低门槛部署和运维**  
-`./agentmail install` 一条命令完成整条链路（激活 → Bridge → 工具与 Skill → 注册）；`check`/`ping`/`welcome` 全链路诊断；`stats`/`domain`/`uninstall` 一站式本机管理。
+`./aimail install` 一条命令完成整条链路（激活 → Bridge → 工具与 Skill → 注册）；`check`/`ping`/`welcome` 全链路诊断；`stats`/`domain`/`uninstall` 一站式本机管理。
 
 ---
 
@@ -158,7 +158,7 @@ AgentMail 由两大部件组成：**aimail-gateway**（邮件网关）和 **Herm
                      │   Hermes Agent     │                   │  │
                      │                    │                   │  │
                      │ ┌────────────────┐ │                   │  │
-                     │ │ agentmail RT   │ │──── Outbound ─────┘  │
+                     │ │ aimail RT   │ │──── Outbound ─────┘  │
                      │ │ · Webhook recv │ │                      │
                      │ │ · Preprocessor │ │                      │
                      │ │ · send_mail()  │ │◄─── Inbound ─────────┘
@@ -175,7 +175,7 @@ AgentMail 由两大部件组成：**aimail-gateway**（邮件网关）和 **Herm
                      └────────────────────┘
 ```
 
-**入站流程：** 外部邮件 → gateway SMTP Receiver → Webhook → agentmail 预处理（格式转换、上下文注入、board 角色识别）→ LLM 引擎决策
+**入站流程：** 外部邮件 → gateway SMTP Receiver → Webhook → aimail 预处理（格式转换、上下文注入、board 角色识别）→ LLM 引擎决策
 
 **出站流程：** LLM 决策 → `send_mail()` → HTTP API → gateway 内转匹配（同域收件人直接 Webhook）或 SMTP Relay（外部收件人）
 
@@ -207,12 +207,12 @@ AgentMail 由两大部件组成：**aimail-gateway**（邮件网关）和 **Herm
 
 ### API Key 与 Agent 地址的关系
 
-API Key 按 Agent 地址生成，存储在 `~/.agentmail/systems/{system_id}/{addr}/agentmail.json`：
+API Key 按 Agent 地址生成，存储在 `~/.aimail/systems/{system_id}/{addr}/agentmail.json`：
 
 ### 运行时目录
 
 ```
-~/.agentmail/
+~/.aimail/
 ├── systems/
 │   └── {system_id}/
 │       ├── agentmail_gateway.json     # Gateway 连接配置
@@ -223,7 +223,7 @@ API Key 按 Agent 地址生成，存储在 `~/.agentmail/systems/{system_id}/{ad
 │           └── role_prompt/           # 地址级角色 prompt（优先）
 ├── mail/
 │   └── {agent_addr}/                  # 各地址收到的邮件
-│       ├── agentmail.log              # agent 流水日志
+│       ├── aimail.log              # agent 流水日志
 │       └── {yyyymm}/in-*.json         # 按月快照
 ├── bridge/
 │   ├── aimail_bridge.toml              # bridge 配置
@@ -233,7 +233,7 @@ API Key 按 Agent 地址生成，存储在 `~/.agentmail/systems/{system_id}/{ad
 │   └── bridge.out                     # bridge stdout 日志
 ├── logs/
 │   ├── aimail-bridge.log               # bridge 运行日志
-│   └── agentmail.agent.{addr}.log     # 各 agent 处理日志
+│   └── aimail.agent.{addr}.log     # 各 agent 处理日志
 ├── backup-reset-*/                    # reset 前的配置快照
 └── .system_raw_key/
     └── {system_id}_admin.key          # 原始 admin key（仅集成时）

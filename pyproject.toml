@@ -67,7 +67,7 @@ packages = []
 "pysdk/deer-flow/aimail_inbound.py" = "aimail/deer-flow/aimail_inbound.py"
 "pysdk/deer-flow/amail_base.py" = "aimail/deer-flow/amail_base.py"
 "pysdk/deer-flow/manage.py" = "aimail/deer-flow/manage.py"
-# resources — released at install time to ~/.agentmail/systems/{sid}/board/
+# resources — released at install time to ~/.aimail/systems/{sid}/board/
 # and read from there at runtime (user-personalizable); zh/soul variants are
 # shipped for reference (default en).
 "pysdk/resources/skills/SKILL.md" = "aimail/resources/skills/SKILL.md"

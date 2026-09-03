@@ -54,11 +54,11 @@ BUNDLES = {
         "files": dict(_CORE_FILES, **{"hermes/aimail_hermes.py": "hermes/aimail_hermes.py"}),
     },
     "mcp": {
-        "default_dest": "~/.agentmail/mcp",
+        "default_dest": "~/.aimail/mcp",
         "files": dict(_CORE_FILES, **{"amail_mcp_server.py": "amail_mcp_server.py"}),
     },
     "openclaw": {
-        "default_dest": "~/.agentmail/openclaw",
+        "default_dest": "~/.aimail/openclaw",
         "files": dict(_CORE_FILES, **{
             "openclaw/amail_base.py": "openclaw/amail_base.py",
         }),
@@ -84,7 +84,7 @@ BUNDLES = {
         "no_stamp": True,
     },
     "skill-deerflow": {
-        "default_dest": "~/deer-flow/skills/public/agentmail",
+        "default_dest": "~/deer-flow/skills/public/aimail",
         "files": {"resources/skills/SKILL.md": "SKILL.md", "resources/skills/DESCRIPTION.md": "DESCRIPTION.md"},
         "no_stamp": True,
     },

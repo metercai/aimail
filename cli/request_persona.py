@@ -71,7 +71,7 @@ def main() -> int:
             pass
     sid = sid or os.environ.get("SYSTEM_ID", "") or os.environ.get("AIMAIL_SYSTEM_ID", "")
     if not sid:
-        print("✗ system_id 未解析(需 --system-id 或 {agent-home}/.agentmail 指针)")
+        print("✗ system_id 未解析(需 --system-id 或 {agent-home}/.aimail 指针)")
         return 1
 
     config_path = _sw.SYSTEMS_DIR / sid / "agentmail_gateway.json"

@@ -84,18 +84,18 @@ def _read_role_file(name: str) -> str:
     before lookup, so callers may pass any casing.
 
     Priority:
-    1. ~/.agentmail/systems/{sid}/{addr}/role_prompt/{name}.md  (address override)
-    2. ~/.agentmail/systems/{sid}/board/role_prompt/{name}.md   (system-level)
+    1. ~/.aimail/systems/{sid}/{addr}/role_prompt/{name}.md  (address override)
+    2. ~/.aimail/systems/{sid}/board/role_prompt/{name}.md   (system-level)
     3. common.md fallback (system-level dir)
     """
     name = name.lower()
     cfg = _load_profile_config()
     sid = cfg.get("system_id", "default") if cfg else "default"
     addr = _clean_agent_dir_name(cfg.get("email", "")) if cfg and cfg.get("email") else ""
-    sys_role_dir = _agentmail_system_dir(sid) / "board" / "role_prompt"
+    sys_role_dir = _aimail_system_dir(sid) / "board" / "role_prompt"
     # 1) address-level override
     if addr:
-        addr_role_dir = _agentmail_system_dir(sid) / addr / "role_prompt"
+        addr_role_dir = _aimail_system_dir(sid) / addr / "role_prompt"
         p = addr_role_dir / f"{name}.md"
         if p.exists():
             return p.read_text(encoding="utf-8")
@@ -129,22 +129,22 @@ def build_ctx(payload: dict, headers: dict) -> dict:
 # ── Config helpers ──
 
 def aimail_home() -> Path:
-    """Canonical agentmail home root (single source of truth).
+    """Canonical aimail home root (single source of truth).
 
-    Resolves env AIMAIL_HOME (legacy AGENTMAIL_HOME) to a home-root dir,
-    falling back to ~/.agentmail. All path constructors (mail/{clean},
+    Resolves env AIMAIL_HOME to a home-root dir,
+    falling back to ~/.aimail. All path constructors (mail/{clean},
     systems/, logs/) derive from this so the env var relocates the whole
     tree consistently on Python and TS sides (mirrors TS config.ts
     AIMAIL_HOME()).
     """
-    env = os.environ.get("AIMAIL_HOME") or os.environ.get("AGENTMAIL_HOME", "")
-    return Path(env).expanduser() if env else Path.home() / ".agentmail"
+    env = os.environ.get("AIMAIL_HOME", "")
+    return Path(env).expanduser() if env else Path.home() / ".aimail"
 
 
-def _agentmail_system_dir(system_id: str = "") -> Path:
-    """Return ~/.agentmail/systems/{system_id}/ for config storage.
+def _aimail_system_dir(system_id: str = "") -> Path:
+    """Return ~/.aimail/systems/{system_id}/ for config storage.
     
-    When system_id is empty, returns ~/.agentmail/systems/ itself."""
+    When system_id is empty, returns ~/.aimail/systems/ itself."""
     base = aimail_home() / "systems"
     return base / system_id if system_id else base
 
@@ -153,10 +153,10 @@ def _gateway_config_path(system_id: str = "") -> Path:
     """Return path to the gateway config file.
     
     When system_id is provided, returns system-specific path.
-    When empty, returns the base ~/.agentmail/systems/ level (caller should resolve system_id).
+    When empty, returns the base ~/.aimail/systems/ level (caller should resolve system_id).
     
     Canonical name: agentmail_gateway.json (scripts/ write this)."""
-    base_path = _agentmail_system_dir(system_id)
+    base_path = _aimail_system_dir(system_id)
     return base_path / "agentmail_gateway.json"
 
 
@@ -165,7 +165,7 @@ def _load_gateway_config(system_id: str = "") -> Optional[dict]:
 
     Reads from (in priority order):
     1. Environment variables (AIMAIL_GATEWAY_URL + AIMAIL_ADMIN_KEY/AIMAIL_PRODUCT_CODE)
-    2. ~/.agentmail/systems/{system_id}/agentmail_gateway.json (direct, or via HERMES_PROFILE_DIR/.agentmail pointer)
+    2. ~/.aimail/systems/{system_id}/agentmail_gateway.json (direct, or via HERMES_PROFILE_DIR/.agentmail pointer)
     """
     # Try environment variables first
     gateway_url = os.environ.get("AIMAIL_GATEWAY_URL", "")
@@ -188,7 +188,7 @@ def _load_gateway_config(system_id: str = "") -> Optional[dict]:
             "webhook_host": raw_webhook,
         }
 
-    # Try ~/.agentmail/systems/{system_id}/agentmail_gateway.json
+    # Try ~/.aimail/systems/{system_id}/agentmail_gateway.json
     resolved_sid = system_id
     if not resolved_sid:
         # Resolve from HERMES_PROFILE_DIR/.agentmail pointer
@@ -336,7 +336,7 @@ def _clean_agent_dir_name(addr: str) -> str:
 
 def _agent_config_path(system_id: str, email: str) -> Path:
     """地址键 per-agent 配置路径：systems/{sid}/{cleaned_addr}/agentmail.json。"""
-    return _agentmail_system_dir(system_id) / _clean_agent_dir_name(email) / "agentmail.json"
+    return _aimail_system_dir(system_id) / _clean_agent_dir_name(email) / "agentmail.json"
 
 
 def route_agent_for_email(registry: dict, email: str) -> str:
@@ -364,7 +364,7 @@ def render_message(payload: dict) -> str:
 
 
 def _read_pointer(pointer: Path) -> dict:
-    """读取 {dir}/.agentmail 指针（{system_id, email}）。缺失/损坏返回 {}。"""
+    """读取 {dir}/.aimail 指针（{system_id, email}）。缺失/损坏返回 {}。"""
     if pointer.is_file():
         try:
             return json.loads(pointer.read_text())
@@ -374,7 +374,7 @@ def _read_pointer(pointer: Path) -> dict:
 
 
 def _write_pointer(pointer: Path, system_id: str, email: str) -> None:
-    """写 {dir}/.agentmail 指针（系统身份唯一来源）。"""
+    """写 {dir}/.aimail 指针（系统身份唯一来源）。"""
     pointer.parent.mkdir(parents=True, exist_ok=True)
     pointer.write_text(
         json.dumps({"system_id": system_id, "email": email}, indent=2, ensure_ascii=False) + "\n"
@@ -384,7 +384,7 @@ def _write_pointer(pointer: Path, system_id: str, email: str) -> None:
 def _board_creds_path() -> Optional[Path]:
     """Universal per-agent board credential path.
 
-    ~/.agentmail/systems/{system_id}/{agent_addr_cleaned}/board_creds.json
+    ~/.aimail/systems/{system_id}/{agent_addr_cleaned}/board_creds.json
 
     The directory key is the agent's FINAL address (path-unsafe chars
     replaced) — every agent system (Hermes, OpenClaw, ...) follows this
@@ -399,7 +399,7 @@ def _board_creds_path() -> Optional[Path]:
         if not sid or not addr:
             return None
         cleaned = _clean_agent_dir_name(addr)
-        return _agentmail_system_dir(sid) / cleaned / "board_creds.json"
+        return _aimail_system_dir(sid) / cleaned / "board_creds.json"
     except Exception:
         return None
 
@@ -431,7 +431,7 @@ def _put_contact_profile(address: str, profile: str) -> dict:
     from aimail_tools import _GatewayClient
     config = _load_profile_config()
     if not config:
-        return {"success": False, "error": "agentmail not configured for this profile"}
+        return {"success": False, "error": "aimail not configured for this profile"}
     client = _GatewayClient(config["gateway_url"], config["api_key"],
                             identity=config.get("email", ""))
 
@@ -459,7 +459,7 @@ def _put_contact_profile(address: str, profile: str) -> dict:
 # pong goes out as a normal outbound email and never loops back to the
 # agent preprocess chain. PING_PREFIX is agent-side only (ping enters
 # via SMTP as a normal inbound mail; no gateway-side ping matching).
-PING_PREFIX = "__agentmail_ping__:"
+PING_PREFIX = "__aimail_ping__:"
 PONG_PREFIX = "__amail_pong__:"
 
 
@@ -529,19 +529,19 @@ def send_pong(body: dict, pong_id_value: str) -> bool:
         return False
 
 
-def agentmail_log_path(email: str = "") -> Path:
+def aimail_log_path(email: str = "") -> Path:
     """Canonical per-agent processing log path (user-mandated 2026-08-16).
 
-    All agent logs live under {AIMAIL_HOME|~/.agentmail}/logs/, one file
-    per agent: agentmail.{cleaned_addr}.log — NOT inside mail/{addr}/.
+    All agent logs live under {AIMAIL_HOME|~/.aimail}/logs/, one file
+    per agent: aimail.{cleaned_addr}.log — NOT inside mail/{addr}/.
     """
     cleaned = _clean_agent_dir_name(email) if email else "default"
     base = aimail_home()
-    return base / "logs" / f"agentmail.{cleaned}.log"
+    return base / "logs" / f"aimail.{cleaned}.log"
 
 
 def _log_ping_event(dir_: str, ping_id: str, payload: dict, pong_status: str = ""):
-    """Append a JSON line to agentmail.log for ping-pong loop tracking.
+    """Append a JSON line to aimail.log for ping-pong loop tracking.
 
     Shared by all platforms — same file layout, same three dir values:
     ping_intercepted / pong_sent / pong_returned. Written at the gateway
@@ -593,8 +593,8 @@ def _log_ping_event(dir_: str, ping_id: str, payload: dict, pong_status: str = "
                         pass
                     if _email:
                         break
-        # Canonical per-agent log: {logs}/agentmail.{cleaned_addr}.log
-        _log_path = agentmail_log_path(_email)
+        # Canonical per-agent log: {logs}/aimail.{cleaned_addr}.log
+        _log_path = aimail_log_path(_email)
         _log_dir = _log_path.parent
         os.makedirs(_log_dir, exist_ok=True)
         with open(_log_path, "a") as _f:
@@ -620,7 +620,7 @@ def process_inbound_mail(payload: dict, headers: dict) -> Optional[dict]:
     # even when preprocess returned None (e.g. pull-mode batch without an
     # agent context): a ping must still be swallowed + logged + ponged.
     # Use the RAW payload for detection AND logging — preprocess's enriched
-    # copy drops to/cc, which would break agentmail.log dir resolution
+    # copy drops to/cc, which would break aimail.log dir resolution
     # (falls back to sender → wrong mail dir).
     subject = payload.get("subject", "")
     intercept = handle_ping_pong(payload, pong_sender)
@@ -630,13 +630,13 @@ def process_inbound_mail(payload: dict, headers: dict) -> Optional[dict]:
             subject.split(":", 1)[1].strip() if ":" in subject else "",
             payload,
         )
-        logger.info("[agentmail_gateway] ping/pong intercepted — swallowed at the last step")
+        logger.info("[aimail_gateway] ping/pong intercepted — swallowed at the last step")
         return None
     return enriched
 
 
 def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
-    """Preprocess agentmail webhook payload before prompt rendering.
+    """Preprocess aimail webhook payload before prompt rendering.
 
     Returns None when the event must be swallowed (ping/pong
     interception — the webhook adapter responds "ignored" and no agent
@@ -654,7 +654,7 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
     body = result.get("body", "")
 
     if not body:
-        logger.warning("[agentmail_gateway] body is empty in raw payload — keys=%s", list(payload.keys())[:12])
+        logger.warning("[aimail_gateway] body is empty in raw payload — keys=%s", list(payload.keys())[:12])
 
     # Agent identity (for direct_message / mentioned)
     config = _load_profile_config()
@@ -662,9 +662,9 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
     system_name = config.get("system_name", "") if config else ""
 
     if not agent_email:
-        logger.warning("[agentmail_gateway] No email configured for this profile — inbound preprocessing skipped")
+        logger.warning("[aimail_gateway] No email configured for this profile — inbound preprocessing skipped")
         # Still return a recognizable payload so the gateway continues
-        result["_preprocess_error"] = "agentmail email not configured"
+        result["_preprocess_error"] = "aimail email not configured"
         return result
 
     # ── Extract display names from headers before stripping ──
@@ -756,7 +756,7 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
             if persona in configured:
                 result["my_amail_addr"] = my_to_addr
             else:
-                logger.warning("[agentmail_gateway] Persona '%s' not found in agent.personalities — falling back to base address", persona)
+                logger.warning("[aimail_gateway] Persona '%s' not found in agent.personalities — falling back to base address", persona)
                 # 未配置 persona：剥离 persona 前缀，回退注册基础地址（与创建端幂等）
                 result["my_amail_addr"] = agent_email
     if not result.get("my_amail_addr"):
@@ -823,7 +823,7 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
                 if profiles.get("recipients_profile"):
                     result["recipients_profile"] = profiles["recipients_profile"]
         else:
-            logger.warning("[agentmail_gateway] batch profiles skipped: no gateway config or api_key")
+            logger.warning("[aimail_gateway] batch profiles skipped: no gateway config or api_key")
 
     # ── B2: thread_summary preload (pure local, no gateway round-trip) ──
     # thread_id = first References entry (thread root), else the message_id
@@ -845,7 +845,7 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
                 if _summary:
                     result["thread_summary"] = _summary
         except Exception as _e:
-            logger.warning("[agentmail_gateway] thread_summary preload failed: %s", _e)
+            logger.warning("[aimail_gateway] thread_summary preload failed: %s", _e)
 
     attachments = result.get("attachments")
 
@@ -856,12 +856,12 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
         profile = _load_profile_config()
         agent_key = (profile or {}).get("api_key", "")
         if not agent_key:
-            logger.warning("[agentmail_gateway] Cannot download attachments: no agent api_key in profile")
+            logger.warning("[aimail_gateway] Cannot download attachments: no agent api_key in profile")
             return result
 
         config = _load_gateway_config()
         if not config:
-            logger.warning("[agentmail_gateway] Cannot download attachments: no gateway config")
+            logger.warning("[aimail_gateway] Cannot download attachments: no gateway config")
             return result
 
         from aimail_tools import _GatewayClient
@@ -874,9 +874,9 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
         # primary landing, not a cache; a per-message dir removes cross-message
         # filename collisions. Function-level import breaks the base<->tools
         # import cycle (resolved at call time, after both modules load).
-        from aimail_tools import _agentmail_dir, _sanitize_message_id
+        from aimail_tools import _aimail_dir, _sanitize_message_id
         attch_dir = (
-            _agentmail_dir()
+            _aimail_dir()
             / datetime.now().strftime("%Y%m")
             / "attch"
             / _sanitize_message_id(result.get("message_id", "") or "unknown")
@@ -955,7 +955,7 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
         if calib_raw:
             result["_role_prompt"] = fill_template(calib_raw, ctx)
         else:
-            logger.warning("[agentmail_gateway] Role_Calibrator role file missing — persona update will proceed without a role prompt")
+            logger.warning("[aimail_gateway] Role_Calibrator role file missing — persona update will proceed without a role prompt")
         return result
 
     # ── a2a_board: Board上下文检测（由Rust A2aInterceptor注入 board_id / board_role）──
@@ -985,7 +985,7 @@ _profile_hooks: Dict[str, List[Callable]] = {
 # ── Hook: auto-register email on profile creation ──────────────
 
 def parse_amail_persona(email: str, system_name: str = "") -> tuple:
-    """Parse persona, profile, and system_name from an agentmail address.
+    """Parse persona, profile, and system_name from an aimail address.
     
     Returns (persona, profile_name, sys_name).
     
@@ -1173,7 +1173,7 @@ def register_agent_email(client, system_id: str, email: str,
     # gateway registration chain succeeds, push the agent's receive endpoint
     # into the local bridge route table (localhost admin API, no key; bridge
     # admin default IP allowlist admits loopback). Failure is warn-only —
-    # bridge down at this moment is repaired later via `agentmail repair`
+    # bridge down at this moment is repaired later via `aimail repair`
     # (or the same push runs again on the next registration). Webhook_url
     # empty = pull mode: the gateway queues, the bridge pulls — pairing the
     # LOCAL route table is what makes pull-mode delivery reach this agent.
@@ -1193,10 +1193,10 @@ def register_agent_email(client, system_id: str, email: str,
                 data=body, headers={"Content-Type": "application/json"},
                 method="POST")
             with urllib.request.urlopen(req, timeout=3) as resp:
-                logging.info("[agentmail] bridge route paired for %s (HTTP %s)",
+                logging.info("[aimail] bridge route paired for %s (HTTP %s)",
                              email, resp.status)
         except Exception as e:  # warn-only, never blocks registration
-            logging.warning("[agentmail] bridge route pairing skipped for %s: %s",
+            logging.warning("[aimail] bridge route pairing skipped for %s: %s",
                             email, e)
     return {"api_key": api_key, "activation_code": activation_code}
 

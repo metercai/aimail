@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install-skill.sh — 安装 agentmail skill 到 DeerFlow skills 目录
+# install-skill.sh — 安装 aimail skill 到 DeerFlow skills 目录
 # SKILL.md 是通用邮件处理规范(与 Hermes/OpenClaw 共用同一源),从包资源拷贝
 # (源解析 pip aimail > 仓库 skills/,经 runtime_bundle.py resource skills)。
 set -euo pipefail
@@ -7,7 +7,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 RUNTIME_BUNDLE="$SCRIPT_DIR/../runtime_bundle.py"
 DEER_FLOW_HOME="${DEER_FLOW_HOME:-$HOME/deer-flow}"
-DST_DIR="${DEER_FLOW_SKILLS_DIR:-$DEER_FLOW_HOME/skills/public}/agentmail"
+DST_DIR="${DEER_FLOW_SKILLS_DIR:-$DEER_FLOW_HOME/skills/public}/aimail"
 
 SKILLS_SRC="$(python3 "$RUNTIME_BUNDLE" resource skills)"
 SRC_SKILL="$SKILLS_SRC/SKILL.md"

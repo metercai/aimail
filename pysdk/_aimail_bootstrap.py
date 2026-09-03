@@ -3,7 +3,7 @@
 
 Runtime modules are flat-script style (``import aimail_base``) and must
 run from any location: the source repository (tools/), an installed bundle
-(~/.agentmail/... provisioner copies), or site-packages (pip aimail).
+(~/.aimail/... provisioner copies), or site-packages (pip aimail).
 This module resolves the directory containing the shared core modules
 (aimail_base.py / aimail_tools.py / aimail_board.py /
 gateway_api.py) and puts it — plus the calling entry point's own

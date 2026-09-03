@@ -1,6 +1,6 @@
 /**
  * 12 tool functions (mail-core) — thin wrappers over GatewayClient mirroring
- * Python agentmail_tools.py. Contract: DSH-PREPROCESS-CONTRACT.md §3 +
+ * Python aimail_tools.py. Contract: DSH-PREPROCESS-CONTRACT.md §3 +
  * amail_mcp_server.py tool registry (names/descriptions/params identical).
  */
 import { randomUUID } from 'node:crypto'
@@ -79,8 +79,8 @@ function agentIdentity(): string {
 
 async function requireConfig(systemId: string, email?: string): Promise<AgentConfig> {
   const cfg = email ? await loadAgentConfig(systemId, email) : undefined
-  if (!cfg) throw new Error('agentmail not configured for this agent (agentmail.json missing)')
-  if (!cfg.api_key) throw new Error('agentmail api_key not available')
+  if (!cfg) throw new Error('aimail not configured for this agent (agentmail.json missing)')
+  if (!cfg.api_key) throw new Error('aimail api_key not available')
   return cfg
 }
 
@@ -341,7 +341,7 @@ export async function sendMail(ctx: ToolCtx, args: SendMailArgs): Promise<ToolRe
   }
 
   if (result.status >= 200 && result.status < 300) {
-    // Outbound line to the per-agent agentmail.log (Python parity: _log_amail
+    // Outbound line to the per-agent aimail.log (Python parity: _log_amail
     // "outbound" on the success branch) — the welcome CLI polls this file to
     // detect the agent's reply; TS used to skip it, breaking that poll.
     await logAmailOutbound(cfg.email, sender, toList.join(','), args.subject, generatedMid)

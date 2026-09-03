@@ -58,7 +58,7 @@ async function deliverToAgent(
     },
     body: JSON.stringify({
       message: opts.message,
-      name: 'agentmail',
+      name: 'aimail',
       sessionKey: 'agent:main:hook:amail',
       deliver: false,
     }),

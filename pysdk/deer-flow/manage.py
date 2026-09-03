@@ -148,7 +148,7 @@ def save_agent_config(agent_id: str, cfg: dict, system_id: str) -> None:
     cfg = dict(cfg)
     cfg["agent_id"] = agent_id
     cleaned = re.sub(r"[^\w.\-]", "_", cfg["email"])
-    path = os.path.expanduser(f"~/.agentmail/systems/{system_id}/{cleaned}/agentmail.json")
+    path = os.path.expanduser(f"~/.aimail/systems/{system_id}/{cleaned}/agentmail.json")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         json.dump(cfg, f, indent=2, ensure_ascii=False)
@@ -183,7 +183,7 @@ def register_agents(manager: str = "", system_id: str = "", agent: str = "") -> 
     system_id = system_id or _base.detect_system_id()
     gw = _base.load_gateway_config(system_id)
     if not gw:
-        raise SystemExit(f"gateway config not found (agentmail_gateway.json) for {system_id} — run agentmail install first")
+        raise SystemExit(f"gateway config not found (agentmail_gateway.json) for {system_id} — run aimail install first")
     manager = manager or os.environ.get("AIMAIL_MANAGER", "")
     if not manager:
         raise SystemExit("need --manager <addr> or AIMAIL_MANAGER env (审批联系人)")
@@ -193,10 +193,10 @@ def register_agents(manager: str = "", system_id: str = "", agent: str = "") -> 
     if not agents:
         agents = ["default"]
 
-    # 本地接收端点(进程内预处理,DeerFlow 本地 gateway /agentmail/inbound;
+    # 本地接收端点(进程内预处理,DeerFlow 本地 gateway /aimail/inbound;
     # DEERFLOW_INBOUND_URL 可覆盖);注册参数三态由 resolve_register_webhook_url 决定
     inbound_base = os.environ.get("DEERFLOW_INBOUND_URL", "http://127.0.0.1:8001")
-    local_webhook_url = inbound_base.rstrip("/") + "/agentmail/inbound"
+    local_webhook_url = inbound_base.rstrip("/") + "/aimail/inbound"
     reg_url = _core.resolve_register_webhook_url(gw, local_webhook_url)
 
     created = 0
@@ -228,7 +228,7 @@ def register_agents(manager: str = "", system_id: str = "", agent: str = "") -> 
 def _local_agents(system_id: str) -> dict:
     """读本地 amail 注册表: {agent_id: cfg}。"""
     out = {}
-    base = os.path.expanduser(f"~/.agentmail/systems/{system_id}")
+    base = os.path.expanduser(f"~/.aimail/systems/{system_id}")
     if not os.path.isdir(base):
         return out
     for addr_dir in sorted(os.listdir(base)):
@@ -249,7 +249,7 @@ def _save_agent_config(agent_id: str, cfg: dict, system_id: str) -> None:
     cfg = dict(cfg)
     cfg["agent_id"] = agent_id
     cleaned = re.sub(r"[^\w.\-]", "_", cfg["email"])
-    path = os.path.expanduser(f"~/.agentmail/systems/{system_id}/{cleaned}/agentmail.json")
+    path = os.path.expanduser(f"~/.aimail/systems/{system_id}/{cleaned}/agentmail.json")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         json.dump(cfg, f, indent=2, ensure_ascii=False)
@@ -307,10 +307,10 @@ def reconcile(system_id: str = "", manager: str = "", dry_run: bool = False) -> 
         email = _base.email_for_agent(agent_id, gw["domain"], gw.get("system_name", ""),
                                       default_aliases=("default",))
         webhook_secret = secrets.token_hex(32)
-        # 本地接收端点(进程内预处理,DeerFlow 本地 gateway /agentmail/inbound;
+        # 本地接收端点(进程内预处理,DeerFlow 本地 gateway /aimail/inbound;
         # DEERFLOW_INBOUND_URL 可覆盖,2026-08-18 重构)
         inbound_base = os.environ.get("DEERFLOW_INBOUND_URL", "http://127.0.0.1:8001")
-        local_webhook_url = inbound_base.rstrip("/") + "/agentmail/inbound"
+        local_webhook_url = inbound_base.rstrip("/") + "/aimail/inbound"
         # 注册参数三态:push=bridge 公网入口 / pull=空 / 无 bridge=本地端点
         reg_url = _core.resolve_register_webhook_url(gw, local_webhook_url)
         reg = _base.register_agent_email(
@@ -349,7 +349,7 @@ def reconcile(system_id: str = "", manager: str = "", dry_run: bool = False) -> 
             result = _base.deregister_agent_email(client, system_id, email,
                                                   local[agent_id].get("manager_address", ""))
             cleaned = re.sub(r"[^\w.\-]", "_", email)
-            path = os.path.expanduser(f"~/.agentmail/systems/{system_id}/{cleaned}/agentmail.json")
+            path = os.path.expanduser(f"~/.aimail/systems/{system_id}/{cleaned}/agentmail.json")
             if os.path.isfile(path):
                 os.remove(path)
             changes += 1
@@ -404,7 +404,7 @@ def deregister_agents(agent: str, manager: str = "", system_id: str = "") -> int
 
     # 清理本地 agentmail.json
     cleaned = re.sub(r"[^\w.\-]", "_", email)
-    path = os.path.expanduser(f"~/.agentmail/systems/{system_id}/{cleaned}/agentmail.json")
+    path = os.path.expanduser(f"~/.aimail/systems/{system_id}/{cleaned}/agentmail.json")
     if os.path.isfile(path):
         os.remove(path)
         print(f"  ✓ removed {path}")
@@ -599,7 +599,7 @@ def install_bundle(backend_dir: str, source_root: str = "", force: bool = False)
 # ══════════════════════════════════════════════════════════════════════
 def main(argv: list | None = None) -> int:
     import argparse
-    ap = argparse.ArgumentParser(description="DeerFlow agentmail 管理(注册/对账/注销/入站安装)")
+    ap = argparse.ArgumentParser(description="DeerFlow aimail 管理(注册/对账/注销/入站安装)")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     # register_agent.py 同款参数

@@ -200,7 +200,7 @@ def _save_gateway_config(
 ) -> None:
     """Save amail gateway connection config to standalone JSON file.
 
-    Writes to ~/.agentmail/systems/{system_id}/agentmail_gateway.json.
+    Writes to ~/.aimail/systems/{system_id}/agentmail_gateway.json.
     system_home = 系统/平台根(hermes=~/.hermes, openclaw=~/.openclaw),
     用于 CLI 平台反查(2026-08-16 用户定调;与 agent_home=具体 agent home
     语义区分)。

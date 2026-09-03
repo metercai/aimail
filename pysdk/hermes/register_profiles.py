@@ -38,7 +38,7 @@ def load_gateway_config():
     # Use SYSTEM_ID env var to locate config directly
     sid = os.environ.get("SYSTEM_ID", "")
     if sid:
-        sub = os.path.join(os.path.expanduser("~/.agentmail/systems"), sid, "agentmail_gateway.json")
+        sub = os.path.join(os.path.expanduser("~/.aimail/systems"), sid, "agentmail_gateway.json")
         if os.path.isfile(sub):
             try:
                 with open(sub) as f:
@@ -52,13 +52,13 @@ def register_emails():
         print("no_config")
         return
 
-    # 配置补全(幂等):platform_toolsets.webhook/cli 加 agentmail +
+    # 配置补全(幂等):platform_toolsets.webhook/cli 加 aimail +
     # platforms.webhook enabled。断链根因曾多次出现:安装链从未写这些
     # 配置,全靠手工补——缺 webhook 段 → webhook 会话无 send_mail
     # ("收得到回不出");缺 cli 段 → CLI 会话无邮件工具。路由
-    # (agentmail-inbound)由 _auto_register_email → _ensure_webhook_route
+    # (aimail-inbound)由 _auto_register_email → _ensure_webhook_route
     # 创建,**不需要第二个 amail-inbound**(bridge 全 URL 路由直接指
-    # /webhooks/agentmail-inbound)。
+    # /webhooks/aimail-inbound)。
 
     system_id = config.get("system_id", "")
     home = os.path.expanduser(os.environ.get("HERMES_HOME", "~/.hermes"))

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""bind_agent.py — 绑定 dsh session 到 agentmail 地址(注册链 + 落盘 + 路由)。
+"""bind_agent.py — 绑定 dsh session 到 aimail 地址(注册链 + 落盘 + 路由)。
 
 流程(2026-08-18 方案 §5.4):
   1. 解析 system/gw(preset 默认 mail)
@@ -32,7 +32,7 @@ import aimail_tools as _tools          # noqa: E402
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="绑定 dsh session 到 agentmail 地址")
+    ap = argparse.ArgumentParser(description="绑定 dsh session 到 aimail 地址")
     ap.add_argument("--session-id", default="", help="dsh session id(复用已存在 session);缺省生成 uuid")
     ap.add_argument("--preset", default="mail", help="dsh preset 名(agent 定义层,默认 mail)")
     ap.add_argument("--manager", default="", help="manager_address(审批联系人);缺省读 AIMAIL_MANAGER env")
@@ -42,7 +42,7 @@ def main() -> int:
     system_id = args.system_id or _base.detect_system_id()
     gw = _base.load_gateway_config(system_id)
     if not gw:
-        raise SystemExit(f"gateway config not found (agentmail_gateway.json) for {system_id} — run agentmail install first")
+        raise SystemExit(f"gateway config not found (agentmail_gateway.json) for {system_id} — run aimail install first")
     manager = args.manager or os.environ.get("AIMAIL_MANAGER", "")
     if not manager:
         raise SystemExit("need --manager <addr> or AIMAIL_MANAGER env (审批联系人)")
@@ -54,7 +54,7 @@ def main() -> int:
 
     # 本地接收端点(mail-inbound,默认 9099;AIMAIL_INBOUND_URL 可覆盖)
     inbound_base = os.environ.get("AIMAIL_INBOUND_URL", "http://127.0.0.1:9099")
-    local_webhook_url = inbound_base.rstrip("/") + "/agentmail/deliver"
+    local_webhook_url = inbound_base.rstrip("/") + "/aimail/deliver"
     # 注册参数三态:push=bridge 公网入口 / pull=空 / 无 bridge=本地端点
     reg_url = _base.resolve_register_webhook_url(gw, local_webhook_url)
 
@@ -79,7 +79,7 @@ def main() -> int:
         "preset": args.preset,
     }
     # 落盘 agentmail.json(地址键路径,原子 tmp+replace,600)
-    p = os.path.expanduser(f"~/.agentmail/systems/{system_id}/{_base._clean_agent_dir_name(email)}/agentmail.json")
+    p = os.path.expanduser(f"~/.aimail/systems/{system_id}/{_base._clean_agent_dir_name(email)}/agentmail.json")
     os.makedirs(os.path.dirname(p), exist_ok=True)
     tmp = p + ".tmp"
     with open(tmp, "w") as f:
@@ -97,7 +97,7 @@ def main() -> int:
     print("  dsh 侧步骤(绑定生效):")
     print(f"    1. 若 session 未创建:dsh 中创建 session id={session_id}(preset={args.preset})")
     print(f"    2. 挂载 mail 插件:preset 配置含 dsh-mail + dsh-tool-mail + dsh-mail-inbound")
-    print(f"    3. 入站端点:http://127.0.0.1:9099/agentmail/deliver(bridge 路由已注册)")
+    print(f"    3. 入站端点:http://127.0.0.1:9099/aimail/deliver(bridge 路由已注册)")
     return 0
 
 

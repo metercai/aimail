@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install-skill.sh — 安装 agentmail SKILL 到 dsh 技能目录(逐字拷贝,零改写)
+# install-skill.sh — 安装 aimail SKILL 到 dsh 技能目录(逐字拷贝,零改写)
 # SKILL.md 源从包资源解析(pip aimail > 仓库 skills/,经 runtime_bundle.py)。
 #
 # 用法:

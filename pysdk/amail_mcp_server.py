@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""amail_mcp_server.py — 共享 agentmail MCP server（stdio,兜底服务）。
+"""amail_mcp_server.py — 共享 aimail MCP server（stdio,兜底服务）。
 
 暴露 Hermes 等价工具集（结构化调用,替代 CLI 方式）:
   send_mail / manage_contacts / contact_profile / set_contact_profile
   email_summary / set_email_summary / board_*（A2A）
 
 平台无关（2026-08-18 从 tools/openclaw/ 提升）:任何 agent 系统只需按共享
-布局落 ~/.agentmail/systems/{sid}/{cleaned_addr}/agentmail.json(register 链
+布局落 ~/.aimail/systems/{sid}/{cleaned_addr}/agentmail.json(register 链
 自动写),即可复用本服务——不 import 任何平台适配层,直接依赖共享核心
 (aimail_base/aimail_tools/aimail_board)。
 
@@ -169,7 +169,7 @@ def tool_board_members(args: dict) -> dict:
 
 SCHEMA_STR = {"type": "string"}
 TOOLS = [
-    {"name": "send_mail", "description": "Send an email from your agentmail address. Returns delivery status.",
+    {"name": "send_mail", "description": "Send an email from your aimail address. Returns delivery status.",
      "inputSchema": {"type": "object", "properties": {
          "to": {"type": "string", "description": "Comma-separated recipients"},
          "subject": SCHEMA_STR, "body": {"type": "string", "description": "Markdown body"},

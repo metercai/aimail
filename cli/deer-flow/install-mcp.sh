@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # install-mcp.sh — 写 DeerFlow extensions_config.json 的 amail MCP server 块
 # 复用共享 amail_mcp_server.py(兜底 MCP 服务,平台无关,零适配),指向
-# 自包含捆绑 ~/.agentmail/mcp/(经 runtime_bundle.py 安装,源 pip>repo,版本戳;
+# 自包含捆绑 ~/.aimail/mcp/(经 runtime_bundle.py 安装,源 pip>repo,版本戳;
 # 与仓库路径解耦,改名/mv 不影响运行)。
 # 幂等: 已存在 amail server 块则更新路径/env,否则追加。
 set -e

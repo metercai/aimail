@@ -1,6 +1,6 @@
 /**
  * agentmail.json read/write — single source of truth, atomic writes.
- * Layout: ~/.agentmail/systems/{system_id}/{cleaned_addr}/agentmail.json
+ * Layout: ~/.aimail/systems/{system_id}/{cleaned_addr}/agentmail.json
  * Contract: AGENTMAIL-JSON-REFERENCE.md; clean rule mirrors Python
  * `_clean_agent_dir_name` (non [\w.-] → '_').
  */

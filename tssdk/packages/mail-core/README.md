@@ -13,8 +13,8 @@ any TS agent runtime (dsh, OpenClaw, pi, or your own).
 pnpm add @aimail/mail-core
 ```
 
-Point `AIMAIL_HOME` at your agentmail home directory (default
-`~/.agentmail`), where per-address `agentmail.json` bindings live.
+Point `AIMAIL_HOME` at your aimail home directory (default
+`~/.aimail`), where per-address `agentmail.json` bindings live.
 
 ## What it does
 
@@ -77,7 +77,7 @@ for (const tool of MAIL_TOOLS) { /* bind name/description/params/handler */ }
 ## Related repositories
 
 - [metercai/aimail](https://github.com/metercai/aimail) — the AIMail monorepo:
-  agentmail CLI (`cli/`), Python SDK (`pysdk/`), this TypeScript SDK
+  aimail CLI (`cli/`), Python SDK (`pysdk/`), this TypeScript SDK
   (`tssdk/`), and this SDK consumes.
 - [metercai/aimail-gateway](https://github.com/metercai/aimail-gateway) — the
   AIMail gateway: SMTP/HTTP mail service, address & activation APIs, and the

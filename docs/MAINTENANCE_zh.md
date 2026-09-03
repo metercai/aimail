@@ -19,7 +19,7 @@
 ### 目录结构
 
 ```
-~/.agentmail/
+~/.aimail/
 ├── systems/
 │   └── {system_id}/
 │       ├── agentmail_gateway.json     # 网关连接配置(gateway_url, admin_key, system_id, domain)
@@ -30,7 +30,7 @@
 │           └── role_prompt/           # 地址级角色 prompt（优先）
 ├── mail/
 │   └── {agent_addr}/
-│       ├── agentmail.log              # agent 处理流水日志
+│       ├── aimail.log              # agent 处理流水日志
 │       └── {yyyymm}/in-*.json         # 按月入站快照
 ├── bridge/
 │   ├── aimail_bridge.toml              # bridge 配置
@@ -40,7 +40,7 @@
 │   └── bridge.out                     # bridge stdout 日志
 ├── logs/
 │   ├── aimail-bridge.log               # bridge 运行日志
-│   └── agentmail.agent.{addr}.log     # 各 agent 处理日志
+│   └── aimail.agent.{addr}.log     # 各 agent 处理日志
 ├── backup-reset-*/                    # reset 前的配置快照
 └── .system_raw_key/
     └── {system_id}_admin.key          # 原始 admin key(仅集成时)
@@ -50,11 +50,11 @@
 
 | 文件 | 内容 | 写入方 |
 |------|------|--------|
-| `systems/{sid}/agentmail_gateway.json` | gateway_url, admin_key, system_id, system_name, manager_address, system_home | `agentmail install` / `reset` → `setup_system.py` |
+| `systems/{sid}/agentmail_gateway.json` | gateway_url, admin_key, system_id, system_name, manager_address, system_home | `aimail install` / `reset` → `setup_system.py` |
 | `systems/{sid}/{addr}/agentmail.json` | email, api_key, gateway_url, domain, system_id, manager_address | 注册链(`register_profiles.py` / `register_agent.py`) |
 | `bridge/aimail_bridge.toml` | mode, addr/pull 配置 | `deploy_bridge.py` |
 
-所有配置都放在 `~/.agentmail/` 下；agent home 中不保存网关配置
+所有配置都放在 `~/.aimail/` 下；agent home 中不保存网关配置
 （profile 目录里的 `.agentmail` 指针仅记录 system_id）。
 
 ---
@@ -65,11 +65,11 @@
 
 | 文件 | 内容 | 位置 |
 |------|------|------|
-| **agentmail.log** | 邮件流水日志(ping/pong、入站/出站、预处理) | `~/.agentmail/mail/{agent_addr}/agentmail.log` |
-| **aimail-bridge.log** | bridge 运行日志(pull、转发、路由、健康) | `~/.agentmail/logs/aimail-bridge.log` |
+| **aimail.log** | 邮件流水日志(ping/pong、入站/出站、预处理) | `~/.aimail/mail/{agent_addr}/aimail.log` |
+| **aimail-bridge.log** | bridge 运行日志(pull、转发、路由、健康) | `~/.aimail/logs/aimail-bridge.log` |
 | **gateway.log** | Hermes 网关日志(每 profile) | `~/.hermes/gateway.log`(根)或 `~/.hermes/profiles/{name}/gateway.log` |
 
-### agentmail.log 格式
+### aimail.log 格式
 
 每行一个 JSON 对象：
 
@@ -88,14 +88,14 @@
 无自动轮转。可配置 logrotate 或 cron：
 
 ```bash
-# /etc/logrotate.d/agentmail
-~/.agentmail/mail/*/agentmail.log {
+# /etc/logrotate.d/aimail
+~/.aimail/mail/*/aimail.log {
     daily
     rotate 7
     compress
     missingok
 }
-~/.agentmail/logs/aimail-bridge.log {
+~/.aimail/logs/aimail-bridge.log {
     daily
     rotate 7
     compress
@@ -111,16 +111,16 @@
 
 ```bash
 # 全链路诊断
-./agentmail check
+./aimail check
 
 # 带修复建议
-./agentmail check --verbose
+./aimail check --verbose
 
 # 心跳闭环测试(ping → pong)
-./agentmail ping
+./aimail ping
 
 # welcome 端到端(向 manager 发一封欢迎邮件)
-./agentmail welcome
+./aimail welcome
 ```
 
 ### check 层级
@@ -135,13 +135,13 @@
 ### Ping/Pong 测试
 
 ```bash
-./agentmail ping
+./aimail ping
 ```
 
 经 SMTP 发送 ping 到网关 → bridge → webhook，触发自动 pong 回复，验证全链路。预期输出：
 
 ```
-  Ping sent: __agentmail_ping__:a1b2c3d4e5f6
+  Ping sent: __aimail_ping__:a1b2c3d4e5f6
   +  1.2s    Webhook Receive (ping)         OK
   +  2.9s    Pong Sent (send_mail)          OK
   +  5.1s    Webhook Return (pong)          OK
@@ -157,18 +157,18 @@
 
 ```bash
 # 状态(进程 / 配置 / 路由表 / 日志新鲜度)
-./agentmail bridge
+./aimail bridge
 
 # 重启(单实例)
-./agentmail bridge --restart
+./aimail bridge --restart
 
 # 重刷某系统的转发路由
-./agentmail bridge --system-id <sid>
+./aimail bridge --system-id <sid>
 ```
 
 ### 配置
 
-`~/.agentmail/bridge/aimail_bridge.toml`：
+`~/.aimail/bridge/aimail_bridge.toml`：
 
 ```toml
 mode = "pull"
@@ -230,18 +230,18 @@ curl http://127.0.0.1:{port}/health
 
 **检查：**
 ```bash
-grep pong_status ~/.agentmail/mail/*/agentmail.log
+grep pong_status ~/.aimail/mail/*/aimail.log
 ```
 
-**修复：** 核对 `~/.agentmail/systems/{sid}/{addr}/agentmail.json` 中 email 与 api_key 是否一致。
+**修复：** 核对 `~/.aimail/systems/{sid}/{addr}/agentmail.json` 中 email 与 api_key 是否一致。
 
 ### bridge 拉不到邮件
 
 **检查：**
 ```bash
-./agentmail bridge
+./aimail bridge
 curl https://amail.token.tm/health
-tail -20 ~/.agentmail/logs/aimail-bridge.log
+tail -20 ~/.aimail/logs/aimail-bridge.log
 ```
 
 ### 网关起不来
@@ -256,14 +256,14 @@ cat ~/.hermes/gateway.log
 ### 重新集成
 
 ```bash
-# 移除 agentmail 对接(CLI,保留 ~/.agentmail/ 本机数据)
-./agentmail uninstall --system-id <sid> --yes
+# 移除 aimail 对接(CLI,保留 ~/.aimail/ 本机数据)
+./aimail uninstall --system-id <sid> --yes
 
 # 重新安装
-./agentmail install --home ~/.hermes --system-id <sid>
+./aimail install --home ~/.hermes --system-id <sid>
 ```
 
-`agentmail install` 是幂等的——重复运行自动跳过已完成步骤。
+`aimail install` 是幂等的——重复运行自动跳过已完成步骤。
 
 ### API key 更新
 
@@ -272,14 +272,14 @@ cat ~/.hermes/gateway.log
 ```bash
 # 方法 1：清空 agentmail.json 的 activation_code 和 api_key，让 agent 下次启动时重新激活
 # 方法 2：直接用新 key 替换 agentmail.json 中的 api_key
-# 方法 3：重新运行 ./agentmail reset --system-id <sid>
+# 方法 3：重新运行 ./aimail reset --system-id <sid>
 ```
 
 ---
 
 ## 7. CLI 参考
 
-`./agentmail` 是唯一入口(仓库根 symlink → `scripts/agentmail`)。
+`./aimail` 是唯一入口(仓库根 symlink → `scripts/aimail`)。
 子命令(字母序)：`bridge`、`check`、`domain`、`install`、`mailname`、
 `ping`、`reset`、`stats`、`uninstall`、`welcome`。
 
@@ -292,33 +292,33 @@ cat ~/.hermes/gateway.log
 # .env: AIMAIL_URL / AIMAIL_ADMIN_KEY | AIMAIL_PRODUCT_CODE / AIMAIL_MANAGER_ADDRESS
 
 # 新系统——用激活码激活（未传参则从 .env 取）
-./agentmail install --home ~/.hermes --product-code <CODE> --manager admin@example.com
+./aimail install --home ~/.hermes --product-code <CODE> --manager admin@example.com
 
 # 已有系统——复用已存配置或传入 admin key
-./agentmail install --home ~/.hermes --system-id <sid>
-./agentmail install --home ~/.openclaw --system-id <sid>
+./aimail install --home ~/.hermes --system-id <sid>
+./aimail install --home ~/.openclaw --system-id <sid>
 ```
 
 `install` 完成整条链路：系统激活 → bridge 部署 → 工具与 skill 安装 →
 webhook 补丁与 profile 注册。随后验证：
 
 ```bash
-./agentmail check                      # 全链路诊断
-./agentmail ping                       # ping-pong 闭环
-./agentmail welcome                    # welcome 端到端(邮件到 manager)
-./agentmail stats                      # 本机总览(系统/agent/邮件统计)
+./aimail check                      # 全链路诊断
+./aimail ping                       # ping-pong 闭环
+./aimail welcome                    # welcome 端到端(邮件到 manager)
+./aimail stats                      # 本机总览(系统/agent/邮件统计)
 ```
 
 ### 日常运维
 
 ```bash
-./agentmail stats                      # 本机总览(系统 + agent + 邮件统计)
-./agentmail domain --system-id <sid>   # 查看系统域名
-./agentmail domain --system-id <sid> --add example.com   # 创建域名
-./agentmail mailname --system-id <sid> --default NAME    # 修改主 agent 名
-./agentmail reset --system-id <sid>    # 用已存 admin key 重跑注册链
-./agentmail uninstall --system-id <sid> --yes            # 移除对接
-./agentmail bridge --restart           # 重启本地 bridge
+./aimail stats                      # 本机总览(系统 + agent + 邮件统计)
+./aimail domain --system-id <sid>   # 查看系统域名
+./aimail domain --system-id <sid> --add example.com   # 创建域名
+./aimail mailname --system-id <sid> --default NAME    # 修改主 agent 名
+./aimail reset --system-id <sid>    # 用已存 admin key 重跑注册链
+./aimail uninstall --system-id <sid> --yes            # 移除对接
+./aimail bridge --restart           # 重启本地 bridge
 ```
 
 `--home` 定位平台根(`~/.hermes` / `~/.openclaw`)；平台无法自动识别时
