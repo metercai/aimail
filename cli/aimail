@@ -144,8 +144,8 @@ def resolve_system_id(system_home: Path, explicit_sid: str = "") -> tuple[str, s
     # 1) 显式 sid:优先配置反查,回退指针
     if explicit_sid:
         sid = explicit_sid
-        # 配置反查:该 sid 的 aimail_gateway.json 里有 system_home
-        cfg_path = SYSTEMS_DIR / sid / "aimail_gateway.json"
+        # 配置反查:该 sid 的 agentmail_gateway.json 里有 system_home
+        cfg_path = SYSTEMS_DIR / sid / "agentmail_gateway.json"
         if cfg_path.is_file():
             try:
                 cfg_sh = json.loads(cfg_path.read_text()).get("system_home", "")
@@ -349,7 +349,7 @@ def _write_pi_pointer(sid: str) -> None:
         from aimail_base import email_for_agent  # noqa: E402
     except Exception:
         return
-    cfg_path = SYSTEMS_DIR / sid / "aimail_gateway.json"
+    cfg_path = SYSTEMS_DIR / sid / "agentmail_gateway.json"
     if not cfg_path.is_file():
         return
     try:
@@ -551,7 +551,7 @@ def cmd_reset(args) -> int:
         except Exception:
             pass
     if not admin_key:
-        cfg_path = SYSTEMS_DIR / sid / "aimail_gateway.json"
+        cfg_path = SYSTEMS_DIR / sid / "agentmail_gateway.json"
         if cfg_path.is_file():
             try:
                 admin_key = json.loads(cfg_path.read_text()).get("admin_key", "")
@@ -561,7 +561,7 @@ def cmd_reset(args) -> int:
         _fail(f"无 admin-key({raw_key_path} 或配置)——reset 只走 admin-key 路径")
 
     # 从已有配置读默认参数(CLI 显式覆盖)——reset 语义=重置为本机当前实际
-    cfg_path = SYSTEMS_DIR / sid / "aimail_gateway.json"
+    cfg_path = SYSTEMS_DIR / sid / "agentmail_gateway.json"
     prev = {}
     if cfg_path.is_file():
         try:
@@ -605,7 +605,7 @@ def cmd_mailname(args) -> int:
     sid = args.system_id or ""
     if not sid:
         _fail("mailname 需要 --system-id")
-    cfg_path = SYSTEMS_DIR / sid / "aimail_gateway.json"
+    cfg_path = SYSTEMS_DIR / sid / "agentmail_gateway.json"
     if not cfg_path.is_file():
         _fail(f"无系统配置: {cfg_path}")
     cfg = json.loads(cfg_path.read_text())
@@ -784,7 +784,7 @@ def cmd_bridge(args) -> int:
     if not platform:
         _fail(f"无法确定平台(system {sid})")
 
-    cfg_path = SYSTEMS_DIR / sid / "aimail_gateway.json"
+    cfg_path = SYSTEMS_DIR / sid / "agentmail_gateway.json"
     if not cfg_path.is_file():
         _fail(f"系统配置不存在: {cfg_path}")
     gw = json.loads(cfg_path.read_text())
@@ -875,7 +875,7 @@ def _default_recv_url(sid: str, email: str) -> str:
     except Exception:
         pass
     # fallback:平台默认
-    cfg_path = SYSTEMS_DIR / sid / "aimail_gateway.json"
+    cfg_path = SYSTEMS_DIR / sid / "agentmail_gateway.json"
     try:
         gw = json.loads(cfg_path.read_text())
         system_home = gw.get("system_home", "")
@@ -934,7 +934,7 @@ def cmd_domain(args) -> int:
     sid = args.system_id or ""
     if not sid:
         _fail("domain 需要 --system-id")
-    cfg_path = SYSTEMS_DIR / sid / "aimail_gateway.json"
+    cfg_path = SYSTEMS_DIR / sid / "agentmail_gateway.json"
     if not cfg_path.is_file():
         _fail(f"无系统配置: {cfg_path}")
     try:
@@ -988,7 +988,7 @@ def _resolve_renew_target(args) -> tuple[str, str, str]:
     candidates: list[str] = []
     if SYSTEMS_DIR.is_dir():
         for d in sorted(SYSTEMS_DIR.iterdir()):
-            if d.is_dir() and (d / "aimail_gateway.json").is_file():
+            if d.is_dir() and (d / "agentmail_gateway.json").is_file():
                 candidates.append(d.name)
     sid = args.system_id
     if not sid:
@@ -1004,7 +1004,7 @@ def _resolve_renew_target(args) -> tuple[str, str, str]:
     gw_url = args.gateway_url or cfg.get("gateway_url") or _env_val("AIMAIL_URL", "https://amail.token.tm")
     admin_key = cfg.get("admin_key") or ""
     if not admin_key:
-        _fail(f"no admin_key in aimail_gateway.json for {sid}")
+        _fail(f"no admin_key in agentmail_gateway.json for {sid}")
     return sid, gw_url, admin_key
 
 
@@ -1066,7 +1066,7 @@ def cmd_stats(args) -> int:
     for sid_dir in sorted(SYSTEMS_DIR.iterdir()):
         if not sid_dir.is_dir():
             continue
-        gw_path = sid_dir / "aimail_gateway.json"
+        gw_path = sid_dir / "agentmail_gateway.json"
         if not gw_path.is_file():
             continue
         sid = sid_dir.name
@@ -1121,10 +1121,10 @@ def cmd_stats(args) -> int:
     for sid_dir in sorted(SYSTEMS_DIR.iterdir()):
         if not sid_dir.is_dir():
             continue
-        if not (sid_dir / "aimail_gateway.json").is_file():
+        if not (sid_dir / "agentmail_gateway.json").is_file():
             continue
         try:
-            gw = json.loads((sid_dir / "aimail_gateway.json").read_text())
+            gw = json.loads((sid_dir / "agentmail_gateway.json").read_text())
         except Exception:
             gw = {}
         system_home = gw.get("system_home", "")
@@ -1304,7 +1304,7 @@ def cmd_uninstall(args) -> int:
         return 1
 
     gw = {}
-    gw_path = SYSTEMS_DIR / sid / "aimail_gateway.json"
+    gw_path = SYSTEMS_DIR / sid / "agentmail_gateway.json"
     if gw_path.is_file():
         try:
             gw = json.loads(gw_path.read_text())
@@ -1466,7 +1466,7 @@ def main():
     p_renew.add_argument("--system-id", help="目标系统(省略: 唯一系统自动选定,多系统报错列出)")
     p_renew.add_argument("--code", help="产品激活码(省略则只读展示到期状态)")
     p_renew.add_argument("--status", action="store_true", help="只读展示到期时间与配额(不消耗码)")
-    p_renew.add_argument("--gateway-url", default=None, help="网关地址(默认取 aimail_gateway.json)")
+    p_renew.add_argument("--gateway-url", default=None, help="网关地址(默认取 agentmail_gateway.json)")
     p_renew.set_defaults(func=cmd_renew)
 
     p_stats = sub.add_parser("stats", help="本机 aimail 对接状态(系统/agent/邮件统计)")
