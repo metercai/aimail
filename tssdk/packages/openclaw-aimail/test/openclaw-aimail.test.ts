@@ -5,8 +5,8 @@
  *  - deregisterAgentEmail 3-step idempotent chain (MockClient, P2 acceptance)
  */
 import { describe, it, expect } from 'vitest'
-import { MAIL_TOOLS } from '@aimail/mail-core'
-import { toTypeBoxParam, toTypeBoxParams, createMailTools } from '../src/tools.js'
+import { MAIL_TOOLS, toTypeBoxParam, toTypeBoxParams } from '@aimail/mail-core'
+import { createMailTools } from '../src/tools.js'
 import { registerAgentEmail, deregisterAgentEmail, type AdminClient } from '../src/commands.js'
 
 // ── MockClient (records requests, returns scripted responses) ──────────────

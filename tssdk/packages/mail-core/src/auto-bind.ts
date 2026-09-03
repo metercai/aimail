@@ -373,7 +373,8 @@ export async function autoBind(opts: AutoBindOptions): Promise<AutoBindResult> {
     throw new Error(
       `auto-bind: address ${opts.email} already exists on system ${systemId} but no local ` +
         `binding with an api_key was found — deregister the address first ` +
-        `(e.g. 'openclaw aimail deregister --email ${opts.email}') or restore agentmail.json`,
+        `(aimail deregister --email ${opts.email}, or the host-side register/deregister ` +
+        `command) or restore agentmail.json`,
     )
   }
   const apiKey = reg.api_key

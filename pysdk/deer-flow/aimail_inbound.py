@@ -67,7 +67,7 @@ def _verify_hmac(secret: str, body: bytes, signature: str) -> bool:
 
 def _find_agent_config(email: str) -> dict | None:
     """遍历共享布局 systems/{sid}/*/agentmail.json,按收件地址匹配。"""
-    base = Path.home() / ".aimail" / "systems"
+    base = Path(_ab.aimail_home()) / "systems"
     if not base.is_dir():
         return None
     for sys_dir in sorted(base.iterdir()):

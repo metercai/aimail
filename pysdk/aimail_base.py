@@ -1078,6 +1078,19 @@ def email_for_agent(agent_id: str, domain: str, system_name: str = "",
     return f"{base}@{domain}"
 
 
+def trigger_profile_hooks(event: str, profile_name: str, profile_dir: str) -> None:
+    """Lazy forward to the hermes adapter (patch entry point in host
+    profiles.py keeps importing aimail_base; AUDIT-1 P1-1 — the real
+    implementation lives in aimail_hermes, module-level import here would
+    create a cycle)."""
+    try:
+        from aimail.hermes import aimail_hermes as _ah  # pip form
+    except ImportError:
+        import importlib
+        _ah = importlib.import_module("aimail_hermes")  # repo form
+    return _ah.trigger_profile_hooks(event, profile_name, profile_dir)
+
+
 def register_bridge_route(system_id: str, email: str, gw: dict,
                           local_webhook_url: str) -> dict:
     """注册后向本机 bridge POST 入站 hook 路由(email → 本地接收端点全 URL)。
@@ -1168,36 +1181,11 @@ def register_agent_email(client, system_id: str, email: str,
         if act.get("success") and act.get("raw_key"):
             api_key = act["raw_key"]
 
-    # ── 5. Bridge route pairing (best-effort, idempotent) ──
-    # Agent startup auto-pairing (2026-08-30, user option A): after the
-    # gateway registration chain succeeds, push the agent's receive endpoint
-    # into the local bridge route table (localhost admin API, no key; bridge
-    # admin default IP allowlist admits loopback). Failure is warn-only —
-    # bridge down at this moment is repaired later via `aimail repair`
-    # (or the same push runs again on the next registration). Webhook_url
-    # empty = pull mode: the gateway queues, the bridge pulls — pairing the
-    # LOCAL route table is what makes pull-mode delivery reach this agent.
-    if webhook_url:
-        try:
-            import urllib.request
-            from urllib.parse import urlsplit
-            parts = urlsplit(webhook_url)
-            port = parts.port or (443 if parts.scheme == "https" else 80)
-            body = json.dumps({
-                "email": email,
-                "host": f"{parts.scheme}://{parts.hostname}:{port}{parts.path}",
-                "port": port,
-            }).encode()
-            req = urllib.request.Request(
-                "http://127.0.0.1:38081/api/v1/routes",
-                data=body, headers={"Content-Type": "application/json"},
-                method="POST")
-            with urllib.request.urlopen(req, timeout=3) as resp:
-                logging.info("[aimail] bridge route paired for %s (HTTP %s)",
-                             email, resp.status)
-        except Exception as e:  # warn-only, never blocks registration
-            logging.warning("[aimail] bridge route pairing skipped for %s: %s",
-                            email, e)
+    # ── 5. Bridge route pairing ──
+    # Callers push the local bridge route table explicitly via
+    # register_bridge_route(system_id, email, gw, local_webhook_url) —
+    # consolidated single implementation (AUDIT-1 P2-5; the inline
+    # hardcoded-38081 duplicate used to double-write the route).
     return {"api_key": api_key, "activation_code": activation_code}
 
 

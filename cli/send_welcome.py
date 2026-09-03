@@ -206,9 +206,19 @@ def _api_send(gw_url: str, admin_key: str, recipient: str,
 
 
 def _agent_log_path(agent_email: str) -> str:
-    """Per-agent processing log: ~/.aimail/logs/agentmail.{cleaned_addr}.log."""
+    """Per-agent processing log: {AIMAIL_HOME}/logs/aimail.{cleaned_addr}.log.
+
+    Mirror of aimail_base.aimail_log_path() (one file per agent).
+    """
+    try:
+        load_core()
+        import aimail_base as _abm  # noqa: E402
+        return _abm.aimail_log_path(agent_email)
+    except Exception:
+        pass
     cleaned = re.sub(r"[^\w.\-]", "_", agent_email)
-    return os.path.expanduser(f"~/.aimail/logs/agentmail.{cleaned}.log")
+    home = os.environ.get("AIMAIL_HOME", "") or os.path.expanduser("~/.aimail")
+    return os.path.join(home, "logs", f"aimail.{cleaned}.log")
 
 
 def _poll_reply(agent_email: str, timeout_secs: int) -> tuple:

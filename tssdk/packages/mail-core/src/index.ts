@@ -5,6 +5,7 @@
  * can import this package directly without touching dsh adapter packages.
  */
 export * from './types.js'
+export * from './typebox-params.js'
 export { GatewayClient } from './gateway.js'
 export { computeApiSignature, sha256Hex } from './api-signature.js'
 export {

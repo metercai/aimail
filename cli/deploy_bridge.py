@@ -10,6 +10,10 @@ from runtime_core import load_core  # noqa: E402
 load_core()
 from gateway_api import create_api_key
 
+# Machine home: AIMAIL_HOME env wins, else ~/.aimail (single authoritative layout).
+_AM_HOME = os.environ.get("AIMAIL_HOME") or os.path.expanduser("~/.aimail")
+
+
 def log_step(msg: str):
     print(f"  {msg}")
 
@@ -151,7 +155,7 @@ def write_bridge_config(path: str, mode: str, addr: str, gw: str,
         字段作为兼容,resolved_systems 空数组回退单系统)
     重启由 start_bridge 幂等处理(先杀旧进程再起新,单实例)。
     """
-    log_path = os.path.expanduser("~/.aimail/logs/aimail-bridge.log")
+    log_path = os.path.join(_AM_HOME, "logs/aimail-bridge.log")
 
     def _entry() -> dict:
         e = {
@@ -284,9 +288,9 @@ def start_bridge(bin_path: str, cfg_path: str, pid_path: str) -> bool:
 def main():
     # Standalone restart: just kill and restart bridge process
     if "--restart" in sys.argv:
-        bin_path = os.path.expanduser("~/.aimail/bridge/bin/aimail-bridge")
-        cfg_path = os.path.expanduser("~/.aimail/bridge/aimail_bridge.toml")
-        pid_path = os.path.expanduser("~/.aimail/bridge/bridge.pid")
+        bin_path = os.path.join(_AM_HOME, "bridge/bin/aimail-bridge")
+        cfg_path = os.path.join(_AM_HOME, "bridge/aimail_bridge.toml")
+        pid_path = os.path.join(_AM_HOME, "bridge/bridge.pid")
         start_bridge(bin_path, cfg_path, pid_path)
         return 0 if os.path.exists(pid_path) else 1
 
@@ -309,20 +313,20 @@ def main():
             wh_host = format_webhook_host(detect_ip())
             log_step(f"Auto-detected bridge address: {wh_host}")
 
-        bridge_dir = os.path.expanduser("~/.aimail/bridge/bin")
+        bridge_dir = os.path.join(_AM_HOME, "bridge/bin")
         bridge_bin = os.path.join(bridge_dir, "aimail-bridge")
         if not _ensure_binary(bridge_bin, bridge_dir):
             log_warn("bridge 二进制不可用;请先在仓库 bridge/ 放置 aimail-bridge zip")
             return 1
 
-        cfg_path = os.path.expanduser("~/.aimail/bridge/aimail_bridge.toml")
+        cfg_path = os.path.join(_AM_HOME, "bridge/aimail_bridge.toml")
         if os.path.exists(cfg_path):
             log_ok(f"bridge 配置已存在: {cfg_path}(复用,首个 install 将 merge 系统条目)")
         else:
             with open(cfg_path, 'w') as f:
                 f.write('\n'.join(_config_lines(
                     wh_host or "127.0.0.1:38081", bridge_mode, [],
-                    os.path.expanduser("~/.aimail/logs/aimail-bridge.log"))) + '\n')
+                    os.path.join(_AM_HOME, "logs/aimail-bridge.log"))) + '\n')
             log_ok(f"bridge 骨架配置已写入: {cfg_path}(systems 空)")
         print("  init: bridge 二进制+配置就位。首个系统激活(aimail install)时"
               "将创建 bridge key、追加系统条目并启动。")
@@ -339,7 +343,7 @@ def main():
     wh_host = os.environ.get("WEBHOOK_HOST", "") or os.environ.get("AIMAIL_WEBHOOK_HOST", "")
     if not wh_host and sid:
         try:
-            gw_path = os.path.join(os.path.expanduser("~/.aimail/systems"), sid, "agentmail_gateway.json")
+            gw_path = os.path.join(os.path.join(_AM_HOME, "systems"), sid, "agentmail_gateway.json")
             if os.path.isfile(gw_path):
                 wh_host = json.load(open(gw_path)).get("webhook_host", "")
         except Exception:
@@ -350,13 +354,13 @@ def main():
         return 1
 
     # ── Bridge deployment ────────────────────────────────────
-    bridge_dir = os.path.expanduser("~/.aimail/bridge/bin")
+    bridge_dir = os.path.join(_AM_HOME, "bridge/bin")
     bridge_bin = os.path.join(bridge_dir, "aimail-bridge")
     os.makedirs(bridge_dir, exist_ok=True)
 
     if not _ensure_binary(bridge_bin, bridge_dir):
         log_warn("bridge 二进制不可用")
-        return 0
+        return 1
 
     # Write bridge config
     bridge_mode = "pull" if wh_mode == "bridge" else "push"
@@ -372,7 +376,7 @@ def main():
     if wh_host:
         log_step(f"Using configured bridge address: {wh_host}")
 
-    cfg_dir = os.path.expanduser("~/.aimail/bridge")
+    cfg_dir = os.path.join(_AM_HOME, "bridge")
     os.makedirs(cfg_dir, exist_ok=True)
     bridge_cfg = os.path.join(cfg_dir, "aimail_bridge.toml")
 
@@ -380,7 +384,7 @@ def main():
     import uuid
     system_key = ""
     system_key_path = os.path.join(
-        os.path.expanduser("~/.aimail/.system_raw_key"), f"{sid}_admin.key"
+        os.path.join(_AM_HOME, ".system_raw_key"), f"{sid}_admin.key"
     )
     if os.path.exists(system_key_path):
         try:
@@ -393,7 +397,8 @@ def main():
     bridge_result = create_api_key(gw, bridge_ak, sid, bridge_domain, ["bridge"], "bridge")
     bridge_key = bridge_result.get("raw_key", "") if isinstance(bridge_result, dict) else ""
     if not bridge_key:
-        log_warn("bridge API key creation failed — bridge auth may not work")
+        log_warn("bridge API key creation failed — aborting deploy (auth would fail)")
+        return 1
 
     # Read webhook secret from agent config (Hermes → env fallback)
     webhook_secret = os.environ.get("AIMAIL_WEBHOOK_SECRET", "")
@@ -416,7 +421,7 @@ def main():
     gw_cfg = None
     gw_cfg_path = None
     if sid:
-        sub = os.path.join(os.path.expanduser("~/.aimail/systems"), sid, "agentmail_gateway.json")
+        sub = os.path.join(os.path.join(_AM_HOME, "systems"), sid, "agentmail_gateway.json")
         if os.path.isfile(sub):
             try:
                 with open(sub) as f:

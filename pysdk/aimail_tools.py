@@ -525,9 +525,8 @@ def send_mail(
                 sender = f"{local}.{persona}@{domain}"
                 logger.info("[aimail] New email from approved persona '%s' — sender: %s", persona, sender)
 
-    # Parse recipients
+    # Parse recipients (cc normalized above at L482-489)
     to_list = [a.strip() for a in to.split(",") if a.strip()]
-    cc_list = [a.strip() for a in cc.split(",") if a.strip()] if cc else None
 
     # Detect forward vs reply from subject line (case-insensitive "fw:" prefix)
     _is_forward = bool(message_id and subject and subject.lower().startswith("fw:"))
@@ -1149,7 +1148,7 @@ def _log_amail(direction: str, from_addr: str, to_addr: str, subject: str,
     """
     import json as _json
     import aimail_base as _abm
-    log_path = _abm.agentmail_log_path(_resolve_agent_email())
+    log_path = _abm.aimail_log_path(_resolve_agent_email())
     entry = _json.dumps({
         "ts": datetime.now().isoformat(),
         "dir": direction,

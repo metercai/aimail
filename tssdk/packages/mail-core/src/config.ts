@@ -10,7 +10,7 @@ import * as os from 'node:os'
 import type { AgentConfig } from './types.js'
 
 export const AIMAIL_HOME = (): string =>
-  process.env.AIMAIL_HOME || path.join(os.homedir(), '.agentmail')
+  process.env.AIMAIL_HOME || path.join(os.homedir(), '.aimail')
 
 export function systemDir(systemId: string): string {
   return path.join(AIMAIL_HOME(), 'systems', systemId)

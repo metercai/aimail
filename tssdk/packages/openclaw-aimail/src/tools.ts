@@ -6,8 +6,7 @@
  * Tool parameters are translated from the platform-neutral MailToolParam
  * shape to TypeBox schemas at registration time (mirrors dsh's toDshParam).
  */
-import { Type, type TSchema } from 'typebox'
-import { MAIL_TOOLS, type MailToolParam } from '@aimail/mail-core'
+import { MAIL_TOOLS, toTypeBoxParams } from '@aimail/mail-core'
 import { jsonResult } from 'openclaw/plugin-sdk/tool-results'
 import type {
   AnyAgentTool,
@@ -16,32 +15,6 @@ import type {
 import { resolveConfigForAgent } from './identity.js'
 import { setAgentModel } from '@aimail/mail-core'
 
-/** Translate one neutral MailToolParam into a TypeBox schema. */
-export function toTypeBoxParam(p: MailToolParam): TSchema {
-  let base: TSchema
-  if (p.type === 'array') {
-    base = Type.Array(Type.String())
-  } else if (p.enum && p.enum.length > 0) {
-    base = Type.Union([...p.enum.map(e => Type.Literal(e))])
-  } else {
-    base = Type.String()
-  }
-  if (p.description) {
-    base = { ...base, description: p.description }
-  }
-  return p.required === true ? base : Type.Optional(base)
-}
-
-/** Build a TypeBox object schema from a MailToolDef's parameters record. */
-export function toTypeBoxParams(
-  params: Record<string, MailToolParam>,
-): TSchema {
-  const properties: Record<string, TSchema> = {}
-  for (const [key, p] of Object.entries(params)) {
-    properties[key] = toTypeBoxParam(p)
-  }
-  return Type.Object(properties, { additionalProperties: false })
-}
 
 /**
  * Tool factory: identity available at assembly time (ctx.agentId), bound to

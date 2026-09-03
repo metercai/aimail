@@ -49,10 +49,6 @@ _CORE_FILES = {
 }
 
 BUNDLES = {
-    "hermes": {
-        "default_dest": "~/.hermes/hermes-agent/tools",
-        "files": dict(_CORE_FILES, **{"hermes/aimail_hermes.py": "hermes/aimail_hermes.py"}),
-    },
     "mcp": {
         "default_dest": "~/.aimail/mcp",
         "files": dict(_CORE_FILES, **{"amail_mcp_server.py": "amail_mcp_server.py"}),
@@ -204,50 +200,6 @@ def install(bundle: str, dest: str = "", source_root: str = "", force: bool = Fa
     return 0
 
 
-def check(bundle: str, dest: str = "", source_root: str = "") -> int:
-    spec = BUNDLES[bundle]
-    root, kind = resolve_source_root(source_root)
-    dest = os.path.abspath(os.path.expanduser(dest or spec["default_dest"]))
-
-    if not os.path.isdir(dest):
-        print(f"NOT-INSTALLED {bundle} {dest}")
-        return 2
-
-    problems = 0
-    for src_rel, dst_rel in spec["files"].items():
-        src = os.path.join(root, src_rel)
-        dst = os.path.join(dest, dst_rel)
-        if not os.path.isfile(dst):
-            print(f"MISSING {dst_rel}")
-            problems += 1
-            continue
-        if os.path.isfile(src) and _md5(src) != _md5(dst):
-            print(f"DRIFT {dst_rel}")
-            problems += 1
-
-    # 版本戳校验(漂移检测:静默失效 → WARN)
-    if not spec.get("no_stamp"):
-        sp = _stamp_path(dest)
-        if not os.path.isfile(sp):
-            print("STALE-STAMP (无版本戳)")
-            problems += 1
-        else:
-            try:
-                stamp = json.loads(open(sp, encoding="utf-8").read())
-                v = stamp.get("version", "")
-                if _lt(v, MIN_PAYLOAD_VERSION):
-                    print(f"LOW-VERSION {v} < {MIN_PAYLOAD_VERSION}")
-                    problems += 1
-            except Exception:
-                print("STALE-STAMP (损坏)")
-                problems += 1
-
-    if problems == 0:
-        print(f"OK {bundle} ({len(spec['files'])} files, src={kind})")
-        return 0
-    return 1
-
-
 def _lt(a: str, b: str) -> bool:
     """semver-ish 比较(仅数字段);非数字 → False(不报警)。"""
     def parts(v):
@@ -293,13 +245,11 @@ def source_path(name: str, explicit_root: str = "") -> str:
 def main() -> int:
     ap = argparse.ArgumentParser(description="aimail 运行时捆绑安装/校验")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("install", "check"):
-        p = sub.add_parser(name)
-        p.add_argument("bundle", choices=sorted(BUNDLES))
-        p.add_argument("--dest", default="")
-        p.add_argument("--source-root", default="")
-        if name == "install":
-            p.add_argument("--force", action="store_true")
+    p = sub.add_parser("install")
+    p.add_argument("bundle", choices=sorted(BUNDLES))
+    p.add_argument("--dest", default="")
+    p.add_argument("--source-root", default="")
+    p.add_argument("--force", action="store_true")
     sub.add_parser("source")
     p_res = sub.add_parser("resource")
     p_res.add_argument("name", choices=["skills", "board-role", "board-role-zh", "board-soul", "board-soul-zh"])
@@ -313,9 +263,7 @@ def main() -> int:
     if args.cmd == "resource":
         print(source_path(args.name, args.source_root))
         return 0
-    if args.cmd == "install":
-        return install(args.bundle, args.dest, args.source_root, args.force)
-    return check(args.bundle, args.dest, args.source_root)
+    return install(args.bundle, args.dest, args.source_root, args.force)
 
 
 if __name__ == "__main__":

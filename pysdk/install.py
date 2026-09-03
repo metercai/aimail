@@ -85,11 +85,11 @@ def env_check_hermes(hermes_dir: str) -> int:
             print(f"[env-check] ✗ {p}")
         print(f"[env-check] ✗ {hint}")
         return 1
-    # 配置绑定:系统目录/指针是否已由 CLI 建立
-    ptr = os.path.join(os.path.expanduser("~"), ".hermes", ".agentmail")
+    # 配置绑定:系统目录/指针是否已由 CLI 建立(--home 参数化,AUDIT-1 P2-1)
+    ptr = os.path.join(hermes_dir, ".agentmail")
     if not os.path.isfile(ptr):
         problems.append(
-            "未找到绑定配置 ~/.hermes/.agentmail\n"
+            f"未找到绑定配置 {hermes_dir}/.agentmail\n"
             f"  先运行: aimail install --home {hermes_dir}(激活并绑定)")
     for p in problems:
         print(f"[env-check] ✗ {p}")
@@ -155,24 +155,30 @@ def install_hermes(hermes_dir: str, system_id: str = "") -> int:
         changed = pt.patch_toolsets(ha)
         print(f"  hermes toolsets: {'registered' if changed else 'already registered'}")
     except Exception as e:  # noqa: BLE001
-        print(f"  toolsets patch skipped: {e}")
+        print(f"  ✗ toolsets patch failed: {e}")
+        rc = 1
 
-    # profile 注册(读 env:HERMES_DIR/SYSTEM_ID/HERMES_PROFILES_DIR)——直接
+    # profile 注册(读 env:HERMES_HOME/SYSTEM_ID/HERMES_PROFILES_DIR)——直接
     # 函数调用(Rust CLI 终态走 spawn python -m aimail.install register-profiles,
     # 同 env 契约;repo 形态无 aimail 包名,不能 spawn)
     try:
         rp = _import_hermes("register_profiles")
-        _old_env = dict(os.environ)
-        os.environ["HERMES_DIR"] = hermes_dir
+        saved = {k: os.environ.get(k) for k in ("HERMES_HOME", "HERMES_PROFILES_DIR", "SYSTEM_ID")}
+        os.environ["HERMES_HOME"] = hermes_dir
+        os.environ["HERMES_PROFILES_DIR"] = os.path.join(hermes_dir, "profiles")
         if system_id:
             os.environ["SYSTEM_ID"] = system_id
         try:
             rp.register_emails()
         finally:
-            os.environ.clear()
-            os.environ.update(_old_env)
+            for k, v in saved.items():  # restore only the keys we touched
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
     except Exception as e:  # noqa: BLE001
-        print(f"  register profiles failed: {e}")
+        print(f"  ✗ register profiles failed: {e}")
+        rc = 1
 
     # board 资源展开(幂等;覆盖全部已有 system 目录)
     rel = release_all_systems(os.path.join(_CORE, "resources", "board"))
@@ -198,7 +204,7 @@ def _release_hermes_skills(hermes_dir: str) -> int:
                     if os.path.isdir(os.path.join(profiles_root, d))]
     n = 0
     for prof in targets:
-        dst_dir = os.path.join(prof, "skills", "aimail")
+        dst_dir = os.path.join(prof, "skills", "agentmail")
         for fname in ("SKILL.md", "DESCRIPTION.md"):
             src = os.path.join(skills_src, fname)
             if not os.path.isfile(src):
@@ -264,7 +270,8 @@ def uninstall_hermes(hermes_dir: str, system_id: str = "") -> int:
             out = subprocess.check_output(
                 ["git", "-C", str(ha), "status", "--short"], text=True, timeout=10)
             modified = [l[3:].strip() for l in out.splitlines() if l.startswith(" M")]
-            allowed = {"gateway/platforms/webhook.py", "toolsets.py", "hermes_cli/profiles.py"}
+            allowed = {"gateway/platforms/webhook.py", "toolsets.py",
+                       "hermes_cli/profiles.py", "cli/profiles.py"}
             if all(m in allowed for m in modified):
                 for f in modified:
                     subprocess.call(["git", "-C", str(ha), "checkout", "--", f])
@@ -281,9 +288,14 @@ def uninstall_hermes(hermes_dir: str, system_id: str = "") -> int:
             pt = _import_hermes("toolsets")
         except Exception:  # noqa: BLE001
             pt = None
+        # 与 install 的路径探测同一逻辑:profiles.py 可能在 hermes_cli/ 或 cli/(AUDIT-1 P2-3)
+        profiles_rel = "hermes_cli/profiles.py"
+        alt = os.path.join(ha, "cli", "profiles.py")
+        if not os.path.exists(os.path.join(ha, profiles_rel)) and os.path.exists(alt):
+            profiles_rel = "cli/profiles.py"
         for rel, fn in (
             ("gateway/platforms/webhook.py", pw.unpatch_webhook),
-            ("hermes_cli/profiles.py", pp.unpatch_profiles),
+            (profiles_rel, pp.unpatch_profiles),
         ):
             fp = os.path.join(ha, rel)
             if os.path.exists(fp):
@@ -314,9 +326,9 @@ def uninstall_hermes(hermes_dir: str, system_id: str = "") -> int:
 def uninstall_deerflow(backend_dir: str) -> int:
     md = _import_deerflow("manage")
     rc = 0
+    # 先还原 app.py(否则删 bundle 后宿主重启 import 失败——AUDIT-1 P1-4)
     try:
-        changed = md.unpatch_backend_app(backend_dir) if hasattr(md, "unpatch_backend_app") else False
-        print(f"  deerflow app.py unpatch: {changed}")
+        md.unpatch_backend_app(backend_dir)
     except Exception as e:  # noqa: BLE001
         print(f"  ✗ app.py unpatch failed: {e}")
         rc = 1
@@ -324,7 +336,8 @@ def uninstall_deerflow(backend_dir: str) -> int:
     if os.path.isdir(bundle_dir):
         shutil.rmtree(bundle_dir, ignore_errors=True)
         print(f"  ✓ removed bundle {bundle_dir}")
-    print("  deerflow uninstall done")
+    if rc == 0:
+        print("  deerflow uninstall done")
     return rc
 
 

@@ -84,7 +84,7 @@ def _deerflow_profile_dir() -> Optional[str]:
     """profile 目录: 当前 system 目录(system_id 解析同 OpenClaw 指针)。"""
     sid = os.environ.get("AIMAIL_SYSTEM_ID", "")
     if sid:
-        return str(Path.home() / ".aimail" / "systems" / sid)
+        return str(Path(_ab.aimail_home()) / "systems" / sid)
     return None
 
 
@@ -108,7 +108,7 @@ def load_agent_config_for_key(system_id: str = "") -> Optional[dict]:
     """读取当前 system 的 gateway 配置(agentmail_gateway.json)。"""
     try:
         sid = system_id or os.environ.get("AIMAIL_SYSTEM_ID", "")
-        path = Path.home() / ".aimail" / "systems" / sid / "agentmail_gateway.json"
+        path = Path(_ab.aimail_home()) / "systems" / sid / "agentmail_gateway.json"
         if path.is_file():
             return json.loads(path.read_text())
     except Exception:
@@ -127,7 +127,7 @@ def detect_system_id() -> str:
     if sid:
         return sid
     for ptr in (Path.home() / ".deer-flow" / ".agentmail",
-                Path.home() / ".aimail" / ".agentmail"):
+                Path(_ab.aimail_home()) / ".agentmail"):
         d = _ab._read_pointer(ptr)
         if d.get("system_id"):
             return d["system_id"]
@@ -137,7 +137,7 @@ def detect_system_id() -> str:
 def load_agents_registry(system_id: str) -> dict:
     """扫描地址键 agentmail.json,重建 {email → agent_id} 路由映射(共享布局)。"""
     registry = {}
-    sys_dir = Path.home() / ".aimail" / "systems" / system_id
+    sys_dir = Path(_ab.aimail_home()) / "systems" / system_id
     if sys_dir.is_dir():
         for addr_dir in sorted(sys_dir.iterdir()):
             aj = addr_dir / "agentmail.json"

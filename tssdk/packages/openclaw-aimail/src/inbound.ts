@@ -39,10 +39,12 @@ function readBody(req: IncomingMessage): Promise<Buffer> {
 
 /**
  * Deliver an enriched inbound payload to the owning agent's session via the
- * gateway's internal /hooks/agent endpoint (loopback + hook token; fixed
- * sessionKey so all mail converges on one agent session; deliver:false —
- * the agent replies via send_mail). subagent.run/chat.send were tried first
- * historically but require operator.write scope the plugin does not have.
+ * gateway's internal /hooks/agent endpoint (loopback + hook token).
+ * sessionKey = `agent:{cfg.agent_id}:hook:aimail` — routed to the bound
+ * agent's session (multi-address: each registered agent gets its own
+ * sessionKey; deliver:false — the agent replies via send_mail).
+ * subagent.run/chat.send were tried first historically but require
+ * operator.write scope the plugin does not have.
  */
 async function deliverToAgent(
   api: OpenClawPluginApi,
@@ -50,16 +52,17 @@ async function deliverToAgent(
 ): Promise<{ status: string; detail: string }> {
   void api
   const hooksToken = readHooksToken()
-  const r = await fetch('http://127.0.0.1:18789/hooks/agent', {
+  const agentId = opts.agentId || 'main'
+  const r = await fetch(`http://127.0.0.1:${readGatewayPort()}/hooks/agent`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...(hooksToken ? { Authorization: `Bearer ${hooksToken}` } : {}),
+      ...(hooksToken ? { Authorization: 'Bearer ' + hooksToken } : {}),
     },
     body: JSON.stringify({
       message: opts.message,
       name: 'aimail',
-      sessionKey: 'agent:main:hook:amail',
+      sessionKey: `agent:${agentId}:hook:aimail`,
       deliver: false,
     }),
   })
@@ -67,6 +70,20 @@ async function deliverToAgent(
     return { status: 'dispatch_failed', detail: `hooks/agent HTTP ${r.status}` }
   }
   return { status: 'delivered', detail: 'hooks/agent accepted' }
+}
+
+function readGatewayPort(): number {
+  try {
+    const home = process.env.HOME ?? process.env.USERPROFILE ?? ''
+    const cfgPath = path.join(home, '.openclaw', 'openclaw.json')
+    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8')) as {
+      gateway?: { port?: number }
+    }
+    const port = Number(cfg.gateway?.port)
+    return Number.isInteger(port) && port > 0 ? port : 18789
+  } catch {
+    return 18789
+  }
 }
 
 function readHooksToken(): string {

@@ -18,7 +18,7 @@ import os
 import subprocess
 import sys
 
-_SCRIPTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + "/scripts"
+_SCRIPTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 from runtime_core import load_core, load_adapter  # noqa: E402

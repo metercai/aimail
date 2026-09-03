@@ -225,6 +225,7 @@ def _save_gateway_config(
     gateway_path.parent.mkdir(parents=True, exist_ok=True)
     with open(gateway_path, "w") as f:
         json.dump(cfg, f, indent=2)
+    os.chmod(gateway_path, 0o600)  # contains admin_key — user-only
 
 
 # ═══════════════════════════════════════════════════════════════

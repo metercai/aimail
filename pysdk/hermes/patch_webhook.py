@@ -130,6 +130,75 @@ def _auto_detect_anchors(lines: list) -> dict:
 
 
 
+# ── 插入文本单真源(canonical insertion blocks)──────────────────────
+# patch_webhook() 与 unpatch_webhook() 共用同一批常量 → unpatch 剥离的
+# 字节 == patch 实际插入的字节(逐字节对称,杜绝漂移)。unpatch 先剥离
+# Hermes adapter import(patch 7 插在 registry 块尾部空行中间,必须先移除
+# 才恢复 registry 块连续),再剥离其余块。
+WEBHOOK_REGISTRY_BLOCK = """
+
+# ═══════════════════════════════════════════════════════════════
+# Preprocess Registry — allows tools modules to register payload
+# preprocessors that run before prompt rendering (AmailGateway)
+# ═══════════════════════════════════════════════════════════════
+
+PREPROCESS_REGISTRY: Dict[str, Callable] = {}
+
+
+def register_preprocessor(name: str, fn: Callable) -> None:
+    \"\"\"Register a payload preprocessor function.
+
+    Preprocessors receive (payload: dict, headers: dict) and return
+    the (possibly modified) payload dict. Called before prompt
+    rendering so the Agent sees preprocessed data.
+    \"\"\"
+    PREPROCESS_REGISTRY[name] = fn
+
+"""
+WEBHOOK_CALL_BLOCK = '''
+        # ── Preprocess payload (AmailGateway integration) ──────────
+        preprocess_name = route_config.get("preprocess")
+        if preprocess_name:
+            preprocessor = PREPROCESS_REGISTRY.get(preprocess_name)
+            if preprocessor:
+                try:
+                    _pre = preprocessor(payload, dict(request.headers))
+                except Exception as e:
+                    logger.error(
+                        "[webhook] preprocessor '%s' failed: %s",
+                        preprocess_name, e
+                    )
+                    _pre = payload
+                if _pre is None:
+                    # Preprocessor swallowed the event (ping/pong
+                    # interception in shared core) — respond ignored,
+                    # do NOT continue rendering/agent run.
+                    return web.json_response({"status": "ignored", "reason": "preprocess"})
+                payload = _pre
+
+'''
+WEBHOOK_A2A_BLOCK = '''        # ── a2a_board: consume preprocessor prompt fields ──
+        _wp = payload.get("_whoami_prompt")
+        if _wp:
+            prompt = prompt + "\\n\\n---\\n" + _wp
+        _rp = payload.get("_role_prompt")
+        if _rp:
+            prompt = prompt + "\\n\\n---\\n" + _rp
+        _sk = payload.get("_a2a_session_key")
+        if _sk:
+            session_chat_id = f"webhook:{route_name}:{_sk}"
+
+'''
+WEBHOOK_ADAPTER_BLOCK = '''
+# ── AmailGateway Hermes adapter (shared core injection + registration) ──
+try:
+    from aimail.hermes import aimail_hermes  # noqa: F401
+except Exception:
+    pass
+
+'''
+
+
 def patch_webhook(target_path: str) -> bool:
     """Apply all 7 amail sub-patches to a Hermes webhook.py file.
 
@@ -169,26 +238,7 @@ def patch_webhook(target_path: str) -> bool:
         '',
         content, count=1, flags=re.DOTALL
     )
-    registry = """
-
-# ═══════════════════════════════════════════════════════════════
-# Preprocess Registry — allows tools modules to register payload
-# preprocessors that run before prompt rendering (AmailGateway)
-# ═══════════════════════════════════════════════════════════════
-
-PREPROCESS_REGISTRY: Dict[str, Callable] = {}
-
-
-def register_preprocessor(name: str, fn: Callable) -> None:
-    \"\"\"Register a payload preprocessor function.
-
-    Preprocessors receive (payload: dict, headers: dict) and return
-    the (possibly modified) payload dict. Called before prompt
-    rendering so the Agent sees preprocessed data.
-    \"\"\"
-    PREPROCESS_REGISTRY[name] = fn
-
-"""
+    registry = WEBHOOK_REGISTRY_BLOCK
 
     # Insert after logger = logging.getLogger(__name__)
     logger_marker = "logger = logging.getLogger(__name__)"
@@ -210,28 +260,7 @@ def register_preprocessor(name: str, fn: Callable) -> None:
         before = content[:content.index(old_start)]
         after  = content[content.index(old_end):]
         content = before + after
-    call_block = '''
-        # ── Preprocess payload (AmailGateway integration) ──────────
-        preprocess_name = route_config.get("preprocess")
-        if preprocess_name:
-            preprocessor = PREPROCESS_REGISTRY.get(preprocess_name)
-            if preprocessor:
-                try:
-                    _pre = preprocessor(payload, dict(request.headers))
-                except Exception as e:
-                    logger.error(
-                        "[webhook] preprocessor '%s' failed: %s",
-                        preprocess_name, e
-                    )
-                    _pre = payload
-                if _pre is None:
-                    # Preprocessor swallowed the event (ping/pong
-                    # interception in shared core) — respond ignored,
-                    # do NOT continue rendering/agent run.
-                    return web.json_response({"status": "ignored", "reason": "preprocess"})
-                payload = _pre
-
-'''
+    call_block = WEBHOOK_CALL_BLOCK
     # Insert before "# Format prompt from template"
     # NOTE: must NOT reuse the module-level `target` variable (holds the
     # webhook.py path from sys.argv[1]) — assigning it here silently
@@ -318,18 +347,7 @@ def register_preprocessor(name: str, fn: Callable) -> None:
         _p6_end = content.index('\n\n        # Store delivery info', _p6_start)
         content = content[:_p6_start] + content[_p6_end:]
 
-    _p6_block = '''        # ── a2a_board: consume preprocessor prompt fields ──
-        _wp = payload.get("_whoami_prompt")
-        if _wp:
-            prompt = prompt + "\\n\\n---\\n" + _wp
-        _rp = payload.get("_role_prompt")
-        if _rp:
-            prompt = prompt + "\\n\\n---\\n" + _rp
-        _sk = payload.get("_a2a_session_key")
-        if _sk:
-            session_chat_id = f"webhook:{route_name}:{_sk}"
-
-'''
+    _p6_block = WEBHOOK_A2A_BLOCK
 
     # Insert after session_chat_id assignment
     _p6_target = 'session_chat_id = f"webhook:{route_name}:{delivery_id}"'
@@ -360,14 +378,7 @@ def register_preprocessor(name: str, fn: Callable) -> None:
         patched = True
         print(f"Patch 7: removed {_n7} old adapter import block(s)", file=sys.stderr)
 
-    _p7_block = '''
-# ── AmailGateway Hermes adapter (shared core injection + registration) ──
-try:
-    from aimail.hermes import aimail_hermes  # noqa: F401
-except Exception:
-    pass
-
-'''
+    _p7_block = WEBHOOK_ADAPTER_BLOCK
     if "from aimail.hermes import aimail_hermes" not in content:
         # Insert after the PREPROCESS_REGISTRY definition block (after register_preprocessor)
         _p7_target = "PREPROCESS_REGISTRY[name] = fn"
@@ -551,12 +562,29 @@ def unpatch_webhook(fp: Path) -> int:
     original = text
     changes = 0
 
+    # 1) Canonical blocks — byte-identical to what patch_webhook() inserts
+    #    today (patch 与 unpatch 共用同一批常量,见 WEBHOOK_*_BLOCK 定义)。
+    #    顺序敏感:patch 7 的 Hermes-adapter import 是拼在 patch 2 registry 块
+    #    尾部空行中间的(registry 尾部 `fn\n\n` 被拆开),必须先把 adapter 块
+    #    剥离掉 registry 块才恢复连续、才能被整块匹配。
     for name, block in [
-        ("PREPROCESS_REGISTRY",        WEBHOOK_BLOCK1),
-        ("preprocessor invocation",    WEBHOOK_BLOCK2),
-        ("a2a_board prompt fields",    WEBHOOK_BLOCK3),
-        ("ping-pong interception",     WEBHOOK_BLOCK4),
-        ("_log_ping_event",            WEBHOOK_BLOCK5),
+        ("Hermes adapter import",    WEBHOOK_ADAPTER_BLOCK),
+        ("PREPROCESS_REGISTRY",      WEBHOOK_REGISTRY_BLOCK),
+        ("preprocessor invocation",  WEBHOOK_CALL_BLOCK + "        "),
+        ("a2a_board prompt fields",  WEBHOOK_A2A_BLOCK),
+    ]:
+        text, ok = strip_block(text, block)
+        if ok:
+            changes += 1
+
+    # 2) Legacy blocks(旧版 pysdk/cli 注入的字节形态;现代 patch 不再插入,
+    #    仅用于清理仍带旧补丁的宿主)— best effort,无匹配即 no-op。
+    for name, block in [
+        ("legacy PREPROCESS_REGISTRY",   WEBHOOK_BLOCK1),
+        ("legacy preprocessor call",     WEBHOOK_BLOCK2),
+        ("legacy a2a_board fields",      WEBHOOK_BLOCK3),
+        ("ping-pong interception",       WEBHOOK_BLOCK4),
+        ("_log_ping_event",              WEBHOOK_BLOCK5),
     ]:
         text, ok = strip_block(text, block)
         if ok:

@@ -35,10 +35,12 @@ except ImportError:
     import ensure_config  # noqa: E402,F401
 
 def load_gateway_config():
-    # Use SYSTEM_ID env var to locate config directly
+    # Use SYSTEM_ID env var to locate config directly (home via
+    # aimail_base.aimail_home() — AIMAIL_HOME aware)
+    import aimail_base  # noqa: E402  (自举已把 core 目录加 sys.path)
     sid = os.environ.get("SYSTEM_ID", "")
     if sid:
-        sub = os.path.join(os.path.expanduser("~/.aimail/systems"), sid, "agentmail_gateway.json")
+        sub = os.path.join(aimail_base.aimail_home(), sid, "agentmail_gateway.json")
         if os.path.isfile(sub):
             try:
                 with open(sub) as f:

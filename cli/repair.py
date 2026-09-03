@@ -12,6 +12,7 @@
 import json
 import subprocess
 import sys
+import re  # noqa: E402
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -162,7 +163,9 @@ def _repair_webhook_pairing(sid: str, deep: bool = False) -> bool:
     _warn(f"需修复 {len(empties)} 个配对目标(证据={bool([x for x in empties if x[0]]) or deep})")
     fixed = 0
     for _id, email in empties:
-        aj = SYSTEMS_DIR / sid / str(email).replace("@", "_at_").replace(".", "_") / "agentmail.json"
+        # 目录键公式与全局约定一致(non [\w.-] → '_';含点地址 agent.x@dom → agent.x_dom)
+        _key = re.sub(r"[^\w.\-]", "_", str(email))
+        aj = SYSTEMS_DIR / sid / _key / "agentmail.json"
         if not aj.is_file():
             # 宽松匹配:按目录名前缀找
             cands = [d for d in (SYSTEMS_DIR / sid).glob("*/agentmail.json")

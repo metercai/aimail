@@ -172,32 +172,23 @@ def patch_profiles(target_path: str) -> bool:
     _original_lines = list(lines)
     patched = False
 
-    hook_created = '''
-    # ── Fire integration hooks (AmailGateway) ──
-    try:
-        from aimail.aimail_base import trigger_profile_hooks
-        trigger_profile_hooks("profile_created", canon, str(profile_dir))
-    except ImportError:
-        pass  # aimail (pip) not installed
-'''
-
-    hook_deleted = '''            # ── Fire integration hooks (AmailGateway) ──
-            try:
-                from aimail.aimail_base import trigger_profile_hooks
-                trigger_profile_hooks("profile_deleted", canon, str(profile_dir))
-            except ImportError:
-                pass  # aimail (pip) not installed
-'''
+    # 插入文本统一引用模块级单真源常量(PROFILES_HOOK / PROFILES_HOOK_DEL,
+    # 见文件尾部定义)——unpatch_profiles() 剥离的字节与这里插入的字节
+    # 逐字节同源,杜绝 patch↔unpatch 漂移。
+    hook_created = PROFILES_HOOK        # profile_created 完整插入字节
+    hook_deleted = PROFILES_HOOK_DEL    # profile_deleted 完整插入字节
 
     # ── Patch 1: profile creation hook (always replace) ───────────
-    # Remove old instance if present(兼容 tools.aimail_base 旧名与 pip 新名;
-    # created/deleted 两实例基础缩进不同(4/12 空格)→ 各行缩进 [ \t]* 不校验)
+    # Remove old instance if present(兼容旧形:aimail_base 直 import + 裸调用;
+    # 新形:aimail.hermes 限定调用。created/deleted 两实例基础缩进不同
+    # (4/12 空格)→ 各行缩进 [ \t]* 不校验;import 行 [^\n]* 通配两种形态,
+    # 调用行 [A-Za-z_][\w.]*\.? 前缀通配裸函数与 aimail_hermes. 限定)
     content = re.sub(
         r'[ \t]*# ── Fire integration hooks \(AmailGateway\) ──\n'
         r'[ \t]*try:\n'
-        r'[ \t]*from [^\n]*import trigger_profile_hooks\n'
-        r'[ \t]*trigger_profile_hooks\("profile_created".*?'
-        r'[ \t]*except ImportError:\n'
+        r'[ \t]*from [^\n]*\n'
+        r'[ \t]*(?:[A-Za-z_][\w.]*\.)?trigger_profile_hooks\("profile_created".*?'
+        r'[ \t]*except (?:ImportError|Exception):\n'
         r'[ \t]*pass[^\n]*\n',
         '',
         content, count=1, flags=re.DOTALL
@@ -208,7 +199,7 @@ def patch_profiles(target_path: str) -> bool:
         rest = content[content.index(marker):]
         m = re.search(r'\n(    return profile_dir)\n', rest)
         if m:
-            insertion = rest[:m.start(1)] + hook_created + '\n' + rest[m.start(1):]
+            insertion = rest[:m.start(1)] + hook_created + rest[m.start(1):]
             content = content[:content.index(marker)] + insertion
             patched = True
             print("Patch 1: profile_created hook added/updated", file=sys.stderr)
@@ -218,14 +209,13 @@ def patch_profiles(target_path: str) -> bool:
         print("WARNING: could not find insertion point — patch 1 skipped", file=sys.stderr)
 
     # ── Patch 2: profile deletion hook (always replace) ───────────
-    # Remove old instance if present(兼容 tools.aimail_base 旧名与 pip 新名;
-    # deleted 实例基础缩进 12 空格 → 各行缩进 [ \t]* 不校验;按 profile_deleted 锚定)
+    # Remove old instance if present(同 Patch 1:兼容新旧两种 import/调用形态)
     content = re.sub(
         r'[ \t]*# ── Fire integration hooks \(AmailGateway\) ──\n'
         r'[ \t]*try:\n'
-        r'[ \t]*from [^\n]*import trigger_profile_hooks\n'
-        r'[ \t]*trigger_profile_hooks\("profile_deleted".*?'
-        r'[ \t]*except ImportError:\n'
+        r'[ \t]*from [^\n]*\n'
+        r'[ \t]*(?:[A-Za-z_][\w.]*\.)?trigger_profile_hooks\("profile_deleted".*?'
+        r'[ \t]*except (?:ImportError|Exception):\n'
         r'[ \t]*pass[^\n]*\n',
         '',
         content, count=1, flags=re.DOTALL

@@ -6,7 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 RUNTIME_BUNDLE="$SCRIPT_DIR/../runtime_bundle.py"
-DST_DIR="${OPENCLAW_SKILLS_DIR:-$HOME/.openclaw/skills}/aimail"
+DST_DIR="${OPENCLAW_SKILLS_DIR:-$HOME/.openclaw/skills}/agentmail"
 
 SRC_SKILL="$(python3 "$RUNTIME_BUNDLE" resource skills)/SKILL.md"
 [ -f "$SRC_SKILL" ] || { echo "ERROR: SKILL.md 源未找到(aimail 包未装且仓库 skills/ 缺失)"; exit 1; }

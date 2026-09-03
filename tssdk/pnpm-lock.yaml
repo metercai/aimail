@@ -46,7 +46,11 @@ importers:
         specifier: workspace:^
         version: link:../mail-core
 
-  packages/mail-core: {}
+  packages/mail-core:
+    dependencies:
+      typebox:
+        specifier: ^1.3.6
+        version: 1.3.6
 
   packages/openclaw-aimail:
     dependencies:

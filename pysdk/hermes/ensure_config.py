@@ -102,7 +102,7 @@ def ensure_profile_config(profile_dir: Path) -> list:
         if not wh_tools:
             wh_tools = list(WEBHOOK_TOOLSET)
         else:
-            wh_tools.append("aimail")
+            wh_tools.append("agentmail")
         pt["webhook"] = wh_tools
         cfg["platform_toolsets"] = pt
         changes.append(f"platform_toolsets.webhook -> {wh_tools}")

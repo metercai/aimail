@@ -227,6 +227,7 @@ function saveAgentConfig(
     fs.writeFile(
       p,
       JSON.stringify({ ...cfg, agent_id: agentId }, null, 2) + '\n',
+      { mode: 0o600 },
     ),
   )
 }
@@ -278,11 +279,12 @@ async function handleCommand(
       const { GatewayClient } = await import('@aimail/mail-core')
       const apiKey = gw.admin_key ?? ''
       const admin = new GatewayClient(gw.gateway_url ?? '', apiKey, 30_000, systemId)
+      const webhookSecret = randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, '')
       const reg = await registerAgentEmail(admin, {
         systemId,
         email,
         webhookUrl: opts['webhook-url'] ?? '',
-        webhookSecret: randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, ''),
+        webhookSecret,
         managerAddress: opts.manager ?? gw.manager_address ?? '',
       })
       if (reg.api_key) {
@@ -297,7 +299,7 @@ async function handleCommand(
             manager_address: opts.manager ?? gw.manager_address ?? '',
             api_key: reg.api_key,
             webhook_url: opts['webhook-url'] ?? '',
-            webhook_secret: '',
+            webhook_secret: webhookSecret,
           },
           systemId,
         )
@@ -311,6 +313,7 @@ async function handleCommand(
         await fs.writeFile(
           ptrPath,
           JSON.stringify({ system_id: systemId, email }, null, 2) + '\n',
+          { mode: 0o600 },
         )
         return cmdText([
           `✓ registered ${email} (system ${systemId}, agent ${ctx.agentId ?? 'main'})`,

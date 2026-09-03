@@ -8,7 +8,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 RB="$SCRIPT_DIR/../runtime_bundle.py"
-BUNDLE_DIR="${AIMAIL_MCP_BUNDLE:-$HOME/.agentmail/mcp}"
+BUNDLE_DIR="${AIMAIL_MCP_BUNDLE:-${AIMAIL_HOME:-$HOME/.aimail}/mcp}"
 DEER_FLOW_HOME="${DEER_FLOW_HOME:-$HOME/deer-flow}"
 CFG="${DEER_FLOW_EXT_CFG:-$DEER_FLOW_HOME/extensions_config.json}"
 AGENT_ID="${AIMAIL_AGENT_ID:-default}"

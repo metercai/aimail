@@ -302,7 +302,7 @@ def _hermes_check_config(c: Check, agent: dict):
     ok = bool(email and api_key)
     c.add("agent", "name_apikey", ok,
           f"{name}: {email or 'no email'}" + (", api_key ✓" if api_key else ", api_key MISSING"),
-          "Run register_profiles.py to register the profile")
+          "Run: python -m aimail.install install --type hermes (SDK register)")
 
     # 3.2 webhook: profile config platforms.webhook + route secret
     wh_ok = False
@@ -317,8 +317,8 @@ def _hermes_check_config(c: Check, agent: dict):
           f"{name}: webhook " + ("enabled + secret ✓" if wh_ok else "MISSING (platforms.webhook)"),
           "Run: python -m aimail.install install --type hermes (SDK 补全配置)")
 
-    # 3.3 skill: profile skills/agentmail/
-    skill_dir = pd / "skills" / "aimail" if pd else None
+    # 3.3 skill: profile skills/agentmail/ (internal tool name = agentmail)
+    skill_dir = pd / "skills" / "agentmail" if pd else None
     skill_ok = bool(skill_dir and skill_dir.is_dir())
     c.add("agent", "skill", skill_ok,
           f"{name}: skills/agentmail " + ("✓" if skill_ok else "MISSING"),
@@ -339,7 +339,7 @@ def _hermes_check_config(c: Check, agent: dict):
         pass
     c.add("agent", "toolset", ts_ok,
           f"{name}: platform_toolsets " + ("含 aimail ✓" if ts_ok else "MISSING"),
-          "Run ensure_webhook_config.py")
+          "Run: python -m aimail.install install --type hermes (SDK webhook config)")
 
     # 3.5 register: 云端注册(api_key 存在 + webhook route 存在)
     route_ok = False
@@ -353,7 +353,7 @@ def _hermes_check_config(c: Check, agent: dict):
     reg_ok = bool(api_key and route_ok)
     c.add("agent", "register", reg_ok,
           f"{name}: " + ("registered ✓" if reg_ok else "api_key/route 不全"),
-          "Run register_profiles.py")
+          "Run: python -m aimail.install install --type hermes")
 
 
 def _hermes_check_hook(c: Check, agent: dict):
@@ -386,7 +386,7 @@ def _hermes_check_hook(c: Check, agent: dict):
                   f"POST {route_name} → {e.code} (route active, HMAC required)")
         elif e.code == 404:
             c.add("agent", "hook", False, f"POST {route_name} → 404 route missing",
-                  "Run register_profiles.py to create the route")
+                  "Run: aimail install (注册链重跑)或 python -m aimail.install")
         else:
             c.add("agent", "hook", False, f"POST {route_name} → HTTP {e.code}")
     except Exception as e:
@@ -479,7 +479,7 @@ def _openclaw_check_config(c: Check, agent: dict):
           "Re-run register_agent.py (persists webhook_secret)")
 
     # 3.3 skill: ~/.openclaw/skills/agentmail/
-    skill_ok = (Path.home() / ".openclaw" / "skills" / "aimail").is_dir()
+    skill_ok = (Path.home() / ".openclaw" / "skills" / "agentmail").is_dir()
     c.add("agent", "skill", skill_ok,
           f"{name}: skills/agentmail " + ("✓" if skill_ok else "MISSING"),
           "Run install-skill.sh")
@@ -763,14 +763,14 @@ def check_gateway(c: Check, sid: str = ""):
     if not cfg:
         c.add("gateway", "config", False,
               "agentmail_gateway.json not found",
-              "Run integrate.sh to configure aimail-gateway")
+              "Run: aimail init + aimail install (配置网关与系统)")
         return
 
     gw_url = cfg.get("gateway_url", "").rstrip("/")
     ak = cfg.get("admin_key", "")
     if not gw_url:
         c.add("gateway", "config", False,
-              "gateway_url is empty in config", "Re-run integrate.sh")
+              "gateway_url is empty in config", "Re-run: aimail install")
         return
 
     # 1.1 Health
@@ -802,7 +802,7 @@ def check_gateway(c: Check, sid: str = ""):
     if not ak:
         c.add("gateway", "api_key", False,
               "No admin_key configured",
-              "Run integrate.sh Step 2 to set admin_key")
+              "Run: aimail install --with-key (或 AIMAIL_ADMIN_KEY 激活)")
         return
     code, data = _json_req(f"{gw_url}/api/v1/whoami",
                            headers=_signed_get_headers(ak,
@@ -948,7 +948,7 @@ def _check_bridge_gateway_consistency(c: Check, td: dict, sid: str = ""):
     if mismatches:
         detail = "; ".join(mismatches)
         c.add("bridge", "config_consistency", False, detail,
-              "Re-run integrate.sh to synchronize configs")
+              "Re-run: aimail install (同步配置)")
     else:
         c.add("bridge", "config_consistency", True, "bridge ↔ gateway configs match")
 
@@ -1180,7 +1180,7 @@ def main():
     c = Check()
     c.verbose = verbose
     c.add("system", "id", bool(platform_sid),
-          platform_sid or "none found", "Run integrate.sh to activate a system")
+          platform_sid or "none found", "Run: aimail init + aimail install (激活系统)")
 
     # L1 gateway(通用,按 sid)
     check_gateway(c, platform_sid)

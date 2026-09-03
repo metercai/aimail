@@ -148,7 +148,7 @@ def save_agent_config(agent_id: str, cfg: dict, system_id: str) -> None:
     cfg = dict(cfg)
     cfg["agent_id"] = agent_id
     cleaned = re.sub(r"[^\w.\-]", "_", cfg["email"])
-    path = os.path.expanduser(f"~/.aimail/systems/{system_id}/{cleaned}/agentmail.json")
+    path = os.path.join(_base.aimail_home(), "systems", str(system_id), str(cleaned), "agentmail.json")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         json.dump(cfg, f, indent=2, ensure_ascii=False)
@@ -228,7 +228,7 @@ def register_agents(manager: str = "", system_id: str = "", agent: str = "") -> 
 def _local_agents(system_id: str) -> dict:
     """读本地 amail 注册表: {agent_id: cfg}。"""
     out = {}
-    base = os.path.expanduser(f"~/.aimail/systems/{system_id}")
+    base = os.path.join(_base.aimail_home(), "systems", str(system_id))
     if not os.path.isdir(base):
         return out
     for addr_dir in sorted(os.listdir(base)):
@@ -249,7 +249,7 @@ def _save_agent_config(agent_id: str, cfg: dict, system_id: str) -> None:
     cfg = dict(cfg)
     cfg["agent_id"] = agent_id
     cleaned = re.sub(r"[^\w.\-]", "_", cfg["email"])
-    path = os.path.expanduser(f"~/.aimail/systems/{system_id}/{cleaned}/agentmail.json")
+    path = os.path.join(_base.aimail_home(), "systems", str(system_id), str(cleaned), "agentmail.json")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         json.dump(cfg, f, indent=2, ensure_ascii=False)
@@ -338,22 +338,9 @@ def reconcile(system_id: str = "", manager: str = "", dry_run: bool = False) -> 
         else:
             print(f"  ⚠ {agent_id} → {email} no api_key (activation pending)")
 
-    # 3. 本地有而目录无 → 注销(当前仅 default,扩展后启用)
-    for agent_id in local:
-        if agent_id not in desired:
-            if dry_run:
-                print(f"  [dry] would deregister {agent_id}")
-                changes += 1
-                continue
-            email = local[agent_id].get("email", "")
-            result = _base.deregister_agent_email(client, system_id, email,
-                                                  local[agent_id].get("manager_address", ""))
-            cleaned = re.sub(r"[^\w.\-]", "_", email)
-            path = os.path.expanduser(f"~/.aimail/systems/{system_id}/{cleaned}/agentmail.json")
-            if os.path.isfile(path):
-                os.remove(path)
-            changes += 1
-            print(f"  ✓ deregistered {agent_id} ({email}): {json.dumps(result, ensure_ascii=False)}")
+    # 3. 注销:不再由 reconcile 承担(AUDIT-1 P2-4)——desired 目前只含
+    # "default"(目录扩展扫描留待后续),曾注册的非默认 agent 会被误注销。
+    # 废弃 agent 的清理走显式命令 deregister_agents(注销链公共核心,幂等)。
 
     if changes == 0:
         print("  no changes")
@@ -404,7 +391,7 @@ def deregister_agents(agent: str, manager: str = "", system_id: str = "") -> int
 
     # 清理本地 agentmail.json
     cleaned = re.sub(r"[^\w.\-]", "_", email)
-    path = os.path.expanduser(f"~/.aimail/systems/{system_id}/{cleaned}/agentmail.json")
+    path = os.path.join(_base.aimail_home(), "systems", str(system_id), str(cleaned), "agentmail.json")
     if os.path.isfile(path):
         os.remove(path)
         print(f"  ✓ removed {path}")
@@ -479,6 +466,27 @@ def patch_backend_app(backend_dir: str) -> bool:
         return True
     print("  ✓ app.py 已含 aimail_inbound(跳过)")
     return False
+
+
+def unpatch_backend_app(backend_dir: str) -> bool:
+    """Revert the app.py patch (AUDIT-1 P1-4): remove exactly the two lines
+    patch_backend_app inserts. Idempotent — no-op when already clean."""
+    g_dir, app_py = _gateway_layout(backend_dir)
+    if not os.path.isfile(app_py):
+        print("  ⚠ app.py not found (nothing to unpatch)")
+        return False
+    src = open(app_py, encoding="utf-8").read()
+    removed = False
+    for line in ("    aimail_inbound,\n", "    app.include_router(aimail_inbound.router)\n"):
+        if line in src:
+            src = src.replace(line, "", 1)
+            removed = True
+    if removed:
+        open(app_py, "w", encoding="utf-8").write(src)
+        print("  ✓ app.py unpatched (aimail_inbound import + include_router removed)")
+    else:
+        print("  ✓ app.py already clean (no aimail_inbound lines)")
+    return removed
 
 
 # ══════════════════════════════════════════════════════════════════════
