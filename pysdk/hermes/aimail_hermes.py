@@ -478,11 +478,12 @@ def _auto_register_email(name: str, profile_dir: str, config: dict) -> None:
             # 本地接收端点(进程内 preprocess 的 webhook 路由)
             local_webhook_url = f"http://127.0.0.1:{wh_port}/webhooks/aimail-inbound"
             # Ensure aimail-inbound route exists (idempotent)
-            # skills=["aimail"] so webhook sessions get the aimail skill
+            # skills=["agentmail"] so webhook sessions get the agentmail skill
             # (send_mail protocol); without it the agent cannot reply by email.
+            # 注:skills 列表 = Agent 内标识 agentmail(不是外部品牌 aimail)。
             _ensure_webhook_route(
                 "aimail-inbound", webhook_secret, profile_dir=profile_dir,
-                skills=["aimail"],
+                skills=["agentmail"],
             )
 
     # 注册参数三态(webhook_host):push=bridge 公网入口 / pull=空 / 无 bridge=本地端点

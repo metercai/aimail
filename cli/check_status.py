@@ -260,7 +260,7 @@ def _hermes_list_agents() -> list[dict]:
             except Exception:
                 pass
             if not email:
-                # 无指针:检查 config 是否有 aimail 痕迹
+                # 无指针:检查 config 是否有 agentmail 工具标记(内部标识)
                 cfg_p = pdir / "config.yaml"
                 if cfg_p.exists():
                     try:
@@ -268,8 +268,8 @@ def _hermes_list_agents() -> list[dict]:
                         pt = (yaml.safe_load(cfg_p.read_text()) or {}).get("platform_toolsets", {})
                         for seg in ("webhook", "cli"):
                             tools = pt.get(seg) or []
-                            if "aimail" in (tools if isinstance(tools, list) else []):
-                                email = "?"  # 有 aimail 工具标记,列入
+                            if "agentmail" in (tools if isinstance(tools, list) else []):
+                                email = "?"  # 有 agentmail 工具标记,列入
                                 break
                     except Exception:
                         pass
@@ -324,7 +324,8 @@ def _hermes_check_config(c: Check, agent: dict):
           f"{name}: skills/agentmail " + ("✓" if skill_ok else "MISSING"),
           "Run install-skill or copy skills/SKILL.md")
 
-    # 3.4 toolset: platform_toolsets.webhook/cli 含 aimail
+    # 3.4 toolset: platform_toolsets.webhook/cli 含 agentmail(内部标识,
+    # 2026-09-03 d6d035d ruling: 改名只动外部品牌 aimail,此处键不变)
     ts_ok = False
     try:
         import yaml
@@ -332,13 +333,13 @@ def _hermes_check_config(c: Check, agent: dict):
             pt = (yaml.safe_load(cfg.read_text()) or {}).get("platform_toolsets", {})
             for seg in ("webhook", "cli"):
                 tools = pt.get(seg) or []
-                if "aimail" in tools:
+                if "agentmail" in tools:
                     ts_ok = True
                     break
     except Exception:
         pass
     c.add("agent", "toolset", ts_ok,
-          f"{name}: platform_toolsets " + ("含 aimail ✓" if ts_ok else "MISSING"),
+          f"{name}: platform_toolsets " + ("含 agentmail ✓" if ts_ok else "MISSING"),
           "Run: python -m aimail.install install --type hermes (SDK webhook config)")
 
     # 3.5 register: 云端注册(api_key 存在 + webhook route 存在)

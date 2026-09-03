@@ -107,12 +107,33 @@ if [ "$SKIP_VERIFY" -eq 1 ]; then
 else
   say "6/6 verify"
   SID="${AIMAIL_SYSTEM_ID:-}"
-  [ -n "$SID" ] || SID="$(ls "$HOME/.aimail/systems" 2>/dev/null | head -1 || true)"
+  if [ -z "$SID" ]; then
+    # 优先 Hermes 平台指针(本脚本刷的是 hermes 宿主),其次其他平台指针,
+    # 兜底第一个含 agentmail_gateway.json 的系统目录。⚠ 不要 ls|head -1:
+    # systems/ 下可能有 default 这类无网关配置的 board 资源目录(曾误选,
+    # 导致 check/welcome 全 ✗ + welcome 无法发送)。
+    for ptr in "$HERMES_HOME/.agentmail" "$HERMES_HOME"/profiles/*/.agentmail \
+               "$HOME/.openclaw/.agentmail" "$HOME/.pi/.agentmail"; do
+      [ -f "$ptr" ] || continue
+      SID="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("system_id",""))' "$ptr" 2>/dev/null)"
+      [ -n "$SID" ] && break
+    done
+  fi
+  if [ -z "$SID" ]; then
+    for d in "$HOME"/.aimail/systems/*/; do
+      [ -d "$d" ] || continue
+      [ -f "${d}agentmail_gateway.json" ] || continue
+      SID="$(basename "$d")"
+      break
+    done
+  fi
   if [ -n "$SID" ]; then
-    python3 "$REPO/cli/aimail" check --system-id "$SID" || warn "aimail check reported issues"
+    # check 显式 --home:本机若同时存在 openclaw/pi 等平台,check 自动探测
+    # 会优先它们;这里验证的是 hermes 宿主更新,必须指到 hermes 平台
+    python3 "$REPO/cli/aimail" check --home "$HERMES_HOME" --system-id "$SID" || warn "aimail check reported issues"
     python3 "$REPO/cli/aimail" welcome --system-id "$SID" --no-wait || warn "welcome send failed"
   else
-    warn "no system dir found under ~/.aimail/systems — run: aimail check"
+    warn "no registered system found (no .agentmail pointer / no agentmail_gateway.json under ~/.aimail/systems) — run: aimail check"
   fi
 fi
 

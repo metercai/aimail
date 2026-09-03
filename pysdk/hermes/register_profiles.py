@@ -54,7 +54,7 @@ def register_emails():
         print("no_config")
         return
 
-    # 配置补全(幂等):platform_toolsets.webhook/cli 加 aimail +
+    # 配置补全(幂等):platform_toolsets.webhook/cli 加 agentmail(内部标识)+
     # platforms.webhook enabled。断链根因曾多次出现:安装链从未写这些
     # 配置,全靠手工补——缺 webhook 段 → webhook 会话无 send_mail
     # ("收得到回不出");缺 cli 段 → CLI 会话无邮件工具。路由

@@ -1233,28 +1233,31 @@ def _uninstall_hermes(system_home: Path, sid: str) -> None:
                         _ok(f"removed pointer {ptr}")
                 except Exception:
                     pass
-            sk = p / "skills" / "aimail"
+            sk = p / "skills" / "agentmail"  # 内部标识 = agentmail(d6d035d 裁定)
             if sk.is_dir():
                 shutil.rmtree(sk)
                 _ok(f"removed skill {sk}")
-            # config.yaml:platform_toolsets 移除 aimail 条目
+            # config.yaml:platform_toolsets 移除 agentmail 条目(兼容改名期误写 aimail)
             cfg = p / "config.yaml"
             if cfg.is_file():
                 try:
                     content = cfg.read_text()
-                    new = re.sub(r"^[ \t]*-[ \t]*aimail[ \t]*\r?$\n?", "", content, flags=re.M)
+                    new = re.sub(r"^[ \t]*-[ \t]*(?:aimail|agentmail)[ \t]*\r?$\n?", "", content, flags=re.M)
                     if new != content:
                         cfg.write_text(new)
                         _ok(f"config toolset cleaned {cfg}")
                 except Exception as e:
                     _warn(f"config.yaml clean failed: {e}")
-            # webhook 订阅路由
+            # webhook 订阅路由(路由名历次命名残留全清)
             subs = p / "webhook_subscriptions.json"
             if subs.is_file():
                 try:
                     data = json.loads(subs.read_text())
-                    if isinstance(data, dict) and "aimail-inbound" in data:
-                        del data["aimail-inbound"]
+                    removed = [rn for rn in ("aimail-inbound", "agentmail-inbound", "amail-inbound")
+                               if rn in (data if isinstance(data, dict) else {})]
+                    if removed:
+                        for rn in removed:
+                            del data[rn]
                         subs.write_text(json.dumps(data, indent=2, ensure_ascii=False))
                         _ok(f"webhook route removed {subs}")
                 except Exception as e:
