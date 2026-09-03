@@ -55,11 +55,13 @@ def _fail(msg):
 
 
 def _load_env() -> None:
-    """Load repo-root .env into os.environ (never overrides existing vars).
+    """Load machine-level + repo .env into os.environ (never overrides existing vars).
 
-    Priority: shell environment > .env > CLI default. .env stays git-ignored.
+    Priority: shell environment > ~/.aimail/.env (machine-level, authoritative
+    for bootstrapped installs) > repo .env (dev fallback) > CLI default.
     """
-    for candidate in (SCRIPTS_DIR.parent / ".env", SCRIPTS_DIR / ".env"):
+    home_env = HOME / ".aimail" / ".env"
+    for candidate in (home_env, SCRIPTS_DIR.parent / ".env", SCRIPTS_DIR / ".env"):
         if not candidate.is_file():
             continue
         try:
@@ -315,9 +317,51 @@ def _probe_local_gateway() -> str:
     return ""
 
 
+def cmd_version(args) -> int:
+    """版本信息(自举/升级检测用):aimail <ver>(<release>) [dev|bootstrapped]。
+    dev = 仓库内运行(repo .env 生效);bootstrapped = ~/.aimail/toolkit 安装树。
+    """
+    ver = "unknown"
+    try:
+        import tomllib
+        pj = SCRIPTS_DIR.parent / "pyproject.toml"
+        if pj.is_file():
+            ver = tomllib.loads(pj.read_text())["project"]["version"]
+    except Exception:
+        pass
+    mode = "bootstrapped" if str(SCRIPTS_DIR).startswith(str(HOME / ".aimail" / "toolkit")) else "dev"
+    print(f"aimail {ver} ({mode})")
+    return 0
+
+
 def cmd_init(args) -> int:
-    """机器级基础环境(一次):锁定网络结构——网关在哪、直连还是 bridge。
-    零系统可跑;激活(install)在其后进行。"""
+    """机器级基础环境(一次):主目录构建 → 磁盘研判 → 网络结构(网关/直连
+    or bridge)。零系统可跑;激活(install)在其后进行。"""
+    # 1) 主目录构建(幂等;700 仅本用户可读——含 admin key/secret)
+    try:
+        for sub in ("", "systems", "logs", "bridge"):
+            d = AIMAIL_HOME if not sub else AIMAIL_HOME / sub
+            d.mkdir(parents=True, exist_ok=True)
+            if sub == "":
+                os.chmod(d, 0o700)
+    except OSError as e:
+        _warn(f"主目录构建失败: {e}")
+    print(f"  init: 主目录 = {AIMAIL_HOME}")
+
+    # 2) 磁盘研判(评估:邮件快照/桥日志/系统配置,量级小;阈值防御性)
+    try:
+        st = os.statvfs(AIMAIL_HOME)
+        free_mib = (st.f_bavail * st.f_frsize) // (1024 * 1024)
+        if free_mib < 100:
+            _warn(f"磁盘可用空间不足: {free_mib} MiB(<100 MiB)——aimail 建议留足日志/快照空间")
+        elif free_mib < 1024:
+            _warn(f"磁盘可用空间偏低: {free_mib} MiB(<1 GiB)——留意日志/邮件快照增长")
+        else:
+            print(f"  init: 磁盘可用 = {free_mib} MiB(充足)")
+    except OSError as e:
+        _warn(f"磁盘研判失败: {e}")
+
+    # 3) 网络结构:网关在哪、直连 or bridge
     gw = args.gateway_url or _env_val("AIMAIL_URL") or _probe_local_gateway()
     if not gw:
         gw = "https://amail.token.tm"  # 默认远程网关
@@ -1425,6 +1469,9 @@ def main():
     p_dom.add_argument("--id", help="域名记录 id(默认自动生成)")
     p_dom.add_argument("--webhook-url", help="创建时指定的 webhook 接收 URL")
     p_dom.set_defaults(func=cmd_domain)
+
+    p_version = sub.add_parser("version", help="版本信息(自举/升级检测用)")
+    p_version.set_defaults(func=cmd_version)
 
     p_init = sub.add_parser("init", help="机器级基础环境(一次):锁定网关/直连或 bridge")
     p_init.add_argument("--gateway-url", default=None,

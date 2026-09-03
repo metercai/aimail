@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+# ═══════════════════════════════════════════════════════════════════
+# aimail bootstrap — one-shot install of the aimail CLI + machine init.
+#
+#   curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
+#
+# What it does (all writes confined to ~/.aimail and ~/.local/bin, no sudo):
+#   1. preflight: python3 >= 3.10, curl, tar, gzip
+#   2. build the machine main dir ~/.aimail (0700) — idempotent
+#   3. disk headroom check (<100 MiB fail, <1 GiB warn)
+#   4. fetch the aimail toolkit (codeload tarball; AIMAIL_VERSION to pin a
+#      tag, default main) into ~/.aimail/toolkit/aimail-src
+#   5. link ~/.local/bin/aimail → toolkit cli/aimail (PATH hint if needed)
+#   6. machine init: aimail init (gateway discovery / direct-vs-bridge /
+#      bridge skeleton) — reads AIMAIL_URL from ~/.aimail/.env when present
+#   7. next-step guidance (aimail install --home …  →  welcome)
+#
+# Re-running = upgrade (re-fetch toolkit) + init re-check.
+#   AIMAIL_SKIP_INSTALL=1   → only re-init an existing install
+#   AIMAIL_TOOLKIT_DIR=…    → custom toolkit dir (default ~/.aimail/toolkit)
+# ═══════════════════════════════════════════════════════════════════
+set -euo pipefail
+
+# Single authoritative layout: ~/.aimail (bridge/CLI share it; the local
+# bridge is a machine-level single instance, not per-home). Customize the
+# toolkit location only via AIMAIL_TOOLKIT_DIR.
+AM_HOME="$HOME/.aimail"
+TOOLKIT="${AIMAIL_TOOLKIT_DIR:-$AM_HOME/toolkit}"
+SRC="$TOOLKIT/aimail-src"
+BIN_DIR="$HOME/.local/bin"
+REF="${AIMAIL_VERSION:-main}"
+DL="https://codeload.github.com/metercai/aimail/tar.gz/refs/heads/$REF"
+
+say()  { printf '  %s\n' "$*"; }
+ok()   { printf '  \033[32m✓\033[0m %s\n' "$*"; }
+warn() { printf '  \033[33m⚠ %s\033[0m\n' "$*"; }
+die()  { printf '\033[31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
+
+# ── 1. preflight ───────────────────────────────────────────────────
+command -v python3 >/dev/null || die "python3 required (>= 3.10)"
+python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' \
+  || die "python3 >= 3.10 required (found $(python3 --version 2>&1 | awk '{print $2}'))"
+command -v curl >/dev/null || die "curl required"
+command -v tar  >/dev/null || die "tar required"
+
+# ── 2. main dir (0700 — holds admin keys/secrets) ──────────────────
+mkdir -p "$AM_HOME" "$AM_HOME/systems" "$AM_HOME/logs" "$AM_HOME/bridge"
+chmod 700 "$AM_HOME" 2>/dev/null || true
+ok "main dir $AM_HOME"
+
+# ── 3. disk headroom ───────────────────────────────────────────────
+FREE_MIB=$(( $(df -Pk "$AM_HOME" | awk 'NR==2 {print $4}') / 1024 ))
+if [ "$FREE_MIB" -lt 100 ]; then
+  die "insufficient free disk on $AM_HOME: ${FREE_MIB} MiB (< 100 MiB)"
+elif [ "$FREE_MIB" -lt 1024 ]; then
+  warn "low free disk on $AM_HOME: ${FREE_MIB} MiB — watch logs/mail snapshots"
+else
+  say "disk free: ${FREE_MIB} MiB"
+fi
+
+# ── 4. toolkit (upgrade = re-run; SKIP_INSTALL = re-init only) ─────
+if [ "${AIMAIL_SKIP_INSTALL:-0}" = "1" ]; then
+  [ -x "$SRC/cli/aimail" ] || die "AIMAIL_SKIP_INSTALL=1 but no toolkit at $SRC"
+  ok "toolkit present (skip-install)"
+else
+  TMP_TGZ="$(mktemp /tmp/aimail-bootstrap-XXXXXX.tar.gz)"
+  trap 'rm -f "$TMP_TGZ"' EXIT
+  say "fetching aimail@$REF …"
+  curl -fsSL "$DL" -o "$TMP_TGZ" || die "download failed: $DL"
+  mkdir -p "$TOOLKIT"
+  EXTRACTED="$(mktemp -d /tmp/aimail-x-XXXXXX)"
+  tar -xzf "$TMP_TGZ" -C "$EXTRACTED" || die "extract failed"
+  SRC_NEW="$EXTRACTED/aimail-$REF"
+  [ -d "$SRC_NEW" ] || SRC_NEW="$(find "$EXTRACTED" -maxdepth 1 -type d -name 'aimail-*' | head -1)"
+  [ -x "$SRC_NEW/cli/aimail" ] || die "toolkit tarball has no cli/aimail"
+  rm -rf "$SRC"                        # atomic-ish swap
+  mv "$SRC_NEW" "$SRC"
+  rm -rf "$EXTRACTED"
+  chmod +x "$SRC/cli/aimail"
+  ok "toolkit installed at $SRC (ref=$REF)"
+fi
+
+# ── 5. PATH entry ──────────────────────────────────────────────────
+mkdir -p "$BIN_DIR"
+ln -sf "$SRC/cli/aimail" "$BIN_DIR/aimail"
+ok "linked $BIN_DIR/aimail"
+case ":$PATH:" in
+  *":$BIN_DIR:"*) ;;
+  *) warn "add to PATH: export PATH=\"$BIN_DIR:\$PATH\"" ;;
+esac
+
+# ── 6. machine init (env from ~/.aimail/.env if present) ──────────
+if [ ! -f "$AM_HOME/.env" ]; then
+  warn "no $AM_HOME/.env yet — create it first for the real gateway:"
+  say "  cat > $AM_HOME/.env <<'EOF'"
+  say "  AIMAIL_URL=https://amail.token.tm"
+  say "  AIMAIL_MANAGER_ADDRESS=you@example.com   # 收 welcome 的人"
+  say "  EOF"
+  warn "running init with defaults (gateway probe / default amail.token.tm)"
+fi
+"$BIN_DIR/aimail" init || warn "init reported problems — see above"
+
+# ── 7. next steps ──────────────────────────────────────────────────
+echo
+ok "bootstrap done — aimail $(cd "$SRC" && git describe --tags 2>/dev/null || echo "$REF")"
+say "next:"
+say "  1. agent host first?  →  openclaw plugins install openclaw-aimail (host side)"
+say "  2. activate a system: →  aimail install --home <host-root>"
+say "     (fills ~/.aimail/.env: AIMAIL_ADMIN_KEY/AIMAIL_PRODUCT_CODE as needed)"
+say "  3. verify the loop:   →  aimail welcome"
+say "diagnose: aimail check · aimail stats"
