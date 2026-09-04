@@ -1576,108 +1576,124 @@ def cmd_uninstall(args) -> int:
 
 def main():
     _load_env()
-    ap = argparse.ArgumentParser(prog="aimail", description="aimail 维护工具")
-    sub = ap.add_subparsers(dest="command", required=True)
+    ap = argparse.ArgumentParser(
+        prog="aimail",
+        description="aimail CLI - integrate / operate / maintain the AgentMail link "
+                    "between your agent platform and the amail gateway.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+scenario groups:
+  setup      first-time machine prep and per-platform integration
+  operate    daily operations: status, health, renewal
+  diagnose   when something is wrong: inspect, test, repair
+  resources  system-scoped resources: domains, agent name mapping
+""")
+    sub = ap.add_subparsers(dest="command", required=True, metavar="<command>")
 
-    p_br = sub.add_parser("bridge", help="本机 bridge 维护(状态/重刷路由/重启)")
-    p_br.add_argument("--system-id", help="重刷该系统的转发路由")
-    p_br.add_argument("--home", help="系统 home(平台根),配合重刷")
-    p_br.add_argument("--restart", action="store_true", help="重启 bridge(单实例)")
-    p_br.set_defaults(func=cmd_bridge)
+    common_sid = {"help": "target system id (default: the only installed system)"}
+    common_home = {"help": "platform root dir (hermes=~/.hermes, openclaw=~/.openclaw, ...)"}
+    common_gw = {"help": "gateway URL (default: AIMAIL_URL env or agentmail_gateway.json)"}
+    common_mgr = {"help": "manager address (approvals contact); default: config/env"}
 
-    p_check = sub.add_parser("check", help="状态检查")
-    p_check.add_argument("--system-id")
-    p_check.add_argument("--home", help="系统 home(平台根)")
-    p_check.set_defaults(func=cmd_check)
-
-    p_dom = sub.add_parser("domain", help="查看/创建指定系统的域名")
-    p_dom.add_argument("--system-id")
-    p_dom.add_argument("--add", metavar="DOMAIN", help="创建域名(默认仅列出)")
-    p_dom.add_argument("--id", help="域名记录 id(默认自动生成)")
-    p_dom.add_argument("--webhook-url", help="创建时指定的 webhook 接收 URL")
-    p_dom.set_defaults(func=cmd_domain)
-
-    p_version = sub.add_parser("version", help="版本信息(自举/升级检测用)")
-    p_version.set_defaults(func=cmd_version)
-
-    p_init = sub.add_parser("init", help="机器级基础环境(一次):锁定网关/直连或 bridge")
-    p_init.add_argument("--gateway-url", default=None,
-                        help="网关地址(默认 AIMAIL_URL;本机 38080 可探测;否则 https://amail.token.tm)")
-    p_init.add_argument("--home", help="(兼容)忽略——init 是机器级,无平台 home")
+    # ── setup ──────────────────────────────────────────────────────
+    p_init = sub.add_parser("init", help="one-time machine setup: lock gateway URL, direct or bridge mode")
+    p_init.add_argument("-g", "--gateway-url", default=None, **common_gw)
     p_init.set_defaults(func=cmd_init)
 
-    p_install = sub.add_parser("install", help="安装(集成脚本到 check 前)")
-    p_install.add_argument("--home", help="系统 home(平台根:hermes=~/.hermes, openclaw=~/.openclaw)")
-    p_install.add_argument("--system-id")
-    p_install.add_argument("--product-code", help="激活码(新系统)")
-    p_install.add_argument("--admin-key", help="已激活系统的 admin key")
-    p_install.add_argument("--gateway-url", default=None, help="网关地址(默认 AIMAIL_URL 或 https://amail.token.tm)")
-    p_install.add_argument("--system-name")
-    p_install.add_argument("--manager")
-    p_install.add_argument("--domain", help="预置/创建域名(默认取 AIMAIL_DOMAIN)")
+    p_install = sub.add_parser("install", help="integrate an agent platform with an amail system (activate or reuse)")
+    p_install.add_argument("-H", "--home", **common_home)
+    p_install.add_argument("-s", "--system-id", **common_sid)
+    p_install.add_argument("-c", "--product-code", help="product activation code (new system path)")
+    p_install.add_argument("-k", "--admin-key", help="admin key of an already-activated system (reuse path)")
+    p_install.add_argument("-g", "--gateway-url", default=None, **common_gw)
+    p_install.add_argument("-n", "--system-name", help="system name (shared-domain identifier)")
+    p_install.add_argument("-m", "--manager", **common_mgr)
+    p_install.add_argument("-d", "--domain", help="domain to pre-create (default: AIMAIL_DOMAIN env)")
     p_install.set_defaults(func=cmd_install)
 
-    p_mn = sub.add_parser("mailname", help="查看/修改默认主 agent 名映射")
-    p_mn.add_argument("--system-id")
-    p_mn.add_argument("--default", help="新的默认主 agent 名")
-    p_mn.set_defaults(func=cmd_mailname)
-
-    p_ping = sub.add_parser("ping", help="ping-pong 闭环测试")
-    p_ping.add_argument("--system-id")
-    p_ping.add_argument("--manager")
-    p_ping.add_argument("--timeout", type=int, default=120)
-    p_ping.set_defaults(func=cmd_ping)
-
-    p_reset = sub.add_parser("reset", help="重置配置(admin-key 路径,不重激活)")
-    p_reset.add_argument("--home")
-    p_reset.add_argument("--system-id")
-    p_reset.add_argument("--gateway-url", default="")
-    p_reset.add_argument("--system-name")
-    p_reset.add_argument("--manager")
-    p_reset.set_defaults(func=cmd_reset)
-
-    p_renew = sub.add_parser("renew", help="系统续期(消耗产品激活码)或只读到期状态(--status)")
-    p_renew.add_argument("--system-id", help="目标系统(省略: 唯一系统自动选定,多系统报错列出)")
-    p_renew.add_argument("--code", help="产品激活码(省略则只读展示到期状态)")
-    p_renew.add_argument("--status", action="store_true", help="只读展示到期时间与配额(不消耗码)")
-    p_renew.add_argument("--gateway-url", default=None, help="网关地址(默认取 agentmail_gateway.json)")
-    p_renew.set_defaults(func=cmd_renew)
-
-    p_stats = sub.add_parser("stats", help="本机 aimail 对接状态(系统/agent/邮件统计)")
-    p_stats.add_argument("-a", "--all", action="store_true",
-                         help="全面视图:系统健康标注 + 断链系统 + 本机平台段")
-    p_stats.set_defaults(func=cmd_stats)
-
-    p_uni = sub.add_parser("uninstall", help="卸载:消除 aimail 在 agent 系统上的配置")
-    p_uni.add_argument("--system-id")
-    p_uni.add_argument("--home", help="系统 home(平台根)")
-    p_uni.add_argument("--yes", action="store_true", help="跳过确认")
+    p_uni = sub.add_parser("uninstall", help="remove aimail integration from the agent platform")
+    p_uni.add_argument("-s", "--system-id", **common_sid)
+    p_uni.add_argument("-H", "--home", **common_home)
+    p_uni.add_argument("-y", "--yes", action="store_true", help="skip confirmation prompt")
     p_uni.set_defaults(func=cmd_uninstall)
 
-    p_welcome = sub.add_parser("welcome", help="welcome 端到端测试")
-    p_welcome.add_argument("--system-id")
-    p_welcome.add_argument("--manager")
-    p_welcome.add_argument("--no-wait", action="store_true")
+    p_reset = sub.add_parser("reset", help="re-reset connection config for an activated system (no re-activation)")
+    p_reset.add_argument("-H", "--home", **common_home)
+    p_reset.add_argument("-s", "--system-id", **common_sid)
+    p_reset.add_argument("-g", "--gateway-url", default="", **common_gw)
+    p_reset.add_argument("-n", "--system-name")
+    p_reset.add_argument("-m", "--manager", **common_mgr)
+    p_reset.set_defaults(func=cmd_reset)
+
+    # ── operate ────────────────────────────────────────────────────
+    p_stats = sub.add_parser("stats", help="local integration status: systems, agents, mail stats")
+    p_stats.add_argument("-a", "--all", action="store_true",
+                         help="full view: per-system health tags + broken systems + local platforms")
+    p_stats.set_defaults(func=cmd_stats)
+
+    p_renew = sub.add_parser("renew", help="renew a system with a product code, or show expiry read-only")
+    p_renew.add_argument("-s", "--system-id", **common_sid)
+    p_renew.add_argument("-c", "--code", help="product activation code (omit for read-only expiry view)")
+    p_renew.add_argument("-t", "--status", action="store_true", help="read-only expiry & quota view (no code consumed)")
+    p_renew.add_argument("-g", "--gateway-url", default=None, **common_gw)
+    p_renew.set_defaults(func=cmd_renew)
+
+    p_version = sub.add_parser("version", help="show CLI/bootstrap version (upgrade detection)")
+    p_version.set_defaults(func=cmd_version)
+
+    # ── diagnose ───────────────────────────────────────────────────
+    p_check = sub.add_parser("check", help="full health exam: config files, runtime resources, delivery links")
+    p_check.add_argument("-s", "--system-id", **common_sid)
+    p_check.add_argument("-H", "--home", **common_home)
+    p_check.set_defaults(func=cmd_check)
+
+    p_repair = sub.add_parser("repair", help="auto-fix per check findings, then re-check (idempotent)")
+    p_repair.add_argument("-s", "--system-id", **common_sid)
+    p_repair.add_argument("-H", "--home", help="platform root (auto-resolved on single-platform machines)")
+    p_repair.add_argument("-D", "--deep", action="store_true",
+                          help="deep: rewrite webhook pairing from agentmail.json + drain stuck pending")
+    p_repair.add_argument("-n", "--dry-run", dest="dry_run", action="store_true",
+                          help="print the fix plan without executing")
+    p_repair.set_defaults(func=cmd_repair)
+
+    p_ping = sub.add_parser("ping", help="end-to-end ping-pong delivery test (manager <-> agent)")
+    p_ping.add_argument("-s", "--system-id", **common_sid)
+    p_ping.add_argument("-m", "--manager", **common_mgr)
+    p_ping.add_argument("-t", "--timeout", type=int, default=120, help="wait timeout seconds (default 120)")
+    p_ping.set_defaults(func=cmd_ping)
+
+    p_welcome = sub.add_parser("welcome", help="welcome-email end-to-end test (API mode by default)")
+    p_welcome.add_argument("-s", "--system-id", **common_sid)
+    p_welcome.add_argument("-m", "--manager", **common_mgr)
+    p_welcome.add_argument("-w", "--no-wait", action="store_true", help="do not wait for the draft reply")
     p_welcome.add_argument("--smtp", action="store_true",
-                           help="显式走旧 SMTP 模式(默认 API 模式, postman@ 发件)")
+                           help="legacy SMTP mode (default: API mode via postman@ sender)")
     p_welcome.set_defaults(func=cmd_welcome)
 
-    p_persona = sub.add_parser(
-        "persona",
-        help="角色管理闭环:替 manager 发 'update persona' 邮件,agent 归纳 draft 后回复")
-    p_persona.add_argument("--system-id")
-    p_persona.add_argument("--manager")
-    p_persona.add_argument("--no-wait", action="store_true",
-                           help="发送后不等待 draft 回复")
+    p_persona = sub.add_parser("persona", help="persona flow: manager sends 'update persona', agent replies with draft")
+    p_persona.add_argument("-s", "--system-id", **common_sid)
+    p_persona.add_argument("-m", "--manager", **common_mgr)
+    p_persona.add_argument("-w", "--no-wait", action="store_true", help="do not wait for the draft reply")
     p_persona.set_defaults(func=cmd_persona)
 
-    p_repair = sub.add_parser("repair", help="链路自动修复:check ✗ → 复用 install 函数链修复 → 复检")
-    p_repair.add_argument("--system-id")
-    p_repair.add_argument("--home", help="平台 home(默认单指针机自动解析)")
-    p_repair.add_argument("--deep", action="store_true",
-                          help="深修:按 agentmail.json 直接重写 webhook 配对 + 清 stuck pending")
-    p_repair.add_argument("--dry-run", action="store_true", help="只列修复计划,不执行")
-    p_repair.set_defaults(func=cmd_repair)
+    # ── resources ──────────────────────────────────────────────────
+    p_dom = sub.add_parser("domain", help="list or create domains owned by a system")
+    p_dom.add_argument("-s", "--system-id", **common_sid)
+    p_dom.add_argument("-a", "--add", metavar="DOMAIN", help="create a domain (bare domain, lowercase; default: list only)")
+    p_dom.add_argument("--id", help="domain record id (default: auto-generated)")
+    p_dom.add_argument("-w", "--webhook-url", help="webhook receiver URL for the new domain")
+    p_dom.set_defaults(func=cmd_domain)
+
+    p_mn = sub.add_parser("mailname", help="show or set the default agent name mapping")
+    p_mn.add_argument("-s", "--system-id", **common_sid)
+    p_mn.add_argument("-d", "--default", help="new default agent name")
+    p_mn.set_defaults(func=cmd_mailname)
+
+    p_br = sub.add_parser("bridge", help="local bridge: status / refresh routes / restart")
+    p_br.add_argument("-s", "--system-id", help="refresh forwarding routes for this system")
+    p_br.add_argument("-H", "--home", **common_home)
+    p_br.add_argument("-r", "--restart", action="store_true", help="restart the bridge (single instance)")
+    p_br.set_defaults(func=cmd_bridge)
 
     args = ap.parse_args()
     sys.exit(args.func(args) or 0)
