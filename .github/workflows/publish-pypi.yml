@@ -61,7 +61,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: aimail-wheel
-          path: dist/aimail-*.whl
+          path: dist/aimailsdk-*.whl
 
       - name: Release gate — scripts/verify-wheel.sh (clean-venv 3-layout smoke)
         run: bash scripts/verify-wheel.sh
