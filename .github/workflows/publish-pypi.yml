@@ -74,6 +74,7 @@ jobs:
     environment: pypi-release
     permissions:
       id-token: write   # OIDC: mint the PyPI exchange token, no secrets
+      actions: read     # download-artifact@v4 reads the build job's artifact
     steps:
       - uses: actions/download-artifact@v4
         with:
