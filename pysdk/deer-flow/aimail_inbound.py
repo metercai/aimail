@@ -56,6 +56,10 @@ def _amail_bootstrap():
 
 _amail_bootstrap()
 
+# 共享核心(aimail_home 等)。改名提交 d701dae 把 _find_agent_config 里的
+# ~/.aimail 硬编码换成 _ab.aimail_home(),却未补本 import——缺了会 NameError。
+import aimail_base as _ab  # noqa: E402
+
 
 def _verify_hmac(secret: str, body: bytes, signature: str) -> bool:
     """对照 amail webhook.rs sign_payload:HMAC-SHA256(body, secret),hex 比较。"""

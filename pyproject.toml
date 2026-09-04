@@ -23,8 +23,10 @@ classifiers = [
 ]
 # The core runtime (aimail_base / aimail_tools / aimail_board /
 # gateway_api / amail_mcp_server) is stdlib-only: every third-party import
-# (yaml, markitdown) is lazy and host-gated. Keep the hard dep surface at
-# zero so the package installs anywhere.
+# (yaml, markitdown) is lazy and host-gated. The only module-level
+# third-party import in the package is fastapi, confined to the DeerFlow
+# inbound router (deerflow extra, host always ships it). Keep the hard dep
+# surface at zero so the package installs anywhere.
 dependencies = []
 
 [project.optional-dependencies]
@@ -33,6 +35,10 @@ docs = ["markitdown>=0.0.1"]
 # Hermes adapter profile-config parsing (lazy import; the Hermes host
 # normally already ships PyYAML).
 hermes = ["PyYAML>=6"]
+# DeerFlow inbound router (aimail/deer-flow/aimail_inbound.py) imports fastapi
+# at module level — loaded only inside the DeerFlow host, which already runs
+# FastAPI; declared here for installability outside that host.
+deerflow = ["fastapi>=0.100"]
 
 [project.urls]
 Homepage = "https://github.com/metercai/aimail"

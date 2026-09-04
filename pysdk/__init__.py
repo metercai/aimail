@@ -21,8 +21,8 @@ re-exports the curated public API below. The legacy flat path (insert
 works and is what the host adapters' bootstrap relies on — it is preserved,
 not replaced.
 
-Module layout inside the wheel mirrors the repository ``tools/`` directory so
-the runtime's flat imports keep working:
+Module layout inside the wheel mirrors the repository ``pysdk/`` directory
+(single source of truth), so the runtime's flat imports keep working:
 
   aimail/
     aimail_base.py        shared core (platform-agnostic)
@@ -31,11 +31,14 @@ the runtime's flat imports keep working:
     gateway_api.py           standard amail API client
     amail_mcp_server.py      platform-agnostic MCP server (stdio JSON-RPC)
     _aimail_bootstrap.py     location-agnostic sys.path bootstrap (runtime glue)
-    hermes/aimail_hermes.py   Hermes adapter
-    openclaw/                 OpenClaw adapter (CLI / bridge / shared)
-    deer-flow/                DeerFlow adapter (inbound router / shared)
-    skills/                   aimail SKILL.md + DESCRIPTION.md
-    board_role_prompt_en/     board role prompt templates (en)
+    install.py               self-contained install/uninstall entry
+    _resources_release.py    board/skills resource release (install-time)
+    hermes/                  Hermes adapter (6 modules, host-injected registry)
+    openclaw/                OpenClaw adapter (amail_base)
+    deer-flow/               DeerFlow adapter (inbound router / manage / base)
+    resources/
+      skills/                aimail SKILL.md + DESCRIPTION.md
+      board/role_prompt_en|zh, role_soul_en|zh   board templates
 """
 
 import os as _os

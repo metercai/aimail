@@ -15,7 +15,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import shutil
 import subprocess
@@ -28,7 +27,7 @@ _CORE = os.path.dirname(os.path.abspath(__file__))
 if _CORE not in sys.path:
     sys.path.insert(0, _CORE)
 
-from _resources_release import agentmail_home, release_all_systems, release_resources  # noqa: E402
+from _resources_release import agentmail_home, release_all_systems  # noqa: E402
 
 
 def _import_hermes(name: str):
