@@ -18,7 +18,7 @@
                           [--agent ADDR] [--to ADDR] [--manager ADDR]
                           [--smtp] [--timeout SECS] [--no-wait]
   --agent-home: agent 系统 home(Hermes=~/.hermes,OpenClaw=~/.openclaw);
-               指针文件 {agent-home}/.aimail 提供 system_id/email
+               指针文件 {agent-home}/.agentmail 提供 system_id/email
   --agent:      agent 标识(定位 mail 目录,默认从指针 email)
   --to:         直接指定收件地址(优先于 --agent/指针)
   --manager:    SMTP 模式发件人(manager)地址,默认 config.manager_address
@@ -287,7 +287,7 @@ def main() -> int:
     sid = sid or os.environ.get("SYSTEM_ID", "") or os.environ.get("AIMAIL_SYSTEM_ID", "")
 
     if not sid:
-        print("✗ system_id 未解析(需 --system-id 或 {agent-home}/.aimail 指针)")
+        print("✗ system_id 未解析(需 --system-id 或 {agent-home}/.agentmail 指针)")
         return 1
 
     # ── 读 gateway 配置 ──
@@ -317,9 +317,9 @@ def main() -> int:
             print("✗ aimail_gateway.json 无 admin_key——API 模式需系统 admin key")
             return 1
         print(f"  Gateway:     {gw_url}")
-        print(f"  Mode:        API (system welcome, from postman@)")
+        print("  Mode:        API (system welcome, from postman@)")
         print(f"  To:          {recipient}")
-        print(f"  Cc:          (server-resolved from agent manager_address)")
+        print("  Cc:          (server-resolved from agent manager_address)")
 
         ok, email_id, msg_id, err = _api_send(
             gw_url, admin_key, recipient, identity=cfg.get("system_id", ""))
@@ -357,7 +357,7 @@ def main() -> int:
 
     edition = _detect_edition(gw_url)
     print(f"  Gateway:     {gw_url}")
-    print(f"  Mode:        SMTP (legacy)")
+    print("  Mode:        SMTP (legacy)")
     print(f"  Edition:     {edition}({'auth.local 认证' if edition == 'advanced' else '白名单直发'})")
     print(f"  To:          {recipient}")
     print(f"  From:        {manager}")

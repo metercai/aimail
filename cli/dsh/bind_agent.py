@@ -52,9 +52,11 @@ def main() -> int:
     session_id = args.session_id or uuid.uuid4().hex
     webhook_secret = secrets.token_hex(32)
 
-    # 本地接收端点(mail-inbound,默认 9099;AIMAIL_INBOUND_URL 可覆盖)
+    # 本地接收端点(mail-inbound,默认 9099;AIMAIL_INBOUND_URL 可覆盖)。
+    # 入站路径 = /aimail/inbound(tssdk dsh-aimail/src/mail-service.ts:55
+    # INBOUND_PATH 唯一真相源)。
     inbound_base = os.environ.get("AIMAIL_INBOUND_URL", "http://127.0.0.1:9099")
-    local_webhook_url = inbound_base.rstrip("/") + "/aimail/deliver"
+    local_webhook_url = inbound_base.rstrip("/") + "/aimail/inbound"
     # 注册参数三态:push=bridge 公网入口 / pull=空 / 无 bridge=本地端点
     reg_url = _base.resolve_register_webhook_url(gw, local_webhook_url)
 
@@ -96,8 +98,8 @@ def main() -> int:
     print()
     print("  dsh 侧步骤(绑定生效):")
     print(f"    1. 若 session 未创建:dsh 中创建 session id={session_id}(preset={args.preset})")
-    print(f"    2. 挂载 mail 插件:preset 配置含 dsh-mail + dsh-tool-mail + dsh-mail-inbound")
-    print(f"    3. 入站端点:http://127.0.0.1:9099/aimail/deliver(bridge 路由已注册)")
+    print("    2. 挂载 mail 插件:preset 配置含 dsh-mail + dsh-tool-mail + dsh-mail-inbound")
+    print("    3. 入站端点:http://127.0.0.1:9099/aimail/inbound(bridge 路由已注册)")
     return 0
 
 

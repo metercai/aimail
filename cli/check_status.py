@@ -153,8 +153,10 @@ class Check:
     def print_table(self):
         groups = [
             ("system (check scope)",  [c for c in self.checks if c["level"] == "system"]),
+            ("config (config files: gateway/bridge/agent)",  [c for c in self.checks if c["level"] == "config"]),
             ("aimail-gateway (external mail gateway)", [c for c in self.checks if c["level"] == "gateway"]),
             ("aimail-bridge (local NAT traversal bridge)",  [c for c in self.checks if c["level"] == "bridge"]),
+            ("runtime (platform resources: patches/skills/plugin)",  [c for c in self.checks if c["level"] == "runtime"]),
             ("agent (platform config + hook interface)",  [c for c in self.checks if c["level"] == "agent"]),
             ("agent-gateway (Hermes gateway)",  [c for c in self.checks if c["level"] == "agent-gw"]),
             ("agent-profile (agent entity)",   [c for c in self.checks if c["level"] == "profile"]),
@@ -197,8 +199,11 @@ def _detect_agent_type() -> str:
        注意:即使值恰是默认 ~/.hermes 也算显式(aimail CLI 的 check
        传 --home 平台根时会落到这里)——只看参数是否出现,不看值。
     ② ~/.openclaw/openclaw.json 存在 → openclaw
-    ③ AGENT_HOME 下有 hermes-agent 或 profiles/ → hermes
-    ④ unknown
+    ③ ~/.dsh(profiles/) 存在 → dsh
+    ④ ~/.pi(agent/) 存在 → pi
+    ⑤ AGENT_HOME 下有 hermes-agent 或 profiles/ → hermes
+    ⑥ deer-flow 目录特征 → deerflow(仅 detect;L3/L4 adapter 远端适用)
+    ⑦ unknown
     """
     if "--agent-home" in sys.argv:
         return "hermes"
@@ -206,8 +211,12 @@ def _detect_agent_type() -> str:
         return "openclaw"
     if (Path.home() / ".dsh").is_dir() and (Path.home() / ".dsh" / "profiles").is_dir():
         return "dsh"
+    if (Path.home() / ".pi").is_dir() and (Path.home() / ".pi" / "agent").is_dir():
+        return "pi"
     if (AGENT_HOME / "hermes-agent").exists() or (AGENT_HOME / "profiles").is_dir():
         return "hermes"
+    if (AGENT_HOME / "backend" / "app" / "gateway").is_dir():
+        return "deerflow"
     return "unknown"
 
 
@@ -522,11 +531,13 @@ def _openclaw_check_config(c: Check, agent: dict):
 
 
 def _openclaw_check_hook(c: Check, agent: dict):
-    """L4 OpenClaw: plugin gateway endpoint probe (POST /aimail/deliver on
+    """L4 OpenClaw: plugin gateway endpoint probe (POST /aimail/inbound on
     the OpenClaw gateway, auth:"plugin" — plugin-managed HMAC verification).
 
-    Legacy adapter (amail_openclaw_bridge.py :8799/hook) is retired; the TS
-    plugin registers /aimail/deliver on the gateway HTTP server instead.
+    Endpoint path truth: tssdk openclaw-aimail/src/inbound.ts INBOUND_PATH
+    = /aimail/inbound (registered on the gateway HTTP server in index.ts).
+    Legacy adapter (amail_openclaw_bridge.py :8799/hook) and the old
+    /aimail/deliver path are retired.
     """
     # Discover the gateway port from openclaw.json (default 18789).
     port = 18789
@@ -537,7 +548,7 @@ def _openclaw_check_hook(c: Check, agent: dict):
             port = int((oc.get("gateway") or {}).get("port") or 18789)
     except Exception:
         pass
-    url = f"http://127.0.0.1:{port}/aimail/deliver"
+    url = f"http://127.0.0.1:{port}/aimail/inbound"
     payload = json.dumps({"to": ["probe@invalid"], "body": "status-check"}).encode()
     try:
         req = urllib.request.Request(url, data=payload,
@@ -547,20 +558,20 @@ def _openclaw_check_hook(c: Check, agent: dict):
             body = r.read().decode()[:80]
             # 200 with a JSON status = plugin route alive (no_agent/bad_signature
             # are both valid — the endpoint processed the request).
-            c.add("agent", "hook", True, f"POST /aimail/deliver → HTTP {r.status} {body}")
+            c.add("agent", "hook", True, f"POST /aimail/inbound → HTTP {r.status} {body}")
     except urllib.error.HTTPError as e:
         if e.code == 404:
             # 2026-09-04 semantics fix: 404 = route NOT registered (plugin
             # missing/disabled). "probe@invalid" with a body can never 404 on
             # a live route — a live handler answers 400/401/405 at worst.
             c.add("agent", "hook", False,
-                  f"POST /aimail/deliver → 404 (route not registered)",
+                  "POST /aimail/inbound → 404 (route not registered)",
                   "Reinstall: openclaw plugins install npm-pack:<openclaw-aimail.tgz>; restart gateway")
         elif e.code in (200, 400, 401, 405):
             # 400 (bad body) / 401 (signature) / 405 prove the route exists
-            c.add("agent", "hook", True, f"POST /aimail/deliver → {e.code} (plugin route active)")
+            c.add("agent", "hook", True, f"POST /aimail/inbound → {e.code} (plugin route active)")
         else:
-            c.add("agent", "hook", False, f"POST /aimail/deliver → HTTP {e.code}")
+            c.add("agent", "hook", False, f"POST /aimail/inbound → HTTP {e.code}")
     except Exception as e:
         c.add("agent", "hook", False, f"Cannot reach {url}: {e}",
               f"Is the OpenClaw gateway running on :{port} with the openclaw-aimail plugin installed?")
@@ -630,6 +641,104 @@ def _dsh_check_config(c: Check, agent: dict):
           "bind_agent.py 落盘 session_id/preset;dsh 侧创建同名 session(加入 mail preset)")
 
 
+def _pi_detect() -> bool:
+    return (Path.home() / ".pi").is_dir() and (Path.home() / ".pi" / "agent").is_dir()
+
+
+def _pi_list_agents() -> list[dict]:
+    """pi: agents = pi 平台 agent 目录 + ~/.pi/.agentmail 指针 email(与 openclaw 同构)。"""
+    agents = []
+    ptr = Path.home() / ".pi" / ".agentmail"
+    email = ""
+    if ptr.is_file():
+        try:
+            email = json.loads(ptr.read_text()).get("email", "")
+        except Exception:
+            pass
+    agents_dir = Path.home() / ".pi" / "agent"
+    if agents_dir.is_dir():
+        found = False
+        for adir in sorted(agents_dir.iterdir()):
+            if not adir.is_dir():
+                continue
+            agents.append({
+                "name": adir.name, "email": email,
+                "agent_dir": adir,
+                "config": Path.home() / ".pi" / "agent" / "config.json",
+            })
+            found = True
+        if not found and email:
+            # 指针有 email 但 agent 目录结构未知 → 单 agent 视图(仅指针对齐检查)
+            agents.append({"name": "pi", "email": email,
+                           "agent_dir": None, "config": Path.home() / ".pi" / "agent" / "config.json"})
+    elif email:
+        agents.append({"name": "pi", "email": email,
+                       "agent_dir": None, "config": None})
+    return agents
+
+
+def _pi_check_config(c: Check, agent: dict):
+    """L3 pi: name&apikey(agentmail.json)/pointer 对齐。pi-aimail TS 扩展承载工具+入站。"""
+    name = agent.get("name", "?")
+    email = agent.get("email", "")
+    sid = _resolve_system_id()
+    aj_path = (SYSTEMS_DIR / sid / _clean_agent_dir_name(email) / "agentmail.json") if (sid and email) else None
+    api_key = ""
+    if aj_path and aj_path.is_file():
+        try:
+            api_key = json.loads(aj_path.read_text()).get("api_key", "")
+        except Exception:
+            pass
+    ok = bool(email and api_key)
+    c.add("agent", "name_apikey", ok,
+          f"{name}: {email or 'no email'}" + (", api_key ✓" if api_key else ", api_key MISSING"),
+          "Re-run: aimail install --home ~/.pi (register pi agent)")
+    ptr = Path.home() / ".pi" / ".agentmail"
+    try:
+        ptr_ok = ptr.is_file() and json.loads(ptr.read_text()).get("system_id") == sid
+    except Exception:
+        ptr_ok = False
+    c.add("agent", "pointer", ptr_ok,
+          ".pi pointer matches system" if ptr_ok else ".pi pointer missing/mismatch",
+          "Re-run: aimail install --home ~/.pi")
+
+
+def _pi_check_hook(c: Check, agent: dict):
+    """L4 pi: POST {agentmail.json webhook_url} — pi-aimail inbound 端点探测。"""
+    email = agent.get("email", "")
+    sid = _resolve_system_id()
+    wh_url = ""
+    aj_path = (SYSTEMS_DIR / sid / _clean_agent_dir_name(email) / "agentmail.json") if (sid and email) else None
+    if aj_path and aj_path.is_file():
+        try:
+            wh_url = json.loads(aj_path.read_text()).get("webhook_url", "")
+        except Exception:
+            pass
+    if not wh_url:
+        c.add("agent", "hook", False, "no webhook_url (agentmail.json)",
+              "Re-run: aimail install --home ~/.pi")
+        return
+    from urllib.parse import urlparse as _up
+    host = _up(wh_url).hostname or ""
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        # 远端宿主(pi 平台常见)本机不可探测 → 不算 FAIL
+        c.add("agent", "hook", True, f"webhook remote host (not probeable locally): {wh_url}")
+        return
+    try:
+        req = urllib.request.Request(wh_url, data=b"{}", method="POST")
+        with urllib.request.urlopen(req, timeout=5) as r:
+            c.add("agent", "hook", True, f"POST {wh_url} → HTTP {r.status}")
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            c.add("agent", "hook", True, f"POST {wh_url} → {e.code} (receiver active)")
+        elif e.code == 404:
+            c.add("agent", "hook", False, f"POST {wh_url} → 404", "Start pi-aimail inbound")
+        else:
+            c.add("agent", "hook", False, f"POST {wh_url} → HTTP {e.code}")
+    except Exception as e:
+        c.add("agent", "hook", False, f"Cannot reach {wh_url}: {e}")
+
+
 def _dsh_check_hook(c: Check, agent: dict):
     """L4 dsh: POST webhook_url — 200/401 = 接收端点活跃(mail-inbound)。"""
     aj = agent.get("config")
@@ -681,6 +790,13 @@ PLATFORMS = {
         "check_config": _dsh_check_config,
         "check_hook": _dsh_check_hook,
     },
+    "pi": {
+        "detect": _pi_detect,
+        "list_agents": _pi_list_agents,
+        "check_config": _pi_check_config,
+        "check_hook": _pi_check_hook,
+    },
+    "deerflow": None,  # 平台宿主通常远端;L3/L4 由 deer-flow SDK reconcile 自证
 }
 
 
@@ -986,7 +1102,6 @@ def _check_bridge_completeness(c: Check, sid: str):
                   f"no pull.systems entry for {sid}",
                   "Run: aimail bridge --system-id " + sid)
         else:
-            import hashlib
             key_match = (entry.get("admin_key") or "") == (gw.get("admin_key") or "")
             c.add("bridge", "pull-entry", key_match,
                   f"pull entry present, admin_key {'match' if key_match else 'MISMATCH'}",
@@ -1394,13 +1509,18 @@ def main():
                     except Exception:
                         pass
             if not sid_platform:
-                ptr = Path.home() / ".openclaw" / ".agentmail"
-                if ptr.is_file():
-                    try:
-                        if json.loads(ptr.read_text()).get("system_id") == _sid:
-                            sid_platform = "openclaw"
-                    except Exception:
-                        pass
+                home = Path.home()
+                for plat, cand in (("openclaw", home / ".openclaw" / ".agentmail"),
+                                   ("pi",       home / ".pi" / ".agentmail"),
+                                   ("dsh",      home / ".dsh" / ".agentmail"),
+                                   ("deerflow", home / ".deer-flow" / ".agentmail")):
+                    if cand.is_file():
+                        try:
+                            if json.loads(cand.read_text()).get("system_id") == _sid:
+                                sid_platform = plat
+                                break
+                        except Exception:
+                            pass
             if sid_platform and sid_platform != agent_type:
                 _msg = f"  platform: {agent_type} → {sid_platform} (by system_id {_sid[:8]}…)"
                 if "--json" in sys.argv:
@@ -1458,8 +1578,12 @@ def main():
                 adapter["check_hook"](c, a)
             except Exception as e:
                 c.add("agent", "hook", False, f"{a.get('name')}: {e}")
+    elif agent_type == "deerflow":
+        # deerflow 宿主通常远端;L3/L4 由 deer-flow SDK reconcile 自证,
+        # 本机只报 config/runtime 层结果。
+        print(f"{YELLOW}⚠ deerflow platform: L3/L4 agent checks run via deer-flow SDK reconcile on its host{NC}")
     else:
-        # 未知平台:跳过 agent 检查(L1/L2/L5 已跑),不回退旧检查
+        # 未知平台:跳过 agent 检查(L0-L2 已跑),不回退旧检查
         print(f"{YELLOW}⚠ Unknown agent platform: {agent_type} — skipping agent checks{NC}")
 
     if json_out:
@@ -1587,7 +1711,7 @@ def _check_l2_runtime(c: Check, sid: str):
     board_dir = SYSTEMS_DIR / sid / "board"
     rp = board_dir / "role_prompt" / "common.md"
     c.add("runtime", "board-resources", rp.is_file(),
-          f"board/role_prompt/common.md present" if rp.is_file()
+          "board/role_prompt/common.md present" if rp.is_file()
           else "board/role_prompt/common.md missing (a2a role rendering falls back empty)",
           fix_install)
 

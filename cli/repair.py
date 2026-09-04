@@ -13,8 +13,6 @@ import json
 import subprocess
 import sys
 import re  # noqa: E402
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
@@ -224,7 +222,7 @@ def _drain_stuck(sid: str) -> bool:
         for d in b.get("deliveries", []):
             created = d.get("created_at") or ""
             try:
-                from datetime import datetime, timezone
+                from datetime import datetime
                 age = _t.time() - datetime.fromisoformat(created.replace("Z", "+00:00")).timestamp()
                 if age > 600:
                     stuck.append(d.get("id"))
@@ -271,7 +269,6 @@ def _detect_platform_from_home(system_home):
 def _auto_platform_home(sid: str) -> str:
     """单平台机自动解析平台根:恰好一个平台目录存在且特征匹配 → 用它;
     多平台/零平台 → ''(不猜,要求显式 --home)。"""
-    import os as _os
     hits = []
     home = Path.home()
     for plat, root in PLATFORM_ROOTS:

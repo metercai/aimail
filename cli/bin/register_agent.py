@@ -123,9 +123,10 @@ def main() -> int:
         agents = ["main"]
 
     # 本地接收端点(平台常量:TS 插件 openclaw-aimail 在 OpenClaw gateway HTTP
-    # 上注册 /aimail/deliver;pull 模式下注册参数应为空值,此默认仅作
-    # 无 bridge 兜底)。旧 amail_openclaw_bridge.py :8799/hook 已退役。
-    local_webhook_url = "http://127.0.0.1:18789/aimail/deliver"
+    # 上注册 /aimail/inbound——tssdk openclaw-aimail/src/inbound.ts INBOUND_PATH
+    # 是唯一真相源;pull 模式下注册参数应为空值,此默认仅作
+    # 无 bridge 兜底)。旧 /aimail/deliver 与 Python bridge 已退役。
+    local_webhook_url = "http://127.0.0.1:18789/aimail/inbound"
     # 注册参数三态:push=bridge 公网入口 / pull=空 / 无 bridge=本地端点
     reg_url = _base.resolve_register_webhook_url(gw, local_webhook_url)
     created = 0

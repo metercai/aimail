@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-setup_system.py — amail Hermes integration setup
+setup_system.py — system activation/configuration (admin-key reuse or product-code)
 
-Both library module and CLI entry point for integrate.sh Step 4.
-Called directly as `python3 lib/setup_system.py` or imported as `from setup_system import setup`.
+Called by aimail install/reset with the INTEGRATE_* env contract, or imported
+as `from setup_system import setup`. Outputs JSON (with system_id) on success;
+prefixes fatal errors with __ERROR__.
 
-Depends on:
-  - scripts/gateway_api.py for GatewayClient, create_api_key, config
+Depends on runtime core (pysdk/): gateway_api (GatewayClient, create_api_key,
+gateway_config_path, load_gateway_config) via runtime_core.load_core().
 """
 import json
 import logging

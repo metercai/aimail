@@ -20,7 +20,7 @@ agent 前最后一刻被吞;pong 只在全链路正常时回复 —— 测试通
 用法:
   python3 ping_test.py [--system-id SID] [--agent-home DIR] [--timeout 120]
   --agent-home:  agent 系统 home(Hermes=~/.hermes,OpenClaw=~/.openclaw)
-                 指针文件 {agent-home}/.aimail 提供 system_id/email
+                 指针文件 {agent-home}/.agentmail 提供 system_id/email
   --agent:       可选的 agent 标识(定位 mail 目录,默认从指针 email)
   --timeout:     等待处理的秒数(默认 120)
   --no-snapshot: 跳过原始邮件快照检查
@@ -212,7 +212,7 @@ def main() -> int:
     sid = sid or os.environ.get("SYSTEM_ID", "")
 
     if not sid:
-        print("✗ system_id 未解析(需 --system-id 或 {agent-home}/.aimail 指针)")
+        print("✗ system_id 未解析(需 --system-id 或 {agent-home}/.agentmail 指针)")
         return 1
 
     # ── 读 gateway 配置 ──

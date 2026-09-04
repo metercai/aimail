@@ -5,7 +5,6 @@
   python3 scripts/dsh/unbind_agent.py --email <addr> [--system-id <sid>]
 """
 import argparse
-import json
 import os
 import sys
 

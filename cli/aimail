@@ -1,21 +1,26 @@
 #!/usr/bin/env python3
-"""aimail — 统一的 aimail 维护工具 CLI。
+"""aimail — unified maintenance CLI for the aimail agent-integration stack.
 
-子命令:
-  install  [--home 平台根] [--system-id] [--product-code] 集成脚本到 check 前
-  reset    [--home 平台根] [--system-id]                  只走 admin-key 重置配置
-  check    [--system-id] [--home]                          通用状态检查(check_status)
-  ping     [--system-id] [--manager]                       ping-pong 闭环测试
-  welcome  [--system-id] [--manager]                       welcome 端到端测试
-  mailname [--system-id] [--default NAME]                  查看/修改默认主 agent 映射
-  bridge   [--system-id] [--home] [--restart]               本机 bridge 维护(状态/重刷路由/重启)
+Subcommands (grouped by scenario, see --help):
+  setup      init / install / uninstall / reset
+  operate    stats / renew / version
+  diagnose   check / repair / ping / welcome / persona
+  resources  domain / mailname / bridge
 
-平台事实推断(无 --agent-type,用户定调 2026-08-16):
-  1. --home 指定 → 目录特征(hermes-agent/profiles=hermes, openclaw.json=openclaw)
-  2. --system-id → 配置 system_home 反查 → 目录特征(旧系统回退指针归属)
-  3. 都没有 → 自动探测第一个有 .agentmail 指针的平台
-home 语义:system_home=系统/平台根(hermes=~/.hermes, openclaw=~/.openclaw);
-          agent_home=具体 agent home(adapter 内部派生,非子命令入参)
+Platform fact inference (no --agent-type, per 2026-08-16 ruling):
+  1. --home given → directory traits (hermes-agent|profiles=hermes,
+     openclaw.json=openclaw, .dsh+profiles/storages=dsh, .pi+agent=pi,
+     backend/app/gateway=deerflow)
+  2. --system-id → config system_home reverse lookup → directory traits
+     (legacy: pointer ownership fallback)
+  3. neither → auto-probe first platform with a .agentmail pointer
+
+Semantics:
+  system_home = platform root (hermes=~/.hermes, openclaw=~/.openclaw, ...)
+  agent_home  = concrete agent home (adapter-internal, never a subcommand arg)
+  Endpoint/config contracts (inbound path /aimail/inbound, agentmail.json
+  9 fields, aimail_gateway.json) have their single source of truth in the
+  TS SDK (tssdk/) — python code references it, never redefines.
 """
 import argparse
 import json
@@ -117,6 +122,10 @@ def _platform_ptr(platform: str) -> Path:
         return HOME / ".openclaw" / ".agentmail"
     if platform == "deerflow":
         return HOME / ".deer-flow" / ".agentmail"
+    if platform == "pi":
+        return HOME / ".pi" / ".agentmail"
+    if platform == "dsh":
+        return HOME / ".dsh" / ".agentmail"
     root_ptr = HOME / ".hermes" / ".agentmail"
     if root_ptr.is_file():
         return root_ptr
@@ -157,8 +166,8 @@ def resolve_system_id(system_home: Path, explicit_sid: str = "") -> tuple[str, s
                         return sid, p
             except Exception:
                 pass
-        # 回退:哪个平台指针指向该 sid
-        for p in ("openclaw", "hermes"):
+        # 回退:哪个平台指针指向该 sid(与 stats/check L0 的 5 平台扫描一致)
+        for p in ("openclaw", "hermes", "pi", "dsh", "deerflow"):
             if _ptr_sid(_platform_ptr(p)) == sid:
                 return sid, p
         return sid, platform  # 平台未知也不阻塞(可能新装)
@@ -170,8 +179,8 @@ def resolve_platform(system_home: Path) -> str:
     p = detect_platform_from_home(system_home) if system_home else ""
     if p != "unknown":
         return p
-    # 自动探测:第一个有 aimail 指针的平台
-    for plat in ("openclaw", "hermes"):
+    # 自动探测:第一个有 aimail 指针的平台(5 平台,顺序 = 指针命中优先)
+    for plat in ("openclaw", "hermes", "pi", "dsh", "deerflow"):
         if _ptr_sid(_platform_ptr(plat)):
             return plat
     return ""
@@ -673,7 +682,7 @@ def cmd_mailname(args) -> int:
         if sh:
             platform = detect_platform_from_home(Path(sh))
         if platform in ("", "unknown"):
-            for p in ("openclaw", "hermes"):
+            for p in ("openclaw", "hermes", "pi", "dsh", "deerflow"):
                 if _ptr_sid(_platform_ptr(p)) == sid:
                     platform = p
                     break
@@ -842,13 +851,11 @@ def cmd_bridge(args) -> int:
     cfg_path = _gateway_cfg_path(sid)
     if not cfg_path.is_file():
         _fail(f"系统配置不存在: {cfg_path}")
-    gw = json.loads(cfg_path.read_text())
     if not running:
         _warn("bridge 未运行——仅更新本地路由表,不会热加载(先 --restart)")
 
-    # 2) 计算该系统所有 agent 的期望路由(平台专属接收端)
-    domain = gw.get("domain", "")
-    system_name = gw.get("system_name", "")
+    # 2) 计算该系统所有 agent 的期望路由(平台专属接收端,来源 = agentmail.json
+    #    webhook_url,见 _system_agents/_default_recv_url)
     routes = _read_routes()
     refreshed = []
     missing = []
@@ -866,8 +873,8 @@ def cmd_bridge(args) -> int:
                 data=json.dumps({"email": email, "host": target, "port": 80}).encode(),
                 headers={"Content-Type": "application/json"},
                 method="POST")
-            with urllib.request.urlopen(req, timeout=5) as r:
-                resp = json.loads(r.read().decode())
+            with urllib.request.urlopen(req, timeout=5):
+                pass  # 2xx = 注册/确认成功;非 2xx 走 except
             refreshed.append(email)
             if old != target:
                 print(f"  ↻ {email}: {old or '(无)'} → {target}")
@@ -1421,10 +1428,15 @@ def _uninstall_openclaw(sid: str) -> None:
                 _ok(f"removed pointer {ptr}")
         except Exception:
             pass
-    sk = oc_home / "skills" / "aimail"
+    sk = oc_home / "skills" / "agentmail"  # 内部标识 = agentmail(与 install-skill.sh 一致)
     if sk.is_dir():
         shutil.rmtree(sk)
         _ok(f"removed skill {sk}")
+    # 兼容改名期残留:旧 aimail 名目录(若有)一并清理
+    legacy_sk = oc_home / "skills" / "aimail"
+    if legacy_sk.is_dir():
+        shutil.rmtree(legacy_sk)
+        _ok(f"removed legacy skill {legacy_sk}")
     # MCP server 段
     cfg = oc_home / "openclaw.json"
     if cfg.is_file():
@@ -1475,7 +1487,7 @@ def cmd_uninstall(args) -> int:
         _fail("uninstall 需要 --system-id(或用 --home 定位平台)")
     # 幂等:系统数据与指针都不存在 → 视为已卸载
     if not (SYSTEMS_DIR / sid).is_dir() and not any(
-            _ptr_sid(_platform_ptr(p)) == sid for p in ("openclaw", "hermes")):
+            _ptr_sid(_platform_ptr(p)) == sid for p in ("openclaw", "hermes", "pi", "dsh", "deerflow")):
         print(f"  system {sid} not installed (already uninstalled?)")
         return 0
     if not platform:
@@ -1547,10 +1559,14 @@ def cmd_uninstall(args) -> int:
                     _ok(f"removed pointer {ptr}")
             except Exception:
                 pass
-        sk = HOME / ".pi" / "skills" / "aimail"
+        sk = HOME / ".pi" / "skills" / "agentmail"  # 内部标识 = agentmail(与 openclaw 一致)
         if sk.is_dir():
             shutil.rmtree(sk, ignore_errors=True)
             _ok(f"removed skill {sk}")
+        legacy_sk = HOME / ".pi" / "skills" / "aimail"
+        if legacy_sk.is_dir():
+            shutil.rmtree(legacy_sk, ignore_errors=True)
+            _ok(f"removed legacy skill {legacy_sk}")
         print("  pi: 扩展移除 = pi 宿主侧移除 pi-aimail 扩展")
     else:  # deerflow
         # SDK 撤销 app.py patch + 删运行时 bundle
