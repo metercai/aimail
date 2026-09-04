@@ -540,9 +540,15 @@ def _openclaw_check_hook(c: Check, agent: dict):
             # are both valid — the endpoint processed the request).
             c.add("agent", "hook", True, f"POST /aimail/deliver → HTTP {r.status} {body}")
     except urllib.error.HTTPError as e:
-        if e.code in (200, 400, 401, 404):
-            # 404 (non-POST probe path) / 401 (signature) still prove the route
-            # is registered and the plugin is loaded.
+        if e.code == 404:
+            # 2026-09-04 semantics fix: 404 = route NOT registered (plugin
+            # missing/disabled). "probe@invalid" with a body can never 404 on
+            # a live route — a live handler answers 400/401/405 at worst.
+            c.add("agent", "hook", False,
+                  f"POST /aimail/deliver → 404 (route not registered)",
+                  "Reinstall: openclaw plugins install npm-pack:<openclaw-aimail.tgz>; restart gateway")
+        elif e.code in (200, 400, 401, 405):
+            # 400 (bad body) / 401 (signature) / 405 prove the route exists
             c.add("agent", "hook", True, f"POST /aimail/deliver → {e.code} (plugin route active)")
         else:
             c.add("agent", "hook", False, f"POST /aimail/deliver → HTTP {e.code}")
@@ -830,6 +836,232 @@ def check_gateway(c: Check, sid: str = ""):
 #  not deployed (gateway → agent-gateway directly).
 #  May run on a different machine in the LAN.
 # ═══════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
+# L0: 配置文件完备性与正确性(2026-09-04 全面体检;用户定调:
+# check = 全面体检,覆盖 gateway/bridge/agent 三份配置 + 跨文件一致)
+# ═══════════════════════════════════════════════════════════════
+
+AGENTMAIL_JSON_REQUIRED = (
+    "email", "gateway_url", "domain", "system_id", "system_name",
+    "manager_address", "api_key", "webhook_url", "webhook_secret",
+)
+
+
+def _check_l0_configs(c: Check, sid: str):
+    """L0 配置层:gateway.json 完备性 + system_home + pointer 归属。"""
+    gw = _read_gw_cfg(sid)
+    if not gw:
+        c.add("config", "gateway_json", False,
+              "agentmail_gateway.json missing/unreadable",
+              "Run: aimail install --home <platform-root> --system-id " + (sid or "<sid>"))
+        return
+
+    # 1. 连接字段完备
+    missing = [k for k in ("gateway_url", "admin_key") if not gw.get(k)]
+    c.add("config", "complete", not missing,
+          "gateway_url + admin_key present" if not missing
+          else f"missing: {', '.join(missing)}",
+          "Run: aimail install --system-id " + sid)
+
+    # 2. system_home 存在且目录有效
+    sh = gw.get("system_home", "")
+    if not sh:
+        c.add("config", "system_home", False,
+              "system_home MISSING (stats platform label → [?])",
+              "Run: aimail install --home <platform-root> --system-id " + sid)
+    elif not Path(sh).is_dir():
+        c.add("config", "system_home", False,
+              f"system_home dir does not exist: {sh}",
+              "Fix path or re-run: aimail install --home <platform-root> --system-id " + sid)
+    else:
+        c.add("config", "system_home", True, sh)
+
+    # 3. pointer 归属(任一平台 .agentmail 引用该 sid 即可)
+    ptr_hit = _pointer_platforms_for_sid(sid)
+    c.add("config", "pointer", bool(ptr_hit),
+          "pointer: " + ",".join(ptr_hit) if ptr_hit
+          else "no platform .agentmail pointer references this system",
+          "Re-run platform install or aimail repair --system-id " + sid)
+
+
+def _pointer_platforms_for_sid(sid: str) -> list:
+    """Which platform pointers reference sid (hermes/openclaw/deerflow/pi/dsh)."""
+    hits = []
+    home = Path.home()
+    cand = [
+        ("openclaw", home / ".openclaw" / ".agentmail"),
+        ("deerflow", home / ".deer-flow" / ".agentmail"),
+        ("pi",       home / ".pi" / ".agentmail"),
+        ("dsh",      home / ".dsh" / ".agentmail"),
+    ]
+    hermes_root = home / ".hermes" / ".agentmail"
+    if hermes_root.is_file():
+        cand.append(("hermes", hermes_root))
+    profiles = home / ".hermes" / "profiles"
+    if profiles.is_dir():
+        for pp in sorted(profiles.glob("*/.agentmail")):
+            cand.append(("hermes", pp))
+    for plat, ptr in cand:
+        if ptr.is_file():
+            try:
+                if json.loads(ptr.read_text()).get("system_id") == sid:
+                    hits.append(plat)
+            except Exception:
+                pass
+    return hits
+
+
+def _check_agentmail_json(c: Check, sid: str):
+    """L0 扩展:逐 agent agentmail.json 完备性 + 内部一致性。"""
+    sysdir = SYSTEMS_DIR / sid
+    if not sysdir.is_dir():
+        return
+    for sub in sorted(sysdir.iterdir()):
+        aj = sub / "agentmail.json"
+        if not aj.is_file():
+            continue
+        try:
+            d = json.loads(aj.read_text())
+        except Exception as e:
+            c.add("agent", "config-json", False, f"{sub.name}: parse error: {e}",
+                  "Re-run register_agent.py --all")
+            continue
+        name = d.get("agent_id") or sub.name
+        missing = [k for k in AGENTMAIL_JSON_REQUIRED if k not in d or d.get(k) in ("", None)]
+        c.add("agent", "config-complete", not missing,
+              f"{name}: all {len(AGENTMAIL_JSON_REQUIRED)} fields present" if not missing
+              else f"{name}: missing fields: {', '.join(missing)}",
+              "Re-run register_agent.py --all (api_key/webhook_secret cannot be rebuilt locally)")
+
+        # 内部一致性:system_id / gateway_url / domain vs email
+        issues = []
+        if d.get("system_id") and d.get("system_id") != sid:
+            issues.append(f"system_id {d['system_id'][:16]}… != {sid[:16]}…")
+        gwc = _read_gw_cfg(sid) or {}
+        if d.get("gateway_url") and gwc.get("gateway_url") \
+                and d["gateway_url"].rstrip("/") != gwc["gateway_url"].rstrip("/"):
+            issues.append("gateway_url differs from agentmail_gateway.json")
+        email = d.get("email", "")
+        if email and d.get("domain") and not email.endswith("@" + d["domain"]):
+            issues.append(f"email domain != domain field ({d['domain']})")
+        c.add("agent", "config-consistency", not issues,
+              f"{name}: consistent" if not issues else f"{name}: " + "; ".join(issues),
+              "Re-run register_agent.py --all")
+
+
+def _check_bridge_completeness(c: Check, sid: str):
+    """L0 扩展:aimail_bridge.toml 结构完备性 + routes 覆盖 + admin_key 一致。"""
+    if not BRIDGE_CFG.exists():
+        return  # direct-connect 合法,check_bridge 已报
+    try:
+        import tomllib
+        with open(BRIDGE_CFG, "rb") as f:
+            td = tomllib.load(f)
+    except Exception as e:
+        c.add("bridge", "config-complete", False, f"toml parse error: {e}",
+              "Check aimail_bridge.toml syntax")
+        return
+    mode = td.get("mode", "")
+    c.add("bridge", "config-mode", mode in ("push", "pull"),
+          f"mode={mode}" if mode in ("push", "pull") else f"invalid mode: '{mode}'",
+          "mode must be push or pull")
+
+    if mode != "pull":
+        return
+    systems = (td.get("pull", {}) or {}).get("systems") or []
+    gw = _read_gw_cfg(sid) or {}
+    entry = next((x for x in systems if x.get("system_id") == sid), None) if sid else None
+    if sid and gw:
+        if entry is None:
+            c.add("bridge", "pull-entry", False,
+                  f"no pull.systems entry for {sid}",
+                  "Run: aimail bridge --system-id " + sid)
+        else:
+            import hashlib
+            key_match = (entry.get("admin_key") or "") == (gw.get("admin_key") or "")
+            c.add("bridge", "pull-entry", key_match,
+                  f"pull entry present, admin_key {'match' if key_match else 'MISMATCH'}",
+                  "Re-run: aimail bridge --system-id " + sid)
+
+    # routes 覆盖:每个本系统 agent 的 email 在 ROUTES_FILE 有条目(pull 模式投递路径表)
+    if not ROUTES_FILE.exists():
+        return
+    try:
+        routes = {}
+        for line in ROUTES_FILE.read_text().splitlines():
+            line = line.strip()
+            if "=" in line and not line.startswith("#"):
+                k, v = line.split("=", 1)
+                routes[k.strip().strip('"')] = v.strip().strip('"').strip(",")
+    except Exception:
+        return
+    sysdir = SYSTEMS_DIR / sid
+    if not sysdir.is_dir():
+        return
+    for sub in sorted(sysdir.iterdir()):
+        aj = sub / "agentmail.json"
+        if not aj.is_file():
+            continue
+        try:
+            d = json.loads(aj.read_text())
+        except Exception:
+            continue
+        email = d.get("email", "")
+        if not email:
+            continue
+        name = d.get("agent_id") or sub.name
+        target = routes.get(email)
+        declared = d.get("webhook_url", "")
+        if target is None:
+            c.add("bridge", "routes-entry", False,
+                  f"{name}: no route for {email} (pull delivery dead)",
+                  "Run: aimail bridge --system-id " + sid)
+            continue
+        # 路由目标 vs 声明 webhook_url:探测判定(死端口 FAIL,双活不同路径 WARN)
+        from urllib.parse import urlparse as _up
+        _h = _up(target).hostname if target else ""
+        _local = _h in ("127.0.0.1", "localhost", "::1")
+        t_ok, _ = _probe_endpoint(target)
+        if not t_ok and not _local:
+            # 远端目标本机不可探测(pi 等远端宿主)→ WARN 不算 FAIL
+            c.add("bridge", "routes-target", True,
+                  f"{name}: route target remote (not probeable locally): {target}")
+            continue
+        d_ok, _ = _probe_endpoint(declared) if declared else (False, "empty")
+        if not t_ok:
+            c.add("bridge", "routes-target", False,
+                  f"{name}: route target dead: {target}",
+                  "Check the agent platform is running; do NOT auto-edit routes")
+        elif declared and not d_ok:
+            c.add("bridge", "routes-target", False,
+                  f"{name}: declared webhook_url dead: {declared} (route target alive: {target})",
+                  "Run: aimail repair --system-id " + sid)
+        elif declared and target.rstrip("/") != declared.rstrip("/"):
+            c.add("bridge", "routes-target", True,
+                  f"{name}: paths differ but both alive (route={target} vs declared={declared}) — repair will align",
+                  "Run: aimail repair --system-id " + sid)
+        else:
+            c.add("bridge", "routes-target", True, f"{name}: route target alive & consistent")
+
+
+def _probe_endpoint(url: str, timeout: float = 3.0) -> tuple:
+    """POST probe: (alive, detail). alive = TCP connect + HTTP response (any code != conn-refused).
+    404 counts as NOT alive (route missing) — 2026-09-04 semantics fix."""
+    if not url or not url.startswith("http"):
+        return False, "no url"
+    try:
+        import urllib.request
+        req = urllib.request.Request(url, data=b"", method="POST")
+        resp = urllib.request.urlopen(req, timeout=timeout)
+        return True, f"HTTP {resp.status}"
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return False, "HTTP 404 (route not found)"
+        return True, f"HTTP {e.code}"  # 400/401/405 = endpoint alive (auth/body required)
+    except Exception as e:
+        return False, str(e)[:60]
+
+
 def check_bridge(c: Check, sid: str = ""):
     """aimail-bridge: config + process + log + pull path (P0)
 
@@ -1161,7 +1393,11 @@ def main():
                     except Exception:
                         pass
             if sid_platform and sid_platform != agent_type:
-                print(f"  platform: {agent_type} → {sid_platform} (by system_id {_sid[:8]}…)")
+                _msg = f"  platform: {agent_type} → {sid_platform} (by system_id {_sid[:8]}…)"
+                if "--json" in sys.argv:
+                    print(_msg, file=sys.stderr)
+                else:
+                    print(_msg)
                 agent_type = sid_platform
                 adapter = PLATFORMS.get(agent_type)
 
@@ -1183,10 +1419,19 @@ def main():
     c.add("system", "id", bool(platform_sid),
           platform_sid or "none found", "Run: aimail init + aimail install (激活系统)")
 
+    # ══ L0 配置文件完备性与正确性(2026-09-04 全面体检)════════
+    # 顺序定调:L0/L1 配置 → L2 平台运行时资源 → L3 agent 配置 → L4 链路。
+    _check_l0_configs(c, platform_sid)
+
     # L1 gateway(通用,按 sid)
     check_gateway(c, platform_sid)
     # L2 bridge(通用,按 sid 匹配 pull.systems 条目)
     check_bridge(c, platform_sid)
+    # L0 扩展:bridge 配置完备性 + agentmail.json 完备性/一致性 + routes 覆盖
+    _check_bridge_completeness(c, platform_sid)
+    _check_agentmail_json(c, platform_sid)
+    # L2 平台运行时资源就绪(补丁标记/skills/board 资源/插件)
+    _check_l2_runtime(c, platform_sid)
 
     # L3/L4 agent 配置完整性 + hook 接口(平台专属适配器)
     if adapter:
@@ -1222,6 +1467,120 @@ def main():
                 print("    Use --verbose for fix suggestions")
 
     return 0 if c.all_pass() else 1
+
+
+
+
+# ═══════════════════════════════════════════════════════════════
+# L2: 平台运行时资源就绪(2026-09-04 全面体检第二维度)
+# 顺序:L0/L1 配置 → L2 运行时资源 → L3 agent 配置 → L4 链路
+# ═══════════════════════════════════════════════════════════════
+
+def _check_l2_runtime(c: Check, sid: str):
+    """检查安装时部署的运行时资源是否就绪(幂等重装可修复)。"""
+    gw = _read_gw_cfg(sid) or {}
+    sh = gw.get("system_home", "")
+    platform = ""
+    if sh and Path(sh).is_dir():
+        # 复用 CLI 的特征判定(不经 import;特征判定与 aimail.detect 一致)
+        p = Path(sh)
+        if p.name == ".pi" and (p / "agent").is_dir():
+            platform = "pi"
+        elif p.name == ".dsh" and (p / "profiles").is_dir():
+            platform = "dsh"
+        elif (p / "hermes-agent").exists() or (p / "profiles").is_dir():
+            platform = "hermes"
+        elif (p / "openclaw.json").is_file():
+            platform = "openclaw"
+        elif (p / "backend" / "app" / "gateway").is_dir():
+            platform = "deerflow"
+
+    if not platform:
+        # system_home 缺失/无效已在 L0 报;此处仅提示平台不可定位
+        c.add("runtime", "platform-locatable", False,
+              "platform root not locatable (system_home missing/invalid)",
+              "Run: aimail install --home <platform-root> --system-id " + (sid or "<sid>"))
+        return
+    c.add("runtime", "platform-locatable", True, f"{platform} @ {sh}")
+
+    home = Path.home()
+    fix_install = f"python -m aimail.install --type {platform} --home {sh}"
+
+    if platform == "hermes":
+        ha = Path(sh) / "hermes-agent"
+        wh = ha / "gateway" / "platforms" / "webhook.py"
+        ok = wh.is_file() and "PREPROCESS_REGISTRY" in (wh.read_text(errors="replace") if wh.is_file() else "")
+        c.add("runtime", "patch-webhook", ok,
+              f"webhook.py {'patched (PREPROCESS_REGISTRY present)' if ok else 'NOT patched or missing: ' + str(wh)}",
+              fix_install)
+        prof = ha / "hermes_cli" / "profiles.py"
+        if not prof.is_file():
+            prof = ha / "cli" / "profiles.py"
+        ok2 = prof.is_file() and "AmailGateway" in (prof.read_text(errors="replace") if prof.is_file() else "")
+        c.add("runtime", "patch-profiles", ok2,
+              f"profiles.py {'patched (AmailGateway hook present)' if ok2 else 'NOT patched or missing: ' + str(prof)}",
+              fix_install)
+        # skills: profiles/*/skills/agentmail/SKILL.md(至少一个)
+        skills_hits = 0
+        for cand in [Path(sh)] + sorted((Path(sh) / "profiles").glob("*")) if (Path(sh) / "profiles").is_dir() else [Path(sh)]:
+            if (cand / "skills" / "agentmail" / "SKILL.md").is_file():
+                skills_hits += 1
+        c.add("runtime", "skills", skills_hits > 0,
+              f"{skills_hits} profile(s) have skills/agentmail/SKILL.md" if skills_hits
+              else "no profile has skills/agentmail/SKILL.md", fix_install)
+        # toolsets: hermes config platform_toolsets 含 agentmail
+        ts_ok = False
+        for cfgp in [Path(sh) / "config.yaml"] + sorted((Path(sh) / "profiles").glob("*/config.yaml")):
+            if cfgp.is_file():
+                try:
+                    import yaml as _y
+                    pt = (_y.safe_load(cfgp.read_text()) or {}).get("platform_toolsets", {})
+                    if any("agentmail" in (v or []) for v in pt.values() if isinstance(v, dict) or isinstance(v, list)):
+                        ts_ok = True
+                        break
+                except Exception:
+                    pass
+        c.add("runtime", "toolsets", ts_ok,
+              "platform_toolsets 含 agentmail" if ts_ok else "platform_toolsets lacks agentmail",
+              fix_install)
+
+    elif platform == "openclaw":
+        installed = any((home / ".openclaw" / "npm" / "projects").glob("openclaw-aimail*")) \
+            if (home / ".openclaw" / "npm" / "projects").is_dir() else False
+        c.add("runtime", "plugin-installed", installed,
+              "openclaw-aimail npm package present" if installed else "openclaw-aimail not installed",
+              "openclaw plugins install npm-pack:<openclaw-aimail.tgz>; restart gateway")
+        sk = (home / ".openclaw" / "skills" / "agentmail" / "SKILL.md").is_file()
+        c.add("runtime", "skills", sk,
+              "skills/agentmail/SKILL.md present" if sk else "skills/agentmail/SKILL.md missing",
+              "Run: bash <core>/cli/scripts/openclaw/install-skill.sh")
+
+    elif platform == "deerflow":
+        app_py = Path(sh) / "backend" / "app" / "gateway" / "app.py"
+        if not app_py.is_file():
+            app_py = Path(sh) / "app" / "gateway" / "app.py"
+        ok = app_py.is_file() and "aimail_inbound" in (app_py.read_text(errors="replace") if app_py.is_file() else "")
+        c.add("runtime", "patch-app", ok,
+              f"app.py {'patched (aimail_inbound router present)' if ok else 'NOT patched or missing: ' + str(app_py)}",
+              fix_install)
+
+    elif platform == "pi":
+        ptr = home / ".pi" / ".agentmail"
+        try:
+            match = ptr.is_file() and json.loads(ptr.read_text()).get("system_id") == sid
+        except Exception:
+            match = False
+        c.add("runtime", "pointer", match,
+              ".pi pointer matches system" if match else ".pi pointer missing/mismatch",
+              "Run: aimail install --home ~/.pi --system-id " + sid)
+
+    # 通用:board 资源 + role_prompt 兜底(a2a_board 角色查找链)
+    board_dir = SYSTEMS_DIR / sid / "board"
+    rp = board_dir / "role_prompt" / "common.md"
+    c.add("runtime", "board-resources", rp.is_file(),
+          f"board/role_prompt/common.md present" if rp.is_file()
+          else "board/role_prompt/common.md missing (a2a role rendering falls back empty)",
+          fix_install)
 
 
 if __name__ == "__main__":

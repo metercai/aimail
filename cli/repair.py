@@ -34,6 +34,7 @@ BRIDGE_ADDR = "127.0.0.1:38081"
 BRIDGE_CFG = AIMAIL_HOME / "bridge" / "aimail_bridge.toml"
 BRIDGE_PID = AIMAIL_HOME / "bridge" / "bridge.pid"
 BRIDGE_BIN = AIMAIL_HOME / "bridge" / "bin" / "aimail-bridge"
+ROUTES_FILE = AIMAIL_HOME / "bridge" / "aimail_routes.toml"
 
 
 def _ok(msg):
@@ -230,8 +231,327 @@ def _drain_stuck(sid: str) -> bool:
     return bool(stuck)
 
 
-def repair(sid: str, deep: bool = False, dry_run: bool = False) -> int:
+# ═══════════════════════════════════════════════════════════════
+# 2026-09-04 维护套件:配置/资源/一致性修复(全部幂等)
+# ═══════════════════════════════════════════════════════════════
+
+PLATFORM_ROOTS = [
+    ("hermes",   ".hermes"),
+    ("openclaw", ".openclaw"),
+    ("deerflow", ".deer-flow"),
+    ("dsh",      ".dsh"),
+    ("pi",       ".pi"),
+]
+
+
+def _detect_platform_from_home(system_home):
+    """与 cli/aimail.detect_platform_from_home 同口径的特征判定。"""
+    p = Path(system_home)
+    if p.name == ".pi" and (p / "agent").is_dir():
+        return "pi"
+    if p.name == ".dsh" and (p / "profiles").is_dir() and (p / "storages").is_dir():
+        return "dsh"
+    if (p / "hermes-agent").exists() or (p / "profiles").is_dir():
+        return "hermes"
+    if (p / "openclaw.json").is_file():
+        return "openclaw"
+    if (p / "backend" / "app" / "gateway").is_dir():
+        return "deerflow"
+    return "unknown"
+
+
+def _auto_platform_home(sid: str) -> str:
+    """单平台机自动解析平台根:恰好一个平台目录存在且特征匹配 → 用它;
+    多平台/零平台 → ''(不猜,要求显式 --home)。"""
+    import os as _os
+    hits = []
+    home = Path.home()
+    for plat, root in PLATFORM_ROOTS:
+        d = home / root
+        if d.exists() and _detect_platform_from_home(d) == plat:
+            hits.append((plat, str(d)))
+    if len(hits) == 1:
+        return hits[0][1]
+    if len(hits) > 1:
+        # 多平台机:尝试用 gateway.json 已有 system_home
+        gw = _load_gateway_cfg(sid) or {}
+        sh = gw.get("system_home", "")
+        if sh and Path(sh).is_dir():
+            return sh
+    return ""
+
+
+def _pointer_paths_for(platform: str):
+    home = Path.home()
+    if platform == "openclaw":
+        return [home / ".openclaw" / ".agentmail"]
+    if platform == "deerflow":
+        return [home / ".deer-flow" / ".agentmail"]
+    if platform == "pi":
+        return [home / ".pi" / ".agentmail"]
+    if platform == "dsh":
+        return [home / ".dsh" / ".agentmail"]
+    out = [home / ".hermes" / ".agentmail"]
+    profiles = home / ".hermes" / "profiles"
+    if profiles.is_dir():
+        out += sorted(profiles.glob("*/.agentmail"))
+    return out
+
+
+def _sid_has_pointer(sid: str) -> bool:
+    for plat in ("hermes", "openclaw", "deerflow", "pi", "dsh"):
+        for ptr in _pointer_paths_for(plat):
+            if ptr.is_file():
+                try:
+                    if json.loads(ptr.read_text()).get("system_id") == sid:
+                        return True
+                except Exception:
+                    pass
+    return False
+
+
+def _repair_gateway_config(sid: str, args_home: str = "") -> bool:
+    """system_home/webhook_host 仅补缺,不覆盖已有值。"""
+    gw_path = SYSTEMS_DIR / sid / "agentmail_gateway.json"
+    if not gw_path.is_file():
+        _fail(f"gateway 配置不存在: {gw_path}")
+        return False
+    cfg = json.loads(gw_path.read_text())
+    changed = False
+    root = args_home or _auto_platform_home(sid)
+    if not cfg.get("system_home"):
+        if root and _detect_platform_from_home(Path(root)) != "unknown":
+            cfg["system_home"] = root
+            _ok(f"system_home backfilled: {root}")
+            changed = True
+        else:
+            _warn("system_home 缺失且无法确定平台根(多平台机请用 --home)")
+    if not cfg.get("webhook_host"):
+        try:
+            sys.path.insert(0, str(SCRIPTS_DIR))
+            from setup_system import _detect_webhook_host
+            wh = _detect_webhook_host(cfg.get("gateway_url", ""))
+            if wh:
+                cfg["webhook_host"] = wh
+                _ok(f"webhook_host backfilled: {wh}")
+                changed = True
+        except Exception as e:
+            _warn(f"webhook_host 探测失败(跳过): {e}")
+    if changed:
+        gw_path.write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
+        import os as _os
+        _os.chmod(gw_path, 0o600)
+    return changed
+
+
+def _repair_pointer(sid: str, platform_home: str) -> bool:
+    """指针重建:确定平台根 + sid 无任何指针 + 目标指针文件不存在 → 写。"""
+    if _sid_has_pointer(sid):
+        return False
+    if not platform_home:
+        return False
+    plat = _detect_platform_from_home(Path(platform_home))
+    if plat == "unknown":
+        return False
+    ajx = sorted((SYSTEMS_DIR / sid).glob("*/agentmail.json"))
+    email = ""
+    for a in ajx:
+        try:
+            d = json.loads(a.read_text())
+            if d.get("email"):
+                email = d["email"]
+                break
+        except Exception:
+            continue
+    if not email:
+        return False
+    home = Path.home()
+    ptr_map = {
+        "openclaw": home / ".openclaw" / ".agentmail",
+        "deerflow": home / ".deer-flow" / ".agentmail",
+        "pi":       home / ".pi" / ".agentmail",
+        "dsh":      home / ".dsh" / ".agentmail",
+        "hermes":   home / ".hermes" / ".agentmail",
+    }
+    ptr = ptr_map[plat]
+    if ptr.exists():
+        return False  # 已有指针(指向别的系统)不覆盖
+    ptr.write_text(json.dumps({"system_id": sid, "email": email}, indent=2))
+    _ok(f"pointer created: {ptr} → {sid}")
+    return True
+
+
+def _repair_runtime_resources(sid: str, platform_home: str) -> bool:
+    """L2 资源缺失 → python -m aimail.install 幂等重装。"""
+    gw = _load_gateway_cfg(sid) or {}
+    sh = platform_home or gw.get("system_home", "")
+    if not sh or not Path(sh).is_dir():
+        _warn("平台根不可定位,跳过运行时资源重部署(deerflow 等远端平台请到宿主机执行)")
+        return False
+    plat = _detect_platform_from_home(Path(sh))
+    if plat == "unknown":
+        return False
+    # 特征探针:hermes webhook.py 标记 / deerflow app.py 标记
+    def _needs_reinstall():
+        if plat == "hermes":
+            wh = Path(sh) / "hermes-agent" / "gateway" / "platforms" / "webhook.py"
+            return not (wh.is_file() and "PREPROCESS_REGISTRY" in wh.read_text(errors="replace"))
+        if plat == "deerflow":
+            for cand in (Path(sh) / "backend" / "app" / "gateway" / "app.py",
+                         Path(sh) / "app" / "gateway" / "app.py"):
+                if cand.is_file() and "aimail_inbound" in cand.read_text(errors="replace"):
+                    return False
+            return True
+        return False  # openclaw/pi 资源由插件命令管理,不在此重装
+
+    if not _needs_reinstall():
+        return False
+    _warn(f"{plat} 运行时资源缺失 → 幂等重装(python -m aimail.install --type {plat} --home {sh})")
+    r = subprocess.run(
+        [sys.executable, "-m", "aimail.install", "--type", plat, "--home", sh,
+         "--system-id", sid],
+        capture_output=True, text=True, timeout=300)
+    sys.stdout.write((r.stdout or "")[-600:])
+    if r.returncode == 0:
+        _ok("runtime resources reinstalled")
+        return True
+    _fail(f"重装失败(exit {r.returncode}): {(r.stderr or '')[-200:]}")
+    return False
+
+
+def _repair_agentmail_json(sid: str) -> bool:
+    """agentmail.json 补缺(可重建字段)+ webhook_url 对齐存活路由。"""
+    import urllib.request, urllib.error
+    gw = _load_gateway_cfg(sid) or {}
+    changed = False
+    sysdir = SYSTEMS_DIR / sid
+    if not sysdir.is_dir():
+        return False
+    # routes 表(目标 URL)
+    routes = {}
+    if ROUTES_FILE.exists():
+        for line in ROUTES_FILE.read_text().splitlines():
+            line = line.strip()
+            if "=" in line and not line.startswith("#"):
+                k, v = line.split("=", 1)
+                routes[k.strip().strip('"')] = v.strip().strip('"').strip(",")
+
+    def _alive(url):
+        if not url or not url.startswith("http"):
+            return False
+        try:
+            urllib.request.urlopen(urllib.request.Request(url, data=b"", method="POST"), timeout=3)
+            return True
+        except urllib.error.HTTPError as e:
+            return e.code != 404
+        except Exception:
+            return False
+
+    for ajx in sorted(sysdir.glob("*/agentmail.json")):
+        try:
+            d = json.loads(ajx.read_text())
+        except Exception:
+            continue
+        orig = dict(d)
+        # 1) 可重建字段补缺(gateway.json 权威)
+        for k in ("gateway_url", "domain", "system_id", "system_name", "manager_address"):
+            if not d.get(k) and gw.get(k):
+                d[k] = gw[k]
+        # 2) webhook_url 对齐存活路由
+        email = d.get("email", "")
+        target = routes.get(email, "")
+        declared = d.get("webhook_url", "")
+        from urllib.parse import urlparse as _up
+        _h = _up(target).hostname if target else ""
+        _local = _h in ("127.0.0.1", "localhost", "::1")
+        if target and _alive(target) and _local:
+            if declared and not _alive(declared):
+                d["webhook_url"] = target
+                _ok(f"{ajx.parent.name}: webhook_url {declared} → {target}(declared 死、route 活)")
+            elif declared and declared.rstrip("/") != target.rstrip("/"):
+                d["webhook_url"] = target
+                _ok(f"{ajx.parent.name}: webhook_url aligned to route target {target}")
+        if d != orig:
+            ajx.write_text(json.dumps(d, indent=2, ensure_ascii=False))
+            import os as _os
+            _os.chmod(ajx, 0o600)
+            changed = True
+    return changed
+
+
+def _repair_routes_entries(sid: str) -> bool:
+    """routes 缺条目 → 复用 bridge --system-id 重刷(bridge 侧自动生成)。"""
+    sysdir = SYSTEMS_DIR / sid
+    if not sysdir.is_dir() or not ROUTES_FILE.exists():
+        return False
+    routes = {}
+    for line in ROUTES_FILE.read_text().splitlines():
+        line = line.strip()
+        if "=" in line and not line.startswith("#"):
+            k, v = line.split("=", 1)
+            routes[k.strip().strip('"')] = v.strip().strip('"').strip(",")
+    missing = []
+    for sub in sorted(sysdir.iterdir()):
+        aj = sub / "agentmail.json"
+        if not aj.is_file():
+            continue
+        try:
+            d = json.loads(aj.read_text())
+        except Exception:
+            continue
+        email = d.get("email", "")
+        if email and email not in routes:
+            missing.append(email)
+    if not missing:
+        return False
+    _warn(f"routes 缺条目: {missing} → bridge 重刷补齐")
+    return _refresh_routes(sid)
+
+
+
+def _repair_pull_entry_key(sid: str) -> bool:
+    """bridge pull.systems 的 admin_key 与 gateway.json 对齐(gateway.json 为权威源)。"""
+    gw_path = SYSTEMS_DIR / sid / "agentmail_gateway.json"
+    if not gw_path.is_file() or not BRIDGE_CFG.exists():
+        return False
+    gw = json.loads(gw_path.read_text())
+    gk = gw.get("admin_key", "")
+    if not gk:
+        return False
+    try:
+        import tomllib
+        with open(BRIDGE_CFG, "rb") as f:
+            td = tomllib.load(f)
+    except Exception:
+        return False
+    systems = (td.get("pull", {}) or {}).get("systems") or []
+    entry = next((x for x in systems if x.get("system_id") == sid), None)
+    if entry is None or entry.get("admin_key") == gk:
+        return False
+    raw = BRIDGE_CFG.read_text()
+    # 精确替换该条目的 admin_key 值(条目行内)
+    import re as _re
+    new_raw, n = _re.subn(
+        r'(\{[^}]*system_id\s*=\s*"' + _re.escape(sid) + r'"[^}]*admin_key\s*=\s*")[^"]*(")',
+        r'\g<1>' + gk + r'\g<2>',
+        raw, count=1)
+    if n == 0:
+        # 字段顺序可能相反(admin_key 在 system_id 前)
+        new_raw, n = _re.subn(
+            r'(\{[^}]*admin_key\s*=\s*")[^"]*("[^}]*system_id\s*=\s*"' + _re.escape(sid) + r'")',
+            r'\g<1>' + gk + r'\g<2>',
+            raw, count=1)
+    if n == 0:
+        _warn("pull 条目 admin_key 对齐失败(格式未匹配)——请手工核对 aimail_bridge.toml")
+        return False
+    BRIDGE_CFG.write_text(new_raw)
+    _ok(f"pull entry admin_key aligned to gateway.json ({sid})")
+    return True
+
+
+def repair(sid: str, deep: bool = False, dry_run: bool = False, home: str = "") -> int:
     print(f"  repair system={sid}{' [dry-run]' if dry_run else ''}{' [deep]' if deep else ''}")
+    deep_home = str(Path(home).expanduser()) if home else _auto_platform_home(sid)
     passed, checks = _run_check(sid)
     if not checks:
         _fail("check 无输出——system_id 是否有效?")
@@ -252,6 +572,18 @@ def repair(sid: str, deep: bool = False, dry_run: bool = False) -> int:
         ("bridge 路由重刷(文件+admin API 热加载)", lambda: _refresh_routes(sid)),
         ("gateway webhook 配对修复(证据驱动;--deep 直接重写)",
          lambda: _repair_webhook_pairing(sid, deep=deep)),
+        ("gateway 配置回填(system_home/webhook_host 仅补缺)",
+         lambda: _repair_gateway_config(sid, args_home=deep_home)),
+        ("平台指针重建(仅当确定平台根且指针缺失)",
+         lambda: _repair_pointer(sid, deep_home)),
+        ("运行时资源重部署(补丁标记/资源缺失 → 幂等重装)",
+         lambda: _repair_runtime_resources(sid, deep_home)),
+        ("agentmail.json 补缺 + webhook_url 对齐存活路由",
+         lambda: _repair_agentmail_json(sid)),
+        ("bridge routes 条目补齐(缺条目 → 重刷)",
+         lambda: _repair_routes_entries(sid)),
+        ("bridge pull 条目 admin_key 对齐 gateway.json",
+         lambda: _repair_pull_entry_key(sid)),
     ]
     if deep:
         plan.append(("stuck pending 清理(--deep)", lambda: _drain_stuck(sid)))
@@ -310,7 +642,7 @@ def main():
     if not sid:
         print("  无法确定 system_id(--system-id)")
         return 1
-    return repair(sid, deep=args.deep, dry_run=args.dry_run)
+    return repair(sid, deep=args.deep, dry_run=args.dry_run, home=args.home or "")
 
 
 if __name__ == "__main__":

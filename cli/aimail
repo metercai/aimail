@@ -1111,13 +1111,72 @@ def cmd_renew(args) -> int:
     return 0
 
 
+
+# ── stats -a helpers (2026-09-04 maintenance suite) ─────────────────
+
+PLATFORM_ROOTS = [
+    ("hermes",   ".hermes"),
+    ("openclaw", ".openclaw"),
+    ("deerflow", ".deer-flow"),
+    ("dsh",      ".dsh"),
+    ("pi",       ".pi"),
+]
+
+def _pointer_sid_for(platform: str) -> str:
+    """Read the platform's .agentmail pointer system_id ('' = none)."""
+    if platform == "openclaw":
+        ptr = HOME / ".openclaw" / ".agentmail"
+    elif platform == "deerflow":
+        ptr = HOME / ".deer-flow" / ".agentmail"
+    elif platform == "pi":
+        ptr = HOME / ".pi" / ".agentmail"
+    elif platform == "dsh":
+        ptr = HOME / ".dsh" / ".agentmail"
+    else:
+        ptr = HOME / ".hermes" / ".agentmail"
+        if not ptr.is_file():
+            profiles = HOME / ".hermes" / "profiles"
+            if profiles.is_dir():
+                for pp in sorted(profiles.glob("*/.agentmail")):
+                    if pp.is_file():
+                        ptr = pp
+                        break
+    try:
+        return json.loads(ptr.read_text()).get("system_id", "") if ptr.is_file() else ""
+    except Exception:
+        return ""
+
+def _all_pointer_sids() -> dict:
+    """sid -> [platform names pointing at it]."""
+    out: dict = {}
+    for plat, _root in PLATFORM_ROOTS:
+        sid = _pointer_sid_for(plat)
+        if sid:
+            out.setdefault(sid, []).append(plat)
+    return out
+
+def _platform_root_exists(platform: str) -> bool:
+    root = HOME / dict(PLATFORM_ROOTS)[platform]
+    if not root.exists():
+        return False
+    return detect_platform_from_home(root) == platform
+
+
 def cmd_stats(args) -> int:
-    """本机 aimail 对接状态(只读):系统列表 + agent 实例 + 邮件统计。"""
+    """本机 aimail 对接状态(只读):系统列表 + agent 实例 + 邮件统计。
+
+    -a/--all:全面视图 —— 逐系统标注 home/pointer 健康度,新增
+    断链系统段与本机平台段(含已安装未对接平台),并给出
+    stats → check → repair 维护链路提示。
+    """
+    all_view = bool(getattr(args, "all", False))
     if not SYSTEMS_DIR.is_dir() or not any(SYSTEMS_DIR.iterdir()):
         print("  no aimail systems configured on this machine")
         return 0
     print("  Systems installed:")
     total_agents = 0
+    broken: list[tuple[str, str]] = []   # (sid, reason) — fact-based only
+    ptr_map = _all_pointer_sids() if all_view else {}
     for sid_dir in sorted(SYSTEMS_DIR.iterdir()):
         if not sid_dir.is_dir():
             continue
@@ -1154,6 +1213,7 @@ def cmd_stats(args) -> int:
             })
         total_agents += len(agents)
         expiry_line = ""
+        cloud_status = "ok"
         try:
             load_core()
             from aimail_tools import _GatewayClient
@@ -1167,11 +1227,30 @@ def cmd_stats(args) -> int:
                     days = (dt - datetime.now(timezone.utc)).days
                     mark = f"  {YELLOW}⚠ EXPIRES in {days}d{NC}" if days <= 3 else f"  (expires in {days}d)"
                     expiry_line = f"   expires: {qr['expires_at'][:10]}{mark}"
-                elif isinstance(qr, dict) and qr.get("status") == 403:
+                elif isinstance(qr, dict) and qr.get("status") in (403, 404):
+                    cloud_status = "unlinked"
                     expiry_line = f"   {RED}EXPIRED/SUSPENDED{NC} — renew: aimail renew --system-id {sid} --code <activation-code>"
         except Exception:
+            cloud_status = "unreachable"
             expiry_line = "   expires: (query failed)"
+        if not (gw.get("gateway_url") and gw.get("admin_key")):
+            cloud_status = "broken-config"
         print(f"    {sid}   [{platform}]   agents: {len(agents)}{expiry_line}")
+        if all_view:
+            # home / pointer health annotations (facts, no guessing)
+            if not system_home:
+                home_tag = f"{RED}home-missing{NC}"
+            elif not Path(system_home).is_dir():
+                home_tag = f"{RED}home-dir-missing({system_home}){NC}"
+            elif platform == "unknown":
+                home_tag = f"{YELLOW}home-no-platform-signature{NC}"
+            else:
+                home_tag = f"{GREEN}home-ok{NC}"
+            ptrs = ptr_map.get(sid, [])
+            ptr_tag = f"{GREEN}pointer:{','.join(ptrs)}{NC}" if ptrs else f"{YELLOW}pointer-none{NC}"
+            print(f"        health: {home_tag} · {ptr_tag} · cloud:{cloud_status}")
+            if cloud_status in ("unlinked", "broken-config"):
+                broken.append((sid, cloud_status))
     print(f"  Agents ({total_agents}):")
     for sid_dir in sorted(SYSTEMS_DIR.iterdir()):
         if not sid_dir.is_dir():
@@ -1201,6 +1280,40 @@ def cmd_stats(args) -> int:
             mgr = d.get("manager_address") or gw.get("manager_address", "") or "-"
             print(f"    {email}   [{platform}]")
             print(f"        received: {n} emails · storage: {_fmt_size(sz)} · manager: {mgr}")
+
+    if all_view:
+        # ── 断链系统段(纯事实判定:broken-config / unlinked)──
+        print()
+        if broken:
+            print("  Broken / unlinked systems:")
+            for bsid, why in broken:
+                print(f"    {bsid}   ({why})")
+            print("    → check: aimail check --system-id <sid> · repair: aimail repair --system-id <sid>")
+        else:
+            print("  Broken / unlinked systems: none")
+
+        # ── 本机平台段(五平台根事实扫描)──
+        print()
+        print("  Platforms on this machine:")
+        linked_any = False
+        for plat, root in PLATFORM_ROOTS:
+            exists = _platform_root_exists(plat)
+            ptr_sid = _pointer_sid_for(plat)
+            if exists and ptr_sid:
+                print(f"    {plat:<9} {HOME / root}   linked → {ptr_sid}")
+                linked_any = True
+            elif exists:
+                print(f"    {plat:<9} {HOME / root}   {YELLOW}installed, not linked{NC} — aimail install --home {HOME / root}")
+            else:
+                print(f"    {plat:<9} — not installed")
+        if not linked_any:
+            print(f"    {YELLOW}no platform is linked to any aimail system{NC}")
+
+        # ── 维护链路提示 ──
+        print()
+        print("  Maintenance: stats → check → repair")
+        print("    aimail check --system-id <sid>        # full health exam (config/runtime/links)")
+        print("    aimail repair --system-id <sid> [--home <root>]   # fix per check findings")
     return 0
 
 
@@ -1531,6 +1644,8 @@ def main():
     p_renew.set_defaults(func=cmd_renew)
 
     p_stats = sub.add_parser("stats", help="本机 aimail 对接状态(系统/agent/邮件统计)")
+    p_stats.add_argument("-a", "--all", action="store_true",
+                         help="全面视图:系统健康标注 + 断链系统 + 本机平台段")
     p_stats.set_defaults(func=cmd_stats)
 
     p_uni = sub.add_parser("uninstall", help="卸载:消除 aimail 在 agent 系统上的配置")
