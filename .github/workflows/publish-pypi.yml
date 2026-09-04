@@ -1,0 +1,96 @@
+# Publish the aimail Python SDK wheel to PyPI via Trusted Publishing.
+#
+# Trigger: manual (workflow_dispatch) — publish the current commit's version;
+# or push a v* tag. Idempotent: a version already on PyPI is skipped.
+# Auth: PyPI Trusted Publisher bound to THIS repo (metercai/aimail) +
+# workflow "publish-pypi.yml" + environment "pypi-release"; no API token
+# required (OIDC). Project: aimail (the wheel is built from pysdk/,
+# force-include — see pyproject.toml).
+#
+# Prerequisites (one-time, pypi.org → Account settings → Publishing):
+#   1. "aimail" must exist as a project (create it first if free, or add
+#      yourself as owner if taken by you).
+#   2. Add a pending publisher:
+#        Project name:    aimail
+#        Owner/Repo:      metercai/aimail
+#        Workflow name:   publish-pypi.yml
+#        Environment:     pypi-release     ← must EXACTLY match the job below
+#   3. Optional dry run first: publish the SAME workflow against TestPyPI
+#      (swap repository-url in the publish step + bind a test publisher),
+#      then re-point to PyPI.
+#
+# Version source of truth: pyproject.toml [project].version. The SDK also
+# carries aimail.__version__ (pysdk/__init__.py) — a mismatch fails the
+# build so a release never ships two different versions.
+name: publish-pypi.yml
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Check version consistency (pyproject vs aimail.__version__)
+        id: check
+        run: |
+          py_ver=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          init_ver=$(python3 -c "import re; print(re.search(r'__version__ = \"([^\"]+)\"', open('pysdk/__init__.py').read()).group(1))")
+          echo "pyproject=$py_ver  __init__=$init_ver"
+          [ "$py_ver" = "$init_ver" ] || { echo "VERSION MISMATCH — bump both before publishing"; exit 1; }
+          echo "version=$py_ver" >> "$GITHUB_OUTPUT"
+
+      - name: Install build tooling
+        run: python3 -m pip install --upgrade build
+
+      - name: Build wheel
+        run: python3 -m build --wheel --outdir dist/ .
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aimail-wheel
+          path: dist/aimail-*.whl
+
+      - name: Release gate — scripts/verify-wheel.sh (clean-venv 3-layout smoke)
+        run: bash scripts/verify-wheel.sh
+
+  publish:
+    needs: build-and-verify
+    runs-on: ubuntu-latest
+    # TP binding pins this environment name; OIDC claims include it and PyPI
+    # compares it exactly against the publisher configuration.
+    environment: pypi-release
+    permissions:
+      id-token: write   # OIDC: mint the PyPI exchange token, no secrets
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: aimail-wheel
+          path: dist/
+
+      - name: Skip if version already on PyPI (re-dispatch of same commit)
+        env:
+          VER: ${{ needs.build-and-verify.outputs.version }}
+        run: |
+          set -x
+          if curl -fsS "https://pypi.org/pypi/aimail/$VER/json" >/dev/null 2>&1; then
+            echo "aimail $VER already published — nothing to do"
+            exit 0
+          fi
+
+      - name: Publish to PyPI (Trusted Publishing / OIDC)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/

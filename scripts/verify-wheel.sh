@@ -57,10 +57,12 @@ echo "== 4/5 install entry contract"
 echo "   OK: aimail.install entry works"
 
 echo "== 5/5 version metadata"
-"$VENV_DIR/bin/python" - <<'PY'
+EXPECT_VER="$("$PY" -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
+"$VENV_DIR/bin/python" - "$EXPECT_VER" <<'PY'
+import sys
 from importlib.metadata import version
-assert version("aimail") == "0.1.0" or version("aimail")  # non-empty
-print(f"   OK: installed version {version('aimail')}")
+assert version("aimail") == sys.argv[1], f"{version('aimail')} != {sys.argv[1]}"
+print(f"   OK: installed version {version('aimail')} matches pyproject")
 PY
 
 rm -rf "$VENV_DIR"
