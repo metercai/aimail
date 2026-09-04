@@ -33,54 +33,86 @@ AIMail 既不同于 IM，也不是传统邮箱。它是在传统邮件系统上�
 
 ## 快速开始
 
-### 前置条件
+### 第一部分 — 第一次安装(全新机器,五步)
 
-- [aimail-gateway](https://github.com/metercai/aimail-gateway)（已运行）
-- [Hermes Agent](https://github.com/nousresearch/hermes-agent)（已安装）
-- Linux 环境 + Python 3.10+
+前置条件:Linux + Python 3.10+,以及可达的
+[aimail-gateway](https://github.com/metercai/aimail-gateway)——或公网网关
+(`amail.token.tm`)的激活码。
 
-### 一键集成
+**第 1 步:安装 Agent 宿主。** 安装任意受支持的 Agent 平台(dsh /
+OpenClaw / pi / deer-flow / Hermes,按其各自文档)。选哪个宿主都行,
+真正对接 AIMail 的是与宿主匹配的 SDK 适配器。
 
-```bash
-git clone https://github.com/metercai/aimail.git
-cd aimail
-cp docs/.env.example .env        # 填入 AIMAIL_URL、AIMAIL_PRODUCT_CODE（新系统）或
-                            # AIMAIL_ADMIN_KEY（已有系统）、AIMAIL_MANAGER_ADDRESS；
-                            # 可选 AIMAIL_DOMAIN / AIMAIL_SYSTEM_NAME
-./aimail install --home ~/.hermes
-```
-
-`install` 全程**非交互**完成整条链路：系统激活（或复用已有系统）→ bridge
-部署 → 工具与 skill 安装 → webhook 补丁与 profile 注册。所有值都从
-`.env` 读取，通常唯一需要带的参数就是 `--home`。`AIMAIL_DOMAIN` 指定的
-域名会在激活时预置，缺失时主动创建。
-
-### 验证链路
+**第 2 步:设置机器环境变量。** 复制粘贴修改后运行——两个核心值,
+再跟一个凭据:
 
 ```bash
-./aimail check      # 4 层流水线诊断（gateway → bridge → webhook → profile）
-./aimail ping       # 端到端 ping/pong 闭环（经 SMTP）
-./aimail welcome    # 向 manager 发送欢迎邮件并验证送达
-./aimail stats      # 本机总览：系统、agent、邮件统计
+export AIMAIL_URL=https://amail.token.tm        # 网关地址
+export AIMAIL_MANAGER_ADDRESS=you@example.com   # 默认 manager(接收 welcome 邮件)
+export AIMAIL_PRODUCT_CODE=<码>                 # 新系统——若为已有系统则:
+# export AIMAIL_ADMIN_KEY=<key>                 #   复用,不重新激活
+# export AIMAIL_SYSTEM_NAME=<标识名>            # 共享域系统(agent.<标识名>@…)
 ```
 
-输出示例：
+**第 3 步:Bootstrap 并初始化。** 一条命令安装 `aimail` CLI 到
+`~/.local/bin` 并执行机器级 init(主目录、磁盘余量、本地网关直连还是
+bridge 的判定):
 
-```
-$ ./aimail stats
-  Systems installed:
-      shared-token-40b34a66   [hermes]    agents: 1
-      shared-token-9479c607   [openclaw]  agents: 1
-  Agents (2):
-      agent.weiwei@amail.token.tm   [hermes]
-          received: 12 emails · storage: 1.2 MB · manager: 925457@qq.com
-      agent.xianlin@amail.token.tm   [openclaw]
-          received: 8 emails · storage: 0.9 MB · manager: 925457@qq.com
+```bash
+curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
 ```
 
-所有参数优先级：CLI 参数 > shell 环境变量 > `.env` > 内置默认值。
-全部子命令见 `./aimail --help`（`bridge`、`check`、`domain`、
-`install`、`mailname`、`ping`、`reset`、`stats`、`uninstall`、`welcome`）。
+**第 4 步:为宿主安装 SDK。** 一条非交互命令:激活(或复用)系统 → 部署
+bridge 条目 → 安装平台 SDK 适配器(补丁/skills/插件)→ 注册并绑定 agent。
+`--home` 指向平台根:
+
+```bash
+aimail install --home ~/.hermes       # Hermes(亦可 ~/.dsh、~/.openclaw、~/.pi、deer-flow backend 目录)
+```
+
+等价宿主侧方式(机器已初始化):直接在宿主内装适配器——
+`openclaw plugins install openclaw-aimail`、`dsh plugin --profile web add
+dsh-aimail`、`pi install npm:pi-aimail`,或
+`python -m aimail.install install --type hermes|deerflow --home <根>`(pip
+包 `aimailsdk`)。SDK 自检环境、自释放资源、首次使用自动绑定。
+
+**第 5 步:验证闭环。**
+
+```bash
+aimail welcome       # 经网关向 manager 发欢迎邮件 = 端到端打通证明
+aimail check         # 全面体检(配置 → 运行时资源 → 链路);有问题先跑它
+aimail ping          # SMTP ping/pong 闭环
+aimail stats         # 系统 / agent / 邮件总览
+```
+
+所有参数优先级:CLI 参数 > shell 环境变量 > `~/.aimail/.env` > 内置默认值。
+
+### 第二部分 — 后续安装(环境就绪,新增系统/宿主)
+
+机器已初始化(CLI 已装、bridge 在位)。对接另一宿主或系统只需三步:
+
+**第 1 步:设置凭据环境变量**(每系统一次;值与第一部分第 2 步相同,也可
+写进 `~/.aimail/.env` 持久化):
+
+```bash
+export AIMAIL_PRODUCT_CODE=<码>        # 新系统
+# export AIMAIL_ADMIN_KEY=<key>        # 已有系统,复用
+export AIMAIL_SYSTEM_NAME=<标识名>     # 共享域系统
+```
+
+**第 2 步:为目标宿主安装 SDK**——`--home` 指定平台根,`--system-id`
+复用指定系统(省略则激活新系统):
+
+```bash
+aimail install --home ~/.openclaw --system-id <sid>
+```
+
+**第 3 步:验证该系统闭环:**
+
+```bash
+aimail check --system-id <sid> && aimail welcome --system-id <sid>
+```
+
 
 ***
 

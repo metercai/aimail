@@ -80,8 +80,9 @@ side by side:
 
 - `cli/` — `aimail` maintenance CLI + subcommands + platform installers
   (migration target for a future Rust binary)
-- `pysdk/` — Python runtime SDK (pip `aimail`): gateway client, platform
-  adapters, board resources; wheel layout mirrors this tree 1:1
+- `pysdk/` — Python runtime SDK (pip `aimailsdk`, import name `aimail`):
+  gateway client, platform adapters, board resources; wheel layout mirrors
+  this tree 1:1
 - `tssdk/` — TypeScript SDK (npm `@aimail/*`, `dsh-aimail`, `openclaw-aimail`,
   `pi-aimail`), migrated from the former aimail-sdk-ts repo
 - `bridge/` — aimail-bridge binary distributions
@@ -90,77 +91,91 @@ side by side:
 
 ## Quick Start
 
-### New machine in five steps
+### Part 1 — First-time install (new machine, five steps)
 
-Prerequisites: Linux + Python 3.10+ and a reachable
-[aimail-gateway](https://github.com/metercai/aimail-gateway) (or an
-activation code for the public gateway at `amail.token.tm`).
+Prerequisites: Linux + Python 3.10+, and a reachable
+[aimail-gateway](https://github.com/metercai/aimail-gateway) — or an
+activation code for the public gateway (`amail.token.tm`).
 
-**1. Install the agent host** — dsh / OpenClaw / pi / deer-flow / Hermes
-(their own docs; any host works — the matching SDK adapter is what
-matters later).
+**Step 1. Install the agent host.** Install any supported agent platform
+(dsh / OpenClaw / pi / deer-flow / Hermes — their own docs). Every host
+works; the matching SDK adapter is what connects it to AIMail.
 
-**2. Set the machine env vars** — copy-paste, edit, run. Two core values
-first, the credential second (set only what you need):
+**Step 2. Set the machine env vars.** Copy-paste, edit, run — two core
+values, then one credential:
 
 ```bash
 export AIMAIL_URL=https://amail.token.tm        # where the gateway lives
-export AIMAIL_MANAGER_ADDRESS=you@example.com   # default manager (receives welcome)
-# then one credential (see install):
-#   export AIMAIL_ADMIN_KEY=…                  # existing system
-#   export AIMAIL_PRODUCT_CODE=…                # new activation
-#   export AIMAIL_SYSTEM_NAME=…                 # (shared domain: agent.{name}@…)
+export AIMAIL_MANAGER_ADDRESS=you@example.com   # default manager (receives the welcome mail)
+export AIMAIL_PRODUCT_CODE=<code>               # new system — or, for an existing system:
+# export AIMAIL_ADMIN_KEY=<key>                 #   reuse, no re-activation
+# export AIMAIL_SYSTEM_NAME=<name>              # shared-domain systems (agent.<name>@…)
 ```
 
-That is all — run the next step in this same terminal. The bootstrap
-below persists these into `~/.aimail/.env` for you, so future terminals
-keep working. (To persist them yourself instead: append the same lines
-to `~/.bashrc`.)
-
-**3. Bootstrap the CLI and initialize the machine environment** (one
-command, installs `aimail` into `~/.local/bin` and runs the machine-level
-init — main dir, disk headroom, gateway/bridge decision):
+**Step 3. Bootstrap and initialize.** One command installs the `aimail`
+CLI into `~/.local/bin` and runs the machine-level init (main dir, disk
+headroom, local-gateway-vs-bridge decision):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
 ```
 
-**4. Install — via the CLI or the host, both work.** CLI path activates
-the system and provisions the platform in one non-interactive command
-(`--home` picks the platform: `~/.dsh`, `~/.openclaw`, `~/.pi`, `~/.hermes`,
-or a deer-flow backend dir):
+**Step 4. Install the SDK for your host.** One non-interactive command:
+activates (or reuses) the system, deploys the bridge entry, installs the
+platform SDK adapter (patches/skills/plugin), registers and binds the
+agent. `--home` points at the platform root:
 
 ```bash
-aimail install --home ~/.dsh
+aimail install --home ~/.hermes       # Hermes (also: ~/.dsh, ~/.openclaw, ~/.pi, a deer-flow backend dir)
 ```
 
-Host path (environment already initialized): install the SDK adapter
-through the host — `openclaw plugins install openclaw-aimail`,
+Host-side equivalent (machine already initialized): install the adapter
+through the host itself — `openclaw plugins install openclaw-aimail`,
 `dsh plugin --profile web add dsh-aimail`, `pi install npm:pi-aimail`, or
-`python -m aimail.install --type hermes|deerflow` — the SDK self-checks
-the environment (missing env → points at `aimail init`/`install`), releases
-its own resources/patches, and auto-binds on first use.
+`python -m aimail.install install --type hermes|deerflow --home <root>`
+(pip `aimailsdk`). The SDK self-checks the environment, releases its own
+resources, and auto-binds on first use.
 
-**5. Verify the whole loop with a welcome mail** (sent through the
-gateway to the manager, delivery confirmed):
-
-```bash
-aimail welcome
-```
-
-That is the end-to-end proof that activation → bridge → plugin/Adapter →
-binding all work. Diagnostics if anything is off:
+**Step 5. Verify the loop.**
 
 ```bash
-aimail check     # pipeline diagnostics (gateway → bridge → plugin)
-aimail ping      # SMTP ping/pong round-trip
-aimail stats     # systems / agents / mail overview
+aimail welcome       # welcome mail through the gateway to the manager = end-to-end proof
+aimail check         # full health exam (config → runtime resources → links) if anything is off
+aimail ping          # SMTP ping/pong round-trip
+aimail stats         # systems / agents / mail overview
 ```
 
-Priority for every flag: CLI argument > shell env > `~/.aimail/.env` >
-built-in default. See `aimail --help` for all subcommands (`bridge`,
-`check`, `domain`, `init`, `install`, `mailname`, `ping`, `reset`,
-`stats`, `uninstall`, `welcome`, `persona`, `repair`, `version`).
+Flag priority everywhere: CLI argument > shell env > `~/.aimail/.env` >
+built-in default.
+
+### Part 2 — Subsequent installs (machine ready, more systems/hosts)
+
+The machine is already initialized (CLI installed, bridge in place). To
+onboard another host or system, only three steps repeat:
+
+**Step 1. Set the credential env vars** (per system; same values as
+Part 1 Step 2 — or persist them in `~/.aimail/.env`):
+
+```bash
+export AIMAIL_PRODUCT_CODE=<code>        # new system
+# export AIMAIL_ADMIN_KEY=<key>          # existing system, reuse
+export AIMAIL_SYSTEM_NAME=<name>         # shared-domain systems
+```
+
+**Step 2. Install the SDK for the target host** — `--home` selects the
+platform root, `--system-id` reuses a specific system (omit to activate a
+new one):
+
+```bash
+aimail install --home ~/.openclaw --system-id <sid>
+```
+
+**Step 3. Verify the loop** for that system:
+
+```bash
+aimail check --system-id <sid> && aimail welcome --system-id <sid>
+```
+
 
 ---
 
