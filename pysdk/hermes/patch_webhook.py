@@ -231,9 +231,13 @@ def patch_webhook(target_path: str) -> bool:
         print("Patch 1: Callable added to import", file=sys.stderr)
 
     # ── Patch 2: add PREPROCESS_REGISTRY after logger (always replace) ──
-    # Remove old instance if present
+    # Remove old instance if present. The removal must start at the box
+    # header line ('# ══...' above the comment): the inserted block carries
+    # its own box header, so a removal starting at the comment line leaves
+    # one orphan header behind per re-run (blank-line drift would be
+    # harmless, an extra box line would survive unpatch).
     content = re.sub(
-        r'# Preprocess Registry \u2014 allows tools modules to register payload\n'
+        r'# ═{10,}\n# Preprocess Registry — allows tools modules to register payload\n'
         r'.*?PREPROCESS_REGISTRY\[name\] = fn\n+',
         '',
         content, count=1, flags=re.DOTALL
@@ -341,27 +345,40 @@ def patch_webhook(target_path: str) -> bool:
     # ── Patch 6: add a2a_board prompt field consumer (always replace) ──
     # Remove old instance if present
     _p6_marker = '        # ── a2a_board: consume preprocessor prompt fields ──'
+    _p6_skip = False
     if _p6_marker in content:
-        # Remove from marker to the blank line before next code
+        # Remove from marker to the blank line before next code. The end
+        # anchor ('\n\n        # Store delivery info') assumes the handler
+        # body indents 8 spaces; on files where the surrounding context
+        # differs (older/newer layout), the anchor may be absent — treat a
+        # leftover instance as already-applied and skip (never crash the
+        # re-run, never duplicate the block).
         _p6_start = content.index(_p6_marker)
-        _p6_end = content.index('\n\n        # Store delivery info', _p6_start)
-        content = content[:_p6_start] + content[_p6_end:]
+        _p6_end_marker = '\n\n        # Store delivery info'
+        _p6_end = content.find(_p6_end_marker, _p6_start)
+        if _p6_end != -1:
+            content = content[:_p6_start] + content[_p6_end:]
+        else:
+            print("Patch 6: existing a2a block end-anchor not found — "
+                  "skipping (assumed applied)", file=sys.stderr)
+            _p6_skip = True
 
     _p6_block = WEBHOOK_A2A_BLOCK
 
     # Insert after session_chat_id assignment
-    _p6_target = 'session_chat_id = f"webhook:{route_name}:{delivery_id}"'
-    if _p6_target in content:
-        # Insert after the session_chat_id line (after the newline)
-        content = content.replace(
-            _p6_target + '\n',
-            _p6_target + '\n' + _p6_block,
-            1
-        )
-        patched = True
-        print("Patch 6: a2a_board prompt field consumer added/updated", file=sys.stderr)
-    else:
-        print("WARNING: could not find session_chat_id assignment — patch 6 skipped", file=sys.stderr)
+    if not _p6_skip:
+        _p6_target = 'session_chat_id = f"webhook:{route_name}:{delivery_id}"'
+        if _p6_target in content:
+            # Insert after the session_chat_id line (after the newline)
+            content = content.replace(
+                _p6_target + '\n',
+                _p6_target + '\n' + _p6_block,
+                1
+            )
+            patched = True
+            print("Patch 6: a2a_board prompt field consumer added/updated", file=sys.stderr)
+        else:
+            print("WARNING: could not find session_chat_id assignment — patch 6 skipped", file=sys.stderr)
 
     # ── Patch 7: import Hermes adapter (pip 形态: aimail.hermes.aimail_hermes) ──
     # 先移除任何旧适配器 import 块(tools.hermes 旧名/新名,或 pip 名),再插入
