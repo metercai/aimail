@@ -291,9 +291,9 @@ def main() -> int:
         return 1
 
     # ── 读 gateway 配置 ──
-    config_path = SYSTEMS_DIR / sid / "agentmail_gateway.json"
+    config_path = SYSTEMS_DIR / sid / "aimail_gateway.json"
     if not config_path.exists():
-        print(f"✗ agentmail_gateway.json not found: {config_path}")
+        print(f"✗ aimail_gateway.json not found: {config_path}")
         return 1
     cfg = json.loads(config_path.read_text())
     gw_url = cfg.get("gateway_url", "")
@@ -314,7 +314,7 @@ def main() -> int:
     admin_key = cfg.get("admin_key", "")
     if not args.smtp:
         if not admin_key:
-            print("✗ agentmail_gateway.json 无 admin_key——API 模式需系统 admin key")
+            print("✗ aimail_gateway.json 无 admin_key——API 模式需系统 admin key")
             return 1
         print(f"  Gateway:     {gw_url}")
         print(f"  Mode:        API (system welcome, from postman@)")

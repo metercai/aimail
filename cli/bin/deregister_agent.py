@@ -39,7 +39,7 @@ def main() -> int:
     system_id = args.system_id or _base.detect_system_id()
     gw = _base.load_gateway_config(system_id)
     if not gw:
-        raise SystemExit(f"gateway config not found (agentmail_gateway.json) for {system_id}")
+        raise SystemExit(f"gateway config not found (aimail_gateway.json) for {system_id}")
     cfg = _base.load_agent_config(args.agent, system_id)
     if not cfg:
         print(f"agent {args.agent} not registered locally — nothing to do")

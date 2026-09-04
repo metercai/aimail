@@ -74,9 +74,9 @@ def main() -> int:
         print("✗ system_id 未解析(需 --system-id 或 {agent-home}/.aimail 指针)")
         return 1
 
-    config_path = _sw.SYSTEMS_DIR / sid / "agentmail_gateway.json"
+    config_path = _sw.SYSTEMS_DIR / sid / "aimail_gateway.json"
     if not config_path.exists():
-        print(f"✗ agentmail_gateway.json not found: {config_path}")
+        print(f"✗ aimail_gateway.json not found: {config_path}")
         return 1
     cfg = json.loads(config_path.read_text())
     gw_url = cfg.get("gateway_url", "")

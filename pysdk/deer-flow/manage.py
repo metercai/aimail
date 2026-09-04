@@ -183,7 +183,7 @@ def register_agents(manager: str = "", system_id: str = "", agent: str = "") -> 
     system_id = system_id or _base.detect_system_id()
     gw = _base.load_gateway_config(system_id)
     if not gw:
-        raise SystemExit(f"gateway config not found (agentmail_gateway.json) for {system_id} — run aimail install first")
+        raise SystemExit(f"gateway config not found (aimail_gateway.json) for {system_id} — run aimail install first")
     manager = manager or os.environ.get("AIMAIL_MANAGER", "")
     if not manager:
         raise SystemExit("need --manager <addr> or AIMAIL_MANAGER env (审批联系人)")

@@ -109,7 +109,7 @@ def main() -> int:
     system_id = args.system_id or _base.detect_system_id()
     gw = _base.load_gateway_config(system_id)
     if not gw:
-        raise SystemExit(f"gateway config not found (agentmail_gateway.json) for {system_id} — run activate.py first")
+        raise SystemExit(f"gateway config not found (aimail_gateway.json) for {system_id} — run activate.py first")
     manager = args.manager or os.environ.get("AIMAIL_MANAGER", "")
     if not manager:
         raise SystemExit("need --manager <addr> or AIMAIL_MANAGER env (审批联系人)")

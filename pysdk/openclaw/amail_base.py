@@ -6,7 +6,7 @@ scripts/gateway_api.py（标准 amail API 客户端），仅替换 config 加载
 目录约定为 OpenClaw 形态：
 
   ~/.aimail/systems/{system_id}/        ← 独立激活产生的系统目录
-      agentmail_gateway.json               ← 网关配置（激活时写入，含 mode/bridge_port）
+      aimail_gateway.json               ← 网关配置（激活时写入，含 mode/bridge_port）
       {cleaned_addr}/agentmail.json        ← 每 agent 配置（api_key + agent_id，地址键）
 
 不修改 aimail-gateway，不修改 Hermes 代码 —— 只做运行时配置源替换。
@@ -87,7 +87,7 @@ system_dir = _ab._aimail_system_dir   # 目录约定统一：共享核心同一 
 
 
 def load_gateway_config(system_id: str = "") -> Optional[dict]:
-    """读取 agentmail_gateway.json（{gateway_url, admin_key, domain, system_id, system_name}）。"""
+    """读取 aimail_gateway.json（{gateway_url, admin_key, domain, system_id, system_name}）。"""
     return _gw.load_gateway_config(system_id)
 
 
@@ -226,7 +226,7 @@ def make_client(api_key: str, system_id: str = ""):
     """按 api_key 构造标准 API 客户端。"""
     gw = load_gateway_config(system_id) if system_id else load_gateway_config(detect_system_id())
     if not gw:
-        raise RuntimeError("agentmail_gateway.json not found")
+        raise RuntimeError("aimail_gateway.json not found")
     return GatewayClient(gw["gateway_url"], api_key)
 
 

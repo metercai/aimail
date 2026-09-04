@@ -343,7 +343,7 @@ def main():
     wh_host = os.environ.get("WEBHOOK_HOST", "") or os.environ.get("AIMAIL_WEBHOOK_HOST", "")
     if not wh_host and sid:
         try:
-            gw_path = os.path.join(os.path.join(_AM_HOME, "systems"), sid, "agentmail_gateway.json")
+            gw_path = os.path.join(os.path.join(_AM_HOME, "systems"), sid, "aimail_gateway.json")
             if os.path.isfile(gw_path):
                 wh_host = json.load(open(gw_path)).get("webhook_host", "")
         except Exception:
@@ -393,12 +393,32 @@ def main():
         except Exception:
             pass
     bridge_ak = system_key or ak  # prefer system key, fallback to agent key
-    bridge_domain = f"bridge-{uuid.uuid4().hex[:8]}"
-    bridge_result = create_api_key(gw, bridge_ak, sid, bridge_domain, ["bridge"], "bridge")
-    bridge_key = bridge_result.get("raw_key", "") if isinstance(bridge_result, dict) else ""
+
+    # Idempotency (2026-09-04): reuse the existing bridge api_key when the
+    # current toml already has one for this sid — repeated `aimail install`
+    # must not mint a fresh bridge-{uuid} key each run (orphan key sprawl in
+    # the gateway DB; old keys stay valid but unused).
+    bridge_key = ""
+    try:
+        import tomllib as _tl
+        if os.path.exists(bridge_cfg):
+            with open(bridge_cfg, "rb") as _f:
+                _old = _tl.load(_f)
+            for _s in (_old.get("pull", {}) or {}).get("systems", []):
+                if _s.get("system_id") == sid and _s.get("api_key"):
+                    bridge_key = _s["api_key"]
+                    log_ok("reuse existing bridge api_key (idempotent install)")
+                    break
+    except Exception:
+        bridge_key = ""
+
     if not bridge_key:
-        log_warn("bridge API key creation failed — aborting deploy (auth would fail)")
-        return 1
+        bridge_domain = f"bridge-{uuid.uuid4().hex[:8]}"
+        bridge_result = create_api_key(gw, bridge_ak, sid, bridge_domain, ["bridge"], "bridge")
+        bridge_key = bridge_result.get("raw_key", "") if isinstance(bridge_result, dict) else ""
+        if not bridge_key:
+            log_warn("bridge API key creation failed — aborting deploy (auth would fail)")
+            return 1
 
     # Read webhook secret from agent config (Hermes → env fallback)
     webhook_secret = os.environ.get("AIMAIL_WEBHOOK_SECRET", "")
@@ -421,7 +441,7 @@ def main():
     gw_cfg = None
     gw_cfg_path = None
     if sid:
-        sub = os.path.join(os.path.join(_AM_HOME, "systems"), sid, "agentmail_gateway.json")
+        sub = os.path.join(os.path.join(_AM_HOME, "systems"), sid, "aimail_gateway.json")
         if os.path.isfile(sub):
             try:
                 with open(sub) as f:

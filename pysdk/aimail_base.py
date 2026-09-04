@@ -155,9 +155,19 @@ def _gateway_config_path(system_id: str = "") -> Path:
     When system_id is provided, returns system-specific path.
     When empty, returns the base ~/.aimail/systems/ level (caller should resolve system_id).
     
-    Canonical name: agentmail_gateway.json (scripts/ write this)."""
+    Canonical name: aimail_gateway.json (2026-09-04, aligned with the gateway
+    binary name). Legacy agentmail_gateway.json is auto-migrated on first
+    access."""
     base_path = _aimail_system_dir(system_id)
-    return base_path / "agentmail_gateway.json"
+    p = base_path / "aimail_gateway.json"
+    legacy = base_path / "agentmail_gateway.json"
+    if legacy.is_file() and not p.is_file():
+        try:
+            legacy.rename(p)
+            os.chmod(p, 0o600)
+        except Exception:
+            pass
+    return p
 
 
 def _load_gateway_config(system_id: str = "") -> Optional[dict]:
@@ -165,7 +175,7 @@ def _load_gateway_config(system_id: str = "") -> Optional[dict]:
 
     Reads from (in priority order):
     1. Environment variables (AIMAIL_GATEWAY_URL + AIMAIL_ADMIN_KEY/AIMAIL_PRODUCT_CODE)
-    2. ~/.aimail/systems/{system_id}/agentmail_gateway.json (direct, or via HERMES_PROFILE_DIR/.agentmail pointer)
+    2. ~/.aimail/systems/{system_id}/aimail_gateway.json (direct, or via HERMES_PROFILE_DIR/.agentmail pointer)
     """
     # Try environment variables first
     gateway_url = os.environ.get("AIMAIL_GATEWAY_URL", "")
@@ -188,7 +198,7 @@ def _load_gateway_config(system_id: str = "") -> Optional[dict]:
             "webhook_host": raw_webhook,
         }
 
-    # Try ~/.aimail/systems/{system_id}/agentmail_gateway.json
+    # Try ~/.aimail/systems/{system_id}/aimail_gateway.json
     resolved_sid = system_id
     if not resolved_sid:
         # Resolve from HERMES_PROFILE_DIR/.agentmail pointer
@@ -1099,7 +1109,7 @@ def register_bridge_route(system_id: str, email: str, gw: dict,
     必须注册路由——否则 bridge 拉取到邮件后不知转发到哪,入站断链。
     幂等(bridge 路由表 upsert)。bridge admin API: POST /api/v1/routes
     {email, host, port} —— host 传完整 URL(含路径)。admin 端口取
-    agentmail_gateway.json 的 bridge_admin_port(默认 38081)。
+    aimail_gateway.json 的 bridge_admin_port(默认 38081)。
     """
     import urllib.request
     admin_port = int(gw.get("bridge_admin_port", 38081)) if isinstance(gw, dict) else 38081

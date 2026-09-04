@@ -84,7 +84,16 @@ def _resolve_system_id(args: list[str] | None = None) -> str:
     return os.environ.get("SYSTEM_ID", "")
 
 def _system_agent_path(sid: str) -> Path:
-    return SYSTEMS_DIR / sid / "agentmail_gateway.json"
+    p = SYSTEMS_DIR / sid / "aimail_gateway.json"
+    legacy = SYSTEMS_DIR / sid / "agentmail_gateway.json"
+    if legacy.is_file() and not p.is_file():
+        try:
+            legacy.rename(p)
+            import os as _os
+            _os.chmod(p, 0o600)
+        except Exception:
+            pass
+    return p
 
 BRIDGE_CFG  = BRIDGE_DIR / "aimail_bridge.toml"
 BRIDGE_PID  = BRIDGE_DIR / "bridge.pid"
@@ -749,10 +758,10 @@ def _resolve_platform_sid(agent_type: str) -> str:
 
 
 def _read_gw_cfg(sid: str = "") -> dict | None:
-    """Load ~/.aimail/system-{sid}/agentmail_gateway.json, return None on failure."""
+    """Load ~/.aimail/system-{sid}/aimail_gateway.json, return None on failure."""
     if not sid:
         sid = _resolve_system_id(sys.argv)
-    p = _system_agent_path(sid) if sid else SYSTEMS_DIR / "agentmail_gateway.json"
+    p = _system_agent_path(sid) if sid else SYSTEMS_DIR / "aimail_gateway.json"
     if not p.exists() or not p.is_file():
         return None
     try:
@@ -769,7 +778,7 @@ def check_gateway(c: Check, sid: str = ""):
     cfg = _read_gw_cfg(sid)
     if not cfg:
         c.add("gateway", "config", False,
-              "agentmail_gateway.json not found",
+              "aimail_gateway.json not found",
               "Run: aimail init + aimail install (配置网关与系统)")
         return
 
@@ -852,7 +861,7 @@ def _check_l0_configs(c: Check, sid: str):
     gw = _read_gw_cfg(sid)
     if not gw:
         c.add("config", "gateway_json", False,
-              "agentmail_gateway.json missing/unreadable",
+              "aimail_gateway.json missing/unreadable",
               "Run: aimail install --home <platform-root> --system-id " + (sid or "<sid>"))
         return
 
@@ -940,7 +949,7 @@ def _check_agentmail_json(c: Check, sid: str):
         gwc = _read_gw_cfg(sid) or {}
         if d.get("gateway_url") and gwc.get("gateway_url") \
                 and d["gateway_url"].rstrip("/") != gwc["gateway_url"].rstrip("/"):
-            issues.append("gateway_url differs from agentmail_gateway.json")
+            issues.append("gateway_url differs from aimail_gateway.json")
         email = d.get("email", "")
         if email and d.get("domain") and not email.endswith("@" + d["domain"]):
             issues.append(f"email domain != domain field ({d['domain']})")
@@ -1121,7 +1130,7 @@ def check_bridge(c: Check, sid: str = ""):
 
 
 def _check_bridge_gateway_consistency(c: Check, td: dict, sid: str = ""):
-    """Cross-check bridge config fields against agentmail_gateway.json.
+    """Cross-check bridge config fields against aimail_gateway.json.
     All config files are local (copied by deploy_bridge.py even when
     bridge runs remotely), so these checks always run when bridge is deployed.
     """

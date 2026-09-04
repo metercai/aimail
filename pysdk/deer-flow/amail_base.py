@@ -105,10 +105,18 @@ def make_client(api_key: str = "", system_id: str = ""):
 
 
 def load_agent_config_for_key(system_id: str = "") -> Optional[dict]:
-    """读取当前 system 的 gateway 配置(agentmail_gateway.json)。"""
+    """读取当前 system 的 gateway 配置(aimail_gateway.json)。"""
     try:
         sid = system_id or os.environ.get("AIMAIL_SYSTEM_ID", "")
-        path = Path(_ab.aimail_home()) / "systems" / sid / "agentmail_gateway.json"
+        path = Path(_ab.aimail_home()) / "systems" / sid / "aimail_gateway.json"
+        legacy = Path(_ab.aimail_home()) / "systems" / sid / "agentmail_gateway.json"
+        if legacy.is_file() and not path.is_file():
+            try:
+                legacy.rename(path)
+                import os as _os
+                _os.chmod(path, 0o600)
+            except Exception:
+                pass
         if path.is_file():
             return json.loads(path.read_text())
     except Exception:

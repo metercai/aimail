@@ -60,7 +60,15 @@ def _bridge_pids():
 
 
 def _load_gateway_cfg(sid: str):
-    p = SYSTEMS_DIR / sid / "agentmail_gateway.json"
+    p = SYSTEMS_DIR / sid / "aimail_gateway.json"
+    legacy = SYSTEMS_DIR / sid / "agentmail_gateway.json"
+    if legacy.is_file() and not p.is_file():
+        try:
+            legacy.rename(p)
+            import os as _os
+            _os.chmod(p, 0o600)
+        except Exception:
+            pass
     if not p.is_file():
         return None
     return json.loads(p.read_text())
@@ -312,7 +320,7 @@ def _sid_has_pointer(sid: str) -> bool:
 
 def _repair_gateway_config(sid: str, args_home: str = "") -> bool:
     """system_home/webhook_host 仅补缺,不覆盖已有值。"""
-    gw_path = SYSTEMS_DIR / sid / "agentmail_gateway.json"
+    gw_path = SYSTEMS_DIR / sid / "aimail_gateway.json"
     if not gw_path.is_file():
         _fail(f"gateway 配置不存在: {gw_path}")
         return False
@@ -511,7 +519,7 @@ def _repair_routes_entries(sid: str) -> bool:
 
 def _repair_pull_entry_key(sid: str) -> bool:
     """bridge pull.systems 的 admin_key 与 gateway.json 对齐(gateway.json 为权威源)。"""
-    gw_path = SYSTEMS_DIR / sid / "agentmail_gateway.json"
+    gw_path = SYSTEMS_DIR / sid / "aimail_gateway.json"
     if not gw_path.is_file() or not BRIDGE_CFG.exists():
         return False
     gw = json.loads(gw_path.read_text())
