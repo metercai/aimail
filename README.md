@@ -280,7 +280,7 @@ API Keys are generated per Agent address, stored under `~/.aimail/systems/{syste
 
 ## Further Reading
 
-- [AIMail Integration Guide (对接架构与实例示范)](AGENT-INTEGRATION.md)
-- [A2A Board Collaboration Guide](board/A2A-BOARD-GUIDE.md)
-- [API Dependencies](API-DEPS.md)
-- [Maintenance Guide](MAINTENANCE.md)
+- [AIMail Integration Guide (对接架构与实例示范)](docs/AGENT-INTEGRATION.md)
+- [A2A Board Collaboration Guide](docs/board/A2A-BOARD-GUIDE.md)
+- [API Dependencies](docs/API-DEPS.md)
+- [Maintenance Guide](docs/MAINTENANCE.md)

@@ -1,365 +1,433 @@
-# AIMail Maintenance Guide
+# AIMail Installation & Maintenance Guide
+
+> Applies to the `aimail` CLI (repo `cli/`) — the single on-machine tool for
+> installing, operating and maintaining the AIMail link between an agent
+> platform and the amail gateway. Brand rule: **aimail** is the external
+> name (CLI, gateway, config file); **agentmail** is the agent-internal name
+> (tools/skills/`agentmail.json`).
 
 ---
 
 ## Contents
 
-1. [Local Storage](#1-local-storage)
-2. [Logs](#2-logs)
-3. [Diagnostics (CLI)](#3-diagnostics-cli)
-4. [aimail-bridge](#4-aimail-bridge)
-5. [Hermes Gateway](#5-hermes-gateway)
-6. [Common Issues](#6-common-issues)
-7. [CLI Reference](#7-cli-reference)
+1. [Purpose & Scope](#1-purpose--scope)
+2. [Architecture & Local Layout](#2-architecture--local-layout)
+3. [Installation](#3-installation)
+4. [Maintenance Workflow (stats → check → repair)](#4-maintenance-workflow-stats--check--repair)
+5. [What the Tooling Achieves](#5-what-the-tooling-achieves)
+6. [Quick Reference](#6-quick-reference)
+7. [Troubleshooting](#7-troubleshooting)
+8. [Machine Migration](#8-machine-migration)
+9. [Contracts & Single Source of Truth](#9-contracts--single-source-of-truth)
 
 ---
 
-## 1. Local Storage
+## 1. Purpose & Scope
 
-### Directory Structure
+### What the CLI is
+
+`aimail` is the **local-machine infrastructure tool** for the AIMail stack.
+It never runs remotely: every subcommand operates on the machine you are on.
+It is the single write path for integration resources (activation, domains,
+binding, routes) so that local state and the gateway stay consistent.
+
+### Three-layer operating model
+
+| Layer | Tool | Runs | Scope |
+|-------|------|------|-------|
+| Machine prep (once) | `aimail init` | any machine | lock the gateway URL, decide direct-push vs bridge, build `~/.aimail` |
+| System integration (per system) | `aimail install` | per platform root | activate/reuse a system, bind the platform, deploy the bridge entry |
+| Agent runtime SDK | platform package | agent host | `pysdk` (python, hermes/deerflow) or `tssdk` (openclaw/pi/dsh); self-check → auto-bind |
+
+The CLI itself carries **no runtime resources**: `cli + one SDK + config file`
+is a complete integration. The CLI delegates platform patching to the SDKs
+(`python -m aimail.install --type hermes|deerflow`, same process contract a
+future Rust CLI would spawn).
+
+### Maintenance loop (the point of this guide)
+
+```
+aimail stats -a     →  what is integrated / healthy / broken on this machine
+aimail check        →  full health exam (config → runtime resources → links)
+aimail repair       →  apply the idempotent fix ladder for check findings
+```
+
+Use `stats` to spot problems, `check` to pin them down precisely, `repair`
+to fix what is fixable locally — then re-check until only genuine
+host-side items remain.
+
+---
+
+## 2. Architecture & Local Layout
+
+### Directory tree
 
 ```
 ~/.aimail/
-├── systems/
-│   └── {system_id}/
-│       ├── agentmail_gateway.json     # Gateway connection config (gateway_url, admin_key, system_id, domain)
-│       ├── board/                     # system-level A2A role prompts (fallback)
-│       └── {agent_addr}/              # per-address dir (keyed by cleaned email)
-│           ├── agentmail.json         # agent config (email, api_key)
-│           ├── board_creds.json       # A2A board credentials (board_id → gateway_url/token)
-│           └── role_prompt/           # address-level role prompts (takes priority)
-├── mail/
-│   └── {agent_addr}/
-│       ├── aimail.log              # agent pipeline log
-│       └── {yyyymm}/in-*.json         # monthly inbound snapshots
-├── bridge/
-│   ├── aimail_bridge.toml              # bridge config
-│   ├── aimail_routes.toml              # route table (email → local webhook)
-│   ├── bin/aimail-bridge               # bridge binary
-│   ├── bridge.pid                     # bridge PID
-│   └── bridge.out                     # bridge stdout log
+├── systems/{system_id}/
+│   ├── aimail_gateway.json     # gateway connection config (canonical name
+│   │                           #   since 2026-09-04; legacy agentmail_gateway.json
+│   │                           #   is auto-migrated on first read)
+│   ├── board/                  # system-level A2A role prompts (fallback)
+│   └── {agent_addr}/           # per-address dir (keyed by cleaned email)
+│       ├── agentmail.json      # agent config — 9 mandatory fields (see §9)
+│       └── role_prompt/        # address-level role prompts (priority)
 ├── logs/
-│   ├── aimail-bridge.log               # bridge runtime log
-│   └── aimail.agent.{addr}.log     # per-agent processing log
-├── backup-reset-*/                    # config snapshot before each reset
-└── .system_raw_key/
-    └── {system_id}_admin.key          # raw admin key (integration only)
+│   ├── aimail-bridge.log       # bridge runtime log
+│   └── aimail.{addr}.log       # per-agent processing log (NOT under mail/)
+├── bridge/
+│   ├── aimail_bridge.toml      # bridge config (pull.systems list)
+│   ├── aimail_routes.toml      # route table: email → local inbound endpoint
+│   ├── bin/aimail-bridge       # bridge binary
+│   └── bridge.pid
+├── mail/{addr}/{yyyymm}/in-*.json   # inbound snapshots (debugging)
+├── .system_raw_key/{sid}_admin.key  # raw admin key (integration only)
+└── .env                            # machine-level env (bootstrapped installs)
 ```
 
-### Key Files
+Platform root pointer (`.agentmail`, contains `{system_id, email}`):
+`~/.hermes/.agentmail` or `profiles/*/.agentmail` (hermes) ·
+`~/.openclaw/.agentmail` (openclaw) · `~/.pi/.agentmail` (pi) ·
+`~/.dsh/.agentmail` (dsh) · `~/.deer-flow/.agentmail` (deerflow).
 
-| File | Content | Written By |
-|------|---------|------------|
-| `systems/{sid}/agentmail_gateway.json` | gateway_url, admin_key, system_id, system_name, manager_address, system_home | `aimail install` / `reset` → `setup_system.py` |
-| `systems/{sid}/{addr}/agentmail.json` | email, api_key, gateway_url, domain, system_id, manager_address | registration chain (`register_profiles.py` / `register_agent.py`) |
-| `bridge/aimail_bridge.toml` | mode, addr/pull config | `deploy_bridge.py` |
+### Network model
 
-All config lives under `~/.aimail/`; no gateway config is kept in the agent home
-(pointer files `.agentmail` in profile dirs only reference the system_id).
+Agent side is always **push**. If the gateway URL resolves to the local
+machine (`127.0.0.1`/`localhost`/local IP), the registration chain connects
+directly — no bridge. Otherwise the local `aimail-bridge` pulls pending
+mail from the gateway (mode=`pull`) and routes it to local inbound
+endpoints via `aimail_routes.toml`. Whether a bridge is needed is a
+machine-level decision made once by `aimail init`.
+
+### Three authoritative config files
+
+| File | Content | Written by |
+|------|---------|-----------|
+| `systems/{sid}/aimail_gateway.json` | gateway_url, admin_key, system_id, system_name, manager_address, system_home, domain, webhook_host | `install`/`reset` → setup_system.py; `repair` backfills `system_home`/`webhook_host` |
+| `systems/{sid}/{addr}/agentmail.json` | 9 fields: email, gateway_url, domain, system_id, system_name, manager_address, api_key, webhook_url, webhook_secret | registration chain (register_profiles/register_agent/bind_agent) |
+| `bridge/aimail_bridge.toml` + `aimail_routes.toml` | pull systems + route table | deploy_bridge.py; `aimail bridge --system-id` |
+
+`system_home` in the gateway config is the **only** source of the platform
+label shown by `stats` (feature-detected from the directory, never guessed).
 
 ---
 
-## 2. Logs
+## 3. Installation
 
-### Log Files
-
-| File | Content | Location |
-|------|---------|----------|
-| **aimail.log** | Mail pipeline logs (ping/pong, inbound/outbound, preprocessing) | `~/.aimail/mail/{agent_addr}/aimail.log` |
-| **aimail-bridge.log** | Bridge runtime logs (pull, forward, routing, health) | `~/.aimail/logs/aimail-bridge.log` |
-| **gateway.log** | Hermes gateway log (per profile) | `~/.hermes/gateway.log` (root) or `~/.hermes/profiles/{name}/gateway.log` |
-
-### aimail.log Format
-
-One JSON object per line:
-
-```json
-{"ts":"2026-06-26T07:18:41Z","dir":"ping_intercepted","ping_id":"54deaff9cacc","from":"925457@qq.com","to":["mike@amail.token.tm"]}
-```
-
-`dir` values:
-- `ping_intercepted` — webhook received ping email
-- `pong_sent` — pong sent via send_mail
-- `pong_returned` — pong looped back to webhook
-- `inbound` — normal inbound email
-
-### Log Rotation
-
-No auto-rotation. Configure logrotate or cron:
+### Step 0 — machine environment (5-minute path, no file editing needed)
 
 ```bash
-# /etc/logrotate.d/aimail
-~/.aimail/mail/*/aimail.log {
-    daily
-    rotate 7
-    compress
-    missingok
-}
-~/.aimail/logs/aimail-bridge.log {
-    daily
-    rotate 7
-    compress
-    missingok
-}
+# host installed → export values (take effect immediately):
+export AIMAIL_URL=https://amail.token.tm
+export AIMAIL_MANAGER_ADDRESS=you@example.com
+export AIMAIL_ADMIN_KEY=<key>          # reuse path  OR
+export AIMAIL_PRODUCT_CODE=<code>      # new-system path (+ AIMAIL_SYSTEM_NAME)
+
+# bootstrap (installs toolkit under ~/.aimail, symlink ~/.local/bin/aimail,
+# persists the exported AIMAIL_* values into ~/.aimail/.env):
+curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
 ```
+
+### Step 1 — `aimail init` (machine-level, once, zero systems OK)
+
+```bash
+aimail init [--gateway-url URL]
+```
+
+Creates `~/.aimail/{systems,logs,bridge}` (0700), checks free disk
+(<100 MiB warns), resolves the network structure: local gateway →
+direct-push (no bridge); remote gateway → deploys the bridge binary +
+skeleton config. Re-running is safe (everything is idempotent).
+
+### Step 2 — `aimail install` (per platform, repeatable, idempotent)
+
+```bash
+aimail install --home <platform-root> [--system-id <sid>]
+              [--product-code <code> | --admin-key <key>]
+              [--manager <addr>] [--domain <domain>] [--system-name <name>]
+```
+
+- **New system** (`--product-code`): activates on the gateway (server-side
+  code claim is atomic; a repeated run with the same code fails cleanly
+  before any local write).
+- **Existing system** (`--admin-key` or stored config): resets/re-persists
+  local connection config **without** re-activation — never consumes a code
+  twice.
+- Runs the full chain: system activation/reuse → domain ensure → bridge
+  deploy (merge entry, **reuse existing bridge api_key**) → platform
+  binding (hermes: SDK patch+profiles+skills; openclaw/pi: agent
+  registration + pointer; dsh: plugin; deerflow: SDK reconcile + patch).
+- Install is safe to re-run: every step is presence-checked or
+  merge-by-system_id; a repeated run does not mint orphan credentials.
+
+### Step 3 — platform-side binding
+
+Hermes/openclaw/pi/deerflow are bound during `install`. For dsh, sessions
+bind lazily: `dsh-aimail` auto-binds on first use (one session ⇔ one
+address, existence-guarded); manual equivalent:
+`python3 cli/dsh/bind_agent.py [--session-id …] [--preset mail]`.
+
+### Step 4 — verify
+
+```bash
+aimail check --system-id <sid>     # full health exam (see §4)
+aimail ping --system-id <sid>      # ping → pong round trip (authoritative:
+                                   #   agent-side log events)
+aimail welcome --system-id <sid>   # welcome e2e (API mode, postman@ sender)
+```
+
+`.env`/`export` priority: **CLI flag > shell env > `~/.aimail/.env` >
+repo `.env` > built-in default**. `.env` is auto-loaded; repeated values
+never need to be re-typed.
 
 ---
 
-## 3. Diagnostics (CLI)
+## 4. Maintenance Workflow (stats → check → repair)
 
-### Run
-
-```bash
-# Full pipeline diagnostics
-./aimail check
-
-# With repair suggestions
-./aimail check --verbose
-
-# End-to-end heartbeat test (ping → pong loop)
-./aimail ping
-
-# Welcome e2e test (send a welcome email to the manager)
-./aimail welcome
-```
-
-### check Layers
-
-| Layer | Checks | Purpose |
-|-------|--------|---------|
-| **Level 1: gateway** | Health / whoami / domain list | Verify gateway connectivity and permissions |
-| **Level 2: bridge** | Process alive / pending query / log activity | Verify bridge runtime and pull path |
-| **Level 3: agent-gw** | Webhook port reachable / route config | Verify Hermes gateway ready |
-| **Level 4: profile** | Config file exists / email valid | Verify agent profile completeness |
-
-### Ping/Pong Test
+### 4.1 `aimail stats` — machine integration overview (read-only)
 
 ```bash
-./aimail ping
+aimail stats        # default: systems + agents + mail counts + expiry
+aimail stats -a     # full view: health tags + broken systems + platforms
 ```
 
-Sends ping via SMTP to gateway to bridge to webhook, triggers auto-pong reply, verifies full loop. Expected output:
+`-a` per-system health: `home-ok/home-missing/home-dir-missing` ·
+`pointer:…/pointer-none` · `cloud: ok/unlinked/broken-config/unreachable`.
+Broken systems are classified by facts only (missing connection fields =
+`broken-config`; gateway 403/404 = `unlinked`; network error = `unreachable`,
+not broken). The platform section lists the five platform roots with link
+state and prints the maintenance hint.
 
+### 4.2 `aimail check` — full health exam (order is fixed)
+
+Dimension order (user-mandated): **config files → platform runtime
+resources → agent config → delivery links**.
+
+```bash
+aimail check [--system-id <sid>] [--home <root>] [--verbose] [--json]
 ```
-  Ping sent: __aimail_ping__:a1b2c3d4e5f6
-  +  1.2s    Webhook Receive (ping)         OK
-  +  2.9s    Pong Sent (send_mail)          OK
-  +  5.1s    Webhook Return (pong)          OK
-  Total round-trip: 5.1s
-  Full pipeline verified
+
+| Layer | Level | What is examined |
+|-------|-------|------------------|
+| Config files | L0 | `aimail_gateway.json` completeness (gateway_url/admin_key/`system_home`/pointer) · `aimail_bridge.toml` structure (mode, pull entries, admin_key match vs gateway.json) · `agentmail.json` 9-field completeness + internal consistency (system_id=sid, gateway_url same, domain=email suffix) |
+| Gateway / Bridge | L1/L2 | gateway health + SMTP :25 + whoami scope; bridge process + pull path + routes coverage (every agent email must have a route entry) |
+| Platform runtime resources | L2r | hermes: webhook.py `PREPROCESS_REGISTRY` + profiles.py `AmailGateway` patch markers, toolsets, skills, board/role_prompt/common.md · openclaw: plugin installed + skills · deerflow: app.py `aimail_inbound` anchors · pi: pointer match |
+| Agent config | L3 | per-platform adapter: name&api_key / webhook secret / skill / toolset / register |
+| Delivery links | L4 | hook probes against the real inbound endpoints — **404 = route not registered = FAIL**; remote (non-loopback) targets are not probeable locally → PASS-with-note, never a false FAIL |
+
+Fix suggestions appear with `--verbose`; `--json` feeds `repair`.
+
+### 4.3 `aimail repair` — idempotent fix ladder
+
+```bash
+aimail repair [--system-id <sid>] [--home <root>] [--deep] [--dry-run]
 ```
+
+`--dry-run` prints the plan only. The ladder (each step idempotent, mapped
+to a check finding):
+
+1. bridge alive (restart if dead) — 2. routes refresh via
+   `bridge --system-id` — 3. gateway webhook pairing fix (evidence-driven)
+   — 4. gateway config backfill (`system_home`/`webhook_host`, fill-missing
+   only, never clobber) — 5. platform pointer rebuild (only when the
+   platform root is certain and the pointer is absent) — 6. runtime
+   resource redeploy (`python -m aimail.install --type …`, idempotent;
+   skipped with a hint when the platform host is remote) — 7.
+   `agentmail.json` backfill + `webhook_url` alignment to the live route
+   target (local-only) — 8. route-entry rebuild + bridge pull-entry
+   admin_key alignment to gateway.json (authoritative source).
+
+`repair` always re-runs `check` at the end. Remaining FAILs after repair
+must be genuine host-side items (remote platform not running, agent needs
+re-registration, …) — the tooling reports them precisely instead of
+papering over them.
+
+### 4.4 Day-to-day operations
+
+| Action | Command | Notes |
+|--------|---------|-------|
+| Add a domain | `aimail domain -s <sid> -a example.com` | **CLI is the only entry** for domain creation (SPA add button removed); input is lowercased, server quota + UNIQUE enforce |
+| List domains | `aimail domain -s <sid>` | non-shared systems may own several bare domains; any one of them can carry a renewal pickup |
+| Renew a system | `aimail renew -s <sid> -c <code>` | stacked `max(now, current)+validity`, quotas max-merge, auto-unsuspend |
+| Expiry view | `aimail renew -s <sid> --status` | read-only, no code consumed |
+| Default agent name | `aimail mailname -s <sid> [-d NAME]` | conflict-checked against registered addresses |
+| Reset config | `aimail reset -H <root> -s <sid>` | admin-key path only, key untouched |
+| Bridge ops | `aimail bridge` / `--restart` / `-s <sid>` | status / single-instance restart / route refresh |
+| Remove integration | `aimail uninstall -s <sid> [-H <root>] [-y]` | gateway deregister → platform cleanup → local data; idempotent |
+| E2E tests | `aimail ping` / `welcome` / `persona` | heartbeat / welcome mail / persona update loop |
+
+Short flags are globally consistent: `-s` system-id · `-H` home · `-g`
+gateway-url · `-m` manager · `-c` code · `-n` system-name (install/reset)
+or dry-run (repair) · `-d` domain (install) or default (mailname) · `-w`
+no-wait (welcome/persona) · `-a` all (stats) or add (domain) · `-t` status
+(renew) or timeout (ping) · `-D` deep · `-r` restart · `-k` admin-key ·
+`-y` yes. Long names never change.
 
 ---
 
-## 4. aimail-bridge
+## 5. What the Tooling Achieves
 
-### Process Management
+The suite is verified end-to-end on this machine (2026-09):
 
-```bash
-# Status (process / config / route table / log freshness)
-./aimail bridge
+- **stats -a caught real health facts**: one system with a missing
+  `system_home` (label `[?]`), pointer-less state, remote-host agents.
+- **check caught 4 genuine problems on first run** (L0/L2 layers were
+  validated against live systems before delivery): a declared webhook URL
+  that was dead (route target alive) on the hermes agent, the same class on
+  the openclaw agent, a missing pi route, and a bridge pull-entry
+  admin_key drift.
+- **repair fixed all locally-fixable items**: rewrote the dead declared
+  webhook_url to the live route target, aligned the bridge pull admin_key
+  to gateway.json; the remaining FAILs were verified true positives
+  (pi agent webhook lives on its own host — not fixable from this machine,
+  and correctly reported as such).
+- **Detection semantics fixed**: a hook probe answering 404 now FAILs
+  (route not registered) instead of passing; probing the real `/aimail/inbound`
+  endpoint (not a stale path) made a healthy openclaw gateway PASS again.
+- **A repeated `aimail install` no longer mints orphan bridge keys** and
+  never double-activates; `init`/`install` re-runs are harmless by design.
 
-# Restart (single instance)
-./aimail bridge --restart
-
-# Refresh forward routes for one system
-./aimail bridge --system-id <sid>
-```
-
-### Config
-
-`~/.aimail/bridge/aimail_bridge.toml`:
-
-```toml
-mode = "pull"
-
-[pull]
-amail_url = "https://amail.token.tm"
-admin_key = "***"
-system_id = "system-xxxx"
-poll_interval_sec = 5
-
-[health]
-check_interval_sec = 60
-fail_threshold = 3
-connect_timeout_sec = 3
-```
-
-### Dual Modes
-
-| Mode | Use Case | Description |
-|------|----------|-------------|
-| `pull` | Hermes on internal network, gateway external | Bridge polls for pending emails |
-| `push` | Hermes and gateway same network | Gateway pushes webhook directly (no bridge) |
+Net effect: **stats points → check pinpoints → repair fixes → re-check
+confirms**, and every remaining red item is a genuine, actionable,
+host-side action — never a tooling artifact.
 
 ---
 
-## 5. Hermes Gateway
+## 6. Quick Reference
 
-### Process Management
+Subcommands grouped by scenario (`aimail --help` shows this):
 
-```bash
-# Start root profile gateway
-hermes gateway run --accept-hooks --replace
-
-# Start named profile gateway
-hermes -p {name} gateway run --accept-hooks --replace
-
-# Status
-hermes gateway status
-
-# Ports
-grep -A2 'webhook:' ~/.hermes/config.yaml
+```
+setup      init  install  uninstall  reset
+operate    stats  renew  version
+diagnose   check  repair  ping  welcome  persona
+resources  domain  mailname  bridge
 ```
 
-### Health Check
+Platform feature detection (order): `pi` (~/.pi + agent/) → `dsh`
+(~/.dsh + profiles/ + storages/) → `hermes` (hermes-agent/ or profiles/)
+→ `openclaw` (openclaw.json) → `deerflow` (backend/app/gateway/) →
+`unknown`. `--system-id` + stored `system_home` reverse lookup beats
+auto-probe; pointer ownership is the next fallback.
 
-```bash
-curl http://127.0.0.1:{port}/health
-```
-
-Root profile default port 8644, named profiles from 8645 sequentially.
+Logs: bridge → `~/.aimail/logs/aimail-bridge.log`; per-agent →
+`~/.aimail/logs/aimail.{addr}.log` (JSON lines; `dir` = ping_intercepted /
+pong_sent / pong_returned / inbound / outbound). No auto-rotation —
+use logrotate with the patterns from this repo's older docs if needed.
 
 ---
 
-## 6. Common Issues
+## 7. Troubleshooting
 
-### Ping test stuck on "pong not returned"
+### A system shows `[?]` in stats / check fails `config/system_home`
 
-**Cause:** Pong email failed to loop back. Usually API key / email mismatch.
+**Cause:** `aimail_gateway.json` has no `system_home` (or the directory is
+gone) — the platform label and every platform-dependent check lose their
+anchor.
 
-**Check:**
+**Fix (on the platform's own host):**
 ```bash
-grep pong_status ~/.aimail/mail/*/aimail.log
+aimail install --home <platform-root> --system-id <sid>   # backfills, no clobber
+# or let repair do it:
+aimail repair --system-id <sid> --home <platform-root>
 ```
 
-**Fix:** Verify email and api_key match in `~/.aimail/systems/{sid}/{addr}/agentmail.json`.
+### check FAILs `hook … 404`
+
+**Cause:** the platform's inbound route is not registered (plugin missing,
+gateway not restarted after plugin install, or stale endpoint path).
+404 on a probe is now a real FAIL by design.
+
+**Fix:** openclaw: `openclaw plugins install npm-pack:<openclaw-aimail.tgz>
+--force` + restart the gateway; hermes: re-run the SDK install
+(`python -m aimail.install install --type hermes --home ~/.hermes`) and
+restart the profile gateway; then `aimail repair --system-id <sid>`.
+
+### check FAILs `routes-entry` / `routes-target`
+
+**Cause:** the bridge route table is missing the agent (pull mode cannot
+deliver) or the route target / declared webhook disagree.
+
+**Fix:** `aimail repair --system-id <sid>` (steps 2/7/8: refresh routes,
+align webhook_url to the live target). If the target host is remote
+(pi/deerflow on another machine), start that platform's inbound there.
+
+### ping stuck on "pong not returned"
+
+Check the per-agent log for the three phases:
+`grep <ping_id> ~/.aimail/logs/aimail.{addr}.log`; verify email + api_key
+match in `agentmail.json`; re-run `aimail reset -s <sid>` to re-persist.
 
 ### Bridge cannot pull emails
 
-**Check:**
-```bash
-./aimail bridge
-curl https://amail.token.tm/health
-tail -20 ~/.aimail/logs/aimail-bridge.log
-```
+`aimail bridge` (process/config/routes) → `curl https://amail.token.tm/health`
+→ `tail -20 ~/.aimail/logs/aimail-bridge.log` → `aimail repair -s <sid>`.
 
-### Gateway won't start
+### Repeated install created problems?
 
-**Check:**
-```bash
-ss -tlnp | grep 8644
-hermes gateway run --dry-run
-cat ~/.hermes/gateway.log
-```
-
-### Re-integration
-
-```bash
-# Remove aimail from the agent system (CLI, preserves ~/.aimail/ local data)
-./aimail uninstall --system-id <sid> --yes
-
-# Re-install
-./aimail install --home ~/.hermes --system-id <sid>
-```
-
-`aimail install` is idempotent — re-runs skip completed steps.
-
-### API Key Update
-
-If gateway-side key is rotated or invalidated:
-
-```bash
-# Option 1: Clear activation_code and api_key in agentmail.json
-# Option 2: Replace api_key directly
-# Option 3: Re-run ./aimail reset --system-id <sid>
-```
+It cannot: activation is atomic server-side, config writes are
+merge/presence-checked, bridge key is reused. If a run failed midway,
+`aimail check` + `aimail repair` restore the invariant state.
 
 ---
 
-## 7. CLI Reference
+## 8. Machine Migration
 
-`./aimail` is the single entry point (repo root, symlinked to `scripts/aimail`).
-Subcommands (alphabetical): `bridge`, `check`, `domain`, `install`, `mailname`,
-`ping`, `reset`, `stats`, `uninstall`, `welcome`.
-
-### Installation (key flow)
-
-`.env` in the repo root is read automatically (CLI flag > shell env > .env
-> built-in default), so repeated values only need to be set once:
+The gateway stores mail/storage; a machine keeps local config + snapshots
++ bridge only.
 
 ```bash
-# .env: AIMAIL_URL / AIMAIL_ADMIN_KEY | AIMAIL_PRODUCT_CODE / AIMAIL_MANAGER_ADDRESS
+# 1. OLD machine — collect credentials:
+ls ~/.aimail/.system_raw_key/          # {sid}_admin.key
+ls ~/.aimail/systems/{sid}/            # aimail_gateway.json + agents
 
-# New system — activate with a product code (from .env if not passed)
-./aimail install --home ~/.hermes --product-code <CODE> --manager admin@example.com
-
-# Existing system — reuse the stored config or pass the admin key
-./aimail install --home ~/.hermes --system-id <sid>
-./aimail install --home ~/.openclaw --system-id <sid>
-```
-
-`install` runs the whole chain: system activation → bridge deploy → tool & skill
-install → webhook patch & profile registration. Then verify:
-
-```bash
-./aimail check                      # pipeline diagnostics
-./aimail ping                       # ping-pong round trip
-./aimail welcome                    # welcome e2e (mail to manager)
-./aimail stats                      # machine overview (systems/agents/mail counts)
-```
-
-### Day-to-day operations
-
-```bash
-./aimail stats                      # systems installed + agents + mail stats
-./aimail domain --system-id <sid>   # list domains of a system
-./aimail domain --system-id <sid> --add example.com   # create a domain
-./aimail mailname --system-id <sid> --default NAME    # rename main agent
-./aimail reset --system-id <sid>    # re-run registration with stored admin key
-./aimail uninstall --system-id <sid> --yes            # remove the integration
-./aimail bridge --restart           # restart the local bridge
-```
-
-`--home` locates the platform root (`~/.hermes` / `~/.openclaw`); `--system-id`
-is preferred when the platform cannot be auto-detected.
-
-## 8. Machine Migration (moving a system to a new machine)
-
-The gateway stores mail/storage server-side; a machine keeps only local
-configuration, snapshots and the bridge. Moving an existing system to a
-new machine:
-
-```bash
-# 1. On the OLD machine, collect the system credentials:
-ls ~/.aimail/.system_raw_key/        # {sid}_admin.key — the admin key
-ls ~/.aimail/systems/{sid}/          # agentmail_gateway.json + per-agent mailboxes
-
-# 2. On the NEW machine — machine environment (once):
+# 2. NEW machine — machine environment once:
 git clone https://github.com/metercai/aimail.git && cd aimail
-cp docs/.env.example .env               # AIMAIL_URL + AIMAIL_MANAGER_ADDRESS
-./aimail init                        # gateway discovery + bridge skeleton
+cp docs/.env.example .env              # AIMAIL_URL + AIMAIL_MANAGER_ADDRESS
+aimail init                            # gateway discovery + bridge skeleton
 
-# 3. Restore the system credentials (copy the two items from step 1):
-mkdir -p ~/.aimail/.system_raw_key
-cp <old>/{sid}_admin.key ~/.aimail/.system_raw_key/
-# agentmail_gateway.json can be re-created instead by activating with the
-# admin key: AIMAIL_ADMIN_KEY=$(cat ~/.aimail/.system_raw_key/{sid}_admin.key)
+# 3. Restore credentials:
+mkdir -p ~/.aimail/.system_raw_key && cp <old>/{sid}_admin.key ~/.aimail/.system_raw_key/
+export AIMAIL_ADMIN_KEY=$(cat ~/.aimail/.system_raw_key/{sid}_admin.key)
 
-# 4. Reuse the system (idempotent, no new activation):
-./aimail install --home <platform-root> --system-id {sid}
-#    — reuses the existing system via the admin key, re-deploys the
-#      platform binding (patch/registration), appends the bridge system
-#      entry and starts the bridge.
+# 4. Reuse the system (no new activation):
+aimail install --home <platform-root> --system-id <sid>
 
-# 5. Re-bind the platform agent if needed (dsh: per session) and verify:
-./aimail check --system-id {sid}
-./aimail welcome --system-id {sid}
+# 5. Verify:
+aimail check --system-id <sid> && aimail welcome --system-id <sid>
 ```
 
-Notes:
-- `install` never activates twice: with an admin key present it reuses the
-  system (`reuse` path), so a migrated machine does not consume an
-  activation code.
-- Mail history stays on the gateway; local `~/.aimail/mail` snapshots
-  do not need copying (they are for debugging).
+`install` never activates twice when an admin key is present (reuse path),
+so a migrated machine consumes no activation code.
+
+---
+
+## 9. Contracts & Single Source of Truth
+
+Python CLI code references these contracts; the **TS SDK (`tssdk/`) is the
+single source of truth** — never redefine, only reference.
+
+**Inbound endpoints** (per platform, `POST`): openclaw `:18789/aimail/inbound`
+· pi `:9101/aimail/inbound` · dsh `:9099/aimail/inbound` · deerflow
+`:8001/aimail/inbound` · hermes `:8646/webhooks/aimail-inbound` (port from
+profile config). The local inbound URL is what `agentmail.json` stores as
+`webhook_url` and what the bridge route table targets.
+
+**`aimail_gateway.json`** (renamed from `agentmail_gateway.json` on
+2026-09-04 to align with the gateway name; legacy name auto-migrates on
+first read): `gateway_url`, `admin_key`, `system_id`, `system_name`,
+`manager_address`, `domain`, `system_home`, `webhook_host`.
+
+**`agentmail.json`** 9 mandatory fields: `email`, `gateway_url`, `domain`,
+`system_id`, `system_name`, `manager_address`, `api_key`, `webhook_url`
+(local inbound endpoint — the only trusted source for the bridge route),
+`webhook_secret`.
+
+**Address semantics** (shared domains): agent address =
+`{agent}.{system_name}@{shared-domain}` (e.g. `agent.xianlin@amail.token.tm`,
+`pi.xianlin@…`) derived via `email_for_agent`; the system identifier
+(`system_name`) is globally unique per shared domain (pickup occupancy +
+activation UNIQUE + address UNIQUE triple guard) — two different systems
+can never share an identifier on the same shared domain. Non-shared
+systems address as `{agent}@{bare-domain}` and may own several bare
+domains (any of them can carry a renewal pickup).

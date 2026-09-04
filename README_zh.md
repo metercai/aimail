@@ -192,8 +192,8 @@ AIMail 由两大部件组成：**aimail-gateway**（邮件网关）和 **Hermes 
 
 ## 延伸阅读
 
-- [AIMail 对接指南(架构与实例示范)](AGENT-INTEGRATION.md)
-- [A2A Board 项目协作指导手册](board/A2A-BOARD-GUIDE_zh.md)
-- [API 依赖说明](API-DEPS.md)
-- [维护指南](MAINTENANCE_zh.md)
+- [AIMail 对接指南(架构与实例示范)](docs/AGENT-INTEGRATION.md)
+- [A2A Board 项目协作指导手册](docs/board/A2A-BOARD-GUIDE_zh.md)
+- [API 依赖说明](docs/API-DEPS.md)
+- [维护指南](docs/MAINTENANCE_zh.md)
 
