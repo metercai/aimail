@@ -15,7 +15,7 @@ the wheel mirrors `pysdk/` 1:1, so repo and installed layouts are identical.
 |---|---|
 | Core (framework-agnostic, stdlib-only) | `aimail_base.py` (identity/signature/config/register), `aimail_tools.py` (send_mail + contacts + notes + `_GatewayClient`), `aimail_board.py` (A2A board), `gateway_api.py` (v1 API client), `_aimail_bootstrap.py` (location-agnostic sys.path boot) |
 | MCP server | `amail_mcp_server.py` (stdio JSON-RPC, platform-agnostic) |
-| Adapters | `hermes/aimail_hermes.py`, `deer-flow/` (inbound router + base), `openclaw/amail_base.py` |
+| Adapters (host-injected) | `hermes/` (aimail_hermes + patch/register/toolsets, 6 modules), `deer-flow/` (inbound router + amail_base + manage), `openclaw/amail_base.py` |
 | Resources | `resources/skills/` (SKILL.md + DESCRIPTION.md), `resources/board/` (role_prompt / role_prompt_zh / role_soul / role_soul_zh) |
 | Glue | `__init__.py` — unified entry: `import aimail` re-exports the curated API and boots the flat core |
 
@@ -26,9 +26,15 @@ pip install aimail            # from PyPI
 pip install .                 # from the repo root (hatchling, force-include)
 ```
 
-No hard third-party dependencies — the core is stdlib-only; yaml / markitdown
-are lazy and host-gated (`pip install aimail[hermes]` for the Hermes adapter's
-PyYAML).
+No hard third-party dependencies — the core is stdlib-only. Optional extras,
+all lazy/host-gated:
+- `aimail[hermes]` — PyYAML for the Hermes adapter's profile-config parsing
+- `aimail[deerflow]` — fastapi (the DeerFlow inbound router imports it at
+  module level; the DeerFlow host always ships FastAPI)
+- `aimail[docs]` — markitdown (attachment → markdown conversion)
+
+Platform adapters are host-injected: importing `aimail.hermes.*` outside a
+Hermes gateway prints registration-skipped warnings by design.
 
 ## Usage
 
@@ -53,8 +59,9 @@ directory in all three layouts: pip site-packages, self-contained bundle
 ## Resources & the local config directory
 
 Board resources are **seeds**, not read-at-runtime-from-the-SDK files. The
-installer (`cli/release-board-resources.sh`, run by `aimail install`)
-copies them to:
+SDK install entry (`python -m aimail.install install --type …`, which the
+CLI's `aimail install` delegates to) releases them via
+`aimail._resources_release` to:
 
 ```
 ~/.aimail/systems/{system_id}/board/

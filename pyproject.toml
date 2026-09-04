@@ -6,7 +6,9 @@ build-backend = "hatchling.build"
 name = "aimail"
 version = "0.1.0"
 description = "AIMail runtime SDK (Python): gateway client, platform adapters, resources. Provisioning tools stay in the aimail repository."
-readme = "README.md"
+# PyPI long description = the SDK-facing README (pysdk/README.md). The repo
+# root README stays the repository homepage.
+readme = "pysdk/README.md"
 requires-python = ">=3.9"
 license = { text = "GPL-3.0-or-later" }
 authors = [{ name = "MeterCai" }]
