@@ -54,7 +54,7 @@ echo "  venv    = $VENV"
 echo "  hermes  = $HERMES_HOME"
 
 # ── 1. (re)install pysdk into host venv ─────────────────────────────────
-say "1/6 pip install aimail (local repo, force)"
+say "1/6 pip install . — aimailsdk (local repo, force)"
 (
   cd "$REPO"
   "$VENV/bin/pip" install --force-reinstall --no-deps . \

@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "aimail"
+name = "aimailsdk"
 version = "0.1.0"
 description = "AIMail runtime SDK (Python): gateway client, platform adapters, resources. Provisioning tools stay in the aimail repository."
 # PyPI long description = the SDK-facing README (pysdk/README.md). The repo

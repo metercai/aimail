@@ -4,14 +4,14 @@
 # or push a v* tag. Idempotent: a version already on PyPI is skipped.
 # Auth: PyPI Trusted Publisher bound to THIS repo (metercai/aimail) +
 # workflow "publish-pypi.yml" + environment "pypi-release"; no API token
-# required (OIDC). Project: aimail (the wheel is built from pysdk/,
+# required (OIDC). Project: aimailsdk (distribution name; import name stays `aimail`; wheel built from pysdk/,
 # force-include — see pyproject.toml).
 #
 # Prerequisites (one-time, pypi.org → Account settings → Publishing):
 #   1. "aimail" must exist as a project (create it first if free, or add
 #      yourself as owner if taken by you).
 #   2. Add a pending publisher:
-#        Project name:    aimail
+#        Project name:    aimailsdk
 #        Owner/Repo:      metercai/aimail
 #        Workflow name:   publish-pypi.yml
 #        Environment:     pypi-release     ← must EXACTLY match the job below
@@ -85,7 +85,7 @@ jobs:
           VER: ${{ needs.build-and-verify.outputs.version }}
         run: |
           set -x
-          if curl -fsS "https://pypi.org/pypi/aimail/$VER/json" >/dev/null 2>&1; then
+          if curl -fsS "https://pypi.org/pypi/aimailsdk/$VER/json" >/dev/null 2>&1; then
             echo "aimail $VER already published — nothing to do"
             exit 0
           fi

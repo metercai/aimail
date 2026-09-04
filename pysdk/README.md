@@ -22,7 +22,7 @@ the wheel mirrors `pysdk/` 1:1, so repo and installed layouts are identical.
 ## Install
 
 ```bash
-pip install aimail            # from PyPI
+pip install aimailsdk      # from PyPI (import name stays `aimail`)
 pip install .                 # from the repo root (hatchling, force-include)
 ```
 
