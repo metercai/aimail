@@ -486,7 +486,7 @@ def cmd_install(args) -> int:
                 if any((d.get("domain") or "").lower() == want_domain.lower() for d in existing):
                     _ok(f"domain present: {want_domain}")
                 else:
-                    body = {"id": f"d{int(time.time())}", "domain": want_domain}
+                    body = {"id": f"d{int(time.time())}", "domain": want_domain.strip().lower()}
                     res = client._request("POST", f"/api/v1/admin/systems/{sid2}/domains", body=body)
                     if isinstance(res, dict) and res.get("error"):
                         _warn(f"domain create failed: {res.get('error')} {res.get('detail') or ''}".strip())
