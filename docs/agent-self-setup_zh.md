@@ -1,136 +1,112 @@
-# AIMail 自举安装 — Agent 原生邮箱(AI Agent 快速开始)
+# 申请你的 AIMail 地址 — 单一 agent 自助
 
-> 本文是写给"即将在自己宿主机上安装 AIMail 的 Agent"的指令。逐条精确执行,
-> 命令在你的终端工具中运行。
+> 写给你——想要自己 AIMail 邮箱地址的那个 agent。第一人称、单一 agent、
+> 单一地址。逐条精确执行。
 >
-> 分工(刻意设计——AIMail 深度集成进宿主,这正是它区别于"薄 skill 邮件工具"
-> 的能力差异):
-> - **你(agent)完成全部准备工作**:下载、安装、补丁、绑定、预检——不留半成品。
-> - **用户只在最后做一件事:重启宿主进程**,让注入的运行时加载。**绝不在本
->   会话内重启承载你自己的进程**。
+> **范围边界**:本文只让一个 agent(你)在既有 AIMail 系统上获得地址。
+> 完整平台对接(激活系统、接入平台全部 agent、bridge、运维)是 CLI 的职责
+> (`aimail install/check/repair`),需要操作者执行——本文触及该边界时会
+> 明说并指过去。深度宿主集成是刻意设计,唯一的用户动作是结尾的宿主重启。
 
-## 第 1 步 — 安装/更新 CLI
+## 第 1 步 — 知道你是谁
+
+你运行在某个平台内,拥有该平台的一个身份:
+
+- **平台**:你的 profile/session/agent id 已隐含——Hermes profile、
+  dsh session、OpenClaw/pi agent、deer-flow assistant。不要用目录扫描
+  猜测(一台机器可装多平台,你只属于一个)。
+- **你在平台中的名字**:profile 名(Hermes)、session id(dsh)、agent id
+  (OpenClaw/pi)——它将作为你的地址前缀(`{name}@{domain}`,或共享域
+  `{name}.{system_name}@{domain}`)。
+- **你的平台根**:`~/.hermes`、`~/.openclaw`、`~/.pi`、`~/.dsh` 或
+  deer-flow backend 目录。
+
+不确定时确认:`env | grep -iE 'hermes|openclaw|deepseek|dsh|deer'` 与
+`ps -p $PPID -o args=`。
+
+## 第 2 步 — 你已经有地址了吗?
+
+查你的身份指针(注册时写入):
+
+```bash
+cat <平台根>/.agentmail 2>/dev/null              # openclaw / pi / dsh / deer-flow 根
+cat <你的 profile 目录>/.agentmail 2>/dev/null    # hermes:~/.hermes 或 ~/.hermes/profiles/<name>
+# 或直接找你的 agentmail.json:
+ls ~/.aimail/systems/*/<清洗后地址>/agentmail.json 2>/dev/null
+```
+
+若存在且含你的 system_id 与 email → 你已有地址,直接跳到第 5 步验证。
+否则继续。
+
+## 第 3 步 — 确保环境就绪
+
+按序补齐缺失项(每项都是你能自己完成的下载/安装):
+
+1. **CLI 在吗?** 若 `aimail` 缺失,安装它(零 sudo,约 10 秒):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
 ```
 
-安装 `aimail` CLI 到 `~/.local/bin` 并执行机器级 init(主目录
-`~/.aimail`、磁盘余量、本地网关直连还是 bridge 的判定)。写入仅在
-`~/.aimail` 与 `~/.local/bin`,**无需 sudo**。重复执行 = 升级。验证:
+2. **机器初始化了吗?** 若 `~/.aimail/systems` 尚不存在:
 
 ```bash
-aimail version
+aimail init
 ```
 
-若 `aimail: command not found`:重开 shell 或把 `~/.local/bin` 加入
-PATH(`export PATH="$HOME/.local/bin:$PATH"`)。
+3. **本机已有 AIMail 系统吗?**(存在 `systems/*/aimail_gateway.json`)
 
-## 第 2 步 — 获取凭据(用户提供值,你绝不猜测)
-
-AIMail 没有 OAuth——对应的"授权"是用户必须提供的凭据。索取:
-
-- **新系统** — 激活码:`AIMAIL_PRODUCT_CODE`(管理页生成)
-- **已有系统** — admin key:`AIMAIL_ADMIN_KEY`(或已有的
-  `~/.aimail/.system_raw_key/*_admin.key`)
-- **必需** — manager 邮箱:`AIMAIL_MANAGER_ADDRESS`
-
-在 shell 中导出:
+   - **有** → 系统已在,你只需自己的地址(第 4 步)。
+   - **没有** → 任何地址存在之前必须先创建系统。这是平台对接边界:向
+     用户索取激活码(`AIMAIL_PRODUCT_CODE`)与 manager 邮箱
+     (`AIMAIL_MANAGER_ADDRESS`),然后执行一次平台级 install,一条命令
+     创建系统并接入你的平台:
 
 ```bash
-export AIMAIL_URL=https://amail.token.tm
 export AIMAIL_MANAGER_ADDRESS=<用户邮箱>
-export AIMAIL_PRODUCT_CODE=<码>          # 或: export AIMAIL_ADMIN_KEY=<key>
+export AIMAIL_PRODUCT_CODE=<码>
+aimail install --home <你的平台根>
 ```
 
-## 第 3 步 — 确立你的平台身份(自指知识,不猜测)
+   (这也会注册你平台的每个既有 agent——那是 CLI 的全 agent 范围;
+   你的地址在同一次执行中产生。)
 
-你正**运行在某个平台内部**——这个身份由自指天然确定,而这正是外部 CLI
-所缺少的确定性(所以 shell 里跑 `aimail install` 才需要 `--home` 和目录
-探测:一台机器可能装多个平台,但**你只属于一个**)。
-
-按优先级确立:
-
-1. **宿主已注入的事实**——你的 profile / session / agent id 已隐含平台:
-   Hermes profile → Hermes;dsh session → dsh;OpenClaw/pi agent →
-   OpenClaw/pi;deer-flow assistant → deer-flow。直接用,不要用目录
-   扫描质疑它。
-2. **环境自检**(仅当 1 不可得):
+4. **你的平台运行时接好了吗?** 若上面跳过 install 是因为系统存在但你
+   的平台从未接入(无 webhook 补丁/无插件),一次平台级 install 修复:
 
 ```bash
-env | grep -iE 'hermes|openclaw|deepseek|dsh|deer' | head -5
-ps -p $$ -o args= ; ps -p $PPID -o args=    # 是哪个宿主进程在运行你
+aimail install --home <你的平台根> --system-id <sid>
 ```
 
-3. **目录兜底**(仅佐证):
+   若你无法执行(无凭据),告知用户/操作者:平台对接是 CLI 维度——执行
+   完成后回到第 4 步。
+
+## 第 4 步 — 申请你的地址(注册)
+
+- **TS 平台(openclaw / pi / dsh)**:SDK 首次使用时自动绑定(存在性守卫,
+  一 session ⇔ 一地址)。触发一次你的邮件能力即可(openclaw 命令 / pi
+  入口 / dsh mail-service apply);SDK 注册你并写入你的指针。
+- **Hermes**:注册在 install 时按 profile 枚举。若你是对接后新增的
+  profile,你的地址需要平台级注册——请操作者执行
+  `python -m aimail.install register-profiles --type hermes --home ~/.hermes`
+  (或 `aimail install --home ~/.hermes --system-id <sid>`),然后复查你的
+  指针。
+
+注册后你的地址为 `{name}@{domain}`(裸域系统)或
+`{name}.{system_name}@{domain}`(共享域)——记录在你的 `.agentmail`
+指针 / `agentmail.json` 中。
+
+## 第 5 步 — 验证你的地址可用
 
 ```bash
-ls -d ~/.dsh ~/.openclaw ~/.pi ~/.hermes 2>/dev/null; ls -d ~/deepseek-harness 2>/dev/null
+aimail check --system-id <sid>     # 你的平台/agent 行全绿
+aimail ping --system-id <sid>      # SMTP 回环:你能收到自己的 ping
 ```
 
-若自指与目录扫描冲突,**你属于真正运行你的那个平台**——而不是碰巧存在
-目录的那个。你的平台根(第 4 步的 `--home` 值)随同一身份而来:
-`~/.hermes`、`~/.openclaw`、`~/.pi`、`~/.dsh` 或 deer-flow backend 目录。
+然后把你的地址告诉用户,请 TA 给你发一封真实邮件(或执行
+`aimail welcome --system-id <sid>` —— 向 manager 发欢迎邮件)。成功时只回复:
 
-## 第 4 步 — 安装 SDK 适配器(全部准备工作,由你完成)
+> 我的 AIMail 地址是 <你的地址>。给我发邮件即可联系我——现在就可以
+> 试,或让我给你发邮件。
 
-`aimail install --home <平台根>` 激活(或复用)系统 → 部署 bridge 条目 →
-安装平台适配器(补丁/skills/插件)→ 注册并自动绑定 agent:
-
-```bash
-aimail install --home ~/.hermes        # Hermes
-# aimail install --home ~/.openclaw    # OpenClaw
-# aimail install --home ~/.pi          # pi
-# aimail install --home ~/.dsh         # dsh
-# aimail install --home <backend 目录>  # deer-flow
-```
-
-幂等,重复执行安全。记下输出的 **system_id**(或在 `~/.aimail/systems/`
-下找含 `aimail_gateway.json` 的目录名)。
-
-然后**预检**——证明一切就绪、只差重启:
-
-```bash
-aimail check --system-id <system_id>
-```
-
-预期状态:config/runtime 层全绿(补丁已落盘、插件已装、资源就位);hook
-探测可能仍 FAIL——这个"进程未重启导致的 FAIL"正是"只差重启"的证据。
-向用户报告该状态,进入第 5 步。
-
-## 第 5 步 — 重启宿主(用户唯一动作,在本会话之外执行)
-
-告诉用户其平台对应的精确命令:
-
-| 平台 | 你完成安装后,用户执行 |
-|------|------------------------|
-| Hermes | `systemctl --user restart hermes-gateway-<profile>.service`(每个绑定 profile 一次) |
-| OpenClaw | 重启 OpenClaw gateway 进程 |
-| pi | 重启 pi 进程 |
-| dsh | 重载 dsh 服务 / 重启承载 mail 插件的会话 |
-| deer-flow | 重启后端服务(uvicorn / systemd 单元) |
-
-规则:
-- **绝不在本会话内重启承载你自己的进程。**
-- 若平台有免整进程重启的插件装载命令,优先用,该平台可跳过第 5 步。
-
-## 第 6 步 — 验证闭环
-
-```bash
-aimail check --system-id <system_id>
-aimail welcome --system-id <system_id>   # 向 manager 发送验证邮件
-```
-
-- `check` 此刻应**全绿**(hook 探测 PASS)。
-- `welcome` 证明:激活 → bridge → 适配器 → 绑定 → 送达。
-- **必须显式带 `--system-id`**(无参自动解析仅单系统机器可用)。
-- 失败时:如实报告输出,**不要静默循环重试**。
-
-成功时只回复:
-
-> AIMail 已就绪。地址:<check/stats 输出的 agent 地址,如
-> agent.<标识名>@amail.token.tm>
-> 现在可以试试:
-> - 给 <manager> 发一封邮件
-> - 汇总我最近收到的邮件
-> - 起草并发一份周报
+失败时:如实报告输出,**不要静默循环重试**。

@@ -1,150 +1,120 @@
-# AIMail Self-Setup — Agent-native mail (AI Agent quick start)
+# Getting Your AIMail Address — self-service for ONE agent
 
-> Instructions written FOR the agent that is about to install AIMail on its
-> own host. Follow each step exactly; run commands in your terminal tool.
+> Written for YOU — the agent that wants its own AIMail email address.
+> First person, one agent, one address. Follow each step exactly.
 >
-> Division of labor (by design — AIMail deep-integrates into the host, this
-> is its capability difference vs thin-skill mail tools):
-> - **You (the agent) do ALL the preparation**: download, install, patch,
->   bind, pre-check. Nothing is left half-done.
-> - **The user does exactly ONE thing at the end**: restart the host
->   process so the injected runtime loads. Restarting the process you run
->   inside is never something you do yourself.
+> **Scope boundary**: this guide gives ONE agent (you) an address on an
+> existing AIMail system. Full platform onboarding (activating a system,
+> wiring a whole platform's agents, bridge, maintenance) is the CLI's job
+> (`aimail install/check/repair`) and needs an operator — when this guide
+> hits that boundary it says so and points there. Deep host integration is
+> by design; the only user action is the host restart at the end.
 
-## Step 1 — Install / update the CLI
+## Step 1 — Know who you are
+
+You run inside one platform and have one identity there:
+
+- **Platform**: your profile/session/agent id implies it — Hermes profile,
+  dsh session, OpenClaw/pi agent, deer-flow assistant. Do not guess from
+  directories (a machine may host several platforms; you belong to one).
+- **Your name in the platform**: your profile name (Hermes), session id
+  (dsh), agent id (OpenClaw/pi) — this becomes your address prefix
+  (`{name}@{domain}`, or `{name}.{system_name}@{shared-domain}`).
+- **Your platform root**: `~/.hermes`, `~/.openclaw`, `~/.pi`, `~/.dsh`,
+  or the deer-flow backend dir.
+
+Confirm with `env | grep -iE 'hermes|openclaw|deepseek|dsh|deer'` and
+`ps -p $PPID -o args=` if unsure.
+
+## Step 2 — Do you already have an address?
+
+Check your identity pointer (written at registration):
+
+```bash
+cat <platform-root>/.agentmail 2>/dev/null          # openclaw / pi / dsh / deer-flow root
+cat <your-profile-dir>/.agentmail 2>/dev/null       # hermes: ~/.hermes or ~/.hermes/profiles/<name>
+# or look for your agentmail.json:
+ls ~/.aimail/systems/*/<cleaned-address>/agentmail.json 2>/dev/null
+```
+
+If it exists with your system_id and email → you already have an address;
+jump to Step 5 and verify it. Otherwise continue.
+
+## Step 3 — Make sure the environment is ready
+
+In order, fix whatever is missing (each is a normal download/install you
+can do yourself):
+
+1. **CLI present?** If `aimail` is missing, install it (no sudo, ~10s):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
 ```
 
-Installs the `aimail` CLI into `~/.local/bin` and runs the machine-level
-init (main dir `~/.aimail`, disk headroom, local-gateway vs bridge
-decision). Writes stay inside `~/.aimail` and `~/.local/bin` — no sudo.
-Re-running = upgrade. Verify:
+2. **Machine initialized?** If `~/.aimail/systems` does not exist yet:
 
 ```bash
-aimail version
+aimail init
 ```
 
-If `aimail: command not found`: re-open the shell or add `~/.local/bin` to
-PATH (`export PATH="$HOME/.local/bin:$PATH"`).
+3. **An AIMail system exists on this machine?** (a `systems/*/aimail_gateway.json`)
 
-## Step 2 — Obtain the credential (user provides values, you never guess)
-
-AIMail has no OAuth — the authorization equivalent is a credential the
-user supplies. Ask for:
-
-- **New system** — activation code: `AIMAIL_PRODUCT_CODE` (management page)
-- **Existing system** — admin key: `AIMAIL_ADMIN_KEY` (or an existing
-  `~/.aimail/.system_raw_key/*_admin.key`)
-- **Always** — manager mailbox: `AIMAIL_MANAGER_ADDRESS`
-
-Then export in your shell:
+   - **Yes** → the system is already there; you only need your address (Step 4).
+   - **No** → a system must be created before any address can exist. This is
+     the platform-onboarding boundary: ask the user for an activation code
+     (`AIMAIL_PRODUCT_CODE`) and manager mailbox (`AIMAIL_MANAGER_ADDRESS`),
+     then run one platform-level install that creates the system and wires
+     your platform in one pass:
 
 ```bash
-export AIMAIL_URL=https://amail.token.tm
 export AIMAIL_MANAGER_ADDRESS=<user mailbox>
-export AIMAIL_PRODUCT_CODE=<code>          # or: export AIMAIL_ADMIN_KEY=<key>
+export AIMAIL_PRODUCT_CODE=<code>
+aimail install --home <your platform root>
 ```
 
-## Step 3 — Establish your platform identity (self-knowledge, no guessing)
+   (This also registers every existing agent of your platform — that is the
+   CLI's all-agents scope; your address is created in the same pass.)
 
-You are running INSIDE one platform — that identity is yours by
-self-reference, which is exactly the certainty an external CLI lacks
-(that is why `aimail install` from a shell needs `--home` and directory
-probing: the machine may host several platforms, but YOU belong to one).
-
-Establish it, in priority order:
-
-1. **Host-injected facts you already have** — your profile / session /
-   agent id implies the platform: a Hermes profile → Hermes, a dsh
-   session → dsh, an OpenClaw/pi agent → OpenClaw/pi, a deer-flow
-   assistant → deer-flow. Use it directly; do not second-guess it with
-   directory scans.
-2. **Environment self-inspection** (only if 1 is unavailable):
+4. **Your platform's runtime wired?** If install above was skipped because
+   a system exists but your platform was never integrated (no webhook
+   patch / no plugin), one platform-level install fixes it:
 
 ```bash
-env | grep -iE 'hermes|openclaw|deepseek|dsh|deer' | head -5
-ps -p $$ -o args= ; ps -p $PPID -o args=    # which host process runs you
+aimail install --home <your platform root> --system-id <sid>
 ```
 
-3. **Directory fallback** (corroboration only):
+   If you cannot run it (no credential), tell the user/operator: platform
+   onboarding is the CLI dimension — after it runs, come back to Step 4.
+
+## Step 4 — Get YOUR address (registration)
+
+- **TS platforms (openclaw / pi / dsh)**: the SDK auto-binds on first use
+  (existence-guarded, one session ⇔ one address). Trigger it by using your
+  mail capability once (openclaw command / pi entry / dsh mail-service
+  apply); the SDK registers you and writes your pointer.
+- **Hermes**: registration is profile-enumerating at install time. If you
+  are a profile added after onboarding, your address needs the platform
+  register step — tell the operator to run
+  `python -m aimail.install register-profiles --type hermes --home ~/.hermes`
+  (or `aimail install --home ~/.hermes --system-id <sid>`), then re-check
+  your pointer.
+
+After registration your address is `{name}@{domain}` (bare-domain system)
+or `{name}.{system_name}@{shared-domain}` — it is in your `.agentmail`
+pointer / `agentmail.json`.
+
+## Step 5 — Verify your address works
 
 ```bash
-ls -d ~/.dsh ~/.openclaw ~/.pi ~/.hermes 2>/dev/null; ls -d ~/deepseek-harness 2>/dev/null
+aimail check --system-id <sid>     # your platform/agent rows green
+aimail ping --system-id <sid>      # SMTP round-trip: you receive your own ping
 ```
 
-If self-reference and directory scan disagree, **you are the platform
-that actually runs you** — not the one whose directory happens to exist.
-Your platform root (the `--home` value in Step 4) follows from the same
-identity: `~/.hermes`, `~/.openclaw`, `~/.pi`, `~/.dsh`, or the
-deer-flow backend dir.
+Then tell the user your address and ask them to send you one real email
+(or run `aimail welcome --system-id <sid>` — a welcome mail to the
+manager). On success reply with ONLY:
 
-## Step 4 — Install the SDK adapter (all preparation, done by you)
+> My AIMail address is <your address>. Send me an email to reach me —
+> try it now, or ask me to email you.
 
-`aimail install --home <platform root>` activates (or reuses) the system,
-deploys the bridge entry, installs the platform adapter (patches /
-skills / plugin), registers and auto-binds the agent:
-
-```bash
-aimail install --home ~/.hermes        # Hermes
-# aimail install --home ~/.openclaw    # OpenClaw
-# aimail install --home ~/.pi          # pi
-# aimail install --home ~/.dsh         # dsh
-# aimail install --home <backend-dir>  # deer-flow
-```
-
-Idempotent — re-running is safe. Capture the printed **system_id** (or
-find it under `~/.aimail/systems/` — the dir containing
-`aimail_gateway.json`).
-
-Then PRE-CHECK — prove everything is ready and only the restart is left:
-
-```bash
-aimail check --system-id <system_id>
-```
-
-Expected state: config/runtime layers green (patches applied, plugin
-installed, resources in place); the hook probe may still FAIL — that
-FAIL on the not-yet-restarted process is exactly the evidence that only
-the restart remains. Report this state to the user, then go to Step 5.
-
-## Step 5 — Restart the host (the ONLY user action, outside this session)
-
-Tell the user, with the exact command for their platform:
-
-| Platform | After your install, the user runs |
-|----------|-----------------------------------|
-| Hermes | `systemctl --user restart hermes-gateway-<profile>.service` (one per bound profile) |
-| OpenClaw | restart the OpenClaw gateway process |
-| pi | restart the pi process |
-| dsh | reload the dsh service / restart the session that hosts the mail plugin |
-| deer-flow | restart the backend service (uvicorn / systemd unit) |
-
-Rules:
-- Never restart the process you are running inside from this session.
-- If the platform has a plugin-install command that loads without a full
-  process restart, prefer it and skip Step 5 for that platform.
-
-## Step 6 — Verify the loop
-
-```bash
-aimail check --system-id <system_id>
-aimail welcome --system-id <system_id>   # welcome mail to the manager
-```
-
-- `check` must now be fully green (hook probe PASS).
-- `aimail welcome` proves: activation → bridge → adapter → binding →
-  delivery.
-- **Always pass `--system-id` explicitly** (no-argument auto-resolution
-  only works on single-system machines).
-- On failure: report the exact output; do NOT silently retry in a loop.
-
-On success, reply with ONLY:
-
-> AIMail is ready. Address: <agent address from check/stats, e.g.
-> agent.<name>@amail.token.tm>
-> You can now try:
-> - send an email to <manager>
-> - summarize the emails I received
-> - draft and send a weekly progress report
+On failure: report the exact output; do NOT silently retry in a loop.
