@@ -1697,7 +1697,7 @@ scenario groups:
     p_welcome.add_argument("-m", "--manager", **common_mgr)
     p_welcome.add_argument("-w", "--no-wait", action="store_true", help="do not wait for the draft reply")
     p_welcome.add_argument("--smtp", action="store_true",
-                           help="legacy SMTP mode (default: API mode via postman@ sender)")
+                           help="legacy SMTP mode (default: API mode via the gateway system sender)")
     p_welcome.set_defaults(func=cmd_welcome)
 
     p_persona = sub.add_parser("persona", help="persona flow: manager sends 'update persona', agent replies with draft")

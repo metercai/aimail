@@ -3,10 +3,10 @@
 
 两种模式:
   API 模式(默认): POST /api/v1/system/welcome, 唯一参数 to=agent 地址。
-    其余全部服务器固定: from=postman@{网关域}, subject/body 固定,
+    其余全部服务器固定: from=系统发件人(noreply@{网关域}), subject/body 服务器定,
     cc 由网关从 agent 的 manager_address 反查补充。agent 按正文指令
     reply-all 后, manager 先后收到两份邮件(welcome 原文 + Re: 回复),
-    比旧模式只收到一份回复不突兀。回 postman 的邮件被网关系统 sink
+    比旧模式只收到一份回复不突兀。回系统发件人的邮件被网关系统 sink
     吸收(不触发未注册地址通知), 无风暴风险。
   SMTP 模式(旧, 需 --smtp 显式指定): 裸 socket 直连网关 25 端口,
     发件人=manager。advanced 版用 auth.local 认证
@@ -324,7 +324,7 @@ def main() -> int:
             print("✗ aimail_gateway.json 无 admin_key——API 模式需系统 admin key")
             return 1
         print(f"  Gateway:     {gw_url}")
-        print("  Mode:        API (system welcome, from postman@)")
+        print("  Mode:        API (system welcome, from the gateway system sender)")
         print(f"  To:          {recipient}")
         print("  Cc:          (server-resolved from agent manager_address)")
 
