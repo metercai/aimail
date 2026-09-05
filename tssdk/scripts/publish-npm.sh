@@ -88,6 +88,41 @@ PYEOF
   done
   echo "  building+packing:"
   tgz=$(cd "$dir" && npm pack --pack-destination /tmp | tail -1)
+  # Registry rejects tarballs carrying hard links (E415 "Hard link is not
+  # allowed"). npm pack re-bundles transitive deps of bundledDependencies
+  # (e.g. typebox, whose published tree itself contains hard links under
+  # pnpm installs) as literal tar link entries. Normalize: rewrite the
+  # tarball expanding every hard/sym link to a regular file copy.
+  python3 - "/tmp/$tgz" <<'PYEOF'
+import sys, tarfile, io, os
+name = sys.argv[1]
+src = tarfile.open(name, "r:gz")
+members = src.getmembers()
+contents: dict[str, bytes] = {}
+for m in members:
+    if m.isfile():
+        f = src.extractfile(m)
+        contents[m.name] = f.read() if f else b""
+out_name = name + ".plain"
+out = tarfile.open(out_name, "w:gz")
+for m in members:
+    if m.islnk() or m.issym():
+        data = contents.get(m.linkname)
+        if data is None:
+            continue  # unresolvable link: drop the member
+        nm = tarfile.TarInfo(m.name)
+        nm.size = len(data)
+        nm.mode = m.mode or 0o644
+        nm.mtime = m.mtime
+        out.addfile(nm, io.BytesIO(data))
+    else:
+        data = contents.get(m.name)
+        out.addfile(m, io.BytesIO(data) if data is not None else None)
+out.close()
+src.close()
+os.replace(out_name, name)
+print("  normalized hard links")
+PYEOF
   echo "  packed: /tmp/$tgz"
 
   # 4) publish
