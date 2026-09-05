@@ -271,23 +271,30 @@ def main() -> int:
     ap.add_argument("--no-wait", action="store_true", help="发送后不等待回复")
     args = ap.parse_args()
 
-    agent_home = Path(args.agent_home or os.environ.get("AGENT_HOME", str(Path.home() / ".hermes")))
-
-    # ── 解析系统身份:--to > --agent > 指针 > env ──
+    # ── 解析系统身份(平台无关默认链,runtime_core.resolve_system_id):
+    # --system-id > env > agent_home 指针(显式时)> 平台注册表指针 >
+    # 单系统目录。不再把默认平台硬编码为 ~/.hermes。
     sid = args.system_id
     email = args.agent
-    pointer = agent_home / ".agentmail"
-    if pointer.is_file():
-        try:
-            pd = json.loads(pointer.read_text())
-            sid = sid or pd.get("system_id", "")
-            email = email or pd.get("email", "")
-        except Exception:
-            pass
-    sid = sid or os.environ.get("SYSTEM_ID", "") or os.environ.get("AIMAIL_SYSTEM_ID", "")
+    agent_home = (Path(args.agent_home).expanduser() if args.agent_home
+                  else (Path(os.environ["AGENT_HOME"]).expanduser()
+                        if os.environ.get("AGENT_HOME") else None))
+    if agent_home is not None:
+        pointer = agent_home / ".agentmail"
+        if pointer.is_file():
+            try:
+                pd = json.loads(pointer.read_text())
+                sid = sid or pd.get("system_id", "")
+                email = email or pd.get("email", "")
+            except Exception:
+                pass
 
     if not sid:
-        print("✗ system_id 未解析(需 --system-id 或 {agent-home}/.agentmail 指针)")
+        from runtime_core import resolve_system_id as _resolve_sid
+        sid = _resolve_sid(sid, str(agent_home) if agent_home else "")
+
+    if not sid:
+        print("✗ system_id 未解析(需 --system-id,或本机单系统/平台指针可自动判定)")
         return 1
 
     # ── 读 gateway 配置 ──

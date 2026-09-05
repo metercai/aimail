@@ -89,5 +89,96 @@ def load_adapter(name: str) -> str:
     return d
 
 
+# ── 系统身份默认解析(2026-09-05,消除"默认平台 = ~/.hermes"硬编码)──
+# 独立脚本(welcome/ping/persona/check)无参调用时,身份解析必须平台无关:
+# 显式 --system-id > env > 显式平台根指针 > 平台注册表指针 > 单系统目录。
+# 语义与 cli/aimail resolve_system_id、check_status _detect_default_sid
+# 的"事实推断,不猜平台"定调一致;歧义(多系统/多平台)时返回 '' 要求显式。
+
+# 平台根 → 指针文件名(注册表顺序 = 探测优先级,与 check PLATFORMS 一致)
+_PLATFORM_PTR_ROOTS = (
+    ("openclaw", ".openclaw"),
+    ("dsh", ".dsh"),
+    ("pi", ".pi"),
+    ("deerflow", ".deer-flow"),
+    ("hermes", ".hermes"),
+)
+
+
+def _read_ptr_sid(ptr: os.PathLike) -> str:
+    try:
+        with open(ptr, encoding="utf-8") as f:
+            import json
+            return json.load(f).get("system_id", "")
+    except Exception:
+        return ""
+
+
+def platform_pointer_sid(home=None) -> str:
+    """平台注册表指针 → system_id:依次查各平台 .agentmail,第一个有
+    system_id 的返回(home 默认 Path.home())。Hermes 特例:根指针缺失时
+    查 profiles/*/.agentmail(profile 级指针)。全部无 → ''。"""
+    import pathlib
+    home = pathlib.Path(home or pathlib.Path.home())
+    for _plat, root in _PLATFORM_PTR_ROOTS:
+        ptr = home / root / ".agentmail"
+        if ptr.is_file():
+            sid = _read_ptr_sid(ptr)
+            if sid:
+                return sid
+        if root == ".hermes":
+            profiles = home / ".hermes" / "profiles"
+            if profiles.is_dir():
+                for p in sorted(profiles.glob("*/.agentmail")):
+                    if p.is_file():
+                        sid = _read_ptr_sid(p)
+                        if sid:
+                            return sid
+    return ""
+
+
+def single_system_sid(aimail_home=None) -> str:
+    """systems/ 下恰有一个含 aimail_gateway.json 的目录 → 返回该 sid;
+    多个或零个 → ''(不猜,要求显式 --system-id)。"""
+    import pathlib
+    ah = aimail_home or os.environ.get("AIMAIL_HOME", "") or str(pathlib.Path.home() / ".aimail")
+    systems = pathlib.Path(ah).expanduser() / "systems"
+    if not systems.is_dir():
+        return ""
+    found = ""
+    for d in sorted(systems.iterdir()):
+        if d.is_dir() and (d / "aimail_gateway.json").is_file():
+            if found:  # 第二个系统 → 歧义
+                return ""
+            found = d.name
+    return found
+
+
+def resolve_system_id(explicit_sid: str = "", agent_home: str = "") -> str:
+    """独立脚本的统一 system_id 默认链(平台无关)。
+
+    explicit_sid(--system-id) > env(SYSTEM_ID/AIMAIL_SYSTEM_ID) >
+    agent_home 指针(显式平台根时) > 平台注册表指针 > 单系统目录。
+    返回 '' 表示无法唯一判定(调用方报错并提示 --system-id)。
+    """
+    sid = (explicit_sid or os.environ.get("SYSTEM_ID", "")
+           or os.environ.get("AIMAIL_SYSTEM_ID", "")).strip()
+    if sid:
+        return sid
+    if agent_home:
+        import pathlib
+        ptr = pathlib.Path(agent_home).expanduser() / ".agentmail"
+        if ptr.is_file():
+            sid = _read_ptr_sid(ptr)
+            if sid:
+                return sid
+    sid = platform_pointer_sid()
+    if sid:
+        return sid
+    return single_system_sid()
+
+
 if __name__ == "__main__":
     print(f"core\t{load_core()}")
+    print(f"platform-sid\t{platform_pointer_sid()}")
+    print(f"single-system-sid\t{single_system_sid()}")

@@ -852,8 +852,10 @@ def _json_req(url: str, headers: dict | None = None,
 
 
 def _resolve_platform_sid(agent_type: str) -> str:
-    """平台相关 system_id:Hermes = AGENT_HOME 指针;OpenClaw =
-    ~/.openclaw/.agentmail 指针。--system-id 显式指定优先。"""
+    """平台相关 system_id:该平台 .agentmail 指针 → system_id。--system-id
+    显式指定优先。平台指针注册表与 runtime_core/repair 同构——不再只认
+    openclaw/hermes 两平台(2026-09-05 修复:pi/dsh/deerflow 平台的
+    默认解析此前落到 ~/.hermes 指针,必然落空)。"""
     if "--system-id" in sys.argv:
         try:
             ai = sys.argv.index("--system-id")
@@ -861,11 +863,26 @@ def _resolve_platform_sid(agent_type: str) -> str:
                 return sys.argv[ai + 1]
         except (ValueError, IndexError):
             pass
-    if agent_type == "openclaw":
-        ptr = Path.home() / ".openclaw" / ".agentmail"
+    ptr = None
+    if agent_type == "hermes":
+        # hermes:AGENT_HOME 根指针,或 profiles/*/ 下的 profile 级指针
+        cands = [AGENT_HOME / ".agentmail"]
+        profiles = AGENT_HOME / "profiles"
+        if profiles.is_dir():
+            cands += [p / ".agentmail" for p in sorted(profiles.iterdir()) if p.is_dir()]
+        for c in cands:
+            if c.is_file():
+                ptr = c
+                break
     else:
-        ptr = AGENT_HOME / ".agentmail"
-    if ptr.is_file():
+        _roots = {"openclaw": ".openclaw", "pi": ".pi", "dsh": ".dsh",
+                  "deerflow": ".deer-flow"}
+        root = _roots.get(agent_type)
+        if root:
+            cand = Path.home() / root / ".agentmail"
+            if cand.is_file():
+                ptr = cand
+    if ptr is not None:
         try:
             return json.loads(ptr.read_text()).get("system_id", "")
         except Exception:
