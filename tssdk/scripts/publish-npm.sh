@@ -85,7 +85,7 @@ PYEOF
     mkdir -p "$link"
     (cd "$target" && tar cf - --exclude=node_modules .) | (cd "$link" && tar xf -)
   done
-  tgz=$(cd "$dir" && npm pack --pack-destination /tmp 2>/dev/null | tail -1)
+  tgz=$(cd "$dir" && npm pack --pack-destination /tmp | tail -1)
   echo "  packed: /tmp/$tgz"
 
   # 4) publish
