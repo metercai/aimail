@@ -1,6 +1,7 @@
 """aimail_tools — Mail toolset: send_mail, contacts, email_summary."""
 from __future__ import annotations
 import json
+import sqlite3
 import logging
 import os
 import re
@@ -1062,6 +1063,7 @@ def _save_outbound_snapshot(out_msg_id: str, my_addr: str, sender: str,
                     local_atts.append(str(dest))
         except Exception:
             logger.warning("Failed to copy outbound attachments for %s", safe_mid)
+    att_md = _collect_attachments_md(local_atts)
     payload = {
         "message_id": out_msg_id,
         "direction": "outbound",
@@ -1076,12 +1078,27 @@ def _save_outbound_snapshot(out_msg_id: str, my_addr: str, sender: str,
         "references": references,
         "sent_at": now.isoformat(),
     }
+    if att_md:
+        payload["attachments_md"] = att_md
     try:
         snapshot_dir.mkdir(parents=True, exist_ok=True)
         tmp = snapshot_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str),
                        encoding="utf-8")
         tmp.replace(snapshot_path)
+        # Incremental FTS5 index AFTER the snapshot file is on disk.
+        to_list = [t.strip() for t in (to or "").split(",") if t.strip()] + list(cc_list or [])
+        _index_snapshot_record(
+            mid=out_msg_id,
+            direction="outbound",
+            ts=now.isoformat(),
+            subject=subject or "",
+            from_addr=sender or "",
+            to_json=json.dumps(to_list, ensure_ascii=False),
+            body=body or "",
+            att_text=_join_att_md(att_md),
+            thread_id="",
+        )
     except Exception:
         logger.warning("Failed to save outbound email snapshot for %s", safe_mid)
 
@@ -1202,6 +1219,7 @@ def store_inbound_message(
     attch_dir = snapshot_dir / "attch" / safe_mid
 
     snapshot_saved = False
+    att_md: list = []
     if preprocessed_payload:
         # Guard: detect gateway RAW format (has 'mail_id' field — gateway-internal UUID)
         if "mail_id" in preprocessed_payload and "recipients" not in preprocessed_payload:
@@ -1211,11 +1229,30 @@ def store_inbound_message(
             )
         try:
             snapshot_dir.mkdir(parents=True, exist_ok=True)
+            # Snapshot payload = agent-visible JSON + md-escaped attachment text
+            # (textual attachments only, so full-text search covers attachments).
+            snapshot_payload = dict(preprocessed_payload)
+            if attachment_sources:
+                att_md = _collect_attachments_md(list(attachment_sources.values()))
+                if att_md:
+                    snapshot_payload["attachments_md"] = att_md
             tmp = snapshot_path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(preprocessed_payload, ensure_ascii=False, indent=2, default=str),
+            tmp.write_text(json.dumps(snapshot_payload, ensure_ascii=False, indent=2, default=str),
                            encoding="utf-8")
             tmp.replace(snapshot_path)
             snapshot_saved = True
+            # Incremental FTS5 index AFTER the snapshot file is on disk.
+            _index_snapshot_record(
+                mid=mid,
+                direction="inbound",
+                ts=snapshot_payload.get("ts") or snapshot_payload.get("date") or now.isoformat(),
+                subject=snapshot_payload.get("subject") or "",
+                from_addr=snapshot_payload.get("sender") or snapshot_payload.get("from") or "",
+                to_json=_norm_to_json(snapshot_payload.get("to")),
+                body=snapshot_payload.get("body") or "",
+                att_text=_join_att_md(att_md),
+                thread_id="",
+            )
         except Exception:
             logger.warning("Failed to save inbound email snapshot for %s", safe_mid)
 
@@ -1314,3 +1351,337 @@ def set_email_summary(message_id: str, summary: str) -> dict:
         return {"success": False, "error": f"Failed to store summary: {e}"}
     return {"success": True}
 
+
+
+# ═══════════════════════════════════════════════════════════════
+# 本地全文检索:快照增量 FTS5 索引 + search_mail(2026-09-05)
+#   顺序契约:快照文件先落盘, 再增量索引(同 mid 幂等)。
+#   附件:文本型附件(护栏内)以 md 转义文本随快照落盘并进索引。
+#   引擎:sqlite FTS5 trigram(python 内置;中文/英文子串均命中);
+#   失败自动降级顺序扫快照(LIKE), 结果语义一致。
+# ═══════════════════════════════════════════════════════════════
+_TEXT_ATTACH_EXTS = {
+    ".txt", ".md", ".markdown", ".json", ".csv", ".eml", ".log",
+    ".yaml", ".yml", ".toml", ".xml", ".html", ".py", ".js", ".ts",
+    ".rs", ".sh", ".ini", ".conf", ".rst",
+}
+_ATTACH_TEXT_MAX = 512 * 1024
+
+
+def _search_index_path() -> Path:
+    """Per-agent FTS5 index db: mail/{addr}/.search/index.db."""
+    return _aimail_dir() / ".search" / "index.db"
+
+
+def _open_search_index() -> "sqlite3.Connection | None":
+    import sqlite3
+    try:
+        p = _search_index_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        db = sqlite3.connect(str(p), timeout=5)
+        db.execute("PRAGMA journal_mode=WAL")
+        db.executescript(
+            "CREATE TABLE IF NOT EXISTS emails("
+            " mid TEXT PRIMARY KEY, dir TEXT NOT NULL, ts TEXT NOT NULL,"
+            " subject TEXT DEFAULT '', from_addr TEXT DEFAULT '',"
+            " to_json TEXT DEFAULT '', body TEXT DEFAULT '',"
+            " att_text TEXT DEFAULT '', thread_id TEXT DEFAULT '');"
+            "CREATE VIRTUAL TABLE IF NOT EXISTS emails_fts USING fts5("
+            " subject, body, att_text, tokenize='trigram');"
+        )
+        return db
+    except Exception:
+        logger.debug("search index unavailable", exc_info=True)
+        return None
+
+
+def _index_snapshot_record(mid: str, direction: str, ts: str, subject: str,
+                           from_addr: str, to_json: str, body: str,
+                           att_text: str, thread_id: str) -> None:
+    """Incremental UPSERT (idempotent by mid). Silent on failure."""
+    db = _open_search_index()
+    if db is None:
+        return
+    try:
+        db.execute("DELETE FROM emails_fts WHERE rowid IN"
+                   " (SELECT rowid FROM emails WHERE mid = ?)", (mid,))
+        db.execute("DELETE FROM emails WHERE mid = ?", (mid,))
+        cur = db.execute(
+            "INSERT INTO emails(mid,dir,ts,subject,from_addr,to_json,body,att_text,thread_id)"
+            " VALUES (?,?,?,?,?,?,?,?,?)",
+            (mid, direction, ts, subject, from_addr, to_json, body, att_text, thread_id),
+        )
+        db.execute(
+            "INSERT INTO emails_fts(rowid,subject,body,att_text) VALUES (?,?,?,?)",
+            (cur.lastrowid, subject, body, att_text),
+        )
+        db.commit()
+    except Exception:
+        logger.debug("search index upsert failed for %s", mid, exc_info=True)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
+
+
+def _norm_to_json(v) -> str:
+    """Normalise payload 'to' (list | str | dict) to a JSON array."""
+    import json as _json
+    if isinstance(v, list):
+        return _json.dumps([str(x) for x in v], ensure_ascii=False)
+    if isinstance(v, dict):
+        vals = v.get("to") or v.get("cc") or []
+        if isinstance(vals, list):
+            return _json.dumps([str(x) for x in vals], ensure_ascii=False)
+    if isinstance(v, str):
+        return _json.dumps([x.strip() for x in v.split(",") if x.strip()], ensure_ascii=False)
+    return _json.dumps([], ensure_ascii=False)
+
+
+def _is_text_attachment(path: Path) -> bool:
+    return path.suffix.lower() in _TEXT_ATTACH_EXTS and path.stat().st_size <= _ATTACH_TEXT_MAX
+
+
+def _md_escape_attachment(path: Path) -> Optional[dict]:
+    """Read a textual attachment and return {'name','text'} md-escaped, or None."""
+    try:
+        raw = path.read_bytes()[: _ATTACH_TEXT_MAX + 1]
+        if len(raw) > _ATTACH_TEXT_MAX:
+            return None
+        text = raw.decode("utf-8", errors="replace")
+        ext = path.suffix.lstrip(".").lower()
+        fence = "```"
+        while fence in text:
+            fence += "`"
+        return {"name": path.name, "text": f"{fence}{ext}\n{text.rstrip()}\n{fence}"}
+    except Exception:
+        return None
+
+
+def _collect_attachments_md(paths: list) -> list:
+    """Collect md-escaped text for textual attachments (silent on errors)."""
+    out = []
+    for p in paths or []:
+        try:
+            pp = Path(p)
+            if pp.is_file() and _is_text_attachment(pp):
+                item = _md_escape_attachment(pp)
+                if item:
+                    out.append(item)
+        except Exception:
+            continue
+    return out
+
+
+def _join_att_md(att_md: list) -> str:
+    return "\n\n".join((a.get("text") or "") for a in att_md or [])
+
+
+def _make_snippet(text: str, words: list, width: int = 90) -> str:
+    """First hit of any word in text → window around it; '' if no hit."""
+    low = text.lower()
+    pos = -1
+    for w in words:
+        i = low.find(w)
+        if i >= 0:
+            pos = i
+            break
+    if pos < 0:
+        return ""
+    start = max(0, pos - width // 2)
+    end = min(len(text), pos + width // 2)
+    seg = text[start:end].replace("\n", " ").strip()
+    return ("…" if start > 0 else "") + seg + ("…" if end < len(text) else "")
+
+
+def _fts_query(words: list) -> str:
+    """Quote each word for a safe trigram MATCH (empty words dropped)."""
+    return " AND ".join(f'"{w}"' for w in words)
+
+
+def _scan_snapshot_files(words: list, scope: str, since: str, until: str,
+                         from_: str, limit: int) -> list:
+    """Ordered-scan fallback over snapshot JSON files when the index db is
+    unavailable. Month granularity for the time window (yyyymm dirs);
+    LIKE semantics identical to the index fallback path."""
+    import json as _json
+    root = _aimail_dir()
+    if not root.is_dir():
+        return []
+    rows = []
+    for d in sorted(root.iterdir(), reverse=True):
+        if not d.is_dir() or len(d.name) != 6 or not d.name.isdigit():
+            continue
+        ym = d.name
+        if since and ym < since[:4] + since[5:7]:
+            continue
+        if until and ym > until[:4] + until[5:7]:
+            continue
+        for f in sorted(d.glob("*.json"), reverse=True):
+            fn = f.name
+            if not (fn.startswith("in-") or fn.startswith("out-")):
+                continue
+            if scope == "inbound" and not fn.startswith("in-"):
+                continue
+            if scope == "outbound" and not fn.startswith("out-"):
+                continue
+            try:
+                data = _json.loads(f.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            dir_ = "inbound" if fn.startswith("in-") else "outbound"
+            subj = data.get("subject") or ""
+            body = data.get("body") or ""
+            att = "\n\n".join((a.get("text") or "") for a in (data.get("attachments_md") or []))
+            sender = data.get("sender") or data.get("from") or ""
+            if from_ and from_.lower() not in sender.lower():
+                continue
+            if words:
+                hay = " ".join([subj.lower(), body.lower(), att.lower()])
+                if not all(w in hay for w in words):
+                    continue
+            ts = (data.get("ts") or data.get("sent_at") or data.get("date")
+                  or f"{ym[:4]}-{ym[4:6]}-01")
+            rows.append((fn, dir_, ts, subj, sender, "[]", body, att, ""))
+            if len(rows) >= limit:
+                return rows
+    return rows
+
+
+
+def search_mail(query: str = "", scope: str = "all", since: str = "",
+                until: str = "", from_: str = "", limit: int = 20) -> dict:
+    """Search YOUR OWN locally stored mail (offline). Matches keywords in
+    subject/body/attachment text; filters: mailbox scope (inbound/outbound),
+    time window (since/until, YYYY-MM-DD) and sender (from_, substring,
+    case-insensitive). Results newest first with a hit snippet.
+
+    query: space-separated keywords (AND). Empty = filter-only browse.
+    """
+    if scope not in ("all", "inbound", "outbound"):
+        return {"success": False, "error_code": "INVALID_SCOPE",
+                "error": f"scope must be all|inbound|outbound, got {scope!r}"}
+    if limit is None:
+        limit = 20
+    try:
+        limit = max(1, min(int(limit), 50))
+    except (TypeError, ValueError):
+        limit = 20
+    import re as _re
+    _DATE_RE = _re.compile(r"^\d{4}-\d{2}-\d{2}$")
+    for label, val in (("since", since), ("until", until)):
+        if val and not _DATE_RE.match(val):
+            return {"success": False, "error_code": "INVALID_DATE",
+                    "error": f"{label} must be YYYY-MM-DD, got {val!r}"}
+    if since and until and until < since:
+        return {"success": False, "error_code": "INVALID_DATE",
+                "error": "until must not be earlier than since"}
+
+    words = [w.lower() for w in (query or "").split() if w.strip()]
+    rows: list = []
+    used_fts = False
+    note = ""
+    db = _open_search_index()
+    if db is not None:
+        try:
+            where, params = [], []
+            if scope != "all":
+                where.append("dir = ?")
+                params.append(scope)
+            if since:
+                where.append("substr(ts,1,10) >= ?")
+                params.append(since)
+            if until:
+                where.append("substr(ts,1,10) <= ?")
+                params.append(until)
+            if from_:
+                where.append("lower(from_addr) LIKE ?")
+                params.append(f"%{from_.lower()}%")
+            if words:
+                # FTS path: every keyword >= 3 chars & alnum-only → trigram MATCH
+                safe = all(len(w) >= 3 and w.isalnum() for w in words)
+                if safe:
+                    sql = ("SELECT mid,dir,ts,subject,from_addr,to_json,body,att_text,thread_id"
+                           " FROM emails e JOIN emails_fts f ON f.rowid = e.rowid"
+                           f" WHERE emails_fts MATCH ?{(' AND ' + ' AND '.join(where)) if where else ''}"
+                           " ORDER BY e.ts DESC LIMIT ?")
+                    match_params = [_fts_query(words)] + params + [limit]
+                    try:
+                        rows = db.execute(sql, match_params).fetchall()
+                        used_fts = True
+                    except Exception:
+                        rows = []
+            if not used_fts:
+                # LIKE fallback across subject/body/att_text (also covers
+                # short keywords and FTS-syntax-unsafe input). Semantics:
+                # every word must hit in at least one column (word AND,
+                # column OR), matching the FTS path.
+                like_cols = ("subject", "body", "att_text")
+                per_word, like_params = [], []
+                for w in words:
+                    per_word.append("(" + " OR ".join(f"{c} LIKE ?" for c in like_cols) + ")")
+                    like_params += [f"%{w}%"] * len(like_cols)
+                like_cond = " AND ".join(per_word)
+                sql = ("SELECT mid,dir,ts,subject,from_addr,to_json,body,att_text,thread_id"
+                       " FROM emails" + ((" WHERE " + like_cond) if words else "")
+                       + ((" AND " + " AND ".join(where)) if where and words else
+                          (" WHERE " + " AND ".join(where)) if where else "")
+                       + " ORDER BY ts DESC LIMIT ?")
+                rows = db.execute(sql, like_params + params + [limit]).fetchall()
+        except Exception:
+            logger.debug("search_mail db query failed — fallback scan", exc_info=True)
+            rows = []
+        finally:
+            if not rows:
+                # Empty index (feature on, nothing stored yet) vs a real miss.
+                try:
+                    n = db.execute("SELECT COUNT(*) FROM emails").fetchone()[0]
+                    if n == 0:
+                        note = "no local mail index yet — snapshots are saved from now on"
+                except Exception:
+                    pass
+            try:
+                db.close()
+            except Exception:
+                pass
+    if db is None:
+        # No index available: ordered scan over snapshot files (same semantics).
+        rows = _scan_snapshot_files(words, scope, since, until, from_, limit)
+
+    results = []
+    for mid, dir_, ts, subject, from_addr, to_json, body, att_text, thread_id in rows:
+        to_list = []
+        try:
+            import json as _json
+            to_list = _json.loads(to_json or "[]")
+        except Exception:
+            to_list = []
+        if words:
+            subj_hit = subject and all(w in subject.lower() for w in words)
+            body_hit = body and all(w in body.lower() for w in words)
+            att_hit = att_text and all(w in att_text.lower() for w in words)
+            if subj_hit:
+                matched_in, src = "subject", subject
+            elif body_hit:
+                matched_in, src = "body", body
+            elif att_hit:
+                matched_in, src = "attachment", att_text
+            else:
+                matched_in, src = "subject", subject
+            snippet = _make_snippet(src, words)
+        else:
+            matched_in, snippet = "", ""
+        results.append({
+            "mid": mid, "dir": dir_, "ts": ts, "subject": subject,
+            "from": from_addr, "to": to_list,
+            "matched_in": matched_in, "snippet": snippet, "thread_id": thread_id,
+        })
+    out = {"success": True, "count": len(results), "results": results}
+    if note:
+        out["note"] = note
+    return out

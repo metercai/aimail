@@ -50,8 +50,15 @@ export {
   setContactProfile,
   emailSummary,
   setEmailSummary,
+  searchMail,
 } from './tools.js'
-export type { ToolCtx, ToolResult, SendMailArgs, ManageContactsArgs, ContactProfileArgs, EmailSummaryArgs } from './tools.js'
+export type { ToolCtx, ToolResult, SendMailArgs, ManageContactsArgs, ContactProfileArgs, EmailSummaryArgs, SearchMailArgs } from './tools.js'
+export {
+  indexSnapshotRecord,
+  collectAttachmentsMd,
+  searchLocalMail,
+  openSearchIndex,
+} from './search.js'
 export {
   sanitizeMessageId,
   agentMailDir,

@@ -52,13 +52,13 @@ def strip_trailing_blanks(text: str) -> str:
 
 TOOLSET_AMAIL = """    "agentmail": {
         "description": "Agent email tools: send, contacts, contact profiles, and thread summaries via amail",
-        "tools": ["send_mail", "manage_contacts", "contact_profile", "set_contact_profile", "email_summary", "set_email_summary"],
+        "tools": ["send_mail", "manage_contacts", "contact_profile", "set_contact_profile", "email_summary", "set_email_summary", "search_mail"],
         "includes": [],
     },
 """
 # _HERMES_CORE_TOOLS tool names added by install-tools.sh
 CORE_TOOL_NAMES = ["send_mail", "manage_contacts", "contact_profile",
-                   "set_contact_profile", "email_summary", "set_email_summary"]
+                   "set_contact_profile", "email_summary", "set_email_summary", "search_mail"]
 
 
 def patch_toolsets(hermes_dir: str) -> bool:
@@ -107,7 +107,7 @@ def unpatch_toolsets(fp: Path) -> int:
     for tool in [
         "set_email_summary", "email_summary",
         "set_contact_profile", "contact_profile",
-        "manage_contacts", "send_mail",
+        "manage_contacts", "send_mail", "search_mail",
     ]:
         line = f'    "{tool}",\n'
         if line in text:

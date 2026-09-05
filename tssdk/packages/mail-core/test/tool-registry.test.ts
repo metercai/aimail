@@ -1,6 +1,6 @@
 /**
  * MAIL_TOOLS contract tests:
- *   - structural: 12 tools, exact names/order, non-empty semantic text
+ *   - structural: 13 tools, exact names/order, non-empty semantic text
  *   - parity (best-effort): names + descriptions + parameter text must match
  *     the Python TOOLS registry in aimail/tools/amail_mcp_server.py
  *     (the upstream contract reference). Skipped when the sibling repo or
@@ -21,6 +21,7 @@ const EXPECTED_NAMES = [
   'set_contact_profile',
   'email_summary',
   'set_email_summary',
+  'search_mail',
   'board_status',
   'board_task_list',
   'board_task_show',
@@ -29,10 +30,12 @@ const EXPECTED_NAMES = [
   'set_public_whoami',
 ] as const
 
-/** Sibling-repo layout: dsh-aimail/ and aimail/ share a parent dir. */
+/** Sibling-repo layout: dsh-aimail/ and aimail/ share a parent dir.
+ * Python registry moved to pysdk/ in the 2026-09 rename (legacy
+ * aimail/tools/ no longer exists) — parity stays live against pysdk. */
 const PY_REGISTRY = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  '..', '..', '..', '..', 'aimail', 'tools', 'amail_mcp_server.py',
+  '..', '..', '..', '..', 'aimail', 'pysdk', 'amail_mcp_server.py',
 )
 
 interface PyParam { type?: string; enum?: string[]; description?: string }
@@ -62,7 +65,7 @@ print(json.dumps(ns['TOOLS']))
 }
 
 describe('MAIL_TOOLS structure', () => {
-  it('registers exactly the 12 bare tool names, in order', () => {
+  it('registers exactly the 13 bare tool names, in order', () => {
     expect(MAIL_TOOLS.map(t => t.name)).toEqual([...EXPECTED_NAMES])
   })
 
@@ -91,7 +94,7 @@ describe('MAIL_TOOLS ↔ Python registry parity', () => {
     return
   }
 
-  it('has the same 12 tools with identical names and descriptions', () => {
+  it('has the same 13 tools with identical names and descriptions', () => {
     expect(py.map(t => t.name)).toEqual([...EXPECTED_NAMES])
     py.forEach((pt, i) => {
       const tt = MAIL_TOOLS[i]

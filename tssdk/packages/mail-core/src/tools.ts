@@ -271,7 +271,7 @@ export async function sendMail(ctx: ToolCtx, args: SendMailArgs): Promise<ToolRe
   // Message-ID 本地生成并传给 gateway, 本地值即线上值(不再回填 API 返回值)。
   const generatedMid = buildMessageId(cfg)
   await storeMessageMeta(cfg.email, generatedMid, references, sender, 'outbound')
-  if (cfg.save_raw_snapshots) {
+  if (cfg.save_raw_snapshots !== false) {
     await saveOutboundSnapshot(cfg.email, generatedMid, sender, toList.join(','), args.subject, args.body,
       ccList ?? [], resolvedPaths, attachmentIds, inReplyTo ?? '', references ?? '')
   }
@@ -536,4 +536,29 @@ export async function setEmailSummary(ctx: ToolCtx, args: { message_id: string; 
     return { success: false, error: `Failed to store summary: ${e instanceof Error ? e.message : String(e)}` }
   }
   return { success: true }
+}
+
+// ── search_mail (local mail history, offline) ───────────────────
+export interface SearchMailArgs {
+  query?: string
+  scope?: 'all' | 'inbound' | 'outbound'
+  since?: string
+  until?: string
+  from?: string
+  limit?: number
+}
+
+/** Search YOUR OWN locally stored mail (offline). Mirrors Python search_mail. */
+export async function searchMail(ctx: ToolCtx, args: SearchMailArgs): Promise<ToolResult> {
+  if (!ctx.email) {
+    return { success: false, error_code: 'EMAIL_REQUIRED', error: 'agent email is required for local search' }
+  }
+  const { searchLocalMail } = await import('./search.js')
+  const r = await searchLocalMail(ctx.email, args)
+  if (!r.success) {
+    return { success: false, error_code: r.error_code ?? 'SEARCH_FAILED', error: r.error ?? 'search failed' }
+  }
+  const out: ToolResult = { success: true, count: r.count ?? 0, results: r.results ?? [] }
+  if (r.note) out.note = r.note
+  return out
 }

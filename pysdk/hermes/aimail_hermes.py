@@ -64,6 +64,7 @@ contact_profile = tools.contact_profile
 set_contact_profile = tools.set_contact_profile
 email_summary = tools.email_summary
 set_email_summary = tools.set_email_summary
+search_mail = tools.search_mail
 # A2A Board 工具函数体（registry 注册 handler 裸调用）
 board_task_show = board.board_task_show
 board_task_list = board.board_task_list
@@ -521,7 +522,7 @@ def _auto_register_email(name: str, profile_dir: str, config: dict) -> None:
         "domain": config["domain"],
         "system_id": system_id,
         "manager_address": manager_address,
-        "save_raw_snapshots": config.get("save_raw_snapshots", False),
+        "save_raw_snapshots": config.get("save_raw_snapshots", True),
         "webhook_host": config.get("webhook_host", ""),
         # aimail 唯一信任源:webhook_url + webhook_secret 成对落盘
         # (注册链/验签/路由统一从 agentmail.json 读;profile config 的
@@ -752,6 +753,16 @@ def _handle_set_email_summary(args, **_kw):
         summary=args.get("summary", ""),
     ))
 
+def _handle_search_mail(args, **_kw):
+    return tool_result(search_mail(
+        query=args.get("query", ""),
+        scope=args.get("scope", "all"),
+        since=args.get("since", ""),
+        until=args.get("until", ""),
+        from_=args.get("from", ""),
+        limit=args.get("limit", 20),
+    ))
+
 # ═══════════════════════════════════════════════════════════════
 # 2. 注入公共核心的注入点
 # ═══════════════════════════════════════════════════════════════
@@ -907,6 +918,36 @@ try:
     )
 except Exception as _e:
     logger.warning("[aimail] send_mail registration failed: %s", _e)
+
+try:
+    registry.register(
+        name="search_mail",
+        toolset=_TOOLSET,
+        schema={
+            "name": "search_mail",
+            "description": "Search YOUR OWN locally stored mail (offline, no network). "
+                           "Matches keywords in subject/body/attachment text; filter by "
+                           "mailbox (inbound/outbound/all), time window (since/until) and "
+                           "sender (from). Use it to recall past conversations, find when "
+                           "an event happened, or recover attachment content.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Space-separated keywords (AND); empty = browse by filters only"},
+                    "scope": {"type": "string", "enum": ["all", "inbound", "outbound"], "description": "Mailbox scope (default all)"},
+                    "since": {"type": "string", "description": "Start date YYYY-MM-DD (inclusive)"},
+                    "until": {"type": "string", "description": "End date YYYY-MM-DD (inclusive)"},
+                    "from": {"type": "string", "description": "Sender substring filter (case-insensitive)"},
+                    "limit": {"type": "integer", "description": "Max results 1-50 (default 20)"},
+                },
+                "required": [],
+            },
+        },
+        handler=_handle_search_mail,
+        emoji="🔎",
+    )
+except Exception as _e:
+    logger.warning("[aimail] search_mail registration failed: %s", _e)
 
 try:
     registry.register(

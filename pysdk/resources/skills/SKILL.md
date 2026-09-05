@@ -214,10 +214,14 @@ The 6 aimail tools are registered with full schemas — parameter names, types, 
 | `contact_profile` | Look up a contact before deciding how to engage. |
 | `set_contact_profile` | Persist new observations about a contact. Only changed fields. |
 | `manage_contacts` | Check/add/remove/update contacts with direction control. `check` covers both "to" and "all" directions. `add` sends approval request to manager. `remove` needs no direction (one address = one record). `update` changes direction. |
+| `search_mail` | Search your own LOCAL mail history (offline). `query` keywords match subject/body/attachment text; `scope`=inbound/outbound/all; `since`/`until` (YYYY-MM-DD) and `from` narrow the window. Use to recall past conversations, find when something happened, or recover attachment content. Results newest-first with hit snippets. |
 | `email_summary` | Retrieve the stored thread summary (pre-loaded as `thread_summary`; call directly only if you need to re-read it mid-processing). |
 | `set_email_summary` | Save updated thread state after sending and replying. |
 
 ---
+
+### Recalling History
+When you need to remember what was said, when an event happened, or what an attachment contained, search your own mail archive first — `search_mail` is offline and instant. Empty `query` with `scope`+`since`/`until` browses a period. Your archive starts from when snapshots are enabled (default: on); mail you sent or received before that is not indexed.
 
 ## Rules
 

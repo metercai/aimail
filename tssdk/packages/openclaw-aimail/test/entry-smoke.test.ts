@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest'
 
 describe('openclaw-aimail entry smoke', () => {
-  it('registers 12 tools, 1 route, 1 command', async () => {
+  it('registers 13 tools, 1 route, 1 command', async () => {
     const mod = (await import('../src/index.ts')) as {
       default?: { register?: (api: unknown) => void }
     }
@@ -29,7 +29,7 @@ describe('openclaw-aimail entry smoke', () => {
       },
     }
     entry!.register!(api)
-    expect(tools).toBe(12)
+    expect(tools).toBe(13)
     expect(routes).toBe(1)
     expect(commands).toBe(1)
   })

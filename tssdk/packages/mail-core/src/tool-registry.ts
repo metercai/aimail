@@ -19,9 +19,11 @@ import {
   setContactProfile,
   emailSummary,
   setEmailSummary,
+  searchMail,
   type SendMailArgs,
   type ManageContactsArgs,
   type ContactProfileArgs,
+  type SearchMailArgs,
   type ToolCtx,
   type ToolResult,
 } from './tools.js'
@@ -119,6 +121,20 @@ export const MAIL_TOOLS: readonly MailToolDef[] = [
     handler: (ctx, args) => setEmailSummary(ctx, args as { message_id: string; summary: string }),
   },
 
+  // ── local search ─────────────────────────────────────────────
+  {
+    name: 'search_mail',
+    description: 'Search YOUR OWN locally stored mail (offline, no network). Matches keywords in subject/body/attachment text; filter by mailbox (inbound/outbound/all), time window (since/until YYYY-MM-DD) and sender (from, substring).',
+    parameters: {
+      query: { type: 'string', description: 'Space-separated keywords (AND); empty = browse by filters' },
+      scope: { type: 'string', enum: ['all', 'inbound', 'outbound'], description: 'Mailbox scope (default all)' },
+      since: { type: 'string', description: 'Start date YYYY-MM-DD (inclusive)' },
+      until: { type: 'string', description: 'End date YYYY-MM-DD (inclusive)' },
+      from: { type: 'string', description: 'Sender substring filter (case-insensitive)' },
+      limit: { type: 'string', description: 'Max results 1-50 (default 20)' },
+    },
+    handler: (ctx, args) => searchMail(ctx, args as unknown as SearchMailArgs),
+  },
   // ── board tools (6) ─────────────────────────────────────────
   {
     name: 'board_status',

@@ -153,14 +153,14 @@ describe('sendMail 先存再调', () => {
     expect(sent.cc).toEqual(['c@x'])
   })
 
-  it('does NOT write an outbox snapshot by default (save_raw_snapshots unset)', async () => {
+  it('writes an outbox snapshot by default (save_raw_snapshots unset → ON)', async () => {
     const { restore } = stubFetch()
     await sendMail(ctx, { to: 'a@x', subject: 'hi', body: 'yo' })
     restore()
     const leaf = agentMailDir(EMAIL)
     const entries = await fs.readdir(leaf)
-    // no {yyyymm} outbox snapshot dir (meta + threads are always written)
-    expect(entries.some(e => /^\d{6}$/.test(e))).toBe(false)
+    // {yyyymm} outbox snapshot dir present (single switch, default ON since 2026-09-05)
+    expect(entries.some(e => /^\d{6}$/.test(e))).toBe(true)
     expect(entries).toContain('meta')
     // thread bootstrap did write a thread file
     expect(entries).toContain('threads')

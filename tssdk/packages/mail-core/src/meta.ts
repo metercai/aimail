@@ -13,6 +13,7 @@
 import { promises as fs } from 'node:fs'
 import * as path from 'node:path'
 import { AIMAIL_HOME, cleanAddr } from './config.js'
+import { indexSnapshotRecord, collectAttachmentsMd, joinAttMd } from './search.js'
 
 /**
  * Sanitize a Message-ID into a filesystem-safe key (must match Python
@@ -165,7 +166,8 @@ export async function saveOutboundSnapshot(
     }
   }
 
-  const payload = {
+  const attMd = await collectAttachmentsMd(localAtts)
+  const payload: Record<string, unknown> = {
     message_id: outMsgId,
     direction: 'outbound',
     sender,
@@ -179,11 +181,25 @@ export async function saveOutboundSnapshot(
     references,
     sent_at: now.toISOString(),
   }
+  if (attMd.length) payload.attachments_md = attMd
   try {
     await fs.mkdir(snapshotDir, { recursive: true })
     const tmp = `${snapshotPath}.tmp`
     await fs.writeFile(tmp, JSON.stringify(payload, null, 2), 'utf-8')
     await fs.rename(tmp, snapshotPath)
+    // Incremental FTS5 index AFTER the snapshot file is on disk.
+    const toList = to.split(',').map(t => t.trim()).filter(Boolean).concat(ccList)
+    await indexSnapshotRecord(email, {
+      mid: outMsgId,
+      dir: 'outbound',
+      ts: now.toISOString(),
+      subject: subject ?? '',
+      fromAddr: sender ?? '',
+      toJson: JSON.stringify(toList),
+      body: body ?? '',
+      attText: joinAttMd(attMd),
+      threadId: '',
+    })
   } catch (e) {
     console.warn(`Failed to save outbound email snapshot for ${safeMid}: ${e instanceof Error ? e.message : String(e)}`)
   }

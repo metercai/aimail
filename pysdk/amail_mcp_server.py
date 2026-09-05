@@ -133,6 +133,19 @@ def tool_set_email_summary(args: dict) -> dict:
     return _safe(fn)
 
 
+def tool_search_mail(args: dict) -> dict:
+    def fn():
+        return _tools.search_mail(
+            query=args.get("query", ""),
+            scope=args.get("scope", "all"),
+            since=args.get("since", ""),
+            until=args.get("until", ""),
+            from_=args.get("from", ""),
+            limit=args.get("limit", 20),
+        )
+    return _safe(fn)
+
+
 def tool_board_status(args: dict) -> dict:
     def fn():
         return {"status": _board.board_status(args.get("board", ""))}
@@ -205,6 +218,21 @@ TOOLS = [
          "message_id": {"type": "string", "description": "Thread message_id"},
          "summary": {"type": "string", "description": "Thread summary text (max 2000 chars)"}},
          "required": ["message_id", "summary"]}},
+    {"name": "search_mail", "description": (
+        "Search YOUR OWN locally stored mail (offline, no network). Matches "
+        "keywords in subject/body/attachment text; filter by mailbox "
+        "(inbound/outbound/all), time window (since/until YYYY-MM-DD) and "
+        "sender (from, substring). Use it to recall past conversations, find "
+        "when an event happened, or recover attachment content."),
+     "inputSchema": {"type": "object", "properties": {
+         "query": {"type": "string", "description": "Space-separated keywords (AND); empty = browse by filters"},
+         "scope": {"type": "string", "enum": ["all", "inbound", "outbound"], "default": "all",
+                   "description": "Mailbox scope"},
+         "since": {"type": "string", "description": "Start date YYYY-MM-DD (inclusive)"},
+         "until": {"type": "string", "description": "End date YYYY-MM-DD (inclusive)"},
+         "from": {"type": "string", "description": "Sender substring filter (case-insensitive)"},
+         "limit": {"type": "integer", "description": "Max results 1-50 (default 20)"}},
+         "required": []}},
     {"name": "board_status", "description": (
         "Get a board's working status: goal, progress per status "
         "with assignees, and blockers."),
@@ -237,6 +265,7 @@ HANDLERS = {
     "set_contact_profile": tool_set_contact_profile,
     "email_summary": tool_email_summary,
     "set_email_summary": tool_set_email_summary,
+    "search_mail": tool_search_mail,
     "board_status": tool_board_status,
     "board_task_list": tool_board_task_list,
     "board_task_show": tool_board_task_show,
