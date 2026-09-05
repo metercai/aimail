@@ -56,7 +56,12 @@ jobs:
           cache-dependency-path: tssdk/pnpm-lock.yaml
 
       - name: Ensure npm >= 11.5.2 (trusted publishing fixes)
-        run: npm install -g npm@^11.5.2
+        # PINNED to 11.12.1 (verified locally): 'npm@^11.5.2' floats and a
+        # mid-Sept 11.x release crashed bundled packs with "Exit handler
+        # never called!" (openclaw-aimail bundleDependencies publish, CI).
+        # 11.12.1 packs the same tree cleanly (local repro of both 11.5.2
+        # and 11.12.1 succeeded).
+        run: npm install -g npm@11.12.1
 
       - name: Install (tssdk workspace)
         working-directory: tssdk
