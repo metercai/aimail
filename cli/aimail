@@ -1608,8 +1608,8 @@ def main():
     _load_env()
     ap = argparse.ArgumentParser(
         prog="aimail",
-        description="aimail CLI - integrate / operate / maintain the AgentMail link "
-                    "between your agent platform and the amail gateway.",
+        description="aimail CLI - set up, operate and maintain the AIMail link "
+                    "between your agent platform and the aimail-gateway.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 scenario groups:
@@ -1630,7 +1630,7 @@ scenario groups:
     p_init.add_argument("-g", "--gateway-url", default=None, **common_gw)
     p_init.set_defaults(func=cmd_init)
 
-    p_install = sub.add_parser("install", help="integrate an agent platform with an amail system (activate or reuse)")
+    p_install = sub.add_parser("install", help="integrate an agent platform with an AIMail system (activate or reuse)")
     p_install.add_argument("-H", "--home", **common_home)
     p_install.add_argument("-s", "--system-id", **common_sid)
     p_install.add_argument("-c", "--product-code", help="product activation code (new system path)")
