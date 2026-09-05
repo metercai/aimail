@@ -1,11 +1,11 @@
 /**
  * auto-bind — SDK-side agent binding when the machine already has a system
- * config (agentmail_gateway.json) but no per-agent binding (agentmail.json).
+ * config (aimail_gateway.json) but no per-agent binding (agentmail.json).
  *
  * Chain (mirrors Python `register_agent_email` + `register_bridge_route`,
  * and the TS openclaw `registerAgentEmail` 4-step port — but independent of
  * any platform host, signing with the SYSTEM admin key read from
- * `~/.aimail/systems/{sid}/agentmail_gateway.json`):
+ * `~/.aimail/systems/{sid}/aimail_gateway.json`):
  *
  *   1. readSystemConfig(systemId)          — gateway_url/admin_key/domain/...
  *   2. registerAddress(...)                — 4-step idempotent register chain
@@ -18,12 +18,12 @@
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import * as path from 'node:path'
-import { AIMAIL_HOME, systemDir } from './config.js'
+import { AIMAIL_HOME, gatewayConfigPath } from './config.js'
 import { agentConfigPath, loadAgentConfig } from './config.js'
 import { GatewayClient } from './gateway.js'
 import type { GatewayResponse } from './types.js'
 
-/** ~/.aimail/systems/{sid}/agentmail_gateway.json (system-level facts). */
+/** ~/.aimail/systems/{sid}/aimail_gateway.json (system-level facts). */
 export interface SystemGatewayConfig {
   system_id?: string
   gateway_url?: string
@@ -63,12 +63,14 @@ export async function listSystemDirs(): Promise<string[]> {
 
 /** Read the system gateway config. Throws when missing/unreadable. */
 export async function readSystemConfig(systemId: string): Promise<SystemGatewayConfig> {
-  const p = path.join(systemDir(systemId), 'agentmail_gateway.json')
+  // canonical aimail_gateway.json, legacy agentmail_gateway.json auto-migrated
+  // on first read (pysdk gateway_api parity)
+  const p = await gatewayConfigPath(systemId)
   try {
     return JSON.parse(await fs.readFile(p, 'utf-8')) as SystemGatewayConfig
   } catch {
     throw new Error(
-      `gateway config not found (agentmail_gateway.json) for system ${systemId} — run 'aimail install' first`,
+      `gateway config not found (aimail_gateway.json) for system ${systemId} — run 'aimail install' first`,
     )
   }
 }
@@ -127,7 +129,7 @@ export async function registerAddress(
   const adminKey = opts.adminKey ?? gw.admin_key ?? ''
   if (!gatewayUrl || !adminKey) {
     throw new Error(
-      `auto-bind unavailable: agentmail_gateway.json for system ${opts.systemId} has no gateway_url/admin_key`,
+      `auto-bind unavailable: aimail_gateway.json for system ${opts.systemId} has no gateway_url/admin_key`,
     )
   }
   const client: AdminClientLike =

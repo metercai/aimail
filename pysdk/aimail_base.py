@@ -175,7 +175,7 @@ def _load_gateway_config(system_id: str = "") -> Optional[dict]:
 
     Reads from (in priority order):
     1. Environment variables (AIMAIL_GATEWAY_URL + AIMAIL_ADMIN_KEY/AIMAIL_PRODUCT_CODE)
-    2. ~/.aimail/systems/{system_id}/aimail_gateway.json (direct, or via HERMES_PROFILE_DIR/.agentmail pointer)
+    2. ~/.aimail/systems/{system_id}/aimail_gateway.json (direct, or via the platform adapter's profile-dir resolver -> .agentmail pointer)
     """
     # Try environment variables first
     gateway_url = os.environ.get("AIMAIL_GATEWAY_URL", "")
@@ -213,8 +213,8 @@ def _load_gateway_config(system_id: str = "") -> Optional[dict]:
                     pass
         if not resolved_sid:
             raise RuntimeError(
-                "system_id not provided and HERMES_PROFILE_DIR/.agentmail not found "
-                "-- cannot locate gateway config"
+                "system_id not provided and no platform pointer (.agentmail) found "
+                "-- cannot locate gateway config (set system_id or run aimail install)"
             )
 
     gw_path = _gateway_config_path(resolved_sid)
