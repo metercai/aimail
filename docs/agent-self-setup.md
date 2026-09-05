@@ -88,20 +88,29 @@ aimail install --home <your platform root> --system-id <sid>
 
 ## Step 4 — Get YOUR address (registration)
 
-- **TS platforms (openclaw / pi / dsh)**: the SDK auto-binds on first use
+Every platform has a LAZY registration path (no operator action needed):
+the adapter registers you automatically at its natural trigger point,
+guarded by an existence check (already have a pointer → skip).
+
+- **openclaw / pi / dsh**: the SDK auto-binds on first use
   (existence-guarded, one session ⇔ one address). Trigger it by using your
   mail capability once (openclaw command / pi entry / dsh mail-service
   apply); the SDK registers you and writes your pointer.
-- **Hermes**: registration is profile-enumerating at install time. If you
-  are a profile added after onboarding, your address needs the platform
-  register step — tell the operator to run
+- **Hermes**: registration hooks on the profile lifecycle — when your
+  profile was created, `trigger_profile_hooks("profile_created")` fired
+  `_auto_register_email` (hermes profiles.py, patched by the adapter).
+  Your address exists from birth. If you predate the platform
+  onboarding (or the system changed), a re-run of the platform register
+  step covers you:
   `python -m aimail.install register-profiles --type hermes --home ~/.hermes`
   (or `aimail install --home ~/.hermes --system-id <sid>`), then re-check
   your pointer.
+- **deer-flow**: binding happens at the backend entry/reconcile point.
 
 After registration your address is `{name}@{domain}` (bare-domain system)
 or `{name}.{system_name}@{shared-domain}` — it is in your `.agentmail`
-pointer / `agentmail.json`.
+pointer / `agentmail.json`. If it is already there, you are done — verify
+in Step 5.
 
 ## Step 5 — Verify your address works
 

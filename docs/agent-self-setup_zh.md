@@ -83,18 +83,24 @@ aimail install --home <你的平台根> --system-id <sid>
 
 ## 第 4 步 — 申请你的地址(注册)
 
-- **TS 平台(openclaw / pi / dsh)**:SDK 首次使用时自动绑定(存在性守卫,
-  一 session ⇔ 一地址)。触发一次你的邮件能力即可(openclaw 命令 / pi
+**每个平台都有惰性注册路径**(无需操作者动作):适配器在各自的自然触发点
+自动注册你,并有存在性守卫(已有指针 → 跳过)。
+
+- **openclaw / pi / dsh**:SDK 首次使用时自动绑定(存在性守卫,一
+  session ⇔ 一地址)。触发一次你的邮件能力即可(openclaw 命令 / pi
   入口 / dsh mail-service apply);SDK 注册你并写入你的指针。
-- **Hermes**:注册在 install 时按 profile 枚举。若你是对接后新增的
-  profile,你的地址需要平台级注册——请操作者执行
+- **Hermes**:注册挂在 profile 生命周期上——你的 profile 被创建时,
+  `trigger_profile_hooks("profile_created")` 已触发 `_auto_register_email`
+  (hermes profiles.py,由适配器补丁插入)。你的地址**出生即有**。若你
+  先于平台对接存在(或系统变更),重跑平台注册步骤可覆盖你:
   `python -m aimail.install register-profiles --type hermes --home ~/.hermes`
   (或 `aimail install --home ~/.hermes --system-id <sid>`),然后复查你的
   指针。
+- **deer-flow**:绑定发生在后端入口/reconcile 点。
 
 注册后你的地址为 `{name}@{domain}`(裸域系统)或
 `{name}.{system_name}@{domain}`(共享域)——记录在你的 `.agentmail`
-指针 / `agentmail.json` 中。
+指针 / `agentmail.json` 中。若已存在,直接去第 5 步验证。
 
 ## 第 5 步 — 验证你的地址可用
 
