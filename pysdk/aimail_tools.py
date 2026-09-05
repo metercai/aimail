@@ -768,23 +768,6 @@ def manage_contacts(
 
 # ── Contact profile (for context awareness) ──────────────────────
 
-def _system_sender_mark(config: dict, address: str) -> dict | None:
-    """Recognise the gateway's own auto-mail sender by construction.
-
-    Auto mails come from noreply@{gateway host} (legacy: postman@). Return
-    a marker profile so agent contact checks treat them as the system,
-    without a gateway lookup (they are not registered addresses).
-    """
-    if not address or "@" not in address:
-        return None
-    local, dom = address.lower().split("@", 1)
-    if local not in ("noreply", "postman"):
-        return None
-    host = (config.get("gateway_url") or "").replace("https://", "").replace("http://", "").split("/")[0].split(":")[0].lower()
-    if dom in (host, f"amail-{host}"):
-        return {"address": address, "profile": {"type": "system", "auto_mail": True}}
-    return None
-
 def contact_profile(address: str = "", name: str = "") -> dict:
     """Look up a contact profile by address or name.
 
@@ -799,14 +782,6 @@ def contact_profile(address: str = "", name: str = "") -> dict:
     if not config:
         return {"address": address, "profile": None}
     client = _GatewayClient(config["gateway_url"], config["api_key"])
-
-    # System auto-mail sender (noreply@{gateway host}, legacy postman@):
-    # recognised by construction — agents must not treat it as an unknown
-    # contact (no profile lookup, no "who is this?").
-    if address:
-        sys_mark = _system_sender_mark(config, address)
-        if sys_mark:
-            return sys_mark
 
     # Search by address (exact match) — semantic endpoint
     if address:

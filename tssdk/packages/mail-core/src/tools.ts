@@ -429,22 +429,6 @@ export async function manageContacts(ctx: ToolCtx, args: ManageContactsArgs): Pr
 
 // ── contact profile ────────────────────────────────────────────
 
-/** Recognise the gateway's own auto-mail sender by construction
- * (noreply@{gateway host}, legacy postman@) — agent contact checks treat
- * it as the system, no gateway lookup (not a registered address). */
-function systemSenderMark(gatewayUrl: string, address: string): boolean {
-  if (!address.includes('@')) return false
-  const [local, dom] = address.toLowerCase().split('@', 2)
-  if (local !== 'noreply' && local !== 'postman') return false
-  let host = ''
-  try {
-    host = new URL(gatewayUrl).hostname.toLowerCase()
-  } catch {
-    host = gatewayUrl.replace(/^https?:\/\//, '').split('/')[0]!.split(':')[0]!.toLowerCase()
-  }
-  return dom === host || dom === `amail-${host}`
-}
-
 export interface ContactProfileArgs {
   address?: string
   name?: string
@@ -457,10 +441,6 @@ export async function contactProfile(ctx: ToolCtx, args: ContactProfileArgs): Pr
   const cfg = await requireConfig(ctx.systemId, ctx.email)
   const client = new GatewayClient(cfg.gateway_url, cfg.api_key, 30_000, cfg.email)
   if (args.address) {
-    // System auto-mail sender (noreply@{gateway host}, legacy postman@):
-    // recognised by construction — not an unknown contact, no lookup.
-    const sys = systemSenderMark(cfg.gateway_url, args.address)
-    if (sys) return { success: true, address: args.address, profile: { type: 'system', auto_mail: true } }
     // exact lookup — gateway returns {address, profile} (404 → none)
     const r = await client.contactGet(args.address)
     if (r.status === 200) return { success: true, address: args.address, profile: r.profile ?? null }
