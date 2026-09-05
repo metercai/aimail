@@ -80,11 +80,13 @@ PYEOF
   #    expands sibling node_modules producing ../ tar entries npm drops.
   for link in "$dir"/node_modules/@aimail/*; do
     [ -L "$link" ] || continue
-    target=$(readlink -f "$link")
+    target=$(readlink -f "$link" 2>/dev/null) || { echo "  ERROR: dangling symlink, skipping: $link"; continue; }
+    echo "  deref: $(basename "$link") -> ${target#"$root"/}"
     rm "$link"
     mkdir -p "$link"
     (cd "$target" && tar cf - --exclude=node_modules .) | (cd "$link" && tar xf -)
   done
+  echo "  building+packing:"
   tgz=$(cd "$dir" && npm pack --pack-destination /tmp | tail -1)
   echo "  packed: /tmp/$tgz"
 
