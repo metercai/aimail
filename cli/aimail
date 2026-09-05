@@ -1613,10 +1613,10 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 scenario groups:
-  setup      first-time machine prep and per-platform integration
-  operate    daily operations: status, health, renewal
-  diagnose   when something is wrong: inspect, test, repair
-  resources  system-scoped resources: domains, agent name mapping
+  setup      machine prep and platform integration: init / install / uninstall / reset
+  operate    daily status and lifecycle: stats / renew / version
+  diagnose   exams and fixes when something is wrong: check / repair / ping / welcome / persona
+  resources  system-scoped resources: domain / mailname / bridge
 """)
     sub = ap.add_subparsers(dest="command", required=True, metavar="<command>")
 
