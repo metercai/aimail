@@ -35,17 +35,37 @@ exists? your identity pointer (address)? which platform runs you.
   dir of the platform that runs you: `~/.hermes`, `~/.openclaw`, `~/.pi`,
   `~/.dsh`, or the deer-flow backend dir.
 
-## 3. Verify
+## 3. Verify, then close with one of three outcomes
 
 ```bash
 aimail check --system-id <sid> && aimail ping --system-id <sid>
 ```
 
-`<sid>`: the dir name under `~/.aimail/systems/`. If the install output
-said a host restart is needed (patch-based platforms), ask the user to
-restart the platform process outside this session, then re-run the check.
+`<sid>`: the dir name under `~/.aimail/systems/`. Then reply to the user
+with EXACTLY ONE of the three closings:
 
-Done. Reply with only your address (from the pointer/`aimail stats`).
+**A. Ready** (check green, ping round-trip OK) →
+
+> My AIMail address is <address> (see `aimail stats` / the pointer).
+> Verified working — send me an email to reach me.
+
+**B. Installed — restart needed** (install said so, or the hook probe
+fails on a patched platform) → tell the user to restart the platform
+process OUTSIDE this session, then re-run the check:
+
+> AIMail is installed. Please restart <platform process/service, e.g.
+> `systemctl --user restart hermes-gateway-<profile>.service>` outside
+> this session, then I will re-verify.
+
+**C. Platform not supported** (self-check shows a platform with no
+adapter, or install reports incompatibility) → do not fake success:
+
+> Current platform <name> is not one of aimail's known platforms. I can
+> write an adapter modeled on the existing ones (pysdk/ python, tssdk/
+> typescript — see section 4) and open a PR to the aimail repo. Proceed
+> (your call) or stop here?
+
+Never end a self-setup without one of these three closings.
 
 ## 4. Your platform is not one of the known ones?
 

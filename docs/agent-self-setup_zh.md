@@ -34,16 +34,35 @@ ps -p $PPID -o args= 2>/dev/null
   是运行你的平台的目录:`~/.hermes`、`~/.openclaw`、`~/.pi`、`~/.dsh`,
   或 deer-flow backend 目录。
 
-## 3. 验证
+## 3. 验证后按三种结局之一收尾
 
 ```bash
 aimail check --system-id <sid> && aimail ping --system-id <sid>
 ```
 
-`<sid>`:`~/.aimail/systems/` 下的目录名。若 install 输出提示需要重启宿主
-(补丁型平台),请用户在本会话外重启该平台进程,再重跑 check。
+`<sid>`:`~/.aimail/systems/` 下的目录名。然后向用户回复**且仅回复下列
+三种结局之一**:
 
-完成。只回复你的地址(从指针/`aimail stats` 获取)。
+**A. 已就绪**(check 全绿、ping 回环通过)→
+
+> 我的 AIMail 地址是 <地址>(见 `aimail stats`/指针)。已验证可正常收发
+> 邮件——给我发一封邮件即可联系我。
+
+**B. 已安装待重启**(install 如此提示,或补丁平台 hook 探测失败)→
+请用户在本会话外重启平台进程,再复检:
+
+> AIMail 已安装完成。请在本会话外重启 <平台进程/服务名,如
+> `systemctl --user restart hermes-gateway-<profile>.service`>,重启后我
+> 会复检。
+
+**C. 平台不适配**(自检显示平台无适配器,或 install 报不兼容)→ 不要
+假装成功:
+
+> 当前平台 <名称> 不在 aimail 已知平台内。可参照 pysdk/(python)或
+> tssdk/packages/(typescript)现有适配器自写适配,并向仓库提交 PR。
+> 需要我继续(需你的适配决策)还是到此为止?
+
+自举会话绝不允许在无上述三态收尾之一的情况下结束。
 
 ## 4. 你的平台不在已知列表?
 
