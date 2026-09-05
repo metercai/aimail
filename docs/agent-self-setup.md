@@ -47,14 +47,38 @@ export AIMAIL_MANAGER_ADDRESS=<user mailbox>
 export AIMAIL_PRODUCT_CODE=<code>          # or: export AIMAIL_ADMIN_KEY=<key>
 ```
 
-## Step 3 — Detect the host platform
+## Step 3 — Establish your platform identity (self-knowledge, no guessing)
 
-Exactly one of these matches this machine:
+You are running INSIDE one platform — that identity is yours by
+self-reference, which is exactly the certainty an external CLI lacks
+(that is why `aimail install` from a shell needs `--home` and directory
+probing: the machine may host several platforms, but YOU belong to one).
+
+Establish it, in priority order:
+
+1. **Host-injected facts you already have** — your profile / session /
+   agent id implies the platform: a Hermes profile → Hermes, a dsh
+   session → dsh, an OpenClaw/pi agent → OpenClaw/pi, a deer-flow
+   assistant → deer-flow. Use it directly; do not second-guess it with
+   directory scans.
+2. **Environment self-inspection** (only if 1 is unavailable):
+
+```bash
+env | grep -iE 'hermes|openclaw|deepseek|dsh|deer' | head -5
+ps -p $$ -o args= ; ps -p $PPID -o args=    # which host process runs you
+```
+
+3. **Directory fallback** (corroboration only):
 
 ```bash
 ls -d ~/.dsh ~/.openclaw ~/.pi ~/.hermes 2>/dev/null; ls -d ~/deepseek-harness 2>/dev/null
-# deer-flow host: a dir containing backend/app/gateway
 ```
+
+If self-reference and directory scan disagree, **you are the platform
+that actually runs you** — not the one whose directory happens to exist.
+Your platform root (the `--home` value in Step 4) follows from the same
+identity: `~/.hermes`, `~/.openclaw`, `~/.pi`, `~/.dsh`, or the
+deer-flow backend dir.
 
 ## Step 4 — Install the SDK adapter (all preparation, done by you)
 

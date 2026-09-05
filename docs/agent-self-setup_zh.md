@@ -43,14 +43,34 @@ export AIMAIL_MANAGER_ADDRESS=<用户邮箱>
 export AIMAIL_PRODUCT_CODE=<码>          # 或: export AIMAIL_ADMIN_KEY=<key>
 ```
 
-## 第 3 步 — 探测宿主平台
+## 第 3 步 — 确立你的平台身份(自指知识,不猜测)
 
-本机恰有一个匹配:
+你正**运行在某个平台内部**——这个身份由自指天然确定,而这正是外部 CLI
+所缺少的确定性(所以 shell 里跑 `aimail install` 才需要 `--home` 和目录
+探测:一台机器可能装多个平台,但**你只属于一个**)。
+
+按优先级确立:
+
+1. **宿主已注入的事实**——你的 profile / session / agent id 已隐含平台:
+   Hermes profile → Hermes;dsh session → dsh;OpenClaw/pi agent →
+   OpenClaw/pi;deer-flow assistant → deer-flow。直接用,不要用目录
+   扫描质疑它。
+2. **环境自检**(仅当 1 不可得):
+
+```bash
+env | grep -iE 'hermes|openclaw|deepseek|dsh|deer' | head -5
+ps -p $$ -o args= ; ps -p $PPID -o args=    # 是哪个宿主进程在运行你
+```
+
+3. **目录兜底**(仅佐证):
 
 ```bash
 ls -d ~/.dsh ~/.openclaw ~/.pi ~/.hermes 2>/dev/null; ls -d ~/deepseek-harness 2>/dev/null
-# deer-flow 宿主:含 backend/app/gateway 的目录
 ```
+
+若自指与目录扫描冲突,**你属于真正运行你的那个平台**——而不是碰巧存在
+目录的那个。你的平台根(第 4 步的 `--home` 值)随同一身份而来:
+`~/.hermes`、`~/.openclaw`、`~/.pi`、`~/.dsh` 或 deer-flow backend 目录。
 
 ## 第 4 步 — 安装 SDK 适配器(全部准备工作,由你完成)
 
