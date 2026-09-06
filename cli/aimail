@@ -607,15 +607,24 @@ def cmd_install(args) -> int:
 
 def cmd_reset(args) -> int:
     """重置:只走 admin-key 路径,重置所有配置参数(不重激活、不碰 key)。"""
+    sid = args.system_id or ""
     system_home = Path(args.home).expanduser() if args.home else Path()
-    if not args.home:
-        _fail("reset 需要 --home(系统 home/平台根)")
+    if not system_home and sid:
+        # 与 install 对齐:--system-id 可反查本地配置的 system_home
+        from runtime_core import system_home_from_sid
+        sh = system_home_from_sid(sid)
+        if not sh:
+            _fail(f"--system-id {sid} 无本地配置可反查 --home(系统不在这台机器?)")
+        system_home = Path(sh)
+        print(f"  --home 由 --system-id 反查: {system_home}")
+    if not system_home:
+        _fail("reset 需要 --home(系统 home/平台根),或带 --system-id 以便反查")
     if not system_home.exists():
         _fail(f"home 目录不存在: {system_home}")
     platform = resolve_platform(system_home)
     if not platform:
         _fail("无法确定平台")
-    sid = args.system_id or _ptr_sid(_platform_ptr(platform))
+    sid = sid or _ptr_sid(_platform_ptr(platform))
     if not sid:
         _fail("无法确定 system_id(用 --system-id 指定)")
 
