@@ -70,7 +70,7 @@ export async function readSystemConfig(systemId: string): Promise<SystemGatewayC
     return JSON.parse(await fs.readFile(p, 'utf-8')) as SystemGatewayConfig
   } catch {
     throw new Error(
-      `gateway config not found (aimail_gateway.json) for system ${systemId} — run 'aimail install' first`,
+      `gateway config not found (aimail_gateway.json) for system ${systemId} — run 'aimail install' or set AIMAIL_URL + AIMAIL_PRODUCT_CODE (auto-install)`,
     )
   }
 }
@@ -332,7 +332,7 @@ export async function autoBind(opts: AutoBindOptions): Promise<AutoBindResult> {
   const sids = opts.systemId ? [opts.systemId] : await listSystemDirs()
   if (sids.length === 0) {
     throw new Error(
-      'auto-bind: no aimail system on this machine (~/.aimail/systems/) — run `aimail init` + `aimail install` first',
+      'auto-bind: no aimail system on this machine (~/.aimail/systems/) — provide AIMAIL_URL + AIMAIL_PRODUCT_CODE and restart (auto-install), or run `aimail install` first',
     )
   }
   if (sids.length > 1 && !opts.systemId) {
