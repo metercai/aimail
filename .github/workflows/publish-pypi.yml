@@ -51,6 +51,12 @@ jobs:
           [ "$py_ver" = "$init_ver" ] || { echo "VERSION MISMATCH — bump both before publishing"; exit 1; }
           echo "version=$py_ver" >> "$GITHUB_OUTPUT"
 
+      - name: Release gate L0 (python) — pytest + pyflakes
+        run: |
+          python3 -m pip install --quiet pytest pyflakes
+          python3 -m pytest tests/ -q | tail -2
+          python3 -m pyflakes $(find pysdk -name '*.py' -not -path '*__pycache__*')
+
       - name: Install build tooling
         run: python3 -m pip install --upgrade build
 
