@@ -30,21 +30,6 @@ export {
   registerBridgeRoute,
   autoBind,
 } from './auto-bind.js'
-export {
-  activateSystem,
-  createAgentAdminKey,
-  detectSystemForHome,
-  installSystem,
-  saveSystemConfig,
-} from './install.js'
-export type {
-  ActivateSystemOptions,
-  ActivateSystemResult,
-  CreateAgentAdminKeyOptions,
-  InstallSystemOptions,
-  InstallSystemResult,
-  SystemConfigInput,
-} from './install.js'
 export type {
   SystemGatewayConfig,
   AdminClientLike,
