@@ -746,13 +746,16 @@ def _list_agents(sid: str, cfg: dict):
             if not email:
                 continue
             # agent 名 = platform pointer 所在目录名(profile/agent id),反查
+            # (pointer 扫 cfg.system_home——agentmail.json 本身不存平台根)
             agent_name = None
-            sys_home = acfg.get("system_home", "") or acfg.get("home", "")
-            if sys_home and Path(sys_home).is_dir():
-                for ptr in _scan_pointers(Path(sys_home)):
-                    if ptr.get("email") == email and ptr.get("system_id") == sid:
-                        agent_name = ptr.get("agent_name")
-                        break
+            for home_key in (cfg.get("system_home", ""), acfg.get("system_home", ""), acfg.get("home", "")):
+                if home_key and Path(home_key).is_dir():
+                    for ptr in _scan_pointers(Path(home_key)):
+                        if ptr.get("email") == email and ptr.get("system_id") == sid:
+                            agent_name = ptr.get("agent_name")
+                            break
+                if agent_name:
+                    break
             if not agent_name:
                 local = email.split("@")[0]
                 agent_name = local.split(".")[0] if "." in local else local
@@ -772,8 +775,24 @@ def _list_agents(sid: str, cfg: dict):
         platform = detect_platform_from_home(Path(sh))
     known = {a["agent"] for a in agents}
     if platform and sh:
+        home_path = Path(sh)
+        # pointer-first: profile/agent dirs that already carry a pointer for
+        # this system are registered under that pointer's email (a renamed
+        # registration, e.g. profile erp → erp2@…) — merge instead of listing
+        # them as unregistered.
+        for ptr in _scan_pointers(home_path):
+            if ptr.get("system_id") != sid:
+                continue
+            nm = ptr.get("agent_name", "")
+            if nm and nm not in known and not any(a["agent"] == nm for a in agents):
+                pe = ptr.get("email", "")
+                agents.append({
+                    "agent": nm, "email": pe, "manager": "", "webhook_url": "",
+                    "dir": "", "cfg": {}, "registered": True, "platform": platform,
+                })
+                known.add(nm)
         aliases = _PLATFORM_DEFAULT_ALIASES.get(platform, ())
-        for name in _platform_agent_names(platform, Path(sh)):
+        for name in _platform_agent_names(platform, home_path):
             if name in known:
                 continue
             base_name = "agent" if name in aliases else name
@@ -886,9 +905,13 @@ def cmd_address(args) -> int:
             _fail(f"本机未找到 agent '{args.agent}' 的注册地址(agentmail.json)。"
                   f" 平台 agent: {[a['agent'] for a in agents] or '无'}")
         if not target.get("registered"):
-            _fail(f"agent '{args.agent}' 尚未注册(平台 {target.get('platform','?')} 存在但无地址)。"
-                  f" 先在平台侧注册该 agent(install/对应平台绑定),注册后再用 address 改名或设 manager。"
-                  f" 若其期望地址 {target.get('email')} 已被占用,注册时会冲突。")
+            # agent 个体注册(register 语义):-n 指定地址名(缺省=agent 标识名),
+            # -m 可一并设 manager。面向单个 agent,区别于 install/bind 的平台全量注册。
+            if op not in ("set-name", "set-manager", "register", "add"):
+                _fail(f"agent '{args.agent}' 尚未注册(平台 {target.get('platform','?')} 存在但无地址)。\n"
+                      f"  注册该 agent 个体:aimail address -s {sid} -a {args.agent} [-n <地址名>] [-m <manager>]")
+            _register_agent_now(target.get("platform", ""), args.agent, cfg, args.name or args.agent, args.manager or "")
+            return 0
 
     # ── default:默认主 agent 名(原 mailname)──────────────
     if op == "default":
@@ -977,6 +1000,57 @@ def cmd_address(args) -> int:
         return 0
 
     _fail(f"未知操作: {op}(支持 list/default/set-name/set-manager)")
+
+
+def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str, manager: str) -> None:
+    """注册单个 agent(agent 个体粒度):委托平台适配层的单 agent 注册入口,
+    核心链(register→activate→webhook→route→agentmail.json 注入→平台指针)在适配层内完成。
+    与 install/bind(平台全量注册)不同,address 只注册这一个 agent。"""
+    import re as _re
+    if not _re.fullmatch(r"[A-Za-z0-9!#$%&'*+\-/=?^_`{|}~]+", reg_name):
+        _fail(f"非法地址名 '{reg_name}':须为 atext-no-dot 字符(不能含点/空格/@)")
+    home = cfg.get("system_home", "")
+    if not home:
+        _fail("系统配置缺 system_home(无法定位平台 profile/agent 目录)")
+    load_core()
+    if platform == "hermes":
+        try:
+            from aimail.hermes import aimail_hermes as _ah
+        except ImportError:
+            try:
+                from hermes import aimail_hermes as _ah
+            except ImportError:
+                _fail("未找到 hermes 适配层(aimail_hermes),请先安装/挂载 pysdk")
+        if agent in ("default",) or agent == Path(home).name:
+            profile_dir = str(Path(home))
+        else:
+            profile_dir = str(Path(home) / "profiles" / agent)
+            if not Path(profile_dir).is_dir():
+                _fail(f"hermes profile 目录不存在: {profile_dir}")
+        _cfg = dict(cfg)
+        if manager and "@" in manager:
+            _cfg["manager_address"] = manager
+        domain = cfg.get("domain", "")
+        system_name = cfg.get("system_name", "")
+        import sys as _sys
+        from aimail_tools import _GatewayClient  # noqa: F401  (注:适配层自建 client)
+        # CLI 环境无平台工具注册器(注册链内的工具注册属会话内环节)——临时静默
+        import logging as _log
+        _lgr = _log.getLogger("aimail")
+        _lvl = _lgr.level
+        _lgr.setLevel(_log.CRITICAL)
+        try:
+            _ah._auto_register_email(reg_name, profile_dir, _cfg)
+        finally:
+            _lgr.setLevel(_lvl)
+        _ok(f"agent '{agent}' 已注册 → 地址名 {reg_name}@{domain if domain else '(域未知)'}"
+            f"(profile: {os.path.basename(profile_dir) or profile_dir})")
+        if manager and "@" in manager:
+            print(f"  manager: {manager}(注册时已设)")
+        print(f"  验证:aimail address -s {cfg.get('system_id','')} -a {agent} 查看新地址")
+    else:
+        _fail(f"平台 {platform} 的单 agent 注册委托尚未接线(本版仅 hermes 接通)。"
+              f" openclaw/pi/dsh/deerflow 请先用各自平台注册链(install/bind/manage.py),后续版本统一到 address。")
 
 
 def _atomic_json_write(path: Path, data: dict) -> None:
