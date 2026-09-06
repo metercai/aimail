@@ -24,7 +24,6 @@ import {
   AIMAIL_HOME,
   autoBind,
   emailForAgent,
-  ensureSystemInstalled,
   hasAnySystem,
   listSystemDirs,
   readSystemConfig,
@@ -118,32 +117,15 @@ export function apply(ctx: Context, config: { systemId?: string } = {}): void {
   } catch {
     // non-fatal: resources are a seed; explicit release can re-run later
   }
-  // install readiness: a dsh-only machine installs itself from env
-  // (AIMAIL_URL + AIMAIL_PRODUCT_CODE) — parity path, no python CLI needed.
-  // No env → warn with the actionable next steps instead of failing later.
+  // env self-check: without any binding the mail tools resolve nothing —
+  // point the operator at the CLI instead of failing silently later.
   try {
     const sysRoot = path.join(AIMAIL_HOME(), 'systems')
-    const hasSystems = fs.existsSync(sysRoot) && fs.readdirSync(sysRoot).length > 0
-    if (!hasSystems) {
-      void ensureSystemInstalled({ systemHome: process.env.AIMAIL_SYSTEM_HOME ?? '' })
-        .then((r) => {
-          if (r.ok) {
-            if (r.activated) {
-              console.log(`[dsh-aimail] system activated: ${r.systemId}`)
-            } else if (!r.systemId) {
-              console.warn(
-                '[dsh-aimail] multiple aimail systems present — set AIMAIL_SYSTEM_ID to scope this profile',
-              )
-            }
-          } else {
-            console.warn('[dsh-aimail] ' + (r.error ?? 'no aimail system yet'))
-          }
-        })
-        .catch((e) => {
-          console.warn(
-            `[dsh-aimail] install readiness check failed: ${e instanceof Error ? e.message : String(e)}`,
-          )
-        })
+    if (!fs.existsSync(sysRoot) || fs.readdirSync(sysRoot).length === 0) {
+      const fix = hasAnySystem()
+        ? 'run `aimail install`(dsh) first, then bind this session'
+        : 'run `aimail init`, then `aimail install`(dsh) to build the environment first'
+      console.warn('[dsh-aimail] no aimail binding found — ' + fix)
     } else if (!systemId) {
       console.warn('[dsh-aimail] no AIMAIL_SYSTEM_ID — mail resolution scans all bound systems')
     }

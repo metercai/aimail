@@ -34,7 +34,6 @@ export {
   activateSystem,
   createAgentAdminKey,
   detectSystemForHome,
-  ensureSystemInstalled,
   installSystem,
   saveSystemConfig,
 } from './install.js'
@@ -42,8 +41,6 @@ export type {
   ActivateSystemOptions,
   ActivateSystemResult,
   CreateAgentAdminKeyOptions,
-  EnsureInstalledOptions,
-  EnsureInstalledResult,
   InstallSystemOptions,
   InstallSystemResult,
   SystemConfigInput,

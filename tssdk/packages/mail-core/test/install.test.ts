@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeAll, beforeEach, afterAll } from 'vitest'
+import { describe, expect, test, beforeAll, afterAll } from 'vitest'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -6,7 +6,6 @@ import {
   activateSystem,
   createAgentAdminKey,
   detectSystemForHome,
-  ensureSystemInstalled,
   installSystem,
   saveSystemConfig,
   readSystemConfig,
@@ -214,86 +213,5 @@ describe('install core (parity with pysdk install_core)', () => {
     )
     // readSystemConfig works on the canonical file name
     expect((await readSystemConfig('sys-hermes')).system_home).toBe('/home/u/.hermes')
-  })
-})
-
-// ensureSystemInstalled runs against an isolated home — the shared tmpHome
-// above accumulates systems across tests, which breaks empty-machine cases.
-describe('ensureSystemInstalled (isolated home)', () => {
-  let iso: string
-  let prevHome: string | undefined
-  const isoCfg = (sid: string) => path.join(iso, 'systems', sid, 'aimail_gateway.json')
-
-  beforeAll(() => {
-    prevHome = process.env.AIMAIL_HOME
-  })
-  beforeEach(() => {
-    if (iso) fs.rmSync(iso, { recursive: true, force: true })
-    iso = fs.mkdtempSync(path.join(os.tmpdir(), 'aimail-iso-'))
-    process.env.AIMAIL_HOME = iso
-  })
-  afterAll(() => {
-    if (prevHome === undefined) delete process.env.AIMAIL_HOME
-    else process.env.AIMAIL_HOME = prevHome
-    fs.rmSync(iso, { recursive: true, force: true })
-  })
-
-  test('existing system → ok without network', async () => {
-    const sid = 'sys-own'
-    fs.mkdirSync(path.join(iso, 'systems', sid), { recursive: true })
-    fs.writeFileSync(isoCfg(sid), JSON.stringify({ system_id: sid }))
-    const r = await ensureSystemInstalled({
-      transport: mockTransport({}), // would throw on any call
-    })
-    expect(r.ok).toBe(true)
-    expect(r.activated).toBe(false)
-    expect(r.systemId).toBe(sid) // sole system
-  })
-
-  test('empty machine + env → self-activates (parity path)', async () => {
-    const t = mockTransport({
-      raw_key: 'sk-ensure',
-      system_id: 'sys-new',
-      domain: 'example.com',
-      system_name: 'auto',
-    })
-    const saved: Record<string, string | undefined> = {}
-    for (const k of ['AIMAIL_URL', 'AIMAIL_PRODUCT_CODE', 'AIMAIL_SYSTEM_NAME']) {
-      saved[k] = process.env[k]
-    }
-    process.env.AIMAIL_URL = 'https://gw.invalid'
-    process.env.AIMAIL_PRODUCT_CODE = 'prod-ensure'
-    process.env.AIMAIL_SYSTEM_NAME = 'auto'
-    try {
-      const r = await ensureSystemInstalled({ transport: t })
-      expect(r.ok).toBe(true)
-      expect(r.activated).toBe(true)
-      expect(r.systemId).toBe('sys-new')
-      const cfg = JSON.parse(fs.readFileSync(isoCfg('sys-new'), 'utf-8'))
-      expect(cfg.system_name).toBe('auto')
-    } finally {
-      for (const [k, v] of Object.entries(saved)) {
-        if (v === undefined) delete process.env[k]
-        else process.env[k] = v
-      }
-    }
-  })
-
-  test('empty machine without env → actionable error', async () => {
-    const saved: Record<string, string | undefined> = {}
-    for (const k of ['AIMAIL_URL', 'AIMAIL_PRODUCT_CODE']) {
-      saved[k] = process.env[k]
-      delete process.env[k]
-    }
-    try {
-      const r = await ensureSystemInstalled()
-      expect(r.ok).toBe(false)
-      expect(r.error).toMatch(/AIMAIL_URL \+ AIMAIL_PRODUCT_CODE/)
-    } finally {
-      for (const [k, v] of Object.entries(saved)) {
-        if (v === undefined) delete process.env[k]
-        else process.env[k] = v
-      }
-    }
   })
 })
