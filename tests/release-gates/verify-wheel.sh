@@ -39,7 +39,6 @@ modules = [
     "aimail.hermes.patch_profiles", "aimail.hermes.ensure_config",
     "aimail.hermes.register_profiles", "aimail.hermes.toolsets",
     "aimail.deer-flow.manage", "aimail.deer-flow.amail_base",
-    "aimail.openclaw.amail_base",
 ]
 for m in modules:
     importlib.import_module(m)

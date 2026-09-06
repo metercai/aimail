@@ -13,7 +13,6 @@
 bundle 定义(源相对路径 → 捆绑内相对路径):
   hermes     核心4 + bootstrap + hermes/aimail_hermes.py   (扁平+子目录)
   mcp        核心4 + bootstrap + amail_mcp_server.py          (扁平)
-  openclaw   核心4 + bootstrap + openclaw/amail_base.py       ( deerflow 同构;TS 插件已接管工具+入站 )
   deer-flow  核心4 + bootstrap + router + 适配层,全扁平铺进宿主 routers/
              (宿主 app.py 经 `from .routers import aimail_inbound` 加载;
               router/适配层/core 同目录,bootstrap case-3 自举,零 env)
@@ -22,7 +21,7 @@ bundle 定义(源相对路径 → 捆绑内相对路径):
   runtime_bundle.py install <bundle> [--dest DIR] [--source-root DIR] [--force]
   runtime_bundle.py check   <bundle> [--dest DIR] [--source-root DIR]
   runtime_bundle.py source                    # 打印当前解析到的源根+类型
-  bundle ∈ hermes|mcp|openclaw|deer-flow|skill-hermes|skill-openclaw|skill-deerflow|skill-dsh
+  bundle ∈ hermes|mcp|deer-flow|skill-hermes|skill-openclaw|skill-deerflow|skill-dsh
 
 退出码: install 0=完成(全部一致或已更新); check 0=一致,1=漂移/缺失,2=未安装。
 check 输出机器可读行: DRIFT <file> / MISSING <file> / STALE-STAMP / OK <n files>
@@ -52,12 +51,6 @@ BUNDLES = {
     "mcp": {
         "default_dest": "~/.aimail/mcp",
         "files": dict(_CORE_FILES, **{"amail_mcp_server.py": "amail_mcp_server.py"}),
-    },
-    "openclaw": {
-        "default_dest": "~/.aimail/openclaw",
-        "files": dict(_CORE_FILES, **{
-            "openclaw/amail_base.py": "openclaw/amail_base.py",
-        }),
     },
     "deer-flow": {
         # 宿主 app.py 经 `from .routers import aimail_inbound` 加载 router,

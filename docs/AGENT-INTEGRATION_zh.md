@@ -47,7 +47,7 @@ AIMail 与任意 agent 系统(LLM 运行时)对接,agent 获得完整邮件能�
 |----|------|------|
 | 共享核心 | `pysdk/aimail_base.py`、`aimail_tools.py`、`aimail_board.py`、`aimail_mcp_server.py` | 入站预处理链、ping/pong、地址派生、注册/注销链、邮件工具实现、board 工具 |
 | 平台适配 | `pysdk/{platform}/`(hermes/openclaw/deer-flow)+ 平台侧 TS 插件(dsh/pi/openclaw,见 §4.4/§4.5/§4.2) | 配置源、persona 开关、身份注入、工具注册、接收端点 |
-| 运行时 | `cli/bin/register_agent.py`、`cli/bin/deregister_agent.py` | agent 生命周期(注册/注销链入口) |
+| 运行时 | TS 插件命令(`openclaw aimail register\|deregister\|status`) | agent 生命周期(注册/注销,openclaw-aimail) |
 | CLI 层 | `cli/aimail`(15 子命令,仓库根 `./aimail` 符号链接)+ 运维脚本 `cli/{check_status,send_welcome,repair,setup_system,deploy_bridge,ping_test}.py`;API 客户端 `pysdk/gateway_api.py` | 安装/检查/测试/卸载/运维 |
 | 安装源 | `pysdk/resources/skills/SKILL.md` + `DESCRIPTION.md` | 通用邮件技能(逐字拷贝,零改写) |
 
@@ -202,7 +202,7 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 | 适配层 | tssdk `openclaw-aimail` 插件(identity = `~/.openclaw/.agentmail` 指针 + agentmail.json 单一事实源;出站 X-AIMail-Agent = `openclaw/{ver}`) |
 | 工具 | 12 邮件/board 裸名工具,插件进程内注册(MAIL_TOOLS 单一语义源;非 MCP) |
 | 入站接收端 | **网关插件 HTTP 路由** `POST http://127.0.0.1:18789/aimail/inbound`(`openclaw.json gateway.port` 默认 18789;auth=plugin,桥/直推目标不变):HMAC 验签 → TS `processInboundMail` → agent turn(`subagent.run` 主 / `gateway.request` 备;多 agent 经 sessionKey 路由) |
-| 生命周期 | 插件 register/deregister/status 命令;或 CLI 注册链 `cli/bin/register_agent.py`(local_webhook_url = 18789/aimail/inbound → bridge 路由) |
+| 生命周期 | 插件 register/deregister/status 命令(`openclaw aimail register\|deregister\|status`);Python 注册链已退役 |
 | 部署 | `openclaw plugins install openclaw-aimail`(或经 tssdk 包);Python 侧仅注册/检查(cli/check_status L4 探测插件端点) |
 | 关键坑 | 入站处理前 `setAgentIdentity`(身份注入 TS 版);日志/事件契约与 Python 逐字对齐;8799 外置桥已退役(§9) |
 

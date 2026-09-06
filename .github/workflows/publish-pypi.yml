@@ -58,8 +58,7 @@ jobs:
           # pyflakes 仅查核心模块;hermes 辅助脚本(patch_*/register_profiles/
           # toolsets)有意 `import aimail`(side-effect sys.path 注入),只做语法检查。
           python3 -m pyflakes pysdk/aimail_base.py pysdk/aimail_board.py pysdk/aimail_tools.py \
-            pysdk/amail_mcp_server.py pysdk/hermes/aimail_hermes.py pysdk/deer-flow/*.py \
-            pysdk/openclaw/amail_base.py || exit 1
+            pysdk/amail_mcp_server.py pysdk/hermes/aimail_hermes.py pysdk/deer-flow/*.py || exit 1
           for f in $(find pysdk -name '*.py' -not -path '*__pycache__*'); do
             python3 -m py_compile "$f" || exit 1
           done

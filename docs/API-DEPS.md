@@ -26,7 +26,7 @@ its credential; activate-system is public product-code activation).
 
 | Endpoint | Method | Purpose | Callers |
 |------|--------|---------|---------|
-| `/api/v1/whoami` | GET | Verify API key identity & scopes | `pysdk/gateway_api.py` (`whoami`; reused by the OpenClaw adapter `pysdk/openclaw/amail_base.py`) |
+| `/api/v1/whoami` | GET | Verify API key identity & scopes | `pysdk/gateway_api.py` (`whoami`) |
 | `/api/v1/key/rotate` | POST | Rotate own key | Gateway/admin side (aimail-gateway `src/core/api/http.rs` has the route + implementation; no Python/TS SDK caller) |
 
 ## Agent
@@ -60,7 +60,7 @@ Pass the target email when operating on others. Scope is checked via `require_do
 |------|--------|---------|---------|
 | `/api/v1/admin/api-keys?email=` | GET | Lookup API key by email | `pysdk/aimail_tools.py` (`get_api_key_by_email`; deregistration chain `pysdk/aimail_base.py` goes through it) |
 | `/api/v1/admin/api-keys` | POST | Create API key | `cli/setup_system.py`, `cli/deploy_bridge.py` (via `pysdk/gateway_api.py` `create_api_key`) |
-| `/api/v1/admin/api-keys/:id` | DELETE | Delete any key | `pysdk/aimail_tools.py` (`delete_api_key`; deregistration chain `pysdk/aimail_base.py`, `cli/bin/deregister_agent.py`) |
+| `/api/v1/admin/api-keys/:id` | DELETE | Delete any key | `pysdk/aimail_tools.py` (`delete_api_key`; deregistration chain `pysdk/aimail_base.py`) |
 | `/api/v1/admin/systems/:sid/domains` | GET/POST | System domain CRUD | `cli/aimail` (`domain` subcommand: list via `pysdk/aimail_tools.py` `list_system_domains`, `--add` POSTs directly), `pysdk/aimail_base.py` (preprocess/deregistration read domains) + `tssdk mail-core auto-bind.ts` |
 | `/api/v1/admin/systems/:sid/addresses` | POST | Register agent email address | `pysdk/aimail_tools.py` (`register_email`; registration chain `register_agent_email` → `cli/bin/register_agent.py`, `pysdk/hermes/register_profiles.py`) + `tssdk mail-core auto-bind.ts` |
 | `/api/v1/admin/system-domains/:id` | PUT | Update domain settings | `pysdk/aimail_tools.py` (`update_system_domain`; registration chain `pysdk/aimail_base.py` updates webhooks through it) + `tssdk mail-core auto-bind.ts` |
@@ -76,7 +76,7 @@ Local aimail-bridge admin API (not the cloud gateway).
 
 | Endpoint | Method | Purpose | Callers |
 |------|--------|---------|---------|
-| `/api/v1/routes` | POST | Register agent inbound route (idempotent upsert) | `pysdk/aimail_base.py` (`register_bridge_route`, always called in the registration chain) + `cli/bin/register_agent.py` + `tssdk mail-core auto-bind.ts` |
+| `/api/v1/routes` | POST | Register agent inbound route (idempotent upsert) | `pysdk/aimail_base.py` (`register_bridge_route`) + `tssdk mail-core auto-bind.ts` |
 
 ## Board
 

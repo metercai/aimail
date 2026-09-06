@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "aimailsdk"
-version = "0.1.2"
+version = "0.1.3"
 description = "AIMail runtime SDK (Python): gateway client, platform adapters, resources. Provisioning tools stay in the aimail repository."
 # PyPI long description = the SDK-facing README (pysdk/README.md). The repo
 # root README stays the repository homepage.
@@ -71,7 +71,6 @@ packages = []
 "pysdk/hermes/ensure_config.py" = "aimail/hermes/ensure_config.py"
 "pysdk/hermes/register_profiles.py" = "aimail/hermes/register_profiles.py"
 "pysdk/hermes/toolsets.py" = "aimail/hermes/toolsets.py"
-"pysdk/openclaw/amail_base.py" = "aimail/openclaw/amail_base.py"
 "pysdk/deer-flow/aimail_inbound.py" = "aimail/deer-flow/aimail_inbound.py"
 "pysdk/deer-flow/amail_base.py" = "aimail/deer-flow/amail_base.py"
 "pysdk/deer-flow/manage.py" = "aimail/deer-flow/manage.py"

@@ -553,34 +553,42 @@ def cmd_install(args) -> int:
         _ok("hermes SDK install done(重启 hermes gateway 生效)" if rc == 0
             else "hermes SDK install: see warnings")
     elif platform == "openclaw":
-        env3 = dict(os.environ)
-        env3["AIMAIL_SYSTEM_ID"] = env.get("INTEGRATE_SYSTEM_ID", "")
-        r = subprocess.call([sys.executable, str(SCRIPTS_DIR.parent / "bin" / "register_agent.py"),
-                             "--all", "--system-id", env.get("INTEGRATE_SYSTEM_ID", "")],
-                            env=env3)
-        if r == 0:
-            # TS 插件(openclaw-aimail)承载工具+入站端点;Python MCP 已退役。
-            for sh in ("install-skill.sh",):
-                subprocess.call(["bash", str(SCRIPTS_DIR / "openclaw" / sh)], env=env3)
-            _ok("openclaw agents registered + skill installed")
+        # openclaw 对接全在 TS(openclaw-aimail):工具/入站端点/register 命令。
+        # Python 注册器已退役;安装 = 装插件后经 `openclaw aimail register` 注册。
+        sid3 = env.get("INTEGRATE_SYSTEM_ID", "")
+        _ok("openclaw 平台:安装 openclaw-aimail 插件 + 注册 agent(单 agent 用 `aimail address -s SID -a main`):")
+        print("  1. 插件安装:npm pack tssdk/packages/openclaw-aimail/ → "
+              "`openclaw plugins install npm-pack:<tgz> --force` → 重启 openclaw gateway")
+        if sid3:
+            print(f"  2. 注册:openclaw aimail register --system-id {sid3}(或 `aimail address -s {sid3} -a main`)")
         else:
-            _warn(f"openclaw 注册失败(register_agent.py exit {r})——请运行 aimail check 诊断")
-        print("  openclaw: TS 插件安装 = npm pack openclaw-aimail/ 后 "
-              "`openclaw plugins install npm-pack:<tgz> --force` + 重启 gateway")
+            print("  2. 注册:`openclaw aimail register`(指针/系统就绪后)或 `aimail address -a main`")
     elif platform == "pi":
-        # pi:注册 pi agent 地址 + 写 ~/.pi/.agentmail 指针(与 openclaw 同构)。
+        # pi:注册 pi agent 地址 + 写 ~/.pi/.agentmail 指针(核心链组装,见 address)。
         # 扩展(pi-aimail)由宿主命令安装;资源自触发。
-        env3 = dict(os.environ)
-        env3["AIMAIL_SYSTEM_ID"] = env.get("INTEGRATE_SYSTEM_ID", "")
-        r = subprocess.call([sys.executable, str(SCRIPTS_DIR.parent / "bin" / "register_agent.py"),
-                             "--agent", "pi", "--system-id", env.get("INTEGRATE_SYSTEM_ID", ""),
-                             "--manager", manager or _env_val("AIMAIL_MANAGER_ADDRESS")],
-                            env=env3)
-        if r == 0:
-            _write_pi_pointer(env.get("INTEGRATE_SYSTEM_ID", ""))
-            _ok("pi agent registered + pointer written")
+        sid3 = env.get("INTEGRATE_SYSTEM_ID", "")
+        _reg_cfg = {}
+        _pcfg = _gateway_cfg_path(sid3) if sid3 else None
+        if _pcfg and _pcfg.is_file():
+            try:
+                _reg_cfg = json.loads(_pcfg.read_text())
+            except Exception:
+                _reg_cfg = {}
+        if not _reg_cfg:
+            _reg_cfg = {
+                "system_id": sid3, "gateway_url": env.get("INTEGRATE_GATEWAY_URL", ""),
+                "admin_key": env.get("INTEGRATE_ADMIN_KEY", ""), "domain": "",
+                "system_name": env.get("INTEGRATE_SYSTEM_NAME", ""), "manager_address": manager,
+                "system_home": env.get("INTEGRATE_SYSTEM_HOME", ""),
+            }
+        if sid3 and _reg_cfg["gateway_url"] and _reg_cfg["admin_key"]:
+            try:
+                _register_agent_now("pi", "pi", _reg_cfg, "pi", manager or "")
+                _ok("pi agent registered + pointer written")
+            except SystemExit:
+                pass
         else:
-            _warn(f"pi 注册失败(register_agent.py exit {r})——检查 manager 与系统配置")
+            _warn("pi 注册跳过(配置不全——激活/安装后重试或 aimail address -a pi)")
         print("  pi: 扩展安装 = pi install npm:pi-aimail(宿主命令)+ 重启")
     elif platform == "dsh":
         # 安装 = dsh 官方插件命令的薄封装(bundle 自动挂载 mail/mail-inbound/tool-mail)
@@ -679,13 +687,22 @@ def cmd_reset(args) -> int:
                              str(SCRIPTS_DIR.parent / "pysdk" / "hermes" / "register_profiles.py")],
                             env=env3)
     else:
-        env3 = dict(os.environ)
-        env3["AIMAIL_SYSTEM_ID"] = sid
-        r = subprocess.call([sys.executable, str(SCRIPTS_DIR.parent / "bin" / "register_agent.py"),
-                             "--all", "--system-id", sid], env=env3)
-    if r != 0:
-        _warn(f"registration chain re-run exit {r}(见上方输出)")
-    else:
+        # 平台注册链幂等重跑:openclaw=TS 命令(插件注册)/ pi=核心链 /
+        # dsh=bind / deerflow=manage(register_agent.py 已退役)
+        _reg_cfg = dict(json.loads(cfg_path.read_text()) if cfg_path.is_file() else {})
+        if platform == "openclaw":
+            reg = _run_registrar(["openclaw", "aimail", "register", "--system-id", sid])
+            if reg[0] != 0:
+                _warn(f"openclaw TS 注册不可用(exit {reg[0]}): {reg[1][-200:]}\n"
+                      f"  先安装 openclaw-aimail 插件再 `openclaw aimail register`,或用 aimail address -a main")
+        elif platform == "pi":
+            _register_agent_now("pi", "pi", _reg_cfg, "pi", manager)
+        elif platform == "dsh":
+            _register_agent_now("dsh", "agent", _reg_cfg, "agent", manager)
+        elif platform == "deerflow":
+            _register_agent_now("deerflow", "agent", _reg_cfg, "agent", manager)
+        else:
+            _warn(f"平台 {platform} 无自动重注册链(用 aimail address -a <agent> 注册单 agent)")
         _ok("registration chain re-run (idempotent)")
     print(f"  建议: aimail check --system-id {sid}")
     return 0
@@ -997,8 +1014,8 @@ def cmd_address(args) -> int:
             _warn(f"本地迁移失败(云端已改名,重跑 install 可重建本地): {e}")
             return 0
         _ok(f"地址改名: {email} → {new_email}")
-        print(f"  服务端资源(白名单/联系人/看板/密钥)与本地 agentmail.json 全部继承")
-        print(f"  生效:同 key 继续使用,新地址即日起收发")
+        print("  服务端资源(白名单/联系人/看板/密钥)与本地 agentmail.json 全部继承")
+        print("  生效:同 key 继续使用,新地址即日起收发")
         return 0
 
     _fail(f"未知操作: {op}(支持 list/default/set-name/set-manager)")
@@ -1007,7 +1024,7 @@ def cmd_address(args) -> int:
 def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str, manager: str) -> None:
     """注册单个 agent(agent 个体粒度)。每平台走其自身的单 agent 注册链:
     - hermes   : 适配层 _auto_register_email(直注册名,支持 -n)
-    - openclaw : cli/bin/register_agent.py --agent(现成注册器,子进程委托)
+    - openclaw : TS 命令委托(openclaw aimail register,openclaw-aimail 插件)
     - dsh      : cli/dsh/bind_agent.py(会话绑定,注册名恒 agent)
     - deerflow : pysdk/deer-flow/manage.py register(现成注册器)
     - pi       : 核心链组装(webhook 端点/agent_id 落盘/根指针;注册名恒 pi)
@@ -1055,10 +1072,19 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str, man
         _post_reg_report(platform, agent, reg_name, domain, sid)
 
     elif platform == "openclaw":
-        reg = _run_registrar([sys.executable, str(SCRIPTS_DIR.parent / "cli" / "bin" / "register_agent.py"),
-                              "--agent", agent, "--system-id", sid, "--manager", mgr or "nobody@invalid"])
+        # openclaw 对接归 TS(openclaw-aimail 插件):注册经 `openclaw aimail register`
+        # (命令面见 tssdk packages/openclaw-aimail commands.ts);Python 注册器已退役。
+        email = f"{'agent' if default_name == 'agent' else default_name}@{domain}"
+        if system_name:
+            email = f"{'agent' if default_name == 'agent' else default_name}.{system_name}@{domain}"
+        argv = ["openclaw", "aimail", "register", "--email", email, "--system-id", sid]
+        if mgr and "@" in mgr:
+            argv += ["--manager", mgr]
+        reg = _run_registrar(argv)
         if reg[0] != 0:
-            _fail(f"openclaw 注册器失败: {reg[1][-400:]}")
+            _fail(f"openclaw TS 注册失败(exit {reg[0]}): {reg[1][-300:]}\n"
+                  f"  先安装 openclaw-aimail 插件(npm pack openclaw-aimail/ → `openclaw plugins install npm-pack:<tgz> --force` → 重启 openclaw gateway),"
+                  f"  `openclaw aimail register` 命令即由插件提供。")
         if reg_name != default_name:
             _rename_after_reg(cfg, default_name, agent, reg_name, sid, domain)
         _post_reg_report(platform, agent, reg_name, domain, sid)

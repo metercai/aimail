@@ -484,7 +484,7 @@ def _openclaw_check_config(c: Check, agent: dict):
     ok = bool(email and api_key)
     c.add("agent", "name_apikey", ok,
           f"{name}: {email or 'no email'}" + (", api_key ✓" if api_key else ", api_key MISSING"),
-          "Run register_agent.py --all")
+          "Run `openclaw aimail register`(openclaw-aimail 插件)")
 
     # 3.2 webhook: agentmail.json webhook_secret
     wh_ok = False
@@ -495,7 +495,7 @@ def _openclaw_check_config(c: Check, agent: dict):
             pass
     c.add("agent", "webhook", wh_ok,
           f"{name}: webhook_secret " + ("✓" if wh_ok else "MISSING"),
-          "Re-run register_agent.py (persists webhook_secret)")
+          "Re-run `openclaw aimail register`(persists webhook_secret)")
 
     # 3.3 skill: ~/.openclaw/skills/agentmail/
     skill_ok = (Path.home() / ".openclaw" / "skills" / "agentmail").is_dir()
@@ -527,7 +527,7 @@ def _openclaw_check_config(c: Check, agent: dict):
     reg_ok = bool(api_key)
     c.add("agent", "register", reg_ok,
           f"{name}: " + ("registered ✓" if reg_ok else "api_key MISSING"),
-          "Run register_agent.py --all")
+          "Run `openclaw aimail register`(openclaw-aimail 插件)")
 
 
 def _openclaw_check_hook(c: Check, agent: dict):
@@ -1066,14 +1066,14 @@ def _check_agentmail_json(c: Check, sid: str):
             d = json.loads(aj.read_text())
         except Exception as e:
             c.add("agent", "config-json", False, f"{sub.name}: parse error: {e}",
-                  "Re-run register_agent.py --all")
+                  "Re-run `openclaw aimail register`")
             continue
         name = d.get("agent_id") or sub.name
         missing = [k for k in AGENTMAIL_JSON_REQUIRED if k not in d or d.get(k) in ("", None)]
         c.add("agent", "config-complete", not missing,
               f"{name}: all {len(AGENTMAIL_JSON_REQUIRED)} fields present" if not missing
               else f"{name}: missing fields: {', '.join(missing)}",
-              "Re-run register_agent.py --all (api_key/webhook_secret cannot be rebuilt locally)")
+              "Re-run `openclaw aimail register`(api_key/webhook_secret cannot be rebuilt locally)")
 
         # 内部一致性:system_id / gateway_url / domain vs email
         issues = []
@@ -1088,7 +1088,7 @@ def _check_agentmail_json(c: Check, sid: str):
             issues.append(f"email domain != domain field ({d['domain']})")
         c.add("agent", "config-consistency", not issues,
               f"{name}: consistent" if not issues else f"{name}: " + "; ".join(issues),
-              "Re-run register_agent.py --all")
+              "Re-run `openclaw aimail register`")
 
 
 def _check_bridge_completeness(c: Check, sid: str):
