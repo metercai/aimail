@@ -2,218 +2,168 @@
 
 # AIMail
 
-**A dedicated email system for AI agents.**
+**AIMail = AI + Mail**: a purpose-built email system for the AI age — enabling human-agent and agent-agent collaboration natively.
 
-**AIMail** is a highly controllable, network-adaptable, open-collaboration email infrastructure purpose-built for AI agents — enabling them to communicate, interact, and collaborate with the outside world just like humans do.
+**AIMail** is a globe-reaching, tightly-controlled, collaboration-ready email system for AI agents. It lets an agent communicate, interact, and collaborate over email with the outside world the way humans do.
 
-- **Seamless access to the global network:** Built on [aimail-gateway](https://github.com/metercai/aimail-gateway), a bidirectional SMTP-HTTP gateway that connects any Agent platform (such as [Hermes Agent](https://github.com/nousresearch/hermes-agent)) to the global email network with zero friction.
-- **Independent identity & autonomous interaction:** Every Agent has a globally unique email address, enabling it to initiate conversations, manage context, and engage deeply with individuals, teams, workflows, or other agents.
-- **Open protocols & human-agent co-working:** Free from platform lock-in. Standard email protocols and collaboration primitives, built on decentralized email infrastructure, create a cross-network, open ecosystem for human-agent hybrid collaboration.
+- **Seamless global reach:** built on the bidirectional SMTP/HTTP gateway [aimail-gateway](https://github.com/metercai/aimail-gateway), agents from any platform ([DSH](https://github.com/deepseek-ai/deepseek-harness) / [Pi](https://github.com/earendil-works/pi) / [Hermes](https://github.com/NousResearch/hermes-agent) / [Openclaw](https://github.com/openclaw/openclaw) / [Deerflow](https://github.com/bytedance/deer-flow)) plug into the worldwide email network with zero friction — humans, agents, and agents collaborating across the wire.
+- **Independent identity, autonomous interaction:** every agent owns a globally unique email address. Mail is stored locally, and with programmable APIs/Toolsets/Skills agents hold self-initiated and self-replied conversations, mail-context management, and contact management — staying in touch with people, teams, workflows, and other agents on their own.
+- **Open protocols, human-agent co-working:** no platform lock-in. Standard mail protocols and collaboration semantics on a decentralized, peer-to-peer mail infrastructure — an open, cross-network ecosystem built for hybrid human-agent teams.
 
 ---
 
 ## Why AIMail?
 
-Email is the most fundamental and widely-used communication tool on the internet — structured, persistent, and inherently formal. It supports both private 1:1 conversations and multi-party collaboration with equal ease.
+Email is the internet's oldest and most fundamental communication service — and the everyday workhorse of professional life. Its content is richly formatted yet durable, formal and trustworthy; it serves private one-to-one exchanges and fast multi-party threads alike. That makes it the natural, platform-independent transport for A2A communication.
 
-AIMail is neither IM nor a traditional mailbox. The key differences:
+AIMail is neither IM nor a traditional mailbox. It is email upgraded for the AI era:
 
 | Dimension | IM | Traditional Mailbox | **AIMail** |
-|-----------|-----|---------------------|---------------|
+| --------- | ------ | ------------------ | ------------------ |
 | **Identity** | Platform-bound, closed | Globally unique, open | Globally unique, open |
-| **Content** | Fragmented, informal | Structured, formal | Structured, formal |
-| **Access** | Proprietary API/SDK | POP3/IMAP, provider-dependent | SMTP + Webhook, self-hosted |
-| **Latency** | Real-time, resource-heavy | Polling, high latency | Webhook push, near real-time |
-| **Access Control** | Contact list, group permissions | Open, spam-prone | Default whitelist, bidirectional control |
-| **Multi-party** | Group chat, unstructured | Forward/CC, threaded | Same as email + A2A Board, multi-role autonomous collaboration |
+| **Content** | Discrete, fragmented, informal | Structured, formal | Structured, formal |
+| **Access** | Proprietary platform API/SDK | Provider-dependent (POP3/IMAP) | Programmable API — self-managed storage and integration |
+| **Real-time** | High, resource-hungry | Polling, high latency | Webhook push, low latency, light footprint |
+| **Access control** | Contact lists + group permissions | Open, spam-prone | Bidirectional contact control — more flexible than IM |
+| **Search** | Scroll history, no search API | Provider's search API | Content + prebuilt indexes live locally, full search tooling |
+| **Collaboration** | Group chat, unstructured | Forward/CC, no thread trace | Role-autonomous A2A via collaboration boards + task engine |
 
-AIMail is not about teaching agents to use email. It's about giving agents email as a **protocol-native collaboration medium** — with humans and other agents alike.
-
----
-
-## Use Cases
-
-- **Contract Review:** Legal Agent takes over the contract inbox. Send agreements as attachments — the Agent auto-parses clauses, flags risks, and replies with annotations, CC'ing approvers. Full audit trail preserved. [→ example](examples/01-contract-review.md)
-- **Progress Reports:** Agent periodically summarizes project status, risks, and milestones into structured reports, auto-sending to project members. Customize content by role (executive summary for leaders, details for executors). [→ example](examples/02-progress-report.md)
-- **Clarification Requests:** When Agent encounters contradictions or gaps during analysis, it automatically emails the relevant colleague with context. Upon reply, the Agent parses the answer and continues without human tool-switching.
-- **Survey Distribution:** Agent sends survey emails in bulk, tracks response progress, sends reminders, aggregates results, and emails the analysis back to the initiator. [→ example](examples/04-survey.md)
-- **Process Collaboration:** In a website redesign involving designer Agent, frontend Agent, and PM, the A2A Board syncs all communication and decisions via email. When a design is finalized, notifications automatically trigger the next role to begin development. [→ example](examples/05-a2a-collaboration.md)
-- **Financial Pre-audit:** Employee CCs the pre-audit Agent on expense reports. Agent verifies receipts, compliance, and budget — replying "approved", "rejected", or "needs supplement" — CC'ing the finance reviewer for final approval. [→ example](examples/06-financial-preauth.md)
-- **Customer Support:** Agent takes over `support@` inbox. Auto-classifies intent and sentiment. Answers FAQs (password reset, order lookup) automatically. Escalates complex cases to human agents with context summaries. [→ example](examples/07-customer-support.md)
-
-AIMail seamlessly integrates AI agents into any email-based workflow — contract review, progress reporting, clarification loops, surveys, cross-role collaboration, financial pre-audit, customer support, and beyond.
+**AIMail's core stance:** not teaching agents to operate a mailbox — giving agents email as the **protocol-native medium** to talk and cooperate with humans and other agents.
 
 ---
 
-## Key Advantages
+## Key Features
 
-1. **Dual SMTP-HTTP Relay, Ordered Inbound & Outbound**  
-SMTP receive → Webhook push. HTTP send → SMTP relay → Webhook internal delivery. Four lanes, unified scheduling, full-chain logging.
-
-2. **Multi-Layer Security, Default Whitelist**  
-Default whitelist prevents unauthorized senders from reaching the Agent, and prevents the Agent from sending to unauthorized recipients. Bidirectional control with security officer confirmation for critical operations.
-
-3. **Auto Markdown Conversion, LLM-Friendly**  
-Rich HTML emails are automatically converted to clean Markdown — stripped of styling noise. Agents read structured content directly.
-
-4. **Email is Conversation, Conversation is Instruction**  
-Sending and receiving email IS the conversation, with context automatically appended. Multiple types of instruction emails make conversations programmable and executable, seamlessly embedding into daily workflows.
-
-5. **Built-in Collaboration Primitives and Board, Human-Agent Co-working**  
-Native A2A collaboration board with customizable workflow engine. 20+ instruction verbs + 10 auto-notification types + collaboration primitives. Supports cross-system, heterogeneous Agent collaboration across the internet.
-
-6. **Multi-Mode Message Delivery, Any Network Environment**  
-Webhook Push/Pull dual mode coexists, adapting to diverse Agent types and network conditions.
-
-7. **Multi-Role Agent Addresses, Dynamic Identity Switching**  
-One Profile supports multiple Personas (e.g. `sales.bob@domain` / `support.bob@domain`). Sending auto-matches identity; receiving auto-identifies Persona for context switching.
-
-8. **One-Click Integration & Diagnostics via `aimail` CLI**  
-`./aimail install` sets up the whole chain (activation → bridge → tools/skills → registration); `check`/`ping`/`welcome` diagnose the full loop; `stats`/`domain`/`uninstall` manage the machine from one entry.
+1. **Bidirectional SMTP-HTTP — ordered in, ordered out**\
+   SMTP inbound, webhook push, HTTP outbound, SMTP relay — two ways in, two ways out, centrally scheduled, fully traced with end-to-end logs.
+2. **Security officer & layered whitelists — access you can govern**\
+   Whitelists are on by default: unauthorized senders can never reach your agent, and the agent can never send out to unauthorized addresses — two-way control, a closed loop. Critical agent actions can require sign-off from a configured security officer — a real safety net.
+3. **Automatic format conversion — LLM-friendly**\
+   Complex mail formats are normalized to clean Markdown; styling noise is stripped and agents read structured content directly.
+4. **Local content, instant search**\
+   Inbound/outbound mail snapshots are stored locally with prebuilt full-text indexes and a search tool — retrieval is fast and convenient.
+5. **Mail is the conversation; the conversation is the command**\
+   Every exchange continues its thread with context auto-filled. Mail directives make dialogue executable, so commands drop straight into everyday workflows.
+6. **Collaboration primitives & board, out of the box**\
+   Native A2A collaboration boards with a customizable workflow engine — 20+ instruction verbs, 10 automatic notification types, and collaboration primitives power cross-system heterogeneous agents on one network.
+7. **Multi-mode, multiplexed delivery — punches through any network**\
+   Inbound Push and Pull coexist; one mail can carry many destinations; multiple gateways can share a host — agents in every network shape fit.
+8. **One-command integration & diagnostics — low-friction ops**\
+   `./aimail install` completes the whole chain in one go (activate → bridge → tools & Skills → register); `check` / `ping` / `welcome` diagnose end to end; `stats` / `domain` / `uninstall` handle local management.
 
 ---
-
-## Repository Layout
-
-Single repo hosting the CLI, the Python runtime SDK and the TypeScript SDK
-side by side:
-
-- `cli/` — `aimail` maintenance CLI + subcommands + platform installers
-  (migration target for a future Rust binary)
-- `pysdk/` — Python runtime SDK (pip `aimailsdk`, import name `aimail`):
-  gateway client, platform adapters, board resources; wheel layout mirrors
-  this tree 1:1
-- `tssdk/` — TypeScript SDK (npm `@aimail/*`, `dsh-aimail`, `openclaw-aimail`,
-  `pi-aimail`), migrated from the former aimail-sdk-ts repo
-- `bridge/` — aimail-bridge binary distributions
-- `examples/` — mail templates / A2A examples
-- `docs/` — guides, board docs, maintenance notes
 
 ## Quick Start
 
-### Part 1 — First-time install (new machine, five steps)
+AIMail offers two install paths: **system-level install** from a terminal for system administrators, or **chat-based install** — you are an agent administrator working through the agent's own chat interface.
 
-Prerequisites: Linux + Python 3.10+, and a reachable
-[aimail-gateway](https://github.com/metercai/aimail-gateway) — or an
-activation code for the public gateway (`amail.token.tm`).
+### Prerequisites
 
-**Step 1. Install the agent host.** Install any supported agent platform
-(dsh / OpenClaw / pi / deer-flow / Hermes — their own docs). Every host
-works; the matching SDK adapter is what connects it to AIMail.
+- **Operating system:** Linux + Python 3.10+.
+- **An agent platform installed:** any supported one (DSH / OpenClaw / pi / deer-flow / Hermes — **Hermes and DSH recommended**).
+- **Gateway access:** a reachable self-hosted [aimail-gateway](https://github.com/metercai/aimail-gateway) service — or a **cloud activation code** (shared domain, `amail.token.tm`).
 
-**Step 2. Set the machine env vars.** Copy-paste, edit, run — two core
-values, then one credential:
+### Environment Checklist
+
+**Scenario A — shared-domain activation code:**
 
 ```bash
-export AIMAIL_URL=https://amail.token.tm        # where the gateway lives
-export AIMAIL_MANAGER_ADDRESS=you@example.com   # default manager (receives the welcome mail)
-export AIMAIL_PRODUCT_CODE=<code>               # new system — or, for an existing system:
-# export AIMAIL_ADMIN_KEY=<key>                 #   reuse, no re-activation
-# export AIMAIL_SYSTEM_NAME=<name>              # shared-domain systems (agent.<name>@…)
+export AIMAIL_URL=https://amail.token.tm      # gateway address
+export AIMAIL_PRODUCT_CODE=<activation-code>  # cloud trial activation code
+export AIMAIL_SYSTEM_NAME=<your-id>           # shared domain: agent.<id>@<domain>
+export AIMAIL_MANAGER_ADDRESS=you@example.com # default manager (receives the welcome mail)
 ```
 
-**Step 3. Bootstrap and initialize.** One command installs the `aimail`
-CLI into `~/.local/bin` and runs the machine-level init (main dir, disk
-headroom, local-gateway-vs-bridge decision):
+**Scenario B — self-hosted gateway (own domain):**
+
+```bash
+export AIMAIL_URL=<your-gateway-url>          # e.g. https://mail.example.com
+export AIMAIL_ADMIN_KEY=<admin-key>           # gateway admin credential
+export AIMAIL_DOMAIN=<your-domain>            # e.g. example.com
+export AIMAIL_MANAGER_ADDRESS=you@example.com # default manager
+```
+
+### System-level Install
+
+#### Step 1: Bootstrap the machine environment.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
 ```
 
-**Step 4. Install the SDK for your host.** One non-interactive command:
-activates (or reuses) the system, deploys the bridge entry, installs the
-platform SDK adapter (patches/skills/plugin), registers and binds the
-agent. `--home` points at the platform root:
+#### Step 2: Install the SDK or plugin.
+
+*Via the aimail CLI:*
 
 ```bash
-aimail install --home ~/.hermes       # Hermes (also: ~/.dsh, ~/.openclaw, ~/.pi, a deer-flow backend dir)
+aimail install --home ~/.hermes       # Hermes (also ~/.dsh, ~/.openclaw, ~/.pi, deer-flow — --home is the agent platform's root dir)
 ```
 
-Host-side equivalent (machine already initialized): install the adapter
-through the host itself — `openclaw plugins install openclaw-aimail`,
-`dsh plugin --profile web add dsh-aimail`, `pi install npm:pi-aimail`, or
-`python -m aimail.install install --type hermes|deerflow --home <root>`
-(pip `aimailsdk`). The SDK self-checks the environment, releases its own
-resources, and auto-binds on first use.
-
-**Step 5. Verify the loop.**
+*Via the agent platform's own CLI:*
 
 ```bash
-aimail welcome       # welcome mail through the gateway to the manager = end-to-end proof
-aimail check         # full health exam (config → runtime resources → links) if anything is off
-aimail ping          # SMTP ping/pong round-trip
-aimail stats         # systems / agents / mail overview
+dsh plugin --profile web add dsh-aimail
+#pi install npm:pi-aimail
+#openclaw plugins install openclaw-aimail
 ```
 
-Flag priority everywhere: CLI argument > shell env > `~/.aimail/.env` >
-built-in default.
-
-### Part 2 — Subsequent installs (machine ready, more systems/hosts)
-
-The machine is already initialized (CLI installed, bridge in place). To
-onboard another host or system, only three steps repeat:
-
-**Step 1. Set the credential env vars** (per system; same values as
-Part 1 Step 2 — or persist them in `~/.aimail/.env`):
+#### Step 3: Verify the closed loop.
 
 ```bash
-export AIMAIL_PRODUCT_CODE=<code>        # new system
-# export AIMAIL_ADMIN_KEY=<key>          # existing system, reuse
-export AIMAIL_SYSTEM_NAME=<name>         # shared-domain systems
+aimail welcome       # the gateway sends a welcome mail to the agent; the agent replies to the admin = end-to-end proof
+#aimail check        # full health check (config → runtime → links); run this first when something is wrong
+#aimail stats        # systems / agents / mail overview
 ```
 
-**Step 2. Install the SDK for the target host** — `--home` selects the
-platform root, `--system-id` reuses a specific system (omit to activate a
-new one):
+> Notes:
+> - Multi-system install: one machine can host several agent platforms. Change the environment variables (a **new system needs a new activation code or admin key**), point `--home` at the other platform, and run the install again.
+> - Reinstalling an existing system: rerun with the system ID — `aimail install --system-id <sid>` (the platform root is resolved from the local config).
 
-```bash
-aimail install --home ~/.openclaw --system-id <sid>
+---
+
+### Chat-based Install (agent)
+
+Fill in the environment variables for your scenario, then copy everything below into the agent's chat and let the agent execute it:
+
+```txt
+export AIMAIL_URL=https://amail.token.tm      # gateway address
+export AIMAIL_PRODUCT_CODE=<activation-code>  # cloud trial activation code
+export AIMAIL_SYSTEM_NAME=<your-id>           # shared domain: agent.<id>@<domain>
+export AIMAIL_MANAGER_ADDRESS=you@example.com # default manager (receives the welcome mail)
+Follow the guide at the link below to get your own AIMail email address
+https://raw.githubusercontent.com/metercai/aimail/main/docs/agent-self-setup.md
 ```
-
-**Step 3. Verify the loop** for that system:
-
-```bash
-aimail check --system-id <sid> && aimail welcome --system-id <sid>
-```
-
 
 ---
 
 ## Architecture
 
-AIMail connects two sides: **aimail-gateway** (the mail service: SMTP
-ingress/egress, addressing, the activation/domain/admin APIs) and the
-**agent host** (Hermes, dsh, OpenClaw, pi, deer-flow …), wired together by
-an HTTP/bridge runtime that each platform SDK implements. The diagram
-below shows the Hermes wiring as the concrete example:
+AIMail's core is two parts: **aimail-gateway** (the mail gateway) and the **aimail-sdk** inside your agent. In complex network environments, **aimail-bridge** joins in to pierce NAT and keep mail flowing safely and efficiently. The **aimail** CLI provides agent-side SDK installation, link diagnostics, and everyday maintenance.
 
 ```
-                     ┌────────────────────┐
-                     │   aimail-gateway    │
+                     ┌────────────────────┐ 
+                     │   aimail-gateway   │
                      │                    │
-   External Mail ───►│ SMTP Receiver      │──── Inbound Webhook ─┐
-                     │                    │                      │
-                     │ SMTP Relay         │◄─── HTTP API ─────┐  │
-   External Mail ◄───│ (external delivery)│                   │  │
-                     │                    │                   │  │
-                     │ Internal Routing   │                   │  │
-                     │ (same-domain stays │◄─── HTTP API ─────┤  │
-                     │  off public SMTP)  │                   │  │
-                     │                    │                   │  │
-                     │ A2A Board Engine   │                   │  │
-                     │ Instructions       │                   │  │
-                     │ Sessions           │                   │  │
-                     │ Notifications      │                   │  │
-                     └────────────────────┘                   │  │
-                                                              │  │
-                     ┌────────────────────┐                   │  │
-                     │   Hermes Agent     │                   │  │
-                     │                    │                   │  │
-                     │ ┌────────────────┐ │                   │  │
-                     │ │ aimail RT   │ │─── Outbound ──────┘  │
-                     │ │ · Webhook recv │ │                      │
-                     │ │ · Preprocessor │ │                      │
-                     │ │ · send_mail()  │ │◄─── Inbound ─────────┘
+   External Mail ───►│ SMTP Receiver      │◄───► Inbound Push/Pull ────────┐
+                     │        ↑           │                                │
+                     │  Internal Routing  │                                │
+                     │        │           │                                │
+   External Mail ◄───│ SMTP Sender    send│◄─── HTTP API ────┐             │
+                     │                    │                  │             │
+                     │ A2A Board Engine   │                  │             │  
+                     │ · Instructions     │                  │             │  
+                     │ · Sessions         │                  │             │
+                     │ · Notifications    │                  │             │   
+                     └────────────────────┘                  │             │
+                                                             │             │
+                     ┌────────────────────┐                  │   ┌─────────┴─────────┐
+                     │   Hermes Agent     │                  │   │  aimail-bridge    │
+                     │                    │                  │   │ multiplex webhook │
+                     │ ┌────────────────┐ │                  │   └───┬──┬──┬──┬──┬───┘ 
+                     │ │   aimail SDK   │ │──── Outbound ────┘             │
+                     │ │ · Webhook recv │ │                                │
+                     │ │ · Preprocessor │ │                                │
+                     │ │ · send_mail()  │ │◄─── Inbound Webhook ───────────┘
                      │ │ · board_* tools│ │
                      │ │ · Whitelist mgr│ │
                      │ └───────┬────────┘ │
@@ -227,75 +177,55 @@ below shows the Hermes wiring as the concrete example:
                      └────────────────────┘
 ```
 
-**Inbound flow:** External mail → gateway SMTP Receiver → Webhook → aimail preprocessing (format conversion, context injection, board role recognition) → LLM engine decision
+**Inbound:** external mail → gateway SMTP Receiver → webhook → aimail preprocessing (format conversion, context injection, board-role detection) → LLM engine decides.
 
-**Outbound flow:** LLM decision → `send_mail()` → HTTP API → gateway internal routing (same-domain recipients via Webhook directly) or SMTP Relay (external recipients)
+**Outbound:** LLM decision → `send_mail()` → HTTP API → gateway internal routing (same-domain recipients get a direct webhook) or SMTP relay (external recipients).
 
 ---
 
-## Configuration
+## Address Formats
 
-### Email Address Format
+**Self-hosted gateway, own domain**
 
-- Self-Hosted Gateway, Custom Domain
-
-Deploy your own [aimail-gateway](https://github.com/metercai/aimail-gateway) with a custom domain. Root profile defaults to `agent@{domain}`. Additional profiles created via `hermes -p`.
+Taking Hermes as an example: deploy your own [aimail-gateway](https://github.com/metercai/aimail-gateway) and use your own domain. The root profile is `agent@{domain}` by default; any profile created with `hermes -p` uses its name directly as the address `{profile}@{domain}`. AIMail additionally supports multiple personas inside a single Hermes profile, deriving persona addresses automatically.
 
 | Type | Format | Example |
-|------|--------|---------|
-| Root Profile | `agent@{domain}` | `agent@company.com` |
-| Named Profile | `{profile}@{domain}` | `report@company.com` |
+| ---------- | ------------------------------ | -------------------------- |
+| Root profile | `agent@{domain}` | `agent@company.com` |
+| Named profile | `{profile}@{domain}` | `report@company.com` |
 | Persona | `{persona}.{profile}@{domain}` | `sales.report@company.com` |
 
-- Official Shared Domain
+**Official shared domain**
 
-Use an official activation code with a shared domain. Enter `system_name` (3-8 chars) during activation, such as: `meter`.
+Same Hermes example. When you activate with a product code obtained from the official site (shared domain), you pick a `system_name` (3–8 chars) to distinguish yourself — e.g. `meter` — yielding:
 
 | Type | Format | Example |
-|------|--------|---------|
-| Root Profile | `agent.{system_name}@{domain}` | `agent.meter@amail.token.tm` |
-| Named Profile | `{profile}.{system_name}@{domain}` | `report.meter@amail.token.tm` |
-| Persona | `{persona}.{profile}.{system_name}@{domain}` | `sales.report.meter@amail.token.tm` |
+| ---------- | --------------------------------------------------- | ----------------------------------- |
+| Root profile | `agent.{system_name}@{shared_domain}` | `agent.meter@amail.token.tm` |
+| Named profile | `{profile}.{system_name}@{shared_domain}` | `report.meter@amail.token.tm` |
+| Persona | `{persona}.{profile}.{system_name}@{shared_domain}` | `sales.report.meter@amail.token.tm` |
 
-### API Keys and Profiles
+---
 
-API Keys are generated per Agent address, stored under `~/.aimail/systems/{system_id}/{addr}/agentmail.json`:
+## Use Cases
 
-### Runtime Directory
+- **Contract review:** the legal Agent owns the contract-review inbox — drop in the agreement as an attachment. The agent parses clauses, flags risk points, and replies with an annotated version, CC'ing the approvers. Every step leaves a trace. [→ example](examples/01-contract-review.md)
+- **Progress reports:** the Agent periodically rolls project status, risks, and milestones into structured report mails and auto-sends them to the team. Content can be tailored per role (a digest for the leader vs. the full detail for executors), and replies from team members feed back automatically. [→ example](examples/02-progress-report.md)
+- **Clarification requests:** while executing a task (weekly report, data analysis), the Agent spots contradictions or gaps and emails the relevant colleague a clarification with the exact conflict and context. When the answer lands, the Agent parses it and keeps going — no human tool-switching involved. [→ example](examples/03-issue-clarification.md)
+- **Surveys:** the Agent sends surveys in bulk, with the questionnaire or a replyable structured form inline or attached. It tracks progress, nudges non-respondents on schedule, then aggregates everything, charts the results, and mails the analysis back to the initiator. [→ example](examples/04-survey.md)
+- **Cross-role collaboration:** in a website redesign, the designer Agent, the frontend Agent, and the PM share one A2A collaboration board; communication and decisions sync over mail directives — when the design is approved, the board triggers an email that kicks off the downstream agent, every role gives feedback inside the thread, and the board stays current. [→ example](examples/05-a2a-collaboration.md)
+- **Expense pre-audit:** employees CC the pre-audit Agent on their reimbursement mail. The Agent verifies invoice authenticity, compliance, and budget headroom, then replies with its verdict (approved / rejected / more material needed), CC'ing the finance reviewer — a human only confirms final release. Review cycles shrink dramatically. [→ example](examples/06-financial-preauth.md)
+- **Customer support:** the Agent owns `support@`. It takes incoming inquiries, reads intent and sentiment, and classifies automatically. Common questions (password resets, order lookups) get instant answers; complex or complaint tickets are escalated to human agents with a context digest from the Agent. Everything is archived for service-quality review. [→ example](examples/07-customer-support.md)
 
-```
-~/.aimail/
-├── systems/
-│   └── {system_id}/
-│       ├── agentmail_gateway.json     # Gateway connection config
-│       ├── board/                     # system-level A2A role prompts (fallback)
-│       └── {agent_addr}/              # per-address dir (keyed by cleaned email)
-│           ├── agentmail.json         # email + api_key
-│           ├── board_creds.json       # A2A board credentials (board_id → gateway_url/token)
-│           └── role_prompt/           # address-level role prompts (takes priority)
-├── mail/
-│   └── {agent_addr}/                  # received mail per address
-│       ├── aimail.log              # agent pipeline log
-│       └── {yyyymm}/in-*.json         # monthly snapshots
-├── bridge/
-│   ├── aimail_bridge.toml              # bridge config
-│   ├── aimail_routes.toml              # route table (email → local webhook)
-│   ├── bin/aimail-bridge               # bridge binary
-│   ├── bridge.pid                     # bridge PID
-│   └── bridge.out                     # bridge stdout log
-├── logs/
-│   ├── aimail-bridge.log               # bridge runtime log
-│   └── aimail.agent.{addr}.log     # per-agent processing log
-├── backup-reset-*/                    # config snapshot before each reset
-└── .system_raw_key/
-    └── {system_id}_admin.key          # raw admin key (integration only)
-```
+**AIMail** slots an agent into any mail-driven workflow — seamlessly.
 
 ---
 
 ## Further Reading
 
-- [AIMail Integration Guide (对接架构与实例示范)](docs/AGENT-INTEGRATION.md)
+- [Installation & Maintenance Guide](docs/MAINTENANCE.md)
+- [Integration & Adapter Guide](docs/AGENT-INTEGRATION.md)
 - [A2A Board Collaboration Guide](docs/board/A2A-BOARD-GUIDE.md)
-- [API Dependencies](docs/API-DEPS.md)
-- [Maintenance Guide](docs/MAINTENANCE.md)
+- [API Dependencies Index](docs/API-DEPS.md)
+- [aimail-gateway](https://github.com/metercai/aimail-gateway)
+- [aimail-bridge](bridge/README.md)
