@@ -605,6 +605,122 @@ def cmd_install(args) -> int:
     return 0
 
 
+def cmd_ensure_system(args) -> int:
+    """ensure-system: L1-only system activation/reuse — the SDK reverse-call
+    ABI entry (host install path: dsh plugin / openclaw plugin → this command).
+
+    Deliberately NEVER runs platform wiring (no dsh plugin / host-command
+    spawn) and never deploys the bridge — those belong to `install` (human
+    path) and bootstrap machine-init. Skipping them here is what breaks the
+    install↔plugin call loop.
+
+    Contract: stdout is exactly ONE JSON line (success or error+hint); human
+    logs go to stderr; exit 0 = ok, 1 = error.
+    """
+    load_core()
+    from gateway_api import load_gateway_config
+    env = dict(os.environ)
+    gw_url = args.gateway_url or _env_val("AIMAIL_URL", "https://aimail.token.tm")
+    sys_name = args.system_name or _env_val("AIMAIL_SYSTEM_NAME")
+    manager = args.manager or _env_val("AIMAIL_MANAGER_ADDRESS")
+    prod_code = args.product_code or ""
+    adm_key = args.admin_key or ""
+    want_domain = args.domain or _env_val("AIMAIL_DOMAIN")
+    sid = args.system_id or ""
+
+    def _err(msg, hint=""):
+        out = {"success": False, "error": msg}
+        if hint:
+            out["hint"] = hint
+            print(f"hint: {hint}", file=sys.stderr)
+        print(json.dumps(out, ensure_ascii=False))
+        return 1
+
+    # home ↔ sid 反查(与 install 同语义;SDK 反调通常只给 -H)
+    # 注意:Path() == Path('.') 是 truthy——空 home 必须按 args.home 真值判定
+    if not args.home:
+        if not sid:
+            return _err("--home is required (or --system-id backed by local config)")
+        from runtime_core import system_home_from_sid
+        sh = system_home_from_sid(sid)
+        if not sh:
+            return _err(f"--system-id {sid} has no local config on this machine")
+        system_home = Path(sh)
+    else:
+        system_home = Path(args.home).expanduser()
+    if not system_home.exists():
+        return _err(f"home dir not found: {system_home}")
+
+    # 复用优先:home 归属唯一系统 → 复用;.env 的码只在真新建时兜底
+    if not sid and not prod_code and not adm_key:
+        from runtime_core import sid_from_system_home
+        sid2 = sid_from_system_home(str(system_home))
+        if sid2:
+            sid = sid2
+            print(f"reuse owning system: {sid}", file=sys.stderr)
+    if not sid and not prod_code and not adm_key:
+        prod_code = _env_val("AIMAIL_PRODUCT_CODE")
+        if not sys_name:
+            sys_name = _env_val("AIMAIL_SYSTEM_NAME")
+
+    # 凭据装配(INTEGRATE_* env 契约 → setup_system.py;与 install 同款)
+    env["INTEGRATE_GATEWAY_URL"] = gw_url
+    env["INTEGRATE_SYSTEM_ID"] = sid
+    env["INTEGRATE_SYSTEM_NAME"] = sys_name
+    env["INTEGRATE_SYSTEM_HOME"] = str(system_home)
+    env["INTEGRATE_MANAGER_ADDRESS"] = manager
+    env["INTEGRATE_AIMAIL_DOMAIN"] = want_domain
+    env["INTEGRATE_SAVE_SNAPSHOTS"] = (
+        "true" if _env_val("AIMAIL_SAVE_SNAPSHOTS", "no").lower() in ("yes", "true", "1") else "false")
+    env["INTEGRATE_WEBHOOK_HOST"] = _env_val("AIMAIL_WEBHOOK_HOST")
+    if prod_code:
+        env["INTEGRATE_USE_PRODUCT_CODE"] = "true"
+        env["INTEGRATE_PRODUCT_CODE"] = prod_code
+    elif adm_key:
+        env["INTEGRATE_ADMIN_KEY"] = adm_key
+    elif sid:
+        cfg = load_gateway_config(sid)
+        if cfg and cfg.get("admin_key"):
+            env["INTEGRATE_ADMIN_KEY"] = cfg["admin_key"]
+            print(f"reuse admin_key for {sid}", file=sys.stderr)
+        else:
+            return _err(f"system {sid} has no local admin_key", "pass -k <admin-key> or -c <product-code>")
+    else:
+        return _err(
+            "no credential to activate with",
+            "export AIMAIL_URL + AIMAIL_PRODUCT_CODE then retry (or run bootstrap), or pass -c <code> / -k <admin-key>",
+        )
+
+    try:
+        out = subprocess.check_output(
+            [sys.executable, str(SCRIPTS_DIR / "setup_system.py")],
+            env=env, text=True, stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as e:
+        return _err("system setup failed", (e.output or "").strip()[-400:])
+    for line in out.splitlines():
+        if line.startswith("__ERROR__"):
+            return _err(line[len("__ERROR__"):].strip())
+    sid2 = sid or ""
+    try:
+        data = json.loads(out)
+        sid2 = data.get("system_id") or sid2
+    except Exception:
+        pass
+    if not sid2:
+        return _err("setup finished without a system_id")
+    cfg = load_gateway_config(sid2) or {}
+    print(f"system configured: {sid2}", file=sys.stderr)
+    print(json.dumps({
+        "success": True,
+        "system_id": sid2,
+        "gateway_url": cfg.get("gateway_url") or gw_url,
+        "domain": cfg.get("domain", ""),
+        "system_name": cfg.get("system_name", "") or sys_name,
+        "path": "activation" if prod_code else "admin_key",
+    }, ensure_ascii=False))
+    return 0
+
+
 def cmd_reset(args) -> int:
     """重置:只走 admin-key 路径,重置所有配置参数(不重激活、不碰 key)。"""
     sid = args.system_id or ""
@@ -2174,6 +2290,19 @@ scenario groups:
     p_install.add_argument("-m", "--manager", **common_mgr)
     p_install.add_argument("-d", "--domain", help="domain to pre-create (default: AIMAIL_DOMAIN env)")
     p_install.set_defaults(func=cmd_install)
+
+    # SDK reverse-call ABI: L1 activation/reuse only — NEVER platform wiring
+    # (breaks the install↔host-plugin call loop). stdout = one JSON line.
+    p_ensure = sub.add_parser("ensure-system", help="(SDK ABI) ensure a system exists for a host root — L1 activation/reuse only")
+    p_ensure.add_argument("-H", "--home", **common_home)
+    p_ensure.add_argument("-s", "--system-id", **common_sid)
+    p_ensure.add_argument("-c", "--product-code", help="product activation code (new system path)")
+    p_ensure.add_argument("-k", "--admin-key", help="admin key of an already-activated system (reuse path)")
+    p_ensure.add_argument("-g", "--gateway-url", default=None, **common_gw)
+    p_ensure.add_argument("-n", "--system-name", help="system name (shared-domain identifier)")
+    p_ensure.add_argument("-m", "--manager", **common_mgr)
+    p_ensure.add_argument("-d", "--domain", help="domain to pre-create (default: AIMAIL_DOMAIN env)")
+    p_ensure.set_defaults(func=cmd_ensure_system)
 
     p_uni = sub.add_parser("uninstall", help="remove aimail integration from the agent platform")
     p_uni.add_argument("-s", "--system-id", **common_sid)
