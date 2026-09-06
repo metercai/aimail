@@ -322,38 +322,6 @@ class _GatewayClient:
         )
         return result
 
-    # ── System Activation ─────────────────────────────────────────
-
-    def activate_system(self, code: str, **kwargs) -> dict:
-        """POST /api/v1/activate-system -- Activate a system using a product code.
-
-        No authentication required -- the activation code IS the credential.
-        Extra kwargs (system_id, system_name, domain) are passed through
-        as optional fields -- the server auto-generates any missing values.
-
-        Args:
-            code: The product activation code (e.g. "prod-xxxx-xxxx-...")
-
-        Returns ``{"status": 200, "raw_key": "sk-...", "system_id": "...", ...}``
-        """
-        body = {"code": code}
-        # Pass through any optional overrides
-        for k in ("system_id", "system_name", "domain"):
-            v = kwargs.get(k)
-            if v:
-                body[k] = v
-        result = self._request("POST", "/api/v1/activate-system", body=body)
-        raw_key = result.get("raw_key", "")
-        if not raw_key:
-            return {"success": False, "error": f"activation failed: {result}"}
-        return {
-            "success": True,
-            "raw_key": raw_key,
-            "system_id": result.get("system_id", ""),
-            "system_name": result.get("system_name", ""),
-            "domain": result.get("domain", ""),
-        }
-
     # ── Address Activation (Agent side) ─────────────────────────
 
     def activate_address(self, code: str, email_address: str = "", scopes: Optional[list] = None) -> dict:

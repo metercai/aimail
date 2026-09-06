@@ -144,15 +144,9 @@ def register_one(client, system_id: str, agent_id: str, email: str,
 
 
 def save_agent_config(agent_id: str, cfg: dict, system_id: str) -> None:
-    """落盘地址键 agentmail.json(共享布局,与 OpenClaw 同约定)。"""
-    cfg = dict(cfg)
-    cfg["agent_id"] = agent_id
-    cleaned = re.sub(r"[^\w.\-]", "_", cfg["email"])
-    path = os.path.join(_base.aimail_home(), "systems", str(system_id), str(cleaned), "agentmail.json")
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(cfg, f, indent=2, ensure_ascii=False)
-        f.write("\n")
+    """落盘地址键 agentmail.json — 委托共享原子实现
+    (aimail_base.save_agent_config:tmp+rename+0600,与 TS config.ts 对等)。"""
+    path = _core.save_agent_config(agent_id, cfg, system_id)
     print(f"  ✓ saved {path}")
 
 

@@ -313,6 +313,26 @@ def load_agent_config(agent_id: str, system_id: str = "") -> Optional[dict]:
     return _scan_systems_for_agent(agent_id, system_id)
 
 
+def save_agent_config(agent_id: str, cfg: dict, system_id: str) -> Path:
+    """原子写地址键 agentmail.json(共享布局,平台无关)——Python 侧唯一
+    共享落盘实现,对齐 TS mail-core config.ts saveBinding(tmp+rename+0600)。
+
+    hermes/deer-flow 注册链统一经此落盘;agent_id 非空时写入 cfg
+    (load_agent_config/set_agent_context 按 agent_id 匹配)。
+    """
+    cfg = dict(cfg)
+    if agent_id:
+        cfg["agent_id"] = agent_id
+    cleaned = _clean_agent_dir_name(cfg.get("email", ""))
+    p = aimail_home() / "systems" / str(system_id) / cleaned / "agentmail.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_name(p.name + ".tmp")
+    tmp.write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + "\n")
+    os.chmod(tmp, 0o600)
+    tmp.replace(p)
+    return p
+
+
 def set_agent_context(agent_id: str, system_id: str = "") -> None:
     """把当前 agent 的 config 挂到公共核心注入点(平台无关,兜底 MCP 服务用)。
 

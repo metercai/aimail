@@ -181,22 +181,23 @@ def _inject_profile_config(profile_dir: str, config: dict) -> None:
     system_id = config.get("system_id", "")
     email = config.get("email", "")
 
-    # Write primary config to the address-keyed directory
+    # Write primary config to the address-keyed directory — via the SHARED
+    # atomic writer (aimail_base.save_agent_config, tmp+rename+0600, parity
+    # with TS mail-core config.ts saveBinding). Merge first to preserve
+    # fields like api_key from a previous registration.
     if system_id and email:
-        primary = _profile_config_path(system_id, email)
-        primary.parent.mkdir(parents=True, exist_ok=True)
-        # Merge with existing — preserve fields like api_key
         existing = {}
-        if primary.exists():
+        p = core._agent_config_path(system_id, email)
+        if p.is_file():
             try:
-                existing = json.loads(primary.read_text())
+                existing = json.loads(p.read_text())
             except Exception:
                 pass
         merged = {**existing, **config}
         # Prevent activation_code + api_key coexistence
         if merged.get("api_key") and merged.get("activation_code"):
             merged.pop("activation_code", None)
-        primary.write_text(json.dumps(merged, indent=2))
+        core.save_agent_config(config.get("agent_id", ""), merged, system_id)
 
     # Write .agentmail pointer for discovery
     core._write_pointer(Path(profile_dir) / ".agentmail", system_id, email)
@@ -539,6 +540,7 @@ def _auto_register_email(name: str, profile_dir: str, config: dict) -> None:
             pass
 
     inject_cfg = {
+        "agent_id": name,
         "email": email,
         "gateway_url": gateway_url,
         "domain": config["domain"],
