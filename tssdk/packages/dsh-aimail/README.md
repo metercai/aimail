@@ -3,7 +3,7 @@
 AIMail plugin for dsh (deepseek-harness). It gives a dsh agent a mailbox on
 AIMail: inbound email is delivered into the agent's session, and the agent
 can send mail, manage contacts, keep thread notes, and work on A2A boards
-through 12 plain tools.
+through 13 plain tools.
 
 ## Install
 
@@ -24,10 +24,11 @@ dsh plugin --profile web remove dsh-aimail
 
 ## What it does
 
-**Tools** — the same 12 bare-name tools as every other adapter:
+**Tools** — the same 13 bare-name tools as every other adapter:
 `send_mail`, `manage_contacts`, `contact_profile`, `set_contact_profile`,
-`email_summary`, `set_email_summary`, `board_status`, `board_task_list`,
-`board_task_show`, `board_heartbeat`, `board_members`, `set_public_whoami`.
+`email_summary`, `set_email_summary`, `search_mail`,
+`board_status`, `board_task_list`, `board_task_show`, `board_heartbeat`,
+`board_members`, `set_public_whoami`.
 Identity comes from the session id resolved through `@aimail/mail`
 (`agentmail.json` is the sole identity source); unbound sessions fail loud.
 
@@ -46,14 +47,14 @@ workflow (reply-all semantics, tool selection, thread continuity).
 
 The same tool surface and inbound contract, bound to other agent platforms:
 
-- [openclaw-aimail](https://www.npmjs.com/package/openclaw-aimail) — AIMail plugin for OpenClaw — definePluginEntry: 12 tools, in-gateway HTTP route, register/status commands.
+- [openclaw-aimail](https://www.npmjs.com/package/openclaw-aimail) — AIMail plugin for OpenClaw — definePluginEntry: 13 tools, in-gateway HTTP route, register/status commands.
 - [pi-aimail](https://www.npmjs.com/package/pi-aimail) — AIMail extension for pi (earendil-works/pi) — registerTool tools + local inbound listener bridged via sendUserMessage.
 
 ## Related repositories
 
 - [metercai/aimail](https://github.com/metercai/aimail) — the AIMail monorepo:
-  aimail CLI (`cli/`), Python SDK (`pysdk/`), this TypeScript SDK
-  (`tssdk/`), and this plugin integrates with.
+  CLI (`cli/`), Python SDK (`pysdk/`), TypeScript SDK (`tssdk/`), bridge
+  distributions.
 - [metercai/aimail-gateway](https://github.com/metercai/aimail-gateway) — the
   AIMail gateway: SMTP/HTTP mail service, address & activation APIs, and the
   board endpoints the tools talk to.

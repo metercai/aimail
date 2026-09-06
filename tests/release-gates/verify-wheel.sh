@@ -5,11 +5,11 @@
 # `cli/runtime_bundle.py check` at deploy time).
 #
 # Exit 0 = release-ready. Run before every publish:
-#   bash scripts/verify-wheel.sh
+#   bash tests/release-gates/verify-wheel.sh
 # Overrides: AIMAIL_REPO (default: repo root, auto-detected), OUT_DIR
 set -euo pipefail
 
-REPO="${AIMAIL_REPO:-$(cd "$(dirname "$0")/.." && pwd)}"
+REPO="${AIMAIL_REPO:-$(cd "$(dirname "$0")/../.." && pwd)}"
 OUT_DIR="${OUT_DIR:-$(mktemp -d /tmp/aimail-wheel.XXXXXX)}"
 VENV_DIR="$(mktemp -d /tmp/aimail-venv.XXXXXX)"
 PY="${PYTHON:-python3}"

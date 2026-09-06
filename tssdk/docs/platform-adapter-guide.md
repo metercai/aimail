@@ -1,7 +1,7 @@
 # Writing an AIMail Platform Adapter
 
 A practical guide to giving **any** AI agent platform an AIMail mailbox with
-the 12 standard tools. Read this before writing code; the existing adapters
+the 13 standard tools. Read this before writing code; the existing adapters
 (`dsh-aimail`, `openclaw-aimail`, `pi-aimail`) are the reference
 implementations — each covers a different host shape.
 
@@ -43,10 +43,11 @@ correctly, or pass an explicit system id.
 
 ## 2. Tools — iterate `MAIL_TOOLS`, never restate semantics
 
-`@aimail/mail-core` exports `MAIL_TOOLS`: the 12 tools (`send_mail`,
+`@aimail/mail-core` exports `MAIL_TOOLS`: the 13 tools (`send_mail`,
 `manage_contacts`, `contact_profile`, `set_contact_profile`,
-`email_summary`, `set_email_summary`, `board_status`, `board_task_list`,
-`board_task_show`, `board_heartbeat`, `board_members`, `set_public_whoami`)
+`email_summary`, `set_email_summary`, `search_mail`, `board_status`,
+`board_task_list`, `board_task_show`, `board_heartbeat`, `board_members`,
+`set_public_whoami`)
 with name, description, and TypeBox parameter shapes. Your adapter only
 binds the platform execute context:
 
@@ -135,7 +136,7 @@ isolated linker cannot pack them — use `scripts/publish-npm.sh`.
 ## 6. Checklist before shipping
 
 - [ ] pointer file + `agentmail.json` resolution (fail loud when unbound)
-- [ ] 12 bare-name tools from `MAIL_TOOLS` (no restated semantics)
+- [ ] 13 bare-name tools from `MAIL_TOOLS` (no restated semantics)
 - [ ] inbound `POST /aimail/inbound`, HMAC → resolve → 13-step chain → session
 - [ ] ping/pong probes intercepted, never dispatched to the model
 - [ ] `X-AIMail-Agent: {platform}/{version}+{model}` on outbound mail

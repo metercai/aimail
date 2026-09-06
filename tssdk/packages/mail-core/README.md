@@ -23,7 +23,7 @@ Point `AIMAIL_HOME` at your aimail home directory (default
   boards). Outbound requests carry the `X-AIMail-Agent` identity header and
   are signed with the v1 HMAC scheme.
 - Tool functions — `sendMail`, `manageContacts`, `contactProfile`,
-  `setContactProfile`, `emailSummary`, `setEmailSummary`, plus the board API
+  `setContactProfile`, `emailSummary`, `setEmailSummary`, `searchMail`, plus the board API
   (`boardStatus`, `boardTaskList`, `boardTaskShow`, `boardHeartbeat`,
   `boardMembers`, `setPublicWhoami`).
 - Inbound chain — `processInboundMail` runs the full 13-step preprocess
@@ -31,7 +31,7 @@ Point `AIMAIL_HOME` at your aimail home directory (default
   mention detection, attachment download, backend-field stripping, inbound
   logging) and intercepts ping/pong health probes; `verifySignature` checks
   webhook HMAC signatures.
-- `MAIL_TOOLS` — the semantic registry of all 12 tools (names, descriptions,
+- `MAIL_TOOLS` — the semantic registry of all 13 tools (names, descriptions,
   TypeBox parameter shapes, handlers). Adapters iterate this single array so
   every platform surfaces an identical tool surface.
 - Config loaders — `loadConfigByEmail`, `loadConfigByAgentId`,
@@ -77,8 +77,8 @@ for (const tool of MAIL_TOOLS) { /* bind name/description/params/handler */ }
 ## Related repositories
 
 - [metercai/aimail](https://github.com/metercai/aimail) — the AIMail monorepo:
-  aimail CLI (`cli/`), Python SDK (`pysdk/`), this TypeScript SDK
-  (`tssdk/`), and this SDK consumes.
+  CLI (`cli/`), Python SDK (`pysdk/`), TypeScript SDK (`tssdk/`), bridge
+  distributions.
 - [metercai/aimail-gateway](https://github.com/metercai/aimail-gateway) — the
   AIMail gateway: SMTP/HTTP mail service, address & activation APIs, and the
-  board endpoints this client talks to.
+  board endpoints the SDK client talks to.

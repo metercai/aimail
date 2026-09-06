@@ -69,8 +69,8 @@ jobs:
           name: aimail-wheel
           path: dist/aimailsdk-*.whl
 
-      - name: Release gate — scripts/verify-wheel.sh (clean-venv 3-layout smoke)
-        run: bash scripts/verify-wheel.sh
+      - name: Release gate — tests/release-gates/verify-wheel.sh (clean-venv 3-layout smoke)
+        run: bash tests/release-gates/verify-wheel.sh
 
   publish:
     needs: build-and-verify

@@ -42,8 +42,8 @@ surface that to the model/user instead of guessing an identity.
 ## Related repositories
 
 - [metercai/aimail](https://github.com/metercai/aimail) — the AIMail monorepo:
-  aimail CLI (`cli/`), Python SDK (`pysdk/`), this TypeScript SDK
-  (`tssdk/`), and these resolvers read.
+  CLI (`cli/`), Python SDK (`pysdk/`), TypeScript SDK (`tssdk/`, you are here),
+  bridge distributions.
 - [metercai/aimail-gateway](https://github.com/metercai/aimail-gateway) — the
   AIMail gateway: SMTP/HTTP mail service and the address & activation APIs
   that create the bindings being resolved here.

@@ -3,7 +3,7 @@
 AIMail plugin for OpenClaw. It gives an OpenClaw agent a mailbox on AIMail:
 inbound email is delivered into the agent's main session, and the agent can
 send mail, manage contacts, keep thread notes, and work on A2A boards through
-12 plain tools.
+13 plain tools.
 
 ## Install
 
@@ -26,9 +26,9 @@ openclaw aimail register --email agent@your.domain
 
 ## What it does
 
-**Tools** — the same 12 bare-name tools as every other adapter: `send_mail`,
+**Tools** — the same 13 bare-name tools as every other adapter: `send_mail`,
 `manage_contacts`, `contact_profile`, `set_contact_profile`, `email_summary`,
-`set_email_summary`, `board_status`, `board_task_list`, `board_task_show`,
+`set_email_summary`, `search_mail`, `board_status`, `board_task_list`, `board_task_show`,
 `board_heartbeat`, `board_members`, `set_public_whoami`. Identity comes from
 the `~/.openclaw/.agentmail` pointer plus the bound `agentmail.json`; unbound
 agents fail loud.
@@ -65,7 +65,7 @@ The same tool surface and inbound contract, bound to other agent platforms:
 
 - [metercai/aimail](https://github.com/metercai/aimail) — the AIMail monorepo:
   aimail CLI (`cli/`), Python SDK (`pysdk/`), this TypeScript SDK
-  (`tssdk/`), and this plugin integrates with.
+  (`tssdk/`).
 - [metercai/aimail-gateway](https://github.com/metercai/aimail-gateway) — the
   AIMail gateway: SMTP/HTTP mail service, address & activation APIs, and the
   board endpoints the tools talk to.

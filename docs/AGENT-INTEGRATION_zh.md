@@ -179,6 +179,11 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 
 ## 4. 实例示范(五平台生产运行)
 
+> TS 适配索引:三个 TS 平台适配器(`dsh-aimail` / `openclaw-aimail` /
+> `pi-aimail`)的实现,以及为新 TS 平台写适配器的完整指南(MAIL_TOOLS
+> 遍历、身份、入站链、包形态),见本仓库 `tssdk/docs/platform-adapter-guide.md`;
+> `tssdk/README.md` 为 TS SDK 总览。
+
 ### 4.1 Hermes
 
 | 组件 | 位置 |
@@ -240,7 +245,7 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 | 维度 | Hermes | OpenClaw | DeerFlow |
 |------|--------|----------|----------|
 | 入站模型 | 单入单出(每 profile 独立端口,进程内预处理) | 网关插件路由 `/aimail/inbound`(进程内,多 agent 经 sessionKey) | 进程内预处理(8001 router,start_run 投递) |
-| 工具暴露 | 进程内 registry | 插件进程内裸名(12 工具) | MCP stdio server(amail__ 前缀) |
+| 工具暴露 | 进程内 registry | 插件进程内裸名(13 工具) | MCP stdio server(amail__ 前缀) |
 | 部署 | copy-deploy(`aimail install` 驱动) | TS 插件(`openclaw plugins install openclaw-aimail`) | 适配层 repo-direct;预处理在 deer-flow 仓(补丁安装 + 重启) |
 | 生命周期 | 事件总线(profile_created/deleted) | 插件 register 命令 / CLI 注册链 | manage.py reconcile 对账 |
 | persona | 全能力(PERSONA_SUPPORTED=True) | 无(False) | 无(False) |
