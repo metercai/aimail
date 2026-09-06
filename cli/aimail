@@ -388,8 +388,7 @@ def cmd_init(args) -> int:
 
     if _is_local_gateway(gw):
         # local self-hosted gateway → direct push, no bridge needed
-        print("  ✓ local gateway (direct push) — no bridge needed")
-        print("  init done. Next: aimail install (activate a system)")
+        print("  ✓ local gateway (direct push) — no bridge needed; install activates the system")
         return 0
 
     # 远程网关 → bridge push:二进制 + 骨架配置(首次 install 补 key 并启动)
@@ -401,7 +400,6 @@ def cmd_init(args) -> int:
     if r != 0:
         _warn(f"bridge init exited with {r}")
         return r
-    print("  init done. Next: aimail install (activate a system)")
     return 0
 
 
