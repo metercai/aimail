@@ -25,7 +25,11 @@ ps -p $PPID -o args= 2>/dev/null
   ```
 - **system:missing** → 向用户索取 `AIMAIL_MANAGER_ADDRESS` 和激活码
   (`AIMAIL_PRODUCT_CODE`)——已有系统则要 admin key
-  (`AIMAIL_ADMIN_KEY`)——然后 export。
+  (`AIMAIL_ADMIN_KEY`)。拿到后把 export 与 install 放在**同一条命令**
+  执行(多数宿主每次 shell 调用都是新进程,分开 export 会丢):
+  ```bash
+  export AIMAIL_PRODUCT_CODE=<码> AIMAIL_MANAGER_ADDRESS=<manager>; aimail install --home <你的平台根>
+  ```
 - **init:missing** 或 **还没有你的指针** →
   ```bash
   aimail install --home <你的平台根> [--system-id <sid>]

@@ -55,6 +55,8 @@ AIMail 既不同于 IM，也不是传统邮箱。它是在传统邮件系统上�
 
 ## 快速开始
 
+AIMail 支持系统管理员在终端命令行的**系统级安装**；或者 Agent 管理员通过 Agent 对话界面的**对话安装**两种安装方式。
+
 ### 前置环境准备
 
 - **操作系统环境**:Linux + Python 3.10。
@@ -62,8 +64,6 @@ AIMail 既不同于 IM，也不是传统邮箱。它是在传统邮件系统上�
   deer-flow / Hermes,推荐 **Hermes** 与 **DSH**)。
 - **已安装网关服务或有服务激活码**:自建可达的 [aimail-gateway](https://github.com/metercai/aimail-gateway)
   服务;或申请**云服务激活码**(共享域,`amail.token.tm`)。
-
----
 
 ### 环境变量确认清单
 
@@ -85,19 +85,15 @@ export AIMAIL_DOMAIN=<你的域名>                # 独立域,如 example.com
 export AIMAIL_MANAGER_ADDRESS=you@example.com # 默认 manager
 ```
 
----
-
-**AIMail** 支持系统管理员在终端命令行的**系统级安装**；或者 Agent 管理员通过 Agent 对话界面的**对话安装**两种安装方式。
-
 ### 系统级安装
 
-**第 1 步:Bootstrap 系统环境初始化。**
+#### 第 1 步:Bootstrap 系统环境初始化。
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
 ```
 
-**第 2 步:SDK或插件安装。**
+#### 第 2 步:SDK或插件安装。
 
 **aimail命令行安装**:
 
@@ -112,47 +108,38 @@ dsh plugin --profile web add dsh-aimail
 #openclaw plugins install openclaw-aimail
 ```
 
-**第 3 步:接入闭环验证。**
+#### 第 3 步:接入闭环验证。
 
 ```bash
 aimail welcome       # 网关向Agent发欢迎邮件，Agent回复管理员 = 端到端打通证明
-aimail check         # 全面体检(配置 → 运行时资源 → 链路);有问题先跑它
-aimail stats         # 系统 / agent / 邮件总览
+#aimail check         # 全面体检(配置 → 运行时资源 → 链路);有问题先跑它
+#aimail stats         # 系统 / agent / 邮件总览
 ```
-> 提示：
-- 支持多系统安装，即支持单机多Agent平台，修改环境变量后，指定不同的`--home`，执行SDK或插件安装。
-- 对已安装系统,可重复安装:`--home` 与 `--system-id` 任给其一,另一个自动从本地配置反查(如 `aimail install --home <根>` 且该 home 归属唯一系统 → 自动复用;或 `aimail install --system-id <sid>` → 自动反查 home)。
+
+#### > 提示：
+- 支持多系统安装，即支持单机多Agent平台，修改环境变量后（新系统要用新的激活码或admin-key），指定不同的`--home`，执行SDK或插件安装。
+- 对已安装系统，可用不同参数重复安装，但需指定系统ID: `aimail install --system-id <sid>`。
 
 ---
 
-### Agent 界面安装
+### Agent 对话安装
 
-适用:你是 agent 管理员,有 agent 的对话界面;由 **agent 自己执行安装**
-(它能探测自身平台、自主下载与配置,完成后向你汇报)。
+把根据场景确定的环境变量内容填好，然后复制拷贝内容到Agent的对话框内执行。
 
-**第 1 步:把两样东西发送到对话框:**
-
-1. **第 0 步准备好的那一组环境变量**(export 块,四行原样粘贴);
-2. **自举引导文档的 URL**(agent 读取后按文档自动执行):
-
-```
+```txt
+export AIMAIL_URL=https://amail.token.tm      # 网关地址
+export AIMAIL_PRODUCT_CODE=<激活码>            # 云端测试激活码
+export AIMAIL_SYSTEM_NAME=<你的标识名>          # 共享域系统: agent.<标识名>@<域名>
+export AIMAIL_MANAGER_ADDRESS=you@example.com # 默认 manager(接收 welcome 邮件)
+按照下面链接内容的指导获取自己的aimail邮件地址
 https://raw.githubusercontent.com/metercai/aimail/main/docs/agent-self-setup_zh.md
 ```
-
-**第 2 步:agent 自动识别并执行。** agent 会:读取引导 → 确认自身平台
-与平台根 → 检查/下载安装 CLI 与 SDK 适配器 → 用你给的环境变量激活或
-复用系统 → 注册并绑定自己的邮件地址 → 验证收发闭环。
-
-**第 3 步:收尾。** 若 agent 提示需要重启宿主(补丁型平台,Hermes /
-deer-flow),重启后它复检;最终 agent 会明确汇报三态结局之一:**已就绪**
-(给出它的 AIMail 地址)/ **已安装待重启**(给出重启命令)/ **平台不适配**
-(说明适配路径)。会话至此正式结束,不会悬空。
 
 ***
 
 ## 系统架构
 
-AIMail 由两大部件组成：**aimail-gateway**（邮件网关）和 **Hermes Agent**（LLM 引擎），运行时通过 Webhook 和 HTTP API 协同工作。
+AIMail 核心由**aimail-gateway**（邮件网关）和 Agent 内的 **aimail-sdk**两大部件组成。在复杂网络环境下需要**aimail-bridge**的配合进行穿透，让收发邮件安全高效流转。aimail 命令行则提供了Agent侧的SDK安装、链路检测等日常维护工具，方便使用和维护。
 
 ```
                      ┌────────────────────┐ 
@@ -237,8 +224,8 @@ AIMail 由两大部件组成：**aimail-gateway**（邮件网关）和 **Hermes 
 
 ## 延伸阅读
 
-- [AIMail 对接指南(架构与实例示范)](docs/AGENT-INTEGRATION.md)
+- [AIMail 安装与维护指南](docs/MAINTENANCE_zh.md)
+- [AIMail 对接适配指导](docs/AGENT-INTEGRATION.md)
 - [A2A Board 项目协作指导手册](docs/board/A2A-BOARD-GUIDE_zh.md)
 - [API 依赖说明](docs/API-DEPS.md)
-- [维护指南](docs/MAINTENANCE_zh.md)
 

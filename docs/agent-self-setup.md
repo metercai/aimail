@@ -25,7 +25,12 @@ exists? your identity pointer (address)? which platform runs you.
   ```
 - **system:missing** → ask the user for `AIMAIL_MANAGER_ADDRESS` and an
   activation code (`AIMAIL_PRODUCT_CODE`) — or an admin key
-  (`AIMAIL_ADMIN_KEY`) for an existing system — then export them.
+  (`AIMAIL_ADMIN_KEY`) for an existing system. Then run the export and the
+  install in the **same command** — most hosts give every shell tool call a
+  fresh process, so a separate export is lost:
+  ```bash
+  export AIMAIL_PRODUCT_CODE=<code> AIMAIL_MANAGER_ADDRESS=<manager>; aimail install --home <your-platform-root>
+  ```
 - **init:missing** or **no pointer for you yet** →
   ```bash
   aimail install --home <your-platform-root> [--system-id <sid>]
