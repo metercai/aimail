@@ -178,6 +178,56 @@ def resolve_system_id(explicit_sid: str = "", agent_home: str = "") -> str:
     return single_system_sid()
 
 
+# ── install 目标双向反查(2026-09-06)──
+# install 允许只带 --home 或只带 --system-id:配置里 system_home 与
+# system_id 互反查。归属不唯一时不猜(返回 '' 由调用方提示显式参数)。
+
+def _cfg_system_home(sid: str, aimail_home=None) -> str:
+    import json
+    import pathlib
+    ah = aimail_home or os.environ.get("AIMAIL_HOME", "") or str(pathlib.Path.home() / ".aimail")
+    cfg = pathlib.Path(ah).expanduser() / "systems" / sid / "aimail_gateway.json"
+    try:
+        return str(json.loads(cfg.read_text(encoding="utf-8")).get("system_home", "") or "")
+    except Exception:
+        return ""
+
+
+def _norm_home(p: str) -> str:
+    import pathlib
+    if not p:
+        return ""
+    try:
+        return os.path.abspath(str(pathlib.Path(p).expanduser()))
+    except Exception:
+        return p or ""
+
+
+def system_home_from_sid(sid: str, aimail_home=None) -> str:
+    """sid → 其配置里的 system_home(绝对化)。无 → ''。"""
+    return _norm_home(_cfg_system_home(sid, aimail_home))
+
+
+def sid_from_system_home(system_home: str, aimail_home=None) -> str:
+    """home → 归属系统:扫描全部 systems/*/ 配置,匹配且唯一 → 该 sid;
+    零或多个 → ''(不猜)。"""
+    import pathlib
+    ah = aimail_home or os.environ.get("AIMAIL_HOME", "") or str(pathlib.Path.home() / ".aimail")
+    systems = pathlib.Path(ah).expanduser() / "systems"
+    target = _norm_home(system_home)
+    found = ""
+    if not systems.is_dir() or not target:
+        return ""
+    for d in sorted(systems.iterdir()):
+        if not (d.is_dir() and (d / "aimail_gateway.json").is_file()):
+            continue
+        if _norm_home(_cfg_system_home(d.name, ah)) == target:
+            if found:  # 第二个归属 → 歧义,不猜
+                return ""
+            found = d.name
+    return found
+
+
 if __name__ == "__main__":
     print(f"core\t{load_core()}")
     print(f"platform-sid\t{platform_pointer_sid()}")

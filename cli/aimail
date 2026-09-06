@@ -422,17 +422,6 @@ def _write_pi_pointer(sid: str) -> None:
 
 def cmd_install(args) -> int:
     """安装:集成脚本到 check 前的全部步骤(非交互化)。"""
-    system_home = Path(args.home).expanduser() if args.home else Path()
-    if not args.home:
-        _fail("install 需要 --home(系统 home/平台根)")
-    if not system_home.exists():
-        _fail(f"home 目录不存在: {system_home}")
-    platform = resolve_platform(system_home)
-    if not platform:
-        _fail(f"无法确定平台:{system_home} 目录无特征且无 aimail 指针")
-    print(f"  install platform={platform} system_home={system_home}")
-
-    # 1) 激活/复用系统 → setup_system.py(env 契约);参数优先,缺失从 .env 取
     load_core()
     from gateway_api import load_gateway_config
     env = dict(os.environ)
@@ -442,8 +431,37 @@ def cmd_install(args) -> int:
     prod_code = args.product_code or _env_val("AIMAIL_PRODUCT_CODE")
     adm_key = args.admin_key or _env_val("AIMAIL_ADMIN_KEY")
     want_domain = args.domain or _env_val("AIMAIL_DOMAIN")
+    sid = args.system_id or ""
+
+    # 目标双向反查:--home 与 --system-id 任给其一,另一个可从本地配置
+    # (systems/{sid}/aimail_gateway.json 的 system_home)反查;都缺 → 报错。
+    system_home = Path(args.home).expanduser() if args.home else Path()
+    if not system_home and sid:
+        from runtime_core import system_home_from_sid
+        sh = system_home_from_sid(sid)
+        if not sh:
+            _fail(f"--system-id {sid} 无本地配置可反查 --home(系统不在这台机器?)")
+        system_home = Path(sh)
+        print(f"  --home 由 --system-id 反查: {system_home}")
+    if not sid and system_home and not prod_code and not adm_key:
+        # 重复安装:home 归属唯一系统 → 自动复用;多个归属不猜,提示显式
+        from runtime_core import sid_from_system_home
+        sid2 = sid_from_system_home(str(system_home))
+        if sid2:
+            sid = sid2
+            print(f"  复用归属系统: {sid}(由 --home 反查)")
+    if not system_home:
+        _fail("install 需要 --home,或带 --system-id 以便从本地配置反查")
+    if not system_home.exists():
+        _fail(f"home 目录不存在: {system_home}")
+    platform = resolve_platform(system_home)
+    if not platform:
+        _fail(f"无法确定平台:{system_home} 目录无特征且无 aimail 指针")
+    print(f"  install platform={platform} system_home={system_home} system_id={sid or '(新建)'}")
+
+    # 激活/复用凭据装配(env 契约给 setup_system.py)
     env["INTEGRATE_GATEWAY_URL"] = gw_url
-    env["INTEGRATE_SYSTEM_ID"] = args.system_id or ""
+    env["INTEGRATE_SYSTEM_ID"] = sid
     env["INTEGRATE_SYSTEM_NAME"] = sys_name
     env["INTEGRATE_SYSTEM_HOME"] = str(system_home)
     env["INTEGRATE_MANAGER_ADDRESS"] = manager
@@ -456,12 +474,12 @@ def cmd_install(args) -> int:
         env["INTEGRATE_PRODUCT_CODE"] = prod_code
     elif adm_key:
         env["INTEGRATE_ADMIN_KEY"] = adm_key
-    # 无显式凭据 → 从已有配置/指针复用
-    elif args.system_id:
-        cfg = load_gateway_config(args.system_id)
+    # 无显式凭据 → 从已有配置复用(显式 --system-id 或 home 反查出的系统)
+    elif sid:
+        cfg = load_gateway_config(sid)
         if cfg and cfg.get("admin_key"):
             env["INTEGRATE_ADMIN_KEY"] = cfg["admin_key"]
-            env["INTEGRATE_SYSTEM_ID"] = args.system_id
+            env["INTEGRATE_SYSTEM_ID"] = sid
 
     try:
         out = subprocess.check_output(
@@ -471,7 +489,7 @@ def cmd_install(args) -> int:
         _fail(f"setup_system 失败: {(e.output or '').strip()[-400:]}")
     _ok("system configured")
     # 解析激活生成的 system_id(新系统路径 id 由服务器分配)
-    sid2 = args.system_id or ""
+    sid2 = sid or ""
     for line in out.splitlines():
         if line.startswith("__ERROR__"):
             _fail(line[len("__ERROR__"):].strip())

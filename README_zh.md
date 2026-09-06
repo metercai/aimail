@@ -2,7 +2,7 @@
 
 # AIMail
 
-**AIMail = AI + Mail**:   人工智能时代的原生邮件系统，支持人类-Agent-Agent的混合协作。the native email system for the AI age, enabling human-agent and agent-agent collaboration.
+**AIMail = AI + Mail**:   人工智能时代的**原生**邮件系统，支持人类-Agent-Agent的混合协作。the native email system for the AI age, enabling human-agent and agent-agent collaboration.
 
 **AIMail** 打造了 AI 智能体适用的全网通、高可控、可协作的邮件系统，它让 Agent 可以像人一样用email与外界进行交流、互动和协作。
 
@@ -41,7 +41,7 @@ AIMail 既不同于 IM，也不是传统邮箱。它是在传统邮件系统上�
 3. **内容格式自动转换，LLM 阅读友好**\
    复杂的邮件格式自动转为 Markdown 纯文本，剥离样式噪音，Agent 直接读取结构化内容。
 4. **内容本地存储，检索快捷方便**
-   入站出站的邮件快照存储与本地，并预建全文索引，提供search tools，邮件检索起来快捷又方便。
+   入站出站的邮件快照存储在本地，并预建全文索引，提供搜索工具，邮件检索快捷又方便。
 5. **邮件即会话，会话即指令**\
    邮件收发即会话，自动补全上下文。创新的多种邮件指令，让对话即指令可执行，无缝接入日常工作流。
 6. **自带协作原语和看板，人机混合自主协同**\
@@ -55,85 +55,98 @@ AIMail 既不同于 IM，也不是传统邮箱。它是在传统邮件系统上�
 
 ## 快速开始
 
-### 第一次安装(全新环境)
+### 前置环境准备
 
-前置条件:Linux + Python 3.10+,以及可达的
-[aimail-gateway](https://github.com/metercai/aimail-gateway)——或公网网关
-(`amail.token.tm`)的激活码。
+- **操作系统环境**:Linux + Python 3.10。
+- **已安装 Agent 系统**:任一已适配平台(DSH / OpenClaw / pi /
+  deer-flow / Hermes,推荐 **Hermes** 与 **DSH**)。
+- **已安装网关服务或有服务激活码**:自建可达的 [aimail-gateway](https://github.com/metercai/aimail-gateway)
+  服务;或申请**云服务激活码**(共享域,`amail.token.tm`)。
 
-**第 1 步:安装 Agent 宿主。** 安装任意受支持的 Agent 平台(dsh /
-OpenClaw / pi / deer-flow / Hermes,按其各自文档)。选哪个宿主都行,
-真正对接 AIMail 的是与宿主匹配的 SDK 适配器。
+---
 
-**第 2 步:设置机器环境变量。** 复制粘贴修改后运行——两个核心值,
-再跟一个凭据:
+### 环境变量确认清单
+
+**场景 A — 共享域激活码:**
 
 ```bash
-export AIMAIL_URL=https://amail.token.tm        # 网关地址
-export AIMAIL_MANAGER_ADDRESS=you@example.com   # 默认 manager(接收 welcome 邮件)
-export AIMAIL_PRODUCT_CODE=<码>                 # 新系统——若为已有系统则:
-# export AIMAIL_ADMIN_KEY=<key>                 #   复用,不重新激活
-# export AIMAIL_SYSTEM_NAME=<标识名>            # 共享域系统(agent.<标识名>@…)
+export AIMAIL_URL=https://amail.token.tm      # 网关地址
+export AIMAIL_PRODUCT_CODE=<激活码>            # 云端测试激活码
+export AIMAIL_SYSTEM_NAME=<你的标识名>          # 共享域系统: agent.<标识名>@<域名>
+export AIMAIL_MANAGER_ADDRESS=you@example.com # 默认 manager(接收 welcome 邮件)
 ```
 
-**第 3 步:Bootstrap 并初始化。** 一条命令安装 `aimail` CLI 到
-`~/.local/bin` 并执行机器级 init(主目录、磁盘余量、本地网关直连还是
-bridge 的判定):
+**场景 B — 独立域网关服务:**
+
+```bash
+export AIMAIL_URL=<你的网关地址>               # 如 https://mail.example.com
+export AIMAIL_ADMIN_KEY=<admin key>           # 网关管理员凭据
+export AIMAIL_DOMAIN=<你的域名>                # 独立域,如 example.com
+export AIMAIL_MANAGER_ADDRESS=you@example.com # 默认 manager
+```
+
+---
+
+**AIMail** 支持系统管理员在终端命令行的**系统级安装**；或者 Agent 管理员通过 Agent 对话界面的**对话安装**两种安装方式。
+
+### 系统级安装
+
+**第 1 步:Bootstrap 系统环境初始化。**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
 ```
 
-**第 4 步:为宿主安装 SDK。** 一条非交互命令:激活(或复用)系统 → 部署
-bridge 条目 → 安装平台 SDK 适配器(补丁/skills/插件)→ 注册并绑定 agent。
-`--home` 指向平台根:
+**第 2 步:SDK或插件安装。**
+
+**aimail命令行安装**:
 
 ```bash
-aimail install --home ~/.hermes       # Hermes(亦可 ~/.dsh、~/.openclaw、~/.pi、deer-flow backend 目录)
+aimail install --home ~/.hermes       # Hermes(亦可 ~/.dsh、~/.openclaw、~/.pi、deer-flow , --home 指Agent的主目录)
 ```
 
-等价宿主侧方式(机器已初始化):直接在宿主内装适配器——
-`openclaw plugins install openclaw-aimail`、`dsh plugin --profile web add
-dsh-aimail`、`pi install npm:pi-aimail`,或
-`python -m aimail.install install --type hermes|deerflow --home <根>`(pip
-包 `aimailsdk`)。SDK 自检环境、自释放资源、首次使用自动绑定。
+**Agent命令行安装**
+```bash
+dsh plugin --profile web add dsh-aimail
+#pi install npm:pi-aimail
+#openclaw plugins install openclaw-aimail
+```
 
-**第 5 步:验证闭环。**
+**第 3 步:接入闭环验证。**
 
 ```bash
-aimail welcome       # 经网关向 manager 发欢迎邮件 = 端到端打通证明
+aimail welcome       # 网关向Agent发欢迎邮件，Agent回复管理员 = 端到端打通证明
 aimail check         # 全面体检(配置 → 运行时资源 → 链路);有问题先跑它
-aimail ping          # SMTP ping/pong 闭环
 aimail stats         # 系统 / agent / 邮件总览
 ```
+> 提示：
+- 支持多系统安装，即支持单机多Agent平台，修改环境变量后，指定不同的`--home`，执行SDK或插件安装。
+- 对已安装系统,可重复安装:`--home` 与 `--system-id` 任给其一,另一个自动从本地配置反查(如 `aimail install --home <根>` 且该 home 归属唯一系统 → 自动复用;或 `aimail install --system-id <sid>` → 自动反查 home)。
 
-所有参数优先级:CLI 参数 > shell 环境变量 > `~/.aimail/.env` > 内置默认值。
+---
 
-### 第二部分 — 后续安装(环境就绪,新增系统/宿主)
+### Agent 界面安装
 
-机器已初始化(CLI 已装、bridge 在位)。对接另一宿主或系统只需三步:
+适用:你是 agent 管理员,有 agent 的对话界面;由 **agent 自己执行安装**
+(它能探测自身平台、自主下载与配置,完成后向你汇报)。
 
-**第 1 步:设置凭据环境变量**(每系统一次;值与第一部分第 2 步相同,也可
-写进 `~/.aimail/.env` 持久化):
+**第 1 步:把两样东西发送到对话框:**
 
-```bash
-export AIMAIL_PRODUCT_CODE=<码>        # 新系统
-# export AIMAIL_ADMIN_KEY=<key>        # 已有系统,复用
-export AIMAIL_SYSTEM_NAME=<标识名>     # 共享域系统
+1. **第 0 步准备好的那一组环境变量**(export 块,四行原样粘贴);
+2. **自举引导文档的 URL**(agent 读取后按文档自动执行):
+
+```
+https://raw.githubusercontent.com/metercai/aimail/main/docs/agent-self-setup_zh.md
 ```
 
-**第 2 步:为目标宿主安装 SDK**——`--home` 指定平台根,`--system-id`
-复用指定系统(省略则激活新系统):
+**第 2 步:agent 自动识别并执行。** agent 会:读取引导 → 确认自身平台
+与平台根 → 检查/下载安装 CLI 与 SDK 适配器 → 用你给的环境变量激活或
+复用系统 → 注册并绑定自己的邮件地址 → 验证收发闭环。
 
-```bash
-aimail install --home ~/.openclaw --system-id <sid>
-```
-
-**第 3 步:验证该系统闭环:**
-
-```bash
-aimail check --system-id <sid> && aimail welcome --system-id <sid>
-```
+**第 3 步:收尾。** 若 agent 提示需要重启宿主(补丁型平台,Hermes /
+deer-flow),重启后它复检;最终 agent 会明确汇报三态结局之一:**已就绪**
+(给出它的 AIMail 地址)/ **已安装待重启**(给出重启命令)/ **平台不适配**
+(说明适配路径)。会话至此正式结束,不会悬空。
 
 ***
 
