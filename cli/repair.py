@@ -334,8 +334,10 @@ def _repair_gateway_config(sid: str, args_home: str = "") -> bool:
     if not cfg.get("webhook_host"):
         try:
             sys.path.insert(0, str(SCRIPTS_DIR))
-            from setup_system import _detect_webhook_host
-            wh = _detect_webhook_host(cfg.get("gateway_url", ""))
+            from runtime_core import load_core
+            load_core()
+            from install_core import detect_webhook_host
+            wh = detect_webhook_host(cfg.get("gateway_url", ""))
             if wh:
                 cfg["webhook_host"] = wh
                 _ok(f"webhook_host backfilled: {wh}")
