@@ -912,7 +912,7 @@ def check_gateway(c: Check, sid: str = ""):
     if not cfg:
         c.add("gateway", "config", False,
               "aimail_gateway.json not found",
-              "Run: aimail init + aimail install (配置网关与系统)")
+              "Run: aimail install (激活系统)")
         return
 
     gw_url = cfg.get("gateway_url", "").rstrip("/")
@@ -1563,7 +1563,7 @@ def main():
     c = Check()
     c.verbose = verbose
     c.add("system", "id", bool(platform_sid),
-          platform_sid or "none found", "Run: aimail init + aimail install (激活系统)")
+          platform_sid or "none found", "Run: aimail install (激活系统)")
 
     # ══ L0 配置文件完备性与正确性(2026-09-04 全面体检)════════
     # 顺序定调:L0/L1 配置 → L2 平台运行时资源 → L3 agent 配置 → L4 链路。

@@ -58,7 +58,7 @@ def _machine_state() -> tuple:
     if not os.path.isdir(systems_root) or not os.listdir(systems_root):
         return ("empty",
                 "未发现任何系统配置(~/.aimail/systems 空)。\n"
-                "  先运行: aimail init(机器网络环境,一次)\n"
+ 
                 "  然后:   aimail install --home <宿主根>(激活系统并绑定)")
     return ("systems", "")
 

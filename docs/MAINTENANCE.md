@@ -35,7 +35,7 @@ binding, routes) so that local state and the gateway stay consistent.
 
 | Layer | Tool | Runs | Scope |
 |-------|------|------|-------|
-| Machine prep (once) | `aimail init` | any machine | lock the gateway URL, decide direct-push vs bridge, build `~/.aimail` |
+| Machine prep | bootstrap (automatic) | any machine | home dir / gateway decision / bridge in place (done during bootstrap) |
 | System integration (per system) | `aimail install` | per platform root | activate/reuse a system, bind the platform, deploy the bridge entry |
 | Agent runtime SDK | platform package | agent host | `pysdk` (python, hermes/deerflow) or `tssdk` (openclaw/pi/dsh); self-check → auto-bind |
 
@@ -96,7 +96,7 @@ machine (`127.0.0.1`/`localhost`/local IP), the registration chain connects
 directly — no bridge. Otherwise the local `aimail-bridge` pulls pending
 mail from the gateway (mode=`pull`) and routes it to local inbound
 endpoints via `aimail_routes.toml`. Whether a bridge is needed is a
-machine-level decision made once by `aimail init`.
+machine-level decision made during bootstrap (install reuses its result).
 
 ### Three authoritative config files
 
@@ -127,16 +127,16 @@ export AIMAIL_PRODUCT_CODE=<code>      # new-system path (+ AIMAIL_SYSTEM_NAME)
 curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
 ```
 
-### Step 1 — `aimail init` (machine-level, once, zero systems OK)
+### Step 1 — Machine prep (automatic via bootstrap)
 
-```bash
-aimail init [--gateway-url URL]
-```
-
-Creates `~/.aimail/{systems,logs,bridge}` (0700), checks free disk
-(<100 MiB warns), resolves the network structure: local gateway →
+`curl|bash bootstrap` creates `~/.aimail/{systems,logs,bridge}` (0700),
+checks free disk and resolves the network structure: local gateway →
 direct-push (no bridge); remote gateway → deploys the bridge binary +
-skeleton config. Re-running is safe (everything is idempotent).
+skeleton config (idempotent).
+
+> The legacy `aimail init` subcommand is gone — its machine-prep duties
+> moved into bootstrap (via `deploy_bridge.py --init`); skip straight to
+> Step 2 when installing.
 
 ### Step 2 — `aimail install` (per platform, repeatable, idempotent)
 
@@ -366,7 +366,8 @@ ls ~/.aimail/systems/{sid}/            # aimail_gateway.json + agents
 # 2. NEW machine — machine environment once:
 git clone https://github.com/metercai/aimail.git && cd aimail
 cp docs/.env.example .env              # AIMAIL_URL + AIMAIL_MANAGER_ADDRESS
-aimail init                            # gateway discovery + bridge skeleton
+# (bootstrap did the machine prep automatically; CLI installs skip it —
+#  install deploys the bridge itself)
 
 # 3. Restore credentials:
 mkdir -p ~/.aimail/.system_raw_key && cp <old>/{sid}_admin.key ~/.aimail/.system_raw_key/

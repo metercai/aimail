@@ -29,7 +29,7 @@
 
 | 层          | 工具                | 对象标识            | 职责                                      |
 | ---------- | ----------------- | --------------- | --------------------------------------- |
-| 本机基础环境     | `aimail init`     | 宿主机系统           | 锁定网关 URL、判定直连 push 还是 bridge、构建基础目录等 |
+| 本机基础环境     | bootstrap(自动)     | 宿主机系统           | 主目录/网关判定/bridge 就位(bootstrap 时完成) |
 | Agent平台对接  | `aimail install等` | Agent平台的根目录/SID | 激活/复用系统、绑定平台、绑定资源导入、合并 bridge 条目等       |
 | Agent 参数配置 | `aimail address`  | Agent 标识/地址     | 激活地址、设定地址/管理员等                        |
 
@@ -87,7 +87,7 @@ aimail repair       →  按 check 发现执行幂等修复阶梯
 agent 侧一律 **push**。网关解析为本机(`127.0.0.1`/`localhost`/本机 IP)→
 直连 push,无需 bridge;否则本机 `aimail-bridge` 以 pull 模式向网关轮询
 待发邮件,再按 `aimail_routes.toml` 投递给本地入站端点。是否需要 bridge
-是**机器级一次性判断**,由 `aimail init` 完成。
+是**机器级一次性判断**,在 bootstrap 时判定(install 沿用其结果)。
 
 ### 三份权威配置文件
 
@@ -118,15 +118,14 @@ export AIMAIL_PRODUCT_CODE=<code>      # 新系统路径(+ AIMAIL_SYSTEM_NAME)
 curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
 ```
 
-### 第 1 步 — `aimail init`(机器级,一次,零系统可跑)
+### 第 1 步 — 机器准备(bootstrap 自动完成)
 
-```bash
-aimail init [--gateway-url URL]
-```
+`curl|bash bootstrap` 已构建 `~/.aimail/{systems,logs,bridge}`(0700)、
+磁盘研判并判定网络结构:本地网关 → 直连(无 bridge);远程网关 → 部署
+bridge 二进制 + 骨架配置(幂等)。
 
-构建 `~/.aimail/{systems,logs,bridge}`(0700)、磁盘研判(<100 MiB 告警)、
-网络结构判定:本地网关 → 直连(无 bridge);远程网关 → 部署 bridge 二进制 +
-骨架配置。重复执行安全(全部幂等)。
+> 旧版 `aimail init` 子命令已移除——机器准备职责并入 bootstrap
+> (经 `deploy_bridge.py --init`),安装场景直接进第 2 步。
 
 ### 第 2 步 — `aimail install`(系统级,可重复,幂等)
 
@@ -328,10 +327,9 @@ webhook 不一致。
 ls ~/.aimail/.system_raw_key/          # {sid}_admin.key
 ls ~/.aimail/systems/{sid}/            # aimail_gateway.json + agents
 
-# 2. 新机器——机器环境一次:
+# 2. 新机器——机器准备(bootstrap 自动;CLI 场景跳过,install 自部署 bridge):
 git clone https://github.com/metercai/aimail.git && cd aimail
 cp docs/.env.example .env              # AIMAIL_URL + AIMAIL_MANAGER_ADDRESS
-aimail init                            # 网关发现 + bridge 骨架
 
 # 3. 恢复凭据:
 mkdir -p ~/.aimail/.system_raw_key && cp <旧>/{sid}_admin.key ~/.aimail/.system_raw_key/

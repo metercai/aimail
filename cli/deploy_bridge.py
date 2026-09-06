@@ -309,19 +309,53 @@ def main():
         start_bridge(bin_path, cfg_path, pid_path)
         return 0 if os.path.exists(pid_path) else 1
 
-    # Standalone init: machine-level network setup (aimail init) — runs on
-    # a machine with zero systems. Deploys the binary and writes a skeleton
-    # config (empty systems). Bridge API key + start happen at the FIRST
-    # install (system activation provides the gateway admin key), so
-    # activation and bridge remain decoupled (2026-09-02 init/install split).
+    # Standalone machine prep (invoked by bootstrap; former `aimail init`):
+    # gateway discovery + direct-vs-bridge decision + bridge binary/skeleton.
+    # Runs on a machine with zero systems; bridge key + start happen at the
+    # FIRST install (activation provides the gateway admin key).
     if "--init" in sys.argv:
-        gw = os.environ.get("GATEWAY_URL", "") or os.environ.get("AIMAIL_URL", "")
+        # gateway: shell env > ~/.aimail/.env > default remote gateway
+        def _env_val(key: str, fallback: str = "") -> str:
+            v = os.environ.get(key)
+            if v:
+                return v
+            try:
+                env_file = os.path.join(_AM_HOME, ".env")
+                if os.path.isfile(env_file):
+                    for line in open(env_file, encoding="utf-8"):
+                        line = line.strip()
+                        if line.startswith(key + "="):
+                            return line[len(key) + 1:].strip()
+            except OSError:
+                pass
+            return fallback
+
+        def _is_local_gateway(url: str) -> bool:
+            from urllib.parse import urlparse
+            try:
+                host = urlparse(url).netloc.rsplit("@", 1)[-1]
+                if ":" in host and not host.startswith("["):
+                    host = host.rsplit(":", 1)[0]
+                host = host.strip("[]")
+                if host in ("127.0.0.1", "localhost", "::1"):
+                    return True
+                for info in socket.getaddrinfo(socket.gethostname(), None):
+                    if info[4][0] == host:
+                        return True
+            except OSError:
+                pass
+            return False
+
+        gw = os.environ.get("GATEWAY_URL", "") or _env_val("AIMAIL_URL", "")
         if not gw:
-            log_warn("init needs GATEWAY_URL/AIMAIL_URL (where is the gateway)")
-            return 1
-        wh_mode = os.environ.get("WEBHOOK_MODE", "bridge")
+            gw = "https://aimail.token.tm"  # default remote gateway
+        print(f"  init: gateway = {gw}", flush=True)
+        if _is_local_gateway(gw):
+            print("  ✓ local gateway (direct push) — no bridge needed; install activates the system")
+            return 0
+        wh_mode = os.environ.get("WEBHOOK_MODE", "") or _env_val("AIMAIL_WEBHOOK_MODE", "bridge")
         bridge_mode = "pull" if wh_mode == "bridge" else "push"
-        wh_host = os.environ.get("WEBHOOK_HOST", "") or os.environ.get("AIMAIL_WEBHOOK_HOST", "")
+        wh_host = os.environ.get("WEBHOOK_HOST", "") or _env_val("AIMAIL_WEBHOOK_HOST", "")
         if bridge_mode == "pull":
             wh_host = ""
         elif not wh_host:
