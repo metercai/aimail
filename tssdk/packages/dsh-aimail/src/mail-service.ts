@@ -24,6 +24,7 @@ import {
   AIMAIL_HOME,
   autoBind,
   emailForAgent,
+  ensureSystem,
   hasAnySystem,
   listSystemDirs,
   readSystemConfig,
@@ -117,15 +118,34 @@ export function apply(ctx: Context, config: { systemId?: string } = {}): void {
   } catch {
     // non-fatal: resources are a seed; explicit release can re-run later
   }
-  // env self-check: without any binding the mail tools resolve nothing —
-  // point the operator at the CLI instead of failing silently later.
+  // install readiness: a dsh-only machine ensures its system through the CLI
+  // reverse-call ABI (`aimail ensure-system`, L1 only — never platform wiring,
+  // which is how the install↔plugin call loop stays acyclic). Systems present
+  // → nothing to do; CLI missing → actionable bootstrap hint on stderr.
   try {
     const sysRoot = path.join(AIMAIL_HOME(), 'systems')
-    if (!fs.existsSync(sysRoot) || fs.readdirSync(sysRoot).length === 0) {
-      const fix = hasAnySystem()
-        ? 'run `aimail install`(dsh) first, then bind this session'
-        : 'run `aimail init`, then `aimail install`(dsh) to build the environment first'
-      console.warn('[dsh-aimail] no aimail binding found — ' + fix)
+    const hasSystems = fs.existsSync(sysRoot) && fs.readdirSync(sysRoot).length > 0
+    if (!hasSystems) {
+      void ensureSystem({ systemHome: process.env.AIMAIL_SYSTEM_HOME ?? '' })
+        .then((r) => {
+          if (r.ok) {
+            if (r.activated) {
+              console.log(`[dsh-aimail] system activated: ${r.systemId}`)
+            } else if (!r.systemId) {
+              console.warn(
+                '[dsh-aimail] multiple aimail systems present — set AIMAIL_SYSTEM_ID to scope this profile',
+              )
+            }
+          } else {
+            const hint = r.hint ? ` (${r.hint})` : ''
+            console.warn(`[dsh-aimail] no aimail system yet — ${r.error ?? 'unknown'}` + hint)
+          }
+        })
+        .catch((e) => {
+          console.warn(
+            `[dsh-aimail] system ensure failed: ${e instanceof Error ? e.message : String(e)}`,
+          )
+        })
     } else if (!systemId) {
       console.warn('[dsh-aimail] no AIMAIL_SYSTEM_ID — mail resolution scans all bound systems')
     }
