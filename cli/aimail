@@ -368,7 +368,6 @@ def cmd_init(args) -> int:
             os.chmod(d, 0o700)
     except OSError as e:
         _warn(f"home dir setup failed: {e}")
-    print(f"  init: home dir = {AIMAIL_HOME}")
 
     # 2) 磁盘研判(评估:邮件快照/桥日志/系统配置,量级小;阈值防御性)
     try:
@@ -378,8 +377,6 @@ def cmd_init(args) -> int:
             _warn(f"low disk space: {free_mib} MiB (< 100 MiB) — keep headroom for logs/snapshots")
         elif free_mib < 1024:
             _warn(f"low disk space: {free_mib} MiB (< 1 GiB) — watch log/mail-snapshot growth")
-        else:
-            print(f"  init: disk free = {free_mib} MiB (ok)")
     except OSError as e:
         _warn(f"disk check failed: {e}")
 
