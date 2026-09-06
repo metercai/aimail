@@ -115,7 +115,7 @@ Subject: [A2A] refresh
 }
 ```
 
-members 为全量替换（不在列表中的成员保留在 Board 中），role_permissions 可选增量覆盖。
+members 为增量更新：新增/更新列出的成员，不在列表中的成员保留。role_permissions 可选增量覆盖。
 
 ---
 

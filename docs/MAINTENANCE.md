@@ -41,8 +41,7 @@ binding, routes) so that local state and the gateway stay consistent.
 
 The CLI itself carries **no runtime resources**: `cli + one SDK + config file`
 is a complete integration. The CLI delegates platform patching to the SDKs
-(`python -m aimail.install --type hermes|deerflow`, same process contract a
-future Rust CLI would spawn).
+(`python -m aimail.install install --type hermes|deerflow`).
 
 ### Maintenance loop (the point of this guide)
 
@@ -173,7 +172,8 @@ address, existence-guarded); manual equivalent:
 aimail check --system-id <sid>     # full health exam (see §4)
 aimail ping --system-id <sid>      # ping → pong round trip (authoritative:
                                    #   agent-side log events)
-aimail welcome --system-id <sid>   # welcome e2e (API mode, postman@ sender)
+aimail welcome --system-id <sid>   # welcome e2e (API mode) — sent by the
+                                   #   gateway system sender (noreply@{gateway domain})
 ```
 
 `.env`/`export` priority: **CLI flag > shell env > `~/.aimail/.env` >
@@ -203,10 +203,6 @@ state and prints the maintenance hint.
 Dimension order (user-mandated): **config files → platform runtime
 resources → agent config → delivery links**.
 
-```bash
-aimail check [--system-id <sid>] [--home <root>] [--verbose] [--json]
-```
-
 | Layer | Level | What is examined |
 |-------|-------|------------------|
 | Config files | L0 | `aimail_gateway.json` completeness (gateway_url/admin_key/`system_home`/pointer) · `aimail_bridge.toml` structure (mode, pull entries, admin_key match vs gateway.json) · `agentmail.json` 9-field completeness + internal consistency (system_id=sid, gateway_url same, domain=email suffix) |
@@ -215,27 +211,27 @@ aimail check [--system-id <sid>] [--home <root>] [--verbose] [--json]
 | Agent config | L3 | per-platform adapter: name&api_key / webhook secret / skill / toolset / register |
 | Delivery links | L4 | hook probes against the real inbound endpoints — **404 = route not registered = FAIL**; remote (non-loopback) targets are not probeable locally → PASS-with-note, never a false FAIL |
 
-Fix suggestions appear with `--verbose`; `--json` feeds `repair`.
-
 ### 4.3 `aimail repair` — idempotent fix ladder
 
 ```bash
 aimail repair [--system-id <sid>] [--home <root>] [--deep] [--dry-run]
 ```
 
-`--dry-run` prints the plan only. The ladder (each step idempotent, mapped
-to a check finding):
+`--dry-run` prints the plan only. The ladder (each step idempotent):
 
 1. bridge alive (restart if dead) — 2. routes refresh via
    `bridge --system-id` — 3. gateway webhook pairing fix (evidence-driven)
    — 4. gateway config backfill (`system_home`/`webhook_host`, fill-missing
    only, never clobber) — 5. platform pointer rebuild (only when the
    platform root is certain and the pointer is absent) — 6. runtime
-   resource redeploy (`python -m aimail.install --type …`, idempotent;
-   skipped with a hint when the platform host is remote) — 7.
+   resource redeploy (`python -m aimail.install install --type …`,
+   idempotent; skipped with a hint when the platform host is remote) — 7.
    `agentmail.json` backfill + `webhook_url` alignment to the live route
-   target (local-only) — 8. route-entry rebuild + bridge pull-entry
+   target (local-only) — 8. route-entry rebuild — 9. bridge pull-entry
    admin_key alignment to gateway.json (authoritative source).
+
+`--deep` additionally performs the webhook-pairing rewrite and the
+stuck-pending cleanup.
 
 `repair` always re-runs `check` at the end. Remaining FAILs after repair
 must be genuine host-side items (remote platform not running, agent needs
@@ -259,37 +255,22 @@ papering over them.
 Short flags are globally consistent: `-s` system-id · `-H` home · `-g`
 gateway-url · `-m` manager · `-c` code · `-n` system-name (install/reset)
 or dry-run (repair) · `-d` domain (install) or default (mailname) · `-w`
-no-wait (welcome/persona) · `-a` all (stats) or add (domain) · `-t` status
-(renew) or timeout (ping) · `-D` deep · `-r` restart · `-k` admin-key ·
-`-y` yes. Long names never change.
+no-wait (welcome/persona) (or the domain's `--webhook-url`) · `-a` all
+(stats) or add (domain) · `-t` status (renew) or timeout (ping) · `-D`
+deep · `-r` restart · `-k` admin-key · `-y` yes. Long names never change.
 
 ---
 
 ## 5. What the Tooling Achieves
 
-The suite is verified end-to-end on this machine (2026-09):
-
-- **stats -a caught real health facts**: one system with a missing
-  `system_home` (label `[?]`), pointer-less state, remote-host agents.
-- **check caught 4 genuine problems on first run** (L0/L2 layers were
-  validated against live systems before delivery): a declared webhook URL
-  that was dead (route target alive) on the hermes agent, the same class on
-  the openclaw agent, a missing pi route, and a bridge pull-entry
-  admin_key drift.
-- **repair fixed all locally-fixable items**: rewrote the dead declared
-  webhook_url to the live route target, aligned the bridge pull admin_key
-  to gateway.json; the remaining FAILs were verified true positives
-  (pi agent webhook lives on its own host — not fixable from this machine,
-  and correctly reported as such).
-- **Detection semantics fixed**: a hook probe answering 404 now FAILs
-  (route not registered) instead of passing; probing the real `/aimail/inbound`
-  endpoint (not a stale path) made a healthy openclaw gateway PASS again.
-- **A repeated `aimail install` no longer mints orphan bridge keys** and
-  never double-activates; `init`/`install` re-runs are harmless by design.
-
-Net effect: **stats points → check pinpoints → repair fixes → re-check
-confirms**, and every remaining red item is a genuine, actionable,
-host-side action — never a tooling artifact.
+Capability summary: **stats** tags health by facts (a missing `system_home`
+shows `[?]`, an absent pointer is flagged); **check** catches genuine issues
+such as declared webhooks that are dead, missing routes, and bridge
+pull-entry admin_key drift; **repair** fixes everything locally fixable and
+honestly preserves host-side FAILs; a repeated **install** mints no orphan
+bridge key and never double-activates. Net effect: **stats points → check
+pinpoints → repair fixes → re-check confirms**, with every remaining red
+item being a genuine host-side action.
 
 ---
 
@@ -356,7 +337,8 @@ align webhook_url to the live target). If the target host is remote
 
 Check the per-agent log for the three phases:
 `grep <ping_id> ~/.aimail/logs/aimail.{addr}.log`; verify email + api_key
-match in `agentmail.json`; re-run `aimail reset -s <sid>` to re-persist.
+match in `agentmail.json`; re-run `aimail reset -H <platform-root> -s <sid>`
+to re-persist.
 
 ### Bridge cannot pull emails
 
@@ -416,7 +398,9 @@ profile config). The local inbound URL is what `agentmail.json` stores as
 **`aimail_gateway.json`** (renamed from `agentmail_gateway.json` on
 2026-09-04 to align with the gateway name; legacy name auto-migrates on
 first read): `gateway_url`, `admin_key`, `system_id`, `system_name`,
-`manager_address`, `domain`, `system_home`, `webhook_host`.
+`manager_address`, `domain`, `system_home`, `webhook_host`,
+`save_raw_snapshots` (always written, defaults to `true`),
+`default_agent_name` (optional-value field, written by `mailname`).
 
 **`agentmail.json`** 9 mandatory fields: `email`, `gateway_url`, `domain`,
 `system_id`, `system_name`, `manager_address`, `api_key`, `webhook_url`

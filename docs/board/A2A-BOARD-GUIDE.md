@@ -20,7 +20,7 @@ Through A2A Board, team members (humans + AI Agents) collaborate on projects ent
 | Concept | Description |
 |---------|-------------|
 | **Board** | Project board. Lifecycle: active → awaiting_owner → completed |
-| **Task** | Task unit. Status: Ready → Running → Reviewing → Done (Rejected: Done→Running, Reopened: Done→Running) |
+| **Task** | Task unit. Status: Ready → Running → Reviewing → Done (reject applies only while Reviewing, back to Running; reopen is board-level — only while the board is awaiting_owner, all Done tasks reset to Running) |
 | **Board Email** | `{short_id}.a2a@{domain}` (short_id: 5-16 alphanumeric/hyphen/underscore) |
 | **Instruction Flow** | `[A2A]` prefixed emails to board. `board_id` auto-injected |
 | **Session Flow** | Members email each other + CC Board. Injects `board_id`/`board_role`/`from_role` |
@@ -67,7 +67,7 @@ Subject: [Proposal] web-redesign plan v1
 - Brand colors unification
 ```
 
-Owner approves: `[Confirm] plan v2` (TO includes board). System sets `plan_version=v2, plan_confirmed_at`.
+Owner approves: `[Confirm] plan v1` (TO includes board). System sets `plan_version=v1, plan_confirmed_at`.
 
 ### Phase 3: Orchestrator — Task Breakdown
 
@@ -78,7 +78,8 @@ Subject: [A2A] create
 {
   "tasks": [
     {"title": "Homepage design", "body": "3 variants with mobile", "assignee": "design@company.com", "reviewer": "qa@company.com"},
-    {"title": "Product page", "body": "jQuery to React", "assignee": "dev@company.com", "reviewer": "qa@company.com"}
+    {"title": "Product page", "body": "jQuery to React", "assignee": "dev@company.com", "reviewer": "qa@company.com"},
+    {"title": "Brand color unification", "body": "Replace global CSS variables", "assignee": "design@company.com", "reviewer": "qa@company.com"}
   ]
 }
 ```
@@ -92,6 +93,7 @@ Subject: [Criteria] web-redesign criteria v1
 
 T1: PC+Mobile 3 variants, dark mode
 T2: React 18, no regression, Lighthouse > 90
+T3: Brand color unification — global CSS variables replaced, no hardcoded colors left
 ```
 
 Owner approves: `[Confirm] criteria v1`.
@@ -101,7 +103,7 @@ Owner approves: `[Confirm] criteria v1`.
 - `[A2A] list` / `[A2A] status` — view progress
 - `[A2A] block T2` / `[A2A] unblock T2` — manage blockers
 - `[Discuss] T1 dark mode` — session flow discussions
-- `[A2A] notify_all` — phase reports
+- `[A2A] notify_all` — phase reports (all-member notices are sent via the notify permission; there is no standalone notify_all command)
 
 ### Phase 6: Review and Owner Sign-off
 
@@ -141,7 +143,7 @@ Subject: [WHOAMI]
 | Operation | Instruction | Sender | Notes |
 |-----------|------------|--------|-------|
 | Create | `[A2A] new {project}: {desc}` | owner | orchestrator+verifier required |
-| Update | `[A2A] refresh` | owner | hardcoded, not in role_permissions |
+| Update | `[A2A] refresh` | owner | add/update members (existing members are not removed), update role_permissions/description; owner-hardcoded, not in role_permissions |
 | Approve plan | `[Confirm] plan v{N}` | Owner | TO includes board |
 | Approve criteria | `[Confirm] criteria v{N}` | Owner | TO includes board |
 | Approve output | `[Confirm] output {board}` | Owner | TO includes board |
@@ -153,15 +155,16 @@ Subject: [WHOAMI]
 | **orchestrator** | create, assign, review, block, unblock, cancel, reassign, edit, deadline, notify, members, roles, config, arbitrate, comment, list, show, status, heartbeat |
 | **verifier** | verify, approve, reject, output, comment, list, show, roles, members, status, heartbeat |
 | **worker** | complete, commit, block, heartbeat, continue, comment, list, show, roles, members, status |
-| **owner** | create, unblock, reassign, comment, list, show, status, members, roles |
+| **owner** | create, unblock, reassign, reopen, comment, list, show, status, members, roles |
 
 New roles: declare in members + define verbs in role_permissions + optionally create `~/.aimail/{system_id}/board/role_prompt/{role}.md`.
 
 ### 4.3 Notes
 
-- **heartbeat**：assignee 专有，首次调用 Ready→Running。非 assignee 或非 Ready/Running 状态拒绝。
-- **cancel**：仅用于 Blocked 状态。block→cancel 彻底放弃任务。
-- **continue**：assignee 保持 task Running 并触发新的 assigned 通知，用于跨 session 长任务。
+- **heartbeat**: assignee-only. The first call moves Ready→Running. Rejected when sent by a non-assignee or when the task is not in Ready/Running.
+- **cancel**: valid only for the Blocked state. block → cancel abandons the task.
+- **continue**: the assignee keeps the task Running and triggers a new `assigned` notification — for long-running tasks spanning sessions.
+- **notify** is a permission verb: group notifications are sent through the `notify` permission; there is no standalone `notify_all` command.
 
 ### 4.4 Instruction Flow Verbs
 
@@ -179,7 +182,7 @@ All sent to Board address. `board_id` auto-injected.
 | `reassign` | orch | Reassign |
 | `block` / `unblock` | assignee/orch, orch/owner | Block/unblock |
 | `verify` / `approve` / `reject` | verifier | Review flow |
-| `output` | verifier | Submit final output |
+| `output` | member granted output (usually verifier) | Output confirmation: submit the deliverable after the task is Done |
 | `reopen` | owner | Reject output, reset tasks |
 | `comment` | all | Comment |
 | `arbitrate` | orch, verifier | Request arbitration |
@@ -196,20 +199,17 @@ Members email each other + CC Board. FROM and TO must be board members.
 | `[Proposal] {board} plan v{N}` | Orchestrator | Plan review |
 | `[Report] {board} Phase {N}: {title}` | Orchestrator | Progress report |
 | `[Discuss] {Task-ID} {topic}` | All | Task discussion |
-| `[Review] {board} {target} {task}` | Worker | Peer review |
+| `[Confirm] plan v{N} / criteria v{N} / output {board}` | Owner | Approve plan/criteria/output |
 | `[Criteria] {board} criteria v{N}` | Verifier | Criteria confirmation |
 | `[Review] {board} {target} {task}` | Worker | Peer review |
 
 ### 4.6 Notification Flow
 
-| 通知 | 场景 | 内容 |
-|------|------|------|
-| `notify_invite` | board 创建，邀请 member | Subject: `[A2A] invite: {board}`，Body 含 API URL + 个人 Token |
-
 System notifications from Board. Subject prefixed with `[A2A]`.
 
 | Notification | Trigger | Recipient | Body Fields |
 |-------------|---------|-----------|-------------|
+| `notify_invite` | board created (member invited) | invited members | Subject: `[A2A] notice: Board {board} created`, Body: API URL + personal Token |
 | `assigned` | create/assign | assignee | task_id, board, title, body, reviewer, created_by |
 | `review-needed` | review | reviewer | task_id, assignee, title, summary + action hint |
 | `approved` | approve | assignee | task approved, done |
@@ -219,19 +219,21 @@ System notifications from Board. Subject prefixed with `[A2A]`.
 | `cancelled` | cancel | assignee | task cancelled |
 | `output` | output | Owner | final output, please confirm |
 | `comment` | comment | counterpart | commenter, text |
-| `notify_all` | refresh/manual | all | custom message |
+| `notify_all` | refresh/manual | all | custom message (sent via the notify permission — no standalone notify_all command) |
 | `arbitrate` | arbitrate | Admin+requester | requester, dispute |
 
 ### 4.7 Toolset Guide
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
-| `board_task_list` | `board_id` | List/filter tasks |
-| `board_task_show` | `task_id` | Task details |
-| `board_members` | `board_id`, `email?` | List members |
-| `board_roles` | `board_id`, `role?` | Role permissions |
-| `board_status` | `board_id` | Pipeline + dependencies |
-| `board_heartbeat` | `task_id`, `note?` | Long-task heartbeat |
+| `board_task_list` | board/task ID | List/filter tasks |
+| `board_task_show` | board/task ID | Task details |
+| `board_members` | board/task ID | List members |
+| `board_roles` | board/task ID | Role permissions (if the platform does not inject this tool, use `board_members`/`board_status` instead) |
+| `board_status` | board/task ID | Pipeline + dependencies |
+| `board_heartbeat` | board/task ID | Long-task heartbeat |
+
+> Note: Task/board targets use the short_id form (e.g. `abc123`) in both instruction emails and tools. The platform MCP registers 5 board tools (status / task_list / task_show / heartbeat / members); if `board_roles` is not injected, query via `board_members`/`board_status` instead.
 
 ---
 
