@@ -21,6 +21,11 @@
 # ═══════════════════════════════════════════════════════════════════
 set -euo pipefail
 
+# All output to stderr: under `curl … | bash` stdout is a pipe (block
+# buffered) — buffered output would only flush at exit, so a slow/hung
+# download would show nothing on screen. stderr is unbuffered.
+exec 1>&2
+
 # Single authoritative layout: ~/.aimail (bridge/CLI share it; the local
 # bridge is a machine-level single instance, not per-home). Customize the
 # toolkit location only via AIMAIL_TOOLKIT_DIR.
@@ -68,7 +73,8 @@ else
   TMP_TGZ="$(mktemp /tmp/aimail-bootstrap-XXXXXX.tar.gz)"
   trap 'rm -f "$TMP_TGZ"' EXIT
   say "fetching aimail@$REF …"
-  curl -fsSL "$DL" -o "$TMP_TGZ" || die "download failed: $DL"
+  curl -fsSL --retry 2 --retry-delay 2 --connect-timeout 15 --max-time 180 \
+    "$DL" -o "$TMP_TGZ" || die "download failed: $DL"
   mkdir -p "$TOOLKIT"
   EXTRACTED="$(mktemp -d /tmp/aimail-x-XXXXXX)"
   tar -xzf "$TMP_TGZ" -C "$EXTRACTED" || die "extract failed"
