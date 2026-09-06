@@ -60,7 +60,7 @@ if [ "$FREE_MIB" -lt 100 ]; then
 elif [ "$FREE_MIB" -lt 1024 ]; then
   warn "low free disk on $AM_HOME: ${FREE_MIB} MiB — watch logs/mail snapshots"
 else
-  say "disk free: ${FREE_MIB} MiB"
+  ok "disk free: ${FREE_MIB} MiB"
 fi
 
 # ── 4. toolkit (idempotent: present → skip; FORCE_UPGRADE=1 to re-fetch) ──
@@ -115,27 +115,15 @@ ENV_FILE="$AM_HOME/.env"
 chmod 600 "$ENV_FILE" 2>/dev/null || true
 [ -f "$ENV_FILE" ] && ok "env persisted to $ENV_FILE"
 
-# ── 5.6 env checklist (README: set env vars BEFORE bootstrapping) ──
-# Machine-level keys common to all scenarios; missing ones must be
-# supplied to `aimail install` (or exported before a re-run).
-check_env() {
-  local k=$1 have="✗"
-  if [ -n "${!k:-}" ]; then have="✓"
-  elif grep -q "^$k=" "$ENV_FILE" 2>/dev/null; then have="✓"
-  fi
-  printf '  %s %s' "$k" "$have"
-}
-env_check=""
-for k in AIMAIL_URL AIMAIL_PRODUCT_CODE AIMAIL_SYSTEM_NAME AIMAIL_DOMAIN AIMAIL_MANAGER_ADDRESS AIMAIL_ADMIN_KEY; do
-  env_check="$env_check$(check_env "$k")"
-done
-say "env check:$env_check"
-missing=""
-for k in AIMAIL_URL AIMAIL_PRODUCT_CODE AIMAIL_SYSTEM_NAME AIMAIL_DOMAIN AIMAIL_MANAGER_ADDRESS AIMAIL_ADMIN_KEY; do
-  [ -n "${!k:-}" ] || grep -q "^$k=" "$ENV_FILE" 2>/dev/null || missing="$missing $k"
-done
-if [ -n "$missing" ]; then
-  say "  hint: missing:$missing — export them (README prerequisites) or pass to \`aimail install\` (-c code -n name -m manager)"
+# ── 5.6 env readiness (README scenarios A/B/C; set env BEFORE bootstrapping)
+have_env() { [ -n "${!1:-}" ] || grep -q "^$1=" "$ENV_FILE" 2>/dev/null; }
+if have_env AIMAIL_URL && \
+   { { have_env AIMAIL_PRODUCT_CODE && have_env AIMAIL_SYSTEM_NAME; } || \
+     { have_env AIMAIL_PRODUCT_CODE && have_env AIMAIL_DOMAIN; } || \
+     { have_env AIMAIL_ADMIN_KEY && have_env AIMAIL_DOMAIN; }; }; then
+  ok "env ready (one of the README scenarios)"
+else
+  warn "env incomplete — see README (bootstrap prerequisites) for the AIMAIL_* set, then re-run"
 fi
 
 # ── 6. machine init (idempotent: .env + bridge binary present → skip) ─
