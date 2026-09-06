@@ -225,7 +225,7 @@ AIMail 核心由**aimail-gateway**（邮件网关）和 Agent 内的 **aimail-sd
 ## 延伸阅读
 
 - [AIMail 安装与维护指南](docs/MAINTENANCE_zh.md)
-- [AIMail 对接适配指导](docs/AGENT-INTEGRATION.md)
+- [AIMail 对接适配指导](docs/AGENT-INTEGRATION_zh.md)
 - [A2A Board 项目协作指导手册](docs/board/A2A-BOARD-GUIDE_zh.md)
 - [API 依赖说明](docs/API-DEPS.md)
 - [aimail-gateway](https://github.com/metercai/aimail-gateway)

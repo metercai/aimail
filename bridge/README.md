@@ -5,7 +5,7 @@
 **Zero ports, email inbound. One port, instant forwarding to all agents.**
 
 A high-performance transparent bridge between [aimail-gateway](https://github.com/metercai/aimail-gateway)
-and [Hermes agent](https://github.com/nousresearch/hermes-agent) gateway webhook endpoints.
+and the per-agent webhook endpoints on [Hermes agents](https://github.com/nousresearch/hermes-agent).
 Solves firewall penetration for heterogeneous multi-agent deployments with minimal
 surface area.
 
@@ -16,12 +16,13 @@ surface area.
 **Pain 1 — Multi-agent firewall penetration**: Each Hermes agent's webhook
 runs on its own port (8645, 8646, …). Exposing them directly means N ports, N firewall
 rules. Bridge's push mode provides a **single entry port** with auto-routing to every
-webhook — open just one port, all agents instantly reachable.
+webhook — open just one port, all agents instantly reachable. When TLS + ACME is
+enabled, port 80 must also be opened (HTTP-01 challenge only).
 
 **Pain 2 — Zero-dependency email inbound**: No public IP? No port forwarding? Pull mode
-uses a single **outbound HTTP long-poll** — bridge actively fetches deliveries from
-the gateway and fans out to local webhook ports. **Zero inbound ports, zero
-listen sockets**, complete NAT/firewall bypass.
+uses a single **outbound HTTP poll (every 10s)** — bridge actively fetches deliveries from
+the gateway and fans out to local webhook ports. **Zero public ports** — loopback admin
+API only, no external inbound mail traffic; complete NAT/firewall bypass.
 
 ---
 
@@ -39,8 +40,7 @@ zero duplicates.
 
 Single binary ~8 MB (stripped, fat LTO). < 10 MB memory at idle, near-zero CPU.
 Pure Rust TLS stack — rustls with ring crypto. Zero OpenSSL, zero native-tls,
-zero system dependency beyond libc. `--daemon` double-fork daemon mode with
-PID file and log file. SIGINT/SIGTERM graceful drain.
+zero system dependency beyond libc.
 
 ### Efficient aggregated forwarding
 
@@ -55,11 +55,13 @@ Works for both push and pull modes.
 - **IP allowlist + blacklist** — push mode accepts POSTs only from trusted source IPs
 - **Per-IP rate limiting** — configurable req/sec cap with sliding window (default 30)
 - **Body size limit** — configurable cap (default 20 MB) prevents memory exhaustion
-- **Header filtering** — only business headers forwarded (`x-amail-email`,
-  `x-webhook-signature`, `x-mailrelay-timestamp`, `content-type`)
+- **Header filtering** — only business headers forwarded: `x-aimail-email`
+  (primary; required on push deliveries since v0.7.0 — missing returns 400; legacy
+  `x-amail-email` accepted as alias), `x-webhook-signature`,
+  `x-mailrelay-timestamp`, `content-type`)
 - **Graceful shutdown** — SIGINT/SIGTERM drain in-flight requests
 - **Connection pooling** — reqwest client reused across all forwards (keep-alive)
-- **HSTS on TLS only** — no HSTS header on plain HTTP (RFC 6797 compliance)
+- **HSTS** — sends an HSTS header (end-to-end behavior subject to field verification)
 
 ### Zero-config automation
 
@@ -68,7 +70,8 @@ Works for both push and pull modes.
 - **ACME auto-TLS** — set `hostname` → automatic Let's Encrypt certificate
   (HTTP-01 challenge), cached and auto-renewed every ~60 days
 - **Dual-port mode** — `bind` port 80 + `hostname` set → auto 80→443 redirect
-- **Daemon mode** — `--daemon` double-fork, PID file, log file, zero supervision
+- **Daemon mode** — `--daemon` detaches from the terminal, runs in the background
+  (default PID/log: `~/.hermes/aimail-bridge.pid` / `~/.hermes/aimail-bridge.log`)
 
 ---
 
@@ -88,7 +91,7 @@ gateway ──POST──►      │                                  │
 ```
 
 - Gateway POSTs to a **single port** on bridge; bridge auto-routes by agent email
-- Multiple recipients → gateway sends **one body copy** (batch aggregation)
+- Batch aggregation — multiple recipients → one body copy (see “Efficient aggregated forwarding”)
 - TLS via rustls; automatic Let's Encrypt certificate when `hostname` is set
 - Dual-port mode: `bind = "0.0.0.0:80"` + `hostname = "bridge.example.com"` → auto 80→443
 - Real-time: gateway gets immediate HTTP response from agent via bridge
@@ -110,8 +113,8 @@ gateway (public)                              behind NAT/firewall
 ```
 
 - Single **outbound HTTP connection** to gateway, fully bypasses NAT/firewall
-- **Zero listen sockets** — no ports opened, no inbound traffic at all
-- Same batch aggregation: one body copy serialized once, reused for all recipients
+- **Zero public ports** — loopback admin API only, no external inbound mail traffic
+- Same batch aggregation applies (see “Efficient aggregated forwarding”)
 - ACK-based consumption + 2-hour dedup cache — no messages lost, no duplicates
 - Exponential backoff on fetch failures (max 5 minutes)
 
@@ -121,7 +124,10 @@ gateway (public)                              behind NAT/firewall
 
 ```bash
 # Unzip the appropriate zip for your platform
-unzip aimail-bridge-v0.6.2-linux-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+VER=v0.7.0
+ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+unzip aimail-bridge-${VER}-linux-${ARCH}.zip
+mv aimail-bridge-${VER}-linux-${ARCH} aimail-bridge
 chmod +x aimail-bridge
 
 # Push mode (single port, all agents)
@@ -131,14 +137,20 @@ bind = "0.0.0.0:38080"
 hostname = "bridge.example.com"     # enables TLS + ACME auto-cert
 admin_allowed_ips = ["127.0.0.1", "::1"]
 
+[logging]
+level = "info"       # stdout (default is /var/log/aimail-bridge.log without [logging]; non-root fails)
+
 [push]
 allowed_ips = ["10.0.0.0/8"]
 EOF
 
-# Pull mode (zero ports, outbound only)
+# Pull mode (no public ports, outbound only)
 cat > aimail_bridge.toml << 'EOF'
 mode = "pull"
 bind = "127.0.0.1:38080"
+
+[logging]
+level = "info"       # stdout (default is /var/log/aimail-bridge.log without [logging]; non-root fails)
 
 [pull]
 amail_url = "http://gateway.example.com:38080"
@@ -151,7 +163,7 @@ EOF
 
 # Check health
 curl http://localhost:38080/health
-# {"status":"ok","uptime_secs":42,"version":"0.6.2"}
+# {"status":"ok","uptime_secs":42,"version":"0.7.0"}
 ```
 ## Configuration
 
@@ -214,10 +226,14 @@ systems = [
 
 ### Logging
 
+By default — no `[logging]` section in the config — logs are written to
+`/var/log/aimail-bridge.log`; starting as non-root fails (panic) because that path
+is not writable. To log to stdout, declare a `[logging]` section and leave `file` unset:
+
 ```toml
 [logging]
 level = "info"                        # log level (default: "info")
-file = "/var/log/aimail-bridge.log"   # log file, stdout if unset (default: none)
+# file = "/tmp/aimail-bridge.log"     # log file path; unset → stdout
 ```
 
 
@@ -233,7 +249,7 @@ file = "/var/log/aimail-bridge.log"   # log file, stdout if unset (default: none
 | `AIMAIL_BRIDGE_SYSTEM_ID` | `pull.system_id` |
 | `AIMAIL_BRIDGE_POLL_SECS` | `pull.poll_interval_sec` |
 | `AIMAIL_BRIDGE_ALLOWED_IPS` | `push.allowed_ips` (comma-separated) |
-| `HERMES_HOME` | Hermes home directory (default `~/.hermes`) |
+| `HERMES_HOME` | Hermes home directory (default `~/.hermes`; equivalent to the top-level `hermes_home` config field) |
 | `RUST_LOG` | tracing filter (overrides `logging.level`) |
 
 ---
@@ -243,7 +259,7 @@ file = "/var/log/aimail-bridge.log"   # log file, stdout if unset (default: none
 | Scenario | Mode | Notes |
 |---|---|---|
 | gateway + agents on same machine | Push | Bridge proxies single port to local webhook ports |
-| gateway public, agents behind NAT | Pull | Bridge polls gateway outbound, zero inbound ports |
+| gateway public, agents behind NAT | Pull | Bridge polls gateway outbound, no public inbound ports |
 | Bridge on public VPS | Push + TLS | `hostname = "bridge.example.com"`, ACME auto-cert, dual-port |
 
 

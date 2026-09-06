@@ -4,9 +4,9 @@
 
 **零端口，邮件入站。一个端口，即时透传所有 agent。**
 
-连接 [aimail-gateway](https://github.com/metercai/aimail-gateway) 和
-[Hermes agent](https://github.com/nousresearch/hermes-agent) webhook 端点的
-高性能透明桥接。以最小攻击面解决异构多 agent 部署的防火墙穿透问题。
+连接 [aimail-gateway](https://github.com/metercai/aimail-gateway) 与
+各 [Hermes agent](https://github.com/nousresearch/hermes-agent) 的 webhook 端点的高性能
+透明桥接，以最小攻击面解决异构多 agent 部署的防火墙穿透问题。
 
 ---
 
@@ -15,11 +15,11 @@
 **痛点 1 — 多 agent 防火墙穿透**：每个 Hermes agent 的 webhook 跑在各自的端口上
 （8645, 8646, …），直接暴露意味着 N 个端口、N 条防火墙规则。bridge 的 push
 模式提供一个**单一入口端口**，自动路由到所有 webhook —— 只开一个端口，所有
-agent 即时可达。
+agent 即时可达。启用 TLS+ACME 时另需开放端口 80（仅 HTTP-01 挑战用）。
 
 **痛点 2 — 零依赖邮件入站**：没有公网 IP？没有端口映射？pull 模式只需要一条**出站
-HTTP 长轮询**连接 —— bridge 主动从 gateway 拉取投递并扇出到本地各 webhook 端口。
-**零入站端口、零监听 socket**，完全穿透 NAT/防火墙。
+HTTP 轮询（每 10s）**连接 —— bridge 主动从 gateway 拉取投递并扇出到本地各 webhook 端口。
+**零公网端口**——仅回环 admin API，无任何外部入站邮件流量，完全穿透 NAT/防火墙。
 
 ---
 
@@ -36,7 +36,6 @@ bridge 不持有任何 HMAC 密钥。gateway 用各 agent 的 webhook secret 签
 
 单二进制约 8 MB（stripped, fat LTO）。空闲时内存 < 10 MB，CPU 近乎为零。纯 Rust
 TLS 栈 —— rustls + ring crypto。零 OpenSSL，零 native-tls，零系统依赖（仅 libc）。
-SIGINT/SIGTERM 优雅排空。
 
 ### 高效的聚合转发
 
@@ -51,11 +50,12 @@ SIGINT/SIGTERM 优雅排空。
 - **IP 白名单 + 黑名单** — push 模式仅接受受信来源 IP 的 POST
 - **每 IP 限速** — 可配置 rps 上限，滑动窗口算法（默认 30）
 - **Body 大小限制** — 可配置上限（默认 20 MB），防止内存耗尽
-- **Header 过滤** — 只转发业务 header（`x-amail-email`, `x-webhook-signature`,
-  `x-mailrelay-timestamp`, `content-type`）
+- **Header 过滤** — 只转发业务 header：`x-aimail-email`（主，v0.7.0 起 push 必需
+  请求头，缺失返回 400；旧名 `x-amail-email` 作为兼容别名）、`x-webhook-signature`、
+  `x-mailrelay-timestamp`、`content-type`）
 - **优雅关闭** — SIGINT/SIGTERM 排空进行中请求
 - **连接池复用** — reqwest client 全局复用，keep-alive 长连接
-- **HSTS 仅 TLS 启用** — 纯 HTTP 不发送 HSTS（RFC 6797 要求浏览器忽略）
+- **HSTS** — 发送 HSTS 头（端到端行为以实测为准）
 
 ### 零配置自动化
 
@@ -64,7 +64,8 @@ SIGINT/SIGTERM 优雅排空。
 - **ACME 自动 TLS** — 设置 `hostname` → 自动 Let's Encrypt 证书（HTTP-01 挑战），
   缓存复用，每 ~60 天自动续期
 - **双端口模式** — `bind` 端口 80 + `hostname` 已设 → 自动 80→443 重定向
-- **守护模式** — `--daemon` 双 fork，PID 文件、日志文件，无需看管
+- **后台守护模式** — `--daemon` 脱离终端、后台运行（默认 PID/日志：
+  `~/.hermes/aimail-bridge.pid` / `~/.hermes/aimail-bridge.log`），无需看管
 
 ---
 
@@ -84,7 +85,7 @@ gateway ──POST──►      │                                  │
 ```
 
 - gateway 发到 bridge 的**单一端口**，bridge 按 agent 邮箱自动路由
-- 同一封邮件多个收件人 → gateway 只传**一份 body**（批量聚合）
+- 批量聚合 — 同一封邮件多个收件人只传一份 body（详见「高效的聚合转发」）
 - TLS 由 rustls 提供；设 `hostname` 即可启用 ACME 自动证书
 - 双端口：`bind = "0.0.0.0:80"` + `hostname` → 自动 80→443
 - 实时性：gateway 通过 bridge 即时获取 agent HTTP 响应
@@ -106,10 +107,10 @@ gateway (公网)                              NAT/防火墙内
 ```
 
 - 只需要**一条出站 HTTP 连接**到 gateway，完全穿透 NAT/防火墙
-- **零监听 socket**——不开放任何端口，不接收任何入站流量
-- 同样支持批量聚合：body 序列化一次，所有收件人复用
+- **零公网端口**——仅回环 admin API，无任何外部入站邮件流量
+- 批量聚合同样生效（见「高效的聚合转发」）
 - ACK 消费 + 2 小时去重缓存，不丢消息、不重复投递
-- 拉取失败指数退避重启（最大 5 分钟）
+- 拉取失败时退避重试（上限 5 分钟）
 
 ---
 
@@ -117,7 +118,10 @@ gateway (公网)                              NAT/防火墙内
 
 ```bash
 # 解压对应平台的 zip 文件
-unzip aimail-bridge-v0.6.2-linux-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+VER=v0.7.0
+ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+unzip aimail-bridge-${VER}-linux-${ARCH}.zip
+mv aimail-bridge-${VER}-linux-${ARCH} aimail-bridge
 chmod +x aimail-bridge
 
 # Push 模式（一个端口，所有 agent）
@@ -127,14 +131,20 @@ bind = "0.0.0.0:38080"
 hostname = "bridge.example.com"     # 启用 TLS + ACME 自动证书
 admin_allowed_ips = ["127.0.0.1", "::1"]
 
+[logging]
+level = "info"       # stdout（无 [logging] 段时默认写 /var/log/aimail-bridge.log，非 root 会失败）
+
 [push]
 allowed_ips = ["10.0.0.0/8"]
 EOF
 
-# Pull 模式（零端口，纯出站）
+# Pull 模式（无公网端口，纯出站）
 cat > aimail_bridge.toml << 'EOF'
 mode = "pull"
 bind = "127.0.0.1:38080"
+
+[logging]
+level = "info"       # stdout（无 [logging] 段时默认写 /var/log/aimail-bridge.log，非 root 会失败）
 
 [pull]
 amail_url = "http://gateway.example.com:38080"
@@ -147,7 +157,7 @@ EOF
 
 # 检查健康状态
 curl http://localhost:38080/health
-# {"status":"ok","uptime_secs":42,"version":"0.6.2"}
+# {"status":"ok","uptime_secs":42,"version":"0.7.0"}
 ```
 ## 配置参考
 
@@ -209,10 +219,14 @@ systems = [
 
 ### 日志
 
+默认（配置中不含 `[logging]` 段）日志写入 `/var/log/aimail-bridge.log` —— 非 root
+启动会因该路径不可写而直接失败（panic）。需要输出到 stdout 时，声明 `[logging]`
+段且**不设置** `file`：
+
 ```toml
 [logging]
 level = "info"                        # 日志级别（默认："info"）
-file = "/var/log/aimail-bridge.log"   # 日志文件路径，不设则 stdout
+# file = "/tmp/aimail-bridge.log"     # 日志文件路径；不设 file → 输出到 stdout
 ```
 
 
@@ -228,7 +242,7 @@ file = "/var/log/aimail-bridge.log"   # 日志文件路径，不设则 stdout
 | `AIMAIL_BRIDGE_SYSTEM_ID` | `pull.system_id` |
 | `AIMAIL_BRIDGE_POLL_SECS` | `pull.poll_interval_sec` |
 | `AIMAIL_BRIDGE_ALLOWED_IPS` | `push.allowed_ips`（逗号分隔） |
-| `HERMES_HOME` | Hermes 根目录（默认 `~/.hermes`） |
+| `HERMES_HOME` | Hermes 根目录（默认 `~/.hermes`；对应顶层配置字段 `hermes_home`） |
 | `RUST_LOG` | tracing 过滤器（覆盖 `logging.level`） |
 
 ---
@@ -238,7 +252,7 @@ file = "/var/log/aimail-bridge.log"   # 日志文件路径，不设则 stdout
 | 场景 | 模式 | 说明 |
 |---|---|---|
 | gateway+agent 同机 | Push | bridge 单端口转发到本地各 webhook 端口 |
-| gateway 在公网，agent 在 NAT 后 | Pull | bridge 出站轮询 gateway，零入站端口 |
+| gateway 在公网，agent 在 NAT 后 | Pull | bridge 出站轮询 gateway，无公网入站端口 |
 | 公网 VPS 部署 bridge | Push + TLS | `hostname = "bridge.example.com"`，ACME 自动证书，双端口 |
 
 ---

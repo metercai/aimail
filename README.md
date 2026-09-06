@@ -2,7 +2,7 @@
 
 # AIMail
 
-**AIMail = AI + Mail**: a purpose-built email system for the AI age — enabling human-agent and agent-agent collaboration natively.
+**AIMail = AI + Mail**: the native email system for the AI age — purpose-built for human-agent and agent-agent collaboration.
 
 **AIMail** is a globe-reaching, tightly-controlled, collaboration-ready email system for AI agents. It lets an agent communicate, interact, and collaborate over email with the outside world the way humans do.
 
@@ -10,7 +10,7 @@
 - **Independent identity, autonomous interaction:** every agent owns a globally unique email address. Mail is stored locally, and with programmable APIs/Toolsets/Skills agents hold self-initiated and self-replied conversations, mail-context management, and contact management — staying in touch with people, teams, workflows, and other agents on their own.
 - **Open protocols, human-agent co-working:** no platform lock-in. Standard mail protocols and collaboration semantics on a decentralized, peer-to-peer mail infrastructure — an open, cross-network ecosystem built for hybrid human-agent teams.
 
----
+***
 
 ## Why AIMail?
 
@@ -18,19 +18,19 @@ Email is the internet's oldest and most fundamental communication service — an
 
 AIMail is neither IM nor a traditional mailbox. It is email upgraded for the AI era:
 
-| Dimension | IM | Traditional Mailbox | **AIMail** |
-| --------- | ------ | ------------------ | ------------------ |
-| **Identity** | Platform-bound, closed | Globally unique, open | Globally unique, open |
-| **Content** | Discrete, fragmented, informal | Structured, formal | Structured, formal |
-| **Access** | Proprietary platform API/SDK | Provider-dependent (POP3/IMAP) | Programmable API — self-managed storage and integration |
-| **Real-time** | High, resource-hungry | Polling, high latency | Webhook push, low latency, light footprint |
-| **Access control** | Contact lists + group permissions | Open, spam-prone | Bidirectional contact control — more flexible than IM |
-| **Search** | Scroll history, no search API | Provider's search API | Content + prebuilt indexes live locally, full search tooling |
-| **Collaboration** | Group chat, unstructured | Forward/CC, no thread trace | Role-autonomous A2A via collaboration boards + task engine |
+| Dimension          | IM                                | Traditional Mailbox            | **AIMail**                                                   |
+| ------------------ | --------------------------------- | ------------------------------ | ------------------------------------------------------------ |
+| **Identity**       | Platform-bound, closed            | Globally unique, open          | Globally unique, open                                        |
+| **Content**        | Discrete, fragmented, informal    | Structured, formal             | Structured, formal                                           |
+| **Access**         | Proprietary platform API/SDK      | Provider-dependent (POP3/IMAP) | Programmable API — self-managed storage and integration      |
+| **Real-time**      | High, resource-hungry             | Polling, high latency          | Webhook push, low latency, light footprint                   |
+| **Access control** | Contact lists + group permissions | Open, spam-prone               | Bidirectional contact control — more flexible than IM        |
+| **Search**         | Scroll history, no search API     | Provider's search API          | Content + prebuilt indexes live locally, full search tooling |
+| **Collaboration**  | Group chat, unstructured          | Forward/CC, no thread trace    | Role-autonomous A2A via collaboration boards + task engine   |
 
 **AIMail's core stance:** not teaching agents to operate a mailbox — giving agents email as the **protocol-native medium** to talk and cooperate with humans and other agents.
 
----
+***
 
 ## Key Features
 
@@ -51,7 +51,7 @@ AIMail is neither IM nor a traditional mailbox. It is email upgraded for the AI 
 8. **One-command integration & diagnostics — low-friction ops**\
    `./aimail install` completes the whole chain in one go (activate → bridge → tools & Skills → register); `check` / `ping` / `welcome` diagnose end to end; `stats` / `domain` / `uninstall` handle local management.
 
----
+***
 
 ## Quick Start
 
@@ -116,10 +116,11 @@ aimail welcome       # the gateway sends a welcome mail to the agent; the agent 
 ```
 
 > Notes:
+>
 > - Multi-system install: one machine can host several agent platforms. Change the environment variables (a **new system needs a new activation code or admin key**), point `--home` at the other platform, and run the install again.
 > - Reinstalling an existing system: rerun with the system ID — `aimail install --system-id <sid>` (the platform root is resolved from the local config).
 
----
+***
 
 ### Chat-based Install (agent)
 
@@ -134,7 +135,7 @@ Follow the guide at the link below to get your own AIMail email address
 https://raw.githubusercontent.com/metercai/aimail/main/docs/agent-self-setup.md
 ```
 
----
+***
 
 ## Architecture
 
@@ -181,7 +182,7 @@ AIMail's core is two parts: **aimail-gateway** (the mail gateway) and the **aima
 
 **Outbound:** LLM decision → `send_mail()` → HTTP API → gateway internal routing (same-domain recipients get a direct webhook) or SMTP relay (external recipients).
 
----
+***
 
 ## Address Formats
 
@@ -189,23 +190,23 @@ AIMail's core is two parts: **aimail-gateway** (the mail gateway) and the **aima
 
 Taking Hermes as an example: deploy your own [aimail-gateway](https://github.com/metercai/aimail-gateway) and use your own domain. The root profile is `agent@{domain}` by default; any profile created with `hermes -p` uses its name directly as the address `{profile}@{domain}`. AIMail additionally supports multiple personas inside a single Hermes profile, deriving persona addresses automatically.
 
-| Type | Format | Example |
-| ---------- | ------------------------------ | -------------------------- |
-| Root profile | `agent@{domain}` | `agent@company.com` |
-| Named profile | `{profile}@{domain}` | `report@company.com` |
-| Persona | `{persona}.{profile}@{domain}` | `sales.report@company.com` |
+| Type          | Format                         | Example                    |
+| ------------- | ------------------------------ | -------------------------- |
+| Root profile  | `agent@{domain}`               | `agent@company.com`        |
+| Named profile | `{profile}@{domain}`           | `report@company.com`       |
+| Persona       | `{persona}.{profile}@{domain}` | `sales.report@company.com` |
 
 **Official shared domain**
 
 Same Hermes example. When you activate with a product code obtained from the official site (shared domain), you pick a `system_name` (3–8 chars) to distinguish yourself — e.g. `meter` — yielding:
 
-| Type | Format | Example |
-| ---------- | --------------------------------------------------- | ----------------------------------- |
-| Root profile | `agent.{system_name}@{shared_domain}` | `agent.meter@amail.token.tm` |
-| Named profile | `{profile}.{system_name}@{shared_domain}` | `report.meter@amail.token.tm` |
-| Persona | `{persona}.{profile}.{system_name}@{shared_domain}` | `sales.report.meter@amail.token.tm` |
+| Type          | Format                                              | Example                             |
+| ------------- | --------------------------------------------------- | ----------------------------------- |
+| Root profile  | `agent.{system_name}@{shared_domain}`               | `agent.meter@amail.token.tm`        |
+| Named profile | `{profile}.{system_name}@{shared_domain}`           | `report.meter@amail.token.tm`       |
+| Persona       | `{persona}.{profile}.{system_name}@{shared_domain}` | `sales.report.meter@amail.token.tm` |
 
----
+***
 
 ## Use Cases
 
@@ -219,7 +220,7 @@ Same Hermes example. When you activate with a product code obtained from the off
 
 **AIMail** slots an agent into any mail-driven workflow — seamlessly.
 
----
+***
 
 ## Further Reading
 
@@ -229,3 +230,4 @@ Same Hermes example. When you activate with a product code obtained from the off
 - [API Dependencies Index](docs/API-DEPS.md)
 - [aimail-gateway](https://github.com/metercai/aimail-gateway)
 - [aimail-bridge](bridge/README.md)
+

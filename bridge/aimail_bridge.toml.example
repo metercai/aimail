@@ -25,13 +25,18 @@ bind = "0.0.0.0:38080"               # Listen address (admin API + push webhooks
 admin_allowed_ips = ["127.0.0.1", "::1"]
 
 # Headers passed through to the gateway.
-# Supported: x-amail-email, x-webhook-signature, x-mailrelay-timestamp, content-type
-# forward_headers = ["x-amail-email", "x-webhook-signature", "x-mailrelay-timestamp", "content-type"]
+# Primary: x-aimail-email (required for push deliveries since v0.7.0 —
+# missing header returns 400). The legacy alias x-amail-email is also accepted.
+# Others: x-webhook-signature, x-mailrelay-timestamp, content-type.
+# forward_headers = ["x-aimail-email", "x-webhook-signature", "x-mailrelay-timestamp", "content-type"]
 
 # Logging
+# Default with NO [logging] section: logs go to /var/log/aimail-bridge.log —
+# non-root startup fails (panic) because that path is not writable.
+# Declare [logging] WITHOUT `file` to log to stdout instead.
 # [logging]
 # level = "info"                       # log level (default: "info")
-# file = "/var/log/aimail-bridge.log"  # log file path (default: stdout)
+# file = "/tmp/aimail-bridge.log"      # log file path; unset → stdout
 
 # ── Pull mode (bridge polls gateway outbound) ─────────────────────
 #

@@ -1,7 +1,7 @@
 # DeepSeek Harness 集成方案(aimail ↔ deepseek-harness)
 
 > 状态:**方案定稿**(2026-08-18,经三集成沉淀审计修订)
-> 参照:仓库根 [AGENT-INTEGRATION.md](../AGENT-INTEGRATION.md)(对接架构与实例示范,定稿)
+> 参照:[AGENT-INTEGRATION_zh.md](AGENT-INTEGRATION_zh.md)(AIMail 对接适配指导,修订 2026-09-06;英文版同目录 AGENT-INTEGRATION.md)
 > 参照实例:Hermes(参考实现,Python toolset)→ OpenClaw(第二实例,MCP)→ DeerFlow(第三实例,进程内预处理)→ **deepseek-harness(第四实例,首个 TS 平台)**
 > 契约基准:[DSH-PREPROCESS-CONTRACT.md](../DSH-PREPROCESS-CONTRACT.md)(TS 预处理逐行对照表,P0 产出)
 
