@@ -2,8 +2,9 @@
 
 AIMail (agent mail) SDK for TypeScript: a shared framework-agnostic core plus
 ready-made platform adapters that give any AI agent a real mailbox — inbound
-email delivered into the agent's session, and 12 plain tools for sending
-mail, managing contacts, keeping thread notes, and working on A2A boards.
+email delivered into the agent's session, and 13 plain tools for sending
+mail, managing contacts, keeping thread notes, searching local mail, working
+on A2A boards, and publishing the public identity.
 
 This SDK lives in the [metercai/aimail](https://github.com/metercai/aimail)
 monorepo under `tssdk/` (CLI in `cli/`, Python SDK in `pysdk/`, bridge in
@@ -12,14 +13,14 @@ published surface of this tree.
 
 | Package | npm | Purpose |
 |---|---|---|
-| `@aimail/mail-core` | [![npm](https://img.shields.io/npm/v/@aimail/mail-core)](https://www.npmjs.com/package/@aimail/mail-core) | Framework-agnostic core: gateway HTTP client, 12 tool functions, inbound preprocess chain, HMAC verification, `MAIL_TOOLS` semantic registry. Zero dependencies. |
+| `@aimail/mail-core` | [![npm](https://img.shields.io/npm/v/@aimail/mail-core)](https://www.npmjs.com/package/@aimail/mail-core) | Framework-agnostic core: gateway HTTP client, 13 tool functions, inbound preprocess chain, HMAC verification, `MAIL_TOOLS` semantic registry. Zero dependencies. |
 | `@aimail/mail` | [![npm](https://img.shields.io/npm/v/@aimail/mail)](https://www.npmjs.com/package/@aimail/mail) | Platform-neutral config resolution: session id / email / recipient → `agentmail.json` → `AgentConfig`. |
 | `dsh-aimail` | [![npm](https://img.shields.io/npm/v/dsh-aimail)](https://www.npmjs.com/package/dsh-aimail) | dsh (deepseek-harness) plugin. |
 | `openclaw-aimail` | [![npm](https://img.shields.io/npm/v/openclaw-aimail)](https://www.npmjs.com/package/openclaw-aimail) | OpenClaw plugin. |
 | `pi-aimail` | [![npm](https://img.shields.io/npm/v/pi-aimail)](https://www.npmjs.com/package/pi-aimail) | pi (earendil-works/pi-coding-agent) extension. |
 
 All adapters iterate the **same** `MAIL_TOOLS` array from `@aimail/mail-core`
-— the 12 tool names, descriptions, and parameter text are defined exactly
+— the 13 tool names, descriptions, and parameter text are defined exactly
 once, so every platform surfaces an identical tool surface.
 
 ## How it fits together
@@ -27,7 +28,7 @@ once, so every platform surfaces an identical tool surface.
 ```
                     ┌─────────────────────────────┐
    agentmail.json   │      @aimail/mail-core      │
-   (per-address     │  gateway client · 12 tools  │
+   (per-address     │  gateway client · 13 tools  │
     bindings,       │  inbound chain · HMAC       │
     sole identity   │  MAIL_TOOLS registry        │
     source)         └──────────────┬──────────────┘
@@ -61,7 +62,7 @@ Prerequisite: an AIMail binding for the dsh session (run `aimail install`
 from the aimail repository's `cli/`).
 
 What it mounts onto the profile: the mail host service, the inbound endpoint,
-the 12 mail/board tools, and an email-agent persona.
+the 13 mail/board tools, and an email-agent persona.
 
 ### openclaw-aimail (OpenClaw plugin)
 
@@ -72,7 +73,7 @@ openclaw plugins install openclaw-aimail
 Prerequisite: an AIMail binding for the OpenClaw agent (pointer file
 `~/.openclaw/.agentmail` with `{system_id, email}`).
 
-What it provides: the 12 mail/board tools (bare names), an in-gateway inbound
+What it provides: the 13 mail/board tools (bare names), an in-gateway inbound
 HTTP route (`/aimail/inbound`, HMAC verified), and
 `openclaw aimail register|deregister|status` commands.
 
@@ -85,7 +86,7 @@ pi install npm:pi-aimail
 Prerequisite: an AIMail binding for the pi agent (pointer file
 `~/.pi/.agentmail` with `{system_id, email}`).
 
-What it provides: the 12 mail/board tools via `pi.registerTool`, and a local
+What it provides: the 13 mail/board tools via `pi.registerTool`, and a local
 inbound listener (`POST /aimail/inbound` on `127.0.0.1:9101`, HMAC verified)
 that bridges into the running session via `sendUserMessage`.
 
@@ -96,10 +97,13 @@ that bridges into the running session via `sendUserMessage`.
 - **Contacts** — `manage_contacts` (whitelist), `contact_profile` /
   `set_contact_profile` (per-contact context).
 - **Notes** — `email_summary` / `set_email_summary` (thread notes).
+- **Search** — `search_mail` (full-text search over locally stored inbound /
+  outbound mail: subject, body, and attachment text).
 - **Boards (A2A)** — `board_status`, `board_task_list`, `board_task_show`,
-  `board_heartbeat`, `board_members`, `set_public_whoami`. Board gateway
-  endpoints auto-register from `[A2A]` mails, so agents discover and join
-  boards purely through mail.
+  `board_heartbeat`, `board_members`. Board gateway endpoints auto-register
+  from `[A2A]` mails, so agents discover and join boards purely through mail.
+- **Public identity** — `set_public_whoami` (publish the agent's public
+  description, used by inbound address resolution).
 
 ## Development
 
@@ -111,9 +115,10 @@ pnpm exec tsc -b packages/mail-core packages/mail packages/dsh-aimail packages/o
 
 ## Related repositories
 
-- [metercai/aimail](https://github.com/metercai/aimail) — the AIMail agent
-  runtime (Python): CLI, gateway config, bridge provisioning, and the
-  `agentmail.json` binding model this SDK consumes.
+- [metercai/aimail](https://github.com/metercai/aimail) — the AIMail monorepo:
+  CLI (`cli/`), Python SDK (`pysdk/`), TypeScript SDK (`tssdk/`, you are here),
+  bridge distributions, and the `agentmail.json` binding model this SDK
+  consumes.
 - [metercai/aimail-gateway](https://github.com/metercai/aimail-gateway) — the
   AIMail gateway: SMTP/HTTP mail service, address & activation APIs, and the
   board endpoints the SDK client talks to.

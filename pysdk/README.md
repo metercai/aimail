@@ -1,14 +1,15 @@
 # pysdk — AIMail Python SDK
 
-AIMail (agent mail) Python runtime SDK: gateway HTTP client, the 12 mail /
-contact / note / board tool functions, the inbound preprocess chain, an MCP
-server, and ready-made host adapters (Hermes / DeerFlow). Board resources
-(skills, role prompts, role souls) ship with the package and are released at
-install time to the local config directory, where users can personalize them.
+AIMail (agent mail) Python runtime SDK: gateway HTTP client, 13 mail /
+contact / note / board tool functions (7 mail+contact+note incl. `search_mail`
++ 6 A2A board), the inbound preprocess chain, an MCP server, and ready-made
+host adapters (Hermes / DeerFlow). Board resources (skills, role prompts,
+role souls) ship with the package and are released at install time to the
+local config directory, where users can personalize them.
 
 This SDK lives in the [metercai/aimail](https://github.com/metercai/aimail)
 monorepo under `pysdk/` (CLI in `cli/`, TypeScript SDK in `tssdk/`, bridge in
-`bridge/`). The pip package `aimail` is the published surface of this tree —
+`bridge/`). The pip package `aimailsdk` (import name `aimail`) is the published surface of this tree —
 the wheel mirrors `pysdk/` 1:1, so repo and installed layouts are identical.
 
 | What | File(s) |
