@@ -100,7 +100,7 @@ export AIMAIL_MANAGER_ADDRESS=you@example.com # default manager mail for the adm
 curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
 ```
 
-#### Step 2: Install the SDK or plugin.
+#### Step 2: Install the SDK or plugin — pick ONE path below; each is complete on its own (the agent-platform path auto-activates the system).
 
 *Via the aimail CLI:*
 

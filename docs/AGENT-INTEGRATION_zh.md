@@ -258,7 +258,7 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 
 子命令(15 个,按场景分 4 组):
 
-- **setup**:`init` `install` `uninstall` `reset`
+- **setup**:`install` `ensure-system` `uninstall` `reset`
 - **operate**:`stats` `renew` `version`
 - **diagnose**:`check` `repair` `ping` `welcome` `persona`
 - **resources**:`domain` `address` `bridge`
@@ -268,7 +268,7 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 | `bridge` | 本机 bridge 维护:无参=状态;`--system-id` 重刷路由;`--restart` 单实例重启 |
 | `check` | 全链路状态检查(L1 gateway/L2 bridge/L3 agent 配置/L4 hook/L5 ping-pong) |
 | `domain` | 查看/创建系统域名(list 默认 / `--add DOMAIN`) |
-| `init` | 一次性机器初始化:锁定 gateway URL、直连或 bridge 模式 |
+| `ensure-system` | 系统激活 ABI(SDK 反调):仅 L1 激活/复用——绝不执行平台接线(保持 install↔插件调用图无环) |
 | `install` | 集成 agent 平台到 AIMail 系统(激活或复用现有系统,含平台适配与补充注册) |
 | `address` | 查看/维护系统 agent 地址:默认主 agent 名(`-d`)、地址改名(`-a agent -n 新名`,服务端资源全继承)、设 manager(`-m`) |
 | `persona` | persona 流程:manager 发 'update persona',agent 回草稿 |
@@ -285,6 +285,27 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 
 **.env 自动加载**:CLI 参数 > shell env > .env > 内置默认。.env 键:AIMAIL_URL / AIMAIL_ADMIN_KEY / AIMAIL_PRODUCT_CODE / AIMAIL_MANAGER_ADDRESS / AIMAIL_SYSTEM_NAME / AIMAIL_DOMAIN / AIMAIL_SAVE_SNAPSHOTS / AIMAIL_WEBHOOK_HOST。
 install 全非交互:激活 → 从 setup_system JSON stdout 取 server 分配的 system_id → domain 预置/创建 → deploy_bridge → 平台适配。
+
+**系统激活 ABI — `ensure-system`(L1 单一实现)**
+
+激活协议(activate-system / api-keys 端点、raw_key 判定、reset 语义、home
+归属复用)**只在 CLI 实现一份**。两条安装路径都汇聚到它:
+
+- 人工路径:`aimail install -H <root>` → L1 激活/复用 + L2 平台接线(可能
+  spawn 宿主插件命令);
+- 宿主路径:`dsh plugin --profile web add dsh-aimail`(openclaw/pi 同构)→
+  插件就绪检查反调 `aimail ensure-system -H <root>`。
+
+`ensure-system` 刻意**绝不**执行平台接线、也不部署 bridge——两个不同入口、
+各自单向,这正是 install↔插件调用图无环的原因。
+
+契约(测试锁定):stdout = 恰好一行 JSON;日志走 stderr;exit 0=成功。
+成功:`{"success":true,"system_id":...,"gateway_url":...,"domain":...,
+"system_name":...,"path":"activation|admin_key"}`。
+失败:`{"success":false,"error":...,"hint":...}`。凭据留在 CLI 侧:先按 home
+归属复用;否则 .env 的产品码(bootstrap 产物)支撑真正的新激活——SDK
+调用方只传 `-H`,从不接触激活密钥。机器初始化(bridge 骨架等)属
+bootstrap;TS 宿主自身从不部署 bridge。
 
 ---
 

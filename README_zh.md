@@ -101,7 +101,7 @@ export AIMAIL_MANAGER_ADDRESS=you@example.com # 管理agent的默认管理员邮
 curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
 ```
 
-#### 第 2 步:SDK或插件安装。
+#### 第 2 步:SDK或插件安装(以下两种方式**任选其一**,均一次完成;宿主路径会自动完成系统激活)。
 
 **aimail命令行安装**:
 

@@ -260,7 +260,7 @@ Field semantics follow MAINTENANCE §2/§9 and the code contract.
 
 Subcommands (15, grouped into 4 scenarios):
 
-- **setup**: `init` `install` `uninstall` `reset`
+- **setup**: `install` `ensure-system` `uninstall` `reset`
 - **operate**: `stats` `renew` `version`
 - **diagnose**: `check` `repair` `ping` `welcome` `persona`
 - **resources**: `domain` `address` `bridge`
@@ -270,7 +270,7 @@ Subcommands (15, grouped into 4 scenarios):
 | `bridge` | Maintain the local bridge: no args = status; `--system-id` refreshes routes; `--restart` restarts the single instance |
 | `check` | Full-pipeline status check (L1 gateway / L2 bridge / L3 agent config / L4 hook / L5 ping-pong) |
 | `domain` | View/create the system domain (list by default / `--add DOMAIN`) |
-| `init` | One-time machine initialization: lock the gateway URL, direct or bridge mode |
+| `ensure-system` | System activation ABI (SDK reverse-call): L1 activation/reuse only — never platform wiring (keeps the install↔plugin call graph acyclic) |
 | `install` | Integrate an agent platform into the AIMail system (activate or reuse an existing system, incl. platform adapter and supplementary registration) |
 | `address` | View/maintain system agent addresses: set default main-agent name (`-d`), rename an agent's address (`-a agent -n NAME`; server-side resources fully inherited), set manager (`-m`) |
 | `persona` | Persona flow: the manager sends 'update persona', the agent replies with a draft |
@@ -287,6 +287,32 @@ Subcommands (15, grouped into 4 scenarios):
 
 **.env auto-loading**: CLI args > shell env > .env > built-in defaults. .env keys: AIMAIL_URL / AIMAIL_ADMIN_KEY / AIMAIL_PRODUCT_CODE / AIMAIL_MANAGER_ADDRESS / AIMAIL_SYSTEM_NAME / AIMAIL_DOMAIN / AIMAIL_SAVE_SNAPSHOTS / AIMAIL_WEBHOOK_HOST.
 install is fully non-interactive: activate → take the server-assigned system_id from the setup_system JSON stdout → preset/create domain → deploy_bridge → platform adapter.
+
+**System activation ABI — `ensure-system` (single L1 implementation)**
+
+The activation protocol (activate-system / api-keys endpoints, raw_key gate,
+reset semantics, home-ownership reuse) is implemented ONCE, in the CLI. Both
+install paths converge on it:
+
+- human path: `aimail install -H <root>` → L1 activation/reuse + L2 platform
+  wiring (it may spawn the host-plugin command);
+- host path: `dsh plugin --profile web add dsh-aimail` (openclaw/pi
+  equivalents) → the plugin's readiness check reverse-calls
+  `aimail ensure-system -H <root>`.
+
+`ensure-system` deliberately NEVER runs platform wiring or deploys the bridge —
+two distinct entries, one direction each — which is what keeps the
+install↔plugin call graph acyclic.
+
+Contract (locked by tests): stdout = exactly ONE JSON line; human logs →
+stderr; exit 0 = ok. Success: `{"success":true,"system_id":...,
+"gateway_url":...,"domain":...,"system_name":...,"path":"activation|admin_key"}`.
+Error: `{"success":false,"error":...,"hint":...}`. Credentials stay with the
+CLI: home-ownership reuse first; otherwise the .env product code (bootstrap
+artifact) backs a true new activation — SDK callers only pass `-H` and never
+touch activation secrets. Machine init (bridge skeleton etc.) is part of
+bootstrap; TS hosts never deploy the bridge themselves.
+
 
 ---
 
