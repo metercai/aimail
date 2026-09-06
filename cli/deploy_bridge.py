@@ -41,9 +41,24 @@ def _ensure_binary(bridge_bin: str, bridge_dir: str) -> bool:
             return False
         log_step(f"Extracting bridge from {zip_path}...")
         try:
-            subprocess.run(
-                ["unzip", "-o", zip_path, "-d", bridge_dir],
-                capture_output=True, timeout=30)
+            # zip 内单文件带版本号(aimail-bridge-vX.Y.Z-ARCH);解到临时目录后
+            # 统一改名为裸名,不依赖 zip 内部命名(0.7.0 起命名含版本号)。
+            import tempfile
+            with tempfile.TemporaryDirectory() as td:
+                r = subprocess.run(
+                    ["unzip", "-o", zip_path, "-d", td],
+                    capture_output=True, timeout=30)
+                if r.returncode != 0:
+                    log_warn(f"unzip failed: {(r.stderr or b'').decode()[:200]}")
+                    return False
+                found = [f for f in os.listdir(td)
+                         if f.startswith("aimail-bridge")
+                         and os.path.isfile(os.path.join(td, f))]
+                if not found:
+                    log_warn(f"zip 内无 aimail-bridge 可执行文件: {zip_path}")
+                    return False
+                os.makedirs(bridge_dir, exist_ok=True)
+                os.replace(os.path.join(td, found[0]), bridge_bin)
             os.chmod(bridge_bin, 0o755)
         except Exception as e:
             log_warn(f"Failed to extract bridge: {e}")
