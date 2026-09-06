@@ -11,8 +11,9 @@
 #   4. fetch the aimail toolkit (codeload tarball; AIMAIL_VERSION to pin a
 #      tag, default main) into ~/.aimail/toolkit/aimail-src
 #   5. link ~/.local/bin/aimail → toolkit cli/aimail (PATH hint if needed)
-#   6. (no machine prep here — `aimail install` deploys the bridge at
-#      first-system activation)
+#   6. machine init: scripts/machine_init.py (gateway lock, direct-vs-
+#      bridge, bridge binary+skeleton; the former `aimail init` as a
+#      standalone script so bootstrap can run it without a subcommand)
 #   7. next-step guidance (aimail install --home …  →  welcome)
 #
 # Re-running = upgrade (re-fetch toolkit) + machine-prep re-check.
@@ -126,12 +127,18 @@ else
   warn "env incomplete — see README (bootstrap prerequisites) for the AIMAIL_* set, then re-run"
 fi
 
-# ── 6. (machine prep needs nothing here — `aimail install` deploys the
-#        bridge at first-system activation; no standalone init step) ──
+# ── 6. machine init (scripts/machine_init.py — idempotent; skip when
+#        .env + bridge binary already in place) ──────────────────────
+if [ -f "$AM_HOME/.env" ] && [ -x "$AM_HOME/bridge/bin/aimail-bridge" ] \
+   && [ "${AIMAIL_FORCE_UPGRADE:-0}" != "1" ]; then
+  :  # machine env already in place
+else
+  python3 "$SRC/scripts/machine_init.py" || warn "machine init reported problems — see above"
+fi
 
 # ── 7. next steps ──────────────────────────────────────────────────
-echo
 ok "bootstrap done — aimail $(cd "$SRC" && git describe --tags 2>/dev/null || echo "$REF")"
+echo
 say "next:"
 say "  1. activate a system: →  aimail install --home <agent-host-root>"
 say "  2. verify the loop:   →  aimail welcome"

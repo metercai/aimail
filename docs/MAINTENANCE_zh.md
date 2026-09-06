@@ -120,12 +120,14 @@ curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootst
 
 ### 第 1 步 — 机器准备(bootstrap 自动完成)
 
-`curl|bash bootstrap` 构建 `~/.aimail/{systems,logs,bridge}`(0700)并
-做磁盘研判;bridge 由 `aimail install` 在首个系统激活时部署(本地网关
-直连场景无需 bridge)。
+`curl|bash bootstrap` 构建 `~/.aimail`(0700)、磁盘研判并运行机器初始化
+(`scripts/machine_init.py`,原 `aimail init` 的独立脚本形态):锁定网关
+URL、判定本地直连(无 bridge)或远程 → 预装 bridge 二进制 + 骨架配置。
+bridge 的系统条目合并与启动在首个 `aimail install` 完成(本地网关直连
+场景全程无需 bridge)。
 
-> 旧版 `aimail init` 子命令不再注册(函数保留);机器准备(bootstrap)
-> 与 bridge 部署(install)各自完成——安装直接进第 2 步。
+> `aimail init` 不再注册为 CLI 子命令;其实现以独立脚本随 bootstrap
+> 安装流程执行——安装直接进第 2 步。
 
 ### 第 2 步 — `aimail install`(系统级,可重复,幂等)
 

@@ -134,10 +134,11 @@ checks free disk and resolves the network structure: local gateway →
 direct-push (no bridge); remote gateway → deploys the bridge binary +
 skeleton config (idempotent).
 
-> The legacy `aimail init` subcommand is no longer registered (the
-> function remains); bootstrap handles the machine prep and `aimail
-> install` deploys the bridge at first-system activation — skip straight
-> to Step 2 when installing.
+> The legacy `aimail init` subcommand is no longer registered; its
+> implementation now lives as `scripts/machine_init.py`, run by bootstrap
+> in the install flow (gateway lock + bridge binary/skeleton; first
+> `aimail install` merges system entries and starts the bridge) — skip
+> straight to Step 2.
 
 ### Step 2 — `aimail install` (per platform, repeatable, idempotent)
 
@@ -367,7 +368,7 @@ ls ~/.aimail/systems/{sid}/            # aimail_gateway.json + agents
 # 2. NEW machine — machine environment once:
 git clone https://github.com/metercai/aimail.git && cd aimail
 cp docs/.env.example .env              # AIMAIL_URL + AIMAIL_MANAGER_ADDRESS
-# (no init step; bootstrap prepped the machine, install deploys the bridge)
+# (machine init runs inside bootstrap as scripts/machine_init.py)
 
 # 3. Restore credentials:
 mkdir -p ~/.aimail/.system_raw_key && cp <old>/{sid}_admin.key ~/.aimail/.system_raw_key/
