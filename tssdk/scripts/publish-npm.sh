@@ -22,6 +22,15 @@ for pkg in "${PKGS[@]}"; do
   ver=$(ver_of "$dir")
   echo "═══ $name@$ver ═══"
 
+  # 0) idempotency: version already on the registry → skip. Python-only
+  #    releases share the v* tag with the npm workflow; unchanged TS
+  #    versions must not burn a version number nor fail the build.
+  published=$(npm view "$name@$ver" version 2>/dev/null || true)
+  if [ -n "$published" ]; then
+    echo "  already published ($name@$ver) — SKIP"
+    continue
+  fi
+
   # 1) workspace:^ -> concrete registry range (^<dep version>). pnpm
   #    resolves workspace:^ locally, but the published manifest must carry a
   #    plain semver range npm understands — never a bare '^' or 'workspace:'.
