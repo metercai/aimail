@@ -691,42 +691,107 @@ def cmd_reset(args) -> int:
     return 0
 
 
-def _list_local_agents(sid: str):
-    """枚举本机已注册 agent(地址键目录 + platform pointer 反查 agent 名)。"""
+# 平台 agent 标识枚举——各平台集合来源不同(枚举方法平台相关):
+#   hermes   : profiles/* 目录名(named profile) + 主会话 "default"(根 .agentmail 存在时)
+#   openclaw : agents/* 目录名(agentId)
+#   pi       : 固定名 "pi"(单 agent,根 .agentmail 指示注册态)
+#   dsh      : 固定名 "agent"(deepseek-harness 无内置默认,主 agent 约定绑 "agent")
+#   deerflow : 根 .agentmail 存在时以 "agent" 兜底(agent_id 由宿主 manage.py 提供)
+_PLATFORM_DEFAULT_ALIASES = {"hermes": ("default",), "openclaw": ("main",)}
+
+
+def _platform_agent_names(platform: str, root: Path):
+    """平台 agent 标识全集(与平台枚举方法一一对应)。"""
+    names = []
+    if not root.is_dir():
+        return names
+    if platform == "hermes":
+        pdir = root / "profiles"
+        if pdir.is_dir():
+            names.extend(p.name for p in sorted(pdir.iterdir()) if p.is_dir())
+        if (root / ".agentmail").exists():
+            names.append("default")
+    elif platform == "openclaw":
+        adir = root / "agents"
+        if adir.is_dir():
+            names.extend(p.name for p in sorted(adir.iterdir()) if p.is_dir())
+        elif (root / ".agentmail").exists():
+            names.append("main")
+    elif platform == "pi":
+        names.append("pi")
+    elif platform == "dsh":
+        names.append("agent")
+    elif platform == "deerflow":
+        names.append("agent")
+    return names
+
+
+def _list_agents(sid: str, cfg: dict):
+    """已注册(地址键目录 agentmail.json)∪ 平台枚举 agent 全集。
+    每项含 registered 标记;未注册项的 email 为派生的期望地址。"""
     agents = []
     base = AIMAIL_HOME / "systems" / sid
-    if not base.is_dir():
-        return agents
-    for d in sorted(base.iterdir()):
-        jf = d / "agentmail.json"
-        if not jf.is_file():
-            continue
-        try:
-            cfg = json.loads(jf.read_text())
-        except Exception:
-            continue
-        email = cfg.get("email", "")
-        if not email:
-            continue
-        # agent 名 = platform pointer 所在目录名(profile/agent id),反查
-        agent_name = None
-        sys_home = cfg.get("system_home", "") or cfg.get("home", "")
-        if sys_home and Path(sys_home).is_dir():
-            for p in _scan_pointers(Path(sys_home)):
-                if p.get("email") == email and p.get("system_id") == sid:
-                    agent_name = p.get("agent_name")
-                    break
-        if not agent_name:
-            local = email.split("@")[0]
-            agent_name = local.split(".")[0] if "." in local else local
-        agents.append({
-            "agent": agent_name,
-            "email": email,
-            "manager": cfg.get("manager_address", ""),
-            "webhook_url": cfg.get("webhook_url", ""),
-            "dir": str(d),
-            "cfg": cfg,
-        })
+    domain = cfg.get("domain", "")
+    system_name = cfg.get("system_name", "")
+    if base.is_dir():
+        for d in sorted(base.iterdir()):
+            jf = d / "agentmail.json"
+            if not jf.is_file():
+                continue
+            try:
+                acfg = json.loads(jf.read_text())
+            except Exception:
+                continue
+            email = acfg.get("email", "")
+            if not email:
+                continue
+            # agent 名 = platform pointer 所在目录名(profile/agent id),反查
+            agent_name = None
+            sys_home = acfg.get("system_home", "") or acfg.get("home", "")
+            if sys_home and Path(sys_home).is_dir():
+                for ptr in _scan_pointers(Path(sys_home)):
+                    if ptr.get("email") == email and ptr.get("system_id") == sid:
+                        agent_name = ptr.get("agent_name")
+                        break
+            if not agent_name:
+                local = email.split("@")[0]
+                agent_name = local.split(".")[0] if "." in local else local
+            agents.append({
+                "agent": agent_name,
+                "email": email,
+                "manager": acfg.get("manager_address", ""),
+                "webhook_url": acfg.get("webhook_url", ""),
+                "dir": str(d),
+                "cfg": acfg,
+                "registered": True,
+            })
+    # 平台枚举:未注册的 agent(新增场景检测)
+    platform = ""
+    sh = cfg.get("system_home", "")
+    if sh:
+        platform = detect_platform_from_home(Path(sh))
+    known = {a["agent"] for a in agents}
+    if platform and sh:
+        aliases = _PLATFORM_DEFAULT_ALIASES.get(platform, ())
+        for name in _platform_agent_names(platform, Path(sh)):
+            if name in known:
+                continue
+            base_name = "agent" if name in aliases else name
+            import re as _re
+            cleaned = _re.sub(r"[^A-Za-z0-9!#$%&'*+\-/=?^_`{|}~]", "_", base_name) or "agent"
+            want = f"{cleaned}.{system_name}@{domain}" if system_name else f"{cleaned}@{domain}"
+            if not any(a["email"] == want for a in agents):
+                agents.append({
+                    "agent": name,
+                    "email": want,
+                    "manager": "",
+                    "webhook_url": "",
+                    "dir": "",
+                    "cfg": {},
+                    "registered": False,
+                    "platform": platform,
+                })
+    agents.sort(key=lambda a: (not a["registered"], a["agent"]))
     return agents
 
 
@@ -748,8 +813,16 @@ def _scan_pointers(platform_root: Path):
                 email = data.get("email", "")
                 sid = data.get("system_id", "")
                 if email and sid:
+                    # Root-level pointer (platform home itself, e.g.
+                    # ~/.hermes/.agentmail) binds the platform's main
+                    # session — conventionally "default"/"main"; named
+                    # profile/agent dirs use their own directory name.
+                    if Path(dirpath) == platform_root:
+                        agent_name = "default"
+                    else:
+                        agent_name = os.path.basename(dirpath)
                     found.append({
-                        "agent_name": os.path.basename(dirpath),
+                        "agent_name": agent_name,
                         "email": email,
                         "system_id": sid,
                     })
@@ -777,7 +850,7 @@ def cmd_address(args) -> int:
 
     # ── 查看 ──────────────────────────────────────────────
     if op in ("list", "show"):
-        agents = _list_local_agents(sid)
+        agents = _list_agents(sid, cfg)
         current = cfg.get("default_agent_name", "agent")
         platform = ""
         sh = cfg.get("system_home", "")
@@ -790,14 +863,17 @@ def cmd_address(args) -> int:
         if not agents:
             print("  无本地注册 agent(地址键目录为空)。")
             return 0
-        print(f"  {'agent':<18} {'email':<42} {'manager':<32} webhook")
+        print(f"  {'agent':<18} {'email':<46} {'manager':<30} webhook   状态")
         for a in agents:
-            wh = (a["webhook_url"] or "")[:36]
-            print(f"  {a['agent']:<18} {a['email']:<42} {a['manager']:<32} {wh}")
+            wh = (a["webhook_url"] or "")[:28]
+            if a.get("registered"):
+                print(f"  {a['agent']:<18} {a['email']:<46} {a['manager']:<30} {wh}  已注册")
+            else:
+                print(f"  {a['agent']:<18} {(a['email'] or ''):<46} {'':<30} {'':<28}  未注册(平台 {a.get('platform','?')} 有该 agent,先 install/bind 注册)")
         return 0
 
     # ── 目标解析: -a agent 名 / -e email ───────────────────
-    agents = _list_local_agents(sid)
+    agents = _list_agents(sid, cfg)
     target = None
     if args.email:
         target = next((a for a in agents if a["email"] == args.email.lower()), None)
@@ -805,10 +881,14 @@ def cmd_address(args) -> int:
             _fail(f"本机未找到地址 {args.email} 的 agentmail.json(先在该 agent 上跑 install 注册)")
     elif args.agent:
         target = next((a for a in agents if a["agent"] == args.agent
-                        or a["email"].split("@")[0].startswith(args.agent)), None)
+                        or (a["email"] and a["email"].split("@")[0].startswith(args.agent))), None)
         if not target:
             _fail(f"本机未找到 agent '{args.agent}' 的注册地址(agentmail.json)。"
-                  f" 已注册: {[a['agent'] for a in agents] or '无'}")
+                  f" 平台 agent: {[a['agent'] for a in agents] or '无'}")
+        if not target.get("registered"):
+            _fail(f"agent '{args.agent}' 尚未注册(平台 {target.get('platform','?')} 存在但无地址)。"
+                  f" 先在平台侧注册该 agent(install/对应平台绑定),注册后再用 address 改名或设 manager。"
+                  f" 若其期望地址 {target.get('email')} 已被占用,注册时会冲突。")
 
     # ── default:默认主 agent 名(原 mailname)──────────────
     if op == "default":
