@@ -60,29 +60,37 @@ AIMail 支持系统管理员在终端命令行的**系统级安装**；或者 Ag
 ### 前置环境准备
 
 - **操作系统环境**:Linux + Python 3.10。
-- **已安装 Agent 系统**:任一已适配平台(DSH / OpenClaw / pi /
-  deer-flow / Hermes,推荐 **Hermes** 与 **DSH**)。
+- **已安装 Agent 系统**:目前已适配的Agent平台系统包括，[DSH](https://github.com/deepseek-ai/deepseek-harness)/[Pi](https://github.com/earendil-works/pi)/[Hermes](https://github.com/NousResearch/hermes-agent)/[Openclaw](https://github.com/openclaw/openclaw)/[Deerflow](https://github.com/bytedance/deer-flow)，推荐安装 **Hermes** 或 **DSH**。
 - **已安装网关服务或有服务激活码**:自建可达的 [aimail-gateway](https://github.com/metercai/aimail-gateway)
-  服务;或申请**云服务激活码**(共享域,`amail.token.tm`)。
+  服务;或免费申请**云端服务激活码**——共享域(`aimail.token.tm`)或独享域(场景 B),按下方清单选择对应场景。
 
 ### 环境变量确认清单
 
 **场景 A — 共享域激活码:**
 
 ```bash
-export AIMAIL_URL=https://amail.token.tm      # 网关地址
-export AIMAIL_PRODUCT_CODE=<激活码>            # 云端测试激活码
-export AIMAIL_SYSTEM_NAME=<你的标识名>          # 共享域系统: agent.<标识名>@<域名>
-export AIMAIL_MANAGER_ADDRESS=you@example.com # 默认 manager(接收 welcome 邮件)
+export AIMAIL_URL=https://aimail.token.tm      # 云端网关地址
+export AIMAIL_PRODUCT_CODE=<激活码>            # 云端领取的激活码
+export AIMAIL_SYSTEM_NAME=<你的标识名>          # 共享域系统: agent.<标识名>@<共享域名>
+export AIMAIL_MANAGER_ADDRESS=you@example.com # 管理agent的默认管理员邮件，可每个agent不一样
 ```
 
-**场景 B — 独立域网关服务:**
+**场景 B — 独享域激活码:**
 
 ```bash
-export AIMAIL_URL=<你的网关地址>               # 如 https://mail.example.com
-export AIMAIL_ADMIN_KEY=<admin key>           # 网关管理员凭据
+export AIMAIL_URL=https://aimail.token.tm      # 云端网关地址
+export AIMAIL_PRODUCT_CODE=<激活码>            # 云端领取的激活码
+export AIMAIL_DOMAIN=<你的域名>               # 独享域域名: agent@<独享域名>
+export AIMAIL_MANAGER_ADDRESS=you@example.com # 管理agent的默认管理员邮件，可每个agent不一样
+```
+
+**场景 C — 独立网关服务:**
+
+```bash
+export AIMAIL_URL=<你的网关地址>                # 自主独立安装的网关地址，如 https://mail.example.com
+export AIMAIL_ADMIN_KEY=<admin key>           # 网关的管理key
 export AIMAIL_DOMAIN=<你的域名>                # 独立域,如 example.com
-export AIMAIL_MANAGER_ADDRESS=you@example.com # 默认 manager
+export AIMAIL_MANAGER_ADDRESS=you@example.com # 管理agent的默认管理员邮件，可每个agent不一样
 ```
 
 ### 系统级安装
@@ -127,7 +135,7 @@ aimail welcome       # 网关向Agent发欢迎邮件，Agent回复管理员 = �
 把根据场景确定的环境变量内容填好，然后复制拷贝内容到Agent的对话框内执行。
 
 ```txt
-export AIMAIL_URL=https://amail.token.tm      # 网关地址
+export AIMAIL_URL=https://aimail.token.tm      # 网关地址
 export AIMAIL_PRODUCT_CODE=<激活码>            # 云端测试激活码
 export AIMAIL_SYSTEM_NAME=<你的标识名>          # 共享域系统: agent.<标识名>@<域名>
 export AIMAIL_MANAGER_ADDRESS=you@example.com # 默认 manager(接收 welcome 邮件)
@@ -202,9 +210,9 @@ AIMail 核心由**aimail-gateway**（邮件网关）和 Agent 内的 **aimail-sd
 
 | 类型         | 格式                                                  | 示例                                  |
 | ---------- | --------------------------------------------------- | ----------------------------------- |
-| 根 Profile  | `agent.{system_name}@{shared_domain}`               | `agent.meter@amail.token.tm`        |
-| 命名 Profile | `{profile}.{system_name}@{shared_domain}`           | `report.meter@amail.token.tm`       |
-| Persona    | `{persona}.{profile}.{system_name}@{shared_domain}` | `sales.report.meter@amail.token.tm` |
+| 根 Profile  | `agent.{system_name}@{shared_domain}`               | `agent.meter@aimail.token.tm`        |
+| 命名 Profile | `{profile}.{system_name}@{shared_domain}`           | `report.meter@aimail.token.tm`       |
+| Persona    | `{persona}.{profile}.{system_name}@{shared_domain}` | `sales.report.meter@aimail.token.tm` |
 
 ***
 

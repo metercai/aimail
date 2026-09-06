@@ -61,26 +61,35 @@ AIMail offers two install paths: **system-level install** from a terminal for sy
 
 - **Operating system:** Linux + Python 3.10+.
 - **An agent platform installed:** any supported one (DSH / OpenClaw / pi / deer-flow / Hermes — **Hermes and DSH recommended**).
-- **Gateway access:** a reachable self-hosted [aimail-gateway](https://github.com/metercai/aimail-gateway) service — or a **cloud activation code** (shared domain, `amail.token.tm`).
+- **Gateway access:** a reachable self-hosted [aimail-gateway](https://github.com/metercai/aimail-gateway) service — or a free **cloud activation code**, either on the shared domain (`aimail.token.tm`) or on your own (independent) domain. Pick the matching scenario below.
 
 ### Environment Checklist
 
-**Scenario A — shared-domain activation code:**
+**Scenario A — cloud activation code on the shared domain:**
 
 ```bash
-export AIMAIL_URL=https://amail.token.tm      # gateway address
-export AIMAIL_PRODUCT_CODE=<activation-code>  # cloud trial activation code
-export AIMAIL_SYSTEM_NAME=<your-id>           # shared domain: agent.<id>@<domain>
-export AIMAIL_MANAGER_ADDRESS=you@example.com # default manager (receives the welcome mail)
+export AIMAIL_URL=https://aimail.token.tm     # cloud gateway address
+export AIMAIL_PRODUCT_CODE=<activation-code>  # activation code from the cloud
+export AIMAIL_SYSTEM_NAME=<your-id>           # shared domain: agent.<id>@<shared-domain>
+export AIMAIL_MANAGER_ADDRESS=you@example.com # default manager mail for the admin agent; each agent may differ
 ```
 
-**Scenario B — self-hosted gateway (own domain):**
+**Scenario B — cloud activation code on your own (independent) domain:**
 
 ```bash
-export AIMAIL_URL=<your-gateway-url>          # e.g. https://mail.example.com
-export AIMAIL_ADMIN_KEY=<admin-key>           # gateway admin credential
-export AIMAIL_DOMAIN=<your-domain>            # e.g. example.com
-export AIMAIL_MANAGER_ADDRESS=you@example.com # default manager
+export AIMAIL_URL=https://aimail.token.tm     # cloud gateway address
+export AIMAIL_PRODUCT_CODE=<activation-code>  # activation code from the cloud
+export AIMAIL_DOMAIN=<your-domain>            # your independent domain: agent@<your-domain>
+export AIMAIL_MANAGER_ADDRESS=you@example.com # default manager mail for the admin agent; each agent may differ
+```
+
+**Scenario C — self-hosted gateway (own domain):**
+
+```bash
+export AIMAIL_URL=<your-gateway-url>          # your own gateway address, e.g. https://mail.example.com
+export AIMAIL_ADMIN_KEY=<admin-key>           # the gateway's admin key
+export AIMAIL_DOMAIN=<your-domain>            # your domain, e.g. example.com
+export AIMAIL_MANAGER_ADDRESS=you@example.com # default manager mail for the admin agent; each agent may differ
 ```
 
 ### System-level Install
@@ -127,7 +136,7 @@ aimail welcome       # the gateway sends a welcome mail to the agent; the agent 
 Fill in the environment variables for your scenario, then copy everything below into the agent's chat and let the agent execute it:
 
 ```txt
-export AIMAIL_URL=https://amail.token.tm      # gateway address
+export AIMAIL_URL=https://aimail.token.tm      # gateway address
 export AIMAIL_PRODUCT_CODE=<activation-code>  # cloud trial activation code
 export AIMAIL_SYSTEM_NAME=<your-id>           # shared domain: agent.<id>@<domain>
 export AIMAIL_MANAGER_ADDRESS=you@example.com # default manager (receives the welcome mail)
@@ -202,9 +211,9 @@ Same Hermes example. When you activate with a product code obtained from the off
 
 | Type          | Format                                              | Example                             |
 | ------------- | --------------------------------------------------- | ----------------------------------- |
-| Root profile  | `agent.{system_name}@{shared_domain}`               | `agent.meter@amail.token.tm`        |
-| Named profile | `{profile}.{system_name}@{shared_domain}`           | `report.meter@amail.token.tm`       |
-| Persona       | `{persona}.{profile}.{system_name}@{shared_domain}` | `sales.report.meter@amail.token.tm` |
+| Root profile  | `agent.{system_name}@{shared_domain}`               | `agent.meter@aimail.token.tm`        |
+| Named profile | `{profile}.{system_name}@{shared_domain}`           | `report.meter@aimail.token.tm`       |
+| Persona       | `{persona}.{profile}.{system_name}@{shared_domain}` | `sales.report.meter@aimail.token.tm` |
 
 ***
 
