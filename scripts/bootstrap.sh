@@ -58,10 +58,12 @@ else
   say "disk free: ${FREE_MIB} MiB"
 fi
 
-# ── 4. toolkit (upgrade = re-run; SKIP_INSTALL = re-init only) ─────
+# ── 4. toolkit (idempotent: present → skip; FORCE_UPGRADE=1 to re-fetch) ──
 if [ "${AIMAIL_SKIP_INSTALL:-0}" = "1" ]; then
   [ -x "$SRC/cli/aimail" ] || die "AIMAIL_SKIP_INSTALL=1 but no toolkit at $SRC"
   ok "toolkit present (skip-install)"
+elif [ -x "$SRC/cli/aimail" ] && [ "${AIMAIL_FORCE_UPGRADE:-0}" != "1" ]; then
+  ok "toolkit up-to-date ($REF) — AIMAIL_FORCE_UPGRADE=1 re-fetches"
 else
   TMP_TGZ="$(mktemp /tmp/aimail-bootstrap-XXXXXX.tar.gz)"
   trap 'rm -f "$TMP_TGZ"' EXIT
@@ -107,13 +109,21 @@ ENV_FILE="$AM_HOME/.env"
 chmod 600 "$ENV_FILE" 2>/dev/null || true
 [ -f "$ENV_FILE" ] && ok "env persisted to $ENV_FILE"
 
-# ── 6. machine init (env from ~/.aimail/.env if present) ──────────
-if [ ! -f "$AM_HOME/.env" ]; then
-  warn "no env values set yet — export them first (AIMAIL_URL + manager),"
-  warn "or create $AM_HOME/.env by hand; running init with defaults"
-  warn "(gateway probe / default aimail.token.tm)"
+# ── 6. machine init (idempotent: .env + bridge binary present → skip) ─
+ENV_READY=0
+[ -f "$AM_HOME/.env" ] && ENV_READY=1
+BRIDGE_READY=0
+[ -x "$AM_HOME/bridge/bin/aimail-bridge" ] && BRIDGE_READY=1
+if [ "$ENV_READY" = "1" ] && [ "$BRIDGE_READY" = "1" ] && [ "${AIMAIL_FORCE_UPGRADE:-0}" != "1" ]; then
+  ok "machine init already done (.env + bridge binary present) — re-run with AIMAIL_FORCE_UPGRADE=1 to re-check"
+else
+  if [ ! -f "$AM_HOME/.env" ]; then
+    warn "no env values set yet — export them first (AIMAIL_URL + manager),"
+    warn "or create $AM_HOME/.env by hand; running init with defaults"
+    warn "(gateway probe / default aimail.token.tm)"
+  fi
+  "$BIN_DIR/aimail" init || warn "init reported problems — see above"
 fi
-"$BIN_DIR/aimail" init || warn "init reported problems — see above"
 
 # ── 7. next steps ──────────────────────────────────────────────────
 echo

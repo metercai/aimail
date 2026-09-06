@@ -367,32 +367,32 @@ def cmd_init(args) -> int:
             d.mkdir(parents=True, exist_ok=True)
             os.chmod(d, 0o700)
     except OSError as e:
-        _warn(f"主目录构建失败: {e}")
-    print(f"  init: 主目录 = {AIMAIL_HOME}")
+        _warn(f"home dir setup failed: {e}")
+    print(f"  init: home dir = {AIMAIL_HOME}")
 
     # 2) 磁盘研判(评估:邮件快照/桥日志/系统配置,量级小;阈值防御性)
     try:
         st = os.statvfs(AIMAIL_HOME)
         free_mib = (st.f_bavail * st.f_frsize) // (1024 * 1024)
         if free_mib < 100:
-            _warn(f"磁盘可用空间不足: {free_mib} MiB(<100 MiB)——aimail 建议留足日志/快照空间")
+            _warn(f"low disk space: {free_mib} MiB (< 100 MiB) — keep headroom for logs/snapshots")
         elif free_mib < 1024:
-            _warn(f"磁盘可用空间偏低: {free_mib} MiB(<1 GiB)——留意日志/邮件快照增长")
+            _warn(f"low disk space: {free_mib} MiB (< 1 GiB) — watch log/mail-snapshot growth")
         else:
-            print(f"  init: 磁盘可用 = {free_mib} MiB(充足)")
+            print(f"  init: disk free = {free_mib} MiB (ok)")
     except OSError as e:
-        _warn(f"磁盘研判失败: {e}")
+        _warn(f"disk check failed: {e}")
 
     # 3) 网络结构:网关在哪、直连 or bridge
     gw = args.gateway_url or _env_val("AIMAIL_URL") or _probe_local_gateway()
     if not gw:
         gw = "https://aimail.token.tm"  # 默认远程网关
-    print(f"  init: 网关 = {gw}")
+    print(f"  init: gateway = {gw}")
 
     if _is_local_gateway(gw):
-        # 本地自建网关 → 直连 push,无需 bridge(注册三态第 3 支)
-        print("  ✓ 本地网关(直连 push)——无需 bridge,系统注册时直连本地端点")
-        print("  init done. 接下来: aimail install(激活系统并绑定平台)")
+        # local self-hosted gateway → direct push, no bridge needed
+        print("  ✓ local gateway (direct push) — no bridge needed")
+        print("  init done. Next: aimail install (activate a system)")
         return 0
 
     # 远程网关 → bridge push:二进制 + 骨架配置(首次 install 补 key 并启动)
@@ -402,9 +402,9 @@ def cmd_init(args) -> int:
     r = subprocess.call([sys.executable, str(SCRIPTS_DIR / "deploy_bridge.py"),
                          "--init"], env=env)
     if r != 0:
-        _warn(f"bridge init exit {r}")
+        _warn(f"bridge init exited with {r}")
         return r
-    print("  init done. 下一步: aimail install(激活系统)")
+    print("  init done. Next: aimail install (activate a system)")
     return 0
 
 

@@ -317,7 +317,7 @@ def main():
     if "--init" in sys.argv:
         gw = os.environ.get("GATEWAY_URL", "") or os.environ.get("AIMAIL_URL", "")
         if not gw:
-            log_warn("init 需要 GATEWAY_URL/AIMAIL_URL(网关在哪)")
+            log_warn("init needs GATEWAY_URL/AIMAIL_URL (where is the gateway)")
             return 1
         wh_mode = os.environ.get("WEBHOOK_MODE", "bridge")
         bridge_mode = "pull" if wh_mode == "bridge" else "push"
@@ -331,19 +331,19 @@ def main():
         bridge_dir = os.path.join(_AM_HOME, "bridge/bin")
         bridge_bin = os.path.join(bridge_dir, "aimail-bridge")
         if not _ensure_binary(bridge_bin, bridge_dir):
-            log_warn("bridge 二进制不可用;请先在仓库 bridge/ 放置 aimail-bridge zip")
+            log_warn("bridge binary unavailable; place an aimail-bridge zip under the repo bridge/ dir")
             return 1
 
         cfg_path = os.path.join(_AM_HOME, "bridge/aimail_bridge.toml")
         if os.path.exists(cfg_path):
-            log_ok(f"bridge 配置已存在: {cfg_path}(复用,首个 install 将 merge 系统条目)")
+            log_ok(f"bridge config exists: {cfg_path} (reused; first install merges system entries)")
         else:
             with open(cfg_path, 'w') as f:
                 f.write('\n'.join(_config_lines(
                     wh_host or "127.0.0.1:38081", bridge_mode, [],
                     os.path.join(_AM_HOME, "logs/aimail-bridge.log"))) + '\n')
-            log_ok(f"bridge 骨架配置已写入: {cfg_path}(systems 空)")
-        print("  init: bridge 二进制+配置就位(空 systems;首次 install 启动)")
+            log_ok(f"bridge skeleton config written: {cfg_path} (empty systems)")
+        print("  init: bridge binary + config in place (empty systems; first install starts it)")
         return 0
 
     # Read env vars from integrate.sh
