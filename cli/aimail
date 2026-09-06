@@ -384,7 +384,7 @@ def cmd_init(args) -> int:
     gw = args.gateway_url or _env_val("AIMAIL_URL") or _probe_local_gateway()
     if not gw:
         gw = "https://aimail.token.tm"  # 默认远程网关
-    print(f"  init: gateway = {gw}")
+    print(f"  init: gateway = {gw}", flush=True)  # flush: subprocess output below must not overtake it
 
     if _is_local_gateway(gw):
         # local self-hosted gateway → direct push, no bridge needed
