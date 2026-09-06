@@ -4,7 +4,6 @@
 > 用途:后续任何 agent 系统对接 AIMail 的第一参照文档。
 > 表述约定:各主题按 目标 → 方法 → 手段 → 结果 展开,只述现状,不述演变。
 > 权威代码:`pysdk/`(共享核心 + 平台适配 + MCP server)、`cli/`(CLI 与脚本)、`pysdk/resources/skills/`(SKILL 源)、`cli/bin/`(运行时注册工具)。
-> 配套文档:`AGENTMAIL-JSON-REFERENCE.md`(配置文件字段权威参考)。
 
 ---
 
@@ -157,7 +156,7 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 
 通用 9 字段:`email` / `gateway_url` / `domain` / `system_id` / `system_name` / `manager_address` / `api_key` / `webhook_url` / `webhook_secret`。
 平台特有:`agent_id`(OpenClaw/DeerFlow)、`assistant_id`(DeerFlow)。
-字段逐项说明见 `AGENTMAIL-JSON-REFERENCE.md`。
+字段语义以 MAINTENANCE §2/§9 与代码契约为准。
 
 ### 3.4 aimail_gateway.json 字段(系统级)
 
@@ -200,7 +199,7 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 | 入站接收端 | **网关插件 HTTP 路由** `POST http://127.0.0.1:18789/aimail/inbound`(`openclaw.json gateway.port` 默认 18789;auth=plugin,桥/直推目标不变):HMAC 验签 → TS `processInboundMail` → agent turn(`subagent.run` 主 / `gateway.request` 备;多 agent 经 sessionKey 路由) |
 | 生命周期 | 插件 register/deregister/status 命令;或 CLI 注册链 `cli/bin/register_agent.py`(local_webhook_url = 18789/aimail/inbound → bridge 路由) |
 | 部署 | `openclaw plugins install openclaw-aimail`(或经 tssdk 包);Python 侧仅注册/检查(cli/check_status L4 探测插件端点) |
-| 关键坑 | 入站处理前 `setAgentIdentity`(身份注入 TS 版);日志/事件契约与 Python 逐字对齐(见 DSH-PREPROCESS-CONTRACT.md);8799 外置桥已退役(§9) |
+| 关键坑 | 入站处理前 `setAgentIdentity`(身份注入 TS 版);日志/事件契约与 Python 逐字对齐;8799 外置桥已退役(§9) |
 
 ### 4.3 DeerFlow
 
@@ -224,7 +223,6 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 | 部署 | `dsh plugin --profile web add dsh-aimail`(bundle 经 cordis.patch.yml 自挂载) |
 | 关键坑 | persona 关闭(`PERSONA_SUPPORTED=False`,dsh-persona 同名不同义);多 session 隔离由网关 `sender==key.email` 兜底;契约逐字对齐 Python |
 
-> 详细方案见 `DEEPSEEK-HARNESS-INTEGRATION.md`;预处理契约基准见 `DSH-PREPROCESS-CONTRACT.md`。
 
 ### 4.5 pi(TS 扩展平台)
 

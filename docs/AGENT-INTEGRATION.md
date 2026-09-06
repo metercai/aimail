@@ -4,7 +4,6 @@
 > Purpose: the first-reference document for any future agent system integrating with AIMail.
 > Presentation convention: each topic is developed as goal → method → mechanism → result; it describes only the current state, never the history.
 > Authoritative code: `pysdk/` (shared core + platform adapters + MCP server), `cli/` (CLI and scripts), `pysdk/resources/skills/` (SKILL sources), `cli/bin/` (runtime registration tools).
-> Companion document: `AGENTMAIL-JSON-REFERENCE.md` (authoritative reference for configuration-file fields).
 
 ---
 
@@ -158,7 +157,7 @@ Cloud receive → gateway inbound queue → bridge pull (2s polling of /pending)
 
 Common 9 fields: `email` / `gateway_url` / `domain` / `system_id` / `system_name` / `manager_address` / `api_key` / `webhook_url` / `webhook_secret`.
 Platform-specific: `agent_id` (OpenClaw/DeerFlow), `assistant_id` (DeerFlow).
-Field-by-field explanations live in `AGENTMAIL-JSON-REFERENCE.md`.
+Field semantics follow MAINTENANCE §2/§9 and the code contract.
 
 ### 3.4 aimail_gateway.json Fields (system level)
 
@@ -201,7 +200,7 @@ Field-by-field explanations live in `AGENTMAIL-JSON-REFERENCE.md`.
 | Inbound endpoint | **Gateway-plugin HTTP route** `POST http://127.0.0.1:18789/aimail/inbound` (`openclaw.json gateway.port` defaults to 18789; auth=plugin, same target for bridge/direct push): HMAC signature verify → TS `processInboundMail` → agent turn (`subagent.run` primary / `gateway.request` fallback; multiple agents routed via sessionKey) |
 | Lifecycle | Plugin register/deregister/status commands; or the CLI registration chain `cli/bin/register_agent.py` (local_webhook_url = 18789/aimail/inbound → bridge route) |
 | Deployment | `openclaw plugins install openclaw-aimail` (or via the tssdk package); the Python side only registers/checks (cli/check_status probes the plugin endpoint at L4) |
-| Key pitfalls | Call `setAgentIdentity` before inbound processing (TS-side identity injection); logs/event contract aligned verbatim with Python (see DSH-PREPROCESS-CONTRACT.md); the 8799 external bridge is retired (§9) |
+| Key pitfalls | Call `setAgentIdentity` before inbound processing (TS-side identity injection); logs/event contract aligned verbatim with Python; the 8799 external bridge is retired (§9) |
 
 ### 4.3 DeerFlow
 
@@ -225,7 +224,6 @@ Field-by-field explanations live in `AGENTMAIL-JSON-REFERENCE.md`.
 | Deployment | `dsh plugin --profile web add dsh-aimail` (the bundle self-mounts via cordis.patch.yml) |
 | Key pitfalls | Persona off (`PERSONA_SUPPORTED=False`; dsh-persona is same-named but means something different); multi-session isolation is backed by the gateway's `sender==key.email`; contract aligned verbatim with Python |
 
-> Detailed design in `DEEPSEEK-HARNESS-INTEGRATION.md`; preprocessing contract baseline in `DSH-PREPROCESS-CONTRACT.md`.
 
 ### 4.5 pi (TS extension platform)
 
