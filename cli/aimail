@@ -396,8 +396,8 @@ def cmd_install(args) -> int:
     gw_url = args.gateway_url or _env_val("AIMAIL_URL", "https://aimail.token.tm")
     sys_name = args.system_name or _env_val("AIMAIL_SYSTEM_NAME")
     manager = args.manager or _env_val("AIMAIL_MANAGER_ADDRESS")
-    prod_code = args.product_code or _env_val("AIMAIL_PRODUCT_CODE")
-    adm_key = args.admin_key or _env_val("AIMAIL_ADMIN_KEY")
+    prod_code = args.product_code or ""
+    adm_key = args.admin_key or ""
     want_domain = args.domain or _env_val("AIMAIL_DOMAIN")
     sid = args.system_id or ""
 
@@ -412,12 +412,18 @@ def cmd_install(args) -> int:
         system_home = Path(sh)
         print(f"  --home 由 --system-id 反查: {system_home}")
     if not sid and system_home and not prod_code and not adm_key:
-        # 重复安装:home 归属唯一系统 → 自动复用;多个归属不猜,提示显式
+        # 重复安装:home 归属唯一系统 → 自动复用。.env 里的码可能已在首次
+        # 安装消耗(claimed)——重跑应复用(隐式码只服务真正的新建)。
         from runtime_core import sid_from_system_home
         sid2 = sid_from_system_home(str(system_home))
         if sid2:
             sid = sid2
             print(f"  复用归属系统: {sid}(由 --home 反查)")
+    if not sid and not prod_code and not adm_key:
+        # 真新建且无显式凭据:.env 的码/系统名兜底(与 README 前置一致)。
+        prod_code = _env_val("AIMAIL_PRODUCT_CODE")
+        if not sys_name:
+            sys_name = _env_val("AIMAIL_SYSTEM_NAME")
     if not system_home:
         _fail("install 需要 --home,或带 --system-id 以便从本地配置反查")
     if not system_home.exists():
@@ -469,6 +475,17 @@ def cmd_install(args) -> int:
     if sid2 and sid2 != (args.system_id or ""):
         env["INTEGRATE_SYSTEM_ID"] = sid2
         _ok(f"system_id: {sid2}")
+    # 激活产物回填:setup_system 已把 admin_key/domain 写入本地 cfg;
+    # bridge 部署与平台步骤需要它们(新系统激活路径没有显式 -k)。
+    if sid2:
+        cfg2 = load_gateway_config(sid2)
+        if cfg2:
+            ak2 = cfg2.get("admin_key")
+            if ak2:
+                env["INTEGRATE_ADMIN_KEY"] = ak2
+            dm2 = cfg2.get("domain")
+            if dm2:
+                env["INTEGRATE_AIMAIL_DOMAIN"] = dm2
 
     # 1b) domain 预置/创建:AIMAIL_DOMAIN 指定且系统缺失时主动创建
     if want_domain and sid2:
@@ -500,6 +517,7 @@ def cmd_install(args) -> int:
         env2["GATEWAY_URL"] = env["INTEGRATE_GATEWAY_URL"]
         env2["ADMIN_KEY"] = env.get("INTEGRATE_ADMIN_KEY", "")
         env2["SYSTEM_ID"] = env["INTEGRATE_SYSTEM_ID"]
+        env2["AIMAIL_DOMAIN"] = env.get("INTEGRATE_AIMAIL_DOMAIN", "")
         r = subprocess.call([sys.executable, str(SCRIPTS_DIR / "deploy_bridge.py")], env=env2)
         if r == 0:
             _ok("bridge deployed")
@@ -560,7 +578,13 @@ def cmd_install(args) -> int:
         print("  pi: 扩展安装 = pi install npm:pi-aimail(宿主命令)+ 重启")
     elif platform == "dsh":
         # 安装 = dsh 官方插件命令的薄封装(bundle 自动挂载 mail/mail-inbound/tool-mail)
-        r = subprocess.call(["dsh", "plugin", "--profile", "web", "add", "dsh-aimail"])
+        try:
+            r = subprocess.call(["dsh", "plugin", "--profile", "web", "add", "dsh-aimail"])
+        except FileNotFoundError:
+            _fail("`dsh` CLI not found — build/install deepseek-harness first "
+                  "(e.g. cd ~/deepseek-harness && cargo build --release && "
+                  "ln -sf \"$PWD/target/release/dsh\" ~/.local/bin/dsh), "
+                  "then re-run aimail install")
         if r != 0:
             _warn("dsh plugin add aimail 失败(检查 aimail npm 包发布与网络)")
         else:
