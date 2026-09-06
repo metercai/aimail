@@ -213,6 +213,8 @@ register_board_gateway = _ab._register_board_gateway
 store_board_credential = _ab._store_board_credential
 email_for_agent = _ab.email_for_agent                  # 地址派生（注册/注销脚本共用）
 register_agent_email = _ab.register_agent_email        # 注册链
+resolve_register_webhook_url = _ab.resolve_register_webhook_url  # webhook 三态
+register_bridge_route = _ab.register_bridge_route      # bridge 路由
 deregister_agent_email = _ab.deregister_agent_email    # 注销链
 
 # gateway_api 标准客户端转发

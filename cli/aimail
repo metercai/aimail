@@ -837,7 +837,9 @@ def _scan_pointers(platform_root: Path):
                     # session — conventionally "default"/"main"; named
                     # profile/agent dirs use their own directory name.
                     if Path(dirpath) == platform_root:
-                        agent_name = "default"
+                        # 根级指针 = 平台主会话:hermes default / openclaw main
+                        base_nm = os.path.basename(str(platform_root))
+                        agent_name = "default" if base_nm in (".hermes", "hermes") else "main" if base_nm in (".openclaw", "openclaw") else "default"
                     else:
                         agent_name = os.path.basename(dirpath)
                     found.append({
@@ -1003,17 +1005,29 @@ def cmd_address(args) -> int:
 
 
 def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str, manager: str) -> None:
-    """注册单个 agent(agent 个体粒度):委托平台适配层的单 agent 注册入口,
-    核心链(register→activate→webhook→route→agentmail.json 注入→平台指针)在适配层内完成。
-    与 install/bind(平台全量注册)不同,address 只注册这一个 agent。"""
+    """注册单个 agent(agent 个体粒度)。每平台走其自身的单 agent 注册链:
+    - hermes   : 适配层 _auto_register_email(直注册名,支持 -n)
+    - openclaw : cli/bin/register_agent.py --agent(现成注册器,子进程委托)
+    - dsh      : cli/dsh/bind_agent.py(会话绑定,注册名恒 agent)
+    - deerflow : pysdk/deer-flow/manage.py register(现成注册器)
+    - pi       : 核心链组装(webhook 端点/agent_id 落盘/根指针;注册名恒 pi)
+    -n 与平台默认名不同时:先按默认名注册,再 rename(服务端 rename + 本地迁移,
+    复用 set-name 同款链路)——保证地址名精确等于用户指定值。
+    """
     import re as _re
     if not _re.fullmatch(r"[A-Za-z0-9!#$%&'*+\-/=?^_`{|}~]+", reg_name):
         _fail(f"非法地址名 '{reg_name}':须为 atext-no-dot 字符(不能含点/空格/@)")
+    sid = cfg.get("system_id", "")
+    mgr = manager if (manager and "@" in manager) else cfg.get("manager_address", "") or os.environ.get("AIMAIL_MANAGER", "")
     home = cfg.get("system_home", "")
-    if not home:
-        _fail("系统配置缺 system_home(无法定位平台 profile/agent 目录)")
-    load_core()
+    domain = cfg.get("domain", "")
+    system_name = cfg.get("system_name", "")
+    # 平台默认注册名(地址派生别名)
+    aliases = _PLATFORM_DEFAULT_ALIASES.get(platform, ())
+    default_name = "agent" if agent in aliases else agent
+
     if platform == "hermes":
+        # 直注册名(适配层内完整链 + profile 指针 + agentmail.json 注入)
         try:
             from aimail.hermes import aimail_hermes as _ah
         except ImportError:
@@ -1028,13 +1042,8 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str, man
             if not Path(profile_dir).is_dir():
                 _fail(f"hermes profile 目录不存在: {profile_dir}")
         _cfg = dict(cfg)
-        if manager and "@" in manager:
-            _cfg["manager_address"] = manager
-        domain = cfg.get("domain", "")
-        system_name = cfg.get("system_name", "")
-        import sys as _sys
-        from aimail_tools import _GatewayClient  # noqa: F401  (注:适配层自建 client)
-        # CLI 环境无平台工具注册器(注册链内的工具注册属会话内环节)——临时静默
+        if mgr:
+            _cfg["manager_address"] = mgr
         import logging as _log
         _lgr = _log.getLogger("aimail")
         _lvl = _lgr.level
@@ -1043,14 +1052,168 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str, man
             _ah._auto_register_email(reg_name, profile_dir, _cfg)
         finally:
             _lgr.setLevel(_lvl)
-        _ok(f"agent '{agent}' 已注册 → 地址名 {reg_name}@{domain if domain else '(域未知)'}"
-            f"(profile: {os.path.basename(profile_dir) or profile_dir})")
-        if manager and "@" in manager:
-            print(f"  manager: {manager}(注册时已设)")
-        print(f"  验证:aimail address -s {cfg.get('system_id','')} -a {agent} 查看新地址")
+        _post_reg_report(platform, agent, reg_name, domain, sid)
+
+    elif platform == "openclaw":
+        reg = _run_registrar([sys.executable, str(SCRIPTS_DIR.parent / "cli" / "bin" / "register_agent.py"),
+                              "--agent", agent, "--system-id", sid, "--manager", mgr or "nobody@invalid"])
+        if reg[0] != 0:
+            _fail(f"openclaw 注册器失败: {reg[1][-400:]}")
+        if reg_name != default_name:
+            _rename_after_reg(cfg, default_name, agent, reg_name, sid, domain)
+        _post_reg_report(platform, agent, reg_name, domain, sid)
+
+    elif platform == "dsh":
+        # dsh 注册链绑定会话;注册名恒 agent(-n 仅当等于默认才有意义)
+        if reg_name not in (default_name, "agent"):
+            _warn(f"dsh 注册名恒为 'agent'(-n {reg_name} 忽略;如需别名请注册后 rename)")
+        script = SCRIPTS_DIR.parent / "cli" / "dsh" / "bind_agent.py"
+        reg = _run_registrar([sys.executable, str(script), "--system-id", sid,
+                              "--manager", mgr or "", "--preset", "mail"])
+        if reg[0] != 0:
+            _fail(f"dsh 注册器失败: {reg[1][-400:]}")
+        _post_reg_report(platform, agent, "agent", domain, sid)
+
+    elif platform == "deerflow":
+        script = SCRIPTS_DIR.parent / "pysdk" / "deer-flow" / "manage.py"
+        if not script.is_file():
+            _fail(f"deerflow 注册器缺失: {script}(deer-flow 平台模块未随本机安装)")
+        reg = _run_registrar([sys.executable, str(script), "register",
+                              "--system-id", sid, "--agent", agent])
+        if reg[0] != 0:
+            _fail(f"deerflow 注册器失败: {reg[1][-400:]}")
+        if reg_name != default_name:
+            _rename_after_reg(cfg, default_name, agent, reg_name, sid, domain)
+        _post_reg_report(platform, agent, reg_name, domain, sid)
+
+    elif platform == "pi":
+        # 核心链组装(pi 无独立注册器;webhook 端点取本机 pi 样本约定 9101/aimail/inbound)
+        load_core()
+        from aimail_tools import _GatewayClient
+        import secrets as _sec
+        gw_url = cfg.get("gateway_url", "").rstrip("/")
+        ak = cfg.get("admin_key", "")
+        client = _GatewayClient(gw_url, ak)
+        try:
+            from aimail_base import email_for_agent, register_agent_email, resolve_register_webhook_url
+        except ImportError:
+            import importlib
+            _base = importlib.import_module("aimail_base")
+            email_for_agent = _base.email_for_agent
+            register_agent_email = _base.register_agent_email
+            resolve_register_webhook_url = _base.resolve_register_webhook_url
+        email = email_for_agent("pi", domain, system_name)
+        local_webhook_url = "http://127.0.0.1:9101/aimail/inbound"
+        reg_url = resolve_register_webhook_url(cfg, local_webhook_url)
+        webhook_secret = _sec.token_hex(32)
+        reg = register_agent_email(client, sid, email, reg_url, webhook_secret, mgr)
+        api_key = reg.get("api_key", "")
+        _write_agentmail_json(cfg, sid, email, api_key, webhook_secret, local_webhook_url, mgr, "pi")
+        _write_pointer(Path(home) / ".agentmail", sid, email)
+        _post_reg_report(platform, agent, "pi", domain, sid)
+
     else:
-        _fail(f"平台 {platform} 的单 agent 注册委托尚未接线(本版仅 hermes 接通)。"
-              f" openclaw/pi/dsh/deerflow 请先用各自平台注册链(install/bind/manage.py),后续版本统一到 address。")
+        _fail(f"未知平台: {platform}")
+
+
+def _run_registrar(argv: list):
+    """子进程调用平台注册器;返回 (returncode, stdout+stderr)。"""
+    try:
+        r = subprocess.run(argv, capture_output=True, timeout=120, text=True)
+        return r.returncode, (r.stdout or "") + (r.stderr or "")
+    except FileNotFoundError as e:
+        return 127, f"注册器不可执行: {e}"
+
+
+def _rename_after_reg(cfg: dict, default_name: str, agent: str, reg_name: str, sid: str, domain: str) -> None:
+    """注册(默认名)后 rename 到指定地址名:服务端 rename + 本地 agentmail.json 迁移。"""
+    old_email = f"{'agent' if default_name == 'agent' else default_name}@{domain}"
+    if system_name := cfg.get("system_name"):
+        old_email = f"{'agent' if default_name == 'agent' else default_name}.{system_name}@{domain}"
+    new_email = f"{reg_name}@{domain}"
+    if system_name := cfg.get("system_name"):
+        new_email = f"{reg_name}.{system_name}@{domain}"
+    if old_email == new_email:
+        return
+    load_core()
+    from aimail_tools import _GatewayClient
+    gw = cfg.get("gateway_url", "").rstrip("/")
+    ak = cfg.get("admin_key", "")
+    client = _GatewayClient(gw, ak)
+    try:
+        client._request("POST", f"/api/v1/admin/systems/{sid}/addresses/rename",
+                        body={"old_email": old_email, "new_email": new_email})
+    except Exception as e:
+        _fail(f"注册后 rename {old_email} → {new_email} 失败: {e}")
+    # 本地迁移:agentmail.json 目录改名 + email 更新
+    base = AIMAIL_HOME / "systems" / sid
+    if base.is_dir():
+        for d in base.iterdir():
+            jf = d / "agentmail.json"
+            if not jf.is_file():
+                continue
+            try:
+                acfg = json.loads(jf.read_text())
+            except Exception:
+                continue
+            if acfg.get("email") == old_email:
+                nd = base / new_email.replace("/", "_")
+                if nd.exists():
+                    nd = nd
+                acfg["email"] = new_email
+                if d.exists() and not nd.exists():
+                    d.rename(nd)
+                jf2 = (nd if nd.exists() else d) / "agentmail.json"
+                jf2.write_text(json.dumps(acfg, indent=2, ensure_ascii=False))
+                break
+    # 平台根指针(.agentmail/.aimail)同步到新地址
+    home = cfg.get("system_home", "")
+    if home and Path(home).is_dir():
+        for ptr_name in (".agentmail", ".aimail"):
+            pp = Path(home) / ptr_name
+            try:
+                pdata = json.loads(pp.read_text())
+                if pdata.get("email") == old_email:
+                    pdata["email"] = new_email
+                    pp.write_text(json.dumps(pdata, ensure_ascii=False))
+            except Exception:
+                pass
+    _ok(f"  地址名已改: {old_email} → {new_email}")
+
+
+def _write_agentmail_json(cfg: dict, sid: str, email: str, api_key: str, secret: str,
+                          local_webhook_url: str, mgr: str, agent_id: str) -> None:
+    import json as _json
+    base = AIMAIL_HOME / "systems" / sid
+    d = base / email.replace("/", "_")
+    d.mkdir(parents=True, exist_ok=True)
+    data = {
+        "email": email,
+        "gateway_url": cfg.get("gateway_url", ""),
+        "domain": cfg.get("domain", ""),
+        "system_id": sid,
+        "system_name": cfg.get("system_name", ""),
+        "agent_id": agent_id,
+        "manager_address": mgr,
+        "api_key": api_key,
+        "webhook_url": local_webhook_url,
+        "webhook_secret": secret,
+    }
+    (d / "agentmail.json").write_text(_json.dumps(data, indent=2, ensure_ascii=False))
+
+
+def _write_pointer(ptr_path, sid: str, email: str) -> None:
+    import json as _json
+    try:
+        ptr_path.parent.mkdir(parents=True, exist_ok=True)
+        ptr_path.write_text(_json.dumps({"system_id": sid, "email": email}))
+    except Exception as e:
+        _warn(f"写平台指针失败 {ptr_path}: {e}")
+
+
+def _post_reg_report(platform: str, agent: str, reg_name: str, domain: str, sid: str) -> None:
+    _ok(f"agent '{agent}' 已注册 → 地址名 {reg_name}@{domain if domain else '(域未知)'}(平台 {platform})")
+    print(f"  验证:aimail address -s {sid} -a {agent} 查看新地址;地址名如需再改用 -n")
 
 
 def _atomic_json_write(path: Path, data: dict) -> None:
