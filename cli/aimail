@@ -84,8 +84,22 @@ def _load_env() -> None:
 
 
 def _env_val(key: str, fallback: str = "") -> str:
-    """env var value (from .env or shell) with fallback."""
-    return os.environ.get(key, "") or fallback
+    """env var value: shell env wins, then ~/.aimail/.env, then fallback.
+    (.env is the machine-level config persisted by bootstrap; init/install
+    and friends must honour it even when the calling shell has no export.)"""
+    v = os.environ.get(key)
+    if v:
+        return v
+    try:
+        env_file = AIMAIL_HOME / ".env"
+        if env_file.is_file():
+            for line in env_file.read_text().splitlines():
+                line = line.strip()
+                if line.startswith(key + "="):
+                    return line[len(key) + 1:].strip()
+    except OSError:
+        pass
+    return fallback
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -390,7 +404,7 @@ def cmd_init(args) -> int:
     if r != 0:
         _warn(f"bridge init exit {r}")
         return r
-    print("  init done. 接下来: aimail install(激活系统,首次将补齐 bridge key 并启动)")
+    print("  init done. 下一步: aimail install(激活系统)")
     return 0
 
 

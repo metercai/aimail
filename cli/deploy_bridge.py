@@ -343,8 +343,7 @@ def main():
                     wh_host or "127.0.0.1:38081", bridge_mode, [],
                     os.path.join(_AM_HOME, "logs/aimail-bridge.log"))) + '\n')
             log_ok(f"bridge 骨架配置已写入: {cfg_path}(systems 空)")
-        print("  init: bridge 二进制+配置就位。首个系统激活(aimail install)时"
-              "将创建 bridge key、追加系统条目并启动。")
+        print("  init: bridge 二进制+配置就位(空 systems;首次 install 启动)")
         return 0
 
     # Read env vars from integrate.sh

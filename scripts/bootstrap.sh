@@ -119,8 +119,7 @@ fi
 echo
 ok "bootstrap done — aimail $(cd "$SRC" && git describe --tags 2>/dev/null || echo "$REF")"
 say "next:"
-say "  1. agent host first?  →  openclaw plugins install openclaw-aimail (host side)"
-say "  2. activate a system: →  aimail install --home <host-root>"
+say "  1. activate a system: →  aimail install --home <agent-host-root>"
 say "     (fills ~/.aimail/.env: AIMAIL_ADMIN_KEY/AIMAIL_PRODUCT_CODE as needed)"
-say "  3. verify the loop:   →  aimail welcome"
+say "  2. verify the loop:   →  aimail welcome"
 say "diagnose: aimail check · aimail stats"
