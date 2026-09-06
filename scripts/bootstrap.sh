@@ -111,7 +111,7 @@ chmod 600 "$ENV_FILE" 2>/dev/null || true
 if [ ! -f "$AM_HOME/.env" ]; then
   warn "no env values set yet — export them first (AIMAIL_URL + manager),"
   warn "or create $AM_HOME/.env by hand; running init with defaults"
-  warn "(gateway probe / default amail.token.tm)"
+  warn "(gateway probe / default aimail.token.tm)"
 fi
 "$BIN_DIR/aimail" init || warn "init reported problems — see above"
 

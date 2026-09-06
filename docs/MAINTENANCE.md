@@ -117,7 +117,7 @@ label shown by `stats` (feature-detected from the directory, never guessed).
 
 ```bash
 # host installed → export values (take effect immediately):
-export AIMAIL_URL=https://amail.token.tm
+export AIMAIL_URL=https://aimail.token.tm
 export AIMAIL_MANAGER_ADDRESS=you@example.com
 export AIMAIL_ADMIN_KEY=<key>          # reuse path  OR
 export AIMAIL_PRODUCT_CODE=<code>      # new-system path (+ AIMAIL_SYSTEM_NAME)
@@ -342,7 +342,7 @@ to re-persist.
 
 ### Bridge cannot pull emails
 
-`aimail bridge` (process/config/routes) → `curl https://amail.token.tm/health`
+`aimail bridge` (process/config/routes) → `curl https://aimail.token.tm/health`
 → `tail -20 ~/.aimail/logs/aimail-bridge.log` → `aimail repair -s <sid>`.
 
 ### Repeated install created problems?
@@ -408,7 +408,7 @@ first read): `gateway_url`, `admin_key`, `system_id`, `system_name`,
 `webhook_secret`.
 
 **Address semantics** (shared domains): agent address =
-`{agent}.{system_name}@{shared-domain}` (e.g. `agent.xianlin@amail.token.tm`,
+`{agent}.{system_name}@{shared-domain}` (e.g. `agent.xianlin@aimail.token.tm`,
 `pi.xianlin@…`) derived via `email_for_agent`; the system identifier
 (`system_name`) is globally unique per shared domain (pickup occupancy +
 activation UNIQUE + address UNIQUE triple guard) — two different systems

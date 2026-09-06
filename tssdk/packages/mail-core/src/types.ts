@@ -7,7 +7,7 @@
 export interface AgentConfig {
   /** agent amail address (identity; outbound sender == key.email enforced server-side) */
   email: string
-  /** gateway base URL e.g. https://amail.token.tm */
+  /** gateway base URL e.g. https://aimail.token.tm */
   gateway_url: string
   /** mail domain (address assembly only) */
   domain: string

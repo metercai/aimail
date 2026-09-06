@@ -109,7 +109,7 @@ agent 侧一律 **push**。网关解析为本机(`127.0.0.1`/`localhost`/本机 
 
 ```bash
 # 宿主已装 → export 环境变量(立即生效,无需建文件):
-export AIMAIL_URL=https://amail.token.tm
+export AIMAIL_URL=https://aimail.token.tm
 export AIMAIL_MANAGER_ADDRESS=you@example.com
 export AIMAIL_ADMIN_KEY=<key>          # 复用路径  或
 export AIMAIL_PRODUCT_CODE=<code>      # 新系统路径(+ AIMAIL_SYSTEM_NAME)
@@ -310,7 +310,7 @@ webhook 不一致。
 
 ### bridge 拉不到邮件
 
-`aimail bridge`(进程/配置/路由)→ `curl https://amail.token.tm/health` →
+`aimail bridge`(进程/配置/路由)→ `curl https://aimail.token.tm/health` →
 `tail -20 ~/.aimail/logs/aimail-bridge.log` → `aimail repair -s <sid>`。
 
 ### 重复 install 出问题了?
@@ -371,7 +371,7 @@ profile 配置)。本地入站 URL 就是 `agentmail.json` 存的 `webhook_url`,
 (本地入站端点——bridge 路由唯一信任源), `webhook_secret`。
 
 **地址语义**(共享域):agent 地址 = `{agent}.{system_name}@{共享域}`
-(如 `agent.xianlin@amail.token.tm`、`pi.xianlin@…`,经 `email_for_agent`
+(如 `agent.xianlin@aimail.token.tm`、`pi.xianlin@…`,经 `email_for_agent`
 派生);系统标识名(`system_name`)在同一共享域内**全局唯一**(领取占用 +
 激活 UNIQUE + 地址注册 UNIQUE 三层防线)——两个不同系统不可能在同一共享
 域用同一个标识名。非共享系统地址 = `{agent}@{裸域}`,可持有多个裸域

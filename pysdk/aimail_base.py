@@ -339,7 +339,7 @@ def _clean_agent_dir_name(addr: str) -> str:
     邮件地址是 7-bit ASCII(RFC 5321),re.ASCII 让 \\w 退化为 [a-zA-Z0-9_],
     任何非 ASCII 字符(理论上不出现)也归一为 _,与 TS cleanAddr(/[^\\w.-]/g)
     1:1 对齐,且文件系统路径始终 ASCII 安全。
-    与 bridge 顶层 agent 目录命名同规则（mike_amail.token.tm）。
+    与 bridge 顶层 agent 目录命名同规则（mike_aimail.token.tm）。
     """
     return re.sub(r"[^\w.\-]", "_", addr, flags=re.ASCII)
 
@@ -1000,9 +1000,9 @@ def parse_amail_persona(email: str, system_name: str = "") -> tuple:
     Returns (persona, profile_name, sys_name).
     
     Shared domain (three-part: persona.profile.sys_name@domain):
-      'support.ql-biopharm.myco@amail.token.tm'  → ('support', 'ql-biopharm', 'myco')
-      'ql-biopharm.myco@amail.token.tm'           → ('', 'ql-biopharm', 'myco')
-      'myco@amail.token.tm'                       → ('', 'default', 'myco')  ← short form
+      'support.ql-biopharm.myco@aimail.token.tm'  → ('support', 'ql-biopharm', 'myco')
+      'ql-biopharm.myco@aimail.token.tm'           → ('', 'ql-biopharm', 'myco')
+      'myco@aimail.token.tm'                       → ('', 'default', 'myco')  ← short form
     
     Non-shared domain (two-part: persona.profile@domain):
       'support.alice@agent.com'  → ('support', 'alice', '')

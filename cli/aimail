@@ -372,7 +372,7 @@ def cmd_init(args) -> int:
     # 3) 网络结构:网关在哪、直连 or bridge
     gw = args.gateway_url or _env_val("AIMAIL_URL") or _probe_local_gateway()
     if not gw:
-        gw = "https://amail.token.tm"  # 默认远程网关
+        gw = "https://aimail.token.tm"  # 默认远程网关
     print(f"  init: 网关 = {gw}")
 
     if _is_local_gateway(gw):
@@ -425,7 +425,7 @@ def cmd_install(args) -> int:
     load_core()
     from gateway_api import load_gateway_config
     env = dict(os.environ)
-    gw_url = args.gateway_url or _env_val("AIMAIL_URL", "https://amail.token.tm")
+    gw_url = args.gateway_url or _env_val("AIMAIL_URL", "https://aimail.token.tm")
     sys_name = args.system_name or _env_val("AIMAIL_SYSTEM_NAME")
     manager = args.manager or _env_val("AIMAIL_MANAGER_ADDRESS")
     prod_code = args.product_code or _env_val("AIMAIL_PRODUCT_CODE")
@@ -740,8 +740,8 @@ def cmd_mailname(args) -> int:
             client = _GatewayClient(gw, ak)
             domains = client.list_system_domains(sid)
             occupied = []
-            # domain 字段可能是注册地址(如 agent.xianlin@amail.token.tm)
-            # 或 anchor(xianlin@amail.token.tm)——检查新默认名是否与已有
+            # domain 字段可能是注册地址(如 agent.xianlin@aimail.token.tm)
+            # 或 anchor(xianlin@aimail.token.tm)——检查新默认名是否与已有
             # 地址的 base 段冲突(用户定调:改前检测与其他 agent 名字冲突)
             for d in domains if isinstance(domains, list) else []:
                 addr = d.get("domain") or ""
@@ -1090,7 +1090,7 @@ def _resolve_renew_target(args) -> tuple[str, str, str]:
     elif sid not in candidates:
         _fail(f"system not found locally: {sid} (installed: {', '.join(candidates) or 'none'})")
     cfg = load_gateway_config(sid) or {}
-    gw_url = args.gateway_url or cfg.get("gateway_url") or _env_val("AIMAIL_URL", "https://amail.token.tm")
+    gw_url = args.gateway_url or cfg.get("gateway_url") or _env_val("AIMAIL_URL", "https://aimail.token.tm")
     admin_key = cfg.get("admin_key") or ""
     if not admin_key:
         _fail(f"no admin_key in aimail_gateway.json for {sid}")

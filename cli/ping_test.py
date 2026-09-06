@@ -159,7 +159,7 @@ def _smtp_send_ping(gw_url: str, admin_key: str, email: str,
             return f"DATA failed: {resp}"
         body = (f"From: {manager}\nTo: {email}\n"
                 f"Subject: {PING_PREFIX}{ping_id}\n"
-                f"Message-ID: <ping-{ping_id}@amail.token.tm>\n"
+                f"Message-ID: <ping-{ping_id}@aimail.token.tm>\n"
                 f"\nPing test message\n")
         s.sendall(body.replace("\n", "\r\n").encode())
         s.sendall(b".\r\n")
