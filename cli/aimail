@@ -383,6 +383,56 @@ def _write_pi_pointer(sid: str) -> None:
         _warn(f"pi pointer write failed: {e}")
 
 
+# ── legacy cmd_init: no longer registered as a CLI subcommand. Bootstrap
+#    does home/disk/env prep and `aimail install` deploys the bridge at
+#    first system; the function stays as the machine-prep implementation
+#    for any direct/internal caller that still needs it.
+def cmd_init(args) -> int:
+    """机器级基础环境(一次):主目录构建 → 磁盘研判 → 网络结构(网关/直连
+    or bridge)。零系统可跑;激活(install)在其后进行。"""
+    # 1) 主目录构建(幂等;0700 仅本用户可读——含 admin key/secret)
+    try:
+        for sub in ("", "systems", "logs", "bridge"):
+            d = AIMAIL_HOME if not sub else AIMAIL_HOME / sub
+            d.mkdir(parents=True, exist_ok=True)
+            os.chmod(d, 0o700)
+    except OSError as e:
+        _warn(f"home dir setup failed: {e}")
+
+    # 2) 磁盘研判(评估:邮件快照/桥日志/系统配置,量级小;阈值防御性)
+    try:
+        st = os.statvfs(AIMAIL_HOME)
+        free_mib = (st.f_bavail * st.f_frsize) // (1024 * 1024)
+        if free_mib < 100:
+            _warn(f"low disk space: {free_mib} MiB (< 100 MiB) — keep headroom for logs/snapshots")
+        elif free_mib < 1024:
+            _warn(f"low disk space: {free_mib} MiB (< 1 GiB) — watch log/mail-snapshot growth")
+    except OSError as e:
+        _warn(f"disk check failed: {e}")
+
+    # 3) 网络结构:网关在哪、直连 or bridge
+    gw = args.gateway_url or _env_val("AIMAIL_URL") or _probe_local_gateway()
+    if not gw:
+        gw = "https://aimail.token.tm"  # 默认远程网关
+    print(f"  init: gateway = {gw}", flush=True)  # flush: subprocess output below must not overtake it
+
+    if _is_local_gateway(gw):
+        # local self-hosted gateway → direct push, no bridge needed
+        print("  ✓ local gateway (direct push) — no bridge needed; install activates the system")
+        return 0
+
+    # 远程网关 → bridge push:二进制 + 骨架配置(首次 install 补 key 并启动)
+    env = dict(os.environ)
+    env["GATEWAY_URL"] = gw
+    env.setdefault("WEBHOOK_MODE", "bridge")
+    r = subprocess.call([sys.executable, str(SCRIPTS_DIR / "deploy_bridge.py"),
+                         "--init"], env=env)
+    if r != 0:
+        _warn(f"bridge init exited with {r}")
+        return r
+    return 0
+
+
 def cmd_install(args) -> int:
     """安装:集成脚本到 check 前的全部步骤(非交互化)。"""
     load_core()

@@ -11,9 +11,8 @@
 #   4. fetch the aimail toolkit (codeload tarball; AIMAIL_VERSION to pin a
 #      tag, default main) into ~/.aimail/toolkit/aimail-src
 #   5. link ~/.local/bin/aimail → toolkit cli/aimail (PATH hint if needed)
-#   6. machine prep: deploy_bridge.py --init (gateway discovery /
-#      direct-vs-bridge / bridge skeleton) — reads AIMAIL_URL from
-#      ~/.aimail/.env when present
+#   6. (no machine prep here — `aimail install` deploys the bridge at
+#      first-system activation)
 #   7. next-step guidance (aimail install --home …  →  welcome)
 #
 # Re-running = upgrade (re-fetch toolkit) + machine-prep re-check.
@@ -127,21 +126,8 @@ else
   warn "env incomplete — see README (bootstrap prerequisites) for the AIMAIL_* set, then re-run"
 fi
 
-# ── 6. machine init (idempotent: .env + bridge binary present → skip) ─
-ENV_READY=0
-[ -f "$AM_HOME/.env" ] && ENV_READY=1
-BRIDGE_READY=0
-[ -x "$AM_HOME/bridge/bin/aimail-bridge" ] && BRIDGE_READY=1
-if [ "$ENV_READY" = "1" ] && [ "$BRIDGE_READY" = "1" ] && [ "${AIMAIL_FORCE_UPGRADE:-0}" != "1" ]; then
-  ok "machine init already done (.env + bridge binary present) — re-run with AIMAIL_FORCE_UPGRADE=1 to re-check"
-else
-  if [ ! -f "$AM_HOME/.env" ]; then
-    warn "no env values set yet — export them first (AIMAIL_URL + manager),"
-    warn "or create $AM_HOME/.env by hand; running prep with defaults"
-    warn "(gateway probe / default aimail.token.tm)"
-  fi
-  python3 "$SRC/cli/deploy_bridge.py" --init || warn "machine prep reported problems — see above"
-fi
+# ── 6. (machine prep needs nothing here — `aimail install` deploys the
+#        bridge at first-system activation; no standalone init step) ──
 
 # ── 7. next steps ──────────────────────────────────────────────────
 echo

@@ -120,12 +120,12 @@ curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootst
 
 ### 第 1 步 — 机器准备(bootstrap 自动完成)
 
-`curl|bash bootstrap` 已构建 `~/.aimail/{systems,logs,bridge}`(0700)、
-磁盘研判并判定网络结构:本地网关 → 直连(无 bridge);远程网关 → 部署
-bridge 二进制 + 骨架配置(幂等)。
+`curl|bash bootstrap` 构建 `~/.aimail/{systems,logs,bridge}`(0700)并
+做磁盘研判;bridge 由 `aimail install` 在首个系统激活时部署(本地网关
+直连场景无需 bridge)。
 
-> 旧版 `aimail init` 子命令已移除——机器准备职责并入 bootstrap
-> (经 `deploy_bridge.py --init`),安装场景直接进第 2 步。
+> 旧版 `aimail init` 子命令不再注册(函数保留);机器准备(bootstrap)
+> 与 bridge 部署(install)各自完成——安装直接进第 2 步。
 
 ### 第 2 步 — `aimail install`(系统级,可重复,幂等)
 
@@ -330,6 +330,7 @@ ls ~/.aimail/systems/{sid}/            # aimail_gateway.json + agents
 # 2. 新机器——机器准备(bootstrap 自动;CLI 场景跳过,install 自部署 bridge):
 git clone https://github.com/metercai/aimail.git && cd aimail
 cp docs/.env.example .env              # AIMAIL_URL + AIMAIL_MANAGER_ADDRESS
+# (无 init 步骤;直接 install --home <平台根> 激活)
 
 # 3. 恢复凭据:
 mkdir -p ~/.aimail/.system_raw_key && cp <旧>/{sid}_admin.key ~/.aimail/.system_raw_key/
