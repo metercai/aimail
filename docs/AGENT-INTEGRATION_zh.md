@@ -261,7 +261,7 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 - **setup**:`init` `install` `uninstall` `reset`
 - **operate**:`stats` `renew` `version`
 - **diagnose**:`check` `repair` `ping` `welcome` `persona`
-- **resources**:`domain` `mailname` `bridge`
+- **resources**:`domain` `address` `bridge`
 
 | 子命令 | 职责 |
 |--------|------|
@@ -270,7 +270,7 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 | `domain` | 查看/创建系统域名(list 默认 / `--add DOMAIN`) |
 | `init` | 一次性机器初始化:锁定 gateway URL、直连或 bridge 模式 |
 | `install` | 集成 agent 平台到 AIMail 系统(激活或复用现有系统,含平台适配与补充注册) |
-| `mailname` | 默认主 agent 名映射查看/修改(hermes default→agent;openclaw main→agent) |
+| `address` | 查看/维护系统 agent 地址:默认主 agent 名(`-d`)、地址改名(`-a agent -n 新名`,服务端资源全继承)、设 manager(`-m`) |
 | `persona` | persona 流程:manager 发 'update persona',agent 回草稿 |
 | `ping` | ping-pong 闭环测试(只信 agent 侧三阶段日志事件) |
 | `repair` | 按 check 结果自动修复(幂等),再复检 |

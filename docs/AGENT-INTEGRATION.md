@@ -263,7 +263,7 @@ Subcommands (15, grouped into 4 scenarios):
 - **setup**: `init` `install` `uninstall` `reset`
 - **operate**: `stats` `renew` `version`
 - **diagnose**: `check` `repair` `ping` `welcome` `persona`
-- **resources**: `domain` `mailname` `bridge`
+- **resources**: `domain` `address` `bridge`
 
 | Subcommand | Responsibility |
 |------------|----------------|
@@ -272,7 +272,7 @@ Subcommands (15, grouped into 4 scenarios):
 | `domain` | View/create the system domain (list by default / `--add DOMAIN`) |
 | `init` | One-time machine initialization: lock the gateway URL, direct or bridge mode |
 | `install` | Integrate an agent platform into the AIMail system (activate or reuse an existing system, incl. platform adapter and supplementary registration) |
-| `mailname` | View/modify the default main-agent name mapping (hermes default→agent; openclaw main→agent) |
+| `address` | View/maintain system agent addresses: set default main-agent name (`-d`), rename an agent's address (`-a agent -n NAME`; server-side resources fully inherited), set manager (`-m`) |
 | `persona` | Persona flow: the manager sends 'update persona', the agent replies with a draft |
 | `ping` | ping-pong loopback test (trusts only the agent-side three-stage log events) |
 | `repair` | Auto-fix per check results (idempotent), then re-check |

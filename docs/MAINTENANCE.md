@@ -246,7 +246,7 @@ papering over them.
 | List domains | `aimail domain -s <sid>` | non-shared systems may own several bare domains; any one of them can carry a renewal pickup |
 | Renew a system | `aimail renew -s <sid> -c <code>` | stacked `max(now, current)+validity`, quotas max-merge, auto-unsuspend |
 | Expiry view | `aimail renew -s <sid> --status` | read-only, no code consumed |
-| Default agent name | `aimail mailname -s <sid> [-d NAME]` | conflict-checked against registered addresses |
+| Agent addresses | `aimail address -s <sid> [-d NAME \| -a agent -n NAME \| -m mgr]` | list / set default main-agent name / set-name (rename w/ full server-side resource inheritance) / set-manager |
 | Reset config | `aimail reset -H <root> -s <sid>` | admin-key path only, key untouched |
 | Bridge ops | `aimail bridge` / `--restart` / `-s <sid>` | status / single-instance restart / route refresh |
 | Remove integration | `aimail uninstall -s <sid> [-H <root>] [-y]` | gateway deregister → platform cleanup → local data; idempotent |
@@ -254,7 +254,7 @@ papering over them.
 
 Short flags are globally consistent: `-s` system-id · `-H` home · `-g`
 gateway-url · `-m` manager · `-c` code · `-n` system-name (install/reset)
-or dry-run (repair) · `-d` domain (install) or default (mailname) · `-w`
+or dry-run (repair) · `-d` domain (install) or default (address) · `-w`
 no-wait (welcome/persona) (or the domain's `--webhook-url`) · `-a` all
 (stats) or add (domain) · `-t` status (renew) or timeout (ping) · `-D`
 deep · `-r` restart · `-k` admin-key · `-y` yes. Long names never change.
@@ -282,7 +282,7 @@ Subcommands grouped by scenario (`aimail --help` shows this):
 setup      init  install  uninstall  reset
 operate    stats  renew  version
 diagnose   check  repair  ping  welcome  persona
-resources  domain  mailname  bridge
+resources  domain  address  bridge
 ```
 
 Platform feature detection (order): `pi` (~/.pi + agent/) → `dsh`
@@ -400,7 +400,7 @@ profile config). The local inbound URL is what `agentmail.json` stores as
 first read): `gateway_url`, `admin_key`, `system_id`, `system_name`,
 `manager_address`, `domain`, `system_home`, `webhook_host`,
 `save_raw_snapshots` (always written, defaults to `true`),
-`default_agent_name` (optional-value field, written by `mailname`).
+`default_agent_name` (optional-value field, written by `address default`).
 
 **`agentmail.json`** 9 mandatory fields: `email`, `gateway_url`, `domain`,
 `system_id`, `system_name`, `manager_address`, `api_key`, `webhook_url`

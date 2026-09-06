@@ -5,7 +5,7 @@ Subcommands (grouped by scenario, see --help):
   setup      init / install / uninstall / reset
   operate    stats / renew / version
   diagnose   check / repair / ping / welcome / persona
-  resources  domain / mailname / bridge
+  resources  domain / address / bridge
 
 Platform fact inference (no --agent-type, per 2026-08-16 ruling):
   1. --home given → directory traits (hermes-agent|profiles=hermes,
@@ -691,46 +691,230 @@ def cmd_reset(args) -> int:
     return 0
 
 
-def cmd_mailname(args) -> int:
-    """查看/修改默认主 agent 名字映射(冲突检测)。"""
+def _list_local_agents(sid: str):
+    """枚举本机已注册 agent(地址键目录 + platform pointer 反查 agent 名)。"""
+    agents = []
+    base = AIMAIL_HOME / "systems" / sid
+    if not base.is_dir():
+        return agents
+    for d in sorted(base.iterdir()):
+        jf = d / "agentmail.json"
+        if not jf.is_file():
+            continue
+        try:
+            cfg = json.loads(jf.read_text())
+        except Exception:
+            continue
+        email = cfg.get("email", "")
+        if not email:
+            continue
+        # agent 名 = platform pointer 所在目录名(profile/agent id),反查
+        agent_name = None
+        sys_home = cfg.get("system_home", "") or cfg.get("home", "")
+        if sys_home and Path(sys_home).is_dir():
+            for p in _scan_pointers(Path(sys_home)):
+                if p.get("email") == email and p.get("system_id") == sid:
+                    agent_name = p.get("agent_name")
+                    break
+        if not agent_name:
+            local = email.split("@")[0]
+            agent_name = local.split(".")[0] if "." in local else local
+        agents.append({
+            "agent": agent_name,
+            "email": email,
+            "manager": cfg.get("manager_address", ""),
+            "webhook_url": cfg.get("webhook_url", ""),
+            "dir": str(d),
+            "cfg": cfg,
+        })
+    return agents
+
+
+def _scan_pointers(platform_root: Path):
+    """扫描平台根下的注册指针(.aimail/.agentmail 文件,内容含 system_id+email)。
+    agent 名 = 指针文件所在目录名(hermes profile / openclaw agent id)。"""
+    found = []
+    if not platform_root.is_dir():
+        return found
+    for dirpath, dirnames, filenames in os.walk(platform_root):
+        dirnames[:] = [d for d in dirnames if d not in (".git", "node_modules", ".venv")]
+        for fn in filenames:
+            if fn in (".aimail", ".agentmail", "agentmail.json"):
+                fp = os.path.join(dirpath, fn)
+                try:
+                    data = json.loads(open(fp).read())
+                except Exception:
+                    continue
+                email = data.get("email", "")
+                sid = data.get("system_id", "")
+                if email and sid:
+                    found.append({
+                        "agent_name": os.path.basename(dirpath),
+                        "email": email,
+                        "system_id": sid,
+                    })
+                continue
+    return found
+
+
+def cmd_address(args) -> int:
+    """address:查看/维护系统 agent 地址(default 默认主 agent 名、set-name 地址名、
+    set-manager 管理员地址)。"""
     sid = args.system_id or ""
     if not sid:
-        _fail("mailname 需要 --system-id")
+        _fail("address 需要 --system-id")
     cfg_path = _gateway_cfg_path(sid)
     if not cfg_path.is_file():
         _fail(f"无系统配置: {cfg_path}")
     cfg = json.loads(cfg_path.read_text())
-    current = cfg.get("default_agent_name", "agent")
 
-    if not args.default:
-        # 查看
+    op = args.op.lower() if getattr(args, "op", None) else (
+        "default" if args.default
+        else "set-manager" if args.manager
+        else "set-name" if args.name
+        else "list"
+    )
+
+    # ── 查看 ──────────────────────────────────────────────
+    if op in ("list", "show"):
+        agents = _list_local_agents(sid)
+        current = cfg.get("default_agent_name", "agent")
         platform = ""
         sh = cfg.get("system_home", "")
         if sh:
             platform = detect_platform_from_home(Path(sh))
-        if platform in ("", "unknown"):
-            for p in ("openclaw", "hermes", "pi", "dsh", "deerflow"):
-                if _ptr_sid(_platform_ptr(p)) == sid:
-                    platform = p
-                    break
-        if not platform:
-            platform = "?"
-        print(f"  system: {sid} ({platform})")
+        print(f"  system: {sid} ({platform or '?'})")
         print(f"  默认主 agent 名: {current}")
         print(f"  (默认映射: hermes default→{current}, openclaw main→{current})")
+        print()
+        if not agents:
+            print("  无本地注册 agent(地址键目录为空)。")
+            return 0
+        print(f"  {'agent':<18} {'email':<42} {'manager':<32} webhook")
+        for a in agents:
+            wh = (a["webhook_url"] or "")[:36]
+            print(f"  {a['agent']:<18} {a['email']:<42} {a['manager']:<32} {wh}")
         return 0
 
-    new_name = args.default
-    # 合法性:atext-no-dot(与 email_for_agent 清洗一致)
+    # ── 目标解析: -a agent 名 / -e email ───────────────────
+    agents = _list_local_agents(sid)
+    target = None
+    if args.email:
+        target = next((a for a in agents if a["email"] == args.email.lower()), None)
+        if not target:
+            _fail(f"本机未找到地址 {args.email} 的 agentmail.json(先在该 agent 上跑 install 注册)")
+    elif args.agent:
+        target = next((a for a in agents if a["agent"] == args.agent
+                        or a["email"].split("@")[0].startswith(args.agent)), None)
+        if not target:
+            _fail(f"本机未找到 agent '{args.agent}' 的注册地址(agentmail.json)。"
+                  f" 已注册: {[a['agent'] for a in agents] or '无'}")
+
+    # ── default:默认主 agent 名(原 mailname)──────────────
+    if op == "default":
+        new_name = args.default or args.name or ""
+        if not new_name:
+            _fail("address default 需要 -n <名字>")
+        _set_default_agent_name(cfg, cfg_path, sid, new_name)
+        return 0
+
+    if target is None:
+        _fail("该操作需要 -a <agent> 或 -e <email> 定位目标地址")
+
+    # ── set-manager ───────────────────────────────────────
+    if op == "set-manager":
+        mgr = args.manager or ""
+        if not mgr or "@" not in mgr:
+            _fail("address set-manager 需要 -m <manager 邮箱>")
+        load_core()
+        from aimail_tools import _GatewayClient
+        gw = cfg.get("gateway_url", "").rstrip("/")
+        ak = cfg.get("admin_key", "")
+        if not gw or not ak:
+            _fail("系统配置缺 gateway_url/admin_key(本地只改配置,云端未同步)")
+        client = _GatewayClient(gw, ak)
+        email = target["email"]
+        try:
+            client._request("PUT", f"/api/v1/admin/agent-meta/{email}",
+                            body={"manager_address": mgr})
+        except Exception as e:
+            _fail(f"更新 manager 失败: {e}")
+        tgt_cfg = dict(target["cfg"])
+        tgt_cfg["manager_address"] = mgr
+        jf = Path(target["dir"]) / "agentmail.json"
+        _atomic_json_write(jf, tgt_cfg)
+        _ok(f"manager: {email} → {mgr}(云端+本地已同步)")
+        return 0
+
+    # ── set-name:地址名切换(服务端 rename + 本地迁移)──────
+    if op == "set-name":
+        new_name = args.name or ""
+        if not new_name:
+            _fail("address set-name 需要 -n <新地址名>")
+        import re as _re
+        if not _re.fullmatch(r"[A-Za-z0-9!#$%&'*+\-/=?^_`{|}~]+", new_name):
+            _fail(f"非法名字 '{new_name}':须为 atext-no-dot 字符(不能含点/空格/@)")
+        email = target["email"]
+        domain = cfg.get("domain", "") or email.split("@", 1)[1]
+        shared = str(sid).startswith("shared-")
+        new_email = f"{new_name}.{email.split('@')[0].split('.',1)[1]}@{domain}" if shared and "." in email.split("@")[0] else f"{new_name}@{domain}"
+        # 冲突预检:与同系统其它已注册地址的 base 冲突
+        for a in agents:
+            if a["email"] != email and a["email"].split("@")[0] == new_email.split("@")[0]:
+                _fail(f"新地址名 '{new_name}' 与已注册地址 {a['email']} 冲突")
+        if new_email == email:
+            print(f"  已是该地址: {email}")
+            return 0
+        load_core()
+        from aimail_tools import _GatewayClient
+        gw = cfg.get("gateway_url", "").rstrip("/")
+        ak = cfg.get("admin_key", "")
+        if not gw or not ak:
+            _fail("系统配置缺 gateway_url/admin_key")
+        client = _GatewayClient(gw, ak)
+        try:
+            client._request("POST", f"/api/v1/admin/systems/{sid}/addresses/rename",
+                            body={"old_email": email, "new_email": new_email})
+        except Exception as e:
+            _fail(f"服务端改名失败(未改动本地): {e}")
+        # 本地迁移:目录改名 + email 字段更新(webhook/api_key/secret 全继承)
+        old_dir = Path(target["dir"])
+        new_dir = old_dir.parent / new_email.replace("/", "_")
+        tgt_cfg = dict(target["cfg"])
+        tgt_cfg["email"] = new_email
+        try:
+            if new_dir.exists():
+                _warn(f"本地目录 {new_dir} 已存在,合并内容字段(保留两个目录)")
+            else:
+                old_dir.rename(new_dir)
+            _atomic_json_write(new_dir / "agentmail.json", tgt_cfg)
+        except Exception as e:
+            _warn(f"本地迁移失败(云端已改名,重跑 install 可重建本地): {e}")
+            return 0
+        _ok(f"地址改名: {email} → {new_email}")
+        print(f"  服务端资源(白名单/联系人/看板/密钥)与本地 agentmail.json 全部继承")
+        print(f"  生效:同 key 继续使用,新地址即日起收发")
+        return 0
+
+    _fail(f"未知操作: {op}(支持 list/default/set-name/set-manager)")
+
+
+def _atomic_json_write(path: Path, data: dict) -> None:
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    tmp.replace(path)
+
+
+def _set_default_agent_name(cfg: dict, cfg_path: Path, sid: str, new_name: str) -> None:
+    """写 default_agent_name(冲突检测)。原 mailname 逻辑。"""
     import re
     if not re.fullmatch(r"[A-Za-z0-9!#$%&'*+\-/=?^_`{|}~]+", new_name):
         _fail(f"非法名字 '{new_name}':须为 atext-no-dot 字符(不能含点/空格/@)")
+    current = cfg.get("default_agent_name", "agent")
     if new_name == current:
         print(f"  已是当前默认名: {current}")
-        return 0
-
-    # 冲突检测:domain_addr_meta 已有同名非默认 agent 地址
-    # 通过网关 API 查询该系统的已注册地址(_GatewayClient 带完整方法集)
+        return
+    # 冲突检测:已注册地址中 base 段占用
     load_core()
     from aimail_tools import _GatewayClient
     gw = cfg.get("gateway_url", "").rstrip("/")
@@ -740,9 +924,6 @@ def cmd_mailname(args) -> int:
             client = _GatewayClient(gw, ak)
             domains = client.list_system_domains(sid)
             occupied = []
-            # domain 字段可能是注册地址(如 agent.xianlin@aimail.token.tm)
-            # 或 anchor(xianlin@aimail.token.tm)——检查新默认名是否与已有
-            # 地址的 base 段冲突(用户定调:改前检测与其他 agent 名字冲突)
             for d in domains if isinstance(domains, list) else []:
                 addr = d.get("domain") or ""
                 base = addr.split("@")[0] if "@" in addr else ""
@@ -752,16 +933,11 @@ def cmd_mailname(args) -> int:
                 _fail(f"名字 '{new_name}' 已占用: {occupied}")
         except Exception as e:
             _warn(f"冲突检测失败(仅本地校验): {e}")
-
-    # 写入配置
     cfg["default_agent_name"] = new_name
-    tmp = cfg_path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
-    tmp.replace(cfg_path)
+    _atomic_json_write(cfg_path, cfg)
     _ok(f"默认主 agent 名: {current} → {new_name}")
     print(f"  生效方式:agent 地址将变为 {new_name}@{cfg.get('domain','')}(共享域加 .{cfg.get('system_name','')} 后缀)")
     print(f"  需重注册:aimail reset --system-id {sid} 或 aimail install")
-    return 0
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -1643,7 +1819,7 @@ scenario groups:
   setup      machine prep and platform integration: init / install / uninstall / reset
   operate    daily status and lifecycle: stats / renew / version
   diagnose   exams and fixes when something is wrong: check / repair / ping / welcome / persona
-  resources  system-scoped resources: domain / mailname / bridge
+  resources  system-scoped resources: domain / address / bridge
 """)
     sub = ap.add_subparsers(dest="command", required=True, metavar="<command>")
 
@@ -1741,10 +1917,14 @@ scenario groups:
     p_dom.add_argument("-w", "--webhook-url", help="webhook receiver URL for the new domain")
     p_dom.set_defaults(func=cmd_domain)
 
-    p_mn = sub.add_parser("mailname", help="show or set the default agent name mapping")
-    p_mn.add_argument("-s", "--system-id", **common_sid)
-    p_mn.add_argument("-d", "--default", help="new default agent name")
-    p_mn.set_defaults(func=cmd_mailname)
+    p_ad = sub.add_parser("address", help="view/maintain system agent addresses (default name / set-name / set-manager)")
+    p_ad.add_argument("-s", "--system-id", **common_sid)
+    p_ad.add_argument("-d", "--default", metavar="NAME", help="set the default main-agent name (was: mailname)")
+    p_ad.add_argument("-a", "--agent", help="target agent (platform session/profile id) for set-name/set-manager")
+    p_ad.add_argument("-e", "--email", help="target by exact registered email instead of -a")
+    p_ad.add_argument("-n", "--name", metavar="NAME", help="new address name (set-name) or with -d the default name")
+    p_ad.add_argument("-m", "--manager", metavar="EMAIL", help="new manager address for the target agent (set-manager)")
+    p_ad.set_defaults(func=cmd_address)
 
     p_br = sub.add_parser("bridge", help="local bridge: status / refresh routes / restart")
     p_br.add_argument("-s", "--system-id", help="refresh forwarding routes for this system")

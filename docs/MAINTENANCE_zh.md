@@ -222,7 +222,7 @@ agent 需重注册……)——工具如实报告,不掩盖。
 | 查看域名 | `aimail domain -s <sid>` | 非共享系统可持多个裸域;任一个裸域都可承载续期码领取 |
 | 续期 | `aimail renew -s <sid> -c <码>` | 叠加式 `max(now,当前)+validity`,配额 max 合并,自动解除挂起 |
 | 到期查看 | `aimail renew -s <sid> --status` | 只读,不耗码 |
-| 主 agent 名 | `aimail mailname -s <sid> [-d NAME]` | 与已注册地址做冲突检测 |
+| Agent 地址 | `aimail address -s <sid> [-d 默认名\|-a agent -n 新地址名\|-m manager]` | 查看/设默认主 agent 名/地址改名(set-name,服务端资源全继承)/设 manager |
 | 重置配置 | `aimail reset -H <root> -s <sid>` | 只走 admin-key 路径,key 不动 |
 | bridge 维护 | `aimail bridge` / `--restart` / `-s <sid>` | 状态 / 单实例重启 / 重刷路由 |
 | 卸载 | `aimail uninstall -s <sid> [-H <root>] [-y]` | 网关注销 → 平台清理 → 本机数据;幂等 |
@@ -230,7 +230,7 @@ agent 需重注册……)——工具如实报告,不掩盖。
 
 短参数全局一致:`-s` system-id · `-H` home · `-g` gateway-url · `-m`
 manager · `-c` code · `-n` system-name(install/reset)或 dry-run(repair)
-· `-d` domain(install)或 default(mailname)· `-w` no-wait
+· `-d` domain(install)或 default(address)· `-w` no-wait
 (welcome/persona)(或 domain 的 `--webhook-url`)· `-a` all(stats)或
 add(domain)· `-t` status(renew)
 或 timeout(ping)· `-D` deep · `-r` restart · `-k` admin-key · `-y` yes。
@@ -256,7 +256,7 @@ repair 修复 → 复检确认**,残余红项均为真实宿主侧动作。
 setup      init  install  uninstall  reset
 operate    stats  renew  version
 diagnose   check  repair  ping  welcome  persona
-resources  domain  mailname  bridge
+resources  domain  address  bridge
 ```
 
 平台特征探测顺序:`pi`(~/.pi + agent/)→ `dsh`(~/.dsh + profiles/ +
@@ -364,7 +364,7 @@ profile 配置)。本地入站 URL 就是 `agentmail.json` 存的 `webhook_url`,
 `agentmail_gateway.json` 首次读取自动迁移):`gateway_url`, `admin_key`,
 `system_id`, `system_name`, `manager_address`, `domain`, `system_home`,
 `webhook_host`, `save_raw_snapshots`(恒写入,默认 `true`),
-`default_agent_name`(可选值字段,`mailname` 写入)。
+`default_agent_name`(可选值字段,`address default` 写入)。
 
 **`agentmail.json`** 9 必备字段:`email`, `gateway_url`, `domain`,
 `system_id`, `system_name`, `manager_address`, `api_key`, `webhook_url`
