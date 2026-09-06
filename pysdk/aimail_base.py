@@ -1246,3 +1246,89 @@ def deregister_agent_email(client, system_id: str, email: str,
 
     return out
 
+
+
+# ═══════════════════════════════════════════════════════════════
+# System ensure (CLI reverse-call ABI) — pysdk parity with tssdk
+# ensureSystem (tssdk/packages/mail-core/src/ensure-system.ts)
+# ═══════════════════════════════════════════════════════════════
+
+def _system_home_owned(system_home: str) -> str:
+    """Local ownership probe (pure file reads — NOT the activation protocol,
+    which lives once in the CLI): system_home -> owning sid (UNIQUE match
+    only; ambiguous -> '' so the CLI's authoritative decision is consulted)."""
+    if not system_home:
+        return ""
+    target = str(Path(system_home).expanduser()).rstrip("/")
+    base = aimail_home() / "systems"
+    found = ""
+    if not base.is_dir():
+        return ""
+    for d in sorted(base.iterdir()):
+        if not (d.is_dir() and (d / "aimail_gateway.json").is_file()):
+            continue
+        try:
+            cfg = json.loads((d / "aimail_gateway.json").read_text())
+        except Exception:
+            continue
+        sh = str(cfg.get("system_home", "") or "").rstrip("/")
+        if sh and sh == target:
+            if found:
+                return ""  # second owner -> ambiguous, don't guess
+            found = d.name
+    return found
+
+
+def ensure_system(system_home: str = "", cli: str = "aimail",
+                  timeout: int = 60) -> dict:
+    """Ensure a system exists for this host — REVERSE-CALL to the CLI's
+    L1-only `aimail ensure-system` (the single activation implementation;
+    SDKs never carry the protocol). Parity with tssdk ensureSystem.
+
+    Ownership short-circuit: with a system_home, only an OWNING system
+    (cfg.system_home matches) short-circuits — on multi-platform machines
+    another platform's system must NOT block this one's activation. Without
+    a home, any local system short-circuits.
+
+    Returns {ok, system_id?, activated?, error?, hint?}. Never raises.
+    """
+    import subprocess as _sp
+    # 1) ownership short-circuit (pure local reads)
+    owned = _system_home_owned(system_home) if system_home else ""
+    if owned:
+        return {"ok": True, "system_id": owned, "activated": False}
+    if not system_home:
+        base = aimail_home() / "systems"
+        if base.is_dir():
+            sids = [d.name for d in sorted(base.iterdir())
+                    if d.is_dir() and (d / "aimail_gateway.json").is_file()]
+            if sids:
+                sid = sids[0] if len(sids) == 1 else ""
+                return {"ok": True, "system_id": sid, "activated": False}
+
+    # 2) reverse-call the CLI L1 ABI (single activation implementation)
+    argv = [cli, "ensure-system"]
+    if system_home:
+        argv += ["-H", system_home]
+    try:
+        out = _sp.run(argv, capture_output=True, text=True, timeout=timeout)
+    except FileNotFoundError:
+        return {"ok": False,
+                "error": f"aimail CLI not found ('{cli}') — run bootstrap first",
+                "hint": "run the aimail bootstrap first, then retry"}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": str(e)}
+    try:
+        parsed = json.loads(out.stdout.strip() or "{}")
+    except Exception:
+        return {"ok": False,
+                "error": f"aimail ensure-system returned unparsable output (exit {out.returncode})",
+                "hint": "run `aimail install --home <root>` manually to see the error"}
+    if parsed.get("success") is not True or out.returncode != 0:
+        r = {"ok": False, "error": str(parsed.get("error") or f"ensure-system failed (exit {out.returncode})")}
+        if parsed.get("hint"):
+            r["hint"] = str(parsed["hint"])
+        return r
+    return {"ok": True,
+            "system_id": str(parsed.get("system_id", "")),
+            "activated": parsed.get("path") == "activation"}

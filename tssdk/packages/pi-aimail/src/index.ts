@@ -16,10 +16,11 @@
  * package). Binding: create ~/.pi/.agentmail with {system_id, email}.
  */
 import * as http from 'node:http'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
-import { processInboundMail, releaseAllSystems, routeAddressFromHeaders, verifySignature, type InboundPayload } from '@aimail/mail-core'
+import { ensureSystem, processInboundMail, releaseAllSystems, routeAddressFromHeaders, verifySignature, type InboundPayload } from '@aimail/mail-core'
 import { resolveByRecipient } from '@aimail/mail'
 import { agentIdentity, initIdentity, readPointer, setInboundEndpoint } from './identity.js'
 import { buildPiTools } from './tools.js'
@@ -48,6 +49,27 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
     error: (m: string) => console.error(m),
   }
   log.info(`[pi-aimail] identity ${agentIdentity()}`)
+
+  // Install readiness: system activation lives ONCE, in `aimail
+  // ensure-system` (L1 only) — reverse-call it when THIS platform has no
+  // owning system yet. Never platform wiring → acyclic call graph.
+  {
+    const platformHome =
+      process.env.AIMAIL_SYSTEM_HOME?.trim() ||
+      path.join(os.homedir(), '.pi')
+    void ensureSystem({ systemHome: platformHome })
+      .then((r) => {
+        if (r.ok) {
+          if (r.activated) log.info(`[pi-aimail] system activated: ${r.systemId}`)
+        } else {
+          const hint = r.hint ? ` (${r.hint})` : ''
+          log.warn(`[pi-aimail] no aimail system yet — ${r.error ?? 'unknown'}` + hint)
+        }
+      })
+      .catch((e) => {
+        log.warn(`[pi-aimail] system ensure failed: ${e instanceof Error ? e.message : String(e)}`)
+      })
+  }
 
   // ── 12 mail/board tools (bare names, MAIL_TOOLS single source) ──
   for (const tool of buildPiTools()) {

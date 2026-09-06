@@ -30,7 +30,7 @@ export {
   registerBridgeRoute,
   autoBind,
 } from './auto-bind.js'
-export { ensureSystem } from './ensure-system.js'
+export { detectSystemForHome, ensureSystem } from './ensure-system.js'
 export type { EnsureSystemOptions, EnsureSystemResult } from './ensure-system.js'
 export type {
   SystemGatewayConfig,

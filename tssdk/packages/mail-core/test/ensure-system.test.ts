@@ -39,12 +39,50 @@ afterAll(() => {
 })
 
 describe('ensureSystem (CLI reverse-call ABI)', () => {
-  test('system already present → ok, NO call-out (exec would throw)', async () => {
+  test('system already present (no home scope) → ok, NO call-out (exec would throw)', async () => {
     const sid = 'sys-here'
     fs.mkdirSync(path.join(iso, 'systems', sid), { recursive: true })
     fs.writeFileSync(
       path.join(iso, 'systems', sid, 'aimail_gateway.json'),
       JSON.stringify({ system_id: sid }),
+    )
+    const r = await ensureSystem({
+      exec: (() => {
+        throw new Error('must not be called')
+      }) as never,
+    })
+    expect(r.ok).toBe(true)
+    expect(r.systemId).toBe(sid) // sole system
+    expect(r.activated).toBe(false)
+  })
+
+  test('home not owned (other platform has a system) → reverse-calls CLI', async () => {
+    // Another platform's system exists, but NOT for this home → must NOT
+    // short-circuit (multi-platform machine: each platform gets its own).
+    const sid = 'sys-hermes'
+    fs.mkdirSync(path.join(iso, 'systems', sid), { recursive: true })
+    fs.writeFileSync(
+      path.join(iso, 'systems', sid, 'aimail_gateway.json'),
+      JSON.stringify({ system_id: sid, system_home: '/home/u/.hermes' }),
+    )
+    const ex = scriptedExec({
+      code: 0,
+      stdout: JSON.stringify({ success: true, system_id: 'sys-dsh2', path: 'activation' }),
+    })
+    const r = await ensureSystem(optsWith({ systemHome: '/home/u/.dsh', exec: ex }))
+    expect(r.ok).toBe(true)
+    expect(r.activated).toBe(true)
+    expect(r.systemId).toBe('sys-dsh2')
+    const calls = (ex as unknown as { _calls: Array<{ cmd: string; args: string[] }> })._calls
+    expect(calls[0]?.args).toEqual(['ensure-system', '-H', '/home/u/.dsh'])
+  })
+
+  test('home owned by THIS platform → short-circuits, no call-out', async () => {
+    const sid = 'sys-dsh'
+    fs.mkdirSync(path.join(iso, 'systems', sid), { recursive: true })
+    fs.writeFileSync(
+      path.join(iso, 'systems', sid, 'aimail_gateway.json'),
+      JSON.stringify({ system_id: sid, system_home: '/home/u/.dsh' }),
     )
     const r = await ensureSystem({
       systemHome: '/home/u/.dsh',
@@ -53,7 +91,7 @@ describe('ensureSystem (CLI reverse-call ABI)', () => {
       }) as never,
     })
     expect(r.ok).toBe(true)
-    expect(r.systemId).toBe(sid) // sole system
+    expect(r.systemId).toBe(sid)
     expect(r.activated).toBe(false)
   })
 

@@ -32,6 +32,7 @@ import {
   type AgentConfig,
 } from '@aimail/mail-core'
 import * as fs from 'node:fs'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -126,7 +127,11 @@ export function apply(ctx: Context, config: { systemId?: string } = {}): void {
     const sysRoot = path.join(AIMAIL_HOME(), 'systems')
     const hasSystems = fs.existsSync(sysRoot) && fs.readdirSync(sysRoot).length > 0
     if (!hasSystems) {
-      void ensureSystem({ systemHome: process.env.AIMAIL_SYSTEM_HOME ?? '' })
+      const platformHome =
+        process.env.AIMAIL_SYSTEM_HOME?.trim() ||
+        process.env.DSH_HOME?.trim() ||
+        path.join(os.homedir(), '.dsh')
+      void ensureSystem({ systemHome: platformHome })
         .then((r) => {
           if (r.ok) {
             if (r.activated) {

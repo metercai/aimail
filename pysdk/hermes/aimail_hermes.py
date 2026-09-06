@@ -401,14 +401,36 @@ def trigger_profile_hooks(event: str, profile_name: str, profile_dir: str) -> No
     """Called by profiles.py to fire all registered hooks for an event.
 
     Gracefully handles missing config -- if no gateway is configured, hooks are
-    simply skipped.
+    simply skipped. On profile_created with NO system yet, the host
+    auto-ensures one via the CLI reverse-call ABI (`aimail ensure-system`,
+    L1 only — the single activation implementation), then re-loads: a fresh
+    activation makes auto-registration work on machines that never ran
+    `aimail install` (parity with the TS host plugins).
     """
     try:
         config = _load_gateway_config()
     except RuntimeError:
-        logger.debug("[aimail_gateway] No gateway config -- skipping hooks for %s", event)
-        return
+        config = None
 
+    if not config and event == "profile_created":
+        hermhome = os.environ.get("HERMES_HOME", "") or str(Path.home() / ".hermes")
+        try:
+            r = core.ensure_system(hermhome)
+            if r.get("ok"):
+                if r.get("activated"):
+                    logger.info("[aimail_gateway] system activated via CLI: %s", r.get("system_id"))
+            else:
+                hint = f" ({r.get('hint')})" if r.get("hint") else ""
+                logger.warning(
+                    "[aimail_gateway] no aimail system yet — %s%s",
+                    r.get("error", ""), hint,
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[aimail_gateway] system ensure failed: %s", e)
+        try:
+            config = _load_gateway_config()
+        except RuntimeError:
+            config = None
 
     if not config:
         logger.debug("[aimail_gateway] No gateway config -- skipping hooks for %s", event)

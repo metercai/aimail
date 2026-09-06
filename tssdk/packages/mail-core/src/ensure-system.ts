@@ -16,6 +16,10 @@
  * {success:false, error, hint}; exit 0/1.
  */
 import { execFile } from 'node:child_process'
+import { promises as fs } from 'node:fs'
+import * as os from 'node:os'
+import * as path from 'node:path'
+import { gatewayConfigPath } from './config.js'
 import { listSystemDirs } from './auto-bind.js'
 
 export interface EnsureSystemOptions {
@@ -62,6 +66,35 @@ function defaultExec(
 }
 
 /**
+ * Local ownership probe (pure file reads — NOT the activation protocol, which
+ * stays in the CLI): system_home → owning sid, UNIQUE match only (ambiguous
+ * → '' so the CLI's authoritative reuse/activate decision is consulted).
+ */
+export async function detectSystemForHome(systemHome: string): Promise<string> {
+  if (!systemHome) return ''
+  const target = path.resolve(systemHome.replace(/^~\//, os.homedir() + '/')).replace(/\/+$/, '')
+  let found = ''
+  for (const sid of await listSystemDirs()) {
+    let cfg: Record<string, unknown>
+    try {
+      const p = await gatewayConfigPath(sid)
+      cfg = JSON.parse(await fs.readFile(p, 'utf-8')) as Record<string, unknown>
+    } catch {
+      continue
+    }
+    const sh = String(cfg.system_home ?? '')
+    if (sh) {
+      const norm = path.resolve(sh.replace(/^~\//, os.homedir() + '/')).replace(/\/+$/, '')
+      if (norm === target) {
+        if (found) return '' // second owner → ambiguous, don't guess
+        found = sid
+      }
+    }
+  }
+  return found
+}
+
+/**
  * Ensure a system exists for this machine: local systems present → ok (no
  * call-out); none → reverse-call `aimail ensure-system -H <home>` and parse
  * its JSON contract. Never throws (CLI absence → actionable error).
@@ -69,13 +102,21 @@ function defaultExec(
 export async function ensureSystem(
   opts: EnsureSystemOptions = {},
 ): Promise<EnsureSystemResult> {
-  // 1) A system already exists locally → nothing to do (scope left to caller).
-  const sids = await listSystemDirs()
-  if (sids.length > 0) {
-    const scope = process.env.AIMAIL_SYSTEM_ID?.trim() ?? ''
-    const systemId =
-      scope && sids.includes(scope) ? scope : sids.length === 1 ? (sids[0] as string) : ''
-    return { ok: true, systemId, activated: false }
+  // 1) Ownership short-circuit: when a systemHome is given, only an OWNING
+  // system (cfg.system_home matches) short-circuits — on multi-platform
+  // machines another platform's system must NOT block this one's activation.
+  // Without systemHome: any local system short-circuits (sole-system machine).
+  let owned = ''
+  if (opts.systemHome) owned = await detectSystemForHome(opts.systemHome)
+  if (owned) return { ok: true, systemId: owned, activated: false }
+  if (!opts.systemHome) {
+    const sids = await listSystemDirs()
+    if (sids.length > 0) {
+      const scope = process.env.AIMAIL_SYSTEM_ID?.trim() ?? ''
+      const systemId =
+        scope && sids.includes(scope) ? scope : sids.length === 1 ? (sids[0] as string) : ''
+      return { ok: true, systemId, activated: false }
+    }
   }
 
   // 2) Reverse-call the CLI L1 ABI (single activation implementation).
