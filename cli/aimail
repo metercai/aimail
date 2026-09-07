@@ -549,8 +549,8 @@ def cmd_install(args) -> int:
         # Python 注册器已退役;安装 = 装插件后经 `openclaw aimail register` 注册。
         sid3 = env.get("INTEGRATE_SYSTEM_ID", "")
         _ok("openclaw 平台:安装 openclaw-aimail 插件 + 注册 agent(单 agent 用 `aimail address -s SID -a main`):")
-        print("  1. 插件安装:npm pack tssdk/packages/openclaw-aimail/ → "
-              "`openclaw plugins install npm-pack:<tgz> --force` → 重启 openclaw gateway")
+        print("  1. 插件安装:`openclaw plugins install openclaw-aimail --force --accept-capabilities`"
+              " → 重启 openclaw gateway(npm registry 最新 stable;force/accept 为 openclaw 三方插件信任门)")
         if sid3:
             print(f"  2. 注册:openclaw aimail register --system-id {sid3}(或 `aimail address -s {sid3} -a main`)")
         else:
