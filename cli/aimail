@@ -575,7 +575,10 @@ def cmd_install(args) -> int:
                 _register_agent_now("pi", "pi", _reg_cfg, "pi", manager or "")
                 _ok("pi agent registered + pointer written")
             except SystemExit:
-                pass
+                # 注册失败(上面 _fail 已输出原因):不阻塞 install 主流程,
+                # 但必须显式提示可重试(AUDIT-1 F9:曾静默吞掉仍报 done)。
+                _warn("pi agent 注册失败(见上)——稍后重试:`aimail address -s "
+                      + (sid3 or "<sid>") + " -a pi` 注册")
         else:
             _warn("pi 注册跳过(配置不全——激活/安装后重试或 aimail address -a pi)")
         print("  pi: 扩展安装 = pi install npm:pi-aimail(宿主命令)+ 重启")
