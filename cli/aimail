@@ -287,34 +287,35 @@ def cmd_persona(args) -> int:
     return subprocess.call(cmd)
 
 
-def _sdk_install(kind: str, system_home: Path, sid: str) -> int:
-    """调 pysdk 自足安装入口(仓库同仓 import;
-    走 spawn `python -m aimail.install`——同一进程命令契约)。"""
+def _sdk_install(kind: str, system_home: Path, sid: str, fn: str = "") -> int:
+    """调 pysdk 自足安装入口(仓库同仓 import;走 spawn 语义——SDK 函数名
+    由注册表 sdk_install 动作的 fn 字段驱动,CLI 零平台知识)。"""
     sys.path.insert(0, str(SCRIPTS_DIR.parent / "pysdk"))
     try:
         import install as _sdk
     except Exception as e:  # noqa: BLE001
         _warn(f"pysdk import failed: {e}(SDK 缺失?)")
         return 1
-    if kind == "hermes":
-        return _sdk.install_hermes(str(system_home), sid)
-    # deerflow:backend 目录归一
-    backend = system_home if (system_home / "app").is_dir() else system_home / "backend"
-    return _sdk.install_deerflow(str(backend), sid)
+    entry = getattr(_sdk, fn, None) if fn else None
+    if entry is None:
+        _warn(f"sdk_install: 注册表未给平台 '{kind}' 配置 fn(SDK 入口缺失)")
+        return 1
+    return entry(str(system_home), sid)
 
 
-def _sdk_uninstall(kind: str, system_home: Path, sid: str) -> int:
-    """调 pysdk 自足卸载入口(撤销 SDK 自己打的 patch/装的文件)。"""
+def _sdk_uninstall(kind: str, system_home: Path, sid: str, fn: str = "") -> int:
+    """调 pysdk 自足卸载入口(撤销 SDK 自己打的 patch/装的文件;fn 表驱动)。"""
     sys.path.insert(0, str(SCRIPTS_DIR.parent / "pysdk"))
     try:
         import install as _sdk
     except Exception as e:  # noqa: BLE001
         _warn(f"pysdk import failed: {e}")
         return 1
-    if kind == "hermes":
-        return _sdk.uninstall_hermes(str(system_home), sid)
-    backend = system_home if (system_home / "app").is_dir() else system_home / "backend"
-    return _sdk.uninstall_deerflow(str(backend))
+    entry = getattr(_sdk, fn, None) if fn else None
+    if entry is None:
+        _warn(f"sdk_uninstall: 注册表未给平台 '{kind}' 配置 fn(SDK 入口缺失)")
+        return 1
+    return entry(str(system_home), sid)
 
 
 def _tmpl(text: str, ctx: dict) -> str:

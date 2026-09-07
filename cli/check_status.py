@@ -856,22 +856,25 @@ def _resolve_platform_sid(agent_type: str) -> str:
         except (ValueError, IndexError):
             pass
     ptr = None
-    if agent_type == "hermes":
-        # hermes:AGENT_HOME 根指针,或 profiles/*/ 下的 profile 级指针
-        cands = [AGENT_HOME / ".agentmail"]
-        profiles = AGENT_HOME / "profiles"
-        if profiles.is_dir():
-            cands += [p / ".agentmail" for p in sorted(profiles.iterdir()) if p.is_dir()]
-        for c in cands:
-            if c.is_file():
-                ptr = c
-                break
-    else:
-        _roots = {"openclaw": ".openclaw", "pi": ".pi", "dsh": ".dsh",
-                  "deerflow": ".deer-flow"}
-        root = _roots.get(agent_type)
-        if root:
-            cand = Path.home() / root / ".agentmail"
+    # 指针候选按注册表 pointer 定义(root 单点 / root_or_profiles 多级)
+    reg = _load_platform_registry()
+    pdef = (reg.get("platforms", {}) or {}).get(agent_type, {})
+    hd = pdef.get("home_dir", "")
+    pf = (pdef.get("pointer") or {}).get("file", ".agentmail")
+    kind = (pdef.get("pointer") or {}).get("kind", "root")
+    if hd:
+        home = Path.home() / hd
+        if kind == "root_or_profiles":
+            cands = [home / pf]
+            profs = home / "profiles"
+            if profs.is_dir():
+                cands += [p / pf for p in sorted(profs.iterdir()) if p.is_dir()]
+            for c in cands:
+                if c.is_file():
+                    ptr = c
+                    break
+        else:
+            cand = home / pf
             if cand.is_file():
                 ptr = cand
     if ptr is not None:
@@ -1587,10 +1590,10 @@ def main():
                 adapter["check_hook"](c, a)
             except Exception as e:
                 c.add("agent", "hook", False, f"{a.get('name')}: {e}")
-    elif agent_type == "deerflow":
-        # deerflow 宿主通常远端;L3/L4 由 deer-flow SDK reconcile 自证,
-        # 本机只报 config/runtime 层结果。
-        print(f"{YELLOW}⚠ deerflow platform: L3/L4 agent checks run via deer-flow SDK reconcile on its host{NC}")
+    elif (_load_platform_registry().get("platforms", {}) or {}).get(agent_type, {}).get("agent_check_remote"):
+        # 远端宿主平台(注册表 agent_check_remote):L3/L4 由平台 SDK
+        # reconcile 在宿主侧自证,本机只报 config/runtime 层结果
+        print(f"{YELLOW}⚠ {agent_type} platform: L3/L4 agent checks run via its SDK reconcile on the host{NC}")
     else:
         # 未知平台:跳过 agent 检查(L0-L2 已跑),不回退旧检查
         print(f"{YELLOW}⚠ Unknown agent platform: {agent_type} — skipping agent checks{NC}")

@@ -211,6 +211,7 @@
         {
           "kind": "sdk_install",
           "target": "hermes",
+          "fn": "install_hermes",
           "ok_text": "hermes SDK install done(重启 hermes gateway 生效)"
         },
         {
@@ -222,7 +223,8 @@
       "uninstall_steps": [
         {
           "kind": "sdk_uninstall",
-          "target": "hermes"
+          "target": "hermes",
+          "fn": "uninstall_hermes"
         },
         {
           "kind": "spawn",
@@ -426,6 +428,7 @@
         {
           "kind": "sdk_install",
           "target": "deerflow",
+          "fn": "install_deerflow",
           "ok_text": "deerflow SDK install done"
         },
         {
@@ -461,7 +464,8 @@
       "uninstall_steps": [
         {
           "kind": "sdk_uninstall",
-          "target": "deerflow"
+          "target": "deerflow",
+          "fn": "uninstall_deerflow"
         },
         {
           "kind": "print",
@@ -489,7 +493,8 @@
           "{sid}"
         ],
         "fail_hint": "manage.py register --all 失败(见上输出)"
-      }
+      },
+      "agent_check_remote": true
     }
   }
 }

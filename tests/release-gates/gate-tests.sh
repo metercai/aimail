@@ -9,7 +9,7 @@ echo "═══ [L0] python lint + unit tests ═══"
 # 平台边界 gate:CLI 代码不得出现平台字面分支(新增平台/多 agent 注册只改
 # cli/platforms.json + SDK,CLI 零改动)。白名单 = 空(cmd_reset 特例已随
 # register_all 表化删除)——出现任何平台字面即红。
-_LIT=$(grep -nE 'platform == "(hermes|openclaw|deerflow|dsh|pi)"' cli/aimail cli/check_status.py cli/repair.py 2>/dev/null || true)
+_LIT=$(grep -nE '(platform|agent_type|kind|tgt) == "(hermes|openclaw|deerflow|dsh|pi)"' cli/aimail cli/check_status.py cli/repair.py 2>/dev/null || true)
 if [ -n "$_LIT" ]; then
   echo "[L0] FAIL: platform literals leaked into CLI code (registry is the single platform source):"
   echo "$_LIT"; exit 1

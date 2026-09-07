@@ -226,8 +226,16 @@ def _release_hermes_skills(hermes_dir: str) -> int:
     return n
 
 
+def _deerflow_backend(root: str) -> str:
+    """backend 目录归一:仓根含 backend/(标准布局)→ backend;否则视为已 backend。"""
+    r = os.path.expanduser(root)
+    return os.path.join(r, "backend") if os.path.isdir(os.path.join(r, "backend")) else r
+
+
 def install_deerflow(backend_dir: str, system_id: str = "", manager: str = "") -> int:
-    """DeerFlow 平台自足安装:app.py patch + 运行时 bundle + 注册/对账。"""
+    """DeerFlow 平台自足安装:app.py patch + 运行时 bundle + 注册/对账。
+    参数为仓根或 backend(backend 归一在 SDK 内——平台布局是适配知识)。"""
+    backend_dir = _deerflow_backend(backend_dir)
     md = _import_deerflow("manage")
     rc = 0
     try:
@@ -384,6 +392,9 @@ def _uninstall_hermes_profiles(hermes_dir: str, system_id: str) -> None:
 
 
 def uninstall_deerflow(backend_dir: str) -> int:
+    """DeerFlow SDK 卸载:还原 app.py patch + 删运行时 bundle。
+    参数为仓根或 backend(归一在 SDK 内)。"""
+    backend_dir = _deerflow_backend(backend_dir)
     md = _import_deerflow("manage")
     rc = 0
     # 先还原 app.py(否则删 bundle 后宿主重启 import 失败——AUDIT-1 P1-4)

@@ -402,18 +402,36 @@ def _repair_runtime_resources(sid: str, platform_home: str) -> bool:
     plat = _detect_platform_from_home(Path(sh))
     if plat == "unknown":
         return False
-    # 特征探针:hermes webhook.py 标记 / deerflow app.py 标记
+    # 运行时资源完好探针 = 注册表 health_checks 的文件类检查项
+    # (patch 标记存在即不需重装;openclaw/pi 无文件类项 → 不触发重装,
+    # 其资源由插件命令管理)
     def _needs_reinstall():
-        if plat == "hermes":
-            wh = Path(sh) / "hermes-agent" / "gateway" / "platforms" / "webhook.py"
-            return not (wh.is_file() and "PREPROCESS_REGISTRY" in wh.read_text(errors="replace"))
-        if plat == "deerflow":
-            for cand in (Path(sh) / "backend" / "app" / "gateway" / "app.py",
-                         Path(sh) / "app" / "gateway" / "app.py"):
-                if cand.is_file() and "aimail_inbound" in cand.read_text(errors="replace"):
-                    return False
-            return True
-        return False  # openclaw/pi 资源由插件命令管理,不在此重装
+        import json as _j
+        try:
+            reg = _j.load(open(str(Path(__file__).resolve().parent / "platforms.json"), encoding="utf-8"))
+            checks = (reg.get("platforms", {}) or {}).get(plat, {}).get("health_checks", [])
+        except Exception:
+            return False
+        _file_kinds = ("file_contains", "file_contains_alt", "file_exists", "file_exists_any", "glob_dir_any")
+        for ch in checks:
+            if ch.get("kind") not in _file_kinds:
+                continue
+            pat = ch.get("path", "") or ch.get("alt", "")
+            import glob as _g
+            for cand in _g.glob(pat.replace("{home}", sh).replace("{user_home}", str(Path.home()))):
+                try:
+                    if ch.get("kind") in ("file_exists", "file_exists_any"):
+                        if Path(cand).is_file():
+                            break
+                    else:
+                        txt = Path(cand).read_text(errors="replace")
+                        if ch.get("marker", "") in txt:
+                            break
+                except Exception:
+                    continue
+            else:
+                return True  # 该检查项无任何命中 → 需重装
+        return False
 
     if not _needs_reinstall():
         return False
