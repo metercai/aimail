@@ -38,7 +38,28 @@
         ],
         "fail_hint": "pi-aimail 扩展未就绪——先 `pi install npm:pi-aimail` 装扩展再注册"
       },
-      "home_dir": ".pi"
+      "home_dir": ".pi",
+      "install_steps": [
+        {
+          "kind": "register_default",
+          "when": {
+            "cfg_complete": true
+          },
+          "on_error": "warn",
+          "warn_hint": "pi agent 注册失败(见上)——稍后重试:`aimail address -s {sid} -a pi` 注册"
+        },
+        {
+          "kind": "warn",
+          "text": "pi 注册跳过(配置不全——激活/安装后重试或 aimail address -a pi)",
+          "when": {
+            "cfg_complete": false
+          }
+        },
+        {
+          "kind": "print",
+          "text": "  pi: 扩展安装 = pi install npm:pi-aimail(宿主命令)+ 重启"
+        }
+      ]
     },
     "dsh": {
       "detect": {
@@ -73,7 +94,33 @@
         ],
         "fail_hint": "dsh-aimail 插件未就绪——先 `dsh plugin --profile web add dsh-aimail` 装插件再注册"
       },
-      "home_dir": ".dsh"
+      "home_dir": ".dsh",
+      "install_steps": [
+        {
+          "kind": "spawn",
+          "argv": [
+            "dsh",
+            "plugin",
+            "--profile",
+            "web",
+            "add",
+            "dsh-aimail"
+          ],
+          "on_missing": "fail",
+          "fail_hint": "`dsh` CLI not found — build/install deepseek-harness first (e.g. cd ~/deepseek-harness && cargo build --release && ln -sf \"$PWD/target/release/dsh\" ~/.local/bin/dsh), then re-run aimail install",
+          "on_error": "warn",
+          "warn_hint": "dsh plugin add aimail 失败(检查 aimail npm 包发布与网络)",
+          "ok_text": "aimail 插件已安装(dsh bundle 层挂载)"
+        },
+        {
+          "kind": "print",
+          "text": "  dsh: 绑定 = 创建 dsh session(mail preset)后自动 auto-bind;"
+        },
+        {
+          "kind": "print",
+          "text": "        CLI 侧注册:`aimail address -s <sid> -a agent`"
+        }
+      ]
     },
     "hermes": {
       "detect": {
@@ -106,7 +153,30 @@
           ]
         }
       },
-      "home_dir": ".hermes"
+      "home_dir": ".hermes",
+      "install_steps": [
+        {
+          "kind": "spawn",
+          "argv": [
+            "{home}/hermes-agent/venv/bin/python",
+            "-m",
+            "pip",
+            "install",
+            "-q",
+            "aimail"
+          ],
+          "when": {
+            "path_exists": "{home}/hermes-agent/venv/bin/python"
+          },
+          "on_error": "warn",
+          "warn_hint": "venv pip install aimail exit {rc}(webhook 适配运行时缺失?)"
+        },
+        {
+          "kind": "sdk_install",
+          "target": "hermes",
+          "ok_text": "hermes SDK install done(重启 hermes gateway 生效)"
+        }
+      ]
     },
     "openclaw": {
       "detect": {
@@ -143,7 +213,31 @@
         ],
         "fail_hint": "先安装 openclaw-aimail 插件(`openclaw plugins install openclaw-aimail --force --accept-capabilities` → 重启 gateway),`openclaw aimail register` 命令由插件提供"
       },
-      "home_dir": ".openclaw"
+      "home_dir": ".openclaw",
+      "install_steps": [
+        {
+          "kind": "print",
+          "text": "openclaw 平台:安装 openclaw-aimail 插件 + 注册 agent(单 agent 用 `aimail address -s SID -a main`):"
+        },
+        {
+          "kind": "print",
+          "text": "  1. 插件安装:`openclaw plugins install openclaw-aimail --force --accept-capabilities` → 重启 openclaw gateway(npm registry 最新 stable;force/accept 为 openclaw 三方插件信任门)"
+        },
+        {
+          "kind": "print",
+          "text": "  2. 注册:openclaw aimail register --system-id {sid}(或 `aimail address -s {sid} -a main`)",
+          "when": {
+            "sid_set": true
+          }
+        },
+        {
+          "kind": "print",
+          "text": "  2. 注册:`openclaw aimail register`(指针/系统就绪后)或 `aimail address -a main`",
+          "when": {
+            "sid_set": false
+          }
+        }
+      ]
     },
     "deerflow": {
       "detect": {
@@ -175,7 +269,38 @@
         ],
         "fail_hint": "deer-flow manage.py 注册器失败——检查 pysdk/deer-flow 模块与系统配置"
       },
-      "home_dir": ".deer-flow"
+      "home_dir": ".deer-flow",
+      "install_steps": [
+        {
+          "kind": "sdk_install",
+          "target": "deerflow",
+          "ok_text": "deerflow SDK install done"
+        },
+        {
+          "kind": "spawn",
+          "argv": [
+            "bash",
+            "{scripts}/deer-flow/install-skill.sh"
+          ],
+          "env": {
+            "AIMAIL_SYSTEM_ID": "{sid}"
+          },
+          "on_error": "warn",
+          "warn_hint": "deer-flow install-skill.sh exit {rc}"
+        },
+        {
+          "kind": "spawn",
+          "argv": [
+            "bash",
+            "{scripts}/deer-flow/install-mcp.sh"
+          ],
+          "env": {
+            "AIMAIL_SYSTEM_ID": "{sid}"
+          },
+          "on_error": "warn",
+          "warn_hint": "deer-flow install-mcp.sh exit {rc}"
+        }
+      ]
     }
   }
 }

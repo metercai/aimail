@@ -317,6 +317,93 @@ def _sdk_uninstall(kind: str, system_home: Path, sid: str) -> int:
     return _sdk.uninstall_deerflow(str(backend))
 
 
+def _tmpl(text: str, ctx: dict) -> str:
+    """动作表模板填充:{home}/{sid}/{manager}/{scripts}/{rc}/{email}…"""
+    for k, v in ctx.items():
+        text = text.replace("{" + k + "}", str(v))
+    return text
+
+
+def _when_ok(when: dict, ctx: dict) -> bool:
+    """动作 when 条件(path_exists/command_exists/sid_set/cfg_complete)。"""
+    for key, val in when.items():
+        if key == "path_exists":
+            from pathlib import Path as _P
+            if not _P(_tmpl(val, ctx)).exists():
+                return False
+        elif key == "command_exists":
+            import shutil
+            if not shutil.which(_tmpl(val, ctx)):
+                return False
+        elif key == "sid_set":
+            if bool(ctx.get("sid")) != bool(val):
+                return False
+        elif key == "cfg_complete":
+            c = ctx.get("cfg") or {}
+            ok = bool(c.get("gateway_url") and c.get("admin_key") and ctx.get("sid"))
+            if ok != bool(val):
+                return False
+    return True
+
+
+def _run_install_steps(platform: str, ctx: dict) -> None:
+    """平台 install 动作序列执行器(platforms.json install_steps 表驱动)。
+    kind: print|warn|spawn|sdk_install|register_default;when 前置条件;
+    spawn 的 on_missing(fail/skip)与 on_error(warn/fail)策略映射现状语义。"""
+    steps = _platform_def(platform).get("install_steps", [])
+    if not steps:
+        return
+    for st in steps:
+        when = st.get("when", {})
+        if when and not _when_ok(when, ctx):
+            continue
+        kind = st.get("kind")
+        if kind == "print":
+            print(_tmpl(st["text"], ctx))
+        elif kind == "warn":
+            _warn(_tmpl(st["text"], ctx))
+        elif kind == "sdk_install":
+            rc = _sdk_install(st.get("target", platform), Path(ctx["home"]), ctx.get("sid", ""))
+            ok_t = st.get("ok_text", "sdk install done")
+            _ok(ok_t if rc == 0 else f"{ok_t} — see warnings")
+        elif kind == "spawn":
+            argv = [_tmpl(x, ctx) for x in st.get("argv", [])]
+            env = dict(os.environ)
+            for k, v in (st.get("env") or {}).items():
+                env[k] = _tmpl(v, ctx)
+            try:
+                r = subprocess.call(argv, env=env)
+            except FileNotFoundError:
+                mode = st.get("on_missing", "fail")
+                if mode == "fail":
+                    _fail(_tmpl(st.get("fail_hint", f"`{argv[0]}` 不可执行"), ctx))
+                _warn(_tmpl(st.get("warn_hint", f"`{argv[0]}` 缺失,跳过"), ctx))
+                continue
+            if r != 0:
+                ectx = dict(ctx, rc=str(r))
+                mode = st.get("on_error", "warn")
+                msg = _tmpl(st.get("warn_hint", f"`{' '.join(argv)}` exit {r}"), ectx)
+                if mode == "fail":
+                    _fail(msg)
+                _warn(msg)
+            elif st.get("ok_text"):
+                _ok(_tmpl(st["ok_text"], ctx))
+        elif kind == "register_default":
+            reg = _platform_def(platform).get("register", {})
+            dn = reg.get("default_name", "")
+            agent = dn if dn else "agent"
+            try:
+                _register_agent_now(platform, agent, ctx.get("cfg") or {},
+                                    agent, ctx.get("manager", ""),
+                                    platform_home=ctx.get("home", ""))
+                _ok(f"{platform} agent registered + pointer written")
+            except SystemExit:
+                # 注册失败(上面 _fail 已输出):不阻塞 install 主流程(F9 语义)
+                _warn(_tmpl(st.get("warn_hint", f"{platform} agent 注册失败(见上)——稍后重试"), ctx))
+        else:
+            _warn(f"install_steps 未知 kind '{kind}'({platform})——跳过")
+
+
 def _is_local_gateway(url: str) -> bool:
     """网关是否本机/本地网络(直连 push,无需 bridge)。"""
     try:
@@ -543,86 +630,31 @@ def cmd_install(args) -> int:
         else:
             _warn(f"bridge 部署失败(exit {r})——见 deploy_bridge 输出")
 
-    # 3) 平台适配
-    if platform == "hermes":
-        # SDK 自足安装(pysdk:pip aimail 运行时 + patch/toolsets/register/资源)。
-        # venv pip aimail 是 webhook 运行时载荷,须就位。
-        venv_py = system_home / "hermes-agent" / "venv" / "bin" / "python"
-        if venv_py.is_file():
-            r = subprocess.call(
-                [str(venv_py), "-m", "pip", "install", "-q", "aimail"],
-                env=dict(os.environ))
-            if r != 0:
-                _warn(f"venv pip install aimail exit {r}(webhook 适配运行时缺失?)")
-        rc = _sdk_install("hermes", system_home, env.get("INTEGRATE_SYSTEM_ID", ""))
-        _ok("hermes SDK install done(重启 hermes gateway 生效)" if rc == 0
-            else "hermes SDK install: see warnings")
-    elif platform == "openclaw":
-        # openclaw 对接全在 TS(openclaw-aimail):工具/入站端点/register 命令。
-        # Python 注册器已退役;安装 = 装插件后经 `openclaw aimail register` 注册。
-        sid3 = env.get("INTEGRATE_SYSTEM_ID", "")
-        _ok("openclaw 平台:安装 openclaw-aimail 插件 + 注册 agent(单 agent 用 `aimail address -s SID -a main`):")
-        print("  1. 插件安装:`openclaw plugins install openclaw-aimail --force --accept-capabilities`"
-              " → 重启 openclaw gateway(npm registry 最新 stable;force/accept 为 openclaw 三方插件信任门)")
-        if sid3:
-            print(f"  2. 注册:openclaw aimail register --system-id {sid3}(或 `aimail address -s {sid3} -a main`)")
-        else:
-            print("  2. 注册:`openclaw aimail register`(指针/系统就绪后)或 `aimail address -a main`")
-    elif platform == "pi":
-        # pi:注册 pi agent 地址 + 写 ~/.pi/.agentmail 指针(核心链组装,见 address)。
-        # 扩展(pi-aimail)由宿主命令安装;资源自触发。
-        sid3 = env.get("INTEGRATE_SYSTEM_ID", "")
-        _reg_cfg = {}
-        _pcfg = _gateway_cfg_path(sid3) if sid3 else None
-        if _pcfg and _pcfg.is_file():
-            try:
-                _reg_cfg = json.loads(_pcfg.read_text())
-            except Exception:
-                _reg_cfg = {}
-        if not _reg_cfg:
-            _reg_cfg = {
-                "system_id": sid3, "gateway_url": env.get("INTEGRATE_GATEWAY_URL", ""),
-                "admin_key": env.get("INTEGRATE_ADMIN_KEY", ""), "domain": "",
-                "system_name": env.get("INTEGRATE_SYSTEM_NAME", ""), "manager_address": manager,
-                "system_home": env.get("INTEGRATE_SYSTEM_HOME", ""),
-            }
-        if sid3 and _reg_cfg["gateway_url"] and _reg_cfg["admin_key"]:
-            try:
-                _register_agent_now("pi", "pi", _reg_cfg, "pi", manager or "",
-                                    platform_home=str(system_home))
-                _ok("pi agent registered + pointer written")
-            except SystemExit:
-                # 注册失败(上面 _fail 已输出原因):不阻塞 install 主流程,
-                # 但必须显式提示可重试(AUDIT-1 F9:曾静默吞掉仍报 done)。
-                _warn("pi agent 注册失败(见上)——稍后重试:`aimail address -s "
-                      + (sid3 or "<sid>") + " -a pi` 注册")
-        else:
-            _warn("pi 注册跳过(配置不全——激活/安装后重试或 aimail address -a pi)")
-        print("  pi: 扩展安装 = pi install npm:pi-aimail(宿主命令)+ 重启")
-    elif platform == "dsh":
-        # 安装 = dsh 官方插件命令的薄封装(bundle 自动挂载 mail/mail-inbound/tool-mail)
+    # 3) 平台适配(platforms.json install_steps 动作表驱动——Phase 2)
+    _cfg = {}
+    _pcfg = _gateway_cfg_path(env.get("INTEGRATE_SYSTEM_ID", ""))
+    if _pcfg and _pcfg.is_file():
         try:
-            r = subprocess.call(["dsh", "plugin", "--profile", "web", "add", "dsh-aimail"])
-        except FileNotFoundError:
-            _fail("`dsh` CLI not found — build/install deepseek-harness first "
-                  "(e.g. cd ~/deepseek-harness && cargo build --release && "
-                  "ln -sf \"$PWD/target/release/dsh\" ~/.local/bin/dsh), "
-                  "then re-run aimail install")
-        if r != 0:
-            _warn("dsh plugin add aimail 失败(检查 aimail npm 包发布与网络)")
-        else:
-            _ok("aimail 插件已安装(dsh bundle 层挂载)")
-        print("  dsh: 绑定 = 创建 dsh session(mail preset)后自动 auto-bind;")
-        print("        CLI 侧注册:`aimail address -s <sid> -a agent`")
-    else:  # deerflow
-        # SDK 自足安装:register/reconcile + app.py patch + 运行时 bundle + 资源
-        rc = _sdk_install("deerflow", system_home, env.get("INTEGRATE_SYSTEM_ID", ""))
-        _ok("deerflow SDK install done" if rc == 0 else "deerflow SDK install: see warnings")
-        # skill/mcp 宿主机制仍由 CLI 装配
-        env3 = dict(os.environ)
-        env3["AIMAIL_SYSTEM_ID"] = env.get("INTEGRATE_SYSTEM_ID", "")
-        for sh in ("install-skill.sh", "install-mcp.sh"):
-            subprocess.call(["bash", str(SCRIPTS_DIR / "deer-flow" / sh)], env=env3)
+            _cfg = json.loads(_pcfg.read_text())
+        except Exception:
+            _cfg = {}
+    if not _cfg:
+        _cfg = {
+            "system_id": env.get("INTEGRATE_SYSTEM_ID", ""),
+            "gateway_url": env.get("INTEGRATE_GATEWAY_URL", ""),
+            "admin_key": env.get("INTEGRATE_ADMIN_KEY", ""),
+            "domain": "",
+            "system_name": env.get("INTEGRATE_SYSTEM_NAME", ""),
+            "manager_address": manager,
+            "system_home": env.get("INTEGRATE_SYSTEM_HOME", ""),
+        }
+    _run_install_steps(platform, {
+        "home": str(system_home),
+        "sid": env.get("INTEGRATE_SYSTEM_ID", ""),
+        "manager": manager or "",
+        "scripts": str(SCRIPTS_DIR),
+        "cfg": _cfg,
+    })
 
     print(f"  install done. 建议: aimail check {'--system-id ' + args.system_id if args.system_id else ''}".rstrip())
     return 0
@@ -822,31 +854,29 @@ def cmd_reset(args) -> int:
         _fail("setup_system(reset) 失败")
     _ok("config parameters reset (admin-key path, key untouched)")
 
-    # 平台注册链幂等重跑(配置补全)
+    # 平台注册链幂等重跑(配置补全)——注册表驱动;注册失败不阻断 reset
+    # (尽力语义,比单平台 fail 一致——曾 openclaw warn 而 pi/dsh 直崩)。
     if platform == "hermes":
+        # hermes 全量重扫(register_profiles 注册所有 profile;单 agent
+        # 注册见 address)——保留平台专属全量语义
         env3 = dict(os.environ)
         env3["SYSTEM_ID"] = sid
         r = subprocess.call([sys.executable,
                              str(SCRIPTS_DIR.parent / "pysdk" / "hermes" / "register_profiles.py")],
                             env=env3)
+        if r != 0:
+            _warn(f"hermes register_profiles exit {r}(见上)")
     else:
-        # 平台注册链幂等重跑:openclaw=TS 命令(插件注册)/ pi=核心链 /
-        # dsh=bind / deerflow=manage(register_agent.py 已退役)
         _reg_cfg = dict(json.loads(cfg_path.read_text()) if cfg_path.is_file() else {})
-        if platform == "openclaw":
-            reg = _run_registrar(["openclaw", "aimail", "register", "--system-id", sid])
-            if reg[0] != 0:
-                _warn(f"openclaw TS 注册不可用(exit {reg[0]}): {reg[1][-200:]}\n"
-                      f"  先安装 openclaw-aimail 插件再 `openclaw aimail register`,或用 aimail address -a main")
-        elif platform == "pi":
-            _register_agent_now("pi", "pi", _reg_cfg, "pi", manager)
-        elif platform == "dsh":
-            _register_agent_now("dsh", "agent", _reg_cfg, "agent", manager)
-        elif platform == "deerflow":
-            _register_agent_now("deerflow", "agent", _reg_cfg, "agent", manager)
-        else:
-            _warn(f"平台 {platform} 无自动重注册链(用 aimail address -a <agent> 注册单 agent)")
-        _ok("registration chain re-run (idempotent)")
+        reg = _platform_def(platform).get("register", {})
+        dn = reg.get("default_name", "")
+        agent = dn if dn else "agent"
+        try:
+            _register_agent_now(platform, agent, _reg_cfg, agent, manager)
+            _ok("registration chain re-run (idempotent)")
+        except SystemExit:
+            # 注册失败(_fail 已输出原因):reset 继续完成
+            _warn("registration chain re-run: registration failed (see above)")
     print(f"  建议: aimail check --system-id {sid}")
     return 0
 
