@@ -181,10 +181,8 @@ Field semantics follow MAINTENANCE §2/§9 and the code contract.
 ## 4. Example Deployments (Five Platforms in Production)
 
 > TS adapter index: the `dsh-aimail` / `openclaw-aimail` / `pi-aimail`
-> implementations, and the full how-to for adapting a new TS platform
-> (MAIL_TOOLS iteration, identity, inbound chain, package shape), live in
-> `tssdk/docs/platform-adapter-guide.md` in this repo; `tssdk/README.md`
-> is the SDK overview.
+> implementations; `tssdk/README.md` is the SDK overview; how to adapt a
+> NEW platform (any language) is §6 of this document.
 
 ### 4.1 Hermes
 

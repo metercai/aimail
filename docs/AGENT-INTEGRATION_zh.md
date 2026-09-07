@@ -180,9 +180,8 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 ## 4. 实例示范(五平台生产运行)
 
 > TS 适配索引:三个 TS 平台适配器(`dsh-aimail` / `openclaw-aimail` /
-> `pi-aimail`)的实现,以及为新 TS 平台写适配器的完整指南(MAIL_TOOLS
-> 遍历、身份、入站链、包形态),见本仓库 `tssdk/docs/platform-adapter-guide.md`;
-> `tssdk/README.md` 为 TS SDK 总览。
+> `pi-aimail`)的实现;`tssdk/README.md` 是 SDK 总览;新增平台(任意语言)
+> 的适配指南见本文档 §6。
 
 ### 4.1 Hermes
 

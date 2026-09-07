@@ -42,8 +42,9 @@ once, so every platform surfaces an identical tool surface.
          node:http inbound)   gateway HTTP route)    local HTTP listener)
 ```
 
-Inbound delivery: the [aimail-bridge](#) (push/pull proxy for the AIMail
-gateway) forwards mail to each platform's endpoint. All platforms use the
+Inbound delivery: aimail-bridge (the push/pull proxy for the AIMail
+gateway, built from `bridge/` in this monorepo) forwards mail to each
+platform's endpoint. All platforms use the
 same path — `POST /aimail/inbound` (HMAC-verified) — only the port differs.
 
 ## Packages
@@ -58,8 +59,9 @@ dsh plugin --profile web add dsh-aimail
 dsh plugin --profile web remove dsh-aimail
 ```
 
-Prerequisite: an AIMail binding for the dsh session (run `aimail install`
-from the aimail repository's `cli/`).
+Prerequisite: an AIMail binding for the dsh session — run
+`aimail install --home ~/.dsh [--system-id SID]` (the CLI is installed by
+the aimail bootstrap; it drives this plugin via the platform registry).
 
 What it mounts onto the profile: the mail host service, the inbound endpoint,
 the 13 mail/board tools, and an email-agent persona.
@@ -123,5 +125,7 @@ pnpm exec tsc -b packages/mail-core packages/mail packages/dsh-aimail packages/o
   AIMail gateway: SMTP/HTTP mail service, address & activation APIs, and the
   board endpoints the SDK client talks to.
 
-See [docs/platform-adapter-guide.md](docs/platform-adapter-guide.md) for how
-to build an adapter for a new agent platform.
+How to build an adapter for a new agent platform (any language): see
+[docs/AGENT-INTEGRATION.md §6](https://github.com/metercai/aimail/blob/main/docs/AGENT-INTEGRATION.md)
+in this repo — platform knowledge lives in cli/platforms.json, adapters
+live in their SDK, the CLI never changes.
