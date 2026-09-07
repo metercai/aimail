@@ -20,30 +20,9 @@ def gateway_config_path(system_id: str = "") -> Path:
     return (base / system_id if system_id else base) / "aimail_gateway.json"
 
 
-LEGACY_CONFIG_NAME = "agentmail_gateway.json"  # pre-2026-09-04 name
-
-
-def _migrate_legacy_config(path: Path) -> None:
-    """Rename agentmail_gateway.json → aimail_gateway.json once (best effort)."""
-    legacy = path.parent / LEGACY_CONFIG_NAME
-    if legacy.is_file() and not path.is_file():
-        try:
-            legacy.rename(path)
-            import os as _os
-            _os.chmod(path, 0o600)
-        except Exception:
-            pass
-
-
 def load_gateway_config(system_id: str = "") -> Optional[dict]:
-    """Load gateway connection config from ~/.aimail/systems/{sid}/aimail_gateway.json.
-
-    Canonical name: aimail_gateway.json (2026-09-04 rename, aligned with the
-    gateway binary name). Legacy agentmail_gateway.json is auto-migrated on
-    first read.
-    """
+    """Load gateway connection config from ~/.aimail/systems/{sid}/aimail_gateway.json."""
     path = gateway_config_path(system_id)
-    _migrate_legacy_config(path)
     if path.is_file():
         try:
             return json.loads(path.read_text())

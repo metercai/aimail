@@ -29,7 +29,7 @@ describe('auto-bind helpers', () => {
     const sidDir = path.join(tmpHome, 'systems', 'sys-x')
     fs.mkdirSync(sidDir, { recursive: true })
     fs.writeFileSync(
-      path.join(sidDir, 'agentmail_gateway.json'),
+      path.join(sidDir, 'aimail_gateway.json'),
       JSON.stringify({
         gateway_url: 'https://gw.invalid',
         admin_key: 'ak-test',

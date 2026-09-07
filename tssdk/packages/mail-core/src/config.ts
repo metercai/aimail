@@ -18,34 +18,16 @@ export function systemDir(systemId: string): string {
 
 /** System gateway-config file name (canonical, since 2026-09-04 rename). */
 export const GATEWAY_CONFIG_NAME = 'aimail_gateway.json'
-/** Pre-rename name — migrated on first read (mirrors pysdk gateway_api). */
-export const LEGACY_GATEWAY_CONFIG_NAME = 'agentmail_gateway.json'
 
 /**
- * Resolve the system gateway-config path, migrating the legacy file name
- * on first access (rename once, like python pysdk/gateway_api
- * `_migrate_legacy_config`). Returns the canonical path; a missing file
- * surfaces on the caller's read (error text names the canonical file).
+ * Resolve the system gateway-config path (canonical name only; no legacy
+ * fallback — pre-rename names never shipped). A missing file surfaces on
+ * the caller's read (error text names the canonical file).
  */
-export async function gatewayConfigPath(
+export function gatewayConfigPath(
   systemId: string,
-): Promise<string> {
-  const dir = systemDir(systemId)
-  const cur = path.join(dir, GATEWAY_CONFIG_NAME)
-  const legacy = path.join(dir, LEGACY_GATEWAY_CONFIG_NAME)
-  try {
-    await fs.access(cur)
-    return cur
-  } catch {
-    /* canonical missing — try legacy */
-  }
-  try {
-    await fs.access(legacy)
-    await fs.rename(legacy, cur)
-  } catch {
-    /* neither present (or rename raced) — caller reports canonical */
-  }
-  return cur
+): string {
+  return path.join(systemDir(systemId), GATEWAY_CONFIG_NAME)
 }
 
 /**

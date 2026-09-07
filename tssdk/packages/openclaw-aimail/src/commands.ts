@@ -205,20 +205,8 @@ async function resolveSystemId(explicit: string): Promise<string> {
 async function readGatewayConfig(
   systemId: string,
 ): Promise<Record<string, string>> {
-  // canonical aimail_gateway.json with legacy-name auto-migration (mail-core
-  // gatewayConfigPath parity); report the canonical name on failure
+  // canonical aimail_gateway.json only; report the canonical name on failure
   const p = path.join(systemDir(systemId), 'aimail_gateway.json')
-  const legacy = path.join(systemDir(systemId), 'agentmail_gateway.json')
-  try {
-    await fs.access(p)
-  } catch {
-    try {
-      await fs.access(legacy)
-      await fs.rename(legacy, p)
-    } catch {
-      /* neither — error below names the canonical file */
-    }
-  }
   try {
     return JSON.parse(await fs.readFile(p, 'utf-8')) as Record<string, string>
   } catch {

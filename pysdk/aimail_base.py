@@ -151,23 +151,13 @@ def _aimail_system_dir(system_id: str = "") -> Path:
 
 def _gateway_config_path(system_id: str = "") -> Path:
     """Return path to the gateway config file.
-    
+
     When system_id is provided, returns system-specific path.
     When empty, returns the base ~/.aimail/systems/ level (caller should resolve system_id).
-    
+
     Canonical name: aimail_gateway.json (2026-09-04, aligned with the gateway
-    binary name). Legacy agentmail_gateway.json is auto-migrated on first
-    access."""
-    base_path = _aimail_system_dir(system_id)
-    p = base_path / "aimail_gateway.json"
-    legacy = base_path / "agentmail_gateway.json"
-    if legacy.is_file() and not p.is_file():
-        try:
-            legacy.rename(p)
-            os.chmod(p, 0o600)
-        except Exception:
-            pass
-    return p
+    binary name)."""
+    return _aimail_system_dir(system_id) / "aimail_gateway.json"
 
 
 def _load_gateway_config(system_id: str = "") -> Optional[dict]:

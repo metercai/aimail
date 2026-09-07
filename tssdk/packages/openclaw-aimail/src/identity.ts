@@ -9,7 +9,7 @@
  *   → system_id → @aimail/mail-core loadConfigByAgentId → AgentConfig
  *
  * Auto-bind (SDK auto-binding): when the pointer is missing but the machine
- * has a system config (~/.aimail/systems/{sid}/agentmail_gateway.json), the
+ * has a system config (~/.aimail/systems/{sid}/aimail_gateway.json), the
  * first resolution auto-registers the agent's address once per process
  * (register chain + agentmail.json + bridge route via mail-core autoBind),
  * writes the pointer and returns the config — instead of failing loud.

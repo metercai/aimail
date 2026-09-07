@@ -109,14 +109,6 @@ def load_agent_config_for_key(system_id: str = "") -> Optional[dict]:
     try:
         sid = system_id or os.environ.get("AIMAIL_SYSTEM_ID", "")
         path = Path(_ab.aimail_home()) / "systems" / sid / "aimail_gateway.json"
-        legacy = Path(_ab.aimail_home()) / "systems" / sid / "agentmail_gateway.json"
-        if legacy.is_file() and not path.is_file():
-            try:
-                legacy.rename(path)
-                import os as _os
-                _os.chmod(path, 0o600)
-            except Exception:
-                pass
         if path.is_file():
             return json.loads(path.read_text())
     except Exception:

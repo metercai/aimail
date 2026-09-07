@@ -63,8 +63,6 @@ export async function listSystemDirs(): Promise<string[]> {
 
 /** Read the system gateway config. Throws when missing/unreadable. */
 export async function readSystemConfig(systemId: string): Promise<SystemGatewayConfig> {
-  // canonical aimail_gateway.json, legacy agentmail_gateway.json auto-migrated
-  // on first read (pysdk gateway_api parity)
   const p = await gatewayConfigPath(systemId)
   try {
     return JSON.parse(await fs.readFile(p, 'utf-8')) as SystemGatewayConfig

@@ -59,14 +59,6 @@ def _bridge_pids():
 
 def _load_gateway_cfg(sid: str):
     p = SYSTEMS_DIR / sid / "aimail_gateway.json"
-    legacy = SYSTEMS_DIR / sid / "agentmail_gateway.json"
-    if legacy.is_file() and not p.is_file():
-        try:
-            legacy.rename(p)
-            import os as _os
-            _os.chmod(p, 0o600)
-        except Exception:
-            pass
     if not p.is_file():
         return None
     return json.loads(p.read_text())

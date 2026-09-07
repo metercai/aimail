@@ -85,14 +85,6 @@ def _resolve_system_id(args: list[str] | None = None) -> str:
 
 def _system_agent_path(sid: str) -> Path:
     p = SYSTEMS_DIR / sid / "aimail_gateway.json"
-    legacy = SYSTEMS_DIR / sid / "agentmail_gateway.json"
-    if legacy.is_file() and not p.is_file():
-        try:
-            legacy.rename(p)
-            import os as _os
-            _os.chmod(p, 0o600)
-        except Exception:
-            pass
     return p
 
 BRIDGE_CFG  = BRIDGE_DIR / "aimail_bridge.toml"
