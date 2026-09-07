@@ -414,12 +414,23 @@ def trigger_profile_hooks(event: str, profile_name: str, profile_dir: str) -> No
         config = None
 
     if not config and event == "profile_created":
-        hermhome = os.environ.get("HERMES_HOME", "") or str(Path.home() / ".hermes")
+        # ensure home 与运行时探测统一(HERMES_PROFILE_DIR > hermes
+        # get_hermes_home() > ~/.hermes)——曾写死 HERMES_HOME||~/.hermes,
+        # 自定义 home 会归属错位(AUDIT-1 P1-6)。
+        hermhome = _resolve_profile_dir() or str(Path.home() / ".hermes")
         try:
             r = core.ensure_system(hermhome)
             if r.get("ok"):
                 if r.get("activated"):
                     logger.info("[aimail_gateway] system activated via CLI: %s", r.get("system_id"))
+                # 激活/复用成功 → 按返回 sid 直读配置,不依赖 .agentmail 指针
+                # (78a0262 闭环缺口:激活不产生指针;AUDIT-1 P1-6)
+                sid = r.get("system_id") or ""
+                if sid:
+                    try:
+                        config = core._load_gateway_config(sid) or None
+                    except Exception:  # noqa: BLE001
+                        config = None
             else:
                 hint = f" ({r.get('hint')})" if r.get("hint") else ""
                 logger.warning(
@@ -428,10 +439,11 @@ def trigger_profile_hooks(event: str, profile_name: str, profile_dir: str) -> No
                 )
         except Exception as e:  # noqa: BLE001
             logger.warning("[aimail_gateway] system ensure failed: %s", e)
-        try:
-            config = _load_gateway_config()
-        except RuntimeError:
-            config = None
+        if not config:
+            try:
+                config = _load_gateway_config()
+            except RuntimeError:
+                config = None
 
     if not config:
         logger.debug("[aimail_gateway] No gateway config -- skipping hooks for %s", event)
@@ -617,6 +629,11 @@ def _auto_activate_profile(profile_dir: str, config: dict) -> None:
     except (json.JSONDecodeError, IOError):
         return
 
+    def _persist(prof: dict) -> None:
+        """落盘 agentmail.json — 统一共享原子写(0600/tmp+rename,
+        AUDIT-1 P1-5:此前 4 处 open+json.dump 直写,非原子且无 0600 保证)。"""
+        core.save_agent_config(prof.get("agent_id", ""), prof, sid)
+
     activation_code = prof.get("activation_code", "")
     if not activation_code:
         return  # Already activated or no code
@@ -624,8 +641,7 @@ def _auto_activate_profile(profile_dir: str, config: dict) -> None:
     if prof.get("api_key"):
         # Already has a key -- clean up stale activation_code
         prof.pop("activation_code", None)
-        with open(config_path, "w") as f:
-            json.dump(prof, f, indent=2)
+        _persist(prof)
         return
 
     client = _GatewayClient(config.get("gateway_url", prof.get("gateway_url", "")),
@@ -635,31 +651,12 @@ def _auto_activate_profile(profile_dir: str, config: dict) -> None:
         prof["api_key"] = result["raw_key"]
         prof.pop("activation_code", None)
         prof.pop("last_activation_attempt", None)
-        with open(config_path, "w") as f:
-            json.dump(prof, f, indent=2)
-        logger.info("[aimail_gateway] Activated profile, api_key saved to %s", config_path)
+        _persist(prof)
+        logger.info("[aimail_gateway] Activated profile, api_key saved")
 
-        # ── Sync api_key to address-keyed config ─────────────────────
-        try:
-            pointer_path = Path(profile_dir) / ".agentmail"
-            if pointer_path.is_file():
-                pd = json.loads(pointer_path.read_text())
-                sid = pd.get("system_id", "")
-                email = pd.get("email", "")
-                if sid and email:
-                    sync_path = _profile_config_path(sid, email)
-                    if sync_path.is_file():
-                        cfg = json.loads(sync_path.read_text())
-                        cfg["api_key"] = result["raw_key"]
-                        cfg.pop("activation_code", None)
-                        sync_path.write_text(json.dumps(cfg, indent=2))
-                        logger.info("[aimail_gateway] api_key synced to %s", sync_path)
-        except Exception as sync_err:
-            logger.warning("[aimail_gateway] Failed to sync api_key: %s", sync_err)
-
-        # 注:旧 "Port refresh"(激活时刷 bridge 路由)已删除(2026-08-18)——
-        # bridge 路由表目标 = agentmail.json 的 webhook_url(唯一信任源),
-        # 由注册链/CLI bridge 维护,激活流程不再触碰。
+        # 注:旧 "Port refresh"(激活时刷 bridge 路由)与同文件 sync 双写
+        # 均已删(2026-08-18/2026-09-07)——config_path 本就是 address-keyed
+        # agentmail.json,激活写已落唯一信任源;bridge 路由目标不变。
     else:
         # Rate-limit retries: skip if recently attempted (avoids spamming gateway
         # with a permanently invalid activation code)
@@ -671,8 +668,7 @@ def _auto_activate_profile(profile_dir: str, config: dict) -> None:
                          config_path, int(now_ts - last))
         else:
             prof["last_activation_attempt"] = now_ts
-            with open(config_path, "w") as f:
-                json.dump(prof, f, indent=2)
+            _persist(prof)
             logger.warning("[aimail_gateway] Failed to activate profile %s: %s",
                            config_path, result.get("error", result))
 

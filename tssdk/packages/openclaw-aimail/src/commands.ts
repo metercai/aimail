@@ -14,13 +14,13 @@ import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import * as path from 'node:path'
 import type { GatewayResponse } from '@aimail/mail-core'
-import { agentConfigPath, systemDir } from '@aimail/mail-core'
+import { systemDir } from '@aimail/mail-core'
 import type {
   OpenClawPluginCommandDefinition,
   PluginCommandContext,
   PluginCommandResult,
 } from 'openclaw/plugin-sdk/plugin-entry'
-import { readPointer } from './identity.js'
+import { readPointer, writePointer } from './identity.js'
 
 /** Minimal admin client surface the chains depend on (MockClient-friendly). */
 export interface AdminClient {
@@ -31,81 +31,6 @@ export interface AdminClient {
     headers?: Record<string, string>,
     rawBody?: Uint8Array,
   ): Promise<GatewayResponse>
-}
-
-export interface RegisterOptions {
-  systemId: string
-  email: string
-  webhookUrl: string
-  webhookSecret: string
-  managerAddress?: string
-}
-
-export interface RegisterResult {
-  api_key?: string | undefined
-  activation_code?: string
-  exists?: boolean
-}
-/**
- * 4-step idempotent registration chain (port of Python register_agent_email).
- * Returns {api_key} when activation completed; {} when pending/existing.
- */
-export async function registerAgentEmail(
-  client: AdminClient,
-  opts: RegisterOptions,
-): Promise<RegisterResult> {
-  const result = await client.request(
-    'POST',
-    `/api/v1/admin/systems/${opts.systemId}/addresses?generate_code=true`,
-    {
-      id: `addr-${opts.email.replace('@', '-at-')}-${Math.floor(Date.now() / 1000)}`,
-      email: opts.email,
-      webhook_url: opts.webhookUrl,
-      webhook_secret: opts.webhookSecret,
-      manager_address: opts.managerAddress ?? '',
-    },
-  )
-  const activationCode = String(result.activation_code ?? '')
-  const status = String(result.status ?? '')
-  if (status && !['created', '200', '201'].includes(status)) {
-    const msg =
-      String(result.error ?? '') + String(result.detail ?? '')
-    if (/already exists|exists/i.test(msg)) {
-      // Idempotent: update webhook config for the existing address
-      const domains = await client.request(
-        'GET',
-        `/api/v1/admin/systems/${opts.systemId}/domains`,
-      )
-      const entries = Array.isArray(domains.data)
-        ? domains.data
-        : (domains.entries as unknown[] | undefined) ?? []
-      for (const d of entries) {
-        const row = d as Record<string, unknown>
-        if (row.domain === opts.email) {
-          await client.request(
-            'PUT',
-            `/api/v1/admin/system-domains/${String(row.id)}`,
-            {
-              webhook_url: opts.webhookUrl,
-              webhook_secret: opts.webhookSecret,
-            },
-          )
-          break
-        }
-      }
-      return { exists: true }
-    }
-    throw new Error(`register failed: ${JSON.stringify(result)}`)
-  }
-
-  if (!activationCode) return {}
-  const act = await client.request(
-    'POST',
-    '/api/v1/activate-address',
-    { code: activationCode, email_address: opts.email },
-  )
-  const apiKey = act.raw_key as string | undefined
-  return { api_key: apiKey, activation_code: activationCode }
 }
 
 export interface DeregisterResult {
@@ -216,23 +141,6 @@ async function readGatewayConfig(
   }
 }
 
-function saveAgentConfig(
-  agentId: string,
-  cfg: Record<string, unknown>,
-  systemId: string,
-): Promise<void> {
-  const email = String(cfg.email ?? '')
-  if (!email) throw new Error('saveAgentConfig requires email')
-  const p = agentConfigPath(systemId, email)
-  return fs.mkdir(path.dirname(p), { recursive: true }).then(() =>
-    fs.writeFile(
-      p,
-      JSON.stringify({ ...cfg, agent_id: agentId }, null, 2) + '\n',
-      { mode: 0o600 },
-    ),
-  )
-}
-
 function cmdText(lines: string[]): PluginCommandResult {
   return { text: lines.join('\n') }
 }
@@ -275,56 +183,43 @@ async function handleCommand(
       if (!email) return cmdText(['register requires --email <addr>', '', USAGE])
       const systemId = await resolveSystemId(opts['system-id'] ?? '')
       const gw = await readGatewayConfig(systemId)
-      // GatewayClient from mail-core (admin key), fall back to raw fetch
-      // when the config lacks an admin key (agent-scope registration).
-      const { GatewayClient } = await import('@aimail/mail-core')
-      const apiKey = gw.admin_key ?? ''
-      const admin = new GatewayClient(gw.gateway_url ?? '', apiKey, 30_000, systemId)
       const webhookSecret = randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, '')
-      const reg = await registerAgentEmail(admin, {
-        systemId,
-        email,
-        webhookUrl: opts['webhook-url'] ?? '',
-        webhookSecret,
-        managerAddress: opts.manager ?? gw.manager_address ?? '',
-      })
-      if (reg.api_key) {
-        await saveAgentConfig(
-          ctx.agentId ?? 'main',
-          {
-            email,
-            gateway_url: gw.gateway_url ?? '',
-            domain: gw.domain ?? '',
-            system_id: systemId,
-            system_name: gw.system_name ?? '',
-            manager_address: opts.manager ?? gw.manager_address ?? '',
-            api_key: reg.api_key,
-            webhook_url: opts['webhook-url'] ?? '',
-            webhook_secret: webhookSecret,
-          },
+      // 统一走 mail-core autoBind(归属读 → 4 步注册 → agentmail.json 原子
+      // 写 0600 → bridge route)。此前本命令用复制链 + 非原子落盘 + 从不配
+      // bridge route → 命令注册的地址收不到信(AUDIT-1 P1-9)。
+      const { autoBind } = await import('@aimail/mail-core')
+      const agentId = ctx.agentId ?? 'main'
+      try {
+        const res = await autoBind({
           systemId,
-        )
-        // pointer refresh: write ~/.openclaw/.agentmail
-        const ptrPath = path.join(
-          process.env.HOME ?? process.env.USERPROFILE ?? '',
-          '.openclaw',
-          '.agentmail',
-        )
-        await fs.mkdir(path.dirname(ptrPath), { recursive: true })
-        await fs.writeFile(
-          ptrPath,
-          JSON.stringify({ system_id: systemId, email }, null, 2) + '\n',
-          { mode: 0o600 },
-        )
+          email,
+          webhookUrl: opts['webhook-url'] ?? '',
+          webhookSecret,
+          managerAddress: opts.manager ?? gw.manager_address ?? '',
+          extraFields: { agent_id: agentId },
+        })
+        if (res.exists) {
+          return cmdText([
+            `registered ${email} (system ${systemId})`,
+            '  address already bound locally — nothing to do (idempotent)',
+          ])
+        }
+        await writePointer({ system_id: systemId, email })
         return cmdText([
-          `✓ registered ${email} (system ${systemId}, agent ${ctx.agentId ?? 'main'})`,
+          `✓ registered ${email} (system ${systemId}, agent ${agentId})`,
           `  api_key ok; webhook_url=${opts['webhook-url'] ?? '(pull)'}`,
         ])
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        if (/already exists/i.test(msg)) {
+          return cmdText([
+            `registered ${email}: remote address exists but no local api_key binding —`,
+            `  run 'openclaw aimail deregister --email ${email} --system-id ${systemId}' first,`,
+            `  then register again (or remove the stale binding and re-run)`,
+          ])
+        }
+        throw e
       }
-      return cmdText([
-        `registered ${email} (system ${systemId})`,
-        reg.exists ? '  address existed — webhook config updated' : '  activation pending (no api_key)',
-      ])
     }
 
     if (sub === 'deregister') {

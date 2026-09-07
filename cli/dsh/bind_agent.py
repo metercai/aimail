@@ -15,7 +15,6 @@
       [--manager <addr>] [--system-id <sid>]
 """
 import argparse
-import json
 import os
 import secrets
 import sys
@@ -80,15 +79,9 @@ def main() -> int:
         "session_id": session_id,
         "preset": args.preset,
     }
-    # 落盘 agentmail.json(地址键路径,原子 tmp+replace,600)
-    p = os.path.expanduser(f"~/.aimail/systems/{system_id}/{_base._clean_agent_dir_name(email)}/agentmail.json")
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    tmp = p + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(cfg, f, indent=2, ensure_ascii=False)
-        f.write("\n")
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, p)
+    # 落盘 agentmail.json — 共享原子写(clean 目录/0600/tmp+rename,
+    # aimail_home 感知;曾硬编码 ~/.aimail,AUDIT-1 P1-2/F12)
+    _base.save_agent_config(cfg.get("agent_id", ""), cfg, system_id)
     print(f"  ✓ 注册 {email} (api_key ok)")
     print(f"  ✓ session_id = {session_id} (preset={args.preset})")
 

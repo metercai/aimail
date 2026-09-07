@@ -121,6 +121,11 @@ def load_gateway_config(system_id: str = "") -> Optional[dict]:
     return _ab._load_gateway_config(system_id)
 
 
+# 转发共享核心函数(AUDIT-1 P0-2:manage.py 曾直调 _base.aimail_home()
+# AttributeError——adapters 只转发声明过的符号)
+aimail_home = _ab.aimail_home
+
+
 def detect_system_id() -> str:
     """系统身份: 指针文件唯一来源(~/.deer-flow/.agentmail 或 env)。"""
     sid = os.environ.get("AIMAIL_SYSTEM_ID", "")

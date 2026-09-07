@@ -31,9 +31,29 @@ export interface SystemGatewayConfig {
   domain?: string
   system_name?: string
   manager_address?: string
+  /** callback entry point the gateway should push to (bridge public host).
+   *  tri-state: value = push; explicit '' = pull; absent = no bridge. */
+  webhook_host?: string
   /** local bridge admin port (default 38081). */
   bridge_admin_port?: number
   [k: string]: unknown
+}
+
+/**
+ * webhook_host 三态 → 地址注册参数 webhook_url (1:1 with Python
+ * aimail_base.resolve_register_webhook_url):
+ * - webhook_host 有值           → push: bridge 公网入口(云端直推该地址)
+ * - webhook_host 显式空串 ''    → pull: 注册空(云端不回调;bridge 按空值拉取)
+ * - 无 webhook_host 键          → 无 bridge: 本地接收端点
+ * agentmail.json 的 webhook_url 恒为本地端点(另一值,给 bridge 路由)。
+ * AUDIT-1 P1-8:此前 TS 注册参数恒填本地端点,桥接 push 部署下云端
+ * 直推 127.0.0.1 不可达 → 入站断。
+ */
+export function resolveRegisterWebhook(gw: SystemGatewayConfig, localWebhookUrl: string): string {
+  const whh = gw.webhook_host
+  if (whh !== undefined && whh !== null && String(whh).trim() !== '') return String(whh)
+  if (whh !== undefined && whh !== null) return ''
+  return localWebhookUrl
 }
 
 /** Minimal admin-client surface the register chain depends on (testable). */
@@ -354,6 +374,11 @@ export async function autoBind(opts: AutoBindOptions): Promise<AutoBindResult> {
   }
 
   const gw = await readSystemConfig(systemId)
+  // 注册参数与本地端点两值分离:云端注册参数按 webhook_host 三态
+  // (resolveRegisterWebhook);agentmail.json webhook_url 与 bridge route
+  // 恒用本地端点(AUDIT-1 P1-8)。
+  const localWebhook = opts.webhookUrl
+  const regWebhook = resolveRegisterWebhook(gw, localWebhook)
   const webhookSecret =
     opts.webhookSecret ??
     randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, '')
@@ -361,7 +386,7 @@ export async function autoBind(opts: AutoBindOptions): Promise<AutoBindResult> {
   const reg = await registerAddress({
     systemId,
     email: opts.email,
-    webhookUrl: opts.webhookUrl,
+    webhookUrl: regWebhook,
     webhookSecret,
     managerAddress,
     ...(opts.gatewayUrl !== undefined ? { gatewayUrl: opts.gatewayUrl } : {}),
@@ -387,14 +412,14 @@ export async function autoBind(opts: AutoBindOptions): Promise<AutoBindResult> {
     systemId,
     email: opts.email,
     apiKey,
-    webhookUrl: opts.webhookUrl,
+    webhookUrl: localWebhook,
     webhookSecret,
     managerAddress,
     ...(opts.extraFields !== undefined ? { extra: opts.extraFields } : {}),
     gateway: gw,
   })
   if (!opts.skipBridge) {
-    await registerBridgeRoute({ systemId, email: opts.email, webhookUrl: opts.webhookUrl })
+    await registerBridgeRoute({ systemId, email: opts.email, webhookUrl: localWebhook })
   }
   return { email: opts.email, system_id: systemId, registered: true, api_key: apiKey, config_path: configPath }
 }

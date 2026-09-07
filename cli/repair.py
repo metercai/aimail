@@ -469,9 +469,9 @@ def _repair_agentmail_json(sid: str) -> bool:
                 d["webhook_url"] = target
                 _ok(f"{ajx.parent.name}: webhook_url aligned to route target {target}")
         if d != orig:
-            ajx.write_text(json.dumps(d, indent=2, ensure_ascii=False))
-            import os as _os
-            _os.chmod(ajx, 0o600)
+            # 落盘走共享原子写(0600/tmp+rename;AUDIT-1 P1-2)
+            from aimail_base import save_agent_config as _sac
+            _sac(d.get("agent_id", ""), d, sid)
             changed = True
     return changed
 

@@ -476,8 +476,7 @@ def main():
             log_ok("bridge API key created (category=bridge)")
     else:
         log_warn("bridge failed to start — check ~/.aimail/logs/aimail-bridge.log")
-
-    return 0
+        return 1
 
 if __name__ == "__main__":
     sys.exit(main())

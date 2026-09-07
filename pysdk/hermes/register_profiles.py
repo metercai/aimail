@@ -35,18 +35,19 @@ except ImportError:
     import ensure_config  # noqa: E402,F401
 
 def load_gateway_config():
-    # Use SYSTEM_ID env var to locate config directly (home via
-    # aimail_base.aimail_home() — AIMAIL_HOME aware)
-    import aimail_base  # noqa: E402  (自举已把 core 目录加 sys.path)
-    sid = os.environ.get("SYSTEM_ID", "")
+    # AIMAIL_SYSTEM_ID env 直定位(经共享 gateway_config_path——曾手拼
+    # aimail_home()/{sid}/aimail_gateway.json 漏 systems/ 段 + 用错
+    # SYSTEM_ID env,恒 None → 安装链注册静默空转;AUDIT-1 P1-3)。
+    sid = os.environ.get("AIMAIL_SYSTEM_ID", "") or os.environ.get("SYSTEM_ID", "")
     if sid:
-        sub = os.path.join(aimail_base.aimail_home(), sid, "aimail_gateway.json")
-        if os.path.isfile(sub):
-            try:
-                with open(sub) as f:
+        try:
+            from gateway_api import gateway_config_path
+            p = gateway_config_path(sid)
+            if os.path.isfile(p):
+                with open(p) as f:
                     return json.load(f)
-            except Exception:
-                pass
+        except Exception:
+            pass
     return None
 def register_emails():
     config = load_gateway_config()

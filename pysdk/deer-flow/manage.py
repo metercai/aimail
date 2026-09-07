@@ -238,16 +238,38 @@ def _local_agents(system_id: str) -> dict:
     return out
 
 
-def _save_agent_config(agent_id: str, cfg: dict, system_id: str) -> None:
-    """落盘地址键 agentmail.json(共享布局)。"""
-    cfg = dict(cfg)
-    cfg["agent_id"] = agent_id
-    cleaned = re.sub(r"[^\w.\-]", "_", cfg["email"])
-    path = os.path.join(_base.aimail_home(), "systems", str(system_id), str(cleaned), "agentmail.json")
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(cfg, f, indent=2, ensure_ascii=False)
-        f.write("\n")
+def _activate_pending(agent_id: str, cfg: dict, system_id: str, gw: dict) -> bool:
+    """agentmail.json 有 activation_code 无 api_key → activate_address 补激活
+    (对齐 hermes _auto_activate_profile:300s 限频,失败留存时间戳;
+    AUDIT-1 P1-4:曾因 code 不落盘而永远无法补激活)。"""
+    code = cfg.get("activation_code", "")
+    if not code or cfg.get("api_key"):
+        return False
+    import time as _t
+    now = _t.time()
+    last = cfg.get("last_activation_attempt", 0)
+    if last and (now - last) < 300:
+        return False
+    try:
+        client = _tools._GatewayClient(cfg.get("gateway_url") or gw["gateway_url"], "",
+                                       timeout=5)
+        res = client.activate_address(code, email_address=cfg.get("email", ""))
+    except Exception as e:  # noqa: BLE001
+        cfg["last_activation_attempt"] = now
+        save_agent_config(agent_id, cfg, system_id)
+        print(f"  ⚠ {agent_id}: activate failed: {e}")
+        return False
+    if res.get("success") and res.get("raw_key"):
+        cfg["api_key"] = res["raw_key"]
+        cfg.pop("activation_code", None)
+        cfg.pop("last_activation_attempt", None)
+        save_agent_config(agent_id, cfg, system_id)
+        print(f"  ✓ {agent_id}: activated (api_key ok)")
+        return True
+    cfg["last_activation_attempt"] = now
+    save_agent_config(agent_id, cfg, system_id)
+    print(f"  ⚠ {agent_id}: activation pending: {res.get('error', res)}")
+    return False
 
 
 def reconcile(system_id: str = "", manager: str = "", dry_run: bool = False) -> int:
@@ -293,7 +315,16 @@ def reconcile(system_id: str = "", manager: str = "", dry_run: bool = False) -> 
     changes = 0
     for agent_id, meta in desired.items():
         if agent_id in local:
-            continue  # 已注册,幂等跳过
+            # 已注册:补激活闭环(agentmail.json 有 activation_code 无 api_key
+            # → activate_address;对齐 hermes _auto_activate_profile,AUDIT-1 P1-4)
+            lc = local[agent_id]
+            if lc.get("activation_code") and not lc.get("api_key"):
+                if dry_run:
+                    print(f"  [dry] would activate pending {agent_id}")
+                    changes += 1
+                elif _activate_pending(agent_id, lc, system_id, gw):
+                    changes += 1
+            continue
         if dry_run:
             print(f"  [dry] would register {agent_id}")
             changes += 1
@@ -324,13 +355,32 @@ def reconcile(system_id: str = "", manager: str = "", dry_run: bool = False) -> 
                 "webhook_secret": webhook_secret,
                 "assistant_id": meta.get("assistant_id", "lead_agent"),
             }
-            _save_agent_config(agent_id, cfg, system_id)
+            # 落盘走共享薄壳(原子 0600,AUDIT-1 P1-5:曾私有直写无 0600)
+            save_agent_config(agent_id, cfg, system_id)
             changes += 1
             print(f"  ✓ registered {agent_id} → {email}")
             # 铁律:有 bridge 时注册后必须向 bridge 注册入站 hook 路由
             _core.register_bridge_route(system_id, email, gw, local_webhook_url)
         else:
-            print(f"  ⚠ {agent_id} → {email} no api_key (activation pending)")
+            # activation pending:把 activation_code 落盘,后续 reconcile 补激活
+            # (曾只 print 丢弃 code → 永远无法补激活;AUDIT-1 P1-4)
+            cfg = {
+                "email": email,
+                "gateway_url": gw["gateway_url"],
+                "domain": gw["domain"],
+                "system_id": system_id,
+                "system_name": gw.get("system_name", ""),
+                "manager_address": manager,
+                "api_key": "",
+                # agentmail.json webhook_url = 本地接收端点(唯一信任源,给 bridge 路由)
+                "webhook_url": local_webhook_url,
+                "webhook_secret": webhook_secret,
+                "assistant_id": meta.get("assistant_id", "lead_agent"),
+                "activation_code": reg.get("activation_code", ""),
+            }
+            save_agent_config(agent_id, cfg, system_id)
+            changes += 1
+            print(f"  ⚠ {agent_id} → {email} activation pending (code retained)")
 
     # 3. 注销:不再由 reconcile 承担(AUDIT-1 P2-4)——desired 目前只含
     # "default"(目录扩展扫描留待后续),曾注册的非默认 agent 会被误注销。

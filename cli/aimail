@@ -403,15 +403,20 @@ def cmd_install(args) -> int:
 
     # 目标双向反查:--home 与 --system-id 任给其一,另一个可从本地配置
     # (systems/{sid}/aimail_gateway.json 的 system_home)反查;都缺 → 报错。
-    system_home = Path(args.home).expanduser() if args.home else Path()
-    if not system_home and sid:
+    # 注意:Path() == Path('.') 恒 truthy——空 home 必须按 args.home 真值判定
+    # (ensure-system 同款范式;AUDIT-1 P0-1)。
+    if not args.home:
+        if not sid:
+            _fail("install 需要 --home,或带 --system-id 以便从本地配置反查")
         from runtime_core import system_home_from_sid
         sh = system_home_from_sid(sid)
         if not sh:
             _fail(f"--system-id {sid} 无本地配置可反查 --home(系统不在这台机器?)")
         system_home = Path(sh)
         print(f"  --home 由 --system-id 反查: {system_home}")
-    if not sid and system_home and not prod_code and not adm_key:
+    else:
+        system_home = Path(args.home).expanduser()
+    if not sid and not prod_code and not adm_key:
         # 重复安装:home 归属唯一系统 → 自动复用。.env 里的码可能已在首次
         # 安装消耗(claimed)——重跑应复用(隐式码只服务真正的新建)。
         from runtime_core import sid_from_system_home
@@ -424,8 +429,6 @@ def cmd_install(args) -> int:
         prod_code = _env_val("AIMAIL_PRODUCT_CODE")
         if not sys_name:
             sys_name = _env_val("AIMAIL_SYSTEM_NAME")
-    if not system_home:
-        _fail("install 需要 --home,或带 --system-id 以便从本地配置反查")
     if not system_home.exists():
         _fail(f"home 目录不存在: {system_home}")
     platform = resolve_platform(system_home)
@@ -724,17 +727,19 @@ def cmd_ensure_system(args) -> int:
 def cmd_reset(args) -> int:
     """重置:只走 admin-key 路径,重置所有配置参数(不重激活、不碰 key)。"""
     sid = args.system_id or ""
-    system_home = Path(args.home).expanduser() if args.home else Path()
-    if not system_home and sid:
-        # 与 install 对齐:--system-id 可反查本地配置的 system_home
+    # 与 install 对齐:--system-id 可反查本地配置的 system_home;空 home 按
+    # args.home 真值判定(Path() truthy 陷阱,AUDIT-1 P0-1)。
+    if not args.home:
+        if not sid:
+            _fail("reset 需要 --home(系统 home/平台根),或带 --system-id 以便反查")
         from runtime_core import system_home_from_sid
         sh = system_home_from_sid(sid)
         if not sh:
             _fail(f"--system-id {sid} 无本地配置可反查 --home(系统不在这台机器?)")
         system_home = Path(sh)
         print(f"  --home 由 --system-id 反查: {system_home}")
-    if not system_home:
-        _fail("reset 需要 --home(系统 home/平台根),或带 --system-id 以便反查")
+    else:
+        system_home = Path(args.home).expanduser()
     if not system_home.exists():
         _fail(f"home 目录不存在: {system_home}")
     platform = resolve_platform(system_home)
@@ -1107,9 +1112,12 @@ def cmd_address(args) -> int:
                             body={"old_email": email, "new_email": new_email})
         except Exception as e:
             _fail(f"服务端改名失败(未改动本地): {e}")
-        # 本地迁移:目录改名 + email 字段更新(webhook/api_key/secret 全继承)
+        # 本地迁移:目录改名 + email 字段更新(webhook/api_key/secret 全继承)。
+        # 目录名必须走共享 clean 规则(旧代码 email.replace('/','_') 含 @
+        # 地址会脱离共享布局;AUDIT-1 P1-2)。
+        from aimail_base import _clean_agent_dir_name as _clean_n, save_agent_config as _sac
         old_dir = Path(target["dir"])
-        new_dir = old_dir.parent / new_email.replace("/", "_")
+        new_dir = old_dir.parent / _clean_n(new_email)
         tgt_cfg = dict(target["cfg"])
         tgt_cfg["email"] = new_email
         try:
@@ -1117,7 +1125,7 @@ def cmd_address(args) -> int:
                 _warn(f"本地目录 {new_dir} 已存在,合并内容字段(保留两个目录)")
             else:
                 old_dir.rename(new_dir)
-            _atomic_json_write(new_dir / "agentmail.json", tgt_cfg)
+            _sac(tgt_cfg.get("agent_id", ""), tgt_cfg, sid)
         except Exception as e:
             _warn(f"本地迁移失败(云端已改名,重跑 install 可重建本地): {e}")
             return 0
@@ -1317,10 +1325,10 @@ def _rename_after_reg(cfg: dict, default_name: str, agent: str, reg_name: str, s
 
 def _write_agentmail_json(cfg: dict, sid: str, email: str, api_key: str, secret: str,
                           local_webhook_url: str, mgr: str, agent_id: str) -> None:
-    import json as _json
-    base = AIMAIL_HOME / "systems" / sid
-    d = base / email.replace("/", "_")
-    d.mkdir(parents=True, exist_ok=True)
+    """落盘地址键 agentmail.json — 统一共享原子写(aimail_base.save_agent_config:
+    目录 clean 规则/0600/原子性与读侧及 TS 一致。曾用 email.replace('/','_')
+    做目录名,含 @ 的完整地址会写到共享扫描读不到的目录,AUDIT-1 P1-2)。"""
+    from aimail_base import save_agent_config as _sac
     data = {
         "email": email,
         "gateway_url": cfg.get("gateway_url", ""),
@@ -1333,7 +1341,7 @@ def _write_agentmail_json(cfg: dict, sid: str, email: str, api_key: str, secret:
         "webhook_url": local_webhook_url,
         "webhook_secret": secret,
     }
-    (d / "agentmail.json").write_text(_json.dumps(data, indent=2, ensure_ascii=False))
+    _sac(agent_id, data, sid)
 
 
 def _write_pointer(ptr_path, sid: str, email: str) -> None:
@@ -1353,6 +1361,10 @@ def _post_reg_report(platform: str, agent: str, reg_name: str, domain: str, sid:
 def _atomic_json_write(path: Path, data: dict) -> None:
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    try:
+        os.chmod(tmp, 0o600)  # 凭据文件(tmp+rename 后权限随 tmp;AUDIT-1 F6)
+    except OSError:
+        pass
     tmp.replace(path)
 
 
@@ -2135,8 +2147,23 @@ def _uninstall_openclaw(sid: str) -> None:
 
 def cmd_uninstall(args) -> int:
     """卸载:与 install 对等,消除 aimail 在 agent 系统上的配置。"""
-    system_home = Path(args.home).expanduser() if args.home else Path()
-    sid, platform = resolve_system_id(system_home, args.system_id or "")
+    sid = args.system_id or ""
+    if not args.home and not sid:
+        _fail("uninstall 需要 --system-id(或用 --home 定位平台)")
+    if args.home:
+        system_home = Path(args.home).expanduser()
+    else:
+        # 有 sid 无 --home:权威 cfg 反查 system_home;无本地配置则留空,
+        # 交由 resolve_system_id(explicit sid) 判定(AUDIT-1 P0-1)。
+        sh0 = ""
+        p0 = SYSTEMS_DIR / sid / "aimail_gateway.json"
+        if p0.is_file():
+            try:
+                sh0 = (json.loads(p0.read_text()).get("system_home") or "").strip()
+            except Exception:
+                pass
+        system_home = Path(sh0).expanduser() if sh0 else Path()
+    sid, platform = resolve_system_id(system_home, sid)
     if not sid:
         _fail("uninstall 需要 --system-id(或用 --home 定位平台)")
     # 幂等:系统数据与指针都不存在 → 视为已卸载

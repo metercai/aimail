@@ -21,7 +21,6 @@ import {
   type MailToolCtx,
 } from '@aimail/mail'
 import {
-  AIMAIL_HOME,
   autoBind,
   emailForAgent,
   ensureSystem,
@@ -31,7 +30,6 @@ import {
   releaseAllSystems,
   type AgentConfig,
 } from '@aimail/mail-core'
-import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -121,39 +119,33 @@ export function apply(ctx: Context, config: { systemId?: string } = {}): void {
   }
   // install readiness: a dsh-only machine ensures its system through the CLI
   // reverse-call ABI (`aimail ensure-system`, L1 only — never platform wiring,
-  // which is how the install↔plugin call loop stays acyclic). Systems present
-  // → nothing to do; CLI missing → actionable bootstrap hint on stderr.
+  // which is how the install↔plugin call loop stays acyclic). UNCONDITIONAL
+  // reverse-call (ownership short-circuit lives inside ensureSystem): a
+  // multi-platform machine with only ANOTHER platform's systems must still
+  // reach the CLI so this dsh profile binds its own system — gating on "any
+  // system exists" regressed that (AUDIT-1 P1-7). CLI missing → actionable
+  // bootstrap hint on stderr.
   try {
-    const sysRoot = path.join(AIMAIL_HOME(), 'systems')
-    const hasSystems = fs.existsSync(sysRoot) && fs.readdirSync(sysRoot).length > 0
-    if (!hasSystems) {
-      const platformHome =
-        process.env.AIMAIL_SYSTEM_HOME?.trim() ||
-        process.env.DSH_HOME?.trim() ||
-        path.join(os.homedir(), '.dsh')
-      void ensureSystem({ systemHome: platformHome })
-        .then((r) => {
-          if (r.ok) {
-            if (r.activated) {
-              console.log(`[dsh-aimail] system activated: ${r.systemId}`)
-            } else if (!r.systemId) {
-              console.warn(
-                '[dsh-aimail] multiple aimail systems present — set AIMAIL_SYSTEM_ID to scope this profile',
-              )
-            }
-          } else {
-            const hint = r.hint ? ` (${r.hint})` : ''
-            console.warn(`[dsh-aimail] no aimail system yet — ${r.error ?? 'unknown'}` + hint)
+    const platformHome =
+      process.env.AIMAIL_SYSTEM_HOME?.trim() ||
+      process.env.DSH_HOME?.trim() ||
+      path.join(os.homedir(), '.dsh')
+    void ensureSystem({ systemHome: platformHome })
+      .then((r) => {
+        if (r.ok) {
+          if (r.activated) {
+            console.log(`[dsh-aimail] system activated: ${r.systemId}`)
           }
-        })
-        .catch((e) => {
-          console.warn(
-            `[dsh-aimail] system ensure failed: ${e instanceof Error ? e.message : String(e)}`,
-          )
-        })
-    } else if (!systemId) {
-      console.warn('[dsh-aimail] no AIMAIL_SYSTEM_ID — mail resolution scans all bound systems')
-    }
+        } else {
+          const hint = r.hint ? ` (${r.hint})` : ''
+          console.warn(`[dsh-aimail] no aimail system yet — ${r.error ?? 'unknown'}` + hint)
+        }
+      })
+      .catch((e) => {
+        console.warn(
+          `[dsh-aimail] system ensure failed: ${e instanceof Error ? e.message : String(e)}`,
+        )
+      })
   } catch {
     // non-fatal
   }

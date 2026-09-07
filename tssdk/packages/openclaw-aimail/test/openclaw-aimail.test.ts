@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest'
 import { MAIL_TOOLS, toTypeBoxParam, toTypeBoxParams } from '@aimail/mail-core'
 import { createMailTools } from '../src/tools.js'
-import { registerAgentEmail, deregisterAgentEmail, type AdminClient } from '../src/commands.js'
+import { deregisterAgentEmail, type AdminClient } from '../src/commands.js'
 
 // ── MockClient (records requests, returns scripted responses) ──────────────
 
@@ -74,46 +74,6 @@ describe('createMailTools', () => {
     for (const t of tools) {
       expect(t.name).not.toMatch(/^amail__/)
     }
-  })
-})
-
-// ── registerAgentEmail (4-step idempotent chain) ──────────────────────────
-
-describe('registerAgentEmail', () => {
-  const opts = {
-    systemId: 'system-test',
-    email: 'agent@test.example',
-    webhookUrl: 'http://127.0.0.1:18789/aimail/inbound',
-    webhookSecret: 's3cret',
-  }
-
-  it('registers and activates → api_key', async () => {
-    const client = new MockClient()
-    client.responses.push(
-      { status: 201, activation_code: 'code-abc' },
-      { status: 200, success: true, raw_key: 'sk-test' },
-    )
-    const result = await registerAgentEmail(client, opts)
-    expect(result.api_key).toBe('sk-test')
-    expect(client.calls[0].method).toBe('POST')
-    expect(client.calls[0].path).toContain('/api/v1/admin/systems/system-test/addresses')
-    expect(client.calls[0].path).toContain('generate_code=true')
-    expect(client.calls[1].path).toBe('/api/v1/activate-address')
-  })
-
-  it('is idempotent when the address already exists (updates webhook)', async () => {
-    const client = new MockClient()
-    client.responses.push(
-      { status: 409, error: 'address already exists' },
-      { status: 200, data: [{ id: 7, domain: 'agent@test.example' }] },
-      { status: 200 },
-    )
-    const result = await registerAgentEmail(client, opts)
-    expect(result.exists).toBe(true)
-    expect(result.api_key).toBeUndefined()
-    const put = client.calls.find(c => c.method === 'PUT')
-    expect(put?.path).toBe('/api/v1/admin/system-domains/7')
-    expect(put?.body?.webhook_url).toBe(opts.webhookUrl)
   })
 })
 
