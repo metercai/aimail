@@ -138,18 +138,26 @@ PYEOF
   "$root/../tests/release-gates/check-tarball.sh" "/tmp/$tgz" "$ver"
 
   # 4) publish
+  # dist-tag by release type (version semantics v0.1.7+):
+  #   stable (X.Y.Z)      -> --tag latest   (bare-name host installs resolve)
+  #   rc (X.Y.Z-rc.N)     -> --tag rc       (dev iteration; latest stays on
+  #                            the last stable so bare-name installs never
+  #                            silently pick up a prerelease)
   # --provenance requires CI OIDC; local publishes disable it explicitly
   # (package publishConfig.provenance would otherwise force OIDC lookup).
   prov="--provenance=false"
   [ -n "${CI:-}" ] && prov="--provenance"
-  if [ "${DRY_RUN:-0}" = "1" ]; then
-    npm publish --dry-run "/tmp/$tgz" --access public --tag latest $prov || true
+  if [[ "$ver" == *-rc.* ]]; then
+    dist_tag="rc"
   else
-    # --tag latest = explicit form of the default: the published version
-    # lands on `latest` directly (no dist-tag step, no token needed —
-    # OIDC covers publish; dist-tag writes would need a classic token).
-    npm publish "/tmp/$tgz" --access public --tag latest $prov
-    echo "  published $name@$ver (latest)"
+    dist_tag="latest"
+  fi
+  echo "  release-type=$dist_tag (version $ver)"
+  if [ "${DRY_RUN:-0}" = "1" ]; then
+    npm publish --dry-run "/tmp/$tgz" --access public --tag $dist_tag $prov || true
+  else
+    npm publish "/tmp/$tgz" --access public --tag $dist_tag $prov
+    echo "  published $name@$ver ($dist_tag)"
   fi
 
   # 5) restore package.json from git. In the monorepo tssdk/ is not itself a

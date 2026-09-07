@@ -113,7 +113,7 @@ aimail install --home ~/.hermes       # Hermes(亦可 ~/.dsh、~/.openclaw、~/.
 ```bash
 dsh plugin --profile web add dsh-aimail
 #pi install npm:pi-aimail
-openclaw plugins install openclaw-aimail@0.1.0-rc.18 --force --accept-capabilities   # rc 版需显式版本号(openclaw 拒绝裸名预发布);--force 信任 npm registry 源;--accept-capabilities 通过插件能力授权
+openclaw plugins install openclaw-aimail --force --accept-capabilities   # --force 信任 npm registry 外部源;--accept-capabilities 通过插件能力授权(openclaw 对三方插件的通用信任门)
 ```
 
 #### 第 3 步:接入闭环验证。
