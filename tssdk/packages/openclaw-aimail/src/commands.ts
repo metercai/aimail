@@ -145,9 +145,12 @@ function cmdText(lines: string[]): PluginCommandResult {
   return { text: lines.join('\n') }
 }
 
-const USAGE = `openclaw aimail <register|deregister|status> [...args]
+const USAGE = `openclaw aimail <register|register-all|deregister|status> [...args]
   register  --email <addr> [--system-id SID] [--webhook-url URL] [--manager ADDR]
              (4-step idempotent chain; writes agentmail.json + pointer)
+  register-all [--system-id SID] [--domain D]
+             (multi-agent: enumerate ~/.openclaw/agents/* → {agent}@{domain}
+              per agent, same chain; pointer stays with the main agent)
   deregister --email <addr> [--system-id SID] [--domain-addr ADDR]
              (3-step idempotent chain; removes api-key/domain/whitelist)
   status    [--system-id SID]   (pointer + binding report)`
@@ -220,6 +223,59 @@ async function handleCommand(
         }
         throw e
       }
+    }
+
+    if (sub === 'register-all') {
+      // 多 agent 全量注册:枚举 ~/.openclaw/agents/*,每个 agent 自动
+      // 派生地址 {agent名}@{domain} 走 autoBind(与 register 同链)。
+      // 无显式 email/agent 参数——agent 集合是平台的,地址派生是 SDK 的。
+      const systemId = await resolveSystemId(opts['system-id'] ?? '')
+      const gw = await readGatewayConfig(systemId)
+      const domain = opts.domain ?? gw.domain ?? ''
+      if (!domain) {
+        return cmdText(['register-all requires a domain (gateway cfg has none — pass --domain)'])
+      }
+      const agentsRoot = path.join(process.env.HOME ?? '', '.openclaw', 'agents')
+      let agentNames: string[] = []
+      try {
+        const entries = await fs.readdir(agentsRoot, { withFileTypes: true })
+        agentNames = entries.filter((e) => e.isDirectory() && !e.name.startsWith('.')).map((e) => e.name).sort()
+      } catch {
+        return cmdText([`register-all: no agents dir at ${agentsRoot}`, USAGE])
+      }
+      if (agentNames.length === 0) return cmdText([`register-all: no agents under ${agentsRoot}`])
+      const { autoBind } = await import('@aimail/mail-core')
+      const out: string[] = [`register-all: ${agentNames.length} agent(s) → ${domain} (system ${systemId})`]
+      let okN = 0
+      for (const name of agentNames) {
+        const email = `${name}@${domain}`
+        const secret = randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, '')
+        try {
+          const res = await autoBind({
+            systemId,
+            email,
+            webhookUrl: opts['webhook-url'] ?? '',
+            webhookSecret: secret,
+            managerAddress: opts.manager ?? gw.manager_address ?? '',
+            extraFields: { agent_id: name },
+          })
+          if (res.exists) {
+            out.push(`  ${email}: already bound (idempotent)`)
+          } else {
+            out.push(`  ✓ ${email}: registered (agent ${name})`)
+          }
+          okN++
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e)
+          if (/already exists/i.test(msg)) {
+            out.push(`  ${email}: remote exists, no local key — deregister first (see register help)`)
+          } else {
+            out.push(`  ✗ ${email}: ${msg}`)
+          }
+        }
+      }
+      out.push(`register-all done: ${okN}/${agentNames.length} ok (pointer unchanged — main agent owns it)`)
+      return cmdText(out)
     }
 
     if (sub === 'deregister') {
