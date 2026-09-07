@@ -215,7 +215,7 @@ Field semantics follow MAINTENANCE §2/§9 and the code contract.
 | Adapter layer | `pysdk/deer-flow/amail_base.py` (`PERSONA_SUPPORTED=False` + identity injection `deerflow/{ver}`) |
 | Tools | Shared MCP stdio server `pysdk/amail_mcp_server.py` (installed via pysdk/deer-flow/install-mcp.sh) |
 | Inbound | **In-process preprocessing**: deer-flow `backend/app/gateway/routers/aimail_inbound.py` — `POST /aimail/inbound`: signature verify → process_inbound_mail → ping/pong interception → deliver via `start_run` (thread=uuid5("amail", email), assistant_id read from agentmail.json) |
-| Lifecycle | `pysdk/deer-flow/manage.py` (register/reconcile/deregister subcommands; formerly scripts/deer-flow/{register_agent,reconcile,deregister_agent}.py + install-inbound.sh, consolidated here on 2026-09-02); install-time supplementary registration = manage.py reconcile (full) + pysdk/deer-flow/install-skill.sh / install-mcp.sh |
+| Lifecycle | `pysdk/deer-flow/manage.py` (register/reconcile/deregister subcommands); install-time supplementary registration = manage.py reconcile (full) + pysdk/deer-flow/install-skill.sh / install-mcp.sh |
 | Deployment | Shared layout (~/.aimail/systems/{sid}/{cleaned_addr}/agentmail.json); inbound install/patch via `pysdk/deer-flow/manage.py install/patch` (bundled install + dual-anchor app.py patch + py_compile check; the upstream repo stays clean; restart 8001 to take effect) |
 | Key pitfalls | In-process import of amail_base at 8001 needs sys.path injection (router module level); Pyright false positives (the runtime path is inserted) |
 

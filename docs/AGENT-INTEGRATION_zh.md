@@ -62,7 +62,7 @@ AIMail 与任意 agent 系统(LLM 运行时)对接,agent 获得完整邮件能�
 |------|------|----------|
 | 指针文件(profile/.agentmail 等) | 系统身份 | system_id + email 归属 |
 | `agentmail.json`(systems/{sid}/{addr}/) | 地址级 | 地址全部事实(含 webhook_url/webhook_secret 成对) |
-| `aimail_gateway.json`(systems/{sid}/) | 系统级 | 系统全部事实(含 webhook_host 三态;旧名 `aimail_gateway.json` 首次访问自动迁移) |
+| `aimail_gateway.json`(systems/{sid}/) | 系统级 | 系统全部事实(含 webhook_host 三态) |
 
 ---
 
@@ -123,7 +123,7 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 
 - **1 agent = 1 AIMail 地址**;每 agent 独立 api_key(gateway send.rs 强制 sender == key.email_address)。
 - **系统身份 = 指针文件唯一来源**:Hermes `profiles/{name}/.aimail`、OpenClaw `~/.openclaw/.agentmail`(JSON: system_id + email)。
-- 配置文件名唯一:`aimail_gateway.json`(读写两侧统一;旧名 `aimail_gateway.json` 首次访问自动迁移,无兼容别名)。
+- 配置文件名唯一:`aimail_gateway.json`(读写两侧统一,无别名)。
 
 ---
 
@@ -353,7 +353,7 @@ bootstrap;TS 宿主自身从不部署 bridge。
 - **amail_deerflow_bridge.py**(8798):已退役。DeerFlow 入站为 8001 进程内预处理。
 - **amail_openclaw_bridge.py**(8799/hook 外置预处理进程):已退役。OpenClaw 入站为 gateway 插件端点 `http://127.0.0.1:18789/aimail/inbound`(openclaw-aimail 插件,与 cli/check_status 注释、cli/bin/register_agent.py 一致)。
 - **integrate.sh / uninstall.sh / bridge-ctl.sh / install-tools.sh**:已被 `aimail install/uninstall/bridge` 取代(install-tools.sh 亦被 pysdk/hermes/toolsets.py 工具集补丁取代)。
-- **aimail_gateway.json(旧名,2026-09-04 前)**:读写统一 `aimail_gateway.json`;旧名首次访问自动迁移,无兼容别名。
+- **`aimail_gateway.json`**:系统级网关连接配置(读写两侧统一,无别名)。
 - **--agent-type 参数**:平台事实推断,禁止手动指定。
 - **mode / bridge_port 配置项**:webhook_host 三态表达 push/pull;接收端点端口在 webhook_url。
 - **docs/ 目录**:正式文档目录(版本化,随仓库维护);接口权威口径见 MAINTENANCE.md、README.md。
