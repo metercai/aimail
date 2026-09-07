@@ -1360,7 +1360,10 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str,
         # dsh/pi:spawn 宿主 node_modules 里平台包的 register-cli(node 入口
         # 内部调 mail-core 全链,平台语义(默认名/webhook 端口/extra/指针)
         # 在包内实现——CLI 零平台协议)
-        if reg_name not in (default_name, "agent") and platform == "dsh":
+        # dsh/pi:固定名单平台(node_entry 入口内部带默认名语义)——注册名
+        # 非平台固定名时仅警告(单 agent 平台不支持 -n 别名)
+        ag = pdef.get("agents", {})
+        if ag.get("kind") == "fixed" and reg_name not in ag.get("names", []):
             _warn(f"{platform} 注册名恒为默认(-n {reg_name} 忽略;别名请注册后 rename)")
         node = None
         seen = set()
