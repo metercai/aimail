@@ -59,7 +59,7 @@ aimail repair       →  按 check 发现执行幂等修复阶梯
 ~/.aimail/
 ├── systems/{system_id}/
 │   ├── aimail_gateway.json     # 网关连接配置(2026-09-04 起正式名;
-│   │                           #   旧 agentmail_gateway.json 首次读取自动迁移)
+│   │                           #   旧 aimail_gateway.json 首次读取自动迁移)
 │   ├── board/                  # 系统级 A2A 角色 prompt(回退)
 │   └── {agent_addr}/           # 按地址隔离目录(清洗后的邮箱)
 │       ├── agentmail.json      # agent 配置——9 个必备字段(见 §9)
@@ -361,7 +361,7 @@ profile 配置)。本地入站 URL 就是 `agentmail.json` 存的 `webhook_url`,
 也是 bridge 路由表的目标。
 
 **`aimail_gateway.json`**(2026-09-04 与网关名对齐而改名;旧名
-`agentmail_gateway.json` 首次读取自动迁移):`gateway_url`, `admin_key`,
+`aimail_gateway.json` 首次读取自动迁移):`gateway_url`, `admin_key`,
 `system_id`, `system_name`, `manager_address`, `domain`, `system_home`,
 `webhook_host`, `save_raw_snapshots`(恒写入,默认 `true`),
 `default_agent_name`(可选值字段,`address default` 写入)。

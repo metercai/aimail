@@ -542,6 +542,10 @@ def _repair_pull_entry_key(sid: str) -> bool:
         _warn("pull 条目 admin_key 对齐失败(格式未匹配)——请手工核对 aimail_bridge.toml")
         return False
     BRIDGE_CFG.write_text(new_raw)
+    try:
+        os.chmod(BRIDGE_CFG, 0o600)  # 凭据文件(AUDIT-1 F6)
+    except OSError:
+        pass
     _ok(f"pull entry admin_key aligned to gateway.json ({sid})")
     return True
 

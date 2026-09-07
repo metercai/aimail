@@ -11,7 +11,7 @@ Prerequisites:
 
 - dsh (deepseek-harness) with the web profile
 - an AIMail binding for the dsh session (`aimail install` from the
-  aimail repo sets up `agentmail_gateway.json` and per-address
+  aimail repo sets up `aimail_gateway.json` and per-address
   `agentmail.json`)
 
 ```bash

@@ -65,7 +65,7 @@ host-side items remain.
 ~/.aimail/
 ├── systems/{system_id}/
 │   ├── aimail_gateway.json     # gateway connection config (canonical name
-│   │                           #   since 2026-09-04; legacy agentmail_gateway.json
+│   │                           #   since 2026-09-04; legacy aimail_gateway.json
 │   │                           #   is auto-migrated on first read)
 │   ├── board/                  # system-level A2A role prompts (fallback)
 │   └── {agent_addr}/           # per-address dir (keyed by cleaned email)
@@ -397,7 +397,7 @@ single source of truth** — never redefine, only reference.
 profile config). The local inbound URL is what `agentmail.json` stores as
 `webhook_url` and what the bridge route table targets.
 
-**`aimail_gateway.json`** (renamed from `agentmail_gateway.json` on
+**`aimail_gateway.json`** (renamed from `aimail_gateway.json` on
 2026-09-04 to align with the gateway name; legacy name auto-migrates on
 first read): `gateway_url`, `admin_key`, `system_id`, `system_name`,
 `manager_address`, `domain`, `system_home`, `webhook_host`,

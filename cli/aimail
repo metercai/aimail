@@ -1836,16 +1836,8 @@ def _platform_root_exists(platform: str) -> bool:
 
 
 def _gateway_cfg_path(sid: str) -> Path:
-    """Path to the system's gateway config; migrates legacy filename once."""
-    p = SYSTEMS_DIR / sid / "aimail_gateway.json"
-    legacy = SYSTEMS_DIR / sid / "agentmail_gateway.json"
-    if legacy.is_file() and not p.is_file():
-        try:
-            legacy.rename(p)
-            os.chmod(p, 0o600)
-        except Exception:
-            pass
-    return p
+    """Path to the system's gateway config (canonical aimail_gateway.json)."""
+    return SYSTEMS_DIR / sid / "aimail_gateway.json"
 
 
 

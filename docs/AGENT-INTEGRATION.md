@@ -63,7 +63,7 @@ AIMail integrates with any agent system (LLM runtime); the agent gains complete 
 |--------|-------|-------|
 | Pointer file (profile/.agentmail etc.) | System identity | system_id + email ownership |
 | `agentmail.json` (systems/{sid}/{addr}/) | Address level | All address facts (incl. webhook_url/webhook_secret pair) |
-| `aimail_gateway.json` (systems/{sid}/) | System level | All system facts (incl. webhook_host tri-state; the old name `agentmail_gateway.json` auto-migrates on first access) |
+| `aimail_gateway.json` (systems/{sid}/) | System level | All system facts (incl. webhook_host tri-state; the old name `aimail_gateway.json` auto-migrates on first access) |
 
 ---
 
@@ -124,7 +124,7 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 
 - **1 agent = 1 AIMail address**; each agent has its own api_key (gateway send.rs enforces sender == key.email_address).
 - **System identity has a single source: the pointer file**: Hermes `profiles/{name}/.aimail`, OpenClaw `~/.openclaw/.agentmail` (JSON: system_id + email).
-- Single config filename: `aimail_gateway.json` (unified on both the read and write sides; the old name `agentmail_gateway.json` auto-migrates on first access — no compatibility alias).
+- Single config filename: `aimail_gateway.json` (unified on both the read and write sides; the old name `aimail_gateway.json` auto-migrates on first access — no compatibility alias).
 
 ---
 
@@ -360,7 +360,7 @@ bootstrap; TS hosts never deploy the bridge themselves.
 - **amail_deerflow_bridge.py** (8798): retired. DeerFlow inbound is 8001 in-process preprocessing.
 - **amail_openclaw_bridge.py** (8799 / hook external preprocessing process): retired. OpenClaw inbound is the gateway plugin endpoint `http://127.0.0.1:18789/aimail/inbound` (openclaw-aimail plugin, consistent with the cli/check_status comment).
 - **integrate.sh / uninstall.sh / bridge-ctl.sh / install-tools.sh**: replaced by `aimail install/uninstall/bridge` (install-tools.sh is also replaced by the pysdk/hermes/toolsets.py toolset patch).
-- **agentmail_gateway.json** (old name, before 2026-09-04): read/write unified on `aimail_gateway.json`; the old name auto-migrates on first access, no compatibility alias.
+- **aimail_gateway.json** (old name, before 2026-09-04): read/write unified on `aimail_gateway.json`; the old name auto-migrates on first access, no compatibility alias.
 - **--agent-type argument**: platforms are inferred from facts; manual specification is forbidden.
 - **mode / bridge_port config options**: the webhook_host tri-state expresses push/pull; the receive-endpoint port lives in webhook_url.
 - **docs/ directory**: the official documentation directory (versioned, maintained with the repo); authoritative interface wording lives in MAINTENANCE.md and README.md.

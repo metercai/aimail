@@ -223,6 +223,10 @@ def write_bridge_config(path: str, mode: str, addr: str, gw: str,
 
     with open(path, 'w') as f:
         f.write('\n'.join(_config_lines(addr, mode, merged, log_path)) + '\n')
+    try:
+        os.chmod(path, 0o600)  # 凭据文件(admin_key/bridge key/webhook_secret;AUDIT-1 F6)
+    except OSError:
+        pass
 
 def start_bridge(bin_path: str, cfg_path: str, pid_path: str) -> bool:
     """Start bridge process — SINGLE instance. Returns True if running.
@@ -309,7 +313,7 @@ def main():
         start_bridge(bin_path, cfg_path, pid_path)
         return 0 if os.path.exists(pid_path) else 1
 
-    # Standalone init: machine-level network setup (aimail init) — runs on
+    # Standalone init: machine-level network setup — runs on
     # a machine with zero systems. Deploys the binary and writes a skeleton
     # config (empty systems). Bridge API key + start happen at the FIRST
     # install (system activation provides the gateway admin key), so

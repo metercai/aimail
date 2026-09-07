@@ -206,6 +206,6 @@ export async function resolveConfig(): Promise<AgentConfig> {
   throw new Error(
     (hasAnySystem()
       ? `aimail not configured for pi — no binding for pointer ${POINTER_PATH} (email ${ptr.email || '-'}, system ${systemId || '-'}). Run: aimail install --home ~/.pi`
-      : 'Machine has no aimail environment yet. Run: aimail init, then aimail install --home ~/.pi'),
+      : 'Machine has no aimail environment yet. Run: aimail install --home ~/.pi (or restart the host so auto-ensure via `aimail ensure-system` kicks in)'),
   )
 }
