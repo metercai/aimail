@@ -279,17 +279,21 @@ def _auto_platform_home(sid: str) -> str:
 
 
 def _pointer_paths_for(platform: str):
-    home = Path.home()
-    if platform == "openclaw":
-        return [home / ".openclaw" / ".agentmail"]
-    if platform == "deerflow":
-        return [home / ".deer-flow" / ".agentmail"]
-    if platform == "pi":
-        return [home / ".pi" / ".agentmail"]
-    if platform == "dsh":
-        return [home / ".dsh" / ".agentmail"]
-    out = [home / ".hermes" / ".agentmail"]
-    profiles = home / ".hermes" / "profiles"
+    """平台指针候选路径(platforms.json pointer 表驱动,与 aimail CLI 同一真源)。"""
+    import json as _j
+    try:
+        reg = _j.load(open(str(Path(__file__).resolve().parent / "platforms.json"), encoding="utf-8"))
+        pdef = (reg.get("platforms", {}).get(platform) or {})
+    except Exception:
+        pdef = {}
+    home = Path.home() / pdef.get("home_dir", f".{platform}")
+    file = (pdef.get("pointer") or {}).get("file", ".agentmail")
+    kind = (pdef.get("pointer") or {}).get("kind", "root")
+    root_ptr = home / file
+    if kind != "root_or_profiles":
+        return [root_ptr]
+    out = [root_ptr]
+    profiles = home / "profiles"
     if profiles.is_dir():
         out += sorted(profiles.glob("*/.agentmail"))
     return out
