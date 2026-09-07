@@ -335,7 +335,7 @@ def _hermes_check_config(c: Check, agent: dict):
           "Run install-skill or copy skills/SKILL.md")
 
     # 3.4 toolset: platform_toolsets.webhook/cli 含 agentmail(内部标识,
-    # 2026-09-03 d6d035d ruling: 改名只动外部品牌 aimail,此处键不变)
+    # 内部标识恒为 agentmail(对外品牌 aimail 不影响此处键)
     ts_ok = False
     try:
         import yaml
@@ -1460,7 +1460,7 @@ def _detect_default_sid() -> str:
 
     用户定调 2026-08-16:默认值必须以实际为准——本机装了哪些
     agent 系统且有 aimail 指针的第一个,不能扫 ~/.aimail/systems/
-    目录(里面有历史遗留的过期旧系统,歧义混淆)。
+    目录(多系统并存会歧义混淆)。
     按平台注册表顺序探测:平台存在 + 该平台指针(.agentmail)存在且
     有 system_id → 返回该 sid。全部无 → 空。
     """
@@ -1542,7 +1542,7 @@ def main():
     # ══ system_id 锚点(用户定调 2026-08-16)══════════════════════
     # 入参优先(--system-id / 上位传递);无则默认 = 本机实际安装且
     # 已集成 aimail 的第一平台指针(绝不扫 systems/ 目录——历史
-    # 遗留旧系统会造成歧义)。
+    # 多系统并存会歧义)。
     platform_sid = _resolve_platform_sid(agent_type)
     if not platform_sid:
         platform_sid = _detect_default_sid()

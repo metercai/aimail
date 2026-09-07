@@ -288,7 +288,7 @@ def cmd_persona(args) -> int:
 
 
 def _sdk_install(kind: str, system_home: Path, sid: str) -> int:
-    """调 pysdk 自足安装入口(A 过渡:仓库同仓 import;Rust CLI 终态
+    """调 pysdk 自足安装入口(仓库同仓 import;
     走 spawn `python -m aimail.install`——同一进程命令契约)。"""
     sys.path.insert(0, str(SCRIPTS_DIR.parent / "pysdk"))
     try:
@@ -528,7 +528,7 @@ def _write_pi_pointer(sid: str) -> None:
         _warn(f"pi pointer write failed: {e}")
 
 
-# ── machine-level env init: formerly the `init` subcommand (cmd_init);
+# ── machine-level env init:
 #    now lives as scripts/machine_init.py, run by bootstrap in the install
 #    flow (no CLI subcommand — init was not independently useful) ───────
 

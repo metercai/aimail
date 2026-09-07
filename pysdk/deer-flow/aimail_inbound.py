@@ -56,8 +56,8 @@ def _amail_bootstrap():
 
 _amail_bootstrap()
 
-# 共享核心(aimail_home 等)。改名提交 d701dae 把 _find_agent_config 里的
-# ~/.aimail 硬编码换成 _ab.aimail_home(),却未补本 import——缺了会 NameError。
+# 共享核心(aimail_home 等):_find_agent_config 用 _ab.aimail_home()
+# 解析 home,必须 import aimail_base——缺了会 NameError。
 import aimail_base as _ab  # noqa: E402
 
 

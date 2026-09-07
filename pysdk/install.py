@@ -365,7 +365,7 @@ def _uninstall_hermes_profiles(hermes_dir: str, system_id: str) -> None:
                     print(f"  ✓ config toolset cleaned {cfg}")
             except Exception as e:  # noqa: BLE001
                 print(f"  ⚠ config.yaml clean failed: {e}")
-        # webhook 订阅路由(路由名历次命名残留全清)
+        # webhook 订阅路由(aimail-inbound,终态单名)
         subs = os.path.join(prof, "webhook_subscriptions.json")
         if os.path.isfile(subs):
             try:

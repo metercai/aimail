@@ -415,7 +415,7 @@ def trigger_profile_hooks(event: str, profile_name: str, profile_dir: str) -> No
 
     if not config and event == "profile_created":
         # ensure home 与运行时探测统一(HERMES_PROFILE_DIR > hermes
-        # get_hermes_home() > ~/.hermes)——曾写死 HERMES_HOME||~/.hermes,
+        # get_hermes_home() > ~/.hermes)——
         # 自定义 home 会归属错位(AUDIT-1 P1-6)。
         hermhome = _resolve_profile_dir() or str(Path.home() / ".hermes")
         try:

@@ -784,7 +784,6 @@ def set_contact_profile(address: str, profile: str) -> dict:
 #    value: {"references": [...], "thread_id": ..., "my_amail_addr": ...,
 #            "direction": "inbound|outbound"}
 #    Sharded by first 2 chars of the sanitized mid (256 buckets).
-#    Replaces the former gateway agent_state msg:{mid} key.
 # ═══════════════════════════════════════════════════════════════
 
 # Local-only helpers for raw email snapshots (not gateway data)
@@ -1285,8 +1284,7 @@ def set_email_summary(message_id: str, summary: str) -> dict:
     """Store or update the summary for the email thread containing this message.
 
     Resolves message_id → thread_id via local meta, then writes
-    threads/{xx}/{thread_id}.json. Empty summary deletes the thread file
-    (same semantics as the former gateway endpoint).
+    threads/{xx}/{thread_id}.json. Empty summary deletes the thread file.
     """
     if not message_id or not message_id.strip():
         return {"success": False, "error_code": "MESSAGE_ID_REQUIRED"}

@@ -10,9 +10,8 @@ register_profiles.py)从未写以下配置,全靠手工补——缺任一项即�
   3. profile config.yaml `platforms.webhook.enabled` 缺失
      → 注册链 _ensure_profile_webhook 读不到,webhook_url 为空
 
-⚠ 工具集键 = 内部标识 `agentmail`(2026-09-03 d6d035d internal-name
-ruling: 改名只动外部品牌 aimail,platform_toolsets / skills 目录 /
-agentmail.json 等 Agent 内语义一律保留 agentmail)。
+⚠ 工具集键 = 内部标识恒为 `agentmail`(对外品牌 aimail 不动内部名;
+platform_toolsets / skills 目录 / agentmail.json 等 Agent 内语义一律 agentmail)。
 
 路由(webhook_subscriptions.json)由注册链 _auto_register_email →
 _ensure_webhook_route 创建 `aimail-inbound`(skills=['agentmail'],路由名
