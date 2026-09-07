@@ -388,6 +388,15 @@ def _run_install_steps(platform: str, ctx: dict) -> None:
                 _warn(msg)
             elif st.get("ok_text"):
                 _ok(_tmpl(st["ok_text"], ctx))
+        elif kind == "register_all":
+            if not ctx.get("all_agents"):
+                continue  # 仅 --all-agents 时执行
+            try:
+                _run_register_all(platform, ctx.get("cfg") or {},
+                                  ctx.get("manager", ""), ctx.get("home", ""))
+                _ok(_tmpl(st.get("ok_text", f"{platform} 全量注册完成"), ctx))
+            except SystemExit:
+                _warn(_tmpl(st.get("warn_hint", f"{platform} 全量注册失败(见上)——可稍后 reset --all-agents 重试"), ctx))
         elif kind == "register_default":
             reg = _platform_def(platform).get("register", {})
             dn = reg.get("default_name", "")
@@ -704,6 +713,7 @@ def cmd_install(args) -> int:
         "scripts": str(SCRIPTS_DIR),
         "sdk": str(SCRIPTS_DIR.parent / "pysdk"),
         "cfg": _cfg,
+        "all_agents": bool(getattr(args, "all_agents", False)),
     })
 
     print(f"  install done. 建议: aimail check {'--system-id ' + args.system_id if args.system_id else ''}".rstrip())
@@ -905,28 +915,21 @@ def cmd_reset(args) -> int:
     _ok("config parameters reset (admin-key path, key untouched)")
 
     # 平台注册链幂等重跑(配置补全)——注册表驱动;注册失败不阻断 reset
-    # (尽力语义,比单平台 fail 一致——曾 openclaw warn 而 pi/dsh 直崩)。
-    if platform == "hermes":
-        # hermes 全量重扫(register_profiles 注册所有 profile;单 agent
-        # 注册见 address)——保留平台专属全量语义
-        env3 = dict(os.environ)
-        env3["SYSTEM_ID"] = sid
-        r = subprocess.call([sys.executable,
-                             str(SCRIPTS_DIR.parent / "pysdk" / "hermes" / "register_profiles.py")],
-                            env=env3)
-        if r != 0:
-            _warn(f"hermes register_profiles exit {r}(见上)")
-    else:
-        _reg_cfg = dict(json.loads(cfg_path.read_text()) if cfg_path.is_file() else {})
-        reg = _platform_def(platform).get("register", {})
-        dn = reg.get("default_name", "")
-        agent = dn if dn else "agent"
-        try:
+    # (尽力语义)。--all-agents → 平台 register_all(SDK 全量入口);
+    # 默认 → register_default(主 agent)。单 agent 平台两者等价。
+    _reg_cfg = dict(json.loads(cfg_path.read_text()) if cfg_path.is_file() else {})
+    try:
+        if getattr(args, "all_agents", False):
+            _run_register_all(platform, _reg_cfg, manager, str(system_home) if system_home else "")
+        else:
+            reg = _platform_def(platform).get("register", {})
+            dn = reg.get("default_name", "")
+            agent = dn if dn else "agent"
             _register_agent_now(platform, agent, _reg_cfg, agent, manager)
             _ok("registration chain re-run (idempotent)")
-        except SystemExit:
-            # 注册失败(_fail 已输出原因):reset 继续完成
-            _warn("registration chain re-run: registration failed (see above)")
+    except SystemExit:
+        # 注册失败(_fail 已输出原因):reset 继续完成
+        _warn("registration chain re-run: registration failed (see above)")
     print(f"  建议: aimail check --system-id {sid}")
     return 0
 
@@ -1371,6 +1374,54 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str,
         return
 
     _fail(f"未知注册委托 kind '{kind}'(platform {platform})——注册表损坏")
+
+
+def _run_register_all(platform: str, cfg: dict, mgr: str = "", platform_home: str = "") -> None:
+    """全量注册(多 agent 平台所有 agent)。平台定义 register_all → 调 SDK
+    全量入口(枚举+逐个注册在 SDK 内);未定义 = 单 agent 平台 → register_default 即全部。"""
+    pdef = _platform_def(platform)
+    rall = pdef.get("register_all")
+    sid = cfg.get("system_id", "")
+    home = cfg.get("system_home", "") or str(HOME / pdef.get("home_dir", f".{platform}"))
+    if not rall:
+        reg = pdef.get("register", {})
+        dn = reg.get("default_name", "") or "agent"
+        _register_agent_now(platform, dn, cfg, dn, mgr, platform_home)
+        _ok(f"{platform} 单 agent 平台(register_all 无定义)——默认 agent 已注册")
+        return
+    kind = rall.get("kind", "")
+    env = dict(os.environ)
+    for k, v in (rall.get("env") or {}).items():
+        env[k] = v.replace("{sid}", sid).replace("{home}", home)
+    fill = lambda t: t.replace("{sid}", sid).replace("{home}", home).replace("{mgr}", mgr or "")  # noqa: E731
+    if kind == "python_script":
+        script = SCRIPTS_DIR.parent / rall.get("python", "")
+        if not script.is_file():
+            _warn(f"{platform} 全量注册器缺失: {script}(SDK 未随本机安装)")
+            return
+        argv = [sys.executable, str(script)] + [fill(x) for x in rall.get("args", [])]
+    elif kind == "host_command":
+        argv = [fill(x) for x in rall.get("argv", [])]
+    elif kind == "node_entry":
+        homes = [h for h in (platform_home, home, str(HOME / pdef.get("home_dir", f".{platform}"))) if h]
+        node = _resolve_node_entry(rall.get("node_path", ""), homes)
+        if not node:
+            _warn(f"{platform} 平台包未装(register-all node 入口缺失)\n  {rall.get('fail_hint', '')}")
+            return
+        argv = ["node", node] + [fill(x) for x in rall.get("args", [])]
+    else:
+        _warn(f"register_all 未知 kind '{kind}'({platform})——注册表损坏")
+        return
+    try:
+        r = subprocess.run(argv, capture_output=True, timeout=300, text=True, env=env)
+    except FileNotFoundError:
+        _warn(f"{platform} 全量注册命令缺失: {argv[0]}\n  {rall.get('fail_hint', '')}")
+        return
+    if r.returncode != 0:
+        _warn(f"{platform} 全量注册 exit {r.returncode}: {(r.stdout or '')[-400:]}{(r.stderr or '')[-400:]}\n"
+              f"  {rall.get('fail_hint', '')}")
+        return
+    _ok(f"{platform} register_all 完成(SDK 注册枚举到的全部 agent)")
 
 
 def _resolve_node_entry(tmpl: str, homes: list) -> str:
@@ -2237,6 +2288,8 @@ scenario groups:
     p_install.add_argument("-n", "--system-name", help="system name (shared-domain identifier)")
     p_install.add_argument("-m", "--manager", **common_mgr)
     p_install.add_argument("-d", "--domain", help="domain to pre-create (default: AIMAIL_DOMAIN env)")
+    p_install.add_argument("--all-agents", action="store_true",
+                           help="register ALL platform agents (default: main agent only)")
     p_install.set_defaults(func=cmd_install)
 
     # SDK reverse-call ABI: L1 activation/reuse only — NEVER platform wiring
@@ -2264,6 +2317,8 @@ scenario groups:
     p_reset.add_argument("-g", "--gateway-url", default="", **common_gw)
     p_reset.add_argument("-n", "--system-name")
     p_reset.add_argument("-m", "--manager", **common_mgr)
+    p_reset.add_argument("--all-agents", action="store_true",
+                         help="re-run registration for ALL platform agents (default: main agent only)")
     p_reset.set_defaults(func=cmd_reset)
 
     # ── operate ────────────────────────────────────────────────────

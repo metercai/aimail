@@ -212,6 +212,11 @@
           "kind": "sdk_install",
           "target": "hermes",
           "ok_text": "hermes SDK install done(重启 hermes gateway 生效)"
+        },
+        {
+          "kind": "register_all",
+          "ok_text": "hermes --all-agents 全量注册完成",
+          "warn_hint": "hermes 全量注册失败(可 reset --all-agents 重试)"
         }
       ],
       "uninstall_steps": [
@@ -274,7 +279,16 @@
           "ok_text": "platform_toolsets contains agentmail",
           "fail_text": "platform_toolsets lacks agentmail"
         }
-      ]
+      ],
+      "register_all": {
+        "kind": "python_script",
+        "python": "pysdk/hermes/register_profiles.py",
+        "args": [],
+        "env": {
+          "AIMAIL_SYSTEM_ID": "{sid}"
+        },
+        "fail_hint": "register_profiles 执行失败(见上输出)"
+      }
     },
     "openclaw": {
       "detect": {
@@ -334,6 +348,11 @@
           "when": {
             "sid_set": false
           }
+        },
+        {
+          "kind": "register_all",
+          "ok_text": "openclaw --all-agents 全量注册完成",
+          "warn_hint": "openclaw 全量注册失败(可 reset --all-agents 重试)"
         }
       ],
       "uninstall_steps": [
@@ -359,7 +378,18 @@
           "fail_text": "skills/agentmail/SKILL.md missing",
           "fix": "插件自带 skill(openclaw-aimail resources)——检查插件 enabled:openclaw plugins list"
         }
-      ]
+      ],
+      "register_all": {
+        "kind": "host_command",
+        "argv": [
+          "openclaw",
+          "aimail",
+          "register-all",
+          "--system-id",
+          "{sid}"
+        ],
+        "fail_hint": "openclaw-aimail 需 ≥0.1.10(register-all 命令)"
+      }
     },
     "deerflow": {
       "detect": {
@@ -421,6 +451,11 @@
           },
           "on_error": "warn",
           "warn_hint": "deer-flow install-mcp.sh exit {rc}"
+        },
+        {
+          "kind": "register_all",
+          "ok_text": "deerflow --all-agents 全量注册完成",
+          "warn_hint": "deerflow 全量注册失败(可 reset --all-agents 重试)"
         }
       ],
       "uninstall_steps": [
@@ -443,7 +478,18 @@
           "ok_text": "app.py patched (aimail_inbound router present)",
           "fail_text": "app.py NOT patched or missing"
         }
-      ]
+      ],
+      "register_all": {
+        "kind": "python_script",
+        "python": "pysdk/deer-flow/manage.py",
+        "args": [
+          "register",
+          "--all",
+          "--system-id",
+          "{sid}"
+        ],
+        "fail_hint": "manage.py register --all 失败(见上输出)"
+      }
     }
   }
 }
