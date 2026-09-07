@@ -1,0 +1,25 @@
+# pi 宿主测试镜像 — nikolaik 基础 + 官方 @earendil-works/pi-coding-agent + aimail SDK
+ARG BASE_IMG=nikolaik/docker-python-nodejs:python3.12-nodejs22-slim
+FROM ${BASE_IMG}
+
+# 官方 pi(无官方镜像;npm 包即官方发布物),按 pi 扩展布局 ~/.pi/agent
+RUN npm install -g @earendil-works/pi-coding-agent --no-audit --no-fund 2>/dev/null || npm install -g @earendil-works/pi-coding-agent
+RUN pi --version 2>/dev/null || true
+
+ARG PKG_SOURCE=registry
+ARG VERSION=0.1.10
+RUN if [ "$PKG_SOURCE" = "registry" ]; then \
+      pip install -q --break-system-packages aimailsdk==${VERSION} || pip install -q aimailsdk==${VERSION}; \
+    fi
+
+# pi-aimail(含 register-cli node 入口)按 pi 扩展布局 ~/.pi/agent/npm/node_modules
+RUN mkdir -p /root/.pi/agent/npm/node_modules && \
+    npm install --prefix /tmp/aimail-ts --no-audit --no-fund \
+      pi-aimail@${VERSION} @aimail/mail-core@${VERSION} @aimail/mail@${VERSION} >/dev/null 2>&1; \
+    cp -r /tmp/aimail-ts/node_modules/* /root/.pi/agent/npm/node_modules/ && \
+    rm -rf /tmp/aimail-ts && \
+    ls /root/.pi/agent/npm/node_modules/pi-aimail/dist/register-cli.js >/dev/null && echo "register-cli 就位"
+
+COPY run-host-regression.sh /opt/regression/
+RUN chmod +x /opt/regression/*.sh
+CMD ["bash", "/opt/regression/run-host-regression.sh"]
