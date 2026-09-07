@@ -6,3 +6,6 @@ __pycache__/
 
 # local session notes (not project code)
 .hermes/
+
+# 审计计划文件(会话产物,不进 commit)
+AUDIT-*-FIX-PLAN.md

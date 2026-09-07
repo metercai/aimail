@@ -84,7 +84,12 @@ class GatewayClient:
 
     def activate_system(self, code: str, system_name: str = "",
                         domain: str = "") -> dict:
-        """POST /api/v1/activate-system (public — no auth)."""
+        """POST /api/v1/activate-system (public — no auth).
+
+        CLI L1-ONLY:系统激活唯一实现在 CLI(cli/setup_system.py 经此共享
+        客户端调用);SDK 一律反调 `aimail ensure-system`,不得直连本方法
+        (AUDIT-1 P2-2)。随 wheel 分发仅为 CLI 共用同一读库。
+        """
         body = {"code": code}
         if system_name:
             body["system_name"] = system_name
