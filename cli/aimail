@@ -404,6 +404,63 @@ def _run_install_steps(platform: str, ctx: dict) -> None:
             _warn(f"install_steps 未知 kind '{kind}'({platform})——跳过")
 
 
+def _cleanup_home(ctx: dict) -> Path:
+    """uninstall 平台清理的目标 home:调用方 home(存在)或 cfg system_home。"""
+    h = Path(str(ctx.get("home") or ""))
+    if h.is_dir():
+        return h
+    return Path(str((ctx.get("cfg") or {}).get("system_home") or ""))
+
+
+def _run_uninstall_steps(platform: str, ctx: dict) -> None:
+    """平台卸载清理动作执行器(platforms.json uninstall_steps 表驱动)。
+    kind: sdk_uninstall | platform_cleanup | rm_pointer | rm_dir | print |
+    warn。rm_pointer 仅在指针 system_id == ctx.sid 时删除(共享系统不误删
+    别家);platform_cleanup 保留 hermes/openclaw 的内容级清理函数(现
+    CLI 持有——config/webhook/MCP/cron/wrapper 改写,待随资源层迁
+    pysdk/TS,记录于平台边界计划)。"""
+    steps = _platform_def(platform).get("uninstall_steps", [])
+    if not steps:
+        return
+    home = _cleanup_home(ctx)
+    for st in steps:
+        when = st.get("when", {})
+        if when and not _when_ok(when, ctx):
+            continue
+        kind = st.get("kind")
+        if kind == "print":
+            print(_tmpl(st["text"], ctx))
+        elif kind == "warn":
+            _warn(_tmpl(st["text"], ctx))
+        elif kind == "sdk_uninstall":
+            rc = _sdk_uninstall(st.get("target", platform), home, ctx.get("sid", ""))
+            if rc != 0:
+                _warn(f"{st.get('target', platform)} SDK uninstall exit {rc}(见上)")
+        elif kind == "platform_cleanup":
+            tgt = st.get("target", "")
+            if tgt == "hermes":
+                _uninstall_hermes(home, ctx.get("sid", ""))
+            elif tgt == "openclaw":
+                _uninstall_openclaw(ctx.get("sid", ""))
+            else:
+                _warn(f"platform_cleanup 未知 target '{tgt}'——跳过")
+        elif kind == "rm_pointer":
+            p = Path(_tmpl(st.get("path", ""), ctx))
+            try:
+                if p.is_file() and json.loads(p.read_text()).get("system_id") == ctx.get("sid"):
+                    p.unlink()
+                    _ok(_tmpl(st.get("ok_text", f"removed pointer {p}"), ctx))
+            except Exception:
+                pass
+        elif kind == "rm_dir":
+            p = Path(_tmpl(st.get("path", ""), ctx))
+            if p.is_dir():
+                shutil.rmtree(p, ignore_errors=True)
+                _ok(_tmpl(st.get("ok_text", f"removed {p}"), ctx))
+        else:
+            _warn(f"uninstall_steps 未知 kind '{kind}'({platform})——跳过")
+
+
 def _is_local_gateway(url: str) -> bool:
     """网关是否本机/本地网络(直连 push,无需 bridge)。"""
     try:
@@ -2249,42 +2306,12 @@ def cmd_uninstall(args) -> int:
     except ImportError as e:
         _warn(f"tools import failed: {e}(跳过网关注销)")
 
-    # 2. 平台侧清理
-    if platform == "hermes":
-        # SDK 撤销自己打的 patch + 清 hermes-agent 内工具(谁打谁撤)
-        sdk_home = system_home if system_home.is_dir() else Path(gw.get("system_home", ""))
-        _sdk_uninstall("hermes", sdk_home, sid)
-        # CLI:profile 级本地配置清理(指针/skill/config 工具集/路由)+ venv pip 卸载
-        _uninstall_hermes(sdk_home, sid)
-    elif platform == "openclaw":
-        _uninstall_openclaw(sid)
-    elif platform == "pi":
-        # 共享系统配置由通用段清理(网关注销);pi 侧仅 pointer + skill 目录
-        ptr = HOME / ".pi" / ".agentmail"
-        if ptr.is_file():
-            try:
-                if json.loads(ptr.read_text()).get("system_id") == sid:
-                    ptr.unlink()
-                    _ok(f"removed pointer {ptr}")
-            except Exception:
-                pass
-        sk = HOME / ".pi" / "skills" / "agentmail"  # 内部标识 = agentmail(与 openclaw 一致)
-        if sk.is_dir():
-            shutil.rmtree(sk, ignore_errors=True)
-            _ok(f"removed skill {sk}")
-        legacy_sk = HOME / ".pi" / "skills" / "aimail"
-        if legacy_sk.is_dir():
-            shutil.rmtree(legacy_sk, ignore_errors=True)
-            _ok(f"removed legacy skill {legacy_sk}")
-        print("  pi: 扩展移除 = pi 宿主侧移除 pi-aimail 扩展")
-    else:  # deerflow
-        # SDK 撤销 app.py patch + 删运行时 bundle
-        sdk_home = system_home if system_home.is_dir() else Path(gw.get("system_home", ""))
-        _sdk_uninstall("deerflow", sdk_home, sid)
-        print("  deerflow: skill/mcp 宿主装配残留可用宿主侧管理清理")
-    if platform == "dsh":
-        # dsh:绑定文件由通用段清理;dsh 侧插件卸载(dsh-mail-* 插件移除)为 dsh 操作
-        print("  dsh: 共享配置已清理;dsh 侧卸载 mail 插件(mail/mail-inbound/tool-mail)+ 删 preset 即可")
+    # 2. 平台侧清理(platforms.json uninstall_steps 动作表驱动)
+    _run_uninstall_steps(platform, {
+        "home": str(system_home),
+        "sid": sid,
+        "cfg": gw,
+    })
 
     # 3. 本机数据
     sid_dir = SYSTEMS_DIR / sid

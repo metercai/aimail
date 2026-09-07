@@ -59,6 +59,27 @@
           "kind": "print",
           "text": "  pi: 扩展安装 = pi install npm:pi-aimail(宿主命令)+ 重启"
         }
+      ],
+      "uninstall_steps": [
+        {
+          "kind": "rm_pointer",
+          "path": "{home}/.agentmail",
+          "ok_text": "removed pointer {home}/.agentmail"
+        },
+        {
+          "kind": "rm_dir",
+          "path": "{home}/skills/agentmail",
+          "ok_text": "removed skill {home}/skills/agentmail"
+        },
+        {
+          "kind": "rm_dir",
+          "path": "{home}/skills/aimail",
+          "ok_text": "removed legacy skill {home}/skills/aimail"
+        },
+        {
+          "kind": "print",
+          "text": "  pi: 扩展移除 = pi 宿主侧移除 pi-aimail 扩展"
+        }
       ]
     },
     "dsh": {
@@ -120,6 +141,12 @@
           "kind": "print",
           "text": "        CLI 侧注册:`aimail address -s <sid> -a agent`"
         }
+      ],
+      "uninstall_steps": [
+        {
+          "kind": "print",
+          "text": "  dsh: 共享配置已清理;dsh 侧卸载 mail 插件(mail/mail-inbound/tool-mail)+ 删 preset 即可"
+        }
       ]
     },
     "hermes": {
@@ -175,6 +202,16 @@
           "kind": "sdk_install",
           "target": "hermes",
           "ok_text": "hermes SDK install done(重启 hermes gateway 生效)"
+        }
+      ],
+      "uninstall_steps": [
+        {
+          "kind": "sdk_uninstall",
+          "target": "hermes"
+        },
+        {
+          "kind": "platform_cleanup",
+          "target": "hermes"
         }
       ]
     },
@@ -236,6 +273,12 @@
           "when": {
             "sid_set": false
           }
+        }
+      ],
+      "uninstall_steps": [
+        {
+          "kind": "platform_cleanup",
+          "target": "openclaw"
         }
       ]
     },
@@ -299,6 +342,16 @@
           },
           "on_error": "warn",
           "warn_hint": "deer-flow install-mcp.sh exit {rc}"
+        }
+      ],
+      "uninstall_steps": [
+        {
+          "kind": "sdk_uninstall",
+          "target": "deerflow"
+        },
+        {
+          "kind": "print",
+          "text": "  deerflow: skill/mcp 宿主装配残留可用宿主侧管理清理"
         }
       ]
     }
