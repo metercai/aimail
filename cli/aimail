@@ -394,7 +394,10 @@ def cmd_install(args) -> int:
     from gateway_api import load_gateway_config
     env = dict(os.environ)
     gw_url = args.gateway_url or _env_val("AIMAIL_URL", "https://aimail.token.tm")
-    sys_name = args.system_name or _env_val("AIMAIL_SYSTEM_NAME")
+    # system_name 只认显式 -n;.env 兜底仅在真新建分支——复用路径预取 env
+    # 会把 .env 的旧系统名覆写进被复用系统 cfg(AUDIT-1 复验,2026-09-07
+    # xian 激活实证:身份字段被 .env 的 wguo 污染)。
+    sys_name = args.system_name or ""
     manager = args.manager or _env_val("AIMAIL_MANAGER_ADDRESS")
     prod_code = args.product_code or ""
     adm_key = args.admin_key or ""
@@ -461,7 +464,7 @@ def cmd_install(args) -> int:
     try:
         out = subprocess.check_output(
             [sys.executable, str(SCRIPTS_DIR / "setup_system.py")],
-            env=env, text=True, stderr=subprocess.STDOUT)
+            env=env, text=True)  # stderr 默认继承透传(日志走 stderr,不污染 stdout JSON)
     except subprocess.CalledProcessError as e:
         _fail(f"setup_system 失败: {(e.output or '').strip()[-400:]}")
     _ok("system configured")
@@ -627,7 +630,10 @@ def cmd_ensure_system(args) -> int:
     from gateway_api import load_gateway_config
     env = dict(os.environ)
     gw_url = args.gateway_url or _env_val("AIMAIL_URL", "https://aimail.token.tm")
-    sys_name = args.system_name or _env_val("AIMAIL_SYSTEM_NAME")
+    # system_name 只认显式 -n;.env 兜底仅在真新建分支——复用路径预取 env
+    # 会把 .env 的旧系统名覆写进被复用系统 cfg(AUDIT-1 复验,2026-09-07
+    # xian 激活实证:身份字段被 .env 的 wguo 污染)。
+    sys_name = args.system_name or ""
     manager = args.manager or _env_val("AIMAIL_MANAGER_ADDRESS")
     prod_code = args.product_code or ""
     adm_key = args.admin_key or ""
@@ -698,9 +704,12 @@ def cmd_ensure_system(args) -> int:
         )
 
     try:
+        # JSON ABI 铁律:setup 的日志(stderr)不得并入 stdout——合并会污染
+        # 单行 JSON 契约,SDK 反调首激活带 warning 时解析必失败
+        # (2026-09-07 xian 激活实证)。stderr 默认继承透传。
         out = subprocess.check_output(
             [sys.executable, str(SCRIPTS_DIR / "setup_system.py")],
-            env=env, text=True, stderr=subprocess.STDOUT)
+            env=env, text=True)
     except subprocess.CalledProcessError as e:
         return _err("system setup failed", (e.output or "").strip()[-400:])
     for line in out.splitlines():
@@ -779,7 +788,9 @@ def cmd_reset(args) -> int:
         except Exception:
             pass
     gw_url = args.gateway_url or _env_val("AIMAIL_URL") or prev.get("gateway_url", "")
-    sys_name = args.system_name or _env_val("AIMAIL_SYSTEM_NAME") or prev.get("system_name", "")
+    # reset=空参数继承已有值:system_name 是业务身份,只认显式 -n + prev,
+    # 不取 .env(AUDIT-1 复验:env 优先 prev 会污染身份字段)。
+    sys_name = args.system_name or prev.get("system_name", "")
     manager = args.manager or _env_val("AIMAIL_MANAGER_ADDRESS") or prev.get("manager_address", "")
 
     print(f"  reset platform={platform} system_id={sid}")
