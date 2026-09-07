@@ -9,3 +9,6 @@ __pycache__/
 
 # 审计计划文件(会话产物,不进 commit)
 AUDIT-*-FIX-PLAN.md
+
+# CLI/SDK 边界方案文件(会话产物)
+PLATFORM-BOUNDARY-PLAN.md

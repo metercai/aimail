@@ -103,7 +103,7 @@ machine-level decision made during bootstrap (install reuses its result).
 | File | Content | Written by |
 |------|---------|-----------|
 | `systems/{sid}/aimail_gateway.json` | gateway_url, admin_key, system_id, system_name, manager_address, system_home, domain, webhook_host | `install`/`reset` → setup_system.py; `repair` backfills `system_home`/`webhook_host` |
-| `systems/{sid}/{addr}/agentmail.json` | 9 fields: email, gateway_url, domain, system_id, system_name, manager_address, api_key, webhook_url, webhook_secret | registration chain (register_profiles/register_agent/bind_agent) |
+| `systems/{sid}/{addr}/agentmail.json` | 9 fields: email, gateway_url, domain, system_id, system_name, manager_address, api_key, webhook_url, webhook_secret | registration chain (platform registry: pysdk entries / TS register-cli) |
 | `bridge/aimail_bridge.toml` + `aimail_routes.toml` | pull systems + route table | deploy_bridge.py; `aimail bridge --system-id` |
 
 `system_home` in the gateway config is the **only** source of the platform
@@ -166,7 +166,7 @@ aimail install --home <platform-root> [--system-id <sid>]
 Hermes/openclaw/pi/deerflow are bound during `install`. For dsh, sessions
 bind lazily: `dsh-aimail` auto-binds on first use (one session ⇔ one
 address, existence-guarded); manual equivalent:
-`python3 cli/dsh/bind_agent.py [--session-id …] [--preset mail]`.
+`aimail reset -s <sid>` (registration chain → dsh-aimail register-cli).
 
 ### Step 4 — verify
 

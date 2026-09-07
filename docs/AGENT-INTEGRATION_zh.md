@@ -224,7 +224,7 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 | 适配层 | tssdk `dsh-aimail` 插件(3 子包:mail-service / tools / inbound;identity = `~/.dsh/.agentmail` 指针;preset = 定义 / uuid = 实例) |
 | 工具 | 12 邮件/board 裸名工具(preset 层注册,joined session 可见;出站 X-AIMail-Agent = `dsh/{ver}`) |
 | 入站 | host 层 `mail-inbound`:node:http listener(`POST /aimail/inbound`,默认端口 `AIMAIL_INBOUND_PORT`/9099)→ HMAC 验签 → TS `processInboundMail` → `followup` 唤醒对应 session |
-| 生命周期 | `cli/dsh/bind_agent.py` / `unbind_agent.py` + 共享注册链(注册后必调 register_bridge_route) |
+| 生命周期 | dsh-aimail `lib/register-cli.js`(CLI spawn,平台注册表 node_entry)+ 宿主 auto-bind;共享 mail-core 链(注册后必调 register_bridge_route) |
 | 部署 | `dsh plugin --profile web add dsh-aimail`(bundle 经 cordis.patch.yml 自挂载) |
 | 关键坑 | persona 关闭(`PERSONA_SUPPORTED=False`,dsh-persona 同名不同义);多 session 隔离由网关 `sender==key.email` 兜底;契约逐字对齐 Python |
 

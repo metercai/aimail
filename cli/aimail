@@ -106,49 +106,58 @@ def _env_val(key: str, fallback: str = "") -> str:
 #  平台事实推断
 # ═══════════════════════════════════════════════════════════════
 
+_PLATFORMS: dict | None = None
+
+
+def _platforms() -> dict:
+    """平台注册表(唯一平台知识源)——Phase 1:检测/指针/枚举/别名/注册委托全表驱动。"""
+    global _PLATFORMS
+    if _PLATFORMS is None:
+        _PLATFORMS = json.loads(
+            (Path(__file__).parent / "platforms.json").read_text(encoding="utf-8"))
+    return _PLATFORMS
+
+
+def _platform_def(name: str) -> dict:
+    return _platforms()["platforms"].get(name, {})
+
+
+def _platform_aliases() -> dict:
+    return {n: pdef.get("aliases", []) for n, pdef in _platforms()["platforms"].items()}
+
+
 def detect_platform_from_home(system_home: Path) -> str:
-    """按 home 目录特征判断平台。返回 'hermes'/'openclaw'/'deerflow'/'dsh'/'pi'/'unknown'。"""
-    if system_home.name == ".pi" and (system_home / "agent").is_dir():
-        # pi coding agent home(~/.pi:agent/ 配置)
-        return "pi"
-    if system_home.name == ".dsh" and (system_home / "profiles").is_dir() and (system_home / "storages").is_dir():
-        # dsh home(~/.dsh:profiles/ + storages/)——须在 hermes 特征前(dsh 也有 profiles/)
-        return "dsh"
-    if (system_home / "hermes-agent").exists() or (system_home / "profiles").is_dir():
-        return "hermes"
-    if (system_home / "openclaw.json").is_file():
-        return "openclaw"
-    if (system_home / "backend" / "app" / "gateway").is_dir():
-        # deer-flow FastAPI backend 布局(deer-flow/backend/app/gateway)
-        return "deerflow"
+    """按 home 目录特征判断平台(注册表 order/detect 表驱动——顺序语义
+    保真:pi/dsh 特征先行防 profiles/ 撞车)。"""
+    reg = _platforms()
+    for name in reg["order"]:
+        d = reg["platforms"][name].get("detect", {})
+        dn = d.get("dir_name", "")
+        if dn and system_home.name != dn:
+            continue
+        if all((system_home / m).exists() for m in d.get("markers", [])):
+            return name
     return "unknown"
 
 
 def _platform_ptr(platform: str) -> Path:
-    """平台指针(.agentmail)路径。
-
-    Hermes 指针可能在 ~/.hermes/.agentmail(根)或
-    ~/.hermes/profiles/*/.agentmail(profile 目录,aimail CLI 传
-    --home 平台根时根指针可能不存在)——返回已存在的那个;都没有则
-    返回根路径(调用方按空 sid 处理)。
-    """
-    if platform == "openclaw":
-        return HOME / ".openclaw" / ".agentmail"
-    if platform == "deerflow":
-        return HOME / ".deer-flow" / ".agentmail"
-    if platform == "pi":
-        return HOME / ".pi" / ".agentmail"
-    if platform == "dsh":
-        return HOME / ".dsh" / ".agentmail"
-    root_ptr = HOME / ".hermes" / ".agentmail"
+    """平台指针(.agentmail)路径(注册表 pointer 驱动)。
+    kind=root: {~/.<home_dir>}/.agentmail;root_or_profiles(hermes):根指针
+    存在用根,否则 profiles/*/.agentmail 第一个;都没有返回根路径。"""
+    pdef = _platform_def(platform)
+    p = pdef.get("pointer", {})
+    kind = p.get("kind", "root")
+    home = HOME / pdef.get("home_dir", f".{platform}")
+    root_ptr = home / p.get("file", ".agentmail")
+    if kind != "root_or_profiles":
+        return root_ptr
     if root_ptr.is_file():
         return root_ptr
-    # 找第一个 profile 级指针
-    profiles = HOME / ".hermes" / "profiles"
+    profiles = home / "profiles"
     if profiles.is_dir():
-        for p in sorted(profiles.glob("*/.agentmail")):
-            if p.is_file():
-                return p
+        for q in sorted(profiles.glob("*/.agentmail")):
+            if q.is_file():
+                return q
     return root_ptr
 
 
@@ -603,8 +612,8 @@ def cmd_install(args) -> int:
             _warn("dsh plugin add aimail 失败(检查 aimail npm 包发布与网络)")
         else:
             _ok("aimail 插件已安装(dsh bundle 层挂载)")
-        print("  dsh: 绑定步骤 = scripts/dsh/bind_agent.py(注册地址+路由+落盘)")
-        print("        在 dsh 中创建 session(加入 mail preset)后运行 bind_agent.py")
+        print("  dsh: 绑定 = 创建 dsh session(mail preset)后自动 auto-bind;")
+        print("        CLI 侧注册:`aimail address -s <sid> -a agent`")
     else:  # deerflow
         # SDK 自足安装:register/reconcile + app.py patch + 运行时 bundle + 资源
         rc = _sdk_install("deerflow", system_home, env.get("INTEGRATE_SYSTEM_ID", ""))
@@ -842,38 +851,36 @@ def cmd_reset(args) -> int:
     return 0
 
 
-# 平台 agent 标识枚举——各平台集合来源不同(枚举方法平台相关):
-#   hermes   : profiles/* 目录名(named profile) + 主会话 "default"(根 .agentmail 存在时)
-#   openclaw : agents/* 目录名(agentId)
-#   pi       : 固定名 "pi"(单 agent,根 .agentmail 指示注册态)
-#   dsh      : 固定名 "agent"(deepseek-harness 无内置默认,主 agent 约定绑 "agent")
-#   deerflow : 根 .agentmail 存在时以 "agent" 兜底(agent_id 由宿主 manage.py 提供)
-_PLATFORM_DEFAULT_ALIASES = {"hermes": ("default",), "openclaw": ("main",)}
+# 平台 agent 标识枚举——来源全在注册表(platforms.json agents/aliases)。
+_PLATFORM_DEFAULT_ALIASES = None  # 表驱动取代:引用点走 _platform_aliases()
 
 
 def _platform_agent_names(platform: str, root: Path):
-    """平台 agent 标识全集(与平台枚举方法一一对应)。"""
+    """平台 agent 标识全集(注册表 agents 驱动:fixed/glob_dir/
+    profiles_plus_default/fixed_with_pointer)。"""
     names = []
     if not root.is_dir():
         return names
-    if platform == "hermes":
-        pdir = root / "profiles"
-        if pdir.is_dir():
-            names.extend(p.name for p in sorted(pdir.iterdir()) if p.is_dir())
+    pdef = _platform_def(platform)
+    a = pdef.get("agents", {})
+    kind = a.get("kind", "")
+    if kind == "fixed":
+        names.extend(a.get("names", []))
+    elif kind == "fixed_with_pointer":
         if (root / ".agentmail").exists():
-            names.append("default")
-    elif platform == "openclaw":
-        adir = root / "agents"
+            names.extend(a.get("names", []))
+    elif kind == "glob_dir":
+        adir = root / a.get("dir", "agents")
         if adir.is_dir():
             names.extend(p.name for p in sorted(adir.iterdir()) if p.is_dir())
         elif (root / ".agentmail").exists():
-            names.append("main")
-    elif platform == "pi":
-        names.append("pi")
-    elif platform == "dsh":
-        names.append("agent")
-    elif platform == "deerflow":
-        names.append("agent")
+            names.extend(pdef.get("aliases", []) or ["main"])
+    elif kind == "profiles_plus_default":
+        pdir = root / a.get("profiles", "profiles")
+        if pdir.is_dir():
+            names.extend(p.name for p in sorted(pdir.iterdir()) if p.is_dir())
+        if (root / ".agentmail").exists():
+            names.extend(pdef.get("aliases", []))
     return names
 
 
@@ -942,7 +949,7 @@ def _list_agents(sid: str, cfg: dict):
                     "dir": "", "cfg": {}, "registered": True, "platform": platform,
                 })
                 known.add(nm)
-        aliases = _PLATFORM_DEFAULT_ALIASES.get(platform, ())
+        aliases = _platform_aliases().get(platform, ())
         for name in _platform_agent_names(platform, home_path):
             if name in known:
                 continue
@@ -1163,7 +1170,7 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str,
     """注册单个 agent(agent 个体粒度)。每平台走其自身的单 agent 注册链:
     - hermes   : 适配层 _auto_register_email(直注册名,支持 -n)
     - openclaw : TS 命令委托(openclaw aimail register,openclaw-aimail 插件)
-    - dsh      : cli/dsh/bind_agent.py(会话绑定,注册名恒 agent)
+    - dsh      : dsh-aimail register-cli(node_entry,会话绑定,注册名恒 agent)
     - deerflow : pysdk/deer-flow/manage.py register(现成注册器)
     - pi       : 核心链组装(webhook 端点/agent_id 落盘/根指针;注册名恒 pi)
     -n 与平台默认名不同时:先按默认名注册,再 rename(服务端 rename + 本地迁移,
@@ -1178,22 +1185,48 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str,
     domain = cfg.get("domain", "")
     system_name = cfg.get("system_name", "")
     # 平台默认注册名(地址派生别名)
-    aliases = _PLATFORM_DEFAULT_ALIASES.get(platform, ())
+    aliases = _platform_aliases().get(platform, ())
     default_name = "agent" if agent in aliases else agent
 
-    if platform == "hermes":
-        # 直注册名(适配层内完整链 + profile 指针 + agentmail.json 注入)
-        try:
-            from aimail.hermes import aimail_hermes as _ah
-        except ImportError:
+    pdef = _platform_def(platform)
+    rdef = pdef.get("register", {})
+    kind = rdef.get("kind", "")
+    default_report = default_name
+    # email 派生(仅 host_command 等需要在 CLI 侧算的平台用;node_entry/
+    # python_module/python_script 各自内部派生)
+    base = "agent" if default_name == "agent" else default_name
+
+    def _email_for(base_name: str) -> str:
+        return (f"{base_name}.{system_name}@{domain}" if system_name
+                else f"{base_name}@{domain}")
+
+    def _fill(text: str) -> str:
+        return (text.replace("{sid}", sid).replace("{agent}", agent)
+                .replace("{manager}", mgr).replace("{home}", tgt_home)
+                .replace("{email}", _email_for(base)))
+    # node/python 入口的包落点:优先调用方平台 home(platform_home),再
+    # cfg 归属,最后注册表 home_dir 约定(~/.<home_dir>)
+    cand_homes = [h for h in (platform_home, home, str(HOME / pdef.get("home_dir", f".{platform}")) ) if h]
+    tgt_home = cand_homes[0]
+
+    if kind == "python_module":
+        # hermes:适配层 import 调用(module/fn/profile 规则表驱动)
+        import importlib
+        mod = None
+        for m in (f"aimail.{rdef['module']}", rdef["module"]):
             try:
-                from hermes import aimail_hermes as _ah
+                mod = importlib.import_module(m)
+                break
             except ImportError:
-                _fail("未找到 hermes 适配层(aimail_hermes),请先安装/挂载 pysdk")
-        if agent in ("default",) or agent == Path(home).name:
-            profile_dir = str(Path(home))
+                continue
+        if mod is None:
+            _fail(f"未找到 hermes 适配层({rdef['module']}),请先安装/挂载 pysdk")
+        home_path = Path(cand_homes[0])
+        prof = rdef.get("profile", {})
+        if agent in prof.get("root_when", []) or agent == home_path.name:
+            profile_dir = str(home_path)
         else:
-            profile_dir = str(Path(home) / "profiles" / agent)
+            profile_dir = str(home_path / "profiles" / agent)
             if not Path(profile_dir).is_dir():
                 _fail(f"hermes profile 目录不存在: {profile_dir}")
         _cfg = dict(cfg)
@@ -1204,82 +1237,74 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str,
         _lvl = _lgr.level
         _lgr.setLevel(_log.CRITICAL)
         try:
-            _ah._auto_register_email(reg_name, profile_dir, _cfg)
+            getattr(mod, rdef["fn"])(reg_name, profile_dir, _cfg)
         finally:
             _lgr.setLevel(_lvl)
         _post_reg_report(platform, agent, reg_name, domain, sid)
+        return
 
-    elif platform == "openclaw":
-        # openclaw 对接归 TS(openclaw-aimail 插件):注册经 `openclaw aimail register`
-        # (命令面见 tssdk packages/openclaw-aimail commands.ts);Python 注册器已退役。
-        email = f"{'agent' if default_name == 'agent' else default_name}@{domain}"
-        if system_name:
-            email = f"{'agent' if default_name == 'agent' else default_name}.{system_name}@{domain}"
-        argv = ["openclaw", "aimail", "register", "--email", email, "--system-id", sid]
-        if mgr and "@" in mgr:
-            argv += ["--manager", mgr]
+    if kind == "host_command":
+        argv = [_fill(x) for x in rdef.get("argv", [])]
+        if mgr and "@" in mgr and rdef.get("manager_arg"):
+            argv += [_fill(x) for x in rdef["manager_arg"]]
         reg = _run_registrar(argv)
         if reg[0] != 0:
-            _fail(f"openclaw TS 注册失败(exit {reg[0]}): {reg[1][-300:]}\n"
-                  f"  先安装 openclaw-aimail 插件(npm pack openclaw-aimail/ → `openclaw plugins install npm-pack:<tgz> --force` → 重启 openclaw gateway),"
-                  f"  `openclaw aimail register` 命令即由插件提供。")
+            _fail(f"{platform} 注册失败(exit {reg[0]}): {reg[1][-300:]}\n"
+                  f"  {rdef.get('fail_hint', '')}")
         if reg_name != default_name:
             _rename_after_reg(cfg, default_name, agent, reg_name, sid, domain)
         _post_reg_report(platform, agent, reg_name, domain, sid)
+        return
 
-    elif platform == "dsh":
-        # dsh 注册链绑定会话;注册名恒 agent(-n 仅当等于默认才有意义)
-        if reg_name not in (default_name, "agent"):
-            _warn(f"dsh 注册名恒为 'agent'(-n {reg_name} 忽略;如需别名请注册后 rename)")
-        script = SCRIPTS_DIR.parent / "cli" / "dsh" / "bind_agent.py"
-        reg = _run_registrar([sys.executable, str(script), "--system-id", sid,
-                              "--manager", mgr or "", "--preset", "mail"])
-        if reg[0] != 0:
-            _fail(f"dsh 注册器失败: {reg[1][-400:]}")
-        _post_reg_report(platform, agent, "agent", domain, sid)
-
-    elif platform == "deerflow":
-        script = SCRIPTS_DIR.parent / "pysdk" / "deer-flow" / "manage.py"
+    if kind == "python_script":
+        script = SCRIPTS_DIR.parent / rdef.get("python", "")
         if not script.is_file():
-            _fail(f"deerflow 注册器缺失: {script}(deer-flow 平台模块未随本机安装)")
-        reg = _run_registrar([sys.executable, str(script), "register",
-                              "--system-id", sid, "--agent", agent])
+            _fail(f"{platform} 注册器缺失: {script}(SDK 未随本机安装)")
+        argv = [sys.executable, str(script)] + [_fill(x) for x in rdef.get("args", [])]
+        reg = _run_registrar(argv)
         if reg[0] != 0:
-            _fail(f"deerflow 注册器失败: {reg[1][-400:]}")
+            _fail(f"{platform} 注册器失败: {reg[1][-400:]}\n"
+                  f"  {rdef.get('fail_hint', '')}")
         if reg_name != default_name:
             _rename_after_reg(cfg, default_name, agent, reg_name, sid, domain)
         _post_reg_report(platform, agent, reg_name, domain, sid)
+        return
 
-    elif platform == "pi":
-        # 核心链组装(pi 无独立注册器;webhook 端点取本机 pi 样本约定 9101/aimail/inbound)
-        load_core()
-        from aimail_tools import _GatewayClient
-        import secrets as _sec
-        gw_url = cfg.get("gateway_url", "").rstrip("/")
-        ak = cfg.get("admin_key", "")
-        client = _GatewayClient(gw_url, ak)
-        try:
-            from aimail_base import email_for_agent, register_agent_email, resolve_register_webhook_url
-        except ImportError:
-            import importlib
-            _base = importlib.import_module("aimail_base")
-            email_for_agent = _base.email_for_agent
-            register_agent_email = _base.register_agent_email
-            resolve_register_webhook_url = _base.resolve_register_webhook_url
-        email = email_for_agent("pi", domain, system_name)
-        local_webhook_url = "http://127.0.0.1:9101/aimail/inbound"
-        reg_url = resolve_register_webhook_url(cfg, local_webhook_url)
-        webhook_secret = _sec.token_hex(32)
-        reg = register_agent_email(client, sid, email, reg_url, webhook_secret, mgr)
-        api_key = reg.get("api_key", "")
-        _write_agentmail_json(cfg, sid, email, api_key, webhook_secret, local_webhook_url, mgr, "pi")
-        # 平台指针写目标平台 home(platform_home)——cfg.system_home 是系统
-        # owner 归属,多平台共享系统时指向别家(2026-09-07 pi→8872d2bb 实证)
-        _write_pointer(Path(platform_home or home) / ".agentmail", sid, email)
-        _post_reg_report(platform, agent, "pi", domain, sid)
+    if kind == "node_entry":
+        # dsh/pi:spawn 宿主 node_modules 里平台包的 register-cli(node 入口
+        # 内部调 mail-core 全链,平台语义(默认名/webhook 端口/extra/指针)
+        # 在包内实现——CLI 零平台协议)
+        if reg_name not in (default_name, "agent") and platform == "dsh":
+            _warn(f"{platform} 注册名恒为默认(-n {reg_name} 忽略;别名请注册后 rename)")
+        node = None
+        seen = set()
+        for ch in cand_homes:
+            if ch in seen:
+                continue
+            seen.add(ch)
+            cand = _fill(rdef.get("node_path", "")).replace("{home}", ch)
+            if "*" in cand:  # dsh: profiles/*/node_modules/...
+                import glob as _glob
+                hits = sorted(_glob.glob(cand))
+                if hits:
+                    node = hits[0]
+                    break
+            else:
+                from pathlib import Path as _P
+                if _P(cand).is_file():
+                    node = cand
+                    break
+        if not node:
+            _fail(f"{platform} 平台包未安装(node 入口缺失)\n  {rdef.get('fail_hint', '')}")
+        argv = ["node", node] + [_fill(x) for x in rdef.get("args", [])]
+        reg = _run_registrar(argv)
+        if reg[0] != 0:
+            _fail(f"{platform} 注册失败(exit {reg[0]}): {reg[1][-300:]}\n"
+                  f"  {rdef.get('fail_hint', '')}")
+        _post_reg_report(platform, agent, default_report, domain, sid)
+        return
 
-    else:
-        _fail(f"未知平台: {platform}")
+    _fail(f"未知注册委托 kind '{kind}'(platform {platform})——注册表损坏")
 
 
 def _run_registrar(argv: list):
@@ -1345,27 +1370,6 @@ def _rename_after_reg(cfg: dict, default_name: str, agent: str, reg_name: str, s
             except Exception:
                 pass
     _ok(f"  地址名已改: {old_email} → {new_email}")
-
-
-def _write_agentmail_json(cfg: dict, sid: str, email: str, api_key: str, secret: str,
-                          local_webhook_url: str, mgr: str, agent_id: str) -> None:
-    """落盘地址键 agentmail.json — 统一共享原子写(aimail_base.save_agent_config:
-    目录 clean 规则/0600/原子性与读侧及 TS 一致。曾用 email.replace('/','_')
-    做目录名,含 @ 的完整地址会写到共享扫描读不到的目录,AUDIT-1 P1-2)。"""
-    from aimail_base import save_agent_config as _sac
-    data = {
-        "email": email,
-        "gateway_url": cfg.get("gateway_url", ""),
-        "domain": cfg.get("domain", ""),
-        "system_id": sid,
-        "system_name": cfg.get("system_name", ""),
-        "agent_id": agent_id,
-        "manager_address": mgr,
-        "api_key": api_key,
-        "webhook_url": local_webhook_url,
-        "webhook_secret": secret,
-    }
-    _sac(agent_id, data, sid)
 
 
 def _write_pointer(ptr_path, sid: str, email: str) -> None:
@@ -1811,49 +1815,26 @@ def cmd_renew(args) -> int:
 
 # ── stats -a helpers (2026-09-04 maintenance suite) ─────────────────
 
-PLATFORM_ROOTS = [
-    ("hermes",   ".hermes"),
-    ("openclaw", ".openclaw"),
-    ("deerflow", ".deer-flow"),
-    ("dsh",      ".dsh"),
-    ("pi",       ".pi"),
-]
-
 def _pointer_sid_for(platform: str) -> str:
-    """Read the platform's .agentmail pointer system_id ('' = none)."""
-    if platform == "openclaw":
-        ptr = HOME / ".openclaw" / ".agentmail"
-    elif platform == "deerflow":
-        ptr = HOME / ".deer-flow" / ".agentmail"
-    elif platform == "pi":
-        ptr = HOME / ".pi" / ".agentmail"
-    elif platform == "dsh":
-        ptr = HOME / ".dsh" / ".agentmail"
-    else:
-        ptr = HOME / ".hermes" / ".agentmail"
-        if not ptr.is_file():
-            profiles = HOME / ".hermes" / "profiles"
-            if profiles.is_dir():
-                for pp in sorted(profiles.glob("*/.agentmail")):
-                    if pp.is_file():
-                        ptr = pp
-                        break
+    """平台 .agentmail 指针 system_id(注册表 pointer 驱动,复用 _platform_ptr)。"""
+    ptr = _platform_ptr(platform)
     try:
         return json.loads(ptr.read_text()).get("system_id", "") if ptr.is_file() else ""
     except Exception:
         return ""
 
 def _all_pointer_sids() -> dict:
-    """sid -> [platform names pointing at it]."""
+    """sid -> [platform names pointing at it](注册表 order 驱动)。"""
     out: dict = {}
-    for plat, _root in PLATFORM_ROOTS:
+    for plat in _platforms()["order"]:
         sid = _pointer_sid_for(plat)
         if sid:
             out.setdefault(sid, []).append(plat)
     return out
 
+
 def _platform_root_exists(platform: str) -> bool:
-    root = HOME / dict(PLATFORM_ROOTS)[platform]
+    root = HOME / _platform_def(platform).get("home_dir", f".{platform}")
     if not root.exists():
         return False
     return detect_platform_from_home(root) == platform
@@ -1999,9 +1980,10 @@ def cmd_stats(args) -> int:
         print()
         print("  Platforms on this machine:")
         linked_any = False
-        for plat, root in PLATFORM_ROOTS:
+        for plat in _platforms()["order"]:
             exists = _platform_root_exists(plat)
             ptr_sid = _pointer_sid_for(plat)
+            root = HOME / _platform_def(plat).get("home_dir", f".{plat}")
             if exists and ptr_sid:
                 print(f"    {plat:<9} {HOME / root}   linked → {ptr_sid}")
                 linked_any = True
@@ -2310,7 +2292,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 scenario groups:
-  setup      machine prep and platform integration: init / install / uninstall / reset
+  setup      machine prep and platform integration: install / uninstall / reset
   operate    daily status and lifecycle: stats / renew / version
   diagnose   exams and fixes when something is wrong: check / repair / ping / welcome / persona
   resources  system-scoped resources: domain / address / bridge

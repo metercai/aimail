@@ -620,17 +620,17 @@ def _dsh_check_config(c: Check, agent: dict):
     ok = bool(email and api_key)
     c.add("agent", "name_apikey", ok,
           f"{name}: {email or 'no email'}" + (", api_key ✓" if api_key else ", api_key MISSING"),
-          "Run scripts/dsh/bind_agent.py")
+          "Run: aimail address -s <sid> -a agent(或 dsh 会话内自动 auto-bind)")
 
     wh_ok = bool(wh_url and wh_secret)
     c.add("agent", "webhook", wh_ok,
           f"webhook_url={wh_url or '(缺)'}" + (", secret ✓" if wh_secret else ", secret MISSING"),
-          "bind_agent.py 落盘 webhook_url + webhook_secret")
+          "注册链落盘 webhook_url + webhook_secret(aimail address/dsh-aimail register-cli)")
 
     sess_ok = bool(session_id and preset)
     c.add("agent", "session", sess_ok,
           f"session_id={session_id or '(缺)'}, preset={preset or '(缺)'}",
-          "bind_agent.py 落盘 session_id/preset;dsh 侧创建同名 session(加入 mail preset)")
+          "agentmail.json 落盘 session_id/preset;dsh 侧创建同名 session(加入 mail preset)")
 
 
 def _pi_detect() -> bool:
@@ -742,7 +742,7 @@ def _dsh_check_hook(c: Check, agent: dict):
             pass
     if not wh_url:
         c.add("agent", "hook", False, "webhook_url 缺失",
-              "bind_agent.py 落盘 webhook_url(mail-inbound 端点)")
+              "注册链落盘 webhook_url(mail-inbound 端点)")
         return
     try:
         req = urllib.request.Request(

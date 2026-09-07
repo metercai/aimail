@@ -1,0 +1,181 @@
+{
+  "_comment": "AIMail CLI 平台注册表 — CLI 侧唯一平台知识源(Phase 1: 检测/指针/枚举/别名/注册委托)。适配实现全在 SDK:pysdk(hermes/deer-flow)+ tssdk 包(openclaw 宿主命令/dsh/pi node 入口)。CLI 读本表调度,零平台协议。",
+  "order": [
+    "pi",
+    "dsh",
+    "hermes",
+    "openclaw",
+    "deerflow"
+  ],
+  "platforms": {
+    "pi": {
+      "detect": {
+        "dir_name": ".pi",
+        "markers": [
+          "agent"
+        ]
+      },
+      "pointer": {
+        "kind": "root",
+        "file": ".agentmail"
+      },
+      "agents": {
+        "kind": "fixed",
+        "names": [
+          "pi"
+        ]
+      },
+      "aliases": [],
+      "register": {
+        "kind": "node_entry",
+        "default_name": "pi",
+        "node_path": "{home}/agent/npm/node_modules/pi-aimail/dist/register-cli.js",
+        "args": [
+          "--system-id",
+          "{sid}",
+          "--manager",
+          "{manager}"
+        ],
+        "fail_hint": "pi-aimail 扩展未就绪——先 `pi install npm:pi-aimail` 装扩展再注册"
+      },
+      "home_dir": ".pi"
+    },
+    "dsh": {
+      "detect": {
+        "dir_name": ".dsh",
+        "markers": [
+          "profiles",
+          "storages"
+        ]
+      },
+      "pointer": {
+        "kind": "root",
+        "file": ".agentmail"
+      },
+      "agents": {
+        "kind": "fixed",
+        "names": [
+          "agent"
+        ]
+      },
+      "aliases": [],
+      "register": {
+        "kind": "node_entry",
+        "default_name": "agent",
+        "node_path": "{home}/profiles/*/node_modules/dsh-aimail/lib/register-cli.js",
+        "args": [
+          "--system-id",
+          "{sid}",
+          "--manager",
+          "{manager}",
+          "--preset",
+          "mail"
+        ],
+        "fail_hint": "dsh-aimail 插件未就绪——先 `dsh plugin --profile web add dsh-aimail` 装插件再注册"
+      },
+      "home_dir": ".dsh"
+    },
+    "hermes": {
+      "detect": {
+        "markers": [
+          "hermes-agent",
+          "profiles"
+        ]
+      },
+      "pointer": {
+        "kind": "root_or_profiles",
+        "file": ".agentmail"
+      },
+      "agents": {
+        "kind": "profiles_plus_default",
+        "profiles": "profiles"
+      },
+      "aliases": [
+        "default"
+      ],
+      "register": {
+        "kind": "python_module",
+        "default_name": "default",
+        "module": "aimail_hermes",
+        "fn": "_auto_register_email",
+        "profile": {
+          "kind": "root_or_named",
+          "root_when": [
+            "default",
+            "{home_name}"
+          ]
+        }
+      },
+      "home_dir": ".hermes"
+    },
+    "openclaw": {
+      "detect": {
+        "markers": [
+          "openclaw.json"
+        ]
+      },
+      "pointer": {
+        "kind": "root",
+        "file": ".agentmail"
+      },
+      "agents": {
+        "kind": "glob_dir",
+        "dir": "agents"
+      },
+      "aliases": [
+        "main"
+      ],
+      "register": {
+        "kind": "host_command",
+        "default_name": "main",
+        "argv": [
+          "openclaw",
+          "aimail",
+          "register",
+          "--email",
+          "{email}",
+          "--system-id",
+          "{sid}"
+        ],
+        "manager_arg": [
+          "--manager",
+          "{manager}"
+        ],
+        "fail_hint": "先安装 openclaw-aimail 插件(`openclaw plugins install openclaw-aimail --force --accept-capabilities` → 重启 gateway),`openclaw aimail register` 命令由插件提供"
+      },
+      "home_dir": ".openclaw"
+    },
+    "deerflow": {
+      "detect": {
+        "markers": [
+          "backend/app/gateway"
+        ]
+      },
+      "pointer": {
+        "kind": "root",
+        "file": ".agentmail"
+      },
+      "agents": {
+        "kind": "fixed_with_pointer",
+        "names": [
+          "agent"
+        ]
+      },
+      "aliases": [],
+      "register": {
+        "kind": "python_script",
+        "default_name": "agent",
+        "python": "pysdk/deer-flow/manage.py",
+        "args": [
+          "register",
+          "--system-id",
+          "{sid}",
+          "--agent",
+          "{agent}"
+        ],
+        "fail_hint": "deer-flow manage.py 注册器失败——检查 pysdk/deer-flow 模块与系统配置"
+      },
+      "home_dir": ".deer-flow"
+    }
+  }
+}

@@ -226,7 +226,7 @@ Field semantics follow MAINTENANCE §2/§9 and the code contract.
 | Adapter layer | tssdk `dsh-aimail` plugin (3 subpackages: mail-service / tools / inbound; identity = `~/.dsh/.agentmail` pointer; preset = definition / uuid = instance) |
 | Tools | 13 bare-name email/board tools (registered at the preset layer, visible to joined sessions; outbound X-AIMail-Agent = `dsh/{ver}`) |
 | Inbound | Host-layer `mail-inbound`: node:http listener (`POST /aimail/inbound`, default port `AIMAIL_INBOUND_PORT`/9099) → HMAC signature verify → TS `processInboundMail` → `followup` wakes the corresponding session |
-| Lifecycle | `cli/dsh/bind_agent.py` / `unbind_agent.py` + shared registration chain (register_bridge_route always called after registration) |
+| Lifecycle | dsh-aimail `lib/register-cli.js`(CLI spawn,platform registry node_entry)+ host auto-bind;shared mail-core chain(register_bridge_route always called) |
 | Deployment | `dsh plugin --profile web add dsh-aimail` (the bundle self-mounts via cordis.patch.yml) |
 | Key pitfalls | Persona off (`PERSONA_SUPPORTED=False`; dsh-persona is same-named but means something different); multi-session isolation is backed by the gateway's `sender==key.email`; contract aligned verbatim with Python |
 
