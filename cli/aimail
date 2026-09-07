@@ -443,17 +443,21 @@ def cmd_install(args) -> int:
     env["INTEGRATE_GATEWAY_URL"] = gw_url
     env["INTEGRATE_SYSTEM_ID"] = sid
     env["INTEGRATE_SYSTEM_NAME"] = sys_name
-    env["INTEGRATE_SYSTEM_HOME"] = str(system_home)
     env["INTEGRATE_MANAGER_ADDRESS"] = manager
     env["INTEGRATE_AIMAIL_DOMAIN"] = want_domain
     env["INTEGRATE_SAVE_SNAPSHOTS"] = (
         "true" if _env_val("AIMAIL_SAVE_SNAPSHOTS", "no").lower() in ("yes", "true", "1") else "false")
     env["INTEGRATE_WEBHOOK_HOST"] = _env_val("AIMAIL_WEBHOOK_HOST")
+    # system_home(归属)只在真新建/异地挂载写入;本地已有系统复用(sid 反查
+    # admin_key)不传 → setup Path A 继承 prev,多平台接入不抢 owner 归属
+    # (2026-09-07 pi→8872d2bb 验证实证)。
     if prod_code:
         env["INTEGRATE_USE_PRODUCT_CODE"] = "true"
         env["INTEGRATE_PRODUCT_CODE"] = prod_code
+        env["INTEGRATE_SYSTEM_HOME"] = str(system_home)
     elif adm_key:
         env["INTEGRATE_ADMIN_KEY"] = adm_key
+        env["INTEGRATE_SYSTEM_HOME"] = str(system_home)
     # 无显式凭据 → 从已有配置复用(显式 --system-id 或 home 反查出的系统)
     elif sid:
         cfg = load_gateway_config(sid)
@@ -575,7 +579,8 @@ def cmd_install(args) -> int:
             }
         if sid3 and _reg_cfg["gateway_url"] and _reg_cfg["admin_key"]:
             try:
-                _register_agent_now("pi", "pi", _reg_cfg, "pi", manager or "")
+                _register_agent_now("pi", "pi", _reg_cfg, "pi", manager or "",
+                                    platform_home=str(system_home))
                 _ok("pi agent registered + pointer written")
             except SystemExit:
                 # 注册失败(上面 _fail 已输出原因):不阻塞 install 主流程,
@@ -679,17 +684,19 @@ def cmd_ensure_system(args) -> int:
     env["INTEGRATE_GATEWAY_URL"] = gw_url
     env["INTEGRATE_SYSTEM_ID"] = sid
     env["INTEGRATE_SYSTEM_NAME"] = sys_name
-    env["INTEGRATE_SYSTEM_HOME"] = str(system_home)
     env["INTEGRATE_MANAGER_ADDRESS"] = manager
     env["INTEGRATE_AIMAIL_DOMAIN"] = want_domain
     env["INTEGRATE_SAVE_SNAPSHOTS"] = (
         "true" if _env_val("AIMAIL_SAVE_SNAPSHOTS", "no").lower() in ("yes", "true", "1") else "false")
     env["INTEGRATE_WEBHOOK_HOST"] = _env_val("AIMAIL_WEBHOOK_HOST")
+    # system_home 归属只在新建/显式凭据写;本地复用继承 prev(见 install 同款)
     if prod_code:
         env["INTEGRATE_USE_PRODUCT_CODE"] = "true"
         env["INTEGRATE_PRODUCT_CODE"] = prod_code
+        env["INTEGRATE_SYSTEM_HOME"] = str(system_home)
     elif adm_key:
         env["INTEGRATE_ADMIN_KEY"] = adm_key
+        env["INTEGRATE_SYSTEM_HOME"] = str(system_home)
     elif sid:
         cfg = load_gateway_config(sid)
         if cfg and cfg.get("admin_key"):
@@ -1151,7 +1158,8 @@ def cmd_address(args) -> int:
     _fail(f"未知操作: {op}(支持 list/default/set-name/set-manager)")
 
 
-def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str, manager: str) -> None:
+def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str,
+                        manager: str, platform_home: str = "") -> None:
     """注册单个 agent(agent 个体粒度)。每平台走其自身的单 agent 注册链:
     - hermes   : 适配层 _auto_register_email(直注册名,支持 -n)
     - openclaw : TS 命令委托(openclaw aimail register,openclaw-aimail 插件)
@@ -1265,7 +1273,9 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str, man
         reg = register_agent_email(client, sid, email, reg_url, webhook_secret, mgr)
         api_key = reg.get("api_key", "")
         _write_agentmail_json(cfg, sid, email, api_key, webhook_secret, local_webhook_url, mgr, "pi")
-        _write_pointer(Path(home) / ".agentmail", sid, email)
+        # 平台指针写目标平台 home(platform_home)——cfg.system_home 是系统
+        # owner 归属,多平台共享系统时指向别家(2026-09-07 pi→8872d2bb 实证)
+        _write_pointer(Path(platform_home or home) / ".agentmail", sid, email)
         _post_reg_report(platform, agent, "pi", domain, sid)
 
     else:
