@@ -436,12 +436,6 @@ def _run_uninstall_steps(platform: str, ctx: dict) -> None:
             rc = _sdk_uninstall(st.get("target", platform), home, ctx.get("sid", ""))
             if rc != 0:
                 _warn(f"{st.get('target', platform)} SDK uninstall exit {rc}(见上)")
-        elif kind == "platform_cleanup":
-            tgt = st.get("target", "")
-            if tgt == "openclaw":
-                _uninstall_openclaw(ctx.get("sid", ""))
-            else:
-                _warn(f"platform_cleanup 未知 target '{tgt}'——跳过")
         elif kind == "rm_pointer":
             p = Path(_tmpl(st.get("path", ""), ctx))
             try:
@@ -1365,24 +1359,7 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str,
         ag = pdef.get("agents", {})
         if ag.get("kind") == "fixed" and reg_name not in ag.get("names", []):
             _warn(f"{platform} 注册名恒为默认(-n {reg_name} 忽略;别名请注册后 rename)")
-        node = None
-        seen = set()
-        for ch in cand_homes:
-            if ch in seen:
-                continue
-            seen.add(ch)
-            cand = _fill(rdef.get("node_path", "")).replace("{home}", ch)
-            if "*" in cand:  # dsh: profiles/*/node_modules/...
-                import glob as _glob
-                hits = sorted(_glob.glob(cand))
-                if hits:
-                    node = hits[0]
-                    break
-            else:
-                from pathlib import Path as _P
-                if _P(cand).is_file():
-                    node = cand
-                    break
+        node = _resolve_node_entry(rdef.get("node_path", ""), cand_homes)
         if not node:
             _fail(f"{platform} 平台包未安装(node 入口缺失)\n  {rdef.get('fail_hint', '')}")
         argv = ["node", node] + [_fill(x) for x in rdef.get("args", [])]
@@ -1394,6 +1371,24 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str,
         return
 
     _fail(f"未知注册委托 kind '{kind}'(platform {platform})——注册表损坏")
+
+
+def _resolve_node_entry(tmpl: str, homes: list) -> str:
+    """在候选 home 列表解析 node 入口路径(glob 模板 {home} → 首个存在)。"""
+    seen = set()
+    for ch in homes:
+        if not ch or ch in seen:
+            continue
+        seen.add(ch)
+        cand = tmpl.replace("{home}", ch)
+        if "*" in cand:
+            import glob as _glob
+            hits = sorted(_glob.glob(cand))
+            if hits:
+                return hits[0]
+        elif Path(cand).is_file():
+            return cand
+    return ""
 
 
 def _run_registrar(argv: list):
@@ -2099,71 +2094,6 @@ def _confirm(msg: str, args) -> bool:
     except EOFError:
         return False
     return ans in ("y", "yes")
-
-
-def _uninstall_openclaw(sid: str) -> None:
-    """OpenClaw 侧清理:指针 / skill / MCP / cron / wrapper。"""
-    oc_home = HOME / ".openclaw"
-    if not oc_home.is_dir():
-        _warn(f"openclaw home 不存在: {oc_home}(跳过平台侧清理)")
-        return
-    ptr = oc_home / ".agentmail"
-    if ptr.is_file():
-        try:
-            if json.loads(ptr.read_text()).get("system_id") == sid:
-                ptr.unlink()
-                _ok(f"removed pointer {ptr}")
-        except Exception:
-            pass
-    sk = oc_home / "skills" / "agentmail"  # 内部标识 = agentmail(与 install-skill.sh 一致)
-    if sk.is_dir():
-        shutil.rmtree(sk)
-        _ok(f"removed skill {sk}")
-    # 兼容改名期残留:旧 aimail 名目录(若有)一并清理
-    legacy_sk = oc_home / "skills" / "aimail"
-    if legacy_sk.is_dir():
-        shutil.rmtree(legacy_sk)
-        _ok(f"removed legacy skill {legacy_sk}")
-    # MCP server 段
-    cfg = oc_home / "openclaw.json"
-    if cfg.is_file():
-        try:
-            data = json.loads(cfg.read_text())
-            servers = (data.get("mcp") or {}).get("servers") or {}
-            if "amail" in servers:
-                del servers["amail"]
-                cfg.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
-                _ok("removed amail MCP server from openclaw.json")
-        except Exception as e:
-            _warn(f"openclaw.json clean failed: {e}")
-    # cron:amail-poll
-    try:
-        out = subprocess.check_output(["openclaw", "cron", "list", "--json"],
-                                      text=True, timeout=15, stderr=subprocess.DEVNULL)
-        import json as _json
-        items = _json.loads(out)
-        items = items if isinstance(items, list) else items.get("crons", items.get("jobs", []))
-        for c in items:
-            if c.get("name") == "amail-poll":
-                subprocess.call(["openclaw", "cron", "remove", str(c.get("id"))],
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                _ok("removed amail-poll cron")
-    except Exception:
-        pass
-    # wrapper + bashrc PATH 行
-    w = oc_home / "bin" / "openclaw"
-    if w.exists():
-        w.unlink()
-        _ok(f"removed wrapper {w}")
-    bashrc = HOME / ".bashrc"
-    if bashrc.exists():
-        content = bashrc.read_text()
-        new = re.sub(
-            r"\n# openclaw agents lifecycle wrapper \(amail integration\)\nexport PATH=\"\$HOME/\.openclaw/bin:\$PATH\"",
-            "", content)
-        if new != content:
-            bashrc.write_text(new)
-            _ok("removed openclaw wrapper PATH from .bashrc")
 
 
 def cmd_uninstall(args) -> int:

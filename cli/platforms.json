@@ -338,8 +338,8 @@
       ],
       "uninstall_steps": [
         {
-          "kind": "platform_cleanup",
-          "target": "openclaw"
+          "kind": "print",
+          "text": "  openclaw: 对接全在 TS 插件(openclaw-aimail)——插件移除 = openclaw 宿主侧卸载 + `openclaw aimail deregister`;共享系统数据已在上段(网关注销+本机数据)清理"
         }
       ],
       "health_checks": [
