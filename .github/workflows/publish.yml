@@ -100,32 +100,12 @@ jobs:
             openclaw-aimail packages/openclaw-aimail
             pi-aimail packages/pi-aimail
         run: |
-          # Version semantics (v0.1.7+): single product line X.Y.Z shared by
-          # tag/PyPI/TS. Release type derived from package versions:
+          # Release type (stable vs rc) is derived from package versions and
+          # applied by publish-npm.sh:
           #   X.Y.Z      -> stable -> dist-tag latest (bare-name host
           #                          installs resolve: dsh/openclaw/pi)
           #   X.Y.Z-rc.N -> rc     -> dist-tag rc (dev iteration; latest
           #                          stays on the last stable)
-          # publish-npm.sh tags each publish accordingly.
-          #
-          # Enforce the workflow_dispatch release-type input when provided:
-          # it must match the version-derived type of every package.
-          want="${release-type:-}"
-          if [ -n "$want" ]; then
-            echo "dispatch release-type: $want"
-            for name dir in $(echo "$PKGS"); do
-              [ -z "$name" ] && continue
-              ver=$(node -p "require('./$dir/package.json').version")
-              kind=stable; [[ "$ver" == *-rc.* ]] && kind=rc
-              if [ "$kind" != "$want" ]; then
-                echo "::error::release-type mismatch: $name@$ver is $kind but dispatch asked for $want"
-                exit 1
-              fi
-            done
-            echo "release-type $want matches all package versions"
-          else
-            echo "release-type: (auto) derived per package version"
-          fi
           # Skip packages whose current version is already on the registry
           # (re-dispatch of the same commit). npm publish of an existing
           # version is always E403/E404 regardless of auth method.
