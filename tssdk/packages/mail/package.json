@@ -1,7 +1,7 @@
 {
   "name": "@aimail/mail",
-  "description": "AIMail platform-neutral config resolution: sessionId/email/recipient → agentmail.json → AgentConfig (pure functions, no framework deps).",
-  "version": "0.1.7",
+  "description": "AIMail platform-neutral config resolution: sessionId/email/recipient \u2192 agentmail.json \u2192 AgentConfig (pure functions, no framework deps).",
+  "version": "0.1.8",
   "publishConfig": {
     "access": "public",
     "provenance": true
