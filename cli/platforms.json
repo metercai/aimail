@@ -210,8 +210,20 @@
           "target": "hermes"
         },
         {
-          "kind": "platform_cleanup",
-          "target": "hermes"
+          "kind": "spawn",
+          "argv": [
+            "{home}/hermes-agent/venv/bin/python",
+            "-m",
+            "pip",
+            "uninstall",
+            "-y",
+            "aimail"
+          ],
+          "when": {
+            "path_exists": "{home}/hermes-agent/venv/bin/python"
+          },
+          "on_error": "warn",
+          "warn_hint": "pip uninstall aimail exit {rc}(webhook 适配运行时残留)"
         }
       ]
     },
@@ -323,7 +335,7 @@
           "kind": "spawn",
           "argv": [
             "bash",
-            "{scripts}/deer-flow/install-skill.sh"
+            "{sdk}/deer-flow/install-skill.sh"
           ],
           "env": {
             "AIMAIL_SYSTEM_ID": "{sid}"
@@ -335,7 +347,7 @@
           "kind": "spawn",
           "argv": [
             "bash",
-            "{scripts}/deer-flow/install-mcp.sh"
+            "{sdk}/deer-flow/install-mcp.sh"
           ],
           "env": {
             "AIMAIL_SYSTEM_ID": "{sid}"

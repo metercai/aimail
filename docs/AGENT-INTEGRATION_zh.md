@@ -211,9 +211,9 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 | 组件 | 位置 |
 |------|------|
 | 适配层 | `pysdk/deer-flow/amail_base.py`(`PERSONA_SUPPORTED=False` + 身份注入 `deerflow/{ver}`) |
-| 工具 | `pysdk/amail_mcp_server.py` 共享 MCP stdio server(经 cli/deer-flow/install-mcp.sh 安装) |
+| 工具 | `pysdk/amail_mcp_server.py` 共享 MCP stdio server(经 pysdk/deer-flow/install-mcp.sh 安装) |
 | 入站 | **进程内预处理**:deer-flow `backend/app/gateway/routers/aimail_inbound.py` — `POST /aimail/inbound`:验签 → process_inbound_mail → ping/pong 拦截 → `start_run` 投递(thread=uuid5("amail", email),assistant_id 读 agentmail.json) |
-| 生命周期 | `pysdk/deer-flow/manage.py`(register/reconcile/deregister 子命令;原 scripts/deer-flow/{register_agent,reconcile,deregister_agent}.py + install-inbound.sh 于 2026-09-02 聚合于此);安装补充注册 = manage.py reconcile(全量)+ cli/deer-flow/install-skill.sh / install-mcp.sh |
+| 生命周期 | `pysdk/deer-flow/manage.py`(register/reconcile/deregister 子命令;原 scripts/deer-flow/{register_agent,reconcile,deregister_agent}.py + install-inbound.sh 于 2026-09-02 聚合于此);安装补充注册 = manage.py reconcile(全量)+ pysdk/deer-flow/install-skill.sh / install-mcp.sh |
 | 部署 | 共享布局(~/.aimail/systems/{sid}/{cleaned_addr}/agentmail.json);入站安装/补丁经 `pysdk/deer-flow/manage.py install/patch`(捆绑安装 + app.py 双锚点 patch + py_compile 校验;上游仓保持干净,安装后重启 8001 生效) |
 | 关键坑 | 8001 进程内 import amail_base 需 sys.path 注入(router 模块级);Pyright 误报(运行时路径已插入) |
 

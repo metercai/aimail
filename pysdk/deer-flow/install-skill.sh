@@ -5,7 +5,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-RUNTIME_BUNDLE="$SCRIPT_DIR/../runtime_bundle.py"
+RUNTIME_BUNDLE="$SCRIPT_DIR/../../cli/runtime_bundle.py"
 DEER_FLOW_HOME="${DEER_FLOW_HOME:-$HOME/deer-flow}"
 DST_DIR="${DEER_FLOW_SKILLS_DIR:-$DEER_FLOW_HOME/skills/public}/aimail"
 

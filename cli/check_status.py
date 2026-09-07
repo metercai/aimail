@@ -1695,7 +1695,7 @@ def _check_l2_runtime(c: Check, sid: str):
         sk = (home / ".openclaw" / "skills" / "agentmail" / "SKILL.md").is_file()
         c.add("runtime", "skills", sk,
               "skills/agentmail/SKILL.md present" if sk else "skills/agentmail/SKILL.md missing",
-              "Run: bash <core>/cli/scripts/openclaw/install-skill.sh")
+              "插件自带 skill(openclaw-aimail resources)——检查插件 enabled:openclaw plugins list")
 
     elif platform == "deerflow":
         app_py = Path(sh) / "backend" / "app" / "gateway" / "app.py"

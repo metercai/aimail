@@ -15,7 +15,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -318,8 +320,67 @@ def uninstall_hermes(hermes_dir: str, system_id: str = "") -> int:
             shutil.rmtree(tgt) if os.path.isdir(tgt) else os.unlink(tgt)
             print(f"  ✓ removed {rel}")
     # 本 SDK 进程即 pip aimail——不自行卸载(宿主 venv 管理由 CLI 决定)
+    # profile 级状态撤销(与 install 的注册链/skills 发布对称——曾由 CLI
+    # _uninstall_hermes 持有,平台边界收口迁 SDK):
+    #   指针(sid 匹配)/skills/agentmail 目录/config.yaml toolsets 条目/
+    #   webhook_subscriptions 路由(含根 profile=hermes_dir,install 的
+    #   release targets 也含根——对称)
+    _uninstall_hermes_profiles(hermes_dir, system_id)
     print("  hermes uninstall done(本地配置/网关侧清理由 aimail CLI 负责)")
     return rc
+
+
+def _uninstall_hermes_profiles(hermes_dir: str, system_id: str) -> None:
+    """撤销各 profile(含根)的 aimail 状态:pointer/skills/toolsets 条目/路由。"""
+    targets = [hermes_dir]
+    profiles_root = os.path.join(hermes_dir, "profiles")
+    if os.path.isdir(profiles_root):
+        targets += [os.path.join(profiles_root, d) for d in sorted(os.listdir(profiles_root))
+                    if os.path.isdir(os.path.join(profiles_root, d))]
+    for prof in targets:
+        ptr = os.path.join(prof, ".agentmail")
+        if os.path.isfile(ptr):
+            try:
+                with open(ptr) as f:
+                    data = json.load(f)
+                if data.get("system_id") == system_id:
+                    os.unlink(ptr)
+                    print(f"  ✓ removed pointer {ptr}")
+            except Exception:  # noqa: BLE001
+                pass
+        sk = os.path.join(prof, "skills", "agentmail")
+        if os.path.isdir(sk):
+            shutil.rmtree(sk, ignore_errors=True)
+            print(f"  ✓ removed skill {sk}")
+        # config.yaml:platform_toolsets 移除 agentmail 条目(兼容改名期误写 aimail)
+        cfg = os.path.join(prof, "config.yaml")
+        if os.path.isfile(cfg):
+            try:
+                with open(cfg) as f:
+                    content = f.read()
+                new = re.sub(r"^[ \t]*-[ \t]*(?:aimail|agentmail)[ \t]*\r?$\n?", "", content, flags=re.M)
+                if new != content:
+                    with open(cfg, "w") as f:
+                        f.write(new)
+                    print(f"  ✓ config toolset cleaned {cfg}")
+            except Exception as e:  # noqa: BLE001
+                print(f"  ⚠ config.yaml clean failed: {e}")
+        # webhook 订阅路由(路由名历次命名残留全清)
+        subs = os.path.join(prof, "webhook_subscriptions.json")
+        if os.path.isfile(subs):
+            try:
+                with open(subs) as f:
+                    data = json.load(f)
+                removed = [rn for rn in ("aimail-inbound", "agentmail-inbound", "amail-inbound")
+                           if rn in (data if isinstance(data, dict) else {})]
+                if removed:
+                    for rn in removed:
+                        del data[rn]
+                    with open(subs, "w") as f:
+                        json.dump(data, f, indent=2, ensure_ascii=False)
+                    print(f"  ✓ webhook route removed {subs}")
+            except Exception as e:  # noqa: BLE001
+                print(f"  ⚠ webhook_subscriptions clean failed: {e}")
 
 
 def uninstall_deerflow(backend_dir: str) -> int:
