@@ -38,9 +38,11 @@ port). Each bridge delivery is HMAC verified against the per-agent secret,
 enriched by the shared preprocess chain, and delivered to the agent's main
 session via the gateway's internal hooks endpoint.
 
-**Commands** — `openclaw aimail register|deregister|status`:
+**Commands** — `openclaw aimail register|register-all|deregister|status`:
 idempotent 4-step registration chain and 3-step deregistration chain against
-existing gateway admin APIs, plus a status report.
+existing gateway admin APIs, a status report, and `register-all` which
+enumerates `~/.openclaw/agents/*` and binds `{agent}@{domain}` for every
+agent (pointer stays with the main agent).
 
 **Identity header** — outbound mail carries
 `X-AIMail-Agent: openclaw/<detected host version>+<primary model>` (detected
