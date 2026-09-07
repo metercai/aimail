@@ -12,7 +12,7 @@ Platform fact inference (no --agent-type, per 2026-08-16 ruling):
      openclaw.json=openclaw, .dsh+profiles/storages=dsh, .pi+agent=pi,
      backend/app/gateway=deerflow)
   2. --system-id → config system_home reverse lookup → directory traits
-     (legacy: pointer ownership fallback)
+     (config missing/corrupt: pointer ownership fallback)
   3. neither → auto-probe first platform with a .agentmail pointer
 
 Semantics:
@@ -2308,7 +2308,7 @@ scenario groups:
     p_welcome.add_argument("-m", "--manager", **common_mgr)
     p_welcome.add_argument("-w", "--no-wait", action="store_true", help="do not wait for the draft reply")
     p_welcome.add_argument("--smtp", action="store_true",
-                           help="legacy SMTP mode (default: API mode via the gateway system sender)")
+                           help="SMTP mode, direct 25-port send (default: API mode via the gateway system sender)")
     p_welcome.set_defaults(func=cmd_welcome)
 
     p_persona = sub.add_parser("persona", help="persona flow: manager sends 'update persona', agent replies with draft")

@@ -352,13 +352,13 @@ def _uninstall_hermes_profiles(hermes_dir: str, system_id: str) -> None:
         if os.path.isdir(sk):
             shutil.rmtree(sk, ignore_errors=True)
             print(f"  ✓ removed skill {sk}")
-        # config.yaml:platform_toolsets 移除 agentmail 条目(兼容改名期误写 aimail)
+        # config.yaml:platform_toolsets 移除 agentmail 条目(终态单名)
         cfg = os.path.join(prof, "config.yaml")
         if os.path.isfile(cfg):
             try:
                 with open(cfg) as f:
                     content = f.read()
-                new = re.sub(r"^[ \t]*-[ \t]*(?:aimail|agentmail)[ \t]*\r?$\n?", "", content, flags=re.M)
+                new = re.sub(r"^[ \t]*-[ \t]*agentmail[ \t]*\r?$\n?", "", content, flags=re.M)
                 if new != content:
                     with open(cfg, "w") as f:
                         f.write(new)
@@ -371,7 +371,7 @@ def _uninstall_hermes_profiles(hermes_dir: str, system_id: str) -> None:
             try:
                 with open(subs) as f:
                     data = json.load(f)
-                removed = [rn for rn in ("aimail-inbound", "agentmail-inbound", "amail-inbound")
+                removed = [rn for rn in ("aimail-inbound",)
                            if rn in (data if isinstance(data, dict) else {})]
                 if removed:
                     for rn in removed:

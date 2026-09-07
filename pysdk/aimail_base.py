@@ -229,10 +229,6 @@ _PROFILE_DIR_RESOLVER = None   # () -> Optional[str]       profile 目录（gate
 _SOUL_PROVIDER = None          # () -> str                 SOUL 内容（board ctx）
 _SKILLS_PROVIDER = None        # () -> list[str]           skills 列表（board ctx）
 _BOARD_GATEWAY_SINK = None     # (board_id, gateway_url) -> None
-# ping/pong 拦截的 pong 回发函数。Hermes 与 OpenClaw 共享同一实现
-# (send_pong)——无平台差异("结尾如何调 agent 可不同"不适用于 pong,
-# 它始终是 http 出站 send_mail)。默认即共享实现,无需平台注入。
-_PONG_SENDER = None            # (body, pong_id) -> bool (保留兼容,恒等于 send_pong)
 
 
 def _read_soul_md() -> str:
@@ -633,7 +629,7 @@ def process_inbound_mail(payload: dict, headers: dict) -> Optional[dict]:
     every step worked — maximizing E2E verification of the pipeline
     (if any middle step breaks, no pong comes back).
     """
-    pong_sender = _PONG_SENDER if _PONG_SENDER is not None else send_pong
+    pong_sender = send_pong
     enriched = preprocess_mail_payload(payload, headers)
     # ── LAST: ping/pong interception ──
     # Detection is subject-based (no enriched fields needed), so it runs

@@ -166,8 +166,6 @@ def write_bridge_config(path: str, mode: str, addr: str, gw: str,
     2026-08-16 用户定调: 本机只安装一个 bridge,不管几套 agent 系统
     (bridge 已支持多系统透传)。因此本函数**合并**而非覆盖:
       - 已有 [pull].systems 数组 → 追加/更新当前 sid 的条目,保留其他系统
-      - 无 systems 数组(旧单系统格式)→ 迁移为 systems 数组(保留顶层
-        字段作为兼容,resolved_systems 空数组回退单系统)
     重启由 start_bridge 幂等处理(先杀旧进程再起新,单实例)。
     """
     log_path = os.path.join(_AM_HOME, "logs/aimail-bridge.log")
@@ -188,7 +186,8 @@ def write_bridge_config(path: str, mode: str, addr: str, gw: str,
     new_entry = _entry()
     existing_systems = []
 
-    # 读取已有配置(若存在):保留其他系统的 systems 条目
+    # 读取已有配置(若存在):保留其他系统的 systems 条目(systems 数组
+    # 是唯一格式——开发期旧单系统格式无存量)
     if os.path.exists(path):
         try:
             import tomllib
@@ -198,22 +197,6 @@ def write_bridge_config(path: str, mode: str, addr: str, gw: str,
             old_systems = old_pull.get("systems", [])
             if isinstance(old_systems, list):
                 existing_systems = [dict(s) for s in old_systems]
-            # 旧单系统格式:顶层字段已在 systems 里则跳过,否则保留为
-            # 兼容字段(resolved_systems 空数组时回退使用)
-            old_flat_sid = old_pull.get("system_id", "")
-            if old_flat_sid and old_flat_sid != sid:
-                # 旧配置是另一个系统的单系统格式 → 迁移:把旧系统加入数组
-                legacy = {
-                    "amail_url": old_pull.get("amail_url", gw),
-                    "admin_key": old_pull.get("admin_key", ak),
-                    "system_id": old_flat_sid,
-                    "poll_interval_sec": old_pull.get("poll_interval_sec", 2),
-                }
-                if old_pull.get("api_key"):
-                    legacy["api_key"] = old_pull["api_key"]
-                if old_pull.get("webhook_secret"):
-                    legacy["webhook_secret"] = old_pull["webhook_secret"]
-                existing_systems.append(legacy)
         except Exception:
             pass
 
@@ -325,7 +308,7 @@ def main():
             return 1
         wh_mode = os.environ.get("WEBHOOK_MODE", "bridge")
         bridge_mode = "pull" if wh_mode == "bridge" else "push"
-        wh_host = os.environ.get("WEBHOOK_HOST", "") or os.environ.get("AIMAIL_WEBHOOK_HOST", "")
+        wh_host = os.environ.get("AIMAIL_WEBHOOK_HOST", "")
         if bridge_mode == "pull":
             wh_host = ""
         elif not wh_host:
@@ -357,8 +340,8 @@ def main():
     domain = os.environ.get("AIMAIL_DOMAIN", "")
     wh_mode = os.environ.get("WEBHOOK_MODE", "bridge")
     # webhook_host 来源链(2026-08-18 用户定稿,与 setup_system 同源):
-    # env(AIMAIL_WEBHOOK_HOST,兼容旧 WEBHOOK_HOST)→ 已有配置 → 自动探测
-    wh_host = os.environ.get("WEBHOOK_HOST", "") or os.environ.get("AIMAIL_WEBHOOK_HOST", "")
+    # env AIMAIL_WEBHOOK_HOST → 已有配置 → 自动探测
+    wh_host = os.environ.get("AIMAIL_WEBHOOK_HOST", "")
     if not wh_host and sid:
         try:
             gw_path = os.path.join(os.path.join(_AM_HOME, "systems"), sid, "aimail_gateway.json")

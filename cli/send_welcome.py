@@ -23,7 +23,7 @@
   --to:         直接指定收件地址(优先于 --agent/指针)
   --manager:    SMTP 模式发件人(manager)地址,默认 config.manager_address
                (API 模式无需——cc 由网关反查)
-  --smtp:       显式走旧 SMTP 模式(默认走 API 模式)
+  --smtp:       显式走 SMTP 模式(默认走 API 模式)
   --timeout:    等待回复秒数(默认 120)
   --no-wait:    发送后不等待回复,直接退出
 退出码: 0=成功, 1=失败
@@ -364,7 +364,7 @@ def main() -> int:
 
     edition = _detect_edition(gw_url)
     print(f"  Gateway:     {gw_url}")
-    print("  Mode:        SMTP (legacy)")
+    print("  Mode:        SMTP")
     print(f"  Edition:     {edition}({'auth.local 认证' if edition == 'advanced' else '白名单直发'})")
     print(f"  To:          {recipient}")
     print(f"  From:        {manager}")
