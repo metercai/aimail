@@ -6,6 +6,18 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 echo "═══ [L0] python lint + unit tests ═══"
+# 平台边界 gate:CLI 代码不得出现平台字面分支(新增平台只改
+# cli/platforms.json + SDK,CLI 零改动)。白名单=文档化特例:
+#   aimail: reset 的 hermes 全量重扫(register_profiles 语义)+ stats unknown 通用提示
+# 违反即红——硬编码新平台进 CLI = 边界回退。
+_LIT=$(grep -nE 'platform == "(hermes|openclaw|deerflow|dsh|pi)"' cli/aimail cli/check_status.py cli/repair.py 2>/dev/null || true)
+# 白名单:仅 aimail 的 cmd_reset hermes 全量重扫特例(L90x)+ stats unknown(非平台名单)
+_VIOL=$(echo "$_LIT" | grep -vE 'cli/aimail:9[0-9][0-9]: +if platform == "hermes":' || true)
+if [ -n "$_VIOL" ]; then
+  echo "[L0] FAIL: platform literals leaked into CLI code (registry is the single platform source):"
+  echo "$_VIOL"; exit 1
+fi
+echo "[L0] platform-boundary: CLI clean of platform literals (registry-driven)"
 # Core runtime modules: strict (no unused/undefined). Deploy-time patch
 # scripts (hermes/patch_* etc.) intentionally import `aimail` for
 # side-effect/eval use — syntax-check only those.
