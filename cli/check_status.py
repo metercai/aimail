@@ -1618,24 +1618,110 @@ def main():
 # 顺序:L0/L1 配置 → L2 运行时资源 → L3 agent 配置 → L4 链路
 # ═══════════════════════════════════════════════════════════════
 
+def _load_platform_registry() -> dict:
+    """读 CLI 平台注册表(cli/platforms.json——唯一平台知识源)。"""
+    try:
+        import json as _j
+        return _j.load(open(str(Path(__file__).resolve().parent / "platforms.json"), encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _run_l2_checks(c: "Check", platform: str, checks: list, ctx: dict) -> None:
+    """健康检查项执行(platforms.json health_checks 表驱动)。
+    kind: file_contains(_alt)/file_exists(_any)/glob_dir_any/pointer_match/
+    yaml_toolsets;ctx={home,user_home,sid};模板 {home}/{user_home}/{sid}。"""
+    import glob as _glob
+
+    def _fill(t: str) -> str:
+        for k, v in ctx.items():
+            t = t.replace("{" + k + "}", str(v))
+        return t
+
+    fix_install = ctx.get("_fix_install", "")
+    for ch in checks:
+        kind = ch.get("kind")
+        cid = ch.get("id", "check")
+        fix = _fill(ch.get("fix", "") or fix_install)
+        ok = False
+        msg_ok = ch.get("ok_text", "ok")
+        msg_fail = ch.get("fail_text", "fail")
+        path = ""
+        if kind in ("file_contains", "file_contains_alt", "file_exists"):
+            cands = [_fill(ch["path"])]
+            if ch.get("alt"):
+                cands.append(_fill(ch["alt"]))
+            for cand in cands:
+                p = Path(cand)
+                if not p.is_file():
+                    continue
+                if kind == "file_exists":
+                    ok = True
+                    path = cand
+                    break
+                marker = ch.get("marker", "")
+                try:
+                    if marker in p.read_text(errors="replace"):
+                        ok = True
+                        path = cand
+                        break
+                except Exception:
+                    continue
+            if not path and cands:
+                path = cands[0]
+        elif kind == "file_exists_any":
+            for pat in ch.get("paths", []):
+                if _glob.glob(_fill(pat)):
+                    ok = True
+                    path = _fill(pat)
+                    break
+        elif kind == "glob_dir_any":
+            ok = bool(_glob.glob(_fill(ch.get("glob", ""))))
+        elif kind == "pointer_match":
+            p = Path(_fill(ch.get("path", "")))
+            try:
+                import json as _j
+                ok = p.is_file() and _j.loads(p.read_text()).get("system_id") == ctx.get("sid")
+            except Exception:
+                ok = False
+            path = str(p)
+        elif kind == "yaml_toolsets":
+            import yaml as _y
+            for pat in ch.get("configs", []):
+                for cand in _glob.glob(_fill(pat)):
+                    try:
+                        pt = (_y.safe_load(Path(cand).read_text()) or {}).get("platform_toolsets", {})
+                        if any("agentmail" in (v or []) for v in pt.values()
+                               if isinstance(v, (dict, list))):
+                            ok = True
+                            break
+                    except Exception:
+                        continue
+                if ok:
+                    break
+        msg = msg_ok if ok else (msg_fail + (f": {path}" if path and kind in
+                                             ("file_contains", "file_contains_alt", "file_exists")
+                                             else ""))
+        c.add("runtime", cid, ok, msg, fix)
+
+
 def _check_l2_runtime(c: Check, sid: str):
     """检查安装时部署的运行时资源是否就绪(幂等重装可修复)。"""
     gw = _read_gw_cfg(sid) or {}
     sh = gw.get("system_home", "")
     platform = ""
     if sh and Path(sh).is_dir():
-        # 复用 CLI 的特征判定(不经 import;特征判定与 aimail.detect 一致)
+        # 平台特征判定读注册表(cli/platforms.json,与 aimail CLI 同一真源)
         p = Path(sh)
-        if p.name == ".pi" and (p / "agent").is_dir():
-            platform = "pi"
-        elif p.name == ".dsh" and (p / "profiles").is_dir():
-            platform = "dsh"
-        elif (p / "hermes-agent").exists() or (p / "profiles").is_dir():
-            platform = "hermes"
-        elif (p / "openclaw.json").is_file():
-            platform = "openclaw"
-        elif (p / "backend" / "app" / "gateway").is_dir():
-            platform = "deerflow"
+        reg = _load_platform_registry()
+        for name in reg.get("order", []):
+            dt = (reg.get("platforms", {}).get(name) or {}).get("detect", {})
+            dn = dt.get("dir_name", "")
+            if dn and p.name != dn:
+                continue
+            if all((p / m).exists() for m in dt.get("markers", [])):
+                platform = name
+                break
 
     if not platform:
         # system_home 缺失/无效已在 L0 报;此处仅提示平台不可定位
@@ -1648,73 +1734,15 @@ def _check_l2_runtime(c: Check, sid: str):
     home = Path.home()
     fix_install = f"python -m aimail.install --type {platform} --home {sh}"
 
-    if platform == "hermes":
-        ha = Path(sh) / "hermes-agent"
-        wh = ha / "gateway" / "platforms" / "webhook.py"
-        ok = wh.is_file() and "PREPROCESS_REGISTRY" in (wh.read_text(errors="replace") if wh.is_file() else "")
-        c.add("runtime", "patch-webhook", ok,
-              f"webhook.py {'patched (PREPROCESS_REGISTRY present)' if ok else 'NOT patched or missing: ' + str(wh)}",
-              fix_install)
-        prof = ha / "hermes_cli" / "profiles.py"
-        if not prof.is_file():
-            prof = ha / "cli" / "profiles.py"
-        ok2 = prof.is_file() and "AmailGateway" in (prof.read_text(errors="replace") if prof.is_file() else "")
-        c.add("runtime", "patch-profiles", ok2,
-              f"profiles.py {'patched (AmailGateway hook present)' if ok2 else 'NOT patched or missing: ' + str(prof)}",
-              fix_install)
-        # skills: profiles/*/skills/agentmail/SKILL.md(至少一个)
-        skills_hits = 0
-        for cand in [Path(sh)] + sorted((Path(sh) / "profiles").glob("*")) if (Path(sh) / "profiles").is_dir() else [Path(sh)]:
-            if (cand / "skills" / "agentmail" / "SKILL.md").is_file():
-                skills_hits += 1
-        c.add("runtime", "skills", skills_hits > 0,
-              f"{skills_hits} profile(s) have skills/agentmail/SKILL.md" if skills_hits
-              else "no profile has skills/agentmail/SKILL.md", fix_install)
-        # toolsets: hermes config platform_toolsets 含 agentmail
-        ts_ok = False
-        for cfgp in [Path(sh) / "config.yaml"] + sorted((Path(sh) / "profiles").glob("*/config.yaml")):
-            if cfgp.is_file():
-                try:
-                    import yaml as _y
-                    pt = (_y.safe_load(cfgp.read_text()) or {}).get("platform_toolsets", {})
-                    if any("agentmail" in (v or []) for v in pt.values() if isinstance(v, dict) or isinstance(v, list)):
-                        ts_ok = True
-                        break
-                except Exception:
-                    pass
-        c.add("runtime", "toolsets", ts_ok,
-              "platform_toolsets 含 agentmail" if ts_ok else "platform_toolsets lacks agentmail",
-              fix_install)
-
-    elif platform == "openclaw":
-        installed = any((home / ".openclaw" / "npm" / "projects").glob("openclaw-aimail*")) \
-            if (home / ".openclaw" / "npm" / "projects").is_dir() else False
-        c.add("runtime", "plugin-installed", installed,
-              "openclaw-aimail npm package present" if installed else "openclaw-aimail not installed",
-              "openclaw plugins install npm-pack:<openclaw-aimail.tgz>; restart gateway")
-        sk = (home / ".openclaw" / "skills" / "agentmail" / "SKILL.md").is_file()
-        c.add("runtime", "skills", sk,
-              "skills/agentmail/SKILL.md present" if sk else "skills/agentmail/SKILL.md missing",
-              "插件自带 skill(openclaw-aimail resources)——检查插件 enabled:openclaw plugins list")
-
-    elif platform == "deerflow":
-        app_py = Path(sh) / "backend" / "app" / "gateway" / "app.py"
-        if not app_py.is_file():
-            app_py = Path(sh) / "app" / "gateway" / "app.py"
-        ok = app_py.is_file() and "aimail_inbound" in (app_py.read_text(errors="replace") if app_py.is_file() else "")
-        c.add("runtime", "patch-app", ok,
-              f"app.py {'patched (aimail_inbound router present)' if ok else 'NOT patched or missing: ' + str(app_py)}",
-              fix_install)
-
-    elif platform == "pi":
-        ptr = home / ".pi" / ".agentmail"
-        try:
-            match = ptr.is_file() and json.loads(ptr.read_text()).get("system_id") == sid
-        except Exception:
-            match = False
-        c.add("runtime", "pointer", match,
-              ".pi pointer matches system" if match else ".pi pointer missing/mismatch",
-              "Run: aimail install --home ~/.pi --system-id " + sid)
+    # 平台运行时检查(platforms.json health_checks 表驱动)
+    reg = _load_platform_registry()
+    checks = (reg.get("platforms", {}).get(platform) or {}).get("health_checks", [])
+    _run_l2_checks(c, platform, checks, {
+        "home": sh,
+        "user_home": str(Path.home()),
+        "sid": sid,
+        "_fix_install": fix_install,
+    })
 
     # 通用:board 资源 + role_prompt 兜底(a2a_board 角色查找链)
     board_dir = SYSTEMS_DIR / sid / "board"

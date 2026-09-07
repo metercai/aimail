@@ -80,6 +80,15 @@
           "kind": "print",
           "text": "  pi: 扩展移除 = pi 宿主侧移除 pi-aimail 扩展"
         }
+      ],
+      "health_checks": [
+        {
+          "id": "pointer",
+          "kind": "pointer_match",
+          "path": "{user_home}/.pi/.agentmail",
+          "ok_text": ".pi pointer matches system",
+          "fail_text": ".pi pointer missing/mismatch"
+        }
       ]
     },
     "dsh": {
@@ -147,7 +156,8 @@
           "kind": "print",
           "text": "  dsh: 共享配置已清理;dsh 侧卸载 mail 插件(mail/mail-inbound/tool-mail)+ 删 preset 即可"
         }
-      ]
+      ],
+      "health_checks": []
     },
     "hermes": {
       "detect": {
@@ -225,6 +235,45 @@
           "on_error": "warn",
           "warn_hint": "pip uninstall aimail exit {rc}(webhook 适配运行时残留)"
         }
+      ],
+      "health_checks": [
+        {
+          "id": "patch-webhook",
+          "kind": "file_contains",
+          "path": "{home}/hermes-agent/gateway/platforms/webhook.py",
+          "marker": "PREPROCESS_REGISTRY",
+          "ok_text": "webhook.py patched (PREPROCESS_REGISTRY present)",
+          "fail_text": "webhook.py NOT patched or missing"
+        },
+        {
+          "id": "patch-profiles",
+          "kind": "file_contains_alt",
+          "path": "{home}/hermes-agent/hermes_cli/profiles.py",
+          "alt": "{home}/hermes-agent/cli/profiles.py",
+          "marker": "AmailGateway",
+          "ok_text": "profiles.py patched (AmailGateway hook present)",
+          "fail_text": "profiles.py NOT patched or missing"
+        },
+        {
+          "id": "skills",
+          "kind": "file_exists_any",
+          "paths": [
+            "{home}/skills/agentmail/SKILL.md",
+            "{home}/profiles/*/skills/agentmail/SKILL.md"
+          ],
+          "ok_text": "at least one profile has skills/agentmail/SKILL.md",
+          "fail_text": "no profile has skills/agentmail/SKILL.md"
+        },
+        {
+          "id": "toolsets",
+          "kind": "yaml_toolsets",
+          "configs": [
+            "{home}/config.yaml",
+            "{home}/profiles/*/config.yaml"
+          ],
+          "ok_text": "platform_toolsets contains agentmail",
+          "fail_text": "platform_toolsets lacks agentmail"
+        }
       ]
     },
     "openclaw": {
@@ -291,6 +340,24 @@
         {
           "kind": "platform_cleanup",
           "target": "openclaw"
+        }
+      ],
+      "health_checks": [
+        {
+          "id": "plugin-installed",
+          "kind": "glob_dir_any",
+          "glob": "{user_home}/.openclaw/npm/projects/openclaw-aimail*",
+          "ok_text": "openclaw-aimail npm package present",
+          "fail_text": "openclaw-aimail not installed",
+          "fix": "openclaw plugins install openclaw-aimail --force --accept-capabilities; restart gateway"
+        },
+        {
+          "id": "skills",
+          "kind": "file_exists",
+          "path": "{user_home}/.openclaw/skills/agentmail/SKILL.md",
+          "ok_text": "skills/agentmail/SKILL.md present",
+          "fail_text": "skills/agentmail/SKILL.md missing",
+          "fix": "插件自带 skill(openclaw-aimail resources)——检查插件 enabled:openclaw plugins list"
         }
       ]
     },
@@ -364,6 +431,17 @@
         {
           "kind": "print",
           "text": "  deerflow: skill/mcp 宿主装配残留可用宿主侧管理清理"
+        }
+      ],
+      "health_checks": [
+        {
+          "id": "patch-app",
+          "kind": "file_contains_alt",
+          "path": "{home}/backend/app/gateway/app.py",
+          "alt": "{home}/app/gateway/app.py",
+          "marker": "aimail_inbound",
+          "ok_text": "app.py patched (aimail_inbound router present)",
+          "fail_text": "app.py NOT patched or missing"
         }
       ]
     }
