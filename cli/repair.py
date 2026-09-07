@@ -300,7 +300,7 @@ def _pointer_paths_for(platform: str):
 
 
 def _sid_has_pointer(sid: str) -> bool:
-    for plat in ("hermes", "openclaw", "deerflow", "pi", "dsh"):
+    for plat in _pointer_registry_order():
         for ptr in _pointer_paths_for(plat):
             if ptr.is_file():
                 try:
@@ -309,6 +309,16 @@ def _sid_has_pointer(sid: str) -> bool:
                 except Exception:
                     pass
     return False
+
+
+def _pointer_registry_order() -> list:
+    """注册表平台顺序(platforms.json order——CLI 唯一平台知识源)。"""
+    try:
+        import json as _j
+        reg = _j.load(open(str(Path(__file__).resolve().parent / "platforms.json"), encoding="utf-8"))
+        return list(reg.get("order", []))
+    except Exception:
+        return []
 
 
 def _repair_gateway_config(sid: str, args_home: str = "") -> bool:

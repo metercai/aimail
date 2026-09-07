@@ -309,16 +309,78 @@ bootstrap;TS 宿主自身从不部署 bridge。
 
 ---
 
-## 6. 新 agent 系统对接清单(8 步)
+## 6. 新增 Agent 平台 — CLI/SDK 边界与适配指南
 
-1. **建共享层引用**:import `pysdk/aimail_base` / `aimail_tools` / `aimail_board`(sys.path 插入 pysdk/);不复制、不改共享代码。
-2. **写适配层** `pysdk/<system>/<adapter>.py`(或平台侧 TS 插件):平台三件事(配置源 / personas 或 `PERSONA_SUPPORTED=False` / 身份注入 `_AGENT_IDENTITY_OVERRIDE = "platform/ver"`)+ 赋值注入点(§2.1)。
-3. **暴露工具**:进程内 registry(照 Hermes)、平台插件(照 DSH/pi/OpenClaw TS)或直接复用共享 `pysdk/amail_mcp_server.py`(平台无关,按共享布局落 agentmail.json 即可)。
-4. **接入站**:接收端点先注入 agent 配置(set_agent_context 等价物)→ 验签 → `process_inbound_mail` → 未拦截投递原始 body;入站拉取复用 aimail-bridge,不写新 poller。
-5. **接生命周期**:有事件总线 → 挂钩子;无 → 包装 agents add/delete CLI 调共享注册/注销链。
-6. **装 skill**:逐字拷贝 `pysdk/resources/skills/SKILL.md`(+ DESCRIPTION.md),零改写。
-7. **注册到 CLI**:cli/check_status.py `PLATFORMS` 注册表加 adapter(detect/list_agents/check_config/check_hook 四函数);install/uninstall 平台适配段加分支(含安装补充注册)。
-8. **验收(双测铁律)**:`aimail check` 全绿 → `aimail ping` 三阶段闭环 → `aimail welcome` 管理员收到 Re: 回复(带头 `X-AIMail-Agent: {platform}/{version}`)。
+### 6.1 边界规则(一条,gate 强制)
+
+**平台知识只存在于 `cli/platforms.json`;平台适配只存在于其 SDK
+(pysdk=Python 平台,TS 包=TS 平台)。CLI 零平台协议**——读注册表、
+跑通用执行器。新增平台永不允许改 `cli/aimail` /
+`cli/check_status.py` / `cli/repair.py`;L0 gate 对三文件出现平台字面
+即红(唯一白名单:cmd_reset 的 hermes 全量重扫)。已用模拟第 6 平台
+演练实证:detect / install_steps / 注册委托 / uninstall /
+health_checks 全部零 CLI 改动跑通。
+
+注册表驱动全部 CLI 面(单一 JSON 源):detect(有序特征)· 指针路径 ·
+agent 枚举 · 默认别名 · 注册委托 · install_steps · uninstall_steps ·
+health_checks。CLI 执行器是平台无关的 `kind` 分发;kind 跨平台共享,
+永无 per-platform 代码。
+
+### 6.2 CLI 所有(不在 SDK 重复)
+
+- 系统生命周期 L1:激活/复用/reset/bridge/机器初始化
+  (`cli/setup_system.py`,平台无关)。
+- 配置文件写权分权:`aimail_gateway.json` 仅 CLI 写;`agentmail.json`
+  一律经共享写入口(pysdk `save_agent_config` / TS `saveBinding`),禁止裸写。
+- 执行语义:install/uninstall 步骤、错误策略(`on_missing`/`on_error`)、
+  注册结果报告。
+
+### 6.3 SDK 所有(不在 CLI 重复)
+
+- 注册链与绑定(地址→激活→agentmail.json→bridge 路由),含平台默认
+  (agent 名/webhook 端口/指针写入)。对 CLI 以四种委托 kind 暴露:
+  | kind | 形态 | 平台 |
+  |---|---|---|
+  | `python_module` | CLI import 适配模块调函数 | hermes |
+  | `python_script` | CLI spawn Python 入口(`manage.py …`) | deer-flow |
+  | `host_command` | CLI spawn 插件注册的宿主命令 | openclaw |
+  | `node_entry` | CLI spawn `node <宿主 node_modules>/…/register-cli.js` | dsh、pi |
+- 平台内容(skills/board/MCP server 文件)与内容级安装/卸载
+  (app.py patch、配置改写、profile 状态)——由 SDK 装与撤(谁写谁撤)。
+
+### 6.4 注册表条目参考(`platforms.json`,每平台)
+
+| 字段 | 含义 |
+|---|---|
+| `home_dir` | ~ 下的目录名(指针兜底解析) |
+| `detect` | `dir_name` + 有序 `markers[]`;撞车(profiles/)由 order 顺序裁决 |
+| `pointer` | `kind: root`(`{home}/.agentmail`)/ `root_or_profiles`(hermes)+ `file` 名 |
+| `agents` | `fixed` 名单 \| `glob_dir`(hermes profiles/*、openclaw agents/*)\| profiles+default |
+| `aliases` | 映射到规范注册名 `agent` 的名字 |
+| `register` | `kind`(6.3)+ `default_name` + argv/模板 + `fail_hint` |
+| `install_steps`/`uninstall_steps` | 有序动作:`print`/`warn`/`spawn`/`sdk_install`/`register_default`/`rm_pointer`/`rm_dir`(+ `when` 门、错误策略) |
+| `health_checks` | L2 运行时检查:`file_contains(_alt)`/`file_exists(_any)`/`glob_dir_any`/`pointer_match`/`yaml_toolsets` |
+
+### 6.5 新增平台步骤
+
+1. **宿主 home 结构**:定目录+特征文件——平台身份特征(无 CLI 代码)。
+2. **SDK 适配**:pysdk `<system>/`(Python 平台)或 TS 包(TS 平台)——平台
+   三件事(配置源/身份注入/工具暴露)+ 经共享 `process_inbound_mail`
+   接入站;永不写新 poller(复用 aimail-bridge)。
+3. **注册入口**:按 6.3 kind 暴露可委托入口(模块函数/python 脚本/宿主
+   命令/register-cli.js),跑共享链,stdout 单行 `{ok:…}` JSON,exit 0。
+4. **内容安装器**:skill/mcp/board 的装+撤进 SDK 入口
+   (`install`/`uninstall` 子命令),SKILL.md 逐字共享零改写。
+5. **注册表条目**:填满 6.4 全字段(复制最接近平台作模板:dsh/pi=fixed
+   agents+node_entry;deer-flow=python_script+sdk_install;
+   hermes=root_or_profiles 指针+python_module)。
+6. **健康检查**:加 L2 项(patch 标记/插件与 skill 就位/指针匹配)——CLI
+   展示,注册表定义。
+7. **验收(双测铁律)**:`aimail check` 全绿 → `aimail ping` 三阶段闭环
+   → `aimail welcome`:管理员收到 Re: 回复(带头
+   `X-AIMail-Agent: {platform}/{version}`)。
+8. **发布门禁**:L0 全绿(含平台字面检查)→ L1 版本对齐 → 发布;宿主
+   冒烟装 registry 包并重跑第 7 步。
 
 ---
 

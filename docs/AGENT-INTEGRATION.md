@@ -316,16 +316,92 @@ bootstrap; TS hosts never deploy the bridge themselves.
 
 ---
 
-## 6. Checklist for Integrating a New Agent System (8 Steps)
+## 6. Adding a New Agent Platform — CLI/SDK Boundary & Adapter Guide
 
-1. **Reference the shared layer**: import `pysdk/aimail_base` / `aimail_tools` / `aimail_board` (insert pysdk/ on sys.path); never copy or modify shared code.
-2. **Write the adapter layer** `pysdk/<system>/<adapter>.py` (or a platform-side TS plugin): the platform's three things (config source / personas or `PERSONA_SUPPORTED=False` / identity injection `_AGENT_IDENTITY_OVERRIDE = "platform/ver"`) + assign the injection points (§2.1).
-3. **Expose tools**: in-process registry (following Hermes), platform plugin (following the DSH/pi/OpenClaw TS plugins), or directly reuse the shared `pysdk/amail_mcp_server.py` (platform-agnostic; just write agentmail.json per the shared layout).
-4. **Wire up inbound**: the receive endpoint first injects agent config (the equivalent of set_agent_context) → signature verify → `process_inbound_mail` → deliver the raw body when not intercepted; for inbound pulling reuse aimail-bridge, never write a new poller.
-5. **Wire up lifecycle**: with an event bus → hook the events; without → wrap the agents add/delete CLIs to call the shared registration/deregistration chain.
-6. **Install the skill**: byte-exact copy of `pysdk/resources/skills/SKILL.md` (+ DESCRIPTION.md), zero rewriting.
-7. **Register with the CLI**: add the adapter to the cli/check_status.py `PLATFORMS` registry (four functions: detect / list_agents / check_config / check_hook); add a branch in the install/uninstall platform-adapter section (incl. install-time supplementary registration).
-8. **Acceptance (two-test iron rule)**: `aimail check` all green → `aimail ping` closes the three-stage loop → `aimail welcome`: the manager receives a Re: reply (headed by `X-AIMail-Agent: {platform}/{version}`).
+### 6.1 Boundary rule (one rule, enforced)
+
+**Platform knowledge lives only in `cli/platforms.json`; every platform
+adapter lives in its SDK (pysdk for Python platforms, the TS package for
+TS platforms). The CLI holds zero platform protocol** — it reads the
+registry and runs generic executors. Adding a platform must never touch
+`cli/aimail`, `cli/check_status.py` or `cli/repair.py`; the L0 gate
+fails on any platform literal in those files (only documented special:
+cmd_reset's hermes full-profile re-scan). Verified with a mock sixth
+platform: detect / install_steps / registration delegate / uninstall /
+health-checks all ran with zero CLI code changes.
+
+What the registry drives (all CLI surfaces, one JSON source):
+detect (ordered markers) · pointer paths · agent enumeration · default
+aliases · registration delegation · install_steps · uninstall_steps ·
+health_checks. The CLI's executors are platform-agnostic `kind`
+dispatchers; kinds are shared across platforms, never per-platform code.
+
+### 6.2 What the CLI owns (never duplicated in SDK)
+
+- System lifecycle L1: activation / reuse / reset / bridge / machine
+  init (`cli/setup_system.py`, platform-neutral).
+- Config file authority split: `aimail_gateway.json` written by CLI
+  only; `agentmail.json` written via the shared save-config entry
+  (pysdk `save_agent_config` / TS `saveBinding`), never raw.
+- Execution semantics: install/uninstall steps, error policy
+  (`on_missing`/`on_error`), registration result reporting.
+
+### 6.3 What the SDK owns (never duplicated in CLI)
+
+- Registration chain & binding (address → activation → agentmail.json →
+  bridge route), incl. platform defaults (agent name, webhook port,
+  pointer write). Exposed to the CLI through one of four delegation
+  kinds:
+  | kind | form | platforms |
+  |---|---|---|
+  | `python_module` | CLI imports the adapter module & calls the function | hermes |
+  | `python_script` | CLI spawns a Python entry (`manage.py …`) | deer-flow |
+  | `host_command` | CLI spawns a host command the plugin registered | openclaw |
+  | `node_entry` | CLI spawns `node <host node_modules>/…/register-cli.js` | dsh, pi |
+- Platform content (skills, board, MCP server files) and content-level
+  install/uninstall (app.py patch, config rewrites, profile state) —
+  shipped and reverted by the SDK (who-writes-it-reverts-it).
+
+### 6.4 Registry entry reference (`platforms.json`, per platform)
+
+| field | meaning |
+|---|---|
+| `home_dir` | directory name under ~ (pointer fallback resolution) |
+| `detect` | `dir_name` + ordered `markers[]`; order array wins on collisions (profiles/) |
+| `pointer` | `kind: root` (`{home}/.agentmail`) or `root_or_profiles` (hermes) + `file` name |
+| `agents` | `fixed` names list | `glob_dir` (hermes profiles/*, openclaw agents/*) | profiles-plus-default |
+| `aliases` | names mapped to the canonical `agent` registration name |
+| `register` | `kind` (6.3) + `default_name` + argv/template + `fail_hint` |
+| `install_steps` / `uninstall_steps` | ordered actions: `print`/`warn`/`spawn`/`sdk_install`/`register_default`/`rm_pointer`/`rm_dir` (+ `when` gates, error policy) |
+| `health_checks` | L2 runtime checks: `file_contains(_alt)`/`file_exists(_any)`/`glob_dir_any`/`pointer_match`/`yaml_toolsets` |
+
+### 6.5 Steps to add a platform
+
+1. **Host home structure**: pick the directory + marker file(s); that is
+   the platform's identity trait (no CLI code).
+2. **SDK adapter**: pysdk `<system>/` (Python platform) or the TS
+   package (TS platform) — three platform things (config source,
+   identity injection, tool exposure) + inbound wiring via the shared
+   `process_inbound_mail`, never a new poller (reuse aimail-bridge).
+3. **Registration entry**: expose a delegatable entry for kind 6.3
+   (module fn / python script / host command / register-cli.js) that
+   runs the shared chain and emits `{ok:…}` JSON on stdout, exit 0.
+4. **Content installers**: skills/mcp/board install+revert inside the
+   SDK entry (`install`/`uninstall` subcommand), byte-exact shared
+   SKILL.md.
+5. **Registry entry**: fill all fields of 6.4 (copy the nearest
+   platform as a template; dsh/pi = fixed agents + node_entry, deer-flow
+   = python_script + sdk_install, hermes = root_or_profiles pointer +
+   python_module).
+6. **Health checks**: add L2 items (patch marker present, plugin/skill
+   present, pointer match) — CLI displays them, registry defines them.
+7. **Acceptance (two-test iron rule)**: `aimail check` all green →
+   `aimail ping` closes the three-stage loop → `aimail welcome`: the
+   manager receives a Re: reply (headed by `X-AIMail-Agent:
+   {platform}/{version}`).
+8. **Release gate**: L0 green (incl. the platform-boundary literal
+   check) → L1 version alignment → publish; host smoke-tests install
+   the published package and re-run step 7.
 
 ---
 
