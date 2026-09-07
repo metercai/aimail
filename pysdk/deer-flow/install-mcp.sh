@@ -52,7 +52,7 @@ servers["amail"] = {
     "type": "stdio",
     "command": "python3",
     "args": [server],
-    # env 名与 server 读取一致(AIMAIL_*;旧 AMAIL_* 名已废弃)
+    # env 名与 server 读取一致(AIMAIL_*)
     "env": {"AIMAIL_AGENT_ID": agent_id,
             "AIMAIL_AGENT_IDENTITY": identity},
     "tool_name_prefix": True,

@@ -9,7 +9,7 @@
       → HMAC 验签(X-Webhook-Signature, per-address webhook_secret)
       → 共享 process_inbound_mail(aimail 适配层 amail_base)
       → ping/pong 拦截 → 200 吞掉(不触发 agent)
-      → 未拦截 → start_run 内部投递(thread = uuid5("amail", email),
+      → 未拦截 → start_run 内部投递(thread = uuid5("aimail", email),
         会话按地址稳定;assistant_id 从 agentmail.json 读)
       → 立即 200(bridge 即刻 ack pending,agent 后台处理)
 
@@ -93,7 +93,7 @@ def _find_agent_config(email: str) -> dict | None:
 
 def _thread_id_for(email: str) -> str:
     """按地址稳定派生 thread_id(与旧 dispatch_to_deerflow 同构,会话连续)。"""
-    return str(uuid.uuid5(uuid.NAMESPACE_DNS, f"amail:{email}"))
+    return str(uuid.uuid5(uuid.NAMESPACE_DNS, f"aimail:{email}"))
 
 
 @router.post("/inbound")
@@ -106,9 +106,9 @@ async def aimail_inbound(request: Request) -> JSONResponse:
 
     # ── 1. 收件地址 + 验签(per-address webhook_secret)──
     # 路由目标 = X-AIMail-Email 头(网关/bridge 按每份投递目标注入的 rcpt 地址;
-    # 旧名 X-Amail-Email 过渡回退)。payload.to 现在是过滤后的全量列表(外投在前),
-    # to[0] 常为外部地址,不能作为路由依据——仅当头缺失时兜底。
-    email = request.headers.get("X-AIMail-Email", "") or request.headers.get("X-Amail-Email", "")
+    # amail-gateway 只写 X-AIMail-Email)。payload.to 是过滤后的全量列表
+    # (外投在前),to[0] 常为外部地址,不能作为路由依据——仅当头缺失时兜底。
+    email = request.headers.get("X-AIMail-Email", "")
     if not email and isinstance(payload, dict):
         email = payload.get("to", "")
         if isinstance(email, list):
@@ -154,7 +154,7 @@ async def aimail_inbound(request: Request) -> JSONResponse:
         input={"messages": [{"role": "user", "content": content}]},
         config={"configurable": {"thread_id": _thread_id_for(email)}},
         metadata={
-            "idempotency_key": f"amail:{payload.get('mail_id', '')}",
+            "idempotency_key": f"aimail:{payload.get('mail_id', '')}",
             "amail_email": email,
         },
         multitask_strategy="reject",
