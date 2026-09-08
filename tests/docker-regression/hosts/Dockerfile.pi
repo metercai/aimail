@@ -7,7 +7,7 @@ RUN npm install -g @earendil-works/pi-coding-agent --no-audit --no-fund 2>/dev/n
 RUN pi --version 2>/dev/null || true
 
 ARG PKG_SOURCE=registry
-ARG VERSION=0.1.10
+ARG VERSION=0.1.11
 RUN if [ "$PKG_SOURCE" = "registry" ]; then \
       pip install -q --break-system-packages aimailsdk==${VERSION} || pip install -q aimailsdk==${VERSION}; \
     fi

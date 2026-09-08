@@ -8,7 +8,7 @@ RUN dsh --version 2>/dev/null || true
 
 # aimail 共享库(注册链经 register-cli 直跑;Python 侧工具链)
 ARG PKG_SOURCE=registry
-ARG VERSION=0.1.10
+ARG VERSION=0.1.11
 RUN if [ "$PKG_SOURCE" = "registry" ]; then \
       pip install -q --break-system-packages aimailsdk==${VERSION} || pip install -q aimailsdk==${VERSION}; \
     fi

@@ -4,7 +4,8 @@
 # 场景: 注册链×真实网关 → 绑定落盘 → 幂等重跑 → 发信(API) → 清理指引
 set -uo pipefail
 PLAT="${1:-}"; SID="${2:-}"
-DOMAIN="${3:-aimail.token.tm}"
+MANAGER="${3:-925457@qq.com}"
+DOMAIN="${4:-aimail.token.tm}"
 : "${PLAT:?usage: run-host-regression.sh <dsh|pi> <system-id>}"
 : "${SID:?system-id required}"
 CFG="/root/.aimail/systems/${SID}/aimail_gateway.json"
@@ -24,7 +25,7 @@ esac
 [ -f "$ENTRY" ] && ok "register-cli 就位($ENTRY)" || { bad "register-cli 缺失"; exit 1; }
 
 echo "══ 场景 2:注册链×真实网关(本地端点 $LOCAL)"
-node "$ENTRY" --system-id "$SID" --local-webhook "$LOCAL" > /tmp/reg.json 2>/tmp/reg.err
+node "$ENTRY" --system-id "$SID" --manager "$MANAGER" --local-webhook "$LOCAL" > /tmp/reg.json 2>/tmp/reg.err
 R=$(python3 -c "import json;d=json.load(open('/tmp/reg.json'));print(d.get('ok'), d.get('email',''))" 2>/dev/null || echo "parse-fail")
 case "$R" in
   "True "*) ok "注册成功(${R#True })" ;;
@@ -42,7 +43,7 @@ PY
 else bad "绑定落盘缺字段或缺失"; fi
 
 echo "══ 场景 4:幂等重跑(不重复建地址)"
-node "$ENTRY" --system-id "$SID" --local-webhook "$LOCAL" > /tmp/reg2.json 2>/dev/null
+node "$ENTRY" --system-id "$SID" --manager "$MANAGER" --local-webhook "$LOCAL" > /tmp/reg2.json 2>/dev/null
 grep -qE '"exists"|"ok"' /tmp/reg2.json && ok "重跑幂等" || bad "重跑异常: $(head -c 120 /tmp/reg2.json)"
 
 echo "══ 场景 5:发信(API 通道,经网关 system sender)— host 侧执行(见 README)"
