@@ -1296,6 +1296,12 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str,
     if kind == "python_module":
         # hermes:适配层 import 调用(module/fn/profile 规则表驱动)
         import importlib
+        # repo 布局:注册表 pythonpath 条目(相对仓库根)注入 sys.path;
+        # pip 布局:适配层随包发布,aimail.{module} 候选直接命中
+        for rel in rdef.get("pythonpath", []):
+            sp = str(SCRIPTS_DIR.parent / rel)
+            if sp not in sys.path and Path(sp).is_dir():
+                sys.path.insert(0, sp)
         mod = None
         for m in (f"aimail.{rdef['module']}", rdef["module"]):
             try:
@@ -1484,14 +1490,14 @@ def _rename_after_reg(cfg: dict, default_name: str, agent: str, reg_name: str, s
             except Exception:
                 continue
             if acfg.get("email") == old_email:
-                nd = base / new_email.replace("/", "_")
-                if nd.exists():
-                    nd = nd
                 acfg["email"] = new_email
-                if d.exists() and not nd.exists():
-                    d.rename(nd)
-                jf2 = (nd if nd.exists() else d) / "agentmail.json"
-                jf2.write_text(json.dumps(acfg, indent=2, ensure_ascii=False))
+                if d.exists():
+                    nd = base / _addr_clean(new_email)
+                    if not nd.exists():
+                        d.rename(nd)
+                    _atomic_json_write((base / _addr_clean(new_email)) / "agentmail.json", acfg)
+                else:
+                    _atomic_json_write(d / "agentmail.json", acfg)
                 break
     # 平台根指针(.agentmail/.aimail)同步到新地址
     home = cfg.get("system_home", "")

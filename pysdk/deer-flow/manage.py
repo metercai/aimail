@@ -126,6 +126,7 @@ def register_one(client, system_id: str, agent_id: str, email: str,
         manager_address,
     )
     api_key = reg.get("api_key", "")
+    activation_code = reg.get("activation_code", "")
 
     cfg = {
         "email": email,
@@ -135,6 +136,8 @@ def register_one(client, system_id: str, agent_id: str, email: str,
         "system_name": system_name,
         "manager_address": manager_address,
         "api_key": api_key,
+        # 激活 pending 时保留 code:下次 register/reconcile 直连 activate,不重注册
+        "activation_code": activation_code,
         # agentmail.json webhook_url = 本地接收端点(唯一信任源,给 bridge 路由)
         "webhook_url": local_webhook_url,
         "webhook_secret": webhook_secret,
@@ -195,6 +198,13 @@ def register_agents(manager: str = "", system_id: str = "", agent: str = "") -> 
 
     created = 0
     for agent_id in agents:
+        # 本地已有 pending 激活的绑定 → 直连补激活,不重注册
+        # (重注册走 exists 分支返回空 code,永远拿不到 api_key)
+        local = _local_agents(system_id).get(agent_id)
+        if local and local.get("activation_code") and not local.get("api_key"):
+            if _activate_pending(agent_id, local, system_id, gw):
+                created += 1
+            continue
         email = email_for_agent(agent_id, gw["domain"], gw.get("system_name", ""))
         webhook_secret = secrets.token_hex(32)
         cfg = register_one(
@@ -209,6 +219,12 @@ def register_agents(manager: str = "", system_id: str = "", agent: str = "") -> 
             print(f"  ✓ {agent_id} → {email} (api_key ok)")
             # 铁律:有 bridge 时注册后必须向 bridge 注册入站 hook 路由
             _core.register_bridge_route(system_id, email, gw, local_webhook_url)
+        elif cfg.get("activation_code"):
+            # 激活 pending:落盘保留 code,下次注册/对账直连 activate_address
+            # (不再重注册——exists 分支返回空 code,重注册永远拿不到 key)
+            save_agent_config(agent_id, cfg, system_id)
+            print(f"  ⚠ {agent_id} → {email} activation pending (code saved;"
+                  f" 重跑 register/reconcile 完成激活)")
         else:
             print(f"  ⚠ {agent_id} → {email} registered but no api_key (activation pending)")
 

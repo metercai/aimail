@@ -20,7 +20,8 @@ import type {
   PluginCommandContext,
   PluginCommandResult,
 } from 'openclaw/plugin-sdk/plugin-entry'
-import { readPointer, writePointer } from './identity.js'
+import { openclawWebhookUrl, readPointer, writePointer } from './identity.js'
+import { emailForAgent } from '@aimail/mail-core'
 
 /** Minimal admin client surface the chains depend on (MockClient-friendly). */
 export interface AdminClient {
@@ -196,7 +197,7 @@ async function handleCommand(
         const res = await autoBind({
           systemId,
           email,
-          webhookUrl: opts['webhook-url'] ?? '',
+          webhookUrl: opts['webhook-url'] ?? openclawWebhookUrl(),
           webhookSecret,
           managerAddress: opts.manager ?? gw.manager_address ?? '',
           extraFields: { agent_id: agentId },
@@ -210,7 +211,7 @@ async function handleCommand(
         await writePointer({ system_id: systemId, email })
         return cmdText([
           `✓ registered ${email} (system ${systemId}, agent ${agentId})`,
-          `  api_key ok; webhook_url=${opts['webhook-url'] ?? '(pull)'}`,
+          `  api_key ok; webhook_url=${opts['webhook-url'] ?? '(local gateway route)'}`,
         ])
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
@@ -245,16 +246,19 @@ async function handleCommand(
       }
       if (agentNames.length === 0) return cmdText([`register-all: no agents under ${agentsRoot}`])
       const { autoBind } = await import('@aimail/mail-core')
+      const systemName = gw.system_name ?? ''
       const out: string[] = [`register-all: ${agentNames.length} agent(s) → ${domain} (system ${systemId})`]
       let okN = 0
       for (const name of agentNames) {
-        const email = `${name}@${domain}`
+        // 地址派生与 identity.ts auto-bind 同源:emailForAgent(别名归一/
+        // 共享域 {base}.{system_name} 形态/atext 清洗)——两条路径同一 agent 同一地址
+        const email = emailForAgent(name, domain, systemName, ['main'])
         const secret = randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, '')
         try {
           const res = await autoBind({
             systemId,
             email,
-            webhookUrl: opts['webhook-url'] ?? '',
+            webhookUrl: opts['webhook-url'] ?? openclawWebhookUrl(),
             webhookSecret: secret,
             managerAddress: opts.manager ?? gw.manager_address ?? '',
             extraFields: { agent_id: name },

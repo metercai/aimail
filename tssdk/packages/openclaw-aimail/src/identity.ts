@@ -120,7 +120,7 @@ function gatewayPort(): number {
  * Local receive endpoint: the plugin's in-gateway HTTP route
  * (registerHttpRoute in index.ts) lives on the OpenClaw gateway HTTP server.
  */
-function openclawWebhookUrl(): string {
+export function openclawWebhookUrl(): string {
   return `http://127.0.0.1:${gatewayPort()}${INBOUND_PATH}`
 }
 

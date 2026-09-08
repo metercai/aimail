@@ -495,7 +495,7 @@ def _run_check(args) -> int:
 
 def _run_regprof(args) -> int:
     env = dict(os.environ)
-    env.setdefault("HERMES_DIR", args.home or "")
+    env.setdefault("HERMES_HOME", args.home or "")
     if args.system_id:
         env["SYSTEM_ID"] = args.system_id
     return _cmd_register_profiles(env)

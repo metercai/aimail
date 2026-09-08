@@ -30,12 +30,11 @@ const EXPECTED_NAMES = [
   'set_public_whoami',
 ] as const
 
-/** Sibling-repo layout: dsh-aimail/ and aimail/ share a parent dir.
- * Python registry moved to pysdk/ in the 2026-09 rename (legacy
- * aimail/tools/ no longer exists) — parity stays live against pysdk. */
+/** Monorepo layout: tssdk/packages/<pkg> and pysdk/ share the repo root —
+ * parity stays live against pysdk. */
 const PY_REGISTRY = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  '..', '..', '..', '..', 'aimail', 'pysdk', 'amail_mcp_server.py',
+  '..', '..', '..', '..', 'pysdk', 'amail_mcp_server.py',
 )
 
 interface PyParam { type?: string; enum?: string[]; description?: string }
@@ -74,7 +73,7 @@ describe('MAIL_TOOLS structure', () => {
       expect(t.description.length, `${t.name} description`).toBeGreaterThan(0)
       expect(Object.keys(t.parameters).length, `${t.name} parameters`).toBeGreaterThanOrEqual(1)
       for (const [k, p] of Object.entries(t.parameters)) {
-        expect(p.type, `${t.name}.${k} type`).toMatch(/^(string|array)$/)
+        expect(p.type, `${t.name}.${k} type`).toMatch(/^(string|array|integer|number|boolean)$/)
         if (p.type === 'array') expect(p.items, `${t.name}.${k} items`).toEqual({ type: 'string' })
       }
     }

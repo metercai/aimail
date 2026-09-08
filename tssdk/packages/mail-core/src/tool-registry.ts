@@ -44,9 +44,10 @@ import {
 
 /** Platform-neutral parameter descriptor (no framework types). */
 export interface MailToolParam {
-  type: 'string' | 'array'
+  type: 'string' | 'array' | 'integer' | 'number' | 'boolean'
   items?: { type: 'string' }
   enum?: readonly string[]
+  default?: string | number | boolean
   required?: boolean
   description?: string
 }
@@ -124,14 +125,14 @@ export const MAIL_TOOLS: readonly MailToolDef[] = [
   // ── local search ─────────────────────────────────────────────
   {
     name: 'search_mail',
-    description: 'Search YOUR OWN locally stored mail (offline, no network). Matches keywords in subject/body/attachment text; filter by mailbox (inbound/outbound/all), time window (since/until YYYY-MM-DD) and sender (from, substring).',
+    description: 'Search YOUR OWN locally stored mail (offline, no network). Matches keywords in subject/body/attachment text; filter by mailbox (inbound/outbound/all), time window (since/until YYYY-MM-DD) and sender (from, substring). Use it to recall past conversations, find when an event happened, or recover attachment content.',
     parameters: {
       query: { type: 'string', description: 'Space-separated keywords (AND); empty = browse by filters' },
-      scope: { type: 'string', enum: ['all', 'inbound', 'outbound'], description: 'Mailbox scope (default all)' },
+      scope: { type: 'string', enum: ['all', 'inbound', 'outbound'], default: 'all', description: 'Mailbox scope' },
       since: { type: 'string', description: 'Start date YYYY-MM-DD (inclusive)' },
       until: { type: 'string', description: 'End date YYYY-MM-DD (inclusive)' },
       from: { type: 'string', description: 'Sender substring filter (case-insensitive)' },
-      limit: { type: 'string', description: 'Max results 1-50 (default 20)' },
+      limit: { type: 'integer', description: 'Max results 1-50 (default 20)' },
     },
     handler: (ctx, args) => searchMail(ctx, args as unknown as SearchMailArgs),
   },

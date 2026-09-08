@@ -418,7 +418,9 @@ export async function autoBind(opts: AutoBindOptions): Promise<AutoBindResult> {
     ...(opts.extraFields !== undefined ? { extra: opts.extraFields } : {}),
     gateway: gw,
   })
-  if (!opts.skipBridge) {
+  if (!opts.skipBridge && localWebhook) {
+    // 空 localWebhook(直推部署,无 bridge 也无本地端点)→ 无路由可写;
+    // 写 {host:'',port:80} 会在路由表产生坏目标行
     await registerBridgeRoute({ systemId, email: opts.email, webhookUrl: localWebhook })
   }
   return { email: opts.email, system_id: systemId, registered: true, api_key: apiKey, config_path: configPath }
