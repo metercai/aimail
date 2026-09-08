@@ -22,6 +22,9 @@ RUN if [ "$PKG_SOURCE" = "registry" ]; then \
 
 # hermes 平台侧不需要预装 SDK 包——install/reset 由宿主驱动;镜像内只保证
 # hermes CLI 可用 + python3+pip 就绪(SDK 经挂载注入)。
+# install 的 --home 契约 = 平台根含 hermes-agent/{hermes_cli,toolsets,gateway} 源码树。
+# 官方镜像源码树在 /opt/hermes,数据卷是 /opt/data —— 连接两者:
+RUN mkdir -p /opt/data && ln -sfn /opt/hermes /opt/data/hermes-agent
 RUN /opt/hermes/bin/hermes --version 2>&1 | head -1
 
 COPY tests/docker-regression/hosts/run-host-regression-hermes.sh /opt/regression/
