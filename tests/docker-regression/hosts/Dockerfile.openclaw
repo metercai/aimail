@@ -1,0 +1,22 @@
+# openclaw 宿主测试镜像 — 官方 ghcr.io/openclaw/openclaw + aimail 插件
+#
+# 官方镜像:openclaw 2026.9.x 在 /usr/local/bin,node 24 内置,/app 为程序树。
+ARG BASE_IMG=ghcr.io/openclaw/openclaw:latest
+FROM ${BASE_IMG}
+
+# openclaw-aimail 插件(registry 版本;安装到 openclaw 插件目录)
+ARG VERSION=0.1.11
+ARG PKG_SOURCE=registry
+# 镜像 USER=node(home=/app);aimail 数据目录约定 ~/.aimail = /app/.aimail
+ENV HOME=/app
+RUN mkdir -p /app/.openclaw/npm/projects/aimail-regression/node_modules /app/.aimail
+RUN if [ "$PKG_SOURCE" = "registry" ]; then \
+      npm install --prefix /tmp/aimail-ts --no-audit --no-fund --legacy-peer-deps \
+        openclaw-aimail@${VERSION} @aimail/mail-core@${VERSION} @aimail/mail@${VERSION} >/dev/null 2>&1; \
+      cp -r /tmp/aimail-ts/node_modules/* /app/.openclaw/npm/projects/aimail-regression/node_modules/ && \
+      rm -rf /tmp/aimail-ts; \
+    fi
+
+COPY --chown=node:node run-host-regression-openclaw.sh /opt/regression/
+RUN chmod +x /opt/regression/*.sh
+CMD ["bash", "/opt/regression/run-host-regression-openclaw.sh"]
