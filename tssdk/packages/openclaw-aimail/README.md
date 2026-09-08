@@ -15,7 +15,7 @@ Prerequisites:
   address on the gateway)
 
 ```bash
-openclaw plugins install openclaw-aimail
+openclaw plugins install openclaw-aimail --force --accept-capabilities
 ```
 
 Then register an address for the agent:

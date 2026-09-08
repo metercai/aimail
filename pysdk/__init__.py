@@ -10,8 +10,8 @@ Unified usage (recommended — hosts AND third parties):
 
     import aimail
     aimail.send_mail(to="x@example.com", subject="hi", body="hello")
-    client = aimail.GatewayClient(aimail.agent_email(), api_key="...")
-    aimail.manage_contacts(action="list")
+    client = aimail.GatewayClient("https://aimail.example.com", api_key="...", identity="agent@dom")
+    aimail.manage_contacts(action="check", name=...)
 
 The runtime core is implemented as flat scripts (``aimail_base.py``,
 ``aimail_tools.py``, ...) that import each other by top-level name, so they
@@ -34,7 +34,6 @@ Module layout inside the wheel mirrors the repository ``pysdk/`` directory
     install.py               self-contained install/uninstall entry
     _resources_release.py    board/skills resource release (install-time)
     hermes/                  Hermes adapter (6 modules, host-injected registry)
-    openclaw/                OpenClaw adapter (amail_base)
     deer-flow/               DeerFlow adapter (inbound router / manage / base)
     resources/
       skills/                aimail SKILL.md + DESCRIPTION.md

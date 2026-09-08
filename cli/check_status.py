@@ -327,10 +327,10 @@ def _hermes_check_config(c: Check, agent: dict):
     skill_ok = bool(skill_dir and skill_dir.is_dir())
     c.add("agent", "skill", skill_ok,
           f"{name}: skills/agentmail " + ("✓" if skill_ok else "MISSING"),
-          "Run install-skill or copy skills/SKILL.md")
+          "Re-run: python -m aimail.install install --type hermes --home <hermes-root>")
 
-    # 3.4 toolset: platform_toolsets.webhook/cli 含 agentmail(内部标识,
-    # 内部标识恒为 agentmail(对外品牌 aimail 不影响此处键)
+    # 3.4 toolset: platform_toolsets.webhook/cli 含 agentmail(内部标识
+    # 恒为 agentmail,对外品牌 aimail 不影响此处键)
     ts_ok = False
     try:
         import yaml
@@ -488,7 +488,7 @@ def _openclaw_check_config(c: Check, agent: dict):
     skill_ok = (Path.home() / ".openclaw" / "skills" / "agentmail").is_dir()
     c.add("agent", "skill", skill_ok,
           f"{name}: skills/agentmail " + ("✓" if skill_ok else "MISSING"),
-          "Run install-skill.sh")
+          "Reinstall the openclaw-aimail plugin (skill ships with the plugin)")
 
     # 3.4 toolset: openclaw-aimail TS plugin registered in the gateway config
     # (plugins.entries / plugins.allow). No Python/OpenClaw edition ever
@@ -872,7 +872,7 @@ def _resolve_platform_sid(agent_type: str) -> str:
 
 
 def _read_gw_cfg(sid: str = "") -> dict | None:
-    """Load ~/.aimail/system-{sid}/aimail_gateway.json, return None on failure."""
+    """Load ~/.aimail/systems/{sid}/aimail_gateway.json, return None on failure."""
     if not sid:
         sid = _resolve_system_id(sys.argv)
     p = _system_agent_path(sid) if sid else SYSTEMS_DIR / "aimail_gateway.json"
@@ -1601,12 +1601,21 @@ def main():
 # ═══════════════════════════════════════════════════════════════
 
 def _load_platform_registry() -> dict:
-    """读 CLI 平台注册表(cli/platforms.json——唯一平台知识源)。"""
+    """读 CLI 平台注册表(cli/platforms.json——唯一平台知识源)。
+
+    进程内缓存:注册表是静态文件,单次 check 运行 4+ 调用点不重复读盘。"""
+    global _PLATFORM_REGISTRY_CACHE
+    if _PLATFORM_REGISTRY_CACHE is not None:
+        return _PLATFORM_REGISTRY_CACHE
     try:
         import json as _j
-        return _j.load(open(str(Path(__file__).resolve().parent / "platforms.json"), encoding="utf-8"))
+        _PLATFORM_REGISTRY_CACHE = _j.load(open(str(Path(__file__).resolve().parent / "platforms.json"), encoding="utf-8"))
     except Exception:
-        return {}
+        _PLATFORM_REGISTRY_CACHE = {}
+    return _PLATFORM_REGISTRY_CACHE
+
+
+_PLATFORM_REGISTRY_CACHE: dict | None = None
 
 
 def _run_l2_checks(c: "Check", platform: str, checks: list, ctx: dict) -> None:
@@ -1713,7 +1722,6 @@ def _check_l2_runtime(c: Check, sid: str):
         return
     c.add("runtime", "platform-locatable", True, f"{platform} @ {sh}")
 
-    home = Path.home()
     fix_install = f"python -m aimail.install --type {platform} --home {sh}"
 
     # 平台运行时检查(platforms.json health_checks 表驱动)

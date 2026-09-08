@@ -19,7 +19,7 @@ import * as path from 'node:path'
 import { verifySignature, processInboundMail, routeAddressFromHeaders, type InboundPayload } from '@aimail/mail-core'
 import type { OpenClawPluginApi } from 'openclaw/plugin-sdk/plugin-entry'
 import { resolveByRecipient } from '@aimail/mail'
-import { readPointer } from './identity.js'
+import { gatewayPort, readPointer } from './identity.js'
 
 export const INBOUND_PATH = '/aimail/inbound'
 
@@ -53,7 +53,7 @@ async function deliverToAgent(
   void api
   const hooksToken = readHooksToken()
   const agentId = opts.agentId || 'main'
-  const r = await fetch(`http://127.0.0.1:${readGatewayPort()}/hooks/agent`, {
+  const r = await fetch(`http://127.0.0.1:${gatewayPort()}/hooks/agent`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -70,20 +70,6 @@ async function deliverToAgent(
     return { status: 'dispatch_failed', detail: `hooks/agent HTTP ${r.status}` }
   }
   return { status: 'delivered', detail: 'hooks/agent accepted' }
-}
-
-function readGatewayPort(): number {
-  try {
-    const home = process.env.HOME ?? process.env.USERPROFILE ?? ''
-    const cfgPath = path.join(home, '.openclaw', 'openclaw.json')
-    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8')) as {
-      gateway?: { port?: number }
-    }
-    const port = Number(cfg.gateway?.port)
-    return Number.isInteger(port) && port > 0 ? port : 18789
-  } catch {
-    return 18789
-  }
 }
 
 function readHooksToken(): string {
@@ -155,10 +141,7 @@ export function createInboundHandler(api: OpenClawPluginApi) {
         if (cfg && !agentAddr) agentAddr = ptr.email ?? ''
       }
       if (!cfg) {
-        writeJson(res, 200, {
-          status: 'no_agent',
-          detail: `no binding for ${routeAddr || toRaw.join(',')}`,
-        })
+        writeJson(res, 200, { status: 'no_agent', detail: 'no binding' })
         return
       }
 

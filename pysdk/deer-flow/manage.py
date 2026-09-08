@@ -449,8 +449,12 @@ def deregister_agents(agent: str, manager: str = "", system_id: str = "") -> int
     result = _base.deregister_agent_email(client, system_id, email, manager)
     print(f"  deregister {agent} ({email}): {json.dumps(result, ensure_ascii=False)}")
 
-    # 清理本地 agentmail.json
-    cleaned = re.sub(r"[^\w.\-]", "_", email)
+    # 清理本地 agentmail.json(目录键与共享 _clean_agent_dir_name 同源——
+    # 本地 re.sub 缺 re.ASCII,非 ASCII 字符会被 unicode \w 保留而错目录)
+    try:
+        cleaned = _core._clean_agent_dir_name(email)
+    except Exception:
+        cleaned = re.sub(r"[^\w.\-]", "_", email, flags=re.ASCII)
     path = os.path.join(_base.aimail_home(), "systems", str(system_id), str(cleaned), "agentmail.json")
     if os.path.isfile(path):
         os.remove(path)

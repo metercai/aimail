@@ -115,8 +115,10 @@ async def aimail_inbound(request: Request) -> JSONResponse:
             email = email[0] if email else ""
     cfg = _find_agent_config(email)
     if not cfg:
+        # 响应不回显地址(未认证探测者可按 200/401 差异+回显枚举注册状态);
+        # 具体地址只进服务端日志
         logger.warning("aimail: no agent config for %s", email)
-        return JSONResponse({"status": "no_agent", "email": email})
+        return JSONResponse({"status": "no_agent"})
 
     sig = request.headers.get("X-Webhook-Signature", "")
     if not _verify_hmac(cfg.get("webhook_secret", ""), body, sig):

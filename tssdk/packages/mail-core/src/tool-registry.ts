@@ -1,5 +1,5 @@
 /**
- * MAIL_TOOLS — the single TS source of truth for the 12 AIMail tool
+ * MAIL_TOOLS — the single TS source of truth for the 13 AIMail tool
  * semantic definitions (names, descriptions, parameter descriptions).
  *
  * Contract: text is verbatim from tools/amail_mcp_server.py TOOLS registry

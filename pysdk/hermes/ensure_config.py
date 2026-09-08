@@ -26,7 +26,6 @@ HMAC 401);只补缺失项。由 hermes/register_profiles.py(安装链 per-profil
 
 从 cli/hermes/ensure_webhook_config.py 迁移:函数体逐字保留,argparse
 main 删除。公开 API: ensure_profile_config(profile_dir) -> list、
-is_amail_profile(profile_dir) -> bool。
 """
 
 import os
@@ -128,20 +127,3 @@ def ensure_profile_config(profile_dir: Path) -> list:
     return changes
 
 
-def is_amail_profile(profile_dir: Path) -> bool:
-    """判断 profile 是否 amail 相关:有 .agentmail 指针,或已有
-    amail 配置痕迹(platform_toolsets 含 agentmail / platforms.webhook
-    有 secret)。无关 profile(erp/qlbio 等)绝不写入——避免污染非
-    amail 目录(2026-08-16 实测污染后清理)。"""
-    if (profile_dir / ".agentmail").is_file():
-        return True
-    cfg = _load_yaml(profile_dir / "config.yaml")
-    pt = cfg.get("platform_toolsets") or {}
-    for seg in ("webhook", "cli"):
-        tools = pt.get(seg) or []
-        if "agentmail" in (tools if isinstance(tools, list) else []):
-            return True
-    wh = (cfg.get("platforms") or {}).get("webhook") or {}
-    if wh.get("extra", {}).get("secret"):
-        return True
-    return False

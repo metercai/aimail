@@ -48,7 +48,7 @@ AIMail integrates with any agent system (LLM runtime); the agent gains complete 
 |-------|----------|----------------|
 | Shared core | `pysdk/aimail_base.py`, `aimail_tools.py`, `aimail_board.py`, `aimail_mcp_server.py` | Inbound preprocessing chain, ping/pong, address derivation, registration/deregistration chain, email-tool implementations, board tools |
 | Platform adapters | `pysdk/{platform}/` (hermes/openclaw/deer-flow) + platform-side TS plugins (dsh/pi/openclaw, see §4.4/§4.5/§4.2) | Config source, persona switch, identity injection, tool registration, receive endpoint |
-| Runtime | TS plugin commands (`openclaw aimail register|deregister|status`) | Agent lifecycle (registration/deregistration, openclaw-aimail) |
+| Runtime | TS plugin commands (`openclaw aimail register|register-all|deregister|status`) | Agent lifecycle (registration/deregistration, openclaw-aimail) |
 | CLI layer | `cli/aimail` (15 subcommands; repo-root `./aimail` symlink) + ops scripts `cli/{check_status,send_welcome,repair,setup_system,deploy_bridge,ping_test}.py`; API client `pysdk/gateway_api.py` | Install / check / test / uninstall / ops |
 | Install source | `pysdk/resources/skills/SKILL.md` + `DESCRIPTION.md` | Generic email skill (byte-exact copy, zero rewriting) |
 
@@ -63,7 +63,7 @@ AIMail integrates with any agent system (LLM runtime); the agent gains complete 
 |--------|-------|-------|
 | Pointer file (profile/.agentmail etc.) | System identity | system_id + email ownership |
 | `agentmail.json` (systems/{sid}/{addr}/) | Address level | All address facts (incl. webhook_url/webhook_secret pair) |
-| `aimail_gateway.json` (systems/{sid}/) | System level | All system facts (incl. webhook_host tri-state; the old name `aimail_gateway.json` auto-migrates on first access) |
+| `aimail_gateway.json` (systems/{sid}/) | System level | All system facts (incl. webhook_host tri-state) |
 
 ---
 
@@ -124,7 +124,7 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 
 - **1 agent = 1 AIMail address**; each agent has its own api_key (gateway send.rs enforces sender == key.email_address).
 - **System identity has a single source: the pointer file**: Hermes `profiles/{name}/.aimail`, OpenClaw `~/.openclaw/.agentmail` (JSON: system_id + email).
-- Single config filename: `aimail_gateway.json` (unified on both the read and write sides; the old name `aimail_gateway.json` auto-migrates on first access — no compatibility alias).
+- Single config filename: `aimail_gateway.json` (same name on the read and write sides; no compatibility alias).
 
 ---
 
@@ -152,6 +152,8 @@ Cloud receive → gateway inbound queue → bridge pull (2s polling of /pending)
 | Hermes | `http://127.0.0.1:{port}/webhooks/aimail-inbound` | In-process (preprocessor) |
 | OpenClaw | `http://127.0.0.1:18789/aimail/inbound` | OpenClaw gateway plugin endpoint (registered by openclaw-aimail inbound.ts; `gateway.port` defaults to 18789) → signature verify → TS `processInboundMail` → agent turn |
 | DeerFlow | `http://127.0.0.1:8001/aimail/inbound` | In-process (8001 router) → start_run |
+| dsh | `http://127.0.0.1:9099/aimail/inbound` | dsh-aimail plugin profile-level listener (port `AIMAIL_INBOUND_PORT`, default 9099) → TS `processInboundMail` |
+| pi | `http://127.0.0.1:9101/aimail/inbound` | pi-aimail extension local listener (default 9101) → TS `processInboundMail` |
 
 ### 3.3 agentmail.json Fields (address level, the only trusted source)
 
@@ -201,8 +203,8 @@ Field semantics follow MAINTENANCE §2/§9 and the code contract.
 |-----------|----------|
 | Adapter layer | tssdk `openclaw-aimail` plugin (identity = `~/.openclaw/.agentmail` pointer + agentmail.json as the single source of truth; outbound X-AIMail-Agent = `openclaw/{ver}`) |
 | Tools | 13 bare-name email/board tools registered in-process by the plugin (MAIL_TOOLS as the single semantic source; not MCP) |
-| Inbound endpoint | **Gateway-plugin HTTP route** `POST http://127.0.0.1:18789/aimail/inbound` (`openclaw.json gateway.port` defaults to 18789; auth=plugin, same target for bridge/direct push): HMAC signature verify → TS `processInboundMail` → agent turn (`subagent.run` primary / `gateway.request` fallback; multiple agents routed via sessionKey) |
-| Lifecycle | Plugin register/deregister/status commands (`openclaw aimail register|deregister|status`); Python registration chain retired |
+| Inbound endpoint | **Gateway-plugin HTTP route** `POST http://127.0.0.1:18789/aimail/inbound` (`openclaw.json gateway.port` defaults to 18789; auth=plugin, same target for bridge/direct push): HMAC signature verify → TS `processInboundMail` → agent turn via the gateway internal `POST /hooks/agent` hook (multiple agents routed via sessionKey) |
+| Lifecycle | Plugin register/deregister/status commands (`openclaw aimail register|register-all|deregister|status`); Python registration chain retired |
 | Deployment | `openclaw plugins install openclaw-aimail` (or via the tssdk package); the Python side only registers/checks (cli/check_status probes the plugin endpoint at L4) |
 | Key pitfalls | Call `setAgentIdentity` before inbound processing (TS-side identity injection); logs/event contract aligned verbatim with Python; the 8799 external bridge is retired (§9) |
 
@@ -434,7 +436,8 @@ dispatchers; kinds are shared across platforms, never per-platform code.
 - **amail_deerflow_bridge.py** (8798): retired. DeerFlow inbound is 8001 in-process preprocessing.
 - **amail_openclaw_bridge.py** (8799 / hook external preprocessing process): retired. OpenClaw inbound is the gateway plugin endpoint `http://127.0.0.1:18789/aimail/inbound` (openclaw-aimail plugin, consistent with the cli/check_status comment).
 - **integrate.sh / uninstall.sh / bridge-ctl.sh / install-tools.sh**: replaced by `aimail install/uninstall/bridge` (install-tools.sh is also replaced by the pysdk/hermes/toolsets.py toolset patch).
-- **aimail_gateway.json** (old name, before 2026-09-04): read/write unified on `aimail_gateway.json`; the old name auto-migrates on first access, no compatibility alias.
+- **aimail_gateway.json**: read/write unified on this single name; no compatibility alias.
 - **--agent-type argument**: platforms are inferred from facts; manual specification is forbidden.
 - **mode / bridge_port config options**: the webhook_host tri-state expresses push/pull; the receive-endpoint port lives in webhook_url.
-- **docs/ directory**: the official documentation directory (versioned, maintained with the repo); authoritative interface wording lives in MAINTENANCE.md and README.md.
+
+The official documentation directory is `docs/` (versioned, maintained with the repo); authoritative interface wording lives in MAINTENANCE.md and README.md.

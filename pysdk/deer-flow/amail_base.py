@@ -138,27 +138,6 @@ def detect_system_id() -> str:
             return d["system_id"]
     return ""
 
-
-def load_agents_registry(system_id: str) -> dict:
-    """扫描地址键 agentmail.json,重建 {email → agent_id} 路由映射(共享布局)。"""
-    registry = {}
-    sys_dir = Path(_ab.aimail_home()) / "systems" / system_id
-    if sys_dir.is_dir():
-        for addr_dir in sorted(sys_dir.iterdir()):
-            aj = addr_dir / "agentmail.json"
-            if not aj.is_file():
-                continue
-            try:
-                cfg = json.loads(aj.read_text())
-                email = cfg.get("email", "")
-                agent_id = cfg.get("agent_id", "")
-                if email and agent_id:
-                    registry[email] = agent_id
-            except Exception:
-                pass
-    return registry
-
-
 # ── ② 注入点 + 能力开关 ─────────────────────────────────────────
 _ab.PERSONA_SUPPORTED = False        # DeerFlow 无 persona 派生地址概念
 _ab._PROFILE_DIR_RESOLVER = _deerflow_profile_dir

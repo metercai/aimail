@@ -59,9 +59,8 @@ def _machine_state() -> tuple:
     systems_root = os.path.join(agentmail_home(), "systems")
     if not os.path.isdir(systems_root) or not os.listdir(systems_root):
         return ("empty",
-                "未发现任何系统配置(~/.aimail/systems 空)。\n"
- 
-                "  然后:   aimail install --home <宿主根>(激活系统并绑定)")
+                "未发现任何系统配置(~/.aimail/systems 空)。\n\n"
+                "  运行:   aimail install --home <宿主根>(激活系统并绑定)")
     return ("systems", "")
 
 

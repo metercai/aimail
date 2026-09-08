@@ -148,7 +148,9 @@ aimail install --home <平台根> [--system-id <sid>]
 ### 第 3 步 — 平台侧绑定
 
 hermes/openclaw/pi/deerflow 在 install 内完成绑定。dsh 的 session 惰性
-绑定:`dsh-aimail` 首次使用自动绑(一 session ⇔ 一地址,存在性守卫);
+绑定:`dsh-aimail` 首次使用自动绑(一 session ⇔ 一地址,存在性守卫)。
+注意:无 --session-id 的手工注册落盘的占位 session_id 不会被真实 dsh
+session 解析——每 session 地址由插件惰性自动绑定派生。
 CLI 侧等价注册:`aimail reset -s <sid>`(注册链重跑 → dsh-aimail register-cli)。
 
 ### 第 4 步 — 验证

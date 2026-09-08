@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import time
+import uuid
 from pathlib import Path
 from typing import Optional, Dict, List, Any, Union
 from datetime import datetime
@@ -212,13 +213,6 @@ class _GatewayClient:
 
     # ── Agent State API (per-agent KV store) ─────────────────────
 
-    def agent_state_get(self, key: str) -> Optional[str]:
-        """GET /api/v1/agent-state/:key - returns value string or None."""
-        result = self._request("GET", f"/api/v1/agent-state/{key}")
-        if result.get("status") == 200:
-            return result.get("value")
-        return None
-
     def agent_state_put(self, key: str, value: str) -> dict:
         """PUT /api/v1/agent-state/:key - upsert a value."""
         return self._request("PUT", f"/api/v1/agent-state/{key}", body={"value": value})
@@ -313,7 +307,7 @@ class _GatewayClient:
             "POST",
             f"/api/v1/admin/systems/{system_id}/addresses{params}",
             body={
-                "id": f"addr-{email.replace('@', '-at-')}-{int(time.time())}",
+                "id": f"addr-{email.replace('@', '-at-')}-{uuid.uuid4().hex[:12]}",
                 "email": email,
                 "webhook_url": webhook_url,
                 "webhook_secret": webhook_secret,
@@ -600,19 +594,19 @@ def send_mail(
         )
         time.sleep(delay)
 
-    # Auto-bootstrap thread summary for new (non-reply) emails
-    thread_bootstrapped = False
-    if not message_id:
-        try:
-            initial_summary = f"Subject: {subject}\nStatus: awaiting response"
-            set_email_summary(generated_mid, initial_summary)
-            thread_bootstrapped = True
-            logger.info("[aimail] Thread summary bootstrapped for new email: %s", generated_mid)
-        except Exception as e:
-            logger.warning("[aimail] Failed to bootstrap thread summary: %s", e)
-
     # Flatten status into success/error
     if 200 <= status < 300:
+        # Thread summary bootstrap 只在发送成功后(终态失败时写 summary
+        # 会留下从未发出的邮件的幽灵线程条目)
+        thread_bootstrapped = False
+        if not message_id:
+            try:
+                initial_summary = f"Subject: {subject}\nStatus: awaiting response"
+                set_email_summary(generated_mid, initial_summary)
+                thread_bootstrapped = True
+                logger.info("[aimail] Thread summary bootstrapped for new email: %s", generated_mid)
+            except Exception as e:
+                logger.warning("[aimail] Failed to bootstrap thread summary: %s", e)
         out = {"success": True, **result}
         if thread_bootstrapped:
             out["thread_bootstrapped"] = True
@@ -631,6 +625,11 @@ def send_mail(
         # the gateway within the dedup window. From the agent's perspective
         # the content IS out — report success, nothing left to do.
         logger.info("[aimail] send suppressed by gateway dedup (409) — already sent")
+        if not message_id:
+            try:
+                set_email_summary(generated_mid, f"Subject: {subject}\nStatus: awaiting response")
+            except Exception:
+                pass
         return {
             "success": True,
             "duplicate": True,

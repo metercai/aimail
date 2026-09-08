@@ -102,7 +102,7 @@ export function apply(ctx: Context, config: Config = {}): () => void {
         }
       }
       if (!cfg) {
-        writeJson(res, 200, { status: 'no_agent', detail: `no binding for ${routeAddr || toRaw.join(',')}` })
+        writeJson(res, 200, { status: 'no_agent', detail: 'no binding' })
         return
       }
 

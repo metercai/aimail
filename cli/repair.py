@@ -4,7 +4,7 @@
 原则(用户定调 2026-08-30):
 - 不重新发明检测:逐项跑 check_status.py 的既有检测,✗ 才修,修完复检。
 - 不写第二份注册逻辑:修复动作全部复用 install/共享链函数
-  (deploy_bridge.start_bridge、aimail scripts/aimail 的路由重刷、
+  (deploy_bridge.start_bridge、aimail bridge 命令的路由重刷、
   aimail_base.register_agent_email 注册链)。
 - agentmail.json 是唯一信任源:修复方向 = 把本地权威值写回云端/bridge。
 - 幂等:重复修复结果一致(webhook 配对、路由注册均幂等)。

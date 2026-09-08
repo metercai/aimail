@@ -2,7 +2,7 @@
 """aimail — unified maintenance CLI for the aimail agent-integration stack.
 
 Subcommands (grouped by scenario, see --help):
-  setup      init / install / uninstall / reset
+  setup      install / uninstall / reset
   operate    stats / renew / version
   diagnose   check / repair / ping / welcome / persona
   resources  domain / address / bridge
@@ -44,9 +44,8 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 
 def _registry_order_roots() -> list:
     """平台指针根候选(platforms.json order × home_dir——唯一平台知识源)。"""
-    import json as _j
     try:
-        reg = _j.load(open(str(Path(__file__).resolve().parent / "platforms.json"), encoding="utf-8"))
+        reg = _platforms()
         return [(n, reg["platforms"][n].get("home_dir", "." + n))
                 for n in reg.get("order", []) if n in reg.get("platforms", {})]
     except Exception:
@@ -95,7 +94,7 @@ def _load_env() -> None:
 
 def _env_val(key: str, fallback: str = "") -> str:
     """env var value: shell env wins, then ~/.aimail/.env, then fallback.
-    (.env is the machine-level config persisted by bootstrap; init/install
+    (.env is the machine-level config persisted by bootstrap; install
     and friends must honour it even when the calling shell has no export.)"""
     v = os.environ.get(key)
     if v:
@@ -493,16 +492,9 @@ def _is_local_gateway(url: str) -> bool:
     return False
 
 
-def _probe_local_gateway() -> str:
-    """探测本机网关(默认 127.0.0.1:38080),通则返回其 URL。"""
-    import socket
-    for port in (38080,):
-        try:
-            with socket.create_connection(("127.0.0.1", port), timeout=1):
-                return f"http://127.0.0.1:{port}"
-        except OSError:
-            pass
-    return ""
+# ── machine-level env init:
+#    now lives as scripts/machine_init.py, run by bootstrap in the install
+#    flow (no CLI subcommand — init was not independently useful) ───────
 
 
 def cmd_version(args) -> int:
@@ -520,37 +512,6 @@ def cmd_version(args) -> int:
     mode = "bootstrapped" if str(SCRIPTS_DIR).startswith(str(HOME / ".aimail" / "toolkit")) else "dev"
     print(f"aimail {ver} ({mode})")
     return 0
-
-
-def _write_pi_pointer(sid: str) -> None:
-    """写 ~/.pi/.agentmail {system_id, email}(与 openclaw pointer 同构)。"""
-    try:
-        load_core()
-        from aimail_base import email_for_agent  # noqa: E402
-    except Exception:
-        return
-    cfg_path = _gateway_cfg_path(sid)
-    if not cfg_path.is_file():
-        return
-    try:
-        cfg = json.loads(cfg_path.read_text())
-    except Exception:
-        return
-    email = email_for_agent("pi", cfg.get("domain", ""), cfg.get("system_name", ""))
-    if not email:
-        return
-    ptr = Path.home() / ".pi" / ".agentmail"
-    try:
-        ptr.parent.mkdir(parents=True, exist_ok=True)
-        ptr.write_text(json.dumps({"system_id": sid, "email": email}))
-        _ok(f"pi pointer written {ptr}")
-    except Exception as e:
-        _warn(f"pi pointer write failed: {e}")
-
-
-# ── machine-level env init:
-#    now lives as scripts/machine_init.py, run by bootstrap in the install
-#    flow (no CLI subcommand — init was not independently useful) ───────
 
 
 def cmd_install(args) -> int:
@@ -1114,12 +1075,10 @@ def cmd_address(args) -> int:
         _fail(f"无系统配置: {cfg_path}")
     cfg = json.loads(cfg_path.read_text())
 
-    op = args.op.lower() if getattr(args, "op", None) else (
-        "default" if args.default
-        else "set-manager" if args.manager
-        else "set-name" if args.name
-        else "list"
-    )
+    op = ("default" if args.default
+          else "set-manager" if args.manager
+          else "set-name" if args.name
+          else "list")
 
     # ── 查看 ──────────────────────────────────────────────
     if op in ("list", "show"):
@@ -1524,14 +1483,6 @@ def _rename_after_reg(cfg: dict, default_name: str, agent: str, reg_name: str, s
     _ok(f"  地址名已改: {old_email} → {new_email}")
 
 
-def _write_pointer(ptr_path, sid: str, email: str) -> None:
-    import json as _json
-    try:
-        ptr_path.parent.mkdir(parents=True, exist_ok=True)
-        ptr_path.write_text(_json.dumps({"system_id": sid, "email": email}))
-    except Exception as e:
-        _warn(f"写平台指针失败 {ptr_path}: {e}")
-
 
 def _post_reg_report(platform: str, agent: str, reg_name: str, domain: str, sid: str) -> None:
     _ok(f"agent '{agent}' 已注册 → 地址名 {reg_name}@{domain if domain else '(域未知)'}(平台 {platform})")
@@ -1748,6 +1699,8 @@ def _system_agents(sid: str) -> list[tuple[str, str]]:
     if not sysdir.is_dir():
         return []
     result = []
+    # 路由表读一次(循环内重读 = 每 agent 一次文件 IO)
+    routes = _read_routes()
     # 每个 agent 的 agentmail.json(含 email)
     for sub in sorted(sysdir.iterdir()):
         aj = sub / "agentmail.json"
@@ -1762,7 +1715,6 @@ def _system_agents(sid: str) -> list[tuple[str, str]]:
             continue
         # 接收端 URL 由平台决定:Hermes=webhook 端口,OpenClaw=/hook 接收端
         # 优先读已有路由表(幂等),否则按平台默认
-        routes = _read_routes()
         existing = routes.get(email)
         if existing:
             result.append((email, existing))

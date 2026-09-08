@@ -11,7 +11,6 @@
   2. 兜底:本仓库 pysdk/(dev 模式,未 pip install 时)
 
 bundle 定义(源相对路径 → 捆绑内相对路径):
-  hermes     核心4 + bootstrap + hermes/aimail_hermes.py   (扁平+子目录)
   mcp        核心4 + bootstrap + amail_mcp_server.py          (扁平)
   deer-flow  核心4 + bootstrap + router + 适配层,全扁平铺进宿主 routers/
              (宿主 app.py 经 `from .routers import aimail_inbound` 加载;
@@ -19,12 +18,10 @@ bundle 定义(源相对路径 → 捆绑内相对路径):
 
 用法:
   runtime_bundle.py install <bundle> [--dest DIR] [--source-root DIR] [--force]
-  runtime_bundle.py check   <bundle> [--dest DIR] [--source-root DIR]
   runtime_bundle.py source                    # 打印当前解析到的源根+类型
-  bundle ∈ hermes|mcp|deer-flow|skill-hermes|skill-openclaw|skill-deerflow|skill-dsh
+  bundle ∈ mcp|deer-flow|skill-hermes|skill-openclaw|skill-deerflow|skill-dsh
 
-退出码: install 0=完成(全部一致或已更新); check 0=一致,1=漂移/缺失,2=未安装。
-check 输出机器可读行: DRIFT <file> / MISSING <file> / STALE-STAMP / OK <n files>
+退出码: install 0=完成(全部一致或已更新)。
 """
 from __future__ import annotations
 

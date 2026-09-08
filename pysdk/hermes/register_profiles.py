@@ -79,7 +79,7 @@ def register_emails():
             if pd.get("system_id") == system_id:
                 _reregister_default = False  # same system, skip
             else:
-                print(f"  Re-registering default (system changed)", file=sys.stderr)
+                print("  Re-registering default (system changed)", file=sys.stderr)
         except Exception:
             pass
     else:

@@ -64,9 +64,7 @@ host-side items remain.
 ```
 ~/.aimail/
 ├── systems/{system_id}/
-│   ├── aimail_gateway.json     # gateway connection config (canonical name
-│   │                           #   since 2026-09-04; legacy aimail_gateway.json
-│   │                           #   is auto-migrated on first read)
+│   ├── aimail_gateway.json     # gateway connection config
 │   ├── board/                  # system-level A2A role prompts (fallback)
 │   └── {agent_addr}/           # per-address dir (keyed by cleaned email)
 │       ├── agentmail.json      # agent config — 9 mandatory fields (see §9)
@@ -167,6 +165,9 @@ Hermes/openclaw/pi/deerflow are bound during `install`. For dsh, sessions
 bind lazily: `dsh-aimail` auto-binds on first use (one session ⇔ one
 address, existence-guarded); manual equivalent:
 `aimail reset -s <sid>` (registration chain → dsh-aimail register-cli).
+Note: a session-less manual registration persists a placeholder
+session_id that real dsh sessions never resolve — per-session addresses
+are minted by the plugin's lazy auto-bind.
 
 ### Step 4 — verify
 
@@ -397,9 +398,7 @@ single source of truth** — never redefine, only reference.
 profile config). The local inbound URL is what `agentmail.json` stores as
 `webhook_url` and what the bridge route table targets.
 
-**`aimail_gateway.json`** (renamed from `aimail_gateway.json` on
-2026-09-04 to align with the gateway name; legacy name auto-migrates on
-first read): `gateway_url`, `admin_key`, `system_id`, `system_name`,
+**`aimail_gateway.json`**: `gateway_url`, `admin_key`, `system_id`, `system_name`,
 `manager_address`, `domain`, `system_home`, `webhook_host`,
 `save_raw_snapshots` (always written, defaults to `true`),
 `default_agent_name` (optional-value field, written by `address default`).

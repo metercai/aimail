@@ -101,7 +101,7 @@ export async function writePointer(ptr: SystemPointer): Promise<void> {
 }
 
 /** OpenClaw gateway HTTP port (openclaw.json gateway.port, default 18789). */
-function gatewayPort(): number {
+export function gatewayPort(): number {
   try {
     const raw = fs.readFileSync(
       path.join(openclawHome(), '.openclaw', 'openclaw.json'),
