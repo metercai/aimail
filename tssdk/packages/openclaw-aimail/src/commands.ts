@@ -175,7 +175,7 @@ function parseArgs(args: string): Record<string, string> {
   return out
 }
 
-async function handleCommand(
+export async function handleCommand(
   ctx: PluginCommandContext,
 ): Promise<PluginCommandResult> {
   const args = ctx.args ?? ''

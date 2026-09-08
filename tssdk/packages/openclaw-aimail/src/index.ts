@@ -78,6 +78,37 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
     for (const command of createAimailCommands()) {
       api.registerCommand(command)
     }
+
+    // CLI surface: manifest cliCommands is help-metadata only — the actual
+    // `openclaw aimail ...` dispatch registers via api.registerCli.
+    if (typeof (api as { registerCli?: unknown }).registerCli === 'function') {
+      api.registerCli((cliCtx) => {
+        const program = cliCtx.program as unknown as {
+          command: (name: string, opts?: { hidden?: boolean }) => {
+            description: (d: string) => unknown
+            action: (fn: (...args: unknown[]) => void) => unknown
+          }
+        }
+        const cmd = program.command('aimail')
+        ;(cmd.description('AIMail registration and status: register|register-all|deregister|status') as {
+          action: (fn: (...args: unknown[]) => void) => unknown
+        }).action(async (...args: unknown[]) => {
+            const { handleCommand } = await import('./commands.js')
+            const argv = (args[0] as string[] | undefined) ?? []
+            // CLI 调用与 chat 命令同构:args 字符串 + senderIsOwner(本机操作者)
+            const result = await handleCommand({
+              args: argv.join(' '),
+              channel: 'cli',
+              isAuthorizedSender: true,
+              senderIsOwner: true,
+            } as never)
+            const text = result && typeof result === 'object' && 'text' in (result as Record<string, unknown>)
+              ? String((result as Record<string, unknown>).text)
+              : JSON.stringify(result)
+            process.stdout.write(text + '\n')
+          })
+      })
+    }
   },
 })
 
