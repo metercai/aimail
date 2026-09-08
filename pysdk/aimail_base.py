@@ -311,7 +311,8 @@ def save_agent_config(agent_id: str, cfg: dict, system_id: str) -> Path:
         cfg["agent_id"] = agent_id
     cleaned = _clean_agent_dir_name(cfg.get("email", ""))
     p = aimail_home() / "systems" / str(system_id) / cleaned / "agentmail.json"
-    p.parent.mkdir(parents=True, exist_ok=True)
+    # 地址目录 0o700:凭证(api_key)所在目录,组/其他不可进
+    p.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
     tmp = p.with_name(p.name + ".tmp")
     # tmp 以 0600 创建:先写后 chmod 的写法存在短暂全局可读窗口(含 api_key)
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -1181,7 +1182,9 @@ def register_agent_email(client, system_id: str, email: str,
     if isinstance(result, dict):
         activation_code = result.get("activation_code", "") or ""
         status = result.get("status", "")
-        if status and str(status) not in ("created", "200", "201", 200, 201):
+        # status=0 = 传输层失败(_request 兜底),与 HTTP 错误同等对待:
+        # 静默吞掉会让调用方误判为"激活 pending"继续走完链(审计教训:静默失败面)
+        if not status or str(status) not in ("created", "200", "201", 200, 201):
             msg = str(result.get("error", "")) + str(result.get("detail", ""))
             if "already exists" in msg.lower() or "exists" in msg.lower():
                 activation_code = ""
