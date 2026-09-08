@@ -14,7 +14,7 @@ RUN if [ "$PKG_SOURCE" = "registry" ]; then \
 
 # pi-aimail(含 register-cli node 入口)按 pi 扩展布局 ~/.pi/agent/npm/node_modules
 RUN mkdir -p /root/.pi/agent/npm/node_modules && \
-    npm install --prefix /tmp/aimail-ts --no-audit --no-fund \
+    npm install --prefix /tmp/aimail-ts --legacy-peer-deps --no-audit --no-fund \
       pi-aimail@${VERSION} @aimail/mail-core@${VERSION} @aimail/mail@${VERSION} >/dev/null 2>&1; \
     cp -r /tmp/aimail-ts/node_modules/* /root/.pi/agent/npm/node_modules/ && \
     rm -rf /tmp/aimail-ts && \

@@ -15,7 +15,7 @@ RUN if [ "$PKG_SOURCE" = "registry" ]; then \
 
 # dsh-aimail(含 register-cli node 入口)按宿主 profile 布局
 RUN mkdir -p /root/.dsh/profiles/web/node_modules && \
-    npm install --prefix /tmp/aimail-ts --no-audit --no-fund \
+    npm install --prefix /tmp/aimail-ts --legacy-peer-deps --no-audit --no-fund \
       dsh-aimail@${VERSION} @aimail/mail-core@${VERSION} @aimail/mail@${VERSION} >/dev/null 2>&1; \
     cp -r /tmp/aimail-ts/node_modules/* /root/.dsh/profiles/web/node_modules/ && \
     rm -rf /tmp/aimail-ts && \
