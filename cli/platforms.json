@@ -218,6 +218,10 @@
           "ok_text": "hermes SDK install done(重启 hermes gateway 生效)"
         },
         {
+          "kind": "register_default",
+          "warn_hint": "hermes 主 agent 注册失败(见上)——稍后 reset 重试"
+        },
+        {
           "kind": "register_all",
           "ok_text": "hermes --all-agents 全量注册完成",
           "warn_hint": "hermes 全量注册失败(可 reset --all-agents 重试)"
@@ -355,6 +359,10 @@
           }
         },
         {
+          "kind": "register_default",
+          "warn_hint": "openclaw 主 agent 注册失败(见上)——稍后 reset 重试"
+        },
+        {
           "kind": "register_all",
           "ok_text": "openclaw --all-agents 全量注册完成",
           "warn_hint": "openclaw 全量注册失败(可 reset --all-agents 重试)"
@@ -457,6 +465,10 @@
           },
           "on_error": "warn",
           "warn_hint": "deer-flow install-mcp.sh exit {rc}"
+        },
+        {
+          "kind": "register_default",
+          "warn_hint": "deerflow 主 agent 注册失败(见上)——稍后 reset 重试"
         },
         {
           "kind": "register_all",

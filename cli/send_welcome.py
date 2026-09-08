@@ -65,12 +65,29 @@ except Exception:
         return f"{base}@{domain}"
 
 def _main_agent_email(cfg: dict) -> str:
-    """主 agent 地址,自适应共享域/非共享域:
-    共享域(system_name 非空) → agent.{system_name}@{domain}
-    非共享域(system_name 空)   → agent@{domain}
-    (Hermes 默认 agent_id=default,OpenClaw 默认 agent_id=main,均归一 agent)"""
-    return email_for_agent("default", cfg.get("domain", ""),
-                           cfg.get("system_name", ""))
+    """主 agent 地址:default_agent_name(或首个本地绑定)为真源;
+    无本地绑定时回退别名归一 agent(共享域自适应)。"""
+    dom = cfg.get("domain", "")
+    sysname = cfg.get("system_name", "")
+    # 1) 显式默认名
+    name = cfg.get("default_agent_name", "")
+    if name:
+        return email_for_agent(name if name != "agent" else "default", dom, sysname)
+    # 2) 本地已注册地址(首个 agentmail.json 的 email)
+    sid = cfg.get("system_id", "")
+    sys_dir = SYSTEMS_DIR / sid
+    if sid and sys_dir.is_dir():
+        for d in sorted(sys_dir.iterdir()):
+            aj = d / "agentmail.json"
+            if aj.is_file():
+                try:
+                    e = json.loads(aj.read_text()).get("email", "")
+                    if e:
+                        return e
+                except Exception:
+                    pass
+    # 3) 无任何本地事实 → 别名归一(旧行为)
+    return email_for_agent("default", dom, sysname)
 
 # 与 aimail_base.aimail_home() 同语义:空 env 回退 ~/.aimail。
 # (旧写法 Path("")=PosixPath('.') 恒真,or 回退永不生效——bug。)
@@ -116,7 +133,7 @@ def _detect_edition(gateway_url: str) -> str:
         return "base"
 
 
-def _smtp_send(gateway_url: str, admin_key: str, agent_email: str,
+def _smtp_send(gateway_url: str, api_key: str, agent_email: str,
                manager: str, edition: str, subject: str, body: str) -> str:
     """SMTP 发送。edition=advanced 用 auth.local 认证;base 用普通发件人。"""
     host = gateway_url.replace("https://", "").replace("http://", "").split("/")[0]
@@ -125,8 +142,8 @@ def _smtp_send(gateway_url: str, admin_key: str, agent_email: str,
     if edition == "advanced":
         # auth.local 认证:网关要求 key 的 scope 含 system/platform
         # (advanced/strategy.rs resolve_sender)——agent scope 会被拒。
-        # 因此这里必须用系统 admin_key,不能用 agent api_key。
-        key_bytes = bytes.fromhex(admin_key)
+        # 调用方传 agent api_key;advanced 下被拒时由调用方回落 base 白名单直发。
+        key_bytes = bytes.fromhex(api_key)
         b64_key = base64.b64encode(key_bytes).decode().rstrip("=")
         encoded_manager = manager.replace("@", "=")
         mail_from = f"{b64_key}={encoded_manager}@auth.local"

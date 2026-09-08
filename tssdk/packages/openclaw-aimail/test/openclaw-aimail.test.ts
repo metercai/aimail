@@ -5,7 +5,7 @@
  *  - deregisterAgentEmail 3-step idempotent chain (MockClient, P2 acceptance)
  */
 import { describe, it, expect } from 'vitest'
-import { MAIL_TOOLS, toTypeBoxParam, toTypeBoxParams } from '@aimail/mail-core'
+import { MAIL_TOOLS, toTypeBoxParam, toTypeBoxParams, emailForAgent } from '@aimail/mail-core'
 import { createMailTools } from '../src/tools.js'
 import { deregisterAgentEmail, type AdminClient } from '../src/commands.js'
 
@@ -120,5 +120,21 @@ describe('deregisterAgentEmail', () => {
     expect(out.api_key).toBe('not_found')
     expect(out.domain).toBe('not_found')
     expect(out.whitelist).toBe('200')
+  })
+})
+
+describe('emailForAgent (register-all address derivation)', () => {
+  it('maps alias main → agent base (pointer identity stays canonical)', () => {
+    expect(emailForAgent('main', 'd.tm', '', ['main'])).toBe('agent@d.tm')
+  })
+  it('uses the directory name for non-alias agents', () => {
+    expect(emailForAgent('research', 'd.tm', '', ['main'])).toBe('research@d.tm')
+  })
+  it('shared-domain systems append system_name (single-dot rule)', () => {
+    expect(emailForAgent('research', 'd.tm', 'alpha', ['main'])).toBe('research.alpha@d.tm')
+    expect(emailForAgent('main', 'd.tm', 'alpha', ['main'])).toBe('agent.alpha@d.tm')
+  })
+  it('sanitizes atext-invalid directory names (dot → _) instead of emitting bad addresses', () => {
+    expect(emailForAgent('my.agent', 'd.tm', '', ['main'])).toBe('my_agent@d.tm')
   })
 })

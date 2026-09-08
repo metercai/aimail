@@ -96,13 +96,19 @@ def load_adapter(name: str) -> str:
 # 的"事实推断,不猜平台"定调一致;歧义(多系统/多平台)时返回 '' 要求显式。
 
 # 平台根 → 指针文件名(注册表顺序 = 探测优先级,与 check PLATFORMS 一致)
-_PLATFORM_PTR_ROOTS = (
-    ("openclaw", ".openclaw"),
-    ("dsh", ".dsh"),
-    ("pi", ".pi"),
-    ("deerflow", ".deer-flow"),
-    ("hermes", ".hermes"),
-)
+def _platform_ptr_roots() -> tuple:
+    """平台指针根(platforms.json order × home_dir——唯一平台知识源)。"""
+    import json as _j
+    from pathlib import Path as _P
+    try:
+        reg = _j.load(open(str(_P(__file__).resolve().parent / "platforms.json"), encoding="utf-8"))
+        return tuple((n, reg["platforms"][n].get("home_dir", "." + n))
+                     for n in reg.get("order", []) if n in reg.get("platforms", {}))
+    except Exception:
+        return ()
+
+
+_PLATFORM_PTR_ROOTS = _platform_ptr_roots()
 
 
 def _read_ptr_sid(ptr: os.PathLike) -> str:

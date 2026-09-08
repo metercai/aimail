@@ -72,21 +72,28 @@ def register_emails():
     # Default profile (root ~/.hermes/)
     # Use .agentmail pointer as registration marker
     default_pointer = os.path.join(home, ".agentmail")
+    _reregister_default = True
     if os.path.isfile(default_pointer):
         try:
             pd = json.load(open(default_pointer))
             if pd.get("system_id") == system_id:
-                pass  # already registered, skip
-        except:
+                _reregister_default = False  # same system, skip
+            else:
+                print(f"  Re-registering default (system changed)", file=sys.stderr)
+        except Exception:
             pass
     else:
-        # Register default profile
+        print("  No default pointer — registering default profile", file=sys.stderr)
+    if _reregister_default:
         try:
             ensure_config.ensure_profile_config(Path(home))
+            os.environ["HERMES_PROFILE_DIR"] = home
             aimail_hermes._auto_register_email("default", home, config)
             count += 1
         except Exception as e:
             print(f"failed:default:{e}")
+        finally:
+            os.environ.pop("HERMES_PROFILE_DIR", None)
 
     # Named profiles
     if os.path.isdir(profiles_dir):
@@ -106,10 +113,16 @@ def register_emails():
                     continue
             try:
                 ensure_config.ensure_profile_config(Path(profile_dir))
+                # webhook 复用/路由创建都解析"当前 profile"——批量循环必须
+                # 把 HERMES_PROFILE_DIR 指到本 profile,否则 _load_profile_config
+                # 落到 default 的配置(webhook 串接 + 路由漏建)
+                os.environ["HERMES_PROFILE_DIR"] = profile_dir
                 aimail_hermes._auto_register_email(name, profile_dir, config)
                 count += 1
             except Exception as e:
                 print(f"failed:{name}:{e}")
+            finally:
+                os.environ.pop("HERMES_PROFILE_DIR", None)
 
     print(f"registered:{count}")
 

@@ -236,10 +236,13 @@ def _next_available_webhook_port(base_port: int = 8644) -> int:
     actual port availability. Increments until an unused port is found.
     """
     # Scan existing profiles for max configured port
+    # (home 解析走本模块 resolver——自定义 HERMES_HOME 实例的已占端口也要进扫描集)
     max_port = base_port - 1
-    default_cfg = Path.home() / ".hermes" / "config.yaml"
+    _home = Path(_resolve_profile_dir() or os.path.expanduser(
+        os.environ.get("HERMES_HOME", "~/.hermes")))
+    default_cfg = _home / "config.yaml"
     max_port = max(max_port, _read_webhook_port(default_cfg))
-    profiles_dir = Path.home() / ".hermes" / "profiles"
+    profiles_dir = _home / "profiles"
     if profiles_dir.is_dir():
         for d in profiles_dir.iterdir():
             if d.is_dir():
@@ -386,7 +389,10 @@ def _ensure_webhook_route(
     # was never written, so inbound webhook delivery 404'd.
     subs_path.parent.mkdir(parents=True, exist_ok=True)
     tmp = subs_path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(subs, indent=2, ensure_ascii=False), encoding="utf-8")
+    # 路由表含 HMAC secret:tmp 以 0600 创建(默认 umask 0644 全局可读)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(json.dumps(subs, indent=2, ensure_ascii=False))
     tmp.replace(subs_path)
     return True
 

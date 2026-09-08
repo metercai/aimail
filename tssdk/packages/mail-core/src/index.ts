@@ -28,6 +28,7 @@ export {
   registerAddress,
   saveBinding,
   registerBridgeRoute,
+  resolveRegisterWebhook,
   autoBind,
 } from './auto-bind.js'
 export { detectSystemForHome, ensureSystem } from './ensure-system.js'

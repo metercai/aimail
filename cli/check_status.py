@@ -185,30 +185,25 @@ class Check:
 def _detect_agent_type() -> str:
     """Probe the host for a supported agent platform. Returns id or 'unknown'.
 
-    探测优先级(2026-08-16 双平台共存机器实测):
-    ① --agent-home 被显式指定(出现在 argv)→ 视为 Hermes 意图
-       (Hermes 是唯一用 agent-home 定位的平台;OpenClaw 固定 ~/.openclaw)。
-       注意:即使值恰是默认 ~/.hermes 也算显式(aimail CLI 的 check
-       传 --home 平台根时会落到这里)——只看参数是否出现,不看值。
-    ② ~/.openclaw/openclaw.json 存在 → openclaw
-    ③ ~/.dsh(profiles/) 存在 → dsh
-    ④ ~/.pi(agent/) 存在 → pi
-    ⑤ AGENT_HOME 下有 hermes-agent 或 profiles/ → hermes
-    ⑥ deer-flow 目录特征 → deerflow(仅 detect;L3/L4 adapter 远端适用)
-    ⑦ unknown
+    --agent-home 显式指定 → Hermes 意图(Hermes 是唯一用 agent-home 定位的
+    平台,值是否为默认 ~/.hermes 不影响判定)。
+    其余按注册表 detect(dir_name + markers)逐平台特征判定;openclaw 需
+    openclaw.json 文件级特征(目录存在不足以区分),deerflow 特征路径深
+    (backend/app/gateway)由注册表 markers 精确表达。
     """
     if "--agent-home" in sys.argv:
         return "hermes"
-    if (Path.home() / ".openclaw" / "openclaw.json").is_file():
-        return "openclaw"
-    if (Path.home() / ".dsh").is_dir() and (Path.home() / ".dsh" / "profiles").is_dir():
-        return "dsh"
-    if (Path.home() / ".pi").is_dir() and (Path.home() / ".pi" / "agent").is_dir():
-        return "pi"
-    if (AGENT_HOME / "hermes-agent").exists() or (AGENT_HOME / "profiles").is_dir():
-        return "hermes"
-    if (AGENT_HOME / "backend" / "app" / "gateway").is_dir():
-        return "deerflow"
+    home = Path.home()
+    reg = _load_platform_registry()
+    for name in reg.get("order", []):
+        pdef = reg.get("platforms", {}).get(name) or {}
+        det = pdef.get("detect") or {}
+        base_dir = home / det.get("dir_name", pdef.get("home_dir", "." + name))
+        markers = det.get("markers", [])
+        if not markers:
+            continue
+        if all((base_dir / m).exists() for m in markers):
+            return name
     return "unknown"
 
 
@@ -634,11 +629,17 @@ def _dsh_check_config(c: Check, agent: dict):
 
 
 def _pi_detect() -> bool:
+    # detect 标记走注册表(pi.markers=[agent]);此处兜底目录判定保持同源
     return (Path.home() / ".pi").is_dir() and (Path.home() / ".pi" / "agent").is_dir()
 
 
 def _pi_list_agents() -> list[dict]:
-    """pi: agents = pi 平台 agent 目录 + ~/.pi/.agentmail 指针 email(与 openclaw 同构)。"""
+    """pi: agents = ~/.pi/.agentmail 指针(单 agent 视图)。
+
+    ~/.pi/agent/ 是 pi 运行时数据目录(npm/sessions/skills——npm 包缓存、
+    会话存储、技能,均非 agent 实体),不当 agent 枚举源;pi 单 agent,
+    地址以平台指针为准。
+    """
     agents = []
     ptr = Path.home() / ".pi" / ".agentmail"
     email = ""
@@ -647,25 +648,10 @@ def _pi_list_agents() -> list[dict]:
             email = json.loads(ptr.read_text()).get("email", "")
         except Exception:
             pass
-    agents_dir = Path.home() / ".pi" / "agent"
-    if agents_dir.is_dir():
-        found = False
-        for adir in sorted(agents_dir.iterdir()):
-            if not adir.is_dir():
-                continue
-            agents.append({
-                "name": adir.name, "email": email,
-                "agent_dir": adir,
-                "config": Path.home() / ".pi" / "agent" / "config.json",
-            })
-            found = True
-        if not found and email:
-            # 指针有 email 但 agent 目录结构未知 → 单 agent 视图(仅指针对齐检查)
-            agents.append({"name": "pi", "email": email,
-                           "agent_dir": None, "config": Path.home() / ".pi" / "agent" / "config.json"})
-    elif email:
+    if email:
         agents.append({"name": "pi", "email": email,
-                       "agent_dir": None, "config": None})
+                       "agent_dir": None,
+                       "config": Path.home() / ".pi" / ".agentmail"})
     return agents
 
 
@@ -1025,19 +1011,21 @@ def _pointer_platforms_for_sid(sid: str) -> list:
     """Which platform pointers reference sid (hermes/openclaw/deerflow/pi/dsh)."""
     hits = []
     home = Path.home()
-    cand = [
-        ("openclaw", home / ".openclaw" / ".agentmail"),
-        ("deerflow", home / ".deer-flow" / ".agentmail"),
-        ("pi",       home / ".pi" / ".agentmail"),
-        ("dsh",      home / ".dsh" / ".agentmail"),
-    ]
-    hermes_root = home / ".hermes" / ".agentmail"
-    if hermes_root.is_file():
-        cand.append(("hermes", hermes_root))
-    profiles = home / ".hermes" / "profiles"
-    if profiles.is_dir():
-        for pp in sorted(profiles.glob("*/.agentmail")):
-            cand.append(("hermes", pp))
+    reg = _load_platform_registry()
+    platforms = reg.get("platforms", {})
+    cand = []
+    for name in reg.get("order", []):
+        pdef = platforms.get(name) or {}
+        hd = home / pdef.get("home_dir", "." + name)
+        pk = (pdef.get("pointer") or {})
+        root_ptr = hd / pk.get("file", ".agentmail")
+        if root_ptr.is_file():
+            cand.append((name, root_ptr))
+        if pk.get("kind") == "root_or_profiles":
+            profiles = hd / "profiles"
+            if profiles.is_dir():
+                for pp in sorted(profiles.glob("*/" + pk.get("file", ".agentmail"))):
+                    cand.append((name, pp))
     for plat, ptr in cand:
         if ptr.is_file():
             try:
@@ -1506,33 +1494,24 @@ def main():
     if "--system-id" in sys.argv:
         _sid = _resolve_platform_sid(agent_type)
         if _sid:
-            sid_platform = None
-            # Hermes 指针:AGENT_HOME/.agentmail + profiles/*/.aimail
-            ptr_cands = [AGENT_HOME / ".agentmail"]
-            profiles_dir = AGENT_HOME / "profiles"
-            if profiles_dir.is_dir():
-                ptr_cands += [p / ".agentmail" for p in sorted(profiles_dir.iterdir()) if p.is_dir()]
-            for ptr in ptr_cands:
-                if ptr.is_file():
-                    try:
-                        if json.loads(ptr.read_text()).get("system_id") == _sid:
-                            sid_platform = "hermes"
-                            break
-                    except Exception:
-                        pass
+            # 复用 _pointer_platforms_for_sid(注册表驱动指针扫描,
+            # 覆盖 hermes root+profiles 多级指针)
+            _hits = _pointer_platforms_for_sid(_sid)
+            sid_platform = _hits[0] if _hits else None
             if not sid_platform:
-                home = Path.home()
-                for plat, cand in (("openclaw", home / ".openclaw" / ".agentmail"),
-                                   ("pi",       home / ".pi" / ".agentmail"),
-                                   ("dsh",      home / ".dsh" / ".agentmail"),
-                                   ("deerflow", home / ".deer-flow" / ".agentmail")):
-                    if cand.is_file():
-                        try:
-                            if json.loads(cand.read_text()).get("system_id") == _sid:
-                                sid_platform = plat
-                                break
-                        except Exception:
-                            pass
+                # 指针反选落空(如 dsh 系统无本地指针)→ 按系统 cfg 的
+                # system_home 归属平台(home_dir 匹配,事实推断)
+                try:
+                    _gcfg = json.loads(_system_agent_path(_sid).read_text())
+                    _sh = os.path.realpath(os.path.expanduser(_gcfg.get("system_home", "")))
+                    _reg = _load_platform_registry()
+                    for _n in _reg.get("order", []):
+                        _hd = (_reg.get("platforms", {}).get(_n) or {}).get("home_dir", "")
+                        if _hd and _sh == os.path.realpath(str(Path.home() / _hd)):
+                            sid_platform = _n
+                            break
+                except Exception:
+                    pass
             if sid_platform and sid_platform != agent_type:
                 _msg = f"  platform: {agent_type} → {sid_platform} (by system_id {_sid[:8]}…)"
                 if "--json" in sys.argv:

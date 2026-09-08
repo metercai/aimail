@@ -29,6 +29,7 @@ import {
   readSystemConfig,
   registerAddress,
   registerBridgeRoute,
+  resolveRegisterWebhook,
   saveBinding,
 } from '@aimail/mail-core'
 
@@ -103,12 +104,16 @@ async function main(): Promise<number> {
       console.log(JSON.stringify({ ok: true, email, system_id: systemId, registered: true, ...(res.config_path ? { config_path: res.config_path } : {}) }))
       return 0
     }
-    const webhookSecret = existing.webhook_secret || ''
+    // secret 捕获为一个值:云端注册与本地落盘必须同一 secret
+    // (此前内联表达式生成的 secret 只上送云端,落盘的是旧/空值 → verifySignature 恒 401)
+    const webhookSecret = existing.webhook_secret || randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, '')
+    // 注册参数三态(push/pull/无 bridge)与 install 主链一致——force 路径不绕过 webhook_host 语义
+    const regUrl = resolveRegisterWebhook(gw, localWebhook)
     const reg = await registerAddress({
       systemId,
       email,
-      webhookUrl: localWebhook,
-      webhookSecret: webhookSecret || randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, ''),
+      webhookUrl: regUrl,
+      webhookSecret,
       ...(manager ? { managerAddress: manager } : {}),
     })
     void reg // exists:true expected (refresh); new-key path handled above

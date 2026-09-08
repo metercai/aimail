@@ -313,8 +313,10 @@ def save_agent_config(agent_id: str, cfg: dict, system_id: str) -> Path:
     p = aimail_home() / "systems" / str(system_id) / cleaned / "agentmail.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_name(p.name + ".tmp")
-    tmp.write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + "\n")
-    os.chmod(tmp, 0o600)
+    # tmp 以 0600 创建:先写后 chmod 的写法存在短暂全局可读窗口(含 api_key)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(json.dumps(cfg, indent=2, ensure_ascii=False) + "\n")
     tmp.replace(p)
     return p
 
@@ -438,7 +440,12 @@ def _store_board_credential(board_id: str, gateway_url: str, token: str) -> None
                 pass
         creds[board_id] = {"gateway_url": gateway_url, "token": token}
         creds_path.parent.mkdir(parents=True, exist_ok=True)
-        creds_path.write_text(json.dumps(creds, indent=2))
+        # token 与 api_key 同级敏感:tmp 0600 创建(无全局可读窗口)+ 原子替换
+        tmp = creds_path.with_suffix(".json.tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(json.dumps(creds, indent=2))
+        tmp.replace(creds_path)
     except Exception:
         pass
 
@@ -1178,7 +1185,10 @@ def register_agent_email(client, system_id: str, email: str,
             msg = str(result.get("error", "")) + str(result.get("detail", ""))
             if "already exists" in msg.lower() or "exists" in msg.lower():
                 activation_code = ""
-                # 已存在 → 更新 webhook 配置（幂等）
+                # 已存在 → 更新 webhook 配置（幂等）；两个值全空时跳过——
+                # 空 body 更新会让网关把已存 webhook_url/secret 无条件覆写为 NULL
+                if not webhook_url and not webhook_secret:
+                    return {"api_key": "", "activation_code": ""}
                 try:
                     domains = client.list_system_domains(system_id)
                     for d in (domains if isinstance(domains, list) else []):

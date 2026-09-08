@@ -288,16 +288,18 @@ HANDLERS = {
     "set_public_whoami": tool_set_public_whoami,
 }
 
-# board 函数体（共享 aimail_board 直接 import——顶层无 registry 注册块,
-# 2026-08-18 已从 amail_base.load_board_module 的 ast 裁剪方式简化为直接 import）
-_board = _board  # noqa: E741  (显式绑定:共享 aimail_board 模块,见上注释)
-
-
 # ── MCP 主循环 ──────────────────────────────────────────────────
 
 def main() -> int:
     while True:
-        msg = read_msg()
+        try:
+            msg = read_msg()
+        except json.JSONDecodeError:
+            # 坏帧(JSON 非法):按 JSON-RPC 回 -32700 并继续——
+            # 单帧脏输入不允许杀死整个 server
+            write_msg({"jsonrpc": "2.0", "id": None,
+                       "error": {"code": -32700, "message": "Parse error"}})
+            continue
         if msg is None:
             break
         mid = msg.get("id")

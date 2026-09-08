@@ -78,7 +78,12 @@ def _gateway_client(sid: str):
 def _run_check(sid: str):
     """跑既有 check(子进程,零逻辑复制),返回 (all_pass, checks[])。"""
     cmd = [sys.executable, str(SCRIPTS_DIR / "check_status.py"), "--json", "--system-id", sid]
-    out = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        # check 挂起不拖垮 repair——该检查项记失败,修复阶梯继续执行
+        return False, [{"name": "check_status", "pass": False,
+                        "detail": "check_status.py timed out after 120s"}]
     try:
         data = json.loads(out.stdout)
     except json.JSONDecodeError:
@@ -233,13 +238,18 @@ def _drain_stuck(sid: str) -> bool:
 # 2026-09-04 维护套件:配置/资源/一致性修复(全部幂等)
 # ═══════════════════════════════════════════════════════════════
 
-PLATFORM_ROOTS = [
-    ("hermes",   ".hermes"),
-    ("openclaw", ".openclaw"),
-    ("deerflow", ".deer-flow"),
-    ("dsh",      ".dsh"),
-    ("pi",       ".pi"),
-]
+
+
+
+def _registry_order_roots() -> list:
+    """平台指针根候选(platforms.json order × home_dir——唯一平台知识源)。"""
+    import json as _j
+    try:
+        reg = _j.load(open(str(Path(__file__).resolve().parent / "platforms.json"), encoding="utf-8"))
+        return [(n, reg["platforms"][n].get("home_dir", "." + n))
+                for n in reg.get("order", []) if n in reg.get("platforms", {})]
+    except Exception:
+        return []
 
 
 def _detect_platform_from_home(system_home):
@@ -263,7 +273,7 @@ def _auto_platform_home(sid: str) -> str:
     多平台/零平台 → ''(不猜,要求显式 --home)。"""
     hits = []
     home = Path.home()
-    for plat, root in PLATFORM_ROOTS:
+    for plat, root in _registry_order_roots():
         d = home / root
         if d.exists() and _detect_platform_from_home(d) == plat:
             hits.append((plat, str(d)))
@@ -377,14 +387,8 @@ def _repair_pointer(sid: str, platform_home: str) -> bool:
     if not email:
         return False
     home = Path.home()
-    ptr_map = {
-        "openclaw": home / ".openclaw" / ".agentmail",
-        "deerflow": home / ".deer-flow" / ".agentmail",
-        "pi":       home / ".pi" / ".agentmail",
-        "dsh":      home / ".dsh" / ".agentmail",
-        "hermes":   home / ".hermes" / ".agentmail",
-    }
-    ptr = ptr_map[plat]
+    roots = dict(_registry_order_roots())
+    ptr = home / roots.get(plat, "." + plat) / ".agentmail"
     if ptr.exists():
         return False  # 已有指针(指向别的系统)不覆盖
     ptr.write_text(json.dumps({"system_id": sid, "email": email}, indent=2))

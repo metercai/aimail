@@ -42,6 +42,16 @@ SYSTEMS_DIR = AIMAIL_HOME / "systems"
 SCRIPTS_DIR = Path(__file__).resolve().parent
 
 
+def _registry_order_roots() -> list:
+    """平台指针根候选(platforms.json order × home_dir——唯一平台知识源)。"""
+    import json as _j
+    try:
+        reg = _j.load(open(str(Path(__file__).resolve().parent / "platforms.json"), encoding="utf-8"))
+        return [(n, reg["platforms"][n].get("home_dir", "." + n))
+                for n in reg.get("order", []) if n in reg.get("platforms", {})]
+    except Exception:
+        return []
+
 def load_core():
     """加载运行时核心(repo tools/ 优先 > pip aimail 兜底),返回 core 目录。"""
     if str(SCRIPTS_DIR) not in sys.path:
@@ -189,8 +199,8 @@ def resolve_system_id(system_home: Path, explicit_sid: str = "") -> tuple[str, s
                         return sid, p
             except Exception:
                 pass
-        # 回退:哪个平台指针指向该 sid(与 stats/check L0 的 5 平台扫描一致)
-        for p in ("openclaw", "hermes", "pi", "dsh", "deerflow"):
+        # 回退:哪个平台指针指向该 sid(注册表 order 驱动)
+        for p, _hd in _registry_order_roots():
             if _ptr_sid(_platform_ptr(p)) == sid:
                 return sid, p
         return sid, platform  # 平台未知也不阻塞(可能新装)
@@ -202,8 +212,8 @@ def resolve_platform(system_home: Path) -> str:
     p = detect_platform_from_home(system_home) if system_home else ""
     if p != "unknown":
         return p
-    # 自动探测:第一个有 aimail 指针的平台(5 平台,顺序 = 指针命中优先)
-    for plat in ("openclaw", "hermes", "pi", "dsh", "deerflow"):
+    # 自动探测:第一个有 aimail 指针的平台(注册表 order,顺序 = 指针命中优先)
+    for plat, _hd in _registry_order_roots():
         if _ptr_sid(_platform_ptr(plat)):
             return plat
     return ""
@@ -1704,6 +1714,8 @@ def cmd_bridge(args) -> int:
         target = recv_url
         old = routes.get(email)
         try:
+            # host=完整 URL、port 恒 80:bridge router 对含 "://" 的 host 走
+            # from_url(URL 保真解析,port 不参与)——port 占位仅为过必填校验
             req = urllib.request.Request(
                 f"http://{BRIDGE_ADDR}/api/v1/routes",
                 data=json.dumps({"email": email, "host": target, "port": 80}).encode(),

@@ -155,7 +155,7 @@ def install_hermes(hermes_dir: str, system_id: str = "") -> int:
         pt = _import_hermes("toolsets")
         changed = pt.patch_toolsets(ha)
         print(f"  hermes toolsets: {'registered' if changed else 'already registered'}")
-    except Exception as e:  # noqa: BLE001
+    except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py 失败路径 raise SystemExit
         print(f"  ✗ toolsets patch failed: {e}")
         rc = 1
 
@@ -177,7 +177,7 @@ def install_hermes(hermes_dir: str, system_id: str = "") -> int:
                     os.environ.pop(k, None)
                 else:
                     os.environ[k] = v
-    except Exception as e:  # noqa: BLE001
+    except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py 失败路径 raise SystemExit
         print(f"  ✗ register profiles failed: {e}")
         rc = 1
 
@@ -241,13 +241,13 @@ def install_deerflow(backend_dir: str, system_id: str = "", manager: str = "") -
     try:
         changed = md.patch_backend_app(backend_dir)
         print(f"  deerflow app.py patch: {'applied' if changed else 'already clean'}")
-    except Exception as e:  # noqa: BLE001
+    except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py 失败路径 raise SystemExit
         print(f"  ✗ app.py patch failed: {e}")
         rc = 1
     try:
         n = md.install_bundle(backend_dir)
         print(f"  deerflow bundle: {n} file(s) installed")
-    except Exception as e:  # noqa: BLE001
+    except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py 失败路径 raise SystemExit
         print(f"  ✗ bundle install failed: {e}")
         rc = 1
     # 注册(地址+路由);幂等
@@ -257,7 +257,7 @@ def install_deerflow(backend_dir: str, system_id: str = "", manager: str = "") -
         else:
             md.reconcile(system_id=system_id)
         print("  deerflow agents registered/reconciled")
-    except Exception as e:  # noqa: BLE001
+    except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py 失败路径 raise SystemExit
         print(f"  ✗ register/reconcile failed: {e}")
         rc = 1
     rel = release_all_systems(os.path.join(_CORE, "resources", "board"))
@@ -287,7 +287,7 @@ def uninstall_hermes(hermes_dir: str, system_id: str = "") -> int:
                     print(f"  ✓ reverted {f} (git)")
             else:
                 print("  ⚠ hermes-agent 有额外未提交改动——跳过 git 还原,请检查 aimail 痕迹")
-        except Exception as e:  # noqa: BLE001
+        except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py 失败路径 raise SystemExit
             print(f"  git revert failed: {e}")
     else:
         # 非 git → exact-text 撤销(与 patch 插入逐字匹配)
@@ -371,7 +371,7 @@ def _uninstall_hermes_profiles(hermes_dir: str, system_id: str) -> None:
                     with open(cfg, "w") as f:
                         f.write(new)
                     print(f"  ✓ config toolset cleaned {cfg}")
-            except Exception as e:  # noqa: BLE001
+            except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py 失败路径 raise SystemExit
                 print(f"  ⚠ config.yaml clean failed: {e}")
         # webhook 订阅路由(aimail-inbound,终态单名)
         subs = os.path.join(prof, "webhook_subscriptions.json")
@@ -387,7 +387,7 @@ def _uninstall_hermes_profiles(hermes_dir: str, system_id: str) -> None:
                     with open(subs, "w") as f:
                         json.dump(data, f, indent=2, ensure_ascii=False)
                     print(f"  ✓ webhook route removed {subs}")
-            except Exception as e:  # noqa: BLE001
+            except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py 失败路径 raise SystemExit
                 print(f"  ⚠ webhook_subscriptions clean failed: {e}")
 
 
@@ -400,7 +400,7 @@ def uninstall_deerflow(backend_dir: str) -> int:
     # 先还原 app.py(否则删 bundle 后宿主重启 import 失败——AUDIT-1 P1-4)
     try:
         md.unpatch_backend_app(backend_dir)
-    except Exception as e:  # noqa: BLE001
+    except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py 失败路径 raise SystemExit
         print(f"  ✗ app.py unpatch failed: {e}")
         rc = 1
     bundle_dir = os.path.join(backend_dir, "routers", "aimail")

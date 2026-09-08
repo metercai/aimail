@@ -72,7 +72,7 @@ def test_platform_pointer_scan(tmp_path, monkeypatch):
 
 def test_platform_scan_multiple_hits_returns_first(tmp_path, monkeypatch):
     # matches check_status _detect_default_sid semantics: registry order,
-    # first platform with a pointer wins (openclaw before hermes)
+    # first platform with a pointer wins (pi before openclaw in platforms.json)
     monkeypatch.delenv("SYSTEM_ID", raising=False)
     monkeypatch.delenv("AIMAIL_SYSTEM_ID", raising=False)
     fake_home = tmp_path / "home2"
@@ -82,7 +82,7 @@ def test_platform_scan_multiple_hits_returns_first(tmp_path, monkeypatch):
     (fake_home / ".openclaw").mkdir(parents=True)
     (fake_home / ".openclaw" / ".agentmail").write_text(
         json.dumps({"system_id": "system-oc"}))
-    assert platform_pointer_sid(home=fake_home) == "system-oc"  # registry order
+    assert platform_pointer_sid(home=fake_home) == "system-pi"  # registry order
 
 
 def test_no_pointer_returns_empty(tmp_path):
