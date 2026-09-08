@@ -22,6 +22,14 @@ case "$PLAT" in
        LOCAL=http://127.0.0.1:9101/aimail/inbound ;;
   *) bad "不支持平台 $PLAT"; exit 1 ;;
 esac
+# 场景 0:宿主就位(六维①——与 hermes/openclaw 一视同仁)
+case "$PLAT" in
+  dsh) HOST_BIN=dsh ;;
+  pi)  HOST_BIN=pi ;;
+esac
+command -v "$HOST_BIN" >/dev/null 2>&1 \
+  && ok "宿主 CLI 就位($HOST_BIN $($HOST_BIN --version 2>&1 | head -1))" \
+  || { bad "宿主 CLI 缺失($HOST_BIN)"; exit 1; }
 [ -f "$ENTRY" ] && ok "register-cli 就位($ENTRY)" || { bad "register-cli 缺失"; exit 1; }
 
 echo "══ 场景 2:注册链×真实网关(本地端点 $LOCAL)"
