@@ -8,13 +8,6 @@
     "properties": {}
   },
   "enabledByDefault": false,
-  "cliCommands": [
-    {
-      "name": "aimail",
-      "description": "AIMail registration and status: register|register-all|deregister|status",
-      "hasSubcommands": true
-    }
-  ],
   "activation": {
     "onStartup": true,
     "onCapabilities": ["tool"]

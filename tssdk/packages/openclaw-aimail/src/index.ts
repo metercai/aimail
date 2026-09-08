@@ -82,7 +82,8 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
     // CLI surface: manifest cliCommands is help-metadata only — the actual
     // `openclaw aimail ...` dispatch registers via api.registerCli.
     if (typeof (api as { registerCli?: unknown }).registerCli === 'function') {
-      api.registerCli((cliCtx) => {
+      api.registerCli(
+        (cliCtx) => {
         const program = cliCtx.program as unknown as {
           command: (name: string, opts?: { hidden?: boolean }) => {
             description: (d: string) => unknown
@@ -107,7 +108,16 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
               : JSON.stringify(result)
             process.stdout.write(text + '\n')
           })
-      })
+        },
+        {
+          commands: ['aimail'],
+          descriptors: [{
+            name: 'aimail',
+            description: 'AIMail registration and status: register|register-all|deregister|status',
+            hasSubcommands: true,
+          }],
+        },
+      )
     }
   },
 })
