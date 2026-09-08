@@ -143,11 +143,18 @@ def platform_pointer_sid(home=None) -> str:
     return ""
 
 
+def _resolve_aimail_home(aimail_home=None) -> str:
+    """主根目录解析(本模块单点):显式参数 > AIMAIL_HOME env > ~/.aimail。
+    canonical 规则与 pysdk/aimail_base.aimail_home() 同构。"""
+    return str(aimail_home or os.environ.get("AIMAIL_HOME", "")
+               or pathlib.Path.home() / ".aimail")
+
+
 def single_system_sid(aimail_home=None) -> str:
     """systems/ 下恰有一个含 aimail_gateway.json 的目录 → 返回该 sid;
     多个或零个 → ''(不猜,要求显式 --system-id)。"""
     import pathlib
-    ah = aimail_home or os.environ.get("AIMAIL_HOME", "") or str(pathlib.Path.home() / ".aimail")
+    ah = _resolve_aimail_home(aimail_home)
     systems = pathlib.Path(ah).expanduser() / "systems"
     if not systems.is_dir():
         return ""
@@ -191,7 +198,7 @@ def resolve_system_id(explicit_sid: str = "", agent_home: str = "") -> str:
 def _cfg_system_home(sid: str, aimail_home=None) -> str:
     import json
     import pathlib
-    ah = aimail_home or os.environ.get("AIMAIL_HOME", "") or str(pathlib.Path.home() / ".aimail")
+    ah = _resolve_aimail_home(aimail_home)
     cfg = pathlib.Path(ah).expanduser() / "systems" / sid / "aimail_gateway.json"
     try:
         return str(json.loads(cfg.read_text(encoding="utf-8")).get("system_home", "") or "")
@@ -218,7 +225,7 @@ def sid_from_system_home(system_home: str, aimail_home=None) -> str:
     """home → 归属系统:扫描全部 systems/*/ 配置,匹配且唯一 → 该 sid;
     零或多个 → ''(不猜)。"""
     import pathlib
-    ah = aimail_home or os.environ.get("AIMAIL_HOME", "") or str(pathlib.Path.home() / ".aimail")
+    ah = _resolve_aimail_home(aimail_home)
     systems = pathlib.Path(ah).expanduser() / "systems"
     target = _norm_home(system_home)
     found = ""

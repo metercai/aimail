@@ -34,10 +34,15 @@ import urllib.request
 from pathlib import Path
 
 HOME = Path.home()
-# 与 aimail_base.aimail_home() 同语义:空 env 回退 ~/.aimail。
-# (旧写法 Path("")=PosixPath('.') 恒真,or 回退永不生效——bug。)
-_AH_ENV = os.environ.get("AIMAIL_HOME", "")
-AIMAIL_HOME = Path(_AH_ENV).expanduser() if _AH_ENV else HOME / ".aimail"
+# 主根目录唯一真源 = pysdk/aimail_base.aimail_home()(canonical 实现;
+# 降级副本仅保底,坏态恢复)。repo 布局:cli/ 与 pysdk/ 同仓根。
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "pysdk"))
+try:
+    from aimail_base import aimail_home as _aimail_home_canon  # noqa: E402
+    AIMAIL_HOME = _aimail_home_canon()
+except Exception:
+    _AH_ENV = os.environ.get("AIMAIL_HOME", "")
+    AIMAIL_HOME = Path(_AH_ENV).expanduser() if _AH_ENV else HOME / ".aimail"
 SYSTEMS_DIR = AIMAIL_HOME / "systems"
 SCRIPTS_DIR = Path(__file__).resolve().parent
 

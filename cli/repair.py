@@ -22,8 +22,17 @@ if str(SCRIPTS_DIR) not in sys.path:
 import os  # noqa: E402
 
 # 与 scripts/aimail 同语义:空 env 回退 ~/.aimail
-_AH_ENV = os.environ.get("AIMAIL_HOME", "")
-AIMAIL_HOME = Path(_AH_ENV).expanduser() if _AH_ENV else Path.home() / ".aimail"
+# 主根目录唯一真源 = pysdk/aimail_base.aimail_home()(canonical 实现);
+# 此处 import 失败时的降级副本仅保底(坏态恢复)
+def _aimail_home() -> Path:
+    try:
+        from aimail_base import aimail_home  # noqa: E402
+        return aimail_home()
+    except Exception:
+        _env = os.environ.get("AIMAIL_HOME", "")
+        return Path(_env).expanduser() if _env else Path.home() / ".aimail"
+
+AIMAIL_HOME = _aimail_home()
 SYSTEMS_DIR = AIMAIL_HOME / "systems"
 
 GREEN, YELLOW, RED, NC = "\033[92m", "\033[93m", "\033[91m", "\033[0m"

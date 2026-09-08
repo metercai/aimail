@@ -10,7 +10,9 @@ from runtime_core import load_core  # noqa: E402
 load_core()
 from gateway_api import create_api_key
 
-# Machine home: AIMAIL_HOME env wins, else ~/.aimail (single authoritative layout).
+# Machine home: canonical rule = pysdk/aimail_base.aimail_home()
+# (env AIMAIL_HOME wins, else ~/.aimail) — deploy 是一次性部署脚本,
+# 自包含解析,公式同构。
 _AM_HOME = os.environ.get("AIMAIL_HOME") or os.path.expanduser("~/.aimail")
 
 

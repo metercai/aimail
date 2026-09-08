@@ -91,8 +91,17 @@ def _main_agent_email(cfg: dict) -> str:
 
 # 与 aimail_base.aimail_home() 同语义:空 env 回退 ~/.aimail。
 # (旧写法 Path("")=PosixPath('.') 恒真,or 回退永不生效——bug。)
-_AH_ENV = os.environ.get("AIMAIL_HOME", "")
-AIMAIL_HOME = Path(_AH_ENV).expanduser() if _AH_ENV else Path.home() / ".aimail"
+# 主根目录唯一真源 = pysdk/aimail_base.aimail_home()(canonical 实现);
+# 此处 import 失败时的降级副本仅保底(坏态恢复)
+def _aimail_home() -> Path:
+    try:
+        from aimail_base import aimail_home  # noqa: E402
+        return aimail_home()
+    except Exception:
+        _env = os.environ.get("AIMAIL_HOME", "")
+        return Path(_env).expanduser() if _env else Path.home() / ".aimail"
+
+AIMAIL_HOME = _aimail_home()
 SYSTEMS_DIR = AIMAIL_HOME / "systems"
 
 

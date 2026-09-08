@@ -41,10 +41,14 @@ if "--agent-home" in sys.argv:
                 AGENT_HOME = _ah
     except Exception:
         pass
-# 与 aimail_base.aimail_home() 同语义:空 env 回退 ~/.aimail。
-# (旧写法 Path("")=PosixPath('.') 恒真,or 回退永不生效——bug。)
-_AH_ENV = os.environ.get("AIMAIL_HOME", "")
-AIMAIL_HOME = Path(_AH_ENV).expanduser() if _AH_ENV else Path.home() / ".aimail"
+# 主根目录唯一真源 = pysdk/aimail_base.aimail_home()(canonical 实现);
+# 此处降级副本仅保底(check_status 离线自包含,pysdk 不可达时仍可运行)
+try:
+    from aimail_base import aimail_home as _ah_home  # noqa: E402
+    AIMAIL_HOME = _ah_home()
+except Exception:
+    _AH_ENV = os.environ.get("AIMAIL_HOME", "")
+    AIMAIL_HOME = Path(_AH_ENV).expanduser() if _AH_ENV else Path.home() / ".aimail"
 SYSTEMS_DIR = AIMAIL_HOME / "systems"
 MAIL_DIR    = AIMAIL_HOME / "mail"
 BRIDGE_DIR  = AIMAIL_HOME / "bridge"
