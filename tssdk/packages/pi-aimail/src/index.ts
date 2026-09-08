@@ -15,6 +15,7 @@
  * Install: copy/symlink into ~/.pi/agent/extensions/ (or ship as a pi
  * package). Binding: create ~/.pi/.agentmail with {system_id, email}.
  */
+import * as fs from 'node:fs'
 import * as http from 'node:http'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -42,6 +43,26 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
     releaseAllSystems(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'resources', 'board'))
   } catch {
     // non-fatal seed; re-released on next start
+  }
+
+  // SDK-shipped skill → ~/.pi/agent/skills/agentmail/ (idempotent;
+  // identical-content skip). SKILL.md owns the inbound-message protocol
+  // (6-step flow) — a different category from registerTool semantics
+  // (tool usage). Symmetric across openclaw/dsh/pi.
+  try {
+    const skillSrc = path.join(
+      path.dirname(fileURLToPath(import.meta.url)), '..', 'resources', 'skills')
+    const skillDst = path.join(os.homedir(), '.pi', 'agent', 'skills', 'agentmail')
+    fs.mkdirSync(skillDst, { recursive: true })
+    for (const f of ['SKILL.md', 'DESCRIPTION.md']) {
+      const from = path.join(skillSrc, f)
+      const to = path.join(skillDst, f)
+      if (!fs.existsSync(from)) continue
+      if (fs.existsSync(to) && fs.readFileSync(from).equals(fs.readFileSync(to))) continue
+      fs.copyFileSync(from, to)
+    }
+  } catch {
+    // non-fatal; retried on next plugin start
   }
   const log = {
     info: (m: string) => console.log(m),

@@ -12,6 +12,10 @@
  *     continuity is aimail's (local meta threading), not the session's.
  *     200 ack on delivery; 503 on session-create failure (bridge retries).
  */
+import * as fs from 'node:fs'
+import * as os from 'node:os'
+import * as path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
@@ -56,6 +60,31 @@ export function apply(ctx: Context, config: Config = {}): () => void {
   const mail = ctx.get('mail') as MailService | undefined
   if (mail === undefined) {
     throw new Error('mail-inbound requires the mail service: mount dsh-aimail/mail-service first')
+  }
+
+  // SDK-shipped skill → <dshHome>/skills/agentmail/ (idempotent;
+  // identical-content skip; dshHome resolution mirrors mail-service).
+  // SKILL.md owns the inbound-message protocol (6-step flow) — a
+  // different category from tool registration (tool usage). Symmetric
+  // across openclaw/dsh/pi.
+  try {
+    const dshHome =
+      process.env.AIMAIL_SYSTEM_HOME?.trim() ||
+      process.env.DSH_HOME?.trim() ||
+      path.join(os.homedir(), '.dsh')
+    const skillSrc = path.join(
+      path.dirname(fileURLToPath(import.meta.url)), '..', 'resources', 'skills')
+    const skillDst = path.join(dshHome, 'skills', 'agentmail')
+    fs.mkdirSync(skillDst, { recursive: true })
+    for (const f of ['SKILL.md', 'DESCRIPTION.md']) {
+      const from = path.join(skillSrc, f)
+      const to = path.join(skillDst, f)
+      if (!fs.existsSync(from)) continue
+      if (fs.existsSync(to) && fs.readFileSync(from).equals(fs.readFileSync(to))) continue
+      fs.copyFileSync(from, to)
+    }
+  } catch {
+    // non-fatal; retried on next plugin start
   }
   const host = config.host ?? '127.0.0.1'
   const port = config.port ?? Number(process.env.AIMAIL_INBOUND_PORT ?? 9099)
