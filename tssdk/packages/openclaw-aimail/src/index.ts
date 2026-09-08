@@ -90,7 +90,7 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
             action: (fn: (...args: unknown[]) => void) => unknown
           }
         }
-        const cmd = program.command('aimail') as unknown as {
+        const cmd = program.command('aimail [args...]') as unknown as {
           description: (d: string) => {
             allowUnknownOption: (v?: boolean) => {
               action: (fn: (...args: unknown[]) => void) => unknown
