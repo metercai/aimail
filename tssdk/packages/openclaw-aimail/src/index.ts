@@ -7,6 +7,7 @@
  */
 import { definePluginEntry, type OpenClawPluginDefinition } from 'openclaw/plugin-sdk/plugin-entry'
 import { ensureSystem, releaseAllSystems, setAgentIdentity } from '@aimail/mail-core'
+import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -34,6 +35,25 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
       releaseAllSystems(boardRoot)
     } catch {
       // non-fatal seed; re-released on register/next start
+    }
+
+    // SDK-shipped skill → ~/.openclaw/skills/agentmail/ (idempotent; skips
+    // copy when identical). Symmetric with hermes _release_hermes_skills —
+    // the chat agent learns the mail protocol from this SKILL.md.
+    try {
+      const skillSrc = path.join(
+        path.dirname(fileURLToPath(import.meta.url)), '..', 'resources', 'skills')
+      const skillDst = path.join(os.homedir(), '.openclaw', 'skills', 'agentmail')
+      fs.mkdirSync(skillDst, { recursive: true })
+      for (const f of ['SKILL.md', 'DESCRIPTION.md']) {
+        const from = path.join(skillSrc, f)
+        const to = path.join(skillDst, f)
+        if (!fs.existsSync(from)) continue
+        if (fs.existsSync(to) && fs.readFileSync(from) .equals(fs.readFileSync(to))) continue
+        fs.copyFileSync(from, to)
+      }
+    } catch {
+      // non-fatal; retried on next plugin start
     }
 
     // Install readiness: system activation lives ONCE, in `aimail
