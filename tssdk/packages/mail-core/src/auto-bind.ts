@@ -152,7 +152,10 @@ export async function registerAddress(
   }
   const client: AdminClientLike =
     opts.transport ??
-    new GatewayClient(gatewayUrl, adminKey, opts.timeoutMs ?? 30_000, opts.systemId)
+    // identity 留空:网关按签名自选 key(empty-identity fallback)。传用户侧
+    // systemId 会让网关 list_api_keys_by_identity 查不到(admin key 的 identity
+    // 是网关内部 system id)→ 401 Invalid X-Api-Signature(实测 docker 回归暴露)
+    new GatewayClient(gatewayUrl, adminKey, opts.timeoutMs ?? 30_000)
 
   const result = await client.request(
     'POST',

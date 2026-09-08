@@ -46,6 +46,15 @@ echo "══ 场景 4:幂等重跑(不重复建地址)"
 node "$ENTRY" --system-id "$SID" --manager "$MANAGER" --local-webhook "$LOCAL" > /tmp/reg2.json 2>/dev/null
 grep -qE '"exists"|"ok"' /tmp/reg2.json && ok "重跑幂等" || bad "重跑异常: $(head -c 120 /tmp/reg2.json)"
 
+# 场景 4b:SKILL 资源随包(SDK 的 SKILL 交付链——释放由插件 entry 在宿主
+# 运行时触发,容器回归验证"弹药已携带";产物级验证在宿主 L2.5/check 探针)
+PKG_ROOT=$(dirname "$(dirname "$ENTRY")")
+if [ -f "$PKG_ROOT/resources/skills/SKILL.md" ]; then
+  ok "SKILL 资源随包($PKG_ROOT/resources/skills)"
+else
+  bad "SKILL 资源缺失($PKG_ROOT/resources/skills)"
+fi
+
 echo "══ 场景 5:发信(API 通道,经网关 system sender)— host 侧执行(见 README)"
 echo "══ 结果: PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ] && exit 0 || exit 1
