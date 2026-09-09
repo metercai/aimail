@@ -9,7 +9,7 @@ import subprocess
 import time
 import uuid
 from pathlib import Path
-from typing import Optional, Dict, List, Any, Union
+from typing import Optional, Dict, List, Any, Union, Callable
 from datetime import datetime
 import urllib.request
 import urllib.error
@@ -340,6 +340,118 @@ class _GatewayClient:
             "raw_key": raw_key,
             "api_key_id": result.get("api_key_id", ""),
         }
+
+    def activate_address_code(self, code: str, email_address: str) -> dict:
+        """POST /api/v1/activate-address-code -- activate a shared_addr address
+        code (open-application plan §2.4). Advanced-only endpoint.
+
+        The email is lowercased before sending: the gateway stores the key's
+        address lowercased and pull matches on exact email SQL — a case
+        mismatch would silently orphan the agent's mail.
+
+        Returns ``{"success": True, "raw_key", "system_id", "email_address",
+        "expires_at"}`` on success; ``{"success": False, "error", "status"}``
+        otherwise (400 invalid/expired code, 403 pre-bind mismatch,
+        409 address already active).
+        """
+        result = self._request(
+            "POST",
+            "/api/v1/activate-address-code",
+            body={"code": code, "email_address": (email_address or "").strip().lower()},
+        )
+        raw_key = result.get("raw_key", "")
+        if not raw_key:
+            return {
+                "success": False,
+                "error": f"activation failed: {result.get('error', result)}",
+                "status": result.get("status", 0),
+            }
+        return {
+            "success": True,
+            "raw_key": raw_key,
+            "system_id": result.get("system_id", ""),
+            "email_address": result.get("email_address", ""),
+            "expires_at": result.get("expires_at", ""),
+        }
+
+    # ── Pull (agent scope) ──────────────────────────────────────
+
+    def pull_list(self, limit: int = 20) -> dict:
+        """POST /api/v1/admin/pending with an agent-scope key — the gateway's
+        advanced interception layer serves ONLY this key's own address
+        (scope IS the range, open-application plan §2.5). The ``emails``
+        request field is accepted for shape compatibility but ignored by
+        the server for agent keys.
+
+        Returns ``{"success": True, "batches": [{body, deliveries:
+        [{id, email, headers}]}]}`` (payload-grouped, same shape as the
+        bridge contract).
+        """
+        result = self._request("POST", "/api/v1/admin/pending", body={"limit": max(1, min(limit, 200))})
+        if result.get("status") != 200:
+            return {"success": False, "error": f"pull list failed: {result.get('error', result)}",
+                    "status": result.get("status", 0)}
+        return {"success": True, "batches": result.get("batches", [])}
+
+    def pull_ack(self, ids: List[int]) -> dict:
+        """POST /api/v1/admin/pending/ack with an agent-scope key — deletes
+        only rows whose email matches this key's address; cross-address ids
+        affect 0 rows (ownership enforced server-side, §2.5)."""
+        result = self._request("POST", "/api/v1/admin/pending/ack", body={"ids": [int(i) for i in ids]})
+        if result.get("status") != 200:
+            return {"success": False, "error": f"ack failed: {result.get('error', result)}",
+                    "status": result.get("status", 0)}
+        return {"success": True, "acked": result.get("acked", 0)}
+
+    def start_polling(self, on_email: Callable[[dict], None], interval: float = 30.0,
+                      limit: int = 20, max_rounds: Optional[int] = None) -> dict:
+        """Poll pull_list → deliver each pending email to ``on_email`` →
+        ack the delivered ids. message_id dedup (headers X-AIMail-Email +
+        created ordering are the caller's concern; dedup key = delivery id,
+        which is stable and unique). Errors back off one interval and keep
+        the mail un-acked (nothing is lost, next round re-pulls, §9 failover).
+
+        Blocking loop — run it in a worker thread. ``max_rounds`` bounds the
+        loop for tests (None = forever).
+        """
+        seen: set = set()
+        rounds = 0
+        stats = {"pulled": 0, "acked": 0, "errors": 0}
+        while max_rounds is None or rounds < max_rounds:
+            rounds += 1
+            try:
+                lst = self.pull_list(limit=limit)
+                if not lst.get("success"):
+                    stats["errors"] += 1
+                    time.sleep(interval)
+                    continue
+                deliveries = []
+                for batch in lst.get("batches", []):
+                    for d in batch.get("deliveries", []):
+                        if d.get("id") in seen:
+                            continue
+                        seen.add(d.get("id"))
+                        try:
+                            body_obj = batch.get("body")
+                            if isinstance(body_obj, str):
+                                body_obj = json.loads(body_obj)
+                            on_email({"id": d.get("id"), "email": d.get("email", ""),
+                                      "headers": d.get("headers", {}), "body": body_obj})
+                            deliveries.append(d.get("id"))
+                            stats["pulled"] += 1
+                        except Exception:
+                            # on_email failed → do NOT ack this id; it will
+                            # re-pull next round (delivery id stays unseen
+                            # only if we drop it from `seen` on failure).
+                            stats["errors"] += 1
+                if deliveries:
+                    ack = self.pull_ack([i for i in deliveries if i is not None])
+                    if ack.get("success"):
+                        stats["acked"] += ack.get("acked", 0)
+            except Exception:
+                stats["errors"] += 1
+            time.sleep(interval)
+        return stats
 
 
 
