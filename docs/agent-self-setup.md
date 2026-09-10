@@ -1,91 +1,86 @@
-# AIMail Self-Setup — get your own email address
+# AIMail address self-setup (type 3) — activate your own mailbox
 
-Platform-generic. Run the self-check first, then act on what it reports.
+**Scope: address-level activation only.** Your user forwards you an activation
+message; you activate your own mailbox from inside your agent runtime. No CLI,
+no system-level credentials, no admin key.
 
-## 1. Self-check (run this block)
+System-level activation (create/reuse an AIMail *system*, `AIMAIL_PRODUCT_CODE`)
+is an **operator action** performed with the `aimail` CLI — it is out of scope
+here and is documented in the repository README/deployment guide. Do not ask
+for a product code and do not run `aimail install` for your own mailbox.
 
-```bash
-command -v aimail >/dev/null 2>&1 && echo "cli:ok" || echo "cli:missing"
-[ -d "$HOME/.aimail/systems" ] && echo "init:ok" || echo "init:missing"
-ls "$HOME"/.aimail/systems/*/aimail_gateway.json >/dev/null 2>&1 && echo "system:ok" || echo "system:missing"
-find "$HOME"/.aimail/systems "$HOME"/.hermes "$HOME"/.openclaw "$HOME"/.pi "$HOME"/.dsh \
-  -maxdepth 3 -name .agentmail 2>/dev/null | head -3
-env | grep -iE 'hermes|openclaw|deepseek|dsh|deer' | head -3
-ps -p $PPID -o args= 2>/dev/null
+## 1. What you receive
+
+A forwarded message in this shape:
+
+```
+Activate my AIMail mailbox <your-address> using the activation code
+<shared_a-xxxxxxxx-...>. AIMail gateway is at <https://gateway>.
 ```
 
-Output tells you: CLI present? machine initialized? an AIMail system
-exists? your identity pointer (address)? which platform runs you.
+Three values: your **address**, the **activation code** (`shared_a-…`), the
+**gateway URL**. The code is single-use and expires (default 24h). The mailbox
+you get is valid for the shared domain's `validity_days` (e.g. 15 days).
 
-## 2. Fix what's missing
+## 2. Activate — one call, no CLI
 
-- **cli:missing** →
-  ```bash
-  curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
-  ```
-- **system:missing** → ask the user for `AIMAIL_MANAGER_ADDRESS` and an
-  activation code (`AIMAIL_PRODUCT_CODE`) — or an admin key
-  (`AIMAIL_ADMIN_KEY`) for an existing system. Then run the export and the
-  install in the **same command** — most hosts give every shell tool call a
-  fresh process, so a separate export is lost:
-  ```bash
-  export AIMAIL_PRODUCT_CODE=<code> AIMAIL_MANAGER_ADDRESS=<manager>; aimail install --home <your-platform-root>
-  ```
-- **init:missing** or **no pointer for you yet** →
-  ```bash
-  aimail install --home <your-platform-root> [--system-id <sid>]
-  ```
-  Idempotent: it initializes, activates/reuses the system, installs the
-  platform adapter and registers your address. Your platform root is the
-  dir of the platform that runs you: `~/.hermes`, `~/.openclaw`, `~/.pi`,
-  `~/.dsh`, or the deer-flow backend dir.
-- **Your user forwarded you an activation message** (`Activate my AIMail
-  mailbox <address> using the activation code …`) instead of a product
-  code → this is an *address-level* activation (type 3): the mailbox
-  `<address>` was applied for on the gateway's application page and
-  pre-bound to your agent. Run the export + install in the **same
-  command**, passing the code as the product code and the exact address
-  from the message as your manager-confirmed identity:
-  ```bash
-  export AIMAIL_PRODUCT_CODE=<activation-code> AIMAIL_URL=<gateway-url>; aimail install --home <your-platform-root>
-  ```
-  The installer activates the address code and binds the key. When the
-  address later expires, ask your user to re-apply on the same page
-  (renewal) — mail received while expired is delivered after renewal.
+TypeScript platforms (openclaw / pi / dsh) — from `@aimail/mail-core`:
 
-## 3. Verify, then close with one of three outcomes
+```ts
+import { GatewayClient, activateAddressCodePersist } from "@aimail/mail-core"
 
-```bash
-aimail check --system-id <sid> && aimail ping --system-id <sid>
+const client = new GatewayClient(gatewayUrl, "")   // public endpoint: no key yet
+const res = await activateAddressCodePersist(client, code, address, {
+  gatewayUrl,                     // persisted into your config
+  agentId: "<you>",               // optional: defaults to the address local-part
+  platformHome: process.env.HOME, // optional: where the .agentmail pointer goes
+})
+// res.raw_key / res.system_id / res.email_address / res.expires_at / res.config_path
 ```
 
-`<sid>`: the dir name under `~/.aimail/systems/`. Then reply to the user
-with EXACTLY ONE of the three closings:
+Python platforms (hermes / deer-flow) — from the pysdk:
 
-**A. Ready** (check green, ping round-trip OK) →
+```python
+from aimail_tools import _GatewayClient
 
-> My AIMail address is <address> (see `aimail stats` / the pointer).
-> Verified working — send me an email to reach me.
+client = _GatewayClient(gateway_url, "")            # public endpoint: no key yet
+res = client.activate_address_code_persist(code, address,
+                                          agent_id="<you>", profile_dir=None)
+```
 
-**B. Installed — restart needed** (install said so, or the hook probe
-fails on a patched platform) → tell the user to restart the platform
-process OUTSIDE this session, then re-run the check:
+Under the hood both call `POST /api/v1/activate-address-code` and then persist:
 
-> AIMail is installed. Please restart <platform process/service, e.g.
-> `systemctl --user restart hermes-gateway-<profile>.service>` outside
-> this session, then I will re-verify.
+- your **own agent key** (never a system admin key) → `agentmail.json`,
+  mode `0600`, register-isomorphic fields (`agent_id`, `email`, `gateway_url`,
+  `domain`, `system_id`, `api_key`, `expires_at`);
+- the identity pointer `.agentmail` (so later runs resolve which mailbox is
+  yours);
+- a create-if-absent system connection file for the hosting system
+  (`shared_addr_<domain>`), created automatically on first activation.
 
-**C. Platform not supported** (self-check shows a platform with no
-adapter, or install reports incompatibility) → do not fake success:
+## 3. Verify (both directions)
 
-> Current platform <name> is not one of aimail's known platforms. I can
-> write an adapter modeled on the existing ones (pysdk/ python, tssdk/
-> typescript — see section 4) and open a PR to the aimail repo. Proceed
-> (your call) or stop here?
+1. **Outbound**: send a mail with the mail tools (`send_mail`) — it must be
+   accepted by the gateway.
+2. **Inbound**: ask your user to send you a mail at your address, then pull:
 
-Never end a self-setup without one of these three closings.
+   ```python
+   client.pull_list(limit=20)     # -> batches[].deliveries[]
+   client.pull_ack([...ids])      # ack what you consumed
+   ```
 
-## 4. Your platform is not one of the known ones?
+   Seeing your own mail proves the full chain (gateway inbound → your key →
+   local tools). Use `start_polling()` for continuous delivery.
+3. **Expiry**: `expires_at` is on the config. Before it lapses, ask your user
+   to re-apply — you receive a new code and repeat step 2 (renewal keeps the
+   same address).
 
-Follow an existing adapter in `pysdk/` (python) or `tssdk/packages/`
-(typescript) as the template, then open a PR against the aimail repo.
+## 4. Rules
+
+- The activation code is **single-use**; a failed attempt costs it. Do not
+  print it or your key — the key lands `0600` by itself.
+- Never request or use a system admin key, and never run CLI install commands
+  for your own mailbox: that is the system-level path, reserved for the
+  operator.
+- If activation fails with `code already claimed` / expired, ask for a fresh
+  code; if it fails with a network error, retry the same call once.
