@@ -371,7 +371,13 @@ def setup(
         _save_gateway_config(
             gateway_url=gateway_url, admin_key=admin_key, system_id=system_id,
             domain=domain or prev.get("domain", "admin.local"),
-            system_name=system_name or prev.get("system_name", ""),
+            # 系统名的权威来源:显式 -n(INTEGRATE_NAME_EXPLICIT=true)或既有
+            # cfg;env 派生值不得覆写(2026-09-11 D 缺陷:机器级 .env 的旧
+            # 系统名会污染复用系统)。
+            system_name=(
+                system_name if os.environ.get("INTEGRATE_NAME_EXPLICIT") == "true"
+                else (prev.get("system_name") or system_name)
+            ),
             save_raw_snapshots=save_raw_snapshots if save_raw_snapshots or "save_raw_snapshots" not in prev else prev.get("save_raw_snapshots", False),
             manager_address=manager_address or prev.get("manager_address", ""),
             webhook_host=webhook_host or prev.get("webhook_host", ""),

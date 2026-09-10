@@ -574,6 +574,9 @@ def cmd_install(args) -> int:
     env["INTEGRATE_GATEWAY_URL"] = gw_url
     env["INTEGRATE_SYSTEM_ID"] = sid
     env["INTEGRATE_SYSTEM_NAME"] = sys_name
+    # 只有显式 -n 才允许改系统名;复用路径的权威名来自本地 cfg(setup_system
+    # Path A 据此忽略任何 env 来源的名字,2026-09-11 见 D 缺陷)。
+    env["INTEGRATE_NAME_EXPLICIT"] = "true" if args.system_name else "false"
     env["INTEGRATE_MANAGER_ADDRESS"] = manager
     env["INTEGRATE_AIMAIL_DOMAIN"] = want_domain
     env["INTEGRATE_SAVE_SNAPSHOTS"] = (
@@ -762,6 +765,9 @@ def cmd_ensure_system(args) -> int:
     env["INTEGRATE_GATEWAY_URL"] = gw_url
     env["INTEGRATE_SYSTEM_ID"] = sid
     env["INTEGRATE_SYSTEM_NAME"] = sys_name
+    # 只有显式 -n 才允许改系统名;复用路径的权威名来自本地 cfg(setup_system
+    # Path A 据此忽略任何 env 来源的名字,2026-09-11 见 D 缺陷)。
+    env["INTEGRATE_NAME_EXPLICIT"] = "true" if args.system_name else "false"
     env["INTEGRATE_MANAGER_ADDRESS"] = manager
     env["INTEGRATE_AIMAIL_DOMAIN"] = want_domain
     env["INTEGRATE_SAVE_SNAPSHOTS"] = (
@@ -890,6 +896,9 @@ def cmd_reset(args) -> int:
     env["INTEGRATE_GATEWAY_URL"] = gw_url
     env["INTEGRATE_SYSTEM_ID"] = sid
     env["INTEGRATE_SYSTEM_NAME"] = sys_name
+    # 只有显式 -n 才允许改系统名;复用路径的权威名来自本地 cfg(setup_system
+    # Path A 据此忽略任何 env 来源的名字,2026-09-11 见 D 缺陷)。
+    env["INTEGRATE_NAME_EXPLICIT"] = "true" if args.system_name else "false"
     env["INTEGRATE_SYSTEM_HOME"] = str(system_home) if system_home else prev.get("system_home", "")
     env["INTEGRATE_MANAGER_ADDRESS"] = manager
     env["INTEGRATE_ADMIN_KEY"] = admin_key
