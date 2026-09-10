@@ -374,6 +374,96 @@ class _GatewayClient:
             "expires_at": result.get("expires_at", ""),
         }
 
+    def activate_address_code_persist(
+        self, code: str, email_address: str, agent_id: str = "",
+        profile_dir: str = "",
+    ) -> dict:
+        """Activate AND persist — the agent self-service consumption chain
+        (open-application plan §2.4/§C.1 item 7: persisted structure is
+        isomorphic to the register path).
+
+        After a successful activate-address-code, writes:
+
+        1. ``~/.aimail/systems/{system_id}/{cleaned_addr}/agentmail.json``
+           — fields isomorphic to the register chain (agent_id, email,
+           gateway_url, domain, system_id, api_key, expires_at), via the
+           shared atomic writer ``aimail_base.save_agent_config``
+           (tmp+rename+0600, parity with TS mail-core saveBinding).
+           ``domain`` is derived from the address's @-part.
+        2. ``~/.aimail/systems/{system_id}/aimail_gateway.json`` — the
+           gateway connection file (gateway_url + system_id), only if
+           absent (never overwrites an existing system's admin_key).
+        3. Pointer ``{profile_dir}/.agentmail`` (system_id + email) when
+           ``profile_dir`` is given (the agent's profile dir; discovery
+           + log naming read it).
+
+        After this returns success, the 6 tools / preprocess / pull all
+        read the key from the same files the register path produces —
+        no CLI involvement.
+
+        ``agent_id`` defaults to the address local-part (the
+        activateAddressCode flow has no separate agent concept — the
+        mailbox IS the agent).
+        """
+        act = self.activate_address_code(code, email_address)
+        if not act.get("success"):
+            return act
+
+        import aimail_base as _abm
+        from gateway_api import gateway_config_path
+
+        sid = act["system_id"]
+        email = act["email_address"]
+        domain = email.rsplit("@", 1)[-1] if "@" in email else ""
+        aid = agent_id or email.split("@")[0]
+
+        # 1. Address-keyed agentmail.json — register-isomorphic fields.
+        cfg = {
+            "agent_id": aid,
+            "email": email,
+            "gateway_url": self.gateway_url,
+            "domain": domain,
+            "system_id": sid,
+            "api_key": act["raw_key"],
+        }
+        if act.get("expires_at"):
+            cfg["expires_at"] = act["expires_at"]
+        p = _abm.save_agent_config(aid, cfg, sid)
+
+        # 2. Gateway connection file — create-if-absent only.
+        gp = gateway_config_path(sid)
+        if not gp.is_file():
+            gp.parent.mkdir(parents=True, exist_ok=True)
+            import os as _os
+            fd = _os.open(gp, _os.O_WRONLY | _os.O_CREAT | _os.O_TRUNC, 0o600)
+            with _os.fdopen(fd, "w") as f:
+                f.write(json.dumps({
+                    "gateway_url": self.gateway_url,
+                    "admin_key": act["raw_key"],
+                    "system_id": sid,
+                    "domain": domain,
+                }, indent=2, ensure_ascii=False) + "\n")
+
+        # 3. Discovery pointer (best-effort — log naming degrades without it).
+        pointer_written = False
+        if profile_dir:
+            try:
+                _abm._write_pointer(
+                    Path(profile_dir) / ".agentmail", sid, email)
+                pointer_written = True
+            except Exception:
+                pass
+
+        return {
+            "success": True,
+            "raw_key": act["raw_key"],
+            "system_id": sid,
+            "email_address": email,
+            "expires_at": act.get("expires_at", ""),
+            "config_path": str(p),
+            "pointer_written": pointer_written,
+        }
+
     # ── Pull (agent scope) ──────────────────────────────────────
 
     def pull_list(self, limit: int = 20) -> dict:
