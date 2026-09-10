@@ -33,6 +33,23 @@ export {
 } from './auto-bind.js'
 export { detectSystemForHome, ensureSystem } from './ensure-system.js'
 export type { EnsureSystemOptions, EnsureSystemResult } from './ensure-system.js'
+export {
+  activateAddressCode,
+  activateAddressCodePersist,
+  pullList,
+  pullAck,
+  startPolling,
+} from './address-code.js'
+export type {
+  RequestClient,
+  ActivateAddressCodeResult,
+  ActivateAddressCodePersistOptions,
+  ActivateAddressCodePersistResult,
+  PullBatch,
+  PullDelivery,
+  PollStats,
+  StartPollingOptions,
+} from './address-code.js'
 export type {
   SystemGatewayConfig,
   AdminClientLike,

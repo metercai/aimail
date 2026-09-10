@@ -33,6 +33,13 @@ export interface AgentConfig {
   preset?: string
   /** gate for raw out-/in- snapshot writes (default false); meta is ALWAYS written */
   save_raw_snapshots?: boolean
+  /**
+   * Address validity end (RFC3339) — written by the address-code
+   * consumption chain (activateAddressCodePersist). Present only for
+   * addresses bound via an activation code; the register path leaves it
+   * unset. The gateway enforces the same instant (expired key ⇒ 401).
+   */
+  expires_at?: string
   /** internal: absolute path of this config file */
   _config_path?: string
 }
