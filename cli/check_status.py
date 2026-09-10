@@ -186,8 +186,12 @@ class Check:
 #   check_hook(c, agent)      → L4: inbound mail hook interface probe
 # Shared L1 gateway / L2 bridge / L5 ping-pong are platform-independent.
 
-def _detect_agent_type() -> str:
+def _detect_agent_type(root=None) -> str:
     """Probe the host for a supported agent platform. Returns id or 'unknown'.
+
+    root 显式给出时以它为判定基准(平台根契约):先按“root 即平台目录”判,
+    再按“root 是父目录”(root/<dir_name>)判,两者都不中才算 unknown;
+    缺省(None)仍只看 $HOME —— 老行为不变。
 
     --agent-home 显式指定 → Hermes 意图(Hermes 是唯一用 agent-home 定位的
     平台,值是否为默认 ~/.hermes 不影响判定)。
@@ -197,17 +201,20 @@ def _detect_agent_type() -> str:
     """
     if "--agent-home" in sys.argv:
         return "hermes"
-    home = Path.home()
+    home = Path(root).expanduser() if root else Path.home()
     reg = _load_platform_registry()
     for name in reg.get("order", []):
         pdef = reg.get("platforms", {}).get(name) or {}
         det = pdef.get("detect") or {}
-        base_dir = home / det.get("dir_name", pdef.get("home_dir", "." + name))
+        dn = det.get("dir_name", pdef.get("home_dir", "." + name))
         markers = det.get("markers", [])
         if not markers:
             continue
-        if all((base_dir / m).exists() for m in markers):
-            return name
+        # 显式 root:既认“root 即平台目录”,也认“root 是父目录”(2026-09-11 C 修)
+        cands = [home / dn] if root is None else [home, home / dn]
+        for base_dir in cands:
+            if all((base_dir / m).exists() for m in markers):
+                return name
     return "unknown"
 
 

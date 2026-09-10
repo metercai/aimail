@@ -28,6 +28,7 @@ import json
 import os
 import sys
 import time
+from pathlib import Path
 
 _CORE_DIR_NAME = "pysdk"
 _ADAPTERS = ("hermes", "deer-flow")
@@ -291,6 +292,53 @@ def newest_system_sid(aimail_home=None, within_secs: int = 180) -> str:
             continue
         best, best_m = name, m
     return best
+
+
+def normalize_platform_home(home):
+    """平台根归一(2026-09-11 C 修)。
+
+    `--home` 契约是“平台目录本身”(如 ~/.pi)。若用户传了**父目录**(例如含
+    `.pi/agent` 的目录),平台判定会落空并回退成 hermes(表现为报
+    webhook.py/profiles.py 缺失、`.agentmail` 写成 no_config)。这里:
+      1) 给定目录本身命中某平台判据 → 原样返回;
+      2) 否则其下恰好命中一个平台子目录 → 返回该子目录;
+      3) 都不中 → 原样返回(让下游按原逻辑报错,不静默改语义)。
+    判据与 check_status._detect_platform / 注册表同源(cli/platforms.json)。
+    """
+    try:
+        p = Path(home).expanduser()
+    except Exception:
+        return home
+    if not p.is_dir():
+        return p
+
+    reg_file = Path(__file__).resolve().parent / "platforms.json"
+    try:
+        reg = json.loads(reg_file.read_text())
+    except Exception:
+        return p
+
+    def hits(d: Path) -> str:
+        for name in reg.get("order", []):
+            det = ((reg.get("platforms") or {}).get(name) or {}).get("detect") or {}
+            dn = det.get("dir_name", "")
+            markers = det.get("markers") or []
+            if not markers or (dn and d.name != dn):
+                continue
+            if all((d / m).exists() for m in markers):
+                return name
+        return ""
+
+    if hits(p):
+        return p
+    try:
+        subs = sorted(x for x in p.iterdir() if x.is_dir())
+    except Exception:
+        return p
+    for sub in subs:
+        if hits(sub):
+            return sub
+    return p
 
 
 if __name__ == "__main__":

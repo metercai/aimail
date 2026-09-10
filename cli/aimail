@@ -45,6 +45,7 @@ except Exception:
     AIMAIL_HOME = Path(_AH_ENV).expanduser() if _AH_ENV else HOME / ".aimail"
 SYSTEMS_DIR = AIMAIL_HOME / "systems"
 SCRIPTS_DIR = Path(__file__).resolve().parent
+from runtime_core import normalize_platform_home  # noqa: E402  (C 修:平台根归一)
 
 
 def _registry_order_roots() -> list:
@@ -549,7 +550,7 @@ def cmd_install(args) -> int:
         system_home = Path(sh)
         print(f"  --home 由 --system-id 反查: {system_home}")
     else:
-        system_home = Path(args.home).expanduser()
+        system_home = normalize_platform_home(Path(args.home).expanduser())
     if not sid and not prod_code and not adm_key:
         # 重复安装:home 归属唯一系统 → 自动复用。.env 里的码可能已在首次
         # 安装消耗(claimed)——重跑应复用(隐式码只服务真正的新建)。
@@ -745,7 +746,7 @@ def cmd_ensure_system(args) -> int:
             return _err(f"--system-id {sid} has no local config on this machine")
         system_home = Path(sh)
     else:
-        system_home = Path(args.home).expanduser()
+        system_home = normalize_platform_home(Path(args.home).expanduser())
     if not system_home.exists():
         return _err(f"home dir not found: {system_home}")
 
@@ -849,7 +850,7 @@ def cmd_reset(args) -> int:
         system_home = Path(sh)
         print(f"  --home 由 --system-id 反查: {system_home}")
     else:
-        system_home = Path(args.home).expanduser()
+        system_home = normalize_platform_home(Path(args.home).expanduser())
     if not system_home.exists():
         _fail(f"home 目录不存在: {system_home}")
     platform = resolve_platform(system_home)
@@ -2145,7 +2146,7 @@ def cmd_uninstall(args) -> int:
     if not args.home and not sid:
         _fail("uninstall 需要 --system-id(或用 --home 定位平台)")
     if args.home:
-        system_home = Path(args.home).expanduser()
+        system_home = normalize_platform_home(Path(args.home).expanduser())
     else:
         # 有 sid 无 --home:权威 cfg 反查 system_home;无本地配置则留空,
         # 交由 resolve_system_id(explicit sid) 判定(AUDIT-1 P0-1)。
