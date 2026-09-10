@@ -801,11 +801,18 @@ def cmd_ensure_system(args) -> int:
         if line.startswith("__ERROR__"):
             return _err(line[len("__ERROR__"):].strip())
     sid2 = sid or ""
-    try:
-        data = json.loads(out)
-        sid2 = data.get("system_id") or sid2
-    except Exception:
-        pass
+    from runtime_core import newest_system_sid, parse_setup_stdout
+
+    data = parse_setup_stdout(out)
+    if data.get("error"):
+        # 真错误优先:stdout 里有 error 就绝不当成成功(旧版会被下游
+        # “without a system_id”掩盖真实原因)。
+        return _err(str(data["error"]))
+    sid2 = data.get("system_id") or sid2
+    if not sid2:
+        # stdout 不可解析,但配置可能已落盘(见 parse_setup_stdout 文档):
+        # 按 mtime 认领刚写入的系统,窗口外一律不认。
+        sid2 = newest_system_sid()
     if not sid2:
         return _err("setup finished without a system_id")
     cfg = load_gateway_config(sid2) or {}

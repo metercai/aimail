@@ -24,8 +24,10 @@ sys.path,消除各脚本散落的 `sys.path.insert(... "tools"...)` 仓路径耦
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
+import time
 
 _CORE_DIR_NAME = "pysdk"
 _ADAPTERS = ("hermes", "deer-flow")
@@ -239,6 +241,56 @@ def sid_from_system_home(system_home: str, aimail_home=None) -> str:
                 return ""
             found = d.name
     return found
+
+
+def parse_setup_stdout(out: str) -> dict:
+    """容错解析 setup_system.py 的 stdout(单 JSON 契约的防御层)。
+
+    CLI 契约是“stdout 只有一行 JSON”,但宿主/依赖模块在 import 期往 stdout
+    打一行 warning 就会让整体 json.loads 失败(2026-09-11 实测:激活成功、
+    配置已落盘,却报 setup finished without a system_id)。先试整体,再退回
+    取最外层 {...} 切片;都失败返回 {}。
+    """
+    for cand in (out, _slice_object(out)):
+        if not cand:
+            continue
+        try:
+            data = json.loads(cand)
+        except Exception:
+            continue
+        if isinstance(data, dict):
+            return data
+    return {}
+
+
+def _slice_object(out: str) -> str:
+    a, b = out.find("{"), out.rfind("}")
+    return out[a:b + 1] if 0 <= a < b else ""
+
+
+def newest_system_sid(aimail_home=None, within_secs: int = 180) -> str:
+    """刚写入的那个系统的 sid(激活路径的本地兜底)。
+
+    仅当 setup 的 stdout 不可解析时才用:取 systems/*/aimail_gateway.json 中
+    mtime 最新者,且必须落在 within_secs 窗口内——旧配置绝不能被误当成本次
+    运行的结果。多个候选取最新;无候选返回 ""。
+    """
+    root = os.path.join(_resolve_aimail_home(aimail_home), "systems")
+    now, best, best_m = time.time(), "", 0.0
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return ""
+    for name in names:
+        p = os.path.join(root, name, "aimail_gateway.json")
+        try:
+            m = os.stat(p).st_mtime
+        except OSError:
+            continue
+        if now - m > within_secs or m <= best_m:
+            continue
+        best, best_m = name, m
+    return best
 
 
 if __name__ == "__main__":
