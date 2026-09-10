@@ -2,7 +2,7 @@
  * MAIL_TOOLS contract tests:
  *   - structural: 13 tools, exact names/order, non-empty semantic text
  *   - parity (best-effort): names + descriptions + parameter text must match
- *     the Python TOOLS registry in aimail/tools/amail_mcp_server.py
+ *     the Python TOOLS registry in aimail/pysdk/amail_mcp_server.py
  *     (the upstream contract reference). Skipped when the sibling repo or
  *     python3 is unavailable (e.g. CI without the checkout).
  */
