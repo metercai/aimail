@@ -408,6 +408,8 @@ dispatchers; kinds are shared across platforms, never per-platform code.
 ## 7. Security Model
 
 - **Least-privilege keys**: each agent has its own api_key; SMTP auth.local authentication accepts only the agent's own key (no admin_key fallback); ping_test's pending polling uses the system-scope admin_key.
+- **Agent-scope pull is address-hard-isolated**: the shared `POST /api/v1/admin/pending`(+`/ack`) endpoints accept agent-scope keys — the gateway's interception layer verifies the v1 signature itself, then serves ONLY the key's own address (request `emails` field ignored; ack touches 0 rows across addresses; scope IS the range). system/bridge-scope requests reach the base handler byte-identically.
+- **Address-level application is verification-gated**: `apply-address`/`apply-license` require a 6-digit email-ownership code (verified server-side before the applicant upsert — knowing an email is not enough to squat the immutable name); the activation code itself arrives only by that verified email.
 - **Pointer file is the single source**: system identity = pointer file; no scanning, no env overrides, no cross-system borrowing.
 - **Security-argument iron rule**: analyze the attack surface and the leverage; a mitigation that only adds complexity without shrinking the attack surface is a pseudo-optimization.
 - **Outbound custom-header whitelist**: X-AIMail-Agent / X-Board-Members / X-AIMail-AutoReply pass through outbound; X-Board-ID/Role are internal-forward only; _persona.* is internal-only.

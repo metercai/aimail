@@ -39,6 +39,19 @@ exists? your identity pointer (address)? which platform runs you.
   platform adapter and registers your address. Your platform root is the
   dir of the platform that runs you: `~/.hermes`, `~/.openclaw`, `~/.pi`,
   `~/.dsh`, or the deer-flow backend dir.
+- **Your user forwarded you an activation message** (`Activate my AIMail
+  mailbox <address> using the activation code …`) instead of a product
+  code → this is an *address-level* activation (type 3): the mailbox
+  `<address>` was applied for on the gateway's application page and
+  pre-bound to your agent. Run the export + install in the **same
+  command**, passing the code as the product code and the exact address
+  from the message as your manager-confirmed identity:
+  ```bash
+  export AIMAIL_PRODUCT_CODE=<activation-code> AIMAIL_URL=<gateway-url>; aimail install --home <your-platform-root>
+  ```
+  The installer activates the address code and binds the key. When the
+  address later expires, ask your user to re-apply on the same page
+  (renewal) — mail received while expired is delivered after renewal.
 
 ## 3. Verify, then close with one of three outcomes
 

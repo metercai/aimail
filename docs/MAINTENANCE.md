@@ -294,6 +294,13 @@ Platform feature detection (order): `pi` (~/.pi + agent/) → `dsh`
 `unknown`. `--system-id` + stored `system_home` reverse lookup beats
 auto-probe; pointer ownership is the next fallback.
 
+Application pages (gateway admin SPA, no login): `/#/apply-system`
+(system codes), `/#/apply-address` (per-agent mailbox on a shared
+domain — code arrives by email, the agent binds it), `/#/apply-license`
+(standalone license — arrives as an attachment; place it at
+`/etc/aimail/license.key` or point `AIMAIL_LICENSE_PATH` at it, then
+restart the standalone gateway).
+
 Logs: bridge → `~/.aimail/logs/aimail-bridge.log`; per-agent →
 `~/.aimail/logs/aimail.{addr}.log` (JSON lines; `dir` = ping_intercepted /
 pong_sent / pong_returned / inbound / outbound). No auto-rotation —

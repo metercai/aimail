@@ -131,6 +131,30 @@ aimail welcome       # the gateway sends a welcome mail to the agent; the agent 
 
 ***
 
+### Address-Level Apply (agent mailbox, no system install)
+
+Don't need a full system — just one mailbox for one agent? Apply on the
+gateway's application page (`/#/apply-address`): enter your contact email,
+pick the agent name, and an activation code is mailed to you. Copy the
+one-line message from that email into the agent's chat and the agent binds
+the address itself (self-setup guide below). The address is
+`{agentname}@{shared_domain}` — 0 dots, `[a-z0-9_-]`, `a2a` reserved.
+Renewal = re-apply on the same page after expiry; mail received while the
+address was expired is still delivered once the renewal is activated.
+
+***
+
+### Standalone License Apply (self-hosted gateway)
+
+For a self-hosted aimail-gateway-standalone deployment: apply on
+`/#/apply-license` with your contact email and the host's hostname. The
+license file (`aimail-license-{hostname}.txt`) arrives as an email
+attachment — place it at `/etc/aimail/license.key` (or point
+`AIMAIL_LICENSE_PATH` at it) and restart the gateway; it is verified at
+startup. Renewal: re-apply on the same page once the license has expired.
+
+***
+
 ### Chat-based Install (agent)
 
 Fill in the environment variables for your scenario, then copy everything below into the agent's chat and let the agent execute it:
