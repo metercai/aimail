@@ -1,6 +1,6 @@
 /**
  * MAIL_TOOLS contract tests:
- *   - structural: 13 tools, exact names/order, non-empty semantic text
+ *   - structural: 14 tools, exact names/order, non-empty semantic text
  *   - parity (best-effort): names + descriptions + parameter text must match
  *     the Python TOOLS registry in aimail/pysdk/amail_mcp_server.py
  *     (the upstream contract reference). Skipped when the sibling repo or
@@ -28,6 +28,7 @@ const EXPECTED_NAMES = [
   'board_heartbeat',
   'board_members',
   'set_public_whoami',
+  'activate_address_code',
 ] as const
 
 /** Monorepo layout: tssdk/packages/<pkg> and pysdk/ share the repo root —
@@ -64,7 +65,7 @@ print(json.dumps(ns['TOOLS']))
 }
 
 describe('MAIL_TOOLS structure', () => {
-  it('registers exactly the 13 bare tool names, in order', () => {
+  it('registers exactly the 14 bare tool names, in order', () => {
     expect(MAIL_TOOLS.map(t => t.name)).toEqual([...EXPECTED_NAMES])
   })
 
@@ -93,7 +94,7 @@ describe('MAIL_TOOLS ↔ Python registry parity', () => {
     return
   }
 
-  it('has the same 13 tools with identical names and descriptions', () => {
+  it('has the same 14 tools with identical names and descriptions', () => {
     expect(py.map(t => t.name)).toEqual([...EXPECTED_NAMES])
     py.forEach((pt, i) => {
       const tt = MAIL_TOOLS[i]

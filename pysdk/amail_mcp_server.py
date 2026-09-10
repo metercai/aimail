@@ -97,6 +97,16 @@ def tool_send_mail(args: dict) -> dict:
     return _safe(fn)
 
 
+def tool_activate_address_code(args: dict) -> dict:
+    def fn():
+        return _tools.activate_address_code(
+            code=args.get("code", ""),
+            address=args.get("address", ""),
+            gateway_url=args.get("gateway_url"),
+        )
+    return _safe(fn)
+
+
 def tool_manage_contacts(args: dict) -> dict:
     def fn():
         return _tools.manage_contacts(
@@ -270,6 +280,15 @@ TOOLS = [
     {"name": "set_public_whoami", "description": "Set the public identity card returned for stranger WHOAMI queries.",
      "inputSchema": {"type": "object", "properties": {
          "text": {"type": "string", "description": "Public identity text"}}, "required": ["text"]}},
+    {"name": "activate_address_code", "description": (
+        "Activate the AIMail mailbox your user gave you: exchange the one-time "
+        "activation code (shared_a-…) for your own key, store it locally and make "
+        "the other mail tools work. Address-level self-service — no CLI."),
+     "inputSchema": {"type": "object", "properties": {
+         "code": {"type": "string", "description": "One-time activation code (shared_a-…)"},
+         "address": {"type": "string", "description": "The mailbox address it unlocks"},
+         "gateway_url": {"type": "string", "description": "AIMail gateway URL (or set AIMAIL_URL)"}},
+         "required": ["code", "address"]}},
 ]
 
 HANDLERS = {
@@ -286,6 +305,7 @@ HANDLERS = {
     "board_heartbeat": tool_board_heartbeat,
     "board_members": tool_board_members,
     "set_public_whoami": tool_set_public_whoami,
+    "activate_address_code": tool_activate_address_code,
 }
 
 # ── MCP 主循环 ──────────────────────────────────────────────────

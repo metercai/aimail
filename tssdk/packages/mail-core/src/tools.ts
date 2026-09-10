@@ -12,6 +12,31 @@ import { AIMAIL_HOME, loadAgentConfig } from './config.js'
 import { readLocalMeta, saveLocalMeta, saveOutboundSnapshot, resolveThreadId, threadPath } from './meta.js'
 import { logAmailOutbound } from './log.js'
 import type { AgentConfig } from './types.js'
+import { activateAddressCodePersist } from './address-code.js'
+
+export interface ActivateAddressCodeArgs {
+  code: string
+  address: string
+  gatewayUrl: string
+  platformHome?: string
+}
+
+/**
+ * Activate the AIMail mailbox you were given (address-level self-service,
+ * type 3). Exchanges the one-time code for YOUR OWN agent key, persists it
+ * locally (0600, register-isomorphic fields + expires_at, `.agentmail`
+ * pointer) and makes the other mail tools work. No CLI, no admin key.
+ */
+export async function activateAddressCode(
+  args: ActivateAddressCodeArgs,
+): Promise<ToolResult> {
+  const client = new GatewayClient(args.gatewayUrl, '', 30_000)
+  const res = await activateAddressCodePersist(client, args.code, args.address, {
+    gatewayUrl: args.gatewayUrl,
+    ...(args.platformHome ? { platformHome: args.platformHome } : {}),
+  })
+  return res as unknown as ToolResult
+}
 
 export interface ToolResult {
   success: boolean

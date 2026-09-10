@@ -623,6 +623,30 @@ def _agent_identity() -> str:
     return ident
 
 
+def activate_address_code(
+    code: str,
+    address: str,
+    gateway_url: Optional[str] = None,
+) -> dict:
+    """Activate an AIMail mailbox you were given (address-level self-service).
+
+    Your user forwards an activation message: the mailbox address, a
+    one-time activation code (`shared_a-…`) and the gateway URL. This
+    exchanges the code for YOUR OWN agent key — never the system admin
+    key — persists it locally (agentmail.json, 0600, register-isomorphic
+    fields + expires_at, plus the `.agentmail` identity pointer) and
+    makes every other mail tool work for that mailbox.
+
+    No CLI, no product code, no admin credentials: the code authorizes
+    exactly one address, once, until it expires.
+    """
+    gw = (gateway_url or os.environ.get("AIMAIL_URL", "")).strip()
+    if not gw:
+        raise ValueError("gateway_url is required (or set AIMAIL_URL)")
+    client = _GatewayClient(gw, "")
+    return client.activate_address_code_persist(code, address)
+
+
 def send_mail(
     to: Union[str, List[str]],
     subject: str,

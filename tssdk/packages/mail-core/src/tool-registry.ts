@@ -41,6 +41,7 @@ import {
   type BoardMembersArgs,
   type SetPublicWhoamiArgs,
 } from './board.js'
+import { activateAddressCode, type ActivateAddressCodeArgs } from './tools.js'
 
 /** Platform-neutral parameter descriptor (no framework types). */
 export interface MailToolParam {
@@ -188,5 +189,15 @@ export const MAIL_TOOLS: readonly MailToolDef[] = [
       text: { type: 'string', description: 'Public identity text', required: true },
     },
     handler: (ctx, args) => setPublicWhoami(ctx, args as unknown as SetPublicWhoamiArgs),
+  },
+  {
+    name: 'activate_address_code',
+    description: 'Activate the AIMail mailbox your user gave you: exchange the one-time activation code (shared_a-…) for your own key, store it locally and make the other mail tools work. Address-level self-service — no CLI.',
+    parameters: {
+      code: { type: 'string', description: 'One-time activation code (shared_a-…)', required: true },
+      address: { type: 'string', description: 'The mailbox address it unlocks', required: true },
+      gateway_url: { type: 'string', description: 'AIMail gateway URL (or set AIMAIL_URL)' },
+    },
+    handler: (_ctx, args) => activateAddressCode(args as unknown as ActivateAddressCodeArgs),
   },
 ]
