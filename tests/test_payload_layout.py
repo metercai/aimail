@@ -52,6 +52,15 @@ def test_host_bundles_keep_their_own_dests(prog):
 
 # ── payload state ────────────────────────────────────────────────
 
+def test_snapshot_version_falls_back_to_pyproject(tmp_path):
+    # bootstrap installs a tar snapshot (no .git): the stamp must carry the
+    # package version, not a meaningless "dev"
+    (tmp_path / "pysdk").mkdir()
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "aimailsdk"\nversion = "0.1.12rc2"\n', encoding="utf-8")
+    assert runtime_bundle._source_version(str(tmp_path / "pysdk"), "repo") == "0.1.12rc2"
+
+
 def test_payload_state_absent(tmp_path):
     st = runtime_bundle.payload_state("mcp", dest=str(tmp_path / "nothing"))
     assert st["present"] is False

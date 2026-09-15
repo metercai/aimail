@@ -134,12 +134,33 @@ def _source_version(root: str, kind: str) -> str:
             return getattr(aimail, "__version__", "0.0.0")
         except Exception:
             return "0.0.0"
-    # repo: git describe(失败则 dev)
+    # repo 形态优先 git describe(带 commit,漂移好定位)
     try:
         out = subprocess_git_describe(root)
-        return out
+        if out and out != "dev":
+            return out
     except Exception:
-        return "dev"
+        pass
+    # 快照形态(tar 解包,无 .git)→ 用包版本,别把无意义的 "dev" 写进戳
+    return _pyproject_version(root) or "dev"
+
+
+def _pyproject_version(root: str) -> str:
+    """<root>/../pyproject.toml 的 project.version(bootstrap 快照的版本来源)。"""
+    p = os.path.join(root, "..", "pyproject.toml")
+    try:
+        import tomllib
+        with open(p, "rb") as f:
+            return (tomllib.load(f).get("project") or {}).get("version", "") or ""
+    except Exception:
+        pass
+    try:                    # python 3.10 无 tomllib → [project] 段的首个 version
+        import re
+        with open(p, encoding="utf-8") as f:
+            m = re.search(r'^\[project\].*?^version\s*=\s*"([^"]+)"', f.read(), re.S | re.M)
+        return m.group(1) if m else ""
+    except Exception:
+        return ""
 
 
 def subprocess_git_describe(root: str) -> str:
