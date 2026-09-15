@@ -26,8 +26,8 @@ admin_allowed_ips = ["127.0.0.1", "::1"]
 
 # Headers passed through to the gateway.
 # x-aimail-email is required for push deliveries (missing header returns 400).
-# Others: x-webhook-signature, x-mailrelay-timestamp, content-type.
-# forward_headers = ["x-aimail-email", "x-webhook-signature", "x-mailrelay-timestamp", "content-type"]
+# Others: x-aimail-timestamp, x-webhook-signature, content-type.
+# forward_headers = ["x-aimail-email", "x-aimail-timestamp", "x-webhook-signature", "content-type"]
 
 # Logging
 # Default with NO [logging] section: logs go to /var/log/aimail-bridge.log —

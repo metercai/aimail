@@ -504,6 +504,15 @@ def patch_backend_app(backend_dir: str) -> bool:
     src = open(app_py, encoding="utf-8").read()
     changed = False
 
+    # 2a-0. 先清掉本补丁自身早前形态插入的旧锚点行(模块名改名前的形态)。
+    # 不做这步:app.py 同时含新旧两行 → import 旧模块失败,而幂等检查
+    # (看新名在不在)判定"已含"→ 安装报成功但宿主起不来。
+    for stale in ("    agentmail_inbound,\n",
+                  "    app.include_router(agentmail_inbound.router)\n"):
+        if stale in src:
+            src = src.replace(stale, "", 1)
+            changed = True
+
     # 2a. import 行:挂在 agents 之后(字母序相邻)
     import_marker = "    agents,\n"
     import_line = "    aimail_inbound,\n"

@@ -1,6 +1,6 @@
 # AIMail 安装与维护指南
 
-> 适用对象:`aimail` CLI(仓库 `cli/`)——在Agent所在机器上安装与维护 AIMail的命令行工具。运维的范围包括：本机的aimail基础环境、某个Agent系统实例的aimail相关配置，以及某个具体Agent的aimail相关配置。
+> 适用对象:`aimail` ——在Agent所在机器上安装与维护 AIMail的命令行工具。运维的范围包括：本机的aimail基础环境、某个Agent系统实例的aimail相关配置，以及某个具体Agent的aimail相关配置。
 
 ***
 
@@ -8,13 +8,10 @@
 
 1. [目标与范围](#1-目标与范围)
 2. [架构与本机布局](#2-架构与目录树)
-3. [安装](#3-安装)
-4. [维护工作流(stats → check → repair)](#4-维护工作流stats--check--repair)
-5. [达到的效果](#5-达到的效果)
-6. [速查](#6-速查)
-7. [故障排查](#7-故障排查)
-8. [机器迁移](#8-机器迁移)
-9. [契约与单一真源](#9-契约与单一真源)
+3. [系统安装](#3-系统安装)
+4. [维护工作流](#4-维护工作流)
+5. [命令速查](#5-速查)
+6. [故障排查](#6-故障排查)
 
 ***
 
@@ -26,25 +23,23 @@
 
 ### 三层运维模型
 
-| 层          | 工具                | 对象标识            | 职责                                      |
-| ---------- | ----------------- | --------------- | --------------------------------------- |
+| 层          | 工具                | 对象标识            | 职责                                |
+| ---------- | ----------------- | --------------- | --------------------------------- |
 | 本机基础环境     | bootstrap(自动)     | 宿主机系统           | 主目录/网关判定/bridge 就位(bootstrap 时完成) |
-| Agent平台对接  | `aimail install等` | Agent平台的根目录/SID | 激活/复用系统、绑定平台、绑定资源导入、合并 bridge 条目等       |
-| Agent 参数配置 | `aimail address`  | Agent 标识/地址     | 查看/设默认主地址名/地址改名/设安全员(manager)             |
-
-CLI **自身不带任何运行时资源**:`cli + SDK + 配置文件 = 完整对接`。
+| Agent平台对接  | `aimail install等` | Agent平台的根目录/SID | 激活/复用系统、绑定平台、绑定资源导入、合并 bridge 条目等 |
+| Agent 参数配置 | `aimail address`  | Agent 标识/地址     | 查看/设默认主地址名/地址改名/设安全员(manager)     |
 
 ### 平台安装对接
 
 平台适配全部由 SDK 承载,CLI 只按注册表(`cli/platforms.json`)调度:新增平台 = 注册表登记 + SDK 侧提供适配,不改 CLI 协议。各平台的安装动作、注册器与重启要求:
 
-| 平台 | 平台根 | 运行时 | 安装动作 | 重启要求 |
-|------|--------|--------|----------|----------|
-| Hermes | `~/.hermes` | Python(pysdk) | venv 存在时先在 venv 内 `pip install aimail`;SDK 安装展开 SKILL/toolsets/board 资源并给 webhook.py 注入 `PREPROCESS_REGISTRY`;注册主 agent(profiles/* 走 `register_profiles.py` 全量) | 重启 hermes gateway |
-| DeerFlow | `~/.deer-flow` | Python(pysdk) | SDK 安装 → `install-skill.sh` + `install-mcp.sh` → 注册(`manage.py register --all`) | 重启 8001(上游仓由补丁安装) |
-| OpenClaw | `~/.openclaw` | TS(tssdk) | `openclaw plugins install openclaw-aimail --force --accept-capabilities` → 注册(`openclaw aimail register`;全量 `register-all`) | 重启 openclaw gateway |
-| DSH | `~/.dsh` | TS(tssdk) | `dsh plugin --profile web add dsh-aimail`(需先有 `dsh` CLI) | 绑定由 dsh session(mail preset)自动 auto-bind |
-| Pi | `~/.pi` | TS(tssdk) | `pi install npm:pi-aimail` | 重启 pi |
+| 平台       | 平台根            | 运行时           | 安装动作                                                                                                                                                             | 重启要求                                     |
+| -------- | -------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| Hermes   | `~/.hermes`    | Python(pysdk) | venv 存在时先在 venv 内 `pip install aimail`;SDK 安装展开 SKILL/toolsets/board 资源并给 webhook.py 注入 `PREPROCESS_REGISTRY`;注册主 agent(profiles/\* 走 `register_profiles.py` 全量) | 重启 hermes gateway                        |
+| DeerFlow | `~/.deer-flow` | Python(pysdk) | SDK 安装 → `install-skill.sh` + `install-mcp.sh` → 注册(`manage.py register --all`)                                                                                  | 重启 8001(上游仓由补丁安装)                        |
+| OpenClaw | `~/.openclaw`  | TS(tssdk)     | `openclaw plugins install openclaw-aimail --force --accept-capabilities` → 注册(`openclaw aimail register`;全量 `register-all`)                                      | 重启 openclaw gateway                      |
+| DSH      | `~/.dsh`       | TS(tssdk)     | `dsh plugin --profile web add dsh-aimail`(需先有 `dsh` CLI)                                                                                                         | 绑定由 dsh session(mail preset)自动 auto-bind |
+| Pi       | `~/.pi`        | TS(tssdk)     | `pi install npm:pi-aimail`                                                                                                                                       | 重启 pi                                    |
 
 通用命令:
 
@@ -54,7 +49,7 @@ aimail install --home <平台根> --all-agents        # 平台根下全部 agent
 aimail install --home <平台根> --system-id <sid>   # 复用已有系统(不重新激活)
 ```
 
-对接完成的判定:`aimail welcome`(端到端邮件往返)+ `aimail ping`(全链路 ping/pong);断链用 `aimail check` 定位、`aimail repair` 修复。
+对接完成的判定: `执行 aimail welcome 后，安全员收到 agent 回复的欢迎邮件`。
 
 ### 系统维护闭环
 
@@ -83,95 +78,57 @@ aimail repair       →  按 check 发现执行幂等修复阶梯
 │       └── role_prompt/        # 地址级角色 prompt(优先)
 ├── logs/
 │   ├── aimail-bridge.log       # bridge 运行日志
-│   └── aimail.{addr}.log       # 每 agent 处理日志(不在 mail/ 下)
+│   └── aimail.{addr}.log       # 每 agent 处理日志
 ├── bridge/
 │   ├── aimail_bridge.toml      # bridge 配置(pull.systems 列表)
 │   ├── aimail_routes.toml      # 路由表:email → 本地入站端点
 │   ├── bin/aimail-bridge       # bridge 二进制
 │   └── bridge.pid
-├── mail/{addr}/{yyyymm}/in-*.json   # 快照:in-*(入站)/out-*(出站),调测用(TS 平台仅出站)
+├── mail/{addr}/{yyyymm}/in-*.json   # 快照:in-*(入站)/out-*(出站)
 ├── .system_raw_key/{sid}_admin.key  # 原始 admin key(仅集成时)
 └── .env                            # 机器级 env(自举安装)
 ```
 
-平台根指针(`.agentmail`,内容 `{system_id, email}`):
-`~/.hermes/.agentmail` 或 `profiles/*/.agentmail`(hermes)·
-`~/.openclaw/.agentmail`(openclaw)· `~/.pi/.agentmail`(pi)·
-`~/.dsh/.agentmail`(dsh)· `~/.deer-flow/.agentmail`(deerflow)。
-
 ### 网络模型
 
-agent 侧一律 **push**。网关解析为本机(`127.0.0.1`/`localhost`/本机 IP)→
-直连 push,无需 bridge;否则本机 `aimail-bridge` 以 pull 模式向网关轮询
-待发邮件,再按 `aimail_routes.toml` 投递给本地入站端点。是否需要 bridge
-是**机器级一次性判断**,在 bootstrap 时判定(install 沿用其结果)。
+- 系统级安装，agent 侧一律用 **push** 模式接受入站邮件。gateway在外网的透传问题则由bridge解决。bridge支持push/pull双模式，根据网络环境进行选择。
+- 地址级安装，agent 侧一律用 **pull** 模式拉取入站邮件。无需aimail cli和bridge介入参与。
+- 是否需要 bridge，以及bridge选择什么模式与gateway对接，属于本机环境的一部分，在 bootstrap 时一次性判定和设置。
 
 ### 三份权威配置文件
 
-| 文件                                                 | 内容                                                                                                                    | 写入方                                                                            |
-| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| 文件                                                 | 内容                                                                                                                                                             | 写入方                                                                            |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | `systems/{sid}/aimail_gateway.json`                | gateway\_url, admin\_key, system\_id, system\_name, manager\_address, system\_home, domain, webhook\_host(另含 save\_raw\_snapshots / default\_agent\_name,见 §9) | `install`/`reset` → setup\_system.py;`repair` 只补缺 `system_home`/`webhook_host` |
-| `systems/{sid}/{addr}/agentmail.json`              | 9 字段:email, gateway\_url, domain, system\_id, system\_name, manager\_address, api\_key, webhook\_url, webhook\_secret | 注册链(register\_profiles/register\_agent/bind\_agent)                            |
-| `bridge/aimail_bridge.toml` + `aimail_routes.toml` | pull 系统列表 + 路由表                                                                                                       | deploy\_bridge.py;`aimail bridge --system-id`                                  |
+| `systems/{sid}/{addr}/agentmail.json`              | 9 字段:email, gateway\_url, domain, system\_id, system\_name, manager\_address, api\_key, webhook\_url, webhook\_secret                                          | 注册链(register\_profiles/register\_agent/bind\_agent)                            |
+| `bridge/aimail_bridge.toml` + `aimail_routes.toml` | pull 系统列表 + 路由表                                                                                                                                                | deploy\_bridge.py;`aimail bridge --system-id`                                  |
 
-`aimail_gateway.json` 里的 `system_home` 是 **stats 平台标签的唯一来源**
-(按目录特征探测,绝不猜名)。
+`aimail_gateway.json` 里的 `system_home` 是 **stats 平台标签的唯一来源**。
 
 ***
 
-## 3. 安装
+## 3. 系统安装
 
-### 第 0 步 — 机器环境(5 分钟路径,零文件操作)
+### 第 1 步 — 本机环境准备(bootstrap + init)
+
+- 安装好自己的 aimail-gateway 服务，或去申请共享网关的服务。
+- 然后，将系统admin-key/product_code等相关信息设置环境变量，并执行AIMail的自举安装脚本，完成本地环境的初始化。例如：
 
 ```bash
-# 宿主已装 → export 环境变量(立即生效,无需建文件):
-export AIMAIL_URL=https://aimail.token.tm
-export AIMAIL_MANAGER_ADDRESS=you@example.com
-export AIMAIL_ADMIN_KEY=<key>          # 复用路径  或
-export AIMAIL_PRODUCT_CODE=<code>      # 新系统路径(+ AIMAIL_SYSTEM_NAME)
-
-# 自举(装 toolkit 到 ~/.aimail、symlink ~/.local/bin/aimail,
-# 并把上面 export 的 AIMAIL_* 固化进 ~/.aimail/.env):
+export AIMAIL_URL=<你的网关地址>                # 自主独立安装的网关地址，如 https://mail.example.com
+export AIMAIL_ADMIN_KEY=<admin key>           # 网关的管理key
+export AIMAIL_DOMAIN=<你的域名>                # 独享域名,如 example.com
+export AIMAIL_MANAGER_ADDRESS=you@example.com # 管理agent的默认安全员邮件地址，可每个agent不一样
 curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
 ```
-
-### 第 1 步 — 机器准备(bootstrap 自动完成)
-
-`curl|bash bootstrap` 构建 `~/.aimail`(0700)、磁盘研判并运行机器初始化
-(`scripts/machine_init.py`,原 `aimail init` 的独立脚本形态):锁定网关
-URL、判定本地直连(无 bridge)或远程 → 预装 bridge 二进制 + 骨架配置。
-bridge 的系统条目合并与启动在首个 `aimail install` 完成(本地网关直连
-场景全程无需 bridge)。
-
-> `aimail init` 不再注册为 CLI 子命令;其实现以独立脚本随 bootstrap
-> 安装流程执行——安装直接进第 2 步。
 
 ### 第 2 步 — `aimail install`(系统级,可重复,幂等)
 
 ```bash
-aimail install --home <平台根> [--system-id <sid>]
-              [--product-code <码> | --admin-key <key>]
-              [--manager <addr>] [--domain <域名>] [--system-name <标识名>]
+aimail install --home <平台根>  --system-id <sid> 
 ```
 
-- **新系统**(`--product-code`):服务端激活(码的服务端 claim 原子;同一码
-  重复提交在任何本地写入前即失败)。
-- **已有系统**(`--admin-key` 或已存配置):仅重置/固化本机连接配置,**不
-  重新激活**——绝不二次消耗激活码。
-- 完整链路:激活/复用 → 域名确保 → bridge 部署(按 sid merge 条目,**复用
-  已有 bridge key**)→ 平台绑定(hermes:SDK 补丁+profile+skill;openclaw/
-  pi:agent 注册+指针;dsh:插件;deerflow:SDK reconcile+补丁)。
-- 重复执行安全:每步存在性检查或按 system\_id 合并,不会产生孤儿凭证。
-
-### 第 3 步 — 平台侧绑定
-
-hermes/openclaw/pi/deerflow 在 install 内完成绑定。dsh 的 session 惰性
-绑定:`dsh-aimail` 首次使用自动绑(一 session ⇔ 一地址,存在性守卫)。
-注意:无 --session-id 的手工注册落盘的占位 session_id 不会被真实 dsh
-session 解析——每 session 地址由插件惰性自动绑定派生。
-CLI 侧等价注册:`aimail reset -s <sid>`(注册链重跑 → dsh-aimail register-cli)。
-
-### 第 4 步 — 验证
+### 第 3 步 — 闭环验证
 
 ```bash
 aimail check --system-id <sid>     # 全面体检(见 §4)
@@ -179,12 +136,9 @@ aimail ping --system-id <sid>      # ping → pong 闭环(权威判据 = agent �
 aimail welcome --system-id <sid>   # welcome 端到端(API 模式,noreply@{网关域} 发件)
 ```
 
-env 优先级:**CLI 参数 > shell 环境变量 >** **`~/.aimail/.env`** **> 仓库** **`.env`** **>
-内置默认**;`.env` 自动加载,常用值只需配置一次。
-
 ***
 
-## 4. 维护工作流(stats → check → repair)
+## 4. 维护工作流
 
 ### 4.1 `aimail stats` — 本机对接总览(只读)
 
@@ -207,7 +161,7 @@ aimail stats -a     # 全面视图:健康标注 + 断链系统 + 本机平台段
 | --------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 配置文件      | L0    | `aimail_gateway.json` 完备(gateway\_url/admin\_key/`system_home`/pointer)· `aimail_bridge.toml` 结构(mode、pull 条目、admin\_key 与 gateway.json 比对)· `agentmail.json` 九字段完备 + 内部一致(system\_id=sid、gateway\_url 同源、domain=email 后缀) |
 | 网关/Bridge | L1/L2 | 网关 health + SMTP :25 + whoami scope;bridge 进程 + pull 路径 + 路由覆盖(每个 agent 的 email 必须有路由条目)                                                                                                                                   |
-| 平台运行时资源   | L2r   | hermes:webhook.py `PREPROCESS_REGISTRY` + profiles.py `AimailGateway` 补丁标记、toolsets、skills、board/role\_prompt/common.md · openclaw:插件已装 + skills · deerflow:app.py `aimail_inbound` 双锚点 · pi:指针匹配                           |
+| 平台运行时资源   | L2r   | hermes:webhook.py `PREPROCESS_REGISTRY` + profiles.py `AimailGateway` 补丁标记、toolsets、skills、board/role\_prompt/common.md · openclaw:插件已装 + skills · deerflow:app.py `aimail_inbound` 双锚点 · pi:指针匹配                          |
 | agent 配置  | L3    | 各平台适配器:name\&api\_key / webhook secret / skill / toolset / register                                                                                                                                                        |
 | 链路        | L4    | 对真实入站端点探测——**404 = 路由未注册 = FAIL**;远端(非回环)目标本机不可探测 → PASS 附注,绝不误报 FAIL                                                                                                                                                      |
 
@@ -220,7 +174,7 @@ aimail repair [--system-id <sid>] [--home <root>] [--deep] [--dry-run]
 `--dry-run` 只列计划。阶梯(每步幂等):
 
 1. bridge 存活确保(死了则拉起)— 2. `bridge --system-id` 重刷路由 —
-3. 网关 webhook 配对修复(证据驱动)— 4. gateway 配置回填
+2. 网关 webhook 配对修复(证据驱动)— 4. gateway 配置回填
    (`system_home`/`webhook_host`,只补缺、绝不覆盖)— 5. 平台指针重建
    (仅当平台根确定且指针缺失)— 6. 运行时资源重部署
    (`python -m aimail.install install --type …`,幂等;平台在远端 → 跳过并
@@ -257,17 +211,7 @@ add(domain)· `-t` status(renew)
 
 ***
 
-## 5. 达到的效果
-
-能力要点:**stats** 按事实标注健康(如缺 `system_home` 显 `[?]`、指针缺失);
-**check** 能抓声明 webhook 失效、路由缺失、bridge pull admin\_key 漂移等真
-问题;**repair** 修净本机可修项并如实保留宿主侧 FAIL;重复 **install** 不产生
-孤儿 bridge key、绝不二次激活。净效果:**stats 指方向 → check 精定位 →
-repair 修复 → 复检确认**,残余红项均为真实宿主侧动作。
-
-***
-
-## 6. 速查
+## 5. 命令速查
 
 子命令按场景分组(`aimail --help` 即此布局):
 
@@ -290,7 +234,7 @@ logrotate(模式见仓库历史文档)。
 
 ***
 
-## 7. 故障排查
+## 6. 故障排查
 
 ### stats 显示 `[?]` / check FAIL `config/system_home`
 
@@ -339,60 +283,3 @@ webhook 不一致。
 
 ***
 
-## 8. 机器迁移
-
-邮件/存储都在网关;机器只留本机配置 + 快照 + bridge。
-
-```bash
-# 1. 旧机器——收集凭据:
-ls ~/.aimail/.system_raw_key/          # {sid}_admin.key
-ls ~/.aimail/systems/{sid}/            # aimail_gateway.json + agents
-
-# 2. 新机器——机器准备(bootstrap 自动;CLI 场景跳过,install 自部署 bridge):
-git clone https://github.com/metercai/aimail.git && cd aimail
-cp .env.example .env                   # 仓库根模板;填 AIMAIL_URL + AIMAIL_MANAGER_ADDRESS
-set -a; . ./.env; set +a               # bootstrap 读 shell 环境,再固化到 ~/.aimail/.env
-scripts/bootstrap.sh                   # 机器准备(含 scripts/machine_init.py)
-# (无 init 步骤;下一步 install 用 --system-id 复用系统,不重新激活)
-
-# 3. 恢复凭据:
-mkdir -p ~/.aimail/.system_raw_key && cp <旧>/{sid}_admin.key ~/.aimail/.system_raw_key/
-export AIMAIL_ADMIN_KEY=$(cat ~/.aimail/.system_raw_key/{sid}_admin.key)
-
-# 4. 复用系统(不重新激活):
-aimail install --home <平台根> --system-id <sid>
-
-# 5. 验证:
-aimail check --system-id <sid> && aimail welcome --system-id <sid>
-```
-
-有 admin key 时 `install` 永不二次激活(reuse 路径),迁移不消耗激活码。
-
-***
-
-## 9. 契约与单一真源
-
-Python CLI 代码引用以下契约;**TS SDK(`tssdk/`)是唯一真相源**——只引用,
-不重定义。
-
-**入站端点**(各平台,`POST`):openclaw `:18789/aimail/inbound` · pi
-`:9101/aimail/inbound` · dsh `:9099/aimail/inbound` · deerflow
-`:8001/aimail/inbound` · hermes `:8646/webhooks/aimail-inbound`(端口取
-profile 配置)。本地入站 URL 就是 `agentmail.json` 存的 `webhook_url`,
-也是 bridge 路由表的目标。
-
-**`aimail_gateway.json`**(系统级网关连接配置):`gateway_url`, `admin_key`,
-`system_id`, `system_name`, `manager_address`, `domain`, `system_home`,
-`webhook_host`, `save_raw_snapshots`(恒写入,默认 `true`),
-`default_agent_name`(可选值字段,`address default` 写入)。
-
-**`agentmail.json`** 9 必备字段:`email`, `gateway_url`, `domain`,
-`system_id`, `system_name`, `manager_address`, `api_key`, `webhook_url`
-(本地入站端点——bridge 路由唯一信任源), `webhook_secret`。
-
-**地址语义**(共享域):agent 地址 = `{agent}.{system_name}@{共享域}`
-(如 `agent.xianlin@aimail.token.tm`、`pi.xianlin@…`,经 `email_for_agent`
-派生);系统标识名(`system_name`)在同一共享域内**全局唯一**(领取占用 +
-激活 UNIQUE + 地址注册 UNIQUE 三层防线)——两个不同系统不可能在同一共享
-域用同一个标识名。非共享系统地址 = `{agent}@{裸域}`,可持有多个裸域
-(任一个都可承载续期码领取)。

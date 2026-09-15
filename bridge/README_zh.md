@@ -51,8 +51,7 @@ TLS 栈 —— rustls + ring crypto。零 OpenSSL，零 native-tls，零系统�
 - **每 IP 限速** — 可配置 rps 上限，滑动窗口算法（默认 30）
 - **Body 大小限制** — 可配置上限（默认 20 MB），防止内存耗尽
 - **Header 过滤** — 只转发业务 header：`x-aimail-email`（push 必需请求头，
-  缺失返回 400）、`x-webhook-signature`、
-  `x-mailrelay-timestamp`、`content-type`）
+  缺失返回 400）、`x-aimail-timestamp`、`x-webhook-signature`、`content-type`）
 - **优雅关闭** — SIGINT/SIGTERM 排空进行中请求
 - **连接池复用** — reqwest client 全局复用，keep-alive 长连接
 - **HSTS** — 发送 HSTS 头（端到端行为以实测为准）
