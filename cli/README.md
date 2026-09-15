@@ -80,23 +80,6 @@ host-side items remain.
 
 ## 2. Architecture & Local Layout
 
-### This directory (cli/)
-
-```
-cli/
-├── aimail              # CLI entry: subcommand dispatch, argument parsing, flow orchestration
-├── platforms.json      # platform registry: feature detection + per-platform install action
-├── setup_system.py     # system activation / config write (install/reset)
-├── check_status.py     # full health exam implementation (L0-L4; repair reuses its checks)
-├── repair.py           # idempotent fix ladder
-├── ping_test.py        # ping end-to-end (ping → pong)
-├── send_welcome.py     # welcome end-to-end (API mode)
-├── request_persona.py  # persona loop trigger
-├── deploy_bridge.py    # bridge config, startup, route push
-├── runtime_core.py     # repo-side runtime core loader
-└── runtime_bundle.py   # runtime bundle install & verification
-```
-
 ### Directory tree (`~/.aimail`)
 
 ```
@@ -141,11 +124,39 @@ cli/
 `system_home` in the gateway config is the **only** source of the platform
 label shown by `stats`.
 
+`aimail_gateway.json` (system level) fields:
+
+| Field | Meaning |
+|-------|---------|
+| gateway_url | gateway address; a loopback address means direct local push, otherwise inbound goes through the bridge |
+| admin_key | system-level credential: install derives a restricted agent_admin key and stores it here; the raw key stays at `.system_raw_key/{sid}_admin.key` |
+| system_id | system identifier (SID) |
+| system_name | system name; the source of the agent address prefix on shared domains |
+| manager_address | default manager address of the system |
+| system_home | platform root (e.g. `~/.hermes`) |
+| domain | system domain (dedicated bare domain or shared domain) |
+| webhook_host | tri-state switch for gateway → machine callbacks: `IP:port` = bridge present, push; empty string = bridge present, pull; field absent = no bridge, call the local endpoint directly |
+| save_raw_snapshots | keep a raw snapshot of every mail (default true) |
+| default_agent_name | default main agent name (written by `aimail address -d`) |
+
+`agentmail.json` (address level, the only trusted source) fields:
+
+| Field | Meaning |
+|-------|---------|
+| email | agent address (full address; its cleaned form is the directory name) |
+| gateway_url | gateway address |
+| domain | domain of the address (= email suffix) |
+| system_id / system_name | owning system |
+| manager_address | manager of this address |
+| api_key | server-side key of this address (issued by the registration chain) |
+| webhook_url | local inbound endpoint (the only trusted source for the bridge route) |
+| webhook_secret | inbound signing secret (gateway signs → agent verifies) |
+
 ---
 
 ## 3. Installation
 
-### Step 1 — machine environment (bootstrap + init)
+### Step 1 — machine environment (bootstrap)
 
 - Install your own aimail-gateway service, or apply for a shared-gateway service.
 - Then set the system admin-key / product_code and related values as
@@ -275,7 +286,7 @@ auto-probe; pointer ownership is the next fallback.
 Logs: bridge → `~/.aimail/logs/aimail-bridge.log`; per-agent →
 `~/.aimail/logs/aimail.{addr}.log` (JSON lines; `dir` = ping_intercepted /
 pong_sent / pong_returned / inbound / outbound). No auto-rotation —
-use logrotate with the patterns from this repo's older docs if needed.
+use logrotate if needed.
 
 ---
 
