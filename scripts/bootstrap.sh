@@ -80,7 +80,7 @@ else
   say "fetching aimail@$REF …"
   curl -fsSL --retry 2 --retry-delay 2 --connect-timeout 15 --max-time 180 \
     "$DL" -o "$TMP_TGZ" || die "download failed: $DL"
-  mkdir -p "$TOOLKIT"
+  mkdir -p "$PROG"
   EXTRACTED="$(mktemp -d /tmp/aimail-x-XXXXXX)"
   tar -xzf "$TMP_TGZ" -C "$EXTRACTED" || die "extract failed"
   SRC_NEW="$EXTRACTED/aimail-$REF"
