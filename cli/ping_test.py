@@ -62,6 +62,14 @@ except Exception:
             return f"{base}.{system_name}@{domain}"
         return f"{base}@{domain}"
 
+def _is_readable_file(p) -> bool:
+    """True if p is a readable regular file — permission/IO errors count as absent."""
+    try:
+        return p.is_file()
+    except OSError:
+        return False
+
+
 def _main_agent_email(cfg: dict) -> str:
     """主 agent 地址:default_agent_name(或首个本地绑定)为真源;
     无本地绑定时回退别名归一 agent(共享域自适应)。"""
@@ -77,7 +85,7 @@ def _main_agent_email(cfg: dict) -> str:
     if sid and sys_dir.is_dir():
         for d in sorted(sys_dir.iterdir()):
             aj = d / "agentmail.json"
-            if aj.is_file():
+            if _is_readable_file(aj):
                 try:
                     e = json.loads(aj.read_text()).get("email", "")
                     if e:
@@ -161,7 +169,7 @@ def _smtp_send_ping(gw_url: str, api_key: str, email: str,
         banner = s.recv(4096).decode(errors="replace").strip()
         if not banner.startswith("220"):
             return f"SMTP banner failed: {banner}"
-        resp = _smtp_cmd(s, "EHLO amail-ping-test")
+        resp = _smtp_cmd(s, "EHLO aimail-ping-test")
         # 生产网关对 auth.local 发件人强制 STARTTLS(550 ... requires TLS);
         # 服务器通告 STARTTLS 则升级 TLS,升级后按 RFC 3207 重新 EHLO
         # (会话扩展在 STARTTLS 后重置)。证书校验严格(网关证书 ACME 管理)。
@@ -173,7 +181,7 @@ def _smtp_send_ping(gw_url: str, api_key: str, email: str,
                 s = ssl.create_default_context().wrap_socket(s, server_hostname=host)
             except ssl.SSLError as e:
                 return f"STARTTLS TLS handshake failed: {e}"
-            _smtp_cmd(s, "EHLO amail-ping-test")
+            _smtp_cmd(s, "EHLO aimail-ping-test")
         resp = _smtp_cmd(s, f"MAIL FROM:<{auth_from}>")
         if not resp.startswith("250"):
             return f"MAIL FROM failed: {resp}"
@@ -279,7 +287,7 @@ def main() -> int:
         return 1
 
     mail_dir = MAIL_DIR / _clean_agent_dir_name(email)          # 快照目录(mail 数据)
-    amail_log = AIMAIL_HOME / "logs" / f"aimail.{_clean_agent_dir_name(email)}.log"
+    aimail_log = AIMAIL_HOME / "logs" / f"aimail.{_clean_agent_dir_name(email)}.log"
 
     # ── 识别 gateway 版本 → 选择 SMTP 入站方式 ──
     edition = _detect_edition(gw_url)
@@ -319,8 +327,8 @@ def main() -> int:
 
     while time.time() < deadline:
         # ── 三阶段事件:aimail.log(唯一权威判定,用户定调)──
-        if amail_log.exists():
-            for line in reversed(amail_log.read_text().splitlines()):
+        if aimail_log.exists():
+            for line in reversed(aimail_log.read_text().splitlines()):
                 if ping_id not in line:
                     continue
                 try:
@@ -352,7 +360,7 @@ def main() -> int:
         print(f"  ✗ Ping intercepted, but pong not returned within {args.timeout}s")
         result_ok = False
     else:
-        print(f"  ✗ No ping/pong events in {amail_log} within {args.timeout}s")
+        print(f"  ✗ No ping/pong events in {aimail_log} within {args.timeout}s")
         result_ok = False
     if not result_ok:
         return 1

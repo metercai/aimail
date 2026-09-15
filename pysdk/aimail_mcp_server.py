@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""amail_mcp_server.py — 共享 aimail MCP server（stdio,兜底服务）。
+"""aimail_mcp_server.py — 共享 AIMail MCP server（stdio,兜底服务）。
 
 暴露 Hermes 等价工具集（结构化调用,替代 CLI 方式）:
   send_mail / manage_contacts / contact_profile / set_contact_profile
@@ -40,7 +40,7 @@ if _env_identity:
 else:
     _tools._AGENT_IDENTITY_OVERRIDE = "unknown/unknown"
     print(
-        "[amail_mcp] WARNING: AIMAIL_AGENT_IDENTITY not set — "
+        "[aimail_mcp] WARNING: AIMAIL_AGENT_IDENTITY not set — "
         "X-AIMail-Agent will report unknown/unknown. Set it in the "
         "MCP client config (see scripts/<platform>/install-mcp.sh).",
         file=sys.stderr,
@@ -188,6 +188,12 @@ def tool_board_members(args: dict) -> dict:
     return _safe(fn)
 
 
+def tool_board_roles(args: dict) -> dict:
+    def fn():
+        return {"roles": _board.board_roles(args.get("board", ""), args.get("role", ""))}
+    return _safe(fn)
+
+
 def tool_set_public_whoami(args: dict) -> dict:
     def fn():
         config = _tools._load_profile_config()
@@ -277,6 +283,10 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {
          "board": {"type": "string", "description": "Board ID (b_ prefix)"},
          "email": {"type": "string", "description": "Filter by member email"}}, "required": ["board"]}},
+    {"name": "board_roles", "description": "List a board's role permissions (optionally one role's members and verbs).",
+     "inputSchema": {"type": "object", "properties": {
+         "board": {"type": "string", "description": "Board ID (b_ prefix)"},
+         "role": {"type": "string", "description": "Filter by role name"}}, "required": ["board"]}},
     {"name": "set_public_whoami", "description": "Set the public identity card returned for stranger WHOAMI queries.",
      "inputSchema": {"type": "object", "properties": {
          "text": {"type": "string", "description": "Public identity text"}}, "required": ["text"]}},
@@ -304,6 +314,7 @@ HANDLERS = {
     "board_task_show": tool_board_task_show,
     "board_heartbeat": tool_board_heartbeat,
     "board_members": tool_board_members,
+    "board_roles": tool_board_roles,
     "set_public_whoami": tool_set_public_whoami,
     "activate_address_code": tool_activate_address_code,
 }
@@ -330,7 +341,7 @@ def main() -> int:
             write_msg({"jsonrpc": "2.0", "id": mid, "result": {
                 "protocolVersion": params.get("protocolVersion", "2024-11-05"),
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "amail-mcp", "version": "1.0.0"},
+                "serverInfo": {"name": "aimail-mcp", "version": "1.0.0"},
             }})
         elif method == "notifications/initialized":
             continue

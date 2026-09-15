@@ -2,7 +2,7 @@
 
 > Applies to the `aimail` CLI (repo `cli/`) — the single on-machine tool for
 > installing, operating and maintaining the AIMail link between an agent
-> platform and the amail gateway. Brand rule: **aimail** is the external
+> platform and the aimail gateway. Brand rule: **aimail** is the external
 > name (CLI, gateway, config file); **agentmail** is the agent-internal name
 > (tools/skills/`agentmail.json`).
 
@@ -43,6 +43,33 @@ The CLI itself carries **no runtime resources**: `cli + one SDK + config file`
 is a complete integration. The CLI delegates platform patching to the SDKs
 (`python -m aimail.install install --type hermes|deerflow`).
 
+### Platform Integration
+
+All platform adaptation lives in the SDKs; the CLI only dispatches through the
+registry (`cli/platforms.json`). Adding a platform = one registry entry + SDK-side
+adapter, with no change to the CLI protocol. Per-platform install action, registrar
+and restart requirement:
+
+| Platform | Platform root | Runtime | Install action | Restart |
+|----------|---------------|---------|----------------|---------|
+| Hermes | `~/.hermes` | Python (pysdk) | When the venv exists, `pip install aimail` inside it first; the SDK install expands SKILL/toolsets/board resources and injects `PREPROCESS_REGISTRY` into webhook.py; registers the primary agent (`register_profiles.py` for every profile) | restart the hermes gateway |
+| DeerFlow | `~/.deer-flow` | Python (pysdk) | SDK install → `install-skill.sh` + `install-mcp.sh` → register (`manage.py register --all`) | restart 8001 (upstream repo installed by patch) |
+| OpenClaw | `~/.openclaw` | TS (tssdk) | `openclaw plugins install openclaw-aimail --force --accept-capabilities` → register (`openclaw aimail register`; `register-all` for all) | restart the openclaw gateway |
+| DSH | `~/.dsh` | TS (tssdk) | `dsh plugin --profile web add dsh-aimail` (needs the `dsh` CLI first) | binding is auto-bound when a dsh session (mail preset) starts |
+| Pi | `~/.pi` | TS (tssdk) | `pi install npm:pi-aimail` | restart pi |
+
+Common commands:
+
+```bash
+aimail install --home <platform-root>                     # single agent
+aimail install --home <platform-root> --all-agents        # every agent under the root (multi-profile platforms)
+aimail install --home <platform-root> --system-id <sid>   # reuse an existing system (no re-activation)
+```
+
+Integration is verified by `aimail welcome` (end-to-end mail round trip) plus
+`aimail ping` (full-chain ping/pong); locate broken links with `aimail check`
+and fix them with `aimail repair`.
+
 ### Maintenance loop (the point of this guide)
 
 ```
@@ -77,7 +104,7 @@ host-side items remain.
 │   ├── aimail_routes.toml      # route table: email → local inbound endpoint
 │   ├── bin/aimail-bridge       # bridge binary
 │   └── bridge.pid
-├── mail/{addr}/{yyyymm}/in-*.json   # inbound snapshots (debugging)
+├── mail/{addr}/{yyyymm}/in-*.json   # snapshots: in-* (inbound) / out-* (outbound), for debugging (TS platforms: outbound only)
 ├── .system_raw_key/{sid}_admin.key  # raw admin key (integration only)
 └── .env                            # machine-level env (bootstrapped installs)
 ```
@@ -100,7 +127,7 @@ machine-level decision made during bootstrap (install reuses its result).
 
 | File | Content | Written by |
 |------|---------|-----------|
-| `systems/{sid}/aimail_gateway.json` | gateway_url, admin_key, system_id, system_name, manager_address, system_home, domain, webhook_host | `install`/`reset` → setup_system.py; `repair` backfills `system_home`/`webhook_host` |
+| `systems/{sid}/aimail_gateway.json` | gateway_url, admin_key, system_id, system_name, manager_address, system_home, domain, webhook_host (+ save_raw_snapshots / default_agent_name, see §9) | `install`/`reset` → setup_system.py; `repair` backfills `system_home`/`webhook_host` |
 | `systems/{sid}/{addr}/agentmail.json` | 9 fields: email, gateway_url, domain, system_id, system_name, manager_address, api_key, webhook_url, webhook_secret | registration chain (platform registry: pysdk entries / TS register-cli) |
 | `bridge/aimail_bridge.toml` + `aimail_routes.toml` | pull systems + route table | deploy_bridge.py; `aimail bridge --system-id` |
 
@@ -210,7 +237,7 @@ resources → agent config → delivery links**.
 |-------|-------|------------------|
 | Config files | L0 | `aimail_gateway.json` completeness (gateway_url/admin_key/`system_home`/pointer) · `aimail_bridge.toml` structure (mode, pull entries, admin_key match vs gateway.json) · `agentmail.json` 9-field completeness + internal consistency (system_id=sid, gateway_url same, domain=email suffix) |
 | Gateway / Bridge | L1/L2 | gateway health + SMTP :25 + whoami scope; bridge process + pull path + routes coverage (every agent email must have a route entry) |
-| Platform runtime resources | L2r | hermes: webhook.py `PREPROCESS_REGISTRY` + profiles.py `AmailGateway` patch markers, toolsets, skills, board/role_prompt/common.md · openclaw: plugin installed + skills · deerflow: app.py `aimail_inbound` anchors · pi: pointer match |
+| Platform runtime resources | L2r | hermes: webhook.py `PREPROCESS_REGISTRY` + profiles.py `AimailGateway` patch markers, toolsets, skills, board/role_prompt/common.md · openclaw: plugin installed + skills · deerflow: app.py `aimail_inbound` anchors · pi: pointer match |
 | Agent config | L3 | per-platform adapter: name&api_key / webhook secret / skill / toolset / register |
 | Delivery links | L4 | hook probes against the real inbound endpoints — **404 = route not registered = FAIL**; remote (non-loopback) targets are not probeable locally → PASS-with-note, never a false FAIL |
 
@@ -282,7 +309,7 @@ item being a genuine host-side action.
 Subcommands grouped by scenario (`aimail --help` shows this):
 
 ```
-setup      init  install  uninstall  reset
+setup      install  ensure-system  uninstall  reset
 operate    stats  renew  version
 diagnose   check  repair  ping  welcome  persona
 resources  domain  address  bridge
@@ -329,8 +356,9 @@ aimail repair --system-id <sid> --home <platform-root>
 gateway not restarted after plugin install, or stale endpoint path).
 404 on a probe is now a real FAIL by design.
 
-**Fix:** openclaw: `openclaw plugins install npm-pack:<openclaw-aimail.tgz>
---force` + restart the gateway; hermes: re-run the SDK install
+**Fix:** openclaw: `openclaw plugins install openclaw-aimail
+--force --accept-capabilities` + restart the gateway (offline/local tarball:
+`npm-pack:<tgz> --force`); hermes: re-run the SDK install
 (`python -m aimail.install install --type hermes --home ~/.hermes`) and
 restart the profile gateway; then `aimail repair --system-id <sid>`.
 
@@ -375,8 +403,10 @@ ls ~/.aimail/systems/{sid}/            # aimail_gateway.json + agents
 
 # 2. NEW machine — machine environment once:
 git clone https://github.com/metercai/aimail.git && cd aimail
-cp docs/.env.example .env              # AIMAIL_URL + AIMAIL_MANAGER_ADDRESS
-# (machine init runs inside bootstrap as scripts/machine_init.py)
+cp .env.example .env                   # repo-root template; fill AIMAIL_URL + AIMAIL_MANAGER_ADDRESS
+set -a; . ./.env; set +a               # bootstrap reads the shell env, then persists it to ~/.aimail/.env
+scripts/bootstrap.sh                   # machine prep (runs scripts/machine_init.py inside)
+# (no init step; the next step reuses the system via --system-id, no re-activation)
 
 # 3. Restore credentials:
 mkdir -p ~/.aimail/.system_raw_key && cp <old>/{sid}_admin.key ~/.aimail/.system_raw_key/

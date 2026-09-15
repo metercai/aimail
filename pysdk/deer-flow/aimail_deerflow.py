@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
-"""amail_base.py — DeerFlow 适配层（第三实例,2026-08-18）。
+"""aimail_deerflow.py — DeerFlow 适配层。
 
-与 OpenClaw amail_base.py 同构（三件套）:
+与 aimail_hermes 同构（三件套）:
   ① 平台实现: config 加载 / profile 目录 / set_agent_context
   ② 注入点赋值 + 能力开关: PERSONA_SUPPORTED = False
   ③ 平台注册: 身份注入(deerflow/{ver})
 
 共享核心(pysdk/aimail_base)已提供平台无关 set_agent_context
-(按 agentmail.json 布局扫描),本适配层在 OpenClaw 基础上仅做:
-  - 转发共享函数(与 OpenClaw 同款)
+(按 agentmail.json 布局扫描),本适配层仅做:
+  - 转发共享函数(与 Hermes 同款)
   - 注入 DeerFlow 身份(X-AIMail-Agent: deerflow/...)
 
-入站(2026-08-18 重构):预处理并入 DeerFlow 本地 gateway(8001)进程,
-aimail_inbound router 直接 import 本适配层获得注入点;独立接收进程
-amail_deerflow_bridge.py(8798)已退役删除——链路 gateway→bridge→
-8001 /aimail/inbound(验签+预处理+start_run 投递),仿 Hermes 进程内预处理。
+入站:预处理在 DeerFlow 本地 gateway(8001)进程内完成,
+aimail_inbound router 直接 import 本适配层获得注入点;
+链路 gateway→bridge→8001 /aimail/inbound(验签+预处理+start_run 投递)。
 
 布局: ~/.aimail/systems/{sid}/{cleaned_addr}/agentmail.json(共享)
 """
@@ -27,7 +26,7 @@ from pathlib import Path
 from typing import Optional
 
 # ── aimail 运行时核心定位(bundle / site-packages / 仓库 dev;不再依赖仓库路径)──
-def _amail_bootstrap():
+def _aimail_bootstrap():
     """定位 aimail 运行时核心,装配 sys.path。"""
     import importlib.util as _ilu
     _here = os.path.dirname(os.path.abspath(__file__))
@@ -47,7 +46,7 @@ def _amail_bootstrap():
     raise ImportError("aimail runtime core not found — set AIMAIL_RUNTIME_DIR")
 
 
-_amail_bootstrap()
+_aimail_bootstrap()
 
 import aimail_base as _ab          # noqa: E402  (共享核心)
 import aimail_tools as _tools      # noqa: E402  (X-AIMail-Agent 身份注入)
@@ -150,7 +149,7 @@ _ab._PROFILE_DIR_RESOLVER = _deerflow_profile_dir
 # ── 转发共享核心(复用面,与 OpenClaw 同款)────────────────────────
 preprocess_mail_payload = _ab.preprocess_mail_payload
 process_inbound_mail = _ab.process_inbound_mail
-parse_amail_persona = _ab.parse_amail_persona
+parse_aimail_persona = _ab.parse_aimail_persona
 _extract_board_gateway = _ab._extract_board_gateway
 register_board_gateway = _ab._register_board_gateway
 store_board_credential = _ab._store_board_credential

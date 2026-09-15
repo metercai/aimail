@@ -1,19 +1,18 @@
 """aimail_inbound.py — AIMail 入站端点(2026-08-18 重构)。
 
-预处理并入 DeerFlow 本地 gateway 进程(仿 Hermes 进程内预处理),取代
-独立接收进程 amail_deerflow_bridge.py(8798,已退役删除)。
+预处理并入 DeerFlow 本地 gateway 进程(仿 Hermes 进程内预处理)。
 
 链路:
   aimail-gateway → aimail-bridge(透明代理,跨网 pull / 同内网直连)
     → POST /aimail/inbound
       → HMAC 验签(X-Webhook-Signature, per-address webhook_secret)
-      → 共享 process_inbound_mail(aimail 适配层 amail_base)
+      → 共享 process_inbound_mail(aimail 适配层 aimail_deerflow)
       → ping/pong 拦截 → 200 吞掉(不触发 agent)
       → 未拦截 → start_run 内部投递(thread = uuid5("aimail", email),
         会话按地址稳定;assistant_id 从 agentmail.json 读)
       → 立即 200(bridge 即刻 ack pending,agent 后台处理)
 
-依赖:aimail 仓库(pysdk/aimail_base + tools/deer-flow/amail_base)
+依赖:aimail 仓库(pysdk/aimail_base + pysdk/deer-flow/aimail_deerflow)
 按共享布局落 agentmail.json(~/.aimail/systems/{sid}/{cleaned_addr}/)。
 """
 from __future__ import annotations
@@ -34,7 +33,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/aimail", tags=["aimail"])
 
 # ── aimail 运行时核心定位(bundle / site-packages / 仓库 dev;不再依赖仓库路径)──
-def _amail_bootstrap():
+def _aimail_bootstrap():
     """定位 aimail 运行时核心,装配 sys.path。"""
     import importlib.util as _ilu
     _here = os.path.dirname(os.path.abspath(__file__))
@@ -54,7 +53,7 @@ def _amail_bootstrap():
     raise ImportError("aimail runtime core not found — set AIMAIL_RUNTIME_DIR")
 
 
-_amail_bootstrap()
+_aimail_bootstrap()
 
 # 共享核心(aimail_home 等):_find_agent_config 用 _ab.aimail_home()
 # 解析 home,必须 import aimail_base——缺了会 NameError。
@@ -62,7 +61,7 @@ import aimail_base as _ab  # noqa: E402
 
 
 def _verify_hmac(secret: str, body: bytes, signature: str) -> bool:
-    """对照 amail webhook.rs sign_payload:HMAC-SHA256(body, secret),hex 比较。"""
+    """对照 aimail gateway webhook.rs sign_payload:HMAC-SHA256(body, secret),hex 比较。"""
     if not secret or not signature:
         return False
     expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
@@ -106,7 +105,7 @@ async def aimail_inbound(request: Request) -> JSONResponse:
 
     # ── 1. 收件地址 + 验签(per-address webhook_secret)──
     # 路由目标 = X-AIMail-Email 头(网关/bridge 按每份投递目标注入的 rcpt 地址;
-    # amail-gateway 只写 X-AIMail-Email)。payload.to 是过滤后的全量列表
+    # aimail-gateway 只写 X-AIMail-Email)。payload.to 是过滤后的全量列表
     # (外投在前),to[0] 常为外部地址,不能作为路由依据——仅当头缺失时兜底。
     email = request.headers.get("X-AIMail-Email", "")
     if not email and isinstance(payload, dict):
@@ -125,9 +124,9 @@ async def aimail_inbound(request: Request) -> JSONResponse:
         logger.warning("aimail: bad signature for %s", email)
         return JSONResponse({"error": "bad signature"}, status_code=401)
 
-    # ── 2. 共享入站预处理(与 Hermes/OpenClaw 同一实现)──
+    # ── 2. 共享入站预处理(与 Hermes 同一实现)──
     # 身份解析 → persona 归一 → 富化 → 附件落盘 → 存储;最后一步 ping/pong 拦截。
-    import amail_base as _base  # 适配层:注入点赋值 + 身份注入 + 转发共享函数
+    import aimail_deerflow as _base  # 适配层:注入点赋值 + 身份注入 + 转发共享函数
 
     agent_id = cfg.get("agent_id", "") or "default"
     try:
@@ -146,7 +145,7 @@ async def aimail_inbound(request: Request) -> JSONResponse:
 
     # ── 3. 内部投递:start_run(后台任务,立即返回)──
     # 完整渲染(共享 render_message = json.dumps(payload) 语义,与 Hermes/
-    # OpenClaw 一致):agent 需要 sender/recipients/my_amail_addr 才知道回复谁。
+    # OpenClaw 一致):agent 需要 sender/recipients/my_aimail_addr 才知道回复谁。
     from app.gateway.run_models import RunCreateRequest
     from app.gateway.services import start_run
 
@@ -157,7 +156,7 @@ async def aimail_inbound(request: Request) -> JSONResponse:
         config={"configurable": {"thread_id": _thread_id_for(email)}},
         metadata={
             "idempotency_key": f"aimail:{payload.get('mail_id', '')}",
-            "amail_email": email,
+            "aimail_email": email,
         },
         multitask_strategy="reject",
         if_not_exists="create",

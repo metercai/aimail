@@ -3,7 +3,7 @@
 AIMail extension for pi (earendil-works/pi-coding-agent). It gives a pi agent
 a mailbox on AIMail: inbound email is delivered into the running session, and
 the agent can send mail, manage contacts, keep thread notes, and work on A2A
-boards through 13 plain tools.
+boards through 15 plain tools.
 
 ## Install
 
@@ -19,10 +19,11 @@ pi install npm:pi-aimail
 
 ## What it does
 
-**Tools** — the same 13 bare-name tools as every other adapter:
+**Tools** — the same 15 bare-name tools as every other adapter:
 `send_mail`, `manage_contacts`, `contact_profile`, `set_contact_profile`,
 `email_summary`, `set_email_summary`, `search_mail`, `board_status`, `board_task_list`,
-`board_task_show`, `board_heartbeat`, `board_members`, `set_public_whoami`,
+`board_task_show`, `board_heartbeat`, `board_members`, `board_roles`,
+`set_public_whoami`, `activate_address_code`,
 registered via `pi.registerTool` with TypeBox parameters. Identity comes from
 the `~/.pi/.agentmail` pointer plus the bound `agentmail.json`; unbound
 agents fail loud.
@@ -44,7 +45,7 @@ the installed pi package; never guessed).
 The same tool surface and inbound contract, bound to other agent platforms:
 
 - [dsh-aimail](https://www.npmjs.com/package/dsh-aimail) — AIMail plugin for dsh (deepseek-harness) — cordis plugin, profile-scoped node:http inbound endpoint.
-- [openclaw-aimail](https://www.npmjs.com/package/openclaw-aimail) — AIMail plugin for OpenClaw — definePluginEntry: 13 tools, in-gateway HTTP route, register/status commands.
+- [openclaw-aimail](https://www.npmjs.com/package/openclaw-aimail) — AIMail plugin for OpenClaw — definePluginEntry: 15 tools, in-gateway HTTP route, register/status commands.
 
 ## Related repositories
 

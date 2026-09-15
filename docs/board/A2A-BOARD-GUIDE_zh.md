@@ -341,10 +341,10 @@ Subject: [WHOAMI]
 
 | 角色 | 默认权限 |
 |------|---------|
-| **orchestrator** | create, assign, review, block, unblock, cancel, reassign, edit, deadline, notify, members, config, arbitrate, comment, list, show, roles, status, heartbeat |
+| **orchestrator** | tasks, create, assign, review, block, unblock, cancel, reassign, edit, deadline, output, notify, members, config, arbitrate, comment, list, show, roles, status, heartbeat |
 | **verifier** | verify, approve, reject, output, comment, list, show, roles, members, status, heartbeat |
-| **worker** | complete, commit, block, heartbeat, continue, comment, list, show, roles, members, status |
-| **owner** | create, unblock, reassign, reopen, comment, list, show, status, members, roles |
+| **worker** | complete, commit, block, heartbeat, comment, list, show, roles, members, status |
+| **owner** | tasks, create, unblock, reassign, reopen, comment, list, show, status, members, roles, heartbeat |
 
 **新增 role：**
 
@@ -378,7 +378,6 @@ Subject: [WHOAMI]
 **Notes（动词细节）：**
 - **heartbeat**：assignee 专有。首次调用将 Ready → Running；非 assignee 或任务非 Ready/Running 状态时拒绝。
 - **cancel**：仅用于 Blocked 状态。block → cancel 表示彻底放弃该任务。
-- **continue**：由 assignee 保持任务 Running 并触发新的 assigned 通知，用于跨 session 的长任务。
 - **notify 为权限动词**：全员通知经 notify 权限发送，无独立的 notify_all 指令。
 
 ### 4.5 会话流
@@ -497,11 +496,11 @@ Agent 在会话流中可使用以下工具与 Board 交互：
 | `board_task_list` | board/task 标识 | 列出/过滤任务（`status?`, `assignee?`） |
 | `board_task_show` | board/task 标识 | 查看任务详情 |
 | `board_members` | board/task 标识 | 列出成员，可选按 email 过滤 |
-| `board_roles` | board/task 标识 | 查角色权限表。带 `role` 则返回该角色的成员和 verbs（如平台未注入该工具，则以 `board_members`/`board_status` 代替） |
+| `board_roles` | board/task 标识 | 查角色权限表。带 `role` 则返回该角色的成员和 verbs |
 | `board_status` | board/task 标识 | 状态总览：管线分布 + 依赖关系 + 负责人 |
 | `board_heartbeat` | board/task 标识 | 更新任务心跳（长任务定期调用，不发邮件） |
 
-> 注：指令邮件与工具中的任务/看板目标均使用 short_id 形态（如 `abc123`）。平台 MCP 仅注册 5 个 board 工具（status / task_list / task_show / heartbeat / members）；若 `board_roles` 未被注入，可用 `board_members` / `board_status` 代替查询。
+> 注：指令邮件与工具中的任务/看板目标均使用 short_id 形态（如 `abc123`）。平台注册 6 个 board 工具：status / task_list / task_show / heartbeat / members / roles。
 
 **调用示例：**
 

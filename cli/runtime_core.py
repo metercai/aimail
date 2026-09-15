@@ -3,7 +3,7 @@
 
 用途: scripts/ 与 bin/ 下的维护脚本注册/解注册/测试 agent 时需要
 导入运行时核心(aimail_base / aimail_tools / gateway_api)与平台
-适配层(amail_base / aimail_hermes)。本模块统一解析核心目录并挂到
+适配层(aimail_deerflow / aimail_hermes)。本模块统一解析核心目录并挂到
 sys.path,消除各脚本散落的 `sys.path.insert(... "tools"...)` 仓路径耦合。
 
 源解析(repo 优先 > pip 兜底):

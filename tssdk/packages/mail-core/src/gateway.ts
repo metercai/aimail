@@ -239,6 +239,11 @@ export class GatewayClient {
     return this.boardRequest('GET', `/api/v1/board/${boardId}/members${qs}`, memberEmail)
   }
 
+  boardRoles(boardId: string, memberEmail: string, role = ''): Promise<GatewayResponse> {
+    const qs = role ? `?role=${encodeURIComponent(role)}` : ''
+    return this.boardRequest('GET', `/api/v1/board/${boardId}/roles${qs}`, memberEmail)
+  }
+
   boardHeartbeat(boardId: string, taskId: string, memberEmail: string, note = ''): Promise<GatewayResponse> {
     return this.boardRequest(
       'POST',

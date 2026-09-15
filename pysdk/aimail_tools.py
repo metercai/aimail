@@ -556,7 +556,7 @@ class _GatewayClient:
 # over automatic detection (see _agent_identity).
 # 显式身份覆盖:多 agent 共存机器上"目录存在"检测会误判(Hermes 目录在
 # OpenClaw 机器也存在,registry 顺序导致 OpenClaw 进程被检测为 hermes)。
-# 平台适配层(amail_base/hermes adapter)在 import 时注入自己的身份。
+# 平台适配层(aimail_deerflow / aimail_hermes adapter)在 import 时注入自己的身份。
 _AGENT_IDENTITY_OVERRIDE = None    # 由适配层设置,如 "openclaw/2026.7.1"
 _AGENT_MODEL_OVERRIDE = None       # 由适配层设置,主/默认模型名(如 "glm-5.3-flash")
 
@@ -697,7 +697,7 @@ def send_mail(
     # ── Resolve sender: persona from inbound metadata > current persona > base email ──
     sender = base_email
     if msg_meta:
-        stored_persona = msg_meta.get("my_amail_addr", "")
+        stored_persona = msg_meta.get("my_aimail_addr", "")
         if stored_persona and "@" in stored_persona:
             sender = stored_persona
             logger.info("[aimail] Reply detected — using persona sender: %s", sender)
@@ -769,7 +769,7 @@ def send_mail(
     # ── 先存再调: meta 常写 + outbox 快照按开关, 随后才调 API ──
     # Message-ID 本地生成并传给 gateway(仅无 id 时才自动补全), 本地值即线上值。
     generated_mid = _build_message_id(config)
-    _store_message_meta(generated_mid, references, my_amail_addr=sender)
+    _store_message_meta(generated_mid, references, my_aimail_addr=sender)
     if config.get("save_raw_snapshots"):
         _save_outbound_snapshot(generated_mid, sender, sender, to, subject, body,
                                 cc_list or [], resolved_paths or [], attachment_ids or [],
@@ -841,7 +841,7 @@ def send_mail(
         # Log outbound to the per-agent aimail.log for integration test
         # verification (send_welcome polls this file instead of the stats API).
         try:
-            _log_amail("outbound", sender, to, subject, email_id=generated_mid)
+            _log_aimail("outbound", sender, to, subject, email_id=generated_mid)
         except Exception:
             pass
         return out
@@ -1006,7 +1006,7 @@ def set_contact_profile(address: str, profile: str) -> dict:
 
 # ═══════════════════════════════════════════════════════════════
 # Message Metadata — LOCAL meta/{xx}/{safe_mid}.json (always written)
-#    value: {"references": [...], "thread_id": ..., "my_amail_addr": ...,
+#    value: {"references": [...], "thread_id": ..., "my_aimail_addr": ...,
 #            "direction": "inbound|outbound"}
 #    Sharded by first 2 chars of the sanitized mid (256 buckets).
 # ═══════════════════════════════════════════════════════════════
@@ -1017,7 +1017,7 @@ def set_contact_profile(address: str, profile: str) -> dict:
 def _build_message_id(config: dict) -> str:
     """Generate a Message-ID header value from the configured domain."""
     import uuid as _uuid
-    domain = config.get("domain", "") or "amail.local"
+    domain = config.get("domain", "") or "aimail.local"
     return f"<{_uuid.uuid4().hex}@{domain}>"
 
 
@@ -1042,10 +1042,10 @@ def _thread_path(thread_id: str) -> Path:
     return _aimail_dir() / "threads" / k[:2] / f"{k}.json"
 
 
-def _save_local_meta(message_id, references, my_amail_addr, direction) -> None:
+def _save_local_meta(message_id, references, my_aimail_addr, direction) -> None:
     """Per-message lightweight metadata (常写, 不受 save_raw_snapshots 控制).
 
-    回复链依赖: references/thread_id/my_amail_addr 替代 gateway agent_state
+    回复链依赖: references/thread_id/my_aimail_addr 替代 gateway agent_state
     的 msg:{mid} key(已在 gateway 侧删除)。"""
     mid = (message_id or "").strip()
     if not mid:
@@ -1058,7 +1058,7 @@ def _save_local_meta(message_id, references, my_amail_addr, direction) -> None:
         "message_id": mid,
         "references": refs,
         "thread_id": refs[0] if refs else mid,
-        "my_amail_addr": my_amail_addr or "",
+        "my_aimail_addr": my_aimail_addr or "",
         "direction": direction,
         "at": datetime.now().isoformat(),
     }
@@ -1349,7 +1349,7 @@ def _raw_email_dir() -> Path:
 
 
 
-def _log_amail(direction: str, from_addr: str, to_addr: str, subject: str,
+def _log_aimail(direction: str, from_addr: str, to_addr: str, subject: str,
                email_id: str = "") -> None:
     """Append a lightweight email processing log entry (not dependent on save_raw_snapshots).
 
@@ -1376,7 +1376,7 @@ def _log_amail(direction: str, from_addr: str, to_addr: str, subject: str,
 def store_inbound_message(
     message_id: str,
     references: list,
-    my_amail_addr: str,
+    my_aimail_addr: str,
     preprocessed_payload: Optional[dict] = None,
     attachment_sources: Optional[dict] = None,
 ) -> Optional[str]:
@@ -1386,7 +1386,7 @@ def store_inbound_message(
     (AFTER preprocessing) to raw_email/{agent_addr}/{yyyymm}/.
 
     IMPORTANT: preprocessed_payload must be the output of preprocess_mail_payload()
-    — the agent-visible format with sender/recipients/my_amail_addr/direct_message fields.
+    — the agent-visible format with sender/recipients/my_aimail_addr/direct_message fields.
     Do NOT pass the gateway RAW webhook payload.
     """
     if not message_id or not message_id.strip():
@@ -1394,7 +1394,7 @@ def store_inbound_message(
     mid = message_id.strip()
 
     # ── Always-write local meta (回复链依赖, 不受快照开关控制) ──
-    _save_local_meta(mid, references, my_amail_addr, direction="inbound")
+    _save_local_meta(mid, references, my_aimail_addr, direction="inbound")
 
     # Only save the agent-visible snapshot if configured.
     config = _load_profile_config()
@@ -1477,9 +1477,9 @@ def _load_message_meta(message_id: str) -> Optional[dict]:
 
 
 def _store_message_meta(message_id: str, references: Optional[str] = None,
-                        my_amail_addr: str = "") -> None:
+                        my_aimail_addr: str = "") -> None:
     """Store outbound message metadata locally for future replies (常写)."""
-    _save_local_meta(message_id, references, my_amail_addr, direction="outbound")
+    _save_local_meta(message_id, references, my_aimail_addr, direction="outbound")
 
 
 # ═══════════════════════════════════════════════════════════════

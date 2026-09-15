@@ -84,7 +84,7 @@ def _config_lines(addr: str, mode: str, merged: list, log_path: str) -> list:
     for i, s in enumerate(merged):
         comma = ',' if i < len(merged) - 1 else ''
         parts = [
-            f'amail_url = "{s["amail_url"]}"',
+            f'aimail_url = "{s["aimail_url"]}"',
             f'admin_key = "{s["admin_key"]}"',
             f'system_id = "{s["system_id"]}"',
             f'poll_interval_sec = {s.get("poll_interval_sec", 2)}',
@@ -174,7 +174,7 @@ def write_bridge_config(path: str, mode: str, addr: str, gw: str,
 
     def _entry() -> dict:
         e = {
-            "amail_url": gw,
+            "aimail_url": gw,
             "admin_key": ak,
             "system_id": sid,
             "poll_interval_sec": 2,

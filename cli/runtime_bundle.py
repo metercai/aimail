@@ -11,7 +11,7 @@
   2. 兜底:本仓库 pysdk/(dev 模式,未 pip install 时)
 
 bundle 定义(源相对路径 → 捆绑内相对路径):
-  mcp        核心4 + bootstrap + amail_mcp_server.py          (扁平)
+  mcp        核心4 + bootstrap + aimail_mcp_server.py         (扁平)
   deer-flow  核心4 + bootstrap + router + 适配层,全扁平铺进宿主 routers/
              (宿主 app.py 经 `from .routers import aimail_inbound` 加载;
               router/适配层/core 同目录,bootstrap case-3 自举,零 env)
@@ -47,7 +47,7 @@ _CORE_FILES = {
 BUNDLES = {
     "mcp": {
         "default_dest": "~/.aimail/mcp",
-        "files": dict(_CORE_FILES, **{"amail_mcp_server.py": "amail_mcp_server.py"}),
+        "files": dict(_CORE_FILES, **{"aimail_mcp_server.py": "aimail_mcp_server.py"}),
     },
     "deer-flow": {
         # 宿主 app.py 经 `from .routers import aimail_inbound` 加载 router,
@@ -55,7 +55,7 @@ BUNDLES = {
         "default_dest": "~/deer-flow/backend/app/gateway/routers",
         "files": dict(_CORE_FILES, **{
             "deer-flow/aimail_inbound.py": "aimail_inbound.py",
-            "deer-flow/amail_base.py": "amail_base.py",
+            "deer-flow/aimail_deerflow.py": "aimail_deerflow.py",
         }),
     },
     # skill bundles:纯 md 资源,无 bootstrap 需求,单独定义(无核心)
@@ -168,6 +168,24 @@ def install(bundle: str, dest: str = "", source_root: str = "", force: bool = Fa
         print(f"  ✗ {bundle}: 源缺失 {missing_src}(源根 {root})")
         return 1
 
+    _keep_names = set(spec["files"].values())
+    # 清理上一版台账里有、本次不再随包分发的旧文件(改名/退役残留)
+    pruned = []
+    _stamp_file = _stamp_path(dest)
+    if os.path.isfile(_stamp_file):
+        try:
+            with open(_stamp_file, encoding="utf-8") as f:
+                _old_files = json.load(f).get("files", {})
+        except (OSError, ValueError):
+            _old_files = {}
+        for _stale in sorted(set(_old_files) - _keep_names):
+            _p = os.path.join(dest, _stale)
+            if os.path.dirname(os.path.abspath(_p)) != os.path.abspath(dest):
+                continue                    # 只删本目录内的文件(防路径穿越)
+            if os.path.isfile(_p):
+                os.remove(_p)
+                pruned.append(_stale)
+
     if not spec.get("no_stamp"):
         stamp = {
             "bundle": bundle,
@@ -183,6 +201,8 @@ def install(bundle: str, dest: str = "", source_root: str = "", force: bool = Fa
             json.dump(stamp, f, indent=2, ensure_ascii=False)
         os.replace(tmp, _stamp_path(dest))
 
+    if pruned:
+        print(f"  ✓ {bundle}: 清理旧文件 {pruned} → {dest}")
     if changed:
         print(f"  ✓ {bundle}: 更新 {len(changed)} 文件 → {dest} (v{version}, {kind})")
     else:

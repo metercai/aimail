@@ -10,7 +10,7 @@ The Orchestrator drives the project — planning, task breakdown, execution trac
 | Create tasks | `[A2A] create` |
 | Assign/Review | `[A2A] assign T1` / `[A2A] review T1` |
 | Block/Unblock | `[A2A] block T2` / `[A2A] unblock T2` |
-| Phase report | `[A2A] notify_all` |
+| Phase report | `[Report]` via session flow |
 | Edit/Cancel | `[A2A] edit T1` / `[A2A] cancel T1` |
 
 ## 2. Workflow
@@ -21,7 +21,7 @@ The Orchestrator drives the project — planning, task breakdown, execution trac
 4. Send `[A2A] create` to board
 5. Track via `[A2A] status` / `[A2A] list`
 6. Handle blockers with `[A2A] block` / `[A2A] unblock`
-7. Phase reports with `[A2A] notify_all`
+7. Phase reports via the session flow (`[Report] <board> Phase <N>: <title>`, CC the board address)
 
 ## 3. Rules
 

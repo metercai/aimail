@@ -115,7 +115,7 @@ def _read_role_file(name: str) -> str:
 def build_ctx(payload: dict, headers: dict) -> dict:
     """Build template context dict from available data."""
     return {
-        "AGENTMAIL_ADDRESS": payload.get("my_amail_addr", ""),
+        "AGENTMAIL_ADDRESS": payload.get("my_aimail_addr", ""),
         "BOARD_ID": payload.get("board_id", ""),
         "BOARD_ROLE": payload.get("board_role", ""),
         "FROM_ROLE": payload.get("from_role", ""),
@@ -219,8 +219,8 @@ def _load_gateway_config(system_id: str = "") -> Optional[dict]:
     return None
 
 
-# ── 注入点（适配层设置；Hermes → tools/hermes/aimail_hermes.py，
-#             OpenClaw → tools/openclaw/amail_base.py）────────────────
+# ── 注入点（适配层设置；Hermes → pysdk/hermes/aimail_hermes.py，
+#             DeerFlow → pysdk/deer-flow/aimail_deerflow.py）────────────
 # 平台差异（config 来源/personas/profile 目录/board 登记）由适配层注入，
 # 公共核心保持平台无关。未注入时使用安全默认（None/空/no-op）。
 _CONFIG_LOADER = None          # () -> Optional[dict]      agent 配置加载
@@ -263,9 +263,8 @@ def _register_board_gateway(board_id: str, gateway_url: str) -> None:
 
 
 # ── 平台无关 agent 上下文（兜底 MCP/CLI 共用,2026-08-18 提升）─────
-# 原实现位于 tools/openclaw/amail_base.py(set_agent_context/load_agent_config),
-# 仅 OpenClaw 可用;MCP server 提升为共享服务后,任何 agent 系统只需按共享
-# 布局落 agentmail.json 即可复用。OpenClaw 适配层转发此实现(单一权威)。
+# 兜底 MCP/CLI 与各平台适配层共用同一实现(单一权威):任何 agent 系统
+# 只需按共享布局落 agentmail.json 即可复用。
 _ACTIVE_AGENT_CONFIG: Optional[dict] = None  # 最近一次 set_agent_context 的配置
 
 
@@ -374,7 +373,7 @@ def route_agent_for_email(registry: dict, email: str) -> str:
 
 
 def render_message(payload: dict) -> str:
-    """把富化后的 amail payload 组装成 agent 输入 message。
+    """把富化后的 AIMail payload 组装成 agent 输入 message。
 
     对齐 Hermes webhook.py 空模板 fallback 渲染语义
     （json.dumps(payload, indent=2)[:4000]），各平台保持一致。
@@ -478,13 +477,13 @@ def _put_contact_profile(address: str, profile: str) -> dict:
 # their own copy — trigger conditions stay identical everywhere.
 #
 # PREFIX CONTRACT: gateway send.rs P0 interception matches
-# "__amail_pong__:" (redirects pong to inbound instead of outbound SMTP).
+# "__aimail_pong__:" (redirects pong to inbound instead of outbound SMTP).
 # Agent-side PONG_PREFIX MUST equal that exact string — otherwise the
 # pong goes out as a normal outbound email and never loops back to the
 # agent preprocess chain. PING_PREFIX is agent-side only (ping enters
 # via SMTP as a normal inbound mail; no gateway-side ping matching).
 PING_PREFIX = "__aimail_ping__:"
-PONG_PREFIX = "__amail_pong__:"
+PONG_PREFIX = "__aimail_pong__:"
 
 
 def is_ping(subject: str) -> bool:
@@ -526,7 +525,7 @@ def send_pong(body: dict, pong_id_value: str) -> bool:
     """SHARED pong sender — one implementation for every agent platform.
 
     Sends the pong via the gateway HTTP send API (outbound path), so the
-    gateway's P0 interception (send.rs matches __amail_pong__:) redirects
+    gateway's P0 interception (send.rs matches __aimail_pong__:) redirects
     it back as inbound — closing the ping→pong→agent loop. Platform-agnostic:
     - Hermes:   _CONFIG_LOADER injected → profile config → aimail_tools
     - OpenClaw: adapter injects a loader that resolves the agent config
@@ -724,7 +723,7 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
 
     def _base_email(email: str) -> str:
         """Strip persona prefix: support.alice@agent.com -> alice@agent.com"""
-        persona, profile, sys_name = parse_amail_persona(email, system_name)
+        persona, profile, sys_name = parse_aimail_persona(email, system_name)
         domain = email.split('@', 1)[1] if '@' in email else ''
         if sys_name:
             return f"{profile}.{sys_name}@{domain}"
@@ -768,23 +767,23 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
             my_to_addr = addr
             break
 
-    persona, profile, _sys_name = parse_amail_persona(my_to_addr, system_name) if my_to_addr else ('', '', '')
+    persona, profile, _sys_name = parse_aimail_persona(my_to_addr, system_name) if my_to_addr else ('', '', '')
     if persona:
         if not PERSONA_SUPPORTED:
             # 系统不支持 persona：收件地址归一为基础地址（剥离 persona 前缀），
             # 不做配置校验与派生地址保留——agent 身份即注册的基础地址。
-            result["my_amail_addr"] = agent_email
+            result["my_aimail_addr"] = agent_email
         else:
             # Validate persona against configured personalities
             configured = list_personas()
             if persona in configured:
-                result["my_amail_addr"] = my_to_addr
+                result["my_aimail_addr"] = my_to_addr
             else:
                 logger.warning("[aimail_gateway] Persona '%s' not found in agent.personalities — falling back to base address", persona)
                 # 未配置 persona：剥离 persona 前缀，回退注册基础地址（与创建端幂等）
-                result["my_amail_addr"] = agent_email
-    if not result.get("my_amail_addr"):
-        result["my_amail_addr"] = my_to_addr or agent_email
+                result["my_aimail_addr"] = agent_email
+    if not result.get("my_aimail_addr"):
+        result["my_aimail_addr"] = my_to_addr or agent_email
 
     # ── Persona-aware direct_message / mentioned ──
     if agent_email:
@@ -947,15 +946,15 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
     # ── Store message metadata + optional raw snapshot ──────────
     mid = result.get("message_id", "")
     refs = result.get("references", [])
-    my_addr = result.get("my_amail_addr", "")
+    my_addr = result.get("my_aimail_addr", "")
     if mid and my_addr:
-        from aimail_tools import store_inbound_message, _log_amail
+        from aimail_tools import store_inbound_message, _log_aimail
         store_inbound_message(mid, refs, my_addr, preprocessed_payload=result)
         # Lightweight log entry
         _from = raw_headers.get("from", payload.get("from", ""))
         _subj = (raw_headers.get("subject") or raw_headers.get("Subject")
                  or payload.get("subject") or payload.get("Subject") or "")
-        _log_amail("inbound", str(_from), my_addr, str(_subj))
+        _log_aimail("inbound", str(_from), my_addr, str(_subj))
 
     # ── a2a_board: [WhoAmI]问询检测 ──
     subject = (payload.get("subject") or "").strip()
@@ -1008,7 +1007,7 @@ _profile_hooks: Dict[str, List[Callable]] = {
 
 # ── Hook: auto-register email on profile creation ──────────────
 
-def parse_amail_persona(email: str, system_name: str = "") -> tuple:
+def parse_aimail_persona(email: str, system_name: str = "") -> tuple:
     """Parse persona, profile, and system_name from an aimail address.
     
     Returns (persona, profile_name, sys_name).
@@ -1147,7 +1146,7 @@ def resolve_register_webhook_url(gw: dict, local_webhook_url: str) -> str:
     - webhook_host 有合法 IP:port → 有 bridge,push 模式 → 注册参数 =
       webhook_host(bridge 公网入口,云端直推)
     - webhook_host 显式空值("") → 有 bridge,pull 模式 → 注册参数 = 空
-      (云端不回调;bridge 按空值走 pull 拉取,与 amail_bridge toml 语义一致)
+      (云端不回调;bridge 按空值走 pull 拉取,与 aimail_bridge.toml 语义一致)
     - webhook_host 配置项不存在 → 无 bridge → 注册参数 = local_webhook_url
       (agentmail.json 的本地接收端点,云端直推本地)
 

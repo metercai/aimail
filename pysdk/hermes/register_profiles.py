@@ -1,4 +1,4 @@
-"""Register existing Hermes profiles as amail addresses in the current system.
+"""Register existing Hermes profiles as AIMail addresses in the current system.
 
 Hermes 平台安装链入口的库形态(cli/hermes/register_profiles.py 迁移):由新的
 安装入口 import 本模块后调用 register_emails()。不再依赖 cli/runtime_core 的
@@ -60,7 +60,7 @@ def register_emails():
     # 配置,全靠手工补——缺 webhook 段 → webhook 会话无 send_mail
     # ("收得到回不出");缺 cli 段 → CLI 会话无邮件工具。路由
     # (aimail-inbound)由 _auto_register_email → _ensure_webhook_route
-    # 创建,**不需要第二个 amail-inbound**(bridge 全 URL 路由直接指
+    # 创建,**不需要第二条 inbound 路由**(bridge 全 URL 路由直接指
     # /webhooks/aimail-inbound)。
 
     system_id = config.get("system_id", "")

@@ -4,7 +4,7 @@
 由 cli/deer-flow/{register_agent.py, reconcile.py, deregister_agent.py,
 install-inbound.sh} 迁移聚合而来(2026-09-02),去掉对 cli/runtime_core.py 的
 依赖:运行时核心/适配层经双形态自举定位(见 _bootstrap_runtime),之后
-裸导入即可用 —— import amail_base(适配层)/ import aimail_tools(核心)。
+裸导入即可用 —— import aimail_deerflow(适配层)/ import aimail_tools(核心)。
 业务逻辑逐字保留(幂等/错误处理/输出行),仅做结构性搬移。
 
 函数:
@@ -28,7 +28,7 @@ install-inbound.sh} 迁移聚合而来(2026-09-02),去掉对 cli/runtime_core.py
         pysdk/(含 aimail_base.py)即核心目录,直接挂 sys.path。
   形态2 pip:site-packages/aimail/deer-flow/,aimail/ 包目录同样含
         aimail_base.py;`import aimail`(glue,__init__ 把 aimail/ 插 sys.path)
-        兜底。本模块自身目录(适配层,含 amail_base.py)一并挂上。
+        兜底。本模块自身目录(适配层,含 aimail_deerflow.py)一并挂上。
 """
 from __future__ import annotations
 
@@ -44,10 +44,10 @@ from datetime import datetime, timezone
 STAMP_NAME = ".aimail-runtime.json"
 MIN_PAYLOAD_VERSION = "0.1.0"
 
-# 捆绑定义:源相对路径(相对核心目录/源根)→ 目标文件名(宿主 routers/aimail/ 下)
+# 捆绑定义:源相对路径(相对核心目录/源根)→ 目标文件名(宿主 routers/ 下)
 _BUNDLE_FILES = [
     ("deer-flow/aimail_inbound.py", "aimail_inbound.py"),
-    ("deer-flow/amail_base.py", "amail_base.py"),
+    ("deer-flow/aimail_deerflow.py", "aimail_deerflow.py"),
     ("aimail_base.py", "aimail_base.py"),
     ("aimail_tools.py", "aimail_tools.py"),
     ("aimail_board.py", "aimail_board.py"),
@@ -88,11 +88,11 @@ def _bootstrap_runtime() -> tuple[str, str]:
 
 _ADAPTER_DIR, _CORE_DIR = _bootstrap_runtime()
 
-import amail_base as _base          # noqa: E402   (deer-flow 适配层,本目录)
+import aimail_deerflow as _base     # noqa: E402   (deer-flow 适配层,本目录)
 import aimail_base as _core         # noqa: E402   (共享核心,父目录)
 import aimail_tools as _tools       # noqa: E402   (共享核心,父目录)
 # 注:resolve_register_webhook_url / register_bridge_route 定义在共享核心
-# aimail_base(deer-flow 适配层 amail_base 未转发,源 cli 脚本同款调用在其上
+# aimail_base(共享核心)——适配层 aimail_deerflow 未转发,源 cli 脚本同款调用在其上
 # 会 AttributeError)——本模块这两处调用直接走 _core。
 
 
@@ -154,10 +154,10 @@ def save_agent_config(agent_id: str, cfg: dict, system_id: str) -> None:
 
 
 def register_agents(manager: str = "", system_id: str = "", agent: str = "") -> int:
-    """注册 DeerFlow agent(s) 到 amail(register_agent.py main 逐字移植,去 argparse)。
+    """注册 DeerFlow agent(s) 到 aimail 系统。
 
     注册链(register_email → 已存在更新 webhook → manager 白名单 → activate_address)
-    走公共核心 amail_base.register_agent_email(所有平台共用)→ 落盘地址键
+    走公共核心 aimail_base.register_agent_email(所有平台共用)→ 落盘地址键
     agentmail.json(systems/{sid}/{cleaned_addr}/agentmail.json)。
 
     Args:
@@ -236,7 +236,7 @@ def register_agents(manager: str = "", system_id: str = "", agent: str = "") -> 
 # 对账(reconcile.py 逐字移植)
 # ══════════════════════════════════════════════════════════════════════
 def _local_agents(system_id: str) -> dict:
-    """读本地 amail 注册表: {agent_id: cfg}。"""
+    """读本地 aimail 注册表: {agent_id: cfg}。"""
     out = {}
     base = os.path.join(_base.aimail_home(), "systems", str(system_id))
     if not os.path.isdir(base):
@@ -294,7 +294,7 @@ def reconcile(system_id: str = "", manager: str = "", dry_run: bool = False) -> 
     DeerFlow 无事件总线(无 created/deleted 回调),agent 由目录定义(SOUL.md/
     agents/)。以"目录为真相源"做幂等对账:
       1. 扫描 DeerFlow agents 目录(默认只识别 lead agent "default")
-      2. 读 amail 注册表(systems/{sid}/*/agentmail.json)
+      2. 读 aimail 注册表(systems/{sid}/*/agentmail.json)
       3. 差异动作(公共链幂等):
          有/无 → register_agent_email(4 步链)→ 落盘 agentmail.json
          无/有 → deregister_agent_email(3 步链)→ 清理本地
@@ -411,10 +411,10 @@ def reconcile(system_id: str = "", manager: str = "", dry_run: bool = False) -> 
 # 注销(deregister_agent.py 逐字移植)
 # ══════════════════════════════════════════════════════════════════════
 def deregister_agents(agent: str, manager: str = "", system_id: str = "") -> int:
-    """注销 DeerFlow agent 从 amail(deregister_agent.py main 逐字移植,去 argparse)。
+    """注销 DeerFlow agent。
 
     注销链(api-key → domain → whitelist)走公共核心
-    amail_base.deregister_agent_email(所有平台共用,幂等),随后清理本地
+    aimail_base.deregister_agent_email(所有平台共用,幂等),随后清理本地
     agentmail.json。
 
     Args:
@@ -596,10 +596,10 @@ def _bundle_version(core_dir: str, kind: str) -> str:
 
 
 def install_bundle(backend_dir: str, source_root: str = "", force: bool = False) -> int:
-    """安装 deer-flow 运行时捆绑到宿主 routers/aimail/(幂等,md5 漂移可检出)。
+    """安装 deer-flow 运行时捆绑到宿主 routers/(扁平,幂等,md5 漂移可检出)。
 
-    源(pysdk 单一真源,7 文件)→ 目标 <gateway>/routers/aimail/:
-      deer-flow/{aimail_inbound.py, amail_base.py}
+    源(pysdk 单一真源,7 文件)→ 目标 <gateway>/routers/:
+      deer-flow/{aimail_inbound.py, aimail_deerflow.py}
       {aimail_base.py, aimail_tools.py, aimail_board.py, gateway_api.py,
        _aimail_bootstrap.py}
     落 .aimail-runtime.json 版本戳(bundle/version/source/installed_at/
@@ -624,7 +624,9 @@ def install_bundle(backend_dir: str, source_root: str = "", force: bool = False)
     version = _bundle_version(root, kind)
 
     g_dir, _app_py = _gateway_layout(backend_dir)
-    dst_dir = os.path.join(g_dir, "routers", "aimail")
+    # 扁平铺进 routers/：app.py 以 `from .routers import aimail_inbound` 导入，
+    # router 与 core 必须同目录（与 cli/runtime_bundle.py 的 deer-flow spec 一致）。
+    dst_dir = os.path.join(g_dir, "routers")
 
     changed, missing_src = [], []
     for src_rel, dst_name in _BUNDLE_FILES:
@@ -643,6 +645,24 @@ def install_bundle(backend_dir: str, source_root: str = "", force: bool = False)
         print(f"  ✗ deer-flow: 源缺失 {missing_src}(源根 {root})")
         return 1
 
+    _keep_names = {name for _rel, name in _BUNDLE_FILES}
+    # 清理上一版台账里有、本次不再随包分发的旧文件(改名/退役残留)
+    pruned = []
+    _stamp_file = os.path.join(dst_dir, STAMP_NAME)
+    if os.path.isfile(_stamp_file):
+        try:
+            with open(_stamp_file, encoding="utf-8") as f:
+                _old_files = json.load(f).get("files", {})
+        except (OSError, ValueError):
+            _old_files = {}
+        for _stale in sorted(set(_old_files) - _keep_names):
+            _p = os.path.join(dst_dir, _stale)
+            if os.path.dirname(os.path.abspath(_p)) != os.path.abspath(dst_dir):
+                continue                    # 只删本目录内的文件(防路径穿越)
+            if os.path.isfile(_p):
+                os.remove(_p)
+                pruned.append(_stale)
+
     stamp = {
         "bundle": "deer-flow",
         "version": version,
@@ -659,6 +679,8 @@ def install_bundle(backend_dir: str, source_root: str = "", force: bool = False)
         json.dump(stamp, f, indent=2, ensure_ascii=False)
     os.replace(tmp, os.path.join(dst_dir, STAMP_NAME))
 
+    if pruned:
+        print(f"  ✓ deer-flow: 清理旧文件 {pruned} → {dst_dir}")
     if changed:
         print(f"  ✓ deer-flow: 更新 {len(changed)} 文件 → {dst_dir} (v{version}, {kind})")
     else:
@@ -675,7 +697,7 @@ def main(argv: list | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     # register_agent.py 同款参数
-    p = sub.add_parser("register", description="注册 DeerFlow agent 到 amail")
+    p = sub.add_parser("register", description="注册 DeerFlow agent 到 aimail")
     p.add_argument("--agent", default="")
     p.add_argument("--all", action="store_true", help="注册全部 DeerFlow agents")
     p.add_argument("--manager", default="", help="manager_address(审批联系人);缺省读 AIMAIL_MANAGER 环境变量")
@@ -691,7 +713,7 @@ def main(argv: list | None = None) -> int:
                                             dry_run=a.dry_run))
 
     # deregister_agent.py 同款参数
-    p = sub.add_parser("deregister", description="注销 DeerFlow agent 从 amail")
+    p = sub.add_parser("deregister", description="注销 DeerFlow agent 从 aimail")
     p.add_argument("--agent", required=True, help="agent id(默认名 default)")
     p.add_argument("--manager", default="", help="manager_address;缺省读 AIMAIL_MANAGER")
     p.add_argument("--system-id", default=os.environ.get("AIMAIL_SYSTEM_ID", ""))
@@ -751,7 +773,10 @@ def _cmd_install(a) -> int:
     venv_py = os.path.abspath(venv_py)
     ok = True
     if os.path.isfile(venv_py):
-        targets = [os.path.join(g_dir, "routers", "aimail", "aimail_inbound.py"), app_py]
+        # 校验全部随包分发的文件(扁平铺进 routers/)+ app.py
+        targets = [os.path.join(g_dir, "routers", dst_name) for _rel, dst_name in _BUNDLE_FILES]
+        targets.append(app_py)
+        targets = [t for t in targets if os.path.isfile(t)]
         r = os.system(f'"{venv_py}" -m py_compile {" ".join(targets)}')
         if r != 0:
             ok = False

@@ -33,12 +33,12 @@ import aimail
 
 modules = [
     "aimail.aimail_base", "aimail.aimail_tools", "aimail.aimail_board",
-    "aimail.gateway_api", "aimail.amail_mcp_server", "aimail.install",
+    "aimail.gateway_api", "aimail.aimail_mcp_server", "aimail.install",
     "aimail._resources_release", "aimail._aimail_bootstrap",
     "aimail.hermes.aimail_hermes", "aimail.hermes.patch_webhook",
     "aimail.hermes.patch_profiles", "aimail.hermes.ensure_config",
     "aimail.hermes.register_profiles", "aimail.hermes.toolsets",
-    "aimail.deer-flow.manage", "aimail.deer-flow.amail_base",
+    "aimail.deer-flow.manage", "aimail.deer-flow.aimail_deerflow",
 ]
 for m in modules:
     importlib.import_module(m)

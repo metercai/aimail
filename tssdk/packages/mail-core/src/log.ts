@@ -1,6 +1,6 @@
 /**
  * Per-agent aimail.log helpers — shared by preprocess (inbound/ping) and
- * tools (outbound). Mirrors Python `_log_amail` / `aimail_log_path`:
+ * tools (outbound). Mirrors Python `_log_aimail` / `aimail_log_path`:
  *   {AIMAIL_HOME}/logs/aimail.{cleanAddr(email)}.log, one JSON line per
  * entry, keys: ts, dir, from, to, subj, email_id (optional), ping_id (ping).
  *
@@ -26,9 +26,9 @@ async function appendLog(email: string, entry: Record<string, unknown>): Promise
   }
 }
 
-/** Outbound log line (mirror Python `_log_amail("outbound", ...)` — the
+/** Outbound log line (mirror Python `_log_aimail("outbound", ...)` — the
  * success branch only; welcome CLI polls this file for reply detection). */
-export async function logAmailOutbound(
+export async function logAimailOutbound(
   email: string,
   from: string,
   to: string,

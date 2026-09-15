@@ -125,6 +125,16 @@ export async function boardMembers(ctx: ToolCtx, args: BoardMembersArgs): Promis
   return toResult(await client.boardMembers(args.board, email, args.email ?? ''))
 }
 
+export interface BoardRolesArgs {
+  board: string
+  role?: string
+}
+
+export async function boardRoles(ctx: ToolCtx, args: BoardRolesArgs): Promise<ToolResult> {
+  const { client, email } = await boardClient(ctx, args.board)
+  return toResult(await client.boardRoles(args.board, email, args.role ?? ''))
+}
+
 export interface SetPublicWhoamiArgs {
   text: string
 }

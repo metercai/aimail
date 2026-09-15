@@ -31,7 +31,7 @@ Point `AIMAIL_HOME` at your aimail home directory (default
   mention detection, attachment download, backend-field stripping, inbound
   logging) and intercepts ping/pong health probes; `verifySignature` checks
   webhook HMAC signatures.
-- `MAIL_TOOLS` — the semantic registry of all 13 tools (names, descriptions,
+- `MAIL_TOOLS` — the semantic registry of all 15 tools (names, descriptions,
   TypeBox parameter shapes, handlers). Adapters iterate this single array so
   every platform surfaces an identical tool surface.
 - Config loaders — `loadConfigByEmail`, `loadConfigByAgentId`,

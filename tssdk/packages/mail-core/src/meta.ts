@@ -49,7 +49,7 @@ export interface LocalMeta {
   message_id: string
   references: string[]
   thread_id: string
-  my_amail_addr: string
+  my_aimail_addr: string
   direction: string
   at: string
   [k: string]: unknown
@@ -67,14 +67,14 @@ function normalizeRefs(references: string | string[] | undefined): string[] {
 
 /**
  * Store per-message metadata (常写 — always written, NOT controlled by
- * save_raw_snapshots). references/thread_id/my_amail_addr replace the former
+ * save_raw_snapshots). references/thread_id/my_aimail_addr replace the former
  * gateway agent_state msg:{mid} key.
  */
 export async function saveLocalMeta(
   email: string,
   messageId: string,
   references: string | string[] | undefined,
-  myAmailAddr: string,
+  myAimailAddr: string,
   direction: string,
 ): Promise<void> {
   const mid = (messageId || '').trim()
@@ -84,7 +84,7 @@ export async function saveLocalMeta(
     message_id: mid,
     references: refs,
     thread_id: refs[0] || mid,
-    my_amail_addr: myAmailAddr || '',
+    my_aimail_addr: myAimailAddr || '',
     direction,
     at: new Date().toISOString(),
   }

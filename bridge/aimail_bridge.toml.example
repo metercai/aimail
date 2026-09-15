@@ -25,8 +25,7 @@ bind = "0.0.0.0:38080"               # Listen address (admin API + push webhooks
 admin_allowed_ips = ["127.0.0.1", "::1"]
 
 # Headers passed through to the gateway.
-# Primary: x-aimail-email (required for push deliveries since v0.7.0 —
-# missing header returns 400). The legacy alias x-amail-email is also accepted.
+# x-aimail-email is required for push deliveries (missing header returns 400).
 # Others: x-webhook-signature, x-mailrelay-timestamp, content-type.
 # forward_headers = ["x-aimail-email", "x-webhook-signature", "x-mailrelay-timestamp", "content-type"]
 
@@ -42,7 +41,7 @@ admin_allowed_ips = ["127.0.0.1", "::1"]
 #
 # Single system (legacy flat fields):
 # [pull]
-# amail_url = "http://gateway.example.com:38080"  # Gateway HTTP API URL
+# aimail_url = "http://gateway.example.com:38080"  # Gateway HTTP API URL
 # admin_key = "sk-..."                            # System-scope API key (must
 #                                                  # match the system_id below —
 #                                                  # pending deliveries are
@@ -52,11 +51,11 @@ admin_allowed_ips = ["127.0.0.1", "::1"]
 
 # Multi-system (one bridge, several systems — the production shape).
 # Each entry pulls its own system's pending deliveries with its own key.
-# amail_url may omit the scheme ("127.0.0.1:38080" → http:// is added).
+# aimail_url may omit the scheme ("127.0.0.1:38080" → http:// is added).
 # [pull]
 # systems = [
-#   { amail_url = "https://amail.example.com", admin_key = "sk-aaa", system_id = "shared-token-aaaaaaaa", poll_interval_sec = 2 },
-#   { amail_url = "https://amail.example.com", admin_key = "sk-bbb", system_id = "shared-token-bbbbbbbb", poll_interval_sec = 2 },
+#   { aimail_url = "https://aimail.example.com", admin_key = "sk-aaa", system_id = "shared-token-aaaaaaaa", poll_interval_sec = 2 },
+#   { aimail_url = "https://aimail.example.com", admin_key = "sk-bbb", system_id = "shared-token-bbbbbbbb", poll_interval_sec = 2 },
 # ]
 
 # ── Push mode (bridge receives external POSTs) ────────────────────

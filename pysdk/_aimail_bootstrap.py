@@ -21,7 +21,7 @@ repo works via case 3, which is local by definition.
 
 Entry points use it like:
 
-    def _amail_bootstrap():
+    def _aimail_bootstrap():
         import importlib.util as _ilu
         _here = os.path.dirname(os.path.abspath(__file__))
         for _d in (_here, os.path.dirname(_here)):
@@ -35,7 +35,7 @@ Entry points use it like:
                 return
         raise ImportError("aimail runtime core not found — set AIMAIL_RUNTIME_DIR")
 
-    _amail_bootstrap()
+    _aimail_bootstrap()
 
     import aimail_base as _base          # noqa: E402
 """

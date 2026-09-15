@@ -1,10 +1,9 @@
-"""toolsets.py — amail toolset registration for hermes-agent/toolsets.py.
+"""toolsets.py — AIMail toolset registration for hermes-agent/toolsets.py.
 
-patch_toolsets(hermes_dir) registers the 6 amail tool names into the
-_HERMES_CORE_TOOLS list (port of cli/hermes/install-tools.sh step 2);
-unpatch_toolsets(fp) removes them plus the TOOLSET_AMAIL dict block by
-exact-text stripping (blocks mirrored verbatim from cli/aimail —
-who patches, who unpatchs). Runnable compat:
+patch_toolsets(hermes_dir) registers the 7 AIMail tool names into the
+_HERMES_CORE_TOOLS list;
+unpatch_toolsets(fp) removes them plus the TOOLSET_AIMAIL dict block by
+exact-text stripping (who patches, who unpatchs). Runnable compat:
   python3 toolsets.py patch   <hermes-agent-dir>
   python3 toolsets.py unpatch <path/to/toolsets.py>
 """
@@ -31,7 +30,7 @@ else:
 
 
 # ═══════════════════════════════════════════════════════════════
-#  exact-text patch removal for hermes-agent/toolsets.py — TOOLSET_AMAIL
+#  exact-text patch removal for hermes-agent/toolsets.py — TOOLSET_AIMAIL
 #  must match what the installer inserts. Migrated from cli/aimail
 #  (unpatch section, lines 1307-1574).
 # ═══════════════════════════════════════════════════════════════
@@ -50,8 +49,8 @@ def strip_trailing_blanks(text: str) -> str:
     return re.sub(r'\n{4,}', '\n\n\n', text)
 
 
-TOOLSET_AMAIL = """    "agentmail": {
-        "description": "Agent email tools: send, contacts, contact profiles, and thread summaries via amail",
+TOOLSET_AIMAIL = """    "agentmail": {
+        "description": "Agent email tools: send, contacts, contact profiles, and thread summaries via AIMail",
         "tools": ["send_mail", "manage_contacts", "contact_profile", "set_contact_profile", "email_summary", "set_email_summary", "search_mail"],
         "includes": [],
     },
@@ -62,7 +61,7 @@ CORE_TOOL_NAMES = ["send_mail", "manage_contacts", "contact_profile",
 
 
 def patch_toolsets(hermes_dir: str) -> bool:
-    """Register the 6 amail tool names into hermes-agent/toolsets.py.
+    """Register the 7 AIMail tool names into hermes-agent/toolsets.py.
 
     Port of install-tools.sh step 2 (python heredoc): each missing name is
     inserted as '    "<name>",' right after '_HERMES_CORE_TOOLS = ['
@@ -99,11 +98,11 @@ def unpatch_toolsets(fp: Path) -> int:
     original = text
     changes = 0
 
-    text, ok = strip_block(text, TOOLSET_AMAIL)
+    text, ok = strip_block(text, TOOLSET_AIMAIL)
     if ok:
         changes += 1
 
-    # Remove amail tool names from _HERMES_CORE_TOOLS
+    # Remove AIMail tool names from _HERMES_CORE_TOOLS
     for tool in [
         "set_email_summary", "email_summary",
         "set_contact_profile", "contact_profile",

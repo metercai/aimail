@@ -9,7 +9,7 @@ import { promises as fs } from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
-const TMP = await fs.mkdtemp(path.join(os.tmpdir(), 'amail-mail-test-'))
+const TMP = await fs.mkdtemp(path.join(os.tmpdir(), 'aimail-mail-test-'))
 process.env.AIMAIL_HOME = TMP
 // import AFTER env is set (AIMAIL_HOME() is a lazy getter)
 const { resolveBySessionId, resolveByEmail, resolveByRecipient, resolveCtx } =

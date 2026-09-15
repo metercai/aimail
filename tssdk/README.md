@@ -2,7 +2,7 @@
 
 AIMail (agent mail) SDK for TypeScript: a framework-agnostic core plus
 ready-made adapters that give any AI agent a real mailbox — inbound email
-delivered into the agent's session, and 13 plain tools for sending mail,
+delivered into the agent's session, and 15 plain tools for sending mail,
 managing contacts, keeping thread notes, searching local mail, working on
 A2A boards, and publishing the public identity.
 
@@ -15,7 +15,7 @@ A2A boards, and publishing the public identity.
 | [`pi-aimail`](packages/pi-aimail/README.md) | AIMail extension for pi (earendil-works/pi-coding-agent). |
 
 All adapters iterate the same `MAIL_TOOLS` array from `@aimail/mail-core` —
-the 13 tool names, descriptions, and parameter shapes are defined once, so
+the 15 tool names, descriptions, and parameter shapes are defined once, so
 every platform surfaces an identical tool surface. Installation and
 registration are driven by the aimail CLI (`aimail install --home
 <platform-home>`); per-address `agentmail.json` bindings under

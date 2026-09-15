@@ -264,8 +264,8 @@
           "kind": "file_contains_alt",
           "path": "{home}/hermes-agent/hermes_cli/profiles.py",
           "alt": "{home}/hermes-agent/cli/profiles.py",
-          "marker": "AmailGateway",
-          "ok_text": "profiles.py patched (AmailGateway hook present)",
+          "marker": "AimailGateway",
+          "ok_text": "profiles.py patched (AimailGateway hook present)",
           "fail_text": "profiles.py NOT patched or missing"
         },
         {

@@ -1,4 +1,4 @@
-"""Apply amail preprocessor patch to Hermes gateway/platforms/webhook.py.
+"""Apply AIMail preprocessor patch to Hermes gateway/platforms/webhook.py.
 
 Adds:
   1. PREPROCESS_REGISTRY dict + register_preprocessor() function
@@ -139,7 +139,7 @@ WEBHOOK_REGISTRY_BLOCK = """
 
 # ═══════════════════════════════════════════════════════════════
 # Preprocess Registry — allows tools modules to register payload
-# preprocessors that run before prompt rendering (AmailGateway)
+# preprocessors that run before prompt rendering (AimailGateway)
 # ═══════════════════════════════════════════════════════════════
 
 PREPROCESS_REGISTRY: Dict[str, Callable] = {}
@@ -156,7 +156,7 @@ def register_preprocessor(name: str, fn: Callable) -> None:
 
 """
 WEBHOOK_CALL_BLOCK = '''
-        # ── Preprocess payload (AmailGateway integration) ──────────
+        # ── Preprocess payload (AimailGateway integration) ──────────
         preprocess_name = route_config.get("preprocess")
         if preprocess_name:
             preprocessor = PREPROCESS_REGISTRY.get(preprocess_name)
@@ -190,7 +190,7 @@ WEBHOOK_A2A_BLOCK = '''        # ── a2a_board: consume preprocessor prompt f
 
 '''
 WEBHOOK_ADAPTER_BLOCK = '''
-# ── AmailGateway Hermes adapter (shared core injection + registration) ──
+# ── AimailGateway Hermes adapter (shared core injection + registration) ──
 try:
     from aimail.hermes import aimail_hermes  # noqa: F401
 except Exception:
@@ -200,7 +200,7 @@ except Exception:
 
 
 def patch_webhook(target_path: str) -> bool:
-    """Apply all 7 amail sub-patches to a Hermes webhook.py file.
+    """Apply all AIMail sub-patches to a Hermes webhook.py file.
 
     Returns True if the file was modified (any add/update patch applied).
     Idempotent: already-patched files are detected and reported as ALREADY PATCHED.
@@ -258,7 +258,7 @@ def patch_webhook(target_path: str) -> bool:
     # old_end 用无缩进锚点 —— 补丁重跑时该行可能以不同缩进存在(8 空格手工补丁
     # vs 16 空格脚本补丁),硬编码缩进会导致 ValueError 且中断(webhook.py 已补丁
     # 场景)。
-    old_start = '        # ── Preprocess payload (AmailGateway integration) ──────────'
+    old_start = '        # ── Preprocess payload (AimailGateway integration) ──────────'
     old_end   = '# Format prompt from template'
     if old_start in content and old_end in content:
         before = content[:content.index(old_start)]
@@ -298,8 +298,7 @@ def patch_webhook(target_path: str) -> bool:
     # (aimail_base.process_inbound_mail, registered as the webhook
     # preprocessor). The webhook.py-level block is now dead code that
     # double-handles pings (preprocessor already swallowed them → payload is
-    # None) and its __aimail_pong__ prefix mismatched the gateway's
-    # __amail_pong__ P0 interception. Remove every legacy instance.
+    # None). Remove every legacy instance.
     content, _nr5 = re.subn(
         r'        # ── Ping-pong interception.*?pong_returned"\}\)\n+',
         '',
@@ -384,7 +383,7 @@ def patch_webhook(target_path: str) -> bool:
     # 先移除任何旧适配器 import 块(tools.hermes 旧名/新名,或 pip 名),再插入
     # pip 形态 import —— 跨 pysdk/→pip 迁移幂等。
     _p7_old_re = re.compile(
-        r'# ── AmailGateway Hermes adapter \(shared core injection \+ registration\) ──\n'
+        r'# ── AimailGateway Hermes adapter \(shared core injection \+ registration\) ──\n'
         r'try:\n'
         r'    from [^\n]*?# noqa: F401\n'
         r'except Exception:\n'
@@ -440,7 +439,7 @@ def strip_trailing_blanks(text: str) -> str:
 WEBHOOK_BLOCK1 = """
 # ═══════════════════════════════════════════════════════════════
 # Preprocess Registry — allows tools modules to register payload
-# preprocessors that run before prompt rendering (AmailGateway)
+# preprocessors that run before prompt rendering (AimailGateway)
 # ═══════════════════════════════════════════════════════════════
 
 PREPROCESS_REGISTRY: Dict[str, Callable] = {}
@@ -460,7 +459,7 @@ def register_preprocessor(name: str, fn: Callable) -> None:
 
 # Block 2: Preprocessor invocation
 # Inserted BEFORE "# Format prompt from template"
-WEBHOOK_BLOCK2 = """        # ── Preprocess payload (AmailGateway integration) ──────────
+WEBHOOK_BLOCK2 = """        # ── Preprocess payload (AimailGateway integration) ──────────
         preprocess_name = route_config.get("preprocess")
         if preprocess_name:
             preprocessor = PREPROCESS_REGISTRY.get(preprocess_name)
@@ -609,7 +608,7 @@ def unpatch_webhook(fp: Path) -> int:
 
     # Adapter import block (pip 形态 aimail.hermes / legacy tools.hermes) — remove
     text, n = re.subn(
-        r'# ── AmailGateway Hermes adapter \(shared core injection \+ registration\) ──\n'
+        r'# ── AimailGateway Hermes adapter \(shared core injection \+ registration\) ──\n'
         r'try:\n    from [^\n]*?# noqa: F401\nexcept Exception:\n    pass\n',
         '', text, count=0)
     if n:

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-check_status.py — One-shot amail pipeline runtime status check (generic)
+check_status.py — One-shot AIMail pipeline runtime status check (generic)
 
 Covers the full chain: aimail-gateway → aimail-bridge → agent config →
 agent hook interface → ping-pong. Platform-agnostic: works for any
@@ -53,6 +53,14 @@ SYSTEMS_DIR = AIMAIL_HOME / "systems"
 MAIL_DIR    = AIMAIL_HOME / "mail"
 BRIDGE_DIR  = AIMAIL_HOME / "bridge"
 LOGS_DIR    = AIMAIL_HOME / "logs"
+
+def _is_readable_file(p) -> bool:
+    """True if p is a readable regular file — permission/IO errors count as absent."""
+    try:
+        return p.is_file()
+    except OSError:
+        return False
+
 
 def _clean_agent_dir_name(addr: str) -> str:
     """agent 地址 → 目录名（与 pysdk/aimail_base._clean_agent_dir_name 一致）。"""
@@ -261,8 +269,8 @@ def _hermes_list_agents() -> list[dict]:
             })
         except Exception:
             pass
-    # Named profiles — 只保留有 amail 标记的(与 ensure_webhook_config 的
-    # is_amail_profile 同逻辑):.agentmail 指针或 config 有 aimail 痕迹;
+    # Named profiles — 只保留有 aimail 标记的(与 ensure_webhook_config 的
+    # aimail profile 判定同逻辑):.agentmail 指针或 config 有 aimail 痕迹;
     # 无关 profile(erp/qlbio 等)不报 MISSING 噪音(2026-08-16 实测 22 issue)。
     profiles_dir = AGENT_HOME / "profiles"
     if profiles_dir.is_dir():
@@ -310,7 +318,7 @@ def _hermes_check_config(c: Check, agent: dict):
     sid = _resolve_system_id()
     aj_path = (SYSTEMS_DIR / sid / _clean_agent_dir_name(email) / "agentmail.json") if (sid and email) else None
     api_key = ""
-    if aj_path and aj_path.is_file():
+    if aj_path and _is_readable_file(aj_path):
         try:
             api_key = json.loads(aj_path.read_text()).get("api_key", "")
         except Exception:
@@ -389,7 +397,7 @@ def _hermes_check_hook(c: Check, agent: dict):
     payload = json.dumps({
         "message": "status-check",
         "from": "check_status@localhost",
-        "subject": "amail connectivity probe",
+        "subject": "aimail connectivity probe",
     }).encode()
     try:
         req = urllib.request.Request(url, data=payload,
@@ -435,12 +443,12 @@ def _openclaw_list_agents() -> list[dict]:
             if not adir.is_dir():
                 continue
             email = ""
-            # amail email 从系统 agentmail.json 反查(agent_id 匹配)
+            # aimail email 从系统 agentmail.json 反查(agent_id 匹配)
             sysdir = SYSTEMS_DIR / sid
             if sysdir.is_dir():
                 for sub in sysdir.iterdir():
                     aj = sub / "agentmail.json"
-                    if aj.is_file():
+                    if _is_readable_file(aj):
                         try:
                             d = json.loads(aj.read_text())
                             if d.get("agent_id") == adir.name:
@@ -474,7 +482,7 @@ def _openclaw_check_config(c: Check, agent: dict):
         sid = _resolve_system_id()
     aj_path = (SYSTEMS_DIR / sid / _clean_agent_dir_name(email) / "agentmail.json") if (sid and email) else None
     api_key = ""
-    if aj_path and aj_path.is_file():
+    if aj_path and _is_readable_file(aj_path):
         try:
             api_key = json.loads(aj_path.read_text()).get("api_key", "")
         except Exception:
@@ -486,7 +494,7 @@ def _openclaw_check_config(c: Check, agent: dict):
 
     # 3.2 webhook: agentmail.json webhook_secret
     wh_ok = False
-    if aj_path and aj_path.is_file():
+    if aj_path and _is_readable_file(aj_path):
         try:
             wh_ok = bool(json.loads(aj_path.read_text()).get("webhook_secret"))
         except Exception:
@@ -534,8 +542,6 @@ def _openclaw_check_hook(c: Check, agent: dict):
 
     Endpoint path truth: tssdk openclaw-aimail/src/inbound.ts INBOUND_PATH
     = /aimail/inbound (registered on the gateway HTTP server in index.ts).
-    Legacy adapter (amail_openclaw_bridge.py :8799/hook) and the old
-    /aimail/deliver path are retired.
     """
     # Discover the gateway port from openclaw.json (default 18789).
     port = 18789
@@ -588,7 +594,7 @@ def _dsh_list_agents() -> list[dict]:
     if sysdir.is_dir():
         for sub in sorted(sysdir.iterdir()):
             aj = sub / "agentmail.json"
-            if not aj.is_file():
+            if not _is_readable_file(aj):
                 continue
             try:
                 d = json.loads(aj.read_text())
@@ -614,7 +620,7 @@ def _dsh_check_config(c: Check, agent: dict):
     wh_url = ""
     wh_secret = ""
     preset = ""
-    if aj and aj.is_file():
+    if aj and _is_readable_file(aj):
         try:
             d = json.loads(aj.read_text())
             api_key = d.get("api_key", "")
@@ -673,7 +679,7 @@ def _pi_check_config(c: Check, agent: dict):
     sid = _resolve_system_id()
     aj_path = (SYSTEMS_DIR / sid / _clean_agent_dir_name(email) / "agentmail.json") if (sid and email) else None
     api_key = ""
-    if aj_path and aj_path.is_file():
+    if aj_path and _is_readable_file(aj_path):
         try:
             api_key = json.loads(aj_path.read_text()).get("api_key", "")
         except Exception:
@@ -698,7 +704,7 @@ def _pi_check_hook(c: Check, agent: dict):
     sid = _resolve_system_id()
     wh_url = ""
     aj_path = (SYSTEMS_DIR / sid / _clean_agent_dir_name(email) / "agentmail.json") if (sid and email) else None
-    if aj_path and aj_path.is_file():
+    if aj_path and _is_readable_file(aj_path):
         try:
             wh_url = json.loads(aj_path.read_text()).get("webhook_url", "")
         except Exception:
@@ -732,7 +738,7 @@ def _dsh_check_hook(c: Check, agent: dict):
     """L4 dsh: POST webhook_url — 200/401 = 接收端点活跃(mail-inbound)。"""
     aj = agent.get("config")
     wh_url = ""
-    if aj and aj.is_file():
+    if aj and _is_readable_file(aj):
         try:
             wh_url = json.loads(aj.read_text()).get("webhook_url", "")
         except Exception:
@@ -1054,7 +1060,7 @@ def _check_agentmail_json(c: Check, sid: str):
         return
     for sub in sorted(sysdir.iterdir()):
         aj = sub / "agentmail.json"
-        if not aj.is_file():
+        if not _is_readable_file(aj):
             continue
         try:
             d = json.loads(aj.read_text())
@@ -1135,7 +1141,7 @@ def _check_bridge_completeness(c: Check, sid: str):
         return
     for sub in sorted(sysdir.iterdir()):
         aj = sub / "agentmail.json"
-        if not aj.is_file():
+        if not _is_readable_file(aj):
             continue
         try:
             d = json.loads(aj.read_text())
@@ -1214,11 +1220,11 @@ def check_bridge(c: Check, sid: str = ""):
         td = _parse_toml(BRIDGE_CFG.read_text())
         mode   = td.get("__top__", {}).get("mode", "") or td.get("bridge", {}).get("mode", "")
         addr   = td.get("__top__", {}).get("addr", "") or td.get("bridge", {}).get("addr", "")
-        amail_url = td.get("pull", {}).get("amail_url", "")
+        aimail_url = td.get("pull", {}).get("aimail_url", "")
         poll_int  = td.get("pull", {}).get("poll_interval_sec", "")
         parts = [f"mode={mode}"]
         if addr:    parts.append(f"addr={addr}")
-        if amail_url: parts.append(f"amail_url={amail_url}")
+        if aimail_url: parts.append(f"aimail_url={aimail_url}")
         if poll_int:  parts.append(f"poll={poll_int}s")
         c.add("bridge", "config", True, ", ".join(parts))
     except Exception as e:
@@ -1274,21 +1280,21 @@ def _check_bridge_gateway_consistency(c: Check, td: dict, sid: str = ""):
     except Exception:
         _td = td
 
-    # (A) pull.amail_url vs gateway_url(按 sid 匹配该系统的条目)
+    # (A) pull.aimail_url vs gateway_url(按 sid 匹配该系统的条目)
     pull_cfg = _td.get("pull", {})
     systems = pull_cfg.get("systems") or []
     if systems:
         entry = next((s for s in systems if s.get("system_id") == sid), None) if sid else None
         if entry is None:
             entry = systems[0]
-        bridge_amail = entry.get("amail_url", "")
+        bridge_url = entry.get("aimail_url", "")
         bridge_sid = entry.get("system_id", "")
     else:
-        bridge_amail = pull_cfg.get("amail_url", "")
+        bridge_url = pull_cfg.get("aimail_url", "")
         bridge_sid = pull_cfg.get("system_id", "")
     gw_url = gw.get("gateway_url", "").rstrip("/")
-    if bridge_amail and gw_url:
-        b_host = bridge_amail.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
+    if bridge_url and gw_url:
+        b_host = bridge_url.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
         g_host = gw_url.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
         if b_host != g_host:
             mismatches.append(f"bridge pulls from '{b_host}' but gateway is '{g_host}'")
@@ -1373,21 +1379,21 @@ def _check_bridge_pull_path(c: Check, td: dict, sid: str = "") -> bool:
         entry = next((s for s in systems if s.get("system_id") == sid), None) if sid else None
         if entry is None:
             entry = systems[0]
-        amail_url = entry.get("amail_url", "")
+        aimail_url = entry.get("aimail_url", "")
         pull_key = entry.get("api_key", "") or entry.get("admin_key", "")
     else:
-        amail_url = pull_cfg.get("amail_url", "")
+        aimail_url = pull_cfg.get("aimail_url", "")
         pull_key = pull_cfg.get("admin_key", "")
         pull_key = pull_key or pull_cfg.get("api_key", "")
-    if not amail_url or not pull_key:
+    if not aimail_url or not pull_key:
         c.add("bridge", "pull_path", False,
-              "amail_url or admin_key missing in bridge config",
+              "aimail_url or admin_key missing in bridge config",
               "Check [pull] section in aimail_bridge.toml")
         return False
 
     body = json.dumps({"limit": 1}).encode()
     code, resp = _json_req(
-        f"{amail_url.rstrip('/')}/api/v1/admin/pending",
+        f"{aimail_url.rstrip('/')}/api/v1/admin/pending",
         headers=_signed_post_headers(pull_key, "/api/v1/admin/pending", body,
                                      identity=pull_cfg.get("system_id", "")),
         data=body, method="POST")
@@ -1405,7 +1411,7 @@ def _check_bridge_pull_path(c: Check, td: dict, sid: str = "") -> bool:
     else:
         c.add("bridge", "pull_path", False,
               f"HTTP {code} — bridge cannot reach gateway's pending API",
-              "Check amail_url and admin_key in aimail_bridge.toml")
+              "Check aimail_url and admin_key in aimail_bridge.toml")
     return code == 200
 
 

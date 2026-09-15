@@ -1,7 +1,7 @@
-"""Apply amail profile hooks patch to Hermes hermes_cli/profiles.py.
+"""Apply AIMail profile hooks patch to Hermes hermes_cli/profiles.py.
 
 Adds trigger_profile_hooks() calls for profile_created and profile_deleted
-events, enabling automatic amail address registration and API key cleanup.
+events, enabling automatic AIMail address registration and API key cleanup.
 
 Auto-detects Hermes commit version and adjusts insertion points accordingly.
 See HERMES_PATCH_MAP.md for details.
@@ -149,7 +149,7 @@ def _find_delete_print_line(content: str) -> int:
 
 
 def patch_profiles(target_path: str) -> bool:
-    """Apply both amail hook sub-patches to a Hermes hermes_cli/profiles.py file.
+    """Apply both AIMail hook sub-patches to a Hermes hermes_cli/profiles.py file.
 
     Returns True if the file was modified. Idempotent: already-patched files are
     detected and reported as ALREADY PATCHED.
@@ -184,7 +184,7 @@ def patch_profiles(target_path: str) -> bool:
     # (4/12 空格)→ 各行缩进 [ \t]* 不校验;import 行 [^\n]* 通配两种形态,
     # 调用行 [A-Za-z_][\w.]*\.? 前缀通配裸函数与 aimail_hermes. 限定)
     content = re.sub(
-        r'[ \t]*# ── Fire integration hooks \(AmailGateway\) ──\n'
+        r'[ \t]*# ── Fire integration hooks \(AimailGateway\) ──\n'
         r'[ \t]*try:\n'
         r'[ \t]*from [^\n]*\n'
         r'[ \t]*(?:[A-Za-z_][\w.]*\.)?trigger_profile_hooks\("profile_created".*?'
@@ -211,7 +211,7 @@ def patch_profiles(target_path: str) -> bool:
     # ── Patch 2: profile deletion hook (always replace) ───────────
     # Remove old instance if present(同 Patch 1:兼容新旧两种 import/调用形态)
     content = re.sub(
-        r'[ \t]*# ── Fire integration hooks \(AmailGateway\) ──\n'
+        r'[ \t]*# ── Fire integration hooks \(AimailGateway\) ──\n'
         r'[ \t]*try:\n'
         r'[ \t]*from [^\n]*\n'
         r'[ \t]*(?:[A-Za-z_][\w.]*\.)?trigger_profile_hooks\("profile_deleted".*?'
@@ -302,7 +302,7 @@ def strip_trailing_blanks(text: str) -> str:
     return re.sub(r'\n{4,}', '\n\n\n', text)
 
 
-PROFILES_HOOK = """    # ── Fire integration hooks (AmailGateway) ──
+PROFILES_HOOK = """    # ── Fire integration hooks (AimailGateway) ──
     try:
         from aimail.aimail_base import trigger_profile_hooks
         trigger_profile_hooks(\"profile_created\", canon, str(profile_dir))
@@ -311,7 +311,7 @@ PROFILES_HOOK = """    # ── Fire integration hooks (AmailGateway) ──
 
 """
 
-PROFILES_HOOK_DEL = """            # ── Fire integration hooks (AmailGateway) ──
+PROFILES_HOOK_DEL = """            # ── Fire integration hooks (AimailGateway) ──
             try:
                 from aimail.aimail_base import trigger_profile_hooks
                 trigger_profile_hooks(\"profile_deleted\", canon, str(profile_dir))

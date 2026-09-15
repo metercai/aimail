@@ -24,7 +24,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 # The core runtime (aimail_base / aimail_tools / aimail_board /
-# gateway_api / amail_mcp_server) is stdlib-only: every third-party import
+# gateway_api / aimail_mcp_server) is stdlib-only: every third-party import
 # (yaml, markitdown) is lazy and host-gated. The only module-level
 # third-party import in the package is fastapi, confined to the DeerFlow
 # inbound router (deerflow extra, host always ships it). Keep the hard dep
@@ -62,7 +62,7 @@ packages = []
 "pysdk/aimail_tools.py" = "aimail/aimail_tools.py"
 "pysdk/aimail_board.py" = "aimail/aimail_board.py"
 "pysdk/gateway_api.py" = "aimail/gateway_api.py"
-"pysdk/amail_mcp_server.py" = "aimail/amail_mcp_server.py"
+"pysdk/aimail_mcp_server.py" = "aimail/aimail_mcp_server.py"
 "pysdk/install.py" = "aimail/install.py"
 "pysdk/_resources_release.py" = "aimail/_resources_release.py"
 "pysdk/hermes/aimail_hermes.py" = "aimail/hermes/aimail_hermes.py"
@@ -72,7 +72,7 @@ packages = []
 "pysdk/hermes/register_profiles.py" = "aimail/hermes/register_profiles.py"
 "pysdk/hermes/toolsets.py" = "aimail/hermes/toolsets.py"
 "pysdk/deer-flow/aimail_inbound.py" = "aimail/deer-flow/aimail_inbound.py"
-"pysdk/deer-flow/amail_base.py" = "aimail/deer-flow/amail_base.py"
+"pysdk/deer-flow/aimail_deerflow.py" = "aimail/deer-flow/aimail_deerflow.py"
 "pysdk/deer-flow/manage.py" = "aimail/deer-flow/manage.py"
 # resources — released at install time to ~/.aimail/systems/{sid}/board/
 # and read from there at runtime (user-personalizable); zh/soul variants are

@@ -20,7 +20,7 @@ const EMAIL = 'agent1@token.tm'
 let home: string
 
 beforeAll(async () => {
-  home = await fs.mkdtemp(path.join(os.tmpdir(), 'amail-thread-'))
+  home = await fs.mkdtemp(path.join(os.tmpdir(), 'aimail-thread-'))
   process.env.AIMAIL_HOME = home
 })
 

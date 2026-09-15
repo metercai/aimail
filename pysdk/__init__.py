@@ -28,8 +28,8 @@ Module layout inside the wheel mirrors the repository ``pysdk/`` directory
     aimail_base.py        shared core (platform-agnostic)
     aimail_tools.py       shared core (GatewayClient / send_mail)
     aimail_board.py       shared core (A2A board)
-    gateway_api.py           standard amail API client
-    amail_mcp_server.py      platform-agnostic MCP server (stdio JSON-RPC)
+    gateway_api.py           AIMail gateway API client
+    aimail_mcp_server.py     platform-agnostic MCP server (stdio JSON-RPC)
     _aimail_bootstrap.py     location-agnostic sys.path bootstrap (runtime glue)
     install.py               self-contained install/uninstall entry
     _resources_release.py    board/skills resource release (install-time)
@@ -107,7 +107,7 @@ def board_role_prompt_dir() -> str:
 
 def mcp_server_path() -> str:
     """Path of the platform-agnostic MCP server entry script."""
-    return _os.path.join(root(), "amail_mcp_server.py")
+    return _os.path.join(root(), "aimail_mcp_server.py")
 
 
 # ── Unified core bootstrap + re-export ────────────────────────────────────

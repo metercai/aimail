@@ -49,7 +49,7 @@ AIMail integrates with any agent system (LLM runtime); the agent gains complete 
 | Shared core | `pysdk/aimail_base.py`, `aimail_tools.py`, `aimail_board.py`, `aimail_mcp_server.py` | Inbound preprocessing chain, ping/pong, address derivation, registration/deregistration chain, email-tool implementations, board tools |
 | Platform adapters | `pysdk/{platform}/` (hermes/openclaw/deer-flow) + platform-side TS plugins (dsh/pi/openclaw, see §4.4/§4.5/§4.2) | Config source, persona switch, identity injection, tool registration, receive endpoint |
 | Runtime | TS plugin commands (`openclaw aimail register|register-all|deregister|status`) | Agent lifecycle (registration/deregistration, openclaw-aimail) |
-| CLI layer | `cli/aimail` (15 subcommands; repo-root `./aimail` symlink) + ops scripts `cli/{check_status,send_welcome,repair,setup_system,deploy_bridge,ping_test}.py`; API client `pysdk/gateway_api.py` | Install / check / test / uninstall / ops |
+| CLI layer | `cli/aimail` (15 subcommands; bootstrap installs the global `aimail` command, repo-root `./aimail` is a symlink to the same file) + ops scripts `cli/{check_status,send_welcome,repair,setup_system,deploy_bridge,ping_test}.py`; API client `pysdk/gateway_api.py` | Install / check / test / uninstall / ops |
 | Install source | `pysdk/resources/skills/SKILL.md` + `DESCRIPTION.md` | Generic email skill (byte-exact copy, zero rewriting) |
 
 **Iron rules**:
@@ -123,7 +123,7 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 ### 2.5 Identity Model
 
 - **1 agent = 1 AIMail address**; each agent has its own api_key (gateway send.rs enforces sender == key.email_address).
-- **System identity has a single source: the pointer file**: Hermes `profiles/{name}/.aimail`, OpenClaw `~/.openclaw/.agentmail` (JSON: system_id + email).
+- **System identity has a single source: the pointer file**: Hermes `profiles/{name}/.agentmail`, OpenClaw `~/.openclaw/.agentmail` (JSON: system_id + email).
 - Single config filename: `aimail_gateway.json` (same name on the read and write sides; no compatibility alias).
 
 ---
@@ -175,7 +175,7 @@ Field semantics follow MAINTENANCE §2/§9 and the code contract.
 
 ### 3.5 ping/pong Contract
 
-- Prefixes: `__aimail_ping__:` / `__amail_pong__:` (gateway send.rs P0 exact match; if the two ends disagree, the pong never loops back).
+- Prefixes: `__aimail_ping__:` / `__aimail_pong__:` (gateway send.rs P0 exact match; if the two ends disagree, the pong never loops back).
 - Three-stage events: `ping_intercepted → pong_sent → pong_returned`, written to `~/.aimail/logs/aimail.{cleaned_addr}.log` (the sole authoritative verdict for ping_test).
 
 ---
@@ -191,7 +191,7 @@ Field semantics follow MAINTENANCE §2/§9 and the code contract.
 | Component | Location |
 |-----------|----------|
 | Adapter layer | `pysdk/hermes/aimail_hermes.py` (injection-point assignment + registration block; helpers pysdk/hermes/{patch_webhook,toolsets,register_profiles,ensure_config}.py) |
-| Tool registration | 7 email (incl. search_mail) + 4 board tools → `registry.register` (executed at import time) |
+| Tool registration | 7 email (incl. search_mail) + 8 board/identity tools (15 total) → `registry.register` (executed at import time) |
 | Inbound | Webhook preprocessor: `register_preprocessor("aimail_gateway", core.process_inbound_mail)` (in-process) |
 | Lifecycle | `profile_created/deleted` hooks (event bus) |
 | Deployment | `aimail install --home ~/.hermes` (current install path, replacing install-tools.sh): pysdk/install.py expands SKILL → profiles/*/skills/agentmail + toolsets.py patches platform_toolsets + board resources; supplementary registration = pysdk/hermes/register_profiles.py (full) + profile_created/deleted event hooks |
@@ -202,29 +202,29 @@ Field semantics follow MAINTENANCE §2/§9 and the code contract.
 | Component | Location |
 |-----------|----------|
 | Adapter layer | tssdk `openclaw-aimail` plugin (identity = `~/.openclaw/.agentmail` pointer + agentmail.json as the single source of truth; outbound X-AIMail-Agent = `openclaw/{ver}`) |
-| Tools | 13 bare-name email/board tools registered in-process by the plugin (MAIL_TOOLS as the single semantic source; not MCP) |
+| Tools | 15 bare-name email/board/identity tools registered in-process by the plugin (MAIL_TOOLS as the single semantic source; not MCP) |
 | Inbound endpoint | **Gateway-plugin HTTP route** `POST http://127.0.0.1:18789/aimail/inbound` (`openclaw.json gateway.port` defaults to 18789; auth=plugin, same target for bridge/direct push): HMAC signature verify → TS `processInboundMail` → agent turn via the gateway internal `POST /hooks/agent` hook (multiple agents routed via sessionKey) |
 | Lifecycle | Plugin register/deregister/status commands (`openclaw aimail register|register-all|deregister|status`); Python registration chain retired |
 | Deployment | `openclaw plugins install openclaw-aimail` (or via the tssdk package); the Python side only registers/checks (cli/check_status probes the plugin endpoint at L4) |
-| Key pitfalls | Call `setAgentIdentity` before inbound processing (TS-side identity injection); logs/event contract aligned verbatim with Python; the 8799 external bridge is retired (§9) |
+| Key pitfalls | Call `setAgentIdentity` before inbound processing (TS-side identity injection); logs/event contract aligned verbatim with Python; the 8799 external bridge is retired (see MAINTENANCE §9) |
 
 ### 4.3 DeerFlow
 
 | Component | Location |
 |-----------|----------|
-| Adapter layer | `pysdk/deer-flow/amail_base.py` (`PERSONA_SUPPORTED=False` + identity injection `deerflow/{ver}`) |
-| Tools | Shared MCP stdio server `pysdk/amail_mcp_server.py` (installed via pysdk/deer-flow/install-mcp.sh) |
-| Inbound | **In-process preprocessing**: deer-flow `backend/app/gateway/routers/aimail_inbound.py` — `POST /aimail/inbound`: signature verify → process_inbound_mail → ping/pong interception → deliver via `start_run` (thread=uuid5("amail", email), assistant_id read from agentmail.json) |
+| Adapter layer | `pysdk/deer-flow/aimail_deerflow.py` (`PERSONA_SUPPORTED=False` + identity injection `deerflow/{ver}`) |
+| Tools | Shared MCP stdio server `pysdk/aimail_mcp_server.py` (installed via pysdk/deer-flow/install-mcp.sh) |
+| Inbound | **In-process preprocessing**: deer-flow `backend/app/gateway/routers/aimail_inbound.py` — `POST /aimail/inbound`: signature verify → process_inbound_mail → ping/pong interception → deliver via `start_run` (thread=uuid5(NAMESPACE_DNS, "aimail:{email}"), assistant_id read from agentmail.json) |
 | Lifecycle | `pysdk/deer-flow/manage.py` (register/reconcile/deregister subcommands); install-time supplementary registration = manage.py reconcile (full) + pysdk/deer-flow/install-skill.sh / install-mcp.sh |
 | Deployment | Shared layout (~/.aimail/systems/{sid}/{cleaned_addr}/agentmail.json); inbound install/patch via `pysdk/deer-flow/manage.py install/patch` (bundled install + dual-anchor app.py patch + py_compile check; the upstream repo stays clean; restart 8001 to take effect) |
-| Key pitfalls | In-process import of amail_base at 8001 needs sys.path injection (router module level); Pyright false positives (the runtime path is inserted) |
+| Key pitfalls | In-process import of aimail_deerflow at 8001 needs sys.path injection (router module level); Pyright false positives (the runtime path is inserted) |
 
 ### 4.4 DSH (deepseek-harness, TS plugin platform)
 
 | Component | Location |
 |-----------|----------|
 | Adapter layer | tssdk `dsh-aimail` plugin (3 subpackages: mail-service / tools / inbound; identity = `~/.dsh/.agentmail` pointer; preset = definition / uuid = instance) |
-| Tools | 13 bare-name email/board tools (registered at the preset layer, visible to joined sessions; outbound X-AIMail-Agent = `dsh/{ver}`) |
+| Tools | 15 bare-name email/board/identity tools (registered at the preset layer, visible to joined sessions; outbound X-AIMail-Agent = `dsh/{ver}`) |
 | Inbound | Host-layer `mail-inbound`: node:http listener (`POST /aimail/inbound`, default port `AIMAIL_INBOUND_PORT`/9099) → HMAC signature verify → TS `processInboundMail` → `followup` wakes the corresponding session |
 | Lifecycle | dsh-aimail `lib/register-cli.js`(CLI spawn,platform registry node_entry)+ host auto-bind;shared mail-core chain(register_bridge_route always called) |
 | Deployment | `dsh plugin --profile web add dsh-aimail` (the bundle self-mounts via cordis.patch.yml) |
@@ -236,7 +236,7 @@ Field semantics follow MAINTENANCE §2/§9 and the code contract.
 | Component | Location |
 |-----------|----------|
 | Adapter layer | tssdk `pi-aimail` extension (identity = `~/.pi/.agentmail` pointer + agentmail.json) |
-| Tools | 13 bare-name email/board tools (`pi.registerTool`, TypeBox parameters; outbound X-AIMail-Agent = `pi/{ver}`) |
+| Tools | 15 bare-name email/board/identity tools (`pi.registerTool`, TypeBox parameters; outbound X-AIMail-Agent = `pi/{ver}`) |
 | Inbound | The extension's own local listener `http://127.0.0.1:9101/aimail/inbound` (default port 9101; bridge push target) → HMAC signature verify → TS `processInboundMail` → `pi.sendUserMessage` (always triggers a turn) |
 | Lifecycle | `~/.pi/.agentmail` pointer + shared registration chain (same structure as openclaw); install-time supplementary registration via cli/check_status pi adapter |
 | Deployment | Copy/symlink → `~/.pi/agent/extensions/` (or the pi package); board resources expanded idempotently |
@@ -247,7 +247,7 @@ Field semantics follow MAINTENANCE §2/§9 and the code contract.
 | Dimension | Hermes | OpenClaw | DeerFlow |
 |-----------|--------|----------|----------|
 | Inbound model | One inbound, one outbound (each profile its own port, in-process preprocessing) | Gateway-plugin route `/aimail/inbound` (in-process; multiple agents via sessionKey) | In-process preprocessing (8001 router, start_run delivery) |
-| Tool exposure | In-process registry | Plugin in-process bare names (13 tools) | MCP stdio server (amail__ prefix) |
+| Tool exposure | In-process registry | Plugin in-process bare names (15 tools) | MCP stdio server (aimail__ prefix) |
 | Deployment | Copy-deploy (driven by `aimail install`) | TS plugin (`openclaw plugins install openclaw-aimail`) | Adapter repo-direct; preprocessing lives in the deer-flow repo (patched install + restart) |
 | Lifecycle | Event bus (profile_created/deleted) | Plugin register command / CLI registration chain | manage.py reconcile |
 | Persona | Full capability (PERSONA_SUPPORTED=True) | None (False) | None (False) |
@@ -256,7 +256,7 @@ Field semantics follow MAINTENANCE §2/§9 and the code contract.
 
 ## 5. CLI Contract (cli/aimail)
 
-**Command-name collision warning**: `~/.local/bin/aimail` is the Hermes launcher; this repo's CLI can only be run via the repo-root `./aimail` (symlink → `cli/aimail`). Never add cli/ to the global PATH.
+**Command installation**: bootstrap installs `aimail` as a global command (`~/.local/bin/aimail` → toolkit `cli/aimail`); the repo-root `./aimail` is a symlink to the same file, for in-repo debugging only.
 
 Subcommands (15, grouped into 4 scenarios):
 
@@ -268,7 +268,7 @@ Subcommands (15, grouped into 4 scenarios):
 | Subcommand | Responsibility |
 |------------|----------------|
 | `bridge` | Maintain the local bridge: no args = status; `--system-id` refreshes routes; `--restart` restarts the single instance |
-| `check` | Full-pipeline status check (L1 gateway / L2 bridge / L3 agent config / L4 hook / L5 ping-pong) |
+| `check` | Full-pipeline status check (config files L0 → gateway/bridge L1/L2 → platform runtime resources L2r → agent config L3 → links L4) |
 | `domain` | View/create the system domain (list by default / `--add DOMAIN`) |
 | `ensure-system` | System activation ABI (SDK reverse-call): L1 activation/reuse only — never platform wiring (keeps the install↔plugin call graph acyclic) |
 | `install` | Integrate an agent platform into the AIMail system (activate or reuse an existing system, incl. platform adapter and supplementary registration) |
@@ -285,7 +285,7 @@ Subcommands (15, grouped into 4 scenarios):
 
 **Platform inference (without --agent-type)**: decided in order by the `--home` directory features — `pi` (`~/.pi` + agent/), `dsh` (`~/.dsh` + profiles/ + storages/; dsh also has profiles/, so it must be checked before hermes), `hermes` (hermes-agent/ or profiles/), `openclaw` (openclaw.json), `deerflow` (backend/app/gateway) → resolve the configured system_home → auto-detect the pointer.
 
-**.env auto-loading**: CLI args > shell env > .env > built-in defaults. .env keys: AIMAIL_URL / AIMAIL_ADMIN_KEY / AIMAIL_PRODUCT_CODE / AIMAIL_MANAGER_ADDRESS / AIMAIL_SYSTEM_NAME / AIMAIL_DOMAIN / AIMAIL_SAVE_SNAPSHOTS / AIMAIL_WEBHOOK_HOST.
+**.env auto-loading**: CLI args > shell env > `~/.aimail/.env` (persisted by bootstrap) > repo `.env` > built-in defaults. Keys persisted by bootstrap: AIMAIL_URL / AIMAIL_ADMIN_KEY / AIMAIL_PRODUCT_CODE / AIMAIL_MANAGER_ADDRESS / AIMAIL_SYSTEM_NAME / AIMAIL_DOMAIN / AIMAIL_WEBHOOK_HOST / AIMAIL_WEBHOOK_MODE.
 install is fully non-interactive: activate → take the server-assigned system_id from the setup_system JSON stdout → preset/create domain → deploy_bridge → platform adapter.
 
 **System activation ABI — `ensure-system` (single L1 implementation)**
@@ -420,7 +420,7 @@ dispatchers; kinds are shared across platforms, never per-platform code.
 
 | Symptom | Root cause |
 |---------|------------|
-| ping never gets a pong | Prefix mismatch (PONG_PREFIX must be `__amail_pong__:`); or the receive endpoint skipped the final process_inbound_mail step |
+| ping never gets a pong | Prefix mismatch (PONG_PREFIX must be `__aimail_pong__:`); or the receive endpoint skipped the final process_inbound_mail step |
 | Inbound broken (new agent) | register_bridge_route not called after registration (no route-table entry) |
 | Webhook session receives but can't reply | Profile `platform_toolsets.webhook` lacks aimail; or the routed skills are empty |
 | Logs land in aimail.default.log | Standalone process didn't set_agent_context / didn't export AIMAIL_AGENT_EMAIL |
@@ -434,9 +434,9 @@ dispatchers; kinds are shared across platforms, never per-platform code.
 
 ## 9. Retired / Do Not Use
 
-- **amail-poll.py**: deleted. Inbound pulling is unified through aimail-bridge (single process, multiple systems).
-- **amail_deerflow_bridge.py** (8798): retired. DeerFlow inbound is 8001 in-process preprocessing.
-- **amail_openclaw_bridge.py** (8799 / hook external preprocessing process): retired. OpenClaw inbound is the gateway plugin endpoint `http://127.0.0.1:18789/aimail/inbound` (openclaw-aimail plugin, consistent with the cli/check_status comment).
+- **inbound pulling**: unified through aimail-bridge (single process, multiple systems).
+- **DeerFlow inbound**: 8001 in-process preprocessing.
+- **OpenClaw inbound**: the gateway plugin endpoint `http://127.0.0.1:18789/aimail/inbound` (openclaw-aimail plugin).
 - **integrate.sh / uninstall.sh / bridge-ctl.sh / install-tools.sh**: replaced by `aimail install/uninstall/bridge` (install-tools.sh is also replaced by the pysdk/hermes/toolsets.py toolset patch).
 - **aimail_gateway.json**: read/write unified on this single name; no compatibility alias.
 - **--agent-type argument**: platforms are inferred from facts; manual specification is forbidden.

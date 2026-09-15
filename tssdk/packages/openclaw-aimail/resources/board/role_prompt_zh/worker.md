@@ -6,11 +6,10 @@
 ### 可发起指令流指令（→ Board）
 
 - `[A2A] complete <task-id>` — 完成任务，带 summary，首次 heartbeat Ready→Running
-- `[A2A] continue <task-id>` — 长任务跨 session 延续
 - `[A2A] block <task-id>` — 遇到困难主动 block（你的任务，你有权报告阻塞）
 - `[A2A] comment <task-id>` — 添加备注
 - `[A2A] list` / `[A2A] show` / `[A2A] members` / `[A2A] roles` / `[A2A] status` — 查询
-- 长任务定期用 `board_heartbeat(task_id)` 发心跳（首次调用 Ready→Running）。跨 session 用 `board_continue_request(task_id, progress, note)` 串联。
+- 长任务定期用 `board_heartbeat(task_id)` 发心跳（首次调用 Ready→Running）。
 
 ### 不可发起
 

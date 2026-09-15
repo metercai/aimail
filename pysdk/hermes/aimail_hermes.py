@@ -7,7 +7,7 @@
   2. 提供 Hermes 专属功能（profile 生命周期钩子 / webhook 路由 / 端口管理）
   3. 在 Hermes 运行时注册（webhook preprocessor / tools registry / 生命周期钩子）
 
-OpenClaw 对应适配层：tools/openclaw/amail_base.py
+DeerFlow 对应适配层：pysdk/deer-flow/aimail_deerflow.py
 """
 
 import json
@@ -470,7 +470,7 @@ def _auto_register_email(name: str, profile_dir: str, config: dict) -> None:
     4. Inject config into profile directory
     
     The registered address is the agent's identity. Persona switching is
-    handled at inbound time by parse_amail_persona() — the aimail skill
+    handled at inbound time by parse_aimail_persona() — the aimail skill
     extracts persona from the 'to' address (persona.profile@domain format).
     """
     gateway_url = config.get("gateway_url", "")
@@ -680,7 +680,7 @@ def _auto_activate_profile(profile_dir: str, config: dict) -> None:
 
 
 def _auto_deregister_email(name: str, profile_dir: str, config: dict) -> None:
-    """When a Profile is deleted, clean up its amail registration
+    """When a Profile is deleted, clean up its AIMail registration
     （API 注销链走公共 deregister_agent_email——幂等，补全原缺口）。"""
     gateway_url = config.get("gateway_url", "")
     admin_key = config.get("admin_key", "")
@@ -799,7 +799,7 @@ core._SOUL_PROVIDER = _read_soul_md
 core._SKILLS_PROVIDER = _read_skills
 core._BOARD_GATEWAY_SINK = _register_board_gateway
 # board 凭据存储（_store_board_credential）已提升到公共核心默认实现；
-# 跨模块名（store_inbound_message/_log_amail/_GatewayClient）已由公共核心
+# 跨模块名（store_inbound_message/_log_aimail/_GatewayClient）已由公共核心
 # 函数级 import 自解析——均无需适配层注入。
 tools._PERSONA_NAME_PROVIDER = _hermes_persona_name
 _PERSONA_NAME_PROVIDER = _hermes_persona_name          # 适配层命名空间（_current_persona_name 注入点）
@@ -893,6 +893,43 @@ if registry is not None:
             },
             handler=board_members,
             emoji="👥",
+        )
+
+        registry.register(
+            name="board_roles",
+            toolset=_TOOLSET,
+            schema={
+                "name": "a2a_roles",
+                "description": "List a board's role permissions (optionally one role's members and verbs).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "board": {"type": "string", "description": "Board ID (b_ prefix)"},
+                        "role": {"type": "string", "description": "Filter by role name"}
+                    },
+                    "required": ["board"]
+                }
+            },
+            handler=board_roles,
+            emoji="🎭",
+        )
+
+        registry.register(
+            name="board_status",
+            toolset=_TOOLSET,
+            schema={
+                "name": "a2a_status",
+                "description": "Get a board's working status: goal, progress per status with assignees, and blockers.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "board": {"type": "string", "description": "Board ID (b_ prefix)"}
+                    },
+                    "required": ["board"]
+                }
+            },
+            handler=board_status,
+            emoji="📊",
         )
 
         registry.register(

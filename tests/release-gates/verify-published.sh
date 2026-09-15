@@ -35,7 +35,7 @@ T.store_inbound_message("l3-mid", ["t"], "agent.l3@test.local",
                         preprocessed_payload={"subject": "release smoke",
                                               "body": "gate check", "sender": "x@y.z",
                                               "to": ["agent.l3@test.local"],
-                                              "my_amail_addr": "agent.l3@test.local"})
+                                              "my_aimail_addr": "agent.l3@test.local"})
 r = T.search_mail(query="release")
 assert r.get("count") == 1, f"search_mail miss: {r}"
 print("[L3] ok: install + import + search_mail smoke passed")

@@ -18,7 +18,6 @@
 - `board_roles(board_id, role?)` — 查看角色权限
 - `board_status(board_id)` — 管线总览（含依赖关系和负责人）
 - `board_heartbeat(task_id, note?)` — 长任务心跳（首次调用 Ready→Running，仅 assignee）
-- `board_continue_request(task_id, progress, note?)` — 跨 session 任务延续
 
 ## 关键指令
 

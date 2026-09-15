@@ -60,7 +60,7 @@ def test_patch_stable_across_runs(webhook_py):
     markers = [
         "from aimail.hermes import aimail_hermes",   # patch 7 (adapter import)
         "PREPROCESS_REGISTRY[name] = fn",            # patch 2 (registry def)
-        "Preprocess payload (AmailGateway integration)",  # patch 3 (call)
+        "Preprocess payload (AimailGateway integration)",  # patch 3 (call)
         "a2a_board: consume preprocessor prompt fields",  # patch 6 (a2a)
     ]
     for m in markers:

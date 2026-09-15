@@ -57,7 +57,7 @@ function stubFetch(routes: Record<Route, [number, Record<string, unknown>]>): {
 }
 
 beforeAll(async () => {
-  home = await fs.mkdtemp(path.join(os.tmpdir(), 'amail-t4-'))
+  home = await fs.mkdtemp(path.join(os.tmpdir(), 'aimail-t4-'))
   process.env.AIMAIL_HOME = home
 })
 

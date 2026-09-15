@@ -6,11 +6,10 @@ Your email: {{AGENTMAIL_ADDRESS}}
 ### Instruction Flow Commands (to Board)
 
 - `[A2A] complete <task-id>` — complete task with summary, Ready→Running on first call
-- `[A2A] continue <task-id>` — request continuation for cross-session long task
 - `[A2A] block <task-id>` — proactively block when stuck (your task, your right to report)
 - `[A2A] comment <task-id>` — add note
 - `[A2A] list` / `[A2A] show` / `[A2A] members` / `[A2A] roles` / `[A2A] status` — queries
-- Use `board_heartbeat(task_id)` for long-running tasks (first call transitions Ready→Running). Use `board_continue_request(task_id, progress, note)` to chain sessions.
+- Use `board_heartbeat(task_id)` for long-running tasks (first call transitions Ready→Running).
 
 ### Cannot Initiate
 

@@ -4,7 +4,7 @@
  * preprocess_mail_payload / process_inbound_mail / handle_ping_pong.
  *
  * dsh differences (explicit in contract): no persona (PERSONA_SUPPORTED=false
- * → my_amail_addr = base email); no raw snapshot; log events MUST be kept.
+ * → my_aimail_addr = base email); no raw snapshot; log events MUST be kept.
  */
 import { promises as fsp } from 'node:fs'
 import * as path from 'node:path'
@@ -27,10 +27,10 @@ import type { ToolCtx, ToolResult } from './tools.js'
 
 /**
  * Resolve the authoritative inbound route address from HTTP headers.
- * New name X-AIMail-Email first, legacy X-Amail-Email as the transition
- * fallback (mirrors the Python bridge). Case-insensitive (node lowercases
- * header names; direct callers may pass mixed case). Empty string when
- * absent — the caller then falls back to payload.to.
+ * The header is X-AIMail-Email (the only name the gateway/bridge emits;
+ * mirrors the Python bridge). Case-insensitive (node lowercases header
+ * names; direct callers may pass mixed case). Empty string when absent —
+ * the caller then falls back to payload.to.
  */
 export function routeAddressFromHeaders(headers: Record<string, unknown>): string {
   const pick = (names: Set<string>): string => {
@@ -43,13 +43,13 @@ export function routeAddressFromHeaders(headers: Record<string, unknown>): strin
     }
     return ''
   }
-  return pick(new Set(['x-aimail-email'])) || pick(new Set(['x-amail-email']))
+  return pick(new Set(['x-aimail-email']))
 }
 
 // ── ping/pong contract (never diverge) ─────────────────────────
 
 export const PING_PREFIX = '__aimail_ping__:'
-export const PONG_PREFIX = '__amail_pong__:'
+export const PONG_PREFIX = '__aimail_pong__:'
 
 // ── logs ───────────────────────────────────────────────────────
 // Shared helpers live in log.js (also used by tools.ts for outbound lines —
@@ -75,14 +75,14 @@ export async function logPingEvent(
   await appendLog(email, entry)
 }
 
-/** Lightweight inbound log (mirror _log_amail("inbound", ...)). */
-export async function logAmailInbound(email: string, from: string, to: string, subject: string): Promise<void> {
+/** Lightweight inbound log (mirror _log_aimail("inbound", ...)). */
+export async function logAimailInbound(email: string, from: string, to: string, subject: string): Promise<void> {
   await appendLog(email, { event: 'inbound', from, to, subject })
 }
 
-// ── address helpers (mirror parse_amail_persona / base_email) ──
+// ── address helpers (mirror parse_aimail_persona / base_email) ──
 
-export function parseAmailPersona(email: string, systemName = ''): { persona: string; profile: string; sysName: string } {
+export function parseAimailPersona(email: string, systemName = ''): { persona: string; profile: string; sysName: string } {
   const local = email.includes('@') ? email.split('@')[0] ?? '' : email
   const parts = local.split('.')
 
@@ -113,7 +113,7 @@ export function parseAmailPersona(email: string, systemName = ''): { persona: st
 
 /** Strip persona prefix: support.alice@agent.com → alice@agent.com */
 export function baseEmail(email: string, systemName: string): string {
-  const p = parseAmailPersona(email, systemName)
+  const p = parseAimailPersona(email, systemName)
   const domain = email.includes('@') ? email.split('@', 2)[1] ?? '' : ''
   return p.sysName ? `${p.profile}.${p.sysName}@${domain}` : `${p.profile}@${domain}`
 }
@@ -254,7 +254,7 @@ async function readRoleFile(cfg: AgentConfig, name: string): Promise<string> {
 /** Template context from the enriched payload (mirror build_ctx). */
 function buildBoardCtx(result: Record<string, unknown>): Record<string, string> {
   return {
-    AGENTMAIL_ADDRESS: String(result.my_amail_addr ?? ''),
+    AGENTMAIL_ADDRESS: String(result.my_aimail_addr ?? ''),
     BOARD_ID: String(result.board_id ?? ''),
     BOARD_ROLE: String(result.board_role ?? ''),
     FROM_ROLE: String(result.from_role ?? ''),
@@ -349,7 +349,7 @@ export async function processInboundMail(
   if (!agentEmail || !cfg) {
     return {
       ...payload,
-      my_amail_addr: '',
+      my_aimail_addr: '',
       direct_message: false,
       mentioned: false,
       _preprocess_error: 'aimail email not configured',
@@ -390,13 +390,13 @@ export async function processInboundMail(
       break
     }
   }
-  const persona = myToAddr ? parseAmailPersona(myToAddr, systemName).persona : ''
+  const persona = myToAddr ? parseAimailPersona(myToAddr, systemName).persona : ''
   if (persona) {
     // PERSONA_SUPPORTED=false: normalize recipient to base address
     // (strip persona prefix, no config validation) — dsh contract
-    result.my_amail_addr = agentEmail
+    result.my_aimail_addr = agentEmail
   } else {
-    result.my_amail_addr = myToAddr || agentEmail
+    result.my_aimail_addr = myToAddr || agentEmail
   }
 
   // step 9: direct_message / mentioned
@@ -413,7 +413,7 @@ export async function processInboundMail(
       break
     }
   }
-  const p = parseAmailPersona(myToAddr, systemName)
+  const p = parseAimailPersona(myToAddr, systemName)
   const matchTargets = [agentLocal, p.profile].filter(Boolean)
   if (agentDisplay) matchTargets.push(agentDisplay)
   const bodyLower = (bodyRaw ?? '').toLowerCase()
@@ -499,7 +499,7 @@ export async function processInboundMail(
   // step 14c: always-write local meta for inbound (回复链依赖, 不受快照开关
   // 控制) — mirror Python store_inbound_message (meta/{xx}/{mid}.json).
   const midRaw = (result.message_id as string) ?? ''
-  const myAddrMeta = result.my_amail_addr as string
+  const myAddrMeta = result.my_aimail_addr as string
   if (midRaw && myAddrMeta) {
     const refs = Array.isArray(payload.references) ? payload.references : []
     await saveLocalMeta(cfg.email, midRaw, refs, myAddrMeta, 'inbound')
@@ -507,11 +507,11 @@ export async function processInboundMail(
 
   // step 15: inbound log
   const mid = (result.message_id as string) ?? ''
-  const myAddr = result.my_amail_addr as string
+  const myAddr = result.my_aimail_addr as string
   if (mid && myAddr) {
     const fromHdr = rawHeaders['from'] ?? (payload.from as string) ?? ''
     const subjHdr = rawHeaders['subject'] ?? subjectRaw
-    await logAmailInbound(cfg.email, fromHdr, myAddr, subjHdr)
+    await logAimailInbound(cfg.email, fromHdr, myAddr, subjHdr)
   }
 
   // board extras: [WHOAMI] / board_id+board_role (mirror Python — the

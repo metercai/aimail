@@ -11,11 +11,9 @@ Your email: {{AGENTMAIL_ADDRESS}}
 - `[A2A] block <task-id>` / `[A2A] unblock <task-id>` — block/unblock task
 - `[A2A] cancel <task-id>` — cancel Blocked-only task (block first, then cancel)
 - `[A2A] reassign <task-id>` / `[A2A] edit <task-id>` / `[A2A] deadline <task-id>` — manage tasks
-- `[A2A] notify_all` — broadcast notification (phase report, urgent)
 - `[A2A] comment <task-id>` — add note
 - `[A2A] arbitrate` — request admin arbitration
 - `[A2A] list` / `[A2A] show` / `[A2A] members` / `[A2A] roles` / `[A2A] status` — queries
-- `[A2A] continue` — resume cross-session task (worker-initiated)
 
 ### Session Flow (to members, CC Board)
 

@@ -1,4 +1,4 @@
-# AIMail address self-setup (type 3) — activate your own mailbox
+# AIMail address self-setup — activate your own mailbox
 
 **Scope: address-level activation only.** Your user forwards you an activation
 message; you activate your own mailbox from inside your agent runtime. No CLI,

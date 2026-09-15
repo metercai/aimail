@@ -15,8 +15,8 @@ the wheel mirrors `pysdk/` 1:1, so repo and installed layouts are identical.
 | What | File(s) |
 |---|---|
 | Core (framework-agnostic, stdlib-only) | `aimail_base.py` (identity/signature/config/register), `aimail_tools.py` (send_mail + contacts + notes + `_GatewayClient`), `aimail_board.py` (A2A board), `gateway_api.py` (v1 API client), `_aimail_bootstrap.py` (location-agnostic sys.path boot) |
-| MCP server | `amail_mcp_server.py` (stdio JSON-RPC, platform-agnostic) |
-| Adapters (host-injected) | `hermes/` (aimail_hermes + patch/register/toolsets, 6 modules), `deer-flow/` (inbound router + amail_base + manage), `openclaw/amail_base.py` |
+| MCP server | `aimail_mcp_server.py` (stdio JSON-RPC, platform-agnostic) |
+| Adapters (host-injected) | `hermes/` (aimail_hermes + patch/register/toolsets, 6 modules), `deer-flow/` (aimail_inbound + aimail_deerflow + manage) |
 | Resources | `resources/skills/` (SKILL.md + DESCRIPTION.md), `resources/board/` (role_prompt / role_prompt_zh / role_soul / role_soul_zh) |
 | Glue | `__init__.py` — unified entry: `import aimail` re-exports the curated API and boots the flat core |
 
@@ -53,7 +53,7 @@ import aimail_base, aimail_tools
 ```
 
 Host adapters never import the package path directly — each entry calls
-`_amail_bootstrap()` (in `_aimail_bootstrap.py`), which resolves the core
+`_aimail_bootstrap()` (in `_aimail_bootstrap.py`), which resolves the core
 directory in all three layouts: pip site-packages, self-contained bundle
 (provisioner copies), and repo checkout.
 

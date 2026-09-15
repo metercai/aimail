@@ -2,11 +2,11 @@
 
 # AIMail
 
-**AIMail = AI + Mail**:   人工智能时代的**原生**邮件系统，支持人类-Agent-Agent的混合协作。the native email system for the AI age, enabling human-agent and agent-agent collaboration.
+**AIMail = AI + Mail**:   人工智能时代的**原生**邮件系统，支持人-Agent-Agent的混合协作。
 
 **AIMail** 打造了 AI 智能体适用的全网通、高可控、可协作的邮件系统，它让 Agent 可以像人一样用email与外界进行交流、互动和协作。
 
-- **无缝接入全球网络**：依托 [aimail-gateway](https://github.com/metercai/aimail-gateway) 构建的 SMTP/HTTP 双向网关，可以将不同类别智能体平台（如 [DSH](https://github.com/deepseek-ai/deepseek-harness)/[Pi](https://github.com/earendil-works/pi)/[Hermes](https://github.com/NousResearch/hermes-agent)/[Openclaw](https://github.com/openclaw/openclaw)/[Deerflow](https://github.com/bytedance/deer-flow) 等）的 Agent 零门槛接入全球互联的邮件网络，实现人-Agent-Agent多方之间的互联互通。
+- **无缝接入全球网络**：依托 [aimail-gateway](https://github.com/metercai/aimail-gateway) 构建的 SMTP/HTTP 双向网关，可以将不同类别智能体平台（如 [DSH](https://github.com/deepseek-ai/deepseek-harness)/[Pi](https://github.com/earendil-works/pi)/[Hermes](https://github.com/NousResearch/hermes-agent)/[OpenClaw](https://github.com/openclaw/openclaw)/[DeerFlow](https://github.com/bytedance/deer-flow) 等）的 Agent 零门槛接入全球互联的邮件网络，实现人-Agent-Agent多方之间的互联互通。
 - **独立身份与自主交互**：每个 Agent 均拥有全网唯一的邮件地址，邮件数据本地存储，依托可编程API/Toolset/Skills，实现可自主发起和自主回复的邮件会话、邮件上下文管理和联系人管理，可与个人、团队、业务流或其他 Agent 进行持续交互。
 - **开放协议与人机协同**：去除平台依赖，遵循公共的邮件协议和协作习惯语义，在去中心化对等的邮件基础设施上，构建了跨网络、开放的人机混合的智能体协作生态。
 
@@ -18,15 +18,15 @@ Email 是互联网最早最基础的通讯服务，也是人们日常工作中�
 
 AIMail 既不同于 IM，也不是传统邮箱。它是在传统邮件系统上顺应AI时代的升级。具体的异同对比如下：
 
-| 维度       | IM            | 传统邮箱             | **AIMail**             |
-| -------- | ------------- | ---------------- | ---------------------- |
-| **身份标识** | 平台内有效，封闭      | 地址全网唯一，开放        | 地址全网唯一，开放              |
-| **内容形式** | 离散、碎片化、非正式    | 规整、结构化、正式        | 规整、结构化、正式              |
-| **接入方式** | 依赖平台 API/SDK  | 依赖服务商及 POP3/IMAP | 可编程API，自主对接和存储         |
-| **实时性**  | 高实时，资源消耗大     | 定时轮询，时延高，资源消耗大   | Webhook 推送，时延低，资源消耗小   |
-| **访问控制** | 通讯录 + 群组权限，受控 | 开放访问，易受垃圾邮件侵扰    | 联系人双向可控，比 IM 更灵活       |
-| **内容检索** | 翻阅历史，无检索API   | 依赖服务商的检索API      | 内容和预建索引在本地，完备的检索工具支持   |
-| **多人协作** | 依赖群聊，无序       | 转发与抄送，无线索追溯      | 协作看板和任务引擎支持的多角色自主A2A协作 |
+| 维度       | **AIMail**               | 传统邮箱            | IM            |
+| -------- | ------------------------ | --------------- | ------------- |
+| **身份标识** | 地址全网唯一，开放/自主             | 地址全网唯一，开放/自主    | 平台内有效，封闭/受限   |
+| **内容形式** | 规整、结构化、正式                | 规整、结构化、正式       | 离散、碎片化、非正式    |
+| **存储接入** | 可编程API，内容本地存储            | 依赖服务商 POP3/IMAP | 依赖平台 API/SDK  |
+| **实时性**  | Webhook 推送，时延低，资源消耗小     | 定时轮询，时延高，资源消耗大  | 高实时，资源消耗大     |
+| **访问控制** | 联系人双向受控，策略灵活             | 开放访问，易受垃圾邮件侵扰   | 通讯录 + 群组权限，受控 |
+| **内容检索** | 本地预建索引，有完善的检索工具支持        | 依赖服务商的检索API     | 翻阅历史，无检索API   |
+| **多人协作** | 带协作看板和任务引擎，支持多角色跨系统A2A协作 | 靠转发与抄送，线索追溯难    | 依赖群聊，无序，无法跨系统 |
 
 **AIMail 的核心定位：** 不是让 Agent 学会操作邮箱，而是让 Agent 以邮件协议为纽带，与人和其他 Agent 自然地交流与协作。
 
@@ -36,118 +36,115 @@ AIMail 既不同于 IM，也不是传统邮箱。它是在传统邮件系统上�
 
 1. **SMTP-HTTP 双向转发，内外有别，进出有序**\
    SMTP 收信、Webhook 推送、HTTP 发信、SMTP 外投——两入两出，统一调度，内转外投，收发自如，全链路日志可追溯。
-2. **安全员和白名单多重配置, 访问安全可管可控**\
-   默认白名单启用，非授权发件人无法触达 Agent，同时 Agent 也无法向未授权地址外发内容。双向管控，安全闭环。Agent 的关键操作需配置的安全员确认，安全有兜底。
+2. **安全员和白名单多重配置，访问安全可管可控**\
+   默认启用白名单联系人，非授权无法触达，非授权无法外发，双向管控，安全闭环。关键操作需绑定的安全员确认，做安全兜底。
 3. **内容格式自动转换，LLM 阅读友好**\
-   复杂的邮件格式自动转为 Markdown 纯文本，剥离样式噪音，Agent 直接读取结构化内容。
-4. **内容本地存储，检索快捷方便**
-   入站出站的邮件快照存储在本地，并预建全文索引，提供搜索工具，邮件检索快捷又方便。
+   复杂邮件格式自动转为 Markdown 纯文本，剥离样式噪音，直接读取结构化内容。
+4. **内容本地存储，检索快捷方便**\
+   入站出站的邮件快照本地存储，预建全文索引，提供本地搜索工具，邮件检索快捷又方便。
 5. **邮件即会话，会话即指令**\
-   邮件收发即会话，自动补全上下文。创新的多种邮件指令，让对话即指令可执行，无缝接入日常工作流。
-6. **自带协作原语和看板，人机混合自主协同**\
-   原生 A2A 协作看板，自定义工作流引擎。20+ 指令动词 + 10 种自动通知 + 协作原语，支持跨系统异构 Agent 的全网协作。
-7. **多模式/多路复用的消息传送，高效穿透任何网络环境**\
-   Inbound Push/Pull 双模式共存，支持单邮件多目的地址，支持多gateway同机透传，可适配各类网络环境中的多样化 Agent。
-8. **一键集成和诊断，低门槛部署和运维**\
-   `./aimail install` 一条命令完成整条链路（激活 → Bridge → 工具与 Skill → 注册）；`check`/`ping`/`welcome` 全链路诊断；`stats`/`domain`/`uninstall` 一站式本机管理。
+   邮件收发即会话，自动补全上下文。预置多种邮件指令，让指令和对话自然融合，无缝接入日常工作流。
+6. **自带看板和协作原语，支持人机混合的自主协同**\
+   原生 A2A 协作看板，自定义工作流引擎。20+ 指令动词、10+ 种自动通知和多个协作原语，支持跨系统异构 Agent 的全网协作。
+7. **双模+多路复用的消息传送，高效穿透本地网络环境**\
+   入站双模（Push/Pull）共存，支持单邮件多目的地址，支持单机多 Agent 系统的透传，可适配各类网络环境中的不同 Agent。
+8. **快速对接和诊断指令，低门槛部署和运维**\
+   提供专属命令行工具，`aimail install` 一条命令完成系统级对接安装；提供全链路诊断和运维的多种运维子命令，如：`stats`/`check`/`ping`/`repair` 等。
 
 ***
 
 ## 快速开始
 
-AIMail 支持系统管理员在终端命令行的**系统级安装**；或者 Agent 管理员通过 Agent 对话界面的**对话安装**两种安装方式。
+支持在终端命令行上的**系统级安装**，为Agent系统添加AIMail模块，让所有 Agent 都拥有邮件地址和收发能力；同时，也支持为单个 Agent 申请专属邮件地址，再通过对话框的prompt提交进行安装和激活。
 
-### 前置环境准备
+### 前置准备
 
-- **操作系统环境**:Linux + Python 3.10。
-- **已安装 Agent 系统**:目前已适配的Agent平台系统包括，[DSH](https://github.com/deepseek-ai/deepseek-harness)/[Pi](https://github.com/earendil-works/pi)/[Hermes](https://github.com/NousResearch/hermes-agent)/[Openclaw](https://github.com/openclaw/openclaw)/[Deerflow](https://github.com/bytedance/deer-flow)，推荐安装 **Hermes** 或 **DSH**。
-- **已安装网关服务或有服务激活码**:自建可达的 [aimail-gateway](https://github.com/metercai/aimail-gateway)
-  服务;或免费申请**云端服务激活码**——共享域(`aimail.token.tm`)或独享域(场景 B),按下方清单选择对应场景。
+- **已安装好 Agent 系统**:目前已适配的Agent平台系统包括，[DSH](https://github.com/deepseek-ai/deepseek-harness)/[Pi](https://github.com/earendil-works/pi)/[Hermes](https://github.com/NousResearch/hermes-agent)/[OpenClaw](https://github.com/openclaw/openclaw)/[DeerFlow](https://github.com/bytedance/deer-flow)，推荐安装 **Hermes** 或 **DSH**。
 
-### 环境变量确认清单
+### 四种安装场景（由浅入深）
 
-**场景 A — 共享域激活码:**
+#### 1，不需要独享域名，使用共享域的邮件网关，只为 Agent 配置专属的邮件地址
+
+- 先从 **共享域邮件网关** 申请专属Agent邮件地址，获得对应的激活prompt。目前有可用的免费测试服务：<https://aimail.token.tm/admin/#/apply-address>
+- 然后，将收到的邮件地址对应的激活prompt复制粘贴到Agent对话框内去执行即可。
+
+#### 2，不需要独享域名，用共享邮件网关对接本机的 Agent 系统，增加AIMail模块，为所有Agent提供邮件功能
+
+- 先从 **共享域邮件网关** 申请Agent系统专属的共享域系统标识和系统激活码。目前有可用的免费测试服务：<https://aimail.token.tm/admin/#/apply-system>
+- 然后，将收到的系统标识和激活码等信息设置环境变量，并执行AIMail的自举安装脚本，完成本地环境的初始化。例如：
 
 ```bash
-export AIMAIL_URL=https://aimail.token.tm      # 云端网关地址
+export AIMAIL_URL=https://aimail.token.tm     # 云端网关地址
 export AIMAIL_PRODUCT_CODE=<激活码>            # 云端领取的激活码
 export AIMAIL_SYSTEM_NAME=<你的标识名>          # 共享域系统: agent.<标识名>@<共享域名>
-export AIMAIL_MANAGER_ADDRESS=you@example.com # 管理agent的默认管理员邮件，可每个agent不一样
-```
-
-**场景 B — 独享域激活码:**
-
-```bash
-export AIMAIL_URL=https://aimail.token.tm      # 云端网关地址
-export AIMAIL_PRODUCT_CODE=<激活码>            # 云端领取的激活码
-export AIMAIL_DOMAIN=<你的域名>               # 独享域域名: agent@<独享域名>
-export AIMAIL_MANAGER_ADDRESS=you@example.com # 管理agent的默认管理员邮件，可每个agent不一样
-```
-
-**场景 C — 独立网关服务:**
-
-```bash
-export AIMAIL_URL=<你的网关地址>                # 自主独立安装的网关地址，如 https://mail.example.com
-export AIMAIL_ADMIN_KEY=<admin key>           # 网关的管理key
-export AIMAIL_DOMAIN=<你的域名>                # 独立域,如 example.com
-export AIMAIL_MANAGER_ADDRESS=you@example.com # 管理agent的默认管理员邮件，可每个agent不一样
-```
-
-### 系统级安装
-
-#### 第 1 步:Bootstrap 系统环境初始化。
-
-```bash
+export AIMAIL_MANAGER_ADDRESS=you@example.com # 管理agent的默认安全员邮件，可每个agent不一样
 curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
 ```
 
-#### 第 2 步:SDK或插件安装(以下两种方式**任选其一**,均一次完成;宿主路径会自动完成系统激活)。
+- 自举成功后，可以用aimail命令行安装，或Agent的插件安装，两种方式二选一，即可完成与本地Agent适配对接。
 
 **aimail命令行安装**:
 
 ```bash
-aimail install --home ~/.hermes       # Hermes(亦可 ~/.dsh、~/.openclaw、~/.pi、deer-flow , --home 指Agent的主目录)
+aimail install --home ~/.hermes       # Hermes(亦可 ~/.dsh、~/.openclaw、~/.pi、~/.deer-flow，--home 指Agent的主目录)
 ```
 
-**Agent命令行安装**
+**或 Agent的插件安装**
+
 ```bash
 dsh plugin --profile web add dsh-aimail
 #pi install npm:pi-aimail
-openclaw plugins install openclaw-aimail --force --accept-capabilities   # --force 信任 npm registry 外部源;--accept-capabilities 通过插件能力授权(openclaw 对三方插件的通用信任门)
+#openclaw plugins install openclaw-aimail --force --accept-capabilities  
 ```
 
-#### 第 3 步:接入闭环验证。
+- 安装成功后，可进行闭环验证或问题检测
 
 ```bash
-aimail welcome       # 网关向Agent发欢迎邮件，Agent回复管理员 = 端到端打通证明
+aimail welcome       # 网关向Agent和安全员发欢迎邮件，Agent回复到安全员，实现端到端的邮件打通证明
 #aimail check         # 全面体检(配置 → 运行时资源 → 链路);有问题先跑它
-#aimail stats         # 系统 / agent / 邮件总览
+#aimail stats         # 系统 / agent / 邮件的状态总览
 ```
 
-#### > 提示：
-- 支持多系统安装，即支持单机多Agent平台，修改环境变量后（新系统要用新的激活码或admin-key），指定不同的`--home`，执行SDK或插件安装。
+#### 3，需要独享域名，用共享邮件网关对接本机的Agent系统，增加AIMail模块，为所有Agent提供邮件功能
+
+- 先从 **共享邮件网关** 申请Agent系统专属独享域的系统激活码。目前有可用的免费测试服务：<https://aimail.token.tm/admin/#/apply-system>
+- 然后，将收到的系统激活码等相关信息设置环境变量，并执行AIMail的自举安装脚本，完成本地环境的初始化。例如：
+
+```bash
+export AIMAIL_URL=https://aimail.token.tm     # 云端网关地址
+export AIMAIL_PRODUCT_CODE=<激活码>            # 云端领取的激活码
+export AIMAIL_DOMAIN=<你的域名>                # 独享域名: agent@<独享域名>
+export AIMAIL_MANAGER_ADDRESS=you@example.com # 管理agent的默认安全员邮件地址，可每个agent不一样
+curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
+```
+
+- 自举成功后，可参照前面所述的共享域的步骤，完成本地Agent系统的适配对接和闭环检测。
+
+#### 4，需要独享域名，自建邮件网关对接Agent系统，AIMail全系统自建和运维
+
+- 安装自己的 aimail-gateway 独立网关服务。仓库地址：<https://github.com/metercai/aimail-gateway>
+- 然后，将系统admin-key等相关信息设置环境变量，并执行AIMail的自举安装脚本，完成本地环境的初始化。例如：
+
+```bash
+export AIMAIL_URL=<你的网关地址>                # 自主独立安装的网关地址，如 https://mail.example.com
+export AIMAIL_ADMIN_KEY=<admin key>           # 网关的管理key
+export AIMAIL_DOMAIN=<你的域名>                # 独享域名,如 example.com
+export AIMAIL_MANAGER_ADDRESS=you@example.com # 管理agent的默认安全员邮件地址，可每个agent不一样
+curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
+```
+
+- 自举成功后，可参照前面所述的步骤，完成本地Agent系统的适配对接和闭环检测。
+
+#### 提示：
+
+- 支持本地多系统安装，即支持单机多Agent平台，修改环境变量后（新系统要用新的激活码或admin-key），指定不同的`--home`，执行SDK或插件安装。
 - 对已安装系统，可用不同参数重复安装，但需指定系统ID: `aimail install --system-id <sid>`。
-
----
-
-### Agent 对话安装
-
-把根据场景确定的环境变量内容填好，然后复制拷贝内容到Agent的对话框内执行。
-
-```txt
-export AIMAIL_URL=https://aimail.token.tm      # 网关地址
-export AIMAIL_PRODUCT_CODE=<激活码>            # 云端测试激活码
-export AIMAIL_SYSTEM_NAME=<你的标识名>          # 共享域系统: agent.<标识名>@<域名>
-export AIMAIL_MANAGER_ADDRESS=you@example.com # 默认 manager(接收 welcome 邮件)
-按照下面链接内容的指导获取自己的aimail邮件地址
-https://raw.githubusercontent.com/metercai/aimail/main/docs/agent-self-setup_zh.md
-```
 
 ***
 
 ## 系统架构
 
-AIMail 核心由**aimail-gateway**（邮件网关）和 Agent 内的 **aimail-sdk**两大部件组成。在复杂网络环境下需要**aimail-bridge**的配合进行穿透，让收发邮件安全高效流转。aimail 命令行则提供了Agent侧的SDK安装、链路检测等日常维护工具，方便使用和维护。
+AIMail 核心由**aimail-gateway**（邮件网关）和 Agent 内的 **aimail SDK**两大部件组成。在复杂网络环境下需要**aimail-bridge**的配合进行穿透，让收发邮件安全高效流转。aimail 命令行则提供了Agent侧的SDK安装、链路检测等日常维护工具，方便使用和维护。
 
 ```
                      ┌────────────────────┐ 
@@ -194,9 +191,24 @@ AIMail 核心由**aimail-gateway**（邮件网关）和 Agent 内的 **aimail-sd
 
 ## 邮件地址格式规范
 
-- 独立网关，独享域名
+### 共享域名
 
-以Hermes为例。部署独立网关 [aimail-gateway](https://github.com/metercai/aimail-gateway)，使用自有域名。根 Profile 默认为 `agent@{domain}`，其他通过 `hermes -p` 创建的 Profile，直接取其名字为地址  `{profile}@{domain}`。AIMail 特别支持Hermes的单 profile 多个 Persona 的场景，自动衍生Persona地址。
+在共享域名上可以有两种申请：**共享域地址**申请和**共享域系统标识名**申请。
+
+- 共享域地址只对应一个 Agent邮件地址，关联绑定一个 Agent， 格式为： `{agentname}@{shared_domain}`，例如： `support@aimail.token.tm`。这里的 `agentname` 遵循邮件地址规范，但不能含有'.'字符。
+- 共享域系统标识名则可对接一个Agent系统，有自己的地址命名空间，例如: 申请到系统标识名`meter`，这样在Hermes下，Agent的邮件地址格式为：
+
+| 类型         | 格式                                                  | 示例                            |
+| ---------- | --------------------------------------------------- | ------------------------------------ |
+| 根 Profile  | `agent.{system_name}@{shared_domain}`               | `agent.meter@aimail.token.tm`        |
+| 命名 Profile | `{profile}.{system_name}@{shared_domain}`           | `report.meter@aimail.token.tm`       |
+| Persona    | `{persona}.{profile}.{system_name}@{shared_domain}` | `sales.report.meter@aimail.token.tm` |
+
+> 系统标识名 `system_name` 由3-8个字符组成，首字符为小写字母，后续仅可用小写字母（a-z）、数字（0-9）和符号'-'、'_'。'a2a'作为保留名，留给协作看板地址作为专属特征标识使用。
+
+### 独享域名
+
+部署独立网关 [aimail-gateway](https://github.com/metercai/aimail-gateway)，或者申请独享域名的系统激活码完成系统激活后，就拥有独享域名的地址空间。以Hermes为例，根 Profile 默认为 `agent@{domain}`，其他通过 `hermes -p` 创建的 Profile，直接取其名字为地址  `{profile}@{domain}`。AIMail 特别支持了Hermes的单 profile 多个 Persona 的场景，自动衍生Persona地址。
 
 | 类型         | 格式                             | 示例                         |
 | ---------- | ------------------------------ | -------------------------- |
@@ -204,15 +216,7 @@ AIMail 核心由**aimail-gateway**（邮件网关）和 Agent 内的 **aimail-sd
 | 命名 Profile | `{profile}@{domain}`           | `report@company.com`       |
 | Persona    | `{persona}.{profile}@{domain}` | `sales.report@company.com` |
 
-- 官方共享域名
-
-同样以Hermes为例。从官方网站申请共享域名的产品激活码激活的系统时，用户要确定自己的 `system_name`（3-8 字符）来进行区隔，例如: `meter`。这样的邮件地址格式为：
-
-| 类型         | 格式                                                  | 示例                                  |
-| ---------- | --------------------------------------------------- | ----------------------------------- |
-| 根 Profile  | `agent.{system_name}@{shared_domain}`               | `agent.meter@aimail.token.tm`        |
-| 命名 Profile | `{profile}.{system_name}@{shared_domain}`           | `report.meter@aimail.token.tm`       |
-| Persona    | `{persona}.{profile}.{system_name}@{shared_domain}` | `sales.report.meter@aimail.token.tm` |
+> 共享域名和独享域名里的 `profile` 和 `persona` 都禁止包含'.'字符，避免识别错误。
 
 ***
 

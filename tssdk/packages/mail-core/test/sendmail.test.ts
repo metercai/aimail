@@ -96,7 +96,7 @@ function mockImmediateSleep() {
 }
 
 beforeAll(async () => {
-  home = await fs.mkdtemp(path.join(os.tmpdir(), 'amail-send-'))
+  home = await fs.mkdtemp(path.join(os.tmpdir(), 'aimail-send-'))
   process.env.AIMAIL_HOME = home
 })
 
@@ -126,11 +126,11 @@ describe('sendMail 先存再调', () => {
     const metas = await findMetaFiles()
     expect(metas.length).toBe(1)
     const raw = JSON.parse(await fs.readFile(metas[0]!, 'utf-8')) as {
-      message_id: string; direction: string; my_amail_addr: string
+      message_id: string; direction: string; my_aimail_addr: string
     }
     expect(raw.message_id).toMatch(/^<[0-9a-f]{32}@token\.tm>$/)
     expect(raw.direction).toBe('outbound')
-    expect(raw.my_amail_addr).toBe(EMAIL)
+    expect(raw.my_aimail_addr).toBe(EMAIL)
 
     // the Message-ID sent to the gateway == the local mid (local value IS the wire value)
     const sent = sendBodies[0]!
@@ -315,7 +315,7 @@ describe('sendMail 先存再调', () => {
   })
 })
 
-describe('sendMail outbound log parity (Python _log_amail)', () => {
+describe('sendMail outbound log parity (Python _log_aimail)', () => {
   const ctx = { systemId: SYSTEM_ID, email: EMAIL }
   const logPath = () => path.join(home, 'logs', `aimail.${cleanAddr(EMAIL)}.log`)
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# install-mcp.sh — 写 DeerFlow extensions_config.json 的 amail MCP server 块
-# 复用共享 amail_mcp_server.py(兜底 MCP 服务,平台无关,零适配),指向
+# install-mcp.sh — 写 DeerFlow extensions_config.json 的 aimail MCP server 块
+# 复用共享 aimail_mcp_server.py(兜底 MCP 服务,平台无关,零适配),指向
 # 自包含捆绑 ~/.aimail/mcp/(经 runtime_bundle.py 安装,源 pip>repo,版本戳;
 # 与仓库路径解耦,改名/mv 不影响运行)。
-# 幂等: 已存在 amail server 块则更新路径/env,否则追加。
+# 幂等: 已存在 aimail server 块则更新路径/env,否则追加。
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -15,7 +15,7 @@ AGENT_ID="${AIMAIL_AGENT_ID:-default}"
 
 # ── 1. 安装/更新 MCP 捆绑(源: pip aimail > 仓库 pysdk/)────────────
 python3 "$RB" install mcp --dest "$BUNDLE_DIR"
-SERVER="$BUNDLE_DIR/amail_mcp_server.py"
+SERVER="$BUNDLE_DIR/aimail_mcp_server.py"
 [ -f "$SERVER" ] || { echo "MCP bundle missing: $SERVER" >&2; exit 1; }
 
 # 真实版本检测(只报检测结果,不猜测):backend/pyproject.toml 的 version
@@ -47,7 +47,7 @@ with open(cfg_path) as f:
     data = json.load(f)
 
 servers = data.setdefault("mcpServers", {})
-servers["amail"] = {
+servers["aimail"] = {
     "enabled": True,
     "type": "stdio",
     "command": "python3",
@@ -64,10 +64,10 @@ servers["amail"] = {
 with open(cfg_path, "w") as f:
     json.dump(data, f, indent=2, ensure_ascii=False)
     f.write("\n")
-print(f"wrote mcpServers.amail → {cfg_path}")
+print(f"wrote mcpServers.aimail → {cfg_path}")
 print(f"  server: {server}")
 print(f"  AIMAIL_AGENT_ID: {agent_id}")
 print(f"  AIMAIL_AGENT_IDENTITY: {identity}")
 PY
 
-echo "verify: python3 -c \"import json; d=json.load(open('$CFG')); print(d['mcpServers']['amail']['args'])\""
+echo "verify: python3 -c \"import json; d=json.load(open('$CFG')); print(d['mcpServers']['aimail']['args'])\""

@@ -103,7 +103,6 @@ Owner approves: `[Confirm] criteria v1`.
 - `[A2A] list` / `[A2A] status` — view progress
 - `[A2A] block T2` / `[A2A] unblock T2` — manage blockers
 - `[Discuss] T1 dark mode` — session flow discussions
-- `[A2A] notify_all` — phase reports (all-member notices are sent via the notify permission; there is no standalone notify_all command)
 
 ### Phase 6: Review and Owner Sign-off
 
@@ -152,10 +151,10 @@ Subject: [WHOAMI]
 
 | Role | Default Verbs |
 |------|--------------|
-| **orchestrator** | create, assign, review, block, unblock, cancel, reassign, edit, deadline, notify, members, roles, config, arbitrate, comment, list, show, status, heartbeat |
+| **orchestrator** | tasks, create, assign, review, block, unblock, cancel, reassign, edit, deadline, output, notify, members, roles, config, arbitrate, comment, list, show, status, heartbeat |
 | **verifier** | verify, approve, reject, output, comment, list, show, roles, members, status, heartbeat |
-| **worker** | complete, commit, block, heartbeat, continue, comment, list, show, roles, members, status |
-| **owner** | create, unblock, reassign, reopen, comment, list, show, status, members, roles |
+| **worker** | complete, commit, block, heartbeat, comment, list, show, roles, members, status |
+| **owner** | tasks, create, unblock, reassign, reopen, comment, list, show, status, members, roles, heartbeat |
 
 New roles: declare in members + define verbs in role_permissions + optionally create `~/.aimail/{system_id}/board/role_prompt/{role}.md`.
 
@@ -163,7 +162,6 @@ New roles: declare in members + define verbs in role_permissions + optionally cr
 
 - **heartbeat**: assignee-only. The first call moves Ready→Running. Rejected when sent by a non-assignee or when the task is not in Ready/Running.
 - **cancel**: valid only for the Blocked state. block → cancel abandons the task.
-- **continue**: the assignee keeps the task Running and triggers a new `assigned` notification — for long-running tasks spanning sessions.
 - **notify** is a permission verb: group notifications are sent through the `notify` permission; there is no standalone `notify_all` command.
 
 ### 4.4 Instruction Flow Verbs
@@ -229,11 +227,11 @@ System notifications from Board. Subject prefixed with `[A2A]`.
 | `board_task_list` | board/task ID | List/filter tasks |
 | `board_task_show` | board/task ID | Task details |
 | `board_members` | board/task ID | List members |
-| `board_roles` | board/task ID | Role permissions (if the platform does not inject this tool, use `board_members`/`board_status` instead) |
+| `board_roles` | board/task ID | Role permissions. With `role`, returns that role's members and verbs |
 | `board_status` | board/task ID | Pipeline + dependencies |
 | `board_heartbeat` | board/task ID | Long-task heartbeat |
 
-> Note: Task/board targets use the short_id form (e.g. `abc123`) in both instruction emails and tools. The platform MCP registers 5 board tools (status / task_list / task_show / heartbeat / members); if `board_roles` is not injected, query via `board_members`/`board_status` instead.
+> Note: Task/board targets use the short_id form (e.g. `abc123`) in both instruction emails and tools. The platform registers 6 board tools: status / task_list / task_show / heartbeat / members / roles.
 
 ---
 

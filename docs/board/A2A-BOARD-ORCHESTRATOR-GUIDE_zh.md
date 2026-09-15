@@ -14,7 +14,7 @@ Orchestrator 是项目驱动者，负责方案设计、任务分解、执行跟�
 | 分配任务 | `[A2A] assign T1` | 指定 assignee |
 | 设审阅者 | `[A2A] review T1` | 指定 reviewer |
 | 阻塞/解除 | `[A2A] block T2` / `[A2A] unblock T2` | 管理执行 |
-| 阶段汇报 | `[A2A] notify_all` | 全员同步进展 |
+| 阶段汇报 | 会话流 `[Report] {看板} Phase {N}: {标题}` | CC Board，全员同步进展 |
 | 编辑/取消 | `[A2A] edit T1` / `[A2A] cancel T1` | 调整计划 |
 | 仲裁 | `[A2A] arbitrate` | 沟通无效时 |
 
@@ -70,13 +70,14 @@ To:      web-redesign.a2a@company.com
 Subject: [A2A] unblock T2
 ```
 
-**阶段汇报：**
+**阶段汇报（会话流）：**
 
 ```
-To:      web-redesign.a2a@company.com
-Subject: [A2A] notify_all
+To:      dev@company.com, design@company.com, qa@company.com
+CC:      web-redesign.a2a@company.com
+Subject: [Report] web-redesign Phase 1: 进展与风险
 
-{"message": "Phase 1: T1 80%, T2 blocked, T3 done. 下周进入 Phase 2"}
+Phase 1: T1 80%, T2 blocked, T3 done。下周进入 Phase 2。
 ```
 
 ---

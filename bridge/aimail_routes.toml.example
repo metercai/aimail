@@ -6,7 +6,7 @@
 # Each entry maps an agent email to its webhook endpoint.
 # The value can be:
 #   - a full URL (path preserved)   "agent@company.com" = "http://127.0.0.1:8645/webhooks/agentmail-inbound"
-#   - host:port (legacy)            "agent@company.com" = "127.0.0.1:8645"  (defaults to /webhooks/amail-inbound)
+#   - host:port (legacy)            "agent@company.com" = "127.0.0.1:8645"  (defaults to /webhooks/aimail-inbound)
 #   - a regex pattern               ".*@relay\\.example\\.com" = "http://192.168.1.10:8645/hook"
 #
 # Prefer full URLs so custom endpoint paths (e.g. OpenClaw /hook) survive restarts.

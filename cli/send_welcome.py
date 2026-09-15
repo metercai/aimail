@@ -167,7 +167,7 @@ def _smtp_send(gateway_url: str, api_key: str, agent_email: str,
         banner = s.recv(4096).decode(errors="replace").strip()
         if not banner.startswith("220"):
             return f"SMTP banner failed: {banner}"
-        resp = _smtp_cmd(s, "EHLO amail-welcome")
+        resp = _smtp_cmd(s, "EHLO aimail-welcome")
         # 生产网关对 auth.local 发件人强制 STARTTLS(550 ... requires TLS);
         # 服务器通告 STARTTLS 则升级 TLS,升级后按 RFC 3207 重新 EHLO。
         if "STARTTLS" in resp.upper():
@@ -178,7 +178,7 @@ def _smtp_send(gateway_url: str, api_key: str, agent_email: str,
                 s = ssl.create_default_context().wrap_socket(s, server_hostname=host)
             except ssl.SSLError as e:
                 return f"STARTTLS TLS handshake failed: {e}"
-            _smtp_cmd(s, "EHLO amail-welcome")
+            _smtp_cmd(s, "EHLO aimail-welcome")
         resp = _smtp_cmd(s, f"MAIL FROM:<{mail_from}>")
         if not resp.startswith("250"):
             return f"MAIL FROM failed: {resp}"
@@ -395,13 +395,13 @@ def main() -> int:
     print(f"  To:          {recipient}")
     print(f"  From:        {manager}")
 
-    msg_id = f"<welcome-{int(time.time())}-{uuid.uuid4().hex[:4]}@amail>"
+    msg_id = f"<welcome-{int(time.time())}-{uuid.uuid4().hex[:4]}@aimail>"
     body = f"""From: {manager}
 To: {recipient}
 Message-ID: {msg_id}
-Subject: Welcome! Your amail integration is live
+Subject: Welcome! Your AIMail integration is live
 
-Hello! This is your first email delivered through your new amail system.
+Hello! This is your first email delivered through your new AIMail system.
 
 Please reply with the current server time to confirm the mail loop is working.
 

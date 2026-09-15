@@ -1,7 +1,7 @@
 /**
  * 13 tool functions (mail-core) — thin wrappers over GatewayClient mirroring
  * Python aimail_tools.py. Contract: DSH-PREPROCESS-CONTRACT.md §3 +
- * amail_mcp_server.py tool registry (names/descriptions/params identical).
+ * aimail_mcp_server.py tool registry (names/descriptions/params identical).
  */
 import { randomUUID } from 'node:crypto'
 import { promises as fsp } from 'node:fs'
@@ -10,7 +10,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { GatewayClient } from './gateway.js'
 import { AIMAIL_HOME, loadAgentConfig } from './config.js'
 import { readLocalMeta, saveLocalMeta, saveOutboundSnapshot, resolveThreadId, threadPath } from './meta.js'
-import { logAmailOutbound } from './log.js'
+import { logAimailOutbound } from './log.js'
 import type { AgentConfig } from './types.js'
 import { activateAddressCodePersist } from './address-code.js'
 
@@ -117,7 +117,7 @@ export interface ToolCtx {
 // ── message id helpers (mirror _build_message_id / _sanitize_message_id) ──
 
 function buildMessageId(cfg: AgentConfig): string {
-  const domain = cfg.domain || 'amail.local'
+  const domain = cfg.domain || 'aimail.local'
   return `<${randomUUID().replace(/-/g, '')}@${domain}>`
 }
 
@@ -138,10 +138,10 @@ async function storeMessageMeta(
   email: string,
   messageId: string,
   references?: string,
-  myAmailAddr = '',
+  myAimailAddr = '',
   direction = 'outbound',
 ): Promise<void> {
-  await saveLocalMeta(email, messageId, references, myAmailAddr, direction)
+  await saveLocalMeta(email, messageId, references, myAimailAddr, direction)
 }
 
 // ── attachment resolution (mirror _resolve_attachments) ────────
@@ -243,8 +243,8 @@ export async function sendMail(ctx: ToolCtx, args: SendMailArgs): Promise<ToolRe
 
   // sender: dsh has no persona — base email (persona normalization contract)
   let sender = cfg.email
-  if (msgMeta?.my_amail_addr && typeof msgMeta.my_amail_addr === 'string' && msgMeta.my_amail_addr.includes('@')) {
-    sender = msgMeta.my_amail_addr
+  if (msgMeta?.my_aimail_addr && typeof msgMeta.my_aimail_addr === 'string' && msgMeta.my_aimail_addr.includes('@')) {
+    sender = msgMeta.my_aimail_addr
   }
 
   const isForward = Boolean(args.message_id && args.subject && args.subject.toLowerCase().startsWith('fw:'))
@@ -366,10 +366,10 @@ export async function sendMail(ctx: ToolCtx, args: SendMailArgs): Promise<ToolRe
   }
 
   if (result.status >= 200 && result.status < 300) {
-    // Outbound line to the per-agent aimail.log (Python parity: _log_amail
+    // Outbound line to the per-agent aimail.log (Python parity: _log_aimail
     // "outbound" on the success branch) — the welcome CLI polls this file to
     // detect the agent's reply; TS used to skip it, breaking that poll.
-    await logAmailOutbound(cfg.email, sender, toList.join(','), args.subject, generatedMid)
+    await logAimailOutbound(cfg.email, sender, toList.join(','), args.subject, generatedMid)
     const out: ToolResult = { success: true, ...result }
     if (threadBootstrapped) out.thread_bootstrapped = true
     if (uploadErrors.length) out.note = `Sent, but ${uploadErrors.length} attachment(s) had issues: ${uploadErrors.slice(0, 3).join('; ')}`

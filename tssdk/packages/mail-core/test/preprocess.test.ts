@@ -1,7 +1,7 @@
 /**
  * Minimal contract tests for the inbound chain:
  *   - verifySignature (webhook HMAC)
- *   - cleanAddr / parseAmailPersona / baseEmail (address contract)
+ *   - cleanAddr / parseAimailPersona / baseEmail (address contract)
  *   - processInboundMail (15-step preprocess + B1/B2/B3 + ping/pong intercept + logs)
  *
  * All filesystem access is sandboxed via AIMAIL_HOME → tmp dir.
@@ -16,7 +16,7 @@ import { createHmac } from 'node:crypto'
 import {
   verifySignature,
   processInboundMail,
-  parseAmailPersona,
+  parseAimailPersona,
   baseEmail,
   PING_PREFIX,
   PONG_PREFIX,
@@ -68,7 +68,7 @@ function sign(body: string | Buffer, secret: string): string {
 }
 
 beforeAll(async () => {
-  home = await fs.mkdtemp(path.join(os.tmpdir(), 'amail-test-'))
+  home = await fs.mkdtemp(path.join(os.tmpdir(), 'aimail-test-'))
   process.env.AIMAIL_HOME = home
 })
 
@@ -136,9 +136,9 @@ describe('cleanAddr', () => {
   })
 })
 
-describe('parseAmailPersona / baseEmail', () => {
+describe('parseAimailPersona / baseEmail', () => {
   it('short form sys_name@domain → default profile of that system', () => {
-    expect(parseAmailPersona('alice@token.tm', 'alice')).toEqual({
+    expect(parseAimailPersona('alice@token.tm', 'alice')).toEqual({
       persona: '',
       profile: 'default',
       sysName: 'alice',
@@ -146,7 +146,7 @@ describe('parseAmailPersona / baseEmail', () => {
   })
 
   it('three-part persona.profile.sys_name@domain', () => {
-    expect(parseAmailPersona('support.alice.sys@token.tm', 'sys')).toEqual({
+    expect(parseAimailPersona('support.alice.sys@token.tm', 'sys')).toEqual({
       persona: 'support',
       profile: 'alice',
       sysName: 'sys',
@@ -154,7 +154,7 @@ describe('parseAmailPersona / baseEmail', () => {
   })
 
   it('traditional two-part persona.profile@domain', () => {
-    expect(parseAmailPersona('support.alice@token.tm', '')).toEqual({
+    expect(parseAimailPersona('support.alice@token.tm', '')).toEqual({
       persona: 'support',
       profile: 'alice',
       sysName: '',
@@ -185,11 +185,11 @@ function mail(over: Partial<InboundPayload>): InboundPayload {
 }
 
 describe('processInboundMail', () => {
-  it('enriches a direct message: my_amail_addr, direct_message, stripped fields', async () => {
+  it('enriches a direct message: my_aimail_addr, direct_message, stripped fields', async () => {
     const r = await processInboundMail(mail({}), {}, CTX)
     expect(r).not.toBeNull()
     if (!r) return
-    expect(r.my_amail_addr).toBe(AGENT_EMAIL)
+    expect(r.my_aimail_addr).toBe(AGENT_EMAIL)
     expect(r.direct_message).toBe(true)
     expect(r.mentioned).toBe(false)
     expect(r.message_id).toBe('<mid-1@token.tm>')
@@ -230,7 +230,7 @@ describe('processInboundMail', () => {
     const r = await processInboundMail(mail({ to: [`support.${AGENT_EMAIL}`] }), {}, CTX)
     expect(r).not.toBeNull()
     if (!r) return
-    expect(r.my_amail_addr).toBe(AGENT_EMAIL)
+    expect(r.my_aimail_addr).toBe(AGENT_EMAIL)
     // persona-addressed mail still resolves as a direct message on the base
     expect(r.direct_message).toBe(true)
   })
@@ -239,7 +239,7 @@ describe('processInboundMail', () => {
     const r = await processInboundMail(mail({}), {}, { systemId: SYSTEM_ID, email: 'ghost@token.tm' })
     expect(r).not.toBeNull()
     expect(r?._preprocess_error).toBe('aimail email not configured')
-    expect(r?.my_amail_addr).toBe('')
+    expect(r?.my_aimail_addr).toBe('')
   })
 
   it('flags [WHOAMI] subjects for whoami prompt (early-return)', async () => {

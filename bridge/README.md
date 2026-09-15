@@ -56,8 +56,7 @@ Works for both push and pull modes.
 - **Per-IP rate limiting** — configurable req/sec cap with sliding window (default 30)
 - **Body size limit** — configurable cap (default 20 MB) prevents memory exhaustion
 - **Header filtering** — only business headers forwarded: `x-aimail-email`
-  (primary; required on push deliveries since v0.7.0 — missing returns 400; legacy
-  `x-amail-email` accepted as alias), `x-webhook-signature`,
+  (required on push deliveries — missing returns 400), `x-webhook-signature`,
   `x-mailrelay-timestamp`, `content-type`)
 - **Graceful shutdown** — SIGINT/SIGTERM drain in-flight requests
 - **Connection pooling** — reqwest client reused across all forwards (keep-alive)
@@ -124,7 +123,7 @@ gateway (public)                              behind NAT/firewall
 
 ```bash
 # Unzip the appropriate zip for your platform
-VER=v0.7.0
+VER=v0.7.1
 ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 unzip aimail-bridge-${VER}-linux-${ARCH}.zip
 mv aimail-bridge-${VER}-linux-${ARCH} aimail-bridge
@@ -153,7 +152,7 @@ bind = "127.0.0.1:38080"
 level = "info"       # stdout (default is /var/log/aimail-bridge.log without [logging]; non-root fails)
 
 [pull]
-amail_url = "http://gateway.example.com:38080"
+aimail_url = "http://gateway.example.com:38080"
 admin_key = "sk-xxxxxxxx"           # system-scope key (pending filtered by key's system)
 system_id = "admin"
 EOF
@@ -163,7 +162,7 @@ EOF
 
 # Check health
 curl http://localhost:38080/health
-# {"status":"ok","uptime_secs":42,"version":"0.7.0"}
+# {"status":"ok","uptime_secs":42,"version":"0.7.1"}
 ```
 ## Configuration
 
@@ -199,7 +198,7 @@ mode = "pull"
 bind = "127.0.0.1:38080"              # listen address (admin API only)
 
 [pull]
-amail_url = "http://gateway.example.com:38080"
+aimail_url = "http://gateway.example.com:38080"
 admin_key = "sk-xxxxxxxx"            # system-scope key — must belong to the
                                      # same system as the pending deliveries
 system_id = "admin"                  # system ID for pending query (default: "admin")
@@ -210,7 +209,7 @@ poll_interval_sec = 10               # poll interval in seconds (default: 10)
 
 One bridge serving several systems (the production shape: a single gateway
 hosting multiple `shared-token-*` systems). Each entry polls its own
-system's pending deliveries with its own key; `amail_url` may omit the
+system's pending deliveries with its own key; `aimail_url` may omit the
 scheme (`http://` is added automatically).
 
 ```toml
@@ -219,8 +218,8 @@ bind = "127.0.0.1:38080"
 
 [pull]
 systems = [
-  { amail_url = "https://amail.example.com", admin_key = "sk-aaa", system_id = "shared-token-aaaaaaaa", poll_interval_sec = 2 },
-  { amail_url = "https://amail.example.com", admin_key = "sk-bbb", system_id = "shared-token-bbbbbbbb", poll_interval_sec = 2 },
+  { aimail_url = "https://aimail.example.com", admin_key = "sk-aaa", system_id = "shared-token-aaaaaaaa", poll_interval_sec = 2 },
+  { aimail_url = "https://aimail.example.com", admin_key = "sk-bbb", system_id = "shared-token-bbbbbbbb", poll_interval_sec = 2 },
 ]
 ```
 
@@ -244,7 +243,7 @@ level = "info"                        # log level (default: "info")
 |---|---|
 | `AIMAIL_BRIDGE_MODE` | `mode` |
 | `AIMAIL_BRIDGE_HOSTNAME` | `hostname` (top-level) |
-| `AIMAIL_GATEWAY_URL` | `pull.amail_url` |
+| `AIMAIL_GATEWAY_URL` | `pull.aimail_url` |
 | `AIMAIL_BRIDGE_ADMIN_KEY` | `pull.admin_key` |
 | `AIMAIL_BRIDGE_SYSTEM_ID` | `pull.system_id` |
 | `AIMAIL_BRIDGE_POLL_SECS` | `pull.poll_interval_sec` |

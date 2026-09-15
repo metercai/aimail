@@ -16,9 +16,8 @@ platform_toolsets / skills 目录 / agentmail.json 等 Agent 内语义一律 age
 路由(webhook_subscriptions.json)由注册链 _auto_register_email →
 _ensure_webhook_route 创建 `aimail-inbound`(skills=['agentmail'],路由名
 = 外部入站路径用 aimail-inbound;skills 列表 = 内部工具/技能名 agentmail)
-——**不需要第二个 amail-inbound 路由**:bridge 转发路径是路由表全 URL
-(http://127.0.0.1:8646/webhooks/aimail-inbound),不是旧版硬编码
-拼接 /webhooks/amail-inbound;注册一条 aimail-inbound 即可。
+——**不需要第二条 inbound 路由**:bridge 转发路径取自路由表全 URL
+(http://127.0.0.1:8646/webhooks/aimail-inbound);注册一条 aimail-inbound 即可。
 
 本模块幂等: 已存在的配置项保留(尤其 secret——变更会致 bridge 转发
 HMAC 401);只补缺失项。由 hermes/register_profiles.py(安装链 per-profile

@@ -50,8 +50,8 @@ TLS 栈 —— rustls + ring crypto。零 OpenSSL，零 native-tls，零系统�
 - **IP 白名单 + 黑名单** — push 模式仅接受受信来源 IP 的 POST
 - **每 IP 限速** — 可配置 rps 上限，滑动窗口算法（默认 30）
 - **Body 大小限制** — 可配置上限（默认 20 MB），防止内存耗尽
-- **Header 过滤** — 只转发业务 header：`x-aimail-email`（主，v0.7.0 起 push 必需
-  请求头，缺失返回 400；旧名 `x-amail-email` 作为兼容别名）、`x-webhook-signature`、
+- **Header 过滤** — 只转发业务 header：`x-aimail-email`（push 必需请求头，
+  缺失返回 400）、`x-webhook-signature`、
   `x-mailrelay-timestamp`、`content-type`）
 - **优雅关闭** — SIGINT/SIGTERM 排空进行中请求
 - **连接池复用** — reqwest client 全局复用，keep-alive 长连接
@@ -118,7 +118,7 @@ gateway (公网)                              NAT/防火墙内
 
 ```bash
 # 解压对应平台的 zip 文件
-VER=v0.7.0
+VER=v0.7.1
 ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 unzip aimail-bridge-${VER}-linux-${ARCH}.zip
 mv aimail-bridge-${VER}-linux-${ARCH} aimail-bridge
@@ -147,7 +147,7 @@ bind = "127.0.0.1:38080"
 level = "info"       # stdout（无 [logging] 段时默认写 /var/log/aimail-bridge.log，非 root 会失败）
 
 [pull]
-amail_url = "http://gateway.example.com:38080"
+aimail_url = "http://gateway.example.com:38080"
 admin_key = "sk-xxxxxxxx"           # system 级 key（pending 按 key 所属系统过滤）
 system_id = "admin"
 EOF
@@ -157,7 +157,7 @@ EOF
 
 # 检查健康状态
 curl http://localhost:38080/health
-# {"status":"ok","uptime_secs":42,"version":"0.7.0"}
+# {"status":"ok","uptime_secs":42,"version":"0.7.1"}
 ```
 ## 配置参考
 
@@ -193,7 +193,7 @@ mode = "pull"
 bind = "127.0.0.1:38080"              # 监听地址（仅 admin API）
 
 [pull]
-amail_url = "http://gateway.example.com:38080"
+aimail_url = "http://gateway.example.com:38080"
 admin_key = "sk-xxxxxxxx"            # system 级 key — 必须与 pending 投递
                                      # 记录属于同一系统
 system_id = "admin"                  # pending 查询用的系统 ID（默认："admin"）
@@ -203,7 +203,7 @@ poll_interval_sec = 10               # 轮询间隔秒（默认：10）
 ### Pull — 多系统
 
 一个 bridge 服务多个系统（生产形态：同一网关托管多个 `shared-token-*`
-系统）。每个条目用各自的 key 拉取自己系统的 pending；`amail_url` 可省略
+系统）。每个条目用各自的 key 拉取自己系统的 pending；`aimail_url` 可省略
 scheme（自动补 `http://`）。
 
 ```toml
@@ -212,8 +212,8 @@ bind = "127.0.0.1:38080"
 
 [pull]
 systems = [
-  { amail_url = "https://amail.example.com", admin_key = "sk-aaa", system_id = "shared-token-aaaaaaaa", poll_interval_sec = 2 },
-  { amail_url = "https://amail.example.com", admin_key = "sk-bbb", system_id = "shared-token-bbbbbbbb", poll_interval_sec = 2 },
+  { aimail_url = "https://aimail.example.com", admin_key = "sk-aaa", system_id = "shared-token-aaaaaaaa", poll_interval_sec = 2 },
+  { aimail_url = "https://aimail.example.com", admin_key = "sk-bbb", system_id = "shared-token-bbbbbbbb", poll_interval_sec = 2 },
 ]
 ```
 
@@ -237,7 +237,7 @@ level = "info"                        # 日志级别（默认："info"）
 |---|---|
 | `AIMAIL_BRIDGE_MODE` | `mode` |
 | `AIMAIL_BRIDGE_HOSTNAME` | `hostname`（顶层） |
-| `AIMAIL_GATEWAY_URL` | `pull.amail_url` |
+| `AIMAIL_GATEWAY_URL` | `pull.aimail_url` |
 | `AIMAIL_BRIDGE_ADMIN_KEY` | `pull.admin_key` |
 | `AIMAIL_BRIDGE_SYSTEM_ID` | `pull.system_id` |
 | `AIMAIL_BRIDGE_POLL_SECS` | `pull.poll_interval_sec` |

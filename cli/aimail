@@ -48,6 +48,14 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 from runtime_core import normalize_platform_home  # noqa: E402  (C 修:平台根归一)
 
 
+def _is_readable_file(p) -> bool:
+    """True if p is a readable regular file — permission/IO errors count as absent."""
+    try:
+        return p.is_file()
+    except OSError:
+        return False
+
+
 def _registry_order_roots() -> list:
     """平台指针根候选(platforms.json order × home_dir——唯一平台知识源)。"""
     try:
@@ -969,9 +977,17 @@ def _list_agents(sid: str, cfg: dict):
     domain = cfg.get("domain", "")
     system_name = cfg.get("system_name", "")
     if base.is_dir():
-        for d in sorted(base.iterdir()):
+        try:
+            entries = sorted(base.iterdir())
+        except OSError:
+            entries = []
+        for d in entries:
             jf = d / "agentmail.json"
-            if not jf.is_file():
+            try:
+                readable = _is_readable_file(jf)
+            except OSError:
+                readable = False        # 权限/IO 异常 → 按未注册处理,列举不中断
+            if not readable:
                 continue
             try:
                 acfg = json.loads(jf.read_text())
@@ -1072,9 +1088,9 @@ def _scan_pointers(platform_root: Path):
                     # session — conventionally "default"/"main"; named
                     # profile/agent dirs use their own directory name.
                     if Path(dirpath) == platform_root:
-                        # 根级指针 = 平台主会话:hermes default / openclaw main
-                        base_nm = os.path.basename(str(platform_root))
-                        agent_name = "default" if base_nm in (".hermes", "hermes") else "main" if base_nm in (".openclaw", "openclaw") else "default"
+                        # 根级指针 = 平台主会话;名字取自注册表别名(未登记别名 → 归一 agent)
+                        _alias = _platform_aliases().get(detect_platform_from_home(platform_root), ())
+                        agent_name = _alias[0] if _alias else "agent"
                     else:
                         agent_name = os.path.basename(dirpath)
                     found.append({
@@ -1112,7 +1128,9 @@ def cmd_address(args) -> int:
             platform = detect_platform_from_home(Path(sh))
         print(f"  system: {sid} ({platform or '?'})")
         print(f"  默认主 agent 名: {current}")
-        print(f"  (默认映射: hermes default→{current}, openclaw main→{current})")
+        _pairs = [f"{k} {a}" for k, al in _platform_aliases().items() for a in al]
+        if _pairs:
+            print(f"  (默认映射: {', '.join(_pairs)} → {current})")
         print()
         if not agents:
             print("  无本地注册 agent(地址键目录为空)。")
@@ -1474,7 +1492,7 @@ def _rename_after_reg(cfg: dict, default_name: str, agent: str, reg_name: str, s
     if base.is_dir():
         for d in base.iterdir():
             jf = d / "agentmail.json"
-            if not jf.is_file():
+            if not _is_readable_file(jf):
                 continue
             try:
                 acfg = json.loads(jf.read_text())
@@ -1726,7 +1744,7 @@ def _system_agents(sid: str) -> list[tuple[str, str]]:
     # 每个 agent 的 agentmail.json(含 email)
     for sub in sorted(sysdir.iterdir()):
         aj = sub / "agentmail.json"
-        if not aj.is_file():
+        if not _is_readable_file(aj):
             continue
         try:
             d = json.loads(aj.read_text())
@@ -1752,7 +1770,7 @@ def _default_recv_url(sid: str, email: str) -> str:
     OpenClaw=8799/hook)。"""
     try:
         aj = SYSTEMS_DIR / sid / _addr_clean(email) / "agentmail.json"
-        if aj.is_file():
+        if _is_readable_file(aj):
             wu = json.loads(aj.read_text()).get("webhook_url", "")
             if wu:
                 return wu
@@ -2007,7 +2025,7 @@ def cmd_stats(args) -> int:
         agents = []
         for sub in sorted(sid_dir.iterdir()):
             aj = sub / "agentmail.json"
-            if not aj.is_file():
+            if not _is_readable_file(aj):
                 continue
             try:
                 d = json.loads(aj.read_text())
@@ -2079,7 +2097,7 @@ def cmd_stats(args) -> int:
             platform = "?"
         for sub in sorted(sid_dir.iterdir()):
             aj = sub / "agentmail.json"
-            if not aj.is_file():
+            if not _is_readable_file(aj):
                 continue
             try:
                 d = json.loads(aj.read_text())
@@ -2163,7 +2181,7 @@ def cmd_uninstall(args) -> int:
         _fail("uninstall 需要 --system-id(或用 --home 定位平台)")
     # 幂等:系统数据与指针都不存在 → 视为已卸载
     if not (SYSTEMS_DIR / sid).is_dir() and not any(
-            _ptr_sid(_platform_ptr(p)) == sid for p in ("openclaw", "hermes", "pi", "dsh", "deerflow")):
+            _ptr_sid(_platform_ptr(p)) == sid for p in _platforms()["platforms"]):
         print(f"  system {sid} not installed (already uninstalled?)")
         return 0
     if not platform:
@@ -2193,7 +2211,7 @@ def cmd_uninstall(args) -> int:
         if sid_dir.is_dir():
             for sub in sorted(sid_dir.iterdir()):
                 aj = sub / "agentmail.json"
-                if not aj.is_file():
+                if not _is_readable_file(aj):
                     continue
                 try:
                     d = json.loads(aj.read_text())

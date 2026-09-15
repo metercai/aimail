@@ -105,8 +105,8 @@ export function createInboundHandler(api: OpenClawPluginApi) {
       }
 
       // Inbound routing (Q3 — mirror Python bridge routing): the per-delivery
-      // target is authoritative. The bridge injects X-AIMail-Email (legacy
-      // X-Amail-Email fallback) on each single-delivery POST; payload.to is
+      // target is authoritative. The bridge injects X-AIMail-Email on each
+      // single-delivery POST; payload.to is
       // the FILTERED full list (external recipients first), so to[0] is often
       // an external address. Use the header when present; only iterate toRaw
       // when the header is absent (batch deliveries carry no such header).

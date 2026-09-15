@@ -48,7 +48,7 @@ def _store_inbound(mid, subject="", body="", sender="boss@corp.com",
         "sender": sender,
         "to": to or [AGENT],
         "recipients": {"to": to or [AGENT], "cc": []},
-        "my_amail_addr": AGENT,
+        "my_aimail_addr": AGENT,
         "ts": "2026-09-01T10:00:00",
     }
     if extra:

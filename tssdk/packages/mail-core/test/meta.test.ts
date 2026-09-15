@@ -27,7 +27,7 @@ const EMAIL = 'agent1@token.tm'
 let home: string
 
 beforeAll(async () => {
-  home = await fs.mkdtemp(path.join(os.tmpdir(), 'amail-meta-'))
+  home = await fs.mkdtemp(path.join(os.tmpdir(), 'aimail-meta-'))
   process.env.AIMAIL_HOME = home
 })
 
@@ -80,7 +80,7 @@ describe('saveLocalMeta / readLocalMeta', () => {
     // whitespace; sanitize applies to the filesystem key only)
     expect(m!.references).toEqual(['<root@x>', '<mid1@x>'])
     expect(m!.thread_id).toBe('<root@x>')
-    expect(m!.my_amail_addr).toBe('persona@token.tm')
+    expect(m!.my_aimail_addr).toBe('persona@token.tm')
     expect(m!.direction).toBe('outbound')
     expect(typeof m!.at).toBe('string')
   })

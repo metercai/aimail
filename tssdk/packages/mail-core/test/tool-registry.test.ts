@@ -1,8 +1,8 @@
 /**
  * MAIL_TOOLS contract tests:
- *   - structural: 14 tools, exact names/order, non-empty semantic text
+ *   - structural: 15 tools, exact names/order, non-empty semantic text
  *   - parity (best-effort): names + descriptions + parameter text must match
- *     the Python TOOLS registry in aimail/pysdk/amail_mcp_server.py
+ *     the Python TOOLS registry in aimail/pysdk/aimail_mcp_server.py
  *     (the upstream contract reference). Skipped when the sibling repo or
  *     python3 is unavailable (e.g. CI without the checkout).
  */
@@ -27,6 +27,7 @@ const EXPECTED_NAMES = [
   'board_task_show',
   'board_heartbeat',
   'board_members',
+  'board_roles',
   'set_public_whoami',
   'activate_address_code',
 ] as const
@@ -35,7 +36,7 @@ const EXPECTED_NAMES = [
  * parity stays live against pysdk. */
 const PY_REGISTRY = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  '..', '..', '..', '..', 'pysdk', 'amail_mcp_server.py',
+  '..', '..', '..', '..', 'pysdk', 'aimail_mcp_server.py',
 )
 
 interface PyParam { type?: string; enum?: string[]; description?: string }
@@ -65,7 +66,7 @@ print(json.dumps(ns['TOOLS']))
 }
 
 describe('MAIL_TOOLS structure', () => {
-  it('registers exactly the 14 bare tool names, in order', () => {
+  it('registers exactly the 15 bare tool names, in order', () => {
     expect(MAIL_TOOLS.map(t => t.name)).toEqual([...EXPECTED_NAMES])
   })
 

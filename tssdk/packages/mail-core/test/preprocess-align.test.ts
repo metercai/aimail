@@ -41,7 +41,7 @@ function mail(over: Partial<InboundPayload> = {}): InboundPayload {
 }
 
 beforeAll(async () => {
-  home = await fs.mkdtemp(path.join(os.tmpdir(), 'amail-t5-'))
+  home = await fs.mkdtemp(path.join(os.tmpdir(), 'aimail-t5-'))
   process.env.AIMAIL_HOME = home
 })
 
@@ -120,7 +120,7 @@ describe('D9: pong body + real pong_sent status', async () => {
     const r = await processInboundMail(payload, {}, CTX)
     expect(r).toBeNull()
 
-    const pong = sendBodies.find(b => String((b.body.subject as string) ?? '').startsWith('__amail_pong__:'))
+    const pong = sendBodies.find(b => String((b.body.subject as string) ?? '').startsWith('__aimail_pong__:'))
     expect(pong).toBeDefined()
     const bodyObj = JSON.parse(String(pong!.body.markdown)) as { ping_id: string; event: { mail_id: string } }
     expect(bodyObj.ping_id).toBe('ping-abc')
@@ -184,7 +184,7 @@ describe('inbound local meta (always written)', () => {
     const m = await readLocalMeta(EMAIL, '<in-1@token.tm>')
     expect(m).toBeDefined()
     expect(m!.direction).toBe('inbound')
-    expect(m!.my_amail_addr).toBe(EMAIL)
+    expect(m!.my_aimail_addr).toBe(EMAIL)
     expect(m!.references).toEqual(['<root@token.tm>', '<in-1@token.tm>'])
     expect(m!.thread_id).toBe('<root@token.tm>')
     expect((await fs.stat(localMetaPath(EMAIL, '<in-1@token.tm>'))).isFile()).toBe(true)
@@ -202,11 +202,8 @@ describe('routeAddressFromHeaders (Q3 inbound routing)', () => {
     expect(routeAddressFromHeaders({ 'x-aimail-email': 'agent1@token.tm' })).toBe('agent1@token.tm')
   })
 
-  it('falls back to legacy X-Amail-Email when the new name is absent', () => {
-    expect(routeAddressFromHeaders({ 'x-amail-email': 'agent1@token.tm' })).toBe('agent1@token.tm')
-  })
-
-  it('prefers the new name over the legacy when both are present', () => {
+  it('ignores the retired legacy x-amail-email name', () => {
+    expect(routeAddressFromHeaders({ 'x-amail-email': 'old@token.tm' })).toBe('')
     expect(
       routeAddressFromHeaders({
         'x-aimail-email': 'new@token.tm',
@@ -217,7 +214,6 @@ describe('routeAddressFromHeaders (Q3 inbound routing)', () => {
 
   it('is case-insensitive (node lowercases, callers may not)', () => {
     expect(routeAddressFromHeaders({ 'X-AIMail-Email': 'agent1@token.tm' })).toBe('agent1@token.tm')
-    expect(routeAddressFromHeaders({ 'X-Amail-EMAIL': 'agent1@token.tm' })).toBe('agent1@token.tm')
   })
 
   it('handles array header values and trims whitespace', () => {

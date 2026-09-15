@@ -26,7 +26,7 @@ load_core()
 
 from gateway_api import GatewayClient, create_api_key, gateway_config_path, load_gateway_config
 
-logger = logging.getLogger("amail_setup")
+logger = logging.getLogger("aimail_setup")
 
 
 # ── Agent admin key helper ──────────────────────────────────────
@@ -45,7 +45,7 @@ def _downgrade_to_agent_admin_key(
     raw = result.get("raw_key", "")
     if not raw:
         logger.warning(
-            "[amail_setup] Failed to create agent_admin key: %s %s — keeping system key",
+            "[aimail_setup] Failed to create agent_admin key: %s %s — keeping system key",
             result.get("error", ""), result.get("detail", ""),
         )
         return system_admin_key
@@ -58,7 +58,7 @@ def _downgrade_to_agent_admin_key(
         cfg["admin_key"] = raw
         with open(cfg_path, "w") as f:
             json.dump(cfg, f, indent=2)
-    logger.info("[amail_setup] agent_admin key created and saved")
+    logger.info("[aimail_setup] agent_admin key created and saved")
     return raw
 
 
@@ -166,7 +166,7 @@ def _detect_webhook_host(gateway_url: str) -> str:
             external_ip = resp.read().decode().strip()
             if external_ip and not _is_private(external_ip):
                 logger.info(
-                    "[amail_setup] Detected external IP %s for webhook callback "
+                    "[aimail_setup] Detected external IP %s for webhook callback "
                     "(gateway at %s is public)", external_ip, gateway_host
                 )
                 return external_ip
@@ -175,7 +175,7 @@ def _detect_webhook_host(gateway_url: str) -> str:
 
     if lan_ip:
         logger.warning(
-            "[amail_setup] Gateway at %s is public but cannot detect external IP. "
+            "[aimail_setup] Gateway at %s is public but cannot detect external IP. "
             "Using LAN IP %s — gateway must be able to reach this address. "
             "Set AIMAIL_WEBHOOK_HOST to override.", gateway_host, lan_ip
         )
@@ -199,7 +199,7 @@ def _save_gateway_config(
     webhook_host: str = "",
     system_home: str = "",
 ) -> None:
-    """Save amail gateway connection config to standalone JSON file.
+    """Save AIMail gateway connection config to standalone JSON file.
 
     Writes to ~/.aimail/systems/{system_id}/aimail_gateway.json.
     system_home = 系统/平台根(hermes=~/.hermes, openclaw=~/.openclaw),
@@ -296,7 +296,7 @@ def init_system(
         webhook_host=webhook_host,
         system_home=system_home,
     )
-    logger.info("[amail_setup] Gateway config saved to %s", gateway_config_path())
+    logger.info("[aimail_setup] Gateway config saved to %s", gateway_config_path())
     # Downgrade to agent_admin key
     agent_key = _downgrade_to_agent_admin_key(
         gateway_url, admin_key, created_system_id, manager_address,

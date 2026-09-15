@@ -5,7 +5,7 @@
 
 /** Per-address agent config (agentmail.json) — the single source of truth. */
 export interface AgentConfig {
-  /** agent amail address (identity; outbound sender == key.email enforced server-side) */
+  /** agent AIMail address (identity; outbound sender == key.email enforced server-side) */
   email: string
   /** gateway base URL e.g. https://aimail.token.tm */
   gateway_url: string
@@ -89,7 +89,7 @@ export interface EnrichedPayload extends Record<string, unknown> {
   body?: string
   sender?: string
   recipients?: { to: string[]; cc: string[] }
-  my_amail_addr: string
+  my_aimail_addr: string
   direct_message: boolean
   mentioned: boolean
   attachments?: string[]

@@ -2,7 +2,7 @@
  * MAIL_TOOLS — the single TS source of truth for the 13 AIMail tool
  * semantic definitions (names, descriptions, parameter descriptions).
  *
- * Contract: text is verbatim from pysdk/amail_mcp_server.py TOOLS registry
+ * Contract: text is verbatim from pysdk/aimail_mcp_server.py TOOLS registry
  * (aimail repo); a vitest parity case pins TS↔Python so the two cannot
  * drift. Platform adapters (dsh-aimail, openclaw-aimail) iterate this array
  * and bind each entry's `handler` to their own identity resolution — no
@@ -33,12 +33,14 @@ import {
   boardTaskShow,
   boardHeartbeat,
   boardMembers,
+  boardRoles,
   setPublicWhoami,
   type BoardStatusArgs,
   type BoardTaskListArgs,
   type BoardTaskShowArgs,
   type BoardHeartbeatArgs,
   type BoardMembersArgs,
+  type BoardRolesArgs,
   type SetPublicWhoamiArgs,
 } from './board.js'
 import { activateAddressCode, type ActivateAddressCodeArgs } from './tools.js'
@@ -181,6 +183,15 @@ export const MAIL_TOOLS: readonly MailToolDef[] = [
       email: { type: 'string', description: 'Filter by member email' },
     },
     handler: (ctx, args) => boardMembers(ctx, args as unknown as BoardMembersArgs),
+  },
+  {
+    name: 'board_roles',
+    description: "List a board's role permissions (optionally one role's members and verbs).",
+    parameters: {
+      board: { type: 'string', description: 'Board ID (b_ prefix)', required: true },
+      role: { type: 'string', description: 'Filter by role name' },
+    },
+    handler: (ctx, args) => boardRoles(ctx, args as unknown as BoardRolesArgs),
   },
   {
     name: 'set_public_whoami',
