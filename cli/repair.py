@@ -404,8 +404,71 @@ def _repair_pointer(sid: str, platform_home: str) -> bool:
     return True
 
 
+# ═══════════════════════════════════════════════════════════════
+# 运行时资源重部署(注册表驱动:health_checks 探针 + install_steps 入口)
+# ═══════════════════════════════════════════════════════════════
+
+_REG_FILE_KINDS = ("file_contains", "file_contains_alt", "file_exists",
+                   "file_exists_any", "glob_dir_any")
+
+
+def _platform_def(plat: str) -> dict:
+    """注册表平台定义(platforms.json = 唯一平台知识源)。"""
+    import json as _j
+    try:
+        reg = _j.load(open(str(Path(__file__).resolve().parent / "platforms.json"),
+                           encoding="utf-8"))
+        return (reg.get("platforms", {}) or {}).get(plat, {}) or {}
+    except Exception:
+        return {}
+
+
+def _failing_file_checks(plat: str, sh: str) -> list:
+    """资源完好探针:注册表 health_checks 的文件类检查项里,哪些无命中。
+
+    定位键三类都要认(path/alt/glob)——openclaw 的插件目录检查用 glob,
+    漏读会把"资源在位"误判成"缺失"。
+    """
+    import glob as _g
+    fails = []
+    for ch in _platform_def(plat).get("health_checks", []) or []:
+        if ch.get("kind") not in _REG_FILE_KINDS:
+            continue
+        pat = ch.get("path", "") or ch.get("alt", "") or ch.get("glob", "")
+        for cand in _g.glob(pat.replace("{home}", sh).replace("{user_home}", str(Path.home()))):
+            if ch.get("kind") == "glob_dir_any":
+                break  # 目录类:模式命中即视为就位(不做内容匹配)
+            try:
+                if ch.get("kind") in ("file_exists", "file_exists_any"):
+                    if Path(cand).is_file():
+                        break
+                elif ch.get("marker", "") in Path(cand).read_text(errors="replace"):
+                    break
+            except Exception:
+                continue
+        else:
+            fails.append(ch)
+    return fails
+
+
+def _sdk_install_target(plat: str) -> str:
+    """该平台 SDK 自足安装入口的 type(注册表 install_steps kind=sdk_install → target)。
+
+    没有该步骤的平台(openclaw/pi/dsh)资源由平台自身管理(插件/宿主命令),
+    CLI 不代装 → 返回空串,调用方改为打印注册表自带的修复提示。
+    """
+    for st in _platform_def(plat).get("install_steps", []) or []:
+        if st.get("kind") == "sdk_install" and st.get("target"):
+            return str(st["target"])
+    return ""
+
+
 def _repair_runtime_resources(sid: str, platform_home: str) -> bool:
-    """L2 资源缺失 → 调 SDK 自足安装入口(install.py install …)幂等重装。"""
+    """L2 运行时资源缺失 → 走该平台的 SDK 自足安装入口幂等重装。
+
+    目标类型由注册表 install_steps(sdk_install → target)给出;没有入口的
+    平台只打印 health_checks 自带的 fix 提示,不 spawn 注定失败的安装命令。
+    """
     gw = _load_gateway_cfg(sid) or {}
     sh = platform_home or gw.get("system_home", "")
     if not sh or not Path(sh).is_dir():
@@ -414,46 +477,22 @@ def _repair_runtime_resources(sid: str, platform_home: str) -> bool:
     plat = _detect_platform_from_home(Path(sh))
     if plat == "unknown":
         return False
-    # 运行时资源完好探针 = 注册表 health_checks 的文件类检查项
-    # (patch 标记存在即不需重装;openclaw/pi 无文件类项 → 不触发重装,
-    # 其资源由插件命令管理)
-    def _needs_reinstall():
-        import json as _j
-        try:
-            reg = _j.load(open(str(Path(__file__).resolve().parent / "platforms.json"), encoding="utf-8"))
-            checks = (reg.get("platforms", {}) or {}).get(plat, {}).get("health_checks", [])
-        except Exception:
-            return False
-        _file_kinds = ("file_contains", "file_contains_alt", "file_exists", "file_exists_any", "glob_dir_any")
-        for ch in checks:
-            if ch.get("kind") not in _file_kinds:
-                continue
-            pat = ch.get("path", "") or ch.get("alt", "")
-            import glob as _g
-            for cand in _g.glob(pat.replace("{home}", sh).replace("{user_home}", str(Path.home()))):
-                try:
-                    if ch.get("kind") in ("file_exists", "file_exists_any"):
-                        if Path(cand).is_file():
-                            break
-                    else:
-                        txt = Path(cand).read_text(errors="replace")
-                        if ch.get("marker", "") in txt:
-                            break
-                except Exception:
-                    continue
-            else:
-                return True  # 该检查项无任何命中 → 需重装
+    fails = _failing_file_checks(plat, sh)
+    if not fails:
         return False
-
-    if not _needs_reinstall():
+    tgt = _sdk_install_target(plat)
+    if not tgt:
+        _warn(f"{plat} 运行时资源缺失,该平台无 SDK 安装入口(资源由平台自身管理)→ 按提示处理:")
+        for ch in fails:
+            _warn(f"  [{ch.get('id', '?')}] {ch.get('fix') or ch.get('fail_text', '')}")
         return False
-    _warn(f"{plat} 运行时资源缺失 → 幂等重装(install.py install --type {plat} --home {sh})")
+    _warn(f"{plat} 运行时资源缺失 → 幂等重装(install.py install --type {tgt} --home {sh})")
     # 按文件路径调用(与本文件其它步骤一致),不依赖解释器内 import aimail;
     # install.py 自举 sys.path,repo(pysdk/)与 pip(site-packages/aimail/)布局通用。
     from runtime_core import resolve_core_dir
     install_py = os.path.join(resolve_core_dir(), "install.py")
     r = subprocess.run(
-        [sys.executable, install_py, "install", "--type", plat, "--home", sh,
+        [sys.executable, install_py, "install", "--type", tgt, "--home", sh,
          "--system-id", sid],
         capture_output=True, text=True, timeout=300)
     sys.stdout.write((r.stdout or "")[-600:])
