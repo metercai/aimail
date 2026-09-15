@@ -5,10 +5,11 @@
 (pysdk / tssdk 平台包)自带资源与平台 patch,并提供可被 spawn 的安装
 入口 —— CLI(或用户)只需执行:
 
-    python -m aimail.install    --type hermes   [--home ~/.hermes] [--system-id SID]
-    python -m aimail.install    --type deerflow [--home <backend>] [--system-id SID]
-    python -m aimail.uninstall  --type hermes   [--home ~/.hermes] [--system-id SID]
-    python -m aimail.install    --check-env --type hermes [--home ...]
+    python -m aimail.install install            --type hermes   [--home ~/.hermes] [--system-id SID]
+    python -m aimail.install install            --type deerflow [--home <backend>] [--system-id SID]
+    python -m aimail.install uninstall          --type hermes   [--home ~/.hermes] [--system-id SID]
+    python -m aimail.install check-env          --type hermes   [--home ...]
+    python -m aimail.install register-profiles  --home <hermes-root> [--system-id SID]  # internal
 
 所有动作幂等;环境自检失败时明确提示"先运行 aimail CLI"。
 """
@@ -414,11 +415,6 @@ def uninstall_deerflow(backend_dir: str) -> int:
 # ═══════════════════════════════════════════════════════════════
 # CLI
 # ═══════════════════════════════════════════════════════════════
-
-def _spawn_self(args: list, env: dict | None = None) -> int:
-    return subprocess.call([sys.executable, "-m", "aimail.install", *args],
-                           env=env or os.environ)
-
 
 def _cmd_register_profiles(env) -> int:
     rp = _import_hermes("register_profiles")

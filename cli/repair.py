@@ -37,7 +37,6 @@ SYSTEMS_DIR = AIMAIL_HOME / "systems"
 
 GREEN, YELLOW, RED, NC = "\033[92m", "\033[93m", "\033[91m", "\033[0m"
 OK, WARN, CROSS = "✓", "⚠", "✗"
-BRIDGE_ADDR = "127.0.0.1:38081"
 BRIDGE_CFG = AIMAIL_HOME / "bridge" / "aimail_bridge.toml"
 BRIDGE_PID = AIMAIL_HOME / "bridge" / "bridge.pid"
 BRIDGE_BIN = AIMAIL_HOME / "bridge" / "bin" / "aimail-bridge"
@@ -406,7 +405,7 @@ def _repair_pointer(sid: str, platform_home: str) -> bool:
 
 
 def _repair_runtime_resources(sid: str, platform_home: str) -> bool:
-    """L2 资源缺失 → python -m aimail.install 幂等重装。"""
+    """L2 资源缺失 → 调 SDK 自足安装入口(install.py install …)幂等重装。"""
     gw = _load_gateway_cfg(sid) or {}
     sh = platform_home or gw.get("system_home", "")
     if not sh or not Path(sh).is_dir():
@@ -448,9 +447,13 @@ def _repair_runtime_resources(sid: str, platform_home: str) -> bool:
 
     if not _needs_reinstall():
         return False
-    _warn(f"{plat} 运行时资源缺失 → 幂等重装(python -m aimail.install --type {plat} --home {sh})")
+    _warn(f"{plat} 运行时资源缺失 → 幂等重装(install.py install --type {plat} --home {sh})")
+    # 按文件路径调用(与本文件其它步骤一致),不依赖解释器内 import aimail;
+    # install.py 自举 sys.path,repo(pysdk/)与 pip(site-packages/aimail/)布局通用。
+    from runtime_core import resolve_core_dir
+    install_py = os.path.join(resolve_core_dir(), "install.py")
     r = subprocess.run(
-        [sys.executable, "-m", "aimail.install", "--type", plat, "--home", sh,
+        [sys.executable, install_py, "install", "--type", plat, "--home", sh,
          "--system-id", sid],
         capture_output=True, text=True, timeout=300)
     sys.stdout.write((r.stdout or "")[-600:])
