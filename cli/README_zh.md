@@ -86,6 +86,8 @@ aimail repair       →  按 check 发现执行幂等修复阶梯
 │   ├── aimail_routes.toml      # 路由表:email → 本地入站端点
 │   ├── bin/aimail-bridge       # bridge 二进制
 │   └── bridge.pid
+├── toolkit/                        # bootstrap 安装的程序副本(PATH 的 aimail 指向它;刷新 = 重跑 bootstrap)
+├── mcp/                            # 宿主适配运行时捆绑(带版本戳)
 ├── mail/{addr}/{yyyymm}/in-*.json   # 快照:in-*(入站)/out-*(出站)
 ├── .system_raw_key/{sid}_admin.key  # 原始 admin key(仅集成时)
 └── .env                            # 机器级 env(自举安装)
@@ -151,6 +153,8 @@ export AIMAIL_DOMAIN=<你的域名>                # 独享域名,如 example.co
 export AIMAIL_MANAGER_ADDRESS=you@example.com # 管理agent的默认安全员邮件地址，可每个agent不一样
 curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
 ```
+
+- 程序副本(`~/.aimail/toolkit`,PATH 的 `aimail` 指向它)由 bootstrap 下载安装;重跑 bootstrap 即升级(强制重下载:先 `export AIMAIL_FORCE_UPGRADE=1`)。
 
 ### 第 2 步 — `aimail install`(系统级,可重复,幂等)
 
