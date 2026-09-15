@@ -137,7 +137,7 @@ def _platforms() -> dict:
     global _PLATFORMS
     if _PLATFORMS is None:
         _PLATFORMS = json.loads(
-            (Path(__file__).parent / "platforms.json").read_text(encoding="utf-8"))
+            (SCRIPTS_DIR / "platforms.json").read_text(encoding="utf-8"))
     return _PLATFORMS
 
 
