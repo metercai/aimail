@@ -44,7 +44,7 @@ def _ensure_binary(bridge_bin: str, bridge_dir: str) -> bool:
         log_step(f"Extracting bridge from {zip_path}...")
         try:
             # zip 内单文件带版本号(aimail-bridge-vX.Y.Z-ARCH);解到临时目录后
-            # 统一改名为裸名,不依赖 zip 内部命名(0.7.0 起命名含版本号)。
+            # 统一改名为裸名,不依赖 zip 内部命名。
             import tempfile
             with tempfile.TemporaryDirectory() as td:
                 r = subprocess.run(
@@ -125,7 +125,7 @@ def latest_bridge_zip(bridge_dir_local: str, arch: str) -> str:
             candidates.append(f)
     if not candidates:
         return ""
-    # Highest semantic version wins (v0.6.1 > v0.6)
+    # Highest semantic version wins (v1.2.3 > v1.2)
     best = max(candidates, key=lambda f: _version_key(f))
     return os.path.join(bridge_dir_local, best)
 
