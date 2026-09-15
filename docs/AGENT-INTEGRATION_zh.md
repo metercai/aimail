@@ -157,7 +157,7 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 
 通用 9 字段:`email` / `gateway_url` / `domain` / `system_id` / `system_name` / `manager_address` / `api_key` / `webhook_url` / `webhook_secret`。
 平台特有:`agent_id`(OpenClaw/DeerFlow)、`assistant_id`(DeerFlow)。
-字段语义以 MAINTENANCE §2/§9 与代码契约为准。
+字段语义以 `cli/README_zh.md` 的配置文件表与代码契约为准。
 
 ### 3.4 aimail_gateway.json 字段(系统级)
 
@@ -204,7 +204,7 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 | 入站接收端 | **网关插件 HTTP 路由** `POST http://127.0.0.1:18789/aimail/inbound`(`openclaw.json gateway.port` 默认 18789;auth=plugin,桥/直推目标不变):HMAC 验签 → TS `processInboundMail` → 经网关内部 `POST /hooks/agent` 钩子触发 agent turn(多 agent 经 sessionKey 路由) |
 | 生命周期 | 插件 register/register-all/deregister/status 命令(`openclaw aimail register\|register-all\|deregister\|status`);Python 注册链已退役 |
 | 部署 | `openclaw plugins install openclaw-aimail`(或经 tssdk 包);Python 侧仅注册/检查(cli/check_status L4 探测插件端点) |
-| 关键坑 | 入站处理前 `setAgentIdentity`(身份注入 TS 版);日志/事件契约与 Python 逐字对齐;8799 外置桥已退役(见 MAINTENANCE §9) |
+| 关键坑 | 入站处理前 `setAgentIdentity`(身份注入 TS 版);日志/事件契约与 Python 逐字对齐;8799 外置桥已退役 |
 
 ### 4.3 DeerFlow
 
@@ -409,4 +409,4 @@ health_checks。CLI 执行器是平台无关的 `kind` 分发;kind 跨平台共�
 
 ---
 
-正式文档目录为 `docs/`(版本化,随仓库维护);接口权威口径见 MAINTENANCE.md、README.md。
+正式文档目录为 `docs/`(版本化,随仓库维护);CLI 侧配置与运维口径见 `cli/README_zh.md`。

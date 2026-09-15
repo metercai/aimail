@@ -1,19 +1,21 @@
-# AIMail 安装与维护指南
+[English](README.md) | 🇨🇳 中文
+
+# aimail CLI
 
 > 适用对象:`aimail` ——在Agent所在机器上安装与维护 AIMail的命令行工具。运维的范围包括：本机的aimail基础环境、某个Agent系统实例的aimail相关配置，以及某个具体Agent的aimail相关配置。
 
-***
+---
 
 ## 目录
 
 1. [目标与范围](#1-目标与范围)
-2. [架构与本机布局](#2-架构与目录树)
+2. [架构与目录树](#2-架构与目录树)
 3. [系统安装](#3-系统安装)
 4. [维护工作流](#4-维护工作流)
-5. [命令速查](#5-速查)
+5. [命令速查](#5-命令速查)
 6. [故障排查](#6-故障排查)
 
-***
+---
 
 ## 1. 目标与范围
 
@@ -49,7 +51,7 @@ aimail install --home <平台根> --all-agents        # 平台根下全部 agent
 aimail install --home <平台根> --system-id <sid>   # 复用已有系统(不重新激活)
 ```
 
-对接完成的判定: `执行 aimail welcome 后，安全员收到 agent 回复的欢迎邮件`。
+对接完成的判定: `执行 aimail welcome 后，安全员收到 agent 回复的欢迎邮件`。
 
 ### 系统维护闭环
 
@@ -62,11 +64,28 @@ aimail repair       →  按 check 发现执行幂等修复阶梯
 先用 `stats` 发现问题,`check` 精确定位,`repair` 修复本机可修项,复检直到
 只剩真正的宿主侧动作。
 
-***
+---
 
 ## 2. 架构与目录树
 
-### 目录树
+### 本目录(cli/)
+
+```
+cli/
+├── aimail              # CLI 入口:子命令分发、参数解析、流程编排
+├── platforms.json      # 平台注册表:平台特征探测 + 各平台安装动作
+├── setup_system.py     # 系统激活/配置写入(install/reset)
+├── check_status.py     # 全面体检实现(L0-L4;repair 复用其检测)
+├── repair.py           # 幂等修复阶梯
+├── ping_test.py        # ping 端到端(ping → pong)
+├── send_welcome.py     # welcome 端到端(API 模式)
+├── request_persona.py  # persona 闭环触发
+├── deploy_bridge.py    # bridge 配置、启动与路由下发
+├── runtime_core.py     # 仓库侧运行时核心加载器
+└── runtime_bundle.py   # 运行时捆绑安装与校验
+```
+
+### 目录树(`~/.aimail`)
 
 ```
 ~/.aimail/
@@ -74,7 +93,7 @@ aimail repair       →  按 check 发现执行幂等修复阶梯
 │   ├── aimail_gateway.json     # 网关连接配置(系统级)
 │   ├── board/                  # 系统级 A2A 角色 prompt(回退)
 │   └── {agent_addr}/           # 按地址隔离目录(清洗后的邮箱)
-│       ├── agentmail.json      # agent 配置——9 个必备字段(见 §9)
+│       ├── agentmail.json      # agent 配置——9 个必备字段
 │       └── role_prompt/        # 地址级角色 prompt(优先)
 ├── logs/
 │   ├── aimail-bridge.log       # bridge 运行日志
@@ -99,13 +118,13 @@ aimail repair       →  按 check 发现执行幂等修复阶梯
 
 | 文件                                                 | 内容                                                                                                                                                             | 写入方                                                                            |
 | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `systems/{sid}/aimail_gateway.json`                | gateway\_url, admin\_key, system\_id, system\_name, manager\_address, system\_home, domain, webhook\_host(另含 save\_raw\_snapshots / default\_agent\_name,见 §9) | `install`/`reset` → setup\_system.py;`repair` 只补缺 `system_home`/`webhook_host` |
+| `systems/{sid}/aimail_gateway.json`                | gateway\_url, admin\_key, system\_id, system\_name, manager\_address, system\_home, domain, webhook\_host(另含 save\_raw\_snapshots / default\_agent\_name) | `install`/`reset` → setup\_system.py;`repair` 只补缺 `system_home`/`webhook_host` |
 | `systems/{sid}/{addr}/agentmail.json`              | 9 字段:email, gateway\_url, domain, system\_id, system\_name, manager\_address, api\_key, webhook\_url, webhook\_secret                                          | 注册链(register\_profiles/register\_agent/bind\_agent)                            |
 | `bridge/aimail_bridge.toml` + `aimail_routes.toml` | pull 系统列表 + 路由表                                                                                                                                                | deploy\_bridge.py;`aimail bridge --system-id`                                  |
 
 `aimail_gateway.json` 里的 `system_home` 是 **stats 平台标签的唯一来源**。
 
-***
+---
 
 ## 3. 系统安装
 
@@ -136,7 +155,7 @@ aimail ping --system-id <sid>      # ping → pong 闭环(权威判据 = agent �
 aimail welcome --system-id <sid>   # welcome 端到端(API 模式,noreply@{网关域} 发件)
 ```
 
-***
+---
 
 ## 4. 维护工作流
 
@@ -209,7 +228,7 @@ add(domain)· `-t` status(renew)
 或 timeout(ping)· `-D` deep · `-r` restart · `-k` admin-key · `-y` yes。
 长参数永不改名。
 
-***
+---
 
 ## 5. 命令速查
 
@@ -232,7 +251,7 @@ storages/)→ `hermes`(hermes-agent/ 或 profiles/)→ `openclaw`
 pong\_sent / pong\_returned / inbound / outbound)。无自动轮转——需要时用
 logrotate(模式见仓库历史文档)。
 
-***
+---
 
 ## 6. 故障排查
 
@@ -281,5 +300,4 @@ webhook 不一致。
 不可能:激活服务端原子、配置写入合并/存在性检查、bridge key 复用。若中途
 失败,`aimail check` + `aimail repair` 恢复不变量状态。
 
-***
-
+---

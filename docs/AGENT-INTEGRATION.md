@@ -159,7 +159,7 @@ Cloud receive → gateway inbound queue → bridge pull (2s polling of /pending)
 
 Common 9 fields: `email` / `gateway_url` / `domain` / `system_id` / `system_name` / `manager_address` / `api_key` / `webhook_url` / `webhook_secret`.
 Platform-specific: `agent_id` (OpenClaw/DeerFlow), `assistant_id` (DeerFlow).
-Field semantics follow MAINTENANCE §2/§9 and the code contract.
+Field semantics follow the config-file table in `cli/README.md` and the code contract.
 
 ### 3.4 aimail_gateway.json Fields (system level)
 
@@ -206,7 +206,7 @@ Field semantics follow MAINTENANCE §2/§9 and the code contract.
 | Inbound endpoint | **Gateway-plugin HTTP route** `POST http://127.0.0.1:18789/aimail/inbound` (`openclaw.json gateway.port` defaults to 18789; auth=plugin, same target for bridge/direct push): HMAC signature verify → TS `processInboundMail` → agent turn via the gateway internal `POST /hooks/agent` hook (multiple agents routed via sessionKey) |
 | Lifecycle | Plugin register/deregister/status commands (`openclaw aimail register|register-all|deregister|status`); Python registration chain retired |
 | Deployment | `openclaw plugins install openclaw-aimail` (or via the tssdk package); the Python side only registers/checks (cli/check_status probes the plugin endpoint at L4) |
-| Key pitfalls | Call `setAgentIdentity` before inbound processing (TS-side identity injection); logs/event contract aligned verbatim with Python; the 8799 external bridge is retired (see MAINTENANCE §9) |
+| Key pitfalls | Call `setAgentIdentity` before inbound processing (TS-side identity injection); logs/event contract aligned verbatim with Python; the 8799 external bridge is retired |
 
 ### 4.3 DeerFlow
 
@@ -442,4 +442,4 @@ dispatchers; kinds are shared across platforms, never per-platform code.
 - **--agent-type argument**: platforms are inferred from facts; manual specification is forbidden.
 - **mode / bridge_port config options**: the webhook_host tri-state expresses push/pull; the receive-endpoint port lives in webhook_url.
 
-The official documentation directory is `docs/` (versioned, maintained with the repo); authoritative interface wording lives in MAINTENANCE.md and README.md.
+The official documentation directory is `docs/` (versioned, maintained with the repo); CLI-side configuration and maintenance wording lives in `cli/README.md`.
