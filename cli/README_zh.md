@@ -4,7 +4,7 @@
 
 > 适用对象:`aimail` ——在Agent所在机器上安装与维护 AIMail的命令行工具。运维的范围包括：本机的aimail基础环境、某个Agent系统实例的aimail相关配置，以及某个具体Agent的aimail相关配置。
 
----
+***
 
 ## 目录
 
@@ -15,7 +15,7 @@
 5. [命令速查](#5-命令速查)
 6. [故障排查](#6-故障排查)
 
----
+***
 
 ## 1. 目标与范围
 
@@ -64,7 +64,7 @@ aimail repair       →  按 check 发现执行幂等修复阶梯
 先用 `stats` 发现问题,`check` 精确定位,`repair` 修复本机可修项,复检直到
 只剩真正的宿主侧动作。
 
----
+***
 
 ## 2. 架构与目录树
 
@@ -86,7 +86,7 @@ aimail repair       →  按 check 发现执行幂等修复阶梯
 │   ├── aimail_routes.toml      # 路由表:email → 本地入站端点
 │   ├── bin/aimail-bridge       # bridge 二进制
 │   └── bridge.pid
-├── toolkit/                        # bootstrap 安装的程序副本(PATH 的 aimail 指向它;刷新 = 重跑 bootstrap)
+├── toolkit/                    # bootstrap 安装的aimail程序副本
 ├── mcp/                            # 宿主适配运行时捆绑(带版本戳)
 ├── mail/{addr}/{yyyymm}/in-*.json   # 快照:in-*(入站)/out-*(出站)
 ├── .system_raw_key/{sid}_admin.key  # 原始 admin key(仅集成时)
@@ -101,50 +101,50 @@ aimail repair       →  按 check 发现执行幂等修复阶梯
 
 ### 三份权威配置文件
 
-| 文件                                                 | 内容                                                                                                                                                             | 写入方                                                                            |
-| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| 文件                                                 | 内容                                                                                                                                                        | 写入方                                                                            |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | `systems/{sid}/aimail_gateway.json`                | gateway\_url, admin\_key, system\_id, system\_name, manager\_address, system\_home, domain, webhook\_host(另含 save\_raw\_snapshots / default\_agent\_name) | `install`/`reset` → setup\_system.py;`repair` 只补缺 `system_home`/`webhook_host` |
-| `systems/{sid}/{addr}/agentmail.json`              | 9 字段:email, gateway\_url, domain, system\_id, system\_name, manager\_address, api\_key, webhook\_url, webhook\_secret                                          | 注册链(register\_profiles/register\_agent/bind\_agent)                            |
-| `bridge/aimail_bridge.toml` + `aimail_routes.toml` | pull 系统列表 + 路由表                                                                                                                                                | deploy\_bridge.py;`aimail bridge --system-id`                                  |
+| `systems/{sid}/{addr}/agentmail.json`              | 9 字段:email, gateway\_url, domain, system\_id, system\_name, manager\_address, api\_key, webhook\_url, webhook\_secret                                     | 注册链(register\_profiles/register\_agent/bind\_agent)                            |
+| `bridge/aimail_bridge.toml` + `aimail_routes.toml` | pull 系统列表 + 路由表                                                                                                                                           | deploy\_bridge.py;`aimail bridge --system-id`                                  |
 
 `aimail_gateway.json` 里的 `system_home` 是 **stats 平台标签的唯一来源**。
 
 `aimail_gateway.json`(系统级)字段:
 
-| 字段                   | 含义                                                                                             |
-| -------------------- | ---------------------------------------------------------------------------------------------- |
-| gateway\_url         | 网关地址;回环地址 = 本机直推,否则入站经 bridge                                                                   |
-| admin\_key           | 系统级凭据:安装时派生 agent\_admin 受限 key 落盘,原始 key 存 `.system_raw_key/{sid}_admin.key`                    |
-| system\_id           | 系统标识(SID)                                                                                      |
-| system\_name         | 系统名;共享域下是 agent 地址前缀的来源                                                                         |
-| manager\_address     | 系统默认安全员地址                                                                                      |
-| system\_home         | 平台根(如 `~/.hermes`)                                                                            |
-| domain               | 系统域名(独享裸域或共享域)                                                                                 |
-| webhook\_host        | 网关回调本机的三态开关:`IP:port` = 有 bridge/push;空串 = 有 bridge/pull;字段缺失 = 无 bridge,直连本机端点                 |
-| save\_raw\_snapshots | 是否落每封邮件的原始快照(默认 true)                                                                           |
-| default\_agent\_name | 默认主 agent 名(`aimail address -d` 写入)                                                            |
+| 字段                   | 含义                                                                              |
+| -------------------- | ------------------------------------------------------------------------------- |
+| gateway\_url         | 网关地址;回环地址 = 本机直推,否则入站经 bridge                                                   |
+| admin\_key           | 系统级凭据:安装时派生 agent\_admin 受限 key 落盘,原始 key 存 `.system_raw_key/{sid}_admin.key`   |
+| system\_id           | 系统标识(SID)                                                                       |
+| system\_name         | 系统名;共享域下是 agent 地址前缀的来源                                                         |
+| manager\_address     | 系统默认安全员地址                                                                       |
+| system\_home         | 平台根(如 `~/.hermes`)                                                              |
+| domain               | 系统域名(独享裸域或共享域)                                                                  |
+| webhook\_host        | 网关回调本机的三态开关:`IP:port` = 有 bridge/push;空串 = 有 bridge/pull;字段缺失 = 无 bridge,直连本机端点 |
+| save\_raw\_snapshots | 是否落每封邮件的原始快照(默认 true)                                                           |
+| default\_agent\_name | 默认主 agent 名(`aimail address -d` 写入)                                             |
 
 `agentmail.json`(地址级,唯一信任源)字段:
 
-| 字段                        | 含义                                |
-| ------------------------- | --------------------------------- |
-| email                     | agent 地址(全地址;地址目录名由它清洗而来)         |
-| gateway\_url              | 网关地址                              |
-| domain                    | 地址所属域(= email 后缀)                 |
-| system\_id / system\_name | 所属系统                              |
-| manager\_address          | 该地址的安全员                           |
-| api\_key                  | 该地址的服务端 key(注册链签发)                |
-| webhook\_url              | 本机入站端点(bridge 路由的唯一真源)            |
-| webhook\_secret           | 入站签名密钥(网关签名 → agent 验签)           |
+| 字段                        | 含义                        |
+| ------------------------- | ------------------------- |
+| email                     | agent 地址(全地址;地址目录名由它清洗而来) |
+| gateway\_url              | 网关地址                      |
+| domain                    | 地址所属域(= email 后缀)         |
+| system\_id / system\_name | 所属系统                      |
+| manager\_address          | 该地址的安全员                   |
+| api\_key                  | 该地址的服务端 key(注册链签发)        |
+| webhook\_url              | 本机入站端点(bridge 路由的唯一真源)    |
+| webhook\_secret           | 入站签名密钥(网关签名 → agent 验签)   |
 
----
+***
 
 ## 3. 系统安装
 
 ### 第 1 步 — 本机环境准备(bootstrap)
 
 - 安装好自己的 aimail-gateway 服务，或去申请共享网关的服务。
-- 然后，将系统admin-key/product_code等相关信息设置环境变量，并执行AIMail的自举安装脚本，完成本地环境的初始化。例如：
+- 然后，将系统admin-key/product\_code等相关信息设置环境变量，并执行AIMail的自举安装脚本，完成本地环境的初始化。例如：
 
 ```bash
 export AIMAIL_URL=<你的网关地址>                # 自主独立安装的网关地址，如 https://mail.example.com
@@ -170,7 +170,7 @@ aimail ping --system-id <sid>      # ping → pong 闭环(权威判据 = agent �
 aimail welcome --system-id <sid>   # welcome 端到端(API 模式,noreply@{网关域} 发件)
 ```
 
----
+***
 
 ## 4. 维护工作流
 
@@ -211,8 +211,8 @@ aimail repair [--system-id <sid>] [--home <root>] [--deep] [--dry-run]
 2. 网关 webhook 配对修复(证据驱动)— 4. gateway 配置回填
    (`system_home`/`webhook_host`,只补缺、绝不覆盖)— 5. 平台指针重建
    (仅当平台根确定且指针缺失)— 6. 运行时资源重部署
-   (`python -m aimail.install install --type …`,幂等;平台在远端 → 跳过并
-   提示宿主机执行)— 7. `agentmail.json` 补缺 + `webhook_url` 对齐存活
+   (仅带 SDK 安装入口的平台自动重装,其余平台打印 check 给出的修复提示;幂等;
+   平台在远端 → 跳过并提示宿主机执行)— 7. `agentmail.json` 补缺 + `webhook_url` 对齐存活
    路由目标(仅本机端点)— 8. routes 缺条目补齐 — 9. bridge pull 条目
    admin\_key 对齐 gateway.json(权威源)。
 
@@ -243,7 +243,7 @@ add(domain)· `-t` status(renew)
 或 timeout(ping)· `-D` deep · `-r` restart · `-k` admin-key · `-y` yes。
 长参数永不改名。
 
----
+***
 
 ## 5. 命令速查
 
@@ -266,7 +266,7 @@ storages/)→ `hermes`(hermes-agent/ 或 profiles/)→ `openclaw`
 pong\_sent / pong\_returned / inbound / outbound)。无自动轮转——需要时用
 logrotate。
 
----
+***
 
 ## 6. 故障排查
 
@@ -315,4 +315,5 @@ webhook 不一致。
 不可能:激活服务端原子、配置写入合并/存在性检查、bridge key 复用。若中途
 失败,`aimail check` + `aimail repair` 恢复不变量状态。
 
----
+***
+

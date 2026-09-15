@@ -98,7 +98,7 @@ host-side items remain.
 │   ├── aimail_routes.toml      # route table: email → local inbound endpoint
 │   ├── bin/aimail-bridge       # bridge binary
 │   └── bridge.pid
-├── toolkit/                        # installed program copy (PATH's aimail points here; refresh = re-run bootstrap)
+├── toolkit/                    # aimail program copy installed by bootstrap
 ├── mcp/                            # host-adapter runtime bundle (version-stamped)
 ├── mail/{addr}/{yyyymm}/in-*.json   # snapshots: in-* (inbound) / out-* (outbound)
 ├── .system_raw_key/{sid}_admin.key  # raw admin key (integration only)
@@ -233,7 +233,8 @@ aimail repair [--system-id <sid>] [--home <root>] [--deep] [--dry-run]
    — 4. gateway config backfill (`system_home`/`webhook_host`, fill-missing
    only, never clobber) — 5. platform pointer rebuild (only when the
    platform root is certain and the pointer is absent) — 6. runtime
-   resource redeploy (`python -m aimail.install install --type …`,
+   resource redeploy (only platforms that ship an SDK install entry are
+   reinstalled automatically; the rest print the fix hint from check;
    idempotent; skipped with a hint when the platform host is remote) — 7.
    `agentmail.json` backfill + `webhook_url` alignment to the live route
    target (local-only) — 8. route-entry rebuild — 9. bridge pull-entry
