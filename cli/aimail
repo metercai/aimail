@@ -387,7 +387,8 @@ def _run_install_steps(platform: str, ctx: dict) -> None:
         elif kind == "warn":
             _warn(_tmpl(st["text"], ctx))
         elif kind == "sdk_install":
-            rc = _sdk_install(st.get("target", platform), Path(ctx["home"]), ctx.get("sid", ""))
+            rc = _sdk_install(st.get("target", platform), Path(ctx["home"]),
+                              ctx.get("sid", ""), fn=st.get("fn", ""))
             ok_t = st.get("ok_text", "sdk install done")
             _ok(ok_t if rc == 0 else f"{ok_t} — see warnings")
         elif kind == "spawn":
@@ -466,7 +467,8 @@ def _run_uninstall_steps(platform: str, ctx: dict) -> None:
         elif kind == "warn":
             _warn(_tmpl(st["text"], ctx))
         elif kind == "sdk_uninstall":
-            rc = _sdk_uninstall(st.get("target", platform), home, ctx.get("sid", ""))
+            rc = _sdk_uninstall(st.get("target", platform), home,
+                                ctx.get("sid", ""), fn=st.get("fn", ""))
             if rc != 0:
                 _warn(f"{st.get('target', platform)} SDK uninstall exit {rc}(见上)")
         elif kind == "rm_pointer":
