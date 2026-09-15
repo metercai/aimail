@@ -150,7 +150,25 @@ def _resolve_aimail_home(aimail_home=None) -> str:
     """主根目录解析(本模块单点):显式参数 > AIMAIL_HOME env > ~/.aimail。
     canonical 规则与 pysdk/aimail_base.aimail_home() 同构。"""
     return str(aimail_home or os.environ.get("AIMAIL_HOME", "")
-               or pathlib.Path.home() / ".aimail")
+               or Path.home() / ".aimail")
+
+
+# ── 本机程序布局(本模块单点)───────────────────────────────────────
+# bootstrap 安装的 aimail 程序全在程序根下:aimail-src/(整仓源码快照,
+# PATH 的 aimail 指向其 cli/aimail)与 mcp/(宿主 MCP 运行时载荷)。
+# 别处不得再拼 ~/.aimail/bin 字面量——一律经这两个函数。
+
+def program_root(aimail_home=None) -> str:
+    """本机程序根:AIMAIL_PROG_DIR > <主根>/bin。"""
+    env = os.environ.get("AIMAIL_PROG_DIR", "").strip()
+    if env:
+        return os.path.abspath(os.path.expanduser(env))
+    return os.path.join(_resolve_aimail_home(aimail_home), "bin")
+
+
+def toolkit_dir(aimail_home=None) -> str:
+    """bootstrap 拉取的整仓源码快照目录(<程序根>/aimail-src)。"""
+    return os.path.join(program_root(aimail_home), "aimail-src")
 
 
 def single_system_sid(aimail_home=None) -> str:

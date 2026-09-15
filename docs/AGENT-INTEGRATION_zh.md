@@ -254,7 +254,7 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 
 ## 5. CLI 契约(cli/aimail)
 
-**命令安装**:`aimail` 由 bootstrap 安装为全局命令(`~/.local/bin/aimail` → toolkit `cli/aimail`);仓库根的 `./aimail` 是同一文件的符号链接,仅供仓库内调试。
+**命令安装**:`aimail` 由 bootstrap 安装为全局命令(`~/.local/bin/aimail` → 程序副本 `~/.aimail/bin/aimail-src` 下的 `cli/aimail`);仓库根的 `./aimail` 是同一文件的符号链接,仅供仓库内调试。
 
 子命令(15 个,按场景分 4 组):
 

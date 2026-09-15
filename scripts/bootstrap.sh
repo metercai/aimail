@@ -8,17 +8,20 @@
 #   1. preflight: python3 >= 3.10, curl, tar, gzip
 #   2. build the machine main dir ~/.aimail (0700) — idempotent
 #   3. disk headroom check (<100 MiB fail, <1 GiB warn)
-#   4. fetch the aimail toolkit (codeload tarball; AIMAIL_VERSION to pin a
-#      tag, default main) into ~/.aimail/toolkit/aimail-src
-#   5. link ~/.local/bin/aimail → toolkit cli/aimail (PATH hint if needed)
-#   6. machine init: scripts/machine_init.py (gateway lock, direct-vs-
+#   4. fetch the aimail program snapshot (codeload tarball; AIMAIL_VERSION
+#      pins a tag, default main) into ~/.aimail/bin/aimail-src
+#   5. link ~/.local/bin/aimail → <program root>/aimail-src/cli/aimail
+#   6. refresh the runtime payload ~/.aimail/bin/mcp from that same snapshot
+#      (host MCP clients read it; derived here so the two copies never drift)
+#   7. machine init: scripts/machine_init.py (gateway lock, direct-vs-
 #      bridge, bridge binary+skeleton; the former `aimail init` as a
 #      standalone script so bootstrap can run it without a subcommand)
-#   7. next-step guidance (aimail install --home …  →  welcome)
+#   8. next-step guidance (aimail install --home …  →  welcome)
 #
-# Re-running = upgrade (re-fetch toolkit) + machine-prep re-check.
+# Re-running = upgrade (re-fetch snapshot + refresh payload) + machine-prep
+# re-check.
 #   AIMAIL_SKIP_INSTALL=1   → only re-init an existing install
-#   AIMAIL_TOOLKIT_DIR=…    → custom toolkit dir (default ~/.aimail/toolkit)
+#   AIMAIL_PROG_DIR=…       → custom program root (default ~/.aimail/bin)
 # ═══════════════════════════════════════════════════════════════════
 set -euo pipefail
 
@@ -28,11 +31,12 @@ set -euo pipefail
 exec 1>&2
 
 # Single authoritative layout: ~/.aimail (bridge/CLI share it; the local
-# bridge is a machine-level single instance, not per-home). Customize the
-# toolkit location only via AIMAIL_TOOLKIT_DIR.
+# bridge is a machine-level single instance, not per-home). Installed
+# programs live under one root: ~/.aimail/bin/{aimail-src,mcp} — customize
+# only via AIMAIL_PROG_DIR.
 AM_HOME="$HOME/.aimail"
-TOOLKIT="${AIMAIL_TOOLKIT_DIR:-$AM_HOME/toolkit}"
-SRC="$TOOLKIT/aimail-src"
+PROG="${AIMAIL_PROG_DIR:-$AM_HOME/bin}"
+SRC="$PROG/aimail-src"
 BIN_DIR="$HOME/.local/bin"
 REF="${AIMAIL_VERSION:-main}"
 DL="https://codeload.github.com/metercai/aimail/tar.gz/refs/heads/$REF"
@@ -64,12 +68,12 @@ else
   ok "disk free: ${FREE_MIB} MiB"
 fi
 
-# ── 4. toolkit (idempotent: present → skip; FORCE_UPGRADE=1 to re-fetch) ──
+# ── 4. program copy (idempotent: present → skip; FORCE_UPGRADE=1 to re-fetch) ──
 if [ "${AIMAIL_SKIP_INSTALL:-0}" = "1" ]; then
-  [ -x "$SRC/cli/aimail" ] || die "AIMAIL_SKIP_INSTALL=1 but no toolkit at $SRC"
-  ok "toolkit present (skip-install)"
+  [ -x "$SRC/cli/aimail" ] || die "AIMAIL_SKIP_INSTALL=1 but no program copy at $SRC"
+  ok "program copy present (skip-install)"
 elif [ -x "$SRC/cli/aimail" ] && [ "${AIMAIL_FORCE_UPGRADE:-0}" != "1" ]; then
-  ok "toolkit up-to-date ($REF) — AIMAIL_FORCE_UPGRADE=1 re-fetches"
+  ok "program copy up-to-date ($REF) — AIMAIL_FORCE_UPGRADE=1 re-fetches"
 else
   TMP_TGZ="$(mktemp /tmp/aimail-bootstrap-XXXXXX.tar.gz)"
   trap 'rm -f "$TMP_TGZ"' EXIT
@@ -81,12 +85,12 @@ else
   tar -xzf "$TMP_TGZ" -C "$EXTRACTED" || die "extract failed"
   SRC_NEW="$EXTRACTED/aimail-$REF"
   [ -d "$SRC_NEW" ] || SRC_NEW="$(find "$EXTRACTED" -maxdepth 1 -type d -name 'aimail-*' | head -1)"
-  [ -x "$SRC_NEW/cli/aimail" ] || die "toolkit tarball has no cli/aimail"
+  [ -x "$SRC_NEW/cli/aimail" ] || die "program tarball has no cli/aimail"
   rm -rf "$SRC"                        # atomic-ish swap
   mv "$SRC_NEW" "$SRC"
   rm -rf "$EXTRACTED"
   chmod +x "$SRC/cli/aimail"
-  ok "toolkit installed at $SRC (ref=$REF)"
+  ok "program copy installed at $SRC (ref=$REF)"
 fi
 
 # ── 5. PATH entry ──────────────────────────────────────────────────
@@ -127,7 +131,19 @@ else
   warn "env incomplete — see README (bootstrap prerequisites) for the AIMAIL_* set, then re-run"
 fi
 
-# ── 6. machine init (scripts/machine_init.py — idempotent; skip when
+# ── 6. runtime payload (host MCP clients run this copy; derived from the
+#        snapshot just fetched so program + payload stay one version) ───
+if [ -x "$SRC/cli/runtime_bundle.py" ] || [ -f "$SRC/cli/runtime_bundle.py" ]; then
+  if python3 "$SRC/cli/runtime_bundle.py" install mcp --source-root "$SRC/pysdk"; then
+    :
+  else
+    warn "runtime payload refresh failed — host MCP clients keep the previous copy"
+  fi
+else
+  warn "no runtime_bundle.py in the snapshot — payload not refreshed"
+fi
+
+# ── 7. machine init (scripts/machine_init.py — idempotent; skip when
 #        .env + bridge binary already in place) ──────────────────────
 if [ -f "$AM_HOME/.env" ] && [ -x "$AM_HOME/bridge/bin/aimail-bridge" ] \
    && [ "${AIMAIL_FORCE_UPGRADE:-0}" != "1" ]; then
@@ -136,7 +152,7 @@ else
   python3 "$SRC/scripts/machine_init.py" || warn "machine init reported problems — see above"
 fi
 
-# ── 7. next steps ──────────────────────────────────────────────────
+# ── 8. next steps ──────────────────────────────────────────────────
 ok "bootstrap done — aimail $(cd "$SRC" && git describe --tags 2>/dev/null || echo "$REF")"
 echo
 say "next:"

@@ -1569,6 +1569,8 @@ def main():
     _check_agentmail_json(c, platform_sid)
     # L2 平台运行时资源就绪(补丁标记/skills/board 资源/插件)
     _check_l2_runtime(c, platform_sid)
+    # L2 机器级:MCP 运行时载荷与程序副本同版本(陈旧/缺件)
+    _check_payload(c, platform_sid)
 
     # L3/L4 agent 配置完整性 + hook 接口(平台专属适配器)
     if adapter:
@@ -1633,6 +1635,77 @@ def _load_platform_registry() -> dict:
 
 
 _PLATFORM_REGISTRY_CACHE: dict | None = None
+
+
+def _payload_module():
+    """cli/runtime_bundle.py(载荷定义单一真源);导入失败 → None。"""
+    try:
+        d = str(Path(__file__).resolve().parent)
+        if d not in sys.path:
+            sys.path.insert(0, d)
+        import runtime_bundle
+        return runtime_bundle
+    except Exception:
+        return None
+
+
+def _check_payload(c: "Check", sid: str = ""):
+    """机器级:MCP 运行时载荷与程序副本是否同一版本(缺件/陈旧)。
+
+    载荷只有宿主读它时才有意义——未装则不出行(不虚报缺失)。
+    """
+    rb = _payload_module()
+    if rb is None:
+        return
+    try:
+        st = rb.payload_state("mcp")
+    except Exception as e:  # noqa: BLE001
+        c.add("runtime", "mcp-payload", False, f"payload state unreadable: {e}")
+        return
+    if not st.get("present"):
+        return
+    parts = []
+    if st["missing"]:
+        parts.append("missing: " + ", ".join(st["missing"]))
+    if st["stale"]:
+        parts.append("stale: " + ", ".join(st["stale"]))
+    detail = f"{st['dest']} (v{st['version']})"
+    if parts:
+        detail += " — " + "; ".join(parts)
+    c.add("runtime", "mcp-payload", not parts, detail,
+          f"python3 {Path(rb.__file__)} install mcp")
+
+
+def _check_payload_refs(c: "Check", platform: str, home: str):
+    """宿主配置引用的载荷文件是否还在(改名/prune 后的静默断链)。
+
+    宿主文件与其中的载荷路径由注册表 payload_refs 声明(CLI 零平台字面量);
+    宿主文件不存在/未引用载荷 → 不出行。
+    """
+    rb = _payload_module()
+    refs = ((_load_platform_registry().get("platforms", {}).get(platform) or {})
+            .get("payload_refs") or [])
+    if rb is None or not refs:
+        return
+    dest = rb.payload_dir("mcp")
+    variants = {dest, dest.replace(str(Path.home()), "~")}
+    for tpl in refs:
+        f = Path(tpl.format(home=home, user_home=str(Path.home())))
+        if not f.is_file():
+            continue
+        try:
+            text = f.read_text(errors="replace")
+        except OSError:
+            continue
+        names = sorted({m for v in variants
+                        for m in re.findall(re.escape(v) + r"/([\w.@+-]+\.py)", text)})
+        if not names:
+            continue
+        missing = [n for n in names if not (Path(dest) / n).is_file()]
+        c.add("runtime", "host-payload-refs", not missing,
+              f"{f}: " + ("missing " + ", ".join(missing) if missing
+                          else ", ".join(names)),
+              f"python3 {Path(rb.__file__)} install mcp")
 
 
 def _run_l2_checks(c: "Check", platform: str, checks: list, ctx: dict) -> None:
@@ -1758,6 +1831,9 @@ def _check_l2_runtime(c: Check, sid: str):
           "board/role_prompt/common.md present" if rp.is_file()
           else "board/role_prompt/common.md missing (a2a role rendering falls back empty)",
           fix_install)
+
+    # 宿主对运行时载荷的引用(注册表 payload_refs)——引用的文件必须还在
+    _check_payload_refs(c, platform, sh)
 
 
 if __name__ == "__main__":

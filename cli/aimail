@@ -513,7 +513,8 @@ def _is_local_gateway(url: str) -> bool:
 
 def cmd_version(args) -> int:
     """版本信息(自举/升级检测用):aimail <ver>(<release>) [dev|bootstrapped]。
-    dev = 仓库内运行(repo .env 生效);bootstrapped = ~/.aimail/toolkit 安装树。
+    dev = 仓库内运行(repo .env 生效);bootstrapped = ~/.aimail/bin/aimail-src
+    程序副本。
     """
     ver = "unknown"
     try:
@@ -523,7 +524,8 @@ def cmd_version(args) -> int:
             ver = tomllib.loads(pj.read_text())["project"]["version"]
     except Exception:
         pass
-    mode = "bootstrapped" if str(SCRIPTS_DIR).startswith(str(HOME / ".aimail" / "toolkit")) else "dev"
+    from runtime_core import toolkit_dir
+    mode = "bootstrapped" if str(SCRIPTS_DIR).startswith(toolkit_dir()) else "dev"
     print(f"aimail {ver} ({mode})")
     return 0
 

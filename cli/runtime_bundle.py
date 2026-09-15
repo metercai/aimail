@@ -12,12 +12,15 @@
 
 bundle 定义(源相对路径 → 捆绑内相对路径):
   mcp        核心4 + bootstrap + aimail_mcp_server.py         (扁平)
+             默认落点 = 程序根内(~/.aimail/bin/mcp,与程序副本同根;
+             bootstrap 每次刷新程序副本后同点派生,两者版本一致)
   deer-flow  核心4 + bootstrap + router + 适配层,全扁平铺进宿主 routers/
              (宿主 app.py 经 `from .routers import aimail_inbound` 加载;
               router/适配层/core 同目录,bootstrap case-3 自举,零 env)
 
 用法:
   runtime_bundle.py install <bundle> [--dest DIR] [--source-root DIR] [--force]
+  runtime_bundle.py payload [bundle]          # 打印该 bundle 的默认落点
   runtime_bundle.py source                    # 打印当前解析到的源根+类型
   bundle ∈ mcp|deer-flow|skill-hermes|skill-openclaw|skill-deerflow|skill-dsh
 
@@ -33,7 +36,13 @@ import shutil
 import sys
 from datetime import datetime, timezone
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # runtime_core 同目录
+import runtime_core  # noqa: E402
+
 STAMP_NAME = ".aimail-runtime.json"
+
+# 目标目录模板:{program_root} = 本机程序根(runtime_core 单点解析)
+_PROGRAM_ROOT = "{program_root}"
 
 # 核心 4 + bootstrap(所有 bundle 共享)
 _CORE_FILES = {
@@ -46,7 +55,7 @@ _CORE_FILES = {
 
 BUNDLES = {
     "mcp": {
-        "default_dest": "~/.aimail/mcp",
+        "default_dest": _PROGRAM_ROOT + "/mcp",
         "files": dict(_CORE_FILES, **{"aimail_mcp_server.py": "aimail_mcp_server.py"}),
     },
     "deer-flow": {
@@ -145,10 +154,58 @@ def _stamp_path(dest: str) -> str:
     return os.path.join(dest, STAMP_NAME)
 
 
+def _expand_dest(template: str) -> str:
+    """目标目录模板展开({program_root} = 本机程序根)。"""
+    return template.replace(_PROGRAM_ROOT, runtime_core.program_root())
+
+
+def payload_dir(bundle: str = "mcp") -> str:
+    """bundle 的默认落点(mcp = 程序根内,与程序副本同根)。"""
+    return _expand_dest(BUNDLES[bundle]["default_dest"])
+
+
+def payload_state(bundle: str = "mcp", dest: str = "") -> dict:
+    """载荷状态(供 check/repair 只读消费,零写)。
+
+    dest 缺省 = 该 bundle 的默认落点。
+    返回 {dest, present, version, files, missing, stale}:
+      present  是否有版本戳(False = 本机未装该载荷)
+      missing  戳里声明、但文件已不在的条目
+      stale    与本机 CLI 自用的运行时核心不一致的条目(含规格新增未装的)
+    """
+    dest = os.path.abspath(os.path.expanduser(_expand_dest(dest or payload_dir(bundle))))
+    state = {"dest": dest, "present": False, "version": "",
+             "files": [], "missing": [], "stale": []}
+    stamp_file = _stamp_path(dest)
+    if not os.path.isfile(stamp_file):
+        return state
+    try:
+        with open(stamp_file, encoding="utf-8") as f:
+            stamp = json.load(f)
+    except (OSError, ValueError):
+        return state
+    declared = sorted(stamp.get("files") or {})
+    state.update(present=True, version=stamp.get("version", ""), files=declared)
+    state["missing"] = [rel for rel in declared
+                        if not os.path.isfile(os.path.join(dest, rel))]
+    try:
+        src = runtime_core.resolve_core_dir()
+    except SystemExit:
+        src = ""
+    for rel in sorted(set(BUNDLES[bundle]["files"].values())):
+        if rel in state["missing"]:
+            continue
+        s = os.path.join(src, rel) if src else ""
+        if rel not in declared or (s and os.path.isfile(s)
+                                   and _md5(s) != _md5(os.path.join(dest, rel))):
+            state["stale"].append(rel)
+    return state
+
+
 def install(bundle: str, dest: str = "", source_root: str = "", force: bool = False) -> int:
     spec = BUNDLES[bundle]
     root, kind = resolve_source_root(source_root)
-    dest = os.path.abspath(os.path.expanduser(dest or spec["default_dest"]))
+    dest = os.path.abspath(os.path.expanduser(_expand_dest(dest or spec["default_dest"])))
     version = _source_version(root, kind)
 
     changed, missing_src = [], []
@@ -260,12 +317,17 @@ def main() -> int:
     p.add_argument("--dest", default="")
     p.add_argument("--source-root", default="")
     p.add_argument("--force", action="store_true")
+    p_pl = sub.add_parser("payload")
+    p_pl.add_argument("bundle", nargs="?", default="mcp", choices=sorted(BUNDLES))
     sub.add_parser("source")
     p_res = sub.add_parser("resource")
     p_res.add_argument("name", choices=["skills", "board-role", "board-role-zh", "board-soul", "board-soul-zh"])
     p_res.add_argument("--source-root", default="")
 
     args = ap.parse_args()
+    if args.cmd == "payload":
+        print(payload_dir(args.bundle))
+        return 0
     if args.cmd == "source":
         root, kind = resolve_source_root(args.source_root if hasattr(args, "source_root") else "")
         print(f"{kind}\t{root}")

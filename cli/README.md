@@ -98,8 +98,9 @@ host-side items remain.
 │   ├── aimail_routes.toml      # route table: email → local inbound endpoint
 │   ├── bin/aimail-bridge       # bridge binary
 │   └── bridge.pid
-├── toolkit/                    # aimail program copy installed by bootstrap
-├── mcp/                            # host-adapter runtime bundle (version-stamped)
+├── bin/                            # program root (program copy + host payload)
+│   ├── aimail-src/                 # aimail program copy installed by bootstrap
+│   └── mcp/                        # host-adapter runtime payload (version-stamped)
 ├── mail/{addr}/{yyyymm}/in-*.json   # snapshots: in-* (inbound) / out-* (outbound)
 ├── .system_raw_key/{sid}_admin.key  # raw admin key (integration only)
 └── .env                            # machine-level env (bootstrapped installs)
@@ -173,7 +174,7 @@ export AIMAIL_MANAGER_ADDRESS=you@example.com # default manager address of the a
 curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
 ```
 
-- The program copy (`~/.aimail/toolkit`, where PATH's `aimail` points) is fetched by bootstrap; re-running bootstrap upgrades it (to force a re-fetch, `export AIMAIL_FORCE_UPGRADE=1` first).
+- The program copy (`~/.aimail/bin/aimail-src`, where PATH's `aimail` points) and the host payload (`~/.aimail/bin/mcp`) both live under the `~/.aimail/bin` program root and are refreshed together by bootstrap (to force a re-fetch, `export AIMAIL_FORCE_UPGRADE=1` first).
 
 ### Step 2 — `aimail install` (system level, repeatable, idempotent)
 

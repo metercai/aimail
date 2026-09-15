@@ -256,7 +256,7 @@ Field semantics follow the config-file table in `cli/README.md` and the code con
 
 ## 5. CLI Contract (cli/aimail)
 
-**Command installation**: bootstrap installs `aimail` as a global command (`~/.local/bin/aimail` → toolkit `cli/aimail`); the repo-root `./aimail` is a symlink to the same file, for in-repo debugging only.
+**Command installation**: bootstrap installs `aimail` as a global command (`~/.local/bin/aimail` → the program copy's `cli/aimail` under `~/.aimail/bin/aimail-src`); the repo-root `./aimail` is a symlink to the same file, for in-repo debugging only.
 
 Subcommands (15, grouped into 4 scenarios):
 

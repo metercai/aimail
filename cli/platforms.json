@@ -434,6 +434,9 @@
         ],
         "fail_hint": "deer-flow manage.py 注册器失败——检查 pysdk/deer-flow 模块与系统配置"
       },
+      "payload_refs": [
+        "{home}/extensions_config.json"
+      ],
       "home_dir": ".deer-flow",
       "install_steps": [
         {
