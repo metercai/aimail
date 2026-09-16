@@ -65,12 +65,12 @@ AIMail supports **system-level install** from the terminal: add the AIMail modul
 
 #### 1. No dedicated domain needed: use the gateway's shared domain and configure a dedicated mail address for one Agent
 
-- Start from the **shared-domain mail gateway** and apply for a dedicated Agent mail address, which gives you the matching activation prompt. A free test service is available at <https://aimail.token.tm/admin/#/apply-address>.
+- Start from the **shared-domain mail gateway** and apply for a dedicated Agent mail address, which gives you the matching activation prompt. A free test service is available at <https://aimail.token.tm/apply/address>.
 - Then copy the activation prompt for the address you received into the Agent's chat and run it.
 
 #### 2. No dedicated domain needed: connect the shared mail gateway to the local Agent system, add the AIMail module, and give every Agent mail capability
 
-- Start from the **shared-domain mail gateway** and apply for a system identifier and system activation code on the shared domain for your Agent system. A free test service is available at <https://aimail.token.tm/admin/#/apply-system>.
+- Start from the **shared-domain mail gateway** and apply for a system identifier and system activation code on the shared domain for your Agent system. A free test service is available at <https://aimail.token.tm/apply/system>.
 - Then set the received system identifier, activation code, and the rest as environment variables and run the AIMail bootstrap script to initialize the local environment. For example:
 
 ```bash
@@ -107,7 +107,7 @@ aimail welcome       # the gateway sends a welcome mail to the Agent and the man
 
 #### 3. Dedicated domain needed: connect the shared mail gateway to the local Agent system, add the AIMail module, and give every Agent mail capability
 
-- Start from the **shared mail gateway** and apply for a system activation code with a dedicated domain for your Agent system. A free test service is available at <https://aimail.token.tm/admin/#/apply-system>.
+- Start from the **shared mail gateway** and apply for a system activation code with a dedicated domain for your Agent system. A free test service is available at <https://aimail.token.tm/apply/dedicated>.
 - Then set the received system activation code and related values as environment variables and run the AIMail bootstrap script to initialize the local environment. For example:
 
 ```bash
@@ -147,7 +147,7 @@ curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootst
 AIMail's core consists of two parts: **aimail-gateway** (the mail gateway) and the **aimail SDK** inside the Agent. In complex network environments **aimail-bridge** cooperates to punch through, so mail flows safely and efficiently. The aimail command line provides the Agent-side SDK install, link diagnostics, and other day-to-day maintenance tools.
 
 ```
-                     ┌────────────────────┐ 
+                     ┌────────────────────┐
                      │   aimail-gateway   │
                      │                    │
    External Mail ───►│ SMTP Receiver      │◄───► Inbound Push/Pull ────────┐
@@ -156,16 +156,16 @@ AIMail's core consists of two parts: **aimail-gateway** (the mail gateway) and t
                      │        │           │                                │
    External Mail ◄───│ SMTP Sender    send│◄─── HTTP API ────┐             │
                      │                    │                  │             │
-                     │ A2A Board Engine   │                  │             │  
-                     │ · Instructions     │                  │             │  
+                     │ A2A Board Engine   │                  │             │
+                     │ · Instructions     │                  │             │
                      │ · Sessions         │                  │             │
-                     │ · Notifications    │                  │             │   
+                     │ · Notifications    │                  │             │
                      └────────────────────┘                  │             │
                                                              │             │
                      ┌────────────────────┐                  │   ┌─────────┴─────────┐
                      │   Hermes Agent     │                  │   │  aimail-bridge    │
                      │                    │                  │   │ multiplex webhook │
-                     │ ┌────────────────┐ │                  │   └───┬──┬──┬──┬──┬───┘ 
+                     │ ┌────────────────┐ │                  │   └───┬──┬──┬──┬──┬───┘
                      │ │   aimail SDK   │ │──── Outbound ────┘             │
                      │ │ · Webhook recv │ │                                │
                      │ │ · Preprocessor │ │                                │

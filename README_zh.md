@@ -65,12 +65,12 @@ AIMail 既不同于 IM，也不是传统邮箱。它是在传统邮件系统上�
 
 #### 1，不需要独享域名，使用共享域的邮件网关，只为 Agent 配置专属的邮件地址
 
-- 先从 **共享域邮件网关** 申请专属Agent邮件地址，获得对应的激活prompt。目前有可用的免费测试服务：<https://aimail.token.tm/admin/#/apply-address>
-- 然后，将收到的邮件地址对应的激活prompt复制粘贴到Agent对话框内去执行即可。
+- 先从 **共享域邮件网关** 申请专属Agent邮件地址，获得对应的激活prompt。目前有可用的免费测试服务：<https://aimail.token.tm/apply/address>
+- 然后，把收到的激活 prompt 复制到 Agent 对话框执行即可。
 
 #### 2，不需要独享域名，用共享邮件网关对接本机的 Agent 系统，增加AIMail模块，为所有Agent提供邮件功能
 
-- 先从 **共享域邮件网关** 申请Agent系统专属的共享域系统标识和系统激活码。目前有可用的免费测试服务：<https://aimail.token.tm/admin/#/apply-system>
+- 先从 **共享域邮件网关** 申请Agent系统专属的共享域系统标识和系统激活码。目前有可用的免费测试服务：<https://aimail.token.tm/apply/system>
 - 然后，将收到的系统标识和激活码等信息设置环境变量，并执行AIMail的自举安装脚本，完成本地环境的初始化。例如：
 
 ```bash
@@ -107,7 +107,7 @@ aimail welcome       # 网关向Agent和安全员发欢迎邮件，Agent回复�
 
 #### 3，需要独享域名，用共享邮件网关对接本机的Agent系统，增加AIMail模块，为所有Agent提供邮件功能
 
-- 先从 **共享邮件网关** 申请Agent系统专属独享域的系统激活码。目前有可用的免费测试服务：<https://aimail.token.tm/admin/#/apply-system>
+- 先从 **共享邮件网关** 申请Agent系统专属独享域的系统激活码。目前有可用的免费测试服务：<https://aimail.token.tm/apply/dedicated>
 - 然后，将收到的系统激活码等相关信息设置环境变量，并执行AIMail的自举安装脚本，完成本地环境的初始化。例如：
 
 ```bash
@@ -147,7 +147,7 @@ curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootst
 AIMail 核心由**aimail-gateway**（邮件网关）和 Agent 内的 **aimail SDK**两大部件组成。在复杂网络环境下需要**aimail-bridge**的配合进行穿透，让收发邮件安全高效流转。aimail 命令行则提供了Agent侧的SDK安装、链路检测等日常维护工具，方便使用和维护。
 
 ```
-                     ┌────────────────────┐ 
+                     ┌────────────────────┐
                      │   aimail-gateway   │
                      │                    │
    External Mail ───►│ SMTP Receiver      │◄───► Inbound Push/Pull ────────┐
@@ -156,16 +156,16 @@ AIMail 核心由**aimail-gateway**（邮件网关）和 Agent 内的 **aimail SD
                      │        │           │                                │
    External Mail ◄───│ SMTP Sender    send│◄─── HTTP API ────┐             │
                      │                    │                  │             │
-                     │ A2A Board Engine   │                  │             │  
-                     │ · Instructions     │                  │             │  
+                     │ A2A Board Engine   │                  │             │
+                     │ · Instructions     │                  │             │
                      │ · Sessions         │                  │             │
-                     │ · Notifications    │                  │             │   
+                     │ · Notifications    │                  │             │
                      └────────────────────┘                  │             │
                                                              │             │
                      ┌────────────────────┐                  │   ┌─────────┴─────────┐
                      │   Hermes Agent     │                  │   │  aimail-bridge    │
                      │                    │                  │   │ multiplex webhook │
-                     │ ┌────────────────┐ │                  │   └───┬──┬──┬──┬──┬───┘ 
+                     │ ┌────────────────┐ │                  │   └───┬──┬──┬──┬──┬───┘
                      │ │   aimail SDK   │ │──── Outbound ────┘             │
                      │ │ · Webhook recv │ │                                │
                      │ │ · Preprocessor │ │                                │
@@ -241,5 +241,5 @@ AIMail 核心由**aimail-gateway**（邮件网关）和 Agent 内的 **aimail SD
 - [A2A Board 项目协作指导手册](docs/board/A2A-BOARD-GUIDE_zh.md)
 - [API 依赖说明](docs/API-DEPS.md)
 - [aimail-gateway](https://github.com/metercai/aimail-gateway)
-- [aimail-bridge](https://github.com/metercai/aimail/bridge/README_zh.md)
+- [aimail-bridge](bridge/README_zh.md)
 

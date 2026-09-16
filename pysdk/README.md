@@ -1,11 +1,12 @@
 # pysdk — AIMail Python SDK
 
-AIMail (agent mail) Python runtime SDK: gateway HTTP client, 13 mail /
-contact / note / board tool functions (7 mail+contact+note incl. `search_mail`
-+ 6 A2A board), the inbound preprocess chain, an MCP server, and ready-made
-host adapters (Hermes / DeerFlow). Board resources (skills, role prompts,
-role souls) ship with the package and are released at install time to the
-local config directory, where users can personalize them.
+AIMail (agent mail) Python runtime SDK: gateway HTTP client, 15 mail /
+contact / note / board / identity tool functions (7 mail+contact+note incl.
+`search_mail` + 6 A2A board + 2 identity: `activate_address_code`,
+`set_public_whoami`), the inbound preprocess chain, an MCP server, and
+ready-made host adapters (Hermes / DeerFlow). Board resources (skills, role
+prompts, role souls) ship with the package and are released at install time
+to the local config directory, where users can personalize them.
 
 This SDK lives in the [metercai/aimail](https://github.com/metercai/aimail)
 monorepo under `pysdk/` (CLI in `cli/`, TypeScript SDK in `tssdk/`, bridge in
@@ -17,7 +18,7 @@ the wheel mirrors `pysdk/` 1:1, so repo and installed layouts are identical.
 | Core (framework-agnostic, stdlib-only) | `aimail_base.py` (identity/signature/config/register), `aimail_tools.py` (send_mail + contacts + notes + `_GatewayClient`), `aimail_board.py` (A2A board), `gateway_api.py` (v1 API client), `_aimail_bootstrap.py` (location-agnostic sys.path boot) |
 | MCP server | `aimail_mcp_server.py` (stdio JSON-RPC, platform-agnostic) |
 | Adapters (host-injected) | `hermes/` (aimail_hermes + patch/register/toolsets, 6 modules), `deer-flow/` (aimail_inbound + aimail_deerflow + manage) |
-| Resources | `resources/skills/` (SKILL.md + DESCRIPTION.md), `resources/board/` (role_prompt / role_prompt_zh / role_soul / role_soul_zh) |
+| Resources | `resources/skills/` (SKILL.md + DESCRIPTION.md), `resources/board/` (source: `role_prompt_en` / `role_prompt_zh` / `role_soul_en` / `role_soul_zh`; the `_en` suffix is dropped when released to the config directory) |
 | Glue | `__init__.py` — unified entry: `import aimail` re-exports the curated API and boots the flat core |
 
 ## Install

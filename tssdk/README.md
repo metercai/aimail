@@ -8,7 +8,7 @@ A2A boards, and publishing the public identity.
 
 | Package | Purpose |
 |---|---|
-| [`@aimail/mail-core`](packages/mail-core/README.md) | Framework-agnostic core: gateway HTTP client, tool functions, inbound preprocess chain, HMAC verification, `MAIL_TOOLS` semantic registry. Zero dependencies. |
+| [`@aimail/mail-core`](packages/mail-core/README.md) | Framework-agnostic core: gateway HTTP client, tool functions, inbound preprocess chain, HMAC verification, `MAIL_TOOLS` semantic registry. Only dependency: `typebox` (parameter schemas). |
 | [`@aimail/mail`](packages/mail/README.md) | Platform-neutral config resolution: session id / email / recipient → `agentmail.json` → `AgentConfig`. |
 | [`dsh-aimail`](packages/dsh-aimail/README.md) | AIMail plugin for dsh (deepseek-harness). |
 | [`openclaw-aimail`](packages/openclaw-aimail/README.md) | AIMail plugin for OpenClaw. |
@@ -38,8 +38,8 @@ Per-package READMEs (install / capabilities / usage):
 ```bash
 pnpm install
 pnpm test        # vitest: preprocess chain, HMAC, MAIL_TOOLS parity, adapters
-pnpm exec tsc -b packages/mail-core packages/mail packages/dsh-aimail \
-  packages/openclaw-aimail packages/pi-aimail
+pnpm build          # mail-core / mail / dsh-aimail via tsc -b, openclaw + pi via their own tsconfig
+pnpm publish        # runs scripts/publish-npm.sh for the five packages
 ```
 
 ## Related repositories

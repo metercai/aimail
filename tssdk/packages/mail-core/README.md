@@ -1,8 +1,8 @@
 # @aimail/mail-core
 
 Framework-agnostic AIMail core for TypeScript: gateway HTTP client, mail /
-contact / note / board tool functions, the 13-step inbound preprocess chain,
-and `agentmail.json` read/write. Zero dependencies — import it directly from
+contact / note / board tool functions, the full inbound preprocess chain,
+and `agentmail.json` read/write. Only dependency: `typebox` (parameter schemas) — import it directly from
 any TS agent runtime (dsh, OpenClaw, pi, or your own).
 
 [![npm](https://img.shields.io/npm/v/@aimail/mail-core)](https://www.npmjs.com/package/@aimail/mail-core)
@@ -25,8 +25,8 @@ Point `AIMAIL_HOME` at your aimail home directory (default
 - Tool functions — `sendMail`, `manageContacts`, `contactProfile`,
   `setContactProfile`, `emailSummary`, `setEmailSummary`, `searchMail`, plus the board API
   (`boardStatus`, `boardTaskList`, `boardTaskShow`, `boardHeartbeat`,
-  `boardMembers`, `setPublicWhoami`).
-- Inbound chain — `processInboundMail` runs the full 13-step preprocess
+  `boardMembers`, `setPublicWhoami`, `activateAddressCode`).
+- Inbound chain — `processInboundMail` runs the full inbound preprocess
   (recipient/sender enrichment, persona normalization, direct-message and
   mention detection, attachment download, backend-field stripping, inbound
   logging) and intercepts ping/pong health probes; `verifySignature` checks
@@ -70,7 +70,7 @@ for (const tool of MAIL_TOOLS) { /* bind name/description/params/handler */ }
 - `verifySignature` compares a timing-safe HMAC-SHA256 of the raw body
   against the `X-Webhook-Signature` header, keyed by the per-address
   `webhook_secret`.
-- The 13-step chain is the **inbound contract** (not an optional
+- The inbound chain is the **inbound contract** (not an optional
   preprocessing layer): every platform adapter must call it before handing
   mail to the agent.
 

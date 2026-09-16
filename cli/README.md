@@ -47,7 +47,7 @@ and restart requirement:
 
 | Platform | Platform root | Runtime | Install action | Restart |
 |----------|---------------|---------|----------------|---------|
-| Hermes | `~/.hermes` | Python (pysdk) | When the venv exists, `pip install aimail` inside it first; the SDK install expands SKILL/toolsets/board resources and injects `PREPROCESS_REGISTRY` into webhook.py; registers the primary agent (`register_profiles.py` for every profile) | restart the hermes gateway |
+| Hermes | `~/.hermes` | Python (pysdk) | When the venv exists, install the runtime package into it first (`pip install aimailsdk`, import name `aimail`); the SDK install expands SKILL/toolsets/board resources and injects `PREPROCESS_REGISTRY` into webhook.py; registers the agent set for this root (`--all-agents` registers every profile) | restart the hermes gateway |
 | DeerFlow | `~/.deer-flow` | Python (pysdk) | SDK install → `install-skill.sh` + `install-mcp.sh` → register (`manage.py register --all`) | restart 8001 (upstream repo installed by patch) |
 | OpenClaw | `~/.openclaw` | TS (tssdk) | `openclaw plugins install openclaw-aimail --force --accept-capabilities` → register (`openclaw aimail register`; `register-all` for all) | restart the openclaw gateway |
 | DSH | `~/.dsh` | TS (tssdk) | `dsh plugin --profile web add dsh-aimail` (needs the `dsh` CLI first) | binding is auto-bound when a dsh session (mail preset) starts |
@@ -179,7 +179,7 @@ curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootst
 ### Step 2 — `aimail install` (system level, repeatable, idempotent)
 
 ```bash
-aimail install --home <platform-root>  --system-id <sid> 
+aimail install --home <platform-root>  --system-id <sid>
 ```
 
 ### Step 3 — end-to-end verification

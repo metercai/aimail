@@ -37,7 +37,7 @@
 
 | 平台       | 平台根            | 运行时           | 安装动作                                                                                                                                                             | 重启要求                                     |
 | -------- | -------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| Hermes   | `~/.hermes`    | Python(pysdk) | venv 存在时先在 venv 内 `pip install aimail`;SDK 安装展开 SKILL/toolsets/board 资源并给 webhook.py 注入 `PREPROCESS_REGISTRY`;注册主 agent(profiles/\* 走 `register_profiles.py` 全量) | 重启 hermes gateway                        |
+| Hermes   | `~/.hermes`    | Python(pysdk) | venv 存在时先在 venv 内 `pip install aimailsdk`（导入名 `aimail`）;SDK 安装展开 SKILL/toolsets/board 资源并给 webhook.py 注入 `PREPROCESS_REGISTRY`;注册本根的 agent 集合（`--all-agents` 时注册全部 profile） | 重启 hermes gateway                        |
 | DeerFlow | `~/.deer-flow` | Python(pysdk) | SDK 安装 → `install-skill.sh` + `install-mcp.sh` → 注册(`manage.py register --all`)                                                                                  | 重启 8001(上游仓由补丁安装)                        |
 | OpenClaw | `~/.openclaw`  | TS(tssdk)     | `openclaw plugins install openclaw-aimail --force --accept-capabilities` → 注册(`openclaw aimail register`;全量 `register-all`)                                      | 重启 openclaw gateway                      |
 | DSH      | `~/.dsh`       | TS(tssdk)     | `dsh plugin --profile web add dsh-aimail`(需先有 `dsh` CLI)                                                                                                         | 绑定由 dsh session(mail preset)自动 auto-bind |
@@ -160,7 +160,7 @@ curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootst
 ### 第 2 步 — `aimail install`(系统级,可重复,幂等)
 
 ```bash
-aimail install --home <平台根>  --system-id <sid> 
+aimail install --home <平台根>  --system-id <sid>
 ```
 
 ### 第 3 步 — 闭环验证
@@ -209,7 +209,7 @@ aimail repair [--system-id <sid>] [--home <root>] [--deep] [--dry-run]
 `--dry-run` 只列计划。阶梯(每步幂等):
 
 1. bridge 存活确保(死了则拉起)— 2. `bridge --system-id` 重刷路由 —
-2. 网关 webhook 配对修复(证据驱动)— 4. gateway 配置回填
+3. 网关 webhook 配对修复(证据驱动)— 4. gateway 配置回填
    (`system_home`/`webhook_host`,只补缺、绝不覆盖)— 5. 平台指针重建
    (仅当平台根确定且指针缺失)— 6. 运行时资源重部署
    (仅带 SDK 安装入口的平台自动重装,其余平台打印 check 给出的修复提示;幂等;

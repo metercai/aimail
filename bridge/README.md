@@ -60,7 +60,6 @@ Works for both push and pull modes.
   `x-webhook-signature`, `content-type`)
 - **Graceful shutdown** — SIGINT/SIGTERM drain in-flight requests
 - **Connection pooling** — reqwest client reused across all forwards (keep-alive)
-- **HSTS** — sends an HSTS header (end-to-end behavior subject to field verification)
 
 ### Zero-config automation
 
@@ -100,7 +99,7 @@ gateway ──POST──►      │                                  │
 ```
 gateway (public)                              behind NAT/firewall
   │                                               │
-  │◄── POST /pending (poll every 10s) ────────────│ bridge (outbound only)
+  │◄── POST /api/v1/admin/pending (poll every 10s)│ bridge (outbound only)
   │                                               │
   │── batches [{body, deliveries}] ──────────────►│
   │                                               │
@@ -108,7 +107,7 @@ gateway (public)                              behind NAT/firewall
   │                                 │ fan-out to each agent webhook       │
   │                                 │ ACK forwarded deliveries            │
   │                                 └────────────────────────────────────┘
-  │◄── POST /pending/ack ─────────────────────────│
+  │◄── POST /api/v1/admin/pending/ack ────────────│
 ```
 
 - Single **outbound HTTP connection** to gateway, fully bypasses NAT/firewall
@@ -122,11 +121,14 @@ gateway (public)                              behind NAT/firewall
 ## Quickstart
 
 ```bash
-# Unzip the appropriate zip for your platform
+# Unzip the zip for your platform (pick one):
+#   aimail-bridge-v0.7.1-linux-amd64.zip
+#   aimail-bridge-v0.7.1-linux-arm64.zip
+#   aimail-bridge-v0.7.1-macos-arm64.zip
+#   aimail-bridge-v0.7.1-windows-amd64.zip
 VER=v0.7.1
-ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
-unzip aimail-bridge-${VER}-linux-${ARCH}.zip
-mv aimail-bridge-${VER}-linux-${ARCH} aimail-bridge
+unzip aimail-bridge-${VER}-linux-amd64.zip
+mv aimail-bridge-${VER}-linux-amd64 aimail-bridge
 chmod +x aimail-bridge
 
 # Push mode (single port, all agents)
@@ -248,8 +250,9 @@ level = "info"                        # log level (default: "info")
 | `AIMAIL_BRIDGE_SYSTEM_ID` | `pull.system_id` |
 | `AIMAIL_BRIDGE_POLL_SECS` | `pull.poll_interval_sec` |
 | `AIMAIL_BRIDGE_ALLOWED_IPS` | `push.allowed_ips` (comma-separated) |
-| `HERMES_HOME` | Hermes home directory (default `~/.hermes`; equivalent to the top-level `hermes_home` config field) |
 | `RUST_LOG` | tracing filter (overrides `logging.level`) |
+
+hermes_home (config field, default `~/.hermes`)
 
 ---
 

@@ -54,7 +54,6 @@ TLS 栈 —— rustls + ring crypto。零 OpenSSL，零 native-tls，零系统�
   缺失返回 400）、`x-aimail-timestamp`、`x-webhook-signature`、`content-type`）
 - **优雅关闭** — SIGINT/SIGTERM 排空进行中请求
 - **连接池复用** — reqwest client 全局复用，keep-alive 长连接
-- **HSTS** — 发送 HSTS 头（端到端行为以实测为准）
 
 ### 零配置自动化
 
@@ -94,7 +93,7 @@ gateway ──POST──►      │                                  │
 ```
 gateway (公网)                              NAT/防火墙内
   │                                          │
-  │◄── POST /pending (poll 每 10s) ──────────│ bridge (出站，无需开放端口)
+  │◄── POST /api/v1/admin/pending (poll 每 10s) │ bridge (出站，无需开放端口)
   │                                          │
   │── batches [{body, deliveries}] ─────────►│
   │                                          │
@@ -102,7 +101,7 @@ gateway (公网)                              NAT/防火墙内
   │                            │ fan-out 到各 agent webhook      │
   │                            │ ACK 已转发的 delivery           │
   │                            └───────────────────────────────┘
-  │◄── POST /pending/ack ───────────────────│
+  │◄── POST /api/v1/admin/pending/ack ──────│
 ```
 
 - 只需要**一条出站 HTTP 连接**到 gateway，完全穿透 NAT/防火墙
@@ -116,11 +115,14 @@ gateway (公网)                              NAT/防火墙内
 ## 快速开始
 
 ```bash
-# 解压对应平台的 zip 文件
+# 解压对应平台的 zip 文件（四选一）：
+#   aimail-bridge-v0.7.1-linux-amd64.zip
+#   aimail-bridge-v0.7.1-linux-arm64.zip
+#   aimail-bridge-v0.7.1-macos-arm64.zip
+#   aimail-bridge-v0.7.1-windows-amd64.zip
 VER=v0.7.1
-ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
-unzip aimail-bridge-${VER}-linux-${ARCH}.zip
-mv aimail-bridge-${VER}-linux-${ARCH} aimail-bridge
+unzip aimail-bridge-${VER}-linux-amd64.zip
+mv aimail-bridge-${VER}-linux-amd64 aimail-bridge
 chmod +x aimail-bridge
 
 # Push 模式（一个端口，所有 agent）
@@ -241,8 +243,9 @@ level = "info"                        # 日志级别（默认："info"）
 | `AIMAIL_BRIDGE_SYSTEM_ID` | `pull.system_id` |
 | `AIMAIL_BRIDGE_POLL_SECS` | `pull.poll_interval_sec` |
 | `AIMAIL_BRIDGE_ALLOWED_IPS` | `push.allowed_ips`（逗号分隔） |
-| `HERMES_HOME` | Hermes 根目录（默认 `~/.hermes`；对应顶层配置字段 `hermes_home`） |
 | `RUST_LOG` | tracing 过滤器（覆盖 `logging.level`） |
+
+hermes_home（配置字段，默认 `~/.hermes`）
 
 ---
 
