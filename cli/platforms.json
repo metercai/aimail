@@ -203,13 +203,13 @@
             "pip",
             "install",
             "-q",
-            "aimail"
+            "aimailsdk"
           ],
           "when": {
             "path_exists": "{home}/hermes-agent/venv/bin/python"
           },
           "on_error": "warn",
-          "warn_hint": "venv pip install aimail exit {rc}(webhook 适配运行时缺失?)"
+          "warn_hint": "venv pip install aimailsdk exit {rc}(webhook 适配运行时缺失?)"
         },
         {
           "kind": "sdk_install",
@@ -241,13 +241,13 @@
             "pip",
             "uninstall",
             "-y",
-            "aimail"
+            "aimailsdk"
           ],
           "when": {
             "path_exists": "{home}/hermes-agent/venv/bin/python"
           },
           "on_error": "warn",
-          "warn_hint": "pip uninstall aimail exit {rc}(webhook 适配运行时残留)"
+          "warn_hint": "pip uninstall aimailsdk exit {rc}(webhook 适配运行时残留)"
         }
       ],
       "health_checks": [

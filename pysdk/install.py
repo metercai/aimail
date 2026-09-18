@@ -124,7 +124,7 @@ def env_check_deerflow(backend_dir: str) -> int:
 # ═══════════════════════════════════════════════════════════════
 
 def install_hermes(hermes_dir: str, system_id: str = "") -> int:
-    """Hermes 平台自足安装:pip 运行时已装(本命令即来自 pip aimail);
+    """Hermes 平台自足安装:pip 运行时已装(本命令即来自 pip aimailsdk);
     webhook/profiles/toolsets 补丁 + profile 注册 + board 资源展开。"""
     ha = os.path.join(hermes_dir, "hermes-agent")
     webhook_py = os.path.join(ha, "gateway", "platforms", "webhook.py")
