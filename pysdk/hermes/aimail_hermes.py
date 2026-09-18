@@ -798,6 +798,9 @@ core._PERSONAS_PROVIDER = _list_personas
 core._SOUL_PROVIDER = _read_soul_md
 core._SKILLS_PROVIDER = _read_skills
 core._BOARD_GATEWAY_SINK = _register_board_gateway
+# 注入后自检: 指针解析不出来时入站预处理会降级(邮件照常投递,丢画册/附件下载),
+# 在启动处留一条 warn,而不是每封邮件才报。
+core.check_profile_pointer()
 # board 凭据存储（_store_board_credential）已提升到公共核心默认实现；
 # 跨模块名（store_inbound_message/_log_aimail/_GatewayClient）已由公共核心
 # 函数级 import 自解析——均无需适配层注入。

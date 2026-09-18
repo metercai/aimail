@@ -166,6 +166,12 @@ def _load_gateway_config(system_id: str = "") -> Optional[dict]:
     Reads from (in priority order):
     1. Environment variables (AIMAIL_GATEWAY_URL + AIMAIL_ADMIN_KEY/AIMAIL_PRODUCT_CODE)
     2. ~/.aimail/systems/{system_id}/aimail_gateway.json (direct, or via the platform adapter's profile-dir resolver -> .agentmail pointer)
+
+    Returns None when nothing is resolvable (unknown system_id and no pointer, or
+    an unusable config file) — callers degrade instead of aborting: inbound mail
+    is still delivered, only gateway-dependent enrichment (contact profiles,
+    attachment download) is skipped. Misconfiguration surfaces at adapter
+    registration through `check_profile_pointer()`.
     """
     # Try environment variables first
     gateway_url = os.environ.get("AIMAIL_GATEWAY_URL", "")
@@ -202,10 +208,17 @@ def _load_gateway_config(system_id: str = "") -> Optional[dict]:
                 except Exception:
                     pass
         if not resolved_sid:
-            raise RuntimeError(
-                "system_id not provided and no platform pointer (.agentmail) found "
-                "-- cannot locate gateway config (set system_id or run aimail install)"
+            # 不是"错误"而是"本机还没装/适配层未注入指针": 调用方(入站预处理、
+            # 平台钩子)一律按"无网关"降级 —— B1 联系画像与附件下载跳过,邮件本身
+            # 照常投递给 agent。这里只留一条可定位的 warn;把配置问题顶到启动时的
+            # 自检见 check_profile_pointer()。
+            logger.warning(
+                "[aimail_gateway] gateway config unresolvable: no system_id and no "
+                "platform .agentmail pointer (profile dir %r) — run `aimail install` "
+                "or inject _PROFILE_DIR_RESOLVER; gateway-dependent enrichment is skipped",
+                _PROFILE_DIR_RESOLVER() if _PROFILE_DIR_RESOLVER else None,
             )
+            return None
 
     gw_path = _gateway_config_path(resolved_sid)
     if gw_path.is_file():
@@ -247,6 +260,40 @@ def _load_profile_config() -> Optional[dict]:
     if _CONFIG_LOADER is not None:
         return _CONFIG_LOADER()
     return None
+
+
+def check_profile_pointer() -> bool:
+    """适配层注册注入点后自检：profile 目录里的 .agentmail 指针能否解析出 system_id。
+
+    指针是平台契约的一部分（preprocess 的 B1 步骤无参调用 gateway 配置解析，
+    只能靠它定位 system_id）。返回 False 不代表故障，而是"本机尚未安装/未注入"：
+    此时入站预处理降级（B1 联系画像与附件下载跳过，**邮件照常投递给 agent**，
+    不会再整条失败），本函数同时留一条 warn 让降级可见，并把配置问题顶到
+    适配层启动而不是每封邮件。
+    """
+    resolver = _PROFILE_DIR_RESOLVER
+    profile_dir = None
+    if resolver is not None:
+        try:
+            profile_dir = resolver()
+        except Exception:  # noqa: BLE001 — 自检本身绝不抛
+            profile_dir = None
+    ok = False
+    if profile_dir:
+        pointer = Path(profile_dir) / ".agentmail"
+        if pointer.is_file():
+            try:
+                ok = bool(json.loads(pointer.read_text()).get("system_id"))
+            except Exception:  # noqa: BLE001 — 指针损坏等同未安装
+                ok = False
+    if not ok:
+        logger.warning(
+            "[aimail_gateway] no resolvable .agentmail pointer (profile dir %r) — "
+            "aimail is not installed for this profile; inbound preprocessing degrades "
+            "(no contact profiles / attachment download) until `aimail install` runs",
+            profile_dir,
+        )
+    return ok
 
 
 def list_personas() -> dict:

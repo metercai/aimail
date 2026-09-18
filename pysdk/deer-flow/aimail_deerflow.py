@@ -140,6 +140,9 @@ def detect_system_id() -> str:
 # ── ② 注入点 + 能力开关 ─────────────────────────────────────────
 _ab.PERSONA_SUPPORTED = False        # DeerFlow 无 persona 派生地址概念
 _ab._PROFILE_DIR_RESOLVER = _deerflow_profile_dir
+# 注入后自检: 指针解析不出来时入站预处理会降级(邮件照常投递,丢画像/附件下载),
+# 在启动处留一条 warn,而不是每封邮件才报。
+_ab.check_profile_pointer()
 
 
 # ── ③ 身份注入(在 ② 之上,同 OpenClaw 模式)──────────────────────
