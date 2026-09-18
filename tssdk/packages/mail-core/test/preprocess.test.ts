@@ -243,9 +243,27 @@ describe('processInboundMail', () => {
   })
 
   it('flags [WHOAMI] subjects for whoami prompt (early-return)', async () => {
+    const roleDir = path.join(home, 'systems', SYSTEM_ID, 'board', 'role_prompt')
+    await fs.mkdir(roleDir, { recursive: true })
+    await fs.writeFile(
+      path.join(roleDir, 'whoami.md'),
+      'Identity for {{AGENTMAIL_ADDRESS}}; asker: {{INQUIRY_SENDER}}; subject: {{INQUIRY_SUBJECT}}',
+      'utf-8',
+    )
     const r = await processInboundMail(mail({ subject: '[WHOAMI] who are you' }), {}, CTX)
+    // the whoami role prompt is injected RENDERED with the asking mail's ctx
+    expect(r?._whoami_prompt).toBe(
+      `Identity for ${AGENT_EMAIL}; asker: boss@corp.com; subject: [WHOAMI] who are you`,
+    )
+    // marker matching is case-insensitive (Python parity)
+    const lower = await processInboundMail(mail({ subject: '[whoami] lower' }), {}, CTX)
+    expect(lower?._whoami_prompt).toBe(
+      `Identity for ${AGENT_EMAIL}; asker: boss@corp.com; subject: [whoami] lower`,
+    )
     // _whoami_update_public was removed (dead field) — only the prompt flag remains
     expect(r?._whoami_update_public).toBeUndefined()
+    // early-return: a board role prompt must not clobber the whoami prompt
+    expect(r?._role_prompt).toBeUndefined()
     expect(r?._a2a_session_key).toBeUndefined()
   })
 
