@@ -135,7 +135,7 @@ PYEOF
   echo "  packed: /tmp/$tgz"
   # Release gate L2: reject broken tarballs (E415 hard links, workspace:
   # leaks, dangling main/types, empty packs) BEFORE publish.
-  "$root/../tests/release-gates/check-tarball.sh" "/tmp/$tgz" "$ver"
+  "$root/../tests/sdk-release-gates/check-tarball.sh" "/tmp/$tgz" "$ver"
 
   # 4) publish
   # dist-tag by release type (version semantics v0.1.7+):

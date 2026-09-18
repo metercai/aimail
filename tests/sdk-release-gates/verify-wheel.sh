@@ -5,7 +5,7 @@
 # `cli/runtime_bundle.py check` at deploy time).
 #
 # Exit 0 = release-ready. Run before every publish:
-#   bash tests/release-gates/verify-wheel.sh
+#   bash tests/sdk-release-gates/verify-wheel.sh
 # Overrides: AIMAIL_REPO (default: repo root, auto-detected), OUT_DIR
 set -euo pipefail
 

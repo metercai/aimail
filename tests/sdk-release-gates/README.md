@@ -19,10 +19,10 @@ typebox)→ L2 检查 1(与 npm 版本行为无关);CI Test 过但 publish 路�
 ## 用法(从仓库根)
 
 ```bash
-tests/release-gates/gate-tests.sh                 # L0: python lint+pytest + tssdk tsc+vitest
-tests/release-gates/check-versions.sh             # L1: 版本一致性(需 git tag 参数?自动取)
-tests/release-gates/check-tarball.sh <tgz> <ver>  # L2: 单包 tarball 6 项检查
-tests/release-gates/verify-published.sh           # L3: registry 冒烟(取本地最新 tag)
+tests/sdk-release-gates/gate-tests.sh                 # L0: python lint+pytest + tssdk tsc+vitest
+tests/sdk-release-gates/check-versions.sh             # L1: 版本一致性(需 git tag 参数?自动取)
+tests/sdk-release-gates/check-tarball.sh <tgz> <ver>  # L2: 单包 tarball 6 项检查
+tests/sdk-release-gates/verify-published.sh           # L3: registry 冒烟(取本地最新 tag)
 ```
 
 依赖:python3 + pyflakes + pytest;pytest 9.x;pnpm(9.15)+ node ≥ 22.5
@@ -50,5 +50,5 @@ CI 单测覆盖不到 SDK 行为(真网关+真宿主),发布前逐项执行:
 ## CI 接入点
 
 - .github/workflows/publish.yml:publish step 循环内(pack+normalize 后)
-  调 `../tests/release-gates/check-tarball.sh`
+  调 `../tests/sdk-release-gates/check-tarball.sh`
 - .github/workflows/publish-pypi.yml:test job 调 gate-tests.sh
