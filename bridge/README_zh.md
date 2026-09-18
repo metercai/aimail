@@ -116,11 +116,11 @@ gateway (公网)                              NAT/防火墙内
 
 ```bash
 # 解压对应平台的 zip 文件（四选一）：
-#   aimail-bridge-v0.7.2-linux-amd64.zip
-#   aimail-bridge-v0.7.2-linux-arm64.zip
-#   aimail-bridge-v0.7.2-macos-arm64.zip
-#   aimail-bridge-v0.7.2-windows-amd64.zip
-VER=v0.7.2
+#   aimail-bridge-v0.7.3-linux-amd64.zip
+#   aimail-bridge-v0.7.3-linux-arm64.zip
+#   aimail-bridge-v0.7.3-macos-arm64.zip
+#   aimail-bridge-v0.7.3-windows-amd64.zip
+VER=v0.7.3
 unzip aimail-bridge-${VER}-linux-amd64.zip
 mv aimail-bridge-${VER}-linux-amd64 aimail-bridge
 chmod +x aimail-bridge
@@ -158,7 +158,7 @@ EOF
 
 # 检查健康状态
 curl http://localhost:38080/health
-# {"status":"ok","uptime_secs":42,"version":"0.7.2"}
+# {"status":"ok","uptime_secs":42,"version":"0.7.3"}
 ```
 ## 配置参考
 
