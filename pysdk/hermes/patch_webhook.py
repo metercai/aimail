@@ -7,13 +7,18 @@ Adds:
 Auto-detects Hermes commit version and adjusts insertion points accordingly.
 See HERMES_PATCH_MAP.md for details.
 
-Library form of cli/hermes/apply_webhook_patch.py: the 7 sub-patches live in
-patch_webhook(target_path) -> bool (True when the file was modified); stderr
-diagnostics unchanged. Runnable compat: python3 patch_webhook.py <path/to/webhook.py>
+Library form of the retired cli/hermes/apply_webhook_patch.py — the CLI no
+longer installs platforms itself, it delegates to this SDK: the 7 sub-patches
+live in patch_webhook(target_path) -> bool (True when the file was modified);
+stderr diagnostics unchanged. Runnable compat:
+python3 patch_webhook.py <path/to/webhook.py>
 
-Library now also ships the unpatch side: unpatch_webhook(fp) -> int removes the
-patch by exact-text block stripping (WEBHOOK_BLOCK1-5 mirrored verbatim from
-cli/aimail).
+Library also ships the unpatch side: unpatch_webhook(fp) -> int removes the
+patch by exact-text block stripping. Single source of truth = this module: the
+insertion text lives in the shared module constants (WEBHOOK_ADAPTER_BLOCK /
+WEBHOOK_REGISTRY_BLOCK / WEBHOOK_CALL_BLOCK / WEBHOOK_A2A_BLOCK), so the bytes
+unpatch strips are by construction the bytes patch inserted. WEBHOOK_BLOCK1-5
+are kept only as legacy-shape passes for hosts patched by older SDK versions.
 """
 
 import os

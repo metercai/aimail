@@ -6,6 +6,9 @@ unpatch_toolsets(fp) removes them plus the TOOLSET_AIMAIL dict block by
 exact-text stripping (who patches, who unpatchs). Runnable compat:
   python3 toolsets.py patch   <hermes-agent-dir>
   python3 toolsets.py unpatch <path/to/toolsets.py>
+
+Single source of truth = this module (the CLI delegates platform install to the
+SDK): patch and unpatch share TOOLSET_AIMAIL / CORE_TOOL_NAMES.
 """
 
 import os
@@ -102,12 +105,9 @@ def unpatch_toolsets(fp: Path) -> int:
     if ok:
         changes += 1
 
-    # Remove AIMail tool names from _HERMES_CORE_TOOLS
-    for tool in [
-        "set_email_summary", "email_summary",
-        "set_contact_profile", "contact_profile",
-        "manage_contacts", "send_mail", "search_mail",
-    ]:
+    # Remove AIMail tool names from _HERMES_CORE_TOOLS (same single source as
+    # patch_toolsets — no copied list that can drift)
+    for tool in CORE_TOOL_NAMES:
         line = f'    "{tool}",\n'
         if line in text:
             text = text.replace(line, '', 1)

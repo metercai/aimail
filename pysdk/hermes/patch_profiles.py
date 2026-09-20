@@ -6,13 +6,16 @@ events, enabling automatic AIMail address registration and API key cleanup.
 Auto-detects Hermes commit version and adjusts insertion points accordingly.
 See HERMES_PATCH_MAP.md for details.
 
-Library form of cli/hermes/apply_profiles_patch.py: logic lives in
+Library form of the retired cli/hermes/apply_profiles_patch.py — the CLI no
+longer installs platforms itself, it delegates to this SDK: logic lives in
 patch_profiles(target_path) -> bool (True when the file was modified); stderr
-diagnostics unchanged. Runnable compat: python3 patch_profiles.py <path/to/profiles.py>
+diagnostics unchanged. Runnable compat:
+python3 patch_profiles.py <path/to/profiles.py>
 
-Library now also ships the unpatch side: unpatch_profiles(fp) -> int removes the
-profile hooks by exact-text block stripping (PROFILES_HOOK / PROFILES_HOOK_DEL
-mirrored verbatim from cli/aimail).
+Library also ships the unpatch side: unpatch_profiles(fp) -> int removes the
+profile hooks by exact-text block stripping. Single source of truth = this
+module: patch and unpatch share PROFILES_HOOK / PROFILES_HOOK_DEL, so the bytes
+unpatch strips are by construction the bytes patch inserted.
 """
 
 import os
