@@ -3,9 +3,9 @@
 [🇨🇳 中文](README_zh.md)
 
 > Applies to `aimail` — the CLI that installs and maintains AIMail on the machine
-> hosting the agent. Its operating scope covers the machine-level aimail
-> environment, one agent system instance's aimail configuration, and one specific
-> agent's aimail configuration.
+> hosting the agent. Its operating scope covers establishing the machine-level
+> aimail environment, integrating and configuring one agent system instance, and
+> the aimail configuration of one specific agent.
 
 ---
 
@@ -14,7 +14,7 @@
 1. [Purpose & Scope](#1-purpose--scope)
 2. [Architecture & Local Layout](#2-architecture--local-layout)
 3. [Installation](#3-installation)
-4. [Maintenance Workflow](#4-maintenance-workflow)
+4. [Day-to-day maintenance](#4-day-to-day-maintenance)
 5. [Quick Reference](#5-quick-reference)
 6. [Troubleshooting](#6-troubleshooting)
 
@@ -30,13 +30,13 @@ It is the single write path for agent↔aimail integration (activation, domains,
 binding, routes), so that local state stays healthy and consistent with the
 gateway.
 
-### Three-layer operating model
+### Three layers of operating objects
 
 | Layer | Tool | Object identity | Responsibility |
 |-------|------|-----------------|----------------|
-| Machine environment | bootstrap (automatic) | host system | home dir / gateway decision / bridge in place (settled during bootstrap) |
-| Agent-platform integration | `aimail install` etc. | platform root / SID | activate or reuse a system, bind the platform, import bound resources, merge the bridge entry |
-| Agent parameters | `aimail address` | agent identity / address | view / set the default main-address name / rename an address / set the manager (safety officer) |
+| Establishing the machine environment | bootstrap (automatic) | host system | home dir / gateway decision / bridge in place (settled during bootstrap) |
+| Agent-system integration | `aimail install` etc. | platform root / SID | activate or reuse a system, bind the platform, import bound resources, merge the bridge entry |
+| Agent parameter configuration | `aimail address` | agent identity / address | view / set the default main-address name / rename an address / set the manager (safety officer) |
 
 ### Platform Integration
 
@@ -192,9 +192,9 @@ aimail welcome --system-id <sid>   # welcome end-to-end (API mode), sent by nore
 
 ---
 
-## 4. Maintenance Workflow
+## 4. Day-to-day maintenance
 
-### 4.1 `aimail stats` — machine integration overview (read-only)
+### 4.1 `aimail stats` — machine integration status overview
 
 ```bash
 aimail stats        # default: systems + agents + mail counts + expiry
@@ -208,7 +208,7 @@ Broken systems are classified by facts only (missing connection fields =
 not broken). The platform section lists the five platform roots with link
 state and prints the maintenance hint.
 
-### 4.2 `aimail check` — full health exam (order is fixed)
+### 4.2 `aimail check` — full config and link health check
 
 Dimension order (user-mandated): **config files → platform runtime
 resources → agent config → delivery links**.
@@ -221,7 +221,7 @@ resources → agent config → delivery links**.
 | Agent config | L3 | per-platform adapter: name&api_key / webhook secret / skill / toolset / register |
 | Delivery links | L4 | hook probes against the real inbound endpoints — **404 = route not registered = FAIL**; remote (non-loopback) targets are not probeable locally → PASS-with-note, never a false FAIL |
 
-### 4.3 `aimail repair` — idempotent fix ladder
+### 4.3 `aimail repair` — automatic config and link repair
 
 ```bash
 aimail repair [--system-id <sid>] [--home <root>] [--deep] [--dry-run]
