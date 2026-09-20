@@ -51,6 +51,7 @@ _SCRIPTS_DIR = str(Path(__file__).resolve().parent)
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 from runtime_core import load_core  # noqa: E402
+from _common import (aimail_home as _aimail_home, is_readable_file as _is_readable_file, clean_agent_dir_name as _clean_agent_dir_name, smtp_cmd as _smtp_cmd, detect_edition as _detect_edition_raw)
 load_core()
 try:
     from aimail_base import email_for_agent  # noqa: E402
@@ -79,7 +80,7 @@ def _main_agent_email(cfg: dict) -> str:
     if sid and sys_dir.is_dir():
         for d in sorted(sys_dir.iterdir()):
             aj = d / "agentmail.json"
-            if aj.is_file():
+            if _is_readable_file(aj):
                 try:
                     e = json.loads(aj.read_text()).get("email", "")
                     if e:
@@ -93,53 +94,13 @@ def _main_agent_email(cfg: dict) -> str:
 # (旧写法 Path("")=PosixPath('.') 恒真,or 回退永不生效——bug。)
 # 主根目录唯一真源 = pysdk/aimail_base.aimail_home()(canonical 实现);
 # 此处 import 失败时的降级副本仅保底(坏态恢复)
-def _aimail_home() -> Path:
-    try:
-        from aimail_base import aimail_home  # noqa: E402
-        return aimail_home()
-    except Exception:
-        _env = os.environ.get("AIMAIL_HOME", "")
-        return Path(_env).expanduser() if _env else Path.home() / ".aimail"
+
 
 AIMAIL_HOME = _aimail_home()
 SYSTEMS_DIR = AIMAIL_HOME / "systems"
 
 
-def _clean_agent_dir_name(addr: str) -> str:
-    """agent 地址 → 目录名(与 pysdk/aimail_base._clean_agent_dir_name 一致)。"""
-    return re.sub(r"[^\w.\-]", "_", addr, flags=re.ASCII)
-
-
 # ── 旧 SMTP 模式(--smtp 显式启用)──────────────────────────────────
-
-def _smtp_cmd(s: socket.socket, c: str) -> str:
-    """发送 SMTP 命令并完整读取多行响应。
-
-    响应可能粘包(如 '250-server...\\r\\n250 8BITMIME' 一条 recv)。
-    按行拆分,末行 'NNN '(第 4 字符非 '-')即响应完成。
-    """
-    s.sendall(f"{c}\r\n".encode())
-    all_lines: list = []
-    while True:
-        chunk = s.recv(4096).decode(errors="replace")
-        if not chunk:
-            break
-        all_lines.extend(chunk.splitlines())
-        last = all_lines[-1] if all_lines else ""
-        if len(last) < 4 or last[3] != "-":
-            break
-    return " | ".join(l.strip() for l in all_lines)
-
-
-def _detect_edition(gateway_url: str) -> str:
-    """GET /health → version → 'advanced' | 'base'。失败默认 base。"""
-    try:
-        with urllib.request.urlopen(f"{gateway_url.rstrip('/')}/health", timeout=10) as r:
-            data = json.loads(r.read())
-        ver = data.get("version", "")
-        return "advanced" if "advanced-" in ver else "base"
-    except Exception:
-        return "base"
 
 
 def _smtp_send(gateway_url: str, api_key: str, agent_email: str,
@@ -432,3 +393,9 @@ This confirms: ✓ SMTP inbound  ✓ Webhook delivery  ✓ Agent processing  ✓
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+
+def _detect_edition(gateway_url: str) -> str:
+    """探测失败默认 base。"""
+    return _detect_edition_raw(gateway_url, "base")

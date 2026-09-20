@@ -17,6 +17,7 @@ import sys, os, json, subprocess, time, re, socket
 from pathlib import Path
 from datetime import datetime, timezone
 import urllib.request, urllib.error
+from _common import is_readable_file as _is_readable_file, clean_agent_dir_name as _clean_agent_dir_name
 
 # ── ANSI helpers ───────────────────────────────────────────────
 GREEN  = '\033[0;32m'
@@ -53,18 +54,6 @@ SYSTEMS_DIR = AIMAIL_HOME / "systems"
 MAIL_DIR    = AIMAIL_HOME / "mail"
 BRIDGE_DIR  = AIMAIL_HOME / "bridge"
 LOGS_DIR    = AIMAIL_HOME / "logs"
-
-def _is_readable_file(p) -> bool:
-    """True if p is a readable regular file — permission/IO errors count as absent."""
-    try:
-        return p.is_file()
-    except OSError:
-        return False
-
-
-def _clean_agent_dir_name(addr: str) -> str:
-    """agent 地址 → 目录名（与 pysdk/aimail_base._clean_agent_dir_name 一致）。"""
-    return re.sub(r"[^\w.\-]", "_", addr, flags=re.ASCII)
 
 
 def _split_host_port(addr: str) -> tuple[str, str]:
