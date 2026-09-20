@@ -18,7 +18,7 @@ AIMail integrates with any agent system (LLM runtime); the agent gains complete 
 | Inbound | Mail is reachable end-to-end through the gateway → bridge → agent receive endpoint: signature verification → shared preprocessing → delivery to the agent |
 | Outbound | Agent replies via the `send_mail` tool; the server enforces sender == key.email identity isolation |
 | Identity | 1 agent = 1 AIMail address; each agent has its own `api_key`; single source of truth for configuration |
-| Tools | 7 email tools (incl. local full-text search via `search_mail`) + board tools fully exposed (in-process registry / platform plugin / shared MCP server) |
+| Tools | 7 email tools (incl. local full-text search via `search_mail`) + board tools fully exposed (in-process registry / platform plugin / shared MCP server (fallback only: platforms that cannot embed natively, e.g. deer-flow; TS SDKs embed natively and do not use it)) |
 | Lifecycle | Agent create/delete auto-registers/deregisters; full supplementary registration at install time |
 | Acceptance | Both `aimail ping` (three-stage log loop) and `aimail welcome` (incl. LLM round-trip) pass |
 
@@ -46,7 +46,7 @@ AIMail integrates with any agent system (LLM runtime); the agent gains complete 
 
 | Layer | Location | Responsibility |
 |-------|----------|----------------|
-| Shared core | `pysdk/aimail_base.py`, `aimail_tools.py`, `aimail_board.py`, `aimail_mcp_server.py` | Inbound preprocessing chain, ping/pong, address derivation, registration/deregistration chain, email-tool implementations, board tools |
+| Shared core | `pysdk/aimail_base.py`, `aimail_tools.py`, `aimail_board.py`, `aimail_mcp_server.py` (Python MCP fallback; not used by TS SDKs) | Inbound preprocessing chain, ping/pong, address derivation, registration/deregistration chain, email-tool implementations, board tools |
 | Platform adapters | `pysdk/{platform}/` (hermes/openclaw/deer-flow) + platform-side TS plugins (dsh/pi/openclaw, see §4.4/§4.5/§4.2) | Config source, persona switch, identity injection, tool registration, receive endpoint |
 | Runtime | TS plugin commands (`openclaw aimail register|register-all|deregister|status`) | Agent lifecycle (registration/deregistration, openclaw-aimail) |
 | CLI layer | `cli/aimail` (15 subcommands; bootstrap installs the global `aimail` command, repo-root `./aimail` is a symlink to the same file) + ops scripts `cli/{check_status,send_welcome,repair,setup_system,deploy_bridge,ping_test}.py`; API client `pysdk/gateway_api.py` | Install / check / test / uninstall / ops |

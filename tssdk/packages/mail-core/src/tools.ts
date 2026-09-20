@@ -1,7 +1,9 @@
 /**
  * 13 tool functions (mail-core) — thin wrappers over GatewayClient mirroring
- * Python aimail_tools.py. Contract: DSH-PREPROCESS-CONTRACT.md §3 +
- * aimail_mcp_server.py tool registry (names/descriptions/params identical).
+ * Python aimail_tools.py. Contract: DSH-PREPROCESS-CONTRACT.md §3 + the
+ * shared AIMail tool spec (materialized in pysdk/aimail_mcp_server.py;
+ * names/descriptions/params identical). No MCP service is involved on the
+ * TS side — tools are embedded natively.
  */
 import { randomUUID } from 'node:crypto'
 import { promises as fsp } from 'node:fs'

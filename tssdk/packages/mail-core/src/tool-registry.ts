@@ -2,9 +2,10 @@
  * MAIL_TOOLS — the single TS source of truth for the 13 AIMail tool
  * semantic definitions (names, descriptions, parameter descriptions).
  *
- * Contract: text is verbatim from pysdk/aimail_mcp_server.py TOOLS registry
- * (aimail repo); a vitest parity case pins TS↔Python so the two cannot
- * drift. Platform adapters (dsh-aimail, openclaw-aimail) iterate this array
+ * Contract: text is verbatim from the shared AIMail tool spec, which is
+ * currently materialized in the `TOOLS` registry of
+ * `pysdk/aimail_mcp_server.py` (aimail repo). That file exists as the
+ * **Python-platform MCP fallback** only — ][truncated] Platform adapters (dsh-aimail, openclaw-aimail) iterate this array
  * and bind each entry's `handler` to their own identity resolution — no
  * adapter re-declares semantic text.
  *

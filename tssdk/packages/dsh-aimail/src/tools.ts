@@ -3,7 +3,9 @@
  *
  * Semantic text (names, descriptions, parameter descriptions) comes from
  * the shared MAIL_TOOLS registry in @aimail/mail-core (single source of
- * truth, parity-tested against aimail_mcp_server.py). This adapter only:
+ * truth, parity-tested against the shared tool spec in
+ * pysdk/aimail_mcp_server.py). No MCP service is used by this TS adapter.
+ * This adapter only:
  *   - iterates MAIL_TOOLS, translating each entry to a dsh defineTool
  *   - binds execution: exec.agent.id (dsh session uuid) → ctx.mail.resolveCtx
  */

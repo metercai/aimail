@@ -29,7 +29,10 @@ Module layout inside the wheel mirrors the repository ``pysdk/`` directory
     aimail_tools.py       shared core (GatewayClient / send_mail)
     aimail_board.py       shared core (A2A board)
     gateway_api.py           AIMail gateway API client
-    aimail_mcp_server.py     platform-agnostic MCP server (stdio JSON-RPC)
+    aimail_mcp_server.py     platform-agnostic MCP server (stdio JSON-RPC),
+                             used ONLY as a fallback for platforms that cannot
+                             embed tools natively (currently deer-flow). TS
+                             SDKs embed natively and do not use it.
     _aimail_bootstrap.py     location-agnostic sys.path bootstrap (runtime glue)
     install.py               self-contained install/uninstall entry
     _resources_release.py    board/skills resource release (install-time)

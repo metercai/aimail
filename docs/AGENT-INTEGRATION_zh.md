@@ -17,7 +17,7 @@ AIMail 与任意 agent 系统(LLM 运行时)对接,agent 获得完整邮件能�
 | 入站 | 邮件经 gateway→bridge→agent 接收端点全链路可达,验签→共享预处理→投递 agent |
 | 出站 | agent 经 send_mail 工具回信,服务端强制 sender==key.email 身份隔离 |
 | 身份 | 1 agent = 1 AIMail 地址;每 agent 独立 api_key;配置单一事实源 |
-| 工具 | 7 邮件工具(含 search_mail 本地全文检索)+ 8 board/身份工具(共 15,Python/TS 两端同型),全暴露(进程内 registry / 平台插件 / 共享 MCP server) |
+| 工具 | 7 邮件工具(含 search_mail 本地全文检索)+ 8 board/身份工具(共 15,Python/TS 两端同型),全暴露(进程内 registry / 平台插件 / 共享 MCP server(兜底: 仅给无法原生内嵌的平台, 如 deer-flow; TS SDK 原生内嵌, 不使用 MCP)) |
 | 生命周期 | agent 创建/删除自动注册/注销;安装时全量补充注册 |
 | 验收 | `aimail ping`(三阶段日志闭环)+ `aimail welcome`(含 LLM 双向)双测均过 |
 

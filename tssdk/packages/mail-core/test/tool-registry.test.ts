@@ -2,9 +2,10 @@
  * MAIL_TOOLS contract tests:
  *   - structural: 15 tools, exact names/order, non-empty semantic text
  *   - parity (best-effort): names + descriptions + parameter text must match
- *     the Python TOOLS registry in aimail/pysdk/aimail_mcp_server.py
- *     (the upstream contract reference). Skipped when the sibling repo or
- *     python3 is unavailable (e.g. CI without the checkout).
+ *     the shared tool spec materialized in aimail/pysdk/aimail_mcp_server.py.
+ *     That file is the Python-platform MCP fallback; the TS SDK embeds tools
+ *     natively and uses no MCP service — it only serves as the parity source.
+ *     Skipped when the sibling repo or python3 is unavailable.
  */
 import { describe, it, expect } from 'vitest'
 import { execFileSync } from 'node:child_process'
