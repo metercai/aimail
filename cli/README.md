@@ -237,9 +237,28 @@ aimail repair [--system-id <sid>] [--home <root>] [--deep] [--dry-run]
 6. runtime resource redeploy (only platforms that ship an SDK install entry are reinstalled
    automatically; the rest print the fix hint from check; idempotent; skipped with a hint when
    the platform host is remote)
-7. `agentmail.json` backfill + `webhook_url` alignment to the live route target (local-only)
-8. route-entry rebuild
-9. bridge pull-entry admin_key alignment to gateway.json (authoritative source)
+7. runtime payload refresh (mcp payload missing/stale → reinstalled from the local bundle;
+   no network needed)
+8. `agentmail.json` backfill + `webhook_url` alignment to the live route target (local-only)
+9. route-entry rebuild
+10. bridge pull-entry: created locally from gateway.json when missing (aimail_url/admin_key/
+    system_id), otherwise its admin_key is aligned to gateway.json (authoritative source)
+
+Every step prints its own verdict (`✓ fixed` / `✓ nothing to fix` / `⚠ skipped + reason`),
+so a no-op is never ambiguous.
+
+**Two classes, made explicit.** Every `check` dimension is registered as one of:
+
+- **self-repairable** — deterministic, local, independent of server/host state. The ladder must
+  cover it; if it still fails after repair with its prerequisites met, that is a **defect**
+  (printed as `[D 本机可修·仍未修]`, exit code 1) worth reporting to the maintainer.
+- **hint-only** — cannot be repaired reliably (needs the gateway or agent process, the
+  server-side registration, or the sysadmin). `repair` prints the reason plus the suggested
+  action and does not force it; a remaining `[H 需管理员/宿主]` is normal.
+
+The re-check closes with `本机可修缺陷 <n> 项 / 需管理员介入 <m> 项` (locally-fixable defects /
+needs-admin items). A check dimension that is not registered is treated as hint-only and
+reported with a reason — never silently skipped.
 
 `--deep` additionally performs the webhook-pairing rewrite and the
 stuck-pending cleanup.
@@ -328,7 +347,7 @@ restart the profile gateway; then `aimail repair --system-id <sid>`.
 **Cause:** the bridge route table is missing the agent (pull mode cannot
 deliver) or the route target / declared webhook disagree.
 
-**Fix:** `aimail repair --system-id <sid>` (steps 2/7/8: refresh routes,
+**Fix:** `aimail repair --system-id <sid>` (steps 2/8/9: refresh routes,
 align webhook_url to the live target). If the target host is remote
 (pi/deerflow on another machine), start that platform's inbound there.
 

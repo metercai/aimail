@@ -2148,7 +2148,7 @@ def cmd_stats(args) -> int:
         print()
         print("  Maintenance: stats → check → repair")
         print("    aimail check --system-id <sid>        # full health exam (config/runtime/links)")
-        print("    aimail repair --system-id <sid> [--home <root>]   # fix per check findings")
+        print("    aimail repair --system-id <sid> [--home <root>]   # fix per check findings (hint-only items are reported, not forced)")
     return 0
 
 

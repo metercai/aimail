@@ -103,6 +103,7 @@ def _run_check(sid: str):
 def _ensure_bridge_running() -> bool:
     pids = _bridge_pids()
     if pids:
+        _ok(f"bridge 无需修(已在运行 pid={pids[0]})")
         return True
     _warn("bridge 未运行 → 幂等启动(deploy_bridge.start_bridge)")
     if not BRIDGE_CFG.exists() or not BRIDGE_BIN.exists():
@@ -159,7 +160,8 @@ def _repair_webhook_pairing(sid: str, deep: bool = False) -> bool:
             if not (hs.get("X-Webhook-Signature") or hs.get("X-Webhook-Signature-V2")):
                 empties.append((d.get("id"), d.get("email")))
     if not empties and not deep:
-        return False  # 无证据 → 无需修
+        _ok("webhook 配对无需修(无证据指向配对缺失)")
+        return False
     if deep and not empties:
         # --deep:无条件按 agentmail.json 重写本系统全部 agent 配对
         targets = []
@@ -476,9 +478,11 @@ def _repair_runtime_resources(sid: str, platform_home: str) -> bool:
         return False
     plat = _detect_platform_from_home(Path(sh))
     if plat == "unknown":
+        _warn("平台类型无法识别(平台根既非已知平台也不像自建)⇒ 跳过运行时资源重部署")
         return False
     fails = _failing_file_checks(plat, sh)
     if not fails:
+        _ok(f"{plat} 运行时资源无需修")
         return False
     tgt = _sdk_install_target(plat)
     if not tgt:
@@ -556,10 +560,15 @@ def _repair_agentmail_json(sid: str) -> bool:
                 d["webhook_url"] = target
                 _ok(f"{ajx.parent.name}: webhook_url aligned to route target {target}")
         if d != orig:
-            # 落盘走共享原子写(0600/tmp+rename;AUDIT-1 P1-2)
-            from aimail_base import save_agent_config as _sac
-            _sac(d.get("agent_id", ""), d, sid)
-            changed = True
+            # 落盘走共享原子写(0600/tmp+rename;AUDIT-1 P1-2); 单文件失败只跳过该文件
+            try:
+                from aimail_base import save_agent_config as _sac
+                _sac(d.get("agent_id", ""), d, sid)
+                changed = True
+            except Exception as e:  # noqa: BLE001
+                _warn(f"{ajx.parent.name}: agentmail.json 写入失败({type(e).__name__}: {e})⇒ 跳过该文件")
+    if not changed:
+        _ok("agentmail.json 无需修(字段完整且 webhook_url 已对齐)")
     return changed
 
 
@@ -575,18 +584,29 @@ def _repair_routes_entries(sid: str) -> bool:
             k, v = line.split("=", 1)
             routes[k.strip().strip('"')] = v.strip().strip('"').strip(",")
     missing = []
-    for sub in sorted(sysdir.iterdir()):
+    skipped = []
+    try:
+        subs = sorted(sysdir.iterdir())
+    except OSError as e:
+        _warn(f"系统目录不可读({e})⇒ 跳过 routes 条目修复")
+        return False
+    for sub in subs:
         aj = sub / "agentmail.json"
-        if not aj.is_file():
-            continue
+        # 逐文件容错: 单文件不可读(权限/坏文件)只跳过该文件, 不终止整步(2026-09-20 实测)
         try:
+            if not aj.is_file():
+                continue
             d = json.loads(aj.read_text())
-        except Exception:
+        except Exception as e:  # noqa: BLE001
+            skipped.append(f"{sub.name}({type(e).__name__})")
             continue
         email = d.get("email", "")
         if email and email not in routes:
             missing.append(email)
+    if skipped:
+        _warn(f"routes 条目修复: 跳过 {len(skipped)} 个不可读文件: {', '.join(skipped)}")
     if not missing:
+        _ok("routes 条目无需修")
         return False
     _warn(f"routes 缺条目: {missing} → bridge 重刷补齐")
     return _refresh_routes(sid)
@@ -610,6 +630,24 @@ def _repair_pull_entry_key(sid: str) -> bool:
         return False
     systems = (td.get("pull", {}) or {}).get("systems") or []
     entry = next((x for x in systems if x.get("system_id") == sid), None)
+    if entry is None:
+        # 缺失 ⇒ 本机权威值齐全即可本地创建(不依赖服务端), 复用 install 的同一写入函数
+        url = gw.get("gateway_url", "") or gw.get("aimail_url", "")
+        if not url:
+            _warn("pull 条目缺失且 gateway.json 无 gateway_url ⇒ 无法本地创建(先补齐配置)")
+            return False
+        try:
+            from deploy_bridge import write_bridge_config
+            write_bridge_config(
+                str(BRIDGE_CFG),
+                str(td.get("mode") or "pull"),
+                str(td.get("bind") or "127.0.0.1:38081"),
+                url, gk, sid, api_key=str(gw.get("api_key", "") or ""))
+        except Exception as e:  # noqa: BLE001
+            _fail(f"pull 条目创建失败: {type(e).__name__}: {e}")
+            return False
+        _ok("bridge pull 条目缺失 → 已本地创建(aimail_url/admin_key/system_id 来自 gateway.json)")
+        return True
     if entry is None or entry.get("admin_key") == gk:
         return False
     raw = BRIDGE_CFG.read_text()
@@ -635,6 +673,118 @@ def _repair_pull_entry_key(sid: str) -> bool:
         pass
     _ok(f"pull entry admin_key aligned to gateway.json ({sid})")
     return True
+
+
+# ── 可修复性收口清单(用户定调 2026-09-20) ──────────────────────────────
+# 每个 check 维度都必须登记, 不留"没交代"的项:
+#   kind="auto" 本机确定可自修(不依赖服务端/宿主状态) ⇒ 阶梯必须覆盖;
+#               复检后仍 FAIL 且前提满足 ⇒ 视为**缺陷**(输出标 D, 退出码 1)
+#   kind="hint" 不可靠自修(依赖服务端/宿主进程/管理员) ⇒ repair 只提示, 不硬试;
+#               复检残留属正常(输出标 H)
+#   needs       自修所需外部前提; 前提不满足时该步"跳过并说明原因"(不计缺陷)
+#   step        覆盖该维度的阶梯序号(仅 auto 需要)
+REPAIRABILITY: dict[tuple[str, str], dict] = {
+    ("config", "complete"):          {"kind": "auto", "step": 4},
+    ("config", "gateway_json"):      {"kind": "auto", "step": 4},
+    ("config", "system_home"):       {"kind": "auto", "step": 4},
+    ("config", "pointer"):           {"kind": "auto", "step": 5},
+    ("gateway", "config"):           {"kind": "auto", "step": 4},
+    ("gateway", "smtp_port"):        {"kind": "auto", "step": 4},
+    ("gateway", "health"):           {"kind": "hint",
+                                      "why": "目标网关服务未运行/不可达 ⇒ 由宿主侧启动或修复网关"},
+    ("gateway", "api_key"):          {"kind": "hint",
+                                      "why": "admin key 缺失或失效 ⇒ 重新注册(aimail install)或由管理员补发"},
+    ("bridge", "process"):           {"kind": "auto", "step": 1},
+    ("bridge", "config"):            {"kind": "auto", "step": 1},
+    ("bridge", "config-complete"):   {"kind": "auto", "step": 1},
+    ("bridge", "config_consistency"): {"kind": "auto", "step": 1},
+    ("bridge", "config-mode"):       {"kind": "auto", "step": 1},
+    ("bridge", "activity"):          {"kind": "auto", "step": 1},
+    ("bridge", "self_health"):       {"kind": "auto", "step": 1},
+    ("bridge", "pull_path"):         {"kind": "hint",
+                                      "why": "bridge 轮询目标网关 pending API 失败 ⇒ 需网关可达(宿主侧); 配置侧缺条目由 pull-entry 修"},
+    ("bridge", "pull-entry"):        {"kind": "auto", "step": 9},
+    ("bridge", "routes-entry"):      {"kind": "auto", "step": 8},
+    ("bridge", "routes-target"):     {"kind": "hint",
+                                      "why": "目标 agent 端点未运行/地址不可达 ⇒ 由宿主侧启动该 agent"},
+    ("agent", "config"):             {"kind": "auto", "step": 7},
+    ("agent", "config-json"):        {"kind": "auto", "step": 7},
+    ("agent", "config-consistency"): {"kind": "auto", "step": 7},
+    ("agent", "name_apikey"):        {"kind": "auto", "step": 7},
+    ("agent", "config-complete"):    {"kind": "hint",
+                                      "why": "system_name 等字段权威在服务端(本地无源) ⇒ 用 aimail install 重注册, 或管理员处理"},
+    ("agent", "pointer"):            {"kind": "auto", "step": 5},
+    ("agent", "hook"):               {"kind": "auto", "step": 6, "needs": ["platform_sdk"]},
+    ("agent", "skill"):              {"kind": "auto", "step": 6, "needs": ["platform_sdk"]},
+    ("agent", "toolset"):            {"kind": "auto", "step": 6, "needs": ["platform_sdk"]},
+    ("agent", "webhook"):            {"kind": "auto", "step": 3},
+    ("agent", "discovery"):          {"kind": "hint",
+                                      "why": "平台侧尚无该 agent 记录 ⇒ 用平台自身命令创建/注册 agent"},
+    ("agent", "register"):           {"kind": "hint",
+                                      "why": "地址未在云端注册 ⇒ aimail install/注册链, 或由管理员处理"},
+    ("agent", "session"):            {"kind": "hint",
+                                      "why": "agent 会话/端点未运行 ⇒ 由宿主侧启动该 agent"},
+    ("runtime", "mcp-payload"):      {"kind": "auto", "step": 6},
+    ("runtime", "board-resources"):  {"kind": "auto", "step": 6},
+    ("runtime", "host-payload-refs"): {"kind": "auto", "step": 6},
+    ("runtime", "platform-locatable"): {"kind": "auto", "step": 5},
+    ("system", "id"):                {"kind": "auto", "step": 4},
+}
+
+_UNREGISTERED = {"kind": "hint",
+                 "why": "未登记的检查维度 ⇒ 暂按需管理员介入处理(请把它反馈给维护者)"}
+
+
+def repairability(level: str, name: str) -> dict:
+    """查该 check 维度的可修复性归属(未登记 ⇒ HINT 且明确说明)。"""
+    return REPAIRABILITY.get((str(level or ""), str(name or "")), dict(_UNREGISTERED))
+
+
+def classify_residual(residual: list) -> tuple:
+    """复检残留 → (defects, hints)。
+
+    defects: 本机可自修却仍残(缺陷, 需要看日志/改代码)
+    hints:   需服务端/宿主/管理员介入(只提示, 属正常)
+    """
+    defects, hints = [], []
+    for c in residual:
+        info = repairability(c.get("level", ""), c.get("check", "") or c.get("name", ""))
+        (defects if info.get("kind") == "auto" else hints).append((c, info))
+    return defects, hints
+
+
+def _repair_mcp_payload() -> bool:
+    """运行时 mcp 载荷缺失/陈旧 → 本机 bundle 幂等重装(不依赖网络)。
+
+    判定以**载荷状态**为准, 不以退出码为准(避免误报)。"""
+    import runtime_bundle as rb
+    try:
+        st = rb.payload_state("mcp")
+    except Exception as e:  # noqa: BLE001
+        _warn(f"mcp 载荷状态不可读, 跳过: {e}")
+        return False
+    if not st.get("present"):
+        _warn("mcp 载荷未安装 → 幂等安装")
+    elif not (st.get("missing") or st.get("stale")):
+        _ok("mcp 载荷无需修(完整且与当前版本一致)")
+        return False
+    else:
+        bad = list(st.get("missing") or []) + list(st.get("stale") or [])
+        _warn(f"mcp 载荷缺失/陈旧({', '.join(bad)}) → 幂等重装")
+    try:
+        rb.install("mcp", force=True)
+    except Exception as e:  # noqa: BLE001
+        _fail(f"mcp 载荷重装异常: {e}")
+        return False
+    try:
+        st2 = rb.payload_state("mcp")
+    except Exception:  # noqa: BLE001
+        st2 = {}
+    if st2.get("present") and not (st2.get("missing") or st2.get("stale")):
+        _ok(f"mcp 载荷已重装(v{st2.get('version')})")
+        return True
+    _fail("mcp 载荷重装后状态仍不完整(见上方输出)")
+    return False
 
 
 def repair(sid: str, deep: bool = False, dry_run: bool = False, home: str = "") -> int:
@@ -666,6 +816,8 @@ def repair(sid: str, deep: bool = False, dry_run: bool = False, home: str = "") 
          lambda: _repair_pointer(sid, deep_home)),
         ("运行时资源重部署(补丁标记/资源缺失 → 幂等重装)",
          lambda: _repair_runtime_resources(sid, deep_home)),
+        ("运行时载荷刷新(mcp 缺失/陈旧 → 本机 bundle 幂等重装)",
+         lambda: _repair_mcp_payload()),
         ("agentmail.json 补缺 + webhook_url 对齐存活路由",
          lambda: _repair_agentmail_json(sid)),
         ("bridge routes 条目补齐(缺条目 → 重刷)",
@@ -696,9 +848,18 @@ def repair(sid: str, deep: bool = False, dry_run: bool = False, home: str = "") 
     if passed2:
         _ok("复检全绿")
         return 0
-    for c in still:
-        _warn(f"复检仍 ✗ {c['level']}/{c['check']}: {c['detail'][:90]}")
-    _warn("复检未全绿——逐项核对上方提示(含平台适配层/外部状态等不可自动修复项)")
+    defects, hints = classify_residual(still)
+    for c, info in defects:
+        _warn(f"[D 本机可修·仍未修] {c['level']}/{c['check']}: {c['detail'][:90]}")
+    for c, info in hints:
+        _warn(f"[H 需管理员/宿主] {c['level']}/{c['check']}: {c['detail'][:80]}")
+        if info.get("why"):
+            _warn(f"    → {info['why']}")
+    _warn(f"复检未全绿: 本机可修缺陷 {len(defects)} 项 / 需管理员介入 {len(hints)} 项")
+    if defects:
+        _warn("⇒ 存在本机可修却未修复的项(缺陷): 请连同上方日志反馈维护者")
+    else:
+        _warn("⇒ 剩余项均属不可靠自修范畴(repair 只提示, 不硬试, 由系统管理员处理)")
     return 1
 
 
