@@ -206,7 +206,7 @@ set_contact_profile(address="alice@example.com",
 
 ## Tools
 
-The 6 aimail tools are registered with full schemas — parameter names, types, and descriptions are visible to you automatically. This table is a quick reference:
+The aimail tools are registered with full schemas — parameter names, types, and descriptions are visible to you automatically. This table is a quick reference:
 
 | Tool | Use |
 |------|-----|

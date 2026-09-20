@@ -39,7 +39,9 @@ Per-package READMEs (install / capabilities / usage):
 pnpm install
 pnpm test        # vitest: preprocess chain, HMAC, MAIL_TOOLS parity, adapters
 pnpm build          # mail-core / mail / dsh-aimail via tsc -b, openclaw + pi via their own tsconfig
-pnpm publish        # runs scripts/publish-npm.sh for the five packages
+pnpm run publish    # 发布唯一入口: 跑脚本/发布五包(含 workspace:^ 重写 + hardlink
+                    # normalize + L2 tarball 检查)。**不要**用 `pnpm publish`——
+                    # 那是原生 publish,会跳过上面全部步骤(E415 事故成因链)。
 ```
 
 ## Related repositories

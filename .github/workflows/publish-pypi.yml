@@ -52,6 +52,10 @@ jobs:
           echo "version=$py_ver" >> "$GITHUB_OUTPUT"
 
       - name: Release gate L0 (python) — pytest + pyflakes
+        # shell: bash ⇒ GH 展开为 `bash -e -o pipefail`。默认 shell 无 pipefail，
+        # 而下面 pytest 走 `| tail -2`：单测红灯会被 tail 的 0 退出码吞掉 →
+        # 仍发 PyPI（审计 P0，2026-09-21 实测复现）。
+        shell: bash
         run: |
           python3 -m pip install --quiet pytest pyflakes
           python3 -m pytest tests/ -q | tail -2
@@ -94,16 +98,20 @@ jobs:
           path: dist/
 
       - name: Skip if version already on PyPI (re-dispatch of same commit)
+        id: skip
         env:
           VER: ${{ needs.build-and-verify.outputs.version }}
         run: |
-          set -x
           if curl -fsS "https://pypi.org/pypi/aimailsdk/$VER/json" >/dev/null 2>&1; then
             echo "aimail $VER already published — nothing to do"
-            exit 0
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Publish to PyPI (Trusted Publishing / OIDC)
+        # 真正的跳过：step 内 `exit 0` 只结束本 step，后续 step 照跑（PyPI 会 400）。
+        if: steps.skip.outputs.published != 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/

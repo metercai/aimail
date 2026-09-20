@@ -8,7 +8,8 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
-GATE="tests/release-gates"
+GATE="tests/sdk-release-gates"
+[ -f "$GATE/check-tarball.sh" ] || { echo "[L3] FAIL: gate script missing: $GATE/check-tarball.sh"; exit 1; }
 
 PYVER=$(python3 -c "import re;print(re.search(r'^version = \"([^\"]+)\"', open('pyproject.toml').read(), re.M).group(1))")
 echo "═══ [L3] PyPI aimailsdk==$PYVER ═══"
@@ -47,10 +48,15 @@ for p in mail-core mail dsh-aimail openclaw-aimail pi-aimail; do
   dir="tssdk/packages/$p"
   ver=$(python3 -c "import json;print(json.load(open('$dir/package.json'))['version'])")
   name=$(python3 -c "import json;print(json.load(open('$dir/package.json'))['name'])")
-  reg=$(npm view "$name@$ver" version 2>/dev/null || true)
+  # 查询失败(网络/registry 抖动)必须与"未发布"区分开(审计 P2 2026-09-21)
+  if ! reg=$(npm view "$name@$ver" version 2>&1); then
+    echo "[L3] FAIL: registry query failed for $name@$ver: $reg"; exit 1
+  fi
   [ "$reg" = "$ver" ] || { echo "[L3] FAIL: $name registry=$reg != local=$ver"; exit 1; }
   echo "[L3] ok: $name@$ver on registry"
-  URL=$(npm view "$name@$ver" dist.tarball 2>/dev/null)
+  if ! URL=$(npm view "$name@$ver" dist.tarball 2>&1); then
+    echo "[L3] FAIL: tarball query failed for $name@$ver: $URL"; exit 1
+  fi
   [ -n "$URL" ] || { echo "[L3] FAIL: no tarball URL for $name@$ver"; exit 1; }
   curl -sL "$URL" -o /tmp/l3-$$.tgz
   "$GATE/check-tarball.sh" "/tmp/l3-$$.tgz" "$ver" || { rm -f /tmp/l3-$$.tgz; exit 1; }

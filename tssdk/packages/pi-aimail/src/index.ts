@@ -215,5 +215,5 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
     server = undefined
   })
 
-  log.info('[pi-aimail] registered 13 mail tools + local inbound receiver')
+  log.info('[pi-aimail] registered 15 mail tools + local inbound receiver')
 }

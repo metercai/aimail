@@ -82,7 +82,7 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
         })
     }
 
-    // 12 bare-name tools (MAIL_TOOLS single source; identity from ctx.agentId)
+    // 15 bare-name tools (MAIL_TOOLS single source; identity from ctx.agentId)
     api.registerTool(createMailTools)
 
     // Inbound delivery route (in-gateway, no new port; auth=plugin, HMAC is

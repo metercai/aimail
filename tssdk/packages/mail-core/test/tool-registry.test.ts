@@ -96,7 +96,7 @@ describe('MAIL_TOOLS ↔ Python registry parity', () => {
     return
   }
 
-  it('has the same 14 tools with identical names and descriptions', () => {
+  it('has the same 15 tools with identical names and descriptions', () => {
     expect(py.map(t => t.name)).toEqual([...EXPECTED_NAMES])
     py.forEach((pt, i) => {
       const tt = MAIL_TOOLS[i]

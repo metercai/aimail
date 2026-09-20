@@ -80,8 +80,20 @@ if changed:
     print("  deps rewritten to concrete versions")
 PYEOF
 
-  # 2) build (prepack runs build via npm lifecycle; keep explicit for clarity)
-  (cd "$dir" && npm run build >/dev/null 2>&1 || true)
+  # 2) build — 显式且**绝不吞错**(审计 P0 2026-09-21: 原 `>/dev/null 2>&1 || true`
+  #    会把构建失败静默吞掉, 用旧 lib/dist 带新版本号发上 registry)。
+  #    只有声明了 build script 的包在此构建(openclaw/pi 走 prepack);
+  #    mail-core/mail/dsh 的 lib/ 由工作区 `pnpm build`(tsc -b) 产出 ⇒ 这里
+  #    断言 main 入口在位, 兜住"从未构建"。
+  if python3 -c "import json,sys;sys.exit(0 if 'build' in json.load(open('$dir/package.json')).get('scripts',{}) else 1)"; then
+    (cd "$dir" && npm run build) || { echo "  ERROR: build failed: $dir"; exit 1; }
+  else
+    _main=$(python3 -c "import json;print(json.load(open('$dir/package.json')).get('main',''))")
+    if [ -n "$_main" ] && [ ! -f "$dir/$_main" ]; then
+      echo "  ERROR: main entry missing: $dir/$_main — 先跑工作区 'pnpm build'"; exit 1
+    fi
+    echo "  no build script — 工作区 tsc -b 产出的 $_main 在位"
+  fi
 
   # 3) pack (npm, not pnpm — isolated linker blocks bundled deps).
   #    Dereference workspace symlinks first: bundled @aimail/* dirs are

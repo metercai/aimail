@@ -55,7 +55,9 @@ PYEOF
 echo "[L2] ok: main/types/bin resolve"
 
 # 6) bundled deps present
-python3 - "$TGZ" <<'PYEOF' || true
+#    (审计 P1 2026-09-21: 原来尾部 `|| true` 把失败吞掉 —— 会先打印 FAIL 再打印
+#     PASS 且 exit 0。bundleDependencies 缺失正是 E415 事故同族的打包回归。)
+if python3 - "$TGZ" <<'PYEOF'
 import sys, tarfile, json
 t = tarfile.open(sys.argv[1], "r:gz")
 names = set(t.getnames())
@@ -68,5 +70,11 @@ if missing:
 if bundle:
     print(f"[L2] ok: bundled deps present: {', '.join(bundle)}")
 PYEOF
+then
+  :
+else
+  echo "[L2] FAIL: bundled-deps check failed — 声明了 bundleDependencies 但 tarball 内缺失(见上方 FAIL 行)"
+  exit 1
+fi
 
 echo "[L2] PASS: $TGZ ($VER)"

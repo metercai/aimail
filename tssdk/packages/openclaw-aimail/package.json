@@ -1,6 +1,6 @@
 {
   "name": "openclaw-aimail",
-  "description": "AIMail plugin for OpenClaw: 12 mail tools (MAIL_TOOLS), inbound delivery (HMAC + preprocess chain), register/deregister/status commands.",
+  "description": "AIMail plugin for OpenClaw: 15 mail tools (MAIL_TOOLS), inbound delivery (HMAC + preprocess chain), register/deregister/status commands.",
   "version": "0.1.12-rc.2",
   "publishConfig": {
     "access": "public",
