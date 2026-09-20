@@ -49,7 +49,7 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
         const from = path.join(skillSrc, f)
         const to = path.join(skillDst, f)
         if (!fs.existsSync(from)) continue
-        if (fs.existsSync(to) && fs.readFileSync(from) .equals(fs.readFileSync(to))) continue
+        if (fs.existsSync(to) && fs.readFileSync(from).equals(fs.readFileSync(to))) continue
         fs.copyFileSync(from, to)
       }
     } catch {
