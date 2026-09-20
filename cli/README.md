@@ -310,8 +310,9 @@ auto-probe; pointer ownership is the next fallback.
 
 Logs: bridge → `~/.aimail/logs/aimail-bridge.log`; per-agent →
 `~/.aimail/logs/aimail.{addr}.log` (JSON lines; `dir` = ping_intercepted /
-pong_sent / pong_returned / inbound / outbound). No auto-rotation —
-use logrotate if needed.
+pong_sent / pong_returned). Mail direction (`inbound` / `outbound`) is a
+different thing — it is recorded in the local mail meta, not in this ping log.
+No auto-rotation — use logrotate if needed.
 
 ---
 
