@@ -207,9 +207,29 @@ class _GatewayClient:
             body={"direction": direction})
 
     def delete_whitelist_by_value(self, domain_addr: str, value: str) -> dict:
-        """DELETE /api/v1/whitelists?domain_addr=&value= — delete by composite key."""
+        """DELETE /api/v1/whitelists?domain_addr=&value= — delete by composite key.
+
+        注意(审计 2026-09-21): 网关的 admin 分支把该查询参数当**域**用
+        (`factory.list_whitelist_entries(domain)` → 按域解析 system 再列该系统全部行,
+        然后按 value 取首个匹配)。因此传完整地址会得到空列表 → 404 "not found";
+        传域则可能命中**别的同 manager 地址**的行(误删)。请改用
+        `list_whitelists_by_domain` + 精确匹配 + `delete_whitelist_entry_by_id`。
+        """
         return self._request("DELETE",
             f"/api/v1/whitelists?domain_addr={domain_addr}&value={value}")
+
+    def list_whitelists_by_domain(self, domain: str) -> list:
+        """GET /api/v1/whitelists?domain= — 列出该域所属 system 的全部白名单行。
+
+        参数名是 `domain`(ListWhitelistsQuery{domain}), 不是 domain_addr。
+        """
+        r = self._request("GET", f"/api/v1/whitelists?domain={domain}")
+        data = r.get("data", r) if isinstance(r, dict) else r
+        return data if isinstance(data, list) else []
+
+    def delete_whitelist_entry_by_id(self, entry_id: int) -> dict:
+        """DELETE /api/v1/whitelists/:id — 按主键删(精确, 不会误伤同值行)。"""
+        return self._request("DELETE", f"/api/v1/whitelists/{int(entry_id)}")
 
     # ── Agent State API (per-agent KV store) ─────────────────────
 

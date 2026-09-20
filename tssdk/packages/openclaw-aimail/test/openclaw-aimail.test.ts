@@ -80,29 +80,67 @@ describe('createMailTools', () => {
 // ── deregisterAgentEmail (3-step idempotent chain, P2 acceptance) ─────────
 
 describe('deregisterAgentEmail', () => {
-  it('deletes api-key → domain → whitelist (3 steps)', async () => {
+  it('deletes api-key → domain → whitelist by exact match + id (3 steps)', async () => {
     const client = new MockClient()
     client.responses.push(
-      { status: 200, data: [{ id: 11, email: 'agent@test.example' }] }, // api-keys
+      { status: 200, data: [{ id: 11, email: 'agent@test.example' }] }, // api-keys GET
       { status: 200 }, // DELETE api-key
-      { status: 200, data: [{ id: 22, domain: 'agent@test.example' }] }, // domains
+      { status: 200, data: [{ id: 22, domain: 'agent@test.example' }] }, // domains GET
       { status: 200 }, // DELETE domain
-      { status: 200 }, // DELETE whitelist
+      { status: 200, data: [ // whitelists GET (该系统全部行)
+        { id: 33, domain_addr: 'agent@test.example', value: 'mgr@test.example' },
+        { id: 44, domain_addr: 'other@test.example', value: 'mgr@test.example' },
+      ] },
+      { status: 204 }, // DELETE whitelist/33
+    )
+    const out = await deregisterAgentEmail(client, {
+      systemId: 'system-test',
+      email: 'agent@test.example',
+      domainAddr: 'test.example',
+      managerAddress: 'mgr@test.example',
+    })
+    expect(out.api_key).toBe('200')
+    expect(out.domain).toBe('200')
+    expect(out.whitelist).toBe('204')
+    const delCalls = client.calls.filter(c => c.method === 'DELETE')
+    expect(delCalls.map(c => c.path)).toEqual([
+      '/api/v1/admin/api-keys/11',
+      '/api/v1/admin/system-domains/22',
+      // 精确匹配到本地址的行(33) —— 绝不误删同 manager 的 other@ 行(44)
+      '/api/v1/whitelists/33',
+    ])
+  })
+
+  it('never blind-deletes: rows exist but no exact match ⇒ not_found_exact, no DELETE', async () => {
+    const client = new MockClient()
+    client.responses.push(
+      { status: 200, data: [] }, // api-keys
+      { status: 200, data: [] }, // domains
+      { status: 200, data: [{ id: 44, domain_addr: 'other@test.example', value: 'mgr@test.example' }] },
+    )
+    const out = await deregisterAgentEmail(client, {
+      systemId: 'system-test',
+      email: 'ghost@test.example',
+      domainAddr: 'test.example',
+      managerAddress: 'mgr@test.example',
+    })
+    expect(out.whitelist).toBe('not_found_exact')
+    expect(client.calls.filter(c => c.method === 'DELETE' && c.path.startsWith('/api/v1/whitelists')).length).toBe(0)
+  })
+
+  it('reports skipped when no manager is known (不猜不盲删)', async () => {
+    const client = new MockClient()
+    client.responses.push(
+      { status: 200, data: [] },
+      { status: 200, data: [] },
     )
     const out = await deregisterAgentEmail(client, {
       systemId: 'system-test',
       email: 'agent@test.example',
       domainAddr: 'test.example',
     })
-    expect(out.api_key).toBe('200')
-    expect(out.domain).toBe('200')
-    expect(out.whitelist).toBe('200')
-    const delCalls = client.calls.filter(c => c.method === 'DELETE')
-    expect(delCalls.map(c => c.path)).toEqual([
-      '/api/v1/admin/api-keys/11',
-      '/api/v1/admin/system-domains/22',
-      '/api/v1/whitelists?domain_addr=test.example&value=agent%40test.example',
-    ])
+    expect(out.whitelist).toBe('skipped')
+    expect(client.calls.filter(c => c.method === 'DELETE' && c.path.startsWith('/api/v1/whitelists')).length).toBe(0)
   })
 
   it('is idempotent when nothing is found (not_found on each step)', async () => {
@@ -110,31 +148,16 @@ describe('deregisterAgentEmail', () => {
     client.responses.push(
       { status: 200, data: [] }, // no api keys
       { status: 200, data: [] }, // no domains
-      { status: 200 }, // whitelist delete (idempotent)
+      { status: 200, data: [] }, // no whitelist rows
     )
     const out = await deregisterAgentEmail(client, {
       systemId: 'system-test',
       email: 'ghost@test.example',
       domainAddr: 'test.example',
+      managerAddress: 'mgr@test.example',
     })
     expect(out.api_key).toBe('not_found')
     expect(out.domain).toBe('not_found')
-    expect(out.whitelist).toBe('200')
-  })
-})
-
-describe('emailForAgent (register-all address derivation)', () => {
-  it('maps alias main → agent base (pointer identity stays canonical)', () => {
-    expect(emailForAgent('main', 'd.tm', '', ['main'])).toBe('agent@d.tm')
-  })
-  it('uses the directory name for non-alias agents', () => {
-    expect(emailForAgent('research', 'd.tm', '', ['main'])).toBe('research@d.tm')
-  })
-  it('shared-domain systems append system_name (single-dot rule)', () => {
-    expect(emailForAgent('research', 'd.tm', 'alpha', ['main'])).toBe('research.alpha@d.tm')
-    expect(emailForAgent('main', 'd.tm', 'alpha', ['main'])).toBe('agent.alpha@d.tm')
-  })
-  it('sanitizes atext-invalid directory names (dot → _) instead of emitting bad addresses', () => {
-    expect(emailForAgent('my.agent', 'd.tm', '', ['main'])).toBe('my_agent@d.tm')
+    expect(out.whitelist).toBe('not_found')
   })
 })

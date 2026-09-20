@@ -43,7 +43,7 @@ export interface DeregisterResult {
 /** 3-step idempotent deregistration chain (api-key → domain → whitelist). */
 export async function deregisterAgentEmail(
   client: AdminClient,
-  opts: { systemId: string; email: string; domainAddr: string },
+  opts: { systemId: string; email: string; domainAddr: string; managerAddress?: string },
 ): Promise<DeregisterResult> {
   const out: DeregisterResult = { api_key: '', domain: '', whitelist: '' }
 
@@ -100,17 +100,29 @@ export async function deregisterAgentEmail(
     out.domain = `err:${e instanceof Error ? e.message : String(e)}`
   }
 
-  // 3. Whitelist by composite key
+  // 3. Whitelist entry — 先按 (domain_addr, value) **精确匹配**, 再按 id 删。
+  //    审计 2026-09-21: 原实现按 value 删(`DELETE /api/v1/whitelists?domain_addr=&value=`),
+  //    而网关 admin 分支把该参数当**域**用(按域解析 system → 列该系统全部行 → 取首个
+  //    value 命中) ⇒ 传完整地址得到空列表 → 404(行永不删除, 实测残留); 传域则会误删
+  //    同 manager 的**其它**地址行。与 Python 侧 deregister_agent_email 同口径修复。
   try {
-    const q = new URLSearchParams({
-      domain_addr: opts.domainAddr,
-      value: opts.email,
-    })
-    const r = await client.request(
-      'DELETE',
-      `/api/v1/whitelists?${q.toString()}`,
-    )
-    out.whitelist = String(r.status ?? '')
+    const domain = opts.domainAddr || opts.email.split('@')[1] || ''
+    const manager = opts.managerAddress ?? ''
+    if (!domain || !manager) {
+      out.whitelist = 'skipped'   // 无 manager ⇒ 不猜、不盲删
+    } else {
+      const res = await client.request('GET', `/api/v1/whitelists?${new URLSearchParams({ domain })}`)
+      const rows = (Array.isArray(res.data)
+        ? res.data
+        : (res.entries as unknown[] | undefined) ?? []) as Array<Record<string, unknown>>
+      const hit = rows.find(r => r.domain_addr === opts.email && r.value === manager)
+      if (hit && hit.id !== undefined && hit.id !== null) {
+        const r = await client.request('DELETE', `/api/v1/whitelists/${String(hit.id)}`)
+        out.whitelist = String(r.status ?? '')
+      } else {
+        out.whitelist = rows.length > 0 ? 'not_found_exact' : 'not_found'
+      }
+    }
   } catch (e) {
     out.whitelist = `err:${e instanceof Error ? e.message : String(e)}`
   }
@@ -293,6 +305,7 @@ export async function handleCommand(
         systemId,
         email,
         domainAddr: opts['domain-addr'] ?? gw.domain ?? '',
+        managerAddress: opts['manager'] ?? opts['manager-address'] ?? gw.manager_address ?? '',
       })
       return cmdText([
         `deregistered ${email} (system ${systemId})`,

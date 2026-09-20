@@ -1340,11 +1340,29 @@ def deregister_agent_email(client, system_id: str, email: str,
     except Exception as e:
         out["domain"] = f"err:{e}"
 
-    # 3. 白名单清理（按值删）
+    # 3. 白名单清理 —— 精确匹配 (domain_addr==email, value==manager) 后**按 id 删**。
+    #    审计 2026-09-21: 原实现走 DELETE /api/v1/whitelists?domain_addr=&value=,
+    #    而网关 admin 分支把 domain_addr 当**域**用(按域列 system 全部行再取首个
+    #    value 命中) ⇒ 传完整地址得到空列表 → 404;传域则可能误删同 manager 的
+    #    其它地址的行。夹具实测: 地址注销后 whitelists 行仍残留。
     try:
-        if manager_address and hasattr(client, "delete_whitelist_by_value"):
-            client.delete_whitelist_by_value(email, manager_address)
-        out["whitelist"] = "attempted"
+        domain = email.split("@", 1)[1] if "@" in email else ""
+        if not manager_address:
+            out["whitelist"] = "skipped"
+        elif domain and hasattr(client, "list_whitelists_by_domain"):
+            rows = client.list_whitelists_by_domain(domain)
+            hit = next((r for r in rows
+                        if isinstance(r, dict)
+                        and r.get("domain_addr") == email
+                        and r.get("value") == manager_address), None)
+            if hit and hit.get("id") is not None:
+                r = client.delete_whitelist_entry_by_id(int(hit["id"]))
+                out["whitelist"] = str(r.get("status", r)) if isinstance(r, dict) else str(r)
+            else:
+                # 有行但无精确匹配 → 绝不按 value 盲删(会误伤别的 agent)
+                out["whitelist"] = "not_found_exact" if rows else "not_found"
+        else:
+            out["whitelist"] = "unsupported"
     except Exception as e:
         out["whitelist"] = f"err:{e}"
 
