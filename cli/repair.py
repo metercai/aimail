@@ -20,7 +20,7 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 import os  # noqa: E402
-from _common import aimail_home as _aimail_home
+from _common import aimail_home as _aimail_home, bridge_status
 
 # 与 scripts/aimail 同语义:空 env 回退 ~/.aimail
 # 主根目录唯一真源 = pysdk/aimail_base.aimail_home()(canonical 实现);
@@ -51,13 +51,15 @@ def _fail(msg):
 
 
 def _bridge_pids():
+    """桥进程列表 —— 单一真源: 生命周期契约(P2 收尾, 2026-09-20)。
+    旧实现用 pgrep 模式匹配, 是 POSIX 专有且可能误报/漏报; 契约下由桥自报 pid。"""
     try:
-        out = subprocess.check_output(
-            ["pgrep", "-f", r"aimail-bridge.*--config|aimail-bridge.*\.toml"],
-            text=True, timeout=5)
-        return [int(l.strip()) for l in out.splitlines() if l.strip().isdigit()]
-    except subprocess.CalledProcessError:
-        return []
+        st = bridge_status(str(BRIDGE_BIN), str(AIMAIL_HOME / "bridge" / "bridge.pid"))
+        if st.get("running") and st.get("pid"):
+            return [int(st["pid"])]
+    except Exception:
+        pass
+    return []
 
 
 def _load_gateway_cfg(sid: str):

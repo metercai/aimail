@@ -17,7 +17,7 @@ import sys, os, json, subprocess, time, re, socket
 from pathlib import Path
 from datetime import datetime, timezone
 import urllib.request, urllib.error
-from _common import is_readable_file as _is_readable_file, clean_agent_dir_name as _clean_agent_dir_name
+from _common import bridge_status, clean_agent_dir_name as _clean_agent_dir_name, is_readable_file as _is_readable_file
 
 # ── ANSI helpers ───────────────────────────────────────────────
 GREEN  = '\033[0;32m'
@@ -90,6 +90,7 @@ def _system_agent_path(sid: str) -> Path:
 
 BRIDGE_CFG  = BRIDGE_DIR / "aimail_bridge.toml"
 BRIDGE_PID  = BRIDGE_DIR / "bridge.pid"
+BRIDGE_BIN  = BRIDGE_DIR / "bin" / "aimail-bridge"
 BRIDGE_LOG  = LOGS_DIR / "aimail-bridge.log"
 AGENT_CFG   = AGENT_HOME / "config.yaml"
 # --agent 指定 profile 时,读该 profile 的 config.yaml(端口随 profile)
@@ -1317,19 +1318,16 @@ def _check_bridge_gateway_consistency(c: Check, td: dict, sid: str = ""):
 
 
 def _detect_local_bridge_pid() -> str:
-    """Check if a bridge process is running on this machine. Returns PID string or ''."""
-    if BRIDGE_PID.exists():
-        try:
-            pid = int(BRIDGE_PID.read_text().strip())
-            os.kill(pid, 0)
-            return str(pid)
-        except Exception:
-            pass
+    """本机桥是否在跑 —— 单一真源: 生命周期契约 `aimail-bridge --status --json`
+    (P2 收尾, 2026-09-20)。旧桥自动回退 pid 文件 + 存活探测(见 _common.bridge_status)。
+
+    旧实现的两个问题: ① os.kill(pid,0) 是 POSIX 专有 ② 裸 `pgrep -f aimail-bridge`
+    会把命令行里出现该串的无关进程算成"桥在跑"(误报)。
+    """
     try:
-        out = subprocess.run(["pgrep", "-f", "aimail-bridge"],
-                             capture_output=True, text=True, timeout=5)
-        if out.returncode == 0 and out.stdout.strip():
-            return out.stdout.strip().replace("\n", ", ")
+        st = bridge_status(str(BRIDGE_BIN), str(BRIDGE_PID))
+        if st.get("running") and st.get("pid"):
+            return str(st["pid"])
     except Exception:
         pass
     return ""
