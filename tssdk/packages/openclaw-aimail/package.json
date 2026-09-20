@@ -22,6 +22,7 @@
   },
   "files": [
     "dist",
+    "!dist/.tsbuildinfo",
     "openclaw.plugin.json",
     "README.md",
     "resources/**"

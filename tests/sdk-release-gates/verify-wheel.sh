@@ -46,7 +46,12 @@ for m in modules:
 for d in (aimail.skills_dir(), aimail.board_role_prompt_dir()):
     assert os.path.isdir(d), f"missing dir: {d}"
 assert os.path.isfile(aimail.mcp_server_path())
-print(f"   OK: {len(modules)} modules + resource paths (aimail {aimail.__version__})")
+# 审计 D4: deer-flow 的两个安装脚本必须随 wheel 分发(CLI 以 {sdk}=包目录 spawn 它们)
+import importlib.resources as _ir
+_pkg_dir = _ir.files("aimail") / "deer-flow"
+for _sh in ("install-mcp.sh", "install-skill.sh"):
+    assert (_pkg_dir / _sh).is_file(), f"missing in wheel: aimail/deer-flow/{_sh}"
+print(f"   OK: {len(modules)} modules + resource paths + deer-flow install scripts (aimail {aimail.__version__})")
 PY
 
 echo "== 4/5 install entry contract"

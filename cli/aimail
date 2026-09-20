@@ -549,6 +549,20 @@ def _is_local_gateway(url: str) -> bool:
 #    flow (no CLI subcommand — init was not independently useful) ───────
 
 
+def _sdk_dir_for_steps() -> str:
+    """平台安装步的 {sdk}: canonical 核心目录(repo pysdk/ 优先, 否则 pip aimail)。
+
+    审计 D4: 原来硬编码 SCRIPTS_DIR.parent/"pysdk" —— pip 布局下该目录不存在,
+    deer-flow 的 install-mcp.sh / install-skill.sh spawn 找不到脚本, 只 warn 降级
+    (静默缺功能)。复用 runtime_core 的 canonical 解析即可两种布局通吃。
+    """
+    try:
+        from runtime_core import resolve_core_dir
+        return str(resolve_core_dir())
+    except Exception:
+        return str(SCRIPTS_DIR.parent / "pysdk")
+
+
 def cmd_version(args) -> int:
     """版本信息(自举/升级检测用):aimail <ver>(<release>) [dev|bootstrapped]。
     dev = 仓库内运行(repo .env 生效);bootstrapped = ~/.aimail/bin/aimail-src
@@ -740,7 +754,8 @@ def cmd_install(args) -> int:
         "sid": env.get("INTEGRATE_SYSTEM_ID", ""),
         "manager": manager or "",
         "scripts": str(SCRIPTS_DIR),
-        "sdk": str(SCRIPTS_DIR.parent / "pysdk"),
+        # 审计 D4: {sdk} 走 canonical 解析(repo pysdk/ 优先 > pip aimail 包)
+        "sdk": _sdk_dir_for_steps(),
         "cfg": _cfg,
         "all_agents": bool(getattr(args, "all_agents", False)),
     })

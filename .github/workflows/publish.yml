@@ -40,6 +40,12 @@ on:
     tags:
       - 'v*'
 
+# 审计 D8: tag push 与 workflow_dispatch 对同一 commit 可并发 → 两个 run 都判定
+# "未发布" ⇒ 一个 E403, 或"部分发布"(部分包新版本、部分包旧版本, dist-tag 指向分裂)。
+concurrency:
+  group: npm-release
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -47,8 +53,9 @@ jobs:
     # compares it exactly against the npmjs-side configuration.
     environment: npm-release
     permissions:
-      # OIDC 令牌所需权限
-      contents: write
+      # 审计 D8: 最小权限 —— OIDC 发布只需 contents: read + id-token: write
+      # (原为 contents: write, 无必要)。
+      contents: read
       id-token: write
     steps:
       - uses: actions/checkout@v4
@@ -99,6 +106,8 @@ jobs:
             dsh-aimail packages/dsh-aimail
             openclaw-aimail packages/openclaw-aimail
             pi-aimail packages/pi-aimail
+          # 审计 D8: dispatch 声明的 release-type 透传给 publish-npm.sh 做真校验
+          REQUIRE_RELEASE_TYPE: ${{ inputs.release-type }}
         run: |
           # Release type (stable vs rc) is derived from package versions and
           # applied by publish-npm.sh:
@@ -106,13 +115,21 @@ jobs:
           #                          installs resolve: dsh/openclaw/pi)
           #   X.Y.Z-rc.N -> rc     -> dist-tag rc (dev iteration; latest
           #                          stays on the last stable)
+          # 审计 D8: dispatch 时声明的 release-type 必须真生效(见下 env), 否则
+          # 只是 UI 上的错觉。
           # Skip packages whose current version is already on the registry
           # (re-dispatch of the same commit). npm publish of an existing
           # version is always E403/E404 regardless of auth method.
           echo "$PKGS" | while read -r name dir; do
             [ -z "$name" ] && continue
             ver=$(node -p "require('./$dir/package.json').version")
-            published=$(npm view "$name@$ver" version 2>/dev/null || true)
+            # 查询失败(网络/registry)必须与"未发布"(E404)区分, 不能静默当未发布(审计 P2)
+            if ! published=$(npm view "$name@$ver" version 2>&1); then
+              case "$published" in
+                *E404*|*"No match found"*|*"could not be found"*) published="" ;;
+                *) echo "ERROR: registry query failed for $name@$ver: $published"; exit 1 ;;
+              esac
+            fi
             if [ -n "$published" ]; then
               echo "skip $name@$ver (already published)"
               continue

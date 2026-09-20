@@ -8,6 +8,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
+. "$(dirname "${BASH_SOURCE[0]}")/_npmview.sh"
 GATE="tests/sdk-release-gates"
 [ -f "$GATE/check-tarball.sh" ] || { echo "[L3] FAIL: gate script missing: $GATE/check-tarball.sh"; exit 1; }
 
@@ -48,11 +49,11 @@ for p in mail-core mail dsh-aimail openclaw-aimail pi-aimail; do
   dir="tssdk/packages/$p"
   ver=$(python3 -c "import json;print(json.load(open('$dir/package.json'))['version'])")
   name=$(python3 -c "import json;print(json.load(open('$dir/package.json'))['name'])")
-  # 查询失败(网络/registry 抖动)必须与"未发布"区分开(审计 P2 2026-09-21)
-  if ! reg=$(npm view "$name@$ver" version 2>&1); then
-    echo "[L3] FAIL: registry query failed for $name@$ver: $reg"; exit 1
+  # 查询失败(网络/registry)必须与"未发布"区分(见 _npmview.sh)
+  if ! reg=$(npm_version "$name" "$ver"); then
+    echo "[L3] FAIL: registry query failed for $name@$ver"; exit 1
   fi
-  [ "$reg" = "$ver" ] || { echo "[L3] FAIL: $name registry=$reg != local=$ver"; exit 1; }
+  [ "$reg" = "$ver" ] || { echo "[L3] FAIL: $name registry='$reg' != local=$ver"; exit 1; }
   echo "[L3] ok: $name@$ver on registry"
   if ! URL=$(npm view "$name@$ver" dist.tarball 2>&1); then
     echo "[L3] FAIL: tarball query failed for $name@$ver: $URL"; exit 1

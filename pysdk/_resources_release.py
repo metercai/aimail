@@ -11,12 +11,17 @@
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import shutil
 import sys
 
 # 双形态自举:core 目录(含本模块与 aimail_base.py)即 _CORE
 _CORE = os.path.dirname(os.path.abspath(__file__))
+
+# 发布清单: 记录"本 SDK 上次发布的内容 hash", 用来区分"用户个性化过"与"用户没动过"
+_MANIFEST = ".aimail-resources.json"
 
 # 源子目录(包内 resources/board) → 配置目录目标子目录
 _DIR_MAP = (
@@ -38,11 +43,45 @@ def resources_board_dir() -> str:
     return os.path.join(_CORE, "resources", "board")
 
 
+def _sha256(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _load_manifest(dst_dir: str) -> dict:
+    try:
+        with open(os.path.join(dst_dir, _MANIFEST), encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:  # noqa: BLE001 — 缺/坏清单等价于"无记录"
+        return {}
+
+
+def _save_manifest(dst_dir: str, data: dict) -> None:
+    tmp = os.path.join(dst_dir, _MANIFEST + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, sort_keys=True)
+    os.replace(tmp, os.path.join(dst_dir, _MANIFEST))
+
+
 def release_resources(system_id: str, board_root: str | None = None) -> dict:
-    """释放 board 资源到 ~/.aimail/systems/{sid}/board/(幂等)。"""
+    """释放 board 资源到 ~/.aimail/systems/{sid}/board/(幂等)。
+
+    判定口径(审计 D6, 2026-09-21): **按内容**而非 mtime。
+      · 目标缺失            → 释放
+      · 目标内容 == 包内      → 跳过(已同版)
+      · 目标内容 == 上次发布 hash(用户没动过) → 覆盖为包内新内容(SDK 升级生效)
+      · 否则(用户个性化过/无记录) → 跳过, 绝不覆盖用户内容
+    mtime 判定会漏发: SDK 升级解包时间戳早于目标文件、或用户 touch 过目标,
+    新内容就永远发不出去。清单记在目标目录的 .aimail-resources.json。
+    """
     src_root = board_root or resources_board_dir()
     board_dir = os.path.join(agentmail_home(), "systems", system_id, "board")
     copied = 0
+    updated = 0
     skipped = 0
     for src_name, dst_name in _DIR_MAP:
         src_dir = os.path.join(src_root, src_name)
@@ -50,18 +89,35 @@ def release_resources(system_id: str, board_root: str | None = None) -> dict:
             continue
         dst_dir = os.path.join(board_dir, dst_name)
         os.makedirs(dst_dir, exist_ok=True)
+        manifest = _load_manifest(dst_dir)
+        dirty = False
         for fname in sorted(os.listdir(src_dir)):
             if not fname.endswith(".md"):
                 continue
             src = os.path.join(src_dir, fname)
             dst = os.path.join(dst_dir, fname)
+            src_hash = _sha256(src)
             if os.path.exists(dst):
-                if os.path.getmtime(dst) >= os.path.getmtime(src):
+                dst_hash = _sha256(dst)
+                if dst_hash == src_hash:
                     skipped += 1
                     continue
+                recorded = manifest.get(fname)
+                if recorded and dst_hash == recorded:
+                    shutil.copy2(src, dst)
+                    manifest[fname] = src_hash
+                    updated += 1
+                    dirty = True
+                    continue
+                skipped += 1        # 用户个性化过(或无记录): 绝不覆盖
+                continue
             shutil.copy2(src, dst)
+            manifest[fname] = src_hash
             copied += 1
-    return {"board_dir": board_dir, "copied": copied, "skipped": skipped}
+            dirty = True
+        if dirty or not os.path.exists(os.path.join(dst_dir, _MANIFEST)):
+            _save_manifest(dst_dir, manifest)
+    return {"board_dir": board_dir, "copied": copied, "updated": updated, "skipped": skipped}
 
 
 def release_all_systems(board_root: str | None = None) -> list:

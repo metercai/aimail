@@ -74,6 +74,10 @@ packages = []
 "pysdk/deer-flow/aimail_inbound.py" = "aimail/deer-flow/aimail_inbound.py"
 "pysdk/deer-flow/aimail_deerflow.py" = "aimail/deer-flow/aimail_deerflow.py"
 "pysdk/deer-flow/manage.py" = "aimail/deer-flow/manage.py"
+# 审计 D4: CLI 的平台安装步以 {sdk}/deer-flow/install-*.sh 调这两个脚本; 只随源码
+# 分发时 pip 布局找不到(只 warn 降级) ⇒ 一并打进 wheel(verify-wheel 有断言)。
+"pysdk/deer-flow/install-mcp.sh" = "aimail/deer-flow/install-mcp.sh"
+"pysdk/deer-flow/install-skill.sh" = "aimail/deer-flow/install-skill.sh"
 # resources — released at install time to ~/.aimail/systems/{sid}/board/
 # and read from there at runtime (user-personalizable); zh/soul variants are
 # shipped for reference (default en).

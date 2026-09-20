@@ -30,9 +30,16 @@ on:
     tags:
       - 'v*'
 
+# 审计 D8: tag push 与 dispatch 可并发(同 PyPI 版本两次上传 → 一个必红)。
+concurrency:
+  group: pypi-release
+  cancel-in-progress: false
+
 jobs:
   build-and-verify:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read   # 审计 D8: build job 只需读仓库(原为无显式声明=默认权限偏宽)
     outputs:
       version: ${{ steps.check.outputs.version }}
     steps:
@@ -57,7 +64,9 @@ jobs:
         # 仍发 PyPI（审计 P0，2026-09-21 实测复现）。
         shell: bash
         run: |
-          python3 -m pip install --quiet pytest pyflakes
+          # 审计 D8: 门禁依赖钉版(与 npm 侧钉 npm@11.12.1 同理), 否则上游行为
+          # 变化会静默改变门禁结论。
+          python3 -m pip install --quiet pytest==9.1.1 pyflakes==3.4.0
           python3 -m pytest tests/ -q | tail -2
           # pyflakes 仅查核心模块;hermes 辅助脚本(patch_*/register_profiles/
           # toolsets)有意 `import aimail`(side-effect sys.path 注入),只做语法检查。
@@ -68,7 +77,7 @@ jobs:
           done
 
       - name: Install build tooling
-        run: python3 -m pip install --upgrade build
+        run: python3 -m pip install build==1.5.0
 
       - name: Build wheel
         run: python3 -m build --wheel --outdir dist/ .

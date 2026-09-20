@@ -12,6 +12,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
+. "$(dirname "${BASH_SOURCE[0]}")/_npmview.sh"   # 区分"未发布"(E404)与"查询失败"
 
 TAG_ARG="${1:-}"
 python3 - "$TAG_ARG" <<'PYEOF'
@@ -52,6 +53,13 @@ for p in ['mail-core', 'mail', 'dsh-aimail', 'openclaw-aimail', 'pi-aimail']:
         fail.append(f'{p} release-type rc={rc} != PyPI rc={py_rc}')
     print(f'[L1] {p} {v} (base={b} rc={rc})')
 
+# 审计 D8: 工作区根包必须 private(它不是发布物)。若被误改成可发布, 将来
+# `pnpm -r publish` 类操作会发出错版本且本门禁不拦。
+_root = json.load(open('tssdk/package.json'))
+if not _root.get('private'):
+    fail.append('tssdk/package.json must stay private (workspace root is not published)')
+print(f"[L1] workspace root {_root.get('name')} {_root.get('version')} (private={bool(_root.get('private'))})")
+
 if fail:
     print('[L1] FAIL: ' + '; '.join(fail))
     sys.exit(1)
@@ -62,7 +70,10 @@ echo "[L1] npm dependency-order gate (registry lookups may be slow)"
 for p in mail-core mail dsh-aimail openclaw-aimail pi-aimail; do
   dir="tssdk/packages/$p"
   ver=$(python3 -c "import json;print(json.load(open('$dir/package.json'))['version'])")
-  published=$(npm view "$p@$ver" version 2>/dev/null || true)
+  # 审计 P2: 查询失败(网络/registry)必须与"未发布"区分(见 _npmview.sh)
+  if ! published=$(npm_version "$p" "$ver"); then
+    echo "[L1] FAIL: registry query failed for $p@$ver"; exit 1
+  fi
   if [ -n "$published" ]; then
     echo "  skip $p@$ver (already on registry)"
     continue
@@ -87,7 +98,9 @@ for sub in os.listdir(root):
       dver="$dspec"  # concrete registry range, e.g. ^0.1.7
     fi
     dver="${dver#^}"; dver="${dver#~}"
-    ok=$(npm view "$dname@$dver" version 2>/dev/null || true)
+    if ! ok=$(npm_version "$dname" "$dver"); then
+      echo "[L1] FAIL: registry query failed for $dname@$dver"; exit 1
+    fi
     if [ -z "$ok" ]; then
       echo "[L1] FAIL: $p@$ver depends on $dname@$dver which is NOT on the registry"
       exit 1

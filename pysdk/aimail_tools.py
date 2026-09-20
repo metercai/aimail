@@ -430,19 +430,20 @@ class _GatewayClient:
             cfg["expires_at"] = act["expires_at"]
         p = _abm.save_agent_config(aid, cfg, sid)
 
-        # 2. Gateway connection file — create-if-absent only.
+        # 2. Gateway connection file — create-if-absent only, **agent 作用域**。
+        #    审计 D3: 这里曾把 agent 级 raw_key 写进名为 admin_key 的字段 —— 语义错配
+        #    (它不是管理 key)且与 agentmail.json 重复持有一把 key。现在只写连接信息
+        #    + scope 标记; agent 自己的 key 只在 agentmail.json 一份
+        #    (aimail_base._load_gateway_config 已接受 scope=agent 的文件)。
         gp = gateway_config_path(sid)
         if not gp.is_file():
-            gp.parent.mkdir(parents=True, exist_ok=True)
-            import os as _os
-            fd = _os.open(gp, _os.O_WRONLY | _os.O_CREAT | _os.O_TRUNC, 0o600)
-            with _os.fdopen(fd, "w") as f:
-                f.write(json.dumps({
-                    "gateway_url": self.gateway_url,
-                    "admin_key": act["raw_key"],
-                    "system_id": sid,
-                    "domain": domain,
-                }, indent=2, ensure_ascii=False) + "\n")
+            import aimail_base as _abm
+            _abm.atomic_write_private(gp, json.dumps({
+                "gateway_url": self.gateway_url,
+                "system_id": sid,
+                "domain": domain,
+                "scope": "agent",
+            }, indent=2, ensure_ascii=False) + "\n")
 
         # 3. Discovery pointer (best-effort — log naming degrades without it).
         pointer_written = False
@@ -1063,12 +1064,9 @@ def _save_local_meta(message_id, references, my_aimail_addr, direction) -> None:
         "at": datetime.now().isoformat(),
     }
     try:
+        import aimail_base as _abm
         p = _local_meta_path(mid)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        tmp = p.with_suffix(".tmp")
-        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2),
-                       encoding="utf-8")
-        tmp.replace(p)
+        _abm.atomic_write_private(p, json.dumps(payload, ensure_ascii=False, indent=2))
     except Exception as e:
         logger.warning("Failed to save local meta for %s: %s", mid, e)
 
@@ -1273,11 +1271,10 @@ def _save_outbound_snapshot(out_msg_id: str, my_addr: str, sender: str,
     if att_md:
         payload["attachments_md"] = att_md
     try:
+        import aimail_base as _abm
         snapshot_dir.mkdir(parents=True, exist_ok=True)
-        tmp = snapshot_path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str),
-                       encoding="utf-8")
-        tmp.replace(snapshot_path)
+        _abm.atomic_write_private(
+            snapshot_path, json.dumps(payload, ensure_ascii=False, indent=2, default=str))
         # Incremental FTS5 index AFTER the snapshot file is on disk.
         to_list = [t.strip() for t in (to or "").split(",") if t.strip()] + list(cc_list or [])
         _index_snapshot_record(
@@ -1367,9 +1364,7 @@ def _log_aimail(direction: str, from_addr: str, to_addr: str, subject: str,
         **({"email_id": email_id} if email_id else {}),
     }, ensure_ascii=False)
     try:
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(log_path, "a") as f:
-            f.write(entry + "\n")
+        _abm.append_private(log_path, entry + "\n")
     except Exception:
         logger.debug("Failed to write aimail log: %s", log_path)
 
@@ -1428,10 +1423,9 @@ def store_inbound_message(
                 att_md = _collect_attachments_md(list(attachment_sources.values()))
                 if att_md:
                     snapshot_payload["attachments_md"] = att_md
-            tmp = snapshot_path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(snapshot_payload, ensure_ascii=False, indent=2, default=str),
-                           encoding="utf-8")
-            tmp.replace(snapshot_path)
+            import aimail_base as _abm
+            _abm.atomic_write_private(
+                snapshot_path, json.dumps(snapshot_payload, ensure_ascii=False, indent=2, default=str))
             snapshot_saved = True
             # Incremental FTS5 index AFTER the snapshot file is on disk.
             _index_snapshot_record(
@@ -1532,12 +1526,9 @@ def set_email_summary(message_id: str, summary: str) -> dict:
         "updated_at": datetime.now().isoformat(),
     }
     try:
+        import aimail_base as _abm
         p = _thread_path(thread_id)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        tmp = p.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2),
-                       encoding="utf-8")
-        tmp.replace(p)
+        _abm.atomic_write_private(p, json.dumps(data, ensure_ascii=False, indent=2))
     except Exception as e:
         return {"success": False, "error": f"Failed to store summary: {e}"}
     return {"success": True}

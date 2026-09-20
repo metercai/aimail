@@ -51,13 +51,21 @@ else:
 #    不支持 Content-Length 帧）─────────────────────────────────
 
 def read_msg():
-    line = sys.stdin.buffer.readline()
-    if not line:
-        return None
-    line = line.strip()
-    if not line:
-        return None
-    return json.loads(line)
+    """读一行 newline-delimited JSON。
+
+    审计 D5: 原实现把"空行"与 EOF 当同一分支(readline 得空行 → strip 后为空 →
+    return None) ⇒ 对端偶发 keep-alive/缓冲抖动发来的空白行会被当成流结束,
+    server 静默退出(后续 tools/call 全部无响应)。现在: 空行跳过, 只有真 EOF
+    才结束。
+    """
+    while True:
+        line = sys.stdin.buffer.readline()
+        if not line:            # EOF
+            return None
+        line = line.strip()
+        if not line:            # 空白行: 跳过继续读(不再终止服务)
+            continue
+        return json.loads(line)
 
 
 def write_msg(obj):

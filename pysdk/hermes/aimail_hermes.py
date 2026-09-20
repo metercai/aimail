@@ -301,9 +301,15 @@ def _ensure_profile_webhook(profile_dir: str) -> Optional[dict]:
             "extra": {"port": port, "secret": secret},
         }
         existing["platforms"] = platforms
-        tmp = cfg_path.with_suffix(".tmp")
-        tmp.write_text(yaml.safe_dump(existing, allow_unicode=True, sort_keys=False))
-        tmp.replace(cfg_path)
+        # 审计 D2: 原写法 `cfg_path.with_suffix(".tmp")` 得到 "config.tmp"(名字也错),
+        # 且以默认 umask 写 ⇒ 把宿主 0600 的 config.yaml 覆写成 0644, 并残留一份含
+        # webhook HMAC secret 的 config.tmp。统一走 core.atomic_write_private
+        # (host 自己的 profile 目录不做 chmod ⇒ ensure_dir_mode=None)。
+        core.atomic_write_private(
+            cfg_path,
+            yaml.safe_dump(existing, allow_unicode=True, sort_keys=False),
+            ensure_dir_mode=None,
+        )
         return {
             "enabled": True,
             "host": "0.0.0.0",
@@ -789,6 +795,26 @@ def _handle_search_mail(args, **_kw):
         limit=args.get("limit", 20),
     ))
 
+
+def _handle_activate_address_code(args, **_kw):
+    """地址级自助激活(code → 自己的 agent key)。审计 D1: 补齐 Hermes 侧缺失的一等工具。"""
+    return tool_result(tools.activate_address_code(
+        code=args.get("code", ""),
+        address=args.get("address", ""),
+        gateway_url=args.get("gateway_url"),
+    ))
+
+
+def _handle_set_public_whoami(args, **_kw):
+    """设置陌生人 WHOAMI 返回的公开身份卡(与 MCP 侧 tool_set_public_whoami 同源)。"""
+    cfg = _load_profile_config()
+    if not cfg or not cfg.get("api_key"):
+        return tool_result({"success": False, "error": "aimail not configured for this profile"})
+    client = _GatewayClient(cfg["gateway_url"], cfg["api_key"])
+    client.agent_state_put("public_whoami", args.get("text", ""))
+    return tool_result({"success": True})
+
+
 # ═══════════════════════════════════════════════════════════════
 # 2. 注入公共核心的注入点
 # ═══════════════════════════════════════════════════════════════
@@ -1124,6 +1150,56 @@ try:
     )
 except Exception as _e:
     logger.warning("[aimail] set_email_summary registration failed: %s", _e)
+
+# 3b-bis. 身份类一等工具(审计 D1: Hermes 曾只注册 13 个, 与 README/AGENT-INTEGRATION
+#         声明的 15 及 TS 侧 15/15 不符 —— 补齐这两个, 描述与 MCP TOOLS 逐字对齐)。
+try:
+    registry.register(
+        name="activate_address_code",
+        toolset=_TOOLSET,
+        schema={
+            "name": "activate_address_code",
+            "description": (
+                "Activate the AIMail mailbox your user gave you: exchange the one-time "
+                "activation code (shared_a-…) for your own key, store it locally and make "
+                "the other mail tools work. Address-level self-service — no CLI."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string", "description": "One-time activation code (shared_a-…)"},
+                    "address": {"type": "string", "description": "The mailbox address it unlocks"},
+                    "gateway_url": {"type": "string", "description": "AIMail gateway URL (or set AIMAIL_URL)"},
+                },
+                "required": ["code", "address"],
+            },
+        },
+        handler=_handle_activate_address_code,
+        emoji="🔑",
+    )
+except Exception as _e:
+    logger.warning("[aimail] activate_address_code registration failed: %s", _e)
+
+try:
+    registry.register(
+        name="set_public_whoami",
+        toolset=_TOOLSET,
+        schema={
+            "name": "set_public_whoami",
+            "description": "Set the public identity card returned for stranger WHOAMI queries.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "Public identity text"},
+                },
+                "required": ["text"],
+            },
+        },
+        handler=_handle_set_public_whoami,
+        emoji="🪪",
+    )
+except Exception as _e:
+    logger.warning("[aimail] set_public_whoami registration failed: %s", _e)
 
 # 3c. profile 生命周期钩子（地址自动注册/注销）
 register_profile_hook("profile_created", _auto_register_email)

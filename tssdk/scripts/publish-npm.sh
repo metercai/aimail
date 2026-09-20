@@ -165,6 +165,20 @@ PYEOF
     dist_tag="latest"
   fi
   echo "  release-type=$dist_tag (version $ver)"
+  # 审计 D8: 把 workflow_dispatch 声明的 release-type 变成真门禁(原来只在 UI 上,
+  # 选中 rc/stable 被静默忽略 —— 声明与推导不一致时直接失败)。
+  want="${REQUIRE_RELEASE_TYPE:-}"
+  want_tag=""
+  case "$want" in
+    '')      ;;
+    stable)  want_tag="latest" ;;
+    rc)      want_tag="rc" ;;
+    *) echo "  ERROR: unknown REQUIRE_RELEASE_TYPE='$want' (expect rc|stable)"; exit 1 ;;
+  esac
+  if [ -n "$want_tag" ] && [ "$want_tag" != "$dist_tag" ]; then
+    echo "  ERROR: release-type mismatch — 声明 '$want' 但版本 $ver 推导为 '$dist_tag'"
+    exit 1
+  fi
   if [ "${DRY_RUN:-0}" = "1" ]; then
     npm publish --dry-run "/tmp/$tgz" --access public --tag $dist_tag $prov || true
   else

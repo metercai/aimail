@@ -224,7 +224,11 @@ def _load_gateway_config(system_id: str = "") -> Optional[dict]:
     if gw_path.is_file():
         try:
             cfg = json.loads(gw_path.read_text())
-            if cfg.get("gateway_url") and (cfg.get("admin_key") or cfg.get("product_code")):
+            # 审计 D3: agent 自助激活写出的网关文件是 agent 作用域(scope=agent,
+            # 不含管理 key) —— 它同样"可用", 判定不能只看 admin_key/product_code。
+            if cfg.get("gateway_url") and (
+                cfg.get("admin_key") or cfg.get("product_code") or cfg.get("scope") == "agent"
+            ):
                 return cfg
         except Exception:
             pass
@@ -368,6 +372,41 @@ def save_agent_config(agent_id: str, cfg: dict, system_id: str) -> Path:
     return p
 
 
+def _ensure_private_dir(d: Path, mode: Optional[int]) -> None:
+    """私有目录: 不存在则按 mode 建; 已存在但过宽则收紧(仅本 SDK 管理的目录)。"""
+    d.mkdir(parents=True, mode=mode or 0o700, exist_ok=True)
+    if mode is None:
+        return
+    try:
+        if d.stat().st_mode & 0o077:
+            os.chmod(d, mode)
+    except OSError:
+        pass
+
+
+def atomic_write_private(path: Path, text: str, ensure_dir_mode: Optional[int] = 0o700) -> None:
+    """私有内容原子落盘 —— 单一入口(审计 2026-09-21: 多处默认 umask 写私有数据)。
+
+    约定: 父目录 0700(除宿主自有目录可传 None) + tmp 以 0600 创建(无"先写后
+    chmod"的全局可读窗口) + 原子 replace。凭证/指针/邮件正文/快照/线程摘要
+    统一走这里, 不再各自 `tmp.write_text(...)`(默认 umask 会产出 0644)。
+    """
+    _ensure_private_dir(path.parent, ensure_dir_mode)
+    tmp = path.with_name(path.name + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(text)
+    tmp.replace(path)
+
+
+def append_private(path: Path, text: str, ensure_dir_mode: Optional[int] = 0o700) -> None:
+    """私有日志追加(日志不能原子替换): 目录收紧 + 文件按 0600 创建。"""
+    _ensure_private_dir(path.parent, ensure_dir_mode)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    with os.fdopen(fd, "a", encoding="utf-8") as f:
+        f.write(text)
+
+
 def set_agent_context(agent_id: str, system_id: str = "") -> None:
     """把当前 agent 的 config 挂到公共核心注入点(平台无关,兜底 MCP 服务用)。
 
@@ -439,10 +478,14 @@ def _read_pointer(pointer: Path) -> dict:
 
 
 def _write_pointer(pointer: Path, system_id: str, email: str) -> None:
-    """写 {dir}/.aimail 指针（系统身份唯一来源）。"""
-    pointer.parent.mkdir(parents=True, exist_ok=True)
-    pointer.write_text(
-        json.dumps({"system_id": system_id, "email": email}, indent=2, ensure_ascii=False) + "\n"
+    """写 {dir}/.aimail 指针（系统身份唯一来源）。
+
+    审计 D2: 原实现用默认 umask(实测 0664 文件 / 0775 目录)+ 非原子写 ⇒
+    统一走 atomic_write_private(目录 0700、tmp 0600、原子替换)。
+    """
+    atomic_write_private(
+        pointer,
+        json.dumps({"system_id": system_id, "email": email}, indent=2, ensure_ascii=False) + "\n",
     )
 
 
@@ -486,13 +529,9 @@ def _store_board_credential(board_id: str, gateway_url: str, token: str) -> None
             except Exception:
                 pass
         creds[board_id] = {"gateway_url": gateway_url, "token": token}
-        creds_path.parent.mkdir(parents=True, exist_ok=True)
-        # token 与 api_key 同级敏感:tmp 0600 创建(无全局可读窗口)+ 原子替换
-        tmp = creds_path.with_suffix(".json.tmp")
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
-            f.write(json.dumps(creds, indent=2))
-        tmp.replace(creds_path)
+        # token 与 api_key 同级敏感: 目录 0700 + tmp 0600 + 原子替换(审计 D2:
+        # 原 mkdir 无 mode, 目录一旦本函数先建就比 0700 宽)。
+        atomic_write_private(creds_path, json.dumps(creds, indent=2))
     except Exception:
         pass
 
