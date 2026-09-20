@@ -5,11 +5,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-RUNTIME_BUNDLE="$SCRIPT_DIR/../../cli/runtime_bundle.py"
+# P3(2026-09-20, owner 定调): 改为 CLI 公开命令面(与 install-mcp.sh 同款说明)
+command -v aimail >/dev/null 2>&1 || { echo "ERROR: 未找到 aimail 命令, 请先安装 CLI(bootstrap)。" >&2; exit 1; }
 DEER_FLOW_HOME="${DEER_FLOW_HOME:-$HOME/deer-flow}"
 DST_DIR="${DEER_FLOW_SKILLS_DIR:-$DEER_FLOW_HOME/skills/public}/aimail"
 
-SKILLS_SRC="$(python3 "$RUNTIME_BUNDLE" resource skills)"
+SKILLS_SRC="$(aimail payload resource skills)"
 SRC_SKILL="$SKILLS_SRC/SKILL.md"
 if [ ! -f "$SRC_SKILL" ]; then
   echo "SKILL source not found: $SRC_SKILL" >&2

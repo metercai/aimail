@@ -236,6 +236,42 @@ def resolve_platform(system_home: Path) -> str:
 #  子命令
 # ═══════════════════════════════════════════════════════════════
 
+def cmd_payload(args) -> int:
+    """运行时捆绑(payload)的公开命令面。
+
+    P3(2026-09-20, owner 定调): SDK 侧安装脚本**不得**再拼仓库相对路径去调
+    cli/runtime_bundle.py —— 一律走本命令; rust 化后同一命令面由新二进制实现, 调用方不变。
+    """
+    import runtime_bundle as rb
+
+    act = getattr(args, "action", "")
+    name = (getattr(args, "name", "") or "").strip()
+    dest = getattr(args, "dest", "") or ""
+    src = getattr(args, "source_root", "") or ""
+    bundles = "|".join(sorted(rb.BUNDLES))
+    if act == "install":
+        if not name:
+            print(f"ERROR: payload install 需要 <bundle>(可选: {bundles})")
+            return 2
+        return rb.install(name, dest, src, bool(getattr(args, "force", False)))
+    if act == "dir":
+        print(rb.payload_dir(name or "mcp"))
+        return 0
+    if act == "resource":
+        if not name:
+            print("ERROR: payload resource 需要 <name>"
+                  "(skills|board-role|board-role-zh|board-soul|board-soul-zh)")
+            return 2
+        print(rb.source_path(name, src))
+        return 0
+    if act == "source":
+        root, kind = rb.resolve_source_root(src)
+        print(f"{kind}\t{root}")
+        return 0
+    print("ERROR: 未知 payload 动作")
+    return 2
+
+
 def cmd_repair(args) -> int:
     """链路自动修复 → repair.py(复用 install/注册链函数)。"""
     cmd = [sys.executable, str(SCRIPTS_DIR / "repair.py")]
@@ -2305,6 +2341,13 @@ scenario groups:
     p_install.add_argument("-d", "--domain", help="domain to pre-create (default: AIMAIL_DOMAIN env)")
     p_install.add_argument("--all-agents", action="store_true",
                            help="register ALL platform agents (default: main agent only)")
+    p_payload = sub.add_parser("payload", help="runtime bundle (payload): install|dir|resource|source")
+    p_payload.add_argument("action", choices=["install", "dir", "resource", "source"])
+    p_payload.add_argument("name", nargs="?", default="")
+    p_payload.add_argument("--dest", default="")
+    p_payload.add_argument("--source-root", default="")
+    p_payload.add_argument("--force", action="store_true")
+    p_payload.set_defaults(func=cmd_payload)
     p_install.set_defaults(func=cmd_install)
 
     # SDK reverse-call ABI: L1 activation/reuse only — NEVER platform wiring
