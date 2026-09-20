@@ -21,6 +21,11 @@ export function toTypeBoxParam (p: MailToolParam): TSchema {
   if (p.description) {
     base = { ...base, description: p.description }
   }
+  // `default` 必须透传: 否则模型侧看到的 schema 缺省值与 Python 真源不一致
+  // (审计 2026-09-21: manage_contacts.direction 的 default=all 曾在此被丢弃)。
+  if (p.default !== undefined) {
+    base = { ...base, default: p.default }
+  }
   return p.required === true ? base : Type.Optional(base)
 }
 

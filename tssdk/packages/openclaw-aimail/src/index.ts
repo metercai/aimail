@@ -23,7 +23,7 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
   id: 'openclaw-aimail',
   name: 'AIMail',
   description:
-    'AIMail email capability for OpenClaw: 12 mail/board tools, inbound email delivery with HMAC verification, register/deregister/status commands.',
+    'AIMail email capability for OpenClaw: 15 mail/board tools, inbound email delivery with HMAC verification, register/deregister/status commands.',
   register(api) {
     // Outbound X-AIMail-Agent header (real detected host version, no guess)
     setAgentIdentity(agentIdentity())

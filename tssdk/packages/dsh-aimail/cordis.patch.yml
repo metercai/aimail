@@ -33,6 +33,6 @@
       config:
         port: 9099
 
-    # AIMail tools (12 bare names, semantics from @aimail/mail-core)
+    # AIMail tools (15 bare names, semantics from @aimail/mail-core)
     - id: tool-mail
       name: 'dsh-aimail/tools'

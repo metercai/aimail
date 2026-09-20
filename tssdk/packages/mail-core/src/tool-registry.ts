@@ -1,11 +1,11 @@
 /**
- * MAIL_TOOLS — the single TS source of truth for the 13 AIMail tool
+ * MAIL_TOOLS — the single TS source of truth for the 15 AIMail tool
  * semantic definitions (names, descriptions, parameter descriptions).
  *
  * Contract: text is verbatim from the shared AIMail tool spec, which is
  * currently materialized in the `TOOLS` registry of
  * `pysdk/aimail_mcp_server.py` (aimail repo). That file exists as the
- * **Python-platform MCP fallback** only — ][truncated] Platform adapters (dsh-aimail, openclaw-aimail) iterate this array
+ * **Python-platform MCP fallback** only — Platform adapters (dsh-aimail, openclaw-aimail) iterate this array
  * and bind each entry's `handler` to their own identity resolution — no
  * adapter re-declares semantic text.
  *
@@ -86,7 +86,7 @@ export const MAIL_TOOLS: readonly MailToolDef[] = [
     parameters: {
       action: { type: 'string', enum: ['check', 'add', 'remove', 'update'], description: 'Action to perform', required: true },
       address: { type: 'string', description: 'Email address' },
-      direction: { type: 'string', enum: ['from', 'to', 'all'], description: 'Whitelist direction' },
+      direction: { type: 'string', enum: ['from', 'to', 'all'], default: 'all', description: 'Whitelist direction' },
     },
     handler: (ctx, args) => manageContacts(ctx, args as unknown as ManageContactsArgs),
   },

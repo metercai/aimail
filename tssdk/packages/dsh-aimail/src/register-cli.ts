@@ -13,7 +13,7 @@
  *      local extra update) — mirrors bind_agent's every-run semantics.
  *
  * ABI: stdout = one JSON line {ok,email,system_id,exists?,registered?,
- * config_path?,api_key?,error?,hint?}; logs → stderr; exit 0 = ok.
+ * config_path?,error?,hint?}; logs → stderr; exit 0 = ok.
  *
  * Usage (from the CLI platform registry):
  *   node <dsh-aimail>/dist/register-cli.js [--system-id S] [--email E]

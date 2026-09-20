@@ -1,5 +1,5 @@
 /**
- * openclaw-aimail commands — `openclaw aimail register|deregister|status`.
+ * openclaw-aimail commands — `openclaw aimail register|register-all|deregister|status`.
  *
  * register: 4-step idempotent chain ported from Python register_agent_email
  *   (register_email(generate_code) → exists? update webhook → manager
@@ -334,7 +334,7 @@ export function createAimailCommands(): OpenClawPluginCommandDefinition[] {
   return [
     {
       name: 'aimail',
-      description: 'AIMail registration and status: register|deregister|status',
+      description: 'AIMail registration and status: register|register-all|deregister|status',
       acceptsArgs: true,
       handler: handleCommand,
     },

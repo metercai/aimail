@@ -26,11 +26,27 @@ for f in $(find pysdk -name '*.py' -not -path '*__pycache__*'); do
 done
 python3 -m pytest tests/ -q 2>&1 | tail -2
 
-echo "═══ [L0] tssdk: tsc (5 packages) + vitest ═══"
+echo "═══ [L0] tssdk: build (pnpm build) + orphan guard + vitest ═══"
 cd tssdk
-pnpm exec tsc -b packages/mail-core packages/mail packages/dsh-aimail
-pnpm exec tsc -p packages/openclaw-aimail/tsconfig.json
-pnpm exec tsc -p packages/pi-aimail/tsconfig.json
+# 单一入口: 根 package.json 的 build 脚本封装 5 包 tsc(避免三处清单各自维护 —— 审计 P2)
+pnpm build
+# 孤儿产物守卫(审计 2026-09-21): lib/dist 里的 *.js 必须有对应 src/*.ts。
+# 反例: mail-core 的 install.ts 已删, 但陈旧 lib/install.js 仍被 package.json 的
+# files glob 打进发布包(14.5KB 死代码 + 与 src 不符的 .d.ts)。
+orphans=0
+for pkg in packages/*/; do
+  for d in lib dist; do
+    [ -d "$pkg$d" ] || continue
+    for f in "$pkg$d"/*.js; do
+      [ -f "$f" ] || continue
+      base=$(basename "$f" .js)
+      find "$pkg/src" -name "$base.ts" -print -quit | grep -q . \
+        || { echo "  ✗ orphan artifact (no src/$base.ts): $f"; orphans=$((orphans+1)); }
+    done
+  done
+done
+[ "$orphans" -eq 0 ] || { echo "[L0] FAIL: $orphans orphan artifact(s) in lib/dist"; exit 1; }
+echo "[L0] orphan-artifact guard: 所有 lib/dist 产物均有对应 src"
 pnpm test 2>&1 | tail -2
 
 echo "═══ [L0] PASS — all gates green ═══"

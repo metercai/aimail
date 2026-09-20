@@ -1,5 +1,5 @@
 /**
- * 13 tool functions (mail-core) — thin wrappers over GatewayClient mirroring
+ * Tool function implementations (mail-core) — thin wrappers over GatewayClient mirroring
  * Python aimail_tools.py. Contract: DSH-PREPROCESS-CONTRACT.md §3 + the
  * shared AIMail tool spec (materialized in pysdk/aimail_mcp_server.py;
  * names/descriptions/params identical). No MCP service is involved on the

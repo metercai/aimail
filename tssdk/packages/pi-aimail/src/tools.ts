@@ -1,5 +1,5 @@
 /**
- * pi-aimail tools — registers the 13 AIMail tools by iterating the
+ * pi-aimail tools — registers the 15 AIMail tools by iterating the
  * SINGLE MAIL_TOOLS source from @aimail/mail-core (same as dsh/openclaw:
  * semantic text defined once; the adapter only binds platform identity).
  *
@@ -36,7 +36,7 @@ function toPiResult(result: Record<string, unknown>): PiToolResult {
 }
 
 /**
- * Build the 12 tool definitions for pi's registerTool(). Bare names — the
+ * Build the tool definitions for pi's registerTool(). Bare names — the
  * SKILL.md bare names resolve exactly on all platforms.
  */
 export function buildPiTools(): Array<{

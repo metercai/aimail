@@ -1,5 +1,5 @@
 /**
- * dsh-aimail tools — registers the 13 AIMail bare tools for this profile.
+ * dsh-aimail tools — registers the 15 AIMail bare tools for this profile.
  *
  * Semantic text (names, descriptions, parameter descriptions) comes from
  * the shared MAIL_TOOLS registry in @aimail/mail-core (single source of
@@ -51,6 +51,8 @@ function toDshParam(p: MailToolParam): ParameterPropertySpec {
     if (p.items !== undefined) base.items = { type: p.items.type }
   }
   if (p.description !== undefined) base.description = p.description
+  // 审计 2026-09-21: default 也要透传到宿主 schema(与 mail-core 的 TypeBox 转换同口径)
+  if (p.default !== undefined) base.default = p.default
   if (p.required === true) base.required = true
   return base as unknown as ParameterPropertySpec
 }

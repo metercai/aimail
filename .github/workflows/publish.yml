@@ -86,12 +86,8 @@ jobs:
 
       - name: Build all packages
         working-directory: tssdk
-        run: |
-          pnpm exec tsc -b packages/mail-core
-          pnpm exec tsc -b packages/mail
-          pnpm exec tsc -b packages/dsh-aimail
-          pnpm exec tsc -p packages/openclaw-aimail/tsconfig.json
-          pnpm exec tsc -p packages/pi-aimail/tsconfig.json
+        # 单一入口: 根 package.json 的 build 脚本(审计: 三处手抄清单易漏包)
+        run: pnpm build
 
       - name: Test
         working-directory: tssdk
