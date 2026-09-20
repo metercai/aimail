@@ -73,6 +73,9 @@ def _ensure_binary(bridge_bin: str, bridge_dir: str) -> bool:
 def _config_lines(addr: str, mode: str, merged: list, log_path: str) -> list:
     """TOML body for a single bridge serving the given system entries."""
     lines = [
+        # schema 版本契约(2026-09-20): 桥只接受 <= 自己支持的最高版本, 更高版本拒绝启动。
+        # 当前版本 1(桥侧 SUPPORTED_SCHEMA_VERSION)。
+        'schema_version = 1',
         f'bind = "{addr}"',
         f'mode = "{mode}"',
         '',
