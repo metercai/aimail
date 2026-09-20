@@ -33,8 +33,17 @@ py_base, py_rc = base_and_rc(pyproj)
 
 tag = sys.argv[1] if len(sys.argv) > 1 else ''
 if not tag:
-    out = subprocess.run(['git', 'tag', '--sort=-v:refname'], capture_output=True, text=True).stdout
-    tag = next((t for t in out.split() if re.match(r'^v\d', t)), '')
+    # 只认与本地版本**同 base** 的 tag; 同 base 有多个(如 v0.1.12 与 v0.1.12-rc.2)时
+    # **优先与本地版本形态一致**的那个(stable→精确 vX.Y.Z, rc→vX.Y.Z-rc.N)。
+    # 原实现用 `git tag --sort=-v:refname` 取"最新", 而 git 的 version sort 把
+    # '0.1.12-rc.2' 排在 '0.1.12' **之后** ⇒ stable 发版时读到旧 rc tag, 误报
+    # "release-type mismatch"(v0.1.12 实测假红, 2026-09-21)。
+    out = subprocess.run(['git', 'tag', '-l', 'v*'], capture_output=True, text=True).stdout
+    cands = [t for t in out.split() if re.match(r'^v\d', t)]
+    same = [t for t in cands if base_and_rc(t[1:])[0] == py_base]
+    if same:
+        exact = [t for t in same if base_and_rc(t[1:])[1] == py_rc]
+        tag = (exact or same)[0]
 if tag:
     t_base, t_rc = base_and_rc(tag[1:])
     print(f'[L1] tag {tag} base={t_base} rc={t_rc}')
