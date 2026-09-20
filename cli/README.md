@@ -229,17 +229,17 @@ aimail repair [--system-id <sid>] [--home <root>] [--deep] [--dry-run]
 
 `--dry-run` prints the plan only. The ladder (each step idempotent):
 
-1. bridge alive (restart if dead) — 2. routes refresh via
-   `bridge --system-id` — 3. gateway webhook pairing fix (evidence-driven)
-   — 4. gateway config backfill (`system_home`/`webhook_host`, fill-missing
-   only, never clobber) — 5. platform pointer rebuild (only when the
-   platform root is certain and the pointer is absent) — 6. runtime
-   resource redeploy (only platforms that ship an SDK install entry are
-   reinstalled automatically; the rest print the fix hint from check;
-   idempotent; skipped with a hint when the platform host is remote) — 7.
-   `agentmail.json` backfill + `webhook_url` alignment to the live route
-   target (local-only) — 8. route-entry rebuild — 9. bridge pull-entry
-   admin_key alignment to gateway.json (authoritative source).
+1. bridge alive (restart if dead)
+2. routes refresh via `bridge --system-id`
+3. gateway webhook pairing fix (evidence-driven)
+4. gateway config backfill (`system_home`/`webhook_host`, fill-missing only, never clobber)
+5. platform pointer rebuild (only when the platform root is certain and the pointer is absent)
+6. runtime resource redeploy (only platforms that ship an SDK install entry are reinstalled
+   automatically; the rest print the fix hint from check; idempotent; skipped with a hint when
+   the platform host is remote)
+7. `agentmail.json` backfill + `webhook_url` alignment to the live route target (local-only)
+8. route-entry rebuild
+9. bridge pull-entry admin_key alignment to gateway.json (authoritative source)
 
 `--deep` additionally performs the webhook-pairing rewrite and the
 stuck-pending cleanup.
