@@ -15,7 +15,6 @@ import json
 import os
 import subprocess
 import time
-import os
 import re
 import socket
 import urllib.request

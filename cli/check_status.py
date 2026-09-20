@@ -1428,7 +1428,6 @@ def _run_ping_test() -> int:
     aimail.log three-stage assertion) so every agent system
     (Hermes/OpenClaw/DeerFlow/dsh) uses the SAME ping/pong verification.
     """
-    import subprocess
     script = Path(__file__).resolve().parent / "ping_test.py"
     cmd = [sys.executable, str(script)]
     if "--system-id" in sys.argv:
