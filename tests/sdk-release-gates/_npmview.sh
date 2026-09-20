@@ -12,7 +12,10 @@
 npm_version() {
   local pkg="$1" ver="${2:-}" spec out
   if [ -n "$ver" ]; then spec="$pkg@$ver"; else spec="$pkg"; fi
-  if out=$(npm view "$spec" version 2>&1); then
+  if out=$(npm view "$spec" version --prefer-online 2>&1); then
+    # --prefer-online: 绕开 npm 本地缓存 —— 发布后立刻复核时缓存会让刚发布的版本
+    # 仍报 E404(2026-09-21 v0.1.12 实测: pi-aimail@0.1.12 已发布却查不到, 直连
+    # registry.npmjs.org 确认 dist-tags 已更新) ⇒ 门禁假红。
     printf '%s' "$out"; return 0
   fi
   if printf '%s' "$out" | grep -qiE 'E404|no match found|not found|could not be found'; then
