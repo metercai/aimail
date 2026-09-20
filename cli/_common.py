@@ -13,6 +13,9 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import time
+import os
 import re
 import socket
 import urllib.request
@@ -35,6 +38,88 @@ def aimail_home() -> Path:
 def clean_agent_dir_name(addr: str) -> str:
     """agent 地址 → 目录名（与 pysdk/aimail_base._clean_agent_dir_name 一致）。"""
     return re.sub(r"[^\w.\-]", "_", addr, flags=re.ASCII)
+
+
+# ── 桥的生命周期契约客户端(P2, 2026-09-20) ─────────────────────────────
+# 契约(aimail-bridge >= 0.7.4): --status [--json] / --stop --pid-file <p> / --check-config
+# 退出码: 0 成功|运行中 · 1 错误|拒绝(pid 不属桥) · 2 配置非法 · 3 未运行
+# 不支持的旧桥: 回退到"pid 文件 + 存活探测"(并告警), CLI 侧不再自行 kill 进程。
+
+def bridge_ctl_supported(bin_path: str) -> bool:
+    """桥二进制是否支持生命周期契约。"""
+    try:
+        r = subprocess.run([bin_path, "--status", "--json"], capture_output=True, text=True, timeout=10)
+        return r.returncode in (0, 3) and '"running"' in (r.stdout or "")
+    except Exception:
+        return False
+
+
+def bridge_status(bin_path: str, pid_path: str) -> dict:
+    """桥运行状态。契约优先; 旧桥回退为 pid 文件 + 存活探测。"""
+    if bridge_ctl_supported(bin_path):
+        try:
+            r = subprocess.run([bin_path, "--status", "--json", "--pid-file", pid_path],
+                               capture_output=True, text=True, timeout=10)
+            out = (r.stdout or "").strip().splitlines()
+            d = json.loads(out[-1]) if out else {}
+            d.setdefault("running", False)
+            d["_via"] = "bridge-ctl"
+            return d
+        except Exception as e:
+            return {"running": False, "reason": f"status-failed: {e}", "_via": "bridge-ctl"}
+    pid = _read_pid_file(pid_path)
+    return {"running": bool(pid and pid_alive(pid)), "pid": pid,
+            "reason": "legacy-pid-check", "_via": "pid-file"}
+
+
+def bridge_stop(bin_path: str, pid_path: str) -> int:
+    """停止桥。契约优先(含身份校验, 非桥拒绝); 旧桥回退 kill 15→9。"""
+    if bridge_ctl_supported(bin_path):
+        try:
+            r = subprocess.run([bin_path, "--stop", "--pid-file", pid_path],
+                               capture_output=True, text=True, timeout=40)
+            for line in (r.stderr or "").strip().splitlines()[-2:]:
+                if line.strip():
+                    print(f"    {line.strip()}")
+            return r.returncode
+        except Exception as e:
+            print(f"    stop failed: {e}")
+            return 1
+    pid = _read_pid_file(pid_path)
+    if not pid or not pid_alive(pid):
+        return 0
+    print("    (旧桥无契约能力 → 回退 TERM/KILL; 建议升级桥到 >= 0.7.4)")
+    try:
+        os.kill(pid, 15)
+    except OSError:
+        pass
+    time.sleep(1)
+    if pid_alive(pid):
+        try:
+            os.kill(pid, 9)
+        except OSError:
+            pass
+    return 0
+
+
+def _read_pid_file(pid_path: str):
+    try:
+        with open(pid_path) as f:
+            return int(f.read().strip())
+    except Exception:
+        return None
+
+
+def pid_alive(pid: int) -> bool:
+    """进程存活探测(跨平台: unix=signal 0; windows=tasklist)。"""
+    try:
+        if os.name == "nt":
+            r = subprocess.run(["tasklist", "/FI", f"PID eq {pid}"], capture_output=True, text=True, timeout=10)
+            return str(pid) in (r.stdout or "")
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
 
 
 def is_readable_file(p) -> bool:

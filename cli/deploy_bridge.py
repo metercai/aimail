@@ -16,6 +16,9 @@ from gateway_api import create_api_key
 _AM_HOME = os.environ.get("AIMAIL_HOME") or os.path.expanduser("~/.aimail")
 
 
+from _common import bridge_ctl_supported, bridge_status, bridge_stop
+
+
 def log_step(msg: str):
     print(f"  {msg}")
 
@@ -221,25 +224,37 @@ def start_bridge(bin_path: str, cfg_path: str, pid_path: str) -> bool:
     因此: ① 按 pid 文件精确杀 ② pgrep -af 兜底列出全部 aimail-bridge
     进程按 PID 逐个 kill(不依赖模式匹配)③ 再启动。
     """
-    # 1) pid 文件精确杀
-    old_pid = -1
-    if os.path.exists(pid_path):
-        try:
-            old_pid = int(open(pid_path).read().strip())
-            os.kill(old_pid, 15)
+    # 2026-09-20 P2: 不再由 CLI 自己 kill 进程 —— 走桥的生命周期契约(--status/--stop)
+    # 契约能力不可用(旧桥 < 0.7.4)时回退旧行为(见下方 legacy 分支)。
+    ctl_ok = bridge_ctl_supported(bin_path)
+    if ctl_ok:
+        st = bridge_status(bin_path, pid_path)
+        if st.get("running"):
+            log_step(f"检测到已运行桥(pid={st.get('pid')}) → 优雅停止")
+            rc = bridge_stop(bin_path, pid_path)
+            if rc != 0:
+                # 停止失败绝不硬启: 双实例会双拉同一 pending ⇒ 重复投递(AUDIT-1 教训)
+                log_warn(f"桥停止失败(rc={rc}) → 放弃本次启动, 请先 `aimail-bridge --stop` 排查")
+                return False
+    else:
+        log_warn("桥二进制不支持生命周期契约(--status/--stop) → 回退旧清理逻辑; 建议升级桥到 >= 0.7.4")
+        old_pid = -1
+        if os.path.exists(pid_path):
             try:
-                os.waitpid(old_pid, 0)
-            except (ChildProcessError, OSError):
+                old_pid = int(open(pid_path).read().strip())
+                os.kill(old_pid, 15)
+                try:
+                    os.waitpid(old_pid, 0)
+                except (ChildProcessError, OSError):
+                    pass
+            except (ValueError, ProcessLookupError):
                 pass
-        except (ValueError, ProcessLookupError):
-            pass
-        time.sleep(1)
-        # 优雅关闭可能卡住(pull 循环阻塞)→ 复查强杀
-        try:
-            os.kill(old_pid, 0)  # 进程还存在?
-            os.kill(old_pid, 9)
-        except (ProcessLookupError, PermissionError):
-            pass
+            time.sleep(1)
+            try:
+                os.kill(old_pid, 0)
+                os.kill(old_pid, 9)
+            except (ProcessLookupError, PermissionError):
+                pass
 
     # 2) pgrep 兜底:列出 aimail-bridge 进程按 PID 杀(防模式漏杀)。
     # ⚠️ 精确匹配:必须匹配 bridge 二进制路径特征(--config 参数或
@@ -275,11 +290,26 @@ def start_bridge(bin_path: str, cfg_path: str, pid_path: str) -> bool:
         except OSError:
             pass
 
+    if ctl_ok:
+        # 桥自守护: --daemon 由**桥自己** fork 脱离并写 pid 文件(跨平台的正确做法,
+        # 取代原先 POSIX 专有的 start_new_session + CLI 代写 pid)
+        cmd = [bin_path, '-c', cfg_path, '--daemon', '--pid-file', pid_path]
+        try:
+            subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        except subprocess.TimeoutExpired:
+            log_warn("桥启动命令超时(仍继续探测状态)")
+        for _ in range(20):
+            time.sleep(0.5)
+            if bridge_status(bin_path, pid_path).get("running"):
+                return True
+        log_warn("桥启动后 10s 内未就绪(`aimail-bridge --status` 查)")
+        return False
+
     with open(os.devnull, 'w') as lf:
         proc = subprocess.Popen(
             [bin_path, '-c', cfg_path],
             stdout=lf, stderr=lf,
-            start_new_session=True  # daemonize
+            start_new_session=True  # legacy: 旧桥没有 --daemon 的 Windows 实现
         )
 
     time.sleep(1.5)
