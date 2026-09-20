@@ -9,17 +9,6 @@
 
 ---
 
-## Contents
-
-1. [Purpose & Scope](#1-purpose--scope)
-2. [Architecture & Local Layout](#2-architecture--local-layout)
-3. [Installation](#3-installation)
-4. [Day-to-day maintenance](#4-day-to-day-maintenance)
-5. [Quick Reference](#5-quick-reference)
-6. [Troubleshooting](#6-troubleshooting)
-
----
-
 ## 1. Purpose & Scope
 
 ### What the CLI is
@@ -123,9 +112,6 @@ host-side items remain.
 | `systems/{sid}/aimail_gateway.json` | gateway_url, admin_key, system_id, system_name, manager_address, system_home, domain, webhook_host (+ save_raw_snapshots / default_agent_name) | `install`/`reset` → setup_system.py; `repair` backfills `system_home`/`webhook_host` only |
 | `systems/{sid}/{addr}/agentmail.json` | 9 fields: email, gateway_url, domain, system_id, system_name, manager_address, api_key, webhook_url, webhook_secret | registration chain (register_profiles / register_agent / bind_agent) |
 | `bridge/aimail_bridge.toml` + `aimail_routes.toml` | pull systems + route table | deploy_bridge.py; `aimail bridge --system-id` |
-
-`system_home` in the gateway config is the **only** source of the platform
-label shown by `stats`.
 
 `aimail_gateway.json` (system level) fields:
 
