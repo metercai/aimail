@@ -1642,9 +1642,18 @@ BRIDGE_ADDR = "127.0.0.1:38081"
 
 
 def _bridge_pids() -> list[int]:
+    """运行中的桥进程 PID。
+
+    模式必须**锚定到可执行文件路径**(cmdline 以 `<...>/aimail-bridge` 开头),
+    不能用宽泛的 `aimail-bridge.*\\.toml` —— 后者会匹配到**任何命令里含该字符串的
+    进程**(2026-09-21 实测: 连跑 pgrep 的那个 shell 都被列进来), 后果是升级守卫误判
+    "仍在运行"而中止, 更糟的是 `_bridge_upgrade` 的 SIGKILL 会打到无关进程。
+    覆盖两种合法形态: 安装位 `~/.aimail/bridge/bin/aimail-bridge -c …` 与
+    测试构建 `…/target/debug/aimail-bridge -c …`(两者首 token 都以 aimail-bridge 结尾)。
+    """
     try:
         out = subprocess.check_output(
-            ["pgrep", "-f", r"aimail-bridge.*--config|aimail-bridge.*\.toml"],
+            ["pgrep", "-f", r"^[^ ]*/aimail-bridge( |$)"],
             text=True, timeout=5)
         return [int(l.strip()) for l in out.splitlines() if l.strip().isdigit()]
     except subprocess.CalledProcessError:
@@ -1761,7 +1770,11 @@ def _bridge_upgrade() -> int:
                         os.kill(int(p), 15)
                     except Exception:
                         pass
-                for _ in range(20):
+                # 桥对 SIGTERM 是**优雅**处理(排空在途任务后才退, 见 bridge main.rs),
+                # 且 pid 文件在**正常退出时被桥自己删除** ⇒ "运行中但 pid 文件已缺失"
+                # 是合法状态(此时契约 --stop 会报 no-pid-file), 故回退路径必须可靠:
+                # 先给足 10s 优雅窗口(长 backoff 中可能更久), 再按 PID 升级 SIGKILL。
+                for _ in range(40):
                     if not _bridge_pids():
                         break
                     time.sleep(0.25)
