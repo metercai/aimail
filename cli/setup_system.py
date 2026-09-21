@@ -82,13 +82,10 @@ def _downgrade_to_agent_admin_key(
         '@' — we bind the key to the manager address, which is the identity
         available at setup time.
     """
-    # 0) 先把**原始系统级 key** 落盘(文档承诺的 .system_raw_key 契约), 再降级 ——
-    #    否则降级替换 cfg 后系统级凭据就丢了。
-    _persist_system_raw_key(system_id, system_admin_key)
-
-    # 0b) 传入的 key 若已是 agent 级(复用路径下 cfg 里存的就是降级后的 key),
-    #     网关会以 "cannot create scopes at level 1 or above" 拒绝 —— 直接跳过,
-    #     免发无效请求、免打误导性"降级失败"告警。
+    # 0) 传入的 key 若已是 agent 级(复用路径下 cfg 里存的就是降级后的 key),
+    #    网关会以 "cannot create scopes at level 1 or above" 拒绝 —— 直接跳过,
+    #    免发无效请求、免打误导性"降级失败"告警。**必须在落盘之前判定**: 否则会把
+    #    agent key 误当成"原始系统 key"写进 .system_raw_key(污染该契约)
     try:
         me = whoami(gateway_url, system_admin_key, system_id)
         scopes = me.get("scopes") if isinstance(me, dict) else None
@@ -99,6 +96,10 @@ def _downgrade_to_agent_admin_key(
             return system_admin_key
     except Exception:
         pass  # whoami 不可用时不阻断: 继续按系统 key 处理
+
+    # 1) 先把**原始系统级 key** 落盘(文档承诺的 .system_raw_key 契约), 再降级 ——
+    #    否则降级替换 cfg 后系统级凭据就丢了。
+    _persist_system_raw_key(system_id, system_admin_key)
 
     result = create_api_key(
         gateway_url, system_admin_key, system_id,

@@ -62,6 +62,9 @@ def test_already_agent_scoped_key_skips_downgrade(monkeypatch, tmp_path):
     monkeypatch.setattr(ss, "whoami", lambda *a, **k: {"scopes": ["agent_admin"]})
     out = ss._downgrade_to_agent_admin_key("https://gw", "agentkey", "sid", "mgr@x.tm")
     assert out == "agentkey"
+    # 关键: agent key 不得被当成"原始系统 key"落盘(污染 .system_raw_key 契约)
+    raw = tmp_path / "home" / ".system_raw_key" / "sid_admin.key"
+    assert not raw.exists(), "已是 agent 级时不得写入 .system_raw_key"
 
 
 def test_failure_returns_system_key_and_warns_loudly(monkeypatch, tmp_path):
