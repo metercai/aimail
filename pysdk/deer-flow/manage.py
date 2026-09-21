@@ -340,6 +340,23 @@ def reconcile(system_id: str = "", manager: str = "", dry_run: bool = False) -> 
                     changes += 1
                 elif _activate_pending(agent_id, lc, system_id, gw):
                     changes += 1
+            # 铁律(2026-08-18 用户强调): 有 bridge 时每个 agent 都必须持有入站路由 ——
+            # 桥的健康检查会在目标连续不可达(默认 check_interval 30s × fail_threshold 6
+            # = 180s)后**正确删除**该路由, 删除后若无人补写则宿主恢复也永久断链
+            # (2026-09-21 生产实测)。hermes 适配层在 exists 路径同样会 upsert, 此处对齐
+            # (双端同型); 幂等, 失败仅告警不阻断。
+            if not dry_run:
+                wu = str(lc.get("webhook_url") or "").strip()
+                if not wu:
+                    inbound_base = os.environ.get("DEERFLOW_INBOUND_URL", "http://127.0.0.1:8001")
+                    wu = inbound_base.rstrip("/") + "/aimail/inbound"
+                em = str(lc.get("email") or "").strip()
+                if em and wu:
+                    try:
+                        _core.register_bridge_route(system_id, em, gw, wu)
+                    except Exception as e:
+                        print(f"  ! bridge route upsert failed for {agent_id}: {e}",
+                              file=sys.stderr)
             continue
         if dry_run:
             print(f"  [dry] would register {agent_id}")
