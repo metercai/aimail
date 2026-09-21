@@ -279,13 +279,34 @@ deep · `-r` restart · `-k` admin-key · `-y` yes. Long names never change.
 
 ## 5. Quick Reference
 
-Subcommands grouped by scenario (`aimail --help` shows this):
+Subcommands grouped by scenario (`aimail --help` shows this), one line each:
 
 ```
-setup      install  ensure-system  uninstall  reset
-operate    stats  renew  version
-diagnose   check  repair  ping  welcome  persona
-resources  domain  address  bridge
+setup      machine prep and platform integration
+  install         integrate a platform, activating or reusing a system (code / admin key)
+  uninstall       remove the integration (idempotent)
+  reset           re-reset connection config of an activated system (no re-activation)
+
+operate    daily status and lifecycle, plus exams and fixes
+  stats           machine integration overview (systems / addresses / mail, health tags)
+  renew           renew a system with a code, or show expiry read-only
+  version         show CLI / bootstrap version (which program copy you are running)
+  check           full health exam: config files -> runtime resources -> links
+  repair          apply the idempotent fix ladder for check findings, then re-check
+  ping            end-to-end ping-pong delivery test (manager <-> agent)
+  welcome         welcome-email end-to-end acceptance (API mode by default)
+
+identity   agent identity card
+  persona         trigger the persona draft loop: manager sends "update persona", agent replies
+
+resources  system-scoped resources
+  domain          list / create domains owned by a system
+  address         view / maintain system agent addresses (default name / rename / set manager)
+  bridge          local bridge: status / refresh routes / restart / upgrade
+
+sdk        machine-facing ABI invoked by SDK installers, not by hand
+  ensure-system   (SDK ABI) ensure a system exists for a host root — L1 activation/reuse only
+  payload         runtime payload: install | dir | resource | source
 ```
 
 Platform feature detection (order): `pi` (~/.pi + agent/) → `dsh`

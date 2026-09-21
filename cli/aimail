@@ -2482,9 +2482,10 @@ def main():
         epilog="""
 scenario groups:
   setup      machine prep and platform integration: install / uninstall / reset
-  operate    daily status and lifecycle: stats / renew / version
-  diagnose   exams and fixes when something is wrong: check / repair / ping / welcome / persona
+  operate    daily status, lifecycle, exams and fixes: stats / renew / version / check / repair / ping / welcome
+  identity   agent identity card, manager-driven initialize / refresh: persona
   resources  system-scoped resources: domain / address / bridge
+  sdk        machine-facing ABI invoked by SDK installers, not by hand: ensure-system / payload
 """)
     sub = ap.add_subparsers(dest="command", required=True, metavar="<command>")
 
