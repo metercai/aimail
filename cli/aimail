@@ -1765,6 +1765,18 @@ def _bridge_upgrade() -> int:
                     if not _bridge_pids():
                         break
                     time.sleep(0.25)
+                # 桥对 SIGTERM 是**优雅**处理(排空在途任务后才退, 见 bridge main.rs),
+                # 长 backoff 中可能超过 5s ⇒ 按 deploy_bridge 旧路径的先例升级到 SIGKILL
+                # (pending 未 ACK 最多导致一次重复投递, 优于卡住升级)。
+                for p in _bridge_pids():
+                    try:
+                        os.kill(int(p), 9)
+                    except Exception:
+                        pass
+                for _ in range(20):
+                    if not _bridge_pids():
+                        break
+                    time.sleep(0.25)
             if _bridge_pids():
                 _fail("桥仍在运行, 中止升级(避免替换出双实例)")
                 return 1
