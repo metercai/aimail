@@ -35,17 +35,34 @@ def _downgrade_to_agent_admin_key(
     gateway_url: str, system_admin_key: str, system_id: str,
     manager_address: str,
 ) -> str:
-    """Create agent_admin key and replace admin_key in gateway config.
-    Returns the agent_admin key on success, or the original key on failure.
+    """Create an agent-admin-scoped key and replace admin_key in gateway config.
+    Returns the agent-admin key on success, or the original key on failure.
+
+    Contract note (fixed 2026-09-21, verified against the gateway source
+    `core/api/keys.rs:76-119` and against both a local advanced build and
+    production):
+      * the gateway's allowed ``category`` values are
+        ``platform | system | domain | agent | bridge`` — ``agent_admin`` is a
+        **scope**, not a category. Passing it as the category made the call
+        fail with ``invalid_category unknown category: agent_admin`` on every
+        install, so the setup silently kept the far more privileged *system*
+        key (the intended least-privilege downgrade never happened).
+      * ``category="agent"`` additionally requires ``email_address`` to contain
+        '@' — we bind the key to the manager address, which is the identity
+        available at setup time.
     """
     result = create_api_key(
         gateway_url, system_admin_key, system_id,
-        manager_address, ["agent_admin"], "agent_admin",
+        manager_address, ["agent_admin"], "agent",
     )
     raw = result.get("raw_key", "")
     if not raw:
-        logger.warning(
-            "[aimail_setup] Failed to create agent_admin key: %s %s — keeping system key",
+        # 高可见: 降级会**放大权限**(agent 侧改用系统级 key), 不能只当普通 warning
+        logger.error(
+            "[aimail_setup] agent_admin key NOT created (%s %s) — "
+            "FALLING BACK TO SYSTEM KEY: the agent runtime keeps system-level "
+            "privileges instead of the intended least-privilege scope. "
+            "Re-run `aimail repair` / install once the gateway accepts it.",
             result.get("error", ""), result.get("detail", ""),
         )
         return system_admin_key
