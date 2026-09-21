@@ -33,11 +33,15 @@ import send_welcome as _sw  # noqa: E402
 
 SUBJECT = "update persona"
 
+# ⚠ 正文**不得含**网关 manager 指令触发词("approve persona" / "批准角色", 及
+# "add … to my contacts" / "remove … from contacts") —— handle_manager_commands
+# 对入站 body 做子串匹配, 命中即把本邮件当 manager 批准指令**消费掉**:
+# 不投递 agent, 且把正文里的 persona:/signature: 行写进 domain_addr_meta。
+# 本邮件是"请求归纳"不是"批准", 故只给回复格式(不带触发词字面量)。
 BODY = """请根据你的 SOUL 与已加载 skills,归纳你的角色自述(persona)与签名(signature)草案。
 
-回复格式(可直接修改内容后发回,我会以 approve persona 指令批准生效):
+请按下面格式回复(可直接修改内容后发回,我会审阅后批准生效):
 
-approve persona
 persona: <角色自述,1-3 句,对外介绍你是谁、能做什么>
 signature: <出站邮件签名>
 """
@@ -118,11 +122,18 @@ def main() -> int:
     print(f"  To:          {recipient}")
     print(f"  Subject:     {SUBJECT}")
 
-    resp = _sw._smtp_send(gw_url, ak, recipient, manager, edition, SUBJECT, BODY)
+    # 网关对 DATA 做 envelope/头部收件人一致性校验: MAIL FROM 是 auth.local(或 manager),
+    # 头部 To 必须与 RCPT 一致, 且必须带 From/To/Subject/Message-ID 头(ping 同款)。
+    # _smtp_send 的 subject 参数不进 DATA, 故头由调用方拼进 body。
+    import time as _time
+    msg_id = f"<persona-{int(_time.time())}@{recipient.split('@')[-1]}>"
+    full_body = (f"From: {manager}\nTo: {recipient}\n"
+                 f"Subject: {SUBJECT}\nMessage-ID: {msg_id}\n\n{BODY}")
+    resp = _sw._smtp_send(gw_url, ak, recipient, manager, edition, SUBJECT, full_body)
     # base 版回落:auth.local 前缀会被当普通发件人拒(550),回落 manager 直发
     if not resp.startswith("250") and edition == "advanced":
         print(f"  ⚠ auth.local 发送失败({resp[:50]}),回落 base 白名单直发")
-        resp = _sw._smtp_send(gw_url, ak, recipient, manager, "base", SUBJECT, BODY)
+        resp = _sw._smtp_send(gw_url, ak, recipient, manager, "base", SUBJECT, full_body)
     if not resp.startswith("250"):
         print(f"✗ SMTP send failed: {resp}")
         return 1
