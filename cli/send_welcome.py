@@ -391,11 +391,10 @@ This confirms: ✓ SMTP inbound  ✓ Webhook delivery  ✓ Agent processing  ✓
     return 1
 
 
-if __name__ == "__main__":
-    sys.exit(main())
-
-
-
 def _detect_edition(gateway_url: str) -> str:
     """探测失败默认 base。"""
     return _detect_edition_raw(gateway_url, "base")
+
+
+if __name__ == "__main__":
+    sys.exit(main())

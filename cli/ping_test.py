@@ -331,11 +331,10 @@ def main() -> int:
     return 0
 
 
-if __name__ == "__main__":
-    sys.exit(main())
-
-
-
 def _detect_edition(gateway_url: str) -> str:
     """探测失败默认 advanced（按 auth.local 认证发送；base 版由白名单直发兜底）。"""
     return _detect_edition_raw(gateway_url, "advanced")
+
+
+if __name__ == "__main__":
+    sys.exit(main())
