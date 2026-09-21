@@ -1668,6 +1668,26 @@ def _read_routes() -> dict:
     return routes
 
 
+def _target_to_route_fields(target: str) -> tuple[str, int]:
+    """把接收端 URL 规范成桥 admin API 的 {host, port} 字段。
+
+    铁律: host 必须是**完整 URL**(含 scheme 与路径) —— 桥对含 "://" 的 host 走
+    `ProfileRoute::from_url`(URL 保真, 自定义路径如 pi 的 /aimail/inbound 不丢);
+    传裸 host:port 则走 `ProfileRoute::new`, 桥会套用默认路径
+    /webhooks/aimail-inbound 并把 host 当字面量, 生成 http://host:port:80/... 这类
+    非法目标(2026-09-21 实测: 重刷把 127.0.0.1:9101 写成 127.0.0.1:9101:80 ⇒ 投递静默断)。
+    裸 host:port 仅在无 URL 可用时兜底: 拆成两字段, 由桥按默认路径拼接。
+    """
+    t = (target or "").strip()
+    if "://" in t:
+        return t, 80
+    if ":" in t:
+        h, _, p = t.rpartition(":")
+        if h and p.isdigit():
+            return h, int(p)
+    return t, 80
+
+
 def cmd_bridge(args) -> int:
     """bridge 维护:状态查看 / 按系统重刷转发路由 / 重启。"""
     pids = _bridge_pids()
@@ -1759,12 +1779,16 @@ def cmd_bridge(args) -> int:
             continue
         target = recv_url
         old = routes.get(email)
+        host, port = _target_to_route_fields(target)
         try:
-            # host=完整 URL、port 恒 80:bridge router 对含 "://" 的 host 走
-            # from_url(URL 保真解析,port 不参与)——port 占位仅为过必填校验
+            # host 传**完整 URL**(含 scheme 与平台真实路径)时, 桥走 from_url, URL 保真、
+            # 路径不丢; 传裸 host:port 会让桥套用默认路径 /webhooks/aimail-inbound 并把
+            # host 当字面量 ⇒ 生成 http://host:port:80/... 这类非法目标(2026-09-21 实测:
+            # 重刷把 "127.0.0.1:9101" 写成 "127.0.0.1:9101:80", 投递静默断而 CLI 报
+            # "unchanged")。port 仅为过必填校验。
             req = urllib.request.Request(
                 f"http://{BRIDGE_ADDR}/api/v1/routes",
-                data=json.dumps({"email": email, "host": target, "port": 80}).encode(),
+                data=json.dumps({"email": email, "host": host, "port": port}).encode(),
                 headers={"Content-Type": "application/json"},
                 method="POST")
             with urllib.request.urlopen(req, timeout=5):
@@ -1808,14 +1832,17 @@ def _system_agents(sid: str) -> list[tuple[str, str]]:
                 continue
         except Exception:
             continue
-        # 接收端 URL 由平台决定:Hermes=webhook 端口,OpenClaw=/hook 接收端
-        # 优先读已有路由表(幂等),否则按平台默认
-        existing = routes.get(email)
-        if existing:
-            result.append((email, existing))
-            continue
-        # 从系统配置推断接收端
-        result.append((email, _default_recv_url(sid, email)))
+        # 接收端 URL: **优先 agentmail.json 的 webhook_url**(全 URL, 唯一信任源,
+        # 含平台真实路径)—— 回读路由表会把桥已渲染的 host:port 再当 host 回传,
+        # 叠加桥默认路径后目标非法(2026-09-21 实测投递静默断)。旧路由仅作兜底。
+        wu = ""
+        try:
+            aj_x = SYSTEMS_DIR / sid / _addr_clean(email) / "agentmail.json"
+            if _is_readable_file(aj_x):
+                wu = json.loads(aj_x.read_text()).get("webhook_url", "") or ""
+        except Exception:
+            wu = ""
+        result.append((email, wu or routes.get(email) or _default_recv_url(sid, email)))
     return result
 
 
