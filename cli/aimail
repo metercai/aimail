@@ -969,7 +969,7 @@ def cmd_reset(args) -> int:
     r = subprocess.call([sys.executable, str(SCRIPTS_DIR / "setup_system.py")], env=env)
     if r != 0:
         _fail("setup_system(reset) 失败")
-    _ok("config parameters reset (admin-key path, key untouched)")
+    _ok("config parameters reset (admin-key path; least-privilege key re-derived)")
 
     # 平台注册链幂等重跑(配置补全)——注册表驱动;注册失败不阻断 reset
     # (尽力语义)。--all-agents → 平台 register_all(SDK 全量入口);

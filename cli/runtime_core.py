@@ -243,14 +243,36 @@ def system_home_from_sid(sid: str, aimail_home=None) -> str:
 
 
 def sid_from_system_home(system_home: str, aimail_home=None) -> str:
-    """home → 归属系统:扫描全部 systems/*/ 配置,匹配且唯一 → 该 sid;
-    零或多个 → ''(不猜)。"""
+    """home → 归属系统:平台自己写的指针 ``{home}/.agentmail`` **优先**(权威),
+    再退回扫描 systems/*/ 配置(匹配且唯一 → 该 sid;零或多个 → ''(不猜))。
+
+    指针优先的理由(2026-09-21 生产实证):同一个平台根会被**多个**系统声明 ——
+    换系统重装不会自动放开旧系统的 ``system_home``,e2e 夹具(sdk-e2e.local)
+    又长期占着同一个 home。纯扫描于是把"唯一"判成"歧义 → 空",
+    ``aimail ensure-system -H <home>`` 便回落到 .env 里那枚**已消耗**的激活码,
+    报出误导性的 "Invalid activation code",宿主插件(dsh/pi)再打印
+    "no aimail system yet" —— 真因只是归属判定不够权威;平台根的 .agentmail
+    才是平台自己对"我绑的是哪个系统"的声明。
+    """
     import pathlib
+
+    target = _norm_home(system_home)
+    if not target:
+        return ""
+
+    # 1) 平台指针(权威)。指针指向的系统必须在本机有配置,否则视为陈旧指针,
+    #    退回扫描(不返回指向不存在系统的 sid)。
+    ptr = pathlib.Path(target) / ".agentmail"
+    if ptr.is_file():
+        sid = _read_ptr_sid(ptr)
+        if sid and _has_local_system(sid, aimail_home):
+            return sid
+
+    # 2) 退回扫描 systems/*/ 配置
     ah = _resolve_aimail_home(aimail_home)
     systems = pathlib.Path(ah).expanduser() / "systems"
-    target = _norm_home(system_home)
     found = ""
-    if not systems.is_dir() or not target:
+    if not systems.is_dir():
         return ""
     for d in sorted(systems.iterdir()):
         if not (d.is_dir() and (d / "aimail_gateway.json").is_file()):
@@ -260,6 +282,13 @@ def sid_from_system_home(system_home: str, aimail_home=None) -> str:
                 return ""
             found = d.name
     return found
+
+
+def _has_local_system(sid: str, aimail_home=None) -> bool:
+    """该 sid 在本机是否有系统配置(指针有效性检查)。"""
+    import pathlib
+    ah = _resolve_aimail_home(aimail_home)
+    return (pathlib.Path(ah).expanduser() / "systems" / sid / "aimail_gateway.json").is_file()
 
 
 def parse_setup_stdout(out: str) -> dict:

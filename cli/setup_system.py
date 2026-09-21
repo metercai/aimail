@@ -62,64 +62,95 @@ def _persist_system_raw_key(system_id: str, key: str) -> None:
         logger.warning("[aimail_setup] failed to persist raw system key: %s", e)
 
 
-def _downgrade_to_agent_admin_key(
+def _downgrade_to_domain_admin_key(
     gateway_url: str, system_admin_key: str, system_id: str,
-    manager_address: str,
+    domain: str,
 ) -> str:
-    """Create an agent-admin-scoped key and replace admin_key in gateway config.
-    Returns the agent-admin key on success, or the original key on failure.
+    """Create a DOMAIN-scoped admin key and replace admin_key in gateway config.
+    Returns the new key on success, or the original key on failure.
 
-    Contract note (fixed 2026-09-21, verified against the gateway source
-    `core/api/keys.rs:76-119` and against both a local advanced build and
-    production):
-      * the gateway's allowed ``category`` values are
-        ``platform | system | domain | agent | bridge`` — ``agent_admin`` is a
-        **scope**, not a category. Passing it as the category made the call
-        fail with ``invalid_category unknown category: agent_admin`` on every
-        install, so the setup silently kept the far more privileged *system*
-        key (the intended least-privilege downgrade never happened).
-      * ``category="agent"`` additionally requires ``email_address`` to contain
-        '@' — we bind the key to the manager address, which is the identity
-        available at setup time.
+    Contract (2026-09-21, replaces the manager-bound ``agent``-category key).
+    The agent runtime MUST be able to register its own addresses, and the
+    gateway's ``POST /api/v1/admin/systems/{sid}/addresses`` requires
+    ``scope IN (system, agent_admin)`` **and** passes
+    ``require_domain_match(key, <bare domain>)`` (``core/api/auth.rs``
+    ``check_domain_access``). A key whose ``email_address`` is the *manager's*
+    address — outside the system's domain — is therefore rejected with
+    ``403 "API key email '…' does not match target '…' — cross-address access
+    denied"``, so **no address could ever be registered** (production
+    regression, found 2026-09-21: every registration after an install 403'd).
+
+    The shape the gateway documents for exactly this job is the domain-category
+    key: ``core/api/keys.rs`` — "EXCEPTION: domain-category keys (bare domain
+    email) may carry system scope for domain-level administration", and a
+    system-level key (empty email) may de-escalate to one
+    (``is_system_to_domain``). It keeps the least-privilege intent: the identity
+    is narrowed to one bare domain and the key cannot mint system/platform keys
+    (``create_api_key`` level rule).
+
+    Notes:
+      * a system with no domain has nothing to narrow to → keep the system key
+        and say so (this shape needs a bare domain);
+      * ``whoami`` is consulted first when the gateway answers: an agent-level
+        key cannot be downgraded, and an already domain-scoped key MUST NOT be
+        re-created (same-level creation is rejected by the gateway).
     """
-    # 0) 传入的 key 若已是 agent 级(复用路径下 cfg 里存的就是降级后的 key), 网关会以
+    # 0) 传入的 key 若已是受限级(复用路径下 cfg 里存的就是降级后的 key), 网关会以
     #    "cannot create scopes at level 1 or above" 拒绝 —— 这不是失败, 而是"无需
     #    降级"。用 whoami 预检 + 错误文本双判(whoami 对某些 key/identity 组合可能
     #    取不到作用域, 故以错误文本为准, 保证判定确定)。
     try:
         me = whoami(gateway_url, system_admin_key, system_id)
         scopes = me.get("scopes") if isinstance(me, dict) else None
-        if isinstance(scopes, list) and scopes and all(
-                s in ("agent", "agent_admin") for s in scopes):
-            logger.info("[aimail_setup] key already agent-scoped (%s) — downgrade not needed",
-                        ",".join(scopes))
-            return system_admin_key
+        if isinstance(scopes, list) and scopes:
+            low = [str(s).lower() for s in scopes]
+            if all(s in ("agent", "agent_admin") for s in low):
+                logger.info("[aimail_setup] key already agent-scoped (%s) — downgrade not needed",
+                            ",".join(scopes))
+                return system_admin_key
+            _email = str(me.get("email") or "")
+            if "system" in low and _email and "@" not in _email and _email == domain:
+                logger.info("[aimail_setup] key already domain-scoped (%s) — downgrade not needed",
+                            _email)
+                return system_admin_key
     except Exception:
         pass
 
+    if not domain:
+        # 没有域可收窄 ⇒ 无法造 domain 形 key;保留系统级 key(不降级)并说明,
+        # 不制造"看起来降级了、实则域外身份"的坏 key。
+        logger.info(
+            "[aimail_setup] system %s has no domain — skipping the least-privilege "
+            "downgrade (the domain-category key needs the bare domain); "
+            "the config keeps the system-level key", system_id,
+        )
+        return system_admin_key
+
     result = create_api_key(
         gateway_url, system_admin_key, system_id,
-        manager_address, ["agent_admin"], "agent",
+        domain, ["system"], "domain",
     )
     raw = result.get("raw_key", "")
     if not raw:
         err = f"{result.get('error', '')} {result.get('detail', '')}".lower()
         if "privilege level" in err or "at or above" in err:
-            # 传入的 key 本身就是 agent 级 ⇒ 无需降级, 更**不得**把它当成系统 key 落盘
-            logger.info("[aimail_setup] key already agent-scoped — downgrade not needed")
+            # 传入的 key 本身就是受限级 ⇒ 无需降级, 更**不得**把它当成系统 key 落盘
+            logger.info("[aimail_setup] key already agent/domain-scoped — downgrade not needed")
             return system_admin_key
-        # 高可见: 降级会**放大权限**(agent 侧改用系统级 key), 不能只当普通 warning
+        # 高可见: 降级失败会**放大权限**(agent 侧继续用系统级 key), 不能只当普通 warning。
+        # 注意此时功能仍可用: 系统级 key 不受域匹配限制, 注册/管理操作照旧(只是没收到最小权限)。
         logger.error(
-            "[aimail_setup] agent_admin key NOT created (%s %s) — "
+            "[aimail_setup] domain-scoped key NOT created (%s %s) — "
             "FALLING BACK TO SYSTEM KEY: the agent runtime keeps system-level "
-            "privileges instead of the intended least-privilege scope. "
+            "privileges instead of the intended least-privilege scope "
+            "(registration still works — a system key is unrestricted). "
             "Re-run `aimail repair` / install once the gateway accepts it.",
             result.get("error", ""), result.get("detail", ""),
         )
         return system_admin_key
 
     # 1) 降级**成功**才落盘原始系统 key(cli/README.md:121 契约)。放在成功分支里
-    #    是刻意的: 失败/无需降级时不会把 agent key 误当系统 key 写进 .system_raw_key。
+    #    是刻意的: 失败/无需降级时不会把受限 key 误当系统 key 写进 .system_raw_key。
     _persist_system_raw_key(system_id, system_admin_key)
 
     # Replace in config file
@@ -130,7 +161,7 @@ def _downgrade_to_agent_admin_key(
         cfg["admin_key"] = raw
         with open(cfg_path, "w") as f:
             json.dump(cfg, f, indent=2)
-    logger.info("[aimail_setup] agent_admin key created and saved")
+    logger.info("[aimail_setup] domain-scoped admin key created and saved (domain=%s)", domain)
     return raw
 
 
@@ -369,9 +400,10 @@ def init_system(
         system_home=system_home,
     )
     logger.info("[aimail_setup] Gateway config saved to %s", gateway_config_path())
-    # Downgrade to agent_admin key
-    agent_key = _downgrade_to_agent_admin_key(
-        gateway_url, admin_key, created_system_id, manager_address,
+    # Downgrade to the least-privilege DOMAIN-scoped key — see
+    # _downgrade_to_domain_admin_key for why the identity must be the domain.
+    agent_key = _downgrade_to_domain_admin_key(
+        gateway_url, admin_key, created_system_id, created_domain,
     )
     return {
         "success": True,
@@ -471,8 +503,12 @@ def setup(
                 _p.write_text(json.dumps(_cfg, indent=2, ensure_ascii=False))
         except Exception:
             pass
-        agent_key = _downgrade_to_agent_admin_key(
-            gateway_url, admin_key, system_id, manager_address,
+        # Least-privilege domain-scoped key; the identity is the bare domain
+        # (explicit arg, else the config being reused) — see
+        # _downgrade_to_domain_admin_key for why the manager address is wrong.
+        agent_key = _downgrade_to_domain_admin_key(
+            gateway_url, admin_key, system_id,
+            domain or prev.get("domain", ""),
         )
         return {"success": True, "system_id": system_id, "path": "admin_key", "admin_key": agent_key}
 

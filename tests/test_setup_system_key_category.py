@@ -1,21 +1,33 @@
-"""CLI↔网关 key 类别/落盘契约回归（2026-09-21 生产实测发现）。
+"""CLI↔网关 key 类别/落盘契约回归（2026-09-21 生产实测发现，同日修正）。
 
-P1: `_downgrade_to_agent_admin_key` 曾把 **scope 名**当 **category** 传
-    (`category="agent_admin"`) —— 网关只接受 `platform|system|domain|agent|bridge`,
-    该调用在生产与本地 advanced 上**必然**失败, setup 于是静默保留权限更大的
+P1（第一次）: `_downgrade_to_*` 曾把 **scope 名**当 **category** 传
+    (`category="agent_admin"`) —— 网关只接受 `platform|system|domain|agent|bridge`，
+    该调用在生产与本地 advanced 上**必然**失败，setup 于是静默保留权限更大的
     system key（最小权限降级从未发生）。
 
-P2: cli/README.md:121 承诺"原始 key 存 .system_raw_key/{sid}_admin.key", 但
-    激活+降级路径**没实现**; 更糟的是"传入的已是 agent 级 key"(复用路径)会被误判成
-    降级失败并可能把 agent key 当系统 key 落盘, 污染该契约。
+P1（第二次，修正后生产复现）: 改成 `category="agent"` + `email_address=manager`
+    虽然"降级成功了"，但 manager 地址在**系统域外** ⇒ 网关
+    `POST /admin/systems/{sid}/addresses` 内 `require_domain_match(key, <裸域>)`
+    (`core/api/auth.rs:check_domain_access`) 恒拒：
+    `403 API key email '…' does not match target '…' — cross-address access denied`
+    ⇒ **任何地址注册都做不了**（register-cli / SDK `register_email` 全废）。
+    正确形态 = 网关 `keys.rs` 明文支持的 **domain 类**：`category="domain"` +
+    `email_address=<裸域>` + `scopes=["system"]`（system key 可降级为"单域"，
+    `is_system_to_domain`）；身份收窄到一个裸域、且造不出 system/platform 级 key。
 
-锁五件事:
-  1. category 必须是 `agent`, scopes 仍是 ["agent_admin"]
+P2: cli/README.md:121 承诺"原始 key 存 .system_raw_key/{sid}_admin.key"，但
+    激活+降级路径**没实现**；更糟的是"传入的已是受限 key"（复用路径）会被误判成
+    降级失败并可能把受限 key 当系统 key 落盘，污染该契约。
+
+锁六件事：
+  1. category 必须是 `domain`，scopes 必须是 `["system"]`，email **是裸域**(无 '@')
   2. 降级**成功**后才把原始系统 key 落盘(0600)
-  3. 传入的 key 已是 agent 级(网关报 privilege level) → 视为"无需降级": 返原 key,
+  3. 传入的 key 已是 agent 级(网关报 privilege level) → 视为"无需降级": 返原 key，
      **不落盘**、**不打 error**
-  4. 其他真失败 → 优雅降级(返原 key) + error 级告警(提权不可静默) + 不落盘
-  5. whoami 预检可用时同样跳过降级
+  4. 传入的 key 已是本域 domain key(whoami 可读) → 同样跳过，**不重复造 key**
+     （同级别创建会被网关拒）
+  5. 无域可用 → 不发 create_api_key、保留系统级 key（不制造域外身份的坏 key）
+  6. 其他真失败 → 优雅降级(返原 key) + error 级告警(提权不可静默) + 不落盘
 """
 import json
 import logging
@@ -42,21 +54,24 @@ def _raw(tmp_path, sid="shared-default-abc"):
     return tmp_path / "home" / ".system_raw_key" / f"{sid}_admin.key"
 
 
-def test_category_is_agent_and_raw_key_persisted_on_success(monkeypatch, tmp_path):
+def test_category_is_domain_with_bare_domain_identity(monkeypatch, tmp_path):
     _env(monkeypatch, tmp_path)
     seen = {}
 
     def fake_create(gw, ak, system_id, email, scopes, category):
         seen.update(scopes=scopes, category=category, email=email)
-        return {"raw_key": "agentkey", "status": 200}
+        return {"raw_key": "domainkey", "status": 200}
 
     monkeypatch.setattr(ss, "create_api_key", fake_create)
     cfg = _cfg(monkeypatch, tmp_path)
-    out = ss._downgrade_to_agent_admin_key("https://gw", "syskey", "shared-default-abc", "mgr@x.tm")
+    out = ss._downgrade_to_domain_admin_key(
+        "https://gw", "syskey", "shared-default-abc", "aimail.token.tm")
 
-    assert seen["category"] == "agent", "网关只接受 platform|system|domain|agent|bridge"
-    assert seen["scopes"] == ["agent_admin"] and "@" in seen["email"]
-    assert out == "agentkey" and json.loads(cfg.read_text())["admin_key"] == "agentkey"
+    assert seen["category"] == "domain", "网关只接受 platform|system|domain|agent|bridge"
+    assert seen["scopes"] == ["system"], "domain 类 key 靠 system scope 才有域级管理权"
+    # 身份必须是**裸域**: 带 '@' 的域外身份会被 require_domain_match 拒(403)
+    assert seen["email"] == "aimail.token.tm" and "@" not in seen["email"]
+    assert out == "domainkey" and json.loads(cfg.read_text())["admin_key"] == "domainkey"
     raw = _raw(tmp_path)
     assert raw.is_file() and raw.read_text().strip() == "syskey"
     assert stat.S_IMODE(raw.stat().st_mode) == 0o600
@@ -76,7 +91,8 @@ def test_already_agent_scoped_is_not_a_failure_and_not_persisted(monkeypatch, tm
         def emit(self, record): records.append(record)
     ss.logger.addHandler(_H()); ss.logger.setLevel(logging.DEBUG)
 
-    out = ss._downgrade_to_agent_admin_key("https://gw", "agentkey", "shared-default-abc", "mgr@x.tm")
+    out = ss._downgrade_to_domain_admin_key(
+        "https://gw", "agentkey", "shared-default-abc", "aimail.token.tm")
 
     assert out == "agentkey"
     assert not _raw(tmp_path).exists(), "无需降级时不得写 .system_raw_key"
@@ -94,19 +110,51 @@ def test_real_failure_keeps_system_key_warns_loudly_and_does_not_persist(monkeyp
         def emit(self, record): records.append(record)
     ss.logger.addHandler(_H()); ss.logger.setLevel(logging.DEBUG)
 
-    out = ss._downgrade_to_agent_admin_key("https://gw", "syskey", "shared-default-abc", "mgr@x.tm")
+    out = ss._downgrade_to_domain_admin_key(
+        "https://gw", "syskey", "shared-default-abc", "aimail.token.tm")
 
     assert out == "syskey"                                   # 优雅降级: 功能可用
     assert any(r.levelno >= logging.ERROR for r in records)   # 提权降级必须 error
     assert not _raw(tmp_path).exists()                        # 未成功不落盘
 
 
-def test_whoami_precheck_skips_downgrade(monkeypatch, tmp_path):
+def test_whoami_precheck_skips_downgrade_for_agent_key(monkeypatch, tmp_path):
     _env(monkeypatch, tmp_path)
     monkeypatch.setattr(ss, "whoami", lambda *a, **k: {"scopes": ["agent_admin"]})
 
     def _boom(*a, **k):
-        raise AssertionError("whoami 已判明是 agent 级, 不应再发 create_api_key")
+        raise AssertionError("whoami 已判明是受限级, 不应再发 create_api_key")
     monkeypatch.setattr(ss, "create_api_key", _boom)
-    out = ss._downgrade_to_agent_admin_key("https://gw", "agentkey", "shared-default-abc", "mgr@x.tm")
+    out = ss._downgrade_to_domain_admin_key(
+        "https://gw", "agentkey", "shared-default-abc", "aimail.token.tm")
     assert out == "agentkey" and not _raw(tmp_path).exists()
+
+
+def test_whoami_precheck_skips_when_already_domain_scoped(monkeypatch, tmp_path):
+    """已是本域 domain key(whoami 报 system scope + 裸域 email) ⇒ 不重复造 key。
+
+    同级别创建会被网关拒("Cannot create key at or above your privilege level"),
+    每次 reset/repair 都重试会刷 error 日志且造成 key 轮换。
+    """
+    _env(monkeypatch, tmp_path)
+    monkeypatch.setattr(ss, "whoami",
+                        lambda *a, **k: {"scopes": ["system"], "email": "aimail.token.tm"})
+
+    def _boom(*a, **k):
+        raise AssertionError("已是最小权限形态, 不应再发 create_api_key")
+    monkeypatch.setattr(ss, "create_api_key", _boom)
+    out = ss._downgrade_to_domain_admin_key(
+        "https://gw", "domainkey", "shared-default-abc", "aimail.token.tm")
+    assert out == "domainkey" and not _raw(tmp_path).exists()
+
+
+def test_no_domain_keeps_system_key_without_creating_anything(monkeypatch, tmp_path):
+    """没有域可收窄(本地/无域系统) ⇒ 不发 create_api_key, 保留系统级 key。"""
+    _env(monkeypatch, tmp_path)
+
+    def _boom(*a, **k):
+        raise AssertionError("无域时不应造 domain key")
+    monkeypatch.setattr(ss, "create_api_key", _boom)
+    _cfg(monkeypatch, tmp_path)
+    out = ss._downgrade_to_domain_admin_key("https://gw", "syskey", "shared-default-abc", "")
+    assert out == "syskey" and not _raw(tmp_path).exists()

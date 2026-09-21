@@ -102,7 +102,7 @@ aimail repair       →  按 check 发现执行幂等修复阶梯
 | 字段                   | 含义                                                                              |
 | -------------------- | ------------------------------------------------------------------------------- |
 | gateway\_url         | 网关地址;回环地址 = 本机直推,否则入站经 bridge                                                   |
-| admin\_key           | 系统级凭据:安装时派生 agent\_admin 受限 key 落盘,原始 key 存 `.system_raw_key/{sid}_admin.key`   |
+| admin\_key           | 系统级凭据:安装时派生受限的 domain 级 key(category `domain`、身份=本系统裸域、scope `system`)落盘,原始系统 key 存 `.system_raw_key/{sid}_admin.key`   |
 | system\_id           | 系统标识(SID)                                                                       |
 | system\_name         | 系统名;共享域下是 agent 地址前缀的来源                                                         |
 | manager\_address     | 系统默认安全员地址                                                                       |

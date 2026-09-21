@@ -118,7 +118,7 @@ host-side items remain.
 | Field | Meaning |
 |-------|---------|
 | gateway_url | gateway address; a loopback address means direct local push, otherwise inbound goes through the bridge |
-| admin_key | system-level credential: install derives a restricted agent_admin key and stores it here; the raw key stays at `.system_raw_key/{sid}_admin.key` |
+| admin_key | system-level credential: install derives a restricted domain-scoped key (category `domain`, identity = the system's bare domain, scope `system`) and stores it here; the raw system key stays at `.system_raw_key/{sid}_admin.key` |
 | system_id | system identifier (SID) |
 | system_name | system name; the source of the agent address prefix on shared domains |
 | manager_address | default manager address of the system |

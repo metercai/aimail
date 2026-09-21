@@ -59,3 +59,32 @@ def test_home_to_sid_no_owner(tmp_path, monkeypatch):
 def test_home_to_sid_empty_input(tmp_path, monkeypatch):
     monkeypatch.setenv("AIMAIL_HOME", str(tmp_path))
     assert sid_from_system_home("") == ""
+
+
+# ── 指针优先(2026-09-21 生产实证)────────────────────────────────────────
+# 同一平台根被多个系统声明时(换系统重装不放开旧 system_home / e2e 夹具常驻),
+# 纯扫描判成"歧义 → ''" ⇒ ensure-system 回落到 .env 里已消耗的码, 宿主插件
+# 报出误导性的 "no aimail system yet — Invalid activation code"。
+# 平台根自己写的 .agentmail 才是权威归属声明。
+
+def _mk_ptr(home, sid):
+    home.mkdir(parents=True, exist_ok=True)
+    (home / ".agentmail").write_text(json.dumps({"system_id": sid}))
+
+
+def test_pointer_wins_over_ambiguous_claimants(tmp_path, monkeypatch):
+    monkeypatch.setenv("AIMAIL_HOME", str(tmp_path))
+    home = tmp_path / "dsh-root"
+    _mk_system(tmp_path, "system-old", home)
+    _mk_system(tmp_path, "system-new", home)      # 两个都声明同一 home
+    _mk_ptr(home, "system-new")                   # 平台自己说绑的是 new
+    assert sid_from_system_home(str(home)) == "system-new"
+
+
+def test_stale_pointer_falls_back_to_scan(tmp_path, monkeypatch):
+    """指针指向本机不存在的系统(陈旧指针) ⇒ 不返回它, 退回扫描。"""
+    monkeypatch.setenv("AIMAIL_HOME", str(tmp_path))
+    home = tmp_path / "dsh-root"
+    _mk_system(tmp_path, "system-aaa", home)
+    _mk_ptr(home, "system-gone")
+    assert sid_from_system_home(str(home)) == "system-aaa"
