@@ -25,10 +25,19 @@ FILES=$(tar tvf "$TGZ" 2>/dev/null | grep -c '^-' || true)
 echo "[L2] ok: $FILES regular files, 0 hard/sym links"
 
 MANIFEST=$(tar xOzf "$TGZ" package/package.json 2>/dev/null) || { echo "[L2] FAIL: package/package.json missing"; exit 1; }
-if echo "$MANIFEST" | grep -q 'workspace:'; then
-  echo "[L2] FAIL: 'workspace:' leaked into published manifest"
+# 顶端 + **所有内嵌** manifest 都不得含 workspace: 规格。
+# (2026-09-21 实测盲点: 原实现只查 package/package.json ⇒ pi-aimail/openclaw-aimail
+#  的 bundled 副本 package/node_modules/@aimail/mail/package.json 遗留
+#  "workspace:^" 也照样 PASS, 而 pnpm 系宿主安装即 EUNSUPPORTEDPROTOCOL。)
+LEAKS=$(tar xOzf "$TGZ" --wildcards 'package/**/package.json' 'package/package.json' 2>/dev/null | grep -c 'workspace:' || true)
+if [ "${LEAKS:-0}" -gt 0 ]; then
+  echo "[L2] FAIL: 'workspace:' leaked into published manifest(s) — 含内嵌 bundled 副本"
+  tar tzf "$TGZ" | grep 'package.json$' | while read -r m; do
+    if tar xOzf "$TGZ" "$m" 2>/dev/null | grep -q 'workspace:'; then echo "        泄漏: $m"; fi
+  done
   exit 1
 fi
+echo "[L2] ok: no 'workspace:' in any manifest (top-level + bundled)"
 VER=$(echo "$MANIFEST" | python3 -c "import json,sys;print(json.load(sys.stdin)['version'])")
 [ "$VER" = "$EXPECT" ] || { echo "[L2] FAIL: manifest version $VER != expected $EXPECT"; exit 1; }
 echo "[L2] ok: version $VER"

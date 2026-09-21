@@ -34,51 +34,8 @@ for pkg in "${PKGS[@]}"; do
   # 1) workspace:^ -> concrete registry range (^<dep version>). pnpm
   #    resolves workspace:^ locally, but the published manifest must carry a
   #    plain semver range npm understands — never a bare '^' or 'workspace:'.
-  python3 - "$root" "$dir" <<'PYEOF'
-import json, sys, re, os
-root, d = sys.argv[1], sys.argv[2]
-p = f"{d}/package.json"
-raw = open(p).read()
-data = json.loads(raw)
-
-# name -> version map of every workspace package (for range rewriting)
-ws_versions = {}
-ws_root = os.path.join(root, "packages")
-if not os.path.isdir(ws_root):
-    ws_root = root  # standalone repo: packages live at the root level
-for sub in os.listdir(ws_root):
-    sub_pkg = os.path.join(ws_root, sub, "package.json")
-    if os.path.isfile(sub_pkg):
-        try:
-            m = json.load(open(sub_pkg))
-            if "name" in m and "version" in m:
-                ws_versions[m["name"]] = m["version"]
-        except Exception:
-            pass
-
-changed = False
-for dep_group in ("dependencies", "peerDependencies", "devDependencies"):
-    deps = data.get(dep_group) or {}
-    for k, v in list(deps.items()):
-        if not isinstance(v, str) or not v.startswith("workspace:"):
-            continue
-        spec = v[len("workspace:"):]
-        ver = ws_versions.get(k)
-        if ver is None:
-            raise SystemExit(f"ERROR: workspace dep {k} not found in {root}/packages")
-        # workspace:^x.y.z / workspace:~x.y.z -> ^x.y.z / ~x.y.z; bare
-        # workspace:^ / ~ / * -> prefix + concrete version
-        if spec in ("", "*"):
-            deps[k] = ver
-        elif spec in ("^", "~"):
-            deps[k] = spec + ver
-        else:
-            deps[k] = spec  # already a full range/version
-        changed = True
-if changed:
-    open(p, "w").write(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
-    print("  deps rewritten to concrete versions")
-PYEOF
+  #    共享脚本: 同一步骤 3 也对 **bundled 副本**复用(见下 deref 循环)。
+  python3 "$(dirname "$0")/rewrite_ws_deps.py" "$root" "$dir"
 
   # 2) build — 显式且**绝不吞错**(审计 P0 2026-09-21: 原 `>/dev/null 2>&1 || true`
   #    会把构建失败静默吞掉, 用旧 lib/dist 带新版本号发上 registry)。
@@ -106,6 +63,11 @@ PYEOF
     rm "$link"
     mkdir -p "$link"
     (cd "$target" && tar cf - --exclude=node_modules .) | (cd "$link" && tar xf -)
+    # bundled 副本的 manifest 也必须重写 workspace: 规格 —— 否则发布 tarball 的
+    # 内嵌 package.json 遗留 "workspace:^"(2026-09-21 实测: pi-aimail /
+    # openclaw-aimail 内嵌的 @aimail/mail 带 workspace:^ ⇒ pnpm 系宿主
+    # EUNSUPPORTEDPROTOCOL)。deref 出来的是工作区原样, 须与主 manifest 同待遇。
+    python3 "$(dirname "$0")/rewrite_ws_deps.py" "$root" "$link"
   done
   echo "  building+packing:"
   tgz=$(cd "$dir" && npm pack --pack-destination /tmp | tail -1)
