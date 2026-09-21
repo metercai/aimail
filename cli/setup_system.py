@@ -24,12 +24,43 @@ if _script_dir not in sys.path:
 from runtime_core import load_core  # noqa: E402
 load_core()
 
-from gateway_api import GatewayClient, create_api_key, gateway_config_path, load_gateway_config
+from gateway_api import (GatewayClient, create_api_key, gateway_config_path,
+                         load_gateway_config, whoami)
 
 logger = logging.getLogger("aimail_setup")
 
 
 # ── Agent admin key helper ──────────────────────────────────────
+
+def _persist_system_raw_key(system_id: str, key: str) -> None:
+    """把**原始系统级 key** 落盘到 {AIMAIL_HOME}/.system_raw_key/{sid}_admin.key (0600)。
+
+    cli/README.md:121 承诺"install 派生受限 agent_admin key 落盘, 原始 key 存
+    .system_raw_key/{sid}_admin.key" —— 但激活+降级路径此前**没实现**(只有
+    deploy_bridge 写该文件), 于是降级后 cfg 里只剩受限 key, 管理级操作
+    (repair / address 管理 / key 轮换)再无凭据可用。
+
+    幂等: 同值 → 跳过; 已有**不同**值 → 保留旧值(可能是权威)并 debug 记录。
+    """
+    if not key:
+        return
+    home = Path(os.environ.get("AIMAIL_HOME") or (Path.home() / ".aimail"))
+    d = home / ".system_raw_key"
+    p = d / f"{system_id}_admin.key"
+    try:
+        d.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if p.is_file():
+            cur = p.read_text().strip()
+            if cur == key or cur:
+                logger.debug("[aimail_setup] raw system key already on disk for %s", system_id)
+                return
+        fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(key + "\n")
+        logger.info("[aimail_setup] raw system key saved (%s)", p)
+    except Exception as e:  # 不阻断安装: 落盘失败只告警
+        logger.warning("[aimail_setup] failed to persist raw system key: %s", e)
+
 
 def _downgrade_to_agent_admin_key(
     gateway_url: str, system_admin_key: str, system_id: str,
@@ -51,6 +82,24 @@ def _downgrade_to_agent_admin_key(
         '@' — we bind the key to the manager address, which is the identity
         available at setup time.
     """
+    # 0) 先把**原始系统级 key** 落盘(文档承诺的 .system_raw_key 契约), 再降级 ——
+    #    否则降级替换 cfg 后系统级凭据就丢了。
+    _persist_system_raw_key(system_id, system_admin_key)
+
+    # 0b) 传入的 key 若已是 agent 级(复用路径下 cfg 里存的就是降级后的 key),
+    #     网关会以 "cannot create scopes at level 1 or above" 拒绝 —— 直接跳过,
+    #     免发无效请求、免打误导性"降级失败"告警。
+    try:
+        me = whoami(gateway_url, system_admin_key, system_id)
+        scopes = me.get("scopes") if isinstance(me, dict) else None
+        if isinstance(scopes, list) and scopes and all(
+                s in ("agent", "agent_admin") for s in scopes):
+            logger.info("[aimail_setup] key already agent-scoped (%s) — downgrade not needed",
+                        ",".join(scopes))
+            return system_admin_key
+    except Exception:
+        pass  # whoami 不可用时不阻断: 继续按系统 key 处理
+
     result = create_api_key(
         gateway_url, system_admin_key, system_id,
         manager_address, ["agent_admin"], "agent",
