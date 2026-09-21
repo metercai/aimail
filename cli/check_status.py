@@ -577,7 +577,15 @@ def _dsh_detect() -> bool:
 
 
 def _dsh_list_agents() -> list[dict]:
-    """dsh: agents = agentmail.json 含 session_id 的绑定(每 session 一地址)。"""
+    """dsh: agents = 含 email 的 agentmail.json 绑定。
+
+    ⚠ `session_id` **不是**发现条件(2026-09-21 修正):0.1.14 起 dsh 插件按
+    "每封入站一个一次性 session"跑——入站时临时 `updateAgentConfig({session_id})`
+    绑定,一轮跑完 `whenIdle()` 里解绑。于是绑定文件里的 session_id 是**瞬态**的:
+    闲时必然缺失,把它当"有没有 agent"的判据会把正常绑定报成
+    `✗ discovery: no agents found`(实测踩到,用户会以为要重装)。
+    判据改为 email(+下方 L3 的 api_key);session_id 有则带上、无则为空串。
+    """
     agents = []
     sid = _resolve_system_id()
     sysdir = SYSTEMS_DIR / sid if sid else Path()
@@ -590,9 +598,10 @@ def _dsh_list_agents() -> list[dict]:
                 d = json.loads(aj.read_text())
             except Exception:
                 continue
-            if d.get("session_id"):
+            if d.get("email"):
                 agents.append({
-                    "name": d["session_id"][:8], "email": d.get("email", ""),
+                    "name": (d.get("session_id") or d["email"].split("@")[0])[:8],
+                    "email": d.get("email", ""),
                     "session_id": d.get("session_id", ""), "preset": d.get("preset", ""),
                     "config": aj,
                 })
@@ -629,10 +638,12 @@ def _dsh_check_config(c: Check, agent: dict):
           f"webhook_url={wh_url or '(缺)'}" + (", secret ✓" if wh_secret else ", secret MISSING"),
           "注册链落盘 webhook_url + webhook_secret(aimail address/dsh-aimail register-cli)")
 
-    sess_ok = bool(session_id and preset)
+    # session_id 是**瞬态**的(0.1.14 起每封入站一个一次性 session:入站绑定、
+    # 跑完解绑),所以判据只认 preset —— 闲时缺 session_id 属正常,不是缺陷。
+    sess_ok = bool(preset)
     c.add("agent", "session", sess_ok,
-          f"session_id={session_id or '(缺)'}, preset={preset or '(缺)'}",
-          "agentmail.json 落盘 session_id/preset;dsh 侧创建同名 session(加入 mail preset)")
+          f"session_id={session_id or '(瞬态:每封入站一个一次性 session)'}, preset={preset or '(缺)'}",
+          "agentmail.json 落盘 preset;session_id 由插件在每轮入站时临时绑定")
 
 
 def _pi_detect() -> bool:
