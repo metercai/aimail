@@ -73,8 +73,24 @@ function defaultExec(
 export async function detectSystemForHome(systemHome: string): Promise<string> {
   if (!systemHome) return ''
   const target = path.resolve(systemHome.replace(/^~\//, os.homedir() + '/')).replace(/\/+$/, '')
+  const sids = await listSystemDirs()
+  // Platform pointer wins: `{home}/.agentmail` is the platform's OWN statement
+  // of which system it is bound to. Several systems can legitimately claim one
+  // home (re-activating a platform does not release the previous system's
+  // `system_home`, and e2e fixtures linger), so the pure config scan reports
+  // "ambiguous" — and the caller then falls through to a spent activation code,
+  // logging a misleading "no aimail system yet — Invalid activation code" while
+  // the platform was in fact already bound (2026-09-21, dsh). Stale pointers
+  // (sid not present on this machine) are ignored; the scan still decides.
+  try {
+    const raw = await fs.readFile(path.join(target, '.agentmail'), 'utf-8')
+    const ptrSid = String((JSON.parse(raw) as { system_id?: unknown }).system_id ?? '')
+    if (ptrSid && sids.includes(ptrSid)) return ptrSid
+  } catch {
+    // no pointer / unreadable / unparsable → fall through to the config scan
+  }
   let found = ''
-  for (const sid of await listSystemDirs()) {
+  for (const sid of sids) {
     let cfg: Record<string, unknown>
     try {
       const p = await gatewayConfigPath(sid)

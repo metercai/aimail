@@ -95,6 +95,52 @@ describe('ensureSystem (CLI reverse-call ABI)', () => {
     expect(r.activated).toBe(false)
   })
 
+  test('ambiguous claimants + platform pointer → short-circuits, no call-out', async () => {
+    // Two systems claim the SAME home (a re-activation does not release the old
+    // system_home; e2e fixtures linger). A pure config scan would call that
+    // ambiguous and fall through to a spent activation code — the platform
+    // pointer is what the platform itself says it is bound to.
+    for (const sid of ['sys-old', 'sys-new']) {
+      fs.mkdirSync(path.join(iso, 'systems', sid), { recursive: true })
+      fs.writeFileSync(
+        path.join(iso, 'systems', sid, 'aimail_gateway.json'),
+        JSON.stringify({ system_id: sid, system_home: '/home/u/.dsh' }),
+      )
+    }
+    const dsh = path.join(iso, 'dsh-root')
+    fs.mkdirSync(dsh, { recursive: true })
+    fs.writeFileSync(path.join(dsh, '.agentmail'), JSON.stringify({ system_id: 'sys-new' }))
+    const r = await ensureSystem({
+      systemHome: dsh,
+      exec: (() => {
+        throw new Error('must not be called')
+      }) as never,
+    })
+    expect(r.ok).toBe(true)
+    expect(r.systemId).toBe('sys-new')
+    expect(r.activated).toBe(false)
+  })
+
+  test('stale platform pointer (sid not on this machine) → scan decides', async () => {
+    const dsh = path.join(iso, 'dsh-root')
+    fs.mkdirSync(dsh, { recursive: true })
+    const sid = 'sys-here'
+    fs.mkdirSync(path.join(iso, 'systems', sid), { recursive: true })
+    fs.writeFileSync(
+      path.join(iso, 'systems', sid, 'aimail_gateway.json'),
+      JSON.stringify({ system_id: sid, system_home: dsh }),
+    )
+    fs.writeFileSync(path.join(dsh, '.agentmail'), JSON.stringify({ system_id: 'sys-gone' }))
+    const r = await ensureSystem({
+      systemHome: dsh,
+      exec: (() => {
+        throw new Error('must not be called')
+      }) as never,
+    })
+    expect(r.ok).toBe(true)
+    expect(r.systemId).toBe(sid)
+  })
+
   test('empty machine → reverse-calls `aimail ensure-system -H` and parses JSON', async () => {
     const ex = scriptedExec({
       code: 0,
