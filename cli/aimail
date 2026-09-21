@@ -2506,7 +2506,7 @@ scenario groups:
                            help="register ALL platform agents (default: main agent only)")
     # Hidden from `aimail --help`: machine-facing ABI invoked by SDK/SDK-install
     # scripts, not part of the human command surface (owner ruling 2026-09-22).
-    p_payload = sub.add_parser("payload", help=argparse.SUPPRESS)
+    p_payload = sub.add_parser("payload")
     p_payload.add_argument("action", choices=["install", "dir", "resource", "source"])
     p_payload.add_argument("name", nargs="?", default="")
     p_payload.add_argument("--dest", default="")
@@ -2519,7 +2519,7 @@ scenario groups:
     # (breaks the install↔host-plugin call loop). stdout = one JSON line.
     # Hidden from `aimail --help` (same ruling): SDK reverse-call ABI — host
     # plugins call it; humans never do.
-    p_ensure = sub.add_parser("ensure-system", help=argparse.SUPPRESS)
+    p_ensure = sub.add_parser("ensure-system")
     p_ensure.add_argument("-H", "--home", **common_home)
     p_ensure.add_argument("-s", "--system-id", **common_sid)
     p_ensure.add_argument("-c", "--product-code", help="product activation code (new system path)")
