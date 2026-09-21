@@ -373,6 +373,14 @@ export async function autoBind(opts: AutoBindOptions): Promise<AutoBindResult> {
       api_key: existing.api_key,
     }
     if (existing._config_path) out.config_path = existing._config_path
+    // 铁律(2026-08-18 用户强调): 有 bridge 时每个 agent 必须有路由, 否则桥拉到
+    // 邮件不知转发到哪、入站断链。此前 exists 分支**整体短路**, 而桥的健康检查会
+    // 在目标连续不可达(默认 30s × 6 = 180s)后删除该路由 ⇒ 删除后无人补写, 宿主
+    // 恢复后仍永久断链(2026-09-21 生产实测)。故此处也必须幂等 upsert。
+    const existsWebhook = String(existing.webhook_url || opts.webhookUrl || '').trim()
+    if (!opts.skipBridge && existsWebhook) {
+      await registerBridgeRoute({ systemId, email: opts.email, webhookUrl: existsWebhook })
+    }
     return out
   }
 

@@ -21,7 +21,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
-import { ensureSystem, processInboundMail, releaseAllSystems, routeAddressFromHeaders, verifySignature, type InboundPayload } from '@aimail/mail-core'
+import { ensureSystem, processInboundMail, registerBridgeRoute, releaseAllSystems, routeAddressFromHeaders, verifySignature, type InboundPayload } from '@aimail/mail-core'
 import { resolveByRecipient } from '@aimail/mail'
 import { agentIdentity, initIdentity, readPointer, setInboundEndpoint } from './identity.js'
 import { buildPiTools } from './tools.js'
@@ -202,6 +202,23 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
     setInboundEndpoint(`http://127.0.0.1:${port}${INBOUND_PATH}`)
     server.listen(port, '127.0.0.1', () => {
       log.info(`[pi-aimail] inbound listening on http://127.0.0.1:${port}${INBOUND_PATH}`)
+      // 铁律(2026-08-18 用户强调): 有 bridge 时每个 agent 必须有路由 —— 桥的健康
+      // 检查会在目标连续不可达(默认 30s × 6 = 180s)后**正确删除**该路由, 而删除后
+      // 此前无人补写 ⇒ 宿主长时间停机/重启后入站**永久断链**(2026-09-21 生产实测)。
+      // 故在**监听就绪之后**(重启末端)幂等 upsert: 路由存在与否始终反映"宿主此刻
+      // 是否真在服务", 既不误判正常重启窗口, 也不留死路由。
+      const ptr = readPointer()
+      if (ptr.system_id && ptr.email) {
+        void registerBridgeRoute({
+          systemId: ptr.system_id,
+          email: ptr.email,
+          webhookUrl: `http://127.0.0.1:${port}${INBOUND_PATH}`,
+        }).catch((e: unknown) => {
+          log.warn(
+            `[pi-aimail] bridge route ensure failed (non-fatal): ${e instanceof Error ? e.message : String(e)}`,
+          )
+        })
+      }
     })
     server.on('error', (e) => {
       log.error(`[pi-aimail] inbound listener error: ${e.message}`)
