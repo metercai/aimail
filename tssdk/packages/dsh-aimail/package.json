@@ -1,7 +1,7 @@
 {
   "name": "dsh-aimail",
   "description": "AIMail plugin for dsh \u2014 install via: dsh plugin --profile web add dsh-aimail",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "publishConfig": {
     "access": "public",
     "provenance": true
