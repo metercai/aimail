@@ -24,6 +24,7 @@ import {
   autoBind,
   emailForAgent,
   ensureSystem,
+  detectSystemForHome,
   hasAnySystem,
   listSystemDirs,
   readSystemConfig,
@@ -130,20 +131,35 @@ export function apply(ctx: Context, config: { systemId?: string } = {}): void {
       process.env.AIMAIL_SYSTEM_HOME?.trim() ||
       process.env.DSH_HOME?.trim() ||
       path.join(os.homedir(), '.dsh')
-    void ensureSystem({ systemHome: platformHome })
+    // Bound-machine guard (2026-09-22): if this home already OWNS a system
+    // (platform pointer first, then the system_home scan — the same judgement
+    // the CLI makes), do not reverse-call at all. A stale activation code left
+    // in the environment then can no longer surface as a bogus startup error on
+    // a machine that is already bound ("no aimail system yet — Invalid
+    // activation code", the 2026-09-21 dsh report).
+    // Home-keyed, not "any system exists": another platform's systems do not
+    // claim this home, so a multi-platform machine still reaches the CLI
+    // (AUDIT-1 P1-7 must stay fixed).
+    void detectSystemForHome(platformHome)
+      .then((bound) => (bound ? null : ensureSystem({ systemHome: platformHome })))
       .then((r) => {
+        if (!r) return
         if (r.ok) {
           if (r.activated) {
             console.log(`[dsh-aimail] system activated: ${r.systemId}`)
           }
-        } else {
-          const hint = r.hint ? ` (${r.hint})` : ''
-          console.warn(`[dsh-aimail] no aimail system yet — ${r.error ?? 'unknown'}` + hint)
+          return
         }
+        // Readable + actionable: say what is missing, then how to fix it.
+        const hint = r.hint ? `\n  hint: ${r.hint}` : ''
+        console.warn(
+          `[dsh-aimail] no AIMail system is bound to this dsh home yet: ${r.error ?? 'unknown'}${hint}` +
+            `\n  to activate: aimail install --home ${platformHome} -c <activation-code> -m <manager@address>`,
+        )
       })
       .catch((e) => {
         console.warn(
-          `[dsh-aimail] system ensure failed: ${e instanceof Error ? e.message : String(e)}`,
+          `[dsh-aimail] AIMail system check failed: ${e instanceof Error ? e.message : String(e)}`,
         )
       })
   } catch {
