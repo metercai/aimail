@@ -287,7 +287,7 @@ setup      machine prep and platform integration
   uninstall       remove the integration (idempotent)
   reset           re-reset connection config of an activated system (no re-activation)
 
-operate    daily status and lifecycle, plus exams and fixes
+operate    daily status and lifecycle, plus exams and flows
   stats           machine integration overview (systems / addresses / mail, health tags)
   renew           renew a system with a code, or show expiry read-only
   version         show CLI / bootstrap version (which program copy you are running)
@@ -295,18 +295,12 @@ operate    daily status and lifecycle, plus exams and fixes
   repair          apply the idempotent fix ladder for check findings, then re-check
   ping            end-to-end ping-pong delivery test (manager <-> agent)
   welcome         welcome-email end-to-end acceptance (API mode by default)
-
-identity   agent identity card
-  persona         trigger the persona draft loop: manager sends "update persona", agent replies
+  persona         persona draft flow: manager sends "update persona", agent replies
 
 resources  system-scoped resources
   domain          list / create domains owned by a system
   address         view / maintain system agent addresses (default name / rename / set manager)
   bridge          local bridge: status / refresh routes / restart / upgrade
-
-sdk        machine-facing ABI invoked by SDK installers, not by hand
-  ensure-system   (SDK ABI) ensure a system exists for a host root — L1 activation/reuse only
-  payload         runtime payload: install | dir | resource | source
 ```
 
 Platform feature detection (order): `pi` (~/.pi + agent/) → `dsh`

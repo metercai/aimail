@@ -2482,10 +2482,8 @@ def main():
         epilog="""
 scenario groups:
   setup      machine prep and platform integration: install / uninstall / reset
-  operate    daily status, lifecycle, exams and fixes: stats / renew / version / check / repair / ping / welcome
-  identity   agent identity card, manager-driven initialize / refresh: persona
+  operate    daily status, lifecycle, exams and flows: stats / renew / version / check / repair / ping / welcome / persona
   resources  system-scoped resources: domain / address / bridge
-  sdk        machine-facing ABI invoked by SDK installers, not by hand: ensure-system / payload
 """)
     sub = ap.add_subparsers(dest="command", required=True, metavar="<command>")
 
@@ -2506,7 +2504,9 @@ scenario groups:
     p_install.add_argument("-d", "--domain", help="domain to pre-create (default: AIMAIL_DOMAIN env)")
     p_install.add_argument("--all-agents", action="store_true",
                            help="register ALL platform agents (default: main agent only)")
-    p_payload = sub.add_parser("payload", help="runtime bundle (payload): install|dir|resource|source")
+    # Hidden from `aimail --help`: machine-facing ABI invoked by SDK/SDK-install
+    # scripts, not part of the human command surface (owner ruling 2026-09-22).
+    p_payload = sub.add_parser("payload", help=argparse.SUPPRESS)
     p_payload.add_argument("action", choices=["install", "dir", "resource", "source"])
     p_payload.add_argument("name", nargs="?", default="")
     p_payload.add_argument("--dest", default="")
@@ -2517,7 +2517,9 @@ scenario groups:
 
     # SDK reverse-call ABI: L1 activation/reuse only — NEVER platform wiring
     # (breaks the install↔host-plugin call loop). stdout = one JSON line.
-    p_ensure = sub.add_parser("ensure-system", help="(SDK ABI) ensure a system exists for a host root — L1 activation/reuse only")
+    # Hidden from `aimail --help` (same ruling): SDK reverse-call ABI — host
+    # plugins call it; humans never do.
+    p_ensure = sub.add_parser("ensure-system", help=argparse.SUPPRESS)
     p_ensure.add_argument("-H", "--home", **common_home)
     p_ensure.add_argument("-s", "--system-id", **common_sid)
     p_ensure.add_argument("-c", "--product-code", help="product activation code (new system path)")

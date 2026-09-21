@@ -255,7 +255,7 @@ setup      机器准备与平台对接
   uninstall       从平台移除对接(幂等)
   reset           重设已激活系统的连接配置(不重新激活)
 
-operate    日常状态与生命周期,以及体检与修复
+operate    日常状态与生命周期,以及体检与流程
   stats           本机对接状态总览(系统 / 地址 / 邮件量,含健康标注)
   renew           系统续期(续期码),或只读查看到期状态
   version         显示 CLI / 自举版本(判断命令面来自哪份副本)
@@ -263,18 +263,12 @@ operate    日常状态与生命周期,以及体检与修复
   repair          按体检结论执行幂等修复阶梯并复检
   ping            端到端 ping-pong 投递测试(manager ↔ agent)
   welcome         welcome 邮件端到端验收(默认走 API)
-
-identity   个体身份卡片
-  persona         触发身份卡片起草:manager 发 "update persona",agent 回草案
+  persona         身份卡片起草流程:manager 发 "update persona",agent 回草案
 
 resources  系统级资源
   domain          列出 / 新增系统自有域名
   address         查看 / 维护系统内 agent 地址(默认名 / 改名 / 设 manager)
   bridge          本机桥:状态 / 重刷路由 / 重启 / 升级
-
-sdk        机器面 ABI(由 SDK 安装器调用,不手工使用)
-  ensure-system   (SDK ABI)确保某平台根下存在系统 —— 仅 L1 激活 / 复用
-  payload         运行时载荷:install | dir | resource | source
 ```
 
 平台特征探测顺序:`pi`(\~/.pi + agent/)→ `dsh`(\~/.dsh + profiles/ +
