@@ -1688,10 +1688,107 @@ def _target_to_route_fields(target: str) -> tuple[str, int]:
     return t, 80
 
 
+def _sha256(path: str) -> str:
+    import hashlib
+    try:
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except Exception:
+        return ""
+
+
+def _bridge_upgrade() -> int:
+    """按本仓 bridge/ 目录的最新 zip 升级桥二进制(官方取件通道)。
+
+    流程: 取最新 zip → 解到临时目录 → sha256 比对已装二进制 → 相同即 no-op;
+    不同则: 运行中先用**契约** `--stop` 优雅停止(旧二进制不支持契约时回退按 pid 终止)
+    → `os.replace` 原子替换(替换运行中的 inode 是安全的) → `start_bridge` 重启 → 校验。
+
+    为何需要这个动作: `deploy_bridge._ensure_binary` 只在**缺失**时解包, CLI 原本没有
+    升级路径 ⇒ 只能手改二进制(2026-09-21 用户纠正: 桥升级必须经 CLI 的 bridge 子命令)。
+    """
+    import platform as _plat
+    import subprocess as _sp
+    import tempfile
+    bin_path = BRIDGE_DIR / "bin" / "aimail-bridge"
+    if not BRIDGE_CFG.exists():
+        _fail(f"bridge 配置不存在: {BRIDGE_CFG}(未部署?)")
+        return 1
+    sys.path.insert(0, str(SCRIPTS_DIR))
+    from deploy_bridge import latest_bridge_zip, start_bridge
+    machine = _plat.machine()
+    arch = "arm64" if machine in ("aarch64", "arm64") else "amd64"
+    repo_bridge = SCRIPTS_DIR.parent / "bridge"
+    zip_path = latest_bridge_zip(str(repo_bridge), arch)
+    if not zip_path:
+        _fail(f"本仓无 {arch} 平台 zip: {repo_bridge}(先完成发布流程: Release 资产→zip→本目录)")
+        return 1
+    with tempfile.TemporaryDirectory() as td:
+        r = _sp.run(["unzip", "-o", zip_path, "-d", td], capture_output=True, timeout=60)
+        if r.returncode != 0:
+            _fail(f"解包失败: {(r.stderr or b'').decode()[:200]}")
+            return 1
+        cands = [f for f in os.listdir(td)
+                 if f.startswith("aimail-bridge") and os.path.isfile(os.path.join(td, f))]
+        if not cands:
+            _fail(f"zip 内无 aimail-bridge: {zip_path}")
+            return 1
+        new_bin = os.path.join(td, cands[0])
+        new_sha = _sha256(new_bin)
+        old_sha = _sha256(str(bin_path)) if bin_path.is_file() else ""
+        print(f"  来源: {os.path.basename(zip_path)}")
+        print(f"  现行 sha={old_sha[:12] or '(无)'}  新件 sha={new_sha[:12]}")
+        if old_sha and old_sha == new_sha:
+            _ok("已是最新(sha 相同) —— 无需升级")
+            return 0
+        pids = _bridge_pids()
+        if pids:
+            stopped = False
+            if bin_path.is_file():
+                try:
+                    rr = _sp.run([str(bin_path), "--stop"], capture_output=True, text=True, timeout=30)
+                    sys.stdout.write(rr.stdout or "")
+                    stopped = rr.returncode == 0
+                except Exception:
+                    stopped = False
+            if not stopped:
+                _warn("契约停止不可用 → 回退按 pid 终止(旧桥 < 0.7.4)")
+                for p in pids:
+                    try:
+                        os.kill(int(p), 15)
+                    except Exception:
+                        pass
+                for _ in range(20):
+                    if not _bridge_pids():
+                        break
+                    time.sleep(0.25)
+            if _bridge_pids():
+                _fail("桥仍在运行, 中止升级(避免替换出双实例)")
+                return 1
+        os.makedirs(str(bin_path.parent), exist_ok=True)
+        # 原子替换: 运行中的旧 inode 不受影响, 不留半截二进制
+        os.replace(new_bin, str(bin_path))
+        os.chmod(str(bin_path), 0o755)
+        _ok(f"二进制已更新(sha {old_sha[:12] or '无'} → {new_sha[:12]})")
+        if start_bridge(str(bin_path), str(BRIDGE_CFG), str(BRIDGE_PID)):
+            pid = BRIDGE_PID.read_text().strip() if BRIDGE_PID.exists() else "?"
+            _ok(f"bridge 已以新二进制启动 (pid={pid})")
+            return 0
+        _fail("新二进制启动失败——查日志 " + str(BRIDGE_LOG))
+        return 1
+
+
 def cmd_bridge(args) -> int:
-    """bridge 维护:状态查看 / 按系统重刷转发路由 / 重启。"""
+    """bridge 维护:状态查看 / 按系统重刷转发路由 / 重启 / 升级二进制。"""
     pids = _bridge_pids()
     running = len(pids) > 0
+
+    # ── --upgrade:按本仓 bridge/ 最新 zip 升级二进制(官方取件通道, 见 _bridge_upgrade)──
+    if getattr(args, "upgrade", False):
+        return _bridge_upgrade()
 
     # ── --restart:重启 bridge(单实例,精确杀)──
     if args.restart:
@@ -2489,10 +2586,13 @@ scenario groups:
     p_ad.add_argument("-m", "--manager", metavar="EMAIL", help="new manager address for the target agent (set-manager)")
     p_ad.set_defaults(func=cmd_address)
 
-    p_br = sub.add_parser("bridge", help="local bridge: status / refresh routes / restart")
+    p_br = sub.add_parser("bridge", help="local bridge: status / refresh routes / restart / upgrade")
     p_br.add_argument("-s", "--system-id", help="refresh forwarding routes for this system")
     p_br.add_argument("-H", "--home", **common_home)
     p_br.add_argument("-r", "--restart", action="store_true", help="restart the bridge (single instance)")
+    p_br.add_argument("-u", "--upgrade", action="store_true",
+                      help="upgrade the bridge binary from this repo's bridge/ zips (sha-compare → "
+                           "contract stop → atomic replace → restart)")
     p_br.set_defaults(func=cmd_bridge)
 
     args = ap.parse_args()
