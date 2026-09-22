@@ -82,6 +82,38 @@ def test_update_persona_subject_injects_role_calibrator_prompt(tmp_path, monkeyp
     assert "_whoami_prompt" not in r
 
 
+def test_welcome_marker_plus_labels_injects_role_calibrator(tmp_path, monkeypatch):
+    """2026-09-22 合并后: welcome 邮件 = **主题标记 + 正文三标签同时命中** ⇒ 注入 Role_Calibrator。
+
+    网关生成的主题: "Welcome to AIMail World, {agent}, since {date}!"(个人化后缀不影响识别)。
+    """
+    role_dir = _role_prompt_dir(tmp_path, monkeypatch)
+    (role_dir / "role_calibrator.md").write_text(
+        "Draft a persona for {{agent_email}}", encoding="utf-8"
+    )
+    m = _mail("Welcome to AIMail World, agent1, since 2026-09-22!")
+    m["body"] = (
+        "To verify that the full delivery path works end to end, please reply-all with:\n"
+        "  persona: <who you are>\n"
+        "  signature: <your signature>\n"
+        "  current_time: <2026-09-22 21:05 UTC>\n"
+    )
+    r = ab.preprocess_mail_payload(m, {})
+    assert r is not None and r.get("_role_prompt"), "welcome 邮件必须注入 Role_Calibrator"
+
+
+def test_welcome_marker_without_labels_uses_default_prompt(tmp_path, monkeypatch):
+    """只命中主题标记、缺正文三标签 ⇒ **不**注入 Role_Calibrator(退默认 prompt, 不静默)。"""
+    role_dir = _role_prompt_dir(tmp_path, monkeypatch)
+    (role_dir / "role_calibrator.md").write_text(
+        "Draft a persona for {{agent_email}}", encoding="utf-8"
+    )
+    m = _mail("Welcome to AIMail World, agent1, since 2026-09-22!")
+    m["body"] = "no labels here"
+    r = ab.preprocess_mail_payload(m, {})
+    assert r is not None and not r.get("_role_prompt")
+
+
 def test_missing_role_file_does_not_fake_a_prompt(tmp_path, monkeypatch):
     _role_prompt_dir(tmp_path, monkeypatch)  # 角色文件目录存在但文件缺失
 

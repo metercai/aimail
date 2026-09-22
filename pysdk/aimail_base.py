@@ -1051,14 +1051,23 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
             result["_whoami_prompt"] = fill_template(whoami_raw, ctx)
         return result
 
-    # ── B3: Role_Calibrator (persona update request) ──
-    # A manager email whose subject contains "update persona" asks the agent
-    # to draft a new persona + signature. The gateway does NOT intercept it
-    # (no manager trigger word), so it reaches the agent; we inject the
-    # Role_Calibrator role prompt (SOUL + skills auto-filled by build_ctx)
-    # and let the LLM draft and reply within the session. Early return so a
-    # board role prompt cannot clobber _role_prompt.
-    if "update persona" in subject.lower():
+    # ── B3: Role_Calibrator (persona 更新请求 / welcome 引导) ──
+    # 2026-09-22 合并后两种识别形式:
+    #   (a) 兼容旧: 主题含 "update persona"(保留一版; 下一版删除)
+    #   (b) 合并后的 welcome: **主题标记 + 正文三标签同时命中**
+    #       - 主题(小写化)含 "welcome to aimail world"
+    #         (网关生成: "Welcome to AIMail World, {agent}, since {date}!")
+    #       - 正文行首出现 persona: / signature: / current_time: 三标签
+    # 命中 ⇒ 注入 Role_Calibrator(SOUL + skills 由 build_ctx 自动填充)并早返回, 以免被 board 角色覆盖。
+    # 只命中其一 ⇒ 不注入 + WARN, 使模板漂移可见(不静默退化成默认 prompt)。
+    _subj = subject.lower()
+    _body_lc = (result.get("body") or "").lower()
+    _welcome_marker = "welcome to aimail world" in _subj
+    _labels_ok = all(
+        any(ln.lstrip().startswith(f"{k}:") for ln in _body_lc.splitlines())
+        for k in ("persona", "signature", "current_time")
+    )
+    if "update persona" in _subj or (_welcome_marker and _labels_ok):
         ctx = build_ctx(result, dict(headers))
         calib_raw = _read_role_file("role_calibrator")
         if calib_raw:
@@ -1066,6 +1075,12 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
         else:
             logger.warning("[aimail_gateway] Role_Calibrator role file missing — persona update will proceed without a role prompt")
         return result
+    if _welcome_marker or _labels_ok:
+        logger.warning(
+            "[aimail_gateway] role prompt marker mismatch (welcome_marker=%s labels=%s) — default role prompt used",
+            _welcome_marker,
+            _labels_ok,
+        )
 
     # ── a2a_board: Board上下文检测（由Rust A2aInterceptor注入 board_id / board_role）──
     board_id = result.get("board_id")
