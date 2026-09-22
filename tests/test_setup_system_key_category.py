@@ -21,7 +21,9 @@ P2: cli/README.md:121 承诺"原始 key 存 .system_raw_key/{sid}_admin.key"，�
 
 锁六件事：
   1. category 必须是 `domain`，scopes 必须是 `["system"]`，email **是裸域**(无 '@')
-  2. 降级**成功**后才把原始系统 key 落盘(0600)
+  2. **拿到即落盘**(2026-09-22 用户要求): 平台下发的/经 whoami 证明为系统级的 key
+     立刻写 .system_raw_key/{sid}_admin.key(0600), 与随后降级是否成功**无关**;
+     只有"确认是受限级"的 key 才不落盘(不污染该系统 key 契约)
   3. 传入的 key 已是 agent 级(网关报 privilege level) → 视为"无需降级": 返原 key，
      **不落盘**、**不打 error**
   4. 传入的 key 已是本域 domain key(whoami 可读) → 同样跳过，**不重复造 key**
@@ -158,3 +160,40 @@ def test_no_domain_keeps_system_key_without_creating_anything(monkeypatch, tmp_p
     _cfg(monkeypatch, tmp_path)
     out = ss._downgrade_to_domain_admin_key("https://gw", "syskey", "shared-default-abc", "")
     assert out == "syskey" and not _raw(tmp_path).exists()
+
+
+def test_whoami_system_level_key_is_persisted_immediately(monkeypatch, tmp_path):
+    """拿到即落盘(其一): whoami 证明是系统级(空 email + system scope) ⇒ 立刻落盘。
+
+    2026-09-22 用户要求: "不管什么情况, 拿到后立刻落盘"。此前只在降级**成功**分支落盘,
+    降级失败/早退时系统级 key 只剩云端哈希 ⇒ 本地永久不可得(pi 系统即如此)。
+    """
+    _env(monkeypatch, tmp_path)
+    monkeypatch.setattr(ss, "whoami", lambda *a, **k: {"scopes": ["system"], "email": ""})
+    monkeypatch.setattr(ss, "create_api_key",
+                        lambda *a, **k: {"error": "boom", "detail": "transient", "status": 500})
+    _cfg(monkeypatch, tmp_path)
+
+    out = ss._downgrade_to_domain_admin_key(
+        "https://gw", "syskey", "shared-default-abc", "aimail.token.tm")
+
+    assert out == "syskey", "降级失败也返回系统级 key(功能仍可用)"
+    raw = _raw(tmp_path)
+    assert raw.is_file() and raw.read_text().strip() == "syskey", "系统级 key 必须立刻落盘"
+    assert stat.S_IMODE(raw.stat().st_mode) == 0o600
+
+
+def test_init_system_persists_raw_key_before_downgrade():
+    """拿到即落盘(其二, **结构化契约**): 激活分支的落盘调用必须**先于**降级调用。
+
+    功能级验证需要 mock 整条激活响应(收益低); 这里直接锁源码顺序 —— 契约本身就直白:
+    平台下发的系统级 key 必须在"拿到"当口落盘, 而不管随后降级是否成功/是否早退。
+    """
+    import inspect
+
+    src = inspect.getsource(ss.init_system)
+    i_persist = src.find("_persist_system_raw_key(")
+    i_downgrade = src.find("_downgrade_to_domain_admin_key(")
+    assert i_persist != -1, "激活分支必须把平台下发的系统级 key 落盘"
+    assert i_downgrade != -1, "激活分支仍会尝试最小权限降级"
+    assert i_persist < i_downgrade, "落盘必须先于降级(拿到即落盘)"

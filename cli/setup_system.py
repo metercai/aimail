@@ -109,6 +109,11 @@ def _downgrade_to_domain_admin_key(
                             ",".join(scopes))
                 return system_admin_key
             _email = str(me.get("email") or "")
+            if "system" in low and not _email:
+                # whoami 证明这是**系统级** key(空 email) ⇒ 立刻落盘。
+                # 覆盖 admin-key 复用路径: 该路径下我们同样"拿到了系统级 key",
+                # 落盘与随后降级是否成功无关(2026-09-22 契约: 拿到即落盘)。
+                _persist_system_raw_key(system_id, system_admin_key)
             if "system" in low and _email and "@" not in _email and _email == domain:
                 logger.info("[aimail_setup] key already domain-scoped (%s) — downgrade not needed",
                             _email)
@@ -149,8 +154,9 @@ def _downgrade_to_domain_admin_key(
         )
         return system_admin_key
 
-    # 1) 降级**成功**才落盘原始系统 key(cli/README.md:121 契约)。放在成功分支里
-    #    是刻意的: 失败/无需降级时不会把受限 key 误当系统 key 写进 .system_raw_key。
+    # 1) 降级成功 ⇒ 传入的 key 确证是系统级 ⇒ 落盘(cli/README.md:121 契约)。
+    #    注意: 受限 key **不会**被写进 .system_raw_key(其余分支保持只读), 而系统级 key
+    #    的落盘在"拿到/被 whoami 证明"的当口就已完成(见本函数开头与激活分支)。
     _persist_system_raw_key(system_id, system_admin_key)
 
     # Replace in config file
@@ -387,6 +393,12 @@ def init_system(
 
     if not admin_key:
         return {"success": False, "error": "No admin_key returned from server", "status": status}
+
+    # 契约(cli/README.md:121): 平台在激活时下发的**系统级 key** 必须当场落盘到
+    # .system_raw_key/{sid}_admin.key。放在这里=拿到即落盘, 与后续降级是否成功无关
+    # —— 否则降级失败(或早退)会让系统级 key 只剩云端哈希、本地永久不可得
+    # (2026-09-22 实测: shared-default-6b9fc46c 就是这样丢的)。
+    _persist_system_raw_key(created_system_id, admin_key)
 
     _save_gateway_config(
         gateway_url=gateway_url,
