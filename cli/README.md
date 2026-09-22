@@ -266,12 +266,12 @@ papering over them.
 | Reset config | `aimail reset -H <root> -s <sid>` | admin-key path only, key untouched |
 | Bridge ops | `aimail bridge` / `--restart` / `-s <sid>` | status / single-instance restart / route refresh |
 | Remove integration | `aimail uninstall -s <sid> [-H <root>] [-y]` | gateway deregister → platform cleanup → local data; idempotent |
-| E2E tests | `aimail ping` / `welcome` / `persona` | heartbeat / welcome mail / persona update loop |
+| E2E tests | `aimail ping` / `welcome` | heartbeat / welcome mail + identity approval (persona merged into `welcome`, 2026-09-22) |
 
 Short flags are globally consistent: `-s` system-id · `-H` home · `-g`
 gateway-url · `-m` manager · `-c` code · `-n` system-name (install/reset)
 or dry-run (repair) · `-d` domain (install) or default (address) · `-w`
-no-wait (welcome/persona) (or the domain's `--webhook-url`) · `-a` all
+no-wait (welcome) (or the domain's `--webhook-url`) · `-a` all
 (stats) or add (domain) · `-t` status (renew) or timeout (ping) · `-D`
 deep · `-r` restart · `-k` admin-key · `-y` yes. Long names never change.
 
@@ -294,8 +294,7 @@ operate    daily status and lifecycle, plus exams and flows
   check           full health exam: config files -> runtime resources -> links
   repair          apply the idempotent fix ladder for check findings, then re-check
   ping            end-to-end ping-pong delivery test (manager <-> agent)
-  welcome         welcome-email end-to-end acceptance (API mode by default)
-  persona         persona draft flow: manager sends "update persona", agent replies
+  welcome         end-to-end welcome + identity approval (persona flow merged here, 2026-09-22)
 
 resources  system-scoped resources
   domain          list / create domains owned by a system
