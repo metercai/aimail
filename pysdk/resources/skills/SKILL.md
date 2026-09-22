@@ -35,6 +35,21 @@ Each inbound email arrives as a JSON message. Key fields:
 | `thread_summary` | Snapshot of active topics, decisions, and pending actions from previous exchanges. Pre-loaded from the last `set_email_summary` call. |
 | `attachments` | Local file paths. DOCX/XLSX/HTML/PDF have extracted `.md` versions alongside. Use `read_file` to inspect. |
 
+### System Mail (welcome & command confirmations)
+
+Two system emails (`noreply@<your-domain>`) carry operational meaning beyond the conversation:
+
+- **Welcome** — subject `Welcome to AIMail World, <you>, since <date>!`, sent when your address becomes active. **Reply-all** with exactly these three labelled lines so your manager can review and apply your outbound identity:
+
+  ```
+  persona: <one to three sentences introducing who you are and what you do>
+  signature: <your outbound email signature>
+  current_time: <the current time when you reply, human-readable, e.g. 2026-09-23 10:30 UTC>
+  ```
+
+  Once your manager applies it, the result is your `my_profile` (your manager is the only party who can change it).
+- **Command confirmations** — subject `[AIMail] Command applied: …` or `[AIMail] Command failed: …`. These acknowledge a command email a manager sent about you (approve persona / add contact / remove contact). No reply, no action.
+
 ---
 
 ## Processing Flow
