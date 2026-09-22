@@ -4,7 +4,7 @@
 Subcommands (grouped by scenario, see --help):
   setup      install / uninstall / reset
   operate    stats / renew / version
-  diagnose   check / repair / ping / welcome / persona
+  diagnose   check / repair / ping / welcome (persona merged into welcome)
   resources  domain / address / bridge
 
 Platform fact inference (no --agent-type, per 2026-08-16 ruling):
@@ -332,7 +332,16 @@ def cmd_welcome(args) -> int:
 
 
 def cmd_persona(args) -> int:
-    """角色管理闭环薄触发 → request_persona.py(替 manager 发 'update persona')。"""
+    """【2026-09-22 已合并进 welcome】persona 流程并入 `welcome`。
+
+    既有能力(manager 发身份请求 → agent 回草案 → manager 审批写 domain_addr_meta)现在由
+    `welcome` 一条命令完成(通道验证 + 身份审批)。此子命令保留只为**明确指引**, 不静默失败。
+    """
+    print("✗ `aimail persona` 已合并到 `aimail welcome`(2026-09-22)", file=sys.stderr)
+    print("  改用: aimail welcome -s <system-id> [--persona '<草案>' --signature '<签名>']", file=sys.stderr)
+    print("  (省略 --persona/--signature 时, welcome 会尝试从 agent 回复解析)", file=sys.stderr)
+    return 2
+    # ── 以下为旧实现路径, 已不可达; 随下一版删除 ──
     sid = args.system_id or ""
     cmd = [sys.executable, str(SCRIPTS_DIR / "request_persona.py")]
     if sid:
@@ -2482,7 +2491,7 @@ def main():
         epilog="""
 scenario groups:
   setup      machine prep and platform integration: install / uninstall / reset
-  operate    daily status, lifecycle, exams and flows: stats / renew / version / check / repair / ping / welcome / persona
+  operate    daily status, lifecycle, exams and flows: stats / renew / version / check / repair / ping / welcome
   resources  system-scoped resources: domain / address / bridge
 """)
     sub = ap.add_subparsers(dest="command", required=True, metavar="<command>")
@@ -2591,7 +2600,7 @@ scenario groups:
                            help="SMTP mode, direct 25-port send (default: API mode via the gateway system sender)")
     p_welcome.set_defaults(func=cmd_welcome)
 
-    p_persona = sub.add_parser("persona", help="persona flow: manager sends 'update persona', agent replies with draft")
+    p_persona = sub.add_parser("persona", help="[merged into 'welcome' 2026-09-22] prints a pointer and exits 2")
     p_persona.add_argument("-s", "--system-id", **common_sid)
     p_persona.add_argument("-m", "--manager", **common_mgr)
     p_persona.add_argument("-w", "--no-wait", action="store_true", help="do not wait for the draft reply")
