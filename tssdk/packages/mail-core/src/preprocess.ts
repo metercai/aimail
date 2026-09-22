@@ -522,15 +522,28 @@ export async function processInboundMail(
     if (whoamiRaw) result._whoami_prompt = fillTemplate(whoamiRaw, buildBoardCtx(result))
     return result as unknown as EnrichedPayload
   }
-  // B3: Role_Calibrator (persona update request) — a manager email whose
-  // subject contains "update persona" asks the agent to draft a new persona
-  // + signature. The gateway does NOT intercept it, so it reaches the agent;
-  // inject the role_calibrator.md role prompt and early-return so a board
-  // role prompt cannot clobber _role_prompt (mirror Python B3).
-  if (subj.toLowerCase().includes('update persona')) {
+  // B3: Role_Calibrator (persona 更新请求 / welcome 引导) — mirror Python B3.
+  // 2026-09-22 合并后两种识别形式:
+  //   (a) 兼容旧: 主题含 "update persona"(保留一版; 下一版删除)
+  //   (b) 合并后的 welcome: **主题标记 + 正文三标签同时命中**
+  //       主题含 "welcome to aimail world" 且正文行首有 persona:/signature:/current_time:
+  // 命中 ⇒ 注入 role_calibrator.md 并 early-return(避免被 board 角色覆盖);
+  // 只命中其一 ⇒ 不注入 + warn, 使模板漂移可见(不静默退化为默认 prompt)。
+  const subjLc = subj.toLowerCase()
+  const bodyLc = String((result.body as string) ?? '').toLowerCase()
+  const welcomeMarker = subjLc.includes('welcome to aimail world')
+  const labelsOk = ['persona', 'signature', 'current_time'].every((k) =>
+    bodyLc.split('\n').some((ln) => ln.trimStart().startsWith(`${k}:`)),
+  )
+  if (subjLc.includes('update persona') || (welcomeMarker && labelsOk)) {
     const calibRaw = await readRoleFile(cfg, 'role_calibrator')
     if (calibRaw) result._role_prompt = fillTemplate(calibRaw, buildBoardCtx(result))
     return result as unknown as EnrichedPayload
+  }
+  if (welcomeMarker || labelsOk) {
+    console.warn(
+      `[aimail] role prompt marker mismatch (welcome_marker=${welcomeMarker} labels=${labelsOk}) — default role prompt used`,
+    )
   }
   const boardId = (result.board_id as string) ?? ''
   const boardRole = (result.board_role as string) ?? ''
