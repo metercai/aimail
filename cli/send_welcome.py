@@ -245,6 +245,48 @@ def _poll_reply(agent_email: str, timeout_secs: int) -> tuple:
     return False, "", ""
 
 
+def _parse_draft_from_reply(agent_email: str) -> dict:
+    """尽量从 agent 的回复里取出 persona/signature 草案。
+
+    ⚠ 2026-09-22: agent 侧落库位置依 SDK 而异(hermes/deer-flow/openclaw/dsh…), 目前**未接线**,
+    故此处只做诚实返回; 真正的解析会在 S4 与夹具一起按实际落库布局接上。
+    ⇒ 未接线期间, 调用方必须用 --persona/--signature 显式给出, 否则明确失败(不猜、不编造)。
+    """
+    return {}
+
+
+def _approve_identity(gw_url: str, api_key: str, recipient: str, manager: str, args) -> int:
+    """第 3 段(2026-09-22 合并 persona): 以 **manager 身份**发含触发词的审批邮件。
+
+    网关 `handle_manager_commands` 解析 `approve persona` + `persona:`/`signature:` 两行 ⇒
+    写入 domain_addr_meta.agent_persona/agent_signature(空段保留旧值)。
+    ⇒ 触发词只允许出现在 **manager 发出**的邮件里(welcome 正文来自 noreply@{domain}, 不受此限)。
+    取值来源: --persona/--signature 显式给出; 否则尝试从回复解析(未接线时返回空) ⇒ 拿不到就明确失败。
+    """
+    if args.skip_persona:
+        print("  · --skip-persona: 跳过身份审批(只做通道验证)")
+        return 0
+    per = (getattr(args, "persona", "") or "").strip()
+    sig = (getattr(args, "signature", "") or "").strip()
+    if not (per and sig):
+        got = _parse_draft_from_reply(recipient)
+        per = per or got.get("persona", "")
+        sig = sig or got.get("signature", "")
+    if not (per and sig):
+        print("  ✗ 未取得 persona/signature(回复解析未接线且未显式给出)⇒ 请用 --persona/--signature 提供")
+        return 2
+    edition = _detect_edition_raw(gw_url)
+    body = f"approve persona\npersona: {per}\nsignature: {sig}\n"
+    resp = _smtp_send(gw_url, api_key, recipient, manager, edition, "approve persona", body)
+    if not resp.startswith("250") and edition == "advanced":
+        resp = _smtp_send(gw_url, api_key, recipient, manager, "base", "approve persona", body)
+    if resp.startswith("250"):
+        print(f"  ✓ 身份审批已提交(persona={per[:36]}…, signature={sig[:28]}…)")
+        return 0
+    print(f"  ✗ 审批邮件发送失败: {resp[:80]}")
+    return 1
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="欢迎邮件端到端验证工具(API 模式默认, --smtp 走旧 SMTP)")
     ap.add_argument("--system-id", default="")
@@ -256,6 +298,10 @@ def main() -> int:
     ap.add_argument("--smtp", action="store_true", help="显式走旧 SMTP 模式(默认 API)")
     ap.add_argument("--timeout", type=int, default=120, help="等待回复秒数")
     ap.add_argument("--no-wait", action="store_true", help="发送后不等待回复")
+    # 2026-09-22 合并 persona: 第 3 段身份审批(persona/signature ⇒ 网关写 domain_addr_meta)
+    ap.add_argument("--persona", default="", help="身份草案 persona(缺省时尝试从 agent 回复解析)")
+    ap.add_argument("--signature", default="", help="身份草案 signature(同上)")
+    ap.add_argument("--skip-persona", action="store_true", help="跳过身份审批(只做通道验证)")
     args = ap.parse_args()
 
     # ── 解析系统身份(平台无关默认链,runtime_core.resolve_system_id):
@@ -327,7 +373,7 @@ def main() -> int:
         ok, reply_id, _to = _poll_reply(recipient, args.timeout)
         if ok:
             print(f"  ✓ Bidirectional send/receive verified (reply email_id={reply_id or '?'})")
-            return 0
+            return _approve_identity(gw_url, admin_key, recipient, manager, args)
         print(f"  ✗ No reply within {args.timeout}s (log: {_agent_log_path(recipient)})")
         return 1
 
