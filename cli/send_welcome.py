@@ -246,12 +246,60 @@ def _poll_reply(agent_email: str, timeout_secs: int) -> tuple:
 
 
 def _parse_draft_from_reply(agent_email: str) -> dict:
-    """尽量从 agent 的回复里取出 persona/signature 草案。
+    """从 agent 的 outbound 快照里解析 persona/signature 草案(S4 接线, 2026-09-23)。
 
-    ⚠ 2026-09-22: agent 侧落库位置依 SDK 而异(hermes/deer-flow/openclaw/dsh…), 目前**未接线**,
-    故此处只做诚实返回; 真正的解析会在 S4 与夹具一起按实际落库布局接上。
-    ⇒ 未接线期间, 调用方必须用 --persona/--signature 显式给出, 否则明确失败(不猜、不编造)。
+    落库布局(pysdk/aimail_tools.py, 真源):
+      - outbound 邮件正文快照 = {AIMAIL_HOME}/mail/{cleaned_addr}/yyyymm/out-{safe_mid}.json
+        (含 subject/body; 常写, 不受 save_raw_snapshots 控制)
+      - 回复识别 = 与 SDK 同款契约: 主题含 "welcome to aimail world"(小写化子串)
+        **或** 正文行首三标签(persona:/signature:/current_time:) —— 三标签齐才算命中,
+        缺段返回空 ⇒ 上层明确报错(不猜、不编造)。
+    取三标签行首值: persona: X / signature: X / current_time: X(多行值取首行,
+    与网关 parse_persona_approval 的行内值语义一致)。
     """
+    cleaned = _clean_agent_dir_name(agent_email)
+    base = AIMAIL_HOME / "mail" / cleaned
+    if not base.is_dir():
+        return {}
+    # 新→旧扫描快照(近两月目录足够: 草案回复必然是最近的 outbound)。
+    candidates: list[tuple[float, str]] = []  # (mtime, path)
+    for ym_dir in sorted(base.glob("[0-9]" * 6), reverse=True)[:2]:
+        for f in ym_dir.glob("out-*.json"):
+            try:
+                candidates.append((f.stat().st_mtime, str(f)))
+            except OSError:
+                continue
+    candidates.sort(reverse=True)
+    for _, path in candidates:
+        try:
+            snap = json.loads(Path(path).read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if snap.get("direction") != "outbound":
+            continue
+        subject = (snap.get("subject") or "").strip().lower()
+        body = snap.get("body") or ""
+        lines = [ln.strip() for ln in body.splitlines()]
+        lc = [ln.lower() for ln in lines]
+        marker = "welcome to aimail world" in subject
+        vals: dict[str, str] = {}
+        for key in ("persona", "signature", "current_time"):
+            for ln, low in zip(lines, lc):
+                if low.startswith(f"{key}:"):
+                    vals[key] = ln[len(key) + 1:].strip()
+                    break
+        labels_ok = all(k in vals for k in ("persona", "signature", "current_time"))
+        if not (marker or labels_ok):
+            continue
+        # 与 SDK 识别契约同型: 双条件独立满足其一即视为草案回复; 三标签齐才可用。
+        if labels_ok and vals.get("persona") and vals.get("signature"):
+            return {
+                "persona": vals["persona"],
+                "signature": vals["signature"],
+                "current_time": vals.get("current_time", ""),
+                "source": path,
+            }
+        # 命中但缺段: 继续翻更早的快照(可能有完整版), 翻完按缺段处理。
     return {}
 
 
@@ -273,7 +321,7 @@ def _approve_identity(gw_url: str, api_key: str, recipient: str, manager: str, a
         per = per or got.get("persona", "")
         sig = sig or got.get("signature", "")
     if not (per and sig):
-        print("  ✗ 未取得 persona/signature(回复解析未接线且未显式给出)⇒ 请用 --persona/--signature 提供")
+        print("  ✗ 未取得 persona/signature(回复快照无三标签草案且未显式给出)⇒ 请用 --persona/--signature 提供")
         return 2
     edition = _detect_edition_raw(gw_url)
     body = f"approve persona\npersona: {per}\nsignature: {sig}\n"
