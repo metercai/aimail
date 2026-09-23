@@ -33,10 +33,10 @@ logger = logging.getLogger("aimail_setup")
 # ── Agent admin key helper ──────────────────────────────────────
 
 def _persist_system_raw_key(system_id: str, key: str) -> None:
-    """把**原始系统级 key** 落盘到 {AIMAIL_HOME}/.system_raw_key/{sid}_admin.key (0600)。
+    """把**原始系统级 key** 落盘到 {AIMAIL_HOME}/systems/{sid}/.system_raw_key.key (0600, 三层收口)。
 
-    cli/README.md:121 承诺"install 派生受限 agent_admin key 落盘, 原始 key 存
-    .system_raw_key/{sid}_admin.key" —— 但激活+降级路径此前**没实现**(只有
+    cli/README.md 承诺"install 派生受限 agent_admin key 落盘, 原始 key 存
+    系统层 .system_raw_key.key" —— 但激活+降级路径此前**没实现**(只有
     deploy_bridge 写该文件), 于是降级后 cfg 里只剩受限 key, 管理级操作
     (repair / address 管理 / key 轮换)再无凭据可用。
 
@@ -45,8 +45,8 @@ def _persist_system_raw_key(system_id: str, key: str) -> None:
     if not key:
         return
     home = Path(os.environ.get("AIMAIL_HOME") or (Path.home() / ".aimail"))
-    d = home / ".system_raw_key"
-    p = d / f"{system_id}_admin.key"
+    d = home / "systems" / system_id          # 三层收口: 归系统层
+    p = d / ".system_raw_key.key"
     try:
         d.mkdir(parents=True, exist_ok=True, mode=0o700)
         if p.is_file():
@@ -155,7 +155,7 @@ def _downgrade_to_domain_admin_key(
         return system_admin_key
 
     # 1) 降级成功 ⇒ 传入的 key 确证是系统级 ⇒ 落盘(cli/README.md:121 契约)。
-    #    注意: 受限 key **不会**被写进 .system_raw_key(其余分支保持只读), 而系统级 key
+    #    注意: 受限 key **不会**被写进系统层 .system_raw_key.key(其余分支保持只读), 而系统级 key
     #    的落盘在"拿到/被 whoami 证明"的当口就已完成(见本函数开头与激活分支)。
     _persist_system_raw_key(system_id, system_admin_key)
 
@@ -394,8 +394,8 @@ def init_system(
     if not admin_key:
         return {"success": False, "error": "No admin_key returned from server", "status": status}
 
-    # 契约(cli/README.md:121): 平台在激活时下发的**系统级 key** 必须当场落盘到
-    # .system_raw_key/{sid}_admin.key。放在这里=拿到即落盘, 与后续降级是否成功无关
+    # 契约(cli/README): 平台在激活时下发的**系统级 key** 必须当场落盘到
+    # systems/{sid}/.system_raw_key.key。放在这里=拿到即落盘, 与后续降级是否成功无关
     # —— 否则降级失败(或早退)会让系统级 key 只剩云端哈希、本地永久不可得
     # (2026-09-22 实测: shared-default-6b9fc46c 就是这样丢的)。
     _persist_system_raw_key(created_system_id, admin_key)

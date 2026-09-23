@@ -95,7 +95,7 @@ process_inbound_mail(payload, headers)
 
 - ping/pong interception happens at the last moment before the agent is invoked: pong is only replied when the entire chain is healthy (maximizes end-to-end validation).
 - When not intercepted, the receiver hands the raw body (not the enrichment output) to the agent runtime.
-- `send_pong` resolves configuration via `_CONFIG_LOADER` and sends through `send_mail`; logs go to the unified `~/.aimail/logs/aimail.{cleaned_addr}.log`.
+- `send_pong` resolves configuration via `_CONFIG_LOADER` and sends through `send_mail`; logs go to the unified `~/.aimail/systems/{system_id}/{cleaned_addr}/agentmail.log`.
 
 ### 2.3 Address Derivation (uniform across all systems)
 
@@ -176,7 +176,7 @@ Field semantics follow the config-file table in `cli/README.md` and the code con
 ### 3.5 ping/pong Contract
 
 - Prefixes: `__aimail_ping__:` / `__aimail_pong__:` (gateway send.rs P0 exact match; if the two ends disagree, the pong never loops back).
-- Three-stage events: `ping_intercepted → pong_sent → pong_returned`, written to `~/.aimail/logs/aimail.{cleaned_addr}.log` (the sole authoritative verdict for ping_test).
+- Three-stage events: `ping_intercepted → pong_sent → pong_returned`, written to `~/.aimail/systems/{system_id}/{cleaned_addr}/agentmail.log` (the sole authoritative verdict for ping_test).
 
 ---
 
@@ -426,7 +426,7 @@ dispatchers; kinds are shared across platforms, never per-platform code.
 | ping never gets a pong | Prefix mismatch (PONG_PREFIX must be `__aimail_pong__:`); or the receive endpoint skipped the final process_inbound_mail step |
 | Inbound broken (new agent) | register_bridge_route not called after registration (no route-table entry) |
 | Webhook session receives but can't reply | Profile `platform_toolsets.webhook` lacks aimail; or the routed skills are empty |
-| Logs land in aimail.default.log | Standalone process didn't set_agent_context / didn't export AIMAIL_AGENT_EMAIL |
+| Logs land in `_unassigned/default/agentmail.log` | Standalone process didn't set_agent_context / didn't export AIMAIL_AGENT_EMAIL (no system归属 → 收口 _unassigned) |
 | Bridge retries 401 forever | webhook_secret inconsistent with the receive-endpoint config (the value written at registration) |
 | Inbound enrichment skipped | Receive endpoint called process_inbound_mail without injecting agent config first |
 | check reports system missing | Pointer file lacks system_id; or the wrong home was read (profile layouts need --agent-home) |

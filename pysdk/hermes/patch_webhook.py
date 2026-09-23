@@ -537,7 +537,7 @@ WEBHOOK_BLOCK4 = """        # ── Ping-pong interception (end-to-end test) �
 # Inserted AFTER session_chat_id, BEFORE "# Store delivery info" function (appended at end of file)
 WEBHOOK_BLOCK5 = """
 def _log_ping_event(dir_: str, ping_id: str, payload: dict, pong_status: str):
-    \"\"\"Append a JSON line to aimail.log for ping-pong tracking.\"\"\"
+    \"\"\"Append a JSON line to agentmail.log for ping-pong tracking.\"\"\"
     import json, os as _os
     from datetime import datetime, timezone
     entry = {
@@ -548,25 +548,28 @@ def _log_ping_event(dir_: str, ping_id: str, payload: dict, pong_status: str):
     }
     if pong_status:
         entry["pong_status"] = pong_status
-    _log_dir = _os.environ.get("AIMAIL_HOME", "")
-    if not _log_dir:
-        # Resolve email from profile dir .agentmail pointer
-        _pdir = _os.environ.get("HERMES_PROFILE_DIR", "")
-        if not _pdir:
-            _pdir = _os.path.expanduser("~/.hermes")
-        _pointer = _os.path.join(_pdir, ".agentmail")
-        if _os.path.isfile(_pointer):
-            try:
-                import json as _json
-                _pd = _json.load(open(_pointer))
-                _email = _pd.get("email", "")
-                if _email:
-                    _log_dir = _os.path.expanduser("~/.aimail/mail/" + _email.replace("@", "_"))
-            except:
-                pass
-    if not _log_dir:
-        _log_dir = _os.path.expanduser("~/.aimail/mail/default")
-    log_path = _os.path.join(_log_dir, "aimail.log")
+    # 三层收口(2026-09-23): 权威日志 = {home}/systems/{sid}/{addr}/agentmail.log
+    _home = _os.environ.get("AIMAIL_HOME", "") or _os.path.expanduser("~/.aimail")
+    _sid = ""
+    _email = ""
+    _pdir = _os.environ.get("HERMES_PROFILE_DIR", "")
+    if not _pdir:
+        _pdir = _os.path.expanduser("~/.hermes")
+    _pointer = _os.path.join(_pdir, ".agentmail")
+    if _os.path.isfile(_pointer):
+        try:
+            import json as _json
+            _pd = _json.load(open(_pointer))
+            _sid = _pd.get("system_id", "")
+            _email = _pd.get("email", "")
+        except:
+            pass
+    _log_dir = ""
+    if _sid:
+        _cleaned = (_email or "default").replace("@", "_")
+        _log_dir = _os.path.join(_home, "systems", _sid, _cleaned)
+    log_path = _os.path.join(_log_dir, "agentmail.log") if _log_dir else ""
+
     try:
         _os.makedirs(_log_dir, exist_ok=True)
         with open(log_path, "a") as f:

@@ -93,7 +93,7 @@ process_inbound_mail(payload, headers)
 
 - ping/pong 拦截在调用 agent 前的最后一刻:pong 只在全链路正常时回复(最大化 E2E 验证)。
 - 未拦截 → 接收端把原始 body(非富化产物)投递给 agent 运行时。
-- `send_pong` 经 `_CONFIG_LOADER` 解析配置走 `send_mail`;日志统一 `~/.aimail/logs/aimail.{cleaned_addr}.log`。
+- `send_pong` 经 `_CONFIG_LOADER` 解析配置走 `send_mail`;日志统一 `~/.aimail/systems/{system_id}/{cleaned_addr}/agentmail.log`。
 
 ### 2.3 地址派生(全系统统一)
 
@@ -174,7 +174,7 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 ### 3.5 ping/pong 契约
 
 - 前缀:`__aimail_ping__:` / `__aimail_pong__:`(gateway send.rs P0 精确匹配,两端不一致 pong 永不回环)。
-- 三阶段事件:`ping_intercepted → pong_sent → pong_returned`,落 `~/.aimail/logs/aimail.{cleaned_addr}.log`(ping_test 唯一权威判定)。
+- 三阶段事件:`ping_intercepted → pong_sent → pong_returned`,落 `~/.aimail/systems/{system_id}/{cleaned_addr}/agentmail.log`(ping_test 唯一权威判定)。
 
 ---
 
@@ -402,7 +402,7 @@ health_checks。CLI 执行器是平台无关的 `kind` 分发;kind 跨平台共�
 | ping 永不回 pong | 前缀不一致(PONG_PREFIX 必须 `__aimail_pong__:`);或接收端没走 process_inbound_mail 最后一步 |
 | 入站断链(新 agent) | 注册后未调 register_bridge_route(路由表无条目) |
 | webhook 会话收得到回不出 | profile `platform_toolsets.webhook` 缺 aimail;或路由 skills 为空 |
-| 日志落 aimail.default.log | 独立进程没 set_agent_context / 没 export AIMAIL_AGENT_EMAIL |
+| 日志落 `_unassigned/default/agentmail.log` | 独立进程没 set_agent_context / 没 export AIMAIL_AGENT_EMAIL(无系统归属 → 收口 _unassigned) |
 | bridge 转发 401 无限重试 | webhook_secret 与接收端配置不一致(注册时落盘值) |
 | 入站富化跳过 | 接收端未先注入 agent 配置就调 process_inbound_mail |
 | check 报系统缺失 | 指针文件缺 system_id;或读错了 home(profile 布局须 --agent-home) |

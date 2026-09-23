@@ -317,7 +317,7 @@ describe('sendMail 先存再调', () => {
 
 describe('sendMail outbound log parity (Python _log_aimail)', () => {
   const ctx = { systemId: SYSTEM_ID, email: EMAIL }
-  const logPath = () => path.join(home, 'logs', `aimail.${cleanAddr(EMAIL)}.log`)
+  const logPath = () => path.join(home, 'systems', SYSTEM_ID, cleanAddr(EMAIL), 'agentmail.log')
 
   it('appends {ts,dir:outbound,from,to,subj,email_id} on 2xx (mirrors Python success branch)', async () => {
     const { restore } = stubFetch()

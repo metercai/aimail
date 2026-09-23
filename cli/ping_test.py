@@ -97,7 +97,6 @@ def _main_agent_email(cfg: dict) -> str:
 
 AIMAIL_HOME = _aimail_home()
 SYSTEMS_DIR = AIMAIL_HOME / "systems"
-MAIL_DIR = AIMAIL_HOME / "mail"
 
 PING_PREFIX = "__aimail_ping__:"
 
@@ -233,8 +232,9 @@ def main() -> int:
         print("✗ Missing required config fields(gateway_url/admin_key/email/manager)")
         return 1
 
-    mail_dir = MAIL_DIR / _clean_agent_dir_name(email)          # 快照目录(mail 数据)
-    aimail_log = AIMAIL_HOME / "logs" / f"aimail.{_clean_agent_dir_name(email)}.log"
+    _leaf = SYSTEMS_DIR / sid / _clean_agent_dir_name(email)
+    mail_dir = _leaf / "mail"                                    # 快照目录(mail 数据, agent 层)
+    aimail_log = _leaf / "agentmail.log"                          # 权威判定日志(三层收口)
 
     # ── 识别 gateway 版本 → 选择 SMTP 入站方式 ──
     edition = _detect_edition(gw_url)
@@ -324,7 +324,7 @@ def main() -> int:
                     if now_ts - entry.stat().st_mtime < 300:
                         snap_ok += 1
         if snap_ok > 0:
-            print(f"  ✓ Snapshots: {snap_ok} new file(s) in mail/{_clean_agent_dir_name(email)}/ (total {snap_total})")
+            print(f"  ✓ Snapshots: {snap_ok} new file(s) in systems/{sid}/{_clean_agent_dir_name(email)}/mail/ (total {snap_total})")
         else:
             print(f"  ⚠ Snapshots: {snap_total} total file(s), none from last 5min")
 

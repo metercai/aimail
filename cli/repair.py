@@ -110,7 +110,7 @@ def _ensure_bridge_running() -> bool:
     if start_bridge(str(BRIDGE_BIN), str(BRIDGE_CFG), str(BRIDGE_PID)):
         _ok(f"bridge 已启动 (pid={BRIDGE_PID.read_text().strip() if BRIDGE_PID.exists() else '?'})")
         return True
-    _fail("bridge 启动失败——查日志 ~/.aimail/logs/aimail-bridge.log")
+    _fail("bridge 启动失败——查日志 ~/.aimail/bridge/aimail-bridge.log")
     return False
 
 

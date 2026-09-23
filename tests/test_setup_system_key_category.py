@@ -15,14 +15,14 @@ P1（第二次，修正后生产复现）: 改成 `category="agent"` + `email_ad
     `email_address=<裸域>` + `scopes=["system"]`（system key 可降级为"单域"，
     `is_system_to_domain`）；身份收窄到一个裸域、且造不出 system/platform 级 key。
 
-P2: cli/README.md:121 承诺"原始 key 存 .system_raw_key/{sid}_admin.key"，但
+P2: cli/README 承诺"原始 key 存系统层 .system_raw_key.key(三层收口)"，但
     激活+降级路径**没实现**；更糟的是"传入的已是受限 key"（复用路径）会被误判成
     降级失败并可能把受限 key 当系统 key 落盘，污染该契约。
 
 锁六件事：
   1. category 必须是 `domain`，scopes 必须是 `["system"]`，email **是裸域**(无 '@')
   2. **拿到即落盘**(2026-09-22 用户要求): 平台下发的/经 whoami 证明为系统级的 key
-     立刻写 .system_raw_key/{sid}_admin.key(0600), 与随后降级是否成功**无关**;
+     立刻写 systems/{sid}/.system_raw_key.key(0600), 与随后降级是否成功**无关**;
      只有"确认是受限级"的 key 才不落盘(不污染该系统 key 契约)
   3. 传入的 key 已是 agent 级(网关报 privilege level) → 视为"无需降级": 返原 key，
      **不落盘**、**不打 error**
@@ -53,7 +53,8 @@ def _cfg(monkeypatch, tmp_path, key="syskey"):
 
 
 def _raw(tmp_path, sid="shared-default-abc"):
-    return tmp_path / "home" / ".system_raw_key" / f"{sid}_admin.key"
+    # 三层收口(2026-09-23): 系统层单文件
+    return tmp_path / "home" / "systems" / sid / ".system_raw_key.key"
 
 
 def test_category_is_domain_with_bare_domain_identity(monkeypatch, tmp_path):

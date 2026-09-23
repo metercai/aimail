@@ -5,12 +5,30 @@
  * `_clean_agent_dir_name` (non [\w.-] → '_').
  */
 import { promises as fs } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
 import type { AgentConfig } from './types.js'
 
 export const AIMAIL_HOME = (): string =>
   process.env.AIMAIL_HOME || path.join(os.homedir(), '.aimail')
+
+/** 三层收口(2026-09-23): email → system_id — 扫 systems/<sid>/[cleanAddr]/
+ * agentmail.json 落点(权威归属映射, 覆盖任意地址);失败返回 '' —— 调用方
+ * 收口 `_unassigned`, 绝不回落旧的顶层 logs/ 或 mail/。
+ * 同步实现: 路径构造函数均为同步 API, 邮件级频率的目录扫描可接受。 */
+export function systemIdForEmail(email: string): string {
+  const cleaned = cleanAddr(email)
+  const root = path.join(AIMAIL_HOME(), 'systems')
+  try {
+    for (const name of readdirSync(root)) {
+      if (existsSync(path.join(root, name, cleaned, 'agentmail.json'))) return name
+    }
+  } catch {
+    /* non-fatal → '' */
+  }
+  return ''
+}
 
 export function systemDir(systemId: string): string {
   return path.join(AIMAIL_HOME(), 'systems', systemId)

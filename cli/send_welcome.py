@@ -193,7 +193,7 @@ def _api_send(gw_url: str, admin_key: str, recipient: str,
 
 
 def _agent_log_path(agent_email: str) -> str:
-    """Per-agent processing log: {AIMAIL_HOME}/logs/aimail.{cleaned_addr}.log.
+    """Per-agent processing log: {home}/systems/{sid}/{addr}/agentmail.log(三层收口).
 
     Mirror of aimail_base.aimail_log_path() (one file per agent).
     """
@@ -205,7 +205,20 @@ def _agent_log_path(agent_email: str) -> str:
         pass
     cleaned = re.sub(r"[^\w.\-]", "_", agent_email)
     home = os.environ.get("AIMAIL_HOME", "") or os.path.expanduser("~/.aimail")
-    return os.path.join(home, "logs", f"aimail.{cleaned}.log")
+    sid = _sid_for(home, cleaned)
+    return os.path.join(home, "systems", sid or "_unassigned", cleaned, "agentmail.log")
+
+
+def _sid_for(home: str, cleaned: str) -> str:
+    """三层收口: 扫 {home}/systems/*/{cleaned}/agentmail.json 得归属 sid(失败 '')."""
+    try:
+        root = os.path.join(home, "systems")
+        for name in sorted(os.listdir(root)):
+            if os.path.isfile(os.path.join(root, name, cleaned, "agentmail.json")):
+                return name
+    except OSError:
+        pass
+    return ""
 
 
 def _poll_reply(agent_email: str, timeout_secs: int) -> tuple:
@@ -248,8 +261,8 @@ def _poll_reply(agent_email: str, timeout_secs: int) -> tuple:
 def _parse_draft_from_reply(agent_email: str) -> dict:
     """从 agent 的 outbound 快照里解析 persona/signature 草案(S4 接线, 2026-09-23)。
 
-    落库布局(pysdk/aimail_tools.py, 真源):
-      - outbound 邮件正文快照 = {AIMAIL_HOME}/mail/{cleaned_addr}/yyyymm/out-{safe_mid}.json
+    落库布局(pysdk/aimail_tools.py, 真源; 三层收口 2026-09-23):
+      - outbound 邮件正文快照 = {home}/systems/{sid}/{addr}/mail/yyyymm/out-{safe_mid}.json
         (含 subject/body; 常写, 不受 save_raw_snapshots 控制)
       - 回复识别 = 与 SDK 同款契约: 主题含 "welcome to aimail world"(小写化子串)
         **或** 正文行首三标签(persona:/signature:/current_time:) —— 三标签齐才算命中,
@@ -258,7 +271,8 @@ def _parse_draft_from_reply(agent_email: str) -> dict:
     与网关 parse_persona_approval 的行内值语义一致)。
     """
     cleaned = _clean_agent_dir_name(agent_email)
-    base = AIMAIL_HOME / "mail" / cleaned
+    sid = _sid_for(str(AIMAIL_HOME), cleaned)
+    base = AIMAIL_HOME / "systems" / (sid or "_unassigned") / cleaned / "mail"
     if not base.is_dir():
         return {}
     # 新→旧扫描快照(近两月目录足够: 草案回复必然是最近的 outbound)。

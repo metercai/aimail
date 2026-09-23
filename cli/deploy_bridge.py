@@ -176,7 +176,7 @@ def write_bridge_config(path: str, mode: str, addr: str, gw: str,
       - 已有 [pull].systems 数组 → 追加/更新当前 sid 的条目,保留其他系统
     重启由 start_bridge 幂等处理(先杀旧进程再起新,单实例)。
     """
-    log_path = os.path.join(_AM_HOME, "logs/aimail-bridge.log")
+    log_path = os.path.join(_AM_HOME, "bridge", "aimail-bridge.log")
 
     def _entry() -> dict:
         e = {
@@ -363,7 +363,7 @@ def main():
             with open(cfg_path, 'w') as f:
                 f.write('\n'.join(_config_lines(
                     wh_host or "127.0.0.1:38081", bridge_mode, [],
-                    os.path.join(_AM_HOME, "logs/aimail-bridge.log"))) + '\n')
+                    os.path.join(_AM_HOME, "bridge", "aimail-bridge.log"))) + '\n')
             log_ok(f"bridge skeleton config written: {cfg_path} (empty systems)")
         print("  init: bridge binary + config in place (empty systems; first install starts it)")
         return 0
@@ -420,7 +420,7 @@ def main():
     import uuid
     system_key = ""
     system_key_path = os.path.join(
-        os.path.join(_AM_HOME, ".system_raw_key"), f"{sid}_admin.key"
+        os.path.join(_AM_HOME, "systems", sid), ".system_raw_key.key"
     )
     if os.path.exists(system_key_path):
         try:
@@ -497,7 +497,7 @@ def main():
         if bridge_key:
             log_ok("bridge API key created (category=bridge)")
     else:
-        log_warn("bridge failed to start — check ~/.aimail/logs/aimail-bridge.log")
+        log_warn("bridge failed to start — check ~/.aimail/bridge/aimail-bridge.log")
         return 1
 
 if __name__ == "__main__":

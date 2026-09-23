@@ -12,6 +12,7 @@ export {
   AIMAIL_HOME,
   systemDir,
   cleanAddr,
+  systemIdForEmail,
   agentConfigPath,
   loadAgentConfig,
   loadConfigBySessionId,

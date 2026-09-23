@@ -10,10 +10,10 @@ import { promises as fsp } from 'node:fs'
 import * as path from 'node:path'
 import { createHmac, createHash, timingSafeEqual } from 'node:crypto'
 import { GatewayClient } from './gateway.js'
-import { AIMAIL_HOME, cleanAddr, loadAgentConfig, systemDir } from './config.js'
+import { cleanAddr, loadAgentConfig, systemDir } from './config.js'
 import { sendMail, sanitizeMessageId } from './tools.js'
 import { appendLog } from './log.js'
-import { saveLocalMeta, threadPath } from './meta.js'
+import { saveLocalMeta, threadPath, agentMailDir } from './meta.js'
 import { registerBoardGateway } from './board.js'
 import type { AgentConfig, EnrichedPayload, InboundPayload } from './types.js'
 import type { ToolCtx, ToolResult } from './tools.js'
@@ -162,7 +162,7 @@ async function downloadAttachments(
   // the leaf already encodes the address; yyyymm in LOCAL time like %Y%m).
   const now = new Date()
   const yyyymm = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`
-  const attchDir = path.join(AIMAIL_HOME(), 'mail', cleanAddr(cfg.email), yyyymm, 'attch', sanitizeMessageId(messageId || 'unknown'))
+  const attchDir = path.join(agentMailDir(cfg.email), yyyymm, 'attch', sanitizeMessageId(messageId || 'unknown'))
   await fsp.mkdir(attchDir, { recursive: true })
   const localPaths: string[] = []
   for (const att of attachments) {

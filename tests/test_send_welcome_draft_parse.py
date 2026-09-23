@@ -1,7 +1,7 @@
 """S4 接线:_parse_draft_from_reply 按 outbound 快照布局解析草案(cli/send_welcome.py)。
 
-真源布局(pysdk/aimail_tools.py::_save_outbound_snapshot):
-  {AIMAIL_HOME}/mail/{cleaned_addr}/yyyymm/out-{safe_mid}.json
+真源布局(pysdk/aimail_tools.py::_save_outbound_snapshot; 三层收口 2026-09-23):
+  {AIMAIL_HOME}/systems/{sid}/{cleaned_addr}/mail/{yyyymm}/out-{safe_mid}.json
   payload 含 direction=outbound / subject / body。meta 常写,不受 save_raw_snapshots 控制。
 """
 import importlib.util
@@ -24,7 +24,10 @@ _spec.loader.exec_module(sw)
 
 def _snapshot(home: Path, addr: str, yyyymm: str, mid: str, subject: str, body: str) -> None:
     cleaned = sw._clean_agent_dir_name(addr)  # 真源清洗规则: 点→下划线
-    d = home / "mail" / cleaned / yyyymm
+    marker_dir = home / "systems" / "sys-draft" / cleaned
+    marker_dir.mkdir(parents=True, exist_ok=True)
+    (marker_dir / "agentmail.json").write_text("{}", encoding="utf-8")  # 归属标记(三层收口)
+    d = marker_dir / "mail" / yyyymm
     d.mkdir(parents=True, exist_ok=True)
     safe = "".join(c if c.isalnum() or c in "@.-_" else "_" for c in mid)
     (d / f"out-{safe}.json").write_text(json.dumps({
@@ -74,8 +77,8 @@ def test_newer_incomplete_falls_back_to_older_complete(tmp_path, monkeypatch):
               "Re: Welcome to AIMail World", WELCOME_REPLY_BODY)
     _snapshot(tmp_path, "agent@test.com", "202609", "<m-new@x>",
               "Re: Welcome to AIMail World", "persona: partial\n")
-    # 保证 mtime 严格递增(目录名 = 真源清洗: @ → _)
-    d = tmp_path / "mail" / "agent_test.com" / "202609"
+    # 保证 mtime 严格递增(目录名 = 真源清洗: @ → _; 三层收口: 归属标记在)
+    d = tmp_path / "systems" / "sys-draft" / "agent_test.com" / "mail" / "202609"
     old_file = d / "out-_m-old@x_.json"
     os.utime(old_file, (time.time() - 10, time.time() - 10))
     got = sw._parse_draft_from_reply("agent@test.com")

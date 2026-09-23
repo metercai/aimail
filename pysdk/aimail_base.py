@@ -230,8 +230,9 @@ def aimail_home() -> Path:
     """Canonical aimail home root (single source of truth).
 
     Resolves env AIMAIL_HOME to a home-root dir,
-    falling back to ~/.aimail. All path constructors (mail/{clean},
-    systems/, logs/) derive from this so the env var relocates the whole
+    falling back to ~/.aimail. All path constructors (三层收口 2026-09-23:
+    systems/{sid}/{addr}/agentmail.log、systems/{sid}/{addr}/mail、
+    systems/{sid}/.system_raw_key.key、bridge/) derive from this so the env var relocates the whole
     tree consistently on Python and TS sides (mirrors TS config.ts
     AIMAIL_HOME()).
     """
@@ -736,15 +737,56 @@ def send_pong(body: dict, pong_id_value: str) -> bool:
         return False
 
 
+def resolve_system_id_for_email(email: str = "") -> str:
+    """email → system_id(三层收口布局 systems/{sid}/{addr}/… 的归属解析, 2026-09-23)。
+
+    顺序: 1) 活动 profile 配置(email 匹配时, 零扫描)
+          2) 扫 {home}/systems/*/{cleaned}/agentmail.json 落点(权威映射,
+             覆盖任意地址, 如 ping 收件人)
+          3) 平台指针 .agentmail 的 system_id 兜底
+    解析失败返回 "" —— 调用方收口到 systems/_unassigned/, 保持三层布局纯净
+    (绝不回落旧的顶层 logs/ 或 mail/)。
+    """
+    if email:
+        try:
+            cfg = _load_profile_config()
+            if (cfg and cfg.get("system_id") and
+                    str(cfg.get("email", "")).strip().lower() == email.strip().lower()):
+                return str(cfg["system_id"])
+        except Exception:
+            pass
+        cleaned = _clean_agent_dir_name(email)
+        try:
+            root = aimail_home() / "systems"
+            if root.is_dir():
+                for d in sorted(root.iterdir()):
+                    if d.is_dir() and (d / cleaned / "agentmail.json").is_file():
+                        return d.name
+        except Exception:
+            pass
+    try:
+        resolver = _PROFILE_DIR_RESOLVER
+        pdir = resolver() if resolver else ""
+        if pdir:
+            ptr = Path(pdir) / ".agentmail"
+            if ptr.is_file():
+                return str(json.loads(ptr.read_text()).get("system_id", ""))
+    except Exception:
+        pass
+    return ""
+
+
 def aimail_log_path(email: str = "") -> Path:
     """Canonical per-agent processing log path (user-mandated 2026-08-16).
 
-    All agent logs live under {AIMAIL_HOME|~/.aimail}/logs/, one file
-    per agent: aimail.{cleaned_addr}.log — NOT inside mail/{addr}/.
+    三层收口(2026-09-23 裁决): 每 agent 日志落 agent 层, 与 agentmail.json
+    同目录 —— {home}/systems/{system_id}/{cleaned_addr}/agentmail.log;
+    顶层不再有 logs/(原 logs/aimail.{cleaned_addr}.log 已废弃)。
+    system_id 解析失败收口到 systems/_unassigned/(不落旧路径)。
     """
     cleaned = _clean_agent_dir_name(email) if email else "default"
-    base = aimail_home()
-    return base / "logs" / f"aimail.{cleaned}.log"
+    sid = resolve_system_id_for_email(email) or "_unassigned"
+    return aimail_home() / "systems" / sid / cleaned / "agentmail.log"
 
 
 def _log_ping_event(dir_: str, ping_id: str, payload: dict, pong_status: str = ""):

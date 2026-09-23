@@ -1346,18 +1346,20 @@ def _resolve_agent_email() -> str:
 
 
 def _aimail_dir() -> Path:
-    """Per-agent mail data leaf: {aimail_home}/mail/{cleaned_addr}/.
+    """Per-agent mail data leaf: {aimail_home}/systems/{sid}/{cleaned_addr}/mail/.
 
-    Layout: {aimail_home}/mail/{cleaned_addr}/ — email content + attachments,
-    isolated from {aimail_home}/systems/ (config). aimail_home() is env
-    AIMAIL_HOME or ~/.aimail — the home ROOT, so
-    the env var relocates the whole tree (mirrors TS agentMailDir())."""
+    三层收口(2026-09-23): 邮件内容快照(in/out)、attch、meta、threads、
+    .search 整叶归 agent 层; 顶层不再有 mail/(原 {aimail_home}/mail/
+    {cleaned_addr}/ 已废弃)。sid 解析失败收口 systems/_unassigned/。
+    aimail_home() 是 env AIMAIL_HOME 或 ~/.aimail —— env 变量整体搬迁
+    (mirrors TS agentMailDir())。
+    """
     import aimail_base as _abm
     base = _abm.aimail_home()
     email = _resolve_agent_email()
-    if email:
-        return base / "mail" / _abm._clean_agent_dir_name(email)
-    return base / "mail" / "default"
+    cleaned = _abm._clean_agent_dir_name(email) if email else "default"
+    sid = _abm.resolve_system_id_for_email(email) or "_unassigned"
+    return base / "systems" / sid / cleaned / "mail"
 
 
 def _raw_email_dir() -> Path:
@@ -1370,7 +1372,8 @@ def _log_aimail(direction: str, from_addr: str, to_addr: str, subject: str,
                email_id: str = "") -> None:
     """Append a lightweight email processing log entry (not dependent on save_raw_snapshots).
 
-    Log is written to {AIMAIL_HOME}/aimail.log for integration test verification.
+    三层收口(2026-09-23): 落 {home}/systems/{sid}/{addr}/agentmail.log
+    (真源 = aimail_base.aimail_log_path)。
     """
     import json as _json
     import aimail_base as _abm

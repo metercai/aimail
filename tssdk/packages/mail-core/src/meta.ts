@@ -12,7 +12,7 @@
  */
 import { promises as fs } from 'node:fs'
 import * as path from 'node:path'
-import { AIMAIL_HOME, cleanAddr } from './config.js'
+import { AIMAIL_HOME, cleanAddr, systemIdForEmail } from './config.js'
 import { indexSnapshotRecord, collectAttachmentsMd, joinAttMd } from './search.js'
 
 /**
@@ -28,9 +28,12 @@ export function sanitizeMessageId(messageId: string): string {
   return mid
 }
 
-/** Per-agent mail data leaf dir: {AIMAIL_HOME}/mail/{clean_addr}/. */
+/** Per-agent mail data leaf: {AIMAIL_HOME}/systems/{sid}/{clean_addr}/mail/
+ * (三层收口 2026-09-23, 顶层不再有 mail/; in/out 快照、attch、meta、threads、
+ * .search 整叶归 agent 层;sid 解析失败收口 _unassigned)。 */
 export function agentMailDir(email: string): string {
-  return path.join(AIMAIL_HOME(), 'mail', cleanAddr(email))
+  const sid = systemIdForEmail(email) || '_unassigned'
+  return path.join(AIMAIL_HOME(), 'systems', sid, cleanAddr(email), 'mail')
 }
 
 /** meta/{first2}/{safe_mid}.json — first-2-char shard (256 buckets). */

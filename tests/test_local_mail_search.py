@@ -15,6 +15,7 @@ import json
 import os
 import sys
 import sqlite3
+from pathlib import Path
 
 import pytest
 
@@ -68,8 +69,14 @@ def _store_outbound(mid, subject="", body="", sender=AGENT, to="peer@corp.com",
     )
 
 
+def _leaf(home) -> Path:
+    """三层收口(2026-09-23): 本测试的 profile 无 system_id 且无 systems 目录
+    ⇒ 解析收口到 systems/_unassigned/(与真源解析器同语义)。"""
+    return home / "systems" / "_unassigned" / "agent.probe_test.local" / "mail"
+
+
 def _index_rowcount(home) -> int:
-    db = sqlite3.connect(str(home / "mail" / "agent.probe_test.local" / ".search" / "index.db"))
+    db = sqlite3.connect(str(_leaf(home) / ".search" / "index.db"))
     try:
         return db.execute("SELECT COUNT(*) FROM emails").fetchone()[0]
     finally:
@@ -154,14 +161,14 @@ def test_switch_off_no_index_note(home, monkeypatch):
                         lambda: {**CFG, "save_raw_snapshots": False})
     _store_inbound("in-off", subject="never stored", body="x")
     # no snapshot file, no index row
-    assert not list((home / "mail" / "agent.probe_test.local").glob("*/*.json"))
+    assert not list(_leaf(home).glob("*/*.json"))
     res = aimail_tools.search_mail(query="never")
     assert res["count"] == 0 and "note" in res
 
 
 def test_no_backfill_of_preexisting_snapshots(home):
     # an old snapshot sitting in yyyymm/ before the index feature existed
-    old_dir = home / "mail" / "agent.probe_test.local" / "202605"
+    old_dir = _leaf(home) / "202605"
     old_dir.mkdir(parents=True)
     (old_dir / "in-OLD123.json").write_text(json.dumps(
         {"subject": "ancient", "body": "pre-index content", "sender": "old@corp.com",
@@ -178,7 +185,7 @@ def test_fallback_scan_when_index_missing(home, tmp_path, monkeypatch):
                    att_src=[str(note)])
     _store_outbound("out-fb", subject="outbound too", body="fallback out")
     # kill the index db → ordered scan of snapshot files must answer
-    idx = home / "mail" / "agent.probe_test.local" / ".search"
+    idx = _leaf(home) / ".search"
     import shutil
     shutil.rmtree(idx, ignore_errors=True)
     monkeypatch.setattr(aimail_tools, "_open_search_index", lambda: None)

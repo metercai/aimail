@@ -59,7 +59,7 @@ describe('path sharding', () => {
     const p = localMetaPath(EMAIL, '<deadbeef-1111-2222-3333-444444444444@token.tm>')
     const safe = sanitizeMessageId('<deadbeef-1111-2222-3333-444444444444@token.tm>')
     expect(p).toBe(path.join(agentMailDir(EMAIL), 'meta', safe.slice(0, 2), `${safe}.json`))
-    expect(p).toContain(path.join('mail', cleanAddr(EMAIL), 'meta'))
+    expect(p).toContain(path.join(cleanAddr(EMAIL), 'mail', 'meta'))
   })
   it('thread path uses same sharding under threads/', () => {
     const p = threadPath(EMAIL, 'tid-abc')

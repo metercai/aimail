@@ -368,7 +368,7 @@ export async function sendMail(ctx: ToolCtx, args: SendMailArgs): Promise<ToolRe
   }
 
   if (result.status >= 200 && result.status < 300) {
-    // Outbound line to the per-agent aimail.log (Python parity: _log_aimail
+    // Outbound line to the per-agent agentmail.log (Python parity: _log_aimail
     // "outbound" on the success branch) — the welcome CLI polls this file to
     // detect the agent's reply; TS used to skip it, breaking that poll.
     await logAimailOutbound(cfg.email, sender, toList.join(','), args.subject, generatedMid)

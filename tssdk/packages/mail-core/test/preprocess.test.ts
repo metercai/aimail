@@ -281,7 +281,7 @@ describe('processInboundMail', () => {
       const r = await processInboundMail(mail({ subject: `${PING_PREFIX}ping-123` }), {}, CTX)
       expect(r).toBeNull()
       // three-stage contract: ping_intercepted + pong_sent must be logged
-      const logFile = path.join(home, 'logs', `aimail.${cleanAddr(AGENT_EMAIL)}.log`)
+      const logFile = path.join(home, 'systems', SYSTEM_ID, cleanAddr(AGENT_EMAIL), 'agentmail.log')
       const lines = (await fs.readFile(logFile, 'utf-8')).trim().split('\n')
       const dirs = lines.map(l => JSON.parse(l).dir)
       expect(dirs).toContain('ping_intercepted')
@@ -294,7 +294,7 @@ describe('processInboundMail', () => {
   it('intercepts pong: returns null and logs pong_returned', async () => {
     const r = await processInboundMail(mail({ subject: `${PONG_PREFIX}ping-123` }), {}, CTX)
     expect(r).toBeNull()
-    const logFile = path.join(home, 'logs', `aimail.${cleanAddr(AGENT_EMAIL)}.log`)
+    const logFile = path.join(home, 'systems', SYSTEM_ID, cleanAddr(AGENT_EMAIL), 'agentmail.log')
     const lines = (await fs.readFile(logFile, 'utf-8')).trim().split('\n')
     const dirs = lines.map(l => JSON.parse(l).dir)
     expect(dirs).toContain('pong_returned')
@@ -302,7 +302,7 @@ describe('processInboundMail', () => {
 
   it('logs inbound for non-intercepted mail', async () => {
     await processInboundMail(mail({}), {}, CTX)
-    const logFile = path.join(home, 'logs', `aimail.${cleanAddr(AGENT_EMAIL)}.log`)
+    const logFile = path.join(home, 'systems', SYSTEM_ID, cleanAddr(AGENT_EMAIL), 'agentmail.log')
     const lines = (await fs.readFile(logFile, 'utf-8')).trim().split('\n')
     expect(lines.some(l => JSON.parse(l).event === 'inbound')).toBe(true)
   })

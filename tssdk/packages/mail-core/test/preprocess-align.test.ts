@@ -133,7 +133,7 @@ describe('D9: pong body + real pong_sent status', async () => {
   it('pong_sent log carries the real outcome (ok for a 200 send)', async () => {
     const payload = mail({ subject: '__aimail_ping__:ping-xyz', mail_id: 'm-p' })
     await processInboundMail(payload, {}, CTX)
-    const logPath = path.join(home, 'logs', `aimail.${cleanAddr(EMAIL)}.log`)
+    const logPath = path.join(home, 'systems', SYSTEM_ID, cleanAddr(EMAIL), 'agentmail.log')
     const lines = (await fs.readFile(logPath, 'utf-8')).trim().split('\n').map(l => JSON.parse(l))
     const pongSent = lines.find(l => l.dir === 'pong_sent')
     expect(pongSent).toBeDefined()

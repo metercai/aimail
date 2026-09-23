@@ -51,9 +51,7 @@ except Exception:
     _AH_ENV = os.environ.get("AIMAIL_HOME", "")
     AIMAIL_HOME = Path(_AH_ENV).expanduser() if _AH_ENV else Path.home() / ".aimail"
 SYSTEMS_DIR = AIMAIL_HOME / "systems"
-MAIL_DIR    = AIMAIL_HOME / "mail"
 BRIDGE_DIR  = AIMAIL_HOME / "bridge"
-LOGS_DIR    = AIMAIL_HOME / "logs"
 
 
 def _split_host_port(addr: str) -> tuple[str, str]:
@@ -91,7 +89,7 @@ def _system_agent_path(sid: str) -> Path:
 BRIDGE_CFG  = BRIDGE_DIR / "aimail_bridge.toml"
 BRIDGE_PID  = BRIDGE_DIR / "bridge.pid"
 BRIDGE_BIN  = BRIDGE_DIR / "bin" / "aimail-bridge"
-BRIDGE_LOG  = LOGS_DIR / "aimail-bridge.log"
+BRIDGE_LOG  = BRIDGE_DIR / "aimail-bridge.log"
 AGENT_CFG   = AGENT_HOME / "config.yaml"
 # --agent 指定 profile 时,读该 profile 的 config.yaml(端口随 profile)
 if "--agent" in sys.argv:
