@@ -46,7 +46,7 @@ Module layout inside the wheel mirrors the repository ``pysdk/`` directory
 import os as _os
 import sys as _sys
 
-__version__ = "0.1.14"
+__version__ = "0.1.15"
 
 __all__ = [
     "__version__",
