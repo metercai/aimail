@@ -203,7 +203,7 @@ export async function resolveConfigForAgent(
     }
     const fix = hasAnySystem()
       ? 'Run: aimail install --home ~/.openclaw (或 openclaw aimail register)'
-      : 'Machine has no aimail environment yet. Run: aimail install --home ~/.openclaw (or restart the host so auto-ensure via `aimail ensure-system` kicks in)'
+      : 'Machine has no aimail environment yet. Run: aimail install --home ~/.openclaw (or restart the host so auto-ensure via `aimail install --system-only` kicks in)'
     throw new Error(
       `aimail not configured for this agent — no ~/.openclaw/.agentmail pointer. ${fix}`,
     )

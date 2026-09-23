@@ -1,6 +1,6 @@
 // dsh-aimail 启动自举守卫回归测试(2026-09-22)
 //
-// 背景: 宿主插件 apply() 无条件反调 `aimail ensure-system`; 若环境里残留一个
+// 背景: 宿主插件 apply() 无条件反调 `aimail install --system-only`; 若环境里残留一个
 // 已被消费的激活码, 主循环会打印 "no aimail system yet — Invalid activation
 // code", 而该机器其实早就绑定好了 —— 启动即误报(2026-09-21 dsh 实测报告)。
 //
@@ -48,7 +48,7 @@ describe('dsh-aimail startup self-bootstrap guard', () => {
     ensureSystem.mockReset()
   })
 
-  it('home already owns a system → never reverse-calls ensure-system', async () => {
+  it('home already owns a system → never reverse-calls install --system-only', async () => {
     detectSystemForHome.mockResolvedValue('sid-bound')
     apply(ctxStub(), {})
     await tick()
@@ -56,7 +56,7 @@ describe('dsh-aimail startup self-bootstrap guard', () => {
     expect(ensureSystem).not.toHaveBeenCalled()
   })
 
-  it('home owns nothing → reverse-calls ensure-system', async () => {
+  it('home owns nothing → reverse-calls install --system-only', async () => {
     detectSystemForHome.mockResolvedValue('')
     ensureSystem.mockResolvedValue({ ok: true, systemId: 'sid-new', activated: false })
     apply(ctxStub(), {})

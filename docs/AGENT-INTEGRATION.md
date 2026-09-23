@@ -258,9 +258,11 @@ Field semantics follow the config-file table in `cli/README.md` and the code con
 
 **Command installation**: bootstrap installs `aimail` as a global command (`~/.local/bin/aimail` → the program copy's `cli/aimail` under `~/.aimail/bin/aimail-src`); the repo-root `./aimail` is a symlink to the same file, for in-repo debugging only.
 
-Subcommands (15, grouped into 4 scenarios):
+Subcommands (14, grouped into 4 scenarios; the former standalone `payload`
+and `ensure-system` subcommands were removed by ruling B 2026-09-23 — both
+machine ABIs now ride `install --payload` / `install --system-only`):
 
-- **setup**: `install` `ensure-system` `uninstall` `reset`
+- **setup**: `install` `uninstall` `reset`
 - **operate**: `stats` `renew` `version`
 - **diagnose**: `check` `repair` `ping` `welcome` `persona`
 - **resources**: `domain` `address` `bridge`
@@ -270,8 +272,7 @@ Subcommands (15, grouped into 4 scenarios):
 | `bridge` | Maintain the local bridge: no args = status; `--system-id` refreshes routes; `--restart` restarts the single instance |
 | `check` | Full-pipeline status check (config files L0 → gateway/bridge L1/L2 → platform runtime resources L2r → agent config L3 → links L4) |
 | `domain` | View/create the system domain (list by default / `--add DOMAIN`) |
-| `ensure-system` | System activation ABI (SDK reverse-call): L1 activation/reuse only — never platform wiring (keeps the install↔plugin call graph acyclic) |
-| `install` | Integrate an agent platform into the AIMail system (activate or reuse an existing system, incl. platform adapter and supplementary registration) |
+| `install` | Integrate an agent platform into the AIMail system (activate or reuse an existing system, incl. platform adapter and supplementary registration); its hidden machine parameters also carry both ABIs: `--system-only` (L1 activation/reuse, SDK reverse-call) and `--payload` (runtime bundle install/dir/resource/source) |
 | `address` | View/maintain system agent addresses: set default main-agent name (`-d`), rename an agent's address (`-a agent -n NAME`; server-side resources fully inherited), set manager (`-m`) |
 | `persona` | Persona flow: the manager sends 'update persona', the agent replies with a draft |
 | `ping` | ping-pong loopback test (trusts only the agent-side three-stage log events) |
@@ -288,7 +289,7 @@ Subcommands (15, grouped into 4 scenarios):
 **.env auto-loading**: CLI args > shell env > `~/.aimail/.env` (persisted by bootstrap) > repo `.env` > built-in defaults. Keys persisted by bootstrap: AIMAIL_URL / AIMAIL_ADMIN_KEY / AIMAIL_PRODUCT_CODE / AIMAIL_MANAGER_ADDRESS / AIMAIL_SYSTEM_NAME / AIMAIL_DOMAIN / AIMAIL_WEBHOOK_HOST / AIMAIL_WEBHOOK_MODE.
 install is fully non-interactive: activate → take the server-assigned system_id from the setup_system JSON stdout → preset/create domain → deploy_bridge → platform adapter.
 
-**System activation ABI — `ensure-system` (single L1 implementation)**
+**System activation ABI — `install --system-only` (single L1 implementation)**
 
 The activation protocol (activate-system / api-keys endpoints, raw_key gate,
 reset semantics, home-ownership reuse) is implemented ONCE, in the CLI. Both
@@ -298,10 +299,10 @@ install paths converge on it:
   wiring (it may spawn the host-plugin command);
 - host path: `dsh plugin --profile web add dsh-aimail` (openclaw/pi
   equivalents) → the plugin's readiness check reverse-calls
-  `aimail ensure-system -H <root>`.
+  `aimail install --system-only -H <root>`.
 
-`ensure-system` deliberately NEVER runs platform wiring or deploys the bridge —
-two distinct entries, one direction each — which is what keeps the
+`install --system-only` deliberately NEVER runs platform wiring or deploys the
+bridge — two distinct entries, one direction each — which is what keeps the
 install↔plugin call graph acyclic.
 
 Contract (locked by tests): stdout = exactly ONE JSON line; human logs →

@@ -119,7 +119,7 @@ export function apply(ctx: Context, config: { systemId?: string } = {}): void {
     // non-fatal: resources are a seed; explicit release can re-run later
   }
   // install readiness: a dsh-only machine ensures its system through the CLI
-  // reverse-call ABI (`aimail ensure-system`, L1 only — never platform wiring,
+  // reverse-call ABI (`aimail install --system-only`, L1 only — never platform wiring,
   // which is how the install↔plugin call loop stays acyclic). UNCONDITIONAL
   // reverse-call (ownership short-circuit lives inside ensureSystem): a
   // multi-platform machine with only ANOTHER platform's systems must still

@@ -2,14 +2,16 @@
  * TS-host system activation via the CLI ABI (reverse call).
  *
  * The activation protocol is deliberately NOT re-implemented here — it lives
- * exactly once, in `aimail ensure-system` (L1 only). TS hosts (dsh/pi/openclaw)
- * call back into that command instead of carrying a second protocol
- * implementation (2026-09 architecture ruling, option B).
+ * exactly once, in `aimail install --system-only` (L1 only; the standalone
+ * `ensure-system` subcommand was removed by ruling B, 2026-09-23). TS hosts
+ * (dsh/pi/openclaw) call back into that entry instead of carrying a second
+ * protocol implementation (2026-09 architecture ruling, option B).
  *
  * Call-loop breaker: `aimail install` (human path) does L1 + platform wiring
  * (it may spawn `dsh plugin add`); the plugin's readiness check calls back
- * ONLY into `aimail ensure-system`, which never spawns host commands. Two
- * distinct entries, one direction each → no recursion.
+ * ONLY into `aimail install --system-only`, which never spawns host commands.
+ * Two distinct entries (human vs `--system-only`), one direction each → no
+ * recursion.
  *
  * Contract (CLI side, locked by tests): stdout = exactly one JSON line
  * {success, system_id, gateway_url, domain, system_name, path} or
@@ -112,7 +114,7 @@ export async function detectSystemForHome(systemHome: string): Promise<string> {
 
 /**
  * Ensure a system exists for this machine: local systems present → ok (no
- * call-out); none → reverse-call `aimail ensure-system -H <home>` and parse
+ * call-out); none → reverse-call `aimail install --system-only -H <home>` and parse
  * its JSON contract. Never throws (CLI absence → actionable error).
  */
 export async function ensureSystem(
@@ -137,7 +139,7 @@ export async function ensureSystem(
 
   // 2) Reverse-call the CLI L1 ABI (single activation implementation).
   const cmd = opts.cliPath ?? process.env.AIMAIL_CLI ?? 'aimail'
-  const args = ['ensure-system']
+  const args = ['install', '--system-only']
   if (opts.systemHome) args.push('-H', opts.systemHome)
   const exec = opts.exec ?? defaultExec(opts.timeoutMs ?? 60_000)
   let r: { code: number; stdout: string }
@@ -153,14 +155,14 @@ export async function ensureSystem(
   } catch {
     return {
       ok: false,
-      error: `aimail ensure-system returned unparsable output (exit ${r.code})`,
+      error: `aimail install --system-only returned unparsable output (exit ${r.code})`,
       hint: 'run `aimail install --home <root>` manually to see the error',
     }
   }
   if (parsed.success !== true || r.code !== 0) {
     return {
       ok: false,
-      error: String(parsed.error ?? `ensure-system failed (exit ${r.code})`),
+      error: String(parsed.error ?? `install --system-only failed (exit ${r.code})`),
       ...(parsed.hint !== undefined ? { hint: String(parsed.hint) } : {}),
     }
   }

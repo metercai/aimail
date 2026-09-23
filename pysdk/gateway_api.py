@@ -87,7 +87,7 @@ class GatewayClient:
         """POST /api/v1/activate-system (public — no auth).
 
         CLI L1-ONLY:系统激活唯一实现在 CLI(cli/setup_system.py 经此共享
-        客户端调用);SDK 一律反调 `aimail ensure-system`,不得直连本方法
+        客户端调用);SDK 一律反调 `aimail install --system-only`,不得直连本方法
         (AUDIT-1 P2-2)。随 wheel 分发仅为 CLI 共用同一读库。
         """
         body = {"code": code}

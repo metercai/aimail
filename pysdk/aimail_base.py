@@ -1419,7 +1419,7 @@ def _system_home_owned(system_home: str) -> str:
 def ensure_system(system_home: str = "", cli: str = "aimail",
                   timeout: int = 60) -> dict:
     """Ensure a system exists for this host — REVERSE-CALL to the CLI's
-    L1-only `aimail ensure-system` (the single activation implementation;
+    L1-only `aimail install --system-only` (the single activation implementation;
     SDKs never carry the protocol). Parity with tssdk ensureSystem.
 
     Ownership short-circuit: with a system_home, only an OWNING system
@@ -1444,7 +1444,9 @@ def ensure_system(system_home: str = "", cli: str = "aimail",
                 return {"ok": True, "system_id": sid, "activated": False}
 
     # 2) reverse-call the CLI L1 ABI (single activation implementation)
-    argv = [cli, "ensure-system"]
+    #    B ruling 2026-09-23: the standalone subcommand is gone — the ABI is
+    #    `aimail install --system-only` now (mirror: tssdk ensure-system.ts).
+    argv = [cli, "install", "--system-only"]
     if system_home:
         argv += ["-H", system_home]
     try:
@@ -1459,10 +1461,10 @@ def ensure_system(system_home: str = "", cli: str = "aimail",
         parsed = json.loads(out.stdout.strip() or "{}")
     except Exception:
         return {"ok": False,
-                "error": f"aimail ensure-system returned unparsable output (exit {out.returncode})",
+                "error": f"aimail install --system-only returned unparsable output (exit {out.returncode})",
                 "hint": "run `aimail install --home <root>` manually to see the error"}
     if parsed.get("success") is not True or out.returncode != 0:
-        r = {"ok": False, "error": str(parsed.get("error") or f"ensure-system failed (exit {out.returncode})")}
+        r = {"ok": False, "error": str(parsed.get("error") or f"install --system-only failed (exit {out.returncode})")}
         if parsed.get("hint"):
             r["hint"] = str(parsed["hint"])
         return r

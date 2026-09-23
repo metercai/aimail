@@ -74,7 +74,7 @@ describe('ensureSystem (CLI reverse-call ABI)', () => {
     expect(r.activated).toBe(true)
     expect(r.systemId).toBe('sys-dsh2')
     const calls = (ex as unknown as { _calls: Array<{ cmd: string; args: string[] }> })._calls
-    expect(calls[0]?.args).toEqual(['ensure-system', '-H', '/home/u/.dsh'])
+    expect(calls[0]?.args).toEqual(['install', '--system-only', '-H', '/home/u/.dsh'])
   })
 
   test('home owned by THIS platform → short-circuits, no call-out', async () => {
@@ -141,7 +141,7 @@ describe('ensureSystem (CLI reverse-call ABI)', () => {
     expect(r.systemId).toBe(sid)
   })
 
-  test('empty machine → reverse-calls `aimail ensure-system -H` and parses JSON', async () => {
+  test('empty machine → reverse-calls `aimail install --system-only -H` and parses JSON', async () => {
     const ex = scriptedExec({
       code: 0,
       stdout: JSON.stringify({
@@ -162,7 +162,7 @@ describe('ensureSystem (CLI reverse-call ABI)', () => {
     expect(r.systemId).toBe('sys-act')
     expect(r.domain).toBe('example.com')
     const calls = (ex as unknown as { _calls: Array<{ cmd: string; args: string[] }> })._calls
-    expect(calls).toEqual([{ cmd: 'aimail', args: ['ensure-system', '-H', '/home/u/.dsh'] }])
+    expect(calls).toEqual([{ cmd: 'aimail', args: ['install', '--system-only', '-H', '/home/u/.dsh'] }])
   })
 
   test('reuse path (path=admin_key) → ok with activated=false', async () => {

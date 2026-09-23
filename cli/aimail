@@ -237,10 +237,11 @@ def resolve_platform(system_home: Path) -> str:
 # ═══════════════════════════════════════════════════════════════
 
 def cmd_payload(args) -> int:
-    """运行时捆绑(payload)的公开命令面。
+    """运行时捆绑(payload)的命令面实现 — 经 `aimail install --payload <action>` 调用。
 
     P3(2026-09-20, owner 定调): SDK 侧安装脚本**不得**再拼仓库相对路径去调
-    cli/runtime_bundle.py —— 一律走本命令; rust 化后同一命令面由新二进制实现, 调用方不变。
+    cli/runtime_bundle.py —— 一律走本命令面; rust 化后同一命令面由新二进制实现,
+    调用方不变。B(2026-09-23): 独立子命令已删, 实现由 cmd_install --payload 分派。
     """
     import runtime_bundle as rb
 
@@ -592,7 +593,57 @@ def cmd_version(args) -> int:
 
 
 def cmd_install(args) -> int:
-    """安装:集成脚本到 check 前的全部步骤(非交互化)。"""
+    """安装:集成脚本到 check 前的全部步骤(非交互化)。
+
+    Machine surface (owner ruling 2026-09-23, B): the former `ensure-system`
+    and `payload` subcommands no longer exist — both ABIs dispatch from here
+    (`--system-only` / `--payload`) before the human path runs.
+    """
+    # ── machine dispatch (mutually exclusive, reject the other side's flags) ──
+    _machine_flags = {
+        "system_only": getattr(args, "system_only", False),
+        "payload": getattr(args, "payload", ""),
+        "payload_name": getattr(args, "payload_name", ""),
+        "dest": getattr(args, "dest", ""),
+        "source_root": getattr(args, "source_root", ""),
+        "force": getattr(args, "force", False),
+    }
+    if _machine_flags["system_only"] and _machine_flags["payload"]:
+        print("ERROR: --system-only 与 --payload 互斥", file=sys.stderr)
+        return 2
+    if _machine_flags["payload"]:
+        # payload 通道只认自身参数;激活/接线类参数一律拒(exit 2, 不静默忽略)
+        for _flag, _val in (("-H", args.home), ("-s", args.system_id),
+                            ("-c", args.product_code), ("-k", args.admin_key),
+                            ("-g", args.gateway_url), ("-n", args.system_name),
+                            ("-m", args.manager), ("-d", args.domain),
+                            ("--all-agents", args.all_agents)):
+            if _val:
+                print(f"ERROR: --payload 通道不接受 {_flag}", file=sys.stderr)
+                return 2
+        args.action = args.payload
+        args.name = _machine_flags["payload_name"]
+        return cmd_payload(args)
+    if _machine_flags["system_only"]:
+        # system-only 是 L1-only 铁律入口:接线/捆绑两侧的参数都拒
+        for _flag, _val in (("--all-agents", args.all_agents),
+                            ("--dest", _machine_flags["dest"]),
+                            ("--source-root", _machine_flags["source_root"]),
+                            ("--force", _machine_flags["force"]),
+                            ("payload operand", _machine_flags["payload_name"])):
+            if _val:
+                print(f"ERROR: --system-only 通道不接受 {_flag}", file=sys.stderr)
+                return 2
+        return cmd_ensure_system(args)
+    # 无机器面标志却带了机器面参数/操作数 → 显式拒绝(不静默吞掉拼写错误)
+    for _flag, _val in (("payload operand", _machine_flags["payload_name"]),
+                        ("--dest", _machine_flags["dest"]),
+                        ("--source-root", _machine_flags["source_root"]),
+                        ("--force", _machine_flags["force"])):
+        if _val:
+            print(f"ERROR: {_flag} 只在 --payload 通道有效", file=sys.stderr)
+            return 2
+
     load_core()
     from gateway_api import load_gateway_config
     env = dict(os.environ)
@@ -774,12 +825,14 @@ def cmd_install(args) -> int:
 
 
 def cmd_ensure_system(args) -> int:
-    """ensure-system: L1-only system activation/reuse — the SDK reverse-call
-    ABI entry (host install path: dsh plugin / openclaw plugin → this command).
+    """L1-only system activation/reuse — SDK reverse-call ABI implementation
+    (host install path: dsh plugin / openclaw plugin → `aimail install
+    --system-only`; the standalone subcommand was removed by ruling B,
+    2026-09-23 — dispatch lives in cmd_install).
 
     Deliberately NEVER runs platform wiring (no dsh plugin / host-command
-    spawn) and never deploys the bridge — those belong to `install` (human
-    path) and bootstrap machine-init. Skipping them here is what breaks the
+    spawn) and never deploys the bridge — those belong to the human `install`
+    path and bootstrap machine-init. Skipping them here is what breaks the
     install↔plugin call loop.
 
     Contract: stdout is exactly ONE JSON line (success or error+hint); human
@@ -2513,31 +2566,32 @@ scenario groups:
     p_install.add_argument("-d", "--domain", help="domain to pre-create (default: AIMAIL_DOMAIN env)")
     p_install.add_argument("--all-agents", action="store_true",
                            help="register ALL platform agents (default: main agent only)")
-    # Hidden from `aimail --help`: machine-facing ABI invoked by SDK/SDK-install
-    # scripts, not part of the human command surface (owner ruling 2026-09-22).
-    p_payload = sub.add_parser("payload")
-    p_payload.add_argument("action", choices=["install", "dir", "resource", "source"])
-    p_payload.add_argument("name", nargs="?", default="")
-    p_payload.add_argument("--dest", default="")
-    p_payload.add_argument("--source-root", default="")
-    p_payload.add_argument("--force", action="store_true")
-    p_payload.set_defaults(func=cmd_payload)
+    # ── machine-facing surface (owner ruling 2026-09-23, B: the standalone
+    # `payload` / `ensure-system` subcommands are REMOVED — both ABIs now ride
+    # this entry as hidden parameters; humans never see them (SUPPRESS keeps
+    # them out of both the options list and the usage line — test-asserted).
+    #   --system-only : SDK reverse-call ABI, L1 activation/reuse ONLY — never
+    #                   platform wiring / never deploys the bridge (keeps the
+    #                   install↔plugin call graph acyclic). stdout = one JSON line.
+    #   --payload     : runtime-bundle ABI (P3: SDK-install scripts use the
+    #                   public command surface, never repo-relative paths).
+    # The two machine flags are mutually exclusive with each other and reject
+    # the other side's parameters (exit 2) — validated in cmd_install.
+    p_install.add_argument("--system-only", action="store_true", default=False,
+                           help=argparse.SUPPRESS)
+    p_install.add_argument("--payload", default="",
+                           choices=["install", "dir", "resource", "source"],
+                           help=argparse.SUPPRESS)
+    # trailing optional positional = the payload bundle/name operand
+    # (`aimail install --payload dir mcp`); SUPPRESS keeps it out of usage too
+    # (argparse-verified 2026-09-23), so the human surface stays clean.
+    p_install.add_argument("payload_name", nargs="?", default="",
+                           help=argparse.SUPPRESS)
+    p_install.add_argument("--dest", default="", help=argparse.SUPPRESS)
+    p_install.add_argument("--source-root", dest="source_root", default="",
+                           help=argparse.SUPPRESS)
+    p_install.add_argument("--force", action="store_true", help=argparse.SUPPRESS)
     p_install.set_defaults(func=cmd_install)
-
-    # SDK reverse-call ABI: L1 activation/reuse only — NEVER platform wiring
-    # (breaks the install↔host-plugin call loop). stdout = one JSON line.
-    # Hidden from `aimail --help` (same ruling): SDK reverse-call ABI — host
-    # plugins call it; humans never do.
-    p_ensure = sub.add_parser("ensure-system")
-    p_ensure.add_argument("-H", "--home", **common_home)
-    p_ensure.add_argument("-s", "--system-id", **common_sid)
-    p_ensure.add_argument("-c", "--product-code", help="product activation code (new system path)")
-    p_ensure.add_argument("-k", "--admin-key", help="admin key of an already-activated system (reuse path)")
-    p_ensure.add_argument("-g", "--gateway-url", default=None, **common_gw)
-    p_ensure.add_argument("-n", "--system-name", help="system name (shared-domain identifier)")
-    p_ensure.add_argument("-m", "--manager", **common_mgr)
-    p_ensure.add_argument("-d", "--domain", help="domain to pre-create (default: AIMAIL_DOMAIN env)")
-    p_ensure.set_defaults(func=cmd_ensure_system)
 
     p_uni = sub.add_parser("uninstall", help="remove aimail integration from the agent platform")
     p_uni.add_argument("-s", "--system-id", **common_sid)

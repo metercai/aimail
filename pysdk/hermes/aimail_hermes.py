@@ -415,10 +415,10 @@ def trigger_profile_hooks(event: str, profile_name: str, profile_dir: str) -> No
 
     Gracefully handles missing config -- if no gateway is configured, hooks are
     simply skipped. On profile_created with NO system yet, the host
-    auto-ensures one via the CLI reverse-call ABI (`aimail ensure-system`,
-    L1 only — the single activation implementation), then re-loads: a fresh
-    activation makes auto-registration work on machines that never ran
-    `aimail install` (parity with the TS host plugins).
+    auto-ensures one via the CLI reverse-call ABI (`aimail install
+    --system-only`, L1 only — the single activation implementation), then
+    re-loads: a fresh activation makes auto-registration work on machines that
+    never ran `aimail install` (parity with the TS host plugins).
     """
     try:
         config = _load_gateway_config()

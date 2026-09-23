@@ -63,7 +63,7 @@ def test_home_to_sid_empty_input(tmp_path, monkeypatch):
 
 # ── 指针优先(2026-09-21 生产实证)────────────────────────────────────────
 # 同一平台根被多个系统声明时(换系统重装不放开旧 system_home / e2e 夹具常驻),
-# 纯扫描判成"歧义 → ''" ⇒ ensure-system 回落到 .env 里已消耗的码, 宿主插件
+# 纯扫描判成"歧义 → ''" ⇒ install --system-only 回落到 .env 里已消耗的码, 宿主插件
 # 报出误导性的 "no aimail system yet — Invalid activation code"。
 # 平台根自己写的 .agentmail 才是权威归属声明。
 

@@ -132,15 +132,18 @@ else
 fi
 
 # ── 6. runtime payload (host MCP clients run this copy; derived from the
-#        snapshot just fetched so program + payload stay one version) ───
-if [ -x "$SRC/cli/runtime_bundle.py" ] || [ -f "$SRC/cli/runtime_bundle.py" ]; then
-  if python3 "$SRC/cli/runtime_bundle.py" install mcp --source-root "$SRC/pysdk"; then
+#        snapshot just fetched so program + payload stay one version).
+#        Public command surface only (P3 + ruling B 2026-09-23: the
+#        standalone `payload` subcommand is gone — the ABI now rides
+#        `install --payload`; never call runtime_bundle.py repo-relatively) ──
+if [ -x "$SRC/cli/aimail" ]; then
+  if "$SRC/cli/aimail" install --payload install mcp --source-root "$SRC/pysdk"; then
     :
   else
     warn "runtime payload refresh failed — host MCP clients keep the previous copy"
   fi
 else
-  warn "no runtime_bundle.py in the snapshot — payload not refreshed"
+  warn "no cli/aimail in the snapshot — payload not refreshed"
 fi
 
 # ── 7. machine init (scripts/machine_init.py — idempotent; skip when

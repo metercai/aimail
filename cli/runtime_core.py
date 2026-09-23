@@ -249,7 +249,7 @@ def sid_from_system_home(system_home: str, aimail_home=None) -> str:
     指针优先的理由(2026-09-21 生产实证):同一个平台根会被**多个**系统声明 ——
     换系统重装不会自动放开旧系统的 ``system_home``,e2e 夹具(sdk-e2e.local)
     又长期占着同一个 home。纯扫描于是把"唯一"判成"歧义 → 空",
-    ``aimail ensure-system -H <home>`` 便回落到 .env 里那枚**已消耗**的激活码,
+    ``aimail install --system-only -H <home>`` 便回落到 .env 里那枚**已消耗**的激活码,
     报出误导性的 "Invalid activation code",宿主插件(dsh/pi)再打印
     "no aimail system yet" —— 真因只是归属判定不够权威;平台根的 .agentmail
     才是平台自己对"我绑的是哪个系统"的声明。

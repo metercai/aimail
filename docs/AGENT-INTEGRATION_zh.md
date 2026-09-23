@@ -256,9 +256,11 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 
 **命令安装**:`aimail` 由 bootstrap 安装为全局命令(`~/.local/bin/aimail` → 程序副本 `~/.aimail/bin/aimail-src` 下的 `cli/aimail`);仓库根的 `./aimail` 是同一文件的符号链接,仅供仓库内调试。
 
-子命令(15 个,按场景分 4 组):
+子命令(14 个,按场景分 4 组;原独立子命令 `payload` 与 `ensure-system` 已按
+2026-09-23 B 裁决删除——两个机器面 ABI 改走 `install --payload` /
+`install --system-only`):
 
-- **setup**:`install` `ensure-system` `uninstall` `reset`
+- **setup**:`install` `uninstall` `reset`
 - **operate**:`stats` `renew` `version`
 - **diagnose**:`check` `repair` `ping` `welcome` `persona`
 - **resources**:`domain` `address` `bridge`
@@ -268,8 +270,7 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 | `bridge` | 本机 bridge 维护:无参=状态;`--system-id` 重刷路由;`--restart` 单实例重启 |
 | `check` | 全链路状态检查(配置文件 L0 → 网关/Bridge L1/L2 → 平台运行时资源 L2r → agent 配置 L3 → 链路 L4) |
 | `domain` | 查看/创建系统域名(list 默认 / `--add DOMAIN`) |
-| `ensure-system` | 系统激活 ABI(SDK 反调):仅 L1 激活/复用——绝不执行平台接线(保持 install↔插件调用图无环) |
-| `install` | 集成 agent 平台到 AIMail 系统(激活或复用现有系统,含平台适配与补充注册) |
+| `install` | 集成 agent 平台到 AIMail 系统(激活或复用现有系统,含平台适配与补充注册);其隐藏机器面参数同时承载两个 ABI:`--system-only`(L1 激活/复用,SDK 反调)与 `--payload`(运行时捆绑 install/dir/resource/source) |
 | `address` | 查看/维护系统 agent 地址:默认主 agent 名(`-d`)、地址改名(`-a agent -n 新名`,服务端资源全继承)、设 manager(`-m`) |
 | `persona` | persona 流程:manager 发 'update persona',agent 回草稿 |
 | `ping` | ping-pong 闭环测试(只信 agent 侧三阶段日志事件) |
@@ -286,7 +287,7 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 **.env 自动加载**:CLI 参数 > shell env > `~/.aimail/.env`(bootstrap 固化)> 仓库 `.env` > 内置默认。bootstrap 固化的键:AIMAIL_URL / AIMAIL_ADMIN_KEY / AIMAIL_PRODUCT_CODE / AIMAIL_MANAGER_ADDRESS / AIMAIL_SYSTEM_NAME / AIMAIL_DOMAIN / AIMAIL_WEBHOOK_HOST / AIMAIL_WEBHOOK_MODE。
 install 全非交互:激活 → 从 setup_system JSON stdout 取 server 分配的 system_id → domain 预置/创建 → deploy_bridge → 平台适配。
 
-**系统激活 ABI — `ensure-system`(L1 单一实现)**
+**系统激活 ABI — `install --system-only`(L1 单一实现)**
 
 激活协议(activate-system / api-keys 端点、raw_key 判定、reset 语义、home
 归属复用)**只在 CLI 实现一份**。两条安装路径都汇聚到它:
@@ -294,9 +295,9 @@ install 全非交互:激活 → 从 setup_system JSON stdout 取 server 分配�
 - 人工路径:`aimail install -H <root>` → L1 激活/复用 + L2 平台接线(可能
   spawn 宿主插件命令);
 - 宿主路径:`dsh plugin --profile web add dsh-aimail`(openclaw/pi 同构)→
-  插件就绪检查反调 `aimail ensure-system -H <root>`。
+  插件就绪检查反调 `aimail install --system-only -H <root>`。
 
-`ensure-system` 刻意**绝不**执行平台接线、也不部署 bridge——两个不同入口、
+`install --system-only` 刻意**绝不**执行平台接线、也不部署 bridge——两个不同入口、
 各自单向,这正是 install↔插件调用图无环的原因。
 
 契约(测试锁定):stdout = 恰好一行 JSON;日志走 stderr;exit 0=成功。

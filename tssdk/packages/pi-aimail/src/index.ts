@@ -72,7 +72,7 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
   log.info(`[pi-aimail] identity ${agentIdentity()}`)
 
   // Install readiness: system activation lives ONCE, in `aimail
-  // ensure-system` (L1 only) — reverse-call it when THIS platform has no
+  // install --system-only` (L1 only) — reverse-call it when THIS platform has no
   // owning system yet. Never platform wiring → acyclic call graph.
   {
     const platformHome =

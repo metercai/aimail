@@ -57,7 +57,7 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
     }
 
     // Install readiness: system activation lives ONCE, in `aimail
-    // ensure-system` (L1 only) — reverse-call it when THIS platform has no
+    // install --system-only` (L1 only) — reverse-call it when THIS platform has no
     // owning system yet. Never platform wiring → the install↔plugin call
     // graph stays acyclic. No env/code → actionable warn on stderr.
     {
