@@ -227,6 +227,121 @@ export function fillTemplate(text: string, ctx: Record<string, string>): string 
  * Role names are case-insensitive: the filename is always lowercased
  * before lookup (mirror Python _read_role_file .lower()).
  */
+// ── prompt_rules: recognition ⇄ role file (ruling 2026-09-23; mirror
+// pysdk aimail_base.prompt_rule_matches / read_prompt_rules) ──
+// Fields = subject/body/sender/recipient; containment (case-insensitive);
+// keywords inside one field are OR, the fields are AND. name = {serial10-99}_-
+// {filename}; the actual file comes from rule.file (no string derivation).
+// Single source within TS: preprocess evaluates these; the CLI's own dry-run
+// lives in pysdk (language-native copy, parity locked by contract tests).
+const PROMPT_RULE_NAME_RE = /^[1-9][0-9]_[a-z0-9_-]{1,64}$/
+const PROMPT_RULE_FIELDS = ['subject', 'body', 'sender', 'recipient'] as const
+
+export interface PromptRule {
+  name: string
+  file: string
+  subject?: string | string[]
+  body?: string | string[]
+  sender?: string | string[]
+  recipient?: string | string[]
+  enabled?: boolean
+}
+
+export function promptRuleNameOk(name: string): boolean {
+  return PROMPT_RULE_NAME_RE.test(name ?? '')
+}
+
+function ruleFieldKeywords(rule: PromptRule, key: (typeof PROMPT_RULE_FIELDS)[number]): string[] | null {
+  const v = (rule as unknown as Record<string, unknown>)[key]
+  if (v === undefined || v === null) return null // field absent → not evaluated
+  if (typeof v === 'string') return [v]
+  if (Array.isArray(v)) return v.map((k) => String(k))
+  return null // wrong type → loader treats as no-field (WARN+drop); matcher → false
+}
+
+function ruleHasAnyField(rule: PromptRule): boolean {
+  for (const key of PROMPT_RULE_FIELDS) {
+    const arr = ruleFieldKeywords(rule, key)
+    if (arr && arr.some((k) => k.trim())) return true
+  }
+  return false
+}
+
+/** Load + validate + sort (name order = serial order). Bad items: WARN + drop. */
+export function readPromptRules(cfg: AgentConfig): PromptRule[] {
+  const raw = cfg.prompt_rules
+  if (raw === undefined || raw === null) return []
+  if (!Array.isArray(raw)) {
+    console.warn('[aimail] prompt_rules is not a list — ignored')
+    return []
+  }
+  const kept: PromptRule[] = []
+  for (const item of raw) {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+      console.warn(`[aimail] prompt rule skipped (not an object): ${JSON.stringify(item)}`)
+      continue
+    }
+    const r = item as PromptRule
+    if (!promptRuleNameOk(r.name)) {
+      console.warn(`[aimail] prompt rule skipped (bad name: ${JSON.stringify(r.name)})`)
+      continue
+    }
+    if (typeof r.file !== 'string' || !r.file.trim()) {
+      console.warn(`[aimail] prompt rule ${r.name} skipped (missing 'file')`)
+      continue
+    }
+    if (r.enabled === false) continue
+    if (!ruleHasAnyField(r)) {
+      console.warn(`[aimail] prompt rule ${r.name} skipped (no non-empty field)`)
+      continue
+    }
+    kept.push(r)
+  }
+  return kept.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+}
+
+/** Field-internal OR / cross-field AND (ruling ①). Absent field = skip;
+ *  empty list = not given; wrong type = no match. */
+export function promptRuleMatches(
+  rule: PromptRule,
+  subject: string,
+  body: string,
+  sender: string,
+  recipient: string,
+): boolean {
+  const hay: Record<(typeof PROMPT_RULE_FIELDS)[number], string> = {
+    subject: (subject ?? '').toLowerCase(),
+    body: (body ?? '').toLowerCase(),
+    sender: (sender ?? '').toLowerCase(),
+    recipient: (recipient ?? '').toLowerCase(),
+  }
+  for (const key of PROMPT_RULE_FIELDS) {
+    const v = (rule as unknown as Record<string, unknown>)[key]
+    if (v === undefined || v === null) continue
+    let items: string[]
+    if (typeof v === 'string') items = [v]
+    else if (Array.isArray(v)) items = v.map((k) => String(k).trim().toLowerCase()).filter(Boolean)
+    else return false // wrong type → no match (loader already WARNs)
+    if (items.length === 0) continue // empty list = not given
+    if (!items.some((kw) => hay[key].includes(kw))) return false
+  }
+  return true
+}
+
+function recipientsText(result: Record<string, unknown>): string {
+  const rec = (result.recipients ?? {}) as { to?: unknown; cc?: unknown }
+  const to = Array.isArray(rec.to) ? rec.to : []
+  const cc = Array.isArray(rec.cc) ? rec.cc : []
+  return [...to, ...cc].map((x) => String(x)).join(' ')
+}
+
+function headerValue(headers: Record<string, unknown> | undefined, want: string): string {
+  for (const [k, v] of Object.entries(headers ?? {})) {
+    if (String(k).toLowerCase() === want) return String(v ?? '').trim()
+  }
+  return ''
+}
+
 async function readRoleFile(cfg: AgentConfig, name: string): Promise<string> {
   name = name.toLowerCase()
   const sid = cfg.system_id || 'default'
@@ -551,6 +666,46 @@ export async function processInboundMail(
     const roleRaw = await readRoleFile(cfg, boardRole)
     if (roleRaw) result._role_prompt = fillTemplate(roleRaw, buildBoardCtx(result))
     result._a2a_session_key = `a2a:${boardId}:${(result.from as string) ?? ''}`
+  }
+
+  // ── L4 gateway X-AIMail-Prompt header → L5 local prompt_rules
+  // (ruling 2026-09-23; fixed chain: [WHOAMI] > welcome > board > header >
+  // local name-ordered first hit. Missing role file (all three lookup tiers,
+  // incl. common.md) ⇒ WARN + fall through; never blocks delivery. Mirror:
+  // pysdk aimail_base.preprocess_mail_payload.) ──
+  if (!result._role_prompt) {
+    const ctx = buildBoardCtx(result)
+    let injected = false
+    // header 双源(网关盖头位置未锁死 = 扩展点): 邮件头 payload.headers 优先,
+    // HTTP 头 _headers 兜底; key 大小写不敏感, 空值视为未给。
+    const hdr =
+      headerValue(rawHeaders as unknown as Record<string, unknown>, 'x-aimail-prompt') ||
+      headerValue(_headers as unknown as Record<string, unknown>, 'x-aimail-prompt')
+    if (hdr) {
+      const hdrRaw = await readRoleFile(cfg, hdr)
+      if (hdrRaw) {
+        result._role_prompt = fillTemplate(hdrRaw, ctx)
+        injected = true
+      } else {
+        console.warn(`[aimail] X-AIMail-Prompt names a missing role file (${hdr}) — falling through to local prompt_rules`)
+      }
+    }
+    if (!injected) {
+      const senderTxt = String(result.sender ?? result.from ?? '')
+      const recpTxt = recipientsText(result)
+      const subjectTxt = String(result.subject ?? subj ?? '')
+      const bodyTxt = String(result.body ?? '')
+      for (const rule of readPromptRules(cfg)) {
+        if (!promptRuleMatches(rule, subjectTxt, bodyTxt, senderTxt, recpTxt)) continue // first hit wins
+        const raw = await readRoleFile(cfg, rule.file)
+        if (!raw) {
+          console.warn(`[aimail] prompt rule ${rule.name} matched but role file '${rule.file}' missing — next rule`)
+          continue
+        }
+        result._role_prompt = fillTemplate(raw, ctx)
+        break
+      }
+    }
   }
 
   // ── LAST: ping/pong interception ──

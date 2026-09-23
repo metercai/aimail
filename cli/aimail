@@ -1219,6 +1219,217 @@ def _scan_pointers(platform_root: Path):
     return found
 
 
+def cmd_prompt(args) -> int:
+    """prompt: maintain agent-level prompt rules (recognition → role file).
+
+    Chain order is FIXED (ruling 2026-09-23): [WHOAMI] > welcome >
+    board > X-AIMail-Prompt header > local prompt_rules (name order,
+    first hit wins). This command owns only the LOCAL layer; the matching
+    logic lives once in pysdk (aimail_base.prompt_rule_matches /
+    read_prompt_rules) — `prompt test` injects this agent's config into
+    that single source and calls it, so dry-run and runtime can't drift.
+    """
+    load_core()
+    import aimail_base as ab
+
+    sid = args.system_id or ""
+    if not sid:
+        _fail("prompt needs --system-id")
+    cfg_path = _gateway_cfg_path(sid)
+    if not cfg_path.is_file():
+        _fail(f"no system config: {cfg_path}")
+
+    # ── target: -e email / -a agent → agentmail.json dir ─────────────
+    agents = _list_agents(sid, json.loads(cfg_path.read_text()))
+    target = None
+    if getattr(args, "email", None):
+        target = next((a for a in agents if a["email"] == args.email.lower()), None)
+        if not target:
+            _fail(f"no local agentmail.json for {args.email} (run install on that agent first)")
+    elif getattr(args, "agent", None):
+        target = next((a for a in agents if a["agent"] == args.agent
+                       or (a["email"] and a["email"].split("@")[0].startswith(args.agent))), None)
+        if not target:
+            _fail(f"agent '{args.agent}' not found locally; known agents: {[a['agent'] for a in agents] or 'none'}")
+    else:
+        _fail("prompt needs -a <agent> or -e <email> to locate agentmail.json")
+    jf = Path(target["dir"]) / "agentmail.json"
+    if not jf.is_file():
+        _fail(f"missing {jf}")
+    cfg = json.loads(jf.read_text())
+    addr_role_dir = Path(target["dir"]) / "role_prompt"
+    sys_role_dir = SYSTEMS_DIR / sid / "board" / "role_prompt"
+
+    def _stem_from(name: str) -> str:
+        return name.split("_", 1)[1] if "_" in name else ""
+
+    def _role_path(stem: str) -> str:
+        # 与 aimail_base._read_role_file 同序: 地址级 → 系统级 → common.md 兜底
+        if not stem:
+            return ""
+        p = addr_role_dir / f"{stem}.md"
+        if p.is_file():
+            return str(p)
+        p = sys_role_dir / f"{stem}.md"
+        if p.is_file():
+            return str(p)
+        c = sys_role_dir / "common.md"
+        if c.is_file():
+            return f"{c} (common.md fallback)"
+        return ""
+
+    def _validate_name(name: str) -> str:
+        if not ab.prompt_rule_name_ok(name):
+            _fail(f"bad -n {name!r}: need {{serial}}_{{filename}} with serial 10-99 "
+                  f"and filename [a-z0-9_-] (1-64 chars)")
+        return name
+
+    op = args.paction
+    rules = cfg.get("prompt_rules")
+    rules = [r for r in rules if isinstance(r, dict)] if isinstance(rules, list) else []
+
+    # ── list ─────────────────────────────────────────────────────────
+    if op == "list":
+        if not rules:
+            print(f"  (no prompt rules in {jf})")
+            return 0
+        for r in sorted(rules, key=lambda x: str(x.get("name", ""))):
+            flds = []
+            for f in ("subject", "body", "sender", "recipient"):
+                v = r.get(f)
+                if not v:
+                    continue
+                if isinstance(v, str):
+                    v = [v]
+                flds.append(f"{f}=[" + " | ".join(str(k) for k in v) + "]")
+            dis = "" if r.get("enabled") is not False else "  [disabled]"
+            print(f"  {str(r.get('name','-')):<28} file={str(r.get('file','-'))}{dis}")
+            print(f"      {'; '.join(flds) or '(NO FIELD — loader skips this rule)'}")
+            print(f"      role: {_role_path(str(r.get('file',''))) or 'MISSING (loader will skip on match)'}")
+        return 0
+
+    # ── add ──────────────────────────────────────────────────────────
+    if op == "add":
+        name = _validate_name((args.name or "").strip())
+        stem = (args.file or "").strip() or _stem_from(name)
+        if not re.fullmatch(r"[a-z0-9_-]{1,64}", stem):
+            _fail(f"bad file stem {stem!r} (from -n or --file): [a-z0-9_-] 1-64 chars")
+        rule = {"name": name, "file": stem}
+        any_field = False
+        for f in ("subject", "body", "sender", "recipient"):
+            kws = [k.strip() for k in (getattr(args, f) or []) if k and k.strip()]
+            if kws:
+                rule[f] = kws
+                any_field = True
+        if not any_field:
+            _fail("need at least one non-empty keyword: --subject/--body/--sender/--recipient")
+        if getattr(args, "disable", False):
+            rule["enabled"] = False
+        if any(str(r.get("name", "")) == name for r in rules):
+            _fail(f"rule {name} already exists — remove it first: aimail prompt rm "
+                  f"-s {sid} -e {target['email']} -n {name}")
+        rules.append(rule)
+        rules.sort(key=lambda r: str(r.get("name", "")))
+        cfg["prompt_rules"] = rules
+        _atomic_json_write(jf, cfg)
+        print(f"  added {name} → role_prompt/{stem}.md")
+        print(f"  agentmail.json: {jf}")
+        if not _role_path(stem):
+            print(f"  note: role file not present yet — scaffold it with: "
+                  f"aimail prompt create-file -s {sid} -e {target['email']} -n {name}")
+        return 0
+
+    # ── rm ───────────────────────────────────────────────────────────
+    if op == "rm":
+        name = (args.name or "").strip()
+        keep = [r for r in rules if str(r.get("name", "")) != name]
+        if len(keep) == len(rules):
+            _fail(f"rule {name} not found for this agent")
+        cfg["prompt_rules"] = keep
+        _atomic_json_write(jf, cfg)
+        print(f"  removed {name} ({jf})")
+        return 0
+
+    # ── create-file ──────────────────────────────────────────────────
+    if op == "create-file":
+        name = _validate_name((args.name or "").strip())
+        stem = (args.file or "").strip() or _stem_from(name)
+        if not re.fullmatch(r"[a-z0-9_-]{1,64}", stem):
+            _fail(f"bad file stem {stem!r}: [a-z0-9_-] 1-64 chars")
+        addr_role_dir.mkdir(parents=True, exist_ok=True)
+        p = addr_role_dir / f"{stem}.md"
+        if p.exists():
+            _fail(f"already exists: {p}")
+        p.write_text(
+            f"# {stem}\n\n"
+            f"Role prompt injected when a prompt rule (or the gateway\n"
+            f"X-AIMail-Prompt header) selects `{stem}` for an inbound mail.\n\n"
+            f"Template variables available: {{{{AGENTMAIL_ADDRESS}}}}, "
+            f"{{{{FROM_ROLE}}}}, {{{{INQUIRY_SUBJECT}}}}, {{{{SOUL_MD_CONTENT}}}}, "
+            f"{{{{SKILLS_LIST}}}}.\n\n"
+            f"Describe how this agent should behave for that class of mail here.\n",
+            encoding="utf-8")
+        print(f"  created {p}")
+        return 0
+
+    # ── test (dry-run, single-source matching) ───────────────────────
+    subj = args.subject or ""
+    body = args.body or ""
+    sender = args.sender or ""
+    recp = " ".join(args.to or [])
+    s_l = subj.lower()
+
+    def _hit(layer: str, stem: str) -> int:
+        path = _role_path(stem)
+        print(f"  {layer} → file={stem}")
+        print(f"  role: {path or 'MISSING (no injection; chain continues at runtime)'}")
+        return 0
+
+    # L1 [WHOAMI]
+    if s_l.startswith("[whoami]"):
+        return _hit("L1 [WHOAMI] (built-in)", "whoami")
+    # L2 welcome (marker + three labels, same literals as preprocess)
+    marker = "welcome to aimail world" in s_l
+    labels_ok = all(
+        any(ln.lstrip().startswith(f"{k}:") for ln in body.splitlines())
+        for k in ("persona", "signature", "current_time"))
+    if marker and labels_ok:
+        return _hit("L2 welcome (built-in)", "role_calibrator")
+    print("  L1 [WHOAMI]: no    L2 welcome: no"
+          + ("" if not (marker or labels_ok) else
+             f"  (MISMATCH warn at runtime: marker={marker} labels={labels_ok})"))
+    # L3 board (gateway-injected; --board-role simulates it)
+    if args.board_role:
+        return _hit("L3 board (simulated)", args.board_role)
+    print("  L3 board: gateway-injected — pass --board-role to simulate")
+    # L4 X-AIMail-Prompt header
+    if args.header.strip():
+        stem = args.header.strip()
+        path = _role_path(stem)
+        if path:
+            return _hit("L4 X-AIMail-Prompt (gateway header)", stem)
+        print(f"  L4 header={stem!r}: role file MISSING (incl. common.md) — runtime falls through to L5")
+    # L5 local prompt_rules — SAME loader/filter as runtime (single source)
+    ab._CONFIG_LOADER = lambda: cfg  # noqa: E731 — inject this agent's config
+    hit = False
+    for rule in ab.read_prompt_rules():
+        if not ab.prompt_rule_matches(rule, subj, body, sender, recp):
+            print(f"  L5 miss {rule['name']}")
+            continue
+        path = _role_path(str(rule["file"]))
+        if not path:
+            print(f"  L5 hit {rule['name']} but role file '{rule['file']}' MISSING (incl. common.md) — next rule")
+            continue
+        print(f"  L5 HIT {rule['name']} → file={rule['file']}")
+        print(f"  role: {path}")  # 路径可能带 common.md fallback 标注 = 运行时实际注入内容
+        hit = True
+        break
+    if not hit:
+        print("  L5: no rule matched — chain falls through (default prompt)")
+    print(f"  (matched against: subject={subj!r} sender={sender!r} to={recp!r})")
+    return 0
+
+
 def cmd_address(args) -> int:
     """address:查看/维护系统 agent 地址(default 默认主 agent 名、set-name 地址名、
     set-manager 管理员地址)。"""
@@ -2676,6 +2887,53 @@ scenario groups:
     p_ad.add_argument("-n", "--name", metavar="NAME", help="new address name (set-name) or with -d the default name")
     p_ad.add_argument("-m", "--manager", metavar="EMAIL", help="new manager address for the target agent (set-manager)")
     p_ad.set_defaults(func=cmd_address)
+
+    # ── prompt: agent 级"识别条件 ↔ 角色文件"关系(裁决 2026-09-23) ──
+    # 链序(固定): [WHOAMI] > welcome > board > X-AIMail-Prompt header >
+    # 本地 prompt_rules(name 字母序, 首中即止)。本命令只维护**本地层**;
+    # 匹配逻辑单一真源在 pysdk(aimail_base.prompt_rule_matches),
+    # `prompt test` 干跑调的就是它。
+    p_pr = sub.add_parser(
+        "prompt",
+        help="maintain agent prompt rules: subject/body/sender/recipient → role file")
+    psp = p_pr.add_subparsers(dest="paction", required=True, metavar="<action>")
+
+    def _pr_tgt(p):
+        p.add_argument("-s", "--system-id", **common_sid)
+        p.add_argument("-a", "--agent", help="target agent name")
+        p.add_argument("-e", "--email", help="target address (full email)")
+
+    p_pa = psp.add_parser("add", help="add one rule (name = {serial}_{filename}, serial 10-99)")
+    _pr_tgt(p_pa)
+    p_pa.add_argument("-n", "--name", required=True,
+                      help="rule name = {10-99 serial}_{filename}; serial sets the order")
+    for _f in ("subject", "body", "sender", "recipient"):
+        p_pa.add_argument(f"--{_f}", action="append", default=None, metavar="KW",
+                          help=f"containment keyword for {_f} (repeat = OR inside the field; fields are AND)")
+    p_pa.add_argument("--file", default="",
+                      help="prompt file stem (default: the filename part of -n)")
+    p_pa.add_argument("--disable", action="store_true", help="store the rule disabled")
+    p_pl = psp.add_parser("list", help="list this agent's rules in evaluation order")
+    _pr_tgt(p_pl)
+    p_rm = psp.add_parser("rm", help="remove one rule by -n name")
+    _pr_tgt(p_rm)
+    p_rm.add_argument("-n", "--name", required=True)
+    p_te = psp.add_parser("test", help="dry-run the chain against a sample mail (never sends)")
+    _pr_tgt(p_te)
+    p_te.add_argument("--subject", default="")
+    p_te.add_argument("--body", default="")
+    p_te.add_argument("--sender", default="")
+    p_te.add_argument("--to", action="append", default=[], metavar="ADDR",
+                      help="recipient (repeatable; joined for containment)")
+    p_te.add_argument("--header", default="", metavar="VALUE",
+                      help="simulate the gateway X-AIMail-Prompt header value (file stem)")
+    p_te.add_argument("--board-role", default="", dest="board_role", metavar="ROLE",
+                      help="simulate the gateway-injected board role (L3)")
+    p_cf = psp.add_parser("create-file", help="scaffold role_prompt/<filename>.md for -n")
+    _pr_tgt(p_cf)
+    p_cf.add_argument("-n", "--name", required=True)
+    p_cf.add_argument("--file", default="", help="prompt file stem (default: the filename part of -n)")
+    p_pr.set_defaults(func=cmd_prompt)
 
     p_br = sub.add_parser("bridge", help="local bridge: status / refresh routes / restart / upgrade")
     p_br.add_argument("-s", "--system-id", help="refresh forwarding routes for this system")

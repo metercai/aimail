@@ -17,6 +17,9 @@ export interface AgentConfig {
   system_name?: string
   /** manager address (inbound whitelist, welcome recipient) */
   manager_address?: string
+  /** prompt rules: subject/body/sender/recipient → role file stem
+   * (ruling 2026-09-23; loose-validated by readPromptRules) */
+  prompt_rules?: unknown[]
   /** agent-scope API key (64 hex) */
   api_key: string
   /** local inbound endpoint full URL (paired with webhook_secret) */

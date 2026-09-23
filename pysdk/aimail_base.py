@@ -112,6 +112,104 @@ def _read_role_file(name: str) -> str:
     return ""
 
 
+# ═══════════════════════════════════════════════════════════
+# prompt_rules: 识别条件 ↔ 角色文件的可定制关系(裁决 2026-09-23)
+#   - 字段: subject/body/sender/recipient;每字段"包含"匹配(大小写不敏感),
+#     字段内多关键字=或, 字段间=且(裁决①)
+#   - name = {序号}_{filename}, 序号 10..99(裁决②);实际加载看 rule["file"]
+#     (CLI 落盘时显式写出;读侧不做字符串推导)
+#   - 存储: agentmail.json 的 prompt_rules 键(仅该 agent;裁决④键名)
+# 单一真源: CLI `aimail prompt test` 干跑也调这里的函数。
+# ═══════════════════════════════════════════════════════════
+PROMPT_RULE_NAME_RE = re.compile(r"^[1-9][0-9]_[a-z0-9_-]{1,64}$")
+
+
+def prompt_rule_name_ok(name: str) -> bool:
+    """name = {10..99 序号}_{filename};filename 段 1..64 位(裁决②+CLI 校验)。"""
+    return bool(PROMPT_RULE_NAME_RE.fullmatch(name or ""))
+
+
+def read_prompt_rules() -> list:
+    """读 agent 级 prompt_rules(agentmail.json 经适配层配置加载器注入)。
+
+    读到的每一项都过合法性筛(坏项丢弃 + WARN —— 送达链路绝不因规则坏而失败),
+    返回按 name 字母序(= 序号数值序, 前缀等宽)排列的规则表。
+    """
+    cfg = _load_profile_config()
+    if not cfg:
+        return []
+    raw = cfg.get("prompt_rules")
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        logger.warning("[aimail_gateway] prompt_rules is not a list — ignored")
+        return []
+    kept = []
+    for r in raw:
+        if not isinstance(r, dict):
+            logger.warning("[aimail_gateway] prompt rule skipped (not an object): %r", r)
+            continue
+        name = str(r.get("name", ""))
+        if not prompt_rule_name_ok(name):
+            logger.warning("[aimail_gateway] prompt rule skipped (bad name: %r)", r.get("name"))
+            continue
+        if r.get("file") is None or not str(r.get("file")).strip():
+            logger.warning("[aimail_gateway] prompt rule %s skipped (missing 'file')", name)
+            continue
+        if r.get("enabled") is False:
+            continue
+        if not _prompt_rule_has_any_field(r):
+            logger.warning("[aimail_gateway] prompt rule %s skipped (no non-empty field)", name)
+            continue
+        kept.append(r)
+    return sorted(kept, key=lambda r: str(r.get("name", "")))
+
+
+def _prompt_rule_has_any_field(rule: dict) -> bool:
+    for key in ("subject", "body", "sender", "recipient"):
+        kws = rule.get(key)
+        if kws is None:
+            continue
+        if isinstance(kws, str):
+            kws = [kws]
+        if isinstance(kws, list) and any(str(k).strip() for k in kws):
+            return True
+    return False
+
+
+def prompt_rule_matches(rule: dict, subject: str, body: str,
+                        sender: str, recipient: str) -> bool:
+    """字段内或 / 字段间且(裁决①)。缺席字段不参与;空列表=未给;坏类型=不命中。"""
+    hay = {
+        "subject": (subject or "").lower(),
+        "body": (body or "").lower(),
+        "sender": (sender or "").lower(),
+        "recipient": (recipient or "").lower(),
+    }
+    for key in ("subject", "body", "sender", "recipient"):
+        if key not in rule:
+            continue
+        kws = rule[key]
+        if isinstance(kws, str):
+            kws = [kws]
+        if not isinstance(kws, list):
+            return False
+        items = [str(k).strip().lower() for k in kws if str(k).strip()]
+        if not items:
+            continue
+        if not any(kw in hay[key] for kw in items):
+            return False
+    return True
+
+
+def _recipients_text(result: dict) -> str:
+    rec = result.get("recipients") or {}
+    if isinstance(rec, dict):
+        parts = list(rec.get("to") or []) + list(rec.get("cc") or [])
+        return " ".join(str(p) for p in parts)
+    return str(rec)
+
+
 def build_ctx(payload: dict, headers: dict) -> dict:
     """Build template context dict from available data."""
     return {
@@ -1092,6 +1190,51 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
             result["_role_prompt"] = fill_template(role_raw, ctx)
         sender = result.get("from", "")
         result["_a2a_session_key"] = f"a2a:{board_id}:{sender}"
+
+    # ── L4 网关 header → L5 本地 prompt_rules(裁决 2026-09-23) ──
+    # 链序(首中即止, 只识别命中一次): [WHOAMI] > welcome > board >
+    # X-AIMail-Prompt(网关判定"已命中"后盖头, 值=文件名不含.md/不带序号)
+    # > 本地自定义(name 字母序)。任何一层注入成功即止;命中但文件缺失
+    # ⇒ WARN 并继续向下(绝不阻断送达)。
+    if not result.get("_role_prompt"):
+        ctx = build_ctx(result, dict(headers))
+        injected = False
+        # header 双源(网关盖头位置未锁死 = 扩展点): 邮件头 payload.headers 优先,
+        # HTTP 头参数兜底; key 大小写不敏感, 空值视为未给。
+        hdr = ""
+        for _src in (raw_headers, headers):
+            for hk, hv in (_src or {}).items():
+                if str(hk).lower() == "x-aimail-prompt" and str(hv).strip():
+                    hdr = str(hv).strip()
+                    break
+            if hdr:
+                break
+        if hdr:
+            hdr_raw = _read_role_file(hdr)
+            if hdr_raw:
+                result["_role_prompt"] = fill_template(hdr_raw, ctx)
+                injected = True
+            else:
+                logger.warning(
+                    "[aimail_gateway] X-AIMail-Prompt names a missing role file (%s) — falling through to local prompt_rules",
+                    hdr)
+        if not injected:
+            sender_txt = str(result.get("sender") or result.get("from") or "")
+            recp_txt = _recipients_text(result)
+            for rule in read_prompt_rules():
+                if not prompt_rule_matches(rule, str(result.get("subject", "")),
+                                           str(result.get("body", "")),
+                                           sender_txt, recp_txt):
+                    continue  # 首中即止: 未命中继续按 name 序评估下一条
+                raw = _read_role_file(str(rule["file"]))
+                if not raw:
+                    # 命中但文件缺失 ⇒ WARN 续走(批准语义: 不阻断、不注入)
+                    logger.warning(
+                        "[aimail_gateway] prompt rule %s matched but role file '%s' missing — next rule",
+                        rule["name"], rule["file"])
+                    continue
+                result["_role_prompt"] = fill_template(raw, ctx)
+                break
 
     return result
 

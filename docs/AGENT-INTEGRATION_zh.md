@@ -256,14 +256,14 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 
 **命令安装**:`aimail` 由 bootstrap 安装为全局命令(`~/.local/bin/aimail` → 程序副本 `~/.aimail/bin/aimail-src` 下的 `cli/aimail`);仓库根的 `./aimail` 是同一文件的符号链接,仅供仓库内调试。
 
-子命令(14 个,按场景分 4 组;原独立子命令 `payload` 与 `ensure-system` 已按
+子命令(15 个,按场景分 4 组;原独立子命令 `payload` 与 `ensure-system` 已按
 2026-09-23 B 裁决删除——两个机器面 ABI 改走 `install --payload` /
-`install --system-only`):
+`install --system-only`;`prompt` 于 2026-09-23 新增):
 
 - **setup**:`install` `uninstall` `reset`
 - **operate**:`stats` `renew` `version`
 - **diagnose**:`check` `repair` `ping` `welcome` `persona`
-- **resources**:`domain` `address` `bridge`
+- **resources**:`domain` `address` `bridge` `prompt`
 
 | 子命令 | 职责 |
 |--------|------|
@@ -272,6 +272,7 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 | `domain` | 查看/创建系统域名(list 默认 / `--add DOMAIN`) |
 | `install` | 集成 agent 平台到 AIMail 系统(激活或复用现有系统,含平台适配与补充注册);其隐藏机器面参数同时承载两个 ABI:`--system-only`(L1 激活/复用,SDK 反调)与 `--payload`(运行时捆绑 install/dir/resource/source) |
 | `address` | 查看/维护系统 agent 地址:默认主 agent 名(`-d`)、地址改名(`-a agent -n 新名`,服务端资源全继承)、设 manager(`-m`) |
+| `prompt` | 维护该 agent 的 `prompt_rules`(识别条件 ⇄ 角色文件):`add/list/rm/test/create-file` —— 字段 subject/body/sender/recipient,包含匹配(字段内或/字段间且),`name={10-99}_{filename}`;`test` 对样例邮件干跑固定链序(WHOAMI > welcome > board > `X-AIMail-Prompt` header > 本地规则,首中即止) |
 | `persona` | persona 流程:manager 发 'update persona',agent 回草稿 |
 | `ping` | ping-pong 闭环测试(只信 agent 侧三阶段日志事件) |
 | `repair` | 按 check 结果自动修复(幂等),再复检 |
