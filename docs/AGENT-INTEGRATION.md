@@ -446,3 +446,26 @@ dispatchers; kinds are shared across platforms, never per-platform code.
 - **mode / bridge_port config options**: the webhook_host tri-state expresses push/pull; the receive-endpoint port lives in webhook_url.
 
 The official documentation directory is `docs/` (versioned, maintained with the repo); CLI-side configuration and maintenance wording lives in `cli/README.md`.
+
+## 10. Docker Agent-System SOP (方式二 — CLI-driven, contract frozen)
+
+Two first-class integration modes; the CLI is the single operator of both:
+- **Local dir mode** (default): `aimail install` detects the platform from the home dir.
+- **Docker mode**: the agent runs in a container; the CLI treats the container as a
+  packaged process driven from the host. The container/image needs **zero changes**.
+
+Rules (docker mode):
+1. Host prerequisites: `docker` on PATH; container runs with the aimail home bind-mounted
+   at the **same path** inside the container (e.g. `-v ~/.aimail:$HOME/.aimail`), webhook
+   reachable via published port (`-p`) or `--network host`.
+2. Explicit, never guessed: container name comes from `aimail install --container <name>`
+   (recorded as `runtime=docker` + `container=<name>` in the system config);
+   `--platform <name>` forces the platform table entry (bypasses directory-name detect);
+   `--container-home <path>` only when the in-container home path differs from `--home`
+   (SOP default = identical paths, so the flag is unnecessary).
+3. Inside install: only steps that must execute in the container use
+   `docker exec {container} …` (hermes venv `pip install aimailsdk`); everything writing
+   the shared home (sdk_install / register / mcp payload) runs host-side against the mount.
+4. After container rebuild/recreate: re-run `aimail install` with the same flags —
+   the recorded runtime/container keys make re-detection stable.
+5. Bridge stays host-side in both modes (single fan-out; log: `bridge/aimail-bridge.log`).

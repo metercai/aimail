@@ -412,3 +412,24 @@ health_checks。CLI 执行器是平台无关的 `kind` 分发;kind 跨平台共�
 ---
 
 正式文档目录为 `docs/`(版本化,随仓库维护);CLI 侧配置与运维口径见 `cli/README_zh.md`。
+
+## 9. Docker agent 系统 SOP(方式二 — CLI 单点驱动, 契约冻结)
+
+两种一等公民对接方式, CLI 同为唯一操作面:
+- **本机目录方式**(默认):`aimail install` 从 home 目录特征识别平台。
+- **Docker 方式**:agent 跑在容器内; CLI 把容器当**封装进程**从宿主驱动,
+  容器/镜像**零改动**。
+
+规则(docker 方式):
+1. 宿主前提:PATH 上有 `docker`;容器把 aimail home 以**相同路径**绑挂
+   (如 `-v ~/.aimail:$HOME/.aimail`), webhook 经发布端口(`-p`)或 `--network host` 可达。
+2. 显式不猜:容器名由 `aimail install --container <名>` 传入(写入系统记录
+   `runtime=docker` + `container=<名>`);`--platform <名>` 强制平台表项(绕开目录名识别);
+   `--container-home <路径>` 仅当容器内 home 路径与 `--home` 不同时需要
+   (SOP 默认同路径, 该旗标无需)。
+3. install 内部:必须在容器里执行的步骤才走 `docker exec {container} …`
+   (hermes venv `pip install aimailsdk`);写共享 home 的动作
+   (sdk_install / register / mcp payload)全在宿主侧对挂载完成。
+4. 容器重建后:带同样旗标重跑 `aimail install` —— 运行态/容器名在系统记录里,
+   重识别稳定。
+5. 两种方式下 bridge 都留宿主侧(单扇出;日志 `bridge/aimail-bridge.log`)。

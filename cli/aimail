@@ -413,6 +413,13 @@ def _when_ok(when: dict, ctx: dict) -> bool:
             ok = bool(c.get("gateway_url") and c.get("admin_key") and ctx.get("sid"))
             if ok != bool(val):
                 return False
+        elif key == "runtime":
+            # 方式二: 目标运行态(docker 步骤仅容器记录在场时执行)
+            if str(ctx.get("runtime") or "") != str(val):
+                return False
+        elif key == "runtime_not":
+            if str(ctx.get("runtime") or "") == str(val):
+                return False
     return True
 
 
@@ -688,10 +695,21 @@ def cmd_install(args) -> int:
             sys_name = _env_val("AIMAIL_SYSTEM_NAME")
     if not system_home.exists():
         _fail(f"home 目录不存在: {system_home}")
-    platform = resolve_platform(system_home)
+    # ── 方式二(2026-09-23): --platform 显式覆盖 detect(绕目录名卡点);
+    #    --container 显式容器名(不猜, 随后写系统记录); --container-home 仅随 --container
+    if getattr(args, "container_home", "") and not getattr(args, "container", ""):
+        _fail("--container-home requires --container <name>")
+    if getattr(args, "platform", ""):
+        if args.platform not in _platforms()["platforms"]:
+            _fail(f"--platform '{args.platform}' unknown; valid: "
+                  f"{', '.join(sorted(_platforms()['platforms']))}")
+        platform = args.platform
+    else:
+        platform = resolve_platform(system_home)
     if not platform:
-        _fail(f"无法确定平台:{system_home} 目录无特征且无 aimail 指针")
-    print(f"  install platform={platform} system_home={system_home} system_id={sid or '(新建)'}")
+        _fail(f"无法确定平台:{system_home} 目录无特征且无 aimail 指针(可用 --platform 显式指定)")
+    print(f"  install platform={platform} system_home={system_home} system_id={sid or '(新建)'}"
+          + (f" container={args.container}" if getattr(args, "container", "") else ""))
 
     # 激活/复用凭据装配(env 契约给 setup_system.py)
     env["INTEGRATE_GATEWAY_URL"] = gw_url
@@ -809,6 +827,19 @@ def cmd_install(args) -> int:
             "manager_address": manager,
             "system_home": env.get("INTEGRATE_SYSTEM_HOME", ""),
         }
+    # ── 方式二: 显式 --container 才写 runtime 记录(幂等覆写同值;无 --container 不触碰)
+    if sid2 and getattr(args, "container", ""):
+        _gcfg_p = SYSTEMS_DIR / sid2 / "aimail_gateway.json"
+        try:
+            _gcfg = json.loads(_gcfg_p.read_text(encoding="utf-8"))
+            _gcfg["runtime"] = "docker"
+            _gcfg["container"] = str(args.container)
+            _gcfg["container_home"] = str(args.container_home) or str(system_home)
+            _atomic_json_write(_gcfg_p, _gcfg)
+            _ok(f"container runtime recorded: docker/{args.container}")
+        except Exception as e:
+            _warn(f"container runtime record failed: {e}")
+    _rcfg = load_gateway_config(sid2 or "") or {}
     _run_install_steps(platform, {
         "home": str(system_home),
         "sid": env.get("INTEGRATE_SYSTEM_ID", ""),
@@ -818,6 +849,10 @@ def cmd_install(args) -> int:
         "sdk": _sdk_dir_for_steps(),
         "cfg": _cfg,
         "all_agents": bool(getattr(args, "all_agents", False)),
+        # 方式二: runtime 记录来自系统配置(复用安装同样生效)
+        "runtime": str(_rcfg.get("runtime", "")),
+        "container": str(_rcfg.get("container", "")),
+        "container_home": str(_rcfg.get("container_home", "")) or str(system_home),
     })
 
     print(f"  install done. 建议: aimail check {'--system-id ' + args.system_id if args.system_id else ''}".rstrip())
@@ -2800,6 +2835,13 @@ scenario groups:
     #                   public command surface, never repo-relative paths).
     # The two machine flags are mutually exclusive with each other and reject
     # the other side's parameters (exit 2) — validated in cmd_install.
+    # ── docker 模式(方式二, 2026-09-23): 容器=封装进程, CLI 单点驱动 ──
+    p_install.add_argument("--platform", default="", metavar="NAME",
+                           help="override platform detection (bypasses dir-name constraints)")
+    p_install.add_argument("--container", default="", metavar="NAME",
+                           help="docker container name of this agent system (recorded as runtime=docker in system config)")
+    p_install.add_argument("--container-home", default="", dest="container_home", metavar="PATH",
+                           help="platform home path INSIDE the container (default: same as --home; SOP = same-path bind mount)")
     p_install.add_argument("--system-only", action="store_true", default=False,
                            help=argparse.SUPPRESS)
     p_install.add_argument("--payload", default="",

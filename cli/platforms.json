@@ -140,7 +140,10 @@
           "fail_hint": "`dsh` CLI not found — build/install deepseek-harness first (e.g. cd ~/deepseek-harness && cargo build --release && ln -sf \"$PWD/target/release/dsh\" ~/.local/bin/dsh), then re-run aimail install",
           "on_error": "warn",
           "warn_hint": "dsh plugin add aimail 失败(检查 aimail npm 包发布与网络)",
-          "ok_text": "aimail 插件已安装(dsh bundle 层挂载)"
+          "ok_text": "aimail 插件已安装(dsh bundle 层挂载)",
+          "env": {
+            "DSH_HOME": "{home}"
+          }
         },
         {
           "kind": "print",
@@ -206,10 +209,33 @@
             "aimailsdk"
           ],
           "when": {
-            "path_exists": "{home}/hermes-agent/venv/bin/python"
+            "path_exists": "{home}/hermes-agent/venv/bin/python",
+            "runtime_not": "docker"
           },
           "on_error": "warn",
           "warn_hint": "venv pip install aimailsdk exit {rc}(webhook 适配运行时缺失?)"
+        },
+        {
+          "kind": "spawn",
+          "argv": [
+            "docker",
+            "exec",
+            "{container}",
+            "{container_home}/hermes-agent/venv/bin/python",
+            "-m",
+            "pip",
+            "install",
+            "-q",
+            "aimailsdk"
+          ],
+          "when": {
+            "runtime": "docker"
+          },
+          "on_missing": "fail",
+          "fail_hint": "docker CLI not found — --container mode requires docker on the host PATH",
+          "on_error": "warn",
+          "warn_hint": "docker exec pip 装 aimailsdk 失败(容器名/容器内路径/网络)——register/sdk 文件步骤已由 sdk_install 落盘, 可人工 `docker exec <c> <home>/hermes-agent/venv/bin/python -m pip install aimailsdk` 后重跑 install",
+          "ok_text": "aimailsdk installed inside container {container}"
         },
         {
           "kind": "sdk_install",
@@ -225,6 +251,13 @@
           "kind": "register_all",
           "ok_text": "hermes --all-agents 全量注册完成",
           "warn_hint": "hermes 全量注册失败(可 reset --all-agents 重试)"
+        },
+        {
+          "kind": "print",
+          "when": {
+            "runtime": "docker"
+          },
+          "text": "  docker: 重启宿主 = `docker restart {container}`; 容器重建后必须重跑 aimail install -H <home> … --container {container}(幂等)"
         }
       ],
       "uninstall_steps": [
