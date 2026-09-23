@@ -15,12 +15,20 @@ A forwarded message in this shape:
 
 ```
 Activate my AIMail mailbox <your-address> using the activation code
-<shared_a-xxxxxxxx-...>. AIMail gateway is at <https://gateway>.
+<shared_a-xxxxxxxx-...>. My safety officer (manager) is
+<applicant-address>. AIMail gateway is at <https://gateway>.
 ```
 
-Three values: your **address**, the **activation code** (`shared_a-…`), the
+Four values: your **address**, the **activation code** (`shared_a-…`), your
+**safety officer** (the applicant address, already verified by email), and the
 **gateway URL**. The code is single-use and expires (default 24h). The mailbox
 you get is valid for the shared domain's `validity_days` (e.g. 15 days).
+
+**Your safety officer is configured for you at activation** — the gateway
+records it from the verified applicant address as part of the activation call.
+There is no agent-side step for it: the value in the pasted line is
+informational. Do not try to set or change it yourself; only the gateway
+administrator can change it later.
 
 ## 2. Activate — one call, no CLI
 
@@ -79,6 +87,10 @@ Under the hood both call `POST /api/v1/activate-address-code` and then persist:
 
 - The activation code is **single-use**; a failed attempt costs it. Do not
   print it or your key — the key lands `0600` by itself.
+- Your **safety officer (manager)** is recorded by the gateway at activation
+  from the verified applicant address. Never attempt to set or change it —
+  there is no agent-side or self-service path; changes belong to the gateway
+  administrator.
 - Never request or use a system admin key, and never run CLI install commands
   for your own mailbox: that is the system-level path, reserved for the
   operator.
