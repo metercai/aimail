@@ -475,6 +475,12 @@ def _run_install_steps(platform: str, ctx: dict) -> None:
                 _ok(_tmpl(st.get("ok_text", f"{platform} 全量注册完成"), ctx))
             except SystemExit:
                 _warn(_tmpl(st.get("warn_hint", f"{platform} 全量注册失败(见上)——可稍后 reset --all-agents 重试"), ctx))
+            except Exception as e:  # noqa: BLE001
+                # SDK 链抛真实异常(RuntimeError: `register failed: {{...}}` / 401 签名 /
+                # 网络等)同样属"不阻塞 install 主流程"(F9): 旧实现只 catch SystemExit,
+                # RuntimeError 会冒到顶层 ⇒ install 直接崩 + traceback(2026-09-25 D1 实测)。
+                _warn(_tmpl(st.get("warn_hint", f"{platform} 全量注册失败(见上)——可稍后 reset --all-agents 重试"), ctx)
+                      + f"; 异常: {type(e).__name__}: {e}")
         elif kind == "register_default":
             reg = _platform_def(platform).get("register", {})
             dn = reg.get("default_name", "")
@@ -487,6 +493,12 @@ def _run_install_steps(platform: str, ctx: dict) -> None:
             except SystemExit:
                 # 注册失败(上面 _fail 已输出):不阻塞 install 主流程(F9 语义)
                 _warn(_tmpl(st.get("warn_hint", f"{platform} agent 注册失败(见上)——稍后重试"), ctx))
+            except Exception as e:  # noqa: BLE001
+                # 同上(F9): SDK 链(aimail_base.register_agent_email 非 2xx 时抛
+                # RuntimeError)不能把 install 整体崩掉 —— 只 catch SystemExit 的旧实现
+                # 会冒 traceback;异常内容必须随警告透出, 不许静默。
+                _warn(_tmpl(st.get("warn_hint", f"{platform} agent 注册失败(见上)——稍后重试"), ctx)
+                      + f"; 异常: {type(e).__name__}: {e}")
         else:
             _warn(f"install_steps 未知 kind '{kind}'({platform})——跳过")
 
@@ -1084,6 +1096,10 @@ def cmd_reset(args) -> int:
     except SystemExit:
         # 注册失败(_fail 已输出原因):reset 继续完成
         _warn("registration chain re-run: registration failed (see above)")
+    except Exception as e:  # noqa: BLE001
+        # 同上(尽力语义): SDK 链抛 RuntimeError 时也不能崩 reset(2026-09-25 与 install 同款修)
+        _warn(f"registration chain re-run: registration failed (see above); "
+              f"异常: {type(e).__name__}: {e}")
     print(f"  建议: aimail check --system-id {sid}")
     return 0
 
