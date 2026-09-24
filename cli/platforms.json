@@ -221,7 +221,27 @@
             "docker",
             "exec",
             "{container}",
-            "{container_home}/hermes-agent/venv/bin/python",
+            "{container_home}/.venv/bin/python",
+            "-m",
+            "ensurepip",
+            "--upgrade"
+          ],
+          "when": {
+            "runtime": "docker"
+          },
+          "on_missing": "fail",
+          "fail_hint": "docker CLI not found — --container mode requires docker on the host PATH",
+          "on_error": "warn",
+          "warn_hint": "ensurepip 失败(容器名/路径)——venv 可能已含 pip 或不可写",
+          "ok_text": "pip ensured in container {container}"
+        },
+        {
+          "kind": "spawn",
+          "argv": [
+            "docker",
+            "exec",
+            "{container}",
+            "{container_home}/.venv/bin/python",
             "-m",
             "pip",
             "install",
@@ -234,7 +254,7 @@
           "on_missing": "fail",
           "fail_hint": "docker CLI not found — --container mode requires docker on the host PATH",
           "on_error": "warn",
-          "warn_hint": "docker exec pip 装 aimailsdk 失败(容器名/容器内路径/网络)——register/sdk 文件步骤已由 sdk_install 落盘, 可人工 `docker exec <c> <home>/hermes-agent/venv/bin/python -m pip install aimailsdk` 后重跑 install",
+          "warn_hint": "docker exec pip 装 aimailsdk 失败(容器名/容器内路径/网络)——register/sdk 文件步骤已由 sdk_install 落盘, 可人工 `docker exec <c> <home>/.venv/bin/python -m pip install aimailsdk` 后重跑 install",
           "ok_text": "aimailsdk installed inside container {container}"
         },
         {
