@@ -87,7 +87,7 @@ python3 -c "import sys; sys.path.insert(0, 'pysdk'); import aimail_base"
 # build & verify the wheel (three layouts must all import)
 python3 -m venv /tmp/v && /tmp/v/bin/pip install .
 /tmp/v/bin/python -c "import aimail; print(aimail.core_dir())"
-aimail payload source                     # resolves pip > repo pysdk/
+aimail install --payload source           # resolves pip > repo pysdk/
 ```
 
 ## Related repositories
