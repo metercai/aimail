@@ -342,7 +342,7 @@ def newest_system_sid(aimail_home=None, within_secs: int = 180) -> str:
 
 
 def normalize_platform_home(home):
-    """平台根归一(2026-09-11 C 修)。
+    """平台根归一(2026-09-11 C 修; 2026-09-25 补绝对化)。
 
     `--home` 契约是“平台目录本身”(如 ~/.pi)。若用户传了**父目录**(例如含
     `.pi/agent` 的目录),平台判定会落空并回退成 hermes(表现为报
@@ -351,11 +351,21 @@ def normalize_platform_home(home):
       2) 否则其下恰好命中一个平台子目录 → 返回该子目录;
       3) 都不中 → 原样返回(让下游按原逻辑报错,不静默改语义)。
     判据与 check_status._detect_platform / 注册表同源(cli/platforms.json)。
+
+    **返回值一律绝对路径**(2026-09-25 G2): 传相对 `--home`(如 `.openclaw`)时,
+    相对路径会被原样写进 cfg.system_home ⇒ 之后从别的 cwd 跑命令时平台 home
+    解析漂移(归属反查/指针判定全受影响)。
     """
     try:
         p = Path(home).expanduser()
     except Exception:
         return home
+    # 绝对化:相对 --home 必须先落到绝对,再走下面的平台判定(判定与归一都是
+    # 与 cwd 无关的路径运算)。
+    try:
+        p = Path(os.path.abspath(str(p)))
+    except Exception:
+        pass
     if not p.is_dir():
         return p
 

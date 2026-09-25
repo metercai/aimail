@@ -41,12 +41,37 @@
       "home_dir": ".pi",
       "install_steps": [
         {
+          "kind": "print",
+          "text": "pi 平台:确保 pi-aimail 扩展就位(自动;已装则跳过)+ 注册 agent:"
+        },
+        {
+          "kind": "spawn",
+          "argv": [
+            "pi",
+            "install",
+            "npm:pi-aimail"
+          ],
+          "skip_if": {
+            "argv": [
+              "pi",
+              "list"
+            ],
+            "match": "pi-aimail"
+          },
+          "on_missing": "fail",
+          "fail_hint": "未找到 `pi` 可执行(平台判定通过却无宿主 CLI?)",
+          "on_error": "warn",
+          "warn_hint": "pi-aimail 扩展安装失败(查网络/registry)——装上后跑 `aimail reset -s {sid}` 重试",
+          "ok_text": "pi-aimail 扩展已安装(npm registry 最新 stable;重启 pi 会话生效)",
+          "skipped_text": "pi-aimail 扩展已在位(跳过安装)"
+        },
+        {
           "kind": "register_default",
           "when": {
             "cfg_complete": true
           },
           "on_error": "warn",
-          "warn_hint": "pi agent 注册失败(见上)——稍后重试:`aimail address -s {sid} -a pi` 注册"
+          "warn_hint": "pi agent 注册失败(见上)——扩展就位后跑 `aimail reset -s {sid}`(或 `aimail address -s {sid} -a pi`) 重试"
         },
         {
           "kind": "warn",
@@ -57,7 +82,7 @@
         },
         {
           "kind": "print",
-          "text": "  pi: 扩展安装 = pi install npm:pi-aimail(宿主命令)+ 重启"
+          "text": "  pi: 收信监听随 pi 会话生命周期(重启会话后生效)"
         }
       ],
       "uninstall_steps": [
@@ -391,34 +416,59 @@
       "install_steps": [
         {
           "kind": "print",
-          "text": "openclaw 平台:安装 openclaw-aimail 插件 + 注册 agent(单 agent 用 `aimail address -s SID -a main`):"
+          "text": "openclaw 平台:确保 openclaw-aimail 插件就位(自动;已装则跳过)+ 注册 agent(单 agent 用 `aimail address -s SID -a main`):"
+        },
+        {
+          "kind": "spawn",
+          "argv": [
+            "openclaw",
+            "plugins",
+            "install",
+            "openclaw-aimail@latest",
+            "--force",
+            "--accept-capabilities"
+          ],
+          "skip_if": {
+            "argv": [
+              "openclaw",
+              "plugins",
+              "list"
+            ],
+            "match": "aimail"
+          },
+          "on_missing": "fail",
+          "fail_hint": "未找到 `openclaw` 可执行(平台判定通过却无宿主 CLI?)",
+          "on_error": "warn",
+          "warn_hint": "openclaw-aimail 插件安装失败(查网络/registry)——装上后跑 `aimail reset -s {sid}` 重试; spec 必须带 @latest:裸名会被 cwd 下同名本地目录遮蔽",
+          "ok_text": "openclaw-aimail 插件已安装(npm registry latest stable;重启 gateway 后收信生效)",
+          "skipped_text": "openclaw-aimail 插件已在位(跳过安装)"
         },
         {
           "kind": "print",
-          "text": "  1. 插件安装:`openclaw plugins install openclaw-aimail --force --accept-capabilities` → 重启 openclaw gateway(npm registry 最新 stable;force/accept 为 openclaw 三方插件信任门)"
+          "text": "  重启 openclaw gateway 后插件生效:`openclaw gateway install`(或 restart)"
         },
         {
           "kind": "print",
-          "text": "  2. 注册:openclaw aimail register --system-id {sid}(或 `aimail address -s {sid} -a main`)",
+          "text": "  注册:openclaw aimail register --system-id {sid}(或 `aimail address -s {sid} -a main`)",
           "when": {
             "sid_set": true
           }
         },
         {
           "kind": "print",
-          "text": "  2. 注册:`openclaw aimail register`(指针/系统就绪后)或 `aimail address -a main`",
+          "text": "  注册:`openclaw aimail register`(指针/系统就绪后)或 `aimail address -a main`",
           "when": {
             "sid_set": false
           }
         },
         {
           "kind": "register_default",
-          "warn_hint": "openclaw 主 agent 注册失败(见上)——稍后 reset 重试"
+          "warn_hint": "openclaw 主 agent 注册失败(见上)——插件就位后跑 `aimail reset -s {sid}` 重试"
         },
         {
           "kind": "register_all",
           "ok_text": "openclaw --all-agents 全量注册完成",
-          "warn_hint": "openclaw 全量注册失败(可 reset --all-agents 重试)"
+          "warn_hint": "openclaw 全量注册失败(插件就位后 `aimail reset -s {sid} --all-agents` 重试)"
         }
       ],
       "uninstall_steps": [
