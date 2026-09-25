@@ -1705,7 +1705,7 @@ def _check_payload_refs(c: "Check", platform: str, home: str):
 
 def _run_l2_checks(c: "Check", platform: str, checks: list, ctx: dict) -> None:
     """健康检查项执行(platforms.json health_checks 表驱动)。
-    kind: file_contains(_alt)/file_exists(_any)/glob_dir_any/pointer_match/
+    kind: file_contains(_alt)/file_exists(_any)/glob_dir_any/command_match/pointer_match/
     yaml_toolsets;ctx={home,user_home,sid};模板 {home}/{user_home}/{sid}。"""
     import glob as _glob
 
@@ -1753,6 +1753,27 @@ def _run_l2_checks(c: "Check", platform: str, checks: list, ctx: dict) -> None:
                     break
         elif kind == "glob_dir_any":
             ok = bool(_glob.glob(_fill(ch.get("glob", ""))))
+        elif kind == "command_match":
+            # 命令面优先(2026-09-25): 宿主自报清单最权威 —— 能认出非 npm 落点
+            # (如 openclaw 本地路径安装落 extensions/, glob 判据会漏)。
+            # 命令不可执行/非零退出 ⇒ 回退 fallback_glob(路径判据); 两条路都失败才 fail。
+            argv = [_fill(str(x)) for x in ch.get("argv", [])]
+            out, ran = "", False
+            if argv:
+                try:
+                    _r = subprocess.run(argv, capture_output=True, text=True, timeout=30)
+                    ran = _r.returncode == 0
+                    out = (_r.stdout or "") + (_r.stderr or "")
+                except Exception:
+                    ran = False
+            if ran:
+                ok = str(ch.get("match", "")).lower() in out.lower()
+                path = " ".join(argv) + f" match={ch.get('match', '')}"
+            else:
+                fb = ch.get("fallback_glob", "")
+                ok = bool(_glob.glob(_fill(fb))) if fb else False
+                path = (f"{_fill(fb)} (命令不可用: {' '.join(argv) or '无 argv'})"
+                        if fb else f"命令不可用: {' '.join(argv) or '无 argv'}")
         elif kind == "pointer_match":
             p = Path(_fill(ch.get("path", "")))
             try:
@@ -1776,7 +1797,8 @@ def _run_l2_checks(c: "Check", platform: str, checks: list, ctx: dict) -> None:
                 if ok:
                     break
         msg = msg_ok if ok else (msg_fail + (f": {path}" if path and kind in
-                                             ("file_contains", "file_contains_alt", "file_exists")
+                                             ("file_contains", "file_contains_alt", "file_exists",
+                                              "command_match")
                                              else ""))
         c.add("runtime", cid, ok, msg, fix)
 

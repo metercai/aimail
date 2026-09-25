@@ -480,11 +480,17 @@
       "health_checks": [
         {
           "id": "plugin-installed",
-          "kind": "glob_dir_any",
-          "glob": "{user_home}/.openclaw/npm/projects/openclaw-aimail*",
-          "ok_text": "openclaw-aimail npm package present",
-          "fail_text": "openclaw-aimail not installed",
-          "fix": "openclaw plugins install openclaw-aimail --force --accept-capabilities; restart gateway"
+          "kind": "command_match",
+          "argv": [
+            "openclaw",
+            "plugins",
+            "list"
+          ],
+          "match": "openclaw-aimail",
+          "fallback_glob": "{user_home}/.openclaw/npm/projects/openclaw-aimail*",
+          "ok_text": "openclaw-aimail 插件在位(openclaw plugins list)",
+          "fail_text": "openclaw-aimail 插件未安装",
+          "fix": "aimail install --home <openclaw home>(自动装;已装则跳过)或 openclaw plugins install openclaw-aimail@latest --force --accept-capabilities"
         },
         {
           "id": "skills",
