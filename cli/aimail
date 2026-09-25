@@ -425,13 +425,17 @@ def _when_ok(when: dict, ctx: dict) -> bool:
 
 
 def _probe_present(spec: dict, ctx: dict) -> bool:
-    """`skip_if` 探测: 跑 spec.argv,输出命中 spec.match(大小写不敏感)⇒ 视为"已在位"。
+    """`skip_if` probe: run spec.argv; if the output matches spec.match (case-insensitive)
+    the host artifact is considered present.
 
-    用于"平台插件/扩展确保步"(2026-09-25): README 承诺 `aimail install` 可独立完成
-    对接 ⇒ 缺宿主插件时要能自动装;已装的则跳过(幂等,且容器回归里不重复打 registry)。
+    Used by the platform plugin/extension ensure steps (2026-09-25): the README promises
+    `aimail install` alone is enough, so a missing host plugin must be installed
+    automatically and a present one skipped (idempotent; container regressions then do
+    not hit the registry again).
 
-    探测命令不可执行/非 0/匹配串为空 ⇒ False(视为"未知") —— 交给安装动作自己的
-    `on_missing`/`on_error` 决定语义;**绝不让整步静默通过**。
+    A probe that cannot be executed, exits non-zero, or has an empty match string
+    returns False ("unknown") and lets the install action's own `on_missing`/`on_error`
+    decide — the step is never silently passed.
     """
     argv = [_tmpl(x, ctx) for x in (spec.get("argv") or [])]
     match = str(spec.get("match") or "").lower()
@@ -449,7 +453,7 @@ def _probe_present(spec: dict, ctx: dict) -> bool:
 def _run_install_steps(platform: str, ctx: dict) -> None:
     """平台 install 动作序列执行器(platforms.json install_steps 表驱动)。
     kind: print|warn|spawn|sdk_install|register_default|register_all;when 前置条件;
-    spawn 的 skip_if(探测已在位则跳过)、on_missing(fail/skip)与 on_error(warn/fail)
+    spawn: skip_if (skip when the probe reports present), on_missing (fail/skip), on_error (warn/fail)
     策略映射现状语义。"""
     steps = _platform_def(platform).get("install_steps", [])
     if not steps:
@@ -470,9 +474,9 @@ def _run_install_steps(platform: str, ctx: dict) -> None:
             _ok(ok_t if rc == 0 else f"{ok_t} — see warnings")
         elif kind == "spawn":
             argv = [_tmpl(x, ctx) for x in st.get("argv", [])]
-            # skip_if: 探测已在位 ⇒ 跳过(插件确保步的幂等语义, 见 _probe_present)
+            # skip_if: probe reports present => skip (idempotent ensure step, see _probe_present)
             if st.get("skip_if") and _probe_present(st["skip_if"], ctx):
-                _ok(_tmpl(st.get("skipped_text") or f"已在位,跳过: {' '.join(argv)}", ctx))
+                _ok(_tmpl(st.get("skipped_text") or f"already present, skipping: {' '.join(argv)}", ctx))
                 continue
             env = dict(os.environ)
             for k, v in (st.get("env") or {}).items():
@@ -1927,20 +1931,25 @@ def _rename_after_reg(cfg: dict, default_name: str, agent: str, reg_name: str, s
                     pp.write_text(json.dumps(pdata, ensure_ascii=False))
             except Exception:
                 pass
-    # ── 桥路由同步(2026-09-25): 桥按地址匹配路由 ⇒ 改名后不改路由 = 拉取断链
+    # -- bridge route sync (2026-09-25): routes are matched by address, so a rename
+    #    without updating the route breaks pull delivery
     _sync_bridge_route_after_rename(old_email, new_email, base, sid)
     _ok(f"  地址名已改: {old_email} → {new_email}")
 
 
 
 def _sync_bridge_route_after_rename(old_email: str, new_email: str, base: Path, sid: str) -> None:
-    """地址改名后的桥路由同步(2026-09-25)。
+    """Sync bridge routes after an address rename (2026-09-25).
 
-    桥按**地址**匹配路由 ⇒ 改名后旧路由仍指旧地址 = 拉取投递断链
-    (check 报 "no route for <new> … pull delivery dead")。做法:
-      ①新地址 upsert(目标优先取迁移后的 agentmail.json.webhook_url, 回退旧路由目标);
-      ②旧地址 DELETE(桥 `DELETE /api/v1/routes/:email`; v0.7.4 及更老该路由恒 404)。
-    全程非致命: 改名已在云端生效, 路由只影响入站投递, `aimail bridge -s <sid>` 可补刷。
+    The bridge matches routes by **address**, so leaving the old route in place after a
+    rename breaks pull delivery (check reports "no route for <new> ... pull delivery
+    dead"). Steps:
+      1) upsert the new address (target from the migrated agentmail.json webhook_url,
+         falling back to the old route target);
+      2) DELETE the old address (bridge `DELETE /api/v1/routes/:email`; on v0.7.4 and
+         older that route always returned 404).
+    Never fatal: the rename already happened in the cloud; routes only affect inbound
+    delivery and `aimail bridge -s <sid>` can re-register them.
     """
     try:
         old_target = _read_routes().get(old_email, "")
@@ -1960,20 +1969,20 @@ def _sync_bridge_route_after_rename(old_email: str, new_email: str, base: Path, 
                 method="POST")
             with urllib.request.urlopen(req, timeout=5):
                 pass
-            _ok(f"  桥路由已同步: {new_email} → {target}")
+            _ok(f"  bridge route synced: {new_email} -> {target}")
         else:
-            _warn(f"  桥路由未同步({new_email} 无接收端点可推导)——修: aimail bridge -s {sid}")
+            _warn(f"  bridge route not synced (no receive endpoint derivable for {new_email}) — fix: aimail bridge -s {sid}")
         if old_target:
             try:
                 dreq = urllib.request.Request(
                     f"http://{BRIDGE_ADDR}/api/v1/routes/{old_email}", method="DELETE")
                 with urllib.request.urlopen(dreq, timeout=5):
                     pass
-                _ok(f"  旧路由已摘除: {old_email}")
+                _ok(f"  stale route removed: {old_email}")
             except Exception as e:
-                _warn(f"  旧路由摘除失败({old_email}: {e})——陈旧条目不投递, 无害")
+                _warn(f"  stale route removal failed ({old_email}: {e}) — harmless: stale entries receive no traffic")
     except Exception as e:
-        _warn(f"  桥路由同步失败(改名已生效, 入站可能断链): {e}——修: aimail bridge -s {sid}")
+        _warn(f"  bridge route sync failed (rename applied; inbound may be down): {e} — fix: aimail bridge -s {sid}")
 
 
 def _post_reg_report(platform: str, agent: str, reg_name: str, domain: str, sid: str) -> None:

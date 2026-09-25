@@ -1754,9 +1754,9 @@ def _run_l2_checks(c: "Check", platform: str, checks: list, ctx: dict) -> None:
         elif kind == "glob_dir_any":
             ok = bool(_glob.glob(_fill(ch.get("glob", ""))))
         elif kind == "command_match":
-            # 命令面优先(2026-09-25): 宿主自报清单最权威 —— 能认出非 npm 落点
-            # (如 openclaw 本地路径安装落 extensions/, glob 判据会漏)。
-            # 命令不可执行/非零退出 ⇒ 回退 fallback_glob(路径判据); 两条路都失败才 fail。
+            # command-surface first (2026-09-25): the host self-report is authoritative —
+            # it also catches non-npm install locations (e.g. openclaw local-path installs under extensions/, which a glob check misses).
+            # Command not runnable / non-zero exit => fall back to fallback_glob; fail only when both paths fail.
             argv = [_fill(str(x)) for x in ch.get("argv", [])]
             out, ran = "", False
             if argv:

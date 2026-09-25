@@ -42,7 +42,7 @@
       "install_steps": [
         {
           "kind": "print",
-          "text": "pi 平台:确保 pi-aimail 扩展就位(自动;已装则跳过)+ 注册 agent:"
+          "text": "pi platform: ensure the pi-aimail extension (auto; skipped when present) + register the agent:"
         },
         {
           "kind": "spawn",
@@ -59,11 +59,11 @@
             "match": "pi-aimail"
           },
           "on_missing": "fail",
-          "fail_hint": "未找到 `pi` 可执行(平台判定通过却无宿主 CLI?)",
+          "fail_hint": "`pi` executable not found (platform detected but host CLI missing?)",
           "on_error": "warn",
-          "warn_hint": "pi-aimail 扩展安装失败(查网络/registry)——装上后跑 `aimail reset -s {sid}` 重试",
-          "ok_text": "pi-aimail 扩展已安装(npm registry 最新 stable;重启 pi 会话生效)",
-          "skipped_text": "pi-aimail 扩展已在位(跳过安装)"
+          "warn_hint": "pi-aimail extension install failed (check network/registry) — after fixing, rerun `aimail reset -s {sid}`",
+          "ok_text": "pi-aimail extension installed (npm registry latest stable; takes effect after the pi session restarts)",
+          "skipped_text": "pi-aimail extension already present (install skipped)"
         },
         {
           "kind": "register_default",
@@ -71,18 +71,18 @@
             "cfg_complete": true
           },
           "on_error": "warn",
-          "warn_hint": "pi agent 注册失败(见上)——扩展就位后跑 `aimail reset -s {sid}`(或 `aimail address -s {sid} -a pi`) 重试"
+          "warn_hint": "pi agent registration failed (see above) — rerun `aimail reset -s {sid}` (or `aimail address -s {sid} -a pi`) once the extension is in place"
         },
         {
           "kind": "warn",
-          "text": "pi 注册跳过(配置不全——激活/安装后重试或 aimail address -a pi)",
+          "text": "pi registration skipped (config incomplete — retry after activation/install, or run `aimail address -a pi`)",
           "when": {
             "cfg_complete": false
           }
         },
         {
           "kind": "print",
-          "text": "  pi: 收信监听随 pi 会话生命周期(重启会话后生效)"
+          "text": "  pi: inbound listener lives with the pi session lifecycle (restart the session to apply)"
         }
       ],
       "uninstall_steps": [
@@ -416,7 +416,7 @@
       "install_steps": [
         {
           "kind": "print",
-          "text": "openclaw 平台:确保 openclaw-aimail 插件就位(自动;已装则跳过)+ 注册 agent(单 agent 用 `aimail address -s SID -a main`):"
+          "text": "openclaw platform: ensure the openclaw-aimail plugin (auto; skipped when present) + register the agent (single agent: `aimail address -s SID -a main`):"
         },
         {
           "kind": "spawn",
@@ -437,38 +437,38 @@
             "match": "aimail"
           },
           "on_missing": "fail",
-          "fail_hint": "未找到 `openclaw` 可执行(平台判定通过却无宿主 CLI?)",
+          "fail_hint": "`openclaw` executable not found (platform detected but host CLI missing?)",
           "on_error": "warn",
-          "warn_hint": "openclaw-aimail 插件安装失败(查网络/registry)——装上后跑 `aimail reset -s {sid}` 重试; spec 必须带 @latest:裸名会被 cwd 下同名本地目录遮蔽",
-          "ok_text": "openclaw-aimail 插件已安装(npm registry latest stable;重启 gateway 后收信生效)",
-          "skipped_text": "openclaw-aimail 插件已在位(跳过安装)"
+          "warn_hint": "openclaw-aimail plugin install failed (check network/registry) — after fixing, rerun `aimail reset -s {sid}`; keep `@latest` in the spec: a bare name is shadowed by a same-named local dir in cwd",
+          "ok_text": "openclaw-aimail plugin installed (npm registry latest stable; takes effect after the gateway restarts)",
+          "skipped_text": "openclaw-aimail plugin already present (install skipped)"
         },
         {
           "kind": "print",
-          "text": "  重启 openclaw gateway 后插件生效:`openclaw gateway install`(或 restart)"
+          "text": "  restart the openclaw gateway to activate the plugin: `openclaw gateway install` (or `restart`)"
         },
         {
           "kind": "print",
-          "text": "  注册:openclaw aimail register --system-id {sid}(或 `aimail address -s {sid} -a main`)",
+          "text": "  register: openclaw aimail register --system-id {sid} (or `aimail address -s {sid} -a main`)",
           "when": {
             "sid_set": true
           }
         },
         {
           "kind": "print",
-          "text": "  注册:`openclaw aimail register`(指针/系统就绪后)或 `aimail address -a main`",
+          "text": "  register: `openclaw aimail register` (once pointer/system ready) or `aimail address -a main`",
           "when": {
             "sid_set": false
           }
         },
         {
           "kind": "register_default",
-          "warn_hint": "openclaw 主 agent 注册失败(见上)——插件就位后跑 `aimail reset -s {sid}` 重试"
+          "warn_hint": "openclaw main agent registration failed (see above) — rerun `aimail reset -s {sid}` once the plugin is in place"
         },
         {
           "kind": "register_all",
-          "ok_text": "openclaw --all-agents 全量注册完成",
-          "warn_hint": "openclaw 全量注册失败(插件就位后 `aimail reset -s {sid} --all-agents` 重试)"
+          "ok_text": "openclaw --all-agents registration complete",
+          "warn_hint": "openclaw register-all failed (rerun `aimail reset -s {sid} --all-agents` once the plugin is in place)"
         }
       ],
       "uninstall_steps": [

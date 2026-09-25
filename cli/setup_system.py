@@ -329,7 +329,7 @@ def _save_gateway_config(
     if webhook_host:
         cfg["webhook_host"] = webhook_host
     if system_home:
-        # 绝对化(2026-09-25 G2): 相对路径入 cfg ⇒ 换 cwd 后归属反查/指针判定漂移
+        # Absolutize (2026-09-25, G2): a relative path in cfg drifts the ownership/pointer lookup once cwd changes
         cfg["system_home"] = os.path.abspath(os.path.expanduser(str(system_home)))
 
     gateway_path = gateway_config_path(system_id)

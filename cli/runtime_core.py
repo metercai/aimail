@@ -342,7 +342,7 @@ def newest_system_sid(aimail_home=None, within_secs: int = 180) -> str:
 
 
 def normalize_platform_home(home):
-    """平台根归一(2026-09-11 C 修; 2026-09-25 补绝对化)。
+    """Normalize the platform root (C fix 2026-09-11; absolutized 2026-09-25).
 
     `--home` 契约是“平台目录本身”(如 ~/.pi)。若用户传了**父目录**(例如含
     `.pi/agent` 的目录),平台判定会落空并回退成 hermes(表现为报
@@ -360,7 +360,7 @@ def normalize_platform_home(home):
         p = Path(home).expanduser()
     except Exception:
         return home
-    # 绝对化:相对 --home 必须先落到绝对,再走下面的平台判定(判定与归一都是
+    # Absolutize first: a relative --home must be resolved before the platform detection below
     # 与 cwd 无关的路径运算)。
     try:
         p = Path(os.path.abspath(str(p)))
