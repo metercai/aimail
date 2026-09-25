@@ -141,7 +141,7 @@ def test_pysdk_executable_paths_do_not_reference_cli_programs():
             if CLI_REF_RE.search(line):
                 offenders.append(f"{path.relative_to(REPO)}:{i}: {line.strip()}")
     assert not offenders, (
-        "pysdk 可执行路径引用了 CLI 程序（应改为 aimail payload … / SDK 自带实现）:\n"
+        "pysdk 可执行路径引用了 CLI 程序（应改为 aimail install --payload … / SDK 自带实现）:\n"
         + "\n".join(offenders)
     )
 

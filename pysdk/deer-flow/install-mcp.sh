@@ -8,7 +8,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # P3(2026-09-20, owner 定调): 不再拼仓库相对路径去调 cli/runtime_bundle.py ——
-# 一律走 CLI 公开命令面(aimail payload …); rust 化后同一命令由新二进制实现, 本脚本无需再改。
+# 一律走 CLI 公开命令面(aimail install --payload …); rust 化后同一命令由新二进制实现, 本脚本无需再改。
 command -v aimail >/dev/null 2>&1 || {
     echo "ERROR: 未找到 aimail 命令。请先安装 CLI(bootstrap)后再跑本脚本。" >&2
     echo "       (不再回退到仓库内 cli/runtime_bundle.py —— 那正是要消除的耦合)" >&2
@@ -19,8 +19,8 @@ CFG="${DEER_FLOW_EXT_CFG:-$DEER_FLOW_HOME/extensions_config.json}"
 AGENT_ID="${AIMAIL_AGENT_ID:-default}"
 
 # ── 1. 安装/更新 MCP 载荷(源: pip aimail > 仓库 pysdk/)────────────
-aimail payload install mcp
-BUNDLE_DIR="$(aimail payload dir mcp)"
+aimail install --payload install mcp
+BUNDLE_DIR="$(aimail install --payload dir mcp)"
 SERVER="$BUNDLE_DIR/aimail_mcp_server.py"
 [ -f "$SERVER" ] || { echo "MCP payload missing: $SERVER" >&2; exit 1; }
 
