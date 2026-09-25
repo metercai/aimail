@@ -21,8 +21,8 @@ import * as path from 'node:path'
 import { AIMAIL_HOME, systemDir } from './config.js'
 
 /** source subdir (in the SDK's resources/board) -> destination subdir
- *  2026-09-25 用户裁决: board 只保留角色提示(源目录已改名 role_prompt, 不再带 _en 后缀);
- *  role_prompt_zh / role_soul_en / role_soul_zh 三个目录已删除 —— 无任何运行时消费者。 */
+ *  2026-09-25 user ruling: board keeps only role prompts (source dir renamed to role_prompt, no _en suffix);
+ *  the role_prompt_zh / role_soul_en / role_soul_zh dirs are deleted — no runtime consumer. */
 const DIR_MAP: ReadonlyArray<[string, string]> = [
   ['role_prompt', 'role_prompt'],
 ]
@@ -46,10 +46,10 @@ export interface ReleaseResourcesOptions {
 }
 
 /**
- * 包自带资源完整性断言(2026-09-25 单一真源改造: 缺资源不再静默跳过)。
- * 资源真源 = 仓库根 `resources/`,各分发点是 scripts/materialize-resources.sh
- * 的物化产物 / npm prepack 复制物。缺目录 = 打包缺陷,必须当场响亮 —— 静默的
- * 后果是"门禁全绿但宿主零角色资源"。
+ * Assert the package ships complete resources (2026-09-25 single-source change: missing resources no longer skipped silently).
+ * Canonical source = repo-root `resources/`; each distribution point is a materialized copy from scripts/materialize-resources.sh
+ * or an npm prepack copy. A missing dir = packaging defect, must be loud on the spot — the silent
+ * consequence is "gates all green while the host has zero role resources".
  */
 export function assertBoardResources (boardRoot: string): void {
   const hint =
@@ -115,8 +115,8 @@ export function hasAnySystem (): boolean {
 export function releaseAllSystems (boardRoot: string): ReleaseResourcesResult[] {
   const systemsRoot = path.join(AIMAIL_HOME(), 'systems')
   if (!fs.existsSync(systemsRoot)) return []
-  // 有系统要发 ⇒ 先断言包内资源完整(打包缺陷必须响亮, 不能被下面的 per-system
-  // try 吞掉); 无系统时直接返回(没东西可发, 不算错)。
+  // systems to release => assert package resources first (a packaging defect must be loud, it must not be
+  // swallowed by the per-system try below); no systems => return early (nothing to release, not an error).
   assertBoardResources(boardRoot)
   const out: ReleaseResourcesResult[] = []
   for (const ent of fs.readdirSync(systemsRoot)) {
@@ -125,7 +125,7 @@ export function releaseAllSystems (boardRoot: string): ReleaseResourcesResult[] 
     try {
       out.push(releaseResources({ systemId: ent, boardRoot }))
     } catch (e) {
-      // 单个系统目录不可读/不可写不阻断其它系统, 但**绝不静默**
+      // an unreadable/unwritable single system dir must not block other systems, but must **never be silent**
       console.error(`[aimail] board resource release failed for system ${ent}: ${String(e)}`)
     }
   }

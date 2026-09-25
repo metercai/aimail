@@ -116,7 +116,7 @@ export function apply(ctx: Context, config: { systemId?: string } = {}): void {
   try {
     releaseAllSystems(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'resources', 'board'))
   } catch (e) {
-    // 非致命(资源是种子, 可再次显式释放), 但绝不静默
+    // non-fatal (resources are seeds, can be re-released explicitly), but never silent
     console.error(`[dsh-aimail] board resource release failed: ${String(e)}`)
   }
   // install readiness: a dsh-only machine ensures its system through the CLI

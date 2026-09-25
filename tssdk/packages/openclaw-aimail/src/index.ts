@@ -34,7 +34,7 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
     try {
       releaseAllSystems(boardRoot)
     } catch (e) {
-      // 非致命(注册/下次启动会重试), 但绝不静默: 缺资源 = 打包/物化缺陷
+      // non-fatal (register/next start retries), but never silent: missing resources = packaging defect
       console.error(`[openclaw-aimail] board resource release failed: ${String(e)}`)
     }
 
@@ -50,7 +50,7 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
         const from = path.join(skillSrc, f)
         const to = path.join(skillDst, f)
         if (!fs.existsSync(from)) {
-          // 包内资源缺失 = 打包/物化缺陷: 响亮但不阻断宿主
+          // missing package resources = packaging defect: loud but must not block the host
           console.error(`[openclaw-aimail] skill resource missing: ${from} ` +
             '(repo: run scripts/materialize-resources.sh; installed: reinstall the package)')
           continue
@@ -59,7 +59,7 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
         fs.copyFileSync(from, to)
       }
     } catch (e) {
-      // 非致命(下次插件启动会重试), 但绝不静默
+      // non-fatal (next plugin start retries), but never silent
       console.error(`[openclaw-aimail] skill release failed: ${String(e)}`)
     }
 

@@ -5,7 +5,7 @@ import * as path from 'node:path'
 import { releaseResources, releaseAllSystems, AIMAIL_HOME } from '../src/index.js'
 
 /** Board layout expected by the preprocess chain after release. */
-const EXPECTED_DIRS = ['role_prompt']   // 2026-09-25: zh/soul 目录已删(无消费者)
+const EXPECTED_DIRS = ['role_prompt']   // 2026-09-25: zh/soul dirs removed (no consumer)
 const EXPECTED_COUNT = {
   role_prompt: 6, // incl. role_calibrator
 }

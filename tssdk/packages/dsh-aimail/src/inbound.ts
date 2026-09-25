@@ -80,7 +80,7 @@ export function apply(ctx: Context, config: Config = {}): () => void {
       const from = path.join(skillSrc, f)
       const to = path.join(skillDst, f)
       if (!fs.existsSync(from)) {
-        // 包内资源缺失 = 打包/物化缺陷: 响亮但不阻断入站处理
+        // missing package resources = packaging/materialize defect: loud but must not block inbound handling
         console.error(`[dsh-aimail] skill resource missing: ${from} ` +
           '(repo: run scripts/materialize-resources.sh; installed: reinstall the package)')
         continue
