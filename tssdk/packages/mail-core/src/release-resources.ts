@@ -10,10 +10,7 @@
  * preprocess chain reads from:
  *
  *   ~/.aimail/systems/{system_id}/board/
- *   ├── role_prompt/        en prompt  (role_prompt_en -> role_prompt)
- *   ├── role_prompt_zh/     zh prompt
- *   ├── role_soul/          en souls   (role_soul_en -> role_soul)
- *   └── role_soul_zh/       zh souls
+ *   └── role_prompt/        board role prompts (6 templates)
  *
  * Copy policy: only files that are missing or newer in the source are
  * written — user-personalized files in the config dir are never overwritten.
@@ -23,12 +20,11 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { AIMAIL_HOME, systemDir } from './config.js'
 
-/** source subdir (in the SDK's resources/board) -> destination subdir */
+/** source subdir (in the SDK's resources/board) -> destination subdir
+ *  2026-09-25 用户裁决: board 只保留角色提示(源目录已改名 role_prompt, 不再带 _en 后缀);
+ *  role_prompt_zh / role_soul_en / role_soul_zh 三个目录已删除 —— 无任何运行时消费者。 */
 const DIR_MAP: ReadonlyArray<[string, string]> = [
-  ['role_prompt_en', 'role_prompt'],
-  ['role_prompt_zh', 'role_prompt_zh'],
-  ['role_soul_en', 'role_soul'],
-  ['role_soul_zh', 'role_soul_zh'],
+  ['role_prompt', 'role_prompt'],
 ]
 
 export interface ReleaseResourcesResult {

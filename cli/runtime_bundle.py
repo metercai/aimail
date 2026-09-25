@@ -312,13 +312,8 @@ def _resource_path(name: str, root: str, kind: str) -> str:
     if name == "skills":
         return os.path.join(base, "skills")
     if name == "board-role":
-        return os.path.join(base, "board", "role_prompt_en")
-    if name == "board-role-zh":
-        return os.path.join(base, "board", "role_prompt_zh")
-    if name == "board-soul":
-        return os.path.join(base, "board", "role_soul_en")
-    if name == "board-soul-zh":
-        return os.path.join(base, "board", "role_soul_zh")
+        # 2026-09-25: board 只保留角色提示(目录已改名 role_prompt);zh/soul 目录已删
+        return os.path.join(base, "board", "role_prompt")
     raise SystemExit(f"ERROR: 未知资源 {name}(可选: skills|board-role)")
 
 
@@ -342,7 +337,7 @@ def main() -> int:
     p_pl.add_argument("bundle", nargs="?", default="mcp", choices=sorted(BUNDLES))
     sub.add_parser("source")
     p_res = sub.add_parser("resource")
-    p_res.add_argument("name", choices=["skills", "board-role", "board-role-zh", "board-soul", "board-soul-zh"])
+    p_res.add_argument("name", choices=["skills", "board-role"])
     p_res.add_argument("--source-root", default="")
 
     args = ap.parse_args()

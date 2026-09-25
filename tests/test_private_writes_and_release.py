@@ -92,8 +92,8 @@ def test_read_msg_bad_frame_still_raises(monkeypatch):
 # ── D6: 资源释放 hash 判定 ─────────────────────────────────────────
 def _mk_src(tmp_path: Path, text: str) -> str:
     src = tmp_path / "src"
-    (src / "role_prompt_en").mkdir(parents=True, exist_ok=True)
-    (src / "role_prompt_en" / "common.md").write_text(text)
+    (src / "role_prompt").mkdir(parents=True, exist_ok=True)
+    (src / "role_prompt" / "common.md").write_text(text)
     return str(src)
 
 
@@ -117,7 +117,7 @@ def test_release_updates_when_sdk_changed_and_user_did_not(tmp_path, monkeypatch
     rr.release_resources("sys-1", root)
     dst = _dst(tmp_path)
     os.utime(dst, (1, 1))                      # 目标 mtime 做旧(更早于包内文件)
-    (Path(root) / "role_prompt_en" / "common.md").write_text("v2\n")
+    (Path(root) / "role_prompt" / "common.md").write_text("v2\n")
     r = rr.release_resources("sys-1", root)
     assert r["updated"] == 1
     assert dst.read_text() == "v2\n"
@@ -129,7 +129,7 @@ def test_release_never_overwrites_personalized(tmp_path, monkeypatch):
     rr.release_resources("sys-1", root)
     dst = _dst(tmp_path)
     dst.write_text("my own prompt\n")          # 用户个性化(内容 != 清单记录)
-    (Path(root) / "role_prompt_en" / "common.md").write_text("v2\n")
+    (Path(root) / "role_prompt" / "common.md").write_text("v2\n")
     r = rr.release_resources("sys-1", root)
     assert r["skipped"] == 1
     assert dst.read_text() == "my own prompt\n"

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """_resources_release — SDK 资源的本地配置目录展开(python 版)。
 
-架构:资源(role_prompt/role_soul × en/zh + skills)是公共种子,随 SDK
+架构:资源(board/role_prompt 角色提示 + skills)是公共种子,随 SDK
 分发;安装/启动时释放到 ~/.aimail/systems/{sid}/board/ 供运行时读取
 (pysdk 与 tssdk 运行时同路径)。只补缺失/更新的文件,绝不覆盖用户已在
 配置目录个性化过的内容。
@@ -28,11 +28,10 @@ _RESOURCE_HINT = ("仓库态: 跑 scripts/materialize-resources.sh 重新物化(
                   " pip 态: 重装 aimailsdk(wheel 自带 resources)")
 
 # 源子目录(包内 resources/board) → 配置目录目标子目录
+# 2026-09-25 用户裁决: board 只保留 en 角色提示(源目录已改名 role_prompt, 不再带 _en 后缀);
+# role_prompt_zh / role_soul_en / role_soul_zh 三个目录已删除 —— 无任何运行时消费者。
 _DIR_MAP = (
-    ("role_prompt_en", "role_prompt"),
-    ("role_prompt_zh", "role_prompt_zh"),
-    ("role_soul_en", "role_soul"),
-    ("role_soul_zh", "role_soul_zh"),
+    ("role_prompt", "role_prompt"),
 )
 
 _AIMAIL_HOME = os.path.join(os.path.expanduser("~"), ".aimail")

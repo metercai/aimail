@@ -40,7 +40,7 @@ Module layout inside the wheel mirrors the repository ``pysdk/`` directory
     deer-flow/               DeerFlow adapter (inbound router / manage / base)
     resources/
       skills/                aimail SKILL.md + DESCRIPTION.md
-      board/role_prompt_en|zh, role_soul_en|zh   board templates
+      board/role_prompt/     board role prompts (6 templates)
 """
 
 import os as _os
@@ -104,8 +104,8 @@ def skills_dir() -> str:
 
 
 def board_role_prompt_dir() -> str:
-    """Board role prompt templates (English, default) directory."""
-    return _os.path.join(root(), "resources", "board", "role_prompt_en")
+    """Board role prompt templates directory (6 templates)."""
+    return _os.path.join(root(), "resources", "board", "role_prompt")
 
 
 def mcp_server_path() -> str:

@@ -22,7 +22,7 @@ TARGETS = {
     "openclaw": REPO / "tssdk" / "packages" / "openclaw-aimail" / "resources",
     "pi": REPO / "tssdk" / "packages" / "pi-aimail" / "resources",
 }
-EXPECTED_FILE_COUNT = 22  # 20 board(role_prompt_en/zh + role_soul_en/zh) + 2 skills
+EXPECTED_FILE_COUNT = 8  # 6 board role prompts(role_prompt/) + 2 skills
 
 
 def _fingerprint(d: Path) -> dict:
@@ -46,7 +46,7 @@ def test_canonical_source_exists_and_is_complete():
     assert len(fp) == EXPECTED_FILE_COUNT, (
         f"真源文件数 {len(fp)} != 契约 {EXPECTED_FILE_COUNT};"
         f"增删资源请同步本断言与 pyproject/check-tarball 口径: {sorted(fp)}")
-    for sub in ("role_prompt_en", "role_prompt_zh", "role_soul_en", "role_soul_zh"):
+    for sub in ("role_prompt",):
         assert (CANON / "board" / sub).is_dir(), f"真源缺 board/{sub}/"
     for f in ("SKILL.md", "DESCRIPTION.md"):
         assert (CANON / "skills" / f).is_file(), f"真源缺 skills/{f}"

@@ -22,7 +22,7 @@ after editing `resources/`; npm packages regenerate their copy automatically via
 | Core (framework-agnostic, stdlib-only) | `aimail_base.py` (identity/signature/config/register), `aimail_tools.py` (send_mail + contacts + notes + `_GatewayClient`), `aimail_board.py` (A2A board), `gateway_api.py` (v1 API client), `_aimail_bootstrap.py` (location-agnostic sys.path boot) |
 | MCP server | `aimail_mcp_server.py` (stdio JSON-RPC, platform-agnostic) |
 | Adapters (host-injected) | `hermes/` (aimail_hermes + patch/register/toolsets, 6 modules), `deer-flow/` (aimail_inbound + aimail_deerflow + manage) |
-| Resources | `resources/skills/` (SKILL.md + DESCRIPTION.md), `resources/board/` (source: `role_prompt_en` / `role_prompt_zh` / `role_soul_en` / `role_soul_zh`; the `_en` suffix is dropped when released to the config directory) |
+| Resources | `resources/skills/` (SKILL.md + DESCRIPTION.md), `resources/board/role_prompt/` (6 board role prompt templates, released as-is) |
 | Glue | `__init__.py` — unified entry: `import aimail` re-exports the curated API and boots the flat core |
 
 ## Install
@@ -71,16 +71,12 @@ CLI's `aimail install` delegates to) releases them via
 
 ```
 ~/.aimail/systems/{system_id}/board/
-├── role_prompt/        # en (default) — read by the preprocess chain
-├── role_prompt_zh/     # zh reference (reading point reserved)
-├── role_soul/          # en souls (distinct from a profile SOUL.md)
-└── role_soul_zh/       # zh reference
+└── role_prompt/        # 6 role prompt templates — read by the preprocess chain
 ```
 
 Both the Python and the TypeScript (`tssdk/`) runtimes read from this same
-location, so users can edit a role prompt / soul file to personalize behavior
-— and the change applies to every platform at once. `en` is the default
-language; `zh` ships for reference only.
+location, so users can edit a role prompt file to personalize behavior — and
+the change applies to every platform at once.
 
 ## Development
 
