@@ -57,12 +57,18 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
     for (const f of ['SKILL.md', 'DESCRIPTION.md']) {
       const from = path.join(skillSrc, f)
       const to = path.join(skillDst, f)
-      if (!fs.existsSync(from)) continue
+      if (!fs.existsSync(from)) {
+        // 包内资源缺失 = 打包/物化缺陷: 响亮但不阻断宿主
+        console.error(`[pi-aimail] skill resource missing: ${from} ` +
+          '(repo: run scripts/materialize-resources.sh; installed: reinstall the package)')
+        continue
+      }
       if (fs.existsSync(to) && fs.readFileSync(from).equals(fs.readFileSync(to))) continue
       fs.copyFileSync(from, to)
     }
-  } catch {
-    // non-fatal; retried on next plugin start
+  } catch (e) {
+    // 非致命(下次插件启动会重试), 但绝不静默
+    console.error(`[pi-aimail] skill release failed: ${String(e)}`)
   }
   const log = {
     info: (m: string) => console.log(m),

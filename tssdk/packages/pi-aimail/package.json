@@ -30,7 +30,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "prepack": "npm run build"
+    "prepack": "npm run build && bash ../../../scripts/materialize-resources.sh pi"
   },
   "license": "MIT",
   "dependencies": {

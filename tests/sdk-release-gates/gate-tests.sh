@@ -6,6 +6,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 echo "═══ [L0] python lint + unit tests ═══"
+# SDK 资源单一真源(2026-09-25): 真源=仓根 resources/, 4 处分发点是物化产物(已 gitignore)。
+# clean clone 里产物不存在 ⇒ 先物化, 否则 pysdk/runtime_bundle 的资源释放与 S9 探针会红。
+bash scripts/materialize-resources.sh
+bash scripts/materialize-resources.sh --verify
 # 平台边界 gate:CLI 代码不得出现平台字面分支(新增平台/多 agent 注册只改
 # cli/platforms.json + SDK,CLI 零改动)。白名单 = 空(cmd_reset 特例已随
 # register_all 表化删除)——出现任何平台字面即红。

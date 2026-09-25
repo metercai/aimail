@@ -197,7 +197,14 @@ def _release_hermes_skills(hermes_dir: str) -> int:
     """SKILL.md + DESCRIPTION.md → {home}/profiles/*/skills/agentmail/(幂等)。"""
     skills_src = os.path.join(_CORE, "resources", "skills")
     if not os.path.isdir(skills_src):
-        return 0
+        # 不再静默 return 0: 包自带资源缺失 = 打包/物化缺陷, 必须当场可见
+        raise RuntimeError(
+            f"skills 资源缺失: {skills_src}(仓库态: 跑 scripts/materialize-resources.sh;"
+            f" pip 态: 重装 aimailsdk)")
+    missing = [f for f in ("SKILL.md", "DESCRIPTION.md")
+               if not os.path.isfile(os.path.join(skills_src, f))]
+    if missing:
+        raise RuntimeError(f"skills 资源不完整: {skills_src} 缺 {missing}")
     profiles_root = os.path.join(hermes_dir, "profiles")
     targets = [hermes_dir]  # 默认 profile 根
     if os.path.isdir(profiles_root):

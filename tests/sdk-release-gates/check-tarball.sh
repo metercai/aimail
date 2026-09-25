@@ -86,4 +86,42 @@ else
   exit 1
 fi
 
+# 8) resources 指纹 == 仓库根真源(2026-09-25 单一真源改造)
+#    分发点(dsh/openclaw/pi)的 resources/** 由 prepack 从仓根 resources/ 物化而来。
+#    这条兜住"prepack 没跑 / 物化过期 / 只改了一份"⇒ 空或旧资源包**发不出去**。
+#    (宿主侧 release 现在也会响亮报错, 但那时包已发布 → 必须在产物层拦。)
+#    只对声明了 resources 的包生效(mail-core/mail 不带资源 → 跳过)。
+GATE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$GATE_DIR/../.." && pwd)"
+if python3 - "$TGZ" "$REPO_ROOT" <<'PYEOF'
+import hashlib, json, pathlib, sys, tarfile
+
+tgz, repo = sys.argv[1], pathlib.Path(sys.argv[2])
+canon_dir = repo / "resources"
+with tarfile.open(tgz, "r:gz") as t:
+    man = json.loads(t.extractfile("package/package.json").read())
+    ships = any(str(f).startswith("resources") for f in (man.get("files") or []))
+    if not ships:
+        print("[L2] skip: package does not ship resources")
+        sys.exit(0)
+    canon = {str(p.relative_to(canon_dir)): hashlib.sha256(p.read_bytes()).hexdigest()
+             for p in canon_dir.rglob("*") if p.is_file()}
+    inpk = {n.split("package/resources/", 1)[1]: hashlib.sha256(t.extractfile(n).read()).hexdigest()
+            for n in t.getnames()
+            if n.startswith("package/resources/") and t.getmember(n).isfile()}
+missing = sorted(set(canon) - set(inpk))
+extra = sorted(set(inpk) - set(canon))
+diff = sorted(k for k in set(canon) & set(inpk) if canon[k] != inpk[k])
+if missing or extra or diff:
+    print(f"[L2] FAIL: resources 与真源不一致: missing={missing} extra={extra} diff={diff}")
+    sys.exit(1)
+print(f"[L2] ok: resources == repo canonical ({len(canon)} files)")
+PYEOF
+then
+  :
+else
+  echo "[L2] FAIL: resources 指纹校验失败(prepack 未跑 / 物化过期 / 只改了一份)"
+  exit 1
+fi
+
 echo "[L2] PASS: $TGZ ($VER)"

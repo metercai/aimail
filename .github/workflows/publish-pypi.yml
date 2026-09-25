@@ -49,6 +49,12 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Materialize SDK resources (single source → package copies)
+        # 2026-09-25 单一真源: wheel 走 pyproject 的目录级 force-include(源=仓根
+        # resources/)不需要物化; 但下面的 pytest 会跑用到 pysdk/resources 的用例
+        # (仓库态路径), clean clone 里那些产物不存在 ⇒ 先物化再跑门禁。
+        run: bash scripts/materialize-resources.sh && bash scripts/materialize-resources.sh --verify
+
       - name: Check version consistency (pyproject vs aimail.__version__)
         id: check
         run: |

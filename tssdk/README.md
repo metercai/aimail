@@ -23,6 +23,16 @@ registration are driven by the aimail CLI (`aimail install --home
 aimail-bridge, which forwards mail to each platform's `POST /aimail/inbound`
 endpoint (HMAC-verified).
 
+## Resources (board prompts/souls, skills)
+
+Asset resources are **single-sourced at the repo root `resources/`** (not per
+package): the `resources/` directory inside this repo's adapter packages is a
+generated copy — `scripts/materialize-resources.sh` in the repo root writes it
+(git-ignored), and each package's `prepack` runs that automatically when
+packing, so published tarballs stay self-contained. In a repo checkout, run
+`bash scripts/materialize-resources.sh` once after cloning or after editing
+`resources/`.
+
 ## Packages
 
 Per-package READMEs (install / capabilities / usage):

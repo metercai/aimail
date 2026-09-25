@@ -23,6 +23,10 @@ _CORE = os.path.dirname(os.path.abspath(__file__))
 # 发布清单: 记录"本 SDK 上次发布的内容 hash", 用来区分"用户个性化过"与"用户没动过"
 _MANIFEST = ".aimail-resources.json"
 
+# 缺资源时的可执行指引(仓库态=pysdk/resources 是物化产物; pip 态=wheel 自带)
+_RESOURCE_HINT = ("仓库态: 跑 scripts/materialize-resources.sh 重新物化(4 处生成物, 真源=仓根 resources/);"
+                  " pip 态: 重装 aimailsdk(wheel 自带 resources)")
+
 # 源子目录(包内 resources/board) → 配置目录目标子目录
 _DIR_MAP = (
     ("role_prompt_en", "role_prompt"),
@@ -79,6 +83,17 @@ def release_resources(system_id: str, board_root: str | None = None) -> dict:
     新内容就永远发不出去。清单记在目标目录的 .aimail-resources.json。
     """
     src_root = board_root or resources_board_dir()
+    # 缺资源不再静默跳过(2026-09-25 单一真源改造): 包自带资源**必须完整**,
+    # 否则是打包/物化缺陷 —— 静默的后果是"门禁全绿但宿主零角色资源", 更难查。
+    # 严格面 = 默认源(包内 resources/board)与 install/CLI 用的包内路径;
+    # 调用方显式传入的夹具/工具根只要求它存在(允许局部布局)。
+    if not os.path.isdir(src_root):
+        raise RuntimeError(f"资源目录缺失: {src_root}({_RESOURCE_HINT})")
+    if os.path.abspath(src_root) == os.path.abspath(resources_board_dir()):
+        missing = [s for s, _ in _DIR_MAP if not os.path.isdir(os.path.join(src_root, s))]
+        if missing:
+            raise RuntimeError(
+                f"资源不完整: {src_root} 缺子目录 {missing}({_RESOURCE_HINT})")
     board_dir = os.path.join(agentmail_home(), "systems", system_id, "board")
     copied = 0
     updated = 0

@@ -81,28 +81,10 @@ packages = []
 # resources — released at install time to ~/.aimail/systems/{sid}/board/
 # and read from there at runtime (user-personalizable); zh/soul variants are
 # shipped for reference (default en).
-"pysdk/resources/skills/SKILL.md" = "aimail/resources/skills/SKILL.md"
-"pysdk/resources/skills/DESCRIPTION.md" = "aimail/resources/skills/DESCRIPTION.md"
-"pysdk/resources/board/role_prompt_en/common.md" = "aimail/resources/board/role_prompt_en/common.md"
-"pysdk/resources/board/role_prompt_en/orchestrator.md" = "aimail/resources/board/role_prompt_en/orchestrator.md"
-"pysdk/resources/board/role_prompt_en/role_calibrator.md" = "aimail/resources/board/role_prompt_en/role_calibrator.md"
-"pysdk/resources/board/role_prompt_en/verifier.md" = "aimail/resources/board/role_prompt_en/verifier.md"
-"pysdk/resources/board/role_prompt_en/whoami.md" = "aimail/resources/board/role_prompt_en/whoami.md"
-"pysdk/resources/board/role_prompt_en/worker.md" = "aimail/resources/board/role_prompt_en/worker.md"
-"pysdk/resources/board/role_prompt_zh/common.md" = "aimail/resources/board/role_prompt_zh/common.md"
-"pysdk/resources/board/role_prompt_zh/orchestrator.md" = "aimail/resources/board/role_prompt_zh/orchestrator.md"
-"pysdk/resources/board/role_prompt_zh/role_calibrator.md" = "aimail/resources/board/role_prompt_zh/role_calibrator.md"
-"pysdk/resources/board/role_prompt_zh/verifier.md" = "aimail/resources/board/role_prompt_zh/verifier.md"
-"pysdk/resources/board/role_prompt_zh/whoami.md" = "aimail/resources/board/role_prompt_zh/whoami.md"
-"pysdk/resources/board/role_prompt_zh/worker.md" = "aimail/resources/board/role_prompt_zh/worker.md"
-"pysdk/resources/board/role_soul_en/Orchestrator.md" = "aimail/resources/board/role_soul_en/Orchestrator.md"
-"pysdk/resources/board/role_soul_en/Owner.md" = "aimail/resources/board/role_soul_en/Owner.md"
-"pysdk/resources/board/role_soul_en/Verifier.md" = "aimail/resources/board/role_soul_en/Verifier.md"
-"pysdk/resources/board/role_soul_en/Worker.md" = "aimail/resources/board/role_soul_en/Worker.md"
-"pysdk/resources/board/role_soul_zh/Orchestrator.md" = "aimail/resources/board/role_soul_zh/Orchestrator.md"
-"pysdk/resources/board/role_soul_zh/Owner.md" = "aimail/resources/board/role_soul_zh/Owner.md"
-"pysdk/resources/board/role_soul_zh/Verifier.md" = "aimail/resources/board/role_soul_zh/Verifier.md"
-"pysdk/resources/board/role_soul_zh/Worker.md" = "aimail/resources/board/role_soul_zh/Worker.md"
+# resources 单一真源 = 仓根 resources/(git 跟踪, 唯一可编辑处);
+# pysdk/resources 等 4 处是 scripts/materialize-resources.sh 的物化产物(已 gitignore)。
+# 目录级 1 行即可: wheel 内布局 aimail/resources/... 与旧逐文件枚举完全一致。
+"resources" = "aimail/resources"
 
 # ── sdist: everything needed to build a wheel from a clean checkout.
 [tool.hatch.build.targets.sdist]

@@ -2,7 +2,7 @@
 
 > 状态:修订(2026-09-06)
 > 用途:后续任何 agent 系统对接 AIMail 的第一参照文档。
-> 权威代码:`pysdk/`(共享核心 + 平台适配 + MCP server)、`cli/`(CLI 与脚本)、`pysdk/resources/skills/`(SKILL 源)、`cli/bin/`(运行时注册工具)。
+> 权威代码:`pysdk/`(共享核心 + 平台适配 + MCP server)、`cli/`(CLI 与脚本)、仓根 `resources/skills/`(SKILL 源;各包内 `resources/` 是 `scripts/materialize-resources.sh` 的生成物)、`cli/bin/`(运行时注册工具)。
 
 ---
 
@@ -48,7 +48,7 @@ AIMail 与任意 agent 系统(LLM 运行时)对接,agent 获得完整邮件能�
 | 平台适配 | `pysdk/{platform}/`(hermes/openclaw/deer-flow)+ 平台侧 TS 插件(dsh/pi/openclaw,见 §4.4/§4.5/§4.2) | 配置源、persona 开关、身份注入、工具注册、接收端点 |
 | 运行时 | TS 插件命令(`openclaw aimail register\|deregister\|status`) | agent 生命周期(注册/注销,openclaw-aimail) |
 | CLI 层 | `cli/aimail`(15 子命令;bootstrap 装为全局命令 `aimail`,仓库根 `./aimail` 为同一文件的符号链接)+ 运维脚本 `cli/{check_status,send_welcome,repair,setup_system,deploy_bridge,ping_test}.py`;API 客户端 `pysdk/gateway_api.py` | 安装/检查/测试/卸载/运维 |
-| 安装源 | `pysdk/resources/skills/SKILL.md` + `DESCRIPTION.md` | 通用邮件技能(逐字拷贝,零改写) |
+| 安装源 | 仓根 `resources/skills/SKILL.md` + `DESCRIPTION.md`(包内副本为生成物) | 通用邮件技能(逐字拷贝,零改写) |
 
 **铁律**:
 - 共享代码只进 `pysdk/` 顶层;平台适配不得跨平台 import,只做三件事:平台实现、注入点赋值、注册。

@@ -115,8 +115,9 @@ export function apply(ctx: Context, config: { systemId?: string } = {}): void {
   // never overwrites user-personalized files.
   try {
     releaseAllSystems(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'resources', 'board'))
-  } catch {
-    // non-fatal: resources are a seed; explicit release can re-run later
+  } catch (e) {
+    // 非致命(资源是种子, 可再次显式释放), 但绝不静默
+    console.error(`[dsh-aimail] board resource release failed: ${String(e)}`)
   }
   // install readiness: a dsh-only machine ensures its system through the CLI
   // reverse-call ABI (`aimail install --system-only`, L1 only — never platform wiring,

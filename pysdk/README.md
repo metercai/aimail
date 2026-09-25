@@ -11,7 +11,11 @@ to the local config directory, where users can personalize them.
 This SDK lives in the [metercai/aimail](https://github.com/metercai/aimail)
 monorepo under `pysdk/` (CLI in `cli/`, TypeScript SDK in `tssdk/`, bridge in
 `bridge/`). The pip package `aimailsdk` (import name `aimail`) is the published surface of this tree —
-the wheel mirrors `pysdk/` 1:1, so repo and installed layouts are identical.
+the wheel mirrors `pysdk/` 1:1 for code and maps the repo-root `resources/` to `aimail/resources/`,
+so repo and installed layouts are identical either way. Asset resources (board prompts/souls, skills)
+are **single-sourced at the repo-root `resources/`**: the per-package `resources/` directories are
+generated copies (`scripts/materialize-resources.sh`, git-ignored) — run it after a fresh clone or
+after editing `resources/`; npm packages regenerate their copy automatically via `prepack`.
 
 | What | File(s) |
 |---|---|

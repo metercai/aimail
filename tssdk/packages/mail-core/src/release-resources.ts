@@ -50,18 +50,40 @@ export interface ReleaseResourcesOptions {
 }
 
 /**
+ * 包自带资源完整性断言(2026-09-25 单一真源改造: 缺资源不再静默跳过)。
+ * 资源真源 = 仓库根 `resources/`,各分发点是 scripts/materialize-resources.sh
+ * 的物化产物 / npm prepack 复制物。缺目录 = 打包缺陷,必须当场响亮 —— 静默的
+ * 后果是"门禁全绿但宿主零角色资源"。
+ */
+export function assertBoardResources (boardRoot: string): void {
+  const hint =
+    'repo checkout: run scripts/materialize-resources.sh; ' +
+    'installed package: reinstall it (prepack copies resources)'
+  if (!boardRoot || !fs.existsSync(boardRoot)) {
+    throw new Error(`board resources missing: ${boardRoot || '(empty path)'} — ${hint}`)
+  }
+  const missing = DIR_MAP.map(([src]) => src)
+    .filter((src) => !fs.existsSync(path.join(boardRoot, src)))
+  if (missing.length > 0) {
+    throw new Error(
+      `board resources incomplete: ${boardRoot} missing ${missing.join(', ')} — ${hint}`)
+  }
+}
+
+/**
  * Idempotent board-resource release. Never overwrites newer/edited target
- * files. Returns per-file stats.
+ * files. Returns per-file stats. Throws when the package's own resources are
+ * absent/incomplete (packaging defect — see assertBoardResources).
  */
 export function releaseResources (opts: ReleaseResourcesOptions): ReleaseResourcesResult {
   const { systemId, boardRoot } = opts
+  assertBoardResources(boardRoot)
   const boardDir = path.join(systemDir(systemId), 'board')
   let copied = 0
   let skipped = 0
   for (const [srcName, dstName] of DIR_MAP) {
     const srcDir = path.join(boardRoot, srcName)
     const dstDir = path.join(boardDir, dstName)
-    if (!fs.existsSync(srcDir)) continue
     fs.mkdirSync(dstDir, { recursive: true })
     for (const f of fs.readdirSync(srcDir)) {
       if (!f.endsWith('.md')) continue
@@ -97,14 +119,18 @@ export function hasAnySystem (): boolean {
 export function releaseAllSystems (boardRoot: string): ReleaseResourcesResult[] {
   const systemsRoot = path.join(AIMAIL_HOME(), 'systems')
   if (!fs.existsSync(systemsRoot)) return []
+  // 有系统要发 ⇒ 先断言包内资源完整(打包缺陷必须响亮, 不能被下面的 per-system
+  // try 吞掉); 无系统时直接返回(没东西可发, 不算错)。
+  assertBoardResources(boardRoot)
   const out: ReleaseResourcesResult[] = []
   for (const ent of fs.readdirSync(systemsRoot)) {
     const p = path.join(systemsRoot, ent)
     if (!fs.statSync(p).isDirectory()) continue
     try {
       out.push(releaseResources({ systemId: ent, boardRoot }))
-    } catch {
-      // ignore unreadable system dirs
+    } catch (e) {
+      // 单个系统目录不可读/不可写不阻断其它系统, 但**绝不静默**
+      console.error(`[aimail] board resource release failed for system ${ent}: ${String(e)}`)
     }
   }
   return out

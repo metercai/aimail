@@ -80,6 +80,12 @@ jobs:
         # and 11.12.1 succeeded).
         run: npm install -g npm@11.12.1
 
+      - name: Materialize SDK resources (single source → package copies)
+        # 2026-09-25 单一真源: 仓根 resources/ 是唯一可编辑处, 各包 resources/ 是
+        # 物化产物(gitignore)。各包 prepack 也会物化自己那份; 这里先跑一次, 让
+        # build/test 阶段也能看到资源(clean clone 里产物不存在)。
+        run: bash scripts/materialize-resources.sh && bash scripts/materialize-resources.sh --verify
+
       - name: Install (tssdk workspace)
         working-directory: tssdk
         run: pnpm install --frozen-lockfile
