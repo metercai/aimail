@@ -759,7 +759,14 @@ def cmd_install(args) -> int:
     # 两个 env 名并存: INTEGRATE_* 是集成脚本的契约, AIMAIL_* 是 SDK 的契约。
     if manager:
         env["AIMAIL_MANAGER_ADDRESS"] = manager
-    env["INTEGRATE_AIMAIL_DOMAIN"] = want_domain
+    # New-system (product code) path: the domain belongs to the PRODUCT, so a
+    # machine-level .env domain must not be forwarded on its behalf — a shared-domain
+    # product refuses any other domain with 409 "Domain is locked" (gate case b7,
+    # 2026-09-27: AIMAIL_DOMAIN from the scratch machine turned a valid activation
+    # red). An explicit -d is still forwarded, to be judged by the gateway; the reuse
+    # path keeps the env fallback, where the domain is the existing system's.
+    new_system_domain = (args.domain or "") if prod_code else want_domain
+    env["INTEGRATE_AIMAIL_DOMAIN"] = new_system_domain
     env["INTEGRATE_SAVE_SNAPSHOTS"] = (
         "true" if _env_val("AIMAIL_SAVE_SNAPSHOTS", "no").lower() in ("yes", "true", "1") else "false")
     env["INTEGRATE_WEBHOOK_HOST"] = _env_val("AIMAIL_WEBHOOK_HOST")
@@ -820,17 +827,18 @@ def cmd_install(args) -> int:
                 env["INTEGRATE_AIMAIL_DOMAIN"] = dm2
 
     # 1b) domain 预置/创建:AIMAIL_DOMAIN 指定且系统缺失时主动创建
-    if want_domain and sid2:
+    #     (仅显式/复用路径的域;产品码新建路径见 new_system_domain 的说明)
+    if new_system_domain and sid2:
         load_core()
         try:
             from aimail_tools import _GatewayClient
             client = _GatewayClient(gw_url, env.get("INTEGRATE_ADMIN_KEY") or "")
             existing = client.list_system_domains(sid2)
             if isinstance(existing, list):
-                if any((d.get("domain") or "").lower() == want_domain.lower() for d in existing):
-                    _ok(f"domain present: {want_domain}")
+                if any((d.get("domain") or "").lower() == new_system_domain.lower() for d in existing):
+                    _ok(f"domain present: {new_system_domain}")
                 else:
-                    body = {"id": f"d{int(time.time())}", "domain": want_domain.strip().lower()}
+                    body = {"id": f"d{int(time.time())}", "domain": new_system_domain.strip().lower()}
                     res = client._request("POST", f"/api/v1/admin/systems/{sid2}/domains", body=body)
                     if isinstance(res, dict) and res.get("error"):
                         _warn(f"domain create failed: {res.get('error')} {res.get('detail') or ''}".strip())
@@ -988,7 +996,14 @@ def cmd_ensure_system(args) -> int:
     # 两个 env 名并存: INTEGRATE_* 是集成脚本的契约, AIMAIL_* 是 SDK 的契约。
     if manager:
         env["AIMAIL_MANAGER_ADDRESS"] = manager
-    env["INTEGRATE_AIMAIL_DOMAIN"] = want_domain
+    # New-system (product code) path: the domain belongs to the PRODUCT, so a
+    # machine-level .env domain must not be forwarded on its behalf — a shared-domain
+    # product refuses any other domain with 409 "Domain is locked" (gate case b7,
+    # 2026-09-27: AIMAIL_DOMAIN from the scratch machine turned a valid activation
+    # red). An explicit -d is still forwarded, to be judged by the gateway; the reuse
+    # path keeps the env fallback, where the domain is the existing system's.
+    new_system_domain = (args.domain or "") if prod_code else want_domain
+    env["INTEGRATE_AIMAIL_DOMAIN"] = new_system_domain
     env["INTEGRATE_SAVE_SNAPSHOTS"] = (
         "true" if _env_val("AIMAIL_SAVE_SNAPSHOTS", "no").lower() in ("yes", "true", "1") else "false")
     env["INTEGRATE_WEBHOOK_HOST"] = _env_val("AIMAIL_WEBHOOK_HOST")
