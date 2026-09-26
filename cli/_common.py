@@ -212,3 +212,35 @@ def detect_edition(gateway_url: str, default: str = "base") -> str:
         return "advanced" if "advanced-" in ver else "base"
     except Exception:
         return default
+
+
+def is_local_gateway(url: str) -> bool:
+    """True when the gateway runs on this machine / local network (direct push, no bridge).
+
+    Single implementation for install (cli/aimail) and repair (owner ruling
+    2026-09-27: repair's bridge step must judge the mode the same way install
+    does). An unparsable/empty url is NOT local — callers must handle "cannot
+    judge" themselves instead of assuming direct mode.
+
+    Host extraction uses urlparse().hostname: it already strips userinfo and the
+    port, and unwraps bracketed IPv6. The previous hand-rolled split left
+    "[::1]:8080" as a literal and therefore called an IPv6 loopback gateway
+    remote (found by tests/test_repair_bridge_mode.py, 2026-09-27).
+    """
+    try:
+        from urllib.parse import urlparse
+        host = urlparse(url if "//" in url else f"//{url}").hostname or ""
+    except Exception:
+        return False
+    if not host:
+        return False
+    if host in ("127.0.0.1", "localhost", "::1"):
+        return True
+    try:
+        # 本机所有 IP 也算本地
+        for info in socket.getaddrinfo(socket.gethostname(), None):
+            if info[4][0] == host:
+                return True
+    except Exception:
+        pass
+    return False

@@ -46,6 +46,7 @@ except Exception:
 SYSTEMS_DIR = AIMAIL_HOME / "systems"
 SCRIPTS_DIR = Path(__file__).resolve().parent
 from runtime_core import normalize_platform_home  # noqa: E402  (C 修:平台根归一)
+from _common import is_local_gateway as _common_is_local_gateway  # noqa: E402  (cli/ 内部共享工具)
 
 
 def _is_readable_file(p) -> bool:
@@ -586,23 +587,12 @@ def _run_uninstall_steps(platform: str, ctx: dict) -> None:
 
 
 def _is_local_gateway(url: str) -> bool:
-    """网关是否本机/本地网络(直连 push,无需 bridge)。"""
-    try:
-        from urllib.parse import urlparse
-        host = urlparse(url).netloc.rsplit("@", 1)[-1]
-        if ":" in host and not host.startswith("["):
-            host = host.rsplit(":", 1)[0]
-        host = host.strip("[]")
-        if host in ("127.0.0.1", "localhost", "::1"):
-            return True
-        # 本机所有 IP 也算本地
-        import socket
-        for info in socket.getaddrinfo(socket.gethostname(), None):
-            if info[4][0] == host:
-                return True
-    except Exception:
-        pass
-    return False
+    """网关是否本机/本地网络(直连 push,无需 bridge)。
+
+    实现已收口到 cli/_common.is_local_gateway —— install 与 repair 共用同一判定
+    (2026-09-27 用户裁定:repair 的桥步骤必须与 install 对齐,不许各判各的)。
+    """
+    return _common_is_local_gateway(url)
 
 
 # ── machine-level env init:
@@ -853,7 +843,7 @@ def cmd_install(args) -> int:
 
     # 2) 部署 bridge(单实例多系统合并;本地直连网关无需桥)
     if _is_local_gateway(gw_url):
-        _ok("bridge: 本地网关直连模式,无需 bridge")
+        _ok("bridge: local gateway (direct mode) -- no bridge needed")
     else:
         env2 = dict(os.environ)
         env2["GATEWAY_URL"] = env["INTEGRATE_GATEWAY_URL"]
@@ -864,7 +854,7 @@ def cmd_install(args) -> int:
         if r == 0:
             _ok("bridge deployed")
         else:
-            _warn(f"bridge 部署失败(exit {r})——见 deploy_bridge 输出")
+            _warn(f"bridge deploy failed (exit {r}) -- see the deploy_bridge output")
 
     # 3) 平台适配(platforms.json install_steps 动作表驱动——Phase 2)
     _cfg = {}

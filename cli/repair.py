@@ -20,7 +20,7 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 import os  # noqa: E402
-from _common import aimail_home as _aimail_home, bridge_status
+from _common import aimail_home as _aimail_home, bridge_status, is_local_gateway
 
 # Same semantics as scripts/aimail: an empty env falls back to ~/.aimail
 # Single source of truth for the home root = pysdk/aimail_base.aimail_home() (the canonical implementation);
@@ -97,7 +97,28 @@ def _run_check(sid: str):
     return all(c.get("pass") for c in checks), checks
 
 
-def _ensure_bridge_running() -> bool:
+def _ensure_bridge_running(sid: str = "") -> bool:
+    """Start the bridge when it is dead -- only when this machine actually needs one.
+
+    Mode parity with install (cli/aimail: `_is_local_gateway(gw_url)` ->
+    "direct mode, no bridge needed"): a gateway on this machine / local network
+    pushes straight into the host inbound, so no bridge is deployed and none is
+    required. Until 2026-09-27 this step ran unconditionally, so a direct-mode
+    machine printed "bridge not running -> starting it" and then
+    "bridge not deployed (config/binary missing) -- run install first" -- both
+    misleading for a machine that by design has no bridge (owner ruling
+    2026-09-27: align repair's bridge step with install).
+
+    The mode check runs FIRST (before any process probe) and the shared
+    implementation lives in cli/_common.is_local_gateway -- one judgement for
+    both callers. An unreadable/absent gateway url means "cannot judge": fall
+    through to the old behaviour instead of claiming "no bridge needed".
+    """
+    gw = _load_gateway_cfg(sid) if sid else None
+    gw_url = str((gw or {}).get("gateway_url", "") or "")
+    if gw_url and is_local_gateway(gw_url):
+        _ok("bridge: local gateway (direct mode) -- no bridge needed")
+        return True
     pids = _bridge_pids()
     if pids:
         _ok(f"bridge ok (already running pid={pids[0]})")
@@ -803,7 +824,8 @@ def repair(sid: str, deep: bool = False, dry_run: bool = False, home: str = "") 
     # liveness (measured 2026-08-30: a dead bridge was reported as "remote ✓"), so the whole ladder runs
     # to cover the various failure modes.
     plan = [
-        ("bridge alive (start it idempotently when dead)", lambda: _ensure_bridge_running()),
+        ("bridge alive (remote gateway only; start it idempotently when dead)",
+         lambda: _ensure_bridge_running(sid)),
         ("refresh bridge routes (file + admin API hot reload)", lambda: _refresh_routes(sid)),
         ("repair the gateway webhook pairing (evidence-driven; --deep rewrites directly)",
          lambda: _repair_webhook_pairing(sid, deep=deep)),
