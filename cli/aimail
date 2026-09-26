@@ -1695,8 +1695,11 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str,
     - dsh      : dsh-aimail register-cli(node_entry,会话绑定,注册名恒 agent)
     - deerflow : pysdk/deer-flow/manage.py register(现成注册器)
     - pi       : 核心链组装(webhook 端点/agent_id 落盘/根指针;注册名恒 pi)
-    -n 与平台默认名不同时:先按默认名注册,再 rename(服务端 rename + 本地迁移,
-    复用 set-name 同款链路)——保证地址名精确等于用户指定值。
+    -n/目标名与平台默认名不同时:注册器**接受地址名**(注册模板含 {email},如 openclaw
+    的 host_command)⇒ 直达目标名,不留"先默认名再改名"的中间态;注册器只认默认名的
+    (dsh/pi 固定名、deerflow 由 --agent 内部派生)⇒ 先按默认名注册再 rename(服务端
+    rename + 本地迁移,复用 set-name 同款链路),保证地址名精确等于用户指定值。
+    (F13 2026-09-26 用户裁决①:中间态会在网关留下无本地绑定的默认名地址,清不掉)
     """
     import re as _re
     if not _re.fullmatch(r"[A-Za-z0-9!#$%&'*+\-/=?^_`{|}~]+", reg_name):
@@ -1714,9 +1717,17 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str,
     rdef = pdef.get("register", {})
     kind = rdef.get("kind", "")
     default_report = default_name
-    # email 派生(仅 host_command 等需要在 CLI 侧算的平台用;node_entry/
-    # python_module/python_script 各自内部派生)
-    base = "agent" if default_name == "agent" else default_name
+    # 注册时用的地址名(F13 2026-09-26,用户裁决走 ①"注册链直达目标名"):
+    # - 注册器接受地址名(模板含 {email}:openclaw 的 host_command,CLI 侧算地址)⇒
+    #   **直接把目标名交给注册器**,不再"先按平台默认名注册、再 rename"——那个中间态
+    #   会在网关注册一个本机没有绑定的默认名地址(agent@<域>),卸载遍历本机绑定永远
+    #   清不掉,逐轮累积(①②只是清后果,这里才是根治)。
+    # - 注册器只认自己的默认名(dsh/pi 固定名;deerflow 走 --agent 内部派生)⇒ 沿用默认名
+    #   注册,必要时由 _rename_after_reg 收口到目标名(行为不变)。
+    accepts_email = any("{email}" in x for x in
+                        (rdef.get("argv") or []) + (rdef.get("args") or []))
+    reg_as = reg_name if (accepts_email and reg_name) else default_name
+    base = reg_as
 
     def _email_for(base_name: str) -> str:
         return (f"{base_name}.{system_name}@{domain}" if system_name
@@ -1779,8 +1790,8 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str,
         if reg[0] != 0:
             _fail(f"{platform} 注册失败(exit {reg[0]}): {reg[1][-300:]}\n"
                   f"  {rdef.get('fail_hint', '')}")
-        if reg_name != default_name:
-            _rename_after_reg(cfg, default_name, agent, reg_name, sid, domain)
+        if reg_name != reg_as:
+            _rename_after_reg(cfg, reg_as, agent, reg_name, sid, domain)
         _post_reg_report(platform, agent, reg_name, domain, sid)
         return
 
@@ -1793,8 +1804,8 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str,
         if reg[0] != 0:
             _fail(f"{platform} 注册器失败: {reg[1][-400:]}\n"
                   f"  {rdef.get('fail_hint', '')}")
-        if reg_name != default_name:
-            _rename_after_reg(cfg, default_name, agent, reg_name, sid, domain)
+        if reg_name != reg_as:
+            _rename_after_reg(cfg, reg_as, agent, reg_name, sid, domain)
         _post_reg_report(platform, agent, reg_name, domain, sid)
         return
 
