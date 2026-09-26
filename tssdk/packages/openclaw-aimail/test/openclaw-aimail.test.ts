@@ -78,6 +78,18 @@ describe('createMailTools', () => {
 })
 
 // ── deregisterAgentEmail (3-step idempotent chain, P2 acceptance) ─────────
+//
+// Status strings follow the implementation after f829519 (F10: manager env
+// contract + by-address fallback). That change rewrote the whitelist step but
+// left two expectations here stale ('skipped' / 'not_found_exact'), which kept
+// this file red until 2026-09-27 (measured on the pre-change tree with the same
+// two failures, so not a regression of the route work). The behaviour those
+// tests guard — never blind-delete someone else's row — is asserted below and
+// still holds. Current contract:
+//   rows of ANOTHER address, manager known or not ⇒ 'not_found_addr', no DELETE
+//   rows of THIS address                          ⇒ deleted by id; '(by_addr)'
+//                                                    marks the fallback path
+//   no rows at all in the domain                  ⇒ 'not_found'
 
 describe('deregisterAgentEmail', () => {
   it('deletes api-key → domain → whitelist by exact match + id (3 steps)', async () => {
@@ -111,11 +123,12 @@ describe('deregisterAgentEmail', () => {
     ])
   })
 
-  it('never blind-deletes: rows exist but no exact match ⇒ not_found_exact, no DELETE', async () => {
+  it('never blind-deletes: rows exist but none for this address ⇒ not_found_addr, no DELETE', async () => {
     const client = new MockClient()
     client.responses.push(
       { status: 200, data: [] }, // api-keys
       { status: 200, data: [] }, // domains
+      // the only row belongs to ANOTHER address — it must never be touched
       { status: 200, data: [{ id: 44, domain_addr: 'other@test.example', value: 'mgr@test.example' }] },
     )
     const out = await deregisterAgentEmail(client, {
@@ -124,23 +137,48 @@ describe('deregisterAgentEmail', () => {
       domainAddr: 'test.example',
       managerAddress: 'mgr@test.example',
     })
-    expect(out.whitelist).toBe('not_found_exact')
+    // 'not_found_addr' = the domain has whitelist rows, but none under this address
+    // (implementation f829519 / F10; the old expectation here was 'not_found_exact')
+    expect(out.whitelist).toBe('not_found_addr')
     expect(client.calls.filter(c => c.method === 'DELETE' && c.path.startsWith('/api/v1/whitelists')).length).toBe(0)
   })
 
-  it('reports skipped when no manager is known (不猜不盲删)', async () => {
+  it('no manager known ⇒ still never blind-deletes by value (rows of another address stay)', async () => {
     const client = new MockClient()
     client.responses.push(
-      { status: 200, data: [] },
-      { status: 200, data: [] },
+      { status: 200, data: [] }, // api-keys
+      { status: 200, data: [] }, // domains
+      { status: 200, data: [{ id: 44, domain_addr: 'other@test.example', value: 'mgr@test.example' }] },
     )
     const out = await deregisterAgentEmail(client, {
       systemId: 'system-test',
       email: 'agent@test.example',
       domainAddr: 'test.example',
     })
-    expect(out.whitelist).toBe('skipped')
+    expect(out.whitelist).toBe('not_found_addr')
     expect(client.calls.filter(c => c.method === 'DELETE' && c.path.startsWith('/api/v1/whitelists')).length).toBe(0)
+  })
+
+  it("drains THIS address's rows when the exact (domain_addr,value) match misses (F10 by-address fallback)", async () => {
+    // F10 (2026-09-25): a binding with an empty manager / a gateway row with an
+    // empty value used to leave residue forever ("only value matches" never hit).
+    // domain_addr == email already pins the address, so its rows are orphans and
+    // get drained; the '(by_addr)' marker records that the fallback was used.
+    const client = new MockClient()
+    client.responses.push(
+      { status: 200, data: [] }, // api-keys
+      { status: 200, data: [] }, // domains
+      { status: 200, data: [{ id: 55, domain_addr: 'agent@test.example', value: '' }] },
+      { status: 204 }, // DELETE whitelist/55
+    )
+    const out = await deregisterAgentEmail(client, {
+      systemId: 'system-test',
+      email: 'agent@test.example',
+      domainAddr: 'test.example',
+      managerAddress: 'mgr@test.example',
+    })
+    expect(out.whitelist).toBe('204(by_addr)')
+    expect(client.calls.filter(c => c.method === 'DELETE').map(c => c.path)).toEqual(['/api/v1/whitelists/55'])
   })
 
   it('is idempotent when nothing is found (not_found on each step)', async () => {
