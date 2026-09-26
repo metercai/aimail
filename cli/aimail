@@ -2875,6 +2875,75 @@ def cmd_uninstall(args) -> int:
     except ImportError as e:
         _warn(f"tools import failed: {e}(跳过网关注销)")
 
+    # 1b. 网关侧兜底(F13, 2026-09-25): 本机绑定覆盖不到的地址与白名单行。
+    #     实测(CLI 门禁 L2 真宿主层): openclaw 的 install 会在网关注册一个本机没有
+    #     绑定的地址(whitelists 行留下、无 api-key/system_domains 行), 而上面第 1 段
+    #     只遍历本机绑定 ⇒ 这类行永远清不掉(夹具零残留硬门禁判红)。做法: 按 sid 反查
+    #     该系统的地址表(list_system_domains), 未被本机绑定覆盖的地址再走一次注销链;
+    #     然后按域清扫该系统自己的白名单行 —— whitelists 表带 system_id(NOT NULL)且
+    #     唯一键是 (system_id, domain_addr, value), 列出接口按"域所属 system"返回,
+    #     所以不会碰到别的 system 的行。
+    try:
+        from aimail_tools import _GatewayClient
+        from aimail_base import deregister_agent_email
+        if gw.get("gateway_url") and gw.get("admin_key"):
+            client = _GatewayClient(gw["gateway_url"], gw["admin_key"])
+            local_emails = set()
+            sid_dir_l = SYSTEMS_DIR / sid
+            if sid_dir_l.is_dir():
+                for sub in sorted(sid_dir_l.iterdir()):
+                    aj = sub / "agentmail.json"
+                    if not _is_readable_file(aj):
+                        continue
+                    try:
+                        e = str(json.loads(aj.read_text()).get("email", "") or "")
+                    except Exception:
+                        continue
+                    if e:
+                        local_emails.add(e)
+            manager = str(gw.get("manager_address", "") or "")
+            try:
+                doms = client.list_system_domains(sid)
+            except Exception as e:  # noqa: BLE001
+                doms = []
+                _warn(f"gateway reverse lookup failed: {e}(跳过网关侧兜底)")
+            addrs, domains = [], []
+            for d in (doms if isinstance(doms, list) else []):
+                v = str(d.get("domain", "") or "") if isinstance(d, dict) else ""
+                if not v:
+                    continue
+                (addrs if "@" in v else domains).append(v)
+            for a in addrs:
+                if a in local_emails or (manager and a == manager):
+                    continue
+                try:
+                    st = deregister_agent_email(client, sid, a, manager_address=manager)
+                    _ok(f"gateway deregister (no local binding) {a} (api-key={st.get('api_key')} "
+                        f"domain={st.get('domain')} whitelist={st.get('whitelist')})")
+                except Exception as e:  # noqa: BLE001
+                    _warn(f"gateway deregister (no local binding) {a} failed: {e}")
+            cfg_domain = str(gw.get("domain", "") or "")
+            sweep_domains = sorted(set(domains + ([cfg_domain] if cfg_domain else [])))
+            if sweep_domains and hasattr(client, "list_whitelists_by_domain"):
+                for dom in sweep_domains:
+                    try:
+                        rows = client.list_whitelists_by_domain(dom)
+                    except Exception as e:  # noqa: BLE001
+                        _warn(f"whitelist sweep({dom}) list failed: {e}")
+                        continue
+                    n = 0
+                    for r in (rows if isinstance(rows, list) else []):
+                        if not isinstance(r, dict) or r.get("id") is None:
+                            continue
+                        try:
+                            client.delete_whitelist_entry_by_id(int(r["id"]))
+                            n += 1
+                        except Exception as e:  # noqa: BLE001
+                            _warn(f"whitelist sweep({dom}) delete {r.get('domain_addr')} failed: {e}")
+                    _ok(f"gateway whitelist sweep({dom}): removed {n} row(s)")
+    except ImportError as e:
+        _warn(f"tools import failed: {e}(跳过网关侧兜底)")
+
     # 2. 平台侧清理(platforms.json uninstall_steps 动作表驱动)
     _run_uninstall_steps(platform, {
         "home": str(system_home),
