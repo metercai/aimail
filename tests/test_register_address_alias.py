@@ -1,14 +1,17 @@
-"""注册地址基名归一 + 注册后桥路由(2026-09-26 两项根因修复)。
+"""注册地址契约(2026-09-26/27 用户裁定后定稿)。
 
-① 地址基名:平台的默认 agent 名只是**平台内部 id**(openclaw main / hermes default),
-   地址基名必须过别名映射(pysdk/aimail_base.email_for_agent 契约)——openclaw main 的地址
-   是 `agent.<系统标识>@域`。旧实现把 registry 的 default_name(main)当请求名直接注册出去,
-   云端落下 `main.xixi@aimail.token.tm`(应 agent.xixi@),控制台还打印 `main@…`(缺系统标识)。
-② 桥路由:注册完地址必须把"地址 → 本地接收端点"写进本机 bridge,否则桥拉到的邮件无处投递
-   (pysdk 里那条铁律)。Python 适配层(hermes/deer-flow)自己推;TS 平台(openclaw/pi/dsh)不推,
-   CLI 侧是唯一收口点。
+① 地址基名:平台的默认 agent 名只是**平台内部 id**(openclaw `main` / hermes `default`),
+   地址基名必须过别名映射(`pysdk/aimail_base.email_for_agent` 契约)⇒ openclaw main 的地址
+   是 `agent.<系统标识>@域`。旧实现把 registry 的 default_name(`main`)当请求名直接注册出去,
+   云端落下 `main.xixi@aimail.token.tm`(应 `agent.xixi@…`),而控制台还打印 `main@…`(缺系统标识)。
+② 桥路由**不在 CLI**: "注册了地址就要有桥路由" 是平台侧单一契约
+   (pysdk `register_bridge_route` + TS `mail-core.registerBridgeRoute`,由每个注册入口自己推:
+   hermes/deer-flow 适配层、dsh `register-cli`、pi、openclaw `autoBind`)。
+   用户裁定(2026-09-27):"注册后加路由这是标准契约,必须要一致,不能各做各的" ⇒
+   CLI 不得再自己推一遍(两份 owner = 两套真相,还会掩盖某个平台漏推)。
+   契约由门禁按平台断言(tests/cli L1/L2),不在这里重复实现。
 
-用合成/真实 registry 定义,不做任何网络:dummy `_run_registrar` 记录 argv,urlopen 记录路由 POST。
+不做任何网络: dummy `_run_registrar` 记录 argv,urlopen 记录(并拒绝)路由请求。
 """
 import importlib.util
 import json
@@ -33,7 +36,7 @@ class _Rec:
     def __init__(self):
         self.oks, self.warns, self.fails, self.stdout = [], [], [], []
 
-    def install(self, cli, capsys=None):
+    def install(self, cli):
         cli._ok = lambda m: self.oks.append(str(m))
         cli._warn = lambda m: self.warns.append(str(m))
         cli._fail = lambda m, *a, **k: (_ for _ in ()).throw(AssertionError(f"_fail: {m}"))
@@ -52,7 +55,7 @@ class _Resp:
         return b"{}"
 
 
-def _cfg(tmp: Path, *, bridge: bool):
+def _cfg(*, bridge: bool):
     cfg = {
         "system_id": "shared-default-6905ddad",
         "system_name": "xixi",
@@ -91,27 +94,18 @@ def _setup(tmp: Path, monkeypatch, argv_seen: list, posts: list, *, create_bindi
     return cli
 
 
-def test_openclaw_default_registers_agent_address_and_pushes_route(tmp_path, monkeypatch, capsys):
-    """openclaw main(无显式 -n)⇒ agent.xixi@…,且注册后必须推桥路由。"""
+def test_openclaw_default_registers_the_alias_mapped_address(tmp_path, monkeypatch):
+    """openclaw main(无显式 -n)⇒ 注册器收到的地址必须是 agent.xixi@…(别名映射 + 系统标识)。"""
     argv_seen, posts = [], []
     cli = _setup(tmp_path, monkeypatch, argv_seen, posts)
     rec = _Rec()
     rec.install(cli)
 
-    cli._register_agent_now("openclaw", "main", _cfg(tmp_path, bridge=True), "main", "")
+    cli._register_agent_now("openclaw", "main", _cfg(bridge=True), "main", "")
 
     assert argv_seen, "注册器必须被调用"
     emailed = argv_seen[-1][argv_seen[-1].index("--email") + 1]
     assert emailed == "agent.xixi@aimail.token.tm", f"openclaw main 的地址基名须归一为 agent: {emailed}"
-
-    body = posts[-1][2] if posts else None
-    assert body is not None, "注册成功后必须向本机 bridge 推路由(否则 pull 入站断链)"
-    assert body["email"] == "agent.xixi@aimail.token.tm"
-    assert body["host"] == "http://127.0.0.1:18789/aimail/inbound", "host 必须是本地接收端点全 URL"
-
-    out = " ".join(rec.oks)
-    assert "agent.xixi@aimail.token.tm" in out, f"成功报告必须打印实际地址: {out}"
-    assert "main@aimail.token.tm" not in out, f"不得再打印裸名地址: {out}"
 
 
 def test_openclaw_explicit_name_is_used_verbatim(tmp_path, monkeypatch):
@@ -120,34 +114,33 @@ def test_openclaw_explicit_name_is_used_verbatim(tmp_path, monkeypatch):
     cli = _setup(tmp_path, monkeypatch, argv_seen, posts)
     rec = _Rec()
     rec.install(cli)
-    cli._register_agent_now("openclaw", "main", _cfg(tmp_path, bridge=True), "weijia", "")
+    cli._register_agent_now("openclaw", "main", _cfg(bridge=True), "weijia", "")
     assert argv_seen[-1][argv_seen[-1].index("--email") + 1] == "weijia.xixi@aimail.token.tm"
 
 
-def test_no_bridge_key_means_no_route_push(tmp_path, monkeypatch):
-    """没有 bridge 的部署(无 webhook_host 键)不得发路由请求。"""
+def test_cli_does_not_push_the_bridge_route(tmp_path, monkeypatch):
+    """CLI 不得自己推桥路由: owner 是平台注册链(mail-core.registerBridgeRoute 等)。
+
+    两份实现 = 两套真相;用户裁定"不能各做各的"(2026-09-27)。有 bridge 的部署也不许推。
+    """
     argv_seen, posts = [], []
     cli = _setup(tmp_path, monkeypatch, argv_seen, posts)
     rec = _Rec()
     rec.install(cli)
-    cli._register_agent_now("openclaw", "main", _cfg(tmp_path, bridge=False), "main", "")
-    assert posts == [], f"无 bridge 时不得推路由: {posts}"
+    cli._register_agent_now("openclaw", "main", _cfg(bridge=True), "main", "")
+    assert posts == [], f"CLI 注册路径不得发桥路由请求(owner=平台链): {posts}"
 
 
-def test_route_push_failure_warns_with_fix_hint(tmp_path, monkeypatch):
-    """桥不可达时必须警告并给出修法(不许静默)。"""
+def test_report_prints_the_effective_address(tmp_path, monkeypatch, capsys):
+    """成功报告必须打印实际地址(带系统标识),不得再打印裸名地址。"""
     argv_seen, posts = [], []
     cli = _setup(tmp_path, monkeypatch, argv_seen, posts)
     rec = _Rec()
     rec.install(cli)
-
-    def _boom(req, timeout=None):
-        raise OSError("connection refused")
-
-    monkeypatch.setattr(cli.urllib.request, "urlopen", _boom)
-    cli._register_agent_now("openclaw", "main", _cfg(tmp_path, bridge=True), "main", "")
-    joined = " ".join(rec.warns)
-    assert "bridge route" in joined and "aimail bridge -s" in joined, f"警告须带修法: {rec.warns}"
+    cli._register_agent_now("openclaw", "main", _cfg(bridge=False), "main", "")
+    out = " ".join(rec.oks)
+    assert "agent.xixi@aimail.token.tm" in out, f"报告须带系统标识: {out}"
+    assert "main@aimail.token.tm" not in out, f"不得打印裸名地址: {out}"
 
 
 def test_openclaw_default_does_not_trigger_rename(tmp_path, monkeypatch):
@@ -157,7 +150,6 @@ def test_openclaw_default_does_not_trigger_rename(tmp_path, monkeypatch):
     rec = _Rec()
     rec.install(cli)
     called = []
-    monkeypatch.setattr(cli, "_rename_after_reg",
-                        lambda *a, **k: called.append(a))
-    cli._register_agent_now("openclaw", "main", _cfg(tmp_path, bridge=True), "main", "")
+    monkeypatch.setattr(cli, "_rename_after_reg", lambda *a, **k: called.append(a))
+    cli._register_agent_now("openclaw", "main", _cfg(bridge=True), "main", "")
     assert called == [], f"默认别名不得走 rename: {called}"

@@ -2046,46 +2046,20 @@ def _sync_bridge_route_after_rename(old_email: str, new_email: str, base: Path, 
         _warn(f"  bridge route sync failed (rename applied; inbound may be down): {e} — fix: aimail bridge -s {sid}")
 
 
-def _upsert_bridge_route(email: str, target: str) -> None:
-    """Push one address -> local receive endpoint into the local bridge (idempotent upsert).
-
-    Iron rule (2026-08-18): with a bridge present, every address registered for an agent
-    needs a route, otherwise pulled mail has nowhere to go (inbound dead). The Python
-    adapters (hermes/deer-flow) push it themselves; the TS platforms (openclaw/pi/dsh) do
-    not, so this is the single choke point covering every platform. The bridge's
-    POST /api/v1/routes is an upsert, so a repeated push is a no-op.
-    """
-    host, port = _target_to_route_fields(target)
-    req = urllib.request.Request(
-        f"http://{BRIDGE_ADDR}/api/v1/routes",
-        data=json.dumps({"email": email, "host": host, "port": port}).encode(),
-        headers={"Content-Type": "application/json"},
-        method="POST")
-    with urllib.request.urlopen(req, timeout=5):
-        pass
-
-
 def _finish_registration(platform: str, agent: str, email: str, cfg: dict, sid: str) -> None:
-    """Post-registration: bridge route when a bridge is in play, then the success report.
+    """Post-registration: report the effective address.
 
     The report prints the **effective address** (shared domains carry the system
     identifier: `{base}.{system_name}@{domain}`) - printing the bare requested name used to
     claim a wrong address on screen while the cloud held the right one (2026-09-26).
+
+    The bridge route is NOT pushed here: "a registered address must get a bridge route" is a
+    single, platform-side contract (pysdk `register_bridge_route` + TS `mail-core`
+    `registerBridgeRoute`, called by every registration entry: hermes / deer-flow adapters,
+    dsh `register-cli`, pi, openclaw). Two writers would mean two sources of truth and a CLI
+    that silently covers a platform's missing step - the gate asserts the contract per
+    platform instead (tests/cli L1/L2).
     """
-    if cfg.get("webhook_host") is not None:      # key present => this deployment has a bridge
-        target = ""
-        try:
-            p = AIMAIL_HOME / "systems" / sid / _addr_clean(email) / "agentmail.json"
-            target = str(json.loads(p.read_text()).get("webhook_url") or "")
-        except Exception:
-            target = ""
-        if target:
-            try:
-                _upsert_bridge_route(email, target)
-                _ok(f"  bridge route registered: {email} -> {target}")
-            except Exception as e:  # noqa: BLE001
-                _warn(f"  bridge route registration failed ({email}: {e}) - inbound may be dead; "
-                      f"fix: aimail bridge -s {sid}")
     _ok(f"agent '{agent}' registered -> {email} (platform {platform})")
     print(f"  verify: aimail address -s {sid} -a {agent}")
 
