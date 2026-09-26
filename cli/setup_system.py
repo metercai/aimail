@@ -471,6 +471,41 @@ def setup(
 
     # Path A: admin_key provided (already-activated system)
     if admin_key:
+        # ── Identity alignment (2026-09-26) ─────────────────────────────
+        # Every later call (welcome/check/domain downgrade) declares the system id
+        # as `X-Api-Identity`; the signature is only verified against keys whose
+        # identity matches. So the key used here MUST belong to this system id.
+        # Previously nothing was checked: a key of another system (or the
+        # gateway-side platform key) was written into the config and surfaced only
+        # as opaque `401 Invalid X-Api-Signature` later (findings F7/F14).
+        #
+        # whoami is called with an EMPTY identity so the gateway selects the key by
+        # its signature — the answer then describes the key itself.
+        _me = whoami(gateway_url, admin_key)
+        if _me:
+            _cat = str(_me.get("category") or "").strip()
+            _scope = str(_me.get("scope") or "").strip()
+            _ksid = str(_me.get("system_id") or "").strip()
+            if _cat == "platform" or _scope == "platform":
+                return {"success": False, "error": (
+                    "the key is the gateway-side admin key (platform scope) — it must stay "
+                    "on the gateway and is not used for agent integration. Use the "
+                    "agent-side system key file (<storage dir>/<system id>.system.key, "
+                    "printed once when the gateway starts) with -k.")}
+            if _ksid and not system_id:
+                logger.info("[aimail_setup] system_id taken from the key: %s", _ksid)
+                system_id = _ksid
+            elif _ksid and _ksid != system_id:
+                return {"success": False, "error": (
+                    f"key/system mismatch: this key belongs to system {_ksid} but "
+                    f"system_id {system_id} was given — pass the key of {system_id}, "
+                    f"or use the key of {_ksid} without --system-id.")}
+        else:
+            # Unreachable gateway or unknown key: do not invent a verdict, but say so
+            # (a wrong system id will still surface as 401 downstream).
+            logger.warning(
+                "[aimail_setup] could not verify the admin key against %s "
+                "(gateway unreachable or key unknown) — continuing", gateway_url)
         if not system_id:
             return {"success": False, "error": "system_id is required for admin_key path"}
         # reset 语义(2026-08-16 用户定调):已有配置存在时,空参数继承

@@ -795,7 +795,14 @@ def cmd_install(args) -> int:
             [sys.executable, str(SCRIPTS_DIR / "setup_system.py")],
             env=env, text=True)  # stderr 默认继承透传(日志走 stderr,不污染 stdout JSON)
     except subprocess.CalledProcessError as e:
-        _fail(f"setup_system 失败: {(e.output or '').strip()[-400:]}")
+        # setup_system reports the reason on the machine line `__ERROR__:<text>` before
+        # exiting non-zero — surface that instead of the raw JSON tail (the key/system
+        # mismatch and platform-key refusals added 2026-09-26 land here).
+        _out = (e.output or "").strip()
+        for _line in _out.splitlines():
+            if _line.startswith("__ERROR__"):
+                _fail(_line[len("__ERROR__"):].strip())
+        _fail(f"setup_system 失败: {_out[-400:]}")
     _ok("system configured")
     # 解析激活生成的 system_id(新系统路径 id 由服务器分配)
     sid2 = sid or ""
