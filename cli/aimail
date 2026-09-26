@@ -1916,6 +1916,26 @@ def _rename_after_reg(cfg: dict, default_name: str, agent: str, reg_name: str, s
                         body={"old_email": old_email, "new_email": new_email})
     except Exception as e:
         _fail(f"注册后 rename {old_email} → {new_email} 失败: {e}")
+    # F13 ②(2026-09-25): 网关的 rename 只搬地址行/api-key, 而注册时网关自动建的
+    # "agent <-> manager" 白名单行仍挂在**旧地址**名下 ⇒ 留下一个本机没有绑定的孤儿行
+    # (实测 openclaw: reset 后 whitelists 里同时存在 agent@… 与 main@… 两行, 而地址表只有
+    # main@…)。这里 rename 成功后顺手按 id 删掉旧地址名下的白名单行: domain_addr 已唯一
+    # 钉住该地址, 删的是刚被改名的那个地址自己的行, 不会误伤别的 agent。
+    try:
+        if hasattr(client, "list_whitelists_by_domain"):
+            dom = old_email.split("@", 1)[1] if "@" in old_email else ""
+            if dom:
+                rows = client.list_whitelists_by_domain(dom)
+                n = 0
+                for r in (rows if isinstance(rows, list) else []):
+                    if (isinstance(r, dict) and r.get("domain_addr") == old_email
+                            and r.get("id") is not None):
+                        client.delete_whitelist_entry_by_id(int(r["id"]))
+                        n += 1
+                if n:
+                    _ok(f"rename 后清掉旧地址({old_email})的网关白名单行 {n} 行")
+    except Exception as e:  # noqa: BLE001
+        _warn(f"rename 后清理旧地址白名单行失败: {e}(可在 uninstall 时由网关侧兜底清掉)")
     # 本地迁移:agentmail.json 目录改名 + email 更新
     base = AIMAIL_HOME / "systems" / sid
     if base.is_dir():
