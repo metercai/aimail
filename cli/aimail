@@ -1723,7 +1723,6 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str,
     pdef = _platform_def(platform)
     rdef = pdef.get("register", {})
     kind = rdef.get("kind", "")
-    default_report = default_name
     # 注册时用的地址名(F13 2026-09-26,用户裁决走 ①"注册链直达目标名"):
     # - 注册器接受地址名(模板含 {email}:openclaw 的 host_command,CLI 侧算地址)⇒
     #   **直接把目标名交给注册器**,不再"先按平台默认名注册、再 rename"——那个中间态
@@ -1733,7 +1732,13 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str,
     #   注册,必要时由 _rename_after_reg 收口到目标名(行为不变)。
     accepts_email = any("{email}" in x for x in
                         (rdef.get("argv") or []) + (rdef.get("args") or []))
-    reg_as = reg_name if (accepts_email and reg_name) else default_name
+    # 地址基名归一(2026-09-26 用户口径 + pysdk/aimail_base.email_for_agent 契约):
+    # 平台的默认 agent 名(openclaw main / hermes default)只是**平台内部 id**,地址基名
+    # 必须过别名映射 ⇒ openclaw 的 main agent 地址 = agent.<系统标识>@域,不是 main.<…>@域。
+    # 旧实现在"注册器接受地址名"的分支直接用 reg_name(platform default_name=main 当请求名传进来)
+    # ⇒ 把 main 当地址名注册了出去(云端 e2e: main.xixi@ 应为 agent.xixi@)。
+    target_name = ("agent" if reg_name in aliases else reg_name) if reg_name else default_name
+    reg_as = target_name if (accepts_email and reg_name) else default_name
     base = reg_as
 
     def _email_for(base_name: str) -> str:
@@ -1786,7 +1791,7 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str,
             getattr(mod, rdef["fn"])(reg_name, profile_dir, _cfg)
         finally:
             _lgr.setLevel(_lvl)
-        _post_reg_report(platform, agent, reg_name, domain, sid)
+        _finish_registration(platform, agent, _email_for(target_name), cfg, sid)
         return
 
     if kind == "host_command":
@@ -1797,9 +1802,9 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str,
         if reg[0] != 0:
             _fail(f"{platform} 注册失败(exit {reg[0]}): {reg[1][-300:]}\n"
                   f"  {rdef.get('fail_hint', '')}")
-        if reg_name != reg_as:
-            _rename_after_reg(cfg, reg_as, agent, reg_name, sid, domain)
-        _post_reg_report(platform, agent, reg_name, domain, sid)
+        if target_name != reg_as:
+            _rename_after_reg(cfg, reg_as, agent, target_name, sid, domain)
+        _finish_registration(platform, agent, _email_for(target_name), cfg, sid)
         return
 
     if kind == "python_script":
@@ -1811,9 +1816,9 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str,
         if reg[0] != 0:
             _fail(f"{platform} 注册器失败: {reg[1][-400:]}\n"
                   f"  {rdef.get('fail_hint', '')}")
-        if reg_name != reg_as:
-            _rename_after_reg(cfg, reg_as, agent, reg_name, sid, domain)
-        _post_reg_report(platform, agent, reg_name, domain, sid)
+        if target_name != reg_as:
+            _rename_after_reg(cfg, reg_as, agent, target_name, sid, domain)
+        _finish_registration(platform, agent, _email_for(target_name), cfg, sid)
         return
 
     if kind == "node_entry":
@@ -1833,7 +1838,7 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str,
         if reg[0] != 0:
             _fail(f"{platform} 注册失败(exit {reg[0]}): {reg[1][-300:]}\n"
                   f"  {rdef.get('fail_hint', '')}")
-        _post_reg_report(platform, agent, default_report, domain, sid)
+        _finish_registration(platform, agent, _email_for(target_name), cfg, sid)
         return
 
     _fail(f"未知注册委托 kind '{kind}'(platform {platform})——注册表损坏")
@@ -2041,9 +2046,48 @@ def _sync_bridge_route_after_rename(old_email: str, new_email: str, base: Path, 
         _warn(f"  bridge route sync failed (rename applied; inbound may be down): {e} — fix: aimail bridge -s {sid}")
 
 
-def _post_reg_report(platform: str, agent: str, reg_name: str, domain: str, sid: str) -> None:
-    _ok(f"agent '{agent}' 已注册 → 地址名 {reg_name}@{domain if domain else '(域未知)'}(平台 {platform})")
-    print(f"  验证:aimail address -s {sid} -a {agent} 查看新地址;地址名如需再改用 -n")
+def _upsert_bridge_route(email: str, target: str) -> None:
+    """Push one address -> local receive endpoint into the local bridge (idempotent upsert).
+
+    Iron rule (2026-08-18): with a bridge present, every address registered for an agent
+    needs a route, otherwise pulled mail has nowhere to go (inbound dead). The Python
+    adapters (hermes/deer-flow) push it themselves; the TS platforms (openclaw/pi/dsh) do
+    not, so this is the single choke point covering every platform. The bridge's
+    POST /api/v1/routes is an upsert, so a repeated push is a no-op.
+    """
+    host, port = _target_to_route_fields(target)
+    req = urllib.request.Request(
+        f"http://{BRIDGE_ADDR}/api/v1/routes",
+        data=json.dumps({"email": email, "host": host, "port": port}).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST")
+    with urllib.request.urlopen(req, timeout=5):
+        pass
+
+
+def _finish_registration(platform: str, agent: str, email: str, cfg: dict, sid: str) -> None:
+    """Post-registration: bridge route when a bridge is in play, then the success report.
+
+    The report prints the **effective address** (shared domains carry the system
+    identifier: `{base}.{system_name}@{domain}`) - printing the bare requested name used to
+    claim a wrong address on screen while the cloud held the right one (2026-09-26).
+    """
+    if cfg.get("webhook_host") is not None:      # key present => this deployment has a bridge
+        target = ""
+        try:
+            p = AIMAIL_HOME / "systems" / sid / _addr_clean(email) / "agentmail.json"
+            target = str(json.loads(p.read_text()).get("webhook_url") or "")
+        except Exception:
+            target = ""
+        if target:
+            try:
+                _upsert_bridge_route(email, target)
+                _ok(f"  bridge route registered: {email} -> {target}")
+            except Exception as e:  # noqa: BLE001
+                _warn(f"  bridge route registration failed ({email}: {e}) - inbound may be dead; "
+                      f"fix: aimail bridge -s {sid}")
+    _ok(f"agent '{agent}' registered -> {email} (platform {platform})")
+    print(f"  verify: aimail address -s {sid} -a {agent}")
 
 
 def _atomic_json_write(path: Path, data: dict) -> None:

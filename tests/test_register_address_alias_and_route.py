@@ -1,0 +1,163 @@
+"""注册地址基名归一 + 注册后桥路由(2026-09-26 两项根因修复)。
+
+① 地址基名:平台的默认 agent 名只是**平台内部 id**(openclaw main / hermes default),
+   地址基名必须过别名映射(pysdk/aimail_base.email_for_agent 契约)——openclaw main 的地址
+   是 `agent.<系统标识>@域`。旧实现把 registry 的 default_name(main)当请求名直接注册出去,
+   云端落下 `main.xixi@aimail.token.tm`(应 agent.xixi@),控制台还打印 `main@…`(缺系统标识)。
+② 桥路由:注册完地址必须把"地址 → 本地接收端点"写进本机 bridge,否则桥拉到的邮件无处投递
+   (pysdk 里那条铁律)。Python 适配层(hermes/deer-flow)自己推;TS 平台(openclaw/pi/dsh)不推,
+   CLI 侧是唯一收口点。
+
+用合成/真实 registry 定义,不做任何网络:dummy `_run_registrar` 记录 argv,urlopen 记录路由 POST。
+"""
+import importlib.util
+import json
+import sys
+from importlib.machinery import SourceFileLoader
+from pathlib import Path
+
+_REPO = Path(__file__).resolve().parent.parent
+_CLI = _REPO / "cli" / "aimail"
+if str(_REPO / "pysdk") not in sys.path:
+    sys.path.insert(0, str(_REPO / "pysdk"))
+
+
+def _load_cli(name: str):
+    loader = SourceFileLoader(name, str(_CLI))
+    mod = importlib.util.module_from_spec(importlib.util.spec_from_loader(name, loader))
+    loader.exec_module(mod)
+    return mod
+
+
+class _Rec:
+    def __init__(self):
+        self.oks, self.warns, self.fails, self.stdout = [], [], [], []
+
+    def install(self, cli, capsys=None):
+        cli._ok = lambda m: self.oks.append(str(m))
+        cli._warn = lambda m: self.warns.append(str(m))
+        cli._fail = lambda m, *a, **k: (_ for _ in ()).throw(AssertionError(f"_fail: {m}"))
+
+
+class _Resp:
+    status = 200
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self):
+        return b"{}"
+
+
+def _cfg(tmp: Path, *, bridge: bool):
+    cfg = {
+        "system_id": "shared-default-6905ddad",
+        "system_name": "xixi",
+        "domain": "aimail.token.tm",
+        "gateway_url": "https://aimail.token.tm",
+        "admin_key": "k" * 32,
+        "manager_address": "m@x.tm",
+    }
+    if bridge:                      # key present => deployment has a local bridge (pull/push)
+        cfg["webhook_host"] = ""    # "" = pull mode
+    return cfg
+
+
+def _setup(tmp: Path, monkeypatch, argv_seen: list, posts: list, *, create_binding=True):
+    cli = _load_cli("aimail_cli_reg_addr_" + str(abs(hash(str(tmp))))[:12])
+    monkeypatch.setattr(cli, "AIMAIL_HOME", tmp / "home")
+    (tmp / "home" / "systems").mkdir(parents=True, exist_ok=True)
+
+    def _registrar(argv):
+        argv_seen.append(list(argv))
+        if create_binding:
+            email = argv[argv.index("--email") + 1]
+            d = tmp / "home" / "systems" / "shared-default-6905ddad" / cli._addr_clean(email)
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "agentmail.json").write_text(json.dumps(
+                {"email": email, "webhook_url": "http://127.0.0.1:18789/aimail/inbound"}))
+        return 0, "registered"
+
+    monkeypatch.setattr(cli, "_run_registrar", _registrar)
+
+    def _urlopen(req, timeout=None):
+        posts.append((req.get_method(), req.full_url, json.loads((req.data or b"{}").decode())))
+        return _Resp()
+
+    monkeypatch.setattr(cli.urllib.request, "urlopen", _urlopen)
+    return cli
+
+
+def test_openclaw_default_registers_agent_address_and_pushes_route(tmp_path, monkeypatch, capsys):
+    """openclaw main(无显式 -n)⇒ agent.xixi@…,且注册后必须推桥路由。"""
+    argv_seen, posts = [], []
+    cli = _setup(tmp_path, monkeypatch, argv_seen, posts)
+    rec = _Rec()
+    rec.install(cli)
+
+    cli._register_agent_now("openclaw", "main", _cfg(tmp_path, bridge=True), "main", "")
+
+    assert argv_seen, "注册器必须被调用"
+    emailed = argv_seen[-1][argv_seen[-1].index("--email") + 1]
+    assert emailed == "agent.xixi@aimail.token.tm", f"openclaw main 的地址基名须归一为 agent: {emailed}"
+
+    body = posts[-1][2] if posts else None
+    assert body is not None, "注册成功后必须向本机 bridge 推路由(否则 pull 入站断链)"
+    assert body["email"] == "agent.xixi@aimail.token.tm"
+    assert body["host"] == "http://127.0.0.1:18789/aimail/inbound", "host 必须是本地接收端点全 URL"
+
+    out = " ".join(rec.oks)
+    assert "agent.xixi@aimail.token.tm" in out, f"成功报告必须打印实际地址: {out}"
+    assert "main@aimail.token.tm" not in out, f"不得再打印裸名地址: {out}"
+
+
+def test_openclaw_explicit_name_is_used_verbatim(tmp_path, monkeypatch):
+    """显式 -n 指定名字时原样使用(不套平台默认别名),但仍带系统标识。"""
+    argv_seen, posts = [], []
+    cli = _setup(tmp_path, monkeypatch, argv_seen, posts)
+    rec = _Rec()
+    rec.install(cli)
+    cli._register_agent_now("openclaw", "main", _cfg(tmp_path, bridge=True), "weijia", "")
+    assert argv_seen[-1][argv_seen[-1].index("--email") + 1] == "weijia.xixi@aimail.token.tm"
+
+
+def test_no_bridge_key_means_no_route_push(tmp_path, monkeypatch):
+    """没有 bridge 的部署(无 webhook_host 键)不得发路由请求。"""
+    argv_seen, posts = [], []
+    cli = _setup(tmp_path, monkeypatch, argv_seen, posts)
+    rec = _Rec()
+    rec.install(cli)
+    cli._register_agent_now("openclaw", "main", _cfg(tmp_path, bridge=False), "main", "")
+    assert posts == [], f"无 bridge 时不得推路由: {posts}"
+
+
+def test_route_push_failure_warns_with_fix_hint(tmp_path, monkeypatch):
+    """桥不可达时必须警告并给出修法(不许静默)。"""
+    argv_seen, posts = [], []
+    cli = _setup(tmp_path, monkeypatch, argv_seen, posts)
+    rec = _Rec()
+    rec.install(cli)
+
+    def _boom(req, timeout=None):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(cli.urllib.request, "urlopen", _boom)
+    cli._register_agent_now("openclaw", "main", _cfg(tmp_path, bridge=True), "main", "")
+    joined = " ".join(rec.warns)
+    assert "bridge route" in joined and "aimail bridge -s" in joined, f"警告须带修法: {rec.warns}"
+
+
+def test_openclaw_default_does_not_trigger_rename(tmp_path, monkeypatch):
+    """别名归一后不得再触发 rename(main→agent 不是"改名",是同一地址的两个名字)。"""
+    argv_seen, posts = [], []
+    cli = _setup(tmp_path, monkeypatch, argv_seen, posts)
+    rec = _Rec()
+    rec.install(cli)
+    called = []
+    monkeypatch.setattr(cli, "_rename_after_reg",
+                        lambda *a, **k: called.append(a))
+    cli._register_agent_now("openclaw", "main", _cfg(tmp_path, bridge=True), "main", "")
+    assert called == [], f"默认别名不得走 rename: {called}"
