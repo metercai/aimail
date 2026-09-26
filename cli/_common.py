@@ -121,6 +121,51 @@ def pid_alive(pid: int) -> bool:
         return False
 
 
+_NO_PGREP_WARNED: list = []   # one-shot 提示开关(模块级: 多个调用点只提示一次)
+
+
+def pids_by_pattern(pattern: str) -> list[int]:
+    """按正则匹配进程 cmdline, 返回 PID 列表。
+
+    首选 `pgrep -f <pattern>`; 宿主没装 procps(pgrep) 时**回退扫 /proc/<pid>/cmdline**,
+    用的是同一个正则 ⇒ "精确匹配、不误杀"的口径不变。
+
+    F12(2026-09-25, CLI 门禁 L2 真宿主层抓到): deerflow 宿主镜像不带 procps, 原实现
+    只捕 CalledProcessError ⇒ `subprocess.check_output` 抛的 FileNotFoundError 一路冒泡,
+    `aimail bridge` 整条命令带 traceback 崩掉。
+
+    调用方必须给**锚定可执行文件**的正则(如 `^[^ ]*/aimail-bridge( |$)`); 这里不做
+    任何宽松匹配, 避免误杀(2026-08-16/09-21 两次实测事故的口径)。
+    """
+    try:
+        out = subprocess.check_output(["pgrep", "-f", pattern], text=True, timeout=5)
+        return [int(l.strip()) for l in out.splitlines() if l.strip().isdigit()]
+    except subprocess.CalledProcessError:
+        return []
+    except (FileNotFoundError, OSError):
+        pass  # 无 pgrep/不可执行 → /proc 回退
+    if not _NO_PGREP_WARNED:
+        _NO_PGREP_WARNED.append(True)
+        print("  ⚠ 宿主无 pgrep(未装 procps)——回退扫描 /proc/<pid>/cmdline")
+    try:
+        names = os.listdir("/proc")
+    except OSError:
+        return []
+    pat = re.compile(pattern)
+    pids: list[int] = []
+    for name in names:
+        if not name.isdigit():
+            continue
+        try:
+            with open(f"/proc/{name}/cmdline", "rb") as fh:
+                cmd = fh.read().replace(b"\x00", b" ").decode("utf-8", "replace")
+        except OSError:
+            continue
+        if pat.search(cmd):
+            pids.append(int(name))
+    return pids
+
+
 def is_readable_file(p) -> bool:
     """True if p is a readable regular file —— 权限/IO 错误一律视为"不存在"。
 

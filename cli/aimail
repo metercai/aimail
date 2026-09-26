@@ -2094,14 +2094,12 @@ def _bridge_pids() -> list[int]:
     "仍在运行"而中止, 更糟的是 `_bridge_upgrade` 的 SIGKILL 会打到无关进程。
     覆盖两种合法形态: 安装位 `~/.aimail/bridge/bin/aimail-bridge -c …` 与
     测试构建 `…/target/debug/aimail-bridge -c …`(两者首 token 都以 aimail-bridge 结尾)。
+
+    F12(2026-09-25): 宿主无 pgrep(未装 procps)时回退扫 /proc —— 逻辑收口在
+    `_common.pids_by_pattern`(同一正则, 口径不变)。
     """
-    try:
-        out = subprocess.check_output(
-            ["pgrep", "-f", r"^[^ ]*/aimail-bridge( |$)"],
-            text=True, timeout=5)
-        return [int(l.strip()) for l in out.splitlines() if l.strip().isdigit()]
-    except subprocess.CalledProcessError:
-        return []
+    from _common import pids_by_pattern  # 扁平导入: cli/ 内部共享工具
+    return pids_by_pattern(r"^[^ ]*/aimail-bridge( |$)")
 
 
 def _read_routes() -> dict:

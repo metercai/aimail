@@ -266,13 +266,11 @@ def start_bridge(bin_path: str, cfg_path: str, pid_path: str) -> bool:
     # 包装进程)。2026-08-16 实测事故:裸匹配曾把生产 bridge 与调用
     # shell 一并杀掉。
     def _bridge_pids() -> list:
-        try:
-            out = subprocess.check_output(
-                ["pgrep", "-f", r"aimail-bridge.*--config|aimail-bridge.*\.toml"],
-                text=True, timeout=5)
-            return [int(l.strip()) for l in out.splitlines() if l.strip().isdigit()]
-        except subprocess.CalledProcessError:
-            return []
+        """bridge 进程枚举: 逻辑收口在 _common.pids_by_pattern(pgrep 优先, 无 procps
+        时回退扫 /proc —— F12 2026-09-25: deerflow 宿主镜像没有 procps, 原地实现只捕
+        CalledProcessError ⇒ FileNotFoundError 冒泡成 traceback)。正则口径见上面注释。"""
+        from _common import pids_by_pattern
+        return pids_by_pattern(r"aimail-bridge.*--config|aimail-bridge.*\.toml")
 
     for pid in _bridge_pids():
         try:
