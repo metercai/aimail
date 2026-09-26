@@ -631,6 +631,40 @@ def _repair_routes_entries(sid: str) -> bool:
 
 
 
+def _repair_inbound_routes(sid: str) -> bool:
+    """Re-register the bridge routes the host is missing (route side, idempotent).
+
+    Owner ruling 2026-09-27: the route is pushed when the host inbound is actually
+    serving, and a pruned route must come back by itself. This is the CLI's half of
+    that contract (hosts with an in-process hook — openclaw/pi/dsh — re-ensure at
+    startup; hermes/deer-flow have no such hook, so repair and install are theirs).
+    Reports each outcome through the shared formatter; never raises.
+    """
+    from runtime_core import load_core
+    load_core()
+    from aimail_base import (ensure_bridge_routes_for_system, format_bridge_route_line,
+                             route_outcome_is_warning)
+    try:
+        outcomes = ensure_bridge_routes_for_system(sid)
+    except Exception as e:  # noqa: BLE001 - a repair step must never abort the ladder
+        _warn(f"route ensure failed: {e}")
+        return False
+    if not outcomes:
+        _ok("no agent binding to route")
+        return False
+    changed = False
+    for o in outcomes:
+        line = format_bridge_route_line(o)
+        if route_outcome_is_warning(o):
+            _warn(line)
+        elif str(o.get("state")) == "ok":
+            _ok(line)
+            changed = True
+        else:
+            _warn(line)
+    return changed
+
+
 def _repair_pull_entry_key(sid: str) -> bool:
     """Align the bridge pull.systems admin_key with gateway.json (the authoritative source)."""
     gw_path = SYSTEMS_DIR / sid / "aimail_gateway.json"
@@ -843,6 +877,8 @@ def repair(sid: str, deep: bool = False, dry_run: bool = False, home: str = "") 
          lambda: _repair_routes_entries(sid)),
         ("align the bridge pull entry admin_key with gateway.json",
          lambda: _repair_pull_entry_key(sid)),
+        ("re-register the inbound routes the host is missing (route side, idempotent)",
+         lambda: _repair_inbound_routes(sid)),
     ]
     if deep:
         plan.append(("drain stuck pending (--deep)", lambda: _drain_stuck(sid)))

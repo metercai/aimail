@@ -1426,6 +1426,167 @@ def register_bridge_route(system_id: str, email: str, gw: dict,
         return {"error": str(e)}
 
 
+# ── Route side: decoupled from registration (owner ruling 2026-09-27) ──────────
+#  - the route is pushed when the host inbound is actually serving, not at
+#    registration time (registration completes before the host restarts; pushing
+#    early is what produced "Route created 15:53:17 / removed 15:56:07" in
+#    production on 2026-09-26);
+#  - "registration succeeded" and "route added" are two separate outcomes, each
+#    with its own success rate — neither gates the other;
+#  - the bridge deletes routes whose target stays unreachable (probe interval x
+#    fail_threshold, ~30s x 6 = 180s) and nothing used to re-add them, so a host
+#    restart left inbound permanently dead (production 2026-09-21). Every host
+#    therefore upserts once it is serving again.
+# The TS side mirrors this contract (mail-core src/bridge-route.ts).
+
+
+def bridge_admin_port(gw: dict) -> int:
+    """Bridge admin port from the system config (default 38081)."""
+    try:
+        return int((gw or {}).get("bridge_admin_port", 38081) or 38081)
+    except Exception:
+        return 38081
+
+
+def bridge_listening(port: int, timeout: float = 0.5) -> bool:
+    """TCP probe: is something accepting connections on 127.0.0.1:<port>?"""
+    import socket
+    try:
+        with socket.create_connection(("127.0.0.1", int(port)), timeout=timeout):
+            return True
+    except Exception:
+        return False
+
+
+def inbound_serving(target: str, timeout: float = 1.5) -> bool:
+    """Is the local receive endpoint reachable? A remote endpoint is unprobeable locally."""
+    t = (target or "").strip()
+    if not t:
+        return False
+    try:
+        from urllib.parse import urlparse
+        u = urlparse(t)
+        host = (u.hostname or "").strip("[]")
+        port = u.port or (443 if u.scheme == "https" else 80)
+    except Exception:
+        return False
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        return False
+    import socket
+    try:
+        with socket.create_connection((host, int(port)), timeout=timeout):
+            return True
+    except Exception:
+        return False
+
+
+def iter_agentmail_configs(system_id: str = "") -> list:
+    """Every agentmail.json binding under systems/<sid>/ (all systems when sid is empty).
+
+    Unreadable/partial files are skipped, never fatal (per-file tolerance).
+    """
+    base = aimail_home() / "systems"
+    if system_id:
+        roots = [base / system_id]
+    else:
+        try:
+            roots = sorted(p for p in base.iterdir() if p.is_dir())
+        except Exception:
+            roots = []
+    out: list = []
+    for root in roots:
+        try:
+            subs = sorted(p for p in root.iterdir() if p.is_dir())
+        except Exception:
+            continue
+        for sub in subs:
+            p = sub / "agentmail.json"
+            try:
+                if not p.is_file():
+                    continue
+                d = json.loads(p.read_text())
+            except Exception:
+                continue
+            if isinstance(d, dict) and d.get("email"):
+                d.setdefault("_config_path", str(p))
+                out.append(d)
+    return out
+
+
+def ensure_bridge_route(system_id: str, email: str, gw: dict, webhook_url: str) -> dict:
+    """Route-side upsert for ONE address with an explicit outcome; never raises.
+
+    Outcomes: ok | no_bridge (no local bridge listening) | host_not_serving
+    (the local receive endpoint is not up yet — the timing rule) | failed.
+    Registration is NOT involved: a failure here never turns a registration
+    result into an error.
+    """
+    port = bridge_admin_port(gw)
+    target = (webhook_url or "").strip()
+    out = {"state": "failed", "email": email, "target": target, "admin_port": port}
+    if not target:
+        out.update(state="host_not_serving",
+                   detail="binding has no webhook_url (local receive endpoint)")
+        return out
+    if not bridge_listening(port):
+        out.update(state="no_bridge",
+                   detail=f"no listener on 127.0.0.1:{port} "
+                          "(direct push, or start it with 'aimail bridge --restart')")
+        return out
+    if not inbound_serving(target):
+        out.update(state="host_not_serving",
+                   detail=f"the local receive endpoint is not serving yet ({target})")
+        return out
+    res = register_bridge_route(system_id, email, gw, target)
+    if isinstance(res, dict) and not res.get("error"):
+        out["state"] = "ok"
+        return out
+    detail = str(res.get("error", "unknown")) if isinstance(res, dict) else str(res)
+    out.update(state="failed", detail=detail)
+    return out
+
+
+def ensure_bridge_routes_for_system(system_id: str = "") -> list:
+    """Hook payload: upsert the route for EVERY binding of the system.
+
+    Returns [] when there is nothing to do (no system / no binding), and a single
+    system-wide outcome when the machine has no bridge at all.
+    """
+    rows = [c for c in iter_agentmail_configs(system_id) if str(c.get("webhook_url") or "").strip()]
+    if not rows:
+        return []
+    sid = system_id or str(rows[0].get("system_id") or "")
+    gw = _load_gateway_config(sid) or {}
+    port = bridge_admin_port(gw)
+    if not bridge_listening(port):
+        return [{
+            "state": "no_bridge", "email": "", "count": len(rows), "admin_port": port,
+            "detail": f"no listener on 127.0.0.1:{port} "
+                      "(direct push, or start it with 'aimail bridge --restart')",
+        }]
+    return [ensure_bridge_route(str(c.get("system_id") or sid), str(c.get("email")), gw,
+                                str(c.get("webhook_url"))) for c in rows]
+
+
+def format_bridge_route_line(outcome: dict) -> str:
+    """One-line English status for a route outcome (same text as the TS side)."""
+    state = str((outcome or {}).get("state", ""))
+    who = str((outcome or {}).get("email") or "") or f"{(outcome or {}).get('count', 0)} address(es)"
+    if state == "ok":
+        return f"route: {who} -> {outcome.get('target', '')}"
+    if state == "no_bridge":
+        return f"route skipped for {who}: {outcome.get('detail') or 'no local bridge'}"
+    if state == "host_not_serving":
+        return (f"route skipped for {who}: {outcome.get('detail') or 'local receive endpoint not serving'}"
+                " (registered when the host starts)")
+    return f"route FAILED for {who}: {outcome.get('detail') or 'unknown'} -- run 'aimail repair'"
+
+
+def route_outcome_is_warning(outcome: dict) -> bool:
+    """True when the outcome deserves a warning line rather than an info line."""
+    return str((outcome or {}).get("state", "")) == "failed"
+
+
 def resolve_register_webhook_url(gw: dict, local_webhook_url: str) -> str:
     """webhook_host 三态 → 地址注册参数 webhook_url(2026-08-18 用户定稿语义):
 

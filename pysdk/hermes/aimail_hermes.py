@@ -584,13 +584,18 @@ def _auto_register_email(name: str, profile_dir: str, config: dict) -> None:
         inject_cfg["activation_code"] = activation_code
     _inject_profile_config(profile_dir, inject_cfg)
 
-    # 铁律(2026-08-18):有 bridge 时,agent 注册地址后必须向 bridge 注册
-    # 入站 hook 路由(email → 本地接收端点);否则 bridge 拉取后不知转发到哪。
+    # Route side (owner ruling 2026-09-27: it is a SEPARATE outcome from
+    # registration — reported on its own line, never able to fail the
+    # registration). Registration completes before the host restarts, so this
+    # push is best-effort; the host and the CLI re-ensure it once the inbound
+    # listener is actually serving (ensure_bridge_routes_for_system).
     if local_webhook_url:
-        try:
-            core.register_bridge_route(system_id, email, config, local_webhook_url)
-        except Exception as e:
-            logger.warning("[aimail_gateway] bridge route registration failed for %s: %s", email, e)
+        _route_outcome = core.ensure_bridge_route(system_id, email, config, local_webhook_url)
+        _route_line = f"[aimail_gateway] {core.format_bridge_route_line(_route_outcome)}"
+        if core.route_outcome_is_warning(_route_outcome):
+            logger.warning("%s", _route_line)
+        else:
+            logger.info("%s", _route_line)
 
     # Activate the profile immediately after registration.
     # register_agent_email already activated when it returned an api_key —

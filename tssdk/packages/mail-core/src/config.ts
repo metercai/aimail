@@ -132,6 +132,38 @@ export async function loadConfigByEmail(
   return undefined
 }
 
+/**
+ * Every agent binding of a system (systems/<sid>/<addr>/agentmail.json).
+ *
+ * The route side needs all of them: with a bridge present every registered
+ * address must have a route (owner iron rule 2026-08-18). Unreadable/broken
+ * files are skipped, never fatal.
+ */
+export async function listAgentConfigs(systemId: string): Promise<AgentConfig[]> {
+  const dir = systemDir(systemId)
+  const out: AgentConfig[] = []
+  let entries: import('node:fs').Dirent[]
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true })
+  } catch {
+    return out
+  }
+  for (const e of entries) {
+    if (!e.isDirectory()) continue
+    const p = path.join(dir, e.name, 'agentmail.json')
+    try {
+      const cfg = JSON.parse(await fs.readFile(p, 'utf-8')) as AgentConfig
+      if (cfg && cfg.email) {
+        cfg._config_path = p
+        out.push(cfg)
+      }
+    } catch {
+      /* skip unreadable/partial binding */
+    }
+  }
+  return out.sort((a, b) => a.email.localeCompare(b.email))
+}
+
 async function listSystemDirs(): Promise<string[]> {
   try {
     const entries = await fs.readdir(systemDir(''), { withFileTypes: true })

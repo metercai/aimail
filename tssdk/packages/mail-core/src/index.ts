@@ -32,6 +32,21 @@ export {
   resolveRegisterWebhook,
   autoBind,
 } from './auto-bind.js'
+export {
+  ensureBridgeRoute,
+  ensureBridgeRoutesForSystem,
+  bridgeListening,
+  inboundServing,
+  resolveBridgeAdminPort,
+  formatBridgeRouteLine,
+  isBridgeRouteWarning,
+} from './bridge-route.js'
+export type {
+  BridgeRouteOutcome,
+  BridgeRouteState,
+  EnsureBridgeRouteOptions,
+} from './bridge-route.js'
+export { listAgentConfigs } from './config.js'
 export { detectSystemForHome, ensureSystem } from './ensure-system.js'
 export type { EnsureSystemOptions, EnsureSystemResult } from './ensure-system.js'
 export {

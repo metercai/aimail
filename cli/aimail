@@ -902,6 +902,11 @@ def cmd_install(args) -> int:
         "container_home": str(_rcfg.get("container_home", "")) or str(system_home),
     })
 
+    # Route side (owner ruling 2026-09-27): deliberately NOT part of registration —
+    # each address's bridge route is ensured here, after the platform steps, and
+    # reported on its own line. Registration never depends on this and vice versa.
+    _ensure_inbound_routes(sid2 or env.get("INTEGRATE_SYSTEM_ID", ""))
+
     print(f"  install done. 建议: aimail check {'--system-id ' + args.system_id if args.system_id else ''}".rstrip())
     return 0
 
@@ -1987,6 +1992,39 @@ def _rename_after_reg(cfg: dict, default_name: str, agent: str, reg_name: str, s
     _sync_bridge_route_after_rename(old_email, new_email, base, sid)
     _ok(f"  地址名已改: {old_email} → {new_email}")
 
+
+
+def _ensure_inbound_routes(sid: str) -> int:
+    """Ensure the bridge route of every binding of this system; report each outcome.
+
+    Owner ruling 2026-09-27: "registration succeeded" and "route added" are two
+    separate outcomes with their own success rates. The route is pushed when the
+    host inbound is actually serving — registration time is too early (the host
+    restarts after install), and a route the bridge pruned (target unreachable for
+    probe_interval × fail_threshold) must come back without a human re-running
+    install. Shared implementation: aimail_base.ensure_bridge_routes_for_system
+    (the TS hosts use mail-core's mirror of the same contract).
+
+    Never raises, never changes the caller's exit code; returns how many outcomes
+    were reported (0 = nothing to do).
+    """
+    if not sid:
+        return 0
+    load_core()
+    from aimail_base import (ensure_bridge_routes_for_system, format_bridge_route_line,
+                             route_outcome_is_warning)
+    try:
+        outcomes = ensure_bridge_routes_for_system(sid)
+    except Exception as e:
+        _warn(f"route ensure failed: {e}")
+        return 0
+    for o in outcomes:
+        line = format_bridge_route_line(o)
+        if route_outcome_is_warning(o):
+            _warn(line)
+        else:
+            _ok(line)
+    return len(outcomes)
 
 
 def _sync_bridge_route_after_rename(old_email: str, new_email: str, base: Path, sid: str) -> None:

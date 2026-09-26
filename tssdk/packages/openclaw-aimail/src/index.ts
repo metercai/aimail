@@ -6,7 +6,14 @@
  * schema — identity stays pointer + agentmail.json (single source of truth).
  */
 import { definePluginEntry, type OpenClawPluginDefinition } from 'openclaw/plugin-sdk/plugin-entry'
-import { ensureSystem, releaseAllSystems, setAgentIdentity } from '@aimail/mail-core'
+import {
+  ensureSystem,
+  ensureBridgeRoutesForSystem,
+  formatBridgeRouteLine,
+  isBridgeRouteWarning,
+  releaseAllSystems,
+  setAgentIdentity,
+} from '@aimail/mail-core'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -100,6 +107,27 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
       match: 'exact',
       handler: createInboundHandler(api),
     })
+
+    // Route side (owner ruling 2026-09-27: registration and route pairing are
+    // two separate outcomes). The in-gateway route above is live, so this is the
+    // right moment to (re-)pair every address of this system: the bridge deletes
+    // routes whose target stays unreachable (probe interval x fail_threshold,
+    // ~30s x 6 = 180s) and registration-time pushes land before the gateway
+    // serves the plugin — the cache of that was a permanently dead inbound after
+    // a host restart (production 2026-09-21/09-26). Idempotent, never fatal.
+    void ensureBridgeRoutesForSystem()
+      .then((outcomes) => {
+        for (const o of outcomes) {
+          const line = `[openclaw-aimail] ${formatBridgeRouteLine(o)}`
+          if (isBridgeRouteWarning(o)) console.warn(line)
+          else console.log(line)
+        }
+      })
+      .catch((e) => {
+        console.warn(
+          `[openclaw-aimail] route ensure failed: ${e instanceof Error ? e.message : String(e)}`,
+        )
+      })
 
     // Registration / status commands
     for (const command of createAimailCommands()) {

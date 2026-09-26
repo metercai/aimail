@@ -99,6 +99,20 @@ import aimail_tools as _tools       # noqa: E402   (共享核心,父目录)
 # ══════════════════════════════════════════════════════════════════════
 # 注册(register_agent.py 逐字移植)
 # ══════════════════════════════════════════════════════════════════════
+def _report_bridge_route(outcome: dict) -> None:
+    """Route-side status line — independent of the registration result.
+
+    Owner ruling 2026-09-27: "registration succeeded" and "route added" are two
+    separate outcomes, each with its own success rate; the route side reports
+    itself (ok / skipped-with-reason / failed) and can never fail a registration.
+    """
+    line = _core.format_bridge_route_line(outcome)
+    if _core.route_outcome_is_warning(outcome):
+        print(f"  ! {line}", file=sys.stderr)
+    else:
+        print(f"  · {line}")
+
+
 def email_for_agent(agent_id: str, domain: str, system_name: str) -> str:
     """地址派生(公共核心 email_for_agent;DeerFlow 默认名 default → agent)。"""
     return _base.email_for_agent(agent_id, domain, system_name,
@@ -217,8 +231,8 @@ def register_agents(manager: str = "", system_id: str = "", agent: str = "") -> 
             save_agent_config(agent_id, cfg, system_id)
             created += 1
             print(f"  ✓ {agent_id} → {email} (api_key ok)")
-            # 铁律:有 bridge 时注册后必须向 bridge 注册入站 hook 路由
-            _core.register_bridge_route(system_id, email, gw, local_webhook_url)
+            # Route side: separate outcome from registration (owner ruling 2026-09-27)
+            _report_bridge_route(_core.ensure_bridge_route(system_id, email, gw, local_webhook_url))
         elif cfg.get("activation_code"):
             # 激活 pending:落盘保留 code,下次注册/对账直连 activate_address
             # (不再重注册——exists 分支返回空 code,重注册永远拿不到 key)
@@ -352,11 +366,7 @@ def reconcile(system_id: str = "", manager: str = "", dry_run: bool = False) -> 
                     wu = inbound_base.rstrip("/") + "/aimail/inbound"
                 em = str(lc.get("email") or "").strip()
                 if em and wu:
-                    try:
-                        _core.register_bridge_route(system_id, em, gw, wu)
-                    except Exception as e:
-                        print(f"  ! bridge route upsert failed for {agent_id}: {e}",
-                              file=sys.stderr)
+                    _report_bridge_route(_core.ensure_bridge_route(system_id, em, gw, wu))
             continue
         if dry_run:
             print(f"  [dry] would register {agent_id}")
@@ -392,8 +402,8 @@ def reconcile(system_id: str = "", manager: str = "", dry_run: bool = False) -> 
             save_agent_config(agent_id, cfg, system_id)
             changes += 1
             print(f"  ✓ registered {agent_id} → {email}")
-            # 铁律:有 bridge 时注册后必须向 bridge 注册入站 hook 路由
-            _core.register_bridge_route(system_id, email, gw, local_webhook_url)
+            # Route side: separate outcome from registration (owner ruling 2026-09-27)
+            _report_bridge_route(_core.ensure_bridge_route(system_id, email, gw, local_webhook_url))
         else:
             # activation pending:把 activation_code 落盘,后续 reconcile 补激活
             # (曾只 print 丢弃 code → 永远无法补激活;AUDIT-1 P1-4)

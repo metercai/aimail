@@ -21,7 +21,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
-import { ensureSystem, processInboundMail, registerBridgeRoute, releaseAllSystems, routeAddressFromHeaders, verifySignature, type InboundPayload } from '@aimail/mail-core'
+import { ensureSystem, ensureBridgeRoutesForSystem, formatBridgeRouteLine, isBridgeRouteWarning, processInboundMail, releaseAllSystems, routeAddressFromHeaders, verifySignature, type InboundPayload } from '@aimail/mail-core'
 import { resolveByRecipient } from '@aimail/mail'
 import { agentIdentity, initIdentity, readPointer, setInboundEndpoint } from './identity.js'
 import { buildPiTools } from './tools.js'
@@ -213,18 +213,21 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
       // 此前无人补写 ⇒ 宿主长时间停机/重启后入站**永久断链**(2026-09-21 生产实测)。
       // 故在**监听就绪之后**(重启末端)幂等 upsert: 路由存在与否始终反映"宿主此刻
       // 是否真在服务", 既不误判正常重启窗口, 也不留死路由。
-      const ptr = readPointer()
-      if (ptr.system_id && ptr.email) {
-        void registerBridgeRoute({
-          systemId: ptr.system_id,
-          email: ptr.email,
-          webhookUrl: `http://127.0.0.1:${port}${INBOUND_PATH}`,
-        }).catch((e: unknown) => {
+      // 2026-09-27 收口: 该时序规则实现为 mail-core.ensureBridgeRoutesForSystem
+      // (openclaw/dsh 共用同一实现), 路由目标取各绑定自己的 webhook_url。
+      void ensureBridgeRoutesForSystem()
+        .then((outcomes) => {
+          for (const o of outcomes) {
+            const line = `[pi-aimail] ${formatBridgeRouteLine(o)}`
+            if (isBridgeRouteWarning(o)) log.warn(line)
+            else log.info(line)
+          }
+        })
+        .catch((e: unknown) => {
           log.warn(
             `[pi-aimail] bridge route ensure failed (non-fatal): ${e instanceof Error ? e.message : String(e)}`,
           )
         })
-      }
     })
     server.on('error', (e) => {
       log.error(`[pi-aimail] inbound listener error: ${e.message}`)

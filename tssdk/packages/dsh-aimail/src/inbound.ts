@@ -22,6 +22,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { processInboundMail, verifySignature, routeAddressFromHeaders, updateAgentConfig, loadAgentConfig, saveAgentConfig, type InboundPayload } from '@aimail/mail-core'
+import { ensureBridgeRoutesForSystem, formatBridgeRouteLine, isBridgeRouteWarning } from '@aimail/mail-core'
 import type { MailService } from './mail-service.js'
 
 export const name = 'mail-inbound'
@@ -231,7 +232,28 @@ export function apply(ctx: Context, config: Config = {}): () => void {
     }
   })
 
-  server.listen(port, host)
+  server.listen(port, host, () => {
+    // Route side (owner ruling 2026-09-27): the listener is up, so this is the
+    // moment to (re-)pair every address of this system. The bridge deletes
+    // routes whose target stays unreachable (probe interval x fail_threshold,
+    // ~30s x 6 = 180s) and registration-time pushes are too early — the cache of
+    // that was a permanently dead inbound after a host restart (production
+    // 2026-09-21/09-26). Idempotent, never fatal; the target is each binding's
+    // own webhook_url (shared implementation with openclaw/pi).
+    void ensureBridgeRoutesForSystem()
+      .then((outcomes) => {
+        for (const o of outcomes) {
+          const line = `[dsh-aimail] ${formatBridgeRouteLine(o)}`
+          if (isBridgeRouteWarning(o)) console.warn(line)
+          else console.log(line)
+        }
+      })
+      .catch((e: unknown) => {
+        console.warn(
+          `[dsh-aimail] route ensure failed: ${e instanceof Error ? e.message : String(e)}`,
+        )
+      })
+  })
   return () => {
     server.close()
   }
