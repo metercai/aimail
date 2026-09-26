@@ -123,11 +123,11 @@ curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootst
 #### 4. Dedicated domain needed: self-host the mail gateway and connect it to the Agent system, building and running the whole AIMail system yourself
 
 - Install your own aimail-gateway standalone gateway service. Repository: <https://github.com/metercai/aimail-gateway>.
-- Then set the system admin key and related values as environment variables and run the AIMail bootstrap script to initialize the local environment. For example:
+- Then set the system-level key and related values as environment variables and run the AIMail bootstrap script to initialize the local environment. For example:
 
 ```bash
 export AIMAIL_URL=<your-gateway-url>          # your self-hosted gateway address, e.g. https://mail.example.com
-export AIMAIL_ADMIN_KEY=<admin-key>           # the gateway's admin key
+export AIMAIL_ADMIN_KEY=<system key>         # system-level key (not the gateway's own admin key)
 export AIMAIL_DOMAIN=<your-domain>            # dedicated domain, e.g. example.com
 export AIMAIL_MANAGER_ADDRESS=you@example.com # default manager mail address for the agent; each agent may differ
 curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
@@ -137,7 +137,8 @@ curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootst
 
 #### Notes
 
-- Multi-system install is supported, i.e. one machine can host several Agent platforms: change the environment variables (a new system needs a new activation code or admin key), point `--home` at the different platform, and run the SDK or plugin install.
+- `AIMAIL_ADMIN_KEY` (or `aimail install -k`) takes a **system-level key**: on a self-hosted gateway the `<storage>/<system id>.system.key` printed at start, in the cloud the key issued by the activation code. The gateway's own admin key stays on the gateway side.
+- Multi-system install is supported, i.e. one machine can host several Agent platforms: change the environment variables (a new system needs a new activation code or system key), point `--home` at the different platform, and run the SDK or plugin install.
 - For a system already installed, the install can be repeated with different parameters, as long as the system ID is given: `aimail install --system-id <sid>`.
 
 ***

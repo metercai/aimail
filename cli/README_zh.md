@@ -132,16 +132,17 @@ aimail repair       →  按 check 发现执行幂等修复阶梯
 ### 第 1 步 — 本机环境准备(bootstrap)
 
 - 安装好自己的 aimail-gateway 服务，或去申请共享网关的服务。
-- 然后，将系统admin-key/product\_code等相关信息设置环境变量，并执行AIMail的自举安装脚本，完成本地环境的初始化。例如：
+- 然后，将系统级 key/product\_code等相关信息设置环境变量，并执行AIMail的自举安装脚本，完成本地环境的初始化。例如：
 
 ```bash
 export AIMAIL_URL=<你的网关地址>                # 自主独立安装的网关地址，如 https://mail.example.com
-export AIMAIL_ADMIN_KEY=<admin key>           # 网关的管理key
+export AIMAIL_ADMIN_KEY=<系统级 key>          # 系统级 key（不是网关自身的 admin key）
 export AIMAIL_DOMAIN=<你的域名>                # 独享域名,如 example.com
 export AIMAIL_MANAGER_ADDRESS=you@example.com # 管理agent的默认安全员邮件地址，可每个agent不一样
 curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
 ```
 
+- `AIMAIL_ADMIN_KEY`（或 `aimail install -k`）填**系统级 key**：自建网关用启动时打印的 `<storage>/<系统 ID>.system.key`，云端用激活下发的 key。
 - 程序副本(`~/.aimail/bin/aimail-src`,PATH 的 `aimail` 指向它)与宿主载荷(`~/.aimail/bin/mcp`)都归在 `~/.aimail/bin/` 程序根下,由 bootstrap 一并刷新(强制重下载:先 `export AIMAIL_FORCE_UPGRADE=1`)。
 
 ### 第 2 步 — `aimail install`(系统级,可重复,幂等)

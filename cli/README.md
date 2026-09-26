@@ -148,18 +148,19 @@ host-side items remain.
 ### Step 1 — machine environment (bootstrap)
 
 - Install your own aimail-gateway service, or apply for a shared-gateway service.
-- Then set the system admin-key / product_code and related values as
+- Then set the system-level key / product_code and related values as
   environment variables, and run AIMail's bootstrap install script to finish
   the local environment setup. For example:
 
 ```bash
 export AIMAIL_URL=<your gateway address>      # self-hosted gateway, e.g. https://mail.example.com
-export AIMAIL_ADMIN_KEY=<admin key>           # the gateway's admin key
+export AIMAIL_ADMIN_KEY=<system key>         # system-level key (not the gateway's own admin key)
 export AIMAIL_DOMAIN=<your domain>            # dedicated domain, e.g. example.com
 export AIMAIL_MANAGER_ADDRESS=you@example.com # default manager address of the admin agent; may differ per agent
 curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
 ```
 
+- `AIMAIL_ADMIN_KEY` (or `aimail install -k`) takes a **system-level key**: on a self-hosted gateway the `<storage>/<system id>.system.key` printed at start, in the cloud the key issued by the activation code.
 - The program copy (`~/.aimail/bin/aimail-src`, where PATH's `aimail` points) and the host payload (`~/.aimail/bin/mcp`) both live under the `~/.aimail/bin` program root and are refreshed together by bootstrap (to force a re-fetch, `export AIMAIL_FORCE_UPGRADE=1` first).
 
 ### Step 2 — `aimail install` (system level, repeatable, idempotent)

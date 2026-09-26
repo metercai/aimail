@@ -123,11 +123,11 @@ curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootst
 #### 4，需要独享域名，自建邮件网关对接Agent系统，AIMail全系统自建和运维
 
 - 安装自己的 aimail-gateway 独立网关服务。仓库地址：<https://github.com/metercai/aimail-gateway>
-- 然后，将系统admin-key等相关信息设置环境变量，并执行AIMail的自举安装脚本，完成本地环境的初始化。例如：
+- 然后，将系统级 key 等相关信息设置环境变量，并执行AIMail的自举安装脚本，完成本地环境的初始化。例如：
 
 ```bash
 export AIMAIL_URL=<你的网关地址>                # 自主独立安装的网关地址，如 https://mail.example.com
-export AIMAIL_ADMIN_KEY=<admin key>           # 网关的管理key
+export AIMAIL_ADMIN_KEY=<系统级 key>          # 系统级 key（不是网关自身的 admin key）
 export AIMAIL_DOMAIN=<你的域名>                # 独享域名,如 example.com
 export AIMAIL_MANAGER_ADDRESS=you@example.com # 管理agent的默认安全员邮件地址，可每个agent不一样
 curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
@@ -137,7 +137,8 @@ curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootst
 
 #### 提示：
 
-- 支持本地多系统安装，即支持单机多Agent平台，修改环境变量后（新系统要用新的激活码或admin-key），指定不同的`--home`，执行SDK或插件安装。
+- `AIMAIL_ADMIN_KEY`（或 `aimail install -k`）填**系统级 key**：自建网关用启动时打印的 `<storage>/<系统 ID>.system.key`，云端用激活下发的 key；网关自身的 admin key 只留在网关侧。
+- 支持本地多系统安装，即支持单机多Agent平台，修改环境变量后（新系统要用新的激活码或系统级 key），指定不同的`--home`，执行SDK或插件安装。
 - 对已安装系统，可用不同参数重复安装，但需指定系统ID: `aimail install --system-id <sid>`。
 
 ***
