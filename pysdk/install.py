@@ -398,9 +398,16 @@ def _uninstall_hermes_profiles(hermes_dir: str, system_id: str) -> None:
                 print(f"  ⚠ webhook_subscriptions clean failed: {e}")
 
 
-def uninstall_deerflow(backend_dir: str) -> int:
+def uninstall_deerflow(backend_dir: str, system_id: str = "") -> int:
     """DeerFlow SDK 卸载:还原 app.py patch + 删运行时 bundle。
-    参数为仓根或 backend(归一在 SDK 内)。"""
+    参数为仓根或 backend(归一在 SDK 内)。
+
+    system_id: 由注册表驱动调用传入。registry 的 sdk_uninstall 步按
+    `fn(home, sid)` 位置调用(见 cli/aimail `_sdk_uninstall`),与
+    `uninstall_hermes(hermes_dir, system_id="")` 对齐;本函数不消费它
+    (deer-flow 的运行时产物都落在 backend 目录下,不按 sid 分)。F9 2026-09-25:
+    原签名只收 1 个位置参数 ⇒ `aimail uninstall` 在 deerflow 上抛 TypeError,
+    网关侧注销整段被跳过、夹具零残留门禁判红。"""
     backend_dir = _deerflow_backend(backend_dir)
     md = _import_deerflow("manage")
     rc = 0
