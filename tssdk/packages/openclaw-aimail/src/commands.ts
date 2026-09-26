@@ -108,19 +108,29 @@ export async function deregisterAgentEmail(
   try {
     const domain = opts.domainAddr || opts.email.split('@')[1] || ''
     const manager = opts.managerAddress ?? ''
-    if (!domain || !manager) {
-      out.whitelist = 'skipped'   // 无 manager ⇒ 不猜、不盲删
+    if (!domain) {
+      out.whitelist = 'unsupported'
     } else {
       const res = await client.request('GET', `/api/v1/whitelists?${new URLSearchParams({ domain })}`)
       const rows = (Array.isArray(res.data)
         ? res.data
         : (res.entries as unknown[] | undefined) ?? []) as Array<Record<string, unknown>>
-      const hit = rows.find(r => r.domain_addr === opts.email && r.value === manager)
-      if (hit && hit.id !== undefined && hit.id !== null) {
-        const r = await client.request('DELETE', `/api/v1/whitelists/${String(hit.id)}`)
-        out.whitelist = String(r.status ?? '')
+      // 先 (domain_addr, value) 精确匹配; 落空则收敛到"本地址名下的行"。
+      // F10(2026-09-25, 与 Python 侧同口径): 注销语义 = 该地址被拆除, 其名下白名单行
+      // 都是孤儿; domain_addr 已唯一钉住地址 ⇒ 不误伤别的 agent。实测两类落空:
+      // 绑定 manager_address 为空、或网关行的 value 本身为空 ⇒ 只按 value 匹配必留残留。
+      const mine = rows.filter(r => r.domain_addr === opts.email && r.id !== undefined && r.id !== null)
+      const exact = manager ? mine.filter(r => r.value === manager) : []
+      const targets = exact.length > 0 ? exact : mine
+      if (targets.length > 0) {
+        const st: string[] = []
+        for (const r of targets) {
+          const dr = await client.request('DELETE', `/api/v1/whitelists/${String(r.id)}`)
+          st.push(String(dr.status ?? ''))
+        }
+        out.whitelist = st.join(',') + (exact.length > 0 ? '' : '(by_addr)')
       } else {
-        out.whitelist = rows.length > 0 ? 'not_found_exact' : 'not_found'
+        out.whitelist = rows.length > 0 ? 'not_found_addr' : 'not_found'
       }
     }
   } catch (e) {

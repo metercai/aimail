@@ -1547,22 +1547,30 @@ def deregister_agent_email(client, system_id: str, email: str,
     #    其它地址的行。夹具实测: 地址注销后 whitelists 行仍残留。
     try:
         domain = email.split("@", 1)[1] if "@" in email else ""
-        if not manager_address:
-            out["whitelist"] = "skipped"
-        elif domain and hasattr(client, "list_whitelists_by_domain"):
-            rows = client.list_whitelists_by_domain(domain)
-            hit = next((r for r in rows
-                        if isinstance(r, dict)
-                        and r.get("domain_addr") == email
-                        and r.get("value") == manager_address), None)
-            if hit and hit.get("id") is not None:
-                r = client.delete_whitelist_entry_by_id(int(hit["id"]))
-                out["whitelist"] = str(r.get("status", r)) if isinstance(r, dict) else str(r)
-            else:
-                # 有行但无精确匹配 → 绝不按 value 盲删(会误伤别的 agent)
-                out["whitelist"] = "not_found_exact" if rows else "not_found"
-        else:
+        if not domain or not hasattr(client, "list_whitelists_by_domain"):
             out["whitelist"] = "unsupported"
+        else:
+            rows = client.list_whitelists_by_domain(domain)
+            mine = [r for r in rows
+                    if isinstance(r, dict)
+                    and r.get("domain_addr") == email
+                    and r.get("id") is not None]
+            exact = [r for r in mine if manager_address and r.get("value") == manager_address]
+            # F10(2026-09-25): 精确匹配落空时的兜底 —— 本地址名下的行都是孤儿。
+            # 注销的语义就是"该地址被拆除"(api-key / system_domains 已删), 而
+            # domain_addr==email 已唯一钉住地址 ⇒ 不会误伤别的 agent(2026-09-21 要求
+            # value==manager 是为了防"按 value 盲删"跨地址误伤, 不适用于按地址收敛)。
+            # 实测两类落空: openclaw 绑定里 manager_address 为空(CLI 未导出 AIMAIL_*),
+            # deerflow 的白名单行 value 本身为空 ⇒ 只按 value 匹配必然留残留。
+            targets = exact or mine
+            if targets:
+                st = []
+                for r in targets:
+                    rr = client.delete_whitelist_entry_by_id(int(r["id"]))
+                    st.append(str(rr.get("status", rr)) if isinstance(rr, dict) else str(rr))
+                out["whitelist"] = ",".join(st) + ("" if exact else "(by_addr)")
+            else:
+                out["whitelist"] = "not_found_addr" if rows else "not_found"
     except Exception as e:
         out["whitelist"] = f"err:{e}"
 

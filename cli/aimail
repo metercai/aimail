@@ -763,6 +763,12 @@ def cmd_install(args) -> int:
     # Path A 据此忽略任何 env 来源的名字,2026-09-11 见 D 缺陷)。
     env["INTEGRATE_NAME_EXPLICIT"] = "true" if args.system_name else "false"
     env["INTEGRATE_MANAGER_ADDRESS"] = manager
+    # F10(2026-09-25): 绑定写入点 pysdk/aimail_base.py 读的是 AIMAIL_MANAGER_ADDRESS。
+    # 只导出 INTEGRATE_* 会让写出的绑定 manager_address 恒为空 ⇒ ①卸载时白名单步精确
+    # 匹配落空(网关留孤儿行) ②审批请求(aimail_tools)在 Python 侧平台直接不可用。
+    # 两个 env 名并存: INTEGRATE_* 是集成脚本的契约, AIMAIL_* 是 SDK 的契约。
+    if manager:
+        env["AIMAIL_MANAGER_ADDRESS"] = manager
     env["INTEGRATE_AIMAIL_DOMAIN"] = want_domain
     env["INTEGRATE_SAVE_SNAPSHOTS"] = (
         "true" if _env_val("AIMAIL_SAVE_SNAPSHOTS", "no").lower() in ("yes", "true", "1") else "false")
@@ -974,6 +980,12 @@ def cmd_ensure_system(args) -> int:
     # Path A 据此忽略任何 env 来源的名字,2026-09-11 见 D 缺陷)。
     env["INTEGRATE_NAME_EXPLICIT"] = "true" if args.system_name else "false"
     env["INTEGRATE_MANAGER_ADDRESS"] = manager
+    # F10(2026-09-25): 绑定写入点 pysdk/aimail_base.py 读的是 AIMAIL_MANAGER_ADDRESS。
+    # 只导出 INTEGRATE_* 会让写出的绑定 manager_address 恒为空 ⇒ ①卸载时白名单步精确
+    # 匹配落空(网关留孤儿行) ②审批请求(aimail_tools)在 Python 侧平台直接不可用。
+    # 两个 env 名并存: INTEGRATE_* 是集成脚本的契约, AIMAIL_* 是 SDK 的契约。
+    if manager:
+        env["AIMAIL_MANAGER_ADDRESS"] = manager
     env["INTEGRATE_AIMAIL_DOMAIN"] = want_domain
     env["INTEGRATE_SAVE_SNAPSHOTS"] = (
         "true" if _env_val("AIMAIL_SAVE_SNAPSHOTS", "no").lower() in ("yes", "true", "1") else "false")
@@ -1106,6 +1118,12 @@ def cmd_reset(args) -> int:
     env["INTEGRATE_NAME_EXPLICIT"] = "true" if args.system_name else "false"
     env["INTEGRATE_SYSTEM_HOME"] = str(system_home) if system_home else prev.get("system_home", "")
     env["INTEGRATE_MANAGER_ADDRESS"] = manager
+    # F10(2026-09-25): 绑定写入点 pysdk/aimail_base.py 读的是 AIMAIL_MANAGER_ADDRESS。
+    # 只导出 INTEGRATE_* 会让写出的绑定 manager_address 恒为空 ⇒ ①卸载时白名单步精确
+    # 匹配落空(网关留孤儿行) ②审批请求(aimail_tools)在 Python 侧平台直接不可用。
+    # 两个 env 名并存: INTEGRATE_* 是集成脚本的契约, AIMAIL_* 是 SDK 的契约。
+    if manager:
+        env["AIMAIL_MANAGER_ADDRESS"] = manager
     env["INTEGRATE_ADMIN_KEY"] = admin_key
     r = subprocess.call([sys.executable, str(SCRIPTS_DIR / "setup_system.py")], env=env)
     if r != 0:
@@ -2846,7 +2864,8 @@ def cmd_uninstall(args) -> int:
                     try:
                         client = _GatewayClient(gw["gateway_url"], gw["admin_key"])
                         st = deregister_agent_email(client, sid, email,
-                                                    manager_address=d.get("manager_address", ""))
+                                                    manager_address=d.get("manager_address", "")
+                                                    or gw.get("manager_address", ""))
                         _ok(f"gateway deregister {email} (api-key={st.get('api_key')} "
                             f"domain={st.get('domain')} whitelist={st.get('whitelist')})")
                     except Exception as e:
