@@ -123,7 +123,9 @@ def test_real_failure_keeps_system_key_warns_loudly_and_does_not_persist(monkeyp
 
 def test_whoami_precheck_skips_downgrade_for_agent_key(monkeypatch, tmp_path):
     _env(monkeypatch, tmp_path)
-    monkeypatch.setattr(ss, "whoami", lambda *a, **k: {"scopes": ["agent_admin"]})
+    # whoami 的真实字段(网关 core/api/whoami.rs): scope / category / email / system_id
+    monkeypatch.setattr(ss, "whoami", lambda *a, **k: {
+        "scope": "agent_admin", "category": "agent_admin", "email": "agent@x.local"})
 
     def _boom(*a, **k):
         raise AssertionError("whoami 已判明是受限级, 不应再发 create_api_key")
@@ -140,8 +142,8 @@ def test_whoami_precheck_skips_when_already_domain_scoped(monkeypatch, tmp_path)
     每次 reset/repair 都重试会刷 error 日志且造成 key 轮换。
     """
     _env(monkeypatch, tmp_path)
-    monkeypatch.setattr(ss, "whoami",
-                        lambda *a, **k: {"scopes": ["system"], "email": "aimail.token.tm"})
+    monkeypatch.setattr(ss, "whoami", lambda *a, **k: {
+        "scope": "system", "category": "domain", "email": "aimail.token.tm"})
 
     def _boom(*a, **k):
         raise AssertionError("已是最小权限形态, 不应再发 create_api_key")
@@ -149,6 +151,38 @@ def test_whoami_precheck_skips_when_already_domain_scoped(monkeypatch, tmp_path)
     out = ss._downgrade_to_domain_admin_key(
         "https://gw", "domainkey", "shared-default-abc", "aimail.token.tm")
     assert out == "domainkey" and not _raw(tmp_path).exists()
+
+
+def test_stored_domain_key_is_reused_instead_of_rotated(monkeypatch, tmp_path):
+    """配置里已存**本域** domain key ⇒ 复用它, 不重新收窄(2026-09-26 幂等修复)。
+
+    修复前: 显式 `-k <系统级 key>` 的重复安装每次都造一把新 domain key ⇒ 配置漂移
+    (b1「二次安装 cfg 不变」实测红) + 网关侧累积历史 key。判据走 whoami 并要求域一致。
+    """
+    _env(monkeypatch, tmp_path)
+
+    def _whoami(_gw, key, *a, **k):
+        # 传入的系统级 key vs 配置里已存的 domain 级 key —— 两者形状必须不同,
+        # 否则测不出"复用已存 key"这条判据。
+        if key == "stored-domain-key":
+            return {"scope": "system", "category": "domain", "email": "aimail.token.tm"}
+        return {"scope": "system", "category": "system", "email": ""}
+
+    monkeypatch.setattr(ss, "whoami", _whoami)
+    _cfg(monkeypatch, tmp_path)
+
+    def _boom(*a, **k):
+        raise AssertionError("已有本域 domain key ⇒ 不得再造/轮换")
+    monkeypatch.setattr(ss, "create_api_key", _boom)
+
+    out = ss._downgrade_to_domain_admin_key(
+        "https://gw", "syskey", "shared-default-abc", "aimail.token.tm",
+        existing_key="stored-domain-key")
+    assert out == "stored-domain-key", "复用的应是配置里那把(不是传入的系统级 key)"
+    assert json.loads((tmp_path / "aimail_gateway.json").read_text())["admin_key"] \
+        == "stored-domain-key", "配置里仍是原 domain key"
+    assert _raw(tmp_path).read_text().strip() == "syskey", \
+        "传入的系统级 key 仍按 2026-09-22 契约落盘(与复用本域 key 互不冲突)"
 
 
 def test_no_domain_keeps_system_key_without_creating_anything(monkeypatch, tmp_path):
@@ -170,7 +204,8 @@ def test_whoami_system_level_key_is_persisted_immediately(monkeypatch, tmp_path)
     降级失败/早退时系统级 key 只剩云端哈希 ⇒ 本地永久不可得(pi 系统即如此)。
     """
     _env(monkeypatch, tmp_path)
-    monkeypatch.setattr(ss, "whoami", lambda *a, **k: {"scopes": ["system"], "email": ""})
+    monkeypatch.setattr(ss, "whoami", lambda *a, **k: {
+        "scope": "system", "category": "system", "email": ""})
     monkeypatch.setattr(ss, "create_api_key",
                         lambda *a, **k: {"error": "boom", "detail": "transient", "status": 500})
     _cfg(monkeypatch, tmp_path)

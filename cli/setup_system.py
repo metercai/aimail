@@ -62,9 +62,20 @@ def _persist_system_raw_key(system_id: str, key: str) -> None:
         logger.warning("[aimail_setup] failed to persist raw system key: %s", e)
 
 
+def _write_admin_key(cfg_path, key: str) -> None:
+    """Replace ``admin_key`` in an existing gateway config (formatting preserved)."""
+    if not Path(cfg_path).is_file():
+        return
+    with open(cfg_path) as f:
+        cfg = json.load(f)
+    cfg["admin_key"] = key
+    with open(cfg_path, "w") as f:
+        json.dump(cfg, f, indent=2)
+
+
 def _downgrade_to_domain_admin_key(
     gateway_url: str, system_admin_key: str, system_id: str,
-    domain: str,
+    domain: str, existing_key: str = "",
 ) -> str:
     """Create a DOMAIN-scoped admin key and replace admin_key in gateway config.
     Returns the new key on success, or the original key on failure.
@@ -97,29 +108,55 @@ def _downgrade_to_domain_admin_key(
     """
     # 0) 传入的 key 若已是受限级(复用路径下 cfg 里存的就是降级后的 key), 网关会以
     #    "cannot create scopes at level 1 or above" 拒绝 —— 这不是失败, 而是"无需
-    #    降级"。用 whoami 预检 + 错误文本双判(whoami 对某些 key/identity 组合可能
-    #    取不到作用域, 故以错误文本为准, 保证判定确定)。
+    #    降级"。whoami 预检 + 错误文本双判(whoami 取不到时以错误文本为准, 保证判定确定)。
+    #    ⚠ 字段以网关 core/api/whoami.rs 为准: scope(单个, 归一化后的首作用域) /
+    #    category / email / system_id —— 没有 `scopes` 列表(2026-09-26 修: 旧守卫读
+    #    `scopes` 恒为 None ⇒ 从不生效 ⇒ 每次重装都轮换出一把新 domain key)。
     try:
         me = whoami(gateway_url, system_admin_key, system_id)
-        scopes = me.get("scopes") if isinstance(me, dict) else None
-        if isinstance(scopes, list) and scopes:
-            low = [str(s).lower() for s in scopes]
-            if all(s in ("agent", "agent_admin") for s in low):
-                logger.info("[aimail_setup] key already agent-scoped (%s) — downgrade not needed",
-                            ",".join(scopes))
-                return system_admin_key
+        if isinstance(me, dict) and me:
+            scope = str(me.get("scope") or "").lower()
+            cat = str(me.get("category") or "").lower()
             _email = str(me.get("email") or "")
-            if "system" in low and not _email:
+            if cat in ("agent", "agent_admin") or scope in ("agent", "agent_admin"):
+                logger.info(
+                    "[aimail_setup] key already agent-scoped (%s/%s) — downgrade not needed",
+                    cat or "-", scope or "-",
+                )
+                return system_admin_key
+            if cat == "system" or (scope == "system" and not _email):
                 # whoami 证明这是**系统级** key(空 email) ⇒ 立刻落盘。
                 # 覆盖 admin-key 复用路径: 该路径下我们同样"拿到了系统级 key",
                 # 落盘与随后降级是否成功无关(2026-09-22 契约: 拿到即落盘)。
                 _persist_system_raw_key(system_id, system_admin_key)
-            if "system" in low and _email and "@" not in _email and _email == domain:
-                logger.info("[aimail_setup] key already domain-scoped (%s) — downgrade not needed",
-                            _email)
+            if cat == "domain" and _email and _email == domain:
+                # 已是**本域**的 domain 级 key ⇒ 不重复收窄(同级别创建会被网关拒,
+                # 且每次都造新 key 会造成轮换)。
+                logger.info(
+                    "[aimail_setup] key already domain-scoped (%s) — downgrade not needed",
+                    _email,
+                )
                 return system_admin_key
     except Exception:
         pass
+
+    # 0b) 幂等: 配置里已经存着**本域**的 domain 级 key ⇒ 直接复用, 不重新收窄。
+    #     否则显式 `-k <系统级 key>` 的重复安装每次都会轮换出一把新 domain key
+    #     (配置漂移 + 网关侧累积历史 key)。判据走 whoami(不猜字段)并要求域一致。
+    if domain and existing_key and existing_key != system_admin_key:
+        try:
+            ex = whoami(gateway_url, existing_key, "")
+            if (isinstance(ex, dict)
+                    and str(ex.get("category") or "").lower() == "domain"
+                    and str(ex.get("email") or "") == domain):
+                logger.info(
+                    "[aimail_setup] config already holds a domain-scoped key for %s — "
+                    "keeping it (no rotation)", domain,
+                )
+                _write_admin_key(gateway_config_path(system_id), existing_key)
+                return existing_key
+        except Exception:
+            pass
 
     if not domain:
         # 没有域可收窄 ⇒ 无法造 domain 形 key;保留系统级 key(不降级)并说明,
@@ -160,13 +197,7 @@ def _downgrade_to_domain_admin_key(
     _persist_system_raw_key(system_id, system_admin_key)
 
     # Replace in config file
-    cfg_path = gateway_config_path(system_id)
-    if cfg_path.is_file():
-        with open(cfg_path) as f:
-            cfg = json.load(f)
-        cfg["admin_key"] = raw
-        with open(cfg_path, "w") as f:
-            json.dump(cfg, f, indent=2)
+    _write_admin_key(gateway_config_path(system_id), raw)
     logger.info("[aimail_setup] domain-scoped admin key created and saved (domain=%s)", domain)
     return raw
 
@@ -554,9 +585,12 @@ def setup(
         # Least-privilege domain-scoped key; the identity is the bare domain
         # (explicit arg, else the config being reused) — see
         # _downgrade_to_domain_admin_key for why the manager address is wrong.
+        # `prev["admin_key"]` (read BEFORE the write above) is passed so a repeated
+        # install keeps the domain key already stored instead of rotating it.
         agent_key = _downgrade_to_domain_admin_key(
             gateway_url, admin_key, system_id,
             domain or prev.get("domain", ""),
+            prev.get("admin_key", ""),
         )
         return {"success": True, "system_id": system_id, "path": "admin_key", "admin_key": agent_key}
 

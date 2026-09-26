@@ -3039,7 +3039,7 @@ scenario groups:
     p_install.add_argument("-H", "--home", **common_home)
     p_install.add_argument("-s", "--system-id", **common_sid)
     p_install.add_argument("-c", "--product-code", help="product activation code (new system path)")
-    p_install.add_argument("-k", "--admin-key", help="admin key of an already-activated system (reuse path)")
+    p_install.add_argument("-k", "--admin-key", help="agent-side system key of an already-activated system (reuse path; the system key file the gateway prints at start — the gateway's own admin key is refused)")
     p_install.add_argument("-g", "--gateway-url", default=None, **common_gw)
     p_install.add_argument("-n", "--system-name", help="system name (shared-domain identifier)")
     p_install.add_argument("-m", "--manager", **common_mgr)
