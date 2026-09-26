@@ -194,8 +194,7 @@ aimail stats -a     # 全面视图:健康标注 + 断链系统 + 本机平台段
 aimail repair [--system-id <sid>] [--home <root>] [--deep] [--dry-run]
 ```
 
-`--dry-run` 只打印计划。修复阶梯(每步幂等, 且每步都会打印自己的结论:
-✓已修 / ✓无需修 / ⚠跳过+原因):
+`--dry-run` 只打印计划。修复阶梯(每步幂等, 且每步都会打印自己的结论 —— 完成 / 无需修 / 跳过+原因):
 
 1. bridge 存活(死了则拉起)
 2. 路由重刷(bridge --system-id)
@@ -213,11 +212,11 @@ aimail repair [--system-id <sid>] [--home <root>] [--deep] [--dry-run]
 修复过程有两种类型, 明确收口:
 
 - 可自修(auto): 确定性、只依赖本机、不看服务端/宿主状态。阶梯必须覆盖它;
-  修完前提满足却仍 FAIL ⇒ 缺陷(输出 [D 本机可修·仍未修], 退出码 1), 请连同日志反馈维护者。
+  修完前提满足却仍 FAIL ⇒ 缺陷(输出 [D locally fixable, still failing], 退出码 1), 请连同日志反馈维护者。
 - 仅提示(hint): 不可靠自修(需要网关/agent 进程、服务端注册或管理员参与)。
   repair 只打印原因与建议动作, 不硬试; 残留 [H 需管理员/宿主] 属正常。
 
-复检结尾固定输出「本机可修缺陷 <n> 项 / 需管理员介入 <m> 项」。未登记的维度按 hint 处理
+复检结尾固定输出「re-check not all green: <n> locally-fixable defect(s) / <m> needing admin action」。未登记的维度按 hint 处理
 并给原因。
 
 `--deep` 额外执行 webhook 配对重写与 stuck pending 清理。

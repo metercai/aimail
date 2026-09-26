@@ -238,12 +238,12 @@ so a no-op is never ambiguous.
 
 - **self-repairable** — deterministic, local, independent of server/host state. The ladder must
   cover it; if it still fails after repair with its prerequisites met, that is a **defect**
-  (printed as `[D 本机可修·仍未修]`, exit code 1) worth reporting to the maintainer.
+  (printed as `[D locally fixable, still failing]`, exit code 1) worth reporting to the maintainer.
 - **hint-only** — cannot be repaired reliably (needs the gateway or agent process, the
   server-side registration, or the sysadmin). `repair` prints the reason plus the suggested
-  action and does not force it; a remaining `[H 需管理员/宿主]` is normal.
+  action and does not force it; a remaining `[H needs admin/host action]` is normal.
 
-The re-check closes with `本机可修缺陷 <n> 项 / 需管理员介入 <m> 项` (locally-fixable defects /
+The re-check closes with `re-check not all green: <n> locally-fixable defect(s) / <m> needing admin action` (locally-fixable defects /
 needs-admin items). A check dimension that is not registered is treated as hint-only and
 reported with a reason — never silently skipped.
 
