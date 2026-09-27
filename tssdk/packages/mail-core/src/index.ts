@@ -133,3 +133,4 @@ export {
   fillTemplate,
   routeAddressFromHeaders,
 } from './preprocess.js'
+export { logAimailDispatch } from './log.js'

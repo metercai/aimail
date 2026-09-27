@@ -16,7 +16,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { verifySignature, processInboundMail, routeAddressFromHeaders, type InboundPayload } from '@aimail/mail-core'
+import { verifySignature, processInboundMail, routeAddressFromHeaders, logAimailDispatch, type InboundPayload } from '@aimail/mail-core'
 import type { OpenClawPluginApi } from 'openclaw/plugin-sdk/plugin-entry'
 import { resolveByRecipient } from '@aimail/mail'
 import { gatewayPort, readPointer } from './identity.js'
@@ -169,6 +169,11 @@ export function createInboundHandler(api: OpenClawPluginApi) {
         agentId,
         message: JSON.stringify({ ...result, to: agentAddr }),
       })
+      // E3-① (owner ruling 2026-09-27): record the dispatch outcome in the SAME per-agent
+      // log the inbound line goes to. Measured on the CLI gate's J4e: without this line a
+      // refused/suppressed dispatch was invisible — the log showed only {"event":"inbound"}
+      // and nothing told the operator that no agent ever took the mail.
+      await logAimailDispatch(cfg.email, out.status, out.detail, agentAddr)
       writeJson(res, 200, out)
     } catch (e) {
       writeJson(res, 500, {

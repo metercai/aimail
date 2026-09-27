@@ -42,3 +42,16 @@ export async function logAimailOutbound(
 
 /** Inbound/ping log lines (preprocess.ts) share this sink. */
 export { appendLog }
+
+/** E3-① (owner ruling 2026-09-27): the adapter's own dispatch outcome. Without this line
+ * a refused/suppressed hand-off to the agent is invisible — measured on the CLI gate's
+ * J4e, where the log held only the inbound line and nothing said the agent never took the
+ * mail. Mirrors the outbound helper's shape. */
+export async function logAimailDispatch(
+  email: string,
+  status: string,
+  detail: string,
+  to: string,
+): Promise<void> {
+  await appendLog(email, { event: 'dispatch', status, detail, to })
+}
