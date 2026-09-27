@@ -5,7 +5,7 @@ publish-pypi.yml 内嵌调用),覆盖三层:
 
 | 层 | 脚本 | 时机 | 拦什么 |
 |---|---|---|---|
-| L0 提交级 | gate-tests.sh | 每次发布前(本地+CI test job) | lint/单测/编译失败、**注册链单元回归**(tests/test_registration_chain.py)、**平台字面泄漏**(platform-boundary gate) |
+| L0 提交级 | gate-tests.sh | 每次发布前(本地+CI test job) | lint/单测/编译失败、**注册链单元回归**(tests/test_registration_chain.py)、**平台字面泄漏**(platform-boundary gate)、**契约单一真源**(consts==清单+字面量棘轮+frontmatter)、**文档↔实现一致**(符号存在/双语标题结构/契约值==真源) |
 | L1 版本一致性 | check-versions.sh | tag 前 | 双源漂移、tag≠版本、npm 依赖顺序(被依赖版本未发布) |
 | L2 产物门禁 | check-tarball.sh | pack 后、publish 前(CI 内) | E415 hardlink、symlink、workspace: 残留、版本错、main/types 悬空、空包 |
 | **L2.5 宿主行为回归** | 手动清单(见下) | **stable tag 前**(rc 包或本地包装到真实宿主) | CI 单测覆盖不到的 SDK 行为:注册链×真实网关、绑定落盘、收信链(ping/welcome 双路 E2E) |
@@ -19,7 +19,7 @@ typebox)→ L2 检查 1(与 npm 版本行为无关);CI Test 过但 publish 路�
 ## 用法(从仓库根)
 
 ```bash
-tests/sdk-release-gates/gate-tests.sh                 # L0: python lint+pytest + tssdk tsc+vitest
+tests/sdk-release-gates/gate-tests.sh                 # L0: python lint+pytest + 契约/文档门禁 + tssdk tsc+vitest
 tests/sdk-release-gates/check-versions.sh             # L1: 版本一致性(需 git tag 参数?自动取)
 tests/sdk-release-gates/check-tarball.sh <tgz> <ver>  # L2: 单包 tarball 6 项检查
 tests/sdk-release-gates/verify-published.sh           # L3: registry 冒烟(取本地最新 tag)

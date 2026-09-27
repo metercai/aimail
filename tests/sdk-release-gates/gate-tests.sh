@@ -24,6 +24,17 @@ if [ "$_css_rc" -ne 0 ]; then
   exit 1
 fi
 echo "[L0] contract single-source: consts == manifest; frontmatter 5/5; literal ratchet clean"
+# 文档↔实现一致性(2026-09-27, 用户裁决「文档承诺的能力必须被实现兜住」):
+# docs/agent-self-setup{,_zh}.md ①反引号里的 SDK 符号必须真有定义
+# ②en/zh 标题结构逐条一致 ③文档里的契约值必须逐字命中单一真源清单。
+# rc: 0=通过 1=违约(带 file:line) 2=判不了(文档/清单读不到) —— fail-closed。
+_doc_rc=0
+python3 tests/contract/check-docs-consistency.py || _doc_rc=$?
+if [ "$_doc_rc" -ne 0 ]; then
+  echo "[L0] FAIL: docs↔impl consistency rc=$_doc_rc (1=symbol/contract/structure violation, 2=cannot-judge; fail-closed)"
+  exit 1
+fi
+echo "[L0] docs↔impl: symbols defined; en/zh heading structure equal; contract values == manifest"
 # 平台边界 gate:CLI 代码不得出现平台字面分支(新增平台/多 agent 注册只改
 # cli/platforms.json + SDK,CLI 零改动)。白名单 = 空(cmd_reset 特例已随
 # register_all 表化删除)——出现任何平台字面即红。

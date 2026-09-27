@@ -8,7 +8,9 @@
       Python ``pysdk/aimail_contract.py`` 的每个契约常量必须逐项 == 清单。
       **Rust 侧本批未覆盖**(gateway/bridge 两仓留下批)⇒ 输出里登记为 GAP。
   (b) 字面量白名单棘轮: 清单里的字面量只允许出现在白名单(清单自身、两个
-      常量模块、本门禁目录、以及带 ``contract-allowed: <理由>`` 注释的行)。
+      常量模块、本门禁目录、两份自举文档 `DOCS_WHITELIST`(理由见其注释:
+      它们必须逐字引用契约值, 改由 check-docs-consistency.py 强校验)、以及带
+      ``contract-allowed: <理由>`` 注释的行)。
       其余位置按"文件 × 字面量"计数, 与基线
       ``tests/contract/contract-literal-baseline.json`` 比对 —— **只许减不许增**;
       新增位置 ⇒ FAIL 并给 ``file:line`` + 当前/基线计数。
@@ -55,7 +57,13 @@ PY_CONTRACT = "pysdk/aimail_contract.py"
 MANIFEST_REL = "contract/aimail-contract.json"
 BASELINE_REL = "tests/contract/contract-literal-baseline.json"
 GATE_DIR = "tests/contract/"          # 门禁自身目录(含基线)整体白名单
-WHITELIST_FILES = (MANIFEST_REL, TS_CONTRACT, PY_CONTRACT, BASELINE_REL)
+# 文档面白名单(2026-09-27, 用户裁决「文档能力必须被实现兜住」): docs/agent-self-setup
+# 这两份自举文档**必须逐字引用**契约值(入站路径、注册名、绑定/指针文件名、端口、
+# agent 级前缀)才讲得清闭环, 所以"字面量位置计数"这套棘轮对它们不适用; 它们改由
+# 同目录的 check-docs-consistency.py 以「值 == 清单」逐字命中方式强校验(比位置计数
+# 更强: 写错一个字符就红), 两套检查同在 L0 里跑, 覆盖不降级。
+DOCS_WHITELIST = ("docs/agent-self-setup.md", "docs/agent-self-setup_zh.md")
+WHITELIST_FILES = (MANIFEST_REL, TS_CONTRACT, PY_CONTRACT, BASELINE_REL) + DOCS_WHITELIST
 ALLOW_MARKER = "contract-allowed:"    # 行内逃生门(必须带理由)
 
 # ── 规则 (c): 5 份 SKILL.md(1 真源 + 4 物化产物)──────────────────────────

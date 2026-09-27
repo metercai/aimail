@@ -67,6 +67,7 @@ AIMail supports **system-level install** from the terminal: add the AIMail modul
 
 - Start from the **shared-domain mail gateway** and apply for a dedicated Agent mail address, which gives you the matching activation prompt. A free test service is available at <https://aimail.token.tm/apply/address>.
 - Then copy the activation prompt for the address you received into the Agent's chat and run it.
+- The agent-side loop this prompt drives — activate and persist, then pull the mail into the Agent's own inbound chain and reply — is documented step by step in [Single-Agent address self-setup](docs/agent-self-setup.md).
 
 #### 2. No dedicated domain needed: connect the shared mail gateway to the local Agent system, add the AIMail module, and give every Agent mail capability
 
