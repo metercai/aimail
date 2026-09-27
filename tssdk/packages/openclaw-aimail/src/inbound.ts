@@ -22,6 +22,7 @@ import {
   routeAddressFromHeaders,
   logAimailDispatch,
   startAgentPullEntries,
+  AGENT_SCOPE_SYSTEM_PREFIX,
   type AgentConfig,
   type AgentPullHandle,
   type AgentPullOverrides,
@@ -30,7 +31,13 @@ import {
 } from '@aimail/mail-core'
 import type { OpenClawPluginApi } from 'openclaw/plugin-sdk/plugin-entry'
 import { resolveByRecipient } from '@aimail/mail'
-import { gatewayPort, hooksPath, readPointer, resolveAgentId } from './identity.js'
+import {
+  configuredAgentIds,
+  gatewayPort,
+  hooksPath,
+  readPointer,
+  resolveAgentId,
+} from './identity.js'
 
 // 契约常量唯一副本 = @aimail/mail-core(src/contract.ts ← contract/aimail-contract.json)。
 // 这里 re-export 保持本模块既有公开面(identity.ts / index.ts 从 './inbound.js' 取它)。
@@ -173,6 +180,41 @@ export async function resolveInboundTarget(
 }
 
 /**
+ * Dispatch target for one inbound delivery — the ONE place a binding's
+ * identity is translated into the host's agent namespace.
+ *
+ * System/bridge bindings (push-served) carry the HOST agent id in `agent_id`:
+ * `openclaw aimail register` writes it from the host's own identity, so it
+ * stays authoritative and the push path keeps exactly the value it always had.
+ *
+ * Address-level bindings do NOT: `shared_addr_*` only exists because an
+ * activation CODE was consumed, and there `agent_id` is written from the
+ * ADDRESS's local part (mail-core address-code.ts) — an ADDRESS-level value,
+ * not a host agent. Feeding it to the host anyway is what made the address-code
+ * flow red on 0.1.25 (E2-pull/openclaw): the mail WAS polled and taken, but
+ * `/hooks/agent` answered `400 unknown agentId "agenta"`, `deliverInbound`
+ * returned `ok:false`, and the delivery was deliberately not acked — re-pulled
+ * every round and never reaching an agent turn.
+ *
+ * So address-level bindings resolve here, at the address level: the delivery's
+ * own address local part when the host really has such an agent, else the
+ * host's declared/default agent. Never a local part the host does not know (a
+ * rejected dispatch stays a non-ack, never a silent drop).
+ * Exported for the L1 pin (test/dispatch-target.test.ts).
+ */
+export function resolveDispatchAgentId(cfg: AgentConfig, agentAddr: string): string {
+  const fromBinding = (cfg.agent_id ?? '').trim()
+  // Same fact mail-core's pull gate uses (poll-entry.ts isAgentScopeBinding):
+  // `shared_addr_*` ⇔ activation-code product ⇔ address-scope binding.
+  const addressScope = !!cfg.system_id && cfg.system_id.startsWith(AGENT_SCOPE_SYSTEM_PREFIX)
+  if (!addressScope) return fromBinding
+  const addr = String(agentAddr ?? '')
+  const local = (addr.includes('@') ? addr.split('@')[0] ?? '' : addr).trim()
+  if (local && configuredAgentIds().includes(local)) return local
+  return resolveAgentId()
+}
+
+/**
  * Post-routing inbound chain: preprocess (13 steps + ping/pong intercept) →
  * deliver to the owning agent's session → dispatch log.
  *
@@ -197,7 +239,10 @@ export async function deliverInbound(
     // ping/pong & other intercepts: handled, nothing to deliver.
     return { status: 'intercepted', ok: true }
   }
-  const agentId = cfg.agent_id || 'main'
+  // Dispatch target: `resolveDispatchAgentId` translates the binding into the
+  // host's agent namespace (address-level bindings must not hand the host an
+  // address local part — the 0.1.25 E2-pull defect). One rule, both entries.
+  const agentId = resolveDispatchAgentId(cfg, agentAddr)
   const out = await deliverToAgent(api, {
     agentId,
     message: JSON.stringify({ ...result, to: agentAddr }),

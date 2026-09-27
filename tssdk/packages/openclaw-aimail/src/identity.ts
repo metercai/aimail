@@ -179,6 +179,36 @@ export function resolveAgentId(): string {
   }
 }
 
+/**
+ * Host-visible agent roster — the ids the host itself accepts as a directly
+ * supplied `agentId` ("Direct request agent ids must exist", host docs
+ * /gateway/config-hooks). Source: openclaw.json `agents.entries` keys (the
+ * multi-agent roster) plus the ids declared under `agents.defaults.*`
+ * (sessionStore/systemAgent — the same two keys resolveAgentId reads).
+ * Read-only, never guessed; empty when the host config is absent/unreadable.
+ */
+export function configuredAgentIds(): string[] {
+  try {
+    const p = path.join(openclawHome(), '.openclaw', 'openclaw.json')
+    const cfg = JSON.parse(fs.readFileSync(p, 'utf-8')) as {
+      agents?: {
+        entries?: Record<string, unknown>
+        defaults?: { sessionStore?: { agentId?: unknown }; systemAgent?: { agentId?: unknown } }
+      }
+    }
+    const a = cfg.agents ?? {}
+    const ids = Object.keys(a.entries ?? {})
+    for (const declared of [a.defaults?.sessionStore?.agentId, a.defaults?.systemAgent?.agentId]) {
+      if (typeof declared === 'string' && declared.trim() && !ids.includes(declared.trim())) {
+        ids.push(declared.trim())
+      }
+    }
+    return ids
+  } catch {
+    return []
+  }
+}
+
 /** OpenClaw gateway HTTP port (openclaw.json gateway.port, default 18789). */
 export function gatewayPort(): number {
   try {
