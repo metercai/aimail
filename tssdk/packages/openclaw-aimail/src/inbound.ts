@@ -46,7 +46,7 @@ function readBody(req: IncomingMessage): Promise<Buffer> {
  * subagent.run/chat.send were tried first historically but require
  * operator.write scope the plugin does not have.
  */
-async function deliverToAgent(
+export async function deliverToAgent(
   api: OpenClawPluginApi,
   opts: { agentId: string; message: string },
 ): Promise<{ status: string; detail: string }> {
@@ -66,7 +66,10 @@ async function deliverToAgent(
       // "agentId ... Must name a configured agent"、"Required when no implicit/retained
       // owner can be resolved"，不给就是 400(实测: 端点在了、认证过了, 仍 400)。
       agentId,
-      sessionKey: `agent:${agentId}:hook:aimail`,
+      // S1e (2026-09-27): **不送 caller sessionKey**。直连 /agent 上调用方自带 key 需要宿主
+      // 显式 allowRequestSessionKey + 前缀白名单(文档 "Hook session and agent policy"),
+      // 否则按合同 400(routing/session policy)。省略 ⇒ 宿主生成 hook:<uuid>,
+      // 每次邮件都是干净的新 turn(本集成不需要会话复用)。
       deliver: false,
     }),
   })
