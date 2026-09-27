@@ -1,0 +1,18 @@
+{
+  "_comment": "AIMail agent-side contract — SINGLE SOURCE OF TRUTH. Consumers (Python pysdk/aimail_contract.py, TypeScript tssdk/packages/mail-core/src/contract.ts) MUST equal these values; tests/contract/check-contract-single-source.py fails the L0 gate on any drift.",
+  "version": 1,
+  "inbound_path": "/aimail/inbound",
+  "hermes_inbound_path": "/webhooks/aimail-inbound",
+  "hermes_route_name": "aimail-inbound",
+  "agent_skill_name": "agentmail",
+  "agent_toolset_name": "agentmail",
+  "binding_file": "agentmail.json",
+  "pointer_file": ".agentmail",
+  "inbound_ports": {
+    "dsh": 9099,
+    "pi": 9101,
+    "deerflow": 8001
+  },
+  "bridge_default_path": "/webhooks/aimail-inbound",
+  "notes": "边界(owner 裁决 2026-09-27, 破坏者 = 改名提交 d701dae 2026-09-03)。合法的 `aimail` 面 = 产品/仓库/框架/CLI 名 + 目录名(~/.aimail)+ 环境变量前缀(AIMAIL_*): 这些不是 agent 内部契约名, 不许按本清单判违约。本清单约束的只有 **agent 内部契约面**: skill/toolset 注册名(agentmail)、绑定文件名(agentmail.json)、指针文件名(.agentmail)、入站路径(/aimail/inbound)。判据 = 宿主按 frontmatter `name:` 建 skill 表并以 `/{name}` 查表(hermes-agent/agent/skill_commands.py), 目录名 skills/agentmail + name: aimail => 路由 skills=['agentmail'] 永远 miss(gateway 日志 `Skill 'agentmail' not found`) => 邮件照投但 agent 拿不到 6 步回信协议。 端口可配、路径不可变: dsh 9099(AIMAIL_INBOUND_PORT)、pi 9101(extension 选项 inboundPort)、deerflow 8001(宿主 gateway); openclaw 复用宿主网关端口(18789), 进程内路由不开新口。 hermes 是唯一路径例外 = /webhooks/aimail-inbound(hermes 网关自身路由名 aimail-inbound)。 pull/push: 注册值 webhook_url 为空 = pull(gateway 去取件, **空不是缺陷**), 有值 = push; 但绑定文件 agentmail.json 里的 webhook_url 恒为本机接收端点, 永远不是注册值。 本批未覆盖(下批接): Rust(gateway/bridge 两仓)——清单已备 bridge_default_path 字段。"
+}

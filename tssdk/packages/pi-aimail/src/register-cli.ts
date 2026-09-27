@@ -24,6 +24,8 @@ import * as path from 'node:path'
 import {
   autoBind,
   emailForAgent,
+  inboundUrl,
+  INBOUND_PORTS,
   listSystemDirs,
   readSystemConfig,
 } from '@aimail/mail-core'
@@ -39,7 +41,7 @@ async function main(): Promise<number> {
   const emailArg = arg(argv, '--email')
   const manager = arg(argv, '--manager')
   const localWebhook =
-    arg(argv, '--local-webhook') || 'http://127.0.0.1:9101/aimail/inbound'
+    arg(argv, '--local-webhook') || inboundUrl(INBOUND_PORTS.pi)
 
   const systemId =
     systemIdArg ||

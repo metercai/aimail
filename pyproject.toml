@@ -61,6 +61,8 @@ packages = []
 "pysdk/aimail_base.py" = "aimail/aimail_base.py"
 "pysdk/aimail_tools.py" = "aimail/aimail_tools.py"
 "pysdk/aimail_board.py" = "aimail/aimail_board.py"
+# agent 侧契约常量(入站路径/端口/skill 名) —— 适配层与会话工具都裸导入它
+"pysdk/aimail_contract.py" = "aimail/aimail_contract.py"
 "pysdk/gateway_api.py" = "aimail/gateway_api.py"
 "pysdk/aimail_mcp_server.py" = "aimail/aimail_mcp_server.py"
 "pysdk/install.py" = "aimail/install.py"

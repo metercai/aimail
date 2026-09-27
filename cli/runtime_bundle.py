@@ -44,11 +44,14 @@ STAMP_NAME = ".aimail-runtime.json"
 # 目标目录模板:{program_root} = 本机程序根(runtime_core 单点解析)
 _PROGRAM_ROOT = "{program_root}"
 
-# 核心 4 + bootstrap(所有 bundle 共享)
+# 核心 4 + bootstrap + 契约常量(所有 bundle 共享)
+# aimail_contract.py = agent 侧契约常量(入站路径/端口/skill 名), 适配层与
+# deer-flow router 都裸导入它 ⇒ 必须随捆绑一起落地。
 _CORE_FILES = {
     "aimail_base.py": "aimail_base.py",
     "aimail_tools.py": "aimail_tools.py",
     "aimail_board.py": "aimail_board.py",
+    "aimail_contract.py": "aimail_contract.py",
     "gateway_api.py": "gateway_api.py",
     "_aimail_bootstrap.py": "_aimail_bootstrap.py",
 }

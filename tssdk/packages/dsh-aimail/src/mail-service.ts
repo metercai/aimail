@@ -26,6 +26,8 @@ import {
   ensureSystem,
   detectSystemForHome,
   hasAnySystem,
+  INBOUND_PATH,
+  INBOUND_PORTS,
   listSystemDirs,
   readSystemConfig,
   releaseAllSystems,
@@ -52,15 +54,13 @@ export interface MailService {
   resolveByRecipient(email: string): Promise<AgentConfig | undefined>
 }
 
-/** Local inbound path the dsh-aimail/inbound entry listens on (default). */
-const INBOUND_PATH = '/aimail/inbound'
-
-/** The local receive endpoint registered as this session's webhook_url. */
+/** The local receive endpoint registered as this session's webhook_url.
+ * 路径/端口契约常量唯一副本 = @aimail/mail-core(contract/aimail-contract.json)。 */
 function inboundWebhookUrl(): string {
   const fromEnv = (process.env.AIMAIL_INBOUND_URL ?? '').trim()
   if (fromEnv) return fromEnv.replace(/\/+$/, '') + INBOUND_PATH
-  const port = Number(process.env.AIMAIL_INBOUND_PORT ?? 9099)
-  const p = Number.isInteger(port) && port > 0 ? port : 9099
+  const port = Number(process.env.AIMAIL_INBOUND_PORT ?? INBOUND_PORTS.dsh)
+  const p = Number.isInteger(port) && port > 0 ? port : INBOUND_PORTS.dsh
   return `http://127.0.0.1:${p}${INBOUND_PATH}`
 }
 

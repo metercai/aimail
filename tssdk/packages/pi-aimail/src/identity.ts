@@ -20,6 +20,8 @@ import {
   autoBind,
   emailForAgent,
   hasAnySystem,
+  INBOUND_PATH,
+  INBOUND_PORTS,
   listSystemDirs,
   loadAgentConfig,
   loadConfigByAgentId,
@@ -113,9 +115,9 @@ export function setInboundEndpoint(url: string): void {
 
 function inboundWebhookUrl(): string {
   const fromEnv = (process.env.AIMAIL_INBOUND_URL ?? '').trim()
-  if (fromEnv) return fromEnv.replace(/\/+$/, '') + '/aimail/inbound'
+  if (fromEnv) return fromEnv.replace(/\/+$/, '') + INBOUND_PATH
   if (_inboundEndpoint) return _inboundEndpoint
-  return 'http://127.0.0.1:9101/aimail/inbound'
+  return `http://127.0.0.1:${INBOUND_PORTS.pi}${INBOUND_PATH}`
 }
 
 /** Process once-guard: auto-bind at most once per run. */

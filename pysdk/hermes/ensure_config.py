@@ -14,10 +14,13 @@ register_profiles.py)从未写以下配置,全靠手工补——缺任一项即�
 platform_toolsets / skills 目录 / agentmail.json 等 Agent 内语义一律 agentmail)。
 
 路由(webhook_subscriptions.json)由注册链 _auto_register_email →
-_ensure_webhook_route 创建 `aimail-inbound`(skills=['agentmail'],路由名
-= 外部入站路径用 aimail-inbound;skills 列表 = 内部工具/技能名 agentmail)
-——**不需要第二条 inbound 路由**:bridge 转发路径取自路由表全 URL
-(http://127.0.0.1:8646/webhooks/aimail-inbound);注册一条 aimail-inbound 即可。
+_ensure_webhook_route 创建 hermes 的路由名(契约 HERMES_ROUTE_NAME =
+`aimail-inbound`,入站路径 = 契约 HERMES_INBOUND_PATH =
+`/webhooks/aimail-inbound`;skills 列表 = 内部工具/技能名 = 契约
+AGENT_SKILL_NAME = `agentmail`)——**不需要第二条 inbound 路由**:bridge 转发
+路径取自路由表全 URL;注册一条即契约路由名即可。
+(路径/名字一律取 aimail_contract 常量, 别再写第二份字面量:真源 =
+仓根 contract/aimail-contract.json, 门禁 tests/contract/check-contract-single-source.py)
 
 本模块幂等: 已存在的配置项保留(尤其 secret——变更会致 bridge 转发
 HMAC 401);只补缺失项。由 hermes/register_profiles.py(安装链 per-profile
@@ -47,8 +50,11 @@ else:
     except Exception:
         pass
 
-# webhook 会话默认工具集(用户批准);仅确保 agentmail 存在,其余不覆盖
-WEBHOOK_TOOLSET = ["agentmail", "web", "file", "terminal", "search", "delegation"]
+# agent 侧契约常量(真源 = 仓根 contract/aimail-contract.json)
+import aimail_contract as _contract  # noqa: E402
+
+# webhook 会话默认工具集(用户批准);仅确保契约 toolset 名存在,其余不覆盖
+WEBHOOK_TOOLSET = [_contract.AGENT_TOOLSET_NAME, "web", "file", "terminal", "search", "delegation"]
 
 
 def _load_yaml(path: Path) -> dict:
@@ -95,27 +101,27 @@ def ensure_profile_config(profile_dir: Path) -> list:
         changes.append(f"platforms.webhook enabled (port={port})")
         dirty = True
 
-    # 2) platform_toolsets.webhook 含 agentmail(webhook 会话工具能力)
+    # 2) platform_toolsets.webhook 含契约 toolset 名(webhook 会话工具能力)
     pt = cfg.get("platform_toolsets") or {}
     wh_tools = pt.get("webhook") or []
     if not isinstance(wh_tools, list):
         wh_tools = []
-    if "agentmail" not in wh_tools:
+    if _contract.AGENT_TOOLSET_NAME not in wh_tools:
         if not wh_tools:
             wh_tools = list(WEBHOOK_TOOLSET)
         else:
-            wh_tools.append("agentmail")
+            wh_tools.append(_contract.AGENT_TOOLSET_NAME)
         pt["webhook"] = wh_tools
         cfg["platform_toolsets"] = pt
         changes.append(f"platform_toolsets.webhook -> {wh_tools}")
         dirty = True
 
-    # 3) platform_toolsets.cli 含 agentmail(用户定调 cli 也要加)
+    # 3) platform_toolsets.cli 含契约 toolset 名(用户定调 cli 也要加)
     cli_tools = pt.get("cli") or []
     if not isinstance(cli_tools, list):
         cli_tools = []
-    if "agentmail" not in cli_tools:
-        cli_tools.append("agentmail")
+    if _contract.AGENT_TOOLSET_NAME not in cli_tools:
+        cli_tools.append(_contract.AGENT_TOOLSET_NAME)
         pt["cli"] = cli_tools
         cfg["platform_toolsets"] = pt
         changes.append(f"platform_toolsets.cli -> {cli_tools}")

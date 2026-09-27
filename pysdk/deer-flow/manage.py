@@ -51,6 +51,7 @@ _BUNDLE_FILES = [
     ("aimail_base.py", "aimail_base.py"),
     ("aimail_tools.py", "aimail_tools.py"),
     ("aimail_board.py", "aimail_board.py"),
+    ("aimail_contract.py", "aimail_contract.py"),
     ("gateway_api.py", "gateway_api.py"),
     ("_aimail_bootstrap.py", "_aimail_bootstrap.py"),
 ]
@@ -91,9 +92,14 @@ _ADAPTER_DIR, _CORE_DIR = _bootstrap_runtime()
 import aimail_deerflow as _base     # noqa: E402   (deer-flow 适配层,本目录)
 import aimail_base as _core         # noqa: E402   (共享核心,父目录)
 import aimail_tools as _tools       # noqa: E402   (共享核心,父目录)
+import aimail_contract as _contract  # noqa: E402  (共享核心:agent 侧契约常量)
 # 注:resolve_register_webhook_url / register_bridge_route 定义在共享核心
 # aimail_base(共享核心)——适配层 aimail_deerflow 未转发,源 cli 脚本同款调用在其上
 # 会 AttributeError)——本模块这两处调用直接走 _core。
+
+# DeerFlow 本地入站端点(进程内预处理):路径 = 契约 INBOUND_PATH(不可变);
+# 端口可配(DEERFLOW_INBOUND_URL 覆盖,默认 = 契约 inbound_ports.deerflow)。
+_DEERFLOW_INBOUND_DEFAULT = "http://127.0.0.1:%d" % _contract.INBOUND_PORTS["deerflow"]
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -204,10 +210,10 @@ def register_agents(manager: str = "", system_id: str = "", agent: str = "") -> 
     if not agents:
         agents = ["default"]
 
-    # 本地接收端点(进程内预处理,DeerFlow 本地 gateway /aimail/inbound;
+    # 本地接收端点(进程内预处理,DeerFlow 本地 gateway + 契约 INBOUND_PATH;
     # DEERFLOW_INBOUND_URL 可覆盖);注册参数三态由 resolve_register_webhook_url 决定
-    inbound_base = os.environ.get("DEERFLOW_INBOUND_URL", "http://127.0.0.1:8001")
-    local_webhook_url = inbound_base.rstrip("/") + "/aimail/inbound"
+    inbound_base = os.environ.get("DEERFLOW_INBOUND_URL", _DEERFLOW_INBOUND_DEFAULT)
+    local_webhook_url = inbound_base.rstrip("/") + _contract.INBOUND_PATH
     reg_url = _core.resolve_register_webhook_url(gw, local_webhook_url)
 
     created = 0
@@ -362,8 +368,8 @@ def reconcile(system_id: str = "", manager: str = "", dry_run: bool = False) -> 
             if not dry_run:
                 wu = str(lc.get("webhook_url") or "").strip()
                 if not wu:
-                    inbound_base = os.environ.get("DEERFLOW_INBOUND_URL", "http://127.0.0.1:8001")
-                    wu = inbound_base.rstrip("/") + "/aimail/inbound"
+                    inbound_base = os.environ.get("DEERFLOW_INBOUND_URL", _DEERFLOW_INBOUND_DEFAULT)
+                    wu = inbound_base.rstrip("/") + _contract.INBOUND_PATH
                 em = str(lc.get("email") or "").strip()
                 if em and wu:
                     _report_bridge_route(_core.ensure_bridge_route(system_id, em, gw, wu))
@@ -375,10 +381,10 @@ def reconcile(system_id: str = "", manager: str = "", dry_run: bool = False) -> 
         email = _base.email_for_agent(agent_id, gw["domain"], gw.get("system_name", ""),
                                       default_aliases=("default",))
         webhook_secret = secrets.token_hex(32)
-        # 本地接收端点(进程内预处理,DeerFlow 本地 gateway /aimail/inbound;
+        # 本地接收端点(进程内预处理,DeerFlow 本地 gateway + 契约 INBOUND_PATH;
         # DEERFLOW_INBOUND_URL 可覆盖,2026-08-18 重构)
-        inbound_base = os.environ.get("DEERFLOW_INBOUND_URL", "http://127.0.0.1:8001")
-        local_webhook_url = inbound_base.rstrip("/") + "/aimail/inbound"
+        inbound_base = os.environ.get("DEERFLOW_INBOUND_URL", _DEERFLOW_INBOUND_DEFAULT)
+        local_webhook_url = inbound_base.rstrip("/") + _contract.INBOUND_PATH
         # 注册参数三态:push=bridge 公网入口 / pull=空 / 无 bridge=本地端点
         reg_url = _core.resolve_register_webhook_url(gw, local_webhook_url)
         reg = _base.register_agent_email(
@@ -634,10 +640,10 @@ def _bundle_version(core_dir: str, kind: str) -> str:
 def install_bundle(backend_dir: str, source_root: str = "", force: bool = False) -> int:
     """安装 deer-flow 运行时捆绑到宿主 routers/(扁平,幂等,md5 漂移可检出)。
 
-    源(pysdk 单一真源,7 文件)→ 目标 <gateway>/routers/:
+    源(pysdk 单一真源,8 文件)→ 目标 <gateway>/routers/:
       deer-flow/{aimail_inbound.py, aimail_deerflow.py}
-      {aimail_base.py, aimail_tools.py, aimail_board.py, gateway_api.py,
-       _aimail_bootstrap.py}
+      {aimail_base.py, aimail_tools.py, aimail_board.py, aimail_contract.py,
+       gateway_api.py, _aimail_bootstrap.py}
     落 .aimail-runtime.json 版本戳(bundle/version/source/installed_at/
     min_version/files md5),与原 runtime_bundle 戳同构。
 

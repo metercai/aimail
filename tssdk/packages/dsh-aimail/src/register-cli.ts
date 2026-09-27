@@ -24,6 +24,8 @@ import { randomUUID } from 'node:crypto'
 import {
   autoBind,
   emailForAgent,
+  inboundUrl,
+  INBOUND_PORTS,
   listSystemDirs,
   loadAgentConfig,
   readSystemConfig,
@@ -49,7 +51,7 @@ async function main(): Promise<number> {
   const sessionId = arg(argv, '--session-id')
   const preset = arg(argv, '--preset') || 'mail'
   const localWebhook =
-    arg(argv, '--local-webhook') || 'http://127.0.0.1:9099/aimail/inbound'
+    arg(argv, '--local-webhook') || inboundUrl(INBOUND_PORTS.dsh)
   const force = flag(argv, '--force')
 
   const systemId =

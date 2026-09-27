@@ -16,12 +16,14 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { verifySignature, processInboundMail, routeAddressFromHeaders, logAimailDispatch, type InboundPayload } from '@aimail/mail-core'
+import { verifySignature, processInboundMail, routeAddressFromHeaders, logAimailDispatch, INBOUND_PATH, type InboundPayload } from '@aimail/mail-core'
 import type { OpenClawPluginApi } from 'openclaw/plugin-sdk/plugin-entry'
 import { resolveByRecipient } from '@aimail/mail'
 import { gatewayPort, hooksPath, readPointer, resolveAgentId } from './identity.js'
 
-export const INBOUND_PATH = '/aimail/inbound'
+// 契约常量唯一副本 = @aimail/mail-core(src/contract.ts ← contract/aimail-contract.json)。
+// 这里 re-export 保持本模块既有公开面(identity.ts / index.ts 从 './inbound.js' 取它)。
+export { INBOUND_PATH }
 
 function writeJson(res: ServerResponse, code: number, body: unknown): void {
   res.writeHead(code, { 'Content-Type': 'application/json' })

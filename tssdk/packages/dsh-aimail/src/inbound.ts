@@ -21,7 +21,7 @@ import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { processInboundMail, verifySignature, routeAddressFromHeaders, updateAgentConfig, loadAgentConfig, saveAgentConfig, type InboundPayload } from '@aimail/mail-core'
+import { processInboundMail, verifySignature, routeAddressFromHeaders, updateAgentConfig, loadAgentConfig, saveAgentConfig, INBOUND_PATH, INBOUND_PORTS, type InboundPayload } from '@aimail/mail-core'
 import { ensureBridgeRoutesForSystem, formatBridgeRouteLine, isBridgeRouteWarning } from '@aimail/mail-core'
 import type { MailService } from './mail-service.js'
 
@@ -93,8 +93,8 @@ export function apply(ctx: Context, config: Config = {}): () => void {
     // non-fatal; retried on next plugin start
   }
   const host = config.host ?? '127.0.0.1'
-  const port = config.port ?? Number(process.env.AIMAIL_INBOUND_PORT ?? 9099)
-  const deliverPath = config.path ?? '/aimail/inbound'
+  const port = config.port ?? Number(process.env.AIMAIL_INBOUND_PORT ?? INBOUND_PORTS.dsh)
+  const deliverPath = config.path ?? INBOUND_PATH
 
   const server = createServer(async (req, res) => {
     try {

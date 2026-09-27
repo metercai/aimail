@@ -30,7 +30,9 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/aimail", tags=["aimail"])
+
+# 注:router 在下方 _aimail_bootstrap() 之后建立 —— prefix/route 两段都取自契约
+# 常量(aimail_contract.INBOUND_PATH), 而常量模块要等核心目录进 sys.path。
 
 # ── aimail 运行时核心定位(bundle / site-packages / 仓库 dev;不再依赖仓库路径)──
 def _aimail_bootstrap():
@@ -58,6 +60,12 @@ _aimail_bootstrap()
 # 共享核心(aimail_home 等):_find_agent_config 用 _ab.aimail_home()
 # 解析 home,必须 import aimail_base——缺了会 NameError。
 import aimail_base as _ab  # noqa: E402
+import aimail_contract as _contract  # noqa: E402  (入站路径唯一真源 = 契约)
+
+# 契约入站路径(默认 /aimail/inbound)拆成 FastAPI 的 prefix + route 两段:
+# 路径本身只在 contract/aimail-contract.json 里写一份。
+_INBOUND_PREFIX, _, _INBOUND_ROUTE = _contract.INBOUND_PATH.rpartition("/")
+router = APIRouter(prefix=_INBOUND_PREFIX, tags=["aimail"])
 
 
 def _verify_hmac(secret: str, body: bytes, signature: str) -> bool:
@@ -95,7 +103,7 @@ def _thread_id_for(email: str) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_DNS, f"aimail:{email}"))
 
 
-@router.post("/inbound")
+@router.post(_INBOUND_ROUTE)
 async def aimail_inbound(request: Request) -> JSONResponse:
     body = await request.body()
     try:

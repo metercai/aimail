@@ -32,6 +32,9 @@ if _HERMES_TOOLS_DIR not in sys.path:
 import aimail_base as core
 import aimail_tools as tools
 import aimail_board as board
+# agent 侧契约常量(dsh/pi/deer-flow/hermes 共用同一份; 真源 = 仓根
+# contract/aimail-contract.json, 门禁 tests/contract/check-contract-single-source.py)
+import aimail_contract as _contract
 
 # API 客户端（公共 aimail_tools._GatewayClient 全方法）
 _GatewayClient = tools._GatewayClient
@@ -72,7 +75,7 @@ board_members = board.board_members
 board_roles = board.board_roles
 board_status = board.board_status
 board_heartbeat = board.board_heartbeat
-_TOOLSET = "agentmail"
+_TOOLSET = _contract.AGENT_TOOLSET_NAME  # 契约值 "agentmail"(不是外部品牌 aimail)
 
 logger = logging.getLogger(__name__)
 
@@ -523,15 +526,17 @@ def _auto_register_email(name: str, profile_dir: str, config: dict) -> None:
         else:
             webhook_secret = wh_config["secret"]
             wh_port = wh_config["port"]
-            # 本地接收端点(进程内 preprocess 的 webhook 路由)
-            local_webhook_url = f"http://127.0.0.1:{wh_port}/webhooks/aimail-inbound"
+            # 本地接收端点(进程内 preprocess 的 webhook 路由; hermes 是唯一
+            # 路径例外 —— 契约值见 aimail_contract.HERMES_INBOUND_PATH)
+            local_webhook_url = _contract.hermes_inbound_url(wh_port)
             # Ensure aimail-inbound route exists (idempotent)
-            # skills=["agentmail"] so webhook sessions get the agentmail skill
-            # (send_mail protocol); without it the agent cannot reply by email.
-            # 注:skills 列表 = Agent 内标识 agentmail(不是外部品牌 aimail)。
+            # skills=[AGENT_SKILL_NAME] so webhook sessions get the agentmail
+            # skill (send_mail protocol); without it the agent cannot reply by
+            # email. 注:skills 列表 = Agent 内标识 agentmail(不是外部品牌
+            # aimail); 路由名 = hermes 网关自身路由名(契约 HERMES_ROUTE_NAME)。
             _ensure_webhook_route(
-                "aimail-inbound", webhook_secret, profile_dir=profile_dir,
-                skills=["agentmail"],
+                _contract.HERMES_ROUTE_NAME, webhook_secret, profile_dir=profile_dir,
+                skills=[_contract.AGENT_SKILL_NAME],
             )
 
     # 注册参数三态(webhook_host):push=bridge 公网入口 / pull=空 / 无 bridge=本地端点

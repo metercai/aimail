@@ -6,6 +6,7 @@
  */
 export * from './types.js'
 export * from './typebox-params.js'
+export * from './contract.js'
 export { GatewayClient } from './gateway.js'
 export { computeApiSignature, sha256Hex } from './api-signature.js'
 export {

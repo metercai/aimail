@@ -21,13 +21,15 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
-import { ensureSystem, ensureBridgeRoutesForSystem, formatBridgeRouteLine, isBridgeRouteWarning, processInboundMail, releaseAllSystems, routeAddressFromHeaders, verifySignature, type InboundPayload } from '@aimail/mail-core'
+import { ensureSystem, ensureBridgeRoutesForSystem, formatBridgeRouteLine, isBridgeRouteWarning, processInboundMail, releaseAllSystems, routeAddressFromHeaders, verifySignature, INBOUND_PATH, INBOUND_PORTS, type InboundPayload } from '@aimail/mail-core'
 import { resolveByRecipient } from '@aimail/mail'
 import { agentIdentity, initIdentity, readPointer, setInboundEndpoint } from './identity.js'
 import { buildPiTools } from './tools.js'
 
-export const INBOUND_PATH = '/aimail/inbound'
-const DEFAULT_INBOUND_PORT = 9101
+// 契约常量唯一副本 = @aimail/mail-core(src/contract.ts ← contract/aimail-contract.json)。
+// 这里 re-export 保持本模块既有公开面(dist/index.d.ts 曾导出 INBOUND_PATH)。
+export { INBOUND_PATH }
+const DEFAULT_INBOUND_PORT = INBOUND_PORTS.pi
 
 export interface PiAimailOptions {
   /** Inbound listener port (default 9101). */
