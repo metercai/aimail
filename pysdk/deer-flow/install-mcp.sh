@@ -4,7 +4,32 @@
 # 自包含载荷 <程序根>/mcp/(经 runtime_bundle.py 安装,源 pip>repo,版本戳;
 # 与仓库路径解耦,改名/mv 不影响运行;落点由 runtime_bundle 单点给出)。
 # 幂等: 已存在 aimail server 块则更新路径/env,否则追加。
-set -e
+#
+# 落点(2026-09-27 修): 必须与 deer-flow 自己的
+# `ExtensionsConfig.resolve_config_path()` 同序,否则写进去的文件 deer-flow
+# 永远不读 ⇒ 工具一块都不加载(且 install_steps 是 on_error=warn ⇒ 静默)。
+# deer-flow 真实解析(第三方只读参考):
+#   backend/packages/harness/deerflow/config/extensions_config.py:419+
+#     ① 显式 config_path → ② DEER_FLOW_EXTENSIONS_CONFIG_PATH →
+#     ③ project_root() 下**已存在**的 extensions_config.json / mcp_config.json
+#        (`existing_project_file`,先 extensions_config.json)→ ④ backend/ 与仓根兜底
+#   backend/packages/harness/deerflow/config/runtime_paths.py:7-17
+#     project_root() = $DEER_FLOW_PROJECT_ROOT 或 cwd
+#     runtime_home() = $DEER_FLOW_HOME 或 project_root()/.deer-flow
+#     ⇒ DEER_FLOW_HOME 在 deer-flow 侧是**状态目录**,从不是 extensions-config 目录
+#       (本仓把它当"deer-flow 检出根"用, 既有部署据此落盘 ⇒ 保留为最后兜底)。
+#
+# 本脚本的选取顺序(与上面同序 + 一个运维显式覆盖):
+#   ① DEER_FLOW_EXT_CFG(本仓运维覆盖,最高)
+#   ② DEER_FLOW_EXTENSIONS_CONFIG_PATH(deer-flow 自己最高优先的 env,设了就必须写它)
+#   ③ ${DEER_FLOW_PROJECT_ROOT:-$PWD}/extensions_config.json
+#        已存在该文件 ⇒ 用(deer-flow 会优先读它,写别处等于没写)
+#        DEER_FLOW_PROJECT_ROOT 显式声明 ⇒ 在其中新建(运维已断言项目根)
+#        (不无条件用 $PWD: 那是本脚本运行时的 cwd,与 deer-flow 进程的 cwd
+#         不一定相同 —— 无条件新建会既不被读、又丢掉既有默认)
+#   ④ 原默认 ${DEER_FLOW_HOME}/extensions_config.json(既有部署兼容)
+# 最终落点与选取理由一律打印(运维核对),并提示会被 legacy mcp_config.json 抢读的情形。
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # P3(2026-09-20, owner 定调): 不再拼仓库相对路径去调 cli/runtime_bundle.py ——
@@ -15,8 +40,40 @@ command -v aimail >/dev/null 2>&1 || {
     exit 1
 }
 DEER_FLOW_HOME="${DEER_FLOW_HOME:-$HOME/deer-flow}"
-CFG="${DEER_FLOW_EXT_CFG:-$DEER_FLOW_HOME/extensions_config.json}"
+# deer-flow 的 project_root(): $DEER_FLOW_PROJECT_ROOT 或 cwd(runtime_paths.py)
+DF_PROJECT_ROOT="${DEER_FLOW_PROJECT_ROOT:-$PWD}"
+LEGACY_CFG="$DEER_FLOW_HOME/extensions_config.json"
 AGENT_ID="${AIMAIL_AGENT_ID:-default}"
+
+# ── 0. 落点解析(见文件头;打印最终落点 + 理由)─────────────────────────
+if [ -n "${DEER_FLOW_EXT_CFG:-}" ]; then
+  CFG="$DEER_FLOW_EXT_CFG"
+  CFG_REASON="DEER_FLOW_EXT_CFG (显式覆盖, 最高优先)"
+elif [ -n "${DEER_FLOW_EXTENSIONS_CONFIG_PATH:-}" ]; then
+  CFG="$DEER_FLOW_EXTENSIONS_CONFIG_PATH"
+  CFG_REASON="DEER_FLOW_EXTENSIONS_CONFIG_PATH (deer-flow 自身最高优先 env; 设了就必须写它)"
+elif [ -f "$DF_PROJECT_ROOT/extensions_config.json" ]; then
+  CFG="$DF_PROJECT_ROOT/extensions_config.json"
+  CFG_REASON="project root 已有 extensions_config.json (deer-flow resolve_config_path 会优先读它)"
+elif [ -n "${DEER_FLOW_PROJECT_ROOT:-}" ]; then
+  CFG="$DF_PROJECT_ROOT/extensions_config.json"
+  CFG_REASON="DEER_FLOW_PROJECT_ROOT 显式声明 (在其中新建; deer-flow 只搜 project root)"
+else
+  CFG="$LEGACY_CFG"
+  CFG_REASON="原默认 DEER_FLOW_HOME/extensions_config.json (既有部署兼容)"
+fi
+CFG="${CFG/#\~/$HOME}"          # 变量里的 ~ 兜底展开(env 传参不经 shell 展开)
+echo "extensions config: $CFG"
+echo "  selected by: $CFG_REASON"
+echo "  deer-flow project root: $DF_PROJECT_ROOT (DEER_FLOW_PROJECT_ROOT 或 cwd)"
+echo "  deer-flow state home  : $DEER_FLOW_HOME (DEER_FLOW_HOME; deer-flow 侧=状态目录)"
+# 运维核对: 落点不在 deer-flow 的 project root 下、而那里躺着 legacy mcp_config.json 时,
+# deer-flow 的 search 会命中那个文件 → 本次写入不生效(必须显式指路,不许静默)。
+if [ "$CFG" != "$DF_PROJECT_ROOT/extensions_config.json" ] \
+   && [ -f "$DF_PROJECT_ROOT/mcp_config.json" ]; then
+  echo "WARNING: $DF_PROJECT_ROOT/mcp_config.json 存在 —— deer-flow 会读它而不是本次落点" >&2
+  echo "         设 DEER_FLOW_EXTENSIONS_CONFIG_PATH=$CFG 让 deer-flow 与本次写入指向同一文件" >&2
+fi
 
 # ── 1. 安装/更新 MCP 载荷(源: pip aimail > 仓库 pysdk/)────────────
 aimail install --payload install mcp
@@ -25,20 +82,38 @@ SERVER="$BUNDLE_DIR/aimail_mcp_server.py"
 [ -f "$SERVER" ] || { echo "MCP payload missing: $SERVER" >&2; exit 1; }
 
 # 真实版本检测(只报检测结果,不猜测):backend/pyproject.toml 的 version
+# 候选顺序: deer-flow 检出根(=DEER_FLOW_HOME, 本仓既有约定) → project root(仅当
+# 它看起来是 deer-flow 检出时, 免得在别的仓的 pyproject.toml 上误报身份)。
 DF_VERSION="unknown"
-for pp in "$DEER_FLOW_HOME/backend/pyproject.toml" "$DEER_FLOW_HOME/pyproject.toml"; do
+_VER_CANDIDATES=("$DEER_FLOW_HOME/backend/pyproject.toml" "$DEER_FLOW_HOME/pyproject.toml")
+if [ -d "$DF_PROJECT_ROOT/backend" ]; then
+  _VER_CANDIDATES+=("$DF_PROJECT_ROOT/backend/pyproject.toml" "$DF_PROJECT_ROOT/pyproject.toml")
+fi
+for pp in "${_VER_CANDIDATES[@]}"; do
   if [ -f "$pp" ]; then
-    DF_VERSION="$(grep -m1 '^version' "$pp" | sed -E 's/.*=\s*"([^"]+)".*/\1/')"
-    [ -n "$DF_VERSION" ] && break
+    DF_VERSION="$(grep -m1 '^version' "$pp" | sed -E 's/.*=\s*"([^"]+)".*/\1/' || true)"
+    if [ -n "$DF_VERSION" ]; then
+      break
+    fi
+    DF_VERSION="unknown"
   fi
 done
 IDENTITY="deerflow/${DF_VERSION:-unknown}"
 
-# 确保配置文件存在(缺失时以示例为模板)
+# 确保配置文件存在(缺失时以示例为模板;示例先在落点同目录找,再回退 DEER_FLOW_HOME)
 if [ ! -f "$CFG" ]; then
-  if [ -f "$DEER_FLOW_HOME/extensions_config.example.json" ]; then
-    cp "$DEER_FLOW_HOME/extensions_config.example.json" "$CFG"
-    echo "created $CFG from example"
+  mkdir -p "$(dirname "$CFG")"
+  TPL=""
+  for t in "$(dirname "$CFG")/extensions_config.example.json" \
+           "$DEER_FLOW_HOME/extensions_config.example.json"; do
+    if [ -f "$t" ]; then
+      TPL="$t"
+      break
+    fi
+  done
+  if [ -n "$TPL" ]; then
+    cp "$TPL" "$CFG"
+    echo "created $CFG from $TPL"
   else
     echo '{"mcpServers": {}}' > "$CFG"
     echo "created empty $CFG"
@@ -76,4 +151,5 @@ print(f"  AIMAIL_AGENT_ID: {agent_id}")
 print(f"  AIMAIL_AGENT_IDENTITY: {identity}")
 PY
 
+echo "landing point: $CFG"
 echo "verify: python3 -c \"import json; d=json.load(open('$CFG')); print(d['mcpServers']['aimail']['args'])\""
