@@ -113,7 +113,7 @@ export async function writePointer(ptr: SystemPointer): Promise<void> {
  * openclaw.json is left untouched — writing one from scratch would look "clobbered" to
  * openclaw itself (it refuses to start without gateway.mode).
  */
-export function ensureHooksToken(): 'kept' | 'created' | 'no-config' {
+export function ensureHooksWiring(): 'kept' | 'created' | 'no-config' | 'disabled' {
   const p = path.join(openclawHome(), '.openclaw', 'openclaw.json')
   let cfg: Record<string, unknown>
   try {
@@ -122,11 +122,35 @@ export function ensureHooksToken(): 'kept' | 'created' | 'no-config' {
     return 'no-config'
   }
   const hooks = (cfg.hooks ?? {}) as Record<string, unknown>
-  if (typeof hooks.token === 'string' && hooks.token.trim()) return 'kept'
-  hooks.token = randomBytes(24).toString('hex')
+  if (hooks.enabled === false) return 'disabled' // 管理员显式关掉: 不越权改, 但要报出来
+  let changed = false
+  if (!(typeof hooks.token === 'string' && hooks.token.trim())) {
+    hooks.token = randomBytes(24).toString('hex')
+    changed = true
+  }
+  // 2026-09-27: token 只是认证; 端点本身要 hooks.enabled=true 才存在
+  // (宿主文档 /gateway/config-hooks: "404 ... Disabled hooks fall through").
+  if (hooks.enabled !== true) {
+    hooks.enabled = true
+    changed = true
+  }
+  if (!changed) return 'kept'
   cfg.hooks = hooks
   fs.writeFileSync(p, JSON.stringify(cfg, null, 2) + '\n', { mode: 0o600 })
   return 'created'
+}
+
+/** hooks 前缀(宿主配置 hooks.path, 默认 /hooks): 派发 URL 必须用它, 不能写死。 */
+export function hooksPath(): string {
+  try {
+    const p = path.join(openclawHome(), '.openclaw', 'openclaw.json')
+    const cfg = JSON.parse(fs.readFileSync(p, 'utf-8')) as { hooks?: { path?: unknown } }
+    const raw = String(cfg?.hooks?.path ?? '/hooks').trim() || '/hooks'
+    const withSlash = raw.startsWith('/') ? raw : '/' + raw
+    return withSlash.replace(/\/+$/, '')
+  } catch {
+    return '/hooks'
+  }
 }
 
 /** OpenClaw gateway HTTP port (openclaw.json gateway.port, default 18789). */

@@ -19,7 +19,7 @@ import * as path from 'node:path'
 import { verifySignature, processInboundMail, routeAddressFromHeaders, logAimailDispatch, type InboundPayload } from '@aimail/mail-core'
 import type { OpenClawPluginApi } from 'openclaw/plugin-sdk/plugin-entry'
 import { resolveByRecipient } from '@aimail/mail'
-import { gatewayPort, readPointer } from './identity.js'
+import { gatewayPort, hooksPath, readPointer } from './identity.js'
 
 export const INBOUND_PATH = '/aimail/inbound'
 
@@ -53,7 +53,7 @@ async function deliverToAgent(
   void api
   const hooksToken = readHooksToken()
   const agentId = opts.agentId || 'main'
-  const r = await fetch(`http://127.0.0.1:${gatewayPort()}/hooks/agent`, {
+  const r = await fetch(`http://127.0.0.1:${gatewayPort()}${hooksPath()}/agent`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

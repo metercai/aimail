@@ -1,69 +1,64 @@
 /**
- * The adapter's own wake path (owner ruling 2026-09-27, option A).
+ * E3/S1 (owner ruling 2026-09-27): the adapter must wire its OWN wake path.
  *
- * Inbound mail only reaches the agent when openclaw's internal /hooks/agent endpoint
- * accepts the dispatch, and the adapter authenticates with `hooks.token` from the host
- * config (inbound.ts::readHooksToken). Without it the mail lands in the mail dir and
- * NOTHING replies, with no error shown to the operator — so the SDK must wire it itself.
- *
- * Boundary: generating a random token needs no information from the operator, so it is in
- * scope. LLM provider/model/key and agent bindings are NOT (administrator's job).
+ * token alone is not enough — the host serves /hooks/* only when `hooks.enabled` is true
+ * (host docs /gateway/config-hooks: "404 ... Disabled hooks fall through"). Measured:
+ * with a token but enabled unset, the dispatch died with "hooks/agent HTTP 404".
  */
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import * as path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { ensureHooksToken } from '../src/identity.js'
+import { ensureHooksWiring, hooksPath } from '../src/identity.js'
 
-let home: string
-let cfgPath: string
+let home = ''
+const cfgDir = () => path.join(home, '.openclaw')
+const cfgFile = () => path.join(cfgDir(), 'openclaw.json')
 
 beforeEach(() => {
   home = mkdtempSync(path.join(tmpdir(), 'oc-hooks-'))
-  process.env.HOME = home
-  cfgPath = path.join(home, '.openclaw', 'openclaw.json')
+  vi.stubEnv('HOME', home)
 })
-
 afterEach(() => {
+  vi.unstubAllEnvs()
   rmSync(home, { recursive: true, force: true })
 })
 
-describe('ensureHooksToken', () => {
-  it('leaves a missing openclaw.json alone (never makes a "clobbered" config)', () => {
-    expect(ensureHooksToken()).toBe('no-config')
-    expect(() => readFileSync(cfgPath, 'utf-8')).toThrow()
+describe('ensureHooksWiring', () => {
+  it('leaves a missing config alone (never fabricates one)', () => {
+    expect(ensureHooksWiring()).toBe('no-config')
+    expect(() => readFileSync(cfgFile(), 'utf-8')).toThrow()
   })
 
-  it('creates the token when the config has none, preserving every other key', () => {
-    mkdirSync(path.dirname(cfgPath), { recursive: true })
-    writeFileSync(
-      cfgPath,
-      JSON.stringify({
-        gateway: { mode: 'local', port: 18789 },
-        models: { mode: 'merge', providers: { p: { baseUrl: 'http://127.0.0.1:8000/v1' } } },
-        hooks: { internal: { entries: { 'session-memory': { enabled: true } } } },
-      }),
-    )
-    expect(ensureHooksToken()).toBe('created')
-    const after = JSON.parse(readFileSync(cfgPath, 'utf-8')) as Record<string, any>
+  it('creates the token AND enables the endpoints, keeping other keys', () => {
+    mkdirSync(cfgDir(), { recursive: true })
+    writeFileSync(cfgFile(), JSON.stringify({ gateway: { mode: 'local' } }))
+    expect(ensureHooksWiring()).toBe('created')
+    const after = JSON.parse(readFileSync(cfgFile(), 'utf-8'))
     expect(after.hooks.token).toMatch(/^[0-9a-f]{48}$/)
+    expect(after.hooks.enabled).toBe(true)
     expect(after.gateway.mode).toBe('local')
-    expect(after.models.providers.p.baseUrl).toBe('http://127.0.0.1:8000/v1')
-    expect(after.hooks.internal.entries['session-memory'].enabled).toBe(true)
   })
 
-  it('keeps an existing token untouched (idempotent)', () => {
-    mkdirSync(path.dirname(cfgPath), { recursive: true })
-    writeFileSync(cfgPath, JSON.stringify({ hooks: { token: 'operator-supplied' } }))
-    expect(ensureHooksToken()).toBe('kept')
-    const after = JSON.parse(readFileSync(cfgPath, 'utf-8')) as Record<string, any>
-    expect(after.hooks.token).toBe('operator-supplied')
+  it('is idempotent once wired', () => {
+    mkdirSync(cfgDir(), { recursive: true })
+    writeFileSync(cfgFile(), JSON.stringify({ hooks: { enabled: true, token: 'x'.repeat(48) } }))
+    expect(ensureHooksWiring()).toBe('kept')
   })
 
-  it('does not rewrite an unparsable config', () => {
-    mkdirSync(path.dirname(cfgPath), { recursive: true })
-    writeFileSync(cfgPath, '{ not json')
-    expect(ensureHooksToken()).toBe('no-config')
-    expect(readFileSync(cfgPath, 'utf-8')).toBe('{ not json')
+  it('never overrides an operator who disabled hooks', () => {
+    mkdirSync(cfgDir(), { recursive: true })
+    writeFileSync(cfgFile(), JSON.stringify({ hooks: { enabled: false, token: 'operator' } }))
+    expect(ensureHooksWiring()).toBe('disabled')
+    const after = JSON.parse(readFileSync(cfgFile(), 'utf-8'))
+    expect(after.hooks.enabled).toBe(false)
+    expect(after.hooks.token).toBe('operator')
+  })
+
+  it('hooksPath honours the host prefix and defaults to /hooks', () => {
+    expect(hooksPath()).toBe('/hooks')
+    mkdirSync(cfgDir(), { recursive: true })
+    writeFileSync(cfgFile(), JSON.stringify({ hooks: { path: 'gateway-hooks/' } }))
+    expect(hooksPath()).toBe('/gateway-hooks')
   })
 })

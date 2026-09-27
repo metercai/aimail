@@ -20,7 +20,7 @@ import type {
   PluginCommandContext,
   PluginCommandResult,
 } from 'openclaw/plugin-sdk/plugin-entry'
-import { ensureHooksToken, openclawWebhookUrl, readPointer, writePointer } from './identity.js'
+import { ensureHooksWiring, openclawWebhookUrl, readPointer, writePointer } from './identity.js'
 import { emailForAgent } from '@aimail/mail-core'
 
 /** Minimal admin client surface the chains depend on (MockClient-friendly). */
@@ -172,11 +172,12 @@ function cmdText(lines: string[]): PluginCommandResult {
  * One English line describing THIS adapter's wake path (owner ruling 2026-09-27: the SDK
  * only manages config it can derive itself — never the operator's LLM/agent settings).
  */
-function hooksTokenLine(state: 'kept' | 'created' | 'no-config'): string {
+function hooksTokenLine(state: 'kept' | 'created' | 'no-config' | 'disabled'): string {
   if (state === 'created') {
     return '  hooks token: created in openclaw.json (the inbound dispatch path needs it)'
   }
-  if (state === 'kept') return '  hooks token: present (inbound dispatch path wired)'
+  if (state === 'kept') return '  hooks wiring: enabled (inbound dispatch path wired)'
+  if (state === 'disabled') return '  hooks wiring: DISABLED by the host config (hooks.enabled=false) — inbound mail cannot reach the agent'
   return '  hooks token: NOT set — no readable ~/.openclaw/openclaw.json yet; inbound mail cannot reach the agent until it exists'
 }
 
@@ -246,7 +247,7 @@ export async function handleCommand(
         return cmdText([
           `✓ registered ${email} (system ${systemId}, agent ${agentId})`,
           `  api_key ok; webhook_url=${opts['webhook-url'] ?? '(local gateway route)'}`,
-          hooksTokenLine(ensureHooksToken()),
+          hooksTokenLine(ensureHooksWiring()),
         ])
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
@@ -314,7 +315,7 @@ export async function handleCommand(
         }
       }
       out.push(`register-all done: ${okN}/${agentNames.length} ok (pointer unchanged — main agent owns it)`)
-      out.push(hooksTokenLine(ensureHooksToken()))
+      out.push(hooksTokenLine(ensureHooksWiring()))
       return cmdText(out)
     }
 
