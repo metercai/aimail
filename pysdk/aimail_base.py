@@ -8,6 +8,8 @@ import time
 import hmac
 import hashlib
 import threading
+import urllib.error
+import urllib.request
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Callable, Dict, List
@@ -1511,6 +1513,319 @@ def iter_agentmail_configs(system_id: str = "") -> list:
                 d.setdefault("_config_path", str(p))
                 out.append(d)
     return out
+
+
+# ═══════════════════════════════════════════════════════════════
+# agent-scope 定时轮询入口(pull-entry)—— 适配器 install/初始化收尾接的最后一根线
+# ═══════════════════════════════════════════════════════════════
+# 背景: 地址级激活码兑换来的 agent-scope key **取不到 push** —— 网关给该地址写的
+# 是 `webhook_url = NULL`, 只能自己定时 pull。库能力(pull_list/pull_ack/
+# start_polling, aimail_tools)早已存在却**零调用方** ⇒ "agent 自主接入"在产线上
+# 缺最后一跳。本段是那根线, 两个适配器(hermes / deer-flow)共用同一实现, 语义与
+# TS mail-core `src/poll-entry.ts` 逐条对齐:
+#
+#   - **只有 agent 级激活产物启用**: 绑定 system_id 以 `shared_addr_` 开头。
+#     这是网关侧现成事实(只有该宿主系统下的激活码可被兑换 —— advanced
+#     `src/advanced/api/address.rs`: `if !sid.starts_with("shared_addr_")
+#     { return Ok(Err(ActErr::Invalid)); }`), 平台注册/产品创建路径**永不**产生
+#     该前缀 ⇒ 系统/bridge 绑定(走 push)不会被误判。
+#   - **失败不 ack / 去重**: 由 start_polling 保证(on_email 抛错 ⇒ 不 ack +
+#     下轮重取; 去重键 = delivery id)。
+#   - **可关停 / 可配间隔**: 一条绑定一条循环, stop() 幂等; 间隔/批量/总开关走
+#     env(名称与 TS 同名: AIMAIL_PULL / AIMAIL_PULL_INTERVAL_MS / AIMAIL_PULL_LIMIT)
+#     或显式 override; 线程 daemon ⇒ 进程退出即停(不拖住退出)。
+#   - **pull 与 push 共用同一条入站链**: 投递按 push 的原样请求打回宿主自己的入站
+#     端点(同一路径 + 同一 HMAC 头)⇒ 富化/persona/附件/6 步回信协议全部生效。
+
+#: 地址级激活产物的系统 id 前缀(网关侧事实, 见上)。
+AGENT_SCOPE_SYSTEM_PREFIX = "shared_addr_"
+
+#: 默认轮询间隔(30s)/ 单轮批量(网关上限 200, pull_list 自行收敛)。
+DEFAULT_PULL_INTERVAL_MS = 30_000
+DEFAULT_PULL_LIMIT = 20
+
+#: 间隔下限 1s(更密就是打网关, 没有业务理由)/ 上限 24h。
+MIN_PULL_INTERVAL_MS = 1_000
+MAX_PULL_INTERVAL_MS = 24 * 3600_000
+
+#: 总开关/间隔/批量环境变量(与 TS poll-entry.ts 同名, 便于文档统一)。
+PULL_ENABLE_ENV = "AIMAIL_PULL"
+PULL_INTERVAL_ENV = "AIMAIL_PULL_INTERVAL_MS"
+PULL_LIMIT_ENV = "AIMAIL_PULL_LIMIT"
+
+
+def _env_flag_off(raw) -> bool:
+    """总开关判定: 0/false/off/no(大小写不敏感)⇒ 关。缺省 = 开。"""
+    if raw is None:
+        return False
+    return str(raw).strip().lower() in ("0", "false", "off", "no")
+
+
+def _clamp_int(raw, default: int, lo: int, hi: int) -> int:
+    """数值钳制(与 TS clampInt 同序: 非法/非正 ⇒ default; 否则 trunc 后钳 [lo, hi])。"""
+    try:
+        if raw is None or isinstance(raw, bool):
+            raise ValueError(raw)
+        n = float(str(raw).strip()) if isinstance(raw, str) else float(raw)
+    except (TypeError, ValueError):
+        return int(default)
+    if n != n or n <= 0:  # NaN / 非正数 ⇒ 缺省
+        return int(default)
+    return int(max(lo, min(int(n), hi)))
+
+
+def is_agent_scope_binding(cfg) -> bool:
+    """该绑定是不是地址级激活(agent scope)产物 —— 用现成事实判定, 不猜。"""
+    if not isinstance(cfg, dict):
+        return False
+    sid = str(cfg.get("system_id") or "")
+    if not sid or not str(cfg.get("api_key") or ""):
+        return False
+    return sid.startswith(AGENT_SCOPE_SYSTEM_PREFIX)
+
+
+def resolve_agent_pull_settings(cfg, env=None, overrides=None) -> dict:
+    """解析一条绑定"要不要 poll / 怎么 poll"。
+
+    优先级: 显式 override > env > 默认值。``enabled`` 对 agent-scope 绑定默认为
+    真(那是它**唯一**的入站路径), 且**没有** agent-scope 绑定时永不为真。
+    reason ∈ {enabled, no-binding, not-agent-scope, disabled-by-config}(日志与
+    单测按它断言, 与 TS PullDecisionReason 同集合)。
+    """
+    env = os.environ if env is None else env
+    ov = overrides or {}
+    interval_ms = _clamp_int(
+        ov.get("interval_ms", env.get(PULL_INTERVAL_ENV)),
+        DEFAULT_PULL_INTERVAL_MS, MIN_PULL_INTERVAL_MS, MAX_PULL_INTERVAL_MS)
+    limit = _clamp_int(
+        ov.get("limit", env.get(PULL_LIMIT_ENV)), DEFAULT_PULL_LIMIT, 1, 200)
+    out = {"enabled": False, "reason": "no-binding",
+           "interval_ms": interval_ms, "interval": interval_ms / 1000.0,
+           "limit": limit}
+    if not cfg:
+        return out
+    if not is_agent_scope_binding(cfg):
+        out["reason"] = "not-agent-scope"
+        return out
+    if ov.get("enabled") is None:
+        off = _env_flag_off(env.get(PULL_ENABLE_ENV))
+    else:
+        off = ov.get("enabled") is False
+    if off:
+        out["reason"] = "disabled-by-config"
+        return out
+    out["enabled"] = True
+    out["reason"] = "enabled"
+    return out
+
+
+def list_agent_scope_bindings(system_id: str = "") -> list:
+    """所有 agent-scope 绑定(system_id 空 = 全部系统; 与 TS 的 listAgentConfigs 同义)。"""
+    return [c for c in iter_agentmail_configs(system_id) if is_agent_scope_binding(c)]
+
+
+def resolve_inbound_replay_target(cfg, default_url: str = "",
+                                  route_secret: str = "") -> dict:
+    """解析"把这封 pull 到的投递打回宿主入站端点"所需的 (url, secret)。
+
+    - url: 绑定自身的 ``webhook_url``(注册链落盘的本地接收端点 = 唯一信任源)优先;
+      缺失 ⇒ ``default_url``(宿主当前入站端点, 由适配器按契约常量拼出)。
+    - secret: 绑定自身的 ``webhook_secret``(注册链与 webhook 路由同源)优先,
+      回退 ``route_secret``(宿主路由表里的同名 secret)。
+
+    返回 ``{"url", "secret", "ok", "reason"}``; ``ok=False`` 时 reason ∈
+    {no-url, no-secret} —— 调用方据此**不启动**该绑定(不假装能投递)。
+    """
+    cfg = cfg if isinstance(cfg, dict) else {}
+    url = str(cfg.get("webhook_url") or "").strip() or str(default_url or "").strip()
+    secret = (str(cfg.get("webhook_secret") or "").strip()
+              or str(route_secret or "").strip())
+    if not url:
+        return {"url": "", "secret": secret, "ok": False, "reason": "no-url"}
+    if not secret:
+        return {"url": url, "secret": "", "ok": False, "reason": "no-secret"}
+    return {"url": url, "secret": secret, "ok": True, "reason": ""}
+
+
+def replay_inbound_delivery(cfg, mail: dict, url: str, secret: str,
+                            timeout: float = 15.0) -> dict:
+    """把 pull 到的一封投递按 **push 的原样请求**打回宿主入站端点(同一条链)。
+
+    与 bridge/网关推来的请求逐字同形: body = envelope JSON(原样), 头
+    ``X-AIMail-Email`` + ``X-Webhook-Signature = hex(HMAC-SHA256(body, secret))``
+    (gateway webhook.rs sign_payload 同款)。
+
+    失败语义(调用方据此 **不 ack** ⇒ 下轮重拉, 不丢件): 非 2xx / 链路异常 /
+    端点明确回"没有该地址的绑定"(``no_agent`` / ``no_local_config``)⇒ 抛异常。
+    端点回 ``intercepted``(ping/pong 已被共享链吞掉并发过 pong)/ ``ignored`` /
+    ``delivered`` / ``duplicate`` ⇒ 视为**已投递**(该 ack)。
+    """
+    payload = mail.get("body")
+    if not isinstance(payload, (dict, list)):
+        raise RuntimeError(
+            "pulled delivery %r carries no JSON payload — not acking"
+            % (mail.get("id"),))
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    sig = hmac.new(str(secret).encode(), body, hashlib.sha256).hexdigest()
+    req = urllib.request.Request(
+        url, data=body, method="POST",
+        headers={"Content-Type": "application/json; charset=utf-8",
+                 "X-AIMail-Email": str(mail.get("email", "")),
+                 "X-Webhook-Signature": sig})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            code, raw = int(resp.status), resp.read()
+    except urllib.error.HTTPError as e:  # noqa: PERF203 — 明确分类, 不吞诊断
+        detail = ""
+        try:
+            detail = e.read().decode("utf-8", "replace")[:200]
+        except Exception:
+            pass
+        raise RuntimeError("inbound replay rejected: HTTP %s %s %s"
+                           % (e.code, e.reason, detail)) from e
+    except Exception as e:
+        raise RuntimeError("inbound replay failed (%s: %s)" % (e.__class__.__name__, e)) from e
+    try:
+        data = json.loads(raw.decode("utf-8", "replace"))
+    except Exception:
+        data = {}
+    status = data.get("status") if isinstance(data, dict) else ""
+    if code >= 300:
+        raise RuntimeError("inbound replay rejected: HTTP %d %s" % (code, raw[:200]))
+    if status in ("no_agent", "no_local_config"):
+        raise RuntimeError("inbound replay not delivered: status=%s %s"
+                           % (status, raw[:200]))
+    return {"status": code, "remote": data}
+
+
+class AgentPullHandle:
+    """一条绑定的轮询句柄(与 TS AgentPullHandle 同形: 可查 stats / 可停 / 可等退出)。"""
+
+    def __init__(self, email: str, system_id: str, settings: dict,
+                 thread, stop_event) -> None:
+        self.email = email
+        self.system_id = system_id
+        self.started = True
+        self.reason = settings.get("reason", "")
+        self.interval_ms = settings.get("interval_ms", DEFAULT_PULL_INTERVAL_MS)
+        self.limit = settings.get("limit", DEFAULT_PULL_LIMIT)
+        self._thread = thread
+        self._stop_event = stop_event
+        self._stats: dict = {"pulled": 0, "acked": 0, "errors": 0}
+
+    def stop(self) -> None:
+        """停这条循环(幂等; 睡眠中也能立刻停)。"""
+        self._stop_event.set()
+
+    def stats(self) -> dict:
+        """当前计数视图(pulled 实时, acked/errors 循环结束后为终值)。"""
+        return dict(self._stats)
+
+    def alive(self) -> bool:
+        return bool(self._thread.is_alive())
+
+    def join(self, timeout: Optional[float] = None) -> bool:
+        """等循环退出; True = 已退出。"""
+        self._thread.join(timeout)
+        return not self._thread.is_alive()
+
+    def __repr__(self) -> str:  # pragma: no cover - 诊断用
+        return "<AgentPullHandle %s %s every %dms>" % (
+            self.email, self.reason, self.interval_ms)
+
+
+def start_agent_pull_entries(system_id: str = "", on_email=None, env=None,
+                             overrides=None, log=None, client_for=None,
+                             target_for=None, timeout: float = 15.0) -> list:
+    """给**每一条 agent-scope 绑定**起一条真轮询循环, 投递给调用方的入站链。
+
+    - ``on_email(cfg, mail)``: 适配器自己的入站入口(pull 与 push 必须共用同一条
+      链)。给了 ``on_email`` 就原样用它; 没给则用内置的"打回本机入站端点"
+      (``target_for(cfg)`` → resolve_inbound_replay_target, 失败不 ack)。
+    - ``target_for``: 预检 + 内置回调用的目标解析器(返回 resolve_inbound_replay_target
+      的形状)。ok=False 的绑定**不启动**(日志给 reason), 不假装能投递。
+    - ``client_for``: 测试缝 —— 给绑定造请求客户端(默认 _GatewayClient)。
+    - 返回句柄列表(空 = 没有任何 agent-scope 绑定要 poll, 即 push/系统场景);
+      禁用场景**不抛异常**。
+    """
+    env = os.environ if env is None else env
+    log = log or (lambda line: logger.info("%s", line))
+    bindings = iter_agentmail_configs(system_id)
+    handles: list = []
+    for cfg in bindings:
+        email = str(cfg.get("email") or "")
+        settings = resolve_agent_pull_settings(cfg, env, overrides)
+        if not settings["enabled"]:
+            # 有绑定但被判不启用 → 留一条解释行(静默会掩盖接线错误)。
+            log("[aimail-pull] %s: not polling (%s) — push/system binding unchanged"
+                % (email, settings["reason"]))
+            continue
+        target = None
+        if target_for is not None:
+            target = target_for(cfg)
+            if not target or not target.get("ok"):
+                reason = (target or {}).get("reason", "no-target")
+                log("[aimail-pull] %s: agent-scope binding but no local inbound "
+                    "endpoint (%s) — polling not started; the mail stays pending "
+                    "on the gateway until the endpoint+secret exist" % (email, reason))
+                continue
+        try:
+            if client_for is not None:
+                client = client_for(cfg)
+            else:
+                from aimail_tools import _GatewayClient
+                client = _GatewayClient(str(cfg.get("gateway_url") or ""),
+                                        str(cfg.get("api_key") or ""),
+                                        timeout=timeout, identity=email)
+        except Exception as e:  # noqa: BLE001 — 单条绑定失败不拖垮其余
+            log("[aimail-pull] %s: client build failed (%s) — binding skipped"
+                % (email, e))
+            continue
+
+        if on_email is None:
+            def _cb(c, mail, _t=target):
+                return replay_inbound_delivery(
+                    c, mail, url=_t["url"], secret=_t["secret"], timeout=timeout)
+            cb = _cb
+        else:
+            cb = on_email
+
+        stop_event = threading.Event()
+        handle = AgentPullHandle(email, str(cfg.get("system_id") or ""),
+                                 settings, None, stop_event)
+
+        def _live(_c, mail, _h=handle, _cb=cb):  # 实时计数(失败照旧抛出 ⇒ 不 ack)
+            _h._stats["pulled"] += 1
+            return _cb(_c, mail)
+
+        def _run(_client=client, _cfg=cfg, _settings=settings,
+                 _live=_live, _handle=handle, _stop=stop_event):
+            stats = _client.start_polling(
+                (lambda mail: _live(_cfg, mail)),
+                interval=_settings["interval"], limit=_settings["limit"],
+                stop_event=_stop)
+            _handle._stats = dict(stats)
+
+        thread = threading.Thread(
+            target=_run, name="aimail-pull:%s" % email, daemon=True)
+        handle._thread = thread
+        thread.start()
+        handles.append(handle)
+        log("[aimail-pull] %s: polling enabled every %dms (limit %d, agent-scope key)"
+            % (email, settings["interval_ms"], settings["limit"]))
+    if not handles:
+        log("[aimail-pull] no agent-scope binding — polling not started "
+            "(push path unchanged; address-code activation enables it)")
+    return handles
+
+
+def stop_agent_pull_entries(handles) -> None:
+    """宿主机停服/进程退出时停掉全部句柄(幂等)。"""
+    for h in handles or []:
+        try:
+            h.stop()
+        except Exception:  # noqa: BLE001 — 关停路径不抛
+            pass
 
 
 def ensure_bridge_route(system_id: str, email: str, gw: dict, webhook_url: str) -> dict:

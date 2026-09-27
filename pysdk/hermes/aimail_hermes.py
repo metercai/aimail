@@ -16,6 +16,7 @@ import os
 import secrets
 import socket
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
@@ -151,8 +152,8 @@ def _load_profile_config() -> Optional[dict]:
     search_paths = []
 
     if profile_dir:
-        # .agentmail pointer → address-keyed path
-        pointer_data = core._read_pointer(Path(profile_dir) / ".agentmail")
+        # 指针文件(契约名唯一真源: aimail_contract.POINTER_FILE)
+        pointer_data = core._read_pointer(Path(profile_dir) / _contract.POINTER_FILE)
         sid = pointer_data.get("system_id", "")
         email = pointer_data.get("email", "")
         if sid and email:
@@ -202,8 +203,8 @@ def _inject_profile_config(profile_dir: str, config: dict) -> None:
             merged.pop("activation_code", None)
         core.save_agent_config(config.get("agent_id", ""), merged, system_id)
 
-    # Write .agentmail pointer for discovery
-    core._write_pointer(Path(profile_dir) / ".agentmail", system_id, email)
+    # 写指针文件(契约名见 aimail_contract.POINTER_FILE)
+    core._write_pointer(Path(profile_dir) / _contract.POINTER_FILE, system_id, email)
 
 
 def _port_is_available(port: int, host: str = "0.0.0.0") -> bool:
@@ -438,8 +439,8 @@ def trigger_profile_hooks(event: str, profile_name: str, profile_dir: str) -> No
             if r.get("ok"):
                 if r.get("activated"):
                     logger.info("[aimail_gateway] system activated via CLI: %s", r.get("system_id"))
-                # 激活/复用成功 → 按返回 sid 直读配置,不依赖 .agentmail 指针
-                # (78a0262 闭环缺口:激活不产生指针;AUDIT-1 P1-6)
+                # 激活/复用成功 → 按返回 sid 直读配置,不依赖指针文件
+                # (aimail_contract.POINTER_FILE;78a0262 闭环缺口:激活不产生指针;AUDIT-1 P1-6)
                 sid = r.get("system_id") or ""
                 if sid:
                     try:
@@ -624,7 +625,7 @@ def _auto_activate_profile(profile_dir: str, config: dict) -> None:
     # Read system_id + email from pointer file to find address-keyed config
     sid = ""
     email = ""
-    pointer_path = Path(profile_dir) / ".agentmail"
+    pointer_path = Path(profile_dir) / _contract.POINTER_FILE
     if pointer_path.is_file():
         try:
             pd_data = json.loads(pointer_path.read_text())
@@ -635,7 +636,8 @@ def _auto_activate_profile(profile_dir: str, config: dict) -> None:
 
     if not sid:
         logger.warning(
-            "[aimail_gateway] No system_id in .agentmail pointer for %s — cannot activate",
+            "[aimail_gateway] No system_id in %s pointer for %s — cannot activate",
+            _contract.POINTER_FILE,
             profile_dir,
         )
         return
@@ -1214,3 +1216,118 @@ except Exception as _e:
 # 3c. profile 生命周期钩子（地址自动注册/注销）
 register_profile_hook("profile_created", _auto_register_email)
 register_profile_hook("profile_deleted", _auto_deregister_email)
+
+
+# ═══════════════════════════════════════════════════════════════
+# 4. agent-scope 定时轮询入口(pull-entry)—— install/初始化收尾接的最后一根线
+# ═══════════════════════════════════════════════════════════════
+# 地址级激活码兑回来的地址**没有 push 路径**(网关给它写 webhook_url = NULL),
+# 只能自己定时 pull。判定/间隔/关停/失败不 ack 全部复用共享核心
+# (core. 那一套, 语义与 TS mail-core poll-entry.ts 逐条对齐), 本段只做两件
+# hermes 专属的事:
+#   1. 把"打回本机入站端点"的目标解析出来 —— 用绑定里已有的 webhook_url /
+#      webhook_secret + profile 的 webhook 端口(**不需要任何额外信息**);
+#   2. 在宿主初始化收尾(网关进程内, 由 patch_webhook 在 webhook.py 注入的
+#      aimail_hermes 导入处调用 ensure_agent_pull_started())起循环, 并在进程
+#      退出时停(atexit + daemon 线程双重保证)。
+#
+# 注意(刻意不自动起): 本模块被 CLI/安装链 import 时不启动轮询 —— 那会
+# 在安装进程里凭空起线程打网关。起停由**宿主进程**显式收尾调用, 与 TS 适配器
+# (openclaw/pi 的 startInboundPull 由宿主插件调用)同一形态。
+_PULL_HANDLES: List = []
+_pull_lock = threading.Lock()
+_pull_atexit_armed = False
+
+
+def _pull_route_secret() -> str:
+    """读 webhook 路由表里契约路由名的 secret(注册链写入, 与绑定同源)。"""
+    hermhome = _resolve_profile_dir() or str(Path.home() / ".hermes")
+    subs_path = Path(hermhome) / "webhook_subscriptions.json"
+    try:
+        subs = json.loads(subs_path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    entry = subs.get(_contract.HERMES_ROUTE_NAME) if isinstance(subs, dict) else None
+    if isinstance(entry, dict):
+        return str(entry.get("secret") or "")
+    return ""
+
+
+def _pull_replay_target(cfg: dict) -> dict:
+    """解析"把这封 pull 到的投递打回本进程入站端点"所需的 (url, secret)。"""
+    profile_dir = _resolve_profile_dir() or ""
+    default_url = ""
+    if profile_dir:
+        port = _read_webhook_port(Path(profile_dir) / "config.yaml")
+        if port:
+            default_url = _contract.hermes_inbound_url(port)
+    return core.resolve_inbound_replay_target(
+        cfg, default_url=default_url, route_secret=_pull_route_secret())
+
+
+def _pull_system_id() -> str:
+    """本 profile 绑定的 system_id(有指针就用它定位自己那条链; 否则全系统扫)。"""
+    profile_dir = _resolve_profile_dir() or ""
+    if not profile_dir:
+        return ""
+    pointer = core._read_pointer(Path(profile_dir) / _contract.POINTER_FILE)
+    return str(pointer.get("system_id") or "")
+
+
+def _on_pull_email(cfg: dict, mail: dict) -> dict:
+    """pull 来的信走**与 webhook push 同一条**入站链 —— 原样请求打回本机端点。
+
+    路径/签名头与 bridge 转发/网关直推逐字同形(契约 HERMES_INBOUND_PATH +
+    per-address HMAC), 因此入站预处理器(富化/persona/附件/ping-pong 拦截)
+    与 6 步回信协议全部生效。失败抛异常 ⇒ start_polling 不 ack ⇒ 下轮重拉。
+    """
+    target = _pull_replay_target(cfg)
+    if not target.get("ok"):
+        raise RuntimeError(
+            "no local inbound endpoint for %s (%s) — not acking"
+            % (cfg.get("email", ""), target.get("reason", "")))
+    return core.replay_inbound_delivery(
+        cfg, mail, url=target["url"], secret=target["secret"])
+
+
+def start_agent_pull(env=None, overrides=None, log=None) -> list:
+    """起 agent-scope 定时轮询(幂等: 已在跑则原样返回句柄)。
+
+    只有 agent-scope 绑定(`shared_addr_*` 宿主系统下的地址码激活产物)会起循环;
+    没有则返回空列表 —— 禁用/系统场景**不抛**。
+    """
+    global _PULL_HANDLES, _pull_atexit_armed
+    with _pull_lock:
+        if _PULL_HANDLES:
+            return _PULL_HANDLES
+        _PULL_HANDLES = core.start_agent_pull_entries(
+            system_id=_pull_system_id(),
+            on_email=_on_pull_email,
+            target_for=_pull_replay_target,
+            env=env, overrides=overrides, log=log,
+        )
+        if _PULL_HANDLES and not _pull_atexit_armed:
+            try:
+                import atexit
+                atexit.register(stop_agent_pull)  # 进程退出即停(另有 daemon 兜底)
+                _pull_atexit_armed = True
+            except Exception:
+                pass
+        return _PULL_HANDLES
+
+
+def ensure_agent_pull_started(env=None, overrides=None, log=None) -> list:
+    """宿主初始化收尾调用(幂等, 永不抛): 接上"自己这条 pull 唤起路径"。"""
+    try:
+        return start_agent_pull(env=env, overrides=overrides, log=log)
+    except Exception as e:  # noqa: BLE001 — 接线失败不许拖垮网关启动
+        logger.warning("[aimail-pull] start failed: %s", e)
+        return []
+
+
+def stop_agent_pull() -> None:
+    """停掉全部轮询句柄(宿主停服/进程退出; 幂等)。"""
+    global _PULL_HANDLES
+    with _pull_lock:
+        core.stop_agent_pull_entries(_PULL_HANDLES)
+        _PULL_HANDLES = []

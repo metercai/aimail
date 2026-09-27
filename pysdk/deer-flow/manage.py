@@ -566,30 +566,48 @@ def patch_backend_app(backend_dir: str) -> bool:
         else:
             raise SystemExit("ERROR: include_router anchor 'agents.router' not found")
 
+    # 2c. agent-scope 定时轮询入口(install 收尾接线): 长驻宿主启动即起 pull 循环。
+    #     地址级激活码兑来的地址没有 push 路径(网关给它写 webhook_url = NULL),
+    #     只能自己定时 pull —— 判定/间隔/关停/失败不 ack 在共享核心
+    #     (aimail_base start_agent_pull_entries), 这里只把"启动收尾"这一步接上:
+    #     挂在 include_router 之后(与路由同一段 app 装配), 起停随宿主生命周期。
+    pull_line = ("    aimail_inbound.start_pull_on_startup(app)"
+                 "  # aimail: agent-scope pull entry\n")
+    if pull_line not in src:
+        if route_line in src:
+            src = src.replace(route_line, route_line + pull_line, 1)
+            changed = True
+        else:
+            raise SystemExit("ERROR: include_router line missing — cannot wire the pull entry")
+
     if changed:
         open(app_py, "w", encoding="utf-8").write(src)
-        print("  ✓ app.py patched (import + include_router)")
+        print("  ✓ app.py patched (import + include_router + pull entry)")
         return True
-    print("  ✓ app.py 已含 aimail_inbound(跳过)")
+    print("  ✓ app.py 已含 aimail_inbound + pull entry(跳过)")
     return False
 
 
 def unpatch_backend_app(backend_dir: str) -> bool:
-    """Revert the app.py patch (AUDIT-1 P1-4): remove exactly the two lines
-    patch_backend_app inserts. Idempotent — no-op when already clean."""
+    """Revert the app.py patch (AUDIT-1 P1-4): remove exactly the three lines
+    patch_backend_app inserts (import + include_router + pull entry).
+    Idempotent — no-op when already clean."""
     g_dir, app_py = _gateway_layout(backend_dir)
     if not os.path.isfile(app_py):
         print("  ⚠ app.py not found (nothing to unpatch)")
         return False
     src = open(app_py, encoding="utf-8").read()
     removed = False
-    for line in ("    aimail_inbound,\n", "    app.include_router(aimail_inbound.router)\n"):
+    for line in ("    aimail_inbound.start_pull_on_startup(app)"
+                 "  # aimail: agent-scope pull entry\n",
+                 "    app.include_router(aimail_inbound.router)\n",
+                 "    aimail_inbound,\n"):
         if line in src:
             src = src.replace(line, "", 1)
             removed = True
     if removed:
         open(app_py, "w", encoding="utf-8").write(src)
-        print("  ✓ app.py unpatched (aimail_inbound import + include_router removed)")
+        print("  ✓ app.py unpatched (aimail_inbound import + include_router + pull entry removed)")
     else:
         print("  ✓ app.py already clean (no aimail_inbound lines)")
     return removed

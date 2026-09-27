@@ -199,7 +199,18 @@ WEBHOOK_ADAPTER_BLOCK = '''
 try:
     from aimail.hermes import aimail_hermes  # noqa: F401
 except Exception:
-    pass
+    aimail_hermes = None
+
+# ── agent-scope 定时轮询入口(pull-entry, pysdk/aimail_base)──
+# 宿主(网关进程)初始化收尾把"自己这条 pull 唤起路径"接上: 地址级激活码兑来的
+# 地址取不到 push(网关给它写 webhook_url = NULL), 只能自己定时 pull。只有
+# agent-scope 绑定会被启用; 没绑定 / 被 AIMAIL_PULL=0 关掉时为空操作。派生线程
+# 是 daemon ⇒ 进程退出即停, 另有 atexit 收尾。
+if aimail_hermes is not None:
+    try:
+        aimail_hermes.ensure_agent_pull_started()
+    except Exception:
+        pass
 
 '''
 

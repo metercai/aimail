@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import subprocess
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -20,6 +21,53 @@ import urllib.parse
 
 logger = logging.getLogger(__name__)
 _TOOLSET = "agentmail"
+
+
+def _poll_sleep(seconds: float, stop_event: Optional[threading.Event] = None) -> None:
+    """轮询间隔睡眠 —— 有 stop_event 时用它中断睡眠(可关停 = 立即停, 不等满一个间隔)。
+
+    与 TS `pollSleep(ms, signal)`(poll-entry.ts)同义: 那个用 AbortSignal 打断
+    setTimeout, 这里用 threading.Event.wait。
+    """
+    if seconds <= 0:
+        return
+    if stop_event is None:
+        time.sleep(seconds)
+    else:
+        stop_event.wait(seconds)
+
+
+def _await_if_needed(fn: Callable, arg: Any) -> Any:
+    """调 ``fn(arg)``; 返回值是 awaitable 就 await 到完成(否则异步回调的失败会被吞)。
+
+    轮询循环跑在自己的线程里, 没有事件循环 ⇒ 这里起一个**本线程私有**的循环把它跑完。
+    失败照旧抛出(由 start_polling 计失败 ⇒ 不 ack ⇒ 下轮重取), 与 TS
+    `await onEmail(...)`(address-code.ts:305)同义。
+    """
+    import asyncio
+    import inspect
+
+    res = fn(arg)
+    if not inspect.isawaitable(res):
+        return res
+    # 拿本线程可用的循环: 已在 run / 已关闭 / 拿不到 ⇒ 自己起一个(用完关掉)。
+    own_loop = False
+    try:
+        loop = asyncio.get_event_loop_policy().get_event_loop()
+        if loop.is_running() or loop.is_closed():
+            loop = None
+    except Exception:
+        loop = None
+    if loop is None:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        own_loop = True
+    try:
+        return loop.run_until_complete(res)
+    finally:
+        if own_loop:
+            asyncio.set_event_loop(None)
+            loop.close()
 
 
 class _GatewayClient:
@@ -514,27 +562,40 @@ class _GatewayClient:
                     "status": result.get("status", 0)}
         return {"success": True, "acked": result.get("acked", 0)}
 
-    def start_polling(self, on_email: Callable[[dict], None], interval: float = 30.0,
-                      limit: int = 20, max_rounds: Optional[int] = None) -> dict:
-        """Poll pull_list → deliver each pending email to ``on_email`` →
-        ack the delivered ids. message_id dedup (headers X-AIMail-Email +
-        created ordering are the caller's concern; dedup key = delivery id,
-        which is stable and unique). Errors back off one interval and keep
-        the mail un-acked (nothing is lost, next round re-pulls, §9 failover).
+    def start_polling(self, on_email: Callable[[dict], Any], interval: float = 30.0,
+                      limit: int = 20, max_rounds: Optional[int] = None,
+                      stop_event: Optional["threading.Event"] = None) -> dict:
+        """Poll pull_list → deliver each pending email to ``on_email`` → ack
+        the delivered ids. Dedup key = delivery id (stable, unique).
 
-        Blocking loop — run it in a worker thread. ``max_rounds`` bounds the
-        loop for tests (None = forever).
+        Semantics — **逐条对齐 TS mail-core address-code.ts:startPolling**:
+
+        * ``on_email`` failure ⇒ **该 delivery 不 ack, 且从去重集合移除** ⇒
+          下一轮重取同一 id(既不重复投递成功件, 也不丢件)。此前 Python 侧只做
+          了前半句: 失败后 id 仍留在 ``seen`` ⇒ 下一轮跳过 ⇒ 网关侧虽未 ack,
+          本地**永不重投**(邮件卡死)。这是本函数修掉的语义缺口。
+        * ``on_email`` 可以是 async 函数: 返回 awaitable 时在**本线程私有事件循环**
+          里 await 到完成 —— async 回调 reject 同样计失败(不 ack), 与 TS 的
+          ``await onEmail(...)`` 同义; fire-and-forget 会把 agent 没收下的信 ack 掉。
+        * ``stop_event``(threading.Event, 可关停): 每轮开始前检查, 睡眠用
+          ``stop_event.wait(interval)`` ⇒ stop 立即生效(不是等满一个间隔)。
+        * ``max_rounds`` 只给测试收敛循环(None = 一直跑)。
+
+        Blocking loop — run it in a worker thread (start_agent_pull_entries 负责).
         """
         seen: set = set()
         rounds = 0
         stats = {"pulled": 0, "acked": 0, "errors": 0}
+        delay = max(0.0, float(interval))
         while max_rounds is None or rounds < max_rounds:
+            if stop_event is not None and stop_event.is_set():
+                break
             rounds += 1
             try:
                 lst = self.pull_list(limit=limit)
                 if not lst.get("success"):
                     stats["errors"] += 1
-                    time.sleep(interval)
+                    _poll_sleep(delay, stop_event)
                     continue
                 deliveries = []
                 for batch in lst.get("batches", []):
@@ -546,14 +607,16 @@ class _GatewayClient:
                             body_obj = batch.get("body")
                             if isinstance(body_obj, str):
                                 body_obj = json.loads(body_obj)
-                            on_email({"id": d.get("id"), "email": d.get("email", ""),
-                                      "headers": d.get("headers", {}), "body": body_obj})
+                            _await_if_needed(on_email, {
+                                "id": d.get("id"), "email": d.get("email", ""),
+                                "headers": d.get("headers", {}), "body": body_obj})
                             deliveries.append(d.get("id"))
                             stats["pulled"] += 1
                         except Exception:
-                            # on_email failed → do NOT ack this id; it will
-                            # re-pull next round (delivery id stays unseen
-                            # only if we drop it from `seen` on failure).
+                            # on_email failed → do NOT ack: drop the id from the
+                            # dedup set so the NEXT round re-pulls it (the mail
+                            # is still pending server-side; nothing is lost).
+                            seen.discard(d.get("id"))
                             stats["errors"] += 1
                 if deliveries:
                     ack = self.pull_ack([i for i in deliveries if i is not None])
@@ -561,7 +624,7 @@ class _GatewayClient:
                         stats["acked"] += ack.get("acked", 0)
             except Exception:
                 stats["errors"] += 1
-            time.sleep(interval)
+            _poll_sleep(delay, stop_event)
         return stats
 
 

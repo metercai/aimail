@@ -183,3 +183,105 @@ async def aimail_inbound(request: Request) -> JSONResponse:
         return JSONResponse({"error": f"start_run failed: {e}"}, status_code=502)
 
     return JSONResponse({"status": "delivered", "email": email})
+
+
+# ═══════════════════════════════════════════════════════════════
+# agent-scope 定时轮询入口(pull-entry)—— install/启动收尾接的最后一根线
+# ═══════════════════════════════════════════════════════════════
+# 地址级激活码兑回来的地址**没有 push 路径**(网关给它写 webhook_url = NULL),
+# 只能自己定时 pull; 而 DeerFlow 宿主是长驻应用 ⇒ 在**应用启动**时把这条线接上
+# (由 manage.py 的 app.py 补丁在 include_router 之后调 start_pull_on_startup(app),
+# 见 patch_backend_app)。判定/间隔/关停/失败不 ack 全部复用共享核心
+# (aimail_base: is_agent_scope_binding / resolve_agent_pull_settings /
+# start_agent_pull_entries), 语义与 TS mail-core poll-entry.ts 逐条对齐。
+#
+# pull 与 push 共用**同一条入站链**: 投递按 push 的原样请求(同一契约路径 +
+# per-address HMAC 头)打回本机入站端点 ⇒ 上面那个 aimail_inbound 处理函数
+# (验签 → 共享预处理 → start_run)逐字生效。
+
+#: 本机入站端点(注册链同源: manage.py 用同一环境变量拼 webhook_url)。
+_DEERFLOW_INBOUND_BASE_ENV = "DEERFLOW_INBOUND_URL"
+
+
+def _inbound_base() -> str:
+    return os.environ.get(_DEERFLOW_INBOUND_BASE_ENV) or (
+        "http://127.0.0.1:%d" % _contract.INBOUND_PORTS["deerflow"])
+
+
+def _pull_replay_target(cfg: dict) -> dict:
+    """解析"把这封 pull 到的投递打回本机入站端点"所需的 (url, secret)。
+
+    绑定自身的 webhook_url/webhook_secret(注册链落盘, 唯一信任源)优先;
+    url 缺失则回退到宿主当前入站端点(环境变量 / 契约端口 + 契约路径)。
+    """
+    default_url = _inbound_base().rstrip("/") + _contract.INBOUND_PATH
+    return _ab.resolve_inbound_replay_target(cfg, default_url=default_url)
+
+
+def _on_pull_email(cfg: dict, mail: dict) -> dict:
+    """pull 来的信按 push 原样请求打回本机入站端点(同一条链)。
+
+    失败抛异常 ⇒ start_polling 不 ack ⇒ 下轮重拉(不丢件)。
+    """
+    target = _pull_replay_target(cfg)
+    if not target.get("ok"):
+        raise RuntimeError("no local inbound endpoint for %s (%s) — not acking"
+                           % (cfg.get("email", ""), target.get("reason", "")))
+    return _ab.replay_inbound_delivery(
+        cfg, mail, url=target["url"], secret=target["secret"])
+
+
+def _pull_system_id() -> str:
+    """本机 system_id(AIMAIL_SYSTEM_ID / 平台指针; 空 = 扫全部系统)。
+
+    与注册链同源: 用适配层 forward 的 detect_system_id(manage.py 对账也用同一个),
+    取不到就退到共享核心的 resolve_system_id_for_email 指针兜底。
+    """
+    try:
+        import aimail_deerflow as _df
+        sid = _df.detect_system_id()
+        if sid:
+            return str(sid)
+    except Exception:
+        pass
+    try:
+        return _ab.resolve_system_id_for_email("") or ""
+    except Exception:
+        return os.environ.get("AIMAIL_SYSTEM_ID", "")
+
+
+def start_pull_on_startup(app) -> bool:
+    """把 agent-scope 轮询挂到 FastAPI 的启动/关停钩子上(长驻宿主生命周期)。
+
+    由 app.py 补丁在 include_router 之后调用(manage.py:patch_backend_app)。
+    启动收尾起循环、关停收尾停循环; 幂等(重复调用只挂一次); 任何异常都不许
+    拖垮宿主启动。
+    """
+    if getattr(app, "_aimail_pull_wired", False):
+        return True
+    handles: list = []
+
+    async def _aimail_pull_startup() -> None:
+        try:
+            handles.extend(_ab.start_agent_pull_entries(
+                system_id=_pull_system_id(),
+                on_email=_on_pull_email,
+                target_for=_pull_replay_target,
+                log=lambda line: logger.info("%s", line),
+            ))
+        except Exception as e:  # noqa: BLE001 — 接线失败不拖垮宿主
+            logger.warning("aimail: pull entry start failed: %s", e)
+        logger.info("aimail: agent-scope pull entries: %d started", len(handles))
+
+    async def _aimail_pull_shutdown() -> None:
+        _ab.stop_agent_pull_entries(handles)
+
+    try:
+        app.add_event_handler("startup", _aimail_pull_startup)
+        app.add_event_handler("shutdown", _aimail_pull_shutdown)
+        app._aimail_pull_wired = True
+        logger.info("aimail: pull entry wired to app startup/shutdown")
+        return True
+    except Exception as e:  # noqa: BLE001
+        logger.warning("aimail: pull entry wiring failed: %s", e)
+        return False
