@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import time
 import hmac
 import hashlib
@@ -1536,6 +1537,14 @@ def iter_agentmail_configs(system_id: str = "") -> list:
 #     或显式 override; 线程 daemon ⇒ 进程退出即停(不拖住退出)。
 #   - **pull 与 push 共用同一条入站链**: 投递按 push 的原样请求打回宿主自己的入站
 #     端点(同一路径 + 同一 HMAC 头)⇒ 富化/persona/附件/6 步回信协议全部生效。
+#   - **本机 secret 自供**(2026-09-27 第 7 缺陷修 A): "重放"要 (url, secret) 成对
+#     —— url 缺了有回退(宿主按契约常量拼), secret 原先**没有**回退 ⇒ 地址级激活
+#     落的绑定(不含 webhook 两字段)一律 `no-secret` 跳过, pull 循环根本不启动。
+#     现在两条腿都有: ①地址级激活落盘即带本机 secret
+#     (aimail_tools.activate_address_code_persist); ②升级前落的老绑定在本入口
+#     **就地自供**(``ensure_binding_webhook_secret``, 幂等: 已有 ⇒ 不覆盖)。
+#     语义边界: 该 secret 只用于"agent 把 pull 到的信重放给**自己**的本机入站端点"
+#     这本地一跳的签名, 云端既不下发也不需要知晓 ⇒ **不请求网关、不改云端契约**。
 
 #: 地址级激活产物的系统 id 前缀(网关侧事实, 见上)。
 AGENT_SCOPE_SYSTEM_PREFIX = "shared_addr_"
@@ -1625,26 +1634,131 @@ def list_agent_scope_bindings(system_id: str = "") -> list:
 
 
 def resolve_inbound_replay_target(cfg, default_url: str = "",
-                                  route_secret: str = "") -> dict:
+                                  route_secret: str = "",
+                                  prefer_route_secret: bool = False) -> dict:
     """解析"把这封 pull 到的投递打回宿主入站端点"所需的 (url, secret)。
 
     - url: 绑定自身的 ``webhook_url``(注册链落盘的本地接收端点 = 唯一信任源)优先;
       缺失 ⇒ ``default_url``(宿主当前入站端点, 由适配器按契约常量拼出)。
     - secret: 绑定自身的 ``webhook_secret``(注册链与 webhook 路由同源)优先,
       回退 ``route_secret``(宿主路由表里的同名 secret)。
+    - ``prefer_route_secret=True``: 宿主**进程外验签**的平台(hermes 的入站由宿主
+      webhook 平台按 ``webhook_subscriptions.json`` 里的 secret 验)以**路由表**为准
+      —— 它才是 live 验签真值, 绑定里的同名字段只是注册期副本(二者同源时无差异)。
+      不这么做的后果: 地址级激活给绑定自供了一个新 secret 而宿主路由还是旧值 ⇒
+      重放签名与验签方不一致 ⇒ 401 且永不 ack(邮件卡在网关)。deer-flow 相反:
+      入站处理函数**自己读绑定**验签(aimail_inbound.py)⇒ 绑定为真值, 保持默认。
 
     返回 ``{"url", "secret", "ok", "reason"}``; ``ok=False`` 时 reason ∈
     {no-url, no-secret} —— 调用方据此**不启动**该绑定(不假装能投递)。
     """
     cfg = cfg if isinstance(cfg, dict) else {}
     url = str(cfg.get("webhook_url") or "").strip() or str(default_url or "").strip()
-    secret = (str(cfg.get("webhook_secret") or "").strip()
-              or str(route_secret or "").strip())
+    binding_secret = str(cfg.get("webhook_secret") or "").strip()
+    live_route_secret = str(route_secret or "").strip()
+    if prefer_route_secret and live_route_secret:
+        secret = live_route_secret
+    else:
+        secret = binding_secret or live_route_secret
     if not url:
         return {"url": "", "secret": secret, "ok": False, "reason": "no-url"}
     if not secret:
         return {"url": url, "secret": "", "ok": False, "reason": "no-secret"}
     return {"url": url, "secret": secret, "ok": True, "reason": ""}
+
+
+# ── 本机 inbound secret 自供(地址级激活 + 老绑定)─────────────────────────
+#: 生成用的字节数 —— 与系统级安装链**同一机制/同一格式**:
+#: hermes ``aimail_hermes.py`` 与 deer-flow ``manage.py`` 都是
+#: ``secrets.token_hex(32)``(⇒ 64 位十六进制)。这里只把"生成"收敛成一个入口,
+#: 不新造机制。
+WEBHOOK_SECRET_HEX_BYTES = 32
+
+
+def new_webhook_secret() -> str:
+    """生成一个本机 inbound 签名 secret(复用安装链既有机制与格式)。"""
+    return secrets.token_hex(WEBHOOK_SECRET_HEX_BYTES)
+
+
+def binding_config_path(cfg):
+    """绑定的落盘路径 —— ``iter_agentmail_configs`` 读入时注入的 ``_config_path``。"""
+    if not isinstance(cfg, dict):
+        return None
+    raw = str(cfg.get("_config_path") or "").strip()
+    return Path(raw) if raw else None
+
+
+def existing_binding_webhook_secret(system_id: str, email: str) -> str:
+    """已落盘绑定里的本机 secret(未落盘/无该字段/读不到 ⇒ "")。
+
+    地址级激活落盘时用它复用既有 secret(**不覆盖** —— 覆盖会让已经对账好的宿主
+    入站路由密钥失配)。
+    """
+    try:
+        d = json.loads(_agent_config_path(system_id, email).read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 — 读不到就当作没有(由调用方生成新的)
+        return ""
+    if not isinstance(d, dict):
+        return ""
+    return str(d.get("webhook_secret") or "").strip()
+
+
+def write_binding_config(path, cfg) -> None:
+    """按**既有绑定格式**原子重写一条绑定(私有 0600)。
+
+    格式与 ``save_agent_config`` / TS ``saveBinding`` 逐字同款(JSON indent=2、
+    UTF-8 原文、结尾换行、tmp+rename、0600 —— 走 ``atomic_write_private``, 即私有
+    落盘的单一入口, 不存在"先写后 chmod"的全局可读窗口)。内部字段(``_`` 前缀,
+    如 ``_config_path``)不落盘; ``webhook_secret`` 紧跟 ``api_key``(与
+    ``saveBinding`` 里 webhook_url/webhook_secret 相对 api_key 的位置一致)。
+    """
+    src = cfg if isinstance(cfg, dict) else {}
+    fields: Dict[str, object] = {}
+    for k, v in src.items():
+        if str(k).startswith("_"):
+            continue
+        fields[k] = v
+        if k == "api_key" and src.get("webhook_secret"):
+            fields["webhook_secret"] = src["webhook_secret"]
+    if src.get("webhook_secret") and "webhook_secret" not in fields:
+        fields["webhook_secret"] = src["webhook_secret"]
+    atomic_write_private(Path(path),
+                         json.dumps(fields, indent=2, ensure_ascii=False) + "\n")
+
+
+def ensure_binding_webhook_secret(cfg) -> dict:
+    """给一条绑定**就地自供**本机 webhook secret 并落盘(幂等: 已有 ⇒ 不覆盖)。
+
+    用途 = "纯地址级(无系统级安装)"的 pull 循环启动前的**防御性纠正**: 升级前落的
+    绑定没有 webhook_secret, 而重放必须 (url, secret) 成对 ⇒ 就地补一个本机 secret
+    并写回绑定, 让循环真能启动(而不是被 ``no-secret`` 永久跳过)。
+
+    不请求网关、不改云端契约: 该 secret 只签"打回自己本机入站端点"这一跳。
+
+    返回 ``{"changed", "secret", "path", "reason", "detail"}``, reason ∈
+    {exists(已有, 未动), provisioned(本次生成并落盘), no-path(绑定没有落盘位置,
+    例如内存构造的 cfg —— 不假装成功), write-failed}。
+    """
+    src = cfg if isinstance(cfg, dict) else {}
+    p = binding_config_path(src)
+    existing = str(src.get("webhook_secret") or "").strip()
+    if existing:
+        return {"changed": False, "secret": existing,
+                "path": str(p or ""), "reason": "exists", "detail": ""}
+    if p is None:
+        return {"changed": False, "secret": "", "path": "",
+                "reason": "no-path", "detail": ""}
+    secret = new_webhook_secret()
+    src["webhook_secret"] = secret          # 就地更新: 同一轮 target_for 立刻可见
+    try:
+        write_binding_config(p, src)
+    except Exception as e:  # noqa: BLE001 — 自供失败只是回到"未自供", 不抛
+        src.pop("webhook_secret", None)     # 内存里也不留没落盘的假值
+        return {"changed": False, "secret": "", "path": str(p),
+                "reason": "write-failed", "detail": e.__class__.__name__}
+    return {"changed": True, "secret": secret, "path": str(p),
+            "reason": "provisioned", "detail": ""}
+
 
 
 def replay_inbound_delivery(cfg, mail: dict, url: str, secret: str,
@@ -1763,6 +1877,23 @@ def start_agent_pull_entries(system_id: str = "", on_email=None, env=None,
         target = None
         if target_for is not None:
             target = target_for(cfg)
+            if (target and not target.get("ok")
+                    and target.get("reason") == "no-secret"):
+                # 防御性自供(幂等): 升级前落的绑定没有本机 secret ⇒ 就地补一个并写回
+                # 绑定, 再**重解析一次**(url 的回退在适配器侧照旧)。语义边界: 只签
+                # "打回自己的本机入站端点", 不请求网关、不改云端契约。已有 secret
+                # 的绑定不会走到这里(那是有意的: 绝不覆盖)。
+                prov = ensure_binding_webhook_secret(cfg)
+                if prov.get("changed"):
+                    log("[aimail-pull] %s: binding had no local webhook secret — "
+                        "provisioned one into %s and re-resolved the replay target"
+                        % (email, prov["path"]))
+                    target = target_for(cfg)
+                else:
+                    log("[aimail-pull] %s: local webhook secret could not be "
+                        "self-provisioned (%s%s)"
+                        % (email, prov.get("reason", ""),
+                           (": " + str(prov.get("detail"))) if prov.get("detail") else ""))
             if not target or not target.get("ok"):
                 reason = (target or {}).get("reason", "no-target")
                 log("[aimail-pull] %s: agent-scope binding but no local inbound "

@@ -1254,7 +1254,14 @@ def _pull_route_secret() -> str:
 
 
 def _pull_replay_target(cfg: dict) -> dict:
-    """解析"把这封 pull 到的投递打回本进程入站端点"所需的 (url, secret)。"""
+    """解析"把这封 pull 到的投递打回本进程入站端点"所需的 (url, secret)。
+
+    ``prefer_route_secret=True``: hermes 的入站验签由**宿主 webhook 平台**按
+    ``webhook_subscriptions.json`` 的路由 secret 做(不是我们自己读绑定)—— 路由表
+    才是 live 验签真值; 绑定里的同名字段只是注册期同源副本。二者冲突时以路由为准,
+    否则重放签名与验签方不一致 ⇒ 401 且永不 ack(地址级激活给新绑定自供 secret 时
+    会走到这种冲突: 宿主路由还是安装期的旧值)。
+    """
     profile_dir = _resolve_profile_dir() or ""
     default_url = ""
     if profile_dir:
@@ -1262,7 +1269,8 @@ def _pull_replay_target(cfg: dict) -> dict:
         if port:
             default_url = _contract.hermes_inbound_url(port)
     return core.resolve_inbound_replay_target(
-        cfg, default_url=default_url, route_secret=_pull_route_secret())
+        cfg, default_url=default_url, route_secret=_pull_route_secret(),
+        prefer_route_secret=True)
 
 
 def _pull_system_id() -> str:

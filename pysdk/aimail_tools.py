@@ -455,8 +455,19 @@ class _GatewayClient:
 
         1. ``~/.aimail/systems/{system_id}/{cleaned_addr}/agentmail.json``
            — fields isomorphic to the register chain (agent_id, email,
-           gateway_url, domain, system_id, api_key, expires_at), via the
-           shared atomic writer ``aimail_base.save_agent_config``
+           gateway_url, domain, system_id, api_key, expires_at) **plus
+           ``webhook_secret``**: the local inbound signature secret this
+           address needs in order to replay pulled mail into its own host
+           endpoint. Address-level activation has no system-level install,
+           so nothing else would ever land it — and without it the pull
+           loop cannot start at all (a replay needs url+secret as a pair).
+           It is generated HERE, locally (``aimail_base.new_webhook_secret``
+           — the same ``secrets.token_hex(32)`` mechanism/format the
+           install chain uses), and never requested from the gateway: it
+           only signs the loopback hop, so the cloud neither issues nor
+           needs it. A secret already on disk for the same address is
+           reused, never overwritten. Landing goes through the shared
+           atomic writer ``aimail_base.save_agent_config``
            (tmp+rename+0600, parity with TS mail-core saveBinding).
            ``domain`` is derived from the address's @-part.
         2. ``~/.aimail/systems/{system_id}/aimail_gateway.json`` — the
@@ -496,6 +507,15 @@ class _GatewayClient:
             "system_id": sid,
             "api_key": act["raw_key"],
         }
+        # 1b. 本机 inbound 签名 secret —— 地址级激活**没有系统级安装**, 没有人会替它
+        #     生成: 而"把 pull 到的信重放进自己的本机入站端点"必须 (url, secret) 成对
+        #     ⇒ 缺 secret 时 pull 循环根本不启动(pull-entry 判 no-secret 跳过)。只在
+        #     **本机**语义下生成(复用安装链同款 secrets.token_hex(32) 机制/格式),
+        #     不请求网关、不改云端契约; 同一地址已有 secret ⇒ 复用不覆盖(重复激活
+        #     不churn 既有宿主路由的密钥)。
+        cfg["webhook_secret"] = (
+            _abm.existing_binding_webhook_secret(sid, email)
+            or _abm.new_webhook_secret())
         if act.get("expires_at"):
             cfg["expires_at"] = act["expires_at"]
         p = _abm.save_agent_config(aid, cfg, sid)

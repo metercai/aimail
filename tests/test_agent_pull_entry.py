@@ -34,6 +34,7 @@ import pytest
 sys.path.insert(0, "pysdk")  # ensure repo pysdk wins over any cli/ shadow
 
 import aimail_base as base  # noqa: E402
+import aimail_contract as contract  # noqa: E402
 from aimail_contract import BINDING_FILE  # noqa: E402
 from aimail_tools import _GatewayClient, _poll_sleep  # noqa: E402
 
@@ -442,7 +443,167 @@ def test_list_agent_scope_bindings_filters_the_filesystem(clean_env, tmp_path, m
     assert base.list_agent_scope_bindings(PLAIN_SID) == []
 
 
-# ── 6. adapter seam: import-safe, never raises, idempotent stop ────────────
+# ── 6. local secret self-provision (defect #7 fix A) ──────────────────────
+#
+# A pure address-level binding (address-code activation, no system install) had
+# no `webhook_secret`; a replay needs url+secret as a PAIR, and only the url had
+# a fallback ⇒ every such binding was skipped with reason `no-secret` and the
+# pull loop never started. These tests pin the fix: the secret is generated
+# locally (same mechanism/format as the install chain), landed in the existing
+# binding format/0600, reused when already present, and the old `no-secret`
+# skip is gone for provisionable bindings.
+
+def _mode(p: Path) -> int:
+    import stat
+    return stat.S_IMODE(p.stat().st_mode)
+
+
+DEFAULT_INBOUND_URL = contract.inbound_url(contract.INBOUND_PORTS["deerflow"])
+
+
+def test_provision_lands_secret_in_the_shared_binding_format(tmp_path, monkeypatch):
+    monkeypatch.setenv("AIMAIL_HOME", str(tmp_path))
+    p = _write_binding(tmp_path, AGENT_SCOPE_SID, "agent.demo",
+                       {"agent_id": "agent.demo", "email": "agent.demo@example.test",
+                        "gateway_url": "http://127.0.0.1:1", "domain": "example.test",
+                        "system_id": AGENT_SCOPE_SID, "api_key": "raw-agent-key"})
+    cfg = base.iter_agentmail_configs(AGENT_SCOPE_SID)[0]
+
+    out = base.ensure_binding_webhook_secret(cfg)
+
+    assert out["changed"] is True and out["reason"] == "provisioned", out
+    assert out["path"] == str(p)
+    assert len(out["secret"]) == base.WEBHOOK_SECRET_HEX_BYTES * 2
+    assert _mode(p) == 0o600, oct(_mode(p))
+    on_disk = json.loads(p.read_text())
+    assert on_disk["webhook_secret"] == out["secret"]
+    # field order/format follow the existing binding format (parity with the
+    # register chain + TS saveBinding): secret right after api_key, indent=2,
+    # trailing newline, internal `_`-prefixed fields never landed.
+    keys = list(on_disk)
+    assert keys.index("webhook_secret") == keys.index("api_key") + 1, keys
+    assert all(not k.startswith("_") for k in keys), keys
+    assert p.read_text() == json.dumps(on_disk, indent=2, ensure_ascii=False) + "\n"
+
+
+def test_provision_is_idempotent_and_never_overwrites_an_existing_secret(
+        tmp_path, monkeypatch):
+    monkeypatch.setenv("AIMAIL_HOME", str(tmp_path))
+    existing = "e" * (base.WEBHOOK_SECRET_HEX_BYTES * 2)
+    p = _write_binding(tmp_path, AGENT_SCOPE_SID, "agent.demo",
+                       _agent_scope_cfg(webhook_secret=existing))
+    before = p.read_bytes()
+    cfg = base.iter_agentmail_configs(AGENT_SCOPE_SID)[0]
+
+    out = base.ensure_binding_webhook_secret(cfg)
+
+    assert out == {"changed": False, "secret": existing, "path": str(p),
+                   "reason": "exists", "detail": ""}, out
+    assert p.read_bytes() == before          # byte-identical: nothing rewritten
+    # a second call (already provisioned) stays a no-op too
+    assert base.ensure_binding_webhook_secret(cfg)["changed"] is False
+
+
+def test_provision_without_a_landing_path_does_not_pretend_success():
+    """In-memory cfg (no `_config_path`) ⇒ reason `no-path`, no fake secret."""
+    cfg = _agent_scope_cfg()
+    out = base.ensure_binding_webhook_secret(cfg)
+    assert out["changed"] is False and out["reason"] == "no-path", out
+    assert out["secret"] == "" and "webhook_secret" not in cfg, out
+
+
+def test_entries_provisions_before_starting_and_the_no_secret_skip_is_gone(
+        tmp_path, monkeypatch):
+    """Legacy binding (landed before this fix, no secret) now really polls.
+
+    Uses the REAL resolver (deer-flow shape: url falls back to the contract
+    port+path, secret has no fallback) — so a green here means the loop started
+    because the secret was self-provisioned, not because a stub said `ok`.
+    """
+    monkeypatch.setenv("AIMAIL_HOME", str(tmp_path))
+    p = _write_binding(tmp_path, AGENT_SCOPE_SID, "agent.demo", _agent_scope_cfg())
+    assert "webhook_secret" not in json.loads(p.read_text())      # the legacy shape
+
+    fake = FakePullClient([[{"body": {"subject": "pulled"},
+                             "deliveries": [{"id": 7,
+                                             "email": "agent.demo@example.test"}]}]])
+    lines, handled = [], []
+    handles = base.start_agent_pull_entries(
+        system_id=AGENT_SCOPE_SID, env={}, log=lines.append,
+        overrides={"interval_ms": "1"},
+        target_for=lambda c: base.resolve_inbound_replay_target(
+            c, default_url=DEFAULT_INBOUND_URL),
+        client_for=lambda _c: fake,
+        on_email=lambda c, mail: handled.append(mail["id"]))
+    try:
+        assert len(handles) == 1, lines        # used to be 0 (no-secret skip)
+        assert any("provisioned one into" in ln for ln in lines), lines
+        assert not any("no local inbound endpoint (no-secret)" in ln
+                       for ln in lines), lines
+        assert _wait_for(lambda: fake.transport.ack_calls), "loop must poll+ack"
+        assert handled == [7]
+        assert fake.transport.ack_calls == [[7]]
+        landed = json.loads(p.read_text())
+        assert len(landed["webhook_secret"]) == base.WEBHOOK_SECRET_HEX_BYTES * 2
+        assert _mode(p) == 0o600, oct(_mode(p))
+    finally:
+        base.stop_agent_pull_entries(handles)
+
+
+def test_entries_leaves_a_binding_that_already_has_a_secret_byte_identical(
+        tmp_path, monkeypatch):
+    monkeypatch.setenv("AIMAIL_HOME", str(tmp_path))
+    p = _write_binding(tmp_path, AGENT_SCOPE_SID, "agent.demo",
+                       _agent_scope_cfg(webhook_secret="s" * 64))
+    before = p.read_bytes()
+    lines = []
+    handles = base.start_agent_pull_entries(
+        system_id=AGENT_SCOPE_SID, env={}, log=lines.append,
+        overrides={"interval_ms": "1"},
+        target_for=lambda c: base.resolve_inbound_replay_target(
+            c, default_url=DEFAULT_INBOUND_URL),
+        client_for=lambda _c: FakePullClient([]),
+        on_email=lambda c, mail: None)
+    try:
+        assert len(handles) == 1, lines
+        assert not any("provisioned one into" in ln for ln in lines), lines
+        assert p.read_bytes() == before
+    finally:
+        base.stop_agent_pull_entries(handles)
+
+
+def test_replay_target_prefers_the_live_route_secret_when_the_host_verifies_out_of_process():
+    """Why the switch exists: hermes verifies inbound in the HOST webhook
+    platform (route table is the live verifier), deer-flow reads the binding."""
+    binding_secret, route_secret = "b" * 64, "r" * 64
+    cfg = _agent_scope_cfg(webhook_secret=binding_secret)
+
+    # default (deer-flow shape): the binding is the truth
+    d = base.resolve_inbound_replay_target(cfg, default_url=DEFAULT_INBOUND_URL,
+                                           route_secret=route_secret)
+    assert d["ok"] is True and d["secret"] == binding_secret
+    # hermes shape: the live route secret wins
+    h = base.resolve_inbound_replay_target(cfg, default_url=DEFAULT_INBOUND_URL,
+                                           route_secret=route_secret,
+                                           prefer_route_secret=True)
+    assert h["ok"] is True and h["secret"] == route_secret
+    # ...but with no route secret it still falls back to the binding's
+    h2 = base.resolve_inbound_replay_target(cfg, default_url=DEFAULT_INBOUND_URL,
+                                            route_secret="",
+                                            prefer_route_secret=True)
+    assert h2["secret"] == binding_secret
+
+
+def test_hermes_adapter_wires_the_route_secret_precedence():
+    """Source-level proof of the wire (importing the adapter would leak its
+    profile-dir resolver into the whole pytest process — see section 6)."""
+    src = (Path(__file__).resolve().parents[1] / "pysdk" / "hermes"
+           / "aimail_hermes.py").read_text(encoding="utf-8")
+    block = src.split("def _pull_replay_target(", 1)[1].split("\ndef ", 1)[0]
+    assert "prefer_route_secret=True" in block, block
+
+
+# ── 7. adapter seam: import-safe, never raises, idempotent stop ────────────
 
 def test_hermes_adapter_seam_is_inert_without_bindings(tmp_path):
     """`ensure_agent_pull_started()` is the host wiring point: with no

@@ -160,10 +160,36 @@ def test_activation_lands_private_binding_with_register_isomorphic_fields(
         "domain": "example.test",
         "system_id": AGENT_SCOPE_SID,
         "api_key": RAW_KEY,
+        # 1b (defect #7 fix A): activation is the ONLY path that can land this —
+        # a pure address-level agent has no system-level install, and without it
+        # the pull loop never starts (a replay needs url+secret as a pair).
+        "webhook_secret": cfg["webhook_secret"],
         "expires_at": "2026-12-31T00:00:00Z",
     }
+    # a real locally-generated secret, in the install chain's format (64 hex)
+    assert len(cfg["webhook_secret"]) == base.WEBHOOK_SECRET_HEX_BYTES * 2
+    assert all(c in "0123456789abcdef" for c in cfg["webhook_secret"])
+    assert list(cfg).index("webhook_secret") == list(cfg).index("api_key") + 1
+    # the shared binding format: JSON indent=2, UTF-8 as-is, trailing newline
+    assert p.read_text() == json.dumps(cfg, indent=2, ensure_ascii=False) + "\n"
+    # it is a LOCAL secret: the gateway was never asked for one
+    assert all("webhook" not in k for k in seen[0]["body"]), seen[0]["body"]
     # the atomic writer must not leave a partially-written tmp behind
     assert not (p.parent / (p.name + ".tmp")).exists()
+
+
+def test_reactivation_reuses_the_landed_secret_instead_of_overwriting(
+        hermes_home, gateway):
+    """Re-running activation (same address) must not churn the local secret —
+    an overwrite would desync an already-reconciled host inbound route."""
+    url, _ = gateway
+    activate_address_code("c1", ADDR, gateway_url=url)
+    first = json.loads(_binding(hermes_home).read_text())["webhook_secret"]
+
+    activate_address_code("c2", ADDR, gateway_url=url)
+    second = json.loads(_binding(hermes_home).read_text())["webhook_secret"]
+
+    assert first == second and len(first) == base.WEBHOOK_SECRET_HEX_BYTES * 2
 
 
 def test_agent_scope_prefix_is_what_enables_the_pull_entry(hermes_home, gateway):
