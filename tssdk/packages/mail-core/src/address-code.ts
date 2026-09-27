@@ -23,6 +23,7 @@ import {
   gatewayConfigPath,
   saveAgentConfig,
 } from './config.js'
+import { POINTER_FILE } from './contract.js'
 import type { GatewayResponse } from './types.js'
 
 /** Minimal client surface these helpers need (GatewayClient satisfies it). */
@@ -92,6 +93,8 @@ export interface ActivateAddressCodePersistOptions {
 export interface ActivateAddressCodePersistResult extends ActivateAddressCodeResult {
   config_path?: string | undefined
   pointer_written?: boolean | undefined
+  /** Absolute path of the landed pointer ('' when none was written). */
+  pointer_path?: string | undefined
 }
 
 /**
@@ -155,17 +158,25 @@ export async function activateAddressCodePersist(
     )
   }
 
-  // 3. Discovery pointer (best-effort).
+  // 3. Discovery pointer (best-effort) — filename from the contract constant
+  //    (never spelled out here: the literal ratchet gate), written 0600 via
+  //    tmp+rename so a crash can never leave a partial pointer (parity with
+  //    the Python side's atomic_write_private).
   let pointerWritten = false
+  let pointerPath = ''
   if (opts.platformHome) {
     try {
-      const ptrPath = path.join(opts.platformHome, '.agentmail')
-      await fs.mkdir(path.dirname(ptrPath), { recursive: true })
+      const ptrPath = path.join(opts.platformHome, POINTER_FILE)
+      await fs.mkdir(path.dirname(ptrPath), { recursive: true, mode: 0o700 })
+      const tmp = `${ptrPath}.tmp`
       await fs.writeFile(
-        ptrPath,
+        tmp,
         JSON.stringify({ system_id: sid, email }, null, 2) + '\n',
+        { mode: 0o600 },
       )
+      await fs.rename(tmp, ptrPath)
       pointerWritten = true
+      pointerPath = ptrPath
     } catch {
       // best-effort: discovery degrades, the binding itself is intact
     }
@@ -179,6 +190,7 @@ export async function activateAddressCodePersist(
     expires_at: act.expires_at,
     config_path: p,
     pointer_written: pointerWritten,
+    pointer_path: pointerPath,
   }
 }
 

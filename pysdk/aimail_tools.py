@@ -16,6 +16,7 @@ import urllib.request
 import urllib.error
 
 from aimail_base import _load_profile_config, list_personas
+import aimail_contract as _contract   # agent 侧契约常量(指针文件名等唯一真源)
 import urllib.parse
 
 
@@ -461,9 +462,10 @@ class _GatewayClient:
         2. ``~/.aimail/systems/{system_id}/aimail_gateway.json`` — the
            gateway connection file (gateway_url + system_id), only if
            absent (never overwrites an existing system's admin_key).
-        3. Pointer ``{profile_dir}/.agentmail`` (system_id + email) when
-           ``profile_dir`` is given (the agent's profile dir; discovery
-           + log naming read it).
+        3. Pointer ``{profile_dir}/{POINTER_FILE}`` (system_id + email) when
+           ``profile_dir`` is given (the agent's platform home; discovery
+           + log naming read it). The filename is taken from
+           ``aimail_contract.POINTER_FILE`` — never spelled out here.
 
         After this returns success, the 6 tools / preprocess / pull all
         read the key from the same files the register path produces —
@@ -514,12 +516,19 @@ class _GatewayClient:
             }, indent=2, ensure_ascii=False) + "\n")
 
         # 3. Discovery pointer (best-effort — log naming degrades without it).
+        #    ``profile_dir`` = 该 agent 的平台 home(含 `~`/相对路径, 落盘前展开+
+        #    绝对化); 契约文件名引 ``aimail_contract.POINTER_FILE``(禁字面量)。
         pointer_written = False
+        pointer_path = ""
         if profile_dir:
             try:
-                _abm._write_pointer(
-                    Path(profile_dir) / ".agentmail", sid, email)
+                d = Path(os.path.expanduser(str(profile_dir)))
+                if not d.is_absolute():
+                    d = Path(os.path.abspath(str(d)))
+                ptr = d / _contract.POINTER_FILE
+                _abm._write_pointer(ptr, sid, email)
                 pointer_written = True
+                pointer_path = str(ptr)
             except Exception:
                 pass
 
@@ -531,6 +540,7 @@ class _GatewayClient:
             "expires_at": act.get("expires_at", ""),
             "config_path": str(p),
             "pointer_written": pointer_written,
+            "pointer_path": pointer_path,
         }
 
     # ── Pull (agent scope) ──────────────────────────────────────
@@ -711,6 +721,7 @@ def activate_address_code(
     code: str,
     address: str,
     gateway_url: Optional[str] = None,
+    profile_home: Optional[str] = None,
 ) -> dict:
     """Activate an AIMail mailbox you were given (address-level self-service).
 
@@ -721,6 +732,12 @@ def activate_address_code(
     fields + expires_at, plus the `.agentmail` identity pointer) and
     makes every other mail tool work for that mailbox.
 
+    ``profile_home`` = your own platform home directory (the dir that
+    holds the discovery pointer, e.g. ``~/.deer-flow`` or a hermes
+    profile dir). ``~`` is expanded and a relative path is made absolute
+    before the pointer is written; when omitted the binding is still
+    written but no pointer is created (discovery/log naming then degrade).
+
     No CLI, no product code, no admin credentials: the code authorizes
     exactly one address, once, until it expires.
     """
@@ -728,7 +745,8 @@ def activate_address_code(
     if not gw:
         raise ValueError("gateway_url is required (or set AIMAIL_URL)")
     client = _GatewayClient(gw, "")
-    return client.activate_address_code_persist(code, address)
+    return client.activate_address_code_persist(
+        code, address, profile_dir=(profile_home or ""))
 
 
 def send_mail(

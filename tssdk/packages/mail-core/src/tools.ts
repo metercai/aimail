@@ -7,6 +7,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { promises as fsp } from 'node:fs'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import { existsSync, readFileSync } from 'node:fs'
 import { GatewayClient } from './gateway.js'
@@ -20,22 +21,49 @@ export interface ActivateAddressCodeArgs {
   code: string
   address: string
   gatewayUrl: string
+  /**
+   * Wire-level parameter name (what the LLM/registry passes; identical to the
+   * Python MCP tool's property — the cross-language parity gate compares the
+   * parameter key sets verbatim, so this name is contract, not style).
+   */
+  profile_home?: string
+  /** Programmatic alias for direct callers (same semantics as profile_home). */
   platformHome?: string
+}
+
+/**
+ * Expand a leading `~` and make the path absolute: a relative
+ * `platform home` must never be landed on disk (it would resolve against
+ * whatever cwd the agent process happens to have).
+ */
+function resolvePlatformHome(dir: string): string {
+  const expanded = dir === '~' || dir.startsWith('~/')
+    ? path.join(os.homedir(), dir.slice(1))
+    : dir
+  return path.resolve(expanded)
 }
 
 /**
  * Activate the AIMail mailbox you were given (address-level self-service,
  * type 3). Exchanges the one-time code for YOUR OWN agent key, persists it
- * locally (0600, register-isomorphic fields + expires_at, `.agentmail`
- * pointer) and makes the other mail tools work. No CLI, no admin key.
+ * locally (0600, register-isomorphic fields + expires_at) and makes the other
+ * mail tools work. No CLI, no admin key.
+ *
+ * `profile_home` = the caller's own platform home (the dir holding the
+ * discovery pointer). A leading `~` is expanded and a relative path is
+ * absolutised before landing — a relative home would otherwise resolve
+ * against whatever cwd the agent process happens to have. Omitted ⇒ the
+ * binding is still written, only the pointer (and with it discovery / log
+ * naming) is skipped, which is what the Python twin does.
  */
 export async function activateAddressCode(
   args: ActivateAddressCodeArgs,
 ): Promise<ToolResult> {
   const client = new GatewayClient(args.gatewayUrl, '', 30_000)
+  const home = args.profile_home ?? args.platformHome
   const res = await activateAddressCodePersist(client, args.code, args.address, {
     gatewayUrl: args.gatewayUrl,
-    ...(args.platformHome ? { platformHome: args.platformHome } : {}),
+    ...(home ? { platformHome: resolvePlatformHome(home) } : {}),
   })
   return res as unknown as ToolResult
 }

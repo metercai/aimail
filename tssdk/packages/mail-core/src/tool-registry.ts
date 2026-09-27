@@ -209,6 +209,7 @@ export const MAIL_TOOLS: readonly MailToolDef[] = [
       code: { type: 'string', description: 'One-time activation code (shared_a-…)', required: true },
       address: { type: 'string', description: 'The mailbox address it unlocks', required: true },
       gateway_url: { type: 'string', description: 'AIMail gateway URL (or set AIMAIL_URL)' },
+      profile_home: { type: 'string', description: 'Your platform home directory where the local discovery pointer is written (e.g. ~/.deer-flow); ~ is expanded, relative paths are made absolute. Omit to skip pointer creation.' },
     },
     handler: (_ctx, args) => activateAddressCode(args as unknown as ActivateAddressCodeArgs),
   },

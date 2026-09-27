@@ -111,6 +111,7 @@ def tool_activate_address_code(args: dict) -> dict:
             code=args.get("code", ""),
             address=args.get("address", ""),
             gateway_url=args.get("gateway_url"),
+            profile_home=args.get("profile_home"),
         )
     return _safe(fn)
 
@@ -305,7 +306,8 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {
          "code": {"type": "string", "description": "One-time activation code (shared_a-…)"},
          "address": {"type": "string", "description": "The mailbox address it unlocks"},
-         "gateway_url": {"type": "string", "description": "AIMail gateway URL (or set AIMAIL_URL)"}},
+         "gateway_url": {"type": "string", "description": "AIMail gateway URL (or set AIMAIL_URL)"},
+         "profile_home": {"type": "string", "description": "Your platform home directory where the local discovery pointer is written (e.g. ~/.deer-flow); ~ is expanded, relative paths are made absolute. Omit to skip pointer creation."}},
          "required": ["code", "address"]}},
 ]
 
