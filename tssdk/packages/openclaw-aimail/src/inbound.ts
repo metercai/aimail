@@ -71,7 +71,15 @@ async function deliverToAgent(
     }),
   })
   if (!r.ok) {
-    return { status: 'dispatch_failed', detail: `hooks/agent HTTP ${r.status}` }
+    // S1d (2026-09-27): 宿主文档明确要求 "Read the `error` before retrying" ——
+    // 只记状态码会把"为什么被拒"丢掉(404/401/400 三轮都吃过这个亏)。
+    let why = ''
+    try {
+      why = (await r.text()).slice(0, 300)
+    } catch {
+      why = ''
+    }
+    return { status: 'dispatch_failed', detail: `hooks/agent HTTP ${r.status}${why ? ': ' + why : ''}` }
   }
   return { status: 'delivered', detail: 'hooks/agent accepted' }
 }
