@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import * as path from 'node:path'
-import { ensureHooksWiring, hooksPath } from '../src/identity.js'
+import { ensureHooksWiring, hooksPath, resolveAgentId } from '../src/identity.js'
 
 let home = ''
 const cfgDir = () => path.join(home, '.openclaw')
@@ -60,5 +60,16 @@ describe('ensureHooksWiring', () => {
     mkdirSync(cfgDir(), { recursive: true })
     writeFileSync(cfgFile(), JSON.stringify({ hooks: { path: 'gateway-hooks/' } }))
     expect(hooksPath()).toBe('/gateway-hooks')
+  })
+})
+
+describe('resolveAgentId (S1b)', () => {
+  it('prefers the configured owner over entries', () => {
+    mkdirSync(cfgDir(), { recursive: true })
+    writeFileSync(cfgFile(), JSON.stringify({ agents: { defaults: { sessionStore: { agentId: 'owner' } }, entries: { other: {} } } }))
+    expect(resolveAgentId()).toBe('owner')
+  })
+  it('never guesses: empty config means empty id', () => {
+    expect(resolveAgentId()).toBe('')
   })
 })

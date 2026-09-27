@@ -153,6 +153,32 @@ export function hooksPath(): string {
   }
 }
 
+/** 宿主已配置的 agent id（S1b, 2026-09-27）: 派发不带给合同时宿主直接 400 ——
+ * 宿主文档 /gateway/config-hooks: "agentId ... Must name a configured agent when supplied
+ * directly. Required when no implicit/retained owner can be resolved"，且
+ * "Direct request agent ids must exist."。键位以宿主文档为准: agents.entries.<id>,
+ * agents.defaults.sessionStore.agentId / agents.defaults.systemAgent.agentId。
+ * 解析不到就返回空串 —— 由调用方明确报错, 不猜一个 id。 */
+export function resolveAgentId(): string {
+  try {
+    const p = path.join(openclawHome(), '.openclaw', 'openclaw.json')
+    const cfg = JSON.parse(fs.readFileSync(p, 'utf-8')) as {
+      agents?: {
+        entries?: Record<string, unknown>
+        defaults?: { sessionStore?: { agentId?: unknown }; systemAgent?: { agentId?: unknown } }
+      }
+    }
+    const a = cfg.agents ?? {}
+    const explicit = a.defaults?.sessionStore?.agentId ?? a.defaults?.systemAgent?.agentId
+    if (typeof explicit === 'string' && explicit.trim()) return explicit.trim()
+    const ids = Object.keys(a.entries ?? {})
+    if (ids.includes('main')) return 'main'
+    return ids.length ? ids[0] : ''
+  } catch {
+    return ''
+  }
+}
+
 /** OpenClaw gateway HTTP port (openclaw.json gateway.port, default 18789). */
 export function gatewayPort(): number {
   try {

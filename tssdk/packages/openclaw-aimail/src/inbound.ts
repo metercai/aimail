@@ -19,7 +19,7 @@ import * as path from 'node:path'
 import { verifySignature, processInboundMail, routeAddressFromHeaders, logAimailDispatch, type InboundPayload } from '@aimail/mail-core'
 import type { OpenClawPluginApi } from 'openclaw/plugin-sdk/plugin-entry'
 import { resolveByRecipient } from '@aimail/mail'
-import { gatewayPort, hooksPath, readPointer } from './identity.js'
+import { gatewayPort, hooksPath, readPointer, resolveAgentId } from './identity.js'
 
 export const INBOUND_PATH = '/aimail/inbound'
 
@@ -52,7 +52,7 @@ async function deliverToAgent(
 ): Promise<{ status: string; detail: string }> {
   void api
   const hooksToken = readHooksToken()
-  const agentId = opts.agentId || 'main'
+  const agentId = opts.agentId || resolveAgentId() || 'main'
   const r = await fetch(`http://127.0.0.1:${gatewayPort()}${hooksPath()}/agent`, {
     method: 'POST',
     headers: {
@@ -62,6 +62,10 @@ async function deliverToAgent(
     body: JSON.stringify({
       message: opts.message,
       name: 'aimail',
+      // S1b (2026-09-27): 必须显式给 agentId —— 宿主文档的 Hook agent payload 规定
+      // "agentId ... Must name a configured agent"、"Required when no implicit/retained
+      // owner can be resolved"，不给就是 400(实测: 端点在了、认证过了, 仍 400)。
+      agentId,
       sessionKey: `agent:${agentId}:hook:aimail`,
       deliver: false,
     }),
