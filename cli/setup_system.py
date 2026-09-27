@@ -498,7 +498,21 @@ def setup(
             except Exception:
                 pass
     if not webhook_host:
-        webhook_host = _detect_webhook_host(gateway_url)
+        _detected = _detect_webhook_host(gateway_url)
+        # Only a real bridge entry (host:port) belongs in `webhook_host`. The probe
+        # returns a bare host by design (its job is to find the *host*), and writing
+        # that verbatim made the registration store an undeliverable webhook_url
+        # ('127.0.0.1' — inbound mail then never arrives; measured 2026-09-27, L2 J4e).
+        # Leaving the key ABSENT is the documented "no bridge → register the local
+        # endpoint" state (owner ruling 2026-08-18).
+        from aimail_base import is_bridge_host_port as _is_host_port
+        if _is_host_port(_detected):
+            webhook_host = _detected
+        elif _detected:
+            logger.info(
+                "[aimail_setup] detected callback host %r has no port — not writing "
+                "webhook_host (no bridge entry); the registration will use the local "
+                "receive endpoint", _detected)
 
     # Path A: admin_key provided (already-activated system)
     if admin_key:

@@ -1587,6 +1587,45 @@ def route_outcome_is_warning(outcome: dict) -> bool:
     return str((outcome or {}).get("state", "")) == "failed"
 
 
+def is_deliverable_webhook_url(value: str) -> bool:
+    """True only for a value the cloud can actually POST to: an absolute http(s) URL.
+
+    Measured 2026-09-27 (L2 journey J4e + a direct probe): the gateway hands whatever is
+    stored in ``system_domains.webhook_url`` straight to ``reqwest``, so
+    - ``'127.0.0.1'``      → ``request error: builder error``
+    - ``'127.0.0.1:18789'`` (the host:port form the 2026-08-18 ruling calls the push
+      case!) → ``builder error`` too
+
+    i.e. only an absolute URL is deliverable. The bridge's own push entry is a URL
+    (``http://<host>/webhooks/aimail-inbound``, aimail-bridge admin.rs), and so is the
+    local receive endpoint — those are the only two shapes that may be registered.
+    """
+    v = str(value or "").strip()
+    return v.startswith("http://") or v.startswith("https://")
+
+
+def is_bridge_host_port(value: str) -> bool:
+    """True for the ``host:port`` form of the ``webhook_host`` *config* key.
+
+    Note this is NOT the same as a deliverable registration value: since the cloud
+    cannot post to a scheme-less ``host:port`` (see ``is_deliverable_webhook_url``),
+    this form belongs to the bridge configuration, not to the registration parameter.
+    IPv6 entries are accepted as ``[addr]:port``.
+    """
+    v = str(value or "").strip()
+    if not v or "://" in v:
+        return False
+    host, sep, port = v.rpartition(":")
+    if not sep or not host:
+        return False
+    if not port.isdigit():
+        return False
+    try:
+        return 0 < int(port) < 65536
+    except ValueError:
+        return False
+
+
 def resolve_register_webhook_url(gw: dict, local_webhook_url: str) -> str:
     """webhook_host 三态 → 地址注册参数 webhook_url(2026-08-18 用户定稿语义):
 
@@ -1599,10 +1638,26 @@ def resolve_register_webhook_url(gw: dict, local_webhook_url: str) -> str:
 
     注意:注册参数与 agentmail.json 的 webhook_url 是两个值——agentmail.json
     webhook_url 始终 = 本地接收端点(bridge 路由目标,唯一信任源)。
+
+    2026-09-27 补（实测驱动）:第一态的前置条件**必须真的校验**,而且可接受值只有一个——
+    **绝对 http(s) URL**。实测:网关把该值原样交给 reqwest,`'127.0.0.1'` 与
+    `'127.0.0.1:18789'`(即 ruling 里的 push 形态 host:port)**都**是 builder error ⇒
+    host:port 也不能投。故:webhook_host 若已是 URL(桥自报的
+    `http://<host>/webhooks/aimail-inbound` 等)则透传;若是裸 host / host:port
+    ⇒ **大声告警**并按"无 bridge"退回本地端点,绝不把不可投递的值注册出去。
     """
     whh = gw.get("webhook_host") if isinstance(gw, dict) else None
     if whh is not None and str(whh).strip():
-        return str(whh)          # push:bridge 公网入口
+        val = str(whh).strip()
+        if is_deliverable_webhook_url(val):
+            return val          # push:桥公网入口(必须是 URL)
+        logger.warning(
+            "[aimail] webhook_host %r is not an absolute http(s) URL — the cloud cannot "
+            "POST to it (builder error), so this system is treated as 'no bridge' and the "
+            "local endpoint %r is registered instead. For a bridge deployment register "
+            "the bridge's own URL (http://<host>/webhooks/aimail-inbound), not host:port.",
+            val, local_webhook_url)
+        return local_webhook_url
     if whh is not None:
         return ""                # pull:显式空值
     return local_webhook_url     # 无 bridge:本地端点

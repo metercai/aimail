@@ -379,11 +379,19 @@ def _repair_gateway_config(sid: str, args_home: str = "") -> bool:
         try:
             sys.path.insert(0, str(SCRIPTS_DIR))
             from setup_system import _detect_webhook_host
+            from aimail_base import is_bridge_host_port
             wh = _detect_webhook_host(cfg.get("gateway_url", ""))
-            if wh:
+            # Backfill only a REAL bridge entry (host:port). A bare host is not a URL:
+            # writing it here made the next registration store an undeliverable
+            # webhook_url and silently kill inbound delivery (measured 2026-09-27, L2
+            # J4e). Leaving the key absent = "no bridge → register the local endpoint".
+            if wh and is_bridge_host_port(wh):
                 cfg["webhook_host"] = wh
                 _ok(f"webhook_host backfilled: {wh}")
                 changed = True
+            elif wh:
+                _warn(f"detected callback host {wh!r} has no port — leaving webhook_host "
+                      f"unset (no bridge entry; registration keeps the local endpoint)")
         except Exception as e:
             _warn(f"webhook_host probe failed (skipped): {e}")
     if changed:
