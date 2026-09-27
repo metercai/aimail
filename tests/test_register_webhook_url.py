@@ -57,3 +57,40 @@ def test_explicit_empty_means_pull_mode():
 def test_absent_key_means_no_bridge():
     assert core.resolve_register_webhook_url({}, LOCAL) == LOCAL
     assert core.resolve_register_webhook_url(None, LOCAL) == LOCAL
+
+
+# ── A2 (owner ruling 2026-09-27): the bridge's own push entry wins ──────────────
+
+BRIDGE_URL = "http://127.0.0.1:38081/webhooks/aimail-inbound"
+
+
+def test_bridge_register_url_wins_over_every_other_state():
+    gw = {"webhook_register_url": BRIDGE_URL, "webhook_host": "1.2.3.4:38081"}
+    assert core.resolve_register_webhook_url(gw, LOCAL) == BRIDGE_URL
+    gw2 = {"webhook_register_url": BRIDGE_URL, "webhook_host": ""}
+    assert core.resolve_register_webhook_url(gw2, LOCAL) == BRIDGE_URL
+
+
+def test_invalid_bridge_register_url_is_ignored_loudly():
+    gw = {"webhook_register_url": "127.0.0.1:38081"}
+    assert core.resolve_register_webhook_url(gw, LOCAL) == LOCAL
+
+
+def test_store_bridge_register_url_is_idempotent_and_preserves_the_rest(tmp_path, monkeypatch):
+    monkeypatch.setattr(core, "aimail_home", lambda: tmp_path)
+    p = core.bridge_register_url_path("sys1")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text('{"system_id": "sys1", "domain": "d.test", "admin_key": "k"}')
+
+    changed, prev = core.store_bridge_register_url("sys1", BRIDGE_URL)
+    assert (changed, prev) == (True, "")
+    cfg = __import__("json").loads(p.read_text())
+    assert cfg["webhook_register_url"] == BRIDGE_URL
+    assert cfg["system_id"] == "sys1" and cfg["admin_key"] == "k", "other keys survive"
+    assert oct(p.stat().st_mode)[-3:] == "600", "cfg stays 0600"
+
+    changed2, prev2 = core.store_bridge_register_url("sys1", BRIDGE_URL)
+    assert (changed2, prev2) == (False, BRIDGE_URL), "second call must be a no-op"
+
+    changed3, prev3 = core.store_bridge_register_url("sys1", BRIDGE_URL + "?x=1")
+    assert changed3 is True and prev3 == BRIDGE_URL, "a changed value must be reported"

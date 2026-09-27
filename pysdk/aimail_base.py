@@ -1540,10 +1540,48 @@ def ensure_bridge_route(system_id: str, email: str, gw: dict, webhook_url: str) 
     res = register_bridge_route(system_id, email, gw, target)
     if isinstance(res, dict) and not res.get("error"):
         out["state"] = "ok"
+        # A2 (owner ruling 2026-09-27): in push mode the bridge answers with the URL the
+        # cloud must POST to (http://<host>/webhooks/aimail-inbound). That is the only
+        # correct registration value for a bridge deployment — a scheme-less host:port
+        # cannot be delivered to (measured: reqwest builder error). Capture it here so
+        # the caller can persist + align the registration.
+        adv = str(res.get("webhook_url") or "").strip()
+        if is_deliverable_webhook_url(adv):
+            out["bridge_webhook_url"] = adv
         return out
     detail = str(res.get("error", "unknown")) if isinstance(res, dict) else str(res)
     out.update(state="failed", detail=detail)
     return out
+
+
+def bridge_register_url_path(system_id: str) -> Path:
+    """The system config that carries the registration value (three-layer收口 layout)."""
+    return aimail_home() / "systems" / str(system_id) / "aimail_gateway.json"
+
+
+def store_bridge_register_url(system_id: str, url: str) -> tuple:
+    """Persist the bridge's advertised push entry as the registration value (A2).
+
+    Returns (changed, previous). Never raises: a failure to persist must not turn a
+    route-reporting path into an error.
+    """
+    try:
+        p = bridge_register_url_path(system_id)
+        cfg = json.loads(p.read_text()) if p.is_file() else {}
+        prev = str(cfg.get("webhook_register_url") or "")
+        if prev == url:
+            return (False, prev)
+        cfg["webhook_register_url"] = url
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
+        try:
+            os.chmod(p, 0o600)
+        except OSError:
+            pass
+        return (True, prev)
+    except Exception as e:
+        logger.warning("[aimail] could not persist the bridge webhook URL: %s", e)
+        return (False, "")
 
 
 def ensure_bridge_routes_for_system(system_id: str = "") -> list:
@@ -1551,6 +1589,11 @@ def ensure_bridge_routes_for_system(system_id: str = "") -> list:
 
     Returns [] when there is nothing to do (no system / no binding), and a single
     system-wide outcome when the machine has no bridge at all.
+
+    A2 (owner ruling 2026-09-27): when a push-mode bridge answers with the URL the cloud
+    must POST to, it is persisted as `webhook_register_url` and each binding's address
+    registration is aligned to it — so later installs/repairs register the bridge entry
+    up front instead of an undeliverable value.
     """
     rows = [c for c in iter_agentmail_configs(system_id) if str(c.get("webhook_url") or "").strip()]
     if not rows:
@@ -1564,8 +1607,46 @@ def ensure_bridge_routes_for_system(system_id: str = "") -> list:
             "detail": f"no listener on 127.0.0.1:{port} "
                       "(direct push, or start it with 'aimail bridge --restart')",
         }]
-    return [ensure_bridge_route(str(c.get("system_id") or sid), str(c.get("email")), gw,
-                                str(c.get("webhook_url"))) for c in rows]
+    outcomes = [ensure_bridge_route(str(c.get("system_id") or sid), str(c.get("email")), gw,
+                                    str(c.get("webhook_url"))) for c in rows]
+
+    adv = next((str(o.get("bridge_webhook_url")) for o in outcomes
+                if o.get("bridge_webhook_url")), "")
+    if adv:
+        changed, prev = store_bridge_register_url(sid, adv)
+        if changed:
+            logger.info("[aimail] bridge push entry stored as the registration value: %s "
+                        "(was %r)", adv, prev or "<unset>")
+            # Align the cloud's copy so it posts to the bridge, not to a value it can
+            # never reach. Idempotent (the register chain updates an existing address).
+            aligned = _align_registrations_to_bridge(sid, gw, rows, adv)
+            for o in outcomes:
+                o["registration_aligned"] = aligned
+    return outcomes
+
+
+def _align_registrations_to_bridge(sid: str, gw: dict, rows: list, url: str) -> int:
+    """Re-register each binding with the bridge URL. Returns how many were aligned."""
+    try:
+        from aimail_tools import _GatewayClient
+        key = str(gw.get("admin_key") or gw.get("api_key") or "")
+        client = _GatewayClient(str(gw.get("gateway_url") or ""), key)
+    except Exception as e:
+        logger.warning("[aimail] registration align skipped (no gateway client): %s", e)
+        return 0
+    n = 0
+    for c in rows:
+        email = str(c.get("email") or "")
+        if not email:
+            continue
+        try:
+            register_agent_email(client, str(c.get("system_id") or sid), email,
+                                 webhook_url=url,
+                                 manager_address=str(c.get("manager_address") or ""))
+            n += 1
+        except Exception as e:
+            logger.warning("[aimail] could not align %s to the bridge URL: %s", email, e)
+    return n
 
 
 def format_bridge_route_line(outcome: dict) -> str:
@@ -1647,6 +1728,18 @@ def resolve_register_webhook_url(gw: dict, local_webhook_url: str) -> str:
     ⇒ **大声告警**并按"无 bridge"退回本地端点,绝不把不可投递的值注册出去。
     """
     whh = gw.get("webhook_host") if isinstance(gw, dict) else None
+    # A2 (owner ruling 2026-09-27): the bridge's own push entry, captured from the bridge
+    # API by the route step, wins over everything else — the cloud must POST to the bridge
+    # for a bridge deployment (a scheme-less host:port cannot be delivered to at all).
+    if isinstance(gw, dict):
+        reg = str(gw.get("webhook_register_url") or "").strip()
+        if reg:
+            if is_deliverable_webhook_url(reg):
+                return reg
+            logger.warning(
+                "[aimail] webhook_register_url %r is not an absolute http(s) URL — "
+                "ignored; falling back to the local endpoint %r", reg, local_webhook_url)
+            return local_webhook_url
     if whh is not None and str(whh).strip():
         val = str(whh).strip()
         if is_deliverable_webhook_url(val):
