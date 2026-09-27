@@ -62,10 +62,15 @@ _aimail_bootstrap()
 import aimail_base as _ab  # noqa: E402
 import aimail_contract as _contract  # noqa: E402  (入站路径唯一真源 = 契约)
 
-# 契约入站路径(默认 /aimail/inbound)拆成 FastAPI 的 prefix + route 两段:
-# 路径本身只在 contract/aimail-contract.json 里写一份。
-_INBOUND_PREFIX, _, _INBOUND_ROUTE = _contract.INBOUND_PATH.rpartition("/")
-router = APIRouter(prefix=_INBOUND_PREFIX, tags=["aimail"])
+# 契约入站路径(默认 /aimail/inbound)必须**原样**成为 FastAPI 的挂载路径。
+# ⚠ 不得拆成 APIRouter(prefix=…) + @router.post(leaf) 两段: 叶子段无前导斜杠时
+# FastAPI 把 prefix 与它**直接相接**, 契约里那个 "/" 就没了 ⇒ "/aimail"+"inbound"
+# = "/aimailinbound"(2026-09-27 实机取证: 契约路径 404、畸形路径 200)。注册链
+# (manage.py)/桥/网关一律按契约路径投递 ⇒ 那一跳永远到不了适配器(可投递性缺陷)。
+# 现在整条路径直接取自唯一真源, 挂载路径 == 契约路径(单测
+# tests/test_deerflow_inbound_route.py 对此做断言)。
+_INBOUND_PATH = _contract.INBOUND_PATH
+router = APIRouter(tags=["aimail"])
 
 
 def _verify_hmac(secret: str, body: bytes, signature: str) -> bool:
@@ -103,7 +108,7 @@ def _thread_id_for(email: str) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_DNS, f"aimail:{email}"))
 
 
-@router.post(_INBOUND_ROUTE)
+@router.post(_INBOUND_PATH)
 async def aimail_inbound(request: Request) -> JSONResponse:
     body = await request.body()
     try:
