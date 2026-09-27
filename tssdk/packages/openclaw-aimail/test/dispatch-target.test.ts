@@ -2,7 +2,7 @@
  * L1（纯本地）: 地址级(agent-scope)绑定的**派发目标解析** —— 防退化钉子。
  *
  * 缺陷(0.1.25, E2-pull/openclaw 实跑原文):
- *   地址码激活得到的绑定里 `agent_id` 是**地址本地部分**（agentmail.json: agent_id="agenta"），
+ *   地址码激活得到的绑定里 `agent_id` 是**地址本地部分**（绑定文件: agent_id="agenta"），
  *   旧实现 `inbound.ts:200 const agentId = cfg.agent_id || 'main'` 把它当**宿主 agentId**
  *   送给 `/hooks/agent` ⇒ 宿主 `400 {"error":"unknown agentId \"agenta\""}` ⇒ deliverInbound
  *   返 `ok:false` ⇒ `startInboundPull` 的 onEmail 抛 ⇒ mail-core 不 ack ⇒ 下轮重拉
