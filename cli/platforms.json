@@ -97,11 +97,6 @@
           "ok_text": "removed skill {home}/skills/agentmail"
         },
         {
-          "kind": "rm_dir",
-          "path": "{home}/skills/aimail",
-          "ok_text": "removed legacy skill {home}/skills/aimail"
-        },
-        {
           "kind": "print",
           "text": "  pi: 扩展移除 = pi 宿主侧移除 pi-aimail 扩展"
         }

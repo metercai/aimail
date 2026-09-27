@@ -10,6 +10,20 @@ echo "═══ [L0] python lint + unit tests ═══"
 # clean clone 里产物不存在 ⇒ 先物化, 否则 pysdk/runtime_bundle 的资源释放与 S9 探针会红。
 bash scripts/materialize-resources.sh
 bash scripts/materialize-resources.sh --verify
+# 契约单一真源 gate(2026-09-27): agent 内部契约面(skill/toolset 注册名、绑定文件名、
+# 指针文件名、入站路径)的单一真源 =
+# contract/aimail-contract.json;由 ①两个常量模块(pysdk/aimail_contract.py +
+# tssdk/.../mail-core/src/contract.ts)逐项 == 清单 ②5 份 SKILL.md frontmatter 的
+# name:/toolset: == 清单 ③字面量位置棘轮基线(只许减不许增)三条规则守。Rust 侧
+# (gateway/bridge)本批未覆盖, 脚本输出里登记为 GAP(脚本第 (a) 条)。
+# ⚠ 必须放在 materialize-resources.sh 之后 —— 规则 ③ 要读 4 份物化 SKILL.md(生成物)。
+_css_rc=0
+python3 tests/contract/check-contract-single-source.py || _css_rc=$?
+if [ "$_css_rc" -ne 0 ]; then
+  echo "[L0] FAIL: contract single-source check rc=$_css_rc (1=drift/violation, 2=cannot-judge; fail-closed)"
+  exit 1
+fi
+echo "[L0] contract single-source: consts == manifest; frontmatter 5/5; literal ratchet clean"
 # 平台边界 gate:CLI 代码不得出现平台字面分支(新增平台/多 agent 注册只改
 # cli/platforms.json + SDK,CLI 零改动)。白名单 = 空(cmd_reset 特例已随
 # register_all 表化删除)——出现任何平台字面即红。

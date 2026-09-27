@@ -2,13 +2,16 @@
 # install-skill.sh — 安装 aimail skill 到 DeerFlow skills 目录
 # SKILL.md 是通用邮件处理规范(与 Hermes/OpenClaw 共用同一源),从包资源拷贝
 # (源解析 pip aimail > 仓根 resources/skills,经 `aimail install --payload resource skills`)。
+# 目录名 = agent 侧契约名 agentmail(不是产品名 aimail):deer-flow 强制
+# name == dirname(skills/export.py),SKILL.md frontmatter `name: agentmail`
+# ⇒ 目录必须同名, 否则 deer-flow 加载不到该 skill。
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # P3(2026-09-20, owner 定调): 改为 CLI 公开命令面(与 install-mcp.sh 同款说明)
 command -v aimail >/dev/null 2>&1 || { echo "ERROR: 未找到 aimail 命令, 请先安装 CLI(bootstrap)。" >&2; exit 1; }
 DEER_FLOW_HOME="${DEER_FLOW_HOME:-$HOME/deer-flow}"
-DST_DIR="${DEER_FLOW_SKILLS_DIR:-$DEER_FLOW_HOME/skills/public}/aimail"
+DST_DIR="${DEER_FLOW_SKILLS_DIR:-$DEER_FLOW_HOME/skills/public}/agentmail"
 
 SKILLS_SRC="$(aimail install --payload resource skills)"
 SRC_SKILL="$SKILLS_SRC/SKILL.md"

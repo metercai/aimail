@@ -82,7 +82,9 @@ BUNDLES = {
         "no_stamp": True,
     },
     "skill-deerflow": {
-        "default_dest": "~/deer-flow/skills/public/aimail",
+        # deer-flow 强制 name == 目录名(deerflow/skills/export.py)⇒ 目录 = 契约
+        # AGENT_SKILL_NAME(agentmail), 不是产品名 aimail。
+        "default_dest": "~/deer-flow/skills/public/agentmail",
         "files": {"resources/skills/SKILL.md": "SKILL.md", "resources/skills/DESCRIPTION.md": "DESCRIPTION.md"},
         "no_stamp": True,
     },
