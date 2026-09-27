@@ -16,6 +16,7 @@
  * Unbound agents on pointer-less machines still fail loud with guidance.
  */
 import * as fs from 'node:fs'
+import { randomBytes } from 'node:crypto'
 import * as path from 'node:path'
 import {
   autoBind,
@@ -98,6 +99,34 @@ export async function writePointer(ptr: SystemPointer): Promise<void> {
     ) + '\n',
     { mode: 0o600 },
   )
+}
+
+/**
+ * Ensure the host config carries `hooks.token` — the credential openclaw's internal
+ * /hooks/agent endpoint requires, and the only prerequisite of THIS adapter's own wake
+ * path (inbound.ts::readHooksToken; without it inbound mail never reaches the agent and
+ * nothing says so).
+ *
+ * Scope (owner ruling 2026-09-27): the SDK only manages config it can derive by itself.
+ * Generating a token qualifies. Choosing an LLM provider/model/key or binding an agent
+ * needs operator input and stays the administrator's job. A missing or unparsable
+ * openclaw.json is left untouched — writing one from scratch would look "clobbered" to
+ * openclaw itself (it refuses to start without gateway.mode).
+ */
+export function ensureHooksToken(): 'kept' | 'created' | 'no-config' {
+  const p = path.join(openclawHome(), '.openclaw', 'openclaw.json')
+  let cfg: Record<string, unknown>
+  try {
+    cfg = JSON.parse(fs.readFileSync(p, 'utf-8')) as Record<string, unknown>
+  } catch {
+    return 'no-config'
+  }
+  const hooks = (cfg.hooks ?? {}) as Record<string, unknown>
+  if (typeof hooks.token === 'string' && hooks.token.trim()) return 'kept'
+  hooks.token = randomBytes(24).toString('hex')
+  cfg.hooks = hooks
+  fs.writeFileSync(p, JSON.stringify(cfg, null, 2) + '\n', { mode: 0o600 })
+  return 'created'
 }
 
 /** OpenClaw gateway HTTP port (openclaw.json gateway.port, default 18789). */

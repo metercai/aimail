@@ -20,7 +20,7 @@ import type {
   PluginCommandContext,
   PluginCommandResult,
 } from 'openclaw/plugin-sdk/plugin-entry'
-import { openclawWebhookUrl, readPointer, writePointer } from './identity.js'
+import { ensureHooksToken, openclawWebhookUrl, readPointer, writePointer } from './identity.js'
 import { emailForAgent } from '@aimail/mail-core'
 
 /** Minimal admin client surface the chains depend on (MockClient-friendly). */
@@ -168,6 +168,18 @@ function cmdText(lines: string[]): PluginCommandResult {
   return { text: lines.join('\n') }
 }
 
+/**
+ * One English line describing THIS adapter's wake path (owner ruling 2026-09-27: the SDK
+ * only manages config it can derive itself — never the operator's LLM/agent settings).
+ */
+function hooksTokenLine(state: 'kept' | 'created' | 'no-config'): string {
+  if (state === 'created') {
+    return '  hooks token: created in openclaw.json (the inbound dispatch path needs it)'
+  }
+  if (state === 'kept') return '  hooks token: present (inbound dispatch path wired)'
+  return '  hooks token: NOT set — no readable ~/.openclaw/openclaw.json yet; inbound mail cannot reach the agent until it exists'
+}
+
 const USAGE = `openclaw aimail <register|register-all|deregister|status> [...args]
   register  --email <addr> [--system-id SID] [--webhook-url URL] [--manager ADDR]
              (4-step idempotent chain; writes agentmail.json + pointer)
@@ -234,6 +246,7 @@ export async function handleCommand(
         return cmdText([
           `✓ registered ${email} (system ${systemId}, agent ${agentId})`,
           `  api_key ok; webhook_url=${opts['webhook-url'] ?? '(local gateway route)'}`,
+          hooksTokenLine(ensureHooksToken()),
         ])
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
@@ -301,6 +314,7 @@ export async function handleCommand(
         }
       }
       out.push(`register-all done: ${okN}/${agentNames.length} ok (pointer unchanged — main agent owns it)`)
+      out.push(hooksTokenLine(ensureHooksToken()))
       return cmdText(out)
     }
 
