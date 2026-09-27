@@ -105,8 +105,18 @@ SYSTEMS_DIR = AIMAIL_HOME / "systems"
 
 def _smtp_send(gateway_url: str, api_key: str, agent_email: str,
                manager: str, edition: str, subject: str, body: str) -> str:
-    """SMTP 发送。edition=advanced 用 auth.local 认证;base 用普通发件人。"""
-    host = gateway_url.replace("https://", "").replace("http://", "").split("/")[0]
+    """SMTP 发送。edition=advanced 用 auth.local 认证;base 用普通发件人。
+
+    Host parsing (fixed 2026-09-27): the previous form only stripped the scheme and the
+    path, so a gateway URL carrying an explicit port (`http://127.0.0.1:34401`) was used
+    as the HOST, and `socket.connect(("127.0.0.1:34401", 25))` died with
+    `socket.gaierror: Name or service not known` — i.e. the SMTP path could only ever work
+    against a gateway on its default port. The port here stays 25 (SMTP expects that); a
+    gateway whose SMTP is elsewhere still needs the SMTP-side knob (registered finding).
+    """
+    from urllib.parse import urlparse
+    raw = gateway_url if "//" in gateway_url else f"http://{gateway_url}"
+    host = urlparse(raw).hostname or ""
     port = 25
 
     if edition == "advanced":
