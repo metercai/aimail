@@ -19,7 +19,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createMailTools } from './tools.js'
-import { createInboundHandler, INBOUND_PATH } from './inbound.js'
+import { createInboundHandler, startInboundPull, INBOUND_PATH } from './inbound.js'
 import { createAimailCommands } from './commands.js'
 import { agentIdentity } from './identity.js'
 
@@ -107,6 +107,31 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
       match: 'exact',
       handler: createInboundHandler(api),
     })
+
+    // Pull entry (2026-09-27): an address activated by an activation CODE has
+    // no push path (the gateway stores webhook_url=NULL for it), so this host
+    // must fetch its own mail on a timer. Started AFTER the inbound route is
+    // live (the pulled mail enters the same chain through that handler's core),
+    // and ONLY for agent-scope bindings — the decision lives in mail-core
+    // (startAgentPullEntries: `shared_addr_*` activation source), never here.
+    // OpenClaw's plugin API exposes no dispose hook: the poll timers are
+    // unref'd by mail-core, so they die with the process and can never keep it
+    // alive (see poll-entry.ts pollSleep).
+    void startInboundPull(api, {
+      log: (line: string) => console.log(line),
+    })
+      .then((handles) => {
+        if (handles.length) {
+          console.log(
+            `[openclaw-aimail] pull entry armed for ${handles.length} agent-scope binding(s)`,
+          )
+        }
+      })
+      .catch((e) => {
+        console.warn(
+          `[openclaw-aimail] pull entry failed to start: ${e instanceof Error ? e.message : String(e)}`,
+        )
+      })
 
     // Route side (owner ruling 2026-09-27: registration and route pairing are
     // two separate outcomes). The in-gateway route above is live, so this is the

@@ -1,12 +1,12 @@
 """deerflow 入站路由: 实际挂载路径必须 == 契约路径(可投递性基线)。
 
 2026-09-27 实机缺陷(产品侧, 已修): `pysdk/deer-flow/aimail_inbound.py` 曾把契约路径
-`/aimail/inbound` 用 `rpartition("/")` 拆成 `APIRouter(prefix="/aimail")` +
-`@router.post("inbound")`。FastAPI 的挂载是**纯字符串拼接**
+(`aimail_contract.INBOUND_PATH`)用 `rpartition("/")` 拆成 `APIRouter(prefix=前缀)` +
+`@router.post(叶子)`。FastAPI 的挂载是**纯字符串拼接**
 (`fastapi/routing.py`: `self.prefix + path`) ⇒ 实际挂载 `/aimailinbound` ——
 契约里那个 `/` 丢了。而注册链(`pysdk/deer-flow/manage.py`:
 `local_webhook_url = inbound_base.rstrip("/") + _contract.INBOUND_PATH`)/绑定/桥
-全部按**契约路径**投递 ⇒ `POST /aimail/inbound` 404, 入站邮件永远到不了适配器
+全部按**契约路径**投递 ⇒ `POST <契约路径>` 404, 入站邮件永远到不了适配器
 (不止门禁, 生产同链路)。
 
 本文件两层断言(都可证伪: 把修复回退成 prefix + 无前导斜杠叶子, 两层都必红):
@@ -28,7 +28,8 @@ import aimail_contract as contract
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _MODULE = os.path.join(_REPO, "pysdk", "deer-flow", "aimail_inbound.py")
 
-# 契约路径去掉那个 `/` 之后的"拼接伪影": /aimail/inbound -> /aimailinbound
+# 契约路径去掉最后一个 `/` 之后的"拼接伪影"(= FastAPI 的 prefix+叶子 拼接结果):
+# <契约路径> -> <前缀><叶子>。字面量不在此处重复(契约常量唯一真源)。
 _SLASH = contract.INBOUND_PATH.rfind("/")
 ARTIFACT = contract.INBOUND_PATH[:_SLASH] + contract.INBOUND_PATH[_SLASH + 1:]
 
@@ -121,7 +122,9 @@ def test_static_layer_reconstructs_the_fastapi_join_rule(tmp_path):
     assert ARTIFACT != contract.INBOUND_PATH, "伪影 == 契约路径 ⇒ 本文件的判定式退化了, 必须复核"
     probe = tmp_path / "neg_probe.py"
     probe.write_text(
-        "INBOUND_PATH = '/aimail/inbound'\n"
+        # 负例探针的输入必须保持"字面量形态"(用常量构造不出拼接伪影 ⇒ 静态层断言空转),
+        # 故这一行是本文件唯一保留契约字面量的地方, 按门禁规则行内登记理由:
+        "INBOUND_PATH = '/aimail/inbound'\n"  # contract-allowed: 负例探针输入需保持字面量形态
         "from fastapi import APIRouter\n"
         "_P, _, _R = INBOUND_PATH.rpartition('/')\n"
         "router = APIRouter(prefix=_P)\n"

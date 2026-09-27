@@ -57,6 +57,24 @@ export {
   pullAck,
   startPolling,
 } from './address-code.js'
+export {
+  AGENT_SCOPE_SYSTEM_PREFIX,
+  DEFAULT_PULL_INTERVAL_MS,
+  DEFAULT_PULL_LIMIT,
+  isAgentScopeBinding,
+  resolveAgentPullSettings,
+  startAgentPullEntries,
+  stopAgentPullEntries,
+} from './poll-entry.js'
+export type {
+  AgentPullHandle,
+  AgentPullOverrides,
+  AgentPullSettings,
+  PullDecisionReason,
+  PulledMail,
+  PullInboundDelivery,
+  StartAgentPullEntriesOptions,
+} from './poll-entry.js'
 export type {
   RequestClient,
   ActivateAddressCodeResult,

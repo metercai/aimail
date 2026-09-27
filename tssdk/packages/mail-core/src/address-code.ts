@@ -235,26 +235,55 @@ export interface StartPollingOptions {
   limit?: number
   /** Bounds the loop for tests (undefined = forever). */
   maxRounds?: number
+  /**
+   * Cooperative shutdown. When aborted the loop returns at the next
+   * check with the stats accumulated so far (in-flight round included);
+   * a pending interval sleep is interrupted immediately. Hosts pass the
+   * signal of their own lifecycle so no timer outlives the process.
+   */
+  signal?: AbortSignal
+}
+
+/** Abortable interval sleep. The timer is unref'd so a polling loop can
+ *  never be the handle that keeps a host process alive ("进程退出即停"):
+ *  the host's own listener/session remains the liveness owner. */
+function pollSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.resolve()
+  return new Promise((resolve) => {
+    const t = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    // A host process must be free to exit; the loop is not a liveness anchor.
+    ;(t as { unref?: () => void }).unref?.()
+    function onAbort (): void {
+      clearTimeout(t)
+      resolve()
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
 }
 
 /**
  * Poll → deliver → ack loop for the agent's own mailbox.
  *
- * Dedup key = delivery id (stable and unique). An `onEmail` failure leaves
- * the id un-acked — the mail re-pulls next round (nothing is lost, §9
- * failover). A failed pull round counts an error and backs off one interval.
+ * Dedup key = delivery id (stable and unique). An `onEmail` failure — sync
+ * throw OR rejected promise — leaves the id un-acked: the mail re-pulls next
+ * round (nothing is lost, §9 failover). A failed pull round counts an error
+ * and backs off one interval. `signal` stops the loop at the next check.
  */
 export async function startPolling(
   client: RequestClient,
-  onEmail: (mail: { id: number; email: string; headers: unknown; body: unknown }) => void,
+  onEmail: (mail: { id: number; email: string; headers: unknown; body: unknown }) => void | Promise<void>,
   opts: StartPollingOptions = {},
 ): Promise<PollStats> {
   const intervalMs = opts.intervalMs ?? 30_000
   const limit = opts.limit ?? 20
   const stats: PollStats = { pulled: 0, acked: 0, errors: 0 }
   const seen = new Set<number>()
-  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  const sleep = (ms: number) => pollSleep(ms, opts.signal)
   for (let round = 0; opts.maxRounds === undefined || round < opts.maxRounds; round++) {
+    if (opts.signal?.aborted) break
     try {
       const lst = await pullList(client, limit)
       if (!lst.success) {
@@ -270,7 +299,10 @@ export async function startPolling(
           try {
             let body = batch.body
             if (typeof body === 'string') body = JSON.parse(body) as unknown
-            onEmail({ id: d.id, email: d.email, headers: d.headers, body })
+            // Awaited: an async delivery that rejects must count as a failure
+            // (un-acked ⇒ re-pull). Fire-and-forget would ack mail the agent
+            // never took.
+            await onEmail({ id: d.id, email: d.email, headers: d.headers, body })
             delivered.push(d.id)
             stats.pulled++
           } catch {

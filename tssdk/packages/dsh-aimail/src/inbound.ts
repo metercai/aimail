@@ -11,6 +11,12 @@
  *     resume) or spawn a fresh disposable session when unbound — context
  *     continuity is aimail's (local meta threading), not the session's.
  *     200 ack on delivery; 503 on session-create failure (bridge retries).
+ *
+ * Pull entry (2026-09-27): an address activated by an activation CODE has no
+ * push path (the gateway stores webhook_url=NULL for it), so this plugin also
+ * polls its own mailbox on a timer and delivers through the SAME chain above
+ * (`deliverInbound`). Enabled only for agent-scope bindings — the decision and
+ * the loop live in mail-core (`startAgentPullEntries` / `startPolling`).
  */
 import * as fs from 'node:fs'
 import * as os from 'node:os'
@@ -21,7 +27,7 @@ import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { processInboundMail, verifySignature, routeAddressFromHeaders, updateAgentConfig, loadAgentConfig, saveAgentConfig, INBOUND_PATH, INBOUND_PORTS, type InboundPayload } from '@aimail/mail-core'
+import { processInboundMail, verifySignature, routeAddressFromHeaders, updateAgentConfig, loadAgentConfig, saveAgentConfig, startAgentPullEntries, type AgentConfig, type AgentPullHandle, type AgentPullOverrides, INBOUND_PATH, INBOUND_PORTS, type InboundPayload } from '@aimail/mail-core'
 import { ensureBridgeRoutesForSystem, formatBridgeRouteLine, isBridgeRouteWarning } from '@aimail/mail-core'
 import type { MailService } from './mail-service.js'
 
@@ -42,6 +48,24 @@ interface DeliveryOutcome {
   detail?: string
 }
 
+/** The resolved target of one inbound payload (binding + routed address). */
+export interface InboundTarget {
+  cfg: AgentConfig
+  agentAddr: string
+}
+
+/** Result of the shared inbound chain (routing→deliver). */
+export interface InboundOutcome {
+  status: string
+  detail?: string | undefined
+  /**
+   * Did the mail reach a dsh session? `false` ⇒ a pulled delivery must NOT be
+   * acked (it re-pulls next round) — the pull-side equivalent of the push
+   * side's 503.
+   */
+  ok: boolean
+}
+
 function writeJson(res: ServerResponse, code: number, body: DeliveryOutcome): void {
   const text = JSON.stringify(body)
   res.writeHead(code, { 'Content-Type': 'application/json' })
@@ -54,6 +78,234 @@ function readBody(req: IncomingMessage): Promise<Buffer> {
     req.on('data', (c: Buffer) => chunks.push(c))
     req.on('end', () => resolve(Buffer.concat(chunks)))
     req.on('error', reject)
+  })
+}
+
+/**
+ * Recipient routing — the ONE routing step both entries share (push handler +
+ * pull loop). The per-delivery target is authoritative: the bridge injects
+ * X-AIMail-Email on each single-delivery POST (legacy); payload.to is the
+ * FILTERED full list (external recipients first), so to[0] is often an external
+ * address. Use the header when present; only iterate toRaw when the header is
+ * absent (batch deliveries carry no such header).
+ */
+export async function resolveInboundTarget(
+  mail: MailService,
+  payload: InboundPayload,
+  headers: Record<string, unknown>,
+): Promise<InboundTarget | undefined> {
+  const routeAddr = routeAddressFromHeaders(headers)
+  const toRaw = Array.isArray(payload.to) ? payload.to : typeof payload.to === 'string' ? [payload.to] : []
+  const routeCandidates: unknown[] = routeAddr ? [routeAddr] : toRaw
+  let cfg
+  let agentAddr = ''
+  for (const t of routeCandidates) {
+    const addr = String(t).trim()
+    if (!addr.includes('@')) continue
+    const c = await mail.resolveByRecipient(addr)
+    if (c) {
+      cfg = c
+      agentAddr = addr
+      break
+    }
+  }
+  return cfg ? { cfg, agentAddr } : undefined
+}
+
+/**
+ * Post-routing inbound chain: preprocess (13 steps + ping/pong) → deliver to a
+ * dsh session. Shared by the push handler and the pull loop.
+ *
+ * ⚠ The TRUST step is not here: pushed mail is verified by the per-address HMAC
+ * (bridge↔endpoint boundary), pulled mail by the gateway's own verification of
+ * the agent-scope key. Routing, enrichment and delivery are one chain.
+ */
+export async function deliverInbound(
+  ctx: Context,
+  target: InboundTarget,
+  payload: InboundPayload,
+  headers: Record<string, unknown>,
+): Promise<InboundOutcome> {
+  const { cfg, agentAddr } = target
+  // TS preprocess chain (13 steps) + ping/pong intercept
+  const result = await processInboundMail(payload, headers as Record<string, string>, {
+    systemId: cfg.system_id,
+    email: cfg.email,
+  })
+  if (result === null) {
+    return { status: 'intercepted', ok: true }
+  }
+
+  // Deliver to a dsh session:
+  //  - cfg.session_id set + live  → followup that session (UI continuity)
+  //  - cfg.session_id set + cold  → resume it, else fall through
+  //  - unbound (or resume failed) → spawn a FRESH session. Context
+  //    continuity is aimail's job (local meta threading + email_summary),
+  //    not the session's — per the deployment decision each inbound email
+  //    gets its own disposable session.
+  const agents = ctx.get('agents') as {
+    get(id: unknown): Agent | undefined
+    resume(opts: unknown): Promise<{ agent: Agent }>
+    create(opts: { sessionId: string; meta?: { cwd?: string }; agentOptions?: unknown }): Promise<{ agent: Agent; dispose(): Promise<void> }>
+  } | undefined
+  if (agents === undefined) {
+    return { status: 'no_agents_service', detail: 'dsh-agent not mounted', ok: false }
+  }
+  // Model route: the deployment's default selection (base bundle's
+  // `agent-default-model` row, e.g. deepseek-official/deepseek-v4-flash)
+  // — same source the web UI's api-proxy uses for agents.create().
+  // Without it the turn dies with "no provider/model".
+  const agentOptions = (ctx.get('agentDefaultModel') as { currentSelection(): unknown } | undefined)
+    ?.currentSelection()
+  const boundId = cfg.session_id ?? ''
+  const message = createUserMessage({
+    content: [{ type: 'text', text: JSON.stringify({ ...result, to: agentAddr }) }],
+    source: { kind: 'user' },
+  })
+  const live = boundId ? agents.get(boundId) : undefined
+  if (live) {
+    live.followup(message)
+    return { status: 'delivered', detail: 'followup queued', ok: true }
+  }
+  if (boundId) {
+    try {
+      const handle = await agents.resume({ resumeSessionId: boundId, agentOptions })
+      handle.agent.followup(message)
+      return { status: 'resumed', detail: 'cold session resumed + followup queued', ok: true }
+    } catch {
+      // resume failed (no persistence, stale id) — fall through to a fresh session
+    }
+  }
+  // Fresh disposable session for this email.
+  const sessionId = randomUUID()
+  try {
+    // Bind this session into the agent's config so the mail tools can
+    // resolve credentials (resolveBySessionId matches agentmail.json's
+    // session_id). Unbind again once the turn settles — but only if the
+    // binding is still OURS (a concurrent email may have re-bound).
+    await updateAgentConfig(cfg.system_id, cfg.email, { session_id: sessionId })
+    const handle = await agents.create({ sessionId, meta: { cwd: process.cwd() }, agentOptions })
+    handle.agent.followup(message)
+    void handle.agent.whenIdle()
+      .then(async () => {
+        const cur = await loadAgentConfig(cfg.system_id, cfg.email)
+        if (cur && cur.session_id === sessionId) {
+          const { session_id: _drop, ...rest } = cur
+          await saveAgentConfig(rest as typeof cur, cfg.system_id)
+        }
+      })
+      .then(() => handle.dispose())
+      .catch(() => {})
+    return { status: 'delivered', detail: `fresh session ${sessionId}`, ok: true }
+  } catch (e) {
+    // push side: 503 (not 2xx) so the bridge does NOT ack and will retry; a 200
+    // here would silently swallow the email. Pull side: !ok ⇒ not acked.
+    return {
+      status: 'session_create_failed',
+      detail: e instanceof Error ? e.message : String(e),
+      ok: false,
+    }
+  }
+}
+
+/** The push handler (HTTP route) around the shared chain. */
+export function createInboundHandler(ctx: Context, mail: MailService, deliverPath: string) {
+  return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    try {
+      if (req.method !== 'POST' || (req.url ?? '').split('?')[0] !== deliverPath) {
+        writeJson(res, 404, { status: 'not_found' })
+        return
+      }
+      const rawBody = await readBody(req)
+      let payload: InboundPayload
+      try {
+        payload = JSON.parse(rawBody.toString('utf-8')) as InboundPayload
+      } catch {
+        writeJson(res, 400, { status: 'bad_json' })
+        return
+      }
+
+      const headers = {
+        ...(req.headers as Record<string, string | string[]>),
+        ...(payload.headers ?? {}),
+      } as Record<string, unknown>
+
+      const target = await resolveInboundTarget(mail, payload, headers)
+      if (!target) {
+        writeJson(res, 200, { status: 'no_agent', detail: 'no binding' })
+        return
+      }
+
+      // HMAC verify (per-address webhook_secret) — push-only trust step; pulled
+      // mail is authenticated by the gateway on the agent-scope key.
+      const sig = (req.headers['x-webhook-signature'] as string) ?? ''
+      if (!verifySignature(rawBody, sig, target.cfg.webhook_secret ?? '')) {
+        writeJson(res, 401, { status: 'bad_signature' })
+        return
+      }
+
+      const out = await deliverInbound(ctx, target, payload, headers)
+      // Non-2xx on delivery failure so the bridge retries (unchanged semantics).
+      // `detail` is omitted when absent (exactOptionalPropertyTypes: an explicit
+      // `undefined` would not satisfy DeliveryOutcome's optional string).
+      const body: DeliveryOutcome =
+        out.detail === undefined ? { status: out.status } : { status: out.status, detail: out.detail }
+      writeJson(res, out.ok ? 200 : 503, body)
+    } catch (e) {
+      writeJson(res, 500, { status: 'error', detail: e instanceof Error ? e.message : String(e) })
+    }
+  }
+}
+
+/**
+ * Pull entry (agent-scope bindings only) — the missing production wire for the
+ * address-code flow. Pulled mail enters `deliverInbound`: the very same chain
+ * pushed mail takes (routing → preprocess → session delivery). Never started
+ * for system/bridge bindings (push-served): the decision lives in mail-core.
+ */
+export async function startInboundPull(
+  ctx: Context,
+  opts: {
+    log?: (line: string) => void
+    env?: NodeJS.ProcessEnv
+    overrides?: AgentPullOverrides
+    systemId?: string
+  } = {},
+): Promise<AgentPullHandle[]> {
+  const mail = ctx.get('mail') as MailService | undefined
+  if (mail === undefined) {
+    throw new Error('mail-inbound requires the mail service: mount dsh-aimail/mail-service first')
+  }
+  return await startAgentPullEntries({
+    // Scope = the plugin's own system when it has one, else every system
+    // (the per-address binding file is the authority — single source).
+    systemId: opts.systemId ?? mail.systemId,
+    ...(opts.log ? { log: opts.log } : {}),
+    ...(opts.env ? { env: opts.env } : {}),
+    ...(opts.overrides ? { overrides: opts.overrides } : {}),
+    onEmail: async (cfg, pulled) => {
+      if (typeof pulled.body !== 'object' || pulled.body === null) {
+        throw new Error(
+          `pulled delivery ${pulled.id} for ${cfg.email} carries no JSON payload — not acking`,
+        )
+      }
+      // The delivery's own address is authoritative for routing (it is what the
+      // agent-scope key was verified against server-side).
+      const headers: Record<string, unknown> = {
+        ...(pulled.headers ?? {}),
+        'x-aimail-email': pulled.email,
+      }
+      const target = await resolveInboundTarget(mail, pulled.body as InboundPayload, headers)
+      if (!target) {
+        throw new Error(`pulled delivery ${pulled.id}: no binding for ${pulled.email} — not acking`)
+      }
+      const out = await deliverInbound(ctx, target, pulled.body as InboundPayload, headers)
+      if (!out.ok) {
+        throw new Error(
+          `pulled delivery ${pulled.id}: inbound chain did not deliver (${out.status}: ${out.detail ?? ''}) — not acking`,
+        )
+      }
+    },
   })
 }
 
@@ -96,141 +348,11 @@ export function apply(ctx: Context, config: Config = {}): () => void {
   const port = config.port ?? Number(process.env.AIMAIL_INBOUND_PORT ?? INBOUND_PORTS.dsh)
   const deliverPath = config.path ?? INBOUND_PATH
 
-  const server = createServer(async (req, res) => {
-    try {
-      if (req.method !== 'POST' || (req.url ?? '').split('?')[0] !== deliverPath) {
-        writeJson(res, 404, { status: 'not_found' })
-        return
-      }
-      const rawBody = await readBody(req)
-      let payload: InboundPayload
-      try {
-        payload = JSON.parse(rawBody.toString('utf-8')) as InboundPayload
-      } catch {
-        writeJson(res, 400, { status: 'bad_json' })
-        return
-      }
+  const server = createServer(createInboundHandler(ctx, mail, deliverPath))
 
-      // Inbound routing (Q3 — mirror Python bridge routing): the per-delivery
-      // target is authoritative. The bridge injects X-AIMail-Email (legacy
-      // on each single-delivery POST; payload.to is
-      // the FILTERED full list (external recipients first), so to[0] is often
-      // an external address. Use the header when present; only iterate toRaw
-      // when the header is absent (batch deliveries carry no such header).
-      const headers = {
-        ...(req.headers as Record<string, string | string[]>),
-        ...(payload.headers ?? {}),
-      } as Record<string, unknown>
-      const routeAddr = routeAddressFromHeaders(headers)
-      const toRaw = Array.isArray(payload.to) ? payload.to : typeof payload.to === 'string' ? [payload.to] : []
-      const routeCandidates: unknown[] = routeAddr ? [routeAddr] : toRaw
-      let cfg
-      let agentAddr = ''
-      for (const t of routeCandidates) {
-        const addr = String(t).trim()
-        if (!addr.includes('@')) continue
-        const c = await mail.resolveByRecipient(addr)
-        if (c) {
-          cfg = c
-          agentAddr = addr
-          break
-        }
-      }
-      if (!cfg) {
-        writeJson(res, 200, { status: 'no_agent', detail: 'no binding' })
-        return
-      }
-
-      // HMAC verify (per-address webhook_secret)
-      const sig = (req.headers['x-webhook-signature'] as string) ?? ''
-      if (!verifySignature(rawBody, sig, cfg.webhook_secret ?? '')) {
-        writeJson(res, 401, { status: 'bad_signature' })
-        return
-      }
-
-      // TS preprocess chain (13 steps) + ping/pong intercept
-      const result = await processInboundMail(payload, headers as Record<string, string>, {
-        systemId: cfg.system_id,
-        email: cfg.email,
-      })
-      if (result === null) {
-        writeJson(res, 200, { status: 'intercepted' })
-        return
-      }
-
-      // Deliver to a dsh session:
-      //  - cfg.session_id set + live  → followup that session (UI continuity)
-      //  - cfg.session_id set + cold  → resume it, else fall through
-      //  - unbound (or resume failed) → spawn a FRESH session. Context
-      //    continuity is aimail's job (local meta threading + email_summary),
-      //    not the session's — per the deployment decision each inbound email
-      //    gets its own disposable session.
-      const agents = ctx.get('agents') as {
-        get(id: unknown): Agent | undefined
-        resume(opts: unknown): Promise<{ agent: Agent }>
-        create(opts: { sessionId: string; meta?: { cwd?: string }; agentOptions?: unknown }): Promise<{ agent: Agent; dispose(): Promise<void> }>
-      } | undefined
-      if (agents === undefined) {
-        writeJson(res, 200, { status: 'no_agents_service', detail: 'dsh-agent not mounted' })
-        return
-      }
-      // Model route: the deployment's default selection (base bundle's
-      // `agent-default-model` row, e.g. deepseek-official/deepseek-v4-flash)
-      // — same source the web UI's api-proxy uses for agents.create().
-      // Without it the turn dies with "no provider/model".
-      const agentOptions = (ctx.get('agentDefaultModel') as { currentSelection(): unknown } | undefined)
-        ?.currentSelection()
-      const boundId = cfg.session_id ?? ''
-      const message = createUserMessage({
-        content: [{ type: 'text', text: JSON.stringify({ ...result, to: agentAddr }) }],
-        source: { kind: 'user' },
-      })
-      const live = boundId ? agents.get(boundId) : undefined
-      if (live) {
-        live.followup(message)
-        writeJson(res, 200, { status: 'delivered', detail: 'followup queued' })
-        return
-      }
-      if (boundId) {
-        try {
-          const handle = await agents.resume({ resumeSessionId: boundId, agentOptions })
-          handle.agent.followup(message)
-          writeJson(res, 200, { status: 'resumed', detail: 'cold session resumed + followup queued' })
-          return
-        } catch {
-          // resume failed (no persistence, stale id) — fall through to a fresh session
-        }
-      }
-      // Fresh disposable session for this email.
-      const sessionId = randomUUID()
-      try {
-        // Bind this session into the agent's config so the mail tools can
-        // resolve credentials (resolveBySessionId matches agentmail.json's
-        // session_id). Unbind again once the turn settles — but only if the
-        // binding is still OURS (a concurrent email may have re-bound).
-        await updateAgentConfig(cfg.system_id, cfg.email, { session_id: sessionId })
-        const handle = await agents.create({ sessionId, meta: { cwd: process.cwd() }, agentOptions })
-        handle.agent.followup(message)
-        void handle.agent.whenIdle()
-          .then(async () => {
-            const cur = await loadAgentConfig(cfg.system_id, cfg.email)
-            if (cur && cur.session_id === sessionId) {
-              const { session_id: _drop, ...rest } = cur
-              await saveAgentConfig(rest as typeof cur, cfg.system_id)
-            }
-          })
-          .then(() => handle.dispose())
-          .catch(() => {})
-        writeJson(res, 200, { status: 'delivered', detail: `fresh session ${sessionId}` })
-      } catch (e) {
-        // 503 (not 2xx) so the bridge does NOT ack and will retry; a 200 here
-        // would silently swallow the email.
-        writeJson(res, 503, { status: 'session_create_failed', detail: e instanceof Error ? e.message : String(e) })
-      }
-    } catch (e) {
-      writeJson(res, 500, { status: 'error', detail: e instanceof Error ? e.message : String(e) })
-    }
-  })
+  // Pull loops (agent-scope bindings only). Held here so the fiber's dispose
+  // stops them with the listener — the host lifecycle owns both.
+  let pullHandles: AgentPullHandle[] = []
 
   server.listen(port, host, () => {
     // Route side (owner ruling 2026-09-27): the listener is up, so this is the
@@ -253,8 +375,22 @@ export function apply(ctx: Context, config: Config = {}): () => void {
           `[dsh-aimail] route ensure failed: ${e instanceof Error ? e.message : String(e)}`,
         )
       })
+
+    // Pull entry: inbound is live ⇒ the pulled mail can enter the same chain.
+    // Only agent-scope (address-code) bindings arm a loop (mail-core decides).
+    void startInboundPull(ctx, { log: (line) => console.log(line) })
+      .then((handles) => {
+        pullHandles = handles
+      })
+      .catch((e: unknown) => {
+        console.warn(
+          `[dsh-aimail] pull entry failed to start: ${e instanceof Error ? e.message : String(e)}`,
+        )
+      })
   })
   return () => {
+    for (const h of pullHandles) h.stop()
+    pullHandles = []
     server.close()
   }
 }
