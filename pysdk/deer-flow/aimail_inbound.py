@@ -17,6 +17,7 @@
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import hmac
 import json
@@ -250,12 +251,55 @@ def _pull_system_id() -> str:
         return os.environ.get("AIMAIL_SYSTEM_ID", "")
 
 
+def _wire_pull_to_lifespan(app, on_startup, on_shutdown) -> None:
+    """把 (on_startup, on_shutdown) 包进**宿主 lifespan**(`app.router.lifespan_context`)。
+
+    为什么是包装 lifespan 而不是事件钩子(2026-09-28 同镜像实测, 宿主
+    fastapi 0.136.1 / starlette 1.3.1 —— 见
+    `tests/SDK/docker-regression/hosts/e2-deerflow-pull-wiring-findings.md`):
+      · `app.add_event_handler("startup", …)` 已被删除 ⇒ AttributeError(原缺陷);
+      · `@app.on_event("startup")` 在宿主给了显式 `lifespan=` 时 **HOOK_FIRED=False**;
+      · 包装 `app.router.lifespan_context` ⇒ **HOOK_FIRED=True**。
+    `lifespan_context` 是星形应用唯一保留的启动机制(默认 `_DefaultLifespan` 亦为
+    callable), 对**没有**自定 lifespan 的宿主同样有效 ⇒ **主路径不依赖任何已删除 API**。
+
+    次序(缺一不可): 宿主 lifespan 先 ENTER(路由/持久化/端点就绪 —— pull 要把投递
+    打回宿主自己的入站端点) → 我们的 on_startup → **原样透传**宿主 yield 的 state
+    (丢掉会静默改变宿主行为) → finally 反向关停。
+    幂等: 已包装过则直接返回(`_aimail_pull_wrapped` 与 `app._aimail_pull_wired` 双保险)。
+    """
+    router = getattr(app, "router", None)
+    if router is None or not hasattr(router, "lifespan_context"):
+        raise RuntimeError(
+            "host app 没有 router.lifespan_context —— 无法把 agent-scope pull 接上")
+    orig = router.lifespan_context
+    if getattr(orig, "_aimail_pull_wrapped", False):
+        return
+
+    @contextlib.asynccontextmanager
+    async def _aimail_pull_lifespan(inner_app):
+        async with orig(inner_app) as _state:   # 宿主 lifespan 先起
+            await on_startup()
+            try:
+                yield _state                    # 原样透传宿主 yield 的 state
+            finally:
+                await on_shutdown()
+
+    setattr(_aimail_pull_lifespan, "_aimail_pull_wrapped", True)
+    router.lifespan_context = _aimail_pull_lifespan
+
+
 def start_pull_on_startup(app) -> bool:
-    """把 agent-scope 轮询挂到 FastAPI 的启动/关停钩子上(长驻宿主生命周期)。
+    """把 agent-scope 轮询挂到**宿主 lifespan**上(长驻宿主生命周期)。
 
     由 app.py 补丁在 include_router 之后调用(manage.py:patch_backend_app)。
-    启动收尾起循环、关停收尾停循环; 幂等(重复调用只挂一次); 任何异常都不许
-    拖垮宿主启动。
+    启动收尾起循环、关停收尾停循环; 幂等(重复调用只挂一次)。
+
+    **接线失败不许静默**(本缺陷的病因: 异常被吞 ⇒ 潜伏到门禁才发现): 失败时
+    ① 大声记 `logger.error`(带异常类型与原因) ② 返回值 `False` ③ 在 `app` 上留
+    可查询的标志(`_aimail_pull_wired=False` + `_aimail_pull_wire_error=<原因>`)。
+    这里**不抛出**: 调用点在宿主 app.py 的模块级导入路径上, 抛出会把整个宿主
+    (deer-flow 网关) 拖死 —— 静默与拖死都不是选项, 故取"大声 + 可查询 + 不拖垮"。
     """
     if getattr(app, "_aimail_pull_wired", False):
         return True
@@ -269,19 +313,32 @@ def start_pull_on_startup(app) -> bool:
                 target_for=_pull_replay_target,
                 log=lambda line: logger.info("%s", line),
             ))
-        except Exception as e:  # noqa: BLE001 — 接线失败不拖垮宿主
-            logger.warning("aimail: pull entry start failed: %s", e)
+        except Exception as e:  # noqa: BLE001 — 循环起不来不拖垮宿主, 但必须大声
+            logger.error("aimail: pull entry start FAILED (%s: %s) —— 轮询未运行",
+                         type(e).__name__, e)
         logger.info("aimail: agent-scope pull entries: %d started", len(handles))
 
     async def _aimail_pull_shutdown() -> None:
         _ab.stop_agent_pull_entries(handles)
 
     try:
-        app.add_event_handler("startup", _aimail_pull_startup)
-        app.add_event_handler("shutdown", _aimail_pull_shutdown)
-        app._aimail_pull_wired = True
-        logger.info("aimail: pull entry wired to app startup/shutdown")
-        return True
-    except Exception as e:  # noqa: BLE001
-        logger.warning("aimail: pull entry wiring failed: %s", e)
+        _wire_pull_to_lifespan(app, _aimail_pull_startup, _aimail_pull_shutdown)
+    except Exception as e:  # noqa: BLE001 — 接线失败不拖垮宿主, 但绝不静默
+        app._aimail_pull_wired = False
+        app._aimail_pull_lifespan_wrapped = False
+        app._aimail_pull_wire_error = f"{type(e).__name__}: {e}"
+        logger.error(
+            "aimail: pull entry wiring FAILED (%s: %s) —— agent-scope 轮询循环未建立; "
+            "纯地址级(无系统级安装)的 pull 收信会整段失效, 需人工介入",
+            type(e).__name__, e)
         return False
+    app._aimail_pull_wired = True
+    # 标志放在 **app 上**(而不是只放在被包装的那个 callable 上): 补丁调用点之后宿主
+    # 还会继续 include_router, FastAPI 的 include_router 会把 `lifespan_context`
+    # 用 `_merge_lifespan_context(self.…, router.…)` **重新 merge**(deer-flow 实测
+    # 35 次)⇒ 我们那个包装被**嵌套进链条**(行为保留: 轮询照起)但已不是最外层 callable,
+    # 挂在它身上的属性会读不到。app 级标志不受 merge 影响, 是稳定的可查询物证。
+    app._aimail_pull_lifespan_wrapped = True
+    app._aimail_pull_wire_error = None
+    logger.info("aimail: pull entry wired to app lifespan (startup/shutdown)")
+    return True
