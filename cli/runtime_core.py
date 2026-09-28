@@ -216,15 +216,24 @@ def resolve_system_id(explicit_sid: str = "", agent_home: str = "") -> str:
 # install 允许只带 --home 或只带 --system-id:配置里 system_home 与
 # system_id 互反查。归属不唯一时不猜(返回 '' 由调用方提示显式参数)。
 
-def _cfg_system_home(sid: str, aimail_home=None) -> str:
-    import json
+def _cfg_path(sid: str, aimail_home=None):
+    """系统配置文件路径(本模块单点:任何读/写 cfg 字段都经它, 不另拼字面量)。"""
     import pathlib
     ah = _resolve_aimail_home(aimail_home)
-    cfg = pathlib.Path(ah).expanduser() / "systems" / sid / "aimail_gateway.json"
+    return pathlib.Path(ah).expanduser() / "systems" / sid / "aimail_gateway.json"
+
+
+def _cfg_field(sid: str, key: str, aimail_home=None) -> str:
+    """sid 的 cfg 里某个字符串字段。无配置 / 无该键 / 读失败 → ''(不猜默认值)。"""
+    import json
     try:
-        return str(json.loads(cfg.read_text(encoding="utf-8")).get("system_home", "") or "")
+        return str(json.loads(_cfg_path(sid, aimail_home).read_text(encoding="utf-8")).get(key, "") or "")
     except Exception:
         return ""
+
+
+def _cfg_system_home(sid: str, aimail_home=None) -> str:
+    return _cfg_field(sid, "system_home", aimail_home)
 
 
 def _norm_home(p: str) -> str:
@@ -240,6 +249,18 @@ def _norm_home(p: str) -> str:
 def system_home_from_sid(sid: str, aimail_home=None) -> str:
     """sid → 其配置里的 system_home(绝对化)。无 → ''。"""
     return _norm_home(_cfg_system_home(sid, aimail_home))
+
+
+def system_gateway_url(sid: str, aimail_home=None) -> str:
+    """sid → 其配置里的 gateway_url(= 复用路径的权威网关地址)。无 → ''。
+
+    2026-09-29 (#15, CLI L2 J5-10d 活体复现): `install`/`ensure-system` 的**复用**
+    分支以前不读它, 网关地址直接兜底到生产默认 ⇒ setup_system Path A 用
+    INTEGRATE_GATEWAY_URL 覆写 cfg.gateway_url, 之后一切按 cfg 的读取(播报/域操作/
+    桥声明)与 `uninstall`(无 -g)都打到**错误的网关**。读取口径与 system_home 同源
+    (同一个 cfg 文件), 保证 install/reset/ensure-system/uninstall 只有这一份 prev 实现。
+    """
+    return _cfg_field(sid, "gateway_url", aimail_home)
 
 
 def sid_from_system_home(system_home: str, aimail_home=None) -> str:

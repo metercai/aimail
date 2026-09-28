@@ -126,6 +126,39 @@ def _env_val(key: str, fallback: str = "") -> str:
     return fallback
 
 
+# ── 网关地址解析(单一口径, 2026-09-29 #15)─────────────────────────────
+# 全命令共用同一条优先级, 禁止各写一份(历史上 install 与 reset 就漂成两种):
+#   显式 -g  >  AIMAIL_URL(env / ~/.aimail/.env)  >  该 sid 的本地 cfg.gateway_url  >  默认
+# 「该 sid 的本地 cfg」= **复用路径的 prev/权威值**。旧行为里 install 与 ensure-system
+# 用 `_env_val("AIMAIL_URL", <生产默认>)` 兜底 ⇒ 复用重跑不带 -g 时生产默认压过 prev,
+# setup_system Path A 再用 INTEGRATE_GATEWAY_URL 覆写 cfg.gateway_url ⇒ 之后一切按 cfg
+# 的读取(播报/域操作/桥声明)与 uninstall(无 -g)都打到错误的网关(J5-10d 活体复现;
+# 同族 reset 一直是 prev 口径, cli/aimail:1122)。
+_GATEWAY_URL_DEFAULT = "https://aimail.token.tm"
+
+
+def _prev_gateway_url(sid: str) -> str:
+    """sid 的本地 cfg.gateway_url(复用路径的 prev)。无配置/无该键 → ''。"""
+    if not sid:
+        return ""
+    from runtime_core import system_gateway_url
+    return system_gateway_url(sid)
+
+
+def _resolve_gateway_url(explicit: str = "", sid: str = "",
+                         default: str = _GATEWAY_URL_DEFAULT) -> tuple:
+    """→ (url, source);source ∈ {flag, env, prev, default} —— 调用方据此**显式播报**。"""
+    if explicit:
+        return str(explicit), "flag"
+    v = _env_val("AIMAIL_URL")
+    if v:
+        return v, "env"
+    v = _prev_gateway_url(sid)
+    if v:
+        return v, "prev"
+    return default, "default"
+
+
 # ═══════════════════════════════════════════════════════════════
 #  平台事实推断
 # ═══════════════════════════════════════════════════════════════
@@ -688,7 +721,7 @@ def cmd_install(args) -> int:
     load_core()
     from gateway_api import load_gateway_config
     env = dict(os.environ)
-    gw_url = args.gateway_url or _env_val("AIMAIL_URL", "https://aimail.token.tm")
+    gw_url, _gw_src = _resolve_gateway_url(args.gateway_url)
     # system_name 只认显式 -n;.env 兜底仅在真新建分支——复用路径预取 env
     # 会把 .env 的旧系统名覆写进被复用系统 cfg(AUDIT-1 复验,2026-09-07
     # xian 激活实证:身份字段被 .env 的 wguo 污染)。
@@ -746,6 +779,16 @@ def cmd_install(args) -> int:
           + (f" container={args.container}" if getattr(args, "container", "") else ""))
 
     # 激活/复用凭据装配(env 契约给 setup_system.py)
+    # #15(2026-09-29): 复用路径的网关地址必须回落**被复用系统自己的** cfg.gateway_url
+    # (与 reset 同款 prev 口径), 不允许生产默认压过它 —— 否则 setup_system Path A 会用
+    # INTEGRATE_GATEWAY_URL 覆写 cfg.gateway_url, 之后一切按 cfg 的读取(播报/域/桥路由)
+    # 与 uninstall 都打到错误的网关(J5-10d 活体复现)。来源**显式播报**, 不静默。
+    if sid and not prod_code:
+        gw_url, _gw_src = _resolve_gateway_url(args.gateway_url, sid)
+        if _gw_src == "prev":
+            _ok(f"gateway_url 继承本地配置: {gw_url}(复用 {sid};-g / AIMAIL_URL 优先)")
+        elif _gw_src == "default":
+            _warn(f"gateway_url 无本地值, 落到默认 {gw_url}(未给 -g / AIMAIL_URL)")
     env["INTEGRATE_GATEWAY_URL"] = gw_url
     env["INTEGRATE_SYSTEM_ID"] = sid
     env["INTEGRATE_SYSTEM_NAME"] = sys_name
@@ -936,7 +979,7 @@ def cmd_ensure_system(args) -> int:
     load_core()
     from gateway_api import load_gateway_config
     env = dict(os.environ)
-    gw_url = args.gateway_url or _env_val("AIMAIL_URL", "https://aimail.token.tm")
+    gw_url, _gw_src = _resolve_gateway_url(args.gateway_url)
     # system_name 只认显式 -n;.env 兜底仅在真新建分支——复用路径预取 env
     # 会把 .env 的旧系统名覆写进被复用系统 cfg(AUDIT-1 复验,2026-09-07
     # xian 激活实证:身份字段被 .env 的 wguo 污染)。
@@ -983,6 +1026,14 @@ def cmd_ensure_system(args) -> int:
             sys_name = _env_val("AIMAIL_SYSTEM_NAME")
 
     # 凭据装配(INTEGRATE_* env 契约 → setup_system.py;与 install 同款)
+    # #15(2026-09-29): 复用分支与 install 同一口径 —— 回落本系统 cfg.gateway_url;本函数
+    # stdout 是**单行 JSON 契约** ⇒ 播报一律走 stderr。
+    if sid and not prod_code:
+        gw_url, _gw_src = _resolve_gateway_url(args.gateway_url, sid)
+        if _gw_src == "prev":
+            print(f"gateway_url inherited from local config: {gw_url}", file=sys.stderr)
+        elif _gw_src == "default":
+            print(f"gateway_url: no local value, falling back to default {gw_url}", file=sys.stderr)
     env["INTEGRATE_GATEWAY_URL"] = gw_url
     env["INTEGRATE_SYSTEM_ID"] = sid
     env["INTEGRATE_SYSTEM_NAME"] = sys_name
@@ -3061,6 +3112,26 @@ def cmd_uninstall(args) -> int:
         except Exception:
             pass
 
+    # ── 注销目标网关(2026-09-29 #15)────────────────────────────────────────────
+    # 判据: 必须是**这个系统自己的**那个网关。优先级 -g > cfg.gateway_url。这里**刻意不看
+    # AIMAIL_URL(env / ~/.aimail/.env)**: 机器级 env 声明的是"这台机器平时连哪个网关",
+    # 拿它注销会把地址/白名单行留在真网关上(夹具残留硬门禁 + "地址集被清空"假红); cfg 才
+    # 是该系统的归属记录。也**不落生产默认** —— 缺值就大声说缺值, 不静默打生产。
+    # 这一层以前没有旋钮(只读 cfg), cfg 被 install 复用路径改写后 operator 无法纠正,
+    # 注销便静默打到错误的网关(#15 的连环缺陷)。
+    _gw_flag = str(getattr(args, "gateway_url", "") or "").strip()
+    _gw_cfg = str(gw.get("gateway_url") or "").strip()
+    if _gw_flag:
+        gw["gateway_url"] = _gw_flag
+        _ok(f"gateway_url: {_gw_flag}(显式 -g)")
+        if _gw_cfg and _gw_cfg != _gw_flag:
+            _warn(f"-g {_gw_flag} 覆盖 cfg.gateway_url={_gw_cfg}(按 -g 注销)")
+    elif _gw_cfg:
+        _ok(f"gateway_url: {_gw_cfg}(来自 cfg;可用 -g 覆盖)")
+    else:
+        _warn("cfg 缺 gateway_url 且未给 -g —— 无法确定注销目标, 跳过网关侧注销"
+              "(不按生产默认兜底); 本机数据仍会清除")
+
     # 1. 网关注销(每 agent,公共链:api-key → domain → whitelist)
     load_core()
     try:
@@ -3266,6 +3337,9 @@ scenario groups:
     p_uni = sub.add_parser("uninstall", help="remove aimail integration from the agent platform")
     p_uni.add_argument("-s", "--system-id", **common_sid)
     p_uni.add_argument("-H", "--home", **common_home)
+    p_uni.add_argument("-g", "--gateway-url", default="",
+                       help="gateway to deregister from (default: the system cfg; use it when the "
+                            "cfg was rewritten — never falls back to a production default)")
     p_uni.add_argument("-y", "--yes", action="store_true", help="skip confirmation prompt")
     p_uni.set_defaults(func=cmd_uninstall)
 
