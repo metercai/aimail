@@ -2072,7 +2072,21 @@ def ensure_bridge_routes_for_system(system_id: str = "") -> list:
 
 
 def _align_registrations_to_bridge(sid: str, gw: dict, rows: list, url: str) -> int:
-    """Re-register each binding with the bridge URL. Returns how many were aligned."""
+    """Re-register each binding with the bridge URL. Returns how many were aligned.
+
+    2026-09-28 第 10 缺陷修 (CLI 门禁 L2「经桥 + J4d repair」401 的产品根因) ——
+    这里的写入**必须携带该绑定自己的 ``webhook_secret``**:
+
+    网关的 ``PUT /api/v1/admin/system-domains/:id`` 是**全量覆写**语义
+    (``storage.rs`` ``UPDATE … SET webhook_url=?1, webhook_secret=?2``,缺键 ⇒ NULL),
+    而本函数此前只传 ``webhook_url`` ⇒ 注册侧 secret 被写成 NULL ⇒
+    签名侧(空 secret)与验签侧(容器内绑定的 64 hex)分叉 ⇒ 插件
+    ``verifySignature`` 恒 false ⇒ **401 bad_signature**(实测:两侧摘要不等)。
+
+    规则 = **绑定 secret 即真源**(与 repair 阶梯 (b) / TS ``syncAddressWebhook`` 同源):
+    绑定缺 secret 就地自供(``ensure_binding_webhook_secret``,幂等不覆盖);
+    **仍取不到 ⇒ 跳过该绑定、不写**——宁可 url 不更新,也绝不把云端 secret 抹空。
+    """
     try:
         from aimail_tools import _GatewayClient
         key = str(gw.get("admin_key") or gw.get("api_key") or "")
@@ -2085,9 +2099,19 @@ def _align_registrations_to_bridge(sid: str, gw: dict, rows: list, url: str) -> 
         email = str(c.get("email") or "")
         if not email:
             continue
+        secret = str(c.get("webhook_secret") or "").strip()
+        if not secret:
+            # 老绑定没有 secret: 与 pull 循环 / repair 阶梯同一入口就地自供(幂等)。
+            secret = str((ensure_binding_webhook_secret(c) or {}).get("secret") or "")
+        if not secret:
+            logger.warning(
+                "[aimail] registration align for %s skipped: the binding carries no "
+                "webhook_secret and none could be provisioned — a url-only write would "
+                "null the cloud secret (inbound 401); run 'aimail repair'", email)
+            continue
         try:
             register_agent_email(client, str(c.get("system_id") or sid), email,
-                                 webhook_url=url,
+                                 webhook_url=url, webhook_secret=secret,
                                  manager_address=str(c.get("manager_address") or ""))
             n += 1
         except Exception as e:
@@ -2248,12 +2272,25 @@ def register_agent_email(client, system_id: str, email: str,
                 # 空 body 更新会让网关把已存 webhook_url/secret 无条件覆写为 NULL
                 if not webhook_url and not webhook_secret:
                     return {"api_key": "", "activation_code": ""}
+                # 缺 secret 不得覆写（第 10 缺陷防御纵深，2026-09-28）：网关 PUT 是**全量
+                # 覆写**（body 里没有 webhook_secret 键 ⇒ 云端 secret 被写成 NULL），
+                # 而验签方按**本地绑定**的 secret 验 ⇒ 两边分叉 = 入站恒 401。
+                # 故本分支先按**真源**补全：调用方没给 ⇒ 读该地址的绑定（唯一真源）；
+                # 仍没有 ⇒ **不写**（保留云端现值），大声告警，绝不抹空。
+                secret = str(webhook_secret or "").strip() \
+                    or existing_binding_webhook_secret(system_id, email)
+                if not secret:
+                    logger.warning(
+                        "[aimail] registration update for %s skipped: no binding "
+                        "webhook_secret to carry — a url-only PUT would null the cloud "
+                        "secret (inbound 401); run 'aimail repair' to provision it", email)
+                    return {"api_key": "", "activation_code": ""}
                 try:
                     domains = client.list_system_domains(system_id)
                     for d in (domains if isinstance(domains, list) else []):
                         if isinstance(d, dict) and d.get("domain") == email:
                             client.update_system_domain(str(d.get("id", "")),
-                                                        webhook_url, webhook_secret)
+                                                        webhook_url, secret)
                             break
                 except Exception:
                     pass
