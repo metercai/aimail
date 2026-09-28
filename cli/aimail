@@ -2079,29 +2079,52 @@ def _ensure_inbound_routes(sid: str) -> int:
     host inbound is actually serving — registration time is too early (the host
     restarts after install), and a route the bridge pruned (target unreachable for
     probe_interval × fail_threshold) must come back without a human re-running
-    install. Shared implementation: aimail_base.ensure_bridge_routes_for_system
-    (the TS hosts use mail-core's mirror of the same contract).
+    install.
+
+    Owner ruling 2026-09-28 (**SDK 去桥化**): the route step is the CLI's own. It is
+    implemented with the CLI-owned writer the host notification also uses —
+    ``cli/bridge_wire.py::sync_route`` (the single route writer, one `sync_route`
+    per registered binding; L0.g pins that owner). The former SDK helpers
+    (``aimail_base.ensure_bridge_routes_for_system`` / ``format_bridge_route_line`` /
+    ``route_outcome_is_warning``) were deleted with the de-bridging and must never be
+    imported back — see cli/repair.py's retired step for the same call, and the
+    ``[zero-bridge/references]`` ratchet, which now also scans this extension-less
+    entry.
 
     Never raises, never changes the caller's exit code; returns how many outcomes
     were reported (0 = nothing to do).
     """
     if not sid:
         return 0
-    load_core()
-    from aimail_base import (ensure_bridge_routes_for_system, format_bridge_route_line,
-                             route_outcome_is_warning)
     try:
-        outcomes = ensure_bridge_routes_for_system(sid)
-    except Exception as e:
-        _warn(f"route ensure failed: {e}")
+        from bridge_wire import format_line, sync_route
+    except Exception as e:  # noqa: BLE001 — the route step is best-effort
+        _warn(f"route ensure skipped: bridge_wire unavailable ({e})")
         return 0
-    for o in outcomes:
-        line = format_bridge_route_line(o)
-        if route_outcome_is_warning(o):
-            _warn(line)
-        else:
+    load_core()
+    try:
+        _p = _gateway_cfg_path(sid)
+        cfg = json.loads(_p.read_text(encoding="utf-8")) if _p and _p.is_file() else {}
+        agents = [a for a in _list_agents(sid, cfg) if a.get("registered")]
+    except Exception as e:  # noqa: BLE001
+        _warn(f"route ensure skipped: cannot enumerate this system's bindings ({e})")
+        return 0
+    reported = 0
+    for a in agents:
+        try:
+            out = sync_route("live", a.get("email", ""), a.get("webhook_url", ""),
+                             cfg, BRIDGE_CFG)
+        except Exception as e:  # noqa: BLE001
+            _warn(f"route ensure failed for {a.get('email', '')}: {e}")
+            continue
+        line = format_line(out)
+        if out.get("state") == "ok":
             _ok(line)
-    return len(outcomes)
+        else:
+            # failed / skipped / no_bridge: visible, never silent (owner ruling)
+            _warn(line)
+        reported += 1
+    return reported
 
 
 def _sync_bridge_route_after_rename(old_email: str, new_email: str, base: Path, sid: str) -> None:

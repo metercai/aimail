@@ -28,7 +28,10 @@ echo "[L0] contract single-source: consts == manifest; frontmatter 5/5; literal 
 # SDK 只做 best-effort 的"入站 live/down"通知(`aimail address -a <addr> --inbound-live`)。
 # 静态负断言四条(命中 = 0): ①pysdk/**/*.py 的 AST 标识符 ②tssdk/packages/*/src + test
 # (排除棘轮自身的符号表 startup-hook.test.ts)剥注释后的代码 ③契约真源不得含桥键
-# ④**引用侧**(2026-09-28 补): pysdk/ tssdk/ cli/ tests/ 的 .py/.ts/.sh/.md 里, 退役
+# ④**引用侧**(2026-09-28 补): pysdk/ tssdk/ cli/ tests/ 的 .py/.ts/.sh/.md **∪ 无扩展名
+# 可执行/shebang 脚本**(2026-09-28 二次补: 扩展名白名单曾把无后缀主入口 cli/aimail 整个
+# 跳过 —— 它的死引用 `from aimail_base import ensure_bridge_routes_for_system` 又躲过一轮,
+# 门禁 L1 101 PASS/12 FAIL 全败于该 ImportError)里, 退役
 # 符号不得被 import/别名/成员访问/定义/参数/动态调用名引用 —— 根因: ①②只守 SDK 自己的
 # 文件, "别处 import 一个已删除的符号"漏网(实测 cli/setup_system.py + cli/repair.py 三处
 # 死引用 ⇒ 门禁 L1 45 红全败于同一 ImportError), 而 pyflakes **不报**"从模块 import

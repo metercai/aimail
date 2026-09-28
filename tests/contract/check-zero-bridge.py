@@ -18,8 +18,12 @@ owner 裁决 2026-09-28(**SDK 去桥化**): 环境(桥/路由)由 CLI 自持
       ``tssdk/packages/mail-core/src/contract.ts`` 的常量名。
 
   (d) **引用侧**(2026-09-28 补, 定义侧的漏网面): ``pysdk/**`` ``tssdk/**``
-      ``cli/**`` ``tests/**`` 的 **.py/.ts/.sh/.md** 文本里, 退役符号不得被**引用** ——
+      ``cli/**`` ``tests/**`` 里, 退役符号不得被**引用** ——
       import / 别名 / 成员访问 / 定义名 / 参数名 / 动态调用名(``getattr(x, "sym")`` 形态)。
+      扫描面 = 白名单扩展 **.py/.ts/.sh/.md** **∪ 无扩展名可执行/shebang 脚本**
+      (2026-09-28 二次补: 扩展名白名单曾把无后缀的主入口 ``cli/aimail`` 整个跳过 ——
+      它的死引用 ``from aimail_base import ensure_bridge_routes_for_system`` 又躲过一轮,
+      门禁 L1 101 PASS/12 FAIL 全败于该 ImportError)。
       根因: (a)(b) 只守 SDK 自己的文件; 别处 ``from aimail_base import is_bridge_host_port``
       这种"import 一个已删除的符号"完全漏网, 而 **pyflakes 不报"从模块 import 不存在的
       名字"** ⇒ L0 假绿(实测: cli/setup_system.py + cli/repair.py 两处死引用, 门禁 L1
@@ -65,6 +69,15 @@ CONTRACT_TS = "tssdk/packages/mail-core/src/contract.ts"
 #: 扫描范围: 退役符号**被引用的地方**(定义侧只守 SDK 自己, 这里守"谁在 import/调用它")。
 REF_SCAN_DIRS = ("pysdk", "tssdk", "cli", "tests")
 REF_SCAN_EXT = (".py", ".ts", ".sh", ".md")
+#: **无扩展名脚本**(2026-09-28 第二次漏网, 补面): 扩展名白名单会把没有后缀的主入口
+#: 直接跳过 —— CLI 主入口 ``cli/aimail``(无后缀, shebang ``#!/usr/bin/env python3``)
+#: 里的死引用又躲过一轮: ``cli/aimail:2091``
+#: ``from aimail_base import (ensure_bridge_routes_for_system, ...)`` ⇒ ImportError ⇒
+#: 门禁 L1 101 PASS / 12 FAIL 全败于同一处。判据 = 白名单扩展 **∪**
+#: (无后缀 且 (可执行位 或 首行 ``#!``) 且 文本 且 <= REF_SCAN_MAX_BYTES);
+#: 按 shebang 选解析法(见 ``_ref_kind``: python → AST、sh → 剥行注释、其它 → 文本 token)。
+REF_SCAN_EXTENSIONLESS = True
+REF_SCAN_MAX_BYTES = 1_000_000
 #: 不扫生成物/第三方(源真源在 src/; 见 docstring)。
 REF_SKIP_DIRS = {"node_modules", "__pycache__", ".git", "lib", "dist", "build"}
 #: 逃生门标记: 行内含该显式注释才允许"提及退役符号"(说明行 / 符号表), 单独成节打印。
@@ -146,18 +159,58 @@ def rule_c(repo: Path) -> list:
     return hits
 
 
+def _has_shebang(f: Path) -> bool:
+    try:
+        with f.open("rb") as fh:
+            return fh.read(2) == b"#!"
+    except OSError:
+        return False
+
+
+def _is_ref_file(f: Path) -> bool:
+    """白名单扩展 **∪** 无扩展名可执行/shebang 脚本(见 REF_SCAN_EXTENSIONLESS 的漏网记录)。"""
+    if f.suffix in REF_SCAN_EXT:
+        return True
+    if not REF_SCAN_EXTENSIONLESS or f.suffix:
+        return False
+    try:
+        st = f.stat()
+    except OSError:
+        return False
+    if st.st_size > REF_SCAN_MAX_BYTES:
+        return False
+    return bool(st.st_mode & 0o111) or _has_shebang(f)
+
+
 def _iter_ref_files(repo: Path):
-    """引用侧扫描面: REF_SCAN_DIRS × REF_SCAN_EXT, 跳过生成物/第三方目录。"""
+    """引用侧扫描面: REF_SCAN_DIRS × (REF_SCAN_EXT ∪ 无扩展名脚本), 跳过生成物/第三方目录。"""
     for d in REF_SCAN_DIRS:
         base = repo / d
         if not base.is_dir():
             continue
         for f in sorted(base.rglob("*")):
-            if not f.is_file() or f.suffix not in REF_SCAN_EXT:
+            if not f.is_file() or not _is_ref_file(f):
                 continue
             if REF_SKIP_DIRS & set(f.parts):
                 continue
             yield f
+
+
+def _ref_kind(f: Path, text: str) -> str:
+    """扫描模式: ``py``(AST) / ``ts``(剥注释+字符串) / ``sh``(剥行注释) / ``generic``(整文本 token)。
+
+    无扩展名脚本按**首行 shebang** 选法 —— 判据与同后缀文件一致:
+    python ⇒ AST(注释与文档字符串天然出局, 与 (a) 同法)、sh/bash/zsh/dash ⇒ 剥行注释、
+    其它 ⇒ 文本 token(与 .md 同法: 只有 ``retired:`` 标记豁免)。
+    """
+    if f.suffix in (".py", ".ts", ".sh", ".md"):
+        return {".py": "py", ".ts": "ts", ".sh": "sh", ".md": "generic"}[f.suffix]
+    first = text.splitlines()[0].lower() if text.splitlines() else ""
+    if "python" in first:
+        return "py"
+    if re.search(r"/[a-z]*(?:ba|z|k|da)?sh\b", first):
+        return "sh"
+    return "generic"
 
 
 def _token_hits(text: str, syms=RETIRED_ALL) -> list:
@@ -254,10 +307,11 @@ def rule_d(repo: Path) -> tuple:
             violations.append(f"{rel}: unreadable ({e})")
             continue
         scanned += 1
-        if f.suffix == ".py":
+        kind = _ref_kind(f, text)
+        if kind == "py":
             hits, ben = _py_code_hits(rel, text)
             benign += ben
-        elif f.suffix == ".ts":
+        elif kind == "ts":
             hits = [(i, s, f"{rel}:{i}: ts identifier {s}")
                     for i, s, _ in _token_hits(_ts_code(text))]
             # TS 侧字符串: 只判"动态调用名"形态(require('sym') / import('sym'))
@@ -268,11 +322,12 @@ def rule_d(repo: Path) -> tuple:
                             hits.append((i, s, f"{rel}:{i}: ts string call-name {s!r} (dynamic access)"))
                         else:
                             benign.append((i, s, f"{rel}:{i}: string literal {s} (data, not a reference)"))
-        elif f.suffix == ".sh":
+        elif kind == "sh":
             hits = [(i, s, f"{rel}:{i}: sh identifier {s}")
                     for i, s, _ in _token_hits(_sh_code(text))]
-        else:      # .md
-            hits = [(i, s, f"{rel}:{i}: doc token {s}")
+        else:      # .md / 其它无扩展名脚本: 文本 token(与 .md 同法)
+            label = "doc token" if f.suffix == ".md" else "text token"
+            hits = [(i, s, f"{rel}:{i}: {label} {s}")
                     for i, s, _ in _token_hits(text)]
         src = text.splitlines()
         escaped_lines: set = set()
@@ -336,7 +391,9 @@ def main(argv: list) -> int:
           f"{len(RETIRED_TS)} retired = 0; contract truth source carries no bridge key")
     print(f"[zero-bridge/references] clean (references=0): {scanned} file(s) scanned in "
           f"{'/'.join(REF_SCAN_DIRS)} ("
-          f"{'/'.join(e.lstrip('.') for e in REF_SCAN_EXT)}; comments+docstrings excluded) "
+          f"{'/'.join(e.lstrip('.') for e in REF_SCAN_EXT)}"
+          f"{' + extension-less executable/shebang scripts' if REF_SCAN_EXTENSIONLESS else ''}"
+          f"; comments+docstrings excluded) "
           f"— {len(RETIRED_ALL)} retired symbol(s) referenced 0 time(s)")
     return 0
 
