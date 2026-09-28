@@ -1554,9 +1554,12 @@ def _cmd_inbound_route(args, sid: str, cfg: dict) -> int:
     入口语义: 入站 live 时 SDK 调一次, **CLI 自行决定动作**(命令语义不预设 bridge,
     将来可挂别的动作)。三步(见 cli/bridge_wire.py):
       ① 由 -a(+ -s) 定位 systems/<sid>/<addr>/ 绑定 ⇒ 取本机入站 URL(webhook_url);
-         为空 ⇒ skipped + reason, 0 退出(不静默、不假绿);
+         **up 才需要 URL** —— 为空 ⇒ skipped + reason, 0 退出(不静默、不假绿);
       ② 桥声明在位且 admin 口可达 ⇒ 幂等 upsert(该 email → **完整绝对 URL**)/
          撤回;无桥 ⇒ 什么都不做(0 退出);声明但不可达 ⇒ 不动任何东西 + 一行告警;
+         **down 与 up 解耦**(2026-09-28): 路由按 email 建键(DELETE /api/v1/routes/:email)
+         ⇒ 撤回只认 email + 桥可达; 绑定 URL 为空/不可用**照样撤回**(旧行为在
+         "先有 URL、后变空"时把路由留到桥的健康剪除 = 该撤没撤);
       ③ 不写 aimail-gateway.json、不调 SDK 注册、不改绑定文件。
     只复用既有 -a/-e/-s 参数与既有词表;输出全英文。
     """

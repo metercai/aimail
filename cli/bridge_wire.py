@@ -37,6 +37,14 @@ Outcome states reuse the existing route vocabulary (no new words are minted):
     skipped   — nothing to route (a pull binding: the gateway fetches the mail)
     no_bridge — no bridge declared on this machine: a deliberate no-op
     failed    — declared but unusable: fail closed, change nothing, say why
+
+`up` and `down` are NOT symmetric (2026-09-28 ruling): the route is keyed by the
+address (`DELETE /api/v1/routes/:email`), so a withdrawal needs the email and a
+reachable bridge and nothing else. A binding whose local endpoint is empty (pull) or
+unusable must therefore still withdraw any route created back when it was push — the
+old "empty webhook_url ⇒ skipped" shortcut left that route standing until the bridge's
+own health prune (up to 180s, longer if delivery keeps looking fine), i.e. mail kept
+being pushed to a host that had stopped receiving. Only `up` cares about the URL.
 """
 
 from __future__ import annotations
@@ -241,10 +249,13 @@ def sync_route(action: str, email: str, target_url, gateway_cfg: dict,
                bridge_cfg_path, admin_host: str = ADMIN_HOST) -> dict:
     """Decide what this machine must do for one address, and do it. Never raises.
 
-    1. the binding's local endpoint must be a deliverable absolute URL. An EMPTY value is
-       a legitimate pull binding (the gateway fetches the mail) ⇒ `skipped` + reason; a
-       non-empty value that cannot be delivered to is a defect ⇒ `failed` (refused, with
-       the reason) — never a silent pass;
+    1. for `action="live"` (`up`) only, the binding's local endpoint must be a deliverable
+       absolute URL. An EMPTY value is a legitimate pull binding (the gateway fetches the
+       mail) ⇒ `skipped` + reason; a non-empty value that cannot be delivered to is a
+       defect ⇒ `failed` (refused, with the reason) — never a silent pass. `down` does NOT
+       look at the URL at all: the route is keyed by email, so a withdrawal must happen
+       even when the binding's endpoint went empty (2026-09-28 — the empty⇒skip shortcut
+       used to strand a route created while the binding was still push);
     2. a declared bridge must be reachable — otherwise `failed` with the reason and
        NOTHING is touched (fail closed: a half-configured bridge must not be written to);
     3. no bridge declared ⇒ `no_bridge`: a deliberate no-op, not an error.
@@ -259,12 +270,13 @@ def sync_route(action: str, email: str, target_url, gateway_cfg: dict,
         "mode": "", "bind": "", "source": "",
     }
 
-    raw = ("" if target_url is None else str(target_url)).strip()
-    target, why = validate_target(target_url)
-    if not target:
-        out.update(state=STATE_SKIPPED if not raw else STATE_FAILED, reason=why)
-        return out
-    out["target"] = target
+    if act != ACTION_DOWN:
+        raw = ("" if target_url is None else str(target_url)).strip()
+        target, why = validate_target(target_url)
+        if not target:
+            out.update(state=STATE_SKIPPED if not raw else STATE_FAILED, reason=why)
+            return out
+        out["target"] = target
 
     decl = load_declaration(gateway_cfg, bridge_cfg_path)
     out.update(admin_port=decl["admin_port"], mode=decl["mode"],
@@ -291,7 +303,7 @@ def sync_route(action: str, email: str, target_url, gateway_cfg: dict,
             out.update(state=STATE_FAILED, reason=f"could not withdraw the route: {detail}")
         return out
 
-    ok, detail = upsert_route(out["email"], target, admin_host, decl["admin_port"])
+    ok, detail = upsert_route(out["email"], out["target"], admin_host, decl["admin_port"])
     if ok:
         out.update(state=STATE_OK, reason=detail or "route upserted")
     else:

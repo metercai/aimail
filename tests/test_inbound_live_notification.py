@@ -289,6 +289,81 @@ def test_live_upserts_idempotently_then_down_withdraws(tmp_path):
         bridge.stop()
 
 
+# ── 3b. `down` is keyed by email: an emptied binding still withdraws ────────────────
+
+def test_down_withdraws_after_the_binding_url_goes_empty(tmp_path):
+    """up (binding had a URL) → the binding's URL is emptied → down ⇒ the route is GONE.
+
+    The route table is keyed by address (`DELETE /api/v1/routes/:email`), so a withdrawal
+    needs the email and a reachable bridge and nothing else. Were `down` gated on the
+    binding still carrying a deliverable `webhook_url` (the pre-2026-09-28 behaviour), the
+    route would outlive the push endpoint until the bridge's own health prune (up to 180s).
+    RED anchor: put the target check back in front of *both* actions in
+    cli/bridge_wire.py::sync_route ⇒ `bridge.routes == {}` below fails; the sibling test
+    `test_down_skip_on_empty_url_mutation_is_detected_red` measures exactly that.
+    """
+    bridge = _FakeBridge()
+    try:
+        home = _home(tmp_path)
+        _write_system(home, admin_port=bridge.port)
+        _write_bridge_cfg(home, bridge.port)
+        _write_binding(home, TARGET_URL)
+
+        up = _live(home)
+        assert up.returncode == 0, up.stderr
+        assert bridge.routes == {EMAIL: (TARGET_URL, 80)}, bridge.routes
+        posts_after_up = len(bridge.posts)
+
+        # the form changed / the binding was rewritten: no local endpoint any more
+        _write_binding(home, "")
+
+        down = _down(home)
+        assert down.returncode == 0, down.stderr
+        assert f"route withdrawn: {EMAIL}" in down.stdout, down.stdout
+        assert "route skipped" not in down.stdout, \
+            "an empty webhook_url must not turn the withdrawal into a skip"
+        assert bridge.routes == {}, "the route survived: mail keeps being pushed nowhere"
+        assert [urllib.parse.unquote(p) for p in bridge.deletes] == [f"/api/v1/routes/{EMAIL}"], \
+            bridge.deletes
+        assert len(bridge.posts) == posts_after_up, "down must not upsert anything"
+    finally:
+        bridge.stop()
+
+
+def test_down_skip_on_empty_url_mutation_is_detected_red(tmp_path):
+    """RED anchor for the test above: the mutant re-couples `down` to the URL check, and the
+    same expectation must then be observably violated (route still present)."""
+    bridge = _FakeBridge()
+    try:
+        home = _home(tmp_path)
+        _write_system(home, admin_port=bridge.port)
+        _write_bridge_cfg(home, bridge.port)
+        _write_binding(home, TARGET_URL)
+
+        mutant_root = tmp_path / "mutant"
+        mutant_cli = mutant_root / "cli"
+        shutil.copytree(REPO / "cli", mutant_cli)
+        os.symlink(REPO / "pysdk", mutant_root / "pysdk")
+        module = mutant_cli / "bridge_wire.py"
+        src = module.read_text()
+        gate = "    if act != ACTION_DOWN:\n"
+        assert src.count(gate) == 1, "the up/down split moved: update this mutation"
+        module.write_text(src.replace(gate, "    if True:  # mutant: gate down on the URL\n"))
+
+        assert _live(home, cli=mutant_cli / "aimail").returncode == 0
+        assert bridge.routes == {EMAIL: (TARGET_URL, 80)}
+        _write_binding(home, "")
+
+        down = _down(home, cli=mutant_cli / "aimail")
+        assert "route skipped" in down.stdout, down.stdout
+        assert bridge.routes == {EMAIL: (TARGET_URL, 80)}, \
+            "mutant survived: the assertion in the test above would not catch a stranded route"
+
+        shutil.rmtree(mutant_cli, ignore_errors=True)
+    finally:
+        bridge.stop()
+
+
 # ── 4. declared but unreachable -> fail closed, touch nothing ──────────────────────
 
 def test_declared_but_unreachable_warns_and_changes_nothing(tmp_path):
