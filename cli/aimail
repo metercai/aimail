@@ -1548,6 +1548,58 @@ def cmd_prompt(args) -> int:
     return 0
 
 
+def _cmd_inbound_route(args, sid: str, cfg: dict) -> int:
+    """Inbound live/down notification (the hidden `--inbound-live|--inbound-down`).
+
+    入口语义: 入站 live 时 SDK 调一次, **CLI 自行决定动作**(命令语义不预设 bridge,
+    将来可挂别的动作)。三步(见 cli/bridge_wire.py):
+      ① 由 -a(+ -s) 定位 systems/<sid>/<addr>/ 绑定 ⇒ 取本机入站 URL(webhook_url);
+         为空 ⇒ skipped + reason, 0 退出(不静默、不假绿);
+      ② 桥声明在位且 admin 口可达 ⇒ 幂等 upsert(该 email → **完整绝对 URL**)/
+         撤回;无桥 ⇒ 什么都不做(0 退出);声明但不可达 ⇒ 不动任何东西 + 一行告警;
+      ③ 不写 aimail-gateway.json、不调 SDK 注册、不改绑定文件。
+    只复用既有 -a/-e/-s 参数与既有词表;输出全英文。
+    """
+    live = bool(getattr(args, "inbound_live", False))
+    down = bool(getattr(args, "inbound_down", False))
+    if live and down:
+        _fail("address --inbound-live and --inbound-down are mutually exclusive")
+    action = "down" if down else "live"
+
+    # ── 定位绑定(与可见 op 同一路径;此处**绝不注册**)─────────────
+    agents = _list_agents(sid, cfg)
+    target = None
+    if args.email:
+        target = next((a for a in agents if (a.get("email") or "").lower() == args.email.lower()), None)
+        if not target:
+            _fail(f"no local address for {args.email} (run install/bind for that agent first)")
+    elif args.agent:
+        target = next((a for a in agents if a["agent"] == args.agent
+                       or (a["email"] and a["email"].split("@")[0].startswith(args.agent))), None)
+        if not target:
+            _fail(f"no registered address for agent '{args.agent}' "
+                  f"(platform agents here: {[a['agent'] for a in agents] or 'none'})")
+    else:
+        _fail("inbound live/down needs -a <agent> (or -e <email>) to locate the binding")
+    if not target.get("registered"):
+        _fail(f"address {target.get('email','')} is enumerated but not registered yet "
+              f"-- register it first (aimail address -s {sid} -a {target.get('agent','')})")
+
+    from bridge_wire import STATE_FAILED, STATE_NO_BRIDGE, format_line, sync_route
+    out = sync_route(action, target.get("email", ""), target.get("webhook_url", ""),
+                     cfg, BRIDGE_CFG)
+    if out["state"] == STATE_NO_BRIDGE:
+        return 0                      # no bridge declared: nothing to do, not an error
+    line = format_line(out)
+    if out["state"] == STATE_FAILED:
+        _fail(line)                   # fail closed: exits 1, nothing was written
+    if out["state"] == "skipped":
+        _warn(line)
+        return 0
+    print(f"  {GREEN}✓{NC} {line}")
+    return 0
+
+
 def cmd_address(args) -> int:
     """address:查看/维护系统 agent 地址(default 默认主 agent 名、set-name 地址名、
     set-manager 管理员地址)。"""
@@ -1558,6 +1610,13 @@ def cmd_address(args) -> int:
     if not cfg_path.is_file():
         _fail(f"无系统配置: {cfg_path}")
     cfg = json.loads(cfg_path.read_text())
+
+    # ── 入站 live/down(hidden 开关)─────────────────────────────
+    # 必须**先于**下面的 op 链判定:未登记进 op 链的 flag 会静默落成 "list"
+    # (2026-09-25 那类静默降级;tests/test_inbound_live_notification.py 用
+    # 反向变异钉住这条前置分支,删掉即红)。
+    if bool(getattr(args, "inbound_live", False)) or bool(getattr(args, "inbound_down", False)):
+        return _cmd_inbound_route(args, sid, cfg)
 
     op = ("default" if args.default
           else "set-manager" if args.manager
@@ -3223,6 +3282,12 @@ scenario groups:
     p_ad.add_argument("-e", "--email", help="target by exact registered email instead of -a")
     p_ad.add_argument("-n", "--name", metavar="NAME", help="new address name (set-name) or with -d the default name")
     p_ad.add_argument("-m", "--manager", metavar="EMAIL", help="new manager address for the target agent (set-manager)")
+    # hidden 开关(不出现于 --help):入站 live/down 通知。复用既有 -a/-e/-s,
+    # 不新增参数名。必须先于 cmd_address 的 op 链判定(否则静默落成 list)。
+    p_ad.add_argument("--inbound-live", dest="inbound_live", action="store_true",
+                      help=argparse.SUPPRESS)
+    p_ad.add_argument("--inbound-down", dest="inbound_down", action="store_true",
+                      help=argparse.SUPPRESS)
     p_ad.set_defaults(func=cmd_address)
 
     # ── prompt: agent 级"识别条件 ↔ 角色文件"关系(裁决 2026-09-23) ──
