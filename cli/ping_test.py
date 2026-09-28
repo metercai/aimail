@@ -107,8 +107,17 @@ def _smtp_send_ping(gw_url: str, api_key: str, email: str,
 
     edition=advanced:auth.local 认证发送(base64(api_key)=manager@auth.local)。
     edition=base:普通 MAIL FROM:<manager>(manager 已自动加白)。
+
+    Host parsing (fixed 2026-09-29): 与 send_welcome.py 同名机制同一修法 —— 只剥
+    scheme 的旧写法把带端口的 gateway_url(`http://127.0.0.1:34401`)整串当 HOST,
+    `s.connect(("127.0.0.1:34401", 25))` 直接 `socket.gaierror: Name or service not
+    known`(2026-09-29 CLI L2 / J5-1 实测复现),即 SMTP 路径只对默认端口的网关可用。
+    这里端口保持 25(SMTP 约定;SMTP 不在 25 的网关需要 SMTP 侧旋钮 = 已登记项),
+    只把 host 解析成**纯主机名**(IPv6 字面量也正确剥壳)。
     """
-    host = gw_url.replace("https://", "").replace("http://", "").split("/")[0]
+    from urllib.parse import urlparse
+    raw = gw_url if "//" in gw_url else f"http://{gw_url}"
+    host = urlparse(raw).hostname or ""
     if edition == "advanced":
         # auth.local 认证:网关要求 key 的 scope 含 system/platform
         # (advanced/strategy.rs resolve_sender)——agent scope 会被拒。

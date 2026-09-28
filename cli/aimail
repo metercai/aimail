@@ -1605,6 +1605,37 @@ def _cmd_inbound_route(args, sid: str, cfg: dict) -> int:
     return 0
 
 
+def _address_header_lines(sid: str, cfg: dict) -> list:
+    """地址视图公共表头(system / 默认主 agent 名 / 默认映射 + 空行)。
+
+    list(`-s` 单独)与 show(`-e` 定位)共用同一渲染,避免两处漂移。
+    """
+    current = cfg.get("default_agent_name", "agent")
+    platform = ""
+    sh = cfg.get("system_home", "")
+    if sh:
+        platform = detect_platform_from_home(Path(sh))
+    lines = [f"  system: {sid} ({platform or '?'})",
+             f"  默认主 agent 名: {current}"]
+    _pairs = [f"{k} {a}" for k, al in _platform_aliases().items() for a in al]
+    if _pairs:
+        lines.append(f"  (默认映射: {', '.join(_pairs)} → {current})")
+    lines.append("")
+    return lines
+
+
+def _address_table_lines(agents: list) -> list:
+    """地址表体(列头 + 每行;已注册/未注册两形态)。list 与 show 共用。"""
+    lines = [f"  {'agent':<18} {'email':<46} {'manager':<30} webhook   状态"]
+    for a in agents:
+        wh = (a["webhook_url"] or "")[:28]
+        if a.get("registered"):
+            lines.append(f"  {a['agent']:<18} {a['email']:<46} {a['manager']:<30} {wh}  已注册")
+        else:
+            lines.append(f"  {a['agent']:<18} {(a['email'] or ''):<46} {'':<30} {'':<28}  未注册(平台 {a.get('platform','?')} 有该 agent,先 install/bind 注册)")
+    return lines
+
+
 def cmd_address(args) -> int:
     """address:查看/维护系统 agent 地址(default 默认主 agent 名、set-name 地址名、
     set-manager 管理员地址)。"""
@@ -1623,35 +1654,31 @@ def cmd_address(args) -> int:
     if bool(getattr(args, "inbound_live", False)) or bool(getattr(args, "inbound_down", False)):
         return _cmd_inbound_route(args, sid, cfg)
 
+    # ── op 推导 ────────────────────────────────────────────
+    # `list` 只保留给**没有任何定位参数**的形态。`-e` 是精确地址定位:单独出现
+    # (无 -m/-n/-d)时必须先解析目标,否则目标不存在也静默落成 list + rc=0
+    # (2026-09-29 L2/J5-6c 实测:`address -s SID -e no-such@x` ⇒ rc=0 打印列表、
+    # 零报错;下面 :1660-1663 的 -e 拒绝分支因此**不可达** = F6 类静默降级)。
+    # `-a` 单独出现仍是 list:cli-in-host.sh:169/180 与 tests/cli/README.md 的
+    # FINDING F6 把「`-a <名>` 单独出现打印列表 rc=0」登记为**已登记 GAP**
+    # (无 register_default 的平台靠它走 CLI 侧注册提示),改它会让该 expect
+    # 在那些平台变红 —— 不在本轮授权范围,故只收窄 `-e`。
     op = ("default" if args.default
           else "set-manager" if args.manager
           else "set-name" if args.name
+          else "show" if args.email
           else "list")
 
-    # ── 查看 ──────────────────────────────────────────────
-    if op in ("list", "show"):
+    # ── 查看 list:无定位参数的全量视图 ──────────────────────
+    if op == "list":
         agents = _list_agents(sid, cfg)
-        current = cfg.get("default_agent_name", "agent")
-        platform = ""
-        sh = cfg.get("system_home", "")
-        if sh:
-            platform = detect_platform_from_home(Path(sh))
-        print(f"  system: {sid} ({platform or '?'})")
-        print(f"  默认主 agent 名: {current}")
-        _pairs = [f"{k} {a}" for k, al in _platform_aliases().items() for a in al]
-        if _pairs:
-            print(f"  (默认映射: {', '.join(_pairs)} → {current})")
-        print()
+        for _line in _address_header_lines(sid, cfg):
+            print(_line)
         if not agents:
             print("  无本地注册 agent(地址键目录为空)。")
             return 0
-        print(f"  {'agent':<18} {'email':<46} {'manager':<30} webhook   状态")
-        for a in agents:
-            wh = (a["webhook_url"] or "")[:28]
-            if a.get("registered"):
-                print(f"  {a['agent']:<18} {a['email']:<46} {a['manager']:<30} {wh}  已注册")
-            else:
-                print(f"  {a['agent']:<18} {(a['email'] or ''):<46} {'':<30} {'':<28}  未注册(平台 {a.get('platform','?')} 有该 agent,先 install/bind 注册)")
+        for _line in _address_table_lines(agents):
+            print(_line)
         return 0
 
     # ── 目标解析: -a agent 名 / -e email ───────────────────
@@ -1675,6 +1702,16 @@ def cmd_address(args) -> int:
                       f"  注册该 agent 个体:aimail address -s {sid} -a {args.agent} [-n <地址名>] [-m <manager>]")
             _register_agent_now(target.get("platform", ""), args.agent, cfg, args.name or args.agent, args.manager or "")
             return 0
+
+    # ── show:精确地址定位(-e 单独出现,无 -m/-n/-d)──────────
+    # 目标已在上面解析完成:不存在的地址走 :1689-1690 的 _fail(rc=1,**不打印列表**)
+    # ⇒ 静默降级路径被消除(J5-6c 判据:`address -e <不存在>` rc≠0 且无列表输出)。
+    if op == "show":
+        for _line in _address_header_lines(sid, cfg):
+            print(_line)
+        for _line in _address_table_lines([target]):
+            print(_line)
+        return 0
 
     # ── default:默认主 agent 名(原 mailname)──────────────
     if op == "default":
