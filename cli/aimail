@@ -1449,7 +1449,9 @@ def cmd_prompt(args) -> int:
         rules.append(rule)
         rules.sort(key=lambda r: str(r.get("name", "")))
         cfg["prompt_rules"] = rules
-        _atomic_json_write(jf, cfg)
+        # 落盘经 SDK 侧语义化薄函数(owner 裁决 A: per-agent 绑定文件只由 SDK 写)——
+        # CLI 只触发, 原子 tmp+rename+0600 语义在 update_binding → save_agent_config 内。
+        ab.update_binding(sid, cfg, {"prompt_rules": rules})
         print(f"  added {name} → role_prompt/{stem}.md")
         print(f"  agentmail.json: {jf}")
         if not _role_path(stem):
@@ -1464,7 +1466,7 @@ def cmd_prompt(args) -> int:
         if len(keep) == len(rules):
             _fail(f"rule {name} not found for this agent")
         cfg["prompt_rules"] = keep
-        _atomic_json_write(jf, cfg)
+        ab.update_binding(sid, cfg, {"prompt_rules": keep})
         print(f"  removed {name} ({jf})")
         return 0
 
@@ -1474,11 +1476,11 @@ def cmd_prompt(args) -> int:
         stem = (args.file or "").strip() or _stem_from(name)
         if not re.fullmatch(r"[a-z0-9_-]{1,64}", stem):
             _fail(f"bad file stem {stem!r}: [a-z0-9_-] 1-64 chars")
-        addr_role_dir.mkdir(parents=True, exist_ok=True)
+        addr_role_dir.mkdir(parents=True, exist_ok=True)  # file-ownership-allowed: 建的是 roles/ 目录(兄弟), 路径污点来自共享表达式
         p = addr_role_dir / f"{stem}.md"
         if p.exists():
             _fail(f"already exists: {p}")
-        p.write_text(
+        p.write_text(  # file-ownership-allowed: 写的是 roles/<stem>.md(角色提示), 非 per-agent 绑定文件
             f"# {stem}\n\n"
             f"Role prompt injected when a prompt rule (or the gateway\n"
             f"X-AIMail-Prompt header) selects `{stem}` for an inbound mail.\n\n"
@@ -1705,8 +1707,9 @@ def cmd_address(args) -> int:
             _fail(f"更新 manager 失败: {e}")
         tgt_cfg = dict(target["cfg"])
         tgt_cfg["manager_address"] = mgr
-        jf = Path(target["dir"]) / "agentmail.json"
-        _atomic_json_write(jf, tgt_cfg)
+        # 落盘经 SDK 侧语义化薄函数(owner 裁决 A: 绑定文件只由 SDK 写); CLI 只触发。
+        from aimail_base import update_binding as _upd_binding
+        _upd_binding(sid, target["cfg"], {"manager_address": mgr})
         _ok(f"manager: {email} → {mgr}(云端+本地已同步)")
         return 0
 
@@ -1744,17 +1747,15 @@ def cmd_address(args) -> int:
         # 本地迁移:目录改名 + email 字段更新(webhook/api_key/secret 全继承)。
         # 目录名必须走共享 clean 规则(旧代码 email.replace('/','_') 含 @
         # 地址会脱离共享布局;AUDIT-1 P1-2)。
-        from aimail_base import _clean_agent_dir_name as _clean_n, save_agent_config as _sac
-        old_dir = Path(target["dir"])
-        new_dir = old_dir.parent / _clean_n(new_email)
+        # owner 裁决 A(2026-09-28): 本地迁移 = 一次 SDK 调用 —— 绑定文件由 SDK 写,
+        # CLI 只触发;目录改名与内容落盘是同一件事, 拆开必留中间态, 所以都在 SDK 内。
+        from aimail_base import rename_binding as _rename_binding
         tgt_cfg = dict(target["cfg"])
         tgt_cfg["email"] = new_email
         try:
-            if new_dir.exists():
-                _warn(f"本地目录 {new_dir} 已存在,合并内容字段(保留两个目录)")
-            else:
-                old_dir.rename(new_dir)
-            _sac(tgt_cfg.get("agent_id", ""), tgt_cfg, sid)
+            res = _rename_binding(Path(target["dir"]), new_email, tgt_cfg, sid)
+            if res.get("merged"):
+                _warn(f"本地目录 {res['dir']} 已存在,合并内容字段(保留两个目录)")
         except Exception as e:
             _warn(f"本地迁移失败(云端已改名,重跑 install 可重建本地): {e}")
             return 0
@@ -2002,6 +2003,7 @@ def _rename_after_reg(cfg: dict, default_name: str, agent: str, reg_name: str, s
     if old_email == new_email:
         return
     load_core()
+    from aimail_base import rename_binding as _rename_binding
     from aimail_tools import _GatewayClient
     gw = cfg.get("gateway_url", "").rstrip("/")
     ak = cfg.get("admin_key", "")
@@ -2031,7 +2033,8 @@ def _rename_after_reg(cfg: dict, default_name: str, agent: str, reg_name: str, s
                     _ok(f"rename 后清掉旧地址({old_email})的网关白名单行 {n} 行")
     except Exception as e:  # noqa: BLE001
         _warn(f"rename 后清理旧地址白名单行失败: {e}(可在 uninstall 时由网关侧兜底清掉)")
-    # 本地迁移:agentmail.json 目录改名 + email 更新
+    # 本地迁移:绑定目录改名 + email 更新 —— 一次 SDK 调用(owner 裁决 A: 绑定文件
+    # 只由 SDK 写, CLI 只触发;目录改名与内容落盘是同一件事, 拆开必留中间态)。
     base = AIMAIL_HOME / "systems" / sid
     if base.is_dir():
         for d in base.iterdir():
@@ -2044,13 +2047,10 @@ def _rename_after_reg(cfg: dict, default_name: str, agent: str, reg_name: str, s
                 continue
             if acfg.get("email") == old_email:
                 acfg["email"] = new_email
-                if d.exists():
-                    nd = base / _addr_clean(new_email)
-                    if not nd.exists():
-                        d.rename(nd)
-                    _atomic_json_write((base / _addr_clean(new_email)) / "agentmail.json", acfg)
-                else:
-                    _atomic_json_write(d / "agentmail.json", acfg)
+                try:
+                    _rename_binding(d, new_email, acfg, sid)
+                except Exception as e:
+                    _warn(f"本地绑定迁移失败(云端已改名): {e}")
                 break
     # 平台根指针(.agentmail/.aimail)同步到新地址
     home = cfg.get("system_home", "")

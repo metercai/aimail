@@ -474,6 +474,58 @@ def save_agent_config(agent_id: str, cfg: dict, system_id: str) -> Path:
     return p
 
 
+# ── CLI 侧的语义化薄入口(owner 裁决 A, 2026-09-28)────────────────────────────
+# 分层裁决: 系统级环境文件由 **CLI** 写, per-agent 绑定文件由 **SDK** 写。
+# CLI 需要改绑定内容时不再自持写调用, 只调下面这几个语义化薄函数; 三者内部一律走
+# 上面既有的 `save_agent_config`(原子 tmp+rename + 0600 语义逐字不变, 未复制实现)。
+# 写作约定: 这几个函数的文档串里**不出现**绑定文件名字面量 —— 契约字面量棘轮按
+# 「文件 × 键」只许减不许增, 本模块已是该键的既有持有者, 不能因新代码再加。
+
+def update_binding(system_id: str, cfg: dict, updates: dict) -> Path:
+    """字段级更新绑定内容并原子落盘(语义化薄函数: updates 并入 → `save_agent_config`)。
+
+    CLI 侧只做触发与取值(`aimail prompt add|rm` 改 prompt_rules、`aimail address
+    set-manager` 改 manager_address); 判定与落盘在 SDK 侧。
+    """
+    merged = dict(cfg)
+    merged.update(updates or {})
+    return save_agent_config(merged.get("agent_id", ""), merged, system_id)
+
+
+def backfill_binding(cfg: dict, system_id: str) -> Path:
+    """把**已经算好的整份**绑定内容落盘(`aimail repair` 的回填/对齐入口)。
+
+    repair 仍是判定者(决定哪些字段要补、webhook 目标是否要对齐), 这里只负责经
+    `save_agent_config` 写回 —— 与 CLI 自持写调用的旧形态相对。
+    """
+    return save_agent_config(cfg.get("agent_id", ""), cfg, system_id)
+
+
+def rename_binding(old_dir, new_email: str, cfg: dict, system_id: str) -> dict:
+    """地址改名时的本地绑定迁移 —— **目录 + 内容 = 同一件事**。
+
+    绑定按地址目录存放, 所以「搬目录」与「写内容」拆开必留中间态(目录已改名、
+    内容未落盘); 两者都在这里完成, 内容仍走 `save_agent_config`(原子+0600)。
+    `old_dir` 必须是调用方已定位到的**实际**绑定目录(容忍遗留命名), 不做二次推导。
+
+    返回 ``{"path": Path, "dir": Path, "moved": bool, "merged": bool}`` ——
+    ``merged=True`` 表示目标目录已存在(只把内容并过去、不动目录), 由调用方告警。
+    """
+    root = aimail_home() / "systems" / str(system_id)
+    src = Path(old_dir)
+    dst = root / _clean_agent_dir_name(new_email or "")
+    moved = False
+    merged = False
+    if dst != src:
+        if dst.exists():
+            merged = True
+        elif src.is_dir():
+            src.rename(dst)
+            moved = True
+    path = save_agent_config(cfg.get("agent_id", ""), cfg, system_id)
+    return {"path": path, "dir": dst, "moved": moved, "merged": merged}
+
+
 def _ensure_private_dir(d: Path, mode: Optional[int]) -> None:
     """私有目录: 不存在则按 mode 建; 已存在但过宽则收紧(仅本 SDK 管理的目录)。"""
     d.mkdir(parents=True, mode=mode or 0o700, exist_ok=True)

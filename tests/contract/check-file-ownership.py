@@ -18,6 +18,11 @@ owner 分层裁决(2026-09-28, 承接 Phase 1/2a 的"SDK 去桥化"):
   (c) 帮助函数面: 通过 SDK 的"绑定文件原子写"API(``save_agent_config``;含
       ``import … as alias`` 别名)写绑定文件, 在 CLI 面同样是 (b) 的越界写 —— 证据是
       **调用名**而不是文件名字面量(实测 ``cli/repair.py`` 走这条路, 只看字面量会漏判)。
+  (d) 本地原子落盘 helper 面(2026-09-28 补): 路径传进**仓内自己的**原子写 helper
+      (``_atomic_json_write(path, data)`` 这类)时, 只看 ``open``/``write_text`` 会整段
+      漏判 —— 实测 ``cli/aimail`` 有五处经 ``_atomic_json_write(jf, cfg)``
+      直写绑定文件而检查器判绿(假绿的实证)。现在 helper 名 + **首实参**(字面量或
+      汚染名)也算写证据。
 
 判定手法(诚实登记近似性):
   · Python: ``ast`` + **按作用域**的轻量污点传播。字面量 ⇒ 赋值目标被汚染(同名跨作用域
@@ -76,6 +81,12 @@ PATH_WRITE_METHODS = {
     "rename", "replace", "remove", "rmtree", "copy", "copyfile", "copy2", "move",
     "mkdir", "makedirs", "link", "symlink_to", "truncate",
 }
+#: 规则 (d): 仓内自己的"原子落盘 helper"。字面量/汚染名出现在 helper 的**首实参**
+#: (路径位)就算写证据 —— 只看 ``open``/``write_text`` 会整段漏判:
+#: 实测 ``cli/aimail`` 曾用 ``_atomic_json_write(jf, cfg)`` 直写绑定文件而检查器全绿。
+ATOMIC_WRITE_HELPERS = ("_atomic_json_write", "atomic_json_write", "_atomic_write",
+                        "atomic_write", "atomic_write_private", "write_json",
+                        "_write_json")
 #: 只有 ``模块.方法(...)`` 形态才算的(os.remove 是文件, list.remove 不是)
 MODULE_WRITE_CALLS = {
     "os": {"remove", "unlink", "replace", "rename", "rmdir", "mkdir", "makedirs",
@@ -256,7 +267,10 @@ def _py_hits(text: str, literals: tuple, api_rule: bool) -> tuple:
                 fn.id if isinstance(fn, ast.Name) else "")
             if api_rule and (name in BINDING_WRITE_APIS or name in aliases):
                 _record(node, "helper-write", f"{name}() writes the binding file")
-            for arg in _write_targets(node):
+            _targets = _write_targets(node)
+            if not _targets and name in ATOMIC_WRITE_HELPERS:
+                _targets = list(node.args[:1])   # 规则 (d): helper 首实参 = 路径位
+            for arg in _targets:
                 lit = _literal_in(arg, literals)
                 if lit:
                     _record(node, "write", f"literal {lit}")

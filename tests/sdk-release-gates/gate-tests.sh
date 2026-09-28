@@ -40,6 +40,24 @@ if [ "$_zb_rc" -ne 0 ]; then
   echo "[L0] FAIL: zero-bridge ratchet rc=$_zb_rc (1=桥符号命中, 2=cannot-judge; fail-closed)"
   exit 1
 fi
+echo "[L0] zero-bridge: SDK/引用侧零桥符号"
+# 文件归属 gate(owner 分层裁决 A, 2026-09-28; 接法同 [zero-bridge]):
+#   系统级环境文件(aimail_gateway.json)只由 **CLI** 写; per-agent 绑定文件
+#   (契约键 binding_file, 不写字面量以免撞字面量棘轮)只由 **SDK** 写; 反向只许读。
+#   CLI 改绑定内容必须经 pysdk 的语义化薄函数(update_binding / backfill_binding /
+#   rename_binding → 内部走 save_agent_config, 原子 tmp+rename+0600 不变),
+#   不再自持写调用。
+# 判定证据四条(a)(b)(c)(d)见 tests/contract/check-file-ownership.py 模块 docstring;
+# 基线 tests/contract/file-ownership-baseline.json 当前**为空** ⇒ 任何一处新越界写
+# 立刻红(rc=1); 行内逃生门 file-ownership-allowed:<理由> 的行由脚本**单独成节打印**
+# (可见不静默); 判不了(基线缺失/路径读不到)rc=2 ⇒ fail-closed 也红。
+_fo_rc=0
+python3 tests/contract/check-file-ownership.py . || _fo_rc=$?
+if [ "$_fo_rc" -ne 0 ]; then
+  echo "[L0] FAIL: file-ownership rc=$_fo_rc (1=越界写, 2=cannot-judge; fail-closed)"
+  exit 1
+fi
+echo "[L0] file-ownership: CLI ↛ 绑定文件 / SDK ↛ 系统 env (baseline 空)"
 # 文档↔实现一致性(2026-09-27, 用户裁决「文档承诺的能力必须被实现兜住」):
 # docs/agent-self-setup{,_zh}.md ①反引号里的 SDK 符号必须真有定义
 # ②en/zh 标题结构逐条一致 ③文档里的契约值必须逐字命中单一真源清单。

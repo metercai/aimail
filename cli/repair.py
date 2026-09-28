@@ -674,10 +674,12 @@ def _repair_agentmail_json(sid: str) -> bool:
                 d["webhook_url"] = target
                 _ok(f"{ajx.parent.name}: webhook_url aligned to route target {target}")
         if d != orig:
-            # write through the shared atomic helper (0600/tmp+rename; AUDIT-1 P1-2); a single failure skips only that file
+            # 写回经 SDK 侧语义化薄函数(owner 裁决 A: per-agent 绑定文件只由 SDK 写;
+            # 原子 tmp+rename+0600 语义在 backfill_binding → save_agent_config 内);
+            # 单个文件失败只跳过该文件(AUDIT-1 P1-2)。
             try:
-                from aimail_base import save_agent_config as _sac
-                _sac(d.get("agent_id", ""), d, sid)
+                from aimail_base import backfill_binding as _bf
+                _bf(d, sid)
                 changed = True
             except Exception as e:  # noqa: BLE001
                 _warn(f"{ajx.parent.name}: agentmail.json write failed ({type(e).__name__}: {e}) -> skipping that file")
