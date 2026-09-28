@@ -293,68 +293,168 @@ def _sh_code(text: str) -> str:
     return "\n".join(re.sub(r"(^|\s)#.*$", r"\1", ln) for ln in text.splitlines())
 
 
+def _scan_ref_file(f: Path, root: Path, prefix: str = "") -> tuple:
+    """判读**一个**引用侧文件 —— (violations, escapes, benign, scanned)。"""
+    rel = prefix + f.relative_to(root).as_posix()
+    violations: list = []
+    escapes: list = []
+    benign: list = []
+    try:
+        text = f.read_text(encoding="utf-8")
+    except (UnicodeDecodeError, OSError) as e:
+        return ([f"{rel}: unreadable ({e})"], [], [], 0)
+    kind = _ref_kind(f, text)
+    if kind == "py":
+        hits, ben = _py_code_hits(rel, text)
+        benign += ben
+    elif kind == "ts":
+        hits = [(i, s, f"{rel}:{i}: ts identifier {s}")
+                for i, s, _ in _token_hits(_ts_code(text))]
+        # TS 侧字符串: 只判"动态调用名"形态(require('sym') / import('sym'))
+        for i, line in enumerate(text.splitlines(), 1):
+            for s in RETIRED_ALL:
+                if re.search(r"""["'`]%s["'`]""" % re.escape(s), line):
+                    if any(h in line for h in DYNAMIC_NAME_HINTS):
+                        hits.append((i, s, f"{rel}:{i}: ts string call-name {s!r} (dynamic access)"))
+                    else:
+                        benign.append((i, s, f"{rel}:{i}: string literal {s} (data, not a reference)"))
+    elif kind == "sh":
+        hits = [(i, s, f"{rel}:{i}: sh identifier {s}")
+                for i, s, _ in _token_hits(_sh_code(text))]
+    else:      # .md / 其它无扩展名脚本: 文本 token(与 .md 同法)
+        label = "doc token" if f.suffix == ".md" else "text token"
+        hits = [(i, s, f"{rel}:{i}: {label} {s}")
+                for i, s, _ in _token_hits(text)]
+    src = text.splitlines()
+    escaped_lines: set = set()
+    for lineno, _sym, msg in hits:
+        line = src[lineno - 1] if 0 < lineno <= len(src) else ""
+        is_code_identifier = re.search(r"\b(identifier|import|member access|definition|"
+                                       r"parameter|keyword)\b", msg) and "string call-name" not in msg
+        if ESCAPE_MARKER in line and not is_code_identifier:
+            escaped_lines.add(lineno)
+            escapes.append(f"{msg}  [escape hatch: {ESCAPE_MARKER}]")
+        elif ESCAPE_MARKER in line:
+            violations.append(f"{msg}  (escape marker ignored: executable code, not a comment)")
+        else:
+            violations.append(msg)
+    # 纯注释里的显式说明行(不产生任何 code/string 命中)也要单独成节打印 ——
+    # "允许提及"和"静默忽略"是两回事: 逃生门必须是可见的。
+    for i, line in enumerate(src, 1):
+        if i in escaped_lines or ESCAPE_MARKER not in line:
+            continue
+        if any(re.search(r"(?<![A-Za-z0-9_$])%s(?![A-Za-z0-9_$])" % re.escape(s), line)
+               for s in RETIRED_ALL):
+            escapes.append(f"{rel}:{i}: documented mention carrying `{ESCAPE_MARKER}` "
+                           f"[escape hatch: {line.strip()[:90]}]")
+    return violations, escapes, benign, 1
+
+
 def rule_d(repo: Path) -> tuple:
-    """(violations, escapes, benign) —— 引用侧棘轮(退役符号不得被引用)。"""
+    """(violations, escapes, benign, scanned) —— 引用侧棘轮(退役符号不得被引用)。"""
     violations: list = []
     escapes: list = []
     benign: list = []
     scanned = 0
     for f in _iter_ref_files(repo):
-        rel = f.relative_to(repo).as_posix()
-        try:
-            text = f.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, OSError) as e:
-            violations.append(f"{rel}: unreadable ({e})")
-            continue
-        scanned += 1
-        kind = _ref_kind(f, text)
-        if kind == "py":
-            hits, ben = _py_code_hits(rel, text)
-            benign += ben
-        elif kind == "ts":
-            hits = [(i, s, f"{rel}:{i}: ts identifier {s}")
-                    for i, s, _ in _token_hits(_ts_code(text))]
-            # TS 侧字符串: 只判"动态调用名"形态(require('sym') / import('sym'))
-            for i, line in enumerate(text.splitlines(), 1):
-                for s in RETIRED_ALL:
-                    if re.search(r"""["'`]%s["'`]""" % re.escape(s), line):
-                        if any(h in line for h in DYNAMIC_NAME_HINTS):
-                            hits.append((i, s, f"{rel}:{i}: ts string call-name {s!r} (dynamic access)"))
-                        else:
-                            benign.append((i, s, f"{rel}:{i}: string literal {s} (data, not a reference)"))
-        elif kind == "sh":
-            hits = [(i, s, f"{rel}:{i}: sh identifier {s}")
-                    for i, s, _ in _token_hits(_sh_code(text))]
-        else:      # .md / 其它无扩展名脚本: 文本 token(与 .md 同法)
-            label = "doc token" if f.suffix == ".md" else "text token"
-            hits = [(i, s, f"{rel}:{i}: {label} {s}")
-                    for i, s, _ in _token_hits(text)]
-        src = text.splitlines()
-        escaped_lines: set = set()
-        for lineno, _sym, msg in hits:
-            line = src[lineno - 1] if 0 < lineno <= len(src) else ""
-            is_code_identifier = re.search(r"\b(identifier|import|member access|definition|"
-                                           r"parameter|keyword)\b", msg) and "string call-name" not in msg
-            if ESCAPE_MARKER in line and not is_code_identifier:
-                escaped_lines.add(lineno)
-                escapes.append(f"{msg}  [escape hatch: {ESCAPE_MARKER}]")
-            elif ESCAPE_MARKER in line:
-                violations.append(f"{msg}  (escape marker ignored: executable code, not a comment)")
-            else:
-                violations.append(msg)
-        # 纯注释里的显式说明行(不产生任何 code/string 命中)也要单独成节打印 ——
-        # "允许提及"和"静默忽略"是两回事: 逃生门必须是可见的。
-        for i, line in enumerate(src, 1):
-            if i in escaped_lines or ESCAPE_MARKER not in line:
-                continue
-            if any(re.search(r"(?<![A-Za-z0-9_$])%s(?![A-Za-z0-9_$])" % re.escape(s), line)
-                   for s in RETIRED_ALL):
-                escapes.append(f"{rel}:{i}: documented mention carrying `{ESCAPE_MARKER}` "
-                               f"[escape hatch: {line.strip()[:90]}]")
+        v, e, b, n = _scan_ref_file(f, repo)
+        violations += v
+        escapes += e
+        benign += b
+        scanned += n
     return violations, escapes, benign, scanned
 
 
+#: ── (e) 跨仓引用侧(2026-09-28 第三次漏网) ────────────────────────────────────────
+#: 门禁脚本本身也引用契约/产品符号 ⇒ 退役符号的漏网不止发生在 aimail 仓:
+#: tests/cli/docker/journey-in-host.sh:359 引用退役的 BRIDGE_DEFAULT_PATH, 而 (d) 只扫本仓,
+#: 于是它一路绿着走到 L2 才以"桥形态分支不可达(桥分支被判成直推)"的形式暴露 —— 一次
+#: 跨仓的**假绿**。所有权说明: 这里扫的是**只读的兄弟仓**(门禁仓), 不写不改; 判据
+#: (退役符号引用 = 0)与 (d) **同源同强**, 只是把扫描面从"本仓"扩到"本仓 ∪ 兄弟仓"。
+#: 兄弟仓不存在(如 SDK 单独 checkout / CI)⇒ 记一条可见的 CANNOT JUDGE(缺口, 不是通过)。
+SIBLING_REPOS = ("../aimail-advanced",)
+SIBLING_SCAN_DIRS = ("tests",)
+
+#: ── 引用侧**基线**(只许减不许增, 2026-09-28 收口) ────────────────────────────────
+#: 跨仓面扩上来当场报出 5 条既有命中, 逐条判定后的去向:
+#:   · `tests/cli/README.md:45` 的 3 条(register_bridge_route / ensureBridgeRoute /
+#:     `/api/v1/routes`)= **文档性枚举**, 走既有可见逃生门(行内 `retired:` 标记,
+#:     单独成节打印), 不进基线;
+#:   · `tests/cli/docker/route-helpers.sh` 的 2 条 `/api/v1/routes` = **数据**(夹具只读
+#:     读桥自己的 admin API: `GET /api/v1/routes` / `DELETE /api/v1/routes/:email`,
+#:     见 cli/bridge_wire.py 的契约注释), 不是对退役 SDK 符号的引用 —— 但 .sh 分支按
+#:     设计**保留字符串**(`python3 -c "from aimail_base import x"` 那种字符串里是真引用),
+#:     所以判据上它只能以**基线显式祖父化**, 不许静默、也不许为了让它变绿去放松 .sh 规则。
+#: 基线语义: 按 `路径:符号` 记计数, 当前计数 > 基线 ⇒ rc=1(逐条打 file:line + 当前/基线);
+#: 当前 < 基线 ⇒ 打一行 stale(只许减不许增, 提醒下一次把它调低)。基线文件不存在 ⇒
+#: 视作全 0(任何命中都算违规, fail-closed), 并打一条可见说明。
+REF_BASELINE_JSON = "tests/contract/zero-bridge-ref-baseline.json"
+
+
+def _iter_sibling_files(root: Path):
+    """兄弟仓扫描面: SIBLING_SCAN_DIRS × 同一套扩展名/无后缀规则(判据不另造)。"""
+    for d in SIBLING_SCAN_DIRS:
+        base = root / d
+        if not base.is_dir():
+            continue
+        for f in sorted(base.rglob("*")):
+            if not f.is_file() or not _is_ref_file(f):
+                continue
+            if REF_SKIP_DIRS & set(f.parts):
+                continue
+            yield f
+
+
+def rule_e(repo: Path) -> tuple:
+    """(violations, escapes, benign, scanned, notes) —— 兄弟仓(门禁仓)引用侧。"""
+    violations: list = []
+    escapes: list = []
+    benign: list = []
+    notes: list = []
+    scanned = 0
+    for rel_repo in SIBLING_REPOS:
+        root = (repo / rel_repo).resolve()
+        if not root.is_dir():
+            notes.append(f"CANNOT JUDGE: {root} not present — cross-repo reference-side scan "
+                         f"NOT exercised here (a gap, not a pass)")
+            continue
+        for f in _iter_sibling_files(root):
+            v, e, b, n = _scan_ref_file(f, root, prefix=f"{rel_repo}/")
+            violations += v
+            escapes += e
+            benign += b
+            scanned += n
+    return violations, escapes, benign, scanned, notes
+
+
+def _hit_key(msg: str) -> str:
+    """`<路径>:<符号>` —— 基线键(与行号无关: 同一文件里同符号的出现次数才可比)。"""
+    m = re.match(r"^(?P<path>.+?):\d+: ", msg)
+    path = m.group("path") if m else msg.split(":", 1)[0]
+    for sym in RETIRED_ALL:
+        if re.search(r"(?<![A-Za-z0-9_$])%s(?![A-Za-z0-9_$])" % re.escape(sym), msg):
+            return f"{path}:{sym}"
+    return f"{path}:<unknown>"
+
+
+def _load_baseline(repo: Path) -> tuple:
+    """(entries, note) —— 引用侧基线(文件不存在 ⇒ 空基线 = 任何命中即违规)。"""
+    p = repo / REF_BASELINE_JSON
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}, f"{REF_BASELINE_JSON} absent — baseline taken as empty (any hit fails)"
+    except Exception as e:  # noqa: BLE001
+        return {}, f"{REF_BASELINE_JSON} unreadable ({e.__class__.__name__}) — baseline taken as empty"
+    entries = data.get("entries") if isinstance(data, dict) else None
+    if not isinstance(entries, dict):
+        return {}, f"{REF_BASELINE_JSON} has no `entries` object — baseline taken as empty"
+    return {str(k): int(v) for k, v in entries.items()}, ""
+
+
 def main(argv: list) -> int:
+    update_baseline = "--update-baseline" in argv
+    argv = [a for a in argv if a != "--update-baseline"]
     repo = Path(argv[1] if len(argv) > 1 else ".").resolve()
     if not (repo / "pysdk").is_dir():
         print(f"CANNOT JUDGE: {repo}/pysdk not found", file=sys.stderr)
@@ -366,6 +466,45 @@ def main(argv: list) -> int:
         return 2
     hits = rule_a(repo) + rule_b(repo) + rule_c(repo)
     ref_hits, escapes, benign, scanned = rule_d(repo)
+    # (e) 兄弟仓(门禁仓)引用侧 —— 与 (d) 同源同强, 只是把扫描面扩到本仓 ∪ 兄弟仓。
+    # 兄弟仓缺席(SDK 单独 checkout / CI)不是通过: 打一条可见 GAP 行, 但不改变退出码
+    # (CI 上兄弟仓本就不存在, 让它红会把"没扫"和"扫到命中"混成同一个信号)。
+    sib_hits, sib_escapes, sib_benign, sib_scanned, sib_notes = rule_e(repo)
+    ref_hits = ref_hits + sib_hits
+    escapes = escapes + sib_escapes
+    benign = benign + sib_benign
+    for note in sib_notes:
+        print(f"[zero-bridge/references] GAP: {note}")
+    # ── 引用侧基线(只许减不许增) ───────────────────────────────────────────────
+    base, base_note = _load_baseline(repo)
+    counts: dict = {}
+    for h in ref_hits:
+        counts[_hit_key(h)] = counts.get(_hit_key(h), 0) + 1
+    if update_baseline:
+        out = {"_comment": "reference-side baseline (only-decrease). Regenerated by "
+                           "`check-zero-bridge.py --update-baseline`; every entry needs a "
+                           "reason in the checker's REF_BASELINE_JSON docstring.",
+               "entries": dict(sorted(counts.items()))}
+        (repo / REF_BASELINE_JSON).write_text(
+            json.dumps(out, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(f"[zero-bridge/references] baseline REWRITTEN: {REF_BASELINE_JSON} "
+              f"({len(counts)} entrie(s)) — this is a grandfathering action, justify every entry")
+        base = dict(counts)
+    over: list = []
+    for key, n in sorted(counts.items()):
+        allowed = base.get(key, 0)
+        if n > allowed:
+            over.append(f"{key}: current {n} > baseline {allowed}")
+    stale = [f"{k}: baseline {v} > current {counts.get(k, 0)}"
+             for k, v in sorted(base.items()) if counts.get(k, 0) < v]
+    if base_note:
+        print(f"[zero-bridge/references] {base_note}")
+    if base and not over:
+        print(f"[zero-bridge/references] baseline: {len(base)} entrie(s) carried "
+              f"(only-decrease; see the REF_BASELINE_JSON docstring for each reason) — "
+              f"{sum(counts.values())} hit(s) inside the baseline")
+    for s in stale:
+        print(f"[zero-bridge/references] baseline stale (only-decrease, lower it): {s}")
     if escapes:
         print(f"[zero-bridge/references] escape hatch — {len(escapes)} documented "
               f"mention(s) carrying an explicit `{ESCAPE_MARKER}` marker "
@@ -379,22 +518,33 @@ def main(argv: list) -> int:
             print(f"  · {b}")
         if len(benign) > 8:
             print(f"  · … +{len(benign) - 8} more")
-    if hits or ref_hits:
+    if hits or over:
         print(f"[zero-bridge] VIOLATION — the SDK must speak no bridge "
-              f"({len(hits)} definition-side + {len(ref_hits)} reference-side hit(s)):",
-              file=sys.stderr)
-        for h in hits + ref_hits:
+              f"({len(hits)} definition-side + {len(over)} reference-side hit(s) above "
+              f"baseline):", file=sys.stderr)
+        for h in hits:
             print(f"  ✘ {h}", file=sys.stderr)
+        for h in over:
+            print(f"  ✘ {h}", file=sys.stderr)
+        for h in ref_hits:
+            if _hit_key(h) in {o.split(": ", 1)[0] for o in over}:
+                print(f"  ✘ {h}", file=sys.stderr)
         return 1
     print(f"[zero-bridge] clean (definitions=0): pysdk/*.py identifiers ∩ "
           f"{len(RETIRED_PY)} retired = 0; tssdk packages/*/src + test/*.ts ∩ "
           f"{len(RETIRED_TS)} retired = 0; contract truth source carries no bridge key")
-    print(f"[zero-bridge/references] clean (references=0): {scanned} file(s) scanned in "
+    print(f"[zero-bridge/references] clean: {scanned} file(s) scanned in "
           f"{'/'.join(REF_SCAN_DIRS)} ("
           f"{'/'.join(e.lstrip('.') for e in REF_SCAN_EXT)}"
           f"{' + extension-less executable/shebang scripts' if REF_SCAN_EXTENSIONLESS else ''}"
           f"; comments+docstrings excluded) "
-          f"— {len(RETIRED_ALL)} retired symbol(s) referenced 0 time(s)")
+          f"— {len(RETIRED_ALL)} retired symbol(s) referenced "
+          f"{sum(counts.values())} time(s), all inside the baseline")
+    print(f"[zero-bridge/references/siblings] clean: {sib_scanned} file(s) "
+          f"scanned in {' + '.join(SIBLING_REPOS)}/{'/'.join(SIBLING_SCAN_DIRS)} "
+          f"(same extensions/extension-less rules as the in-repo reference scan; read-only) "
+          f"— {len(RETIRED_ALL)} retired symbol(s) referenced "
+          f"{len(sib_hits)} time(s), all inside the baseline")
     return 0
 
 

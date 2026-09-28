@@ -1,0 +1,10 @@
+{
+  "_comment": "Reference-side baseline for tests/contract/check-zero-bridge.py rule (d)+(e). ONLY-DECREASE: a key whose current count exceeds its value here fails the gate; a key whose count dropped below its value prints a `baseline stale (only-decrease, lower it)` line so the number gets tightened on the next touch. Every entry needs a written reason — grandfathering without a reason is how a ratchet goes blind.",
+  "_reasons": {
+    "../aimail-advanced/tests/cli/docker/route-helpers.sh:/api/v1/routes": "DATA, not a reference to a retired SDK symbol. route-helpers.sh is the CLI gate's shared fixture helper and it reads the BRIDGE's own admin API (`GET /api/v1/routes` -> [{email,host,port}], `DELETE /api/v1/routes/:email`), the same external contract cli/bridge_wire.py documents. The token lives inside an embedded python string; the `.sh` branch of the checker keeps strings on purpose (a `python3 -c \"from aimail_base import x\"` inside a shell string IS a real reference), so the string cannot be classified as data automatically and the two occurrences are explicitly grandfathered instead. Not removed from RETIRED_* (that would blind the definition side / the .py+-.ts side); not excused by an escape marker (the marker is refused on executable-code hits by design).",
+    "../aimail-advanced/tests/cli/README.md:45": "(resolved 2026-09-28, kept at 0) the three doc mentions (register_bridge_route / ensureBridgeRoute / /api/v1/routes) are a documentation enumeration of what the L0.g check forbids; that line now carries the visible escape marker `retired:` and is printed in the escape-hatch section instead of being baselined."
+  },
+  "entries": {
+    "../aimail-advanced/tests/cli/docker/route-helpers.sh:/api/v1/routes": 2
+  }
+}
