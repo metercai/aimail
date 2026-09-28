@@ -1,0 +1,40 @@
+{
+ "_comment": "file-ownership baseline — 分层裁决 (owner 2026-09-28, 承接 Phase 1/2a): CLI 写 aimail_gateway.json(系统级 env), SDK 写 agentmail.json(per-agent 绑定); 反向只许读。规则 = 不得新增: 命中身份 = 文件::规则::写调用种类::源码行片段(行号会漂, 片段不会), 只许减不许增; 任何新增越界写 ⇒ rc=1。每个条目带 reason, 门禁把它们当 GAP 打印(绝不假装全绿); --strict 让它们也 FAIL。",
+ "entries": {
+  "cli/aimail::cli-writes-agent-binding::write(tainted path)|addr_role_dir.mkdir(parents=True, exist_ok=True)": {
+   "line": 1477,
+   "detail": "tainted name(s) ['addr_role_dir']",
+   "count": 1,
+   "impl": "precision-artifact",
+   "reason": "[precision-artifact, NOT a violation] `addr_role_dir` is the agent's `roles/` dir derived from a path expression that also carries the binding-file literal, so the write is `roles/<stem>.md` (a sibling), not the binding file. Registered instead of silently dropped so the heuristic stays visible."
+  },
+  "cli/aimail::cli-writes-agent-binding::write(tainted path)|p.write_text(": {
+   "line": 1481,
+   "detail": "tainted name(s) ['p']",
+   "count": 1,
+   "impl": "precision-artifact",
+   "reason": "[precision-artifact, NOT a violation] same derivation as 1477: writes the role-prompt markdown `roles/<stem>.md` (cli/aimail `prompt-rules create-file`), never the binding file."
+  },
+  "cli/aimail::cli-writes-agent-binding::write(tainted path)|old_dir.rename(new_dir)": {
+   "line": 1756,
+   "detail": "tainted name(s) ['old_dir']",
+   "count": 1,
+   "impl": "violation",
+   "reason": "[violation — implementation ≠ ruling] `aimail address rename` moves the agent directory, so the binding file moves with it (cli/aimail ~1747-1757). Reported for an owner decision: either the CLI's rename keeps the right to migrate the binding, or the move must go through an SDK entry point."
+  },
+  "cli/aimail::cli-writes-agent-binding::helper-write|_sac(tgt_cfg.get(\"agent_id\", \"\"), tgt_cfg, sid)": {
+   "line": 1757,
+   "detail": "_sac() writes the binding file",
+   "count": 1,
+   "impl": "violation",
+   "reason": "[violation — implementation ≠ ruling] same command rewrites the binding content through the SDK writer (`save_agent_config as _sac`) to inherit webhook/api_key/secret to the new address (cli/aimail:1747,1757). The CLI is writing the SDK-owned file by proxy."
+  },
+  "cli/repair.py::cli-writes-agent-binding::helper-write|_sac(d.get(\"agent_id\", \"\"), d, sid)": {
+   "line": 675,
+   "detail": "_sac() writes the binding file",
+   "count": 1,
+   "impl": "violation",
+   "reason": "[violation — implementation ≠ ruling] `aimail repair` rewrites the binding (cli/repair.py _repair_agentmail_json, 619-681: gap fill + webhook_url alignment) through the SDK writer. Reported for an owner decision: a repair exemption for the binding file, or repair goes through an SDK entry point."
+  }
+ }
+}

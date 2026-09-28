@@ -499,20 +499,27 @@ def setup(
                 pass
     if not webhook_host:
         _detected = _detect_webhook_host(gateway_url)
-        # Only a real bridge entry (host:port) belongs in `webhook_host`. The probe
-        # returns a bare host by design (its job is to find the *host*), and writing
-        # that verbatim made the registration store an undeliverable webhook_url
-        # ('127.0.0.1' — inbound mail then never arrives; measured 2026-09-27, L2 J4e).
-        # Leaving the key ABSENT is the documented "no bridge → register the local
-        # endpoint" state (owner ruling 2026-08-18).
-        from aimail_base import is_bridge_host_port as _is_host_port
-        if _is_host_port(_detected):
+        # Only a real, DELIVERABLE entry belongs in `webhook_host`. The probe returns a
+        # bare host by design (its job is to find the *host*), and writing that verbatim
+        # made the registration store an undeliverable webhook_url ('127.0.0.1' —
+        # inbound mail then never arrives; measured 2026-09-27, L2 J4e). Leaving the key
+        # ABSENT is the documented "no bridge → register the local endpoint" state
+        # (owner ruling 2026-08-18).
+        # 2026-09-28 (SDK 去桥化, 41c2073): the declaration itself must now be an
+        # absolute http(s) URL (pysdk/aimail_base.resolve_register_webhook_url state ③;
+        # a bare `host`/`host:port` is *undeliverable* there). The judge therefore lives
+        # in the CLI's own bridge module — `deploy_bridge.judge_deliverable` ("can the
+        # cloud POST to this at all?") — never in the SDK.
+        # retired: is_bridge_host_port — deleted with the SDK; it does not come back.
+        from deploy_bridge import judge_deliverable as _judge_deliverable
+        _deliverable, _why = _judge_deliverable(_detected)
+        if _deliverable:
             webhook_host = _detected
         elif _detected:
             logger.info(
-                "[aimail_setup] detected callback host %r has no port — not writing "
-                "webhook_host (no bridge entry); the registration will use the local "
-                "receive endpoint", _detected)
+                "[aimail_setup] detected callback address %r is not a deliverable "
+                "http(s) URL (%s) — not writing webhook_host (no bridge entry); the "
+                "registration will use the local receive endpoint", _detected, _why)
 
     # Path A: admin_key provided (already-activated system)
     if admin_key:

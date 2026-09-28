@@ -462,19 +462,24 @@ def _repair_gateway_config(sid: str, args_home: str = "") -> bool:
         try:
             sys.path.insert(0, str(SCRIPTS_DIR))
             from setup_system import _detect_webhook_host
-            from aimail_base import is_bridge_host_port
+            from deploy_bridge import judge_deliverable
             wh = _detect_webhook_host(cfg.get("gateway_url", ""))
-            # Backfill only a REAL bridge entry (host:port). A bare host is not a URL:
-            # writing it here made the next registration store an undeliverable
-            # webhook_url and silently kill inbound delivery (measured 2026-09-27, L2
-            # J4e). Leaving the key absent = "no bridge → register the local endpoint".
-            if wh and is_bridge_host_port(wh):
+            # Backfill only a REAL, DELIVERABLE entry. A bare host is not a URL: writing
+            # it here made the next registration store an undeliverable webhook_url and
+            # silently kill inbound delivery (measured 2026-09-27, L2 J4e). Leaving the
+            # key absent = "no bridge → register the local endpoint".
+            # 2026-09-28 (SDK 去桥化, 41c2073): the judge is the CLI's own
+            # `deploy_bridge.judge_deliverable` (absolute http(s) URL = POSTable).
+            # retired: is_bridge_host_port — deleted with the SDK; do not re-import it.
+            _deliverable, _why = judge_deliverable(wh)
+            if wh and _deliverable:
                 cfg["webhook_host"] = wh
                 _ok(f"webhook_host backfilled: {wh}")
                 changed = True
             elif wh:
-                _warn(f"detected callback host {wh!r} has no port — leaving webhook_host "
-                      f"unset (no bridge entry; registration keeps the local endpoint)")
+                _warn(f"detected callback address {wh!r} is not a deliverable http(s) URL "
+                      f"({_why}) — leaving webhook_host unset (no bridge entry; "
+                      f"registration keeps the local endpoint)")
         except Exception as e:
             _warn(f"webhook_host probe failed (skipped): {e}")
     if changed:
@@ -722,38 +727,18 @@ def _repair_routes_entries(sid: str) -> bool:
 
 
 
-def _repair_inbound_routes(sid: str) -> bool:
-    """Re-register the bridge routes the host is missing (route side, idempotent).
+# ── (retired step) "re-register the inbound routes the host is missing" ────────────
+# Deleted 2026-09-28 with the SDK de-bridging (41c2073). That step called SDK symbols
+# that are gone now — the import was left behind and the step raised ImportError
+# whenever the ladder reached it. Its *whole* scope (push every binding's route for this
+# system, idempotently, from the binding's declared webhook_url) is already the ladder's
+# earlier "refresh bridge routes (file + admin API hot reload)" step →
+# ``_refresh_routes(sid)`` → ``aimail bridge --system-id`` (CLI-owned writer; the same
+# one the host triggers through ``aimail address --inbound-live``). Keeping a second,
+# identical push would only add one more subprocess run per repair.
+# retired: ensure_bridge_routes_for_system / format_bridge_route_line / route_outcome_is_warning
 
-    Owner ruling 2026-09-27: the route is pushed when the host inbound is actually
-    serving, and a pruned route must come back by itself. This is the CLI's half of
-    that contract (hosts with an in-process hook — openclaw/pi/dsh — re-ensure at
-    startup; hermes/deer-flow have no such hook, so repair and install are theirs).
-    Reports each outcome through the shared formatter; never raises.
-    """
-    from runtime_core import load_core
-    load_core()
-    from aimail_base import (ensure_bridge_routes_for_system, format_bridge_route_line,
-                             route_outcome_is_warning)
-    try:
-        outcomes = ensure_bridge_routes_for_system(sid)
-    except Exception as e:  # noqa: BLE001 - a repair step must never abort the ladder
-        _warn(f"route ensure failed: {e}")
-        return False
-    if not outcomes:
-        _ok("no agent binding to route")
-        return False
-    changed = False
-    for o in outcomes:
-        line = format_bridge_route_line(o)
-        if route_outcome_is_warning(o):
-            _warn(line)
-        elif str(o.get("state")) == "ok":
-            _ok(line)
-            changed = True
-        else:
-            _warn(line)
-    return changed
+
 
 
 def _repair_pull_entry_key(sid: str) -> bool:
@@ -968,8 +953,11 @@ def repair(sid: str, deep: bool = False, dry_run: bool = False, home: str = "") 
          lambda: _repair_routes_entries(sid)),
         ("align the bridge pull entry admin_key with gateway.json",
          lambda: _repair_pull_entry_key(sid)),
-        ("re-register the inbound routes the host is missing (route side, idempotent)",
-         lambda: _repair_inbound_routes(sid)),
+        # ("re-register the inbound routes the host is missing", …) — retired 2026-09-28
+        # (SDK de-bridging): that step's implementation was an SDK call whose symbols are
+        # gone (ImportError), and its scope == the earlier "refresh bridge routes" step
+        # (_refresh_routes → `aimail bridge --system-id`). See the note above the ladder
+        # for the full reasoning. Do not re-add a second, identical route push.
     ]
     if deep:
         plan.append(("drain stuck pending (--deep)", lambda: _drain_stuck(sid)))

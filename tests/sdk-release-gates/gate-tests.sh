@@ -26,9 +26,14 @@ fi
 echo "[L0] contract single-source: consts == manifest; frontmatter 5/5; literal ratchet clean"
 # 零桥符号棘轮(2026-09-28 SDK 去桥化, owner 裁决): 环境(桥/路由)由 CLI 自持 ——
 # SDK 只做 best-effort 的"入站 live/down"通知(`aimail address -a <addr> --inbound-live`)。
-# 静态负断言三条(命中 = 0): ①pysdk/**/*.py 的 AST 标识符 ②tssdk/packages/*/src + test
-# (排除棘轮自身的符号表 startup-hook.test.ts)剥注释后的代码 ③契约真源不得含桥键。
-# 新增一个桥符号/回退一处路由调用 ⇒ 本步红(fail-closed, rc=2 判不了也红)。
+# 静态负断言四条(命中 = 0): ①pysdk/**/*.py 的 AST 标识符 ②tssdk/packages/*/src + test
+# (排除棘轮自身的符号表 startup-hook.test.ts)剥注释后的代码 ③契约真源不得含桥键
+# ④**引用侧**(2026-09-28 补): pysdk/ tssdk/ cli/ tests/ 的 .py/.ts/.sh/.md 里, 退役
+# 符号不得被 import/别名/成员访问/定义/参数/动态调用名引用 —— 根因: ①②只守 SDK 自己的
+# 文件, "别处 import 一个已删除的符号"漏网(实测 cli/setup_system.py + cli/repair.py 三处
+# 死引用 ⇒ 门禁 L1 45 红全败于同一 ImportError), 而 pyflakes **不报**"从模块 import
+# 不存在的名字"。注释/文档字符串不算引用; 显式 `retired:` 说明行单独成节打印。
+# 新增一个桥符号/回退一处路由调用/别处引用退役符号 ⇒ 本步红(fail-closed, rc=2 判不了也红)。
 _zb_rc=0
 python3 tests/contract/check-zero-bridge.py . || _zb_rc=$?
 if [ "$_zb_rc" -ne 0 ]; then
