@@ -17,13 +17,14 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "pysdk"))
 
 import aimail_base as core  # noqa: E402
+from aimail_contract import HERMES_INBOUND_PATH, INBOUND_PATH  # noqa: E402
 
-LOCAL = "http://127.0.0.1:18789/aimail/inbound"
+LOCAL = "http://127.0.0.1:18789" + INBOUND_PATH
 
 
 def test_is_deliverable_webhook_url_only_absolute_http_urls():
     assert core.is_deliverable_webhook_url(LOCAL)
-    assert core.is_deliverable_webhook_url("https://bridge.example.com/webhooks/aimail-inbound")
+    assert core.is_deliverable_webhook_url("https://bridge.example.com" + HERMES_INBOUND_PATH)
     for bad in ("", None, "127.0.0.1", "127.0.0.1:18789", "example.com/hook",
                 "ftp://host/path", "//host/path"):
         assert not core.is_deliverable_webhook_url(bad), bad
@@ -45,7 +46,7 @@ def test_bare_webhook_host_registers_the_local_endpoint():
 
 
 def test_url_webhook_host_is_passed_through():
-    url = "http://1.2.3.4:38081/webhooks/aimail-inbound"
+    url = "http://1.2.3.4:38081" + HERMES_INBOUND_PATH
     assert core.resolve_register_webhook_url({"webhook_host": url}, LOCAL) == url
 
 
@@ -59,15 +60,41 @@ def test_absent_key_means_no_bridge():
     assert core.resolve_register_webhook_url(None, LOCAL) == LOCAL
 
 
-# ── A2 (owner ruling 2026-09-27): the bridge's own push entry wins ──────────────
+# ── Shape decides priority (2026-09-28, J1 URL-side) ────────────────────────────
+# The bridge's own push entry is a *capture* (the route step stores whatever the bridge
+# reported). It must NOT override the platform's own truth: a pull deployment
+# (webhook_host explicit "") registers "", and a push deployment registers the
+# declaration. Only when the declaration is unusable (absent / scheme-less host:port)
+# does the capture fill the gap — the original A2 ruling.
 
-BRIDGE_URL = "http://127.0.0.1:38081/webhooks/aimail-inbound"
+BRIDGE_URL = "http://127.0.0.1:38081" + HERMES_INBOUND_PATH
+# The platform's actual inbound: OpenClaw gateway port + the contract's own inbound path.
+# The bridge-shaped capture above is the bridge port + the hermes path.
+PLATFORM_URL = "http://127.0.0.1:18789" + INBOUND_PATH
 
 
-def test_bridge_register_url_wins_over_every_other_state():
+def test_pull_shape_ignores_a_stale_bridge_entry():
+    """RED/GREEN anchor: pull (explicit empty webhook_host) registers "" — never the
+    bridge push entry captured while the bridge was still in push mode."""
+    gw = {"webhook_register_url": BRIDGE_URL, "webhook_host": ""}
+    assert core.resolve_register_webhook_url(gw, LOCAL) == ""
+    gw2 = {"webhook_register_url": BRIDGE_URL, "webhook_host": "   "}
+    assert core.resolve_register_webhook_url(gw2, LOCAL) == ""
+
+
+def test_push_shape_is_the_platform_truth_even_with_a_bridge_shaped_capture():
+    """A stale bridge/hermes-shaped capture (the bridge port + the hermes path) must not
+    override the platform's declared push entry (the platform port + the contract path)."""
+    gw = {"webhook_register_url": BRIDGE_URL, "webhook_host": PLATFORM_URL}
+    assert core.resolve_register_webhook_url(gw, LOCAL) == PLATFORM_URL
+
+
+def test_bridge_register_url_fills_the_gap_when_the_declaration_is_unusable():
+    """A2 retained: a scheme-less host:port cannot be delivered to, so the bridge's
+    own reported URL is the only usable value; so is the no-declaration case."""
     gw = {"webhook_register_url": BRIDGE_URL, "webhook_host": "1.2.3.4:38081"}
     assert core.resolve_register_webhook_url(gw, LOCAL) == BRIDGE_URL
-    gw2 = {"webhook_register_url": BRIDGE_URL, "webhook_host": ""}
+    gw2 = {"webhook_register_url": BRIDGE_URL}
     assert core.resolve_register_webhook_url(gw2, LOCAL) == BRIDGE_URL
 
 

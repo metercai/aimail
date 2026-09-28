@@ -147,8 +147,87 @@ def _refresh_routes(sid: str) -> bool:
     return True
 
 
+def _repair_binding_webhook_secrets(sid: str, c, gw) -> bool:
+    """Pair every local binding's secret with the cloud registration (single source).
+
+    The LOCAL binding is the single source of truth (the host verifies with it); the
+    cloud's registered copy is synced FROM here. A binding WITHOUT a secret can never be
+    verified by the host plugin — it verifies with ``cfg.webhook_secret ?? ''`` while the
+    gateway signs with the registered secret — so every pushed mail is 401
+    ``bad_signature``, retried forever (production J4: 6/6 401). Until 2026-09-28 repair
+    only *reported* this dimension (``check_status`` flags it, nothing repaired it), so the
+    re-check kept flipping it back to "locally fixable defect".
+
+    Idempotent: an existing secret is reused, never overwritten. Every binding gets either
+    an action line or an explicit reason + next step — nothing is silently skipped
+    (owner ruling: every check dimension is registered auto/hint, never silent).
+    """
+    sys.path.insert(0, str(SCRIPTS_DIR.parent / "pysdk"))
+    from runtime_core import load_core
+    load_core()
+    import aimail_base as _ab
+
+    fixed = False
+    # 绑定枚举走共享读入路径(aimail_base.iter_agentmail_configs): 它就是 install/适配器看到
+    # 的那一份(注入 ``_config_path``), 不在这里造第二份实现; 不可读/残缺文件按该函数既有的
+    # 逐文件容错跳过(check_status 的同一维度会另行报出来)。
+    bindings = _ab.iter_agentmail_configs(sid)
+    if not bindings:
+        _warn(f"system {sid} has no readable agent binding -- no webhook pairing to repair; "
+              "register an agent first (`aimail install` or the host-side register command)")
+        return False
+    for d in bindings:
+        ajx = Path(str(d.get("_config_path") or ""))
+        email = str(d.get("email") or ajx.parent.name)
+        prov = _ab.ensure_binding_webhook_secret(d)
+        if prov.get("reason") == "provisioned":
+            _ok(f"{email}: local webhook secret provisioned + written 0600 "
+                "(the host verifies with it; the cloud copy is synced below)")
+            fixed = True
+        elif prov.get("reason") in ("no-path", "write-failed"):
+            _fail(f"{email}: local webhook secret could not be provisioned "
+                  f"({prov.get('reason')}"
+                  f"{': ' + str(prov.get('detail')) if prov.get('detail') else ''}) -- fix the "
+                  "binding file path/permissions, then re-run 'aimail repair'")
+            continue
+        secret = str(prov.get("secret") or "")
+        if not secret:
+            _fail(f"{email}: no usable local webhook secret -- reinstall that agent")
+            continue
+        if not c:
+            _warn(f"{email}: local secret ok, but the gateway client is unavailable "
+                  "(aimail_gateway.json without gateway_url/admin_key) -- start with "
+                  "'aimail install', then re-run 'aimail repair'")
+            continue
+        local_url = str(d.get("webhook_url") or "")
+        reg_url = _ab.resolve_register_webhook_url(gw or {}, local_url)
+        declared_pull = ("webhook_host" in (gw or {})
+                         and not str((gw or {}).get("webhook_host") or "").strip())
+        if not reg_url and not declared_pull:
+            _warn(f"{email}: no registration value to pair (binding has no local receive "
+                  "endpoint and the config declares no push/pull mode) -- start that agent's "
+                  "host once so it writes its endpoint, then re-run 'aimail repair'")
+            continue
+        try:
+            res = _ab.register_agent_email(c, sid, email, webhook_url=reg_url,
+                                           webhook_secret=secret,
+                                           manager_address=str(d.get("manager_address") or ""))
+        except Exception as e:  # noqa: BLE001
+            _fail(f"{email}: cloud re-pair failed ({type(e).__name__}: {e}) -- the gateway must "
+                  "be reachable; re-run 'aimail repair' once it is")
+            continue
+        _ok(f"{email}: cloud registration re-paired (url + secret, idempotent)"
+            f"{' (key returned)' if isinstance(res, dict) and res.get('api_key') else ''}")
+        fixed = True
+    return fixed
+
+
 def _repair_webhook_pairing(sid: str, deep: bool = False) -> bool:
     """Repair the gateway webhook pairing.
+
+    Local-secret reconciliation FIRST (the `agent.webhook` dimension is registered `auto`
+    -> the ladder must actually repair it, never just report it): every binding gets a local
+    secret (idempotent) and its cloud copy is re-paired from that single source.
 
     Evidence-driven (default): in pull mode webhook_url must be an empty string (setting it means the cloud pushes directly to
     loopback, which always fails; confirmed 2026-08-30); the secret is never echoed by GET, so only when this machine
@@ -157,16 +236,17 @@ def _repair_webhook_pairing(sid: str, deep: bool = False) -> bool:
     --deep: skip the evidence and rewrite the pairing of every agent of this system from agentmail.json.
     """
     c, gw = _gateway_client(sid)
+    reconciled = _repair_binding_webhook_secrets(sid, c, gw)
     if not c:
         _fail(f"gateway config missing, skipping the webhook pairing repair (system {sid})")
-        return False
+        return reconciled
     sys.path.insert(0, str(SCRIPTS_DIR.parent / "pysdk"))
     try:
         pend = c._request("POST", "/api/v1/admin/pending",
                           body={"filter": [], "emails": []})
     except Exception as e:
         _warn(f"pending query failed ({e}) -- cannot read the empty-signature evidence; use --deep to rewrite")
-        return False
+        return reconciled
     batches = pend.get("batches", pend if isinstance(pend, list) else [])
     empties = []
     for b in batches if isinstance(batches, list) else []:
@@ -179,7 +259,7 @@ def _repair_webhook_pairing(sid: str, deep: bool = False) -> bool:
                 empties.append((d.get("id"), d.get("email")))
     if not empties and not deep:
         _ok("webhook pairing ok (no evidence of a missing pairing)")
-        return False
+        return reconciled
     if deep and not empties:
         # --deep: unconditionally rewrite the pairing of every agent of this system from agentmail.json
         targets = []
@@ -210,9 +290,12 @@ def _repair_webhook_pairing(sid: str, deep: bool = False) -> bool:
         from runtime_core import load_core
         load_core()
         import aimail_base as _ab
+        # 注册值按形态解析(resolve_register_webhook_url), 与绑定落盘/桥路由的"本地端点"
+        # 是两个值: pull 形态必须注册空值, 否则云端直推 loopback 必失败。
         res = _ab.register_agent_email(
             c, sid, email,
-            webhook_url=local.get("webhook_url", ""),
+            webhook_url=_ab.resolve_register_webhook_url(
+                gw or {}, str(local.get("webhook_url", "") or "")),
             webhook_secret=local.get("webhook_secret", ""),
             manager_address=local.get("manager_address", ""),
         )

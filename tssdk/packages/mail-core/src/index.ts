@@ -31,6 +31,8 @@ export {
   saveBinding,
   registerBridgeRoute,
   resolveRegisterWebhook,
+  ensureBindingWebhookSecret,
+  syncAddressWebhook,
   autoBind,
 } from './auto-bind.js'
 export {

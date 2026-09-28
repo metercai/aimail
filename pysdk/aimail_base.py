@@ -2172,34 +2172,50 @@ def resolve_register_webhook_url(gw: dict, local_webhook_url: str) -> str:
     host:port 也不能投。故:webhook_host 若已是 URL(桥自报的
     `http://<host>/webhooks/aimail-inbound` 等)则透传;若是裸 host / host:port
     ⇒ **大声告警**并按"无 bridge"退回本地端点,绝不把不可投递的值注册出去。
+    2026-09-28 修(J1 的 URL 侧候选) —— **按形态决定优先级, 不让 bridge 形状盖过平台真值**:
+    此前 ``webhook_register_url``(桥自报的 push 入口, 由 route 步捕获) **无条件优先**, 于是
+    pull 形态的部署也会被注册成桥的 push 入口(桥的 host:port + 平台入站路径),
+    而该部署**实际**的语义是"云端不回调"(平台真值 = 空 / 平台自己的入站端点)。优先级现按
+    ``webhook_host`` 的**形态**定, 顺序固定为:
+      ① webhook_host 显式空(pull) → ``""`` —— 注册值必须是空;**任何** register 侧的残留值
+         (桥上次 push 形态自报的入口)一律让位(不得盖过平台真值)。
+      ② push 形态(webhook_host 是一个**可投递的绝对 URL**) → 注册 == webhook_host ——
+         平台声明的 push 入口就是真值, 与实际入站端点一致, register 侧的捕获值不得越过它。
+      ③ webhook_host 缺席 / 不可投递(裸 host、host:port) → 才轮到 ``webhook_register_url``
+         (可投递时;这是 A2 的场景: 桥自报的 URL 是唯一可用值)。
     """
     whh = gw.get("webhook_host") if isinstance(gw, dict) else None
-    # A2 (owner ruling 2026-09-27): the bridge's own push entry, captured from the bridge
-    # API by the route step, wins over everything else — the cloud must POST to the bridge
-    # for a bridge deployment (a scheme-less host:port cannot be delivered to at all).
+    # ① pull 形态: 显式空 ⇒ 云端不得回调。这一支**最优先且无条件**: register 侧的值可能
+    #    是桥在 push 形态下捕获的残留, 不能让它盖过 pull 真值(否则 pull 部署被注册成 push)。
+    if whh is not None and not str(whh).strip():
+        return ""
+    # ② push 形态且声明值可投递 ⇒ 它就是平台真值(与实际入站端点一致)。
+    if whh is not None:
+        declared = str(whh).strip()
+        if is_deliverable_webhook_url(declared):
+            return declared          # push: 桥公网入口(必须是 URL)
+    # ③ 声明值缺席/不可投递 ⇒ 才轮到桥自报的注册值(A2)。
+    reg = ""
     if isinstance(gw, dict):
         reg = str(gw.get("webhook_register_url") or "").strip()
-        if reg:
-            if is_deliverable_webhook_url(reg):
-                return reg
-            logger.warning(
-                "[aimail] webhook_register_url %r is not an absolute http(s) URL — "
-                "ignored; falling back to the local endpoint %r", reg, local_webhook_url)
-            return local_webhook_url
-    if whh is not None and str(whh).strip():
-        val = str(whh).strip()
-        if is_deliverable_webhook_url(val):
-            return val          # push:桥公网入口(必须是 URL)
+    if reg:
+        if is_deliverable_webhook_url(reg):
+            return reg
+        logger.warning(
+            "[aimail] webhook_register_url %r is not an absolute http(s) URL — "
+            "ignored; falling back to the local endpoint %r", reg, local_webhook_url)
+        return local_webhook_url
+    if whh is not None:
+        # 声明值存在但不可投递(裸 host / host:port): 网关交付必然 builder error ⇒
+        # 大声告警并按"无 bridge"退回本地端点, 绝不把不可投递的值注册出去。
         logger.warning(
             "[aimail] webhook_host %r is not an absolute http(s) URL — the cloud cannot "
             "POST to it (builder error), so this system is treated as 'no bridge' and the "
             "local endpoint %r is registered instead. For a bridge deployment register "
             "the bridge's own URL (http://<host>/webhooks/aimail-inbound), not host:port.",
-            val, local_webhook_url)
+            str(whh).strip(), local_webhook_url)
         return local_webhook_url
-    if whh is not None:
-        return ""                # pull:显式空值
-    return local_webhook_url     # 无 bridge:本地端点
+    return local_webhook_url         # 无 bridge: 本地端点
 
 
 def register_agent_email(client, system_id: str, email: str,

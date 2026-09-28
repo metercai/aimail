@@ -173,25 +173,16 @@ export async function registerAddress(
   if (status && !['created', '200', '201'].includes(status)) {
     const msg = String(result.error ?? '') + String(result.detail ?? '')
     if (/already exists|exists/i.test(msg)) {
-      // Idempotent: refresh the webhook config of the existing address.
-      const domains = await client.request(
-        'GET',
-        `/api/v1/admin/systems/${opts.systemId}/domains`,
-      )
-      const entries = Array.isArray(domains.data)
-        ? domains.data
-        : (domains.entries as unknown[] | undefined) ?? []
-      for (const d of entries) {
-        const row = d as Record<string, unknown>
-        if (row.domain === opts.email) {
-          await client.request(
-            'PUT',
-            `/api/v1/admin/system-domains/${String(row.id)}`,
-            { webhook_url: opts.webhookUrl, webhook_secret: opts.webhookSecret },
-          )
-          break
-        }
-      }
+      // Idempotent: refresh the webhook config of the existing address (single
+      // implementation shared with autoBind's exists branch).
+      await syncAddressWebhook({
+        systemId: opts.systemId,
+        email: opts.email,
+        webhookUrl: opts.webhookUrl,
+        webhookSecret: opts.webhookSecret,
+        ...(opts.gatewayUrl !== undefined ? { gatewayUrl: opts.gatewayUrl } : {}),
+        ...(opts.adminKey !== undefined ? { adminKey: opts.adminKey } : {}),
+      })
       return { exists: true }
     }
     throw new Error(`register failed: ${JSON.stringify(result)}`)
@@ -212,6 +203,109 @@ export async function registerAddress(
     )
   }
   return { api_key: apiKey, activation_code: activationCode }
+}
+
+/**
+ * Atomic binding write: JSON indent=2 + trailing newline, mode 0600 (tmp+rename),
+ * directory 0700 — byte-identical in shape to the Python `write_binding_config`
+ * (pysdk/aimail_base.py) and to the previous inline implementation.
+ */
+async function writeBindingFile(p: string, cfg: Record<string, unknown>): Promise<void> {
+  await fs.mkdir(path.dirname(p), { recursive: true, mode: 0o700 })
+  const tmp = `${p}.tmp`
+  await fs.writeFile(tmp, JSON.stringify(cfg, null, 2) + '\n', { mode: 0o600 })
+  await fs.rename(tmp, p)
+  await fs.chmod(p, 0o600)
+}
+
+/**
+ * Ensure a binding carries a local webhook secret — the SINGLE SOURCE OF TRUTH — and
+ * return it. An existing secret is reused, never overwritten (overwriting would break a
+ * host route that was already reconciled to it). Missing ⇒ a fresh 64-hex secret is
+ * generated and written back into the binding file (0600).
+ *
+ * Mirrors the Python `ensure_binding_webhook_secret` (same mechanism: two UUIDs joined,
+ * same 64-hex format, same placement right after `api_key`) so the pull (Python) and
+ * push (this) paths share one secret-source semantics.
+ */
+export async function ensureBindingWebhookSecret(
+  existing: Record<string, unknown>,
+  cfgPath: string,
+): Promise<{ secret: string; provisioned: boolean }> {
+  const current = String(existing['webhook_secret'] ?? '').trim()
+  if (current) return { secret: current, provisioned: false }
+  const secret = randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, '')
+  const merged: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(existing)) {
+    if (k.startsWith('_')) continue
+    merged[k] = v
+    if (k === 'api_key') merged['webhook_secret'] = secret
+  }
+  if (!('webhook_secret' in merged)) merged['webhook_secret'] = secret
+  await writeBindingFile(cfgPath, merged)
+  return { secret, provisioned: true }
+}
+
+export interface SyncWebhookOptions {
+  systemId: string
+  email: string
+  /** the registration value (mode-dependent) — NOT the local receive endpoint. */
+  webhookUrl: string
+  webhookSecret: string
+  gatewayUrl?: string
+  adminKey?: string
+  /** test seam: replaces the real GatewayClient. */
+  transport?: AdminClientLike
+  timeoutMs?: number
+}
+
+/**
+ * Re-pair ONE address's cloud-side webhook (url + secret) with the local binding.
+ * Idempotent: locate the address row and PUT both values. Never throws on a lookup
+ * miss — returns {ok:false, reason} so the caller reports it instead of pretending
+ * success. A missing webhook_secret is never echoed by GET, so "re-pair from the
+ * binding" is the only way to guarantee sign-side == verify-side.
+ */
+export async function syncAddressWebhook(
+  opts: SyncWebhookOptions,
+): Promise<{ ok: boolean; reason: string }> {
+  if (!opts.webhookUrl && !opts.webhookSecret) {
+    return { ok: false, reason: 'nothing-to-sync' }
+  }
+  let gw: SystemGatewayConfig
+  try {
+    gw = await readSystemConfig(opts.systemId)
+  } catch {
+    return { ok: false, reason: 'no-system-config' }
+  }
+  const gatewayUrl = opts.gatewayUrl ?? gw.gateway_url ?? ''
+  const adminKey = opts.adminKey ?? gw.admin_key ?? ''
+  if (!gatewayUrl || !adminKey) return { ok: false, reason: 'no-admin-credentials' }
+  const client: AdminClientLike =
+    opts.transport ?? new GatewayClient(gatewayUrl, adminKey, opts.timeoutMs ?? 30_000)
+  try {
+    const domains = await client.request(
+      'GET',
+      `/api/v1/admin/systems/${opts.systemId}/domains`,
+    )
+    const entries = Array.isArray(domains.data)
+      ? domains.data
+      : ((domains.entries as unknown[] | undefined) ?? [])
+    for (const d of entries) {
+      const row = d as Record<string, unknown>
+      if (row.domain === opts.email) {
+        await client.request(
+          'PUT',
+          `/api/v1/admin/system-domains/${String(row.id)}`,
+          { webhook_url: opts.webhookUrl, webhook_secret: opts.webhookSecret },
+        )
+        return { ok: true, reason: 'refreshed' }
+      }
+    }
+    return { ok: false, reason: 'address-not-found' }
+  } catch (e) {
+    return { ok: false, reason: `request-failed:${e instanceof Error ? e.message : String(e)}` }
+  }
 }
 
 export interface SaveBindingOptions {
@@ -253,11 +347,7 @@ export async function saveBinding(opts: SaveBindingOptions): Promise<string> {
     }
   }
   const p = agentConfigPath(opts.systemId, opts.email)
-  await fs.mkdir(path.dirname(p), { recursive: true, mode: 0o700 })
-  const tmp = `${p}.tmp`
-  await fs.writeFile(tmp, JSON.stringify(cfg, null, 2) + '\n', { mode: 0o600 })
-  await fs.rename(tmp, p)
-  await fs.chmod(p, 0o600)
+  await writeBindingFile(p, cfg)
   return p
 }
 
@@ -329,6 +419,8 @@ export interface AutoBindOptions {
   /** test seams (bypass network / override config). */
   transport?: AdminClientLike
   skipBridge?: boolean
+  /** test seam: skip the cloud-side (url, secret) re-pair inside the exists branch. */
+  skipRegister?: boolean
   gatewayUrl?: string
   adminKey?: string
 }
@@ -342,6 +434,14 @@ export interface AutoBindResult {
   registered?: boolean
   api_key?: string
   config_path?: string
+  /** the exists branch minted a secret into the binding this run. */
+  secret_provisioned?: boolean
+  /**
+   * the binding's secret was pushed to the cloud registration this run.
+   * false + secret_detail ⇒ NOT silently skipped (the reason is reported).
+   */
+  secret_synced?: boolean
+  secret_detail?: string
 }
 
 /**
@@ -373,13 +473,74 @@ export async function autoBind(opts: AutoBindOptions): Promise<AutoBindResult> {
       api_key: existing.api_key,
     }
     if (existing._config_path) out.config_path = existing._config_path
+
+    // ── webhook secret: single source of truth + idempotent sync (2026-09-28) ──
+    // 此前该分支**整体短路**: 绑定里缺 webhook_secret 就永远缺。网关按**注册侧**的
+    // secret 签名, 而插件(openclaw-aimail inbound.ts)按**本地绑定**的 secret 验签
+    // (`verifySignature(rawBody, sig, cfg.webhook_secret ?? '')`) ⇒ 两边不一致 = 必然
+    // 401 bad_signature(生产 J4 实测: 重试 6 次全 401)。修法: **本地绑定即真源** ——
+    // 缺就自供(0600 写回), 存在就复用它, 然后把 (url, secret) **幂等同步**到注册侧。
+    // 绝不静默跳过: 同步不做/失败都写进返回值(secret_synced / secret_detail)。
+    const localWebhook = String(existing.webhook_url || opts.webhookUrl || '').trim()
+    let secret = String(existing.webhook_secret ?? '').trim()
+    const cfgPath = existing._config_path
+    if (cfgPath) {
+      const ensured = await ensureBindingWebhookSecret(
+        existing as unknown as Record<string, unknown>,
+        cfgPath,
+      )
+      secret = ensured.secret
+      out.secret_provisioned = ensured.provisioned
+    } else if (!secret) {
+      out.secret_detail = 'binding has no path — cannot persist a secret'
+    }
+    if (secret && !opts.skipRegister) {
+      try {
+        const gw = await readSystemConfig(systemId)
+        const regWebhook = resolveRegisterWebhook(gw, localWebhook)
+        // A declared pull deployment registers "" on purpose, so an empty value is a
+        // real target here; an empty value with no declaration means there is nothing
+        // to register (no local endpoint) — reported, never silently dropped.
+        const declaredPull =
+          Object.prototype.hasOwnProperty.call(gw, 'webhook_host') &&
+          !String(gw.webhook_host ?? '').trim()
+        if (regWebhook || declaredPull) {
+          const sync = await syncAddressWebhook({
+            systemId,
+            email: opts.email,
+            webhookUrl: regWebhook,
+            webhookSecret: secret,
+            ...(opts.gatewayUrl !== undefined ? { gatewayUrl: opts.gatewayUrl } : {}),
+            ...(opts.adminKey !== undefined ? { adminKey: opts.adminKey } : {}),
+            ...(opts.transport !== undefined ? { transport: opts.transport } : {}),
+          })
+          out.secret_synced = sync.ok
+          if (!sync.ok) {
+            out.secret_detail = sync.reason
+            console.warn(
+              `[auto-bind] webhook secret not synced for ${opts.email}: ${sync.reason} ` +
+                `— run 'aimail repair' later`,
+            )
+          }
+        } else {
+          out.secret_synced = false
+          out.secret_detail = 'no registration target (no local endpoint, no pull declaration)'
+        }
+      } catch (e) {
+        out.secret_synced = false
+        out.secret_detail = `sync unavailable: ${e instanceof Error ? e.message : String(e)}`
+        console.warn(`[auto-bind] ${out.secret_detail} for ${opts.email}`)
+      }
+    } else if (!opts.skipRegister) {
+      out.secret_synced = false
+    }
+
     // 铁律(2026-08-18 用户强调): 有 bridge 时每个 agent 必须有路由, 否则桥拉到
     // 邮件不知转发到哪、入站断链。此前 exists 分支**整体短路**, 而桥的健康检查会
     // 在目标连续不可达(默认 30s × 6 = 180s)后删除该路由 ⇒ 删除后无人补写, 宿主
     // 恢复后仍永久断链(2026-09-21 生产实测)。故此处也必须幂等 upsert。
-    const existsWebhook = String(existing.webhook_url || opts.webhookUrl || '').trim()
-    if (!opts.skipBridge && existsWebhook) {
-      await registerBridgeRoute({ systemId, email: opts.email, webhookUrl: existsWebhook })
+    if (!opts.skipBridge && localWebhook) {
+      await registerBridgeRoute({ systemId, email: opts.email, webhookUrl: localWebhook })
     }
     return out
   }
