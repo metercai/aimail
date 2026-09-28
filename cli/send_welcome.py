@@ -129,6 +129,36 @@ WELCOME_REPLY_LABELS = ("persona", "signature", "current_time")
 # ── 旧 SMTP 模式(--smtp 显式启用)──────────────────────────────────
 
 
+def _rfc5322_message(sender: str, recipient: str, subject: str, body: str,
+                     msg_id_prefix: str) -> str:
+    """构造**完整 RFC-5322 报文**: 头(From/To/Message-ID/Subject) + 空行 + 正文。
+
+    ⚠ 这是本文件发给网关的**唯一**报文构造点(welcome 信与审批信共用) —— 不许再
+    另写一套头, 否则两处漂移(2026-09-28 第 12 缺陷就是这个形状)。
+
+    为什么必须是完整报文(实测契约, 不是风格问题):
+      · 网关在 DATA end 用 MIME `To:`/`Cc:` 头与 RCPT 信封集合**取交集**, 交集空 ⇒
+        `550 No recipients match between envelope and email headers`
+        (aimail-gateway/src/core/smtp/receiver.rs:729-741; perm_fail = 550 见 :27-29)
+        ⇒ 裸正文(一个头都没有)必被拒收、**从不摄入**。
+      · 头齐但**缺空行**会被收下(250), 但正文行被 MIME 当作**头**解析 ⇒
+        `record.body` 为空 ⇒ manager 指令不被消费
+        (webhook.rs:686-697 `if body.is_empty() { return false; }`)。
+      ⇒ 判"某封信通道是否修好"必须同时看**状态码 + 下游副作用**(库行), 只看 250 会漏
+        掉中间那一档(三态实测: 裸正文 550 / 缺空行 250 且不落库 / 头+空行 250 且落库)。
+
+    传输是逐字节的(`_smtp_send` 把返回值原样当 DATA 发), 其 `subject` 形参**实际未被
+    使用** —— 主题真源就是本函数写出的 `Subject:` 头。
+    """
+    msg_id = f"<{msg_id_prefix}-{int(time.time())}-{uuid.uuid4().hex[:4]}@aimail>"
+    return (f"From: {sender}\n"
+            f"To: {recipient}\n"
+            f"Message-ID: {msg_id}\n"
+            f"Subject: {subject}\n"
+            f"\n"
+            f"{body}")
+
+
 def _smtp_send(gateway_url: str, api_key: str, agent_email: str,
                manager: str, edition: str, subject: str, body: str) -> str:
     """SMTP 发送。edition=advanced 用 auth.local 认证;base 用普通发件人。
@@ -374,7 +404,14 @@ def _approve_identity(gw_url: str, api_key: str, recipient: str, manager: str, a
         print("  ✗ 未取得 persona/signature(回复快照无三标签草案且未显式给出)⇒ 请用 --persona/--signature 提供")
         return 2
     edition = _detect_edition_raw(gw_url)
-    body = f"approve persona\npersona: {per}\nsignature: {sig}\n"
+    # 第 12 缺陷修复(2026-09-28): 审批信必须与 welcome 信**同一套 RFC-5322 头**
+    # (共用 `_rfc5322_message`)—— 原来是裸正文 ⇒ 网关 envelope∩headers 为空 ⇒
+    # 550 拒收 ⇒ 从不摄入 ⇒ `approve persona` 不运行 ⇒ persona/signature 永
+    # 不落库。命令行仍作为正文首行(网关 `parse_manager_command` 找触发词 + 行首
+    # `persona:`/`signature:`)。
+    body = _rfc5322_message(manager, recipient, "approve persona",
+                            f"approve persona\npersona: {per}\nsignature: {sig}\n",
+                            "approve")
     resp = _smtp_send(gw_url, api_key, recipient, manager, edition, "approve persona", body)
     if not resp.startswith("250") and edition == "advanced":
         resp = _smtp_send(gw_url, api_key, recipient, manager, "base", "approve persona", body)
@@ -500,19 +537,15 @@ def main() -> int:
     print(f"  To:          {recipient}")
     print(f"  From:        {manager}")
 
-    msg_id = f"<welcome-{int(time.time())}-{uuid.uuid4().hex[:4]}@aimail>"
     # 主题/正文与 canonical 系统 welcome 同形(对齐依据见文件顶部 WELCOME_* 注释):
     # 主题必须含 SDK 识别标记、正文必须含三标签指令块 —— 缺任一, agent 就收不到
     # "回三标签" 的指令, 第 3 段也就永远取不到草案(旧模板正是这个**静默**形态)。
     _agent_name = (recipient.split("@", 1)[0] or "Agent") if recipient else "Agent"
     welcome_subject = (f"Welcome to AIMail World, {_agent_name}, "
                        f"since {time.strftime('%Y-%m-%d')}!")
-    body = f"""From: {manager}
-To: {recipient}
-Message-ID: {msg_id}
-Subject: {welcome_subject}
-
-Welcome to the AIMail world!
+    # 头构造与审批信**共用** `_rfc5322_message`(单一构造点, 防两处漂移):
+    # 网关要求 envelope∩headers 非空, 见该函数 docstring。
+    body = _rfc5322_message(manager, recipient, welcome_subject, f"""Welcome to the AIMail world!
 
 Your AIMail address has been activated. This is the first welcome email
 automatically sent by the system, to confirm that your address is now active.
@@ -532,7 +565,7 @@ account. Nothing else changes.
 Best regards,
 {manager}
 Sent {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())}
-"""
+""", "welcome")
 
     resp = _smtp_send(gw_url, ak, recipient, manager, edition, welcome_subject, body)
     # base 版回落:auth.local 前缀会被当普通发件人拒(550),回落 manager 直发
