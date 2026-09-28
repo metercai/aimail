@@ -24,6 +24,17 @@ if [ "$_css_rc" -ne 0 ]; then
   exit 1
 fi
 echo "[L0] contract single-source: consts == manifest; frontmatter 5/5; literal ratchet clean"
+# 零桥符号棘轮(2026-09-28 SDK 去桥化, owner 裁决): 环境(桥/路由)由 CLI 自持 ——
+# SDK 只做 best-effort 的"入站 live/down"通知(`aimail address -a <addr> --inbound-live`)。
+# 静态负断言三条(命中 = 0): ①pysdk/**/*.py 的 AST 标识符 ②tssdk/packages/*/src + test
+# (排除棘轮自身的符号表 startup-hook.test.ts)剥注释后的代码 ③契约真源不得含桥键。
+# 新增一个桥符号/回退一处路由调用 ⇒ 本步红(fail-closed, rc=2 判不了也红)。
+_zb_rc=0
+python3 tests/contract/check-zero-bridge.py . || _zb_rc=$?
+if [ "$_zb_rc" -ne 0 ]; then
+  echo "[L0] FAIL: zero-bridge ratchet rc=$_zb_rc (1=桥符号命中, 2=cannot-judge; fail-closed)"
+  exit 1
+fi
 # 文档↔实现一致性(2026-09-27, 用户裁决「文档承诺的能力必须被实现兜住」):
 # docs/agent-self-setup{,_zh}.md ①反引号里的 SDK 符号必须真有定义
 # ②en/zh 标题结构逐条一致 ③文档里的契约值必须逐字命中单一真源清单。

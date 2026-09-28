@@ -93,9 +93,9 @@ import aimail_deerflow as _base     # noqa: E402   (deer-flow 适配层,本目�
 import aimail_base as _core         # noqa: E402   (共享核心,父目录)
 import aimail_tools as _tools       # noqa: E402   (共享核心,父目录)
 import aimail_contract as _contract  # noqa: E402  (共享核心:agent 侧契约常量)
-# 注:resolve_register_webhook_url / register_bridge_route 定义在共享核心
-# aimail_base(共享核心)——适配层 aimail_deerflow 未转发,源 cli 脚本同款调用在其上
-# 会 AttributeError)——本模块这两处调用直接走 _core。
+# 注:resolve_register_webhook_url 定义在共享核心 aimail_base ——适配层 aimail_deerflow
+# 未转发,直接走 _core。路由/桥不在 SDK 里(2026-09-28 去桥化):注册链只写绑定与注册值,
+# 路由由 CLI 在"入站真在服务"之后自己推(cli/bridge_wire.py)。
 
 # DeerFlow 本地入站端点(进程内预处理):路径 = 契约 INBOUND_PATH(不可变);
 # 端口可配(DEERFLOW_INBOUND_URL 覆盖,默认 = 契约 inbound_ports.deerflow)。
@@ -105,20 +105,6 @@ _DEERFLOW_INBOUND_DEFAULT = "http://127.0.0.1:%d" % _contract.INBOUND_PORTS["dee
 # ══════════════════════════════════════════════════════════════════════
 # 注册(register_agent.py 逐字移植)
 # ══════════════════════════════════════════════════════════════════════
-def _report_bridge_route(outcome: dict) -> None:
-    """Route-side status line — independent of the registration result.
-
-    Owner ruling 2026-09-27: "registration succeeded" and "route added" are two
-    separate outcomes, each with its own success rate; the route side reports
-    itself (ok / skipped-with-reason / failed) and can never fail a registration.
-    """
-    line = _core.format_bridge_route_line(outcome)
-    if _core.route_outcome_is_warning(outcome):
-        print(f"  ! {line}", file=sys.stderr)
-    else:
-        print(f"  · {line}")
-
-
 def email_for_agent(agent_id: str, domain: str, system_name: str) -> str:
     """地址派生(公共核心 email_for_agent;DeerFlow 默认名 default → agent)。"""
     return _base.email_for_agent(agent_id, domain, system_name,
@@ -237,8 +223,6 @@ def register_agents(manager: str = "", system_id: str = "", agent: str = "") -> 
             save_agent_config(agent_id, cfg, system_id)
             created += 1
             print(f"  ✓ {agent_id} → {email} (api_key ok)")
-            # Route side: separate outcome from registration (owner ruling 2026-09-27)
-            _report_bridge_route(_core.ensure_bridge_route(system_id, email, gw, local_webhook_url))
         elif cfg.get("activation_code"):
             # 激活 pending:落盘保留 code,下次注册/对账直连 activate_address
             # (不再重注册——exists 分支返回空 code,重注册永远拿不到 key)
@@ -360,19 +344,8 @@ def reconcile(system_id: str = "", manager: str = "", dry_run: bool = False) -> 
                     changes += 1
                 elif _activate_pending(agent_id, lc, system_id, gw):
                     changes += 1
-            # 铁律(2026-08-18 用户强调): 有 bridge 时每个 agent 都必须持有入站路由 ——
-            # 桥的健康检查会在目标连续不可达(默认 check_interval 30s × fail_threshold 6
-            # = 180s)后**正确删除**该路由, 删除后若无人补写则宿主恢复也永久断链
-            # (2026-09-21 生产实测)。hermes 适配层在 exists 路径同样会 upsert, 此处对齐
-            # (双端同型); 幂等, 失败仅告警不阻断。
-            if not dry_run:
-                wu = str(lc.get("webhook_url") or "").strip()
-                if not wu:
-                    inbound_base = os.environ.get("DEERFLOW_INBOUND_URL", _DEERFLOW_INBOUND_DEFAULT)
-                    wu = inbound_base.rstrip("/") + _contract.INBOUND_PATH
-                em = str(lc.get("email") or "").strip()
-                if em and wu:
-                    _report_bridge_route(_core.ensure_bridge_route(system_id, em, gw, wu))
+            # 路由不在 SDK(2026-09-28 去桥化): 此处只补激活/对齐绑定; 路由由 CLI 在
+            # 入站真在服务之后推(宿主通知 `aimail address -a <addr> --inbound-live`)。
             continue
         if dry_run:
             print(f"  [dry] would register {agent_id}")
@@ -408,8 +381,6 @@ def reconcile(system_id: str = "", manager: str = "", dry_run: bool = False) -> 
             save_agent_config(agent_id, cfg, system_id)
             changes += 1
             print(f"  ✓ registered {agent_id} → {email}")
-            # Route side: separate outcome from registration (owner ruling 2026-09-27)
-            _report_bridge_route(_core.ensure_bridge_route(system_id, email, gw, local_webhook_url))
         else:
             # activation pending:把 activation_code 落盘,后续 reconcile 补激活
             # (曾只 print 丢弃 code → 永远无法补激活;AUDIT-1 P1-4)

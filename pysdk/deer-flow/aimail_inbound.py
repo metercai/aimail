@@ -317,9 +317,27 @@ def start_pull_on_startup(app) -> bool:
             logger.error("aimail: pull entry start FAILED (%s: %s) —— 轮询未运行",
                          type(e).__name__, e)
         logger.info("aimail: agent-scope pull entries: %d started", len(handles))
+        # Inbound notification (owner ruling 2026-09-28, SDK 去桥化): deer-flow 的
+        # 宿主 gateway 正是服务这些地址入站的进程, 且 lifespan 已跑起来 ⇒ SDK 只报告
+        # 这个它真正掌握的事实, best-effort, 每地址一次:
+        #     aimail address -a <addr> --inbound-live
+        # 环境(含路由)由 CLI 自持, SDK 不碰桥; 无 CLI / 非 0 / 异常 ⇒ 一行日志。
+        for _n in _ab.notify_inbound_for_system("live", system_id=_pull_system_id()):
+            _line = "aimail: " + _ab.format_inbound_notify_line(_n, "live")
+            if _ab.inbound_notify_is_warning(_n):
+                logger.warning("%s", _line)
+            else:
+                logger.info("%s", _line)
 
     async def _aimail_pull_shutdown() -> None:
         _ab.stop_agent_pull_entries(handles)
+        # 关停: 入站不再服务 ⇒ 同样的 best-effort 反向通知(宿主自有 teardown 钩子)。
+        for _n in _ab.notify_inbound_for_system("down", system_id=_pull_system_id()):
+            _line = "aimail: " + _ab.format_inbound_notify_line(_n, "down")
+            if _ab.inbound_notify_is_warning(_n):
+                logger.warning("%s", _line)
+            else:
+                logger.info("%s", _line)
 
     try:
         _wire_pull_to_lifespan(app, _aimail_pull_startup, _aimail_pull_shutdown)

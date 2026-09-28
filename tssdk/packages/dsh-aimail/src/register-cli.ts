@@ -30,7 +30,6 @@ import {
   loadAgentConfig,
   readSystemConfig,
   registerAddress,
-  registerBridgeRoute,
   resolveRegisterWebhook,
   saveBinding,
 } from '@aimail/mail-core'
@@ -109,7 +108,8 @@ async function main(): Promise<number> {
     // secret 捕获为一个值:云端注册与本地落盘必须同一 secret
     // (此前内联表达式生成的 secret 只上送云端,落盘的是旧/空值 → verifySignature 恒 401)
     const webhookSecret = existing.webhook_secret || randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, '')
-    // 注册参数三态(push/pull/无 bridge)与 install 主链一致——force 路径不绕过 webhook_host 语义
+    // 注册参数三态(环境声明的 push / 显式 pull / 本机端点)与 install 主链一致——
+    // force 路径不绕过 webhook_host 语义
     const regUrl = resolveRegisterWebhook(gw, localWebhook)
     const reg = await registerAddress({
       systemId,
@@ -129,7 +129,9 @@ async function main(): Promise<number> {
       extra: { session_id: sessionId || randomUUID().replace(/-/g, ''), preset },
       gateway: gw,
     })
-    await registerBridgeRoute({ systemId, email, webhookUrl: localWebhook })
+    // SDK 去桥化(owner 裁决 2026-09-28): no route step here — the SDK speaks no
+    // bridge, and the environment master (the `aimail` CLI) pushes the route once
+    // this host's inbound is actually serving (`aimail address --inbound-live`).
     console.log(JSON.stringify({ ok: true, email, system_id: systemId, registered: true, config_path: configPath }))
     return 0
   } catch (e) {

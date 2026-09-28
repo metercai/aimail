@@ -21,7 +21,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
-import { ensureSystem, ensureBridgeRoutesForSystem, formatBridgeRouteLine, isBridgeRouteWarning, processInboundMail, releaseAllSystems, routeAddressFromHeaders, startAgentPullEntries, verifySignature, INBOUND_PATH, INBOUND_PORTS, type AgentConfig, type AgentPullHandle, type AgentPullOverrides, type InboundPayload } from '@aimail/mail-core'
+import { ensureSystem, notifyInboundForSystem, formatInboundNotifyLine, isInboundNotifyWarning, processInboundMail, releaseAllSystems, routeAddressFromHeaders, startAgentPullEntries, verifySignature, INBOUND_PATH, INBOUND_PORTS, type AgentConfig, type AgentPullHandle, type AgentPullOverrides, type InboundPayload } from '@aimail/mail-core'
 import { resolveByRecipient } from '@aimail/mail'
 import { agentIdentity, initIdentity, readPointer, setInboundEndpoint } from './identity.js'
 import { buildPiTools } from './tools.js'
@@ -305,29 +305,27 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
       })()
     })
     const port = options.inboundPort ?? DEFAULT_INBOUND_PORT
-    // Tell identity where inbound actually listens (auto-bind registers this
-    // URL as the address webhook + bridge route target).
+    // Tell identity where inbound actually listens (auto-bind registers this URL
+    // as the address webhook; the CLI owns the environment around it).
     setInboundEndpoint(`http://127.0.0.1:${port}${INBOUND_PATH}`)
     server.listen(port, '127.0.0.1', () => {
       log.info(`[pi-aimail] inbound listening on http://127.0.0.1:${port}${INBOUND_PATH}`)
-      // 铁律(2026-08-18 用户强调): 有 bridge 时每个 agent 必须有路由 —— 桥的健康
-      // 检查会在目标连续不可达(默认 30s × 6 = 180s)后**正确删除**该路由, 而删除后
-      // 此前无人补写 ⇒ 宿主长时间停机/重启后入站**永久断链**(2026-09-21 生产实测)。
-      // 故在**监听就绪之后**(重启末端)幂等 upsert: 路由存在与否始终反映"宿主此刻
-      // 是否真在服务", 既不误判正常重启窗口, 也不留死路由。
-      // 2026-09-27 收口: 该时序规则实现为 mail-core.ensureBridgeRoutesForSystem
-      // (openclaw/dsh 共用同一实现), 路由目标取各绑定自己的 webhook_url。
-      void ensureBridgeRoutesForSystem()
+      // 入站通知(owner 裁决 2026-09-28, SDK 去桥化): 监听就绪 ⇒ 逐地址告诉环境主控
+      // (the `aimail` CLI)`aimail address -a <addr> --inbound-live`。时序的实质不变
+      // —— "入站真在服务"之后才成立; 但**桥语义不在 SDK**: 由 CLI 决定这意味着什么。
+      // best-effort: 仅 argv、4s 超时、不阻塞本回调、绝不抛给宿主(无 CLI ⇒ 一行日志,
+      // 宿主照常服务并自注册)。
+      void notifyInboundForSystem('live')
         .then((outcomes) => {
           for (const o of outcomes) {
-            const line = `[pi-aimail] ${formatBridgeRouteLine(o)}`
-            if (isBridgeRouteWarning(o)) log.warn(line)
+            const line = `[pi-aimail] ${formatInboundNotifyLine(o, 'live')}`
+            if (isInboundNotifyWarning(o)) log.warn(line)
             else log.info(line)
           }
         })
         .catch((e: unknown) => {
           log.warn(
-            `[pi-aimail] bridge route ensure failed (non-fatal): ${e instanceof Error ? e.message : String(e)}`,
+            `[pi-aimail] inbound notify failed (non-fatal): ${e instanceof Error ? e.message : String(e)}`,
           )
         })
 
@@ -352,6 +350,21 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
 
   // Listener lifecycle follows the session (pull loops stop with it).
   pi.on('session_shutdown', () => {
+    // 关停通知(2026-09-28): 逐地址 `aimail address -a <addr> --inbound-down`,
+    // 同样 best-effort/不阻塞; CLI 不在 = 什么都不发生。
+    void notifyInboundForSystem('down')
+      .then((outcomes) => {
+        for (const o of outcomes) {
+          const line = `[pi-aimail] ${formatInboundNotifyLine(o, 'down')}`
+          if (isInboundNotifyWarning(o)) log.warn(line)
+          else log.info(line)
+        }
+      })
+      .catch((e: unknown) => {
+        log.warn(
+          `[pi-aimail] inbound down notify failed (non-fatal): ${e instanceof Error ? e.message : String(e)}`,
+        )
+      })
     for (const h of pullHandles) h.stop()
     pullHandles = []
     server?.close()

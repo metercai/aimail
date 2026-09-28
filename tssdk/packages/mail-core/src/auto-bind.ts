@@ -2,15 +2,17 @@
  * auto-bind — SDK-side agent binding when the machine already has a system
  * config (aimail_gateway.json) but no per-agent binding (agentmail.json).
  *
- * Chain (mirrors Python `register_agent_email` + `register_bridge_route`,
- * and the TS openclaw `registerAgentEmail` 4-step port — but independent of
- * any platform host, signing with the SYSTEM admin key read from
+ * Chain (the TS port of Python `register_agent_email`; independent of any
+ * platform host, signing with the SYSTEM admin key read from
  * `~/.aimail/systems/{sid}/aimail_gateway.json`):
  *
  *   1. readSystemConfig(systemId)          — gateway_url/admin_key/domain/...
  *   2. registerAddress(...)                — 4-step idempotent register chain
  *   3. saveBinding(...)                    — atomic agentmail.json write (0600)
- *   4. registerBridgeRoute(...)            — local bridge route upsert (warn-only)
+ *
+ * There is no fourth step: the SDK is bridge-agnostic (owner ruling 2026-09-28).
+ * Building the local environment (routes included) belongs to the CLI; the host
+ * only notifies it that its inbound is live (see inbound-notify.ts).
  *
  * Every step is guarded: autoBind() returns {exists:true} without touching
  * the network when a binding file for the address already exists.
@@ -31,28 +33,39 @@ export interface SystemGatewayConfig {
   domain?: string
   system_name?: string
   manager_address?: string
-  /** callback entry point the gateway should push to (bridge public host).
-   *  tri-state: value = push; explicit '' = pull; absent = no bridge. */
+  /** callback entry point the gateway should push to (environment-declared).
+   *  tri-state: non-empty = push; explicit '' = pull; absent = local endpoint. */
   webhook_host?: string
-  /** local bridge admin port (default 38081). */
-  bridge_admin_port?: number
+  /** 曾有的 bridge_admin_port / webhook_register_url 键随 SDK 去桥化退役
+   *  (2026-09-28): 磁盘上残留的值一律忽略, SDK 不再读写桥配置。 */
   [k: string]: unknown
 }
 
 /**
  * webhook_host 三态 → 地址注册参数 webhook_url (1:1 with Python
  * aimail_base.resolve_register_webhook_url):
- * - webhook_host 有值           → push: bridge 公网入口(云端直推该地址)
- * - webhook_host 显式空串 ''    → pull: 注册空(云端不回调;bridge 按空值拉取)
- * - 无 webhook_host 键          → 无 bridge: 本地接收端点
- * agentmail.json 的 webhook_url 恒为本地端点(另一值,给 bridge 路由)。
- * AUDIT-1 P1-8:此前 TS 注册参数恒填本地端点,桥接 push 部署下云端
- * 直推 127.0.0.1 不可达 → 入站断。
+ * - webhook_host 是可投递的绝对 http(s) URL → 用它(环境主控声明的 push 入口)
+ * - webhook_host 显式空串 ''               → 空:注册值 = "" (云端不回调;pull)
+ * - 无 webhook_host 键                     → 本绑定的本机接收端点(直连/独立场景)
+ * - 键在但值不可投递(裸 host / host:port)→ 大声告警 + 退回本机端点(SDK 绝不把
+ *   网关无法 POST 的值注册出去)
+ * agentmail.json 的 webhook_url 恒为本地端点(注册值与绑定值是两个值)。
+ * 2026-09-28 (SDK 去桥化): 解析只看 `webhook_host` 一个来源 —— 经桥响应自采的
+ * webhook_register_url 第三来源已退役(磁盘残留值忽略), SDK 不写环境配置。
  */
 export function resolveRegisterWebhook(gw: SystemGatewayConfig, localWebhookUrl: string): string {
-  const whh = gw.webhook_host
-  if (whh !== undefined && whh !== null && String(whh).trim() !== '') return String(whh)
-  if (whh !== undefined && whh !== null) return ''
+  const whh = gw === null || gw === undefined ? undefined : gw.webhook_host
+  if (whh !== undefined && whh !== null) {
+    const declared = String(whh).trim()
+    if (!declared) return '' // 显式空 = pull(云端不回调): 注册值就是空
+    if (declared.startsWith('http://') || declared.startsWith('https://')) return declared
+    // 裸 host / host:port ⇒ 网关交付必然 builder error: 退回本机端点(绝不注册不可投递值)
+    console.warn(
+      `[auto-bind] webhook_host ${JSON.stringify(declared)} is not an absolute http(s) URL — ` +
+        `the cloud cannot POST to it, so the local endpoint (${localWebhookUrl}) is registered instead`,
+    )
+    return localWebhookUrl
+  }
   return localWebhookUrl
 }
 
@@ -351,60 +364,6 @@ export async function saveBinding(opts: SaveBindingOptions): Promise<string> {
   return p
 }
 
-export interface BridgeRouteOptions {
-  systemId: string
-  email: string
-  /** local receive endpoint (full URL incl. path) — the bridge route target. */
-  webhookUrl: string
-  bridgeAdminPort?: number
-  timeoutMs?: number
-}
-
-export interface BridgeRouteResult {
-  ok: boolean
-  status?: number
-  error?: string
-}
-
-/**
- * Local bridge admin route upsert (POST /api/v1/routes, port=80 placeholder —
- * the bridge ignores it when host is a full URL). Idempotent; every failure
- * is warn-only — a down bridge is repaired later via `aimail repair`.
- */
-export async function registerBridgeRoute(
-  opts: BridgeRouteOptions,
-): Promise<BridgeRouteResult> {
-  let port = opts.bridgeAdminPort
-  if (!port) {
-    try {
-      const gw = await readSystemConfig(opts.systemId)
-      port = Number(gw.bridge_admin_port ?? 38081) || 38081
-    } catch {
-      port = 38081
-    }
-  }
-  try {
-    const resp = await fetch(`http://127.0.0.1:${port}/api/v1/routes`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: opts.email, host: opts.webhookUrl, port: 80 }),
-      signal: AbortSignal.timeout(opts.timeoutMs ?? 5000),
-    })
-    if (!resp.ok) {
-      const err = `bridge route HTTP ${resp.status}`
-      console.warn(`[auto-bind] ${err} for ${opts.email} — run 'aimail repair' later`)
-      return { ok: false, status: resp.status, error: err }
-    }
-    return { ok: true, status: resp.status }
-  } catch (e) {
-    const err = e instanceof Error ? e.message : String(e)
-    console.warn(
-      `[auto-bind] bridge route skipped for ${opts.email}: ${err} (bridge not reachable — inbound pairing deferred)`,
-    )
-    return { ok: false, error: err }
-  }
-}
-
 export interface AutoBindOptions {
   /** target system; omitted on single-system machines (auto-detected). */
   systemId?: string
@@ -418,7 +377,6 @@ export interface AutoBindOptions {
   extraFields?: Record<string, unknown>
   /** test seams (bypass network / override config). */
   transport?: AdminClientLike
-  skipBridge?: boolean
   /** test seam: skip the cloud-side (url, secret) re-pair inside the exists branch. */
   skipRegister?: boolean
   gatewayUrl?: string
@@ -445,7 +403,7 @@ export interface AutoBindResult {
 }
 
 /**
- * Read config → registerAddress → saveBinding → registerBridgeRoute.
+ * Read config → registerAddress → saveBinding (no route step: SDK 去桥化).
  * Exists guard: an agentmail.json binding for the address short-circuits to
  * {exists:true} before any network call.
  */
@@ -535,13 +493,6 @@ export async function autoBind(opts: AutoBindOptions): Promise<AutoBindResult> {
       out.secret_synced = false
     }
 
-    // 铁律(2026-08-18 用户强调): 有 bridge 时每个 agent 必须有路由, 否则桥拉到
-    // 邮件不知转发到哪、入站断链。此前 exists 分支**整体短路**, 而桥的健康检查会
-    // 在目标连续不可达(默认 30s × 6 = 180s)后删除该路由 ⇒ 删除后无人补写, 宿主
-    // 恢复后仍永久断链(2026-09-21 生产实测)。故此处也必须幂等 upsert。
-    if (!opts.skipBridge && localWebhook) {
-      await registerBridgeRoute({ systemId, email: opts.email, webhookUrl: localWebhook })
-    }
     return out
   }
 
@@ -590,10 +541,5 @@ export async function autoBind(opts: AutoBindOptions): Promise<AutoBindResult> {
     ...(opts.extraFields !== undefined ? { extra: opts.extraFields } : {}),
     gateway: gw,
   })
-  if (!opts.skipBridge && localWebhook) {
-    // 空 localWebhook(直推部署,无 bridge 也无本地端点)→ 无路由可写;
-    // 写 {host:'',port:80} 会在路由表产生坏目标行
-    await registerBridgeRoute({ systemId, email: opts.email, webhookUrl: localWebhook })
-  }
   return { email: opts.email, system_id: systemId, registered: true, api_key: apiKey, config_path: configPath }
 }

@@ -1401,64 +1401,101 @@ def trigger_profile_hooks(event: str, profile_name: str, profile_dir: str) -> No
         import importlib
         _ah = importlib.import_module("aimail_hermes")  # repo form
     return _ah.trigger_profile_hooks(event, profile_name, profile_dir)
+# ── Inbound notification (SDK → CLI, best-effort; ZERO bridge semantics) ──────
+# owner 裁决 2026-09-28 (SDK 去桥化): 路由/桥 = **CLI 的环境职责**(cli/bridge_wire.py)。
+# SDK 只报告自己真正掌握的两个事实 —— 本宿主服务的每个地址, 入站"在服务"/"已停止":
+#     aimail address -a <addr> --inbound-live | --inbound-down
+# 契约(与 TS 侧 mail-core/src/inbound-notify.ts 逐条同形):
+#   · 二进制解析 AIMAIL_BIN → ~/.aimail/bin/aimail → PATH 的 aimail; **都没有 ⇒ 一行
+#     debug 后跳过** —— 无 CLI 的机器 SDK 仍自足(照常绑定/服务/自注册)。
+#   · **argv 传参(不经 shell)**、超时 3–5s、非 0/异常 ⇒ **一行日志后继续**: 绝不阻塞
+#     宿主、不重试风暴、绝不抛给调用方。
+#   · 载荷只有 address(零桥语义: 不提桥、不提端口、不提协议)。
+
+INBOUND_NOTIFY_TIMEOUT = 4.0
+INBOUND_STATE_FLAG = {"live": "--inbound-live", "down": "--inbound-down"}
 
 
-def register_bridge_route(system_id: str, email: str, gw: dict,
-                          local_webhook_url: str) -> dict:
-    """注册后向本机 bridge POST 入站 hook 路由(email → 本地接收端点全 URL)。
+def resolve_aimail_bin() -> str:
+    """AIMAIL_BIN → ~/.aimail/bin/aimail → PATH `aimail`; '' = 本机没有 CLI。"""
+    env = str(os.environ.get("AIMAIL_BIN") or "").strip()
+    if env:
+        return env
+    try:
+        canonical = aimail_home() / "bin" / "aimail"
+        if canonical.is_file():
+            return str(canonical)
+    except OSError:
+        pass
+    import shutil
+    return shutil.which("aimail") or ""
 
-    铁律(2026-08-18 用户强调):有 bridge 时,每个 agent 创建注册地址后
-    必须注册路由——否则 bridge 拉取到邮件后不知转发到哪,入站断链。
-    幂等(bridge 路由表 upsert)。bridge admin API: POST /api/v1/routes
-    {email, host, port} —— host 传完整 URL(含路径)。admin 端口取
-    aimail_gateway.json 的 bridge_admin_port(默认 38081)。
+
+def notify_inbound_state(email: str, state: str,
+                         timeout: float = INBOUND_NOTIFY_TIMEOUT, runner=None) -> dict:
+    """best-effort 通知环境主控(CLI)某地址的入站状态。**永不抛、永不阻塞调用方**。
+
+    runner 是测试注入点, 签名 ``(bin, args, timeout) -> (rc, detail)``; 缺省用
+    subprocess(argv, 无 shell)。返回 ``{"state": "notified"|"no_cli"|"failed",
+    "email", "bin", "detail"}``。
     """
-    import urllib.request
-    admin_port = int(gw.get("bridge_admin_port", 38081)) if isinstance(gw, dict) else 38081
+    addr = str(email or "").strip()
+    flag = INBOUND_STATE_FLAG.get(str(state))
+    if not addr or not flag:
+        return {"state": "failed", "email": addr, "bin": "",
+                "detail": f"bad notification payload (state={state!r})"}
+    binary = resolve_aimail_bin()
+    if not binary:
+        return {"state": "no_cli", "email": addr, "bin": "",
+                "detail": "no aimail CLI on this machine"}
+    args = ["address", "-a", addr, flag]
     try:
-        req = urllib.request.Request(
-            f"http://127.0.0.1:{admin_port}/api/v1/routes",
-            # port 占位(host 为全 URL 时被 bridge 忽略;0 会被参数校验拒绝,用 80 对齐 CLI)
-            data=json.dumps({"email": email, "host": local_webhook_url, "port": 80}).encode(),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=5) as r:
-            return json.loads(r.read().decode() or "{}")
-    except Exception as e:
-        return {"error": str(e)}
+        if runner is not None:
+            rc, detail = runner(binary, args, timeout)
+        else:
+            import subprocess
+            proc = subprocess.run(  # noqa: S603 — argv, never a shell
+                [binary, *args], timeout=timeout,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            rc, detail = proc.returncode, ("exit %s" % proc.returncode if proc.returncode else "")
+        if rc:
+            return {"state": "failed", "email": addr, "bin": binary, "rc": rc,
+                    "detail": detail or f"exit {rc}"}
+        return {"state": "notified", "email": addr, "bin": binary, "rc": 0}
+    except Exception as e:  # noqa: BLE001 — 通知是 best-effort, 绝不冒泡
+        return {"state": "failed", "email": addr, "bin": binary, "detail": str(e)}
 
 
-# ── Route side: decoupled from registration (owner ruling 2026-09-27) ──────────
-#  - the route is pushed when the host inbound is actually serving, not at
-#    registration time (registration completes before the host restarts; pushing
-#    early is what produced "Route created 15:53:17 / removed 15:56:07" in
-#    production on 2026-09-26);
-#  - "registration succeeded" and "route added" are two separate outcomes, each
-#    with its own success rate — neither gates the other;
-#  - the bridge deletes routes whose target stays unreachable (probe interval x
-#    fail_threshold, ~30s x 6 = 180s) and nothing used to re-add them, so a host
-#    restart left inbound permanently dead (production 2026-09-21). Every host
-#    therefore upserts once it is serving again.
-# The TS side mirrors this contract (mail-core src/bridge-route.ts).
+def notify_inbound_for_system(state: str, system_id: str = "",
+                              timeout: float = INBOUND_NOTIFY_TIMEOUT,
+                              runner=None) -> list:
+    """对本系统**每个地址**通知一次入站状态(宿主钩子载荷)。永不抛, 无绑定 ⇒ []。"""
+    rows = iter_agentmail_configs(system_id)
+    out = []
+    for c in rows:
+        email = str((c or {}).get("email") or "").strip()
+        if not email:
+            continue
+        out.append(notify_inbound_state(email, state, timeout=timeout, runner=runner))
+    return out
 
 
-def bridge_admin_port(gw: dict) -> int:
-    """Bridge admin port from the system config (default 38081)."""
-    try:
-        return int((gw or {}).get("bridge_admin_port", 38081) or 38081)
-    except Exception:
-        return 38081
+def format_inbound_notify_line(outcome: dict, state: str) -> str:
+    """One-line English status for an inbound notification outcome."""
+    what = "inbound live" if state == "live" else "inbound down"
+    who = str((outcome or {}).get("email") or "")
+    st = str((outcome or {}).get("state") or "")
+    if st == "notified":
+        return f"{what} reported for {who} ({(outcome or {}).get('bin', '')})"
+    if st == "no_cli":
+        return (f"{what} not reported for {who}: no aimail CLI "
+                f"({(outcome or {}).get('detail') or 'not found'})")
+    return f"{what} not reported for {who}: {(outcome or {}).get('detail') or 'unknown'}"
 
 
-def bridge_listening(port: int, timeout: float = 0.5) -> bool:
-    """TCP probe: is something accepting connections on 127.0.0.1:<port>?"""
-    import socket
-    try:
-        with socket.create_connection(("127.0.0.1", int(port)), timeout=timeout):
-            return True
-    except Exception:
-        return False
+def inbound_notify_is_warning(outcome: dict) -> bool:
+    """True when the outcome deserves a warning line rather than an info line."""
+    return str((outcome or {}).get("state")) == "failed"
 
 
 def inbound_serving(target: str, timeout: float = 1.5) -> bool:
@@ -1957,289 +1994,46 @@ def stop_agent_pull_entries(handles) -> None:
             h.stop()
         except Exception:  # noqa: BLE001 — 关停路径不抛
             pass
-
-
-def ensure_bridge_route(system_id: str, email: str, gw: dict, webhook_url: str) -> dict:
-    """Route-side upsert for ONE address with an explicit outcome; never raises.
-
-    Outcomes: ok | no_bridge (no local bridge listening) | host_not_serving
-    (the local receive endpoint is not up yet — the timing rule) | failed.
-    Registration is NOT involved: a failure here never turns a registration
-    result into an error.
-    """
-    port = bridge_admin_port(gw)
-    target = (webhook_url or "").strip()
-    out = {"state": "failed", "email": email, "target": target, "admin_port": port}
-    if not target:
-        out.update(state="host_not_serving",
-                   detail="binding has no webhook_url (local receive endpoint)")
-        return out
-    if not bridge_listening(port):
-        out.update(state="no_bridge",
-                   detail=f"no listener on 127.0.0.1:{port} "
-                          "(direct push, or start it with 'aimail bridge --restart')")
-        return out
-    if not inbound_serving(target):
-        out.update(state="host_not_serving",
-                   detail=f"the local receive endpoint is not serving yet ({target})")
-        return out
-    res = register_bridge_route(system_id, email, gw, target)
-    if isinstance(res, dict) and not res.get("error"):
-        out["state"] = "ok"
-        # A2 (owner ruling 2026-09-27): in push mode the bridge answers with the URL the
-        # cloud must POST to (http://<host>/webhooks/aimail-inbound). That is the only
-        # correct registration value for a bridge deployment — a scheme-less host:port
-        # cannot be delivered to (measured: reqwest builder error). Capture it here so
-        # the caller can persist + align the registration.
-        adv = str(res.get("webhook_url") or "").strip()
-        if is_deliverable_webhook_url(adv):
-            out["bridge_webhook_url"] = adv
-        return out
-    detail = str(res.get("error", "unknown")) if isinstance(res, dict) else str(res)
-    out.update(state="failed", detail=detail)
-    return out
-
-
-def bridge_register_url_path(system_id: str) -> Path:
-    """The system config that carries the registration value (three-layer收口 layout)."""
-    return aimail_home() / "systems" / str(system_id) / "aimail_gateway.json"
-
-
-def store_bridge_register_url(system_id: str, url: str) -> tuple:
-    """Persist the bridge's advertised push entry as the registration value (A2).
-
-    Returns (changed, previous). Never raises: a failure to persist must not turn a
-    route-reporting path into an error.
-    """
-    try:
-        p = bridge_register_url_path(system_id)
-        cfg = json.loads(p.read_text()) if p.is_file() else {}
-        prev = str(cfg.get("webhook_register_url") or "")
-        if prev == url:
-            return (False, prev)
-        cfg["webhook_register_url"] = url
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
-        try:
-            os.chmod(p, 0o600)
-        except OSError:
-            pass
-        return (True, prev)
-    except Exception as e:
-        logger.warning("[aimail] could not persist the bridge webhook URL: %s", e)
-        return (False, "")
-
-
-def ensure_bridge_routes_for_system(system_id: str = "") -> list:
-    """Hook payload: upsert the route for EVERY binding of the system.
-
-    Returns [] when there is nothing to do (no system / no binding), and a single
-    system-wide outcome when the machine has no bridge at all.
-
-    A2 (owner ruling 2026-09-27): when a push-mode bridge answers with the URL the cloud
-    must POST to, it is persisted as `webhook_register_url` and each binding's address
-    registration is aligned to it — so later installs/repairs register the bridge entry
-    up front instead of an undeliverable value.
-    """
-    rows = [c for c in iter_agentmail_configs(system_id) if str(c.get("webhook_url") or "").strip()]
-    if not rows:
-        return []
-    sid = system_id or str(rows[0].get("system_id") or "")
-    gw = _load_gateway_config(sid) or {}
-    port = bridge_admin_port(gw)
-    if not bridge_listening(port):
-        return [{
-            "state": "no_bridge", "email": "", "count": len(rows), "admin_port": port,
-            "detail": f"no listener on 127.0.0.1:{port} "
-                      "(direct push, or start it with 'aimail bridge --restart')",
-        }]
-    outcomes = [ensure_bridge_route(str(c.get("system_id") or sid), str(c.get("email")), gw,
-                                    str(c.get("webhook_url"))) for c in rows]
-
-    adv = next((str(o.get("bridge_webhook_url")) for o in outcomes
-                if o.get("bridge_webhook_url")), "")
-    if adv:
-        changed, prev = store_bridge_register_url(sid, adv)
-        if changed:
-            logger.info("[aimail] bridge push entry stored as the registration value: %s "
-                        "(was %r)", adv, prev or "<unset>")
-            # Align the cloud's copy so it posts to the bridge, not to a value it can
-            # never reach. Idempotent (the register chain updates an existing address).
-            aligned = _align_registrations_to_bridge(sid, gw, rows, adv)
-            for o in outcomes:
-                o["registration_aligned"] = aligned
-    return outcomes
-
-
-def _align_registrations_to_bridge(sid: str, gw: dict, rows: list, url: str) -> int:
-    """Re-register each binding with the bridge URL. Returns how many were aligned.
-
-    2026-09-28 第 10 缺陷修 (CLI 门禁 L2「经桥 + J4d repair」401 的产品根因) ——
-    这里的写入**必须携带该绑定自己的 ``webhook_secret``**:
-
-    网关的 ``PUT /api/v1/admin/system-domains/:id`` 是**全量覆写**语义
-    (``storage.rs`` ``UPDATE … SET webhook_url=?1, webhook_secret=?2``,缺键 ⇒ NULL),
-    而本函数此前只传 ``webhook_url`` ⇒ 注册侧 secret 被写成 NULL ⇒
-    签名侧(空 secret)与验签侧(容器内绑定的 64 hex)分叉 ⇒ 插件
-    ``verifySignature`` 恒 false ⇒ **401 bad_signature**(实测:两侧摘要不等)。
-
-    规则 = **绑定 secret 即真源**(与 repair 阶梯 (b) / TS ``syncAddressWebhook`` 同源):
-    绑定缺 secret 就地自供(``ensure_binding_webhook_secret``,幂等不覆盖);
-    **仍取不到 ⇒ 跳过该绑定、不写**——宁可 url 不更新,也绝不把云端 secret 抹空。
-    """
-    try:
-        from aimail_tools import _GatewayClient
-        key = str(gw.get("admin_key") or gw.get("api_key") or "")
-        client = _GatewayClient(str(gw.get("gateway_url") or ""), key)
-    except Exception as e:
-        logger.warning("[aimail] registration align skipped (no gateway client): %s", e)
-        return 0
-    n = 0
-    for c in rows:
-        email = str(c.get("email") or "")
-        if not email:
-            continue
-        secret = str(c.get("webhook_secret") or "").strip()
-        if not secret:
-            # 老绑定没有 secret: 与 pull 循环 / repair 阶梯同一入口就地自供(幂等)。
-            secret = str((ensure_binding_webhook_secret(c) or {}).get("secret") or "")
-        if not secret:
-            logger.warning(
-                "[aimail] registration align for %s skipped: the binding carries no "
-                "webhook_secret and none could be provisioned — a url-only write would "
-                "null the cloud secret (inbound 401); run 'aimail repair'", email)
-            continue
-        try:
-            register_agent_email(client, str(c.get("system_id") or sid), email,
-                                 webhook_url=url, webhook_secret=secret,
-                                 manager_address=str(c.get("manager_address") or ""))
-            n += 1
-        except Exception as e:
-            logger.warning("[aimail] could not align %s to the bridge URL: %s", email, e)
-    return n
-
-
-def format_bridge_route_line(outcome: dict) -> str:
-    """One-line English status for a route outcome (same text as the TS side)."""
-    state = str((outcome or {}).get("state", ""))
-    who = str((outcome or {}).get("email") or "") or f"{(outcome or {}).get('count', 0)} address(es)"
-    if state == "ok":
-        return f"route: {who} -> {outcome.get('target', '')}"
-    if state == "no_bridge":
-        return f"route skipped for {who}: {outcome.get('detail') or 'no local bridge'}"
-    if state == "host_not_serving":
-        return (f"route skipped for {who}: {outcome.get('detail') or 'local receive endpoint not serving'}"
-                " (registered when the host starts)")
-    return f"route FAILED for {who}: {outcome.get('detail') or 'unknown'} -- run 'aimail repair'"
-
-
-def route_outcome_is_warning(outcome: dict) -> bool:
-    """True when the outcome deserves a warning line rather than an info line."""
-    return str((outcome or {}).get("state", "")) == "failed"
-
-
-def is_deliverable_webhook_url(value: str) -> bool:
-    """True only for a value the cloud can actually POST to: an absolute http(s) URL.
-
-    Measured 2026-09-27 (L2 journey J4e + a direct probe): the gateway hands whatever is
-    stored in ``system_domains.webhook_url`` straight to ``reqwest``, so
-    - ``'127.0.0.1'``      → ``request error: builder error``
-    - ``'127.0.0.1:18789'`` (the host:port form the 2026-08-18 ruling calls the push
-      case!) → ``builder error`` too
-
-    i.e. only an absolute URL is deliverable. The bridge's own push entry is a URL
-    (``http://<host>/webhooks/aimail-inbound``, aimail-bridge admin.rs), and so is the
-    local receive endpoint — those are the only two shapes that may be registered.
-    """
+def _is_absolute_http_url(value: str) -> bool:
+    """Only an absolute http(s) URL can be delivered to: the gateway hands the stored
+    value straight to its HTTP client (a scheme-less ``host:port`` ⇒ builder error)."""
     v = str(value or "").strip()
     return v.startswith("http://") or v.startswith("https://")
 
 
-def is_bridge_host_port(value: str) -> bool:
-    """True for the ``host:port`` form of the ``webhook_host`` *config* key.
-
-    Note this is NOT the same as a deliverable registration value: since the cloud
-    cannot post to a scheme-less ``host:port`` (see ``is_deliverable_webhook_url``),
-    this form belongs to the bridge configuration, not to the registration parameter.
-    IPv6 entries are accepted as ``[addr]:port``.
-    """
-    v = str(value or "").strip()
-    if not v or "://" in v:
-        return False
-    host, sep, port = v.rpartition(":")
-    if not sep or not host:
-        return False
-    if not port.isdigit():
-        return False
-    try:
-        return 0 < int(port) < 65536
-    except ValueError:
-        return False
-
-
 def resolve_register_webhook_url(gw: dict, local_webhook_url: str) -> str:
-    """webhook_host 三态 → 地址注册参数 webhook_url(2026-08-18 用户定稿语义):
+    """webhook_host 三态 → 地址注册参数 webhook_url(SDK 去桥化, 2026-09-28 收敛).
 
-    - webhook_host 有合法 IP:port → 有 bridge,push 模式 → 注册参数 =
-      webhook_host(bridge 公网入口,云端直推)
-    - webhook_host 显式空值("") → 有 bridge,pull 模式 → 注册参数 = 空
-      (云端不回调;bridge 按空值走 pull 拉取,与 aimail_bridge.toml 语义一致)
-    - webhook_host 配置项不存在 → 无 bridge → 注册参数 = local_webhook_url
-      (agentmail.json 的本地接收端点,云端直推本地)
+    注册值只有三个来源, 按此顺序判定 —— **只看 `webhook_host` 一个键**:
 
-    注意:注册参数与 agentmail.json 的 webhook_url 是两个值——agentmail.json
-    webhook_url 始终 = 本地接收端点(bridge 路由目标,唯一信任源)。
+      ① 键缺席                      → 本绑定的本机接收端点(直连 / 独立场景)
+      ② 显式空值("", "   ")         → 空注册值 = pull(云端不回调;空不是缺陷)
+      ③ 是可投递的绝对 http(s) URL  → 用它(环境主控声明的 push 入口;桥在场时
+                                      CLI 已把桥对外 URL 写在 webhook_host)
+      ③' 值不可投递(裸 host / host:port)→ **大声告警** + 退回本机端点: 绝不把
+         网关无法 POST 的值注册出去(实测 builder error); 有桥的部署应注册桥自己的
+         URL, 而不是 host:port。
 
-    2026-09-27 补（实测驱动）:第一态的前置条件**必须真的校验**,而且可接受值只有一个——
-    **绝对 http(s) URL**。实测:网关把该值原样交给 reqwest,`'127.0.0.1'` 与
-    `'127.0.0.1:18789'`(即 ruling 里的 push 形态 host:port)**都**是 builder error ⇒
-    host:port 也不能投。故:webhook_host 若已是 URL(桥自报的
-    `http://<host>/webhooks/aimail-inbound` 等)则透传;若是裸 host / host:port
-    ⇒ **大声告警**并按"无 bridge"退回本地端点,绝不把不可投递的值注册出去。
-    2026-09-28 修(J1 的 URL 侧候选) —— **按形态决定优先级, 不让 bridge 形状盖过平台真值**:
-    此前 ``webhook_register_url``(桥自报的 push 入口, 由 route 步捕获) **无条件优先**, 于是
-    pull 形态的部署也会被注册成桥的 push 入口(桥的 host:port + 平台入站路径),
-    而该部署**实际**的语义是"云端不回调"(平台真值 = 空 / 平台自己的入站端点)。优先级现按
-    ``webhook_host`` 的**形态**定, 顺序固定为:
-      ① webhook_host 显式空(pull) → ``""`` —— 注册值必须是空;**任何** register 侧的残留值
-         (桥上次 push 形态自报的入口)一律让位(不得盖过平台真值)。
-      ② push 形态(webhook_host 是一个**可投递的绝对 URL**) → 注册 == webhook_host ——
-         平台声明的 push 入口就是真值, 与实际入站端点一致, register 侧的捕获值不得越过它。
-      ③ webhook_host 缺席 / 不可投递(裸 host、host:port) → 才轮到 ``webhook_register_url``
-         (可投递时;这是 A2 的场景: 桥自报的 URL 是唯一可用值)。
+    · 经桥响应自采的第三来源 `webhook_register_url` **已退役**: 磁盘残留值一律忽略
+      (SDK 也不写它) —— 注册值不再由 SDK 从桥那里学, 桥语义不属于 SDK。
+    · agentmail.json 的 webhook_url 恒为本地接收端点(与注册值是两个值)。
     """
     whh = gw.get("webhook_host") if isinstance(gw, dict) else None
-    # ① pull 形态: 显式空 ⇒ 云端不得回调。这一支**最优先且无条件**: register 侧的值可能
-    #    是桥在 push 形态下捕获的残留, 不能让它盖过 pull 真值(否则 pull 部署被注册成 push)。
-    if whh is not None and not str(whh).strip():
-        return ""
-    # ② push 形态且声明值可投递 ⇒ 它就是平台真值(与实际入站端点一致)。
-    if whh is not None:
-        declared = str(whh).strip()
-        if is_deliverable_webhook_url(declared):
-            return declared          # push: 桥公网入口(必须是 URL)
-    # ③ 声明值缺席/不可投递 ⇒ 才轮到桥自报的注册值(A2)。
-    reg = ""
-    if isinstance(gw, dict):
-        reg = str(gw.get("webhook_register_url") or "").strip()
-    if reg:
-        if is_deliverable_webhook_url(reg):
-            return reg
-        logger.warning(
-            "[aimail] webhook_register_url %r is not an absolute http(s) URL — "
-            "ignored; falling back to the local endpoint %r", reg, local_webhook_url)
+    if whh is None:
+        # 键缺席 = 没有环境声明的回调入口 ⇒ 直连/独立场景: 注册本机端点。
         return local_webhook_url
-    if whh is not None:
-        # 声明值存在但不可投递(裸 host / host:port): 网关交付必然 builder error ⇒
-        # 大声告警并按"无 bridge"退回本地端点, 绝不把不可投递的值注册出去。
-        logger.warning(
-            "[aimail] webhook_host %r is not an absolute http(s) URL — the cloud cannot "
-            "POST to it (builder error), so this system is treated as 'no bridge' and the "
-            "local endpoint %r is registered instead. For a bridge deployment register "
-            "the bridge's own URL (http://<host>/webhooks/aimail-inbound), not host:port.",
-            str(whh).strip(), local_webhook_url)
-        return local_webhook_url
-    return local_webhook_url         # 无 bridge: 本地端点
+    declared = str(whh).strip()
+    if not declared:
+        return ""                                    # ①/② 显式空 = pull
+    if _is_absolute_http_url(declared):
+        return declared                              # ③ push 入口(必须是可投递 URL)
+    logger.warning(
+        "[aimail] webhook_host %r is not an absolute http(s) URL — the cloud cannot "
+        "POST to it (builder error), so the local endpoint %r is registered instead. "
+        "For a bridged deployment register the bridge's own URL "
+        "(http://<host>/webhooks/aimail-inbound), not a bare host:port.",
+        declared, local_webhook_url)
+    return local_webhook_url                         # ③' 不可投递 ⇒ 退回本机端点
 
 
 def register_agent_email(client, system_id: str, email: str,
@@ -2303,11 +2097,9 @@ def register_agent_email(client, system_id: str, email: str,
         if act.get("success") and act.get("raw_key"):
             api_key = act["raw_key"]
 
-    # ── 5. Bridge route pairing ──
-    # Callers push the local bridge route table explicitly via
-    # register_bridge_route(system_id, email, gw, local_webhook_url) —
-    # consolidated single implementation (AUDIT-1 P2-5; the inline
-    # hardcoded-38081 duplicate used to double-write the route).
+    # 注册链到此结束: **没有第 5 步**。路由是环境主控(CLI)的职责(2026-09-28 SDK 去桥化),
+    # 由宿主在入站真的在服务时通知 CLI(`aimail address -a <addr> --inbound-live`)后由
+    # CLI 自行决定; SDK 不写桥、不问桥、不写环境配置。
     return {"api_key": api_key, "activation_code": activation_code}
 
 

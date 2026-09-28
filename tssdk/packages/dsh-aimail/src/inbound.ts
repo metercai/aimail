@@ -28,7 +28,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { processInboundMail, verifySignature, routeAddressFromHeaders, updateAgentConfig, loadAgentConfig, saveAgentConfig, startAgentPullEntries, type AgentConfig, type AgentPullHandle, type AgentPullOverrides, INBOUND_PATH, INBOUND_PORTS, type InboundPayload } from '@aimail/mail-core'
-import { ensureBridgeRoutesForSystem, formatBridgeRouteLine, isBridgeRouteWarning } from '@aimail/mail-core'
+import { notifyInboundForSystem, formatInboundNotifyLine, isInboundNotifyWarning } from '@aimail/mail-core'
 import type { MailService } from './mail-service.js'
 
 export const name = 'mail-inbound'
@@ -355,24 +355,25 @@ export function apply(ctx: Context, config: Config = {}): () => void {
   let pullHandles: AgentPullHandle[] = []
 
   server.listen(port, host, () => {
-    // Route side (owner ruling 2026-09-27): the listener is up, so this is the
-    // moment to (re-)pair every address of this system. The bridge deletes
-    // routes whose target stays unreachable (probe interval x fail_threshold,
-    // ~30s x 6 = 180s) and registration-time pushes are too early — the cache of
-    // that was a permanently dead inbound after a host restart (production
-    // 2026-09-21/09-26). Idempotent, never fatal; the target is each binding's
-    // own webhook_url (shared implementation with openclaw/pi).
-    void ensureBridgeRoutesForSystem()
+    // Inbound notification (owner ruling 2026-09-28, SDK 去桥化): the listener is
+    // up, so this host tells the environment master (the `aimail` CLI) — once per
+    // address it serves — that inbound is live:
+    //     aimail address -a <addr> --inbound-live
+    // The CLI owns the environment (routes included) and decides what that means;
+    // the SDK speaks no bridge. Best-effort by contract: argv only, 4s timeout,
+    // never blocks this callback, never throws into the host (a missing CLI is one
+    // debug line — the host keeps serving and self-registering).
+    void notifyInboundForSystem('live')
       .then((outcomes) => {
         for (const o of outcomes) {
-          const line = `[dsh-aimail] ${formatBridgeRouteLine(o)}`
-          if (isBridgeRouteWarning(o)) console.warn(line)
+          const line = `[dsh-aimail] ${formatInboundNotifyLine(o, 'live')}`
+          if (isInboundNotifyWarning(o)) console.warn(line)
           else console.log(line)
         }
       })
       .catch((e: unknown) => {
         console.warn(
-          `[dsh-aimail] route ensure failed: ${e instanceof Error ? e.message : String(e)}`,
+          `[dsh-aimail] inbound notify failed (non-fatal): ${e instanceof Error ? e.message : String(e)}`,
         )
       })
 
@@ -389,6 +390,22 @@ export function apply(ctx: Context, config: Config = {}): () => void {
       })
   })
   return () => {
+    // Inbound down (owner ruling 2026-09-28): this host stops serving, so it says
+    // so per address — `aimail address -a <addr> --inbound-down`. Best-effort,
+    // fire-and-forget: the CLI decides, and a missing CLI changes nothing here.
+    void notifyInboundForSystem('down')
+      .then((outcomes) => {
+        for (const o of outcomes) {
+          const line = `[dsh-aimail] ${formatInboundNotifyLine(o, 'down')}`
+          if (isInboundNotifyWarning(o)) console.warn(line)
+          else console.log(line)
+        }
+      })
+      .catch((e: unknown) => {
+        console.warn(
+          `[dsh-aimail] inbound down notify failed (non-fatal): ${e instanceof Error ? e.message : String(e)}`,
+        )
+      })
     for (const h of pullHandles) h.stop()
     pullHandles = []
     server.close()

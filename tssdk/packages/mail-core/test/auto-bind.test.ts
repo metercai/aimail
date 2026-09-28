@@ -106,8 +106,9 @@ describe('auto-bind helpers', () => {
     })
     expect(r.secret_synced).toBe(true)
 
-    // ③ 铁律(2026-08-18): the bridge route is still re-upserted.
-    expect(calls.some(c => c.url.endsWith('/api/v1/routes'))).toBe(true)
+    // ③ SDK 去桥化(owner 裁决 2026-09-28): the SDK pushes NO route any more —
+    //    the environment master (CLI) owns routes; the host only notifies it.
+    expect(calls.some(c => c.url.endsWith('/api/v1/routes'))).toBe(false)
     vi.unstubAllGlobals()
   })
 

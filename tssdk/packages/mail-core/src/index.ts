@@ -29,26 +29,26 @@ export {
   emailForAgent,
   registerAddress,
   saveBinding,
-  registerBridgeRoute,
   resolveRegisterWebhook,
   ensureBindingWebhookSecret,
   syncAddressWebhook,
   autoBind,
 } from './auto-bind.js'
 export {
-  ensureBridgeRoute,
-  ensureBridgeRoutesForSystem,
-  bridgeListening,
-  inboundServing,
-  resolveBridgeAdminPort,
-  formatBridgeRouteLine,
-  isBridgeRouteWarning,
-} from './bridge-route.js'
+  INBOUND_STATE_FLAG,
+  resolveAimailBin,
+  notifyInboundState,
+  notifyInboundForSystem,
+  formatInboundNotifyLine,
+  isInboundNotifyWarning,
+  spawnRunner,
+} from './inbound-notify.js'
 export type {
-  BridgeRouteOutcome,
-  BridgeRouteState,
-  EnsureBridgeRouteOptions,
-} from './bridge-route.js'
+  InboundState,
+  InboundNotifyOutcome,
+  NotifyOptions,
+  CommandRunner,
+} from './inbound-notify.js'
 export { listAgentConfigs } from './config.js'
 export { detectSystemForHome, ensureSystem } from './ensure-system.js'
 export type { EnsureSystemOptions, EnsureSystemResult } from './ensure-system.js'
@@ -93,8 +93,6 @@ export type {
   RegisterAddressOptions,
   RegisterAddressResult,
   SaveBindingOptions,
-  BridgeRouteOptions,
-  BridgeRouteResult,
   AutoBindOptions,
   AutoBindResult,
 } from './auto-bind.js'

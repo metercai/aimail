@@ -590,18 +590,19 @@ def _auto_register_email(name: str, profile_dir: str, config: dict) -> None:
         inject_cfg["activation_code"] = activation_code
     _inject_profile_config(profile_dir, inject_cfg)
 
-    # Route side (owner ruling 2026-09-27: it is a SEPARATE outcome from
-    # registration — reported on its own line, never able to fail the
-    # registration). Registration completes before the host restarts, so this
-    # push is best-effort; the host and the CLI re-ensure it once the inbound
-    # listener is actually serving (ensure_bridge_routes_for_system).
+    # Inbound notification (owner ruling 2026-09-28, SDK 去桥化): hermes is the host
+    # whose gateway serves this address's inbound, and the webhook route above is
+    # now registered — so the SDK reports exactly that, best-effort, per address:
+    #     aimail address -a <addr> --inbound-live
+    # The CLI owns the environment (routes included) and decides what it means; the
+    # SDK speaks no bridge. Never fatal: a missing CLI / a non-zero exit is one line.
     if local_webhook_url:
-        _route_outcome = core.ensure_bridge_route(system_id, email, config, local_webhook_url)
-        _route_line = f"[aimail_gateway] {core.format_bridge_route_line(_route_outcome)}"
-        if core.route_outcome_is_warning(_route_outcome):
-            logger.warning("%s", _route_line)
+        _note = core.notify_inbound_state(email, "live")
+        _line = f"[aimail_gateway] {core.format_inbound_notify_line(_note, 'live')}"
+        if core.inbound_notify_is_warning(_note):
+            logger.warning("%s", _line)
         else:
-            logger.info("%s", _route_line)
+            logger.info("%s", _line)
 
     # Activate the profile immediately after registration.
     # register_agent_email already activated when it returned an api_key —
@@ -1337,5 +1338,21 @@ def stop_agent_pull() -> None:
     """停掉全部轮询句柄(宿主停服/进程退出; 幂等)。"""
     global _PULL_HANDLES
     with _pull_lock:
+        if not _PULL_HANDLES:
+            return
         core.stop_agent_pull_entries(_PULL_HANDLES)
         _PULL_HANDLES = []
+    # Reliable teardown hook (atexit + daemon 兜底) ⇒ the mirror of the live
+    # notification: this gateway stops serving these addresses' inbound, so report
+    # it best-effort, per address (`aimail address -a <addr> --inbound-down`).
+    # The CLI owns the environment (routes included); the SDK speaks no bridge.
+    # Never fatal, never blocking: one line per address.
+    try:
+        for _n in core.notify_inbound_for_system("down", system_id=_pull_system_id()):
+            _line = "[aimail_gateway] " + core.format_inbound_notify_line(_n, "down")
+            if core.inbound_notify_is_warning(_n):
+                logger.warning("%s", _line)
+            else:
+                logger.info("%s", _line)
+    except Exception as e:  # noqa: BLE001 — 关停通知绝不拖垮宿主停服
+        logger.debug("[aimail_gateway] inbound-down notification skipped: %s", e)

@@ -46,8 +46,8 @@ POINTER_FILE = ".agentmail"
 #: 入站监听端口默认值 —— **端口可配, 路径不可变**。
 INBOUND_PORTS = {"dsh": 9099, "pi": 9101, "deerflow": 8001}
 
-#: 桥(bridge)默认转发路径(与 hermes_inbound_path 同值; 桥在另一仓, 下批接)。
-BRIDGE_DEFAULT_PATH = "/webhooks/aimail-inbound"
+# 注: 曾有的 BRIDGE_DEFAULT_PATH 常量随 SDK 去桥化退役(owner 裁决 2026-09-28)—— SDK
+# 对桥无感, 路由由 CLI 自持(cli/bridge_wire.py); 契约真源不再含桥键。
 
 #: 清单相对仓根的路径(门禁/库校验用)。
 MANIFEST_REL_PATH = os.path.join("contract", "aimail-contract.json")
@@ -62,7 +62,6 @@ MANIFEST_MAP = {
     "binding_file": "BINDING_FILE",
     "pointer_file": "POINTER_FILE",
     "inbound_ports": "INBOUND_PORTS",
-    "bridge_default_path": "BRIDGE_DEFAULT_PATH",
 }
 
 

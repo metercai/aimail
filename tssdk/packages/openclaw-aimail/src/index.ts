@@ -8,9 +8,9 @@
 import { definePluginEntry, type OpenClawPluginDefinition } from 'openclaw/plugin-sdk/plugin-entry'
 import {
   ensureSystem,
-  ensureBridgeRoutesForSystem,
-  formatBridgeRouteLine,
-  isBridgeRouteWarning,
+  notifyInboundForSystem,
+  formatInboundNotifyLine,
+  isInboundNotifyWarning,
   releaseAllSystems,
   setAgentIdentity,
 } from '@aimail/mail-core'
@@ -133,24 +133,26 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
         )
       })
 
-    // Route side (owner ruling 2026-09-27: registration and route pairing are
-    // two separate outcomes). The in-gateway route above is live, so this is the
-    // right moment to (re-)pair every address of this system: the bridge deletes
-    // routes whose target stays unreachable (probe interval x fail_threshold,
-    // ~30s x 6 = 180s) and registration-time pushes land before the gateway
-    // serves the plugin — the cache of that was a permanently dead inbound after
-    // a host restart (production 2026-09-21/09-26). Idempotent, never fatal.
-    void ensureBridgeRoutesForSystem()
+    // Inbound notification (owner ruling 2026-09-28, SDK 去桥化): the in-gateway
+    // route above is live, so this plugin tells the environment master (the
+    // `aimail` CLI), per address it serves, that inbound is live:
+    //     aimail address -a <addr> --inbound-live
+    // The timing substance is unchanged — it happens only once inbound really
+    // serves (registration-time pushes landed before the gateway served the
+    // plugin; production 2026-09-21/09-26) — but the SDK speaks no bridge: the
+    // CLI owns the environment and decides what the note means. Best-effort and
+    // never fatal (argv, 4s timeout, no CLI ⇒ one log line).
+    void notifyInboundForSystem('live')
       .then((outcomes) => {
         for (const o of outcomes) {
-          const line = `[openclaw-aimail] ${formatBridgeRouteLine(o)}`
-          if (isBridgeRouteWarning(o)) console.warn(line)
+          const line = `[openclaw-aimail] ${formatInboundNotifyLine(o, 'live')}`
+          if (isInboundNotifyWarning(o)) console.warn(line)
           else console.log(line)
         }
       })
       .catch((e) => {
         console.warn(
-          `[openclaw-aimail] route ensure failed: ${e instanceof Error ? e.message : String(e)}`,
+          `[openclaw-aimail] inbound notify failed (non-fatal): ${e instanceof Error ? e.message : String(e)}`,
         )
       })
 

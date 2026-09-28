@@ -48,7 +48,7 @@ from pathlib import Path
 REQUIRED_KEYS = (
     "inbound_path", "hermes_inbound_path", "hermes_route_name",
     "agent_skill_name", "agent_toolset_name", "binding_file", "pointer_file",
-    "inbound_ports", "bridge_default_path",
+    "inbound_ports",
 )
 
 # ── 白名单(字面量允许出现的文件;路径相对仓根)──────────────────────────────
@@ -85,7 +85,6 @@ CONST_MAP = {
     "binding_file": ("BINDING_FILE", "BINDING_FILE"),
     "pointer_file": ("POINTER_FILE", "POINTER_FILE"),
     "inbound_ports": ("INBOUND_PORTS", "INBOUND_PORTS"),
-    "bridge_default_path": ("BRIDGE_DEFAULT_PATH", "BRIDGE_DEFAULT_PATH"),
 }
 
 # 字面量扫描策略: 路径/文件名类 = 子串计数;单 token 的 skill/toolset 名 =
@@ -221,8 +220,9 @@ def check_constants(man: dict) -> None:
         if not bad:
             out(f"  ✓ {rel} == 清单 ({len(CONST_MAP)} 项)")
     # Rust 侧本批不做 ⇒ 登记 GAP(不许静默)
-    gap("a", "rust: gateway/bridge 两仓的 Rust 常量本批未覆盖(清单已备 "
-             "bridge_default_path 字段, 下批接 ⇒ 见备案 aimail-contract-hardening-pending.md)")
+    gap("a", "rust: gateway/bridge 两仓的 Rust 常量本批未覆盖(下批接 ⇒ 见备案 "
+             "aimail-contract-hardening-pending.md); 契约真源**不含任何桥键**(owner 裁决 "
+             "2026-09-28 SDK 去桥化): 桥 = CLI 的环境职责, 不属 agent 内部契约面")
     out("  · GAP rust: 未覆盖(gateway/bridge 留下批)")
 
 

@@ -38,8 +38,12 @@ export const POINTER_FILE = '.agentmail'
 /** 入站监听端口默认值 —— **端口可配, 路径不可变**。 */
 export const INBOUND_PORTS: Readonly<Record<string, number>> = { dsh: 9099, pi: 9101, deerflow: 8001 }
 
-/** 桥(bridge)默认转发路径(与 hermes_inbound_path 同值)。 */
-export const BRIDGE_DEFAULT_PATH = '/webhooks/aimail-inbound'
+/**
+ * 桥(bridge)默认转发路径 —— **已退役(SDK 去桥化, owner 裁决 2026-09-28)**。
+ * 路由是 CLI 的环境职责(`cli/bridge_wire.py`, 由宿主通知的 `aimail address
+ * --inbound-live` 触发), SDK 对桥无感, 契约真源同样不再含桥键(见
+ * contract/aimail-contract.json + pysdk/aimail_contract.py, 三者同批收敛)。
+ */
 
 /** 本机入站接收端点(非 hermes 平台)。 */
 export function inboundUrl (port: number, host = '127.0.0.1'): string {
