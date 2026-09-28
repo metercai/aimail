@@ -11,7 +11,13 @@
   SMTP 模式(旧, 需 --smtp 显式指定): 裸 socket 直连网关 25 端口,
     发件人=manager。advanced 版用 auth.local 认证
     (base64(agent_key)=encoded_manager@auth.local), base 版普通发件
-    (依赖 manager 自动加白)。
+    (依赖 manager 自动加白)。主题/正文与 canonical 系统 welcome 同形
+    (识别标记对齐依据见下方 WELCOME_* 常量注释), 使 agent 收到"回三标签"
+    指令并与 API 模式走同一条身份审批链。
+
+两种模式在通道验证(发信 → 收到 agent 回信)成功后**都执行第 3 段身份审批**:
+以 manager 身份发审批指令 ⇒ 网关写 persona/signature(不落库视为未完成)。
+`--no-wait` / `--skip-persona` 是显式的"只做通道验证"开关, 不变。
 
 用法:
   python3 send_welcome.py [--system-id SID] [--agent-home DIR]
@@ -26,7 +32,8 @@
   --smtp:       显式走 SMTP 模式(默认走 API 模式)
   --timeout:    等待回复秒数(默认 120)
   --no-wait:    发送后不等待回复,直接退出
-退出码: 0=成功, 1=失败
+退出码: 0=成功(通道已验证且身份审批已提交), 1=失败,
+        2=通道已验证但身份审批取不到草案(明确失败, 不静默、不假装成功)
 """
 from __future__ import annotations
 
@@ -98,6 +105,25 @@ def _main_agent_email(cfg: dict) -> str:
 
 AIMAIL_HOME = _aimail_home()
 SYSTEMS_DIR = AIMAIL_HOME / "systems"
+
+
+# ── welcome 识别标记 —— 对齐依据(单一真源)───────────────────────────
+# 契约单一真源 contract/aimail-contract.json **不含** welcome 标记(它只约束入站
+# 路径 / skill 注册名 / 绑定文件名 / 指针文件名这几项 agent 内部契约面)⇒ 本处没有
+# 契约常量可引, 改为与 **SDK 的识别条件逐字对齐**。对齐依据(逐字, 顺序无关):
+#   pysdk/aimail_base.py:1260-1263 —— B3 Role_Calibrator 的识别 =
+#     主题(小写化)含 WELCOME_SUBJECT_MARKER **且** 正文行首三标签齐;
+#     命中 ⇒ 注入 role_calibrator 角色提示(该提示要求 agent 用 send_mail() 回
+#     `persona:` / `signature:` 两行 ⇒ CLI 第 3 段据此提取草案);
+#     只命中其一 ⇒ 不注入 + WARN; **两条同假 ⇒ 完全静默**(本文件旧模板即此形态,
+#     模板漂移因此在日志里完全不可见)。
+#   同一组字面量的另两处副本: cli/aimail:1512-1517(welcome --test 判定)、
+#   tssdk/packages/mail-core/src/preprocess.ts:649-652(TS 侧同款)。
+#   产出端(canonical 系统 welcome) = aimail-gateway/src/core/api/welcome.rs:63-81
+#   (正文三标签指令块) + :229(主题 `Welcome to AIMail World, {agent}, since {date}!`)。
+# ⚠ 本处与上述任一漂移 ⇒ SDK 识别不到 ⇒ agent 收不到三标签指令 ⇒ 回信无草案。
+WELCOME_SUBJECT_MARKER = "welcome to aimail world"
+WELCOME_REPLY_LABELS = ("persona", "signature", "current_time")
 
 
 # ── 旧 SMTP 模式(--smtp 显式启用)──────────────────────────────────
@@ -305,9 +331,9 @@ def _parse_draft_from_reply(agent_email: str) -> dict:
         body = snap.get("body") or ""
         lines = [ln.strip() for ln in body.splitlines()]
         lc = [ln.lower() for ln in lines]
-        marker = "welcome to aimail world" in subject
+        marker = WELCOME_SUBJECT_MARKER in subject
         vals: dict[str, str] = {}
-        for key in ("persona", "signature", "current_time"):
+        for key in WELCOME_REPLY_LABELS:
             for ln, low in zip(lines, lc):
                 if low.startswith(f"{key}:"):
                     vals[key] = ln[len(key) + 1:].strip()
@@ -475,24 +501,44 @@ def main() -> int:
     print(f"  From:        {manager}")
 
     msg_id = f"<welcome-{int(time.time())}-{uuid.uuid4().hex[:4]}@aimail>"
+    # 主题/正文与 canonical 系统 welcome 同形(对齐依据见文件顶部 WELCOME_* 注释):
+    # 主题必须含 SDK 识别标记、正文必须含三标签指令块 —— 缺任一, agent 就收不到
+    # "回三标签" 的指令, 第 3 段也就永远取不到草案(旧模板正是这个**静默**形态)。
+    _agent_name = (recipient.split("@", 1)[0] or "Agent") if recipient else "Agent"
+    welcome_subject = (f"Welcome to AIMail World, {_agent_name}, "
+                       f"since {time.strftime('%Y-%m-%d')}!")
     body = f"""From: {manager}
 To: {recipient}
 Message-ID: {msg_id}
-Subject: Welcome! Your AIMail integration is live
+Subject: {welcome_subject}
 
-Hello! This is your first email delivered through your new AIMail system.
+Welcome to the AIMail world!
 
-Please reply with the current server time to confirm the mail loop is working.
+Your AIMail address has been activated. This is the first welcome email
+automatically sent by the system, to confirm that your address is now active.
 
---
-This confirms: ✓ SMTP inbound  ✓ Webhook delivery  ✓ Agent processing  ✓ Outbound reply
+To verify that the full delivery path works end to end -- and to have your
+outbound identity approved -- please **reply-all** to this email with the
+following three lines, exactly as labelled:
+
+  persona: <one to three sentences introducing who you are and what you do>
+  signature: <your outbound email signature>
+  current_time: <the current time when you reply, in a human-readable form,
+                 e.g. 2026-09-28 12:05 UTC>
+
+Your manager will review and apply the approved persona and signature to your
+account. Nothing else changes.
+
+Best regards,
+{manager}
+Sent {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())}
 """
 
-    resp = _smtp_send(gw_url, ak, recipient, manager, edition, "Welcome!", body)
+    resp = _smtp_send(gw_url, ak, recipient, manager, edition, welcome_subject, body)
     # base 版回落:auth.local 前缀会被当普通发件人拒(550),回落 manager 直发
     if not resp.startswith("250") and edition == "advanced":
         print(f"  ⚠ auth.local 发送失败({resp[:50]}),回落 base 白名单直发")
-        resp = _smtp_send(gw_url, ak, recipient, manager, "base", "Welcome!", body)
+        resp = _smtp_send(gw_url, ak, recipient, manager, "base", welcome_subject, body)
     if not resp.startswith("250"):
         print(f"✗ SMTP send failed: {resp}")
         return 1
@@ -504,7 +550,11 @@ This confirms: ✓ SMTP inbound  ✓ Webhook delivery  ✓ Agent processing  ✓
     ok, email_id, _to = _poll_reply(recipient, args.timeout)
     if ok:
         print(f"  ✓ Bidirectional send/receive verified (email_id={email_id or '?'})")
-        return 0
+        # 第 3 段(身份审批)——与 API 模式(`:448` 同一条调用)对齐:以 manager 身份发
+        # `approve persona` ⇒ 网关唯一 UPSERT 写 persona/signature。旧版此处直接
+        # `return 0`, 命令 rc=0 而审批从未发生(契约残缺 + 对用户不可见)。
+        # 出口语义照旧: 拿不到草案 ⇒ 2(明确失败, 不假装成功); 发送失败 ⇒ 1。
+        return _approve_identity(gw_url, ak, recipient, manager, args)
     print(f"  ✗ No reply within {args.timeout}s (log: {_agent_log_path(recipient)})")
     return 1
 
