@@ -166,6 +166,14 @@
           }
         },
         {
+          "kind": "register_default",
+          "when": {
+            "cfg_complete": true
+          },
+          "on_error": "warn",
+          "warn_hint": "dsh agent registration failed (see above) — rerun `aimail reset -s {sid}` (or `aimail address -s {sid} -a agent`) once the plugin is in place"
+        },
+        {
           "kind": "print",
           "text": "  dsh: 绑定 = 创建 dsh session(mail preset)后自动 auto-bind;"
         },

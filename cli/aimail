@@ -267,6 +267,27 @@ def resolve_platform(system_home: Path) -> str:
     return ""
 
 
+def _platform_override(args) -> str:
+    """`--platform` 显式覆盖的取值(唯一知识源 = 注册表 cli/platforms.json)。
+
+    取值范围**必须查注册表**:静态门禁「CLI free of platform literals」不许 CLI 源码
+    出现平台名字面量,所以合法值一律从 platforms.json 取。未给 → ""(调用方继续走
+    detect/指针原路);给了但注册表里没有 → 立即失败退出,**不静默回落**(否则打错字的
+    --platform 会被 home 特征探测悄悄顶掉,用户看不到报错却按别的平台跑了)。
+
+    背景(2026-09-29 取证): 绑定/系统配置里都**没有** platform 字段可回读
+    (写入点 pysdk/aimail_tools.py 的 register cfg、pysdk/hermes/aimail_hermes.py
+    的 inject_cfg、tssdk mail-core saveBinding 均无此键),故显式参数是唯一可靠来源。
+    """
+    p = str(getattr(args, "platform", "") or "").strip()
+    if not p:
+        return ""
+    if p not in _platforms()["platforms"]:
+        _fail(f"--platform '{p}' unknown; valid: "
+              f"{', '.join(sorted(_platforms()['platforms']))}")
+    return p
+
+
 # ═══════════════════════════════════════════════════════════════
 #  子命令
 # ═══════════════════════════════════════════════════════════════
@@ -766,13 +787,8 @@ def cmd_install(args) -> int:
     #    --container 显式容器名(不猜, 随后写系统记录); --container-home 仅随 --container
     if getattr(args, "container_home", "") and not getattr(args, "container", ""):
         _fail("--container-home requires --container <name>")
-    if getattr(args, "platform", ""):
-        if args.platform not in _platforms()["platforms"]:
-            _fail(f"--platform '{args.platform}' unknown; valid: "
-                  f"{', '.join(sorted(_platforms()['platforms']))}")
-        platform = args.platform
-    else:
-        platform = resolve_platform(system_home)
+    # --platform 显式覆盖(与 reset/uninstall/bridge 同一入口:注册表校验,不静默回落)
+    platform = _platform_override(args) or resolve_platform(system_home)
     if not platform:
         _fail(f"无法确定平台:{system_home} 目录无特征且无 aimail 指针(可用 --platform 显式指定)")
     print(f"  install platform={platform} system_home={system_home} system_id={sid or '(新建)'}"
@@ -1137,7 +1153,8 @@ def cmd_reset(args) -> int:
         system_home = normalize_platform_home(Path(args.home).expanduser())
     if not system_home.exists():
         _fail(f"home 目录不存在: {system_home}")
-    platform = resolve_platform(system_home)
+    # --platform 显式覆盖优先(注册表校验),否则 home 特征 + 指针扫描
+    platform = _platform_override(args) or resolve_platform(system_home)
     if not platform:
         _fail("无法确定平台")
     sid = sid or _ptr_sid(_platform_ptr(platform))
@@ -2571,8 +2588,7 @@ def cmd_bridge(args) -> int:
     sid, platform = resolve_system_id(system_home, args.system_id or "")
     if not sid:
         _fail("无法确定 system_id(用 --system-id 或 --home 指定)")
-    if not platform:
-        platform = resolve_platform(system_home)
+    platform = _platform_override(args) or platform or resolve_platform(system_home)
     if not platform:
         _fail(f"无法确定平台(system {sid})")
 
@@ -3094,8 +3110,7 @@ def cmd_uninstall(args) -> int:
             _ptr_sid(_platform_ptr(p)) == sid for p in _platforms()["platforms"]):
         print(f"  system {sid} not installed (already uninstalled?)")
         return 0
-    if not platform:
-        platform = resolve_platform(system_home)
+    platform = _platform_override(args) or platform or resolve_platform(system_home)
     if not platform:
         _fail(f"无法确定平台(system {sid})——用 --home 指定平台根")
 
@@ -3341,6 +3356,8 @@ scenario groups:
                        help="gateway to deregister from (default: the system cfg; use it when the "
                             "cfg was rewritten — never falls back to a production default)")
     p_uni.add_argument("-y", "--yes", action="store_true", help="skip confirmation prompt")
+    p_uni.add_argument("--platform", default="", metavar="NAME",
+                       help="override platform detection (value validated against the platform registry)")
     p_uni.set_defaults(func=cmd_uninstall)
 
     p_reset = sub.add_parser("reset", help="re-reset connection config for an activated system (no re-activation)")
@@ -3351,6 +3368,8 @@ scenario groups:
     p_reset.add_argument("-m", "--manager", **common_mgr)
     p_reset.add_argument("--all-agents", action="store_true",
                          help="re-run registration for ALL platform agents (default: main agent only)")
+    p_reset.add_argument("--platform", default="", metavar="NAME",
+                         help="override platform detection (value validated against the platform registry)")
     p_reset.set_defaults(func=cmd_reset)
 
     # ── operate ────────────────────────────────────────────────────
@@ -3481,6 +3500,8 @@ scenario groups:
     p_br.add_argument("-u", "--upgrade", action="store_true",
                       help="upgrade the bridge binary from this repo's bridge/ zips (sha-compare → "
                            "contract stop → atomic replace → restart)")
+    p_br.add_argument("--platform", default="", metavar="NAME",
+                      help="override platform detection (value validated against the platform registry)")
     p_br.set_defaults(func=cmd_bridge)
 
     args = ap.parse_args()
