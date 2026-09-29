@@ -80,21 +80,54 @@ def _gateway_client(sid: str):
     return _GatewayClient(gw["gateway_url"], gw["admin_key"]), gw
 
 
-def _run_check(sid: str):
-    """Run the existing check (subprocess, zero logic duplication); returns (all_pass, checks[])."""
+def _check_output_tail(out, head: int = 240, tail: int = 600) -> str:
+    """Bounded excerpt of a check subprocess's output: stdout head + stdout tail + stderr tail.
+
+    `capture_output=True` keeps stderr out of repair's own output, so a check that
+    died inside subprocess looked exactly like a mistyped system_id -- all the
+    operator ever saw was "check produced no output". This excerpt is what the
+    "check unjudgeable" warnings echo, so the real cause stays in the log.
+    """
+    so = (out.stdout or "").strip()
+    se = (out.stderr or "").strip()
+    bits = []
+    if not so:
+        bits.append("stdout: <empty>")
+    elif len(so) <= head + tail:
+        bits.append(f"stdout: {so}")
+    else:
+        bits.append(f"stdout head: {so[:head]}")
+        bits.append(f"stdout tail: {so[-tail:]}")
+    bits.append(f"stderr tail: {se[-tail:]}" if se else "stderr: <empty>")
+    return "  |  ".join(bits)
+
+
+def _run_check(sid: str, home: str = ""):
+    """Run the existing check (subprocess, zero logic duplication); returns (all_pass, checks[], output_tail).
+
+    `home` is the platform home repair already resolved (deep_home). check_status.py
+    parses only `--agent-home` -- it has no `-H` -- so that is the flag forwarded
+    here; an empty home leaves the command byte-identical to what it always was.
+
+    all_pass is False on empty output: an empty check is a GAP, and a GAP is never green
+    (otherwise `all([])` reads as "all green" and hands out a zero-evidence rc=0).
+    """
     cmd = [sys.executable, str(SCRIPTS_DIR / "check_status.py"), "--json", "--system-id", sid]
+    if home:
+        cmd += ["--agent-home", home]
     try:
         out = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     except subprocess.TimeoutExpired:
         # A hanging check must not stall repair -- that item is recorded as failed and the ladder continues
         return False, [{"name": "check_status", "pass": False,
-                        "detail": "check_status.py timed out after 120s"}]
+                        "detail": "check_status.py timed out after 120s"}], "check_status.py timed out after 120s"
+    tail = _check_output_tail(out)
     try:
         data = json.loads(out.stdout)
     except json.JSONDecodeError:
-        return False, []
+        return False, [], tail
     checks = data.get("checks", data if isinstance(data, list) else [])
-    return all(c.get("pass") for c in checks), checks
+    return bool(checks) and all(c.get("pass") for c in checks), checks, tail
 
 
 def _ensure_bridge_running(sid: str = "") -> bool:
@@ -920,10 +953,16 @@ def _repair_mcp_payload() -> bool:
 def repair(sid: str, deep: bool = False, dry_run: bool = False, home: str = "") -> int:
     print(f"  repair system={sid}{' [dry-run]' if dry_run else ''}{' [deep]' if deep else ''}")
     deep_home = str(Path(home).expanduser()) if home else _auto_platform_home(sid)
-    passed, checks = _run_check(sid)
+    passed, checks, check_tail = _run_check(sid, deep_home)
     if not checks:
-        _fail("check produced no output -- is this system_id valid?")
-        return 1
+        # Degrade and continue (repair 方案A, 2026-09-29): the check being unjudgeable here is a GAP,
+        # not a verdict -- and the ladder below never depended on it (it runs unconditionally), so an
+        # empty check must not abort the repair. The anchor phrase is evidence grepped by the in-host
+        # gates (journey-in-host.sh J4d / cli-in-host.sh F8); the subprocess tail shows WHY the check
+        # is unjudgeable instead of the old undiagnosable "-- is this system_id valid?".
+        _warn("check produced no output -- the check step is unjudgeable in this form "
+              "(NOT a system_id verdict); repair continues with its unconditional ladder")
+        _warn(f"    check subprocess output: {check_tail}")
     fails = [c for c in checks if not c.get("pass")]
     if passed:
         _ok("check is all green, nothing to repair")
@@ -970,16 +1009,33 @@ def repair(sid: str, deep: bool = False, dry_run: bool = False, home: str = "") 
             print(f"    - {desc}")
         return 0
 
+    # The ladder's own result: a step raising, or a step reporting False. Used only when the
+    # re-check below is unjudgeable -- there the rc may come from nothing else.
+    ladder_bad = 0
     for desc, fn in plan:
         print(f"\n  ── {desc} ──")
         try:
-            fn()
+            if fn() is False:
+                ladder_bad += 1
         except Exception as e:
             _fail(f"repair action raised: {e}")
+            ladder_bad += 1
 
     # re-check
     print("\n  -- re-check --")
-    passed2, checks2 = _run_check(sid)
+    passed2, checks2, recheck_tail = _run_check(sid, deep_home)
+    if not checks2:
+        # GAP ≠ green (repair 方案A, 2026-09-29): `all([])` is True, so without this branch an
+        # empty re-check printed "re-check is all green" and returned 0 on zero evidence. An empty
+        # re-check is UNJUDGEABLE: say so explicitly, echo the subprocess tail, and let the rc follow
+        # the ladder's own result -- never an all-green verdict.
+        _warn("check produced no output on re-check -- re-check is UNJUDGEABLE (empty output is not all green)")
+        _warn(f"    check subprocess output: {recheck_tail}")
+        if ladder_bad:
+            _fail(f"-> re-check unjudgeable and the ladder reported {ladder_bad} failed step(s): rc=1")
+            return 1
+        _warn("-> re-check unjudgeable: rc is the ladder's own result only, NOT an all-green verdict")
+        return 0
     still = [c for c in checks2 if not c.get("pass")]
     if passed2:
         _ok("re-check is all green")
