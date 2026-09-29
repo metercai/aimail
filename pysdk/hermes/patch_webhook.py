@@ -250,6 +250,64 @@ def webhook_patch_gaps(target_path: str) -> list:
     return missing_webhook_anchors(text)
 
 
+# ── Patch 3 的 prompt 渲染锚(2026-09-30 取证, 形态 A/B 双兼容)────────────────
+# 形态 A(旧 hermes handler):注释行 `        # Format prompt from template`。
+# 形态 B(现行 hermes —— handler 改写成 `with self._profile_scope(profile):` 后
+#   行内渲染, 注释已删):锚是
+#   `prompt = self._render_prompt(route_config.get("prompt", ""), payload, ...)`。
+# 取证原文(镜像 aimail-host-hermes 的 /opt/data/hermes-agent/gateway/platforms/
+# webhook.py, 883 行, 非 git 仓): `grep -c 'Format prompt from template'` = 0,
+# 只有形态 B ⇒ 只认 A 会让 patch 3 静默跳过 ⇒ 调用钩子锚恒 0(preprocessor 永不执行)。
+PROMPT_ANCHOR_LEGACY = "# Format prompt from template"
+PROMPT_ANCHOR_INLINE = 'prompt = self._render_prompt(route_config.get("prompt", "")'
+CALL_BLOCK_MARKER = "# ── Preprocess payload (AimailGateway integration)"
+PROMPT_ANCHOR_HINT = ("prompt 渲染锚(二选一): "
+                      f"{PROMPT_ANCHOR_LEGACY!r} 或 {PROMPT_ANCHOR_INLINE!r}")
+
+
+def _find_call_marker_line(lines: list):
+    """Return index of the inserted call-block's marker line (indent-agnostic)."""
+    for i, ln in enumerate(lines):
+        if ln.strip().startswith(CALL_BLOCK_MARKER):
+            return i
+    return None
+
+
+def _find_prompt_anchor_line(lines: list):
+    """Return index of the prompt-render anchor line: 形态 A 优先, 再试形态 B。
+
+    形态 B 取**首个**命中行(= webhook POST handler 里 script 变换之后、
+    `_render_prompt` 那一行); 文件别处的 `_render_prompt(...)` 调用形态不同
+    (`return {key: self._render_prompt(value, ...)}`)不会误命中。
+    """
+    for i, ln in enumerate(lines):
+        if ln.strip().startswith(PROMPT_ANCHOR_LEGACY):
+            return i
+    for i, ln in enumerate(lines):
+        if ln.strip().startswith(PROMPT_ANCHOR_INLINE):
+            return i
+    return None
+
+
+def _strip_call_block_lines(text: str) -> tuple:
+    """按行剥离已插入的调用钩子块(任意缩进) → (新文本, 是否剥离了)。
+
+    行区间 = [marker, prompt 锚) 外加紧邻 marker 的那一行空白 —— 那行空白是
+    WEBHOOK_CALL_BLOCK 开头 `\\n` 造出来的, 一并删掉才能回到补丁前的字节
+    (幂等重跑不涨空行)。patch 与 unpatch 共用本函数 ⇒ 逐字节对称。
+    """
+    lines = text.split('\n')
+    mi = _find_call_marker_line(lines)
+    if mi is None:
+        return text, False
+    ai = _find_prompt_anchor_line(lines)
+    if ai is None or ai <= mi:
+        return text, False
+    start = mi - 1 if (mi > 0 and not lines[mi - 1].strip()) else mi
+    del lines[start:ai]
+    return '\n'.join(lines), True
+
+
 def patch_webhook(target_path: str) -> bool:
     """Apply all AIMail sub-patches to a Hermes webhook.py file.
 
@@ -309,30 +367,60 @@ def patch_webhook(target_path: str) -> bool:
         print("WARNING: could not find logger marker — patch 2 skipped", file=sys.stderr)
 
     # ── Patch 3: add preprocessor call in webhook handler (always replace) ──
-    # Remove old instance if present: from the comment marker to blank line before # Format prompt
-    # old_end 用无缩进锚点 —— 补丁重跑时该行可能以不同缩进存在(8 空格手工补丁
-    # vs 16 空格脚本补丁),硬编码缩进会导致 ValueError 且中断(webhook.py 已补丁
-    # 场景)。
-    old_start = '        # ── Preprocess payload (AimailGateway integration) ──────────'
-    old_end   = '# Format prompt from template'
-    if old_start in content and old_end in content:
-        before = content[:content.index(old_start)]
-        after  = content[content.index(old_end):]
-        content = before + after
-    call_block = WEBHOOK_CALL_BLOCK
-    # Insert before "# Format prompt from template"
+    # 形态 A(旧 hermes, 有 `# Format prompt from template` 注释):走原有字节
+    # 形态 —— 插入文本与 unpatch 的 exact-strip 逐字节对称, 别改这段。
+    # 形态 B(现行 hermes, 注释已删):按行删旧块 + 在行内渲染锚前按**锚行缩进**
+    # 插入; 否则 patch 3 静默跳过 ⇒ 调用钩子锚恒 0。
     # NOTE: must NOT reuse the module-level `target` variable (holds the
     # webhook.py path from sys.argv[1]) — assigning it here silently
     # redirected every later `open(target, "w")` to a file literally named
     # "# Format prompt from template", leaving webhook.py unpatched while
     # the script reported success. Use a dedicated local name.
-    prompt_anchor = "# Format prompt from template"
-    if prompt_anchor in content:
-        content = content.replace(prompt_anchor, call_block + "        " + prompt_anchor, 1)
-        patched = True
-        print("Patch 3: preprocessor call added/updated", file=sys.stderr)
+    if PROMPT_ANCHOR_LEGACY in content:
+        # old_end 用无缩进锚点 —— 补丁重跑时该行可能以不同缩进存在(8 空格手工补丁
+        # vs 16 空格脚本补丁),硬编码缩进会导致 ValueError 且中断(webhook.py 已补丁
+        # 场景)。
+        old_start = '        # ── Preprocess payload (AimailGateway integration) ──────────'
+        if old_start in content:
+            before = content[:content.index(old_start)]
+            after  = content[content.index(PROMPT_ANCHOR_LEGACY):]
+            content = before + after
+        prompt_anchor = PROMPT_ANCHOR_LEGACY
+        if prompt_anchor in content:
+            content = content.replace(prompt_anchor, WEBHOOK_CALL_BLOCK + "        " + prompt_anchor, 1)
+            patched = True
+            print("Patch 3: preprocessor call added/updated", file=sys.stderr)
+        else:
+            print(f"WARNING: could not find {prompt_anchor!r} — patch 3 skipped; "
+                  f"{PROMPT_ANCHOR_HINT}", file=sys.stderr)
     else:
-        print("WARNING: could not find '# Format prompt from template' — patch 3 skipped", file=sys.stderr)
+        _l3 = content.split('\n')
+        _mi = _find_call_marker_line(_l3)
+        if _mi is not None:
+            _ai = _find_prompt_anchor_line(_l3)
+            if _ai is not None and _ai > _mi:
+                _start = _mi - 1 if (_mi > 0 and not _l3[_mi - 1].strip()) else _mi
+                del _l3[_start:_ai]
+                print("Patch 3: removed existing preprocessor call block", file=sys.stderr)
+        _ai = _find_prompt_anchor_line(_l3)
+        if _ai is None:
+            print(f"WARNING: no prompt-render anchor found — patch 3 skipped; "
+                  f"{PROMPT_ANCHOR_HINT}", file=sys.stderr)
+        else:
+            # 锚行缩进决定块缩进(现行 hermes 锚在 `with self._profile_scope` 内, 12 空格
+            # ⇒ 相对 canonical 8 空格 +4); 锚行缩进 < 8 时不缩进(canonical 原样)。
+            _lead = len(_l3[_ai]) - len(_l3[_ai].lstrip(' '))
+            _extra = max(_lead - 8, 0)
+            _blk = WEBHOOK_CALL_BLOCK
+            if _extra:
+                _blk = ''.join((' ' * _extra + _seg) if _seg.strip() else _seg
+                               for _seg in _blk.splitlines(keepends=True))
+            _head = '\n'.join(_l3[:_ai])
+            _tail = '\n'.join(_l3[_ai:])
+            content = (_head + '\n' if _ai > 0 else '') + _blk + _tail
+            patched = True
+            print(f"Patch 3: preprocessor call added/updated "
+                  f"(inline-render hermes form, indent +{_extra})", file=sys.stderr)
 
     # ── Patch 4: REMOVE legacy _log_ping_event from webhook.py (2026-08-16) ──
     # _log_ping_event moved to shared core aimail_base — webhook.py must
@@ -478,6 +566,11 @@ def patch_webhook(target_path: str) -> bool:
               + " — preprocessor 不会被调用(补丁不完整), "
                 "patch_webhook 判失败; 检查宿主 webhook.py 版本/锚点",
               file=sys.stderr)
+        print("      期望锚原文(缺哪块就打哪块):", file=sys.stderr)
+        for _nm, _an in WEBHOOK_REQUIRED_ANCHORS:
+            if _nm in _missing:
+                print(f"        · {_nm}: {_an!r}", file=sys.stderr)
+        print(f"        · {PROMPT_ANCHOR_HINT}", file=sys.stderr)
         return False
 
     return patched
@@ -661,6 +754,15 @@ def unpatch_webhook(fp: Path) -> int:
         text, ok = strip_block(text, block)
         if ok:
             changes += 1
+
+    # 形态 B(现行 hermes)的调用钩子块按锚行缩进(+4)插入 ⇒ 上面的 exact-strip
+    # 匹配不上, 这里按行剥离(与 patch 同一函数 ⇒ 逐字节对称)。形态 A 已被
+    # exact-strip 拿掉、marker 不在 ⇒ 本步 no-op(顺序不能反: 先按行剥会吃掉
+    # 形态 A 锚行原有的缩进, unpatch 不再逐字节还原)。
+    _text2, _stripped = _strip_call_block_lines(text)
+    if _stripped:
+        text = _text2
+        changes += 1
 
     # 2) Legacy blocks(旧版 pysdk/cli 注入的字节形态;现代 patch 不再插入,
     #    仅用于清理仍带旧补丁的宿主)— best effort,无匹配即 no-op。

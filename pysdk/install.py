@@ -34,18 +34,31 @@ from _resources_release import agentmail_home, release_all_systems  # noqa: E402
 
 
 def _import_hermes(name: str):
-    """import hermes 子模块,兼容 pip(aimail.hermes.X)与 repo(hermes.X)。"""
+    """import hermes 子模块 —— **同源优先**:先取与本 install.py 同一棵树的
+    `hermes/<name>.py`(`_CORE` 已插在 sys.path 头),才回退包名 `aimail.hermes.<name>`。
+
+    2026-09-30 P2 取证:原顺序(包名优先)在"CLI 自举把源码快照到
+    `~/.aimail/bin/aimail-src/pysdk/` + 镜像里 pip 装着旧 aimailsdk(0.1.30)"
+    的形态下取到**另一棵树**的旧实现(iso15 原文):
+        File ".../aimail-src/pysdk/install.py", line 135, in hermes_webhook_anchor_gate
+          gaps = list(ph.webhook_patch_gaps(webhook_py))
+        AttributeError: module 'aimail.hermes.patch_webhook' has no attribute 'webhook_patch_gaps'
+    ⇒ install.py 是新快照、patch_webhook 是 pip 旧包 = 混装,新增锚闸直接炸
+    (rc≠0),后续 J 段全部缺前置成 GAP。**调用方与被调方必须同一棵树**;
+    pip 形态下两路指向同一文件,换序无副作用。
+    """
     try:
-        return __import__(f"aimail.hermes.{name}", fromlist=["*"])
-    except ImportError:
         return __import__(f"hermes.{name}", fromlist=["*"])
+    except ImportError:
+        return __import__(f"aimail.hermes.{name}", fromlist=["*"])
 
 
 def _import_deerflow(name: str):
+    """同 `_import_hermes`:同源优先(`deer-flow/<name>.py` 与本文件同树)。"""
     try:
-        return __import__(f"aimail.deer-flow.{name}", fromlist=["*"])
-    except ImportError:
         return __import__(f"deer-flow.{name}", fromlist=["*"])
+    except ImportError:
+        return __import__(f"aimail.deer-flow.{name}", fromlist=["*"])
 
 
 # ═══════════════════════════════════════════════════════════════
