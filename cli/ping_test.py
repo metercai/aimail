@@ -265,6 +265,9 @@ def main() -> int:
 
     deadline = time.time() + args.timeout
     found_ping = found_pong = found_sent = False
+    # pong_sent.pong_status 全量收集(pysdk/aimail_base.py:787-791 把 send_mail 成败写进
+    # 事件字段)—— 判定时"一条 ok 都没有"才算失败; 字段缺席不判(判据只增不减)。
+    pong_statuses = set()
 
     def _parse_ts(s: str):
         for fmt in ("%Y-%m-%dT%H:%M:%S.%f%z", "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S"):
@@ -294,9 +297,15 @@ def main() -> int:
                     if d == "ping_intercepted" and not found_ping:
                         found_ping = True
                         print(f"  +{_fmt_secs(ts, dt_sent):5.1f}s    Webhook Receive (ping)         ✓")
-                    if d == "pong_sent" and found_ping and not found_sent:
-                        found_sent = True
-                        print(f"  +{_fmt_secs(ts, dt_sent):5.1f}s    Pong Sent (send_mail)          ✓")
+                    if d == "pong_sent":
+                        _st = str(entry.get("pong_status") or "").strip()
+                        if _st:
+                            pong_statuses.add(_st)
+                        if found_ping and not found_sent:
+                            found_sent = True
+                            _mark = "✓" if (not _st or _st == "ok") else "✗"
+                            _note = f" (pong_status={_st})" if _st else " (pong_status 缺席, 不判)"
+                            print(f"  +{_fmt_secs(ts, dt_sent):5.1f}s    Pong Sent (send_mail)          {_mark}{_note}")
                     if d == "pong_returned" and found_ping and not found_pong:
                         found_pong = True
                         print(f"  +{_fmt_secs(ts, dt_sent):5.1f}s    Webhook Return (pong)          ✓")
@@ -318,6 +327,13 @@ def main() -> int:
     else:
         print(f"  ✗ No ping/pong events in {aimail_log} within {args.timeout}s")
         result_ok = False
+    # ── pong_status 收口(前驱定因①, 2026-09-30): 三阶段事件只证明"事件发生过", send_mail
+    #    的成败在事件字段里 —— 全量收集后一条 ok 都没有才判失败; 字段缺席不判。──
+    if pong_statuses:
+        print(f"  · pong_sent.pong_status 采样: {','.join(sorted(pong_statuses))}")
+        if "ok" not in pong_statuses:
+            print(f"  ✗ pong_sent.pong_status 无一条 ok ({','.join(sorted(pong_statuses))}) — send_mail 实际失败, 上面的事件 ✓ 不作数")
+            result_ok = False
     if not result_ok:
         return 1
 
