@@ -215,11 +215,50 @@ if aimail_hermes is not None:
 '''
 
 
+# ── 关键锚清单(P2, owner 2026-09-30): 名字 → 该块的专属判据串 ──────────────
+# 与 WEBHOOK_*_BLOCK 同源(判据串必须逐字出现在对应插入块里), 调用方(以及
+# tests/cli/docker/journey-in-host.sh 的守卫)只按这里的串判"钩子在位"。
+WEBHOOK_REQUIRED_ANCHORS = (
+    ("registry 块(PREPROCESS_REGISTRY 定义)",
+     "PREPROCESS_REGISTRY: Dict[str, Callable] = {}"),
+    ("preprocessor 调用钩子(CALL 块)",
+     "preprocessor = PREPROCESS_REGISTRY.get(preprocess_name)"),
+    ("adapter 导入块(from aimail.hermes import aimail_hermes)",
+     "from aimail.hermes import aimail_hermes"),
+)
+
+
+def missing_webhook_anchors(text: str) -> list:
+    """P2(owner 2026-09-30): 补丁后**关键锚**必须在 —— 判据只增不减。
+
+    缺任何一块都意味着"声明了但没实现": registry 缺 ⇒ 没有注册表;
+    调用钩子缺 ⇒ 有注册无调用, preprocessor **永不执行**(agentmail.log 恒 0 行,
+    而 202 照旧由原生非阻塞回执返回 ⇒ 表象是"装好了"); adapter 导入缺 ⇒
+    适配器不挂。返回缺失块名清单(空 = 齐)。
+    """
+    return [name for name, anchor in WEBHOOK_REQUIRED_ANCHORS
+            if anchor not in text]
+
+
+def webhook_patch_gaps(target_path: str) -> list:
+    """磁盘形态的关键锚体检(供 install_hermes 等调用方判失败)。"""
+    try:
+        with open(target_path) as f:
+            text = f.read()
+    except OSError as e:
+        return [f"webhook.py 不可读: {e}"]
+    return missing_webhook_anchors(text)
+
+
 def patch_webhook(target_path: str) -> bool:
     """Apply all AIMail sub-patches to a Hermes webhook.py file.
 
     Returns True if the file was modified (any add/update patch applied).
     Idempotent: already-patched files are detected and reported as ALREADY PATCHED.
+
+    P2(owner 2026-09-30): **锚缺失不再"WARNING 后返回成功"** —— 关键锚缺任一块
+    即返回 False(ERROR 行点名缺哪块); 调用方要区分"已打好"与"打失败"就读
+    `webhook_patch_gaps(path)`(空 = 齐)。
     """
     if not os.path.isfile(target_path):
         print(f"patch_webhook: target file not found: {target_path}", file=sys.stderr)
@@ -429,6 +468,17 @@ def patch_webhook(target_path: str) -> bool:
         print("OK")
     else:
         print("ALREADY PATCHED")
+
+    # ── P2 硬校验(owner 2026-09-30): 关键锚缺任一块 ⇒ 显式失败, 不再
+    # "WARNING 后返回成功"(旧行为: CALL 锚找不到只打 warning, patch_webhook
+    # 照样返回成功 ⇒ install 打印 applied/already, 但 preprocessor 永不被调用)。
+    _missing = missing_webhook_anchors(content)
+    if _missing:
+        print("ERROR: 关键锚缺失 — " + "; ".join(_missing)
+              + " — preprocessor 不会被调用(补丁不完整), "
+                "patch_webhook 判失败; 检查宿主 webhook.py 版本/锚点",
+              file=sys.stderr)
+        return False
 
     return patched
 

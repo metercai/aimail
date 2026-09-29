@@ -126,6 +126,15 @@ def _env_val(key: str, fallback: str = "") -> str:
     return fallback
 
 
+# ── manager 解析(单一口径, 2026-09-30 owner 裁决)─────────────────────────
+# 三个既有名**互认**, 不新增第四种名(CLI export 的是 INTEGRATE_MANAGER_ADDRESS
+# 与 AIMAIL_MANAGER_ADDRESS, SDK/deerflow 侧读 AIMAIL_MANAGER —— 历史上三处
+# 互不相同, deerflow 的 reconcile 因此恒得 `''` 并把空值写进白名单)。
+# 优先级: 显式参数 > cfg > 本表顺序的第一个非空值。
+_MANAGER_ENV_NAMES = ("AIMAIL_MANAGER", "AIMAIL_MANAGER_ADDRESS",
+                      "INTEGRATE_MANAGER_ADDRESS")
+
+
 # ── 网关地址解析(单一口径, 2026-09-29 #15)─────────────────────────────
 # 全命令共用同一条优先级, 禁止各写一份(历史上 install 与 reset 就漂成两种):
 #   显式 -g  >  AIMAIL_URL(env / ~/.aimail/.env)  >  该 sid 的本地 cfg.gateway_url  >  默认
@@ -412,9 +421,18 @@ def cmd_persona(args) -> int:
     return subprocess.call(cmd)
 
 
-def _sdk_install(kind: str, system_home: Path, sid: str, fn: str = "") -> int:
+def _sdk_install(kind: str, system_home: Path, sid: str, fn: str = "",
+                 manager: str = "") -> int:
     """调 pysdk 自足安装入口(仓库同仓 import;走 spawn 语义——SDK 函数名
-    由注册表 sdk_install 动作的 fn 字段驱动,CLI 零平台知识)。"""
+    由注册表 sdk_install 动作的 fn 字段驱动,CLI 零平台知识)。
+
+    P1(2026-09-30 owner 裁决): manager 必须传到 SDK —— 旧实现只给 2 参,
+    `install_deerflow(…, manager=…)` 的形参永远收不到值 ⇒ install.py:262
+    `if manager:` 恒假 ⇒ 走 reconcile 以 `manager=''` 注册, 白名单行落
+    `value=''`(deerflow 独有, 与 pi/dsh/openclaw/hermes 不一致)。
+    是否收 manager 由**被调函数自己的签名**决定(CLI 零平台知识、五平台同参
+    无特例): 签名有 `manager` 就传, 没有就按原样 2 参调。
+    """
     sys.path.insert(0, str(SCRIPTS_DIR.parent / "pysdk"))
     try:
         import install as _sdk
@@ -425,6 +443,13 @@ def _sdk_install(kind: str, system_home: Path, sid: str, fn: str = "") -> int:
     if entry is None:
         _warn(f"sdk_install: 注册表未给平台 '{kind}' 配置 fn(SDK 入口缺失)")
         return 1
+    if manager:
+        try:
+            import inspect
+            if "manager" in inspect.signature(entry).parameters:
+                return entry(str(system_home), sid, manager=manager)
+        except (TypeError, ValueError):  # builtins/签名不可读 → 退回原调用形态
+            pass
     return entry(str(system_home), sid)
 
 
@@ -505,6 +530,40 @@ def _probe_present(spec: dict, ctx: dict) -> bool:
     return match in ((r.stdout or "") + (r.stderr or "")).lower()
 
 
+def _resolve_mgr(manager: str, cfg: dict = None) -> str:
+    """manager 解析链: 显式参数(须含 @) → 平台 cfg → env **三名互认**。
+
+    P1(2026-09-30 owner 裁决): CLI 实际 export 的是 `INTEGRATE_MANAGER_ADDRESS`
+    (cli/aimail env 契约)与 `AIMAIL_MANAGER_ADDRESS`(SDK 契约), 而 SDK 侧只认
+    `AIMAIL_MANAGER` ⇒ 三名互认兜底, **不新增第四种名**。reconcile/register
+    走的是同一条链(pysdk/aimail_base.resolve_manager_address 同款顺序)。
+    """
+    if manager and "@" in str(manager):
+        return str(manager)
+    for src in (cfg or {},):
+        v = str(src.get("manager_address") or "")
+        if v:
+            return v
+    for key in _MANAGER_ENV_NAMES:
+        v = _env_val(key)
+        if v:
+            return v
+    return ""
+
+
+def _require_mgr(manager: str, cfg: dict, where: str) -> str:
+    """P1 基本契约硬门(owner 2026-09-30): 解析链(显式参数 → env 兜底)走完
+    仍为空 ⇒ **直接报错退出(rc=1, 响亮文案)**, 禁止以 `''` 注册/写白名单。
+    只加在**注册/写白名单**的 install 步上; 注销/只读路径不走此门。"""
+    m = _resolve_mgr(manager, cfg)
+    if not m:
+        _fail(f"缺 manager(参数/env 均未给)—— {where} 的注册/白名单不接受空值"
+              f"(owner 契约 2026-09-30)。\n"
+              f"  给值: -m/--manager <addr>,或 env "
+              f"{' / '.join(_MANAGER_ENV_NAMES)}")
+    return m
+
+
 def _run_install_steps(platform: str, ctx: dict) -> None:
     """平台 install 动作序列执行器(platforms.json install_steps 表驱动)。
     kind: print|warn|spawn|sdk_install|register_default|register_all;when 前置条件;
@@ -523,8 +582,15 @@ def _run_install_steps(platform: str, ctx: dict) -> None:
         elif kind == "warn":
             _warn(_tmpl(st["text"], ctx))
         elif kind == "sdk_install":
+            # P1 硬门: sdk_install 步会注册/写白名单(hermes register_emails、
+            # deerflow register/reconcile)⇒ manager 必须非空, 在**进 try 之前**
+            # 判(F9 的 SystemExit→warn 吞不掉它), 失败即 rc=1。
+            ctx["manager"] = _require_mgr(ctx.get("manager", ""),
+                                          ctx.get("cfg") or {},
+                                          f"install sdk_install({st.get('fn', '')})")
             rc = _sdk_install(st.get("target", platform), Path(ctx["home"]),
-                              ctx.get("sid", ""), fn=st.get("fn", ""))
+                              ctx.get("sid", ""), fn=st.get("fn", ""),
+                              manager=ctx.get("manager", ""))
             ok_t = st.get("ok_text", "sdk install done")
             _ok(ok_t if rc == 0 else f"{ok_t} — see warnings")
         elif kind == "spawn":
@@ -556,6 +622,10 @@ def _run_install_steps(platform: str, ctx: dict) -> None:
         elif kind == "register_all":
             if not ctx.get("all_agents"):
                 continue  # 仅 --all-agents 时执行
+            # P1 硬门(同 sdk_install): 判在 try 之前, F9 吞不掉
+            ctx["manager"] = _require_mgr(ctx.get("manager", ""),
+                                          ctx.get("cfg") or {},
+                                          f"install register_all({platform})")
             try:
                 _run_register_all(platform, ctx.get("cfg") or {},
                                   ctx.get("manager", ""), ctx.get("home", ""))
@@ -572,6 +642,11 @@ def _run_install_steps(platform: str, ctx: dict) -> None:
             reg = _platform_def(platform).get("register", {})
             dn = reg.get("default_name", "")
             agent = dn if dn else "agent"
+            # P1 硬门(同上): 判在 try 之前 —— 注册/写白名单不接受空 manager,
+            # F9(SystemExit→warn)与异常兜底都不得把它吞成"install 成功"。
+            ctx["manager"] = _require_mgr(ctx.get("manager", ""),
+                                          ctx.get("cfg") or {},
+                                          f"install register_default({platform})")
             try:
                 _register_agent_now(platform, agent, ctx.get("cfg") or {},
                                     agent, ctx.get("manager", ""),
@@ -1890,7 +1965,14 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str,
     if not _re.fullmatch(r"[A-Za-z0-9!#$%&'*+\-/=?^_`{|}~]+", reg_name):
         _fail(f"非法地址名 '{reg_name}':须为 atext-no-dot 字符(不能含点/空格/@)")
     sid = cfg.get("system_id", "")
-    mgr = manager if (manager and "@" in manager) else cfg.get("manager_address", "") or os.environ.get("AIMAIL_MANAGER", "")
+    # P1(2026-09-30): 解析链收口到 `_resolve_mgr`(参数 → cfg → env 三名互认),
+    # 解析完仍为空即硬门 —— 注册链写白名单, 不接受 `''`(禁止静默降级)。
+    mgr = _resolve_mgr(manager, cfg)
+    if not mgr:
+        _fail(f"缺 manager(参数/env 均未给)—— {platform} 注册/白名单不接受空值"
+              f"(owner 契约 2026-09-30)。\n"
+              f"  给值: -m/--manager <addr>,或 env "
+              f"{' / '.join(_MANAGER_ENV_NAMES)}")
     home = cfg.get("system_home", "")
     domain = cfg.get("domain", "")
     system_name = cfg.get("system_name", "")

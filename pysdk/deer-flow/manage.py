@@ -187,9 +187,11 @@ def register_agents(manager: str = "", system_id: str = "", agent: str = "") -> 
     gw = _base.load_gateway_config(system_id)
     if not gw:
         raise SystemExit(f"gateway config not found (aimail_gateway.json) for {system_id} — run aimail install first")
-    manager = manager or os.environ.get("AIMAIL_MANAGER", "")
+    manager = _core.resolve_manager_address(manager)
     if not manager:
-        raise SystemExit("need --manager <addr> or AIMAIL_MANAGER env (审批联系人)")
+        raise SystemExit("need --manager <addr> or env "
+                         + " / ".join(_core.MANAGER_ENV_VARS)
+                         + " (审批联系人; 三名互认, owner 契约 2026-09-30)")
 
     client = _tools._GatewayClient(gw["gateway_url"], gw.get("admin_key", ""))
     agents = discover_deerflow_agents() if agent == "all" else [agent]
@@ -329,7 +331,11 @@ def reconcile(system_id: str = "", manager: str = "", dry_run: bool = False) -> 
     # 2. 本地注册表
     local = _local_agents(system_id)
 
-    manager = manager or os.environ.get("AIMAIL_MANAGER", "")
+    # 三名互认兜底(AIMAIL_MANAGER / AIMAIL_MANAGER_ADDRESS /
+    # INTEGRATE_MANAGER_ADDRESS)—— CLI export 的不是 AIMAIL_MANAGER,
+    # 只认它会让 reconcile 恒得 '' 并把空值写进白名单(取证 P1 主跳)。
+    # 解析完仍为空由 register_agent_email 的硬门报错(不静默注册)。
+    manager = _core.resolve_manager_address(manager)
     client = _tools._GatewayClient(gw["gateway_url"], gw.get("admin_key", ""))
 
     changes = 0

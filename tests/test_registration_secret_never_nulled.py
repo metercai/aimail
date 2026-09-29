@@ -45,6 +45,13 @@ BRIDGE_URL = f"http://127.0.0.1:38081{_c.HERMES_INBOUND_PATH}"
 LOCAL_URL = f"http://127.0.0.1:39100{_c.INBOUND_PATH}"
 GW = {"gateway_url": "https://gw.test", "admin_key": "AK"}
 
+# owner 裁决 2026-09-30:「env 可兜底但不可为空,不满足直接报错」—— 注册链不接受
+# manager='' ⇒ 本文件各调用点必须给出 manager(满足新前置),否则先撞
+# ManagerRequiredError, 连"写入是否带 secret"都测不到。本文件守护的契约是
+# **secret 成对写**(与 manager 正交): 断言一字未改(不删测试、不放宽判据),
+# 只按新契约补齐入参。
+MGR = "m@d.tm"
+
 
 class _FakeClient:
     """Records every registration write (id, url, secret) — the only observable."""
@@ -105,7 +112,8 @@ def test_registration_write_carries_the_binding_secret(home):
     """RED/GREEN anchor: 修复前这里记录到的是 (..., URL, "") ⇒ 云端 secret = NULL."""
     _write_binding(home)
 
-    core.register_agent_email(_FakeClient(), SID, EMAIL, webhook_url=LOCAL_URL)
+    core.register_agent_email(_FakeClient(), SID, EMAIL, webhook_url=LOCAL_URL,
+                              manager_address=MGR)
 
     assert _FakeClient.writes == [("7", LOCAL_URL, SECRET)], (
         "url+secret must be written as a pair — a url-only write nulls the cloud secret")
@@ -119,7 +127,8 @@ def test_not_a_single_write_when_the_binding_has_no_secret(home):
     网关把云端已存 secret 覆写成 NULL ⇒ 永久 401。"""
     _write_binding(home, secret="")
 
-    core.register_agent_email(_FakeClient(), SID, EMAIL, webhook_url=LOCAL_URL)
+    core.register_agent_email(_FakeClient(), SID, EMAIL, webhook_url=LOCAL_URL,
+                              manager_address=MGR)
 
     assert _FakeClient.writes == [], "a url-only write must never be issued without a secret"
 
@@ -128,7 +137,8 @@ def test_not_a_single_write_when_the_binding_has_no_secret(home):
 def test_register_chain_falls_back_to_the_binding_secret(home):
     _write_binding(home)
 
-    core.register_agent_email(_FakeClient(), SID, EMAIL, webhook_url=BRIDGE_URL)
+    core.register_agent_email(_FakeClient(), SID, EMAIL, webhook_url=BRIDGE_URL,
+                              manager_address=MGR)
 
     assert _FakeClient.writes == [("7", BRIDGE_URL, SECRET)]
 
@@ -137,7 +147,8 @@ def test_register_chain_falls_back_to_the_binding_secret(home):
 def test_register_chain_never_issues_a_secretless_write(home):
     assert _FakeClient.writes == []
 
-    core.register_agent_email(_FakeClient(), SID, "ghost@gw.test", webhook_url=BRIDGE_URL)
+    core.register_agent_email(_FakeClient(), SID, "ghost@gw.test", webhook_url=BRIDGE_URL,
+                              manager_address=MGR)
 
     assert _FakeClient.writes == [], "no binding secret ⇒ leave the cloud row untouched"
 
@@ -145,5 +156,6 @@ def test_register_chain_never_issues_a_secretless_write(home):
 # ── ⑥ 基线不变式: 两个值都给 ⇒ 原样成对写(无行为变化) ──────────────────────────
 def test_register_chain_still_writes_the_pair_verbatim(home):
     core.register_agent_email(_FakeClient(), SID, EMAIL,
-                              webhook_url=BRIDGE_URL, webhook_secret="x" * 64)
+                              webhook_url=BRIDGE_URL, webhook_secret="x" * 64,
+                              manager_address=MGR)
     assert _FakeClient.writes == [("7", BRIDGE_URL, "x" * 64)]

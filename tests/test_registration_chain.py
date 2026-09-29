@@ -7,6 +7,8 @@ fake client 替代 _GatewayClient(无网络),锁定:
 4) 失败非 exists → RuntimeError。
 
 发布前自动回归面:SDK 注册链语义被破坏即 L0 红,不许带问题上线。
+owner 裁决 2026-09-30:「env 可兜底但不可为空,不满足直接报错」—— 注册链不接受
+manager='' ⇒ 下列调用点按新契约补 manager(满足前置);断言一字未改。
 """
 import sys
 from pathlib import Path
@@ -65,7 +67,8 @@ def test_exists_path_updates_webhook():
     # 域列表按网关结构:domain 项含域名;当前匹配语义 domain==email 时更新
     c.domains = [{"id": "dom-9", "domain": "agent.a@d.tm"}]
     out = aimail_base.register_agent_email(c, "sys-1", "agent.a@d.tm",
-                                           webhook_url="http://x/in", webhook_secret="n")
+                                           webhook_url="http://x/in", webhook_secret="n",
+                                           manager_address="m@d.tm")
     kinds = [x[0] for x in c.calls]
     assert "update_system_domain" in kinds
     upd = next(x[1] for x in c.calls if x[0] == "update_system_domain")
@@ -80,7 +83,8 @@ def test_non_exists_error_raises():
     c = FakeClient()
     c.register_result = {"status": "500", "error": "boom"}
     try:
-        aimail_base.register_agent_email(c, "sys-1", "agent.a@d.tm")
+        aimail_base.register_agent_email(c, "sys-1", "agent.a@d.tm",
+                                         manager_address="m@d.tm")
     except RuntimeError as e:
         assert "register failed" in str(e)
         return
@@ -90,6 +94,7 @@ def test_non_exists_error_raises():
 def test_activate_failure_returns_empty_api_key():
     c = FakeClient()
     c.activate_result = {"success": False}
-    out = aimail_base.register_agent_email(c, "sys-1", "agent.a@d.tm")
+    out = aimail_base.register_agent_email(c, "sys-1", "agent.a@d.tm",
+                                           manager_address="m@d.tm")
     assert out["api_key"] == ""
     assert out["activation_code"] == "code-1"

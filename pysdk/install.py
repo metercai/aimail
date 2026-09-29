@@ -123,6 +123,24 @@ def env_check_deerflow(backend_dir: str) -> int:
 # install
 # ═══════════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════════
+# P2 关键锚硬门(owner 2026-09-30)
+# ═══════════════════════════════════════════════════════════════
+def hermes_webhook_anchor_gate(ph, webhook_py: str) -> int:
+    """补丁后关键锚体检: 缺任一块 ⇒ rc=1 并点名缺哪块;齐锚 ⇒ rc=0。
+
+    锚是 patch_webhook **打进去**的 ⇒ 必须在 patch_webhook 之后量;只看它的
+    返回值不够 —— 返回值只说"有没有写文件"(幂等重跑恒 False), 锚在不在才是硬门。
+    """
+    gaps = list(ph.webhook_patch_gaps(webhook_py))
+    if gaps:
+        print(f"  ✗ webhook 关键锚缺失:{', '.join(gaps)} — {webhook_py}")
+        print("      (缺任一块 ⇒ preprocessor 钩子/适配器挂不上, 该补丁不算已打好;"
+              "宿主 webhook.py 版本与锚点不符, 修锚后重跑 install)")
+        return 1
+    return 0
+
+
 def install_hermes(hermes_dir: str, system_id: str = "") -> int:
     """Hermes 平台自足安装:pip 运行时已装(本命令即来自 pip aimailsdk);
     webhook/profiles/toolsets 补丁 + profile 注册 + board 资源展开。"""
@@ -138,7 +156,12 @@ def install_hermes(hermes_dir: str, system_id: str = "") -> int:
     ph = _import_hermes("patch_webhook")
     if os.path.isfile(webhook_py):
         changed = ph.patch_webhook(webhook_py)
-        print(f"  hermes webhook patch: {'applied' if changed else 'already clean'}")
+        # P2(owner 2026-09-30): 关键锚缺任一块 ⇒ rc≠0 且点名缺哪块;齐锚(含幂等
+        # "已打好")⇒ rc=0 —— 硬门见 hermes_webhook_anchor_gate()。
+        if hermes_webhook_anchor_gate(ph, webhook_py):
+            rc = 1
+        else:
+            print(f"  hermes webhook patch: {'applied' if changed else 'already clean'}")
     else:
         print(f"  ✗ webhook.py 缺失:{webhook_py}(--home 应为 hermes 根)")
         rc = 1

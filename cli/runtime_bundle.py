@@ -108,14 +108,26 @@ def _md5(path: str) -> str:
 
 
 def resolve_source_root(explicit: str = "") -> tuple[str, str]:
-    """返回 (源根目录, 类型)。类型 ∈ pip|repo。"""
+    """返回 (源根目录, 类型)。类型 ∈ pip|repo。
+
+    优先级 **repo > pip**,与 `runtime_core.resolve_core_dir()`(判读侧)逐字同序:
+    check 用 repo 判 stale ⇒ 刷载荷的源也必须是 repo,否则 pip 已装的机器上
+    `aimail repair` 刷的是 pip 旧码、`aimail check` 拿 repo 新码复核 ⇒ **永远 stale**
+    (iso14 hermes J5-2 第 4 条红的病灶: 只改了 pysdk/aimail_base.py 就必红)。
+    黄金测试 tests/test_install_machine_surface.py:26 已锁 `repo\\t<pysdk>` 契约
+    ("payload source 随仓"),此处按同一契约实现。--source-root 显式给定仍最优先。
+    """
     if explicit:
         root = os.path.abspath(os.path.expanduser(explicit))
         kind = "repo" if os.path.isfile(os.path.join(root, "aimail_base.py")) else ""
         if not kind:
             raise SystemExit(f"ERROR: --source-root 无效(无 aimail_base.py): {root}")
         return root, kind
-    # 1) pip 包
+    # 1) 仓库 pysdk/(本文件在 cli/ 下)—— 与 resolve_core_dir 同源同序
+    root = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "pysdk"))
+    if os.path.isfile(os.path.join(root, "aimail_base.py")):
+        return root, "repo"
+    # 2) pip 包兜底(仓库 pysdk/ 缺失时)
     try:
         import aimail  # type: ignore
         root = os.path.abspath(os.path.dirname(os.path.dirname(os.path.abspath(aimail.__file__))))
@@ -125,10 +137,6 @@ def resolve_source_root(explicit: str = "") -> tuple[str, str]:
             return pkg_dir, "pip"
     except Exception:
         pass
-    # 2) 仓库 pysdk/(本文件在 cli/ 下)
-    root = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "pysdk"))
-    if os.path.isfile(os.path.join(root, "aimail_base.py")):
-        return root, "repo"
     raise SystemExit("ERROR: 运行时源未找到(pip aimail 未安装且仓库 pysdk/ 缺失)")
 
 

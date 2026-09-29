@@ -2088,6 +2088,49 @@ def resolve_register_webhook_url(gw: dict, local_webhook_url: str) -> str:
     return local_webhook_url                         # ③' 不可投递 ⇒ 退回本机端点
 
 
+# ═══════════════════════════════════════════════════════════════
+# manager 解析 + 注册/写白名单硬门(P1, owner 裁决 2026-09-30)
+# ═══════════════════════════════════════════════════════════════
+# 三个既有 env 名**互认**, 不新增第四种名: CLI 的集成契约 export
+# `INTEGRATE_MANAGER_ADDRESS`、SDK 契约 export `AIMAIL_MANAGER_ADDRESS`、
+# deerflow/历史侧只读 `AIMAIL_MANAGER` —— 三处互不相同正是 deerflow 白名单行
+# 落成 `value=''` 的根因之一(取证 p1-p2-forensics-20260930.md)。
+MANAGER_ENV_VARS = ("AIMAIL_MANAGER", "AIMAIL_MANAGER_ADDRESS",
+                    "INTEGRATE_MANAGER_ADDRESS")
+
+
+class ManagerRequiredError(RuntimeError):
+    """注册/写白名单硬门: manager 解析链(显式参数 → env 三名互认)走完仍为空。
+
+    以空值注册会在网关建出 `value=''` 的 manager 白名单行 ⇒ 出站
+    `550 Sender not whitelisted`(deerflow J4e/J5-1 实测)。owner 裁决:
+    不允许静默降级, 必须响亮失败。注销/只读等不需要 manager 的路径不走此门。
+    """
+
+
+def resolve_manager_address(manager_address: str = "") -> str:
+    """显式参数 → env 三名互认 → 仍空返回 `''`(由调用方决定是否报错)。"""
+    v = str(manager_address or "").strip()
+    if v:
+        return v
+    for key in MANAGER_ENV_VARS:
+        e = str(os.environ.get(key) or "").strip()
+        if e:
+            return e
+    return ""
+
+
+def require_manager_address(manager_address: str = "", where: str = "register") -> str:
+    """硬门: 解析完仍为空 ⇒ 抛 ManagerRequiredError(rc≠0, 文案指明缺哪块)。"""
+    v = resolve_manager_address(manager_address)
+    if not v:
+        raise ManagerRequiredError(
+            f"缺 manager(参数/env 均未给): {where} 的注册/白名单不接受空值 —— "
+            f"请给显式参数,或设置 env {' / '.join(MANAGER_ENV_VARS)}"
+            f"(禁止以 '' 注册, 否则白名单行 value='' ⇒ 出站 550 Sender not whitelisted)")
+    return v
+
+
 def register_agent_email(client, system_id: str, email: str,
                          webhook_url: str = "", webhook_secret: str = "",
                          manager_address: str = "") -> dict:
@@ -2098,7 +2141,14 @@ def register_agent_email(client, system_id: str, email: str,
 
     client 须提供：register_email / list_system_domains / update_system_domain /
     activate_address（aimail_tools._GatewayClient 全具备；白名单由网关注册接口自动创建）。
+
+    **P1 硬门(2026-09-30 owner 裁决)**: 这是"注册/写白名单"的公共收口,
+    install / register / reconcile 三条路都过这道门 —— 显式参数与 env 兜底
+    走完仍为空即抛 `ManagerRequiredError`, 不允许以 `''` 注册(注销/只读路径
+    走 `deregister_agent_email`, 不经此处)。
     """
+    manager_address = require_manager_address(manager_address,
+                                              where=f"register {email}")
     result = client.register_email(
         system_id=system_id, email=email,
         webhook_url=webhook_url, webhook_secret=webhook_secret,
