@@ -69,6 +69,19 @@ def register_emails():
 
     count = 0
 
+    # ── config 补全与注册标记解耦(2026-09-30 J4e 根因) ─────────────────────
+    # 旧逻辑把 ensure_profile_config 放在 ".agentmail 指针已匹配 ⇒ 跳过" 之后:  contract-allowed: 注释文字(非代码)引用契约指针文件名
+    # 指针已存在(同一 system_id)时整段被跳过, install 自报 registered:0, 于是
+    # platform_toolsets.webhook/cli 永远补不上 ⇒ webhook 会话回退默认工具集,
+    # agent 写好了回信也发不出(iso16 日志 86 行 registered:0 → J5 报 toolset
+    # MISSING → J4e reply=0)。ensure 本身幂等(只补缺失项、secret 不动), 因此
+    # **无条件执行**; 注册仍按指针幂等跳过(registered 计数语义不变)。
+    # 五个平台走同一段 install/ensure 代码, 不加任何平台特判。
+    try:
+        ensure_config.ensure_profile_config(Path(home))
+    except Exception as e:
+        print(f"failed:ensure:default:{e}")
+
     # Default profile (root ~/.hermes/)
     # Use .agentmail pointer as registration marker
     default_pointer = os.path.join(home, ".agentmail")
@@ -86,7 +99,6 @@ def register_emails():
         print("  No default pointer — registering default profile", file=sys.stderr)
     if _reregister_default:
         try:
-            ensure_config.ensure_profile_config(Path(home))
             os.environ["HERMES_PROFILE_DIR"] = home
             aimail_hermes._auto_register_email("default", home, config)
             count += 1
@@ -101,6 +113,12 @@ def register_emails():
             profile_dir = os.path.join(profiles_dir, name)
             if not os.path.isdir(profile_dir):
                 continue
+            # config 补全同样与指针解耦(见上): 指针只代表"已注册", 不代表
+            # "配置齐全" —— 幂等 ensure 每次都跑。
+            try:
+                ensure_config.ensure_profile_config(Path(profile_dir))
+            except Exception as e:
+                print(f"failed:ensure:{name}:{e}")
             # Use .agentmail pointer as registration marker
             named_pointer = os.path.join(profile_dir, ".agentmail")
             if os.path.isfile(named_pointer):
@@ -112,7 +130,6 @@ def register_emails():
                 except:
                     continue
             try:
-                ensure_config.ensure_profile_config(Path(profile_dir))
                 # webhook 复用/路由创建都解析"当前 profile"——批量循环必须
                 # 把 HERMES_PROFILE_DIR 指到本 profile,否则 _load_profile_config
                 # 落到 default 的配置(webhook 串接 + 路由漏建)

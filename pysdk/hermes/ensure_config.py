@@ -77,11 +77,21 @@ def ensure_profile_config(profile_dir: Path) -> list:
     """确保 platforms.webhook.enabled + platform_toolsets.webhook/cli 含 agentmail。"""
     changes = []
     cfg_path = profile_dir / "config.yaml"
-    if not cfg_path.exists():
-        changes.append(f"config.yaml missing ({cfg_path}) — skipped")
-        return changes
+    if cfg_path.exists():
+        cfg = _load_yaml(cfg_path)
+    else:
+        # J4e 根因(2026-09-30 定死, 证据两行):
+        #   iso16 日志 557 行: ensure_profile_config: ['config.yaml missing
+        #   (/opt/data/config.yaml) — skipped'] —— 首次 install 时 hermes 还没生成
+        #   config.yaml, 旧逻辑直接 return ⇒ platform_toolsets 永远补不上;
+        #   等 hermes 建好 config 后, 后续 install 又被 .agentmail 指针短路(iso16  contract-allowed: 注释文字(非代码)引用契约指针文件名
+        #   86 行 registered:0)不再走到这里 ⇒ webhook 会话拿不到 agentmail 工具集。  contract-allowed: 注释文字(非代码)引用契约工具集名
+        # 修法: 缺文件 ⇒ 幂等创建(只写本模块负责的 platforms.webhook +
+        # platform_toolsets 两组键, 其余键交给 hermes 自己的默认值/后续写入,
+        # 已存在键一律保留 —— 与下方"只补缺失项"同一语义)。
+        cfg = {}
+        changes.append(f"config.yaml created ({cfg_path})")
 
-    cfg = _load_yaml(cfg_path)
     dirty = False
 
     # 1) platforms.webhook.enabled(注册链 _ensure_profile_webhook 依赖)
