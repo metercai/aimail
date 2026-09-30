@@ -303,13 +303,18 @@ def _assemble_deerflow(home_root: str, system_id: str = "") -> int:
     重复 install 不产生重复写。
     `DEER_FLOW_PROJECT_ROOT` 只在环境未声明时补成平台 home(沿用 install-mcp.sh
     落点序的 ③「运维已断言项目根 ⇒ 在其中新建」),让落点同时是 deer-flow
-    `resolve_config_path()` 真会读的文件 —— 否则写进状态目录等于没写。
+    `resolve_config_path()` **与** `get_skills_path()` 真会读的位置 ——
+    否则写进状态目录/会话不读的目录等于没写(2026-09-30: skills 落点错即此)。
     任一脚本 rc!=0 ⇒ 返回 1(装配失败必须可见, 不静默降级)。
     """
     sdk = os.path.join(_CORE, "deer-flow")
+    # 两步给**同一份** env: skills 与 MCP 的落点都必须是 deer-flow 真会读的
+    # project_root(get_skills_path ③ / resolve_config_path ③)—— 少传一步 =
+    # 那一步写进状态目录 = 会话读不到(2026-09-30 实测 skills 根因)。
+    asm_env = _assembly_env(system_id, {"DEER_FLOW_PROJECT_ROOT": home_root})
     steps = (
-        ("install-skill.sh", _assembly_env(system_id)),
-        ("install-mcp.sh", _assembly_env(system_id, {"DEER_FLOW_PROJECT_ROOT": home_root})),
+        ("install-skill.sh", asm_env),
+        ("install-mcp.sh", asm_env),
     )
     rc = 0
     for name, env in steps:
@@ -370,6 +375,31 @@ def install_deerflow(backend_dir: str, system_id: str = "", manager: str = "") -
 # ═══════════════════════════════════════════════════════════════
 # uninstall(与 install 对称:撤销自己打的 patch + 清理)
 # ═══════════════════════════════════════════════════════════════
+
+def install_dsh(home: str, system_id: str = "", manager: str = "") -> int:
+    """dsh agent 侧装配(卡②, owner 批 2026-09-30): web profile 的 skill/tool 暴露层。
+
+    归属按 owner 边界裁决(2026-09-30): agent 内部工具/技能的暴露属 **SDK 范围** ⇒ 必须由
+    本入口执行(harness 只调 SDK 入口)。按同一裁决, **agent 适配步骤本身不属 CLI**:
+    `cli/platforms.json` 里那条同名 spawn 步是**待迁移项**(应改为 CLI 调用本 SDK 入口,
+    而非 CLI 自行 spawn 适配脚本); 迁移方案未批前它只作可见失败, **不作为适配归属依据**。
+    复用既有
+    `pysdk/dsh/install-skill-tools.sh`(幂等); rc!=0 ⇒ 返回 1(装配失败必须可见)。
+    `dsh plugin add` 属 CLI 安装步, 不在此重复(不越界、不造第二套)。
+    `manager` 仅保持与 install_deerflow 同签名(dsh 注册在 CLI 面, F6 家族)。
+    """
+    env = _assembly_env(system_id, {"DSH_HOME": home, "DSH_PROFILE": "web"})
+    path = os.path.join(_CORE, "dsh", "install-skill-tools.sh")
+    if not os.path.isfile(path):
+        print(f"  ✗ dsh 装配脚本缺失: {path}(打包/物化缺陷, 不静默跳过)")
+        return 1
+    r = subprocess.call(["bash", path], env=env)
+    if r != 0:
+        print(f"  ✗ dsh install-skill-tools.sh 装配失败(exit {r})")
+        return 1
+    print("  dsh skill/tool exposure: assembled")
+    return 0
+
 
 def uninstall_hermes(hermes_dir: str, system_id: str = "") -> int:
     ha = os.path.join(hermes_dir, "hermes-agent")
@@ -540,8 +570,8 @@ def main(argv: list | None = None) -> int:
     ap = argparse.ArgumentParser(prog="aimail.install", description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
     p_ins = sub.add_parser("install", help="安装(幂等)")
-    p_ins.add_argument("--type", choices=["hermes", "deerflow"], required=True)
-    p_ins.add_argument("--home", default="", help="宿主根:hermes=~/.hermes;deerflow=backend 目录")
+    p_ins.add_argument("--type", choices=["hermes", "deerflow", "dsh"], required=True)
+    p_ins.add_argument("--home", default="", help="宿主根:hermes=~/.hermes;deerflow=backend 目录;dsh=DSH home")
     p_ins.add_argument("--system-id", default="")
     p_ins.add_argument("--manager", default="")
     p_ins.set_defaults(fn=_run_install)
@@ -573,6 +603,8 @@ def _run_install(args) -> int:
         return 1
     if args.type == "hermes":
         return install_hermes(home, args.system_id)
+    if args.type == "dsh":
+        return install_dsh(home, args.system_id, args.manager)
     return install_deerflow(home, args.system_id, args.manager)
 
 

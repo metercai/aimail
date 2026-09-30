@@ -11,7 +11,39 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # P3(2026-09-20, owner 定调): 改为 CLI 公开命令面(与 install-mcp.sh 同款说明)
 command -v aimail >/dev/null 2>&1 || { echo "ERROR: 未找到 aimail 命令, 请先安装 CLI(bootstrap)。" >&2; exit 1; }
 DEER_FLOW_HOME="${DEER_FLOW_HOME:-$HOME/deer-flow}"
-DST_DIR="${DEER_FLOW_SKILLS_DIR:-$DEER_FLOW_HOME/skills/public}/agentmail"
+# deer-flow 的 project_root(): $DEER_FLOW_PROJECT_ROOT 或 cwd(runtime_paths.py:7-17)
+DF_PROJECT_ROOT="${DEER_FLOW_PROJECT_ROOT:-$PWD}"
+
+# ── 0. 落点解析(与 install-mcp.sh:49-64 同序 + 一个运维显式覆盖)────────────
+# deer-flow 真源(第三方只读参考):
+#   config/skills_config.py:41-70 get_skills_path() =
+#     ① config.skills.path → ② DEER_FLOW_SKILLS_PATH → ③ project_root()/skills
+#       → ④ legacy candidates → 兜底 project_default
+#   skills/storage/local_skill_storage.py:30-36 布局 = <skills 根>/public/<name>/SKILL.md
+# 本脚本的选取顺序(与上面同序):
+#   ① DEER_FLOW_SKILLS_DIR(本仓运维覆盖, 最高)
+#   ② DEER_FLOW_SKILLS_PATH(deer-flow 自己最高优先的 env, 设了就必须写它)
+#   ③ ${DEER_FLOW_PROJECT_ROOT}/skills/public(运维已断言项目根 ⇒ 在其中落盘)
+#   ④ 原默认 ${DEER_FLOW_HOME}/skills/public(既有部署兼容)
+# 最终落点与选取理由一律打印(运维核对)。
+# 2026-09-30 实测根因: 没传 ③ 时落点是 ④($DEER_FLOW_HOME/skills/public),
+#   而容器内会话恒读 project_root()/skills ⇒ skill 文件在盘、会话永远读不到。
+if [ -n "${DEER_FLOW_SKILLS_DIR:-}" ]; then
+  PUBLIC_DIR="$DEER_FLOW_SKILLS_DIR"
+  SKILLS_REASON="DEER_FLOW_SKILLS_DIR (显式覆盖, 最高优先)"
+elif [ -n "${DEER_FLOW_SKILLS_PATH:-}" ]; then
+  PUBLIC_DIR="$DEER_FLOW_SKILLS_PATH/public"
+  SKILLS_REASON="DEER_FLOW_SKILLS_PATH (deer-flow get_skills_path ② env; 设了就必须写它)"
+elif [ -n "${DEER_FLOW_PROJECT_ROOT:-}" ]; then
+  PUBLIC_DIR="$DF_PROJECT_ROOT/skills/public"
+  SKILLS_REASON="DEER_FLOW_PROJECT_ROOT 显式声明 (deer-flow get_skills_path ③ project_root()/skills)"
+else
+  PUBLIC_DIR="$DEER_FLOW_HOME/skills/public"
+  SKILLS_REASON="原默认 DEER_FLOW_HOME/skills/public (既有部署兼容)"
+fi
+DST_DIR="$PUBLIC_DIR/agentmail"
+echo "skills landing: $DST_DIR/SKILL.md"
+echo "  selected by: $SKILLS_REASON"
 
 SKILLS_SRC="$(aimail install --payload resource skills)"
 SRC_SKILL="$SKILLS_SRC/SKILL.md"

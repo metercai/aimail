@@ -37,6 +37,11 @@ fi
 # 只认列 0 的顶层 `- id:`(profile patch 的目标行形态), 不碰 `insert:` 里的嵌套行。
 awk -v ids="$IDS" '
 BEGIN { n = split(ids, ID, " "); for (i = 1; i <= n; i++) want[ID[i]] = 1; pending = "" }
+# dsh 自己物化的模板 = 注释 + 独立一行 `[]`(空 flow 序列; 首次 `dsh --profile <p>
+# --dump-config` 就写出)。在它后面追加 `- id:` 顶层项 = 非法 YAML ⇒ dsh boot 直接
+# "failed to parse overlay … end of the stream or a document separator is expected (5:1)",
+# dump-config RC=1、整个 profile 读不了(实测 2026-09-30)⇒ 该行必须剥掉。
+/^[ \t]*\[\][ \t]*$/ { next }
 {
   if ($0 ~ /^-[ \t]*id[ \t]*:/) {
     if (pending != "") { print "  disabled: false"; pending = "" }   # 上一行没写 disabled
@@ -59,7 +64,6 @@ if [ -s "$PATCH" ] && cmp -s "$TMP" "$TMP.new"; then
   echo "  ✓ dsh skill/tool 暴露层已在位且启用(跳过写入): $PATCH"
 else
   mv "$TMP.new" "$PATCH"
-  TMP.new_removed=1
   echo "  ✓ dsh skill/tool 暴露层已写入 → $PATCH(skill-filesystem/tool-skill: disabled: false)"
 fi
 
