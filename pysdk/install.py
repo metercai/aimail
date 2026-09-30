@@ -275,9 +275,62 @@ def _deerflow_backend(root: str) -> str:
     return os.path.join(r, "backend") if os.path.isdir(os.path.join(r, "backend")) else r
 
 
+def _assembly_env(system_id: str = "", extra_env: dict | None = None) -> dict:
+    """装配步(install-skill.sh / install-mcp.sh)的 spawn 环境。
+
+    两脚本按契约走 CLI 公开命令面(缺 `aimail` ⇒ exit 1, 不兜底),而仓库/容器
+    形态里 CLI 常不在 PATH(镜像内 `command -v aimail` 必空)⇒ 这里把**同一棵树**
+    的 `cli/` 补到 PATH 头;pip 布局没有该目录 ⇒ 保持环境 PATH(真缺 CLI 时
+    脚本自己响亮失败 —— 不回退、不静默)。
+    """
+    env = dict(os.environ)
+    if shutil.which("aimail", path=env.get("PATH")) is None:
+        cli_dir = os.path.abspath(os.path.join(_CORE, os.pardir, "cli"))
+        if os.path.isfile(os.path.join(cli_dir, "aimail")):
+            env["PATH"] = cli_dir + os.pathsep + env.get("PATH", "")
+    if system_id:
+        env.setdefault("AIMAIL_SYSTEM_ID", system_id)
+    for k, v in (extra_env or {}).items():
+        env.setdefault(k, v)
+    return env
+
+
+def _assemble_deerflow(home_root: str, system_id: str = "") -> int:
+    """deerflow agent 侧装配:skills 落点 + MCP toolset 落点(幂等)。
+
+    **复用产品既有脚本** `pysdk/deer-flow/install-skill.sh` / `install-mcp.sh`
+    的解析与写入逻辑 —— SDK 不自持第二套写入;两脚本自身幂等(同内容跳过/覆盖),
+    重复 install 不产生重复写。
+    `DEER_FLOW_PROJECT_ROOT` 只在环境未声明时补成平台 home(沿用 install-mcp.sh
+    落点序的 ③「运维已断言项目根 ⇒ 在其中新建」),让落点同时是 deer-flow
+    `resolve_config_path()` 真会读的文件 —— 否则写进状态目录等于没写。
+    任一脚本 rc!=0 ⇒ 返回 1(装配失败必须可见, 不静默降级)。
+    """
+    sdk = os.path.join(_CORE, "deer-flow")
+    steps = (
+        ("install-skill.sh", _assembly_env(system_id)),
+        ("install-mcp.sh", _assembly_env(system_id, {"DEER_FLOW_PROJECT_ROOT": home_root})),
+    )
+    rc = 0
+    for name, env in steps:
+        path = os.path.join(sdk, name)
+        if not os.path.isfile(path):
+            print(f"  ✗ deerflow 装配脚本缺失: {path}(打包/物化缺陷, 不静默跳过)")
+            rc = 1
+            continue
+        r = subprocess.call(["bash", path], env=env)
+        if r != 0:
+            print(f"  ✗ deerflow {name} 装配失败(exit {r})")
+            rc = 1
+        else:
+            print(f"  deerflow {name}: assembled")
+    return rc
+
+
 def install_deerflow(backend_dir: str, system_id: str = "", manager: str = "") -> int:
-    """DeerFlow 平台自足安装:app.py patch + 运行时 bundle + 注册/对账。
+    """DeerFlow 平台自足安装:app.py patch + 运行时 bundle + agent 侧装配 + 注册/对账。
     参数为仓根或 backend(backend 归一在 SDK 内——平台布局是适配知识)。"""
+    home_root = os.path.expanduser(backend_dir)  # 平台 home(装配落点序的 ③ 用)
     backend_dir = _deerflow_backend(backend_dir)
     md = _import_deerflow("manage")
     rc = 0
@@ -292,6 +345,11 @@ def install_deerflow(backend_dir: str, system_id: str = "", manager: str = "") -
         print(f"  deerflow bundle: {n} file(s) installed")
     except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py 失败路径 raise SystemExit
         print(f"  ✗ bundle install failed: {e}")
+        rc = 1
+    # agent 侧装配(卡①(i), owner 批 2026-09-30): skills + MCP toolset 落点。
+    # 纯 SDK 入口原来只做 patch/bundle/register ⇒ harness 只调 SDK 入口时
+    # toolset 永远缺;这里把它并进安装链(复用既有脚本, 见 _assemble_deerflow)。
+    if _assemble_deerflow(home_root, system_id=system_id):
         rc = 1
     # 注册(地址+路由);幂等
     try:

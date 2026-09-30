@@ -80,6 +80,9 @@ packages = []
 # 分发时 pip 布局找不到(只 warn 降级) ⇒ 一并打进 wheel(verify-wheel 有断言)。
 "pysdk/deer-flow/install-mcp.sh" = "aimail/deer-flow/install-mcp.sh"
 "pysdk/deer-flow/install-skill.sh" = "aimail/deer-flow/install-skill.sh"
+# 审计 D4 同款: dsh 平台安装步以 {sdk}/dsh/install-skill-tools.sh 调这个脚本(卡②
+# web profile 的 skill-filesystem/tool-skill 启用), 只随源码分发时 pip 布局找不到。
+"pysdk/dsh/install-skill-tools.sh" = "aimail/dsh/install-skill-tools.sh"
 # resources — released at install time to ~/.aimail/systems/{sid}/board/
 # and read from there at runtime (user-personalizable); zh/soul variants are
 # shipped for reference (default en).

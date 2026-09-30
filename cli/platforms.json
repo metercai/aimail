@@ -166,6 +166,20 @@
           }
         },
         {
+          "kind": "spawn",
+          "argv": [
+            "bash",
+            "{sdk}/dsh/install-skill-tools.sh"
+          ],
+          "on_error": "fail",
+          "fail_hint": "dsh skill/tool 装配步失败: {sdk}/dsh/install-skill-tools.sh 退出 {rc}(关键装配步: web profile 的 skill-filesystem/tool-skill 必须启用; 失败必须可见, 不许当成功)",
+          "ok_text": "dsh skill/tool 暴露层已启用(skill-filesystem/tool-skill: disabled: false)",
+          "env": {
+            "DSH_HOME": "{home}",
+            "DSH_PROFILE": "web"
+          }
+        },
+        {
           "kind": "register_default",
           "when": {
             "cfg_complete": true
@@ -568,8 +582,8 @@
           "env": {
             "AIMAIL_SYSTEM_ID": "{sid}"
           },
-          "on_error": "warn",
-          "warn_hint": "deer-flow install-skill.sh exit {rc}"
+          "on_error": "fail",
+          "warn_hint": "deer-flow install-skill.sh exit {rc}(关键装配步: skills 落点; 失败必须可见, 不许当成功)"
         },
         {
           "kind": "spawn",
@@ -580,8 +594,8 @@
           "env": {
             "AIMAIL_SYSTEM_ID": "{sid}"
           },
-          "on_error": "warn",
-          "warn_hint": "deer-flow install-mcp.sh exit {rc}"
+          "on_error": "fail",
+          "warn_hint": "deer-flow install-mcp.sh exit {rc}(关键装配步: MCP toolset 落点; 失败必须可见, 不许当成功)"
         },
         {
           "kind": "register_default",
