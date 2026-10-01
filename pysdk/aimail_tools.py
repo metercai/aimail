@@ -524,10 +524,22 @@ class _GatewayClient:
         # `activate-address-code` 的 body 只有 {code,email_address}(:429), 网关另持一把;
         # 本地这把不回传 ⇒ D2B 两侧摘要永不相等(第 10 缺陷, 实测 31ad2cfe5140 vs e6b42e73e32b)。
         # 窄同步 = register 更新路径同款三件套(无需 manager ⇒ 不触 P1 非空硬门);
-        # webhook_url 为空时不带该键(gateway_api:105-108 条件键) ⇒ 不会抹掉云端 URL;
-        # **同步失败必须显式**(静默会重造分叉, 与 228ebaa 同口径)。
+        # webhook_url 为空时不带该键(gateway_api:105-108 条件键) ⇒ 不会抹掉云端 URL。
+        # 2026-10-02 F1(卡A 收尾): **按可观测事实分级**, 不再把"看不见行"当"两把钥匙"。
+        # 实测(j4e7 E2-pull, 卡A 42c0714 后 7 连红): 纯地址级激活网关**没有**该地址的
+        # system_domains 行(gw 日志只有 domain_created + address_code_activated) ⇒ 查不到行是
+        # 本形态的常态; 即便有行, 旧实现用的是激活刚签发的 **agent-scope key**
+        # (activation.rs:97 actual_scopes=["agent"]), 而 GET /admin/systems/:sid/domains 要求
+        # system/platform admin(http.rs:744-747) ⇒ 403 ⇒ list 静默回 [] ⇒ 旧实现 raise ⇒
+        # **地址级激活整体失败**, pull 循环永远起不来。分级:
+        #   · 行可见且 PUT 成功 ⇒ 对齐完成(卡A 的目标态);
+        #   · 行可见但 PUT 失败 ⇒ 照旧 raise(卡A 原意: 绝不留两把钥匙);
+        #   · 看不见行(无行 / 401/403 scope 不足) ⇒ **loud warning 后继续** —— 本进程手里
+        #     没有更高权限的 key, 从这里无解; 且 pull 形态网关不投递, 云端 secret 不参与签名。
+        # key 优先用 self.api_key(调用方可能持系统/平台 key, 能对齐就真对齐), 空才退回 agent key。
         try:
-            _sync_cli = _GatewayClient(self.gateway_url, str(cfg.get("api_key") or ""))
+            _sync_key = str(getattr(self, "api_key", "") or "") or str(cfg.get("api_key") or "")
+            _sync_cli = _GatewayClient(self.gateway_url, _sync_key)
             _rows = _sync_cli.list_system_domains(sid) or []
             _synced = False
             for _d in _rows:
@@ -539,9 +551,29 @@ class _GatewayClient:
                     _synced = True
                     break
             if not _synced:
-                raise RuntimeError(
-                    "gateway has no address row to align webhook_secret for %s "
-                    "(single source violated: binding=%s)" % (email, str(cfg.get("webhook_secret") or "")[:12]))
+                _why = ""
+                _probe = getattr(_sync_cli, "_request", None)
+                if callable(_probe):
+                    try:
+                        _r = _probe("GET", "/api/v1/admin/systems/%s/domains" % sid)
+                        _st = int(_r.get("status", 0) or 0) if isinstance(_r, dict) else 0
+                        if _st in (401, 403):
+                            _why = ("insufficient scope (HTTP %d): the key in hand cannot list "
+                                    "system domains, which require system/platform admin "
+                                    "(http.rs:744-747)" % _st)
+                        elif _st >= 400:
+                            _why = "lookup failed with HTTP %d" % _st
+                    except Exception:  # noqa: BLE001 — 诊断性探测, 失败就按"无行"描述
+                        _why = ""
+                if not _why:
+                    _why = ("gateway has no visible row for this address — address-level "
+                            "(pull/self-service) activation issues a key + domain anchor only, "
+                            "and the cloud secret never signs the pull path")
+                logger.warning(
+                    "[aimail] %s: activation secret NOT synced to the gateway: %s "
+                    "(binding kept locally at %s, %s…); continuing — this address has no "
+                    "gateway-side secret to diverge from", email, _why, p,
+                    str(cfg.get("webhook_secret") or "")[:12])
         except Exception as _se:
             raise RuntimeError(
                 "activation secret sync to gateway failed for %s: %s "

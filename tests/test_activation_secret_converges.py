@@ -6,6 +6,7 @@
 ⇒ 两把永久不等。B(`228ebaa`) 修的是 register 路径，本流程不经过它 ⇒ 实测仍不等。
 本测试: 网关侧预置一把不同的 secret ⇒ 断言激活收尾必须把它对齐成**绑定这一把**(单一真源=绑定)。
 """
+import logging
 import pathlib
 import sys
 
@@ -100,3 +101,61 @@ def test_activation_keeps_an_existing_binding_secret_untouched(tmp_path, monkeyp
     assert second == first, "existing binding secret must be reused (no churn)"
     if _FakeGateway.writes:
         assert _FakeGateway.writes[-1][2] == first, "any sync must carry that same secret"
+
+
+# ── F1(2026-10-02 卡A 收尾): 看不见行 ⇒ 不再把激活打死 ──────────────────────
+class _FakeGatewayNoRow(_FakeGateway):
+    """纯地址级激活现场: 该地址在网关**没有** system_domains 行
+    (gw 日志只有 domain_created + address_code_activated) ⇒ list 回 [];
+    `_request` 可被设成 401/403 以复现 agent-scope key 被 http.rs:744-747 拒之门外。"""
+
+    status = 0
+
+    def list_system_domains(self, sid):
+        return []
+
+    def _request(self, method, path):
+        return {"status": _FakeGatewayNoRow.status}
+
+
+def test_activation_continues_when_the_gateway_has_no_visible_row(tmp_path, monkeypatch):
+    """F1 RED/GREEN: 修复前这里 raise ⇒ **地址级激活整体失败** ⇒ E2-pull 连红 7 轮。"""
+    monkeypatch.setattr(aimail_tools, "_GatewayClient", _FakeGatewayNoRow)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _FakeGatewayNoRow.status = 0
+
+    res = _real_host().activate_address_code_persist("CODE-1", EMAIL)
+
+    assert res.get("success") is True, res
+    binding = _load_binding(tmp_path)
+    assert len(str(binding.get("webhook_secret") or "")) == 64, \
+        "binding must still be persisted even when the gateway side cannot be aligned"
+    assert _FakeGateway.writes == [], "nothing to write without a visible row"
+
+
+def test_activation_continues_and_calls_out_the_scope(tmp_path, monkeypatch, caplog):
+    """F1: 403 ⇒ 不抛, 且告警必须点名 scope(响亮 ≠ 静默)。"""
+    monkeypatch.setattr(aimail_tools, "_GatewayClient", _FakeGatewayNoRow)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _FakeGatewayNoRow.status = 403
+
+    with caplog.at_level(logging.WARNING):
+        res = _real_host().activate_address_code_persist("CODE-1", EMAIL)
+
+    assert res.get("success") is True, res
+    assert "insufficient scope" in caplog.text, caplog.text[-800:]
+
+
+def test_activation_still_fails_loudly_when_the_visible_row_cannot_be_written(
+        tmp_path, monkeypatch):
+    """卡A 原意不动: 行可见但 PUT 坏了 ⇒ 必须 raise(绝不留两把钥匙)。"""
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    class _Broken(_FakeGateway):
+        def update_system_domain(self, *a, **k):
+            raise OSError("wire down")
+
+    monkeypatch.setattr(aimail_tools, "_GatewayClient", _Broken)
+
+    with pytest.raises(RuntimeError, match="activation secret sync to gateway failed"):
+        _real_host().activate_address_code_persist("CODE-1", EMAIL)
