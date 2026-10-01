@@ -76,8 +76,26 @@ def write_msg(obj):
 # ── agent 上下文 ────────────────────────────────────────────────
 
 def _agent_ctx(agent_id: str = "") -> str:
-    """确定当前 agentId（显式参数 > env）并切换上下文（共享 set_agent_context）。"""
+    """确定当前 agentId（显式参数 > env）并切换上下文（共享 set_agent_context）。
+
+    system_id 取 env ``AIMAIL_SYSTEM_ID``（由 install-mcp.sh 随 mcpServers.env 写入，
+    装配步 pysdk/install.py::_assembly_env 供给）：同一 home 下多个 system 常有同名
+    agent_id，钉住安装时的 system 才不会被 ``_scan_systems_for_agent`` 的"按目录序
+    首匹配"挑到别的地址。钉住的 system 里找不到（绑定搬走/陈旧 env）⇒ **响亮回退**到
+    全 systems 扫描（即本函数的原行为），stderr 一行告警（stdout 是 MCP 协议，不许混）。
+    没有该 env ⇒ 保持旧行为：全 systems 扫描。
+    """
     aid = agent_id or os.environ.get("AIMAIL_AGENT_ID", "main")
+    sid = (os.environ.get("AIMAIL_SYSTEM_ID", "") or "").strip()
+    if sid:
+        try:
+            _base.set_agent_context(aid, sid)
+            return aid
+        except RuntimeError as exc:
+            sys.stderr.write(
+                "[aimail_mcp] WARNING: %s (AIMAIL_SYSTEM_ID=%s) — "
+                "rescanning all systems for agent '%s'\n" % (exc, sid, aid))
+            sys.stderr.flush()
     _base.set_agent_context(aid)
     return aid
 

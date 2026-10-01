@@ -29,6 +29,15 @@
 #         不一定相同 —— 无条件新建会既不被读、又丢掉既有默认)
 #   ④ 原默认 ${DEER_FLOW_HOME}/extensions_config.json(既有部署兼容)
 # 最终落点与选取理由一律打印(运维核对),并提示会被 legacy mcp_config.json 抢读的情形。
+# env 必须**自足**(2026-10-02 J4e 根因取证):
+#   deer-flow 起 stdio server 只带本块 env(第三方只读参考
+#   backend/packages/harness/deerflow/mcp/client.py:32-34 `params["env"] = config.env`),
+#   子进程拿不到安装侧环境 ⇒ 少写 AIMAIL_HOME 时 aimail_base.aimail_home()
+#   (pysdk/aimail_base.py:242-243)回落 ~/.aimail ⇒ 扫不到本机绑定 ⇒ 每次工具调用
+#   抛 `agent '<id>' not registered`(aimail_base.py:573-575) ⇒ agent 永远发不出信
+#   (deerflow J4e 历史 13 红 0 绿; 反事实实测: 补 AIMAIL_HOME 即解)。
+#   AIMAIL_SYSTEM_ID 同理: 钉住安装时的 system —— 多 system 同 agent_id 时才不会被
+#   _scan_systems_for_agent 的"按目录序首匹配"挑到别的地址(缺失 ⇒ server 回退全扫描, 同旧行为)。
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -44,6 +53,12 @@ DEER_FLOW_HOME="${DEER_FLOW_HOME:-$HOME/deer-flow}"
 DF_PROJECT_ROOT="${DEER_FLOW_PROJECT_ROOT:-$PWD}"
 LEGACY_CFG="$DEER_FLOW_HOME/extensions_config.json"
 AGENT_ID="${AIMAIL_AGENT_ID:-default}"
+# = pysdk/aimail_base.aimail_home() 语义(env 优先, 否则 ~/.aimail)—— 安装侧知道的
+# home 必须随 env 写进去, 否则 MCP 子进程按它自己的 HOME 猜出另一个根(见文件头)。
+AIMAIL_HOME_RESOLVED="${AIMAIL_HOME:-$HOME/.aimail}"
+# 装配步(pysdk/install.py::_assembly_env)会 setdefault; 这里容忍空(空 ⇒ 不写键,
+# server 侧回退全 systems 扫描 = 旧行为)。
+AIMAIL_SYSTEM_ID_RESOLVED="${AIMAIL_SYSTEM_ID:-}"
 
 # ── 0. 落点解析(见文件头;打印最终落点 + 理由)─────────────────────────
 if [ -n "${DEER_FLOW_EXT_CFG:-}" ]; then
@@ -120,22 +135,37 @@ if [ ! -f "$CFG" ]; then
   fi
 fi
 
-python3 - "$CFG" "$SERVER" "$AGENT_ID" "$IDENTITY" <<'PY'
+python3 - "$CFG" "$SERVER" "$AGENT_ID" "$IDENTITY" \
+    "$AIMAIL_HOME_RESOLVED" "$AIMAIL_SYSTEM_ID_RESOLVED" <<'PY'
 import json, sys
 
-cfg_path, server, agent_id, identity = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+(cfg_path, server, agent_id, identity,
+ aimail_home, system_id) = sys.argv[1:7]
 with open(cfg_path) as f:
     data = json.load(f)
 
 servers = data.setdefault("mcpServers", {})
+# AIMAIL_SYSTEM_ID = **首次**装配该宿主时的 system = 主身份, set-if-absent:
+# 之后为别的 system 重装(例: 旅程 J2 的 `install -c` 共享域买家系统)不许改写 ——
+# last-writer 会让 MCP 子进程钉到共享 system, 把欢迎信回信身份带偏到共享地址
+# (2026-10-02 j4e4 实测: outbound 落在 agent.j*@shared-e2e.local ⇒ 本轮绑定 0 行 ⇒ J4e 仍红)。
+# 钉住的 system 里没有绑定时 server 侧**响亮回退**全扫描(aimail_mcp_server._agent_ctx)。
+_prev_env = ((servers.get("aimail") or {}).get("env")) or {}
+_sid_out = _prev_env.get("AIMAIL_SYSTEM_ID") or system_id
+_sid_note = ("kept previous pin" if _prev_env.get("AIMAIL_SYSTEM_ID")
+             else ("pinned at first assembly" if system_id else
+                   "absent => server scans all systems"))
 servers["aimail"] = {
     "enabled": True,
     "type": "stdio",
     "command": "python3",
     "args": [server],
-    # env 名与 server 读取一致(AIMAIL_*)
+    # env 名与 server 读取一致(AIMAIL_*)。deer-flow 只把这份 env 交给 stdio
+    # 子进程(见文件头), 所以这里必须自带 server 定位绑定所需的全部变量。
     "env": {"AIMAIL_AGENT_ID": agent_id,
-            "AIMAIL_AGENT_IDENTITY": identity},
+            "AIMAIL_AGENT_IDENTITY": identity,
+            "AIMAIL_HOME": aimail_home}
+           | ({"AIMAIL_SYSTEM_ID": _sid_out} if _sid_out else {}),
     "tool_name_prefix": True,
     "session_init_timeout": 60,
     "tool_call_timeout": 60,
@@ -149,6 +179,8 @@ print(f"wrote mcpServers.aimail → {cfg_path}")
 print(f"  server: {server}")
 print(f"  AIMAIL_AGENT_ID: {agent_id}")
 print(f"  AIMAIL_AGENT_IDENTITY: {identity}")
+print(f"  AIMAIL_HOME: {aimail_home}")
+print(f"  AIMAIL_SYSTEM_ID: {_sid_out or '(absent => server scans all systems)'} [{_sid_note}]")
 PY
 
 echo "landing point: $CFG"
