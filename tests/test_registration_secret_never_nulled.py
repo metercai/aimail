@@ -17,7 +17,7 @@ SDK 去桥化(owner 裁决 2026-09-28)删掉了那次对齐步(`ensure_bridge_ro
 本文件的断言:
   ⓪ 对齐步与其桥符号已随去桥化一并退役(符号级棘轮);
   ① 注册链**必带**绑定 secret(url+secret 成对写);
-  ③ 取不到 secret(调用方省略 + 绑定也没有)⇒ **一条写都不发**(宁可不写, 也不抹空);
+  ③ 取不到 secret(调用方省略 + 绑定也没有)⇒ **就地补一把并携带**(2026-10-01 owner 方案A/B;
   ④ 调用方省略 secret ⇒ 从绑定补全(真源);
   ⑤ 调用方省略 + 绑定根本不存在 ⇒ **不写**(不得抹空);
   ⑥ 两个值都给 ⇒ 原样成对写(无行为变化)。
@@ -120,17 +120,28 @@ def test_registration_write_carries_the_binding_secret(home):
 
 
 # ── ③ 取不到 secret ⇒ 一条写都不发(不得抹空) ─────────────────────────────────
-def test_not_a_single_write_when_the_binding_has_no_secret(home):
-    """防御纵深: 绑定在, 但既无 secret 又无从自供 ⇒ 跳过该绑定。
+def test_write_carries_a_provisioned_secret_when_the_binding_has_none(home):
+    """2026-10-01 owner 裁决(方案A/B): 绑定缺 secret ⇒ **就地补一把并携带**到网关
+    (单一真源=绑定 ⇒ 网关采纳同一把 ⇒ D2B 两侧摘要同源, 修"两把钥匙")。
+
+    ⚠ 旧断言 `writes == []`(一条写都不发)与该裁决**正面冲突** ⇒ 按新契约改写并换名;
+    **深层意图原样保留**: 任何写都必须携带**非空 secret**, 永不 url-only PUT
+    (那会把云端 secret 抹成 NULL ⇒ 永久 401; 见文件头病灶链)。
+    依据: owner 2026-10-01「A 和 B 不矛盾, 都可以要」+「缺则补一把并 PUT 同步」。
 
     修复前: 走到 register_agent_email 的 exists 分支 ⇒ PUT body 无 secret 键 ⇒
     网关把云端已存 secret 覆写成 NULL ⇒ 永久 401。"""
-    _write_binding(home, secret="")
+    bp = _write_binding(home, secret="")
 
     core.register_agent_email(_FakeClient(), SID, EMAIL, webhook_url=LOCAL_URL,
                               manager_address=MGR)
 
-    assert _FakeClient.writes == [], "a url-only write must never be issued without a secret"
+    assert len(_FakeClient.writes) == 1, "exactly one write, carrying a provisioned secret"
+    _did, _url, _sec = _FakeClient.writes[0]
+    assert _url == LOCAL_URL, "carried url must be the caller's"
+    assert _sec and len(_sec) == 64, "every write must carry a non-empty secret (never url-only)"
+    assert json.loads(bp.read_text()).get("webhook_secret") == _sec, \
+        "binding and the write must share ONE secret (single source: binding)"
 
 
 # ── ④ 注册链: 调用方省略 secret ⇒ 从绑定补全 ─────────────────────────────────

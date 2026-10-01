@@ -2176,11 +2176,43 @@ def register_agent_email(client, system_id: str, email: str,
                 secret = str(webhook_secret or "").strip() \
                     or existing_binding_webhook_secret(system_id, email)
                 if not secret:
-                    logger.warning(
-                        "[aimail] registration update for %s skipped: no binding "
-                        "webhook_secret to carry — a url-only PUT would null the cloud "
-                        "secret (inbound 401); run 'aimail repair' to provision it", email)
-                    return {"api_key": "", "activation_code": ""}
+                    # 2026-10-01 owner 裁决(方案B): 绑定缺 secret ⇒ 就地补一把并**携带**到网关,
+                    # 绝不出 url-only PUT(保留 2026-09-28 第 10 缺陷防御: 不把云端 secret 抹成 NULL)。
+                    # 单一真源=绑定 ⇒ 网关采纳同一把 ⇒ D2B 两侧摘要同源(修"两把钥匙")。
+                    # 原"弃权返回"会让 D2B 判 BAD(两侧不等), 故改为可自愈补全; 补不全才弃权且大声。
+                    _bp = _agent_config_path(system_id, email)
+                    if _bp is None:
+                        logger.warning(
+                            "[aimail] registration update for %s skipped: no binding path "
+                            "to provision webhook_secret (url-only PUT would null the cloud "
+                            "secret); run 'aimail repair'", email)
+                        return {"api_key": "", "activation_code": ""}
+                    _bcfg = {}
+                    try:
+                        if _bp.exists():
+                            _t = json.loads(_bp.read_text(encoding="utf-8"))
+                            if isinstance(_t, dict):
+                                _bcfg = _t
+                    except Exception:  # noqa: BLE001 — 读坏就当没有, 由下方补全
+                        _bcfg = {}
+                    if not str(_bcfg.get("webhook_secret") or "").strip():
+                        _bcfg["webhook_secret"] = new_webhook_secret()
+                        try:
+                            write_binding_config(_bp, _bcfg)
+                        except Exception as _we:  # noqa: BLE001 — 补不全必须弃权(不许静默分叉)
+                            logger.warning(
+                                "[aimail] %s: binding webhook_secret provisioning failed (%s); "
+                                "skipping update to avoid a url-only PUT", email, _we)
+                            return {"api_key": "", "activation_code": ""}
+                        logger.info(
+                            "[aimail] %s: binding had no webhook_secret — provisioned locally "
+                            "and carrying it to the gateway (single source: binding)", email)
+                    secret = str(_bcfg.get("webhook_secret") or "").strip()
+                    if not secret:
+                        logger.warning(
+                            "[aimail] %s: binding webhook_secret is empty after provisioning; "
+                            "skipping update (url-only PUT would null the cloud secret)", email)
+                        return {"api_key": "", "activation_code": ""}
                 try:
                     domains = client.list_system_domains(system_id)
                     for d in (domains if isinstance(domains, list) else []):
