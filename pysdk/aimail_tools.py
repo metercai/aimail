@@ -520,6 +520,34 @@ class _GatewayClient:
             cfg["expires_at"] = act["expires_at"]
         p = _abm.save_agent_config(aid, cfg, sid)
 
+        # 2026-10-01 owner 方案A(激活站): 激活本地生成的 secret 必须与网关对齐 ——
+        # `activate-address-code` 的 body 只有 {code,email_address}(:429), 网关另持一把;
+        # 本地这把不回传 ⇒ D2B 两侧摘要永不相等(第 10 缺陷, 实测 31ad2cfe5140 vs e6b42e73e32b)。
+        # 窄同步 = register 更新路径同款三件套(无需 manager ⇒ 不触 P1 非空硬门);
+        # webhook_url 为空时不带该键(gateway_api:105-108 条件键) ⇒ 不会抹掉云端 URL;
+        # **同步失败必须显式**(静默会重造分叉, 与 228ebaa 同口径)。
+        try:
+            _sync_cli = _GatewayClient(self.gateway_url, str(cfg.get("api_key") or ""))
+            _rows = _sync_cli.list_system_domains(sid) or []
+            _synced = False
+            for _d in _rows:
+                if isinstance(_d, dict) and _d.get("domain") == email:
+                    _sync_cli.update_system_domain(
+                        str(_d.get("id", "")),
+                        str(cfg.get("webhook_url") or ""),
+                        str(cfg.get("webhook_secret") or ""))
+                    _synced = True
+                    break
+            if not _synced:
+                raise RuntimeError(
+                    "gateway has no address row to align webhook_secret for %s "
+                    "(single source violated: binding=%s)" % (email, str(cfg.get("webhook_secret") or "")[:12]))
+        except Exception as _se:
+            raise RuntimeError(
+                "activation secret sync to gateway failed for %s: %s "
+                "(binding was persisted at %s; refusing to leave two different secrets)"
+                % (email, _se, p)) from _se
+
         # 2. Gateway connection file — create-if-absent only, **agent 作用域**。
         #    审计 D3: 这里曾把 agent 级 raw_key 写进名为 admin_key 的字段 —— 语义错配
         #    (它不是管理 key)且与 agentmail.json 重复持有一把 key。现在只写连接信息

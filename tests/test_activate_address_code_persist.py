@@ -75,6 +75,33 @@ class _FakeGateway(BaseHTTPRequestHandler):
     def log_message(self, *_a):  # keep pytest output clean
         pass
 
+    def _reply(self, obj, status=200):  # 与 do_POST 同款响应写法
+        payload = json.dumps(obj).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    # 2026-10-01 方案A(激活站)引入的窄同步打这两条路由; 假网关必须提供:
+    #   GET  /api/v1/admin/systems/:sid/domains  → 行列表(含 domain)
+    #   PUT  /api/v1/admin/system-domains/:id    → 记录 update(带 webhook_secret)
+    def do_GET(self):  # noqa: N802 (http.server API)
+        if self.path.endswith("/domains"):
+            self._reply({"data": [{"id": "1", "domain": ADDR}]})
+        else:
+            self._reply({"error": "not found"}, status=404)
+
+    def do_PUT(self):  # noqa: N802 (http.server API)
+        n = int(self.headers.get("Content-Length") or 0)
+        raw = self.rfile.read(n)
+        try:
+            body = json.loads(raw.decode("utf-8") or "{}")
+        except ValueError:
+            body = {"_unparsed": raw.decode("utf-8", "replace")}
+        _FakeGateway.seen.append({"path": self.path, "body": body})
+        self._reply({"status": 200})
+
 
 @pytest.fixture
 def gateway():
@@ -143,10 +170,17 @@ def test_activation_lands_private_binding_with_register_isomorphic_fields(
     assert res["expires_at"] == "2026-12-31T00:00:00Z"
 
     # the wire call really happened, lowercased address (pull matches exact SQL)
-    assert len(seen) == 1, seen
+    # 2026-10-01 owner 方案A(激活站): 激活后多一次**窄同步**把本地 secret 对齐给网关
+    # (第 10 缺陷: 网关另持一把 ⇒ D2B 两侧永不相等) ⇒ 网关调用 1 次 → 2 次。
+    # 第一次(激活)断言一字未改; 第二次必须是 PUT system-domains 且**携带落盘同一把 secret**。
+    assert len(seen) == 2, seen
     assert seen[0]["path"] == "/api/v1/activate-address-code"
     assert seen[0]["body"] == {"code": "shared_a-CODE",
                                "email_address": ADDR.lower()}
+    assert seen[1]["path"] == "/api/v1/admin/system-domains/1", seen[1]
+    assert seen[1]["body"].get("webhook_secret") == \
+        json.loads(_binding(hermes_home).read_text()).get("webhook_secret"), \
+        "sync must carry THE binding secret (single source)"
 
     p = _binding(hermes_home)
     assert res["config_path"] == str(p)
