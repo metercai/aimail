@@ -362,6 +362,9 @@ def cmd_check(args) -> int:
     if args.home:
         # check_status 的 --agent-home 语义 = 平台根(通用化后自动适配)
         cmd += ["--agent-home", str(normalize_platform_home(Path(args.home).expanduser()))]
+    if getattr(args, "verbose", False):
+        # check_status.py:1486 直读 sys.argv ⇒ 必须显式转发
+        cmd += ["--verbose"]
     return subprocess.call(cmd)
 
 
@@ -3474,6 +3477,8 @@ scenario groups:
     p_check = sub.add_parser("check", help="full health exam: config files, runtime resources, delivery links")
     p_check.add_argument("-s", "--system-id", **common_sid)
     p_check.add_argument("-H", "--home", **common_home)
+    p_check.add_argument("-v", "--verbose", action="store_true",
+                           help="show fix suggestions for failing checks")
     p_check.set_defaults(func=cmd_check)
 
     p_repair = sub.add_parser("repair", help="auto-fix per check findings, then re-check (idempotent)")
