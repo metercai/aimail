@@ -916,11 +916,17 @@ def send_mail(
     if upload_errors and not attachment_ids:
         return {"success": False, "error": "All attachments failed", "details": upload_errors}
 
-    # ── 先存再调: meta 常写 + outbox 快照按开关, 随后才调 API ──
+    # ── 先存再调: meta 常写 + outbox 快照(默认开), 随后才调 API ──
     # Message-ID 本地生成并传给 gateway(仅无 id 时才自动补全), 本地值即线上值。
+    # 快照默认开(2026-10-02 D1): 与 TS `cfg.save_raw_snapshots !== false`(mail-core
+    # src/tools.ts:329)、hermes 适配层 `config.get(..., True)`(:579)、cli/README.md:128
+    # "default true" 同口径 —— Python 曾是唯一"缺键即关"的实现, 而 MCP/绑定型 config
+    # 根本没有这个键 ⇒ 回信 out-*.json 永不落盘 ⇒ `send_welcome._parse_draft_from_reply`
+    # 无草案可读 ⇒ J4e 第 3 段 rc=2 ⇒ J4f persona/signature 空(deerflow 实测)。
+    # 显式 false 仍然关(测试 test_local_mail_search 的关断言不受影响)。
     generated_mid = _build_message_id(config)
     _store_message_meta(generated_mid, references, my_aimail_addr=sender)
-    if config.get("save_raw_snapshots"):
+    if config.get("save_raw_snapshots", True):
         _save_outbound_snapshot(generated_mid, sender, sender, to, subject, body,
                                 cc_list or [], resolved_paths or [], attachment_ids or [],
                                 in_reply_to or "", references or "")
@@ -1543,11 +1549,14 @@ def store_inbound_message(
     # ── Always-write local meta (回复链依赖, 不受快照开关控制) ──
     _save_local_meta(mid, references, my_aimail_addr, direction="inbound")
 
-    # Only save the agent-visible snapshot if configured.
+    # Agent-visible snapshot: default ON (2026-10-02 D1) — same rule as the outbound
+    # side and the same three references (TS / hermes adapter / cli README "default
+    # true"); only an explicit false disables it. `config` absent still returns early
+    # (no address context to resolve the snapshot dir with).
     config = _load_profile_config()
 
     # ── Optionally save agent-visible snapshot ──────────────────
-    if not config or not config.get("save_raw_snapshots"):
+    if not config or not config.get("save_raw_snapshots", True):
         return None
 
     safe_mid = _sanitize_message_id(mid)

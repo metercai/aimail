@@ -2173,14 +2173,21 @@ def register_agent_email(client, system_id: str, email: str,
                 # 而验签方按**本地绑定**的 secret 验 ⇒ 两边分叉 = 入站恒 401。
                 # 故本分支先按**真源**补全：调用方没给 ⇒ 读该地址的绑定（唯一真源）；
                 # 仍没有 ⇒ **不写**（保留云端现值），大声告警，绝不抹空。
-                secret = str(webhook_secret or "").strip() \
-                    or existing_binding_webhook_secret(system_id, email)
+                # 2026-10-02 第 10 缺陷定因(E1): **绑定优先** —— 绑定是唯一真源(卡B 口径),
+                # 调用方给的值只在绑定缺 secret 时才采用。原"参数优先"在 deerflow 上必分叉:
+                # 一轮 install 注册 3 次(platforms.json install_steps: sdk_install →
+                # register_default → register_all), 每次新铸随机值(manage.py:217/:362) ⇒
+                # 新值 PUT 覆写网关(storage.rs:693 全量覆写), 而绑定只在拿到
+                # api_key/activation_code 时才落盘(manage.py:224-235) ⇒ 网关=第 3 把 /
+                # 绑定=第 1 把 ⇒ D2B 两侧摘要不等(历史 13 红全在 deerflow, 其余四平台 56 绿)。
+                _bp = _agent_config_path(system_id, email)
+                _bind_secret = str(existing_binding_webhook_secret(system_id, email) or "").strip()
+                secret = _bind_secret or str(webhook_secret or "").strip()
                 if not secret:
                     # 2026-10-01 owner 裁决(方案B): 绑定缺 secret ⇒ 就地补一把并**携带**到网关,
                     # 绝不出 url-only PUT(保留 2026-09-28 第 10 缺陷防御: 不把云端 secret 抹成 NULL)。
                     # 单一真源=绑定 ⇒ 网关采纳同一把 ⇒ D2B 两侧摘要同源(修"两把钥匙")。
                     # 原"弃权返回"会让 D2B 判 BAD(两侧不等), 故改为可自愈补全; 补不全才弃权且大声。
-                    _bp = _agent_config_path(system_id, email)
                     if _bp is None:
                         logger.warning(
                             "[aimail] registration update for %s skipped: no binding path "
@@ -2213,6 +2220,29 @@ def register_agent_email(client, system_id: str, email: str,
                             "[aimail] %s: binding webhook_secret is empty after provisioning; "
                             "skipping update (url-only PUT would null the cloud secret)", email)
                         return {"api_key": "", "activation_code": ""}
+                elif _bp is not None and _bp.exists() and not _bind_secret:
+                    # 绑定文件在但缺 secret、调用方给了 ⇒ 先把这把回写绑定(真源补齐)再 PUT:
+                    # 否则网关=参数值、绑定空 ⇒ 又是一对分叉(卡B ③ 只覆盖"两边都没给"的一半)。
+                    # 回写失败 ⇒ 不发 PUT(保持现状, 不制造新分叉) —— 与卡B 同口径"宁可弃权"。
+                    _bcfg_back = {}
+                    try:
+                        _t = json.loads(_bp.read_text(encoding="utf-8"))
+                        if isinstance(_t, dict):
+                            _bcfg_back = _t
+                    except Exception:  # noqa: BLE001 — 读坏就按空配置重建字段
+                        _bcfg_back = {}
+                    if not str(_bcfg_back.get("webhook_secret") or "").strip():
+                        _bcfg_back["webhook_secret"] = secret
+                        try:
+                            write_binding_config(_bp, _bcfg_back)
+                        except Exception as _we:  # noqa: BLE001
+                            logger.warning(
+                                "[aimail] %s: binding webhook_secret backfill failed (%s); "
+                                "skipping the gateway write to avoid a two-key split", email, _we)
+                            return {"api_key": "", "activation_code": ""}
+                        logger.info(
+                            "[aimail] %s: binding had no webhook_secret — carried the caller's "
+                            "value into the binding first (single source: binding)", email)
                 try:
                     domains = client.list_system_domains(system_id)
                     for d in (domains if isinstance(domains, list) else []):
