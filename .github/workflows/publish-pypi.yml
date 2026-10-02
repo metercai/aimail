@@ -72,7 +72,10 @@ jobs:
         run: |
           # 审计 D8: 门禁依赖钉版(与 npm 侧钉 npm@11.12.1 同理), 否则上游行为
           # 变化会静默改变门禁结论。
-          python3 -m pip install --quiet pytest==9.1.1 pyflakes==3.4.0
+          # PyYAML: tests/test_hermes_toolset_ensure.py imports yaml at module level
+          # (pyproject extra `hermes`; landed 2026-09-30, i.e. after v0.1.30, so the
+          # first tag since then hit a clean-environment collection error).
+          python3 -m pip install --quiet pytest==9.1.1 pyflakes==3.4.0 PyYAML==6.0.2
           python3 -m pytest tests/ -q | tail -2
           # pyflakes 仅查核心模块;hermes 辅助脚本(patch_*/register_profiles/
           # toolsets)有意 `import aimail`(side-effect sys.path 注入),只做语法检查。
