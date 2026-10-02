@@ -114,7 +114,7 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 ```
 
 - 注册参数 `webhook_url` 由 `resolve_register_webhook_url(gw, local_webhook_url)` 按 webhook_host 三态解析(§3.4);agentmail.json 落盘一律 = 本地端点。
-- 注册后**必调** `register_bridge_route(system_id, email, gw, local_webhook_url)`(POST bridge /api/v1/routes,幂等 upsert)——否则 bridge 拉取后无路由,入站断链。
+- 桥路由是 **CLI 的环境职责**(owner 裁决 2026-09-28:SDK 不碰桥——零桥棘轮)。注册链不打桥调用;路由由 `aimail install`/`reset`(配置↔路由对账)、宿主入站信号(`aimail address --inbound-live|--inbound-down`)与 `aimail repair` 维护。
 - manager 白名单 + domain_addr_meta 由 gateway register_address 自动创建,Python 侧不补。
 - client 必须是 `aimail_tools._GatewayClient`(全方法集)。
 
@@ -139,9 +139,9 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 ```
 
 **路由表维护三入口**(保证任意时刻路由完备):
-1. 注册链:新 agent 注册地址后必调 `register_bridge_route`(§2.4);
-2. CLI `aimail bridge`:全量重刷(运维兜底);
-3. 安装同步:平台安装流程全量注册(§4 各实例)。
+1. 安装/重置链:`aimail install` / `aimail reset` 按系统配置对账路由——缺/变 upsert,配置已不需要的撤回(§4 各实例);
+2. 入站信号:宿主上报服务状态(`aimail address --inbound-live|--inbound-down`),CLI 按本系统对账;
+3. 修复/重刷:`aimail repair`(路由修复阶梯)与 `aimail bridge`(全量重刷,运维兜底)。
 
 ### 3.2 接收端点(webhook_url = agentmail.json 唯一信任源)
 
@@ -224,7 +224,7 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 | 适配层 | tssdk `dsh-aimail` 插件(3 子包:mail-service / tools / inbound;identity = `~/.dsh/.agentmail` 指针;preset = 定义 / uuid = 实例) |
 | 工具 | 15 邮件/board/身份裸名工具(preset 层注册,joined session 可见;出站 X-AIMail-Agent = `dsh/{ver}`) |
 | 入站 | host 层 `mail-inbound`:node:http listener(`POST /aimail/inbound`,默认端口 `AIMAIL_INBOUND_PORT`/9099)→ HMAC 验签 → TS `processInboundMail` → `followup` 唤醒对应 session |
-| 生命周期 | dsh-aimail `lib/register-cli.js`(CLI spawn,平台注册表 node_entry)+ 宿主 auto-bind;共享 mail-core 链(注册后必调 register_bridge_route) |
+| 生命周期 | dsh-aimail `lib/register-cli.js`(CLI spawn,平台注册表 node_entry)+ 宿主 auto-bind;共享 mail-core 链(不打桥调用——路由维护归 CLI) |
 | 部署 | `dsh plugin --profile web add dsh-aimail`(bundle 经 cordis.patch.yml 自挂载) |
 | 关键坑 | persona 关闭(`PERSONA_SUPPORTED=False`,dsh-persona 同名不同义);多 session 隔离由网关 `sender==key.email` 兜底;契约逐字对齐 Python |
 
@@ -400,7 +400,7 @@ health_checks。CLI 执行器是平台无关的 `kind` 分发;kind 跨平台共�
 | 症状 | 根因 |
 |------|------|
 | ping 永不回 pong | 前缀不一致(PONG_PREFIX 必须 `__aimail_pong__:`);或接收端没走 process_inbound_mail 最后一步 |
-| 入站断链(新 agent) | 注册后未调 register_bridge_route(路由表无条目) |
+| 入站断链(新 agent) | 该地址无路由——跑 `aimail install`/`reset` 或 `aimail repair`(路由对账);或宿主从未发入站 live 信号(查 agent 启动钩子) |
 | webhook 会话收得到回不出 | profile `platform_toolsets.webhook` 缺 aimail;或路由 skills 为空 |
 | 日志落 `_unassigned/default/agentmail.log` | 独立进程没 set_agent_context / 没 export AIMAIL_AGENT_EMAIL(无系统归属 → 收口 _unassigned) |
 | bridge 转发 401 无限重试 | webhook_secret 与接收端配置不一致(注册时落盘值) |

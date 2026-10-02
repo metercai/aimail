@@ -65,7 +65,7 @@ Local aimail-bridge API.
 
 | Endpoint         | Method | Purpose                                          | Callers                                                                           |
 | ---------------- | ------ | ------------------------------------------------ | --------------------------------------------------------------------------------- |
-| `/api/v1/routes` | POST   | Register agent inbound route (idempotent upsert) | `pysdk/aimail_base.py` (`register_bridge_route`) + `tssdk mail-core auto-bind.ts` |
+| `/api/v1/routes` | POST   | Register agent inbound route (idempotent upsert) | CLI only: `cli/bridge_wire.py` (`sync_route`, driven by `aimail install`/`reset` reconcile, `aimail address --inbound-live|--inbound-down`, `aimail repair`) — the SDK has no bridge calls (zero-bridge ratchet) |
 
 ## Board
 

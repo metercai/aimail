@@ -116,7 +116,7 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 ```
 
 - The registration parameter `webhook_url` is resolved by `resolve_register_webhook_url(gw, local_webhook_url)` per the webhook_host tri-state (§3.4); what is written to agentmail.json is always the local endpoint.
-- After registration **always call** `register_bridge_route(system_id, email, gw, local_webhook_url)` (POST bridge /api/v1/routes, idempotent upsert) — otherwise the bridge pulls but has no route, and inbound is broken.
+- Bridge routing is the **CLI's** environment duty (owner ruling 2026-09-28: the SDK never touches the bridge — zero-bridge ratchet). The registration chain makes no bridge call; routes are maintained by `aimail install`/`reset` (config↔route reconcile), the host's inbound signal (`aimail address --inbound-live|--inbound-down`), and `aimail repair`.
 - The manager whitelist and domain_addr_meta are auto-created by the gateway's register_address; the Python side does not add them.
 - client must be `aimail_tools._GatewayClient` (full method set).
 
@@ -141,9 +141,9 @@ Cloud receive → gateway inbound queue → bridge pull (2s polling of /pending)
 ```
 
 **Three entry points keep the route table maintained** (routes are complete at all times):
-1. Registration chain: after a new agent's address is registered, `register_bridge_route` is always called (§2.4);
-2. CLI `aimail bridge`: full refresh (operational safety net);
-3. Install-time sync: platform install flows register everything (§4 examples).
+1. Install/reset chain: `aimail install` / `aimail reset` reconcile routes against the system config — upsert what's missing, withdraw what the config no longer needs (§4 examples);
+2. Inbound signals: the host reports service state (`aimail address --inbound-live|--inbound-down`) and the CLI reconciles that system's routes;
+3. Repair/refresh: `aimail repair` (route refresh ladder) and `aimail bridge` (full refresh, operational safety net).
 
 ### 3.2 Receive Endpoints (webhook_url = the only trusted source in agentmail.json)
 
@@ -226,7 +226,7 @@ Field semantics follow the config-file table in `cli/README.md` and the code con
 | Adapter layer | tssdk `dsh-aimail` plugin (3 subpackages: mail-service / tools / inbound; identity = `~/.dsh/.agentmail` pointer; preset = definition / uuid = instance) |
 | Tools | 15 bare-name email/board/identity tools (registered at the preset layer, visible to joined sessions; outbound X-AIMail-Agent = `dsh/{ver}`) |
 | Inbound | Host-layer `mail-inbound`: node:http listener (`POST /aimail/inbound`, default port `AIMAIL_INBOUND_PORT`/9099) → HMAC signature verify → TS `processInboundMail` → `followup` wakes the corresponding session |
-| Lifecycle | dsh-aimail `lib/register-cli.js`(CLI spawn,platform registry node_entry)+ host auto-bind;shared mail-core chain(register_bridge_route always called) |
+| Lifecycle | dsh-aimail `lib/register-cli.js`(CLI spawn,platform registry node_entry)+ host auto-bind;shared mail-core chain(no bridge calls — route upkeep = CLI) |
 | Deployment | `dsh plugin --profile web add dsh-aimail` (the bundle self-mounts via cordis.patch.yml) |
 | Key pitfalls | Persona off (`PERSONA_SUPPORTED=False`; dsh-persona is same-named but means something different); multi-session isolation is backed by the gateway's `sender==key.email`; contract aligned verbatim with Python |
 
@@ -424,7 +424,7 @@ dispatchers; kinds are shared across platforms, never per-platform code.
 | Symptom | Root cause |
 |---------|------------|
 | ping never gets a pong | Prefix mismatch (PONG_PREFIX must be `__aimail_pong__:`); or the receive endpoint skipped the final process_inbound_mail step |
-| Inbound broken (new agent) | register_bridge_route not called after registration (no route-table entry) |
+| Inbound broken (new agent) | No route for the new address — run `aimail install`/`reset` or `aimail repair` (route reconcile); or the host never sent the inbound-live signal (check the agent's startup hook) |
 | Webhook session receives but can't reply | Profile `platform_toolsets.webhook` lacks aimail; or the routed skills are empty |
 | Logs land in `_unassigned/default/agentmail.log` | Standalone process didn't set_agent_context / didn't export AIMAIL_AGENT_EMAIL (no system归属 → 收口 _unassigned) |
 | Bridge retries 401 forever | webhook_secret inconsistent with the receive-endpoint config (the value written at registration) |

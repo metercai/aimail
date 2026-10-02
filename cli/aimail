@@ -3252,6 +3252,53 @@ def _confirm(msg: str, args) -> bool:
     return ans in ("y", "yes")
 
 
+def _gateway_sweep_whitelists(client, sid: str, addrs, domains, deregistered) -> int:
+    """卸载兜底: 清本系统自己的白名单行。返回删除行数。
+
+    N2-A(裁决 2026-10-02, 复现 /tmp/d2-repro.log):
+      · 查询键**只能**是本系统 system_domains 行(地址行/自有裸域行; upstream 即
+        list_system_domains(sid)) —— domain_addr UNIQUE ⇒ 回解析恒得本系统。
+        共享租户没有裸域行; 旧实现额外拼的 cfg_domain 裸键会解析到**域属主系统**
+        ⇒ 删的是平台/域主的行、自家行反而漏清(共享域双半边缺陷)。
+      · 成功注销过的地址键不再扫(其行由注销链自己清)。
+      · 删除前按响应的 system_id==sid 再过滤一道(响应带 system_id;
+        gateway types.rs:279) —— 缺失(None)视为兼容旧网关, 信任已证明的键。
+      · 判不出归属宁可不扫: 键集为空即跳过(旧的"cfg_domain 兜底"在共享域就是病灶)。
+    """
+    if not hasattr(client, "list_whitelists_by_domain"):
+        return 0
+    sweep_keys = sorted(set(domains + [a for a in addrs if a not in deregistered]))
+    if not sweep_keys:
+        return 0
+    removed = 0
+    seen = set()
+    for key in sweep_keys:
+        try:
+            rows = client.list_whitelists_by_domain(key)
+        except Exception as e:  # noqa: BLE001
+            _warn(f"whitelist sweep({key}) list failed: {e}")
+            continue
+        n = 0
+        for r in (rows if isinstance(rows, list) else []):
+            if not isinstance(r, dict) or r.get("id") is None:
+                continue
+            if r.get("system_id") not in (None, sid):
+                continue                      # 双保险: 别人的行永不触碰
+            rid = int(r["id"])
+            if rid in seen:
+                continue
+            seen.add(rid)
+            try:
+                client.delete_whitelist_entry_by_id(rid)
+                n += 1
+            except Exception as e:  # noqa: BLE001
+                _warn(f"whitelist sweep({key}) delete {r.get('domain_addr')} failed: {e}")
+        if n:
+            _ok(f"gateway whitelist sweep({key}): removed {n} row(s)")
+        removed += n
+    return removed
+
+
 def cmd_uninstall(args) -> int:
     """卸载:与 install 对等,消除 aimail 在 agent 系统上的配置。"""
     sid = args.system_id or ""
@@ -3386,34 +3433,20 @@ def cmd_uninstall(args) -> int:
                 if not v:
                     continue
                 (addrs if "@" in v else domains).append(v)
+            deregistered = set()
             for a in addrs:
                 if a in local_emails or (manager and a == manager):
                     continue
                 try:
                     st = deregister_agent_email(client, sid, a, manager_address=manager)
+                    deregistered.add(a)
                     _ok(f"gateway deregister (no local binding) {a} (api-key={st.get('api_key')} "
                         f"domain={st.get('domain')} whitelist={st.get('whitelist')})")
                 except Exception as e:  # noqa: BLE001
                     _warn(f"gateway deregister (no local binding) {a} failed: {e}")
-            cfg_domain = str(gw.get("domain", "") or "")
-            sweep_domains = sorted(set(domains + ([cfg_domain] if cfg_domain else [])))
-            if sweep_domains and hasattr(client, "list_whitelists_by_domain"):
-                for dom in sweep_domains:
-                    try:
-                        rows = client.list_whitelists_by_domain(dom)
-                    except Exception as e:  # noqa: BLE001
-                        _warn(f"whitelist sweep({dom}) list failed: {e}")
-                        continue
-                    n = 0
-                    for r in (rows if isinstance(rows, list) else []):
-                        if not isinstance(r, dict) or r.get("id") is None:
-                            continue
-                        try:
-                            client.delete_whitelist_entry_by_id(int(r["id"]))
-                            n += 1
-                        except Exception as e:  # noqa: BLE001
-                            _warn(f"whitelist sweep({dom}) delete {r.get('domain_addr')} failed: {e}")
-                    _ok(f"gateway whitelist sweep({dom}): removed {n} row(s)")
+            removed = _gateway_sweep_whitelists(client, sid, addrs, domains, deregistered)
+            if removed:
+                _ok(f"gateway whitelist sweep: {removed} row(s) removed (system-owned scope)")
     except ImportError as e:
         _warn(f"tools import failed: {e}(跳过网关侧兜底)")
 
