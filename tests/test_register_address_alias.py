@@ -4,12 +4,12 @@
    地址基名必须过别名映射(`pysdk/aimail_base.email_for_agent` 契约)⇒ openclaw main 的地址
    是 `agent.<系统标识>@域`。旧实现把 registry 的 default_name(`main`)当请求名直接注册出去,
    云端落下 `main.xixi@aimail.token.tm`(应 `agent.xixi@…`),而控制台还打印 `main@…`(缺系统标识)。
-② 桥路由**不在 CLI**: "注册了地址就要有桥路由" 是平台侧单一契约
-   (pysdk `register_bridge_route` + TS `mail-core.registerBridgeRoute`,由每个注册入口自己推:
-   hermes/deer-flow 适配层、dsh `register-cli`、pi、openclaw `autoBind`)。
-   用户裁定(2026-09-27):"注册后加路由这是标准契约,必须要一致,不能各做各的" ⇒
-   CLI 不得再自己推一遍(两份 owner = 两套真相,还会掩盖某个平台漏推)。
-   契约由门禁按平台断言(tests/cli L1/L2),不在这里重复实现。
+② 注册路径**不推桥路由**: 路由是 CLI 的环境职责(2026-09-28 去桥化裁决), 且由
+   `install/reset` 对账与宿主入站信号驱动 —— 不是注册命令的副产品; SDK 零桥符号
+   (棘轮禁列)。本测试断言注册路径零 `/api/v1/routes` POST; 路由跟随由 L2 门禁
+   (D2-T / J5-6e)按平台断言。
+③ CLI 传**意图**(P6/C3, 2026-10-02): 注册器模板带 `--name`, 地址派生在注册器侧
+   (TS `emailForAgent` / Python `email_for_agent` 同一规则); 本文件按同规则派生后断言。
 
 不做任何网络: dummy `_run_registrar` 记录 argv,urlopen 记录(并拒绝)路由请求。
 """
@@ -55,11 +55,25 @@ class _Resp:
         return b"{}"
 
 
+_DOMAIN = "aimail.token.tm"
+_SYSTEM_NAME = "xixi"
+
+
+def _addr_of(argv) -> str:
+    """注册器收到的地址意图(C3): `--name <base>` 按注册器同规则派生 / `--email` 显式。"""
+    import aimail_base
+    if "--name" in argv:
+        return aimail_base.email_for_agent(argv[argv.index("--name") + 1],
+                                           _DOMAIN, _SYSTEM_NAME,
+                                           default_aliases=())
+    return argv[argv.index("--email") + 1]
+
+
 def _cfg(*, bridge: bool):
     cfg = {
         "system_id": "shared-default-6905ddad",
-        "system_name": "xixi",
-        "domain": "aimail.token.tm",
+        "system_name": _SYSTEM_NAME,
+        "domain": _DOMAIN,
         "gateway_url": "https://aimail.token.tm",
         "admin_key": "k" * 32,
         "manager_address": "m@x.tm",
@@ -77,7 +91,7 @@ def _setup(tmp: Path, monkeypatch, argv_seen: list, posts: list, *, create_bindi
     def _registrar(argv):
         argv_seen.append(list(argv))
         if create_binding:
-            email = argv[argv.index("--email") + 1]
+            email = _addr_of(argv)
             d = tmp / "home" / "systems" / "shared-default-6905ddad" / cli._addr_clean(email)
             d.mkdir(parents=True, exist_ok=True)
             (d / "agentmail.json").write_text(json.dumps(
@@ -104,7 +118,8 @@ def test_openclaw_default_registers_the_alias_mapped_address(tmp_path, monkeypat
     cli._register_agent_now("openclaw", "main", _cfg(bridge=True), "main", "")
 
     assert argv_seen, "注册器必须被调用"
-    emailed = argv_seen[-1][argv_seen[-1].index("--email") + 1]
+    assert "--name" in argv_seen[-1], f"C3: CLI 应传意图 --name 而非拼好的地址: {argv_seen[-1]}"
+    emailed = _addr_of(argv_seen[-1])
     assert emailed == "agent.xixi@aimail.token.tm", f"openclaw main 的地址基名须归一为 agent: {emailed}"
 
 
@@ -115,7 +130,8 @@ def test_openclaw_explicit_name_is_used_verbatim(tmp_path, monkeypatch):
     rec = _Rec()
     rec.install(cli)
     cli._register_agent_now("openclaw", "main", _cfg(bridge=True), "weijia", "")
-    assert argv_seen[-1][argv_seen[-1].index("--email") + 1] == "weijia.xixi@aimail.token.tm"
+    assert "--name" in argv_seen[-1]
+    assert _addr_of(argv_seen[-1]) == "weijia.xixi@aimail.token.tm"
 
 
 def test_cli_does_not_push_the_bridge_route(tmp_path, monkeypatch):

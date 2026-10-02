@@ -158,7 +158,8 @@ def save_agent_config(agent_id: str, cfg: dict, system_id: str) -> None:
     print(f"  ✓ saved {path}")
 
 
-def register_agents(manager: str = "", system_id: str = "", agent: str = "") -> int:
+def register_agents(manager: str = "", system_id: str = "", agent: str = "",
+                    name: str = "") -> int:
     """注册 DeerFlow agent(s) 到 aimail 系统。
 
     注册链(register_email → 已存在更新 webhook → manager 白名单 → activate_address)
@@ -168,6 +169,9 @@ def register_agents(manager: str = "", system_id: str = "", agent: str = "") -> 
     Args:
         agent:     agent id;传 "all" 等价原 --all(discover_deerflow_agents());
                   空串 → SystemExit "need --agent <id> or --all"。
+        name:      目标地址基名(P6/C2, 2026-10-02): 非空 ⇒ 邮箱按此派生, 注册器
+                  **直达**目标名 —— 退役"先默认名注册再 rename"的中间态(F13 根: 中间态
+                  在网关留无本地绑定的孤儿行); 空 = 按 agent_id 派生(旧行为)。
         manager:   manager_address(审批联系人);缺省读 AIMAIL_MANAGER 环境变量。
         system_id: 缺省读 AIMAIL_SYSTEM_ID 环境变量 / detect_system_id()。
 
@@ -212,7 +216,10 @@ def register_agents(manager: str = "", system_id: str = "", agent: str = "") -> 
             if _activate_pending(agent_id, local, system_id, gw):
                 created += 1
             continue
-        email = email_for_agent(agent_id, gw["domain"], gw.get("system_name", ""))
+        # C2: 目标名直达(P6 裁决) —— 邮箱派生用 name(计划给的目标基名), agent_id
+        # 仅承载平台语义(绑定/会话), 与 rename 后的终态同形
+        email = email_for_agent(name or agent_id, gw["domain"],
+                                gw.get("system_name", ""))
         # 2026-10-02 E2(与核心 E1 配套, 调用方卫生): 已有绑定 ⇒ 复用它的 secret, 只在缺失时
         # 新铸。原实现每轮新随机会让"重注册"看起来像轮换: exists 分支把新值 PUT 覆写网关,
         # 而绑定只在拿到 api_key/activation_code 时才落盘(manage.py:224-235)⇒ 两把钥匙
@@ -745,6 +752,9 @@ def main(argv: list | None = None) -> int:
     # register_agent.py 同款参数
     p = sub.add_parser("register", description="注册 DeerFlow agent 到 aimail")
     p.add_argument("--agent", default="")
+    p.add_argument("--name", default="",
+                   help="目标地址基名(P6/C2: 注册器**直达**此名, 不再先注册默认名再 rename);"
+                        " 空 = 按 --agent 派生(旧行为)")
     p.add_argument("--all", action="store_true", help="注册全部 DeerFlow agents")
     p.add_argument("--manager", default="", help="manager_address(审批联系人);缺省读 AIMAIL_MANAGER 环境变量")
     p.add_argument("--system-id", default=os.environ.get("AIMAIL_SYSTEM_ID", ""))
@@ -789,7 +799,10 @@ def _cmd_register(a) -> int:
     if a.agent and a.all:
         raise SystemExit("--agent and --all are mutually exclusive")
     agent = a.agent or ("all" if a.all else "")
-    return register_agents(manager=a.manager, system_id=a.system_id, agent=agent)
+    # --name 只对单 agent 生效(--all 枚举各 agent 自派生地址, 不接受统一名)
+    name = a.name if a.agent else ""
+    return register_agents(manager=a.manager, system_id=a.system_id, agent=agent,
+                           name=name)
 
 
 def _cmd_patch(a) -> int:

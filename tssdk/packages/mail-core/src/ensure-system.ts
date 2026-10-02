@@ -13,6 +13,12 @@
  * Two distinct entries (human vs `--system-only`), one direction each → no
  * recursion.
  *
+ * Layering exception — registered by ruling (2026-10-02, D6): this is the ONE
+ * accepted SDK→CLI reverse call, an *environment* callback (system activation
+ * is the CLI's environment-ownership domain, L2 layering model). It is
+ * recorded here so the boundary stays visible and is NOT a template for more
+ * SDK→CLI channels; every other direction stays SDK-writes / CLI-reads.
+ *
  * Contract (CLI side, locked by tests): stdout = exactly one JSON line
  * {success, system_id, gateway_url, domain, system_name, path} or
  * {success:false, error, hint}; exit 0/1.

@@ -15,6 +15,10 @@ _CLI = Path("/home/ubuntu/aimail/cli/aimail")
 assert _CLI.is_file()
 if str(_CLI.parent) not in sys.path:
     sys.path.insert(0, str(_CLI.parent))
+if str(_CLI.parent.parent / "pysdk") not in sys.path:
+    sys.path.insert(0, str(_CLI.parent.parent / "pysdk"))
+
+import aimail_base  # noqa: E402 — N2-B: the sweep lives in the SDK now
 from importlib.machinery import SourceFileLoader
 
 
@@ -56,11 +60,11 @@ def test_shared_tenant_never_queries_bare_domain_and_deletes_only_own_rows():
                     "mgr.t1@shared.tm": own + [foreign],
                     # 若有人把裸域当键, 网关会返回域主的行 —— 键集里根本不该出现它
                     "shared.tm": [foreign]})
-    n = cli._gateway_sweep_whitelists(c, sid, addrs=["agent.t1@shared.tm"],
-                                      domains=[], deregistered=set())
+    res = aimail_base.cleanup_system_whitelists(c, sid, addresses=["agent.t1@shared.tm"],
+                                                domains=[], deregistered=set())
     assert "shared.tm" not in c.queried, f"bare domain queried: {c.queried}"
     assert sorted(c.deleted) == [1, 2], f"deleted={c.deleted} (foreign row touched or own leaked)"
-    assert n == 2
+    assert res["removed"] == 2
 
 
 def test_non_shared_own_domain_still_sweeps():
@@ -68,19 +72,19 @@ def test_non_shared_own_domain_still_sweeps():
     rows = [{"id": 3, "system_id": sid, "domain_addr": "own-a.test"},
             {"id": 4, "system_id": sid, "domain_addr": "a@own-a.test"}]
     c = FakeClient({"own-a.test": rows, "a@own-a.test": rows})
-    n = cli._gateway_sweep_whitelists(c, sid, addrs=["a@own-a.test"],
-                                      domains=["own-a.test"], deregistered=set())
+    res = aimail_base.cleanup_system_whitelists(c, sid, addresses=["a@own-a.test"],
+                                                domains=["own-a.test"], deregistered=set())
     assert sorted(c.deleted) == [3, 4]
-    assert n == 2
+    assert res["removed"] == 2
 
 
 def test_deregistered_address_key_is_skipped():
     sid = "solo"
     rows = [{"id": 5, "system_id": sid, "domain_addr": "own-a.test"}]
     c = FakeClient({"own-a.test": rows, "orphan@own-a.test": rows})
-    cli._gateway_sweep_whitelists(c, sid, addrs=["orphan@own-a.test"],
-                                  domains=["own-a.test"],
-                                  deregistered={"orphan@own-a.test"})
+    aimail_base.cleanup_system_whitelists(c, sid, addresses=["orphan@own-a.test"],
+                                          domains=["own-a.test"],
+                                          deregistered={"orphan@own-a.test"})
     assert "orphan@own-a.test" not in c.queried
 
 
@@ -88,15 +92,22 @@ def test_no_system_owned_rows_means_no_sweep_at_all():
     # 判不出归属宁可不扫 —— 旧实现此时会拿 cfg_domain 裸键兜底(共享域病灶)
     c = FakeClient({"shared.tm": [{"id": 9, "system_id": "platform-sys",
                                    "domain_addr": "shared.tm"}]})
-    n = cli._gateway_sweep_whitelists(c, "tenant1", addrs=[], domains=[],
-                                      deregistered=set())
-    assert n == 0 and c.queried == [] and c.deleted == []
+    res = aimail_base.cleanup_system_whitelists(c, "tenant1", addresses=[], domains=[],
+                                                deregistered=set())
+    assert res["removed"] == 0 and c.queried == [] and c.deleted == []
 
 
 def test_duplicate_rows_across_keys_deleted_once():
     sid = "solo"
     rows = [{"id": 6, "system_id": sid, "domain_addr": "x@own-a.test"}]
     c = FakeClient({"own-a.test": rows, "x@own-a.test": rows})
-    n = cli._gateway_sweep_whitelists(c, sid, addrs=["x@own-a.test"],
-                                      domains=["own-a.test"], deregistered=set())
-    assert c.deleted == [6] and n == 1
+    res = aimail_base.cleanup_system_whitelists(c, sid, addresses=["x@own-a.test"],
+                                                domains=["own-a.test"], deregistered=set())
+    assert c.deleted == [6] and res["removed"] == 1
+
+def test_cli_uninstall_is_a_thin_caller_no_local_sweep_logic():
+    """N2-B wiring: the CLI triggers the SDK entry and only reports; the sweep
+    logic (keys/filter/delete) must NOT exist in the CLI module anymore."""
+    src = _CLI.read_text(encoding="utf-8")
+    assert "cleanup_system_whitelists(" in src, "CLI does not call the SDK entry"
+    assert "_gateway_sweep_whitelists" not in src, "local sweep helper resurrected"

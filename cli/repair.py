@@ -603,8 +603,10 @@ def _failing_file_checks(plat: str, sh: str) -> list:
 def _sdk_install_target(plat: str) -> str:
     """The type of this platform's self-sufficient SDK install entry (registry install_steps kind=sdk_install -> target).
 
-    Platforms without that step (openclaw/pi/dsh) manage their resources themselves (plugin/host commands),
+    Platforms without that step (openclaw/pi) manage their resources themselves (plugin/host commands),
     so the CLI does not install for them -> an empty string is returned and the caller prints the registry's own fix hint.
+    (dsh gained such a step with D5, 2026-10-02: sdk_install fn=install_dsh -> repair can now self-heal
+    its skill/tool assembly instead of only printing a hint.)
     """
     for st in _platform_def(plat).get("install_steps", []) or []:
         if st.get("kind") == "sdk_install" and st.get("target"):

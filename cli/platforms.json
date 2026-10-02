@@ -166,18 +166,13 @@
           }
         },
         {
-          "kind": "spawn",
-          "argv": [
-            "bash",
-            "{sdk}/dsh/install-skill-tools.sh"
-          ],
+          "kind": "sdk_install",
+          "target": "dsh",
+          "fn": "install_dsh",
           "on_error": "fail",
-          "fail_hint": "dsh skill/tool 装配步失败: {sdk}/dsh/install-skill-tools.sh 退出 {rc}(关键装配步: web profile 的 skill-filesystem/tool-skill 必须启用; 失败必须可见, 不许当成功)",
-          "ok_text": "dsh skill/tool 暴露层已启用(skill-filesystem/tool-skill: disabled: false)",
-          "env": {
-            "DSH_HOME": "{home}",
-            "DSH_PROFILE": "web"
-          }
+          "needs_manager": false,
+          "fail_hint": "dsh skill/tool 装配失败(install_dsh, exit {rc}): web profile 的 skill-filesystem/tool-skill 必须启用; 失败必须可见, 不许当成功",
+          "ok_text": "dsh skill/tool 暴露层已启用(skill-filesystem/tool-skill: disabled: false)"
         },
         {
           "kind": "register_default",
@@ -418,8 +413,8 @@
           "openclaw",
           "aimail",
           "register",
-          "--email",
-          "{email}",
+          "--name",
+          "{name}",
           "--system-id",
           "{sid}"
         ],
@@ -558,7 +553,9 @@
           "--agent",
           "{agent}",
           "--manager",
-          "{manager}"
+          "{manager}",
+          "--name",
+          "{name}"
         ],
         "fail_hint": "deer-flow manage.py 注册器失败——检查 pysdk/deer-flow 模块与系统配置"
       },

@@ -182,7 +182,7 @@ function hooksTokenLine(state: 'kept' | 'created' | 'no-config' | 'disabled'): s
 }
 
 const USAGE = `openclaw aimail <register|register-all|deregister|status> [...args]
-  register  --email <addr> [--system-id SID] [--webhook-url URL] [--manager ADDR]
+  register  --name <base> | --email <addr> [--system-id SID] [--webhook-url URL] [--manager ADDR]
              (4-step idempotent chain; writes agentmail.json + pointer)
   register-all [--system-id SID] [--domain D]
              (multi-agent: enumerate ~/.openclaw/agents/* → {agent}@{domain}
@@ -218,10 +218,17 @@ export async function handleCommand(
   const opts = parseArgs(args.replace(/^\S+/, ''))
   try {
     if (sub === 'register') {
-      const email = opts.email ?? ''
-      if (!email) return cmdText(['register requires --email <addr>', '', USAGE])
       const systemId = await resolveSystemId(opts['system-id'] ?? '')
       const gw = await readGatewayConfig(systemId)
+      let email = opts.email ?? ''
+      if (!email && opts.name) {
+        // C3(owner 裁决 2026-10-02 P6): CLI 传意图(--name), 地址派生在 SDK —— 与
+        // register-all / identity auto-bind 同源(emailForAgent), 同一 agent 名在每条
+        // 路径得到同一个地址; --email 保留兼容(既有脚本/显式地址)。
+        if (!gw.domain) return cmdText(['register --name needs a domain (gateway cfg has none — pass --email or set domain)', '', USAGE])
+        email = emailForAgent(opts.name, gw.domain, gw.system_name ?? '', ['main'])
+      }
+      if (!email) return cmdText(['register requires --name <base> or --email <addr>', '', USAGE])
       const webhookSecret = randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, '')
       // 统一走 mail-core autoBind(归属读 → 4 步注册 → agentmail.json 原子
       // 写 0600 → bridge route)。此前本命令用复制链 + 非原子落盘 + 从不配

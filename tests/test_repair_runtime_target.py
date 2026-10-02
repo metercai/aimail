@@ -22,10 +22,13 @@ import repair  # noqa: E402
 def test_sdk_install_target_from_registry():
     assert repair._sdk_install_target("hermes") == "hermes"
     assert repair._sdk_install_target("deerflow") == "deerflow"
+    # D5(2026-10-02): dsh 装配步迁 sdk_install(fn=install_dsh) ⇒ repair 可自愈其
+    # skill/tool 装配(此前只有 fix 提示)
+    assert repair._sdk_install_target("dsh") == "dsh"
 
 
 def test_platforms_without_sdk_entry_have_no_target():
-    for plat in ("openclaw", "pi", "dsh"):
+    for plat in ("openclaw", "pi"):
         assert repair._sdk_install_target(plat) == ""
 
 

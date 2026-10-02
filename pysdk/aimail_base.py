@@ -646,6 +646,58 @@ def rename_address(system_id: str, old_email: str, new_name: str, cfg: dict) -> 
             "migrated": migrated, "signal": signal}
 
 
+def cleanup_system_whitelists(client, system_id: str, addresses, domains,
+                              deregistered) -> dict:
+    """卸载兜底: 清**本系统自己的**白名单行。返回 {"removed", "per_key", "errors"}。
+
+    N2-B(裁决 2026-10-02, 与 rename_address 同模式收口): 白名单资源的云端 CRUD 归 SDK,
+    CLI 只触发与播报。事实依据 /tmp/d2-repro.log(网关 SQL 数据层重放):
+      · 查询键**只能**是本系统 system_domains 行(address 行 + 自有裸域行; upstream =
+        list_system_domains(sid)) —— domain_addr UNIQUE ⇒ 回解析恒得本系统;
+        共享租户没有裸域行, 旧实现拿裸 cfg_domain 当键会解析到**域属主系统**
+        ⇒ 删平台/域主的行、自家行漏清(共享域双半边缺陷)。
+      · 成功注销过的地址键不再扫(其行由注销链自己清)。
+      · 删除前按响应 system_id==sid 再过滤一道(响应带 system_id; gateway types.rs:279);
+        缺失(None)视为兼容旧网关, 信任已证明的键。
+      · 键集为空即跳过(判不出归属宁可不扫) —— 旧的 cfg_domain 兜底正是病灶。
+    client 由调用方注入(与 deregister_agent_email 同约定: 本函数族共享同一 client)。
+    """
+    if not hasattr(client, "list_whitelists_by_domain"):
+        return {"removed": 0, "per_key": {}, "errors": []}
+    sweep_keys = sorted(set(list(domains or []) +
+                            [a for a in (addresses or []) if a not in (deregistered or set())]))
+    if not sweep_keys:
+        return {"removed": 0, "per_key": {}, "errors": []}
+    removed = 0
+    per_key: Dict[str, int] = {}
+    errors: List[str] = []
+    seen = set()
+    for key in sweep_keys:
+        try:
+            rows = client.list_whitelists_by_domain(key)
+        except Exception as e:  # noqa: BLE001 — 单键失败不阻断其余键
+            errors.append(f"list {key}: {e}")
+            continue
+        n = 0
+        for r in (rows if isinstance(rows, list) else []):
+            if not isinstance(r, dict) or r.get("id") is None:
+                continue
+            if r.get("system_id") not in (None, system_id):
+                continue                      # 双保险: 别人的行永不触碰
+            rid = int(r["id"])
+            if rid in seen:
+                continue
+            seen.add(rid)
+            try:
+                client.delete_whitelist_entry_by_id(rid)
+                n += 1
+            except Exception as e:  # noqa: BLE001
+                errors.append(f"delete id={rid} {r.get('domain_addr')}: {e}")
+        per_key[key] = n
+        removed += n
+    return {"removed": removed, "per_key": per_key, "errors": errors}
+
+
 def set_agent_manager(system_id: str, email: str, manager: str,
                       cfg: dict, binding_cfg: dict) -> None:
     """set-manager 的 SDK 域收口(owner 裁决 2026-10-02): 云端 agent-meta 与本地
@@ -1581,6 +1633,49 @@ def email_for_agent(agent_id: str, domain: str, system_name: str = "",
     if system_name:
         return f"{base}.{system_name}@{domain}"
     return f"{base}@{domain}"
+
+
+def plan_address_name(requested_name: str, *, agent_id: str, domain: str,
+                      system_name: str = "", aliases=(),
+                      register_argv=()) -> dict:
+    """注册编排的"定名字"单真源(owner 裁决 2026-10-02 P6-A / C1)。
+
+    输入 = 意图 + 映射层数据(平台注册表 platforms.json: 别名表/注册模板 argv —— 由
+    CLI 作为映射层传入); 规则全在 SDK, CLI 只"取计划 → 执行":
+      1. 校验: 请求名必须 atext-no-dot(不合法抛 ValueError,CLI _fail 呈现);
+      2. 别名归一: 平台内部 id(openclaw main / hermes default)不是地址基名 → "agent";
+      3. 直达判定(F13 根): 注册模板含 {name}/{email} ⇒ 注册器接受地址名 → 直达目标
+         (needs_rename=False); 否则先按平台默认名注册, 注册后必须 rename 收口
+         (needs_rename=True —— 中间态会在网关留下无本地绑定的孤儿行);
+      4. 邮箱派生: email_for_agent(唯一规则真源)。
+    返回:
+      default_name : 平台默认基名(别名归一后)
+      target_name  : 目标基名(请求名归一, 未给请求名 = default_name)
+      reg_as       : 本次注册应使用的基名(可达 ⇒ target_name, 否则 default_name)
+      needs_rename : reg_as != target_name ⇒ 注册后需 rename 收口
+      email        : 本次注册落的完整地址(email_for_agent(reg_as))
+      target_email : 最终目标地址(email_for_agent(target_name))
+    """
+    name = requested_name or ""
+    # 与旧 CLI 逐字同义: 对**原始请求**做 fullmatch(含空串 ⇒ 不合法), 消息不变
+    if not re.fullmatch(r"[A-Za-z0-9!#$%&'*+\-/=?^_`{|}~]+", name):
+        raise ValueError(f"非法地址名 '{name}':须为 atext-no-dot 字符(不能含点/空格/@)")
+    als = tuple(aliases or ())
+    plat_default = (agent_id or "").strip() or "agent"
+    default_name = "agent" if plat_default in als else plat_default
+    target_name = ("agent" if name in als else name) if name else default_name
+    accepts_target = any(("{email}" in str(x)) or ("{name}" in str(x))
+                         for x in (register_argv or ()))
+    reg_as = target_name if (accepts_target and name) else default_name
+    return {
+        "default_name": default_name,
+        "target_name": target_name,
+        "reg_as": reg_as,
+        "needs_rename": reg_as != target_name,
+        "email": email_for_agent(reg_as, domain, system_name, default_aliases=()),
+        "target_email": email_for_agent(target_name, domain, system_name,
+                                        default_aliases=()),
+    }
 
 
 def trigger_profile_hooks(event: str, profile_name: str, profile_dir: str) -> None:

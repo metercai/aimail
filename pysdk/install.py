@@ -380,9 +380,9 @@ def install_dsh(home: str, system_id: str = "", manager: str = "") -> int:
     """dsh agent 侧装配(卡②, owner 批 2026-09-30): web profile 的 skill/tool 暴露层。
 
     归属按 owner 边界裁决(2026-09-30): agent 内部工具/技能的暴露属 **SDK 范围** ⇒ 必须由
-    本入口执行(harness 只调 SDK 入口)。按同一裁决, **agent 适配步骤本身不属 CLI**:
-    `cli/platforms.json` 里那条同名 spawn 步是**待迁移项**(应改为 CLI 调用本 SDK 入口,
-    而非 CLI 自行 spawn 适配脚本); 迁移方案未批前它只作可见失败, **不作为适配归属依据**。
+    本入口执行(harness 只调 SDK 入口)。按同一裁决, **agent 适配步骤本身不属 CLI** ——
+    `cli/platforms.json` 的 dsh 装配步已迁移(D5, 2026-10-02): `kind=sdk_install,
+    fn=install_dsh`, CLI 经 `_sdk_install` 调本入口, 不再自行 spawn 适配脚本。
     复用既有
     `pysdk/dsh/install-skill-tools.sh`(幂等); rc!=0 ⇒ 返回 1(装配失败必须可见)。
     `dsh plugin add` 属 CLI 安装步, 不在此重复(不越界、不造第二套)。

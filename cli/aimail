@@ -586,15 +586,24 @@ def _run_install_steps(platform: str, ctx: dict) -> None:
             _warn(_tmpl(st["text"], ctx))
         elif kind == "sdk_install":
             # P1 硬门: sdk_install 步会注册/写白名单(hermes register_emails、
-            # deerflow register/reconcile)⇒ manager 必须非空, 在**进 try 之前**
-            # 判(F9 的 SystemExit→warn 吞不掉它), 失败即 rc=1。
-            ctx["manager"] = _require_mgr(ctx.get("manager", ""),
-                                          ctx.get("cfg") or {},
-                                          f"install sdk_install({st.get('fn', '')})")
+            # deerflow register/reconcile)⇒ manager 必须非空, 在**进 try 之前**判
+            # (F9 的 SystemExit→warn 吞不掉它), 失败即 rc=1。
+            # needs_manager:false(D5, 2026-10-02): 纯装配步(如 install_dsh)不注册、
+            # 不写白名单 ⇒ P1 门不适用; 默认 true 保 hermes/deerflow 现状。
+            if st.get("needs_manager", True):
+                ctx["manager"] = _require_mgr(ctx.get("manager", ""),
+                                              ctx.get("cfg") or {},
+                                              f"install sdk_install({st.get('fn', '')})")
             rc = _sdk_install(st.get("target", platform), Path(ctx["home"]),
                               ctx.get("sid", ""), fn=st.get("fn", ""),
                               manager=ctx.get("manager", ""))
             ok_t = st.get("ok_text", "sdk install done")
+            # on_error:"fail"(D5): 保原 spawn 步"失败即中止"语义; 无该字段 = 旧行为
+            # (rc!=0 只播报警告, 不阻塞 install 主流程)。
+            if rc != 0 and st.get("on_error", "warn") == "fail":
+                _fail(_tmpl(st.get("fail_hint",
+                                   f"sdk install({st.get('fn', '')}) 失败(exit {{rc}})"),
+                            dict(ctx, rc=str(rc))))
             _ok(ok_t if rc == 0 else f"{ok_t} — see warnings")
         elif kind == "spawn":
             argv = [_tmpl(x, ctx) for x in st.get("argv", [])]
@@ -2176,10 +2185,26 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str,
     rename + 本地迁移,复用 set-name 同款链路),保证地址名精确等于用户指定值。
     (F13 2026-09-26 用户裁决①:中间态会在网关留下无本地绑定的默认名地址,清不掉)
     """
-    import re as _re
-    if not _re.fullmatch(r"[A-Za-z0-9!#$%&'*+\-/=?^_`{|}~]+", reg_name):
-        _fail(f"非法地址名 '{reg_name}':须为 atext-no-dot 字符(不能含点/空格/@)")
     sid = cfg.get("system_id", "")
+    home = cfg.get("system_home", "")
+    domain = cfg.get("domain", "")
+    system_name = cfg.get("system_name", "")
+    aliases = _platform_aliases().get(platform, ())
+    pdef = _platform_def(platform)
+    rdef = pdef.get("register", {})
+    kind = rdef.get("kind", "")
+    # 定名字 = SDK 单真源(P6/C1, owner 裁决 2026-10-02): 校验/别名归一/直达判定
+    # (F13 根: 可直达的注册器必须直达, 中间态在网关留无本地绑定的孤儿行)/邮箱派生
+    # 全在 `aimail_base.plan_address_name`; CLI 只"取计划 → 执行"。映射层数据(别名表/
+    # 注册模板 argv)由本函数从 platforms.json 读出作为输入 —— 规则不落注册表。
+    from aimail_base import plan_address_name
+    try:
+        plan = plan_address_name(
+            reg_name, agent_id=agent, domain=domain, system_name=system_name,
+            aliases=aliases,
+            register_argv=(rdef.get("argv") or []) + (rdef.get("args") or []))
+    except ValueError as e:
+        _fail(str(e))
     # P1(2026-09-30): 解析链收口到 `_resolve_mgr`(参数 → cfg → env 三名互认),
     # 解析完仍为空即硬门 —— 注册链写白名单, 不接受 `''`(禁止静默降级)。
     mgr = _resolve_mgr(manager, cfg)
@@ -2188,42 +2213,11 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str,
               f"(owner 契约 2026-09-30)。\n"
               f"  给值: -m/--manager <addr>,或 env "
               f"{' / '.join(_MANAGER_ENV_NAMES)}")
-    home = cfg.get("system_home", "")
-    domain = cfg.get("domain", "")
-    system_name = cfg.get("system_name", "")
-    # 平台默认注册名(地址派生别名)
-    aliases = _platform_aliases().get(platform, ())
-    default_name = "agent" if agent in aliases else agent
-
-    pdef = _platform_def(platform)
-    rdef = pdef.get("register", {})
-    kind = rdef.get("kind", "")
-    # 注册时用的地址名(F13 2026-09-26,用户裁决走 ①"注册链直达目标名"):
-    # - 注册器接受地址名(模板含 {email}:openclaw 的 host_command,CLI 侧算地址)⇒
-    #   **直接把目标名交给注册器**,不再"先按平台默认名注册、再 rename"——那个中间态
-    #   会在网关注册一个本机没有绑定的默认名地址(agent@<域>),卸载遍历本机绑定永远
-    #   清不掉,逐轮累积(①②只是清后果,这里才是根治)。
-    # - 注册器只认自己的默认名(dsh/pi 固定名;deerflow 走 --agent 内部派生)⇒ 沿用默认名
-    #   注册,必要时由 _rename_after_reg 收口到目标名(行为不变)。
-    accepts_email = any("{email}" in x for x in
-                        (rdef.get("argv") or []) + (rdef.get("args") or []))
-    # 地址基名归一(2026-09-26 用户口径 + pysdk/aimail_base.email_for_agent 契约):
-    # 平台的默认 agent 名(openclaw main / hermes default)只是**平台内部 id**,地址基名
-    # 必须过别名映射 ⇒ openclaw 的 main agent 地址 = agent.<系统标识>@域,不是 main.<…>@域。
-    # 旧实现在"注册器接受地址名"的分支直接用 reg_name(platform default_name=main 当请求名传进来)
-    # ⇒ 把 main 当地址名注册了出去(云端 e2e: main.xixi@ 应为 agent.xixi@)。
-    target_name = ("agent" if reg_name in aliases else reg_name) if reg_name else default_name
-    reg_as = target_name if (accepts_email and reg_name) else default_name
-    base = reg_as
-
-    def _email_for(base_name: str) -> str:
-        return (f"{base_name}.{system_name}@{domain}" if system_name
-                else f"{base_name}@{domain}")
 
     def _fill(text: str) -> str:
         return (text.replace("{sid}", sid).replace("{agent}", agent)
                 .replace("{manager}", mgr).replace("{home}", tgt_home)
-                .replace("{email}", _email_for(base)))
+                .replace("{email}", plan["email"]).replace("{name}", plan["reg_as"]))
     # node/python 入口的包落点:优先调用方平台 home(platform_home),再
     # cfg 归属,最后注册表 home_dir 约定(~/.<home_dir>)
     cand_homes = [h for h in (platform_home, home, str(HOME / pdef.get("home_dir", f".{platform}")) ) if h]
@@ -2266,7 +2260,7 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str,
             getattr(mod, rdef["fn"])(reg_name, profile_dir, _cfg)
         finally:
             _lgr.setLevel(_lvl)
-        _finish_registration(platform, agent, _email_for(target_name), cfg, sid)
+        _finish_registration(platform, agent, plan["target_email"], cfg, sid)
         return
 
     if kind == "host_command":
@@ -2277,9 +2271,9 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str,
         if reg[0] != 0:
             _fail(f"{platform} 注册失败(exit {reg[0]}): {reg[1][-300:]}\n"
                   f"  {rdef.get('fail_hint', '')}")
-        if target_name != reg_as:
-            _rename_after_reg(cfg, reg_as, agent, target_name, sid, domain)
-        _finish_registration(platform, agent, _email_for(target_name), cfg, sid)
+        if plan["needs_rename"]:
+            _rename_after_reg(cfg, plan["reg_as"], agent, plan["target_name"], sid, domain)
+        _finish_registration(platform, agent, plan["target_email"], cfg, sid)
         return
 
     if kind == "python_script":
@@ -2291,9 +2285,9 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str,
         if reg[0] != 0:
             _fail(f"{platform} 注册器失败: {reg[1][-400:]}\n"
                   f"  {rdef.get('fail_hint', '')}")
-        if target_name != reg_as:
-            _rename_after_reg(cfg, reg_as, agent, target_name, sid, domain)
-        _finish_registration(platform, agent, _email_for(target_name), cfg, sid)
+        if plan["needs_rename"]:
+            _rename_after_reg(cfg, plan["reg_as"], agent, plan["target_name"], sid, domain)
+        _finish_registration(platform, agent, plan["target_email"], cfg, sid)
         return
 
     if kind == "node_entry":
@@ -2313,7 +2307,7 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str,
         if reg[0] != 0:
             _fail(f"{platform} 注册失败(exit {reg[0]}): {reg[1][-300:]}\n"
                   f"  {rdef.get('fail_hint', '')}")
-        _finish_registration(platform, agent, _email_for(target_name), cfg, sid)
+        _finish_registration(platform, agent, plan["target_email"], cfg, sid)
         return
 
     _fail(f"未知注册委托 kind '{kind}'(platform {platform})——注册表损坏")
@@ -3252,53 +3246,6 @@ def _confirm(msg: str, args) -> bool:
     return ans in ("y", "yes")
 
 
-def _gateway_sweep_whitelists(client, sid: str, addrs, domains, deregistered) -> int:
-    """卸载兜底: 清本系统自己的白名单行。返回删除行数。
-
-    N2-A(裁决 2026-10-02, 复现 /tmp/d2-repro.log):
-      · 查询键**只能**是本系统 system_domains 行(地址行/自有裸域行; upstream 即
-        list_system_domains(sid)) —— domain_addr UNIQUE ⇒ 回解析恒得本系统。
-        共享租户没有裸域行; 旧实现额外拼的 cfg_domain 裸键会解析到**域属主系统**
-        ⇒ 删的是平台/域主的行、自家行反而漏清(共享域双半边缺陷)。
-      · 成功注销过的地址键不再扫(其行由注销链自己清)。
-      · 删除前按响应的 system_id==sid 再过滤一道(响应带 system_id;
-        gateway types.rs:279) —— 缺失(None)视为兼容旧网关, 信任已证明的键。
-      · 判不出归属宁可不扫: 键集为空即跳过(旧的"cfg_domain 兜底"在共享域就是病灶)。
-    """
-    if not hasattr(client, "list_whitelists_by_domain"):
-        return 0
-    sweep_keys = sorted(set(domains + [a for a in addrs if a not in deregistered]))
-    if not sweep_keys:
-        return 0
-    removed = 0
-    seen = set()
-    for key in sweep_keys:
-        try:
-            rows = client.list_whitelists_by_domain(key)
-        except Exception as e:  # noqa: BLE001
-            _warn(f"whitelist sweep({key}) list failed: {e}")
-            continue
-        n = 0
-        for r in (rows if isinstance(rows, list) else []):
-            if not isinstance(r, dict) or r.get("id") is None:
-                continue
-            if r.get("system_id") not in (None, sid):
-                continue                      # 双保险: 别人的行永不触碰
-            rid = int(r["id"])
-            if rid in seen:
-                continue
-            seen.add(rid)
-            try:
-                client.delete_whitelist_entry_by_id(rid)
-                n += 1
-            except Exception as e:  # noqa: BLE001
-                _warn(f"whitelist sweep({key}) delete {r.get('domain_addr')} failed: {e}")
-        if n:
-            _ok(f"gateway whitelist sweep({key}): removed {n} row(s)")
-        removed += n
-    return removed
-
-
 def cmd_uninstall(args) -> int:
     """卸载:与 install 对等,消除 aimail 在 agent 系统上的配置。"""
     sid = args.system_id or ""
@@ -3400,12 +3347,12 @@ def cmd_uninstall(args) -> int:
     #     绑定的地址(whitelists 行留下、无 api-key/system_domains 行), 而上面第 1 段
     #     只遍历本机绑定 ⇒ 这类行永远清不掉(夹具零残留硬门禁判红)。做法: 按 sid 反查
     #     该系统的地址表(list_system_domains), 未被本机绑定覆盖的地址再走一次注销链;
-    #     然后按域清扫该系统自己的白名单行 —— whitelists 表带 system_id(NOT NULL)且
-    #     唯一键是 (system_id, domain_addr, value), 列出接口按"域所属 system"返回,
-    #     所以不会碰到别的 system 的行。
+    #     然后清该系统自己的白名单行 —— 键只用本系统自有行 + 响应 system_id==sid 过滤
+    #     (N2-B, 收口 SDK cleanup_system_whitelists): 共享域的裸域键会解析到域属主系统,
+    #     旧实现"按域返回所以不碰别人"的前提在共享域不成立(复现 /tmp/d2-repro.log)。
     try:
         from aimail_tools import _GatewayClient
-        from aimail_base import deregister_agent_email
+        from aimail_base import cleanup_system_whitelists, deregister_agent_email
         if gw.get("gateway_url") and gw.get("admin_key"):
             client = _GatewayClient(gw["gateway_url"], gw["admin_key"])
             local_emails = set()
@@ -3444,9 +3391,15 @@ def cmd_uninstall(args) -> int:
                         f"domain={st.get('domain')} whitelist={st.get('whitelist')})")
                 except Exception as e:  # noqa: BLE001
                     _warn(f"gateway deregister (no local binding) {a} failed: {e}")
-            removed = _gateway_sweep_whitelists(client, sid, addrs, domains, deregistered)
-            if removed:
-                _ok(f"gateway whitelist sweep: {removed} row(s) removed (system-owned scope)")
+            # N2-B(裁决 2026-10-02): 白名单云端 CRUD 收口 SDK 单入口, CLI 只触发与播报
+            _sw = cleanup_system_whitelists(client, sid, addrs, domains, deregistered)
+            for _k, _n in (_sw.get("per_key") or {}).items():
+                if _n:
+                    _ok(f"gateway whitelist sweep({_k}): removed {_n} row(s)")
+            for _e in (_sw.get("errors") or []):
+                _warn(f"whitelist sweep: {_e}")
+            if _sw.get("removed"):
+                _ok(f"gateway whitelist sweep: {_sw['removed']} row(s) removed (system-owned scope)")
     except ImportError as e:
         _warn(f"tools import failed: {e}(跳过网关侧兜底)")
 
