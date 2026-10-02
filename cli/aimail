@@ -904,8 +904,16 @@ def cmd_install(args) -> int:
     # path keeps the env fallback, where the domain is the existing system's.
     new_system_domain = (args.domain or "") if prod_code else want_domain
     env["INTEGRATE_AIMAIL_DOMAIN"] = new_system_domain
+    # Snapshots default ON (2026-10-02 owner-approved P1): cli/README.md documents
+    # "keep a raw snapshot of every mail (default true)", the TS mail-core gate is
+    # `save_raw_snapshots !== false` and the hermes adapter defaults to True — the CLI
+    # was the only side defaulting to "no", so `aimail install` wrote an explicit
+    # false into the config and the hermes binding, which turned the outbox snapshot
+    # OFF (send_welcome then has no draft to parse -> J4e segment 3 rc=2 -> J4f empty;
+    # measured on the hermes journey with the binding showing save_raw_snapshots:false).
+    # Opt out with AIMAIL_SAVE_SNAPSHOTS=no (or any value outside yes/true/1).
     env["INTEGRATE_SAVE_SNAPSHOTS"] = (
-        "true" if _env_val("AIMAIL_SAVE_SNAPSHOTS", "no").lower() in ("yes", "true", "1") else "false")
+        "true" if _env_val("AIMAIL_SAVE_SNAPSHOTS", "yes").lower() in ("yes", "true", "1") else "false")
     env["INTEGRATE_WEBHOOK_HOST"] = _env_val("AIMAIL_WEBHOOK_HOST")
     # system_home(归属)只在真新建/异地挂载写入;本地已有系统复用(sid 反查
     # admin_key)不传 → setup Path A 继承 prev,多平台接入不抢 owner 归属
@@ -1149,8 +1157,16 @@ def cmd_ensure_system(args) -> int:
     # path keeps the env fallback, where the domain is the existing system's.
     new_system_domain = (args.domain or "") if prod_code else want_domain
     env["INTEGRATE_AIMAIL_DOMAIN"] = new_system_domain
+    # Snapshots default ON (2026-10-02 owner-approved P1): cli/README.md documents
+    # "keep a raw snapshot of every mail (default true)", the TS mail-core gate is
+    # `save_raw_snapshots !== false` and the hermes adapter defaults to True — the CLI
+    # was the only side defaulting to "no", so `aimail install` wrote an explicit
+    # false into the config and the hermes binding, which turned the outbox snapshot
+    # OFF (send_welcome then has no draft to parse -> J4e segment 3 rc=2 -> J4f empty;
+    # measured on the hermes journey with the binding showing save_raw_snapshots:false).
+    # Opt out with AIMAIL_SAVE_SNAPSHOTS=no (or any value outside yes/true/1).
     env["INTEGRATE_SAVE_SNAPSHOTS"] = (
-        "true" if _env_val("AIMAIL_SAVE_SNAPSHOTS", "no").lower() in ("yes", "true", "1") else "false")
+        "true" if _env_val("AIMAIL_SAVE_SNAPSHOTS", "yes").lower() in ("yes", "true", "1") else "false")
     env["INTEGRATE_WEBHOOK_HOST"] = _env_val("AIMAIL_WEBHOOK_HOST")
     # system_home 归属只在新建/显式凭据写;本地复用继承 prev(见 install 同款)
     if prod_code:
