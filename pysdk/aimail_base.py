@@ -14,6 +14,7 @@ import urllib.request
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Callable, Dict, List
+from aimail_contract import POINTER_FILE
 
 
 logger = logging.getLogger(__name__)
@@ -524,6 +525,146 @@ def rename_binding(old_dir, new_email: str, cfg: dict, system_id: str) -> dict:
             moved = True
     path = save_agent_config(cfg.get("agent_id", ""), cfg, system_id)
     return {"path": path, "dir": dst, "moved": moved, "merged": merged}
+
+
+def rename_address(system_id: str, old_email: str, new_name: str, cfg: dict) -> dict:
+    """地址改名的 SDK 域完整操作(owner 裁决 2026-10-02: agent 数量与命名 = SDK 域,
+    改名也是 SDK 的 CRUD; CLI 只是调用方/数据消费者)。
+
+    顺序(任一步抛出即停, 前面已生效的部分在异常文本中写明):
+      1. 校验 + 派生(`email_for_agent` 唯一命名真源) + 冲突预检(本地绑定, 同旧语义);
+      2. 云端 rename(失败即抛 —— 本地未动);
+      3. 白名单孤儿清理: 按**完整 old_email** 为键查询(地址行 ∈ 本系统 ⇒ shared 域
+         也正确解析到本系统, 而非域属主) —— best-effort;
+      4. 本地绑定迁移(`rename_binding`: 目录+内容一次完成);
+      5. 平台根指针(契约 POINTER_FILE 及历史备选名)同步 —— 保留既有字段;
+      6. **改名收尾 = 上线信号** `address --inbound-live`(契约 payload=address only):
+         环境主控(CLI)收到后按落盘数据全量对账路由 —— 时机与内容因此唯一、幂等。
+
+    返回 ``{"old_email", "new_email", "unchanged", "dir", "moved", "merged",
+    "migrated", "signal"}``。
+    """
+    name = str(new_name or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9!#$%&'*+\-/=?^_`{|}~]+", name):
+        raise ValueError(
+            f"invalid address name {new_name!r}: must be atext without '.' "
+            f"(no dot/space/@)")
+    old = str(old_email or "").strip()
+    if not old or "@" not in old:
+        raise ValueError(f"invalid current address {old_email!r}")
+    domain = str(cfg.get("domain") or "").strip()
+    if not domain:
+        raise ValueError("system config lacks domain")
+    system_name = str(cfg.get("system_name") or "").strip()
+    gw = str(cfg.get("gateway_url") or "").rstrip("/")
+    ak = str(cfg.get("admin_key") or "")
+    if not gw or not ak:
+        raise ValueError("system config lacks gateway_url/admin_key")
+    # 唯一命名真源(不自拼): 清洗规则与别名归一都在 email_for_agent 内
+    new = email_for_agent(name, domain, system_name, default_aliases=())
+    if new == old:
+        return {"old_email": old, "new_email": old, "unchanged": True,
+                "dir": "", "moved": False, "merged": False, "migrated": True,
+                "signal": None}
+    # 1) 冲突预检: 同系统其它已注册地址的 base 撞名(本地绑定 = 与旧 CLI 同语义,
+    #    不新增网络依赖; 云端唯一性由 gateway rename 端点兜底)。
+    for row in iter_agentmail_configs(system_id):
+        em = str((row or {}).get("email") or "")
+        if not em or em == old:
+            continue
+        base = em.split("@", 1)[0].split(".", 1)[0]
+        if base == name:
+            raise ValueError(
+                f"new address name {name!r} conflicts with registered address {em}")
+    from aimail_tools import _GatewayClient
+    client = _GatewayClient(gw, ak)
+    # 2) 云端 rename —— 服务端校验 old 存在(404 ⇒ 抛), 本地不动
+    try:
+        client._request("POST", f"/api/v1/admin/systems/{system_id}/addresses/rename",
+                        body={"old_email": old, "new_email": new})
+    except Exception as e:  # noqa: BLE001
+        raise ValueError(f"server-side rename {old} -> {new} failed "
+                         f"(local untouched): {e}") from e
+    # 3) 白名单孤儿行清理(best-effort): 键 = 完整 old 地址 ⇒ 解析到本系统行
+    try:
+        if hasattr(client, "list_whitelists_by_domain"):
+            rows = client.list_whitelists_by_domain(old)
+            n = 0
+            for r in (rows if isinstance(rows, list) else []):
+                if (isinstance(r, dict) and r.get("domain_addr") == old
+                        and r.get("id") is not None):
+                    client.delete_whitelist_entry_by_id(int(r["id"]))
+                    n += 1
+            if n:
+                logger.info("rename: removed %d stale whitelist row(s) for %s", n, old)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("rename: whitelist cleanup for %s failed: %s", old, e)
+    # 4) 本地迁移: 目录改名 + email 更新(一次 SDK 调用, owner 裁决 A)
+    base_root = aimail_home() / "systems" / str(system_id)
+    dir_path, moved, merged, migrated = "", False, False, True
+    if base_root.is_dir():
+        for d in base_root.iterdir():
+            jf = d / "agentmail.json"
+            try:
+                acfg = json.loads(jf.read_text())
+            except Exception:  # noqa: BLE001 — 非绑定目录跳过
+                continue
+            if str(acfg.get("email") or "") != old:
+                continue
+            acfg["email"] = new
+            try:
+                res = rename_binding(d, new, acfg, system_id)
+                dir_path = str(res.get("dir") or "")
+                moved = bool(res.get("moved"))
+                merged = bool(res.get("merged"))
+            except Exception as e:  # noqa: BLE001 — 云端已改名, 不致命
+                migrated = False
+                logger.warning("rename: local binding migration failed "
+                               "(cloud already renamed, reinstall rebuilds local): %s", e)
+            break
+    # 5) 平台根指针同步(契约 POINTER_FILE + 历史备选名; 保留指针内既有字段)
+    home = str(cfg.get("system_home") or "")
+    if home and Path(home).is_dir():
+        for ptr_name in (POINTER_FILE, ".aimail"):
+            pp = Path(home) / ptr_name
+            try:
+                if not pp.is_file():
+                    continue
+                pdata = json.loads(pp.read_text())
+                if str(pdata.get("email") or "") == old:
+                    pdata["email"] = new
+                    atomic_write_private(
+                        pp, json.dumps(pdata, ensure_ascii=False, indent=2) + "\n")
+            except Exception as e:  # noqa: BLE001
+                logger.warning("rename: pointer %s update failed: %s", pp, e)
+    # 6) 改名收尾 = 上线信号(触发 CLI 全量对账; 永不抛)
+    signal = None
+    if migrated:
+        signal = notify_inbound_state(new, "live")
+    return {"old_email": old, "new_email": new, "unchanged": False,
+            "dir": dir_path, "moved": moved, "merged": merged,
+            "migrated": migrated, "signal": signal}
+
+
+def set_agent_manager(system_id: str, email: str, manager: str,
+                      cfg: dict, binding_cfg: dict) -> None:
+    """set-manager 的 SDK 域收口(owner 裁决 2026-10-02): 云端 agent-meta 与本地
+    绑定是同一资源的两半, 一次调用完成; 云端失败即抛(本地不动)。"""
+    mgr = str(manager or "").strip()
+    if not mgr or "@" not in mgr:
+        raise ValueError(f"invalid manager address {manager!r}")
+    gw = str(cfg.get("gateway_url") or "").rstrip("/")
+    ak = str(cfg.get("admin_key") or "")
+    if not gw or not ak:
+        raise ValueError("system config lacks gateway_url/admin_key")
+    from aimail_tools import _GatewayClient
+    try:
+        _GatewayClient(gw, ak)._request(
+            "PUT", f"/api/v1/admin/agent-meta/{email}",
+            body={"manager_address": mgr})
+    except Exception as e:  # noqa: BLE001
+        raise ValueError(f"updating manager on the gateway failed: {e}") from e
+    update_binding(system_id, binding_cfg, {"manager_address": mgr})
 
 
 def _ensure_private_dir(d: Path, mode: Optional[int]) -> None:
