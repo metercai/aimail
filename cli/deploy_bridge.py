@@ -51,12 +51,23 @@ def _ensure_binary(bridge_bin: str, bridge_dir: str) -> bool:
             # 统一改名为裸名,不依赖 zip 内部命名。
             import tempfile
             with tempfile.TemporaryDirectory() as td:
-                r = subprocess.run(
-                    ["unzip", "-o", zip_path, "-d", td],
-                    capture_output=True, timeout=30)
-                if r.returncode != 0:
-                    log_warn(f"unzip failed: {(r.stderr or b'').decode()[:200]}")
-                    return False
+                # 解压双通道: 首选 unzip 可执行文件; 不存在/失败 ⇒ 纯 Python
+                # zipfile 回退(2026-10-02 L2 门禁容器实测无 unzip; 真机同理——
+                # 装桥不能因为缺一个解压工具而失败)。
+                extracted = False
+                try:
+                    r = subprocess.run(
+                        ["unzip", "-o", zip_path, "-d", td],
+                        capture_output=True, timeout=30)
+                    extracted = r.returncode == 0
+                    if not extracted:
+                        log_warn(f"unzip failed: {(r.stderr or b'').decode()[:200]}")
+                except (FileNotFoundError, OSError):
+                    extracted = False
+                if not extracted:
+                    import zipfile
+                    with zipfile.ZipFile(zip_path) as zf:
+                        zf.extractall(td)
                 found = [f for f in os.listdir(td)
                          if f.startswith("aimail-bridge")
                          and os.path.isfile(os.path.join(td, f))]

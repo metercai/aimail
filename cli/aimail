@@ -2721,7 +2721,10 @@ def cmd_bridge(args) -> int:
                 pull = td.get("pull", {})
                 systems = pull.get("systems") or []
                 sys_ids = [s.get("system_id", "?")[-12:] for s in systems]
-                _ok(f"配置: mode={td.get('mode','?')} addr={td.get('addr','?')} "
+                # 2026-10-02 (族1-A 真桥转真时暴露): 配置写的键是 `bind`(_config_lines/
+                # deploy_bridge/示例/夹具全部如此), 旧代码读 `addr` ⇒ addr 恒为 `?`,
+                # 配置维真值永远打不出来。读 bind, 兼容万一存在的旧 addr 键。
+                _ok(f"配置: mode={td.get('mode','?')} addr={td.get('bind', td.get('addr','?'))} "
                     f"systems={sys_ids}")
             except Exception as e:
                 _warn(f"配置读取失败: {e}")
