@@ -4,7 +4,7 @@
 `persona='' signature=''` —— 因为 `aimail welcome` 第 3 段的草案解析只读
 `mail/<yyyymm>/out-*.json`(`cli/send_welcome.py:344-352`), 而快照根本没写:
 `pysdk/aimail_tools.py` 曾用 `config.get("save_raw_snapshots")`(**缺键即关**),
-这一步的 config 是 `set_agent_context` 注入的 **agentmail.json 绑定**, 而绑定从来没有这个键。
+这一步的 config 是 `set_agent_context` 注入的**绑定文件(契约 BINDING_FILE)**, 而绑定从来没有这个键。
 
 三方对照(必须同口径):
   * TS        `mail-core/src/tools.ts:329`  `cfg.save_raw_snapshots !== false` ⇒ 缺键=开
@@ -25,7 +25,7 @@ sys.path.insert(0, "pysdk")  # ensure repo pysdk wins over any cli/ shadow
 
 import aimail_base as base  # noqa: E402
 import aimail_tools as tools  # noqa: E402
-from aimail_contract import BINDING_FILE  # noqa: E402
+from aimail_contract import BINDING_FILE, INBOUND_PATH  # noqa: E402 — 契约单源: 禁字面量
 
 SID = "sys-snap"
 EMAIL = "agent@snap.test"
@@ -59,7 +59,7 @@ def home(_isolated_home):
 def _binding(home: Path, **extra) -> dict:
     cfg = {"email": EMAIL, "system_id": SID, "domain": "snap.test",
            "gateway_url": "http://127.0.0.1:34401", "api_key": "k" * 64,
-           "webhook_url": "http://127.0.0.1:8001/aimail/inbound",
+           "webhook_url": f"http://127.0.0.1:8001{INBOUND_PATH}",
            "webhook_secret": "s" * 64, "agent_id": "default"}
     cfg.update(extra)
     (home / "systems" / SID / ADDR / BINDING_FILE).write_text(json.dumps(cfg))

@@ -18,6 +18,7 @@ for _d in (ROOT / "pysdk",):
         sys.path.insert(0, str(_d))
 
 import aimail_tools  # noqa: E402
+from aimail_contract import BINDING_FILE  # noqa: E402 — 契约单源: 禁字面量(撞棘轮)
 
 _REAL = aimail_tools._GatewayClient  # 导入期抓真类(autouse fixture 会顶掉模块名)
 
@@ -60,8 +61,8 @@ def _clean(monkeypatch):
 
 
 def _load_binding(home):
-    hits = list(pathlib.Path(home).glob("**/agentmail.json"))
-    assert hits, "binding (agentmail.json) must be persisted under tmp HOME"
+    hits = list(pathlib.Path(home).glob("**/" + BINDING_FILE))
+    assert hits, "binding file must be persisted under tmp HOME"
     import json
     return json.loads(hits[0].read_text())
 

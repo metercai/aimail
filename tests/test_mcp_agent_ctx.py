@@ -26,6 +26,7 @@ sys.path.insert(0, "pysdk")  # ensure repo pysdk wins over any cli/ shadow
 
 import aimail_base as base  # noqa: E402
 import aimail_mcp_server as mcp  # noqa: E402
+from aimail_contract import BINDING_FILE  # noqa: E402 — 契约单源: 禁字面量(撞棘轮)
 
 AGENT = "default"
 
@@ -47,11 +48,11 @@ def _isolate_agent_context(monkeypatch):
 
 
 def _mk_home(root: Path, *systems: str) -> Path:
-    """按共享布局造 systems/{sid}/{addr}/agentmail.json(agent_id 同名, 地址各异)。"""
+    """按共享布局造 systems/{sid}/{addr}/绑定文件(契约单源 BINDING_FILE; agent_id 同名, 地址各异)。"""
     for sid in systems:
         addr = root / "systems" / sid / f"agent_{sid}".replace("-", "_")
         addr.mkdir(parents=True)
-        (addr / "agentmail.json").write_text(json.dumps({
+        (addr / BINDING_FILE).write_text(json.dumps({
             "email": f"agent@{sid}.test",
             "gateway_url": "http://127.0.0.1:34401",
             "domain": f"{sid}.test",
