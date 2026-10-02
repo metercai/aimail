@@ -11,7 +11,7 @@ import importlib.util
 import sys
 from pathlib import Path
 
-_CLI = Path("/home/ubuntu/aimail/cli/aimail")
+_CLI = Path(__file__).resolve().parent.parent / "cli" / "aimail"
 assert _CLI.is_file()
 if str(_CLI.parent) not in sys.path:
     sys.path.insert(0, str(_CLI.parent))
