@@ -34,6 +34,7 @@ if str(_REPO / "pysdk") not in sys.path:
     sys.path.insert(0, str(_REPO / "pysdk"))
 
 import aimail_base  # noqa: E402
+from aimail_contract import BINDING_FILE  # noqa: E402 — contract literal (ratchet)
 import aimail_tools  # noqa: E402
 import bridge_wire  # noqa: E402
 
@@ -84,7 +85,7 @@ def sdk_env(tmp_path, monkeypatch):
     d = sysdir / "d1"
     d.mkdir(parents=True)
     old = "main.t1@shared.tm"
-    (d / "agentmail.json").write_text(json.dumps(
+    (d / BINDING_FILE).write_text(json.dumps(
         {"email": old, "system_id": "sid-t1", "agent_id": "main",
          "webhook_url": "http://127.0.0.1:18080/hook"}))
     phome = tmp_path / "phome"
@@ -117,7 +118,7 @@ def test_rename_rejects_invalid_name_before_any_side_effect(sdk_env):
 def test_rename_conflict_with_registered_address(sdk_env):
     other = sdk_env.sysdir / "d2"
     other.mkdir()
-    (other / "agentmail.json").write_text(json.dumps(
+    (other / BINDING_FILE).write_text(json.dumps(
         {"email": "alice.t1@shared.tm", "system_id": "sid-t1"}))
     with pytest.raises(ValueError, match="conflicts with registered address"):
         aimail_base.rename_address("sid-t1", sdk_env.old, "alice", sdk_env.cfg)
@@ -147,7 +148,7 @@ def test_rename_full_chain_shared(sdk_env):
     assert client.deleted == [7]
     # local migration: binding now carries the new email
     emails = [json.loads(p.read_text())["email"]
-              for p in sdk_env.sysdir.glob("*/agentmail.json")]
+              for p in sdk_env.sysdir.glob(f"*/{BINDING_FILE}")]
     assert emails == [new], f"binding not migrated: {emails}"
     # pointer synced
     ptr = json.loads((Path(sdk_env.cfg["system_home"]) / ".aimail").read_text())
@@ -168,7 +169,7 @@ def test_rename_cloud_failure_leaves_local_untouched(sdk_env, monkeypatch):
     with pytest.raises(ValueError, match="server-side rename"):
         aimail_base.rename_address("sid-t1", sdk_env.old, "alice", sdk_env.cfg)
     emails = [json.loads(p.read_text())["email"]
-              for p in sdk_env.sysdir.glob("*/agentmail.json")]
+              for p in sdk_env.sysdir.glob(f"*/{BINDING_FILE}")]
     assert emails == [sdk_env.old], "cloud failure must not touch the local binding"
     assert not sdk_env.signals, "no signal when the rename did not happen"
 
@@ -202,7 +203,7 @@ def cli_route_env(tmp_path, monkeypatch):
             ("c1", {"email": _CAROL, "webhook_url": ""})):  # pull binding
         d = sysdir / name
         d.mkdir(parents=True)
-        (d / "agentmail.json").write_text(json.dumps(acfg))
+        (d / BINDING_FILE).write_text(json.dumps(acfg))
     cfg = {"domain": "shared.tm", "system_name": "t1",
            "gateway_url": "https://gw.test", "admin_key": "AK"}
     (sysdir / "aimail_gateway.json").write_text(json.dumps(cfg))
@@ -329,7 +330,7 @@ def cli_cmd_env(tmp_path, monkeypatch):
     d = sysdir / "w1"
     d.mkdir(parents=True)
     old = "alice.t1@shared.tm"
-    (d / "agentmail.json").write_text(json.dumps(
+    (d / BINDING_FILE).write_text(json.dumps(
         {"email": old, "webhook_url": "http://127.0.0.1:18080/hook"}))
     cfg = {"domain": "shared.tm", "system_name": "t1",
            "gateway_url": "https://gw.test", "admin_key": "AK"}
