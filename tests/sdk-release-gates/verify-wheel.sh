@@ -70,8 +70,12 @@ _SDK_OPS_OUT="$("$VENV_DIR/bin/python" -m aimail.sdk_ops iter_bindings --args '{
     echo "   sdk_ops stdout must be exactly one line"; exit 1; }
 printf '%s' "$_SDK_OPS_OUT" | "$VENV_DIR/bin/python" -c \
     'import json,sys; d=json.loads(sys.stdin.read()); assert d.get("ok") is True and isinstance(d.get("result"), list), d'
+# 用法错必须 exit 2 —— set -e 下非零命令会直接中止脚本，故先关再开（2026-10-04 实测踩过）
+set +e
 "$VENV_DIR/bin/python" -m aimail.sdk_ops nope --args '{}' >/dev/null 2>&1
-[ $? -eq 2 ] || { echo "   usage error must exit 2"; exit 1; }
+_USAGE_RC=$?
+set -e
+[ "$_USAGE_RC" -eq 2 ] || { echo "   usage error must exit 2 (got $_USAGE_RC)"; exit 1; }
 echo "   OK: aimail.sdk_ops entry works (one-line JSON, exit 0/2)"
 
 echo "== 5/5 version metadata"

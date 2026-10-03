@@ -65,6 +65,13 @@ def test_iter_bindings_ok_is_one_line_json(tmp_path):
     assert env["ok"] is True and env["result"] == []
 
 
+def test_help_exits_0(tmp_path):
+    """`--help` 必须 exit 0（argparse 的 0 被 `or` 吞成默认码是实测踩过的坑）。"""
+    proc = _run(tmp_path, "--help")
+    assert proc.returncode == 0, proc.stderr
+    assert "usage:" in (proc.stdout + proc.stderr)
+
+
 def test_unknown_op_exits_2_without_stdout_json(tmp_path):
     proc = _run(tmp_path, "nope", "--args", "{}")
     assert proc.returncode == 2
