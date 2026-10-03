@@ -12,6 +12,7 @@
 //! 其余键（uninstall_steps / health_checks / register …）留给各自的消费步骤，
 //! 避免过早把 schema 冻成结构体。
 
+use crate::core::contract;
 use serde_json::Value;
 use std::sync::OnceLock;
 
@@ -58,6 +59,133 @@ pub fn install_steps(name: &str) -> &'static [Value] {
 /// 整份注册表（未定型的键用它的逃生口，不要在这里加半成品的强类型）。
 pub fn raw() -> &'static Value {
     registry()
+}
+
+// ── 检测 / 指针（均为注册表表驱动；`cli/aimail:178-243,3055-3075` 的复刻） ──────
+
+/// 按 home 目录特征判平台（注册表 `order` × `detect`；顺序语义保真：pi/dsh 特征先行，
+/// 防 `profiles/` 撞车）。识别不出 ⇒ `"unknown"`（不猜）。
+pub fn detect_platform_from_home(system_home: &std::path::Path) -> &'static str {
+    let Some(dir_name) = system_home
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+    else {
+        return "unknown";
+    };
+    for name in order() {
+        let Some(def) = platform(name) else { continue };
+        let detect = def.get("detect");
+        let want_dir = detect
+            .and_then(|d| d.get("dir_name"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if !want_dir.is_empty() && dir_name != want_dir {
+            continue;
+        }
+        let markers: Vec<&str> = detect
+            .and_then(|d| d.get("markers"))
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(Value::as_str).collect())
+            .unwrap_or_default();
+        if markers.iter().all(|m| system_home.join(m).exists()) {
+            return name;
+        }
+    }
+    "unknown"
+}
+
+/// 平台根目录（`<user_home>/<home_dir>`）；注册表缺 `home_dir` ⇒ `.<name>`（Python 同默认）。
+pub fn platform_root(user_home: &std::path::Path, name: &str) -> std::path::PathBuf {
+    let dir = home_dir(name)
+        .map(str::to_string)
+        .unwrap_or_else(|| format!(".{name}"));
+    user_home.join(dir)
+}
+
+/// 平台指针文件名（注册表 `pointer.file`；缺省 = 契约常量，不在本处复制字面量）。
+fn pointer_file_for(name: &str) -> &'static str {
+    platform(name)
+        .and_then(|p| p.get("pointer"))
+        .and_then(|p| p.get("file"))
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| contract::pointer_file())
+}
+
+/// 平台指针路径。`kind=root_or_profiles`（hermes）时：根指针存在用根，否则取
+/// `profiles/*/<指针文件>` 的第一个；都不存在返回根路径（Python 同语义）。
+pub fn pointer_path(user_home: &std::path::Path, name: &str) -> std::path::PathBuf {
+    let kind = platform(name)
+        .and_then(|p| p.get("pointer"))
+        .and_then(|p| p.get("kind"))
+        .and_then(Value::as_str)
+        .unwrap_or("root");
+    let root_ptr = platform_root(user_home, name).join(pointer_file_for(name));
+    if kind != "root_or_profiles" {
+        return root_ptr;
+    }
+    if root_ptr.is_file() {
+        return root_ptr;
+    }
+    let profiles = platform_root(user_home, name).join("profiles");
+    let mut candidates: Vec<std::path::PathBuf> = std::fs::read_dir(&profiles)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path().join(pointer_file_for(name)))
+        .filter(|p| p.is_file())
+        .collect();
+    candidates.sort();
+    candidates.into_iter().next().unwrap_or(root_ptr)
+}
+
+/// 读指针文件里的 `system_id`（读不到/解析不了 ⇒ `""`）。
+pub fn pointer_sid(ptr: &std::path::Path) -> String {
+    let Ok(text) = std::fs::read_to_string(ptr) else {
+        return String::new();
+    };
+    serde_json::from_str::<Value>(&text)
+        .ok()
+        .and_then(|v| {
+            v.get("system_id")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .unwrap_or_default()
+}
+
+/// 该平台指针指向的 sid（无指针 ⇒ `""`）。
+pub fn pointer_sid_for(user_home: &std::path::Path, name: &str) -> String {
+    let ptr = pointer_path(user_home, name);
+    if ptr.is_file() {
+        pointer_sid(&ptr)
+    } else {
+        String::new()
+    }
+}
+
+/// `sid -> [平台名]`（按注册表 order 保序；同一 sid 被多平台指向时按序累积）。
+pub fn all_pointer_sids(user_home: &std::path::Path) -> Vec<(String, Vec<&'static str>)> {
+    let mut out: Vec<(String, Vec<&'static str>)> = Vec::new();
+    for name in order() {
+        let sid = pointer_sid_for(user_home, name);
+        if sid.is_empty() {
+            continue;
+        }
+        match out.iter_mut().find(|(s, _)| *s == sid) {
+            Some((_, v)) => v.push(name),
+            None => out.push((sid, vec![name])),
+        }
+    }
+    out
+}
+
+/// 平台根存在**且**特征识别为该平台（`cli/aimail:3071-3075` 同判据）。
+pub fn platform_root_exists(user_home: &std::path::Path, name: &str) -> bool {
+    let root = platform_root(user_home, name);
+    if !root.exists() {
+        return false;
+    }
+    detect_platform_from_home(&root) == name
 }
 
 #[cfg(test)]

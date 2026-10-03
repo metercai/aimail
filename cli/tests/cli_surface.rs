@@ -1,12 +1,20 @@
-//! Rust CLI 表面契约（plan v3 S1 验收）。
+//! Rust CLI 表面契约（plan v3 S1 验收，S3 起扩展）。
 //!
-//! 锁四件事（与 Python 侧 `tests/test_install_machine_surface.py` 同精神）：
+//! 锁五件事：
 //! 1. `version` 输出形态 == `aimail <ver> (<dev|bootstrapped>)`；
 //! 2. 顶层 15 子命令 + `prompt` 5 嵌套全部注册（命令面冻结）；
 //! 3. 机器面（`--system-only` / `--payload` / 旧名 `ensure-system`）**不出现在人面 help**；
-//! 4. 未移植子命令 = 明确非零退出（绝不静默成功）；缺子命令 = rc 2。
+//! 4. **未移植命令必须诚实**：未列进 `IMPLEMENTED` 的子命令一律 rc≠0 且 stderr 含
+//!    "not yet ported"（绝不静默成功）；反过来，已实现的命令不许留在未移植清单里
+//!    （强制维护，防止"移了代码忘了清单"）；
+//! 5. 所有实跑都在**hermetic HOME** 里（临时目录），绝不读开发机的 `~/.aimail`。
+//!
+//! 第 5 条是 S3 加 `stats` 时暴露出来的真问题：旧版 `run()` 直接用进程环境，`stats`
+//! 一实现就把开发机的真实系统打印出来（那既是测试污染源，也是误判来源）。
 
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 const TOP_LEVEL: &[&str] = &[
     "install",
@@ -31,9 +39,52 @@ const PROMPT_SUBCOMMANDS: &[&str] = &["add", "list", "rm", "test", "create-file"
 /// 机器面字样（人面 help 三者皆不得出现；Python 侧同名断言）。
 const MACHINE_LITERALS: &[&str] = &["ensure-system", "payload", "system-only"];
 
+/// 本步已移植的子命令（每移植一个就加进来 —— 与 `unported_commands_are_honest` 互为棘轮）。
+const IMPLEMENTED: &[&str] = &["version", "stats", "persona"];
+
+static SEQ: AtomicU32 = AtomicU32::new(0);
+
+/// 一次性临时目录（本文件专用；lib 的 testutil 是 `cfg(test)` 私有，集成测试看不到）。
+struct TempDir {
+    path: PathBuf,
+}
+
+impl TempDir {
+    fn new(tag: &str) -> Self {
+        let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "aimail-rs-it-{}-{}-{}",
+            std::process::id(),
+            seq,
+            tag
+        ));
+        std::fs::create_dir_all(&path).expect("temp dir");
+        Self { path }
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.path);
+    }
+}
+
+/// 在 hermetic HOME/AIMAIL_HOME 下跑一次二进制。
 fn run(args: &[&str]) -> (i32, String, String) {
+    let tmp = TempDir::new("surface");
+    let home = tmp.path().join("home");
+    let aimail_home = tmp.path().join("aimail-home");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&aimail_home).unwrap();
     let out = Command::new(env!("CARGO_BIN_EXE_aimail"))
         .args(args)
+        .env("HOME", &home)
+        .env("AIMAIL_HOME", &aimail_home)
+        .env_remove("AIMAIL_PROG_DIR")
         .output()
         .expect("spawn aimail");
     (
@@ -97,12 +148,52 @@ fn machine_surface_is_hidden_from_human_help() {
 }
 
 #[test]
-fn unimplemented_subcommand_exits_nonzero_and_says_so() {
+fn unported_commands_are_honest() {
+    for name in TOP_LEVEL {
+        if IMPLEMENTED.contains(name) {
+            continue;
+        }
+        let (rc, out, err) = run(&[name]);
+        assert_ne!(rc, 0, "'{name}' must not exit 0 while unported: {out:?}");
+        assert!(
+            err.contains("not yet ported"),
+            "'{name}' stderr must say so, got {err:?}"
+        );
+    }
+}
+
+#[test]
+fn implemented_list_does_not_claim_unported_commands() {
+    // 反向棘轮：IMPLEMENTED 里的命令必须真的不再打印 stub 文案
+    for name in IMPLEMENTED {
+        let (_, _, err) = run(&[name]);
+        assert!(
+            !err.contains("not yet ported"),
+            "'{name}' is listed IMPLEMENTED but still hits the stub: {err:?}"
+        );
+    }
+}
+
+#[test]
+fn stats_on_empty_machine_is_the_single_line_and_rc0() {
     let (rc, out, err) = run(&["stats"]);
-    assert_ne!(rc, 0, "unported command must not exit 0 (stdout={out:?})");
+    assert_eq!(rc, 0, "rc={rc} err={err}");
+    assert_eq!(
+        out.trim_end(),
+        "  no aimail systems configured on this machine"
+    );
+}
+
+#[test]
+fn persona_pointer_shell_keeps_rc2() {
+    let (rc, out, err) = run(&["persona"]);
+    assert_eq!(
+        rc, 2,
+        "persona is a pointer shell (contract rc 2), out={out:?}"
+    );
     assert!(
-        err.contains("not yet ported"),
-        "stderr must say so, got {err:?}"
+        err.contains("welcome"),
+        "stderr must point at welcome: {err:?}"
     );
 }
 

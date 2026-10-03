@@ -13,9 +13,13 @@
 
 pub mod config;
 pub mod contract;
+pub mod gateway;
 pub mod home;
+pub mod mail;
 pub mod perms;
 pub mod platforms;
+pub mod sig;
+pub mod time;
 
 #[cfg(test)]
 pub(crate) mod testutil {

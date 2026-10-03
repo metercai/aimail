@@ -133,6 +133,41 @@ fn address_hidden_args(cmd: Command) -> Command {
     )
 }
 
+/// `stats` 的参数（Python `cli/aimail:3531-3534`）。
+fn stats_args(cmd: Command) -> Command {
+    cmd.arg(
+        Arg::new("all")
+            .short('a')
+            .long("all")
+            .action(ArgAction::SetTrue)
+            .help("full view: per-system health tags + broken systems + local platforms"),
+    )
+}
+
+/// `persona` 的参数（Python `cli/aimail:3577-3581`）—— 参数只为命令面保真，
+/// 该命令是"指路壳"（rc 2），不读任何参数。
+fn persona_args(cmd: Command) -> Command {
+    cmd.arg(
+        Arg::new("system-id")
+            .short('s')
+            .long("system-id")
+            .help("target system id (default: the only installed system)"),
+    )
+    .arg(
+        Arg::new("manager")
+            .short('m')
+            .long("manager")
+            .help("manager address (approvals contact); default: config/env"),
+    )
+    .arg(
+        Arg::new("no-wait")
+            .short('w')
+            .long("no-wait")
+            .action(ArgAction::SetTrue)
+            .help("do not wait for the draft reply"),
+    )
+}
+
 /// 构造完整命令树（集成测试也用它，避免测试复制一份清单）。
 pub fn build_cli() -> Command {
     let mut app = Command::new("aimail")
@@ -147,6 +182,8 @@ pub fn build_cli() -> Command {
         match *name {
             "install" => sub = install_hidden_args(sub),
             "address" => sub = address_hidden_args(sub),
+            "stats" => sub = stats_args(sub),
+            "persona" => sub = persona_args(sub),
             "prompt" => {
                 for (pn, ph) in PROMPT_SUBCOMMANDS {
                     sub = sub.subcommand(Command::new(*pn).about(*ph));
@@ -164,6 +201,8 @@ pub fn run() -> i32 {
     let matches = build_cli().get_matches();
     match matches.subcommand() {
         Some(("version", _)) => crate::cmd::version::run(),
+        Some(("stats", m)) => crate::cmd::stats::run(m.get_flag("all")),
+        Some(("persona", _)) => crate::cmd::persona::run(),
         Some((name, _)) => crate::cmd::stub::not_yet_ported(name),
         // subcommand_required(true) ⇒ 到不了这里；留非零兜底而不是伪装成 0。
         None => crate::cmd::stub::not_yet_ported("<none>"),

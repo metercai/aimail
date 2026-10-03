@@ -39,8 +39,13 @@ FROZEN_TOP_LEVEL = (
 )
 FROZEN_PROMPT_SUBCOMMANDS = ("add", "list", "rm", "test", "create-file")
 
-#: Rust 侧已实现、可做逐字等价比对的命令（随 S3–S9 增长）。
-RUST_PARITY_COMMANDS = ("version",)
+#: Rust 侧已实现、可做逐字等价比对的**调用**（含参数；随 S3–S9 增长）。
+RUST_PARITY_INVOCATIONS = (
+    ("version",),
+    ("stats",),
+    ("stats", "-a"),
+    ("persona",),
+)
 
 #: Python 自比命令集（只读、无网络、夹具内确定性）。
 PY_SELF_PARITY_COMMANDS = ("version", "stats", "--help")
@@ -202,21 +207,32 @@ def test_rust_version_subcommand_and_cargo_version_agree():
 
 
 def test_rust_parity_with_python(tmp_path):
-    """Rust 已实现面的逐字等价 + 命令面集合相等 + rc 2 家族。"""
+    """Rust 已实现面的逐字等价 + 命令面集合相等 + rc 2 家族。
+
+    已实现命令在**四种夹具组合**上逐字节比对（不是只挑一个顺的夹具）；
+    夹具差异（空/单系统/多系统/断链）正是最容易暴露"分类判读不同"的地方。
+    """
     rb = rust_bin()
     if rb is None:
         pytest.skip("rust CLI 未构建（cd cli && cargo build）— 本趟只跑 Python 自比")
-    fx = make_fixture(tmp_path, "single")
-    env = _env(fx)
-    roots = [fx["home"], fx["aimail_home"]]
 
-    # (1) 已实现命令：逐字等价（归一化后）
-    for args in RUST_PARITY_COMMANDS:
-        prc, pso, pse = _run(PY_CLI, (args,), env)
-        rrc, rso, rse = _run([str(rb)], (args,), env)
-        assert prc == rrc, f"{args}: rc py={prc} rust={rrc}"
-        assert _diff(_norm(pso, roots), _norm(rso, roots)) == [], f"{args}: stdout 不等价"
-        assert _diff(_norm(pse, roots), _norm(rse, roots)) == [], f"{args}: stderr 不等价"
+    for combo in COMBOS:
+        fx = make_fixture(tmp_path / combo, combo)
+        env = _env(fx)
+        roots = [fx["home"], fx["aimail_home"], tmp_path]
+        for args in RUST_PARITY_INVOCATIONS:
+            prc, pso, pse = _run(PY_CLI, args, env)
+            rrc, rso, rse = _run([str(rb)], args, env)
+            assert prc == rrc, f"{combo}/{args}: rc py={prc} rust={rrc}"
+            assert (
+                _diff(_norm(pso, roots), _norm(rso, roots)) == []
+            ), f"{combo}/{args}: stdout 不等价\n{_norm(pso, roots)!r}\nvs\n{_norm(rso, roots)!r}"
+            assert (
+                _diff(_norm(pse, roots), _norm(rse, roots)) == []
+            ), f"{combo}/{args}: stderr 不等价\n{_norm(pse, roots)!r}\nvs\n{_norm(rse, roots)!r}"
+
+    fx = make_fixture(tmp_path / "surface", "single")
+    env = _env(fx)
 
     # (2) 命令面集合相等（Python 走 invalid choice 枚举；Rust 读 --help 的 Commands 段）
     _, _, perr = _run(PY_CLI, ("__no_such_command__",), env)

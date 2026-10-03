@@ -41,6 +41,21 @@ pub fn program_root() -> PathBuf {
     }
 }
 
+/// 本机用户主目录（`HOME`）—— 平台根（`~/.hermes` 等）挂在它下面。
+///
+/// 与 `aimail_home()` 的区别：主根是 **aimail 数据根**（`~/.aimail`），用户主目录是
+/// **平台根的父目录**（`stats` 的平台段扫描用）。`HOME` 缺失时退到主根的父目录，
+/// 保证不 panic、也不猜别的路径。
+pub fn user_home() -> PathBuf {
+    match env_nonempty("HOME") {
+        Some(v) => expand(&v),
+        None => aimail_home()
+            .parent()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/")),
+    }
+}
+
 /// 发布形态：`dev`（仓内运行）| `bootstrapped`（已装进程序根）。
 ///
 /// Python 侧判据是「脚本目录是否在 toolkit_dir 之下」（`cli/aimail:772`）；
