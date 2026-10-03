@@ -24,6 +24,7 @@ pub mod payload;
 pub mod perms;
 pub mod platforms;
 pub mod probe;
+pub mod repair;
 pub mod sig;
 pub mod style;
 pub mod time;

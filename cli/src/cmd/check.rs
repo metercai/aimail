@@ -6,6 +6,9 @@
 //!
 //! 顺序即语义：system 锚点 → L0 配置 → L1 gateway → L2 bridge → bridge 完备性 →
 //! 绑定文件 → L2r 运行时资源 → 载荷 → L3/L4 适配面 → 输出（表 + 结论行）→ rc。
+//!
+//! [`engine`] 是给 `repair` 的**进程内复用**入口（Python 侧用"子进程 + 捕获输出"
+//! 达到同样效果）；[`run`] 才是命令面包装。
 
 use crate::core::check::Check;
 use crate::core::checks::adapters::{self, Ctx, DEFAULT_SID_ORDER};
@@ -20,6 +23,13 @@ pub struct Args {
     pub system_id: String,
     pub home: Option<String>,
     pub verbose: bool,
+}
+
+/// 引擎输出：记录 + "表之前"的打印行（平台反选 / default sid / 无 sid 提示 / L3-L4 提示）。
+/// 拆出来是为了让调用方决定这些行要不要打（repair 会丢弃，对应 Python 侧的捕获）。
+pub struct EngineOut {
+    pub check: Check,
+    pub pre_lines: Vec<String>,
 }
 
 fn env_nonempty(k: &str) -> Option<String> {
@@ -59,7 +69,6 @@ fn resolve_platform_sid(
 /// `_detect_default_sid`：按 Python `PLATFORMS` 声明顺序找"已装且已集成"的首个平台指针。
 fn detect_default_sid(user_home: &Path, argv_sid: &str, env_sid: Option<&str>) -> String {
     for pid in DEFAULT_SID_ORDER {
-        // detect()：该平台的目录特征存在
         let root = platforms::platform_root(user_home, pid);
         if !root.exists() {
             continue;
@@ -93,10 +102,24 @@ fn platform_by_system_home(user_home: &Path, sid: &str) -> Option<&'static str> 
     None
 }
 
-pub fn run(a: Args) -> i32 {
-    let user_home = home::user_home();
-    let aimail_home = home::aimail_home();
+/// 跑一遍完整 check 引擎（`sid` 视同 argv `--system-id` 已给；`agent_home` = `-H` 归一后的平台根）。
+pub fn engine(sid: &str, agent_home: Option<&Path>, verbose: bool) -> EngineOut {
+    let a = Args {
+        system_id: sid.to_string(),
+        home: agent_home.map(|p| p.to_string_lossy().into_owned()),
+        verbose,
+    };
+    let mut pre_lines: Vec<String> = Vec::new();
+    build_out(&a, &home::user_home(), &home::aimail_home(), &mut pre_lines)
+}
 
+/// 记录编排主体（`check_status.main()` 的 :1489-1592）。`pre_lines` 收集"表之前"的输出。
+fn build_out(
+    a: &Args,
+    user_home: &Path,
+    aimail_home: &Path,
+    pre_lines: &mut Vec<String>,
+) -> EngineOut {
     // AGENT_HOME：`--home` 归一后的平台根 > env AGENT_HOME > `~/.hermes`（Python 同）
     let agent_home_explicit = a.home.is_some();
     let agent_home: PathBuf = match &a.home {
@@ -108,7 +131,7 @@ pub fn run(a: Args) -> i32 {
     };
 
     // 平台识别：`--agent-type` 显式 > 自动探测
-    let mut agent_type = adapters::detect_agent_type(&user_home, None, agent_home_explicit);
+    let mut agent_type = adapters::detect_agent_type(user_home, None, agent_home_explicit);
     let env_sid = env_nonempty("SYSTEM_ID");
 
     // sid 归属平台反选（双平台共存时按 sid 指针归属覆盖探测结果）
@@ -116,21 +139,23 @@ pub fn run(a: Args) -> i32 {
         let sid_platform = {
             let hits = l0::pointer_platforms_for_sid(
                 &L0Ctx {
-                    aimail_home: aimail_home.clone(),
-                    user_home: user_home.clone(),
+                    aimail_home: aimail_home.to_path_buf(),
+                    user_home: user_home.to_path_buf(),
                 },
                 &a.system_id,
             );
             if !hits.is_empty() {
                 Some(hits[0].clone())
             } else {
-                platform_by_system_home(&user_home, &a.system_id).map(str::to_string)
+                platform_by_system_home(user_home, &a.system_id).map(str::to_string)
             }
         };
         if let Some(sid_platform) = sid_platform {
             if sid_platform != agent_type {
                 let head: String = a.system_id.chars().take(8).collect();
-                println!("  platform: {agent_type} → {sid_platform} (by system_id {head}…)");
+                pre_lines.push(format!(
+                    "  platform: {agent_type} → {sid_platform} (by system_id {head}…)"
+                ));
                 agent_type = sid_platform;
             }
         }
@@ -138,20 +163,20 @@ pub fn run(a: Args) -> i32 {
 
     // system_id 锚点
     let mut platform_sid =
-        resolve_platform_sid(&user_home, &agent_type, &a.system_id, env_sid.as_deref());
+        resolve_platform_sid(user_home, &agent_type, &a.system_id, env_sid.as_deref());
     if platform_sid.is_empty() {
-        platform_sid = detect_default_sid(&user_home, &a.system_id, env_sid.as_deref());
+        platform_sid = detect_default_sid(user_home, &a.system_id, env_sid.as_deref());
         if !platform_sid.is_empty() {
-            println!(
+            pre_lines.push(format!(
                 "  default system_id: {platform_sid} (from {} pointer)",
-                adapters::detect_agent_type(&user_home, None, agent_home_explicit)
-            );
+                adapters::detect_agent_type(user_home, None, agent_home_explicit)
+            ));
         }
     }
     if platform_sid.is_empty() {
-        println!(
+        pre_lines.push(format!(
             "{YELLOW}⚠ No system_id resolved — 请用 --system-id 指定(或确认本机已安装 agent 平台且有 aimail 指针){NC}"
-        );
+        ));
     }
 
     let mut c = Check::new();
@@ -169,8 +194,8 @@ pub fn run(a: Args) -> i32 {
     );
 
     let ctx = L0Ctx {
-        aimail_home: aimail_home.clone(),
-        user_home: user_home.clone(),
+        aimail_home: aimail_home.to_path_buf(),
+        user_home: user_home.to_path_buf(),
     };
 
     // L0 配置
@@ -188,35 +213,43 @@ pub fn run(a: Args) -> i32 {
     payload::check_payload(&mut c, &prog_root, resolve_core_dir(&prog_root).as_deref());
 
     // L3/L4 适配面
+    let resolve_sid =
+        adapters::resolve_system_id(&agent_home, Some(&a.system_id), env_sid.as_deref());
+    let systems_dir = aimail_home.join("systems");
     let actx = Ctx {
-        user_home: &user_home,
+        user_home,
         agent_home: &agent_home,
-        systems_dir: &aimail_home.join("systems"),
+        systems_dir: &systems_dir,
         sid: &platform_sid,
-        resolve_sid: &adapters::resolve_system_id(
-            &agent_home,
-            Some(&a.system_id),
-            env_sid.as_deref(),
-        ),
+        resolve_sid: &resolve_sid,
     };
     if let Some(hint) = adapters::run_l3_l4(&mut c, &actx, &agent_type) {
-        println!("{YELLOW}{hint}{NC}");
+        pre_lines.push(format!("{YELLOW}{hint}{NC}"));
     }
 
+    EngineOut {
+        check: c,
+        pre_lines: std::mem::take(pre_lines),
+    }
+}
+
+pub fn run(a: Args) -> i32 {
+    let out = engine(&a.system_id, a.home.as_deref().map(Path::new), a.verbose);
+    for line in &out.pre_lines {
+        println!("{line}");
+    }
+    let c = out.check;
     c.print_table();
     println!();
     if c.all_pass() {
         println!("  {GREEN}{BOLD}✓ All clear — aimail-gateway → agent-platform ready{NC}");
+        0
     } else {
         let fail = c.checks.iter().filter(|r| !r.pass).count();
         println!("  {YELLOW}{BOLD}⚠ {fail}  issue(s) — check items marked  {CROSS} {NC}");
         if !a.verbose {
             println!("    Use --verbose for fix suggestions");
         }
-    }
-    if c.all_pass() {
-        0
-    } else {
         1
     }
 }
