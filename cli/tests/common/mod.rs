@@ -67,7 +67,7 @@ pub fn tuple_of(rec: &Value) -> Record {
 /// 跑 Python 的 `check_status.py --json` 并取回 checks 列表。
 /// 找不到 python3 或脚本时返回 None（调用方打印原因并跳过，不伪装通过）。
 pub fn python_check_json(aimail_home: &Path, user_home: &Path, sid: &str) -> Option<Vec<Value>> {
-    python_check_json_with_env(aimail_home, user_home, sid, &[])
+    python_check_json_with(aimail_home, user_home, Some(user_home), sid, &[])
 }
 
 /// 同上，但可追加环境变量（用于 `AIMAIL_PROG_DIR` 这类"程序根"用例）。
@@ -77,18 +77,28 @@ pub fn python_check_json_with_env(
     sid: &str,
     extra_env: &[(&str, &str)],
 ) -> Option<Vec<Value>> {
+    python_check_json_with(aimail_home, user_home, Some(user_home), sid, extra_env)
+}
+
+/// 完整形态：可指定 `--agent-home`（None ⇒ 不传，用于 dsh/pi/openclaw 的平台探测用例）。
+pub fn python_check_json_with(
+    aimail_home: &Path,
+    user_home: &Path,
+    agent_home: Option<&Path>,
+    sid: &str,
+    extra_env: &[(&str, &str)],
+) -> Option<Vec<Value>> {
     let script = repo_root().join("cli").join("check_status.py");
     if !script.is_file() {
         println!("SKIP: 找不到 {}（非仓库检出？）", script.display());
         return None;
     }
     let mut cmd = Command::new("python3");
-    cmd.arg(&script)
-        .args(["--json", "--system-id", sid])
-        .arg("--agent-home")
-        .arg(user_home)
-        .env("HOME", user_home)
-        .env("AIMAIL_HOME", aimail_home);
+    cmd.arg(&script).args(["--json", "--system-id", sid]);
+    if let Some(ah) = agent_home {
+        cmd.arg("--agent-home").arg(ah);
+    }
+    cmd.env("HOME", user_home).env("AIMAIL_HOME", aimail_home);
     for (k, v) in extra_env {
         cmd.env(k, v);
     }

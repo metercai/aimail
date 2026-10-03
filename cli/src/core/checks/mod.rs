@@ -10,6 +10,7 @@
 //! 所有探针只**产出记录**，不打印、不退出 —— 输出与退出码统一由
 //! [`crate::core::check::Check`] 与命令面负责（现状码也是这个分层）。
 
+pub mod adapters;
 pub mod l0;
 pub mod l1;
 pub mod l2;

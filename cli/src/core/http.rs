@@ -52,6 +52,42 @@ pub fn json_req(
     }
 }
 
+/// 原始请求（不解析 JSON）—— 供 L4 hook 探测这类"只看状态码/原文"的调用。
+///
+/// 对应 Python 的 `urllib.request.urlopen(...)`：**HTTP 错误也算 Ok**（状态码可达，
+/// 由调用方按 code 分档），只有传输层失败才 Err（Python 的 `except Exception`）。
+pub fn raw_req(
+    url: &str,
+    data: Option<&[u8]>,
+    content_type: Option<&str>,
+    timeout_secs: u64,
+) -> Result<(u16, String), String> {
+    let agent = ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(timeout_secs.max(1)))
+        .build();
+    let method = if data.is_some() { "POST" } else { "GET" };
+    let mut req = agent.request(method, url);
+    if let Some(ct) = content_type {
+        req = req.set("Content-Type", ct);
+    }
+    let result = match data {
+        Some(body) => req.send_bytes(body),
+        None => req.call(),
+    };
+    match result {
+        Ok(resp) => {
+            let status = resp.status();
+            let text = resp.into_string().unwrap_or_default();
+            Ok((status, text))
+        }
+        Err(ureq::Error::Status(code, resp)) => {
+            let text = resp.into_string().unwrap_or_default();
+            Ok((code, text))
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
