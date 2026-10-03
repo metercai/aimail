@@ -7,7 +7,12 @@ description = "aimail CLI - set up, operate and maintain the AIMail link between
 repository = "https://github.com/metercai/aimail"
 rust-version = "1.75"
 
-# 单一二进制（无 daemon 形态）。过渡期 `cli/*.py` 与它并存，直到 plan v3 S12 退役。
+# 形态：lib + bin 同包。
+# - bin `aimail`（src/main.rs）= 单一命令行二进制，无 daemon；
+# - lib `aimail`（src/lib.rs）= 同一份实现，供集成测试与后续用例直接调用
+#   （基础设施层在命令移植完成前没有调用方，bin-only crate 会被
+#   `clippy -D warnings` 判 dead_code —— lib 形态既解决该问题，也让
+#   cli/tests 能直接对 config/home 做断言）。
 # 铁律：version 必须 == 仓根 pyproject.toml 的 [project].version（真源）；
 # 由 tests/test_cli_parity.py + tests/cli_surface.rs 两处断言兜住（只许同步改）。
 [[bin]]
@@ -16,3 +21,8 @@ path = "src/main.rs"
 
 [dependencies]
 clap = "4"
+# 只依赖 serde_json（配置/注册表都是 JSON；手写"地图 ↔ 结构体"映射以便逐字控制
+# 键序与"仅非空才写"的条件键语义，故不需要 serde derive）。
+# preserve_order：JSON 对象保持**读写顺序**（indexmap），与 Python json.dump 的
+# insertion-order 行为一致 ⇒ 更新一份凭据文件不会造成无谓的键序重排/文件抖动。
+serde_json = { version = "1", features = ["preserve_order"] }
