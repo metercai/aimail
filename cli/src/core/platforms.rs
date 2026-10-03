@@ -156,6 +156,33 @@ pub fn pointer_file_for(name: &str) -> &'static str {
         .unwrap_or_else(|| contract::pointer_file())
 }
 
+/// 平台指针**全部候选**路径（`_pointer_paths_for` 语义）：
+/// `root_or_profiles` ⇒ 根指针 + `profiles/*/<指针文件>`（排序）；其余 ⇒ 只有根指针。
+pub fn pointer_paths(user_home: &std::path::Path, name: &str) -> Vec<std::path::PathBuf> {
+    let root = platform_root(user_home, name);
+    let file = pointer_file_for(name);
+    let root_ptr = root.join(file);
+    if pointer_kind(name) != "root_or_profiles" {
+        return vec![root_ptr];
+    }
+    let mut out = vec![root_ptr];
+    let profiles = root.join("profiles");
+    if profiles.is_dir() {
+        let mut subs: Vec<std::path::PathBuf> = std::fs::read_dir(&profiles)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_dir())
+            .collect();
+        subs.sort();
+        for sub in subs {
+            out.push(sub.join(file));
+        }
+    }
+    out
+}
+
 /// 平台指针形态（注册表 `pointer.kind`；缺省 `root`）。
 pub fn pointer_kind(name: &str) -> &'static str {
     platform(name)

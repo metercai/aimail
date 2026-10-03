@@ -14,7 +14,9 @@
 //! 也因此 `repair` 命令面**仍未接线**（写面残缺的 repair 会"报修好但没修"）。
 
 use crate::core::check::{Check, Record};
+use crate::core::platforms;
 use crate::core::style::{NC, RED, YELLOW};
+use serde_json::Value;
 use std::path::Path;
 
 /// 可修性分类（`repair.py:903-905` 的返回结构）。
@@ -435,6 +437,383 @@ pub fn run(
         warn("-> the remaining items are not reliably self-fixable (repair only hints; a system administrator acts)");
     }
     1
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// S5b-i：CLI 自有权写入步（系统级文件 / 平台指针）—— 归属铁律：CLI 不写绑定文件
+// 现状码：`cli/repair.py:415-553`（_auto_platform_home / _sid_has_pointer /
+// _repair_gateway_config / _repair_pointer）
+// ════════════════════════════════════════════════════════════════════════════
+
+/// `_auto_platform_home`：单平台机器自动定平台根；多平台回退 cfg 的 system_home；否则空
+/// （**不猜**）。
+pub fn auto_platform_home(user_home: &Path, stored_system_home: Option<&str>) -> String {
+    let mut hits: Vec<String> = Vec::new();
+    for name in platforms::order() {
+        let root = platforms::platform_root(user_home, name);
+        if root.exists() && platforms::detect_platform_from_home(&root) == name {
+            hits.push(root.to_string_lossy().into_owned());
+        }
+    }
+    if hits.len() == 1 {
+        return hits.remove(0);
+    }
+    if hits.len() > 1 {
+        let sh = stored_system_home.unwrap_or("");
+        if !sh.is_empty() && Path::new(sh).is_dir() {
+            return sh.to_string();
+        }
+    }
+    String::new()
+}
+
+/// `_sid_has_pointer(sid)`：任一平台的任一指针（root / root_or_profiles）指向该 sid。
+pub fn sid_has_pointer(user_home: &Path, sid: &str) -> bool {
+    for name in platforms::order() {
+        for ptr in platforms::pointer_paths(user_home, name) {
+            if ptr.is_file() {
+                if let Ok(text) = std::fs::read_to_string(&ptr) {
+                    if let Ok(v) = serde_json::from_str::<Value>(&text) {
+                        if v.get("system_id").and_then(Value::as_str) == Some(sid) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+/// `judge_deliverable(url)` —— 云端能不能 POST 到这个 URL（**话说明白**的判据）。
+///
+/// 关键：`_detect_webhook_host` 返回的是**裸 host**（如 `127.0.0.1`）⇒ 这里必然判
+/// 不可达 ⇒ `repair` 实际**从不写** `webhook_host`（只打告警）。文案逐字照抄
+/// `cli/deploy_bridge.py:328-350`。
+pub fn judge_deliverable(url: &str) -> (bool, String) {
+    let raw = url.trim();
+    if raw.is_empty() {
+        return (
+            false,
+            "the URL is empty (pull mode: nothing is registered)".to_string(),
+        );
+    }
+    let bare = || {
+        format!(
+            "'{raw}' is not an absolute http(s) URL — a bare host or host:port cannot be POSTed to (reqwest: builder error)"
+        )
+    };
+    let Some((scheme, rest)) = raw.split_once("://") else {
+        return (false, bare());
+    };
+    let scheme = scheme.to_lowercase();
+    if scheme != "http" && scheme != "https" {
+        return (false, bare());
+    }
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    if authority.contains('@') {
+        return (false, format!("'{raw}' carries userinfo"));
+    }
+    let host = host_of(authority);
+    if host.is_empty() {
+        return (false, format!("'{raw}' carries no host"));
+    }
+    if host == "0.0.0.0" || host == "::" {
+        return (
+            false,
+            format!(
+                "'{raw}' points at {host} — a bind/unspecified address, not a destination (U2: nothing can deliver there)"
+            ),
+        );
+    }
+    if let Some(p) = port_of(authority) {
+        if !(1..=65535).contains(&p) {
+            return (false, format!("'{raw}' carries an invalid port"));
+        }
+    }
+    (true, String::new())
+}
+
+fn host_of(authority: &str) -> String {
+    let a = authority.rsplit('@').next().unwrap_or(authority);
+    if let Some(rest) = a.strip_prefix('[') {
+        return rest.split(']').next().unwrap_or("").to_lowercase();
+    }
+    a.split(':').next().unwrap_or("").to_lowercase()
+}
+
+fn port_of(authority: &str) -> Option<i64> {
+    let a = authority.rsplit('@').next().unwrap_or(authority);
+    if a.starts_with('[') {
+        return a
+            .split(']')
+            .nth(1)
+            .and_then(|r| r.strip_prefix(':'))
+            .and_then(|p| p.parse::<i64>().ok());
+    }
+    a.split(':').nth(1).and_then(|p| p.parse::<i64>().ok())
+}
+
+fn url_host(url: &str) -> String {
+    let after = url.split("://").nth(1).unwrap_or("");
+    let authority = after.split(['/', '?', '#']).next().unwrap_or("");
+    host_of(authority)
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    matches!(host, "127.0.0.1" | "localhost" | "::1" | "ip6-localhost")
+}
+
+/// 私网判定（`ipaddress.ip_address(h).is_private` 的常用等价）。
+fn is_private_host(host: &str) -> bool {
+    if is_loopback_host(host) {
+        return true;
+    }
+    match host.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(v4)) => v4.is_private() || v4.is_link_local(),
+        // fc00::/7（唯一本地）与 fe80::/10（链路本地）—— 不用 is_unique_local(1.84 才稳)
+        Ok(std::net::IpAddr::V6(v6)) => {
+            let head = v6.segments()[0];
+            (head & 0xfe00) == 0xfc00 || (head & 0xffc0) == 0xfe80
+        }
+        Err(_) => false,
+    }
+}
+
+/// 本机主 LAN IP（UDP connect 取本地端；失败再退 `ip -4 -brief addr`）。
+pub fn detect_lan_ip() -> String {
+    if let Ok(s) = std::net::UdpSocket::bind("0.0.0.0:0") {
+        if s.connect("8.8.8.8:80").is_ok() {
+            if let Ok(addr) = s.local_addr() {
+                let ip = addr.ip().to_string();
+                if !ip.starts_with("0.0.0.0") {
+                    return ip;
+                }
+            }
+        }
+    }
+    if let Ok(out) = std::process::Command::new("ip")
+        .args(["-4", "-brief", "addr", "show", "scope", "global"])
+        .output()
+    {
+        if out.status.success() {
+            for line in String::from_utf8_lossy(&out.stdout).lines() {
+                for p in line.split_whitespace() {
+                    if p.contains('/') && p.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+                        let ip = p.split('/').next().unwrap_or("");
+                        if !ip.starts_with("127.") {
+                            return ip.to_string();
+                        }
+                    }
+                }
+            }
+        }
+    }
+    String::new()
+}
+
+/// `_detect_webhook_host(gateway_url)`：网关回调本机时该用哪个 host
+/// （`cli/setup_system.py:209-320`）。返回**裸 host**（外网兜底探测同 Python）。
+pub fn detect_webhook_host(gateway_url: &str) -> String {
+    let gw_host = url_host(gateway_url);
+    if gw_host.is_empty() {
+        return "127.0.0.1".to_string();
+    }
+    let lan_ip = detect_lan_ip();
+    if is_loopback_host(&gw_host) {
+        return "127.0.0.1".to_string();
+    }
+    if !lan_ip.is_empty() && gw_host == lan_ip {
+        return lan_ip;
+    }
+    if is_private_host(&gw_host) {
+        return if lan_ip.is_empty() {
+            "127.0.0.1".to_string()
+        } else {
+            lan_ip
+        };
+    }
+    use std::net::ToSocketAddrs;
+    if let Ok(mut it) = (gw_host.as_str(), 0u16).to_socket_addrs() {
+        if let Some(addr) = it.next() {
+            let resolved = addr.ip().to_string();
+            if is_loopback_host(&resolved) {
+                return "127.0.0.1".to_string();
+            }
+            if !lan_ip.is_empty() && resolved == lan_ip {
+                return lan_ip;
+            }
+            if is_private_host(&resolved) {
+                return if lan_ip.is_empty() {
+                    "127.0.0.1".to_string()
+                } else {
+                    lan_ip
+                };
+            }
+        }
+    }
+    // 公网：外网探测（与 Python 同：https://ifconfig.me, UA curl/7.0）
+    if let Ok((code, body)) = crate::core::http::raw_req("https://ifconfig.me", None, None, 5) {
+        if code == 200 {
+            let ext = body.trim();
+            if !ext.is_empty() && !is_private_host(ext) {
+                return ext.to_string();
+            }
+        }
+    }
+    "127.0.0.1".to_string()
+}
+
+fn step_ok(msg: &str) {
+    println!("  {GREEN}✓{NC} {msg}");
+}
+fn step_warn(msg: &str) {
+    println!("  {YELLOW}⚠{NC} {msg}");
+}
+fn step_fail(msg: &str) {
+    println!("  {RED}✗{NC} {msg}");
+}
+
+/// `_repair_gateway_config`：只**补空**（system_home / webhook_host），绝不覆盖既有值。
+///
+/// 在**原始 JSON 映射**上改（不经过 typed 结构）：Python 是 dict 变更加 append，
+/// 新键落在**末尾**、既有键序不变 ⇒ 这样落盘才能与 Python **字节等价**。
+/// 写入面 = CLI 自有权（系统级文件），pretty(2 空格) 无尾换行 + 0600 原子写。
+pub fn repair_gateway_config(
+    aimail_home: &Path,
+    user_home: &Path,
+    sid: &str,
+    args_home: &str,
+) -> bool {
+    let gw_path = crate::core::config::gateway_config_path_in(aimail_home, sid);
+    if !gw_path.is_file() {
+        step_fail(&format!(
+            "gateway config does not exist: {}",
+            gw_path.display()
+        ));
+        return false;
+    }
+    let Ok(text) = std::fs::read_to_string(&gw_path) else {
+        return false;
+    };
+    let Ok(Value::Object(mut cfg)) = serde_json::from_str::<Value>(&text) else {
+        return false;
+    };
+    let get_str = |m: &serde_json::Map<String, Value>, k: &str| -> String {
+        m.get(k).and_then(Value::as_str).unwrap_or("").to_string()
+    };
+    let mut changed = false;
+    let stored = {
+        let v = get_str(&cfg, "system_home");
+        if v.is_empty() {
+            None
+        } else {
+            Some(v)
+        }
+    };
+    let root = if args_home.is_empty() {
+        auto_platform_home(user_home, stored.as_deref())
+    } else {
+        args_home.to_string()
+    };
+    if get_str(&cfg, "system_home").is_empty() {
+        if !root.is_empty() && platforms::detect_platform_from_home(Path::new(&root)) != "unknown" {
+            cfg.insert("system_home".to_string(), Value::String(root.clone()));
+            step_ok(&format!("system_home backfilled: {root}"));
+            changed = true;
+        } else {
+            step_warn("system_home missing and the platform root cannot be determined (on a multi-platform machine pass --home)");
+        }
+    }
+    if get_str(&cfg, "webhook_host").is_empty() {
+        let wh = detect_webhook_host(&get_str(&cfg, "gateway_url"));
+        let (deliverable, why) = judge_deliverable(&wh);
+        if !wh.is_empty() && deliverable {
+            cfg.insert("webhook_host".to_string(), Value::String(wh.clone()));
+            step_ok(&format!("webhook_host backfilled: {wh}"));
+            changed = true;
+        } else if !wh.is_empty() {
+            step_warn(&format!(
+                "detected callback address '{wh}' is not a deliverable http(s) URL ({why}) — leaving webhook_host unset (no bridge entry; registration keeps the local endpoint)"
+            ));
+        }
+    }
+    if changed && crate::core::config::write_private_json(&gw_path, &Value::Object(cfg)).is_err() {
+        step_fail(&format!(
+            "gateway config write failed: {}",
+            gw_path.display()
+        ));
+        return false;
+    }
+    changed
+}
+
+/// `_repair_pointer`：平台根确定 + 本 sid 无指针 + 目标指针文件不存在 ⇒ 建指针。
+pub fn repair_pointer(
+    aimail_home: &Path,
+    user_home: &Path,
+    sid: &str,
+    platform_home: &str,
+) -> bool {
+    if sid_has_pointer(user_home, sid) {
+        return false;
+    }
+    if platform_home.is_empty() {
+        return false;
+    }
+    let plat = platforms::detect_platform_from_home(Path::new(platform_home));
+    if plat == "unknown" {
+        return false;
+    }
+    // 绑定枚举（**只读**）：取第一个有 email 的
+    let sysdir = crate::core::config::system_dir_in(aimail_home, sid);
+    let mut email = String::new();
+    let mut subs: Vec<std::path::PathBuf> = std::fs::read_dir(&sysdir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
+    subs.sort();
+    for sub in subs {
+        let aj = sub.join(crate::core::contract::binding_file());
+        if !aj.is_file() {
+            continue;
+        }
+        if let Ok(text) = std::fs::read_to_string(&aj) {
+            if let Ok(v) = serde_json::from_str::<Value>(&text) {
+                if let Some(e) = v.get("email").and_then(Value::as_str) {
+                    if !e.is_empty() {
+                        email = e.to_string();
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    if email.is_empty() {
+        return false;
+    }
+    let ptr = platforms::platform_root(user_home, plat).join(crate::core::contract::pointer_file());
+    if ptr.exists() {
+        return false; // 已有指针（可能是别的系统）—— 不覆盖
+    }
+    if let Some(parent) = ptr.parent() {
+        if std::fs::create_dir_all(parent).is_err() {
+            return false;
+        }
+    }
+    let body = serde_json::json!({"system_id": sid, "email": email});
+    let Ok(text) = serde_json::to_string_pretty(&body) else {
+        return false;
+    };
+    if std::fs::write(&ptr, text).is_err() {
+        return false;
+    }
+    let _ = crate::core::perms::set_user_only(&ptr);
+    step_ok(&format!("pointer created: {} → {sid}", ptr.display()));
+    true
 }
 
 #[cfg(test)]
