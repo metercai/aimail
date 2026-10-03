@@ -79,6 +79,30 @@ pub fn compute(
     })
 }
 
+/// 签名 HTTP 头（`cli/check_status.py:800-817` / `pysdk/aimail_base._signed_headers` 同协议）。
+///
+/// 注意两点与 Python 逐字一致：① `Content-Type: application/json` **总是**带上
+/// （即使 GET 无体）；② `X-Api-Identity` 仅在 identity 非空时出现。
+pub fn signed_headers(
+    api_key: &str,
+    method: &str,
+    path: &str,
+    body: Option<&[u8]>,
+    identity: &str,
+) -> Vec<(&'static str, String)> {
+    let mut headers: Vec<(&'static str, String)> =
+        vec![("Content-Type", "application/json".to_string())];
+    if !identity.is_empty() {
+        headers.push(("X-Api-Identity", identity.to_string()));
+    }
+    // 空 key 不签名（Python 侧同样不产生签名头；调用方此时应已判失败）
+    if let Some(sig) = compute(api_key, method, path, body.unwrap_or(b""), None) {
+        headers.push(("X-Api-Timestamp", sig.timestamp));
+        headers.push(("X-Api-Signature", sig.signature));
+    }
+    headers
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

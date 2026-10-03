@@ -46,13 +46,13 @@ pub const BINDING_REQUIRED: &[&str] = &[
 ];
 
 /// `_read_gw_cfg`：读系统级环境文件，缺失/不可读/非 JSON ⇒ None。
-fn read_gw_cfg(ctx: &Ctx, sid: &str) -> Option<Value> {
+pub fn read_gw_cfg(ctx: &Ctx, sid: &str) -> Option<Value> {
     let path = config::gateway_config_path_in(&ctx.aimail_home, sid);
     let text = std::fs::read_to_string(path).ok()?;
     serde_json::from_str(&text).ok()
 }
 
-fn field_str<'a>(v: &'a Value, key: &str) -> &'a str {
+pub fn field_str<'a>(v: &'a Value, key: &str) -> &'a str {
     v.get(key).and_then(Value::as_str).unwrap_or("")
 }
 
@@ -520,7 +520,7 @@ fn json_object_nonempty(v: &Value) -> bool {
 }
 
 /// TOML → JSON 视图（只为复用同一套取值代码，语义与 tomllib.load 的 dict 一致）。
-fn toml_to_json(v: &toml::Value) -> Value {
+pub fn toml_to_json(v: &toml::Value) -> Value {
     match v {
         toml::Value::String(s) => Value::String(s.clone()),
         toml::Value::Integer(i) => Value::Number((*i).into()),

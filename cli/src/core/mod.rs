@@ -11,12 +11,14 @@
 //! 未落的还有 `gateway` / `smtp`（HTTP/SMTP 客户端）与 `proc`：它们要靠 S3/S6 的
 //! 真实消费方才有意义，先落会变成"零调用方的死代码 + 无谓依赖"（最小机制原则）。
 
+pub mod bridge;
 pub mod check;
 pub mod checks;
 pub mod config;
 pub mod contract;
 pub mod gateway;
 pub mod home;
+pub mod http;
 pub mod mail;
 pub mod perms;
 pub mod platforms;
