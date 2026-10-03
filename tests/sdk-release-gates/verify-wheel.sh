@@ -34,6 +34,7 @@ import aimail
 modules = [
     "aimail.aimail_base", "aimail.aimail_tools", "aimail.aimail_board",
     "aimail.gateway_api", "aimail.aimail_mcp_server", "aimail.install",
+    "aimail.sdk_ops",
     "aimail._resources_release", "aimail._aimail_bootstrap",
     "aimail.hermes.aimail_hermes", "aimail.hermes.patch_webhook",
     "aimail.hermes.patch_profiles", "aimail.hermes.ensure_config",
@@ -59,6 +60,19 @@ echo "== 4/5 install entry contract"
 "$VENV_DIR/bin/python" -m aimail.install check-env --type hermes --home /nonexistent \
     >/dev/null 2>&1 && { echo "   check-env should fail on missing host"; exit 1; } || true
 echo "   OK: aimail.install entry works"
+
+echo "== 4b/5 sdk_ops entry contract (one-line JSON ABI)"
+"$VENV_DIR/bin/python" -m aimail.sdk_ops --help >/dev/null
+# 契约: stdout 恰一行 JSON、exit 0、用法错 exit 2（空系统表 ⇒ ok:true 且 result 是列表）
+_SDK_OPS_OUT="$("$VENV_DIR/bin/python" -m aimail.sdk_ops iter_bindings --args '{"system_id":""}')" || {
+    echo "   sdk_ops iter_bindings failed"; exit 1; }
+[ "$(printf '%s\n' "$_SDK_OPS_OUT" | wc -l | tr -d ' ')" = "1" ] || {
+    echo "   sdk_ops stdout must be exactly one line"; exit 1; }
+printf '%s' "$_SDK_OPS_OUT" | "$VENV_DIR/bin/python" -c \
+    'import json,sys; d=json.loads(sys.stdin.read()); assert d.get("ok") is True and isinstance(d.get("result"), list), d'
+"$VENV_DIR/bin/python" -m aimail.sdk_ops nope --args '{}' >/dev/null 2>&1
+[ $? -eq 2 ] || { echo "   usage error must exit 2"; exit 1; }
+echo "   OK: aimail.sdk_ops entry works (one-line JSON, exit 0/2)"
 
 echo "== 5/5 version metadata"
 EXPECT_VER="$("$PY" -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
