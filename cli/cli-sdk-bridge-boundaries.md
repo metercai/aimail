@@ -249,56 +249,6 @@ CLI 侧 dispatch（`cmd_install` def `cli/aimail:777`）：互斥校验 `:782`�
 `platforms.json` 只放**动作表**。新增共享面 / 新 kind / 新 when 键 ⇒ 先入 §1 硬规则 3 清单再动码。
 **SDK 安装归属**：`pip/uv install aimailsdk` 属**产品路径**（§7-A 口径 2/3），CLI 测试期不旁路安装。
 
-## 1.5 【增·10-04】E — SDK 侧可执行门（`aimail.sdk_ops`）：CLI → SDK 的**进程契约**（新增共享面：协议）
-
-> 触发：rust 化 S5b 需要 pysdk 的 5 个算法（绑定枚举 / secret 自供 / 注册值派生 / 注册链 / 回填），
-> 而 Rust **不能 import Python**。owner 裁决 **A′**（2026-10-04）：门长在 **SDK 侧**，与 TS 平台包自带的
-> `register-cli.js` 对等；调用方只 spawn，不 vendor SDK 代码。
-
-**为什么门必须存在、且必须长在 SDK 侧（机制链，不是语言偏好）**
-1. 语言中立的是**数据**（绑定文件格式、网关 HTTP 协议）；**算法**（`new_webhook_secret` /
-   `resolve_register_webhook_url` 的 `webhook_host` 三态 / `register_agent_email` 的 4 步链）单一真源在
-   pysdk，且 §1.2 B-3 已把它登记为"CLI 消费的 SDK 公共契约" ⇒ 调用方只能**调**，抄一份就是第二真源（禁止）。
-2. 今天的 python CLI 是 `load_core()` 之后**裸 import**（同进程）；rust 化把这条面翻译成"子进程"是
-   **保行为**的唯一合法路径。
-3. 子进程需要一个**可执行门**；按归属（谁有算法谁提供门）它属于 SDK 侧 —— tssdk 早已如此
-   （`register.kind=node_entry` → `node …/register-cli.js`，`cli/platforms.json:32,138`），pysdk 的同族先例是
-   `python -m aimail.install`（CLI 自己的 fix 提示就在教运维这么跑：`cli/check_status.py:317,330,337,355,369,1832`）。
-
-**ABI（与 §1.3 C-2 **同形**，不新造协议）**
-
-```
-python -m aimail.sdk_ops <op> [--args '<json-object>']
-stdout  恰一行 JSON — 成功 {"ok":true,"result":…} / 失败 {"ok":false,"kind":"usage|import|call","exc":"<异常类名>","error":"<文本>"}
-exit    0 = 成功 · 1 = 运行期失败(import/call) · 2 = 用法错误(usage)
-stderr  用法提示 / 异常回溯 / SDK 自身的打印（门内把 sys.stdout 临时指向 stderr，保证单行契约）
---args  缺省 {}；键 = 各 op 的参数名
-```
-
-**op 表（op → SDK 薄入口；门**不做业务判断**，判定留在调用方）**
-
-| op | 参数 | → `aimail_base` 薄入口 |
-|---|---|---|
-| `iter_bindings` | `system_id?`（缺省 = 全系统） | `iter_agentmail_configs` |
-| `ensure_webhook_secret` | `binding`（**原样回传** `iter_bindings` 的元素，含 `_config_path`） | `ensure_binding_webhook_secret` |
-| `resolve_register_webhook_url` | `gw`, `local_webhook_url` | 同名 |
-| `register_agent_email` | `gw`, `system_id`, `email`, `webhook_url?`, `webhook_secret?`, `manager_address?` | 同名（门内用 `gw` 建 `_GatewayClient`） |
-| `backfill_binding` | `binding`, `system_id` | `backfill_binding` |
-
-**三条不变量（本门的存在意义就在这三条）**
-- `binding` 必须**原样回传**：落盘位置只认 SDK 注入的 `_config_path`；自己拼路径 = 绕过 SDK 落盘语义。
-- `gw` 由**调用方**给：门不读系统配置 ⇒ 调用方仍是"环境主控"（B 类边界不破）。
-- manager 硬门**原样上报**：缺 manager 时 SDK 抛 `ManagerRequiredError` ⇒ 门报 `kind=call`、`exc=ManagerRequiredError`，
-  **绝不降级成空值注册**（P1，2026-09-30 owner 裁决）。
-
-**落地物与门禁**
-- `pysdk/sdk_ops.py`（SDK 域）· `pyproject.toml` 的 wheel `force-include`（一行，与 `install.py` 同类）·
-  `tests/sdk-release-gates/verify-wheel.sh` 的 `4b/5 sdk_ops entry contract`（恰一行 JSON / exit 0 / 用法错 exit 2）·
-  SDK 侧单测 `tests/test_sdk_ops_entry.py`（ABI 三分档 / 委派取证 / SDK 打印不污染 stdout / manager 硬门存活）。
-- **版本**：`aimailsdk ≥ 0.1.35` 才有此门（**发版待 owner 批准**）。低版本 ⇒ 调用方按 `kind=import`
-  （模块不存在）或"未知 op"处理，**明确失败、不降级**。
-- 与 §1.2 B-3 的关系：B-3 是"名字级"清单，本节是这些名字的**进程形态**；新增 op ⇒ 本节与 B-3 同批更新。
-
 ## 2. MCP 的归属（用户概念，已用代码验证）【复核无改】
 
 - **MCP ⊂ SDK，不属 CLI**。`pysdk/aimail_mcp_server.py` 是“平台无关 stdio MCP server”，CLI 只负责部署（`~/.aimail/bin/mcp`，bundle 名 `mcp`）。
@@ -595,7 +545,7 @@ CLI 侧写方行。
 **第 1 步 — SDK 门禁（`~/aimail/tests/sdk-release-gates/gate-tests.sh`）固化「谁能写 / 反调字面量唯一」**
 1. 保留 `check-file-ownership.py`（`:58`）+ 空基线棘轮；**新增 §4-A** 的跨模块盲区子断言（站点集合 ⊆ 白名单 + 理由必填）。
 2. 固化 §4-C 的 argv 侧：两份 `["install","--system-only"]` 各 ==1、`-H` 追加位置、旧名 `'ensure-system'`/独立 `'payload',` ==0。
-3. 固化共享面清单（§1.3 payload 公开面 4 处 + §1.1 两文件键位 + **§1.5 SDK 侧可执行门协议**，10-04 新增）：新增共享键/op ⇒ 必须先入清单（可复用
+3. 固化共享面清单（§1.3 payload 公开面 4 处 + §1.1 两文件键位）：新增共享键 ⇒ 必须先入清单（可复用
    `tests/contract/check-docs-consistency.py` 的“契约值 == manifest”机制，`gate-tests.sh:64-73`）。
 4. 验收判据：`gate-tests.sh` rc 0，且 A-3 两处假绿站点**已在白名单里带理由**（不是“没被发现”）。
 5. 回滚：子断言独立成脚本，失败只 `exit 1` 于新增行，不影响既有 `_fo_rc/_zb_rc/_doc_rc`。
