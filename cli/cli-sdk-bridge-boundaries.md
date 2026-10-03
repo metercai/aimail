@@ -8,6 +8,8 @@
 > 仓别与实况（10-03）：`~/aimail`（产品仓，`main @ 415b17f`，树余 owner 的 `README_zh.md`×2；最新 tag **v0.1.34**）；
 > `~/aimail-advanced`（测试仓，`main @ ed30a40`，**树净**）；桥 = `aimail-bridge 0.7.5`（`Cargo.toml:3`）。
 > 所有事实带 `文件:行`（**行号一律 10-03 现码**；09-30 草稿行号已整族漂移，见 §8-3 新增 17-20 行）；查不到的写「未确认(查了哪些地方)」。
+> **10-04 追加**：产品仓本地已有 14 个 rust 化提交（**未 push**，HEAD `a588e4b`）；本稿 §1.2 B-3 (ii)/(iii)
+> 与 §1.1 A-2 CLI 侧写方行已按 **10-04 现码**重扫更新（见 §8-5），其余行号仍为 10-03 锚点。
 
 ---
 
@@ -73,7 +75,7 @@
 | 维度 | 实况（`文件:行`） |
 |---|---|
 | **写方 = SDK（100%）** | Python 唯一共享落盘 `pysdk/aimail_base.py:454-474` `save_agent_config()`（tmp 0600 + `tmp.replace`，对齐 TS）；语义化薄入口 `pysdk/aimail_base.py:484-501` `update_binding`/`backfill_binding`、`:504-513+` `rename_binding`（owner 裁决 A，`:477-482`）；注册链 `pysdk/aimail_base.py:2134+` `register_agent_email`；地址码自助链 `pysdk/aimail_tools.py:446-564`（落盘 `:521`）。TS 侧 `tssdk/…/auto-bind.ts:343` `saveBinding()`（0600 原子写）、`address-code.ts:137` |
-| **写方 = CLI（只能“触发”，不得自持写调用）** | `cli/aimail:1597,1612`（`prompt add/rm` → `ab.update_binding`）、`cli/aimail:1891`（`address set-manager` → `update_binding`）、`cli/aimail:1932`（`address set-name` → `rename_binding`）、`cli/aimail:2193`（云端改名后本地迁移 → `rename_binding`）、`cli/repair.py:714`（回填 → `backfill_binding`）；**均不再出现绑定文件字面量**（实测 `_py_hits` = 0 命中，见下「门禁实测」） |
+| **写方 = CLI（只能“触发”，不得自持写调用）** | `cli/aimail:1631,1646`（`prompt add/rm` → `ab.update_binding`）、`cli/aimail:2133`（`address set-manager` → `set_agent_manager`）、`cli/aimail:2151`（`address set-name` → `rename_address`）、`cli/aimail:2403`（云端改名后本地迁移 → `rename_address`）、`cli/repair.py:716`（回填 → `backfill_binding`）；**均不再出现绑定文件字面量**（实测 `_py_hits` = 0 命中，见下「门禁实测」） |
 | **读方 = CLI** | `cli/aimail:1549,1594,1611`（prompt 规则读改）、`:3240-3241`（uninstall 扫描）、`cli/repair.py:204-207,320-322`（枚举 + 完整性）、`cli/check_status.py`（体检维度） |
 | **读方 = SDK** | `pysdk/aimail_base.py:135-168` `read_prompt_rules()`（键 `prompt_rules`）、`iter_agentmail_configs`（`cli/repair.py:207` 经 `_ab` 调用）、`tssdk/…/config.ts:61-79` `loadAgentConfig` |
 | **关键键位** | 链同构字段 `agent_id, email, gateway_url, domain, system_id, api_key`（`pysdk/aimail_tools.py:502-509`）+ `webhook_secret`（`:516-518`，本地生成复用不覆盖）+ `expires_at`（`:519-520`）；维护字段 `webhook_url / manager_address / prompt_rules`（`pysdk/aimail_base.py:487-488`、`cli/aimail:1594-1612`）；`prompt_rules` 项结构 `{name, file, enabled, subject/body/sender/recipient}`（`pysdk/aimail_base.py:120-168`）。原稿/CLI 注释称「agentmail.json 9 fields」（`cli/aimail:21-23`）——**9 这个数本轮未逐字段核（未确认）** |
@@ -139,32 +141,38 @@
 ### B-3 CLI 实际用到的 `aimail_base.*`（= **SDK 对 CLI 的公共契约**，改名/改签名即破坏 CLI）
 
 **（i）可选消费面（必须在无 SDK 环境也可判读的三件）**：`aimail_home`（`cli/_common.py:30`、`cli/aimail:41`、`cli/check_status.py:48`）、
-`email_for_agent`（`cli/ping_test.py:54`、`cli/send_welcome.py:64`）、`aimail_log_path`（`cli/send_welcome.py:268`）。
+`email_for_agent`（`cli/ping_test.py:54`、`cli/send_welcome.py:64`）、`aimail_log_path`（`cli/send_welcome.py:269`）。
 
-**（ii）核心消费面（`load_core()` 之后调用）**：
+**（ii）核心消费面（`load_core()` 之后调用）** —— 下表行号 = **10-04 现码**（10-04 只读重扫，
+逐条证据 / 4 个漏登记 / 1 个幽灵条目见 **§8-5**）：
 
 | 函数 | 调用点 |
 |---|---|
-| `prompt_rule_name_ok` | `cli/aimail:1543` |
-| `read_prompt_rules` | `cli/aimail:1678` |
-| `prompt_rule_matches` | `cli/aimail:1679` |
-| `update_binding` | `cli/aimail:1597,1612` |
-| `rename_binding` | `cli/aimail:1932,2193` |
-| `deregister_agent_email` | `cli/aimail:3253,3307`（import 于 `:3236,3275`） |
-| `iter_agentmail_configs` | `cli/repair.py:207` |
+| `prompt_rule_name_ok` | `cli/aimail:1577` |
+| `read_prompt_rules` | `cli/aimail:1712` |
+| `prompt_rule_matches` | `cli/aimail:1713` |
+| `update_binding` | `cli/aimail:1631,1646`（注释 `:1630`） |
+| `rename_address` | `cli/aimail:2151,2403`（import 于 `:2149,:2401`）**【增·10-04】** |
+| `set_agent_manager` | `cli/aimail:2133`（import 于 `:2130`）**【增·10-04】** |
+| `plan_address_name` | `cli/aimail:2203`（import 于 `:2201`；注释 `:2199,:2298`）**【增·10-04】** |
+| `cleanup_system_whitelists` | `cli/aimail:3396`（import 于 `:3356`）**【增·10-04】** |
+| `deregister_agent_email` | `cli/aimail:3334,3389`（import 于 `:3317,:3356`） |
+| `iter_agentmail_configs` | `cli/repair.py:207`（注释 `:204`） |
 | `ensure_binding_webhook_secret` | `cli/repair.py:215` |
-| `resolve_register_webhook_url` | `cli/repair.py:236,330` |
-| `register_agent_email` | `cli/repair.py:245,328` |
-| `backfill_binding` | `cli/repair.py:714` |
-| `compute_api_signature` | `cli/send_welcome.py:245` |
+| `resolve_register_webhook_url` | `cli/repair.py:236,330`（注释 `:326`） |
+| `register_agent_email` | `cli/repair.py:245,328`（注释 `:8`；另有 `cli/aimail:671` 注释） |
+| `backfill_binding` | `cli/repair.py:716`（注释 `:713`） |
+| `compute_api_signature` | `cli/send_welcome.py:245`（import 于 `:241`；`cli/check_status.py:803` = 自包含副本注释） |
+| ~~`rename_binding`~~ | **【废·10-04 幽灵条目】`cli/` 现码 0 命中**；SDK 侧仍在（`pysdk/aimail_base.py:505`），CLI 已改用 `rename_address` |
 
-**（iii）同属 SDK 但非 `aimail_base` 的公共面（一并登记，改名同样破坏 CLI）**：
-`aimail_tools._GatewayClient`（`cli/aimail:968,1876,2194,3235,3274`、`cli/repair.py:79`）、
-`gateway_api.load_gateway_config`（`cli/aimail:818,1071`）、`gateway_api.gateway_config_path`（`cli/setup_system.py:366` 经 import）、
-`runtime_core.load_adapter`（`cli/runtime_core.py:77-92`）。
+**（iii）同属 SDK 但非 `aimail_base` 的公共面（一并登记，改名同样破坏 CLI；行号 = 10-04 现码）**：
+`aimail_tools._GatewayClient`（`cli/aimail:989,1757,2486,2941,3010,3142,3333,3358`（import 于 `:988,1756,2481,2940,3009,3138,3316,3355`）、`cli/repair.py:80`（import 于 `:79`））、
+`gateway_api.load_gateway_config`（`cli/aimail:939,974,1051,1189,1228,2994`（import 于 `:830,1091,2978`）、`cli/setup_system.py:395`（经 `:27-28` import））、
+`gateway_api.gateway_config_path`（`cli/setup_system.py:366,446,495,570,593` 经 `:27` import）、
+`runtime_core.load_adapter`（`cli/runtime_core.py:77-92`；调用示例 `:19-22`）。
 
 **（iv）纯注释/同构说明，不构成调用面**（防误读）：`resolve_manager_address`(`cli/aimail:539`)、
-`register_agent_email`(`:659`)、`_read_role_file`(`:1528`)、`email_for_agent`(`:1995`)、
+`register_agent_email`(`:671`)、`_read_role_file`(`:1528`)、`email_for_agent`(`:1995`)、
 `ensure_bridge_routes_for_system`(`:2275`；retired: SDK 去桥化已删该符号，此处仅为历史同构说明，非引用)、`_clean_agent_dir_name`(`:2802` 与 `cli/_common.py:38` 的“同构”注)。
 
 ---
@@ -495,6 +503,38 @@ register-cli ABI `pb:38-39` ↔ `pri:53-57`、实证 `pb:50-61` ↔ `pri:59-63`�
 ### 8-4 其它文档的过时处（**只登记，本轮不改** —— 与任务已知的三处同列）
 - `sdk-gate-tiers.md:43`、`cli-rust-ization-plan-v3.md:163`（“pytest 95”）、`cli/README.md:200` —— **复核结论：不成立**（该行实为 `Dimension order (user-mandated): **config files → platform runtime …`，全文 `grep '12'` 0 命中，无“12 子命令”表述）。
 - 本轮新登记：`config-file-ownership-cli-vs-sdk.md:11,12,20`（见 8-1）、`platform-registry-boundary.md:63-69`（见 8-2）。
+
+### 8-5 【增·10-04】§1.2 B-3 调用面重扫（rust 化作业底单）
+
+> 触发：rust 化 S5b 需要按 B-3 逐条登记"CLI 调 SDK"的委派契约，先复核名单本身。
+> 方法（只读）：`grep` 全词边界；范围 = `cli/` 下 9 个文件（`aimail`、`repair.py`、`send_welcome.py`、
+> `ping_test.py`、`_common.py`、`check_status.py`、`setup_system.py`、`deploy_bridge.py`、`runtime_core.py`）。
+> 子串陷阱已避：`deregister_agent_email` 含 `register_agent_email`，用词边界锚定后二者分离。
+
+**结果：4 个漏登记 + 1 个幽灵条目 + 行号整族漂移**
+
+| 类别 | 条目 | 证据 |
+|---|---|---|
+| 漏登记（CLI 在用、原表无） | `set_agent_manager` · `rename_address` · `plan_address_name` · `cleanup_system_whitelists` | `cli/aimail:2133` · `:2151,:2403` · `:2203` · `:3396` |
+| 幽灵（原表有、现码 0 命中） | `rename_binding` | `cli/` 全 0 命中；SDK 侧仍在 `pysdk/aimail_base.py:505`，CLI 改走 `rename_address` |
+| 行号漂移 | 原表 1543 / 1597,1612 / 1678,1679 / 3253,3307 / 714 | 现码 1577 / 1631,1646 / 1712,1713 / 3334,3389 / 716 |
+
+**这轮本身就是 B-3 存在理由的实证**：跨仓接口的漂移**不会在本仓报错**（SDK 独立发版；改名只在冷路径
+运行时炸成 `ImportError/AttributeError`），而 rust 化必须逐条登记才能把"调用面"变成可执行的委派契约
+（Rust 不能 import ⇒ 每次委派 = 新增一条 argv/stdio/退出码协议；模板见 §1.3 C）。
+
+**§9 内部不一致（本轮顺带发现）**：§9 第 2 步写"`load_core` 计数棘轮 **13/22**"，与 §4-B / §1.2 B-1 的
+"**≤14 / ≤24**"不一致。本轮实测 `cli/aimail` 内 `load_core()` **调用点 = 14**（与后者一致）；
+全 `cli/` 的 24 未逐文件重扫（本轮文件集之外还有其它 `.py`）⇒ **只登记不一致、不改数**。
+
+**本轮未重扫（如实）**：§1.2 B-1 的逐行清单、§1.2 B-2 六行、§1.1 A-1/A-2 的 pysdk/tssdk 侧站点、
+§3 桥契约行号。已按 10-04 现码更新的仅：§1.2 B-3 (ii)/(iii)、(iv) 注释行号、(i) 一处行号、§1.1 A-2 的
+CLI 侧写方行。
+
+**对 rust 化的直接含义**：B-3 (ii) 15 个名字 = 15 条待定委派契约（其中 `compute_api_signature` 与
+`aimail_home` 已在 Rust 侧原生实现；`prompt_rule_*` 属 `aimail prompt` 写面，随该命令一起落）；
+落地前需为每条定 argv/stdout/退出码形态并登记，之后 `cli/cli-sdk-bridge-boundaries.md` 与本表同步更新。
+
 
 ---
 
