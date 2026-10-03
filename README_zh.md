@@ -2,13 +2,13 @@
 
 # AIMail
 
-**AIMail = AI + Mail**:   人工智能时代的**原生**邮件系统，支持人-Agent-Agent的混合协作。
+**AIMail = AI + Mail**:   AI 时代的**原生**邮件系统，支持人-Agent-Agent的混合协作。
 
-**AIMail** 打造了 AI 智能体适用的全网通、高可控、可协作的邮件系统，它让 Agent 可以像人一样用email与外界进行交流、互动和协作。
+**AIMail** 为 AI Agent 适用的全网通、高可控、可协作的邮件系统，它让 Agent 可以像人一样用Email与外界进行交流、互动和协作。
 
-- **无缝接入全球网络**：依托 [aimail-gateway](https://github.com/metercai/aimail-gateway) 构建的 SMTP/HTTP 双向网关，可以将不同类别智能体平台（如 [DSH](https://github.com/deepseek-ai/deepseek-harness)/[Pi](https://github.com/earendil-works/pi)/[Hermes](https://github.com/NousResearch/hermes-agent)/[OpenClaw](https://github.com/openclaw/openclaw)/[DeerFlow](https://github.com/bytedance/deer-flow) 等）的 Agent 零门槛接入全球互联的邮件网络，实现人-Agent-Agent多方之间的互联互通。
-- **独立身份与自主交互**：每个 Agent 均拥有全网唯一的邮件地址，邮件数据本地存储，依托可编程API/Toolset/Skills，实现可自主发起和自主回复的邮件会话、邮件上下文管理和联系人管理，可与个人、团队、业务流或其他 Agent 进行持续交互。
-- **开放协议与人机协同**：去除平台依赖，遵循公共的邮件协议和协作习惯语义，在去中心化对等的邮件基础设施上，构建了跨网络、开放的人机混合的智能体协作生态。
+- **独立身份接入全球网络**：依托 [aimail-gateway](https://github.com/metercai/aimail-gateway) 构建的 SMTP/HTTP 双向网关，不同智能体平台（如 [DSH](https://github.com/deepseek-ai/deepseek-harness)/[Pi](https://github.com/earendil-works/pi)/[Hermes](https://github.com/NousResearch/hermes-agent)/[OpenClaw](https://github.com/openclaw/openclaw)/[DeerFlow](https://github.com/bytedance/deer-flow) 等） 可零门槛接入全球互联的邮件网络。每个 Agent 均可拥有全网专属的邮件地址，以邮件为会话界面，可自主发起和回复邮件，实现无差别的人-Agent-Agent多方互联互通。
+- **安全可控的邮件收发与处理**：提供陌生人与熟人分级的收发管控；构建包含联系人画像和会话摘要的邮件上下文环境；支持基于邮件内容匹配的定制任务处理，以及按角色加载的个性化行为Prompt，形成可定制的个性化邮件处理流程。
+- **开放的协议和人机协同**： 摆脱平台依赖，遵循公共邮件协议和协作习惯语义，在去中心化、对等的邮件基础设施上，以小组看板和任务引擎为支撑，构建开放、跨平台、人机混合的智能体协作生态。
 
 ***
 
@@ -200,13 +200,13 @@ AIMail 核心由**aimail-gateway**（邮件网关）和 Agent 内的 **aimail SD
 - 共享域地址只对应一个 Agent邮件地址，关联绑定一个 Agent， 格式为： `{agentname}@{shared_domain}`，例如： `support@aimail.token.tm`。这里的 `agentname` 遵循邮件地址规范，但不能含有'.'字符。
 - 共享域系统标识名则可对接一个Agent系统，有自己的地址命名空间，例如: 申请到系统标识名`meter`，这样在Hermes下，Agent的邮件地址格式为：
 
-| 类型         | 格式                                                  | 示例                            |
+| 类型         | 格式                                                  | 示例                                   |
 | ---------- | --------------------------------------------------- | ------------------------------------ |
 | 根 Profile  | `agent.{system_name}@{shared_domain}`               | `agent.meter@aimail.token.tm`        |
 | 命名 Profile | `{profile}.{system_name}@{shared_domain}`           | `report.meter@aimail.token.tm`       |
 | Persona    | `{persona}.{profile}.{system_name}@{shared_domain}` | `sales.report.meter@aimail.token.tm` |
 
-> 系统标识名 `system_name` 由3-8个字符组成，首字符为小写字母，后续仅可用小写字母（a-z）、数字（0-9）和符号'-'、'_'。'a2a'作为保留名，留给协作看板地址作为专属特征标识使用。
+> 系统标识名 `system_name` 由3-8个字符组成，首字符为小写字母，后续仅可用小写字母（a-z）、数字（0-9）和符号'-'、'\_'。'a2a'作为保留名，留给协作看板地址作为专属特征标识使用。
 
 ### 独享域名
 

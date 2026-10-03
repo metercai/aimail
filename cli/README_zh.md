@@ -132,17 +132,16 @@ aimail repair       →  按 check 发现执行幂等修复阶梯
 ### 第 1 步 — 本机环境准备(bootstrap)
 
 - 安装好自己的 aimail-gateway 服务，或去申请共享网关的服务。
-- 然后，将系统级 key/product\_code等相关信息设置环境变量，并执行AIMail的自举安装脚本，完成本地环境的初始化。例如：
+- 然后，将系统admin-key/product\_code等相关信息设置环境变量，并执行AIMail的自举安装脚本，完成本地环境的初始化。例如：
 
 ```bash
 export AIMAIL_URL=<你的网关地址>                # 自主独立安装的网关地址，如 https://mail.example.com
-export AIMAIL_ADMIN_KEY=<系统级 key>          # 系统级 key（不是网关自身的 admin key）
+export AIMAIL_ADMIN_KEY=<admin key>           # 网关的管理key
 export AIMAIL_DOMAIN=<你的域名>                # 独享域名,如 example.com
 export AIMAIL_MANAGER_ADDRESS=you@example.com # 管理agent的默认安全员邮件地址，可每个agent不一样
 curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
 ```
 
-- `AIMAIL_ADMIN_KEY`（或 `aimail install -k`）填**系统级 key**：自建网关用启动时打印的 `<storage>/<系统 ID>.system.key`，云端用激活下发的 key。
 - 程序副本(`~/.aimail/bin/aimail-src`,PATH 的 `aimail` 指向它)与宿主载荷(`~/.aimail/bin/mcp`)都归在 `~/.aimail/bin/` 程序根下,由 bootstrap 一并刷新(强制重下载:先 `export AIMAIL_FORCE_UPGRADE=1`)。
 
 ### 第 2 步 — `aimail install`(系统级,可重复,幂等)
@@ -194,7 +193,8 @@ aimail stats -a     # 全面视图:健康标注 + 断链系统 + 本机平台段
 aimail repair [--system-id <sid>] [--home <root>] [--deep] [--dry-run]
 ```
 
-`--dry-run` 只打印计划。修复阶梯(每步幂等, 且每步都会打印自己的结论 —— 完成 / 无需修 / 跳过+原因):
+`--dry-run` 只打印计划。修复阶梯(每步幂等, 且每步都会打印自己的结论:
+✓已修 / ✓无需修 / ⚠跳过+原因):
 
 1. bridge 存活(死了则拉起)
 2. 路由重刷(bridge --system-id)
@@ -212,11 +212,11 @@ aimail repair [--system-id <sid>] [--home <root>] [--deep] [--dry-run]
 修复过程有两种类型, 明确收口:
 
 - 可自修(auto): 确定性、只依赖本机、不看服务端/宿主状态。阶梯必须覆盖它;
-  修完前提满足却仍 FAIL ⇒ 缺陷(输出 [D locally fixable, still failing], 退出码 1), 请连同日志反馈维护者。
+  修完前提满足却仍 FAIL ⇒ 缺陷(输出 [D 本机可修·仍未修], 退出码 1), 请连同日志反馈维护者。
 - 仅提示(hint): 不可靠自修(需要网关/agent 进程、服务端注册或管理员参与)。
   repair 只打印原因与建议动作, 不硬试; 残留 [H 需管理员/宿主] 属正常。
 
-复检结尾固定输出「re-check not all green: <n> locally-fixable defect(s) / <m> needing admin action」。未登记的维度按 hint 处理
+复检结尾固定输出「本机可修缺陷 <n> 项 / 需管理员介入 <m> 项」。未登记的维度按 hint 处理
 并给原因。
 
 `--deep` 额外执行 webhook 配对重写与 stuck pending 清理。
