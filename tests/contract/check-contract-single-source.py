@@ -62,7 +62,15 @@ GATE_DIR = "tests/contract/"          # 门禁自身目录(含基线)整体白�
 # agent 级前缀)才讲得清闭环, 所以"字面量位置计数"这套棘轮对它们不适用; 它们改由
 # 同目录的 check-docs-consistency.py 以「值 == 清单」逐字命中方式强校验(比位置计数
 # 更强: 写错一个字符就红), 两套检查同在 L0 里跑, 覆盖不降级。
-DOCS_WHITELIST = ("docs/agent-self-setup.md", "docs/agent-self-setup_zh.md")
+# 2026-10-03 追加 (owner 批准修法 A): cli/cli-sdk-bridge-boundaries.md —— 边界定稿
+# 要讲清契约面(skill/toolset 注册名、绑定/指针文件名、入站路径)就必须逐字引用契约值,
+# 与上面两份同理由 ⇒ 同样从"位置计数"棘轮里排除。⚠ 与上面两份的差别: 它**没有**
+# check-docs-consistency.py 等价兜底 ⇒ 文档内契约值与真源漂移不受本门禁约束,
+# 已在 GAP 里登记(见 DOCS_WHITELIST_GAPS)。
+DOCS_WHITELIST = ("docs/agent-self-setup.md", "docs/agent-self-setup_zh.md",
+                  "cli/cli-sdk-bridge-boundaries.md")
+#: 白名单里"无等价 verbatim 兜底"的文档 —— 必须显式登记, 不许静默降级。
+DOCS_WHITELIST_GAPS = ("cli/cli-sdk-bridge-boundaries.md",)
 WHITELIST_FILES = (MANIFEST_REL, TS_CONTRACT, PY_CONTRACT, BASELINE_REL) + DOCS_WHITELIST
 ALLOW_MARKER = "contract-allowed:"    # 行内逃生门(必须带理由)
 
@@ -300,6 +308,12 @@ def load_baseline() -> dict:
 
 def check_literals(man: dict, update: bool, show_diff: bool) -> None:
     out("[contract] (b) 字面量白名单棘轮")
+    # 白名单里"无等价 verbatim 兜底"的文档必须显式登记 —— 不许静默降级覆盖
+    # (self-setup 两份有 check-docs-consistency.py 兜; 边界定稿没有)。
+    for rel in DOCS_WHITELIST_GAPS:
+        gap("b", f"{rel} 已在文档白名单(owner 2026-10-03 批准修法 A: 边界文档必须逐字引用契约值)"
+                 f", 但**无 check-docs-consistency 等价兜底** ⇒ 该文档内的契约值与真源漂移"
+                 f"不受本门禁约束(登记, 非通过项)")
     counts, hits = scan_literals(man)
     if update:
         payload = {

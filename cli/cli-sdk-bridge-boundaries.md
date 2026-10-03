@@ -165,7 +165,7 @@
 
 **（iv）纯注释/同构说明，不构成调用面**（防误读）：`resolve_manager_address`(`cli/aimail:539`)、
 `register_agent_email`(`:659`)、`_read_role_file`(`:1528`)、`email_for_agent`(`:1995`)、
-`ensure_bridge_routes_for_system`(`:2275`)、`_clean_agent_dir_name`(`:2802` 与 `cli/_common.py:38` 的“同构”注)。
+`ensure_bridge_routes_for_system`(`:2275`；retired: SDK 去桥化已删该符号，此处仅为历史同构说明，非引用)、`_clean_agent_dir_name`(`:2802` 与 `cli/_common.py:38` 的“同构”注)。
 
 ---
 
