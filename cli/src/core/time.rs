@@ -106,6 +106,41 @@ pub fn secs_to_days_floor(secs: i64) -> i64 {
     secs.div_euclid(86_400)
 }
 
+/// 民用日期 ← 天数（Howard Hinnant 的 civil_from_days，`days_from_civil` 的逆）。
+fn civil_from_days(z: i64) -> (i64, i64, i64) {
+    let z = z + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = mp + if mp < 10 { 3 } else { -9 };
+    (if m <= 2 { y + 1 } else { y }, m, d)
+}
+
+/// 当前时刻的 ISO8601（UTC，微秒 6 位，`Z` 结尾）。
+///
+/// 对齐 Python `datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")`
+/// （`check --json` 的 `timestamp` 字段就是它，parity 侧按时间戳白名单归一）。
+pub fn now_iso8601_z() -> String {
+    let d = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = d.as_secs() as i64;
+    let micros = d.subsec_micros();
+    let days = secs.div_euclid(86_400);
+    let sod = secs.rem_euclid(86_400);
+    let (y, m, day) = civil_from_days(days);
+    format!(
+        "{y:04}-{m:02}-{day:02}T{:02}:{:02}:{:02}.{micros:06}Z",
+        sod / 3600,
+        (sod % 3600) / 60,
+        sod % 60
+    )
+}
+
 /// `expires_at` 距 `now` 的天数（向下取整；`stats` 的 `(expires in Nd)` 用它）。
 pub fn days_until(expires_secs: i64, now_secs: i64) -> i64 {
     secs_to_days_floor(expires_secs - now_secs)
@@ -140,5 +175,20 @@ mod tests {
         assert_eq!(days_until(86_400, 0), 1);
         // 负值向下取整（-1 秒 ⇒ -1 天）
         assert_eq!(days_until(-1, 0), -1);
+    }
+
+    #[test]
+    fn iso8601_now_round_trips_and_is_python_shaped() {
+        let s = now_iso8601_z();
+        // 形态：YYYY-MM-DDTHH:MM:SS.ffffffZ（Python isoformat 的等价物）
+        assert_eq!(s.len(), 27, "{s}");
+        assert!(s.ends_with('Z'), "{s}");
+        assert_eq!(s.as_bytes()[10], b'T', "{s}");
+        assert_eq!(s.as_bytes()[19], b'.', "{s}");
+        let parsed = parse_rfc3339_secs(&s).expect("own output must parse");
+        assert!(
+            (parsed - now_secs()).abs() <= 1,
+            "round trip within 1s: {s} → {parsed}"
+        );
     }
 }

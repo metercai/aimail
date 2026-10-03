@@ -7,14 +7,10 @@
 //! `200 + expires_at` ⇒ ok 并给到期行；`403/404` ⇒ unlinked；无 url/key ⇒ broken-config。
 //! 只在"到期值不可解析"这类异常上与 Python 一致地落到 `unreachable` 分支。
 
+use crate::core::style::{GREEN, NC, RED, YELLOW};
 use crate::core::{config, contract, gateway::GatewayClient, home, mail, platforms, time};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
-
-const GREEN: &str = "\u{1b}[0;32m";
-const RED: &str = "\u{1b}[0;31m";
-const YELLOW: &str = "\u{1b}[1;33m";
-const NC: &str = "\u{1b}[0m";
 
 /// 一个 agent 行（`stats` 两段视图共用）。
 struct AgentRow {

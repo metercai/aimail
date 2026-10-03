@@ -7,12 +7,9 @@
 //! def _fail(msg): print(f"  {RED}✗{NC} {msg}"); sys.exit(1)
 //! ```
 //! 注意 `_fail` 走的是 **stdout**（不是 stderr）且 rc=1 —— 门禁按输出原文判读，
-//! 所以这两点都必须照抄。
+//! 所以这两点都必须照抄。颜色常量单点在 [`crate::core::style`]。
 
-pub const GREEN: &str = "\u{1b}[0;32m";
-pub const RED: &str = "\u{1b}[0;31m";
-pub const YELLOW: &str = "\u{1b}[1;33m";
-pub const NC: &str = "\u{1b}[0m";
+use crate::core::style::{GREEN, NC, RED, YELLOW};
 
 /// 成功行（stdout，rc 不动）。
 pub fn ok(msg: &str) {
