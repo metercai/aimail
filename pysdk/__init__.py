@@ -35,6 +35,8 @@ Module layout inside the wheel mirrors the repository ``pysdk/`` directory
                              SDKs embed natively and do not use it.
     _aimail_bootstrap.py     location-agnostic sys.path bootstrap (runtime glue)
     install.py               self-contained install/uninstall entry
+    sdk_ops.py               self-contained ops entry (one-line JSON ABI; the
+                             Python-side peer of the TS platforms' register-cli)
     _resources_release.py    board/skills resource release (install-time)
     hermes/                  Hermes adapter (6 modules, host-injected registry)
     deer-flow/               DeerFlow adapter (inbound router / manage / base)

@@ -183,8 +183,9 @@ def main(argv: list | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     try:
         parsed = _parse_args_argv(argv)
-    except SystemExit as e:  # argparse 已打印用法，沿用其退出码（2）
-        return int(e.code or EXIT_USAGE)
+    except SystemExit as e:  # argparse 已打印用法/帮助，沿用其退出码（--help=0，用法错=2）
+        # 注意 `e.code or DEFAULT` 会把 0 吞成 DEFAULT（--help 本该 exit 0）—— 必须判 None。
+        return int(e.code) if e.code is not None else EXIT_USAGE
     except UsageError as e:
         print(f"sdk_ops: {e}", file=sys.stderr)
         _emit({"ok": False, "kind": "usage", "exc": "UsageError", "error": str(e)})
