@@ -94,7 +94,11 @@ fn hermes_runtime_records_match_python() {
     let plat = user_home.join(".hermes");
     // 平台特征（注册表 detect.markers = hermes-agent + profiles）
     std::fs::create_dir_all(plat.join("hermes-agent")).unwrap();
-    std::fs::create_dir_all(plat.join("profiles/p1/skills/agentmail")).unwrap();
+    std::fs::create_dir_all(
+        plat.join("profiles/p1/skills")
+            .join(contract::agent_skill_name()),
+    )
+    .unwrap();
     write_gw(&aimail_home, &plat);
 
     // file_contains：marker 在 ⇒ 通过
@@ -107,9 +111,11 @@ fn hermes_runtime_records_match_python() {
     // file_contains_alt：两个候选都没有 marker ⇒ 失败（path 取第一个候选）
     std::fs::create_dir_all(plat.join("hermes-agent/hermes_cli")).unwrap();
     std::fs::write(plat.join("hermes-agent/hermes_cli/profiles.py"), "x = 1\n").unwrap();
-    // file_exists_any：glob 命中 profiles/*/skills/agentmail/SKILL.md
+    // file_exists_any：glob 命中 profiles/*/skills/<skill>/SKILL.md
     std::fs::write(
-        plat.join("profiles/p1/skills/agentmail/SKILL.md"),
+        plat.join("profiles/p1/skills")
+            .join(contract::agent_skill_name())
+            .join("SKILL.md"),
         "skill body\n",
     )
     .unwrap();

@@ -66,32 +66,77 @@ pub fn raw() -> &'static Value {
 /// 按 home 目录特征判平台（注册表 `order` × `detect`；顺序语义保真：pi/dsh 特征先行，
 /// 防 `profiles/` 撞车）。识别不出 ⇒ `"unknown"`（不猜）。
 pub fn detect_platform_from_home(system_home: &std::path::Path) -> &'static str {
-    let Some(dir_name) = system_home
-        .file_name()
-        .map(|s| s.to_string_lossy().into_owned())
-    else {
-        return "unknown";
-    };
+    hits_dir(system_home).unwrap_or("unknown")
+}
+
+/// 某个目录本身是否命中某平台（注册表 `detect`：`dir_name` **可选** + `markers` 必需）。
+///
+/// 这是"目录命中判定"的共享单点：`runtime_core.normalize_platform_home` 的内层 `hits`
+/// 与 `check_status._check_l2_runtime` 的内联循环都同构于它。与
+/// [`crate::core::checks::adapters::detect_agent_type`] 的判定**不同**（那里 `dir_name`
+/// 缺省会回落到 `home_dir`）—— 两边都照抄，不合并。
+pub fn hits_dir(d: &std::path::Path) -> Option<&'static str> {
+    let name_of = d.file_name().map(|s| s.to_string_lossy().into_owned());
     for name in order() {
-        let Some(def) = platform(name) else { continue };
-        let detect = def.get("detect");
-        let want_dir = detect
-            .and_then(|d| d.get("dir_name"))
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        if !want_dir.is_empty() && dir_name != want_dir {
+        let Some(detect) = platform(name).and_then(|p| p.get("detect")) else {
             continue;
-        }
+        };
+        let want_dir = detect.get("dir_name").and_then(Value::as_str).unwrap_or("");
         let markers: Vec<&str> = detect
-            .and_then(|d| d.get("markers"))
+            .get("markers")
             .and_then(Value::as_array)
             .map(|a| a.iter().filter_map(Value::as_str).collect())
             .unwrap_or_default();
-        if markers.iter().all(|m| system_home.join(m).exists()) {
-            return name;
+        if markers.is_empty() {
+            continue;
+        }
+        if !want_dir.is_empty() && name_of.as_deref() != Some(want_dir) {
+            continue;
+        }
+        if markers.iter().all(|m| d.join(m).exists()) {
+            return Some(name);
         }
     }
-    "unknown"
+    None
+}
+
+/// `runtime_core.normalize_platform_home`：把 `--home` 归一成**平台根**。
+///
+/// 1. 给定目录本身命中 → 原样返回；
+/// 2. 否则其下恰有一个子目录命中 → 返回该子目录；
+/// 3. 都不中 → 原样返回（让下游按原逻辑报错，不静默改语义）。
+///
+/// 返回值一律绝对路径（2026-09-25 G2：相对 `--home` 会被原样写进 `system_home`
+/// ⇒ 之后换 cwd 跑命令时平台 home 解析漂移）。此处不用 `std::path::absolute`
+/// （1.79 才稳定，本 crate 的 MSRV 更低），改用 `current_dir` 手工绝对化。
+pub fn normalize_platform_home(home: &std::path::Path) -> std::path::PathBuf {
+    let p = if home.is_absolute() {
+        home.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map(|c| c.join(home))
+            .unwrap_or_else(|_| home.to_path_buf())
+    };
+    if !p.is_dir() {
+        return p;
+    }
+    if hits_dir(&p).is_some() {
+        return p;
+    }
+    let mut subs: Vec<std::path::PathBuf> = std::fs::read_dir(&p)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|q| q.is_dir())
+        .collect();
+    subs.sort();
+    for sub in subs {
+        if hits_dir(&sub).is_some() {
+            return sub;
+        }
+    }
+    p
 }
 
 /// 平台根目录（`<user_home>/<home_dir>`）；注册表缺 `home_dir` ⇒ `.<name>`（Python 同默认）。

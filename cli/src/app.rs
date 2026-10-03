@@ -10,6 +10,10 @@
 
 use clap::{Arg, ArgAction, Command};
 
+/// 各子命令共用的两条帮助文案（Python 侧 `common_sid` / `common_home`，逐字一致）。
+const SID_HELP: &str = "target system id (default: the only installed system)";
+const HOME_HELP: &str = "platform root (auto-resolved on single-platform machines)";
+
 const DESCRIPTION: &str =
     "aimail CLI - set up, operate and maintain the AIMail link between your agent platform and the aimail-gateway.";
 
@@ -151,7 +155,7 @@ fn persona_args(cmd: Command) -> Command {
         Arg::new("system-id")
             .short('s')
             .long("system-id")
-            .help("target system id (default: the only installed system)"),
+            .help(SID_HELP),
     )
     .arg(
         Arg::new("manager")
@@ -168,13 +172,31 @@ fn persona_args(cmd: Command) -> Command {
     )
 }
 
+/// `check` 的参数（Python `cli/aimail:3547-3552`；`--json` 是内部开关，不在命令面）。
+fn check_args(cmd: Command) -> Command {
+    cmd.arg(
+        Arg::new("system-id")
+            .short('s')
+            .long("system-id")
+            .help(SID_HELP),
+    )
+    .arg(Arg::new("home").short('H').long("home").help(HOME_HELP))
+    .arg(
+        Arg::new("verbose")
+            .short('v')
+            .long("verbose")
+            .action(ArgAction::SetTrue)
+            .help("show fix suggestions for failing checks"),
+    )
+}
+
 /// `domain` 的参数（Python `cli/aimail:3584-3589`）。
 fn domain_args(cmd: Command) -> Command {
     cmd.arg(
         Arg::new("system-id")
             .short('s')
             .long("system-id")
-            .help("target system id (default: the only installed system)"),
+            .help(SID_HELP),
     )
     .arg(
         Arg::new("add")
@@ -202,7 +224,7 @@ fn address_view_args(cmd: Command) -> Command {
         Arg::new("system-id")
             .short('s')
             .long("system-id")
-            .help("target system id (default: the only installed system)"),
+            .help(SID_HELP),
     )
     .arg(
         Arg::new("default")
@@ -254,6 +276,7 @@ pub fn build_cli() -> Command {
             "install" => sub = install_hidden_args(sub),
             "address" => sub = address_hidden_args(address_view_args(sub)),
             "stats" => sub = stats_args(sub),
+            "check" => sub = check_args(sub),
             "persona" => sub = persona_args(sub),
             "domain" => sub = domain_args(sub),
             "prompt" => {
@@ -275,6 +298,14 @@ pub fn run() -> i32 {
         Some(("version", _)) => crate::cmd::version::run(),
         Some(("stats", m)) => crate::cmd::stats::run(m.get_flag("all")),
         Some(("persona", _)) => crate::cmd::persona::run(),
+        Some(("check", m)) => crate::cmd::check::run(crate::cmd::check::Args {
+            system_id: m
+                .get_one::<String>("system-id")
+                .cloned()
+                .unwrap_or_default(),
+            home: m.get_one::<String>("home").cloned(),
+            verbose: m.get_flag("verbose"),
+        }),
         Some(("domain", m)) => crate::cmd::domain::run(crate::cmd::domain::Args {
             system_id: arg_str(m, "system-id"),
             add: arg_opt(m, "add"),

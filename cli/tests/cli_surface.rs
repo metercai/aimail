@@ -42,7 +42,7 @@ const MACHINE_LITERALS: &[&str] = &["ensure-system", "payload", "system-only"];
 /// 本步已移植的子命令（每移植一个就加进来 —— 与 `unported_commands_are_honest` 互为棘轮）。
 /// 注意粒度 = **子命令**：已移植命令的未移植**面**（如 `address set-name`、`domain --add`）
 /// 由各自模块显式 `not_yet_ported`，不改变这里的清单。
-const IMPLEMENTED: &[&str] = &["version", "stats", "persona", "address", "domain"];
+const IMPLEMENTED: &[&str] = &["version", "stats", "persona", "address", "domain", "check"];
 
 static SEQ: AtomicU32 = AtomicU32::new(0);
 

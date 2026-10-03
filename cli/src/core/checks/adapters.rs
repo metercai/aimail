@@ -27,6 +27,12 @@ pub struct Ctx<'a> {
     pub resolve_sid: &'a str,
 }
 
+/// `_detect_default_sid` 的平台遍历顺序 —— 照抄 Python `PLATFORMS` dict 的**声明顺序**
+/// （`check_status.py:768-794`：hermes → openclaw → dsh → pi；deerflow 的值为 `None`
+/// 会被跳过）。注意它与注册表 `order`（pi/dsh/hermes/openclaw/deerflow）**不同**，
+/// 多平台同时命中时"首个有指针者"胜 ⇒ 顺序即语义，不能按注册表顺序改。
+pub const DEFAULT_SID_ORDER: &[&str] = &["hermes", "openclaw", "dsh", "pi"];
+
 /// `_resolve_system_id`：argv 显式 > `AGENT_HOME/指针` > env `SYSTEM_ID`。
 pub fn resolve_system_id(
     agent_home: &Path,

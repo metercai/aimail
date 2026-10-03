@@ -5,6 +5,7 @@
 //! [`stub::not_yet_ported`] —— 明确的非零退出，绝不静默当成功、也不静默降级。
 
 pub mod address;
+pub mod check;
 pub mod domain;
 pub mod persona;
 pub mod report;

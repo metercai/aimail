@@ -9,5 +9,7 @@ pub const RED: &str = "\u{1b}[0;31m";
 pub const YELLOW: &str = "\u{1b}[1;33m";
 pub const BROWN: &str = "\u{1b}[0;33m";
 pub const NC: &str = "\u{1b}[0m";
+/// 加粗（`BOLD`）—— check 的收尾结论行用它（`check_status.py:20`）。
+pub const BOLD: &str = "\u{1b}[1m";
 pub const CHECK: &str = "\u{2713}";
 pub const CROSS: &str = "\u{2717}";
