@@ -243,19 +243,17 @@
         {
           "kind": "spawn",
           "argv": [
-            "{home}/hermes-agent/venv/bin/python",
-            "-m",
-            "pip",
-            "install",
-            "-q",
-            "aimailsdk"
+            "sh",
+            "-c",
+            "P='{home}/hermes-agent/venv/bin/python'; if command -v uv >/dev/null 2>&1; then echo 'pkgmgr=uv'; uv pip install --python \"$P\" aimailsdk; else echo 'pkgmgr=pip'; \"$P\" -m pip --version >/dev/null 2>&1 || \"$P\" -m ensurepip --default-pip >/dev/null 2>&1 || \"$P\" -m ensurepip >/dev/null 2>&1 || true; \"$P\" -m pip install -q aimailsdk; fi"
           ],
           "when": {
             "path_exists": "{home}/hermes-agent/venv/bin/python",
             "runtime_not": "docker"
           },
           "on_error": "warn",
-          "warn_hint": "venv pip install aimailsdk exit {rc}(webhook 适配运行时缺失?)"
+          "warn_hint": "aimailsdk 安装失败(宿主包管理器自适配 uv→venv pip→ensurepip 三径均不可用) exit {rc}(webhook 适配运行时缺失?)",
+          "ok_text": "aimailsdk installed via uv|pip into {home}/hermes-agent/venv"
         },
         {
           "kind": "spawn",
@@ -263,10 +261,9 @@
             "docker",
             "exec",
             "{container}",
-            "{container_home}/.venv/bin/python",
-            "-m",
-            "ensurepip",
-            "--upgrade"
+            "sh",
+            "-c",
+            "P='{container_home}/.venv/bin/python'; if command -v uv >/dev/null 2>&1; then echo 'pkgmgr=uv'; uv pip install --python \"$P\" aimailsdk; else echo 'pkgmgr=pip'; \"$P\" -m pip --version >/dev/null 2>&1 || \"$P\" -m ensurepip --default-pip >/dev/null 2>&1 || \"$P\" -m ensurepip >/dev/null 2>&1 || true; \"$P\" -m pip install -q aimailsdk; fi"
           ],
           "when": {
             "runtime": "docker"
@@ -274,30 +271,8 @@
           "on_missing": "fail",
           "fail_hint": "docker CLI not found — --container mode requires docker on the host PATH",
           "on_error": "warn",
-          "warn_hint": "ensurepip 失败(容器名/路径)——venv 可能已含 pip 或不可写",
-          "ok_text": "pip ensured in container {container}"
-        },
-        {
-          "kind": "spawn",
-          "argv": [
-            "docker",
-            "exec",
-            "{container}",
-            "{container_home}/.venv/bin/python",
-            "-m",
-            "pip",
-            "install",
-            "-q",
-            "aimailsdk"
-          ],
-          "when": {
-            "runtime": "docker"
-          },
-          "on_missing": "fail",
-          "fail_hint": "docker CLI not found — --container mode requires docker on the host PATH",
-          "on_error": "warn",
-          "warn_hint": "docker exec pip 装 aimailsdk 失败(容器名/容器内路径/网络)——register/sdk 文件步骤已由 sdk_install 落盘, 可人工 `docker exec <c> <home>/.venv/bin/python -m pip install aimailsdk` 后重跑 install",
-          "ok_text": "aimailsdk installed inside container {container}"
+          "warn_hint": "aimailsdk 安装失败(容器内包管理器自适配 uv→venv pip→ensurepip 三径) exit {rc} —— register/sdk 文件步骤已由 sdk_install 落盘, 可人工 docker exec <c> <home>/.venv/bin/python -m pip install aimailsdk 后重跑 install",
+          "ok_text": "aimailsdk installed inside container {container} (uv|pip adapted)"
         },
         {
           "kind": "sdk_install",
