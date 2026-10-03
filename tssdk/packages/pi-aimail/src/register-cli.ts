@@ -6,7 +6,9 @@
  *
  * Flow (parity with the former CLI pi branch):
  *   1. systemId: --system-id | AIMAIL_SYSTEM_ID | unique local system
- *   2. email:    --email | emailForAgent('pi', domain, system_name)
+ *   2. email:    --name <base> | --email | platform default base
+ *                (resolveRegisterEmail — same derivation as the Python
+ *                 plan_address_name; CLI passes the planned base via --name)
  *   3. gateway chain: autoBind (registerAddress+activate+saveBinding+route)
  *   4. pointer ~/.pi/.agentmail written (platform home: AIMAIL_SYSTEM_HOME
  *      or ~/.pi) — pi extensions read identity from it.
@@ -15,15 +17,15 @@
  * config_path?,error?,hint?}; logs → stderr; exit 0 = ok.
  *
  * Usage (from the CLI platform registry):
- *   node <pi-aimail>/dist/register-cli.js [--system-id S] [--email E]
- *        [--manager M] [--local-webhook URL]
+ *   node <pi-aimail>/dist/register-cli.js [--system-id S] [--name B]
+ *        [--email E] [--manager M] [--local-webhook URL]
  */
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import {
   autoBind,
-  emailForAgent,
+  resolveRegisterEmail,
   inboundUrl,
   INBOUND_PORTS,
   listSystemDirs,
@@ -38,6 +40,7 @@ function arg(argv: string[], name: string): string {
 async function main(): Promise<number> {
   const argv = process.argv.slice(2)
   const systemIdArg = arg(argv, '--system-id')
+  const nameArg = arg(argv, '--name')
   const emailArg = arg(argv, '--email')
   const manager = arg(argv, '--manager')
   const localWebhook =
@@ -55,8 +58,13 @@ async function main(): Promise<number> {
     return 1
   }
   const gw = await readSystemConfig(systemId)
-  const email =
-    emailArg || emailForAgent('pi', gw.domain || '', gw.system_name || '')
+  const email = resolveRegisterEmail({
+    name: nameArg,
+    email: emailArg,
+    domain: gw.domain || '',
+    systemName: gw.system_name || '',
+    fallbackBase: 'pi',
+  })
 
   try {
     const res = await autoBind({

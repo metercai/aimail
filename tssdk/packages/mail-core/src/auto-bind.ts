@@ -125,6 +125,29 @@ export function emailForAgent(
   return systemName ? `${base}.${systemName}@${domain}` : `${base}@${domain}`
 }
 
+/**
+ * CLI register intent → target address (owner ruling 2026-10-02 族3, the C3
+ * pattern): `--email` wins; `--name` derives via emailForAgent with an EMPTY
+ * default-alias set — the CLI passes plan_address_name's already-normalized
+ * base and the Python plan derives with default_aliases=(), so both sides land
+ * on the identical address. `fallbackBase` keeps direct-invocation behaviour
+ * (platform default base, legacy default-alias derivation) when no flag is given.
+ */
+export function resolveRegisterEmail(opts: {
+  name?: string
+  email?: string
+  domain: string
+  systemName?: string
+  fallbackBase: string
+}): string {
+  const name = opts.name ?? ''
+  const email = opts.email ?? ''
+  const systemName = opts.systemName ?? ''
+  if (email) return email
+  if (name) return emailForAgent(name, opts.domain, systemName, [])
+  return emailForAgent(opts.fallbackBase, opts.domain, systemName)
+}
+
 export interface RegisterAddressOptions {
   systemId: string
   email: string

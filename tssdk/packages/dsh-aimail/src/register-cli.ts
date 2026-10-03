@@ -7,7 +7,9 @@
  * Flow (parity with bind_agent.py, Python shared chain replaced by the
  * mail-core chain):
  *   1. systemId: --system-id | AIMAIL_SYSTEM_ID | unique local system
- *   2. email:    --email | emailForAgent('agent', domain, system_name)
+ *   2. email:    --name <base> | --email | platform default base
+ *                (resolveRegisterEmail — same derivation as the Python
+ *                 plan_address_name; CLI passes the planned base via --name)
  *   3. gateway chain: autoBind (registerAddress+activate+saveBinding+route)
  *   4. --force: re-bind with a fresh session_id (cloud webhook refresh +
  *      local extra update) — mirrors bind_agent's every-run semantics.
@@ -16,14 +18,14 @@
  * config_path?,error?,hint?}; logs → stderr; exit 0 = ok.
  *
  * Usage (from the CLI platform registry):
- *   node <dsh-aimail>/dist/register-cli.js [--system-id S] [--email E]
- *        [--manager M] [--session-id U] [--preset mail] [--local-webhook URL]
- *        [--force]
+ *   node <dsh-aimail>/dist/register-cli.js [--system-id S] [--name B]
+ *        [--email E] [--manager M] [--session-id U] [--preset mail]
+ *        [--local-webhook URL] [--force]
  */
 import { randomUUID } from 'node:crypto'
 import {
   autoBind,
-  emailForAgent,
+  resolveRegisterEmail,
   inboundUrl,
   INBOUND_PORTS,
   listSystemDirs,
@@ -45,6 +47,7 @@ function flag(argv: string[], name: string): boolean {
 async function main(): Promise<number> {
   const argv = process.argv.slice(2)
   const systemIdArg = arg(argv, '--system-id')
+  const nameArg = arg(argv, '--name')
   const emailArg = arg(argv, '--email')
   const manager = arg(argv, '--manager')
   const sessionId = arg(argv, '--session-id')
@@ -63,8 +66,13 @@ async function main(): Promise<number> {
     return 1
   }
   const gw = await readSystemConfig(systemId)
-  const email =
-    emailArg || emailForAgent('agent', gw.domain || '', gw.system_name || '')
+  const email = resolveRegisterEmail({
+    name: nameArg,
+    email: emailArg,
+    domain: gw.domain || '',
+    systemName: gw.system_name || '',
+    fallbackBase: 'agent',
+  })
 
   try {
     if (!force) {

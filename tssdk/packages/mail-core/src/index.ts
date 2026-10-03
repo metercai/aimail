@@ -27,6 +27,7 @@ export {
   listSystemDirs,
   readSystemConfig,
   emailForAgent,
+  resolveRegisterEmail,
   registerAddress,
   saveBinding,
   resolveRegisterWebhook,

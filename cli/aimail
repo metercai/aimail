@@ -2176,14 +2176,15 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str,
     """注册单个 agent(agent 个体粒度)。每平台走其自身的单 agent 注册链:
     - hermes   : 适配层 _auto_register_email(直注册名,支持 -n)
     - openclaw : TS 命令委托(openclaw aimail register,openclaw-aimail 插件)
-    - dsh      : dsh-aimail register-cli(node_entry,会话绑定,注册名恒 agent)
+    - dsh/pi   : spawn 宿主包内 register-cli(node_entry;--name 透传目标基名,
+                 包内 resolveRegisterEmail 与本计划同源派生)
     - deerflow : pysdk/deer-flow/manage.py register(现成注册器)
-    - pi       : 核心链组装(webhook 端点/agent_id 落盘/根指针;注册名恒 pi)
-    -n/目标名与平台默认名不同时:注册器**接受地址名**(注册模板含 {email},如 openclaw
-    的 host_command)⇒ 直达目标名,不留"先默认名再改名"的中间态;注册器只认默认名的
-    (dsh/pi 固定名、deerflow 由 --agent 内部派生)⇒ 先按默认名注册再 rename(服务端
-    rename + 本地迁移,复用 set-name 同款链路),保证地址名精确等于用户指定值。
-    (F13 2026-09-26 用户裁决①:中间态会在网关留下无本地绑定的默认名地址,清不掉)
+    -n/目标名与平台默认名不同时:注册模板含 {email}/{name} ⇒ 注册器接受地址名
+    ⇒ 直达目标名,不留"先默认名再改名"的中间态;模板不含名令牌的注册器(未来新平台)
+    ⇒ 先按平台默认名注册再 rename 收口(服务端 rename + 本地迁移,复用 set-name
+    同款链路),保证地址名精确等于用户指定值。
+    (F13 2026-09-26 用户裁决①:中间态会在网关留下无本地绑定的默认名地址,清不掉;
+    dsh/pi 族3 --name 于 0.1.34 落地后,五平台注册模板全部携带名令牌)
     """
     sid = cfg.get("system_id", "")
     home = cfg.get("system_home", "")
@@ -2292,13 +2293,10 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str,
 
     if kind == "node_entry":
         # dsh/pi:spawn 宿主 node_modules 里平台包的 register-cli(node 入口
-        # 内部调 mail-core 全链,平台语义(默认名/webhook 端口/extra/指针)
-        # 在包内实现——CLI 零平台协议)
-        # dsh/pi:固定名单平台(node_entry 入口内部带默认名语义)——注册名
-        # 非平台固定名时仅警告(单 agent 平台不支持 -n 别名)
-        ag = pdef.get("agents", {})
-        if ag.get("kind") == "fixed" and reg_name not in ag.get("names", []):
-            _warn(f"{platform} 注册名恒为默认(-n {reg_name} 忽略;别名请注册后 rename)")
+        # 内部调 mail-core 全链,平台语义(webhook 端口/extra/指针)在包内实现
+        # ——CLI 零平台协议)。目标基名经注册模板 --name {name} 透传(族3,
+        # 0.1.34):包内 resolveRegisterEmail 与 plan_address_name 同源派生
+        # ⇒ 直达目标名,plan.target_email 与网关实际注册地址两侧一致。
         node = _resolve_node_entry(rdef.get("node_path", ""), cand_homes)
         if not node:
             _fail(f"{platform} 平台包未安装(node 入口缺失)\n  {rdef.get('fail_hint', '')}")

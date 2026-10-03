@@ -31,6 +31,8 @@
         "default_name": "pi",
         "node_path": "{home}/agent/npm/node_modules/pi-aimail/dist/register-cli.js",
         "args": [
+          "--name",
+          "{name}",
           "--system-id",
           "{sid}",
           "--manager",
@@ -135,6 +137,8 @@
         "default_name": "agent",
         "node_path": "{home}/profiles/*/node_modules/dsh-aimail/lib/register-cli.js",
         "args": [
+          "--name",
+          "{name}",
           "--system-id",
           "{sid}",
           "--manager",

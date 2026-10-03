@@ -2,7 +2,7 @@ import { describe, expect, test, beforeAll, afterAll, vi } from 'vitest'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { AIMAIL_HOME, listSystemDirs, readSystemConfig, emailForAgent, autoBind, ensureBindingWebhookSecret } from '../src/index.js'
+import { AIMAIL_HOME, listSystemDirs, readSystemConfig, emailForAgent, resolveRegisterEmail, autoBind, ensureBindingWebhookSecret } from '../src/index.js'
 import { BINDING_FILE, INBOUND_PATH } from '../src/contract.js'
 
 let tmpHome: string
@@ -32,6 +32,17 @@ describe('auto-bind helpers', () => {
     expect(emailForAgent('pi', 'example.com', 'xianlin')).toBe('pi.xianlin@example.com')
     expect(emailForAgent('weird name', 'example.com')).toMatch(/^weird_name@example\.com$/)
   })
+  test('resolveRegisterEmail: CLI --name intent lands exactly on the Python plan address (族3)', () => {
+    // plan_address_name derives with default_aliases=() → 'default' must NOT map to agent
+    expect(resolveRegisterEmail({ name: 'default', domain: 'example.com', fallbackBase: 'pi' })).toBe('default@example.com')
+    expect(resolveRegisterEmail({ name: 'foo', domain: 'example.com', systemName: 'sys', fallbackBase: 'agent' })).toBe('foo.sys@example.com')
+    // --email wins over --name
+    expect(resolveRegisterEmail({ name: 'foo', email: 'x@y.z', domain: 'example.com', fallbackBase: 'agent' })).toBe('x@y.z')
+    // no flags → platform default base, legacy derivation unchanged (dsh/pi direct invocations)
+    expect(resolveRegisterEmail({ domain: 'example.com', fallbackBase: 'pi' })).toBe('pi@example.com')
+    expect(resolveRegisterEmail({ domain: 'example.com', fallbackBase: 'agent' })).toBe('agent@example.com')
+  })
+
 
   test('listSystemDirs: empty home → [], after seeding → the sid', async () => {
     expect(await listSystemDirs()).toEqual([])
