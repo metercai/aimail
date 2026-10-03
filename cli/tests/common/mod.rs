@@ -106,6 +106,34 @@ pub fn python_check_json_with_env(
     Some(parsed["checks"].as_array()?.clone())
 }
 
+/// 向 Python 的 `runtime_bundle` 要 `mcp` 载荷的元数据（表一致性守门用）。
+/// 返回 `{"files": {src_rel: dst_rel}, "stamp_name": …, "default_dest_suffix": …}`。
+pub fn python_table_probe() -> Option<Value> {
+    let cli_dir = repo_root().join("cli");
+    if !cli_dir.join("runtime_bundle.py").is_file() {
+        return None;
+    }
+    let code = "import json,sys; sys.path.insert(0,sys.argv[1]); \
+                import runtime_bundle as rb; \
+                m=rb.BUNDLES['mcp']; \
+                print(json.dumps({'files': m['files'], 'stamp_name': rb.STAMP_NAME, \
+                                  'default_dest_suffix': m['default_dest'].split('/')[-1]}))";
+    let out = Command::new("python3")
+        .arg("-c")
+        .arg(code)
+        .arg(&cli_dir)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        println!(
+            "SKIP: python 表探针失败：{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        return None;
+    }
+    serde_json::from_slice(&out.stdout).ok()
+}
+
 /// 记录过滤：只保留关心的 `(level, check)`。
 pub fn filter_records(checks: &[Value], wanted: &[(&str, &str)]) -> Vec<Record> {
     checks

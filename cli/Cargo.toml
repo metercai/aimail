@@ -23,6 +23,7 @@ path = "src/main.rs"
 clap = "4"
 glob = "0.3"
 hmac = "0.12"
+md-5 = "0.10"
 # 只依赖 serde_json（配置/注册表都是 JSON；手写"地图 ↔ 结构体"映射以便逐字控制
 # 键序与"仅非空才写"的条件键语义，故不需要 serde derive）。
 # preserve_order：JSON 对象保持**读写顺序**（indexmap），与 Python json.dump 的
