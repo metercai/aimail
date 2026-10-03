@@ -168,6 +168,77 @@ fn persona_args(cmd: Command) -> Command {
     )
 }
 
+/// `domain` 的参数（Python `cli/aimail:3584-3589`）。
+fn domain_args(cmd: Command) -> Command {
+    cmd.arg(
+        Arg::new("system-id")
+            .short('s')
+            .long("system-id")
+            .help("target system id (default: the only installed system)"),
+    )
+    .arg(
+        Arg::new("add")
+            .short('a')
+            .long("add")
+            .value_name("DOMAIN")
+            .help("create a domain (bare domain, lowercase; default: list only)"),
+    )
+    .arg(
+        Arg::new("id")
+            .long("id")
+            .help("domain record id (default: auto-generated)"),
+    )
+    .arg(
+        Arg::new("webhook-url")
+            .short('w')
+            .long("webhook-url")
+            .help("webhook receiver URL for the new domain"),
+    )
+}
+
+/// `address` 的参数（Python `cli/aimail:3591-3606`）；隐藏开关见 [`address_hidden_args`]。
+fn address_view_args(cmd: Command) -> Command {
+    cmd.arg(
+        Arg::new("system-id")
+            .short('s')
+            .long("system-id")
+            .help("target system id (default: the only installed system)"),
+    )
+    .arg(
+        Arg::new("default")
+            .short('d')
+            .long("default")
+            .value_name("NAME")
+            .help("set the default main-agent name (was: mailname)"),
+    )
+    .arg(
+        Arg::new("agent")
+            .short('a')
+            .long("agent")
+            .help("target agent (platform session/profile id) for set-name/set-manager"),
+    )
+    .arg(
+        Arg::new("email")
+            .short('e')
+            .long("email")
+            .help("target by exact registered email instead of -a"),
+    )
+    .arg(
+        Arg::new("name")
+            .short('n')
+            .long("name")
+            .value_name("NAME")
+            .help("new address name (set-name) or with -d the default name"),
+    )
+    .arg(
+        Arg::new("manager")
+            .short('m')
+            .long("manager")
+            .value_name("EMAIL")
+            .help("new manager address for the target agent (set-manager)"),
+    )
+}
+
 /// 构造完整命令树（集成测试也用它，避免测试复制一份清单）。
 pub fn build_cli() -> Command {
     let mut app = Command::new("aimail")
@@ -181,9 +252,10 @@ pub fn build_cli() -> Command {
         let mut sub = Command::new(*name).about(*help);
         match *name {
             "install" => sub = install_hidden_args(sub),
-            "address" => sub = address_hidden_args(sub),
+            "address" => sub = address_hidden_args(address_view_args(sub)),
             "stats" => sub = stats_args(sub),
             "persona" => sub = persona_args(sub),
+            "domain" => sub = domain_args(sub),
             "prompt" => {
                 for (pn, ph) in PROMPT_SUBCOMMANDS {
                     sub = sub.subcommand(Command::new(*pn).about(*ph));
@@ -203,8 +275,30 @@ pub fn run() -> i32 {
         Some(("version", _)) => crate::cmd::version::run(),
         Some(("stats", m)) => crate::cmd::stats::run(m.get_flag("all")),
         Some(("persona", _)) => crate::cmd::persona::run(),
+        Some(("domain", m)) => crate::cmd::domain::run(crate::cmd::domain::Args {
+            system_id: arg_str(m, "system-id"),
+            add: arg_opt(m, "add"),
+        }),
+        Some(("address", m)) => crate::cmd::address::run(crate::cmd::address::Args {
+            system_id: arg_str(m, "system-id"),
+            default: arg_opt(m, "default"),
+            agent: arg_opt(m, "agent"),
+            email: arg_opt(m, "email"),
+            name: arg_opt(m, "name"),
+            manager: arg_opt(m, "manager"),
+            inbound_live: m.get_flag("inbound-live"),
+            inbound_down: m.get_flag("inbound-down"),
+        }),
         Some((name, _)) => crate::cmd::stub::not_yet_ported(name),
         // subcommand_required(true) ⇒ 到不了这里；留非零兜底而不是伪装成 0。
         None => crate::cmd::stub::not_yet_ported("<none>"),
     }
+}
+
+fn arg_str(matches: &clap::ArgMatches, key: &str) -> String {
+    matches.get_one::<String>(key).cloned().unwrap_or_default()
+}
+
+fn arg_opt(matches: &clap::ArgMatches, key: &str) -> Option<String> {
+    matches.get_one::<String>(key).cloned()
 }

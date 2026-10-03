@@ -40,7 +40,9 @@ const PROMPT_SUBCOMMANDS: &[&str] = &["add", "list", "rm", "test", "create-file"
 const MACHINE_LITERALS: &[&str] = &["ensure-system", "payload", "system-only"];
 
 /// 本步已移植的子命令（每移植一个就加进来 —— 与 `unported_commands_are_honest` 互为棘轮）。
-const IMPLEMENTED: &[&str] = &["version", "stats", "persona"];
+/// 注意粒度 = **子命令**：已移植命令的未移植**面**（如 `address set-name`、`domain --add`）
+/// 由各自模块显式 `not_yet_ported`，不改变这里的清单。
+const IMPLEMENTED: &[&str] = &["version", "stats", "persona", "address", "domain"];
 
 static SEQ: AtomicU32 = AtomicU32::new(0);
 
@@ -75,11 +77,27 @@ impl Drop for TempDir {
 
 /// 在 hermetic HOME/AIMAIL_HOME 下跑一次二进制。
 fn run(args: &[&str]) -> (i32, String, String) {
+    run_in(args, false)
+}
+
+/// `with_system=true` 时先造一个**合法的系统配置**（`systems/s1/aimail_gateway.json`），
+/// 这样命令能通过校验、走到自己的分支（用于断言"未移植面"的诚实性）。
+fn run_in(args: &[&str], with_system: bool) -> (i32, String, String) {
     let tmp = TempDir::new("surface");
     let home = tmp.path().join("home");
     let aimail_home = tmp.path().join("aimail-home");
     std::fs::create_dir_all(&home).unwrap();
-    std::fs::create_dir_all(&aimail_home).unwrap();
+    if with_system {
+        let sid_dir = aimail_home.join("systems").join("s1");
+        std::fs::create_dir_all(&sid_dir).unwrap();
+        std::fs::write(
+            sid_dir.join("aimail_gateway.json"),
+            br#"{"gateway_url":"http://127.0.0.1:1","admin_key":"k","system_id":"s1","system_name":"s1","save_raw_snapshots":true}"#,
+        )
+        .unwrap();
+    } else {
+        std::fs::create_dir_all(&aimail_home).unwrap();
+    }
     let out = Command::new(env!("CARGO_BIN_EXE_aimail"))
         .args(args)
         .env("HOME", &home)
@@ -195,6 +213,31 @@ fn persona_pointer_shell_keeps_rc2() {
         err.contains("welcome"),
         "stderr must point at welcome: {err:?}"
     );
+}
+
+#[test]
+fn unported_faces_are_honest() {
+    // 已移植**命令**上的未移植**面**：必须明确非零 + 说明，且绝不静默降级成查看面
+    // （Python 侧 `cli/aimail:2045-2065` 记录过两起静默降级事故，这里用断言钉住）。
+    let cases: &[&[&str]] = &[
+        &["address", "-s", "s1", "-n", "newname"],
+        &["address", "-s", "s1", "-m", "m@example.test"],
+        &["address", "-s", "s1", "-d", "somename"],
+        &["address", "-s", "s1", "-a", "agent", "--inbound-live"],
+        &["domain", "-s", "s1", "--add", "x.test"],
+    ];
+    for args in cases {
+        let (rc, out, err) = run_in(args, true);
+        assert_ne!(rc, 0, "{args:?} must not exit 0 while unported: {out:?}");
+        assert!(
+            err.contains("not yet ported"),
+            "{args:?} stderr must say so, got {err:?}"
+        );
+        assert!(
+            !out.contains("webhook   状态") && !out.contains("Domains of system"),
+            "{args:?} silently fell back to a view: {out:?}"
+        );
+    }
 }
 
 #[test]

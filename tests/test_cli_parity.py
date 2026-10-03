@@ -45,7 +45,17 @@ RUST_PARITY_INVOCATIONS = (
     ("stats",),
     ("stats", "-a"),
     ("persona",),
+    ("address", "-s", "single1"),
+    ("address", "-s", "single1", "-e", "agent@single1.example.test"),
+    ("address", "-s", "single1", "-e", "nosuch@example.test"),
+    ("address", "-s", "nosuch-system"),
+    ("domain", "-s", "single1"),
+    ("domain", "-s", "nosuch-system"),
 )
+# 说明：**未移植面**（`address -n/-m/-d`、`address --inbound-*`、`domain --add`）不进这张表 ——
+# 跨语言逐字比对只对"已移植面"有意义（未移植面 Rust 侧按约定返回 not-ported，与 Python
+# 的实际动作天然不同）。它们的诚实性由 `cli/tests/cli_surface.rs` 的
+# `unported_faces_are_honest` 断言（rc≠0 + stderr 说明 + 不静默落成 list）。
 
 #: Python 自比命令集（只读、无网络、夹具内确定性）。
 PY_SELF_PARITY_COMMANDS = ("version", "stats", "--help")
