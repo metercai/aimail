@@ -28,4 +28,5 @@ hmac = "0.12"
 # insertion-order 行为一致 ⇒ 更新一份凭据文件不会造成无谓的键序重排/文件抖动。
 serde_json = { version = "1", features = ["preserve_order"] }
 sha2 = "0.10"
+toml = "0.8"
 ureq = "2"

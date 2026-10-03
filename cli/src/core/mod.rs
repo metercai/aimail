@@ -12,6 +12,7 @@
 //! 真实消费方才有意义，先落会变成"零调用方的死代码 + 无谓依赖"（最小机制原则）。
 
 pub mod check;
+pub mod checks;
 pub mod config;
 pub mod contract;
 pub mod gateway;

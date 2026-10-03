@@ -103,7 +103,7 @@ pub fn platform_root(user_home: &std::path::Path, name: &str) -> std::path::Path
 }
 
 /// 平台指针文件名（注册表 `pointer.file`；缺省 = 契约常量，不在本处复制字面量）。
-fn pointer_file_for(name: &str) -> &'static str {
+pub fn pointer_file_for(name: &str) -> &'static str {
     platform(name)
         .and_then(|p| p.get("pointer"))
         .and_then(|p| p.get("file"))
@@ -111,14 +111,19 @@ fn pointer_file_for(name: &str) -> &'static str {
         .unwrap_or_else(|| contract::pointer_file())
 }
 
-/// 平台指针路径。`kind=root_or_profiles`（hermes）时：根指针存在用根，否则取
-/// `profiles/*/<指针文件>` 的第一个；都不存在返回根路径（Python 同语义）。
-pub fn pointer_path(user_home: &std::path::Path, name: &str) -> std::path::PathBuf {
-    let kind = platform(name)
+/// 平台指针形态（注册表 `pointer.kind`；缺省 `root`）。
+pub fn pointer_kind(name: &str) -> &'static str {
+    platform(name)
         .and_then(|p| p.get("pointer"))
         .and_then(|p| p.get("kind"))
         .and_then(Value::as_str)
-        .unwrap_or("root");
+        .unwrap_or("root")
+}
+
+/// 平台指针路径。`kind=root_or_profiles`（hermes）时：根指针存在用根，否则取
+/// `profiles/*/<指针文件>` 的第一个；都不存在返回根路径（Python 同语义）。
+pub fn pointer_path(user_home: &std::path::Path, name: &str) -> std::path::PathBuf {
+    let kind = pointer_kind(name);
     let root_ptr = platform_root(user_home, name).join(pointer_file_for(name));
     if kind != "root_or_profiles" {
         return root_ptr;
