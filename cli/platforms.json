@@ -158,7 +158,8 @@
             "--profile",
             "web",
             "add",
-            "dsh-aimail"
+            "dsh-aimail",
+            "--config.minimumReleaseAge=0"
           ],
           "on_missing": "fail",
           "fail_hint": "`dsh` CLI not found — build/install deepseek-harness first (e.g. cd ~/deepseek-harness && cargo build --release && ln -sf \"$PWD/target/release/dsh\" ~/.local/bin/dsh), then re-run aimail install",
