@@ -66,6 +66,9 @@ packages = []
 "pysdk/gateway_api.py" = "aimail/gateway_api.py"
 "pysdk/aimail_mcp_server.py" = "aimail/aimail_mcp_server.py"
 "pysdk/install.py" = "aimail/install.py"
+# SDK 侧可执行门（进程命令契约）—— 与 install.py 同类：可被任何语言的调用方 spawn，
+# 结果走单行 JSON。TS 侧对等物 = 平台包自带的 register-cli.js。
+"pysdk/sdk_ops.py" = "aimail/sdk_ops.py"
 "pysdk/_resources_release.py" = "aimail/_resources_release.py"
 "pysdk/hermes/aimail_hermes.py" = "aimail/hermes/aimail_hermes.py"
 "pysdk/hermes/patch_webhook.py" = "aimail/hermes/patch_webhook.py"
