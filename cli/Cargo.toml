@@ -21,6 +21,7 @@ path = "src/main.rs"
 
 [dependencies]
 clap = "4"
+glob = "0.3"
 hmac = "0.12"
 # 只依赖 serde_json（配置/注册表都是 JSON；手写"地图 ↔ 结构体"映射以便逐字控制
 # 键序与"仅非空才写"的条件键语义，故不需要 serde derive）。
@@ -30,3 +31,4 @@ serde_json = { version = "1", features = ["preserve_order"] }
 sha2 = "0.10"
 toml = "0.8"
 ureq = "2"
+yaml-rust2 = "0.10"

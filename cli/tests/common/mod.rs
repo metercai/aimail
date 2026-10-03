@@ -67,20 +67,32 @@ pub fn tuple_of(rec: &Value) -> Record {
 /// 跑 Python 的 `check_status.py --json` 并取回 checks 列表。
 /// 找不到 python3 或脚本时返回 None（调用方打印原因并跳过，不伪装通过）。
 pub fn python_check_json(aimail_home: &Path, user_home: &Path, sid: &str) -> Option<Vec<Value>> {
+    python_check_json_with_env(aimail_home, user_home, sid, &[])
+}
+
+/// 同上，但可追加环境变量（用于 `AIMAIL_PROG_DIR` 这类"程序根"用例）。
+pub fn python_check_json_with_env(
+    aimail_home: &Path,
+    user_home: &Path,
+    sid: &str,
+    extra_env: &[(&str, &str)],
+) -> Option<Vec<Value>> {
     let script = repo_root().join("cli").join("check_status.py");
     if !script.is_file() {
         println!("SKIP: 找不到 {}（非仓库检出？）", script.display());
         return None;
     }
-    let out = Command::new("python3")
-        .arg(&script)
+    let mut cmd = Command::new("python3");
+    cmd.arg(&script)
         .args(["--json", "--system-id", sid])
         .arg("--agent-home")
         .arg(user_home)
         .env("HOME", user_home)
-        .env("AIMAIL_HOME", aimail_home)
-        .output()
-        .ok()?;
+        .env("AIMAIL_HOME", aimail_home);
+    for (k, v) in extra_env {
+        cmd.env(k, v);
+    }
+    let out = cmd.output().ok()?;
     if !out.status.success() {
         // check 的 rc 反映"有失败项"，夹具里本来就故意有失败项 ⇒ 不看 rc，只看输出
         println!(

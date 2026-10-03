@@ -184,6 +184,29 @@ pub fn all_pointer_sids(user_home: &std::path::Path) -> Vec<(String, Vec<&'stati
     out
 }
 
+/// 平台运行时健康检查项（注册表 `health_checks`，空 ⇒ 空表）—— L2r 表驱动执行。
+pub fn health_checks(name: &str) -> Vec<Value> {
+    platform(name)
+        .and_then(|p| p.get("health_checks"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// 宿主配置里可能引用运行时载荷的文件模板（注册表 `payload_refs`，空 ⇒ 无需检查）。
+pub fn payload_refs(name: &str) -> Vec<String> {
+    platform(name)
+        .and_then(|p| p.get("payload_refs"))
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// 平台别名表（注册表 `aliases`；空 ⇒ 空表，不猜）。
 pub fn aliases(name: &str) -> Vec<String> {
     platform(name)
