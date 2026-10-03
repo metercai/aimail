@@ -1,0 +1,18 @@
+[package]
+name = "aimail"
+version = "0.1.34"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "aimail CLI - set up, operate and maintain the AIMail link between your agent platform and the aimail-gateway."
+repository = "https://github.com/metercai/aimail"
+rust-version = "1.75"
+
+# 单一二进制（无 daemon 形态）。过渡期 `cli/*.py` 与它并存，直到 plan v3 S12 退役。
+# 铁律：version 必须 == 仓根 pyproject.toml 的 [project].version（真源）；
+# 由 tests/test_cli_parity.py + tests/cli_surface.rs 两处断言兜住（只许同步改）。
+[[bin]]
+name = "aimail"
+path = "src/main.rs"
+
+[dependencies]
+clap = "4"

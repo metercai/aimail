@@ -4,6 +4,9 @@ __pycache__/
 *.log
 .env.swp
 
+# Rust CLI (cli/) 构建产物 —— 与 bridge 仓同款忽略
+/cli/target/
+
 # local session notes (not project code)
 .hermes/
 
