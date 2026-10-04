@@ -68,6 +68,9 @@ const IMPLEMENTED: &[&str] = &[
     "welcome",
     // prompt：list/rm/create-file 已接线；add 走 SDK 落盘（绑定文件只由 SDK 写）；test 响亮未移植。
     "prompt",
+    // repair：十步阶梯 + `-D` deep 扩展（引擎早已在 core::repair）+ 命令面接线。
+    // 写面行为（真跑修复）由 CLI L2 覆盖；此处只验 --dry-run 与面。
+    "repair",
 ];
 
 static SEQ: AtomicU32 = AtomicU32::new(0);

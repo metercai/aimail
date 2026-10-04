@@ -574,6 +574,8 @@ pub fn build_cli() -> Command {
         match *name {
             "install" => sub = install_args(sub),
             "address" => sub = address_hidden_args(address_view_args(sub)),
+            "repair" => sub = repair_args(sub),
+
             "reset" => sub = reset_args(sub),
             "bridge" => sub = bridge_args(sub),
             "renew" => sub = renew_args(sub),
@@ -770,6 +772,13 @@ pub fn run() -> i32 {
             yes: m.get_flag("yes"),
             platform: arg_str(m, "platform"),
         }),
+        Some(("repair", m)) => crate::cmd::repair::run(&crate::cmd::repair::Args {
+            system_id: arg_str(m, "system-id"),
+            home: arg_opt(m, "home"),
+            deep: m.get_flag("deep"),
+            dry_run: m.get_flag("dry-run"),
+        }),
+
         Some(("welcome", m)) => crate::cmd::welcome::run(&crate::cmd::welcome::Args {
             system_id: arg_str(m, "system-id"),
             manager: arg_str(m, "manager"),
@@ -838,4 +847,37 @@ fn arg_str(matches: &clap::ArgMatches, key: &str) -> String {
 
 fn arg_opt(matches: &clap::ArgMatches, key: &str) -> Option<String> {
     matches.get_one::<String>(key).cloned()
+}
+
+/// `repair` 的参数面（= Python `p_repair`：`-s/-H/-D/-n`，无机器面）。
+fn repair_args(sub: Command) -> Command {
+    sub.arg(
+        Arg::new("system-id")
+            .short('s')
+            .long("system-id")
+            .help("target system id"),
+    )
+    .arg(
+        Arg::new("home")
+            .short('H')
+            .long("home")
+            .help("platform root (auto-resolved on single-platform machines)"),
+    )
+    .arg(
+        Arg::new("deep")
+            .short('D')
+            .long("deep")
+            .action(clap::ArgAction::SetTrue)
+            .help(format!(
+                "deep: rewrite webhook pairing from {} + drain stuck pending",
+                crate::core::contract::binding_file()
+            )),
+    )
+    .arg(
+        Arg::new("dry-run")
+            .short('n')
+            .long("dry-run")
+            .action(clap::ArgAction::SetTrue)
+            .help("print the fix plan without executing"),
+    )
 }

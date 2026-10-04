@@ -13,6 +13,7 @@ pub mod persona;
 pub mod ping;
 pub mod prompt;
 pub mod renew;
+pub mod repair;
 pub mod report;
 pub mod reset;
 pub mod stats;
