@@ -25,13 +25,13 @@ pub struct Args {
     pub inbound_down: bool,
 }
 
-struct Row {
-    agent: String,
-    email: String,
-    manager: String,
-    webhook: String,
-    registered: bool,
-    platform: String,
+pub(crate) struct Row {
+    pub(crate) agent: String,
+    pub(crate) email: String,
+    pub(crate) manager: String,
+    pub(crate) webhook: String,
+    pub(crate) registered: bool,
+    pub(crate) platform: String,
 }
 
 /// 地址 → 目录键反查归属系统（`cli/aimail:2005-2027`）。
@@ -120,7 +120,7 @@ fn local_part_sanitize(name: &str) -> String {
     }
 }
 
-fn list_agents(aimail_home: &Path, sid: &str, cfg: &config::GatewayConfig) -> Vec<Row> {
+pub(crate) fn list_agents(aimail_home: &Path, sid: &str, cfg: &config::GatewayConfig) -> Vec<Row> {
     let mut rows: Vec<Row> = Vec::new();
     let base = config::system_dir_in(aimail_home, sid);
     if base.is_dir() {

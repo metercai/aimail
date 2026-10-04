@@ -585,8 +585,94 @@ pub fn build_cli() -> Command {
             "persona" => sub = persona_args(sub),
             "domain" => sub = domain_args(sub),
             "prompt" => {
+                // 与 argparse `add_subparsers(required=True)` 同：裸 `prompt` ⇒ rc=2 + usage
+                sub = sub.subcommand_required(true);
                 for (pn, ph) in PROMPT_SUBCOMMANDS {
-                    sub = sub.subcommand(Command::new(*pn).about(*ph));
+                    let mut c = Command::new(*pn).about(*ph);
+                    // `_pr_tgt`：三个面共用（Python `cli/aimail:3618-3621`）
+                    c = c
+                        .arg(
+                            Arg::new("system-id")
+                                .short('s')
+                                .long("system-id")
+                                .help(SID_HELP),
+                        )
+                        .arg(
+                            Arg::new("agent")
+                                .short('a')
+                                .long("agent")
+                                .help("target agent name"),
+                        )
+                        .arg(
+                            Arg::new("email")
+                                .short('e')
+                                .long("email")
+                                .help("target address (full email)"),
+                        );
+                    match *pn {
+                        "add" => {
+                            c = c
+                                .arg(Arg::new("name").short('n').long("name").required(true).help(
+                                    "rule name = {10-99 serial}_{filename}; serial sets the order",
+                                ))
+                                .arg(Arg::new("file").long("file").help(
+                                    "prompt file stem (default: the filename part of -n)",
+                                ))
+                                .arg(Arg::new("subject").long("subject").action(ArgAction::Append).help("keyword to match against the subject"))
+                                .arg(Arg::new("body").long("body").action(ArgAction::Append).help("keyword to match against the body"))
+                                .arg(Arg::new("sender").long("sender").action(ArgAction::Append).help("keyword to match against the sender"))
+                                .arg(Arg::new("recipient").long("recipient").action(ArgAction::Append).help("keyword to match against the recipients"))
+                                .arg(Arg::new("disable").long("disable").action(ArgAction::SetTrue).help("store the rule disabled"));
+                        }
+                        "rm" => {
+                            c = c.arg(
+                                Arg::new("name")
+                                    .short('n')
+                                    .long("name")
+                                    .required(true)
+                                    .help("rule name to remove"),
+                            );
+                        }
+                        "test" => {
+                            c = c
+                                .arg(Arg::new("subject").long("subject").help("sample subject"))
+                                .arg(Arg::new("body").long("body").help("sample body"))
+                                .arg(Arg::new("sender").long("sender").help("sample sender"))
+                                .arg(
+                                    Arg::new("to")
+                                        .long("to")
+                                        .action(ArgAction::Append)
+                                        .value_name("ADDR")
+                                        .help("recipient (repeatable; joined for containment)"),
+                                )
+                                .arg(Arg::new("header").long("header").value_name("VALUE").help(
+                                    "simulate the gateway X-AIMail-Prompt header value (file stem)",
+                                ))
+                                .arg(
+                                    Arg::new("board-role")
+                                        .long("board-role")
+                                        .value_name("ROLE")
+                                        .help("simulate the gateway-injected board role (L3)"),
+                                );
+                        }
+                        "create-file" => {
+                            c = c
+                                .arg(
+                                    Arg::new("name")
+                                        .short('n')
+                                        .long("name")
+                                        .required(true)
+                                        .help("rule name"),
+                                )
+                                .arg(
+                                    Arg::new("file").long("file").help(
+                                        "prompt file stem (default: the filename part of -n)",
+                                    ),
+                                );
+                        }
+                        _ => {}
+                    }
+                    sub = sub.subcommand(c);
                 }
             }
             _ => {}
@@ -605,6 +691,54 @@ pub fn run() -> i32 {
         Some(("version", _)) => crate::cmd::version::run(),
         Some(("stats", m)) => crate::cmd::stats::run(m.get_flag("all")),
         Some(("persona", _)) => crate::cmd::persona::run(),
+        Some(("prompt", m)) => {
+            let Some((action, am)) = m.subcommand() else {
+                return 2;
+            };
+            let many = |key: &str| -> Vec<String> {
+                // `try_get_many`：五个面开关不同，未定义的 key 不能 panic
+                am.try_get_many::<String>(key)
+                    .ok()
+                    .flatten()
+                    .map(|v| v.cloned().collect())
+                    .unwrap_or_default()
+            };
+            // 五个面的开关各不相同 ⇒ **容错读取**（clap 对未定义 key 的访问会 panic）
+            let sstr = |key: &str| -> String {
+                am.try_get_one::<String>(key)
+                    .ok()
+                    .flatten()
+                    .cloned()
+                    .unwrap_or_default()
+            };
+            let sopt = |key: &str| -> Option<String> {
+                am.try_get_one::<String>(key).ok().flatten().cloned()
+            };
+            crate::cmd::prompt::run(&crate::cmd::prompt::Args {
+                system_id: sstr("system-id"),
+                agent: sopt("agent"),
+                email: sopt("email"),
+                paction: action.to_string(),
+                name: sstr("name"),
+                file: sstr("file"),
+                disable: am
+                    .try_get_one::<bool>("disable")
+                    .ok()
+                    .flatten()
+                    .copied()
+                    .unwrap_or(false),
+                k_subject: many("subject"),
+                k_body: many("body"),
+                k_sender: many("sender"),
+                k_recipient: many("recipient"),
+                subject: sstr("subject"),
+                body: sstr("body"),
+                sender: sstr("sender"),
+                to: many("to"),
+                header: sstr("header"),
+                board_role: sstr("board-role"),
+            })
+        }
         Some(("check", m)) => crate::cmd::check::run(crate::cmd::check::Args {
             system_id: m
                 .get_one::<String>("system-id")
