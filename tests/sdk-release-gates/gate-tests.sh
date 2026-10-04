@@ -73,14 +73,7 @@ if [ "$_doc_rc" -ne 0 ]; then
 fi
 echo "[L0] docs↔impl: symbols defined; en/zh heading structure equal; contract values == manifest"
 # 平台边界 gate:CLI 代码不得出现平台字面分支(新增平台/多 agent 注册只改
-# cli/platforms.json + SDK,CLI 零改动)。白名单 = 空(cmd_reset 特例已随
-# register_all 表化删除)——出现任何平台字面即红。
-_LIT=$(grep -nE '(platform|agent_type|kind|tgt) == "(hermes|openclaw|deerflow|dsh|pi)"' cli/aimail cli/check_status.py cli/repair.py 2>/dev/null || true)
-if [ -n "$_LIT" ]; then
-  echo "[L0] FAIL: platform literals leaked into CLI code (registry is the single platform source):"
-  echo "$_LIT"; exit 1
-fi
-echo "[L0] platform-boundary: CLI clean of platform literals (registry-driven)"
+# platform-boundary（CLI 不含平台字面量）已迁至 CLI 域门禁：tests/cli-gates/run-cli-gates.sh
 # Core runtime modules: strict (no unused/undefined). Deploy-time patch
 # scripts (hermes/patch_* etc.) intentionally import `aimail` for
 # side-effect/eval use — syntax-check only those.
