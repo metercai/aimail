@@ -233,6 +233,33 @@ pub fn create_api_key(
     })
 }
 
+/// `cli/_common.is_local_gateway`：网关是否本机/本地（直连 push ⇒ 不需要桥）。
+///
+/// 判据照抄：hostname ∈ {127.0.0.1, localhost, ::1}，**或** host 命中本机自有地址
+/// （Python 侧用 `socket.getaddrinfo(socket.gethostname())`；这里用 std 的解析器等价实现）。
+/// 解析不出的 url **不算**本地（调用方必须自己处理"判不出来"，不许默认直连）。
+pub fn is_local_gateway(url: &str) -> bool {
+    let host = crate::core::repair::url_host_pub(url);
+    if host.is_empty() {
+        return false;
+    }
+    if matches!(host.as_str(), "127.0.0.1" | "localhost" | "::1") {
+        return true;
+    }
+    let Ok(name) = std::fs::read_to_string("/proc/sys/kernel/hostname") else {
+        return false;
+    };
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return false;
+    }
+    use std::net::ToSocketAddrs;
+    match (name.as_str(), 0u16).to_socket_addrs() {
+        Ok(addrs) => addrs.into_iter().any(|a| a.ip().to_string() == host),
+        Err(_) => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

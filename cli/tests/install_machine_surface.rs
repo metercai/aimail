@@ -112,16 +112,17 @@ fn payload_readonly_actions_print_paths_and_rc0() {
 }
 
 #[test]
-fn unported_install_surfaces_fail_loudly() {
+fn install_surfaces_behave_like_python() {
     let d = tempfile::tempdir().unwrap();
     let prog = d.path().to_string_lossy().to_string();
     {
+        // 人路径**已实现**：无 --home/--system-id 时按 Python 口径响亮失败（文案进 stdout，rc=1）
         let args = vec!["install"];
-        let (rc, out, err) = run(&prog, &args);
-        assert_ne!(rc, 0, "{args:?} 未移植必须非零");
+        let (rc, out, _err) = run(&prog, &args);
+        assert_eq!(rc, 1, "{args:?} 应 rc=1");
         assert!(
-            err.contains("not yet ported") || out.contains("not"),
-            "{args:?} 应说明未移植: out={out:?} err={err:?}"
+            out.contains("install 需要 --home"),
+            "{args:?} 应报缺失参数: out={out:?}"
         );
     }
     // `--system-only` 无凭据 ⇒ **ABI 错误信封**（单行 JSON，rc=1），不是"未移植"

@@ -3,13 +3,17 @@
 //! · `--system-only` / `--payload` 的**互斥与拒参**（`cli/aimail:784-827` 逐字复刻：文案、流向、
 //!   rc=2；其中 payload 通道的"未知动作/缺 bundle"文案走 **stdout**，拒参走 stderr —— 与 Python 一致）；
 //! · `--payload dir|source|resource` 三个**只读**动作（路径解析，可跨语言逐字比对）；
-//! · `--payload install`（写载荷，含 stamp/清理）与 `--system-only`（L1 激活/复用，单行 JSON ABI）
-//!   以及人路径**一律未移植**：明确的非零退出 + 说明，绝不静默当成功、绝不降级成人路径。
+//! · `--payload install`（写载荷，含 stamp/清理）· `--system-only`（L1 激活/复用，单行 JSON ABI）
+//! · **人路径**（`cli/aimail:836-1072`）：激活/复用 worker（`core::setup`）→ domain 预置/创建 →
+//!   平台接线（`core::steps` 表驱动）→ 容器 runtime 记录。
+//!   两处**桥相关**面明确未移植（P2 依赖）并**响亮告警**：远端网关的 bridge 部署、路由对账
+//!   —— 不是"尝试失败"，而是"尚未实现"，必须能分辨。
 //!
 //! 未移植清单在 `cli/tests/cli_surface.rs::unported_faces_are_honest` 里钉住。
 
-use crate::cmd::stub::not_yet_ported;
 use crate::core::payload;
+use crate::core::{config, home, platforms, setup, steps};
+use std::path::PathBuf;
 
 /// `install` 的全部参数（人面 + 隐藏机器面；未定义的值一律空串/`false`）。
 #[derive(Default, Clone)]
@@ -29,6 +33,9 @@ pub struct Args {
     pub dest: String,
     pub source_root: String,
     pub force: bool,
+    pub container: String,
+    pub container_home: String,
+    pub platform: String,
 }
 
 pub fn run(a: Args) -> i32 {
@@ -94,7 +101,7 @@ pub fn run(a: Args) -> i32 {
             return 2;
         }
     }
-    not_yet_ported("install (human path: activation / platform wiring / runtime resources)")
+    install_human(&a)
 }
 
 /// `cmd_payload`（`cli/aimail:304-338`）。
@@ -485,6 +492,442 @@ fn ensure_system(a: &Args) -> i32 {
     println!(
         "{}",
         crate::core::pyjson::dumps_python(&serde_json::Value::Object(obj))
+    );
+    0
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 人路径（`cli/aimail:836-1072`）：激活/复用 → domain 预置 → 桥（未移植，P2）→ 平台接线 → 路由（未移植）
+// ════════════════════════════════════════════════════════════════════════════
+
+fn ok(msg: &str) {
+    println!(
+        "  {}{}{} {}",
+        crate::core::style::GREEN,
+        crate::core::style::CHECK,
+        crate::core::style::NC,
+        msg
+    );
+}
+
+fn fail(msg: &str) -> i32 {
+    println!(
+        "  {}{}{} {}",
+        crate::core::style::RED,
+        crate::core::style::CROSS,
+        crate::core::style::NC,
+        msg
+    );
+    1
+}
+
+fn warn(msg: &str) {
+    println!(
+        "  {}{}{} {}",
+        crate::core::style::YELLOW,
+        crate::core::style::CROSS,
+        crate::core::style::NC,
+        msg
+    );
+}
+
+/// domain 预置/创建（`cli/aimail:983-1004`）：只走显式/复用路径的域；产品码新建路径不在此。
+fn ensure_domain(gw_url: &str, admin_key: &str, sid: &str, want_domain: &str) {
+    let path = format!("/api/v1/admin/systems/{sid}/domains");
+    let headers = crate::core::sig::signed_headers(admin_key, "GET", &path, None, "");
+    let url = format!("{}{}", gw_url.trim_end_matches('/'), path);
+    let (status, body) = crate::core::http::json_req(&url, &headers, None, Some("GET"), 15);
+    if !(200..300).contains(&status) {
+        warn(&format!("domain check failed: {body}"));
+        return;
+    }
+    // Python 侧 `list_system_domains`：dict 里取 `data`，否则原值；非 list ⇒ []
+    let list = match &body {
+        serde_json::Value::Array(_) => Some(body.clone()),
+        serde_json::Value::Object(o) => o.get("data").cloned().filter(|v| v.is_array()),
+        _ => None,
+    };
+    let Some(list) = list else {
+        warn(&format!("domain check failed: {body}"));
+        return;
+    };
+    let want_lc = want_domain.to_lowercase();
+    let present = list
+        .as_array()
+        .map(|a| {
+            a.iter().any(|d| {
+                d.get("domain")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_lowercase() == want_lc)
+                    .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false);
+    if present {
+        ok(&format!("domain present: {want_domain}"));
+        return;
+    }
+    let body_req = serde_json::json!({
+        "id": format!("d{}", crate::core::time::now_secs()),
+        "domain": want_domain.trim().to_lowercase(),
+    });
+    let headers2 = crate::core::sig::signed_headers(
+        admin_key,
+        "POST",
+        &path,
+        Some(body_req.to_string().as_bytes()),
+        "",
+    );
+    let (st2, body2) = crate::core::http::json_req(
+        &url,
+        &headers2,
+        Some(body_req.to_string().as_bytes()),
+        Some("POST"),
+        15,
+    );
+    if !(200..300).contains(&st2) {
+        let err = body2.get("error").and_then(|v| v.as_str()).unwrap_or("");
+        let detail = body2.get("detail").and_then(|v| v.as_str()).unwrap_or("");
+        warn(format!("domain create failed: {err} {detail}").trim_end());
+    } else {
+        ok(&format!("domain created: {want_domain}"));
+    }
+}
+
+fn install_human(a: &Args) -> i32 {
+    let core_dir = home::core_dir();
+    let mut sys_name = if a.system_name.is_empty() {
+        String::new()
+    } else {
+        a.system_name.clone()
+    };
+    let manager = if a.manager.is_empty() {
+        config::env_val("AIMAIL_MANAGER_ADDRESS", "")
+    } else {
+        a.manager.clone()
+    };
+    let mut prod_code = a.product_code.clone();
+    let adm_key = a.admin_key.clone();
+    let want_domain = if a.domain.is_empty() {
+        config::env_val("AIMAIL_DOMAIN", "")
+    } else {
+        a.domain.clone()
+    };
+    let mut sid = a.system_id.clone();
+
+    // 目标双向反查：--home 与 --system-id 任给其一
+    let system_home = if a.home.is_empty() {
+        if sid.is_empty() {
+            return fail("install 需要 --home,或带 --system-id 以便从本地配置反查");
+        }
+        let sh = home::system_home_from_sid(&sid);
+        if sh.is_empty() {
+            return fail(&format!(
+                "--system-id {sid} 无本地配置可反查 --home(系统不在这台机器?)"
+            ));
+        }
+        let p = PathBuf::from(&sh);
+        println!("  --home 由 --system-id 反查: {}", p.to_string_lossy());
+        p
+    } else {
+        platforms::normalize_platform_home(&home::expand_user(&a.home))
+    };
+    if sid.is_empty() && prod_code.is_empty() && adm_key.is_empty() {
+        // 重复安装：home 归属唯一系统 ⇒ 自动复用（.env 的码可能已被消耗）
+        let sid2 = sid_from_system_home(system_home.as_path());
+        if !sid2.is_empty() {
+            sid = sid2;
+            println!("  复用归属系统: {sid}(由 --home 反查)");
+        }
+    }
+    if sid.is_empty() && prod_code.is_empty() && adm_key.is_empty() {
+        prod_code = config::env_val("AIMAIL_PRODUCT_CODE", "");
+        if sys_name.is_empty() {
+            sys_name = config::env_val("AIMAIL_SYSTEM_NAME", "");
+        }
+    }
+    if !system_home.exists() {
+        return fail(&format!(
+            "home 目录不存在: {}",
+            system_home.to_string_lossy()
+        ));
+    }
+    if !a.container_home.is_empty() && a.container.is_empty() {
+        return fail("--container-home requires --container <name>");
+    }
+    let platform = match platforms::platform_override(&a.platform) {
+        Ok(Some(p)) => p,
+        Ok(None) => {
+            let p = platforms::resolve_platform(&system_home);
+            if p.is_empty() {
+                return fail(&format!(
+                    "无法确定平台:{} 目录无特征且无 aimail 指针(可用 --platform 显式指定)",
+                    system_home.to_string_lossy()
+                ));
+            }
+            p
+        }
+        Err(msg) => return fail(&msg),
+    };
+    let mut line = format!(
+        "  install platform={platform} system_home={} system_id={}",
+        system_home.to_string_lossy(),
+        if sid.is_empty() {
+            "(新建)".to_string()
+        } else {
+            sid.clone()
+        }
+    );
+    if !a.container.is_empty() {
+        line.push_str(&format!(" container={}", a.container));
+    }
+    println!("{line}");
+
+    // 激活/复用凭据装配（env 契约）
+    let mut gw_url = a.gateway_url.clone();
+    if !sid.is_empty() && prod_code.is_empty() {
+        let (u, src) = resolve_gateway_url(&a.gateway_url, &sid);
+        gw_url = u;
+        if src == "prev" {
+            ok(&format!(
+                "gateway_url 继承本地配置: {gw_url}(复用 {sid};-g / AIMAIL_URL 优先)"
+            ));
+        } else if src == "default" {
+            warn(&format!(
+                "gateway_url 无本地值, 落到默认 {gw_url}(未给 -g / AIMAIL_URL)"
+            ));
+        }
+    }
+    let new_system_domain = if !prod_code.is_empty() {
+        a.domain.clone()
+    } else {
+        want_domain.clone()
+    };
+
+    // 凭据三选一：产品码 / 显式 admin-key / 从既有配置复用
+    let mut env_admin_key = String::new();
+    if !prod_code.is_empty() {
+        std::env::set_var("INTEGRATE_USE_PRODUCT_CODE", "true");
+        std::env::set_var("INTEGRATE_PRODUCT_CODE", &prod_code);
+        std::env::set_var(
+            "INTEGRATE_SYSTEM_HOME",
+            system_home.to_string_lossy().to_string(),
+        );
+    } else if !adm_key.is_empty() {
+        env_admin_key = adm_key.clone();
+        std::env::set_var("INTEGRATE_ADMIN_KEY", &adm_key);
+        std::env::set_var(
+            "INTEGRATE_SYSTEM_HOME",
+            system_home.to_string_lossy().to_string(),
+        );
+    } else if !sid.is_empty() {
+        if let Some(c) = config::load_gateway_config(&sid) {
+            if !c.admin_key.is_empty() {
+                env_admin_key = c.admin_key.clone();
+                std::env::set_var("INTEGRATE_ADMIN_KEY", &c.admin_key);
+                std::env::set_var("INTEGRATE_SYSTEM_ID", &sid);
+            }
+        }
+    }
+    std::env::set_var("INTEGRATE_GATEWAY_URL", &gw_url);
+    std::env::set_var("INTEGRATE_SYSTEM_ID", &sid);
+    std::env::set_var("INTEGRATE_SYSTEM_NAME", &sys_name);
+    std::env::set_var(
+        "INTEGRATE_NAME_EXPLICIT",
+        if a.system_name.is_empty() {
+            "false"
+        } else {
+            "true"
+        },
+    );
+    std::env::set_var("INTEGRATE_MANAGER_ADDRESS", &manager);
+    if !manager.is_empty() {
+        std::env::set_var("AIMAIL_MANAGER_ADDRESS", &manager);
+    }
+    std::env::set_var("INTEGRATE_AIMAIL_DOMAIN", &new_system_domain);
+    std::env::set_var(
+        "INTEGRATE_SAVE_SNAPSHOTS",
+        if matches!(
+            config::env_val("AIMAIL_SAVE_SNAPSHOTS", "yes")
+                .to_lowercase()
+                .as_str(),
+            "yes" | "true" | "1"
+        ) {
+            "true"
+        } else {
+            "false"
+        },
+    );
+    std::env::set_var(
+        "INTEGRATE_WEBHOOK_HOST",
+        config::env_val("AIMAIL_WEBHOOK_HOST", ""),
+    );
+
+    // 激活/复用 worker（进程内；与 `--system-only` 同一条）
+    let wa = setup::SetupArgs {
+        gateway_url: gw_url.clone(),
+        system_id: sid.clone(),
+        admin_key: env_admin_key.clone(),
+        product_code: prod_code.clone(),
+        system_name: sys_name.clone(),
+        domain: new_system_domain.clone(),
+        save_raw_snapshots: matches!(
+            config::env_val("AIMAIL_SAVE_SNAPSHOTS", "yes")
+                .to_lowercase()
+                .as_str(),
+            "yes" | "true" | "1"
+        ),
+        manager_address: manager.clone(),
+        webhook_host: config::env_val("AIMAIL_WEBHOOK_HOST", ""),
+        system_home: system_home.to_string_lossy().to_string(),
+    };
+    let data = setup::setup(&wa);
+    if !data
+        .get("success")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        // 与子进程契约同构：worker 的 `__ERROR__:<text>` 就是失败原因本身
+        let err = data
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("setup_system 失败");
+        return fail(err);
+    }
+    ok("system configured");
+    let mut sid2 = sid.clone();
+    if let Some(s) = data.get("system_id").and_then(|v| v.as_str()) {
+        if !s.is_empty() {
+            sid2 = s.to_string();
+        }
+    }
+    if !sid2.is_empty() && sid2 != a.system_id {
+        std::env::set_var("INTEGRATE_SYSTEM_ID", &sid2);
+        ok(&format!("system_id: {sid2}"));
+    }
+    // 激活产物回填（新系统激活路径没有显式 -k）
+    let mut cfg2 = config::load_gateway_config(&sid2);
+    if let Some(c) = cfg2.take() {
+        if !c.admin_key.is_empty() {
+            env_admin_key = c.admin_key.clone();
+            std::env::set_var("INTEGRATE_ADMIN_KEY", &c.admin_key);
+        }
+        if !c.domain.is_empty() {
+            std::env::set_var("INTEGRATE_AIMAIL_DOMAIN", &c.domain);
+        }
+        cfg2 = Some(c);
+    }
+
+    // 1b) domain 预置/创建（只显式/复用路径）
+    if !new_system_domain.is_empty() && !sid2.is_empty() {
+        ensure_domain(&gw_url, &env_admin_key, &sid2, &want_domain);
+    }
+
+    // 2) 桥部署：本地网关直连不需要桥；远端桥未移植（P2）⇒ 明确告警
+    if crate::core::gateway::is_local_gateway(&gw_url) {
+        ok("bridge: local gateway (direct mode) -- no bridge needed");
+    } else {
+        warn("bridge deploy skipped: 未移植(deploy_bridge, P2 依赖)");
+    }
+
+    // 3) 平台适配（注册表 install_steps 动作表驱动）
+    let mut ctx: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+    let cfg_for_steps = cfg2
+        .as_ref()
+        .map(|c| serde_json::Value::Object(c.to_json()))
+        .unwrap_or_else(|| {
+            serde_json::json!({
+                "system_id": std::env::var("INTEGRATE_SYSTEM_ID").unwrap_or_default(),
+                "gateway_url": gw_url,
+                "admin_key": env_admin_key,
+                "domain": "",
+                "system_name": sys_name,
+                "manager_address": manager,
+                "system_home": std::env::var("INTEGRATE_SYSTEM_HOME").unwrap_or_default(),
+            })
+        });
+    ctx.insert(
+        "home".into(),
+        serde_json::json!(system_home.to_string_lossy().to_string()),
+    );
+    ctx.insert("sid".into(), serde_json::json!(sid2));
+    ctx.insert("manager".into(), serde_json::json!(manager));
+    ctx.insert(
+        "scripts".into(),
+        serde_json::json!(core_dir.to_string_lossy().to_string()),
+    );
+    ctx.insert(
+        "sdk".into(),
+        serde_json::json!(core_dir.to_string_lossy().to_string()),
+    );
+    ctx.insert("cfg".into(), cfg_for_steps);
+    ctx.insert("all_agents".into(), serde_json::json!(a.all_agents));
+    let rcfg = cfg2.as_ref().map(|c| c.to_json()).unwrap_or_default();
+    let g = |k: &str| -> String {
+        rcfg.get(k)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
+    ctx.insert("runtime".into(), serde_json::json!(g("runtime")));
+    ctx.insert("container".into(), serde_json::json!(g("container")));
+    ctx.insert(
+        "container_home".into(),
+        serde_json::json!(if g("container_home").is_empty() {
+            system_home.to_string_lossy().to_string()
+        } else {
+            g("container_home")
+        }),
+    );
+
+    // 方式二：显式 --container 才写 runtime 记录（幂等覆写同值）
+    if !sid2.is_empty() && !a.container.is_empty() {
+        let p = config::systems_root_in(&home::aimail_home())
+            .join(&sid2)
+            .join("aimail_gateway.json");
+        match std::fs::read_to_string(&p)
+            .ok()
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        {
+            Some(serde_json::Value::Object(mut o)) => {
+                o.insert("runtime".into(), serde_json::json!("docker"));
+                o.insert("container".into(), serde_json::json!(a.container));
+                o.insert(
+                    "container_home".into(),
+                    serde_json::json!(if a.container_home.is_empty() {
+                        system_home.to_string_lossy().to_string()
+                    } else {
+                        a.container_home.clone()
+                    }),
+                );
+                if let Err(e) = config::write_private_json(&p, &serde_json::Value::Object(o)) {
+                    warn(&format!("container runtime record failed: {e}"));
+                } else {
+                    ok(&format!(
+                        "container runtime recorded: docker/{}",
+                        a.container
+                    ));
+                }
+            }
+            _ => warn("container runtime record failed: config unreadable"),
+        }
+    }
+
+    if let Err(e) = steps::run_install_steps(&platform, &mut ctx, &core_dir) {
+        return fail(&e);
+    }
+
+    // 路由侧：每地址的桥路由在平台步之后确保（桥未移植 ⇒ 明确告警）
+    warn("route ensure skipped: 未移植(bridge 命令面, P2 依赖)");
+
+    let tail = if a.system_id.is_empty() {
+        String::new()
+    } else {
+        format!("--system-id {}", a.system_id)
+    };
+    println!(
+        "{}",
+        format!("  install done. 建议: aimail check {tail}").trim_end()
     );
     0
 }

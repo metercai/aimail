@@ -46,6 +46,9 @@ const MACHINE_LITERALS: &[&str] = &["ensure-system", "payload", "system-only"];
 // 但命令本体、激活 worker、注册链都是真实现 ⇒ 计入已实现面）
 const IMPLEMENTED: &[&str] = &[
     "version", "stats", "persona", "address", "domain", "check", "reset",
+    // install：机器面（--system-only / --payload）与人路径（激活/复用 + 平台接线）都已接线；
+    // 唯二未移植的**桥相关面**（远端 bridge 部署 / 路由对账）在命令里显式告警，不静默跳过。
+    "install",
 ];
 
 static SEQ: AtomicU32 = AtomicU32::new(0);

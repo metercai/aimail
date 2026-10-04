@@ -582,6 +582,11 @@ fn port_of(authority: &str) -> Option<i64> {
     a.split(':').nth(1).and_then(|p| p.parse::<i64>().ok())
 }
 
+/// 公开版：install 的"是否本地网关"判定与 repair 共用**同一份** host 解析（单真源）。
+pub fn url_host_pub(url: &str) -> String {
+    url_host(url)
+}
+
 fn url_host(url: &str) -> String {
     let after = url.split("://").nth(1).unwrap_or("");
     let authority = after.split(['/', '?', '#']).next().unwrap_or("");

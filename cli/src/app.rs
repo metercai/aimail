@@ -196,6 +196,27 @@ fn install_args(cmd: Command) -> Command {
                 .long("all-agents")
                 .action(ArgAction::SetTrue)
                 .help("register ALL platform agents (default: main agent only)"),
+        )
+        .arg(
+            Arg::new("platform")
+                .long("platform")
+                .value_name("NAME")
+                .default_value("")
+                .help("override platform detection (value validated against the platform registry)"),
+        )
+        .arg(
+            Arg::new("container")
+                .long("container")
+                .value_name("NAME")
+                .default_value("")
+                .help("docker container name of this agent system (recorded as runtime=docker in system config)"),
+        )
+        .arg(
+            Arg::new("container-home")
+                .long("container-home")
+                .value_name("PATH")
+                .default_value("")
+                .help("platform home path INSIDE the container (default: same as --home; SOP = same-path bind mount)"),
         );
     install_hidden_args(cmd)
 }
@@ -451,6 +472,9 @@ pub fn run() -> i32 {
             dest: arg_str(m, "dest"),
             source_root: arg_str(m, "source-root"),
             force: m.get_flag("force"),
+            container: arg_str(m, "container"),
+            container_home: arg_str(m, "container-home"),
+            platform: arg_str(m, "platform"),
         }),
         Some((name, _)) => crate::cmd::stub::not_yet_ported(name),
         // subcommand_required(true) ⇒ 到不了这里；留非零兜底而不是伪装成 0。
