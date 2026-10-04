@@ -35,10 +35,12 @@ fi
 echo
 echo "═══ [CLI] 3) rust 电池（顺序不可换：cli 测试比对的是已构建产物）═══"
 if [ -d cli ]; then
+  # rust 测试串行跑（--test-threads=1）：cli 单测里有 29 处 std::env::set_var（进程级全局）⇒
+  # 并行时互相踩（实测 bridge_pids / drain_stuck 交替红）。TODO: 改为 per-test 环境隔离后去掉本开关。
   (cd cli && cargo fmt --all --check \
         && cargo clippy --offline --all-targets -- -D warnings \
         && cargo build --offline \
-        && cargo test --offline --all-targets) || fail=1
+        && cargo test --offline --all-targets -- --test-threads=1) || fail=1
 else
   echo "[CLI] SKIP: 无 cli/ 目录"
 fi
