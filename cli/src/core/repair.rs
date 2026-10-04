@@ -1591,6 +1591,29 @@ mod tests {
     }
 
     #[test]
+    fn routes_entries_skips_bad_binding_files_without_aborting() {
+        // Python 2026-09-20 实测：单个坏绑定文件只跳过它，绝不中止整步（repair.py:740）。
+        let td = std::env::temp_dir().join(format!("rt-bad-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&td);
+        std::fs::create_dir_all(td.join("systems/s1/leaf")).unwrap();
+        std::fs::write(td.join("systems/s1/leaf/agentmail.json"), b"{not json").unwrap();
+        std::env::set_var("AIMAIL_HOME", td.to_string_lossy().to_string());
+        let before = std::fs::read(td.join("systems/s1/leaf/agentmail.json")).unwrap();
+        let _ = run(
+            "s1",
+            false,
+            true,
+            "",
+            |sid: &str, ah: Option<&std::path::Path>| {
+                crate::cmd::check::engine(sid, ah, false).check
+            },
+        );
+        let after = std::fs::read(td.join("systems/s1/leaf/agentmail.json")).unwrap();
+        assert_eq!(before, after, "坏文件不得被改写/删除");
+        std::fs::remove_dir_all(&td).ok();
+    }
+
+    #[test]
     fn unregistered_dimension_is_hint_with_explicit_note() {
         let r = repairability("nope", "nope");
         assert_eq!(r, UNREGISTERED);
