@@ -10,7 +10,7 @@
 //! `:1480-1514`（指针扫描）· `:1974-2002`（表头/表体）· `:2030-2109`（op 链与查看面）。
 
 use crate::cmd::report;
-use crate::core::{config, contract, home, platforms};
+use crate::core::{config, contract, gateway::GatewayClient, home, platforms};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
@@ -387,6 +387,85 @@ pub fn run(args: Args) -> i32 {
                     0
                 }
             }
+        }
+        "default" => {
+            let new_name = args
+                .default
+                .clone()
+                .or_else(|| args.name.clone())
+                .unwrap_or_default();
+            if new_name.is_empty() {
+                return report::fail("address default 需要 -n <名字>");
+            }
+            let atext_ok = !new_name.is_empty()
+                && new_name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "!#$%&'*+-/=?^_`{|}~".contains(c));
+            if !atext_ok {
+                return report::fail(&format!(
+                    "非法名字 '{new_name}':须为 atext-no-dot 字符(不能含点/空格/@)"
+                ));
+            }
+            let cfgj = Value::Object(cfg.to_json());
+            let current = cfgj
+                .get("default_agent_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("agent")
+                .to_string();
+            if new_name == current {
+                println!("  已是当前默认名: {current}");
+                return 0;
+            }
+            let gw = cfg.gateway_url.trim_end_matches('/').to_string();
+            if !gw.is_empty() && !cfg.admin_key.is_empty() {
+                let client = GatewayClient::with_defaults(&gw, &cfg.admin_key);
+                let r = client.get(&format!("/api/v1/admin/systems/{sid}/domains"));
+                let payload = match r.get("data") {
+                    Some(d) => d.clone(),
+                    None => r,
+                };
+                let mut occupied: Vec<String> = Vec::new();
+                for d in payload.as_array().cloned().unwrap_or_default() {
+                    let addr = d.get("domain").and_then(|v| v.as_str()).unwrap_or("");
+                    let base = match addr.split_once('@') {
+                        Some((b, _)) => b,
+                        None => "",
+                    };
+                    if base == new_name {
+                        occupied.push(addr.to_string());
+                    }
+                }
+                if !occupied.is_empty() {
+                    return report::fail(&format!(
+                        "名字 '{new_name}' 已占用: {}",
+                        crate::core::pyjson::repr_python(&Value::Array(
+                            occupied.iter().map(|s| Value::String(s.clone())).collect()
+                        ))
+                    ));
+                }
+            }
+            let mut newcfg = cfg.clone();
+            newcfg.default_agent_name = new_name.clone();
+            let w = config::save_gateway_config_in(&aimail_home, &sid, &newcfg);
+            if let Err(e) = w {
+                return report::fail(&format!("写入配置失败: {e}"));
+            }
+            report::ok(&format!("默认主 agent 名: {current} → {new_name}"));
+            let dom = cfgj.get("domain").and_then(|v| v.as_str()).unwrap_or("");
+            let sysname = cfgj
+                .get("system_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let suffix = if sysname.is_empty() {
+                String::new()
+            } else {
+                format!(".{sysname}")
+            };
+            println!(
+                "  生效方式:agent 地址将变为 {new_name}@{dom}{suffix}(共享域加 .{sysname} 后缀)"
+            );
+            println!("  需重注册:aimail reset --system-id {sid} 或 aimail install");
+            0
         }
         "set-manager" => {
             // `-m` 校验（Python：空或缺 `@` ⇒ 同一句文案）

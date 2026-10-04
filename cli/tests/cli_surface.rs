@@ -247,7 +247,7 @@ fn unported_faces_are_honest() {
         &["address", "-s", "s1", "-n", "newname"],
         // `address -m`（set-manager）已于 P4 切片2 接线（走 SDK 按名调用）⇒ 移出本清单；
         //    校验路径验收：无 -a/-e 定位 ⇒ rc=1「该操作需要 -a <agent> 或 -e <email> 定位目标地址」。
-        &["address", "-s", "s1", "-d", "somename"],
+        // `address -d/--default` 已于 P4 切片3 接线 ⇒ 移出（行为验收 tests/address_default.rs）。
         &["address", "-s", "s1", "-a", "agent", "--inbound-live"],
         // `domain --add` 已于 P4 切片1 真实现（创建面）⇒ 从"未移植面"清单移出，
         // 行为验收见 tests/domain_add.rs（stub 网关）。
