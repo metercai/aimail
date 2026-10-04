@@ -282,6 +282,84 @@ impl Step {
                     StepResult::NothingToDo
                 }
             }
+            Step::GatewayConfig => {
+                // `cli/repair.py:473-517`：只补 system_home/webhook_host 的空缺，**绝不覆写已有值**。
+                let gw_path = crate::core::config::gateway_config_path(sid);
+                if !gw_path.is_file() {
+                    fail(&format!(
+                        "gateway config does not exist: {}",
+                        gw_path.display()
+                    ));
+                    StepResult::NothingToDo
+                } else {
+                    let mut v: serde_json::Value = std::fs::read_to_string(&gw_path)
+                        .ok()
+                        .and_then(|t| serde_json::from_str(&t).ok())
+                        .unwrap_or(serde_json::Value::Null);
+                    if v.is_null() {
+                        fail(&format!("gateway config unreadable: {}", gw_path.display()));
+                        StepResult::NothingToDo
+                    } else {
+                        let mut changed = false;
+                        let root = if !home.is_empty() {
+                            home.to_string()
+                        } else {
+                            auto_platform_home(
+                                &crate::core::home::user_home(),
+                                v.get("system_home").and_then(|x| x.as_str()),
+                            )
+                        };
+                        let need_home = v
+                            .get("system_home")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .is_empty();
+                        if need_home {
+                            if !root.is_empty()
+                                && crate::core::platforms::detect_platform_from_home(
+                                    std::path::Path::new(&root),
+                                ) != "unknown"
+                            {
+                                v["system_home"] = serde_json::Value::String(root.clone());
+                                ok(&format!("system_home backfilled: {root}"));
+                                changed = true;
+                            } else {
+                                warn("system_home missing and the platform root cannot be determined (on a multi-platform machine pass --home)");
+                            }
+                        }
+                        if v.get("webhook_host")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .is_empty()
+                        {
+                            let wh = detect_webhook_host(
+                                v.get("gateway_url").and_then(|x| x.as_str()).unwrap_or(""),
+                            );
+                            if !wh.is_empty() {
+                                let (deliverable, why) = judge_deliverable(&wh);
+                                if deliverable {
+                                    v["webhook_host"] = serde_json::Value::String(wh.clone());
+                                    ok(&format!("webhook_host backfilled: {wh}"));
+                                    changed = true;
+                                } else {
+                                    warn(&format!("detected callback address '{wh}' is not a deliverable http(s) URL ({why}) — leaving webhook_host unset (no bridge entry; registration keeps the local endpoint)"));
+                                }
+                            }
+                        }
+                        if changed {
+                            let txt = serde_json::to_string_pretty(&v).unwrap_or_default();
+                            let _ = std::fs::write(&gw_path, txt + "\n");
+                            let _ = std::fs::set_permissions(
+                                &gw_path,
+                                std::os::unix::fs::PermissionsExt::from_mode(0o600),
+                            );
+                            StepResult::Fixed
+                        } else {
+                            StepResult::NothingToDo
+                        }
+                    }
+                }
+            }
             _ => StepResult::NotPorted,
         }
     }
@@ -1552,6 +1630,41 @@ mod tests {
             {"id": "bad", "created_at": "not-a-time"}               // 不可解析 ⇒ 跳过（Python 同判）
         ]}]});
         assert_eq!(stuck_pending_ids(&pend, now), vec!["old".to_string()]);
+    }
+
+    #[test]
+    fn gateway_config_fills_gaps_only_and_never_overwrites() {
+        let td = std::env::temp_dir().join(format!("aimail-gwcfg-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&td);
+        let sdir = td.join("systems").join("s1");
+        std::fs::create_dir_all(&sdir).unwrap();
+        let p = sdir.join("aimail_gateway.json");
+        // ① 已有值 + 只缺 webhook_host ⇒ 既有值不动
+        std::fs::write(
+            &p,
+            r#"{"system_home":"/root/.hermes","system_name":"keepme","gateway_url":""}"#,
+        )
+        .unwrap();
+        std::env::set_var("AIMAIL_HOME", &td);
+        let _ = crate::core::repair::run("s1", false, false, "", |sid, home| {
+            crate::cmd::check::engine(sid, home, false).check
+        });
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+        assert_eq!(
+            v["system_home"], "/root/.hermes",
+            "已存在的 system_home 不得被覆写"
+        );
+        assert_eq!(v["system_name"], "keepme", "无关字段必须保留");
+        // ② 文件不存在 ⇒ 响亮失败且不动盘
+        let _ = std::fs::remove_file(&p);
+        let rc = crate::core::repair::run("s1", false, false, "", |sid, home| {
+            crate::cmd::check::engine(sid, home, false).check
+        });
+        assert!(rc >= 0, "缺 cfg 时应响亮失败而非 panic");
+        assert!(!p.exists(), "缺 cfg 时不得新建文件");
+        let _ = std::fs::remove_dir_all(&td);
+        std::env::remove_var("AIMAIL_HOME");
     }
 
     #[test]
