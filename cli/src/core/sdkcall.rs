@@ -20,6 +20,17 @@ const SHIM_SRC: &str = include_str!("sdk_call_shim.py");
 
 /// shim 的调用形状：`python3 -c <shim> <core_dir> <module> <function> <kwargs-json>`。
 pub fn shim_argv(core_dir: &Path, module: &str, function: &str, kwargs: &Value) -> Vec<String> {
+    shim_argv_full(core_dir, module, function, kwargs, &[])
+}
+
+/// 带**位置参数**的形态（有些 SDK 函数按位置传：hermes 适配层 `(name, profile_dir, config)`）。
+pub fn shim_argv_full(
+    core_dir: &Path,
+    module: &str,
+    function: &str,
+    kwargs: &Value,
+    positional: &[Value],
+) -> Vec<String> {
     vec![
         "-c".to_string(),
         SHIM_SRC.to_string(),
@@ -27,6 +38,7 @@ pub fn shim_argv(core_dir: &Path, module: &str, function: &str, kwargs: &Value) 
         module.to_string(),
         function.to_string(),
         serde_json::to_string(kwargs).unwrap_or_else(|_| "{}".into()),
+        serde_json::to_string(positional).unwrap_or_else(|_| "[]".into()),
     ]
 }
 
@@ -61,6 +73,55 @@ pub fn call(
         .map_err(|e| AbiError::Transport(format!("stdout is not one-line JSON: {e}")))?;
     let ok = v.get("ok").and_then(Value::as_bool).unwrap_or(false);
     if ok {
+        return Ok(v.get("result").cloned().unwrap_or(Value::Null));
+    }
+    let kind = v.get("kind").and_then(Value::as_str).unwrap_or("");
+    let exc = v
+        .get("exc")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let err = v
+        .get("error")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    match kind {
+        "usage" => Err(AbiError::Usage(err)),
+        "import" => Err(AbiError::Import(err)),
+        _ => Err(AbiError::Call { exc, msg: err }),
+    }
+}
+
+/// 带位置参数的调用（其余同 `call`）。
+pub fn call_positional(
+    module: &str,
+    function: &str,
+    positional: &[Value],
+    kwargs: &Value,
+    core_dir: &Path,
+    timeout: Duration,
+    env: &[(String, String)],
+) -> Result<Value, AbiError> {
+    let argv = shim_argv_full(core_dir, module, function, kwargs, positional);
+    let (stdout, _stderr, _code) =
+        crate::core::sdk::run_program(Path::new(&python_bin()), &argv, timeout, env)?;
+    parse_envelope(&stdout)
+}
+
+fn parse_envelope(stdout: &[u8]) -> Result<Value, AbiError> {
+    let text = String::from_utf8_lossy(stdout);
+    let line = text
+        .lines()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or("")
+        .trim();
+    if line.is_empty() {
+        return Err(AbiError::Transport("no JSON on stdout".into()));
+    }
+    let v: Value = serde_json::from_str(line)
+        .map_err(|e| AbiError::Transport(format!("stdout is not one-line JSON: {e}")))?;
+    if v.get("ok").and_then(Value::as_bool).unwrap_or(false) {
         return Ok(v.get("result").cloned().unwrap_or(Value::Null));
     }
     let kind = v.get("kind").and_then(Value::as_str).unwrap_or("");

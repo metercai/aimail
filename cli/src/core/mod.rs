@@ -25,6 +25,7 @@ pub mod perms;
 pub mod platforms;
 pub mod probe;
 pub mod pyjson;
+pub mod register;
 pub mod repair;
 pub mod sdk;
 pub mod sdkcall;

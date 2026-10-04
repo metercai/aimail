@@ -599,3 +599,42 @@ pub fn display_json(result: &Value) -> String {
     map.remove("path");
     serde_json::to_string_pretty(&Value::Object(map)).unwrap_or_else(|_| "{}".to_string())
 }
+
+/// manager env 三名互认（`cli/aimail:134-135`）：CLI 侧 export 的两种名 + SDK 只认的那种。
+pub const MANAGER_ENV_NAMES: [&str; 3] = [
+    "AIMAIL_MANAGER",
+    "AIMAIL_MANAGER_ADDRESS",
+    "INTEGRATE_MANAGER_ADDRESS",
+];
+
+/// cfg 取字符串字段（缺省空串）——Python `cfg.get(k, "")` 的等价物。
+pub fn pget(cfg: &Value, key: &str) -> String {
+    cfg.get(key)
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
+}
+
+/// 解释器：`AIMAIL_PYTHON` > `python3`。
+pub fn python_bin() -> String {
+    std::env::var("AIMAIL_PYTHON").unwrap_or_else(|_| "python3".to_string())
+}
+
+/// `_resolve_mgr`：manager 解析链 = 显式参数（须含 `@`）→ cfg → env **三名互认**。
+/// 空串表示未解析到（调用方按硬门处理：注册/写白名单不接受空值）。
+pub fn resolve_mgr(manager: &str, cfg: &Value) -> String {
+    if !manager.is_empty() && manager.contains('@') {
+        return manager.to_string();
+    }
+    let v = pget(cfg, "manager_address");
+    if !v.is_empty() {
+        return v;
+    }
+    for key in MANAGER_ENV_NAMES {
+        let v = crate::core::config::env_val(key, "");
+        if !v.is_empty() {
+            return v;
+        }
+    }
+    String::new()
+}

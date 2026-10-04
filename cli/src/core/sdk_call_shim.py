@@ -6,7 +6,10 @@
 **不允许**在此复刻任何 SDK 算法。
 
 用法（由 Rust 侧 `core::sdkcall::call` 调起）：
-    python3 -c "<本文件内容>" <core_dir> <module> <function> <kwargs-json>
+    python3 -c "<本文件内容>" <core_dir> <module> <function> <kwargs-json> [<positional-json>]
+
+位置参数可选（有些 SDK 函数按位置传，如 hermes 适配层的 `(name, profile_dir, config)`）：
+仍只是"取参数 → 调函数"，不含任何算法。
 
 ABI（与边界稿 §1.5 同形）：
     stdout 恰一行 JSON：{"ok": true, "result": …} / {"ok": false, "kind": "usage|import|call",
@@ -24,21 +27,37 @@ def _emit(obj):
 
 
 def main(argv):
-    if len(argv) != 4:
+    if len(argv) not in (4, 5):
         _emit(
             {
                 "ok": False,
                 "kind": "usage",
                 "exc": "",
-                "error": "shim expects: <core_dir> <module> <function> <kwargs-json>",
+                "error": "shim expects: <core_dir> <module> <function> <kwargs-json> [<positional-json>]",
             }
         )
         return 2
-    core_dir, mod_name, fn_name, kwargs_json = argv
+    core_dir, mod_name, fn_name, kwargs_json = argv[:4]
+    positional_json = argv[4] if len(argv) > 4 else "[]"
     try:
         kwargs = json.loads(kwargs_json)
     except Exception as e:  # noqa: BLE001
         _emit({"ok": False, "kind": "usage", "exc": type(e).__name__, "error": str(e)})
+        return 2
+    try:
+        positional = json.loads(positional_json)
+    except Exception as e:  # noqa: BLE001
+        _emit({"ok": False, "kind": "usage", "exc": type(e).__name__, "error": str(e)})
+        return 2
+    if not isinstance(positional, list):
+        _emit(
+            {
+                "ok": False,
+                "kind": "usage",
+                "exc": "TypeError",
+                "error": "positional json must be an array",
+            }
+        )
         return 2
     if not isinstance(kwargs, dict):
         _emit(
@@ -70,7 +89,7 @@ def main(argv):
         )
         return 1
     try:
-        result = fn(**kwargs)
+        result = fn(*positional, **kwargs)
     except SystemExit as e:  # SDK 里的显式退出（如 manager 硬门）原样上报，不降级
         _emit(
             {
