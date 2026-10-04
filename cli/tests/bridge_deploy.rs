@@ -12,8 +12,9 @@ use std::io::Write;
 use std::path::Path;
 
 use aimail::core::bridge_deploy::{
-    config_lines, ensure_binary, is_executable, latest_bridge_zip, version_key,
-    write_bridge_config, BridgeConfigSpec,
+    announced_url, bind_address, config_lines, ensure_binary, format_webhook_host, is_executable,
+    judge_deliverable, latest_bridge_zip, normalize_announced, split_host_port, version_key,
+    write_bridge_config, BridgeConfigSpec, DEFAULT_BIND_PORT,
 };
 
 fn make_zip(path: &Path, entry: &str, content: &str, mode: u32) {
@@ -167,5 +168,110 @@ connect_timeout_sec = 3
         std::fs::metadata(&cfg).unwrap().permissions().mode() & 0o777,
         0o600,
         "凭据文件必须 0600"
+    );
+}
+
+/// 公告地址链（U2 tail）：接受形态 / 拒绝理由逐字 / bind 判定 / 可投递判定。
+#[test]
+fn announced_address_chain_matches_python_rules() {
+    // 1) split_host_port：host:port / [v6]:port / [v6] / 裸 v6 / host
+    assert_eq!(
+        split_host_port("example.com:38081"),
+        ("example.com".into(), "38081".into())
+    );
+    assert_eq!(
+        split_host_port("[2001:db8::1]:38081"),
+        ("2001:db8::1".into(), "38081".into())
+    );
+    assert_eq!(
+        split_host_port("[2001:db8::1]"),
+        ("2001:db8::1".into(), "".into())
+    );
+    assert_eq!(
+        split_host_port("2001:db8::1"),
+        ("2001:db8::1".into(), "".into())
+    );
+    assert_eq!(
+        split_host_port("example.com"),
+        ("example.com".into(), "".into())
+    );
+
+    // 2) normalize_announced：裸 host 补默认端口；IPv6 加方括号；https 带 note；URL 去 scheme
+    assert_eq!(
+        normalize_announced("bridge.example.com", 38081).0,
+        "bridge.example.com:38081"
+    );
+    assert_eq!(
+        normalize_announced("2001:db8::1:38081", 38081).0,
+        "[2001:db8::1:38081]:38081" // 裸 v6+端口有歧义 ⇒ 整体当 host（与 Python 同）
+    );
+    assert_eq!(
+        normalize_announced("2001:db8::1", 38081).0,
+        "[2001:db8::1]:38081"
+    );
+    let (v, note) = normalize_announced("https://bridge.example.com", 38081);
+    assert_eq!(v, "bridge.example.com:38081");
+    assert!(note.contains("announced over https"), "{note}");
+    assert_eq!(
+        normalize_announced("http://bridge.example.com:9000", 38081).0,
+        "bridge.example.com:9000"
+    );
+
+    // 3) 拒绝形态（理由逐字，绝不静默）
+    assert_eq!(normalize_announced("", 38081).1, "no address announced");
+    assert!(normalize_announced("http://h/x/../p", 38081)
+        .1
+        .contains("carries a path/query"));
+    assert!(normalize_announced("h/p", 38081)
+        .1
+        .contains("carries a path"));
+    assert!(normalize_announced("0.0.0.0:38081", 38081)
+        .1
+        .contains("is an unspecified/bind address"));
+    assert_eq!(
+        normalize_announced("h:99999", 38081).1,
+        "'h:99999' carries an invalid port '99999'"
+    );
+
+    // 4) announced_url / format_webhook_host（路径走本仓 mirror 常量，不写字面量）
+    assert_eq!(
+        announced_url("bridge.example.com:38081"),
+        format!(
+            "http://bridge.example.com:38081{}",
+            aimail::core::bridge_deploy::BRIDGE_ANNOUNCE_PATH
+        )
+    );
+    assert_eq!(format_webhook_host("203.0.113.9"), "203.0.113.9:38081");
+    assert_eq!(format_webhook_host("2001:db8::1"), "[2001:db8::1]:38081");
+
+    // 5) judge_deliverable：绝对 http(s) 才可投递；裸 host:port / 通配 / 空 都拒
+    let good = format!(
+        "http://bridge.example.com:38081{}",
+        aimail::core::bridge_deploy::BRIDGE_ANNOUNCE_PATH
+    );
+    assert!(judge_deliverable(&good).0);
+    let (ok, why) = judge_deliverable(good.trim_start_matches("http://"));
+    assert!(!ok);
+    assert!(why.contains("is not an absolute http(s) URL"), "{why}");
+    assert!(judge_deliverable("").1.contains("the URL is empty"));
+    assert!(judge_deliverable("http://0.0.0.0:38081/x")
+        .1
+        .contains("bind/unspecified"));
+
+    // 6) bind_address：IP 绑该地址；域名 → 0.0.0.0 + 端口并给出告警理由
+    assert_eq!(
+        bind_address("203.0.113.9:38081"),
+        ("203.0.113.9:38081".into(), "".into())
+    );
+    let (b, w) = bind_address("2001:db8::1:38081");
+    assert_eq!(b, format!("0.0.0.0:{}", DEFAULT_BIND_PORT));
+    assert!(w.contains("is a domain (not an IP)"), "{w}");
+    assert_eq!(bind_address("[2001:db8::1]:38081").0, "[2001:db8::1]:38081");
+    let (b, w) = bind_address("bridge.example.com:38081");
+    assert_eq!(b, "0.0.0.0:38081");
+    assert!(w.contains("is a domain (not an IP)"), "{w}");
+    assert_eq!(
+        bind_address("bridge.example.com").0,
+        format!("0.0.0.0:{}", DEFAULT_BIND_PORT)
     );
 }

@@ -241,6 +241,9 @@ pub struct ParsedUrl {
     pub netloc: String,
     pub hostname: String,
     pub port: Option<u16>,
+    pub path: String,
+    pub query: String,
+    pub fragment: String,
 }
 
 /// 手写解析，镜像 `urlparse` 的关键行为：`scheme://netloc[/path]`，
@@ -279,11 +282,36 @@ pub fn parse_abs_url(raw: &str) -> Result<ParsedUrl, String> {
             Some(n as u16)
         }
     };
+    // path/query/fragment（`urlparse` 语义：scheme://netloc 之后的部分）
+    let after_scheme = match raw.split_once("://") {
+        Some((_, r)) => r,
+        None => raw,
+    };
+    let tail = match after_scheme.find('/') {
+        Some(k) => after_scheme[k..].to_string(),
+        None => String::new(),
+    };
+    let (path, query, fragment) = match tail.split_once('#') {
+        Some((before_hash, frag)) => {
+            let (p, q) = match before_hash.split_once('?') {
+                Some((p, q)) => (p.to_string(), q.to_string()),
+                None => (before_hash.to_string(), String::new()),
+            };
+            (p, q, frag.to_string())
+        }
+        None => match tail.split_once('?') {
+            Some((p, q)) => (p.to_string(), q.to_string(), String::new()),
+            None => (tail, String::new(), String::new()),
+        },
+    };
     Ok(ParsedUrl {
         scheme,
         netloc,
         hostname,
         port,
+        path,
+        query,
+        fragment,
     })
 }
 

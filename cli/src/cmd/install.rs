@@ -6,8 +6,8 @@
 //! · `--payload install`（写载荷，含 stamp/清理）· `--system-only`（L1 激活/复用，单行 JSON ABI）
 //! · **人路径**（`cli/aimail:836-1072`）：激活/复用 worker（`core::setup`）→ domain 预置/创建 →
 //!   平台接线（`core::steps` 表驱动）→ 容器 runtime 记录。
-//!   桥相关面：路由对账已接线（`core::bridge_wire`）；**远端网关的 bridge 部署**仍未移植
-//!   （deploy_bridge，P2 切片3）并响亮告警
+//!   桥相关面：路由对账（`core::bridge_wire`）与**远端网关的 bridge 部署**（`core::bridge_deploy`）
+//!   均已接线；仅 `bridge --upgrade` 的 zip 通道见 `bridge` 命令面。
 //!   —— 不是"尝试失败"，而是"尚未实现"，必须能分辨。
 //!
 //! 未移植清单在 `cli/tests/cli_surface.rs::unported_faces_are_honest` 里钉住。
@@ -824,11 +824,31 @@ fn install_human(a: &Args) -> i32 {
         ensure_domain(&gw_url, &env_admin_key, &sid2, &want_domain);
     }
 
-    // 2) 桥部署：本地网关直连不需要桥；远端桥未移植（P2）⇒ 明确告警
+    // 2) 桥部署：本地网关直连不需要桥；远端网关 ⇒ 本机部署桥（`core::bridge_deploy::deploy`）
     if crate::core::gateway::is_local_gateway(&gw_url) {
         ok("bridge: local gateway (direct mode) -- no bridge needed");
     } else {
-        warn("bridge deploy skipped: 未移植(deploy_bridge, P2 依赖)");
+        // 远端网关：本机部署桥（二进制就位 → 公告判定 → 配置合并 → 起桥）
+        let cfg_wh_host = config::load_gateway_config(&sid2)
+            .map(|c| c.webhook_host.clone())
+            .unwrap_or_default();
+        let rc = crate::core::bridge_deploy::deploy(&crate::core::bridge_deploy::DeploySpec {
+            gateway_url: gw_url.clone(),
+            admin_key: env_admin_key.clone(),
+            system_id: sid2.clone(),
+            domain: std::env::var("INTEGRATE_AIMAIL_DOMAIN").unwrap_or_default(),
+            webhook_mode_bridge: std::env::var("WEBHOOK_MODE").unwrap_or_default() != "push",
+            announce_arg: String::new(), // Python 由 deploy_bridge 自己的 argv 读；CLI 侧无此参数
+            cfg_webhook_host: cfg_wh_host,
+        });
+        if rc == 0 {
+            ok("bridge deployed");
+        } else {
+            warn(&format!(
+                "bridge deploy failed (exit {}) -- see the deploy_bridge output",
+                rc
+            ));
+        }
     }
 
     // 3) 平台适配（注册表 install_steps 动作表驱动）

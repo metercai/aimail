@@ -1,7 +1,7 @@
 //! `aimail bridge` —— `cli/aimail:2682-2808` 的 Rust 复刻（**status / 按系统重刷路由**）。
 //!
-//! `--restart` / `--upgrade` 依赖"部署面"（`deploy_bridge`：二进制就位 + 起进程 + zip 升级），
-//! 属 P2 切片3 ⇒ 此处**响亮未移植**（rc=1），绝不静默当成功。
+//! `--restart` / `--upgrade` 走部署面（`core::bridge_deploy`：二进制就位 + 起进程 + zip 升级），
+//! 与 `deploy_bridge.py` 的 standalone 分支同语义。
 //!
 //! 口径（照抄 Python）：
 //! · 无 `-s`/`-H` ⇒ 状态查看（进程 / 配置 / 路由表 / 日志新鲜度）；
@@ -31,9 +31,7 @@ pub fn run(a: &Args) -> i32 {
     let running = !pids.is_empty();
 
     if a.upgrade {
-        return crate::cmd::stub::not_yet_ported(
-            "bridge --upgrade（部署面：zip 校验 → 契约停机 → 原子替换 → 重启；P2 切片3）",
-        );
+        return crate::core::bridge_deploy::upgrade_bridge();
     }
     if a.restart {
         // 独立重启：起/重启本机单实例桥（不依赖系统配置，照抄 Python 的 --restart 分支）

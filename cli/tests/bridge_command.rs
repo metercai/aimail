@@ -48,14 +48,14 @@ fn status_refresh_and_deploy_flags_are_honest() {
     assert!(out.contains("配置: aimail_bridge.toml 不存在"), "{out}");
     assert!(out.contains("路由表为空(aimail_routes.toml)"), "{out}");
 
-    // 2) 部署面：`--upgrade` 仍**响亮未移植**（rc=1）；`--restart` 已接线 —— 本夹具无桥二进制
-    //    ⇒ 走 legacy 回退并因启动失败而 rc=1（响亮失败，不是静默 0）
-    let (rc, _, err) = run(&home, &["bridge", "--upgrade"]);
-    assert_eq!(rc, 1, "--upgrade 应 rc=1");
-    assert!(err.contains("not yet ported"), "--upgrade stderr: {err}");
+    // 2) 部署面两开关都已接线：本夹具无桥配置/无桥二进制 ⇒ 都必须**响亮失败**（rc=1），
+    //    不得静默 0（`--upgrade` 缺配置 = "bridge 配置不存在"；`--restart` 启动失败）
+    let (rc, out, _) = run(&home, &["bridge", "--upgrade"]);
+    assert_eq!(rc, 1, "--upgrade 应 rc=1: {out}");
+    assert!(out.contains("bridge 配置不存在"), "--upgrade 输出: {out}");
     let (rc, out, _) = run(&home, &["bridge", "--restart"]);
-    assert_eq!(
-        rc, 1,
+    assert!(
+        rc == 1,
         "无桥二进制时 --restart 必须 rc=1（不得静默成功）: {out}"
     );
     assert!(
