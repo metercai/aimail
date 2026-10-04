@@ -88,6 +88,19 @@ def main(argv):
             }
         )
         return 1
+    # 通用能力过滤：`__if_accepted__` 里的键**仅当目标签名接受时才传**（CLI 零平台知识，
+    # 例如 `_sdk_install` 的 manager 形参只看被调函数签名）。
+    conditional = kwargs.pop("__if_accepted__", None) or {}
+    if conditional:
+        try:
+            import inspect
+
+            accepted = set(inspect.signature(fn).parameters)
+            for k, v in conditional.items():
+                if k in accepted:
+                    kwargs[k] = v
+        except Exception:  # noqa: BLE001
+            pass
     try:
         result = fn(*positional, **kwargs)
     except SystemExit as e:  # SDK 里的显式退出（如 manager 硬门）原样上报，不降级
