@@ -16,9 +16,8 @@ ABI（与边界稿 §1.5 同形）：
     "exc": …, "error": …}；exit 0/1/2；人话与 SDK 自身打印一律 stderr。
 """
 
-import contextlib
-import io
 import json
+import os
 import sys
 
 
@@ -116,17 +115,18 @@ def main(argv):
                     kwargs[k] = v
         except Exception:  # noqa: BLE001
             pass
-    # 被调 SDK 函数的正常打印（进度/提示）改走 stderr：stdout 是"单行 JSON"协议面，
-    # 不能被污染（否则调用方判 TransportError，看起来像 SDK 挂了）。
-    _sdk_out = io.StringIO()
+    # 被调 SDK 函数的输出改道 stderr：stdout 是"单行 JSON"协议面，不能被污染。
+    # 必须是 **fd 级**（os.dup2）——只重绑 Python 的 sys.stdout 抓不到 SDK 自己 spawn 的子进程
+    # （实测：pnpm/uv 那类子进程的输出直接落 fd 1 ⇒ 信封被踩 ⇒ 调用方判 TransportError）。
+    sys.stdout.flush()
+    _saved_fd = os.dup(1)
     try:
         try:
-            with contextlib.redirect_stdout(_sdk_out):
-                result = fn(*positional, **kwargs)
+            os.dup2(2, 1)
+            result = fn(*positional, **kwargs)
         finally:
-            if _sdk_out.getvalue():
-                sys.stderr.write(_sdk_out.getvalue())
-                sys.stderr.flush()
+            sys.stdout.flush()
+            os.dup2(_saved_fd, 1)
     except SystemExit as e:  # SDK 里的显式退出（如 manager 硬门）原样上报，不降级
         _emit(
             {
