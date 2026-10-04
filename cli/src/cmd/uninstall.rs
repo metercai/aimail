@@ -181,7 +181,7 @@ pub fn run(a: &Args) -> i32 {
         );
     }
 
-    let core_dir = home::core_dir();
+    let core_dir = crate::core::sdkroot::resolve_or_repo_candidate().path;
     let gw_url = setup::pget(&gw, "gateway_url");
     let admin_key = setup::pget(&gw, "admin_key");
     let manager = setup::pget(&gw, "manager_address");

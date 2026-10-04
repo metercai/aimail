@@ -203,10 +203,15 @@ pub fn door_command(op: &str, args: &Value) -> Vec<String> {
 pub fn door_command_in(prog_root: &Path, op: &str, args: &Value) -> Vec<String> {
     let py = std::env::var("AIMAIL_PYTHON").unwrap_or_else(|_| "python3".to_string());
     let mut argv = vec![py];
-    let same_tree = prog_root
-        .join("aimail-src")
-        .join("pysdk")
-        .join("sdk_ops.py");
+    // 同源判定：布局知识单真源在 sdkroot（此处只问"快照形态的根在哪"）
+    let same_tree = if prog_root == crate::core::home::program_root() {
+        crate::core::sdkroot::repo_candidate().join("sdk_ops.py")
+    } else {
+        prog_root
+            .join("aimail-src")
+            .join("pysdk")
+            .join("sdk_ops.py")
+    };
     if same_tree.is_file() {
         argv.push(same_tree.to_string_lossy().to_string());
     } else {

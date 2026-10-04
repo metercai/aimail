@@ -278,38 +278,13 @@ pub fn payload_dir_named(bundle: &str) -> Result<String, String> {
 /// 复核拿 repo 新码 ⇒ 永远 stale（`iso14 hermes J5-2` 的病灶）。Rust 侧的"repo"= 部署形态
 /// `{program_root}/aimail-src/pysdk`（= Python 的 `<cli>/../pysdk` 同一目录）。
 pub fn resolve_source_root(explicit: &str) -> Result<(String, String), String> {
-    if !explicit.is_empty() {
-        let root = expand_user(explicit);
-        if std::path::Path::new(&root).join("aimail_base.py").is_file() {
-            return Ok((root, "repo".to_string()));
-        }
-        return Err(format!(
-            "ERROR: --source-root 无效(无 aimail_base.py): {root}"
-        ));
-    }
-    let repo = crate::core::home::program_root()
-        .join("aimail-src")
-        .join("pysdk");
-    if repo.join("aimail_base.py").is_file() {
-        return Ok((repo.to_string_lossy().to_string(), "repo".to_string()));
-    }
-    // pip 兜底：问解释器要包目录
-    let py = std::env::var("AIMAIL_PYTHON").unwrap_or_else(|_| "python3".to_string());
-    let out = std::process::Command::new(py)
-        .args([
-            "-c",
-            "import aimail,os;print(os.path.dirname(os.path.abspath(aimail.__file__)))",
-        ])
-        .output();
-    if let Ok(o) = out {
-        if o.status.success() {
-            let dir = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            if !dir.is_empty() && std::path::Path::new(&dir).join("aimail_base.py").is_file() {
-                return Ok((dir, "pip".to_string()));
-            }
-        }
-    }
-    Err("ERROR: 运行时源未找到(pip aimail 未安装且仓库 pysdk/ 缺失)".to_string())
+    // 薄壳：布局知识单真源在 `core::sdkroot`（C：CLI 只认"SDK 根相对"的逻辑入口名）
+    let r = if explicit.is_empty() {
+        crate::core::sdkroot::resolve()?
+    } else {
+        crate::core::sdkroot::at(explicit)?
+    };
+    Ok((r.path.to_string_lossy().to_string(), r.kind.to_string()))
 }
 
 /// `source_path(name, explicit_root)`：资源目录（`_resource_path` 的两种布局同一形状）。

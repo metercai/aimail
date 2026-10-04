@@ -182,7 +182,7 @@ pub fn run(a: &Args) -> i32 {
     ok("config parameters reset (admin-key path; least-privilege key re-derived)");
 
     // 注册链幂等重跑（注册表驱动；尽力语义：失败只告警，不阻断 reset）
-    let core_dir = crate::core::home::core_dir();
+    let core_dir = crate::core::sdkroot::resolve_or_repo_candidate().path;
     let cfg: Value = config::load_gateway_config(&sid)
         .map(|c| Value::Object(c.to_json()))
         .unwrap_or_else(|| json!({}));

@@ -436,7 +436,7 @@ def _sdk_install(kind: str, system_home: Path, sid: str, fn: str = "",
     是否收 manager 由**被调函数自己的签名**决定(CLI 零平台知识、五平台同参
     无特例): 签名有 `manager` 就传, 没有就按原样 2 参调。
     """
-    sys.path.insert(0, str(SCRIPTS_DIR.parent / "pysdk"))
+    sys.path.insert(0, _sdk_dir_for_steps())  # SDK 根（canonical: repo 快照 → pip 包）
     try:
         import install as _sdk
     except Exception as e:  # noqa: BLE001
@@ -458,7 +458,7 @@ def _sdk_install(kind: str, system_home: Path, sid: str, fn: str = "",
 
 def _sdk_uninstall(kind: str, system_home: Path, sid: str, fn: str = "") -> int:
     """调 pysdk 自足卸载入口(撤销 SDK 自己打的 patch/装的文件;fn 表驱动)。"""
-    sys.path.insert(0, str(SCRIPTS_DIR.parent / "pysdk"))
+    sys.path.insert(0, _sdk_dir_for_steps())  # SDK 根（canonical: repo 快照 → pip 包）
     try:
         import install as _sdk
     except Exception as e:  # noqa: BLE001
@@ -2230,7 +2230,8 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str,
         # repo 布局:注册表 pythonpath 条目(相对仓库根)注入 sys.path;
         # pip 布局:适配层随包发布,aimail.{module} 候选直接命中
         for rel in rdef.get("pythonpath", []):
-            sp = str(SCRIPTS_DIR.parent / rel)
+            # 注册表条目 = **SDK 根相对路径**（不含仓库布局）⇒ 由 canonical 解析器给根
+            sp = str(Path(_sdk_dir_for_steps()) / rel)
             if sp not in sys.path and Path(sp).is_dir():
                 sys.path.insert(0, sp)
         mod = None
@@ -2278,7 +2279,8 @@ def _register_agent_now(platform: str, agent: str, cfg: dict, reg_name: str,
         return
 
     if kind == "python_script":
-        script = SCRIPTS_DIR.parent / rdef.get("python", "")
+        # 同上：注册表的 python 条目是 SDK 根相对路径
+        script = Path(_sdk_dir_for_steps()) / rdef.get("python", "")
         if not script.is_file():
             _fail(f"{platform} 注册器缺失: {script}(SDK 未随本机安装)")
         argv = [sys.executable, str(script)] + [_fill(x) for x in rdef.get("args", [])]

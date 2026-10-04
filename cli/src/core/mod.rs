@@ -29,6 +29,7 @@ pub mod register;
 pub mod repair;
 pub mod sdk;
 pub mod sdkcall;
+pub mod sdkroot;
 pub mod setup;
 pub mod sig;
 pub mod steps;

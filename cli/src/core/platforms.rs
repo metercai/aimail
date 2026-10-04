@@ -643,4 +643,23 @@ mod tests {
         assert!(home_dir("definitely-not-a-platform").is_none());
         assert!(install_steps("definitely-not-a-platform").is_empty());
     }
+
+    #[test]
+    fn registry_data_has_no_repo_layout_paths() {
+        // C（owner 2026-10-04）：注册表条目一律是 **SDK 根相对**；出现 `pysdk/` 即布局知识回流 ⇒ 红。
+        // 说明文字（`_comment`）里提到仓库名属叙述，不算路径 —— 用"带引号/斜杠前缀"的形态判定。
+        let raw = crate::core::platforms::raw().to_string();
+        assert!(
+            !raw.contains("\"pysdk/"),
+            "注册表数据里出现了仓库布局路径(应为 SDK 根相对入口): {raw:.0}"
+        );
+        // 三条关键入口的形态（供 review 时一眼确认）
+        for entry in [
+            "hermes/register_profiles.py",
+            "deer-flow/manage.py",
+            "hermes",
+        ] {
+            assert!(raw.contains(entry), "注册表应含 SDK 根相对入口 {entry}");
+        }
+    }
 }

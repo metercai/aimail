@@ -265,10 +265,7 @@ pub fn register_agent(
             let mut extra_paths: Vec<String> = Vec::new();
             if let Some(arr) = rdef.get("pythonpath").and_then(Value::as_array) {
                 for rel in arr {
-                    let p = core_dir
-                        .parent()
-                        .unwrap_or(core_dir)
-                        .join(rel.as_str().unwrap_or(""));
+                    let p = crate::core::sdkroot::entry_path(core_dir, rel.as_str().unwrap_or(""));
                     if p.is_dir() {
                         extra_paths.push(p.to_string_lossy().to_string());
                     }
@@ -352,7 +349,8 @@ pub fn register_agent(
                 }
                 "python_script" => {
                     let rel = rdef.get("python").and_then(Value::as_str).unwrap_or("");
-                    let script = core_dir.parent().unwrap_or(core_dir).join(rel);
+                    // 注册表条目 = **SDK 根相对**（C 后不含 pysdk/）⇒ 直接与 SDK 根拼
+                    let script = crate::core::sdkroot::entry_path(core_dir, rel);
                     if !script.is_file() {
                         return Err(format!(
                             "{platform} 注册器缺失: {}(SDK 未随本机安装)",
@@ -458,10 +456,10 @@ pub fn register_all(
     let kind = rall.get("kind").and_then(Value::as_str).unwrap_or("");
     let argv: Vec<String> = match kind {
         "python_script" => {
-            let script = core_dir
-                .parent()
-                .unwrap_or(core_dir)
-                .join(rall.get("python").and_then(Value::as_str).unwrap_or(""));
+            let script = crate::core::sdkroot::entry_path(
+                core_dir,
+                rall.get("python").and_then(Value::as_str).unwrap_or(""),
+            );
             if !script.is_file() {
                 warn(&format!(
                     "{platform} 全量注册器缺失: {}(SDK 未随本机安装)",

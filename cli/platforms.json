@@ -235,7 +235,7 @@
           ]
         },
         "pythonpath": [
-          "pysdk/hermes"
+          "hermes"
         ]
       },
       "home_dir": ".hermes",
@@ -361,7 +361,7 @@
       ],
       "register_all": {
         "kind": "python_script",
-        "python": "pysdk/hermes/register_profiles.py",
+        "python": "hermes/register_profiles.py",
         "args": [],
         "env": {
           "AIMAIL_SYSTEM_ID": "{sid}"
@@ -525,7 +525,7 @@
       "register": {
         "kind": "python_script",
         "default_name": "agent",
-        "python": "pysdk/deer-flow/manage.py",
+        "python": "deer-flow/manage.py",
         "args": [
           "register",
           "--system-id",
@@ -537,7 +537,7 @@
           "--name",
           "{name}"
         ],
-        "fail_hint": "deer-flow manage.py 注册器失败——检查 pysdk/deer-flow 模块与系统配置"
+        "fail_hint": "deer-flow manage.py 注册器失败——检查 deer-flow 模块与系统配置"
       },
       "payload_refs": [
         "{home}/extensions_config.json"
@@ -608,7 +608,7 @@
       ],
       "register_all": {
         "kind": "python_script",
-        "python": "pysdk/deer-flow/manage.py",
+        "python": "deer-flow/manage.py",
         "args": [
           "register",
           "--all",

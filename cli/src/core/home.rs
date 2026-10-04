@@ -99,9 +99,3 @@ pub fn system_home_from_sid(sid: &str) -> String {
         .map(|c| c.system_home)
         .unwrap_or_default()
 }
-
-/// SDK 核心目录（`pysdk`）：部署/快照形态 = `{program_root}/aimail-src/pysdk`。
-/// 只做**定位**；是否 pip 形态由调用方的回退链决定（`core::sdk` / `core::sdkcall` 各自处理）。
-pub fn core_dir() -> std::path::PathBuf {
-    program_root().join("aimail-src").join("pysdk")
-}
