@@ -151,12 +151,16 @@ fn resolve_target(home: &Path, sid: &str, a: &Args) -> Result<Target, String> {
                     .starts_with(ag.as_str())
         })
     } else {
-        return Err("prompt needs -a <agent> or -e <email> to locate agentmail.json".to_string());
+        return Err(format!(
+            "prompt needs -a <agent> or -e <email> to locate {}",
+            crate::core::contract::binding_file()
+        ));
     };
     let Some(t) = target else {
         if let Some(em) = &a.email {
             return Err(format!(
-                "no local agentmail.json for {em} (run install on that agent first)"
+                "no local {} for {em} (run install on that agent first)",
+                crate::core::contract::binding_file()
             ));
         }
         let mut names: Vec<String> = agents.iter().map(|r| r.agent.clone()).collect();
@@ -334,7 +338,11 @@ pub fn run(a: &Args) -> i32 {
                 "  added {name} → role_prompt/{}.md",
                 stem_from(&name).max(stem.clone())
             );
-            println!("  agentmail.json: {}", t.jf.to_string_lossy());
+            println!(
+                "  {}: {}",
+                crate::core::contract::binding_file(),
+                t.jf.to_string_lossy()
+            );
             if role_path(&addr_role_dir, &sys_role_dir, &stem).is_empty() {
                 println!(
                     "  note: role file not present yet — scaffold it with: aimail prompt create-file -s {sid} -e {} -n {name}",
