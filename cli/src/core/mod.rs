@@ -24,6 +24,7 @@ pub mod payload;
 pub mod perms;
 pub mod platforms;
 pub mod probe;
+pub mod pyjson;
 pub mod repair;
 pub mod sdk;
 pub mod sig;

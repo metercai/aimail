@@ -257,6 +257,30 @@ pub fn write_private_json(path: &Path, value: &Value) -> io::Result<()> {
     fs::rename(&tmp, path)
 }
 
+/// `_env_val`：shell env **优先**，其次 `$AIMAIL_HOME/.env`（bootstrap 落盘的机器级配置），
+/// 最后 fallback。install / ensure-system 必须认 .env —— 调用的 shell 里常常没有 export。
+pub fn env_val(key: &str, fallback: &str) -> String {
+    if let Ok(v) = std::env::var(key) {
+        if !v.is_empty() {
+            return v;
+        }
+    }
+    let env_file = crate::core::home::aimail_home().join(".env");
+    if let Ok(text) = std::fs::read_to_string(&env_file) {
+        let prefix = format!("{key}=");
+        for line in text.lines() {
+            let line = line.trim();
+            if let Some(rest) = line.strip_prefix(&prefix) {
+                return rest.trim().to_string();
+            }
+        }
+    }
+    fallback.to_string()
+}
+
+/// `_GATEWAY_URL_DEFAULT`（`cli/aimail:146`）：网关生产默认地址（非契约清单值）。
+pub const GATEWAY_URL_DEFAULT: &str = "https://aimail.token.tm";
+
 #[cfg(test)]
 mod tests {
     use super::*;

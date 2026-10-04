@@ -112,7 +112,8 @@ fn payload_readonly_actions_print_paths_and_rc0() {
 fn unported_install_surfaces_fail_loudly() {
     let d = tempfile::tempdir().unwrap();
     let prog = d.path().to_string_lossy().to_string();
-    for args in [vec!["install", "--system-only"], vec!["install"]] {
+    {
+        let args = vec!["install"];
         let (rc, out, err) = run(&prog, &args);
         assert_ne!(rc, 0, "{args:?} 未移植必须非零");
         assert!(
@@ -120,6 +121,34 @@ fn unported_install_surfaces_fail_loudly() {
             "{args:?} 应说明未移植: out={out:?} err={err:?}"
         );
     }
+    // `--system-only` 无凭据 ⇒ **ABI 错误信封**（单行 JSON，rc=1），不是"未移植"
+    let (rc, out, _e) = run(&prog, &["install", "--system-only"]);
+    assert_eq!(rc, 1, "--system-only 缺 home/sid 应 rc=1");
+    assert!(
+        out.trim().starts_with(r#"{"success": false, "error": "#),
+        "应输出 Python 风格单行 JSON 信封: {out:?}"
+    );
+    assert_eq!(out.trim_end().lines().count(), 1, "stdout 必须恰一行");
+    // 到达激活 worker ⇒ 诚实未移植（不触网）
+    let home = d.path().join("h");
+    std::fs::create_dir_all(&home).unwrap();
+    let (rc2, out2, err2) = run(
+        &prog,
+        &[
+            "install",
+            "--system-only",
+            "-H",
+            &home.to_string_lossy(),
+            "-k",
+            "k",
+        ],
+    );
+    assert_ne!(rc2, 0, "worker 未移植必须非零");
+    assert!(
+        err2.contains("not yet ported") && out2.is_empty(),
+        "应说明未移植且 stdout 为空: out={out2:?} err={err2:?}"
+    );
+
     // `--payload install` 已实现：源根不可解析时必须**明确报错非零**（与 Python 同一失败文案），
     // 绝不静默成功。
     let (rc, out, err) = run(&prog, &["install", "--payload", "install", "mcp"]);
