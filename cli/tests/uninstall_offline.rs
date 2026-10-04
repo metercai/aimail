@@ -16,12 +16,12 @@ fn core_dir() -> PathBuf {
 }
 
 fn setup_fixture(ahome: &Path, uh: &Path, sid: &str, platform_home: &Path) {
-    // 系统数据：systems/<sid>/<dir>/agentmail.json + mail/ + 原始 key
+    // 系统数据：systems/<sid>/<dir>/<绑定文件> + mail/ + 原始 key（文件名走契约常量）
     let sys = ahome.join("systems").join(sid);
     let agent_dir = sys.join("billing.example.test");
     fs::create_dir_all(agent_dir.join("mail")).unwrap();
     fs::write(
-        agent_dir.join("agentmail.json"),
+        agent_dir.join(aimail::core::contract::binding_file()),
         serde_json::to_string_pretty(&json!({
             "email": "billing@example.test",
             "system_id": sid,
