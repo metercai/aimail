@@ -33,7 +33,10 @@ fn fail(msg: &str) -> i32 {
 }
 
 /// `resolve_system_id`：显式 sid > 配置 system_home 反查 > 指针归属 > 自动探测。
-fn resolve_system_id(system_home: &std::path::Path, explicit_sid: &str) -> (String, String) {
+pub(crate) fn resolve_system_id(
+    system_home: &std::path::Path,
+    explicit_sid: &str,
+) -> (String, String) {
     let platform = if system_home.as_os_str().is_empty() {
         String::new()
     } else {

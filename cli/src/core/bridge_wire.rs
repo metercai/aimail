@@ -796,3 +796,155 @@ pub fn ensure_inbound_routes(sid: &str) -> i32 {
     let _ = warn; // 保持与 Python 同形（失败只 warn）
     0
 }
+
+// ── 桥维护（`cmd_bridge` 用：进程探测 / 路径 / 期望路由）────────────────────────────
+
+/// 桥运行时目录（`BRIDGE_DIR`）。
+pub fn bridge_dir() -> std::path::PathBuf {
+    crate::core::home::aimail_home().join("bridge")
+}
+
+/// 桥 pid 文件（`BRIDGE_PID`）。
+pub fn bridge_pid_file() -> std::path::PathBuf {
+    bridge_dir().join("bridge.pid")
+}
+
+/// 桥日志（`BRIDGE_LOG`）。
+pub fn bridge_log_file() -> std::path::PathBuf {
+    bridge_dir().join("aimail-bridge.log")
+}
+
+/// bridge 维护命令用的 admin 地址（`BRIDGE_ADDR` = 默认 38081；与"声明式"的 `sync_route` 不同：
+/// `cmd_bridge` 的刷新**直接打这个固定地址**，照抄 Python）。
+pub const BRIDGE_ADDR: &str = "127.0.0.1:38081";
+
+/// `_bridge_pids`：锚定**可执行文件路径**的精确匹配（不许宽松匹配 —— 2026-08-16/09-21 两次误杀事故的口径）。
+///
+/// 先试 `pgrep -f '^[^ ]*/aimail-bridge( |$)'`；宿主没装 procps（deerflow 镜像，F12）时回退扫
+/// `/proc/<pid>/cmdline` 的**首 token**，判据相同（以 `aimail-bridge` 结尾）⇒ 精确度不变、不崩。
+pub fn bridge_pids() -> Vec<u32> {
+    let is_bridge_token = |tok: &str| tok == "aimail-bridge" || tok.ends_with("/aimail-bridge");
+    if let Ok(out) = std::process::Command::new("pgrep")
+        .args(["-f", r"^[^ ]*/aimail-bridge( |$)"])
+        .output()
+    {
+        if out.status.success() {
+            let mut pids: Vec<u32> = String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .filter_map(|l| l.trim().parse::<u32>().ok())
+                .collect();
+            pids.sort_unstable();
+            pids.dedup();
+            return pids;
+        }
+        return Vec::new(); // pgrep 在、但没匹配到
+    }
+    let mut pids = Vec::new();
+    if let Ok(entries) = std::fs::read_dir("/proc") {
+        for e in entries.flatten() {
+            let pid: u32 = match e.file_name().to_string_lossy().parse() {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+            let raw = match std::fs::read(e.path().join("cmdline")) {
+                Ok(b) => b,
+                Err(_) => continue,
+            };
+            let first = String::from_utf8_lossy(&raw)
+                .split('\u{0}')
+                .next()
+                .unwrap_or("")
+                .to_string();
+            if is_bridge_token(&first) {
+                pids.push(pid);
+            }
+        }
+    }
+    pids.sort_unstable();
+    pids.dedup();
+    pids
+}
+
+/// `_addr_clean`：地址 → 目录键（`re.sub(r"[^\w.\-]", "_", email, flags=ASCII)`）。
+pub fn addr_clean(email: &str) -> String {
+    email
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+/// `_default_recv_url`：平台默认接收端（hermes ⇒ 读宿主 config.yaml 的 webhook 端口，默认 8646，
+/// 路径取契约的 hermes 入站路径；否则 openclaw 的 `127.0.0.1:8799/hook`）。
+pub fn default_recv_url(sid: &str, email: &str) -> String {
+    let aj = crate::core::config::systems_root_in(&crate::core::home::aimail_home())
+        .join(sid)
+        .join(addr_clean(email))
+        .join(crate::core::contract::binding_file());
+    if let Ok(text) = std::fs::read_to_string(&aj) {
+        if let Ok(v) = serde_json::from_str::<Value>(&text) {
+            let wu = v.get("webhook_url").and_then(|x| x.as_str()).unwrap_or("");
+            if !wu.is_empty() {
+                return wu.to_string();
+            }
+        }
+    }
+    let cfg = crate::core::config::load_gateway_config(sid);
+    if let Some(c) = cfg {
+        let sh = c.system_home.clone();
+        if !sh.is_empty() && std::path::Path::new(&sh).join("hermes-agent").exists() {
+            let base = std::path::Path::new(&sh);
+            let tail = email
+                .split('@')
+                .next()
+                .unwrap_or("")
+                .rsplit('.')
+                .next()
+                .unwrap_or("");
+            let mut p = base.join("profiles").join(tail).join("config.yaml");
+            if !p.exists() {
+                p = base.join("config.yaml");
+            }
+            let port = std::fs::read_to_string(&p)
+                .ok()
+                .and_then(|t| yaml_rust2::YamlLoader::load_from_str(&t).ok())
+                .and_then(|docs| docs.into_iter().next())
+                .and_then(|doc| {
+                    let wh = &doc["platforms"]["webhook"];
+                    wh["port"].as_i64().or_else(|| wh["extra"]["port"].as_i64())
+                })
+                .unwrap_or(8646);
+            // hermes 的入站路径是**契约值**（hermes 是唯一路径例外）⇒ 走常量，不写字面量
+            return format!(
+                "http://127.0.0.1:{}{}",
+                port,
+                crate::core::contract::hermes_inbound_path()
+            );
+        }
+    }
+    "http://127.0.0.1:8799/hook".to_string()
+}
+
+/// `_system_agents`：该系统所有 agent 的 `(email, 接收端 URL)`。
+/// 接收端**优先取绑定的 webhook_url**（唯一信任源，含平台真实路径）；
+/// 回退历史路由表，再回退平台默认（照抄 Python 的三级顺序）。
+pub fn system_agents(sid: &str) -> Vec<(String, String)> {
+    let routes = read_routes(&routes_file());
+    let mut out = Vec::new();
+    for (em, wu) in registered_bindings(sid) {
+        let target = if !wu.is_empty() {
+            wu
+        } else if let Some(r) = routes.get(&em) {
+            r.clone()
+        } else {
+            default_recv_url(sid, &em)
+        };
+        out.push((em, target));
+    }
+    out
+}

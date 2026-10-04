@@ -56,6 +56,8 @@ const IMPLEMENTED: &[&str] = &[
     // 唯二未移植的**桥相关面**（远端 bridge 部署 / 路由对账）在命令里显式告警，不静默跳过。
     "install",
     "uninstall",
+    // bridge：status/按系统重刷已接线；--restart/--upgrade（部署面）在 P2 切片3 前**响亮未移植**。
+    "bridge",
 ];
 
 static SEQ: AtomicU32 = AtomicU32::new(0);

@@ -99,6 +99,44 @@ const PROMPT_SUBCOMMANDS: &[(&str, &str)] = &[
 /// 其余是 install 的隐藏开关）。隐藏 = clap `hide(true)`，人面 help 不得出现。
 /// `install` 的参数（Python `cli/aimail:3462-3490`：人面 9 个 + 隐藏机器面 6 个）。
 /// 隐藏项的注册顺序与 Python 一致（usage 行只显示人面）。
+fn bridge_args(cmd: clap::Command) -> clap::Command {
+    cmd.arg(
+        Arg::new("home")
+            .short('H')
+            .long("home")
+            .value_name("DIR")
+            .help("system home / platform root (inferred from --system-id when omitted)"),
+    )
+    .arg(
+        Arg::new("system-id")
+            .short('s')
+            .long("system-id")
+            .value_name("ID")
+            .help("refresh forwarding routes for this system"),
+    )
+        .arg(
+            Arg::new("restart")
+                .short('r')
+                .long("restart")
+                .action(ArgAction::SetTrue)
+                .help("restart the bridge (single instance)"),
+        )
+        .arg(
+            Arg::new("upgrade")
+                .short('u')
+                .long("upgrade")
+                .action(ArgAction::SetTrue)
+                .help("upgrade the bridge binary from this repo's bridge/ zips (sha-compare \u{2192} contract stop \u{2192} atomic replace \u{2192} restart)"),
+        )
+        .arg(
+            Arg::new("platform")
+                .long("platform")
+                .value_name("NAME")
+                .default_value("")
+                .help("override platform detection (value validated against the platform registry)"),
+        )
+}
+
 fn reset_args(cmd: Command) -> Command {
     cmd.arg(
         Arg::new("home")
@@ -432,6 +470,7 @@ pub fn build_cli() -> Command {
             "install" => sub = install_args(sub),
             "address" => sub = address_hidden_args(address_view_args(sub)),
             "reset" => sub = reset_args(sub),
+            "bridge" => sub = bridge_args(sub),
             "uninstall" => sub = uninstall_args(sub),
             "stats" => sub = stats_args(sub),
             "check" => sub = check_args(sub),
@@ -485,6 +524,13 @@ pub fn run() -> i32 {
             home: arg_str(m, "home"),
             gateway_url: arg_str(m, "gateway-url"),
             yes: m.get_flag("yes"),
+            platform: arg_str(m, "platform"),
+        }),
+        Some(("bridge", m)) => crate::cmd::bridge::run(&crate::cmd::bridge::Args {
+            system_id: arg_str(m, "system-id"),
+            home: arg_str(m, "home"),
+            restart: m.get_flag("restart"),
+            upgrade: m.get_flag("upgrade"),
             platform: arg_str(m, "platform"),
         }),
         Some(("reset", m)) => crate::cmd::reset::run(&crate::cmd::reset::Args {

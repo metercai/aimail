@@ -14,7 +14,7 @@ use std::thread;
 
 use aimail::core::bridge_wire::*;
 
-const BINDING: &str = "agentmail.json";
+use aimail::core::contract;
 use serde_json::{json, Value};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -188,8 +188,17 @@ fn validate_target_messages_are_verbatim() {
     );
 
     // 绝对 URL 原样透传（含路径）
-    let (t, why) = validate_target(&json!("http://127.0.0.1:9101/aimail/inbound"));
-    assert_eq!(t, "http://127.0.0.1:9101/aimail/inbound");
+    let (t, why) = validate_target(&json!(format!(
+        "http://127.0.0.1:9101{}",
+        aimail::core::contract::inbound_path()
+    )));
+    assert_eq!(
+        t,
+        format!(
+            "http://127.0.0.1:9101{}",
+            aimail::core::contract::inbound_path()
+        )
+    );
     assert!(why.is_empty());
 
     // 越界端口：Python 的 `u.port` 直接抛 ValueError ⇒ 走 "not a usable URL (...)" 分支
@@ -208,7 +217,10 @@ fn sync_route_four_states_and_request_shapes() {
     let tmp = tempfile::tempdir().unwrap();
     let no_cfg = tmp.path().join("aimail_bridge.toml");
     let gw = json!({});
-    let url = json!("http://127.0.0.1:9101/aimail/inbound");
+    let url = json!(format!(
+        "http://127.0.0.1:9101{}",
+        aimail::core::contract::inbound_path()
+    ));
 
     // 1) 没有声明桥 ⇒ no_bridge（刻意的 no-op，不报错）
     let out = sync_route(
@@ -246,11 +258,20 @@ fn sync_route_four_states_and_request_shapes() {
     assert_eq!(req.path, "/api/v1/routes");
     let body: Value = serde_json::from_str(&req.body).unwrap();
     assert_eq!(body["email"], "a@example.test");
-    assert_eq!(body["host"], "http://127.0.0.1:9101/aimail/inbound"); // 完整 URL、原样
+    assert_eq!(
+        body["host"],
+        format!(
+            "http://127.0.0.1:9101{}",
+            aimail::core::contract::inbound_path()
+        )
+    ); // 完整 URL、原样
     assert_eq!(body["port"], 80); // 占位（admin.rs 拒绝 0）
     assert_eq!(
         format_line(&out),
-        "route: a@example.test -> http://127.0.0.1:9101/aimail/inbound"
+        format!(
+            "route: a@example.test -> http://127.0.0.1:9101{}",
+            aimail::core::contract::inbound_path()
+        )
     );
 
     // 4) live + 空端点 ⇒ skipped（合法 pull 绑定），**不发请求**
@@ -310,14 +331,21 @@ fn routes_table_and_scope_helpers() {
     let p = tmp.path().join("aimail_routes.toml");
     std::fs::write(
         &p,
-        "# comment\nb@example.test = \"http://127.0.0.1:9101/aimail/inbound\"\n\na@example.test = \"http://127.0.0.1:9099/inbound\"\n",
+        format!(
+            "# comment\nb@example.test = \"http://127.0.0.1:9101{}\"\n\na@example.test = \"http://127.0.0.1:9099{}\"\n",
+            aimail::core::contract::inbound_path(),
+            aimail::core::contract::inbound_path()
+        ),
     )
     .unwrap();
     let routes = read_routes(&p);
     assert_eq!(routes.len(), 2);
     assert_eq!(
         routes.get("a@example.test").unwrap(),
-        "http://127.0.0.1:9099/inbound"
+        &format!(
+            "http://127.0.0.1:9099{}",
+            aimail::core::contract::inbound_path()
+        )
     );
 
     // `_target_to_route_fields`：完整 URL ⇒ (url, 80)；裸 host:port ⇒ 拆两字段
@@ -353,19 +381,24 @@ fn reconcile_upserts_withdraws_and_leaves_out_of_scope_rows() {
     std::fs::create_dir_all(home.join("bridge")).unwrap();
     // 期望态：agent1 = push（有 webhook_url）⇒ upsert；agent2 = pull（空）⇒ 不在期望态，但属本系统
     std::fs::write(
-        home.join("systems/s1/agent1").join(BINDING),
-        r#"{"email":"a@example.test","webhook_url":"http://127.0.0.1:9101/aimail/inbound"}"#,
+        home.join("systems/s1/agent1")
+            .join(contract::binding_file()),
+        format!(
+            r#"{{"email":"a@example.test","webhook_url":"http://127.0.0.1:9101{}"}}"#,
+            aimail::core::contract::inbound_path()
+        ),
     )
     .unwrap();
     std::fs::write(
-        home.join("systems/s1/agent2").join(BINDING),
+        home.join("systems/s1/agent2")
+            .join(contract::binding_file()),
         r#"{"email":"p@example.test","webhook_url":""}"#,
     )
     .unwrap();
     // 实际态：p@ 是历史 push 留下的陈旧行（须撤回）；other@ 不属本系统（不许动）
     std::fs::write(
         home.join("bridge/aimail_routes.toml"),
-        "p@example.test = \"http://127.0.0.1:9101/aimail/inbound\"\n\
+        "p@example.test = \"http://127.0.0.1:9101{}\"\n\
          other@elsewhere.test = \"http://127.0.0.1:9999/x\"\n",
     )
     .unwrap();
