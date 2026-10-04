@@ -580,7 +580,10 @@ pub fn run(args: Args) -> i32 {
                 t.email,
                 res.get("new_email").and_then(|v| v.as_str()).unwrap_or("")
             ));
-            println!("  服务端资源(白名单/联系人/看板/密钥)与本地 agentmail.json 全部继承");
+            println!(
+                "  服务端资源(白名单/联系人/看板/密钥)与本地 {} 全部继承",
+                contract::binding_file()
+            );
             let sig = res
                 .get("signal")
                 .cloned()
