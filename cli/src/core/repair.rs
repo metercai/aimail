@@ -1375,9 +1375,11 @@ fn ensure_bridge_running(sid: &str) -> bool {
     }
     warn("bridge not running -> starting it (deploy_bridge.start_bridge)");
     let cfg = crate::core::bridge_wire::bridge_cfg_file();
+    // Python: `BRIDGE_BIN = AIMAIL_HOME/bridge/bin/aimail-bridge`（**带 bin/ 一级**；
+    // 直接按 cfg.parent() 拼会误判"未部署" ⇒ BridgeAlive 假失败，L2 实测抓到）。
     let bin = cfg
         .parent()
-        .map(|d| d.join("aimail-bridge"))
+        .map(|d| d.join("bin").join("aimail-bridge"))
         .unwrap_or_else(|| std::path::PathBuf::from("aimail-bridge"));
     if !cfg.exists() || !bin.exists() {
         fail("bridge not deployed (config/binary missing) -- run install first");
