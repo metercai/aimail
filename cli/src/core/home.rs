@@ -26,6 +26,16 @@ fn expand(path: &str) -> PathBuf {
 }
 
 /// 本机 aimail 主根：`AIMAIL_HOME` > `~/.aimail`。
+/// 绝对化但不解析符号链接（等价 Python `os.path.abspath`）。
+pub fn abs_path(p: &std::path::Path) -> std::path::PathBuf {
+    if p.is_absolute() {
+        return p.to_path_buf();
+    }
+    std::env::current_dir()
+        .map(|c| c.join(p))
+        .unwrap_or_else(|_| p.to_path_buf())
+}
+
 pub fn aimail_home() -> PathBuf {
     match env_nonempty("AIMAIL_HOME") {
         Some(v) => expand(&v),

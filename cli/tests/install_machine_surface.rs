@@ -112,11 +112,7 @@ fn payload_readonly_actions_print_paths_and_rc0() {
 fn unported_install_surfaces_fail_loudly() {
     let d = tempfile::tempdir().unwrap();
     let prog = d.path().to_string_lossy().to_string();
-    for args in [
-        vec!["install", "--payload", "install", "mcp"],
-        vec!["install", "--system-only"],
-        vec!["install"],
-    ] {
+    for args in [vec!["install", "--system-only"], vec!["install"]] {
         let (rc, out, err) = run(&prog, &args);
         assert_ne!(rc, 0, "{args:?} 未移植必须非零");
         assert!(
@@ -124,4 +120,12 @@ fn unported_install_surfaces_fail_loudly() {
             "{args:?} 应说明未移植: out={out:?} err={err:?}"
         );
     }
+    // `--payload install` 已实现：源根不可解析时必须**明确报错非零**（与 Python 同一失败文案），
+    // 绝不静默成功。
+    let (rc, out, err) = run(&prog, &["install", "--payload", "install", "mcp"]);
+    assert_ne!(rc, 0, "源根不可解析必须非零");
+    assert!(
+        err.contains("运行时源未找到"),
+        "应报源缺失: out={out:?} err={err:?}"
+    );
 }

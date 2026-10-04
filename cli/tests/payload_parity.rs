@@ -13,7 +13,7 @@ use aimail::core::check::Check;
 use aimail::core::payload::{check_payload, MCP_FILES, MCP_SUBDIR, STAMP_NAME};
 use common::{filter_records, python_check_json_with_env, python_table_probe, TempDir};
 use serde_json::Value;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 #[test]
@@ -158,20 +158,113 @@ fn bundle_default_dest_table_matches_python() {
     let py_map = py.as_object().expect("object");
     assert_eq!(
         py_map.len(),
-        aimail::core::payload::BUNDLE_DEFAULT_DEST.len(),
+        aimail::core::payload::BUNDLES.len(),
         "bundle 数量漂移: python={} rust={}",
         py_map.len(),
-        aimail::core::payload::BUNDLE_DEFAULT_DEST.len()
+        aimail::core::payload::BUNDLES.len()
     );
-    for (name, dest) in aimail::core::payload::BUNDLE_DEFAULT_DEST {
+    for spec in aimail::core::payload::BUNDLES {
         assert_eq!(
-            py_map.get(*name).and_then(|v| v.as_str()),
-            Some(*dest),
-            "bundle {name} 的 default_dest 与 Python 不一致"
+            py_map.get(spec.name).and_then(|v| v.as_str()),
+            Some(spec.default_dest),
+            "bundle {} 的 default_dest 与 Python 不一致",
+            spec.name
         );
     }
     // sorted(BUNDLES) 的 "a|b|c" 文案也要一致
     let mut names: Vec<&str> = py_map.keys().map(|s| s.as_str()).collect();
     names.sort_unstable();
     assert_eq!(aimail::core::payload::bundle_names(), names.join("|"));
+}
+
+/// `--payload install` 的**写入面**跨语言验收：同源、各自落盘 ⇒ 文件集合/内容逐字节同；
+/// 有戳的 bundle 再比戳（`installed_at` 归一）。
+#[test]
+fn payload_install_writes_identical_tree_and_stamp() {
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("repo root")
+        .to_path_buf();
+    let src_root = repo.join("pysdk");
+    if !src_root.join("aimail_base.py").is_file() {
+        println!("SKIP: 仓库 pysdk 不可用");
+        return;
+    }
+    for bundle in ["skill-hermes", "mcp"] {
+        let py_dest = TempDir::new(&format!("py-{bundle}"));
+        let rs_dest = TempDir::new(&format!("rs-{bundle}"));
+        // Python 侧：rb.install(bundle, dest, source_root, force=True)
+        let script = format!(
+            "import sys; sys.path.insert(0, {cli:?}); import runtime_bundle as rb; \
+             rc = rb.install({bundle:?}, {dest:?}, {src:?}, True); sys.exit(rc)",
+            cli = repo.join("cli").to_string_lossy(),
+            bundle = bundle,
+            dest = py_dest.path().to_string_lossy(),
+            src = src_root.to_string_lossy()
+        );
+        let out = Command::new("python3")
+            .arg("-c")
+            .arg(&script)
+            .output()
+            .expect("python3");
+        assert!(
+            out.status.success(),
+            "python install 失败: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        // Rust 侧
+        let rc = aimail::core::payload::install_bundle(
+            bundle,
+            &rs_dest.path().to_string_lossy(),
+            &src_root.to_string_lossy(),
+            true,
+        );
+        assert_eq!(rc, 0, "rust install rc={rc}");
+        // 文件集合 + 内容逐字节（戳除外，单独比）
+        let listing = |d: &Path| -> Vec<(String, Vec<u8>)> {
+            let mut v: Vec<(String, Vec<u8>)> = std::fs::read_dir(d)
+                .unwrap()
+                .flatten()
+                .filter(|e| e.path().is_file())
+                .filter(|e| e.file_name().to_string_lossy() != aimail::core::payload::STAMP_NAME)
+                .map(|e| {
+                    (
+                        e.file_name().to_string_lossy().to_string(),
+                        std::fs::read(e.path()).unwrap(),
+                    )
+                })
+                .collect();
+            v.sort_by(|a, b| a.0.cmp(&b.0));
+            v
+        };
+        assert_eq!(
+            listing(py_dest.path()),
+            listing(rs_dest.path()),
+            "{bundle}: 落盘文件集合/内容必须逐字节相同"
+        );
+        // 戳（有戳的 bundle）：除 installed_at 外逐字段相同
+        let norm_stamp = |d: &Path| -> Value {
+            let t = std::fs::read_to_string(d.join(aimail::core::payload::STAMP_NAME)).unwrap();
+            let mut v: Value = serde_json::from_str(&t).unwrap();
+            v["installed_at"] = Value::String("<ts>".into());
+            v
+        };
+        let py_stamp_path = py_dest.path().join(aimail::core::payload::STAMP_NAME);
+        if bundle == "mcp" {
+            assert_eq!(
+                norm_stamp(py_dest.path()),
+                norm_stamp(rs_dest.path()),
+                "mcp: 戳（除 installed_at）必须相同"
+            );
+        } else {
+            assert!(
+                !py_stamp_path.exists(),
+                "纯资源 bundle 不应有戳（Python 同）"
+            );
+            assert!(!rs_dest
+                .path()
+                .join(aimail::core::payload::STAMP_NAME)
+                .exists());
+        }
+    }
 }

@@ -162,29 +162,108 @@ pub fn check_payload(c: &mut Check, prog_root: &Path, core_dir: Option<&Path>) {
 /// bundle → 默认落点模板（`BUNDLES[*].default_dest` 的 Rust 副本；有**表一致性守门**测试
 /// 直接向 Python 要真值比对，漂移即红）。`{program_root}` 由 `payload_dir` 展开，`~` **不**展开
 /// （Python 侧 `payload_dir()` 也同样不展开 —— 只有 `install()` 才 `expanduser`）。
-pub const BUNDLE_DEFAULT_DEST: &[(&str, &str)] = &[
-    ("mcp", "{program_root}/mcp"),
-    ("deer-flow", "~/deer-flow/backend/app/gateway/routers"),
-    ("skill-hermes", "__profile_skills__"),
-    ("skill-openclaw", "~/.openclaw/skills/agentmail"),
-    ("skill-deerflow", "~/deer-flow/skills/public/agentmail"),
-    ("skill-dsh", "~/.dsh/skills/agentmail"),
+/// 一个 Runtime bundle 的规格（`runtime_bundle.py:59-98` `BUNDLES` 的 Rust 副本）。
+pub struct Bundle {
+    pub name: &'static str,
+    pub default_dest: &'static str,
+    /// `(源相对路径, 目标相对路径)`；目标一律铺平（无子目录，见 Python 的 files 映射）。
+    pub files: &'static [(&'static str, &'static str)],
+    /// 纯资源类 bundle 不写戳（Python `no_stamp: True`）。
+    pub no_stamp: bool,
+}
+
+/// 核心运行时模块（`_CORE_FILES`）—— mcp / deer-flow 两个 bundle 共用。
+pub const CORE_FILES: &[(&str, &str)] = &[
+    ("aimail_base.py", "aimail_base.py"),
+    ("aimail_tools.py", "aimail_tools.py"),
+    ("aimail_board.py", "aimail_board.py"),
+    ("aimail_contract.py", "aimail_contract.py"),
+    ("gateway_api.py", "gateway_api.py"),
+    ("_aimail_bootstrap.py", "_aimail_bootstrap.py"),
 ];
+
+const DEERFLOW_FILES: &[(&str, &str)] = &[
+    ("aimail_base.py", "aimail_base.py"),
+    ("aimail_tools.py", "aimail_tools.py"),
+    ("aimail_board.py", "aimail_board.py"),
+    ("aimail_contract.py", "aimail_contract.py"),
+    ("gateway_api.py", "gateway_api.py"),
+    ("_aimail_bootstrap.py", "_aimail_bootstrap.py"),
+    ("deer-flow/aimail_inbound.py", "aimail_inbound.py"),
+    ("deer-flow/aimail_deerflow.py", "aimail_deerflow.py"),
+];
+
+const SKILL_FILES: &[(&str, &str)] = &[
+    ("resources/skills/SKILL.md", "SKILL.md"),
+    ("resources/skills/DESCRIPTION.md", "DESCRIPTION.md"),
+];
+
+const SKILL_FILES_DSH: &[(&str, &str)] = &[("resources/skills/SKILL.md", "SKILL.md")];
+
+/// 六个 bundle（有**表一致性守门**测试：向 Python 要 `BUNDLES` 真值逐条比 default_dest）。
+pub const BUNDLES: &[Bundle] = &[
+    Bundle {
+        name: "mcp",
+        default_dest: "{program_root}/mcp",
+        files: MCP_FILES,
+        no_stamp: false,
+    },
+    Bundle {
+        name: "deer-flow",
+        default_dest: "~/deer-flow/backend/app/gateway/routers",
+        files: DEERFLOW_FILES,
+        no_stamp: false,
+    },
+    Bundle {
+        name: "skill-hermes",
+        default_dest: "__profile_skills__",
+        files: SKILL_FILES,
+        no_stamp: true,
+    },
+    Bundle {
+        name: "skill-openclaw",
+        default_dest: "~/.openclaw/skills/agentmail",
+        files: SKILL_FILES,
+        no_stamp: true,
+    },
+    Bundle {
+        name: "skill-deerflow",
+        // deer-flow 强制 name == 目录名 ⇒ 目录 = 契约 AGENT_SKILL_NAME（不是产品名）
+        default_dest: "~/deer-flow/skills/public/agentmail",
+        files: SKILL_FILES,
+        no_stamp: true,
+    },
+    Bundle {
+        name: "skill-dsh",
+        default_dest: "~/.dsh/skills/agentmail",
+        files: SKILL_FILES_DSH,
+        no_stamp: true,
+    },
+];
+
+/// CLI 声明的载荷最低版本（`MIN_PAYLOAD_VERSION`）。
+pub const MIN_PAYLOAD_VERSION: &str = "0.1.0";
+
+/// bundle 规格（未知 ⇒ None）。
+pub fn bundle(name: &str) -> Option<&'static Bundle> {
+    BUNDLES.iter().find(|b| b.name == name)
+}
+
+/// bundle 的默认落点模板（`BUNDLES[*].default_dest`）。
+pub fn bundle_default_dest(name: &str) -> Option<&'static str> {
+    bundle(name).map(|b| b.default_dest)
+}
 
 /// bundle 名的升序列表（Python `sorted(BUNDLES)` 用于错误文案的"可选: …"）。
 pub fn bundle_names() -> String {
-    let mut v: Vec<&str> = BUNDLE_DEFAULT_DEST.iter().map(|(n, _)| *n).collect();
+    let mut v: Vec<&str> = BUNDLES.iter().map(|b| b.name).collect();
     v.sort_unstable();
     v.join("|")
 }
 
 /// `payload_dir(bundle)`：默认落点（展开 `{program_root}`，**不**展开 `~`）。
 pub fn payload_dir_named(bundle: &str) -> Result<String, String> {
-    let tpl = BUNDLE_DEFAULT_DEST
-        .iter()
-        .find(|(n, _)| *n == bundle)
-        .map(|(_, d)| *d)
-        .ok_or_else(|| format!("ERROR: 未知 bundle {bundle}"))?;
+    let tpl = bundle_default_dest(bundle).ok_or_else(|| format!("ERROR: 未知 bundle {bundle}"))?;
     Ok(tpl.replace(
         "{program_root}",
         &crate::core::home::program_root().to_string_lossy(),
@@ -262,6 +341,227 @@ fn expand_user(path: &str) -> String {
     }
     path.to_string()
 }
+
+/// `install(bundle, dest, source_root, force)`（`runtime_bundle.py:239-301`）：幂等铺设 + 旧文件清理 + 戳。
+///
+/// 照抄点：① 源缺失 ⇒ 打印 `✗ {bundle}: 源缺失 [...]` 并 **rc=1**（不写戳）；② 逐文件按
+/// `force || 不存在 || md5 不同` 决定是否复制；③ 清理上一版戳里、本次不再随包分发的旧文件
+/// （只删**本目录内**的，防路径穿越）；④ 戳 = `{bundle,version,source,installed_at,min_version,files{rel:md5}}`
+/// 经 `tmp → rename`（`installed_at` 每次不同 ⇒ 跨语言只能归一比）；⑤ 三行结果文案逐字。
+pub fn install_bundle(bundle_name: &str, dest: &str, source_root: &str, force: bool) -> i32 {
+    let Some(spec) = bundle(bundle_name) else {
+        println!("ERROR: 未知 bundle {bundle_name}");
+        return 2;
+    };
+    let (root, kind) = match resolve_source_root(source_root) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("{e}");
+            return 1;
+        }
+    };
+    let dest = if dest.is_empty() {
+        spec.default_dest
+    } else {
+        dest
+    };
+    let dest = crate::core::home::abs_path(std::path::Path::new(&expand_user(&expand_dest(dest))));
+    let version = source_version(&root, &kind);
+    let dsts = spec.files.iter().map(|(_, d)| *d).collect::<Vec<_>>();
+    let keep: std::collections::BTreeSet<&str> = dsts.iter().copied().collect();
+    let mut changed: Vec<&str> = Vec::new();
+    let mut missing_src: Vec<&str> = Vec::new();
+    for (src_rel, dst_rel) in spec.files {
+        let src = std::path::Path::new(&root).join(src_rel);
+        let dst = dest.join(dst_rel);
+        if !src.is_file() {
+            missing_src.push(src_rel);
+            continue;
+        }
+        let need = force || !dst.is_file() || md5_file(&src) != md5_file(&dst);
+        if need {
+            if let Some(parent) = dst.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if std::fs::copy(&src, &dst).is_ok() {
+                changed.push(dst_rel);
+            }
+        }
+    }
+    if !missing_src.is_empty() {
+        println!(
+            "  ✗ {bundle_name}: 源缺失 {}(源根 {root})",
+            py_list(&missing_src)
+        );
+        return 1;
+    }
+    // 清理旧戳里有、本次不再分发的旧文件（只删本目录内）
+    let stamp_path = dest.join(STAMP_NAME);
+    let mut pruned: Vec<String> = Vec::new();
+    if stamp_path.is_file() {
+        let old: std::collections::BTreeMap<String, Value> = std::fs::read_to_string(&stamp_path)
+            .ok()
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+            .and_then(|v| v.get("files").and_then(Value::as_object).cloned())
+            .map(|m| m.into_iter().collect())
+            .unwrap_or_default();
+        let mut stale: Vec<String> = old
+            .keys()
+            .filter(|k| !keep.contains(k.as_str()))
+            .cloned()
+            .collect();
+        stale.sort();
+        for rel in stale {
+            let p = dest.join(&rel);
+            if p.parent() != Some(dest.as_path()) {
+                continue; // 只删本目录内
+            }
+            if p.is_file() && std::fs::remove_file(&p).is_ok() {
+                pruned.push(rel);
+            }
+        }
+    }
+    if !spec.no_stamp {
+        let mut files = serde_json::Map::new();
+        for rel in &dsts {
+            let p = dest.join(rel);
+            if p.is_file() {
+                files.insert((*rel).to_string(), Value::String(md5_file(&p)));
+            }
+        }
+        let stamp = serde_json::json!({
+            "bundle": bundle_name,
+            "version": version,
+            "source": kind,
+            "installed_at": format!("{}+00:00", crate::core::time::now_iso8601_z().trim_end_matches('Z')),
+            "min_version": MIN_PAYLOAD_VERSION,
+            "files": Value::Object(files),
+        });
+        let tmp = dest.join(format!("{STAMP_NAME}.tmp"));
+        if std::fs::create_dir_all(&dest).is_ok() {
+            let text = serde_json::to_string_pretty(&stamp).unwrap_or_default();
+            if std::fs::write(&tmp, text).is_ok() {
+                let _ = std::fs::rename(&tmp, &stamp_path);
+            }
+        }
+    }
+    if !pruned.is_empty() {
+        println!(
+            "  ✓ {bundle_name}: 清理旧文件 {} → {}",
+            py_list_owned(&pruned),
+            dest.display()
+        );
+    }
+    if !changed.is_empty() {
+        println!(
+            "  ✓ {bundle_name}: 更新 {} 文件 → {} (v{version}, {kind})",
+            changed.len(),
+            dest.display()
+        );
+    } else {
+        println!(
+            "  ✓ {bundle_name}: 已一致(跳过)→ {} (v{version}, {kind})",
+            dest.display()
+        );
+    }
+    0
+}
+
+/// `_expand_dest`：只替换 `{program_root}`（`~` 留给 `expand_user`，与 Python 同序）。
+fn expand_dest(template: &str) -> String {
+    template.replace(
+        "{program_root}",
+        &crate::core::home::program_root().to_string_lossy(),
+    )
+}
+
+/// `_source_version`：repo ⇒ `git describe --always --dirty`（拿不到再退 pyproject 版本）；
+/// pip ⇒ 包 `__version__`；都没有 ⇒ `dev`。
+fn source_version(root: &str, kind: &str) -> String {
+    if kind == "pip" {
+        let py = std::env::var("AIMAIL_PYTHON").unwrap_or_else(|_| "python3".to_string());
+        if let Ok(o) = std::process::Command::new(py)
+            .args([
+                "-c",
+                "import aimail;print(getattr(aimail,'__version__','0.0.0'))",
+            ])
+            .output()
+        {
+            if o.status.success() {
+                let v = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                if !v.is_empty() {
+                    return v;
+                }
+            }
+        }
+        return "0.0.0".to_string();
+    }
+    if let Ok(o) = std::process::Command::new("git")
+        .args(["-C", root, "describe", "--always", "--dirty"])
+        .output()
+    {
+        if o.status.success() {
+            let v = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if !v.is_empty() && v != "dev" {
+                return v;
+            }
+        }
+    }
+    pyproject_version(root).unwrap_or_else(|| "dev".to_string())
+}
+
+/// `<root>/../pyproject.toml` 的 `[project].version`（快照形态的版本来源）。
+fn pyproject_version(root: &str) -> Option<String> {
+    let p = std::path::Path::new(root).parent()?.join("pyproject.toml");
+    let text = std::fs::read_to_string(p).ok()?;
+    let mut in_project = false;
+    for line in text.lines() {
+        let t = line.trim();
+        if t.starts_with('[') {
+            in_project = t == "[project]";
+            continue;
+        }
+        if in_project {
+            if let Some(v) = t.strip_prefix("version") {
+                let v = v.trim_start_matches([' ', '=']).trim().trim_matches('"');
+                if !v.is_empty() {
+                    return Some(v.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Python `list` 的 repr（错误/清理文案逐字用）：`['a', 'b']`。
+fn py_list(items: &[&str]) -> String {
+    let quoted: Vec<String> = items.iter().map(|s| format!("'{s}'")).collect();
+    format!("[{}]", quoted.join(", "))
+}
+
+fn py_list_owned(items: &[String]) -> String {
+    let refs: Vec<&str> = items.iter().map(|s| s.as_str()).collect();
+    py_list(&refs)
+}
+
+/// 文件 md5（分块读，等价 Python `_md5`）。
+fn md5_file(path: &std::path::Path) -> String {
+    use md5::{Digest, Md5};
+    let mut h = Md5::new();
+    if let Ok(mut f) = std::fs::File::open(path) {
+        let mut buf = [0u8; 65536];
+        use std::io::Read;
+        while let Ok(n) = f.read(&mut buf) {
+            if n == 0 {
+                break;
+            }
+            h.update(&buf[..n]);
+        }
+    }
+    format!("{:x}", h.finalize())
+}
+
+use serde_json::Value;
 
 #[cfg(test)]
 mod tests {

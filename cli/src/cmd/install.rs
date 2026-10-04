@@ -56,7 +56,13 @@ pub fn run(a: Args) -> i32 {
                 return 2;
             }
         }
-        return run_payload(&a.payload, &a.payload_name, &a.dest, &a.source_root);
+        return run_payload(
+            &a.payload,
+            &a.payload_name,
+            &a.dest,
+            &a.source_root,
+            a.force,
+        );
     }
     if a.system_only {
         // system-only 是 L1-only 铁律入口：接线/捆绑两侧的参数都拒
@@ -92,7 +98,7 @@ pub fn run(a: Args) -> i32 {
 }
 
 /// `cmd_payload`（`cli/aimail:304-338`）。
-fn run_payload(action: &str, name: &str, dest: &str, source_root: &str) -> i32 {
+fn run_payload(action: &str, name: &str, dest: &str, source_root: &str, force: bool) -> i32 {
     let name = name.trim();
     match action {
         "install" => {
@@ -104,8 +110,7 @@ fn run_payload(action: &str, name: &str, dest: &str, source_root: &str) -> i32 {
                 );
                 return 2;
             }
-            let _ = (dest, source_root);
-            not_yet_ported("install --payload install (runtime bundle install)")
+            payload::install_bundle(name, dest, source_root, force)
         }
         "dir" => {
             let bundle = if name.is_empty() { "mcp" } else { name };
