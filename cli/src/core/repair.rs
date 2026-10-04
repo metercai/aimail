@@ -360,6 +360,88 @@ impl Step {
                     }
                 }
             }
+            Step::RoutesEntries => {
+                // `cli/repair.py:720-757`：路由缺失项 ⇒ 交本仓 `bridge --system-id` 刷新（生成在桥侧）。
+                let sysdir =
+                    crate::core::config::system_dir_in(&crate::core::home::aimail_home(), sid);
+                let rf = crate::core::bridge_wire::routes_file();
+                if !sysdir.is_dir() || !rf.is_file() {
+                    return StepResult::NothingToDo;
+                }
+                let routes = crate::core::bridge_wire::read_routes(&rf);
+                let mut subs: Vec<std::path::PathBuf>;
+                let mut missing: Vec<String> = Vec::new();
+                let mut skipped: Vec<String> = Vec::new();
+                subs = match std::fs::read_dir(&sysdir) {
+                    Ok(rd) => rd.filter_map(|e| e.ok().map(|x| x.path())).collect(),
+                    Err(e) => {
+                        warn(&format!(
+                            "system directory unreadable ({e}) -> skipping the routes-entry repair"
+                        ));
+                        return StepResult::NothingToDo;
+                    }
+                };
+                subs.sort();
+                for sub in subs {
+                    let aj = sub.join(crate::core::contract::binding_file());
+                    if !aj.is_file() {
+                        continue;
+                    }
+                    // 逐文件容错：单个文件读不了/坏 ⇒ 只跳过它，绝不中止整步（2026-09-20 实测）
+                    let raw = match std::fs::read_to_string(&aj) {
+                        Ok(t) => t,
+                        Err(_) => {
+                            skipped.push(format!(
+                                "{}(OSError)",
+                                sub.file_name()
+                                    .map(|x| x.to_string_lossy().to_string())
+                                    .unwrap_or_default()
+                            ));
+                            continue;
+                        }
+                    };
+                    let d: serde_json::Value = match serde_json::from_str(&raw) {
+                        Ok(d) => d,
+                        Err(_) => {
+                            skipped.push(format!(
+                                "{}(JSONDecodeError)",
+                                sub.file_name()
+                                    .map(|x| x.to_string_lossy().to_string())
+                                    .unwrap_or_default()
+                            ));
+                            continue;
+                        }
+                    };
+                    let email = d
+                        .get("email")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    if !email.is_empty() && !routes.contains_key(&email) {
+                        missing.push(email);
+                    }
+                }
+                if !skipped.is_empty() {
+                    warn(&format!(
+                        "routes-entry repair: skipped {} unreadable file(s): {}",
+                        skipped.len(),
+                        skipped.join(", ")
+                    ));
+                }
+                if missing.is_empty() {
+                    ok("routes entries ok");
+                    return StepResult::NothingToDo;
+                }
+                warn(&format!(
+                    "routes missing {} entr(ies) -> refreshed via bridge",
+                    crate::core::pyjson::repr_python(&serde_json::json!(missing))
+                ));
+                if refresh_routes(sid) {
+                    StepResult::Fixed
+                } else {
+                    StepResult::NothingToDo
+                }
+            }
             _ => StepResult::NotPorted,
         }
     }
@@ -454,6 +536,17 @@ pub fn dry_run_plan_lines(deep: bool) -> Vec<String> {
 ///
 /// `check_engine` 由命令层传入（cmd::check 的编排函数），这样 repair 与 check 用的是
 /// 同一份引擎实现 —— Python 侧用"子进程 + 解析 JSON"达到同样目的。
+/// 重刷本系统路由 = 复用本仓 `bridge --system-id`（同一实现，零复刻；Python `repair.py:_refresh_routes`）。
+fn refresh_routes(sid: &str) -> bool {
+    crate::cmd::bridge::run(&crate::cmd::bridge::Args {
+        system_id: sid.to_string(),
+        home: String::new(),
+        restart: false,
+        upgrade: false,
+        platform: String::new(),
+    }) == 0
+}
+
 pub fn run(
     sid: &str,
     deep: bool,
