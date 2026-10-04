@@ -151,6 +151,38 @@ fn reset_args(cmd: Command) -> Command {
     )
 }
 
+fn uninstall_args(cmd: Command) -> Command {
+    cmd.arg(
+        Arg::new("system-id")
+            .short('s')
+            .long("system-id")
+            .help(SID_HELP),
+    )
+    .arg(Arg::new("home").short('H').long("home").help(HOME_HELP))
+    .arg(
+        Arg::new("gateway-url")
+            .short('g')
+            .long("gateway-url")
+            .value_name("URL")
+            .default_value("")
+            .help("gateway to deregister from (default: the system cfg; use it when the cfg was rewritten — never falls back to a production default)"),
+    )
+    .arg(
+        Arg::new("yes")
+            .short('y')
+            .long("yes")
+            .action(ArgAction::SetTrue)
+            .help("skip confirmation prompt"),
+    )
+    .arg(
+        Arg::new("platform")
+            .long("platform")
+            .value_name("NAME")
+            .default_value("")
+            .help("override platform detection (value validated against the platform registry)"),
+    )
+}
+
 fn install_args(cmd: Command) -> Command {
     let cmd = cmd
         .arg(Arg::new("home").short('H').long("home").help(HOME_HELP))
@@ -400,6 +432,7 @@ pub fn build_cli() -> Command {
             "install" => sub = install_args(sub),
             "address" => sub = address_hidden_args(address_view_args(sub)),
             "reset" => sub = reset_args(sub),
+            "uninstall" => sub = uninstall_args(sub),
             "stats" => sub = stats_args(sub),
             "check" => sub = check_args(sub),
             "persona" => sub = persona_args(sub),
@@ -446,6 +479,13 @@ pub fn run() -> i32 {
             manager: arg_opt(m, "manager"),
             inbound_live: m.get_flag("inbound-live"),
             inbound_down: m.get_flag("inbound-down"),
+        }),
+        Some(("uninstall", m)) => crate::cmd::uninstall::run(&crate::cmd::uninstall::Args {
+            system_id: arg_str(m, "system-id"),
+            home: arg_str(m, "home"),
+            gateway_url: arg_str(m, "gateway-url"),
+            yes: m.get_flag("yes"),
+            platform: arg_str(m, "platform"),
         }),
         Some(("reset", m)) => crate::cmd::reset::run(&crate::cmd::reset::Args {
             home: arg_str(m, "home"),

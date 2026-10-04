@@ -13,4 +13,5 @@ pub mod report;
 pub mod reset;
 pub mod stats;
 pub mod stub;
+pub mod uninstall;
 pub mod version;

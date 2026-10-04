@@ -88,6 +88,19 @@ def main(argv):
             }
         )
         return 1
+    # 通用对象 glue：任何位置的 `{"__client__": {"gateway_url":…, "admin_key":…}}`
+    # 替换为 SDK 的网关客户端对象（CLI 只是"怎么传对象"，不含算法）。
+    def _materialize(v):
+        if isinstance(v, dict) and set(v.keys()) == {"__client__"}:
+            spec = v["__client__"] or {}
+            from aimail_tools import _GatewayClient  # noqa: PLC0415
+
+            return _GatewayClient(spec.get("gateway_url", ""), spec.get("admin_key", ""))
+        return v
+
+    positional = [_materialize(v) for v in positional]
+    kwargs = {k: _materialize(v) for k, v in kwargs.items()}
+
     # 通用能力过滤：`__if_accepted__` 里的键**仅当目标签名接受时才传**（CLI 零平台知识，
     # 例如 `_sdk_install` 的 manager 形参只看被调函数签名）。
     conditional = kwargs.pop("__if_accepted__", None) or {}

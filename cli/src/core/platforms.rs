@@ -281,6 +281,15 @@ pub fn payload_refs(name: &str) -> Vec<String> {
 
 /// 该平台**自足 SDK 安装入口**的类型（`install_steps` 里 `kind=sdk_install` 的 `target`）。
 /// 空串 = 该平台没有这种入口（资源由它自己的插件/宿主命令管理）⇒ 调用方只打印注册表自带的 fix 提示。
+/// 注册表 `uninstall_steps`（卸载清理动作表；缺失 ⇒ 空表）。
+pub fn uninstall_steps(name: &str) -> Vec<Value> {
+    platform(name)
+        .and_then(|p| p.get("uninstall_steps"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+}
+
 pub fn sdk_install_target(name: &str) -> String {
     install_steps(name)
         .iter()

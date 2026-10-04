@@ -9,7 +9,7 @@
 //! 默认、`register_default`、`register_all`）在进任何 try 之前先判 manager 非空 ⇒ 空即 rc≠0。
 
 use serde_json::{json, Map, Value};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
@@ -432,4 +432,142 @@ pub fn run_install_steps(
         return Ok(());
     }
     run_steps(platform, &steps, ctx, core_dir)
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 卸载清理执行器（`cli/aimail:688-727`）：kind = print|warn|sdk_uninstall|rm_pointer|rm_dir
+// （注册表里 hermes 的 `spawn` 步在 Python 侧同样落到"未知 kind"告警 —— 照抄，不顺手补）
+// ════════════════════════════════════════════════════════════════════════════
+
+/// `_cleanup_home`：调用方给的 home（存在）或 cfg.system_home。
+fn cleanup_home(ctx: &Map<String, Value>) -> String {
+    let h = ctx_str(ctx, "home");
+    if !h.is_empty() && Path::new(&h).is_dir() {
+        return h;
+    }
+    let cfg = ctx.get("cfg").cloned().unwrap_or(json!({}));
+    setup::pget(&cfg, "system_home")
+}
+
+/// `_sdk_uninstall`：调 SDK 自足卸载入口（按名调**已发布**函数）。
+fn sdk_uninstall(kind: &str, fn_name: &str, home: &str, sid: &str, core_dir: &Path) -> i32 {
+    if fn_name.is_empty() {
+        warn(&format!(
+            "sdk_uninstall: 注册表未给平台 '{kind}' 配置 fn(SDK 入口缺失)"
+        ));
+        return 1;
+    }
+    match sdkcall::call_positional(
+        "install",
+        fn_name,
+        &[
+            Value::String(home.to_string()),
+            Value::String(sid.to_string()),
+        ],
+        &json!({}),
+        core_dir,
+        SDK_INSTALL_TIMEOUT,
+        &[],
+    ) {
+        Ok(v) => v.as_i64().unwrap_or(0) as i32,
+        Err(e) => {
+            warn(&format!("pysdk import failed: {}", e.display_like_python()));
+            1
+        }
+    }
+}
+
+/// 执行卸载清理动作表。
+pub fn run_uninstall_steps(
+    platform: &str,
+    ctx: &mut Map<String, Value>,
+    core_dir: &Path,
+) -> Result<(), String> {
+    let steps = platforms::uninstall_steps(platform);
+    if steps.is_empty() {
+        return Ok(());
+    }
+    let home = cleanup_home(ctx);
+    for st in &steps {
+        let when = st.get("when").cloned().unwrap_or(json!({}));
+        if when.as_object().map(|o| !o.is_empty()).unwrap_or(false) && !when_ok(&when, ctx) {
+            continue;
+        }
+        let kind = st.get("kind").and_then(Value::as_str).unwrap_or("");
+        match kind {
+            "print" => println!(
+                "{}",
+                tmpl(st.get("text").and_then(Value::as_str).unwrap_or(""), ctx)
+            ),
+            "warn" => warn(&tmpl(
+                st.get("text").and_then(Value::as_str).unwrap_or(""),
+                ctx,
+            )),
+            "sdk_uninstall" => {
+                let target = st
+                    .get("target")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or(platform);
+                let rc = sdk_uninstall(
+                    target,
+                    st.get("fn").and_then(Value::as_str).unwrap_or(""),
+                    &home,
+                    &ctx_str(ctx, "sid"),
+                    core_dir,
+                );
+                if rc != 0 {
+                    warn(&format!("{target} SDK uninstall exit {rc}(见上)"));
+                }
+            }
+            "rm_pointer" => {
+                let p = PathBuf::from(tmpl(
+                    st.get("path").and_then(Value::as_str).unwrap_or(""),
+                    ctx,
+                ));
+                if p.is_file() {
+                    let same_sid = std::fs::read_to_string(&p)
+                        .ok()
+                        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+                        .and_then(|v| {
+                            v.get("system_id")
+                                .and_then(Value::as_str)
+                                .map(|s| s.to_string())
+                        })
+                        .map(|s| s == ctx_str(ctx, "sid"))
+                        .unwrap_or(false);
+                    if same_sid {
+                        let _ = std::fs::remove_file(&p);
+                        let text = st
+                            .get("ok_text")
+                            .and_then(Value::as_str)
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| format!("removed pointer {}", p.to_string_lossy()));
+                        let m = tmpl(&text, ctx);
+                        ok(&m);
+                    }
+                }
+            }
+            "rm_dir" => {
+                let p = PathBuf::from(tmpl(
+                    st.get("path").and_then(Value::as_str).unwrap_or(""),
+                    ctx,
+                ));
+                if p.is_dir() {
+                    let _ = std::fs::remove_dir_all(&p);
+                    let text = st
+                        .get("ok_text")
+                        .and_then(Value::as_str)
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| format!("removed {}", p.to_string_lossy()));
+                    let m = tmpl(&text, ctx);
+                    ok(&m);
+                }
+            }
+            other => warn(&format!(
+                "uninstall_steps 未知 kind '{other}'({platform})——跳过"
+            )),
+        }
+    }
+    Ok(())
 }
