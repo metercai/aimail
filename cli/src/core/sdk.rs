@@ -112,6 +112,17 @@ pub fn run_json_abi(call: &AbiCall<'_>) -> Result<Value, AbiError> {
     }
 }
 
+/// 跑任意子程序并带超时（复用同一套"读取线程 + 轮询 + kill"机器）—— 供委派给 SDK 的
+/// 其它入口（如 `install.py`）使用，输出不做 JSON 判读。
+pub fn run_program(
+    program: &Path,
+    args: &[String],
+    timeout: Duration,
+    env: &[(String, String)],
+) -> Result<(Vec<u8>, Vec<u8>, i32), AbiError> {
+    run_capture(program, args, timeout, env)
+}
+
 /// 跑子进程并带超时（无外部依赖：读取线程 + try_wait 轮询 + 超时 kill）。
 fn run_capture(
     program: &Path,

@@ -279,6 +279,18 @@ pub fn payload_refs(name: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// 该平台**自足 SDK 安装入口**的类型（`install_steps` 里 `kind=sdk_install` 的 `target`）。
+/// 空串 = 该平台没有这种入口（资源由它自己的插件/宿主命令管理）⇒ 调用方只打印注册表自带的 fix 提示。
+pub fn sdk_install_target(name: &str) -> String {
+    install_steps(name)
+        .iter()
+        .find(|st| st.get("kind").and_then(Value::as_str) == Some("sdk_install"))
+        .and_then(|st| st.get("target"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
+}
+
 /// 平台别名表（注册表 `aliases`；空 ⇒ 空表，不猜）。
 pub fn aliases(name: &str) -> Vec<String> {
     platform(name)

@@ -231,12 +231,20 @@ impl Step {
     }
 
     /// 执行该步。**仍未移植的步一律 `NotPorted`**（绝不静默当成功）；已落地的走真实现。
-    pub fn run(&self, sid: &str, _home: &str, _deep: bool) -> StepResult {
+    pub fn run(&self, sid: &str, home: &str, _deep: bool) -> StepResult {
         match self {
             // 第 7 步：agentmail.json 补空 + webhook_url 对齐（写回经 SDK 门）
             Step::AgentmailJson => {
                 let ah = crate::core::home::aimail_home();
                 if agentmail_backfill(sid, &ah) {
+                    StepResult::Fixed
+                } else {
+                    StepResult::NothingToDo
+                }
+            }
+            // 第 6 步：运行时资源缺失 → 经该平台**自足 SDK 安装入口**幂等重铺
+            Step::RuntimeResources => {
+                if runtime_resources(sid, home, &crate::core::home::program_root()) {
                     StepResult::Fixed
                 } else {
                     StepResult::NothingToDo
@@ -827,6 +835,205 @@ pub fn repair_pointer(
     true
 }
 
+/// `_detect_platform_from_home`（`repair.py:394-407`）：**repaired 侧的手写判定变体**。
+///
+/// 与另两处平台判定**不同**（各自照抄，不合并）：hermes 用 `markers 任一` 的 OR；openclaw 看
+/// `openclaw.json` 文件；deerflow 看 `backend/app/gateway` 目录。名字是平台语义（注册表只描述
+/// 特征，表达不了这里的 OR/文件/目录三种形状）。
+fn detect_platform_for_repair(dir: &Path) -> &'static str {
+    let name = dir
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    if name == ".pi" && dir.join("agent").is_dir() {
+        return "pi";
+    }
+    if name == ".dsh" && dir.join("profiles").is_dir() && dir.join("storages").is_dir() {
+        return "dsh";
+    }
+    if dir.join("hermes-agent").exists() || dir.join("profiles").is_dir() {
+        return "hermes";
+    }
+    if dir.join("openclaw.json").is_file() {
+        return "openclaw";
+    }
+    if dir.join("backend").join("app").join("gateway").is_dir() {
+        return "deerflow";
+    }
+    "unknown"
+}
+
+/// `_failing_file_checks`（`repair.py:570-596`）：注册表里**文件类** health_checks 中"没有命中"的项。
+///
+/// 三个定位键都必须认（`path` / `alt` / `glob` —— openclaw 的插件目录检查用 glob，漏认它会把
+/// "资源在位"误读成"缺失"）。`glob_dir_any` = 目录类，命中即算在位（不做内容匹配）。
+fn failing_file_checks(plat: &str, sh: &str, user_home: &Path) -> Vec<Value> {
+    const FILE_KINDS: &[&str] = &[
+        "file_contains",
+        "file_contains_alt",
+        "file_exists",
+        "file_exists_any",
+        "glob_dir_any",
+    ];
+    let mut fails = Vec::new();
+    for ch in platforms::health_checks(plat) {
+        let kind = ch.get("kind").and_then(Value::as_str).unwrap_or("");
+        if !FILE_KINDS.contains(&kind) {
+            continue;
+        }
+        let pat = ["path", "alt", "glob"]
+            .iter()
+            .find_map(|k| ch.get(*k).and_then(Value::as_str))
+            .unwrap_or("")
+            .replace("{home}", sh)
+            .replace("{user_home}", &user_home.to_string_lossy());
+        let mut ok = false;
+        if let Ok(paths) = glob::glob(&pat) {
+            for cand in paths.flatten() {
+                if kind == "glob_dir_any" {
+                    ok = true;
+                    break;
+                }
+                if kind == "file_exists" || kind == "file_exists_any" {
+                    if cand.is_file() {
+                        ok = true;
+                        break;
+                    }
+                    continue;
+                }
+                let marker = ch.get("marker").and_then(Value::as_str).unwrap_or("");
+                if let Ok(text) = std::fs::read_to_string(&cand) {
+                    if text.contains(marker) {
+                        ok = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if !ok {
+            fails.push(ch);
+        }
+    }
+    fails
+}
+
+/// `_repair_runtime_resources`（`repair.py:612-651`）：L2 运行时资源缺失 → 经该平台的**自足 SDK 安装入口**
+/// 幂等重铺（`install.py install --type <tgt> --home <sh> --system-id <sid>`）。
+///
+/// 关键照抄点：① 平台根解析不出 ⇒ 跳过并说明（远端平台如 deerflow 要在宿主上跑）；
+/// ② 该平台**没有** sdk_install 入口 ⇒ 只打印注册表自带的 fix 提示，**不**spawn 一个注定失败的安装；
+/// ③ 安装输出取尾部 600 字符原样转发；④ 一律**幂等**（资源齐全时返回 false 不动作）。
+pub fn runtime_resources(sid: &str, platform_home: &str, prog_root: &Path) -> bool {
+    let ah = crate::core::home::aimail_home();
+    let gw = config::load_gateway_config_in(&ah, sid)
+        .map(|c| c.to_json())
+        .unwrap_or_default();
+    let sh = if platform_home.is_empty() {
+        gw.get("system_home")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    } else {
+        platform_home.to_string()
+    };
+    if sh.is_empty() || !Path::new(&sh).is_dir() {
+        warn("platform root not resolvable, skipping the runtime-resource redeploy (for remote platforms such as deerflow run it on the host)");
+        return false;
+    }
+    let plat = detect_platform_for_repair(Path::new(&sh));
+    if plat == "unknown" {
+        warn("platform type not recognised (the root is neither a known platform nor a self-built one) -> skipping the runtime-resource redeploy");
+        return false;
+    }
+    let fails = failing_file_checks(plat, &sh, &crate::core::home::user_home());
+    if fails.is_empty() {
+        ok(&format!("{plat} runtime resources ok"));
+        return false;
+    }
+    let tgt = platforms::sdk_install_target(plat);
+    if tgt.is_empty() {
+        warn(&format!(
+            "{plat} runtime resources missing; this platform has no SDK install entry (its own installer manages them) -> follow the hint:"
+        ));
+        for ch in &fails {
+            let id = ch.get("id").and_then(Value::as_str).unwrap_or("?");
+            let txt = ch
+                .get("fix")
+                .and_then(Value::as_str)
+                .or_else(|| ch.get("fail_text").and_then(Value::as_str))
+                .unwrap_or("");
+            warn(&format!("  [{id}] {txt}"));
+        }
+        return false;
+    }
+    warn(&format!(
+        "{plat} runtime resources missing -> idempotent reinstall (install.py install --type {tgt} --home {sh})"
+    ));
+    // 按**文件路径**调用（与每一步一致），不依赖解释器里 `import aimail`；install.py 自己会做 sys.path 自举，
+    // 因而仓库(pysdk/) 与 pip(site-packages/aimail/) 两种布局都成立。
+    // 按**文件路径**调用（与每一步一致），不依赖解释器里 `import aimail`；install.py 自己会做
+    // sys.path 自举，因而仓库(pysdk/) 与 pip(site-packages/aimail/) 两种布局都成立。
+    let py = std::env::var("AIMAIL_PYTHON").unwrap_or_else(|_| "python3".to_string());
+    let install_py = prog_root
+        .join("aimail-src")
+        .join("pysdk")
+        .join("install.py");
+    let mut args: Vec<String> = Vec::new();
+    if install_py.is_file() {
+        args.push(install_py.to_string_lossy().to_string());
+    } else {
+        args.push("-m".to_string());
+        args.push("aimail.install".to_string());
+    }
+    args.extend([
+        "install".to_string(),
+        "--type".to_string(),
+        tgt.clone(),
+        "--home".to_string(),
+        sh.clone(),
+        "--system-id".to_string(),
+        sid.to_string(),
+    ]);
+    match sdk::run_program(
+        Path::new(&py),
+        &args,
+        std::time::Duration::from_secs(300),
+        &[],
+    ) {
+        Ok((out, _err, 0)) => {
+            let text = String::from_utf8_lossy(&out);
+            let tail: String = text
+                .chars()
+                .rev()
+                .take(600)
+                .collect::<String>()
+                .chars()
+                .rev()
+                .collect();
+            print!("{tail}");
+            ok("runtime resources reinstalled");
+            true
+        }
+        Ok((_, err, code)) => {
+            let text = String::from_utf8_lossy(&err);
+            let tail: String = text
+                .chars()
+                .rev()
+                .take(200)
+                .collect::<String>()
+                .chars()
+                .rev()
+                .collect();
+            fail(&format!("reinstall failed (exit {code}): {tail}"));
+            false
+        }
+        Err(e) => {
+            fail(&format!("reinstall failed: {}", e.display_like_python()));
+            false
+        }
+    }
+}
+
 /// `_repair_agentmail_json`（`repair.py:655-717`）：补绑定文件的可重建字段 + 与**活**路由对齐
 /// `webhook_url`；写回**经 SDK 门** `backfill_binding`（per-agent 绑定只由 SDK 写 —— 归属铁律）。
 ///
@@ -1033,5 +1240,71 @@ mod tests {
         let deep = ladder(true);
         assert_eq!(deep.len(), 11);
         assert_eq!(deep[10], Step::DrainStuck);
+    }
+
+    #[test]
+    fn sdk_install_target_matches_registry() {
+        // 注册表口径：dsh/hermes/deerflow 有自足安装入口；pi/openclaw 资源自己管（无入口）
+        assert_eq!(platforms::sdk_install_target("hermes"), "hermes");
+        assert_eq!(platforms::sdk_install_target("dsh"), "dsh");
+        assert_eq!(platforms::sdk_install_target("deerflow"), "deerflow");
+        assert_eq!(platforms::sdk_install_target("pi"), "");
+        assert_eq!(platforms::sdk_install_target("openclaw"), "");
+        assert_eq!(platforms::sdk_install_target("nope"), "");
+    }
+
+    #[test]
+    fn detect_platform_for_repair_mirrors_python_variant() {
+        let d = tempfile::tempdir().unwrap();
+        // hermes 的 OR 语义：只要 profiles/ 在（无 hermes-agent）也算 hermes —— 与注册表驱动那两处不同
+        let h = d.path().join(".hermes");
+        std::fs::create_dir_all(h.join("profiles")).unwrap();
+        assert_eq!(detect_platform_for_repair(&h), "hermes");
+        // pi 需 名字 .pi + agent/；dsh 需 名字 .dsh + profiles/ + storages/
+        let pi = d.path().join(".pi");
+        std::fs::create_dir_all(pi.join("agent")).unwrap();
+        assert_eq!(detect_platform_for_repair(&pi), "pi");
+        let dsh = d.path().join(".dsh");
+        std::fs::create_dir_all(dsh.join("profiles")).unwrap();
+        std::fs::create_dir_all(dsh.join("storages")).unwrap();
+        assert_eq!(detect_platform_for_repair(&dsh), "dsh");
+        // openclaw 看文件；deerflow 看目录
+        let oc = d.path().join(".openclaw");
+        std::fs::create_dir_all(&oc).unwrap();
+        std::fs::write(oc.join("openclaw.json"), "{}").unwrap();
+        assert_eq!(detect_platform_for_repair(&oc), "openclaw");
+        let df = d.path().join("deer-flow");
+        std::fs::create_dir_all(df.join("backend/app/gateway")).unwrap();
+        assert_eq!(detect_platform_for_repair(&df), "deerflow");
+        assert_eq!(
+            detect_platform_for_repair(&d.path().join("nope")),
+            "unknown"
+        );
+    }
+
+    #[test]
+    fn failing_file_checks_honours_glob_and_marker() {
+        let d = tempfile::tempdir().unwrap();
+        let home = d.path().join(".hermes");
+        std::fs::create_dir_all(&home).unwrap();
+        // 资源全缺 ⇒ hermes 的文件类检查应有命中失败项
+        let missing = failing_file_checks("hermes", &home.to_string_lossy(), d.path());
+        assert!(!missing.is_empty(), "缺资源时应报出失败项");
+        // 注册表自带的 fix 提示必须原样可读（供 repair 打印）
+        assert!(missing
+            .iter()
+            .all(|ch| ch.get("id").is_some() || ch.get("path").is_some()));
+    }
+
+    #[test]
+    fn runtime_resources_skips_when_root_unresolvable() {
+        // 平台根解析不出 ⇒ 明确跳过（不 spawn 安装、不报成功）
+        let d = tempfile::tempdir().unwrap();
+        let ah = d.path().join("aimail");
+        std::fs::create_dir_all(ah.join("systems/s1")).unwrap();
+        std::env::set_var("AIMAIL_HOME", &ah);
+        let r = runtime_resources("s1", "/nonexistent-platform-root", &ah);
+        std::env::remove_var("AIMAIL_HOME");
+        assert!(!r);
     }
 }
