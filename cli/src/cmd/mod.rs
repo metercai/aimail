@@ -10,6 +10,8 @@ pub mod check;
 pub mod domain;
 pub mod install;
 pub mod persona;
+pub mod ping;
+pub mod renew;
 pub mod report;
 pub mod reset;
 pub mod stats;

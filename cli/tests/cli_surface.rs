@@ -58,6 +58,11 @@ const IMPLEMENTED: &[&str] = &[
     "uninstall",
     // bridge：status/按系统重刷已接线；--restart/--upgrade（部署面）在 P2 切片3 前**响亮未移植**。
     "bridge",
+    // renew：只读视图 + 续期（rust 原生 HTTP）。**已登记分歧**：Python 解析失败后仍会拿空 key
+    // 打默认网关（生产）⇒ 本实现打印同样文案后 rc=1 且不发网络。
+    "renew",
+    // ping：身份链 + SMTP（rustls STARTTLS）+ 三阶段日志判定。真机路径见 CLI L2 门禁。
+    "ping",
 ];
 
 static SEQ: AtomicU32 = AtomicU32::new(0);

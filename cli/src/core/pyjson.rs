@@ -57,3 +57,87 @@ mod tests {
         assert_eq!(dumps_python(&v2), "{\"k\": \"a\\\\b\", \"n\": 1}");
     }
 }
+
+/// Python `repr()` 的等价物（**报文用**）：`{'a': 1, 'b': True}` / `[1, 'x']` / `None`。
+///
+/// 为什么要它：Python 侧大量 `_fail(f"… failed: {r}")` 打的是 **dict 的 repr**（单引号，
+/// 与 `json.dumps` 的双引号不同）⇒ 逐字比对时不能用 `dumps_python`。键序沿用 `preserve_order`。
+pub fn repr_python(v: &Value) -> String {
+    match v {
+        Value::Null => "None".to_string(),
+        Value::Bool(true) => "True".to_string(),
+        Value::Bool(false) => "False".to_string(),
+        Value::Number(n) => n.to_string(),
+        Value::String(s) => repr_str(s),
+        Value::Array(a) => {
+            let items: Vec<String> = a.iter().map(repr_python).collect();
+            format!("[{}]", items.join(", "))
+        }
+        Value::Object(o) => {
+            let items: Vec<String> = o
+                .iter()
+                .map(|(k, val)| format!("{}: {}", repr_str(k), repr_python(val)))
+                .collect();
+            format!("{{{}}}", items.join(", "))
+        }
+    }
+}
+
+/// Python 字符串 repr 的引号/转义规则（无单引号且有双引号 ⇒ 用单引号；否则按需切换）。
+fn repr_str(s: &str) -> String {
+    let has_single = s.contains('\'');
+    let has_double = s.contains('"');
+    let quote = if has_single && !has_double { '"' } else { '\'' };
+    let mut out = String::new();
+    out.push(quote);
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c == quote => {
+                out.push('\\');
+                out.push(c);
+            }
+            c => out.push(c),
+        }
+    }
+    out.push(quote);
+    out
+}
+
+/// Python `str()` 的等价物（f-string 里 `{r.get('k')}` 打的就是它）：字符串**不带引号**、
+/// `None`→"None"、`True`→"True"；容器与 `repr` 相同。
+pub fn str_python(v: Option<&Value>) -> String {
+    match v {
+        None | Some(Value::Null) => "None".to_string(),
+        Some(Value::String(s)) => s.clone(),
+        Some(other) => repr_python(other),
+    }
+}
+
+#[cfg(test)]
+mod repr_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn repr_matches_python_shapes() {
+        assert_eq!(repr_python(&json!(null)), "None");
+        assert_eq!(repr_python(&json!(true)), "True");
+        assert_eq!(repr_python(&json!(0)), "0");
+        assert_eq!(repr_python(&json!("x")), "'x'");
+        // 含单引号的串 ⇒ 切双引号（CPython 规则）
+        assert_eq!(repr_python(&json!("it's")), "\"it's\"");
+        assert_eq!(
+            repr_python(&json!({"status": 400, "error": "bad"})),
+            "{'status': 400, 'error': 'bad'}"
+        );
+        assert_eq!(repr_python(&json!([1, "x", false])), "[1, 'x', False]");
+        assert_eq!(
+            repr_python(&json!({"a": {"b": null}})),
+            "{'a': {'b': None}}"
+        );
+    }
+}

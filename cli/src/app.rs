@@ -99,6 +99,78 @@ const PROMPT_SUBCOMMANDS: &[(&str, &str)] = &[
 /// 其余是 install 的隐藏开关）。隐藏 = clap `hide(true)`，人面 help 不得出现。
 /// `install` 的参数（Python `cli/aimail:3462-3490`：人面 9 个 + 隐藏机器面 6 个）。
 /// 隐藏项的注册顺序与 Python 一致（usage 行只显示人面）。
+fn ping_args(cmd: Command) -> Command {
+    cmd.arg(
+        Arg::new("system-id")
+            .short('s')
+            .long("system-id")
+            .value_name("ID")
+            .help("system id"),
+    )
+    .arg(
+        Arg::new("agent-home")
+            .long("agent-home")
+            .value_name("DIR")
+            .help("agent system home (Hermes=~/.hermes, OpenClaw=~/.openclaw)"),
+    )
+    .arg(
+        Arg::new("agent")
+            .long("agent")
+            .value_name("ID")
+            .help("agent identity (locates the mail dir)"),
+    )
+    .arg(
+        Arg::new("manager")
+            .long("manager")
+            .value_name("ADDR")
+            .help("sender (manager) address, default config.manager_address"),
+    )
+    .arg(
+        Arg::new("timeout")
+            .long("timeout")
+            .value_name("SECS")
+            .default_value("120")
+            .help("how long to wait for the pong (seconds)"),
+    )
+    .arg(
+        Arg::new("no-snapshot")
+            .long("no-snapshot")
+            .action(ArgAction::SetTrue)
+            .help("skip the raw mail snapshot check"),
+    )
+}
+
+fn renew_args(cmd: Command) -> Command {
+    cmd.arg(
+        Arg::new("system-id")
+            .short('s')
+            .long("system-id")
+            .value_name("ID")
+            .help("system id (unique local system is picked automatically when omitted)"),
+    )
+    .arg(
+        Arg::new("code")
+            .short('c')
+            .long("code")
+            .value_name("CODE")
+            .help("product activation code (omit for read-only expiry view)"),
+    )
+    .arg(
+        Arg::new("status")
+            .short('t')
+            .long("status")
+            .action(ArgAction::SetTrue)
+            .help("read-only expiry & quota view (no code consumed)"),
+    )
+    .arg(
+        Arg::new("gateway-url")
+            .short('g')
+            .long("gateway-url")
+            .value_name("URL")
+            .help("gateway base URL (default: existing config or AIMAIL_URL)"),
+    )
+}
+
 fn bridge_args(cmd: clap::Command) -> clap::Command {
     cmd.arg(
         Arg::new("home")
@@ -471,6 +543,8 @@ pub fn build_cli() -> Command {
             "address" => sub = address_hidden_args(address_view_args(sub)),
             "reset" => sub = reset_args(sub),
             "bridge" => sub = bridge_args(sub),
+            "renew" => sub = renew_args(sub),
+            "ping" => sub = ping_args(sub),
             "uninstall" => sub = uninstall_args(sub),
             "stats" => sub = stats_args(sub),
             "check" => sub = check_args(sub),
@@ -525,6 +599,20 @@ pub fn run() -> i32 {
             gateway_url: arg_str(m, "gateway-url"),
             yes: m.get_flag("yes"),
             platform: arg_str(m, "platform"),
+        }),
+        Some(("ping", m)) => crate::cmd::ping::run(&crate::cmd::ping::Args {
+            system_id: arg_str(m, "system-id"),
+            agent_home: arg_str(m, "agent-home"),
+            agent: arg_str(m, "agent"),
+            manager: arg_str(m, "manager"),
+            timeout: arg_str(m, "timeout").parse().unwrap_or(120),
+            no_snapshot: m.get_flag("no-snapshot"),
+        }),
+        Some(("renew", m)) => crate::cmd::renew::run(&crate::cmd::renew::Args {
+            system_id: arg_str(m, "system-id"),
+            code: m.get_one::<String>("code").cloned(),
+            status: m.get_flag("status"),
+            gateway_url: m.get_one::<String>("gateway-url").cloned(),
         }),
         Some(("bridge", m)) => crate::cmd::bridge::run(&crate::cmd::bridge::Args {
             system_id: arg_str(m, "system-id"),

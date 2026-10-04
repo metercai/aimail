@@ -16,11 +16,13 @@ dependencies = [
  "glob",
  "hmac",
  "md-5",
+ "rustls",
  "serde_json",
  "sha2",
  "tempfile",
  "toml",
  "ureq",
+ "webpki-roots 1.0.9",
  "yaml-rust2",
  "zip",
 ]
