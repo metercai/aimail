@@ -205,8 +205,8 @@ pub fn run(a: &Args) -> i32 {
             ok("registration chain re-run (idempotent)");
         }
     }
-    // 路由对账：Python 走桥命令面（`_ensure_inbound_routes`）——桥未移植（P2 依赖）⇒ 明确告警
-    warn("route ensure skipped: 未移植(bridge 命令面, P2 依赖)");
+    // 路由对账：`_ensure_inbound_routes` 等价物（best-effort，永不改 rc）
+    crate::core::bridge_wire::ensure_inbound_routes(&sid);
     println!("  建议: aimail check --system-id {sid}");
     0
 }

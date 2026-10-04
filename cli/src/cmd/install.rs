@@ -6,7 +6,8 @@
 //! · `--payload install`（写载荷，含 stamp/清理）· `--system-only`（L1 激活/复用，单行 JSON ABI）
 //! · **人路径**（`cli/aimail:836-1072`）：激活/复用 worker（`core::setup`）→ domain 预置/创建 →
 //!   平台接线（`core::steps` 表驱动）→ 容器 runtime 记录。
-//!   两处**桥相关**面明确未移植（P2 依赖）并**响亮告警**：远端网关的 bridge 部署、路由对账
+//!   桥相关面：路由对账已接线（`core::bridge_wire`）；**远端网关的 bridge 部署**仍未移植
+//!   （deploy_bridge，P2 切片3）并响亮告警
 //!   —— 不是"尝试失败"，而是"尚未实现"，必须能分辨。
 //!
 //! 未移植清单在 `cli/tests/cli_surface.rs::unported_faces_are_honest` 里钉住。
@@ -918,7 +919,8 @@ fn install_human(a: &Args) -> i32 {
     }
 
     // 路由侧：每地址的桥路由在平台步之后确保（桥未移植 ⇒ 明确告警）
-    warn("route ensure skipped: 未移植(bridge 命令面, P2 依赖)");
+    // 路由对账（`_ensure_inbound_routes`）：best-effort，永不改 rc
+    crate::core::bridge_wire::ensure_inbound_routes(&sid2);
 
     let tail = if a.system_id.is_empty() {
         String::new()

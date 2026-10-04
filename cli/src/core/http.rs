@@ -62,10 +62,21 @@ pub fn raw_req(
     content_type: Option<&str>,
     timeout_secs: u64,
 ) -> Result<(u16, String), String> {
+    let method = if data.is_some() { "POST" } else { "GET" };
+    raw_req_method(method, url, data, content_type, timeout_secs)
+}
+
+/// 同上但显式给方法（桥 admin API 需要 `DELETE /api/v1/routes/:email`）。
+pub fn raw_req_method(
+    method: &str,
+    url: &str,
+    data: Option<&[u8]>,
+    content_type: Option<&str>,
+    timeout_secs: u64,
+) -> Result<(u16, String), String> {
     let agent = ureq::AgentBuilder::new()
         .timeout(Duration::from_secs(timeout_secs.max(1)))
         .build();
-    let method = if data.is_some() { "POST" } else { "GET" };
     let mut req = agent.request(method, url);
     if let Some(ct) = content_type {
         req = req.set("Content-Type", ct);
@@ -81,8 +92,9 @@ pub fn raw_req(
             Ok((status, text))
         }
         Err(ureq::Error::Status(code, resp)) => {
-            let text = resp.into_string().unwrap_or_default();
-            Ok((code, text))
+            // HTTP 错误也算"可达"：状态码 + 原因短语交给调用方（镜像 Python 的 HTTPError）
+            let reason = resp.status_text().to_string();
+            Ok((code, reason))
         }
         Err(e) => Err(e.to_string()),
     }
