@@ -304,10 +304,14 @@ pub fn register_agent(
                     o.insert("manager_address".into(), Value::String(mgr.clone()));
                 }
             }
-            let module = format!(
-                "aimail_{}",
-                rdef.get("module").and_then(Value::as_str).unwrap_or("")
-            );
+            // 模块名**用注册表原值**：Python 侧候选链是 `aimail.<module>` → `module`，
+            // 适配层实际就在 `pysdk/<platform>/<module>.py`（该目录经 PYTHONPATH 注入）。
+            // 曾经的 `aimail_{module}` 会拼成 `aimail_aimail_hermes` ⇒ ImportError（L2 实测）。
+            let module = rdef
+                .get("module")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
             let fn_name = rdef.get("fn").and_then(Value::as_str).unwrap_or("");
             let mut env: Vec<(String, String)> = Vec::new();
             if !extra_paths.is_empty() {
