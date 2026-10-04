@@ -250,6 +250,15 @@ impl Step {
                     StepResult::NothingToDo
                 }
             }
+            // 第 11 步（--deep）：把卡住的 pending 全部 ack（兜底清理）
+            Step::DrainStuck => {
+                let client = gateway_client(sid);
+                if drain_stuck(&client) {
+                    StepResult::Fixed
+                } else {
+                    StepResult::NothingToDo
+                }
+            }
             _ => StepResult::NotPorted,
         }
     }
@@ -835,6 +844,126 @@ pub fn repair_pointer(
     true
 }
 
+/// 与 `aimail_gateway.json` 同义的网关客户端（`repair.py:72-80` 的 `_gateway_client`）。
+/// 缺 `gateway_url`/`admin_key` ⇒ None（调用方据此打印"客户端不可用"的提示，而不是抛错）。
+pub fn gateway_client(sid: &str) -> Option<crate::core::gateway::GatewayClient> {
+    let gw = config::load_gateway_config_in(&crate::core::home::aimail_home(), sid)?;
+    let obj = gw.to_json();
+    let url = obj.get("gateway_url").and_then(Value::as_str).unwrap_or("");
+    let key = obj.get("admin_key").and_then(Value::as_str).unwrap_or("");
+    if url.is_empty() || key.is_empty() {
+        return None;
+    }
+    Some(crate::core::gateway::GatewayClient::with_defaults(url, key))
+}
+
+/// pending 查询返回体 → `batches` 列表（`repair.py:281`：`pend["batches"]`，退回顶层数组/`data`）。
+pub fn pending_batches(pend: &Value) -> Vec<Value> {
+    if let Some(Value::Array(a)) = pend.get("batches") {
+        return a.clone();
+    }
+    if let Value::Array(a) = pend {
+        return a.clone();
+    }
+    if let Some(Value::Array(a)) = pend.get("data") {
+        return a.clone();
+    }
+    Vec::new()
+}
+
+/// 空签名证据：headers 里既无 `X-Webhook-Signature` 也无 `-V2` 的投递 ⇒ `(id, email)`
+/// （`repair.py:282-290`；`id` 可能是 None = --deep 的人造目标）。
+pub fn pending_empties(pend: &Value) -> Vec<(Option<String>, String)> {
+    let mut out = Vec::new();
+    for b in pending_batches(pend) {
+        let Some(deliveries) = b.get("deliveries").and_then(Value::as_array) else {
+            continue;
+        };
+        for d in deliveries {
+            let hs = d
+                .get("headers")
+                .and_then(Value::as_str)
+                .and_then(|t| serde_json::from_str::<Value>(t).ok())
+                .unwrap_or_else(|| serde_json::json!({}));
+            let has_sig = hs
+                .get("X-Webhook-Signature")
+                .map(|v| !v.is_null())
+                .unwrap_or(false)
+                || hs
+                    .get("X-Webhook-Signature-V2")
+                    .map(|v| !v.is_null())
+                    .unwrap_or(false);
+            if !has_sig {
+                out.push((
+                    d.get("id").map(|v| {
+                        v.as_str()
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| v.to_string())
+                    }),
+                    d.get("email")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                ));
+            }
+        }
+    }
+    out
+}
+
+/// 卡住判定（`repair.py:355-366`）：`created_at` 龄期 > 600s ⇒ 收集 id；时间不可解析 ⇒ 跳过该条。
+pub fn stuck_pending_ids(pend: &Value, now: i64) -> Vec<String> {
+    let mut stuck = Vec::new();
+    for b in pending_batches(pend) {
+        let Some(deliveries) = b.get("deliveries").and_then(Value::as_array) else {
+            continue;
+        };
+        for d in deliveries {
+            let created = d.get("created_at").and_then(Value::as_str).unwrap_or("");
+            let Some(ts) = crate::core::time::parse_rfc3339_secs(created) else {
+                continue;
+            };
+            if now - ts > 600 {
+                if let Some(id) = d.get("id") {
+                    stuck.push(
+                        id.as_str()
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| id.to_string()),
+                    );
+                }
+            }
+        }
+    }
+    stuck
+}
+
+/// `_drain_stuck`（`repair.py:344-373`，`--deep` 的第 11 步）：把卡住的 pending 全部 ack 兜底。
+pub fn drain_stuck(client: &Option<crate::core::gateway::GatewayClient>) -> bool {
+    let Some(c) = client else {
+        return false;
+    };
+    let pend = c.post(
+        "/api/v1/admin/pending",
+        &serde_json::json!({"filter": [], "emails": []}),
+    );
+    if let Some(err) = pend.get("error") {
+        warn(&format!("pending query failed: {err}"));
+        return false;
+    }
+    let stuck = stuck_pending_ids(&pend, crate::core::time::now_secs());
+    for id in &stuck {
+        let res = c.post(
+            "/api/v1/admin/pending/ack",
+            &serde_json::json!({"ids": [id]}),
+        );
+        match res.get("error") {
+            Some(e) => warn(&format!("ack {id} failed: {e}")),
+            None => ok(&format!("ack stuck pending id={id}")),
+        }
+    }
+    !stuck.is_empty()
+}
+
 /// `_detect_platform_from_home`（`repair.py:394-407`）：**repaired 侧的手写判定变体**。
 ///
 /// 与另两处平台判定**不同**（各自照抄，不合并）：hermes 用 `markers 任一` 的 OR；openclaw 看
@@ -1306,5 +1435,110 @@ mod tests {
         let r = runtime_resources("s1", "/nonexistent-platform-root", &ah);
         std::env::remove_var("AIMAIL_HOME");
         assert!(!r);
+    }
+
+    #[test]
+    fn pending_batches_and_empties_match_python_reads() {
+        let pend = serde_json::json!({"batches": [{"deliveries": [
+            {"id": "d1", "email": "a@example.test", "headers": "{\"X-Webhook-Signature\": \"sig\"}"},
+            {"id": "d2", "email": "b@example.test", "headers": "{}"},
+            {"id": "d3", "email": "c@example.test", "headers": "not-json"},
+            {"id": "d4", "email": "d@example.test", "headers": "{\"X-Webhook-Signature-V2\": \"v2\"}"}
+        ]}]});
+        assert_eq!(pending_batches(&pend).len(), 1);
+        // 空签名证据 = d2（无签名头）+ d3（headers 非 JSON ⇒ 视作 {} ⇒ 也无签名），d1/d4 有签名
+        let empties = pending_empties(&pend);
+        let ids: Vec<String> = empties.iter().filter_map(|(i, _)| i.clone()).collect();
+        assert_eq!(ids, vec!["d2".to_string(), "d3".to_string()]);
+        assert_eq!(empties[0].1, "b@example.test");
+        // 顶层数组 / data 数组两种返回形状都要认
+        assert_eq!(
+            pending_batches(&serde_json::json!([{"deliveries": []}])).len(),
+            1
+        );
+        assert_eq!(
+            pending_batches(&serde_json::json!({"data": [{"deliveries": []}]})).len(),
+            1
+        );
+        assert!(pending_batches(&serde_json::json!({"ok": true})).is_empty());
+    }
+
+    #[test]
+    fn stuck_pending_ids_uses_600s_age_and_skips_unparseable() {
+        let now = crate::core::time::parse_rfc3339_secs("2026-10-04T12:00:00Z").unwrap();
+        let pend = serde_json::json!({"batches": [{"deliveries": [
+            {"id": "old", "created_at": "2026-10-04T11:00:00Z"},   // 3600s 前 ⇒ 卡住
+            {"id": "fresh", "created_at": "2026-10-04T11:59:30Z"},  // 30s 前 ⇒ 不卡
+            {"id": "bad", "created_at": "not-a-time"}               // 不可解析 ⇒ 跳过（Python 同判）
+        ]}]});
+        assert_eq!(stuck_pending_ids(&pend, now), vec!["old".to_string()]);
+    }
+
+    #[test]
+    fn drain_stuck_posts_pending_then_acks_only_stuck() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        listener.set_nonblocking(true).unwrap();
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let seen2 = seen.clone();
+        let h = std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+            let mut served = 0;
+            while std::time::Instant::now() < deadline && served < 4 {
+                match listener.accept() {
+                    Ok((mut sock, _)) => {
+                        let mut buf = [0u8; 4096];
+                        let n = sock.read(&mut buf).unwrap_or(0);
+                        let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                        let first = req.lines().next().unwrap_or("").to_string();
+                        let body = req.split("\r\n\r\n").nth(1).unwrap_or("").to_string();
+                        seen2.lock().unwrap().push(format!("{first} | {body}"));
+                        let payload = if first.contains("/pending/ack") {
+                            "{\"ok\":true}"
+                        } else {
+                            "{\"batches\":[{\"deliveries\":[
+                                {\"id\":\"old\",\"email\":\"a@example.test\",\"created_at\":\"2000-01-01T00:00:00Z\"},
+                                {\"id\":\"fresh\",\"email\":\"b@example.test\",\"created_at\":\"2999-01-01T00:00:00Z\"}
+                            ]}]}"
+                        };
+                        let resp = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                            payload.len(),
+                            payload
+                        );
+                        let _ = sock.write_all(resp.as_bytes());
+                        let _ = sock.flush();
+                        served += 1;
+                    }
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(std::time::Duration::from_millis(20));
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+        let client = crate::core::gateway::GatewayClient::with_defaults(
+            &format!("http://127.0.0.1:{port}"),
+            "k",
+        );
+        let changed = drain_stuck(&Some(client));
+        h.join().ok();
+        assert!(changed, "有卡住的 pending ⇒ 应报告已处理");
+        let log = seen.lock().unwrap().clone();
+        assert!(
+            log[0].starts_with("POST /api/v1/admin/pending ") && log[0].contains("\"filter\":[]"),
+            "首个请求应是 pending 查询: {log:?}"
+        );
+        assert!(
+            log.iter()
+                .any(|l| l.contains("/pending/ack") && l.contains("\"old\"")),
+            "应只 ack 卡住的那条: {log:?}"
+        );
+        assert!(
+            !log.iter().any(|l| l.contains("\"fresh\"")),
+            "新鲜的投递不该被 ack: {log:?}"
+        );
     }
 }
