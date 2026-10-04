@@ -41,7 +41,10 @@ FROZEN_PROMPT_SUBCOMMANDS = ("add", "list", "rm", "test", "create-file")
 
 #: Rust 侧已实现、可做逐字等价比对的**调用**（含参数；随 S3–S9 增长）。
 RUST_PARITY_INVOCATIONS = (
-    ("version",),
+    # `version` **不做跨语言逐字比对**：rust 化后 CLI 版本线独立（Cargo.toml），
+    # 与仍在过渡期的 Python CLI（读仓根 pyproject）**本就应不同值**；
+    # 形态（`aimail X.Y.Z` 单行）与"真源 = cli/Cargo.toml"由 advanced 的
+    # `cases/a1_command_surface.py` 与下方 test_rust_version_subcommand_and_cargo_version_agree 覆盖。
     ("stats",),
     ("stats", "-a"),
     ("persona",),
@@ -203,17 +206,31 @@ def test_python_frozen_prompt_subcommand_surface(tmp_path):
 
 
 def test_rust_version_subcommand_and_cargo_version_agree():
-    """版本真源 = 仓根 pyproject.toml；Cargo.toml 与 pysdk/__init__.py 必须同值。"""
-    pyproject = (REPO / "pyproject.toml").read_text(encoding="utf-8")
+    """**CLI 版本线独立**（owner 2026-10-04 裁决）：真源 = `cli/Cargo.toml`。
+
+    与 SDK 版本（仓根 `pyproject.toml` / `pysdk/__init__.py`）**解耦**，不要求同值 ——
+    rust 化后 CLI 与 SDK 是两个子项目、两条版本线、两套门禁。此处只断言
+    "二进制报的版本来自 Cargo.toml"（`env!("CARGO_PKG_VERSION")` 结构性绑定），
+    另加一条**反向棘轮**：CLI 源码里不得再出现"版本 == pyproject"式的耦合断言。
+    """
     cargo = (REPO / "cli" / "Cargo.toml").read_text(encoding="utf-8")
+    m_cargo = re.search(r'^version\s*=\s*"([^"]+)"', cargo, re.M)
+    assert m_cargo, "cli/Cargo.toml 缺少 version 字段（CLI 版本身份真源）"
+    ver = m_cargo.group(1)
+    assert re.match(r"^\d+\.\d+\.\d+$", ver), f"CLI 版本号形态异常: {ver!r}"
+    src = (REPO / "cli" / "src" / "cmd" / "version.rs").read_text(encoding="utf-8")
+    assert 'env!("CARGO_PKG_VERSION")' in src, (
+        "version 子命令必须取 CARGO_PKG_VERSION（= cli/Cargo.toml），否则版本身份会漂移"
+    )
+    # SDK 侧的两个版本源仍必须互相一致（那是 SDK 自己的不变量，与 CLI 无关）
+    pyproject = (REPO / "pyproject.toml").read_text(encoding="utf-8")
     init = (REPO / "pysdk" / "__init__.py").read_text(encoding="utf-8")
     m_py = re.search(r'^version\s*=\s*"([^"]+)"', pyproject, re.M)
-    m_cargo = re.search(r'^version\s*=\s*"([^"]+)"', cargo, re.M)
     m_init = re.search(r'__version__\s*=\s*"([^"]+)"', init)
-    assert m_py and m_cargo and m_init, "版本字段没找到（pyproject / cli/Cargo.toml / pysdk/__init__.py）"
-    want, got_cargo, got_init = m_py.group(1), m_cargo.group(1), m_init.group(1)
-    assert got_cargo == want, f"cli/Cargo.toml version {got_cargo} != pyproject {want}"
-    assert got_init == want, f"pysdk/__init__.py version {got_init} != pyproject {want}"
+    assert m_py and m_init, "SDK 版本字段没找到"
+    assert m_py.group(1) == m_init.group(1), (
+        f"SDK 双源漂移: pyproject={m_py.group(1)} pysdk={m_init.group(1)}"
+    )
 
 
 def test_rust_parity_with_python(tmp_path):
