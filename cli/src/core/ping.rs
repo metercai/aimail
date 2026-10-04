@@ -252,3 +252,21 @@ pub fn snapshot_line(mail_dir: &std::path::Path, sid: &str, agent: &str) -> Stri
         )
     }
 }
+
+/// epoch 秒 → (年, 月, 日, 时, 分, 秒) UTC（民用历，Howard Hinnant 算法）。
+pub fn epoch_to_utc_parts(ts: i64) -> (i64, u32, u32, u32, u32, u32) {
+    let days = ts.div_euclid(86400);
+    let rem = ts.rem_euclid(86400);
+    let (hh, mm, ss) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+    let z = days + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z.rem_euclid(146097);
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    let y = if m <= 2 { y + 1 } else { y };
+    (y, m, d, hh as u32, mm as u32, ss as u32)
+}
