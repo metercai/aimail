@@ -19,13 +19,13 @@ pub struct Args {
 }
 
 /// 邮箱 local-part 的字符归一（`[^A-Za-z0-9!#$%&'*+\-/=?^_`{|}~]` → `_`）。
-fn sanitize_local(name: &str) -> String {
+pub(crate) fn sanitize_local(name: &str) -> String {
     let ok = |c: char| c.is_ascii_alphanumeric() || "!#$%&'*+-/=?^_`{|}~".contains(c);
     name.chars().map(|c| if ok(c) { c } else { '_' }).collect()
 }
 
 /// `email_for_agent`：共享域拼 `<name>.<system_name>@<domain>`。
-fn email_for_agent(name: &str, domain: &str, system_name: &str) -> String {
+pub(crate) fn email_for_agent(name: &str, domain: &str, system_name: &str) -> String {
     let base = {
         let s = sanitize_local(name);
         if s.is_empty() {
@@ -42,7 +42,7 @@ fn email_for_agent(name: &str, domain: &str, system_name: &str) -> String {
 }
 
 /// `_main_agent_email`：显式默认名 → 首个本地已注册绑定 → 别名归一。
-fn main_agent_email(cfg: &serde_json::Value) -> String {
+pub(crate) fn main_agent_email(cfg: &serde_json::Value) -> String {
     let dom = cfg.get("domain").and_then(|v| v.as_str()).unwrap_or("");
     let sysname = cfg
         .get("system_name")

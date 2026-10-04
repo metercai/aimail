@@ -18,3 +18,4 @@ pub mod stats;
 pub mod stub;
 pub mod uninstall;
 pub mod version;
+pub mod welcome;

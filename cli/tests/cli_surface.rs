@@ -63,6 +63,9 @@ const IMPLEMENTED: &[&str] = &[
     "renew",
     // ping：身份链 + SMTP（rustls STARTTLS）+ 三阶段日志判定。真机路径见 CLI L2 门禁。
     "ping",
+    // welcome：API 模式（默认，admin key → /api/v1/system/welcome → 轮询回复 → 身份审批）+
+    // SMTP 模式（--smtp）。出口语义 0/1/2（拿不到草案 ⇒ 2，不假装成功）。真机路径见 CLI L2。
+    "welcome",
 ];
 
 static SEQ: AtomicU32 = AtomicU32::new(0);

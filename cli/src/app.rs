@@ -99,6 +99,39 @@ const PROMPT_SUBCOMMANDS: &[(&str, &str)] = &[
 /// 其余是 install 的隐藏开关）。隐藏 = clap `hide(true)`，人面 help 不得出现。
 /// `install` 的参数（Python `cli/aimail:3462-3490`：人面 9 个 + 隐藏机器面 6 个）。
 /// 隐藏项的注册顺序与 Python 一致（usage 行只显示人面）。
+fn welcome_args(cmd: Command) -> Command {
+    // 帮助文本逐字取自 Python（`cli/aimail`，common_sid/common_mgr）
+    cmd.arg(
+        Arg::new("system-id")
+            .short('s')
+            .long("system-id")
+            .value_name("ID")
+            .help(SID_HELP),
+    )
+    .arg(
+        Arg::new("manager")
+            .short('m')
+            .long("manager")
+            .value_name("ADDR")
+            .help("manager address (cc in API mode; From in SMTP mode)"),
+    )
+    .arg(
+        Arg::new("no-wait")
+            .short('w')
+            .long("no-wait")
+            .action(ArgAction::SetTrue)
+            .help("do not wait for the draft reply"),
+    )
+    .arg(
+        Arg::new("smtp")
+            .long("smtp")
+            .action(ArgAction::SetTrue)
+            .help(
+                "SMTP mode, direct 25-port send (default: API mode via the gateway system sender)",
+            ),
+    )
+}
+
 fn ping_args(cmd: Command) -> Command {
     cmd.arg(
         Arg::new("system-id")
@@ -545,6 +578,7 @@ pub fn build_cli() -> Command {
             "bridge" => sub = bridge_args(sub),
             "renew" => sub = renew_args(sub),
             "ping" => sub = ping_args(sub),
+            "welcome" => sub = welcome_args(sub),
             "uninstall" => sub = uninstall_args(sub),
             "stats" => sub = stats_args(sub),
             "check" => sub = check_args(sub),
@@ -599,6 +633,12 @@ pub fn run() -> i32 {
             gateway_url: arg_str(m, "gateway-url"),
             yes: m.get_flag("yes"),
             platform: arg_str(m, "platform"),
+        }),
+        Some(("welcome", m)) => crate::cmd::welcome::run(&crate::cmd::welcome::Args {
+            system_id: arg_str(m, "system-id"),
+            manager: arg_str(m, "manager"),
+            no_wait: m.get_flag("no-wait"),
+            smtp: m.get_flag("smtp"),
         }),
         Some(("ping", m)) => crate::cmd::ping::run(&crate::cmd::ping::Args {
             system_id: arg_str(m, "system-id"),
