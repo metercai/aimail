@@ -39,6 +39,7 @@ pub mod smtp;
 pub mod steps;
 pub mod style;
 pub mod time;
+pub mod welcome;
 
 #[cfg(test)]
 pub(crate) mod testutil {

@@ -126,6 +126,94 @@ pub fn auth_from(api_key: &str, manager: &str, edition: &str) -> String {
     }
 }
 
+/// 通用发送（ping 与 welcome 同机制）：连 host:port → banner → EHLO → 可选 STARTTLS → 重新 EHLO
+/// → MAIL FROM → RCPT TO → DATA → 报文（逐字节，`\n`→`\r\n`；welcome 侧另有"不以 \n 结尾补一行"的既有差异）
+/// → `.` → 读 DATA end 响应。返回响应串（调用方判 `250` 前缀）。
+pub struct SmtpJob<'a> {
+    /// 用来取 HOST 的 URL（含端口会被正确剥掉）
+    pub url_for_host: &'a str,
+    pub port: u16,
+    pub ehlo_name: &'a str,
+    pub mail_from: &'a str,
+    pub rcpt: &'a str,
+    pub raw_message: &'a str,
+    /// welcome 侧既有差异：报文不以 `\n` 结尾时补一行（ping 恒为 false，报文本身以 `\n` 结尾）
+    pub ensure_trailing_newline: bool,
+    pub timeout_secs: u64,
+}
+
+pub fn send_raw(job: &SmtpJob) -> String {
+    let (
+        url_for_host,
+        port,
+        ehlo_name,
+        mail_from,
+        rcpt,
+        raw_message,
+        ensure_trailing_newline,
+        timeout_secs,
+    ) = (
+        job.url_for_host,
+        job.port,
+        job.ehlo_name,
+        job.mail_from,
+        job.rcpt,
+        job.raw_message,
+        job.ensure_trailing_newline,
+        job.timeout_secs,
+    );
+    let host = smtp_host_from_url(url_for_host);
+    let sock = match TcpStream::connect((host.as_str(), port)) {
+        Ok(s) => s,
+        Err(e) => return format!("connect failed: {}", e),
+    };
+    let _ = sock.set_read_timeout(Some(std::time::Duration::from_secs(timeout_secs)));
+    let _ = sock.set_write_timeout(Some(std::time::Duration::from_secs(timeout_secs)));
+    let mut c = Conn::Plain(sock);
+    let mut buf = [0u8; 4096];
+    let mut banner = String::new();
+    if let Ok(n) = c.read(&mut buf) {
+        banner = String::from_utf8_lossy(&buf[..n]).trim().to_string();
+    }
+    if !banner.starts_with("220") {
+        return format!("SMTP banner failed: {}", banner);
+    }
+    let mut resp = smtp_cmd(&mut c, &format!("EHLO {}", ehlo_name));
+    if resp.to_uppercase().contains("STARTTLS") {
+        resp = smtp_cmd(&mut c, "STARTTLS");
+        if !resp.starts_with("220") {
+            return format!("STARTTLS failed: {}", resp);
+        }
+        match starttls(c, &host) {
+            Ok(tls) => c = tls,
+            Err(e) => return format!("STARTTLS TLS handshake failed: {}", e),
+        }
+        let _ = smtp_cmd(&mut c, &format!("EHLO {}", ehlo_name));
+    }
+    let resp = smtp_cmd(&mut c, &format!("MAIL FROM:<{}>", mail_from));
+    if !resp.starts_with("250") {
+        return format!("MAIL FROM failed: {}", resp);
+    }
+    let resp = smtp_cmd(&mut c, &format!("RCPT TO:<{}>", rcpt));
+    if !resp.starts_with("250") {
+        return format!("RCPT TO failed: {}", resp);
+    }
+    let resp = smtp_cmd(&mut c, "DATA");
+    if !resp.starts_with("354") {
+        return format!("DATA failed: {}", resp);
+    }
+    let _ = c.write_all(raw_message.replace('\n', "\r\n").as_bytes());
+    if ensure_trailing_newline && !raw_message.ends_with('\n') {
+        let _ = c.write_all(b"\r\n");
+    }
+    let _ = c.write_all(b".\r\n");
+    let _ = c.flush();
+    let out = smtp_cmd(&mut c, "");
+    let _ = c.write_all(b"QUIT\r\n");
+    let _ = c.flush();
+    out
+}
+
 /// `_smtp_send_ping`：返回 DATA end 的响应串（`250` 开头即成功）。
 pub fn send_ping(
     gw_url: &str,
@@ -135,63 +223,23 @@ pub fn send_ping(
     ping_id: &str,
     edition: &str,
 ) -> String {
-    let host = smtp_host_from_url(gw_url);
-    let auth_from = auth_from(api_key, manager, edition);
+    let mail_from = auth_from(api_key, manager, edition);
 
-    let sock = match TcpStream::connect((host.as_str(), 25)) {
-        Ok(s) => s,
-        Err(e) => return format!("connect failed: {}", e),
-    };
-    let _ = sock.set_read_timeout(Some(std::time::Duration::from_secs(15)));
-    let _ = sock.set_write_timeout(Some(std::time::Duration::from_secs(15)));
-    let mut c = Conn::Plain(sock);
-
-    // Banner：直接读，不发命令
-    let mut banner = String::new();
-    let mut buf = [0u8; 4096];
-    if let Ok(n) = c.read(&mut buf) {
-        banner = String::from_utf8_lossy(&buf[..n]).trim().to_string();
-    }
-    if !banner.starts_with("220") {
-        return format!("SMTP banner failed: {}", banner);
-    }
-    let mut resp = smtp_cmd(&mut c, "EHLO aimail-ping-test");
-    if resp.to_uppercase().contains("STARTTLS") {
-        resp = smtp_cmd(&mut c, "STARTTLS");
-        if !resp.starts_with("220") {
-            return format!("STARTTLS failed: {}", resp);
-        }
-        match starttls(c, &host) {
-            Ok(tls) => {
-                c = tls;
-            }
-            Err(e) => return format!("STARTTLS TLS handshake failed: {}", e),
-        }
-        let _ = smtp_cmd(&mut c, "EHLO aimail-ping-test");
-    }
-    let resp = smtp_cmd(&mut c, &format!("MAIL FROM:<{}>", auth_from));
-    if !resp.starts_with("250") {
-        return format!("MAIL FROM failed: {}", resp);
-    }
-    let resp = smtp_cmd(&mut c, &format!("RCPT TO:<{}>", email));
-    if !resp.starts_with("250") {
-        return format!("RCPT TO failed: {}", resp);
-    }
-    let resp = smtp_cmd(&mut c, "DATA");
-    if !resp.starts_with("354") {
-        return format!("DATA failed: {}", resp);
-    }
     let body = format!(
         "From: {}\nTo: {}\nSubject: {}{}\nMessage-ID: <ping-{}@aimail.token.tm>\n\nPing test message\n",
         manager, email, crate::core::ping::PING_PREFIX, ping_id, ping_id
     );
-    let _ = c.write_all(body.replace('\n', "\r\n").as_bytes());
-    let _ = c.write_all(b".\r\n");
-    let _ = c.flush();
-    let out = smtp_cmd(&mut c, "");
-    let _ = c.write_all(b"QUIT\r\n");
-    let _ = c.flush();
-    out
+    // ping 侧既有形态：报文以 \n 结尾 ⇒ ensure_trailing_newline 分支不触发（与 Python 同）
+    send_raw(&SmtpJob {
+        url_for_host: gw_url,
+        port: 25,
+        ehlo_name: "aimail-ping-test",
+        mail_from: &mail_from,
+        rcpt: email,
+        raw_message: &body,
+        ensure_trailing_newline: false,
+        timeout_secs: 15,
+    })
 }
 
 fn starttls(mut c: Conn, host: &str) -> Result<Conn, String> {
