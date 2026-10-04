@@ -248,7 +248,8 @@ fn unported_faces_are_honest() {
         &["address", "-s", "s1", "-m", "m@example.test"],
         &["address", "-s", "s1", "-d", "somename"],
         &["address", "-s", "s1", "-a", "agent", "--inbound-live"],
-        &["domain", "-s", "s1", "--add", "x.test"],
+        // `domain --add` 已于 P4 切片1 真实现（创建面）⇒ 从"未移植面"清单移出，
+        // 行为验收见 tests/domain_add.rs（stub 网关）。
     ];
     for args in cases {
         let (rc, out, err) = run_in(args, true);
