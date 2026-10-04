@@ -259,6 +259,29 @@ impl Step {
                     StepResult::NothingToDo
                 }
             }
+            // 第 1 步：桥存活（本地网关=直连模式 ⇒ 无需桥；否则 pid 探测，死了幂等起）
+            Step::BridgeAlive => {
+                if ensure_bridge_running(sid) {
+                    StepResult::Fixed
+                } else {
+                    StepResult::NothingToDo
+                }
+            }
+            // 第 2 步：重刷本系统路由 = 复用本仓 `bridge --system-id`（同一实现，不复刻）
+            Step::RefreshRoutes => {
+                let rc = crate::cmd::bridge::run(&crate::cmd::bridge::Args {
+                    system_id: sid.to_string(),
+                    home: String::new(),
+                    restart: false,
+                    upgrade: false,
+                    platform: String::new(),
+                });
+                if rc == 0 {
+                    StepResult::Fixed
+                } else {
+                    StepResult::NothingToDo
+                }
+            }
             _ => StepResult::NotPorted,
         }
     }
@@ -1328,6 +1351,56 @@ fn unquote(s: &str) -> String {
 
 fn trim_slash(url: &str) -> &str {
     url.trim_end_matches('/')
+}
+
+/// `repair.py:_ensure_bridge_running`：**先判模式**（本地网关=直连，无需桥）再探进程，
+/// 死了才幂等起（模式判定与 install 共用 `gateway::is_local_gateway` —— 2026-09-27 owner 裁决）。
+fn ensure_bridge_running(sid: &str) -> bool {
+    let sid = sid.trim();
+    let gw_url = if sid.is_empty() {
+        String::new()
+    } else {
+        crate::core::config::load_gateway_config_in(&crate::core::home::aimail_home(), sid)
+            .map(|c| c.gateway_url)
+            .unwrap_or_default()
+    };
+    if !gw_url.is_empty() && crate::core::gateway::is_local_gateway(&gw_url) {
+        ok("bridge: local gateway (direct mode) -- no bridge needed");
+        return true;
+    }
+    let pids = crate::core::bridge_deploy::bridge_pids_for_probe();
+    if !pids.is_empty() {
+        ok(&format!("bridge ok (already running pid={})", pids[0]));
+        return true;
+    }
+    warn("bridge not running -> starting it (deploy_bridge.start_bridge)");
+    let cfg = crate::core::bridge_wire::bridge_cfg_file();
+    let bin = cfg
+        .parent()
+        .map(|d| d.join("aimail-bridge"))
+        .unwrap_or_else(|| std::path::PathBuf::from("aimail-bridge"));
+    if !cfg.exists() || !bin.exists() {
+        fail("bridge not deployed (config/binary missing) -- run install first");
+        return false;
+    }
+    if crate::core::bridge_deploy::start_bridge(
+        &bin.to_string_lossy(),
+        &cfg.to_string_lossy(),
+        &crate::core::bridge_wire::bridge_pid_file().to_string_lossy(),
+    ) {
+        let pid = std::fs::read_to_string(crate::core::bridge_wire::bridge_pid_file())
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        ok(&format!(
+            "bridge started (pid={})",
+            if pid.is_empty() { "?".into() } else { pid }
+        ));
+        true
+    } else {
+        fail("bridge failed to start -- check ~/.aimail/bridge/aimail-bridge.log");
+        false
+    }
 }
 
 #[cfg(test)]
