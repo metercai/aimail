@@ -494,9 +494,60 @@ pub fn platform_root_exists(user_home: &std::path::Path, name: &str) -> bool {
     detect_platform_from_home(&root) == name
 }
 
+/// `_platform_override`（`cli/aimail:279-296`）：`--platform` 显式覆盖的取值校验。
+///
+/// 注册表是**唯一**知识源（静态门禁不许 CLI 出现平台名字面量）。空 ⇒ `None`；给了但注册表里
+/// 没有 ⇒ `Err(文案)`，**不静默回落**（打错字的 `--platform` 会被 home 特征探测悄悄顶掉，
+/// 用户看不到报错却按别的平台跑了 —— 2026-09-29 取证）。注意：**只认平台名**，别名（`hermes`
+/// 的 `default`、`openclaw` 的 `main`）同样按"未知"拒掉，与 Python 同判。
+pub fn platform_override(name: &str) -> Result<Option<String>, String> {
+    let p = name.trim();
+    if p.is_empty() {
+        return Ok(None);
+    }
+    if !order().contains(&p) {
+        let mut names: Vec<&str> = order().to_vec();
+        names.sort_unstable();
+        return Err(format!(
+            "--platform '{p}' unknown; valid: {}",
+            names.join(", ")
+        ));
+    }
+    Ok(Some(p.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn platform_override_validates_against_the_registry() {
+        // 空 ⇒ None（调用方继续走 detect/指针）
+        assert_eq!(platform_override("").unwrap(), None);
+        assert_eq!(platform_override("   ").unwrap(), None);
+        // 合法 = 注册表里的平台名
+        for n in order() {
+            assert_eq!(platform_override(n).unwrap().as_deref(), Some(n));
+        }
+        // 别名**不吃**（与 Python 同判：只在 platforms 键里查）
+        for (name, al) in all_aliases() {
+            for a in al {
+                let e = platform_override(&a).unwrap_err();
+                assert!(
+                    e.contains(&format!("--platform '{a}' unknown; valid: ")),
+                    "别名 {a}（{name}）必须按未知拒掉: {e}"
+                );
+            }
+        }
+        // 错误文案带全部合法值（升序、逗号分隔）
+        let e = platform_override("nope").unwrap_err();
+        let mut names: Vec<&str> = order().to_vec();
+        names.sort_unstable();
+        assert_eq!(
+            e,
+            format!("--platform 'nope' unknown; valid: {}", names.join(", "))
+        );
+    }
 
     #[test]
     fn registry_order_is_consistent_with_definitions() {

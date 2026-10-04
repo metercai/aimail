@@ -281,6 +281,17 @@ pub fn env_val(key: &str, fallback: &str) -> String {
 /// `_GATEWAY_URL_DEFAULT`（`cli/aimail:146`）：网关生产默认地址（非契约清单值）。
 pub const GATEWAY_URL_DEFAULT: &str = "https://aimail.token.tm";
 
+/// 系统层**原始** key 文件（`setup_system._persist_system_raw_key` 落盘、0600 三层收口）。
+/// 只读；缺失/不可读 ⇒ 空串（调用方接着走配置里的 admin_key，见 `cmd_reset`/`uninstall`）。
+pub const SYSTEM_RAW_KEY_FILE: &str = ".system_raw_key.key";
+
+pub fn read_system_raw_key(sid: &str) -> String {
+    let p = system_dir_in(&crate::core::home::aimail_home(), sid).join(SYSTEM_RAW_KEY_FILE);
+    std::fs::read_to_string(p)
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
