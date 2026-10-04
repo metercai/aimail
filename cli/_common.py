@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import time
 import re
 import socket
@@ -164,6 +165,71 @@ def pids_by_pattern(pattern: str) -> list[int]:
         if pat.search(cmd):
             pids.append(int(name))
     return pids
+
+
+# ── SDK 侧可执行门（进程命令契约）──────────────────────────────────────────
+# 2026-10-04 owner 裁决 A'：SDK 域算法（绑定枚举 / secret 自供 / 注册值派生 / 注册链 / 回填）
+# 的单一真源在 pysdk，调用方只许"调"不许"抄"。TS 侧的平台包早已是此形态（register-cli.js）；
+# Python 侧的对等门 = `python -m aimail.sdk_ops`（stdout 恰一行 JSON / exit 0|1|2）。
+# 本函数只负责"怎么调"：定位门 → spawn → 解析信封 → 按 kind 分档复原失败语义。
+_EXC_CACHE: dict = {}
+
+
+def _sdk_call_error(name: str, message: str) -> BaseException:
+    """按门上报的异常类名复原一个同名异常（调用方 `type(e).__name__` 与 Python 侧一致）。"""
+    cls = _EXC_CACHE.get(name)
+    if cls is None:
+        cls = type(name, (RuntimeError,), {})
+        _EXC_CACHE[name] = cls
+    return cls(message)
+
+
+def _sdk_ops_command(op: str, args: dict) -> list:
+    """门的 argv。**同源优先**：核心目录里有 sdk_ops.py 就直接跑它（调用方与被调方同一棵树，
+    见 install.py 的混装教训）；否则回退 pip 装的 `-m aimail.sdk_ops`（aimailsdk ≥ 0.1.35）。"""
+    argv = [sys.executable]
+    try:
+        from runtime_core import resolve_core_dir  # 扁平导入：仅 CLI 内部
+        door = os.path.join(str(resolve_core_dir()), "sdk_ops.py")
+        argv.append(door) if os.path.isfile(door) else argv.extend(["-m", "aimail.sdk_ops"])
+    except Exception:  # noqa: BLE001 — 核心目录不可解析 ⇒ 交给门自身报 import 错
+        argv.extend(["-m", "aimail.sdk_ops"])
+    argv += [op, "--args", json.dumps(args, ensure_ascii=False)]
+    return argv
+
+
+def sdk_ops(op: str, args: dict, *, timeout: int = 120):
+    """调用 SDK 侧可执行门的一个 op，返回 result。
+
+    - `kind=usage` / `kind=import`（用法错 / SDK 不可用或版本过老）⇒ `SystemExit`：与既有
+      `load_core()` 的失败形态一致（CLI 直接退出并打印原因，不静默降级）。
+    - `kind=call` ⇒ 抛**同名**异常（如缺 manager 的 `ManagerRequiredError`），消息取门上报的
+      error 去掉 'ExcName: ' 前缀 —— 调用方的 `({type(e).__name__}: {e})` 文案因此逐字不变。
+    """
+    argv = _sdk_ops_command(op, args)
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+    except FileNotFoundError as e:
+        raise SystemExit(f"ERROR: SDK 可执行门不可用({op}): {e}") from None
+    except subprocess.TimeoutExpired:
+        raise SystemExit(f"ERROR: SDK 可执行门超时({op}, {timeout}s)") from None
+    lines = [ln for ln in (r.stdout or "").splitlines() if ln.strip()]
+    if len(lines) != 1:
+        raise SystemExit(f"ERROR: SDK 可执行门输出异常({op}, rc={r.returncode}, "
+                         f"{len(lines)} 行): {(r.stdout or '')[:200]}{(r.stderr or '')[:200]}")
+    try:
+        env = json.loads(lines[0])
+    except Exception as e:  # noqa: BLE001
+        raise SystemExit(f"ERROR: SDK 可执行门输出不是 JSON({op}): {e}") from None
+    if env.get("ok") is True:
+        return env.get("result")
+    kind = str(env.get("kind") or "")
+    exc = str(env.get("exc") or "SdkOpsError")
+    err = str(env.get("error") or "")
+    if kind in ("usage", "import"):
+        raise SystemExit(f"ERROR: SDK 可执行门 {kind} 失败({op}): {err}")
+    prefix = exc + ": "
+    raise _sdk_call_error(exc, err[len(prefix):] if err.startswith(prefix) else err)
 
 
 def is_readable_file(p) -> bool:

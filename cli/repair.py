@@ -20,7 +20,7 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 import os  # noqa: E402
-from _common import aimail_home as _aimail_home, bridge_status, is_local_gateway
+from _common import aimail_home as _aimail_home, bridge_status, is_local_gateway, sdk_ops as _sdk_ops
 
 # Same semantics as scripts/aimail: an empty env falls back to ~/.aimail
 # Single source of truth for the home root = pysdk/aimail_base.aimail_home() (the canonical implementation);
@@ -195,16 +195,11 @@ def _repair_binding_webhook_secrets(sid: str, c, gw) -> bool:
     an action line or an explicit reason + next step — nothing is silently skipped
     (owner ruling: every check dimension is registered auto/hint, never silent).
     """
-    sys.path.insert(0, str(SCRIPTS_DIR.parent / "pysdk"))
-    from runtime_core import load_core
-    load_core()
-    import aimail_base as _ab
-
     fixed = False
     # 绑定枚举走共享读入路径(aimail_base.iter_agentmail_configs): 它就是 install/适配器看到
     # 的那一份(注入 ``_config_path``), 不在这里造第二份实现; 不可读/残缺文件按该函数既有的
     # 逐文件容错跳过(check_status 的同一维度会另行报出来)。
-    bindings = _ab.iter_agentmail_configs(sid)
+    bindings = _sdk_ops("iter_bindings", {"system_id": sid})
     if not bindings:
         _warn(f"system {sid} has no readable agent binding -- no webhook pairing to repair; "
               "register an agent first (`aimail install` or the host-side register command)")
@@ -212,7 +207,7 @@ def _repair_binding_webhook_secrets(sid: str, c, gw) -> bool:
     for d in bindings:
         ajx = Path(str(d.get("_config_path") or ""))
         email = str(d.get("email") or ajx.parent.name)
-        prov = _ab.ensure_binding_webhook_secret(d)
+        prov = _sdk_ops("ensure_webhook_secret", {"binding": d})
         if prov.get("reason") == "provisioned":
             _ok(f"{email}: local webhook secret provisioned + written 0600 "
                 "(the host verifies with it; the cloud copy is synced below)")
@@ -233,7 +228,8 @@ def _repair_binding_webhook_secrets(sid: str, c, gw) -> bool:
                   "'aimail install', then re-run 'aimail repair'")
             continue
         local_url = str(d.get("webhook_url") or "")
-        reg_url = _ab.resolve_register_webhook_url(gw or {}, local_url)
+        reg_url = _sdk_ops("resolve_register_webhook_url",
+                           {"gw": gw or {}, "local_webhook_url": local_url})
         declared_pull = ("webhook_host" in (gw or {})
                          and not str((gw or {}).get("webhook_host") or "").strip())
         if not reg_url and not declared_pull:
@@ -242,9 +238,11 @@ def _repair_binding_webhook_secrets(sid: str, c, gw) -> bool:
                   "host once so it writes its endpoint, then re-run 'aimail repair'")
             continue
         try:
-            res = _ab.register_agent_email(c, sid, email, webhook_url=reg_url,
-                                           webhook_secret=secret,
-                                           manager_address=str(d.get("manager_address") or ""))
+            res = _sdk_ops("register_agent_email", {
+                "gw": gw or {}, "system_id": sid, "email": email,
+                "webhook_url": reg_url, "webhook_secret": secret,
+                "manager_address": str(d.get("manager_address") or ""),
+            })
         except Exception as e:  # noqa: BLE001
             _fail(f"{email}: cloud re-pair failed ({type(e).__name__}: {e}) -- the gateway must "
                   "be reachable; re-run 'aimail repair' once it is")
@@ -320,18 +318,15 @@ def _repair_webhook_pairing(sid: str, deep: bool = False) -> bool:
             _fail(f"{email}: local agentmail.json missing -- the single source of truth is gone; reinstall that agent")
             continue
         local = json.loads(aj.read_text())
-        from runtime_core import load_core
-        load_core()
-        import aimail_base as _ab
         # 注册值按形态解析(resolve_register_webhook_url), 与绑定落盘/桥路由的"本地端点"
         # 是两个值: pull 形态必须注册空值, 否则云端直推 loopback 必失败。
-        res = _ab.register_agent_email(
-            c, sid, email,
-            webhook_url=_ab.resolve_register_webhook_url(
-                gw or {}, str(local.get("webhook_url", "") or "")),
-            webhook_secret=local.get("webhook_secret", ""),
-            manager_address=local.get("manager_address", ""),
-        )
+        res = _sdk_ops("register_agent_email", {
+            "gw": gw or {}, "system_id": sid, "email": email,
+            "webhook_url": _sdk_ops("resolve_register_webhook_url", {
+                "gw": gw or {}, "local_webhook_url": str(local.get("webhook_url", "") or "")}),
+            "webhook_secret": local.get("webhook_secret", ""),
+            "manager_address": local.get("manager_address", ""),
+        })
         _ok(f"{email}: registration chain re-run (url+secret re-paired){' (key returned)' if res.get('api_key') else ''}")
         fixed += 1
     # drain the broken pending (an empty-signature item never self-heals -- decided when the headers jumped the queue)
@@ -713,8 +708,7 @@ def _repair_agentmail_json(sid: str) -> bool:
             # 原子 tmp+rename+0600 语义在 backfill_binding → save_agent_config 内);
             # 单个文件失败只跳过该文件(AUDIT-1 P1-2)。
             try:
-                from aimail_base import backfill_binding as _bf
-                _bf(d, sid)
+                _sdk_ops("backfill_binding", {"binding": d, "system_id": sid})
                 changed = True
             except Exception as e:  # noqa: BLE001
                 _warn(f"{ajx.parent.name}: agentmail.json write failed ({type(e).__name__}: {e}) -> skipping that file")
