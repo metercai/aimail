@@ -27,6 +27,7 @@ pub mod probe;
 pub mod pyjson;
 pub mod repair;
 pub mod sdk;
+pub mod setup;
 pub mod sig;
 pub mod style;
 pub mod time;

@@ -206,7 +206,7 @@ fn resolve_gateway_url(explicit: &str, sid: &str) -> (String, &'static str) {
     )
 }
 
-/// `sid_from_system_home(home)`：平台指针 `{home}/.agentmail` **优先**（权威），
+/// `sid_from_system_home(home)`：平台指针文件（`{home}/<pointer_file>`）**优先**（权威），
 /// 再退回扫描 `systems/*/` 的唯一匹配；零或多 ⇒ 空（**不猜**）。
 fn sid_from_system_home(system_home: &std::path::Path) -> String {
     // 1) 指针优先
@@ -349,7 +349,7 @@ fn ensure_system(a: &Args) -> i32 {
     } else {
         want_domain.clone()
     };
-    env.push(("INTEGRATE_AIMAIL_DOMAIN".into(), new_system_domain));
+    env.push(("INTEGRATE_AIMAIL_DOMAIN".into(), new_system_domain.clone()));
     let snaps = config::env_val("AIMAIL_SAVE_SNAPSHOTS", "yes").to_lowercase();
     env.push((
         "INTEGRATE_SAVE_SNAPSHOTS".into(),
@@ -398,6 +398,93 @@ fn ensure_system(a: &Args) -> i32 {
         );
     }
 
-    let _ = env;
-    not_yet_ported("install --system-only activation worker (setup_system: platform wiring-free L1 activation/reuse)")
+    // ── 激活/复用 worker（`setup_system.py` 的 Rust 复刻，**进程内**执行）──────────────
+    // 为什么进程内而不是 spawn python：worker 是 CLI 自己的实现（激活唯一实现在 CLI），
+    // rust 化后由本二进制承担；SDK 侧只保留 whoami/create_api_key/activate_system 这类
+    // "签名 + HTTP 端点"调用（owner 2026-10-04 裁决：rust 原生实现，不新增 SDK 面）。
+    let wa = crate::core::setup::SetupArgs {
+        gateway_url: gw_url.clone(),
+        system_id: sid.clone(),
+        admin_key: if prod_code.is_empty() {
+            adm_key.clone()
+        } else {
+            String::new()
+        },
+        product_code: prod_code.clone(),
+        system_name: sys_name.clone(),
+        domain: new_system_domain.clone(),
+        save_raw_snapshots: matches!(
+            config::env_val("AIMAIL_SAVE_SNAPSHOTS", "yes")
+                .to_lowercase()
+                .as_str(),
+            "yes" | "true" | "1"
+        ),
+        manager_address: manager.clone(),
+        webhook_host: config::env_val("AIMAIL_WEBHOOK_HOST", ""),
+        system_home: system_home.to_string_lossy().to_string(),
+    };
+    let _ = &env; // env 仍按 Python 口径装配（日志/子进程契约），worker 用显式参数
+    let data = crate::core::setup::setup(&wa);
+    if !data
+        .get("success")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        // 照抄子进程契约的失败播报：worker 打印 `display`（缩进 JSON）+ `__ERROR__:<err>` 后 exit 1，
+        // Python 侧 `check_output` 抛错 ⇒ `_err("system setup failed", stdout.strip()[-400:])`。
+        // 进程内执行没有子进程，这里**重放**同一段字符串以保持 ABI 逐字一致。
+        let err = data
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Unknown error");
+        let display = crate::core::setup::display_json(&data);
+        let worker_stdout = format!("{display}\n__ERROR__:{err}");
+        let tail: String = {
+            let t = worker_stdout.trim();
+            let chars: Vec<char> = t.chars().collect();
+            let start = chars.len().saturating_sub(400);
+            chars[start..].iter().collect()
+        };
+        return err_json("system setup failed", &tail);
+    }
+    let sid2 = data
+        .get("system_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if sid2.is_empty() {
+        // Python 还会按 mtime 认领"刚写入的系统"（那是解析**子进程 stdout** 失败时的兜底）；
+        // 进程内执行时 system_id 必然来自 worker 自身，故无此窗口逻辑可用 —— 直接报错。
+        return err_json("setup finished without a system_id", "");
+    }
+    let cfg = config::load_gateway_config(&sid2);
+    eprintln!("system configured: {sid2}");
+    let gw_out = cfg
+        .as_ref()
+        .map(|c| c.gateway_url.clone())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| gw_url.clone());
+    let domain_out = cfg.as_ref().map(|c| c.domain.clone()).unwrap_or_default();
+    let name_out = cfg
+        .as_ref()
+        .map(|c| c.system_name.clone())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| sys_name.clone());
+    let path_out = if prod_code.is_empty() {
+        "admin_key"
+    } else {
+        "activation"
+    };
+    let mut obj = serde_json::Map::new();
+    obj.insert("success".into(), serde_json::Value::Bool(true));
+    obj.insert("system_id".into(), serde_json::Value::String(sid2));
+    obj.insert("gateway_url".into(), serde_json::Value::String(gw_out));
+    obj.insert("domain".into(), serde_json::Value::String(domain_out));
+    obj.insert("system_name".into(), serde_json::Value::String(name_out));
+    obj.insert("path".into(), serde_json::Value::String(path_out.into()));
+    println!(
+        "{}",
+        crate::core::pyjson::dumps_python(&serde_json::Value::Object(obj))
+    );
+    0
 }

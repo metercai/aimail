@@ -344,6 +344,8 @@ pub fn build_cli() -> Command {
 
 /// 进程入口：解析 argv 并分发，返回退出码。
 pub fn run() -> i32 {
+    // 与 Python `main():3442` 同序：先把机器级/仓库 .env 灌进进程环境（绝不覆盖已有值）
+    crate::core::config::load_env();
     let matches = build_cli().get_matches();
     match matches.subcommand() {
         Some(("version", _)) => crate::cmd::version::run(),

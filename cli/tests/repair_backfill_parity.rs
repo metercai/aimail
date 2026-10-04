@@ -1,9 +1,9 @@
-//! repair 第 7 步（`agentmail.json` 补空 + `webhook_url` 对齐）的**写入面字节级**跨语言验收。
+//! repair 第 7 步（绑定文件补空 + `webhook_url` 对齐）的**写入面字节级**跨语言验收。
 //!
 //! 这一步是 rust 侧**第一个经 SDK 门写入**的动作，所以验收标准定成"落盘结果逐字节相同"：
 //! - 同一夹具形状（绑定文件 + 系统级网关配置 + 路由表）；
 //! - **同一个活路由探针端口**（Python 与 Rust 各自探同一地址，避免端口不同导致字节差异）；
-//! - 两侧各自跑：Python `repair._repair_agentmail_json` / Rust `repair::agentmail_backfill_with`
+//! - 两侧各自跑：Python 的对应私函数 / Rust `repair::agentmail_backfill_with`
 //!   （Rust 侧程序根用夹具 `<tmp>/prog` 里 `aimail-src → 仓库` 的软链走"同源"分支，
 //!   `AIMAIL_HOME` 经门 env 注入 ⇒ 不改进程环境，测试可并行）。
 //!
@@ -85,7 +85,7 @@ fn build_fixture(root: &Path, port: u16) {
             "system_id": "",
             "system_name": "",
             "manager_address": "",
-            "webhook_url": "http://127.0.0.1:9/aimail/inbound",
+            "webhook_url": format!("http://127.0.0.1:9{}", contract::inbound_path()),
             "webhook_secret": "s3cr3t"
         }))
         .unwrap(),
@@ -94,7 +94,10 @@ fn build_fixture(root: &Path, port: u16) {
     // 路由表：本机活路由（探针端口）
     std::fs::write(
         ah.join("bridge").join("aimail_routes.toml"),
-        format!("a@example.test = \"http://127.0.0.1:{port}/aimail/inbound\"\n"),
+        format!(
+            "a@example.test = \"http://127.0.0.1:{port}{}\"\n",
+            contract::inbound_path()
+        ),
     )
     .unwrap();
 }
@@ -172,7 +175,7 @@ fn agentmail_backfill_writes_byte_identical_to_python() {
     assert_eq!(v["system_name"], "e2e", "补空字段应来自网关配置");
     assert_eq!(
         v["webhook_url"],
-        format!("http://127.0.0.1:{port}/aimail/inbound"),
+        format!("http://127.0.0.1:{port}{}", contract::inbound_path()),
         "webhook_url 应对齐到活路由（声明值已死）"
     );
     probe.join().ok();

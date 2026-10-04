@@ -95,7 +95,10 @@ fn payload_readonly_actions_print_paths_and_rc0() {
     assert_eq!(rc, 0);
     assert_eq!(
         out.trim(),
-        "~/.dsh/skills/agentmail",
+        &format!(
+            "~/.dsh/skills/{}",
+            aimail::core::contract::agent_skill_name()
+        ),
         "~ 不展开（与 Python 同）"
     );
     // resource 缺 name ⇒ stdout 报错 + rc2（Python 的流向也是 stdout）
@@ -129,25 +132,35 @@ fn unported_install_surfaces_fail_loudly() {
         "应输出 Python 风格单行 JSON 信封: {out:?}"
     );
     assert_eq!(out.trim_end().lines().count(), 1, "stdout 必须恰一行");
-    // 到达激活 worker ⇒ 诚实未移植（不触网）
-    let home = d.path().join("h");
-    std::fs::create_dir_all(&home).unwrap();
+    // 到达激活 worker ⇒ 已实现：网关不可达时按 Python 口径**继续并成功**（只 warn），
+    // 但必须用 `-g` 指向死地址以免触网（默认会落到生产网关）。
+    let home2 = d.path().join("h2");
+    std::fs::create_dir_all(&home2).unwrap();
     let (rc2, out2, err2) = run(
         &prog,
         &[
             "install",
             "--system-only",
             "-H",
-            &home.to_string_lossy(),
+            &home2.to_string_lossy(),
+            "-s",
+            "s1",
             "-k",
             "k",
+            "-g",
+            "http://127.0.0.1:9",
         ],
     );
-    assert_ne!(rc2, 0, "worker 未移植必须非零");
-    assert!(
-        err2.contains("not yet ported") && out2.is_empty(),
-        "应说明未移植且 stdout 为空: out={out2:?} err={err2:?}"
+    assert_eq!(
+        rc2, 0,
+        "网关不可达 ⇒ 沿用系统级 key 并成功（Python 同）: {err2}"
     );
+    assert!(
+        out2.trim()
+            .starts_with(r#"{"success": true, "system_id": "s1""#),
+        "单行 JSON 成功信封: {out2:?}"
+    );
+    assert_eq!(out2.trim_end().lines().count(), 1, "恰一行");
 
     // `--payload install` 已实现：源根不可解析时必须**明确报错非零**（与 Python 同一失败文案），
     // 绝不静默成功。

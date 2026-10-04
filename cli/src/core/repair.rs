@@ -233,7 +233,7 @@ impl Step {
     /// 执行该步。**仍未移植的步一律 `NotPorted`**（绝不静默当成功）；已落地的走真实现。
     pub fn run(&self, sid: &str, home: &str, _deep: bool) -> StepResult {
         match self {
-            // 第 7 步：agentmail.json 补空 + webhook_url 对齐（写回经 SDK 门）
+            // 第 7 步：绑定文件补空 + webhook_url 对齐（写回经 SDK 门）
             Step::AgentmailJson => {
                 let ah = crate::core::home::aimail_home();
                 if agentmail_backfill(sid, &ah) {

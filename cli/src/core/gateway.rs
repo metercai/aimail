@@ -22,7 +22,7 @@
 //!    服务端按收到的字节验签，故两侧各自自洽；黄金向量测试用的是固定字节。
 
 use crate::core::sig;
-use serde_json::{Map, Value};
+use serde_json::{json, Map, Value};
 use std::time::Duration;
 
 /// 网关客户端（可复用于 stats / domain / renew / welcome / check 的云探针）。
@@ -160,6 +160,77 @@ fn error_body(status: u64, text: &str) -> Value {
         m.insert("error".into(), Value::from(err));
     }
     Value::Object(m)
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 独立 API 函数（不需要 client 实例）—— `pysdk/gateway_api.py:118-161` 的 Rust 复刻
+//   2026-10-04 owner 裁决：这两个调用 rust **原生**实现（它们只是"签名 + HTTP 端点"，
+//   签名算法 rust 侧已在用且有 L0/L2 验证），不新增 SDK 公共面、不因此发版。
+// ════════════════════════════════════════════════════════════════════════════
+
+/// `whoami(gw, ak, identity="")`（`gateway_api.py:118-130`）：`GET /api/v1/whoami`。
+///
+/// **任何失败都返回空对象**（Python 把所有异常都吞成 `{}`：4xx/5xx 的 HTTPError、
+/// 传输失败、2xx 但非 JSON 一律如此）⇒ 调用方只能"拿不到元数据"，不能据此判失败。
+pub fn whoami(gateway_url: &str, api_key: &str, identity: &str) -> Value {
+    let path = "/api/v1/whoami";
+    // 注意：signed_headers 已按 Python 口径**总是**带 Content-Type（GET 也一样）
+    let headers = sig::signed_headers(api_key, "GET", path, None, identity);
+    let url = format!("{}{}", gateway_url.trim_end_matches('/'), path);
+    let (status, v) = crate::core::http::json_req(&url, &headers, None, Some("GET"), 10);
+    if (200..300).contains(&status) {
+        v
+    } else {
+        Value::Object(Map::new())
+    }
+}
+
+/// `create_api_key(gw, ak, system_id, email, scopes, category)`（`:133-161`）：
+/// `POST /api/v1/admin/api-keys`，体 = `{system_id, email_address, scopes, category}`
+/// （**键序照抄**，签名按实际发送字节算），identity = `system_id`。
+///
+/// 返回形状照抄 Python：2xx ⇒ 原始体；HTTP 错误 ⇒ `{raw_key:"", error, detail, status}`；
+/// 其它异常 ⇒ `{raw_key:"", error: str(e)}`。
+pub fn create_api_key(
+    gateway_url: &str,
+    api_key: &str,
+    system_id: &str,
+    email: &str,
+    scopes: &[String],
+    category: &str,
+) -> Value {
+    let path = "/api/v1/admin/api-keys";
+    let mut body = Map::new();
+    body.insert("system_id".into(), Value::String(system_id.to_string()));
+    body.insert("email_address".into(), Value::String(email.to_string()));
+    body.insert(
+        "scopes".into(),
+        Value::Array(scopes.iter().map(|s| Value::String(s.clone())).collect()),
+    );
+    body.insert("category".into(), Value::String(category.to_string()));
+    let data = serde_json::to_vec(&Value::Object(body)).unwrap_or_default();
+    // Content-Type 由 signed_headers 提供（与 Python 的 compute_api_signature 同）
+    let headers = sig::signed_headers(api_key, "POST", path, Some(&data), system_id);
+    let url = format!("{}{}", gateway_url.trim_end_matches('/'), path);
+    let (status, v) = crate::core::http::json_req(&url, &headers, Some(&data), Some("POST"), 10);
+    if (200..300).contains(&status) {
+        return v;
+    }
+    if status == 0 {
+        let err = v
+            .get("error")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        return json!({ "raw_key": "", "error": err });
+    }
+    let s = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+    json!({
+        "raw_key": "",
+        "error": s("error"),
+        "detail": s("detail"),
+        "status": status,
+    })
 }
 
 #[cfg(test)]

@@ -21,7 +21,7 @@
 use crate::core::{contract, home, perms};
 use serde_json::{Map, Value};
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 /// 系统级环境文件名。**不属** agent 内部契约面（契约清单只约束注册名/绑定名/指针名/入站路径）
@@ -248,6 +248,22 @@ pub fn save_gateway_config_in(
 /// 同目录 `<path>.json.tmp` → chmod 0600 → `rename` 覆盖。
 ///
 /// 序列化沿用 Python 现状：2 空格缩进 + UTF-8 原样（不转义非 ASCII）+ **无尾部换行**。
+/// 0600 私密**文本**写（`_persist_system_raw_key` 用：`os.open(..., 0o600)` + 写入）。
+pub fn write_private_text(path: &Path, text: &str) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut opts = fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let mut f = opts.open(path)?;
+    f.write_all(text.as_bytes())
+}
+
 pub fn write_private_json(path: &Path, value: &Value) -> io::Result<()> {
     let tmp = path.with_extension("json.tmp");
     let text = serde_json::to_string_pretty(value).map_err(io::Error::other)?;
@@ -290,6 +306,38 @@ pub fn read_system_raw_key(sid: &str) -> String {
     std::fs::read_to_string(p)
         .map(|s| s.trim().to_string())
         .unwrap_or_default()
+}
+
+/// `_load_env`（`cli/aimail:86-108`）：把**机器级与仓库** `.env` 灌进进程环境（**绝不覆盖**已有值）。
+///
+/// 顺序：`$HOME/.aimail/.env` → `<program_root>/aimail-src/.env`（= Python 的 `<cli>/../.env`）
+/// → `<program_root>/aimail-src/cli/.env`。跳过空行/注释/无 `=` 行，值去引号。
+/// 为什么 CLI 必须照做：`.env` 是 bootstrap 落盘的机器级配置，调用方的 shell 里常常没有 export，
+/// 而 install/reset/check 的取值口径都以进程环境为准（实测：漏了它会让 manager_address 等字段分叉）。
+pub fn load_env() {
+    let prog = crate::core::home::program_root();
+    let cands = [
+        crate::core::home::user_home().join(".aimail").join(".env"),
+        prog.join("aimail-src").join(".env"),
+        prog.join("aimail-src").join("cli").join(".env"),
+    ];
+    for c in cands {
+        let Ok(text) = std::fs::read_to_string(&c) else {
+            continue;
+        };
+        for line in text.lines() {
+            let s = line.trim();
+            if s.is_empty() || s.starts_with('#') || !s.contains('=') {
+                continue;
+            }
+            let (k, v) = s.split_once('=').unwrap();
+            let k = k.trim();
+            let v = v.trim().trim_matches('"').trim_matches('\'');
+            if !k.is_empty() && std::env::var_os(k).is_none() {
+                std::env::set_var(k, v);
+            }
+        }
+    }
 }
 
 #[cfg(test)]

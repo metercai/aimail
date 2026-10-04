@@ -164,9 +164,19 @@ fn bundle_default_dest_table_matches_python() {
         aimail::core::payload::BUNDLES.len()
     );
     for spec in aimail::core::payload::BUNDLES {
+        // Rust 侧存的是 **模板**（`{skill}`/`{program_root}`），比的是展开后的落点
+        let expanded = aimail::core::payload::bundle_default_dest(spec.name)
+            .expect("bundle 必须存在")
+            .replace(
+                &aimail::core::home::program_root()
+                    .to_string_lossy()
+                    .to_string(),
+                "{program_root}",
+            );
+        // Python 侧 dump 的是**已展开**的落点（其 `_PROGRAM_ROOT` 是 import 时常量）⇒ 直接比
+        let py_raw = py_map.get(spec.name).and_then(|v| v.as_str()).unwrap_or("");
         assert_eq!(
-            py_map.get(spec.name).and_then(|v| v.as_str()),
-            Some(spec.default_dest),
+            py_raw, expanded,
             "bundle {} 的 default_dest 与 Python 不一致",
             spec.name
         );

@@ -222,20 +222,20 @@ pub const BUNDLES: &[Bundle] = &[
     },
     Bundle {
         name: "skill-openclaw",
-        default_dest: "~/.openclaw/skills/agentmail",
+        default_dest: "~/.openclaw/skills/{skill}",
         files: SKILL_FILES,
         no_stamp: true,
     },
     Bundle {
         name: "skill-deerflow",
         // deer-flow 强制 name == 目录名 ⇒ 目录 = 契约 AGENT_SKILL_NAME（不是产品名）
-        default_dest: "~/deer-flow/skills/public/agentmail",
+        default_dest: "~/deer-flow/skills/public/{skill}",
         files: SKILL_FILES,
         no_stamp: true,
     },
     Bundle {
         name: "skill-dsh",
-        default_dest: "~/.dsh/skills/agentmail",
+        default_dest: "~/.dsh/skills/{skill}",
         files: SKILL_FILES_DSH,
         no_stamp: true,
     },
@@ -249,9 +249,11 @@ pub fn bundle(name: &str) -> Option<&'static Bundle> {
     BUNDLES.iter().find(|b| b.name == name)
 }
 
-/// bundle 的默认落点模板（`BUNDLES[*].default_dest`）。
-pub fn bundle_default_dest(name: &str) -> Option<&'static str> {
-    bundle(name).map(|b| b.default_dest)
+/// bundle 的默认落点（`BUNDLES[*].default_dest`），`{skill}` 展开为**契约**里的 agent 技能名
+/// （不写死名，避免第二真源；与 `contract::agent_skill_name()` 同源）。
+pub fn bundle_default_dest(name: &str) -> Option<String> {
+    let tpl = bundle(name)?.default_dest;
+    Some(tpl.replace("{skill}", crate::core::contract::agent_skill_name()))
 }
 
 /// bundle 名的升序列表（Python `sorted(BUNDLES)` 用于错误文案的"可选: …"）。
