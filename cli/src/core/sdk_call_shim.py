@@ -16,6 +16,8 @@ ABI（与边界稿 §1.5 同形）：
     "exc": …, "error": …}；exit 0/1/2；人话与 SDK 自身打印一律 stderr。
 """
 
+import contextlib
+import io
 import json
 import sys
 
@@ -114,8 +116,17 @@ def main(argv):
                     kwargs[k] = v
         except Exception:  # noqa: BLE001
             pass
+    # 被调 SDK 函数的正常打印（进度/提示）改走 stderr：stdout 是"单行 JSON"协议面，
+    # 不能被污染（否则调用方判 TransportError，看起来像 SDK 挂了）。
+    _sdk_out = io.StringIO()
     try:
-        result = fn(*positional, **kwargs)
+        try:
+            with contextlib.redirect_stdout(_sdk_out):
+                result = fn(*positional, **kwargs)
+        finally:
+            if _sdk_out.getvalue():
+                sys.stderr.write(_sdk_out.getvalue())
+                sys.stderr.flush()
     except SystemExit as e:  # SDK 里的显式退出（如 manager 硬门）原样上报，不降级
         _emit(
             {
