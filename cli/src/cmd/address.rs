@@ -474,11 +474,7 @@ pub fn run(args: Args) -> i32 {
                 return report::fail("address set-manager 需要 -m <manager 邮箱>");
             }
             let agents = list_agents(&aimail_home, &sid, &cfg);
-            let target = if let Some(em) = &args.email {
-                agents.iter().find(|r| r.email == em.to_lowercase())
-            } else {
-                None
-            };
+            let target = locate(&agents, &args);
             let Some(t) = target else {
                 return report::fail("该操作需要 -a <agent> 或 -e <email> 定位目标地址");
             };
@@ -523,8 +519,105 @@ pub fn run(args: Args) -> i32 {
                 }
             }
         }
+        "set-name" => {
+            let new_name = args.name.clone().unwrap_or_default();
+            if new_name.is_empty() {
+                return report::fail("address set-name 需要 -n <新地址名>");
+            }
+            let agents = list_agents(&aimail_home, &sid, &cfg);
+            let Some(t) = locate(&agents, &args) else {
+                return report::fail("该操作需要 -a <agent> 或 -e <email> 定位目标地址");
+            };
+            // 改名 = SDK 的 CRUD（owner 裁决）：校验/派生/冲突预检/云端 rename/白名单清理/
+            // 本地迁移/指针全在 SDK；CLI 只触发、不自拼名字、不自打桥。**不复刻算法**。
+            let sdk_root = crate::core::sdkroot::resolve_or_repo_candidate();
+            let res = match crate::core::sdkcall::call_positional(
+                "aimail_base",
+                "rename_address",
+                &[
+                    Value::String(sid.clone()),
+                    Value::String(t.email.clone()),
+                    Value::String(new_name.clone()),
+                    Value::Object(cfg.to_json()),
+                ],
+                &serde_json::json!({}),
+                &sdk_root.path,
+                std::time::Duration::from_secs(30),
+                &[],
+            ) {
+                Ok(v) => v,
+                Err(e) => {
+                    let msg = match &e {
+                        crate::core::sdk::AbiError::Call { msg, .. } => msg.clone(),
+                        other => format!("{:?}", other),
+                    };
+                    return report::fail(&format!("地址改名失败: {msg}"));
+                }
+            };
+            if res
+                .get("unchanged")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            {
+                println!("  已是该地址: {}", t.email);
+                return 0;
+            }
+            if res.get("merged").and_then(|v| v.as_bool()).unwrap_or(false) {
+                report::warn(&format!(
+                    "本地目录 {} 已存在,合并内容字段(保留两个目录)",
+                    res.get("dir").and_then(|v| v.as_str()).unwrap_or("")
+                ));
+            }
+            if !res
+                .get("migrated")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            {
+                report::warn("本地迁移失败(云端已改名,重跑 install 可重建本地)");
+            }
+            report::ok(&format!(
+                "地址改名: {} → {}",
+                t.email,
+                res.get("new_email").and_then(|v| v.as_str()).unwrap_or("")
+            ));
+            println!("  服务端资源(白名单/联系人/看板/密钥)与本地 agentmail.json 全部继承");
+            let sig = res
+                .get("signal")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({}));
+            let state = sig.get("state").and_then(|v| v.as_str()).unwrap_or("");
+            if state == "notified" {
+                println!("  生效:同 key 继续使用;上线信号已触发路由对账,新地址即日起收发");
+            } else {
+                report::warn(&format!(
+                    "上线信号未送达({}): {} — 路由未刷新,重启 agent 或 inbound-live 后自愈",
+                    if state.is_empty() { "skipped" } else { state },
+                    sig.get("detail").and_then(|v| v.as_str()).unwrap_or("")
+                ));
+            }
+            0
+        }
         other => crate::cmd::stub::not_yet_ported(&format!("address {other}")),
     }
+}
+
+/// 目标定位（照抄 `cli/aimail:2082-2098`）：`-e` 精确 email；`-a` 按 agent 名或
+/// email 本地段前缀匹配。命中不到 ⇒ 返回 None（调用方给统一失败文案）。
+fn locate<'a>(agents: &'a [Row], args: &Args) -> Option<&'a Row> {
+    if let Some(em) = &args.email {
+        return agents.iter().find(|r| r.email == em.to_lowercase());
+    }
+    if let Some(ag) = &args.agent {
+        return agents.iter().find(|r| {
+            r.agent == *ag
+                || r.email
+                    .split('@')
+                    .next()
+                    .map(|l| l.starts_with(ag.as_str()))
+                    .unwrap_or(false)
+        });
+    }
+    None
 }
 
 #[cfg(test)]

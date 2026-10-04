@@ -244,7 +244,7 @@ fn unported_faces_are_honest() {
     // 已移植**命令**上的未移植**面**：必须明确非零 + 说明，且绝不静默降级成查看面
     // （Python 侧 `cli/aimail:2045-2065` 记录过两起静默降级事故，这里用断言钉住）。
     let cases: &[&[&str]] = &[
-        &["address", "-s", "s1", "-n", "newname"],
+        // `address -n`（set-name）已于 P4 切片4 接线 ⇒ 移出本清单。
         // `address -m`（set-manager）已于 P4 切片2 接线（走 SDK 按名调用）⇒ 移出本清单；
         //    校验路径验收：无 -a/-e 定位 ⇒ rc=1「该操作需要 -a <agent> 或 -e <email> 定位目标地址」。
         // `address -d/--default` 已于 P4 切片3 接线 ⇒ 移出（行为验收 tests/address_default.rs）。
