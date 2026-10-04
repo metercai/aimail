@@ -14,8 +14,8 @@
 //! 也因此 `repair` 命令面**仍未接线**（写面残缺的 repair 会"报修好但没修"）。
 
 use crate::core::check::{Check, Record};
-use crate::core::platforms;
 use crate::core::style::{NC, RED, YELLOW};
+use crate::core::{config, contract, platforms, sdk};
 use serde_json::Value;
 use std::path::Path;
 
@@ -230,9 +230,20 @@ impl Step {
         }
     }
 
-    /// 执行该步。S5b 之前一律"未移植"（**绝不**静默当成功）。
-    pub fn run(&self, _sid: &str, _home: &str, _deep: bool) -> StepResult {
-        StepResult::NotPorted
+    /// 执行该步。**仍未移植的步一律 `NotPorted`**（绝不静默当成功）；已落地的走真实现。
+    pub fn run(&self, sid: &str, _home: &str, _deep: bool) -> StepResult {
+        match self {
+            // 第 7 步：agentmail.json 补空 + webhook_url 对齐（写回经 SDK 门）
+            Step::AgentmailJson => {
+                let ah = crate::core::home::aimail_home();
+                if agentmail_backfill(sid, &ah) {
+                    StepResult::Fixed
+                } else {
+                    StepResult::NothingToDo
+                }
+            }
+            _ => StepResult::NotPorted,
+        }
     }
 }
 
@@ -814,6 +825,168 @@ pub fn repair_pointer(
     let _ = crate::core::perms::set_user_only(&ptr);
     step_ok(&format!("pointer created: {} → {sid}", ptr.display()));
     true
+}
+
+/// `_repair_agentmail_json`（`repair.py:655-717`）：补绑定文件的可重建字段 + 与**活**路由对齐
+/// `webhook_url`；写回**经 SDK 门** `backfill_binding`（per-agent 绑定只由 SDK 写 —— 归属铁律）。
+///
+/// 照抄点：① 字段补齐以网关配置为准，只补**空**的；② 路由表逐行解析（`k = v`，去引号/逗号，后写覆盖先写）；
+/// ③ 对齐条件 = 路由目标存活 + 目标是本机地址 + 声明值与目标不同（存活的声明值不动）；
+/// ④ 比对原字典决定是否写（值相等即不写，幂等）；⑤ 单个文件失败只跳过该文件。
+pub fn agentmail_backfill(sid: &str, aimail_home: &Path) -> bool {
+    agentmail_backfill_with(sid, aimail_home, &crate::core::home::program_root(), &[])
+}
+
+/// 同上，但门的**程序根**与**子进程环境**可注入（测试用夹具根 + 夹具 AIMAIL_HOME，
+/// 既走"同源"分支又不改本进程环境 ⇒ 并行安全）。
+pub fn agentmail_backfill_with(
+    sid: &str,
+    aimail_home: &Path,
+    prog_root: &Path,
+    door_env: &[(String, String)],
+) -> bool {
+    let gw = config::load_gateway_config_in(aimail_home, sid)
+        .map(|c| c.to_json())
+        .unwrap_or_default();
+    let sysdir = config::system_dir_in(aimail_home, sid);
+    if !sysdir.is_dir() {
+        return false;
+    }
+    // 路由表（target url）—— k = v 逐行；去引号、去尾逗号；后写覆盖先写
+    let mut routes: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    if let Ok(text) = std::fs::read_to_string(aimail_home.join("bridge").join("aimail_routes.toml"))
+    {
+        for raw in text.lines() {
+            let line = raw.trim();
+            if line.contains('=') && !line.starts_with('#') {
+                let (k, v) = line.split_once('=').unwrap();
+                let key = unquote(k.trim());
+                let val = unquote(v.trim().trim_end_matches(','));
+                routes.insert(key, val);
+            }
+        }
+    }
+
+    let mut dirs: Vec<std::path::PathBuf> = std::fs::read_dir(&sysdir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
+    dirs.sort();
+    let binding_name = contract::binding_file();
+    let mut changed = false;
+    for dir in dirs {
+        let binding = dir.join(binding_name);
+        let Ok(text) = std::fs::read_to_string(&binding) else {
+            continue;
+        };
+        let Ok(Value::Object(mut d)) = serde_json::from_str::<Value>(&text) else {
+            continue;
+        };
+        let orig = d.clone();
+        let dir_name = dir
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        // ① 补空字段（网关配置为准）
+        for k in [
+            "gateway_url",
+            "domain",
+            "system_id",
+            "system_name",
+            "manager_address",
+        ] {
+            let cur_empty = d
+                .get(k)
+                .and_then(Value::as_str)
+                .map(|v| v.is_empty())
+                .unwrap_or(true);
+            if !cur_empty {
+                continue;
+            }
+            if let Some(v) = gw.get(k) {
+                let v_empty = v.as_str().map(|x| x.is_empty()).unwrap_or(v.is_null());
+                if !v_empty {
+                    d.insert(k.to_string(), v.clone());
+                }
+            }
+        }
+        // ② 与活路由对齐 webhook_url
+        let email = d
+            .get("email")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let target = routes.get(&email).cloned().unwrap_or_default();
+        let declared = d
+            .get("webhook_url")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let host = url_host(&target);
+        let local = matches!(host.as_str(), "127.0.0.1" | "localhost" | "::1");
+        if !target.is_empty() && route_alive(&target) && local {
+            if !declared.is_empty() && !route_alive(&declared) {
+                d.insert("webhook_url".to_string(), Value::String(target.clone()));
+                ok(&format!(
+                    "{dir_name}: webhook_url {declared} -> {target} (declared dead, route alive)"
+                ));
+            } else if !declared.is_empty() && trim_slash(&declared) != trim_slash(&target) {
+                d.insert("webhook_url".to_string(), Value::String(target.clone()));
+                ok(&format!(
+                    "{dir_name}: webhook_url aligned to route target {target}"
+                ));
+            }
+        }
+        if d != orig {
+            // 写回经 SDK 门（原子 tmp+rename+0600 语义在 SDK 内）；单文件失败只跳过该文件
+            let args = serde_json::json!({"binding": Value::Object(d), "system_id": sid});
+            match sdk::sdk_ops_call(
+                "backfill_binding",
+                &args,
+                prog_root,
+                std::time::Duration::from_secs(120),
+                door_env,
+            ) {
+                Ok(_) => changed = true,
+                Err(e) => warn(&format!(
+                    "{dir_name}: {binding_name} write failed ({}) -> skipping that file",
+                    e.display_like_python()
+                )),
+            }
+        }
+    }
+    if !changed {
+        ok(&format!(
+            "{binding_name} ok (fields complete and webhook_url aligned)"
+        ));
+    }
+    changed
+}
+
+/// 探测端点是否存活（`repair.py:671-680`）：POST 空体、3s 超时；HTTP 404 = 死，其余状态码 = 活。
+fn route_alive(url: &str) -> bool {
+    if url.is_empty() || !url.starts_with("http") {
+        return false;
+    }
+    match crate::core::http::raw_req(url, Some(b""), None, 3) {
+        Ok((code, _)) => code != 404,
+        Err(_) => false,
+    }
+}
+
+/// 去一层引号（`k = "v",` 这类 toml 简式解析用）。
+fn unquote(s: &str) -> String {
+    let t = s.trim();
+    let t = t.strip_prefix('"').unwrap_or(t);
+    let t = t.strip_suffix('"').unwrap_or(t);
+    t.trim().to_string()
+}
+
+fn trim_slash(url: &str) -> &str {
+    url.trim_end_matches('/')
 }
 
 #[cfg(test)]

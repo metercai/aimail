@@ -25,6 +25,7 @@ pub mod perms;
 pub mod platforms;
 pub mod probe;
 pub mod repair;
+pub mod sdk;
 pub mod sig;
 pub mod style;
 pub mod time;
