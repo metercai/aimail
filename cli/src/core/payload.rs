@@ -155,6 +155,114 @@ pub fn check_payload(c: &mut Check, prog_root: &Path, core_dir: Option<&Path>) {
     );
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// S6 切片1：`install --payload` 机器面要用的 bundle/源根解析（`runtime_bundle.py:59-98/110-200/320-340`）
+// ════════════════════════════════════════════════════════════════════════════
+
+/// bundle → 默认落点模板（`BUNDLES[*].default_dest` 的 Rust 副本；有**表一致性守门**测试
+/// 直接向 Python 要真值比对，漂移即红）。`{program_root}` 由 `payload_dir` 展开，`~` **不**展开
+/// （Python 侧 `payload_dir()` 也同样不展开 —— 只有 `install()` 才 `expanduser`）。
+pub const BUNDLE_DEFAULT_DEST: &[(&str, &str)] = &[
+    ("mcp", "{program_root}/mcp"),
+    ("deer-flow", "~/deer-flow/backend/app/gateway/routers"),
+    ("skill-hermes", "__profile_skills__"),
+    ("skill-openclaw", "~/.openclaw/skills/agentmail"),
+    ("skill-deerflow", "~/deer-flow/skills/public/agentmail"),
+    ("skill-dsh", "~/.dsh/skills/agentmail"),
+];
+
+/// bundle 名的升序列表（Python `sorted(BUNDLES)` 用于错误文案的"可选: …"）。
+pub fn bundle_names() -> String {
+    let mut v: Vec<&str> = BUNDLE_DEFAULT_DEST.iter().map(|(n, _)| *n).collect();
+    v.sort_unstable();
+    v.join("|")
+}
+
+/// `payload_dir(bundle)`：默认落点（展开 `{program_root}`，**不**展开 `~`）。
+pub fn payload_dir_named(bundle: &str) -> Result<String, String> {
+    let tpl = BUNDLE_DEFAULT_DEST
+        .iter()
+        .find(|(n, _)| *n == bundle)
+        .map(|(_, d)| *d)
+        .ok_or_else(|| format!("ERROR: 未知 bundle {bundle}"))?;
+    Ok(tpl.replace(
+        "{program_root}",
+        &crate::core::home::program_root().to_string_lossy(),
+    ))
+}
+
+/// `resolve_source_root(explicit)` → `(root, kind)`；kind ∈ `repo|pip`。
+///
+/// **repo > pip** 与判读侧（check 的 stale 判定）逐字同序：源与判读不同源 ⇒ 刷的是 pip 旧码、
+/// 复核拿 repo 新码 ⇒ 永远 stale（`iso14 hermes J5-2` 的病灶）。Rust 侧的"repo"= 部署形态
+/// `{program_root}/aimail-src/pysdk`（= Python 的 `<cli>/../pysdk` 同一目录）。
+pub fn resolve_source_root(explicit: &str) -> Result<(String, String), String> {
+    if !explicit.is_empty() {
+        let root = expand_user(explicit);
+        if std::path::Path::new(&root).join("aimail_base.py").is_file() {
+            return Ok((root, "repo".to_string()));
+        }
+        return Err(format!(
+            "ERROR: --source-root 无效(无 aimail_base.py): {root}"
+        ));
+    }
+    let repo = crate::core::home::program_root()
+        .join("aimail-src")
+        .join("pysdk");
+    if repo.join("aimail_base.py").is_file() {
+        return Ok((repo.to_string_lossy().to_string(), "repo".to_string()));
+    }
+    // pip 兜底：问解释器要包目录
+    let py = std::env::var("AIMAIL_PYTHON").unwrap_or_else(|_| "python3".to_string());
+    let out = std::process::Command::new(py)
+        .args([
+            "-c",
+            "import aimail,os;print(os.path.dirname(os.path.abspath(aimail.__file__)))",
+        ])
+        .output();
+    if let Ok(o) = out {
+        if o.status.success() {
+            let dir = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if !dir.is_empty() && std::path::Path::new(&dir).join("aimail_base.py").is_file() {
+                return Ok((dir, "pip".to_string()));
+            }
+        }
+    }
+    Err("ERROR: 运行时源未找到(pip aimail 未安装且仓库 pysdk/ 缺失)".to_string())
+}
+
+/// `source_path(name, explicit_root)`：资源目录（`_resource_path` 的两种布局同一形状）。
+pub fn source_path(name: &str, explicit_root: &str) -> Result<String, String> {
+    let (root, _kind) = resolve_source_root(explicit_root)?;
+    let base = std::path::Path::new(&root).join("resources");
+    let p = match name {
+        "skills" => base.join("skills"),
+        // 2026-09-25：board 只保留角色提示（目录改名 role_prompt）
+        "board-role" => base.join("board").join("role_prompt"),
+        other => {
+            return Err(format!("ERROR: 未知资源 {other}(可选: skills|board-role)"));
+        }
+    };
+    if !p.is_dir() {
+        return Err(format!("ERROR: 资源目录不存在: {}", p.display()));
+    }
+    Ok(p.to_string_lossy().to_string())
+}
+
+/// `~` / `~/x` 展开（Python `os.path.expanduser` 的最小等价；不做 `~user`）。
+fn expand_user(path: &str) -> String {
+    if path == "~" {
+        return crate::core::home::user_home().to_string_lossy().to_string();
+    }
+    if let Some(rest) = path.strip_prefix("~/") {
+        return crate::core::home::user_home()
+            .join(rest)
+            .to_string_lossy()
+            .to_string();
+    }
+    path.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

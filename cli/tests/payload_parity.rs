@@ -13,6 +13,8 @@ use aimail::core::check::Check;
 use aimail::core::payload::{check_payload, MCP_FILES, MCP_SUBDIR, STAMP_NAME};
 use common::{filter_records, python_check_json_with_env, python_table_probe, TempDir};
 use serde_json::Value;
+use std::path::PathBuf;
+use std::process::Command;
 
 #[test]
 fn rust_mcp_files_table_matches_python_runtime_bundle() {
@@ -123,4 +125,53 @@ fn normalize_fix(rec: &mut (String, String, bool, String, String)) {
             rec.4 = last.to_string();
         }
     }
+}
+
+#[test]
+fn bundle_default_dest_table_matches_python() {
+    // 表一致性守门（与 MCP_FILES 同法）：直接向 Python 要 BUNDLES[*].default_dest 真值逐条比。
+    // 源真值缺失 ⇒ 打印原因并跳过（不伪装通过）。
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("repo root")
+        .to_path_buf();
+    let script = "import json,sys; sys.path.insert(0, sys.argv[1]); \
+                  import runtime_bundle as rb; \
+                  print(json.dumps({k: v['default_dest'] for k, v in rb.BUNDLES.items()}, ensure_ascii=False))";
+    let out = Command::new("python3")
+        .arg("-c")
+        .arg(script)
+        .arg(repo.join("cli"))
+        .output();
+    let Ok(out) = out else {
+        eprintln!("跳过：python3 不可用");
+        return;
+    };
+    if !out.status.success() {
+        eprintln!(
+            "跳过：python 侧探测失败 {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        return;
+    }
+    let py: serde_json::Value = serde_json::from_slice(&out.stdout).expect("python 真值 JSON");
+    let py_map = py.as_object().expect("object");
+    assert_eq!(
+        py_map.len(),
+        aimail::core::payload::BUNDLE_DEFAULT_DEST.len(),
+        "bundle 数量漂移: python={} rust={}",
+        py_map.len(),
+        aimail::core::payload::BUNDLE_DEFAULT_DEST.len()
+    );
+    for (name, dest) in aimail::core::payload::BUNDLE_DEFAULT_DEST {
+        assert_eq!(
+            py_map.get(*name).and_then(|v| v.as_str()),
+            Some(*dest),
+            "bundle {name} 的 default_dest 与 Python 不一致"
+        );
+    }
+    // sorted(BUNDLES) 的 "a|b|c" 文案也要一致
+    let mut names: Vec<&str> = py_map.keys().map(|s| s.as_str()).collect();
+    names.sort_unstable();
+    assert_eq!(aimail::core::payload::bundle_names(), names.join("|"));
 }

@@ -7,6 +7,7 @@
 pub mod address;
 pub mod check;
 pub mod domain;
+pub mod install;
 pub mod persona;
 pub mod report;
 pub mod stats;
