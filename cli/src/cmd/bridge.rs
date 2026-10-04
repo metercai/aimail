@@ -36,9 +36,17 @@ pub fn run(a: &Args) -> i32 {
         );
     }
     if a.restart {
-        return crate::cmd::stub::not_yet_ported(
-            "bridge --restart（部署面：起进程/写 pid；P2 切片3）",
+        // 独立重启：起/重启本机单实例桥（不依赖系统配置，照抄 Python 的 --restart 分支）
+        let bin = crate::core::home::aimail_home().join("bridge/bin/aimail-bridge");
+        let cfg = crate::core::bridge_wire::bridge_cfg_file();
+        let pid = crate::core::bridge_wire::bridge_pid_file();
+        let started = crate::core::bridge_deploy::start_bridge(
+            &bin.to_string_lossy(),
+            &cfg.to_string_lossy(),
+            &pid.to_string_lossy(),
         );
+        let _ = started;
+        return if pid.exists() { 0 } else { 1 };
     }
 
     if a.system_id.is_empty() && a.home.is_empty() {
