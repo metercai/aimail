@@ -31,6 +31,7 @@ pub mod sdk;
 pub mod sdkcall;
 pub mod setup;
 pub mod sig;
+pub mod steps;
 pub mod style;
 pub mod time;
 

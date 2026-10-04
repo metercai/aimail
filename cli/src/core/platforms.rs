@@ -516,6 +516,29 @@ pub fn platform_override(name: &str) -> Result<Option<String>, String> {
     Ok(Some(p.to_string()))
 }
 
+/// `resolve_platform`（`cli/aimail:267-276`）：home 特征优先，回退"第一个有 aimail 指针的平台"。
+///
+/// 注意与 [`detect_platform_from_home`] 的区别：后者无命中返回 `"unknown"`（**非空**），
+/// 直接拿它当平台名会把"没识别出来"当成平台 ⇒ 必须走本函数收成 `""`。
+pub fn resolve_platform(system_home: &std::path::Path) -> String {
+    let p = if system_home.as_os_str().is_empty() {
+        String::new()
+    } else {
+        detect_platform_from_home(system_home).to_string()
+    };
+    if p != "unknown" {
+        return p;
+    }
+    // 自动探测：注册表顺序里第一个指针带 system_id 的平台
+    let uh = crate::core::home::user_home();
+    for plat in order() {
+        if !pointer_sid_for(&uh, plat).is_empty() {
+            return plat.to_string();
+        }
+    }
+    String::new()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

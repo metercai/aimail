@@ -80,3 +80,28 @@ pub fn release_mode() -> &'static str {
         "dev"
     }
 }
+
+/// `~` 展开（`Path.expanduser()` 的常用子集：`~` 与 `~/…`）。
+pub fn expand_user(s: &str) -> std::path::PathBuf {
+    if let Some(rest) = s.strip_prefix("~/") {
+        user_home().join(rest)
+    } else if s == "~" {
+        user_home()
+    } else {
+        std::path::PathBuf::from(s)
+    }
+}
+
+/// `runtime_core.system_home_from_sid`：从系统级配置反查 `system_home`（没有 ⇒ 空串，
+/// 由调用方按 `_fail` 处理）。
+pub fn system_home_from_sid(sid: &str) -> String {
+    crate::core::config::load_gateway_config(sid)
+        .map(|c| c.system_home)
+        .unwrap_or_default()
+}
+
+/// SDK 核心目录（`pysdk`）：部署/快照形态 = `{program_root}/aimail-src/pysdk`。
+/// 只做**定位**；是否 pip 形态由调用方的回退链决定（`core::sdk` / `core::sdkcall` 各自处理）。
+pub fn core_dir() -> std::path::PathBuf {
+    program_root().join("aimail-src").join("pysdk")
+}

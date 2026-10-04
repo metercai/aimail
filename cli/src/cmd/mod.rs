@@ -10,6 +10,7 @@ pub mod domain;
 pub mod install;
 pub mod persona;
 pub mod report;
+pub mod reset;
 pub mod stats;
 pub mod stub;
 pub mod version;

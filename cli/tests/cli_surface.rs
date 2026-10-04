@@ -42,7 +42,11 @@ const MACHINE_LITERALS: &[&str] = &["ensure-system", "payload", "system-only"];
 /// 本步已移植的子命令（每移植一个就加进来 —— 与 `unported_commands_are_honest` 互为棘轮）。
 /// 注意粒度 = **子命令**：已移植命令的未移植**面**（如 `address set-name`、`domain --add`）
 /// 由各自模块显式 `not_yet_ported`，不改变这里的清单。
-const IMPLEMENTED: &[&str] = &["version", "stats", "persona", "address", "domain", "check"];
+// 已实现=命令面已接线且行为已验（`reset` 的桥路由对账仍明确告警："未移植(bridge)"，
+// 但命令本体、激活 worker、注册链都是真实现 ⇒ 计入已实现面）
+const IMPLEMENTED: &[&str] = &[
+    "version", "stats", "persona", "address", "domain", "check", "reset",
+];
 
 static SEQ: AtomicU32 = AtomicU32::new(0);
 

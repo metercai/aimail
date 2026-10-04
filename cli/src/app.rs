@@ -99,6 +99,58 @@ const PROMPT_SUBCOMMANDS: &[(&str, &str)] = &[
 /// 其余是 install 的隐藏开关）。隐藏 = clap `hide(true)`，人面 help 不得出现。
 /// `install` 的参数（Python `cli/aimail:3462-3490`：人面 9 个 + 隐藏机器面 6 个）。
 /// 隐藏项的注册顺序与 Python 一致（usage 行只显示人面）。
+fn reset_args(cmd: Command) -> Command {
+    cmd.arg(
+        Arg::new("home")
+            .short('H')
+            .long("home")
+            .value_name("DIR")
+            .help("system home / platform root (inferred from --system-id when omitted)"),
+    )
+    .arg(
+        Arg::new("system-id")
+            .short('s')
+            .long("system-id")
+            .value_name("ID")
+            .help("system id (used to infer --home and the platform pointer when omitted)"),
+    )
+    .arg(
+        Arg::new("gateway-url")
+            .short('g')
+            .long("gateway-url")
+            .value_name("URL")
+            .default_value("")
+            .help("gateway base URL (default: existing config or AIMAIL_URL)"),
+    )
+    .arg(
+        Arg::new("system-name")
+            .short('n')
+            .long("system-name")
+            .value_name("NAME")
+            .help("system display name (explicit only: identity field, never taken from .env)"),
+    )
+    .arg(
+        Arg::new("manager")
+            .short('m')
+            .long("manager")
+            .value_name("ADDR")
+            .help("manager address for registrations (falls back to env/config)"),
+    )
+    .arg(
+        Arg::new("all-agents")
+            .long("all-agents")
+            .action(ArgAction::SetTrue)
+            .help("re-run registration for ALL platform agents (default: main agent only)"),
+    )
+    .arg(
+        Arg::new("platform")
+            .long("platform")
+            .value_name("NAME")
+            .default_value("")
+            .help("override platform detection (value validated against the platform registry)"),
+    )
+}
+
 fn install_args(cmd: Command) -> Command {
     let cmd = cmd
         .arg(Arg::new("home").short('H').long("home").help(HOME_HELP))
@@ -326,6 +378,7 @@ pub fn build_cli() -> Command {
         match *name {
             "install" => sub = install_args(sub),
             "address" => sub = address_hidden_args(address_view_args(sub)),
+            "reset" => sub = reset_args(sub),
             "stats" => sub = stats_args(sub),
             "check" => sub = check_args(sub),
             "persona" => sub = persona_args(sub),
@@ -372,6 +425,15 @@ pub fn run() -> i32 {
             manager: arg_opt(m, "manager"),
             inbound_live: m.get_flag("inbound-live"),
             inbound_down: m.get_flag("inbound-down"),
+        }),
+        Some(("reset", m)) => crate::cmd::reset::run(&crate::cmd::reset::Args {
+            home: arg_str(m, "home"),
+            system_id: arg_str(m, "system-id"),
+            platform: arg_str(m, "platform"),
+            gateway_url: arg_str(m, "gateway-url"),
+            system_name: arg_str(m, "system-name"),
+            manager: arg_str(m, "manager"),
+            all_agents: m.get_flag("all-agents"),
         }),
         Some(("install", m)) => crate::cmd::install::run(crate::cmd::install::Args {
             home: arg_str(m, "home"),
