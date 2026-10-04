@@ -183,11 +183,174 @@ fn prompt_faces_list_rm_createfile_and_command_surface() {
     let text = std::fs::read_to_string(&f).expect("角色文件应已创建");
     assert!(text.starts_with("# new"), "{text}");
 
-    // ⑤ test ⇒ 响亮未移植（不静默降级）
-    let (rc, _, err) = run(
+    // ⑤ test 已接线（L1–L5 仿真）：裸跑（无输入）⇒ rc=0 + 兜底行
+    //    （L1–L5 的逐层语义由 `prompt_test_walks_the_chain_and_matches_via_sdk` 覆盖）
+    let (rc, out, err) = run(
         &home,
         &["prompt", "test", "-s", "s1", "-e", "agent@example.test"],
     );
-    assert_eq!(rc, 1, "{err}");
-    assert!(err.contains("not yet ported"), "{err}");
+    assert_eq!(rc, 0, "rc={rc}\nout={out}\nerr={err}");
+    assert!(
+        out.contains("(matched against: subject='' sender='' to='')"),
+        "{out}"
+    );
+}
+
+/// `prompt test`（L1–L5 单源匹配仿真）：内建两级 + L4 头 + L5 本机规则 + 兜底行。
+#[test]
+fn prompt_test_walks_the_chain_and_matches_via_sdk() {
+    let (_t, home) = fixture();
+
+    // L1 内建 [WHOAMI]（role 文件缺 ⇒ MISSING，但**已命中即返回**）
+    let (rc, out, err) = run(
+        &home,
+        &[
+            "prompt",
+            "test",
+            "-s",
+            "s1",
+            "-e",
+            "agent@example.test",
+            "--subject",
+            "[whoami] x",
+        ],
+    );
+    assert_eq!(rc, 0, "rc={rc}\nout={out}\nerr={err}");
+    assert!(
+        out.contains("L1 [WHOAMI] (built-in) → file=whoami"),
+        "{out}"
+    );
+    // 夹具里系统级 `common.md` 存在 ⇒ whoami 走兜底（MISSING 只在连 common.md 都缺时出现，
+    // 该态由 `role_missing_is_reported_when_no_common_md` 覆盖）
+    assert!(out.contains("common.md (common.md fallback)"), "{out}");
+
+    // L2 内建 welcome（标记 + 三标签齐）
+    let (rc, out, _) = run(
+        &home,
+        &[
+            "prompt",
+            "test",
+            "-s",
+            "s1",
+            "-e",
+            "agent@example.test",
+            "--subject",
+            "Welcome to AIMail World, agent, since 2026-10-04!",
+            "--body",
+            "persona: p\nsignature: s\ncurrent_time: t",
+        ],
+    );
+    assert_eq!(rc, 0, "{out}");
+    assert!(
+        out.contains("L2 welcome (built-in) → file=role_calibrator"),
+        "{out}"
+    );
+
+    // 标记在、标签缺 ⇒ MISMATCH 提示（并继续往下走）
+    let (rc, out, _) = run(
+        &home,
+        &[
+            "prompt",
+            "test",
+            "-s",
+            "s1",
+            "-e",
+            "agent@example.test",
+            "--subject",
+            "Welcome to AIMail World",
+            "--body",
+            "persona: p",
+        ],
+    );
+    assert_eq!(rc, 0, "{out}");
+    assert!(out.contains("marker=true labels=false"), "{out}");
+
+    // L5：`30_later` 命中 —— 注意匹配是"字段间**且**"（规则同时带 subject 与 body 关键词）
+    // ⇒ 样本必须**同时**满足两个字段，否则正确结果就是 miss。
+    let (rc, out, _) = run(
+        &home,
+        &[
+            "prompt",
+            "test",
+            "-s",
+            "s1",
+            "-e",
+            "agent@example.test",
+            "--subject",
+            "please approve this",
+            "--body",
+            "contains x here",
+        ],
+    );
+    assert_eq!(rc, 0, "{out}");
+    assert!(out.contains("L5 HIT 30_later → file=later"), "{out}");
+    assert!(out.contains("common.md (common.md fallback)"), "{out}");
+    assert!(
+        out.contains("(matched against: subject='please approve this' sender='' to='')"),
+        "{out}"
+    );
+
+    // 反例：只给 subject（body 空）⇒ `body:["x"]` 不命中 ⇒ 正确落 miss（字段间且）
+    let (rc, out, _) = run(
+        &home,
+        &[
+            "prompt",
+            "test",
+            "-s",
+            "s1",
+            "-e",
+            "agent@example.test",
+            "--subject",
+            "please approve this",
+        ],
+    );
+    assert_eq!(rc, 0, "{out}");
+    assert!(out.contains("L5 miss 30_later"), "字段间且: {out}");
+
+    // L5：无命中 ⇒ 兜底行；且**禁用规则不参与**（`10_first` 已 enabled=false）
+    let (rc, out, _) = run(
+        &home,
+        &[
+            "prompt",
+            "test",
+            "-s",
+            "s1",
+            "-e",
+            "agent@example.test",
+            "--sender",
+            "m@example.test",
+        ],
+    );
+    assert_eq!(rc, 0, "{out}");
+    assert!(
+        out.contains("L5: no rule matched — chain falls through (default prompt)"),
+        "{out}"
+    );
+    assert!(!out.contains("L5 HIT 10_first"), "禁用规则不得命中: {out}");
+    assert!(
+        !out.contains("L5 miss 10_first"),
+        "禁用规则不进匹配循环: {out}"
+    );
+
+    // L4：头指定且 role 文件不存在 ⇒ 仍经 `common.md` 兜底命中（同 L1 的口径）；
+    // 「连 common.md 都缺 ⇒ MISSING + falls through」由无 common.md 的夹具覆盖（见另一用例）。
+    let (rc, out, _) = run(
+        &home,
+        &[
+            "prompt",
+            "test",
+            "-s",
+            "s1",
+            "-e",
+            "agent@example.test",
+            "--header",
+            "nope",
+        ],
+    );
+    assert_eq!(rc, 0, "{out}");
+    assert!(
+        out.contains("L4 X-AIMail-Prompt (gateway header) → file=nope"),
+        "{out}"
+    );
+    assert!(out.contains("common.md (common.md fallback)"), "{out}");
 }

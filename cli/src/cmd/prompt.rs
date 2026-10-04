@@ -213,6 +213,48 @@ fn kws(v: &[String]) -> Vec<String> {
         .collect()
 }
 
+/// `aimail_base.read_prompt_rules` 的**过滤镜像**（L5 匹配必须用同一批规则）：
+/// 仅 dict · 名字过 SDK 谓词 · `file` 非空 · `enabled is False` 跳过 · 至少一个非空字段 ⇒ 按名排序。
+/// 说明：SDK 侧还对坏项打 WARN 日志；CLI 侧无 logger，静默丢弃（差异已登记）。
+fn loader_rules(cfg: &Value) -> Vec<Value> {
+    let raw = match cfg.get("prompt_rules").and_then(|v| v.as_array()) {
+        Some(a) => a.clone(),
+        None => return Vec::new(),
+    };
+    let mut kept: Vec<Value> = Vec::new();
+    for r in raw.iter() {
+        if !r.is_object() {
+            continue;
+        }
+        let name = r.get("name").map(pyjson_str).unwrap_or_default();
+        if !rule_name_ok(&name).unwrap_or(false) {
+            continue;
+        }
+        let file = r.get("file").map(pyjson_str).unwrap_or_default();
+        if file.trim().is_empty() {
+            continue;
+        }
+        if r.get("enabled").and_then(|v| v.as_bool()) == Some(false) {
+            continue;
+        }
+        let has_field =
+            ["subject", "body", "sender", "recipient"]
+                .iter()
+                .any(|k| match r.get(*k) {
+                    None | Some(Value::Null) => false,
+                    Some(Value::String(s)) => !s.trim().is_empty(),
+                    Some(Value::Array(a)) => a.iter().any(|k| pyjson_str(k).trim() != ""),
+                    Some(_) => false,
+                });
+        if !has_field {
+            continue;
+        }
+        kept.push(r.clone());
+    }
+    kept.sort_by_key(|r| r.get("name").map(pyjson_str).unwrap_or_default());
+    kept
+}
+
 pub fn run(a: &Args) -> i32 {
     let sid = a.system_id.clone();
     if sid.is_empty() {
@@ -404,8 +446,109 @@ Describe how this agent should behave for that class of mail here.\n"
             println!("  created {}", p.to_string_lossy());
             0
         }
-        // `test`：L1–L5 单源匹配仿真（下一切片接线；当前响亮未移植，不静默降级）
-        "test" => crate::cmd::stub::not_yet_ported("prompt test"),
+        "test" => {
+            // ── L1–L5 单源匹配仿真（**永不发送**）；匹配判定全部委托 SDK ──
+            let subj = a.subject.clone();
+            let body = a.body.clone();
+            let sender = a.sender.clone();
+            let recp = a.to.join(" ");
+            let s_l = subj.to_lowercase();
+            let hit = |layer: &str, stem: &str| -> i32 {
+                let path = role_path(&addr_role_dir, &sys_role_dir, stem);
+                println!("  {layer} → file={stem}");
+                println!(
+                    "  role: {}",
+                    if path.is_empty() {
+                        "MISSING (no injection; chain continues at runtime)".to_string()
+                    } else {
+                        path
+                    }
+                );
+                0
+            };
+            // L1 内建 [WHOAMI]
+            if s_l.starts_with("[whoami]") {
+                return hit("L1 [WHOAMI] (built-in)", "whoami");
+            }
+            // L2 内建 welcome（标记 + 三标签，与 preprocess 同字面量）
+            let marker = s_l.contains("welcome to aimail world");
+            let labels_ok = ["persona", "signature", "current_time"].iter().all(|k| {
+                body.lines()
+                    .any(|ln| ln.trim_start().starts_with(&format!("{k}:")))
+            });
+            if marker && labels_ok {
+                return hit("L2 welcome (built-in)", "role_calibrator");
+            }
+            let mut line = "  L1 [WHOAMI]: no    L2 welcome: no".to_string();
+            if marker || labels_ok {
+                line.push_str(&format!(
+                    "  (MISMATCH warn at runtime: marker={marker} labels={labels_ok})"
+                ));
+            }
+            println!("{line}");
+            // L3 板级（网关注入；--board-role 仿真）
+            if !a.board_role.trim().is_empty() {
+                return hit("L3 board (simulated)", a.board_role.trim());
+            }
+            println!("  L3 board: gateway-injected — pass --board-role to simulate");
+            // L4 X-AIMail-Prompt 头
+            if !a.header.trim().is_empty() {
+                let stem = a.header.trim();
+                if !role_path(&addr_role_dir, &sys_role_dir, stem).is_empty() {
+                    return hit("L4 X-AIMail-Prompt (gateway header)", stem);
+                }
+                println!(
+                    "  L4 header={}: role file MISSING (incl. common.md) — runtime falls through to L5",
+                    crate::core::pyjson::repr_python(&json!(stem))
+                );
+            }
+            // L5 本机 prompt_rules：先过 `loader_rules`（与 SDK `read_prompt_rules` 同过滤），
+            // 匹配判定**委托 SDK** `prompt_rule_matches`（不复刻"字段内或 / 字段间且"的裁决）。
+            let sorted = loader_rules(&t.cfg);
+            let mut matched_any = false;
+            for rule in &sorted {
+                let name = rule.get("name").map(pyjson_str).unwrap_or_default();
+                let is_match = match sdk_call(
+                    "prompt_rule_matches",
+                    &[
+                        rule.clone(),
+                        json!(subj),
+                        json!(body),
+                        json!(sender),
+                        json!(recp),
+                    ],
+                ) {
+                    Ok(v) => v.as_bool().unwrap_or(false),
+                    Err(e) => return fail(&format!("prompt_rule_matches failed: {e}")),
+                };
+                if !is_match {
+                    println!("  L5 miss {name}");
+                    continue;
+                }
+                let file = rule.get("file").map(pyjson_str).unwrap_or_default();
+                let path = role_path(&addr_role_dir, &sys_role_dir, &file);
+                if path.is_empty() {
+                    println!(
+                        "  L5 hit {name} but role file '{file}' MISSING (incl. common.md) — next rule"
+                    );
+                    continue;
+                }
+                println!("  L5 HIT {name} → file={file}");
+                println!("  role: {path}"); // 路径可能带 common.md fallback 标注 = 运行时实际注入内容
+                matched_any = true;
+                break;
+            }
+            if !matched_any {
+                println!("  L5: no rule matched — chain falls through (default prompt)");
+            }
+            println!(
+                "  (matched against: subject={} sender={} to={})",
+                crate::core::pyjson::repr_python(&json!(subj)),
+                crate::core::pyjson::repr_python(&json!(sender)),
+                crate::core::pyjson::repr_python(&json!(recp))
+            );
+            0
+        }
         other => fail(&format!("unknown prompt action: {other}")),
     }
 }
