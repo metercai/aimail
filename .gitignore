@@ -22,3 +22,6 @@ PLATFORM-BOUNDARY-PLAN.md
 /tssdk/packages/dsh-aimail/resources/
 /tssdk/packages/openclaw-aimail/resources/
 /tssdk/packages/pi-aimail/resources/
+
+# ── rust 侧构建产物(cli 域)──
+/cli/target/
