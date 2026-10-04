@@ -388,6 +388,62 @@ pub fn run(args: Args) -> i32 {
                 }
             }
         }
+        "set-manager" => {
+            // `-m` 校验（Python：空或缺 `@` ⇒ 同一句文案）
+            let mgr = args.manager.clone().unwrap_or_default();
+            if mgr.is_empty() || !mgr.contains('@') {
+                return report::fail("address set-manager 需要 -m <manager 邮箱>");
+            }
+            let agents = list_agents(&aimail_home, &sid, &cfg);
+            let target = if let Some(em) = &args.email {
+                agents.iter().find(|r| r.email == em.to_lowercase())
+            } else {
+                None
+            };
+            let Some(t) = target else {
+                return report::fail("该操作需要 -a <agent> 或 -e <email> 定位目标地址");
+            };
+            // agent 域资源 CRUD 在 SDK、CLI 只触发（owner 裁决）⇒ 按名调用，**不复刻算法**。
+            let agent_cfg_path = aimail_home
+                .join("systems")
+                .join(&sid)
+                .join(crate::core::bridge_wire::addr_clean(&t.email))
+                .join(contract::binding_file());
+            let agent_cfg: Value = std::fs::read_to_string(&agent_cfg_path)
+                .ok()
+                .and_then(|x| serde_json::from_str(&x).ok())
+                .unwrap_or_else(|| serde_json::json!({}));
+            let cfg_json = Value::Object(cfg.to_json());
+            let sdk_root = crate::core::sdkroot::resolve_or_repo_candidate();
+            match crate::core::sdkcall::call_positional(
+                "aimail_base",
+                "set_agent_manager",
+                &[
+                    Value::String(sid.clone()),
+                    Value::String(t.email.clone()),
+                    Value::String(mgr.clone()),
+                    cfg_json,
+                    agent_cfg,
+                ],
+                &serde_json::json!({}),
+                &sdk_root.path,
+                std::time::Duration::from_secs(30),
+                &[],
+            ) {
+                Ok(_) => {
+                    report::ok(&format!("manager: {} → {}(云端+本地已同步)", t.email, mgr));
+                    0
+                }
+                Err(e) => {
+                    // Python：ValueError ⇒ `更新 manager 失败: {e}`
+                    let msg = match &e {
+                        crate::core::sdk::AbiError::Call { msg, .. } => msg.clone(),
+                        other => format!("{:?}", other),
+                    };
+                    report::fail(&format!("更新 manager 失败: {}", msg))
+                }
+            }
+        }
         other => crate::cmd::stub::not_yet_ported(&format!("address {other}")),
     }
 }
