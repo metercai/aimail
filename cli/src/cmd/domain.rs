@@ -1,7 +1,8 @@
-//! `aimail domain` —— 查看指定系统的域名。S3 只移植**列表**面。
+//! `aimail domain` —— 查看/创建指定系统的域名（P4 切片1：**创建面**落地）。
 //!
-//! `--add`（创建域名）与其参数校验留下一刀 ⇒ 本步显式走 not-yet-ported（rc 1），
-//! 不做"先校验再假成功"。
+//! 创建面（`--add`）：校验在**动作之前**（非法域名直接失败、不发请求）；
+//! `id` 省略 ⇒ `d{epoch}`；`-w/--webhook-url` 有值才带；响应带 `error` ⇒ 失败文案
+//! `创建失败: {error} {detail}`（`.strip()`）。
 //!
 //! 现状码对照：`cli/aimail:2923-2969`（`cmd_domain`）+ `pysdk/aimail_tools.py:333-337`
 //! （`list_system_domains`：GET `/api/v1/admin/systems/{sid}/domains`，非 list ⇒ 空表）。
@@ -13,6 +14,8 @@ use serde_json::Value;
 pub struct Args {
     pub system_id: String,
     pub add: Option<String>,
+    pub id: String,
+    pub webhook_url: String,
 }
 
 pub fn run(args: Args) -> i32 {
@@ -36,10 +39,35 @@ pub fn run(args: Args) -> i32 {
         return report::fail(&format!("无网关凭据(system {sid})"));
     }
 
-    // 创建面未移植 ⇒ 在校验**之后**显式非零退出（顺序与 Python 一致：先校验再动作，
-    // 这样"机器上没有该系统"这类判读与 Python 逐字相同；且绝不产生任何写入）。
-    if args.add.is_some() {
-        return crate::cmd::stub::not_yet_ported("domain --add");
+    // ── 创建面（`--add`）：校验在动作之前（非法域名不发请求）──
+    if let Some(raw_add) = args.add.as_deref() {
+        let domain = raw_add.trim().to_lowercase();
+        if domain.is_empty() || domain.contains('@') || !domain.contains('.') {
+            // 文案打**原文**（Python 用 args.add 而非归一后的值）
+            return report::fail(&format!("非法域名: '{}'", raw_add));
+        }
+        let id = if args.id.is_empty() {
+            format!("d{}", crate::core::time::now_secs())
+        } else {
+            args.id.clone()
+        };
+        let mut body = serde_json::json!({ "id": id, "domain": domain });
+        if !args.webhook_url.is_empty() {
+            body["webhook_url"] = Value::String(args.webhook_url.clone());
+        }
+        let client = GatewayClient::with_defaults(gw, &cfg.admin_key);
+        let result = client.post(&format!("/api/v1/admin/systems/{sid}/domains"), &body);
+        if let Some(err) = result.get("error").filter(|v| !v.is_null()) {
+            let detail = result.get("detail").and_then(|v| v.as_str()).unwrap_or("");
+            let msg = format!(
+                "创建失败: {} {}",
+                crate::core::pyjson::str_python(Some(err)),
+                detail
+            );
+            return report::fail(msg.trim());
+        }
+        report::ok(&format!("domain created: {} (system {})", domain, sid));
+        return 0;
     }
 
     let client = GatewayClient::with_defaults(gw, &cfg.admin_key);

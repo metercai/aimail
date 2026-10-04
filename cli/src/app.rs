@@ -615,7 +615,9 @@ pub fn run() -> i32 {
         }),
         Some(("domain", m)) => crate::cmd::domain::run(crate::cmd::domain::Args {
             system_id: arg_str(m, "system-id"),
-            add: arg_opt(m, "add"),
+            add: m.get_one::<String>("add").cloned(),
+            id: arg_str(m, "id"),
+            webhook_url: arg_str(m, "webhook-url"),
         }),
         Some(("address", m)) => crate::cmd::address::run(crate::cmd::address::Args {
             system_id: arg_str(m, "system-id"),
