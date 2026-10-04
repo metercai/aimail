@@ -157,11 +157,11 @@
 | `plan_address_name` | `cli/aimail:2203`（import 于 `:2201`；注释 `:2199,:2298`）**【增·10-04】** |
 | `cleanup_system_whitelists` | `cli/aimail:3396`（import 于 `:3356`）**【增·10-04】** |
 | `deregister_agent_email` | `cli/aimail:3334,3389`（import 于 `:3317,:3356`） |
-| `iter_agentmail_configs` | `cli/repair.py:207`（注释 `:204`） |
-| `ensure_binding_webhook_secret` | `cli/repair.py:215` |
-| `resolve_register_webhook_url` | `cli/repair.py:236,330`（注释 `:326`） |
-| `register_agent_email` | `cli/repair.py:245,328`（注释 `:8`；另有 `cli/aimail:671` 注释） |
-| `backfill_binding` | `cli/repair.py:716`（注释 `:713`） |
+| `iter_agentmail_configs` | `cli/repair.py:207`**（经 §1.5 门）**（注释 `:204`） |
+| `ensure_binding_webhook_secret` | `cli/repair.py:215`**（经 §1.5 门）** |
+| `resolve_register_webhook_url` | `cli/repair.py:236,330`**（经 §1.5 门）**（注释 `:326`） |
+| `register_agent_email` | `cli/repair.py:245,328`**（经 §1.5 门）**（注释 `:8`；另有 `cli/aimail:671` 注释） |
+| `backfill_binding` | `cli/repair.py:716`**（经 §1.5 门）**（注释 `:713`） |
 | `compute_api_signature` | `cli/send_welcome.py:245`（import 于 `:241`；`cli/check_status.py:803` = 自包含副本注释） |
 | ~~`rename_binding`~~ | **【废·10-04 幽灵条目】`cli/` 现码 0 命中**；SDK 侧仍在（`pysdk/aimail_base.py:505`），CLI 已改用 `rename_address` |
 
@@ -254,6 +254,11 @@ CLI 侧 dispatch（`cmd_install` def `cli/aimail:777`）：互斥校验 `:782`�
 > 触发：rust 化 S5b 需要 pysdk 的 5 个算法（绑定枚举 / secret 自供 / 注册值派生 / 注册链 / 回填），
 > 而 Rust **不能 import Python**。owner 裁决 **A′**（2026-10-04）：门长在 **SDK 侧**，与 TS 平台包自带的
 > `register-cli.js` 对等；调用方只 spawn，不 vendor SDK 代码。
+>
+> **落地顺序（owner 2026-10-04 口径，硬约束，本次已按序走完）**：
+> ① 改 SDK(pysdk) → ② 过 **SDK 发版 L2 门禁**（`verify-wheel.sh`）→ ③ 改 cli(python 版)**对齐**并过
+> **CLI 上线 L2 门禁**（`l2-docker.sh`，cli-in-host 五平台）→ ④ **才**修本文档 → ⑤ 才回 rust 现场。
+> 状态：①②③ 已完成（SDK `v0.1.35` 已发布；python CLI 已走门并通过 L0/L1/L2），本文档即第 ④ 步。
 
 **为什么门必须存在、且必须长在 SDK 侧（机制链，不是语言偏好）**
 1. 语言中立的是**数据**（绑定文件格式、网关 HTTP 协议）；**算法**（`new_webhook_secret` /
@@ -295,9 +300,32 @@ stderr  用法提示 / 异常回溯 / SDK 自身的打印（门内把 sys.stdout
 - `pysdk/sdk_ops.py`（SDK 域）· `pyproject.toml` 的 wheel `force-include`（一行，与 `install.py` 同类）·
   `tests/sdk-release-gates/verify-wheel.sh` 的 `4b/5 sdk_ops entry contract`（恰一行 JSON / exit 0 / 用法错 exit 2）·
   SDK 侧单测 `tests/test_sdk_ops_entry.py`（ABI 三分档 / 委派取证 / SDK 打印不污染 stdout / manager 硬门存活）。
-- **版本**：`aimailsdk ≥ 0.1.35` 才有此门（**发版待 owner 批准**）。低版本 ⇒ 调用方按 `kind=import`
-  （模块不存在）或"未知 op"处理，**明确失败、不降级**。
+- **版本**：`aimailsdk ≥ 0.1.35` 才有此门 —— **已发布**（`v0.1.35`，2026-10-04；PyPI + npm 五包同号）。
+  低版本 ⇒ 调用方按 `kind=import`（模块不存在）或"未知 op"处理，**明确失败、不降级**。
 - 与 §1.2 B-3 的关系：B-3 是"名字级"清单，本节是这些名字的**进程形态**；新增 op ⇒ 本节与 B-3 同批更新。
+
+**消费侧：两个 CLI 一条 ABI（第 ③ 步落地，2026-10-04）**
+- **python CLI（已改）**：`cli/_common.py`
+  · `_sdk_ops_command()` = **同源优先**：核心目录（`runtime_core.resolve_core_dir()`，repo pysdk 优先）里
+    有 `sdk_ops.py` 就直接跑它（调用方与被调方同一棵树 —— `install.py` 的混装教训）；否则回退
+    `-m aimail.sdk_ops`（pip 已装 ≥0.1.35）。两条分支覆盖"工具链快照还没带门、但 pip 已装门"的窗口。
+  · `sdk_ops(op, args)` = spawn → 解析**恰一行** JSON → 按 kind 分档复原失败语义。
+  · `cli/repair.py` 的 5 个 op 全部改走门（`_ab.` 归零）；**判定逻辑仍全在 CLI**（谁缺、要不要补、
+    注册值取哪个），门只搬数据。
+- **失败语义保真（否则 CLI 文案会变）**：`kind=usage|import` ⇒ `SystemExit`（与既有 `load_core()`
+  失败形态一致）；`kind=call` ⇒ 抛**同名**异常（`type(e).__name__` 与 Python 侧一致，如
+  `ManagerRequiredError`），消息取门上报 error **去掉 `'ExcName: '` 前缀** ⇒ 调用方既有的
+  `({type(e).__name__}: {e})` 文案逐字不变。stdout 非"恰一行"一律 `SystemExit`，不猜。
+- **仍是进程内（未走门，明示）**：`aimail_tools._GatewayClient` 等 §1.2 B-3 (iii) 面（例：repair 的
+  pending 查询/清空）—— 它们各自需要门时再按本节同批登记，**不**默许"顺手也搬过去"。
+- **门禁**：`tests/test_cli_sdk_ops_consume.py`（5 例：repair 不再裸 import · 助手只有"怎么调"·
+  真跑门读真绑定 · 缺 manager 复原同名异常且无双前缀 · 未知 op ⇒ SystemExit）；
+  CLI 层证据：L0 `run-cli-gate.sh` 7/0 PASS · L1 `l1-contract.sh` 109/0 · **L2 `l2-docker.sh`
+  cli-in-host PASS**（dsh 49/0 · pi 49/0 · hermes 48/0 · openclaw 48/0 · deerflow 47/0）。
+- **rust CLI（第 ⑤ 步）**：同一个 ABI，实现为**语言无关的执行器**（`core/sdk.rs`：单行 JSON 判读 +
+  usage/import/call 分档 + spawn 封装），Python 与 Node 只是不同的可执行体 —— 不新造第三种形态。
+- **已知时间差（如实登记）**：本次 CLI 对齐与 SDK 门随 `main` 落地；发版只推了 tag（`v0.1.35`），
+  公开仓 `main` 尚未含本次改动 ⇒ 部署侧"pip 门在、快照门暂无"的窗口由上面的**同源优先/回退**两条分支覆盖。
 
 ## 2. MCP 的归属（用户概念，已用代码验证）【复核无改】
 
