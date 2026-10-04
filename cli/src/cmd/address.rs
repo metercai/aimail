@@ -338,7 +338,85 @@ pub fn run(args: Args) -> i32 {
 
     // ── 入站 live/down：必须先于 op 链（否则 flag 会静默落成 list）──────────
     if args.inbound_live || args.inbound_down {
-        return crate::cmd::stub::not_yet_ported("address --inbound-live/--inbound-down");
+        // ①② 互斥 + 定位（照抄 `cli/aimail:_cmd_inbound_route` 的三条文案）
+        if args.inbound_live && args.inbound_down {
+            return crate::cmd::report::fail("inbound-live 与 inbound-down 互斥,只能选一个");
+        }
+        let loc = if args.email.is_some() {
+            args.email.clone().unwrap_or_default()
+        } else if let Some(a) = &args.agent {
+            a.clone()
+        } else {
+            return crate::cmd::report::fail(
+                "inbound live/down needs -a <agent> (or -e <email>) to locate the binding",
+            );
+        };
+        let agents = list_agents(&aimail_home, &sid, &cfg);
+        let target = agents.iter().find(|r| {
+            if loc.contains('@') {
+                r.email == loc
+            } else {
+                r.agent == loc || r.email.split('@').next().unwrap_or("") == loc
+            }
+        });
+        let Some(t) = target else {
+            let msg = if loc.contains('@') {
+                format!("no local address for {loc} (run install/bind for that agent first)")
+            } else {
+                let mut names: Vec<String> = agents.iter().map(|r| r.agent.clone()).collect();
+                names.sort();
+                format!(
+                    "no local address for -a {loc} (local: {})",
+                    names.join(", ")
+                )
+            };
+            return crate::cmd::report::fail(&msg);
+        };
+        let anchor = t.email.clone();
+        if !binding_registered(&aimail_home, &sid, &anchor) {
+            return crate::cmd::report::fail(&format!(
+                "no local binding for {anchor} (run install/bind for that agent first)"
+            ));
+        }
+        let cfgj = Value::Object(cfg.to_json());
+        let bcfg = crate::core::bridge_wire::bridge_cfg_file();
+
+        if args.inbound_down {
+            let (withdrawn, failed, no_bridge, anchor_out) =
+                crate::core::inbound_route::withdraw_inbound_routes(&sid, &cfgj, &bcfg, &anchor);
+            if no_bridge {
+                return crate::core::inbound_route::finish_anchor(anchor_out.as_ref());
+            }
+            let note = match crate::core::inbound_route::gateway_backlog_count(
+                &cfgj,
+                std::slice::from_ref(&anchor),
+            ) {
+                Some(n) => format!("; backlog {n} pending"),
+                None => "; backlog unknown".to_string(),
+            };
+            crate::cmd::report::ok(&format!(
+                "inbound down: {withdrawn} route(s) withdrawn for system {sid}{note}"
+            ));
+            if failed > 0 {
+                crate::cmd::report::warn(&format!("{failed} FAILED (nothing changed for those)"));
+            }
+            let synth = if anchor_out.is_none() {
+                Some(crate::core::inbound_route::already_absent_outcome(&anchor))
+            } else {
+                anchor_out.clone()
+            };
+            return crate::core::inbound_route::finish_anchor(synth.as_ref());
+        }
+
+        // live：走既有全量对账；锚点行不在表里（pull 绑定）⇒ 合成 skipped（幂等）
+        let (_reported, anchor_out) =
+            crate::core::bridge_wire::reconcile_inbound_routes(&sid, &cfgj, &anchor, &bcfg);
+        let synth = if anchor_out.is_none() {
+            Some(crate::core::inbound_route::skipped_pull_outcome(&anchor))
+        } else {
+            anchor_out.clone()
+        };
+        return crate::core::inbound_route::finish_anchor(synth.as_ref());
     }
 
     // ── op 推导（顺序照抄 Python；只有"无任何定位参数"才是 list）────────────
@@ -621,6 +699,20 @@ fn locate<'a>(agents: &'a [Row], args: &Args) -> Option<&'a Row> {
         });
     }
     None
+}
+
+/// 绑定是否"已注册"（绑定文件存在且可解析为对象）—— hidden 面锚点守卫用。
+fn binding_registered(home: &std::path::Path, sid: &str, email: &str) -> bool {
+    let leaf = home
+        .join("systems")
+        .join(sid)
+        .join(crate::core::bridge_wire::addr_clean(email));
+    let f = leaf.join(crate::core::contract::binding_file());
+    std::fs::read_to_string(&f)
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        .map(|v| v.is_object())
+        .unwrap_or(false)
 }
 
 #[cfg(test)]

@@ -21,6 +21,7 @@ pub mod contract;
 pub mod gateway;
 pub mod home;
 pub mod http;
+pub mod inbound_route;
 pub mod mail;
 pub mod payload;
 pub mod perms;
