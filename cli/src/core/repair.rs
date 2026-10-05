@@ -636,7 +636,7 @@ impl Step {
                             fail(&format!("pull entry admin_key alignment failed: {e}"));
                             return StepResult::NothingToDo;
                         }
-                        let _ = chmod600(&cfg);
+                        chmod600(&cfg);
                         ok("bridge pull entry admin_key aligned with the gateway config");
                         StepResult::Fixed
                     }
