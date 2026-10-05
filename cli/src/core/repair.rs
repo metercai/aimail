@@ -646,7 +646,15 @@ impl Step {
                     }
                 }
             }
-            _ => StepResult::NotPorted,
+            Step::WebhookPairing => {
+                let pr = crate::core::home::program_root();
+                let env: Vec<(String, String)> = Vec::new();
+                if webhook_pairing(sid, _deep, &pr, &env) {
+                    StepResult::Fixed
+                } else {
+                    StepResult::NothingToDo
+                }
+            }
         }
     }
 }
@@ -805,6 +813,341 @@ fn chmod600(p: &std::path::Path) {
     let _ = std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o600));
 }
 
+/// `_repair_binding_webhook_secrets`（`repair.py:183-253`）—— 本地密钥对账（**先跑**）。
+///
+/// 本地绑定是唯一真源：每个绑定先拿本地 secret（幂等），再把它同步进云端注册副本。
+/// 绑定读入走 SDK 单入口 `iter_bindings`（与 install/适配器同一份，不另造）。
+pub fn binding_webhook_secrets(sid: &str, prog_root: &Path, door_env: &[(String, String)]) -> bool {
+    let gw: Value = std::fs::read_to_string(crate::core::config::gateway_config_path(sid))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or(Value::Null);
+    let c = gateway_client(sid);
+    let args = serde_json::json!({"system_id": sid});
+    let bindings = match sdk::sdk_ops_call(
+        "iter_bindings",
+        &args,
+        prog_root,
+        std::time::Duration::from_secs(120),
+        door_env,
+    ) {
+        Ok(v) => v,
+        Err(e) => {
+            warn(&format!(
+                "iter_bindings failed ({})",
+                e.display_like_python()
+            ));
+            return false;
+        }
+    };
+    let list = bindings.as_array().cloned().unwrap_or_default();
+    if list.is_empty() {
+        warn(&format!(
+            "system {sid} has no readable agent binding -- no webhook pairing to repair; register an agent first (`aimail install` or the host-side register command)"
+        ));
+        return false;
+    }
+    let mut fixed = false;
+    for d in list {
+        let cfg_path = d
+            .get("_config_path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let email = d
+            .get("email")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .or_else(|| {
+                std::path::Path::new(&cfg_path)
+                    .parent()
+                    .and_then(|p| p.file_name())
+                    .map(|x| x.to_string_lossy().to_string())
+            })
+            .unwrap_or_default();
+        let prov = sdk::sdk_ops_call(
+            "ensure_webhook_secret",
+            &serde_json::json!({"binding": d}),
+            prog_root,
+            std::time::Duration::from_secs(120),
+            door_env,
+        )
+        .unwrap_or(Value::Null);
+        let reason = prov.get("reason").and_then(|v| v.as_str()).unwrap_or("");
+        if reason == "provisioned" {
+            ok(&format!(
+                "{email}: local webhook secret provisioned + written 0600 (the host verifies with it; the cloud copy is synced below)"
+            ));
+            fixed = true;
+        } else if reason == "no-path" || reason == "write-failed" {
+            let det = prov
+                .get("detail")
+                .map(|v| format!(": {v}"))
+                .unwrap_or_default();
+            fail(&format!(
+                "{email}: local webhook secret could not be provisioned ({reason}{det}) -- fix the binding file path/permissions, then re-run 'aimail repair'"
+            ));
+            continue;
+        }
+        let secret = prov
+            .get("secret")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        if secret.is_empty() {
+            fail(&format!(
+                "{email}: no usable local webhook secret -- reinstall that agent"
+            ));
+            continue;
+        }
+        let Some(_c) = c.as_ref() else {
+            warn(&format!(
+                "{email}: local secret ok, but the gateway client is unavailable (aimail_gateway.json without gateway_url/admin_key) -- start with 'aimail install', then re-run 'aimail repair'"
+            ));
+            continue;
+        };
+        let local_url = d
+            .get("webhook_url")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let reg_url = sdk::sdk_ops_call(
+            "resolve_register_webhook_url",
+            &serde_json::json!({"gw": gw, "local_webhook_url": local_url}),
+            prog_root,
+            std::time::Duration::from_secs(120),
+            door_env,
+        )
+        .unwrap_or(Value::Null);
+        let declared_pull = gw.get("webhook_host").is_some()
+            && gw
+                .get("webhook_host")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .is_empty();
+        if reg_url.as_str().unwrap_or("").is_empty() && !declared_pull {
+            warn(&format!(
+                "{email}: no registration value to pair (binding has no local receive endpoint and the config declares no push/pull mode) -- start that agent's host once so it writes its endpoint, then re-run 'aimail repair'"
+            ));
+            continue;
+        }
+        let res = sdk::sdk_ops_call(
+            "register_agent_email",
+            &serde_json::json!({
+                "gw": gw, "system_id": sid, "email": email,
+                "webhook_url": reg_url, "webhook_secret": secret,
+                "manager_address": d.get("manager_address").and_then(|v| v.as_str()).unwrap_or(""),
+            }),
+            prog_root,
+            std::time::Duration::from_secs(120),
+            door_env,
+        );
+        match res {
+            Err(e) => {
+                fail(&format!(
+                    "{email}: cloud re-pair failed ({}) -- the gateway must be reachable; re-run 'aimail repair' once it is",
+                    e.display_like_python()
+                ));
+                continue;
+            }
+            Ok(r) => {
+                let key_note = if r.get("api_key").is_some() {
+                    " (key returned)"
+                } else {
+                    ""
+                };
+                ok(&format!(
+                    "{email}: cloud registration re-paired (url + secret, idempotent){key_note}"
+                ));
+            }
+        }
+    }
+    fixed
+}
+
+/// 目录键公式（`repair.py:310`：非 `[\w.-]` ⇒ `_`；点分地址 `agent.x@dom` ⇒ `agent.x_dom`）。
+fn binding_dir_key(email: &str) -> String {
+    email
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+/// `_repair_webhook_pairing`（`repair.py:256-341`）：证据驱动重挂 + `--deep` 全量重写 + 坏 pending ack。
+pub fn webhook_pairing(
+    sid: &str,
+    deep: bool,
+    prog_root: &Path,
+    door_env: &[(String, String)],
+) -> bool {
+    let client = gateway_client(sid);
+    let mut fixed = binding_webhook_secrets(sid, prog_root, door_env);
+    let Some(c) = client.as_ref() else {
+        fail(&format!(
+            "gateway config missing, skipping the webhook pairing repair (system {sid})"
+        ));
+        return fixed;
+    };
+    let gw: Value = std::fs::read_to_string(crate::core::config::gateway_config_path(sid))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or(Value::Null);
+    let pend = c.post(
+        "/api/v1/admin/pending",
+        &serde_json::json!({"filter": [], "emails": []}),
+    );
+    if let Some(err) = pend.get("error") {
+        warn(&format!(
+            "pending query failed ({err}) -- cannot read the empty-signature evidence; use --deep to rewrite"
+        ));
+        return fixed;
+    }
+    let mut empties = pending_empties(&pend);
+    if empties.is_empty() && !deep {
+        ok("webhook pairing ok (no evidence of a missing pairing)");
+        return fixed;
+    }
+    if deep && empties.is_empty() {
+        let sysdir = crate::core::config::system_dir_in(&crate::core::home::aimail_home(), sid);
+        let mut subs: Vec<std::path::PathBuf> = match std::fs::read_dir(&sysdir) {
+            Ok(rd) => rd.filter_map(|e| e.ok().map(|x| x.path())).collect(),
+            Err(_) => Vec::new(),
+        };
+        subs.sort();
+        let mut targets: Vec<(Option<String>, String)> = Vec::new();
+        for sub in subs {
+            let aj = sub.join(crate::core::contract::binding_file());
+            let d = std::fs::read_to_string(&aj)
+                .ok()
+                .and_then(|t| serde_json::from_str::<Value>(&t).ok());
+            if let Some(e) = d
+                .as_ref()
+                .and_then(|v| v.get("email"))
+                .and_then(|v| v.as_str())
+            {
+                if !e.is_empty() {
+                    targets.push((None, e.to_string()));
+                }
+            }
+        }
+        empties = targets;
+        warn(&format!(
+            "--deep: rewriting the webhook pairing of {} agent(s) from the binding files",
+            empties.len()
+        ));
+    }
+    let has_evidence = empties.iter().any(|(i, _)| i.is_some()) || deep;
+    warn(&format!(
+        "{} pairing target(s) need repair (evidence={has_evidence})",
+        empties.len()
+    ));
+    for (_id, email) in &empties {
+        let key = binding_dir_key(email);
+        let sysdir = crate::core::config::system_dir_in(&crate::core::home::aimail_home(), sid);
+        let direct = sysdir
+            .join(&key)
+            .join(crate::core::contract::binding_file());
+        let aj = if direct.is_file() {
+            Some(direct)
+        } else {
+            // 松散回退：按目录名找 email 匹配的那一份
+            let mut found = None;
+            if let Ok(rd) = std::fs::read_dir(&sysdir) {
+                let mut subs: Vec<std::path::PathBuf> =
+                    rd.filter_map(|e| e.ok().map(|x| x.path())).collect();
+                subs.sort();
+                for sub in subs {
+                    let cand = sub.join(crate::core::contract::binding_file());
+                    let d = std::fs::read_to_string(&cand)
+                        .ok()
+                        .and_then(|t| serde_json::from_str::<Value>(&t).ok());
+                    if d.as_ref()
+                        .and_then(|v| v.get("email"))
+                        .and_then(|v| v.as_str())
+                        == Some(email.as_str())
+                    {
+                        found = Some(cand);
+                        break;
+                    }
+                }
+            }
+            found
+        };
+        let Some(aj) = aj else {
+            fail(&format!(
+                "{email}: local binding file missing -- the single source of truth is gone; reinstall that agent"
+            ));
+            continue;
+        };
+        let local: Value = std::fs::read_to_string(&aj)
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or(Value::Null);
+        let local_url = local
+            .get("webhook_url")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let reg = sdk::sdk_ops_call(
+            "resolve_register_webhook_url",
+            &serde_json::json!({"gw": gw, "local_webhook_url": local_url}),
+            prog_root,
+            std::time::Duration::from_secs(120),
+            door_env,
+        )
+        .unwrap_or(Value::Null);
+        let res = sdk::sdk_ops_call(
+            "register_agent_email",
+            &serde_json::json!({
+                "gw": gw, "system_id": sid, "email": email,
+                "webhook_url": reg,
+                "webhook_secret": local.get("webhook_secret").and_then(|v| v.as_str()).unwrap_or(""),
+                "manager_address": local.get("manager_address").and_then(|v| v.as_str()).unwrap_or(""),
+            }),
+            prog_root,
+            std::time::Duration::from_secs(120),
+            door_env,
+        );
+        match res {
+            Ok(r) => {
+                let key_note = if r.get("api_key").is_some() {
+                    " (key returned)"
+                } else {
+                    ""
+                };
+                ok(&format!(
+                    "{email}: registration chain re-run (url+secret re-paired){key_note}"
+                ));
+                fixed = true;
+            }
+            Err(e) => {
+                fail(&format!(
+                    "{email}: cloud re-registration failed ({}) -- the gateway must be reachable; re-run 'aimail repair' once it is",
+                    e.display_like_python()
+                ));
+            }
+        }
+    }
+    for (pid, _e) in &empties {
+        let Some(pid) = pid.as_ref() else { continue };
+        let res = c.post(
+            "/api/v1/admin/pending/ack",
+            &serde_json::json!({"ids": [pid]}),
+        );
+        match res.get("error") {
+            Some(e) => warn(&format!("ack {pid} failed: {e}")),
+            None => ok(&format!("acked the broken pending id={pid}")),
+        }
+    }
+    fixed
+}
 pub fn run(
     sid: &str,
     deep: bool,
