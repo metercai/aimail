@@ -5,6 +5,7 @@
 #   1) 共享边界块（契约单一真源棘轮 / zero-bridge / 文件归属 / docs↔impl）—— 边界两侧共用，故按共享件调用
 #   2) platform-boundary：CLI 代码不含平台字面量（注册表才是平台单一来源）—— 原误放在 SDK 门禁里，已迁回本域
 #   3) rust 电池：fmt --check · clippy -D warnings · test --all-targets（CLI 二进制自身的四层判据）
+[ -n "${L2_JOURNEY:-}" ] && export CLI_JOURNEY=1
 #   4) CLI 上线 L2 门禁：aimail-advanced/tests/cli/run-cli-gate.sh（黑盒：rust 二进制为被测物）
 #
 # 不进本脚本的（属 SDK 域，见 tests/sdk-release-gates/gate-tests.sh）：
