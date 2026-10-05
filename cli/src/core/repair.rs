@@ -1624,9 +1624,18 @@ mod tests {
         let td = std::env::temp_dir().join(format!("rt-bad-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&td);
         std::fs::create_dir_all(td.join("systems/s1/leaf")).unwrap();
-        std::fs::write(td.join("systems/s1/leaf/agentmail.json"), b"{not json").unwrap();
+        std::fs::write(
+            td.join("systems/s1/leaf")
+                .join(crate::core::contract::binding_file()),
+            b"{not json",
+        )
+        .unwrap();
         std::env::set_var("AIMAIL_HOME", td.to_string_lossy().to_string());
-        let before = std::fs::read(td.join("systems/s1/leaf/agentmail.json")).unwrap();
+        let before = std::fs::read(
+            td.join("systems/s1/leaf")
+                .join(crate::core::contract::binding_file()),
+        )
+        .unwrap();
         let _ = run(
             "s1",
             false,
@@ -1636,7 +1645,11 @@ mod tests {
                 crate::cmd::check::engine(sid, ah, false).check
             },
         );
-        let after = std::fs::read(td.join("systems/s1/leaf/agentmail.json")).unwrap();
+        let after = std::fs::read(
+            td.join("systems/s1/leaf")
+                .join(crate::core::contract::binding_file()),
+        )
+        .unwrap();
         assert_eq!(before, after, "坏文件不得被改写/删除");
         std::fs::remove_dir_all(&td).ok();
     }
