@@ -151,10 +151,11 @@ async function tryAutoBindOnce(): Promise<AgentConfig | undefined> {
     if (!gw.domain) return undefined
 
     const email = emailForAgent('pi', gw.domain, gw.system_name ?? '')
-    // Binding already exists (any earlier registration)? Adopt + repair pointer.
+    // dsh 同款授权源：**每地址绑定文件为唯一权威**（dsh-aimail/inbound.ts:281）。
+    // 指针只用来定位系统（scope）与作可重建缓存，不作地址真源。
     const existing =
-      (await loadConfigByEmail(email, systemId)) ??
-      (await loadConfigByAgentId(systemId, 'main'))
+      (await loadConfigByAgentId(systemId, 'pi')) ??
+      (await loadConfigByEmail(email, systemId))
     if (existing && existing.api_key) {
       writePointer({ system_id: systemId, email: existing.email })
       console.warn(
@@ -168,7 +169,7 @@ async function tryAutoBindOnce(): Promise<AgentConfig | undefined> {
       systemId,
       email,
       webhookUrl,
-      extraFields: { agent_id: 'main' },
+      extraFields: { agent_id: 'pi' },
     })
     if (res.registered || res.exists) {
       writePointer({ system_id: systemId, email })
@@ -186,20 +187,23 @@ async function tryAutoBindOnce(): Promise<AgentConfig | undefined> {
 
 /**
  * Resolve the AIMail config for the running pi agent.
- * Order: pointer email (system-scoped) → agent_id 'main' within the
- * pointer's system → auto-bind once when the machine has a system config.
+ * Order: binding file (agent_id 'pi' → pointer email, both system-scoped) →
+ * auto-bind once when the machine has a system config. The binding is the
+ * authority (dsh parity); the pointer is only a system scope / rebuildable cache.
  * Throws loud when still unbound.
  */
 export async function resolveConfig(): Promise<AgentConfig> {
   const ptr = readPointer()
   const systemId = ptr.system_id ?? ''
-  if (ptr.email) {
+  // dsh 同款：**每地址绑定文件为唯一权威**（dsh-aimail/inbound.ts:281）；指针仅作
+  // 系统 scope 与可重建缓存（地址真源不作它用）。
+  if (systemId) {
+    const byAgent = await loadConfigByAgentId(systemId, 'pi')
+    if (byAgent) return byAgent
+  }
+  if (ptr.email && systemId) {
     const byEmail = await loadConfigByEmail(ptr.email, systemId)
     if (byEmail) return byEmail
-  }
-  if (systemId) {
-    const byAgent = await loadConfigByAgentId(systemId, 'main')
-    if (byAgent) return byAgent
   }
   if (hasAnySystem()) {
     const cfg = await tryAutoBindOnce()
