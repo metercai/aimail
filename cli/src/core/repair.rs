@@ -531,6 +531,121 @@ impl Step {
                     }
                 }
             }
+            Step::PullEntryKey => {
+                // `cli/repair.py:775-8xx`：把桥 `pull.systems[].admin_key` 对齐 gateway.json（唯一权威）。
+                let gw_path = crate::core::config::gateway_config_path(sid);
+                let cfg = crate::core::bridge_wire::bridge_cfg_file();
+                if !gw_path.is_file() || !cfg.is_file() {
+                    return StepResult::NothingToDo;
+                }
+                let gw: serde_json::Value = match std::fs::read_to_string(&gw_path)
+                    .ok()
+                    .and_then(|t| serde_json::from_str(&t).ok())
+                {
+                    Some(v) => v,
+                    None => return StepResult::NothingToDo,
+                };
+                let gk = gw
+                    .get("admin_key")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                if gk.is_empty() {
+                    return StepResult::NothingToDo;
+                }
+                let raw = std::fs::read_to_string(&cfg).unwrap_or_default();
+                let td: toml::Value = match raw.parse() {
+                    Ok(v) => v,
+                    Err(_) => return StepResult::NothingToDo,
+                };
+                let systems = td
+                    .get("pull")
+                    .and_then(|p| p.get("systems"))
+                    .and_then(|s| s.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                let entry = systems
+                    .iter()
+                    .find(|x| x.get("system_id").and_then(|v| v.as_str()) == Some(sid));
+                if entry.is_none() {
+                    // 缺条目 => 本地创建（无需服务端），复用 install 的写者
+                    let url = gw
+                        .get("gateway_url")
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty())
+                        .or_else(|| {
+                            gw.get("aimail_url")
+                                .and_then(|v| v.as_str())
+                                .filter(|s| !s.is_empty())
+                        })
+                        .unwrap_or("")
+                        .to_string();
+                    if url.is_empty() {
+                        warn("pull entry missing and the gateway config has no gateway_url -> cannot create it locally (fix the config first)");
+                        return StepResult::NothingToDo;
+                    }
+                    let mode = td
+                        .get("mode")
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or("pull")
+                        .to_string();
+                    let addr = td
+                        .get("bind")
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or("127.0.0.1:38081")
+                        .to_string();
+                    let spec = crate::core::bridge_deploy::BridgeConfigSpec {
+                        path: cfg.clone(),
+                        mode,
+                        addr,
+                        gateway_url: url,
+                        admin_key: gk.clone(),
+                        system_id: sid.to_string(),
+                        api_key: gw
+                            .get("api_key")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        webhook_secret: String::new(),
+                        hostname: String::new(),
+                    };
+                    return match crate::core::bridge_deploy::write_bridge_config(&spec) {
+                        Ok(_) => {
+                            ok("bridge pull entry missing -> created locally (gateway_url/admin_key/system_id from the gateway config)");
+                            StepResult::Fixed
+                        }
+                        Err(e) => {
+                            fail(&format!("pull entry creation failed: {e}"));
+                            StepResult::NothingToDo
+                        }
+                    };
+                }
+                if entry
+                    .and_then(|e| e.get("admin_key"))
+                    .and_then(|v| v.as_str())
+                    == Some(gk.as_str())
+                {
+                    return StepResult::NothingToDo;
+                }
+                // 定向替换该条目的 admin_key（两种字段序，等价于 Python 的两条正则）
+                match replace_entry_admin_key(&raw, sid, &gk) {
+                    Some(new_raw) => {
+                        if let Err(e) = std::fs::write(&cfg, &new_raw) {
+                            fail(&format!("pull entry admin_key alignment failed: {e}"));
+                            return StepResult::NothingToDo;
+                        }
+                        let _ = chmod600(&cfg);
+                        ok("bridge pull entry admin_key aligned with the gateway config");
+                        StepResult::Fixed
+                    }
+                    None => {
+                        warn("pull entry admin_key alignment failed (no format match) -- check the bridge config by hand");
+                        StepResult::NothingToDo
+                    }
+                }
+            }
             _ => StepResult::NotPorted,
         }
     }
@@ -634,6 +749,60 @@ fn refresh_routes(sid: &str) -> bool {
         upgrade: false,
         platform: String::new(),
     }) == 0
+}
+
+/// 把桥配置文本里 `system_id = "<sid>"` 所属 `{…}` 块内的 `admin_key = "…"` 值替换为 gk。
+/// 等价于 Python `repair.py:815-824` 的两条定向正则（字段序两种都试）。
+fn replace_entry_admin_key(raw: &str, sid: &str, gk: &str) -> Option<String> {
+    let sid_tok = format!("system_id = \"{sid}\"");
+    let splice = |open: usize, close: usize, block_new: String| -> String {
+        let mut out = String::with_capacity(raw.len() + gk.len());
+        out.push_str(&raw[..open]);
+        out.push_str(&block_new);
+        out.push_str(&raw[close + 1..]);
+        out
+    };
+    if let Some(pos) = raw.find(&sid_tok) {
+        if let (Some(open), Some(close)) =
+            (raw[..pos].rfind('{'), raw[pos..].find('}').map(|c| pos + c))
+        {
+            if let Some(nb) = replace_first_admin_key(&raw[open..=close], gk) {
+                return Some(splice(open, close, nb));
+            }
+        }
+    }
+    let mut idx = 0usize;
+    while let Some(o) = raw[idx..].find('{') {
+        let open = idx + o;
+        let close = match raw[open..].find('}') {
+            Some(c) => open + c,
+            None => break,
+        };
+        let block = &raw[open..=close];
+        if block.contains(&sid_tok) {
+            if let Some(nb) = replace_first_admin_key(block, gk) {
+                return Some(splice(open, close, nb));
+            }
+        }
+        idx = close + 1;
+    }
+    None
+}
+
+fn replace_first_admin_key(block: &str, gk: &str) -> Option<String> {
+    let key = "admin_key = \"";
+    let i = block.find(key)? + key.len();
+    let j = block[i..].find('"')? + i;
+    let mut out = String::with_capacity(block.len() + gk.len());
+    out.push_str(&block[..i]);
+    out.push_str(gk);
+    out.push_str(&block[j..]);
+    Some(out)
+}
+
+fn chmod600(p: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let _ = std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o600));
 }
 
 pub fn run(
@@ -1677,6 +1846,24 @@ mod tests {
             detail: String::new(),
             fix: String::new(),
         }
+    }
+
+    #[test]
+    fn entry_admin_key_replacement_handles_both_field_orders() {
+        // 字段序 ①：system_id 在前
+        let a = r#"[[pull.systems]]
+{ system_id = "s1", admin_key = "OLD", aimail_url = "http://x" }"#;
+        let ra = replace_entry_admin_key(a, "s1", "NEW").expect("序①应命中");
+        assert!(ra.contains("admin_key = \"NEW\""), "{ra}");
+        assert!(ra.contains("system_id = \"s1\""), "不改动 system_id");
+        // 字段序 ②：admin_key 在前
+        let b = r#"[[pull.systems]]
+{ admin_key = "OLD", system_id = "s1" }"#;
+        let rb = replace_entry_admin_key(b, "s1", "NEW").expect("序②应命中");
+        assert!(rb.contains("admin_key = \"NEW\""), "{rb}");
+        // 不同 sid 的条目不动
+        let c = r#"{ system_id = "other", admin_key = "KEEP" }"#;
+        assert!(replace_entry_admin_key(c, "s1", "NEW").is_none());
     }
 
     #[test]
