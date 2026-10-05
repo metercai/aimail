@@ -442,6 +442,34 @@ impl Step {
                     StepResult::NothingToDo
                 }
             }
+            Step::McpPayload => {
+                // `cli/repair.py:915+`：结论取自 payload 状态，绝不看退出码（防误报）。
+                let dest = crate::core::payload::bundle_default_dest("mcp").unwrap_or_default();
+                let dp = std::path::PathBuf::from(&dest);
+                let st =
+                    crate::core::payload::payload_state(crate::core::payload::MCP_FILES, &dp, None);
+                if !st.present {
+                    warn("mcp payload not installed -> idempotent install");
+                } else if st.missing.is_empty() && st.stale.is_empty() {
+                    ok("mcp payload ok (complete and in step with the current version)");
+                    return StepResult::NothingToDo;
+                } else {
+                    let mut bad: Vec<String> = st.missing.clone();
+                    bad.extend(st.stale.clone());
+                    warn(&format!(
+                        "mcp payload missing/stale ({}) -> idempotent reinstall",
+                        bad.join(", ")
+                    ));
+                }
+                let rc = crate::core::payload::install_bundle("mcp", &dest, "", true);
+                if rc == 0 {
+                    ok("mcp payload installed");
+                    StepResult::Fixed
+                } else {
+                    fail("mcp payload install failed");
+                    StepResult::NothingToDo
+                }
+            }
             _ => StepResult::NotPorted,
         }
     }
