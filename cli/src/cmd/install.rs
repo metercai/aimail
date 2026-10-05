@@ -877,10 +877,17 @@ fn install_human(a: &Args) -> i32 {
         "scripts".into(),
         serde_json::json!(core_dir.to_string_lossy().to_string()),
     );
-    ctx.insert(
-        "sdk".into(),
-        serde_json::json!(core_dir.to_string_lossy().to_string()),
-    );
+    // `{sdk}` 必须走 SDK 根的**单真源**（repo→pip 两形态）。设备形态（安装物只有二进制）下
+    // 仓库 pysdk/ 不存在 ⇒ 必须回退到已安装的 aimail 包目录，否则 install_steps 里的
+    // `{sdk}/…/*.sh` 会展开成不存在的 repo 路径（实测 2026-10-05：deer-flow install-skill.sh exit 127）。
+    let sdk_root = match crate::core::sdkroot::resolve() {
+        Ok(r) => r.path.to_string_lossy().to_string(),
+        Err(e) => {
+            eprintln!("  ✗ {e}");
+            core_dir.to_string_lossy().to_string()
+        }
+    };
+    ctx.insert("sdk".into(), serde_json::json!(sdk_root));
     ctx.insert("cfg".into(), cfg_for_steps);
     ctx.insert("all_agents".into(), serde_json::json!(a.all_agents));
     let rcfg = cfg2.as_ref().map(|c| c.to_json()).unwrap_or_default();
