@@ -1,9 +1,3 @@
-import sys
-
-
-def _say(*a, **k):
-    """SDK 进度/诊断输出一律走 stderr：调用方（CLI）以 stdout 为单行 JSON 协议。"""
-    _say(*a, file=sys.stderr, **k)
 #!/usr/bin/env python3
 """aimail.install — SDK 自足安装/卸载入口(进程命令契约)。
 
@@ -20,6 +14,13 @@ def _say(*a, **k):
 所有动作幂等;环境自检失败时明确提示"先运行 aimail CLI"。
 """
 from __future__ import annotations
+
+import sys
+
+
+def _say(*a, **k):
+    """SDK 进度/诊断输出一律走 stderr：调用方（CLI）以 stdout 为单行 JSON 协议。"""
+    print(*a, file=sys.stderr, **k)
 
 import argparse
 import json

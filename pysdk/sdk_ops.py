@@ -143,7 +143,29 @@ def _op_backfill_binding(args: dict):
     return {"path": str(path or "")}
 
 
+def _op_version(_args: dict) -> dict:
+    """SDK 能力自述：包版本 + 本 SDK 暴露的 op 名单。
+
+    调用方（CLI/宿主）可用它在**使用前**校验能力，避免旧快照/旧包给出"看似成功
+    实则过时"的结论（例如旧的 prompt 规则逻辑误报）。无参数、只读、幂等。
+    """
+    ver = ""
+    try:
+        from importlib.metadata import version as _v
+
+        ver = _v("aimailsdk")
+    except Exception:
+        try:
+            import aimail  # type: ignore
+
+            ver = str(getattr(aimail, "__version__", ""))
+        except Exception:
+            ver = ""
+    return {"version": ver, "ops": sorted(OPS)}
+
+
 OPS = {
+    "version": _op_version,
     "iter_bindings": _op_iter_bindings,
     "ensure_webhook_secret": _op_ensure_webhook_secret,
     "resolve_register_webhook_url": _op_resolve_register_webhook_url,
