@@ -949,16 +949,40 @@ pub fn dsh_check_hook(c: &mut Check, _ctx: &Ctx, agent: &Agent) {
 // ── pi ─────────────────────────────────────────────────────────
 
 pub fn pi_list_agents(ctx: &Ctx) -> Vec<Agent> {
+    // 与 dsh 一致：**绑定文件是地址的权威**（dsh-aimail/src/inbound.ts:281 同款语义）；
+    // 平台指针降级为可重建缓存/回退。~/.pi/agent/ 是运行时数据目录，永不作枚举源。
     let mut agents = Vec::new();
-    let ptr = ctx.user_home.join(".pi").join(contract::pointer_file());
-    let email = read_json(&ptr)
-        .and_then(|v| v.get("email").and_then(Value::as_str).map(str::to_string))
-        .unwrap_or_default();
+    let mut email = String::new();
+    let mut binding = None;
+    let sysdir = crate::core::config::system_dir_in(&crate::core::home::aimail_home(), &ctx.resolve_sid);
+    if let Ok(rd) = std::fs::read_dir(&sysdir) {
+        let mut subs: Vec<std::path::PathBuf> = rd.filter_map(|e| e.ok().map(|x| x.path())).collect();
+        subs.sort();
+        for sub in subs {
+            let aj = sub.join(contract::binding_file());
+            if let Some(v) = read_json(&aj) {
+                let is_pi = v.get("agent_id").and_then(Value::as_str) == Some("pi");
+                let em = v.get("email").and_then(Value::as_str).unwrap_or("").to_string();
+                if is_pi && !em.is_empty() {
+                    email = em;
+                    binding = Some(aj);
+                    break;
+                }
+            }
+        }
+    }
+    if email.is_empty() {
+        let ptr = ctx.user_home.join(".pi").join(contract::pointer_file());
+        email = read_json(&ptr)
+            .and_then(|v| v.get("email").and_then(Value::as_str).map(str::to_string))
+            .unwrap_or_default();
+        binding = Some(ptr);
+    }
     if !email.is_empty() {
         agents.push(Agent {
             name: "pi".to_string(),
             email,
-            binding: Some(ptr),
+            binding,
             ..Default::default()
         });
     }

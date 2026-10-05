@@ -304,7 +304,7 @@ def _hermes_check_config(c: Check, agent: dict):
 
     # 3.1 name & api_key: 该 agent 的 agentmail.json
     sid = _resolve_system_id()
-    aj_path = (SYSTEMS_DIR / sid / _clean_agent_dir_name(email) / "agentmail.json") if (sid and email) else None
+    aj_path = (SYSTEMS_DIR / sid / _clean_agent_dir_name(email) / BINDING_FILENAME) if (sid and email) else None
     api_key = ""
     if aj_path and _is_readable_file(aj_path):
         try:
@@ -649,27 +649,45 @@ def _pi_detect() -> bool:
     return (Path.home() / ".pi").is_dir() and (Path.home() / ".pi" / "agent").is_dir()
 
 
-def _pi_list_agents() -> list[dict]:
-    """pi: agents = ~/.pi/.agentmail 指针(单 agent 视图)。
+BINDING_FILENAME = "agentmail.json"
+_PI_POINTER = ".agentmail"
 
-    ~/.pi/agent/ 是 pi 运行时数据目录(npm/sessions/skills——npm 包缓存、
-    会话存储、技能,均非 agent 实体),不当 agent 枚举源;pi 单 agent,
-    地址以平台指针为准。
+
+def _pi_list_agents() -> list[dict]:
+    """pi: agents = 系统内绑定(agent_id=="pi")——与 dsh 一致：绑定文件是地址的权威。
+
+    (dsh-aimail/src/inbound.ts:281 同款语义)。平台指针降级为可重建缓存/回退;
+    ~/.pi/agent/ 是 pi 运行时数据目录(npm/sessions/skills),永不作 agent 枚举源。
     """
     agents = []
-    ptr = Path.home() / ".pi" / ".agentmail"
-    email = ""
-    if ptr.is_file():
+    sid = _resolve_system_id()
+    email, cfg = "", None
+    if sid:
         try:
-            email = json.loads(ptr.read_text()).get("email", "")
+            for adir in sorted((SYSTEMS_DIR / sid).iterdir()):
+                aj = adir / BINDING_FILENAME
+                if not _is_readable_file(aj):
+                    continue
+                try:
+                    d = json.loads(aj.read_text())
+                except Exception:
+                    continue
+                if d.get("agent_id") == "pi" and d.get("email"):
+                    email, cfg = d["email"], aj
+                    break
         except Exception:
             pass
+    if not email:
+        ptr = Path.home() / ".pi" / _PI_POINTER
+        try:
+            if ptr.is_file():
+                email = json.loads(ptr.read_text()).get("email", "")
+        except Exception:
+            pass
+        cfg = ptr
     if email:
-        agents.append({"name": "pi", "email": email,
-                       "agent_dir": None,
-                       "config": Path.home() / ".pi" / ".agentmail"})
+        agents.append({"name": "pi", "email": email, "agent_dir": None, "config": cfg})
     return agents
-
 
 def _pi_check_config(c: Check, agent: dict):
     """L3 pi: name&apikey(agentmail.json)/pointer 对齐。pi-aimail TS 扩展承载工具+入站。"""
