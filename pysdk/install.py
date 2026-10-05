@@ -1,3 +1,9 @@
+import sys
+
+
+def _say(*a, **k):
+    """SDK 进度/诊断输出一律走 stderr：调用方（CLI）以 stdout 为单行 JSON 协议。"""
+    _say(*a, file=sys.stderr, **k)
 #!/usr/bin/env python3
 """aimail.install — SDK 自足安装/卸载入口(进程命令契约)。
 
@@ -84,8 +90,8 @@ def env_check_hermes(hermes_dir: str) -> int:
     problems = []
     ha = os.path.join(hermes_dir, "hermes-agent")
     if not os.path.isdir(ha):
-        print("[env-check] ✗ hermes-agent 未安装(hermes 宿主缺失或 --home 指向错误)")
-        print(f"  先安装 hermes 宿主,再: aimail install --home {hermes_dir}")
+        _say("[env-check] ✗ hermes-agent 未安装(hermes 宿主缺失或 --home 指向错误)")
+        _say(f"  先安装 hermes 宿主,再: aimail install --home {hermes_dir}")
         return 1
     webhook_py = os.path.join(ha, "gateway", "platforms", "webhook.py")
     profiles_py = os.path.join(ha, "hermes_cli", "profiles.py")
@@ -96,8 +102,8 @@ def env_check_hermes(hermes_dir: str) -> int:
             problems.append("profiles.py 缺失")
     if state == "empty":
         for p in problems:
-            print(f"[env-check] ✗ {p}")
-        print(f"[env-check] ✗ {hint}")
+            _say(f"[env-check] ✗ {p}")
+        _say(f"[env-check] ✗ {hint}")
         return 1
     # 配置绑定:系统目录/指针是否已由 CLI 建立(--home 参数化,AUDIT-1 P2-1)
     ptr = os.path.join(hermes_dir, ".agentmail")
@@ -106,11 +112,11 @@ def env_check_hermes(hermes_dir: str) -> int:
             f"未找到绑定配置 {hermes_dir}/.agentmail\n"
             f"  先运行: aimail install --home {hermes_dir}(激活并绑定)")
     for p in problems:
-        print(f"[env-check] ✗ {p}")
+        _say(f"[env-check] ✗ {p}")
     if problems:
-        print("[env-check] 缺失项需 aimail CLI 先行完成环境配置")
+        _say("[env-check] 缺失项需 aimail CLI 先行完成环境配置")
         return 1
-    print("[env-check] hermes: OK")
+    _say("[env-check] hermes: OK")
     return 0
 
 
@@ -118,17 +124,17 @@ def env_check_deerflow(backend_dir: str) -> int:
     state, hint = _machine_state()
     app_py = os.path.join(backend_dir, "app", "gateway", "app.py")
     if not os.path.isfile(app_py):
-        print(
+        _say(
             f"[env-check] ✗ 未找到 deer-flow 入口 {app_py}(--home 应为 backend 目录)")
         if state == "empty":
-            print(f"[env-check] ✗ {hint}")
+            _say(f"[env-check] ✗ {hint}")
         else:
-            print("  先运行: aimail install(配置环境)")
+            _say("  先运行: aimail install(配置环境)")
         return 1
     if state == "empty":
-        print(f"[env-check] ✗ {hint}")
+        _say(f"[env-check] ✗ {hint}")
         return 1
-    print("[env-check] deerflow: OK")
+    _say("[env-check] deerflow: OK")
     return 0
 
 
@@ -147,8 +153,8 @@ def hermes_webhook_anchor_gate(ph, webhook_py: str) -> int:
     """
     gaps = list(ph.webhook_patch_gaps(webhook_py))
     if gaps:
-        print(f"  ✗ webhook 关键锚缺失:{', '.join(gaps)} — {webhook_py}")
-        print("      (缺任一块 ⇒ preprocessor 钩子/适配器挂不上, 该补丁不算已打好;"
+        _say(f"  ✗ webhook 关键锚缺失:{', '.join(gaps)} — {webhook_py}")
+        _say("      (缺任一块 ⇒ preprocessor 钩子/适配器挂不上, 该补丁不算已打好;"
               "宿主 webhook.py 版本与锚点不符, 修锚后重跑 install)")
         return 1
     return 0
@@ -174,25 +180,25 @@ def install_hermes(hermes_dir: str, system_id: str = "") -> int:
         if hermes_webhook_anchor_gate(ph, webhook_py):
             rc = 1
         else:
-            print(f"  hermes webhook patch: {'applied' if changed else 'already clean'}")
+            _say(f"  hermes webhook patch: {'applied' if changed else 'already clean'}")
     else:
-        print(f"  ✗ webhook.py 缺失:{webhook_py}(--home 应为 hermes 根)")
+        _say(f"  ✗ webhook.py 缺失:{webhook_py}(--home 应为 hermes 根)")
         rc = 1
 
     pp = _import_hermes("patch_profiles")
     if os.path.isfile(profiles_py):
         changed = pp.patch_profiles(profiles_py)
-        print(f"  hermes profiles patch: {'applied' if changed else 'already clean'}")
+        _say(f"  hermes profiles patch: {'applied' if changed else 'already clean'}")
     else:
-        print(f"  ✗ profiles.py 缺失:{profiles_py}")
+        _say(f"  ✗ profiles.py 缺失:{profiles_py}")
         rc = 1
 
     try:
         pt = _import_hermes("toolsets")
         changed = pt.patch_toolsets(ha)
-        print(f"  hermes toolsets: {'registered' if changed else 'already registered'}")
+        _say(f"  hermes toolsets: {'registered' if changed else 'already registered'}")
     except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py 失败路径 raise SystemExit
-        print(f"  ✗ toolsets patch failed: {e}")
+        _say(f"  ✗ toolsets patch failed: {e}")
         rc = 1
 
     # profile 注册(读 env:HERMES_HOME/SYSTEM_ID/HERMES_PROFILES_DIR)——直接
@@ -214,18 +220,18 @@ def install_hermes(hermes_dir: str, system_id: str = "") -> int:
                 else:
                     os.environ[k] = v
     except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py 失败路径 raise SystemExit
-        print(f"  ✗ register profiles failed: {e}")
+        _say(f"  ✗ register profiles failed: {e}")
         rc = 1
 
     # board 资源展开(幂等;覆盖全部已有 system 目录)
     rel = release_all_systems(os.path.join(_CORE, "resources", "board"))
     for r in rel:
-        print(f"  resources: {r['board_dir']} (copied {r['copied']}, kept {r['skipped']})")
+        _say(f"  resources: {r['board_dir']} (copied {r['copied']}, kept {r['skipped']})")
 
     # skills 展开(SKILL.md/DESCRIPTION.md → 每个 hermes profile 的 skills/agentmail)
     _release_hermes_skills(hermes_dir)
 
-    print("  hermes install done. 重启 hermes gateway 使补丁生效(aimail bridge restart 或宿主重启)")
+    _say("  hermes install done. 重启 hermes gateway 使补丁生效(aimail bridge restart 或宿主重启)")
     return rc
 
 
@@ -265,7 +271,7 @@ def _release_hermes_skills(hermes_dir: str) -> int:
             shutil.copy2(src, dst)
             n += 1
     if n:
-        print(f"  hermes skills: {n} file(s) → profiles/*/skills/agentmail")
+        _say(f"  hermes skills: {n} file(s) → profiles/*/skills/agentmail")
     return n
 
 
@@ -320,15 +326,15 @@ def _assemble_deerflow(home_root: str, system_id: str = "") -> int:
     for name, env in steps:
         path = os.path.join(sdk, name)
         if not os.path.isfile(path):
-            print(f"  ✗ deerflow 装配脚本缺失: {path}(打包/物化缺陷, 不静默跳过)")
+            _say(f"  ✗ deerflow 装配脚本缺失: {path}(打包/物化缺陷, 不静默跳过)")
             rc = 1
             continue
-        r = subprocess.call(["bash", path], env=env)
+        r = subprocess.call(["bash", path], env=env, stdout=sys.stderr)
         if r != 0:
-            print(f"  ✗ deerflow {name} 装配失败(exit {r})")
+            _say(f"  ✗ deerflow {name} 装配失败(exit {r})")
             rc = 1
         else:
-            print(f"  deerflow {name}: assembled")
+            _say(f"  deerflow {name}: assembled")
     return rc
 
 
@@ -341,15 +347,15 @@ def install_deerflow(backend_dir: str, system_id: str = "", manager: str = "") -
     rc = 0
     try:
         changed = md.patch_backend_app(backend_dir)
-        print(f"  deerflow app.py patch: {'applied' if changed else 'already clean'}")
+        _say(f"  deerflow app.py patch: {'applied' if changed else 'already clean'}")
     except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py 失败路径 raise SystemExit
-        print(f"  ✗ app.py patch failed: {e}")
+        _say(f"  ✗ app.py patch failed: {e}")
         rc = 1
     try:
         n = md.install_bundle(backend_dir)
-        print(f"  deerflow bundle: {n} file(s) installed")
+        _say(f"  deerflow bundle: {n} file(s) installed")
     except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py 失败路径 raise SystemExit
-        print(f"  ✗ bundle install failed: {e}")
+        _say(f"  ✗ bundle install failed: {e}")
         rc = 1
     # agent 侧装配(卡①(i), owner 批 2026-09-30): skills + MCP toolset 落点。
     # 纯 SDK 入口原来只做 patch/bundle/register ⇒ harness 只调 SDK 入口时
@@ -362,13 +368,13 @@ def install_deerflow(backend_dir: str, system_id: str = "", manager: str = "") -
             md.register_agents(manager=manager, system_id=system_id, agent="all")
         else:
             md.reconcile(system_id=system_id)
-        print("  deerflow agents registered/reconciled")
+        _say("  deerflow agents registered/reconciled")
     except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py 失败路径 raise SystemExit
-        print(f"  ✗ register/reconcile failed: {e}")
+        _say(f"  ✗ register/reconcile failed: {e}")
         rc = 1
     rel = release_all_systems(os.path.join(_CORE, "resources", "board"))
     for r in rel:
-        print(f"  resources: {r['board_dir']} (copied {r['copied']})")
+        _say(f"  resources: {r['board_dir']} (copied {r['copied']})")
     return rc
 
 
@@ -391,13 +397,13 @@ def install_dsh(home: str, system_id: str = "", manager: str = "") -> int:
     env = _assembly_env(system_id, {"DSH_HOME": home, "DSH_PROFILE": "web"})
     path = os.path.join(_CORE, "dsh", "install-skill-tools.sh")
     if not os.path.isfile(path):
-        print(f"  ✗ dsh 装配脚本缺失: {path}(打包/物化缺陷, 不静默跳过)")
+        _say(f"  ✗ dsh 装配脚本缺失: {path}(打包/物化缺陷, 不静默跳过)")
         return 1
-    r = subprocess.call(["bash", path], env=env)
+    r = subprocess.call(["bash", path], env=env, stdout=sys.stderr)
     if r != 0:
-        print(f"  ✗ dsh install-skill-tools.sh 装配失败(exit {r})")
+        _say(f"  ✗ dsh install-skill-tools.sh 装配失败(exit {r})")
         return 1
-    print("  dsh skill/tool exposure: assembled")
+    _say("  dsh skill/tool exposure: assembled")
     return 0
 
 
@@ -414,12 +420,12 @@ def uninstall_hermes(hermes_dir: str, system_id: str = "") -> int:
                        "hermes_cli/profiles.py", "cli/profiles.py"}
             if all(m in allowed for m in modified):
                 for f in modified:
-                    subprocess.call(["git", "-C", str(ha), "checkout", "--", f])
-                    print(f"  ✓ reverted {f} (git)")
+                    subprocess.call(["git", "-C", str(ha), "checkout", "--", f], stdout=sys.stderr)
+                    _say(f"  ✓ reverted {f} (git)")
             else:
-                print("  ⚠ hermes-agent 有额外未提交改动——跳过 git 还原,请检查 aimail 痕迹")
+                _say("  ⚠ hermes-agent 有额外未提交改动——跳过 git 还原,请检查 aimail 痕迹")
         except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py 失败路径 raise SystemExit
-            print(f"  git revert failed: {e}")
+            _say(f"  git revert failed: {e}")
     else:
         # 非 git → exact-text 撤销(与 patch 插入逐字匹配)
         pw = _import_hermes("patch_webhook")
@@ -457,7 +463,7 @@ def uninstall_hermes(hermes_dir: str, system_id: str = "") -> int:
         tgt = os.path.join(ha, rel)
         if os.path.exists(tgt):
             shutil.rmtree(tgt) if os.path.isdir(tgt) else os.unlink(tgt)
-            print(f"  ✓ removed {rel}")
+            _say(f"  ✓ removed {rel}")
     # 本 SDK 进程即 pip aimail——不自行卸载(宿主 venv 管理由 CLI 决定)
     # profile 级状态撤销(与 install 的注册链/skills 发布对称——曾由 CLI
     # _uninstall_hermes 持有,平台边界收口迁 SDK):
@@ -465,7 +471,7 @@ def uninstall_hermes(hermes_dir: str, system_id: str = "") -> int:
     #   webhook_subscriptions 路由(含根 profile=hermes_dir,install 的
     #   release targets 也含根——对称)
     _uninstall_hermes_profiles(hermes_dir, system_id)
-    print("  hermes uninstall done(本地配置/网关侧清理由 aimail CLI 负责)")
+    _say("  hermes uninstall done(本地配置/网关侧清理由 aimail CLI 负责)")
     return rc
 
 
@@ -484,13 +490,13 @@ def _uninstall_hermes_profiles(hermes_dir: str, system_id: str) -> None:
                     data = json.load(f)
                 if data.get("system_id") == system_id:
                     os.unlink(ptr)
-                    print(f"  ✓ removed pointer {ptr}")
+                    _say(f"  ✓ removed pointer {ptr}")
             except Exception:  # noqa: BLE001
                 pass
         sk = os.path.join(prof, "skills", "agentmail")
         if os.path.isdir(sk):
             shutil.rmtree(sk, ignore_errors=True)
-            print(f"  ✓ removed skill {sk}")
+            _say(f"  ✓ removed skill {sk}")
         # config.yaml:platform_toolsets 移除 agentmail 条目(终态单名)
         cfg = os.path.join(prof, "config.yaml")
         if os.path.isfile(cfg):
@@ -501,9 +507,9 @@ def _uninstall_hermes_profiles(hermes_dir: str, system_id: str) -> None:
                 if new != content:
                     with open(cfg, "w") as f:
                         f.write(new)
-                    print(f"  ✓ config toolset cleaned {cfg}")
+                    _say(f"  ✓ config toolset cleaned {cfg}")
             except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py 失败路径 raise SystemExit
-                print(f"  ⚠ config.yaml clean failed: {e}")
+                _say(f"  ⚠ config.yaml clean failed: {e}")
         # webhook 订阅路由(aimail-inbound,终态单名)
         subs = os.path.join(prof, "webhook_subscriptions.json")
         if os.path.isfile(subs):
@@ -517,9 +523,9 @@ def _uninstall_hermes_profiles(hermes_dir: str, system_id: str) -> None:
                         del data[rn]
                     with open(subs, "w") as f:
                         json.dump(data, f, indent=2, ensure_ascii=False)
-                    print(f"  ✓ webhook route removed {subs}")
+                    _say(f"  ✓ webhook route removed {subs}")
             except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py 失败路径 raise SystemExit
-                print(f"  ⚠ webhook_subscriptions clean failed: {e}")
+                _say(f"  ⚠ webhook_subscriptions clean failed: {e}")
 
 
 def uninstall_deerflow(backend_dir: str, system_id: str = "") -> int:
@@ -539,14 +545,14 @@ def uninstall_deerflow(backend_dir: str, system_id: str = "") -> int:
     try:
         md.unpatch_backend_app(backend_dir)
     except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py 失败路径 raise SystemExit
-        print(f"  ✗ app.py unpatch failed: {e}")
+        _say(f"  ✗ app.py unpatch failed: {e}")
         rc = 1
     bundle_dir = os.path.join(backend_dir, "routers", "aimail")
     if os.path.isdir(bundle_dir):
         shutil.rmtree(bundle_dir, ignore_errors=True)
-        print(f"  ✓ removed bundle {bundle_dir}")
+        _say(f"  ✓ removed bundle {bundle_dir}")
     if rc == 0:
-        print("  deerflow uninstall done")
+        _say("  deerflow uninstall done")
     return rc
 
 
@@ -599,7 +605,7 @@ def main(argv: list | None = None) -> int:
 def _run_install(args) -> int:
     home = args.home or os.environ.get("AIMAIL_SYSTEM_HOME", "")
     if not home:
-        print("✗ install 需要 --home(宿主根目录)")
+        _say("✗ install 需要 --home(宿主根目录)")
         return 1
     if args.type == "hermes":
         return install_hermes(home, args.system_id)
@@ -611,7 +617,7 @@ def _run_install(args) -> int:
 def _run_uninstall(args) -> int:
     home = args.home or os.environ.get("AIMAIL_SYSTEM_HOME", "")
     if not home:
-        print("✗ uninstall 需要 --home")
+        _say("✗ uninstall 需要 --home")
         return 1
     if args.type == "hermes":
         return uninstall_hermes(home, args.system_id)
@@ -621,7 +627,7 @@ def _run_uninstall(args) -> int:
 def _run_check(args) -> int:
     home = args.home or os.environ.get("AIMAIL_SYSTEM_HOME", "")
     if not home:
-        print("✗ check-env 需要 --home")
+        _say("✗ check-env 需要 --home")
         return 1
     if args.type == "hermes":
         return env_check_hermes(home)
