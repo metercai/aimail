@@ -470,6 +470,67 @@ impl Step {
                     StepResult::NothingToDo
                 }
             }
+            Step::Pointer => {
+                // `cli/repair.py:520-555`：某平台根 + 本 sid 无指针 + 目标指针文件不存在 ⇒ 才写。
+                let uh = crate::core::home::user_home();
+                if sid_has_pointer(&uh, sid) || home.is_empty() {
+                    return StepResult::NothingToDo;
+                }
+                let plat =
+                    crate::core::platforms::detect_platform_from_home(std::path::Path::new(home));
+                if plat == "unknown" {
+                    return StepResult::NothingToDo;
+                }
+                let sysdir =
+                    crate::core::config::system_dir_in(&crate::core::home::aimail_home(), sid);
+                let mut email = String::new();
+                if let Ok(rd) = std::fs::read_dir(&sysdir) {
+                    let mut subs: Vec<std::path::PathBuf> =
+                        rd.filter_map(|e| e.ok().map(|x| x.path())).collect();
+                    subs.sort();
+                    for sub in subs {
+                        let aj = sub.join(crate::core::contract::binding_file());
+                        let d = std::fs::read_to_string(&aj)
+                            .ok()
+                            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok());
+                        if let Some(e) = d
+                            .as_ref()
+                            .and_then(|v| v.get("email"))
+                            .and_then(|v| v.as_str())
+                        {
+                            if !e.is_empty() {
+                                email = e.to_string();
+                                break;
+                            }
+                        }
+                    }
+                }
+                if email.is_empty() {
+                    return StepResult::NothingToDo;
+                }
+                let ptr = crate::core::platforms::pointer_paths(&uh, plat)
+                    .into_iter()
+                    .next()
+                    .unwrap_or_default();
+                if ptr.as_os_str().is_empty() || ptr.exists() {
+                    return StepResult::NothingToDo;
+                }
+                if let Some(dir) = ptr.parent() {
+                    let _ = std::fs::create_dir_all(dir);
+                }
+                let body = serde_json::json!({"system_id": sid, "email": email});
+                let text = serde_json::to_string_pretty(&body).unwrap_or_default();
+                match std::fs::write(&ptr, text) {
+                    Ok(_) => {
+                        ok(&format!("pointer created: {} → {sid}", ptr.display()));
+                        StepResult::Fixed
+                    }
+                    Err(e) => {
+                        fail(&format!("pointer write failed: {} ({e})", ptr.display()));
+                        StepResult::NothingToDo
+                    }
+                }
+            }
             _ => StepResult::NotPorted,
         }
     }
@@ -1616,6 +1677,30 @@ mod tests {
             detail: String::new(),
             fix: String::new(),
         }
+    }
+
+    #[test]
+    fn pointer_never_overwrites_an_existing_pointer_for_this_sid() {
+        // cli/repair.py:522：本 sid 已有指针 => 直接返回，绝不改写。
+        let td = std::env::temp_dir().join(format!("ptr-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&td);
+        std::fs::create_dir_all(td.join(".pi")).unwrap();
+        let ptr = td.join(".pi").join(crate::core::contract::pointer_file());
+        let orig = br#"{"system_id": "s1", "email": "keep@x"}"#.to_vec();
+        std::fs::write(&ptr, &orig).unwrap();
+        std::env::set_var("HOME", td.to_string_lossy().to_string());
+        std::env::set_var("AIMAIL_HOME", td.to_string_lossy().to_string());
+        let _ = run(
+            "s1",
+            false,
+            true,
+            "/nonexistent-platform-home",
+            |sid: &str, ah: Option<&std::path::Path>| {
+                crate::cmd::check::engine(sid, ah, false).check
+            },
+        );
+        assert_eq!(std::fs::read(&ptr).unwrap(), orig, "已有指针绝不被覆写");
+        std::fs::remove_dir_all(&td).ok();
     }
 
     #[test]
