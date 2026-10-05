@@ -954,15 +954,21 @@ pub fn pi_list_agents(ctx: &Ctx) -> Vec<Agent> {
     let mut agents = Vec::new();
     let mut email = String::new();
     let mut binding = None;
-    let sysdir = crate::core::config::system_dir_in(&crate::core::home::aimail_home(), &ctx.resolve_sid);
+    let sysdir =
+        crate::core::config::system_dir_in(&crate::core::home::aimail_home(), ctx.resolve_sid);
     if let Ok(rd) = std::fs::read_dir(&sysdir) {
-        let mut subs: Vec<std::path::PathBuf> = rd.filter_map(|e| e.ok().map(|x| x.path())).collect();
+        let mut subs: Vec<std::path::PathBuf> =
+            rd.filter_map(|e| e.ok().map(|x| x.path())).collect();
         subs.sort();
         for sub in subs {
             let aj = sub.join(contract::binding_file());
             if let Some(v) = read_json(&aj) {
                 let is_pi = v.get("agent_id").and_then(Value::as_str) == Some("pi");
-                let em = v.get("email").and_then(Value::as_str).unwrap_or("").to_string();
+                let em = v
+                    .get("email")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
                 if is_pi && !em.is_empty() {
                     email = em;
                     binding = Some(aj);
