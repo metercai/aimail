@@ -613,22 +613,22 @@ pub fn run(args: Args) -> i32 {
             };
             // 改名 = SDK 的 CRUD（owner 裁决）：校验/派生/冲突预检/云端 rename/白名单清理/
             // 本地迁移/指针全在 SDK；CLI 只触发、不自拼名字、不自打桥。**不复刻算法**。
-            let sdk_root = crate::core::sdkroot::resolve_or_repo_candidate();
-            let res = match crate::core::sdkcall::call_positional(
-                "aimail_base",
-                "rename_address",
-                &[
-                    Value::String(sid.clone()),
-                    Value::String(t.email.clone()),
-                    Value::String(new_name.clone()),
-                    Value::Object(cfg.to_json()),
-                ],
-                &serde_json::json!({}),
-                &sdk_root.path,
-                std::time::Duration::from_secs(30),
+            // 契约 v1.0 §4.1：经 SDK 门 `update(action=rename)`（判定/派生/落盘全在 SDK；
+            // CLI 只触发、不自拼名字、不取中间值）。
+            let res = match crate::core::sdk::sdk_ops_call(
+                "update",
+                &serde_json::json!({
+                    "system_id": sid.clone(),
+                    "email": t.email.clone(),
+                    "old_email": t.email.clone(),
+                    "new_name": new_name.clone(),
+                    "action": "rename",
+                }),
+                &crate::core::home::program_root(),
+                std::time::Duration::from_secs(60),
                 &[],
             ) {
-                Ok(v) => v,
+                Ok(v) => v.get("result").cloned().unwrap_or(v),
                 Err(e) => {
                     let msg = match &e {
                         crate::core::sdk::AbiError::Call { msg, .. } => msg.clone(),
