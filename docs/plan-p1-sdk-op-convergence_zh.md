@@ -82,3 +82,14 @@ SDK 侧（`pysdk/`）+ 门禁（`tests/`）：① 分发表新增 `assemble`/`up
    —— 其中 `plan` 以"**返回计划值**"形式暴露（注册器 argv 仍由 CLI 组装 ✓，platforms.json 属 CLI 域 ✓）；
 2. **P2-1（后做，零新增发版）**：CLI 调用点改调 3 个 op —— 届时 9 点全可切；
 3. 期间未切点**继续按名调用**（有界过渡 ✓，非规则破例 ✓）。
+
+
+## 9 能力边界锁定（固定件 · 由契约 v1.0 §1/§2/§4 + 代码事实推导）
+
+CLI 侧: 平台注册表(platforms.json kind/args/node_path) | 宿主布局解析(--home/glob) | gateway 配置唯一写 | 用户命令面与触发 | 直读(gateway cfg / agentmail.json / 网关态) | transport(起进程+传输入数据)
+
+SDK 侧: 定名规则(py=ts 逐字等价) | 注册/激活/绑定写 | 改名/注销/白名单 | webhook 地址与 secret | 回填/修复判定 | 入站实现 + 反调 CLI(4 条白名单) | 运行时收发/预处理/board
+
+接口面: CLI->SDK = 门 3 动作 op(assemble|update|teardown, 平台差异走 register_spec 输入); 扩展安装走宿主包管理器 | SDK->CLI = 4 条反调(+agent 增删预留)
+
+判定规则: 谁写(gateway=CLI/绑定=SDK, 对方只读) | 谁判(命名/注册/改名字段/修复=SDK; 平台分派/宿主路径=CLI) | 中间值不外露 | 争议以契约+本表为准, 变更走审批

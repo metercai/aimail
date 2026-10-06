@@ -253,6 +253,10 @@ def _load_system(system_id, override=None):
                "system_id": system_id}
     if not cfg:
         raise UsageError(f"找不到系统级配置 system_id={system_id!r}（须先 aimail install）")
+    if not (cfg.get("gateway_url") and cfg.get("admin_key")):
+        raise UsageError(
+            "系统级配置缺少 gateway_url/admin_key"
+            f"（system_id={system_id!r}）—— 先跑 aimail install")
     try:
         from aimail_tools import _GatewayClient
         client = _GatewayClient(cfg.get("gateway_url"), cfg.get("admin_key"))
@@ -381,7 +385,10 @@ def _op_assemble(args):
         "domain": args.get("domain") or syscfg.get("domain") or "",
     })
     renamed = None
-    if plan.get("needs_rename") and getattr(base, "rename_address", None):
+    _old = (plan.get("old_email") or "").strip()
+    if plan.get("needs_rename") and not _old:
+        sys.stderr.write("assemble: 当前地址未知 ⇒ 跳过改名（绑定尚未建立）\n")
+    if plan.get("needs_rename") and _old and getattr(base, "rename_address", None):
         renamed = base.rename_address(
             system_id, plan.get("old_email") or "",
             plan.get("new_name") or plan.get("reg_as") or email, binding_cfg)
@@ -414,7 +421,7 @@ def _op_assemble(args):
 
 
 def _op_update(args):
-    """受控变更：action = rename | set-manager | prompt | persona | webhook-secret。"""
+    """受控变更：action = rename | set-manager | prompt | persona | webhook-secret | backfill | repair。"""
     system_id = args.get("system_id") or ""
     if not system_id:
         raise UsageError("update: 需要 system_id")
@@ -428,7 +435,26 @@ def _op_update(args):
     elif action == "set-manager":
         manager = args.get("manager_address") or base.resolve_manager_address("")
         r = base.set_agent_manager(system_id, email, manager, syscfg, cfg) or {"ok": True}
+    elif action == "backfill":
+        r = {"binding_path": str(base.backfill_binding(cfg, system_id))}
+    elif action == "repair":
+        # 修复的判定收在 SDK 内（CLI 只触发）：补 webhook secret + 回填缺失字段
+        out = {}
+        try:
+            out["secret"] = base.ensure_binding_webhook_secret(cfg)
+        except Exception as e:
+            out["secret"] = {"error": str(e)}
+        try:
+            out["backfill"] = str(base.backfill_binding(cfg, system_id))
+        except Exception as e:
+            out["backfill"] = {"error": str(e)}
+        r = out
     elif action in ("prompt", "persona", "webhook-secret"):
+        if action == "prompt":
+            for _name in (args.get("prompt_rules") or {}):
+                _ok = getattr(base, "prompt_rule_name_ok", None)
+                if callable(_ok) and not _ok(_name):
+                    raise UsageError(f"update action=prompt: 规则名不合法 {_name!r}")
         updates = {"prompt_rules": args.get("prompt_rules")} if action == "prompt" else (
             {"persona": args.get("persona")} if action == "persona" else
             {"webhook_secret": args.get("webhook_secret")})
@@ -437,7 +463,7 @@ def _op_update(args):
             raise UsageError(f"update action={action}: 缺少要更新的字段")
         r = {"binding_path": str(base.update_binding(system_id, cfg, updates))}
     else:
-        raise UsageError(f"update: 未知 action={action!r}（rename|set-manager|prompt|persona|webhook-secret）")
+        raise UsageError(f"update: 未知 action={action!r}（rename|set-manager|prompt|persona|webhook-secret|backfill|repair）")
     return {"ok": True, "action": action, "result": r, "sdk_version": _sdk_version()}
 
 
