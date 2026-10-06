@@ -386,6 +386,12 @@ pub fn register_agent(
                 }
             };
             let env: Vec<(String, String)> = Vec::new();
+            if std::env::var("AIMAIL_DEBUG_PLAN").is_ok() {
+                eprintln!(
+                    "[dbg] register platform={} plan={:?} reg_as={} needs_rename={} argv={:?}",
+                    platform, plan, plan_reg_as, needs_rename, argv
+                );
+            }
             let (rc, out) = run_registrar(&argv, &env);
             if rc != 0 {
                 let hint = rdef.get("fail_hint").and_then(Value::as_str).unwrap_or("");
