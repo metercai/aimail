@@ -545,6 +545,20 @@
       "home_dir": ".deer-flow",
       "install_steps": [
         {
+          "kind": "spawn",
+          "argv": [
+            "sh",
+            "-c",
+            "for P in \"$HOME/.deer-flow/.venv/bin/python\" \"$HOME/deer-flow/backend/.venv/bin/python\" \"$(command -v python3)\"; do [ -x \"$P\" ] || continue; if command -v uv >/dev/null 2>&1; then uv pip install --python \"$P\" -q aimailsdk && exit 0; fi; \"$P\" -m pip install -q --break-system-packages aimailsdk 2>/dev/null || \"$P\" -m pip install -q aimailsdk; exit $?; done; echo \"no python interpreter found\"; exit 1"
+          ],
+          "when": {
+            "command_exists": "python3"
+          },
+          "on_error": "warn",
+          "warn_hint": "aimailsdk 安装失败(宿主 python 自适配 uv→pip(含 PEP668 --break-system-packages) 均不可用) exit {rc}",
+          "ok_text": "aimailsdk installed into deerflow host python(宿主自装 SDK)"
+        },
+        {
           "kind": "sdk_install",
           "target": "deerflow",
           "fn": "install_deerflow",
