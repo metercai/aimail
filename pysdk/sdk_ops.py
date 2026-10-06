@@ -368,9 +368,14 @@ def _op_assemble(args):
     # agent_id = 地址名（atext，无点/空格/@）；email = 目标地址（可由 plan 产出）
     agent_id = args.get("agent_id") or args.get("name") or args.get("requested_name") or ""
     binding_cfg = _agent_binding(base, agent_id, system_id, email)
+    # 主 agent 的地址名归一：**不以调用方给的名字作基名来源**
+    # （平台私有叫法 pi/main/default 一律不参与定名）；仅当显式标记 non_main 才用其标识
+    _non_main = bool(args.get("non_main"))
+    _aid = (args.get("agent_id") or "") if _non_main else "default"
+    _req = (args.get("requested_name") or "") if _non_main else "agent"
     plan = base.plan_address_name(
-        args.get("requested_name") or args.get("name") or "",
-        agent_id=agent_id,
+        _req,
+        agent_id=_aid,
         domain=args.get("domain") or syscfg.get("domain") or "",
         system_name=args.get("system_name") or syscfg.get("system_name") or "",
         aliases=tuple(args.get("aliases") or ()),
@@ -378,7 +383,7 @@ def _op_assemble(args):
     )
     target_email_pre = email or plan.get("email") or ""
     reg_run = _run_registrar(args.get("register_spec") or {}, {
-        "name": plan.get("reg_as"), "agent": agent_id, "email": target_email_pre,
+        "name": (plan.get("reg_as") if _non_main else "agent"), "agent": _aid, "email": target_email_pre,
         "sid": system_id, "system_id": system_id,
         "manager": args.get("manager_address") or syscfg.get("manager_address") or "",
         "home": args.get("home") or syscfg.get("system_home") or "",

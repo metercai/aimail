@@ -1,0 +1,12 @@
+{
+  "_doc": "定名规则 conformance 向量表（两侧共用单一真源）。py: aimail_base.email_for_agent；node: mail-core emailForAgent。改规则必须同时改此表。",
+  "_signature": "email_for_agent(agent_id, domain, system_name='', default_aliases=('default',)) -> str",
+  "vectors": [
+    {"in": {"agent_id": "default", "domain": "x.local", "system_name": ""}, "out": "agent@x.local", "why": "主 agent 别名折叠"},
+    {"in": {"agent_id": "default", "domain": "x.local", "system_name": "s1"}, "out": "agent.s1@x.local", "why": "共享域后缀"},
+    {"in": {"agent_id": "", "domain": "x.local", "system_name": ""}, "out": "agent@x.local", "why": "空值回落"},
+    {"in": {"agent_id": "billing", "domain": "x.local", "system_name": ""}, "out": "billing@x.local", "why": "非主 agent 用其标识"},
+    {"in": {"agent_id": "a.b c", "domain": "x.local", "system_name": ""}, "out": "a_b_c@x.local", "why": "非法字符折叠为 _"},
+    {"in": {"agent_id": "A-Z_09", "domain": "x.local", "system_name": ""}, "out": "A-Z_09@x.local", "why": "合法字符保持"}
+  ]
+}
