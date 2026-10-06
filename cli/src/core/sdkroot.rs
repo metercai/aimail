@@ -5,9 +5,9 @@
 //! ①把**逻辑入口名**（注册表里 `hermes/register_profiles.py` 这类 SDK 根相对路径）落成实际调用；
 //! ②起一个 SDK 执行进程。**布局知识不许散落在别处**——其余模块一律问本模块。
 //!
-//! 两种形态（值相同、根不同、调用方式相同 —— 把 SDK 根塞进 `sys.path`，扁平模块名在两种布局都成立）：
-//! · `repo`：工具包/仓库快照 `{program_root}/aimail-src/pysdk`（与 CLI 同一棵树时"同源"）
-//! · `pip`：已安装的 `aimail` 包目录（`python -c "import aimail;print(dirname(aimail.__file__))"`）
+//! **唯一形态**（owner 2026-10-06 定稿）：`pip` = 已安装的 `aimail` 包目录
+//! （`python -c "import aimail;print(dirname(aimail.__file__))"`）—— **不存在** `aimail-src/`
+//! 仓库快照态，也不存在"仓库态优先"的隐式或显式分支 ✗；资源一律取自**安装包** ✓。
 
 use std::path::{Path, PathBuf};
 
@@ -34,7 +34,8 @@ pub fn at(explicit: &str) -> Result<SdkRoot, String> {
     }
     Ok(SdkRoot {
         path: root,
-        kind: "repo",
+        // owner 2026-10-06：只有一种形态（pip 已装包）⇒ `kind` 恒为 "pip"
+        kind: "pip",
     })
 }
 
@@ -43,22 +44,9 @@ pub fn python_bin() -> String {
     std::env::var("AIMAIL_PYTHON").unwrap_or_else(|_| "python3".to_string())
 }
 
-/// 工具包/仓库快照形态的**候选**路径（唯一拼法；`resolve` 与"同源优先"判定共用）。
-pub fn repo_candidate() -> PathBuf {
-    crate::core::home::program_root()
-        .join("aimail-src")
-        .join("pysdk")
-}
-
-/// 无显式值时的定位：**工具包/仓库快照优先**（与 CLI 同源），否则问解释器要 pip 包目录。
+/// SDK 根定位：**只有 pip 已装包一种形态**（owner 2026-10-06：坚决彻底 —— 不存在 `aimail-src/`、
+/// 不存在"仓库态"✗；资源一律取自**安装包**）。隐式与显式都不例外。
 pub fn resolve() -> Result<SdkRoot, String> {
-    let repo = repo_candidate();
-    if is_sdk_root(&repo) {
-        return Ok(SdkRoot {
-            path: repo,
-            kind: "repo",
-        });
-    }
     let out = std::process::Command::new(python_bin())
         .args([
             "-c",
@@ -90,14 +78,14 @@ pub fn entry_path(root: &Path, rel: &str) -> PathBuf {
     root.join(rel)
 }
 
-/// 便利：`resolve()` 失败时退化为"工具包快照路径"（用于只播报/记录、不立即执行的场景，
-/// 如 install 的 `{sdk}` 上下文）。**不要**用它去决定"能不能跑"。
-pub fn resolve_or_repo_candidate() -> SdkRoot {
+/// 便利：解析失败时的**可播报**形态（只用于日志/`{sdk}` 上下文，**不要**用它决定"能不能跑"）。
+/// owner 2026-10-06：不再退化到任何 `aimail-src/` 快照路径 ✗（该目录不存在也不应存在）。
+pub fn resolve_or_placeholder() -> SdkRoot {
     match resolve() {
         Ok(r) => r,
         Err(_) => SdkRoot {
-            path: repo_candidate(),
-            kind: "repo",
+            path: PathBuf::from("<pip: aimail>"),
+            kind: "pip",
         },
     }
 }

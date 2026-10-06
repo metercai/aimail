@@ -16,10 +16,10 @@ fn bin() -> PathBuf {
 }
 
 fn run(home: &Path, argv: &[&str]) -> (i32, String, String) {
-    // SDK 根：`sdkroot` 语义 = 快照优先 ⇒ 夹具里做 `prog/aimail-src -> 仓库` 软链，
+    // SDK 根：`sdkroot` 语义 = 快照优先 ⇒ 夹具里做 `prog/sdk-staging-removed -> 仓库` 软链，
     // 让 CLI 用**仓库 pysdk**（否则会命中已装工具包里的旧快照，缺新函数）
     let prog = home.join("prog");
-    let link = prog.join("aimail-src");
+    let link = prog.join("sdk-staging-removed");
     if !link.exists() {
         std::fs::create_dir_all(&prog).unwrap();
         let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR"))

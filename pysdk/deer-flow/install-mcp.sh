@@ -90,10 +90,17 @@ if [ "$CFG" != "$DF_PROJECT_ROOT/extensions_config.json" ] \
   echo "         设 DEER_FLOW_EXTENSIONS_CONFIG_PATH=$CFG 让 deer-flow 与本次写入指向同一文件" >&2
 fi
 
-# ── 1. 安装/更新 MCP 载荷(源: pip aimail > 仓库 pysdk/)────────────
-aimail install --payload install mcp
-BUNDLE_DIR="$(aimail install --payload dir mcp)"
-SERVER="$BUNDLE_DIR/aimail_mcp_server.py"
+# ── 1. MCP 服务取自已装包（owner 2026-10-06 目标态：**零拷贝** ✗ 自包含载荷/仓库态一律取消 ✓）──
+SERVER="$(python3 -c 'import aimail, os, sys
+d = os.path.dirname(aimail.__file__)
+p = os.path.join(d, "aimail_mcp_server.py")
+sys.stdout.write(p if os.path.isfile(p) else "")')"
+# owner 2026-10-06（目标态）：MCP 服务**取自已装包**（`site-packages/aimail/aimail_mcp_server.py`）✓ ——
+# 不再使用 `<程序根>/mcp/` 的 SDK 文件拷贝 ✗（自包含载荷/仓库态一律取消 ✓）。
+if [ -z "$SERVER" ]; then
+  echo "ERROR: 已装包内缺 aimail_mcp_server.py（重装 aimailsdk 或检查包完整性）" >&2
+  exit 1
+fi
 [ -f "$SERVER" ] || { echo "MCP payload missing: $SERVER" >&2; exit 1; }
 
 # 真实版本检测(只报检测结果,不猜测):backend/pyproject.toml 的 version

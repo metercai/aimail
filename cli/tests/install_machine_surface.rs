@@ -167,7 +167,7 @@ fn install_surfaces_behave_like_python() {
     // 绝不静默成功。
     // 注（契约 v1.0 §3 阶段三）：解析链 = repo→pip，pip 形态**是契约允许的正当来源**；
     // 故本用例须同时掐断两条路 —— 临时把 `python_bin()` 的单真源 `AIMAIL_PYTHON` 指向
-    // 无法 import aimail 的解释器（prog 为临时目录 ⇒ 无 aimail-src/pysdk）。测试串行运行，
+    // 无法 import aimail 的解释器（prog 为临时目录 ⇒ 无 sdk-staging-removed/pysdk）。测试串行运行，
     // 该赋值只影响本用例。
     std::env::set_var("AIMAIL_PYTHON", "/nonexistent/python");
     let (rc, out, err) = run(&prog, &["install", "--payload", "install", "mcp"]);

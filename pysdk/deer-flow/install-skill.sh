@@ -45,7 +45,16 @@ DST_DIR="$PUBLIC_DIR/agentmail"
 echo "skills landing: $DST_DIR/SKILL.md"
 echo "  selected by: $SKILLS_REASON"
 
-SKILLS_SRC="$(aimail install --payload resource skills)"
+SKILLS_SRC="$(python3 -c 'import aimail, os, sys
+d = os.path.dirname(aimail.__file__)
+p = os.path.join(d, "resources", "skills")
+sys.stdout.write(p if os.path.isdir(p) else "")')"
+# owner 2026-10-06（目标态）：skills **取自已装包**（`site-packages/aimail/resources/skills`）✓
+# —— 不再经 CLI 的 payload 拷贝 ✗（自包含载荷/仓库态一律取消 ✓）
+if [ -z "$SKILLS_SRC" ]; then
+  echo "ERROR: 已装包内缺 resources/skills（重装 aimailsdk 或检查包完整性）" >&2
+  exit 1
+fi
 SRC_SKILL="$SKILLS_SRC/SKILL.md"
 if [ ! -f "$SRC_SKILL" ]; then
   echo "SKILL source not found: $SRC_SKILL" >&2

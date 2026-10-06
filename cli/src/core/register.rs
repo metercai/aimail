@@ -229,7 +229,7 @@ pub fn register_agent(
             "register_spec": spec,
         }),
         // SDK 根用 CLI 解析结果（= 旧 core_dir 语义：repo→pip），与其余调用点同源
-        &crate::core::sdkroot::resolve_or_repo_candidate().path,
+        &crate::core::sdkroot::resolve_or_placeholder().path,
         REGISTRAR_TIMEOUT,
         &[],
     )

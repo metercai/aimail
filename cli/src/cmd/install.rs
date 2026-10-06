@@ -596,7 +596,7 @@ fn ensure_domain(gw_url: &str, admin_key: &str, sid: &str, want_domain: &str) {
 }
 
 fn install_human(a: &Args) -> i32 {
-    let core_dir = crate::core::sdkroot::resolve_or_repo_candidate().path;
+    let core_dir = crate::core::sdkroot::resolve_or_placeholder().path;
     let mut sys_name = if a.system_name.is_empty() {
         String::new()
     } else {

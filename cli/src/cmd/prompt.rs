@@ -46,7 +46,7 @@ struct Target {
 }
 
 fn sdk_call(function: &str, args: &[Value]) -> Result<Value, String> {
-    let root = crate::core::sdkroot::resolve_or_repo_candidate();
+    let root = crate::core::sdkroot::resolve_or_placeholder();
     crate::core::sdkcall::call_positional(
         "aimail_base",
         function,

@@ -200,18 +200,12 @@ pub fn door_command(op: &str, args: &Value) -> Vec<String> {
 }
 
 /// 同上，但程序根显式传入（测试用夹具根可走"同源"分支，不必改进程环境）。
-pub fn door_command_in(prog_root: &Path, op: &str, args: &Value) -> Vec<String> {
+pub fn door_command_in(_prog_root: &Path, op: &str, args: &Value) -> Vec<String> {
     let py = std::env::var("AIMAIL_PYTHON").unwrap_or_else(|_| "python3".to_string());
     let mut argv = vec![py];
-    // 同源判定：布局知识单真源在 sdkroot（此处只问"快照形态的根在哪"）
-    let same_tree = if prog_root == crate::core::home::program_root() {
-        crate::core::sdkroot::repo_candidate().join("sdk_ops.py")
-    } else {
-        prog_root
-            .join("aimail-src")
-            .join("pysdk")
-            .join("sdk_ops.py")
-    };
+    // owner 2026-10-06（坚决彻底）：**不存在** `aimail-src` 快照态与"同源优先" ✗。
+    // 门一律走**已装包**：`[python, "-m", "aimail.sdk_ops", <op>, <json>]` ⇒ 此处不再产生任何路径 ✓。
+    let same_tree = std::path::PathBuf::new();
     if same_tree.is_file() {
         argv.push(same_tree.to_string_lossy().to_string());
     } else {
