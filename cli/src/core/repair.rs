@@ -876,13 +876,17 @@ pub fn binding_webhook_secrets(sid: &str, prog_root: &Path, door_env: &[(String,
                     .map(|x| x.to_string_lossy().to_string())
             })
             .unwrap_or_default();
+        // 契约 v1.0 §4.1：动作类收敛 —— ensure_webhook_secret 并入 update(action="webhook-secret")
         let prov = sdk::sdk_ops_call(
-            "ensure_webhook_secret",
-            &serde_json::json!({"binding": d}),
+            "update",
+            &serde_json::json!({"system_id": sid, "action": "webhook-secret", "binding": d}),
             prog_root,
             std::time::Duration::from_secs(120),
             door_env,
         )
+        .unwrap_or(Value::Null)
+        .get("result")
+        .cloned()
         .unwrap_or(Value::Null);
         let reason = prov.get("reason").and_then(|v| v.as_str()).unwrap_or("");
         if reason == "provisioned" {
@@ -922,32 +926,15 @@ pub fn binding_webhook_secrets(sid: &str, prog_root: &Path, door_env: &[(String,
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        let reg_url = sdk::sdk_ops_call(
-            "resolve_register_webhook_url",
-            &serde_json::json!({"gw": gw, "local_webhook_url": local_url}),
-            prog_root,
-            std::time::Duration::from_secs(120),
-            door_env,
-        )
-        .unwrap_or(Value::Null);
-        let declared_pull = gw.get("webhook_host").is_some()
-            && gw
-                .get("webhook_host")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim()
-                .is_empty();
-        if reg_url.as_str().unwrap_or("").is_empty() && !declared_pull {
-            warn(&format!(
-                "{email}: no registration value to pair (binding has no local receive endpoint and the config declares no push/pull mode) -- start that agent's host once so it writes its endpoint, then re-run 'aimail repair'"
-            ));
-            continue;
-        }
+        // 契约 v1.0 §4.1：动作类 + 取值类一并收敛 —— 云端重配对走一次门 assemble
+        // （不传 register_spec ⇒ 不跑平台注册器；webhook 地址由 SDK 内部解析，CLI 不取中间值）
         let res = sdk::sdk_ops_call(
-            "register_agent_email",
+            "assemble",
             &serde_json::json!({
                 "gw": gw, "system_id": sid, "email": email,
-                "webhook_url": reg_url, "webhook_secret": secret,
+                "agent_id": email,
+                "local_webhook_url": local_url,
+                "webhook_secret": secret,
                 "manager_address": d.get("manager_address").and_then(|v| v.as_str()).unwrap_or(""),
             }),
             prog_root,
@@ -963,7 +950,7 @@ pub fn binding_webhook_secrets(sid: &str, prog_root: &Path, door_env: &[(String,
                 continue;
             }
             Ok(r) => {
-                let key_note = if r.get("api_key").is_some() {
+                let key_note = if r.get("registered").and_then(|x| x.get("api_key")).is_some() {
                     " (key returned)"
                 } else {
                     ""
@@ -1106,19 +1093,14 @@ pub fn webhook_pairing(
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        let reg = sdk::sdk_ops_call(
-            "resolve_register_webhook_url",
-            &serde_json::json!({"gw": gw, "local_webhook_url": local_url}),
-            prog_root,
-            std::time::Duration::from_secs(120),
-            door_env,
-        )
-        .unwrap_or(Value::Null);
+        // 契约 v1.0 §4.1：取值类 + 动作类一并收敛 —— 重注册走一次门 assemble
+        // （不传 register_spec ⇒ 不跑平台注册器；webhook 地址由 SDK 内部解析 ✓）
         let res = sdk::sdk_ops_call(
-            "register_agent_email",
+            "assemble",
             &serde_json::json!({
                 "gw": gw, "system_id": sid, "email": email,
-                "webhook_url": reg,
+                "agent_id": email,
+                "local_webhook_url": local_url,
                 "webhook_secret": local.get("webhook_secret").and_then(|v| v.as_str()).unwrap_or(""),
                 "manager_address": local.get("manager_address").and_then(|v| v.as_str()).unwrap_or(""),
             }),
@@ -1994,8 +1976,14 @@ pub fn agentmail_backfill_with(
 ) -> bool {
     // 契约 v1.0 §4.1 + owner 裁决（甲）：repair 的**判定归 SDK** —— CLI 只触发
     // update(action="repair")，由 SDK 自算缺口（filled[]）并补 manager/webhook。
+    let routes: serde_json::Map<String, serde_json::Value> =
+        crate::core::bridge_wire::read_routes(&aimail_home.join("bridge").join("aimail_routes.toml"))
+            .into_iter()
+            .map(|(k, v)| (k, serde_json::Value::String(v)))
+            .collect();
     let args = serde_json::json!({
         "system_id": sid, "action": "repair", "home": aimail_home.to_string_lossy(),
+        "routes": routes,
     });
     match crate::core::sdk::sdk_ops_call(
         "update", &args, prog_root, std::time::Duration::from_secs(120), door_env,

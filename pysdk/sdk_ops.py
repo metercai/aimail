@@ -433,6 +433,16 @@ def _op_update(args):
     base, syscfg, client = _load_system(system_id, args)
     action = (args.get("action") or "").strip()
     email = args.get("email") or args.get("old_email") or ""
+    # repair 是**系统级**动作：未给目标 ⇒ 遍历该系统全部绑定（与旧 CLI 的 _repair_agentmail_json(sid) 同语义）
+    if action == "repair" and not (args.get("email") or args.get("agent_id")):
+        filled_flat = []
+        for _el in (base.iter_agentmail_configs(system_id) or []):
+            _em = str((_el or {}).get("email") or "")
+            _r = _op_update({**args, "action": "repair", "email": _em, "agent_id": _em})
+            _f = (_r or {}).get("filled") or ([(k, v) for k, v in (_r or {}).get("result", {}).items()] if False else [])
+            filled_flat.extend([f"{_em}:{_x}" for _x in _f])
+        return {"ok": True, "action": "repair", "sdk_version": _sdk_version(),
+                "filled": filled_flat, "count": len(filled_flat)}
     cfg = _agent_binding(base, args.get("agent_id") or "", system_id, email)
     if action == "rename":
         r = base.rename_address(system_id, args.get("old_email") or email,
@@ -443,32 +453,50 @@ def _op_update(args):
     elif action == "backfill":
         r = {"binding_path": str(base.backfill_binding(cfg, system_id))}
     elif action == "repair":
-        # 修复的判定收在 SDK 内（CLI 只触发）：补 webhook secret + 回填缺失字段
+        # 修复的判定收在 SDK 内（CLI 只触发）。**幂等**：只记"真补上的字段"，
+        # 无改动则不写回（api_key 需网关 ⇒ 不作为本地缺口，避免永久"有改动"）。
         out = {}
         filled = []
-        _need = ("webhook_url", "api_key", "manager_address")
-        for _k in _need:
+        out = {}
+        filled = []
+        # ① 来自系统级网关配置的可重建字段（绑定缺失 ⇒ 补空；网关配置为准）
+        for _k in ("gateway_url", "domain", "system_name"):
             if not str(cfg.get(_k) or "").strip():
-                if _k == "manager_address":
-                    _fn = getattr(base, "resolve_manager_address", None)
-                    if callable(_fn):
-                        try:
-                            _v = _fn(system_id, cfg.get("email") or "")
-                            if _v:
-                                cfg[_k] = _v; filled.append(_k)
-                        except Exception:
-                            pass
-                else:
+                _v = str((syscfg or {}).get(_k) or "").strip()
+                if _v:
+                    cfg[_k] = _v
                     filled.append(_k)
+        if not str(cfg.get("manager_address") or "").strip():
+            _fn = getattr(base, "resolve_manager_address", None)
+            if callable(_fn):
+                try:
+                    _v = _fn(system_id, cfg.get("email") or "")
+                    if _v:
+                        cfg["manager_address"] = _v
+                        filled.append("manager_address")
+                except Exception:
+                    pass
+        # ② webhook_url 与**活路由**对齐（不等即换；相等则不动 ⇒ 幂等）
+        _local = (args.get("routes") or {}).get(cfg.get("email") or "") or cfg.get("local_webhook_url") or args.get("local_webhook_url") or ""
+        _fn = getattr(base, "resolve_register_webhook_url", None)
+        if _local and callable(_fn):
+            try:
+                _want = _fn(syscfg, _local)
+                if _want and str(cfg.get("webhook_url") or "").strip() != str(_want).strip():
+                    cfg["webhook_url"] = _want
+                    filled.append("webhook_url")
+            except Exception:
+                pass
         try:
             out["secret"] = base.ensure_binding_webhook_secret(cfg)
         except Exception as e:
             out["secret"] = {"error": str(e)}
-        try:
-            _p = base.backfill_binding(cfg, system_id)
-            out["backfill"] = str(_p); out["filled"] = filled
-        except Exception as e:
-            out["backfill"] = {"error": str(e)}
+        if filled:
+            try:
+                out["backfill"] = str(base.backfill_binding(cfg, system_id))
+            except Exception as e:
+                out["backfill"] = {"error": str(e)}
+        out["filled"] = filled
         r = out
     elif action in ("prompt", "persona", "webhook-secret"):
         if action == "prompt":

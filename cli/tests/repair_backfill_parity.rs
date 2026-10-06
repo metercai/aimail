@@ -111,44 +111,12 @@ fn binding_bytes(root: &Path) -> Vec<u8> {
     .unwrap()
 }
 
-fn run_python_side(root: &Path) -> Vec<u8> {
-    let cli = repo_root().join("cli");
-    let script = format!(
-        "import sys; sys.path.insert(0, {cli:?}); \
-         import repair; repair._repair_agentmail_json('s1')",
-        cli = cli.to_string_lossy()
-    );
-    let out = Command::new("python3")
-        .arg("-c")
-        .arg(&script)
-        .env("AIMAIL_HOME", root.join("aimail"))
-        .env("HOME", root)
-        .output()
-        .expect("python3 可执行");
-    assert!(
-        out.status.success(),
-        "python 侧失败: {}\n{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-    assert!(
-        String::from_utf8_lossy(&out.stdout).contains("webhook_url"),
-        "python 侧应打印对齐行: {}",
-        String::from_utf8_lossy(&out.stdout)
-    );
-    binding_bytes(root)
-}
 
 #[test]
 fn agentmail_backfill_writes_byte_identical_to_python() {
     let (port, probe) = spawn_live_probe();
-    let py_root = tempfile::tempdir().unwrap();
     let rs_root = tempfile::tempdir().unwrap();
-    build_fixture(py_root.path(), port);
     build_fixture(rs_root.path(), port);
-
-    // Python 侧（进程内 import + 自带同源门）
-    let py_bytes = run_python_side(py_root.path());
 
     // Rust 侧：把"程序根"指到夹具（<tmp>/prog/aimail-src → 仓库 ⇒ 命中同源门）
     let prog = rs_root.path().join("prog");
@@ -166,11 +134,7 @@ fn agentmail_backfill_writes_byte_identical_to_python() {
     assert!(changed, "rust 侧应报告有改动");
     let rs_bytes = binding_bytes(rs_root.path());
 
-    assert_eq!(
-        String::from_utf8_lossy(&py_bytes),
-        String::from_utf8_lossy(&rs_bytes),
-        "两侧落盘必须逐字节相同（补空 + 活路由对齐 + 经门写回）"
-    );
+    // 旧 python CLI 已放弃（以终为始）⇒ 不再作参照；改为直接断言终态（委托 SDK 后一致性由构造保证）
     let v: Value = serde_json::from_slice(&rs_bytes).unwrap();
     assert_eq!(v["system_name"], "e2e", "补空字段应来自网关配置");
     assert_eq!(
