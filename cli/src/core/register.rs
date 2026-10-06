@@ -65,6 +65,9 @@ fn resolve_node_entry(tmpl: &str, homes: &[String]) -> String {
 }
 
 /// `_run_registrar`：子进程调用平台注册器 → (rc, stdout+stderr)。
+        if std::env::var("AIMAIL_DEBUG_PLAN").is_ok() {
+            eprintln!("[dbg] register platform={} plan={:?} reg_as={} needs_rename={} argv={:?}", platform, plan, plan_reg_as, needs_rename, argv);
+        }
 fn run_registrar(argv: &[String], env: &[(String, String)]) -> (i32, String) {
     let mut c = Command::new(&argv[0]);
     c.args(&argv[1..]);
