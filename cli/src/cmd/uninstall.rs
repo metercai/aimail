@@ -233,24 +233,35 @@ pub fn run(a: &Args) -> i32 {
             } else {
                 mgr_binding
             };
-            let client = json!({"gateway_url": gw_url, "admin_key": admin_key});
-            match crate::core::sdkcall::call_positional(
-                "aimail_base",
-                "deregister_agent_email",
-                &[json!({"__client__": client}), json!(sid), json!(email)],
-                &json!({"manager_address": mgr_use}),
-                &core_dir,
+            // 契约 v1.0 §4.1：走 SDK 门 teardown（判定与落盘在 SDK；CLI 不传 client/core_dir）
+            match crate::core::sdk::sdk_ops_call(
+                "teardown",
+                &json!({
+                    "system_id": sid,
+                    "email": email,
+                    "manager_address": mgr_use,
+                    "gw": gw_url,
+                    "admin_key": admin_key,
+                    "mode": {"unregister": true, "whitelist": false, "backfill": false},
+                }),
+                &crate::core::home::program_root(),
                 std::time::Duration::from_secs(120),
                 &[],
             ) {
-                Ok(st) => ok(&format!(
-                    "gateway deregister {email} (api-key={} domain={} whitelist={})",
-                    st.get("api_key").map(|v| v.to_string()).unwrap_or_default(),
-                    st.get("domain").map(|v| v.to_string()).unwrap_or_default(),
-                    st.get("whitelist")
-                        .map(|v| v.to_string())
-                        .unwrap_or_default()
-                )),
+                Ok(env) => {
+                    let st = action_of(
+                        &env.get("result").cloned().unwrap_or(env),
+                        "deregister_agent_email",
+                    );
+                    ok(&format!(
+                        "gateway deregister {email} (api-key={} domain={} whitelist={})",
+                        st.get("api_key").map(|v| v.to_string()).unwrap_or_default(),
+                        st.get("domain").map(|v| v.to_string()).unwrap_or_default(),
+                        st.get("whitelist")
+                            .map(|v| v.to_string())
+                            .unwrap_or_default()
+                    ))
+                }
                 Err(e) => warn(&format!(
                     "gateway deregister {email} failed: {}",
                     e.display_like_python()
@@ -312,17 +323,21 @@ pub fn run(a: &Args) -> i32 {
             }
         }
         let mut deregistered: Vec<String> = Vec::new();
-        let client = json!({"gateway_url": gw_url, "admin_key": admin_key});
         for ad in &addrs {
             if local_emails.contains(ad) || (!manager.is_empty() && *ad == manager) {
                 continue;
             }
-            match crate::core::sdkcall::call_positional(
-                "aimail_base",
-                "deregister_agent_email",
-                &[json!({"__client__": client}), json!(sid), json!(ad)],
-                &json!({"manager_address": manager}),
-                &core_dir,
+            match crate::core::sdk::sdk_ops_call(
+                "teardown",
+                &json!({
+                    "system_id": sid,
+                    "email": ad,
+                    "manager_address": manager,
+                    "gw": gw_url,
+                    "admin_key": admin_key,
+                    "mode": {"unregister": true, "whitelist": false, "backfill": false},
+                }),
+                &crate::core::home::program_root(),
                 std::time::Duration::from_secs(120),
                 &[],
             ) {
@@ -336,22 +351,25 @@ pub fn run(a: &Args) -> i32 {
                 )),
             }
         }
-        match crate::core::sdkcall::call_positional(
-            "aimail_base",
-            "cleanup_system_whitelists",
-            &[
-                json!({"__client__": client}),
-                json!(sid),
-                json!(addrs),
-                json!(domains),
-                json!(deregistered),
-            ],
-            &json!({}),
-            &core_dir,
+        match crate::core::sdk::sdk_ops_call(
+            "teardown",
+            &json!({
+                "system_id": sid,
+                "email": "",
+                "gw": gw_url,
+                "admin_key": admin_key,
+                "mode": {"unregister": false, "whitelist": true,
+                          "addresses": addrs, "domains": domains, "deregistered": deregistered},
+            }),
+            &crate::core::home::program_root(),
             std::time::Duration::from_secs(120),
             &[],
         ) {
-            Ok(sw) => {
+            Ok(env) => {
+                let sw = action_of(
+                    &env.get("result").cloned().unwrap_or(env),
+                    "cleanup_system_whitelists",
+                );
                 if let Some(per_key) = sw.get("per_key").and_then(Value::as_object) {
                     for (k, n) in per_key {
                         if n.as_i64().unwrap_or(0) != 0 {
@@ -432,4 +450,12 @@ pub fn run(a: &Args) -> i32 {
 
     println!("  uninstall done for {sid}");
     0
+}
+
+/// 契约 v1.0 §4.1：门 op 的 `result.actions[]` 里按动作名取该项载荷。
+fn action_of(res: &Value, key: &str) -> Value {
+    res.get("actions")
+        .and_then(Value::as_array)
+        .and_then(|a| a.iter().find_map(|x| x.get(key).cloned()))
+        .unwrap_or(Value::Null)
 }
