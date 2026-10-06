@@ -68,7 +68,32 @@ fn rule_name_ok(name: &str) -> Result<bool, String> {
 }
 
 fn update_binding(sid: &str, cfg: &Value, patch: &Value) -> Result<(), String> {
-    sdk_call("update_binding", &[json!(sid), cfg.clone(), patch.clone()]).map(|_| ())
+    // 契约 v1.0 §4.1：经 SDK 门 `update`（判定与落盘在 SDK）；action 由 patch 字段派生。
+    // 兼容保留 `updates`/`fields` 两种键名（SDK 侧读入不受影响）。
+    let action = if patch.get("persona").is_some() {
+        "persona"
+    } else {
+        "prompt"
+    };
+    let args = json!({
+        "system_id": sid,
+        "binding": cfg.clone(),
+        "action": action,
+        "updates": patch.clone(),
+        "fields": patch.clone(),
+    });
+    crate::core::sdk::sdk_ops_call(
+        "update",
+        &args,
+        &crate::core::home::program_root(),
+        std::time::Duration::from_secs(60),
+        &[],
+    )
+    .map(|_| ())
+    .map_err(|e| match &e {
+        crate::core::sdk::AbiError::Call { msg, .. } => msg.clone(),
+        other => format!("{other:?}"),
+    })
 }
 
 /// 规则文件名（`_stem_from`：`{serial}_{filename}` 取下划线后段，无下划线 ⇒ 空）。
