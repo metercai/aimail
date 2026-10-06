@@ -169,15 +169,6 @@
           }
         },
         {
-          "kind": "sdk_install",
-          "target": "dsh",
-          "fn": "install_dsh",
-          "on_error": "fail",
-          "needs_manager": false,
-          "fail_hint": "dsh skill/tool 装配失败(install_dsh, exit {rc}): web profile 的 skill-filesystem/tool-skill 必须启用; 失败必须可见, 不许当成功",
-          "ok_text": "dsh skill/tool 暴露层已启用(skill-filesystem/tool-skill: disabled: false)"
-        },
-        {
           "kind": "register_default",
           "when": {
             "cfg_complete": true
