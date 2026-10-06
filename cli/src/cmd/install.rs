@@ -860,36 +860,13 @@ fn install_human(a: &Args) -> i32 {
             serde_json::json!({
                 "system_id": std::env::var("INTEGRATE_SYSTEM_ID").unwrap_or_default(),
                 "gateway_url": gw_url,
-                "admin_key": env_admin_key.clone(),
+                "admin_key": env_admin_key,
                 "domain": "",
                 "system_name": sys_name,
                 "manager_address": manager,
                 "system_home": std::env::var("INTEGRATE_SYSTEM_HOME").unwrap_or_default(),
             })
         });
-    // 缺则补齐（不替换、不放宽任何判据）：`cfg_complete` 闸门（steps.rs）要求 cfg.admin_key/gateway_url 非空，
-    // 而磁盘上的 gateway 配置**可能没存 admin_key**（如 `-k`/admin-key 路径）⇒ 注册步会被静默闸掉、地址只剩
-    // 网关自建的裸名（实测 2026-10-05：agent.<sys>@… 契约 vs 网关实存 <sys>@…）。这里用已解析值为**空字段**补上，
-    // 使 `-k` 与 `-c` 走同一注册/改名路径（与 python 参考实现一致）。
-    let mut cfg_for_steps = cfg_for_steps;
-    if let Some(o) = cfg_for_steps.as_object_mut() {
-        let fill = |o: &mut serde_json::Map<String, serde_json::Value>, k: &str, v: &str| {
-            if v.is_empty() {
-                return;
-            }
-            let missing = o
-                .get(k)
-                .and_then(|x| x.as_str())
-                .map(|x| x.is_empty())
-                .unwrap_or(true);
-            if missing {
-                o.insert(k.to_string(), serde_json::json!(v));
-            }
-        };
-        fill(o, "gateway_url", &gw_url);
-        fill(o, "admin_key", &env_admin_key);
-        fill(o, "manager_address", &manager);
-    }
     ctx.insert(
         "home".into(),
         serde_json::json!(system_home.to_string_lossy().to_string()),
