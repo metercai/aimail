@@ -68,7 +68,10 @@ GATE_DIR = "tests/contract/"          # 门禁自身目录(含基线)整体白�
 # check-docs-consistency.py 等价兜底 ⇒ 文档内契约值与真源漂移不受本门禁约束,
 # 已在 GAP 里登记(见 DOCS_WHITELIST_GAPS)。
 DOCS_WHITELIST = ("docs/agent-self-setup.md", "docs/agent-self-setup_zh.md",
-                  "cli/cli-sdk-bridge-boundaries.md")
+                  "cli/cli-sdk-bridge-boundaries.md",
+                  # 2026-10-06 追加（owner 签字契约 v1.0）：CLI↔SDK 边界规范文档，
+                  # 必须逐字引用契约值（同 cli-sdk-bridge-boundaries.md 修法 A）。
+                  "docs/contract-boundary_zh.md")
 #: 白名单里"无等价 verbatim 兜底"的文档 —— 必须显式登记, 不许静默降级。
 DOCS_WHITELIST_GAPS = ("cli/cli-sdk-bridge-boundaries.md",)
 WHITELIST_FILES = (MANIFEST_REL, TS_CONTRACT, PY_CONTRACT, BASELINE_REL) + DOCS_WHITELIST

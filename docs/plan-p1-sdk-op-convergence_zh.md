@@ -59,3 +59,17 @@
 
 ## 6 下一步（P1 动刀）
 SDK 侧（`pysdk/`）+ 门禁（`tests/`）：① 分发表新增 `assemble`/`update`/`teardown`（内部转调既有 `aimail_base.*` 等 ✓）② 3 op 最小用例 ③ 边界棘轮 1 项 ⇒ 跑 SDK 门禁（既有用例应全绿 ✓）⇒ 发版。
+
+## 7 纠正（owner 2026-10-06）：三动作 op 的归属 —— CLI 侧，不是 SDK 门
+
+**既有规则（必须遵守）**：**SDK 不为 CLI 扩 op**；CLI 侧以**通用按名 shim**调用**已发布**的 SDK 函数（禁复刻算法）。
+⇒ 本计划 §1–§3 把三动作 op 放到 **SDK 门内**是**错误方向** ✗（`43cc261` 已随 v0.1.37 发布，**附加且未被 CLI 依赖** ✓，
+属待收口的冗余面 ✗，留待契约下一版处理 ✓，**不因它再发一版** ✗）。
+
+**正确口径（P2 照此执行）**：
+- `assemble` / `update` / `teardown` = **CLI 侧内部函数**（`cli/src/core/actions.rs` ✓），
+  各自编排**既有按名调用**（`sdkcall::call_positional("aimail_base", …)` ✓）：`plan_address_name` ·
+  `register_agent_email` · `rename_address` · `update_binding` · `set_agent_manager` ·
+  `deregister_agent_email` · `cleanup_system_whitelists` —— **全部是已发布函数** ✓ ⇒ **零 SDK 改动、零额外发版** ✓；
+- CLI 各命令改调这三个 CLI 侧函数 ✓（内部结构收敛 ✓），**SDK 门面保持按名 shim 这一唯一形态** ✓；
+- 取值类：CLI **直读**（已落 P2-a ✓）。

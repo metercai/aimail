@@ -447,6 +447,11 @@ pub fn run(args: Args) -> i32 {
             }
             0
         }
+        "add" | "rm" => {
+            // 契约 v1.0 §4.1(2)：为 SDK 反调预留（agent 新增/删除属 address 子命令）。
+            // 未实现必须**响亮失败**（非 0），不得静默当成功。
+            crate::cmd::stub::not_yet_ported("address add|rm")
+        }
         "show" => {
             let agents = list_agents(&aimail_home, &sid, &cfg);
             let want = args.email.clone().unwrap_or_default().to_lowercase();

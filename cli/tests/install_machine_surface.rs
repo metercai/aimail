@@ -163,9 +163,15 @@ fn install_surfaces_behave_like_python() {
     );
     assert_eq!(out2.trim_end().lines().count(), 1, "恰一行");
 
-    // `--payload install` 已实现：源根不可解析时必须**明确报错非零**（与 Python 同一失败文案），
+    // `--payload install` 已实现：**两形态皆不可用**时必须**明确报错非零**（与 Python 同一失败文案），
     // 绝不静默成功。
+    // 注（契约 v1.0 §3 阶段三）：解析链 = repo→pip，pip 形态**是契约允许的正当来源**；
+    // 故本用例须同时掐断两条路 —— 临时把 `python_bin()` 的单真源 `AIMAIL_PYTHON` 指向
+    // 无法 import aimail 的解释器（prog 为临时目录 ⇒ 无 aimail-src/pysdk）。测试串行运行，
+    // 该赋值只影响本用例。
+    std::env::set_var("AIMAIL_PYTHON", "/nonexistent/python");
     let (rc, out, err) = run(&prog, &["install", "--payload", "install", "mcp"]);
+    std::env::remove_var("AIMAIL_PYTHON");
     assert_ne!(rc, 0, "源根不可解析必须非零");
     assert!(
         err.contains("运行时源未找到"),

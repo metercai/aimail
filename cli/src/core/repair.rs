@@ -823,24 +823,35 @@ pub fn binding_webhook_secrets(sid: &str, prog_root: &Path, door_env: &[(String,
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or(Value::Null);
     let c = gateway_client(sid);
-    let args = serde_json::json!({"system_id": sid});
-    let bindings = match sdk::sdk_ops_call(
-        "iter_bindings",
-        &args,
-        prog_root,
-        std::time::Duration::from_secs(120),
-        door_env,
-    ) {
-        Ok(v) => v,
-        Err(e) => {
-            warn(&format!(
-                "iter_bindings failed ({})",
-                e.display_like_python()
-            ));
-            return false;
+    // 契约 v1.0 §4.1(1)：绑定是**数据类** ⇒ CLI 直读（不再向 SDK 取枚举）。
+    // 路径规则已由契约声明（config::binding_file_path / contract::binding_file），不复制 Python 实现。
+    let list: Vec<Value> = {
+        let root =
+            crate::core::config::systems_root_in(&crate::core::home::aimail_home()).join(sid);
+        let mut out: Vec<Value> = Vec::new();
+        if let Ok(rd) = std::fs::read_dir(&root) {
+            for e in rd.flatten() {
+                let f = e.path().join(crate::core::contract::binding_file());
+                let Ok(txt) = std::fs::read_to_string(&f) else {
+                    continue;
+                };
+                match serde_json::from_str::<Value>(&txt) {
+                    Ok(mut v) => {
+                        // SDK 门对 `binding` 的契约：原样回传 + `_config_path` 标识落点（此处由直读重建）
+                        if let Some(o) = v.as_object_mut() {
+                            o.insert(
+                                "_config_path".into(),
+                                Value::String(f.to_string_lossy().to_string()),
+                            );
+                        }
+                        out.push(v);
+                    }
+                    Err(e) => warn(&format!("binding unreadable ({}): {e}", f.display())),
+                }
+            }
         }
+        out
     };
-    let list = bindings.as_array().cloned().unwrap_or_default();
     if list.is_empty() {
         warn(&format!(
             "system {sid} has no readable agent binding -- no webhook pairing to repair; register an agent first (`aimail install` or the host-side register command)"
