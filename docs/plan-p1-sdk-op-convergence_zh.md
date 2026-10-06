@@ -86,7 +86,7 @@ SDK 侧（`pysdk/`）+ 门禁（`tests/`）：① 分发表新增 `assemble`/`up
 
 ## 9 能力边界锁定（固定件 · 由契约 v1.0 §1/§2/§4 + 代码事实推导）
 
-CLI 侧: 平台注册表(platforms.json kind/args/node_path) | 宿主布局解析(--home/glob) | gateway 配置唯一写 | 用户命令面与触发 | 直读(gateway cfg / agentmail.json / 网关态) | transport(起进程+传输入数据)
+CLI 侧: 平台注册表(platforms.json kind/args/node_path) | 宿主布局解析(--home/glob) | gateway 配置唯一写 | 用户命令面与触发 | 直读(gateway cfg / per-agent 绑定文件 / 网关态) | transport(起进程+传输入数据)
 
 SDK 侧: 定名规则(py=ts 逐字等价) | 注册/激活/绑定写 | 改名/注销/白名单 | webhook 地址与 secret | 回填/修复判定 | 入站实现 + 反调 CLI(4 条白名单) | 运行时收发/预处理/board
 
