@@ -464,7 +464,7 @@ def _op_update(args):
         r = {"binding_path": str(base.update_binding(system_id, cfg, updates))}
     else:
         raise UsageError(f"update: 未知 action={action!r}（rename|set-manager|prompt|persona|webhook-secret|backfill|repair）")
-    return {"ok": True, "action": action, "result": r, "sdk_version": _sdk_version()}
+    return {"ok": True, "action": action, "sdk_version": _sdk_version(), **(r or {})}
 
 
 def _op_teardown(args):
