@@ -92,7 +92,7 @@ fn rename_after_reg(
     reg_name: &str,
     sid: &str,
     domain: &str,
-    core_dir: &Path,
+    _core_dir: &Path,
 ) -> Result<(), String> {
     let sys_name = setup::pget(cfg, "system_name");
     let base = if default_name == "agent" {
@@ -105,14 +105,22 @@ fn rename_after_reg(
     } else {
         format!("{base}.{sys_name}@{domain}")
     };
-    let res = sdkcall::call(
-        "aimail_base",
-        "rename_address",
-        &json!({"system_id": sid, "old_email": old_email, "new_name": reg_name, "cfg": cfg}),
-        core_dir,
+    // 契约 v1.0 §4.1：装配期改名走 SDK 门 update(action=rename)（判定/派生/落盘全在 SDK）
+    let res = crate::core::sdk::sdk_ops_call(
+        "update",
+        &json!({
+            "system_id": sid,
+            "old_email": old_email,
+            "email": old_email,
+            "new_name": reg_name,
+            "binding": cfg,
+            "action": "rename",
+        }),
+        &crate::core::home::program_root(),
         REGISTRAR_TIMEOUT,
         &[],
     )
+    .map(|env| env.get("result").cloned().unwrap_or(env))
     .map_err(|e| {
         format!(
             "注册后 rename {old_email} 失败: {}",
