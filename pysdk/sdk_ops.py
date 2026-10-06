@@ -280,10 +280,22 @@ def _agent_binding(base, agent_id, system_id, email=""):
     return {}
 
 
-def _run_registrar(spec):
-    """按 spec.kind 跑平台注册器（spec = CLI 传入的已展开数据）；未知 kind ⇒ 响亮失败。"""
+def _expand(tmpl, values):
+    """展开 {name}/{agent}/{sid}/{system_id}/{manager}/{home}/{email}/{domain}（纯模板，无业务判断）。"""
+    out = []
+    for x in tmpl or []:
+        x = str(x)
+        for k, v in (values or {}).items():
+            x = x.replace("{" + k + "}", str(v if v is not None else ""))
+        out.append(x)
+    return out
+
+
+def _run_registrar(spec, values=None):
+    """按 spec.kind 跑平台注册器；支持 args_template 展开；未知 kind ⇒ 响亮失败。"""
     kind = str((spec or {}).get("kind") or "")
-    argv = [str(x) for x in (spec.get("argv") or [])]
+    raw = spec.get("argv") or spec.get("args_template") or spec.get("args") or []
+    argv = _expand(raw, values or {})
     env = dict(os.environ)
     for k, v in (spec.get("env") or {}).items():
         env[str(k)] = str(v)
@@ -326,7 +338,14 @@ def _op_assemble(args):
         aliases=tuple(args.get("aliases") or ()),
         register_argv=tuple(args.get("register_argv") or ()),
     )
-    reg_run = _run_registrar(args.get("register_spec") or {})
+    target_email_pre = email or plan.get("email") or ""
+    reg_run = _run_registrar(args.get("register_spec") or {}, {
+        "name": plan.get("reg_as"), "agent": agent_id, "email": target_email_pre,
+        "sid": system_id, "system_id": system_id,
+        "manager": args.get("manager_address") or syscfg.get("manager_address") or "",
+        "home": args.get("home") or syscfg.get("system_home") or "",
+        "domain": args.get("domain") or syscfg.get("domain") or "",
+    })
     renamed = None
     if plan.get("needs_rename") and getattr(base, "rename_address", None):
         renamed = base.rename_address(
