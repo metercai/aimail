@@ -98,7 +98,6 @@ pub fn register_agent(
     platform: &str,
     agent: &str,
     cfg: &Value,
-    reg_name: &str,
     manager: &str,
     platform_home: &str,
     core_dir: &Path,
@@ -221,16 +220,16 @@ pub fn register_agent(
         "assemble",
         &json!({
             "system_id": sid,
-            "agent_id": agent,
-            "requested_name": reg_name,
-            "domain": domain,
+            "system_cfg": cfg.clone(),
+                                    "domain": domain,
             "system_name": system_name,
             "aliases": aliases,
             "manager_address": mgr,
             "home": cand_homes.first().cloned().unwrap_or_default(),
             "register_spec": spec,
         }),
-        &crate::core::home::program_root(),
+        // SDK 根用 CLI 解析结果（= 旧 core_dir 语义：repo→pip），与其余调用点同源
+        &crate::core::sdkroot::resolve_or_repo_candidate().path,
         REGISTRAR_TIMEOUT,
         &[],
     )
@@ -286,8 +285,7 @@ pub fn register_all(
         }
     };
     let Some(rall) = rall else {
-        let dn = default_agent_name(platform);
-        register_agent(platform, &dn, cfg, &dn, mgr, platform_home, core_dir)?;
+        register_agent(platform, platform, cfg, mgr, platform_home, core_dir)?;
         ok(&format!(
             "{platform} 单 agent 平台(register_all 无定义)——默认 agent 已注册"
         ));

@@ -195,8 +195,7 @@ pub fn run(a: &Args) -> i32 {
         }
     } else {
         let agent = register::default_agent_name(&platform);
-        if let Err(e) = register::register_agent(
-            &platform, &agent, &cfg, &agent, &manager, &home_str, &core_dir,
+        if let Err(e) = register::register_agent(&platform, &agent, &cfg, &manager, &home_str, &core_dir, 
         ) {
             warn(&format!(
                 "registration chain re-run: registration failed (see above); 异常: {e}"

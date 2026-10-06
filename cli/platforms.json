@@ -28,7 +28,6 @@
       "aliases": [],
       "register": {
         "kind": "node_entry",
-        "default_name": "pi",
         "node_path": "{home}/agent/npm/node_modules/pi-aimail/dist/register-cli.js",
         "args": [
           "--name",
@@ -134,7 +133,6 @@
       "aliases": [],
       "register": {
         "kind": "node_entry",
-        "default_name": "agent",
         "node_path": "{home}/profiles/*/node_modules/dsh-aimail/lib/register-cli.js",
         "args": [
           "--name",
@@ -224,7 +222,6 @@
       ],
       "register": {
         "kind": "python_module",
-        "default_name": "default",
         "module": "aimail_hermes",
         "fn": "_auto_register_email",
         "profile": {
@@ -388,7 +385,6 @@
       ],
       "register": {
         "kind": "host_command",
-        "default_name": "main",
         "argv": [
           "openclaw",
           "aimail",
@@ -524,7 +520,6 @@
       "aliases": [],
       "register": {
         "kind": "python_script",
-        "default_name": "agent",
         "python": "deer-flow/manage.py",
         "args": [
           "register",

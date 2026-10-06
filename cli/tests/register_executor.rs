@@ -65,6 +65,7 @@ fn register_executor_offline_behaviour() {
         "system_name": "",
         "system_home": home.to_string_lossy(),
         "manager_address": "mgr@example.test",
+        "gateway_url": "http://127.0.0.1:1",
         "admin_key": "k",
     });
 
@@ -73,7 +74,6 @@ fn register_executor_offline_behaviour() {
         "pi",
         "pi",
         &cfg,
-        "billing",
         "",
         &home.to_string_lossy(),
         &core_dir(),
@@ -81,7 +81,7 @@ fn register_executor_offline_behaviour() {
     .expect("pi 注册应成功（stub node）");
     let recorded = fs::read_to_string(&record).unwrap();
     assert!(
-        recorded.contains("--name\nbilling\n"),
+        recorded.contains("--name\nagent\n"),
         "目标基名必须直达（{recorded:?}）"
     );
     assert!(recorded.contains("--system-id\ns1\n"), "{recorded:?}");
@@ -100,7 +100,6 @@ fn register_executor_offline_behaviour() {
         "pi",
         "pi",
         &cfg_nomgr,
-        "billing",
         "",
         &home.to_string_lossy(),
         &core_dir(),
@@ -108,28 +107,13 @@ fn register_executor_offline_behaviour() {
     .expect_err("空 manager 必须硬门失败");
     assert!(err.contains("缺 manager"), "{err}");
 
-    // 3) 定名非法 ⇒ SDK 的 ValueError 消息原样透出（CLI 不臆断）
-    let err = aimail::core::register::register_agent(
-        "pi",
-        "pi",
-        &cfg,
-        "has.dot",
-        "",
-        &home.to_string_lossy(),
-        &core_dir(),
-    )
-    .expect_err("非法名必须失败");
-    assert!(
-        err.contains("非法地址名") || err.contains("invalid address name"),
-        "SDK 的定名校验消息必须原样透出: {err}"
-    );
+
 
     // 4) 平台包缺失（夹具 home 里没有 dsh 包）⇒ 带注册表 fail_hint 的响亮失败
     let err = aimail::core::register::register_agent(
         "dsh",
         "agent",
         &cfg,
-        "agent",
         "",
         &home.to_string_lossy(),
         &core_dir(),
