@@ -561,46 +561,31 @@ pub fn run(args: Args) -> i32 {
             let Some(t) = target else {
                 return report::fail("该操作需要 -a <agent> 或 -e <email> 定位目标地址");
             };
-            // agent 域资源 CRUD 在 SDK、CLI 只触发（owner 裁决）⇒ 按名调用，**不复刻算法**。
-            let agent_cfg_path = aimail_home
-                .join("systems")
-                .join(&sid)
-                .join(crate::core::bridge_wire::addr_clean(&t.email))
-                .join(contract::binding_file());
-            let agent_cfg: Value = std::fs::read_to_string(&agent_cfg_path)
-                .ok()
-                .and_then(|x| serde_json::from_str(&x).ok())
-                .unwrap_or_else(|| serde_json::json!({}));
-            let cfg_json = Value::Object(cfg.to_json());
-            let sdk_root = crate::core::sdkroot::resolve_or_repo_candidate();
-            match crate::core::sdkcall::call_positional(
-                "aimail_base",
-                "set_agent_manager",
-                &[
-                    Value::String(sid.clone()),
-                    Value::String(t.email.clone()),
-                    Value::String(mgr.clone()),
-                    cfg_json,
-                    agent_cfg,
-                ],
-                &serde_json::json!({}),
-                &sdk_root.path,
-                std::time::Duration::from_secs(30),
+            // 契约 v1.0 §4.1：走 SDK 门 update(action=set-manager)——判定与落盘在 SDK，CLI 不读中间值。
+            let res = match crate::core::sdk::sdk_ops_call(
+                "update",
+                &serde_json::json!({
+                    "system_id": sid.clone(),
+                    "email": t.email.clone(),
+                    "manager_address": mgr.clone(),
+                    "action": "set-manager",
+                }),
+                &crate::core::home::program_root(),
+                std::time::Duration::from_secs(60),
                 &[],
             ) {
-                Ok(_) => {
-                    report::ok(&format!("manager: {} → {}(云端+本地已同步)", t.email, mgr));
-                    0
-                }
+                Ok(v) => v.get("result").cloned().unwrap_or(v),
                 Err(e) => {
-                    // Python：ValueError ⇒ `更新 manager 失败: {e}`
                     let msg = match &e {
                         crate::core::sdk::AbiError::Call { msg, .. } => msg.clone(),
-                        other => format!("{:?}", other),
+                        other => format!("{other:?}"),
                     };
-                    report::fail(&format!("更新 manager 失败: {}", msg))
+                    return report::fail(&format!("更新 manager 失败: {msg}"));
                 }
-            }
+            };
+            let _ = &res;
+            report::ok(&format!("manager: {} → {}(云端+本地已同步)", t.email, mgr));
+            0
         }
         "set-name" => {
             let new_name = args.name.clone().unwrap_or_default();
