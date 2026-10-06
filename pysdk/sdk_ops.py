@@ -54,6 +54,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
+
+# 注册器执行超时上限（秒）
+REGISTRAR_TIMEOUT = 120
 import sys
 from pathlib import Path
 
@@ -172,25 +176,34 @@ def _op_version(_args: dict) -> dict:
 
 
 def _call(fn, **kw):
-    """按目标函数签名过滤 kwargs 后调用（签名不符 ⇒ 响亮失败，不静默降级）。"""
+    """按目标函数真实签名映射参数后调用（未知 kwargs / 缺必填 ⇒ 响亮失败）。"""
     import inspect as _inspect
 
     sig = _inspect.signature(fn)
     accepts_kwargs = any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values())
+    pos_args, call_kw, missing = [], {}, []
+    if accepts_kwargs:
+        call_kw.update({k: v for k, v in kw.items() if v is not None})
+    for name, prm in sig.parameters.items():
+        if prm.kind in (prm.VAR_POSITIONAL, prm.VAR_KEYWORD):
+            continue
+        if name in kw and kw[name] is not None:
+            if prm.kind == prm.POSITIONAL_ONLY:
+                pos_args.append(kw[name])
+            else:
+                call_kw[name] = kw[name]
+        elif prm.default is prm.empty:
+            missing.append(name)
     if not accepts_kwargs:
-        allowed = {n for n, p in sig.parameters.items()
-                   if p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)}
+        allowed = {n for n, prm in sig.parameters.items()
+                   if prm.kind in (prm.POSITIONAL_OR_KEYWORD, prm.KEYWORD_ONLY,
+                                   prm.POSITIONAL_ONLY)}
         unknown = sorted(set(kw) - allowed)
         if unknown:
             raise RuntimeError(f"{getattr(fn, '__name__', fn)}: unsupported args {unknown}")
-        kw = {k: v for k, v in kw.items() if k in allowed or v is not None}
-    missing = [n for n, p in sig.parameters.items()
-               if p.default is p.empty and p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)
-               and n not in kw]
     if missing:
-        raise RuntimeError(f"{getattr(fn, '__name__', fn)}: missing required args {missing}")
-    return fn(**{k: v for k, v in kw.items() if v is not None})
-
+        raise RuntimeError(f"{getattr(fn, '__name__', fn)}: 缺少必填参数 {missing}")
+    return fn(*pos_args, **call_kw)
 
 def _import_base():
     """取 aimail_base（双形态：flat core 目录直接执行 / 包形态 aimail.aimail_base）。"""
@@ -202,77 +215,167 @@ def _import_base():
         return aimail_base
 
 
-def _op_assemble(args):
-    """装配：命名 → 注册 → 落绑定（必要时改名）——自持编排（对应 TS register-cli）。"""
+def _sdk_version():
+    try:
+        return getattr(_import_base(), "__version__", "") or ""
+    except Exception:
+        return ""
+
+
+def _load_system(system_id):
+    """系统级配置（CLI 写、SDK 只读）+ 网关客户端 —— 三 op 自足，CLI 不传 cfg/client。"""
     base = _import_base()
-    gw = args.get("gw")
+    cfg = None
+    loader = getattr(base, "_load_gateway_config", None)
+    if loader:
+        try:
+            cfg = loader(system_id) or None
+        except Exception:
+            cfg = None
+    if not cfg:
+        raise UsageError(f"找不到系统级配置 system_id={system_id!r}（须先 aimail install）")
+    try:
+        from aimail_tools import _GatewayClient
+        client = _GatewayClient(cfg.get("gateway_url"), cfg.get("admin_key"))
+    except Exception as e:
+        raise RuntimeError(f"无法构造网关客户端: {e}")
+    return base, cfg, client
+
+
+def _agent_binding(base, agent_id, system_id):
+    f = getattr(base, "load_agent_config", None)
+    if f and agent_id:
+        try:
+            return f(agent_id, system_id) or {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _run_registrar(spec):
+    """按 spec.kind 跑平台注册器（spec = CLI 传入的已展开数据）；未知 kind ⇒ 响亮失败。"""
+    kind = str((spec or {}).get("kind") or "")
+    argv = [str(x) for x in (spec.get("argv") or [])]
+    env = dict(os.environ)
+    for k, v in (spec.get("env") or {}).items():
+        env[str(k)] = str(v)
+    py = str(spec.get("python") or "python3")
+    if kind == "node_entry":
+        cmd = ["node", str(spec.get("node_path") or "")] + argv
+    elif kind == "python_script":
+        cmd = [py, str(spec.get("script") or "")] + argv
+    elif kind == "python_module":
+        cmd = [py, "-m", str(spec.get("module") or "")] + argv
+    elif kind == "host_command":
+        cmd = [str(spec.get("command") or "")] + argv
+    else:
+        raise UsageError(f"未知 register_spec.kind={kind!r}（拒绝静默跳过）")
+    if not cmd[0] or (len(cmd) > 1 and not cmd[1]):
+        raise UsageError("register_spec 缺少可执行体（拒绝静默）")
+    pr = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=REGISTRAR_TIMEOUT)
+    if pr.returncode != 0:
+        raise RuntimeError(
+            f"注册器失败 rc={pr.returncode}: {' '.join(cmd[:2])}: {(pr.stderr or pr.stdout or '')[-400:]}"
+        )
+    return {"rc": pr.returncode, "stdout_tail": (pr.stdout or "")[-400:]}
+
+
+def _op_assemble(args):
+    """装配：自定位配置 → 命名 → 跑平台注册器 → 必要时改名 → 注册 → 落绑定。只返回最终结果。"""
     system_id = args.get("system_id") or ""
     email = args.get("email") or ""
-    if not (gw and system_id):
-        raise UsageError("assemble: --args 需要 gw 与 system_id")
-    if not email:
-        raise UsageError("assemble: --args 需要 email（目标地址）")
-    plan = None
-    if hasattr(base, "plan_address_name"):
-        plan = _call(base.plan_address_name, email=email, system_id=system_id,
-                     name=args.get("name"), manager_address=args.get("manager_address"),
-                     domain=args.get("domain"))
+    if not system_id:
+        raise UsageError("assemble: 需要 system_id")
+    base, syscfg, client = _load_system(system_id)
+    agent_id = args.get("agent_id") or email
+    binding_cfg = _agent_binding(base, agent_id, system_id)
+    plan = base.plan_address_name(
+        args.get("requested_name") or args.get("name") or "",
+        agent_id=agent_id,
+        domain=args.get("domain") or syscfg.get("domain") or "",
+        system_name=args.get("system_name") or syscfg.get("system_name") or "",
+        aliases=tuple(args.get("aliases") or ()),
+        register_argv=tuple(args.get("register_argv") or ()),
+    )
+    reg_run = _run_registrar(args.get("register_spec") or {})
+    renamed = None
+    if plan.get("needs_rename") and getattr(base, "rename_address", None):
+        renamed = base.rename_address(
+            system_id, plan.get("old_email") or "",
+            plan.get("new_name") or plan.get("reg_as") or email, binding_cfg)
     webhook_url = args.get("local_webhook_url") or args.get("webhook_url") or ""
-    if webhook_url and hasattr(base, "resolve_register_webhook_url"):
-        webhook_url = _call(base.resolve_register_webhook_url, gw=gw,
-                            local_webhook_url=webhook_url) or webhook_url
-    reg = _call(base.register_agent_email, gw=gw, system_id=system_id, email=email,
-                webhook_url=webhook_url or None,
-                webhook_secret=args.get("webhook_secret"),
-                manager_address=args.get("manager_address"))
-    binding = None
-    if args.get("binding_path") and hasattr(base, "update_binding"):
-        binding = _call(base.update_binding, config_path=args.get("binding_path"),
-                        system_id=system_id,
-                        persona=args.get("persona"), prompt_rules=args.get("prompt_rules"),
-                        manager_address=args.get("manager_address"))
-    return {"email": email, "registered": reg, "plan": plan, "binding": binding}
+    rw = getattr(base, "resolve_register_webhook_url", None)
+    if webhook_url and rw:
+        webhook_url = rw({"gateway_url": syscfg.get("gateway_url"),
+                          "admin_key": syscfg.get("admin_key")}, webhook_url) or webhook_url
+    reg = base.register_agent_email(
+        client, system_id, email, webhook_url=webhook_url or "",
+        webhook_secret=args.get("webhook_secret") or "",
+        manager_address=args.get("manager_address") or "")
+    updates = {k: v for k, v in (("manager_address", args.get("manager_address")),
+                                 ("prompt_rules", args.get("prompt_rules")),
+                                 ("persona", args.get("persona"))) if v is not None}
+    binding_path = None
+    ub = getattr(base, "update_binding", None)
+    if updates and ub:
+        binding_path = str(ub(system_id, binding_cfg, updates))
+    return {"ok": True, "email": email, "plan": plan, "registrar": reg_run,
+            "renamed": renamed, "registered": reg, "binding_path": binding_path,
+            "sdk_version": _sdk_version()}
 
 
 def _op_update(args):
-    """受控字段变更（manager / prompt_rules / persona / webhook_secret）。"""
-    base = _import_base()
+    """受控变更：action = rename | set-manager | prompt | persona | webhook-secret。"""
     system_id = args.get("system_id") or ""
-    fields = {k: args.get(k) for k in ("manager_address", "prompt_rules", "persona")}
-    changed = []
-    if args.get("config_path") and hasattr(base, "update_binding"):
-        r = _call(base.update_binding, config_path=args.get("config_path"),
-                  system_id=system_id, **fields)
-        changed.append({"update_binding": r})
-    if args.get("ensure_webhook_secret") and hasattr(base, "ensure_binding_webhook_secret"):
-        changed.append({"ensure_webhook_secret":
-                        _call(base.ensure_binding_webhook_secret, binding=args.get("binding"))})
-    if not changed:
-        raise UsageError("update: 需要 config_path 或 ensure_webhook_secret")
-    return {"system_id": system_id, "changed": changed}
+    if not system_id:
+        raise UsageError("update: 需要 system_id")
+    base, syscfg, client = _load_system(system_id)
+    action = (args.get("action") or "").strip()
+    email = args.get("email") or args.get("old_email") or ""
+    cfg = _agent_binding(base, args.get("agent_id") or email, system_id)
+    if action == "rename":
+        r = base.rename_address(system_id, args.get("old_email") or email,
+                                args.get("new_name") or args.get("name") or "", cfg)
+    elif action == "set-manager":
+        manager = args.get("manager_address") or base.resolve_manager_address("")
+        r = base.set_agent_manager(system_id, email, manager, cfg, cfg) or {"ok": True}
+    elif action in ("prompt", "persona", "webhook-secret"):
+        updates = {"prompt_rules": args.get("prompt_rules")} if action == "prompt" else (
+            {"persona": args.get("persona")} if action == "persona" else
+            {"webhook_secret": args.get("webhook_secret")})
+        updates = {k: v for k, v in updates.items() if v is not None}
+        if not updates:
+            raise UsageError(f"update action={action}: 缺少要更新的字段")
+        r = {"binding_path": str(base.update_binding(system_id, cfg, updates))}
+    else:
+        raise UsageError(f"update: 未知 action={action!r}（rename|set-manager|prompt|persona|webhook-secret）")
+    return {"ok": True, "action": action, "result": r, "sdk_version": _sdk_version()}
 
 
 def _op_teardown(args):
-    """注销 / 白名单清理 / 绑定回填。"""
-    base = _import_base()
-    actions = []
+    """拆除：注销 → 白名单清理 → 绑定回填（顺序固定；缺目标 ⇒ 响亮失败）。"""
+    system_id = args.get("system_id") or ""
+    email = args.get("email") or ""
     mode = args.get("mode") or {}
-    acts = mode.get("unregister", True) or mode.get("whitelist", True) or mode.get("backfill")
-    if acts and not (args.get("gw") and args.get("system_id")):
-        raise UsageError("teardown: 有动作时必须提供 gw 与 system_id（缺目标不得静默）")
-    if mode.get("unregister", True) and hasattr(base, "deregister_agent_email"):
-        actions.append({"deregister": _call(base.deregister_agent_email, gw=args.get("gw"),
-                                            system_id=args.get("system_id"),
-                                            email=args.get("email"))})
-    if mode.get("whitelist", True) and hasattr(base, "cleanup_system_whitelists"):
-        actions.append({"whitelist": _call(base.cleanup_system_whitelists, gw=args.get("gw"),
-                                           system_id=args.get("system_id"),
-                                           email=args.get("email"))})
-    if mode.get("backfill") and hasattr(base, "backfill_binding"):
-        actions.append({"backfill": _call(base.backfill_binding, binding=args.get("binding"),
-                                          system_id=args.get("system_id"))})
-    return {"actions": actions}
-
+    wants = mode.get("unregister", True) or mode.get("whitelist") or mode.get("backfill")
+    if not wants:
+        # 显式关闭全部动作 ⇒ 幂等 no-op（不触网、不要求目标）
+        return {"ok": True, "actions": [], "sdk_version": _sdk_version()}
+    if not system_id or not email:
+        raise UsageError("teardown: 需要 system_id 与 email（有动作时缺目标 ⇒ 响亮失败）")
+    base, syscfg, client = _load_system(system_id)
+    actions = []
+    if mode.get("unregister", True):
+        actions.append({"deregister_agent_email": base.deregister_agent_email(
+            client, system_id, email, manager_address=args.get("manager_address") or "")})
+    if mode.get("whitelist"):
+        actions.append({"cleanup_system_whitelists": base.cleanup_system_whitelists(
+            client, system_id, mode.get("addresses") or [email], mode.get("domains") or [],
+            mode.get("deregistered") or [email])})
+    if mode.get("backfill"):
+        cfg = _agent_binding(base, args.get("agent_id") or email, system_id)
+        actions.append({"backfill_binding": str(base.backfill_binding(cfg, system_id))})
+    return {"ok": True, "actions": actions, "sdk_version": _sdk_version()}
 
 OPS = {
     "version": _op_version,
