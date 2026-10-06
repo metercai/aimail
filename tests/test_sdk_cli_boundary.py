@@ -316,3 +316,45 @@ def test_door_op_surface_is_ratcheted():
     assert CONVERGED_OPS <= ops, f"缺少收敛后必备 op: {sorted(CONVERGED_OPS - ops)}"
     extra = ops - CONVERGED_OPS - LEGACY_OPS_WHITELIST
     assert not extra, f"出现未登记的门 op（接口漂移）: {sorted(extra)}"
+
+
+# ── 契约 v1.0 §5 第二序（附加层，独立报告，禁替代功能验证）────────────────────────
+# 3) 系统级配置**只读**：SDK 侧不得出现任何"写系统级配置"的符号（CLI 写、SDK 只读）。
+def test_sdk_never_writes_system_level_gateway_config():
+    repo = Path(__file__).resolve().parent.parent
+    offenders = []
+    banned = ("save_gateway_config", "write_gateway_config", "set_gateway_config")
+    for f in list((repo / "pysdk").rglob("*.py")):
+        src = f.read_text(encoding="utf-8", errors="replace")
+        for b in banned:
+            if b in src:
+                offenders.append(f"{f.relative_to(repo)}: {b}")
+    assert not offenders, f"SDK 侧出现系统级配置写入符号（越界）: {offenders}"
+
+
+# 4) SDK→CLI 反调**白名单**：源码里真正"执行" aimail 的位置，其子命令必须在白名单内。
+#    只认命令行令牌（引号内 ["aimail","<sub>"] 或含 run/spawn/exec 的字符串命令），
+#    散文/文档串里的举例不计入。
+def test_reverse_call_abi_is_whitelisted():
+    repo = Path(__file__).resolve().parent.parent
+    allowed = {"install", "uninstall", "address", "version"}
+    tok_list = re.compile(r"""["']aimail["']\s*,\s*["']([a-z][a-z-]*)["']""")
+    tok_cmd = re.compile(r"""["']aimail\s+([a-z][a-z-]*)""")
+    exec_hint = ("subprocess", "run(", "Popen", "execFile", "exec(", "spawn", "system(", "check_output")
+    offenders = []
+    roots = [repo / "pysdk", repo / "tssdk"]
+    for root in roots:
+        for f in list(root.rglob("*.py")) + list(root.rglob("*.ts")):
+            if "node_modules" in str(f) or "/dist/" in str(f):
+                continue
+            for i, line in enumerate(f.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+                t = line.strip()
+                if t.startswith(("//", "#", "*", "/*")):
+                    continue
+                subs = tok_list.findall(line)
+                if any(h in line for h in exec_hint):
+                    subs += tok_cmd.findall(line)
+                for sub in subs:
+                    if sub not in allowed:
+                        offenders.append(f"{f.relative_to(repo)}:{i}: aimail {sub}")
+    assert not offenders, f"出现白名单外的 SDK→CLI 反调: {offenders[:8]}"
