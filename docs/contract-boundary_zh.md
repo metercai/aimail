@@ -111,6 +111,19 @@
    - **CLI 侧不得写** per-agent `agentmail.json`（§2），不得内联实现平台适配逻辑。
 4. **宿主环境前提**：SDK 新版本的 python/node 版本要求不得高于上一版本（`python_requires` / `engines` 显式声明）。
 
-## 6 生效与违界判定
+## 6 门的通用性（唯一真源，禁止各搞一套）★
+
+三个动作 op（`assemble`/`update`/`teardown`）是 **py/ts 通用**的接口语义，**只有一份规范**：
+
+1. **语义单一真源**：入参、返回、错误种类（`usage`/`call` 两种信封）、单行 JSON 形状，**全局唯一** ✓；
+2. **各 transport 只是绑定**：python 侧由 pysdk 实现（门 `sdk_ops`）；node/host 侧由该平台扩展实现 —— 但**必须实现同一份语义** ✓，
+   **不得各自定义行为/字段/错误文案** ✗；
+3. **规则不重复实现**：命名/计划/改名字段/绑定字段 的判定**只在一处**（当前 pysdk `aimail_base` 为规范实现）✓；
+   node 侧若需要同类判定 ⇒ **调用同一逻辑**（经门或经等价入口）✓，**禁止复刻算法** ✗；
+4. **门禁要求**：除各自的功能用例，必须加 **跨 transport 一致性用例** ✓ —— 同一输入经 py 侧与 node 侧调用，
+   断言 **返回结构/错误种类/落盘结果一致** ✓（这是"通用"的机械判据 ✓）；
+5. 任何一侧新增/修改 op 语义 ⇒ 属**契约变更** ✓，须两侧同步并过一致性用例 ✓。
+
+## 7 生效与违界判定
 - 生效：owner 签字后置为最高规则（`docs/` 或仓库根 `CONTRACT.md`），并在 `README*.md` / `AGENTS.md` 引用。
 - 违界判定（出现即缺陷）：① CLI 写 `agentmail.json`；② SDK 直连网关激活 API（未走 `install --system-only`）；③ SDK 感知/操作 bridge；④ CLI 载荷含 python/SDK，或形成 SDK↔CLI 依赖环。
