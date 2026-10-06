@@ -216,14 +216,25 @@ def _import_base():
 
 
 def _sdk_version():
+    """SDK 版本（握手用）：优先包元数据，其次模块属性。"""
     try:
-        return getattr(_import_base(), "__version__", "") or ""
+        from importlib.metadata import version as _v
+        return _v("aimailsdk")
+    except Exception:
+        pass
+    try:
+        import aimail
+        return getattr(aimail, "__version__", "") or ""
     except Exception:
         return ""
 
 
-def _load_system(system_id):
-    """系统级配置（CLI 写、SDK 只读）+ 网关客户端 —— 三 op 自足，CLI 不传 cfg/client。"""
+def _load_system(system_id, override=None):
+    """系统级配置（CLI 写、SDK 只读）+ 网关客户端。
+
+    默认自定位（读 CLI 写的系统级配置）；仅当调用方**显式**给出 gw/admin_key
+    （夹具/测试场景）时用其覆盖 —— 不新增 op、不改边界。
+    """
     base = _import_base()
     cfg = None
     loader = getattr(base, "_load_gateway_config", None)
@@ -232,6 +243,10 @@ def _load_system(system_id):
             cfg = loader(system_id) or None
         except Exception:
             cfg = None
+    ov = override or {}
+    if not cfg and ov.get("gw"):
+        cfg = {"gateway_url": ov.get("gw"), "admin_key": ov.get("admin_key") or "",
+               "system_id": system_id}
     if not cfg:
         raise UsageError(f"找不到系统级配置 system_id={system_id!r}（须先 aimail install）")
     try:
@@ -242,11 +257,24 @@ def _load_system(system_id):
     return base, cfg, client
 
 
-def _agent_binding(base, agent_id, system_id):
-    f = getattr(base, "load_agent_config", None)
-    if f and agent_id:
+def _agent_binding(base, agent_id, system_id, email=""):
+    """取 binding 元素（形状与 CLI 现用的 iter_bindings 同源）。"""
+    f = getattr(base, "iter_agentmail_configs", None)
+    if f:
         try:
-            return f(agent_id, system_id) or {}
+            for el in f(system_id) or []:
+                if not isinstance(el, dict):
+                    continue
+                if email and el.get("email") == email:
+                    return el
+                if agent_id and (el.get("agent_id") == agent_id or el.get("name") == agent_id):
+                    return el
+        except Exception:
+            pass
+    g = getattr(base, "load_agent_config", None)
+    if g and agent_id:
+        try:
+            return g(agent_id, system_id) or {}
         except Exception:
             return {}
     return {}
@@ -286,9 +314,10 @@ def _op_assemble(args):
     email = args.get("email") or ""
     if not system_id:
         raise UsageError("assemble: 需要 system_id")
-    base, syscfg, client = _load_system(system_id)
-    agent_id = args.get("agent_id") or email
-    binding_cfg = _agent_binding(base, agent_id, system_id)
+    base, syscfg, client = _load_system(system_id, args)
+    # agent_id = 地址名（atext，无点/空格/@）；email = 目标地址（可由 plan 产出）
+    agent_id = args.get("agent_id") or args.get("name") or args.get("requested_name") or ""
+    binding_cfg = _agent_binding(base, agent_id, system_id, email)
     plan = base.plan_address_name(
         args.get("requested_name") or args.get("name") or "",
         agent_id=agent_id,
@@ -308,8 +337,11 @@ def _op_assemble(args):
     if webhook_url and rw:
         webhook_url = rw({"gateway_url": syscfg.get("gateway_url"),
                           "admin_key": syscfg.get("admin_key")}, webhook_url) or webhook_url
+    target_email = email or plan.get("email") or ""
+    if not target_email:
+        raise UsageError("assemble: 既未给 email，plan 也未产出目标地址")
     reg = base.register_agent_email(
-        client, system_id, email, webhook_url=webhook_url or "",
+        client, system_id, target_email, webhook_url=webhook_url or "",
         webhook_secret=args.get("webhook_secret") or "",
         manager_address=args.get("manager_address") or "")
     updates = {k: v for k, v in (("manager_address", args.get("manager_address")),
@@ -319,7 +351,7 @@ def _op_assemble(args):
     ub = getattr(base, "update_binding", None)
     if updates and ub:
         binding_path = str(ub(system_id, binding_cfg, updates))
-    return {"ok": True, "email": email, "plan": plan, "registrar": reg_run,
+    return {"ok": True, "email": target_email, "plan": plan, "registrar": reg_run,
             "renamed": renamed, "registered": reg, "binding_path": binding_path,
             "sdk_version": _sdk_version()}
 
@@ -329,16 +361,16 @@ def _op_update(args):
     system_id = args.get("system_id") or ""
     if not system_id:
         raise UsageError("update: 需要 system_id")
-    base, syscfg, client = _load_system(system_id)
+    base, syscfg, client = _load_system(system_id, args)
     action = (args.get("action") or "").strip()
     email = args.get("email") or args.get("old_email") or ""
-    cfg = _agent_binding(base, args.get("agent_id") or email, system_id)
+    cfg = _agent_binding(base, args.get("agent_id") or "", system_id, email)
     if action == "rename":
         r = base.rename_address(system_id, args.get("old_email") or email,
                                 args.get("new_name") or args.get("name") or "", cfg)
     elif action == "set-manager":
         manager = args.get("manager_address") or base.resolve_manager_address("")
-        r = base.set_agent_manager(system_id, email, manager, cfg, cfg) or {"ok": True}
+        r = base.set_agent_manager(system_id, email, manager, syscfg, cfg) or {"ok": True}
     elif action in ("prompt", "persona", "webhook-secret"):
         updates = {"prompt_rules": args.get("prompt_rules")} if action == "prompt" else (
             {"persona": args.get("persona")} if action == "persona" else
@@ -363,7 +395,7 @@ def _op_teardown(args):
         return {"ok": True, "actions": [], "sdk_version": _sdk_version()}
     if not system_id or not email:
         raise UsageError("teardown: 需要 system_id 与 email（有动作时缺目标 ⇒ 响亮失败）")
-    base, syscfg, client = _load_system(system_id)
+    base, syscfg, client = _load_system(system_id, args)
     actions = []
     if mode.get("unregister", True):
         actions.append({"deregister_agent_email": base.deregister_agent_email(
@@ -373,7 +405,7 @@ def _op_teardown(args):
             client, system_id, mode.get("addresses") or [email], mode.get("domains") or [],
             mode.get("deregistered") or [email])})
     if mode.get("backfill"):
-        cfg = _agent_binding(base, args.get("agent_id") or email, system_id)
+        cfg = _agent_binding(base, args.get("agent_id") or "", system_id, email)
         actions.append({"backfill_binding": str(base.backfill_binding(cfg, system_id))})
     return {"ok": True, "actions": actions, "sdk_version": _sdk_version()}
 

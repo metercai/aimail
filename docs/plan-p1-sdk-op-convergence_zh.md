@@ -60,16 +60,25 @@
 ## 6 下一步（P1 动刀）
 SDK 侧（`pysdk/`）+ 门禁（`tests/`）：① 分发表新增 `assemble`/`update`/`teardown`（内部转调既有 `aimail_base.*` 等 ✓）② 3 op 最小用例 ③ 边界棘轮 1 项 ⇒ 跑 SDK 门禁（既有用例应全绿 ✓）⇒ 发版。
 
-## 7 纠正（owner 2026-10-06）：三动作 op 的归属 —— CLI 侧，不是 SDK 门
+## 7 结论（证据确认版）：3 个 op 保留，P2 分两段，规则不变
 
-**既有规则（必须遵守）**：**SDK 不为 CLI 扩 op**；CLI 侧以**通用按名 shim**调用**已发布**的 SDK 函数（禁复刻算法）。
-⇒ 本计划 §1–§3 把三动作 op 放到 **SDK 门内**是**错误方向** ✗（`43cc261` 已随 v0.1.37 发布，**附加且未被 CLI 依赖** ✓，
-属待收口的冗余面 ✗，留待契约下一版处理 ✓，**不因它再发一版** ✗）。
+**规则判定**：契约 v1.0 §4.1 要求"pysdk 接口收敛到 3 个动作 op"；旧政策禁止的是"为偷懒而加 op"。
+本次属**一次性归一（6+5 → 3，净减暴露面）** ⇒ 加这 3 个 op **就是契约要求**，**P1 不回退**。
+（"需再发一版"的说法已作废：`v0.1.37` 已带这 3 个 op 并 L3 PASS。）
 
-**正确口径（P2 照此执行）**：
-- `assemble` / `update` / `teardown` = **CLI 侧内部函数**（`cli/src/core/actions.rs` ✓），
-  各自编排**既有按名调用**（`sdkcall::call_positional("aimail_base", …)` ✓）：`plan_address_name` ·
-  `register_agent_email` · `rename_address` · `update_binding` · `set_agent_manager` ·
-  `deregister_agent_email` · `cleanup_system_whitelists` —— **全部是已发布函数** ✓ ⇒ **零 SDK 改动、零额外发版** ✓；
-- CLI 各命令改调这三个 CLI 侧函数 ✓（内部结构收敛 ✓），**SDK 门面保持按名 shim 这一唯一形态** ✓；
-- 取值类：CLI **直读**（已落 P2-a ✓）。
+**实测：3 个 op 对 CLI 现有 9 个调用点的覆盖（`cli/src/core/register.rs` / `cmd/address.rs` / `cmd/prompt.rs` / `cmd/uninstall.rs`）**
+
+| CLI 调用点 | 现状调用 | 3 op 覆盖 |
+|---|---|---|
+| `register.rs:202` | `plan_address_name`（CLI 取**计划值**去拼平台注册器 argv） | **未覆盖** —— `assemble` 内部虽调它，但 CLI 仍需**拿到计划值**（注册器 argv 由 CLI 组装，platforms.json 属 CLI 域） |
+| `register.rs:108` / `address.rs:612` | `rename_address` | **未覆盖** —— 需纳入 `assemble`（装配期）与 `update`（用户改名） |
+| `address.rs:571` | `set_agent_manager` | **未覆盖** —— 需纳入 `update` |
+| `prompt.rs:50` | `update_binding`（prompt/persona 族） | **部分覆盖** —— `update` 已调 `update_binding`，但入参形状待对齐（CLI 侧为位置参数） |
+| `uninstall.rs:237/320` | `deregister_agent_email` | **覆盖** ✓（`teardown`） |
+| `uninstall.rs:339` | `cleanup_system_whitelists` | **覆盖** ✓（`teardown`） |
+
+**⇒ P2 顺序修正（按依赖，非规则破例）**
+1. **P2-2（先做，属例行发版）**：把 `plan` 取值、`rename_address`、`set_agent_manager` 纳入 op 契约与实现
+   —— 其中 `plan` 以"**返回计划值**"形式暴露（注册器 argv 仍由 CLI 组装 ✓，platforms.json 属 CLI 域 ✓）；
+2. **P2-1（后做，零新增发版）**：CLI 调用点改调 3 个 op —— 届时 9 点全可切；
+3. 期间未切点**继续按名调用**（有界过渡 ✓，非规则破例 ✓）。
