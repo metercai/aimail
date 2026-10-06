@@ -291,3 +291,28 @@ def test_profiles_patch_unpatch_roundtrip(tmp_path):
 
     assert unpatch_profiles(target) >= 1
     assert target.read_text() == orig, "unpatch 必须逐字节还原"
+
+
+# ── 6. 门 op 集合棘轮（契约 v1.0 §4.1；第二序：边界固化，独立于功能验证）──────
+CONVERGED_OPS = {"assemble", "update", "teardown"}
+LEGACY_OPS_WHITELIST = {          # 白名单期：旧 op 保留可用，移除时须走主版本
+    "version", "iter_bindings", "ensure_webhook_secret",
+    "resolve_register_webhook_url", "register_agent_email", "backfill_binding",
+}
+
+
+def test_door_op_surface_is_ratcheted():
+    """门暴露面必须恰好 = 收敛后集合 ∪ 白名单期旧集合（多一个即红 = 接口漂移）。"""
+    import json as _json
+    import os as _os
+    import subprocess as _sp
+    import sys as _sys
+
+    sdk_ops = REPO / "pysdk" / "sdk_ops.py"
+    r = _sp.run([_sys.executable, str(sdk_ops), "version"],
+                capture_output=True, text=True, env=dict(_os.environ))
+    assert r.returncode == 0, r.stderr
+    ops = set(_json.loads(r.stdout)["result"]["ops"])
+    assert CONVERGED_OPS <= ops, f"缺少收敛后必备 op: {sorted(CONVERGED_OPS - ops)}"
+    extra = ops - CONVERGED_OPS - LEGACY_OPS_WHITELIST
+    assert not extra, f"出现未登记的门 op（接口漂移）: {sorted(extra)}"

@@ -14,8 +14,10 @@
     · 门长在 SDK 侧，因为**算法归 SDK**（webhook secret 生成、注册链、`webhook_host`
       三态派生）：语言中立的是**数据**（绑定文件格式、网关 HTTP），不是算法。
       ⇒ 调用方只能"调"，不许抄一份实现。
-    · 本模块**不做业务判断**：判定（哪里缺、要不要补、注册值该取哪个）留在调用方；
-      这里只做"数据进 → 调 SDK 薄入口 → 结果出"。
+    · 本模块**自带判定与编排**（2026-10-06 owner 契约 v1.0 §4.1）：与 TS 侧
+      `register-cli.js` 同形 —— 命名/派生/注册/改名/落绑定/受控变更/注销的判定与
+      编排都在 SDK 侧完成；调用方（CLI）只做 **transport 分派 + 参数传递 + 收单行 JSON**，
+      不再自己拼注册器 argv、不再持有 SDK 算法（此前"判定留在调用方"的立场已废止）。
 
 进程命令契约（ABI）：
 
@@ -164,6 +166,114 @@ def _op_version(_args: dict) -> dict:
     return {"version": ver, "ops": sorted(OPS)}
 
 
+# ── 自持动作 op（契约 v1.0 §4.1）─────────────────────────────────────────────
+# 与 TS 侧 register-cli.js 同形：判定与编排在 SDK 内；调用方只传参、只收单行 JSON。
+# 复用既有 aimail_base 薄入口（不新写逻辑）；按目标函数签名过滤 kwargs，缺参响亮失败。
+
+
+def _call(fn, **kw):
+    """按目标函数签名过滤 kwargs 后调用（签名不符 ⇒ 响亮失败，不静默降级）。"""
+    import inspect as _inspect
+
+    sig = _inspect.signature(fn)
+    accepts_kwargs = any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values())
+    if not accepts_kwargs:
+        allowed = {n for n, p in sig.parameters.items()
+                   if p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)}
+        unknown = sorted(set(kw) - allowed)
+        if unknown:
+            raise RuntimeError(f"{getattr(fn, '__name__', fn)}: unsupported args {unknown}")
+        kw = {k: v for k, v in kw.items() if k in allowed or v is not None}
+    missing = [n for n, p in sig.parameters.items()
+               if p.default is p.empty and p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)
+               and n not in kw]
+    if missing:
+        raise RuntimeError(f"{getattr(fn, '__name__', fn)}: missing required args {missing}")
+    return fn(**{k: v for k, v in kw.items() if v is not None})
+
+
+def _import_base():
+    """取 aimail_base（双形态：flat core 目录直接执行 / 包形态 aimail.aimail_base）。"""
+    try:
+        import aimail_base  # flat core: pysdk/（或 site-packages/aimail/）内直接可 import
+        return aimail_base
+    except Exception:  # noqa: BLE001
+        from aimail import aimail_base
+        return aimail_base
+
+
+def _op_assemble(args):
+    """装配：命名 → 注册 → 落绑定（必要时改名）——自持编排（对应 TS register-cli）。"""
+    base = _import_base()
+    gw = args.get("gw")
+    system_id = args.get("system_id") or ""
+    email = args.get("email") or ""
+    if not (gw and system_id):
+        raise UsageError("assemble: --args 需要 gw 与 system_id")
+    if not email:
+        raise UsageError("assemble: --args 需要 email（目标地址）")
+    plan = None
+    if hasattr(base, "plan_address_name"):
+        plan = _call(base.plan_address_name, email=email, system_id=system_id,
+                     name=args.get("name"), manager_address=args.get("manager_address"),
+                     domain=args.get("domain"))
+    webhook_url = args.get("local_webhook_url") or args.get("webhook_url") or ""
+    if webhook_url and hasattr(base, "resolve_register_webhook_url"):
+        webhook_url = _call(base.resolve_register_webhook_url, gw=gw,
+                            local_webhook_url=webhook_url) or webhook_url
+    reg = _call(base.register_agent_email, gw=gw, system_id=system_id, email=email,
+                webhook_url=webhook_url or None,
+                webhook_secret=args.get("webhook_secret"),
+                manager_address=args.get("manager_address"))
+    binding = None
+    if args.get("binding_path") and hasattr(base, "update_binding"):
+        binding = _call(base.update_binding, config_path=args.get("binding_path"),
+                        system_id=system_id,
+                        persona=args.get("persona"), prompt_rules=args.get("prompt_rules"),
+                        manager_address=args.get("manager_address"))
+    return {"email": email, "registered": reg, "plan": plan, "binding": binding}
+
+
+def _op_update(args):
+    """受控字段变更（manager / prompt_rules / persona / webhook_secret）。"""
+    base = _import_base()
+    system_id = args.get("system_id") or ""
+    fields = {k: args.get(k) for k in ("manager_address", "prompt_rules", "persona")}
+    changed = []
+    if args.get("config_path") and hasattr(base, "update_binding"):
+        r = _call(base.update_binding, config_path=args.get("config_path"),
+                  system_id=system_id, **fields)
+        changed.append({"update_binding": r})
+    if args.get("ensure_webhook_secret") and hasattr(base, "ensure_binding_webhook_secret"):
+        changed.append({"ensure_webhook_secret":
+                        _call(base.ensure_binding_webhook_secret, binding=args.get("binding"))})
+    if not changed:
+        raise UsageError("update: 需要 config_path 或 ensure_webhook_secret")
+    return {"system_id": system_id, "changed": changed}
+
+
+def _op_teardown(args):
+    """注销 / 白名单清理 / 绑定回填。"""
+    base = _import_base()
+    actions = []
+    mode = args.get("mode") or {}
+    acts = mode.get("unregister", True) or mode.get("whitelist", True) or mode.get("backfill")
+    if acts and not (args.get("gw") and args.get("system_id")):
+        raise UsageError("teardown: 有动作时必须提供 gw 与 system_id（缺目标不得静默）")
+    if mode.get("unregister", True) and hasattr(base, "deregister_agent_email"):
+        actions.append({"deregister": _call(base.deregister_agent_email, gw=args.get("gw"),
+                                            system_id=args.get("system_id"),
+                                            email=args.get("email"))})
+    if mode.get("whitelist", True) and hasattr(base, "cleanup_system_whitelists"):
+        actions.append({"whitelist": _call(base.cleanup_system_whitelists, gw=args.get("gw"),
+                                           system_id=args.get("system_id"),
+                                           email=args.get("email"))})
+    if mode.get("backfill") and hasattr(base, "backfill_binding"):
+        actions.append({"backfill": _call(base.backfill_binding, binding=args.get("binding"),
+                                          system_id=args.get("system_id"))})
+    return {"actions": actions}
+
+
 OPS = {
     "version": _op_version,
     "iter_bindings": _op_iter_bindings,
@@ -171,6 +281,10 @@ OPS = {
     "resolve_register_webhook_url": _op_resolve_register_webhook_url,
     "register_agent_email": _op_register_agent_email,
     "backfill_binding": _op_backfill_binding,
+    # 自持动作 op（契约 v1.0 §4.1；调用方只做 transport 分派与传参）
+    "assemble": _op_assemble,
+    "update": _op_update,
+    "teardown": _op_teardown,
 }
 
 

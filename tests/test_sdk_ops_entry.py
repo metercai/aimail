@@ -2,7 +2,10 @@
 
 钉住三件事：
 1. **进程命令契约**（ABI）：stdout 恰一行 JSON、exit 0/1/2、用法错/import 错/调用抛异常三分档；
-2. **委派正确性**：每个 op 真的把参数送到了对应的 SDK 薄入口（monkeypatch 取证），不夹带业务判断；
+2. **委派正确性**：每个 op 真的把参数送到了对应的 SDK 薄入口（monkeypatch 取证）。
+   注（契约 v1.0 §4.1, 2026-10-06）：`assemble`/`update`/`teardown` 为**自持动作 op**——
+   判定与编排在 SDK 内（向 TS `register-cli.js` 靠拢），但编排最终必须**委派到既有实现**，
+   不得复制逻辑；旧 op 保留可用（白名单期）。
 3. **stdout 不被污染**：SDK/依赖自身的打印一律进 stderr —— 否则调用方解析单行 JSON 会炸。
 
 跑法：仓库形态直接 `python3 pysdk/sdk_ops.py <op> --args …`（模块自带双形态自举），
@@ -255,3 +258,54 @@ def test_backfill_binding_returns_path_string(sdk):
     rc = mod.main(["backfill_binding", "--args", json.dumps({"binding": binding, "system_id": "s1"})])
     assert rc == 0
     assert calls["backfill_binding"][0] == (binding, "s1")
+
+
+# ── 契约 v1.0 §4.1：自持动作 op 的最小用例（SDK 域）─────────────────────────
+CONVERGED_OPS = ("assemble", "update", "teardown")
+
+
+def _door_env(tmp_path: Path) -> dict:
+    env = dict(os.environ)
+    env["HOME"] = str(tmp_path / "home")
+    env["AIMAIL_HOME"] = str(tmp_path / "aimail")
+    return env
+
+
+def test_converged_ops_registered(tmp_path):
+    """三个自持 op 必须在门内注册，且旧 op 仍保留（白名单期不破坏既有调用）。"""
+    r = subprocess.run([sys.executable, str(SDK_OPS), "version"],
+                       capture_output=True, text=True, env=_door_env(tmp_path))
+    assert r.returncode == 0, r.stderr
+    ops = set(json.loads(r.stdout)["result"]["ops"])
+    for name in CONVERGED_OPS:
+        assert name in ops, f"missing converged op: {name}"
+    for legacy in ("register_agent_email", "iter_bindings", "backfill_binding"):
+        assert legacy in ops, f"legacy op lost: {legacy}"
+
+
+def test_converged_ops_fail_loudly_on_missing_args(tmp_path):
+    """缺参必须响亮失败（exit 2 / ok:false / kind:usage），不得静默成分默认值。"""
+    for op in ("assemble", "update"):
+        r = subprocess.run([sys.executable, str(SDK_OPS), op, "--args", "{}"],
+                           capture_output=True, text=True, env=_door_env(tmp_path))
+        assert r.returncode == 2, f"{op}: rc={r.returncode} stderr={r.stderr[:200]}"
+        env = json.loads(r.stdout)
+        assert env["ok"] is False and env["kind"] == "usage", env
+
+
+def test_teardown_requires_target_when_acting(tmp_path):
+    """teardown 有动作但缺目标 ⇒ 响亮失败（rc=2/usage），不得静默当成功。"""
+    r = subprocess.run([sys.executable, str(SDK_OPS), "teardown", "--args", "{}"],
+                       capture_output=True, text=True, env=_door_env(tmp_path))
+    assert r.returncode == 2, f"rc={r.returncode} stderr={r.stderr[:200]}"
+    env = json.loads(r.stdout)
+    assert env["ok"] is False and env["kind"] == "usage", env
+
+
+def test_teardown_noop_when_all_modes_off(tmp_path):
+    """显式关闭全部动作 ⇒ 幂等返回 ok:true + actions:[]。"""
+    args = json.dumps({"mode": {"unregister": False, "whitelist": False}})
+    r = subprocess.run([sys.executable, str(SDK_OPS), "teardown", "--args", args],
+                       capture_output=True, text=True, env=_door_env(tmp_path))
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout)["result"]["actions"] == []
