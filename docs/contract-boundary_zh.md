@@ -54,14 +54,14 @@
 | op | 语义 | 不可替代的原因 |
 |---|---|---|
 | `assemble` | 命名（规则）→ 构建注册器调用 → 执行平台注册器（transport 分派）→ 必要时改名 → 写绑定 | 命名/注册规则在 SDK；CLI **无绑定写权限** ⇒ 不调即无法注册 |
-| `update` | 受控字段更新：`manager_address` · `prompt_rules` · **`persona`** | 绑定内容判定与落盘在 SDK ⇒ `address set-manager` / `prompt add|rm` / `persona` 三条命令依赖它 |
+| `update` | 受控字段更新：`manager_address` · `prompt_rules` · **`persona`** · `rename` · `webhook-secret` · `backfill` · **`repair`**（缺口判定与修复） | 绑定内容判定与落盘在 SDK ⇒ `address set-manager` / `address set-name` / `prompt add\|rm` / `persona` / `repair` 均依赖它 |
 | `teardown` | 注销（`deregister_agent_email`）· 白名单清理（`cleanup_system_whitelists`）· 绑定回填（`backfill_binding`） | 同上，缺则卸载不干净 |
-**取值类不在其列**：数据类由 CLI 依 §2 **直读**；规则类（命名/webhook 推导）由 SDK **在动作内消化**，不外露中间值。
+**取值类不在其列**：数据类由 CLI 依 §2 **直读**；规则类（命名/webhook 推导）由 SDK **在动作内消化**，不外露中间值。三 op 的 ABI 一致：入参为单个 JSON；返回**平铺 payload + 恒有 `ok`/`sdk_version`**（门在外层加信封），错误种类仅 `usage`/`call`，输出为**单行 JSON**。规则判定（含 repair 的缺口判定与修复）**归 SDK**，CLI 只触发。
 
 **(2) 因 py / ts 环境差异**定向保留**
 - 传输形态（两种 transport 承载**同一套语义**）：
   - **python 侧**：经门 `<宿主解释器> -m aimail.sdk_ops <op>`。其中
-    · `<op>` **= §4.1(1) 的恰好 3 个**：`assemble` / `update` / `teardown`（现状门内为 6 个旧 op ⇒ §4.1(3) 收敛后即为这 3 个）；
+    · `<op>` **= §4.1(1) 的恰好 3 个**：`assemble` / `update` / `teardown`（**已收敛**：门内即这 3 个，旧 6 个 op 已移除）；
     · `<宿主解释器>` **必须是 agent 宿主自己配置的环境**（如 hermes / deerflow 的 venv），**不是** CLI 自带的 python ✗ —— CLI 只负责**定位**它（`$AIMAIL_PYTHON` → `~/.aimail/bin` 之外的宿主 venv 探测 → PATH `python3`；定位方式属本契约的传输细节）。宿主自装 SDK 包时也必须装进**同一个**解释器。
   - **node 侧**：经平台注册器（`node_entry`）或宿主命令（`host_command`），同样只承载上述语义。
   两者的**语义与 JSON 形状一致**，仅传输不同。
