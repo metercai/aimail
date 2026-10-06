@@ -392,8 +392,12 @@ pub fn run_steps(
                 ctx.insert("manager".into(), Value::String(m.clone()));
                 let agent = register::default_agent_name(platform);
                 match register::register_agent(
-                    platform, &agent, &cfg, &m, &ctx_str(ctx, "home"), 
-                    core_dir, 
+                    platform,
+                    &agent,
+                    &cfg,
+                    &m,
+                    &ctx_str(ctx, "home"),
+                    core_dir,
                 ) {
                     Ok(()) => ok(&format!("{platform} agent registered + pointer written")),
                     Err(e) => {

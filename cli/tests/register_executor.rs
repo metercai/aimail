@@ -107,8 +107,6 @@ fn register_executor_offline_behaviour() {
     .expect_err("空 manager 必须硬门失败");
     assert!(err.contains("缺 manager"), "{err}");
 
-
-
     // 4) 平台包缺失（夹具 home 里没有 dsh 包）⇒ 带注册表 fail_hint 的响亮失败
     let err = aimail::core::register::register_agent(
         "dsh",

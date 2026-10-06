@@ -110,7 +110,6 @@ fn binding_bytes(root: &Path) -> Vec<u8> {
     .unwrap()
 }
 
-
 #[test]
 fn agentmail_backfill_writes_byte_identical_to_python() {
     let (port, probe) = spawn_live_probe();

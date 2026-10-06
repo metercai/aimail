@@ -1976,27 +1976,34 @@ pub fn agentmail_backfill_with(
 ) -> bool {
     // 契约 v1.0 §4.1 + owner 裁决（甲）：repair 的**判定归 SDK** —— CLI 只触发
     // update(action="repair")，由 SDK 自算缺口（filled[]）并补 manager/webhook。
-    let routes: serde_json::Map<String, serde_json::Value> =
-        crate::core::bridge_wire::read_routes(&aimail_home.join("bridge").join("aimail_routes.toml"))
-            .into_iter()
-            .map(|(k, v)| (k, serde_json::Value::String(v)))
-            .collect();
+    let routes: serde_json::Map<String, serde_json::Value> = crate::core::bridge_wire::read_routes(
+        &aimail_home.join("bridge").join("aimail_routes.toml"),
+    )
+    .into_iter()
+    .map(|(k, v)| (k, serde_json::Value::String(v)))
+    .collect();
     let args = serde_json::json!({
         "system_id": sid, "action": "repair", "home": aimail_home.to_string_lossy(),
         "routes": routes,
     });
     match crate::core::sdk::sdk_ops_call(
-        "update", &args, prog_root, std::time::Duration::from_secs(120), door_env,
+        "update",
+        &args,
+        prog_root,
+        std::time::Duration::from_secs(120),
+        door_env,
     ) {
         Ok(v) => {
             let res = v.get("result").cloned().unwrap_or(v);
-            res.get("filled").and_then(|x| x.as_array()).map(|a| a.len()).unwrap_or(0) > 0
+            res.get("filled")
+                .and_then(|x| x.as_array())
+                .map(|a| a.len())
+                .unwrap_or(0)
+                > 0
         }
         Err(_) => false,
     }
 }
-
-
 
 /// `repair.py:_ensure_bridge_running`：**先判模式**（本地网关=直连，无需桥）再探进程，
 /// 死了才幂等起（模式判定与 install 共用 `gateway::is_local_gateway` —— 2026-09-27 owner 裁决）。
