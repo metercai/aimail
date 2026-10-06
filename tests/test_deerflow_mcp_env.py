@@ -96,10 +96,11 @@ def test_env_carries_aimail_home_and_pinned_system(tmp_path):
     assert env["AIMAIL_AGENT_IDENTITY"].startswith("deerflow/"), env
     # 服务块形状（args[0] = 已装包内的 MCP 服务；owner 2026-10-06：零拷贝 ✗）
     block = json.loads(cfg.read_text())["mcpServers"]["aimail"]
-    # owner 2026-10-06 目标态：MCP 服务取自**已装包**（零拷贝 ✗ —— 不再有 <程序根>/mcp/ 的拷贝）
+    # owner 2026-10-06 目标态：MCP 服务取自**已装包**（零拷贝 ✗ —— 不再有 <程序根>/mcp/ 的拷贝）。
+    # 断言只绑**语义**（不是程序根下的拷贝、且为空时脚本会响亮失败），不绑本机是否已装包（环境无关 ✓）。
     _srv = block["args"][0]
     assert _srv.endswith("/aimail_mcp_server.py"), block
-    assert os.path.isfile(_srv), block
+    assert "/mcp/" not in _srv, block
 
 
 def test_env_without_system_id_omits_the_key(tmp_path):
