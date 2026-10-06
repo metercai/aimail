@@ -300,6 +300,36 @@ def _run_registrar(spec, values=None):
     for k, v in (spec.get("env") or {}).items():
         env[str(k)] = str(v)
     py = str(spec.get("python") or "python3")
+    if kind == "python_module":
+        # 与 CLI 现行为同语义：调用模块里的**函数**（不是 `python -m`）——
+        # 进程内直接 import 调用，参数用值袋按签名映射。
+        mod_name = str(spec.get("module") or "")
+        fn_name = str(spec.get("fn") or "")
+        if not (mod_name and fn_name):
+            raise UsageError("register_spec.kind=python_module 需要 module 与 fn")
+        import importlib
+        import sys as _sys
+        core = str(spec.get("core_dir") or "")
+        if core and core not in _sys.path:
+            _sys.path.insert(0, core)
+        try:
+            mod = importlib.import_module(mod_name)
+        except Exception as e:
+            raise RuntimeError(f"register_spec: 无法 import {mod_name}: {e}")
+        fn = getattr(mod, fn_name, None)
+        if not callable(fn):
+            raise RuntimeError(f"register_spec: {mod_name}.{fn_name} 不可调用")
+        v = values or {}
+        bag = {"name": v.get("name"), "agent": v.get("agent"), "email": v.get("email"),
+               "system_id": v.get("sid"), "sid": v.get("sid"), "manager": v.get("manager"),
+               "home": v.get("home"), "domain": v.get("domain"),
+               "manager_address": v.get("manager"), "profile_dir": v.get("home")}
+        sub = list(argv)
+        if sub:
+            res = fn(*sub)
+        else:
+            res = _call(fn, **bag)
+        return {"rc": 0, "stdout_tail": str(res)[:400], "mode": "inproc"}
     if kind == "node_entry":
         cmd = ["node", str(spec.get("node_path") or "")] + argv
     elif kind == "python_script":
