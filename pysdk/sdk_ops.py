@@ -244,6 +244,10 @@ def _load_system(system_id, override=None):
         except Exception:
             cfg = None
     ov = override or {}
+    # 显式 system_cfg（CLI 已持有该系统级配置时传入；默认仍走自定位，行为不变）
+    given = ov.get("system_cfg")
+    if not cfg and isinstance(given, dict) and given:
+        cfg = given
     if not cfg and ov.get("gw"):
         cfg = {"gateway_url": ov.get("gw"), "admin_key": ov.get("admin_key") or "",
                "system_id": system_id}
