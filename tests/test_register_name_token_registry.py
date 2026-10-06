@@ -44,7 +44,7 @@ def test_dsh_pi_custom_name_registers_directly_no_rename():
         argv = (r.get("argv") or []) + (r.get("args") or [])
         plan = plan_address_name(
             "foo",
-            agent_id=r["default_name"],
+            agent_id="agent",
             domain="x.example",
             system_name="",
             aliases=pdef.get("aliases", []),
@@ -62,13 +62,13 @@ def test_dsh_pi_default_flow_unchanged_direct():
         r = pdef["register"]
         argv = (r.get("argv") or []) + (r.get("args") or [])
         plan = plan_address_name(
-            r["default_name"],
-            agent_id=r["default_name"],
+            "agent",
+            agent_id="agent",
             domain="x.example",
             system_name="",
             aliases=pdef.get("aliases", []),
             register_argv=argv,
         )
         assert plan["needs_rename"] is False, plat
-        assert plan["reg_as"] == plan["target_name"] == r["default_name"], plan
+        assert plan["reg_as"] == plan["target_name"] == "agent", plan
         assert plan["email"] == plan["target_email"], plan
