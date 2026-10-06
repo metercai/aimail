@@ -440,12 +440,28 @@ def _op_update(args):
     elif action == "repair":
         # 修复的判定收在 SDK 内（CLI 只触发）：补 webhook secret + 回填缺失字段
         out = {}
+        filled = []
+        _need = ("webhook_url", "api_key", "manager_address")
+        for _k in _need:
+            if not str(cfg.get(_k) or "").strip():
+                if _k == "manager_address":
+                    _fn = getattr(base, "resolve_manager_address", None)
+                    if callable(_fn):
+                        try:
+                            _v = _fn(system_id, cfg.get("email") or "")
+                            if _v:
+                                cfg[_k] = _v; filled.append(_k)
+                        except Exception:
+                            pass
+                else:
+                    filled.append(_k)
         try:
             out["secret"] = base.ensure_binding_webhook_secret(cfg)
         except Exception as e:
             out["secret"] = {"error": str(e)}
         try:
-            out["backfill"] = str(base.backfill_binding(cfg, system_id))
+            _p = base.backfill_binding(cfg, system_id)
+            out["backfill"] = str(_p); out["filled"] = filled
         except Exception as e:
             out["backfill"] = {"error": str(e)}
         r = out

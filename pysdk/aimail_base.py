@@ -494,10 +494,10 @@ def update_binding(system_id: str, cfg: dict, updates: dict) -> Path:
 
 
 def backfill_binding(cfg: dict, system_id: str) -> Path:
-    """把**已经算好的整份**绑定内容落盘(`aimail repair` 的回填/对齐入口)。
+    """把**已经算好的整份**绑定内容落盘（纯写回入口）。
 
-    repair 仍是判定者(决定哪些字段要补、webhook 目标是否要对齐), 这里只负责经
-    `save_agent_config` 写回 —— 与 CLI 自持写调用的旧形态相对。
+    判定（哪些字段要补、webhook 目标是否对齐）由上层 repair 承担：SDK 门
+    `update(action="repair")` 自判自补；本函数只负责经 `save_agent_config` 写回。
     """
     return save_agent_config(cfg.get("agent_id", ""), cfg, system_id)
 
