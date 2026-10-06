@@ -389,10 +389,14 @@ def _op_assemble(args):
     target_email = email or plan.get("email") or ""
     if not target_email:
         raise UsageError("assemble: 既未给 email，plan 也未产出目标地址")
-    reg = base.register_agent_email(
-        client, system_id, target_email, webhook_url=webhook_url or "",
-        webhook_secret=args.get("webhook_secret") or "",
-        manager_address=args.get("manager_address") or "")
+    # 双注册规避：register_spec 已执行 ⇒ 默认不再调 SDK 注册（幂等但会多打一次网关）；
+    # 仅当显式 sdk_register=true 或缺注册器时调用。
+    reg = None
+    if bool(args.get("sdk_register")) or not (args.get("register_spec") or {}).get("kind"):
+        reg = base.register_agent_email(
+            client, system_id, target_email, webhook_url=webhook_url or "",
+            webhook_secret=args.get("webhook_secret") or "",
+            manager_address=args.get("manager_address") or "")
     updates = {k: v for k, v in (("manager_address", args.get("manager_address")),
                                  ("prompt_rules", args.get("prompt_rules")),
                                  ("persona", args.get("persona"))) if v is not None}
