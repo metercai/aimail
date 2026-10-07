@@ -91,7 +91,7 @@ if [ "$CFG" != "$DF_PROJECT_ROOT/extensions_config.json" ] \
 fi
 
 # ── 1. MCP 服务取自已装包（owner 2026-10-06 目标态：**零拷贝** ✗ 自包含载荷/仓库态一律取消 ✓）──
-SERVER="$(python3 -c 'import aimail, os, sys
+SERVER="$("${PY:-python3}" -c 'import aimail, os, sys
 d = os.path.dirname(aimail.__file__)
 p = os.path.join(d, "aimail_mcp_server.py")
 sys.stdout.write(p if os.path.isfile(p) else "")')"

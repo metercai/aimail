@@ -51,10 +51,13 @@ def _stub_cli(bin_dir: Path, mcp_dir: Path) -> Path:
 def _run(tmp_path: Path, *, aimail_home: str | None, system_id: str | None) -> Path:
     """真跑安装脚本, 返回 extensions_config.json 路径。"""
     payload = tmp_path / "payload"
-    mcp_dir = payload / "mcp"
-    mcp_dir.mkdir(parents=True, exist_ok=True)
-    (mcp_dir / "aimail_mcp_server.py").write_text("# stub payload\n")
-    bin_dir = _stub_cli(payload / "bin", mcp_dir)
+    # owner 2026-10-06 目标态：MCP 服务取自**已装包**（零拷贝 ✗ 不再有 <程序根>/mcp/ 拷贝）⇒
+    # 测试提供"已装包"的最小形态：一个 aimail 包目录（含 aimail_mcp_server.py）+ PYTHONPATH 指向它。
+    pkg = tmp_path / "python" / "aimail"
+    pkg.mkdir(parents=True, exist_ok=True)
+    (pkg / "__init__.py").write_text("")
+    (pkg / "aimail_mcp_server.py").write_text("# stub installed-package payload\n")
+    bin_dir = _stub_cli(payload / "bin", pkg)
 
     home_root = tmp_path / "home"            # deer-flow 检出根(装版本号用)
     (home_root / "backend").mkdir(parents=True, exist_ok=True)
@@ -69,6 +72,7 @@ def _run(tmp_path: Path, *, aimail_home: str | None, system_id: str | None) -> P
         "DEER_FLOW_HOME": str(home_root),
         "DEER_FLOW_PROJECT_ROOT": str(tmp_path / "dfproj"),
         "DEER_FLOW_EXT_CFG": str(cfg),
+        "PYTHONPATH": str(tmp_path / "python"),
     })
     env.pop("AIMAIL_HOME", None)
     env.pop("AIMAIL_SYSTEM_ID", None)
