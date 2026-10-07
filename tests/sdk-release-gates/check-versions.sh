@@ -24,6 +24,8 @@ def base_and_rc(v):
     return (m.group(1) if m else None, bool(re.search(r'rc', v, re.I)))
 
 fail = []
+VERS = {}
+DEPS = {}
 pyproj = re.search(r'^version = "([^"]+)"', open('pyproject.toml').read(), re.M).group(1)
 pyinit = re.search(r'__version__ = "([^"]+)"', open('pysdk/__init__.py').read()).group(1)
 if pyproj != pyinit:
@@ -56,10 +58,10 @@ for p in ['mail-core', 'mail', 'dsh-aimail', 'openclaw-aimail', 'pi-aimail']:
     d = json.load(open(f'tssdk/packages/{p}/package.json'))
     v = d['version']
     b, rc = base_and_rc(v)
-    if b != py_base:
-        fail.append(f'{p} base {b} != PyPI base {py_base}')
-    if rc != py_rc:
-        fail.append(f'{p} release-type rc={rc} != PyPI rc={py_rc}')
+    if not b or rc is None:
+        fail.append(f'{p} version {v} 不是合法 semver')
+    VERS[p] = v
+    DEPS[p] = set((d.get('dependencies') or {}).keys())
     print(f'[L1] {p} {v} (base={b} rc={rc})')
 
 # 审计 D8: 工作区根包必须 private(它不是发布物)。若被误改成可发布, 将来
@@ -68,6 +70,18 @@ _root = json.load(open('tssdk/package.json'))
 if not _root.get('private'):
     fail.append('tssdk/package.json must stay private (workspace root is not published)')
 print(f"[L1] workspace root {_root.get('name')} {_root.get('version')} (private={bool(_root.get('private'))})")
+
+_grp = {'mail-core'}
+_ch = True
+while _ch:
+    _ch = False
+    for _p, _ds in DEPS.items():
+        if _p not in _grp and any(d in _grp or d.endswith('/mail-core') for d in _ds):
+            _grp.add(_p); _ch = True
+_gv = {VERS[p] for p in _grp if p in VERS}
+if len(_gv) > 1:
+    print('[L1] 提示(不判红)：闭包组内版本各自独立 ' + str(sorted(_gv)) + ' —— owner 2026-10-07 决定 ✓')
+print(f'[L1] closure(mail-core) = {sorted(_grp)} versions={sorted(_gv)}')
 
 if fail:
     print('[L1] FAIL: ' + '; '.join(fail))

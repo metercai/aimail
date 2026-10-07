@@ -6,7 +6,7 @@ publish-pypi.yml 内嵌调用),覆盖三层:
 | 层 | 脚本 | 时机 | 拦什么 |
 |---|---|---|---|
 | L0 提交级 | gate-tests.sh | 每次发布前(本地+CI test job) | lint/单测/编译失败、**注册链单元回归**(tests/test_registration_chain.py)、**平台字面泄漏**(platform-boundary gate)、**契约单一真源**(consts==清单+字面量棘轮+frontmatter)、**文档↔实现一致**(符号存在/双语标题结构/契约值==真源) |
-| L1 版本一致性 | check-versions.sh | tag 前 | 双源漂移、tag≠版本、npm 依赖顺序(被依赖版本未发布) |
+| L1 版本合法性（**策略：各包独立版本**，owner 2026-10-07） | check-versions.sh | tag 前 | 版本非法、包间引用自洽；**不再要求各包版本相等**；无内容变化且已发版的包 SKIP |
 | L2 产物门禁 | check-tarball.sh | pack 后、publish 前(CI 内) | E415 hardlink、symlink、workspace: 残留、版本错、main/types 悬空、空包 |
 | **L2.5 宿主行为回归** | 手动清单(见下) | **stable tag 前**(rc 包或本地包装到真实宿主) | CI 单测覆盖不到的 SDK 行为:注册链×真实网关、绑定落盘、收信链(ping/welcome 双路 E2E) |
 | L3 发布后冒烟 | verify-published.sh | 发布完成后 | registry 版本与本地不符、registry tarball 含 link/workspace:、安装冒烟失败 |
