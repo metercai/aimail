@@ -205,13 +205,9 @@ pub fn door_command_in(_prog_root: &Path, op: &str, args: &Value) -> Vec<String>
     let mut argv = vec![py];
     // owner 2026-10-06（坚决彻底）：**不存在** `aimail-src` 快照态与"同源优先" ✗。
     // 门一律走**已装包**：`[python, "-m", "aimail.sdk_ops", <op>, <json>]` ⇒ 此处不再产生任何路径 ✓。
-    let same_tree = std::path::PathBuf::new();
-    if same_tree.is_file() {
-        argv.push(same_tree.to_string_lossy().to_string());
-    } else {
-        argv.push("-m".to_string());
-        argv.push("aimail.sdk_ops".to_string());
-    }
+    // owner 2026-10-07：门一律走**已装包**（零路径 ✓）—— 占位分支已删 ✗
+    argv.push("-m".to_string());
+    argv.push("aimail.sdk_ops".to_string());
     argv.push(op.to_string());
     argv.push("--args".to_string());
     argv.push(args.to_string());
@@ -377,17 +373,18 @@ mod tests {
     }
 
     #[test]
-    fn door_command_prefers_same_tree_then_pip_module() {
-        // 同源优先：把 program_root 指到夹具（AIMAIL_PROG_DIR）⇒ 走 <prog>/aimail-src/pysdk/sdk_ops.py
+    fn door_command_uses_installed_package_no_paths() {
+        // owner 2026-10-07：门一律走**已装包**（零路径 ✗ 无"同源"分支）—— 即便夹具里放了 aimail-src 也必须忽略 ✓
         let d = tempfile::tempdir().unwrap();
         let door = d.path().join("aimail-src").join("pysdk");
         fs::create_dir_all(&door).unwrap();
         fs::write(door.join("sdk_ops.py"), "# stub\n").unwrap();
         let argv = door_command_in(d.path(), "iter_bindings", &json!({"system_id": "s1"}));
-        assert!(argv[1].ends_with("sdk_ops.py"), "{argv:?}");
-        assert_eq!(argv[2], "iter_bindings");
-        assert_eq!(argv[3], "--args");
-        assert_eq!(argv[4], "{\"system_id\":\"s1\"}");
+        assert_eq!(argv[1], "-m", "{argv:?}");
+        assert_eq!(argv[2], "aimail.sdk_ops", "{argv:?}");
+        assert_eq!(argv[3], "iter_bindings");
+        assert_eq!(argv[4], "--args");
+        assert_eq!(argv[5], "{\"system_id\":\"s1\"}");
     }
 
     #[test]

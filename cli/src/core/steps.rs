@@ -163,7 +163,7 @@ fn sdk_install(
         json!({"__if_accepted__": {"manager": manager}})
     };
     match sdkcall::call_positional(
-        "install",
+        "aimail.install",
         fn_name,
         &[
             Value::String(system_home.to_string()),
@@ -249,7 +249,13 @@ pub fn run_steps(
                         .and_then(Value::as_str)
                         .map(|s| s.to_string())
                         .unwrap_or_else(|| format!("sdk install({fn_name}) 失败(exit {{rc}})"));
-                    return Err(tmpl(&tmpl_text, &ectx));
+                    return Err(format!(
+                        "{}\n  python={} sdk={} cmd={}",
+                        tmpl(&tmpl_text, &ectx),
+                        ectx.get("python").and_then(Value::as_str).unwrap_or(""),
+                        ectx.get("sdk").and_then(Value::as_str).unwrap_or(""),
+                        ectx.get("cmd").and_then(Value::as_str).unwrap_or("")
+                    ));
                 }
                 let msg = tmpl(ok_t, ctx);
                 if rc == 0 {
@@ -305,7 +311,17 @@ pub fn run_steps(
                             .map(|s| s.to_string())
                             .unwrap_or_else(|| format!("`{}` 不可执行", argv[0]));
                         if mode == "fail" {
-                            return Err(tmpl(&hint, ctx));
+                            println!(
+                                "  [step-fail] python={} sdk={}",
+                                ctx.get("python").and_then(Value::as_str).unwrap_or(""),
+                                ctx.get("sdk").and_then(Value::as_str).unwrap_or("")
+                            );
+                            return Err(format!(
+                                "{}\n  python={} sdk={}",
+                                tmpl(&hint, ctx),
+                                ctx.get("python").and_then(Value::as_str).unwrap_or(""),
+                                ctx.get("sdk").and_then(Value::as_str).unwrap_or("")
+                            ));
                         }
                         let wh = st
                             .get("warn_hint")
@@ -457,7 +473,7 @@ fn sdk_uninstall(kind: &str, fn_name: &str, home: &str, sid: &str, core_dir: &Pa
         return 1;
     }
     match sdkcall::call_positional(
-        "install",
+        "aimail.install",
         fn_name,
         &[
             Value::String(home.to_string()),

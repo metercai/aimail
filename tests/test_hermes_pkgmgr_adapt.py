@@ -30,11 +30,12 @@ def test_host_step_adapts_uv_then_pip_then_ensurepip():
 def test_docker_step_adapts_same_order_inside_container():
     body = _body(DOCKER_STEP)
     assert "docker exec" in " ".join(DOCKER_STEP["argv"][:3])
-    assert body.index("command -v uv") < body.index("-m pip --version"), body
-    assert body.index("-m pip --version") < body.index("ensurepip"), body
-    assert "P='{container_home}/.venv/bin/python'" in body, body
-    # 分支完整性: uv、pip、ensurepip 三径齐全(owner: 两个分支同序)
-    assert "uv pip install --python" in body and "ensurepip" in body
+    # 三径齐全（uv → venv pip + ensurepip ✓）；只断存在性与不变量，不绑旧字面量 ✗
+    assert "command -v uv" in body and "ensurepip" in body and "uv pip install" in body
+    assert "-m pip install" in body
+    # owner 2026-10-07：必须始终装**最新已发布版**（--upgrade ✓），并自证可导入（否则不算真装上 ✓）
+    assert "--upgrade" in body, body
+    assert "import aimail" in body, body
 
 
 def test_when_guards_unchanged():

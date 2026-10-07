@@ -72,7 +72,7 @@
             "cfg_complete": true
           },
           "on_error": "warn",
-          "warn_hint": "pi agent registration failed (see above) — rerun `aimail reset -s {sid}` (or `aimail address -s {sid} -a pi`) once the extension is in place"
+          "warn_hint": "pi agent registration failed (see above) — rerun `aimail reset -s {sid}` once the extension is in place (地址名由 SDK 决定，CLI 不涉及)"
         },
         {
           "kind": "warn",
@@ -174,7 +174,7 @@
             "cfg_complete": true
           },
           "on_error": "warn",
-          "warn_hint": "dsh agent registration failed (see above) — rerun `aimail reset -s {sid}` (or `aimail address -s {sid} -a agent`) once the plugin is in place"
+          "warn_hint": "dsh agent registration failed (see above) — rerun `aimail reset -s {sid}` once the plugin is in place"
         },
         {
           "kind": "print",
@@ -233,7 +233,7 @@
           "argv": [
             "sh",
             "-c",
-            "P='{home}/hermes-agent/venv/bin/python'; if command -v uv >/dev/null 2>&1; then echo 'pkgmgr=uv'; uv pip install --python \"$P\" --index-url \"${AIMAIL_PIP_INDEX:-https://pypi.org/simple/}\" aimailsdk; else echo 'pkgmgr=pip'; \"$P\" -m pip --version >/dev/null 2>&1 || \"$P\" -m ensurepip --default-pip >/dev/null 2>&1 || \"$P\" -m ensurepip >/dev/null 2>&1 || true; \"$P\" -m pip install -q --index-url \"${AIMAIL_PIP_INDEX:-https://pypi.org/simple/}\" aimailsdk; fi"
+            "P='{home}/hermes-agent/venv/bin/python'; if command -v uv >/dev/null 2>&1; then echo 'pkgmgr=uv'; uv pip install --python \"$P\" --index-url \"${AIMAIL_PIP_INDEX:-https://pypi.org/simple/}\" aimailsdk; else echo 'pkgmgr=pip'; \"$P\" -m pip --version >/dev/null 2>&1 || \"$P\" -m ensurepip --default-pip >/dev/null 2>&1 || \"$P\" -m ensurepip >/dev/null 2>&1 || true; \"$P\" -m pip install -q --upgrade --index-url \"${AIMAIL_PIP_INDEX:-https://pypi.org/simple/}\" aimailsdk; fi"
           ],
           "when": {
             "path_exists": "{home}/hermes-agent/venv/bin/python",
@@ -251,7 +251,7 @@
             "{container}",
             "sh",
             "-c",
-            "P='{container_home}/.venv/bin/python'; ok=0; if command -v uv >/dev/null 2>&1; then [ -x \\\"$P\\\" ] || uv venv \\\"$P\\\" >/dev/null 2>&1 || true; fi; if command -v uv >/dev/null 2>&1 && [ -x \\\"$P\\\" ]; then echo pkgmgr=uv; uv pip install --python \\\"$P\\\" --index-url \"${AIMAIL_PIP_INDEX:-https://pypi.org/simple/}\" aimailsdk && ok=1; fi; if [ \\\"$ok\\\" = 0 ]; then echo pkgmgr=pip; \\\"$P\\\" -m pip --version >/dev/null 2>&1 || \\\"$P\\\" -m ensurepip --default-pip >/dev/null 2>&1 || \\\"$P\\\" -m ensurepip >/dev/null 2>&1 || true; \\\"$P\\\" -m pip install -q --index-url \"${AIMAIL_PIP_INDEX:-https://pypi.org/simple/}\" aimailsdk && ok=1; fi; [ \\\"$ok\\\" = 1 ] || { echo '✗ aimailsdk 安装失败(uv 与 venv pip 两径均失败)'; exit 1; }"
+            "cd /; unset UV_EXCLUDE_NEWER UV_INDEX_URL UV_INDEX PIP_INDEX_URL PIP_EXTRA_INDEX_URL 2>/dev/null; P=/opt/hermes/.venv/bin/python; [ -x \"$P\" ] || P=\"{container_home}/.venv/bin/python\"; ok=0\nif command -v uv >/dev/null 2>&1; then\n  [ -x \"$P\" ] || uv venv \"$P\" >/dev/null 2>&1 || true\n  for i in 1 2 3; do uv pip install --no-cache --upgrade --python \"$P\" --index-url \"${AIMAIL_PIP_INDEX:-https://pypi.org/simple/}\" aimailsdk && { ok=1; break; }; sleep 8; done\nfi\nif [ \"$ok\" = 0 ]; then\n  echo pkgmgr=pip\n  \"$P\" -m pip --version >/dev/null 2>&1 || \"$P\" -m ensurepip --default-pip >/dev/null 2>&1 || \"$P\" -m ensurepip >/dev/null 2>&1 || true\n  for j in 1 2 3; do \"$P\" -m pip install -q --upgrade --index-url \"${AIMAIL_PIP_INDEX:-https://pypi.org/simple/}\" aimailsdk && { ok=1; break; }; sleep 8; done\nfi\n\"$P\" -c \"import aimail\" >/dev/null 2>&1 || ok=0\n[ \"$ok\" = 1 ] || { echo '✗ aimailsdk 安装失败(uv 与 venv pip 两径均失败)'; exit 1; }\necho \"aimailsdk=$(\"$P\" -c 'import importlib.metadata as m;print(m.version(\"aimailsdk\"))' 2>/dev/null)\"\n"
           ],
           "when": {
             "runtime": "docker"
@@ -428,7 +428,7 @@
         },
         {
           "kind": "print",
-          "text": "  register: openclaw aimail register --system-id {sid} (or `aimail address -s {sid} -a main`)",
+          "text": "  register: openclaw aimail register --system-id {sid}",
           "when": {
             "sid_set": true
           }
@@ -535,7 +535,7 @@
           "argv": [
             "sh",
             "-c",
-            "P=\"${AIMAIL_PYTHON:-python3}\"; command -v \"$P\" >/dev/null 2>&1 || P=python3; if command -v uv >/dev/null 2>&1; then uv pip install --python \"$P\" -q aimailsdk && exit 0; fi; \"$P\" -m pip install -q --break-system-packages aimailsdk 2>/dev/null || \"$P\" -m pip install -q aimailsdk"
+            "P=\"{python}\"; command -v \"$P\" >/dev/null 2>&1 || P=python3; if command -v uv >/dev/null 2>&1; then uv pip install --python \"$P\" -q aimailsdk && exit 0; fi; \"$P\" -m pip install -q --break-system-packages aimailsdk 2>/dev/null || \"$P\" -m pip install -q aimailsdk"
           ],
           "when": {
             "command_exists": "python3"
@@ -560,7 +560,7 @@
             "AIMAIL_SYSTEM_ID": "{sid}"
           },
           "on_error": "fail",
-          "warn_hint": "deer-flow install-skill.sh exit {rc}(关键装配步: skills 落点; 失败必须可见, 不许当成功)"
+          "fail_hint": "deer-flow install-skill.sh exit {rc}(关键装配步: skills 落点; 失败必须可见, 不许当成功)"
         },
         {
           "kind": "spawn",

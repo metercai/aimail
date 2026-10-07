@@ -230,8 +230,14 @@ pub fn register_agent(
             "home": cand_homes.first().cloned().unwrap_or_default(),
             "register_spec": spec,
         }),
-        // SDK 根用 CLI 解析结果（= 旧 core_dir 语义：repo→pip），与其余调用点同源
-        &crate::core::sdkroot::resolve_or_placeholder().path,
+        // owner 2026-10-07：**按 kind 惰性解析** —— node_entry/host_command 平台**不得**解析 pysdk ✗（pi/dsh/openclaw 无 pysdk ✓）
+        matches!(
+            spec.get("kind").and_then(|v| v.as_str()),
+            Some("python_module") | Some("python_script")
+        )
+        .then(|| crate::core::sdkroot::resolve_or_placeholder().path)
+        .as_deref()
+        .unwrap_or_else(|| std::path::Path::new("")),
         REGISTRAR_TIMEOUT,
         &[],
     )

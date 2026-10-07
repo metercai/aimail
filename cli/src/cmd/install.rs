@@ -596,7 +596,9 @@ fn ensure_domain(gw_url: &str, admin_key: &str, sid: &str, want_domain: &str) {
 }
 
 fn install_human(a: &Args) -> i32 {
-    let core_dir = crate::core::sdkroot::resolve_or_placeholder().path;
+    let core_dir = crate::core::sdkroot::resolve()
+        .map(|r| r.path)
+        .unwrap_or_default();
     let mut sys_name = if a.system_name.is_empty() {
         String::new()
     } else {
@@ -872,10 +874,21 @@ fn install_human(a: &Args) -> i32 {
         serde_json::json!(system_home.to_string_lossy().to_string()),
     );
     ctx.insert("sid".into(), serde_json::json!(sid2));
+    let _py = crate::core::sdkroot::probe_in_domain(&a.container, &system_home.to_string_lossy());
+    let _pkgmgr = crate::core::sdkroot::probe_pkgmgr(&a.container, &_py);
+    ctx.insert("pkgmgr".into(), serde_json::json!(_pkgmgr));
+    let core_dir = crate::core::sdkroot::resolve_with(&_py)
+        .map(|r| r.path)
+        .unwrap_or_default();
+    ctx.insert("python".into(), serde_json::json!(_py));
     ctx.insert("manager".into(), serde_json::json!(manager));
     ctx.insert(
         "scripts".into(),
-        serde_json::json!(core_dir.to_string_lossy().to_string()),
+        serde_json::json!(crate::core::sdkroot::resolve()
+            .map(|r| r.path)
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string()),
     );
     // `{sdk}` 必须走 SDK 根的**单真源**（repo→pip 两形态）。设备形态（安装物只有二进制）下
     // 仓库 pysdk/ 不存在 ⇒ 必须回退到已安装的 aimail 包目录，否则 install_steps 里的
@@ -897,8 +910,20 @@ fn install_human(a: &Args) -> i32 {
             .unwrap_or("")
             .to_string()
     };
-    ctx.insert("runtime".into(), serde_json::json!(g("runtime")));
-    ctx.insert("container".into(), serde_json::json!(g("container")));
+    let _c = if a.container.is_empty() {
+        g("container")
+    } else {
+        a.container.clone()
+    };
+    ctx.insert(
+        "runtime".into(),
+        serde_json::json!(if _c.is_empty() {
+            g("runtime")
+        } else {
+            "docker".to_string()
+        }),
+    );
+    ctx.insert("container".into(), serde_json::json!(_c));
     ctx.insert(
         "container_home".into(),
         serde_json::json!(if g("container_home").is_empty() {
