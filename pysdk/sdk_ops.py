@@ -396,7 +396,7 @@ def _op_assemble(args):
     target_email_pre = email or plan.get("email") or ""
     reg_run = _run_registrar(args.get("register_spec") or {}, {
         "name": (plan.get("reg_as") if _non_main else "agent"),
-        "profile_dir": args.get("profile_dir") or "",
+        "profile_dir": args.get("profile_dir") or args.get("home") or "",
         "config": {
             "gateway_url": args.get("gateway_url") or syscfg.get("gateway_url") or "",
             "admin_key": args.get("admin_key") or syscfg.get("admin_key") or "",
