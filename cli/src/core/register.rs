@@ -164,10 +164,12 @@ pub fn register_agent(
                 } else {
                     let pd = home_path.join("profiles").join(agent);
                     if !pd.is_dir() {
-                        return Err(format!(
-                            "hermes profile 目录不存在: {}",
+                        // owner 2026-10-07：仅有主 agent（无其它 agent）时 profile 目录**可以不存在** ✓
+                        // ⇒ 不阻断注册（宿主 agent 启动时会自行创建）✓；仅提示 ✓
+                        eprintln!(
+                            "⚠ hermes profile 目录暂不存在（agent 启动时自建，不阻断注册）: {}",
                             pd.to_string_lossy()
-                        ));
+                        );
                     }
                     pd.to_string_lossy().to_string()
                 };

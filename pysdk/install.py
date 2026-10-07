@@ -36,6 +36,12 @@ from pathlib import Path
 _CORE = os.path.dirname(os.path.abspath(__file__))
 if _CORE not in sys.path:
     sys.path.insert(0, _CORE)
+# owner 2026-10-07：适配器子目录（hermes/ deer-flow/ dsh/）**无 __init__.py** ✗ ⇒ 既非包内模块 ✓、
+# 也非顶层名 ✗ ⇒ 必须把各子目录本身挂进 sys.path（沿用扁平模块约定 ✓），否则 `import aimail_hermes` 必失败 ✓。
+for _sub in ("hermes", "deer-flow", "dsh"):
+    _p = os.path.join(_CORE, _sub)
+    if os.path.isdir(_p) and _p not in sys.path:
+        sys.path.insert(0, _p)
 
 from _resources_release import agentmail_home, release_all_systems  # noqa: E402
 

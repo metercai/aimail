@@ -251,7 +251,7 @@
             "{container}",
             "sh",
             "-c",
-            "P='{container_home}/.venv/bin/python'; if command -v uv >/dev/null 2>&1; then echo 'pkgmgr=uv'; uv pip install --python \"$P\" --index-url \"${AIMAIL_PIP_INDEX:-https://pypi.org/simple/}\" aimailsdk; else echo 'pkgmgr=pip'; \"$P\" -m pip --version >/dev/null 2>&1 || \"$P\" -m ensurepip --default-pip >/dev/null 2>&1 || \"$P\" -m ensurepip >/dev/null 2>&1 || true; \"$P\" -m pip install -q --index-url \"${AIMAIL_PIP_INDEX:-https://pypi.org/simple/}\" aimailsdk; fi"
+            "P='{container_home}/.venv/bin/python'; ok=0; if command -v uv >/dev/null 2>&1; then [ -x \\\"$P\\\" ] || uv venv \\\"$P\\\" >/dev/null 2>&1 || true; fi; if command -v uv >/dev/null 2>&1 && [ -x \\\"$P\\\" ]; then echo pkgmgr=uv; uv pip install --python \\\"$P\\\" --index-url \"${AIMAIL_PIP_INDEX:-https://pypi.org/simple/}\" aimailsdk && ok=1; fi; if [ \\\"$ok\\\" = 0 ]; then echo pkgmgr=pip; \\\"$P\\\" -m pip --version >/dev/null 2>&1 || \\\"$P\\\" -m ensurepip --default-pip >/dev/null 2>&1 || \\\"$P\\\" -m ensurepip >/dev/null 2>&1 || true; \\\"$P\\\" -m pip install -q --index-url \"${AIMAIL_PIP_INDEX:-https://pypi.org/simple/}\" aimailsdk && ok=1; fi; [ \\\"$ok\\\" = 1 ] || { echo '✗ aimailsdk 安装失败(uv 与 venv pip 两径均失败)'; exit 1; }"
           ],
           "when": {
             "runtime": "docker"

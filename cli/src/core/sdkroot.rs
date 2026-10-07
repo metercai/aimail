@@ -83,10 +83,12 @@ pub fn entry_path(root: &Path, rel: &str) -> PathBuf {
 pub fn resolve_or_placeholder() -> SdkRoot {
     match resolve() {
         Ok(r) => r,
-        Err(_) => SdkRoot {
-            path: PathBuf::from("<pip: aimail>"),
-            kind: "pip",
-        },
+        Err(e) => {
+            // owner 2026-10-06：**不存在**仓库态/自包含载荷 ⇒ 解析不到 = "SDK 未安装" ⇒ 必须**响亮失败** ✗
+            eprintln!("✗ SDK 未安装或不可用：{e}");
+            eprintln!("  请先安装最新已发布版：pip install --index-url https://pypi.org/simple/ aimailsdk");
+            std::process::exit(2);
+        }
     }
 }
 

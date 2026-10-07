@@ -67,6 +67,11 @@ from pathlib import Path
 _CORE = os.path.dirname(os.path.abspath(__file__))
 if _CORE not in sys.path:
     sys.path.insert(0, _CORE)
+# owner 2026-10-07：适配器子目录无 __init__.py ⇒ 必须挂进 sys.path ✓（与 pysdk/install.py 同约定 ✓）
+for _sub in ("hermes", "deer-flow", "dsh"):
+    _p = os.path.join(_CORE, _sub)
+    if os.path.isdir(_p) and _p not in sys.path:
+        sys.path.insert(0, _p)
 
 EXIT_OK = 0
 EXIT_ERROR = 1
