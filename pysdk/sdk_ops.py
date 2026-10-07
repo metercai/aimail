@@ -333,10 +333,17 @@ def _run_registrar(spec, values=None):
         if not callable(fn):
             raise RuntimeError(f"register_spec: {mod_name}.{fn_name} 不可调用")
         v = values or {}
-        bag = {"name": v.get("name"), "agent": v.get("agent"), "email": v.get("email"),
-               "system_id": v.get("sid"), "sid": v.get("sid"), "manager": v.get("manager"),
-               "home": v.get("home"), "domain": v.get("domain"),
-               "manager_address": v.get("manager"), "profile_dir": v.get("home")}
+        import inspect as _ins
+        _params = set(_ins.signature(fn).parameters)
+        if "config" in _params and "profile_dir" in _params:
+            # owner 2026-10-07：适配器新形参 (name, profile_dir, config) ⇒ 只给这三个 ✓（不再塞别名 ✗）
+            bag = {"name": v.get("name"), "profile_dir": v.get("profile_dir") or v.get("home"),
+                   "config": v.get("config") or {}}
+        else:
+            bag = {"name": v.get("name"), "agent": v.get("agent"), "email": v.get("email"),
+                   "system_id": v.get("sid"), "sid": v.get("sid"), "manager": v.get("manager"),
+                   "home": v.get("home"), "domain": v.get("domain"),
+                   "manager_address": v.get("manager"), "profile_dir": v.get("home")}
         sub = list(argv)
         if sub:
             res = fn(*sub)
