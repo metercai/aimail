@@ -388,11 +388,14 @@ def _op_assemble(args):
     )
     target_email_pre = email or plan.get("email") or ""
     reg_run = _run_registrar(args.get("register_spec") or {}, {
-        "name": (plan.get("reg_as") if _non_main else "agent"), "agent": _aid, "email": target_email_pre,
-        "sid": system_id, "system_id": system_id,
-        "manager": args.get("manager_address") or syscfg.get("manager_address") or "",
-        "home": args.get("home") or syscfg.get("system_home") or "",
-        "domain": args.get("domain") or syscfg.get("domain") or "",
+        "name": (plan.get("reg_as") if _non_main else "agent"),
+        "profile_dir": args.get("profile_dir") or "",
+        "config": {
+            "gateway_url": args.get("gateway_url") or syscfg.get("gateway_url") or "",
+            "admin_key": args.get("admin_key") or syscfg.get("admin_key") or "",
+            "domain": args.get("domain") or syscfg.get("domain") or "",
+            "system_id": system_id,
+        },
     })
     renamed = None
     _old = (plan.get("old_email") or "").strip()
