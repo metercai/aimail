@@ -96,7 +96,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: l3-${{ matrix.platform }}-${{ matrix.agent }}-logs
-          path: |
-            ${{ runner.temp }}/l3-logs/
-            ~/.aimail/logs/
+          path: ${{ runner.os == 'Windows' && format('{0}\l3-logs', env.HOME) || format('{0}/l3-logs', env.HOME) }}
           if-no-files-found: ignore

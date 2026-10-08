@@ -8,7 +8,8 @@
 #   ③ 取已发布 CLI(bootstrap.sh 在线 = 用户真实入口)
 #   ④ aimail install --home(admin-key 激活流, 系统级激活 + 平台适配)
 #   ⑤ welcome 闭环: welcome → agent 回三标签 → manager(安全员)approve persona
-#   ⑥ 查询邮件签名断言: SDK send_mail 一封查询 → 出站记录带 persona 前缀 + 签名
+#   ⑥ 身份断言: SDK 同形 send_mail 一封查询 → whoami 读回身份名片(agent_persona)
+#      + 邮件签名(agent_signature) 已生效(whoami.rs:44-52, welcome approve UPSERT 的读回点)
 #
 # 激活流: 只走 **admin-key**(基础版网关); 不测激活码(高级版)。
 # 被测物: 全部来自发布渠道(GitHub Release / PyPI / npm), 绝不来自工作树。
@@ -36,8 +37,10 @@ WORK="$(mktemp -d /tmp/l3-XXXXXX)"
 GW_HOME="$WORK/gw"
 mkdir -p "$GW_HOME/data"
 LOG="$WORK/l3.log"
-mkdir -p "${TMPDIR:-/tmp}/l3-logs" 2>/dev/null || true
-cp "$LOG" "${TMPDIR:-/tmp}/l3-logs/" 2>/dev/null || true
+# 日志归档: 失败时 workflow 上传 $HOME/l3-logs(全 OS 确定路径); EXIT trap 兜底落最终日志
+LOG_ARCHIVE="$HOME/l3-logs"
+mkdir -p "$LOG_ARCHIVE" 2>/dev/null || true
+trap 'cp -f "$LOG" "$LOG_ARCHIVE/" 2>/dev/null; [ -f "$WORK/welcome.log" ] && cp -f "$WORK/welcome.log" "$LOG_ARCHIVE/"; [ -f "$GW_HOME/boot.log" ] && cp -f "$GW_HOME/boot.log" "$LOG_ARCHIVE/"' EXIT
 
 say() { printf '  %s\n' "$*"; }
 ok()  { printf '  \033[32m✓\033[0m %s\n' "$*"; }

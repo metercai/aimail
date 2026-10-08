@@ -22,7 +22,7 @@
 # Version source of truth: pyproject.toml [project].version. The SDK also
 # carries aimail.__version__ (pysdk/__init__.py) — a mismatch fails the
 # build so a release never ships two different versions.
-name: publish-pypi.yml
+name: publish-pypi
 
 on:
   workflow_dispatch:

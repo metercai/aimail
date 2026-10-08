@@ -22,7 +22,7 @@
 # packages with bundled deps (openclaw-aimail, pi-aimail) publish via
 # scripts/publish-npm.sh (npm pack with symlink dereference + explicit
 # workspace:^ rewrite), which supports CI provenance.
-name: publish.yml
+name: publish
 
 on:
   workflow_dispatch:
