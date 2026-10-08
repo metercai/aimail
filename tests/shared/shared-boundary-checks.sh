@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 共享边界门禁（CLI 与 SDK **共用**的一套）：判据主体是"边界/契约"本身，两侧都必须满足。
 # 2026-10-04 owner 裁决：CLI 与 SDK 的门禁拆开、各归各位；这四个**边界**检查器不是 SDK 专有，
-# 单列在此，由 tests/cli-gates/run-cli-gates.sh 与 tests/sdk-release-gates/gate-tests.sh 各自调用。
+# 单列在此，由 tests/cli/run-cli-gates.sh 与 tests/sdk/l0-gate-tests.sh 各自调用。
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 2
 fail=0

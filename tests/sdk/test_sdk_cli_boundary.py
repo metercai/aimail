@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-REPO = Path(__file__).resolve().parent.parent
+REPO = Path(__file__).resolve().parent.parent.parent
 CLI = REPO / "cli"
 PYSDK = REPO / "pysdk"
 
@@ -321,7 +321,7 @@ def test_door_op_surface_is_ratcheted():
 # ── 契约 v1.0 §5 第二序（附加层，独立报告，禁替代功能验证）────────────────────────
 # 3) 系统级配置**只读**：SDK 侧不得出现任何"写系统级配置"的符号（CLI 写、SDK 只读）。
 def test_sdk_never_writes_system_level_gateway_config():
-    repo = Path(__file__).resolve().parent.parent
+    repo = Path(__file__).resolve().parent.parent.parent
     offenders = []
     banned = ("save_gateway_config", "write_gateway_config", "set_gateway_config")
     for f in list((repo / "pysdk").rglob("*.py")):
@@ -336,7 +336,7 @@ def test_sdk_never_writes_system_level_gateway_config():
 #    只认命令行令牌（引号内 ["aimail","<sub>"] 或含 run/spawn/exec 的字符串命令），
 #    散文/文档串里的举例不计入。
 def test_reverse_call_abi_is_whitelisted():
-    repo = Path(__file__).resolve().parent.parent
+    repo = Path(__file__).resolve().parent.parent.parent
     allowed = {"install", "uninstall", "address", "version"}
     tok_list = re.compile(r"""["']aimail["']\s*,\s*["']([a-z][a-z-]*)["']""")
     tok_cmd = re.compile(r"""["']aimail\s+([a-z][a-z-]*)""")

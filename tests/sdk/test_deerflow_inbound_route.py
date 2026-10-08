@@ -25,7 +25,7 @@ import sys
 
 import aimail_contract as contract
 
-_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _MODULE = os.path.join(_REPO, "pysdk", "deer-flow", "aimail_inbound.py")
 
 # 契约路径去掉最后一个 `/` 之后的"拼接伪影"(= FastAPI 的 prefix+叶子 拼接结果):

@@ -76,7 +76,7 @@ jobs:
           # (pyproject extra `hermes`; landed 2026-09-30, i.e. after v0.1.30, so the
           # first tag since then hit a clean-environment collection error).
           python3 -m pip install --quiet pytest==9.1.1 pyflakes==3.4.0 PyYAML==6.0.2
-          python3 -m pytest tests/ -q | tail -40   # tail 宽度只影响可见性; rc 由 pipefail 保真(P0 审计不变)
+          python3 -m pytest tests/sdk/ -q | tail -40   # tail 宽度只影响可见性; rc 由 pipefail 保真(P0 审计不变)
           # pyflakes 仅查核心模块;hermes 辅助脚本(patch_*/register_profiles/
           # toolsets)有意 `import aimail`(side-effect sys.path 注入),只做语法检查。
           python3 -m pyflakes pysdk/aimail_base.py pysdk/aimail_board.py pysdk/aimail_tools.py \
@@ -97,8 +97,8 @@ jobs:
           name: aimail-wheel
           path: dist/aimailsdk-*.whl
 
-      - name: Release gate — tests/sdk-release-gates/verify-wheel.sh (clean-venv 3-layout smoke)
-        run: bash tests/sdk-release-gates/verify-wheel.sh
+      - name: Release gate — tests/sdk/release/l2-verify-wheel.sh (clean-venv 3-layout smoke)
+        run: bash tests/sdk/release/l2-verify-wheel.sh
 
   publish:
     needs: build-and-verify

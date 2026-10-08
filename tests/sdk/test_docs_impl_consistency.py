@@ -15,7 +15,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "tests" / "contract" / "check-docs-consistency.py"
 MANIFEST = ROOT / "contract" / "aimail-contract.json"
 DOC_EN = ROOT / "docs" / "agent-self-setup.md"

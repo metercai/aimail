@@ -14,7 +14,7 @@ import hashlib
 import subprocess
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[1]
+REPO = Path(__file__).resolve().parents[2]
 CANON = REPO / "resources"
 TARGETS = {
     "pysdk": REPO / "pysdk" / "resources",

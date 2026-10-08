@@ -2,7 +2,7 @@
 # 发布前校验（owner 2026-10-07 · R4）：核心包(mail-core|mail)任一有内容变动 ⇒ 五个 tssdk 包**必须都已升版**
 # 用法: release-precheck.sh   → 通过 rc=0；违反 rc=1（逐包列出"未升版"的包）
 set -u
-cd "$(dirname "$0")/../.." || exit 1
+cd "$(dirname "$0")/../../.." || exit 1
 ver() { python3 -c "import json,sys;print(json.load(open('tssdk/packages/'+sys.argv[1]+'/package.json'))['version'])" "$1"; }
 prev() { t=$(git tag -l "ts-$1-v*" | sort -V | tail -1); [ -n "$t" ] && echo "${t##*v}" || echo ""; }
 core_changed=0; bad=""

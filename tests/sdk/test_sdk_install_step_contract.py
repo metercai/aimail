@@ -11,7 +11,7 @@
 import json
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[1]
+REPO = Path(__file__).resolve().parents[2]
 REG = json.loads((REPO / "cli" / "platforms.json").read_text(encoding="utf-8"))["platforms"]
 
 NODE_KINDS = {"node_entry", "host_command"}

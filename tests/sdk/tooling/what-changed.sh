@@ -2,7 +2,7 @@
 # 各 SDK 包"自上次各自 tag 以来是否有内容变化"判定（owner 2026-10-07 方针）
 # 输出逐包 changed/unchanged；核心包（mail-core|mail）任一变动 ⇒ 五包齐升（R2'）
 set -u
-cd "$(dirname "$0")/../.." || exit 1
+cd "$(dirname "$0")/../../.." || exit 1
 core_changed=0
 for p in mail-core mail dsh-aimail openclaw-aimail pi-aimail; do
   t=$(git tag -l "ts-$p-v*" | sort -V | tail -1)

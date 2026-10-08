@@ -7,7 +7,7 @@
 import json
 from pathlib import Path
 
-REG = json.loads(Path(__file__).resolve().parent.parent.joinpath("cli/platforms.json").read_text())
+REG = json.loads(Path(__file__).resolve().parent.parent.parent.joinpath("cli/platforms.json").read_text())
 HERMES_STEPS = REG["platforms"]["hermes"]["install_steps"]
 HOST_STEP = next(s for s in HERMES_STEPS if s["kind"] == "spawn" and s["argv"][0] == "sh")
 DOCKER_STEP = next(s for s in HERMES_STEPS if s["kind"] == "spawn" and s["argv"][0] == "docker")

@@ -18,7 +18,7 @@ import json
 import pathlib
 import sys
 
-_REPO = pathlib.Path(__file__).resolve().parents[1]
+_REPO = pathlib.Path(__file__).resolve().parents[2]
 _REG = json.loads((_REPO / "cli" / "platforms.json").read_text(encoding="utf-8"))
 sys.path.insert(0, str(_REPO / "pysdk"))
 

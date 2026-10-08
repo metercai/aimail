@@ -9,7 +9,7 @@
 3. **stdout 不被污染**：SDK/依赖自身的打印一律进 stderr —— 否则调用方解析单行 JSON 会炸。
 
 跑法：仓库形态直接 `python3 pysdk/sdk_ops.py <op> --args …`（模块自带双形态自举），
-以及 pip 形态 `python -m aimail.sdk_ops`（由 tests/sdk-release-gates/verify-wheel.sh 覆盖）。
+以及 pip 形态 `python -m aimail.sdk_ops`（由 tests/sdk/release/l2-verify-wheel.sh 覆盖）。
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ import pytest
 
 from aimail_contract import BINDING_FILE, INBOUND_PATH  # noqa: E402 — 契约单源: 禁字面量(撞棘轮)
 
-REPO = Path(__file__).resolve().parent.parent
+REPO = Path(__file__).resolve().parent.parent.parent
 SDK_OPS = REPO / "pysdk" / "sdk_ops.py"
 
 # manager 相关 env：清掉才能验 P1 硬门（不吃环境兜底）

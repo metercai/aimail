@@ -6,11 +6,11 @@
 #    registry tarball and re-run check-tarball.sh (registry truth, not the
 #    locally packed artifact).
 set -euo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$ROOT"
-. "$(dirname "${BASH_SOURCE[0]}")/_npmview.sh"
-GATE="tests/sdk-release-gates"
-[ -f "$GATE/check-tarball.sh" ] || { echo "[L3] FAIL: gate script missing: $GATE/check-tarball.sh"; exit 1; }
+. "$(dirname "${BASH_SOURCE[0]}")/../_npmview.sh"
+GATE="tests/sdk/release"
+[ -f "$GATE/l2-check-tarball.sh" ] || { echo "[L3] FAIL: gate script missing: $GATE/l2-check-tarball.sh"; exit 1; }
 
 PYVER=$(python3 -c "import re;print(re.search(r'^version = \"([^\"]+)\"', open('pyproject.toml').read(), re.M).group(1))")
 echo "═══ [L3] PyPI aimailsdk==$PYVER ═══"
@@ -60,7 +60,7 @@ for p in mail-core mail dsh-aimail openclaw-aimail pi-aimail; do
   fi
   [ -n "$URL" ] || { echo "[L3] FAIL: no tarball URL for $name@$ver"; exit 1; }
   curl -sL "$URL" -o /tmp/l3-$$.tgz
-  "$GATE/check-tarball.sh" "/tmp/l3-$$.tgz" "$ver" || { rm -f /tmp/l3-$$.tgz; exit 1; }
+  "$GATE/l2-check-tarball.sh" "/tmp/l3-$$.tgz" "$ver" || { rm -f /tmp/l3-$$.tgz; exit 1; }
   rm -f /tmp/l3-$$.tgz
 done
 echo "═══ [L3] PASS — all published artifacts verified from registry ═══"

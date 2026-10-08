@@ -19,8 +19,8 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "pysdk"))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "pysdk", "hermes"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "pysdk"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "pysdk", "hermes"))
 
 import aimail_tools  # noqa: E402
 

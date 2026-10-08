@@ -1,16 +1,9 @@
 {
  "_comment": "字面量棘轮基线(按 文件×清单键 计数)。规则 = 不得新增:计数只许减不许增;新增位置必须改用常量模块, 或在该行加 `contract-allowed: <理由>` 注释(测试专用逃生门)。重生成: python3 tests/contract/check-contract-single-source.py --update-baseline",
- "generated_at": "2026-09-27T09:32:16Z",
- "tracked_files": 224,
- "hits": 657,
+ "generated_at": "2026-10-08T07:02:32Z",
+ "tracked_files": 314,
+ "hits": 340,
  "files": {
-  "aimail": {
-   "binding_file": 37,
-   "hermes_inbound_path": 3,
-   "hermes_route_name": 3,
-   "inbound_path": 2,
-   "pointer_file": 15
-  },
   "bridge/aimail_routes.toml.example": {
    "hermes_inbound_path": 1,
    "hermes_route_name": 1
@@ -21,44 +14,11 @@
   "cli/README_zh.md": {
    "binding_file": 6
   },
-  "cli/aimail": {
-   "binding_file": 37,
-   "hermes_inbound_path": 3,
-   "hermes_route_name": 3,
-   "inbound_path": 2,
-   "pointer_file": 15
-  },
-  "cli/check_status.py": {
-   "agent_skill_name": 15,
-   "binding_file": 18,
-   "hermes_inbound_path": 1,
-   "hermes_route_name": 2,
-   "inbound_path": 7,
-   "pointer_file": 21
-  },
-  "cli/ping_test.py": {
-   "binding_file": 4,
-   "pointer_file": 2
-  },
   "cli/platforms.json": {
    "agent_skill_name": 11,
    "pointer_file": 8
   },
-  "cli/repair.py": {
-   "binding_file": 17,
-   "pointer_file": 3
-  },
-  "cli/runtime_bundle.py": {
-   "agent_skill_name": 4
-  },
-  "cli/runtime_core.py": {
-   "pointer_file": 9
-  },
-  "cli/send_welcome.py": {
-   "binding_file": 6,
-   "pointer_file": 2
-  },
-  "docs/AGENT-INTEGRATION.md": {
+  "docs/agent-integration.md": {
    "agent_skill_name": 1,
    "binding_file": 11,
    "hermes_inbound_path": 1,
@@ -66,7 +26,7 @@
    "inbound_path": 10,
    "pointer_file": 8
   },
-  "docs/AGENT-INTEGRATION_zh.md": {
+  "docs/agent-integration_zh.md": {
    "agent_skill_name": 1,
    "binding_file": 11,
    "hermes_inbound_path": 1,
@@ -74,18 +34,11 @@
    "inbound_path": 9,
    "pointer_file": 8
   },
-  "docs/agent-self-setup.md": {
-   "binding_file": 1,
-   "pointer_file": 2
-  },
-  "docs/agent-self-setup_zh.md": {
-   "pointer_file": 1
-  },
   "pysdk/aimail_base.py": {
    "agent_skill_name": 1,
-   "binding_file": 20,
-   "hermes_inbound_path": 4,
-   "hermes_route_name": 4,
+   "binding_file": 19,
+   "hermes_inbound_path": 1,
+   "hermes_route_name": 1,
    "pointer_file": 12
   },
   "pysdk/aimail_board.py": {
@@ -97,7 +50,7 @@
   "pysdk/aimail_tools.py": {
    "agent_skill_name": 1,
    "binding_file": 5,
-   "pointer_file": 4
+   "pointer_file": 2
   },
   "pysdk/deer-flow/aimail_deerflow.py": {
    "binding_file": 3,
@@ -117,8 +70,7 @@
   "pysdk/hermes/aimail_hermes.py": {
    "agent_skill_name": 3,
    "binding_file": 6,
-   "hermes_route_name": 2,
-   "pointer_file": 7
+   "hermes_route_name": 2
   },
   "pysdk/hermes/ensure_config.py": {
    "agent_skill_name": 6,
@@ -146,68 +98,22 @@
   "resources/skills/SKILL.md": {
    "agent_skill_name": 6
   },
-  "tests/sdk-release-gates/README.md": {
-   "binding_file": 1
-  },
-  "tests/test_bridge_route_side.py": {
-   "binding_file": 2,
-   "inbound_path": 4
-  },
-  "tests/test_bridge_route_target.py": {
-   "binding_file": 3,
-   "hermes_inbound_path": 2,
-   "hermes_route_name": 2,
-   "inbound_path": 5
-  },
-  "tests/test_check_contract.py": {
+  "tests/sdk/test_bridge_route_side.py": {
+   "binding_file": 1,
    "inbound_path": 1
   },
-  "tests/test_dsh_check_transient_session.py": {
-   "binding_file": 1
-  },
-  "tests/test_gateway_config_degrade.py": {
+  "tests/sdk/test_gateway_config_degrade.py": {
    "pointer_file": 3
   },
-  "tests/test_install_plugin_ensure.py": {
-   "binding_file": 2,
-   "inbound_path": 5
-  },
-  "tests/test_install_resolve.py": {
+  "tests/sdk/test_private_writes_and_release.py": {
    "pointer_file": 2
   },
-  "tests/test_layout_three_layer.py": {
-   "binding_file": 3
-  },
-  "tests/test_platform_home.py": {
-   "pointer_file": 1
-  },
-  "tests/test_private_writes_and_release.py": {
-   "pointer_file": 2
-  },
-  "tests/test_prompt_rules.py": {
+  "tests/sdk/test_prompt_rules.py": {
    "binding_file": 1,
    "pointer_file": 1
   },
-  "tests/test_register_address_alias.py": {
-   "binding_file": 1,
-   "inbound_path": 1
-  },
-  "tests/test_register_webhook_url.py": {
-   "hermes_inbound_path": 3,
-   "hermes_route_name": 3,
-   "inbound_path": 1
-  },
-  "tests/test_repair_runtime_target.py": {
-   "agent_skill_name": 1
-  },
-  "tests/test_role_prompts.py": {
+  "tests/sdk/test_role_prompts.py": {
    "pointer_file": 2
-  },
-  "tests/test_runtime_resolve.py": {
-   "pointer_file": 4
-  },
-  "tests/test_send_welcome_draft_parse.py": {
-   "binding_file": 1
   },
   "tssdk/.gitignore": {
    "pointer_file": 1
@@ -238,13 +144,10 @@
   },
   "tssdk/packages/mail-core/src/address-code.ts": {
    "binding_file": 2,
-   "pointer_file": 3
+   "pointer_file": 2
   },
   "tssdk/packages/mail-core/src/auto-bind.ts": {
    "binding_file": 8
-  },
-  "tssdk/packages/mail-core/src/bridge-route.ts": {
-   "binding_file": 2
   },
   "tssdk/packages/mail-core/src/config.ts": {
    "binding_file": 10
@@ -253,8 +156,7 @@
    "pointer_file": 2
   },
   "tssdk/packages/mail-core/src/tools.ts": {
-   "binding_file": 1,
-   "pointer_file": 1
+   "binding_file": 1
   },
   "tssdk/packages/mail-core/src/types.ts": {
    "binding_file": 2
@@ -262,14 +164,6 @@
   "tssdk/packages/mail-core/test/address-code.test.ts": {
    "binding_file": 2,
    "pointer_file": 1
-  },
-  "tssdk/packages/mail-core/test/auto-bind.test.ts": {
-   "binding_file": 3,
-   "inbound_path": 3
-  },
-  "tssdk/packages/mail-core/test/bridge-route.test.ts": {
-   "binding_file": 1,
-   "inbound_path": 8
   },
   "tssdk/packages/mail-core/test/contacts.test.ts": {
    "binding_file": 1

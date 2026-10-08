@@ -11,7 +11,7 @@ warn_hint,含它已有的 on_error 与提示字段)补给 dsh,不自创结构。
 import json
 import pathlib
 
-_REG = json.loads((pathlib.Path(__file__).resolve().parent.parent
+_REG = json.loads((pathlib.Path(__file__).resolve().parent.parent.parent
                    / "cli" / "platforms.json").read_text())
 
 

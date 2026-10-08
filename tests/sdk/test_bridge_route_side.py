@@ -13,7 +13,7 @@ best-effort, never blocking, never fatal, payload = the address only. Everything
 bridge-shaped (route POSTs, bridge admin ports, host:port probing) is gone from
 `pysdk/` and `tssdk/`: that removal is pinned by the zero-bridge-symbol ratchet at
 the bottom of this file (and, for the release path, by the `[contract]` step of
-tests/sdk-release-gates/gate-tests.sh).
+tests/sdk/l0-gate-tests.sh).
 
 Assertions:
   1. the binary is resolved AIMAIL_BIN -> ~/.aimail/bin/aimail -> PATH, else '';
@@ -33,7 +33,7 @@ import sys
 
 import pytest
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 for _d in (ROOT / "pysdk",):
     if str(_d) not in sys.path:
         sys.path.insert(0, str(_d))

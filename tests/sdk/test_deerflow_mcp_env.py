@@ -24,7 +24,7 @@ import stat
 import subprocess
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[1]
+REPO = Path(__file__).resolve().parents[2]
 SCRIPT = REPO / "pysdk" / "deer-flow" / "install-mcp.sh"
 
 

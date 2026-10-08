@@ -68,12 +68,15 @@ GATE_DIR = "tests/contract/"          # 门禁自身目录(含基线)整体白�
 # check-docs-consistency.py 等价兜底 ⇒ 文档内契约值与真源漂移不受本门禁约束,
 # 已在 GAP 里登记(见 DOCS_WHITELIST_GAPS)。
 DOCS_WHITELIST = ("docs/agent-self-setup.md", "docs/agent-self-setup_zh.md",
-                  "cli/cli-sdk-bridge-boundaries.md",
                   # 2026-10-06 追加（owner 签字契约 v1.0）：CLI↔SDK 边界规范文档，
-                  # 必须逐字引用契约值（同 cli-sdk-bridge-boundaries.md 修法 A）。
-                  "docs/contract-boundary_zh.md")
+                  # 必须逐字引用契约值（同原 cli/cli-sdk-bridge-boundaries.md 修法 A）。
+                  # 2026-10-08 由 docs/contract-boundary_zh.md 迁入 cli/contract-boundary.md；
+                  # 旧 cli/cli-sdk-bridge-boundaries.md（2026-10-03 边界稿）已被 v1.0 契约取代删除。
+                  "cli/contract-boundary.md")
 #: 白名单里"无等价 verbatim 兜底"的文档 —— 必须显式登记, 不许静默降级。
-DOCS_WHITELIST_GAPS = ("cli/cli-sdk-bridge-boundaries.md",)
+#: 原 cli/cli-sdk-bridge-boundaries.md(边界稿, 无兜底)已随 v1.0 契约删除; 其继任
+#: cli/contract-boundary.md 与 agent-self-setup 同列, 不在此 GAP 登记(维持原口径)。
+DOCS_WHITELIST_GAPS = ()
 WHITELIST_FILES = (MANIFEST_REL, TS_CONTRACT, PY_CONTRACT, BASELINE_REL) + DOCS_WHITELIST
 ALLOW_MARKER = "contract-allowed:"    # 行内逃生门(必须带理由)
 

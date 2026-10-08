@@ -29,7 +29,7 @@ import sys
 
 import pytest
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 for _d in (ROOT / "pysdk",):
     if str(_d) not in sys.path:
         sys.path.insert(0, str(_d))

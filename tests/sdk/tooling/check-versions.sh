@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Release gate L1 — version consistency, checked BEFORE tagging/publishing.
+# Release workflow tool — version consistency, checked BEFORE tagging/publishing.
+# (2026-10-08 分层归位：它校验版本元数据、不跑代码，属发布工具而非集成层，
+#  由 tooling/bump.sh 与 advanced run-e2e.sh 在 tag 前调用。)
 #
 # Version semantics (v0.1.7+, single product version line):
 #   base X.Y.Z is shared by: git tag (vX.Y.Z / vX.Y.Z-rc.N), PyPI
@@ -10,9 +12,9 @@
 #   (openclaw plugins install openclaw-aimail) work — host installers
 #   reject prerelease versions from bare-name resolution.
 set -euo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$ROOT"
-. "$(dirname "${BASH_SOURCE[0]}")/_npmview.sh"   # 区分"未发布"(E404)与"查询失败"
+. "$(dirname "${BASH_SOURCE[0]}")/../_npmview.sh"   # 区分"未发布"(E404)与"查询失败"
 
 TAG_ARG="${1:-}"
 python3 - "$TAG_ARG" <<'PYEOF'

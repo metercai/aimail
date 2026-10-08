@@ -28,7 +28,7 @@ from pathlib import Path
 import yaml
 import pytest
 
-_REPO = Path(__file__).resolve().parent.parent
+_REPO = Path(__file__).resolve().parent.parent.parent
 _PATHS = [str(_REPO / _d) for _d in ("cli", "pysdk", os.path.join("pysdk", "hermes"))]
 
 

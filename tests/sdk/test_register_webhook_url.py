@@ -30,12 +30,12 @@ import os
 import pathlib
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "pysdk"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "pysdk"))
 
 import aimail_base as core  # noqa: E402
 from aimail_contract import HERMES_INBOUND_PATH, INBOUND_PATH  # noqa: E402
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 LOCAL = "http://127.0.0.1:18789" + INBOUND_PATH
 #: what the bridge's own response reported while it was still in push mode (retired)
 BRIDGE_URL = "http://127.0.0.1:38081" + HERMES_INBOUND_PATH

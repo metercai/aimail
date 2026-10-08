@@ -597,7 +597,7 @@ def test_replay_target_prefers_the_live_route_secret_when_the_host_verifies_out_
 def test_hermes_adapter_wires_the_route_secret_precedence():
     """Source-level proof of the wire (importing the adapter would leak its
     profile-dir resolver into the whole pytest process — see section 6)."""
-    src = (Path(__file__).resolve().parents[1] / "pysdk" / "hermes"
+    src = (Path(__file__).resolve().parents[2] / "pysdk" / "hermes"
            / "aimail_hermes.py").read_text(encoding="utf-8")
     block = src.split("def _pull_replay_target(", 1)[1].split("\ndef ", 1)[0]
     assert "prefer_route_secret=True" in block, block
@@ -620,7 +620,7 @@ def test_hermes_adapter_seam_is_inert_without_bindings(tmp_path):
     Same reason the rest of the suite keeps the adapter out of the pytest
     process. The subprocess gets a scratch HOME + AIMAIL_HOME.
     """
-    repo = Path(__file__).resolve().parents[1]
+    repo = Path(__file__).resolve().parents[2]
     env = {k: v for k, v in os.environ.items() if not k.startswith("AIMAIL_PULL")}
     env["HOME"] = str(tmp_path)
     env["AIMAIL_HOME"] = str(tmp_path / "aimail-home")

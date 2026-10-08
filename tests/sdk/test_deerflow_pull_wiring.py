@@ -29,7 +29,7 @@ import sys
 
 import pytest
 
-_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _MODULE_DIR = os.path.join(_REPO, "pysdk", "deer-flow")
 _MODULE = os.path.join(_MODULE_DIR, "aimail_inbound.py")
 _LOG = "aimail_inbound"  # aimail_inbound.py 里 logger = getLogger(__name__)

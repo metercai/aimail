@@ -3,7 +3,7 @@
 # 用法: bump.sh <mail-core|mail|dsh-aimail|openclaw-aimail|pi-aimail> <ver>
 #       bump.sh pysdk <ver>     ← 只改 pyproject.toml + pysdk/__init__.py
 set -u
-cd "$(dirname "$0")/../.." || exit 1
+cd "$(dirname "$0")/../../.." || exit 1
 p=${1:-}; v=${2:-}
 [ -n "$p" ] && [ -n "$v" ] || { echo "usage: bump.sh <pkg|pysdk> <ver>"; exit 2; }
 if [ "$p" = pysdk ]; then
@@ -23,4 +23,4 @@ import json,pathlib
 q=pathlib.Path('$f'); d=json.loads(q.read_text(encoding='utf-8'))
 d['version']='$v'; q.write_text(json.dumps(d,indent=2,ensure_ascii=False)+chr(10), encoding='utf-8')
 print('$p ->', '$v')"
-bash tests/sdk-release-gates/check-versions.sh | tail -2
+bash tests/sdk/tooling/check-versions.sh | tail -2

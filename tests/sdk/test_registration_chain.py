@@ -13,7 +13,7 @@ manager='' ⇒ 下列调用点按新契约补 manager(满足前置);断言一字
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "pysdk"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "pysdk"))
 
 import aimail_base  # noqa: E402
 

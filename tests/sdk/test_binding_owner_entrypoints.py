@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-REPO = Path(__file__).resolve().parent.parent
+REPO = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO / "pysdk"))
 
 import aimail_base as ab  # noqa: E402

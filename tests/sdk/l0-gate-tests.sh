@@ -73,7 +73,7 @@ if [ "$_doc_rc" -ne 0 ]; then
 fi
 echo "[L0] docs↔impl: symbols defined; en/zh heading structure equal; contract values == manifest"
 # 平台边界 gate:CLI 代码不得出现平台字面分支(新增平台/多 agent 注册只改
-# platform-boundary（CLI 不含平台字面量）已迁至 CLI 域门禁：tests/cli-gates/run-cli-gates.sh
+# platform-boundary（CLI 不含平台字面量）已迁至 CLI 域门禁：tests/cli/run-cli-gates.sh
 # Core runtime modules: strict (no unused/undefined). Deploy-time patch
 # scripts (hermes/patch_* etc.) intentionally import `aimail` for
 # side-effect/eval use — syntax-check only those.
@@ -83,7 +83,7 @@ python3 -m pyflakes pysdk/aimail_base.py pysdk/aimail_board.py pysdk/aimail_tool
 for f in $(find pysdk -name '*.py' -not -path '*__pycache__*'); do
   python3 -m py_compile "$f" || { echo "[L0] FAIL: py_compile $f"; exit 1; }
 done
-python3 -m pytest tests/ -q 2>&1 | tail -2
+python3 -m pytest tests/sdk/ -q 2>&1 | tail -2
 
 echo "═══ [L0] tssdk: build (pnpm build) + orphan guard + vitest ═══"
 cd tssdk

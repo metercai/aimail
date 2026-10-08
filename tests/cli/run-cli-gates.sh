@@ -3,38 +3,25 @@
 #
 # 本脚本只含**主体是 CLI** 的检查：
 #   1) 共享边界块（契约单一真源棘轮 / zero-bridge / 文件归属 / docs↔impl）—— 边界两侧共用，故按共享件调用
-#   2) platform-boundary：CLI 代码不含平台字面量（注册表才是平台单一来源）—— 原误放在 SDK 门禁里，已迁回本域
-#   3) rust 电池：fmt --check · clippy -D warnings · test --all-targets（CLI 二进制自身的四层判据）
+#   2) rust 电池：fmt --check · clippy -D warnings · test --all-targets（CLI 二进制自身）
 [ -n "${L2_JOURNEY:-}" ] && export CLI_JOURNEY=1
-#   4) CLI 上线 L2 门禁：aimail-advanced/tests/cli/run-cli-gate.sh（黑盒：rust 二进制为被测物）
+#   3) CLI 宿主 L1/L2 门禁：aimail-advanced/tests/cli/（黑盒：rust 二进制为被测物）
 #
-# 不进本脚本的（属 SDK 域，见 tests/sdk-release-gates/gate-tests.sh）：
-#   materialize-resources · pysdk pyflakes/py_compile · wheel/版本/发版文档 · tssdk build/vitest。
-# 产品面 pytest（tests/）目前仍是**共享**步骤（72 个用例文件 CLI/SDK 混排，按文件分流需一次审计，
-# 已在两边都跑；分流后各归各位）——不猜、不静默漏。
+# 平台字面量判据不在本脚本：Rust 侧由 cli/src/core/platforms.rs 注册表不变量单测
+# + adapters 单测守住（随第 2 步 cargo test 跑），2026-10-08 删除对已退役 Python 文件的死 grep。
+#
+# 不进本脚本的（属 SDK 域，见 tests/sdk/l0-gate-tests.sh）：
+#   materialize-resources · pysdk pyflakes/py_compile · 产品面 pytest(tests/sdk/) · tssdk build/vitest。
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO" || exit 2
 fail=0
 
 echo "═══ [CLI] 1) 共享边界块 ═══"
-bash tests/gates/shared-boundary-checks.sh || fail=1
+bash tests/shared/shared-boundary-checks.sh || fail=1
 
 echo
-echo "═══ [CLI] 2) platform-boundary: CLI 代码零平台字面量（注册表驱动）═══"
-_LIT=$(grep -nE '(platform|agent_type|kind|tgt) == "(hermes|openclaw|deerflow|dsh|pi)"' \
-  cli/aimail cli/check_status.py cli/repair.py 2>/dev/null || true)
-# rust 侧的等价判据在 cli/tests（注册表不变量测试）与 cli/src/core/platforms.rs 内，随第 3 步跑。
-if [ -n "$_LIT" ]; then
-  echo "[CLI] FAIL: platform literals leaked into CLI code (registry is the single platform source):"
-  echo "$_LIT"
-  fail=1
-else
-  echo "[CLI] platform-boundary: CLI clean of platform literals (registry-driven)"
-fi
-
-echo
-echo "═══ [CLI] 3) rust 电池（顺序不可换：cli 测试比对的是已构建产物）═══"
+echo "═══ [CLI] 2) rust 电池（顺序不可换：cli 测试比对的是已构建产物）═══"
 if [ -d cli ]; then
   # rust 测试串行跑（--test-threads=1）：cli 单测里有 29 处 std::env::set_var（进程级全局）⇒
   # 并行时互相踩（实测 bridge_pids / drain_stuck 交替红）。TODO: 改为 per-test 环境隔离后去掉本开关。
@@ -47,7 +34,7 @@ else
 fi
 
 echo
-echo "═══ [CLI] 4) CLI 上线 L2 门禁（黑盒，被测物 = rust 二进制）═══"
+echo "═══ [CLI] 3) CLI 宿主 L1/L2 门禁（黑盒，被测物 = rust 二进制）═══"
 if [ -x "$HOME/aimail-advanced/tests/cli/run-cli-gate.sh" ]; then
   (cd "$HOME/aimail-advanced" && bash tests/cli/run-cli-gate.sh) || fail=1
 else

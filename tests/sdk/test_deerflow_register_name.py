@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-_REPO = Path(__file__).resolve().parent.parent
+_REPO = Path(__file__).resolve().parent.parent.parent
 _PYSDK = _REPO / "pysdk"
 for p in (str(_PYSDK), str(_PYSDK / "deer-flow")):
     if p not in sys.path:
