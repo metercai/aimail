@@ -92,6 +92,10 @@ case "$AGENT" in
       -o "$WORK/hermes-install.sh" || die "hermes install.sh download failed"
     HERMES_HOME="$HERMES_HOME" bash "$WORK/hermes-install.sh" </dev/null \
       || die "hermes official install failed (see $WORK)"
+    # profiles 脚手架: 官方 install.sh 只建 hermes-agent + cron/sessions/...(stage_config),
+    # 不建 profiles(hermes 运行期才建); CLI detect markers 是 all-of [hermes-agent, profiles]
+    # ⇒ 干净 runner 上 ④ 必挂"无法确定平台"。建空目录兜底(测试侧环境准备, 非产品改动)。
+    mkdir -p "$HERMES_HOME/profiles"
     HERMES_BIN="$HERMES_HOME/hermes-agent/.hermes/bin/hermes"
     [ -x "$HERMES_BIN" ] || gap "hermes binary not found after official install: $HERMES_BIN"
     # LLM 配置在 install.sh **之后**(stage_config 会覆写 config.yaml; 写早了被冲掉)。
@@ -108,6 +112,12 @@ case "$AGENT" in
   dsh)
     command -v npm >/dev/null 2>&1 || gap "npm missing — cannot install dsh on $PLATFORM"
     npm install -g @deepseek-ai/dsh --no-audit --no-fund || die "dsh npm install failed"
+    # pnpm 预热: dsh 插件管理器(dsh plugin add)转发 pnpm 装插件落 profile。
+    # pnpm 属 dsh 自身基础环境, 必须预置(journey Dockerfile.dsh / r43 教训: 冷容器
+    # 首调用联网拉 pnpm, 坏网时探针挂死)。CI runner 无 pnpm ⇒ ④ plugin add 必挂。
+    command -v pnpm >/dev/null 2>&1 || npm install -g pnpm --no-audit --no-fund >/dev/null 2>&1
+    command -v pnpm >/dev/null 2>&1 || die "pnpm unavailable — dsh plugin install needs pnpm on PATH"
+    say "pnpm $(pnpm --version 2>/dev/null | head -1)"
     DSH_HOME="${HOME}/.dsh"
     AGENT_HOME="$DSH_HOME"
     # profile warmup(实测: dsh 首启 --profile 才创建 profiles/web/{cordis.yml,cordis.patch.yml}):
