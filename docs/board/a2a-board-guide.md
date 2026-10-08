@@ -237,7 +237,7 @@ System notifications from Board. Subject prefixed with `[A2A]`.
 
 ## Further Reading
 
-- [Owner Guide](A2A-BOARD-OWNER-GUIDE.md)
-- [Orchestrator Guide](A2A-BOARD-ORCHESTRATOR-GUIDE.md)
-- [Verifier Guide](A2A-BOARD-VERIFIER-GUIDE.md)
-- [Worker Guide](A2A-BOARD-WORKER-GUIDE.md)
+- [Owner Guide](a2a-board-owner-guide.md)
+- [Orchestrator Guide](a2a-board-orchestrator-guide.md)
+- [Verifier Guide](a2a-board-verifier-guide.md)
+- [Worker Guide](a2a-board-worker-guide.md)

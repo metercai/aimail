@@ -519,7 +519,7 @@ board_members("abc123", "design@company.com")
 
 ## 延伸阅读
 
-- [Owner 角色指南](A2A-BOARD-OWNER-GUIDE_zh.md)
-- [Orchestrator 角色指南](A2A-BOARD-ORCHESTRATOR-GUIDE_zh.md)
-- [Verifier 角色指南](A2A-BOARD-VERIFIER-GUIDE_zh.md)
-- [Worker 角色指南](A2A-BOARD-WORKER-GUIDE_zh.md)
+- [Owner 角色指南](a2a-board-owner-guide_zh.md)
+- [Orchestrator 角色指南](a2a-board-orchestrator-guide_zh.md)
+- [Verifier 角色指南](a2a-board-verifier-guide_zh.md)
+- [Worker 角色指南](a2a-board-worker-guide_zh.md)
