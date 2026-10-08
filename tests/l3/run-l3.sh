@@ -17,8 +17,7 @@
 # 环境(由 workflow 注入):
 #   L3_PLATFORM  linux-amd64|linux-arm64|macos-arm64|windows-amd64
 #   L3_AGENT     hermes | dsh
-#   AIMAIL_REPO  aimail 仓 checkout
-#   ADV_REPO     advanced 仓 checkout(llm-config.py / agent 助手)
+#   AIMAIL_REPO  aimail 仓 checkout(llm-config.py 已自包含在 tests/l3/)
 #   DEEPSEEK_BASE_URL / DEEPSEEK_MODEL / DEEPSEEK_API_KEY
 #
 # 退出码: 0=绿(闭环完成) · 1=红(某阶段断言失败, 原因已打印) · 2=环境缺前置
@@ -28,7 +27,8 @@ set -uo pipefail
 PLATFORM="${L3_PLATFORM:?L3_PLATFORM not set}"
 AGENT="${L3_AGENT:?L3_AGENT not set}"
 AIMAIL_REPO="${AIMAIL_REPO:?AIMAIL_REPO not set}"
-ADV_REPO="${ADV_REPO:?ADV_REPO not set}"
+LLMCFG="$AIMAIL_REPO/tests/l3/llm-config.py"
+[ -f "$LLMCFG" ] || die "llm-config.py missing at $LLMCFG (self-contained in the aimail repo)"
 LLM_BASE_URL="${DEEPSEEK_BASE_URL:-https://api.deepseek.com}"
 LLM_MODEL="${DEEPSEEK_MODEL:-deepseek-flash}"
 [ -n "${DEEPSEEK_API_KEY:-}" ] || { echo "✗ DEEPSEEK_API_KEY secret not set"; exit 2; }
@@ -68,41 +68,61 @@ echo "════ L3: $PLATFORM / $AGENT  (LLM=$LLM_MODEL @ $LLM_BASE_URL)"
 echo "── [1/6] agent env: $AGENT"
 case "$AGENT" in
   hermes)
-    # hermes 是 python 宿主; 官方安装。CI 里用 pip 装官方包(见 advanced host 镜像口径)。
-    command -v pip3 >/dev/null 2>&1 || pip3 --version >/dev/null 2>&1 \
-      || gap "pip3 missing — cannot install hermes on $PLATFORM"
-    pip3 install -q --upgrade hermes-agent || die "hermes-agent pip install failed"
-    HERMES_BIN="$(command -v hermes || echo /root/.hermes/bin/hermes)"
-    [ -x "$HERMES_BIN" ] || gap "hermes binary not found after install: $HERMES_BIN"
+    # 官方 install.sh(源码 clone 到 $HERMES_HOME/hermes-agent + venv)——**不是 pip**:
+    # CLI 适配器的 health_checks 查源码文件 {home}/hermes-agent/gateway/platforms/webhook.py
+    # (PREPROCESS_REGISTRY, install 打的 patch) 与 hermes_cli/profiles.py (AimailGateway 钩子),
+    # pip wheel 布局没有这些文件 ⇒ install 必挂。无 TTY 时 install.sh 自动跳过 setup/gateway。
     HERMES_HOME="${HOME}/.hermes"
     AGENT_HOME="$HERMES_HOME"
-    # 配 LLM(单源写入器, 与 journey J4b 同一份代码)
-    python3 "$ADV_REPO/tests/cli/lib/llm-config.py" write \
-      --platform hermes --home "$HERMES_HOME" \
+    curl -fsSL --retry 2 --connect-timeout 20 --max-time 60 https://hermes-agent.nousresearch.com/install.sh \
+      -o "$WORK/hermes-install.sh" || die "hermes install.sh download failed"
+    HERMES_HOME="$HERMES_HOME" bash "$WORK/hermes-install.sh" </dev/null \
+      || die "hermes official install failed (see $WORK)"
+    HERMES_BIN="$HERMES_HOME/hermes-agent/.hermes/bin/hermes"
+    [ -x "$HERMES_BIN" ] || gap "hermes binary not found after official install: $HERMES_BIN"
+    # LLM 配置在 install.sh **之后**(stage_config 会覆写 config.yaml; 写早了被冲掉)。
+    # 双写(journey J4b 权威形态): --home 落 scratch(verify 读它, 不被宿主进程读到),
+    # --extra-home 落真 $HERMES_HOME(宿主进程读它)。
+    python3 "$LLMCFG" write \
+      --platform hermes --home "$WORK/llm-scratch" --extra-home "$HERMES_HOME" \
       --base-url "$LLM_BASE_URL" --model "$LLM_MODEL" --api-key "$DEEPSEEK_API_KEY" \
       || die "hermes LLM config write failed"
-    ok "hermes installed + LLM configured"
+    VERIFY_HOME="$WORK/llm-scratch"
+    VERIFY_EXTRA=(--extra-home "$HERMES_HOME")
+    ok "hermes installed (official, source+venv) + LLM configured"
     ;;
   dsh)
     command -v npm >/dev/null 2>&1 || gap "npm missing — cannot install dsh on $PLATFORM"
     npm install -g @deepseek-ai/dsh --no-audit --no-fund || die "dsh npm install failed"
     DSH_HOME="${HOME}/.dsh"
     AGENT_HOME="$DSH_HOME"
-    mkdir -p "$DSH_HOME/profiles/web"
-    # 配 LLM(dsh writer)
-    python3 "$ADV_REPO/tests/cli/lib/llm-config.py" write \
+    # profile warmup(实测: dsh 首启 --profile 才创建 profiles/web/{cordis.yml,cordis.patch.yml}):
+    # ① write_dsh 要求 profile 已存在(no dsh profile — cannot judge)
+    # ② install 的 dsh 步 `dsh plugin --profile web add dsh-aimail` 要往 profile 里装插件
+    # ③ detect 的 markers 是 all-of(profiles+storages)——显式 --home 时走 normalize 直命中,
+    #    storages 由 dsh 运行期自建, 这里先建空目录兜底(测试侧环境准备, 非产品改动)。
+    DSH_HOME="$DSH_HOME" timeout 120 dsh --profile web --dump-config >/dev/null 2>&1 \
+      || die "dsh profile warmup failed (profiles/web not created)"
+    [ -f "$DSH_HOME/profiles/web/cordis.patch.yml" ] || die "dsh warmup did not create cordis.patch.yml"
+    mkdir -p "$DSH_HOME/storages"
+    # LLM 配置: write_dsh 往 profile 的 cordis.patch.yml 追加 - id: llm-deepseek
+    # (baseURL/model/apiKeyEnv: DEEPSEEK_API_KEY)——env 名在此, key 值在宿主进程 env(起宿主时 export)。
+    python3 "$LLMCFG" write \
       --platform dsh --home "$DSH_HOME" \
       --base-url "$LLM_BASE_URL" --model "$LLM_MODEL" --api-key "$DEEPSEEK_API_KEY" \
       || die "dsh LLM config write failed"
-    ok "dsh installed + LLM configured"
+    VERIFY_HOME="$DSH_HOME"
+    VERIFY_EXTRA=()
+    ok "dsh installed (npm) + profile warmed + LLM configured"
     ;;
   *) die "unknown agent $AGENT" ;;
 esac
 
 # agent 自身可运行(D3 前置): 探活 LLM 端点可达 + agent 版本可打印
 say "verifying agent runs + LLM endpoint reachable…"
-python3 "$ADV_REPO/tests/cli/lib/llm-config.py" verify \
-  --platform "$AGENT" --home "$AGENT_HOME" --base-url "$LLM_BASE_URL" --model "$LLM_MODEL" \
+python3 "$LLMCFG" verify \
+  --platform "$AGENT" --home "$VERIFY_HOME" ${VERIFY_EXTRA[@]+"${VERIFY_EXTRA[@]}"} \
+  --base-url "$LLM_BASE_URL" --model "$LLM_MODEL" \
   || warn "agent LLM verify returned non-zero (continuing; welcome will surface the real failure)"
 ok "agent env ready: $AGENT"
 
@@ -161,7 +181,7 @@ echo "── [3/6] published CLI via bootstrap.sh (online)"
 bash "$AIMAIL_REPO/scripts/bootstrap.sh" || die "bootstrap.sh failed (published CLI unavailable)"
 AIMAIL_BIN="$(command -v aimail || echo "$HOME/.aimail/bin/aimail")"
 [ -x "$AIMAIL_BIN" ] || die "aimail binary not on PATH after bootstrap: $AIMAIL_BIN"
-ok "published CLI: $( "$AIMAIL_BIN" --version 2>/dev/null | head -1 )"
+ok "published CLI: $( "$AIMAIL_BIN" version 2>/dev/null | head -1 )"
 
 # ── ④ aimail install(admin-key 激活流)──────────────────────────
 echo "── [4/6] aimail install (admin-key activation)"
@@ -175,6 +195,60 @@ echo "── [4/6] aimail install (admin-key activation)"
   -n "l3-$PLATFORM-$AGENT" \
   || die "aimail install failed (admin-key activation)"
 ok "install done (system activated + platform adapted)"
+
+# ── ④b 起 agent 宿主(收信回信)────────────────────────────────────
+# welcome 闭环需要宿主**活着**: 网关把 welcome 信 POST 到绑定的 webhook_url,
+# 宿主的 LLM turn 调 send_mail 回信, CLI 轮询到三标签才 approve。
+# 只装不启 ⇒ welcome 120s 超时(首跑必红)。入站端点由 install 的注册步接线,
+# 这里只起宿主 + 等端口就绪(等的是**注册时写进绑定的同一个端口**)。
+echo "── [4b/6] agent host up (inbound endpoint ready)"
+HOST_PID=""
+case "$AGENT" in
+  hermes)
+    # 宿主进程读 $HERMES_HOME/config.yaml(install 注册步已写 platforms.webhook)。
+    # webhook 端口 = 注册时 _next_available_webhook_port(基 8644) 写入的 extra.port;
+    # gateway 起平台时监听同一端口 ⇒ 从 config 读回, 不猜不硬编码。
+    HERMES_PORT="$(python3 - "$HERMES_HOME/config.yaml" <<'PY'
+import sys, yaml
+c = yaml.safe_load(open(sys.argv[1])) or {}
+wh = c.get("platforms", {}).get("webhook", {})
+p = wh.get("extra", {}).get("port") or wh.get("port")
+print(int(p) if p else 0)
+PY
+)" || die "cannot read hermes webhook port"
+    [ "${HERMES_PORT:-0}" -gt 0 ] 2>/dev/null || die "hermes platforms.webhook.port not set (install did not wire the webhook)"
+    HERMES_HOME="$HERMES_HOME" nohup "$HERMES_BIN" gateway run > "$WORK/hermes-host.log" 2>&1 &
+    HOST_PID=$!
+    say "hermes host starting (webhook port $HERMES_PORT)…"
+    UP=0
+    for _ in $(seq 1 120); do
+      python3 -c "import socket,sys;s=socket.socket();sys.exit(s.connect_ex(('127.0.0.1',$HERMES_PORT)))" 2>/dev/null && { UP=1; break; }
+      kill -0 "$HOST_PID" 2>/dev/null || { tail -15 "$WORK/hermes-host.log" | sed 's/^/    /'; die "hermes host exited before inbound port $HERMES_PORT was ready"; }
+      sleep 1
+    done
+    [ "$UP" = 1 ] || { tail -15 "$WORK/hermes-host.log" | sed 's/^/    /'; die "hermes inbound port $HERMES_PORT not up in 120s"; }
+    ok "hermes host up (inbound :$HERMES_PORT)"
+    ;;
+  dsh)
+    # 入站 = dsh-aimail 插件的 mail-inbound server(宿主生命周期自持, server.listen
+    # 随宿主起)。注册时 localWebhook = inboundUrl(INBOUND_PORTS.dsh=9099) ⇒ 绑定的
+    # webhook_url 端口 = 9099(默认, 除非 AIMAIL_INBOUND_URL/PORT 环境覆盖)。
+    DSH_INBOUND_PORT="${AIMAIL_INBOUND_PORT:-9099}"
+    DSH_HOME="$DSH_HOME" AIMAIL_HOME="${HOME}/.aimail" AIMAIL_INBOUND_PORT="$DSH_INBOUND_PORT" \
+      DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY" \
+      nohup dsh --profile web --port 0 --no-open > "$WORK/dsh-host.log" 2>&1 &
+    HOST_PID=$!
+    say "dsh host starting (inbound port $DSH_INBOUND_PORT)…"
+    UP=0
+    for _ in $(seq 1 120); do
+      python3 -c "import socket,sys;s=socket.socket();sys.exit(s.connect_ex(('127.0.0.1',$DSH_INBOUND_PORT)))" 2>/dev/null && { UP=1; break; }
+      kill -0 "$HOST_PID" 2>/dev/null || { tail -15 "$WORK/dsh-host.log" | sed 's/^/    /'; die "dsh host exited before inbound port $DSH_INBOUND_PORT was ready"; }
+      sleep 1
+    done
+    [ "$UP" = 1 ] || { tail -15 "$WORK/dsh-host.log" | sed 's/^/    /'; die "dsh inbound port $DSH_INBOUND_PORT not up in 120s"; }
+    ok "dsh host up (inbound :$DSH_INBOUND_PORT)"
+    ;;
+esac
 
 # ── ⑤ welcome 闭环(welcome → agent 回三标签 → manager approve)──
 echo "── [5/6] welcome closed loop (manager approves identity card + signature)"
@@ -268,4 +342,5 @@ echo
 ok "════ L3 PASS: $PLATFORM / $AGENT — CLI×SDK×gateway 对接闭环完成"
 # teardown
 kill "$GW_PID" 2>/dev/null || true
+[ -n "${HOST_PID:-}" ] && kill "$HOST_PID" 2>/dev/null || true
 exit 0

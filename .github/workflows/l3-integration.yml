@@ -38,7 +38,7 @@ on:
 permissions:
   contents: read
 
-# 同一时刻只跑一个 L3(8 job 内部并发, 但跨 run 串行): 避免重复烧 LLM token / 抢 runner。
+# 同一时刻只跑一个 L3(矩阵内部并发, 但跨 run 串行): 避免重复烧 LLM token / 抢 runner。
 concurrency:
   group: l3-integration
   cancel-in-progress: false
@@ -81,11 +81,9 @@ jobs:
         with:
           path: aimail
 
-      - name: Checkout advanced (llm-config.py + agent helpers)
-        uses: actions/checkout@v4
-        with:
-          repository: metercai/aimail-advanced
-          path: advanced
+      # L3 对 advanced 的全部依赖 = tests/l3/llm-config.py(已自包含进 aimail 仓,
+      # 纯标准库)——不再跨仓 checkout:advanced 是私有仓, 触发仓的 GITHUB_TOKEN
+      # 无权访问(实测 404), 且 L3 原则是被测物不来自工作树。
 
       - name: L3 gate (agent env → published CLI+gateway → closed loop)
         shell: bash
@@ -94,7 +92,6 @@ jobs:
           export L3_PLATFORM="${{ matrix.platform }}"
           export L3_AGENT="${{ matrix.agent }}"
           export AIMAIL_REPO="$GITHUB_WORKSPACE/aimail"
-          export ADV_REPO="$GITHUB_WORKSPACE/advanced"
           export DEEPSEEK_API_KEY="${{ secrets.DEEPSEEK_API_KEY }}"
           bash "$AIMAIL_REPO/tests/l3/run-l3.sh"
 
