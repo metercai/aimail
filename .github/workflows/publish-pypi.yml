@@ -28,7 +28,7 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - 'v*'
+      - 'pysdk-v*'   # 家族 tag(2026-10 起):pysdk 发版只触发本 workflow;历史统一 v0.1.x tag 保留不动
 
 # 审计 D8: tag push 与 dispatch 可并发(同 PyPI 版本两次上传 → 一个必红)。
 concurrency:

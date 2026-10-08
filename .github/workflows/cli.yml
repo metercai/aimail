@@ -14,8 +14,9 @@ name: cli
 # 与桥的差异（有意）：桥的 gates.yml 注释写明 clippy/fmt 曾是**既有欠账**故未纳入；
 # 本 crate 是新建、零欠账，所以 fmt/clippy 从第一天起就是硬闸门。
 #
-# 发布/分发（artifact → GitHub Release）在 plan v3 S11 按桥的 release.yml 复用，
-# 本 workflow 只负责"编译得过、测试得过、打得出版本产物"。
+# 发布/分发（plan v3 S11，已落地）：拆到独立 workflow `cli-release.yml`，
+# 纯 `cli-v*` tag 触发（不带 paths 过滤，避免 tag 推送被 paths 判定吞掉）。
+# 本 workflow 只做 dev 门禁：main push / PR 触碰 cli/** 时跑 fmt/clippy/test + 平台编译。
 
 on:
   push:
@@ -58,7 +59,7 @@ jobs:
             platform: linux-amd64
             ext: ""
           - name: linux-arm64
-            os: ubuntu-latest
+            os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-musl
             platform: linux-arm64
             ext: ""

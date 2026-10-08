@@ -38,7 +38,7 @@ on:
           - stable
   push:
     tags:
-      - 'v*'
+      - 'ts-*'   # 家族 tag(2026-10 起):ts-<pkg>-vX.Y.Z 逐包发版;publish-npm.sh 幂等(已发布版本 skip)+ concurrency 串行化;历史统一 v0.1.x tag 保留不动
 
 # 审计 D8: tag push 与 workflow_dispatch 对同一 commit 可并发 → 两个 run 都判定
 # "未发布" ⇒ 一个 E403, 或"部分发布"(部分包新版本、部分包旧版本, dist-tag 指向分裂)。
