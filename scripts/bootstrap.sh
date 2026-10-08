@@ -16,7 +16,7 @@
 #   4. main dir skeleton ~/.aimail/{systems,logs,bridge} (0700) +
 #      place the binary at ~/.aimail/bin/aimail (idempotent, atomic-ish swap)
 #   5. disk headroom check (<100 MiB fail, <1 GiB warn)
-#   6. smoke: `aimail --version` (also proves the binary runs on this machine)
+#   6. smoke: `aimail version` (also proves the binary runs on this machine)
 #   7. link ~/.local/bin/aimail → ~/.aimail/bin/aimail
 #   8. persist AIMAIL_* env vars into ~/.aimail/.env (existing keys never overwritten)
 #   9. next-step guidance
@@ -114,8 +114,9 @@ else
 fi
 
 # ── 5. smoke: the binary must actually run here ──────────────────
-"$PROG/aimail" --version >/dev/null 2>&1 || die "binary did not run: $PROG/aimail --version"
-ok "smoke: $( "$PROG/aimail" --version 2>/dev/null | head -1 )"
+# version 是子命令(CLI clap 顶层无 --version flag, 用 flag 会 unexpected argument rc=2)
+"$PROG/aimail" version >/dev/null 2>&1 || die "binary did not run: $PROG/aimail version"
+ok "smoke: $( "$PROG/aimail" version 2>/dev/null | head -1 )"
 
 # ── 6. PATH entry ────────────────────────────────────────────────
 mkdir -p "$BIN_DIR"

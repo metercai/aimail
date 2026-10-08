@@ -99,12 +99,17 @@ jobs:
           mkdir -p "$L3_LOG_ARCHIVE"
           # 全量捕获 stdout(含子进程): runner 日志读不了(无 actions:read), 这是唯一证据通道。
           bash "$AIMAIL_REPO/tests/l3/run-l3.sh" 2>&1 | tee "$L3_LOG_ARCHIVE/l3-stdout.log"
-          exit "${PIPESTATUS[0]}"
+          rc="${PIPESTATUS[0]}"
+          # 落盘自检: 日志必须存在, 否则 upload 步 error 暴露(而非静默 0 artifact)。
+          echo "[l3] log archive: $L3_LOG_ARCHIVE"; ls -la "$L3_LOG_ARCHIVE" 2>&1
+          exit "$rc"
 
       - name: Upload L3 artifacts (logs)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: l3-${{ matrix.platform }}-${{ matrix.agent }}-logs
-          path: l3-logs
+          # 绝对路径: 相对 path 在本 job 解析不到 $GITHUB_WORKSPACE/l3-logs
+          # (checkout path:aimail 偏移了有效工作目录 ⇒ 0 artifact)。github.workspace 无歧义。
+          path: ${{ github.workspace }}/l3-logs
           if-no-files-found: warn
