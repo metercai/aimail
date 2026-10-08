@@ -1,0 +1,102 @@
+name: l3-integration
+
+# ═══════════════════════════════════════════════════════════════════════
+# L3 — 发布后对接闭环回归(用户环境 / 已发布产物)
+#
+# 以终为始: 用**最新已发布**的 CLI + SDK + 基础版网关, 在**真·用户环境**(真 OS
+# 硬件 + 真 agent 系统 + 真 LLM)验证"CLI×SDK×网关"三者能完成对接、并闭环跑起来。
+# 被测物全部来自发布渠道(GitHub Release / PyPI / npm), 绝不来自工作树。
+#
+# 与 L2 的关系(不重复):
+#   L2 旅程 = 发布**前**门禁, 测**工作树** rust 二进制, 在 advanced docker 宿主里;
+#   L3      = 发布**后**冒烟, 测**发布版**, 在 GitHub runner 原生 OS/硬件上。
+#
+# 矩阵 = 4 平台 × 2 agent = 8 job(回归内容完全一致, 见 run-l3.sh):
+#   平台: linux-amd64 / linux-arm64(原生 ARM) / macos-arm64 / windows-amd64
+#   agent: hermes(pysdk 路径) / dsh(tssdk 路径) —— 两条 SDK 路线都覆盖。
+#
+# 每 job 三步(D3 裁决):
+#   ① 装目标 agent + 配 LLM(deepseek-flash, secret DEEPSEEK_API_KEY) + 验证可运行
+#   ② 取已发布 CLI(bootstrap.sh 在线, 用户真实入口) + 已发布网关(Release 二进制)
+#   ③ 同一套回归: aimail install(admin-key 激活) → welcome 闭环 → 查询邮件签名断言
+#
+# 激活流: 只测 **admin-key** 激活(基础版网关), 不测激活码(高级版)。
+# 触发(D1=自动): 三个发布 workflow 任一完成即触发; 另加 nightly + 手动。
+#   (网关发布在 aimail-gateway 仓, 跨仓不能 workflow_run; L3 直接取其最新 Release,
+#    缺失即明确报错, 不猜。)
+# ═══════════════════════════════════════════════════════════════════════
+on:
+  workflow_run:
+    workflows: ["cli-release", "publish-pypi", "publish"]
+    types: [completed]
+  schedule:
+    - cron: "17 3 * * *"   # nightly — 抓"发布后漂移"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 同一时刻只跑一个 L3(8 job 内部并发, 但跨 run 串行): 避免重复烧 LLM token / 抢 runner。
+concurrency:
+  group: l3-integration
+  cancel-in-progress: false
+
+env:
+  DEEPSEEK_BASE_URL: "https://api.deepseek.com"
+  DEEPSEEK_MODEL: "deepseek-flash"
+
+jobs:
+  l3:
+    name: L3 ${{ matrix.platform }} / ${{ matrix.agent }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false   # 一个平台红不取消其余 —— 8 格都要看到裁决
+      matrix:
+        include:
+          # ── Linux ──
+          - { platform: linux-amd64, os: ubuntu-latest,   agent: hermes }
+          - { platform: linux-amd64, os: ubuntu-latest,   agent: dsh }
+          - { platform: linux-arm64, os: ubuntu-24.04-arm, agent: hermes }
+          - { platform: linux-arm64, os: ubuntu-24.04-arm, agent: dsh }
+          # ── macOS ──
+          - { platform: macos-arm64, os: macos-14,        agent: hermes }
+          - { platform: macos-arm64, os: macos-14,        agent: dsh }
+          # ── Windows ──
+          - { platform: windows-amd64, os: windows-latest, agent: hermes }
+          - { platform: windows-amd64, os: windows-latest, agent: dsh }
+
+    timeout-minutes: 45
+    env:
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+    steps:
+      - name: Checkout aimail (scripts + L3 tests)
+        uses: actions/checkout@v4
+        with:
+          path: aimail
+
+      - name: Checkout advanced (llm-config.py + agent helpers)
+        uses: actions/checkout@v4
+        with:
+          repository: metercai/aimail-advanced
+          path: advanced
+
+      - name: L3 gate (agent env → published CLI+gateway → closed loop)
+        shell: bash
+        run: |
+          # bash on windows-latest is git-bash; set PATH for the agent toolchains.
+          export L3_PLATFORM="${{ matrix.platform }}"
+          export L3_AGENT="${{ matrix.agent }}"
+          export AIMAIL_REPO="$GITHUB_WORKSPACE/aimail"
+          export ADV_REPO="$GITHUB_WORKSPACE/advanced"
+          export DEEPSEEK_API_KEY="${{ secrets.DEEPSEEK_API_KEY }}"
+          bash "$AIMAIL_REPO/tests/l3/run-l3.sh"
+
+      - name: Upload L3 artifacts (logs) on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: l3-${{ matrix.platform }}-${{ matrix.agent }}-logs
+          path: |
+            ${{ runner.temp }}/l3-logs/
+            ~/.aimail/logs/
+          if-no-files-found: ignore

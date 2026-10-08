@@ -10,7 +10,7 @@
 | **L0 开发闭环** | `l0-gate-tests.sh` | 每次提交(本地 + advanced run-e2e) | 代码本身:pyflakes/pytest(行为基线)/tsc/vitest + 契约 4 检查器(单一真源/zero-bridge/文件归属/docs↔impl)——快速全扫,跟上开发调整 |
 | **L1 集成** | 本目录无;= advanced `tests/SDK/sdk-e2e/`+`session-e2e/` | 针对具体 agent 环境 | 功能模块集成:注册链×真实网关、绑定落盘、收信链、宿主行为不漂移 |
 | **L2 发版门禁(用户环境)** | `release/l2-check-tarball.sh`(npm)· `release/l2-verify-wheel.sh`(pysdk)· advanced `tests/SDK/docker-regression/` | 正式发布前,脱离开发环境 | 面向所有 SDK 的核心契约检测:干净 venv 安装冒烟、tarball 结构、纯净环境安装链(装 rc→reset 双路径→register_all spawn→幂等)——重点路径不过关不发版 |
-| **L3 发布后冒烟** | `release/l3-verify-published.sh` | 发布完成后(手动,非 CI) | 站用户视角取**已发布产物**(registry 真身)重装验证,防发布过程漂移 |
+| **L3 发布后冒烟** | 本目录无;= **统一 L3** 上级 `tests/l3/` + `.github/workflows/l3-integration.yml` | 发布完成后(GitHub Actions 自动) | 站用户视角取**已发布产物**(Release/registry 真身):CLI×SDK×基础版网关在真 OS+真 agent 环境完成对接闭环(见 ../README.md) |
 
 > tag 前的版本合法性(tag==PyPI==TS、rc 两态、依赖序)是**发布工具**不是 L1 ——
 > 见下方 `tooling/check-versions.sh`(它校验元数据、不跑代码)。
@@ -33,7 +33,7 @@ SDK 侧行为快照:注册链、绑定文件归属、入站路由、search_mail�
 tests/sdk/l0-gate-tests.sh                     # L0 开发闭环: python lint+pytest + 契约/文档门禁 + tssdk tsc+vitest
 tests/sdk/release/l2-check-tarball.sh <tgz> <ver>   # L2(npm): 单包 tarball 检查
 tests/sdk/release/l2-verify-wheel.sh           # L2(pysdk): 干净 venv 3-layout 冒烟
-tests/sdk/release/l3-verify-published.sh       # L3: registry 冒烟(取本地最新 tag)
+# L3 = 统一 L3,见 ../l3/run-l3.sh + .github/workflows/l3-integration.yml(发布后自动)
 ```
 
 ## 发布工具（tooling/，非门禁层）
@@ -66,4 +66,5 @@ CI 单测覆盖不到的 SDK 用户环境行为,在 advanced 仓跑:
   (干净 venv 冒烟)。
 - `l0-gate-tests.sh`(L0)由 **本地** 与 **advanced `tests/run-e2e.sh`**(SDK_GATE)调用,
   aimail 的 CI workflow 不直调。
-- `l3-verify-published.sh`(L3)为发布后**手动**验证,不进 CI。
+- 统一 L3(`.github/workflows/l3-integration.yml`):CLI/PyPI/npm 任一发布 workflow
+  完成即自动触发,另加 nightly + 手动;8 job(4 平台 × hermes/dsh)。
