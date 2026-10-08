@@ -93,9 +93,12 @@ jobs:
           export L3_AGENT="${{ matrix.agent }}"
           export AIMAIL_REPO="$GITHUB_WORKSPACE/aimail"
           export DEEPSEEK_API_KEY="${{ secrets.DEEPSEEK_API_KEY }}"
-          mkdir -p "$HOME/l3-logs"
+          # 日志统一落 workspace(两个 context 都有效): env.HOME 是 GitHub env context
+          # (非 OS HOME, 表达式里为空 ⇒ path 变 /l3-logs 找不到文件 ⇒ 0 artifact)。
+          export L3_LOG_ARCHIVE="$GITHUB_WORKSPACE/l3-logs"
+          mkdir -p "$L3_LOG_ARCHIVE"
           # 全量捕获 stdout(含子进程): runner 日志读不了(无 actions:read), 这是唯一证据通道。
-          bash "$AIMAIL_REPO/tests/l3/run-l3.sh" 2>&1 | tee "$HOME/l3-logs/l3-stdout.log"
+          bash "$AIMAIL_REPO/tests/l3/run-l3.sh" 2>&1 | tee "$L3_LOG_ARCHIVE/l3-stdout.log"
           exit "${PIPESTATUS[0]}"
 
       - name: Upload L3 artifacts (logs)
@@ -103,5 +106,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: l3-${{ matrix.platform }}-${{ matrix.agent }}-logs
-          path: ${{ runner.os == 'Windows' && format('{0}\l3-logs', env.HOME) || format('{0}/l3-logs', env.HOME) }}
+          path: l3-logs
           if-no-files-found: warn

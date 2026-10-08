@@ -58,7 +58,7 @@ GW_HOME="$WORK/gw"
 mkdir -p "$GW_HOME/data"
 LOG="$WORK/l3.log"
 # 日志归档: 失败时 workflow 上传 $HOME/l3-logs(全 OS 确定路径); EXIT trap 兜底落最终日志
-LOG_ARCHIVE="$HOME/l3-logs"
+LOG_ARCHIVE="${L3_LOG_ARCHIVE:-$HOME/l3-logs}"
 mkdir -p "$LOG_ARCHIVE" 2>/dev/null || true
 trap 'cp -f "$WORK"/* "$LOG_ARCHIVE/" 2>/dev/null; cp -f "$LOG" "$LOG_ARCHIVE/" 2>/dev/null; true' EXIT
 
