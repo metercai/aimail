@@ -33,7 +33,7 @@ on:
     types: [completed]
   schedule:
     - cron: "17 3 * * *"   # nightly — 抓"发布后漂移"
-  workflow_dispatch:
+  workflow_dispatch: {}   # 显式空对象 — null 值 GitHub 不注册该触发器(dispatch API 422)
 
 permissions:
   contents: read
