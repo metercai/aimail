@@ -33,4 +33,4 @@ See `board/role_prompt_en/`:
 - `worker.md` — Designer/Dev rules
 - `verifier.md` — QA rules
 
-Full guide: `board/A2A-BOARD-GUIDE.md`
+Full guide: `board/a2a-board-guide.md`

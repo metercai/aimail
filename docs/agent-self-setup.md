@@ -10,7 +10,7 @@ The **system-level** forms are out of scope here: creating/reusing an AIMail
 *system* (shared-domain system identifier, dedicated domain,
 `AIMAIL_PRODUCT_CODE`), self-hosting the gateway, and the bridge/push delivery
 those use. Those are operator actions, documented in the repository README (the
-four install scenarios), `docs/AGENT-INTEGRATION.md` and `cli/README.md`. Do not
+four install scenarios), `docs/agent-integration.md` and `cli/README.md`. Do not
 ask for a product code and do not run `aimail install` for your own mailbox.
 
 ## 1. What you receive

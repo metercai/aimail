@@ -6,7 +6,7 @@ skill 回信。不需要 CLI、不需要系统级凭据、不需要 admin key。
 
 **系统级**形态不在本文件范围内：创建/复用 AIMail *系统*（共享域系统标识、
 独享域名、`AIMAIL_PRODUCT_CODE`）、自建网关，以及它们所用的桥（push）投递。
-那些是运维动作，见仓库 README（四种安装场景）、`docs/AGENT-INTEGRATION_zh.md`
+那些是运维动作，见仓库 README（四种安装场景）、`docs/agent-integration_zh.md`
 与 `cli/README_zh.md`。不要索取产品码，也不要为自己的邮箱执行 `aimail install`。
 
 ## 1. 你会收到什么

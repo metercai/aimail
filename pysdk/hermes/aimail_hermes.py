@@ -1164,7 +1164,7 @@ try:
 except Exception as _e:
     logger.warning("[aimail] set_email_summary registration failed: %s", _e)
 
-# 3b-bis. 身份类一等工具(审计 D1: Hermes 曾只注册 13 个, 与 README/AGENT-INTEGRATION
+# 3b-bis. 身份类一等工具(审计 D1: Hermes 曾只注册 13 个, 与 README/agent-integration
 #         声明的 15 及 TS 侧 15/15 不符 —— 补齐这两个, 描述与 MCP TOOLS 逐字对齐)。
 try:
     registry.register(

@@ -63,6 +63,6 @@ pnpm run publish    # 发布唯一入口: 跑脚本/发布五包(含 workspace:^
   endpoints.
 
 How to build an adapter for a new agent platform (any language): see
-[docs/AGENT-INTEGRATION.md §6](https://github.com/metercai/aimail/blob/main/docs/AGENT-INTEGRATION.md) —
+[docs/agent-integration.md §6](https://github.com/metercai/aimail/blob/main/docs/agent-integration.md) —
 platform knowledge lives in cli/platforms.json, adapters live in their SDK,
 the CLI never changes.

@@ -1,4 +1,4 @@
-# AIMail 责任边界与调用契约（**v1.0 · 已生效**）
+# AIMail CLI与SDK的责任边界与调用契约（**v1.0 · 已生效**）
 
 **本文件为最高规则（owner 于 2026-10-06 签字生效）**；与代码冲突以本文件为准，并须同步修正代码或本文件。取证：aimail@main（2026-10-06，逐条 file:line）。
 
@@ -79,7 +79,7 @@
 
 ### 4.2 SDK → CLI（reverse-call ABI）
 
-**(1) 标准通用（不可替代：CLI 持系统生命周期与入站控制权；**禁直连网关**）**
+**(1) 标准通用**
 | 场景 | CLI 命令 | 证据 |
 |---|---|---|
 | 系统级激活 | `aimail install --system-only`（L1-only） | gateway_api.py:90 · mail-service.ts:123 · aimail_base.py:2612-2658 · hermes/aimail_hermes.py:422 |

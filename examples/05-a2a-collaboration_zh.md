@@ -33,4 +33,4 @@
 - `worker.md` — 设计师/前端执行规则
 - `verifier.md` — QA 审阅规则
 
-完整指南: `board/A2A-BOARD-GUIDE_zh.md`
+完整指南: `board/a2a-board-guide_zh.md`
