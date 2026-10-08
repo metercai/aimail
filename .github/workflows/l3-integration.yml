@@ -21,7 +21,8 @@ name: l3-integration
 #   ③ 同一套回归: aimail install(admin-key 激活) → welcome 闭环 → 查询邮件签名断言
 #
 # 激活流: 只测 **admin-key** 激活(基础版网关), 不测激活码(高级版)。
-# 触发(D1=自动): 三个发布 workflow 任一完成即触发; 另加 nightly + 手动。
+# 触发(D1=自动): 三个发布 workflow 任一**成功**完成即触发(失败不触发, 见 job if);
+# 另加 nightly + 手动。
 #   (网关发布在 aimail-gateway 仓, 跨仓不能 workflow_run; L3 直接取其最新 Release,
 #    缺失即明确报错, 不猜。)
 # ═══════════════════════════════════════════════════════════════════════
@@ -48,6 +49,10 @@ env:
 jobs:
   l3:
     name: L3 ${{ matrix.platform }} / ${{ matrix.agent }}
+    # 只对**成功完成**的发布跑(防"发布失败仍触发 L3 烧 8 格 LLM token 测没发布的产物";
+    # 亦防 workflow_run completed 的已知早触发竞态, actions/runner#4035)。
+    # dispatch/nightly 无 conclusion 字段 ⇒ 放行。
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false   # 一个平台红不取消其余 —— 8 格都要看到裁决
