@@ -1,7 +1,7 @@
 name: cli-release
 
 # CLI 发布分发（plan v3 S11，按桥 release.yml 落地）：
-#   `cli-v*` tag 触发 → 4 平台 --release 构建 → 推 GitHub Release（aimail-<platform>）。
+#   `cli-v*` tag 触发 → 3 平台 --release 构建 → 推 GitHub Release（aimail-<platform>）。
 # 独立于 cli.yml（dev 门禁带 paths 过滤，tag 推送不能走它）。
 # 纯 tag 触发、无 paths —— 与本仓 publish-pypi.yml / publish.yml / 桥 release.yml 同模式。
 #
@@ -45,10 +45,12 @@ jobs:
             platform: macos-arm64
             ext: ""
           # ── Windows ──
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-            platform: windows-amd64
-            ext: ".exe"
+          # CLI 未完成 Windows 移植（bridge/repair 深度依赖 unix 命令, 非 cfg 补丁能覆盖）;
+          # 移植完成前从发版链移除 —— 先把 L3 走通, 恢复后取消注释即可。
+          # - target: x86_64-pc-windows-msvc
+          #   os: windows-latest
+          #   platform: windows-amd64
+          #   ext: ".exe"
 
     steps:
       - uses: actions/checkout@v5

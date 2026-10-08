@@ -11,8 +11,9 @@ name: l3-integration
 #   L2 旅程 = 发布**前**门禁, 测**工作树** rust 二进制, 在 advanced docker 宿主里;
 #   L3      = 发布**后**冒烟, 测**发布版**, 在 GitHub runner 原生 OS/硬件上。
 #
-# 矩阵 = 4 平台 × 2 agent = 8 job(回归内容完全一致, 见 run-l3.sh):
-#   平台: linux-amd64 / linux-arm64(原生 ARM) / macos-arm64 / windows-amd64
+# 矩阵 = 3 平台 × 2 agent = 6 job(回归内容完全一致, 见 run-l3.sh):
+#   平台: linux-amd64 / linux-arm64(原生 ARM) / macos-arm64
+#   (Windows: CLI 未完成 Windows 移植, 移植完成前不跑; 恢复后 = 4 平台 × 2 agent = 8 job)
 #   agent: hermes(pysdk 路径) / dsh(tssdk 路径) —— 两条 SDK 路线都覆盖。
 #
 # 每 job 三步(D3 裁决):
@@ -67,8 +68,9 @@ jobs:
           - { platform: macos-arm64, os: macos-14,        agent: hermes }
           - { platform: macos-arm64, os: macos-14,        agent: dsh }
           # ── Windows ──
-          - { platform: windows-amd64, os: windows-latest, agent: hermes }
-          - { platform: windows-amd64, os: windows-latest, agent: dsh }
+          # CLI 未完成 Windows 移植, 移植完成前不跑(恢复后取消注释 = 8 job)。
+          # - { platform: windows-amd64, os: windows-latest, agent: hermes }
+          # - { platform: windows-amd64, os: windows-latest, agent: dsh }
 
     timeout-minutes: 45
     env:
