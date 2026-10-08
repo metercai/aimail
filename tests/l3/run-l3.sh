@@ -24,6 +24,26 @@
 # ═══════════════════════════════════════════════════════════════════════
 set -uo pipefail
 
+# 可移植 timeout(macOS runner 无 GNU timeout): 有则用, 无则后台+看门狗, 超时 rc=124 语义同 GNU。
+run_timeout() {
+  local secs="$1"; shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$secs" "$@"
+  else
+    "$@" &
+    local pid=$!
+    for _ in $(seq 1 "$secs"); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
+    if kill -0 "$pid" 2>/dev/null; then kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; return 124; fi
+    wait "$pid"
+  fi
+}
+
+say() { printf '  %s\n' "$*"; }
+ok()  { printf '  \033[32m✓\033[0m %s\n' "$*"; }
+warn(){ printf '  \033[33m⚠ %s\n' "$*"; }
+die() { printf '\033[31m✗ %s\n' "$*" ; exit 1; }
+gap() { printf '\033[35m⊘ ENV GAP: %s\n' "$*"; exit 2; }
+
 PLATFORM="${L3_PLATFORM:?L3_PLATFORM not set}"
 AGENT="${L3_AGENT:?L3_AGENT not set}"
 AIMAIL_REPO="${AIMAIL_REPO:?AIMAIL_REPO not set}"
@@ -40,13 +60,7 @@ LOG="$WORK/l3.log"
 # 日志归档: 失败时 workflow 上传 $HOME/l3-logs(全 OS 确定路径); EXIT trap 兜底落最终日志
 LOG_ARCHIVE="$HOME/l3-logs"
 mkdir -p "$LOG_ARCHIVE" 2>/dev/null || true
-trap 'cp -f "$LOG" "$LOG_ARCHIVE/" 2>/dev/null; [ -f "$WORK/welcome.log" ] && cp -f "$WORK/welcome.log" "$LOG_ARCHIVE/"; [ -f "$GW_HOME/boot.log" ] && cp -f "$GW_HOME/boot.log" "$LOG_ARCHIVE/"' EXIT
-
-say() { printf '  %s\n' "$*"; }
-ok()  { printf '  \033[32m✓\033[0m %s\n' "$*"; }
-warn(){ printf '  \033[33m⚠ %s\n' "$*"; }
-die() { printf '\033[31m✗ %s\n' "$*" ; exit 1; }
-gap() { printf '\033[35m⊘ ENV GAP: %s\n' "$*"; exit 2; }
+trap 'cp -f "$WORK"/* "$LOG_ARCHIVE/" 2>/dev/null; cp -f "$LOG" "$LOG_ARCHIVE/" 2>/dev/null; true' EXIT
 
 # 资产名平台 → 发布资产后缀
 asset_suffix() {
@@ -101,7 +115,7 @@ case "$AGENT" in
     # ② install 的 dsh 步 `dsh plugin --profile web add dsh-aimail` 要往 profile 里装插件
     # ③ detect 的 markers 是 all-of(profiles+storages)——显式 --home 时走 normalize 直命中,
     #    storages 由 dsh 运行期自建, 这里先建空目录兜底(测试侧环境准备, 非产品改动)。
-    DSH_HOME="$DSH_HOME" timeout 120 dsh --profile web --dump-config >/dev/null 2>&1 \
+    DSH_HOME="$DSH_HOME" run_timeout 120 dsh --profile web --dump-config >/dev/null 2>&1 \
       || die "dsh profile warmup failed (profiles/web not created)"
     [ -f "$DSH_HOME/profiles/web/cordis.patch.yml" ] || die "dsh warmup did not create cordis.patch.yml"
     mkdir -p "$DSH_HOME/storages"
