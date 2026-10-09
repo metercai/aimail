@@ -1,6 +1,6 @@
 # L3 产品缺陷清单(供产品域修复)
 
-> 来源:L3 对接闭环回归(`tests/l3/`,由 `l3-integration.yml` 6 格矩阵驱动),2026-10-08。
+> 来源:L3 对接闭环回归(`tests/l3/`,由 `l3-integration.yml` 9 格矩阵驱动),2026-10-08。
 > 被测物全部来自**发布渠道**(GitHub Release / PyPI / npm),绝不来自工作树。
 > 口径:L3 是上线最后一道防线,严格复现 README 公布的三段流程(自举 → SDK 安装 → `aimail welcome`),
 > 不做产品修复、不自行适应和修订。以下每条均为**产品范畴**(自举脚本 / cli / SDK),
@@ -13,12 +13,13 @@
 
 | # | 产品域 | 缺陷 | 严重度 |
 |---|--------|------|--------|
-| C-1 | cli | 裸 `aimail install`(新建路径)不读 `AIMAIL_ADMIN_KEY` / `AIMAIL_URL` env — README 场景 C 失败 | Blocker |
+| C-1 | cli | 裸 `aimail install`(新建路径)不读 `AIMAIL_ADMIN_KEY` / `AIMAIL_URL` env — README 场景 4 失败 | Blocker |
 | C-4 | cli | hermes 适配器 venv 路径假设与当前官方 install.sh 布局失配 — aimailsdk 装不进 | Blocker |
-| C-3 | cli | hermes detect 为 all-of `[hermes-agent, profiles]`,官方 install.sh(非 TTY)不建 profiles | Blocker(干净机) |
+| C-3 | cli | detect 为 all-of 全要 markers(hermes `[hermes-agent, profiles]` / dsh `[profiles, storages]`),官方安装不建 profiles/storages | Blocker(干净机, 双 agent) |
 | S-1 | SDK | dsh-aimail@0.1.48 与所有已发布 dsh 版本不兼容(peerDeps + 实际 import 均为 dsh 0.1.x 结构) | Blocker(dsh 双路径) |
+| C-6 | cli | welcome 承诺的"本机单系统可自动判定"不存在(空 sid 直接返回空) — 多系统机裸 welcome 无上下文时必挂 | Major |
 | C-5 | cli | hermes SDK 安装步在 SDK 不可用时仍报 "✓ SDK install done" — 掩盖硬失败 | Major |
-| B-1 | bootstrap | bootstrap 宣告 README 场景 C 裸流程(env ready + next steps 指向裸 `aimail install`),CLI 无法满足 | Major(契约不一致) |
+| B-1 | bootstrap | bootstrap 宣告 README 场景 4 裸流程(env ready + next steps 指向裸 `aimail install`),CLI 无法满足 | Major(契约不一致) |
 | C-2 | cli | l1.rs 错误提示引用不存在的 `--with-key` flag 与 `AIMAIL_ADMIN_KEY` env 行为 | Minor(文档漂移) |
 
 ---
@@ -55,17 +56,29 @@
 - **产品域**:cli。
 - **修复方向**:hermes 适配器的 python/venv 探测对齐当前 install.sh 实际布局(PM 的 workspace venv),而非硬编码 `{home}/hermes-agent/venv`。
 
-### C-3 hermes detect 为 all-of `[hermes-agent, profiles]`,官方 install.sh(非 TTY)不建 profiles
+### C-3 detect 为 all-of 全要 markers,官方安装不建 profiles/storages(hermes 与 dsh 双命中)
 
-- **现象**:干净机官方 install.sh 装完 hermes 后,`aimail install --home ~/.hermes` 报 `✗ 无法确定平台: ~/.hermes 目录无特征`。
-- **复现**:`curl install.sh | bash`(非 TTY,无 `hermes setup`)→ `aimail install --home ~/.hermes`。L3 CI run 3 实证;本地全新安装实测 `profiles/` 不存在。
-- **期望**:官方安装产物即可被 detect 识别为 hermes。
+- **现象**:干净机官方安装完成后,`aimail install --home <root>` 报 `✗ 无法确定平台: <root> 目录无特征`(hermes 实证于 L3 CI run 3;dsh 同类未单独实证,见实际)。
+- **复现**:
+  - hermes:`curl install.sh | bash`(非 TTY,无 `hermes setup`)→ `aimail install --home ~/.hermes`。
+  - dsh:`npm i -g @deepseek-ai/dsh` + `dsh --profile web --dump-config` warmup 后(官方 warmup 只建 profiles/,不建 storages/ —— 本地实证)→ `aimail install --home ~/.dsh`。
+- **期望**:官方安装产物即可被 detect 识别为对应平台。
 - **实际**:
-  - `cli/platforms.json` hermes `detect.markers = ["hermes-agent","profiles"]`;`cli/src/core/platforms.rs:96` `markers.iter().all(|m| d.join(m).exists())` = **all-of(全要)**。
-  - 官方 install.sh `stage_config`(line 862-868)只建 `hermes-agent + cron/sessions/logs/pairing/hooks/image_cache/audio_cache/memories/skills`,**不建 `profiles`**;`profiles` 仅由 `hermes profile import/create`(`hermes_cli/profiles.py:2227`)或运行期创建。
-  - 生产机 `~/.hermes/profiles` 存在(使用期产物:agentmail/erp/...),故生产可过——但干净机必挂。
+  - `cli/src/core/platforms.rs:96` `markers.iter().all(|m| d.join(m).exists())` = **all-of(全要)**。
+  - hermes `detect.markers = ["hermes-agent","profiles"]`;官方 install.sh `stage_config`(line 862-868)只建 `hermes-agent + cron/sessions/...`,**不建 `profiles`**(仅 `hermes profile import/create` 显式建,profiles.py:2227)。
+  - dsh `detect.markers = ["profiles","storages"]`;官方 warmup 不建 `storages/`(dsh 运行 12s 后才自建)⇒ 安装时点 detect 必挂。
+  - 生产机两目录均为使用期产物(存在),故生产可过——干净机必挂。
+  - 注:hermes 侧 B4 实证已排除"hermes agent 运行依赖 profiles/"的假设(干净 HERMES_HOME 无 profiles/ 时默认 profile gateway 3s 起、webhook 端口可达)——detect 放宽不影响 hermes 运行。
 - **产品域**:cli。
-- **修复方向**:hermes detect 放宽为 `hermes-agent` 单 marker(或 install 时自建 profiles),与官方非 TTY 安装布局一致。
+- **修复方向**:detect 放宽为平台特征 marker(hermes `hermes-agent` / dsh `profiles`),或 install 时自建缺失目录,与官方安装布局一致。
+
+### C-6 welcome 承诺的"本机单系统可自动判定"不存在 —— 多系统机裸 welcome 无上下文时必挂
+
+- **现象**:`aimail welcome`(裸,无 `--system-id` 且 `AGENT_HOME` 未设/无指针)报 `✗ system_id 未解析(需 --system-id,或本机单系统/平台指针可自动判定)`(rc=1)。报错文案承诺的"本机单系统可自动判定"路径**不存在**——多系统机(README Notes 明确支持 "one machine can host several Agent platforms")上,用户未 export `AGENT_HOME` 时裸 welcome 无路可走,且报错文案误导。
+- **位置**:`cli/src/cmd/welcome.rs:50-61`(sid 为空 → `uninstall::resolve_system_id(ah, "")` → `cli/src/cmd/uninstall.rs:45-47` 空 explicit_sid **直接返回空**,无 systems/ 扫描);错误文案 welcome.rs:59。
+- **实际上下文链**(welcome.rs:25-48):`--system-id` flag > `AGENT_HOME` env → `{AGENT_HOME}/.agentmail` 指针(install/插件注册时写)→ 结束。无第三级。
+- **产品域**:cli。
+- **修复方向**:实现报错文案承诺的单系统自动判定(`systems/*/` 唯一匹配),或修正文案;README 补 `AGENT_HOME` 上下文说明(用户侧)。
 
 ### C-5 hermes SDK 安装步在 SDK 不可用时仍报成功 —— 掩盖硬失败
 
@@ -115,10 +128,11 @@
 
 ---
 
-## 附:L3 当前测试侧脚手架(供产品域知悉,非产品修复)
+## 附:L3 测试侧环境准备(与产品缺陷的边界)
 
-L3 为**让门禁继续推进到下游**目前带了两处测试侧环境准备(非产品改动),它们恰好**掩盖**了上面的产品缺陷,产品域修复后应重新评估是否移除:
-- `mkdir -p ~/.hermes/profiles`(掩盖 C-3)
-- dsh pnpm 预热(与 S-1 无关;属 dsh 基础环境,r43 教训)
+L3 当前**不携带**任何掩盖产品缺陷的脚手架(2026-10-09 移除):
+- hermes `mkdir -p profiles` 脚手架已移除 —— B4 实证(干净 HERMES_HOME 无 profiles/ 时 hermes 默认 profile gateway 正常运行,webhook 端口可达)⇒ 按裁决归**产品适配**(C-3),让门禁红在 C-3 上,不绕。
+- dsh `mkdir -p storages` 脚手架已移除 —— 官方 warmup 不建 storages/(dsh 运行期自建)⇒ 同归 C-3(dsh 侧)。
+- dsh pnpm 预热**保留** —— 属 dsh 基础环境(journey Dockerfile.dsh / r43 教训:冷容器首调用联网拉 pnpm 坏网挂死),是"agent 运行环境完备"的组成部分,非产品缺陷掩盖。
 
-> 结论:当前 L3 红 = 正确拦截。C-1 / C-4 / C-3 / S-1 为四个 Blocker,修复后重触发 L3 验证闭环。
+> 结论:当前 L3 红 = 正确拦截。C-1 / C-4 / C-3 / S-1 为四个 Blocker(双 agent 双路径全覆盖),修复后重触发 L3 验证闭环。

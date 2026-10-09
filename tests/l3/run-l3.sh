@@ -6,7 +6,7 @@
 #   ① 装目标 agent 系统 + 配 LLM(deepseek-flash) + 验证 agent 自身可运行
 #   ② 取已发布网关(基础版, GitHub Release 二进制)并起, 捕获 system/admin key
 #   ③ 取已发布 CLI(bootstrap.sh 在线 = 用户真实入口)
-#   ④ aimail install --home(admin-key 激活流, 系统级激活 + 平台适配)
+#   ④ SDK 安装(README 原样命令: 裸 aimail install --home <agent root> / dsh plugin add)
 #   ⑤ welcome 闭环: welcome → agent 回三标签 → manager(安全员)approve persona
 #   ⑥ 身份断言: SDK 同形 send_mail 一封查询 → whoami 读回身份名片(agent_persona)
 #      + 邮件签名(agent_signature) 已生效(whoami.rs:44-52, welcome approve UPSERT 的读回点)
@@ -16,9 +16,15 @@
 #
 # 环境(由 workflow 注入):
 #   L3_PLATFORM  linux-amd64|linux-arm64|macos-arm64|windows-amd64
-#   L3_AGENT     hermes | dsh
+#   L3_AGENT     hermes | dsh-aimail | dsh-plugin
+#                (dsh 两条 README 公布路径各一格: aimail install --home ~/.dsh / dsh plugin add)
 #   AIMAIL_REPO  aimail 仓 checkout(llm-config.py 已自包含在 tests/l3/)
 #   DEEPSEEK_BASE_URL / DEEPSEEK_MODEL / DEEPSEEK_API_KEY
+#
+# 流程契约(README Quick Start 场景 4, 原样复现, 严禁自行调整):
+#   ③ env 四件套(AIMAIL_URL/ADMIN_KEY/DOMAIN/MANAGER_ADDRESS) + 在线自举 curl|bash
+#   ④ aimail install --home <agent root>(裸命令) 或 dsh plugin --profile web add dsh-aimail
+#   ⑤ 裸 aimail welcome(AGENT_HOME env → .agentmail 指针解析系统参数)
 #
 # 退出码: 0=绿(闭环完成) · 1=红(某阶段断言失败, 原因已打印) · 2=环境缺前置
 # ═══════════════════════════════════════════════════════════════════════
@@ -92,10 +98,9 @@ case "$AGENT" in
       -o "$WORK/hermes-install.sh" || die "hermes install.sh download failed"
     HERMES_HOME="$HERMES_HOME" bash "$WORK/hermes-install.sh" </dev/null \
       || die "hermes official install failed (see $WORK)"
-    # profiles 脚手架: 官方 install.sh 只建 hermes-agent + cron/sessions/...(stage_config),
-    # 不建 profiles(hermes 运行期才建); CLI detect markers 是 all-of [hermes-agent, profiles]
-    # ⇒ 干净 runner 上 ④ 必挂"无法确定平台"。建空目录兜底(测试侧环境准备, 非产品改动)。
-    mkdir -p "$HERMES_HOME/profiles"
+    # 无 profiles 脚手架: B4 实证(干净 HERMES_HOME 无 profiles/ + webhook.enabled=true
+    # → hermes 默认 profile gateway 3s 起, 端口可达) —— hermes agent 不依赖 profiles/。
+    # CLI detect all-of [hermes-agent, profiles] 是产品适配缺失(缺陷清单 C-3), 不绕。
     HERMES_BIN="$HERMES_HOME/hermes-agent/.hermes/bin/hermes"
     [ -x "$HERMES_BIN" ] || gap "hermes binary not found after official install: $HERMES_BIN"
     # LLM 配置在 install.sh **之后**(stage_config 会覆写 config.yaml; 写早了被冲掉)。
@@ -109,7 +114,7 @@ case "$AGENT" in
     VERIFY_EXTRA=(--extra-home "$HERMES_HOME")
     ok "hermes installed (official, source+venv) + LLM configured"
     ;;
-  dsh)
+  dsh|dsh-aimail|dsh-plugin)
     command -v npm >/dev/null 2>&1 || gap "npm missing — cannot install dsh on $PLATFORM"
     npm install -g @deepseek-ai/dsh --no-audit --no-fund || die "dsh npm install failed"
     # pnpm 预热: dsh 插件管理器(dsh plugin add)转发 pnpm 装插件落 profile。
@@ -122,13 +127,12 @@ case "$AGENT" in
     AGENT_HOME="$DSH_HOME"
     # profile warmup(实测: dsh 首启 --profile 才创建 profiles/web/{cordis.yml,cordis.patch.yml}):
     # ① write_dsh 要求 profile 已存在(no dsh profile — cannot judge)
-    # ② install 的 dsh 步 `dsh plugin --profile web add dsh-aimail` 要往 profile 里装插件
-    # ③ detect 的 markers 是 all-of(profiles+storages)——显式 --home 时走 normalize 直命中,
-    #    storages 由 dsh 运行期自建, 这里先建空目录兜底(测试侧环境准备, 非产品改动)。
+    # ② install 的 dsh 步 `dsh plugin --profile web add dsh-aimail` 要往 profile 里装插件。
+    # 无 storages 脚手架: 官方 warmup 不建 storages(E1 实证), dsh 运行期 12s 自建(Q3 实证);
+    # CLI detect all-of [profiles, storages] 是产品适配缺失(缺陷清单 C-3 同类), 不绕。
     DSH_HOME="$DSH_HOME" run_timeout 120 dsh --profile web --dump-config >/dev/null 2>&1 \
       || die "dsh profile warmup failed (profiles/web not created)"
     [ -f "$DSH_HOME/profiles/web/cordis.patch.yml" ] || die "dsh warmup did not create cordis.patch.yml"
-    mkdir -p "$DSH_HOME/storages"
     # LLM 配置: write_dsh 往 profile 的 cordis.patch.yml 追加 - id: llm-deepseek
     # (baseURL/model/apiKeyEnv: DEEPSEEK_API_KEY)——env 名在此, key 值在宿主进程 env(起宿主时 export)。
     python3 "$LLMCFG" write \
@@ -200,24 +204,39 @@ say "  system key : ${SYS_KEY:0:8}… (agent-side, install -k)"
 say "  admin  key : ${ADMIN_KEY:0:8}… (platform, welcome/approve)"
 [ -n "$SYS_KEY" ] && [ -n "$ADMIN_KEY" ] || die "missing gateway key(s)"
 
-# ── ③ 取已发布 CLI(bootstrap 在线, 用户真实入口)────────────────
-echo "── [3/6] published CLI via bootstrap.sh (online)"
-bash "$AIMAIL_REPO/scripts/bootstrap.sh" || die "bootstrap.sh failed (published CLI unavailable)"
+# ── ③ 取已发布 CLI(README 场景 4 原样: env 四件套 + 在线自举)────────
+# 严格复现 README(130-135 行)公布的用户流程: 先 export 四个 env, 再在线 curl|bash。
+# bootstrap.sh 把 env 落盘 ~/.aimail/.env(机器级, config.rs:284 后续 CLI 命令读它),
+# ④ 裸 install 与 ⑤ 裸 welcome 靠 .env + 指针文件, 不靠本 shell 的 export 残留。
+echo "── [3/6] published CLI (README scenario 4: env + online bootstrap)"
+export AIMAIL_URL="$GW_URL"
+export AIMAIL_ADMIN_KEY="$SYS_KEY"
+export AIMAIL_DOMAIN="l3.local"
+export AIMAIL_MANAGER_ADDRESS="manager@l3.local"
+curl -fsSL "https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh" | bash \
+  || die "online bootstrap failed (published CLI unavailable)"
 AIMAIL_BIN="$(command -v aimail || echo "$HOME/.aimail/bin/aimail")"
 [ -x "$AIMAIL_BIN" ] || die "aimail binary not on PATH after bootstrap: $AIMAIL_BIN"
 ok "published CLI: $( "$AIMAIL_BIN" version 2>/dev/null | head -1 )"
 
-# ── ④ aimail install(admin-key 激活流)──────────────────────────
-echo "── [4/6] aimail install (admin-key activation)"
-# -k 传 **system key**(agent 侧, setup.rs Path A: whoami 校验后写入 aimail_gateway.json)。
-# --home = 目标 agent 系统根(平台适配入口: hermes webhook / dsh plugin 由 install 自动接线)。
-"$AIMAIL_BIN" install \
-  --home "$AGENT_HOME" \
-  -k "$SYS_KEY" \
-  -g "$GW_URL" \
-  -m "manager@l3.local" \
-  -n "l3-$PLATFORM-$AGENT" \
-  || die "aimail install failed (admin-key activation)"
+# ── ④ aimail install / dsh plugin add(README 公布的两种入口)──────
+# README: "install either through the aimail command line or through the Agent's
+# plugin — pick one of the two"。两种路径都是对外公布的 ⇒ 都测(矩阵 agent 维
+# 扩展: hermes / dsh-aimail / dsh-plugin)。命令形态 = README 原样(裸命令,
+# env 已由 ③ 落盘 ~/.aimail/.env + 本 shell export)。
+echo "── [4/6] SDK install (README command shape)"
+case "$AGENT" in
+  dsh-plugin)
+    # README 96 行: dsh plugin --profile web add dsh-aimail (Agent 插件入口)
+    DSH_HOME="$DSH_HOME" dsh plugin --profile web add dsh-aimail \
+      || die "dsh plugin add dsh-aimail failed (README plugin path)"
+    ;;
+  dsh-aimail|hermes)
+    # README 90 行: aimail install --home <agent root> (CLI 入口; 裸命令, 无 -k/-g/-m/-n)
+    "$AIMAIL_BIN" install --home "$AGENT_HOME" \
+      || die "aimail install --home failed (README CLI path)"
+    ;;
+esac
 ok "install done (system activated + platform adapted)"
 
 # ── ④b 起 agent 宿主(收信回信)────────────────────────────────────
@@ -253,7 +272,7 @@ PY
     [ "$UP" = 1 ] || { tail -15 "$WORK/hermes-host.log" | sed 's/^/    /'; die "hermes inbound port $HERMES_PORT not up in 120s"; }
     ok "hermes host up (inbound :$HERMES_PORT)"
     ;;
-  dsh)
+  dsh|dsh-aimail|dsh-plugin)
     # 入站 = dsh-aimail 插件的 mail-inbound server(宿主生命周期自持, server.listen
     # 随宿主起)。注册时 localWebhook = inboundUrl(INBOUND_PORTS.dsh=9099) ⇒ 绑定的
     # webhook_url 端口 = 9099(默认, 除非 AIMAIL_INBOUND_URL/PORT 环境覆盖)。
@@ -276,14 +295,15 @@ esac
 
 # ── ⑤ welcome 闭环(welcome → agent 回三标签 → manager approve)──
 echo "── [5/6] welcome closed loop (manager approves identity card + signature)"
-# aimail welcome 自带: admin key 调 /api/v1/system/welcome → 轮询 agent 回复(120s)
-# → 解析 persona/signature/current_time → 以 **manager(安全员)身份** 发 approve persona
-# → 网关 UPSERT 身份名片 + 邮件签名。
+# README 104 行原样: 裸 `aimail welcome`。上下文解析链(welcome.rs:25-91):
+#   sid:      AGENT_HOME env → {AGENT_HOME}/.agentmail 指针(install/插件注册时写)
+#             → 自动判定; 用户不知道 system_id, 不传 --system-id。
+#   manager:  -m flag → AIMAIL_MANAGER_ADDRESS env(③ 已 export + bootstrap 落盘 .env)
+#             → config.manager_address。
+#   admin_key: systems/<sid>/aimail_gateway.json(install 写入, welcome.rs:102)。
 # 需 agent 的入站端点已起(install 已接线), 且 agent+LLM 能生成三标签回复。
 export AGENT_HOME="$AGENT_HOME"
-export AIMAIL_URL="$GW_URL"
-export AIMAIL_MANAGER_ADDRESS="manager@l3.local"
-"$AIMAIL_BIN" welcome --system-id "$SYSTEM_ID" --manager "manager@l3.local" 2>&1 | tee "$WORK/welcome.log"
+"$AIMAIL_BIN" welcome 2>&1 | tee "$WORK/welcome.log"
 WELC_RC=${PIPESTATUS[0]}
 [ "$WELC_RC" -eq 0 ] || die "welcome closed loop failed (rc=$WELC_RC) — $(tail -12 "$WORK/welcome.log")"
 ok "welcome loop complete (identity card + signature approved)"
