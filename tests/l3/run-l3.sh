@@ -156,14 +156,42 @@ ok "agent env ready: $AGENT"
 
 # ── ② 取已发布基础版网关并起(捕获 key)───────────────────────────
 echo "── [2/6] published gateway (basic edition, $PLATFORM)"
-GW_URL_ASSET="$(curl -fsSL --retry 2 --connect-timeout 15 --max-time 60 \
-  "https://api.github.com/repos/metercai/aimail-gateway/releases?per_page=30" \
-  | grep -o '"browser_download_url": *"[^"]*"' | sed 's/"browser_download_url": *"//; s/"$//' \
-  | grep -m1 "aimail-gateway-$ASSET$EXT\$" )"
-[ -n "$GW_URL_ASSET" ] || gap "no aimail-gateway-$ASSET release asset — run the gateway release workflow first"
-say "fetching gateway: $GW_URL_ASSET"
-curl -fsSL --retry 2 --retry-delay 2 --connect-timeout 15 --max-time 300 "$GW_URL_ASSET" -o "$GW_BIN" \
-  || die "gateway download failed"
+# 资产发现主路 = github.com releases/latest 重定向(web 端点, CDN 分发,
+# 不受 api.github.com 未认证 IP 限流 60/h 约束)。api.github.com 只作回退:
+# 9 格矩阵并发下未认证调用会撞限流(403, 实测 2026-10-09 macos 两格),
+# 且限流响应与"资产缺失"必须区分 —— 误报 ENV GAP 会掩盖真死因。
+GW_TAG=""
+GW_TAG_URL="$(curl -sIL -o /dev/null -w '%{url_effective}' --connect-timeout 15 --max-time 30 \
+  "https://github.com/metercai/aimail-gateway/releases/latest" 2>/dev/null)"
+case "$GW_TAG_URL" in *"/releases/tag/"*) GW_TAG="${GW_TAG_URL##*/releases/tag/}";; esac
+GW_DOWNLOADED=""
+if [ -n "$GW_TAG" ]; then
+  GW_URL_ASSET="https://github.com/metercai/aimail-gateway/releases/download/${GW_TAG}/aimail-gateway-$ASSET$EXT"
+  say "fetching gateway: $GW_URL_ASSET (latest release $GW_TAG)"
+  curl -fsSL --retry 2 --retry-delay 2 --connect-timeout 15 --max-time 300 "$GW_URL_ASSET" -o "$GW_BIN" \
+    && GW_DOWNLOADED=1 \
+    || say "  latest release 无此平台资产/瞬时失败 → 回退 releases API 扫描…"
+fi
+if [ -z "$GW_DOWNLOADED" ]; then
+  GW_URL_ASSET=""
+  GW_API_RESP=""
+  for attempt in 1 2 3 4 5; do
+    GW_API_RESP="$(curl -s --connect-timeout 15 --max-time 60 \
+      "https://api.github.com/repos/metercai/aimail-gateway/releases?per_page=30")" || GW_API_RESP=""
+    if [ -n "$GW_API_RESP" ] && grep -q '"message"' <<<"$GW_API_RESP"; then
+      say "  releases API 限流/错误: $(head -c 120 <<<"$GW_API_RESP") — 重试 ${attempt}/5…"
+      sleep $((attempt * 20))
+      continue
+    fi
+    GW_URL_ASSET="$(grep -o '"browser_download_url": *"[^"]*"' <<<"$GW_API_RESP" \
+      | sed 's/"browser_download_url": *"//; s/"$//' | grep -m1 "aimail-gateway-$ASSET$EXT\$")"
+    break   # API 正常(无论资产在不在): 重试无意义
+  done
+  [ -n "$GW_URL_ASSET" ] || gap "no aimail-gateway-$ASSET release asset (latest=$GW_TAG, API: $(head -c 100 <<<"$GW_API_RESP") — run the gateway release workflow first)"
+  say "fetching gateway: $GW_URL_ASSET"
+  curl -fsSL --retry 2 --retry-delay 2 --connect-timeout 15 --max-time 300 "$GW_URL_ASSET" -o "$GW_BIN" \
+    || die "gateway download failed"
+fi
 chmod +x "$GW_BIN"
 
 # 最小 config(本地回环, 端口自选避开宿主进程 —— 见 advanced agent-turn 口径)
