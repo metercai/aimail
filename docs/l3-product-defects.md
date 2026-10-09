@@ -19,6 +19,7 @@
 | S-1 | SDK | dsh-aimail@0.1.48 与所有已发布 dsh 版本不兼容(peerDeps + 实际 import 均为 dsh 0.1.x 结构) | Blocker(dsh 双路径) |
 | C-6 | cli | welcome 承诺的"本机单系统可自动判定"不存在(空 sid 直接返回空) — 多系统机裸 welcome 无上下文时必挂 | Major |
 | C-7 | cli | install 不读 `AGENT_HOME` env 作 home 来源 — README 官方流程(裸 `aimail install` + `AGENT_HOME`)失败 | Blocker(README 官方流程) |
+| C-8 | cli | hermes SDK 安装步 host 分支不防 uv `exclude-newer` 隔离(CWD 发现宿主 pyproject 的 14 天隔离)⇒ 静默装旧版 | Major(静默降级) |
 | C-5 | cli | hermes SDK 安装步在 SDK 不可用时仍报 "✓ SDK install done" — 掩盖硬失败 | Major |
 | B-1 | bootstrap | bootstrap 宣告 README 场景 4 裸流程(env ready + next steps 指向裸 `aimail install`),CLI 无法满足 | Major(契约不一致) |
 | B-2 | bootstrap | release 发现走未认证 api.github.com(60/h IP 限流),并发/重试场景撞 403 且误报 "no cli-v* release found" | Major(CI 9 并发实证) |
@@ -89,6 +90,15 @@
 - **期望 vs 实际**:期望 = 裸 install 从 `AGENT_HOME` env 解析 home(与 welcome/ping/check 的 `AGENT_HOME` 上下文一致);实际 = `install.rs:281-286` home 只认 `--home` flag / `--system-id` 反查,全仓 install 路径无 `AGENT_HOME` 消费。
 - **产品域**:cli。
 - **修复方向**:`install` 的 home 解析加入 `AGENT_HOME` env 回落(flag > `AGENT_HOME` > sid 反查),与 welcome 的上下文链对齐;或 README 回退为 `--home` 显式参数(但那样 AGENT_HOME 仅 welcome 用,两命令上下文不一致)。
+
+### C-8 hermes SDK 安装步 host 分支不防 uv `exclude-newer` 隔离 ⇒ 静默装旧版
+
+- **现象**:hermes 宿主机的 `[tool.uv] exclude-newer`(实测镜像 `/opt/hermes/pyproject.toml:451` 配 `exclude-newer = "14 days"`)会被 uv **按 CWD 向上发现**。产品 hermes `install_steps[0]`(host 分支)的 `uv pip install ... aimailsdk` **不带版本号也不做隔离豁免**;当 CWD 落在隔离配置覆盖范围内且"最新已发布版"超出隔离窗口时,uv 把最新版滤掉、**回退装 14 天内的旧版**——aimailsdk 静默降级,`import aimail` 可用但非最新,无任何告警。
+- **复现**(已实证,aimail-host-hermes 镜像):容器 WORKDIR=`/opt/hermes`(隔离配置所在)下 `uv pip install --python /opt/hermes/.venv/bin/python3 --index-url https://pypi.org/simple/ aimailsdk==0.1.48` → `No solution found`(0.1.48 发布于 2026-10-07,超出 14 天窗口);同命令加 `--exclude-newer-package aimailsdk=false` → `Installed 1 package: + aimailsdk==0.1.48`(豁免目标包即修复)。不带 `==` 时 uv 回退旧版而非报错 ⇒ 静默。
+- **对照**:同一 `install_steps` 的 **docker 分支已防**(`cd /; unset UV_EXCLUDE_NEWER UV_INDEX_URL ...` 中性 CWD + 清 env),host 分支没有 ⇒ 两分支行为不一致。
+- **位置**:`cli/platforms.json` hermes `install_steps[0]`(kind=spawn,`when = {path_exists: {home}/hermes-agent/venv/bin/python, runtime_not: docker}`)。
+- **产品域**:cli(platforms.json)。
+- **修复方向**:host 分支对齐 docker 分支的隔离防护(中性 CWD 或 `--exclude-newer-package aimailsdk=false`),或装后断言已装版本 == PyPI 最新已发布(不匹配即 fail 而非静默)。门禁侧已按 `--exclude-newer-package aimailsdk=false` 自行规避(install-sdk.sh,2026-10-09)。
 
 ### C-5 hermes SDK 安装步在 SDK 不可用时仍报成功 —— 掩盖硬失败
 
