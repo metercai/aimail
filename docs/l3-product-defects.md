@@ -15,11 +15,12 @@
 |---|--------|------|--------|
 | C-1 | cli | 裸 `aimail install`(新建路径)不读 `AIMAIL_ADMIN_KEY` / `AIMAIL_URL` env — README 场景 4 失败 | Blocker |
 | C-4 | cli | hermes 适配器 venv 路径假设与当前官方 install.sh 布局失配 — aimailsdk 装不进 | Blocker |
-| C-3 | cli | detect 为 all-of 全要 markers(hermes `[hermes-agent, profiles]` / dsh `[profiles, storages]`),官方安装不建 profiles/storages | Blocker(干净机, 双 agent) |
+| C-3 | cli | detect 为 all-of 全要 markers(hermes `[hermes-agent, profiles]` / dsh `[profiles, storages]`),官方安装不建 profiles/storages | Blocker(干净机, 双 agent, 已实证) |
 | S-1 | SDK | dsh-aimail@0.1.48 与所有已发布 dsh 版本不兼容(peerDeps + 实际 import 均为 dsh 0.1.x 结构) | Blocker(dsh 双路径) |
 | C-6 | cli | welcome 承诺的"本机单系统可自动判定"不存在(空 sid 直接返回空) — 多系统机裸 welcome 无上下文时必挂 | Major |
 | C-5 | cli | hermes SDK 安装步在 SDK 不可用时仍报 "✓ SDK install done" — 掩盖硬失败 | Major |
 | B-1 | bootstrap | bootstrap 宣告 README 场景 4 裸流程(env ready + next steps 指向裸 `aimail install`),CLI 无法满足 | Major(契约不一致) |
+| B-2 | bootstrap | release 发现走未认证 api.github.com(60/h IP 限流),并发/重试场景撞 403 且误报 "no cli-v* release found" | Major(CI 9 并发实证) |
 | C-2 | cli | l1.rs 错误提示引用不存在的 `--with-key` flag 与 `AIMAIL_ADMIN_KEY` env 行为 | Minor(文档漂移) |
 
 ---
@@ -56,9 +57,9 @@
 - **产品域**:cli。
 - **修复方向**:hermes 适配器的 python/venv 探测对齐当前 install.sh 实际布局(PM 的 workspace venv),而非硬编码 `{home}/hermes-agent/venv`。
 
-### C-3 detect 为 all-of 全要 markers,官方安装不建 profiles/storages(hermes 与 dsh 双命中)
+### C-3 detect 为 all-of 全要 markers,官方安装不建 profiles/storages(hermes 与 dsh 双命中,均已实证)
 
-- **现象**:干净机官方安装完成后,`aimail install --home <root>` 报 `✗ 无法确定平台: <root> 目录无特征`(hermes 实证于 L3 CI run 3;dsh 同类未单独实证,见实际)。
+- **现象**:干净机官方安装完成后,`aimail install --home <root>` 报 `✗ 无法确定平台: <root> 目录无特征`。L3 run 37883302756(042c715)实证:hermes 3 平台 + dsh-aimail 3 平台**全 6 格**均红在此行。
 - **复现**:
   - hermes:`curl install.sh | bash`(非 TTY,无 `hermes setup`)→ `aimail install --home ~/.hermes`。
   - dsh:`npm i -g @deepseek-ai/dsh` + `dsh --profile web --dump-config` warmup 后(官方 warmup 只建 profiles/,不建 storages/ —— 本地实证)→ `aimail install --home ~/.dsh`。
@@ -126,6 +127,15 @@
 - **产品域**:bootstrap(与 cli 的契约不一致;根因在 C-1)。
 - **修复方向**:与 C-1 联动——要么 CLI 读 `AIMAIL_ADMIN_KEY`/`AIMAIL_URL`,要么 bootstrap 的 env 闸门 + next steps 改为指引 `aimail install -k <key> --home <root>`。
 
+### B-2 release 发现走未认证 api.github.com,撞 IP 限流且误报 "no release"
+
+- **现象**:L3 run 37883302756(9 格并发)中,macos-arm64-dsh-plugin 格 ③ 在线自举失败:`curl: (56) The requested URL returned error: 403`(api.github.com 限流)→ 误报 `✗ no cli-v* release found on metercai/aimail — the CLI has not been released yet`(CLI 已正常发布,误导)。同一 run 同平台其它格的 ③ 正常 ⇒ 非资产缺失,是限流。
+- **复现**:多 job 并发(或 CI 共享出口 IP 高流量)下 `bash scripts/bootstrap.sh`;`curl --retry 2` 不重试 403,`-f` 下静默失败,`TAG` 为空后落入资产缺失分支。
+- **位置**:`scripts/bootstrap.sh:64-68`(tag 发现,未认证 `api.github.com/repos/$REPO/releases?per_page=30`,60/h IP 限流)+ `75-79`(asset 发现,`releases/tags/$TAG`,同样未认证)。
+- **期望**:release 发现在 CI 并发下稳健;限流时给出可区分的错误(限流 vs 真无资产),不误报"未发布"。
+- **产品域**:bootstrap。
+- **修复方向**:发现改走 `https://github.com/$REPO/releases/latest` 重定向(web 端点,CDN 分发,不受 API IP 限流)+ 对 403 单独处理/退避重试。L3 门禁侧已按此思路自行规避(run-l3.sh ② 已改 latest 重定向,见 042c715),bootstrap 需产品侧同样处理。
+
 ---
 
 ## 附:L3 测试侧环境准备(与产品缺陷的边界)
@@ -135,4 +145,8 @@ L3 当前**不携带**任何掩盖产品缺陷的脚手架(2026-10-09 移除):
 - dsh `mkdir -p storages` 脚手架已移除 —— 官方 warmup 不建 storages/(dsh 运行期自建)⇒ 同归 C-3(dsh 侧)。
 - dsh pnpm 预热**保留** —— 属 dsh 基础环境(journey Dockerfile.dsh / r43 教训:冷容器首调用联网拉 pnpm 坏网挂死),是"agent 运行环境完备"的组成部分,非产品缺陷掩盖。
 
-> 结论:当前 L3 红 = 正确拦截。C-1 / C-4 / C-3 / S-1 为四个 Blocker(双 agent 双路径全覆盖),修复后重触发 L3 验证闭环。
+> 结论:当前 L3 红 = 正确拦截。9 格矩阵(3 平台 × hermes / dsh-aimail / dsh-plugin)run 37883302756(042c715)逐格落点:
+> - hermes × 3 + dsh-aimail × 3:红在 ④ `无法确定平台`(C-3,双 agent 全实证)
+> - dsh-plugin × 2(linux):红在 ④ 插件兼容闸(S-1);macos-dsh-plugin 红在 ③(B-2 限流)
+>
+> C-1 / C-4 / C-3 / S-1 为四个 Blocker,修复后重触发 L3 验证闭环。
