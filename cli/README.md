@@ -153,7 +153,7 @@ host-side items remain.
   the local environment setup. For example:
 
 ```bash
-export AIMAIL_URL=<your gateway address>      # self-hosted gateway, e.g. https://mail.example.com
+export AIMAIL_GW_URL=<your gateway address>      # self-hosted gateway, e.g. https://mail.example.com
 export AIMAIL_ADMIN_KEY=<system key>         # system-level key (not the gateway's own admin key)
 export AIMAIL_DOMAIN=<your domain>            # dedicated domain, e.g. example.com
 export AIMAIL_MANAGER_ADDRESS=you@example.com # default manager address of the admin agent; may differ per agent

@@ -821,9 +821,9 @@ def activate_address_code(
     No CLI, no product code, no admin credentials: the code authorizes
     exactly one address, once, until it expires.
     """
-    gw = (gateway_url or os.environ.get("AIMAIL_URL", "")).strip()
+    gw = (gateway_url or os.environ.get("AIMAIL_GW_URL", "")).strip()
     if not gw:
-        raise ValueError("gateway_url is required (or set AIMAIL_URL)")
+        raise ValueError("gateway_url is required (or set AIMAIL_GW_URL)")
     client = _GatewayClient(gw, "")
     return client.activate_address_code_persist(
         code, address, profile_dir=(profile_home or ""))

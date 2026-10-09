@@ -13,11 +13,12 @@
 
 | # | 产品域 | 缺陷 | 严重度 |
 |---|--------|------|--------|
-| C-1 | cli | 裸 `aimail install`(新建路径)不读 `AIMAIL_ADMIN_KEY` / `AIMAIL_URL` env — README 场景 4 失败 | Blocker |
+| C-1 | cli | 裸 `aimail install`(新建路径)不读 `AIMAIL_ADMIN_KEY` / `AIMAIL_GW_URL` env — README 场景 4 失败 | Blocker |
 | C-4 | cli | hermes 适配器 venv 路径假设与当前官方 install.sh 布局失配 — aimailsdk 装不进 | Blocker |
 | C-3 | cli | detect 为 all-of 全要 markers(hermes `[hermes-agent, profiles]` / dsh `[profiles, storages]`),官方安装不建 profiles/storages | Blocker(干净机, 双 agent, 已实证) |
 | S-1 | SDK | dsh-aimail@0.1.48 与所有已发布 dsh 版本不兼容(peerDeps + 实际 import 均为 dsh 0.1.x 结构) | Blocker(dsh 双路径) |
 | C-6 | cli | welcome 承诺的"本机单系统可自动判定"不存在(空 sid 直接返回空) — 多系统机裸 welcome 无上下文时必挂 | Major |
+| C-7 | cli | install 不读 `AGENT_HOME` env 作 home 来源 — README 官方流程(裸 `aimail install` + `AGENT_HOME`)失败 | Blocker(README 官方流程) |
 | C-5 | cli | hermes SDK 安装步在 SDK 不可用时仍报 "✓ SDK install done" — 掩盖硬失败 | Major |
 | B-1 | bootstrap | bootstrap 宣告 README 场景 4 裸流程(env ready + next steps 指向裸 `aimail install`),CLI 无法满足 | Major(契约不一致) |
 | B-2 | bootstrap | release 发现走未认证 api.github.com(60/h IP 限流),并发/重试场景撞 403 且误报 "no cli-v* release found" | Major(CI 9 并发实证) |
@@ -27,12 +28,12 @@
 
 ## CLI(cli)
 
-### C-1 裸 `aimail install`(新建路径)不读 `AIMAIL_ADMIN_KEY` / `AIMAIL_URL` env —— README 场景 C 失败
+### C-1 裸 `aimail install`(新建路径)不读 `AIMAIL_ADMIN_KEY` / `AIMAIL_GW_URL` env —— README 场景 C 失败
 
 - **现象**:按 README 场景 C(自托管网关 + 系统级 key)公布的裸流程,`aimail install --home ~/.hermes` 失败,报误导性 `gateway_url is required`(rc=1)。
 - **复现**(已实证,发布二进制 cli-v0.1.37):
   ```bash
-  export AIMAIL_URL=http://<gw>   # 场景 C
+  export AIMAIL_GW_URL=http://<gw>   # 场景 C
   export AIMAIL_ADMIN_KEY=<系统级 key>
   export AIMAIL_DOMAIN=example.com
   export AIMAIL_MANAGER_ADDRESS=you@example.com
@@ -46,7 +47,7 @@
   - 新建路径 `gw_url` 不回落 env:`cli/src/cmd/install.rs:687-688` `resolve_gateway_url` 仅在复用分支(`!sid.is_empty() && prod_code.is_empty()`)被调用;新建路径 `gw_url = a.gateway_url`(flag,空)→ `setup.rs:59` 报 `gateway_url is required`。
   - 全 CLI 源码无 `AIMAIL_ADMIN_KEY` env 消费(仅 `cli/src/core/checks/l1.rs:123` 一句提示字符串)。
 - **产品域**:cli。
-- **修复方向**:新建路径读取 `AIMAIL_ADMIN_KEY`(系统级 key)与 `AIMAIL_URL` env;或 README/bootstrap 改为强制 `-k`/`-g`(见 B-1 契约不一致)。
+- **修复方向**:新建路径读取 `AIMAIL_ADMIN_KEY`(系统级 key)与 `AIMAIL_GW_URL` env;或 README/bootstrap 改为强制 `-k`/`-g`(见 B-1 契约不一致)。
 
 ### C-4 hermes 适配器 venv 路径假设与当前官方 install.sh 布局失配 —— aimailsdk 装不进
 
@@ -77,9 +78,17 @@
 
 - **现象**:`aimail welcome`(裸,无 `--system-id` 且 `AGENT_HOME` 未设/无指针)报 `✗ system_id 未解析(需 --system-id,或本机单系统/平台指针可自动判定)`(rc=1)。报错文案承诺的"本机单系统可自动判定"路径**不存在**——多系统机(README Notes 明确支持 "one machine can host several Agent platforms")上,用户未 export `AGENT_HOME` 时裸 welcome 无路可走,且报错文案误导。
 - **位置**:`cli/src/cmd/welcome.rs:50-61`(sid 为空 → `uninstall::resolve_system_id(ah, "")` → `cli/src/cmd/uninstall.rs:45-47` 空 explicit_sid **直接返回空**,无 systems/ 扫描);错误文案 welcome.rs:59。
-- **实际上下文链**(welcome.rs:25-48):`--system-id` flag > `AGENT_HOME` env → `{AGENT_HOME}/.agentmail` 指针(install/插件注册时写)→ 结束。无第三级。
+- **实际上下文链**(welcome.rs:25-48):`--system-id` flag > `AGENT_HOME` env → `{AGENT_HOME}/.agentmail` 指针(install/插件注册时写)→ 结束。无第三级。(contract-allowed: 缺陷报告引用契约指针文件名)
 - **产品域**:cli。
-- **修复方向**:实现报错文案承诺的单系统自动判定(`systems/*/` 唯一匹配),或修正文案;README 补 `AGENT_HOME` 上下文说明(用户侧)。
+- **修复方向**:实现报错文案承诺的"单系统自动判定"(`systems/*/` 唯一匹配),或修正文案;README 补 `AGENT_HOME` 上下文说明(用户侧)。
+
+### C-7 `install` 不读 `AGENT_HOME` env 作 home 来源 —— README 官方流程(裸 `aimail install`)失败
+
+- **现象**:README 公布的 CLI 入口是 `export AGENT_HOME=~/.hermes` + **裸 `aimail install`**(2026-10-09 定稿,与 `welcome` 的 `AGENT_HOME` 上下文通道对齐)。当前 CLI 报 `✗ install 需要 --home,或带 --system-id 以便从本地配置反查`,rc=1。
+- **复现**:`HOME=<scratch> AGENT_HOME=<scratch>/.hermes aimail install`(agent 已装)→ 即报上述错误。L3 ④ 段(hermes / dsh-aimail 格)红在此。
+- **期望 vs 实际**:期望 = 裸 install 从 `AGENT_HOME` env 解析 home(与 welcome/ping/check 的 `AGENT_HOME` 上下文一致);实际 = `install.rs:281-286` home 只认 `--home` flag / `--system-id` 反查,全仓 install 路径无 `AGENT_HOME` 消费。
+- **产品域**:cli。
+- **修复方向**:`install` 的 home 解析加入 `AGENT_HOME` env 回落(flag > `AGENT_HOME` > sid 反查),与 welcome 的上下文链对齐;或 README 回退为 `--home` 显式参数(但那样 AGENT_HOME 仅 welcome 用,两命令上下文不一致)。
 
 ### C-5 hermes SDK 安装步在 SDK 不可用时仍报成功 —— 掩盖硬失败
 
@@ -125,7 +134,7 @@
 - **期望**:bootstrap 宣告的流程与 CLI 实际能力一致。
 - **实际**:bootstrap 持久化 `AIMAIL_ADMIN_KEY` 到 `~/.aimail/.env` 并放行,但 CLI 不读该 env(C-1)→ 用户按 bootstrap 指引走到 install 即失败。
 - **产品域**:bootstrap(与 cli 的契约不一致;根因在 C-1)。
-- **修复方向**:与 C-1 联动——要么 CLI 读 `AIMAIL_ADMIN_KEY`/`AIMAIL_URL`,要么 bootstrap 的 env 闸门 + next steps 改为指引 `aimail install -k <key> --home <root>`。
+- **修复方向**:与 C-1 联动——要么 CLI 读 `AIMAIL_ADMIN_KEY`/`AIMAIL_GW_URL`,要么 bootstrap 的 env 闸门 + next steps 改为指引 `aimail install -k <key> --home <root>`。
 
 ### B-2 release 发现走未认证 api.github.com,撞 IP 限流且误报 "no release"
 

@@ -134,7 +134,7 @@ def hermes_home(tmp_path, monkeypatch):
     ai.mkdir()
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("AIMAIL_HOME", str(ai))
-    monkeypatch.delenv("AIMAIL_URL", raising=False)
+    monkeypatch.delenv("AIMAIL_GW_URL", raising=False)
     return {"home": home, "aimail": ai, "tmp": tmp_path}
 
 
@@ -306,7 +306,7 @@ def test_pointer_omitted_skips_pointer_but_keeps_the_binding(hermes_home, gatewa
 
 def test_gateway_url_falls_back_to_env(hermes_home, gateway, monkeypatch):
     url, _ = gateway
-    monkeypatch.setenv("AIMAIL_URL", url)
+    monkeypatch.setenv("AIMAIL_GW_URL", url)
     pf = hermes_home["tmp"] / "pf"
     res = activate_address_code("c", ADDR, profile_home=str(pf))
     assert res["success"] is True and _pointer(pf).is_file()

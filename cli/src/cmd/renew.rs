@@ -188,7 +188,7 @@ fn resolve_target(a: &Args) -> Result<(String, String, String), Vec<String>> {
         .filter(|s| !s.is_empty())
         .or_else(|| (!cfg_gw.is_empty()).then_some(cfg_gw))
         .or_else(|| {
-            let e = crate::core::config::env_val("AIMAIL_URL", "");
+            let e = crate::core::config::env_val("AIMAIL_GW_URL", "");
             (!e.is_empty()).then_some(e)
         })
         .unwrap_or_else(|| "https://aimail.token.tm".to_string());

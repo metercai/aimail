@@ -200,7 +200,7 @@ fn renew_args(cmd: Command) -> Command {
             .short('g')
             .long("gateway-url")
             .value_name("URL")
-            .help("gateway base URL (default: existing config or AIMAIL_URL)"),
+            .help("gateway base URL (default: existing config or AIMAIL_GW_URL)"),
     )
 }
 
@@ -263,7 +263,7 @@ fn reset_args(cmd: Command) -> Command {
             .long("gateway-url")
             .value_name("URL")
             .default_value("")
-            .help("gateway base URL (default: existing config or AIMAIL_URL)"),
+            .help("gateway base URL (default: existing config or AIMAIL_GW_URL)"),
     )
     .arg(
         Arg::new("system-name")

@@ -1182,7 +1182,7 @@ try:
                 "properties": {
                     "code": {"type": "string", "description": "One-time activation code (shared_a-…)"},
                     "address": {"type": "string", "description": "The mailbox address it unlocks"},
-                    "gateway_url": {"type": "string", "description": "AIMail gateway URL (or set AIMAIL_URL)"},
+                    "gateway_url": {"type": "string", "description": "AIMail gateway URL (or set AIMAIL_GW_URL)"},
                 },
                 "required": ["code", "address"],
             },

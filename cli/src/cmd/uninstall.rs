@@ -2,7 +2,7 @@
 //!
 //! 与 `install` 对等：消除 aimail 在 agent 系统上的配置。顺序：
 //! sid/home 解析（`resolve_system_id`）→ 幂等短路（数据与指针都不在 ⇒ 视为已卸载）→
-//! 平台判定 → **确认**（`-y` 跳过）→ 注销目标网关判定（`-g` > cfg；**刻意不看 AIMAIL_URL、
+//! 平台判定 → **确认**（`-y` 跳过）→ 注销目标网关判定（`-g` > cfg；**刻意不看 AIMAIL_GW_URL、
 //! 也不落生产默认**）→ 逐绑定网关注销（SDK 单入口）→ 网关侧兜底（按 sid 反查地址表 +
 //! 白名单清理，SDK 单入口）→ 平台 `uninstall_steps`（表驱动）→ 本机数据（mail/系统目录/原始 key）。
 
@@ -162,7 +162,7 @@ pub fn run(a: &Args) -> i32 {
         return 1;
     }
 
-    // 注销目标网关判定：-g > cfg（**不看 AIMAIL_URL、不落生产默认**）
+    // 注销目标网关判定：-g > cfg（**不看 AIMAIL_GW_URL、不落生产默认**）
     let mut gw: Value = config::load_gateway_config(&sid)
         .map(|c| Value::Object(c.to_json()))
         .unwrap_or_else(|| json!({}));

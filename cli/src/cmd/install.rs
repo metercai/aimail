@@ -197,7 +197,7 @@ fn resolve_gateway_url(explicit: &str, sid: &str) -> (String, &'static str) {
     if !explicit.is_empty() {
         return (explicit.to_string(), "flag");
     }
-    let v = crate::core::config::env_val("AIMAIL_URL", "");
+    let v = crate::core::config::env_val("AIMAIL_GW_URL", "");
     if !v.is_empty() {
         return (v, "env");
     }
@@ -402,7 +402,7 @@ fn ensure_system(a: &Args) -> i32 {
     } else {
         return err_json(
             "no credential to activate with",
-            "export AIMAIL_URL + AIMAIL_PRODUCT_CODE then retry (or run bootstrap), or pass -c <code> / -k <admin-key>",
+            "export AIMAIL_GW_URL + AIMAIL_PRODUCT_CODE then retry (or run bootstrap), or pass -c <code> / -k <admin-key>",
         );
     }
 
@@ -690,11 +690,11 @@ fn install_human(a: &Args) -> i32 {
         gw_url = u;
         if src == "prev" {
             ok(&format!(
-                "gateway_url 继承本地配置: {gw_url}(复用 {sid};-g / AIMAIL_URL 优先)"
+                "gateway_url 继承本地配置: {gw_url}(复用 {sid};-g / AIMAIL_GW_URL 优先)"
             ));
         } else if src == "default" {
             warn(&format!(
-                "gateway_url 无本地值, 落到默认 {gw_url}(未给 -g / AIMAIL_URL)"
+                "gateway_url 无本地值, 落到默认 {gw_url}(未给 -g / AIMAIL_GW_URL)"
             ));
         }
     }

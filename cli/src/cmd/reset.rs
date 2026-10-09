@@ -108,7 +108,7 @@ pub fn run(a: &Args) -> i32 {
     let gw_url = if !a.gateway_url.is_empty() {
         a.gateway_url.clone()
     } else {
-        let e = config::env_val("AIMAIL_URL", "");
+        let e = config::env_val("AIMAIL_GW_URL", "");
         if !e.is_empty() {
             e
         } else {

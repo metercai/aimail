@@ -75,7 +75,7 @@ AIMail supports **system-level install** from the terminal: add the AIMail modul
 - Then set the received system identifier, activation code, and the rest as environment variables and run the AIMail bootstrap script to initialize the local environment. For example:
 
 ```bash
-export AIMAIL_URL=https://aimail.token.tm     # cloud gateway address
+export AIMAIL_GW_URL=https://aimail.token.tm     # cloud gateway address
 export AIMAIL_PRODUCT_CODE=<activation-code>  # activation code claimed in the cloud
 export AIMAIL_SYSTEM_NAME=<your-id>           # shared-domain system: agent.<id>@<shared domain>
 export AIMAIL_MANAGER_ADDRESS=you@example.com # default manager mail for the agent; each agent may differ
@@ -87,7 +87,8 @@ curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootst
 **aimail command-line install:**
 
 ```bash
-aimail install --home ~/.hermes       # Hermes (also ~/.dsh, ~/.openclaw, ~/.pi, ~/.deer-flow; --home is the Agent's root directory)
+export AGENT_HOME=~/.hermes   # the Agent's root directory (also ~/.dsh, ~/.openclaw, ~/.pi, ~/.deer-flow)
+aimail install
 ```
 
 **Or the Agent's plugin install:**
@@ -112,7 +113,7 @@ aimail welcome       # the gateway sends a welcome mail to the Agent and the man
 - Then set the received system activation code and related values as environment variables and run the AIMail bootstrap script to initialize the local environment. For example:
 
 ```bash
-export AIMAIL_URL=https://aimail.token.tm     # cloud gateway address
+export AIMAIL_GW_URL=https://aimail.token.tm     # cloud gateway address
 export AIMAIL_PRODUCT_CODE=<activation-code>  # activation code claimed in the cloud
 export AIMAIL_DOMAIN=<your-domain>            # dedicated domain: agent@<dedicated domain>
 export AIMAIL_MANAGER_ADDRESS=you@example.com # default manager mail address for the agent; each agent may differ
@@ -127,7 +128,7 @@ curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootst
 - Then set the system-level key and related values as environment variables and run the AIMail bootstrap script to initialize the local environment. For example:
 
 ```bash
-export AIMAIL_URL=<your-gateway-url>          # your self-hosted gateway address, e.g. https://mail.example.com
+export AIMAIL_GW_URL=<your-gateway-url>          # your self-hosted gateway address, e.g. https://mail.example.com
 export AIMAIL_ADMIN_KEY=<system key>         # system-level key (not the gateway's own admin key)
 export AIMAIL_DOMAIN=<your-domain>            # dedicated domain, e.g. example.com
 export AIMAIL_MANAGER_ADDRESS=you@example.com # default manager mail address for the agent; each agent may differ

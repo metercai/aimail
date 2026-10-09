@@ -197,7 +197,7 @@ def write_hermes(home: Path, base_url: str, model: str, api_key: str,
     Incident 2026-09-27: the first version also wrote $HERMES_HOME/config.yaml. Run
     host-side on a developer machine, HERMES_HOME points at the operator's LIVE
     profile, so a test writer silently rewrote a live config (the model block of
-    ~/.hermes/profiles/agentmail/config.yaml). An environment variable must never be
+    a live ~/.hermes/profiles/<name>/config.yaml). An environment variable must never be
     able to widen a test tool's write set: targets are what the caller names, nothing
     else. The container layout difference (e.g. HERMES_HOME=/opt/data) is the
     caller's business — it passes --extra-home explicitly in that case.

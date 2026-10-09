@@ -182,7 +182,7 @@ describe('ensureSystem (CLI reverse-call ABI)', () => {
       stdout: JSON.stringify({
         success: false,
         error: 'Activation code already claimed',
-        hint: 'export AIMAIL_URL + AIMAIL_PRODUCT_CODE then retry',
+        hint: 'export AIMAIL_GW_URL + AIMAIL_PRODUCT_CODE then retry',
       }),
     })
     const r = await ensureSystem(optsWith({ exec: ex }))

@@ -22,9 +22,9 @@
 #   DEEPSEEK_BASE_URL / DEEPSEEK_MODEL / DEEPSEEK_API_KEY
 #
 # 流程契约(README Quick Start 场景 4, 原样复现, 严禁自行调整):
-#   ③ env 四件套(AIMAIL_URL/ADMIN_KEY/DOMAIN/MANAGER_ADDRESS) + 在线自举 curl|bash
+#   ③ env 四件套(AIMAIL_GW_URL/ADMIN_KEY/DOMAIN/MANAGER_ADDRESS) + 在线自举 curl|bash
 #   ④ aimail install --home <agent root>(裸命令) 或 dsh plugin --profile web add dsh-aimail
-#   ⑤ 裸 aimail welcome(AGENT_HOME env → .agentmail 指针解析系统参数)
+#   ⑤ 裸 aimail welcome(AGENT_HOME env → .agentmail 指针解析系统参数)  # contract-allowed: L3 注释引用契约指针文件名
 #
 # 退出码: 0=绿(闭环完成) · 1=红(某阶段断言失败, 原因已打印) · 2=环境缺前置
 # ═══════════════════════════════════════════════════════════════════════
@@ -237,7 +237,7 @@ say "  admin  key : ${ADMIN_KEY:0:8}… (platform, welcome/approve)"
 # bootstrap.sh 把 env 落盘 ~/.aimail/.env(机器级, config.rs:284 后续 CLI 命令读它),
 # ④ 裸 install 与 ⑤ 裸 welcome 靠 .env + 指针文件, 不靠本 shell 的 export 残留。
 echo "── [3/6] published CLI (README scenario 4: env + online bootstrap)"
-export AIMAIL_URL="$GW_URL"
+export AIMAIL_GW_URL="$GW_URL"
 export AIMAIL_ADMIN_KEY="$SYS_KEY"
 export AIMAIL_DOMAIN="l3.local"
 export AIMAIL_MANAGER_ADDRESS="manager@l3.local"
@@ -250,19 +250,23 @@ ok "published CLI: $( "$AIMAIL_BIN" version 2>/dev/null | head -1 )"
 # ── ④ aimail install / dsh plugin add(README 公布的两种入口)──────
 # README: "install either through the aimail command line or through the Agent's
 # plugin — pick one of the two"。两种路径都是对外公布的 ⇒ 都测(矩阵 agent 维
-# 扩展: hermes / dsh-aimail / dsh-plugin)。命令形态 = README 原样(裸命令,
-# env 已由 ③ 落盘 ~/.aimail/.env + 本 shell export)。
+# 扩展: hermes / dsh-aimail / dsh-plugin)。命令形态 = README 原样:
+#   CLI 入口 = 裸 `aimail install`(home 由 ④ 开头的 export AGENT_HOME 提供,
+#   与 ⑤ welcome 共享同一 env; 无 --home flag)。
+#   插件入口 = `dsh plugin --profile web add dsh-aimail`(无 AGENT_HOME 依赖)。
+# env 已由 ③ 落盘 ~/.aimail/.env + 本 shell export。
 echo "── [4/6] SDK install (README command shape)"
+export AGENT_HOME="$AGENT_HOME"
 case "$AGENT" in
   dsh-plugin)
-    # README 96 行: dsh plugin --profile web add dsh-aimail (Agent 插件入口)
+    # README: dsh plugin --profile web add dsh-aimail (Agent 插件入口)
     DSH_HOME="$DSH_HOME" dsh plugin --profile web add dsh-aimail \
       || die "dsh plugin add dsh-aimail failed (README plugin path)"
     ;;
   dsh-aimail|hermes)
-    # README 90 行: aimail install --home <agent root> (CLI 入口; 裸命令, 无 -k/-g/-m/-n)
-    "$AIMAIL_BIN" install --home "$AGENT_HOME" \
-      || die "aimail install --home failed (README CLI path)"
+    # README: 裸 aimail install(AGENT_HOME env 提供 home; 与 welcome 共享)
+    "$AIMAIL_BIN" install \
+      || die "aimail install failed (README CLI path; 见 C-7: 发布版 install 不认 AGENT_HOME)"
     ;;
 esac
 ok "install done (system activated + platform adapted)"
@@ -349,14 +353,14 @@ esac
 
 # ── ⑤ welcome 闭环(welcome → agent 回三标签 → manager approve)──
 echo "── [5/6] welcome closed loop (manager approves identity card + signature)"
-# README 104 行原样: 裸 `aimail welcome`。上下文解析链(welcome.rs:25-91):
-#   sid:      AGENT_HOME env → {AGENT_HOME}/.agentmail 指针(install/插件注册时写)
-#             → 自动判定; 用户不知道 system_id, 不传 --system-id。
+# README 原样: 裸 `aimail welcome`。上下文解析链(welcome.rs:25-91):
+#   sid:      AGENT_HOME env(④ 已 export, install 与 welcome 共享)
+#             → {AGENT_HOME}/.agentmail 指针(install/插件注册时写)→ 结束;  # contract-allowed: L3 注释引用契约指针文件名
+#             用户不知道 system_id, 不传 --system-id。
 #   manager:  -m flag → AIMAIL_MANAGER_ADDRESS env(③ 已 export + bootstrap 落盘 .env)
 #             → config.manager_address。
 #   admin_key: systems/<sid>/aimail_gateway.json(install 写入, welcome.rs:102)。
 # 需 agent 的入站端点已起(install 已接线), 且 agent+LLM 能生成三标签回复。
-export AGENT_HOME="$AGENT_HOME"
 "$AIMAIL_BIN" welcome 2>&1 | tee "$WORK/welcome.log"
 WELC_RC=${PIPESTATUS[0]}
 [ "$WELC_RC" -eq 0 ] || die "welcome closed loop failed (rc=$WELC_RC) — $(tail -12 "$WORK/welcome.log")"
@@ -375,18 +379,18 @@ import hashlib, hmac
 gw_url, system_id = sys.argv[1], sys.argv[2]
 
 # ── 1) 定位 agent 绑定文件(install 落的单一真源, check/l0 同源) ──
-# 布局: ~/.aimail/systems/<sid>/*/agentmail.json —— 字段 email/api_key 必填
+# 布局: ~/.aimail/systems/<sid>/*/agentmail.json —— 字段 email/api_key 必填  # contract-allowed: L3 校验 install 写入契约绑定文件
 # (BINDING_REQUIRED, cli/src/core/checks/l0.rs:36)。
 home = os.path.expanduser("~/.aimail")
 binding = None
 base = os.path.join(home, "systems", system_id)
 for entry in sorted(os.listdir(base)) if os.path.isdir(base) else []:
-    aj = os.path.join(base, entry, "agentmail.json")
+    aj = os.path.join(base, entry, "agentmail.json")  # contract-allowed: L3 读契约绑定文件
     if os.path.isfile(aj):
         binding = json.load(open(aj, encoding="utf-8"))
         break
 if not binding:
-    print(f"  ✗ no agentmail.json under {base} (install did not adapt the platform)"); sys.exit(1)
+    print(f"  ✗ no agentmail.json under {base} (install did not adapt the platform)"); sys.exit(1)  # contract-allowed: L3 报错引用契约绑定文件名
 email, key = binding.get("email", ""), binding.get("api_key", "")
 if not email or not key:
     print(f"  ✗ binding missing email/api_key: {list(binding.keys())}"); sys.exit(1)

@@ -22,7 +22,7 @@ fn run(home: &Path, args: &[&str]) -> (i32, String) {
         .env("AIMAIL_HOME", home)
         .env("AIMAIL_PROG_DIR", home.join("prog"))
         .env("HOME", home.join("uhome"))
-        .env_remove("AIMAIL_URL")
+        .env_remove("AIMAIL_GW_URL")
         .output()
         .expect("run aimail");
     (
