@@ -201,21 +201,81 @@ def write_hermes(home: Path, base_url: str, model: str, api_key: str,
     able to widen a test tool's write set: targets are what the caller names, nothing
     else. The container layout difference (e.g. HERMES_HOME=/opt/data) is the
     caller's business — it passes --extra-home explicitly in that case.
+
+    Text-based (stdlib only, same reason as the dsh writer below): the macOS runner's
+    system python3 has NO PyYAML (`python3 -c "import yaml"` → ModuleNotFoundError,
+    measured 2026-10-09 in L3), so a yaml-import writer dies there. The file is the
+    installer's cli-config.yaml.example (2329 lines, top-level `model:` block, 2-space
+    indented active keys, commented examples); only the model block's active keys are
+    touched, in place.
     """
     written = []
     for p in [home / ".hermes" / "config.yaml"] + [Path(e) / "config.yaml" for e in (extra_homes or [])]:
-        cfg = _load_yaml(p)
-        model_block = {"provider": "custom", "default": model, "base_url": base_url}
         # L3: a live endpoint (not the journey's keyless stub) needs the credential.
         # hermes seeds its credential pool from `model.api_key` when
         # model.provider == "custom" (credential_pool.py:3034-3056), so the key is
         # written inline; the dummy journey key is never written.
+        keys = {"provider": "custom", "default": model, "base_url": base_url}
         if api_key and api_key != DEFAULT_API_KEY:
-            model_block["api_key"] = api_key
-        cfg["model"] = model_block
-        _write_yaml(p, cfg, merged=True)
+            keys["api_key"] = api_key
+        if p.is_file():
+            bak = p.with_suffix(p.suffix + ".pre-llm.bak")
+            if not bak.exists():
+                shutil.copy2(p, bak)
+            lines = p.read_text().splitlines(keepends=True)
+            start, end = _hermes_model_block(lines)
+            if start is None:
+                lines += ["model:\n"]
+                start, end = len(lines) - 1, len(lines)
+            assert start is not None and end is not None
+            end = _hermes_upsert_model(lines, start, end, keys)
+            p.write_text("".join(lines))
+        else:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            body = ["model:\n"] + [f'  {k}: "{v}"\n' for k, v in keys.items()]
+            p.write_text("".join(body))
         written.append(p)
     return written
+
+
+# ── hermes: the model block is edited as TEXT, on purpose (stdlib only) ─────────
+_HERMES_MODEL_KEY_RE = re.compile(r"^(provider|default|base_url|api_key)\s*:\s*(.*?)\s*$")
+
+
+def _hermes_model_block(lines: list[str]) -> tuple[int | None, int | None]:
+    """(start, end) line indexes of the top-level `model:` block, or (None, None)."""
+    for i, ln in enumerate(lines):
+        if re.match(r"^model:\s*(#.*)?$", ln.rstrip("\n")):
+            j = i + 1
+            while j < len(lines):
+                s = lines[j].strip()
+                if s and not s.startswith("#") and not lines[j].startswith(" "):
+                    break
+                j += 1
+            return i, j
+    return None, None
+
+
+def _hermes_upsert_model(lines: list[str], start: int, end: int,
+                         keys: dict[str, str]) -> int:
+    """Upsert `key: "value"` pairs in the model block (active lines only —
+    the installer template carries commented examples that must never match)."""
+    for key, value in keys.items():
+        new = f'  {key}: "{value}"\n'
+        hit = None
+        for i in range(start + 1, end):
+            s = lines[i].strip()
+            if s.startswith("#"):
+                continue
+            if re.match(rf"^\s+{re.escape(key)}\s*:", lines[i]):
+                hit = i
+                break
+        if hit is not None:
+            lines[hit] = new
+        else:
+            lines.insert(start + 1, new)
+            end += 1
+    return end
 
 
 # ── dsh: the patch layer is edited as TEXT, on purpose ───────────────────────
@@ -374,7 +434,13 @@ def write_dsh(home: Path, base_url: str, model: str, api_key: str) -> list[Path]
 # "deer-flow" spelling -> `plat not in WRITERS` -> "CANNOT JUDGE: unknown platform
 # 'deerflow'" rc=2 and two dead J4 gaps (2026-10-02). Alias table below keeps the old
 # spelling accepted so any other caller keeps working.
-PLATFORM_ALIASES = {"deer-flow": "deerflow"}
+PLATFORM_ALIASES = {
+    "deer-flow": "deerflow",
+    # L3 矩阵格名 ≠ 注册表平台 id: dsh 两条 README 公布路径各占一格,
+    # LLM 配置形态相同 ⇒ 都归 dsh writer(2026-10-09 矩阵扩展时补)。
+    "dsh-aimail": "dsh",
+    "dsh-plugin": "dsh",
+}
 
 WRITERS = {
     "openclaw": write_openclaw,
@@ -458,17 +524,33 @@ def verify_deerflow(home: Path, base_url: str, model: str) -> list[str]:
 def verify_hermes(home: Path, base_url: str, model: str, extra_homes: list[str] | None = None) -> list[str]:
     # 双写布局: 宿主进程读 extra-homes 的 config.yaml(真 HERMES_HOME),
     # scratch 是 verify 专用副本 —— 两个位置都要对, 宿主那份才是真正生效的。
+    # 文本读取(model 块内活跃行), 与 write_hermes 同形; 纯标准库(macOS 无 PyYAML)。
     bad: list[str] = []
     checked = [home / ".hermes" / "config.yaml"]
     for e in (extra_homes or []):
         checked.append(Path(e) / "config.yaml")
     for p in checked:
-        cfg = _load_yaml(p)
-        m = cfg.get("model") or {}
-        if m.get("base_url") != base_url:
-            bad.append(f"{p} model.base_url={m.get('base_url')!r} != {base_url!r}")
-        if m.get("default") != model:
-            bad.append(f"{p} model.default={m.get('default')!r} != {model!r}")
+        if not p.is_file():
+            bad.append(f"{p} does not exist")
+            continue
+        lines = p.read_text().splitlines(keepends=True)
+        start, end = _hermes_model_block(lines)
+        if start is None:
+            bad.append(f"{p} has no top-level model: block")
+            continue
+        span = (start, end or 0)
+        vals: dict[str, str] = {}
+        for ln in lines[span[0] + 1:span[1]]:
+            s = ln.strip()
+            if s.startswith("#"):
+                continue
+            m = re.match(r"^\s+(provider|default|base_url|api_key)\s*:\s*(.*?)\s*$", ln)
+            if m:
+                vals[m.group(1)] = m.group(2).strip().strip('"')
+        if vals.get("base_url") != base_url:
+            bad.append(f"{p} model.base_url={vals.get('base_url')!r} != {base_url!r}")
+        if vals.get("default") != model:
+            bad.append(f"{p} model.default={vals.get('default')!r} != {model!r}")
     return bad
 
 

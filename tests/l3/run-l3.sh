@@ -251,12 +251,38 @@ case "$AGENT" in
     # 宿主进程读 $HERMES_HOME/config.yaml(install 注册步已写 platforms.webhook)。
     # webhook 端口 = 注册时 _next_available_webhook_port(基 8644) 写入的 extra.port;
     # gateway 起平台时监听同一端口 ⇒ 从 config 读回, 不猜不硬编码。
+    # 纯标准库文本读取(macOS 系统 python3 无 PyYAML): 找顶层 platforms: 块内
+    # webhook: 的 extra: 的 port(活跃行, 注释行不认)。install 注册步写的是
+    # platforms.webhook.{enabled, extra:{host,port,secret}}(aimail_hermes.py)。
     HERMES_PORT="$(python3 - "$HERMES_HOME/config.yaml" <<'PY'
-import sys, yaml
-c = yaml.safe_load(open(sys.argv[1])) or {}
-wh = c.get("platforms", {}).get("webhook", {})
-p = wh.get("extra", {}).get("port") or wh.get("port")
-print(int(p) if p else 0)
+import re, sys
+port = 0
+lines = open(sys.argv[1]).read().splitlines()
+in_plat = in_wh = in_extra = False
+for ln in lines:
+    s = ln.strip()
+    if s.startswith("#"):
+        continue
+    if not ln.startswith(" "):
+        in_plat = (s == "platforms:")
+        in_wh = in_extra = False
+        continue
+    if in_plat and ln.startswith("  ") and not ln.startswith("   "):
+        in_wh = (s == "webhook:")
+        in_extra = False
+        continue
+    if in_wh and ln.startswith("    ") and not ln.startswith("     "):
+        if s == "extra:":
+            in_extra = True
+        elif s.startswith("port:"):
+            port = int(re.match(r"port:\s*(\d+)", s).group(1))
+            in_extra = False
+        else:
+            in_extra = False
+        continue
+    if in_extra and ln.startswith("      ") and s.startswith("port:"):
+        port = int(re.match(r"port:\s*(\d+)", s).group(1))
+print(port)
 PY
 )" || die "cannot read hermes webhook port"
     [ "${HERMES_PORT:-0}" -gt 0 ] 2>/dev/null || die "hermes platforms.webhook.port not set (install did not wire the webhook)"
