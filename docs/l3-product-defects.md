@@ -23,6 +23,10 @@
 | C-5 | cli | hermes SDK 安装步在 SDK 不可用时仍报 "✓ SDK install done" — 掩盖硬失败 | Major |
 | B-1 | bootstrap | bootstrap 宣告 README 场景 4 裸流程(env ready + next steps 指向裸 `aimail install`),CLI 无法满足 | Major(契约不一致) |
 | B-2 | bootstrap | release 发现走未认证 api.github.com(60/h IP 限流),并发/重试场景撞 403 且误报 "no cli-v* release found" | Major(CI 9 并发实证) |
+| C-9 | cli | node 平台 SDK 门统一成 python aimailsdk 但 install 链不装(86babad Rust 化回归)⇒ 注册链 + reset/uninstall 全新安装全挂 | Blocker(3 平台注册/复位/注销) |
+| C-10 | cli | deerflow 全新安装链断裂:`{sdk}` 在 install_steps 执行前一次性解析,首装 skill/mcp 装配必 127(rc=0 掩盖) | Major(deerflow 装配断裂) |
+| C-11 | cli | `prompt add` CLI↔SDK ABI 不匹配:CLI 把 `prompt_rules` 嵌在 `updates`/`fields` 键下,SDK `_op_update` prompt 分支只读顶层 `args.get("prompt_rules")` ⇒ 恒 None ⇒ "缺少要更新的字段"(rc=1)。所有平台 `aimail prompt add` 全挂(仅 deerflow 本轮首装成功才真跑到) | Major(prompt 面全断) |
+| C-12 | cli | `address -n`(rename)SDK 从 **agent 绑定**读 `gateway_url/admin_key`,但绑定从不写 `admin_key`(repair 回填列表 `(gateway_url,domain,system_name)` 刻意不含;install 也不写)⇒ 新装后 rename 必 "lacks gateway_url/admin_key"。应读系统级 syscfg 而非绑定 | Major(rename 面全断) |
 | C-2 | cli | l1.rs 错误提示引用不存在的 `--with-key` flag 与 `AIMAIL_ADMIN_KEY` env 行为 | Minor(文档漂移) |
 
 ---
@@ -106,6 +110,49 @@
 - **实际**:`cli/platforms.json` hermes `install_steps[2]`(kind=`sdk_install`)`on_error: warn` + `ok_text` 无条件打印 "SDK install done",即使 `import aimail` 失败(ImportError)也报成功 → 掩盖 C-4 的硬失败,误导诊断。
 - **产品域**:cli。
 - **修复方向**:SDK 不可 import 时该步应明确 fail(而非 warn + 假成功),让 install 在正确步骤失败并给出准确原因。
+
+### C-9 node 平台(dsh/pi/openclaw)SDK 门要求 python aimailsdk 但 install 链不装 —— 注册链 + reset/uninstall 全新安装全挂(Rust 化回归)
+
+- **现象**:node 平台(dsh/pi/openclaw)上:
+  ① 注册链 `✗ <plat> agent registration failed ... 异常: TransportError: 可执行门输出异常(rc=1, 0 行): /usr/local/bin/python3: ... ModuleNotFoundError: No module named 'aimail'`;
+  ② `aimail reset` / `aimail uninstall` 硬退出 rc=2,报 `✗ SDK 未安装或不可用:ERROR: 运行时源未找到(pip aimail 未安装且仓库 pysdk/ 缺失)`。
+  install 的 npm 步本身成功(dsh plugin add / pi install / openclaw plugins install),但注册链与 reset/uninstall 全挂。
+- **复现**(已实证,CLI L2 journey 全跑 2026-10-09,`/tmp/cli-l2-logs/20261009-192801`):dsh/pi/openclaw 容器注册失败(No module named 'aimail')+ reset/uninstall rc=2,共 ~30 处红(3 平台 × 注册/reset/uninstall/check + 级联 J2/prompt/J4/J6)。
+- **期望 vs 实际**:期望 = node 平台按 `register.rs:233` 的"按 kind 惰性解析"走 node SDK(register-cli.js),不强制 python aimailsdk;实际 = Rust 化(`86babad`,owner 2026-10-07)把 SDK 门统一成 `python3 -m aimail.sdk_ops`(`sdk.rs:203-214` door_command_in,`-m aimail.sdk_ops`,零路径、无 node 分支),而 node 平台 install_steps 只装 npm 包、从不装 python aimailsdk ⇒ 门必中 `ModuleNotFoundError`。legacy python CLI 对 node 平台是 node_entry dispatch(`cli/aimail:2296 _resolve_node_entry` 直 spawn `register-cli.js`,不经 python 门)⇒ 0929 基线 openclaw journey 51 PASS 0 FAIL;Rust 化后丢失该路径。owner `86babad` 自报"容器内 aimailsdk=0.1.48 · 五平台 7/0"靠的是验证环境**预装** aimailsdk,掩盖了缺口 —— 全新安装环境必炸。
+- **位置**:`cli/src/core/sdk.rs:203-214`(door 一律 `-m aimail.sdk_ops`);`cli/src/core/register.rs:230-237`(assemble 走 sdk_ops_call,按 kind 惰性解析 SDK 根但门本身要 python 包);`cli/src/cmd/reset.rs:185` / `uninstall.rs:187`(无条件 resolve_or_placeholder);`cli/src/core/sdkroot.rs:157-166`(resolve 失败 exit(2));`cli/platforms.json` dsh/pi/openclaw install_steps(只 npm,无 aimailsdk)。
+- **产品域**:cli。
+- **严重度**:Blocker(3 平台注册链 + reset/uninstall 全新安装不可用)。
+- **修复方向**:二选一 —— (a) door 恢复按 kind dispatch(node 平台走 register-cli.js,对齐 sdk.rs:8 的声明与 register.rs:233 口径);或 (b) node 平台 install_steps 补装 python aimailsdk(与 hermes/deerflow 一致),使 `-m aimail.sdk_ops` 可用。选 (a) 更贴合"node 平台无 pysdk"既定口径;选 (b) 省事但违背 register.rs:233。
+
+### C-10 deerflow 全新安装链断裂:`{sdk}` 在 install_steps 执行前一次性解析,首装 skill/mcp 装配必 127
+
+- **现象**:deerflow `aimail install` 在 skill/mcp 装配步报 `bash: /deer-flow/install-skill.sh: No such file or directory` + `✗ bash /deer-flow/install-skill.sh exit 127`(install-mcp.sh 同)。install 整体 rc=0(掩盖硬失败,同 C-5 形态),但 skill/toolset 装配实际未发生。
+- **复现**(已实证,CLI L2 journey 全跑 2026-10-09,`/tmp/cli-l2-logs/20261009-192801`):deerflow 容器 install 段 aimailsdk 装上了(✓ import 成功),但 `install_steps[2]`(bash {sdk}/deer-flow/install-skill.sh)/[3](install-mcp.sh)展开成 `/deer-flow/...`(空 sdk_root)⇒ 127。
+- **机制**:`install.rs:894-899` 在 install_steps **执行前**一次性 `sdkroot::resolve()` 取 `{sdk}`;deerflow `install_steps[0]` 才装 aimailsdk ⇒ 解析时 SDK 未装 ⇒ resolve 失败 ⇒ `{sdk}` 回落 core_dir(也空)⇒ 步 [2]/[3] 的 `{sdk}/...` 展开成不存在路径。`86babad` commit 声称"steps.rs: {sdk} 实时解析"但代码是执行前一次性解析,step[0] 装完后**不重解析**。
+- **位置**:`cli/src/cmd/install.rs:876-899`({sdk} 预解析);`cli/platforms.json` deerflow install_steps[2]/[3](引用 {sdk})。
+- **产品域**:cli。
+- **严重度**:Major(deerflow 全新安装 skill/toolset 装配断裂,且 rc=0 掩盖)。
+- **修复方向**:`{sdk}` 改为 install_steps **执行期**实时解析(step[0] 装完后重解析),或 deerflow 的 skill/mcp 步改用 SDK 自足 inline 入口(不经 {sdk} 路径)。
+
+### C-11 `prompt add` CLI↔SDK ABI 不匹配:`prompt_rules` 键名对不上,prompt 面全断
+
+- **现象**:`aimail prompt add -s <sid> -e <addr> -n 20_j5matrix --subject j5matrix` ⇒ rc=1,`update_binding failed: Usage("update action=prompt: 缺少要更新的字段")`。
+- **复现**(已实证,CLI L2 journey 全跑 2026-10-09,`/tmp/cli-l2-logs/20261009-231637`):deerflow J5-7a(J5 子命令矩阵,活环境有在册地址 `agent@sdk-e2e-deerflow-cli.local`)。此前各平台要么注册失败无地址(C-9/C-4 下游)要么无在册地址,prompt add 这一格全平台 CANNOT JUDGE,此 ABI 缺口从未被测到。
+- **机制**:Rust CLI `prompt.rs:81-84` 把补丁放进 `{"system_id", "binding", "action", "updates": patch, "fields": patch}`(`patch` 含 `prompt_rules`);SDK 门 `sdk_ops.py:522` 的 prompt 分支只读**顶层** `args.get("prompt_rules")` ⇒ 恒 None ⇒ `updates` 过滤后为空 ⇒ `UsageError("update action=prompt: 缺少要更新的字段")`。`_op_update` 入口(443-530)与 dispatch 表(568)均无 `updates`/`fields` 解包逻辑。
+- **位置**:`cli/src/cmd/prompt.rs:81-95`(调用方)↔ `pysdk/sdk_ops.py:520-528`(SDK 门 prompt/persona/webhook-secret 分支)。
+- **产品域**:cli(ABI 契约 v1.0 §4.1 的调用面)。
+- **严重度**:Major(`prompt add/rm 之外的受控 prompt 变更面`全断;persona/webhook-secret 同分支同形态,待各自旅程暴露)。
+- **修复方向**:二选一对齐——SDK `_op_update` 入口统一从 `args["updates"]/args["fields"]` 解包后按 action 取字段(推荐,兼容两种键名);或 CLI 侧把 `prompt_rules` 提到 args 顶层。
+
+### C-12 `address -n`(rename)从 agent 绑定读网关凭据,而绑定从不写 `admin_key` ⇒ 新装后 rename 必挂
+
+- **现象**:`aimail address -s <sid> -e <addr> -n <new>` ⇒ rc=1,`地址改名失败: system config lacks gateway_url/admin_key`。
+- **复现**(已实证,CLI L2 journey 全跑 2026-10-09):deerflow J5-6ea(改名→信号→路由跟随,活环境有在册地址;J1 install -k rc=0、J2 install -c rc=0,系统级 cfg 里 gateway_url/admin_key 俱在)。
+- **机制**:SDK `_op_update` rename 分支(`sdk_ops.py:461-463`)把 `_agent_binding(...)` 取回的**绑定 cfg** 传给 `rename_address(system_id, old_email, new_name, cfg)`;`aimail_base.py:560-562` 在该 cfg 上找 `gateway_url`+`admin_key`,缺则抛 "system config lacks gateway_url/admin_key"。而绑定从不写 `admin_key`:install 不写;repair 回填(`sdk_ops.py:471-476`)列表刻意只含 `("gateway_url","domain","system_name")`。⇒ 任何新装系统的首次 rename 必挂。系统级 syscfg(同函数 449 行已加载,含 admin_key)就在手边却未被 rename 使用。
+- **位置**:`pysdk/sdk_ops.py:461-463`(传参)+ `pysdk/aimail_base.py:530-562`(rename_address 凭据读取)。
+- **产品域**:cli(SDK 门,agent 命名/改名域)。
+- **严重度**:Major(rename 面全断;改名是 README 日常操作面)。
+- **修复方向**:`rename_address` 的凭据读取改用系统级 syscfg(或 `_op_update` rename 分支把 syscfg 的 gateway_url/admin_key 合入后传入),绑定只作 email 定位源。
 
 ### C-2 l1.rs 错误提示引用不存在的 `--with-key` flag 与 `AIMAIL_ADMIN_KEY` env 行为
 
