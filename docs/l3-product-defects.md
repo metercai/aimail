@@ -9,6 +9,24 @@
 > 每条含:现象 / 复现 / 期望 vs 实际 / 位置(file:line)/ 产品域 / 修复方向。
 > 严重度:Blocker=阻断 README 公布流程 · Major=掩盖失败/契约不一致 · Minor=文档漂移。
 
+> **2026-10-10 复核(当前修复队列态)**:今日两次 L3 全 9 格 `conclusion=failure`——
+> ① 09:57(openclaw-aimail 0.1.50 publish success 触发)② 10:35(cli-release 0.1.38 success 触发)。
+> 红先于 0.1.37(09:57 那次测的即是 0.1.37)⇒ **非本次发版引入,是发布产物链路上游的既有 Blocker**。
+> 逐条复核 HEAD(0.1.38/0.1.49/0.1.50 之后)仍 live:
+> - **C-3** detect all-of 全要 markers:`cli/src/core/platforms.rs:96` `markers.iter().all(...)` 仍在。
+> - **C-1** 裸 install 不读 env:`cli/src/cmd/install.rs:272/610` `adm_key=a.admin_key.clone()`(只 -k flag),新建路径 gw_url 无 env 回落。
+> - **C-4** hermes venv 失配:`cli/platforms.json` hermes `install_steps[0]` 仍钉 `{home}/hermes-agent/venv/bin/python`。
+> - **C-7** install 不读 AGENT_HOME:`cli/src/cmd/install.rs:281-286`(ensure_system)+ `619-634`(install_human),home 只认 `--home`/`--system-id`,全仓 install 路径无 AGENT_HOME 消费。**修复方案已出,待 owner 批准后落码。**
+> - **C-11 / C-12** prompt add ABI / rename 凭据:本轮已随 SDK 0.1.49 修复(L2 J5-7 全绿);但 L3 全 9 格未跑到 ⑤⑥ 无法闭环验证,保留待 L3 绿后确认。
+> - **S-1 dsh-aimail 与 dsh 0.2.x 不兼容 —— 0.1.49 未修**(新核):`dsh-aimail@0.1.49` peerDependencies 仍为旧顶层包 `dsh-llm/dsh-agent/dsh-tools`(与 0.1.48 逐字相同),实际 `import` 亦然(inbound.ts:29 `@deepseek-ai/dsh-llm` / tools.ts:13 `@deepseek-ai/dsh-tools`);dsh latest `0.2.0-rc.2` 已拆成 `dsh-tool-*/dsh-agent-*` 细粒度包,不再提供这些顶层包 ⇒ **0.1.49 发版未动 S-1**,dsh-plugin L3 格仍红在兼容闸。
+>
+> 逐格首红(按未变 Blocker 集;新 run 的逐格逐行落点需读 CI 日志,gh 未登录 ⇒ 本地 L3 最小复现可补):
+> - hermes × 3 + dsh-aimail × 3:④ `无法确定平台`(C-3,干净机无 profiles/storages)。
+> - dsh-plugin × 3:④ dsh 兼容闸拒装(S-1,0.1.49 未修)。
+> - **修复优先级(按 ④ 段首红拦截顺序):C-7(已修,e71ee21)→ C-3 → S-1 → C-1/C-4**。
+>   C-7 是 hermes/dsh-aimail ④ 段裸 install 的最外层关口(此前 ④ 段在 install 入口即红,
+>   根本到不了 detect);修后 ④ 段继续往下,hermes/dsh 会撞 C-3 detect,再往下才是 C-1/C-4。
+
 ## 汇总
 
 | # | 产品域 | 缺陷 | 严重度 |
