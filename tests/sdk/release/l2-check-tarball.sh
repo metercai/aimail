@@ -92,7 +92,10 @@ fi
 #    (宿主侧 release 现在也会响亮报错, 但那时包已发布 → 必须在产物层拦。)
 #    只对声明了 resources 的包生效(mail-core/mail 不带资源 → 跳过)。
 GATE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$GATE_DIR/../.." && pwd)"
+# 门在 <repo>/tests/sdk/release/(仓根下 3 层)⇒ 上爬 3 层到仓根。
+# (历史 bug:原 `../..` 只上 2 层 = <repo>/tests ⇒ canon_dir 指向不存在的
+#  tests/resources ⇒ canon={} ⇒ 所有 shipped 资源被判 extra,带资源的包必 FAIL。)
+REPO_ROOT="$(cd "$GATE_DIR/../.." && cd .. && pwd)"
 if python3 - "$TGZ" "$REPO_ROOT" <<'PYEOF'
 import hashlib, json, pathlib, sys, tarfile
 
