@@ -20,6 +20,7 @@ import * as path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import {
   GatewayClient,
+  BINDING_FILE,
   cleanAddr,
   emailForAgent,
   ensureBindingWebhookSecret,
@@ -386,7 +387,7 @@ export async function opAssemble(args: Record<string, unknown>): Promise<Record<
     } else {
       throw new UsageError(
         `assemble: ${email} 已存在于系统 ${systemId} 但本地没有带 api_key 的绑定 —— ` +
-          `先注销该地址(aimail deregister --email ${email})或恢复 agentmail.json`,
+          `先注销该地址(aimail deregister --email ${email})或恢复 ${BINDING_FILE}`,
       )
     }
   } else {
@@ -588,7 +589,7 @@ async function opRename(
     const entries = await fs.readdir(baseRoot, { withFileTypes: true })
     for (const e of entries) {
       if (!e.isDirectory()) continue
-      const jf = path.join(baseRoot, e.name, 'agentmail.json')
+      const jf = path.join(baseRoot, e.name, BINDING_FILE)
       let acfg: Record<string, unknown>
       try {
         acfg = JSON.parse(await fs.readFile(jf, 'utf-8')) as Record<string, unknown>
@@ -604,7 +605,7 @@ async function opRename(
           merged = true
         } catch {
           await fs.mkdir(dst, { recursive: true, mode: 0o700 })
-          await fs.rename(jf, path.join(dst, 'agentmail.json'))
+          await fs.rename(jf, path.join(dst, BINDING_FILE))
           moved = true
         }
       }
