@@ -10,7 +10,6 @@ import {
   ensureSystem,
   notifyInboundForSystem,
   formatInboundNotifyLine,
-  isInboundNotifyWarning,
   releaseAllSystems,
   setAgentIdentity,
 } from '@aimail/mail-core'
@@ -82,7 +81,8 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
         .then((r) => {
           if (r.ok) {
             if (r.activated) {
-              console.log(`[openclaw-aimail] system activated: ${r.systemId}`)
+              // 宿主生命周期诊断 ⇒ stderr:op 路径(--op/--args)stdout 恰一行 JSON(契约 §4.1(2))
+              console.error(`[openclaw-aimail] system activated: ${r.systemId}`)
             }
           } else {
             const hint = r.hint ? ` (${r.hint})` : ''
@@ -118,11 +118,12 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
     // unref'd by mail-core, so they die with the process and can never keep it
     // alive (see poll-entry.ts pollSleep).
     void startInboundPull(api, {
-      log: (line: string) => console.log(line),
+      // 诊断行 ⇒ stderr:op 路径 stdout 恰一行 JSON(契约 §4.1(2));stdout 污染 ⇒ CLI Transport 判"门输出异常"
+      log: (line: string) => console.error(line),
     })
       .then((handles) => {
         if (handles.length) {
-          console.log(
+          console.error(
             `[openclaw-aimail] pull entry armed for ${handles.length} agent-scope binding(s)`,
           )
         }
@@ -146,8 +147,8 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
       .then((outcomes) => {
         for (const o of outcomes) {
           const line = `[openclaw-aimail] ${formatInboundNotifyLine(o, 'live')}`
-          if (isInboundNotifyWarning(o)) console.warn(line)
-          else console.log(line)
+          // 诊断行 ⇒ stderr(警告/非警告同流):op 路径 stdout 恰一行 JSON(契约 §4.1(2))
+          console.error(line)
         }
       })
       .catch((e) => {
