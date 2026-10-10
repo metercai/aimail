@@ -19,7 +19,17 @@
 > - **C-4** hermes venv 失配:`cli/platforms.json` hermes `install_steps[0]` 仍钉 `{home}/hermes-agent/venv/bin/python`。
 > - **C-7** install 不读 AGENT_HOME:**已修**(e71ee21):home 优先级 `--home` > `AGENT_HOME` > `--system-id`,0.1.39 发布二进制自证(无 env 报新文案 / 带 env 解析 home 推进到下游)。
 > - **C-11 / C-12** prompt add ABI / rename 凭据:本轮已随 SDK 0.1.49 修复(L2 J5-7 全绿);但 L3 全 9 格未跑到 ⑤⑥ 无法闭环验证,保留待 L3 绿后确认。
-> - **S-1 dsh-aimail 与 dsh 0.2.x 不兼容 —— 0.1.49 未修**(新核):`dsh-aimail@0.1.49` peerDependencies 仍为旧顶层包 `dsh-llm/dsh-agent/dsh-tools`(与 0.1.48 逐字相同),实际 `import` 亦然(inbound.ts:29 `@deepseek-ai/dsh-llm` / tools.ts:13 `@deepseek-ai/dsh-tools`);dsh latest `0.2.0-rc.2` 已拆成 `dsh-tool-*/dsh-agent-*` 细粒度包,不再提供这些顶层包 ⇒ **0.1.49 发版未动 S-1**,dsh-plugin L3 格仍红在兼容闸。
+> - **S-1 dsh-aimail 与 dsh 0.2.x 不兼容 —— 0.1.49 未修**(2026-10-10 精确化,推翻旧结论"顶层包已不提供"):
+>   三个顶层包 `dsh-llm/dsh-agent/dsh-tools` 的 0.2.0-rc.2 版本在 npm **仍然存在**(只是 `latest`
+>   标签仍钉旧版 0.0.1-rc.1/0.1.0-rc.6)。真因 = **peerDeps 版本范围错配**:dsh-aimail@0.1.49
+>   声明 `peerDependencies {dsh-llm:^0.0.1-rc.1, dsh-agent:^0.1.0-rc.6, dsh-tools:^0.0.1-rc.1}`
+>   (= npm latest 旧版),dsh latest 0.2.0-rc.2 的兼容闸据此拒装(L3 日志逐字:
+>   `incompatible with dsh 0.2.0-rc.2: peerDependencies{...}`)。
+>   **源码已是 0.2.x 形态**(非源码重写):`tools.ts:31-34` `output:{schema,render}` + `:75/:94`
+>   `execute(args,exec)` 用 `exec.agent.id`;`inbound.ts:161` `createUserMessage({content:[{type:'text',text}],source:{kind:'user'}})`
+>   —— 已对 0.2.0-rc.2 三包 `.d.ts` 逐一坐实 4 个符号(`createUserMessage`/`Agent`/`defineTool`/
+>   `ParameterPropertySpec`)+ 调用形态全部在位。⇒ 修法 = **放宽 peerDeps 版本范围接受 0.2.x**
+>   (SDK 域,需 dsh-aimail 独立发版 + 发版授权),非产品链重构。
 >
 > **0.1.38 vs 0.1.39 逐格首红(CI 日志实拉,run 38045412594 / 38050396467,9 格全对):**
 > - hermes × 3 + dsh-aimail × 3:0.1.38 首红 `✗ install 需要 --home`(C-7 关口)→ 0.1.39 首红 `✗ 无法确定平台`(C-3 detect)。**C-7 修复在 journey 中推进实证:6 格越过 install 入口,落到 C-3。**
@@ -36,7 +46,7 @@
 | C-1 | cli | 裸 `aimail install`(新建路径)不读 `AIMAIL_ADMIN_KEY` / `AIMAIL_GW_URL` env — README 场景 4 失败 | Blocker |
 | C-4 | cli | hermes 适配器 venv 路径假设与当前官方 install.sh 布局失配 — aimailsdk 装不进 | Blocker |
 | C-3 | cli | ~~detect 为 all-of 全要 markers~~ **已修**:detect 放宽为平台特征 marker(hermes `hermes-agent` / dsh `profiles`),注册表 + repair 手写变体 + 测试同步;官方安装产物即可识别,待发版 | (已闭环,待发版) |
-| S-1 | SDK | dsh-aimail@0.1.48 与所有已发布 dsh 版本不兼容(peerDeps + 实际 import 均为 dsh 0.1.x 结构) | Blocker(dsh 双路径) |
+| S-1 | SDK | dsh-aimail@0.1.49 peerDeps 钉旧系列(0.0.1-rc.1/0.1.0-rc.6),与 dsh latest 0.2.0-rc.2 兼容闸冲突 ⇒ 拒装。源码已是 0.2.x 形态,修法 = 放宽 peerDeps 接受 0.2.x(待 SDK 域落码 + 发版授权) | Blocker(dsh 双路径) |
 | C-6 | cli | welcome 承诺的"本机单系统可自动判定"不存在(空 sid 直接返回空) — 多系统机裸 welcome 无上下文时必挂 | Major |
 | C-7 | cli | ~~install 不读 `AGENT_HOME` env 作 home 来源~~ **已修 e71ee21 / 0.1.39**:home 优先级 `--home` > `AGENT_HOME` > `--system-id`;L3 journey 实证 6 格越过 install 入口落到 C-3 | (已闭环) |
 | C-8 | cli | hermes SDK 安装步 host 分支不防 uv `exclude-newer` 隔离(CWD 发现宿主 pyproject 的 14 天隔离)⇒ 静默装旧版 | Major(静默降级) |
