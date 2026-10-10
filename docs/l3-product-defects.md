@@ -15,7 +15,7 @@
 > 红先于 0.1.37(09:57 那次测的即是 0.1.37)⇒ **其余红非发版引入,是发布产物链路上游的既有 Blocker**。
 > 逐条复核 HEAD 仍 live(C-7 除外):
 > - **C-3** detect all-of 全要 markers:**已修**(detect 特征 marker 化:hermes `hermes-agent` / dsh `profiles`;`platforms.json` + `repair.rs` 手写变体 + 三处测试同步),待发版。
-> - **C-1** 裸 install 不读 env:`cli/src/cmd/install.rs:272/610` `adm_key=a.admin_key.clone()`(只 -k flag),新建路径 gw_url 无 env 回落。
+> - **C-1** 裸 install 不读 env:**已修**(待 C-3 同批发版):`install.rs` 两处(ensure_system + install_human)admin_key 加 `AIMAIL_ADMIN_KEY` env 回落(置于复用扫描后,本地绑定优先于 env,避免残留 env 跳过复用);gw_url 新建路径统一走 `resolve_gateway_url`(flag > env > prev > default,新建路径原不读 env)。
 > - **C-4** hermes venv 失配:`cli/platforms.json` hermes `install_steps[0]` 仍钉 `{home}/hermes-agent/venv/bin/python`。
 > - **C-7** install 不读 AGENT_HOME:**已修**(e71ee21):home 优先级 `--home` > `AGENT_HOME` > `--system-id`,0.1.39 发布二进制自证(无 env 报新文案 / 带 env 解析 home 推进到下游)。
 > - **C-11 / C-12** prompt add ABI / rename 凭据:本轮已随 SDK 0.1.49 修复(L2 J5-7 全绿);但 L3 全 9 格未跑到 ⑤⑥ 无法闭环验证,保留待 L3 绿后确认。
@@ -36,14 +36,14 @@
 > - dsh-plugin × 3:两次均 `✗ dsh plugin add dsh-aimail failed`(S-1 pnpm 兼容闸,0.1.49 未修)——不走裸 install,与 C-7 无关。
 > - macos-hermes:两次均 `curl: (56) 403` + `no cli-v* release found`(B-2:未认证 api.github.com 限流误报;0.1.39 release 12:00:22 在位,run 12:02:59 仍 403,与 C-7 无关)。
 >
-> **修复优先级(按 ④ 段首红拦截顺序):S-1 → C-1/C-4**(C-7、C-3 已闭环,C-3 待发版)。
-> C-3 发版后 hermes/dsh-aimail 6 格越过 detect,落到 C-1/C-4;S-1 修后 dsh-plugin 3 格解锁。
+> **修复优先级(按 ④ 段首红拦截顺序):S-1 → C-4**(C-7、C-3、C-1 已闭环;C-3/C-1 待发版)。
+> C-3/C-1 发版后 hermes/dsh-aimail 6 格越过 detect + 凭据装配,落到 C-4(hermes venv);S-1 修后 dsh-plugin 3 格解锁。
 
 ## 汇总
 
 | # | 产品域 | 缺陷 | 严重度 |
 |---|--------|------|--------|
-| C-1 | cli | 裸 `aimail install`(新建路径)不读 `AIMAIL_ADMIN_KEY` / `AIMAIL_GW_URL` env — README 场景 4 失败 | Blocker |
+| C-1 | cli | ~~裸 `aimail install`(新建路径)不读 `AIMAIL_ADMIN_KEY` / `AIMAIL_GW_URL` env~~ **已修**:admin_key env 回落(复用扫描后,本地绑定优先)+ gw_url 新建路径走 `resolve_gateway_url`;待 C-3 同批发版 | (已闭环,待发版) |
 | C-4 | cli | hermes 适配器 venv 路径假设与当前官方 install.sh 布局失配 — aimailsdk 装不进 | Blocker |
 | C-3 | cli | ~~detect 为 all-of 全要 markers~~ **已修**:detect 放宽为平台特征 marker(hermes `hermes-agent` / dsh `profiles`),注册表 + repair 手写变体 + 测试同步;官方安装产物即可识别,待发版 | (已闭环,待发版) |
 | S-1 | SDK | dsh-aimail@0.1.49 peerDeps 钉旧系列(0.0.1-rc.1/0.1.0-rc.6),与 dsh latest 0.2.0-rc.2 兼容闸冲突 ⇒ 拒装。源码已是 0.2.x 形态,修法 = 放宽 peerDeps 接受 0.2.x(待 SDK 域落码 + 发版授权) | Blocker(dsh 双路径) |
@@ -63,7 +63,7 @@
 
 ## CLI(cli)
 
-### C-1 裸 `aimail install`(新建路径)不读 `AIMAIL_ADMIN_KEY` / `AIMAIL_GW_URL` env —— README 场景 C 失败
+### C-1 裸 `aimail install`(新建路径)不读 `AIMAIL_ADMIN_KEY` / `AIMAIL_GW_URL` env —— README 场景 C 失败——**已修(待 C-3 同批发版)**
 
 - **现象**:按 README 场景 C(自托管网关 + 系统级 key)公布的裸流程,`aimail install --home ~/.hermes` 失败,报误导性 `gateway_url is required`(rc=1)。
 - **复现**(已实证,发布二进制 cli-v0.1.37):
@@ -83,6 +83,10 @@
   - 全 CLI 源码无 `AIMAIL_ADMIN_KEY` env 消费(仅 `cli/src/core/checks/l1.rs:123` 一句提示字符串)。
 - **产品域**:cli。
 - **修复方向**:新建路径读取 `AIMAIL_ADMIN_KEY`(系统级 key)与 `AIMAIL_GW_URL` env;或 README/bootstrap 改为强制 `-k`/`-g`(见 B-1 契约不一致)。
+- **修复落码(2026-10-10)**:取第一案 —— `ensure_system` / `install_human` 两处:
+  - `adm_key` 在**复用扫描之后**回落 `AIMAIL_ADMIN_KEY`(本地绑定优先于 env:复用扫描以 `adm_key.is_empty()` 判"用户是否显式给凭据",env 回落若前置会让残留 env 跳过复用、误走新建)。
+  - `gw_url` 新建/产品码路径统一走 `resolve_gateway_url`(flag > `AIMAIL_GW_URL` > prev > default);移除原"仅复用分支才 resolve"的过窄条件与死代码(`let _ = gw_url0`)。
+  - 测试:`install_reads_admin_key_env_when_no_flag`(有 env ⇒ 凭据装配进 worker、不再报缺凭据;无 env ⇒ `no credential to activate with`)。子进程 env 需清 `AIMAIL_*` 业务变量 + `HOME` 隔离(开发机 `~/.aimail/.env` 含 `AIMAIL_PRODUCT_CODE` 会污染对照)。
 
 ### C-4 hermes 适配器 venv 路径假设与当前官方 install.sh 布局失配 —— aimailsdk 装不进
 
@@ -195,18 +199,17 @@
 
 ## SDK(tssdk)
 
-### S-1 dsh-aimail@0.1.48 与所有已发布 dsh 版本不兼容
+### S-1 dsh-aimail@0.1.49 peerDeps 钉旧系列,与 dsh 0.2.x 兼容闸冲突——**归因已精确化(待 SDK 域落码 + 发版授权)**
 
 - **现象**:`dsh plugin --profile web add dsh-aimail`(以及 `aimail install --home ~/.dsh` 内部同源的 plugin add)被 dsh 兼容闸拒装:
   `dsh: installation rejected: Plugin dsh-aimail@0.1.48 is incompatible with dsh 0.2.0-rc.2: peerDependencies {...}`。
-- **复现**:`npm i -g @deepseek-ai/dsh`(装到 0.2.0-rc.2,09-29 发)→ `dsh plugin add dsh-aimail`(装到 0.1.48,10-07 发)→ 拒装。本地 dsh 0.1.7-rc.1 同样被拒(缺 dsh-llm/dsh-tools)。
+- **复现**:`npm i -g @deepseek-ai/dsh`(装到 0.2.0-rc.2,09-29 发)→ `dsh plugin add dsh-aimail`(装到 0.1.49,10-08 发)→ 拒装。本地 dsh 0.1.7-rc.1 同样被拒(缺 dsh-llm/dsh-tools)。
 - **期望**:已发布 dsh-aimail 与已发布 dsh 兼容,用户可正常装插件。
-- **实际**:
-  - `tssdk/packages/dsh-aimail/package.json`(0.1.48)`peerDependencies = {cordis ^4.0.1, dsh-agent ^0.1.0-rc.6, dsh-llm ^0.0.1-rc.1, dsh-tools ^0.0.1-rc.1}`,且插件代码**实际 import** 这些包(dsh-tools ×2、dsh-llm ×2、dsh-agent ×1、cordis ×6)。
-  - dsh 0.2.0-rc.2 已重构为细粒度 `dsh-tool-*` / `dsh-agent-*` 包,**不再提供** dsh-llm/dsh-tools/dsh-agent 顶层包 → 兼容闸正确拒装,且即使绕过闸门运行期 import 也会失败。
-  - 即:当前发布的 dsh-aimail 与**任何**已发布 dsh 都不兼容。
+- **实际**(2026-10-10 精确化,推翻"顶层包已不提供"旧结论):
+  - 三个顶层包 `dsh-llm/dsh-agent/dsh-tools` 的 **0.2.0-rc.2 版本在 npm 仍然存在**(已 `npm pack` 实证),只是 `latest` 标签仍钉旧版(0.0.1-rc.1/0.1.0-rc.6/0.0.1-rc.1)。dsh-aimail@0.1.49 `peerDependencies` 声明的正是旧系列范围 ⇒ 与 dsh 0.2.0-rc.2 运行时不匹配,兼容闸据此拒装。
+  - 插件源码**已是 0.2.x 协议形态**(非 0.1.x):`tools.ts:31-34` `output:{schema,render}` + `:75/:94` `execute(args,exec)` 用 `exec.agent.id`;`inbound.ts:161` `createUserMessage({content:[{type:'text',text}],source:{kind:'user'}})`。已对 0.2.0-rc.2 三包 `.d.ts` 逐一坐实 4 个消费符号(`createUserMessage`/`Agent`/`defineTool`/`ParameterPropertySpec`)+ 调用形态全部在位。
 - **产品域**:SDK(tssdk)。
-- **修复方向**:dsh-aimail 对齐 dsh 0.2.x 包结构(改 peerDeps + import)后重新发布。
+- **修复方向**:放宽 `tssdk/packages/dsh-aimail/package.json` 的 peerDeps/devDeps 版本范围接受 0.2.x(源码无需重写),dsh-aimail 独立发版(需发版授权)。
 
 ---
 

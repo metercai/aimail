@@ -269,8 +269,6 @@ fn agent_home_env() -> Option<std::path::PathBuf> {
 
 fn ensure_system(a: &Args) -> i32 {
     use crate::core::config;
-    let gw_url0 = resolve_gateway_url(&a.gateway_url, "").0;
-    let _ = gw_url0;
     let mut sys_name = a.system_name.clone();
     let manager = if !a.manager.is_empty() {
         a.manager.clone()
@@ -278,7 +276,7 @@ fn ensure_system(a: &Args) -> i32 {
         config::env_val("AIMAIL_MANAGER_ADDRESS", "")
     };
     let mut prod_code = a.product_code.clone();
-    let adm_key = a.admin_key.clone();
+    let mut adm_key = a.admin_key.clone();
     let want_domain = if !a.domain.is_empty() {
         a.domain.clone()
     } else {
@@ -331,17 +329,19 @@ fn ensure_system(a: &Args) -> i32 {
             sys_name = config::env_val("AIMAIL_SYSTEM_NAME", "");
         }
     }
+    // C-1：裸 install 无 -k flag 时 AIMAIL_ADMIN_KEY env 作最后回落（本地复用/产品码优先；
+    // env 比 flag 弱——可能是上次 export 残留，故放在复用扫描之后）
+    if adm_key.is_empty() {
+        adm_key = config::env_val("AIMAIL_ADMIN_KEY", "");
+    }
 
-    // 凭据装配：复用分支回落本系统 cfg.gateway_url（#15）；stdout 是单行 JSON ⇒ 播报走 stderr
-    let mut gw_url = a.gateway_url.clone();
-    if !sid.is_empty() && prod_code.is_empty() {
-        let (u, src) = resolve_gateway_url(&a.gateway_url, &sid);
-        gw_url = u;
-        if src == "prev" {
-            eprintln!("gateway_url inherited from local config: {gw_url}");
-        } else if src == "default" {
-            eprintln!("gateway_url: no local value, falling back to default {gw_url}");
-        }
+    // 凭据装配：复用回落本系统 cfg.gateway_url（#15）；新建/产品码路径回落 AIMAIL_GW_URL env（C-1）；
+    // stdout 是单行 JSON ⇒ 播报走 stderr
+    let (gw_url, gw_src) = resolve_gateway_url(&a.gateway_url, &sid);
+    if gw_src == "prev" {
+        eprintln!("gateway_url inherited from local config: {gw_url}");
+    } else if gw_src == "default" {
+        eprintln!("gateway_url: no local value, falling back to default {gw_url}");
     }
     let mut env: Vec<(String, String)> = Vec::new();
     env.push(("INTEGRATE_GATEWAY_URL".into(), gw_url.clone()));
@@ -617,7 +617,7 @@ fn install_human(a: &Args) -> i32 {
         a.manager.clone()
     };
     let mut prod_code = a.product_code.clone();
-    let adm_key = a.admin_key.clone();
+    let mut adm_key = a.admin_key.clone();
     let want_domain = if a.domain.is_empty() {
         config::env_val("AIMAIL_DOMAIN", "")
     } else {
@@ -658,6 +658,11 @@ fn install_human(a: &Args) -> i32 {
             sys_name = config::env_val("AIMAIL_SYSTEM_NAME", "");
         }
     }
+    // C-1：裸 install 无 -k flag 时 AIMAIL_ADMIN_KEY env 作最后回落（本地复用/产品码优先；
+    // env 比 flag 弱——可能是上次 export 残留，故放在复用扫描之后）
+    if adm_key.is_empty() {
+        adm_key = config::env_val("AIMAIL_ADMIN_KEY", "");
+    }
     if !system_home.exists() {
         return fail(&format!(
             "home 目录不存在: {}",
@@ -695,20 +700,17 @@ fn install_human(a: &Args) -> i32 {
     }
     println!("{line}");
 
-    // 激活/复用凭据装配（env 契约）
-    let mut gw_url = a.gateway_url.clone();
-    if !sid.is_empty() && prod_code.is_empty() {
-        let (u, src) = resolve_gateway_url(&a.gateway_url, &sid);
-        gw_url = u;
-        if src == "prev" {
-            ok(&format!(
-                "gateway_url 继承本地配置: {gw_url}(复用 {sid};-g / AIMAIL_GW_URL 优先)"
-            ));
-        } else if src == "default" {
-            warn(&format!(
-                "gateway_url 无本地值, 落到默认 {gw_url}(未给 -g / AIMAIL_GW_URL)"
-            ));
-        }
+    // 激活/复用凭据装配（env 契约）：复用回落本系统 cfg.gateway_url（#15）；
+    // 新建/产品码路径回落 AIMAIL_GW_URL env（C-1）
+    let (gw_url, gw_src) = resolve_gateway_url(&a.gateway_url, &sid);
+    if gw_src == "prev" {
+        ok(&format!(
+            "gateway_url 继承本地配置: {gw_url}(复用 {sid};-g / AIMAIL_GW_URL 优先)"
+        ));
+    } else if gw_src == "default" {
+        warn(&format!(
+            "gateway_url 无本地值, 落到默认 {gw_url}(未给 -g / AIMAIL_GW_URL)"
+        ));
     }
     let new_system_domain = if !prod_code.is_empty() {
         a.domain.clone()

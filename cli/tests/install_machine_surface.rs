@@ -180,14 +180,26 @@ fn install_surfaces_behave_like_python() {
 }
 
 /// 子进程级 env 注入(不污染测试进程,规避并行用例的进程级 env 竞态)。
+/// 同时**清除 AIMAIL_* 业务 env**——测试进程可能继承开发机/L3 轮导出的
+/// AIMAIL_PRODUCT_CODE 等,会让"无凭据"对照走产品码路径(环境串扰,非产品行为)。
 fn run_env(prog_dir: &str, args: &[&str], extra: &[(&str, &str)]) -> (i32, String, String) {
-    let out = Command::new(bin())
-        .args(args)
+    let mut cmd = Command::new(bin());
+    cmd.args(args)
         .env("AIMAIL_PROG_DIR", prog_dir)
         .env("AIMAIL_HOME", format!("{prog_dir}/home"))
-        .envs(extra.iter().copied())
-        .output()
-        .expect("rust binary 可执行");
+        // HOME 指向 prog 临时目录:隔离开发机 ~/.aimail/.env(env_val 的 HOME 回落
+        // 源,含 AIMAIL_PRODUCT_CODE 等机器级配置,strace 实证启动期读取)
+        .env("HOME", prog_dir);
+    for (k, _) in std::env::vars() {
+        // harness 变量豁免(上面刚设的),其余 AIMAIL_* 业务 env 全清
+        if k.starts_with("AIMAIL_") && k != "AIMAIL_PROG_DIR" && k != "AIMAIL_HOME" {
+            cmd.env_remove(k);
+        }
+    }
+    for (k, v) in extra {
+        cmd.env(k, v);
+    }
+    let out = cmd.output().expect("rust binary 可执行");
     (
         out.status.code().unwrap_or(-1),
         String::from_utf8_lossy(&out.stdout).to_string(),
@@ -219,5 +231,58 @@ fn install_reads_agent_home_env_when_no_flag_or_sid() {
     assert!(
         !out.contains("install 需要 --home"),
         "C-7:不再报缺 --home(home 已由 AGENT_HOME 提供): out={out:?}"
+    );
+}
+
+#[test]
+fn install_reads_admin_key_env_when_no_flag() {
+    let d = tempfile::tempdir().unwrap();
+    let prog = d.path().to_string_lossy().to_string();
+    let home = d.path().join("h");
+    std::fs::create_dir_all(&home).unwrap();
+    // C-1:无 -k flag,AIMAIL_ADMIN_KEY env 作最后回落(复用扫描之后)。
+    // 死网关隔离 C-1 变量:有 env ⇒ 错误落在网关激活调用(凭据已装配);
+    // 无 env ⇒ no credential(凭据未装配)。两者不同 = env 回落生效。
+    let (rc, out, err) = run_env(
+        &prog,
+        &[
+            "install",
+            "--system-only",
+            "-H",
+            home.to_str().unwrap(),
+            "-g",
+            "http://127.0.0.1:9",
+        ],
+        &[("AIMAIL_ADMIN_KEY", "envkey1")],
+    );
+    assert_ne!(rc, 0, "死网关必非零");
+    assert!(
+        !out.contains("no credential to activate with"),
+        "有 env 不应报缺凭据(凭据应已装配): out={out:?}"
+    );
+    assert!(
+        err.contains("admin_key path") || err.contains("admin key"),
+        "错误应落在 admin_key 激活路径(凭据已从 env 装配、越过缺凭据关口): err={err:?}"
+    );
+    // 对照:同参无 env ⇒ 响亮报缺凭据(rc=1)。**独立空 home**——有 env 那次激活失败前
+    // 已在本 home 写入指针,复用同一目录会让对照走复用分支(读到 sid)而非缺凭据。
+    let home2 = d.path().join("h2");
+    std::fs::create_dir_all(&home2).unwrap();
+    let (rc2, out2, _) = run_env(
+        &prog,
+        &[
+            "install",
+            "--system-only",
+            "-H",
+            home2.to_str().unwrap(),
+            "-g",
+            "http://127.0.0.1:9",
+        ],
+        &[],
+    );
+    assert_eq!(rc2, 1, "无 -k 无 env 必须非零: {out2:?}");
+    assert!(
+        out2.contains("no credential to activate with"),
+        "无凭据应报缺凭据: out={out2:?}"
     );
 }
