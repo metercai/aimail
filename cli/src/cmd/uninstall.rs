@@ -186,7 +186,15 @@ pub fn run(a: &Args) -> i32 {
 
     // transport 分派（契约 §4.1(2)）：**只有 python 宿主**需要 SDK 根；node 宿主的 op 入口由
     // 注册表 `ops.argv` 直达 ⇒ 不得因缺 pysdk 硬退出（uninstall_steps 的 sdk_uninstall 仅 python 宿主有）。
-    let core_dir = if crate::core::platforms::ops_argv(&platform).is_some() {
+    // 平台取值优先**系统级 cfg 记录的 `platform`**（`aimail install` 写入，权威）；
+    // 调用方解析出的平台名（`--platform` / 探测）在共享域等场景可能取不到。
+    let recorded = setup::pget(&gw, "platform");
+    let transport_platform = if recorded.is_empty() {
+        platform.clone()
+    } else {
+        recorded
+    };
+    let core_dir = if crate::core::platforms::ops_argv(&transport_platform).is_some() {
         std::path::PathBuf::new()
     } else {
         crate::core::sdkroot::resolve_or_placeholder().path
