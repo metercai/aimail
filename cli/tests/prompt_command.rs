@@ -16,16 +16,20 @@ fn bin() -> PathBuf {
 }
 
 fn run(home: &Path, argv: &[&str]) -> (i32, String, String) {
-    // SDK 根：`sdkroot` 语义 = 快照优先 ⇒ 夹具里做 `prog/sdk-staging-removed -> 仓库` 软链，
-    // 让 CLI 用**仓库 pysdk**（否则会命中已装工具包里的旧快照，缺新函数）
+    // 3-op 门（`python -m aimail.sdk_ops`）恒走**已装包**（零路径）⇒ 命中已装旧快照会缺新 op
+    // （如 `prompt-test`）。单测不依赖已装版本（禁依赖本机环境铁律）：用 `PYTHONPATH` 把 `aimail`
+    // 指到**仓库 pysdk**（与旧 `sdkcall` 的 staging 同口径）—— 门解释器仍 `python3`（移除
+    // `AIMAIL_PYTHON`），`-m aimail.sdk_ops` 经 `PYTHONPATH` 导入仓库包（含新 op）。
     let prog = home.join("prog");
-    let link = prog.join("sdk-staging-removed");
+    std::fs::create_dir_all(&prog).unwrap();
+    let stage = prog.join("sdk-pythonpath");
+    let link = stage.join("aimail");
     if !link.exists() {
-        std::fs::create_dir_all(&prog).unwrap();
+        std::fs::create_dir_all(&stage).unwrap();
         let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .unwrap()
-            .to_path_buf();
+            .join("pysdk");
         std::os::unix::fs::symlink(&repo, &link).unwrap();
     }
     let out = Command::new(bin())
@@ -33,6 +37,7 @@ fn run(home: &Path, argv: &[&str]) -> (i32, String, String) {
         .env("AIMAIL_PROG_DIR", &prog)
         .env("AIMAIL_HOME", home)
         .env("HOME", home)
+        .env("PYTHONPATH", &stage)
         .env_remove("AIMAIL_PYTHON")
         .stdin(Stdio::null())
         .output()

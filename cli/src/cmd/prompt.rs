@@ -4,11 +4,11 @@
 //! `test`（dry-run，**永不发送**）。
 //!
 //! 归属铁律：`prompt_rules` 写进 per-agent 绑定文件**只由 SDK 写** ⇒ CLI 只触发
-//! `aimail_base.update_binding(sid, cfg, {"prompt_rules": rules})`；名字合法性判定也走 SDK
-//! `prompt_rule_name_ok`（不复刻谓词）。角色文件三级查找（地址级 → 系统级 → `common.md` 兜底）
-//! 与 `aimail_base._read_role_file` **同序**。
+//! SDK 门 `update`（受控字段落盘）；名字合法性与 L5 过滤/匹配判定走 SDK 门**只读 op
+//! `prompt-test`**（契约 v1.0 §4.1 增列，owner 2026-10-10 (a) 裁定）—— CLI 不复刻谓词。
+//! 角色文件三级查找（地址级 → 系统级 → `common.md` 兜底）与 `aimail_base._read_role_file` **同序**。
 //!
-//! 本切片：`list` / `add` / `rm` / `create-file` 已实现；`test`（L1–L5 单源匹配仿真）**响亮未移植**。
+//! 五面齐全：`list` / `add` / `rm` / `create-file` / `test`（L1–L5 单源匹配仿真，**永不发送**）。
 
 use std::path::{Path, PathBuf};
 
@@ -45,26 +45,59 @@ struct Target {
     cfg: Value,
 }
 
-fn sdk_call(function: &str, args: &[Value]) -> Result<Value, String> {
-    let root = crate::core::sdkroot::resolve_or_placeholder();
-    crate::core::sdkcall::call_positional(
-        "aimail_base",
-        function,
-        args,
-        &json!({}),
-        &root.path,
+fn prompt_name_ok(sid: &str, email: &str, name: &str) -> Result<bool, String> {
+    // 名字合法性 = SDK 门只读 op `prompt-test` 的 `name_ok`(契约 v1.0 §4.1 增列,owner
+    // 2026-10-10 (a) 裁定)—— 不复刻谓词;两路 transport 同形(python 门 / node op 入口)。
+    // **失败必须响亮**(绝不用 `false` 冒充"名字非法"——那会把 SDK 不可用伪装成校验结果)。
+    let args = json!({ "system_id": sid, "email": email, "name": name });
+    crate::core::sdk::sdk_ops_call(
+        "prompt-test",
+        &args,
         std::time::Duration::from_secs(30),
         &[],
     )
+    .map(|v| v.get("name_ok").and_then(Value::as_bool).unwrap_or(false))
     .map_err(|e| match &e {
         crate::core::sdk::AbiError::Call { msg, .. } => msg.clone(),
         other => format!("{other:?}"),
     })
 }
 
-/// SDK 谓词；**失败必须响亮**（绝不用 `false` 冒充"名字非法"——那会把 SDK 不可用伪装成校验结果）。
-fn rule_name_ok(name: &str) -> Result<bool, String> {
-    sdk_call("prompt_rule_name_ok", &[json!(name)]).map(|v| v.as_bool().unwrap_or(false))
+/// L5 规则匹配 = SDK 门只读 op `prompt-test`(过滤 + 字段内或/字段间且判定都在 SDK,
+/// 两路 transport 同形)—— CLI 只打印 miss/hit,角色文件存在性仍本地判定。
+/// 返回按名排序的 `[{name, file, match}]`(与运行时 loader 同一批规则)。
+fn prompt_rules_test(
+    sid: &str,
+    email: &str,
+    subj: &str,
+    body: &str,
+    sender: &str,
+    recp: &str,
+) -> Result<Vec<Value>, String> {
+    let args = json!({
+        "system_id": sid,
+        "email": email,
+        "subject": subj,
+        "body": body,
+        "sender": sender,
+        "recipient": recp,
+    });
+    crate::core::sdk::sdk_ops_call(
+        "prompt-test",
+        &args,
+        std::time::Duration::from_secs(30),
+        &[],
+    )
+    .map(|v| {
+        v.get("rules")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+    })
+    .map_err(|e| match &e {
+        crate::core::sdk::AbiError::Call { msg, .. } => msg.clone(),
+        other => format!("{other:?}"),
+    })
 }
 
 fn update_binding(sid: &str, cfg: &Value, patch: &Value) -> Result<(), String> {
@@ -232,48 +265,6 @@ fn kws(v: &[String]) -> Vec<String> {
         .collect()
 }
 
-/// `aimail_base.read_prompt_rules` 的**过滤镜像**（L5 匹配必须用同一批规则）：
-/// 仅 dict · 名字过 SDK 谓词 · `file` 非空 · `enabled is False` 跳过 · 至少一个非空字段 ⇒ 按名排序。
-/// 说明：SDK 侧还对坏项打 WARN 日志；CLI 侧无 logger，静默丢弃（差异已登记）。
-fn loader_rules(cfg: &Value) -> Vec<Value> {
-    let raw = match cfg.get("prompt_rules").and_then(|v| v.as_array()) {
-        Some(a) => a.clone(),
-        None => return Vec::new(),
-    };
-    let mut kept: Vec<Value> = Vec::new();
-    for r in raw.iter() {
-        if !r.is_object() {
-            continue;
-        }
-        let name = r.get("name").map(pyjson_str).unwrap_or_default();
-        if !rule_name_ok(&name).unwrap_or(false) {
-            continue;
-        }
-        let file = r.get("file").map(pyjson_str).unwrap_or_default();
-        if file.trim().is_empty() {
-            continue;
-        }
-        if r.get("enabled").and_then(|v| v.as_bool()) == Some(false) {
-            continue;
-        }
-        let has_field =
-            ["subject", "body", "sender", "recipient"]
-                .iter()
-                .any(|k| match r.get(*k) {
-                    None | Some(Value::Null) => false,
-                    Some(Value::String(s)) => !s.trim().is_empty(),
-                    Some(Value::Array(a)) => a.iter().any(|k| pyjson_str(k).trim() != ""),
-                    Some(_) => false,
-                });
-        if !has_field {
-            continue;
-        }
-        kept.push(r.clone());
-    }
-    kept.sort_by_key(|r| r.get("name").map(pyjson_str).unwrap_or_default());
-    kept
-}
-
 pub fn run(a: &Args) -> i32 {
     let sid = a.system_id.clone();
     if sid.is_empty() {
@@ -337,9 +328,9 @@ pub fn run(a: &Args) -> i32 {
         }
         "add" => {
             let name = a.name.trim().to_string();
-            let ok = match rule_name_ok(&name) {
+            let ok = match prompt_name_ok(&sid, &t.email, &name) {
                 Ok(v) => v,
-                Err(e) => return fail(&format!("prompt_rule_name_ok failed: {e}")),
+                Err(e) => return fail(&format!("prompt-test (name) failed: {e}")),
             };
             if !ok {
                 return fail(&format!(
@@ -430,9 +421,9 @@ pub fn run(a: &Args) -> i32 {
         }
         "create-file" => {
             let name = a.name.trim().to_string();
-            let ok = match rule_name_ok(&name) {
+            let ok = match prompt_name_ok(&sid, &t.email, &name) {
                 Ok(v) => v,
-                Err(e) => return fail(&format!("prompt_rule_name_ok failed: {e}")),
+                Err(e) => return fail(&format!("prompt-test (name) failed: {e}")),
             };
             if !ok {
                 return fail(&format!(
@@ -521,25 +512,16 @@ Describe how this agent should behave for that class of mail here.\n"
                     crate::core::pyjson::repr_python(&json!(stem))
                 );
             }
-            // L5 本机 prompt_rules：先过 `loader_rules`（与 SDK `read_prompt_rules` 同过滤），
-            // 匹配判定**委托 SDK** `prompt_rule_matches`（不复刻"字段内或 / 字段间且"的裁决）。
-            let sorted = loader_rules(&t.cfg);
+            // L5 本机 prompt_rules:过滤 + 匹配**全部在 SDK 门只读 op `prompt-test`**
+            // (两路 transport 同形)—— CLI 只打印 miss/hit,角色文件存在性仍本地判定。
+            let sorted = match prompt_rules_test(&sid, &t.email, &subj, &body, &sender, &recp) {
+                Ok(v) => v,
+                Err(e) => return fail(&format!("prompt-test (L5) failed: {e}")),
+            };
             let mut matched_any = false;
             for rule in &sorted {
                 let name = rule.get("name").map(pyjson_str).unwrap_or_default();
-                let is_match = match sdk_call(
-                    "prompt_rule_matches",
-                    &[
-                        rule.clone(),
-                        json!(subj),
-                        json!(body),
-                        json!(sender),
-                        json!(recp),
-                    ],
-                ) {
-                    Ok(v) => v.as_bool().unwrap_or(false),
-                    Err(e) => return fail(&format!("prompt_rule_matches failed: {e}")),
-                };
+                let is_match = rule.get("match").and_then(Value::as_bool).unwrap_or(false);
                 if !is_match {
                     println!("  L5 miss {name}");
                     continue;
