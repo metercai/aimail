@@ -258,6 +258,15 @@ fn sid_from_system_home(system_home: &std::path::Path) -> String {
     }
 }
 
+/// home 来源回落:`AGENT_HOME` env(expand_user),与 welcome/ping/check 的身份链对齐(C-7)。
+/// flag(`--home`)优先于它;它优先于 `--system-id` 反查。
+fn agent_home_env() -> Option<std::path::PathBuf> {
+    std::env::var("AGENT_HOME")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(|s| home::expand_user(&s))
+}
+
 fn ensure_system(a: &Args) -> i32 {
     use crate::core::config;
     let gw_url0 = resolve_gateway_url(&a.gateway_url, "").0;
@@ -277,14 +286,17 @@ fn ensure_system(a: &Args) -> i32 {
     };
     let mut sid = a.system_id.clone();
 
-    // home ↔ sid 反查（SDK 反调通常只给 -H）
-    let system_home: std::path::PathBuf = if a.home.is_empty() {
-        if sid.is_empty() {
-            return err_json(
-                "--home is required (or --system-id backed by local config)",
-                "",
-            );
-        }
+    // home 解析:--home flag > AGENT_HOME env(C-7,与 welcome 对齐)> --system-id 反查
+    let system_home: std::path::PathBuf = if !a.home.is_empty() {
+        crate::core::platforms::normalize_platform_home(std::path::Path::new(&a.home))
+    } else if let Some(ah) = agent_home_env() {
+        ah
+    } else if sid.is_empty() {
+        return err_json(
+            "--home is required (or AGENT_HOME env / --system-id backed by local config)",
+            "",
+        );
+    } else {
         let sh = config::load_gateway_config(&sid)
             .map(|c| c.system_home)
             .unwrap_or_default()
@@ -297,8 +309,6 @@ fn ensure_system(a: &Args) -> i32 {
             );
         }
         std::path::PathBuf::from(sh)
-    } else {
-        crate::core::platforms::normalize_platform_home(std::path::Path::new(&a.home))
     };
     if !system_home.exists() {
         return err_json(
@@ -615,11 +625,15 @@ fn install_human(a: &Args) -> i32 {
     };
     let mut sid = a.system_id.clone();
 
-    // 目标双向反查：--home 与 --system-id 任给其一
-    let system_home = if a.home.is_empty() {
-        if sid.is_empty() {
-            return fail("install 需要 --home,或带 --system-id 以便从本地配置反查");
-        }
+    // 目标解析:--home flag > AGENT_HOME env(C-7,与 welcome 对齐)> --system-id 反查
+    let system_home = if !a.home.is_empty() {
+        platforms::normalize_platform_home(&home::expand_user(&a.home))
+    } else if let Some(ah) = agent_home_env() {
+        println!("  --home 由 AGENT_HOME env 解析: {}", ah.to_string_lossy());
+        ah
+    } else if sid.is_empty() {
+        return fail("install 需要 --home,或 AGENT_HOME env,或带 --system-id 以便从本地配置反查");
+    } else {
         let sh = home::system_home_from_sid(&sid);
         if sh.is_empty() {
             return fail(&format!(
@@ -629,8 +643,6 @@ fn install_human(a: &Args) -> i32 {
         let p = PathBuf::from(&sh);
         println!("  --home 由 --system-id 反查: {}", p.to_string_lossy());
         p
-    } else {
-        platforms::normalize_platform_home(&home::expand_user(&a.home))
     };
     if sid.is_empty() && prod_code.is_empty() && adm_key.is_empty() {
         // 重复安装：home 归属唯一系统 ⇒ 自动复用（.env 的码可能已被消耗）

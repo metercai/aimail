@@ -178,3 +178,46 @@ fn install_surfaces_behave_like_python() {
         "应报源缺失: out={out:?} err={err:?}"
     );
 }
+
+/// 子进程级 env 注入(不污染测试进程,规避并行用例的进程级 env 竞态)。
+fn run_env(prog_dir: &str, args: &[&str], extra: &[(&str, &str)]) -> (i32, String, String) {
+    let out = Command::new(bin())
+        .args(args)
+        .env("AIMAIL_PROG_DIR", prog_dir)
+        .env("AIMAIL_HOME", format!("{prog_dir}/home"))
+        .envs(extra.iter().copied())
+        .output()
+        .expect("rust binary 可执行");
+    (
+        out.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&out.stdout).to_string(),
+        String::from_utf8_lossy(&out.stderr).to_string(),
+    )
+}
+
+#[test]
+fn install_reads_agent_home_env_when_no_flag_or_sid() {
+    let d = tempfile::tempdir().unwrap();
+    let prog = d.path().to_string_lossy().to_string();
+    let agent_home = d.path().join("agent-home");
+    std::fs::create_dir_all(&agent_home).unwrap();
+    // C-7:AGENT_HOME + 无 --home/--system-id ⇒ home 由 env 解析(与 welcome 身份链对齐)。
+    // 空临时目录下游 resolve_platform 无法定平台 ⇒ 响亮失败(rc=1),证明已越过 C-7 关口。
+    let (rc, out, _err) = run_env(
+        &prog,
+        &["install"],
+        &[("AGENT_HOME", agent_home.to_str().unwrap())],
+    );
+    assert_eq!(
+        rc, 1,
+        "空目录无法定平台 ⇒ rc=1(证明 home 解析已通过): {out:?}"
+    );
+    assert!(
+        out.contains("--home 由 AGENT_HOME env 解析"),
+        "应展示 AGENT_HOME home 解析来源: out={out:?}"
+    );
+    assert!(
+        !out.contains("install 需要 --home"),
+        "C-7:不再报缺 --home(home 已由 AGENT_HOME 提供): out={out:?}"
+    );
+}
