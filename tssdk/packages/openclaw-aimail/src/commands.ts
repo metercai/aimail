@@ -14,7 +14,7 @@ import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import * as path from 'node:path'
 import type { GatewayResponse } from '@aimail/mail-core'
-import { systemDir } from '@aimail/mail-core'
+import { systemDir, UsageError } from '@aimail/mail-core'
 import type {
   OpenClawPluginCommandDefinition,
   PluginCommandContext,
@@ -215,6 +215,38 @@ export async function handleCommand(
 ): Promise<PluginCommandResult> {
   const args = ctx.args ?? ''
   const sub = (args.trim().split(/\s+/)[0] ?? '').toLowerCase()
+  // 契约 v1.0 §4.1(2):op 入口形态(CLI 经注册表 host_command 调)——
+  //   openclaw aimail <assemble|update|teardown|prompt-test> --args '<json>'
+  // --args 的 JSON 是**单个 argv 元素**(内部含空格);ctx.args 是宿主拼回的字符串,
+  // 这里按 `--args` 之后的**原始子串**取(不走 parseArgs 的空白分词,否则 JSON 被切碎)。
+  if (sub === 'assemble' || sub === 'update' || sub === 'teardown' || sub === 'prompt-test') {
+    const aIdx = args.indexOf('--args')
+    const raw = aIdx >= 0 ? args.slice(aIdx + 6).trim() : ''
+    let parsed: Record<string, unknown>
+    try {
+      parsed = JSON.parse(raw || '{}') as Record<string, unknown>
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not a JSON object')
+    } catch (e) {
+      return cmdText([JSON.stringify({ ok: false, kind: 'usage', exc: 'UsageError', error: `--args is not valid JSON: ${e instanceof Error ? e.message : String(e)}` })])
+    }
+    try {
+      const { opAssemble, opTeardown, opUpdate, opPromptTest } = await import('@aimail/mail-core')
+      const result =
+        sub === 'assemble' ? await opAssemble(parsed)
+        : sub === 'update' ? await opUpdate(parsed)
+        : sub === 'prompt-test' ? await opPromptTest(parsed)
+        : await opTeardown(parsed)
+      return cmdText([JSON.stringify({ ok: true, result })])
+    } catch (e) {
+      // 与 python 门同形(usage ⇒ error=纯消息;call ⇒ "<Cls>: <msg>";JS 子类 e.name 恒 'Error')
+      if (e instanceof UsageError) {
+        return cmdText([JSON.stringify({ ok: false, kind: 'usage', exc: 'UsageError', error: e.message })])
+      }
+      const exc = e instanceof Error ? e.constructor.name : 'Error'
+      const msg = e instanceof Error ? e.message : String(e)
+      return cmdText([JSON.stringify({ ok: false, kind: 'call', exc, error: `${exc}: ${msg}` })])
+    }
+  }
   const opts = parseArgs(args.replace(/^\S+/, ''))
   try {
     if (sub === 'register') {

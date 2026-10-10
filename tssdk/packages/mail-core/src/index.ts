@@ -152,5 +152,9 @@ export {
   baseEmail,
   fillTemplate,
   routeAddressFromHeaders,
+  promptRuleNameOk,
+  readPromptRules,
+  promptRuleMatches,
 } from './preprocess.js'
+export { opAssemble, opUpdate, opTeardown, opPromptTest, UsageError } from './sdk-ops.js'
 export { logAimailDispatch } from './log.js'

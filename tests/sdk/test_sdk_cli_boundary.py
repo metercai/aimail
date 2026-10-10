@@ -294,7 +294,9 @@ def test_profiles_patch_unpatch_roundtrip(tmp_path):
 
 
 # ── 6. 门 op 集合棘轮（契约 v1.0 §4.1；第二序：边界固化，独立于功能验证）──────
-CONVERGED_OPS = {"assemble", "update", "teardown"}
+# `prompt-test` = (a) 裁定的只读 op（契约 §4.1 三 op 增列，owner 2026-10-10）：
+# 名字校验（`name_ok`）+ L5 过滤/匹配（`rules[].match`），两路 transport 同形。
+CONVERGED_OPS = {"assemble", "update", "teardown", "prompt-test"}
 LEGACY_OPS_WHITELIST = {          # 白名单期：旧 op 保留可用，移除时须走主版本
     "version", "iter_bindings", "ensure_webhook_secret",
     "resolve_register_webhook_url", "register_agent_email", "backfill_binding",

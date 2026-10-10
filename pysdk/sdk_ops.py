@@ -514,17 +514,37 @@ def _op_update(args):
         out["filled"] = filled
         r = out
     elif action in ("prompt", "persona", "webhook-secret"):
+        # 受控字段值:顶层键 > 嵌套 `updates`/`fields`(CLI prompt.rs 同传 updates+fields;
+        # TS 门 opUpdate 同形)。缺值 ⇒ 响亮失败(与 TS 门一致;webhook-secret 的无值
+        # provision 调用在**两路门都**是缺口,不在此降级)。
+        def _pick(key):
+            v = args.get(key)
+            if v is not None:
+                return v
+            for _k in ("updates", "fields"):
+                nest = args.get(_k)
+                if isinstance(nest, dict) and key in nest:
+                    return nest[key]
+            return None
+
         if action == "prompt":
-            for _name in (args.get("prompt_rules") or {}):
+            _rules = _pick("prompt_rules")
+            # prompt_rules = 规则 dict 列表;名字校验取每项的 name(与 TS 门 opUpdate 同形)
+            if isinstance(_rules, list):
                 _ok = getattr(base, "prompt_rule_name_ok", None)
-                if callable(_ok) and not _ok(_name):
-                    raise UsageError(f"update action=prompt: 规则名不合法 {_name!r}")
-        updates = {"prompt_rules": args.get("prompt_rules")} if action == "prompt" else (
-            {"persona": args.get("persona")} if action == "persona" else
-            {"webhook_secret": args.get("webhook_secret")})
-        updates = {k: v for k, v in updates.items() if v is not None}
-        if not updates:
+                for _r in _rules:
+                    _name = _r.get("name") if isinstance(_r, dict) else _r
+                    if callable(_ok) and not _ok(str(_name or "")):
+                        raise UsageError(f"update action=prompt: 规则名不合法 {_name!r}")
+            _val = _rules
+        elif action == "persona":
+            _val = _pick("persona")
+        else:
+            _val = _pick("webhook_secret")
+        if _val is None:
             raise UsageError(f"update action={action}: 缺少要更新的字段")
+        updates = {"prompt_rules": _val} if action == "prompt" else (
+            {"persona": _val} if action == "persona" else {"webhook_secret": _val})
         r = {"binding_path": str(base.update_binding(system_id, cfg, updates))}
     else:
         raise UsageError(f"update: 未知 action={action!r}（rename|set-manager|prompt|persona|webhook-secret|backfill|repair）")
@@ -556,6 +576,67 @@ def _op_teardown(args):
         actions.append({"backfill_binding": str(base.backfill_binding(cfg, system_id))})
     return {"ok": True, "actions": actions, "sdk_version": _sdk_version()}
 
+
+def _op_prompt_test(args: dict):
+    """只读 op（契约 §4.1 三 op 增列，owner 2026-10-10 (a) 裁定）：L5 过滤 + 匹配 + 名字校验。
+
+    与 TS 侧 `opPromptTest` 同形（契约 §4.1(2) 两路语义/JSON 一致）：
+      读绑定 → 过滤（仅 dict · 名过谓词 · file 非空 · enabled is False 跳过 · 至少一个非空字段，按名排序）
+      → 逐规则 `prompt_rule_matches`（字段内或 / 字段间且）。**不触网、不写盘**。
+    CLI `prompt test` 的 L5 面改调本 op（替代 CLI 侧过滤镜像 + 逐规则 python shim）；
+    CLI `prompt add` / `create-file` 的名字合法性改读本 op 的 `name_ok`。
+
+    入：{system_id, email|agent_id, subject, body, sender, recipient, name?}
+    出：{ok, rules:[{name,file,match}], name_ok?, sdk_version}
+    """
+    base = _import_base()
+    system_id = args.get("system_id") or ""
+    if not system_id:
+        raise UsageError("prompt-test: 需要 system_id")
+    email = str(args.get("email") or "")
+    agent_id = str(args.get("agent_id") or "")
+    subject = str(args.get("subject") or "")
+    body = str(args.get("body") or "")
+    sender = str(args.get("sender") or "")
+    recipient = str(args.get("recipient") or "")
+    # 绑定定位（email 精确 > agent_id 扫全部）；只读，缺绑定 ⇒ 空规则（CLI 侧已保证绑定存在）。
+    cfg = _agent_binding(base, agent_id, system_id, email)
+    raw = (cfg or {}).get("prompt_rules")
+    kept = []
+    if isinstance(raw, list):
+        ok_name = getattr(base, "prompt_rule_name_ok", None)
+        has_field = getattr(base, "_prompt_rule_has_any_field", None)
+        for r in raw:
+            if not isinstance(r, dict):
+                continue
+            name = str(r.get("name", ""))
+            if callable(ok_name) and not ok_name(name):
+                continue
+            if r.get("file") is None or not str(r.get("file")).strip():
+                continue
+            if r.get("enabled") is False:
+                continue
+            if callable(has_field) and not has_field(r):
+                continue
+            kept.append(r)
+    kept.sort(key=lambda r: str(r.get("name", "")))
+    matches = getattr(base, "prompt_rule_matches", None)
+    rules = [
+        {
+            "name": str(r.get("name", "")),
+            "file": str(r.get("file", "")),
+            "match": bool(matches(r, subject, body, sender, recipient)) if callable(matches) else False,
+        }
+        for r in kept
+    ]
+    out = {"ok": True, "rules": rules, "sdk_version": _sdk_version()}
+    name = str(args.get("name") or "")
+    if name:
+        ok_name = getattr(base, "prompt_rule_name_ok", None)
+        out["name_ok"] = bool(ok_name(name)) if callable(ok_name) else False
+    return out
+
+
 OPS = {
     "version": _op_version,
     "iter_bindings": _op_iter_bindings,
@@ -567,6 +648,8 @@ OPS = {
     "assemble": _op_assemble,
     "update": _op_update,
     "teardown": _op_teardown,
+    # 只读 op（契约 §4.1 三 op 增列，owner 2026-10-10 (a) 裁定）
+    "prompt-test": _op_prompt_test,
 }
 
 
