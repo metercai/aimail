@@ -36,15 +36,15 @@
 > - dsh-plugin × 3:两次均 `✗ dsh plugin add dsh-aimail failed`(S-1 pnpm 兼容闸,0.1.49 未修)——不走裸 install,与 C-7 无关。
 > - macos-hermes:两次均 `curl: (56) 403` + `no cli-v* release found`(B-2:未认证 api.github.com 限流误报;0.1.39 release 12:00:22 在位,run 12:02:59 仍 403,与 C-7 无关)。
 >
-> **修复优先级(按 ④ 段首红拦截顺序):S-1 → C-4**(C-7、C-3、C-1 已闭环;C-3/C-1 待发版)。
-> C-3/C-1 发版后 hermes/dsh-aimail 6 格越过 detect + 凭据装配,落到 C-4(hermes venv);S-1 修后 dsh-plugin 3 格解锁。
+> **修复优先级(按 ④ 段首红拦截顺序):S-1**(C-7、C-3、C-1、C-4 已闭环;C-3/C-1/C-4 待发版)。
+> C-3/C-1/C-4 发版后 hermes/dsh-aimail 6 格应越过 detect + 凭据装配 + SDK 安装,落点看 L3 实证;S-1 修后 dsh-plugin 3 格解锁。
 
 ## 汇总
 
 | # | 产品域 | 缺陷 | 严重度 |
 |---|--------|------|--------|
 | C-1 | cli | ~~裸 `aimail install`(新建路径)不读 `AIMAIL_ADMIN_KEY` / `AIMAIL_GW_URL` env~~ **已修**:admin_key env 回落(复用扫描后,本地绑定优先)+ gw_url 新建路径走 `resolve_gateway_url`;待 C-3 同批发版 | (已闭环,待发版) |
-| C-4 | cli | hermes 适配器 venv 路径假设与当前官方 install.sh 布局失配 — aimailsdk 装不进 | Blocker |
+| C-4 | cli | ~~hermes 适配器 venv 路径假设与当前官方 install.sh 布局失配~~ **已修**:解释器改域内自主发现(`probe_in_domain` 嵌套 venv,零平台预设),platforms.json 撤字面量,单真源下发;待发版 | (已闭环,待发版) |
 | C-3 | cli | ~~detect 为 all-of 全要 markers~~ **已修**:detect 放宽为平台特征 marker(hermes `hermes-agent` / dsh `profiles`),注册表 + repair 手写变体 + 测试同步;官方安装产物即可识别,待发版 | (已闭环,待发版) |
 | S-1 | SDK | dsh-aimail@0.1.49 peerDeps 钉旧系列(0.0.1-rc.1/0.1.0-rc.6),与 dsh latest 0.2.0-rc.2 兼容闸冲突 ⇒ 拒装。源码已是 0.2.x 形态,修法 = 放宽 peerDeps 接受 0.2.x(待 SDK 域落码 + 发版授权) | Blocker(dsh 双路径) |
 | C-6 | cli | welcome 承诺的"本机单系统可自动判定"不存在(空 sid 直接返回空) — 多系统机裸 welcome 无上下文时必挂 | Major |
@@ -88,7 +88,7 @@
   - `gw_url` 新建/产品码路径统一走 `resolve_gateway_url`(flag > `AIMAIL_GW_URL` > prev > default);移除原"仅复用分支才 resolve"的过窄条件与死代码(`let _ = gw_url0`)。
   - 测试:`install_reads_admin_key_env_when_no_flag`(有 env ⇒ 凭据装配进 worker、不再报缺凭据;无 env ⇒ `no credential to activate with`)。子进程 env 需清 `AIMAIL_*` 业务变量 + `HOME` 隔离(开发机 `~/.aimail/.env` 含 `AIMAIL_PRODUCT_CODE` 会污染对照)。
 
-### C-4 hermes 适配器 venv 路径假设与当前官方 install.sh 布局失配 —— aimailsdk 装不进
+### C-4 hermes 适配器 venv 路径假设与当前官方 install.sh 布局失配 —— aimailsdk 装不进——**已修(待发版)**
 
 - **现象**:`aimail install --home ~/.hermes`(官方 install.sh 装好的 hermes)在 ④ SDK 安装步失败:`✗ ERROR: 运行时源未找到(pip aimail 未安装且仓库 pysdk/ 缺失)` + `ImportError: No module named 'aimail.install'`。
 - **复现**:干净机 `curl install.sh | bash`(非 TTY)→ `aimail install --home ~/.hermes`。L3 CI run 实证:install.sh 把 venv 建在 `installs/<hash>/environments/<hash>/workspace/venv`(相对 CWD),而适配器 step 0 的 `when path_exists {home}/hermes-agent/venv/bin/python` 为 false → step 0 被跳过,aimailsdk 从未装入。
@@ -96,6 +96,24 @@
 - **实际**:`cli/platforms.json` hermes `install_steps[0]` 的 `when` 与 `argv` 均钉 `{home}/hermes-agent/venv/bin/python`,与当前官方 install.sh 的 PM 模型 venv 落点不符 → step 0 跳过 → 后续 `sdk_install`/`register` 全部无 SDK 可用。
 - **产品域**:cli。
 - **修复方向**:hermes 适配器的 python/venv 探测对齐当前 install.sh 实际布局(PM 的 workspace venv),而非硬编码 `{home}/hermes-agent/venv`。
+- **修复落码(2026-10-10)**:
+  - **布局复核(推翻本报告旧假设)**:旧版 install.sh 才建 `installs/<hash>/environments/<hash>/workspace/venv`(相对 CWD);
+    **当前** install.sh 的 venv 就在 `{home}/hermes-agent/venv`(L3 0.1.39 CI 日志实证:`Creating virtual environment at: venv`,
+    cwd=`$HERMES_HOME/hermes-agent`)。venv 的 `pyvenv.cfg` 指向 `.hermes-runtime/python/generation-*/cpython-*`,
+    且 gateway 进程 `sys.path` 指向 venv 的 site-packages ⇒ aimailsdk 必须装进 venv(非 generation cpython 本体)。
+  - **真根因重定位**:C-3 修掉后,step 0 的 when 闸(venv 路径)为真、aimailsdk 能装进 venv;但 `sdk_install`(install_hermes)
+    走 `sdkcall::python_bin()`(`AIMAIL_PYTHON > probe_agent_python(要求 aimail 在场) > 系统 python3`)——全新机落到
+    系统 python3(无 aimail)⇒ `No module named 'aimail.install'` = 报错本体。两条 python 链(install 域的 ctx `{python}`
+    与 SDK 调用的全局 `python_bin()`)不一致。
+  - **修复(owner 裁决 2026-10-10:agent 侧解释器自主探测,platforms.json 不预置;方案 A 单真源)**:
+    ① `sdkroot::probe_in_domain` 加**通用嵌套 venv 发现**(`{home}/*/venv|.venv/bin/python3`,布局驱动、零平台预设,
+    插在静态候选后 PROBE_SH 前)+ `AIMAIL_PYTHON` 覆盖入口(与 python_bin 链首一致);
+    ② `platforms.json` hermes 撤掉全部解释器字面量:step 0 `P='{python}'`、when 闸改平台 marker 目录
+    (`{home}/hermes-agent`)、ok_text 用 `{python}`、uninstall spawn 同步;
+    ③ `install.rs`/`uninstall.rs` 把域发现结果经 `AIMAIL_PYTHON`(python_bin 链首,既有契约)回传给
+    `sdk_install`/`register`/`sdk_uninstall`/`sdk_ops` 门 ⇒ spawn 步与 SDK 调用面收敛到同一解释器。
+  - 测试:`sdkroot::nested_agent_venv_discovered_without_platform_preset`(新)+ `test_hermes_pkgmgr_adapt.py`
+    改钉 `P='{python}'` / marker 闸(原钉 venv 字面量)。
 
 ### C-3 detect 为 all-of 全要 markers,官方安装不建 profiles/storages(hermes 与 dsh 双命中,均已实证)——**已修(detect 特征 marker 化,待发版)**
 

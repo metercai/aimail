@@ -199,6 +199,14 @@ pub fn run(a: &Args) -> i32 {
     } else {
         crate::core::sdkroot::resolve_or_placeholder().path
     };
+    // 单真源对称(install 侧同款,C-4)：域发现解释器经 AIMAIL_PYTHON 回传给 sdk_uninstall
+    //（与 install 装 SDK 用的是同一解释器,否则 pip uninstall 找不到目标环境）。
+    if !system_home.as_os_str().is_empty() {
+        let _up = crate::core::sdkroot::probe_in_domain("", &system_home.to_string_lossy());
+        if !_up.is_empty() {
+            std::env::set_var("AIMAIL_PYTHON", &_up);
+        }
+    }
     let gw_url = setup::pget(&gw, "gateway_url");
     let admin_key = setup::pget(&gw, "admin_key");
     let manager = setup::pget(&gw, "manager_address");

@@ -3,6 +3,9 @@
 - `pip/uv install aimailsdk` = SDK 的安装(非环境依赖包), 由 `aimail install` 的
   install_steps 承载; 包管理器按 agent 环境自适配, 检测序 = uv → venv pip → ensurepip。
 - 钉死两步(host/docker)的自适配形状, 防止回退成硬编码 pip 单径。
+- C-4(2026-10-10): 解释器**不预置**在 platforms.json —— host 步用 `{python}`
+  占位符, 值由 CLI 域内发现(`sdkroot::probe_in_domain`, 布局驱动: 嵌套 venv
+  `{home}/*/venv|.venv`); when 闸 = 平台 marker 目录, 非解释器路径。
 """
 import json
 from pathlib import Path
@@ -23,8 +26,9 @@ def test_host_step_adapts_uv_then_pip_then_ensurepip():
     assert body.index("command -v uv") < body.index("-m pip --version"), body
     assert body.index("-m pip --version") < body.index("ensurepip"), body
     assert "uv pip install --python" in body, body
-    # 目标 = 平台 venv 解释器(uv 装进同一环境)
-    assert "P='{home}/hermes-agent/venv/bin/python'" in body, body
+    # 目标 = 域内发现的 agent 解释器({python}, C-4: 不预置 venv 字面量)
+    assert "P='{python}'" in body, body
+    assert "hermes-agent/venv" not in body, body
 
 
 def test_docker_step_adapts_same_order_inside_container():
@@ -39,9 +43,9 @@ def test_docker_step_adapts_same_order_inside_container():
 
 
 def test_when_guards_unchanged():
-    # host 步: 真机(非 docker) + venv 在才跑; docker 步: 容器态
+    # host 步: 真机(非 docker) + 平台 marker 目录在才跑(解释器由域内发现, 不入 when); docker 步: 容器态
     assert HOST_STEP["when"] == {
-        "path_exists": "{home}/hermes-agent/venv/bin/python",
+        "path_exists": "{home}/hermes-agent",
         "runtime_not": "docker",
     }
     assert DOCKER_STEP["when"] == {"runtime": "docker"}

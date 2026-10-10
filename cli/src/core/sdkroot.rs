@@ -74,6 +74,12 @@ const PROBE_SH: &str = r#"for c in /proc/[0-9]*/cmdline; do tr "\0" "\n" <"$c" 2
 
 /// 域内探测：容器 ⇒ docker exec；宿主 ⇒ 候选逐个试 "能 import aimail"
 pub fn probe_in_domain(container: &str, home: &str) -> String {
+    // 单真源入口：显式覆盖优先（与 `python_bin()` 链首一致）
+    if let Ok(p) = std::env::var("AIMAIL_PYTHON") {
+        if !p.trim().is_empty() {
+            return p;
+        }
+    }
     if !container.is_empty() {
         if let Ok(o) = std::process::Command::new("docker")
             .args(["exec", container, "sh", "-c", PROBE_SH])
@@ -89,6 +95,24 @@ pub fn probe_in_domain(container: &str, home: &str) -> String {
         let c = std::path::Path::new(home).join(rel);
         if c.is_file() {
             return c.to_string_lossy().to_string();
+        }
+    }
+    // agent 侧嵌套 venv 发现（布局驱动、零平台预设）：home 子目录下的 venv
+    // （hermes 官方 install.sh 把 venv 建在 `{home}/hermes-agent/venv`，官方镜像为
+    // `.venv`；gateway 进程 sys.path 指向该 venv 的 site-packages，SDK 必须装进这里）。
+    if let Ok(rd) = std::fs::read_dir(home) {
+        let mut subs: Vec<std::path::PathBuf> = rd.flatten().map(|e| e.path()).collect();
+        subs.sort();
+        for sub in subs {
+            if !sub.is_dir() {
+                continue;
+            }
+            for rel in ["venv/bin/python3", ".venv/bin/python3"] {
+                let c = sub.join(rel);
+                if c.is_file() {
+                    return c.to_string_lossy().to_string();
+                }
+            }
         }
     }
     if let Ok(o) = std::process::Command::new("sh")
@@ -240,6 +264,32 @@ mod tests {
         assert!(
             err.contains("--source-root 无效(无 aimail_base.py)"),
             "{err}"
+        );
+    }
+
+    #[test]
+    fn nested_agent_venv_discovered_without_platform_preset() {
+        // C-4(2026-10-10): agent 侧嵌套 venv 由域内**发现**(布局驱动, 零平台预设)。
+        // hermes 官方 install.sh 把 venv 建在 {home}/hermes-agent/venv —— 直接候选
+        // ({home}/venv, {home}/bin, {home}/.venv) 都不命中 ⇒ 嵌套发现命中该 venv。
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        let nested = home.join("hermes-agent").join("venv").join("bin");
+        std::fs::create_dir_all(&nested).unwrap();
+        let py = nested.join("python3");
+        std::fs::write(&py, b"#!/bin/sh\n").unwrap();
+
+        // 清 AIMAIL_PYTHON(测试进程可能继承开发机 env, 会短路到覆盖分支)
+        let saved = std::env::var("AIMAIL_PYTHON").ok();
+        std::env::remove_var("AIMAIL_PYTHON");
+        let got = probe_in_domain("", &home.to_string_lossy());
+        if let Some(v) = saved {
+            std::env::set_var("AIMAIL_PYTHON", v);
+        }
+        assert_eq!(
+            got,
+            py.to_string_lossy().to_string(),
+            "应发现 {home:?} 下的嵌套 venv, 实得 {got}"
         );
     }
 }

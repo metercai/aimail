@@ -251,15 +251,15 @@
           "argv": [
             "sh",
             "-c",
-            "P='{home}/hermes-agent/venv/bin/python'; if command -v uv >/dev/null 2>&1; then echo 'pkgmgr=uv'; uv pip install --python \"$P\" --index-url \"${AIMAIL_PIP_INDEX:-https://pypi.org/simple/}\" aimailsdk; else echo 'pkgmgr=pip'; \"$P\" -m pip --version >/dev/null 2>&1 || \"$P\" -m ensurepip --default-pip >/dev/null 2>&1 || \"$P\" -m ensurepip >/dev/null 2>&1 || true; \"$P\" -m pip install -q --upgrade --index-url \"${AIMAIL_PIP_INDEX:-https://pypi.org/simple/}\" aimailsdk; fi"
+            "P='{python}'; if command -v uv >/dev/null 2>&1; then echo 'pkgmgr=uv'; uv pip install --python \"$P\" --index-url \"${AIMAIL_PIP_INDEX:-https://pypi.org/simple/}\" aimailsdk; else echo 'pkgmgr=pip'; \"$P\" -m pip --version >/dev/null 2>&1 || \"$P\" -m ensurepip --default-pip >/dev/null 2>&1 || \"$P\" -m ensurepip >/dev/null 2>&1 || true; \"$P\" -m pip install -q --upgrade --index-url \"${AIMAIL_PIP_INDEX:-https://pypi.org/simple/}\" aimailsdk; fi"
           ],
           "when": {
-            "path_exists": "{home}/hermes-agent/venv/bin/python",
+            "path_exists": "{home}/hermes-agent",
             "runtime_not": "docker"
           },
           "on_error": "warn",
           "warn_hint": "aimailsdk 安装失败(宿主包管理器自适配 uv→venv pip→ensurepip 三径均不可用) exit {rc}(webhook 适配运行时缺失?)",
-          "ok_text": "aimailsdk installed via uv|pip into {home}/hermes-agent/venv"
+          "ok_text": "aimailsdk installed via uv|pip into {python}"
         },
         {
           "kind": "spawn",
@@ -312,7 +312,7 @@
         {
           "kind": "spawn",
           "argv": [
-            "{home}/hermes-agent/venv/bin/python",
+            "{python}",
             "-m",
             "pip",
             "uninstall",
@@ -320,7 +320,7 @@
             "aimailsdk"
           ],
           "when": {
-            "path_exists": "{home}/hermes-agent/venv/bin/python"
+            "path_exists": "{home}/hermes-agent"
           },
           "on_error": "warn",
           "warn_hint": "pip uninstall aimailsdk exit {rc}(webhook 适配运行时残留)"
