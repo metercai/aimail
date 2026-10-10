@@ -10,6 +10,7 @@ import {
   ensureSystem,
   notifyInboundForSystem,
   formatInboundNotifyLine,
+  isInboundNotifyWarning,
   releaseAllSystems,
   setAgentIdentity,
 } from '@aimail/mail-core'
@@ -147,8 +148,9 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
       .then((outcomes) => {
         for (const o of outcomes) {
           const line = `[openclaw-aimail] ${formatInboundNotifyLine(o, 'live')}`
-          // 诊断行 ⇒ stderr(警告/非警告同流):op 路径 stdout 恰一行 JSON(契约 §4.1(2))
-          console.error(line)
+          // 诊断行 ⇒ stderr(警告/普通分流,契约"failure 是 warning line"):op 路径 stdout 恰一行 JSON(§4.1(2))
+          if (isInboundNotifyWarning(o)) console.warn(line)
+          else console.error(line)
         }
       })
       .catch((e) => {
