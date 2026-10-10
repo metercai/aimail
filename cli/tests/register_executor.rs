@@ -10,7 +10,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-use serde_json::json;
+use serde_json::{json, Value};
 
 fn core_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -36,7 +36,7 @@ fn register_executor_offline_behaviour() {
     write_exec(
         &bin.join("node"),
         &format!(
-            "#!/bin/sh\nprintf '%s\\n' \"$@\" >> {}\nexit 0\n",
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" >> {}\nprintf '%s\\n' '{{\"ok\":true,\"result\":{{\"email\":\"agent@example.test\"}}}}'\n",
             record.display()
         ),
     );
@@ -80,14 +80,36 @@ fn register_executor_offline_behaviour() {
     )
     .expect("pi 注册应成功（stub node）");
     let recorded = fs::read_to_string(&record).unwrap();
+    // transport 分派（契约 §4.1(2)）：node 宿主**不自跑外部注册器** —— CLI 直接调平台包自带的
+    // op 入口（`node <register-cli.js> --op assemble --args '<单个 JSON>'`），定名/注册/落绑定在门内。
+    let lines: Vec<&str> = recorded.lines().collect();
     assert!(
-        recorded.contains("--name\nagent\n"),
-        "目标基名必须直达（{recorded:?}）"
+        lines
+            .first()
+            .map(|l| l.ends_with("register-cli.js"))
+            .unwrap_or(false),
+        "argv[1] 应是平台包自带的 op 入口（{recorded:?}）"
     );
-    assert!(recorded.contains("--system-id\ns1\n"), "{recorded:?}");
+    assert_eq!(
+        &lines[1..4],
+        &["--op", "assemble", "--args"],
+        "{recorded:?}"
+    );
+    let payload: Value = serde_json::from_str(lines[4]).expect("op 入参应为一个 JSON");
+    assert_eq!(payload["system_id"], json!("s1"), "{payload:?}");
+    assert_eq!(
+        payload["manager_address"],
+        json!("mgr@example.test"),
+        "{payload:?}"
+    );
+    assert_eq!(
+        payload["home"],
+        json!(home.to_string_lossy()),
+        "{payload:?}"
+    );
     assert!(
-        recorded.contains("--manager\nmgr@example.test\n") || recorded.contains("mgr@example.test"),
-        "manager 必须落到 argv（{recorded:?}）"
+        payload.get("register_spec").is_none(),
+        "node 宿主不自跑外部注册器 ⇒ 不得带 register_spec（{payload:?}）"
     );
 
     // 2) 缺 manager 硬门（参数/env 均无）⇒ 响亮失败，禁以空注册

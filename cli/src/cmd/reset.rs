@@ -182,7 +182,13 @@ pub fn run(a: &Args) -> i32 {
     ok("config parameters reset (admin-key path; least-privilege key re-derived)");
 
     // 注册链幂等重跑（注册表驱动；尽力语义：失败只告警，不阻断 reset）
-    let core_dir = crate::core::sdkroot::resolve_or_placeholder().path;
+    // transport 分派（契约 §4.1(2)）：**只有 python 宿主**需要 SDK 根（门的解释器自带）；
+    // node 宿主（node_entry / host_command）的 op 入口由注册表 `ops.argv` 直达 ⇒ 不得因缺 pysdk 硬退出。
+    let core_dir = if crate::core::platforms::ops_argv(&platform).is_some() {
+        std::path::PathBuf::new()
+    } else {
+        crate::core::sdkroot::resolve_or_placeholder().path
+    };
     let cfg: Value = config::load_gateway_config(&sid)
         .map(|c| Value::Object(c.to_json()))
         .unwrap_or_else(|| json!({}));

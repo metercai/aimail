@@ -4,8 +4,7 @@
 //! - 同一夹具形状（绑定文件 + 系统级网关配置 + 路由表）；
 //! - **同一个活路由探针端口**（Python 与 Rust 各自探同一地址，避免端口不同导致字节差异）；
 //! - 两侧各自跑：Python 的对应私函数 / Rust `repair::agentmail_backfill_with`
-//!   （Rust 侧程序根用夹具 `<tmp>/prog` 里 `sdk-staging-removed → 仓库` 的软链走"同源"分支，
-//!   `AIMAIL_HOME` 经门 env 注入 ⇒ 不改进程环境，测试可并行）。
+//!   （Rust 侧经 python 门调用已装 aimailsdk；`AIMAIL_HOME` 经门 env 注入 ⇒ 不改进程环境，测试可并行）。
 //!
 //! 覆盖两条分支：① 可重建字段**补空**（网关配置为准）；② `webhook_url` 与活路由**对齐**
 //! （声明值已死、路由活 ⇒ 改写；这是 `_alive()` 探针与 `url_host()` 本机判定的联合路径）。
@@ -15,14 +14,7 @@ use aimail::core::repair::agentmail_backfill_with;
 use serde_json::{json, Value};
 use std::io::{Read, Write};
 use std::net::TcpListener;
-use std::path::{Path, PathBuf};
-
-fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("repo root")
-        .to_path_buf()
-}
+use std::path::Path;
 
 /// 起一个极简探针：任何请求都回 200（模拟"活路由"）。返回端口与线程句柄。
 fn spawn_live_probe() -> (u16, std::thread::JoinHandle<()>) {
@@ -116,17 +108,12 @@ fn agentmail_backfill_writes_byte_identical_to_python() {
     let rs_root = tempfile::tempdir().unwrap();
     build_fixture(rs_root.path(), port);
 
-    // Rust 侧：把"程序根"指到夹具（<tmp>/prog/sdk-staging-removed → 仓库 ⇒ 命中同源门）
-    let prog = rs_root.path().join("prog");
-    std::fs::create_dir_all(&prog).unwrap();
-    let link = prog.join("sdk-staging-removed");
-    #[cfg(unix)]
-    std::os::unix::fs::symlink(repo_root(), &link).unwrap();
+    // transport：python 宿主经 python 门（解释器自带 ⇒ 不再有"程序根"入参）；
+    // AIMAIL_HOME 经门 env 注入 ⇒ 不改进程环境，测试可并行。
     let ah = rs_root.path().join("aimail");
     let changed = agentmail_backfill_with(
         "s1",
         &ah,
-        &prog,
         &[("AIMAIL_HOME".to_string(), ah.to_string_lossy().to_string())],
     );
     assert!(changed, "rust 侧应报告有改动");
@@ -149,19 +136,12 @@ fn agentmail_backfill_is_idempotent_and_no_route_means_no_write() {
     let rs_root = tempfile::tempdir().unwrap();
     build_fixture(rs_root.path(), 1);
     std::fs::remove_file(rs_root.path().join("aimail/bridge/aimail_routes.toml")).unwrap();
-    let prog = rs_root.path().join("prog");
-    std::fs::create_dir_all(&prog).unwrap();
-    #[cfg(unix)]
-    std::os::unix::fs::symlink(repo_root(), prog.join("sdk-staging-removed")).unwrap();
     let ah = rs_root.path().join("aimail");
     let env = vec![("AIMAIL_HOME".to_string(), ah.to_string_lossy().to_string())];
-    assert!(
-        agentmail_backfill_with("s1", &ah, &prog, &env),
-        "首次应补空"
-    );
+    assert!(agentmail_backfill_with("s1", &ah, &env), "首次应补空");
     let after_first = binding_bytes(rs_root.path());
     assert!(
-        !agentmail_backfill_with("s1", &ah, &prog, &env),
+        !agentmail_backfill_with("s1", &ah, &env),
         "第二次应无改动（幂等）"
     );
     assert_eq!(after_first, binding_bytes(rs_root.path()), "幂等：内容不变");

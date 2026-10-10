@@ -300,6 +300,42 @@ pub fn sdk_install_target(name: &str) -> String {
         .to_string()
 }
 
+/// 平台的 **op 入口 argv 模板**（注册表 `ops.argv`；契约 v1.0 §4.1(2) 的 node transport）。
+/// 缺失 ⇒ `None` = python 门默认形态（`<解释器> -m aimail.sdk_ops`）。
+/// 模板占位符：`{op}` = op 名、`{args}` = 单个 JSON 入参、`{node_path}` = 注册表 `register.node_path` 解析结果。
+pub fn ops_argv(name: &str) -> Option<Vec<String>> {
+    platform(name)?
+        .get("ops")?
+        .get("argv")?
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+}
+
+/// 注册表**模板路径**落成实路径：`{home}` 逐个候选展开，含 `*` 走 glob（排序取首个命中）。
+/// 无候选命中 ⇒ 空串（调用方按"入口缺失"处理，不猜）。
+pub fn resolve_path_template(tmpl: &str, homes: &[String]) -> String {
+    for h in homes {
+        let cand = tmpl.replace("{home}", h);
+        if cand.contains('*') {
+            if let Ok(hits) = glob::glob(&cand) {
+                let mut v: Vec<std::path::PathBuf> = hits.flatten().collect();
+                v.sort();
+                if let Some(first) = v.first() {
+                    return first.to_string_lossy().to_string();
+                }
+            }
+        } else if std::path::Path::new(&cand).is_file() {
+            return cand;
+        }
+    }
+    String::new()
+}
+
 /// 平台别名表（注册表 `aliases`；空 ⇒ 空表，不猜）。
 pub fn aliases(name: &str) -> Vec<String> {
     platform(name)

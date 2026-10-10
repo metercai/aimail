@@ -82,18 +82,12 @@ fn update_binding(sid: &str, cfg: &Value, patch: &Value) -> Result<(), String> {
         "updates": patch.clone(),
         "fields": patch.clone(),
     });
-    crate::core::sdk::sdk_ops_call(
-        "update",
-        &args,
-        &crate::core::home::program_root(),
-        std::time::Duration::from_secs(60),
-        &[],
-    )
-    .map(|_| ())
-    .map_err(|e| match &e {
-        crate::core::sdk::AbiError::Call { msg, .. } => msg.clone(),
-        other => format!("{other:?}"),
-    })
+    crate::core::sdk::sdk_ops_call("update", &args, std::time::Duration::from_secs(60), &[])
+        .map(|_| ())
+        .map_err(|e| match &e {
+            crate::core::sdk::AbiError::Call { msg, .. } => msg.clone(),
+            other => format!("{other:?}"),
+        })
 }
 
 /// 规则文件名（`_stem_from`：`{serial}_{filename}` 取下划线后段，无下划线 ⇒ 空）。

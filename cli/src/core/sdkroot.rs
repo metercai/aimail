@@ -39,8 +39,6 @@ pub fn at(explicit: &str) -> Result<SdkRoot, String> {
     })
 }
 
-/// 解释器（`AIMAIL_PYTHON` > `python3`）—— 起 SDK 执行进程时用。
-
 /// 探测本机正在运行的 agent 所用解释器（要求该 venv 内确有 aimail ⇒ 不误采无关 venv）
 pub fn probe_agent_python() -> Option<String> {
     let rd = std::fs::read_dir("/proc").ok()?;
@@ -107,7 +105,15 @@ pub fn probe_in_domain(container: &str, home: &str) -> String {
     probe_agent_python().unwrap_or_else(|| "python3".to_string())
 }
 
+/// 解释器（`AIMAIL_PYTHON` > `python3`）—— 起 SDK 执行进程时用。
 pub fn python_bin() -> String {
+    // 契约 v1.0 §4.1(2) 的**定位链**（单真源，三处消费：本模块解析、`sdkcall` 按名调用、`sdk` 门）：
+    // `$AIMAIL_PYTHON` → 宿主 venv 探测（运行中且能 `import aimail` 的 agent 解释器）→ PATH `python3`。
+    if let Ok(p) = std::env::var("AIMAIL_PYTHON") {
+        if !p.trim().is_empty() {
+            return p;
+        }
+    }
     if let Some(p) = probe_agent_python() {
         return p;
     }
@@ -166,6 +172,30 @@ pub fn resolve_or_placeholder() -> SdkRoot {
     }
 }
 
+/// 对探测所得解释器**实测**包管理器：uv 可用 ⇒ uv；否则该解释器的 pip 可用 ⇒ pip；否则空
+pub fn probe_pkgmgr(container: &str, python: &str) -> String {
+    let run = |cmd: &str| -> bool {
+        let mut c = if container.is_empty() {
+            std::process::Command::new("sh")
+        } else {
+            let mut d = std::process::Command::new("docker");
+            d.args(["exec", container, "sh"]);
+            d
+        };
+        c.args(["-c", cmd])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    };
+    if run(&format!("command -v uv >/dev/null 2>&1 && uv pip --version >/dev/null 2>&1 || uv pip install --python {} --dry-run aimailsdk >/dev/null 2>&1", python)) {
+        return "uv".to_string();
+    }
+    if run(&format!("{} -m pip --version >/dev/null 2>&1", python)) {
+        return "pip".to_string();
+    }
+    String::new()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -212,28 +242,4 @@ mod tests {
             "{err}"
         );
     }
-}
-
-/// 对探测所得解释器**实测**包管理器：uv 可用 ⇒ uv；否则该解释器的 pip 可用 ⇒ pip；否则空
-pub fn probe_pkgmgr(container: &str, python: &str) -> String {
-    let run = |cmd: &str| -> bool {
-        let mut c = if container.is_empty() {
-            std::process::Command::new("sh")
-        } else {
-            let mut d = std::process::Command::new("docker");
-            d.args(["exec", container, "sh"]);
-            d
-        };
-        c.args(["-c", cmd])
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-    };
-    if run(&format!("command -v uv >/dev/null 2>&1 && uv pip --version >/dev/null 2>&1 || uv pip install --python {} --dry-run aimailsdk >/dev/null 2>&1", python)) {
-        return "uv".to_string();
-    }
-    if run(&format!("{} -m pip --version >/dev/null 2>&1", python)) {
-        return "pip".to_string();
-    }
-    String::new()
 }

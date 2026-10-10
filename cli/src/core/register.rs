@@ -29,7 +29,8 @@ fn warn(msg: &str) {
 }
 
 /// 候选平台根：调用方给的 home → cfg.system_home → `~/.<home_dir>`。
-fn candidate_homes(platform: &str, cfg: &Value, platform_home: &str) -> Vec<String> {
+/// 供注册器与 op 入口（`core::sdk::ops_target`）共用 —— 模板路径的单真源。
+pub(crate) fn candidate_homes(platform: &str, cfg: &Value, platform_home: &str) -> Vec<String> {
     let home_dir = platforms::home_dir(platform).unwrap_or("");
     let fallback = crate::core::home::user_home()
         .join(format!(".{home_dir}"))
@@ -218,26 +219,26 @@ pub fn register_agent(
     }
 
     // ── 契约 v1.0 §4.1：定名 + 注册器执行 + 装配期改名 + 落绑定 —— 全在 SDK 门 assemble 内 ──
-    let res = crate::core::sdk::sdk_ops_call(
+    // transport 分派（§4.1(2)）：node 宿主（node_entry / host_command）由注册表 `ops.argv` 直接
+    // 调平台包自带的 op 入口 ⇒ **不传 register_spec**（注册器就是它自己，CLI 不代跑）；
+    // python 宿主（python_module / python_script）仍经 python 门跑外部注册器 ⇒ 带 register_spec。
+    let mut asm = json!({
+        "system_id": sid,
+        "system_cfg": cfg.clone(),
+        "domain": domain,
+        "system_name": system_name,
+        "aliases": aliases,
+        "manager_address": mgr,
+        "home": cand_homes.first().cloned().unwrap_or_default(),
+    });
+    if matches!(kind, "python_module" | "python_script") {
+        asm["register_spec"] = spec.clone();
+    }
+    let res = crate::core::sdk::sdk_ops_call_for(
+        platform,
+        &cand_homes,
         "assemble",
-        &json!({
-            "system_id": sid,
-            "system_cfg": cfg.clone(),
-                                    "domain": domain,
-            "system_name": system_name,
-            "aliases": aliases,
-            "manager_address": mgr,
-            "home": cand_homes.first().cloned().unwrap_or_default(),
-            "register_spec": spec,
-        }),
-        // owner 2026-10-07：**按 kind 惰性解析** —— node_entry/host_command 平台**不得**解析 pysdk ✗（pi/dsh/openclaw 无 pysdk ✓）
-        matches!(
-            spec.get("kind").and_then(|v| v.as_str()),
-            Some("python_module") | Some("python_script")
-        )
-        .then(|| crate::core::sdkroot::resolve_or_placeholder().path)
-        .as_deref()
-        .unwrap_or_else(|| std::path::Path::new("")),
+        &asm,
         REGISTRAR_TIMEOUT,
         &[],
     )

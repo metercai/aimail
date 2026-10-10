@@ -570,7 +570,6 @@ pub fn run(args: Args) -> i32 {
                     "manager_address": mgr.clone(),
                     "action": "set-manager",
                 }),
-                &crate::core::home::program_root(),
                 std::time::Duration::from_secs(60),
                 &[],
             ) {
@@ -609,7 +608,6 @@ pub fn run(args: Args) -> i32 {
                     "new_name": new_name.clone(),
                     "action": "rename",
                 }),
-                &crate::core::home::program_root(),
                 std::time::Duration::from_secs(60),
                 &[],
             ) {

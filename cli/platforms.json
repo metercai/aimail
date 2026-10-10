@@ -39,6 +39,16 @@
         ],
         "fail_hint": "pi-aimail 扩展未就绪——先 `pi install npm:pi-aimail` 装扩展再注册"
       },
+      "ops": {
+        "argv": [
+          "node",
+          "{node_path}",
+          "--op",
+          "{op}",
+          "--args",
+          "{args}"
+        ]
+      },
       "home_dir": ".pi",
       "install_steps": [
         {
@@ -145,6 +155,16 @@
           "mail"
         ],
         "fail_hint": "dsh-aimail 插件未就绪——先 `dsh plugin --profile web add dsh-aimail` 装插件再注册"
+      },
+      "ops": {
+        "argv": [
+          "node",
+          "{node_path}",
+          "--op",
+          "{op}",
+          "--args",
+          "{args}"
+        ]
       },
       "home_dir": ".dsh",
       "install_steps": [
@@ -390,6 +410,15 @@
           "{manager}"
         ],
         "fail_hint": "先安装 openclaw-aimail 插件(`openclaw plugins install openclaw-aimail --force --accept-capabilities` → 重启 gateway),`openclaw aimail register` 命令由插件提供"
+      },
+      "ops": {
+        "argv": [
+          "openclaw",
+          "aimail",
+          "{op}",
+          "--args",
+          "{args}"
+        ]
       },
       "home_dir": ".openclaw",
       "install_steps": [

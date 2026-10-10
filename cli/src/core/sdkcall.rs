@@ -43,7 +43,8 @@ pub fn shim_argv_full(
 }
 
 fn python_bin() -> String {
-    std::env::var("AIMAIL_PYTHON").unwrap_or_else(|_| "python3".to_string())
+    // 定位链单真源 = `core::sdkroot::python_bin`（契约 §4.1(2)）
+    crate::core::sdkroot::python_bin()
 }
 
 /// 调 `module.function(**kwargs)`：成功返回 SDK 的返回值；失败按 `usage|import|call` 分档。

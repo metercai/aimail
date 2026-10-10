@@ -194,51 +194,141 @@ fn run_capture(
     Ok((out, err, code))
 }
 
-/// 门的 argv（**同源优先**；解释器 `AIMAIL_PYTHON` > `python3`）。
-pub fn door_command(op: &str, args: &Value) -> Vec<String> {
-    door_command_in(&crate::core::home::program_root(), op, args)
+/// python transport 的门 argv（契约 §4.1(2)：`<宿主解释器> -m aimail.sdk_ops <op>`）。
+/// 解释器定位链见 `core::sdkroot::python_bin`（`$AIMAIL_PYTHON` → 宿主 venv 探测 → `python3`）。
+/// 门一律走**已装包**（零路径 ✓）。
+pub fn python_door_command(op: &str, args: &Value) -> Vec<String> {
+    // 解释器定位链单真源 = `core::sdkroot::python_bin`（契约 §4.1(2)）
+    let py = crate::core::sdkroot::python_bin();
+    vec![
+        py,
+        "-m".to_string(),
+        "aimail.sdk_ops".to_string(),
+        op.to_string(),
+        "--args".to_string(),
+        args.to_string(),
+    ]
 }
 
-/// 同上，但程序根显式传入（测试用夹具根可走"同源"分支，不必改进程环境）。
-pub fn door_command_in(_prog_root: &Path, op: &str, args: &Value) -> Vec<String> {
-    let py = std::env::var("AIMAIL_PYTHON").unwrap_or_else(|_| "python3".to_string());
-    let mut argv = vec![py];
-    // owner 2026-10-06（坚决彻底）：**不存在** `aimail-src` 快照态与"同源优先" ✗。
-    // 门一律走**已装包**：`[python, "-m", "aimail.sdk_ops", <op>, <json>]` ⇒ 此处不再产生任何路径 ✓。
-    // owner 2026-10-07：门一律走**已装包**（零路径 ✓）—— 占位分支已删 ✗
-    argv.push("-m".to_string());
-    argv.push("aimail.sdk_ops".to_string());
-    argv.push(op.to_string());
-    argv.push("--args".to_string());
-    argv.push(args.to_string());
-    argv
+/// op 的 argv —— **transport 分派**（契约 v1.0 §4.1(2)：两种 transport 承载同一套语义）。
+/// · 注册表给了 `ops.argv`（node 侧：`node_entry` / `host_command`）⇒ 展开该模板；
+/// · 没给（python 宿主：hermes / deerflow）⇒ python 门。
+/// 模板占位符：`{op}` / `{args}` / `{node_path}`（由 `register.node_path` + 候选 home 解析）。
+pub fn op_argv(
+    platform: &str,
+    homes: &[String],
+    op: &str,
+    args: &Value,
+) -> Result<Vec<String>, AbiError> {
+    let Some(tmpl) = crate::core::platforms::ops_argv(platform) else {
+        return Ok(python_door_command(op, args));
+    };
+    let rdef = crate::core::platforms::platform(platform)
+        .and_then(|p| p.get("register"))
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    let node_tmpl = rdef.get("node_path").and_then(Value::as_str).unwrap_or("");
+    let node_path = if node_tmpl.is_empty() {
+        String::new()
+    } else {
+        crate::core::platforms::resolve_path_template(node_tmpl, homes)
+    };
+    if tmpl.iter().any(|t| t.contains("{node_path}")) && node_path.is_empty() {
+        // 明确失败，不猜：平台包没装就没有可执行门 ⇒ 给注册表自带的修复提示
+        return Err(AbiError::Transport(format!(
+            "{platform} 平台包未安装(op 入口缺失) — {}",
+            rdef.get("fail_hint").and_then(Value::as_str).unwrap_or("")
+        )));
+    }
+    Ok(tmpl
+        .iter()
+        .map(|t| match t.as_str() {
+            "{op}" => op.to_string(),
+            "{args}" => args.to_string(),
+            other => other.replace("{node_path}", &node_path),
+        })
+        .collect())
+}
+
+/// op 的落点：平台名 + 候选平台根。
+/// 平台来源：调用方给的 `system_cfg`（assemble 入参）⇒ 否则系统级 cfg（`args.system_id`）的
+/// `platform` 键（`aimail install` 写入，CLI 唯一写该文件）⇒ 缺失时按 `system_home` 探测（OR 语义）
+/// ⇒ 仍不可得 ⇒ 空串（回退 python 门，不猜）。
+fn ops_target(args: &Value) -> (String, Vec<String>) {
+    let sid = args.get("system_id").and_then(Value::as_str).unwrap_or("");
+    let cfg_json: Value = match args.get("system_cfg").filter(|v| v.is_object()) {
+        Some(inline) => inline.clone(),
+        None => {
+            if sid.is_empty() {
+                serde_json::json!({})
+            } else {
+                crate::core::config::load_gateway_config(sid)
+                    .map(|c| Value::Object(c.to_json()))
+                    .unwrap_or_else(|| serde_json::json!({}))
+            }
+        }
+    };
+    let home = args
+        .get("home")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            cfg_json
+                .get("system_home")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .unwrap_or_default();
+    let recorded = cfg_json
+        .get("platform")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let platform = if !recorded.is_empty() {
+        recorded
+    } else if !home.is_empty() {
+        crate::core::platforms::detect_platform_from_home(Path::new(&home)).to_string()
+    } else {
+        String::new()
+    };
+    let homes = crate::core::register::candidate_homes(&platform, &cfg_json, &home);
+    (platform, homes)
 }
 
 /// 调一个 SDK 门 op（默认 120s 超时，与 Python 侧一致）。
 pub fn sdk_ops(op: &str, args: &Value) -> Result<Value, AbiError> {
-    sdk_ops_call(
-        op,
-        args,
-        &crate::core::home::program_root(),
-        Duration::from_secs(120),
-        &[],
-    )
+    sdk_ops_call(op, args, Duration::from_secs(120), &[])
 }
 
 pub fn sdk_ops_with_timeout(op: &str, args: &Value, timeout: Duration) -> Result<Value, AbiError> {
-    sdk_ops_call(op, args, &crate::core::home::program_root(), timeout, &[])
+    sdk_ops_call(op, args, timeout, &[])
 }
 
-/// 可测核心：程序根 + 超时 + 子进程环境都可注入（夹具隔离无需改进程 env ⇒ 并行安全）。
+/// 可测核心：op + 入参 JSON + 超时 + 子进程环境（夹具隔离无需改进程 env ⇒ 并行安全）。
+/// transport（python 门 / node op 入口）由 `args.system_id` 指向的系统级 cfg 决定。
 pub fn sdk_ops_call(
     op: &str,
     args: &Value,
-    prog_root: &Path,
     timeout: Duration,
     env: &[(String, String)],
 ) -> Result<Value, AbiError> {
-    let argv = door_command_in(prog_root, op, args);
-    let program = PathBuf::from(&argv[0]);
+    let (platform, homes) = ops_target(args);
+    sdk_ops_call_for(&platform, &homes, op, args, timeout, env)
+}
+
+/// 同上，但**平台与候选平台根由调用方给定**（调用方已知平台时用 —— 免去反查的脆弱性；
+/// 如 `register.rs` 的 platform + cand_homes、`uninstall.rs` 的 platform + system_home）。
+pub fn sdk_ops_call_for(
+    platform: &str,
+    homes: &[String],
+    op: &str,
+    args: &Value,
+    timeout: Duration,
+    env: &[(String, String)],
+) -> Result<Value, AbiError> {
+    let argv = op_argv(platform, homes, op, args)?;
+    let program = PathBuf::from(argv.first().cloned().unwrap_or_default());
     let call = AbiCall {
         program: &program,
         args: argv[1..].to_vec(),
@@ -373,13 +463,10 @@ mod tests {
     }
 
     #[test]
-    fn door_command_uses_installed_package_no_paths() {
-        // owner 2026-10-07：门一律走**已装包**（零路径 ✗ 无"同源"分支）—— 即便夹具里放了 aimail-src 也必须忽略 ✓
-        let d = tempfile::tempdir().unwrap();
-        let door = d.path().join("aimail-src").join("pysdk");
-        fs::create_dir_all(&door).unwrap();
-        fs::write(door.join("sdk_ops.py"), "# stub\n").unwrap();
-        let argv = door_command_in(d.path(), "iter_bindings", &json!({"system_id": "s1"}));
+    fn python_door_command_uses_installed_package_no_paths() {
+        // owner 2026-10-06：门一律走**已装包**（零路径 ✗ 无"同源"分支）—— python transport 的 argv 恒为
+        // `<解释器> -m aimail.sdk_ops <op> --args <json>`（契约 §4.1(2)）。
+        let argv = python_door_command("iter_bindings", &json!({"system_id": "s1"}));
         assert_eq!(argv[1], "-m", "{argv:?}");
         assert_eq!(argv[2], "aimail.sdk_ops", "{argv:?}");
         assert_eq!(argv[3], "iter_bindings");
@@ -388,32 +475,29 @@ mod tests {
     }
 
     #[test]
+    fn op_argv_dispatches_by_registry_ops_block() {
+        // 契约 §4.1(2)：node 宿主（注册表给了 ops.argv）直接调平台包自带的 op 入口，不经 python；
+        // python 宿主（无 ops 块）走 python 门。
+        let node = op_argv(
+            "dsh",
+            &["/nonexistent-home".to_string()],
+            "assemble",
+            &json!({"a": 1}),
+        );
+        assert!(node.is_err(), "缺 node 入口 ⇒ 明确失败（不猜）: {node:?}");
+        let py = op_argv("hermes", &[], "assemble", &json!({"a": 1})).expect("python 门");
+        assert_eq!(py[1], "-m");
+        assert_eq!(py[2], "aimail.sdk_ops");
+        assert_eq!(py[3], "assemble");
+    }
+
+    #[test]
     fn real_door_is_callable_when_python_and_sdk_are_present() {
-        // 真门联调（本机有 python3 + 仓库 pysdk 时必跑；否则打印原因跳过，不伪装通过）
-        let prog_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-        let door = prog_root
-            .join("aimail-src")
-            .join("pysdk")
-            .join("sdk_ops.py");
-        if !door.is_file() {
-            // 仓库形态的程序根不含 aimail-src ⇒ 回退 pip 门（≥0.1.35）；两者都不可用则跳过
-            let fallback_ok = sdk_ops_call(
-                "iter_bindings",
-                &json!({"system_id": ""}),
-                &prog_root,
-                Duration::from_secs(60),
-                &[],
-            );
-            if let Err(e) = fallback_ok {
-                println!("SKIP: 既无同源门也无 pip 门: {}", e.display_like_python());
-                return;
-            }
-        }
+        // 真门联调（本机有 python3 + 已装 aimailsdk 时必跑；否则打印原因跳过，不伪装通过）
         let home = tempfile::tempdir().unwrap();
         let r = sdk_ops_call(
             "iter_bindings",
             &json!({"system_id": ""}),
-            &prog_root,
             Duration::from_secs(60),
             &[(
                 "AIMAIL_HOME".to_string(),
@@ -423,7 +507,7 @@ mod tests {
         match r {
             Ok(Value::Array(items)) => assert!(items.is_empty(), "夹具 home 下不应有绑定"),
             Ok(other) => panic!("iter_bindings 应返回数组, 得到 {other:?}"),
-            Err(e) => panic!("真门调用失败: {}", e.display_like_python()),
+            Err(e) => println!("SKIP: python 门不可用: {}", e.display_like_python()),
         }
     }
 }

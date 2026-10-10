@@ -647,9 +647,8 @@ impl Step {
                 }
             }
             Step::WebhookPairing => {
-                let pr = crate::core::home::program_root();
                 let env: Vec<(String, String)> = Vec::new();
-                if webhook_pairing(sid, _deep, &pr, &env) {
+                if webhook_pairing(sid, _deep, &env) {
                     StepResult::Fixed
                 } else {
                     StepResult::NothingToDo
@@ -817,7 +816,7 @@ fn chmod600(p: &std::path::Path) {
 ///
 /// 本地绑定是唯一真源：每个绑定先拿本地 secret（幂等），再把它同步进云端注册副本。
 /// 绑定读入走 SDK 单入口 `iter_bindings`（与 install/适配器同一份，不另造）。
-pub fn binding_webhook_secrets(sid: &str, prog_root: &Path, door_env: &[(String, String)]) -> bool {
+pub fn binding_webhook_secrets(sid: &str, door_env: &[(String, String)]) -> bool {
     let gw: Value = std::fs::read_to_string(crate::core::config::gateway_config_path(sid))
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
@@ -880,7 +879,6 @@ pub fn binding_webhook_secrets(sid: &str, prog_root: &Path, door_env: &[(String,
         let prov = sdk::sdk_ops_call(
             "update",
             &serde_json::json!({"system_id": sid, "action": "webhook-secret", "binding": d}),
-            prog_root,
             std::time::Duration::from_secs(120),
             door_env,
         )
@@ -937,7 +935,6 @@ pub fn binding_webhook_secrets(sid: &str, prog_root: &Path, door_env: &[(String,
                 "webhook_secret": secret,
                 "manager_address": d.get("manager_address").and_then(|v| v.as_str()).unwrap_or(""),
             }),
-            prog_root,
             std::time::Duration::from_secs(120),
             door_env,
         );
@@ -979,14 +976,9 @@ fn binding_dir_key(email: &str) -> String {
 }
 
 /// `_repair_webhook_pairing`（`repair.py:256-341`）：证据驱动重挂 + `--deep` 全量重写 + 坏 pending ack。
-pub fn webhook_pairing(
-    sid: &str,
-    deep: bool,
-    prog_root: &Path,
-    door_env: &[(String, String)],
-) -> bool {
+pub fn webhook_pairing(sid: &str, deep: bool, door_env: &[(String, String)]) -> bool {
     let client = gateway_client(sid);
-    let mut fixed = binding_webhook_secrets(sid, prog_root, door_env);
+    let mut fixed = binding_webhook_secrets(sid, door_env);
     let Some(c) = client.as_ref() else {
         fail(&format!(
             "gateway config missing, skipping the webhook pairing repair (system {sid})"
@@ -1104,7 +1096,6 @@ pub fn webhook_pairing(
                 "webhook_secret": local.get("webhook_secret").and_then(|v| v.as_str()).unwrap_or(""),
                 "manager_address": local.get("manager_address").and_then(|v| v.as_str()).unwrap_or(""),
             }),
-            prog_root,
             std::time::Duration::from_secs(120),
             door_env,
         );
@@ -1963,15 +1954,13 @@ pub fn runtime_resources(sid: &str, platform_home: &str, prog_root: &Path) -> bo
 /// ③ 对齐条件 = 路由目标存活 + 目标是本机地址 + 声明值与目标不同（存活的声明值不动）；
 /// ④ 比对原字典决定是否写（值相等即不写，幂等）；⑤ 单个文件失败只跳过该文件。
 pub fn agentmail_backfill(sid: &str, aimail_home: &Path) -> bool {
-    agentmail_backfill_with(sid, aimail_home, &crate::core::home::program_root(), &[])
+    agentmail_backfill_with(sid, aimail_home, &[])
 }
 
-/// 同上，但门的**程序根**与**子进程环境**可注入（测试用夹具根 + 夹具 AIMAIL_HOME，
-/// 既走"同源"分支又不改本进程环境 ⇒ 并行安全）。
+/// 同上，但子进程环境可注入（夹具 AIMAIL_HOME ⇒ 不改本进程环境，并行安全）。
 pub fn agentmail_backfill_with(
     sid: &str,
     aimail_home: &Path,
-    prog_root: &Path,
     door_env: &[(String, String)],
 ) -> bool {
     // 契约 v1.0 §4.1 + owner 裁决（甲）：repair 的**判定归 SDK** —— CLI 只触发
@@ -1989,7 +1978,6 @@ pub fn agentmail_backfill_with(
     match crate::core::sdk::sdk_ops_call(
         "update",
         &args,
-        prog_root,
         std::time::Duration::from_secs(120),
         door_env,
     ) {

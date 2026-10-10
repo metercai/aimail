@@ -930,8 +930,9 @@ fn install_human(a: &Args) -> i32 {
         }),
     );
 
-    // 方式二：显式 --container 才写 runtime 记录（幂等覆写同值）
-    if !sid2.is_empty() && !a.container.is_empty() {
+    // 系统级 cfg 记录：`platform`（transport 分派真源 —— 契约 §4.1(2) 的 node/python 选择；
+    // 该文件 CLI 唯一写，见契约 §2）+ 显式 `--container` 时的 runtime 记录（幂等覆写同值）。
+    if !sid2.is_empty() {
         let p = config::systems_root_in(&home::aimail_home())
             .join(&sid2)
             .join("aimail_gateway.json");
@@ -940,26 +941,30 @@ fn install_human(a: &Args) -> i32 {
             .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
         {
             Some(serde_json::Value::Object(mut o)) => {
-                o.insert("runtime".into(), serde_json::json!("docker"));
-                o.insert("container".into(), serde_json::json!(a.container));
-                o.insert(
-                    "container_home".into(),
-                    serde_json::json!(if a.container_home.is_empty() {
-                        system_home.to_string_lossy().to_string()
-                    } else {
-                        a.container_home.clone()
-                    }),
-                );
+                o.insert("platform".into(), serde_json::json!(platform));
+                let record_container = !a.container.is_empty();
+                if record_container {
+                    o.insert("runtime".into(), serde_json::json!("docker"));
+                    o.insert("container".into(), serde_json::json!(a.container));
+                    o.insert(
+                        "container_home".into(),
+                        serde_json::json!(if a.container_home.is_empty() {
+                            system_home.to_string_lossy().to_string()
+                        } else {
+                            a.container_home.clone()
+                        }),
+                    );
+                }
                 if let Err(e) = config::write_private_json(&p, &serde_json::Value::Object(o)) {
-                    warn(&format!("container runtime record failed: {e}"));
-                } else {
+                    warn(&format!("system cfg record failed: {e}"));
+                } else if record_container {
                     ok(&format!(
                         "container runtime recorded: docker/{}",
                         a.container
                     ));
                 }
             }
-            _ => warn("container runtime record failed: config unreadable"),
+            _ => warn("system cfg record skipped: config unreadable"),
         }
     }
 

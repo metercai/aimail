@@ -184,7 +184,13 @@ pub fn run(a: &Args) -> i32 {
         );
     }
 
-    let core_dir = crate::core::sdkroot::resolve_or_placeholder().path;
+    // transport 分派（契约 §4.1(2)）：**只有 python 宿主**需要 SDK 根；node 宿主的 op 入口由
+    // 注册表 `ops.argv` 直达 ⇒ 不得因缺 pysdk 硬退出（uninstall_steps 的 sdk_uninstall 仅 python 宿主有）。
+    let core_dir = if crate::core::platforms::ops_argv(&platform).is_some() {
+        std::path::PathBuf::new()
+    } else {
+        crate::core::sdkroot::resolve_or_placeholder().path
+    };
     let gw_url = setup::pget(&gw, "gateway_url");
     let admin_key = setup::pget(&gw, "admin_key");
     let manager = setup::pget(&gw, "manager_address");
@@ -234,7 +240,9 @@ pub fn run(a: &Args) -> i32 {
                 mgr_binding
             };
             // 契约 v1.0 §4.1：走 SDK 门 teardown（判定与落盘在 SDK；CLI 不传 client/core_dir）
-            match crate::core::sdk::sdk_ops_call(
+            match crate::core::sdk::sdk_ops_call_for(
+                &platform,
+                &[system_home.to_string_lossy().to_string()],
                 "teardown",
                 &json!({
                     "system_id": sid,
@@ -244,7 +252,6 @@ pub fn run(a: &Args) -> i32 {
                     "admin_key": admin_key,
                     "mode": {"unregister": true, "whitelist": false, "backfill": false},
                 }),
-                &crate::core::home::program_root(),
                 std::time::Duration::from_secs(120),
                 &[],
             ) {
@@ -327,7 +334,9 @@ pub fn run(a: &Args) -> i32 {
             if local_emails.contains(ad) || (!manager.is_empty() && *ad == manager) {
                 continue;
             }
-            match crate::core::sdk::sdk_ops_call(
+            match crate::core::sdk::sdk_ops_call_for(
+                &platform,
+                &[system_home.to_string_lossy().to_string()],
                 "teardown",
                 &json!({
                     "system_id": sid,
@@ -337,7 +346,6 @@ pub fn run(a: &Args) -> i32 {
                     "admin_key": admin_key,
                     "mode": {"unregister": true, "whitelist": false, "backfill": false},
                 }),
-                &crate::core::home::program_root(),
                 std::time::Duration::from_secs(120),
                 &[],
             ) {
@@ -351,7 +359,9 @@ pub fn run(a: &Args) -> i32 {
                 )),
             }
         }
-        match crate::core::sdk::sdk_ops_call(
+        match crate::core::sdk::sdk_ops_call_for(
+            &platform,
+            &[system_home.to_string_lossy().to_string()],
             "teardown",
             &json!({
                 "system_id": sid,
@@ -361,7 +371,6 @@ pub fn run(a: &Args) -> i32 {
                 "mode": {"unregister": false, "whitelist": true,
                           "addresses": addrs, "domains": domains, "deregistered": deregistered},
             }),
-            &crate::core::home::program_root(),
             std::time::Duration::from_secs(120),
             &[],
         ) {
