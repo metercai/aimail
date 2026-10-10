@@ -2171,10 +2171,13 @@ mod tests {
 
     #[test]
     fn sdk_install_target_matches_registry() {
-        // 注册表口径：dsh/hermes/deerflow 有自足安装入口；pi/openclaw 资源自己管（无入口）
+        // 注册表口径（owner 2026-10-06 甲 / tests/sdk/test_sdk_install_step_contract.py）：
+        // **python 宿主**（hermes / deerflow）带自足安装入口（sdk_install 步）；
+        // **node 宿主**（dsh / pi / openclaw）**不带** —— 其 SDK/扩展由宿主包管理器装入，
+        // 注册/受控变更/拆除经注册表 `ops.argv` 的 op 入口直达（契约 v1.0 §4.1(2)）。
         assert_eq!(platforms::sdk_install_target("hermes"), "hermes");
-        assert_eq!(platforms::sdk_install_target("dsh"), "dsh");
         assert_eq!(platforms::sdk_install_target("deerflow"), "deerflow");
+        assert_eq!(platforms::sdk_install_target("dsh"), "");
         assert_eq!(platforms::sdk_install_target("pi"), "");
         assert_eq!(platforms::sdk_install_target("openclaw"), "");
         assert_eq!(platforms::sdk_install_target("nope"), "");
