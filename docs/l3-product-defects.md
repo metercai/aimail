@@ -16,7 +16,7 @@
 > 逐条复核 HEAD 仍 live(C-7 除外):
 > - **C-3** detect all-of 全要 markers:**已修**(detect 特征 marker 化:hermes `hermes-agent` / dsh `profiles`;`platforms.json` + `repair.rs` 手写变体 + 三处测试同步),待发版。
 > - **C-1** 裸 install 不读 env:**已修**(待 C-3 同批发版):`install.rs` 两处(ensure_system + install_human)admin_key 加 `AIMAIL_ADMIN_KEY` env 回落(置于复用扫描后,本地绑定优先于 env,避免残留 env 跳过复用);gw_url 新建路径统一走 `resolve_gateway_url`(flag > env > prev > default,新建路径原不读 env)。
-> - **C-4** hermes venv 失配:`cli/platforms.json` hermes `install_steps[0]` 仍钉 `{home}/hermes-agent/venv/bin/python`。
+> - **C-4** hermes venv 失配:**已修**(待发版):解释器改域内自主发现(`probe_in_domain` 嵌套 venv,零平台预设),platforms.json 撤解释器字面量,单真源经 `AIMAIL_PYTHON` 下发。
 > - **C-7** install 不读 AGENT_HOME:**已修**(e71ee21):home 优先级 `--home` > `AGENT_HOME` > `--system-id`,0.1.39 发布二进制自证(无 env 报新文案 / 带 env 解析 home 推进到下游)。
 > - **C-11 / C-12** prompt add ABI / rename 凭据:本轮已随 SDK 0.1.49 修复(L2 J5-7 全绿);但 L3 全 9 格未跑到 ⑤⑥ 无法闭环验证,保留待 L3 绿后确认。
 > - **S-1 dsh-aimail 与 dsh 0.2.x 不兼容 —— 0.1.49 未修**(2026-10-10 精确化,推翻旧结论"顶层包已不提供"):
@@ -47,7 +47,7 @@
 | C-4 | cli | ~~hermes 适配器 venv 路径假设与当前官方 install.sh 布局失配~~ **已修**:解释器改域内自主发现(`probe_in_domain` 嵌套 venv,零平台预设),platforms.json 撤字面量,单真源下发;待发版 | (已闭环,待发版) |
 | C-3 | cli | ~~detect 为 all-of 全要 markers~~ **已修**:detect 放宽为平台特征 marker(hermes `hermes-agent` / dsh `profiles`),注册表 + repair 手写变体 + 测试同步;官方安装产物即可识别,待发版 | (已闭环,待发版) |
 | S-1 | SDK | dsh-aimail@0.1.49 peerDeps 钉旧系列(0.0.1-rc.1/0.1.0-rc.6),与 dsh latest 0.2.0-rc.2 兼容闸冲突 ⇒ 拒装。源码已是 0.2.x 形态,修法 = 放宽 peerDeps 接受 0.2.x(待 SDK 域落码 + 发版授权) | Blocker(dsh 双路径) |
-| C-6 | cli | welcome 承诺的"本机单系统可自动判定"不存在(空 sid 直接返回空) — 多系统机裸 welcome 无上下文时必挂 | Major |
+| C-6 | cli | ~~welcome 承诺的"本机单系统可自动判定"不存在(空 sid 直接返回空)~~ **已修**:`resolve_system_id` 加单系统唯一匹配自动判定(多系统不猜),4 消费方共享;待 C-3 同批发版 | (已闭环,待发版) |
 | C-7 | cli | ~~install 不读 `AGENT_HOME` env 作 home 来源~~ **已修 e71ee21 / 0.1.39**:home 优先级 `--home` > `AGENT_HOME` > `--system-id`;L3 journey 实证 6 格越过 install 入口落到 C-3 | (已闭环) |
 | C-8 | cli | hermes SDK 安装步 host 分支不防 uv `exclude-newer` 隔离(CWD 发现宿主 pyproject 的 14 天隔离)⇒ 静默装旧版 | Major(静默降级) |
 | C-5 | cli | hermes SDK 安装步在 SDK 不可用时仍报 "✓ SDK install done" — 掩盖硬失败 | Major |
@@ -131,13 +131,17 @@
 - **产品域**:cli。
 - **修复方向**:detect 放宽为平台特征 marker(hermes `hermes-agent` / dsh `profiles`),或 install 时自建缺失目录,与官方安装布局一致。
 
-### C-6 welcome 承诺的"本机单系统可自动判定"不存在 —— 多系统机裸 welcome 无上下文时必挂
+### C-6 welcome 承诺的"本机单系统可自动判定"不存在 —— 多系统机裸 welcome 无上下文时必挂——**已修(待 C-3 同批发版)**
 
 - **现象**:`aimail welcome`(裸,无 `--system-id` 且 `AGENT_HOME` 未设/无指针)报 `✗ system_id 未解析(需 --system-id,或本机单系统/平台指针可自动判定)`(rc=1)。报错文案承诺的"本机单系统可自动判定"路径**不存在**——多系统机(README Notes 明确支持 "one machine can host several Agent platforms")上,用户未 export `AGENT_HOME` 时裸 welcome 无路可走,且报错文案误导。
 - **位置**:`cli/src/cmd/welcome.rs:50-61`(sid 为空 → `uninstall::resolve_system_id(ah, "")` → `cli/src/cmd/uninstall.rs:45-47` 空 explicit_sid **直接返回空**,无 systems/ 扫描);错误文案 welcome.rs:59。
 - **实际上下文链**(welcome.rs:25-48):`--system-id` flag > `AGENT_HOME` env → `{AGENT_HOME}/.agentmail` 指针(install/插件注册时写)→ 结束。无第三级。(contract-allowed: 缺陷报告引用契约指针文件名)
 - **产品域**:cli。
 - **修复方向**:实现报错文案承诺的"单系统自动判定"(`systems/*/` 唯一匹配),或修正文案;README 补 `AGENT_HOME` 上下文说明(用户侧)。
+- **修复落码(2026-10-10)**:取第一案(实现承诺,不改文案)——
+  - `config.rs` 新增 `list_system_ids_in(home)`(枚举 `systems/<sid>/`,只计含 `aimail_gateway.json` 的目录,排序稳定)。
+  - `uninstall.rs::resolve_system_id`:空 explicit_sid 且**恰好一个**有效系统 ⇒ 返回该 sid;零个/多个 ⇒ 仍返回空(多个时调用方报"未解析",不猜)。4 个消费方(welcome/ping/bridge/uninstall)同享该单一真源。
+  - 测试:`welcome_auto_resolves_single_system_without_flag`(单系统 ⇒ 越过"system_id 未解析"关口落到 fixture 的"Missing gateway_url";两系统 ⇒ 仍响亮报未解析,不猜)。
 
 ### C-7 `install` 不读 `AGENT_HOME` env 作 home 来源 —— README 官方流程(裸 `aimail install`)失败
 

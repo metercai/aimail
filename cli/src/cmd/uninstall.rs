@@ -43,6 +43,13 @@ pub(crate) fn resolve_system_id(
         platforms::detect_platform_from_home(system_home).to_string()
     };
     if explicit_sid.is_empty() {
+        // 单系统自动判定（welcome/ping 文案承诺的路径, C-6）：本机恰好一个有效系统
+        // （systems/<sid>/ 含 aimail_gateway.json）⇒ 直接判定；零个或多个 ⇒ 不判定
+        // （多个时调用方报"未解析", 不猜）。
+        let ids = config::list_system_ids_in(&home::aimail_home());
+        if ids.len() == 1 {
+            return (ids.into_iter().next().unwrap(), platform);
+        }
         return (String::new(), platform);
     }
     // 配置反查：该 sid 的 cfg.system_home 指向哪个平台

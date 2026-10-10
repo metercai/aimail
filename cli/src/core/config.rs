@@ -163,6 +163,25 @@ pub fn system_dir_in(home_dir: &Path, sid: &str) -> PathBuf {
     systems_root_in(home_dir).join(sid)
 }
 
+/// 本机有效系统 id 列表（`<home>/systems/<sid>/` 且含 `aimail_gateway.json`），
+/// 排序稳定（调用方按"唯一性"判定,顺序无业务含义）。
+pub fn list_system_ids_in(home_dir: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Ok(rd) = fs::read_dir(systems_root_in(home_dir)) {
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') {
+                continue;
+            }
+            if gateway_config_path_in(home_dir, &name).is_file() {
+                out.push(name);
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
 /// 系统级环境文件路径：`<home>/systems/<sid>/<GATEWAY_CONFIG_NAME>`。
 pub fn gateway_config_path_in(home_dir: &Path, sid: &str) -> PathBuf {
     system_dir_in(home_dir, sid).join(GATEWAY_CONFIG_NAME)
@@ -448,5 +467,22 @@ mod tests {
         fs::create_dir_all(bad.parent().unwrap()).unwrap();
         fs::write(&bad, b"{not json").unwrap();
         assert!(load_gateway_config_in(tmp.path(), "broken").is_none());
+    }
+
+    #[test]
+    fn list_system_ids_only_counts_dirs_with_gateway_config() {
+        let tmp = TempDir::new("config-list");
+        let h = tmp.path();
+        // 有效系统(有 cfg)+ 无 cfg 的目录 + 点开头目录 + 无 cfg 的"坏"目录
+        save_gateway_config_in(h, "sid_a", &GatewayConfig::default()).unwrap();
+        save_gateway_config_in(h, "sid_b", &GatewayConfig::default()).unwrap();
+        fs::create_dir_all(system_dir_in(h, "no_cfg")).unwrap();
+        fs::create_dir_all(h.join("systems").join(".hidden")).unwrap();
+        let ids = list_system_ids_in(h);
+        assert_eq!(
+            ids,
+            vec!["sid_a", "sid_b"],
+            "只数含 aimail_gateway.json 的系统: {ids:?}"
+        );
     }
 }

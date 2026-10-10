@@ -286,3 +286,50 @@ fn install_reads_admin_key_env_when_no_flag() {
         "无凭据应报缺凭据: out={out2:?}"
     );
 }
+
+#[test]
+fn welcome_auto_resolves_single_system_without_flag() {
+    // C-6:welcome 文案(welcome.rs:59)承诺"本机单系统可自动判定"。
+    // AIMAIL_HOME 恰有一个有效系统(systems/<sid>/aimail_gateway.json)时,
+    // 无 --system-id 的 welcome 应自动判定到该 sid(越过"system_id 未解析"关口)。
+    // 观测点:单系统 ⇒ 落到"Missing gateway_url"(fixture 空 gw_url);
+    //        多系统 ⇒ 仍报"system_id 未解析"(不猜)。
+    // AGENT_HOME 置空,排除继承的平台指针串扰(只看单系统判定)。
+    let d = tempfile::tempdir().unwrap();
+    let prog = d.path().to_string_lossy().to_string();
+    let sysdir = d.path().join("home").join("systems").join("solo");
+    std::fs::create_dir_all(&sysdir).unwrap();
+    std::fs::write(
+        sysdir.join("aimail_gateway.json"),
+        r#"{"system_id":"solo","gateway_url":"","admin_key":""}"#,
+    )
+    .unwrap();
+    let (rc, out, _err) = run_env(&prog, &["welcome"], &[("AGENT_HOME", "")]);
+    assert_eq!(rc, 1, "fixture 空 gw_url ⇒ rc=1(已过 sid 关口): {out:?}");
+    assert!(
+        out.contains("Missing gateway_url"),
+        "单系统应自动判定到 solo(越过未解析关口、落到缺 gw_url): out={out:?}"
+    );
+    assert!(
+        !out.contains("system_id 未解析"),
+        "C-6:单系统机不应再报 system_id 未解析(应自动判定): out={out:?}"
+    );
+    // 对照:两个系统 ⇒ 不猜,响亮报"system_id 未解析"
+    let d2 = tempfile::tempdir().unwrap();
+    let prog2 = d2.path().to_string_lossy().to_string();
+    for sid in ["a", "b"] {
+        let sd = d2.path().join("home").join("systems").join(sid);
+        std::fs::create_dir_all(&sd).unwrap();
+        std::fs::write(
+            sd.join("aimail_gateway.json"),
+            format!(r#"{{"system_id":"{sid}","gateway_url":"","admin_key":""}}"#),
+        )
+        .unwrap();
+    }
+    let (rc2, out2, _e2) = run_env(&prog2, &["welcome"], &[("AGENT_HOME", "")]);
+    assert_eq!(rc2, 1, "多系统不猜必须非零: {out2:?}");
+    assert!(
+        out2.contains("system_id 未解析"),
+        "多系统应响亮报 system_id 未解析(不猜): out={out2:?}"
+    );
+}
