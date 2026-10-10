@@ -100,7 +100,8 @@ case "$AGENT" in
       || die "hermes official install failed (see $WORK)"
     # 无 profiles 脚手架: B4 实证(干净 HERMES_HOME 无 profiles/ + webhook.enabled=true
     # → hermes 默认 profile gateway 3s 起, 端口可达) —— hermes agent 不依赖 profiles/。
-    # CLI detect all-of [hermes-agent, profiles] 是产品适配缺失(缺陷清单 C-3), 不绕。
+    # CLI detect 认特征 marker(hermes-agent)——C-3 已修：profiles 是使用期产物,
+    # 不入 detect 特征 ⇒ 官方安装产物(hermes-agent/)即可识别,不绕。
     HERMES_BIN="$HERMES_HOME/hermes-agent/.hermes/bin/hermes"
     [ -x "$HERMES_BIN" ] || gap "hermes binary not found after official install: $HERMES_BIN"
     # LLM 配置在 install.sh **之后**(stage_config 会覆写 config.yaml; 写早了被冲掉)。
@@ -129,7 +130,7 @@ case "$AGENT" in
     # ① write_dsh 要求 profile 已存在(no dsh profile — cannot judge)
     # ② install 的 dsh 步 `dsh plugin --profile web add dsh-aimail` 要往 profile 里装插件。
     # 无 storages 脚手架: 官方 warmup 不建 storages(E1 实证), dsh 运行期 12s 自建(Q3 实证);
-    # CLI detect all-of [profiles, storages] 是产品适配缺失(缺陷清单 C-3 同类), 不绕。
+    # CLI detect 认特征 marker(profiles)——C-3 已修：storages 不入 detect 特征,不绕。
     DSH_HOME="$DSH_HOME" run_timeout 120 dsh --profile web --dump-config >/dev/null 2>&1 \
       || die "dsh profile warmup failed (profiles/web not created)"
     [ -f "$DSH_HOME/profiles/web/cordis.patch.yml" ] || die "dsh warmup did not create cordis.patch.yml"
@@ -266,7 +267,7 @@ case "$AGENT" in
   dsh-aimail|hermes)
     # README: 裸 aimail install(AGENT_HOME env 提供 home; 与 welcome 共享)
     "$AIMAIL_BIN" install \
-      || die "aimail install failed (README CLI path; 见 C-7: 发布版 install 不认 AGENT_HOME)"
+      || die "aimail install failed (README CLI path)"
     ;;
 esac
 ok "install done (system activated + platform adapted)"

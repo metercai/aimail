@@ -14,7 +14,7 @@
 > ③ 12:00(cli-release 0.1.39 success 触发)。**C-7 已修(e71ee21,随 0.1.39 发布)**;
 > 红先于 0.1.37(09:57 那次测的即是 0.1.37)⇒ **其余红非发版引入,是发布产物链路上游的既有 Blocker**。
 > 逐条复核 HEAD 仍 live(C-7 除外):
-> - **C-3** detect all-of 全要 markers:`cli/src/core/platforms.rs:96` `markers.iter().all(...)` 仍在。
+> - **C-3** detect all-of 全要 markers:**已修**(detect 特征 marker 化:hermes `hermes-agent` / dsh `profiles`;`platforms.json` + `repair.rs` 手写变体 + 三处测试同步),待发版。
 > - **C-1** 裸 install 不读 env:`cli/src/cmd/install.rs:272/610` `adm_key=a.admin_key.clone()`(只 -k flag),新建路径 gw_url 无 env 回落。
 > - **C-4** hermes venv 失配:`cli/platforms.json` hermes `install_steps[0]` 仍钉 `{home}/hermes-agent/venv/bin/python`。
 > - **C-7** install 不读 AGENT_HOME:**已修**(e71ee21):home 优先级 `--home` > `AGENT_HOME` > `--system-id`,0.1.39 发布二进制自证(无 env 报新文案 / 带 env 解析 home 推进到下游)。
@@ -26,8 +26,8 @@
 > - dsh-plugin × 3:两次均 `✗ dsh plugin add dsh-aimail failed`(S-1 pnpm 兼容闸,0.1.49 未修)——不走裸 install,与 C-7 无关。
 > - macos-hermes:两次均 `curl: (56) 403` + `no cli-v* release found`(B-2:未认证 api.github.com 限流误报;0.1.39 release 12:00:22 在位,run 12:02:59 仍 403,与 C-7 无关)。
 >
-> **修复优先级(按 ④ 段首红拦截顺序):C-3 → S-1 → C-1/C-4**(C-7 已闭环)。
-> 修 C-3 后 hermes/dsh-aimail 6 格继续往下,才轮到 C-1/C-4;S-1 修后 dsh-plugin 3 格解锁。
+> **修复优先级(按 ④ 段首红拦截顺序):S-1 → C-1/C-4**(C-7、C-3 已闭环,C-3 待发版)。
+> C-3 发版后 hermes/dsh-aimail 6 格越过 detect,落到 C-1/C-4;S-1 修后 dsh-plugin 3 格解锁。
 
 ## 汇总
 
@@ -35,7 +35,7 @@
 |---|--------|------|--------|
 | C-1 | cli | 裸 `aimail install`(新建路径)不读 `AIMAIL_ADMIN_KEY` / `AIMAIL_GW_URL` env — README 场景 4 失败 | Blocker |
 | C-4 | cli | hermes 适配器 venv 路径假设与当前官方 install.sh 布局失配 — aimailsdk 装不进 | Blocker |
-| C-3 | cli | detect 为 all-of 全要 markers(hermes `[hermes-agent, profiles]` / dsh `[profiles, storages]`),官方安装不建 profiles/storages | Blocker(干净机, 双 agent, 已实证) |
+| C-3 | cli | ~~detect 为 all-of 全要 markers~~ **已修**:detect 放宽为平台特征 marker(hermes `hermes-agent` / dsh `profiles`),注册表 + repair 手写变体 + 测试同步;官方安装产物即可识别,待发版 | (已闭环,待发版) |
 | S-1 | SDK | dsh-aimail@0.1.48 与所有已发布 dsh 版本不兼容(peerDeps + 实际 import 均为 dsh 0.1.x 结构) | Blocker(dsh 双路径) |
 | C-6 | cli | welcome 承诺的"本机单系统可自动判定"不存在(空 sid 直接返回空) — 多系统机裸 welcome 无上下文时必挂 | Major |
 | C-7 | cli | ~~install 不读 `AGENT_HOME` env 作 home 来源~~ **已修 e71ee21 / 0.1.39**:home 优先级 `--home` > `AGENT_HOME` > `--system-id`;L3 journey 实证 6 格越过 install 入口落到 C-3 | (已闭环) |
@@ -83,7 +83,7 @@
 - **产品域**:cli。
 - **修复方向**:hermes 适配器的 python/venv 探测对齐当前 install.sh 实际布局(PM 的 workspace venv),而非硬编码 `{home}/hermes-agent/venv`。
 
-### C-3 detect 为 all-of 全要 markers,官方安装不建 profiles/storages(hermes 与 dsh 双命中,均已实证)
+### C-3 detect 为 all-of 全要 markers,官方安装不建 profiles/storages(hermes 与 dsh 双命中,均已实证)——**已修(detect 特征 marker 化,待发版)**
 
 - **现象**:干净机官方安装完成后,`aimail install --home <root>` 报 `✗ 无法确定平台: <root> 目录无特征`。L3 run 37883302756(042c715)实证:hermes 3 平台 + dsh-aimail 3 平台**全 6 格**均红在此行。
 - **复现**:

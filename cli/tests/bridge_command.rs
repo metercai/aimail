@@ -128,9 +128,8 @@ fn status_refresh_and_deploy_flags_are_honest() {
 
     // 夹具：系统配置（存在性检查用）+ 一个已注册绑定（webhook_url 是唯一信任源）
     // 平台由"配置里的 system_home 反查"得出（与 Python 同序）⇒ 夹具给一个带 hermes 特征的 home
-    // 平台 detect 必须**全部** markers 命中（hermes: hermes-agent + profiles）
+    // 平台 detect 认特征 marker（C-3：hermes = hermes-agent；profiles 是使用期产物，不入特征）
     std::fs::create_dir_all(home.join("phome/hermes-agent")).unwrap();
-    std::fs::create_dir_all(home.join("phome/profiles")).unwrap();
     std::fs::write(
         home.join("systems/s1/aimail_gateway.json"),
         format!(

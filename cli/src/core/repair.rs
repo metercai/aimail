@@ -1751,7 +1751,8 @@ pub fn drain_stuck(client: &Option<crate::core::gateway::GatewayClient>) -> bool
 /// `_detect_platform_from_home`（`repair.py:394-407`）：**repaired 侧的手写判定变体**。
 ///
 /// 与另两处平台判定**不同**（各自照抄，不合并）：hermes 用 `markers 任一` 的 OR；openclaw 看
-/// `openclaw.json` 文件；deerflow 看 `backend/app/gateway` 目录。名字是平台语义（注册表只描述
+/// `openclaw.json` 文件；deerflow 看 `backend/app/gateway` 目录；dsh 认 `profiles`（C-3：
+/// storages 是使用期产物，不入特征）。名字是平台语义（注册表只描述
 /// 特征，表达不了这里的 OR/文件/目录三种形状）。
 fn detect_platform_for_repair(dir: &Path) -> &'static str {
     let name = dir
@@ -1761,7 +1762,7 @@ fn detect_platform_for_repair(dir: &Path) -> &'static str {
     if name == ".pi" && dir.join("agent").is_dir() {
         return "pi";
     }
-    if name == ".dsh" && dir.join("profiles").is_dir() && dir.join("storages").is_dir() {
+    if name == ".dsh" && dir.join("profiles").is_dir() {
         return "dsh";
     }
     if dir.join("hermes-agent").exists() || dir.join("profiles").is_dir() {
@@ -2190,13 +2191,12 @@ mod tests {
         let h = d.path().join(".hermes");
         std::fs::create_dir_all(h.join("profiles")).unwrap();
         assert_eq!(detect_platform_for_repair(&h), "hermes");
-        // pi 需 名字 .pi + agent/；dsh 需 名字 .dsh + profiles/ + storages/
+        // pi 需 名字 .pi + agent/；dsh 需 名字 .dsh + profiles/（C-3：storages 是使用期产物，不入特征）
         let pi = d.path().join(".pi");
         std::fs::create_dir_all(pi.join("agent")).unwrap();
         assert_eq!(detect_platform_for_repair(&pi), "pi");
         let dsh = d.path().join(".dsh");
         std::fs::create_dir_all(dsh.join("profiles")).unwrap();
-        std::fs::create_dir_all(dsh.join("storages")).unwrap();
         assert_eq!(detect_platform_for_repair(&dsh), "dsh");
         // openclaw 看文件；deerflow 看目录
         let oc = d.path().join(".openclaw");

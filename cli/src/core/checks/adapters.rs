@@ -1207,15 +1207,14 @@ mod tests {
         let tmp = TempDir::new("adapters-detect");
         let home = tmp.path();
         assert_eq!(detect_agent_type(home, None, false), "unknown");
-        // hermes：dir_name 缺省回落到 home_dir(.hermes) + markers 齐才算
+        // hermes：dir_name 缺省回落到 home_dir(.hermes) + 特征 marker hermes-agent
+        // (C-3：profiles 是使用期产物，官方安装不建 ⇒ 不入 detect 特征)
         std::fs::create_dir_all(home.join(".hermes").join("hermes-agent")).unwrap();
         assert_eq!(
             detect_agent_type(home, None, false),
-            "unknown",
-            "markers 不齐"
+            "hermes",
+            "hermes-agent 单特征应识别为 hermes"
         );
-        std::fs::create_dir_all(home.join(".hermes").join("profiles")).unwrap();
-        assert_eq!(detect_agent_type(home, None, false), "hermes");
         // 显式 --agent-home ⇒ 直接 hermes 意图
         assert_eq!(detect_agent_type(home, None, true), "hermes");
     }

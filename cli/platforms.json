@@ -126,8 +126,7 @@
       "detect": {
         "dir_name": ".dsh",
         "markers": [
-          "profiles",
-          "storages"
+          "profiles"
         ]
       },
       "pointer": {
@@ -216,8 +215,7 @@
     "hermes": {
       "detect": {
         "markers": [
-          "hermes-agent",
-          "profiles"
+          "hermes-agent"
         ]
       },
       "pointer": {
