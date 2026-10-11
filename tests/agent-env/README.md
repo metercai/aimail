@@ -71,6 +71,19 @@ bash tests/agent-env/verify.sh hermes --home "$HOME/.hermes" --llm-url ... --llm
 `prepare.sh` ends by running `verify.sh` (use `--no-verify` to skip, e.g. during image
 build, where `verify.sh --offline` is run as its own layer).
 
+## Consumers
+
+* **L3** (`tests/l3/run-l3.sh`, GitHub runners): calls `prepare.sh` for hermes and dsh
+  before fetching the published CLI + gateway.
+* **L2** (`aimail-advanced/tests/SDK/docker-regression/hosts/build-hosts.sh`): now a thin
+  delegator that calls `docker/build.sh --assets <hosts dir>`, so the harness regression
+  scripts still land in `/opt/regression` and the one `llm-config.py` is placed at
+  `/opt/regression/llm-config.py` for the in-container scripts.
+
+Retired with this: `tests/l3/llm-config.py`, the five host Dockerfiles and the
+`llm-config.py` copy in the advanced repo (the four host-side references there resolve the
+single source).
+
 ## Not this directory's job
 
 * Installing the aimail CLI / pysdk / tssdk (contract item 4) — that is the product path
