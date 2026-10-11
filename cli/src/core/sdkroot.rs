@@ -115,6 +115,30 @@ pub fn probe_in_domain(container: &str, home: &str) -> String {
             }
         }
     }
+    // 官方宿主(uv 托管工具链)布局：`{home}/tools/python-<ver>-*/bin/python3` —— 该布局**不建 venv**
+    // (hermes v0.21.6 实测：宿主进程跑的就是这个解释器，见 L3 run 38139097257 的解释器矩阵 ——
+    // 系统 python3 有 aimail、宿主解释器没有 ⇒ 装了等于没装，welcome 不闭环)。
+    // 判据 = **能实跑** `-c "import sys"`，多个候选取排序最后(版本最新)：开发机上残留的坏 toolchain
+    // 目录不许被采到(与 tests/agent-env/verify.sh 同一规则 —— 该文件早已含此候选，CLI 缺它才不一致)。
+    let tools = std::path::Path::new(home).join("tools");
+    if let Ok(rd) = std::fs::read_dir(&tools) {
+        let mut subs: Vec<std::path::PathBuf> = rd.flatten().map(|e| e.path()).collect();
+        subs.sort();
+        for sub in subs.iter().rev() {
+            let c = sub.join("bin/python3");
+            if !c.is_file() {
+                continue;
+            }
+            if let Ok(o) = std::process::Command::new(&c)
+                .args(["-c", "import sys"])
+                .output()
+            {
+                if o.status.success() {
+                    return c.to_string_lossy().to_string();
+                }
+            }
+        }
+    }
     if let Ok(o) = std::process::Command::new("sh")
         .env("AIMAIL_HOME", home)
         .current_dir(if home.is_empty() { "/" } else { home })
@@ -224,6 +248,9 @@ pub fn probe_pkgmgr(container: &str, python: &str) -> String {
 mod tests {
     use super::*;
 
+    // `AIMAIL_PYTHON` 是进程级全局态：同模块里多个用例各改各的会互踩(P8 同类)，故串行化。
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn repo_layout_entry_resolution() {
         // 仓库布局（本仓）：SDK 根 = <prog>/aimail-src/pysdk ⇒ 两个 SDK 根相对入口直接可落
@@ -279,6 +306,7 @@ mod tests {
         let py = nested.join("python3");
         std::fs::write(&py, b"#!/bin/sh\n").unwrap();
 
+        let _g = ENV_LOCK.lock().unwrap();
         // 清 AIMAIL_PYTHON(测试进程可能继承开发机 env, 会短路到覆盖分支)
         let saved = std::env::var("AIMAIL_PYTHON").ok();
         std::env::remove_var("AIMAIL_PYTHON");
@@ -290,6 +318,45 @@ mod tests {
             got,
             py.to_string_lossy().to_string(),
             "应发现 {home:?} 下的嵌套 venv, 实得 {got}"
+        );
+    }
+
+    #[test]
+    fn tools_toolchain_python_discovered_for_official_host_layout() {
+        // L3 2026-10-11(run 38139097257)：官方宿主(hermes v0.21.6)把 uv 托管的 CPython 放在
+        // `{home}/tools/python-<ver>-*/bin/python3`, **不建 venv** ⇒ 既有三条候选全不命中,
+        // SDK 被装进系统 python3、宿主解释器里没有 SDK(welcome 不闭环)。本用例锁住候选表必须含
+        // `tools/*/bin/python3`, 且**跑不起来的 toolchain 不被采**(判据 = 能实跑, 非路径存在)。
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+
+        let mk = |rel: &str, rc: u8| -> std::path::PathBuf {
+            let d = home.join("tools").join(rel).join("bin");
+            std::fs::create_dir_all(&d).unwrap();
+            let py = d.join("python3");
+            std::fs::write(&py, format!("#!/bin/sh\nexit {rc}\n")).unwrap();
+            std::fs::set_permissions(&py, std::fs::Permissions::from_mode(0o755)).unwrap();
+            py
+        };
+        let broken = mk("python-9.9-broken", 1); // 排序最后(= "最新")但跑不起来
+        let good = mk("python-3.14.7+20260101-linux-x64", 0);
+        assert!(
+            broken.to_string_lossy() > good.to_string_lossy(),
+            "前提: 坏 toolchain 目录排序在后"
+        );
+
+        let _g = ENV_LOCK.lock().unwrap();
+        let saved = std::env::var("AIMAIL_PYTHON").ok();
+        std::env::remove_var("AIMAIL_PYTHON");
+        let got = probe_in_domain("", &home.to_string_lossy());
+        if let Some(v) = saved {
+            std::env::set_var("AIMAIL_PYTHON", v);
+        }
+        assert_eq!(
+            got,
+            good.to_string_lossy().to_string(),
+            "应采能实跑的 toolchain 解释器(坏目录须跳过)"
         );
     }
 }
