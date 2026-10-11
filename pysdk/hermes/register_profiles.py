@@ -68,6 +68,17 @@ def register_emails():
     profiles_dir = os.path.expanduser(os.environ.get("HERMES_PROFILES_DIR", os.path.join(home, "profiles")))
 
     count = 0
+    failures: list = []
+
+    def _fail(msg: str) -> None:
+        """Record + print; register_emails() then reports a non-zero exit code.
+
+        C-13/C-5 class (2026-10-11): a swallowed failure used to leave the
+        install step reporting success while nothing had been wired (webhook /
+        toolsets missing ⇒ agent receives mail but cannot reply).
+        """
+        failures.append(msg)
+        print(msg)
 
     # ── config 补全与注册标记解耦(2026-09-30 J4e 根因) ─────────────────────
     # 旧逻辑把 ensure_profile_config 放在 ".agentmail 指针已匹配 ⇒ 跳过" 之后:  contract-allowed: 注释文字(非代码)引用契约指针文件名
@@ -80,7 +91,7 @@ def register_emails():
     try:
         ensure_config.ensure_profile_config(Path(home))
     except Exception as e:
-        print(f"failed:ensure:default:{e}")
+        _fail(f"failed:ensure:default:{e}")
 
     # Default profile (root ~/.hermes/)
     # Use .agentmail pointer as registration marker
@@ -103,7 +114,7 @@ def register_emails():
             aimail_hermes._auto_register_email("default", home, config)
             count += 1
         except Exception as e:
-            print(f"failed:default:{e}")
+            _fail(f"failed:default:{e}")
         finally:
             os.environ.pop("HERMES_PROFILE_DIR", None)
 
@@ -118,7 +129,7 @@ def register_emails():
             try:
                 ensure_config.ensure_profile_config(Path(profile_dir))
             except Exception as e:
-                print(f"failed:ensure:{name}:{e}")
+                _fail(f"failed:ensure:{name}:{e}")
             # Use .agentmail pointer as registration marker
             named_pointer = os.path.join(profile_dir, ".agentmail")
             if os.path.isfile(named_pointer):
@@ -137,11 +148,17 @@ def register_emails():
                 aimail_hermes._auto_register_email(name, profile_dir, config)
                 count += 1
             except Exception as e:
-                print(f"failed:{name}:{e}")
+                _fail(f"failed:{name}:{e}")
             finally:
                 os.environ.pop("HERMES_PROFILE_DIR", None)
 
     print(f"registered:{count}")
+    if failures:
+        # 失败必须改变退出码(否则 registry 的该步会报 ok_text 成功)。
+        print(f"failed-total:{len(failures)}", file=sys.stderr)
+        return 1
+    return 0
+
 
 if __name__ == "__main__":
-    register_emails()
+    sys.exit(register_emails() or 0)

@@ -22,6 +22,7 @@ J4e 根因(二选一定死 = **(i) 跳过**, 非写错目录):
 import glob
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -284,3 +285,42 @@ def test_register_emails_creates_config_for_fresh_home(tmp_path, monkeypatch, ca
     pt = _toolsets(_read(home / "config.yaml"))
     assert _TOOLSET in (pt.get("webhook") or []), pt
     assert _TOOLSET in (pt.get("cli") or []), pt
+
+
+# ── 5. C-13 锁(2026-10-11):声明面必须带 YAML 解析器;缺它必须响亮失败 ────────
+def test_pyyaml_is_a_declared_runtime_dependency():
+    """官方 uv 宿主(裸 CPython)只有 ruamel-yaml、没有 PyYAML,而安装面
+    `pip install aimailsdk` **不带 extra** ⇒ PyYAML 若只躺在 extra 里,hermes
+    适配器写宿主 config 时就没有解析器(C-13)。这条锁"必须是硬依赖"。"""
+    root = Path(__file__).resolve().parent.parent.parent
+    pt = (root / "pyproject.toml").read_text(encoding="utf-8")
+    m = re.search(r"(?ms)^dependencies = \[(.*?)\]", pt)
+    assert m, "pyproject.toml 缺 dependencies 段"
+    assert "PyYAML" in m.group(1), f"PyYAML 必须是硬依赖(实得: {m.group(1).strip()})"
+
+
+def test_missing_yaml_fails_loudly_instead_of_silently_skipping(tmp_path, monkeypatch, capsys):
+    """缺 YAML 解析器时:注册入口必须**非零退出 + 打印原因**,且不产出 config。
+
+    旧行为(`logger.warning` + `return None`)让 install 照样报 ok_text 成功、
+    而 platforms.webhook 从未落地 ⇒ 宿主起不来(L3 `[4b/6] port not set`)。
+    """
+    register_profiles = _register_profiles()
+    home = tmp_path / "no-yaml-home"
+    home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("HERMES_PROFILES_DIR", str(home / "profiles"))
+    monkeypatch.setattr(register_profiles, "load_gateway_config",
+                        lambda: {"system_id": "sid-noyaml", "admin_key": "k"})
+    # 只让"缺 yaml"成为唯一失败源:注册本体(与 YAML 无关)照常成功
+    monkeypatch.setattr(register_profiles.aimail_hermes, "_auto_register_email",
+                        lambda name, profile_dir, cfg: None)
+    # 官方 uv 宿主条件:解释器里没有 PyYAML(sys.modules 置 None ⇒ import 抛 ImportError)
+    monkeypatch.setitem(sys.modules, "yaml", None)
+
+    rc = register_profiles.register_emails()
+
+    out = capsys.readouterr().out
+    assert rc == 1, f"缺解析器必须让该步非零退出(静默成功=旧缺陷);out={out}"
+    assert "failed:ensure:" in out, out
+    assert not (home / "config.yaml").exists(), "写不进去就不该留下产物"

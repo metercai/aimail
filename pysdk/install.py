@@ -219,7 +219,7 @@ def install_hermes(hermes_dir: str, system_id: str = "") -> int:
         if system_id:
             os.environ["SYSTEM_ID"] = system_id
         try:
-            rp.register_emails()
+            rc = rp.register_emails() or rc
         finally:
             for k, v in saved.items():  # restore only the keys we touched
                 if v is None:
@@ -547,12 +547,13 @@ def _cmd_register_profiles(env) -> int:
     rp = _import_hermes("register_profiles")
     old = dict(os.environ)
     os.environ.update({k: v for k, v in env.items() if v is not None})
+    rc = 0
     try:
-        rp.register_emails()
+        rc = rp.register_emails() or 0
     finally:
         os.environ.clear()
         os.environ.update(old)
-    return 0
+    return rc
 
 
 def main(argv: list | None = None) -> int:

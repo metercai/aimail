@@ -321,8 +321,14 @@ def _ensure_profile_webhook(profile_dir: str) -> Optional[dict]:
             "secret": secret,
         }
     except Exception as e:
-        logger.warning("[aimail_gateway] Failed to write webhook config: %s", e)
-        return None
+        # Fail loudly (C-13, 2026-10-11): swallowing this produced
+        # "install reports success, but platforms.webhook was never written",
+        # which the harness could only report as "port not set" — the host
+        # could never receive inbound mail. A missing YAML parser (PyYAML is a
+        # declared dependency now) must surface here instead of degrading.
+        raise RuntimeError(
+            f"failed to write hermes webhook config {cfg_path}: {e}"
+        ) from e
 
 
 def _list_personas() -> dict:
@@ -518,12 +524,14 @@ def _auto_register_email(name: str, profile_dir: str, config: dict) -> None:
             wh_port = 8644
         wh_config = {"secret": webhook_secret, "port": wh_port}
     else:
-        # Auto-configure or read profile webhook config
+        # Auto-configure or read profile webhook config. _ensure_profile_webhook
+        # raises when the config cannot be written; do not convert that back into
+        # a silent "inbound mail disabled" state (C-13/C-5 class).
         wh_config = _ensure_profile_webhook(profile_dir)
         if not wh_config:
-            logger.warning("[aimail_gateway] Failed to configure webhook for %s — inbound mail disabled", profile_dir)
-            local_webhook_url = ""
-            webhook_secret = ""
+            raise RuntimeError(
+                f"failed to configure webhook for {profile_dir} — inbound mail would be disabled"
+            )
         else:
             webhook_secret = wh_config["secret"]
             wh_port = wh_config["port"]

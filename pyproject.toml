@@ -23,19 +23,26 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
-# The core runtime (aimail_base / aimail_tools / aimail_board /
-# gateway_api / aimail_mcp_server) is stdlib-only: every third-party import
-# (yaml, markitdown) is lazy and host-gated. The only module-level
-# third-party import in the package is fastapi, confined to the DeerFlow
-# inbound router (deerflow extra, host always ships it). Keep the hard dep
-# surface at zero so the package installs anywhere.
-dependencies = []
+# Runtime dependency note (2026-10-11, C-13): the hermes adapter must read AND
+# write the host's config.yaml (platforms.webhook + platform_toolsets) on the
+# install/register path, so a YAML parser has to exist in the interpreter the
+# SDK actually runs in. The official uv-managed host ships a bare CPython —
+# it carries its own ruamel-yaml but NO PyYAML — and the CLI installs the SDK
+# with `pip install aimailsdk` (no extras). PyYAML is therefore a hard dep
+# (cp314 wheels exist for every release platform). The remaining third-party
+# imports stay optional and host-gated: markitdown (docs extra) degrades to
+# keeping the original attachment, fastapi (deerflow extra) is a module-level
+# import of the DeerFlow adapter, which runs inside the DeerFlow host.
+dependencies = ["PyYAML>=6"]
 
 [project.optional-dependencies]
-# Document attachment -> markdown conversion (lazy import in core).
+# Document attachment -> markdown conversion (lazy import in core). NOTE: no
+# install face selects this extra today, so the current deployments never get
+# markitdown — the conversion silently does not happen (core keeps the original
+# file and the agent falls through to its PDF skill).
 docs = ["markitdown>=0.0.1"]
-# Hermes adapter profile-config parsing (lazy import; the Hermes host
-# normally already ships PyYAML).
+# Kept for installs that select the extra explicitly; PyYAML is now also a hard
+# dependency (see the note above), because the host cannot be relied on for it.
 hermes = ["PyYAML>=6"]
 # DeerFlow inbound router (aimail/deer-flow/aimail_inbound.py) imports fastapi
 # at module level — loaded only inside the DeerFlow host, which already runs
