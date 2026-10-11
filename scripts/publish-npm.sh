@@ -11,9 +11,10 @@
 #   - 幂等/skip 逻辑只在本脚本一处（原先 .github/workflows/publish.yml 的 step 里
 #     重抄了一份，双真源）；workflow 只负责"给包目录清单"。
 #   - **逐包隔离**：某个包失败不再中断其余包（此前 set -e 让首个失败即退出，
-#     发布会静默少发几个包）；末尾汇总失败清单并非零退出。
-#   - **上架可查**：判据是 registry 终态，不是客户端自报。npm 处理 tarball 需要时间，
-#     期间 `npm view <pkg>@<ver>` 仍为 404（实测数分钟）；本脚本有界轮询到可见为止。
+#     发布会静默少发几个包）；末尾汇总失败清单并以非零退出。
+#   - **上架可查**：只作证据与告警，不作失败判据。权威信号是 npm 客户端的退出码
+#     （服务端已接受发布）；registry 可见性最终一致（实测慢至 ~10 min），故有界轮询
+#     （900s）并直查权威 registry，超时只 WARN。版本真伪由 L3 闭环（从 registry 装件）。
 #
 # Prereqs: npm login (token in ~/.npmrc) 或 CI 的 Trusted Publishing OIDC;
 #          pnpm install 已完成; git 工作树干净（第 5 步用 git checkout 还原 manifest）。
@@ -181,18 +182,30 @@ PYEOF
   fi
   echo "  package.json restored"
 
-  # 6) 上架可查(DRY_RUN 跳过): 客户端报 "published" 不等于 registry 已可见。
+  # 6) 上架可查(DRY_RUN 跳过) —— 可见性是**最终一致**的, 不作失败判据:
+  #    · 权威信号 = npm 客户端的退出码(服务端已接受发布请求, 前面步骤已判);
+  #    · 可见性 = 直查权威 registry 的**版本端点**(带 cache-buster)。`npm view` 会命中
+  #      客户端/边缘缓存(陈旧 404 或陈旧命中), 直查才是真值。
+  #    2026-10-11 实测: dsh-aimail@0.1.51 客户端报 published 后 <90s 可见; 而
+  #    pi-aimail@0.1.51 客户端 13:42:03Z 报 published, registry 直到 13:52:17Z 才可见
+  #    (≈10 min 服务端处理) —— 当时 300s 窗口把一次**成功**判成了失败。
+  #    ⇒ 窗口放宽到 900s; 仍不可见只 WARN 不 FAIL。版本真伪由下游 L3 闭环
+  #      (L3 从 registry 安装已发布件, 拿不到就真红)。
   if [ "${DRY_RUN:-0}" != "1" ]; then
-    vis=""
-    for _i in $(seq 1 18); do
-      vis=$(npm view "$name@$ver" version --prefer-online 2>/dev/null || true)
-      [ -n "$vis" ] && break
+    vis=""; _code=""
+    for _i in $(seq 1 90); do
+      _code="$(curl -s -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/$name/$ver?t=$(date +%s%N)" || true)"
+      [ "$_code" = "200" ] && { vis=1; break; }
       sleep 10
     done
     if [ -z "$vis" ]; then
-      echo "  ERROR: $name@$ver 在 180s 内未在 registry 可见 —— 发布不算完成"; return 1
+      echo "  WARN: $name@$ver 在 900s 内仍未被权威 registry 提供(最后 HTTP $_code)"
+      echo "        客户端已报 published ⇒ 服务端可能仍在处理(npm 侧最终一致), 不作失败判定"
+      echo "        核对命令: curl -s 'https://registry.npmjs.org/$name/$ver?t=\$(date +%s%N)' -o /dev/null -w '%{http_code}\\n'"
+      echo "        真伪由 L3 闭环: 从 registry 安装已发布件, 装不到即真红"
+    else
+      echo "  registry 可见: $name@$ver (HTTP $_code)"
     fi
-    echo "  registry 可见: $name@$ver"
   fi
   return 0
 }
