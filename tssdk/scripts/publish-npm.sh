@@ -14,6 +14,8 @@ PKGS=("$@")
 [ ${#PKGS[@]} -eq 0 ] && { echo "usage: $0 packages/mail-core [packages/mail] [packages/dsh-aimail] [packages/openclaw-aimail] [packages/pi-aimail]"; exit 1; }
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
+# 语言边界(owner 裁决): tssdk 里不放 python ⇒ 这两个 python 助手在仓根 scripts/。
+repo="$(cd "$root/.." && pwd)"
 ver_of() { python3 -c "import json;print(json.load(open('$1/package.json'))['version'])"; }
 
 for pkg in "${PKGS[@]}"; do
@@ -35,7 +37,7 @@ for pkg in "${PKGS[@]}"; do
   #    resolves workspace:^ locally, but the published manifest must carry a
   #    plain semver range npm understands — never a bare '^' or 'workspace:'.
   #    共享脚本: 同一步骤 3 也对 **bundled 副本**复用(见下 deref 循环)。
-  python3 "$(dirname "$0")/rewrite_ws_deps.py" "$root" "$dir"
+  python3 "$repo/scripts/rewrite_ws_deps.py" "$root" "$dir"
 
   # 2) build — 显式且**绝不吞错**(审计 P0 2026-09-21: 原 `>/dev/null 2>&1 || true`
   #    会把构建失败静默吞掉, 用旧 lib/dist 带新版本号发上 registry)。
@@ -67,7 +69,7 @@ for pkg in "${PKGS[@]}"; do
     # 内嵌 package.json 遗留 "workspace:^"(2026-09-21 实测: pi-aimail /
     # openclaw-aimail 内嵌的 @aimail/mail 带 workspace:^ ⇒ pnpm 系宿主
     # EUNSUPPORTEDPROTOCOL)。deref 出来的是工作区原样, 须与主 manifest 同待遇。
-    python3 "$(dirname "$0")/rewrite_ws_deps.py" "$root" "$link"
+    python3 "$repo/scripts/rewrite_ws_deps.py" "$root" "$link"
   done
   echo "  building+packing:"
   tgz=$(cd "$dir" && npm pack --pack-destination /tmp | tail -1)
