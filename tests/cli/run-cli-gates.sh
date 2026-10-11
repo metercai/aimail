@@ -34,6 +34,27 @@ else
 fi
 
 echo
+echo "═══ [CLI] 2b) 需已装件的 parity 用例（L2：经 python 门调已装 aimailsdk）═══"
+if [ -d cli ]; then
+  # 属 L2(装件级)：dev 门禁(ci.yml)不装 SDK,故 cli/tests 里这类用例由 feature 关掉。
+  # 前置条件 = 域内解释器可 import aimailsdk(probe_in_domain 链首 AIMAIL_PYTHON)；
+  # 缺则响亮 SKIP —— 环境缺失不是产品红,与步骤 3 对 advanced 缺失同款。
+  _sdk_py=""
+  for c in "${AIMAIL_PYTHON:-}" python3; do
+    [ -n "$c" ] || continue
+    if command -v "$c" >/dev/null 2>&1 && "$c" -c 'import aimail' >/dev/null 2>&1; then _sdk_py="$c"; break; fi
+  done
+  if [ -z "$_sdk_py" ]; then
+    echo "[CLI] SKIP(env): 无解释器可 import aimailsdk —— parity 用例未跑"
+  else
+    echo "[CLI] 解释器 = $_sdk_py（aimailsdk 可导入）"
+    (cd cli && cargo test --offline --features sdk-parity --test repair_backfill_parity) || fail=1
+  fi
+else
+  echo "[CLI] SKIP: 无 cli/ 目录"
+fi
+
+echo
 echo "═══ [CLI] 3) CLI 宿主 L1/L2 门禁（黑盒，被测物 = rust 二进制）═══"
 if [ -x "$HOME/aimail-advanced/tests/cli/run-cli-gate.sh" ]; then
   (cd "$HOME/aimail-advanced" && bash tests/cli/run-cli-gate.sh) || fail=1

@@ -45,6 +45,15 @@ jobs:
       - name: cargo test
         run: cargo test --all-targets
 
+      - name: sdk-parity tests (L2 layer — needs an installed SDK)
+        # 这批用例经 python 门调**已装** aimailsdk ⇒ 属 L2(装件级)。dev runner 上没装 SDK,
+        # 故它们在 cli/tests 里被 `sdk-parity` feature 关掉；这里显式装官方发布版到 venv 并用
+        # AIMAIL_PYTHON 钉住解释器（sdkroot::probe_in_domain 的链首 = 显式覆盖优先）。
+        run: |
+          python3 -m venv /tmp/sdk-venv
+          /tmp/sdk-venv/bin/pip install --quiet --disable-pip-version-check aimailsdk
+          AIMAIL_PYTHON=/tmp/sdk-venv/bin/python cargo test --features sdk-parity --test repair_backfill_parity
+
   platform-check:
     name: build ${{ matrix.name }}
     runs-on: ${{ matrix.os }}

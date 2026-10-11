@@ -9,6 +9,11 @@
 //! 覆盖两条分支：① 可重建字段**补空**（网关配置为准）；② `webhook_url` 与活路由**对齐**
 //! （声明值已死、路由活 ⇒ 改写；这是 `_alive()` 探针与 `url_host()` 本机判定的联合路径）。
 
+// 门禁分层（owner 2026-10-11 裁决）：本文件经 python 门调**已装** aimailsdk ⇒ 属 L2（装件级），
+// 不进 dev 门禁（干净 runner 上装不到 SDK，本目标曾长期红）。由 L2 门禁与 release 门禁显式
+// `--features sdk-parity` 运行；默认（无该 feature）整个文件编译为空 ⇒ dev 门禁不再红。
+#![cfg(feature = "sdk-parity")]
+
 use aimail::core::contract;
 use aimail::core::repair::agentmail_backfill_with;
 use serde_json::{json, Value};
