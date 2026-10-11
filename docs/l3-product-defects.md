@@ -39,6 +39,19 @@
 > **修复优先级(按 ④ 段首红拦截顺序):S-1**(C-7、C-3、C-1、C-4 已闭环;C-3/C-1/C-4 待发版)。
 > C-3/C-1/C-4 发版后 hermes/dsh-aimail 6 格应越过 detect + 凭据装配 + SDK 安装,落点看 L3 实证;S-1 修后 dsh-plugin 3 格解锁。
 
+> **2026-10-11 复核(0.1.41 真实发版后 —— L3 剩余红已全部归到 SDK 域)**:publish run `38140368557`
+> (sha `b653f40`,被测物 CLI **0.1.41** + aimailsdk **0.1.50**)发布链全绿(`cli-release` / `npm` / `pypi` ✓),
+> L3 9 格仍 `failure`,红分两类:
+> - **hermes × 3(新暴露)**:红点从 welcome **前移**到 `[4b/6] ✗ hermes platforms.webhook.port not set
+>   (install did not wire the webhook)`。CLI 侧本轮修复**已在产品层自证生效** ——
+>   `✓ aimailsdk installed via uv|pip into /home/runner/.hermes/tools/python-3.14.7+…/bin/python3`
+>   (0.1.40 时该值字面是裸 `python3`,SDK 装在系统解释器、宿主 import 不到)。装对之后**新暴露**的下一道
+>   blocker = **C-13(SDK 域)**。
+> - **dsh × 6(预存)**:逐字同 2026-10-10 那轮的 `✗ dsh plugin add dsh-aimail failed (README plugin path)`,
+>   即 **S-1**,0.1.50 仍未修。
+> - ⇒ **本轮不需要新的 CLI 改动**。L3 要真绿,必须由 SDK 域修 **C-13 + S-1**:逐条指引见
+>   §「SDK 域交接单(2026-10-11)」。两条都修完才能谈"真实的 L3 真绿 = 发版正确"。
+
 ## 汇总
 
 | # | 产品域 | 缺陷 | 严重度 |
@@ -46,7 +59,8 @@
 | C-1 | cli | ~~裸 `aimail install`(新建路径)不读 `AIMAIL_ADMIN_KEY` / `AIMAIL_GW_URL` env~~ **已修**:admin_key env 回落(复用扫描后,本地绑定优先)+ gw_url 新建路径走 `resolve_gateway_url`;待 C-3 同批发版 | (已闭环,待发版) |
 | C-4 | cli | ~~hermes 适配器 venv 路径假设与当前官方 install.sh 布局失配~~ **已修**:解释器改域内自主发现(`probe_in_domain` 嵌套 venv,零平台预设),platforms.json 撤字面量,单真源下发;待发版 | (已闭环,待发版) |
 | C-3 | cli | ~~detect 为 all-of 全要 markers~~ **已修**:detect 放宽为平台特征 marker(hermes `hermes-agent` / dsh `profiles`),注册表 + repair 手写变体 + 测试同步;官方安装产物即可识别,待发版 | (已闭环,待发版) |
-| S-1 | SDK | dsh-aimail@0.1.49 peerDeps 钉旧系列(0.0.1-rc.1/0.1.0-rc.6),与 dsh latest 0.2.0-rc.2 兼容闸冲突 ⇒ 拒装。源码已是 0.2.x 形态,修法 = 放宽 peerDeps 接受 0.2.x(待 SDK 域落码 + 发版授权) | Blocker(dsh 双路径) |
+| S-1 | SDK(tssdk) | dsh-aimail peerDeps 钉旧系列(dsh-llm `^0.0.1-rc.1` / dsh-agent `^0.1.0-rc.6` / dsh-tools `^0.0.1-rc.1`;cordis `^4.0.1`),与 dsh `0.2.0-rc.2`(`tests/agent-env/pins.env:21`)兼容闸冲突 ⇒ dsh 拒装。源码已是 0.2.x 形态,修法 = 放宽 peerDeps 接受 0.2.x + 发 dsh-aimail 0.1.51(**2026-10-11 复核:0.1.50 仍 live**,L3 两次逐字同线) | Blocker(dsh 双路径) |
+| C-13 | SDK(pysdk) | hermes 适配器写宿主 config **硬 `import yaml`**(PyYAML),而宿主解释器(官方 uv 托管裸 CPython)只有 `ruamel-yaml` ⇒ 写入失败被 `logger.warning` **静默吞掉** ⇒ `platforms.webhook` 从未落地 ⇒ `[4b/6] platforms.webhook.port not set`。修法 = 依赖声明进安装面或写路径去 PyYAML + **响亮失败**(§SDK 域交接单,CLI 侧无需改动) | Blocker(hermes 3 格) |
 | C-6 | cli | ~~welcome 承诺的"本机单系统可自动判定"不存在(空 sid 直接返回空)~~ **已修**:`resolve_system_id` 加单系统唯一匹配自动判定(多系统不猜),4 消费方共享;待 C-3 同批发版 | (已闭环,待发版) |
 | C-7 | cli | ~~install 不读 `AGENT_HOME` env 作 home 来源~~ **已修 e71ee21 / 0.1.39**:home 优先级 `--home` > `AGENT_HOME` > `--system-id`;L3 journey 实证 6 格越过 install 入口落到 C-3 | (已闭环) |
 | C-8 | cli | hermes SDK 安装步 host 分支不防 uv `exclude-newer` 隔离(CWD 发现宿主 pyproject 的 14 天隔离)⇒ 静默装旧版 | Major(静默降级) |
@@ -234,6 +248,117 @@
 - **修复方向**:放宽 `tssdk/packages/dsh-aimail/package.json` 的 peerDeps/devDeps 版本范围接受 0.2.x(源码无需重写),dsh-aimail 独立发版(需发版授权)。
 
 ---
+
+## SDK(pysdk)
+
+### C-13 hermes 适配器写宿主 config 硬依赖 PyYAML,宿主解释器没有 ⇒ 写失败被静默吞掉,webhook 从未落地
+
+- **现象**(L3 publish run `38140368557`,hermes × 3 同形):`[4/6]` 安装段全部报成功
+  (`✓ hermes SDK install done` / `✓ agent 'agent' registered -> agent@l3.local`),紧接着
+  `[4b/6] ✗ hermes platforms.webhook.port not set (install did not wire the webhook)`。
+  对照上一轮(CLI 0.1.40):同一位置**有** `⚠ route skipped for agent@l3.local: …` 且宿主起得来
+  (`✓ hermes host up (inbound :8644)`)⇒ 本轮 SDK 少做了事。
+- **复现**(免 CI,30 秒;对照组):
+  ```python
+  # 在「无 yaml」的解释器条件下调用 SDK 的写配置入口
+  import builtins, importlib.util, pathlib, sys, tempfile
+  real = builtins.__import__
+  def fake(name, *a, **k):
+      if name == "yaml": raise ImportError("No module named 'yaml'")
+      return real(name, *a, **k)
+  builtins.__import__ = fake
+  sys.path.insert(0, "<repo>/pysdk")
+  spec = importlib.util.spec_from_file_location("ec", "<repo>/pysdk/hermes/ensure_config.py")
+  m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+  d = pathlib.Path(tempfile.mkdtemp()) / "profiles/agent"; d.mkdir(parents=True)
+  print(m.ensure_profile_config(d))       # 见下"实际"
+  print("config.yaml written =", (d / "config.yaml").exists())
+  ```
+  - **实测(无 yaml)**:`RAISED ImportError: No module named 'yaml'`;`config.yaml written = False`
+  - **实测(有 yaml,对照)**:`['config.yaml created (…)', 'platforms.webhook enabled (port=8644)',
+    "platform_toolsets.webhook -> ['<契约 skill 名>', …]"]`;`config.yaml written = True`
+- **期望**:宿主解释器里没有 PyYAML 时,hermes 适配器仍能把 `platforms.webhook`(含 `extra.port`)
+  写进 `{home}/config.yaml`;**或者**响亮失败(rc≠0 / 异常外抛),不许"报成功但什么都没做"。
+- **实际**:三条链路各自独立成立(全部已核):
+  1. 写路径硬依赖:`pysdk/hermes/aimail_hermes.py:288-333` —— `try:` 内 `:293 import yaml` 起,写入走
+     `core.atomic_write_private(cfg_path, yaml.safe_dump(...))`;`:331-333 except Exception as e:
+     logger.warning("[aimail_gateway] Failed to write webhook config: %s", e)` 后 `:334 return None`
+     (**静默**:logger 不进 CI stdout ⇒ L3 日志里看不到任何 ImportError,红点只剩"port not set")。
+  2. 调用方:`pysdk/hermes/aimail_hermes.py:522-524` 拿到 `None` ⇒ 再 log 一条
+     "Failed to configure webhook … inbound mail disabled" ⇒ webhook 视为禁用。
+  3. 另一处同类:`pysdk/hermes/ensure_config.py:68-74` `_dump_yaml` 同样**硬** `import yaml`;
+     其调用点 `pysdk/hermes/register_profiles.py:80-83`(对 root `{home}`)只有
+     `except Exception as e: print(f"failed:ensure:default:{e}")`;读侧 `ensure_config.py:62`
+     的 `except Exception: return {}` 也会静默降级。**注意**:CI 日志里连 `failed:ensure:…` 都没有,
+     说明该分支在本轮未被打到(输出面不同)—— 取证时别把"没打印"读成"没发生"。
+  4. 注册/指针仍成功 ⇒ CLI 步 rc=0 ⇒ 打印注册表 ok_text `✓ hermes SDK install done`
+     (`cli/platforms.json:287`)⇒ 与 **C-5** 同类掩盖。
+- **宿主解释器为什么没有 PyYAML**(已核):CLI 0.1.41 起把 aimailsdk 装进**宿主真正运行的解释器**
+  `{home}/tools/python-<ver>-*/bin/python3`(官方 uv 托管 CPython,裸环境)。宿主自己的依赖环境里
+  `grep -i yaml` 只命中 **`ruamel-yaml==0.18.16`**(L3 日志 `Installed 106 packages`),**没有 PyYAML**;
+  而 SDK 进程并非跑在宿主 env 里 ⇒ 无论它走裸 toolchain site-packages 还是宿主 env,`import yaml` 都不可用。
+  0.1.40 之所以"没炸",是因为当时 SDK 被装进**系统 python3**(Ubuntu runner 自带 PyYAML)—— 侥幸。
+- **全量站点(一次改全,别只修主路径)**:`import yaml` 共 8 处 ——
+  `pysdk/hermes/aimail_hermes.py:53 / 109 / 226 / 274 / 293 / 333`、`pysdk/hermes/ensure_config.py:62 / 69`。
+- **为什么是本 SDK 域**:SDK 自己声明 `pyproject.toml:34 dependencies = []`(零硬依赖),
+  PyYAML 只在可选 extra `hermes = ["PyYAML>=6"]`,旁注写着 "the Hermes host normally already ships PyYAML"
+  —— 该假设对**官方 uv 宿主布局**不成立。CLI 的安装步是 `uv pip install --python "$P" aimailsdk`
+  (**不带 extra**)⇒ 装什么由 SDK 的声明面决定。
+- **产品域**:SDK(pysdk)。
+- **修复方向**:见 §「SDK 域交接单(2026-10-11)」交接项 1(两条候选 + 验收)。
+
+## SDK 域交接单(2026-10-11)—— L3 真绿的最后两道关口
+
+**交界说明(为什么这两条都在 SDK 域、且不需要 CLI 再发版)**
+- CLI 0.1.41 已完成本轮 CLI 侧修复并**自证生效**:aimailsdk 装进宿主真正运行的解释器
+  (`✓ aimailsdk installed via uv|pip into /home/runner/.hermes/tools/python-3.14.7+…/bin/python3`)。
+- 宿主解释器是**裸 CPython**:除 stdlib 外只有 SDK 自己声明的依赖 ⇒ **SDK 声明什么,CLI 的安装步就装什么**
+  (`cli/platforms.json` hermes `install_steps[0]`:`uv pip install --python "$P" aimailsdk`)。
+- 因此下面两条都可由 SDK 域**自持修完**:SDK 发版后直接重跑 L3 即可(其自举取最新 `cli-v*`,SDK 取 PyPI/npm 最新)。
+  唯一例外见交接项 1 的"备选口径"。
+
+### 交接项 1 —— C-13(pysdk / hermes 适配器:依赖面 + 静默失败)
+
+- **要达成的行为**:宿主解释器没有 PyYAML 时,hermes 适配器仍能落地 `{home}/config.yaml` 的
+  `platforms.webhook.{enabled,extra.port,extra.secret}` 与 `platform_toolsets.{webhook,cli}`;
+  做不到就**响亮失败**,不许 `logger.warning` + `return None` 静默降级。
+- **候选修法**(SDK 自决;按"是否需要 CLI 再发版"排序):
+  - **甲(无需 CLI 改动)**:把 hermes 适配器真正需要的依赖声明进**安装面** —— 即 `pyproject.toml`
+    的 `dependencies`(现为 `[]`)。取舍:动了"硬依赖面为零"的不变量,由 SDK 所有者定夺。
+  - **乙(保持零硬依赖)**:写/读路径不依赖 PyYAML —— 优先宿主自带的 `ruamel.yaml`,再退 PyYAML;
+    两者皆不可用时**抛错**给调用方(安装步随之失败,而不是报 `✓ … done`)。
+  - **丙(不推荐)**:CLI 侧把安装步改成装 extra(`aimailsdk[hermes]`)⇒ 那是 CLI 域的一次发版(0.1.42),
+    需另起一单;同一事实两域各改一半最容易再次漂移。
+- **验收判据**:① 8 处 `import yaml` 站点在"无 PyYAML"解释器下不再导致静默降级;② L3 hermes × 3
+  越过 `[4b/6]`,出现 `[5/6] welcome closed loop`;③ `{home}/config.yaml` 中
+  `platforms.webhook.extra.port` 存在(harness 从该键读端口起宿主)。
+
+### 交接项 2 —— S-1(tssdk / dsh-aimail:peerDeps 与 dsh 0.2.x)
+
+- **现象**(dsh 自身拒装,与网络/发布无关;0.1.41 与 0.1.40 两轮逐字同线):
+  `dsh: installation rejected: Plugin dsh-aimail@0.1.50 is incompatible with dsh 0.2.0-rc.2:
+  peerDependencies {"@deepseek-ai/dsh-llm":"^0.0.1-rc.1","@deepseek-ai/dsh-agent":"^0.1.0-rc.6",
+  "@deepseek-ai/dsh-tools":"^0.0.1-rc.1"}` ⇒ `✗ dsh plugin add dsh-aimail failed (README plugin path)`。
+- **事实**:插件 `tssdk/packages/dsh-aimail/package.json` 的 `peerDependencies` 仍是旧系列;
+  测试环境 `tests/agent-env/pins.env:21 DSH_VERSION=0.2.0-rc.2`。
+- **修法**:源码已是 0.2.x 形态(2026-10-10 已对 0.2.0-rc.2 三包 `.d.ts` 坐实 4 个符号)⇒
+  **放宽 peerDeps 接受 0.2.x** + 发 dsh-aimail(0.1.51)。
+- **验收判据**:`dsh plugin add dsh-aimail` 在 `DSH_VERSION=0.2.0-rc.2` 上**直接成功**。
+  **禁用** `dsh plugin allow-version … --accept-risk`(那是掩盖不是修),也**不许**为了让门禁变绿
+  单方面改 `pins.env` 钉回旧线 —— 若 SDK 判定 0.2.0-rc.2 不在支持范围,那是**环境域**决定,须 owner 裁决。
+
+### 复跑与判据(交接双方共用,不需 CLI 发版)
+
+- 派发:`workflow_dispatch` **l3.yml**(9 格矩阵);自举取最新 `cli-v*`(= 0.1.41),SDK 取 PyPI/npm 最新。
+- 期望读数:9 格 `success`;hermes 格出现 `[5/6] welcome closed loop` 与 `[6/6]` 身份断言;
+  失败取证 dump 里 `{home}/tools/python-*/bin/python3` **有** aimail(0.1.40 时为 `None`)。
+- 判据不许改:放宽/跳过 `[4b/6]`、`allow-version` 豁免、改 harness 判据使其恒真 —— 一律不算绿。
+
+### 附:测试侧可选补强(非本单必需,我可落)
+
+`tests/l3/run-l3.sh` 在 `[4b/6]` 失败路径可加三行探针(本次教训:**红必须能只读日志定因**):
+打印被测解释器的 `python -c "import yaml"` 结果、`{home}/config.yaml` 是否存在及内容、以及
+`{home}/tools/python-*/bin/python3` 的 aimail/yaml 可用性 —— 这样即使 SDK 再次静默降级,日志里也直接有因。
 
 ## bootstrap(scripts/bootstrap.sh)
 
