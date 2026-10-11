@@ -10,7 +10,7 @@
  *   - binds execution: exec.agent.id (dsh session uuid) → ctx.mail.resolveCtx
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { defineTool, type JsonValue, type ParameterPropertySpec } from '@deepseek-ai/dsh-tools'
+import { defineTool, type ParameterPropertySpec } from '@deepseek-ai/dsh-tools'
 import {
   MAIL_TOOLS,
   setAgentIdentity,
@@ -32,6 +32,15 @@ const jsonOutput = {
   schema: { type: 'json' as const },
   render: textRender,
 }
+
+/** JSON value — structurally identical to the host's own definition.
+ *
+ * dsh 0.2 moved `JsonValue` into `@deepseek-ai/dsh-util-values` and
+ * `@deepseek-ai/dsh-tools` no longer re-exports it (0.1 did).  Keeping a local
+ * alias avoids depending on that internal package while preserving the type
+ * that shapes the render value.
+ */
+type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
 
 /** ToolResult → JsonValue (output.schema contract). */
 const run = <T>(p: Promise<T>): Promise<JsonValue> => p as unknown as Promise<JsonValue>
