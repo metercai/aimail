@@ -1,19 +1,22 @@
 name: ci
 
 # ═══════════════════════════════════════════════════════════════════════
-# dev 门禁 — owner 2026-10-11 梳理(workflow 5 → 3 + 1 个被调用的 reusable)
+# dev 门禁 — owner 2026-10-11 梳理(workflow 5 → 3;发布链不再有 reusable workflow)
 #
 #   ci.yml            ← 本文件。dev 门禁: CLI 与 SDK 的 L0 + "需已装件"的 L2 用例
 #                       + 平台原生编译检查。push/PR 触发;同时被 publish.yml 作为
 #                       发布前 gate 复用(workflow_call) ⇒ 门禁只有一处定义。
 #   publish.yml       发布单入口(workflow_dispatch): gate → CLI 构建 + GitHub Release
-#                       → npm → PyPI → L3。取代原先 tag 触发的 cli-release.yml +
+#                       → npm → PyPI(内联) → L3。取代原先 tag 触发的 cli-release.yml +
 #                       publish.yml + publish-pypi.yml 三件套与 workflow_run 链。
 #   l3.yml            L3 矩阵: nightly(schedule) + 手动 + 被 publish.yml 调用。
 #
-# publish-pypi.yml 仍是独立文件且**不得改名**: PyPI 的 Trusted Publisher 把 workflow
-# 文件名钉死(publish-pypi.yml),npm 侧同理钉 publish.yml。所以这两个名字是外部契约,
-# 不是历史包袱 —— 其余历史文件(cli.yml / cli-release.yml / l3-integration.yml)已删除。
+# 外部契约(云端一侧须与本仓一致): 唯一发布文件名 publish.yml —— npm 的 Trusted
+# Publisher 绑 repo + workflow "publish.yml" + env "npm-release";PyPI 绑 "publish.yml"
+# + env "pypi-release"。改名须先更新 npmjs/pypi 侧绑定。历史文件 cli.yml /
+# cli-release.yml / l3-integration.yml 已删除;publish-pypi.yml 已并入 publish.yml
+# (PyPI 不接受 reusable workflow 作 TP workflow, 且证书里的 Build Config URI 记的是
+# 顶层调用方 ⇒ 发布 job 必须内联在 publish.yml 里)。
 #
 # 平台集(owner 裁决 Q2): 统一为**发布集** = linux-musl amd64/arm64 + macos-arm64。
 #   Windows: CLI 未完成移植(bridge/repair 依赖 unix 命令), 全链不建 —— 此前 cli.yml

@@ -18,7 +18,7 @@
 |---|---|---|---|---|
 | **SDK** | `tests/sdk/` | L0 开发闭环 | `l0-gate-tests.sh`(pyflakes+pytest+tsc+vitest+契约 4 检查器) | 本地 + advanced `run-e2e.sh` |
 | | `tests/sdk/` | 行为基线(pytest) | 33 个 `test_*.py`(261 用例)+ `conftest.py` | `pytest tests/sdk/`(CI + 本地) |
-| | `tests/sdk/release/` | L2 发版门禁 | `l2-check-tarball.sh`(npm)· `l2-verify-wheel.sh`(pysdk) | CI 内嵌(`publish-npm.sh`/`publish-pypi.yml`) |
+| | `tests/sdk/release/` | L2 发版门禁 | `l2-check-tarball.sh`(npm)· `l2-verify-wheel.sh`(pysdk) | CI 内嵌(`publish-npm.sh`/`publish.yml`) |
 | **统一 L3** | `tests/l3/` | L3 发布后冒烟 | `run-l3.sh` + `.github/workflows/l3.yml`(CLI×SDK×基础版网关对接闭环) | GitHub Actions(发布后自动 + nightly + 手动) |
 | | `scripts/`(发布工具) | 发布工具(非层) | `check-versions.sh`(tag 前版本单线制)· `release-precheck.sh` · `what-changed.sh` · `bump.sh` | 发版流程 |
 | **CLI** | `tests/cli/` | L0 开发闭环 | `run-cli-gates.sh`(共享块 + rust 电池 + delegate advanced L1/L2) | 每次提交 |
@@ -37,7 +37,7 @@
   替代 2026-09-27"CLI L3 并入 L2"的过渡裁决与旧 `l3-verify-published.sh`(已退役)。
 - **SDK L1 集成** = `aimail-advanced/tests/SDK/sdk-e2e/` + `session-e2e/`(针对具体 agent 环境的功能集成)
 - **SDK L2 用户环境** = `aimail-advanced/tests/SDK/docker-regression/hosts/`(纯净环境安装链:install→注册→绑定→幂等)
-- 发布门禁(`tests/sdk/release/`)为何留 aimail 不跨仓:CI 直调(`publish-npm.sh` / `publish-pypi.yml`),移走即断 npm/PyPI 发布链。
+- 发布门禁(`tests/sdk/release/`)为何留 aimail 不跨仓:CI 直调(`publish-npm.sh` / `publish.yml` 的 pypi-build job),移走即断 npm/PyPI 发布链。
 
 ## 单测位置（不在 tests/ 下）
 

@@ -18,7 +18,7 @@
 事故映射(2026-09-05 openclaw/pi E415 事故):npm pack 静默失败 → L0
 脚本规范(禁吞 stderr)+ L2 空包检查;E415 hardlink(npm bundle 传递
 typebox)→ L2 检查 1(与 npm 版本行为无关);CI Test 过但 publish 路径
-未覆盖 → L2 内嵌 publish step、publish-pypi.yml 前置 test job。
+未覆盖 → L2 内嵌 publish step、publish.yml 的 pypi-build job 前置门禁。
 
 ## 行为基线 pytest（本目录 33 个 `test_*.py`，261 用例）
 
@@ -61,8 +61,8 @@ CI 单测覆盖不到的 SDK 用户环境行为,在 advanced 仓跑:
 - `.github/workflows/publish.yml`(npm):publish step 逐包调 `scripts/publish-npm.sh`,
   其内部(pack+normalize 后)调 `tests/sdk/release/l2-check-tarball.sh`
   (`scripts/publish-npm.sh`)。
-- `.github/workflows/publish-pypi.yml`(pysdk):test job 跑
-  `python3 -m pytest tests/sdk/ -q`;build job 调 `tests/sdk/release/l2-verify-wheel.sh`
+- `.github/workflows/publish.yml`(pysdk · `pypi-build` job):跑
+  `python3 -m pytest tests/sdk/ -q`;同一 job 调 `tests/sdk/release/l2-verify-wheel.sh`
   (干净 venv 冒烟)。
 - `l0-gate-tests.sh`(L0)由 **本地** 与 **advanced `tests/run-e2e.sh`**(SDK_GATE)调用,
   aimail 的 CI workflow 不直调。
