@@ -296,6 +296,14 @@ print(port)
 PY
 )" || die "cannot read hermes webhook port"
     [ "${HERMES_PORT:-0}" -gt 0 ] 2>/dev/null || die "hermes platforms.webhook.port not set (install did not wire the webhook)"
+    # launcher 走单真源(tests/agent-env/agent-paths.sh)。此前本块自带一份赋值 + `[ -x ]` 守卫,
+    # 2026-10-11 接线到单源 agent-env 时被连带删除, 只留下面的消费者 ⇒ CI 报
+    # `HERMES_BIN: unbound variable`(set -u 直接中断; hermes host 从未启动, 端口 8644 永不就绪,
+    # L3 9/9 红)。守卫一并恢复: 找不到 launcher 必须响亮失败, 不能静默起一个空命令。
+    # shellcheck source=../agent-env/agent-paths.sh
+    . "$(dirname "${BASH_SOURCE[0]}")/../agent-env/agent-paths.sh"
+    HERMES_BIN="$(agent_launcher hermes "${HERMES_HOME:-}" || true)"
+    [ -x "$HERMES_BIN" ] || die "hermes launcher not found after install (searched <home>/hermes-agent/.hermes/bin, /opt/hermes/bin, <home>/.local/bin, PATH)"
     HERMES_HOME="$HERMES_HOME" nohup "$HERMES_BIN" gateway run > "$WORK/hermes-host.log" 2>&1 &
     HOST_PID=$!
     say "hermes host starting (webhook port $HERMES_PORT)…"

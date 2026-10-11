@@ -58,13 +58,11 @@ case "$AGENT" in
     else
       red "hermes official source tree missing (no gateway/platforms/webhook.py under /opt/hermes or <home>/hermes-agent)"
     fi
-    # the launcher: the docker image has /opt/hermes/bin/hermes, the official host install
-    # has <tree>/.hermes/bin/hermes and puts a copy on PATH (~/.local/bin)
-    _bin=""
-    for _b in "${_tree:-/nonexistent}/.hermes/bin/hermes" /opt/hermes/bin/hermes \
-              "${HOME_DIR}/.local/bin/hermes" "$HOME/.local/bin/hermes" "$(command -v hermes 2>/dev/null)"; do
-      [ -n "$_b" ] && [ -x "$_b" ] && { _bin="$_b"; break; }
-    done
+    # launcher 候选顺序的**单真源** = tests/agent-env/agent-paths.sh。本文件曾自带一份副本,
+    # 与 run-l3.sh 的那份各自漂移, 最终导致 CI `HERMES_BIN: unbound variable`(L3 9/9 红)。
+    # shellcheck source=agent-paths.sh
+    . "$(dirname "${BASH_SOURCE[0]}")/agent-paths.sh"
+    _bin="$(agent_launcher hermes "$HOME_DIR" || true)"
     [ -n "$_bin" ] && pass "hermes launcher present: $_bin" || red "hermes launcher not found (.hermes/bin/hermes, /opt/hermes/bin/hermes, ~/.local/bin/hermes)" ;;
   dsh)
     command -v dsh >/dev/null 2>&1 && pass "dsh on PATH ($(dsh --version 2>/dev/null | head -1))" || red "dsh not on PATH"
@@ -210,12 +208,8 @@ echo "── [3] agent runs + LLM answers"
 case "$AGENT" in
   hermes)
     _probe=""
-    for _b in "${_bin:-/nonexistent}" /opt/hermes/bin/hermes "${_tree:-/nonexistent}/.hermes/bin/hermes" \
-              "$HOME_DIR/hermes-agent/.hermes/bin/hermes" "$HOME/.local/bin/hermes"; do
-      [ -x "$_b" ] || continue
-      _probe="$("$_b" --version 2>/dev/null)" || true
-      [ -n "$_probe" ] && break
-    done ;;
+    _b="$(agent_launcher hermes "$HOME_DIR" || true)"   # 单真源(同上)
+    [ -n "$_b" ] && _probe="$("$_b" --version 2>/dev/null)" || _probe="" ;;
   dsh)      _probe="$(dsh --version 2>/dev/null)" ;;
   pi)       _probe="$(pi --version 2>/dev/null)" ;;
   openclaw) _probe="$(openclaw --version 2>/dev/null)" ;;
