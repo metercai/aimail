@@ -56,14 +56,23 @@ gap() { printf '\033[35m⊘ ENV GAP: %s\n' "$*"; exit 2; }
 # 另附"SDK 落在哪个解释器"与 hermes 的 platform_toolsets(历史已知缺口: 缺它 ⇒ agent
 # 收得到回不出)。此前只打"无回信" ⇒ 只能猜, 实测无法定因。
 dump_failure_evidence() {
-  local h g f found_am=0
+  local h g f found_am=0 skill pat
+  # 契约常量单真源: 检索词里的 SKILL 名**从清单读** —— 硬编码字面量会撞契约字面量棘轮
+  # (run-cli-gates 第 1 步 shared 边界扫全仓): 真源 = contract/aimail-contract.json。
+  skill="$(python3 - "${AIMAIL_REPO:-}/contract/aimail-contract.json" <<'PY'
+import json, sys
+print(json.load(open(sys.argv[1]))["agent_skill_name"])
+PY
+)"
+  pat="Response for webhook|toolset|not registered|unknown name|send_mail|ImportError|ModuleNotFound"
+  [ -n "$skill" ] && pat="$pat|$skill"
   echo "  ────────── 失败取证 dump ──────────"
   for h in "$WORK"/*-host.log; do
     [ -f "$h" ] || continue
     echo "  [③宿主原话] $h (tail -40)"
     tail -80 "$h" | sed 's/^/    /'
     echo "  [③宿主原话: webhook/toolset/邮件工具 关键行]"
-    grep -aiE "Response for webhook|toolset|not registered|unknown name|send_mail|agentmail|ImportError|ModuleNotFound" "$h" | tail -25 | sed 's/^/    /'
+    grep -aiE "$pat" "$h" | tail -25 | sed 's/^/    /'
   done
   for g in "$GW_HOME/boot.log" "$GW_HOME"/*.log; do
     [ -f "$g" ] || continue
