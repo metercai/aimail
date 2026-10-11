@@ -43,17 +43,29 @@ echo "════ agent-env verify: $AGENT (home=${HOME_DIR:-<default>}, offlin
 echo "── [1] official installation"
 case "$AGENT" in
   hermes)
-    # Official = source tree + its venv (a pip wheel layout lacks these files and makes
-    # the CLI adapter's health checks fail).
-    _hh="${HERMES_HOME:-$HOME/.hermes}"
+    # Official install = the source tree (its gateway/platforms/webhook.py is what the CLI
+    # adapter's health check reads) + a launcher. The source tree can sit under any home we
+    # were given: --home is the config home in the L3 form while the install lives in
+    # --extra-home, and the docker image keeps it at /opt/hermes.
     _tree=""
-    [ -d /opt/hermes/gateway ] && _tree=/opt/hermes
-    [ -z "$_tree" ] && [ -d "$_hh/hermes-agent/gateway" ] && _tree="$_hh/hermes-agent"
-    if [ -n "$_tree" ] && [ -f "$_tree/gateway/platforms/webhook.py" ] && [ -x "$_tree/.venv/bin/python3" ]; then
-      pass "hermes official layout (source tree + venv): $_tree"
+    for _cand in /opt/hermes ${EXTRA_HOMES[@]+"${EXTRA_HOMES[@]}"} "$HOME_DIR" "${HERMES_HOME:-}"; do
+      [ -n "$_cand" ] || continue
+      if [ -d "$_cand/hermes-agent/gateway" ]; then _tree="$_cand/hermes-agent"; break; fi
+      if [ -d "$_cand/gateway" ]; then _tree="$_cand"; break; fi
+    done
+    if [ -n "$_tree" ] && [ -f "$_tree/gateway/platforms/webhook.py" ]; then
+      pass "hermes official source tree present: $_tree"
     else
-      red "hermes official layout missing (source tree+venv with gateway/platforms/webhook.py)"
-    fi ;;
+      red "hermes official source tree missing (no gateway/platforms/webhook.py under /opt/hermes or <home>/hermes-agent)"
+    fi
+    # the launcher: the docker image has /opt/hermes/bin/hermes, the official host install
+    # has <tree>/.hermes/bin/hermes and puts a copy on PATH (~/.local/bin)
+    _bin=""
+    for _b in "${_tree:-/nonexistent}/.hermes/bin/hermes" /opt/hermes/bin/hermes \
+              "${HOME_DIR}/.local/bin/hermes" "$HOME/.local/bin/hermes" "$(command -v hermes 2>/dev/null)"; do
+      [ -n "$_b" ] && [ -x "$_b" ] && { _bin="$_b"; break; }
+    done
+    [ -n "$_bin" ] && pass "hermes launcher present: $_bin" || red "hermes launcher not found (.hermes/bin/hermes, /opt/hermes/bin/hermes, ~/.local/bin/hermes)" ;;
   dsh)
     command -v dsh >/dev/null 2>&1 && pass "dsh on PATH ($(dsh --version 2>/dev/null | head -1))" || red "dsh not on PATH"
     [ -f "$HOME_DIR/profiles/web/cordis.patch.yml" ] && pass "dsh profile skeleton warmed" \
@@ -73,11 +85,23 @@ esac
 echo "── [2] base environment + LLM config"
 case "$AGENT" in
   hermes|deerflow)
+    # the interpreter the agent actually runs: a venv beside the tree (docker image) or the
+    # uv-provisioned portable CPython under <home>/tools/python-<ver>-*/bin (official host
+    # install — it creates no venv). Judged by running it, not by the path existing.
     _py=""
-    for c in /opt/hermes/.venv/bin/python3 /app/backend/.venv/bin/python "$HOME_DIR/hermes-agent/.venv/bin/python3"; do
-      [ -x "$c" ] && { _py="$c"; break; }
+    for _cand in "$HOME_DIR" ${EXTRA_HOMES[@]+"${EXTRA_HOMES[@]}"} /opt/hermes /app/backend "${HERMES_HOME:-}"; do
+      [ -n "$_cand" ] || continue
+      for c in "$_cand/.venv/bin/python3" "$_cand/.hermes/venv/bin/python3" "$_cand"/tools/python-*/bin/python3; do
+        [ -x "$c" ] && { _py="$c"; break 2; }
+      done
     done
-    [ -n "$_py" ] && pass "agent interpreter present: $_py" || red "no agent interpreter found (venv)"
+    if [ -n "$_py" ] && "$_py" -c 'import sys' >/dev/null 2>&1; then
+      pass "agent interpreter present and runs: $_py"
+    elif [ -n "$_bin" ] && command -v uv >/dev/null 2>&1; then
+      # official host layout: no dedicated venv next to the tree — the installer drives its
+      # own toolchain through uv, and it is uv that resolves the packages the agent imports
+      pass "agent interpreter: official host layout (launcher + uv, no venv beside the tree)"
+    else red "no agent interpreter found (venv, tools/python-*, or official host launcher + uv)"; fi
     if command -v uv >/dev/null 2>&1; then pass "package manager: uv ($(uv --version 2>/dev/null | head -1))"
     elif [ -n "$_py" ] && "$_py" -m pip --version >/dev/null 2>&1; then pass "package manager: pip (venv)"
     else red "no package manager available for the agent interpreter"; fi ;;
@@ -123,7 +147,10 @@ _ts_hits="$( { npm ls -g --depth=0 2>/dev/null; } | grep -i aimail | head -3)"
 echo "── [5] release-age gates removed"
 _uv_trees=""
 case "$AGENT" in
-  hermes)   for t in /opt/hermes "${HERMES_HOME:-$HOME/.hermes}/hermes-agent"; do [ -f "$t/pyproject.toml" ] && _uv_trees="$_uv_trees $t"; done ;;
+  hermes)   for t in /opt/hermes ${EXTRA_HOMES[@]+"${EXTRA_HOMES[@]}"} "${HERMES_HOME:-$HOME/.hermes}"; do
+              [ -d "$t/hermes-agent" ] && t="$t/hermes-agent"
+              [ -f "$t/pyproject.toml" ] && _uv_trees="$_uv_trees $t"
+            done ;;
   deerflow) for t in /app /app/backend; do [ -f "$t/pyproject.toml" ] && _uv_trees="$_uv_trees $t"; done ;;
 esac
 for t in $_uv_trees; do
@@ -175,7 +202,14 @@ fi
 # ── 3. agent runs and its LLM answers ──────────────────────────────────────────────
 echo "── [3] agent runs + LLM answers"
 case "$AGENT" in
-  hermes)   _probe="$(/opt/hermes/bin/hermes --version 2>/dev/null || "$HOME_DIR/hermes-agent/.hermes/bin/hermes" --version 2>/dev/null)" ;;
+  hermes)
+    _probe=""
+    for _b in "${_bin:-/nonexistent}" /opt/hermes/bin/hermes "${_tree:-/nonexistent}/.hermes/bin/hermes" \
+              "$HOME_DIR/hermes-agent/.hermes/bin/hermes" "$HOME/.local/bin/hermes"; do
+      [ -x "$_b" ] || continue
+      _probe="$("$_b" --version 2>/dev/null)" || true
+      [ -n "$_probe" ] && break
+    done ;;
   dsh)      _probe="$(dsh --version 2>/dev/null)" ;;
   pi)       _probe="$(pi --version 2>/dev/null)" ;;
   openclaw) _probe="$(openclaw --version 2>/dev/null)" ;;
