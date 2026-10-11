@@ -75,7 +75,7 @@ AIMail 既不同于 IM，也不是传统邮箱。它是在传统邮件系统上�
 - 然后，将收到的系统标识和激活码等信息设置环境变量，并执行AIMail的自举安装脚本，完成本地环境的初始化。例如：
 
 ```bash
-export AIMAIL_URL=https://aimail.token.tm     # 云端网关地址
+export AIMAIL_GW_URL=https://aimail.token.tm     # 云端网关地址
 export AIMAIL_PRODUCT_CODE=<激活码>            # 云端领取的激活码
 export AIMAIL_SYSTEM_NAME=<你的标识名>          # 共享域系统: agent.<标识名>@<共享域名>
 export AIMAIL_MANAGER_ADDRESS=you@example.com # 管理agent的默认安全员邮件，可每个agent不一样
@@ -87,7 +87,8 @@ curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootst
 **aimail命令行安装**:
 
 ```bash
-aimail install --home ~/.hermes       # Hermes(亦可 ~/.dsh、~/.openclaw、~/.pi、~/.deer-flow，--home 指Agent的主目录)
+export AGENT_HOME=~/.hermes   # Agent的主目录，亦可 ~/.dsh、~/.openclaw、~/.pi、~/.deer-flow
+aimail install  
 ```
 
 **或 Agent的插件安装**
@@ -112,7 +113,7 @@ aimail welcome       # 网关向Agent和安全员发欢迎邮件，Agent回复�
 - 然后，将收到的系统激活码等相关信息设置环境变量，并执行AIMail的自举安装脚本，完成本地环境的初始化。例如：
 
 ```bash
-export AIMAIL_URL=https://aimail.token.tm     # 云端网关地址
+export AIMAIL_GW_URL=https://aimail.token.tm     # 云端网关地址
 export AIMAIL_PRODUCT_CODE=<激活码>            # 云端领取的激活码
 export AIMAIL_DOMAIN=<你的域名>                # 独享域名: agent@<独享域名>
 export AIMAIL_MANAGER_ADDRESS=you@example.com # 管理agent的默认安全员邮件地址，可每个agent不一样
@@ -127,7 +128,7 @@ curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootst
 - 然后，将系统级 key 等相关信息设置环境变量，并执行AIMail的自举安装脚本，完成本地环境的初始化。例如：
 
 ```bash
-export AIMAIL_URL=<你的网关地址>                # 自主独立安装的网关地址，如 https://mail.example.com
+export AIMAIL_GW_URL=<你的网关地址>                # 自主独立安装的网关地址，如 https://mail.example.com
 export AIMAIL_ADMIN_KEY=<系统级 key>          # 系统级 key（不是网关自身的 admin key）
 export AIMAIL_DOMAIN=<你的域名>                # 独享域名,如 example.com
 export AIMAIL_MANAGER_ADDRESS=you@example.com # 管理agent的默认安全员邮件地址，可每个agent不一样
