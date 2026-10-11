@@ -33,6 +33,9 @@
     "prepack": "npm run build && node ../mail-core/scripts/stage-resources.mjs --dest ./resources"
   },
   "license": "MIT",
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=1.1.0"
+  },
   "dependencies": {
     "@aimail/mail": "workspace:^",
     "@aimail/mail-core": "workspace:^",
