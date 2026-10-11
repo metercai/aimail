@@ -24,11 +24,18 @@
 # build so a release never ships two different versions.
 name: publish-pypi
 
+# 触发(owner 2026-10-11 梳理 Q1-B): 只被 publish.yml 以 workflow_call 调用 ——
+# 发版触发面单一(dispatch), 不再有 tag 触发。**文件名不得改**: PyPI 的 Trusted
+# Publisher 绑定 "workflow name: publish-pypi.yml"(OIDC 的 job_workflow_ref 指向
+# 被调用的本文件), 改名即断发布鉴权。
 on:
-  workflow_dispatch:
-  push:
-    tags:
-      - 'pysdk-v*'   # 家族 tag(2026-10 起):pysdk 发版只触发本 workflow;历史统一 v0.1.x tag 保留不动
+  workflow_call:
+    inputs:
+      publish:
+        description: 'true = upload to PyPI; false = build + verify only (dry run)'
+        required: false
+        type: boolean
+        default: true
 
 # 审计 D8: tag push 与 dispatch 可并发(同 PyPI 版本两次上传 → 一个必红)。
 concurrency:
@@ -96,6 +103,8 @@ jobs:
 
   publish:
     needs: build-and-verify
+    # dry_run(发布流程的 dry-run 输入)时只做 build + L2 校验, 不上传。
+    if: ${{ inputs.publish }}
     runs-on: ubuntu-latest
     # TP binding pins this environment name; OIDC claims include it and PyPI
     # compares it exactly against the publisher configuration.

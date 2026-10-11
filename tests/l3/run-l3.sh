@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════════════
-# run-l3.sh — L3 对接闭环回归(单 job, 由 l3-integration.yml 的 8 格矩阵驱动)。
+# run-l3.sh — L3 对接闭环回归(由 l3.yml 的矩阵驱动)。
 #
 # 回归内容**完全一致**, 不随 OS/agent 变(D3 裁决):
 #   ① 装目标 agent 系统 + 配 LLM(deepseek-flash) + 验证 agent 自身可运行

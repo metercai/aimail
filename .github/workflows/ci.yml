@@ -1,0 +1,137 @@
+name: ci
+
+# ═══════════════════════════════════════════════════════════════════════
+# dev 门禁 — owner 2026-10-11 梳理(workflow 5 → 3 + 1 个被调用的 reusable)
+#
+#   ci.yml            ← 本文件。dev 门禁: CLI 与 SDK 的 L0 + "需已装件"的 L2 用例
+#                       + 平台原生编译检查。push/PR 触发;同时被 publish.yml 作为
+#                       发布前 gate 复用(workflow_call) ⇒ 门禁只有一处定义。
+#   publish.yml       发布单入口(workflow_dispatch): gate → CLI 构建 + GitHub Release
+#                       → npm → PyPI → L3。取代原先 tag 触发的 cli-release.yml +
+#                       publish.yml + publish-pypi.yml 三件套与 workflow_run 链。
+#   l3.yml            L3 矩阵: nightly(schedule) + 手动 + 被 publish.yml 调用。
+#
+# publish-pypi.yml 仍是独立文件且**不得改名**: PyPI 的 Trusted Publisher 把 workflow
+# 文件名钉死(publish-pypi.yml),npm 侧同理钉 publish.yml。所以这两个名字是外部契约,
+# 不是历史包袱 —— 其余历史文件(cli.yml / cli-release.yml / l3-integration.yml)已删除。
+#
+# 平台集(owner 裁决 Q2): 统一为**发布集** = linux-musl amd64/arm64 + macos-arm64。
+#   Windows: CLI 未完成移植(bridge/repair 依赖 unix 命令), 全链不建 —— 此前 cli.yml
+#   建 windows 且长期红, 属"红门禁无人管"的来源之一。
+# ═══════════════════════════════════════════════════════════════════════
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "cli/**"
+      - "pysdk/**"
+      - "tssdk/**"
+      - "tests/**"
+      - "scripts/**"
+      - "pyproject.toml"
+      - ".github/workflows/ci.yml"
+  pull_request:
+    paths:
+      - "cli/**"
+      - "pysdk/**"
+      - "tssdk/**"
+      - "tests/**"
+      - "scripts/**"
+      - "pyproject.toml"
+      - ".github/workflows/ci.yml"
+  workflow_call:   # publish.yml 的 gate job 复用本文件(单真源, 不在两处维护门禁)
+    inputs:
+      platforms:
+        description: 'run the 3-platform compile check (publish.yml builds the same set itself)'
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  cli-gates:
+    name: cli-gates (fmt + clippy + test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cli
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: cargo fmt --check
+        run: cargo fmt --all --check
+      - name: cargo clippy (-D warnings)
+        run: cargo clippy --all-targets -- -D warnings
+      - name: cargo test (dev battery — no SDK required)
+        run: cargo test --all-targets
+      - name: L2 battery — sdk-parity cases (need an installed aimailsdk)
+        # 这批用例经 python 门调**已装** aimailsdk ⇒ 属 L2(装件级),故 dev 电池里由
+        # `sdk-parity` feature 关掉, 在这里显式装官方发布版到 venv 并用 AIMAIL_PYTHON
+        # 钉住解释器(sdkroot::probe_in_domain 的链首 = 显式覆盖优先)。
+        run: |
+          python3 -m venv /tmp/sdk-venv
+          /tmp/sdk-venv/bin/pip install --quiet --disable-pip-version-check aimailsdk
+          AIMAIL_PYTHON=/tmp/sdk-venv/bin/python cargo test --features sdk-parity --test repair_backfill_parity
+
+  sdk-gates:
+    name: "sdk-gates (L0: contract + pytest + tssdk)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: tssdk/pnpm-lock.yaml
+      - name: Install gate deps (pinned — 门禁依赖钉版, 上游行为变化不得静默改变结论)
+        run: python3 -m pip install --quiet pytest==9.1.1 pyflakes==3.4.0 PyYAML==6.0.2
+      - name: pnpm install (tssdk workspace)
+        working-directory: tssdk
+        run: pnpm install --frozen-lockfile
+      - name: L0 gate (contract single-source · zero-bridge · file-ownership · docs · pytest · tssdk build+vitest)
+        run: bash tests/sdk/l0-gate-tests.sh
+
+  platform-check:
+    name: build ${{ matrix.name }}
+    # push/PR 恒跑;被 publish.yml 复用时置 false(它自己的 cli-build 就是同一组平台)。
+    if: ${{ github.event_name != 'workflow_call' || inputs.platforms }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-amd64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - name: linux-arm64
+            os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+          - name: macos-arm64
+            os: macos-14
+            target: aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install deps (musl)
+        if: contains(matrix.target, 'linux-musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: cargo build --release
+        working-directory: cli
+        env:
+          # musl: 显式 crt-static(否则得到动态链接的 musl 二进制, 目标机缺 loader)。
+          # NB: 单次 contains() 判断 —— 串 `a || b && c || d` 会在第一个真值短路。
+          RUSTFLAGS: ${{ contains(matrix.target, 'linux-musl') && '-D warnings -C target-feature=+crt-static' || '-D warnings' }}
+          MACOSX_DEPLOYMENT_TARGET: ${{ contains(matrix.os, 'macos') && '11.0' || '' }}
+        run: cargo build --release --target ${{ matrix.target }}

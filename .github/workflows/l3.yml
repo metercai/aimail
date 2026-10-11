@@ -1,4 +1,4 @@
-name: l3-integration
+name: l3
 
 # ═══════════════════════════════════════════════════════════════════════
 # L3 — 发布后对接闭环回归(用户环境 / 已发布产物)
@@ -10,6 +10,13 @@ name: l3-integration
 # 与 L2 的关系(不重复):
 #   L2 旅程 = 发布**前**门禁, 测**工作树** rust 二进制, 在 advanced docker 宿主里;
 #   L3      = 发布**后**冒烟, 测**发布版**, 在 GitHub runner 原生 OS/硬件上。
+#
+# 触发(owner 2026-10-11 梳理 Q1-B: 触发面单一, 不再用 workflow_run 链):
+#   ① 被 publish.yml 调用(workflow_call, 发布成功后自动跑);
+#   ② nightly(schedule) —— 抓"发布后漂移";
+#   ③ workflow_dispatch 手动。
+#   原先由三个发布 workflow 的 workflow_run 触发 —— 一次发版会带起 7 次 L3(多为
+#   skipped/cancelled), 状态无法读, 且发布失败也会触发; 现由调用方用 needs/if 控制。
 #
 # 矩阵 = 3 平台 × 3 agent 格 = 9 job(回归内容完全一致, 见 run-l3.sh):
 #   平台: linux-amd64 / linux-arm64(原生 ARM) / macos-arm64
@@ -25,17 +32,13 @@ name: l3-integration
 #   ③ 同一套回归: aimail install(admin-key 激活) → welcome 闭环 → 查询邮件签名断言
 #
 # 激活流: 只测 **admin-key** 激活(基础版网关), 不测激活码(高级版)。
-# 触发(D1=自动): 三个发布 workflow 任一**成功**完成即触发(失败不触发, 见 job if);
-# 另加 nightly + 手动。
 #   (网关发布在 aimail-gateway 仓, 跨仓不能 workflow_run; L3 直接取其最新 Release,
 #    缺失即明确报错, 不猜。)
 # ═══════════════════════════════════════════════════════════════════════
 on:
-  workflow_run:
-    workflows: ["cli-release", "publish-pypi", "publish"]
-    types: [completed]
+  workflow_call:          # publish.yml 发布成功后调用
   schedule:
-    - cron: "17 3 * * *"   # nightly — 抓"发布后漂移"
+    - cron: "17 3 * * *"  # nightly — 抓"发布后漂移"
   workflow_dispatch: {}   # 显式空对象 — null 值 GitHub 不注册该触发器(dispatch API 422)
 
 permissions:
@@ -43,7 +46,7 @@ permissions:
 
 # 同一时刻只跑一个 L3(矩阵内部并发, 但跨 run 串行): 避免重复烧 LLM token / 抢 runner。
 concurrency:
-  group: l3-integration
+  group: l3
   cancel-in-progress: false
 
 env:
@@ -53,10 +56,6 @@ env:
 jobs:
   l3:
     name: L3 ${{ matrix.platform }} / ${{ matrix.agent }}
-    # 只对**成功完成**的发布跑(防"发布失败仍触发 L3 烧 8 格 LLM token 测没发布的产物";
-    # 亦防 workflow_run completed 的已知早触发竞态, actions/runner#4035)。
-    # dispatch/nightly 无 conclusion 字段 ⇒ 放行。
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false   # 一个平台红不取消其余 —— 8 格都要看到裁决
@@ -104,7 +103,7 @@ jobs:
           # (非 OS HOME, 表达式里为空 ⇒ path 变 /l3-logs 找不到文件 ⇒ 0 artifact)。
           export L3_LOG_ARCHIVE="$GITHUB_WORKSPACE/l3-logs"
           mkdir -p "$L3_LOG_ARCHIVE"
-          # 全量捕获 stdout(含子进程): runner 日志读不了(无 actions:read), 这是唯一证据通道。
+          # 全量捕获 stdout(含子进程): runner 日志读不了时这是唯一证据通道。
           bash "$AIMAIL_REPO/tests/l3/run-l3.sh" 2>&1 | tee "$L3_LOG_ARCHIVE/l3-stdout.log"
           rc="${PIPESTATUS[0]}"
           # 落盘自检: 日志必须存在, 否则 upload 步 error 暴露(而非静默 0 artifact)。

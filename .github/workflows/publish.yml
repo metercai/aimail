@@ -1,34 +1,41 @@
-# Publish the tssdk/ npm packages (aimail TS SDK) via Trusted Publishing.
-#
-# Trigger: manual (workflow_dispatch) — publish the current commit's versions.
-# Auth: npmjs Trusted Publisher bound to THIS repo (metercai/aimail) +
-# workflow "publish.yml" + environment "npm-release"; no personal token
-# required. Each package's publishConfig.provenance: true enables provenance.
-#
-# Prerequisites (one-time, npmjs.com → each package → Settings → Publish):
-#   1. enable Trusted Publishers, add repo metercai/aimail, workflow
-#      "publish.yml", environment "npm-release" (must EXACTLY match the
-#      job's environment).
-#      Packages: @aimail/mail-core, @aimail/mail, dsh-aimail,
-#      openclaw-aimail, pi-aimail.
-#   2. Package manifests' repository.url must point at metercai/aimail
-#      (npm OIDC exchange requirement; npm/cli#8730).
-#
-# The TS SDK lives in tssdk/ (subtree of the former aimail-sdk-ts repo);
-# all build/publish steps run with tssdk/ as the working directory (it is
-# its own pnpm workspace).
-#
-# Note: pnpm isolated linker rejects bundleDependencies at pack time, so
-# packages with bundled deps (openclaw-aimail, pi-aimail) publish via
-# scripts/publish-npm.sh (npm pack with symlink dereference + explicit
-# workspace:^ rewrite), which supports CI provenance.
 name: publish
 
+# ═══════════════════════════════════════════════════════════════════════
+# 发布单入口 — owner 2026-10-11 裁决 Q1-B(触发面单一 = dispatch)
+#
+# 为什么不再用 tag 触发(实测, 非偏好):
+#   ① 本批 7 个 tag 首次 `git push --tags` 远端已存在但**一个 run 都没产生**(仓库总
+#      run 数不变), 删+重推才触发 —— tag 事件不可靠, 且没有可重放的补发入口;
+#   ② concurrency 组只容一个 pending: 连推多个 tag 时后到的 tag 会取消先到的
+#      (本批 3 个 publish run cancelled);
+#   ③ 被取消/中断的发布在 npm 服务端可能留下"已暂存未落地"的版本, 后续同版本重发
+#      报 `E409 Cannot publish over previously staged version`。
+#   ⇒ tag 改为**由本流程发布时创建**, 只作记录与 Release 名(不再作触发器)。
+#
+# 一次 dispatch 串起(用 needs, 不用 workflow_run):
+#   gate(dev 门禁 = 复用 ci.yml) → cli-build(3 平台) → cli-release(建 tag + Release)
+#                                 → npm(scripts/publish-npm.sh, 幂等) 
+#                                 → pypi(reusable publish-pypi.yml)
+#                                 → l3(可复用 l3.yml, 装**已发布**件)
+#   dry_run=true: 只构建/打包/校验 —— 不建 tag、不发 Release、不发布、不跑 L3。
+#
+# 文件名是外部契约(不得改名): npm 的 Trusted Publisher 绑定 workflow "publish.yml"
+#   + environment "npm-release";PyPI 绑定 workflow "publish-pypi.yml" + environment
+#   "pypi-release"。改名须先更新 npmjs/pypi 侧绑定。
+# ═══════════════════════════════════════════════════════════════════════
 on:
   workflow_dispatch:
     inputs:
+      dry_run:
+        description: 'true = build/verify only (no tag, no Release, no publish, no L3)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
       release-type:
-        description: 'Release type to enforce: rc (dev iteration, X.Y.Z-rc.N) or stable (go-live, X.Y.Z). Empty = derive from package versions.'
+        description: 'Release type to enforce: rc (iteration) or stable (go-live). Empty = derive from package versions.'
         required: false
         default: ''
         type: choice
@@ -36,27 +43,170 @@ on:
           - ''
           - rc
           - stable
-  push:
-    tags:
-      - 'ts-*'   # 家族 tag(2026-10 起):ts-<pkg>-vX.Y.Z 逐包发版;publish-npm.sh 幂等(已发布版本 skip)+ concurrency 串行化;历史统一 v0.1.x tag 保留不动
 
-# 审计 D8: tag push 与 workflow_dispatch 对同一 commit 可并发 → 两个 run 都判定
-# "未发布" ⇒ 一个 E403, 或"部分发布"(部分包新版本、部分包旧版本, dist-tag 指向分裂)。
+# 顶层 permissions = 本流程**及其调用的 reusable workflow** 所需权限的并集:
+#   被调用的 workflow(workflow_call)不能请求超过调用方顶层所允许的权限 ——
+#   第一次 dry-run dispatch 就栽在这里:
+#     "The nested job 'publish' is requesting 'actions: read, id-token: write',
+#      but is only allowed 'actions: none, id-token: none'"(publish-pypi.yml 的 publish job)。
+#   所以这里的并集必须是 contents: write(建 tag/Release) + id-token: write(OIDC)
+#   + actions: read(artifact 下载);各 job 再按需**收窄**(job 级只能缩小, 不能放大)。
+permissions:
+  contents: write
+  id-token: write
+  actions: read
+
+# 一次只允许一个发布 run;发布不可中断(即便有新 pending, cancel-in-progress: false
+# 也只影响 pending 之间, 不会砍正在跑的发布)。
 concurrency:
-  group: npm-release
+  group: release
   cancel-in-progress: false
 
 jobs:
-  publish:
+  gate:
+    # 发布前跑同一套 dev 门禁 —— 门禁只在 ci.yml 一处定义(单真源)。
+    # platforms: false ⇒ 平台编译由下面的 cli-build 负责, 不重复建 3 次。
+    uses: ./.github/workflows/ci.yml
+    with:
+      platforms: false
+
+  meta:
+    needs: gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      cli_version: ${{ steps.v.outputs.cli }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve CLI version (cli/Cargo.toml = 唯一真源)
+        id: v
+        run: |
+          cli=$(python3 -c "import re; print(re.search(r'^version = \"([^\"]+)\"', open('cli/Cargo.toml').read(), re.M).group(1))")
+          echo "cli=$cli" >> "$GITHUB_OUTPUT"
+          echo "CLI version: $cli"
+
+  cli-build:
+    needs: [gate, meta]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ── Linux musl (zero deps, any kernel ≥ 2.6) ──
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            platform: linux-amd64
+            ext: ""
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-24.04-arm
+            platform: linux-arm64
+            ext: ""
+          # ── macOS (target macOS 11+) ──
+          - target: aarch64-apple-darwin
+            os: macos-14
+            platform: macos-arm64
+            ext: ""
+          # ── Windows ──
+          # CLI 未完成 Windows 移植(bridge/repair 深度依赖 unix 命令, 非 cfg 补丁能覆盖);
+          # 移植完成前从发版链移除 —— 先把 L3 走通, 恢复后取消注释即可。
+          # - target: x86_64-pc-windows-msvc
+          #   os: windows-latest
+          #   platform: windows-amd64
+          #   ext: ".exe"
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install deps (musl)
+        if: contains(matrix.target, 'linux-musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build
+        working-directory: cli
+        env:
+          # musl: setting RUSTFLAGS drops the target's implicit +crt-static, which would
+          # yield a dynamically linked musl binary (needs the musl loader on the target).
+          # Re-state it explicitly so linux-amd64/arm64 stay self-contained.
+          # NB: keep a single contains() test — chaining `a || b && c || d` short-circuits
+          # on the first truthy operand and yields the boolean `true` for the a-targets.
+          RUSTFLAGS: ${{ contains(matrix.target, 'linux-musl') && '-D warnings -C target-feature=+crt-static' || '-D warnings' }}
+          MACOSX_DEPLOYMENT_TARGET: ${{ contains(matrix.os, 'macos') && '11.0' || '' }}
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Rename binary
+        shell: bash
+        working-directory: cli
+        run: cp "target/${{ matrix.target }}/release/aimail${{ matrix.ext }}" "aimail-${{ matrix.platform }}${{ matrix.ext }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: aimail-${{ matrix.platform }}
+          path: cli/aimail-${{ matrix.platform }}${{ matrix.ext }}
+
+  cli-release:
+    needs: [meta, cli-build]
+    if: ${{ inputs.dry_run != 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # 建 tag + 发 GitHub Release
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v5
+
+      - name: Create tag cli-v<version> if absent
+        env:
+          VER: ${{ needs.meta.outputs.cli_version }}
+        run: |
+          tag="cli-v$VER"
+          if git ls-remote --tags origin "refs/tags/$tag" | grep -q .; then
+            echo "$tag already on origin — nothing to create"
+          else
+            git tag "$tag" && git push origin "$tag"
+            echo "created $tag"
+          fi
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: cli-v${{ needs.meta.outputs.cli_version }}
+          files: aimail-*/aimail-*
+          body: |
+            ## Platform variants
+
+            | Suffix | Compatible with |
+            |--------|-----------------|
+            | `linux-amd64` | musl, **no runtime deps** |
+            | `linux-arm64` | musl, **no runtime deps** |
+            | `macos-arm64` | macOS 11+ (Apple Silicon) |
+
+            Rust single binary, zero runtime deps. `aimail-<platform>` is
+            fetched by `scripts/bootstrap.sh` (curl | bash) per platform.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  npm:
+    needs: [gate, meta]
     runs-on: ubuntu-latest
     # TP binding pins this environment name; OIDC claims include it and npm
     # compares it exactly against the npmjs-side configuration.
     environment: npm-release
     permissions:
-      # 审计 D8: 最小权限 —— OIDC 发布只需 contents: read + id-token: write
-      # (原为 contents: write, 无必要)。
       contents: read
       id-token: write
+    defaults:
+      run:
+        working-directory: tssdk
     steps:
       - uses: actions/checkout@v4
 
@@ -76,33 +226,45 @@ jobs:
         # PINNED to 11.12.1 (verified locally): 'npm@^11.5.2' floats and a
         # mid-Sept 11.x release crashed bundled packs with "Exit handler
         # never called!" (openclaw-aimail bundleDependencies publish, CI).
-        # 11.12.1 packs the same tree cleanly (local repro of both 11.5.2
-        # and 11.12.1 succeeded).
         run: npm install -g npm@11.12.1
+        working-directory: .
 
       - name: Install (tssdk workspace)
-        working-directory: tssdk
         run: pnpm install --frozen-lockfile
 
       - name: Build all packages
-        working-directory: tssdk
         # 单一入口: 根 package.json 的 build 脚本(审计: 三处手抄清单易漏包)
         run: pnpm build
 
       - name: Test
-        working-directory: tssdk
         run: pnpm test
 
       - name: Publish changed packages (TP/OIDC, dist-tag by release type)
-        working-directory: tssdk
-        env:
-          # 审计 D8: dispatch 声明的 release-type 透传给 publish-npm.sh 做真校验
-          REQUIRE_RELEASE_TYPE: ${{ inputs.release-type }}
         # 幂等/skip、"上架可查"判据、逐包失败汇总,全部在 scripts/publish-npm.sh 一处
         # (owner 裁决 2026-10-11: 原先这里的 while 循环重抄了一份 skip 逻辑 ⇒ 双真源,
         #  且 set -e 让首个失败即中断, 发布会静默少发几个包)。本 step 只给包目录清单。
         # Repo-level tooling lives in <repo>/scripts (NOT tssdk/scripts); this step runs
         # with working-directory: tssdk, so resolve it absolutely.
+        env:
+          # 审计 D8: dispatch 声明的 release-type 透传给 publish-npm.sh 做真校验
+          REQUIRE_RELEASE_TYPE: ${{ inputs.release-type }}
+          # dry_run ⇒ script 只 pack + L2 校验, 不真发(且跳过"上架可查"轮询)
+          DRY_RUN: ${{ inputs.dry_run == 'true' && '1' || '0' }}
         run: |
           bash "$GITHUB_WORKSPACE/scripts/publish-npm.sh" \
             packages/mail-core packages/mail packages/dsh-aimail packages/openclaw-aimail packages/pi-aimail
+
+  pypi:
+    needs: [gate, meta]
+    # PyPI Trusted Publisher 把 workflow 名钉在 publish-pypi.yml ⇒ 保持该文件, 由本 job 调用。
+    uses: ./.github/workflows/publish-pypi.yml
+    with:
+      # dry_run 时仍跑 wheel 构建 + L2 校验(有价值的验证), 只是不上传。
+      publish: ${{ inputs.dry_run != 'true' }}
+    secrets: inherit
+
+  l3:
+    needs: [cli-release, npm, pypi]
+    if: ${{ inputs.dry_run != 'true' }}
+    uses: ./.github/workflows/l3.yml
+    secrets: inherit
