@@ -189,12 +189,62 @@ pub fn run_steps(
     ctx: &mut Map<String, Value>,
     core_dir: &Path,
 ) -> Result<(), String> {
+    // SDK 根（`{sdk}`）**按步懒解析**（owner 2026-10-12）：装之前它不存在（sdk_install 之后才有），
+    // 只有引用 `{sdk}` 或要跑注册步的平台才需要 ⇒ node 宿主不触发、不再误报；deerflow 的 `{sdk}`
+    // 也能拿到**装后**的真根（原来展开成空根 = exit 127 的真根因）。
+    let mut sdk_dir: PathBuf = core_dir.to_path_buf();
+    let mut sdk_ready =
+        !sdk_dir.as_os_str().is_empty() && crate::core::sdkroot::is_sdk_root(&sdk_dir);
+    // 若调用方给的 `core_dir` 本就有效(装后重跑/已装环境),立刻回填模板值 ——
+    // 否则 `{sdk}` 会展开成空(install.rs 不再提前解析)。
+    if sdk_ready {
+        ctx.insert(
+            "sdk".into(),
+            serde_json::json!(sdk_dir.to_string_lossy().to_string()),
+        );
+    }
+    let mut sdk_tried = false;
+    let mut sdk_warned = false;
+    // python 宿主才需要 SDK 根（注册器 python_script 落在 SDK 包内；node 宿主注册走 op 门，不需要）
+    let py_host = matches!(
+        platforms::platform(platform)
+            .and_then(|p| p.get("register"))
+            .and_then(|r| r.get("kind"))
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+        "python_module" | "python_script"
+    );
     for st in steps {
         let when = st.get("when").cloned().unwrap_or(json!({}));
         if when.as_object().map(|o| !o.is_empty()).unwrap_or(false) && !when_ok(&when, ctx) {
             continue;
         }
         let kind = st.get("kind").and_then(Value::as_str).unwrap_or("");
+        if !sdk_ready && !sdk_tried {
+            let body = serde_json::to_string(st).unwrap_or_default();
+            if body.contains("{sdk}")
+                || (py_host && matches!(kind, "register_default" | "register_all"))
+            {
+                sdk_tried = true;
+                match crate::core::sdkroot::resolve_with(&ctx_str(ctx, "python")) {
+                    Ok(r) => {
+                        sdk_ready = true;
+                        sdk_dir = r.path.clone();
+                        ctx.insert(
+                            "sdk".into(),
+                            serde_json::json!(sdk_dir.to_string_lossy().to_string()),
+                        );
+                    }
+                    Err(e) => {
+                        if !sdk_warned {
+                            // 只在**确有**步骤需要它时报（响亮），且只报一次
+                            eprintln!("  ✗ {e}");
+                            sdk_warned = true;
+                        }
+                    }
+                }
+            }
+        }
         match kind {
             "print" => println!(
                 "{}",
@@ -234,7 +284,7 @@ pub fn run_steps(
                     &ctx_str(ctx, "home"),
                     &ctx_str(ctx, "sid"),
                     &ctx_str(ctx, "manager"),
-                    core_dir,
+                    &sdk_dir,
                 );
                 let ok_t = st
                     .get("ok_text")
@@ -373,7 +423,7 @@ pub fn run_steps(
                     ));
                 }
                 ctx.insert("manager".into(), Value::String(m.clone()));
-                match register::register_all(platform, &cfg, &m, &ctx_str(ctx, "home"), core_dir) {
+                match register::register_all(platform, &cfg, &m, &ctx_str(ctx, "home"), &sdk_dir) {
                     Ok(()) => {
                         let t = st
                             .get("ok_text")
@@ -413,7 +463,7 @@ pub fn run_steps(
                     &cfg,
                     &m,
                     &ctx_str(ctx, "home"),
-                    core_dir,
+                    &sdk_dir,
                 ) {
                     Ok(()) => ok(&format!("{platform} agent registered + pointer written")),
                     Err(e) => {
@@ -585,4 +635,33 @@ pub fn run_uninstall_steps(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 回归钉子（owner 2026-10-12）：**node 宿主的步骤不得引用 `{sdk}` / `{python}`** ——
+    /// 那会让「SDK 根」对 node 宿主成为必需，于是在没装 aimailsdk 的机器上打出误导错误
+    /// （实测：L2 里 dsh/pi 都出现 `✗ 未找到已安装的 aimailsdk`）。只有 python 宿主需要它们。
+    #[test]
+    fn node_hosts_never_reference_sdk_root_placeholders() {
+        for id in platforms::order() {
+            let py_host = crate::core::detect::spec(id)
+                .map(|s| s.python_host)
+                .unwrap_or(false);
+            if py_host {
+                continue;
+            }
+            let mut all: Vec<Value> = platforms::install_steps(id).to_vec();
+            all.extend(platforms::uninstall_steps(id));
+            for st in &all {
+                let body = serde_json::to_string(st).unwrap_or_default();
+                assert!(
+                    !body.contains("{sdk}") && !body.contains("{python}"),
+                    "{id} 是 node 宿主，步骤不得引用 {{sdk}}/{{python}}: {body}"
+                );
+            }
+        }
+    }
 }

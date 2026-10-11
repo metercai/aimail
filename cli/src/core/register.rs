@@ -233,6 +233,11 @@ pub fn register_agent(
     if matches!(kind, "python_module" | "python_script") {
         asm["register_spec"] = spec.clone();
     }
+    // 宿主身份键（node 多 agent 宿主如 openclaw 的 `main`）—— 定名/别名归一**仍在 SDK 内**
+    // （owner 2026-10-02 C1）；空 = 由 SDK 取默认名（单 agent 宿主保持原状）。
+    if !agent.is_empty() {
+        asm["requested_name"] = json!(agent);
+    }
     let res = crate::core::sdk::sdk_ops_call_for(
         platform,
         &cand_homes,
@@ -293,7 +298,7 @@ pub fn register_all(
         }
     };
     let Some(rall) = rall else {
-        register_agent(platform, platform, cfg, mgr, platform_home, core_dir)?;
+        register_agent(platform, "", cfg, mgr, platform_home, core_dir)?;
         ok(&format!(
             "{platform} 单 agent 平台(register_all 无定义)——默认 agent 已注册"
         ));
@@ -305,6 +310,45 @@ pub fn register_all(
             .replace("{mgr}", mgr)
     };
     let kind = rall.get("kind").and_then(Value::as_str).unwrap_or("");
+    // 契约 v1.0 §4.1(2)：node 侧**一律经 op 门**（`--op assemble`）—— 不再拼 legacy flag argv
+    // （那套 argv 只对 python_script 形态成立）。多 agent 宿主按宿主容器枚举身份键
+    // （openclaw: `agents/*`），逐个经门注册；枚举为空 ⇒ 单次注册。定名/别名归一去 SDK。
+    if kind == "node_entry" {
+        let homes = candidate_homes(platform, cfg, platform_home);
+        let node = resolve_node_entry(
+            rall.get("node_path").and_then(Value::as_str).unwrap_or(""),
+            &homes,
+        );
+        if node.is_empty() {
+            warn(&format!(
+                "{platform} 平台包未装(register-all node 入口缺失)\n  {}",
+                rall.get("fail_hint").and_then(Value::as_str).unwrap_or("")
+            ));
+            return Ok(());
+        }
+        let keys = crate::core::detect::detect_static(std::path::Path::new(&home), Some(platform))
+            .map(|i| i.agent_keys)
+            .unwrap_or_default();
+        if keys.is_empty() {
+            register_agent(platform, "", cfg, mgr, platform_home, core_dir)?;
+            ok(&format!(
+                "{platform} register_all 完成(单 agent, 经门 assemble)"
+            ));
+            return Ok(());
+        }
+        let mut done = 0usize;
+        for k in &keys {
+            match register_agent(platform, k, cfg, mgr, platform_home, core_dir) {
+                Ok(()) => done += 1,
+                Err(e) => warn(&format!("{platform} agent '{k}' 注册失败: {e}")),
+            }
+        }
+        ok(&format!(
+            "{platform} register_all 完成({done}/{} agent 经门 assemble)",
+            keys.len()
+        ));
+        return Ok(());
+    }
     let argv: Vec<String> = match kind {
         "python_script" => {
             let script = crate::core::sdkroot::entry_path(
@@ -319,25 +363,6 @@ pub fn register_all(
                 return Ok(());
             }
             let mut v = vec![setup::python_bin(), script.to_string_lossy().to_string()];
-            if let Some(args) = rall.get("args").and_then(Value::as_array) {
-                v.extend(args.iter().map(|x| fill(x.as_str().unwrap_or(""))));
-            }
-            v
-        }
-        "node_entry" => {
-            let homes = candidate_homes(platform, cfg, platform_home);
-            let node = resolve_node_entry(
-                rall.get("node_path").and_then(Value::as_str).unwrap_or(""),
-                &homes,
-            );
-            if node.is_empty() {
-                warn(&format!(
-                    "{platform} 平台包未装(register-all node 入口缺失)\n  {}",
-                    rall.get("fail_hint").and_then(Value::as_str).unwrap_or("")
-                ));
-                return Ok(());
-            }
-            let mut v = vec!["node".to_string(), node];
             if let Some(args) = rall.get("args").and_then(Value::as_array) {
                 v.extend(args.iter().map(|x| fill(x.as_str().unwrap_or(""))));
             }

@@ -174,7 +174,7 @@ fn install_surfaces_behave_like_python() {
     std::env::remove_var("AIMAIL_PYTHON");
     assert_ne!(rc, 0, "源根不可解析必须非零");
     assert!(
-        err.contains("运行时源未找到"),
+        err.contains("aimailsdk"),
         "应报源缺失: out={out:?} err={err:?}"
     );
 }

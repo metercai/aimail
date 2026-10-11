@@ -70,7 +70,7 @@ pub fn probe_agent_python() -> Option<String> {
     None
 }
 
-const PROBE_SH: &str = r#"for c in /proc/[0-9]*/cmdline; do tr "\0" "\n" <"$c" 2>/dev/null; done | grep -E "/bin/python" | sort -u | while read -r x; do "$x" -c "import aimail" 2>/dev/null && { echo "$x"; exit 0; }; done;"#;
+const PROBE_SH: &str = r#"for c in /proc/[0-9]*/cmdline; do tr "\0" "\n" <"$c" 2>/dev/null; done | grep -E "/bin/python" | sort -u | while read -r x; do "$x" -c "import importlib.util as u,sys;s=u.find_spec('aimail');sys.exit(0 if (s and s.origin) else 1)" 2>/dev/null && { echo "$x"; exit 0; }; done;"#;
 
 /// 域内探测：容器 ⇒ docker exec；宿主 ⇒ 候选逐个试 "能 import aimail"
 pub fn probe_in_domain(container: &str, home: &str) -> String {
@@ -178,7 +178,10 @@ pub fn resolve_with(python: &str) -> Result<SdkRoot, String> {
     let out = std::process::Command::new(python)
         .args([
             "-c",
-            "import aimail,os;print(os.path.dirname(os.path.abspath(aimail.__file__)))",
+            // 只定位不执行(owner 2026-10-12):定位 SDK 根**不得靠运行 aimail 包**。
+            // `find_spec` 不导入模块体；`origin` 为空 = 命名空间包 ⇒ 视为未装。
+            "import importlib.util as u,os;s=u.find_spec('aimail');\
+             print(os.path.dirname(s.origin) if (s and s.origin) else '')",
         ])
         .output();
     if let Ok(o) = out {
@@ -193,7 +196,9 @@ pub fn resolve_with(python: &str) -> Result<SdkRoot, String> {
             }
         }
     }
-    Err("ERROR: 运行时源未找到(pip aimail 未安装且仓库 pysdk/ 缺失)".to_string())
+    Err(format!(
+        "ERROR: 未找到已安装的 aimailsdk(解释器 {python} 下未定位到 aimail 包)"
+    ))
 }
 
 /// 注册表"SDK 根相对入口" → 绝对路径。**唯一**把逻辑名落成路径的地方。
