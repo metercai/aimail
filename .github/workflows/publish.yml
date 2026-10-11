@@ -136,5 +136,8 @@ jobs:
             # publish would ship the literal 'workspace:^' — npm cannot
             # install that), dereferences bundled symlinks, packs, and
             # publishes with provenance under CI.
-            bash scripts/publish-npm.sh "$dir"
+            # Repo-level tooling lives in <repo>/scripts (NOT tssdk/scripts);
+            # this step runs with working-directory: tssdk, so resolve it
+            # absolutely instead of relative to the workspace root.
+            bash "$GITHUB_WORKSPACE/scripts/publish-npm.sh" "$dir"
           done
