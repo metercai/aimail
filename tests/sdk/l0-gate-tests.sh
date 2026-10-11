@@ -11,9 +11,7 @@ echo "═══ [L0] python lint + unit tests ═══"
 # tarball 只能装包目录内的文件, 所以暂存是各包打包环节的一部分, 没有仓级统一脚本。
 # pysdk 侧不需要副本: 仓库检出里 SDK 直接读仓根 resources/(_resources_release.resources_root)。
 # 门禁这里把 3 个包各自那份暂存出来, 让契约规则 ③ 读到(clean clone 里生成物不存在)。
-for _p in dsh-aimail openclaw-aimail pi-aimail; do
-  node tssdk/packages/mail-core/scripts/stage-resources.mjs --dest "tssdk/packages/$_p/resources" || exit 1
-done
+bash tests/cli/stage-resources.sh
 # 契约单一真源 gate(2026-09-27): agent 内部契约面(skill/toolset 注册名、绑定文件名、
 # 指针文件名、入站路径)的单一真源 =
 # contract/aimail-contract.json;由 ①两个常量模块(pysdk/aimail_contract.py +
