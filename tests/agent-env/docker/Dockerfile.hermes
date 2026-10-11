@@ -1,0 +1,37 @@
+# agent-env/docker/Dockerfile.hermes — hermes test host image (environment prep only).
+#
+# Pure native: the aimail CLI / pysdk / tssdk are NOT baked here — they are installed by
+# the test itself (the official path under test). This layer only fixes the ENVIRONMENT:
+# the official hermes tree pins a release-age gate in its own pyproject.toml, which
+# prepare.sh removes once (see prepare.sh step 5) so a later SDK install cannot silently
+# resolve to a stale aimailsdk.
+ARG BASE_IMG=nousresearch/hermes-agent:latest
+FROM ${BASE_IMG}
+
+ARG LLM_BASE_URL=http://127.0.0.1:8000/v1
+ARG LLM_MODEL=Qwen3.8-27B-UD-Q4_K_M
+
+# single-source env tooling (prepare/verify + the one LLM writer)
+COPY agent-env /opt/agent-env
+
+# The base's uv (0.11.6) is old enough to reject the newer `exclude-newer = false` form;
+# prepare.sh therefore writes a far-future timestamp instead, which that uv understands.
+# No uv upgrade is needed — a built-in gate is not what filters here (measured: removing
+# uv.toml in this image resolves aimailsdk 0.1.16, adding it resolves the true latest).
+
+# official install is already in the base image; this fixes the environment in place.
+RUN bash /opt/agent-env/prepare.sh hermes --home "${HERMES_HOME:-/opt/data}" \
+      --llm-url "$LLM_BASE_URL" --llm-model "$LLM_MODEL" --no-verify
+
+# detect markers expected by the CLI registry (hermes: hermes-agent + profiles)
+RUN mkdir -p /opt/data/profiles; [ -e /opt/data/hermes-agent ] || ln -sfn /opt/hermes /opt/data/hermes-agent
+
+# harness regression assets (empty by default; supplied via build.sh --assets DIR)
+COPY extras /opt/regression
+RUN [ -d /opt/regression ] && chmod +x /opt/regression/*.sh 2>/dev/null || true
+
+# fail-closed acceptance of the PREPARED environment (offline: agent + config + gates)
+RUN LLM_CONFIG_PRE_INSTALL=1 bash /opt/agent-env/verify.sh hermes --home "${HERMES_HOME:-/opt/data}" \
+      --llm-url "$LLM_BASE_URL" --llm-model "$LLM_MODEL" --offline
+
+CMD ["sleep", "infinity"]

@@ -1,0 +1,32 @@
+# agent-env/docker/Dockerfile.deerflow — deerflow test host image (environment prep only).
+#
+# The base MUST be a source-rebuilt deer-flow-gateway image (src-<rev>): the published
+# :latest layer predates DEER_FLOW_AUTH_DISABLED and answers inbound POSTs with 403 in
+# the CSRF middleware — a stale artefact under test. build.sh resolves the newest src-*.
+# This thin layer adds procps (a normal host has it) + PyYAML (the single-source LLM
+# writer reads /app/config.yaml) and prepares the environment.
+ARG BASE_IMG=deer-flow-gateway:src-fc26204d
+FROM ${BASE_IMG}
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends procps \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m pip install -q --no-cache-dir PyYAML==6.0.2 \
+    || python3 -m pip install -q --no-cache-dir --break-system-packages PyYAML==6.0.2
+
+ARG LLM_BASE_URL=http://127.0.0.1:8000/v1
+ARG LLM_MODEL=Qwen3.8-27B-UD-Q4_K_M
+
+COPY agent-env /opt/agent-env
+
+RUN bash /opt/agent-env/prepare.sh deerflow --home /app \
+      --llm-url "$LLM_BASE_URL" --llm-model "$LLM_MODEL" --no-verify
+
+COPY extras /opt/regression
+RUN [ -d /opt/regression ] && chmod +x /opt/regression/*.sh 2>/dev/null || true
+
+RUN LLM_CONFIG_PRE_INSTALL=1 bash /opt/agent-env/verify.sh deerflow --home /app \
+      --llm-url "$LLM_BASE_URL" --llm-model "$LLM_MODEL" --offline
+
+CMD ["sleep", "infinity"]

@@ -1,0 +1,31 @@
+# agent-env/docker/Dockerfile.dsh — dsh test host image (environment prep only).
+#
+# Pure native: the dsh-aimail plugin is installed by the test itself (it is the thing
+# under test). This layer prepares dsh + its base environment (node/npm/pnpm) + LLM
+# config, and switches pnpm's release-age gate off once (pnpm otherwise resolves an
+# older plugin than the registry latest).
+ARG BASE_IMG=nikolaik/python-nodejs:python3.12-nodejs22
+FROM ${BASE_IMG}
+
+ARG LLM_BASE_URL=http://127.0.0.1:8000/v1
+ARG LLM_MODEL=Qwen3.8-27B-UD-Q4_K_M
+
+COPY agent-env /opt/agent-env
+
+# pnpm's release-age gate (minimumReleaseAge) is a built-in default in this pnpm build
+# (measured 10080) and is NOT overridable through a config file here; the env form is the
+# one that takes effect (`pnpm config get minimumReleaseAge` -> 0) and is inherited by
+# every later exec into the container, including the product's own plugin install.
+ENV PNPM_CONFIG_MINIMUM_RELEASE_AGE=0
+
+# official dsh (npm) + pnpm + profile warmup + release-age gate off + LLM config
+RUN bash /opt/agent-env/prepare.sh dsh --home /root/.dsh \
+      --llm-url "$LLM_BASE_URL" --llm-model "$LLM_MODEL" --no-verify
+
+COPY extras /opt/regression
+RUN [ -d /opt/regression ] && chmod +x /opt/regression/*.sh 2>/dev/null || true
+
+RUN LLM_CONFIG_PRE_INSTALL=1 bash /opt/agent-env/verify.sh dsh --home /root/.dsh \
+      --llm-url "$LLM_BASE_URL" --llm-model "$LLM_MODEL" --offline
+
+CMD ["sleep", "infinity"]

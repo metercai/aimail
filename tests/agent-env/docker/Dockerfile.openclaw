@@ -1,0 +1,33 @@
+# agent-env/docker/Dockerfile.openclaw — openclaw test host image (environment prep only).
+#
+# Pure native: the openclaw-aimail plugin is installed by the test itself.
+# This layer prepares the official openclaw base + LLM config, and switches off the
+# pnpm release-age gate the image ships with (measured: minimumReleaseAge=10080).
+ARG BASE_IMG=ghcr.io/openclaw/openclaw:latest
+FROM ${BASE_IMG}
+
+ARG LLM_BASE_URL=http://127.0.0.1:8000/v1
+ARG LLM_MODEL=Qwen3.8-27B-UD-Q4_K_M
+
+# the image runs as USER node with HOME=/app
+ENV HOME=/app
+RUN mkdir -p /app/.openclaw /app/.aimail
+
+COPY --chown=node:node agent-env /opt/agent-env
+
+# pnpm's built-in release-age gate (minimumReleaseAge=10080 in this image) — the config
+# file is not writable as USER node, and the env form is the one that takes effect
+# (`pnpm config get minimumReleaseAge` -> 0); it is inherited by later execs, including
+# the product's own plugin install.
+ENV PNPM_CONFIG_MINIMUM_RELEASE_AGE=0
+
+RUN bash /opt/agent-env/prepare.sh openclaw --home /app/.openclaw \
+      --llm-url "$LLM_BASE_URL" --llm-model "$LLM_MODEL" --no-verify
+
+COPY --chown=node:node extras /opt/regression
+RUN [ -d /opt/regression ] && chmod +x /opt/regression/*.sh 2>/dev/null || true
+
+RUN LLM_CONFIG_PRE_INSTALL=1 bash /opt/agent-env/verify.sh openclaw --home /app/.openclaw \
+      --llm-url "$LLM_BASE_URL" --llm-model "$LLM_MODEL" --offline
+
+CMD ["sleep", "infinity"]
