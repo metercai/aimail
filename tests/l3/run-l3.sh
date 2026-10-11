@@ -18,7 +18,7 @@
 #   L3_PLATFORM  linux-amd64|linux-arm64|macos-arm64|windows-amd64
 #   L3_AGENT     hermes | dsh-aimail | dsh-plugin
 #                (dsh 两条 README 公布路径各一格: aimail install --home ~/.dsh / dsh plugin add)
-#   AIMAIL_REPO  aimail 仓 checkout(llm-config.py 已自包含在 tests/l3/)
+#   AIMAIL_REPO  aimail 仓 checkout(环境准备单源 + llm-config.py 都在 tests/agent-env/)
 #   DEEPSEEK_BASE_URL / DEEPSEEK_MODEL / DEEPSEEK_API_KEY
 #
 # 流程契约(README Quick Start 场景 4, 原样复现, 严禁自行调整):
@@ -53,7 +53,11 @@ gap() { printf '\033[35m⊘ ENV GAP: %s\n' "$*"; exit 2; }
 PLATFORM="${L3_PLATFORM:?L3_PLATFORM not set}"
 AGENT="${L3_AGENT:?L3_AGENT not set}"
 AIMAIL_REPO="${AIMAIL_REPO:?AIMAIL_REPO not set}"
-LLMCFG="$AIMAIL_REPO/tests/l3/llm-config.py"
+# 环境准备单源 = aimail 仓 tests/agent-env/(官方安装 + 基础环境 + 关包管理器年龄闸 + LLM 配置;
+# 契约见 tests/agent-env/README.md)。LLM 写入器也只有那一份。
+AGENT_ENV="$AIMAIL_REPO/tests/agent-env"
+LLMCFG="$AGENT_ENV/lib/llm-config.py"
+[ -f "$AGENT_ENV/prepare.sh" ] || die "agent-env/prepare.sh missing at $AGENT_ENV (self-contained in the aimail repo)"
 [ -f "$LLMCFG" ] || die "llm-config.py missing at $LLMCFG (self-contained in the aimail repo)"
 LLM_BASE_URL="${DEEPSEEK_BASE_URL:-https://api.deepseek.com}"
 LLM_MODEL="${DEEPSEEK_MODEL:-deepseek-flash}"
@@ -88,61 +92,34 @@ echo "════ L3: $PLATFORM / $AGENT  (LLM=$LLM_MODEL @ $LLM_BASE_URL)"
 echo "── [1/6] agent env: $AGENT"
 case "$AGENT" in
   hermes)
-    # 官方 install.sh(源码 clone 到 $HERMES_HOME/hermes-agent + venv)——**不是 pip**:
+    # 官方安装(源码树+venv, **不是 pip**)+ 关年龄闸 + LLM 配置 全在单源 prepare.sh:
     # CLI 适配器的 health_checks 查源码文件 {home}/hermes-agent/gateway/platforms/webhook.py
-    # (PREPROCESS_REGISTRY, install 打的 patch) 与 hermes_cli/profiles.py (AimailGateway 钩子),
-    # pip wheel 布局没有这些文件 ⇒ install 必挂。无 TTY 时 install.sh 自动跳过 setup/gateway。
+    # 与 hermes_cli/profiles.py ⇒ pip wheel 布局必挂; hermes 树自己的 pyproject.toml 带
+    # `[tool.uv] exclude-newer="14 days"`, uv 从 CWD 向上发现它 ⇒ 装 SDK 会静默落旧版。
     HERMES_HOME="${HOME}/.hermes"
     AGENT_HOME="$HERMES_HOME"
-    curl -fsSL --retry 2 --connect-timeout 20 --max-time 60 https://hermes-agent.nousresearch.com/install.sh \
-      -o "$WORK/hermes-install.sh" || die "hermes install.sh download failed"
-    HERMES_HOME="$HERMES_HOME" bash "$WORK/hermes-install.sh" </dev/null \
-      || die "hermes official install failed (see $WORK)"
-    # 无 profiles 脚手架: B4 实证(干净 HERMES_HOME 无 profiles/ + webhook.enabled=true
-    # → hermes 默认 profile gateway 3s 起, 端口可达) —— hermes agent 不依赖 profiles/。
-    # CLI detect 认特征 marker(hermes-agent)——C-3 已修：profiles 是使用期产物,
-    # 不入 detect 特征 ⇒ 官方安装产物(hermes-agent/)即可识别,不绕。
-    HERMES_BIN="$HERMES_HOME/hermes-agent/.hermes/bin/hermes"
-    [ -x "$HERMES_BIN" ] || gap "hermes binary not found after official install: $HERMES_BIN"
-    # LLM 配置在 install.sh **之后**(stage_config 会覆写 config.yaml; 写早了被冲掉)。
-    # 双写(journey J4b 权威形态): --home 落 scratch(verify 读它, 不被宿主进程读到),
+    # LLM 双写(journey J4b 权威形态): --home 落 scratch(verify 读它, 不被宿主进程读到),
     # --extra-home 落真 $HERMES_HOME(宿主进程读它)。
-    python3 "$LLMCFG" write \
-      --platform hermes --home "$WORK/llm-scratch" --extra-home "$HERMES_HOME" \
-      --base-url "$LLM_BASE_URL" --model "$LLM_MODEL" --api-key "$DEEPSEEK_API_KEY" \
-      || die "hermes LLM config write failed"
+    bash "$AGENT_ENV/prepare.sh" hermes \
+      --home "$WORK/llm-scratch" --extra-home "$HERMES_HOME" \
+      --llm-url "$LLM_BASE_URL" --llm-model "$LLM_MODEL" --llm-key "$DEEPSEEK_API_KEY" \
+      || die "hermes env prepare failed (single source: tests/agent-env)"
     VERIFY_HOME="$WORK/llm-scratch"
     VERIFY_EXTRA=(--extra-home "$HERMES_HOME")
-    ok "hermes installed (official, source+venv) + LLM configured"
+    ok "hermes env ready (official install + LLM configured; single source)"
     ;;
   dsh|dsh-aimail|dsh-plugin)
-    command -v npm >/dev/null 2>&1 || gap "npm missing — cannot install dsh on $PLATFORM"
-    npm install -g @deepseek-ai/dsh --no-audit --no-fund || die "dsh npm install failed"
-    # pnpm 预热: dsh 插件管理器(dsh plugin add)转发 pnpm 装插件落 profile。
-    # pnpm 属 dsh 自身基础环境, 必须预置(journey Dockerfile.dsh / r43 教训: 冷容器
-    # 首调用联网拉 pnpm, 坏网时探针挂死)。CI runner 无 pnpm ⇒ ④ plugin add 必挂。
-    command -v pnpm >/dev/null 2>&1 || npm install -g pnpm --no-audit --no-fund >/dev/null 2>&1
-    command -v pnpm >/dev/null 2>&1 || die "pnpm unavailable — dsh plugin install needs pnpm on PATH"
-    say "pnpm $(pnpm --version 2>/dev/null | head -1)"
+    # 官方 npm 装 dsh + pnpm(属 dsh 自身基础环境, 必须预置: 冷容器首调用会联网拉 pnpm,
+    # 坏网时探针挂死; CI runner 无 pnpm ⇒ 插件安装必挂)+ profile 预热(profiles/web/
+    # cordis.patch.yml 是 LLM 写入与插件安装的落点)+ 关年龄闸 + LLM 配置 = 单源 prepare.sh。
     DSH_HOME="${HOME}/.dsh"
     AGENT_HOME="$DSH_HOME"
-    # profile warmup(实测: dsh 首启 --profile 才创建 profiles/web/{cordis.yml,cordis.patch.yml}):
-    # ① write_dsh 要求 profile 已存在(no dsh profile — cannot judge)
-    # ② install 的 dsh 步 `dsh plugin --profile web add dsh-aimail` 要往 profile 里装插件。
-    # 无 storages 脚手架: 官方 warmup 不建 storages(E1 实证), dsh 运行期 12s 自建(Q3 实证);
-    # CLI detect 认特征 marker(profiles)——C-3 已修：storages 不入 detect 特征,不绕。
-    DSH_HOME="$DSH_HOME" run_timeout 120 dsh --profile web --dump-config >/dev/null 2>&1 \
-      || die "dsh profile warmup failed (profiles/web not created)"
-    [ -f "$DSH_HOME/profiles/web/cordis.patch.yml" ] || die "dsh warmup did not create cordis.patch.yml"
-    # LLM 配置: write_dsh 往 profile 的 cordis.patch.yml 追加 - id: llm-deepseek
-    # (baseURL/model/apiKeyEnv: DEEPSEEK_API_KEY)——env 名在此, key 值在宿主进程 env(起宿主时 export)。
-    python3 "$LLMCFG" write \
-      --platform dsh --home "$DSH_HOME" \
-      --base-url "$LLM_BASE_URL" --model "$LLM_MODEL" --api-key "$DEEPSEEK_API_KEY" \
-      || die "dsh LLM config write failed"
+    bash "$AGENT_ENV/prepare.sh" dsh --home "$DSH_HOME" \
+      --llm-url "$LLM_BASE_URL" --llm-model "$LLM_MODEL" --llm-key "$DEEPSEEK_API_KEY" \
+      || die "dsh env prepare failed (single source: tests/agent-env)"
     VERIFY_HOME="$DSH_HOME"
     VERIFY_EXTRA=()
-    ok "dsh installed (npm) + profile warmed + LLM configured"
+    ok "dsh env ready (official npm + pnpm + profile warmed + LLM configured; single source)"
     ;;
   *) die "unknown agent $AGENT" ;;
 esac

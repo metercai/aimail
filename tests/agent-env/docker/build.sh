@@ -46,7 +46,12 @@ for p in "${PLATFORMS[@]}"; do
   mkdir -p "$TMP/agent-env/lib" "$TMP/extras"
   cp "$ENVDIR/prepare.sh" "$ENVDIR/verify.sh" "$TMP/agent-env/"
   cp "$ENVDIR/lib/llm-config.py" "$TMP/agent-env/lib/"
-  [ -n "$ASSETS" ] && cp -r "$ASSETS/." "$TMP/extras/" 2>/dev/null
+  if [ -n "$ASSETS" ]; then
+  # scripts only: the harness assets are shell/python/js; the tree also holds Dockerfiles
+  # and docs that must not be baked into /opt/regression
+  find "$ASSETS" -maxdepth 1 -type f \( -name '*.sh' -o -name '*.py' -o -name '*.js' \) \
+    -exec cp -f {} "$TMP/extras/" \;
+fi
   cp "$CTX/Dockerfile.$p" "$TMP/Dockerfile"
 
   echo "── build $p (base=$BASE, assets=${ASSETS:-none}, accept=$ACCEPT)"

@@ -88,9 +88,9 @@ jobs:
         with:
           path: aimail
 
-      # L3 对 advanced 的全部依赖 = tests/l3/llm-config.py(已自包含进 aimail 仓,
-      # 纯标准库)——不再跨仓 checkout:advanced 是私有仓, 触发仓的 GITHUB_TOKEN
-      # 无权访问(实测 404), 且 L3 原则是被测物不来自工作树。
+      # L3 对 advanced 的全部依赖 = tests/agent-env/**(环境准备单源 prepare/verify +
+      # llm-config.py, 已自包含进 aimail 仓, 纯标准库)——不再跨仓 checkout:advanced 是私有仓,
+      # 触发仓的 GITHUB_TOKEN 无权访问(实测 404), 且 L3 原则是被测物不来自工作树。
 
       - name: L3 gate (agent env → published CLI+gateway → closed loop)
         shell: bash

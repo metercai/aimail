@@ -24,14 +24,15 @@ skip() { echo "  · SKIP: $*"; SKIP=$((SKIP + 1)); }
 
 AGENT="${1:-}"; shift || true
 [ -n "$AGENT" ] || { echo "usage: verify.sh <hermes|openclaw|dsh|pi|deerflow> [--home PATH] [--llm-url URL] [--llm-model M] [--llm-key K] [--offline]" >&2; exit 2; }
-HOME_DIR=""; LLM_URL=""; LLM_MODEL=""; LLM_KEY=""; OFFLINE=0
+HOME_DIR=""; LLM_URL=""; LLM_MODEL=""; LLM_KEY=""; OFFLINE=0; EXTRA_HOMES=()
 while [ $# -gt 0 ]; do
   case "$1" in
-    --home)      HOME_DIR="${2:-}"; shift 2 ;;
-    --llm-url)   LLM_URL="${2:-}"; shift 2 ;;
-    --llm-model) LLM_MODEL="${2:-}"; shift 2 ;;
-    --llm-key)   LLM_KEY="${2:-}"; shift 2 ;;
-    --offline)   OFFLINE=1; shift ;;
+    --home)       HOME_DIR="${2:-}"; shift 2 ;;
+    --llm-url)    LLM_URL="${2:-}"; shift 2 ;;
+    --llm-model)  LLM_MODEL="${2:-}"; shift 2 ;;
+    --llm-key)    LLM_KEY="${2:-}"; shift 2 ;;
+    --extra-home) EXTRA_HOMES+=("${2:-}"); shift 2 ;;
+    --offline)    OFFLINE=1; shift ;;
     *) echo "verify: unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -89,8 +90,9 @@ case "$AGENT" in
     command -v node >/dev/null 2>&1 && pass "interpreter: node $(node --version 2>/dev/null)" || red "node missing" ;;
 esac
 if [ -n "$LLM_URL" ] && [ -n "$LLM_MODEL" ]; then
-  python3 "$CTX/lib/llm-config.py" verify --platform "$AGENT" --home "$HOME_DIR" \
-    --base-url "$LLM_URL" --model "$LLM_MODEL" >/tmp/llm-verify.out 2>&1
+  _llm_args=(verify --platform "$AGENT" --home "$HOME_DIR" --base-url "$LLM_URL" --model "$LLM_MODEL")
+  for _e in ${EXTRA_HOMES[@]+"${EXTRA_HOMES[@]}"}; do [ -n "$_e" ] && _llm_args+=(--extra-home "$_e"); done
+  python3 "$CTX/lib/llm-config.py" "${_llm_args[@]}" >/tmp/llm-verify.out 2>&1
   case $? in
     0) pass "LLM config in place and re-readable (single-source writer)" ;;
     2) skip "LLM config not judgeable for $AGENT ($(tail -1 /tmp/llm-verify.out 2>/dev/null))" ;;

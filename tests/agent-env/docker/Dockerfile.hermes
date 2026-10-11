@@ -28,7 +28,10 @@ RUN mkdir -p /opt/data/profiles; [ -e /opt/data/hermes-agent ] || ln -sfn /opt/h
 
 # harness regression assets (empty by default; supplied via build.sh --assets DIR)
 COPY extras /opt/regression
-RUN [ -d /opt/regression ] && chmod +x /opt/regression/*.sh 2>/dev/null || true
+# the harness scripts inside the container read the LLM writer from this path — serve it
+# from the single source rather than a second copy in the tree
+RUN cp -f /opt/agent-env/lib/llm-config.py /opt/regression/llm-config.py \
+    && chmod +x /opt/regression/*.sh 2>/dev/null || true
 
 # fail-closed acceptance of the PREPARED environment (offline: agent + config + gates)
 RUN LLM_CONFIG_PRE_INSTALL=1 bash /opt/agent-env/verify.sh hermes --home "${HERMES_HOME:-/opt/data}" \

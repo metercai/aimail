@@ -93,8 +93,10 @@ install_dsh() {
     npm install -g pnpm --no-audit --no-fund >/dev/null 2>&1 || true
   fi
   command -v pnpm >/dev/null 2>&1 || die "pnpm unavailable — dsh plugin install needs pnpm on PATH"
-  # profile skeleton = the LLM writer target AND the plugin install target.
-  DSH_HOME="$HOME_DIR" dsh --profile web --dump-config >/dev/null 2>&1 \
+  # profile skeleton = the LLM writer target AND the plugin install target. Bounded so a
+  # cold pnpm pull cannot hang the preparation.
+  _to=""; command -v timeout >/dev/null 2>&1 && _to="timeout 180"
+  DSH_HOME="$HOME_DIR" $_to dsh --profile web --dump-config >/dev/null 2>&1 \
     || die "dsh profile warmup failed (profiles/web not created)"
   [ -f "$HOME_DIR/profiles/web/cordis.patch.yml" ] \
     || die "dsh warmup did not create profiles/web/cordis.patch.yml"
@@ -195,4 +197,5 @@ local_args=("$AGENT" --home "$HOME_DIR")
 [ -n "$LLM_URL" ] && local_args+=(--llm-url "$LLM_URL")
 [ -n "$LLM_MODEL" ] && local_args+=(--llm-model "$LLM_MODEL")
 [ -n "$LLM_KEY" ] && local_args+=(--llm-key "$LLM_KEY")
+for e in ${EXTRA_HOMES[@]+"${EXTRA_HOMES[@]}"}; do [ -n "$e" ] && local_args+=(--extra-home "$e"); done
 bash "$CTX/verify.sh" "${local_args[@]}"
