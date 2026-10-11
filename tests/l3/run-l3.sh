@@ -50,6 +50,38 @@ warn(){ printf '  \033[33m⚠ %s\n' "$*"; }
 die() { printf '\033[31m✗ %s\n' "$*" ; exit 1; }
 gap() { printf '\033[35m⊘ ENV GAP: %s\n' "$*"; exit 2; }
 
+# 失败取证(owner 纪律: 红必须能"只读日志定因", 不许靠猜、也不靠反复重跑)。
+# welcome 不闭环时把**三跳证据**打到 stdout —— CI 用 tee 收 stdout, 故同时进了 job 日志
+# 与 l3-logs 工件。三跳 = ①网关投递 ②入站落账(agentmail.log) ③宿主原话(agent host log);
+# 另附"SDK 落在哪个解释器"与 hermes 的 platform_toolsets(历史已知缺口: 缺它 ⇒ agent
+# 收得到回不出)。此前只打"无回信" ⇒ 只能猜, 实测无法定因。
+dump_failure_evidence() {
+  local h g f
+  echo "  ────────── 失败取证 dump ──────────"
+  for h in "$WORK"/*-host.log; do
+    [ -f "$h" ] || continue
+    echo "  [③宿主原话] $h (tail -40)"
+    tail -40 "$h" | sed 's/^/    /'
+  done
+  for g in "$GW_HOME/boot.log" "$GW_HOME"/*.log; do
+    [ -f "$g" ] || continue
+    echo "  [①网关投递] $g (webhook/deliver/pending 相关行, tail -25)"
+    grep -aiE "webhook|deliver|inbound|non_2xx|overlimit|pending" "$g" | tail -25 | sed 's/^/    /'
+  done
+  for f in "$HOME"/.aimail/systems/*/*/agentmail.log; do
+    [ -f "$f" ] || continue
+    echo "  [②入站落账] $f (tail -30)"
+    tail -30 "$f" | sed 's/^/    /'
+  done
+  echo "  [SDK 落点] python3=$(command -v python3) origin=$(python3 -c "import importlib.util as u; s=u.find_spec('aimail'); print(s.origin if s else 'NONE')" 2>&1 | tail -1)"
+  if [ -n "${HERMES_HOME:-}" ]; then
+    echo "  [hermes toolset] $HERMES_HOME/config.yaml:"
+    grep -aA3 -iE "^platform_toolsets" "$HERMES_HOME/config.yaml" 2>/dev/null | sed 's/^/    /' \
+      || echo "    (config.yaml 无 platform_toolsets —— 历史已知缺口: agent 会'收得到回不出')"
+  fi
+  echo "  ──────────────────────────────────"
+}
+
 PLATFORM="${L3_PLATFORM:?L3_PLATFORM not set}"
 AGENT="${L3_AGENT:?L3_AGENT not set}"
 AIMAIL_REPO="${AIMAIL_REPO:?AIMAIL_REPO not set}"
@@ -349,7 +381,7 @@ echo "── [5/6] welcome closed loop (manager approves identity card + signatu
 # 需 agent 的入站端点已起(install 已接线), 且 agent+LLM 能生成三标签回复。
 "$AIMAIL_BIN" welcome 2>&1 | tee "$WORK/welcome.log"
 WELC_RC=${PIPESTATUS[0]}
-[ "$WELC_RC" -eq 0 ] || die "welcome closed loop failed (rc=$WELC_RC) — $(tail -12 "$WORK/welcome.log")"
+[ "$WELC_RC" -eq 0 ] || { dump_failure_evidence; die "welcome closed loop failed (rc=$WELC_RC) — $(tail -12 "$WORK/welcome.log")"; }
 ok "welcome loop complete (identity card + signature approved)"
 
 # ── ⑥ 查询邮件签名断言 ─────────────────────────────────────────
