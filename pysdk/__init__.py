@@ -100,14 +100,20 @@ def core_dir() -> str:
     return _resolve_core_dir()
 
 
+def _resources_root() -> str:
+    """SDK 资源根(单源闭环) —— 见 _resources_release.resources_root。"""
+    from _resources_release import resources_root  # 扁平导入: core 目录已在 sys.path 上
+    return resources_root()
+
+
 def skills_dir() -> str:
     """aimail SKILL.md / DESCRIPTION.md directory."""
-    return _os.path.join(root(), "resources", "skills")
+    return _os.path.join(_resources_root(), "skills")
 
 
 def board_role_prompt_dir() -> str:
     """Board role prompt templates directory (6 templates)."""
-    return _os.path.join(root(), "resources", "board", "role_prompt")
+    return _os.path.join(_resources_root(), "board", "role_prompt")
 
 
 def mcp_server_path() -> str:

@@ -69,6 +69,6 @@
     "email"
   ],
   "scripts": {
-    "prepack": "bash ../../../scripts/materialize-resources.sh dsh"
+    "prepack": "node ../mail-core/scripts/stage-resources.mjs --dest ./resources"
   }
 }

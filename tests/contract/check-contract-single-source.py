@@ -83,7 +83,6 @@ ALLOW_MARKER = "contract-allowed:"    # 行内逃生门(必须带理由)
 # ── 规则 (c): 5 份 SKILL.md(1 真源 + 4 物化产物)──────────────────────────
 SKILL_SOURCE = "resources/skills/SKILL.md"
 SKILL_MATERIALIZED = (
-    "pysdk/resources/skills/SKILL.md",
     "tssdk/packages/openclaw-aimail/resources/skills/SKILL.md",
     "tssdk/packages/dsh-aimail/resources/skills/SKILL.md",
     "tssdk/packages/pi-aimail/resources/skills/SKILL.md",
@@ -412,10 +411,10 @@ def check_skill_frontmatter(man: dict) -> None:
             path = REPO / rel
             if not path.is_file():
                 if materialized:
-                    # 物化产物缺失 = 生成物尚未生成(跑 scripts/materialize-resources.sh)
+                    # 包内生成物缺失 = 该包尚未暂存自己的那份(跑它自己的 prepack)
                     raise CannotJudge(
-                        f"{rel}: 物化产物不存在, frontmatter 无法判定(先跑 "
-                        f"scripts/materialize-resources.sh;门禁已在物化后调用本检查)")
+                        f"{rel}: 包内生成物不存在, frontmatter 无法判定(先跑该包 prepack: "
+                        f"node tssdk/packages/mail-core/scripts/stage-resources.mjs --dest <pkg>;门禁已在暂存后调用本检查)")
                 raise CannotJudge(f"{rel}: 不存在")
             name, nline, tool, tline = _frontmatter_fields(path, rel)
             bad = []

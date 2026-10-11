@@ -26,12 +26,11 @@ endpoint (HMAC-verified).
 ## Resources (board prompts/souls, skills)
 
 Asset resources are **single-sourced at the repo root `resources/`** (not per
-package): the `resources/` directory inside this repo's adapter packages is a
-generated copy — `scripts/materialize-resources.sh` in the repo root writes it
-(git-ignored), and each package's `prepack` runs that automatically when
-packing, so published tarballs stay self-contained. In a repo checkout, run
-`bash scripts/materialize-resources.sh` once after cloning or after editing
-`resources/`.
+package). An npm tarball can only carry files under its own package directory, so
+each adapter package stages its own `resources/` copy from that source in **its own
+`prepack`** (`node ../mail-core/scripts/stage-resources.mjs --dest .`, git-ignored) —
+the copy belongs to the package that ships it. In a repo checkout, run that same
+command from the package directory after editing `resources/`.
 
 ## Packages
 

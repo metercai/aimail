@@ -335,7 +335,7 @@ export function apply(ctx: Context, config: Config = {}): () => void {
       if (!fs.existsSync(from)) {
         // missing package resources = packaging/materialize defect: loud but must not block inbound handling
         console.error(`[dsh-aimail] skill resource missing: ${from} ` +
-          '(repo: run scripts/materialize-resources.sh; installed: reinstall the package)')
+          '(repo: stage it via the package prepack; installed: reinstall the package)')
         continue
       }
       if (fs.existsSync(to) && fs.readFileSync(from).equals(fs.readFileSync(to))) continue

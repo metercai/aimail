@@ -23,9 +23,8 @@ _CORE = os.path.dirname(os.path.abspath(__file__))
 # 发布清单: 记录"本 SDK 上次发布的内容 hash", 用来区分"用户个性化过"与"用户没动过"
 _MANIFEST = ".aimail-resources.json"
 
-# 缺资源时的可执行指引(仓库态=pysdk/resources 是物化产物; pip 态=wheel 自带)
-_RESOURCE_HINT = ("仓库态: 跑 scripts/materialize-resources.sh 重新物化(4 处生成物, 真源=仓根 resources/);"
-                  " pip 态: 重装 aimailsdk(wheel 自带 resources)")
+# 缺资源时的可执行指引(仓库态=直接读仓根 resources/, 打包态=wheel 自带)
+_RESOURCE_HINT = ("仓库态: 资源直接取自仓根 resources/(无需物化步骤); pip 态: 重装 aimailsdk(wheel 自带 resources)")
 
 # 源子目录(包内 resources/board) → 配置目录目标子目录
 # 2026-09-25 用户裁决: board 只保留 en 角色提示(源目录已改名 role_prompt, 不再带 _en 后缀);
@@ -41,9 +40,31 @@ def agentmail_home() -> str:
     return os.environ.get("AIMAIL_HOME", "") or _AIMAIL_HOME
 
 
+def _is_repo_checkout() -> bool:
+    """<core> 就是 pysdk/ 且旁边有仓根 resources/ ⇒ 在仓库检出里跑(不是安装态)。"""
+    return (os.path.basename(_CORE) == "pysdk"
+            and os.path.isdir(os.path.join(os.path.dirname(_CORE), "resources")))
+
+
+def resources_root() -> str:
+    """本 SDK 的资源根 —— 自解自足, 不依赖任何外部物化步骤。
+
+    仓库检出: 直接用仓根的 resources/(真源 git 跟踪; 优先于任何本地残留副本);
+    打包态  : <包>/resources(wheel 把仓根 resources/ 装成 aimail/resources)。
+    """
+    if _is_repo_checkout():
+        return os.path.join(os.path.dirname(_CORE), "resources")
+    return os.path.join(_CORE, "resources")
+
+
 def resources_board_dir() -> str:
-    """包内 resources/board 目录(repo:pysdk/resources/board;pip:aimail/resources/board)。"""
-    return os.path.join(_CORE, "resources", "board")
+    """资源里的 board 目录(打包态 aimail/resources/board; 仓库态 <repo>/resources/board)。"""
+    return os.path.join(resources_root(), "board")
+
+
+def resources_skills_dir() -> str:
+    """资源里的 skills 目录(SKILL.md / DESCRIPTION.md)。"""
+    return os.path.join(resources_root(), "skills")
 
 
 def _sha256(path: str) -> str:

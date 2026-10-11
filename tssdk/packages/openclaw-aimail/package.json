@@ -33,7 +33,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "prepack": "npm run build && bash ../../../scripts/materialize-resources.sh openclaw"
+    "prepack": "npm run build && node ../mail-core/scripts/stage-resources.mjs --dest ./resources"
   },
   "openclaw": {
     "extensions": [

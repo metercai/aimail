@@ -6,17 +6,21 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 echo "═══ [L0] python lint + unit tests ═══"
-# SDK 资源单一真源(2026-09-25): 真源=仓根 resources/, 4 处分发点是物化产物(已 gitignore)。
-# clean clone 里产物不存在 ⇒ 先物化, 否则 pysdk/runtime_bundle 的资源释放与 S9 探针会红。
-bash scripts/materialize-resources.sh
-bash scripts/materialize-resources.sh --verify
+# SDK 资源单一真源(2026-09-25): 真源=仓根 resources/(git 跟踪, 唯一可编辑处)。
+# 各 adapter 包自带的那份是**各包 prepack 自己暂存**的生成物(已 gitignore) —— npm
+# tarball 只能装包目录内的文件, 所以暂存是各包打包环节的一部分, 没有仓级统一脚本。
+# pysdk 侧不需要副本: 仓库检出里 SDK 直接读仓根 resources/(_resources_release.resources_root)。
+# 门禁这里把 3 个包各自那份暂存出来, 让契约规则 ③ 读到(clean clone 里生成物不存在)。
+for _p in dsh-aimail openclaw-aimail pi-aimail; do
+  node tssdk/packages/mail-core/scripts/stage-resources.mjs --dest "tssdk/packages/$_p/resources" || exit 1
+done
 # 契约单一真源 gate(2026-09-27): agent 内部契约面(skill/toolset 注册名、绑定文件名、
 # 指针文件名、入站路径)的单一真源 =
 # contract/aimail-contract.json;由 ①两个常量模块(pysdk/aimail_contract.py +
 # tssdk/.../mail-core/src/contract.ts)逐项 == 清单 ②5 份 SKILL.md frontmatter 的
 # name:/toolset: == 清单 ③字面量位置棘轮基线(只许减不许增)三条规则守。Rust 侧
 # (gateway/bridge)本批未覆盖, 脚本输出里登记为 GAP(脚本第 (a) 条)。
-# ⚠ 必须放在 materialize-resources.sh 之后 —— 规则 ③ 要读 4 份物化 SKILL.md(生成物)。
+# ⚠ 必须放在各包资源暂存之后 —— 规则 ③ 要读 3 份包内 SKILL.md(生成物)。
 _css_rc=0
 python3 tests/contract/check-contract-single-source.py || _css_rc=$?
 if [ "$_css_rc" -ne 0 ]; then

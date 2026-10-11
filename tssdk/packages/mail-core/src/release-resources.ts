@@ -47,14 +47,15 @@ export interface ReleaseResourcesOptions {
 
 /**
  * Assert the package ships complete resources (2026-09-25 single-source change: missing resources no longer skipped silently).
- * Canonical source = repo-root `resources/`; each distribution point is a materialized copy from scripts/materialize-resources.sh
- * or an npm prepack copy. A missing dir = packaging defect, must be loud on the spot — the silent
+ * Canonical source = repo-root `resources/`; each adapter package stages its own copy in its
+ * own `prepack` (the tarball can only carry files under the package dir). A missing dir =
+ * packaging defect, must be loud on the spot — the silent
  * consequence is "gates all green while the host has zero role resources".
  */
 export function assertBoardResources (boardRoot: string): void {
   const hint =
-    'repo checkout: run scripts/materialize-resources.sh; ' +
-    'installed package: reinstall it (prepack copies resources)'
+    'repo checkout: stage it with the package prepack (node packages/mail-core/scripts/stage-resources.mjs --dest ./resources); ' +
+    'installed package: reinstall it'
   if (!boardRoot || !fs.existsSync(boardRoot)) {
     throw new Error(`board resources missing: ${boardRoot || '(empty path)'} — ${hint}`)
   }

@@ -13,9 +13,10 @@ monorepo under `pysdk/` (CLI in `cli/`, TypeScript SDK in `tssdk/`, bridge in
 `bridge/`). The pip package `aimailsdk` (import name `aimail`) is the published surface of this tree —
 the wheel mirrors `pysdk/` 1:1 for code and maps the repo-root `resources/` to `aimail/resources/`,
 so repo and installed layouts are identical either way. Asset resources (board prompts/souls, skills)
-are **single-sourced at the repo-root `resources/`**: the per-package `resources/` directories are
-generated copies (`scripts/materialize-resources.sh`, git-ignored) — run it after a fresh clone or
-after editing `resources/`; npm packages regenerate their copy automatically via `prepack`.
+are **single-sourced at the repo-root `resources/`**: a repo checkout reads that directory directly
+(no copy step), and each npm adapter package stages its own `resources/` copy in its own `prepack`
+(`node ../mail-core/scripts/stage-resources.mjs --dest .`, git-ignored) because a tarball can only
+carry files under the package directory.
 
 | What | File(s) |
 |---|---|

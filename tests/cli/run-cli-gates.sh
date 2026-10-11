@@ -11,7 +11,7 @@
 # + adapters 单测守住（随第 2 步 cargo test 跑），2026-10-08 删除对已退役 Python 文件的死 grep。
 #
 # 不进本脚本的（属 SDK 域，见 tests/sdk/l0-gate-tests.sh）：
-#   materialize-resources · pysdk pyflakes/py_compile · 产品面 pytest(tests/sdk/) · tssdk build/vitest。
+#   SDK 资源(各包 prepack 自暂存) · pysdk pyflakes/py_compile · 产品面 pytest(tests/sdk/) · tssdk build/vitest。
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO" || exit 2

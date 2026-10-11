@@ -89,8 +89,9 @@ packages = []
 # resources — released at install time to ~/.aimail/systems/{sid}/board/
 # and read from there at runtime (user-personalizable); zh/soul variants are
 # shipped for reference (default en).
-# resources 单一真源 = 仓根 resources/(git 跟踪, 唯一可编辑处);
-# pysdk/resources 等 4 处是 scripts/materialize-resources.sh 的物化产物(已 gitignore)。
+# resources 单一真源 = 仓根 resources/(git 跟踪, 唯一可编辑处);各 adapter 包内那份
+# 是**各包 prepack 自己**暂存的生成物(已 gitignore)。pysdk 不落副本: 仓库检出里
+# SDK 直接读仓根 resources/(见 pysdk/_resources_release.resources_root)。
 # 目录级 1 行即可: wheel 内布局 aimail/resources/... 与旧逐文件枚举完全一致。
 "resources" = "aimail/resources"
 

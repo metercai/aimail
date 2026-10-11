@@ -59,7 +59,7 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
         if (!fs.existsSync(from)) {
           // missing package resources = packaging defect: loud but must not block the host
           console.error(`[openclaw-aimail] skill resource missing: ${from} ` +
-            '(repo: run scripts/materialize-resources.sh; installed: reinstall the package)')
+            '(repo: stage it via the package prepack; installed: reinstall the package)')
           continue
         }
         if (fs.existsSync(to) && fs.readFileSync(from).equals(fs.readFileSync(to))) continue

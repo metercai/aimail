@@ -43,7 +43,7 @@ for _sub in ("hermes", "deer-flow", "dsh"):
     if os.path.isdir(_p) and _p not in sys.path:
         sys.path.insert(0, _p)
 
-from _resources_release import agentmail_home, release_all_systems  # noqa: E402
+from _resources_release import agentmail_home, release_all_systems, resources_board_dir, resources_skills_dir  # noqa: E402
 
 
 def _import_hermes(name: str):
@@ -231,7 +231,7 @@ def install_hermes(hermes_dir: str, system_id: str = "") -> int:
         rc = 1
 
     # board 资源展开(幂等;覆盖全部已有 system 目录)
-    rel = release_all_systems(os.path.join(_CORE, "resources", "board"))
+    rel = release_all_systems(resources_board_dir())
     for r in rel:
         _say(f"  resources: {r['board_dir']} (copied {r['copied']}, kept {r['skipped']})")
 
@@ -244,11 +244,11 @@ def install_hermes(hermes_dir: str, system_id: str = "") -> int:
 
 def _release_hermes_skills(hermes_dir: str) -> int:
     """SKILL.md + DESCRIPTION.md → {home}/profiles/*/skills/agentmail/(幂等)。"""
-    skills_src = os.path.join(_CORE, "resources", "skills")
+    skills_src = resources_skills_dir()
     if not os.path.isdir(skills_src):
-        # 不再静默 return 0: 包自带资源缺失 = 打包/物化缺陷, 必须当场可见
+        # 不再静默 return 0: 包自带资源缺失 = 打包缺陷, 必须当场可见
         raise RuntimeError(
-            f"skills 资源缺失: {skills_src}(仓库态: 跑 scripts/materialize-resources.sh;"
+            f"skills 资源缺失: {skills_src}(仓库态: 资源在仓根 resources/, 检查检出完整性;"
             f" pip 态: 重装 aimailsdk)")
     missing = [f for f in ("SKILL.md", "DESCRIPTION.md")
                if not os.path.isfile(os.path.join(skills_src, f))]
@@ -379,7 +379,7 @@ def install_deerflow(backend_dir: str, system_id: str = "", manager: str = "") -
     except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py 失败路径 raise SystemExit
         _say(f"  ✗ register/reconcile failed: {e}")
         rc = 1
-    rel = release_all_systems(os.path.join(_CORE, "resources", "board"))
+    rel = release_all_systems(resources_board_dir())
     for r in rel:
         _say(f"  resources: {r['board_dir']} (copied {r['copied']})")
     return rc
