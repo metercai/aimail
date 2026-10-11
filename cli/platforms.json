@@ -142,7 +142,7 @@
       "aliases": [],
       "register": {
         "kind": "node_entry",
-        "node_path": "{home}/profiles/*/node_modules/dsh-aimail/lib/register-cli.js",
+        "node_path": "{home}/profiles/*/node_modules/dsh-aimail/dist/register-cli.js",
         "args": [
           "--name",
           "{name}",
@@ -393,26 +393,15 @@
         "main"
       ],
       "register": {
-        "kind": "host_command",
-        "argv": [
-          "openclaw",
-          "aimail",
-          "register",
-          "--name",
-          "{name}",
-          "--system-id",
-          "{sid}"
-        ],
-        "manager_arg": [
-          "--manager",
-          "{manager}"
-        ],
-        "fail_hint": "先安装 openclaw-aimail 插件(`openclaw plugins install openclaw-aimail --force --accept-capabilities` → 重启 gateway),`openclaw aimail register` 命令由插件提供"
+        "kind": "node_entry",
+        "node_path": "{home}/npm/projects/*/node_modules/openclaw-aimail/dist/register-cli.js",
+        "fail_hint": "先安装 openclaw-aimail 插件(`openclaw plugins install openclaw-aimail --force --accept-capabilities` → 重启 gateway);注册经插件自带的 node 入口 --op assemble(owner 2026-10-11:host_command 形态退役)"
       },
       "ops": {
         "argv": [
-          "openclaw",
-          "aimail",
+          "node",
+          "{node_path}",
+          "--op",
           "{op}",
           "--args",
           "{args}"
@@ -455,14 +444,14 @@
         },
         {
           "kind": "print",
-          "text": "  register: openclaw aimail register --system-id {sid}",
+          "text": "  register: `aimail address -a main`（经插件 node 入口 --op assemble）",
           "when": {
             "sid_set": true
           }
         },
         {
           "kind": "print",
-          "text": "  register: `openclaw aimail register` (once pointer/system ready) or `aimail address -a main`",
+          "text": "  register: `aimail address -a main` (once pointer/system ready)",
           "when": {
             "sid_set": false
           }
@@ -480,7 +469,7 @@
       "uninstall_steps": [
         {
           "kind": "print",
-          "text": "  openclaw: 对接全在 TS 插件(openclaw-aimail)——插件移除 = openclaw 宿主侧卸载 + `openclaw aimail deregister`;共享系统数据已在上段(网关注销+本机数据)清理"
+          "text": "  openclaw: 对接全在 TS 插件(openclaw-aimail)——插件移除 = openclaw 宿主侧卸载 + AIMail 侧 teardown（经插件 node 入口 --op teardown）;共享系统数据已在上段(网关注销+本机数据)清理"
         }
       ],
       "health_checks": [
@@ -508,15 +497,9 @@
         }
       ],
       "register_all": {
-        "kind": "host_command",
-        "argv": [
-          "openclaw",
-          "aimail",
-          "register-all",
-          "--system-id",
-          "{sid}"
-        ],
-        "fail_hint": "openclaw-aimail 需 ≥0.1.10(register-all 命令)"
+        "kind": "node_entry",
+        "node_path": "{home}/npm/projects/*/node_modules/openclaw-aimail/dist/register-cli.js",
+        "fail_hint": "openclaw-aimail 需含独立 node 入口(dist/register-cli.js, --op 门)"
       }
     },
     "deerflow": {

@@ -198,7 +198,7 @@ pub fn run(a: &Args) -> i32 {
         recorded
     };
     // transport 分派（契约 §4.1(2)）：**只有 python 宿主**需要 SDK 根（门的解释器自带）；
-    // node 宿主（node_entry / host_command）的 op 入口由注册表 `ops.argv` 直达 ⇒ 不得因缺 pysdk 硬退出。
+    // node 宿主（node_entry）的 op 入口由注册表 `ops.argv` 直达 ⇒ 不得因缺 pysdk 硬退出。
     let core_dir = if crate::core::platforms::ops_argv(&platform).is_some() {
         std::path::PathBuf::new()
     } else {

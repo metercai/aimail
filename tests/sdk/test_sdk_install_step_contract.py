@@ -1,7 +1,7 @@
 """D5 修订（owner 2026-10-06 裁决·甲）：装配步的**对称规则**。
 
 规则（按架构）：
-  · node 宿主（register.kind = node_entry / host_command：dsh · pi · openclaw）
+  · node 宿主（register.kind = node_entry：dsh · pi · openclaw）
     ⇒ **不带** sdk_install 步：其 SDK/扩展由宿主自己的包管理器安装。
   · python 宿主（register.kind = python_module / python_script：hermes · deerflow）
     ⇒ **带** sdk_install 步：由该步安装 aimailsdk（pip）。
@@ -14,7 +14,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 REG = json.loads((REPO / "cli" / "platforms.json").read_text(encoding="utf-8"))["platforms"]
 
-NODE_KINDS = {"node_entry", "host_command"}
+NODE_KINDS = {"node_entry"}  # owner 2026-10-11: host_command 形态退役 ⇒ 收紧（不允许回退该形态）
 PY_KINDS = {"python_module", "python_script"}
 
 

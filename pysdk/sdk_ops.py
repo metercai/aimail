@@ -6,7 +6,7 @@
 
     每个 SDK 自带**可被 spawn 的入口**，调用方（宿主运维程序或人）只执行它，不
     自己持有 SDK 的算法。TS 侧的平台包早已是这个形态（`dist/register-cli.js` /
-    `lib/register-cli.js`，注册表 `register.kind=node_entry`）；本模块是 Python 侧
+    `dist/register-cli.js`，注册表 `register.kind=node_entry`）；本模块是 Python 侧
     的**对等门**：把 CLI 侧需要的几个"薄入口"暴露成同形进程契约，从而让任何语言
     的调用方（Rust CLI / 未来的 Python CLI / 宿主脚本）都只依赖**一条协议**，
     而不是依赖某语言的运行时内部结构。

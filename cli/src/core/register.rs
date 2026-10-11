@@ -209,7 +209,6 @@ pub fn register_agent(
                 o.insert("node_path".into(), json!(node));
                 o.insert("node_bin".into(), json!("node"));
             }
-            "host_command" => {}
             other => {
                 return Err(format!(
                     "未知注册委托 kind '{other}'(platform {platform})——注册表损坏"
@@ -219,7 +218,7 @@ pub fn register_agent(
     }
 
     // ── 契约 v1.0 §4.1：定名 + 注册器执行 + 装配期改名 + 落绑定 —— 全在 SDK 门 assemble 内 ──
-    // transport 分派（§4.1(2)）：node 宿主（node_entry / host_command）由注册表 `ops.argv` 直接
+    // transport 分派（§4.1(2)）：node 宿主（node_entry）由注册表 `ops.argv` 直接
     // 调平台包自带的 op 入口 ⇒ **不传 register_spec**（注册器就是它自己，CLI 不代跑）；
     // python 宿主（python_module / python_script）仍经 python 门跑外部注册器 ⇒ 带 register_spec。
     let mut asm = json!({
@@ -325,11 +324,6 @@ pub fn register_all(
             }
             v
         }
-        "host_command" => rall
-            .get("argv")
-            .and_then(Value::as_array)
-            .map(|a| a.iter().map(|x| fill(x.as_str().unwrap_or(""))).collect())
-            .unwrap_or_default(),
         "node_entry" => {
             let homes = candidate_homes(platform, cfg, platform_home);
             let node = resolve_node_entry(

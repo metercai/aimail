@@ -353,14 +353,13 @@ dispatchers; kinds are shared across platforms, never per-platform code.
 
 - Registration chain & binding (address → activation → agentmail.json →
   bridge route), incl. platform defaults (agent name, webhook port,
-  pointer write). Exposed to the CLI through one of four delegation
-  kinds:
+  pointer write). Exposed to the CLI through one of three delegation
+  kinds (owner 2026-10-11: `host_command` is retired — openclaw converged to `node_entry`):
   | kind | form | platforms |
   |---|---|---|
   | `python_module` | CLI imports the adapter module & calls the function | hermes |
   | `python_script` | CLI spawns a Python entry (`manage.py …`) | deer-flow |
-  | `host_command` | CLI spawns a host command the plugin registered | openclaw |
-  | `node_entry` | CLI spawns `node <host node_modules>/…/register-cli.js` | dsh, pi |
+  | `node_entry` | CLI spawns `node <host node_modules>/…/dist/register-cli.js` | dsh, pi, openclaw |
 - Platform content (skills, board, MCP server files) and content-level
   install/uninstall (app.py patch, config rewrites, profile state) —
   shipped and reverted by the SDK (who-writes-it-reverts-it).

@@ -45,7 +45,7 @@ pub const PLATFORMS: &[PlatformSpec] = &[
         install_argv: &["pi", "install", "npm:pi-aimail"],
         node_pkg: "pi-aimail",
         agents_container: "",
-        entry_patterns: &["agent/npm/node_modules/pi-aimail/{lib,dist}/register-cli.js"],
+        entry_patterns: &["agent/npm/node_modules/pi-aimail/dist/register-cli.js"],
         python_host: false,
     },
     PlatformSpec {
@@ -63,7 +63,7 @@ pub const PLATFORMS: &[PlatformSpec] = &[
         ],
         node_pkg: "dsh-aimail",
         agents_container: "profiles",
-        entry_patterns: &["profiles/*/node_modules/dsh-aimail/{lib,dist}/register-cli.js"],
+        entry_patterns: &["profiles/*/node_modules/dsh-aimail/dist/register-cli.js"],
         python_host: false,
     },
     PlatformSpec {
@@ -90,7 +90,7 @@ pub const PLATFORMS: &[PlatformSpec] = &[
         ],
         node_pkg: "openclaw-aimail",
         agents_container: "agents",
-        entry_patterns: &["npm/projects/*/node_modules/openclaw-aimail/{lib,dist}/register-cli.js"],
+        entry_patterns: &["npm/projects/*/node_modules/openclaw-aimail/dist/register-cli.js"],
         python_host: false,
     },
     PlatformSpec {
@@ -124,7 +124,7 @@ pub struct StaticInfo {
     /// 扫描所得 agent 键（多 agent 宿主）；单 agent 宿主为空 ⇒ 由 SDK 取默认名。
     pub agent_keys: Vec<String>,
     pub pointer: Option<PathBuf>,
-    /// node 宿主：`<pkg>/{lib,dist}/register-cli.js`（按宿主布局模式命中）。
+    /// node 宿主：`<pkg>/dist/register-cli.js`（按宿主布局模式命中；owner 2026-10-11：三包同目录 `dist/`）。
     pub entry: Option<PathBuf>,
 }
 
@@ -386,15 +386,15 @@ mod tests {
     fn installed_node_entry_wins_over_markers_and_is_derived_by_layout_pattern() {
         let h = tmp("entry");
         std::fs::create_dir_all(h.join("openclaw.json")).ok();
-        // dsh 布局: profiles/<profile>/node_modules/dsh-aimail/lib/register-cli.js
-        touch(&h.join("profiles/web/node_modules/dsh-aimail/lib/register-cli.js"));
+        // dsh 布局: profiles/<profile>/node_modules/dsh-aimail/dist/register-cli.js
+        touch(&h.join("profiles/web/node_modules/dsh-aimail/dist/register-cli.js"));
         let info = detect_static(&h, None).unwrap();
         assert_eq!(info.platform, "dsh", "已装组件优先于特征标记");
         assert_eq!(info.transport, "node");
         assert!(info
             .entry
             .unwrap()
-            .ends_with("node_modules/dsh-aimail/lib/register-cli.js"));
+            .ends_with("node_modules/dsh-aimail/dist/register-cli.js"));
         assert_eq!(info.agent_keys, vec!["web".to_string()]);
     }
 
@@ -402,7 +402,7 @@ mod tests {
     fn nested_foreign_home_is_not_claimed() {
         // 实测缺陷回归：给 /tmp(其下嵌套另一个宿主树)不得把 /tmp 当成 dsh。
         let outer = tmp("outer");
-        touch(&outer.join("inner/profiles/web/node_modules/dsh-aimail/lib/register-cli.js"));
+        touch(&outer.join("inner/profiles/web/node_modules/dsh-aimail/dist/register-cli.js"));
         let err = detect_static(&outer, None).unwrap_err();
         assert!(
             err.contains("无法确定平台"),
@@ -480,7 +480,7 @@ mod tests {
                 "{}: 指针文件名（契约常量）",
                 spec.id
             );
-            // 传输分类：register.kind 决定 python / node（host_command 亦在 node 面）
+            // 传输分类：register.kind 决定 python / node（node 宿主一律 node_entry）
             let kind = pl["register"]["kind"].as_str().unwrap();
             assert_eq!(
                 spec.python_host,
@@ -493,6 +493,17 @@ mod tests {
                     !spec.node_pkg.is_empty(),
                     "{}: node 宿主必须有包名",
                     spec.id
+                );
+                // 同目录（owner 2026-10-11：不存在已装旧版 ⇒ 三个 node 宿主一律 dist/）
+                assert!(
+                    !spec.entry_patterns.is_empty()
+                        && spec
+                            .entry_patterns
+                            .iter()
+                            .all(|p| p.ends_with("/dist/register-cli.js")),
+                    "{}: 入口模式必须落在 dist/register-cli.js — {:?}",
+                    spec.id,
+                    spec.entry_patterns
                 );
             }
             // agent 容器：容器型 kinds 导出容器名；fixed* 型 ⇒ CLI 不持有名字（SDK 门内）

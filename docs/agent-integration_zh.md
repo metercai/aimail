@@ -340,13 +340,12 @@ health_checks。CLI 执行器是平台无关的 `kind` 分发;kind 跨平台共�
 ### 6.3 SDK 所有(不在 CLI 重复)
 
 - 注册链与绑定(地址→激活→agentmail.json→bridge 路由),含平台默认
-  (agent 名/webhook 端口/指针写入)。对 CLI 以四种委托 kind 暴露:
+  (agent 名/webhook 端口/指针写入)。对 CLI 以三种委托 kind 暴露(owner 2026-10-11:`host_command` 退役,openclaw 收敛为 `node_entry`):
   | kind | 形态 | 平台 |
   |---|---|---|
   | `python_module` | CLI import 适配模块调函数 | hermes |
   | `python_script` | CLI spawn Python 入口(`manage.py …`) | deer-flow |
-  | `host_command` | CLI spawn 插件注册的宿主命令 | openclaw |
-  | `node_entry` | CLI spawn `node <宿主 node_modules>/…/register-cli.js` | dsh、pi |
+  | `node_entry` | CLI spawn `node <宿主 node_modules>/…/dist/register-cli.js` | dsh、pi、openclaw |
 - 平台内容(skills/board/MCP server 文件)与内容级安装/卸载
   (app.py patch、配置改写、profile 状态)——由 SDK 装与撤(谁写谁撤)。
 

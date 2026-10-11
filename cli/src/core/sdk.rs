@@ -211,7 +211,7 @@ pub fn python_door_command(op: &str, args: &Value) -> Vec<String> {
 }
 
 /// op 的 argv —— **transport 分派**（契约 v1.0 §4.1(2)：两种 transport 承载同一套语义）。
-/// · 注册表给了 `ops.argv`（node 侧：`node_entry` / `host_command`）⇒ 展开该模板；
+/// · 注册表给了 `ops.argv`（node 侧：`node_entry`）⇒ 展开该模板；
 /// · 没给（python 宿主：hermes / deerflow）⇒ python 门。
 /// 模板占位符：`{op}` / `{args}` / `{node_path}`（由 `register.node_path` + 候选 home 解析）。
 pub fn op_argv(

@@ -11,30 +11,30 @@
     "url": "https://github.com/metercai/aimail"
   },
   "type": "module",
-  "main": "lib/index.js",
-  "types": "lib/index.d.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./lib/index.d.ts",
-      "default": "./lib/index.js"
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     },
     "./mail-service": {
-      "types": "./lib/mail-service.d.ts",
-      "default": "./lib/mail-service.js"
+      "types": "./dist/mail-service.d.ts",
+      "default": "./dist/mail-service.js"
     },
     "./tools": {
-      "types": "./lib/tools.d.ts",
-      "default": "./lib/tools.js"
+      "types": "./dist/tools.d.ts",
+      "default": "./dist/tools.js"
     },
     "./inbound": {
-      "types": "./lib/inbound.d.ts",
-      "default": "./lib/inbound.js"
+      "types": "./dist/inbound.d.ts",
+      "default": "./dist/inbound.js"
     },
     "./package.json": "./package.json"
   },
   "files": [
-    "lib/**/*.js",
-    "lib/**/*.d.ts",
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
     "cordis.patch.yml",
     "resources/**"
   ],

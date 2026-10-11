@@ -15,7 +15,7 @@
 - 按平台各自成包，版本号各自独立，**由该 agent 宿主自己的安装环节装入**；不由 CLI 提供。不写系统级配置；不感知 bridge。
 
 **装配归属（由平台宿主能力决定，与 SDK 语言无关）**
-- 能自装配（node/host：pi、dsh、openclaw）：宿主包管理器装入扩展，扩展自带注册器 ⇒ 用 `node_entry`（独立可执行入口 `<pkg>/lib/register-cli.js`），**无需** SDK 侧装配函数。
+- 能自装配（node/host：pi、dsh、openclaw）：宿主包管理器装入扩展，扩展自带注册器 ⇒ 用 `node_entry`（独立可执行入口 `<pkg>/dist/register-cli.js`），**无需** SDK 侧装配函数。
 - 不能自装配（python 宿主：hermes、deerflow）：宿主无插件钩子 ⇒ 由 `sdk_install`（调 SDK 侧安装函数）或等价 `spawn` 承担。
 
 **归属的落点（2026-10-11 补证）**
@@ -80,7 +80,7 @@
     · `<op>` 动作类 **= §4.1(1) 的 3 个**：`assemble` / `update` / `teardown`；只读类 **= 1 个**：`prompt-test`（§4.1(1b)）；另有 6 个**工具/取值 op**（`version` / `iter_bindings` / `ensure_webhook_secret` / `resolve_register_webhook_url` / `register_agent_email` / `backfill_binding`）—— 工具/取值类不属标准动作 op（§4.1(1) 已界定）。门内 op 全集见 `pysdk/sdk_ops.py:638-651`；
     · `<宿主解释器>` **必须是 agent 宿主自己配置的环境**（如 hermes / deerflow 的 venv），**不是** CLI 自带的 python ✗ —— CLI 只负责**定位**它（`$AIMAIL_PYTHON` → `~/.aimail/bin` 之外的宿主 venv 探测 → PATH `python3`；定位方式属本契约的传输细节）。宿主自装 SDK 包时也必须装进**同一个**解释器。
     · **注册与装配同样经门（`assemble`）**：CLI **不得**直调宿主模块/脚本（hermes `_auto_register_email`、deerflow `manage.py` 之类调用一律移入门内；owner 2026-10-11 裁定）。
-  - **node 侧**：**一律**经平台注册器（`node_entry`，独立可执行入口 `<pkg>/lib/register-cli.js`，**不加载宿主插件** ⇒ 生命周期诊断不得进 stdout），同样只承载上述语义（owner 2026-10-11 裁定：`host_command` 形态废弃）。
+  - **node 侧**：**一律**经平台注册器（`node_entry`，独立可执行入口 `<pkg>/dist/register-cli.js`，**不加载宿主插件** ⇒ 生命周期诊断不得进 stdout），同样只承载上述语义（owner 2026-10-11 裁定：`host_command` 形态废弃）。
   两者的**语义与 JSON 形状一致**，仅传输不同。
 - python 宿主装配：hermes / deerflow 暂以 `sdk_install`（调 SDK 侧安装函数）保留 —— 属"宿主无插件钩子"的定向保留；宿主提供安装钩子后可去。
 - 平台扩展安装：由**宿主包管理器**执行（CLI 以 `spawn` 触发）⇒ **不属 SDK 接口**。
@@ -105,7 +105,7 @@
 
 | 类别 | 内容 | 落点 |
 |---|---|---|
-| 可推导 | `pointer.kind`（由容器形状推出）、agents 容器形状与多 profile 名字、op 入口模板（两类型各一条常量）、插件 `register-cli.js` 路径（装后 glob `**/node_modules/*-aimail/{lib,dist}/register-cli.js` —— 入口**文件名**与 ABI 统一，构建目录由各包自持） | CLI 探测模块 |
+| 可推导 | `pointer.kind`（由容器形状推出）、agents 容器形状与多 profile 名字、op 入口模板（两类型各一条常量）、插件 `register-cli.js` 路径（装后 glob `**/node_modules/*-aimail/dist/register-cli.js` —— 入口路径与 ABI 三包统一，owner 2026-10-11：不存在已装旧版 ⇒ 一律 `dist/`） | CLI 探测模块 |
 | 常量 | home 目录名、宿主特征标记、宿主包管理器安装命令、**宿主布局模式**（插件入口在平台 home 内的相对路径模式）、自检探针词表 | CLI 探测模块（单份） |
 | 宿主自报 / 内部 | 固定 agent 名、别名（`default` / `main`）、平台私有注册参数（如 dsh `--preset`） | SDK 内部 |
 
