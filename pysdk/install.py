@@ -389,30 +389,6 @@ def install_deerflow(backend_dir: str, system_id: str = "", manager: str = "") -
 # uninstall(与 install 对称:撤销自己打的 patch + 清理)
 # ═══════════════════════════════════════════════════════════════
 
-def install_dsh(home: str, system_id: str = "", manager: str = "") -> int:
-    """dsh agent 侧装配(卡②, owner 批 2026-09-30): web profile 的 skill/tool 暴露层。
-
-    归属按 owner 边界裁决(2026-09-30): agent 内部工具/技能的暴露属 **SDK 范围** ⇒ 必须由
-    本入口执行(harness 只调 SDK 入口)。按同一裁决, **agent 适配步骤本身不属 CLI** ——
-    `cli/platforms.json` 的 dsh 装配步已迁移(D5, 2026-10-02): `kind=sdk_install,
-    fn=install_dsh`, CLI 经 `_sdk_install` 调本入口, 不再自行 spawn 适配脚本。
-    复用既有
-    `pysdk/dsh/install-skill-tools.sh`(幂等); rc!=0 ⇒ 返回 1(装配失败必须可见)。
-    `dsh plugin add` 属 CLI 安装步, 不在此重复(不越界、不造第二套)。
-    `manager` 仅保持与 install_deerflow 同签名(dsh 注册在 CLI 面, F6 家族)。
-    """
-    env = _assembly_env(system_id, {"DSH_HOME": home, "DSH_PROFILE": "web"})
-    path = os.path.join(_CORE, "dsh", "install-skill-tools.sh")
-    if not os.path.isfile(path):
-        _say(f"  ✗ dsh 装配脚本缺失: {path}(打包/物化缺陷, 不静默跳过)")
-        return 1
-    r = subprocess.call(["bash", path], env=env, stdout=sys.stderr)
-    if r != 0:
-        _say(f"  ✗ dsh install-skill-tools.sh 装配失败(exit {r})")
-        return 1
-    _say("  dsh skill/tool exposure: assembled")
-    return 0
-
 
 def uninstall_hermes(hermes_dir: str, system_id: str = "") -> int:
     ha = os.path.join(hermes_dir, "hermes-agent")
@@ -616,9 +592,12 @@ def _run_install(args) -> int:
         return 1
     if args.type == "hermes":
         return install_hermes(home, args.system_id)
-    if args.type == "dsh":
-        return install_dsh(home, args.system_id, args.manager)
-    return install_deerflow(home, args.system_id, args.manager)
+    if args.type == "deerflow":
+        return install_deerflow(home, args.system_id, args.manager)
+    # node 宿主(dsh/pi/openclaw)的装配在宿主自己的 node 入口里(共享实现在 tssdk mail-core),
+    # 不在这里 —— 本入口只装配 python 宿主。
+    _say(f"✗ {args.type}: python 侧只装配 hermes/deerflow(node 宿主由自己的包装配)")
+    return 1
 
 
 def _run_uninstall(args) -> int:

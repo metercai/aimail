@@ -25,6 +25,7 @@
 import { randomUUID } from 'node:crypto'
 import {
   autoBind,
+  ensureSkillToolExposure,
   opAssemble,
   opPromptTest,
   opTeardown,
@@ -49,6 +50,17 @@ function flag(argv: string[], name: string): boolean {
   return argv.includes(name)
 }
 
+/** dsh 宿主的布局数据(共享装配器要的 profile patch 落点 + 要启用的 id)。
+ *  dsh 宿主默认把这两行写成 disabled ⇒ 不启用则 skills 落点对、但进不了模型可见清单。 */
+function skillExposureArgs (): { skill_expose_patch: string, skill_expose_ids: string } {
+  const dshHome = process.env.DSH_HOME || `${process.env.HOME || '/root'}/.dsh`
+  const profile = process.env.DSH_PROFILE || 'web'
+  return {
+    skill_expose_patch: `${dshHome}/profiles/${profile}/cordis.patch.yml`,
+    skill_expose_ids: 'skill-filesystem tool-skill',
+  }
+}
+
 async function main(): Promise<number> {
   const argv = process.argv.slice(2)
   // 契约 v1.0 §4.1(2):op 入口形态(CLI 经注册表 ops.argv 调)——
@@ -70,7 +82,7 @@ async function main(): Promise<number> {
     }
     try {
       const result =
-        op === 'assemble' ? await opAssemble(args)
+        op === 'assemble' ? await opAssemble({ ...args, ...skillExposureArgs() })
         : op === 'update' ? await opUpdate(args)
         : op === 'teardown' ? await opTeardown(args)
         : op === 'prompt-test' ? await opPromptTest(args)
@@ -107,6 +119,23 @@ async function main(): Promise<number> {
   const localWebhook =
     arg(argv, '--local-webhook') || inboundUrl(INBOUND_PORTS.dsh)
   const force = flag(argv, '--force')
+
+  // 装配: 启用本宿主的 skill/tool 暴露层。实现是共享的(mail-core ensureSkillToolExposure),
+  // 这里只提供 dsh 的宿主布局数据。失败响亮但不阻断绑定(CLI 的 register_default 转 warn)。
+  let exposureRc = 0
+  try {
+    const _exp = skillExposureArgs()
+    const exp = ensureSkillToolExposure({
+      patchFile: _exp.skill_expose_patch,
+      ids: _exp.skill_expose_ids.split(' '),
+    })
+    console.error(
+      `register-cli: skill exposure ${exp.changed ? 'assembled' : 'already in place'} → ${exp.patch_file}`,
+    )
+  } catch (e) {
+    exposureRc = 1
+    console.error(`register-cli: skill exposure FAILED: ${e instanceof Error ? e.message : String(e)}`)
+  }
 
   const systemId =
     systemIdArg ||
@@ -147,7 +176,7 @@ async function main(): Promise<number> {
           ...(res.config_path ? { config_path: res.config_path } : {}),
         }),
       )
-      return 0
+      return exposureRc
     }
     // force re-bind: refresh cloud webhook config, keep/refresh local key,
     // update session extra. Remote address exists → registerAddress refreshes

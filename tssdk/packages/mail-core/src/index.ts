@@ -157,4 +157,5 @@ export {
   promptRuleMatches,
 } from './preprocess.js'
 export { opAssemble, opUpdate, opTeardown, opPromptTest, UsageError } from './sdk-ops.js'
+export { ensureSkillToolExposure } from './skill-exposure.js'
 export { logAimailDispatch } from './log.js'
