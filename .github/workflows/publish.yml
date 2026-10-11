@@ -96,48 +96,13 @@ jobs:
       - name: Publish changed packages (TP/OIDC, dist-tag by release type)
         working-directory: tssdk
         env:
-          PKGS: |
-            @aimail/mail-core packages/mail-core
-            @aimail/mail packages/mail
-            dsh-aimail packages/dsh-aimail
-            openclaw-aimail packages/openclaw-aimail
-            pi-aimail packages/pi-aimail
           # 审计 D8: dispatch 声明的 release-type 透传给 publish-npm.sh 做真校验
           REQUIRE_RELEASE_TYPE: ${{ inputs.release-type }}
+        # 幂等/skip、"上架可查"判据、逐包失败汇总,全部在 scripts/publish-npm.sh 一处
+        # (owner 裁决 2026-10-11: 原先这里的 while 循环重抄了一份 skip 逻辑 ⇒ 双真源,
+        #  且 set -e 让首个失败即中断, 发布会静默少发几个包)。本 step 只给包目录清单。
+        # Repo-level tooling lives in <repo>/scripts (NOT tssdk/scripts); this step runs
+        # with working-directory: tssdk, so resolve it absolutely.
         run: |
-          # Release type (stable vs rc) is derived from package versions and
-          # applied by publish-npm.sh:
-          #   X.Y.Z      -> stable -> dist-tag latest (bare-name host
-          #                          installs resolve: dsh/openclaw/pi)
-          #   X.Y.Z-rc.N -> rc     -> dist-tag rc (dev iteration; latest
-          #                          stays on the last stable)
-          # 审计 D8: dispatch 时声明的 release-type 必须真生效(见下 env), 否则
-          # 只是 UI 上的错觉。
-          # Skip packages whose current version is already on the registry
-          # (re-dispatch of the same commit). npm publish of an existing
-          # version is always E403/E404 regardless of auth method.
-          echo "$PKGS" | while read -r name dir; do
-            [ -z "$name" ] && continue
-            ver=$(node -p "require('./$dir/package.json').version")
-            # 查询失败(网络/registry)必须与"未发布"(E404)区分, 不能静默当未发布(审计 P2)
-            if ! published=$(npm view "$name@$ver" version 2>&1); then
-              case "$published" in
-                *E404*|*"No match found"*|*"could not be found"*) published="" ;;
-                *) echo "ERROR: registry query failed for $name@$ver: $published"; exit 1 ;;
-              esac
-            fi
-            if [ -n "$published" ]; then
-              echo "skip $name@$ver (already published)"
-              continue
-            fi
-            echo "publishing $name@$ver (dist-tag by release type inside publish-npm.sh)"
-            # Every package goes through publish-npm.sh: it rewrites
-            # workspace:^ deps to concrete registry ranges (a direct npm
-            # publish would ship the literal 'workspace:^' — npm cannot
-            # install that), dereferences bundled symlinks, packs, and
-            # publishes with provenance under CI.
-            # Repo-level tooling lives in <repo>/scripts (NOT tssdk/scripts);
-            # this step runs with working-directory: tssdk, so resolve it
-            # absolutely instead of relative to the workspace root.
-            bash "$GITHUB_WORKSPACE/scripts/publish-npm.sh" "$dir"
-          done
+          bash "$GITHUB_WORKSPACE/scripts/publish-npm.sh" \
+            packages/mail-core packages/mail packages/dsh-aimail packages/openclaw-aimail packages/pi-aimail
