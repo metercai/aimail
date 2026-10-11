@@ -56,12 +56,14 @@ gap() { printf '\033[35m⊘ ENV GAP: %s\n' "$*"; exit 2; }
 # 另附"SDK 落在哪个解释器"与 hermes 的 platform_toolsets(历史已知缺口: 缺它 ⇒ agent
 # 收得到回不出)。此前只打"无回信" ⇒ 只能猜, 实测无法定因。
 dump_failure_evidence() {
-  local h g f
+  local h g f found_am=0
   echo "  ────────── 失败取证 dump ──────────"
   for h in "$WORK"/*-host.log; do
     [ -f "$h" ] || continue
     echo "  [③宿主原话] $h (tail -40)"
     tail -40 "$h" | sed 's/^/    /'
+    echo "  [③宿主原话: webhook/toolset 关键行]"
+    grep -aiE "Response for webhook|toolset|not registered|unknown name" "$h" | tail -20 | sed 's/^/    /'
   done
   for g in "$GW_HOME/boot.log" "$GW_HOME"/*.log; do
     [ -f "$g" ] || continue
@@ -70,15 +72,25 @@ dump_failure_evidence() {
   done
   for f in "$HOME"/.aimail/systems/*/*/agentmail.log; do
     [ -f "$f" ] || continue
+    found_am=1
     echo "  [②入站落账] $f (tail -30)"
     tail -30 "$f" | sed 's/^/    /'
   done
+  # 显式报告"没有 agentmail.log"(此前静默跳过 ⇒ 分不清"文件不存在"与"取样写错")
+  [ "$found_am" = 1 ] || echo "  [②入站落账] 不存在 agentmail.log(glob: $HOME/.aimail/systems/*/*/agentmail.log;系统目录: $(ls -d "$HOME"/.aimail/systems/*/ 2>/dev/null | tr '\n' ' '))"
   echo "  [SDK 落点] python3=$(command -v python3) origin=$(python3 -c "import importlib.util as u; s=u.find_spec('aimail'); print(s.origin if s else 'NONE')" 2>&1 | tail -1)"
   if [ -n "${HERMES_HOME:-}" ]; then
-    echo "  [hermes toolset] $HERMES_HOME/config.yaml:"
-    grep -aA3 -iE "^platform_toolsets" "$HERMES_HOME/config.yaml" 2>/dev/null | sed 's/^/    /' \
-      || echo "    (config.yaml 无 platform_toolsets —— 历史已知缺口: agent 会'收得到回不出')"
+    # 整块打印(此前 -A3 截断 ⇒ 看不到 webhook: 键在不在, 而缺它正是
+    # ensure_config.py:4-11 记的"收得到回不出"根因: webhook 会话回退无 send_mail 的默认工具集)
+    echo "  [hermes config] $HERMES_HOME/config.yaml: platform_toolsets / platforms.webhook 整块"
+    sed -n '/^platform_toolsets:/,/^[a-z_]*:/p' "$HERMES_HOME/config.yaml" 2>/dev/null | head -30 | sed 's/^/    /'
+    sed -n '/^platforms:/,/^[a-z_]*:/p' "$HERMES_HOME/config.yaml" 2>/dev/null | head -30 | sed 's/^/    /'
+    grep -aqE "^\s*webhook:" <(sed -n '/^platform_toolsets:/,/^[a-z_]*:/p' "$HERMES_HOME/config.yaml") \
+      && echo "    ✓ platform_toolsets.webhook 存在" \
+      || echo "    ✗ platform_toolsets.webhook 缺失 —— ensure_config.py:4-11 的已知根因(agent'收得到回不出')"
   fi
+  # 产品自己的判据(历史 L2 里正是它报 '✗ toolset: … platform_toolsets MISSING')
+  [ -x "${AIMAIL_BIN:-/nonexistent}" ] && { echo "  [产品自检] aimail check:"; "$AIMAIL_BIN" check 2>&1 | tail -30 | sed 's/^/    /'; }
   echo "  ──────────────────────────────────"
 }
 
