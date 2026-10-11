@@ -135,7 +135,13 @@ _hits="$(find / -xdev -type f -name 'aimail' -not -path '/proc/*' -not -path '/o
 _py_hits=""
 for c in python3 /opt/hermes/.venv/bin/python3 /app/backend/.venv/bin/python; do
   command -v "$c" >/dev/null 2>&1 || [ -x "$c" ] || continue
-  "$c" -c "import aimail" >/dev/null 2>&1 && _py_hits="$_py_hits $c"
+  # 判据必须是"真包"(owner 2026-10-11):CI 里 step 的 CWD 是 $GITHUB_WORKSPACE, 而 checkout
+  # 落在 $GITHUB_WORKSPACE/aimail(无 __init__.py)⇒ Python 3 把它当**命名空间包**, 裸
+  # `import aimail` 会"成功" ⇒ 本负向断言假红(L3 9/9 格全红即此:hermes 臂与 dsh 臂红在同一
+  # 行同一判据, 与"臂间污染"无关)。故:①探测固定在 / 下执行(CWD 影响归零)②要求 find_spec
+  # 有 origin(命名空间包的 origin 为 None)。实证矩阵:干净 py + CWD 含 aimail/ ⇒ 旧判据红/新判据绿;
+  # 真装 SDK 时新判据在两种 CWD 下**都仍报红** ⇒ 判据只修错、不放宽。
+  ( cd / && "$c" -c "import importlib.util,sys; s=importlib.util.find_spec('aimail'); sys.exit(0 if (s and s.origin) else 1)" ) >/dev/null 2>&1 && _py_hits="$_py_hits $c"
 done
 [ -z "$_py_hits" ] && pass "no interpreter can import the pysdk (aimail)" || red "pysdk importable by:$_py_hits"
 _pip_hits="$( { python3 -m pip list 2>/dev/null; /opt/hermes/.venv/bin/python3 -m pip list 2>/dev/null; /app/backend/.venv/bin/python -m pip list 2>/dev/null; } | grep -i '^aimail' | head -3)"
