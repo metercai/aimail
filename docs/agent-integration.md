@@ -3,7 +3,7 @@
 > Status: Revised (2026-09-06)
 > Purpose: the first-reference document for any future agent system integrating with AIMail.
 > Presentation convention: each topic is developed as goal → method → mechanism → result; it describes only the current state, never the history.
-> Authoritative code: `pysdk/` (shared core + platform adapters + MCP server), `cli/` (CLI and scripts), `resources/skills/` at the repo root (SKILL sources read directly in a checkout; each npm adapter package stages its own copy in its own `prepack`), `cli/bin/` (runtime registration tools).
+> Authoritative code: `pysdk/` (shared core + platform adapters + MCP server), `cli/` (CLI and scripts), `resources/skills/` at the repo root (SKILL sources read directly in a checkout; each npm adapter package stages its own copy in its own `prepack`), and the runtime registration entries that live inside the SDKs (`pysdk/sdk_ops.py`, each TS platform's `register-cli.js`).
 
 ---
 

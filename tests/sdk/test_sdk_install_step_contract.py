@@ -22,6 +22,17 @@ def _step_kinds(p):
     return [s.get("kind") for s in (p.get("install_steps") or [])]
 
 
+def test_pysdk_only_assembles_python_hosts():
+    """§1 装配归属 + 落点(2026-10-11 补证): node 宿主的装配在它自己的包内(node entry /
+    共享 mail-core 装配步)⇒ pysdk 侧不得有它们的装配入口或载荷。"""
+    src = (REPO / "pysdk" / "install.py").read_text(encoding="utf-8")
+    for fn in ("install_dsh", "install_pi", "install_openclaw"):
+        assert f"def {fn}(" not in src, f"pysdk/install.py 不该再有 node 宿主装配入口 {fn}(§1)"
+    for stray in ("dsh", "pi", "openclaw"):
+        assert not (REPO / "pysdk" / stray).exists(), \
+            f"pysdk/{stray}/ 不该存在(node 宿主装配归各自包,§1)"
+
+
 def test_node_hosts_have_no_sdk_install_step():
     offenders = {k: _step_kinds(p) for k, p in REG.items()
                  if (p.get("register") or {}).get("kind") in NODE_KINDS and "sdk_install" in _step_kinds(p)}

@@ -8,7 +8,7 @@
 - 目标形态：**纯 rust 单二进制 + 配置数据/资源**；不含 python；不产生 `bin/aimail-src`、`bin/mcp`。
 - 职责：安装 / 检测 / 接线 / 自检 / 维护；**只调用，不实现**平台适配与 SDK 逻辑。
 - 命令面（**16**，按 `cli/src/cmd/*.rs` 实测）：address · bridge · check · domain · install · persona · ping · prompt · renew · repair · report · reset · stats · uninstall · version · welcome。（`mod.rs`、`stub.rs` 为内部文件，非命令）
-- **bridge（硬边界）**：`bridge restart` 只能由 CLI 实施；**bridge 维护全在 CLI，SDK 不可见、不感知**。存在"SDK 反调 CLI 过程中**间接**触发 bridge 子命令"的可能。
+- **bridge（硬边界）**：`bridge restart` 只能由 CLI 实施；**bridge 的实施与维护全在 CLI**。SDK 侧**代码级零桥符号**（棘轮 `tests/contract/check-zero-bridge.py`，L0 生效）；但 webhook 语义可**按模式取值**——SDK 依 CLI 给出的 direct/bridge 三态决定 `webhook_url`（`pysdk/deer-flow/manage.py:383`、`:397`）。存在"SDK 反调 CLI 过程中**间接**触发 bridge 子命令"的可能。
 
 **SDK（`pysdk/`=Python、`tssdk/`=TypeScript 真源；发布 PyPI `aimailsdk` + 5 个 npm 包）**
 - 职责：运行时**实现**层——命名 / 注册 / 改名 / 绑定内容 / 入站实现 / 收发 / webhook / 预处理 / 工具。
@@ -18,9 +18,15 @@
 - 能自装配（node/host：pi、dsh、openclaw）：宿主包管理器装入扩展，扩展自带注册器 ⇒ 用 `node_entry` / `host_command`，**无需** SDK 侧装配函数。
 - 不能自装配（python 宿主：hermes、deerflow）：宿主无插件钩子 ⇒ 由 `sdk_install`（调 SDK 侧安装函数）或等价 `spawn` 承担。
 
+**归属的落点（2026-10-11 补证）**
+- node 宿主的装配实现**只在该平台自己的包内**：装配逻辑是共享的（`mail-core` 的装配步），宿主布局数据由该包提供（dsh：`tssdk/packages/dsh-aimail/src/register-cli.ts`）。
+- `pysdk/` 只装配 python 宿主（hermes/deerflow）；**不得再出现 node 宿主的装配入口或载荷**（棘轮：`tests/sdk/test_sdk_install_step_contract.py`）。
+
 ## 2 写入物边界与 CLI 读取范围
 
 **写入（硬边界）**
+
+本表只列**跨域不许写的硬边界两个**；`systems/<sid>/` 下其余落点（如 `webhook_host`）由归属方自持，CLI 读写皆允许（`cli/src/core/bridge_deploy.rs:861`、`:902`）。
 | 文件 | 维护者 | 读者 |
 |---|---|---|
 | `~/.aimail/systems/<sid>/aimail_gateway.json` | **CLI 唯一写**（setup.rs:181/565） | SDK 只读（deer-flow/manage.py:192） |
@@ -63,15 +69,21 @@
 | `teardown` | 注销（`deregister_agent_email`）· 白名单清理（`cleanup_system_whitelists`）· 绑定回填（`backfill_binding`） | 同上，缺则卸载不干净 |
 **取值类不在其列**：数据类由 CLI 依 §2 **直读**；规则类（命名/webhook 推导）由 SDK **在动作内消化**，不外露中间值。三 op 的 ABI 一致：入参为单个 JSON；返回**平铺 payload + 恒有 `ok`/`sdk_version`**（门在外层加信封），错误种类仅 `usage`/`call`，输出为**单行 JSON**。规则判定（含 repair 的缺口判定与修复）**归 SDK**，CLI 只触发。
 
+**(1b) 只读判定 op（owner 2026-10-10 (a) 裁定增列）**
+| op | 语义 | 边界 |
+|---|---|---|
+| `prompt-test` | CLI 传 `system_id` + 规则 + 文本；SDK 返 `name_ok` / 字段内或·字段间且的匹配结果 | **不落盘**；判定在 SDK，CLI 只传参、**不复刻谓词**（`cli/src/cmd/prompt.rs:8`、`:49`、`:86`） |
+
 **(2) 因 py / ts 环境差异**定向保留**
 - 传输形态（两种 transport 承载**同一套语义**）：
   - **python 侧**：经门 `<宿主解释器> -m aimail.sdk_ops <op>`。其中
-    · `<op>` **= §4.1(1) 的恰好 3 个**：`assemble` / `update` / `teardown`（**已收敛**：门内即这 3 个，旧 6 个 op 已移除）；
+    · `<op>` 动作类 **= §4.1(1) 的 3 个**：`assemble` / `update` / `teardown`；只读类 **= 1 个**：`prompt-test`（§4.1(1b)）；另有 6 个**工具/取值 op**（`version` / `iter_bindings` / `ensure_webhook_secret` / `resolve_register_webhook_url` / `register_agent_email` / `backfill_binding`）—— 工具/取值类不属标准动作 op（§4.1(1) 已界定）。门内 op 全集见 `pysdk/sdk_ops.py:638-651`；
     · `<宿主解释器>` **必须是 agent 宿主自己配置的环境**（如 hermes / deerflow 的 venv），**不是** CLI 自带的 python ✗ —— CLI 只负责**定位**它（`$AIMAIL_PYTHON` → `~/.aimail/bin` 之外的宿主 venv 探测 → PATH `python3`；定位方式属本契约的传输细节）。宿主自装 SDK 包时也必须装进**同一个**解释器。
   - **node 侧**：经平台注册器（`node_entry`）或宿主命令（`host_command`），同样只承载上述语义。
   两者的**语义与 JSON 形状一致**，仅传输不同。
 - python 宿主装配：hermes / deerflow 暂以 `sdk_install`（调 SDK 侧安装函数）保留 —— 属"宿主无插件钩子"的定向保留；宿主提供安装钩子后可去。
 - 平台扩展安装：由**宿主包管理器**执行（CLI 以 `spawn` 触发）⇒ **不属 SDK 接口**。
+- 宿主解释器定位契约（**优先级语义**；单真源 `cli/src/core/sdkroot.rs::probe_in_domain`）：`$AIMAIL_PYTHON` → 静态候选 → **宿主树内嵌套 venv 探测** → **PROBE_SH** → **活进程探测** → PATH `python3`（2026-10-11 补证；细节以该函数为唯一真源）。
 - CLI 定位契约：`$AIMAIL_BIN` → `~/.aimail/bin/aimail` → PATH（aimail_base.py:1708-1719）。
 
 ### 4.2 SDK → CLI（reverse-call ABI）

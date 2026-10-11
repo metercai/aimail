@@ -2,7 +2,7 @@
 
 > 状态:修订(2026-09-06)
 > 用途:后续任何 agent 系统对接 AIMail 的第一参照文档。
-> 权威代码:`pysdk/`(共享核心 + 平台适配 + MCP server)、`cli/`(CLI 与脚本)、仓根 `resources/skills/`(SKILL 源,仓库检出直接读;各 npm 适配包在自己 prepack 里暂存自己那份)、`cli/bin/`(运行时注册工具)。
+> 权威代码:`pysdk/`(共享核心 + 平台适配 + MCP server)、`cli/`(CLI 与脚本)、仓根 `resources/skills/`(SKILL 源,仓库检出直接读;各 npm 适配包在自己 prepack 里暂存自己那份),以及**各自 SDK 内部**的运行时注册入口(`pysdk/sdk_ops.py`、各 TS 平台的 `register-cli.js`)。
 
 ---
 
