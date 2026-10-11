@@ -1,6 +1,6 @@
 //! clap 命令树 + 分发（S1：命令面注册 + 诚实出口）。
 //!
-//! 命令面是**冻结面**（边界定稿 §1）：15 个顶层子命令名 + `prompt` 的 5 个嵌套
+//! 命令面是**冻结面**（边界定稿 §1；变更须 owner 签字）：16 个顶层子命令名 + `prompt` 的 5 个嵌套
 //! 子命令 + install 的两个隐藏机器面参数（`--system-only` / `--payload …`）。
 //! 冻结判据由 `tests/test_cli_parity.py` 与 Python 侧 `--help` 做集合比对。
 //!
@@ -22,7 +22,8 @@ const EPILOG: &str = "scenario groups:
   operate    daily status, lifecycle, exams and flows: stats / renew / version / check / repair / ping / welcome
   resources  system-scoped resources: domain / address / bridge";
 
-/// 顶层 15 个子命令 —— 顺序与 Python 侧 `add_parser` 声明顺序一致（帮助分组顺序）。
+/// 顶层 16 个子命令 —— 前 15 个的顺序与 Python 侧 `add_parser` 声明顺序一致（帮助分组顺序）；
+/// 末位 `platform`（2026-10-11 增，owner 签字）是机器导出面，无 Python 侧对应物。
 const SUBCOMMANDS: &[(&str, &str)] = &[
     (
         "install",
@@ -77,6 +78,10 @@ const SUBCOMMANDS: &[(&str, &str)] = &[
     (
         "bridge",
         "local bridge: status / refresh routes / restart / upgrade",
+    ),
+    (
+        "platform",
+        "platform static knowledge + detection (machine surface)",
     ),
 ];
 
@@ -583,6 +588,7 @@ pub fn build_cli() -> Command {
             "welcome" => sub = welcome_args(sub),
             "uninstall" => sub = uninstall_args(sub),
             "stats" => sub = stats_args(sub),
+            "platform" => sub = platform_args(sub),
             "check" => sub = check_args(sub),
             "persona" => sub = persona_args(sub),
             "domain" => sub = domain_args(sub),
@@ -835,6 +841,14 @@ pub fn run() -> i32 {
             container_home: arg_str(m, "container-home"),
             platform: arg_str(m, "platform"),
         }),
+        Some(("platform", m)) => {
+            let Some(("spec", sm)) = m.subcommand() else {
+                return 2;
+            };
+            crate::cmd::platform::run(&crate::cmd::platform::Args {
+                home: sm.get_one::<String>("home").cloned(),
+            })
+        }
         Some((name, _)) => crate::cmd::stub::not_yet_ported(name),
         // subcommand_required(true) ⇒ 到不了这里；留非零兜底而不是伪装成 0。
         None => crate::cmd::stub::not_yet_ported("<none>"),
@@ -880,4 +894,25 @@ fn repair_args(sub: Command) -> Command {
             .action(clap::ArgAction::SetTrue)
             .help("print the fix plan without executing"),
     )
+}
+
+/// `platform` 的参数面（契约 §5 检测面；**无** Python 侧对应物）。
+/// `spec` 是唯一子命令：`-H/--home` 给出时附带探测结果；`--json` 为显式声明
+/// （JSON 是唯一输出形式，开关存在只是为了与契约文本的调用形一致）。
+fn platform_args(sub: Command) -> Command {
+    let spec = Command::new("spec")
+        .about("print the platform static knowledge table (+ detection when --home is given)")
+        .arg(
+            Arg::new("home")
+                .short('H')
+                .long("home")
+                .help("platform root to probe (adds a detection result for it)"),
+        )
+        .arg(
+            Arg::new("json")
+                .long("json")
+                .action(clap::ArgAction::SetTrue)
+                .help("emit JSON (the only output form; accepted for explicitness)"),
+        );
+    sub.subcommand_required(true).subcommand(spec)
 }

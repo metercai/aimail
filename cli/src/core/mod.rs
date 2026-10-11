@@ -18,6 +18,7 @@ pub mod check;
 pub mod checks;
 pub mod config;
 pub mod contract;
+pub mod detect;
 pub mod gateway;
 pub mod home;
 pub mod http;

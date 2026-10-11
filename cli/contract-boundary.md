@@ -7,7 +7,7 @@
 **CLI（`cli/`）**
 - 目标形态：**纯 rust 单二进制**（平台静态知识 = 探测模块常量 + 契约常量 + 宿主自报；**无跨平台数据文件**，见 §5）；不含 python；不产生 `bin/aimail-src`、`bin/mcp`。
 - 职责：安装 / 检测 / 接线 / 自检 / 维护；**只调用，不实现**平台适配与 SDK 逻辑。
-- 命令面（**16**，按 `cli/src/cmd/*.rs` 实测）：address · bridge · check · domain · install · persona · ping · prompt · renew · repair · report · reset · stats · uninstall · version · welcome。（`mod.rs`、`stub.rs` 为内部文件，非命令）
+- 命令面（**16**，按 `aimail --help` 实测，2026-10-11 复核）：address · bridge · check · domain · install · persona · ping · **platform** · prompt · renew · repair · reset · stats · uninstall · version · welcome。（`mod.rs`、`stub.rs`、`report.rs`（用户面输出助手 `ok/warn/fail`）为内部文件，非命令；2026-10-11 订正：旧表把内部助手 `report` 误列为命令、且缺 `platform`）
 - **bridge（硬边界）**：`bridge restart` 只能由 CLI 实施；**bridge 的实施与维护全在 CLI**。SDK 侧**代码级零桥符号**（棘轮 `tests/contract/check-zero-bridge.py`，L0 生效）；但 webhook 语义可**按模式取值**——SDK 依 CLI 给出的 direct/bridge 三态决定 `webhook_url`（`pysdk/deer-flow/manage.py:383`、`:397`）。存在"SDK 反调 CLI 过程中**间接**触发 bridge 子命令"的可能。
 
 **SDK（`pysdk/`=Python、`tssdk/`=TypeScript 真源；发布 PyPI `aimailsdk` + 5 个 npm 包）**
@@ -105,8 +105,8 @@
 
 | 类别 | 内容 | 落点 |
 |---|---|---|
-| 可推导 | `pointer.kind`（由容器形状推出）、agents 容器形状与多 profile 名字、op 入口模板（两类型各一条常量）、插件 `node_path`（装后 glob `**/node_modules/*-aimail/lib/register-cli.js`） | CLI 探测模块 |
-| 常量 | home 目录名、宿主特征标记、宿主包管理器安装命令、自检探针词表 | CLI 探测模块（单份） |
+| 可推导 | `pointer.kind`（由容器形状推出）、agents 容器形状与多 profile 名字、op 入口模板（两类型各一条常量）、插件 `register-cli.js` 路径（装后 glob `**/node_modules/*-aimail/{lib,dist}/register-cli.js` —— 入口**文件名**与 ABI 统一，构建目录由各包自持） | CLI 探测模块 |
+| 常量 | home 目录名、宿主特征标记、宿主包管理器安装命令、**宿主布局模式**（插件入口在平台 home 内的相对路径模式）、自检探针词表 | CLI 探测模块（单份） |
 | 宿主自报 / 内部 | 固定 agent 名、别名（`default` / `main`）、平台私有注册参数（如 dsh `--preset`） | SDK 内部 |
 
 - 探测入口：`detect_static(home_dir, explicit_platform) -> StaticInfo{platform, transport, agent_keys, pointer, entry, installed_version}`；**`home_dir` 为外部输入**。
