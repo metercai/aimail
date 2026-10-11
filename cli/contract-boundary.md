@@ -5,7 +5,7 @@
 ## 1 两域范围与硬边界
 
 **CLI（`cli/`）**
-- 目标形态：**纯 rust 单二进制 + 配置数据/资源**；不含 python；不产生 `bin/aimail-src`、`bin/mcp`。
+- 目标形态：**纯 rust 单二进制**（平台静态知识 = 探测模块常量 + 契约常量 + 宿主自报；**无跨平台数据文件**，见 §5）；不含 python；不产生 `bin/aimail-src`、`bin/mcp`。
 - 职责：安装 / 检测 / 接线 / 自检 / 维护；**只调用，不实现**平台适配与 SDK 逻辑。
 - 命令面（**16**，按 `cli/src/cmd/*.rs` 实测）：address · bridge · check · domain · install · persona · ping · prompt · renew · repair · report · reset · stats · uninstall · version · welcome。（`mod.rs`、`stub.rs` 为内部文件，非命令）
 - **bridge（硬边界）**：`bridge restart` 只能由 CLI 实施；**bridge 的实施与维护全在 CLI**。SDK 侧**代码级零桥符号**（棘轮 `tests/contract/check-zero-bridge.py`，L0 生效）；但 webhook 语义可**按模式取值**——SDK 依 CLI 给出的 direct/bridge 三态决定 `webhook_url`（`pysdk/deer-flow/manage.py:383`、`:397`）。存在"SDK 反调 CLI 过程中**间接**触发 bridge 子命令"的可能。
@@ -15,7 +15,7 @@
 - 按平台各自成包，版本号各自独立，**由该 agent 宿主自己的安装环节装入**；不由 CLI 提供。不写系统级配置；不感知 bridge。
 
 **装配归属（由平台宿主能力决定，与 SDK 语言无关）**
-- 能自装配（node/host：pi、dsh、openclaw）：宿主包管理器装入扩展，扩展自带注册器 ⇒ 用 `node_entry` / `host_command`，**无需** SDK 侧装配函数。
+- 能自装配（node/host：pi、dsh、openclaw）：宿主包管理器装入扩展，扩展自带注册器 ⇒ 用 `node_entry`（独立可执行入口 `<pkg>/lib/register-cli.js`），**无需** SDK 侧装配函数。
 - 不能自装配（python 宿主：hermes、deerflow）：宿主无插件钩子 ⇒ 由 `sdk_install`（调 SDK 侧安装函数）或等价 `spawn` 承担。
 
 **归属的落点（2026-10-11 补证）**
@@ -79,7 +79,8 @@
   - **python 侧**：经门 `<宿主解释器> -m aimail.sdk_ops <op>`。其中
     · `<op>` 动作类 **= §4.1(1) 的 3 个**：`assemble` / `update` / `teardown`；只读类 **= 1 个**：`prompt-test`（§4.1(1b)）；另有 6 个**工具/取值 op**（`version` / `iter_bindings` / `ensure_webhook_secret` / `resolve_register_webhook_url` / `register_agent_email` / `backfill_binding`）—— 工具/取值类不属标准动作 op（§4.1(1) 已界定）。门内 op 全集见 `pysdk/sdk_ops.py:638-651`；
     · `<宿主解释器>` **必须是 agent 宿主自己配置的环境**（如 hermes / deerflow 的 venv），**不是** CLI 自带的 python ✗ —— CLI 只负责**定位**它（`$AIMAIL_PYTHON` → `~/.aimail/bin` 之外的宿主 venv 探测 → PATH `python3`；定位方式属本契约的传输细节）。宿主自装 SDK 包时也必须装进**同一个**解释器。
-  - **node 侧**：经平台注册器（`node_entry`）或宿主命令（`host_command`），同样只承载上述语义。
+    · **注册与装配同样经门（`assemble`）**：CLI **不得**直调宿主模块/脚本（hermes `_auto_register_email`、deerflow `manage.py` 之类调用一律移入门内；owner 2026-10-11 裁定）。
+  - **node 侧**：**一律**经平台注册器（`node_entry`，独立可执行入口 `<pkg>/lib/register-cli.js`，**不加载宿主插件** ⇒ 生命周期诊断不得进 stdout），同样只承载上述语义（owner 2026-10-11 裁定：`host_command` 形态废弃）。
   两者的**语义与 JSON 形状一致**，仅传输不同。
 - python 宿主装配：hermes / deerflow 暂以 `sdk_install`（调 SDK 侧安装函数）保留 —— 属"宿主无插件钩子"的定向保留；宿主提供安装钩子后可去。
 - 平台扩展安装：由**宿主包管理器**执行（CLI 以 `spawn` 触发）⇒ **不属 SDK 接口**。
@@ -97,5 +98,21 @@
 | **预留**：agent 新增 / 删除 | 属 `address` 子命令一部分（当前 SDK 无入口） | owner 裁决 2026-10-06 |
 
 **(2) py / ts 差异**：**无** —— 两环境调同一 CLI 命令；差异仅在"如何定位 CLI"（见 §4.1(2) 末条）。
+
+## 5 CLI 检测面（2026-10-11 增列）
+
+平台静态知识**无跨平台数据文件**（`cli/platforms.json` 已退役），按来源三分落位：
+
+| 类别 | 内容 | 落点 |
+|---|---|---|
+| 可推导 | `pointer.kind`（由容器形状推出）、agents 容器形状与多 profile 名字、op 入口模板（两类型各一条常量）、插件 `node_path`（装后 glob `**/node_modules/*-aimail/lib/register-cli.js`） | CLI 探测模块 |
+| 常量 | home 目录名、宿主特征标记、宿主包管理器安装命令、自检探针词表 | CLI 探测模块（单份） |
+| 宿主自报 / 内部 | 固定 agent 名、别名（`default` / `main`）、平台私有注册参数（如 dsh `--preset`） | SDK 内部 |
+
+- 探测入口：`detect_static(home_dir, explicit_platform) -> StaticInfo{platform, transport, agent_keys, pointer, entry, installed_version}`；**`home_dir` 为外部输入**。
+- 优先级：显式 `--platform`（校验，不静默回落）→ 已装组件（包名 / 模块）→ 宿主特征标记（未装态兜底）→ `unknown` ⇒ **响亮失败**并提示 `--platform`。
+- 未装态**只允许**上述两法（标记探针 + 显式 `--platform`），禁任何隐式猜测。
+- 导出面：`aimail platform spec --json`（供门禁与夹具断言；单一真源仍是探测模块内的常量）。
+- 边界不变：探测属 §1 的"检测/自检"职责；CLI **仍不实现**平台适配与 SDK 逻辑（§1）。
 
 
