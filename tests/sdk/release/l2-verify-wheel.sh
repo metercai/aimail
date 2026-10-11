@@ -16,7 +16,7 @@ PY="${PYTHON:-python3}"
 
 cd "$REPO"
 # owner 2026-10-07（R5）：无内容变化且已发版的包 ⇒ 本门禁 SKIP（**响亮标注**，不静默假绿）
-bash tests/sdk/tooling/what-changed.sh | sed 's/^/[L2][changed] /'
+bash scripts/what-changed.sh | sed 's/^/[L2][changed] /'
 _pv=$(python3 -c "import re;print(re.search(r'(?m)^version = \"(.*)\"', open('pyproject.toml').read()).group(1))")
 if git tag -l "pysdk-v$_pv" | grep -q . && git diff --quiet "pysdk-v$_pv" -- pysdk pyproject.toml; then
   echo "== verify-wheel: SKIP (pysdk 无内容变化，已发版 pysdk-v$_pv —— 未做重复回归)"; exit 0

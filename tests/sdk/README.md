@@ -13,7 +13,7 @@
 | **L3 发布后冒烟** | 本目录无;= **统一 L3** 上级 `tests/l3/` + `.github/workflows/l3.yml` | 发布完成后(GitHub Actions 自动) | 站用户视角取**已发布产物**(Release/registry 真身):CLI×SDK×基础版网关在真 OS+真 agent 环境完成对接闭环(见 ../README.md) |
 
 > tag 前的版本合法性(tag==PyPI==TS、rc 两态、依赖序)是**发布工具**不是 L1 ——
-> 见下方 `tooling/check-versions.sh`(它校验元数据、不跑代码)。
+> 见下方 `scripts/check-versions.sh`(它校验元数据、不跑代码)。
 
 事故映射(2026-09-05 openclaw/pi E415 事故):npm pack 静默失败 → L0
 脚本规范(禁吞 stderr)+ L2 空包检查;E415 hardlink(npm bundle 传递
@@ -36,13 +36,13 @@ tests/sdk/release/l2-verify-wheel.sh           # L2(pysdk): 干净 venv 3-layout
 # L3 = 统一 L3,见 ../l3/run-l3.sh + .github/workflows/l3.yml(发布后自动 + nightly)
 ```
 
-## 发布工具（tooling/，非门禁层）
+## 发布工具（`scripts/`，非门禁层）
 
 ```bash
-tests/sdk/tooling/check-versions.sh            # tag 前版本单线制(tag==PyPI==TS,rc 两态,依赖序)
-tests/sdk/tooling/release-precheck.sh          # R4: 核心包(mail-core|mail)变动 ⇒ 五包齐升
-tests/sdk/tooling/what-changed.sh              # 各 SDK 包自上次 tag 是否有内容变化
-tests/sdk/tooling/bump.sh <pkg|pysdk> <ver>    # 按包 bump 版本(逐包调用)
+scripts/check-versions.sh            # tag 前版本单线制(tag==PyPI==TS,rc 两态,依赖序)
+scripts/release-precheck.sh          # R4: 核心包(mail-core|mail)变动 ⇒ 五包齐升
+scripts/what-changed.sh              # 各 SDK 包自上次 tag 是否有内容变化
+scripts/bump.sh <pkg|pysdk> <ver>    # 按包 bump 版本(逐包调用)
 ```
 
 依赖:python3 + pyflakes + pytest 9.x;pnpm(9.15)+ node ≥ 22.5(tssdk vitest)。

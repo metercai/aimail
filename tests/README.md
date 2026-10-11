@@ -20,7 +20,7 @@
 | | `tests/sdk/` | 行为基线(pytest) | 33 个 `test_*.py`(261 用例)+ `conftest.py` | `pytest tests/sdk/`(CI + 本地) |
 | | `tests/sdk/release/` | L2 发版门禁 | `l2-check-tarball.sh`(npm)· `l2-verify-wheel.sh`(pysdk) | CI 内嵌(`publish-npm.sh`/`publish-pypi.yml`) |
 | **统一 L3** | `tests/l3/` | L3 发布后冒烟 | `run-l3.sh` + `.github/workflows/l3.yml`(CLI×SDK×基础版网关对接闭环) | GitHub Actions(发布后自动 + nightly + 手动) |
-| | `tests/sdk/tooling/` | 发布工具(非层) | `check-versions.sh`(tag 前版本单线制)· `release-precheck.sh` · `what-changed.sh` · `bump.sh` | 发版流程 |
+| | `scripts/`(发布工具) | 发布工具(非层) | `check-versions.sh`(tag 前版本单线制)· `release-precheck.sh` · `what-changed.sh` · `bump.sh` | 发版流程 |
 | **CLI** | `tests/cli/` | L0 开发闭环 | `run-cli-gates.sh`(共享块 + rust 电池 + delegate advanced L1/L2) | 每次提交 |
 | **共享** | `tests/shared/` | 边界检查块 | `shared-boundary-checks.sh`(4 契约检查器的运行壳) | 被 CLI L0 / SDK L0 各调 |
 | **契约** | `tests/contract/` | 检查器+基线 | `check-*.py` + `*-baseline.json`(防漂移棘轮,独立于四层) | 被 shared 块 / SDK L0 调 |
