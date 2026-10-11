@@ -30,6 +30,9 @@ pub struct PlatformSpec {
     pub node_pkg: &'static str,
     /// 入口在**平台 home 内**的相对路径模式：`*` = 单层任意目录名，`{lib,dist}` = 二者之一。
     pub entry_patterns: &'static [&'static str],
+    /// agent 键的**容器目录名**（平台 home 内的相对名）：多 agent 宿主由此派生键；
+    /// 空 = 单 agent / 名字在 SDK 门内，CLI 不猜（owner 2026-10-02 C1）。
+    pub agents_container: &'static str,
     pub python_host: bool,
 }
 
@@ -41,6 +44,7 @@ pub const PLATFORMS: &[PlatformSpec] = &[
         markers: &["agent"],
         install_argv: &["pi", "install", "npm:pi-aimail"],
         node_pkg: "pi-aimail",
+        agents_container: "",
         entry_patterns: &["agent/npm/node_modules/pi-aimail/{lib,dist}/register-cli.js"],
         python_host: false,
     },
@@ -58,6 +62,7 @@ pub const PLATFORMS: &[PlatformSpec] = &[
             "--config.minimumReleaseAge=0",
         ],
         node_pkg: "dsh-aimail",
+        agents_container: "profiles",
         entry_patterns: &["profiles/*/node_modules/dsh-aimail/{lib,dist}/register-cli.js"],
         python_host: false,
     },
@@ -65,6 +70,7 @@ pub const PLATFORMS: &[PlatformSpec] = &[
         id: "hermes",
         home_dir: ".hermes",
         markers: &["hermes-agent"],
+        agents_container: "profiles",
         install_argv: &[],
         node_pkg: "",
         entry_patterns: &[],
@@ -83,6 +89,7 @@ pub const PLATFORMS: &[PlatformSpec] = &[
             "--accept-capabilities",
         ],
         node_pkg: "openclaw-aimail",
+        agents_container: "agents",
         entry_patterns: &["npm/projects/*/node_modules/openclaw-aimail/{lib,dist}/register-cli.js"],
         python_host: false,
     },
@@ -90,6 +97,7 @@ pub const PLATFORMS: &[PlatformSpec] = &[
         id: "deerflow",
         home_dir: ".deer-flow",
         markers: &["backend/app/gateway"],
+        agents_container: "",
         install_argv: &[],
         node_pkg: "",
         entry_patterns: &[],
@@ -199,11 +207,14 @@ fn markers_hit(root: &Path, p: &PlatformSpec) -> bool {
 
 /// 扫描 agent 键（可推导）：`<root>/profiles/*`（hermes 式）或 `<root>/agents/*`（openclaw 式）。
 /// 单 agent 宿主扫不到 ⇒ 空集（定名归 SDK，CLI 不猜）。
-fn scan_agent_keys(root: &Path) -> Vec<String> {
-    for sub in ["profiles", "agents"] {
-        let dir = root.join(sub);
+fn scan_agent_keys(root: &Path, p: &PlatformSpec) -> Vec<String> {
+    if p.agents_container.is_empty() {
+        return Vec::new(); // 单 agent 宿主：名字定在 SDK 门内，CLI 不猜
+    }
+    {
+        let dir = root.join(p.agents_container);
         if !dir.is_dir() {
-            continue;
+            return Vec::new();
         }
         let mut keys: Vec<String> = std::fs::read_dir(&dir)
             .map(|rd| {
@@ -280,14 +291,15 @@ pub fn detect_static(home: &Path, explicit: Option<&str>) -> Result<StaticInfo, 
         ""
     };
     let pointer = {
-        let p = root.join(".agentmail");
+        // 契约常量单一真源（5 平台同值：`core/contract.rs`）
+        let p = root.join(crate::core::contract::pointer_file());
         p.is_file().then_some(p)
     };
     Ok(StaticInfo {
         platform: spec.id.to_string(),
         transport,
         home: root.clone(),
-        agent_keys: scan_agent_keys(&root),
+        agent_keys: scan_agent_keys(&root, spec),
         pointer,
         entry,
     })
@@ -433,5 +445,84 @@ mod tests {
         assert_eq!(ids, vec!["pi", "dsh", "hermes", "openclaw", "deerflow"]);
         assert_eq!(v["detected"]["platform"], "dsh");
         assert_eq!(v["detected"]["transport"], ""); // 显式给平台但未装 ⇒ 无入口、非 python 宿主
+    }
+
+    /// 保真棘轮（过渡件，随 `cli/platforms.json` 退役一并删除）：
+    /// 本模块常量必须与那份注册表里的**同名知识**逐项一致 —— 删文件时才可证无损。
+    /// 有意的不一致只有一类，且在此显式记账：注册表 `agents.names` 里的**固定 agent 名**
+    /// 归 SDK 门内（owner 2026-10-02 C1 + 2026-10-11 裁定），CLI 常量表不再持有。
+    #[test]
+    fn constants_match_the_registry_being_retired() {
+        let reg: Value = serde_json::from_str(include_str!("../../platforms.json"))
+            .expect("platforms.json 可解析");
+        let platforms = reg["platforms"].as_object().expect("platforms 是对象");
+        assert_eq!(platforms.len(), PLATFORMS.len(), "平台集合一致");
+        for spec in PLATFORMS {
+            let pl = platforms
+                .get(spec.id)
+                .unwrap_or_else(|| panic!("注册表缺平台 {}", spec.id));
+            assert_eq!(
+                spec.home_dir,
+                pl["home_dir"].as_str().unwrap(),
+                "{}: home_dir",
+                spec.id
+            );
+            let markers: Vec<&str> = pl["detect"]["markers"]
+                .as_array()
+                .unwrap_or_else(|| panic!("{}: 缺 detect.markers", spec.id))
+                .iter()
+                .map(|v| v.as_str().unwrap())
+                .collect();
+            assert_eq!(spec.markers.to_vec(), markers, "{}: 宿主标记", spec.id);
+            assert_eq!(
+                pl["pointer"]["file"].as_str().unwrap(),
+                crate::core::contract::pointer_file(),
+                "{}: 指针文件名（契约常量）",
+                spec.id
+            );
+            // 传输分类：register.kind 决定 python / node（host_command 亦在 node 面）
+            let kind = pl["register"]["kind"].as_str().unwrap();
+            assert_eq!(
+                spec.python_host,
+                matches!(kind, "python_module" | "python_script"),
+                "{}: 传输分类（register.kind={kind}）",
+                spec.id
+            );
+            if !spec.python_host {
+                assert!(
+                    !spec.node_pkg.is_empty(),
+                    "{}: node 宿主必须有包名",
+                    spec.id
+                );
+            }
+            // agent 容器：容器型 kinds 导出容器名；fixed* 型 ⇒ CLI 不持有名字（SDK 门内）
+            match pl["agents"]["kind"].as_str().unwrap() {
+                "profiles_plus_default" => {
+                    assert_eq!(spec.agents_container, "profiles", "{}: 容器", spec.id)
+                }
+                "glob_dir" => assert_eq!(
+                    spec.agents_container,
+                    pl["agents"]["dir"].as_str().unwrap(),
+                    "{}: 容器 = 注册表 agents.dir",
+                    spec.id
+                ),
+                // dsh：注册表记 fixed 名，但宿主是多 profile 布局（install argv 带
+                // `--profile web`，入口模式 `profiles/*/…`）⇒ 容器仍是 profiles。
+                "fixed" if spec.id == "dsh" => {
+                    assert_eq!(spec.agents_container, "profiles", "dsh: 容器")
+                }
+                "fixed" | "fixed_with_pointer" => {
+                    assert_eq!(
+                        spec.agents_container, "",
+                        "{}: 固定名归 SDK，CLI 不持有容器",
+                        spec.id
+                    )
+                }
+                other => panic!(
+                    "{}: agents.kind={other} 未纳入保真棘轮，请显式裁决",
+                    spec.id
+                ),
+            }
+        }
     }
 }
