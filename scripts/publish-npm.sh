@@ -13,9 +13,9 @@ set -euo pipefail
 PKGS=("$@")
 [ ${#PKGS[@]} -eq 0 ] && { echo "usage: $0 packages/mail-core [packages/mail] [packages/dsh-aimail] [packages/openclaw-aimail] [packages/pi-aimail]"; exit 1; }
 
-root="$(cd "$(dirname "$0")/.." && pwd)"
-# 语言边界(owner 裁决): tssdk 里不放 python ⇒ 这两个 python 助手在仓根 scripts/。
-repo="$(cd "$root/.." && pwd)"
+# 仓级工具单源(owner 裁决 2026-10-11): 开发/发版工具只在仓根 scripts/ 一处。
+repo="$(cd "$(dirname "$0")/.." && pwd)"
+root="$repo/tssdk"
 ver_of() { python3 -c "import json;print(json.load(open('$1/package.json'))['version'])"; }
 
 for pkg in "${PKGS[@]}"; do
@@ -111,7 +111,7 @@ PYEOF
   echo "  packed: /tmp/$tgz"
   # Release gate L2: reject broken tarballs (E415 hard links, workspace:
   # leaks, dangling main/types, empty packs) BEFORE publish.
-  "$root/../tests/sdk/release/l2-check-tarball.sh" "/tmp/$tgz" "$ver"
+  "$repo/tests/sdk/release/l2-check-tarball.sh" "/tmp/$tgz" "$ver"
 
   # 4) publish
   # dist-tag by release type (version semantics v0.1.7+):

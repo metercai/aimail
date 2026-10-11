@@ -60,7 +60,7 @@ CI 单测覆盖不到的 SDK 用户环境行为,在 advanced 仓跑:
 
 - `.github/workflows/publish.yml`(npm):publish step 逐包调 `scripts/publish-npm.sh`,
   其内部(pack+normalize 后)调 `tests/sdk/release/l2-check-tarball.sh`
-  (`tssdk/scripts/publish-npm.sh:112`)。
+  (`scripts/publish-npm.sh`)。
 - `.github/workflows/publish-pypi.yml`(pysdk):test job 跑
   `python3 -m pytest tests/sdk/ -q`;build job 调 `tests/sdk/release/l2-verify-wheel.sh`
   (干净 venv 冒烟)。
