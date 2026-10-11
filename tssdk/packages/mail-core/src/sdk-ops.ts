@@ -18,6 +18,7 @@
 import { promises as fs } from 'node:fs'
 import * as path from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { ensureSkillToolExposure } from './skill-exposure.js'
 import {
   GatewayClient,
   BINDING_FILE,
@@ -403,6 +404,17 @@ export async function opAssemble(args: Record<string, unknown>): Promise<Record<
       gateway: syscfg as never,
     })
   }
+  // 共享装配步: 宿主自带的 skill/tool 暴露层若默认关闭, 由平台把(patch 文件 + 要启用的
+  // id)作为**数据**传进来; 原生就暴露的宿主不传 ⇒ 行为不变(无平台特例代码路径)。
+  const exposePatch = String(args['skill_expose_patch'] || '')
+  const skillExposure = exposePatch
+    ? ensureSkillToolExposure({
+        patchFile: exposePatch,
+        ids: String(args['skill_expose_ids'] || '')
+          .split(/[\s,]+/)
+          .filter(Boolean),
+      })
+    : null
   return {
     ok: true,
     email,
@@ -412,6 +424,7 @@ export async function opAssemble(args: Record<string, unknown>): Promise<Record<
     registered,
     binding_path: bindingPath,
     sdk_version: await sdkVersion(),
+    skill_exposure: skillExposure,
   }
 }
 
