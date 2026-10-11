@@ -232,6 +232,34 @@ else
   fi
 fi
 
+# ── 6. pinned versions (the testing start point is reproducible) ─────────────────────
+echo "── [6] pinned versions"
+if [ ! -f "$CTX/pins.env" ]; then
+  red "pins.env missing — cannot judge the pinned versions"
+else
+  . "$CTX/pins.env"
+  _got_ver=""; _want_ver=""
+  case "$AGENT" in
+    hermes)   _want_ver="${HERMES_IMAGE_VERSION:-}"; [ -d /opt/hermes ] || _want_ver="${HERMES_HOST_VERSION:-}"
+              _got_ver="$(printf '%s' "$_probe" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" ;;
+    dsh)      _want_ver="${DSH_VERSION:-}";      _got_ver="$(printf '%s' "$_probe" | tr -d 'v')" ;;
+    pi)       _want_ver="${PI_VERSION:-}";       _got_ver="$(printf '%s' "$_probe" | tr -d 'v')" ;;
+    openclaw) _want_ver="${OPENCLAW_VERSION:-}"; _got_ver="$(printf '%s' "$_probe" | grep -oE '[0-9]{4}\.[0-9]+(\.[0-9]+)?' | head -1)" ;;
+    deerflow) _want_ver="" ;;   # built from source locally, pinned by its own <commit> tag
+  esac
+  if [ -z "$_want_ver" ]; then skip "no version pin recorded for $AGENT"
+  elif [ "$_got_ver" = "$_want_ver" ]; then pass "pinned version installed: $AGENT $_got_ver"
+  else red "version drift: $AGENT installed='${_got_ver:-none}' pinned=$_want_ver (bump deliberately with update-pins.sh)"; fi
+  # pnpm is pinned only where WE install it (dsh). Elsewhere pnpm comes with the base
+  # image, and that is already pinned by the base digest — asserting its version here would
+  # red on a base-provided pnpm we do not control.
+  if [ "$AGENT" = dsh ] && command -v pnpm >/dev/null 2>&1 && [ -n "${PNPM_VERSION:-}" ]; then
+    _pv="$(pnpm --version 2>/dev/null | tr -d 'v')"
+    [ "$_pv" = "$PNPM_VERSION" ] && pass "pinned pnpm: $_pv" \
+      || red "pnpm version drift: installed='${_pv:-none}' pinned=$PNPM_VERSION (bump deliberately with update-pins.sh)"
+  fi
+fi
+
 echo "── verify summary: $PASS passed, $FAIL failed, $SKIP skipped"
 if [ "$FAIL" -gt 0 ]; then echo "AGENT-ENV VERIFY: FAIL"; exit 1; fi
 [ "$PASS" -eq 0 ] && { echo "AGENT-ENV VERIFY: CANNOT JUDGE"; exit 2; }

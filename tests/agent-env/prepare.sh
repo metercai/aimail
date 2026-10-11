@@ -30,6 +30,14 @@
 set -uo pipefail
 CTX="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Version pins (single source: pins.env next to this script, maintained by update-pins.sh).
+# Tests must start from the same environment every time; "is it the latest?" is a
+# maintenance decision, not a test-time one. Installs below are exact versions and
+# verify.sh asserts what actually landed.
+if [ -f "$CTX/pins.env" ]; then . "$CTX/pins.env"
+else echo "✗ prepare: $CTX/pins.env missing (the pinned versions are the testing start point)" >&2; exit 1
+fi
+
 die() { echo "✗ prepare: $*" >&2; exit 1; }
 say() { echo "  · $*"; }
 ok()  { echo "  ✓ $*"; }
@@ -70,6 +78,20 @@ default_home() {
 [ -n "$HOME_DIR" ] || HOME_DIR="$(default_home "$AGENT")"
 
 # ── (1) official install (idempotent) ────────────────────────────────────────────────
+
+# npm_install_pinned <pkg> <version> <command>: install one exact version (idempotent) and
+# never silently keep a different one.
+npm_install_pinned() {
+  local pkg="$1" ver="$2" cmd="$3" have=""
+  [ -n "$ver" ] || die "$pkg: no pinned version in pins.env"
+  command -v "$cmd" >/dev/null 2>&1 && have="$("$cmd" --version 2>/dev/null | head -1 | tr -d 'v')"
+  if [ -n "$have" ] && [ "${have#"$ver"}" != "$have" ]; then
+    say "$cmd already at pinned $ver"; return 0
+  fi
+  say "npm install -g $pkg@$ver${have:+ (replacing $have)}"
+  npm install -g "$pkg@$ver" --no-audit --no-fund || die "npm install $pkg@$ver failed"
+}
+
 install_hermes() {
   local hh="${HERMES_HOME:-$HOME/.hermes}"
   if [ -x /opt/hermes/bin/hermes ] || [ -x "$hh/hermes-agent/.hermes/bin/hermes" ]; then
@@ -79,19 +101,19 @@ install_hermes() {
   curl -fsSL --retry 2 --connect-timeout 20 --max-time 60 \
     https://hermes-agent.nousresearch.com/install.sh -o "$tmp/install.sh" \
     || die "hermes install.sh download failed"
-  HERMES_HOME="$hh" bash "$tmp/install.sh" </dev/null || die "hermes official install failed"
+  _hargs=(); [ -n "${HERMES_COMMIT:-}" ] && _hargs=(--commit "$HERMES_COMMIT")
+  say "pinned hermes commit: ${HERMES_COMMIT:-<installer default>}"
+  HERMES_HOME="$hh" bash "$tmp/install.sh" ${_hargs[@]+"${_hargs[@]}"} </dev/null \
+    || die "hermes official install failed"
   ok "hermes installed (official install.sh) at $hh"
 }
 
 install_dsh() {
   command -v npm >/dev/null 2>&1 || die "npm missing — dsh install needs node/npm on PATH"
-  if command -v dsh >/dev/null 2>&1; then say "dsh present — skip npm install"
-  else npm install -g @deepseek-ai/dsh --no-audit --no-fund || die "dsh npm install failed"; fi
+  npm_install_pinned @deepseek-ai/dsh "${DSH_VERSION:-}" dsh
   # pnpm is dsh's own plugin-manager backend: it is part of dsh's base environment and
   # must be prepared here (a cold container would otherwise pull it on first use).
-  if ! command -v pnpm >/dev/null 2>&1; then
-    npm install -g pnpm --no-audit --no-fund >/dev/null 2>&1 || true
-  fi
+  npm_install_pinned pnpm "${PNPM_VERSION:-}" pnpm
   command -v pnpm >/dev/null 2>&1 || die "pnpm unavailable — dsh plugin install needs pnpm on PATH"
   # profile skeleton = the LLM writer target AND the plugin install target. Bounded so a
   # cold pnpm pull cannot hang the preparation.
@@ -105,8 +127,7 @@ install_dsh() {
 
 install_pi() {
   command -v npm >/dev/null 2>&1 || die "npm missing — pi install needs node/npm on PATH"
-  if command -v pi >/dev/null 2>&1; then say "pi present — skip npm install"
-  else npm install -g @earendil-works/pi-coding-agent --no-audit --no-fund || die "pi npm install failed"; fi
+  npm_install_pinned @earendil-works/pi-coding-agent "${PI_VERSION:-}" pi
   mkdir -p "$HOME_DIR/agent"
   ok "pi installed (official npm)"
 }
