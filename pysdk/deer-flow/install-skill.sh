@@ -45,7 +45,9 @@ DST_DIR="$PUBLIC_DIR/agentmail"
 echo "skills landing: $DST_DIR/SKILL.md"
 echo "  selected by: $SKILLS_REASON"
 
-SKILLS_SRC="$(python3 -c 'import aimail, os, sys
+# 宿主解释器(2026-10-12, 与 install-mcp.sh 同款): CLI 经 AIMAIL_PYTHON 回传宿主解释器,
+# 缺省才是 PATH python3 —— 否则宿主 venv 里已装好的 SDK 被镜像 python3 判成"没装"。
+SKILLS_SRC="$("${AIMAIL_PYTHON:-python3}" -c 'import aimail, os, sys
 d = os.path.dirname(aimail.__file__)
 p = os.path.join(d, "resources", "skills")
 sys.stdout.write(p if os.path.isdir(p) else "")')"

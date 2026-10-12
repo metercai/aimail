@@ -59,6 +59,11 @@ AIMAIL_HOME_RESOLVED="${AIMAIL_HOME:-$HOME/.aimail}"
 # 装配步(pysdk/install.py::_assembly_env)会 setdefault; 这里容忍空(空 ⇒ 不写键,
 # server 侧回退全 systems 扫描 = 旧行为)。
 AIMAIL_SYSTEM_ID_RESOLVED="${AIMAIL_SYSTEM_ID:-}"
+# 宿主解释器(2026-10-12): **目标系统宿主自己的解释器** —— CLI 命令入口经 AIMAIL_PYTHON
+# 回传(契约 §4.1(2) 单真源), 缺省才是 PATH python3; 显式 PY 覆盖优先(运维/门禁)。
+# 不用它 = 拿镜像系统 python3 去 `import aimail`: 装了等于没装(deerflow 实测
+# `ModuleNotFoundError: No module named 'aimail'` ⇒ install-skill.sh exit 1)。
+PY="${PY:-${AIMAIL_PYTHON:-python3}}"
 
 # ── 0. 落点解析(见文件头;打印最终落点 + 理由)─────────────────────────
 if [ -n "${DEER_FLOW_EXT_CFG:-}" ]; then
@@ -91,7 +96,7 @@ if [ "$CFG" != "$DF_PROJECT_ROOT/extensions_config.json" ] \
 fi
 
 # ── 1. MCP 服务取自已装包（owner 2026-10-06 目标态：**零拷贝** ✗ 自包含载荷/仓库态一律取消 ✓）──
-SERVER="$("${PY:-python3}" -c 'import aimail, os, sys
+SERVER="$("$PY" -c 'import aimail, os, sys
 d = os.path.dirname(aimail.__file__)
 p = os.path.join(d, "aimail_mcp_server.py")
 sys.stdout.write(p if os.path.isfile(p) else "")')"
@@ -142,12 +147,12 @@ if [ ! -f "$CFG" ]; then
   fi
 fi
 
-python3 - "$CFG" "$SERVER" "$AGENT_ID" "$IDENTITY" \
-    "$AIMAIL_HOME_RESOLVED" "$AIMAIL_SYSTEM_ID_RESOLVED" <<'PY'
+"$PY" - "$CFG" "$SERVER" "$AGENT_ID" "$IDENTITY" \
+    "$AIMAIL_HOME_RESOLVED" "$AIMAIL_SYSTEM_ID_RESOLVED" "$PY" <<'PY'
 import json, sys
 
 (cfg_path, server, agent_id, identity,
- aimail_home, system_id) = sys.argv[1:7]
+ aimail_home, system_id, interpreter) = sys.argv[1:8]
 with open(cfg_path) as f:
     data = json.load(f)
 
@@ -165,7 +170,9 @@ _sid_note = ("kept previous pin" if _prev_env.get("AIMAIL_SYSTEM_ID")
 servers["aimail"] = {
     "enabled": True,
     "type": "stdio",
-    "command": "python3",
+    # MCP stdio 子进程的解释器 = 宿主解释器(否则 deer-flow 用镜像 python3 起 server ⇒
+    # 子进程 import 不到 aimail, 每次工具调用都失败)。
+    "command": interpreter,
     "args": [server],
     # env 名与 server 读取一致(AIMAIL_*)。deer-flow 只把这份 env 交给 stdio
     # 子进程(见文件头), 所以这里必须自带 server 定位绑定所需的全部变量。
@@ -191,4 +198,4 @@ print(f"  AIMAIL_SYSTEM_ID: {_sid_out or '(absent => server scans all systems)'}
 PY
 
 echo "landing point: $CFG"
-echo "verify: python3 -c \"import json; d=json.load(open('$CFG')); print(d['mcpServers']['aimail']['args'])\""
+echo "verify: $PY -c \"import json; d=json.load(open('$CFG')); print(d['mcpServers']['aimail']['args'])\""
