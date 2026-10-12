@@ -837,31 +837,80 @@ fn install_human(a: &Args) -> i32 {
         ensure_domain(&gw_url, &env_admin_key, &sid2, &want_domain);
     }
 
-    // 2) 桥部署：本地网关直连不需要桥；远端网关 ⇒ 本机部署桥（`core::bridge_deploy::deploy`）
-    if crate::core::gateway::is_local_gateway(&gw_url) {
-        ok("bridge: local gateway (direct mode) -- no bridge needed");
-    } else {
-        // 远端网关：本机部署桥（二进制就位 → 公告判定 → 配置合并 → 起桥）
-        let cfg_wh_host = config::load_gateway_config(&sid2)
-            .map(|c| c.webhook_host.unwrap_or_default())
-            .unwrap_or_default();
-        let rc = crate::core::bridge_deploy::deploy(&crate::core::bridge_deploy::DeploySpec {
-            gateway_url: gw_url.clone(),
-            admin_key: env_admin_key.clone(),
-            system_id: sid2.clone(),
-            domain: std::env::var("INTEGRATE_AIMAIL_DOMAIN").unwrap_or_default(),
-            webhook_mode_bridge: std::env::var("WEBHOOK_MODE").unwrap_or_default() != "push",
-            announce_arg: String::new(), // Python 由 deploy_bridge 自己的 argv 读；CLI 侧无此参数
-            cfg_webhook_host: cfg_wh_host,
-        });
-        if rc == 0 {
-            ok("bridge deployed");
+    // 入站 webhook 判定（owner 2026-10-13 定稿，单一判定函数）：此刻凭据与配置都已
+    // 就位（产品码路径已激活、admin_key 已回填），可全量探测 ⇒ 给"最佳已知"三态。
+    // Fail ⇒ 大声中止（需桥而不可部署 / GW 不可达），绝不静默降级。
+    // 探针走**系统级 raw key**（`probe-webhook` 要求 system scope；域级 agent key 未必有）。
+    let probe_key = {
+        let raw = crate::core::config::read_system_raw_key(&sid2);
+        if raw.is_empty() {
+            env_admin_key.clone()
         } else {
-            warn(&format!(
-                "bridge deploy failed (exit {}) -- see the deploy_bridge output",
-                rc
+            raw
+        }
+    };
+    let plan = crate::core::webhookplan::plan_inbound(&gw_url, &probe_key);
+    match &plan {
+        crate::core::webhookplan::WebhookPlan::Fail { reason } => {
+            return fail(&format!("inbound webhook plan failed: {reason}"));
+        }
+        crate::core::webhookplan::WebhookPlan::BridgePush { bridge_host } => {
+            ok(&format!("inbound plan: S1 bridge push -> {bridge_host} (external bridge)"));
+        }
+        crate::core::webhookplan::WebhookPlan::BridgePull => {
+            ok("inbound plan: S2 bridge pull (local bridge)");
+        }
+        crate::core::webhookplan::WebhookPlan::Direct => {
+            ok("inbound plan: S3 direct push (local gateway / agent reachable)");
+        }
+    }
+    // 三态写回 config（S1 Some(url) / S2 Some("") / S3 None 键缺席）。
+    // install 给"最佳已知"，入站 up 回调（`address --inbound-live --inbound-url`）才是确认值。
+    if !sid2.is_empty() {
+        let wh = plan.webhook_host();
+        if let Err(e) = config::update_gateway_config_in(&home::aimail_home(), &sid2, |c| {
+            c.webhook_host = wh.clone();
+        }) {
+            warn(&format!("write inbound webhook_host failed: {e}"));
+        }
+    }
+
+    // 2) 桥：按判定态分派（S1 外部桥不部署 / S2 本机部署并起桥 / S3 无桥）
+    match &plan {
+        crate::core::webhookplan::WebhookPlan::BridgePush { bridge_host } => {
+            // S1：经外部桥 push —— 不部署本机桥，webhook_host 已指向 BRIDGE_HOST。
+            // 路由预注册（向外部桥 admin POST /routes）best-effort，见 ensure_inbound_routes。
+            ok(&format!(
+                "bridge: external (S1) {bridge_host} — no local bridge deployed"
             ));
         }
+        crate::core::webhookplan::WebhookPlan::BridgePull => {
+            // S2：本机部署桥（pull）—— 二进制就位 → 配置合并 → 起桥
+            let cfg_wh_host = config::load_gateway_config(&sid2)
+                .map(|c| c.webhook_host.unwrap_or_default())
+                .unwrap_or_default();
+            let rc = crate::core::bridge_deploy::deploy(&crate::core::bridge_deploy::DeploySpec {
+                gateway_url: gw_url.clone(),
+                admin_key: env_admin_key.clone(),
+                system_id: sid2.clone(),
+                domain: std::env::var("INTEGRATE_AIMAIL_DOMAIN").unwrap_or_default(),
+                webhook_mode_bridge: true, // S2 = pull 模式
+                announce_arg: String::new(),
+                cfg_webhook_host: cfg_wh_host,
+            });
+            if rc == 0 {
+                ok("bridge deployed");
+            } else {
+                warn(&format!(
+                    "bridge deploy failed (exit {}) -- see the deploy output",
+                    rc
+                ));
+            }
+        }
+        crate::core::webhookplan::WebhookPlan::Direct => {
+            ok("bridge: S3 direct — no bridge needed");
+        }
+        crate::core::webhookplan::WebhookPlan::Fail { .. } => unreachable!(),
     }
 
     // 3) 平台适配（注册表 install_steps 动作表驱动）

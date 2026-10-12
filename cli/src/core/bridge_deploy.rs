@@ -72,6 +72,17 @@ pub fn is_executable(p: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// 本机桥**可部署**（判定函数 BR 输入，2026-10-13）：已就位的可执行二进制，
+/// 或本仓 `bridge/` 里有当前架构的 zip 可解。纯只读判定，不触发任何部署动作。
+pub fn bridge_deployable() -> bool {
+    let bridge_dir = crate::core::home::aimail_home().join("bridge/bin");
+    if is_executable(&bridge_dir.join("aimail-bridge")) {
+        return true;
+    }
+    let arch = arch_name();
+    !latest_bridge_zip(&crate::core::home::program_root().join("bridge"), arch).is_empty()
+}
+
 /// `_ensure_binary`：二进制缺失时从本仓 `bridge/` 的 zip 解出；幂等。
 pub fn ensure_binary(bridge_bin: &Path, bridge_dir: &Path) -> bool {
     if !is_executable(bridge_bin) {

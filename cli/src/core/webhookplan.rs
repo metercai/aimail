@@ -129,6 +129,154 @@ pub fn plan(i: &PlanInputs) -> WebhookPlan {
     }
 }
 
+// ── 采集层（install 调用；探测走既有端点，分类结果解释在上方纯函数）──────────────
+
+/// 解析一个探测端点的 JSON 应答 → `ProbeResult`；缺字段/非对象 ⇒ `None`（视为未探测）。
+pub fn parse_probe(v: &serde_json::Value) -> Option<ProbeResult> {
+    let o = v.as_object()?;
+    let reachable = o.get("reachable")?.as_bool()?;
+    let error = o
+        .get("error")
+        .and_then(|e| e.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+    Some(ProbeResult { reachable, error })
+}
+
+/// GW 视角探一个 `host:port`（`POST /api/v1/admin/probe-webhook`，system-scope key）。
+/// GW 不可达/未认证/非对象 ⇒ `None`（调用方按"未探测"降级）。
+pub fn probe_gw(gw_url: &str, admin_key: &str, addr: &str) -> Option<ProbeResult> {
+    if admin_key.is_empty() {
+        return None;
+    }
+    let base = gw_url.trim_end_matches('/');
+    let path = "/api/v1/admin/probe-webhook";
+    let body = serde_json::json!({ "addr": addr }).to_string();
+    let headers = crate::core::sig::signed_headers(admin_key, "POST", path, Some(body.as_bytes()), "");
+    let (code, resp) = crate::core::http::json_req(
+        &format!("{base}{path}"),
+        &headers,
+        Some(body.as_bytes()),
+        Some("POST"),
+        8,
+    );
+    if !(200..300).contains(&code) {
+        return None;
+    }
+    parse_probe(&resp)
+}
+
+/// 桥视角探一个 `host:port`（桥 `POST /api/v1/probe`，admin 白名单内）。
+/// 桥不可达/非对象 ⇒ `None`。
+pub fn probe_bridge(admin_host: &str, admin_port: u16, addr: &str) -> Option<ProbeResult> {
+    let body = serde_json::json!({ "addr": addr }).to_string();
+    let (code, body_text) =
+        crate::core::http::raw_req_method("POST", &format!("http://{admin_host}:{admin_port}/api/v1/probe"), Some(body.as_bytes()), Some("application/json"), 8).ok()?;
+    if !(200..300).contains(&code) {
+        return None;
+    }
+    parse_probe(&serde_json::from_str(&body_text).ok()?)
+}
+
+/// `AIMAIL_BRIDGE_HOST` / `AIMAIL_BRIDGE_ADMIN` / `AIMAIL_AGENT_HOST` env → 解析。
+pub fn env_bridge_host() -> Option<String> {
+    let raw = crate::core::config::env_val("AIMAIL_BRIDGE_HOST", "");
+    if raw.trim().is_empty() {
+        return None;
+    }
+    crate::core::netenv::parse_bridge_host(&raw).map(|_| raw.trim().to_string())
+}
+
+/// 外部桥 admin 端点（`AIMAIL_BRIDGE_ADMIN` 优先，缺省回退 BRIDGE_HOST 的 host:port）。
+/// 外部桥 admin 与数据端口可能不同，故允许显式 env 覆盖。
+pub fn env_bridge_admin() -> Option<(String, u16)> {
+    let raw = crate::core::config::env_val("AIMAIL_BRIDGE_ADMIN", "");
+    if !raw.trim().is_empty() {
+        if let Some(hp) = crate::core::netenv::parse_bridge_host(raw.trim()) {
+            return Some(hp);
+        }
+    }
+    env_bridge_host().and_then(|h| crate::core::netenv::parse_bridge_host(&h))
+}
+
+pub fn env_agent_host() -> Option<String> {
+    let raw = crate::core::config::env_val("AIMAIL_AGENT_HOST", "");
+    if raw.trim().is_empty() {
+        return None;
+    }
+    if !crate::core::netenv::agent_host_valid(raw.trim()) {
+        // owner：不是公网也不是本机 IP ⇒ 视为不存在
+        return None;
+    }
+    Some(raw.trim().to_string())
+}
+
+/// install 的入站模式判定：采集 env + 本机事实 + 探测，跑 `plan`。
+/// `gw_reachable` 由 GW admin 端点应答判定（带 system key 的 GET /admin/systems）。
+pub fn plan_inbound(gw_url: &str, admin_key: &str) -> WebhookPlan {
+    let gw_reachable = gw_admin_reachable(gw_url, admin_key);
+    let bridge_host = env_bridge_host();
+    let agent_host = env_agent_host();
+
+    // probe1：GW 视角探桥服务（桥活 = connected）。
+    let probe_gw_to_bridge = bridge_host.as_ref().and_then(|h| {
+        crate::core::netenv::parse_bridge_host(h)
+            .map(|(host, port)| probe_gw(gw_url, admin_key, &format!("{host}:{port}")))
+            .flatten()
+    });
+    // probe2：桥视角探 agent 入站（第二跳）。仅当 bridge+agent 都在场才跑。
+    // 探测端点 = 该桥自己的 admin（S1 外部桥 / S2 本机桥），不是 GW。
+    let probe_bridge_to_agent = if let (Some(ah), Some((badmin, bport))) =
+        (&agent_host, env_bridge_admin())
+    {
+        crate::core::netenv::parse_hostport(ah)
+            .map(|(ahost, aport)| probe_bridge(&badmin, bport, &format!("{ahost}:{aport}")))
+            .flatten()
+    } else {
+        None
+    };
+    // R：GW 视角探 agent 入站（路径级）。
+    let probe_gw_to_agent = agent_host.as_ref().and_then(|ah| {
+        crate::core::netenv::parse_hostport(ah)
+            .map(|(host, port)| probe_gw(gw_url, admin_key, &format!("{host}:{port}")))
+            .flatten()
+    });
+    let gw_is_local = crate::core::gateway::is_local_gateway(gw_url);
+    let bridge_deployable = crate::core::bridge_deploy::bridge_deployable();
+
+    plan(&PlanInputs {
+        gw_reachable,
+        bridge_host,
+        probe_gw_to_bridge,
+        probe_bridge_to_agent,
+        gw_is_local,
+        probe_gw_to_agent,
+        bridge_deployable,
+    })
+}
+
+/// GW admin 端点可达性（带 system key 的 GET；2xx = 可达）。
+pub fn gw_admin_reachable(gw_url: &str, admin_key: &str) -> bool {
+    if admin_key.is_empty() {
+        // 无 key（如复用路径未取到）⇒ 退化为 TCP 可达性。
+        let Ok(u) = crate::core::bridge_wire::parse_abs_url(gw_url) else {
+            return false;
+        };
+        let port = u.port.unwrap_or(if u.scheme == "https" { 443 } else { 80 });
+        return crate::core::bridge_wire::tcp_open(
+            &u.hostname,
+            port,
+            std::time::Duration::from_millis(1500),
+        );
+    }
+    let base = gw_url.trim_end_matches('/');
+    let path = "/api/v1/admin/systems";
+    let headers = crate::core::sig::signed_headers(admin_key, "GET", path, None, "");
+    let (code, _) =
+        crate::core::http::json_req(&format!("{base}{path}"), &headers, None, Some("GET"), 8);
+    (200..300).contains(&code)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,5 +430,29 @@ mod tests {
         i.probe_bridge_to_agent = Some(conn());
         i.gw_is_local = true;
         assert!(matches!(plan(&i), WebhookPlan::BridgePush { .. }));
+    }
+
+    #[test]
+    fn parse_probe_reads_reachable_and_error() {
+        assert_eq!(
+            parse_probe(&serde_json::json!({"reachable": true, "error": "connected"})),
+            Some(ProbeResult { reachable: true, error: "connected".into() })
+        );
+        assert_eq!(
+            parse_probe(&serde_json::json!({"reachable": false, "error": "connection_refused", "detail": "x"})),
+            Some(ProbeResult { reachable: false, error: "connection_refused".into() })
+        );
+        // 缺 error 字段 ⇒ 归 "unknown"（仍返回 Some）；非对象 / 缺 reachable ⇒ None
+        assert_eq!(
+            parse_probe(&serde_json::json!({"reachable": true})),
+            Some(ProbeResult { reachable: true, error: "unknown".into() })
+        );
+        assert_eq!(
+            parse_probe(&serde_json::json!({"error": "connected"})),
+            None,
+            "missing reachable ⇒ not a valid probe answer"
+        );
+        assert_eq!(parse_probe(&serde_json::json!("oops")), None);
+        assert_eq!(parse_probe(&serde_json::json!(null)), None);
     }
 }
