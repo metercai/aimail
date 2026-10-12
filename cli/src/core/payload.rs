@@ -456,7 +456,7 @@ fn expand_dest(template: &str) -> String {
 /// pip ⇒ 包 `__version__`；都没有 ⇒ `dev`。
 fn source_version(root: &str, kind: &str) -> String {
     if kind == "pip" {
-        let py = std::env::var("AIMAIL_PYTHON").unwrap_or_else(|_| "python3".to_string());
+        let py = crate::core::sdkroot::python_bin();
         if let Ok(o) = std::process::Command::new(py)
             .args([
                 "-c",

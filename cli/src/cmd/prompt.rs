@@ -270,6 +270,8 @@ pub fn run(a: &Args) -> i32 {
     if sid.is_empty() {
         return fail("prompt needs --system-id");
     }
+    // 域内宿主解释器绑定（契约 §4.1(2) 单真源）：本命令经 SDK 门 `update`/`prompt-test`。
+    let _ = crate::core::sdkroot::bind_domain_for_system(&sid);
     let home = crate::core::home::aimail_home();
     let t = match resolve_target(&home, &sid, a) {
         Ok(t) => t,

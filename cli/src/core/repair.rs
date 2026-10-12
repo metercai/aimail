@@ -1887,7 +1887,7 @@ pub fn runtime_resources(sid: &str, platform_home: &str, prog_root: &Path) -> bo
     // 因而仓库(pysdk/) 与 pip(site-packages/aimail/) 两种布局都成立。
     // 按**文件路径**调用（与每一步一致），不依赖解释器里 `import aimail`；install.py 自己会做
     // sys.path 自举，因而仓库(pysdk/) 与 pip(site-packages/aimail/) 两种布局都成立。
-    let py = std::env::var("AIMAIL_PYTHON").unwrap_or_else(|_| "python3".to_string());
+    let py = crate::core::sdkroot::python_bin();
     let install_py = prog_root
         .join("aimail-src")
         .join("pysdk")

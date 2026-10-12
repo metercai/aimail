@@ -197,6 +197,12 @@ pub fn run(a: &Args) -> i32 {
     } else {
         recorded
     };
+    // 域内宿主解释器绑定（契约 §4.1(2) 单真源）—— **必须在解析 SDK 根之前**：
+    // 否则用 CLI 自己的 `python3` 去找 SDK，宿主 venv 里的已装 SDK 会被判成"未安装"。
+    let _ = crate::core::sdkroot::bind_domain(
+        &setup::pget(&cfg, "container"),
+        &system_home.to_string_lossy(),
+    );
     // transport 分派（契约 §4.1(2)）：**只有 python 宿主**需要 SDK 根（门的解释器自带）；
     // node 宿主（node_entry）的 op 入口由注册表 `ops.argv` 直达 ⇒ 不得因缺 pysdk 硬退出。
     let core_dir = if crate::core::platforms::ops_argv(&platform).is_some() {

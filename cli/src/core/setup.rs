@@ -615,9 +615,10 @@ pub fn pget(cfg: &Value, key: &str) -> String {
         .to_string()
 }
 
-/// 解释器：`AIMAIL_PYTHON` > `python3`。
+/// 解释器：**单真源委派** `core::sdkroot::python_bin`（契约 §4.1(2)）。
+/// 本函数曾是第二份退化链（`AIMAIL_PYTHON` → `python3`，连域内探测都没有）⇒ 删实现只留委派。
 pub fn python_bin() -> String {
-    std::env::var("AIMAIL_PYTHON").unwrap_or_else(|_| "python3".to_string())
+    crate::core::sdkroot::python_bin()
 }
 
 /// `_resolve_mgr`：manager 解析链 = 显式参数（须含 `@`）→ cfg → env **三名互认**。

@@ -91,7 +91,14 @@ pub fn probe_in_domain(container: &str, home: &str) -> String {
             }
         }
     }
-    for rel in ["bin/python3", "venv/bin/python3", ".venv/bin/python3"] {
+    for rel in [
+        "bin/python3",
+        "bin/python",
+        "venv/bin/python3",
+        "venv/bin/python",
+        ".venv/bin/python3",
+        ".venv/bin/python",
+    ] {
         let c = std::path::Path::new(home).join(rel);
         if c.is_file() {
             return c.to_string_lossy().to_string();
@@ -107,7 +114,12 @@ pub fn probe_in_domain(container: &str, home: &str) -> String {
             if !sub.is_dir() {
                 continue;
             }
-            for rel in ["venv/bin/python3", ".venv/bin/python3"] {
+            for rel in [
+                "venv/bin/python3",
+                "venv/bin/python",
+                ".venv/bin/python3",
+                ".venv/bin/python",
+            ] {
                 let c = sub.join(rel);
                 if c.is_file() {
                     return c.to_string_lossy().to_string();
@@ -153,7 +165,9 @@ pub fn probe_in_domain(container: &str, home: &str) -> String {
     probe_agent_python().unwrap_or_else(|| "python3".to_string())
 }
 
-/// 解释器（`AIMAIL_PYTHON` > `python3`）—— 起 SDK 执行进程时用。
+/// 解释器**读取点**（起 SDK 执行进程时用）：`$AIMAIL_PYTHON` → 活进程探测 → PATH `python3`。
+/// **写入点只有一个** = [`bind_domain`]（契约 §4.1(2) 单真源）—— 命令入口必须先绑定，
+/// 否则这里退化成 CLI 自己的 `python3`（= "与目标系统不匹配"，deerflow 实测）。
 pub fn python_bin() -> String {
     // 契约 v1.0 §4.1(2) 的**定位链**（单真源，三处消费：本模块解析、`sdkcall` 按名调用、`sdk` 门）：
     // `$AIMAIL_PYTHON` → 宿主 venv 探测（运行中且能 `import aimail` 的 agent 解释器）→ PATH `python3`。
@@ -166,6 +180,34 @@ pub fn python_bin() -> String {
         return p;
     }
     "python3".to_string()
+}
+
+/// **域绑定**（唯一写入点，契约 §4.1(2) 单真源）：解析目标系统域内的宿主解释器并回传
+/// `AIMAIL_PYTHON` —— python 门与宿主步骤子进程都从进程环境继承 ⇒ 一次绑定全程有效。
+///
+/// 容器场景（`docker exec`）返回的是**容器内路径** ⇒ 只返回、不回传（当本机解释器用是错的）。
+/// `$AIMAIL_PYTHON` 已在环境里时 `probe_in_domain` 直接返回它 ⇒ 显式覆盖优先（链首，语义不变）。
+pub fn bind_domain(container: &str, home: &str) -> String {
+    let py = probe_in_domain(container, home);
+    if container.is_empty() && !py.trim().is_empty() {
+        std::env::set_var("AIMAIL_PYTHON", &py);
+    }
+    py
+}
+
+/// 同上，域信息取自系统级 cfg（`system_home` + `container`）—— 命令入口没有 `-H/--container` 时
+/// 的统一入口（`address` / `prompt` / `repair` 等：它们只有 `--system-id`）。
+pub fn bind_domain_for_system(sid: &str) -> String {
+    let cfg = crate::core::config::load_gateway_config(sid)
+        .map(|c| serde_json::Value::Object(c.to_json()))
+        .unwrap_or_else(|| serde_json::json!({}));
+    let g = |k: &str| -> String {
+        cfg.get(k)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
+    bind_domain(&g("container"), &g("system_home"))
 }
 
 /// SDK 根定位：**只有 pip 已装包一种形态**（owner 2026-10-06：坚决彻底 —— 不存在 `aimail-src/`、
@@ -297,6 +339,59 @@ mod tests {
             err.contains("--source-root 无效(无 aimail_base.py)"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn host_venv_without_python3_is_found_before_sdk_is_installed() {
+        // 契约 §4.1(2)：宿主解释器 = **宿主自己配置的环境**。首次安装前 SDK 必然还没装 ⇒
+        // 判据必须是**布局**而不是"能 import aimail"（deerflow = `<home>/backend/.venv/bin/python`，
+        // 且该 venv 不保证有 `python3`）。
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        let bin = home.join("backend").join(".venv").join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let py = bin.join("python"); // 只有 `python`
+        std::fs::write(&py, b"#!/bin/sh\n").unwrap();
+
+        let _g = ENV_LOCK.lock().unwrap();
+        let saved = std::env::var("AIMAIL_PYTHON").ok();
+        std::env::remove_var("AIMAIL_PYTHON");
+        let got = probe_in_domain("", &home.to_string_lossy());
+        if let Some(v) = saved {
+            std::env::set_var("AIMAIL_PYTHON", v);
+        }
+        assert_eq!(
+            got,
+            py.to_string_lossy().to_string(),
+            "应命中宿主 venv 的 bin/python（不依赖 SDK 已安装）"
+        );
+    }
+
+    #[test]
+    fn bind_domain_exports_the_host_interpreter_for_the_door() {
+        // 绑定后所有消费点（python 门 / 步骤子进程 / 注册链）读到的都是**宿主**解释器。
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        let bin = home.join("backend").join(".venv").join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let py = bin.join("python3");
+        std::fs::write(&py, b"#!/bin/sh\n").unwrap();
+
+        let _g = ENV_LOCK.lock().unwrap();
+        let saved = std::env::var("AIMAIL_PYTHON").ok();
+        std::env::remove_var("AIMAIL_PYTHON");
+        let got = bind_domain("", &home.to_string_lossy());
+        let seen = python_bin();
+        match saved {
+            Some(v) => std::env::set_var("AIMAIL_PYTHON", v),
+            None => std::env::remove_var("AIMAIL_PYTHON"),
+        }
+        assert_eq!(
+            got,
+            py.to_string_lossy().to_string(),
+            "bind_domain 应返回宿主解释器"
+        );
+        assert_eq!(seen, got, "绑定后 python_bin() 必须读到同一个宿主解释器");
     }
 
     #[test]

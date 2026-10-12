@@ -27,6 +27,12 @@ pub fn run(a: &Args) -> i32 {
         }
         None => String::new(),
     };
+    // 域内宿主解释器绑定（契约 §4.1(2) 单真源）：重建阶梯要按宿主解释器跑 SDK 安装。
+    let _ = if a.system_id.is_empty() {
+        crate::core::sdkroot::bind_domain("", &home)
+    } else {
+        crate::core::sdkroot::bind_domain_for_system(&a.system_id)
+    };
     crate::core::repair::run(
         &a.system_id,
         a.deep,

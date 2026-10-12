@@ -885,12 +885,10 @@ fn install_human(a: &Args) -> i32 {
         serde_json::json!(system_home.to_string_lossy().to_string()),
     );
     ctx.insert("sid".into(), serde_json::json!(sid2));
-    let _py = crate::core::sdkroot::probe_in_domain(&a.container, &system_home.to_string_lossy());
-    // 单真源下发：域发现解释器经 AIMAIL_PYTHON（python_bin 链首）回传给 SDK 调用面
-    // （sdk_install/register/sdk_ops 门），与 step 0 的 {python} 同一解释器（C-4）。
-    if a.container.is_empty() && !_py.is_empty() {
-        std::env::set_var("AIMAIL_PYTHON", &_py);
-    }
+    // 单真源绑定（契约 §4.1(2)）：域发现解释器经 AIMAIL_PYTHON 回传给 SDK 调用面
+    // （sdk_install/register/sdk_ops 门），与 step 0 的 {python} 同一解释器（C-4）；
+    // 容器守卫（docker exec 返回的是容器内路径）在 bind_domain 内统一。
+    let _py = crate::core::sdkroot::bind_domain(&a.container, &system_home.to_string_lossy());
     let _pkgmgr = crate::core::sdkroot::probe_pkgmgr(&a.container, &_py);
     ctx.insert("pkgmgr".into(), serde_json::json!(_pkgmgr));
     let core_dir = crate::core::sdkroot::resolve_with(&_py)

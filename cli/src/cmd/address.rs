@@ -335,6 +335,9 @@ pub fn run(args: Args) -> i32 {
         Some(c) => c,
         None => return report::fail(&format!("配置读取失败: {}", cfg_path.display())),
     };
+    // 域内宿主解释器绑定（契约 §4.1(2) 单真源）：维护面（set-manager/set-name/入站 live）走 SDK 门，
+    // 不绑就退化成 CLI 自己的 `python3` 起门 ⇒ 与目标系统不匹配。
+    let _ = crate::core::sdkroot::bind_domain_for_system(&sid);
 
     // ── 入站 live/down：必须先于 op 链（否则 flag 会静默落成 list）──────────
     if args.inbound_live || args.inbound_down {
