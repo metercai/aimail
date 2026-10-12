@@ -843,7 +843,7 @@ fn install_human(a: &Args) -> i32 {
     } else {
         // 远端网关：本机部署桥（二进制就位 → 公告判定 → 配置合并 → 起桥）
         let cfg_wh_host = config::load_gateway_config(&sid2)
-            .map(|c| c.webhook_host.clone())
+            .map(|c| c.webhook_host.unwrap_or_default())
             .unwrap_or_default();
         let rc = crate::core::bridge_deploy::deploy(&crate::core::bridge_deploy::DeploySpec {
             gateway_url: gw_url.clone(),

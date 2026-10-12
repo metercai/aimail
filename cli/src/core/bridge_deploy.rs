@@ -1061,14 +1061,14 @@ pub fn deploy(spec: &DeploySpec) -> i32 {
     }
 
     // 回写 `webhook_host`（只由 CLI 写，SDK 只读）：值必须是**可投递的绝对 URL**；
-    // pull = 显式空串；值没变就不写（幂等）。
+    // pull = Some("")（空串，S2）；push = Some(url)（S1）；值没变就不写（幂等）。
     if !spec.system_id.is_empty() {
         let sub = crate::core::config::gateway_config_path(&spec.system_id);
         if sub.is_file() {
             if let Some(mut cfg) = crate::core::config::load_gateway_config(&spec.system_id) {
-                let cur = cfg.webhook_host.clone();
-                if cur != registration_url {
-                    cfg.webhook_host = registration_url.clone();
+                let target = Some(registration_url.clone());
+                if cfg.webhook_host != target {
+                    cfg.webhook_host = target;
                     let _ = crate::core::config::save_gateway_config_in(
                         &crate::core::home::aimail_home(),
                         &spec.system_id,

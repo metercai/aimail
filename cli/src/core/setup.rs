@@ -166,10 +166,14 @@ pub fn setup(a: &SetupArgs) -> Value {
             } else {
                 a.manager_address.clone()
             },
+            // webhook_host 三态：解析值非空 ⇒ Some(值)；空（不写/继承）⇒ 沿用 prev 的三态
+            // （prev 键缺席 ⇒ None=S3；prev 键在含空串 ⇒ Some(值)，reset 时保住 S2 空串）。
             webhook_host: if webhook_host.is_empty() {
-                pget("webhook_host")
+                prev.get("webhook_host")
+                    .and_then(Value::as_str)
+                    .map(|s| s.to_string())
             } else {
-                webhook_host.clone()
+                Some(webhook_host.clone())
             },
             system_home: if a.system_home.is_empty() {
                 pget("system_home")
@@ -243,8 +247,10 @@ fn resolve_webhook_host(a: &SetupArgs) -> String {
     if !a.admin_key.is_empty() {
         // reset 场景：继承已有值（探测值曾覆写 NAT 公网 webhook_host）
         if let Some(cfg) = config::load_gateway_config(&a.system_id) {
-            if !cfg.webhook_host.is_empty() {
-                return cfg.webhook_host;
+            if let Some(wh) = cfg.webhook_host {
+                if !wh.is_empty() {
+                    return wh;
+                }
             }
         }
     }
@@ -552,7 +558,12 @@ pub fn init_system(
         save_raw_snapshots,
         domain: created_domain.clone(),
         manager_address: manager_address.to_string(),
-        webhook_host: webhook_host.to_string(),
+        // 三态：空（不可投递/未给）⇒ None=S3 键缺席；非空 ⇒ Some(url)
+        webhook_host: if webhook_host.is_empty() {
+            None
+        } else {
+            Some(webhook_host.to_string())
+        },
         system_home: if system_home.is_empty() {
             String::new()
         } else {

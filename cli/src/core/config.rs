@@ -31,8 +31,12 @@ pub const GATEWAY_CONFIG_NAME: &str = "aimail_gateway.json";
 /// 系统级环境文件的内容模型。
 ///
 /// - 基础键恒写（与现状码一致，即使是空串）；
-/// - `domain` / `manager_address` / `webhook_host` / `system_home` / `container_home` /
+/// - `domain` / `manager_address` / `system_home` / `container_home` /
 ///   `default_agent_name` **仅非空才写**；
+/// - `webhook_host` 是**三态**（owner 2026-10-13）：`None` = 键缺席（S3 直连）、
+///   `Some("")` = 空串（S2 桥 pull）、`Some(url)` = S1 经桥 push 的 BRIDGE_HOST。
+///   用 `Option` 而非 `String` 正是为了区分"缺席"与"空串"——现状 `String` 把两者
+///   都归一成空串，无法表达 S3；
 /// - 未知/未来键原样保留在 `extra`（读→写不丢字段，等价 Python dict 行为）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GatewayConfig {
@@ -43,7 +47,7 @@ pub struct GatewayConfig {
     pub save_raw_snapshots: bool,
     pub domain: String,
     pub manager_address: String,
-    pub webhook_host: String,
+    pub webhook_host: Option<String>,
     pub system_home: String,
     pub container_home: String,
     pub default_agent_name: String,
@@ -59,11 +63,11 @@ const BASE_KEYS: [&str; 5] = [
     "save_raw_snapshots",
 ];
 
-/// 条件键（仅非空才写）。
-const CONDITIONAL_KEYS: [&str; 6] = [
+/// 条件键（仅非空才写）。`webhook_host` 不在此列——它是三态（见结构体注释），
+/// 在 `to_json` 里单独处理（`None` 不写、`Some("")` 写空串、`Some(url)` 写 url）。
+const CONDITIONAL_KEYS: [&str; 5] = [
     "domain",
     "manager_address",
-    "webhook_host",
     "system_home",
     "container_home",
     "default_agent_name",
@@ -79,7 +83,7 @@ impl Default for GatewayConfig {
             save_raw_snapshots: true, // 现状默认 True（setup_system 构造默认）
             domain: String::new(),
             manager_address: String::new(),
-            webhook_host: String::new(),
+            webhook_host: None,
             system_home: String::new(),
             container_home: String::new(),
             default_agent_name: String::new(),
@@ -103,7 +107,11 @@ impl GatewayConfig {
             .unwrap_or(true);
         cfg.domain = s("domain");
         cfg.manager_address = s("manager_address");
-        cfg.webhook_host = s("webhook_host");
+        // webhook_host 三态：键缺席 ⇒ None；键在（哪怕空串）⇒ Some(值)。
+        cfg.webhook_host = obj
+            .get("webhook_host")
+            .and_then(Value::as_str)
+            .map(|v| v.to_string());
         cfg.system_home = s("system_home");
         cfg.container_home = s("container_home");
         cfg.default_agent_name = s("default_agent_name");
@@ -132,16 +140,23 @@ impl GatewayConfig {
             "save_raw_snapshots".into(),
             Value::Bool(self.save_raw_snapshots),
         );
-        for (key, val) in [
-            ("domain", &self.domain),
-            ("manager_address", &self.manager_address),
-            ("webhook_host", &self.webhook_host),
-            ("system_home", &self.system_home),
-            ("container_home", &self.container_home),
-            ("default_agent_name", &self.default_agent_name),
-        ] {
-            if !val.is_empty() {
-                m.insert(key.into(), Value::String(val.clone()));
+        // 条件键按现状码书写顺序；webhook_host 是 Option：None 不写（S3 键缺席）、
+        // Some("")/Some(url) 都写（S2 空串 / S1 URL）。其余键仍"仅非空才写"。
+        let entries: [(&str, Option<&String>); 6] = [
+            ("domain", Some(&self.domain)),
+            ("manager_address", Some(&self.manager_address)),
+            ("webhook_host", self.webhook_host.as_ref()),
+            ("system_home", Some(&self.system_home)),
+            ("container_home", Some(&self.container_home)),
+            ("default_agent_name", Some(&self.default_agent_name)),
+        ];
+        for (key, val) in entries {
+            if let Some(v) = val {
+                // webhook_host 允许空串（Some("") 落盘）；其余键空串不写
+                let skip = key != "webhook_host" && v.is_empty();
+                if !skip {
+                    m.insert(key.into(), Value::String(v.clone()));
+                }
             }
         }
         for (k, v) in &self.extra {
@@ -406,7 +421,38 @@ mod tests {
         let back = load_gateway_config_in(h, "sid1").expect("load");
         assert_eq!(back, cfg, "round trip must be lossless");
         assert!(back.save_raw_snapshots, "default must stay true");
-        assert!(back.domain.is_empty() && back.webhook_host.is_empty());
+        assert!(back.domain.is_empty() && back.webhook_host.is_none());
+    }
+
+    #[test]
+    fn webhook_host_tri_state_round_trips() {
+        let tmp = TempDir::new("config-3state");
+        let h = tmp.path();
+        let write_and_check = |wh: Option<String>, expect_key: bool, expect_val: &str| {
+            let mut cfg = GatewayConfig::default();
+            cfg.gateway_url = "http://g".into();
+            cfg.webhook_host = wh.clone();
+            save_gateway_config_in(h, "sid3", &cfg).expect("save");
+            let raw = std::fs::read_to_string(gateway_config_path_in(h, "sid3")).unwrap();
+            let v: Value = serde_json::from_str(&raw).unwrap();
+            if expect_key {
+                assert_eq!(
+                    v.get("webhook_host").and_then(Value::as_str),
+                    Some(expect_val),
+                    "raw = {raw}"
+                );
+            } else {
+                assert!(
+                    !v.get("webhook_host").is_some(),
+                    "key must be absent (S3), raw = {raw}"
+                );
+            }
+            let back = load_gateway_config_in(h, "sid3").unwrap();
+            assert_eq!(back.webhook_host, wh, "round trip must be lossless");
+        };
+        write_and_check(Some("".into()), true, ""); // S2 空串
+        write_and_check(Some("http://b:38080".into()), true, "http://b:38080"); // S1
+        write_and_check(None, false, ""); // S3 键缺席
     }
 
     #[test]
