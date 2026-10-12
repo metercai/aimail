@@ -25,6 +25,21 @@ pub enum Category {
     Public,
 }
 
+/// 一次 TCP 可达性探测的**分类结果**（与 aimail-gateway `probe-webhook`、桥
+/// `POST /api/v1/probe` 的返回同构）。
+///
+/// `error` 取值（两端点一致的分类词汇表）：
+/// - `connected`            连上（reachable=true）
+/// - `connection_refused`   包到主机、端口未监听（路径通，进程未起）
+/// - `timeout`              无路由 / 被丢包
+/// - `unreachable`          其它 IO 错误（含 no route to host）
+/// - `loopback_not_allowed` 网关侧对回环目标的拒绝（仅 GW 端点）
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProbeResult {
+    pub reachable: bool,
+    pub error: String,
+}
+
 /// 判定一个 IP 的类别。
 pub fn classify(ip: IpAddr) -> Category {
     match ip {

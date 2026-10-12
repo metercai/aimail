@@ -42,6 +42,7 @@ pub mod smtp;
 pub mod steps;
 pub mod style;
 pub mod time;
+pub mod webhookplan;
 pub mod welcome;
 
 #[cfg(test)]
