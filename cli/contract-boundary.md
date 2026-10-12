@@ -8,7 +8,7 @@
 - 目标形态：**纯 rust 单二进制**（平台静态知识 = 探测模块常量 + 契约常量 + 宿主自报；**无跨平台数据文件**，见 §5）；不含 python；不产生 `bin/aimail-src`、`bin/mcp`。
 - 职责：安装 / 检测 / 接线 / 自检 / 维护；**只调用，不实现**平台适配与 SDK 逻辑。
 - 命令面（**16**，按 `aimail --help` 实测，2026-10-11 复核）：address · bridge · check · domain · install · persona · ping · **platform** · prompt · renew · repair · reset · stats · uninstall · version · welcome。（`mod.rs`、`stub.rs`、`report.rs`（用户面输出助手 `ok/warn/fail`）为内部文件，非命令；2026-10-11 订正：旧表把内部助手 `report` 误列为命令、且缺 `platform`）
-- **bridge（硬边界）**：`bridge restart` 只能由 CLI 实施；**bridge 的实施与维护全在 CLI**。SDK 侧**代码级零桥符号**（棘轮 `tests/contract/check-zero-bridge.py`，L0 生效）；但 webhook 语义可**按模式取值**——SDK 依 CLI 给出的 direct/bridge 三态决定 `webhook_url`（`pysdk/deer-flow/manage.py:383`、`:397`）。存在"SDK 反调 CLI 过程中**间接**触发 bridge 子命令"的可能。
+- **bridge（硬边界）**：`bridge restart` 只能由 CLI 实施；**bridge 的实施与维护全在 CLI**。SDK 侧**代码级零桥符号**（棘轮 `tests/contract/check-zero-bridge.py`，L0 生效）；但 webhook 语义可**按模式取值**——SDK 依 CLI 给出的 `webhook_host` **三态**决定 `webhook_url`：① **键缺席** = 直连 push（注册为 agent 本机入站端点，端口由入站 up 时确认，见 §4.2 入站 up 反馈）；② **空串** = 桥 pull（注册为空、桥长轮询取）；③ **URL 值** = 桥 push（注册为 BRIDGE_HOST URL，`host:port` 无 path）。**单 agent pull 是绑定级自包含路径**（绑定 `shared_addr_` 前缀），**不**是系统级 `webhook_host` 态、SDK **不**解析网关的 NULL 参数识别它（`pysdk/deer-flow/manage.py:383`、`:397`）。存在"SDK 反调 CLI 过程中**间接**触发 bridge 子命令"的可能。
 
 **SDK（`pysdk/`=Python、`tssdk/`=TypeScript 真源；发布 PyPI `aimailsdk` + 5 个 npm 包）**
 - 职责：运行时**实现**层——命名 / 注册 / 改名 / 绑定内容 / 入站实现 / 收发 / webhook / 预处理 / 工具。
@@ -94,10 +94,19 @@
 |---|---|---|
 | 系统级激活 | `aimail install --system-only`（L1-only） | gateway_api.py:90 · mail-service.ts:123 · aimail_base.py:2612-2658 · hermes/aimail_hermes.py:422 |
 | 卸载 | `aimail uninstall` | pysdk/install.py:540 |
-| 入站 up / down | `aimail address -a <addr> --inbound-live` / `--inbound-down` | dsh-aimail/inbound.ts:361/:394 · register-cli.ts:142 |
+| 入站 up / down | `aimail address -a <addr> --inbound-live --inbound-url <确认入站URL>` / `--inbound-down` | dsh-aimail/inbound.ts:361/:394 · register-cli.ts:142 |
 | **预留**：agent 新增 / 删除 | 属 `address` 子命令一部分（当前 SDK 无入口） | owner 裁决 2026-10-06 |
 
 **(2) py / ts 差异**：**无** —— 两环境调同一 CLI 命令；差异仅在"如何定位 CLI"（见 §4.1(2) 末条）。
+
+### 4.3 入站端点 up 反馈（端口确定性闭环，owner 2026-10-13）
+
+- **端口确定性落在入站 up**：install 时刻只知"最佳已知"入站口（AGENT_HOST 锁定 / 平台默认）；入站 server 实际 listen 后端口才**确定可用**。入站 up 回调**必须携带确认入站 URL**（`--inbound-url <http(s)://host:port/path>`，= 监听器实际服务的 URL），CLI 据态把确定 URL 写回路由层（覆盖 install 的预注册值）。
+- **多 agent 循环**：一个入站端点承载多个 agent address 时，SDK **逐地址**回调 `address`，确保每个地址都有路由/注册（`inbound-notify.ts::notifyInboundForSystem`）。
+- **按态写回**：桥 push ⇒ 外部桥 route（admin `sync_route` action=live，target=确认 URL）；桥 pull ⇒ 本机桥 route（同 API，127.0.0.1）；直连 push ⇒ **复用注册（重发地址）**幂等 upsert 网关 per-address webhook_url=确认 URL。
+- **down 对称**：`--inbound-down` ⇒ 桥 route withdraw / 网关注册撤回。
+- **竞态安全**：桥 pull 无 route 不 ack（下轮重试）⇒ route 补上前信停 pending，不丢。
+- **监听器必须服务在确认 URL 上**：确认 URL 为外网 IP（AGENT_HOST）时监听绑该 IP / 0.0.0.0（**非仅回环**）；端口被占 ⇒ agent 启动失败（锁定端口语义）。
 
 ## 5 CLI 检测面（2026-10-11 增列）
 
