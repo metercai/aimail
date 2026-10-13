@@ -317,6 +317,28 @@ def _dsh_row_span(lines: list[str]) -> tuple[int, int] | None:
     return None
 
 
+def _dsh_baseurl_for(base_url: str) -> str:
+    """The `config.baseURL` this writer must persist for a caller-named OpenAI-style URL,
+    or "" when NO baseURL row may be written.
+
+    The dsh provider (packages/llm/llm-deepseek) speaks the Anthropic Messages protocol:
+    it POSTs to `messagesApiRoot(baseURL) + "/messages"` (adapter.ts:113) — an OpenAI
+    `/v1` root has no `/messages` route, so a turn dies there silently (the driver
+    contains turn errors at kick(), agent.ts) and J4e goes reply=0. Measured 2026-10-13:
+      * cloud  https://api.deepseek.com/v1/messages      -> 404 (OpenAI root, no /messages)
+      * cloud  https://api.deepseek.com/anthropic/v1/messages -> 200 (the provider's own
+                 default: config.ts PUBLIC_BASE_URL = 'https://api.deepseek.com/anthropic')
+      * local  http://127.0.0.1:8000/v1/messages         -> 200 (llama.cpp serves both)
+    Hence: for the product's default deepseek root, write NOTHING — the provider's
+    PUBLIC_BASE_URL is the single source for the Messages root (no duplicated literal,
+    no drift). For every other endpoint (local llama-server, the E3 stub) the Messages
+    root is the URL minus its trailing `/v1` (messagesApiRoot re-appends it)."""
+    host = base_url.split("//")[-1].split("/")[0]
+    if host == "api.deepseek.com":
+        return ""
+    return base_url.rstrip("/").removesuffix("/v1")
+
+
 def _dsh_upsert_config(lines: list[str], start: int, end: int,
                        keys: dict[str, str]) -> int:
     """Upsert `key: value` pairs under the row's `config:` table; returns the new row end.
@@ -417,9 +439,21 @@ def write_dsh(home: Path, base_url: str, model: str, api_key: str) -> list[Path]
                     lines[-1] += "\n"
                 lines += block
                 span = (len(lines) - len(block), len(lines))
-        end = _dsh_upsert_config(lines, span[0], span[1],
-                                 {"baseURL": base_url, "apiKeyEnv": "DEEPSEEK_API_KEY"})
+        keys = {"apiKeyEnv": "DEEPSEEK_API_KEY"}
+        want_base = _dsh_baseurl_for(base_url)
+        if want_base:
+            keys["baseURL"] = want_base
+        end = _dsh_upsert_config(lines, span[0], span[1], keys)
         assert end >= span[1]
+        if not want_base:
+            # Idempotent re-run: a previous (pre-Messages-protocol) run may have persisted
+            # the OpenAI root on this row; the provider would then prefer it over its
+            # PUBLIC_BASE_URL and the turn dies on the 404 again — delete the stale key.
+            for i in range(span[0] + 1, end):
+                if re.match(r"^\s*baseURL\s*:", lines[i]):
+                    del lines[i]
+                    end -= 1
+                    break
         if p.is_file():
             bak = p.with_suffix(p.suffix + ".pre-llm.bak")
             if not bak.exists():
@@ -576,8 +610,9 @@ def verify_dsh(home: Path, base_url: str, model: str) -> list[str]:
             bad.append(f"{p} has no `- id: {_DSH_PLUGIN_ID}` patch row")
             continue
         got = _dsh_config_value(lines, span, "baseURL")
-        if got != base_url:
-            bad.append(f"{p} {_DSH_PLUGIN_ID}.config.baseURL={got!r} != {base_url!r}")
+        want = _dsh_baseurl_for(base_url)
+        if got != want:
+            bad.append(f"{p} {_DSH_PLUGIN_ID}.config.baseURL={got!r} != {want!r}")
         ref = _dsh_config_value(lines, span, "apiKeyEnv")
         if ref != _DSH_API_KEY_ENV:
             bad.append(f"{p} {_DSH_PLUGIN_ID}.config.apiKeyEnv={ref!r} != {_DSH_API_KEY_ENV!r} — "
