@@ -60,12 +60,19 @@ case "$os-$arch" in
 esac
 
 # ── 2. resolve the release tag (AIMAIL_VERSION pins, default = newest cli-v*) ──
+# 2026-10-14 (L3 macos 格 3 红根因): 匿名 api.github.com 在 CI runner 上被限流
+# (403/429) ⇒ 下面两处 API 调用失败 ⇒ 回退 git 协议 + release 直链(不依赖 API, 裁决 5)。
 if [ "$REF" = "latest" ]; then
   TAG="$(curl -fsSL --retry 2 --connect-timeout 15 --max-time 60 \
     "https://api.github.com/repos/$REPO/releases?per_page=30" \
     | grep -o '"tag_name": *"[^"]*"' | sed 's/"tag_name": *"//; s/"$//' \
     | grep -m1 '^cli-v' )" || TAG=""
-  [ -n "$TAG" ] || die "no cli-v* release found on $REPO — the CLI has not been released yet"
+  if [ -z "$TAG" ]; then
+    # 回退: git ls-remote (git 协议, 不受 API 限流) + 版本降序取首个 cli-v*
+    TAG="$(git ls-remote --tags --sort=-v:refname "https://github.com/$REPO.git" 2>/dev/null \
+      | awk '{print $2}' | sed 's|refs/tags/||' | grep -m1 '^cli-v' )" || TAG=""
+  fi
+  [ -n "$TAG" ] || die "no cli-v* release found on $REPO — the CLI has not been released yet (API + git fallback both failed)"
 else
   TAG="$REF"
 fi
@@ -76,6 +83,11 @@ ASSET_URL="$(curl -fsSL --retry 2 --connect-timeout 15 --max-time 60 \
   "https://api.github.com/repos/$REPO/releases/tags/$TAG" \
   | grep -o '"browser_download_url": *"[^"]*"' | sed 's/"browser_download_url": *"//; s/"$//' \
   | grep -m1 "aimail-$platform$ext\$" )" || ASSET_URL=""
+if [ -z "$ASSET_URL" ]; then
+  # 回退(裁决 5): release 资产直链 —— 资产命名约定与上面 grep 的过滤串同一
+  # (aimail-$platform$ext, 由 publish.yml 生成, 单真源); 直链不经过 API。
+  ASSET_URL="https://github.com/$REPO/releases/download/$TAG/aimail-$platform$ext"
+fi
 [ -n "$ASSET_URL" ] || die "no aimail-$platform asset on release $TAG"
 
 TMP_BIN="$(mktemp /tmp/aimail-bootstrap-XXXXXX)"

@@ -399,6 +399,26 @@ PY
     done
     [ "$UP" = 1 ] || { tail -15 "$WORK/dsh-host.log" | sed 's/^/    /'; die "dsh inbound port $DSH_INBOUND_PORT not up in 120s"; }
     ok "dsh host up (inbound :$DSH_INBOUND_PORT)"
+    # ── 插件入站路由就绪门(V7, L2 同源: J4e flaky 机制 2026-10-13)──────────────
+    # 端口监听 ≠ 插件路由挂载: dsh-aimail 插件的 mail-inbound 路由挂载晚于宿主端口,
+    # 网关 welcome 首推若落在未挂载窗口 ⇒ 404 ⇒ 3 次重试(5s/15s/40s)耗尽 ⇒ 永久丢
+    # (L2 j4e6 实证: 360s 零回信)。L3 每格只跑一次 ⇒ 必须在 welcome 前确保挂载。
+    # 判据(L2 journey 同源): 无签 POST 绑定 webhook_url —— handler resolve 先于验签,
+    # 空体 ⇒ 200 no_agent = 已挂载; 404 = 宿主在但路由未挂; 000 = 拒连。
+    # 探测目标 = 绑定的 webhook_url(网关推 welcome 的同一个 URL, 单一真源, 不猜)。
+    DSH_BIND="$(ls "${HOME}/.aimail/systems/${SYSTEM_ID}"/*/agentmail.json 2>/dev/null | head -1)"
+    [ -n "$DSH_BIND" ] || die "dsh binding not found under ${HOME}/.aimail/systems/${SYSTEM_ID} (install did not write it)"
+    DSH_BIND_URL="$(python3 -c "import json;print(json.load(open('$DSH_BIND')).get('webhook_url') or '')")"
+    [ -n "$DSH_BIND_URL" ] || die "dsh binding has no webhook_url (pull mode — welcome push cannot be judged)"
+    say "dsh inbound route readiness: probing $DSH_BIND_URL (mounted = 200 no_agent; 404 = not mounted)"
+    RDY=0; _i=0
+    for _i in $(seq 1 120); do
+      _code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 -X POST "$DSH_BIND_URL" -H 'content-type: application/json' -d '{}')"
+      case "$_code" in 200|401|403) RDY=1; break ;; esac
+      sleep 2
+    done
+    [ "$RDY" = 1 ] || { tail -15 "$WORK/dsh-host.log" | sed 's/^/    /'; die "dsh plugin inbound route not mounted in 240s (last probe code=$_code, URL=$DSH_BIND_URL) — welcome would race the gateway's 3 retries"; }
+    ok "dsh inbound route mounted (probe code=$_code, 就绪耗时 ≈$((_i * 2))s)"
     ;;
 esac
 
