@@ -200,6 +200,8 @@ fn build_out(
 
     // L0 配置
     l0::l0_configs(&mut c, &platform_sid, &ctx);
+    // L0 扩展：入站 webhook 计划漂移（三态 vs 判定函数单真源，离线）
+    l0::webhook_plan_drift(&mut c, &platform_sid, &ctx);
     // L1 gateway
     l1::gateway(&mut c, &platform_sid, &ctx);
     // L2 bridge

@@ -290,6 +290,40 @@ pub fn agentmail_json(c: &mut Check, sid: &str, ctx: &Ctx) {
     }
 }
 
+/// L0 扩展：**入站 webhook 计划漂移**（`webhook_host` 三态 vs 判定函数单真源，离线）。
+///
+/// `webhook_host` 归**判定函数**所有（install 写、check 验、repair 不写）。这里不重跑
+/// 探测、不重判态——只调 [`webhookplan::plan_drift`] 判"持久化三态是不是判定函数**离线**
+/// 能证伪的矛盾"（S2 空串遇本机 GW / 无桥可部署；S1 值不可解析）。网络事实（B 桥活 /
+/// R 直连可达）不查：check 在 repair 写路径里被复用 ~20 次，且网络态会随进程启停抖动，
+/// 查了就是假红。`plan_drift` 返回 `None`（不矛盾）⇒ **不出记录**（静默通过，不刷噪音）。
+pub fn webhook_plan_drift(c: &mut Check, sid: &str, ctx: &Ctx) {
+    let Some(gw) = read_gw_cfg(ctx, sid) else {
+        return; // 配置缺失由 `gateway_json` 报（L0 第一步）
+    };
+    let stored: Option<String> = match gw.get("webhook_host") {
+        Some(Value::String(s)) => Some(s.clone()),
+        Some(_) => return, // 非字符串（形状坏）⇒ 别的检查兜底
+        None => None,
+    };
+    let gw_is_local = crate::core::gateway::is_local_gateway(field_str(&gw, "gateway_url"));
+    let bridge_deployable = crate::core::bridge_deploy::bridge_deployable();
+    let Some(why) =
+        crate::core::webhookplan::plan_drift(stored.as_deref(), gw_is_local, bridge_deployable)
+    else {
+        return; // 不矛盾 ⇒ 不刷记录
+    };
+    c.add(
+        "config",
+        "webhook-plan-drift",
+        false,
+        &why,
+        &format!(
+            "Re-run the install plan: aimail install --system-id {sid} (it re-derives the inbound webhook state); if the gateway topology really changed, re-planning is the fix"
+        ),
+    );
+}
+
 /// L0 扩展：桥配置完备性 + pull 条目 + routes 覆盖。
 pub fn bridge_completeness(c: &mut Check, sid: &str, ctx: &Ctx) {
     let cfg = ctx.aimail_home.join("bridge").join("aimail_bridge.toml");
@@ -795,5 +829,89 @@ mod tests {
         assert_eq!(url_host("http://user:pw@host.test:9/x"), "host.test");
         assert_eq!(url_host("http://[::1]:8080/x"), "::1");
         assert_eq!(url_host("not-a-url"), "");
+    }
+
+    // ── webhook_plan_drift（计划漂移，离线单真源）────────────────────────────
+
+    /// 造一个带 `webhook_host` 三态的网关配置（gateway_url 按参给）。
+    fn gw_cfg_with_webhook(tag: &str, gateway_url: &str, webhook: Option<&str>) -> (TempDir, Ctx) {
+        let tmp = TempDir::new(tag);
+        let aimail_home = tmp.path().join("aimail");
+        let user_home = tmp.path().join("home");
+        std::fs::create_dir_all(aimail_home.join("systems").join("s1")).unwrap();
+        std::fs::create_dir_all(&user_home).unwrap();
+        let mut v = serde_json::json!({
+            "gateway_url": gateway_url,
+            "admin_key": "k",
+            "system_id": "s1",
+            "system_name": "s1",
+            "domain": "example.test"
+        });
+        if let Some(w) = webhook {
+            v["webhook_host"] = Value::String(w.to_string());
+        }
+        std::fs::write(
+            aimail_home
+                .join("systems")
+                .join("s1")
+                .join(config::GATEWAY_CONFIG_NAME),
+            serde_json::to_string_pretty(&v).unwrap(),
+        )
+        .unwrap();
+        (
+            tmp,
+            Ctx {
+                aimail_home,
+                user_home,
+            },
+        )
+    }
+
+    /// 门控 `bridge_deployable`（BR）的两个空根：`AIMAIL_HOME`（无桥二进制）+
+    /// `AIMAIL_PROG_DIR`（无桥 zip）⇒ BR=false。进程 env 只在本测试内改
+    /// （门禁 `--test-threads=1`，与 repair.rs 既有 set_var 测试同风格）。
+    fn empty_roots(tag: &str) -> (TempDir, TempDir) {
+        let ah = TempDir::new(&format!("{tag}-ah"));
+        let pd = TempDir::new(&format!("{tag}-pd"));
+        (ah, pd)
+    }
+
+    #[test]
+    fn drift_check_emits_record_when_s2_empty_and_gateway_local() {
+        // 127.0.0.1 = 本机 GW（L 真，离线可判）+ S2 空串 ⇒ 判定函数只会判 S3 ⇒ 漂移。
+        let (ah, pd) = empty_roots("drift-local");
+        std::env::set_var("AIMAIL_HOME", ah.path());
+        std::env::set_var("AIMAIL_PROG_DIR", pd.path());
+        let (_t, ctx) = gw_cfg_with_webhook("drift-local-cfg", "http://127.0.0.1:8080", Some(""));
+        let mut c = Check::new();
+        webhook_plan_drift(&mut c, "s1", &ctx);
+        std::env::remove_var("AIMAIL_HOME");
+        std::env::remove_var("AIMAIL_PROG_DIR");
+        let rec = c
+            .checks
+            .iter()
+            .find(|r| r.check == "webhook-plan-drift")
+            .expect("drift record");
+        assert!(!rec.pass);
+        assert!(rec.detail.contains("direct-push"), "{}", rec.detail);
+        assert!(rec.fix.contains("aimail install"), "{}", rec.fix);
+    }
+
+    #[test]
+    fn drift_check_silent_when_no_contradiction() {
+        // S3 键缺席 ⇒ 离线不可证伪 ⇒ 静默（无记录）。
+        let (ah, pd) = empty_roots("drift-absent");
+        std::env::set_var("AIMAIL_HOME", ah.path());
+        std::env::set_var("AIMAIL_PROG_DIR", pd.path());
+        let (_t, ctx) = gw_cfg_with_webhook("drift-absent-cfg", "http://10.1.2.3:8080", None);
+        let mut c = Check::new();
+        webhook_plan_drift(&mut c, "s1", &ctx);
+        std::env::remove_var("AIMAIL_HOME");
+        std::env::remove_var("AIMAIL_PROG_DIR");
+        assert!(
+            c.checks.iter().all(|r| r.check != "webhook-plan-drift"),
+            "S3 缺席不应出漂移记录: {:?}",
+            c.checks
+        );
     }
 }

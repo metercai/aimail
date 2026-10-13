@@ -132,6 +132,61 @@ pub fn plan(i: &PlanInputs) -> WebhookPlan {
     }
 }
 
+/// **计划漂移判定**（check/repair 的离线单真源；与 [`plan`] 同源、纯函数）。
+///
+/// `webhook_host` 归**判定函数**所有（install 写、check 验、repair 不写）。这里只判
+/// **离线稳定事实**能证伪的漂移——网络事实（B 桥活 / R 直连可达）**不查**：check 在
+/// repair 写路径里被复用 ~20 次，且网络态会随进程启停抖动，查了就是假红。
+///
+/// 输入：
+/// - `stored`：持久化 `webhook_host` 三态（键缺席 = None；键在 = Some(字符串，含空串)）；
+/// - `gw_is_local`：L（纯解析，离线）；
+/// - `bridge_deployable`：BR（文件系统，离线）。
+///
+/// 返回 `Some(why)` = 漂移（判定函数**不可能**写出该态）；`None` = 不矛盾（含"离线不可判"）。
+pub fn plan_drift(
+    stored: Option<&str>,
+    gw_is_local: bool,
+    bridge_deployable: bool,
+) -> Option<String> {
+    match stored {
+        // S3 键缺席：判定函数 S3 只需 ¬B ∧ (L ∨ R)，R 是网络事实 ⇒ 离线不可证伪。
+        None => None,
+        // S1 非空：判定函数 S1 值 = 可解析的 BRIDGE_HOST（parse 失败 ⇒ env 视为不存在 ⇒ 无 S1）。
+        Some(url) if !url.is_empty() => {
+            if crate::core::netenv::parse_bridge_host(url).is_none() {
+                Some(format!(
+                    "persisted webhook_host '{url}' is not a bridge host (expected http(s)://host:port or host:port, no path) — the install plan only writes a parseable BRIDGE_HOST"
+                ))
+            } else {
+                // B（桥活）是网络事实 ⇒ 离线不可判。
+                None
+            }
+        }
+        // S2 空串：判定函数 S2 需 ¬B ∧ ¬L ∧ ¬R ∧ BR，其中 L / BR 离线可判。
+        Some(_) => {
+            if gw_is_local {
+                Some(
+                    "persisted inbound state is bridge-pull (empty webhook_host), but the gateway \
+                     resolves to this machine — the plan would classify this as direct-push \
+                     (key absent), never pull"
+                        .to_string(),
+                )
+            } else if !bridge_deployable {
+                Some(
+                    "persisted inbound state is bridge-pull (empty webhook_host), but no local \
+                     bridge is deployable — the plan would fail (a bridge is required but cannot \
+                     be deployed), never pull"
+                        .to_string(),
+                )
+            } else {
+                // ¬L ∧ BR：S2 仍可能成立（取决于网络事实 B / R）⇒ 不矛盾。
+                None
+            }
+        }
+    }
+}
+
 // ── 采集层（install 调用；探测走既有端点，分类结果解释在上方纯函数）──────────────
 
 /// 解析一个探测端点的 JSON 应答 → `ProbeResult`；缺字段/非对象 ⇒ `None`（视为未探测）。
@@ -485,5 +540,42 @@ mod tests {
         );
         assert_eq!(parse_probe(&serde_json::json!("oops")), None);
         assert_eq!(parse_probe(&serde_json::json!(null)), None);
+    }
+
+    // ── plan_drift：离线单真源（只判离线稳定事实，网络事实不判）────────────────
+
+    #[test]
+    fn plan_drift_absent_key_is_never_offline_drift() {
+        // S3 键缺席：判定函数 S3 只需 ¬B ∧ (L ∨ R)，R 是网络事实 ⇒ 离线不可证伪。
+        assert_eq!(plan_drift(None, false, false), None);
+        assert_eq!(plan_drift(None, true, true), None);
+        assert_eq!(plan_drift(None, true, false), None);
+    }
+
+    #[test]
+    fn plan_drift_s1_only_flags_unparseable_hosts() {
+        // 可解析 BRIDGE_HOST（含裸 host:port）⇒ 不矛盾（B 是网络事实，离线不判）。
+        assert_eq!(plan_drift(Some("http://10.1.2.3:9000"), true, false), None);
+        assert_eq!(plan_drift(Some("10.1.2.3:9000"), false, false), None);
+        // 本机 GW + 外部桥是合法 S1 ⇒ 不判漂移。
+        assert_eq!(plan_drift(Some("http://b.test:38080"), true, true), None);
+        // 不可解析 ⇒ 漂移（判定函数只会写可解析值）。
+        assert!(plan_drift(Some("not-a-bridge"), false, false).is_some());
+        // 带 path ⇒ 不可解析（owner：BRIDGE_HOST 无 path）。
+        assert!(plan_drift(Some("http://b.test:38080/with/path"), false, false).is_some());
+    }
+
+    #[test]
+    fn plan_drift_s2_empty_string_is_offline_disprovable() {
+        // 本机 GW ⇒ plan 必判 S3（L 离线可判）⇒ S2 是漂移。
+        let local = plan_drift(Some(""), true, false);
+        assert!(local.is_some(), "{local:?}");
+        assert!(local.unwrap().contains("direct-push"));
+        // 远端 GW + 无桥可部署 ⇒ plan 必 Fail（BR 离线可判）⇒ S2 是漂移。
+        let nobridge = plan_drift(Some(""), false, false);
+        assert!(nobridge.is_some(), "{nobridge:?}");
+        assert!(nobridge.unwrap().contains("bridge is required"));
+        // 远端 GW + 桥可部署 ⇒ S2 仍可能成立（取决于 B/R）⇒ 不判。
+        assert_eq!(plan_drift(Some(""), false, true), None);
     }
 }

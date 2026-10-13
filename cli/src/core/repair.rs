@@ -43,6 +43,14 @@ pub const REPAIRABILITY: &[((&str, &str), Repairability)] = &[
     (("config", "gateway_json"), Auto { step: 4 }),
     (("config", "system_home"), Auto { step: 4 }),
     (("config", "pointer"), Auto { step: 5 }),
+    (
+        ("config", "webhook-plan-drift"),
+        Hint {
+            why: Some(
+                "webhook_host drifted from the install plan (it is the plan's output: install writes it, check verifies it, repair does not backfill it) -> re-run the install plan (aimail install), which re-derives the inbound webhook state from the live topology",
+            ),
+        },
+    ),
     (("gateway", "config"), Auto { step: 4 }),
     (("gateway", "smtp_port"), Auto { step: 4 }),
     (
@@ -201,7 +209,7 @@ impl Step {
                     .to_string()
             }
             Step::GatewayConfig => {
-                "backfill the gateway config (system_home/webhook_host: fill gaps only)".to_string()
+                "backfill the gateway config (system_home: fill gaps only)".to_string()
             }
             Step::Pointer => {
                 "recreate the platform pointer (only when the platform root is certain and the pointer is missing)"
@@ -283,7 +291,11 @@ impl Step {
                 }
             }
             Step::GatewayConfig => {
-                // `cli/repair.py:473-517`：只补 system_home/webhook_host 的空缺，**绝不覆写已有值**。
+                // 只补 `system_home` 的空缺，**绝不覆写已有值**。
+                // `webhook_host` 已收敛到入站判定函数（单真源）：install 写、check
+                // 验（`config/webhook-plan-drift`），repair **不**再探测回填 ——
+                // 旧 `detect_webhook_host` 返回裸 host，`judge_deliverable` 恒 false，
+                // 该分支实际从不写盘，且会把合法的 S3（键缺席）误当"缺口"去补。
                 let gw_path = crate::core::config::gateway_config_path(sid);
                 if !gw_path.is_file() {
                     fail(&format!(
@@ -325,25 +337,6 @@ impl Step {
                                 changed = true;
                             } else {
                                 warn("system_home missing and the platform root cannot be determined (on a multi-platform machine pass --home)");
-                            }
-                        }
-                        if v.get("webhook_host")
-                            .and_then(|x| x.as_str())
-                            .unwrap_or("")
-                            .is_empty()
-                        {
-                            let wh = detect_webhook_host(
-                                v.get("gateway_url").and_then(|x| x.as_str()).unwrap_or(""),
-                            );
-                            if !wh.is_empty() {
-                                let (deliverable, why) = judge_deliverable(&wh);
-                                if deliverable {
-                                    v["webhook_host"] = serde_json::Value::String(wh.clone());
-                                    ok(&format!("webhook_host backfilled: {wh}"));
-                                    changed = true;
-                                } else {
-                                    warn(&format!("detected callback address '{wh}' is not a deliverable http(s) URL ({why}) — leaving webhook_host unset (no bridge entry; registration keeps the local endpoint)"));
-                                }
                             }
                         }
                         if changed {
@@ -1249,7 +1242,8 @@ pub fn run(
 // ════════════════════════════════════════════════════════════════════════════
 // S5b-i：CLI 自有权写入步（系统级文件 / 平台指针）—— 归属铁律：CLI 不写绑定文件
 // 现状码：`cli/repair.py:415-553`（_auto_platform_home / _sid_has_pointer /
-// _repair_gateway_config / _repair_pointer）
+// _repair_pointer）。`_repair_gateway_config` 已收敛：`webhook_host` 归入站判定函数
+// （单真源，install 写 / check 验 / repair 不写），网关配置步只补 `system_home`。
 // ════════════════════════════════════════════════════════════════════════════
 
 /// `_auto_platform_home`：单平台机器自动定平台根；多平台回退 cfg 的 system_home；否则空
@@ -1478,86 +1472,6 @@ pub fn detect_webhook_host(gateway_url: &str) -> String {
 
 fn step_ok(msg: &str) {
     println!("  {GREEN}✓{NC} {msg}");
-}
-fn step_warn(msg: &str) {
-    println!("  {YELLOW}⚠{NC} {msg}");
-}
-fn step_fail(msg: &str) {
-    println!("  {RED}✗{NC} {msg}");
-}
-
-/// `_repair_gateway_config`：只**补空**（system_home / webhook_host），绝不覆盖既有值。
-///
-/// 在**原始 JSON 映射**上改（不经过 typed 结构）：Python 是 dict 变更加 append，
-/// 新键落在**末尾**、既有键序不变 ⇒ 这样落盘才能与 Python **字节等价**。
-/// 写入面 = CLI 自有权（系统级文件），pretty(2 空格) 无尾换行 + 0600 原子写。
-pub fn repair_gateway_config(
-    aimail_home: &Path,
-    user_home: &Path,
-    sid: &str,
-    args_home: &str,
-) -> bool {
-    let gw_path = crate::core::config::gateway_config_path_in(aimail_home, sid);
-    if !gw_path.is_file() {
-        step_fail(&format!(
-            "gateway config does not exist: {}",
-            gw_path.display()
-        ));
-        return false;
-    }
-    let Ok(text) = std::fs::read_to_string(&gw_path) else {
-        return false;
-    };
-    let Ok(Value::Object(mut cfg)) = serde_json::from_str::<Value>(&text) else {
-        return false;
-    };
-    let get_str = |m: &serde_json::Map<String, Value>, k: &str| -> String {
-        m.get(k).and_then(Value::as_str).unwrap_or("").to_string()
-    };
-    let mut changed = false;
-    let stored = {
-        let v = get_str(&cfg, "system_home");
-        if v.is_empty() {
-            None
-        } else {
-            Some(v)
-        }
-    };
-    let root = if args_home.is_empty() {
-        auto_platform_home(user_home, stored.as_deref())
-    } else {
-        args_home.to_string()
-    };
-    if get_str(&cfg, "system_home").is_empty() {
-        if !root.is_empty() && platforms::detect_platform_from_home(Path::new(&root)) != "unknown" {
-            cfg.insert("system_home".to_string(), Value::String(root.clone()));
-            step_ok(&format!("system_home backfilled: {root}"));
-            changed = true;
-        } else {
-            step_warn("system_home missing and the platform root cannot be determined (on a multi-platform machine pass --home)");
-        }
-    }
-    if get_str(&cfg, "webhook_host").is_empty() {
-        let wh = detect_webhook_host(&get_str(&cfg, "gateway_url"));
-        let (deliverable, why) = judge_deliverable(&wh);
-        if !wh.is_empty() && deliverable {
-            cfg.insert("webhook_host".to_string(), Value::String(wh.clone()));
-            step_ok(&format!("webhook_host backfilled: {wh}"));
-            changed = true;
-        } else if !wh.is_empty() {
-            step_warn(&format!(
-                "detected callback address '{wh}' is not a deliverable http(s) URL ({why}) — leaving webhook_host unset (no bridge entry; registration keeps the local endpoint)"
-            ));
-        }
-    }
-    if changed && crate::core::config::write_private_json(&gw_path, &Value::Object(cfg)).is_err() {
-        step_fail(&format!(
-            "gateway config write failed: {}",
-            gw_path.display()
-        ));
-        return false;
-    }
-    changed
 }
 
 /// `_repair_pointer`：平台根确定 + 本 sid 无指针 + 目标指针文件不存在 ⇒ 建指针。
