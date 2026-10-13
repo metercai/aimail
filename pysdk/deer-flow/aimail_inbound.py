@@ -320,9 +320,11 @@ def start_pull_on_startup(app) -> bool:
         # Inbound notification (owner ruling 2026-09-28, SDK 去桥化): deer-flow 的
         # 宿主 gateway 正是服务这些地址入站的进程, 且 lifespan 已跑起来 ⇒ SDK 只报告
         # 这个它真正掌握的事实, best-effort, 每地址一次:
-        #     aimail address -a <addr> --inbound-live
-        # 环境(含路由)由 CLI 自持, SDK 不碰桥; 无 CLI / 非 0 / 异常 ⇒ 一行日志。
-        for _n in _ab.notify_inbound_for_system("live", system_id=_pull_system_id()):
+        #     aimail address -a <addr> --inbound-live --inbound-url <确认URL>
+        # 确认 URL(契约 §4.3)= _inbound_base()+契约路径(宿主网关实际服务的入站端点,
+        # DEERFLOW_INBOUND_URL 覆盖 / 契约默认), 非猜测 ⇒ CLI 可把路由钉到确定端口。
+        _confirmed_url = _inbound_base().rstrip("/") + _INBOUND_PATH
+        for _n in _ab.notify_inbound_for_system("live", system_id=_pull_system_id(), url=_confirmed_url):
             _line = "aimail: " + _ab.format_inbound_notify_line(_n, "live")
             if _ab.inbound_notify_is_warning(_n):
                 logger.warning("%s", _line)

@@ -129,6 +129,47 @@ def test_bad_payload_is_reported_and_never_spawns(monkeypatch):
     assert calls == []
 
 
+# ── 3b. confirmed inbound URL (contract §4.3) ────────────────────────────────
+import aimail_contract  # noqa: E402
+
+#: §4.3 fixtures build their URL from the contract single source (ratchet rule (b):
+#: the inbound path literal may not gain positions in this file).
+_CONFIRMED_URL = "http://127.0.0.1:8001" + aimail_contract.INBOUND_PATH
+
+
+@pytest.mark.parametrize("state,flag", [("live", "--inbound-live"), ("down", "--inbound-down")])
+def test_confirmed_url_is_inserted_before_the_state_flag(monkeypatch, state, flag):
+    """A known concrete serving URL rides along as `--inbound-url <url>` inserted
+    BEFORE the state flag, so the flag stays the last argv element (§4.3)."""
+    monkeypatch.setattr(aimail_base, "resolve_aimail_bin", lambda: "/usr/local/bin/aimail")
+    calls, run = _runner(rc=0)
+    out = aimail_base.notify_inbound_state(
+        "agent.acme@gw.test", state, runner=run, url=_CONFIRMED_URL)
+    assert out["state"] == "notified"
+    assert calls[0][1] == ["address", "-a", "agent.acme@gw.test",
+                           "--inbound-url", _CONFIRMED_URL, flag]
+    assert calls[0][1][-1] == flag
+
+
+def test_whitespace_url_is_omitted_and_the_argv_is_byte_identical(monkeypatch):
+    """No concrete URL (wildcard bind) => the argv is exactly the pre-§4.3 form."""
+    monkeypatch.setattr(aimail_base, "resolve_aimail_bin", lambda: "/usr/local/bin/aimail")
+    calls, run = _runner(rc=0)
+    aimail_base.notify_inbound_state("agent.acme@gw.test", "live", runner=run, url="   ")
+    assert calls == [("/usr/local/bin/aimail",
+                      ["address", "-a", "agent.acme@gw.test", "--inbound-live"], 4.0)]
+
+
+def test_for_system_passes_the_confirmed_url_to_every_address(monkeypatch, home):
+    monkeypatch.setattr(aimail_base, "resolve_aimail_bin", lambda: "/usr/local/bin/aimail")
+    _write_binding(home, "sys-1", "agent.one@gw.test")
+    calls, run = _runner(rc=0)
+    aimail_base.notify_inbound_for_system(
+        "live", system_id="sys-1", runner=run, url=_CONFIRMED_URL)
+    assert [c[1][-1] for c in calls] == ["--inbound-live"]
+    assert all("--inbound-url" in c[1] for c in calls)
+
+
 # ── 4. failures are reported, never raised ────────────────────────────────────
 def test_a_nonzero_exit_is_reported_not_raised(monkeypatch):
     monkeypatch.setattr(aimail_base, "resolve_aimail_bin", lambda: "/usr/local/bin/aimail")

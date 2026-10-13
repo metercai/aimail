@@ -44,6 +44,14 @@ export const INBOUND_STATE_FLAG: Readonly<Record<InboundState, string>> = {
   down: '--inbound-down',
 }
 
+/**
+ * The CLI argument that carries the CONFIRMED inbound URL (contract §4.3):
+ * the URL the listener actually serves on. Appended ONLY when a host knows its
+ * concrete serving URL — before the state flag, so the flag stays the last argv
+ * element (the no-URL argv shape is byte-identical to the pre-§4.3 form).
+ */
+export const INBOUND_URL_FLAG = '--inbound-url'
+
 export interface InboundNotifyOutcome {
   /** notified = the CLI accepted the note; no_cli = nothing to call; failed = one-line error. */
   state: 'notified' | 'no_cli' | 'failed'
@@ -70,6 +78,14 @@ export interface NotifyOptions {
   env?: EnvLike
   /** injected runner (tests); default = real child_process.spawn. */
   runner?: CommandRunner
+  /**
+   * Confirmed inbound URL (contract §4.3) — the URL this host's listener
+   * actually serves on. Set ONLY when the host knows a concrete serving host
+   * (the loopback default is concrete; a wildcard bind is NOT — the host then
+   * omits it and the CLI reconciles from the live topology). When set, the
+   * argv gains `--inbound-url <url>` immediately before the state flag.
+   */
+  inboundUrl?: string
 }
 
 export function logLine(prefix: string, msg: string): void {
@@ -140,7 +156,13 @@ export async function notifyInboundState(
     return { state: 'no_cli', address: addr, bin: '', detail: 'no aimail CLI on this machine' }
   }
   const run = opts.runner ?? spawnRunner
-  const args = ['address', '-a', addr, INBOUND_STATE_FLAG[state]]
+  // Confirmed inbound URL (contract §4.3): inserted before the state flag so the
+  // flag stays the last argv element. Omitted when the host has no concrete
+  // serving URL — then the argv is byte-identical to the pre-§4.3 form.
+  const confirmedUrl = String(opts.inboundUrl ?? '').trim()
+  const args: string[] = ['address', '-a', addr]
+  if (confirmedUrl) args.push(INBOUND_URL_FLAG, confirmedUrl)
+  args.push(INBOUND_STATE_FLAG[state])
   try {
     const res = await run(bin, args, opts.timeoutMs ?? 4000)
     if (res.error) return { state: 'failed', address: addr, bin, detail: res.error }

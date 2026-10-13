@@ -25,6 +25,9 @@ import {
   resolveAimailBin,
   type CommandRunner,
 } from '../packages/mail-core/src/inbound-notify.js'
+// Contract single source (2026-10-13 ratchet): the inbound path literal in these
+// §4.3 fixtures comes from the contract constant, never inlined.
+import { INBOUND_PATH } from '../packages/mail-core/src/contract.js'
 
 const calls: Array<{ bin: string; args: string[]; timeoutMs: number }> = []
 const recorder = (result: { code: number | null; error?: string }): CommandRunner =>
@@ -144,5 +147,51 @@ describe('notifyInboundForSystem', () => {
 describe('flag table', () => {
   test('exactly the two states, no third meaning', () => {
     expect(INBOUND_STATE_FLAG).toEqual({ live: '--inbound-live', down: '--inbound-down' })
+  })
+})
+
+describe('confirmed inbound URL (contract §4.3)', () => {
+  const loopbackUrl = `http://127.0.0.1:9099${INBOUND_PATH}`
+  test('a set inboundUrl inserts `--inbound-url <url>` BEFORE the state flag (flag stays last)', async () => {
+    process.env.AIMAIL_BIN = '/usr/local/bin/aimail-test'
+    const out = await notifyInboundState('agent@gw.test', 'live', {
+      runner: recorder({ code: 0 }),
+      inboundUrl: loopbackUrl,
+    })
+    expect(out.state).toBe('notified')
+    expect(calls[0]?.args).toEqual([
+      'address',
+      '-a',
+      'agent@gw.test',
+      '--inbound-url',
+      loopbackUrl,
+      '--inbound-live',
+    ])
+  })
+
+  test('an empty/whitespace inboundUrl is omitted — argv identical to the no-URL form', async () => {
+    process.env.AIMAIL_BIN = '/usr/local/bin/aimail-test'
+    await notifyInboundState('agent@gw.test', 'live', {
+      runner: recorder({ code: 0 }),
+      inboundUrl: '   ',
+    })
+    expect(calls[0]?.args).toEqual(['address', '-a', 'agent@gw.test', '--inbound-live'])
+  })
+
+  test('down may also carry the confirmed URL (same insertion rule)', async () => {
+    process.env.AIMAIL_BIN = '/usr/local/bin/aimail-test'
+    const remoteUrl = `http://10.0.0.5:8001${INBOUND_PATH}`
+    await notifyInboundState('agent@gw.test', 'down', {
+      runner: recorder({ code: 0 }),
+      inboundUrl: remoteUrl,
+    })
+    expect(calls[0]?.args).toEqual([
+      'address',
+      '-a',
+      'agent@gw.test',
+      '--inbound-url',
+      remoteUrl,
+      '--inbound-down',
+    ])
   })
 })

@@ -605,7 +605,9 @@ def _auto_register_email(name: str, profile_dir: str, config: dict) -> None:
     # The CLI owns the environment (routes included) and decides what it means; the
     # SDK speaks no bridge. Never fatal: a missing CLI / a non-zero exit is one line.
     if local_webhook_url:
-        _note = core.notify_inbound_state(email, "live")
+        # 确认 URL(契约 §4.3): local_webhook_url 即 hermes 网关实际服务的入站 URL
+        # (契约路径派生, 非猜测) ⇒ CLI 可据此把路由钉到确定端口。
+        _note = core.notify_inbound_state(email, "live", url=local_webhook_url)
         _line = f"[aimail_gateway] {core.format_inbound_notify_line(_note, 'live')}"
         if core.inbound_notify_is_warning(_note):
             logger.warning("%s", _line)

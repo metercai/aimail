@@ -57,6 +57,8 @@ const HOSTS = [
     live: 'server.listen(port, host',
     liveLabel: 'the inbound listener',
     down: true,
+    // owns its listener + a concrete serving host (loopback default) ⇒ §4.3 confirmed URL
+    carriesUrl: true,
   },
   {
     name: 'openclaw',
@@ -64,6 +66,8 @@ const HOSTS = [
     live: 'api.registerHttpRoute({',
     liveLabel: 'the in-gateway HTTP route',
     down: false,
+    // in-gateway route: the plugin does not own the serving host ⇒ no concrete URL (§4.3 reconcile)
+    carriesUrl: false,
   },
   {
     name: 'pi',
@@ -71,6 +75,8 @@ const HOSTS = [
     live: "server.listen(port, '127.0.0.1'",
     liveLabel: 'the inbound listener',
     down: true,
+    // owns its listener bound to 127.0.0.1 (concrete) ⇒ §4.3 confirmed URL
+    carriesUrl: true,
   },
 ]
 
@@ -79,10 +85,14 @@ describe('host startup hooks (inbound notification, zero bridge)', () => {
     test(`${h.name}: notifies the CLI after ${h.liveLabel} is live, fire-and-forget, and reports the outcome`, () => {
       const src = fs.readFileSync(path.join(REPO, h.file), 'utf-8')
       const liveAt = src.indexOf(h.live)
-      const call = `void notifyInboundForSystem('live')`
+      // §4.3 wiring: hosts that own a concrete serving URL pass it (the CLI pins the
+      // route to the deterministic port); the others keep the address-only form.
+      const call = h.carriesUrl
+        ? "void notifyInboundForSystem('live', { inboundUrl: confirmedUrl })"
+        : "void notifyInboundForSystem('live')"
       const hookAt = src.indexOf(call)
       expect(liveAt, `${h.name}: inbound registration not found (${h.live})`).toBeGreaterThan(-1)
-      expect(hookAt, `${h.name}: the inbound notification is not wired`).toBeGreaterThan(-1)
+      expect(hookAt, `${h.name}: the inbound notification is not wired (${call})`).toBeGreaterThan(-1)
       expect(hookAt, `${h.name}: the notification must come after the inbound endpoint is live`)
         .toBeGreaterThan(liveAt)
       // fire-and-forget + failure-tolerant: the host must not be able to see it

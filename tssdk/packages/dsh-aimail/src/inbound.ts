@@ -347,6 +347,13 @@ export function apply(ctx: Context, config: Config = {}): () => void {
   const host = config.host ?? '127.0.0.1'
   const port = config.port ?? Number(process.env.AIMAIL_INBOUND_PORT ?? INBOUND_PORTS.dsh)
   const deliverPath = config.path ?? INBOUND_PATH
+  // Confirmed inbound URL (contract §4.3): the URL this listener ACTUALLY serves
+  // on — reported back to the CLI at `--inbound-live` so the CLI can pin the
+  // route to the deterministic port. Omitted for a wildcard bind (0.0.0.0 / ::),
+  // where the serving host is not concrete: the CLI then reconciles from the live
+  // topology instead of trusting a guessed host.
+  const confirmedUrl =
+    host === '0.0.0.0' || host === '::' ? '' : `http://${host}:${port}${deliverPath}`
 
   const server = createServer(createInboundHandler(ctx, mail, deliverPath))
 
@@ -363,7 +370,7 @@ export function apply(ctx: Context, config: Config = {}): () => void {
     // the SDK speaks no bridge. Best-effort by contract: argv only, 4s timeout,
     // never blocks this callback, never throws into the host (a missing CLI is one
     // debug line — the host keeps serving and self-registering).
-    void notifyInboundForSystem('live')
+    void notifyInboundForSystem('live', { inboundUrl: confirmedUrl })
       .then((outcomes) => {
         for (const o of outcomes) {
           const line = `[dsh-aimail] ${formatInboundNotifyLine(o, 'live')}`

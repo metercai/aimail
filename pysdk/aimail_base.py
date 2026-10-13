@@ -1720,12 +1720,17 @@ def resolve_aimail_bin() -> str:
 
 
 def notify_inbound_state(email: str, state: str,
-                         timeout: float = INBOUND_NOTIFY_TIMEOUT, runner=None) -> dict:
+                         timeout: float = INBOUND_NOTIFY_TIMEOUT, runner=None,
+                         url: str = "") -> dict:
     """best-effort 通知环境主控(CLI)某地址的入站状态。**永不抛、永不阻塞调用方**。
 
     runner 是测试注入点, 签名 ``(bin, args, timeout) -> (rc, detail)``; 缺省用
     subprocess(argv, 无 shell)。返回 ``{"state": "notified"|"no_cli"|"failed",
     "email", "bin", "detail"}``。
+
+    ``url`` = 确认入站 URL(契约 §4.3): 该监听器**实际服务**的 URL。仅当宿主知道自己的
+    具体服务地址(回环默认是具体的; 通配绑定不是)才传 —— 非空时 argv 在**状态 flag 之前**
+    插入 ``--inbound-url <url>``(flag 恒为末项, 与无 URL 形态逐字兼容)。
     """
     addr = str(email or "").strip()
     flag = INBOUND_STATE_FLAG.get(str(state))
@@ -1736,7 +1741,12 @@ def notify_inbound_state(email: str, state: str,
     if not binary:
         return {"state": "no_cli", "email": addr, "bin": "",
                 "detail": "no aimail CLI on this machine"}
-    args = ["address", "-a", addr, flag]
+    # 确认 URL(§4.3): 插在状态 flag 之前 ⇒ flag 恒为 argv 末项; 空 ⇒ 形态与 §4.3 前逐字一致。
+    confirmed = str(url or "").strip()
+    args = ["address", "-a", addr]
+    if confirmed:
+        args += ["--inbound-url", confirmed]
+    args.append(flag)
     try:
         if runner is not None:
             rc, detail = runner(binary, args, timeout)
@@ -1756,15 +1766,18 @@ def notify_inbound_state(email: str, state: str,
 
 def notify_inbound_for_system(state: str, system_id: str = "",
                               timeout: float = INBOUND_NOTIFY_TIMEOUT,
-                              runner=None) -> list:
-    """对本系统**每个地址**通知一次入站状态(宿主钩子载荷)。永不抛, 无绑定 ⇒ []。"""
+                              runner=None, url: str = "") -> list:
+    """对本系统**每个地址**通知一次入站状态(宿主钩子载荷)。永不抛, 无绑定 ⇒ []。
+
+    ``url`` = 确认入站 URL(§4.3), 透传给每个地址的 ``notify_inbound_state``。
+    """
     rows = iter_agentmail_configs(system_id)
     out = []
     for c in rows:
         email = str((c or {}).get("email") or "").strip()
         if not email:
             continue
-        out.append(notify_inbound_state(email, state, timeout=timeout, runner=runner))
+        out.append(notify_inbound_state(email, state, timeout=timeout, runner=runner, url=url))
     return out
 
 

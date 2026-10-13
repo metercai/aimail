@@ -305,9 +305,12 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
       })()
     })
     const port = options.inboundPort ?? DEFAULT_INBOUND_PORT
-    // Tell identity where inbound actually listens (auto-bind registers this URL
-    // as the address webhook; the CLI owns the environment around it).
-    setInboundEndpoint(`http://127.0.0.1:${port}${INBOUND_PATH}`)
+    // Confirmed inbound URL (contract §4.3): pi binds 127.0.0.1 (concrete), so the
+    // serving URL is always known. It is both the address webhook auto-bind
+    // registers (setInboundEndpoint) and what the CLI is told at `--inbound-live`
+    // so the route can be pinned to the deterministic port.
+    const confirmedUrl = `http://127.0.0.1:${port}${INBOUND_PATH}`
+    setInboundEndpoint(confirmedUrl)
     server.listen(port, '127.0.0.1', () => {
       log.info(`[pi-aimail] inbound listening on http://127.0.0.1:${port}${INBOUND_PATH}`)
       // 入站通知(owner 裁决 2026-09-28, SDK 去桥化): 监听就绪 ⇒ 逐地址告诉环境主控
@@ -315,7 +318,7 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
       // —— "入站真在服务"之后才成立; 但**桥语义不在 SDK**: 由 CLI 决定这意味着什么。
       // best-effort: 仅 argv、4s 超时、不阻塞本回调、绝不抛给宿主(无 CLI ⇒ 一行日志,
       // 宿主照常服务并自注册)。
-      void notifyInboundForSystem('live')
+      void notifyInboundForSystem('live', { inboundUrl: confirmedUrl })
         .then((outcomes) => {
           for (const o of outcomes) {
             const line = `[pi-aimail] ${formatInboundNotifyLine(o, 'live')}`
