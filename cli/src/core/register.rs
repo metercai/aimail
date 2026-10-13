@@ -238,6 +238,20 @@ pub fn register_agent(
     if !agent.is_empty() {
         asm["requested_name"] = json!(agent);
     }
+    // 本机入站端点（契约 inbound_ports 单真源）—— 三态①：注册值 = 本机端点。
+    // node 宿主（node_entry）的 opAssemble 是共享库、不猜平台 ⇒ 由 CLI 把契约事实
+    // 作为参数传入（`local_webhook_url`）；已发布 mail-core 的 opAssemble 本就读取
+    // 该参数（`args['local_webhook_url'] || args['webhook_url'] || ''`），三态①（键
+    // 缺席）时原样落盘。python 宿主（PY 门自算 local_webhook_url）与 legacy 路径
+    // （平台包自算）不受影响 —— 故仅对 node_entry 注入，PY 宿主信封零变化。
+    // 契约字面量棘轮：端口/路径取自契约单真源；主机 127.0.0.1 = 入站监听约定
+    // （与 legacy `inboundUrl(port, host='127.0.0.1')` 默认一致）。
+    if kind == "node_entry" {
+        if let Some(port) = crate::core::contract::inbound_port(platform) {
+            asm["local_webhook_url"] =
+                json!(format!("http://127.0.0.1:{}", port) + crate::core::contract::inbound_path());
+        }
+    }
     let res = crate::core::sdk::sdk_ops_call_for(
         platform,
         &cand_homes,

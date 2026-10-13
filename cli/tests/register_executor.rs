@@ -111,6 +111,17 @@ fn register_executor_offline_behaviour() {
         payload.get("register_spec").is_none(),
         "node 宿主不自跑外部注册器 ⇒ 不得带 register_spec（{payload:?}）"
     );
+    // G1a（2026-10-13）：node_entry 信封携带本机入站端点（契约 inbound_ports 单真源）
+    // —— 三态①：注册值 = 本机端点。期望值从契约常量构造（契约字面量棘轮：禁字面量）。
+    let expected_lw = format!(
+        "http://127.0.0.1:{}",
+        aimail::core::contract::inbound_port("pi").expect("契约应有 pi 入站端口")
+    ) + aimail::core::contract::inbound_path();
+    assert_eq!(
+        payload["local_webhook_url"],
+        json!(expected_lw),
+        "node_entry 信封应携带 local_webhook_url（{payload:?}）"
+    );
 
     // 2) 缺 manager 硬门（参数/env 均无）⇒ 响亮失败，禁以空注册
     let cfg_nomgr = json!({
