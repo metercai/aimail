@@ -122,6 +122,46 @@ fn register_executor_offline_behaviour() {
         json!(expected_lw),
         "node_entry 信封应携带 local_webhook_url（{payload:?}）"
     );
+    // pi 未声明 --preset（register.args 无该 flag）⇒ 信封不得带 preset。
+    assert!(
+        payload.get("preset").is_none(),
+        "pi 未声明 preset ⇒ 信封不得带该字段（{payload:?}）"
+    );
+
+    // 1b) dsh（node_entry + register.args 声明 --preset mail）：
+    //     local_webhook_url 用 dsh 契约端口 + 信封携带 preset（值来自注册表 args 单真源）。
+    let dsh_entry = home.join("profiles/agent/node_modules/dsh-aimail/dist/register-cli.js");
+    fs::create_dir_all(dsh_entry.parent().unwrap()).unwrap();
+    fs::write(&dsh_entry, "// stub\n").unwrap();
+    aimail::core::register::register_agent(
+        "dsh",
+        "agent",
+        &cfg,
+        "",
+        &home.to_string_lossy(),
+        &core_dir(),
+    )
+    .expect("dsh 注册应成功（stub node）");
+    let recorded = fs::read_to_string(&record).unwrap();
+    let lines: Vec<&str> = recorded.lines().collect();
+    let payload: Value = serde_json::from_str(lines[lines.len() - 1]).expect("op 入参应为 JSON");
+    assert_eq!(
+        payload["local_webhook_url"],
+        json!(
+            format!(
+                "http://127.0.0.1:{}",
+                aimail::core::contract::inbound_port("dsh").expect("契约应有 dsh 入站端口")
+            ) + aimail::core::contract::inbound_path()
+        ),
+        "dsh 信封 local_webhook_url 应为 dsh 契约端口（{payload:?}）"
+    );
+    assert_eq!(
+        payload["preset"],
+        json!("mail"),
+        "dsh 信封 preset 应来自 register.args 的 --preset 声明（{payload:?}）"
+    );
+    // 用例 4（dsh 包缺失必须失败）的前提：删掉 1b 的 dsh 入口夹具。
+    fs::remove_file(&dsh_entry).ok();
 
     // 2) 缺 manager 硬门（参数/env 均无）⇒ 响亮失败，禁以空注册
     let cfg_nomgr = json!({
