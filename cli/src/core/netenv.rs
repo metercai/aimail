@@ -257,10 +257,7 @@ mod tests {
             parse_hostport("1.2.3.4:9099"),
             Some(("1.2.3.4".into(), 9099))
         );
-        assert_eq!(
-            parse_hostport("myhost:8080"),
-            Some(("myhost".into(), 8080))
-        );
+        assert_eq!(parse_hostport("myhost:8080"), Some(("myhost".into(), 8080)));
         assert_eq!(parse_hostport("noport"), None);
         assert_eq!(parse_hostport(""), None);
     }

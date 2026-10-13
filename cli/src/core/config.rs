@@ -429,9 +429,11 @@ mod tests {
         let tmp = TempDir::new("config-3state");
         let h = tmp.path();
         let write_and_check = |wh: Option<String>, expect_key: bool, expect_val: &str| {
-            let mut cfg = GatewayConfig::default();
-            cfg.gateway_url = "http://g".into();
-            cfg.webhook_host = wh.clone();
+            let cfg = GatewayConfig {
+                gateway_url: "http://g".into(),
+                webhook_host: wh.clone(),
+                ..Default::default()
+            };
             save_gateway_config_in(h, "sid3", &cfg).expect("save");
             let raw = std::fs::read_to_string(gateway_config_path_in(h, "sid3")).unwrap();
             let v: Value = serde_json::from_str(&raw).unwrap();

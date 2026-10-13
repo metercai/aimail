@@ -855,7 +855,9 @@ fn install_human(a: &Args) -> i32 {
             return fail(&format!("inbound webhook plan failed: {reason}"));
         }
         crate::core::webhookplan::WebhookPlan::BridgePush { bridge_host } => {
-            ok(&format!("inbound plan: S1 bridge push -> {bridge_host} (external bridge)"));
+            ok(&format!(
+                "inbound plan: S1 bridge push -> {bridge_host} (external bridge)"
+            ));
         }
         crate::core::webhookplan::WebhookPlan::BridgePull => {
             ok("inbound plan: S2 bridge pull (local bridge)");
