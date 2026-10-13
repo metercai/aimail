@@ -379,11 +379,17 @@ export async function opAssemble(args: Record<string, unknown>): Promise<Record<
   // 落绑定:新注册 ⇒ saveBinding;已存在 ⇒ 沿用本地(补 manager/webhook 事实)。
   // 幂等关键:exists 分支若本地无 api_key 绑定 ⇒ 响亮失败(与 python auto-bind
   // "already exists but no local binding" 同语义,先注销再重来)。
+  // G1b(2026-10-13):preset —— legacy 路径经 CLI 传参落绑定(dsh register.args
+  // --preset mail);op 路径信封不传、落盘不存 ⇒ 绑定缺 preset ⇒ check session 维红
+  // (判据只认 preset,adapters.rs session 维)。CLI 从注册表 args 声明提取后随
+  // assemble 信封传入;非空则落绑定顶层(extra 通道,fresh/exists 两分支都写 ⇒ 幂等)。
+  const preset = String(args['preset'] || '').trim()
+  const presetExtra: Record<string, unknown> = preset ? { preset } : {}
   let bindingPath = ''
   const existing = await loadAgentConfig(systemId, email)
   if (reg.exists) {
     if (existing && existing.api_key) {
-      const merged = { ...existing, manager_address: manager }
+      const merged = { ...existing, manager_address: manager, ...presetExtra }
       bindingPath = await saveAgentConfig(merged, systemId)
     } else {
       throw new UsageError(
@@ -402,6 +408,7 @@ export async function opAssemble(args: Record<string, unknown>): Promise<Record<
       webhookSecret: secret,
       managerAddress: manager,
       gateway: syscfg as never,
+      extra: presetExtra,
     })
   }
   // 共享装配步: 宿主自带的 skill/tool 暴露层若默认关闭, 由平台把(patch 文件 + 要启用的

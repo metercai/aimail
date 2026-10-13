@@ -107,6 +107,29 @@ describe('three-op node door', () => {
     expect(bind['email']).toBe('agent.j93482@shared-e2e.local')
     expect(bind['api_key']).toBe('AK-NEW')
     expect(bind['manager_address']).toBe('mgr@ext.test')
+    // 信封未带 preset ⇒ 绑定不得带该字段(G1b 反例)
+    expect(bind['preset']).toBeUndefined()
+    vi.unstubAllGlobals()
+  })
+
+  test('assemble: preset from the CLI envelope lands on the binding top level (G1b)', async () => {
+    seedSystem('sys-ps', 'example.com', 'sysx')
+    stubGateway()
+    const r = await opAssemble({
+      system_id: 'sys-ps',
+      domain: 'example.com',
+      system_name: 'sysx',
+      manager_address: 'mgr@ext.test',
+      preset: 'mail',
+      home: tmpHome,
+    })
+    expect(r['ok']).toBe(true)
+    const bindDir = path.join(tmpHome, 'systems', 'sys-ps', cleanAddr('agent.sysx@example.com'))
+    const bind = JSON.parse(
+      fs.readFileSync(path.join(bindDir, BINDING_FILE), 'utf-8'),
+    ) as Record<string, unknown>
+    // check session 维判据只认绑定顶层 preset(adapters.rs)
+    expect(bind['preset']).toBe('mail')
     vi.unstubAllGlobals()
   })
 
