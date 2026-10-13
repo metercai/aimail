@@ -1872,6 +1872,17 @@ pub fn agentmail_backfill(sid: &str, aimail_home: &Path) -> bool {
     agentmail_backfill_with(sid, aimail_home, &[])
 }
 
+/// 桥路由表值 → SDK 信封值:裸 `host:port`(桥存储设计, router.rs:308-314)还原为完整
+/// 入站 URL(主机 127.0.0.1 = 入站监听约定, 路径 = 契约单真源); 已带 scheme 的原样透传。
+/// PY SDK 期望完整 URL —— 塞裸值会把绑定 `webhook_url` 降级(重注册 ⇒ 500, 见 G2 根因链)。
+pub fn bridge_route_to_envelope_value(v: &str) -> String {
+    if v.starts_with("http://") || v.starts_with("https://") {
+        v.to_string()
+    } else {
+        format!("http://{v}{}", crate::core::contract::inbound_path())
+    }
+}
+
 /// 同上，但子进程环境可注入（夹具 AIMAIL_HOME ⇒ 不改本进程环境，并行安全）。
 pub fn agentmail_backfill_with(
     sid: &str,
@@ -1884,7 +1895,12 @@ pub fn agentmail_backfill_with(
         &aimail_home.join("bridge").join("aimail_routes.toml"),
     )
     .into_iter()
-    .map(|(k, v)| (k, serde_json::Value::String(v)))
+    .map(|(k, v)| {
+        (
+            k,
+            serde_json::Value::String(bridge_route_to_envelope_value(&v)),
+        )
+    })
     .collect();
     let args = serde_json::json!({
         "system_id": sid, "action": "repair", "home": aimail_home.to_string_lossy(),
@@ -1963,6 +1979,21 @@ fn ensure_bridge_running(sid: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bridge_route_envelope_restores_bare_value_and_passthroughs_full_url() {
+        use crate::core::contract;
+        // 裸 host:port(桥存储形态)⇒ 还原为完整入站 URL(契约单真源构造期望值, 不硬编码路径)
+        assert_eq!(
+            bridge_route_to_envelope_value("127.0.0.1:8644"),
+            format!("http://127.0.0.1:8644{}", contract::inbound_path())
+        );
+        // 已带 scheme ⇒ 原样透传(桥未来改存完整 URL, 读方无需再动)
+        let full = format!("http://127.0.0.1:8644{}", contract::inbound_path());
+        assert_eq!(bridge_route_to_envelope_value(&full), full);
+        let fulls = format!("https://gw.example.test{}", contract::inbound_path());
+        assert_eq!(bridge_route_to_envelope_value(&fulls), fulls);
+    }
 
     fn rec(level: &str, check: &str, pass: bool) -> Record {
         Record {
