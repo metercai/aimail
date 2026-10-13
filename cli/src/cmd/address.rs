@@ -23,6 +23,9 @@ pub struct Args {
     pub manager: Option<String>,
     pub inbound_live: bool,
     pub inbound_down: bool,
+    /// 确认入站端点（契约 §4.3，owner 2026-10-13）：入站 up 携带的"确定"URL。
+    /// 有值 ⇒ 按态把确定 URL 写回路由层（覆盖 install 预注册值）；无值 ⇒ 走既有全量对账。
+    pub inbound_url: Option<String>,
 }
 
 pub(crate) struct Row {
@@ -411,7 +414,15 @@ pub fn run(args: Args) -> i32 {
             return crate::core::inbound_route::finish_anchor(synth.as_ref());
         }
 
-        // live：走既有全量对账；锚点行不在表里（pull 绑定）⇒ 合成 skipped（幂等）
+        // live：
+        // · 带确认 URL（`--inbound-url`，契约 §4.3）⇒ 按态把确定端点写回路由层，
+        //   只动锚点地址（S1/S2 桥 route upsert / S3 网关 per-address webhook narrow 刷新）；
+        // · 无确认 URL ⇒ 走既有全量对账（期望态 = 本地注册绑定；锚点不在表里 ⇒ 合成 skipped）。
+        if let Some(confirmed) = &args.inbound_url {
+            let out =
+                crate::core::inbound_route::live_confirmed(&sid, &anchor, confirmed, &cfgj, &bcfg);
+            return crate::core::inbound_route::finish_anchor(Some(&out));
+        }
         let (_reported, anchor_out) =
             crate::core::bridge_wire::reconcile_inbound_routes(&sid, &cfgj, &anchor, &bcfg);
         let synth = if anchor_out.is_none() {

@@ -425,7 +425,8 @@ fn install_hidden_args(cmd: Command) -> Command {
     )
 }
 
-/// `address` 上的隐藏开关（2026-09-28 入站 live/down 通知，Python `:3601/:3603`）。
+/// `address` 上的隐藏开关（2026-09-28 入站 live/down 通知，Python `:3601/:3603`；
+/// 2026-10-13 加 `--inbound-url` 携带"确定的"入站端点）。
 fn address_hidden_args(cmd: Command) -> Command {
     cmd.arg(
         Arg::new("inbound-live")
@@ -437,6 +438,17 @@ fn address_hidden_args(cmd: Command) -> Command {
         Arg::new("inbound-down")
             .long("inbound-down")
             .action(ArgAction::SetTrue)
+            .hide(true),
+    )
+    .arg(
+        Arg::new("inbound-url")
+            .long("inbound-url")
+            .value_name("URL")
+            .help(
+                "confirmed inbound endpoint (owner 2026-10-13): the URL the inbound \
+                 server actually listens on; S1/S2 upsert the bridge route to it, \
+                 S3 re-registers the address to push it to the gateway",
+            )
             .hide(true),
     )
 }
@@ -770,6 +782,7 @@ pub fn run() -> i32 {
             manager: arg_opt(m, "manager"),
             inbound_live: m.get_flag("inbound-live"),
             inbound_down: m.get_flag("inbound-down"),
+            inbound_url: arg_opt(m, "inbound-url"),
         }),
         Some(("uninstall", m)) => crate::cmd::uninstall::run(&crate::cmd::uninstall::Args {
             system_id: arg_str(m, "system-id"),
