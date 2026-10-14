@@ -311,4 +311,96 @@ describe('three-op node door', () => {
     await expect(opTeardown({ system_id: 'sys-td2', mode: { unregister: true } })).rejects.toBeInstanceOf(UsageError)
     vi.unstubAllGlobals()
   })
+
+  /** Stub the exists-repair chain: register → "already exists" → domains list → PUT refresh.
+   *  The PUT body is what the gateway stores and the host verifies against. */
+  function stubExistsRepair(email: string): void {
+    stubGateway((u, init) => {
+      if (u.includes('/addresses?generate_code=true')) {
+        // real gateway shape: HTTP 409 + error body (client drops body's `status` key)
+        return new Response(JSON.stringify({ error: 'address already exists' }), { status: 409 })
+      }
+      if (u.includes('/domains')) {
+        return new Response(JSON.stringify({ data: [{ id: 9, domain: email }] }), { status: 200 })
+      }
+      if (u.includes('/system-domains/9')) {
+        return new Response(JSON.stringify({ status: 'ok' }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ status: 'ok' }), { status: 200 })
+    })
+  }
+
+  test('assemble (exists): local binding secret is the single source — never minted, synced to gateway (J4e)', async () => {
+    seedSystem('sys-j4e', 'example.com', 'sysx')
+    const email = 'agent.sysx@example.com'
+    const bindDir = path.join(tmpHome, 'systems', 'sys-j4e', cleanAddr(email))
+    fs.mkdirSync(bindDir, { recursive: true })
+    const bindPath = path.join(bindDir, BINDING_FILE)
+    const LOCAL_SECRET = 'a'.repeat(64)
+    fs.writeFileSync(bindPath, JSON.stringify({ email, api_key: 'AK1', webhook_secret: LOCAL_SECRET }))
+    stubExistsRepair(email)
+    const r = await opAssemble({
+      system_id: 'sys-j4e',
+      domain: 'example.com',
+      system_name: 'sysx',
+      manager_address: 'mgr@ext.test',
+      email,
+      local_webhook_url: 'http://127.0.0.1:9099/wh',
+      webhook_secret: LOCAL_SECRET,
+      home: tmpHome,
+    })
+    expect(r['ok']).toBe(true)
+    // the gateway PUT carried the LOCAL secret (not a freshly minted one)
+    const bind = JSON.parse(fs.readFileSync(bindPath, 'utf-8')) as Record<string, unknown>
+    expect(bind['webhook_secret']).toBe(LOCAL_SECRET)
+    vi.unstubAllGlobals()
+  })
+
+  test('assemble (exists): local secret missing + caller value ⇒ backfilled into the binding (J4e backfill)', async () => {
+    seedSystem('sys-j4e2', 'example.com', 'sysx')
+    const email = 'agent.sysx@example.com'
+    const bindDir = path.join(tmpHome, 'systems', 'sys-j4e2', cleanAddr(email))
+    fs.mkdirSync(bindDir, { recursive: true })
+    const bindPath = path.join(bindDir, BINDING_FILE)
+    const CALLER_SECRET = 'b'.repeat(64)
+    // binding exists (has api_key) but NO webhook_secret — the J4e split state
+    fs.writeFileSync(bindPath, JSON.stringify({ email, api_key: 'AK1' }))
+    stubExistsRepair(email)
+    const r = await opAssemble({
+      system_id: 'sys-j4e2',
+      domain: 'example.com',
+      system_name: 'sysx',
+      manager_address: 'mgr@ext.test',
+      email,
+      local_webhook_url: 'http://127.0.0.1:9099/wh',
+      webhook_secret: CALLER_SECRET,
+      home: tmpHome,
+    })
+    expect(r['ok']).toBe(true)
+    const bind = JSON.parse(fs.readFileSync(bindPath, 'utf-8')) as Record<string, unknown>
+    // the caller's secret was carried back into the binding (single source restored)
+    expect(bind['webhook_secret']).toBe(CALLER_SECRET)
+    vi.unstubAllGlobals()
+  })
+
+  test('update action=webhook-secret: value-less call ⇒ ensure (reuse local / mint + write back) (J4e CLI contract)', async () => {
+    seedSystem('sys-j4e3', 'example.com', 'sysx')
+    const email = 'agent.sysx@example.com'
+    const bindDir = path.join(tmpHome, 'systems', 'sys-j4e3', cleanAddr(email))
+    fs.mkdirSync(bindDir, { recursive: true })
+    const bindPath = path.join(bindDir, BINDING_FILE)
+    fs.writeFileSync(bindPath, JSON.stringify({ email, api_key: 'AK1' }))
+    stubGateway()
+    // no webhook_secret in the args — the CLI repair.rs:872 contract (ensure semantics)
+    const r = await opUpdate({
+      system_id: 'sys-j4e3',
+      action: 'webhook-secret',
+      email,
+    })
+    expect(r['ok']).toBe(true)
+    const bind = JSON.parse(fs.readFileSync(bindPath, 'utf-8')) as Record<string, unknown>
+    // a fresh 64-hex secret was provisioned and written back
+    expect(String(bind['webhook_secret'] ?? '')).toMatch(/^[0-9a-f]{64}$/)
+    vi.unstubAllGlobals()
+  })
 })
