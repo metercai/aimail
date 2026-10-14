@@ -111,16 +111,19 @@ PY
       || echo "    ✗ platform_toolsets.webhook 缺失 —— ensure_config.py:4-11 的已知根因(agent'收得到回不出')"
   fi
   # dsh 格取证盲区: 宿主 agent 对话不走 stdout(dsh-host.log 只有启动帧, 历史实证 4 行),
-  # 会话持久化在 $DSH_HOME/storages/(workspace.json: global.sessionIds + tables)——
+  # 会话持久化在 $DSH_HOME/storages/(workspace.json: global.sessionIds + tables;
+  # 单会话在 storages/session_projcache/sessions/<id>.json —— 三层, L3 实证)——
   # dsh 格"③宿主原话"的真实数据源(活实验实锤 dsh 落盘布局)。
   if [ -n "${DSH_HOME:-}" ] && [ -d "$DSH_HOME/storages" ]; then
     echo "  [③ dsh 会话持久化] $DSH_HOME/storages/"
     find "$DSH_HOME/storages" -type f 2>/dev/null | head -10 | sed 's/^/    /'
-    for sf in "$DSH_HOME"/storages/*.json "$DSH_HOME"/storages/*/*.json; do
+    # 递归取全部会话 json(workspace + 单会话), 不只顶层两层 —— 单会话文件在
+    # session_projcache/sessions/ 第三层, 是 agent 实际 turn 的对话记录。
+    while IFS= read -r sf; do
       [ -f "$sf" ] || continue
-      echo "  [③ dsh 会话] $(basename "$sf") (tail -30)"
-      tail -30 "$sf" | sed 's/^/    /'
-    done
+      echo "  [③ dsh 会话] ${sf#"$DSH_HOME"/storages/} ($(wc -c < "$sf") bytes, tail -40)"
+      tail -40 "$sf" | sed 's/^/    /'
+    done < <(find "$DSH_HOME/storages" -type f -name '*.json' 2>/dev/null)
   elif [ -n "${DSH_HOME:-}" ]; then
     echo "  [③ dsh 会话持久化] 不存在 $DSH_HOME/storages (dsh 宿主未落盘 —— 宿主可能从未 boot 到会话层)"
   fi
