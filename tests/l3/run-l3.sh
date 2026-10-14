@@ -110,6 +110,20 @@ PY
       && echo "    ✓ platform_toolsets.webhook 存在" \
       || echo "    ✗ platform_toolsets.webhook 缺失 —— ensure_config.py:4-11 的已知根因(agent'收得到回不出')"
   fi
+  # dsh 格取证盲区: 宿主 agent 对话不走 stdout(dsh-host.log 只有启动帧, 历史实证 4 行),
+  # 会话持久化在 $DSH_HOME/storages/(workspace.json: global.sessionIds + tables)——
+  # dsh 格"③宿主原话"的真实数据源(活实验实锤 dsh 落盘布局)。
+  if [ -n "${DSH_HOME:-}" ] && [ -d "$DSH_HOME/storages" ]; then
+    echo "  [③ dsh 会话持久化] $DSH_HOME/storages/"
+    find "$DSH_HOME/storages" -type f 2>/dev/null | head -10 | sed 's/^/    /'
+    for sf in "$DSH_HOME"/storages/*.json "$DSH_HOME"/storages/*/*.json; do
+      [ -f "$sf" ] || continue
+      echo "  [③ dsh 会话] $(basename "$sf") (tail -30)"
+      tail -30 "$sf" | sed 's/^/    /'
+    done
+  elif [ -n "${DSH_HOME:-}" ]; then
+    echo "  [③ dsh 会话持久化] 不存在 $DSH_HOME/storages (dsh 宿主未落盘 —— 宿主可能从未 boot 到会话层)"
+  fi
   # 产品自己的判据(历史 L2 里正是它报 '✗ toolset: … platform_toolsets MISSING')
   [ -x "${AIMAIL_BIN:-/nonexistent}" ] && { echo "  [产品自检] aimail check:"; "$AIMAIL_BIN" check 2>&1 | tail -30 | sed 's/^/    /'; }
   echo "  ──────────────────────────────────"
@@ -380,6 +394,66 @@ PY
     done
     [ "$UP" = 1 ] || { tail -15 "$WORK/hermes-host.log" | sed 's/^/    /'; die "hermes inbound port $HERMES_PORT not up in 120s"; }
     ok "hermes host up (inbound :$HERMES_PORT)"
+    # ── send_mail 工具暴露断言(install 后、welcome 前)──────────────────────
+    # send_mail 在 webhook 会话的暴露 = config.yaml 的 platform_toolsets.webhook
+    # 含契约 toolset(hermes boot 期读, install 的 ensure_config 负责写入)。
+    # 入站端口活着只证明宿主起了, 不证明工具暴露 —— 历史已知根因
+    # (ensure_config.py:4-11 "收得到回不出"): 缺它 ⇒ webhook 会话无 send_mail ⇒
+    # welcome 触发后 agent 回不了 ⇒ 120s 超时。此处响亮失败, 不让 welcome 替它背锅。
+    # dsh 格不需要等价断言: send_mail(tool-mail)与 mail-inbound 是同一原子 bundle
+    # (cordis.patch.yml), boot fail-loud ⇒ 上面 V7 入站路由门(路由已挂载)已传递
+    # 保证 tool-mail 注册; 重复探针是冗余。
+    # toolset 名从契约读(字面量棘轮: 禁硬编码契约值, 同 dump_failure_evidence 取 skill)。
+    TS="$(python3 - "${AIMAIL_REPO:-}/contract/aimail-contract.json" <<'PY'
+import json, sys
+print(json.load(open(sys.argv[1]))["agent_toolset_name"])
+PY
+)" || die "cannot read agent_toolset_name from contract"
+    [ -n "$TS" ] || die "empty agent_toolset_name from contract"
+    PT="$(python3 - "$HERMES_HOME/config.yaml" <<'PY'
+import sys
+# 无 PyYAML(L3 容器 macOS 系统 python3 无)⇒ 纯标准库文本解析, 与上方 port 解析同纪律。
+# 兼容三种 yaml.safe_dump 形态: 同级块列表(默认, 2 空格与 webhook: 同级)、
+# 嵌套块列表(4 空格)、flow 列表([a, b])。
+tools = []
+lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
+n = len(lines)
+i = 0
+while i < n and not (lines[i].strip() == "platform_toolsets:" and not lines[i].startswith(" ")):
+    i += 1
+i += 1  # 进入 platform_toolsets 块
+web_indent = None
+while i < n:
+    ln = lines[i]
+    s = ln.strip()
+    if not s or s.startswith("#"):
+        i += 1
+        continue
+    ind = len(ln) - len(ln.lstrip(" "))
+    if ind == 0:
+        break  # 离开 platform_toolsets 块
+    if web_indent is None and ind == 2 and s.startswith("webhook:"):
+        web_indent = ind
+        rest = s[len("webhook:"):].strip()
+        if rest.startswith("["):
+            tools = [x.strip().strip('"').strip("'") for x in rest.strip("[]").split(",") if x.strip()]
+        i += 1
+        continue
+    if web_indent is not None and s.startswith("- ") and ind >= web_indent:
+        tools.append(s[2:].strip().strip('"').strip("'"))
+        i += 1
+        continue
+    if web_indent is not None and ind <= web_indent:
+        break  # 下一个同级键(webhook 列表结束)
+    i += 1
+print(" ".join(tools))
+PY
+)" || die "cannot read hermes platform_toolsets.webhook from $HERMES_HOME/config.yaml"
+    case " $PT " in
+      *" $TS "*) : ;;
+      *) die "send_mail not exposed to webhook sessions: platform_toolsets.webhook=[$PT] (missing $TS) — install's ensure_config did not wire the toolset; welcome cannot reply" ;;
+    esac
+    ok "send_mail exposed to webhook sessions (platform_toolsets.webhook ⊇ $TS)"
     ;;
   dsh|dsh-aimail|dsh-plugin)
     # 入站 = dsh-aimail 插件的 mail-inbound server(宿主生命周期自持, server.listen
