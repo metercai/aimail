@@ -406,7 +406,8 @@ PY
     # 判据(L2 journey 同源): 无签 POST 绑定 webhook_url —— handler resolve 先于验签,
     # 空体 ⇒ 200 no_agent = 已挂载; 404 = 宿主在但路由未挂; 000 = 拒连。
     # 探测目标 = 绑定的 webhook_url(网关推 welcome 的同一个 URL, 单一真源, 不猜)。
-    DSH_BIND="$(ls "${HOME}/.aimail/systems/${SYSTEM_ID}"/*/agentmail.json 2>/dev/null | head -1)"
+    # 绑定文件名 = 契约 binding_file 常量;shell 无 import 常量模块,只能字面量 glob。
+    DSH_BIND="$(ls "${HOME}/.aimail/systems/${SYSTEM_ID}"/*/agentmail.json 2>/dev/null | head -1)"  # contract-allowed: shell 探针 glob 磁盘真实绑定文件(契约 binding_file);shell 无 import 常量模块,字面量为唯一取法
     [ -n "$DSH_BIND" ] || die "dsh binding not found under ${HOME}/.aimail/systems/${SYSTEM_ID} (install did not write it)"
     DSH_BIND_URL="$(python3 -c "import json;print(json.load(open('$DSH_BIND')).get('webhook_url') or '')")"
     [ -n "$DSH_BIND_URL" ] || die "dsh binding has no webhook_url (pull mode — welcome push cannot be judged)"
