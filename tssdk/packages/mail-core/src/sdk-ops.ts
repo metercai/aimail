@@ -364,7 +364,16 @@ export async function opAssemble(args: Record<string, unknown>): Promise<Record<
   if (webhookUrl) {
     webhookUrl = resolveRegisterWebhook(syscfg as never, webhookUrl) || webhookUrl
   }
-  const secret = randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, '')
+  // secret 单一真源 = 本地绑定(与 pysdk register_agent_email 第 10 缺陷口径同形):
+  // 本地有 ⇒ 用它(绝不铸新 —— 无条件铸新会让云端≠本地 ⇒ 入站恒 401,J4e 定因);
+  // 本地缺、调用方给(repair 传本地值)⇒ 用它;两者皆缺 ⇒ 铸新。
+  const _existing = await loadAgentConfig(systemId, email)
+  const _existingSecret = String((_existing ?? {})['webhook_secret'] ?? '').trim()
+  const _callerSecret = String(args['webhook_secret'] ?? '').trim()
+  const secret =
+    _existingSecret ||
+    _callerSecret ||
+    randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, '')
   const reg = await registerAddress({
     systemId,
     email,
@@ -386,11 +395,19 @@ export async function opAssemble(args: Record<string, unknown>): Promise<Record<
   const preset = String(args['preset'] || '').trim()
   const presetExtra: Record<string, unknown> = preset ? { preset } : {}
   let bindingPath = ''
-  const existing = await loadAgentConfig(systemId, email)
   if (reg.exists) {
-    if (existing && existing.api_key) {
-      const merged = { ...existing, manager_address: manager, ...presetExtra }
-      bindingPath = await saveAgentConfig(merged, systemId)
+    if (_existing && _existing.api_key) {
+      // exists 分支:本地 secret 为单一真源 —— 本地缺而网关侧已用入参/新值同步 ⇒ 回写本地
+      // (镜像 pysdk aimail_base.py:2472-2494 "先把这把回写绑定再 PUT",卡B ③ 同口径)。
+      const merged: Record<string, unknown> = {
+        ..._existing,
+        manager_address: manager,
+        ...presetExtra,
+      }
+      if (!String(merged['webhook_secret'] ?? '').trim()) {
+        merged['webhook_secret'] = secret
+      }
+      bindingPath = await saveAgentConfig(merged as unknown as AgentConfig, systemId)
     } else {
       throw new UsageError(
         `assemble: ${email} 已存在于系统 ${systemId} 但本地没有带 api_key 的绑定 —— ` +
@@ -541,8 +558,15 @@ export async function opUpdate(args: Record<string, unknown>): Promise<Record<st
       const v = args['persona'] ?? (args['updates'] as Record<string, unknown> | undefined)?.['persona']
       if (v !== undefined && v !== null) patch['persona'] = v
     } else {
+      // webhook-secret:值优先(顶层键 > updates 信封);无值 ⇒ ensure 语义
+      // (CLI repair.rs:872 契约 v1.0 §4.1:不带值调 update 期望复用本地/生成并写回)。
       const v = args['webhook_secret'] ?? (args['updates'] as Record<string, unknown> | undefined)?.['webhook_secret']
-      if (v !== undefined && v !== null) patch['webhook_secret'] = v
+      if (v !== undefined && v !== null && String(v).trim() !== '') {
+        patch['webhook_secret'] = v
+      } else {
+        const ensured = await ensureBindingWebhookSecret(cfg, String(cfg['_config_path'] || ''))
+        patch['webhook_secret'] = ensured.secret
+      }
     }
     if (Object.keys(patch).length === 0) throw new UsageError(`update action=${action}: 缺少要更新的字段`)
     Object.assign(cfg, patch)
