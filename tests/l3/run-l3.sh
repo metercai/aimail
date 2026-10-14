@@ -121,8 +121,16 @@ PY
     # session_projcache/sessions/ 第三层, 是 agent 实际 turn 的对话记录。
     while IFS= read -r sf; do
       [ -f "$sf" ] || continue
-      echo "  [③ dsh 会话] ${sf#"$DSH_HOME"/storages/} ($(wc -c < "$sf") bytes, tail -40)"
-      tail -40 "$sf" | sed 's/^/    /'
+      sz=$(wc -c < "$sf")
+      echo "  [③ dsh 会话] ${sf#"$DSH_HOME"/storages/} ($sz bytes, 全文 ≤12KB / 超则截断)"
+      # 会话文件前部=agent turn 对话(消息), 尾部=元数据 —— 必须从前部读,
+      # 不能用 tail(历史实证 8KB 会话, tail -40 只抓到元数据, turn 内容全丢)。
+      if [ "$sz" -le 12000 ]; then
+        cat "$sf" | sed 's/^/    /'
+      else
+        head -c 12000 "$sf" | sed 's/^/    /'
+        echo "    ... (truncated at 12000/$sz bytes)"
+      fi
     done < <(find "$DSH_HOME/storages" -type f -name '*.json' 2>/dev/null)
   elif [ -n "${DSH_HOME:-}" ]; then
     echo "  [③ dsh 会话持久化] 不存在 $DSH_HOME/storages (dsh 宿主未落盘 —— 宿主可能从未 boot 到会话层)"
