@@ -110,8 +110,10 @@ PY
       && echo "    ✓ platform_toolsets.webhook 存在" \
       || echo "    ✗ platform_toolsets.webhook 缺失 —— ensure_config.py:4-11 的已知根因(agent'收得到回不出')"
     # 回信协议注入通道: webhook 路由的 skills 字段(webhook.py:853 按 route skills 注入
-    # SKILL 内容进 prompt; 缺 agentmail ⇒ agent 有 send_mail 工具但无回信协议)。
+    # SKILL 内容进 prompt; 缺契约 skill 名 ⇒ agent 有 send_mail 工具但无回信协议)。
     # 路由表落 {HERMES_HOME}/webhook_subscriptions.json(_ensure_webhook_route 写入)。
+    # 路由名/skill 名从契约单一真源读(字面量棘轮: 禁新增硬编码位置)。
+    CONTRACT_JSON="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/contract/aimail-contract.json"
     SUBS="$HERMES_HOME/webhook_subscriptions.json"
     # 两处都可能: 网关运行时读 get_hermes_home()(= $HERMES_HOME), 而
     # _ensure_webhook_route 在 profile_dir 非空时写 profile 目录 —— 两处都要看。
@@ -119,16 +121,22 @@ PY
                 "$HERMES_HOME/profiles/agent/webhook_subscriptions.json"; do
       if [ -f "$SUBS" ]; then
         echo "  [hermes webhook 路由] $SUBS (skills 字段 = 回信协议注入)"
-        python3 - "$SUBS" <<'PY' | sed 's/^/    /'
+        python3 - "$SUBS" "$CONTRACT_JSON" <<'PY' | sed 's/^/    /'
 import json, sys
 d = json.load(open(sys.argv[1]))
+try:
+    c = json.load(open(sys.argv[2]))
+    route, skill = c["hermes_route_name"], c["agent_skill_name"]
+except Exception:
+    route = skill = None
 for name, r in d.items():
     print(f"  route {name}: skills={r.get('skills')} preprocess={r.get('preprocess')} deliver={r.get('deliver')}")
-    if 'aimail' in name:
-        if not r.get('skills'):
-            print("  ✗ aimail-inbound 路由无 skills —— webhook 会话拿不到 agentmail 回信协议")
+    if route and name == route:
+        sk = r.get("skills") or []
+        if skill in sk:
+            print(f"  ✓ route {route} skills 含 {skill} =", sk)
         else:
-            print("  ✓ aimail-inbound 路由 skills =", r.get('skills'))
+            print(f"  ✗ route {route} skills={sk} 缺 {skill} —— webhook 会话拿不到回信协议")
 PY
       fi
     done
