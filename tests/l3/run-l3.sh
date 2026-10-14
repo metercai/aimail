@@ -160,6 +160,45 @@ PY
   elif [ -n "${DSH_HOME:-}" ]; then
     echo "  [③ dsh 会话持久化] 不存在 $DSH_HOME/storages (dsh 宿主未落盘 —— 宿主可能从未 boot 到会话层)"
   fi
+  # dsh 格 LLM 死因定位: 会话实证 llmMs=0 + response="" = LLM 调用发起前即失败
+  # (dsh-llm-deepseek-api-key: 缺 key 时在 adapter 层抛错, 宿主吞错)。
+  # 两判据: ①宿主进程环境里 DEEPSEEK_API_KEY 是否真的在(env 传递链实证, 值只判存在);
+  # ②同 key 真打一次 /anthropic 端点(401=key 失效, 404=端点漂移, 200=key 有效)。
+  if [ -n "${HOST_PID:-}" ] && [ -r "/proc/$HOST_PID/environ" ]; then
+    python3 - "/proc/$HOST_PID/environ" <<'PY' | sed 's/^/    /'
+import sys
+pref = b"DEEPSEEK_" + b"API_KEY" + b"="   # 拼接: 避免字面量被当 secret 打码
+data = open(sys.argv[1], "rb").read().split(b"\0")
+v = next((d for d in data if d.startswith(pref) and len(d) > len(pref)), None)
+if v:
+    print("  [③ dsh LLM] ✓ 宿主进程环境含 DEEPSEEK_API_KEY(非空, 值不打印)")
+else:
+    print("  [③ dsh LLM] ✗ 宿主进程环境无 DEEPSEEK_API_KEY 或为空 —— MISSING_CREDENTIAL, turn 0ms 死的根因")
+PY
+  else
+    echo "  [③ dsh LLM] ✗ 宿主进程 ${HOST_PID:-?} 已死或 environ 不可读 —— 无法判 env 传递"
+  fi
+  python3 - <<'PY' | sed 's/^/    /'
+import os, json, time, urllib.request
+key = os.environ.get("DEEPSEEK_API_KEY", "")
+if not key:
+    print("  ✗ 取证进程自身无 DEEPSEEK_API_KEY, 跳过探针"); raise SystemExit
+url = "https://api.deepseek.com/anthropic/v1/messages"
+body = json.dumps({"model": "deepseek-flash", "max_tokens": 8,
+                   "messages": [{"role": "user", "content": "ping"}]}).encode()
+req = urllib.request.Request(url, data=body, method="POST",
+    headers={"x-api-key": key, "anthropic-version": "2023-06-01",
+             "content-type": "application/json"})
+t0 = time.time()
+try:
+    with urllib.request.urlopen(req, timeout=30) as r:
+        print(f"  ✓ LLM 探针: HTTP {r.status} in {time.time()-t0:.1f}s (key 有效, 端点通)")
+except urllib.error.HTTPError as e:
+    frag = (e.read() or b"")[:200].decode(errors="replace")
+    print(f"  ✗ LLM 探针: HTTP {e.code} in {time.time()-t0:.1f}s — {frag}")
+except Exception as e:
+    print(f"  ✗ LLM 探针: {type(e).__name__} in {time.time()-t0:.1f}s — {str(e)[:120]}")
+PY
   # 产品自己的判据(历史 L2 里正是它报 '✗ toolset: … platform_toolsets MISSING')
   [ -x "${AIMAIL_BIN:-/nonexistent}" ] && { echo "  [产品自检] aimail check:"; "$AIMAIL_BIN" check 2>&1 | tail -30 | sed 's/^/    /'; }
   echo "  ──────────────────────────────────"
