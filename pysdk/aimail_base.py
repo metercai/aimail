@@ -282,7 +282,7 @@ def _load_gateway_config(system_id: str = "") -> Optional[dict]:
     product_code = os.environ.get("AIMAIL_PRODUCT_CODE", "")
     domain = os.environ.get("AIMAIL_DOMAIN", "")
     # Fallback: map AIMAIL_BRIDGE_URL → webhook_host
-    raw_webhook = os.environ.get("AIMAIL_WEBHOOK_HOST", "") or os.environ.get("AIMAIL_BRIDGE_URL", "")
+    raw_webhook = os.environ.get("AIMAIL_BRIDGE_URL", "")
     if raw_webhook:
         # Strip protocol and /path to get host:port
         raw_webhook = raw_webhook.replace("http://", "").replace("https://", "").split("/")[0]

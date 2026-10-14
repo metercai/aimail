@@ -728,7 +728,7 @@ pub fn announce_input(arg_value: &str) -> String {
     if !env1.is_empty() {
         return env1;
     }
-    std::env::var("AIMAIL_WEBHOOK_HOST").unwrap_or_default()
+    String::new()
 }
 
 /// `announced_url`：本环境为桥的 push 入口宣告/注册的 URL。
@@ -865,7 +865,7 @@ pub struct DeploySpec {
     pub admin_key: String,
     pub system_id: String,
     pub domain: String,
-    /// `WEBHOOK_MODE == "bridge"` ⇒ pull（云端来取，桥不需要 hostname）
+    /// S2（桥 pull 态，`webhookplan::WebhookPlan::BridgePull`）⇒ pull（云端来取，桥不需要 hostname）
     pub webhook_mode_bridge: bool,
     /// `--bridge-hostname` 参数值（显式输入优先）
     pub announce_arg: String,

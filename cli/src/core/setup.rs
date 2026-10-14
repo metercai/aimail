@@ -6,9 +6,9 @@
 //! · 返回 Python 同形 dict（`{success, error?, system_id?, path?, admin_key?}`），由调用方决定怎么播。
 //!
 //! 照抄点（易漏，逐条来自 Python 原文）：
-//! 1 `webhook_host` 三态：显式/env → admin_key 路径**继承已有 cfg**（reset 语义；实测探测出的 IPv6
-//!   地址曾覆写 NAT 公网值）→ `detect_webhook_host` + `judge_deliverable`（**裸 host 不可投递 ⇒ 不写**，
-//!   保住"无桥 ⇒ 注册本机端点"的既有状态）；
+//! 1 `webhook_host` 三态：单真源 = `webhookplan`（owner 2026-10-13）—— install 探测后写
+//!   （S1 url / S2 空串 / S3 键缺席）；admin_key 路径（reset 语义）这里**只继承已有 cfg**
+//!   （实测探测出的 IPv6 地址曾覆写 NAT 公网值），不写三态；
 //! 2 Path A 的 `whoami` 身份对齐：platform 级 key **拒收**（必须留在网关）、system_id 可从 key 采纳、
 //!   不符则报错；`whoami` 拿不到时只 warn **不臆断**；
 //! 3 Path A 的"空参数继承已有值"（reset 语义）+ 写回后把 prev 里未覆盖的业务字段**补回**
@@ -35,7 +35,6 @@ pub struct SetupArgs {
     pub domain: String,
     pub save_raw_snapshots: bool,
     pub manager_address: String,
-    pub webhook_host: String,
     pub system_home: String,
 }
 
@@ -58,8 +57,6 @@ pub fn setup(a: &SetupArgs) -> Value {
     if a.gateway_url.is_empty() {
         return err("gateway_url is required");
     }
-    let webhook_host = resolve_webhook_host(a);
-
     // ── Path A: admin_key（已激活系统的复用/重置）──────────────────────────────
     if !a.admin_key.is_empty() {
         let mut system_id = a.system_id.clone();
@@ -166,15 +163,12 @@ pub fn setup(a: &SetupArgs) -> Value {
             } else {
                 a.manager_address.clone()
             },
-            // webhook_host 三态：解析值非空 ⇒ Some(值)；空（不写/继承）⇒ 沿用 prev 的三态
+            // webhook_host 三态：单真源 = webhookplan（install 探测后写）；reset 只继承已有值
             // （prev 键缺席 ⇒ None=S3；prev 键在含空串 ⇒ Some(值)，reset 时保住 S2 空串）。
-            webhook_host: if webhook_host.is_empty() {
-                prev.get("webhook_host")
-                    .and_then(Value::as_str)
-                    .map(|s| s.to_string())
-            } else {
-                Some(webhook_host.clone())
-            },
+            webhook_host: prev
+                .get("webhook_host")
+                .and_then(Value::as_str)
+                .map(|s| s.to_string()),
             system_home: if a.system_home.is_empty() {
                 pget("system_home")
             } else {
@@ -221,7 +215,6 @@ pub fn setup(a: &SetupArgs) -> Value {
             &a.domain,
             a.save_raw_snapshots,
             &a.manager_address,
-            &webhook_host,
             &a.system_home,
         );
         if r.get("success").and_then(Value::as_bool).unwrap_or(false) {
@@ -233,43 +226,6 @@ pub fn setup(a: &SetupArgs) -> Value {
     }
 
     err("Either admin_key or product_code is required")
-}
-
-/// `webhook_host` 三态解析（含"裸 host 不可投递则不写"的裁决）。
-fn resolve_webhook_host(a: &SetupArgs) -> String {
-    if !a.webhook_host.is_empty() {
-        return a.webhook_host.clone();
-    }
-    let env = config::env_val("AIMAIL_WEBHOOK_HOST", "");
-    if !env.is_empty() {
-        return env;
-    }
-    if !a.admin_key.is_empty() {
-        // reset 场景：继承已有值（探测值曾覆写 NAT 公网 webhook_host）
-        if let Some(cfg) = config::load_gateway_config(&a.system_id) {
-            if let Some(wh) = cfg.webhook_host {
-                if !wh.is_empty() {
-                    return wh;
-                }
-            }
-        }
-    }
-    let detected = crate::core::repair::detect_webhook_host(&a.gateway_url);
-    let (deliverable, why) = crate::core::repair::judge_deliverable(&detected);
-    if deliverable {
-        return detected;
-    }
-    if !detected.is_empty() {
-        log(
-            "INFO",
-            &format!(
-                "detected callback address {detected:?} is not a deliverable http(s) URL ({why}) — \
-                 not writing webhook_host (no bridge entry); the registration will use the local \
-                 receive endpoint"
-            ),
-        );
-    }
-    String::new()
 }
 
 /// `_save_gateway_config` 之后把 prev 里未覆盖的键补回（`setup_system.py:590-605`）。
@@ -482,7 +438,6 @@ pub fn init_system(
     domain: &str,
     save_raw_snapshots: bool,
     manager_address: &str,
-    webhook_host: &str,
     system_home: &str,
 ) -> Value {
     if product_code.is_empty() {
@@ -558,12 +513,8 @@ pub fn init_system(
         save_raw_snapshots,
         domain: created_domain.clone(),
         manager_address: manager_address.to_string(),
-        // 三态：空（不可投递/未给）⇒ None=S3 键缺席；非空 ⇒ Some(url)
-        webhook_host: if webhook_host.is_empty() {
-            None
-        } else {
-            Some(webhook_host.to_string())
-        },
+        // webhook_host 三态：单真源 = webhookplan（install 探测后回填）；激活时刻一律键缺席
+        webhook_host: None,
         system_home: if system_home.is_empty() {
             String::new()
         } else {

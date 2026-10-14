@@ -8,8 +8,8 @@
 //! - `host:port` 解析（BRIDGE_HOST 带 scheme、AGENT_HOST 不带）；
 //! - AGENT_HOST 有效性（owner：不是公网且不在本机列表 ⇒ 视为不存在；回环拒绝）。
 //!
-//! `repair.rs` 里既有的 `is_loopback_host` / `is_private_host` / `detect_lan_ip`
-//! 逐步委托到本模块 —— 单真源、不漂移。
+//! `repair.rs` 里遗留的 `is_loopback_host` / `is_private_host` / `detect_lan_ip` 已随
+//! webhook 判定收敛到本模块而退役（2026-10-14）—— 单真源、不漂移。
 
 use std::net::{IpAddr, ToSocketAddrs};
 

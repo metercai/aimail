@@ -23,7 +23,6 @@ def _bare(tmp_path, monkeypatch):
         "AIMAIL_ADMIN_KEY",
         "AIMAIL_PRODUCT_CODE",
         "AIMAIL_BRIDGE_URL",
-        "AIMAIL_WEBHOOK_HOST",
     ):
         monkeypatch.delenv(key, raising=False)
 

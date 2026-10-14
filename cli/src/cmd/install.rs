@@ -378,10 +378,6 @@ fn ensure_system(a: &Args) -> i32 {
         }
         .into(),
     ));
-    env.push((
-        "INTEGRATE_WEBHOOK_HOST".into(),
-        config::env_val("AIMAIL_WEBHOOK_HOST", ""),
-    ));
     // system_home 归属只在新建/显式凭据写；本地复用继承 prev
     if !prod_code.is_empty() {
         env.push(("INTEGRATE_USE_PRODUCT_CODE".into(), "true".into()));
@@ -438,7 +434,6 @@ fn ensure_system(a: &Args) -> i32 {
             "yes" | "true" | "1"
         ),
         manager_address: manager.clone(),
-        webhook_host: config::env_val("AIMAIL_WEBHOOK_HOST", ""),
         system_home: system_home.to_string_lossy().to_string(),
     };
     let _ = &env; // env 仍按 Python 口径装配（日志/子进程契约），worker 用显式参数
@@ -772,10 +767,6 @@ fn install_human(a: &Args) -> i32 {
             "false"
         },
     );
-    std::env::set_var(
-        "INTEGRATE_WEBHOOK_HOST",
-        config::env_val("AIMAIL_WEBHOOK_HOST", ""),
-    );
 
     // 激活/复用 worker（进程内；与 `--system-only` 同一条）
     let wa = setup::SetupArgs {
@@ -792,7 +783,6 @@ fn install_human(a: &Args) -> i32 {
             "yes" | "true" | "1"
         ),
         manager_address: manager.clone(),
-        webhook_host: config::env_val("AIMAIL_WEBHOOK_HOST", ""),
         system_home: system_home.to_string_lossy().to_string(),
     };
     let data = setup::setup(&wa);

@@ -172,7 +172,6 @@ pub fn run(a: &Args) -> i32 {
             "yes" | "true" | "1"
         ),
         manager_address: manager.clone(),
-        webhook_host: config::env_val("AIMAIL_WEBHOOK_HOST", ""),
         system_home: system_home.to_string_lossy().to_string(),
     };
     let r = setup::setup(&wa);

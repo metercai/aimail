@@ -292,10 +292,10 @@ impl Step {
             }
             Step::GatewayConfig => {
                 // 只补 `system_home` 的空缺，**绝不覆写已有值**。
-                // `webhook_host` 已收敛到入站判定函数（单真源）：install 写、check
-                // 验（`config/webhook-plan-drift`），repair **不**再探测回填 ——
-                // 旧 `detect_webhook_host` 返回裸 host，`judge_deliverable` 恒 false，
-                // 该分支实际从不写盘，且会把合法的 S3（键缺席）误当"缺口"去补。
+                // `webhook_host` 已收敛到入站判定函数（单真源 `webhookplan`）：install 写、
+                // check 验（`config/webhook-plan-drift`），repair **不**再探测回填 ——
+                // 旧 `detect_webhook_host`（裸 host 判定）已删除，该分支会把合法的
+                // S3（键缺席）误当"缺口"去补。
                 let gw_path = crate::core::config::gateway_config_path(sid);
                 if !gw_path.is_file() {
                     fail(&format!(
@@ -1288,9 +1288,9 @@ pub fn sid_has_pointer(user_home: &Path, sid: &str) -> bool {
 
 /// `judge_deliverable(url)` —— 云端能不能 POST 到这个 URL（**话说明白**的判据）。
 ///
-/// 关键：`_detect_webhook_host` 返回的是**裸 host**（如 `127.0.0.1`）⇒ 这里必然判
-/// 不可达 ⇒ `repair` 实际**从不写** `webhook_host`（只打告警）。文案逐字照抄
-/// `cli/deploy_bridge.py:328-350`。
+/// 单真源 = `core::bridge_deploy::judge_deliverable`（同一实现，供 bridge_deploy 的
+/// 注册链复用）；`repair` 自身**不写** `webhook_host`（三态归 `webhookplan`，install
+/// 写、check 验）。文案逐字照抄 `cli/deploy_bridge.py:328-350`。
 pub fn judge_deliverable(url: &str) -> (bool, String) {
     let raw = url.trim();
     if raw.is_empty() {
@@ -1364,110 +1364,6 @@ fn url_host(url: &str) -> String {
     let after = url.split("://").nth(1).unwrap_or("");
     let authority = after.split(['/', '?', '#']).next().unwrap_or("");
     host_of(authority)
-}
-
-fn is_loopback_host(host: &str) -> bool {
-    matches!(host, "127.0.0.1" | "localhost" | "::1" | "ip6-localhost")
-}
-
-/// 私网判定（`ipaddress.ip_address(h).is_private` 的常用等价）。
-fn is_private_host(host: &str) -> bool {
-    if is_loopback_host(host) {
-        return true;
-    }
-    match host.parse::<std::net::IpAddr>() {
-        Ok(std::net::IpAddr::V4(v4)) => v4.is_private() || v4.is_link_local(),
-        // fc00::/7（唯一本地）与 fe80::/10（链路本地）—— 不用 is_unique_local(1.84 才稳)
-        Ok(std::net::IpAddr::V6(v6)) => {
-            let head = v6.segments()[0];
-            (head & 0xfe00) == 0xfc00 || (head & 0xffc0) == 0xfe80
-        }
-        Err(_) => false,
-    }
-}
-
-/// 本机主 LAN IP（UDP connect 取本地端；失败再退 `ip -4 -brief addr`）。
-pub fn detect_lan_ip() -> String {
-    if let Ok(s) = std::net::UdpSocket::bind("0.0.0.0:0") {
-        if s.connect("8.8.8.8:80").is_ok() {
-            if let Ok(addr) = s.local_addr() {
-                let ip = addr.ip().to_string();
-                if !ip.starts_with("0.0.0.0") {
-                    return ip;
-                }
-            }
-        }
-    }
-    if let Ok(out) = std::process::Command::new("ip")
-        .args(["-4", "-brief", "addr", "show", "scope", "global"])
-        .output()
-    {
-        if out.status.success() {
-            for line in String::from_utf8_lossy(&out.stdout).lines() {
-                for p in line.split_whitespace() {
-                    if p.contains('/') && p.chars().next().is_some_and(|c| c.is_ascii_digit()) {
-                        let ip = p.split('/').next().unwrap_or("");
-                        if !ip.starts_with("127.") {
-                            return ip.to_string();
-                        }
-                    }
-                }
-            }
-        }
-    }
-    String::new()
-}
-
-/// `_detect_webhook_host(gateway_url)`：网关回调本机时该用哪个 host
-/// （`cli/setup_system.py:209-320`）。返回**裸 host**（外网兜底探测同 Python）。
-pub fn detect_webhook_host(gateway_url: &str) -> String {
-    let gw_host = url_host(gateway_url);
-    if gw_host.is_empty() {
-        return "127.0.0.1".to_string();
-    }
-    let lan_ip = detect_lan_ip();
-    if is_loopback_host(&gw_host) {
-        return "127.0.0.1".to_string();
-    }
-    if !lan_ip.is_empty() && gw_host == lan_ip {
-        return lan_ip;
-    }
-    if is_private_host(&gw_host) {
-        return if lan_ip.is_empty() {
-            "127.0.0.1".to_string()
-        } else {
-            lan_ip
-        };
-    }
-    use std::net::ToSocketAddrs;
-    if let Ok(mut it) = (gw_host.as_str(), 0u16).to_socket_addrs() {
-        if let Some(addr) = it.next() {
-            let resolved = addr.ip().to_string();
-            if is_loopback_host(&resolved) {
-                return "127.0.0.1".to_string();
-            }
-            if !lan_ip.is_empty() && resolved == lan_ip {
-                return lan_ip;
-            }
-            if is_private_host(&resolved) {
-                return if lan_ip.is_empty() {
-                    "127.0.0.1".to_string()
-                } else {
-                    lan_ip
-                };
-            }
-        }
-    }
-    // 公网：外网探测（与 Python 同：https://ifconfig.me, UA curl/7.0）
-    if let Ok((code, body)) = crate::core::http::raw_req("https://ifconfig.me", None, None, 5) {
-        if code == 200 {
-            let ext = body.trim();
-            if !ext.is_empty() && !is_private_host(ext) {
-                return ext.to_string();
-            }
-        }
-    }
-    "127.0.0.1".to_string()
 }
 
 fn step_ok(msg: &str) {
