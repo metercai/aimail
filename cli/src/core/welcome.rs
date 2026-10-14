@@ -41,7 +41,7 @@ pub fn smtp_send(
     let mail_from = crate::core::smtp::auth_from(api_key, manager, edition);
     crate::core::smtp::send_raw(&crate::core::smtp::SmtpJob {
         url_for_host: gateway_url,
-        port: 25,
+        port: crate::core::smtp::gateway_smtp_port(gateway_url),
         ehlo_name: "aimail-welcome",
         mail_from: &mail_from,
         rcpt: agent_email,

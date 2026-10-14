@@ -94,21 +94,28 @@ pub fn gateway(c: &mut Check, sid: &str, ctx: &Ctx) {
         return;
     }
 
-    // 1.2 SMTP 25 端口（连上即读横幅；超时 5s）
+    // 1.2 SMTP 端口（端口取自 /health 的 smtp_port 字段；旧版网关无此字段 ⇒ 兜底 25）。
+    // 连上即读横幅；超时 5s
     let host = url_host_only(&gw_url);
-    match smtp_banner(&host, 25, Duration::from_secs(5)) {
+    let smtp_port = body
+        .get("smtp_port")
+        .and_then(|v| v.as_u64())
+        .filter(|&p| (1..=65535).contains(&p))
+        .map(|p| p as u16)
+        .unwrap_or(25);
+    match smtp_banner(&host, smtp_port, Duration::from_secs(5)) {
         Ok(banner) => c.add(
             "gateway",
             "smtp_port",
             true,
-            &format!("Port 25 open, banner: {}", take_chars(&banner, 60)),
+            &format!("Port {smtp_port} open, banner: {}", take_chars(&banner, 60)),
             "",
         ),
         Err(e) => c.add(
             "gateway",
             "smtp_port",
             false,
-            &format!("Port 25 unreachable: {e}"),
+            &format!("Port {smtp_port} unreachable: {e}"),
             "Check firewall and aimail-gateway SMTP listener",
         ),
     }

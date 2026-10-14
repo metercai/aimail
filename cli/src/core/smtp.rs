@@ -111,6 +111,56 @@ pub fn detect_edition(gateway_url: &str, default: &str) -> String {
     }
 }
 
+/// `gateway_smtp_port`：`GET {gw}/health` 的 `smtp_port` 字段（网关 SMTP 监听端口，
+/// 由网关从 `[smtp] bind` 解析后上报）。健康检查失败 / 旧版网关无此字段 ⇒ 兜底 25
+/// （SMTP 公开协议契约，生产环境恒 25）。
+pub fn gateway_smtp_port(gateway_url: &str) -> u16 {
+    let url = format!("{}/health", gateway_url.trim_end_matches('/'));
+    match crate::core::http::raw_req(&url, None, None, 10) {
+        Ok((code, body)) if (200..300).contains(&code) => {
+            match serde_json::from_str::<serde_json::Value>(&body) {
+                Ok(v) => parse_smtp_port(&v),
+                Err(_) => 25,
+            }
+        }
+        _ => 25,
+    }
+}
+
+/// /health body 中的 `smtp_port` 解析：缺失 / 非数字 / 越界 ⇒ 25。
+fn parse_smtp_port(v: &serde_json::Value) -> u16 {
+    v.get("smtp_port")
+        .and_then(|x| x.as_u64())
+        .filter(|&p| (1..=65535).contains(&p))
+        .map(|p| p as u16)
+        .unwrap_or(25)
+}
+
+#[cfg(test)]
+mod gateway_smtp_port_tests {
+    use super::*;
+
+    #[test]
+    fn parses_reported_port() {
+        let v: serde_json::Value =
+            serde_json::from_str(r#"{"status":"ok","smtp_port":12526}"#).unwrap();
+        assert_eq!(parse_smtp_port(&v), 12526);
+    }
+
+    #[test]
+    fn missing_field_falls_back_to_25() {
+        let v: serde_json::Value =
+            serde_json::from_str(r#"{"status":"ok","version":"base"}"#).unwrap();
+        assert_eq!(parse_smtp_port(&v), 25);
+    }
+
+    #[test]
+    fn out_of_range_falls_back_to_25() {
+        let v: serde_json::Value = serde_json::from_str(r#"{"smtp_port":70000}"#).unwrap();
+        assert_eq!(parse_smtp_port(&v), 25);
+    }
+}
+
 /// `_smtp_send_ping` 的 MAIL FROM 形态：advanced ⇒ `base64(hex解码(api_key))=<manager @→=>@auth.local`；
 /// base ⇒ 直接用 manager（已自动加白）。
 pub fn auth_from(api_key: &str, manager: &str, edition: &str) -> String {
@@ -232,7 +282,7 @@ pub fn send_ping(
     // ping 侧既有形态：报文以 \n 结尾 ⇒ ensure_trailing_newline 分支不触发（与 Python 同）
     send_raw(&SmtpJob {
         url_for_host: gw_url,
-        port: 25,
+        port: gateway_smtp_port(gw_url),
         ehlo_name: "aimail-ping-test",
         mail_from: &mail_from,
         rcpt: email,
