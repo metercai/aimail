@@ -136,31 +136,6 @@ fn parse_smtp_port(v: &serde_json::Value) -> u16 {
         .unwrap_or(25)
 }
 
-#[cfg(test)]
-mod gateway_smtp_port_tests {
-    use super::*;
-
-    #[test]
-    fn parses_reported_port() {
-        let v: serde_json::Value =
-            serde_json::from_str(r#"{"status":"ok","smtp_port":12526}"#).unwrap();
-        assert_eq!(parse_smtp_port(&v), 12526);
-    }
-
-    #[test]
-    fn missing_field_falls_back_to_25() {
-        let v: serde_json::Value =
-            serde_json::from_str(r#"{"status":"ok","version":"base"}"#).unwrap();
-        assert_eq!(parse_smtp_port(&v), 25);
-    }
-
-    #[test]
-    fn out_of_range_falls_back_to_25() {
-        let v: serde_json::Value = serde_json::from_str(r#"{"smtp_port":70000}"#).unwrap();
-        assert_eq!(parse_smtp_port(&v), 25);
-    }
-}
-
 /// `_smtp_send_ping` 的 MAIL FROM 形态：advanced ⇒ `base64(hex解码(api_key))=<manager @→=>@auth.local`；
 /// base ⇒ 直接用 manager（已自动加白）。
 pub fn auth_from(api_key: &str, manager: &str, edition: &str) -> String {
@@ -352,4 +327,29 @@ fn base64_std(data: &[u8]) -> String {
         });
     }
     out
+}
+
+#[cfg(test)]
+mod gateway_smtp_port_tests {
+    use super::*;
+
+    #[test]
+    fn parses_reported_port() {
+        let v: serde_json::Value =
+            serde_json::from_str(r#"{"status":"ok","smtp_port":12526}"#).unwrap();
+        assert_eq!(parse_smtp_port(&v), 12526);
+    }
+
+    #[test]
+    fn missing_field_falls_back_to_25() {
+        let v: serde_json::Value =
+            serde_json::from_str(r#"{"status":"ok","version":"base"}"#).unwrap();
+        assert_eq!(parse_smtp_port(&v), 25);
+    }
+
+    #[test]
+    fn out_of_range_falls_back_to_25() {
+        let v: serde_json::Value = serde_json::from_str(r#"{"smtp_port":70000}"#).unwrap();
+        assert_eq!(parse_smtp_port(&v), 25);
+    }
 }
