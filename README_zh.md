@@ -75,14 +75,16 @@ AIMail 既不同于 IM，也不是传统邮箱。它是在传统邮件系统上�
 - 然后，将收到的系统标识和激活码等信息设置环境变量，并执行AIMail的自举安装脚本，完成本地环境的初始化。例如：
 
 ```bash
-export AIMAIL_GW_URL=https://aimail.token.tm     # 云端网关地址
-export AIMAIL_PRODUCT_CODE=<激活码>            # 云端领取的激活码
-export AIMAIL_SYSTEM_NAME=<你的标识名>          # 共享域系统: agent.<标识名>@<共享域名>
-export AIMAIL_MANAGER_ADDRESS=you@example.com # 管理agent的默认安全员邮件，可每个agent不一样
+export AIMAIL_GW_URL=https://aimail.token.tm      # 云端网关地址
+export AIMAIL_PRODUCT_CODE=<激活码>                # 云端领取的激活码
+export AIMAIL_SYSTEM_NAME=<你的标识名>             # 共享域系统: agent.<标识名>@<共享域名>
+export AIMAIL_MANAGER_ADDRESS=you@example.com     # 管理agent的默认安全员邮件，可每个agent不一样
+#export AIMAIL_BRIDGE_HOST=<domain/ip:port>        # 指定桥接地址，用于Gateway的Push的透明转发，可选
+#export AIMAIL_AGENT_HOST=<domain/ip:port>         # 指定本机Agent地址，用于直接接收Gateway的Push，可选
 curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
 ```
 
-- 自举成功后，可以用aimail命令行安装，或Agent的插件安装，两种方式二选一，即可完成与本地Agent适配对接。
+- 自举成功后，配置Agent系统目录的环境变量，就可以用aimail命令行安装，或Agent的插件安装（需Agent自身支持）。任何一种都可完成与本地Agent适配对接。
 
 **aimail命令行安装**:
 
@@ -117,6 +119,8 @@ export AIMAIL_GW_URL=https://aimail.token.tm     # 云端网关地址
 export AIMAIL_PRODUCT_CODE=<激活码>            # 云端领取的激活码
 export AIMAIL_DOMAIN=<你的域名>                # 独享域名: agent@<独享域名>
 export AIMAIL_MANAGER_ADDRESS=you@example.com # 管理agent的默认安全员邮件地址，可每个agent不一样
+#export AIMAIL_BRIDGE_HOST=<domain/ip:port>        # 指定桥接地址，用于Gateway的Push的透明转发，可选
+#export AIMAIL_AGENT_HOST=<domain/ip:port>         # 指定本机Agent地址，用于直接接收Gateway的Push，可选
 curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
 ```
 
@@ -132,6 +136,8 @@ export AIMAIL_GW_URL=<你的网关地址>                # 自主独立安装的
 export AIMAIL_ADMIN_KEY=<系统级 key>          # 系统级 key（不是网关自身的 admin key）
 export AIMAIL_DOMAIN=<你的域名>                # 独享域名,如 example.com
 export AIMAIL_MANAGER_ADDRESS=you@example.com # 管理agent的默认安全员邮件地址，可每个agent不一样
+#export AIMAIL_BRIDGE_HOST=<domain/ip:port>        # 指定桥接地址，用于Gateway的Push的透明转发，可选
+#export AIMAIL_AGENT_HOST=<domain/ip:port>         # 指定本机Agent地址，用于直接接收Gateway的Push，可选
 curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
 ```
 

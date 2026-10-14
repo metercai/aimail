@@ -6,6 +6,7 @@ __pycache__/
 
 # Rust CLI (cli/) 构建产物 —— 与 bridge 仓同款忽略
 /cli/target/
+/cli/Cargo.lock
 
 # local session notes (not project code)
 .hermes/
