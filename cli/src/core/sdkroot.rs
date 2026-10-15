@@ -104,6 +104,66 @@ pub fn probe_in_domain(container: &str, home: &str) -> String {
             return c.to_string_lossy().to_string();
         }
     }
+    // uv 托管依赖环境（hermes PM 布局，L3 hermes 格 2026-10-15 本地全量复现实证）：
+    // 宿主 launcher = `tools/python -I`（隔离模式：**自身 site-packages 不在 sys.path**）
+    // + `sys.path = <tree> + {home}/installs/<key>/environments/<key>/venv/site-packages`。
+    // "运行中的进程从哪个 venv import" 的唯一记录 = 该 install 的 `facts.json`
+    // （`packages.venv.environment`）——hermes PM 最后写入（完成标记）且
+    // `pm/environments.py::_recorded_venv()` 就按它解析 ⇒ 读记录、不猜布局。
+    // 校验镜像 `_recorded_venv`：env 必须在本 install 的 `environments/` 下 + `pyvenv.cfg`
+    // 在场（hermes 自己的 sanity check）+ 解释器在场。多 install 取 facts.json 最新
+    // （最后写入者 = 当前选中环境）。必须排在嵌套 venv / tools 工具链**之前**：
+    // tools 工具链档的历史断言"该布局不建 venv"对新 hermes 已过时（实测宿主进程
+    // import 的是 uv 托管 venv），采了它 = 装进 tools-python 的 site-packages = 宿主
+    // 进程 import aimail 必失败（welcome 不闭环的根因）。
+    if let Ok(rd) = std::fs::read_dir(Path::new(home).join("installs")) {
+        let mut cands: Vec<(std::time::SystemTime, String)> = Vec::new();
+        for e in rd.flatten() {
+            let key = e.path();
+            let facts = key.join("facts.json");
+            let Ok(text) = std::fs::read_to_string(&facts) else {
+                continue;
+            };
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+                continue;
+            };
+            let Some(env) = v
+                .get("packages")
+                .and_then(|p| p.get("venv"))
+                .and_then(|e2| e2.get("environment"))
+                .and_then(|s| s.as_str())
+            else {
+                continue;
+            };
+            let envp = Path::new(env);
+            // facts.json 里的 env 是**绝对**路径;home 给相对路径时 key 也相对 ⇒
+            // 两侧 canonicalize 后比对,失败再退回字面比对。
+            let envd = key.join("environments");
+            let under = (|| -> Option<bool> {
+                let a = std::fs::canonicalize(envp).ok()?;
+                let b = std::fs::canonicalize(&envd).ok()?;
+                Some(a.starts_with(b))
+            })()
+            .unwrap_or_else(|| envp.starts_with(&envd));
+            if !under || !envp.join("pyvenv.cfg").is_file() {
+                continue;
+            }
+            for bin in ["bin/python3", "bin/python"] {
+                let c = envp.join(bin);
+                if c.is_file() {
+                    let mt = std::fs::metadata(&facts)
+                        .and_then(|m| m.modified())
+                        .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                    cands.push((mt, c.to_string_lossy().to_string()));
+                    break;
+                }
+            }
+        }
+        if !cands.is_empty() {
+            cands.sort();
+            return cands.pop().unwrap().1;
+        }
+    }
     // agent 侧嵌套 venv 发现（布局驱动、零平台预设）：home 子目录下的 venv
     // （hermes 官方 install.sh 把 venv 建在 `{home}/hermes-agent/venv`，官方镜像为
     // `.venv`；gateway 进程 sys.path 指向该 venv 的 site-packages，SDK 必须装进这里）。
@@ -127,9 +187,10 @@ pub fn probe_in_domain(container: &str, home: &str) -> String {
             }
         }
     }
-    // 官方宿主(uv 托管工具链)布局：`{home}/tools/python-<ver>-*/bin/python3` —— 该布局**不建 venv**
-    // (hermes v0.21.6 实测：宿主进程跑的就是这个解释器，见 L3 run 38139097257 的解释器矩阵 ——
-    // 系统 python3 有 aimail、宿主解释器没有 ⇒ 装了等于没装，welcome 不闭环)。
+    // 官方宿主工具链兜底：`{home}/tools/python-<ver>-*/bin/python3`（无 installs/ 存储的
+    // 旧版 hermes：宿主进程直接跑该解释器，见 L3 run 38139097257 的解释器矩阵）。
+    // 注意：新版 hermes（PM/uv 托管布局）宿主进程 import 的是 installs 下的 uv venv ⇒
+    // 上面 facts.json 档优先；本档只兜"没有 installs 存储"的旧布局，不再宣称"不建 venv"。
     // 判据 = **能实跑** `-c "import sys"`，多个候选取排序最后(版本最新)：开发机上残留的坏 toolchain
     // 目录不许被采到(与 tests/agent-env/verify.sh 同一规则 —— 该文件早已含此候选，CLI 缺它才不一致)。
     let tools = std::path::Path::new(home).join("tools");
@@ -418,6 +479,139 @@ mod tests {
             got,
             py.to_string_lossy().to_string(),
             "应发现 {home:?} 下的嵌套 venv, 实得 {got}"
+        );
+    }
+
+    // 构造一个 uv 托管 install 存储(hermes PM 布局)并返回 (facts.json 路径, venv python 路径)。
+    // facts 里的 environment 用**绝对**路径(与 hermes 真实写盘一致)。
+    fn mk_pm_install(home: &Path, key: &str) -> (PathBuf, PathBuf) {
+        let keydir = home.join("installs").join(key);
+        let env = keydir.join("environments").join(key).join("venv");
+        let bin = env.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let py = bin.join("python3");
+        std::fs::write(&py, b"#!/bin/sh\n").unwrap();
+        std::fs::write(env.join("pyvenv.cfg"), b"home = /x\n").unwrap();
+        let facts = keydir.join("facts.json");
+        std::fs::write(
+            &facts,
+            format!(
+                r#"{{"packages":{{"venv":{{"environment":"{}"}}}}, "schema": 1}}"#,
+                env.to_string_lossy()
+            ),
+        )
+        .unwrap();
+        (facts, py)
+    }
+
+    fn probe_with_lock(home: &str) -> String {
+        let _g = ENV_LOCK.lock().unwrap();
+        let saved = std::env::var("AIMAIL_PYTHON").ok();
+        std::env::remove_var("AIMAIL_PYTHON");
+        let got = probe_in_domain("", home);
+        match saved {
+            Some(v) => std::env::set_var("AIMAIL_PYTHON", v),
+            None => std::env::remove_var("AIMAIL_PYTHON"),
+        }
+        got
+    }
+
+    #[test]
+    fn uv_managed_env_venv_preferred_over_tools_toolchain() {
+        // L3 2026-10-15(本地全量复现)：hermes 官方宿主 launcher = tools/python `-I`
+        // （隔离模式，自身 site-packages 不在 sys.path）+ uv 托管 venv 的 site-packages ⇒
+        // SDK 必须装进 `installs/<key>/environments/<key>/venv`，facts.json 是唯一权威记录。
+        // 本用例锁住：facts.json 档**优先于** tools 工具链档（采了后者 = 装了等于没装）。
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        let (_, uvpy) = mk_pm_install(home, "8a4017c4cabfe15f");
+        // 同时摆一个能实跑的 tools 工具链（旧布局候选），证明新档抢先。
+        let td = home
+            .join("tools")
+            .join("python-3.14.7+202****0101-linux-x64")
+            .join("bin");
+        std::fs::create_dir_all(&td).unwrap();
+        let toolpy = td.join("python3");
+        std::fs::write(&toolpy, "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(&toolpy, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let got = probe_with_lock(&home.to_string_lossy());
+        assert_eq!(
+            got,
+            uvpy.to_string_lossy().to_string(),
+            "facts.json 记录的 uv venv 应优先于 tools 工具链, 实得 {got}"
+        );
+    }
+
+    #[test]
+    fn uv_managed_env_fresh_facts_wins_over_stale() {
+        // 多 install 存储：取 facts.json **最新**的（hermes PM 最后写 facts = 完成标记 ⇒
+        // 最新者 = 当前选中环境）。旧 install 的 venv 不许被采。
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        let (_old_facts, old_py) = mk_pm_install(home, "aaaa000000000000");
+        let (new_facts, new_py) = mk_pm_install(home, "bbbb111111111111");
+        // 让 new 严格更新（秒级精度足够：先 touch old 回拨不可行时依赖创建序 + 显式 sleep 1）。
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        std::fs::write(&new_facts, std::fs::read_to_string(&new_facts).unwrap()).unwrap();
+        let got = probe_with_lock(&home.to_string_lossy());
+        assert_eq!(
+            got,
+            new_py.to_string_lossy().to_string(),
+            "应取 facts.json 最新的 install, 实得 {got} (old={})",
+            old_py.to_string_lossy()
+        );
+    }
+
+    #[test]
+    fn uv_managed_env_rejects_env_outside_environments_or_without_pyvenv() {
+        // 校验镜像 hermes `_recorded_venv`：env 不在本 install 的 environments/ 下 ⇒ 拒；
+        // pyvenv.cfg 缺失 ⇒ 拒；全拒 ⇒ 落回 tools 工具链档。
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        // 坏 facts：env 指向 install 外（伪造/损坏记录不得被采）
+        let keydir = home.join("installs").join("cccc222222222222");
+        std::fs::create_dir_all(&keydir).unwrap();
+        std::fs::write(
+            keydir.join("facts.json"),
+            r#"{"packages":{"venv":{"environment":"/etc/foreign/venv"}},"schema":1}"#,
+        )
+        .unwrap();
+        // 坏 venv：在 environments/ 下但缺 pyvenv.cfg
+        let env2 = home
+            .join("installs")
+            .join("dddd333333333333")
+            .join("environments")
+            .join("dddd333333333333")
+            .join("venv")
+            .join("bin");
+        std::fs::create_dir_all(&env2).unwrap();
+        std::fs::write(env2.join("python3"), b"#!/bin/sh\n").unwrap(); // 无 pyvenv.cfg
+        std::fs::write(
+            home.join("installs")
+                .join("dddd333333333333")
+                .join("facts.json"),
+            format!(
+                r#"{{"packages":{{"venv":{{"environment":"{}"}}}}}}"#,
+                env2.parent().unwrap().to_string_lossy()
+            ),
+        )
+        .unwrap();
+        // 落点 = tools 工具链档（新档必须整体不命中）
+        let td = home
+            .join("tools")
+            .join("python-3.13.0-linux-x64")
+            .join("bin");
+        std::fs::create_dir_all(&td).unwrap();
+        let toolpy = td.join("python3");
+        std::fs::write(&toolpy, "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(&toolpy, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let got = probe_with_lock(&home.to_string_lossy());
+        assert_eq!(
+            got,
+            toolpy.to_string_lossy().to_string(),
+            "非法 uv 记录须被拒并落回 tools 档, 实得 {got}"
         );
     }
 

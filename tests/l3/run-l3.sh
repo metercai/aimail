@@ -382,7 +382,17 @@ echo "── [3/6] published CLI (README scenario 4: env + online bootstrap)"
 export AIMAIL_GW_URL="$GW_URL"
 export AIMAIL_ADMIN_KEY="$SYS_KEY"
 export AIMAIL_DOMAIN="l3.local"
-export AIMAIL_MANAGER_ADDRESS="manager@l3.local"
+# 安全员(manager)= 外部域地址:网关反环路(receiver.rs:232-249)拒绝**发件域已注册**
+# 的入站邮件(MAIL FROM 域 = l3.local ⇒ 550)。审批信走 SMTP inbound(base 版
+# auth_from=manager),安全员必须用未注册域才能过反环路。l3-mgr.example = RFC 2606
+# 保留域,无真实 MX、无真实邮件外发。审批校验(webhook.rs:716)按 sender == install
+# 时注册的 manager_address 匹配,换域不影响审批流。
+export AIMAIL_MANAGER_ADDRESS="manager@l3-mgr.example"
+# arm64 慢 runner:实测冷启动 turn 超默认 120s 回信窗(llmMs=65.9s 仍在飞即超时,
+# 2026-10-15 run 38683702165 linux-arm64/dsh-aimail 实证:路径活、非死)⇒ 放宽到 300s。
+# 窗口本体在发布版 CLI 内(welcome poll_reply, AIMAIL_REPLY_TIMEOUT env 可配,
+# 默认 120 不变)⇒ 本行需配套 CLI 发版才在 L3 生效。
+if [ "${L3_PLATFORM:-}" = "linux-arm64" ]; then export AIMAIL_REPLY_TIMEOUT=300; fi
 curl -fsSL "https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh" | bash \
   || die "online bootstrap failed (published CLI unavailable)"
 AIMAIL_BIN="$(command -v aimail || echo "$HOME/.aimail/bin/aimail")"
@@ -603,11 +613,11 @@ echo "── [6/6] query-mail signature assertion"
 # v1 签名协议), 然后 whoami 读回网关侧已生效的身份名片(agent_persona)+ 邮件签名
 # (agent_signature) —— welcome approve 后 UPSERT 到 domain_addr_meta 的权威断言点
 # (whoami.rs:44-52; CLI check/l1 同源)。
-PYTHONPATH="$AIMAIL_REPO" python3 - "$GW_URL" "$SYSTEM_ID" <<'PYEOF' || die "signature assertion failed"
+PYTHONPATH="$AIMAIL_REPO" python3 - "$GW_URL" "$SYSTEM_ID" "$AIMAIL_MANAGER_ADDRESS" <<'PYEOF' || die "signature assertion failed"
 import sys, json, os, time, urllib.request, urllib.error
 import hashlib, hmac
 
-gw_url, system_id = sys.argv[1], sys.argv[2]
+gw_url, system_id, manager_addr = sys.argv[1], sys.argv[2], sys.argv[3]
 
 # ── 1) 定位 agent 绑定文件(install 落的单一真源, check/l0 同源) ──
 # 布局: ~/.aimail/systems/<sid>/*/agentmail.json —— 字段 email/api_key 必填  # contract-allowed: L3 校验 install 写入契约绑定文件
@@ -650,7 +660,7 @@ def signed(method, path, body_obj=None, api_key=key, identity=email):
 
 marker = f"L3SIG-{int(time.time())}"
 st, resp = signed("POST", "/api/v1/send",
-                  {"to": "manager@l3.local", "subject": f"query {marker}",
+                  {"to": manager_addr, "subject": f"query {marker}",
                    "markdown": f"query {marker}: identity + signature check"})
 if st not in (200, 201, 202):
     print(f"  ✗ query mail send failed: HTTP {st} {str(resp)[:200]}"); sys.exit(1)

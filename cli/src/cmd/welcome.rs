@@ -18,8 +18,21 @@ pub struct Args {
     pub smtp: bool,
 }
 
+/// 回信等待窗(秒):`AIMAIL_REPLY_TIMEOUT` env 覆盖(10..=1800),缺失/越界/非数 ⇒ 120。
+fn reply_timeout_secs() -> i64 {
+    const DEFAULT: i64 = 120;
+    match crate::core::config::env_val("AIMAIL_REPLY_TIMEOUT", "").parse::<i64>() {
+        Ok(v) if (10..=1800).contains(&v) => v,
+        _ => DEFAULT,
+    }
+}
+
 pub fn run(a: &Args) -> i32 {
     let systems = crate::core::config::systems_root_in(&crate::core::home::aimail_home());
+
+    // 回信等待窗(秒):默认 120;慢 runner(如 arm64,实测冷启动 turn 超 120s)可用
+    // env AIMAIL_REPLY_TIMEOUT 覆盖(10..=1800,越界/非数 ⇒ 默认)。
+    let reply_timeout = reply_timeout_secs();
 
     // ── 身份链：AGENT_HOME 指针（面上无 --agent-home）→ resolve_system_id ──
     let mut sid = a.system_id.clone();
@@ -125,7 +138,7 @@ pub fn run(a: &Args) -> i32 {
         if a.no_wait {
             return 0;
         }
-        let (ok, reply_id, _to) = welcome::poll_reply(&recipient, 120);
+        let (ok, reply_id, _to) = welcome::poll_reply(&recipient, reply_timeout);
         if ok {
             println!(
                 "  ✓ Bidirectional send/receive verified (reply email_id={})",
@@ -134,7 +147,8 @@ pub fn run(a: &Args) -> i32 {
             return approve_identity(&gw_url, &admin_key, &recipient, &manager);
         }
         println!(
-            "  ✗ No reply within 120s (log: {})",
+            "  ✗ No reply within {}s (log: {})",
+            reply_timeout,
             welcome::agent_log_path_for(&recipient).display()
         );
         return 1;
@@ -198,7 +212,7 @@ pub fn run(a: &Args) -> i32 {
     if a.no_wait {
         return 0;
     }
-    let (ok, email_id, _to) = welcome::poll_reply(&recipient, 120);
+    let (ok, email_id, _to) = welcome::poll_reply(&recipient, reply_timeout);
     if ok {
         println!(
             "  ✓ Bidirectional send/receive verified (email_id={})",
@@ -207,7 +221,8 @@ pub fn run(a: &Args) -> i32 {
         return approve_identity(&gw_url, &ak, &recipient, &manager);
     }
     println!(
-        "  ✗ No reply within 120s (log: {})",
+        "  ✗ No reply within {}s (log: {})",
+        reply_timeout,
         welcome::agent_log_path_for(&recipient).display()
     );
     1
