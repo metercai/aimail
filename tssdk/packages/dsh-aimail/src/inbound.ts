@@ -29,7 +29,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { processInboundMail, verifySignature, routeAddressFromHeaders, updateAgentConfig, loadAgentConfig, saveAgentConfig, startAgentPullEntries, type AgentConfig, type AgentPullHandle, type AgentPullOverrides, INBOUND_PATH, INBOUND_PORTS, type InboundPayload } from '@aimail/mail-core'
 import { notifyInboundForSystem, formatInboundNotifyLine, isInboundNotifyWarning } from '@aimail/mail-core'
-import type { MailService } from './mail-service.js'
+import { ensureDefaultAgentBinding, type MailService } from './mail-service.js'
 
 export const name = 'mail-inbound'
 export const inject = ['mail', 'agents']
@@ -361,40 +361,48 @@ export function apply(ctx: Context, config: Config = {}): () => void {
   // stops them with the listener — the host lifecycle owns both.
   let pullHandles: AgentPullHandle[] = []
 
-  server.listen(port, host, () => {
-    // Inbound notification (owner ruling 2026-09-28, SDK 去桥化): the listener is
-    // up, so this host tells the environment master (the `aimail` CLI) — once per
-    // address it serves — that inbound is live:
-    //     aimail address -a <addr> --inbound-live
-    // The CLI owns the environment (routes included) and decides what that means;
-    // the SDK speaks no bridge. Best-effort by contract: argv only, 4s timeout,
-    // never blocks this callback, never throws into the host (a missing CLI is one
-    // debug line — the host keeps serving and self-registering).
-    void notifyInboundForSystem('live', { inboundUrl: confirmedUrl })
-      .then((outcomes) => {
-        for (const o of outcomes) {
-          const line = `[dsh-aimail] ${formatInboundNotifyLine(o, 'live')}`
-          if (isInboundNotifyWarning(o)) console.warn(line)
-          else console.log(line)
-        }
-      })
-      .catch((e: unknown) => {
-        console.warn(
-          `[dsh-aimail] inbound notify failed (non-fatal): ${e instanceof Error ? e.message : String(e)}`,
-        )
-      })
+  // P2 (L3 dsh-plugin cell, 2026-10-15): the `dsh plugin add` install path
+  // never runs the CLI's register_default step, so without a proactive bind
+  // the host would LISTEN without the default agent's binding — the L3
+  // readiness gate then fails single-shot on "dsh binding not found" while the
+  // port already answers. Gate the listen on the idempotent self-bind so that
+  // "inbound port up" is a reliable readiness signal (binding + listener).
+  void ensureDefaultAgentBinding().then(() => {
+    server.listen(port, host, () => {
+      // Inbound notification (owner ruling 2026-09-28, SDK 去桥化): the listener is
+      // up, so this host tells the environment master (the `aimail` CLI) — once per
+      // address it serves — that inbound is live:
+      //     aimail address -a <addr> --inbound-live
+      // The CLI owns the environment (routes included) and decides what that means;
+      // the SDK speaks no bridge. Best-effort by contract: argv only, 4s timeout,
+      // never blocks this callback, never throws into the host (a missing CLI is one
+      // debug line — the host keeps serving and self-registering).
+      void notifyInboundForSystem('live', { inboundUrl: confirmedUrl })
+        .then((outcomes) => {
+          for (const o of outcomes) {
+            const line = `[dsh-aimail] ${formatInboundNotifyLine(o, 'live')}`
+            if (isInboundNotifyWarning(o)) console.warn(line)
+            else console.log(line)
+          }
+        })
+        .catch((e: unknown) => {
+          console.warn(
+            `[dsh-aimail] inbound notify failed (non-fatal): ${e instanceof Error ? e.message : String(e)}`,
+          )
+        })
 
-    // Pull entry: inbound is live ⇒ the pulled mail can enter the same chain.
-    // Only agent-scope (address-code) bindings arm a loop (mail-core decides).
-    void startInboundPull(ctx, { log: (line) => console.log(line) })
-      .then((handles) => {
-        pullHandles = handles
-      })
-      .catch((e: unknown) => {
-        console.warn(
-          `[dsh-aimail] pull entry failed to start: ${e instanceof Error ? e.message : String(e)}`,
-        )
-      })
+      // Pull entry: inbound is live ⇒ the pulled mail can enter the same chain.
+      // Only agent-scope (address-code) bindings arm a loop (mail-core decides).
+      void startInboundPull(ctx, { log: (line) => console.log(line) })
+        .then((handles) => {
+          pullHandles = handles
+        })
+        .catch((e: unknown) => {
+          console.warn(
+            `[dsh-aimail] pull entry failed to start: ${e instanceof Error ? e.message : String(e)}`,
+          )
+        })
+    })
   })
   return () => {
     // Inbound down (owner ruling 2026-09-28): this host stops serving, so it says

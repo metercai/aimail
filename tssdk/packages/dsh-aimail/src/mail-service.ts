@@ -108,6 +108,80 @@ async function tryAutoBindSession(
   }
 }
 
+/** Self-determined platform/agent home root (the single source the plugin uses). */
+function platformHome(): string {
+  return (
+    process.env.AIMAIL_SYSTEM_HOME?.trim() ||
+    process.env.DSH_HOME?.trim() ||
+    path.join(os.homedir(), '.dsh')
+  )
+}
+
+/**
+ * Proactively ensure the system + the **default** agent binding for this home.
+ *
+ * The `dsh plugin add` install path never runs the CLI's `register_default`
+ * step, so nothing else writes the default agent's binding file — without
+ * this, a plugin-installed host has a system but no binding and the L3
+ * readiness gate (`dsh binding not found`) fails. Idempotent: the system check
+ * short-circuits on an owning system and autoBind short-circuits when the
+ * binding already exists, so both install methods (CLI `aimail install` and
+ * `dsh plugin add`) converge on the same bound state.
+ *
+ * Never throws — failures warn and leave the host to its usual unbound path.
+ */
+export async function ensureDefaultAgentBinding(): Promise<void> {
+  const home = platformHome()
+  // 1) System readiness (same semantics as the pre-existing reverse-call: an
+  //    owning system short-circuits; otherwise activate via the CLI's L1 ABI).
+  let systemId = ''
+  try {
+    const owned = await detectSystemForHome(home)
+    if (owned) {
+      systemId = owned
+    } else {
+      const r = await ensureSystem({ systemHome: home })
+      if (!r.ok) {
+        const hint = r.hint ? `\n  hint: ${r.hint}` : ''
+        console.warn(
+          `[dsh-aimail] no AIMail system is bound to this dsh home yet: ${r.error ?? 'unknown'}${hint}` +
+            `\n  to activate: aimail install --home ${home} -c <activation-code> -m <manager@address>`,
+        )
+        return
+      }
+      systemId = r.systemId ?? ''
+      if (r.activated) console.log(`[dsh-aimail] system activated: ${systemId}`)
+    }
+  } catch (e) {
+    console.warn(
+      `[dsh-aimail] AIMail system check failed: ${e instanceof Error ? e.message : String(e)}`,
+    )
+    return
+  }
+  if (!systemId) return
+
+  // 2) Default agent binding (idempotent autoBind). The email mirrors the CLI
+  //    register step's default agent (`agent@domain`); the webhook is the local
+  //    inbound endpoint; the manager mirrors the CLI's resolution (env first).
+  try {
+    const gw = await readSystemConfig(systemId)
+    const email = emailForAgent('agent', gw.domain ?? '', gw.system_name ?? '', [])
+    const manager =
+      process.env.AIMAIL_MANAGER_ADDRESS?.trim() || process.env.MANAGER?.trim() || ''
+    const res = await autoBind({
+      systemId,
+      email,
+      webhookUrl: inboundWebhookUrl(),
+      ...(manager ? { managerAddress: manager } : {}),
+    })
+    if (res.registered) console.log(`[dsh-aimail] default agent bound: ${email}`)
+  } catch (e) {
+    console.warn(
+      `[dsh-aimail] default agent auto-bind failed: ${e instanceof Error ? e.message : String(e)}`,
+    )
+  }
+}
+
 export function apply(ctx: Context, config: { systemId?: string } = {}): void {
   const systemId = config.systemId ?? process.env.AIMAIL_SYSTEM_ID ?? ''
   // SDK-shipped board resources (role prompts/souls) → local config dir,
@@ -119,53 +193,10 @@ export function apply(ctx: Context, config: { systemId?: string } = {}): void {
     // non-fatal (resources are seeds, can be re-released explicitly), but never silent
     console.error(`[dsh-aimail] board resource release failed: ${String(e)}`)
   }
-  // install readiness: a dsh-only machine ensures its system through the CLI
-  // reverse-call ABI (`aimail install --system-only`, L1 only — never platform wiring,
-  // which is how the install↔plugin call loop stays acyclic). UNCONDITIONAL
-  // reverse-call (ownership short-circuit lives inside ensureSystem): a
-  // multi-platform machine with only ANOTHER platform's systems must still
-  // reach the CLI so this dsh profile binds its own system — gating on "any
-  // system exists" regressed that (AUDIT-1 P1-7). CLI missing → actionable
-  // bootstrap hint on stderr.
-  try {
-    const platformHome =
-      process.env.AIMAIL_SYSTEM_HOME?.trim() ||
-      process.env.DSH_HOME?.trim() ||
-      path.join(os.homedir(), '.dsh')
-    // Bound-machine guard (2026-09-22): if this home already OWNS a system
-    // (platform pointer first, then the system_home scan — the same judgement
-    // the CLI makes), do not reverse-call at all. A stale activation code left
-    // in the environment then can no longer surface as a bogus startup error on
-    // a machine that is already bound ("no aimail system yet — Invalid
-    // activation code", the 2026-09-21 dsh report).
-    // Home-keyed, not "any system exists": another platform's systems do not
-    // claim this home, so a multi-platform machine still reaches the CLI
-    // (AUDIT-1 P1-7 must stay fixed).
-    void detectSystemForHome(platformHome)
-      .then((bound) => (bound ? null : ensureSystem({ systemHome: platformHome })))
-      .then((r) => {
-        if (!r) return
-        if (r.ok) {
-          if (r.activated) {
-            console.log(`[dsh-aimail] system activated: ${r.systemId}`)
-          }
-          return
-        }
-        // Readable + actionable: say what is missing, then how to fix it.
-        const hint = r.hint ? `\n  hint: ${r.hint}` : ''
-        console.warn(
-          `[dsh-aimail] no AIMail system is bound to this dsh home yet: ${r.error ?? 'unknown'}${hint}` +
-            `\n  to activate: aimail install --home ${platformHome} -c <activation-code> -m <manager@address>`,
-        )
-      })
-      .catch((e) => {
-        console.warn(
-          `[dsh-aimail] AIMail system check failed: ${e instanceof Error ? e.message : String(e)}`,
-        )
-      })
-  } catch {
-    // non-fatal
-  }
+  // install readiness (system activation + default agent binding) lives in the
+  // inbound entry (`ensureDefaultAgentBinding`): the same atomic bundle mounts
+  // mail-inbound whenever this service does, and gating the inbound listener on
+  // the bind makes "port up" a reliable readiness signal (P2, 2026-10-15).
 
   /**
    * Resolve a session config; on an unbound miss with a machine system

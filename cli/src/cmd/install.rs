@@ -472,6 +472,16 @@ fn ensure_system(a: &Args) -> i32 {
     }
     let cfg = config::load_gateway_config(&sid2);
     eprintln!("system configured: {sid2}");
+    // 域预置/创建（对齐人路径 `install_human` 的 `ensure_domain`）：admin_key 复用路径
+    // （Path A）激活时**不建域**（Path B 产品码才在激活时带域），而插件宿主自举（`--system-only`
+    // 反调）正是走 Path A —— 不补这步，插件侧的默认 agent 注册（`agent@<domain>`）会撞
+    // "Bare domain not found"（2026-10-15 L3 dsh-plugin 格实证）。产品码路径的域属于产品，
+    // 不在此单建（与 `ensure_domain` 注释口径一致：只走显式/复用路径的域）。
+    // `adm_key` 是本次解析出的**系统级** key（降级前）；复用路径若已是域级 key，创建会
+    // 403 ⇒ `ensure_domain` 只 warn 不阻塞（优雅降级，域缺失时绑定本就无从注册）。
+    if prod_code.is_empty() && !want_domain.is_empty() && !adm_key.is_empty() {
+        ensure_domain(&gw_url, &adm_key, &sid2, &want_domain, true);
+    }
     let gw_out = cfg
         .as_ref()
         .map(|c| c.gateway_url.clone())
@@ -538,13 +548,25 @@ fn warn(msg: &str) {
 }
 
 /// domain 预置/创建（`cli/aimail:983-1004`）：只走显式/复用路径的域；产品码新建路径不在此。
-fn ensure_domain(gw_url: &str, admin_key: &str, sid: &str, want_domain: &str) {
+///
+/// `to_stderr`：`--system-only`（L1 ABI，stdout 是"恰一行 JSON"契约载体）必须走 stderr
+/// 播报；人路径（`install_human`）保持 stdout 人类可读播报（`ok`/`warn` 走 println!）。
+fn ensure_domain(gw_url: &str, admin_key: &str, sid: &str, want_domain: &str, to_stderr: bool) {
+    let say = |msg: &str, is_ok: bool| {
+        if to_stderr {
+            eprintln!("{msg}");
+        } else if is_ok {
+            ok(msg);
+        } else {
+            warn(msg);
+        }
+    };
     let path = format!("/api/v1/admin/systems/{sid}/domains");
     let headers = crate::core::sig::signed_headers(admin_key, "GET", &path, None, "");
     let url = format!("{}{}", gw_url.trim_end_matches('/'), path);
     let (status, body) = crate::core::http::json_req(&url, &headers, None, Some("GET"), 15);
     if !(200..300).contains(&status) {
-        warn(&format!("domain check failed: {body}"));
+        say(&format!("domain check failed: {body}"), false);
         return;
     }
     // Python 侧 `list_system_domains`：dict 里取 `data`，否则原值；非 list ⇒ []
@@ -554,7 +576,7 @@ fn ensure_domain(gw_url: &str, admin_key: &str, sid: &str, want_domain: &str) {
         _ => None,
     };
     let Some(list) = list else {
-        warn(&format!("domain check failed: {body}"));
+        say(&format!("domain check failed: {body}"), false);
         return;
     };
     let want_lc = want_domain.to_lowercase();
@@ -570,7 +592,7 @@ fn ensure_domain(gw_url: &str, admin_key: &str, sid: &str, want_domain: &str) {
         })
         .unwrap_or(false);
     if present {
-        ok(&format!("domain present: {want_domain}"));
+        say(&format!("domain present: {want_domain}"), true);
         return;
     }
     let body_req = serde_json::json!({
@@ -594,9 +616,12 @@ fn ensure_domain(gw_url: &str, admin_key: &str, sid: &str, want_domain: &str) {
     if !(200..300).contains(&st2) {
         let err = body2.get("error").and_then(|v| v.as_str()).unwrap_or("");
         let detail = body2.get("detail").and_then(|v| v.as_str()).unwrap_or("");
-        warn(format!("domain create failed: {err} {detail}").trim_end());
+        say(
+            format!("domain create failed: {err} {detail}").trim_end(),
+            false,
+        );
     } else {
-        ok(&format!("domain created: {want_domain}"));
+        say(&format!("domain created: {want_domain}"), true);
     }
 }
 
@@ -824,7 +849,7 @@ fn install_human(a: &Args) -> i32 {
 
     // 1b) domain 预置/创建（只显式/复用路径）
     if !new_system_domain.is_empty() && !sid2.is_empty() {
-        ensure_domain(&gw_url, &env_admin_key, &sid2, &want_domain);
+        ensure_domain(&gw_url, &env_admin_key, &sid2, &want_domain, false);
     }
 
     // 入站 webhook 判定（owner 2026-10-13 定稿，单一判定函数）：此刻凭据与配置都已
