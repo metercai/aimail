@@ -287,6 +287,16 @@ def _hermes_upsert_model(lines: list[str], start: int, end: int,
 # dependency. Anything not recognisable as that shape is refused (rc=2), never guessed.
 _DSH_PLUGIN_ID = "llm-deepseek"
 _DSH_API_KEY_ENV = "DEEPSEEK_API_KEY"
+# OpenAI-compatible route (llm-pi-ai provider, api: openai-completions): for endpoints
+# whose LLM speaks ONLY the OpenAI protocol. The llm-deepseek row speaks Anthropic
+# Messages (hardcoded baseURL/v1/messages) and cannot serve such a root. The local L2
+# stub (127.0.0.1:8000) serves BOTH protocols, so it stays on the Messages route —
+# L2 journey behavior is untouched by this branch.
+_DSH_PI_PLUGIN_ID = "llm-pi-ai"
+_DSH_DEFAULT_MODEL_ID = "agent-default-model"
+_DSH_PI_PROVIDER_ID = "xiaomi"
+_DSH_PI_API_KEY_ENV = "LLM_API_KEY"
+_DSH_PI_HOST = "api.xiaomimimo.com"
 _DSH_ROW_RE = re.compile(rf"^- id:\s*{_DSH_PLUGIN_ID}\s*$")
 _DSH_TOP_ROW_RE = re.compile(r"^-(\s|$)")
 
@@ -315,6 +325,33 @@ def _dsh_row_span(lines: list[str]) -> tuple[int, int] | None:
                 j += 1
             return i, j
     return None
+
+
+def _dsh_row_span_id(lines: list[str], row_id: str) -> tuple[int, int] | None:
+    """(start, end) line indexes of the top-level `- id: <row_id>` row, or None."""
+    for i, ln in enumerate(lines):
+        if re.match(rf"^- id:\s*{re.escape(row_id)}\s*$", ln.rstrip("\n")):
+            j = i + 1
+            while j < len(lines) and not _DSH_TOP_ROW_RE.match(lines[j]):
+                j += 1
+            return i, j
+    return None
+
+
+def _dsh_upsert_row(lines: list[str], row_id: str, body: list[str]) -> list[str]:
+    """Replace (or append) the WHOLE top-level row for row_id with the given body lines.
+
+    The loader replaces a targeted row's config wholesale, so in-place whole-row rewrite
+    is the only form that can't be lost to a later same-id row. The body is the exact
+    text (comment lines allowed) between the `- id:` line and the next top-level row."""
+    span = _dsh_row_span_id(lines, row_id)
+    block = [f"- id: {row_id}\n"] + body
+    if span is None:
+        if lines and not lines[-1].endswith("\n"):
+            lines[-1] += "\n"
+        lines += block
+        return lines
+    return lines[:span[0]] + block + lines[span[1]:]
 
 
 def _dsh_baseurl_for(base_url: str) -> str:
@@ -398,6 +435,17 @@ def _dsh_profiles(home: Path) -> list[Path]:
             if d.is_dir() and (d / "cordis.yml").is_file()] if prof_root.is_dir() else []
 
 
+def _dsh_uses_openai_route(base_url: str) -> bool:
+    """Whether this caller-named endpoint needs the OpenAI (llm-pi-ai) provider row.
+
+    api.xiaomimimo.com serves ONLY the OpenAI protocol (measured 2026-10-15:
+    /v1/chat/completions 200, /v1/messages 404). Everything else keeps the shipped
+    llm-deepseek (Anthropic Messages) route: the deepseek root uses the provider's own
+    PUBLIC_BASE_URL, and the local 127.0.0.1:8000 stub serves both protocols."""
+    host = base_url.split("//")[-1].split("/")[0]
+    return host == _DSH_PI_HOST
+
+
 def write_dsh(home: Path, base_url: str, model: str, api_key: str) -> list[Path]:
     """dsh: the profile's id-targeted patch layer (cordis.patch.yml).
 
@@ -439,6 +487,38 @@ def write_dsh(home: Path, base_url: str, model: str, api_key: str) -> list[Path]
                     lines[-1] += "\n"
                 lines += block
                 span = (len(lines) - len(block), len(lines))
+        if _dsh_uses_openai_route(base_url):
+            # OpenAI-compatible endpoint: the llm-deepseek row speaks Anthropic Messages
+            # and cannot serve it. Write the llm-pi-ai provider row (api: openai-
+            # completions, credential by env NAME — the host process carries LLM_API_KEY,
+            # J4c's job, never this file) + point agent-default-model at it: the inbound
+            # turn selects via currentSelection() (dsh-headless:296-302 / dsh-aimail
+            # inbound.ts:158), which ships as deepseek-official/deepseek-flash and would
+            # otherwise ignore the pi-ai row entirely. Shape proven byte-for-byte by the
+            # local L3-clone (54s reply, modelSelection.xiaomi, llmMs=43170).
+            lines = _dsh_upsert_row(lines, _DSH_PI_PLUGIN_ID, [
+                "  config:\n",
+                "    providers:\n",
+                f"      {_DSH_PI_PROVIDER_ID}:\n",
+                f"        apiKeyEnv: {_DSH_PI_API_KEY_ENV}\n",
+                "        api: openai-completions\n",
+                f"        baseURL: {base_url}\n",
+                "        models:\n",
+                f"          - id: {model}\n",
+                "            name: MiMo v2.6 flash\n",
+                "            contextWindow: 128000\n",
+                "            maxTokens: 8192\n",
+                "            input: [text]\n",
+                "            reasoningEfforts: false\n",
+            ])
+            lines = _dsh_upsert_row(lines, _DSH_DEFAULT_MODEL_ID, [
+                "  config:\n",
+                f"    provider: {_DSH_PI_PROVIDER_ID}\n",
+                f"    model: {model}\n",
+            ])
+            p.write_text("".join(lines))
+            written.append(p)
+            continue
         keys = {"apiKeyEnv": "DEEPSEEK_API_KEY"}
         want_base = _dsh_baseurl_for(base_url)
         if want_base:
@@ -599,12 +679,42 @@ def verify_dsh(home: Path, base_url: str, model: str) -> list[str]:
     if not profs:
         raise RuntimeError(f"no dsh profile under {home / 'profiles'} — nothing to verify")
     bad = []
+    openai = _dsh_uses_openai_route(base_url)
     for prof in profs:
         p = prof / "cordis.patch.yml"
         if not p.is_file():
             bad.append(f"{p} does not exist")
             continue
         lines = p.read_text().splitlines(keepends=True)
+        if openai:
+            # Check the rows the inbound turn actually composes from: the pi-ai provider
+            # row (api protocol / baseURL / credential NAME / the target model present)
+            # and the agent-default-model override pointing at it.
+            ps = _dsh_row_span_id(lines, _DSH_PI_PLUGIN_ID)
+            if ps is None:
+                bad.append(f"{p} has no `- id: {_DSH_PI_PLUGIN_ID}` patch row (OpenAI endpoint needs it)")
+                continue
+            text = "".join(lines[ps[0]:ps[1]])
+            if "api: openai-completions" not in text:
+                bad.append(f"{p} {_DSH_PI_PLUGIN_ID} row lacks api: openai-completions")
+            m = re.search(rf"baseURL:\s*(\S+)", text)
+            if not m or m.group(1) != base_url:
+                bad.append(f"{p} {_DSH_PI_PLUGIN_ID} baseURL={m.group(1) if m else None!r} != {base_url!r}")
+            ref = _dsh_config_value(lines, ps, "apiKeyEnv")
+            if ref != _DSH_PI_API_KEY_ENV:
+                bad.append(f"{p} {_DSH_PI_PLUGIN_ID}.config.providers.*.apiKeyEnv={ref!r} != {_DSH_PI_API_KEY_ENV!r} — "
+                           f"the dsh host is launched with that name; any other reference requests without a key")
+            if f"          - id: {model}" not in text and f"- id: {model}" not in text:
+                bad.append(f"{p} {_DSH_PI_PLUGIN_ID} models lack id {model!r}")
+            ds = _dsh_row_span_id(lines, _DSH_DEFAULT_MODEL_ID)
+            if ds is None:
+                bad.append(f"{p} has no `- id: {_DSH_DEFAULT_MODEL_ID}` row — the selection would stay on the shipped deepseek default")
+            else:
+                prov = _dsh_config_value(lines, ds, "provider")
+                mod = _dsh_config_value(lines, ds, "model")
+                if prov != _DSH_PI_PROVIDER_ID or mod != model:
+                    bad.append(f"{p} {_DSH_DEFAULT_MODEL_ID} = {prov!r}/{mod!r} != {_DSH_PI_PROVIDER_ID!r}/{model!r}")
+            continue
         span = _dsh_row_span(lines)
         if span is None:
             bad.append(f"{p} has no `- id: {_DSH_PLUGIN_ID}` patch row")

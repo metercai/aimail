@@ -27,7 +27,7 @@ name: l3
 #   独立失败点: aimail install 路径多走 CLI detect/平台适配, 插件路径直连 dsh 管理器。
 #
 # 每 job 三步(D3 裁决):
-#   ① 装目标 agent + 配 LLM(deepseek-flash, secret DEEPSEEK_API_KEY) + 验证可运行
+#   ① 装目标 agent + 配 LLM(小米 OpenAI 兼容端点, secret XIAOMI_API_KEY) + 验证可运行
 #   ② 取已发布 CLI(bootstrap.sh 在线, 用户真实入口) + 已发布网关(Release 二进制)
 #   ③ 同一套回归: aimail install(admin-key 激活) → welcome 闭环 → 查询邮件签名断言
 #
@@ -50,8 +50,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DEEPSEEK_BASE_URL: "https://api.deepseek.com"
-  DEEPSEEK_MODEL: "deepseek-flash"
+  LLM_BASE_URL: "https://api.xiaomimimo.com/v1"
+  LLM_MODEL: "mimo-v2.6-flash"
 
 jobs:
   l3:
@@ -80,7 +80,7 @@ jobs:
 
     timeout-minutes: 45
     env:
-      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      LLM_API_KEY: ${{ secrets.XIAOMI_API_KEY }}
     steps:
       - name: Checkout aimail (scripts + L3 tests)
         uses: actions/checkout@v4
@@ -98,7 +98,7 @@ jobs:
           export L3_PLATFORM="${{ matrix.platform }}"
           export L3_AGENT="${{ matrix.agent }}"
           export AIMAIL_REPO="$GITHUB_WORKSPACE/aimail"
-          export DEEPSEEK_API_KEY="${{ secrets.DEEPSEEK_API_KEY }}"
+          export LLM_API_KEY="${{ secrets.XIAOMI_API_KEY }}"
           # 日志统一落 workspace(两个 context 都有效): env.HOME 是 GitHub env context
           # (非 OS HOME, 表达式里为空 ⇒ path 变 /l3-logs 找不到文件 ⇒ 0 artifact)。
           export L3_LOG_ARCHIVE="$GITHUB_WORKSPACE/l3-logs"

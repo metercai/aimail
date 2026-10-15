@@ -19,7 +19,7 @@
 #   L3_AGENT     hermes | dsh-aimail | dsh-plugin
 #                (dsh 两条 README 公布路径各一格: aimail install --home ~/.dsh / dsh plugin add)
 #   AIMAIL_REPO  aimail 仓 checkout(环境准备单源 + llm-config.py 都在 tests/agent-env/)
-#   DEEPSEEK_BASE_URL / DEEPSEEK_MODEL / DEEPSEEK_API_KEY
+#   LLM_BASE_URL / LLM_MODEL / LLM_API_KEY
 #
 # 流程契约(README Quick Start 场景 4, 原样复现, 严禁自行调整):
 #   ③ env 四件套(AIMAIL_GW_URL/ADMIN_KEY/DOMAIN/MANAGER_ADDRESS) + 在线自举 curl|bash
@@ -175,28 +175,30 @@ PY
   if [ -n "${HOST_PID:-}" ] && [ -r "/proc/$HOST_PID/environ" ]; then
     python3 - "/proc/$HOST_PID/environ" <<'PY' | sed 's/^/    /'
 import sys
-pref = b"DEEPSEEK_" + b"API_KEY" + b"="   # 拼接: 避免字面量被当 secret 打码
+pref = b"LLM_" + b"API_KEY" + b"="   # 拼接: 避免字面量被当 secret 打码
 data = open(sys.argv[1], "rb").read().split(b"\0")
 v = next((d for d in data if d.startswith(pref) and len(d) > len(pref)), None)
 if v:
-    print("  [③ dsh LLM] ✓ 宿主进程环境含 DEEPSEEK_API_KEY(非空, 值不打印)")
+    print("  [③ dsh LLM] ✓ 宿主进程环境含 LLM_API_KEY(非空, 值不打印)")
 else:
-    print("  [③ dsh LLM] ✗ 宿主进程环境无 DEEPSEEK_API_KEY 或为空 —— MISSING_CREDENTIAL, turn 0ms 死的根因")
+    print("  [③ dsh LLM] ✗ 宿主进程环境无 LLM_API_KEY 或为空 —— MISSING_CREDENTIAL, turn 0ms 死的根因")
 PY
   else
     echo "  [③ dsh LLM] ✗ 宿主进程 ${HOST_PID:-?} 已死或 environ 不可读 —— 无法判 env 传递"
   fi
-  python3 - <<'PY' | sed 's/^/    /'
-import os, json, time, urllib.request
-key = os.environ.get("DEEPSEEK_API_KEY", "")
+  python3 - "$LLM_BASE_URL" "$LLM_MODEL" <<'PY' | sed 's/^/    /'
+import os, sys, json, time, urllib.request
+key = os.environ.get("LLM_API_KEY", "")
 if not key:
-    print("  ✗ 取证进程自身无 DEEPSEEK_API_KEY, 跳过探针"); raise SystemExit
-url = "https://api.deepseek.com/anthropic/v1/messages"
-body = json.dumps({"model": "deepseek-flash", "max_tokens": 8,
+    print("  ✗ 取证进程自身无 LLM_API_KEY, 跳过探针"); raise SystemExit
+# 探针打 agent 实际调用的端点(OpenAI chat/completions, = llm-pi-ai / hermes custom 同形),
+# 不再硬编码 deepseek/anthropic —— 硬编码探针与 agent 真实路径脱节 = 假绿灯盲区。
+base = sys.argv[1].rstrip("/")
+url = base + "/chat/completions" if base.endswith("/v1") else base + "/v1/chat/completions"
+body = json.dumps({"model": sys.argv[2], "max_tokens": 8,
                    "messages": [{"role": "user", "content": "ping"}]}).encode()
 req = urllib.request.Request(url, data=body, method="POST",
-    headers={"x-api-key": key, "anthropic-version": "2023-06-01",
-             "content-type": "application/json"})
+    headers={"Authorization": "Bearer " + key, "content-type": "application/json"})
 t0 = time.time()
 try:
     with urllib.request.urlopen(req, timeout=30) as r:
@@ -221,9 +223,9 @@ AGENT_ENV="$AIMAIL_REPO/tests/agent-env"
 LLMCFG="$AGENT_ENV/lib/llm-config.py"
 [ -f "$AGENT_ENV/prepare.sh" ] || die "agent-env/prepare.sh missing at $AGENT_ENV (self-contained in the aimail repo)"
 [ -f "$LLMCFG" ] || die "llm-config.py missing at $LLMCFG (self-contained in the aimail repo)"
-LLM_BASE_URL="${DEEPSEEK_BASE_URL:-https://api.deepseek.com}"
-LLM_MODEL="${DEEPSEEK_MODEL:-deepseek-flash}"
-[ -n "${DEEPSEEK_API_KEY:-}" ] || { echo "✗ DEEPSEEK_API_KEY secret not set"; exit 2; }
+LLM_BASE_URL="${LLM_BASE_URL:-https://api.xiaomimimo.com/v1}"
+LLM_MODEL="${LLM_MODEL:-mimo-v2.6-flash}"
+[ -n "${LLM_API_KEY:-}" ] || { echo "✗ LLM_API_KEY secret not set"; exit 2; }
 
 WORK="$(mktemp -d /tmp/l3-XXXXXX)"
 GW_HOME="$WORK/gw"
@@ -264,7 +266,7 @@ case "$AGENT" in
     # --extra-home 落真 $HERMES_HOME(宿主进程读它)。
     bash "$AGENT_ENV/prepare.sh" hermes \
       --home "$WORK/llm-scratch" --extra-home "$HERMES_HOME" \
-      --llm-url "$LLM_BASE_URL" --llm-model "$LLM_MODEL" --llm-key "$DEEPSEEK_API_KEY" \
+      --llm-url "$LLM_BASE_URL" --llm-model "$LLM_MODEL" --llm-key "$LLM_API_KEY" \
       || die "hermes env prepare failed (single source: tests/agent-env)"
     VERIFY_HOME="$WORK/llm-scratch"
     VERIFY_EXTRA=(--extra-home "$HERMES_HOME")
@@ -277,7 +279,7 @@ case "$AGENT" in
     DSH_HOME="${HOME}/.dsh"
     AGENT_HOME="$DSH_HOME"
     bash "$AGENT_ENV/prepare.sh" dsh --home "$DSH_HOME" \
-      --llm-url "$LLM_BASE_URL" --llm-model "$LLM_MODEL" --llm-key "$DEEPSEEK_API_KEY" \
+      --llm-url "$LLM_BASE_URL" --llm-model "$LLM_MODEL" --llm-key "$LLM_API_KEY" \
       || die "dsh env prepare failed (single source: tests/agent-env)"
     VERIFY_HOME="$DSH_HOME"
     VERIFY_EXTRA=()
@@ -544,7 +546,7 @@ PY
     # webhook_url 端口 = 9099(默认, 除非 AIMAIL_INBOUND_URL/PORT 环境覆盖)。
     DSH_INBOUND_PORT="${AIMAIL_INBOUND_PORT:-9099}"
     DSH_HOME="$DSH_HOME" AIMAIL_HOME="${HOME}/.aimail" AIMAIL_INBOUND_PORT="$DSH_INBOUND_PORT" \
-      DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY" \
+      LLM_API_KEY="$LLM_API_KEY" \
       nohup dsh --profile web --port 0 --no-open > "$WORK/dsh-host.log" 2>&1 &
     HOST_PID=$!
     say "dsh host starting (inbound port $DSH_INBOUND_PORT)…"
