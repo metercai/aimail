@@ -21,9 +21,9 @@
  *      otherwise `autoBind` registers + writes the binding (short-circuits
  *      with {exists:true} when the email's binding already exists).
  *
- * The per-platform POINTER (~/.<platform>/.agentmail) is intentionally NOT
- * written here — it is package-level (dsh has none; pi/openclaw own theirs).
- * Callers that need a pointer write it after this resolves.
+ * The per-platform POINTER (the POINTER_FILE under ~/.<platform>/) is
+ * intentionally NOT written here — it is package-level (dsh has none;
+ * pi/openclaw own theirs). Callers that need a pointer write it after this resolves.
  */
 import {
   autoBind,

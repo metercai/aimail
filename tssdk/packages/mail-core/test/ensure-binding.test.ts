@@ -8,7 +8,7 @@ import {
   listSystemDirs,
   loadConfigByAgentId,
 } from '../src/index.js'
-import { BINDING_FILE } from '../src/contract.js'
+import { BINDING_FILE, INBOUND_PATH } from '../src/contract.js'
 import type { AdminClientLike } from '../src/auto-bind.js'
 
 let iso: string
@@ -83,7 +83,7 @@ describe('ensureAgentBinding (single-source host default-agent binding)', () => 
     const r = await ensureAgentBinding({
       home,
       agentId: 'agent',
-      webhookUrl: 'http://127.0.0.1:9099/aimail/inbound',
+      webhookUrl: `http://127.0.0.1:9099${INBOUND_PATH}`,
       transport: registerTransport(calls),
     })
     expect(r.ok).toBe(true)
