@@ -6,6 +6,7 @@
  */
 export * from './types.js'
 export { arg as cliArg, flag as cliFlag, emit as cliEmit } from './cli-arg.js'
+export { runOpEntry, type OpEntryHooks } from './cli-op-entry.js'
 export * from './typebox-params.js'
 export * from './contract.js'
 export { GatewayClient } from './gateway.js'

@@ -21,76 +21,27 @@
  * argv 解析与信封输出 —— CLI 不实现平台适配，平台包只提供宿主布局数据。
  */
 import {
-  opAssemble,
-  opPromptTest,
-  opTeardown,
-  opUpdate,
-  UsageError,
-  cliArg as arg,
+  runOpEntry,
   cliEmit as emit,
 } from '@aimail/mail-core'
 
 const OPS = 'assemble|update|teardown|prompt-test'
 
-/** 单行 JSON 信封 + usage/call 两类错误分类（与 python 门同形）。 */
+/** 单行 JSON 信封 + usage/call 两类错误分类(与 python 门同形)。
+ *  op 分支单源 = mail-core runOpEntry(C2 2026-10-17);openclaw 无 legacy 分支,
+ *  无 `--op` ⇒ usage 错误。 */
 export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
-  const opIdx = argv.indexOf('--op')
-  if (opIdx < 0) {
-    emit({
-      ok: false,
-      kind: 'usage',
-      exc: 'UsageError',
-      error: `usage: node register-cli.js --op <${OPS}> --args '<json>'`,
-    })
-    return 2
-  }
-  const op = argv[opIdx + 1] || ''
-  const argsRaw = arg(argv, '--args') || '{}'
-  let args: Record<string, unknown>
-  try {
-    args = JSON.parse(argsRaw) as Record<string, unknown>
-    if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('not a JSON object')
-  } catch (e) {
-    emit({
-      ok: false,
-      kind: 'usage',
-      exc: 'UsageError',
-      error: `--args is not valid JSON: ${e instanceof Error ? e.message : String(e)}`,
-    })
-    return 2
-  }
-  try {
-    const result =
-      op === 'assemble' ? await opAssemble(args)
-      : op === 'update' ? await opUpdate(args)
-      : op === 'teardown' ? await opTeardown(args)
-      : op === 'prompt-test' ? await opPromptTest(args)
-      : null
-    if (!result) {
+  return runOpEntry(argv, {
+    onNoOp: () => {
       emit({
         ok: false,
         kind: 'usage',
         exc: 'UsageError',
-        error: `unknown op '${op}'(期望 ${OPS})`,
+        error: `usage: node register-cli.js --op <${OPS}> --args '<json>'`,
       })
       return 2
-    }
-    emit({ ok: true, result })
-    return 0
-  } catch (e) {
-    // 与 python 门同形：usage ⇒ error=纯消息；call ⇒ error="<Cls>: <msg>"
-    // （JS 子类实例的 e.name 恒为 'Error'，须用 e.constructor.name）
-    if (e instanceof UsageError) {
-      process.stderr.write(`register-cli: ${op} failed: ${e.message}\n`)
-      emit({ ok: false, kind: 'usage', exc: 'UsageError', error: e.message })
-      return 2
-    }
-    const exc = e instanceof Error ? e.constructor.name : 'Error'
-    const msg = e instanceof Error ? e.message : String(e)
-    process.stderr.write(`register-cli: ${op} failed: ${exc}: ${msg}\n`)
-    emit({ ok: false, kind: 'call', exc, error: `${exc}: ${msg}` })
-    return 1
-  }
+    },
+  })
 }
 
 // 仅当本文件是被执行的入口时自跑；被 import（单测）时不执行。

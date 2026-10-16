@@ -26,11 +26,7 @@ import * as path from 'node:path'
 import {
   autoBind,
   cliArg as arg,
-  opAssemble,
-  opPromptTest,
-  opTeardown,
-  opUpdate,
-  UsageError,
+  runOpEntry,
   resolveRegisterEmail,
   inboundUrl,
   INBOUND_PORTS,
@@ -42,50 +38,12 @@ async function main(): Promise<number> {
   const argv = process.argv.slice(2)
   // 契约 v1.0 §4.1(2):op 入口形态(CLI 经注册表 ops.argv 调)——
   //   node <register-cli.js> --op <assemble|update|teardown> --args '<json>'
-  const opIdx = argv.indexOf('--op')
-  if (opIdx >= 0) {
-    const op = argv[opIdx + 1] || ''
-    const argsRaw = arg(argv, '--args') || '{}'
-    let args: Record<string, unknown>
-    try {
-      args = JSON.parse(argsRaw) as Record<string, unknown>
-      if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('not a JSON object')
-    } catch (e) {
-      process.stdout.write(
-        JSON.stringify({ ok: false, kind: 'usage', exc: 'UsageError', error: `--args is not valid JSON: ${e instanceof Error ? e.message : String(e)}` }) + '\n',
-      )
-      return 2
-    }
-    try {
-      const result =
-        op === 'assemble' ? await opAssemble(args)
-        : op === 'update' ? await opUpdate(args)
-        : op === 'teardown' ? await opTeardown(args)
-        : op === 'prompt-test' ? await opPromptTest(args)
-        : null
-      if (!result) {
-        process.stdout.write(
-          JSON.stringify({ ok: false, kind: 'usage', exc: 'UsageError', error: `unknown op '${op}'(期望 assemble|update|teardown|prompt-test)` }) + '\n',
-        )
-        return 2
-      }
-      process.stdout.write(JSON.stringify({ ok: true, result }) + '\n')
-      return 0
-    } catch (e) {
-      // 与 python 门同形:usage ⇒ error=纯消息;call ⇒ error="<Cls>: <msg>"(JS 子类实例的
-      // e.name 恒为 'Error',须用 e.constructor.name —— 对应 python type(e).__name__)
-      if (e instanceof UsageError) {
-        process.stderr.write(`register-cli: ${op} failed: ${e.message}\n`)
-        process.stdout.write(JSON.stringify({ ok: false, kind: 'usage', exc: 'UsageError', error: e.message }) + '\n')
-        return 2
-      }
-      const exc = e instanceof Error ? e.constructor.name : 'Error'
-      const msg = e instanceof Error ? e.message : String(e)
-      process.stderr.write(`register-cli: ${op} failed: ${exc}: ${msg}\n`)
-      process.stdout.write(JSON.stringify({ ok: false, kind: 'call', exc, error: `${exc}: ${msg}` }) + '\n')
-      return 1
-    }
-  }
+  // op 分支单源 = mail-core runOpEntry(C2 2026-10-17);无 `--op` ⇒ legacy 绑定分支。
+  return runOpEntry(argv, { onNoOp: () => legacyBind(argv) })
+}
+
+/** legacy 绑定分支(无 `--op`,旧注册表形态;C2 骨架化后原样保留)。 */
+async function legacyBind(argv: string[]): Promise<number> {
   const systemIdArg = arg(argv, '--system-id')
   const nameArg = arg(argv, '--name')
   const emailArg = arg(argv, '--email')
