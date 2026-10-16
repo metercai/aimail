@@ -1,8 +1,8 @@
 {
  "_comment": "字面量棘轮基线(按 文件×清单键 计数)。规则 = 不得新增:计数只许减不许增;新增位置必须改用常量模块, 或在该行加 `contract-allowed: <理由>` 注释(测试专用逃生门)。重生成: python3 tests/contract/check-contract-single-source.py --update-baseline",
- "generated_at": "2026-10-08T07:02:32Z",
- "tracked_files": 314,
- "hits": 340,
+ "generated_at": "2026-10-16T09:48:43Z",
+ "tracked_files": 344,
+ "hits": 354,
  "files": {
   "bridge/aimail_routes.toml.example": {
    "hermes_inbound_path": 1,
@@ -15,6 +15,10 @@
    "binding_file": 6
   },
   "cli/platforms.json": {
+   "agent_skill_name": 11,
+   "pointer_file": 8
+  },
+  "cli/src/core/platforms_data.rs": {
    "agent_skill_name": 11,
    "pointer_file": 8
   },
@@ -221,9 +225,7 @@
    "pointer_file": 2
   },
   "tssdk/packages/pi-aimail/src/identity.ts": {
-   "binding_file": 1,
-   "inbound_path": 1,
-   "pointer_file": 4
+   "inbound_path": 1
   },
   "tssdk/packages/pi-aimail/src/index.ts": {
    "agent_skill_name": 2,

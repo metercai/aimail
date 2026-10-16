@@ -1,28 +1,33 @@
-//! 平台注册表 —— `cli/platforms.json` **内嵌**（owner 2026-10-03 裁决）。
+//! 平台注册表 —— 数据源为**类型化常量** `platforms_data`（P2c S2 切换，2026-10-16）。
 //!
 //! 它是 CLI↔SDK 的**映射层**（平台注册表 + 安装动作表，见边界定稿 §1.4 D）；CLI 侧
-//! 的平台知识单真源，代码里不得出现平台字面量分支（L0.c 判据同精神）。
+//! 的平台知识单真源 = `platforms_data::PLATFORMS`（类型系统兜底形状），代码里不得出现
+//! 平台字面量分支（L0.c 判据同精神）。
 //!
-//! 内嵌的取舍（owner 已定）：单一二进制自包含、`include_str!` 编译期取源 ⇒ 文件与
-//! 二进制不可能漂移；代价是加平台/改动作需要重编译重发版（分发本就如此）。
-//! 门禁 `tests/cli/check-registry.py` 校验的仍是仓里那份文件 —— 而
-//! `tests/cli/check-registry.py` 校验的就是编译期取源的那一份（见本模块测试）。
-//!
-//! S2 只暴露目前用得到的访问面（order / 定义 / home_dir / install_steps / raw），
-//! 其余键（uninstall_steps / health_checks / register …）留给各自的消费步骤，
-//! 避免过早把 schema 冻成结构体。
+//! 本模块是 `platforms_data` 的**值视图 + FS 逻辑层**：`registry()` 由类型化常量经
+//! `to_json()` 重建（语义等价，由 `platforms_data` 的往返棘轮证明），既有访问器
+//! （order / platform / install_steps / 指针 / 别名 …）照旧从该值视图取数；指针扫描、
+//! home 归一化等 FS 逻辑也在此（它们不解析注册表，只消费它）。
+//! 待退役的 `cli/platforms.json` 于 S3 删除；删前门禁 `tests/cli/check-registry.py`
+//! 仍校验仓里那份文件（见本模块测试：文件与值视图语义等价）。
 
-use crate::core::contract;
-use serde_json::Value;
+use crate::core::{contract, platforms_data};
+use serde_json::{json, Map, Value};
 use std::sync::OnceLock;
-
-/// 编译期内嵌的平台注册表（路径相对本文件：`cli/src/core/` → `cli/`）。
-const REGISTRY_JSON: &str = include_str!("../../platforms.json");
 
 fn registry() -> &'static Value {
     static R: OnceLock<Value> = OnceLock::new();
     R.get_or_init(|| {
-        serde_json::from_str(REGISTRY_JSON).expect("embedded platform registry must be valid JSON")
+        // 单真源 = 类型化常量；JSON 视图由 to_json() 重建（键序可能异于原文件，语义恒等）。
+        let mut platforms = Map::new();
+        for p in platforms_data::PLATFORMS {
+            platforms.insert(p.id.to_string(), p.to_json());
+        }
+        json!({
+            "_comment": platforms_data::COMMENT,
+            "order": platforms_data::ORDER,
+            "platforms": platforms,
+        })
     })
 }
 
@@ -660,17 +665,33 @@ mod tests {
     }
 
     #[test]
-    fn embedded_registry_equals_repo_file() {
-        // 内嵌 = 编译期取源；这条断言锁"取的就是仓里那份文件"（路径漂了就红）。
-        // 门禁 tests/cli/check-registry.py 校验的同一份文件 ⇒ 门禁与二进制不会各说各话。
+    fn registry_view_is_semantically_equal_to_the_repo_file() {
+        // S2 后值视图由类型化常量重建（键序可能异于原文件）⇒ 断言语义等价（对象键序
+        // 无关、数组序敏感）。门禁 tests/cli/check-registry.py 校验同一份文件 ⇒ 门禁与
+        // 二进制不会各说各话。S3 删文件时本测试随文件一并移除。
         let on_disk = std::fs::read_to_string(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("platforms.json"),
         )
         .expect("cli/platforms.json readable");
-        assert_eq!(
-            on_disk, REGISTRY_JSON,
-            "embedded registry drifted from cli/platforms.json"
+        let on_disk: Value = serde_json::from_str(&on_disk).expect("repo file parses");
+        assert!(
+            same_value(&on_disk, registry()),
+            "registry view drifted from cli/platforms.json"
         );
+    }
+
+    fn same_value(a: &Value, b: &Value) -> bool {
+        match (a, b) {
+            (Value::Object(x), Value::Object(y)) => {
+                x.len() == y.len()
+                    && x.iter()
+                        .all(|(k, v)| y.get(k).is_some_and(|ov| same_value(v, ov)))
+            }
+            (Value::Array(x), Value::Array(y)) => {
+                x.len() == y.len() && x.iter().zip(y.iter()).all(|(x, y)| same_value(x, y))
+            }
+            _ => a == b,
+        }
     }
 
     #[test]

@@ -26,12 +26,24 @@ pub struct When {
 impl When {
     pub fn to_json(&self) -> Value {
         let mut v = Map::new();
-        if let Some(b) = self.cfg_complete { v.insert("cfg_complete".into(), json!(b)); }
-        if let Some(b) = self.sid_set { v.insert("sid_set".into(), json!(b)); }
-        if let Some(t) = self.path_exists { v.insert("path_exists".into(), json!(t)); }
-        if let Some(t) = self.command_exists { v.insert("command_exists".into(), json!(t)); }
-        if let Some(t) = self.runtime { v.insert("runtime".into(), json!(t)); }
-        if let Some(t) = self.runtime_not { v.insert("runtime_not".into(), json!(t)); }
+        if let Some(b) = self.cfg_complete {
+            v.insert("cfg_complete".into(), json!(b));
+        }
+        if let Some(b) = self.sid_set {
+            v.insert("sid_set".into(), json!(b));
+        }
+        if let Some(t) = self.path_exists {
+            v.insert("path_exists".into(), json!(t));
+        }
+        if let Some(t) = self.command_exists {
+            v.insert("command_exists".into(), json!(t));
+        }
+        if let Some(t) = self.runtime {
+            v.insert("runtime".into(), json!(t));
+        }
+        if let Some(t) = self.runtime_not {
+            v.insert("runtime_not".into(), json!(t));
+        }
         Value::Object(v)
     }
 }
@@ -50,8 +62,14 @@ impl SkipIf {
 
 /// 安装/卸载动作（9 kind，字段并集见 P2c 计划 §8）。
 pub enum Step {
-    Print { when: Option<When>, text: &'static str },
-    Warn { when: Option<When>, text: &'static str },
+    Print {
+        when: Option<When>,
+        text: &'static str,
+    },
+    Warn {
+        when: Option<When>,
+        text: &'static str,
+    },
     Spawn {
         when: Option<When>,
         argv: &'static [&'static str],
@@ -64,8 +82,15 @@ pub enum Step {
         ok_text: Option<&'static str>,
         skipped_text: Option<&'static str>,
     },
-    RegisterDefault { when: Option<When>, on_error: Option<&'static str>, warn_hint: Option<&'static str> },
-    RegisterAll { ok_text: Option<&'static str>, warn_hint: Option<&'static str> },
+    RegisterDefault {
+        when: Option<When>,
+        on_error: Option<&'static str>,
+        warn_hint: Option<&'static str>,
+    },
+    RegisterAll {
+        ok_text: Option<&'static str>,
+        warn_hint: Option<&'static str>,
+    },
     SdkInstall {
         target: &'static str,
         fn_name: &'static str,
@@ -73,9 +98,18 @@ pub enum Step {
         fail_hint: Option<&'static str>,
         on_error: Option<&'static str>,
     },
-    SdkUninstall { target: &'static str, fn_name: &'static str },
-    RmPointer { path: &'static str, ok_text: Option<&'static str> },
-    RmDir { path: &'static str, ok_text: Option<&'static str> },
+    SdkUninstall {
+        target: &'static str,
+        fn_name: &'static str,
+    },
+    RmPointer {
+        path: &'static str,
+        ok_text: Option<&'static str>,
+    },
+    RmDir {
+        path: &'static str,
+        ok_text: Option<&'static str>,
+    },
 }
 
 impl Step {
@@ -98,22 +132,43 @@ impl Step {
         v.insert("kind".into(), json!(self.kind()));
         match self {
             Step::Print { when, text } => {
-                if let Some(w) = when { v.insert("when".into(), w.to_json()); }
+                if let Some(w) = when {
+                    v.insert("when".into(), w.to_json());
+                }
                 v.insert("text".into(), json!(text));
             }
             Step::Warn { when, text } => {
-                if let Some(w) = when { v.insert("when".into(), w.to_json()); }
+                if let Some(w) = when {
+                    v.insert("when".into(), w.to_json());
+                }
                 v.insert("text".into(), json!(text));
             }
-            Step::Spawn { when, argv, env, skip_if, on_missing, fail_hint, on_error, warn_hint, ok_text, skipped_text } => {
-                if let Some(w) = when { v.insert("when".into(), w.to_json()); }
+            Step::Spawn {
+                when,
+                argv,
+                env,
+                skip_if,
+                on_missing,
+                fail_hint,
+                on_error,
+                warn_hint,
+                ok_text,
+                skipped_text,
+            } => {
+                if let Some(w) = when {
+                    v.insert("when".into(), w.to_json());
+                }
                 v.insert("argv".into(), json!(argv));
                 if let Some(e) = env {
                     let mut m = Map::new();
-                    for (k, val) in *e { m.insert(k.to_string(), json!(val)); }
+                    for (k, val) in *e {
+                        m.insert(k.to_string(), json!(val));
+                    }
                     v.insert("env".into(), Value::Object(m));
                 }
-                if let Some(s) = skip_if { v.insert("skip_if".into(), s.to_json()); }
+                if let Some(s) = skip_if {
+                    v.insert("skip_if".into(), s.to_json());
+                }
                 for (k, val) in [
                     ("on_missing", on_missing),
                     ("fail_hint", fail_hint),
@@ -122,24 +177,52 @@ impl Step {
                     ("ok_text", ok_text),
                     ("skipped_text", skipped_text),
                 ] {
-                    if let Some(s) = val { v.insert(k.into(), json!(s)); }
+                    if let Some(s) = val {
+                        v.insert(k.into(), json!(s));
+                    }
                 }
             }
-            Step::RegisterDefault { when, on_error, warn_hint } => {
-                if let Some(w) = when { v.insert("when".into(), w.to_json()); }
-                if let Some(s) = on_error { v.insert("on_error".into(), json!(s)); }
-                if let Some(s) = warn_hint { v.insert("warn_hint".into(), json!(s)); }
+            Step::RegisterDefault {
+                when,
+                on_error,
+                warn_hint,
+            } => {
+                if let Some(w) = when {
+                    v.insert("when".into(), w.to_json());
+                }
+                if let Some(s) = on_error {
+                    v.insert("on_error".into(), json!(s));
+                }
+                if let Some(s) = warn_hint {
+                    v.insert("warn_hint".into(), json!(s));
+                }
             }
             Step::RegisterAll { ok_text, warn_hint } => {
-                if let Some(s) = ok_text { v.insert("ok_text".into(), json!(s)); }
-                if let Some(s) = warn_hint { v.insert("warn_hint".into(), json!(s)); }
+                if let Some(s) = ok_text {
+                    v.insert("ok_text".into(), json!(s));
+                }
+                if let Some(s) = warn_hint {
+                    v.insert("warn_hint".into(), json!(s));
+                }
             }
-            Step::SdkInstall { target, fn_name, ok_text, fail_hint, on_error } => {
+            Step::SdkInstall {
+                target,
+                fn_name,
+                ok_text,
+                fail_hint,
+                on_error,
+            } => {
                 v.insert("target".into(), json!(target));
                 v.insert("fn".into(), json!(fn_name));
-                if let Some(s) = ok_text { v.insert("ok_text".into(), json!(s)); }
-                if let Some(s) = fail_hint { v.insert("fail_hint".into(), json!(s)); }
-                if let Some(s) = on_error { v.insert("on_error".into(), json!(s)); }
+                if let Some(s) = ok_text {
+                    v.insert("ok_text".into(), json!(s));
+                }
+                if let Some(s) = fail_hint {
+                    v.insert("fail_hint".into(), json!(s));
+                }
+                if let Some(s) = on_error {
+                    v.insert("on_error".into(), json!(s));
+                }
             }
             Step::SdkUninstall { target, fn_name } => {
                 v.insert("target".into(), json!(target));
@@ -147,7 +230,9 @@ impl Step {
             }
             Step::RmPointer { path, ok_text } | Step::RmDir { path, ok_text } => {
                 v.insert("path".into(), json!(path));
-                if let Some(s) = ok_text { v.insert("ok_text".into(), json!(s)); }
+                if let Some(s) = ok_text {
+                    v.insert("ok_text".into(), json!(s));
+                }
             }
         }
         Value::Object(v)
@@ -156,13 +241,55 @@ impl Step {
 
 /// 运行时健康检查项（7 kind）。
 pub enum Health {
-    PointerMatch { id: &'static str, path: &'static str, ok_text: &'static str, fail_text: &'static str },
-    FileContains { id: &'static str, path: &'static str, marker: &'static str, ok_text: &'static str, fail_text: &'static str },
-    FileContainsAlt { id: &'static str, path: &'static str, alt: &'static str, marker: &'static str, ok_text: &'static str, fail_text: &'static str },
-    FileExists { id: &'static str, path: &'static str, ok_text: &'static str, fail_text: &'static str, fix: Option<&'static str> },
-    FileExistsAny { id: &'static str, paths: &'static [&'static str], ok_text: &'static str, fail_text: &'static str },
-    CommandMatch { id: &'static str, argv: &'static [&'static str], match_: &'static str, fallback_glob: Option<&'static str>, ok_text: &'static str, fail_text: &'static str, fix: Option<&'static str> },
-    YamlToolsets { id: &'static str, configs: &'static [&'static str], ok_text: &'static str, fail_text: &'static str },
+    PointerMatch {
+        id: &'static str,
+        path: &'static str,
+        ok_text: &'static str,
+        fail_text: &'static str,
+    },
+    FileContains {
+        id: &'static str,
+        path: &'static str,
+        marker: &'static str,
+        ok_text: &'static str,
+        fail_text: &'static str,
+    },
+    FileContainsAlt {
+        id: &'static str,
+        path: &'static str,
+        alt: &'static str,
+        marker: &'static str,
+        ok_text: &'static str,
+        fail_text: &'static str,
+    },
+    FileExists {
+        id: &'static str,
+        path: &'static str,
+        ok_text: &'static str,
+        fail_text: &'static str,
+        fix: Option<&'static str>,
+    },
+    FileExistsAny {
+        id: &'static str,
+        paths: &'static [&'static str],
+        ok_text: &'static str,
+        fail_text: &'static str,
+    },
+    CommandMatch {
+        id: &'static str,
+        argv: &'static [&'static str],
+        match_: &'static str,
+        fallback_glob: Option<&'static str>,
+        ok_text: &'static str,
+        fail_text: &'static str,
+        fix: Option<&'static str>,
+    },
+    YamlToolsets {
+        id: &'static str,
+        configs: &'static [&'static str],
+        ok_text: &'static str,
+        fail_text: &'static str,
+    },
 }
 
 impl Health {
@@ -233,23 +360,37 @@ impl Health {
                 v.insert("path".into(), json!(path));
                 v.insert("marker".into(), json!(marker));
             }
-            Health::FileContainsAlt { path, alt, marker, .. } => {
+            Health::FileContainsAlt {
+                path, alt, marker, ..
+            } => {
                 v.insert("path".into(), json!(path));
                 v.insert("alt".into(), json!(alt));
                 v.insert("marker".into(), json!(marker));
             }
             Health::FileExists { path, fix, .. } => {
                 v.insert("path".into(), json!(path));
-                if let Some(f) = fix { v.insert("fix".into(), json!(f)); }
+                if let Some(f) = fix {
+                    v.insert("fix".into(), json!(f));
+                }
             }
             Health::FileExistsAny { paths, .. } => {
                 v.insert("paths".into(), json!(paths));
             }
-            Health::CommandMatch { argv, match_, fallback_glob, fix, .. } => {
+            Health::CommandMatch {
+                argv,
+                match_,
+                fallback_glob,
+                fix,
+                ..
+            } => {
                 v.insert("argv".into(), json!(argv));
                 v.insert("match".into(), json!(match_));
-                if let Some(f) = fallback_glob { v.insert("fallback_glob".into(), json!(f)); }
-                if let Some(f) = fix { v.insert("fix".into(), json!(f)); }
+                if let Some(f) = fallback_glob {
+                    v.insert("fallback_glob".into(), json!(f));
+                }
+                if let Some(f) = fix {
+                    v.insert("fix".into(), json!(f));
+                }
             }
             Health::YamlToolsets { configs, .. } => {
                 v.insert("configs".into(), json!(configs));
@@ -263,27 +404,56 @@ impl Health {
 
 /// 注册器入口（3 kind：node 宿主 node_entry / python 宿主 python_module|python_script）。
 pub enum Register {
-    NodeEntry { node_path: &'static str, args: Option<&'static [&'static str]>, fail_hint: &'static str },
-    PythonModule { module: &'static str, fn_name: &'static str, profile_kind: &'static str, root_when: &'static [&'static str], pythonpath: &'static [&'static str] },
-    PythonScript { python: &'static str, args: &'static [&'static str], fail_hint: &'static str },
+    NodeEntry {
+        node_path: &'static str,
+        args: Option<&'static [&'static str]>,
+        fail_hint: &'static str,
+    },
+    PythonModule {
+        module: &'static str,
+        fn_name: &'static str,
+        profile_kind: &'static str,
+        root_when: &'static [&'static str],
+        pythonpath: &'static [&'static str],
+    },
+    PythonScript {
+        python: &'static str,
+        args: &'static [&'static str],
+        fail_hint: &'static str,
+    },
 }
 
 impl Register {
     pub fn is_python(&self) -> bool {
-        matches!(self, Register::PythonModule { .. } | Register::PythonScript { .. })
+        matches!(
+            self,
+            Register::PythonModule { .. } | Register::PythonScript { .. }
+        )
     }
 
     pub fn to_json(&self) -> Value {
         match self {
-            Register::NodeEntry { node_path, args, fail_hint } => {
+            Register::NodeEntry {
+                node_path,
+                args,
+                fail_hint,
+            } => {
                 let mut v = Map::new();
                 v.insert("kind".into(), json!("node_entry"));
                 v.insert("node_path".into(), json!(node_path));
-                if let Some(a) = args { v.insert("args".into(), json!(a)); }
+                if let Some(a) = args {
+                    v.insert("args".into(), json!(a));
+                }
                 v.insert("fail_hint".into(), json!(fail_hint));
                 Value::Object(v)
             }
-            Register::PythonModule { module, fn_name, profile_kind, root_when, pythonpath } => {
+            Register::PythonModule {
+                module,
+                fn_name,
+                profile_kind,
+                root_when,
+                pythonpath,
+            } => {
                 json!({
                     "kind": "python_module",
                     "module": module,
@@ -292,7 +462,11 @@ impl Register {
                     "pythonpath": pythonpath,
                 })
             }
-            Register::PythonScript { python, args, fail_hint } => {
+            Register::PythonScript {
+                python,
+                args,
+                fail_hint,
+            } => {
                 json!({
                     "kind": "python_script",
                     "python": python,
@@ -306,24 +480,42 @@ impl Register {
 
 /// 全量注册入口（`register_all`；pi/dsh 无 ⇒ None）。
 pub enum RegisterAll {
-    NodeEntry { node_path: &'static str, fail_hint: &'static str },
-    PythonScript { python: &'static str, args: &'static [&'static str], env: &'static [(&'static str, &'static str)], fail_hint: &'static str },
+    NodeEntry {
+        node_path: &'static str,
+        fail_hint: &'static str,
+    },
+    PythonScript {
+        python: &'static str,
+        args: &'static [&'static str],
+        env: &'static [(&'static str, &'static str)],
+        fail_hint: &'static str,
+    },
 }
 
 impl RegisterAll {
     pub fn to_json(&self) -> Value {
         match self {
-            RegisterAll::NodeEntry { node_path, fail_hint } => {
+            RegisterAll::NodeEntry {
+                node_path,
+                fail_hint,
+            } => {
                 json!({ "kind": "node_entry", "node_path": node_path, "fail_hint": fail_hint })
             }
-            RegisterAll::PythonScript { python, args, env, fail_hint } => {
+            RegisterAll::PythonScript {
+                python,
+                args,
+                env,
+                fail_hint,
+            } => {
                 let mut v = Map::new();
                 v.insert("kind".into(), json!("python_script"));
                 v.insert("python".into(), json!(python));
                 v.insert("args".into(), json!(args));
                 if !env.is_empty() {
                     let mut m = Map::new();
-                    for (k, val) in *env { m.insert(k.to_string(), json!(val)); }
+                    for (k, val) in *env {
+                        m.insert(k.to_string(), json!(val));
+                    }
                     v.insert("env".into(), Value::Object(m));
                 }
                 v.insert("fail_hint".into(), json!(fail_hint));
@@ -345,9 +537,13 @@ impl Agents {
     pub fn to_json(&self) -> Value {
         match self {
             Agents::Fixed { names } => json!({ "kind": "fixed", "names": names }),
-            Agents::FixedWithPointer { names } => json!({ "kind": "fixed_with_pointer", "names": names }),
+            Agents::FixedWithPointer { names } => {
+                json!({ "kind": "fixed_with_pointer", "names": names })
+            }
             Agents::GlobDir { dir } => json!({ "kind": "glob_dir", "dir": dir }),
-            Agents::ProfilesPlusDefault { profiles } => json!({ "kind": "profiles_plus_default", "profiles": profiles }),
+            Agents::ProfilesPlusDefault { profiles } => {
+                json!({ "kind": "profiles_plus_default", "profiles": profiles })
+            }
         }
     }
 }
@@ -360,7 +556,9 @@ pub struct Detect {
 impl Detect {
     pub fn to_json(&self) -> Value {
         let mut v = Map::new();
-        if let Some(d) = self.dir_name { v.insert("dir_name".into(), json!(d)); }
+        if let Some(d) = self.dir_name {
+            v.insert("dir_name".into(), json!(d));
+        }
         v.insert("markers".into(), json!(self.markers));
         Value::Object(v)
     }
@@ -409,9 +607,30 @@ impl PlatformDef {
             v.insert("ops".into(), Value::Object(m));
         }
         v.insert("home_dir".into(), json!(self.home_dir));
-        v.insert("install_steps".into(), self.install_steps.iter().map(Step::to_json).collect::<Vec<_>>().into());
-        v.insert("uninstall_steps".into(), self.uninstall_steps.iter().map(Step::to_json).collect::<Vec<_>>().into());
-        v.insert("health_checks".into(), self.health_checks.iter().map(Health::to_json).collect::<Vec<_>>().into());
+        v.insert(
+            "install_steps".into(),
+            self.install_steps
+                .iter()
+                .map(Step::to_json)
+                .collect::<Vec<_>>()
+                .into(),
+        );
+        v.insert(
+            "uninstall_steps".into(),
+            self.uninstall_steps
+                .iter()
+                .map(Step::to_json)
+                .collect::<Vec<_>>()
+                .into(),
+        );
+        v.insert(
+            "health_checks".into(),
+            self.health_checks
+                .iter()
+                .map(Health::to_json)
+                .collect::<Vec<_>>()
+                .into(),
+        );
         if !self.payload_refs.is_empty() {
             v.insert("payload_refs".into(), json!(self.payload_refs));
         }
@@ -528,8 +747,8 @@ mod tests {
     /// 必须逐字段无损（对象键序无关、数组序敏感）。删文件时本测试即"可证无损"。
     #[test]
     fn typed_data_round_trips_the_registry_being_retired() {
-        let reg: Value = serde_json::from_str(include_str!("../../platforms.json"))
-            .expect("待退役注册表可解析");
+        let reg: Value =
+            serde_json::from_str(include_str!("../../platforms.json")).expect("待退役注册表可解析");
         let mut platforms = Map::new();
         for p in PLATFORMS {
             platforms.insert(p.id.to_string(), p.to_json());
@@ -539,14 +758,18 @@ mod tests {
             "order": ORDER,
             "platforms": platforms,
         });
-        assert!(same(&reg, &mine), "platforms_data.rs 与待退役注册表漂移（往返不一致）");
+        assert!(
+            same(&reg, &mine),
+            "platforms_data.rs 与待退役注册表漂移（往返不一致）"
+        );
     }
 
     fn same(a: &Value, b: &Value) -> bool {
         match (a, b) {
             (Value::Object(x), Value::Object(y)) => {
                 x.len() == y.len()
-                    && x.iter().all(|(k, v)| y.get(k).map_or(false, |ov| same(v, ov)))
+                    && x.iter()
+                        .all(|(k, v)| y.get(k).is_some_and(|ov| same(v, ov)))
             }
             (Value::Array(x), Value::Array(y)) => {
                 x.len() == y.len() && x.iter().zip(y.iter()).all(|(x, y)| same(x, y))
