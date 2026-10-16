@@ -31,6 +31,7 @@ pub mod ping;
 pub mod platforms;
 pub mod platforms_data;
 pub mod probe;
+pub mod procwin;
 pub mod pyjson;
 pub mod register;
 pub mod repair;

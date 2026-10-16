@@ -415,11 +415,11 @@ pub fn bridge_stop(bin_path: &str, pid_path: &str) -> i32 {
     if !pid_alive(pid) {
         return 0;
     }
-    println!("    (旧桥无契约能力 → 回退 TERM/KILL; 建议升级桥到 >= 0.7.4)");
-    let _ = run_capture(&["kill", "-15", &pid.to_string()], 5);
+    println!("    (旧桥无契约能力 → 回退 TERM/KILL(windows = taskkill); 建议升级桥到 >= 0.7.4)");
+    kill_pid_compat(pid as u32, false);
     std::thread::sleep(std::time::Duration::from_secs(1));
     if pid_alive(pid) {
-        let _ = run_capture(&["kill", "-9", &pid.to_string()], 5);
+        kill_pid_compat(pid as u32, true);
     }
     0
 }
@@ -431,55 +431,91 @@ pub fn read_pid_file(pid_path: &str) -> Option<i32> {
         .and_then(|t| t.trim().parse::<i32>().ok())
 }
 
-/// `pid_alive`（unix：`kill -0`）。
+/// `pid_alive`（unix：`kill -0`；windows：tasklist，与 bridge.rs 同判据）。
 pub fn pid_alive(pid: i32) -> bool {
-    std::process::Command::new("kill")
-        .args(["-0", &pid.to_string()])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+    #[cfg(windows)]
+    {
+        let o = std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}")])
+            .output();
+        return o
+            .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
+            .unwrap_or(false);
+    }
+    #[cfg(unix)]
+    {
+        std::process::Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+}
+
+/// 平台自适应终止(unix = `kill -15`/`-9` 两级;windows = `taskkill /F` 直接强杀,
+/// 无严格优雅停对应 —— W2 计划裁决 2026-10-16;调用方的等待循环仍按 pid_alive 原语义)。
+#[cfg(unix)]
+fn kill_pid_compat(pid: u32, force: bool) {
+    let _ = run_capture(
+        &["kill", if force { "-9" } else { "-15" }, &pid.to_string()],
+        5,
+    );
+}
+
+#[cfg(windows)]
+fn kill_pid_compat(pid: u32, _force: bool) {
+    let _ = crate::core::procwin::kill_pid(pid as i32);
 }
 
 /// 通用按模式枚举 pid（Python `_common.pids_by_pattern`；无 pgrep 时回退扫 `/proc`）。
 /// 这里的模式族是 `start_bridge` 的清理口径：`aimail-bridge` **且**带 `--config` 或 `.toml`。
 pub fn bridge_cleanup_pids() -> Vec<u32> {
-    let matches = |cmd: &str| {
-        cmd.contains("aimail-bridge") && (cmd.contains("--config") || cmd.contains(".toml"))
-    };
-    let mut pids: Vec<u32> = Vec::new();
-    if let Some((_, out, _)) = run_capture(
-        &[
-            "pgrep",
-            "-f",
-            r"aimail-bridge.*--config|aimail-bridge.*\.toml",
-        ],
-        5,
-    ) {
-        pids = out
-            .lines()
-            .filter_map(|l| l.trim().parse::<u32>().ok())
-            .collect();
-    } else if let Ok(entries) = std::fs::read_dir("/proc") {
-        for e in entries.flatten() {
-            let pid: u32 = match e.file_name().to_string_lossy().parse() {
-                Ok(p) => p,
-                Err(_) => continue,
-            };
-            let raw = match std::fs::read(e.path().join("cmdline")) {
-                Ok(b) => b,
-                Err(_) => continue,
-            };
-            let cmd = String::from_utf8_lossy(&raw).replace('\u{0}', " ");
-            if matches(&cmd) {
-                pids.push(pid);
+    #[cfg(windows)]
+    {
+        // Windows 无 cmdline 匹配(进程表拿不到可靠命令行)⇒ 按专属进程名枚举
+        // (aimail-bridge 是专属名, 无撞名面; unix 的路径首 token 判据在此无对应物)。
+        return crate::core::procwin::bridge_pids_by_name();
+    }
+    #[cfg(unix)]
+    {
+        let matches = |cmd: &str| {
+            cmd.contains("aimail-bridge") && (cmd.contains("--config") || cmd.contains(".toml"))
+        };
+        let mut pids: Vec<u32> = Vec::new();
+        if let Some((_, out, _)) = run_capture(
+            &[
+                "pgrep",
+                "-f",
+                r"aimail-bridge.*--config|aimail-bridge.*\.toml",
+            ],
+            5,
+        ) {
+            pids = out
+                .lines()
+                .filter_map(|l| l.trim().parse::<u32>().ok())
+                .collect();
+        } else if let Ok(entries) = std::fs::read_dir("/proc") {
+            for e in entries.flatten() {
+                let pid: u32 = match e.file_name().to_string_lossy().parse() {
+                    Ok(p) => p,
+                    Err(_) => continue,
+                };
+                let raw = match std::fs::read(e.path().join("cmdline")) {
+                    Ok(b) => b,
+                    Err(_) => continue,
+                };
+                let cmd = String::from_utf8_lossy(&raw).replace('\u{0}', " ");
+                if matches(&cmd) {
+                    pids.push(pid);
+                }
             }
         }
+        pids.sort_unstable();
+        pids.dedup();
+        pids
     }
-    pids.sort_unstable();
-    pids.dedup();
-    pids
 }
 
 /// `start_bridge`：**单实例**启动。返回是否已运行。
@@ -502,21 +538,21 @@ pub fn start_bridge(bin_path: &str, cfg_path: &str, pid_path: &str) -> bool {
     } else {
         warn("桥二进制不支持生命周期契约(--status/--stop) → 回退旧清理逻辑; 建议升级桥到 >= 0.7.4");
         if let Some(old) = read_pid_file(pid_path) {
-            let _ = run_capture(&["kill", "-15", &old.to_string()], 5);
+            kill_pid_compat(old as u32, false);
             std::thread::sleep(std::time::Duration::from_secs(1));
             if pid_alive(old) {
-                let _ = run_capture(&["kill", "-9", &old.to_string()], 5);
+                kill_pid_compat(old as u32, true);
             }
         }
     }
 
     // pgrep 兜底：按 PID 逐个杀（不依赖模式匹配的"漏杀"假设）
     for pid in bridge_cleanup_pids() {
-        let _ = run_capture(&["kill", "-15", &pid.to_string()], 5);
+        kill_pid_compat(pid, false);
     }
     std::thread::sleep(std::time::Duration::from_secs(1));
     for pid in bridge_cleanup_pids() {
-        let _ = run_capture(&["kill", "-9", &pid.to_string()], 5);
+        kill_pid_compat(pid, true);
     }
     if std::path::Path::new(pid_path).exists() {
         let _ = std::fs::remove_file(pid_path);
@@ -820,6 +856,25 @@ pub fn bind_address(hostport: &str) -> (String, String) {
 
 /// `detect_ip`：本机全局地址（IPv4 → IPv6 → 主机名解析 → 127.0.0.1）。
 pub fn detect_ip() -> String {
+    #[cfg(windows)]
+    {
+        // ipconfig 取第一个全局 IPv4 ⇒ 主机名解析 ⇒ 127.0.0.1(unix 的 ip//etc/hostname 链镜像)
+        if let Some(ip) = crate::core::procwin::local_ipv4().into_iter().next() {
+            return ip.to_string();
+        }
+        #[cfg(unix)]
+        {
+            if let Some(h) = crate::core::procwin::hostname() {
+                use std::net::ToSocketAddrs;
+                if let Ok(mut it) = (h.as_str(), 0u16).to_socket_addrs() {
+                    if let Some(a) = it.next() {
+                        return a.ip().to_string();
+                    }
+                }
+            }
+            return "127.0.0.1".to_string();
+        }
+    }
     if let Ok(out) = std::process::Command::new("ip")
         .args(["-4", "addr", "show", "scope", "global"])
         .output()
@@ -1216,7 +1271,7 @@ pub fn upgrade_bridge() -> i32 {
         if !stopped {
             warn("契约停止不可用 → 回退按 pid 终止(旧桥 < 0.7.4)");
             for p in &pids {
-                let _ = run_capture(&["kill", "-15", &p.to_string()], 5);
+                kill_pid_compat(*p, false);
             }
             // 桥对 SIGTERM 是**优雅**处理，且 pid 文件正常退出时由桥自己删 ⇒ 给足 10s 窗口再 KILL
             for _ in 0..40 {
@@ -1226,7 +1281,7 @@ pub fn upgrade_bridge() -> i32 {
                 std::thread::sleep(std::time::Duration::from_millis(250));
             }
             for p in bridge_cleanup_pids() {
-                let _ = run_capture(&["kill", "-9", &p.to_string()], 5);
+                kill_pid_compat(p, true);
             }
             for _ in 0..20 {
                 if bridge_cleanup_pids().is_empty() {

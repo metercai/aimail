@@ -102,62 +102,70 @@ pub fn local_ips() -> Vec<IpAddr> {
 }
 
 fn global_ipv4_from_cmd() -> Vec<IpAddr> {
-    // Linux: `ip -4 -brief addr show scope global`
-    if let Ok(o) = std::process::Command::new("ip")
-        .args(["-4", "-brief", "addr", "show", "scope", "global"])
-        .output()
+    #[cfg(windows)]
     {
-        if o.status.success() {
-            let mut v = Vec::new();
-            for line in String::from_utf8_lossy(&o.stdout).lines() {
-                for p in line.split_whitespace() {
-                    if p.contains('/') && p.chars().next().is_some_and(|c| c.is_ascii_digit()) {
-                        if let Ok(ip) = p.split('/').next().unwrap_or("").parse::<IpAddr>() {
-                            if !ip.is_ipv4() {
-                                continue;
+        // Windows: `ipconfig` 第三支(主路 UDP trick 跨平台已覆盖主口, 本支补全量全局 IPv4)
+        return crate::core::procwin::local_ipv4();
+    }
+    #[cfg(unix)]
+    {
+        // Linux: `ip -4 -brief addr show scope global`
+        if let Ok(o) = std::process::Command::new("ip")
+            .args(["-4", "-brief", "addr", "show", "scope", "global"])
+            .output()
+        {
+            if o.status.success() {
+                let mut v = Vec::new();
+                for line in String::from_utf8_lossy(&o.stdout).lines() {
+                    for p in line.split_whitespace() {
+                        if p.contains('/') && p.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+                            if let Ok(ip) = p.split('/').next().unwrap_or("").parse::<IpAddr>() {
+                                if !ip.is_ipv4() {
+                                    continue;
+                                }
+                                let v4 = match ip {
+                                    IpAddr::V4(v4) => v4,
+                                    _ => continue,
+                                };
+                                if v4.is_loopback() || v4.is_link_local() {
+                                    continue;
+                                }
+                                v.push(ip);
                             }
-                            let v4 = match ip {
-                                IpAddr::V4(v4) => v4,
-                                _ => continue,
-                            };
-                            if v4.is_loopback() || v4.is_link_local() {
-                                continue;
-                            }
-                            v.push(ip);
                         }
                     }
                 }
+                if !v.is_empty() {
+                    return v;
+                }
             }
-            if !v.is_empty() {
+        }
+        // macOS: `ifconfig` 解析 inet
+        if let Ok(o) = std::process::Command::new("ifconfig").output() {
+            if o.status.success() {
+                let mut v = Vec::new();
+                for line in String::from_utf8_lossy(&o.stdout).lines() {
+                    let t = line.trim();
+                    if let Some(rest) = t.strip_prefix("inet ") {
+                        if let Some(ipstr) = rest.split_whitespace().next() {
+                            if let Ok(ip) = ipstr.parse::<IpAddr>() {
+                                let v4 = match ip {
+                                    IpAddr::V4(v4) => v4,
+                                    _ => continue,
+                                };
+                                if v4.is_loopback() || v4.is_link_local() {
+                                    continue;
+                                }
+                                v.push(ip);
+                            }
+                        }
+                    }
+                }
                 return v;
             }
         }
+        Vec::new()
     }
-    // macOS: `ifconfig` 解析 inet
-    if let Ok(o) = std::process::Command::new("ifconfig").output() {
-        if o.status.success() {
-            let mut v = Vec::new();
-            for line in String::from_utf8_lossy(&o.stdout).lines() {
-                let t = line.trim();
-                if let Some(rest) = t.strip_prefix("inet ") {
-                    if let Some(ipstr) = rest.split_whitespace().next() {
-                        if let Ok(ip) = ipstr.parse::<IpAddr>() {
-                            let v4 = match ip {
-                                IpAddr::V4(v4) => v4,
-                                _ => continue,
-                            };
-                            if v4.is_loopback() || v4.is_link_local() {
-                                continue;
-                            }
-                            v.push(ip);
-                        }
-                    }
-                }
-            }
-            return v;
-        }
-    }
-    Vec::new()
 }
 
 /// 某 IP 是否「本机」：回环，或在全局 IP 列表里。

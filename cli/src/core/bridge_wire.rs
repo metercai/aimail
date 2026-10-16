@@ -851,46 +851,54 @@ pub const BRIDGE_ADDR: &str = "127.0.0.1:38081";
 /// 先试 `pgrep -f '^[^ ]*/aimail-bridge( |$)'`；宿主没装 procps（deerflow 镜像，F12）时回退扫
 /// `/proc/<pid>/cmdline` 的**首 token**，判据相同（以 `aimail-bridge` 结尾）⇒ 精确度不变、不崩。
 pub fn bridge_pids() -> Vec<u32> {
-    let is_bridge_token = |tok: &str| tok == "aimail-bridge" || tok.ends_with("/aimail-bridge");
-    if let Ok(out) = std::process::Command::new("pgrep")
-        .args(["-f", r"^[^ ]*/aimail-bridge( |$)"])
-        .output()
+    #[cfg(windows)]
     {
-        if out.status.success() {
-            let mut pids: Vec<u32> = String::from_utf8_lossy(&out.stdout)
-                .lines()
-                .filter_map(|l| l.trim().parse::<u32>().ok())
-                .collect();
-            pids.sort_unstable();
-            pids.dedup();
-            return pids;
-        }
-        return Vec::new(); // pgrep 在、但没匹配到
+        // Windows: 按专属进程名枚举(无路径首 token 判据的对应物; 单真源 = procwin)
+        return crate::core::procwin::bridge_pids_by_name();
     }
-    let mut pids = Vec::new();
-    if let Ok(entries) = std::fs::read_dir("/proc") {
-        for e in entries.flatten() {
-            let pid: u32 = match e.file_name().to_string_lossy().parse() {
-                Ok(p) => p,
-                Err(_) => continue,
-            };
-            let raw = match std::fs::read(e.path().join("cmdline")) {
-                Ok(b) => b,
-                Err(_) => continue,
-            };
-            let first = String::from_utf8_lossy(&raw)
-                .split('\u{0}')
-                .next()
-                .unwrap_or("")
-                .to_string();
-            if is_bridge_token(&first) {
-                pids.push(pid);
+    #[cfg(unix)]
+    {
+        let is_bridge_token = |tok: &str| tok == "aimail-bridge" || tok.ends_with("/aimail-bridge");
+        if let Ok(out) = std::process::Command::new("pgrep")
+            .args(["-f", r"^[^ ]*/aimail-bridge( |$)"])
+            .output()
+        {
+            if out.status.success() {
+                let mut pids: Vec<u32> = String::from_utf8_lossy(&out.stdout)
+                    .lines()
+                    .filter_map(|l| l.trim().parse::<u32>().ok())
+                    .collect();
+                pids.sort_unstable();
+                pids.dedup();
+                return pids;
+            }
+            return Vec::new(); // pgrep 在、但没匹配到
+        }
+        let mut pids = Vec::new();
+        if let Ok(entries) = std::fs::read_dir("/proc") {
+            for e in entries.flatten() {
+                let pid: u32 = match e.file_name().to_string_lossy().parse() {
+                    Ok(p) => p,
+                    Err(_) => continue,
+                };
+                let raw = match std::fs::read(e.path().join("cmdline")) {
+                    Ok(b) => b,
+                    Err(_) => continue,
+                };
+                let first = String::from_utf8_lossy(&raw)
+                    .split('\u{0}')
+                    .next()
+                    .unwrap_or("")
+                    .to_string();
+                if is_bridge_token(&first) {
+                    pids.push(pid);
+                }
             }
         }
+        pids.sort_unstable();
+        pids.dedup();
+        pids
     }
-    pids.sort_unstable();
-    pids.dedup();
-    pids
 }
 
 /// `_addr_clean`：地址 → 目录键（`re.sub(r"[^\w.\-]", "_", email, flags=ASCII)`）。

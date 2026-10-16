@@ -246,10 +246,15 @@ pub fn is_local_gateway(url: &str) -> bool {
     if matches!(host.as_str(), "127.0.0.1" | "localhost" | "::1") {
         return true;
     }
-    let Ok(name) = std::fs::read_to_string("/proc/sys/kernel/hostname") else {
+    #[cfg(windows)]
+    let name_opt: Option<String> = crate::core::procwin::hostname();
+    #[cfg(not(windows))]
+    let name_opt: Option<String> = std::fs::read_to_string("/proc/sys/kernel/hostname")
+        .ok()
+        .map(|s| s.trim().to_string());
+    let Some(name) = name_opt else {
         return false;
     };
-    let name = name.trim().to_string();
     if name.is_empty() {
         return false;
     }
