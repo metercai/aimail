@@ -172,7 +172,7 @@ def register_agents(manager: str = "", system_id: str = "", agent: str = "",
         name:      目标地址基名(P6/C2, 2026-10-02): 非空 ⇒ 邮箱按此派生, 注册器
                   **直达**目标名 —— 退役"先默认名注册再 rename"的中间态(F13 根: 中间态
                   在网关留无本地绑定的孤儿行); 空 = 按 agent_id 派生(旧行为)。
-        manager:   manager_address(审批联系人);缺省读 AIMAIL_MANAGER 环境变量。
+        manager:   manager_address(审批联系人);缺省读 AIMAIL_MANAGER_ADDRESS 环境变量。
         system_id: 缺省读 AIMAIL_SYSTEM_ID 环境变量 / detect_system_id()。
 
     Returns:
@@ -318,7 +318,7 @@ def reconcile(system_id: str = "", manager: str = "", dry_run: bool = False) -> 
 
     Args:
         system_id: 缺省读 AIMAIL_SYSTEM_ID 环境变量 / detect_system_id()。
-        manager:   manager_address;缺省读 AIMAIL_MANAGER。
+        manager:   manager_address;缺省读 AIMAIL_MANAGER_ADDRESS。
         dry_run:   只打印差异,不执行。
 
     Returns:
@@ -342,9 +342,9 @@ def reconcile(system_id: str = "", manager: str = "", dry_run: bool = False) -> 
     # 2. 本地注册表
     local = _local_agents(system_id)
 
-    # 三名互认兜底(AIMAIL_MANAGER / AIMAIL_MANAGER_ADDRESS /
-    # INTEGRATE_MANAGER_ADDRESS)—— CLI export 的不是 AIMAIL_MANAGER,
-    # 只认它会让 reconcile 恒得 '' 并把空值写进白名单(取证 P1 主跳)。
+    # 名互认兜底(AIMAIL_MANAGER_ADDRESS /
+    # INTEGRATE_MANAGER_ADDRESS)—— 历史裸名 AIMAIL_MANAGER 已退役(2026-10-17),
+    # 旧只认裸名的 bug 曾让 reconcile 恒得 '' 并把空值写进白名单(取证 P1 主跳)。
     # 解析完仍为空由 register_agent_email 的硬门报错(不静默注册)。
     manager = _core.resolve_manager_address(manager)
     client = _tools._GatewayClient(gw["gateway_url"], gw.get("admin_key", ""))
@@ -445,7 +445,7 @@ def deregister_agents(agent: str, manager: str = "", system_id: str = "") -> int
 
     Args:
         agent:     agent id(默认名 default);空串 → SystemExit "need --agent <id>"。
-        manager:   manager_address;缺省读本地 cfg.manager_address / AIMAIL_MANAGER。
+        manager:   manager_address;缺省读本地 cfg.manager_address / AIMAIL_MANAGER_ADDRESS。
         system_id: 缺省读 AIMAIL_SYSTEM_ID 环境变量 / detect_system_id()。
 
     Returns:
@@ -469,7 +469,7 @@ def deregister_agents(agent: str, manager: str = "", system_id: str = "") -> int
         return 0
 
     email = cfg.get("email", "")
-    manager = manager or cfg.get("manager_address", "") or os.environ.get("AIMAIL_MANAGER", "")
+    manager = manager or cfg.get("manager_address", "") or os.environ.get("AIMAIL_MANAGER_ADDRESS", "")
 
     client = _tools._GatewayClient(gw["gateway_url"], gw.get("admin_key", ""))
     result = _base.deregister_agent_email(client, system_id, email, manager)
@@ -756,14 +756,14 @@ def main(argv: list | None = None) -> int:
                    help="目标地址基名(P6/C2: 注册器**直达**此名, 不再先注册默认名再 rename);"
                         " 空 = 按 --agent 派生(旧行为)")
     p.add_argument("--all", action="store_true", help="注册全部 DeerFlow agents")
-    p.add_argument("--manager", default="", help="manager_address(审批联系人);缺省读 AIMAIL_MANAGER 环境变量")
+    p.add_argument("--manager", default="", help="manager_address(审批联系人);缺省读 AIMAIL_MANAGER_ADDRESS 环境变量")
     p.add_argument("--system-id", default=os.environ.get("AIMAIL_SYSTEM_ID", ""))
     p.set_defaults(func=lambda a: _cmd_register(a))
 
     # reconcile.py 同款参数
     p = sub.add_parser("reconcile", description="DeerFlow 生命周期对账")
     p.add_argument("--system-id", default=os.environ.get("AIMAIL_SYSTEM_ID", ""))
-    p.add_argument("--manager", default="", help="manager_address;缺省读 AIMAIL_MANAGER")
+    p.add_argument("--manager", default="", help="manager_address;缺省读 AIMAIL_MANAGER_ADDRESS")
     p.add_argument("--dry-run", action="store_true", help="只打印差异,不执行")
     p.set_defaults(func=lambda a: reconcile(system_id=a.system_id, manager=a.manager,
                                             dry_run=a.dry_run))
@@ -771,7 +771,7 @@ def main(argv: list | None = None) -> int:
     # deregister_agent.py 同款参数
     p = sub.add_parser("deregister", description="注销 DeerFlow agent 从 aimail")
     p.add_argument("--agent", required=True, help="agent id(默认名 default)")
-    p.add_argument("--manager", default="", help="manager_address;缺省读 AIMAIL_MANAGER")
+    p.add_argument("--manager", default="", help="manager_address;缺省读 AIMAIL_MANAGER_ADDRESS")
     p.add_argument("--system-id", default=os.environ.get("AIMAIL_SYSTEM_ID", ""))
     p.set_defaults(func=lambda a: deregister_agents(agent=a.agent, manager=a.manager,
                                                     system_id=a.system_id))

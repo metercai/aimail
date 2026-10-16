@@ -260,7 +260,7 @@ async function cleanupSystemWhitelists(
 
 // ── manager 解析(镜像 pysdk resolve_manager_address:显式 > env)────────────
 
-const MANAGER_ENV_VARS = ['AIMAIL_MANAGER', 'AIMAIL_MANAGER_ADDRESS', 'INTEGRATE_MANAGER_ADDRESS'] as const
+const MANAGER_ENV_VARS = ['AIMAIL_MANAGER_ADDRESS', 'INTEGRATE_MANAGER_ADDRESS'] as const
 function resolveManager(explicit: string, syscfg: Record<string, unknown>): string {
   const v = String(explicit || '').trim()
   if (v) return v

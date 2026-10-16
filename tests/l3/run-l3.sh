@@ -393,10 +393,10 @@ export AIMAIL_MANAGER_ADDRESS="manager@l3-mgr.example"
 # macos-arm64 同 arm64 慢 runner:2026-10-16 run 38872198518 macos-arm64/dsh-aimail
 # 实证同型 flake——webhook 200 投递成功 + dsh 会话取证证 turn 收工(output 1808
 # tokens/step 6/llmRetry 空),turn 落在 (120s,140s] 窗口外 ⇒ 非产品回归。
-# 窗口本体在发布版 CLI 内(welcome poll_reply, AIMAIL_REPLY_TIMEOUT env 可配,
+# 窗口本体在发布版 CLI 内(welcome poll_reply, --timeout flag 可配,
 # 默认 120 不变)⇒ 本行需配套 CLI 发版才在 L3 生效。
 case "${L3_PLATFORM:-}" in
-  linux-arm64|macos-arm64) export AIMAIL_REPLY_TIMEOUT=300 ;;
+  linux-arm64|macos-arm64) WELCOME_TIMEOUT=300 ;;
 esac
 curl -fsSL "https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh" | bash \
   || die "online bootstrap failed (published CLI unavailable)"
@@ -607,7 +607,7 @@ echo "── [5/6] welcome closed loop (manager approves identity card + signatu
 #             → config.manager_address。
 #   admin_key: systems/<sid>/aimail_gateway.json(install 写入, welcome.rs:102)。
 # 需 agent 的入站端点已起(install 已接线), 且 agent+LLM 能生成三标签回复。
-"$AIMAIL_BIN" welcome 2>&1 | tee "$WORK/welcome.log"
+"$AIMAIL_BIN" welcome --timeout "${WELCOME_TIMEOUT:-120}" 2>&1 | tee "$WORK/welcome.log"
 WELC_RC=${PIPESTATUS[0]}
 [ "$WELC_RC" -eq 0 ] || { dump_failure_evidence; die "welcome closed loop failed (rc=$WELC_RC) — $(tail -12 "$WORK/welcome.log")"; }
 ok "welcome loop complete (identity card + signature approved)"

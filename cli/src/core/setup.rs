@@ -562,12 +562,10 @@ pub fn display_json(result: &Value) -> String {
     serde_json::to_string_pretty(&Value::Object(map)).unwrap_or_else(|_| "{}".to_string())
 }
 
-/// manager env 三名互认（`cli/aimail:134-135`）：CLI 侧 export 的两种名 + SDK 只认的那种。
-pub const MANAGER_ENV_NAMES: [&str; 3] = [
-    "AIMAIL_MANAGER",
-    "AIMAIL_MANAGER_ADDRESS",
-    "INTEGRATE_MANAGER_ADDRESS",
-];
+/// manager env 名互认：外部输入 `AIMAIL_MANAGER_ADDRESS` + 历史集成契约
+/// `INTEGRATE_MANAGER_ADDRESS`（2026-10-17 owner 裁决：历史裸名 `AIMAIL_MANAGER`
+/// 退役，当不存在）。
+pub const MANAGER_ENV_NAMES: [&str; 2] = ["AIMAIL_MANAGER_ADDRESS", "INTEGRATE_MANAGER_ADDRESS"];
 
 /// cfg 取字符串字段（缺省空串）——Python `cfg.get(k, "")` 的等价物。
 pub fn pget(cfg: &Value, key: &str) -> String {

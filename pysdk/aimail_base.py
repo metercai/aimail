@@ -2340,16 +2340,17 @@ def resolve_register_webhook_url(gw: dict, local_webhook_url: str) -> str:
 # ═══════════════════════════════════════════════════════════════
 # manager 解析 + 注册/写白名单硬门(P1, owner 裁决 2026-09-30)
 # ═══════════════════════════════════════════════════════════════
-# 三个既有 env 名**互认**, 不新增第四种名: CLI 的集成契约 export
-# `INTEGRATE_MANAGER_ADDRESS`、SDK 契约 export `AIMAIL_MANAGER_ADDRESS`、
-# deerflow/历史侧只读 `AIMAIL_MANAGER` —— 三处互不相同正是 deerflow 白名单行
-# 落成 `value=''` 的根因之一(取证 p1-p2-forensics-20260930.md)。
-MANAGER_ENV_VARS = ("AIMAIL_MANAGER", "AIMAIL_MANAGER_ADDRESS",
+# 两个既有 env 名**互认**, 不新增第三种名: SDK 契约 export
+# `AIMAIL_MANAGER_ADDRESS`、CLI 集成契约 export `INTEGRATE_MANAGER_ADDRESS`。
+# 历史裸名 `AIMAIL_MANAGER` 已退役(2026-10-17 owner 裁决: 当不存在) ——
+# 旧三名互认的混乱正是 deerflow 白名单行落成 `value=''` 的根因之一
+# (取证 p1-p2-forensics-20260930.md)。
+MANAGER_ENV_VARS = ("AIMAIL_MANAGER_ADDRESS",
                     "INTEGRATE_MANAGER_ADDRESS")
 
 
 class ManagerRequiredError(RuntimeError):
-    """注册/写白名单硬门: manager 解析链(显式参数 → env 三名互认)走完仍为空。
+    """注册/写白名单硬门: manager 解析链(显式参数 → env 名互认)走完仍为空。
 
     以空值注册会在网关建出 `value=''` 的 manager 白名单行 ⇒ 出站
     `550 Sender not whitelisted`(deerflow J4e/J5-1 实测)。owner 裁决:
@@ -2358,7 +2359,7 @@ class ManagerRequiredError(RuntimeError):
 
 
 def resolve_manager_address(manager_address: str = "") -> str:
-    """显式参数 → env 三名互认 → 仍空返回 `''`(由调用方决定是否报错)。"""
+    """显式参数 → env 名互认 → 仍空返回 `''`(由调用方决定是否报错)。"""
     v = str(manager_address or "").strip()
     if v:
         return v

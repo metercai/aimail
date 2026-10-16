@@ -5,7 +5,7 @@
 //! SMTP 模式（`--smtp`，旧路）：agent key + `auth.local` 发 welcome 信（advanced 失败回落 base 白名单直发）。
 //!
 //! 出口语义（照抄）：拿不到草案 ⇒ **2**（明确失败、不假装成功）；发送/等待失败 ⇒ 1；成功 ⇒ 0。
-//! 命令面只有 `-s/-m/-w/--smtp`（脚本内部开关 `--to/--agent/--persona/--signature` **不进面**——
+//! 命令面只有 `-s/-m/-w/--smtp/--timeout`（脚本内部开关 `--to/--agent/--persona/--signature` **不进面**——
 //! CLI 解析器才是契约面，内部开关从 `sys.argv` 直接读）。
 
 use crate::cmd::report::fail;
@@ -16,23 +16,18 @@ pub struct Args {
     pub manager: String,
     pub no_wait: bool,
     pub smtp: bool,
-}
-
-/// 回信等待窗(秒):`AIMAIL_REPLY_TIMEOUT` env 覆盖(10..=1800),缺失/越界/非数 ⇒ 120。
-fn reply_timeout_secs() -> i64 {
-    const DEFAULT: i64 = 120;
-    match crate::core::config::env_val("AIMAIL_REPLY_TIMEOUT", "").parse::<i64>() {
-        Ok(v) if (10..=1800).contains(&v) => v,
-        _ => DEFAULT,
-    }
+    pub reply_timeout: i64,
 }
 
 pub fn run(a: &Args) -> i32 {
     let systems = crate::core::config::systems_root_in(&crate::core::home::aimail_home());
 
-    // 回信等待窗(秒):默认 120;慢 runner(如 arm64,实测冷启动 turn 超 120s)可用
-    // env AIMAIL_REPLY_TIMEOUT 覆盖(10..=1800,越界/非数 ⇒ 默认)。
-    let reply_timeout = reply_timeout_secs();
+    // 回信等待窗(秒):默认 120;慢 runner(如 arm64)用 --timeout 放宽(10..=1800,越界 ⇒ 默认)。
+    let reply_timeout = if (10..=1800).contains(&a.reply_timeout) {
+        a.reply_timeout
+    } else {
+        120
+    };
 
     // ── 身份链：AGENT_HOME 指针（面上无 --agent-home）→ resolve_system_id ──
     let mut sid = a.system_id.clone();

@@ -29,7 +29,6 @@ SDK_OPS = REPO / "pysdk" / "sdk_ops.py"
 # manager 相关 env：清掉才能验 P1 硬门（不吃环境兜底）
 _MGR_ENV_KEYS = (
     "AIMAIL_MANAGER_ADDRESS",
-    "AIMAIL_MANAGER",
     "MANAGER_ADDRESS",
     "AIMAIL_MANAGER_EMAIL",
 )

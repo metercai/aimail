@@ -1039,18 +1039,16 @@ pub fn deploy(spec: &DeploySpec) -> i32 {
         }
     }
 
-    // webhook secret：env 优先，其次宿主 hermes config.yaml 的 webhook.extra.secret
-    let mut webhook_secret = std::env::var("AIMAIL_WEBHOOK_SECRET").unwrap_or_default();
-    if webhook_secret.is_empty() {
-        let hc = crate::core::home::user_home().join(".hermes/config.yaml");
-        if let Ok(text) = std::fs::read_to_string(&hc) {
-            if let Ok(docs) = yaml_rust2::YamlLoader::load_from_str(&text) {
-                if let Some(doc) = docs.into_iter().next() {
-                    webhook_secret = doc["platforms"]["webhook"]["extra"]["secret"]
-                        .as_str()
-                        .unwrap_or("")
-                        .to_string();
-                }
+    // webhook secret：单源 = 宿主 hermes config.yaml 的 webhook.extra.secret
+    let mut webhook_secret = String::new();
+    let hc = crate::core::home::user_home().join(".hermes/config.yaml");
+    if let Ok(text) = std::fs::read_to_string(&hc) {
+        if let Ok(docs) = yaml_rust2::YamlLoader::load_from_str(&text) {
+            if let Some(doc) = docs.into_iter().next() {
+                webhook_secret = doc["platforms"]["webhook"]["extra"]["secret"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string();
             }
         }
     }

@@ -135,6 +135,13 @@ fn welcome_args(cmd: Command) -> Command {
                 "SMTP mode, direct 25-port send (default: API mode via the gateway system sender)",
             ),
     )
+    .arg(
+        Arg::new("timeout")
+            .long("timeout")
+            .value_name("SECS")
+            .default_value("120")
+            .help("how long to wait for the draft reply (seconds)"),
+    )
 }
 
 fn ping_args(cmd: Command) -> Command {
@@ -803,6 +810,7 @@ pub fn run() -> i32 {
             manager: arg_str(m, "manager"),
             no_wait: m.get_flag("no-wait"),
             smtp: m.get_flag("smtp"),
+            reply_timeout: arg_str(m, "timeout").parse().unwrap_or(120),
         }),
         Some(("ping", m)) => crate::cmd::ping::run(&crate::cmd::ping::Args {
             system_id: arg_str(m, "system-id"),
