@@ -390,9 +390,14 @@ export AIMAIL_DOMAIN="l3.local"
 export AIMAIL_MANAGER_ADDRESS="manager@l3-mgr.example"
 # arm64 慢 runner:实测冷启动 turn 超默认 120s 回信窗(llmMs=65.9s 仍在飞即超时,
 # 2026-10-15 run 38683702165 linux-arm64/dsh-aimail 实证:路径活、非死)⇒ 放宽到 300s。
+# macos-arm64 同 arm64 慢 runner:2026-10-16 run 38872198518 macos-arm64/dsh-aimail
+# 实证同型 flake——webhook 200 投递成功 + dsh 会话取证证 turn 收工(output 1808
+# tokens/step 6/llmRetry 空),turn 落在 (120s,140s] 窗口外 ⇒ 非产品回归。
 # 窗口本体在发布版 CLI 内(welcome poll_reply, AIMAIL_REPLY_TIMEOUT env 可配,
 # 默认 120 不变)⇒ 本行需配套 CLI 发版才在 L3 生效。
-if [ "${L3_PLATFORM:-}" = "linux-arm64" ]; then export AIMAIL_REPLY_TIMEOUT=300; fi
+case "${L3_PLATFORM:-}" in
+  linux-arm64|macos-arm64) export AIMAIL_REPLY_TIMEOUT=300 ;;
+esac
 curl -fsSL "https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh" | bash \
   || die "online bootstrap failed (published CLI unavailable)"
 AIMAIL_BIN="$(command -v aimail || echo "$HOME/.aimail/bin/aimail")"
