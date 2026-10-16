@@ -132,31 +132,11 @@ pub fn run(a: &Args) -> i32 {
     };
 
     println!("  reset platform={platform} system_id={sid}");
-    // 与 Python 同：把 INTEGRATE_* 契约灌进进程环境后跑 worker（worker 按该契约取值）
-    std::env::set_var("INTEGRATE_GATEWAY_URL", &gw_url);
-    std::env::set_var("INTEGRATE_SYSTEM_ID", &sid);
-    std::env::set_var("INTEGRATE_SYSTEM_NAME", &sys_name);
-    std::env::set_var(
-        "INTEGRATE_NAME_EXPLICIT",
-        if a.system_name.is_empty() {
-            "false"
-        } else {
-            "true"
-        },
-    );
-    std::env::set_var(
-        "INTEGRATE_SYSTEM_HOME",
-        if system_home.to_string_lossy().is_empty() {
-            pget("system_home")
-        } else {
-            system_home.to_string_lossy().to_string()
-        },
-    );
-    std::env::set_var("INTEGRATE_MANAGER_ADDRESS", &manager);
+    // P8(2026-10-17): 进程内 INTEGRATE_* env 握手删除, 凭据走 SetupArgs 显式参数;
+    // 仅保留 manager → AIMAIL_MANAGER_ADDRESS 回写(SDK 子进程继承进程 env 直读, 契约名)。
     if !manager.is_empty() {
         std::env::set_var("AIMAIL_MANAGER_ADDRESS", &manager);
     }
-    std::env::set_var("INTEGRATE_ADMIN_KEY", &admin_key);
 
     let wa = setup::SetupArgs {
         gateway_url: gw_url.clone(),
@@ -173,6 +153,7 @@ pub fn run(a: &Args) -> i32 {
         ),
         manager_address: manager.clone(),
         system_home: system_home.to_string_lossy().to_string(),
+        name_explicit: !a.system_name.is_empty(),
     };
     let r = setup::setup(&wa);
     if !r.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {

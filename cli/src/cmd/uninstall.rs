@@ -201,8 +201,9 @@ pub fn run(a: &Args) -> i32 {
     } else {
         recorded
     };
-    // 单真源对称(install 侧同款)：**先绑定域内宿主解释器**（AIMAIL_PYTHON 回传给 sdk_uninstall
-    // 与 SDK 根解析 —— 与 install 装 SDK 用的是同一解释器,否则 pip uninstall 找不到目标环境）。
+    // 单真源对称(install 侧同款)：**先绑定域内宿主解释器**(存进程本地态,P8: 进程环境写删除;
+    // python_bin()/SDK 根解析经绑定读取 —— 与 install 装 SDK 用的是同一解释器,
+    // 否则 pip uninstall 找不到目标环境)。
     // 顺序铁律（2026-10-12 owner）：绑在 `resolve_or_placeholder` **之前**，否则 SDK 根会用
     // CLI 自己的 `python3` 去找 ⇒ 宿主 venv 里的已装 SDK 被判成"未安装"（deerflow 实测）。
     if !system_home.as_os_str().is_empty() {

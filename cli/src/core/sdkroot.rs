@@ -11,6 +11,25 @@
 
 use std::path::{Path, PathBuf};
 
+/// P8(2026-10-17, owner 裁决):解释器是 **CLI 自动检测出的目标 agent 变量**,不是外部输入
+/// ⇒ 进程环境 `AIMAIL_PYTHON` 写(`set_var`)删除;绑定改存**进程本地态**
+/// (`bind_domain` 唯一写入点,"单真源"语义不变)。子进程(门/步骤/注册器/检查)
+/// 经 `bound_python_env` 显式注入(给子进程设 env 不算污染,owner 裁决 2026-10-16),
+/// 不再依赖进程环境继承。
+static BOUND_PYTHON: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// 读绑定(None = 未绑定)。
+fn bound_python() -> Option<String> {
+    BOUND_PYTHON.lock().ok().and_then(|g| g.clone())
+}
+
+/// 绑定解释器的显式子进程 env 条目(未绑定 ⇒ None)。
+pub(crate) fn bound_python_env() -> Option<(String, String)> {
+    bound_python()
+        .filter(|v| !v.trim().is_empty())
+        .map(|v| ("AIMAIL_PYTHON".to_string(), v))
+}
+
 /// 已定位的 SDK 根。`kind` ∈ `repo` | `pip`（与 Python 侧 `resolve_source_root` 同词表）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SdkRoot {
@@ -74,8 +93,13 @@ const PROBE_SH: &str = r#"for c in /proc/[0-9]*/cmdline; do tr "\0" "\n" <"$c" 2
 
 /// 域内探测：容器 ⇒ docker exec；宿主 ⇒ 候选逐个试 "能 import aimail"
 pub fn probe_in_domain(container: &str, home: &str) -> String {
-    // 单真源入口：显式覆盖优先（与 `python_bin()` 链首一致）
+    // 单真源入口：外部覆盖(只读) → 进程本地绑定(与 `python_bin()` 链一致)
     if let Ok(p) = std::env::var("AIMAIL_PYTHON") {
+        if !p.trim().is_empty() {
+            return p;
+        }
+    }
+    if let Some(p) = bound_python() {
         if !p.trim().is_empty() {
             return p;
         }
@@ -231,8 +255,14 @@ pub fn probe_in_domain(container: &str, home: &str) -> String {
 /// 否则这里退化成 CLI 自己的 `python3`（= "与目标系统不匹配"，deerflow 实测）。
 pub fn python_bin() -> String {
     // 契约 v1.0 §4.1(2) 的**定位链**（单真源，三处消费：本模块解析、`sdkcall` 按名调用、`sdk` 门）：
-    // `$AIMAIL_PYTHON` → 宿主 venv 探测（运行中且能 `import aimail` 的 agent 解释器）→ PATH `python3`。
+    // `$AIMAIL_PYTHON`(只读覆盖) → **进程本地绑定**(bind_domain 设置) → 宿主 venv 探测
+    // （运行中且能 `import aimail` 的 agent 解释器）→ PATH `python3`。
     if let Ok(p) = std::env::var("AIMAIL_PYTHON") {
+        if !p.trim().is_empty() {
+            return p;
+        }
+    }
+    if let Some(p) = bound_python() {
         if !p.trim().is_empty() {
             return p;
         }
@@ -243,15 +273,18 @@ pub fn python_bin() -> String {
     "python3".to_string()
 }
 
-/// **域绑定**（唯一写入点，契约 §4.1(2) 单真源）：解析目标系统域内的宿主解释器并回传
-/// `AIMAIL_PYTHON` —— python 门与宿主步骤子进程都从进程环境继承 ⇒ 一次绑定全程有效。
+/// **域绑定**（唯一写入点，契约 §4.1(2) 单真源）：解析目标系统域内的宿主解释器并存
+/// **进程本地态**（P8(2026-10-17)：进程环境 `AIMAIL_PYTHON` 写删除；门/步骤/注册器/检查
+/// 子进程经 `bound_python_env` 显式注入）⇒ 一次绑定全程有效。
 ///
-/// 容器场景（`docker exec`）返回的是**容器内路径** ⇒ 只返回、不回传（当本机解释器用是错的）。
+/// 容器场景（`docker exec`）返回的是**容器内路径** ⇒ 只返回、不绑定（当本机解释器用是错的）。
 /// `$AIMAIL_PYTHON` 已在环境里时 `probe_in_domain` 直接返回它 ⇒ 显式覆盖优先（链首，语义不变）。
 pub fn bind_domain(container: &str, home: &str) -> String {
     let py = probe_in_domain(container, home);
     if container.is_empty() && !py.trim().is_empty() {
-        std::env::set_var("AIMAIL_PYTHON", &py);
+        if let Ok(mut g) = BOUND_PYTHON.lock() {
+            *g = Some(py.clone());
+        }
     }
     py
 }
@@ -359,6 +392,22 @@ mod tests {
     // `AIMAIL_PYTHON` 是进程级全局态：同模块里多个用例各改各的会互踩(P8 同类)，故串行化。
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+    // P8(2026-10-17): 进程本地绑定(BOUND_PYTHON)也是进程级全局态 —— RAII 保存/清空/恢复,
+    // 与 ENV_LOCK + env 存/还原同一模式。
+    struct BoundGuard(Option<String>);
+    impl BoundGuard {
+        fn new() -> Self {
+            let prev = BOUND_PYTHON.lock().unwrap().clone();
+            *BOUND_PYTHON.lock().unwrap() = None;
+            Self(prev)
+        }
+    }
+    impl Drop for BoundGuard {
+        fn drop(&mut self) {
+            *BOUND_PYTHON.lock().unwrap() = self.0.clone();
+        }
+    }
+
     #[test]
     fn repo_layout_entry_resolution() {
         // 仓库布局（本仓）：SDK 根 = <prog>/aimail-src/pysdk ⇒ 两个 SDK 根相对入口直接可落
@@ -415,6 +464,7 @@ mod tests {
         std::fs::write(&py, b"#!/bin/sh\n").unwrap();
 
         let _g = ENV_LOCK.lock().unwrap();
+        let _bg = BoundGuard::new();
         let saved = std::env::var("AIMAIL_PYTHON").ok();
         std::env::remove_var("AIMAIL_PYTHON");
         let got = probe_in_domain("", &home.to_string_lossy());
@@ -439,6 +489,7 @@ mod tests {
         std::fs::write(&py, b"#!/bin/sh\n").unwrap();
 
         let _g = ENV_LOCK.lock().unwrap();
+        let _bg = BoundGuard::new();
         let saved = std::env::var("AIMAIL_PYTHON").ok();
         std::env::remove_var("AIMAIL_PYTHON");
         let got = bind_domain("", &home.to_string_lossy());
@@ -468,6 +519,7 @@ mod tests {
         std::fs::write(&py, b"#!/bin/sh\n").unwrap();
 
         let _g = ENV_LOCK.lock().unwrap();
+        let _bg = BoundGuard::new();
         // 清 AIMAIL_PYTHON(测试进程可能继承开发机 env, 会短路到覆盖分支)
         let saved = std::env::var("AIMAIL_PYTHON").ok();
         std::env::remove_var("AIMAIL_PYTHON");
@@ -506,6 +558,7 @@ mod tests {
 
     fn probe_with_lock(home: &str) -> String {
         let _g = ENV_LOCK.lock().unwrap();
+        let _bg = BoundGuard::new();
         let saved = std::env::var("AIMAIL_PYTHON").ok();
         std::env::remove_var("AIMAIL_PYTHON");
         let got = probe_in_domain("", home);
@@ -641,6 +694,7 @@ mod tests {
         );
 
         let _g = ENV_LOCK.lock().unwrap();
+        let _bg = BoundGuard::new();
         let saved = std::env::var("AIMAIL_PYTHON").ok();
         std::env::remove_var("AIMAIL_PYTHON");
         let got = probe_in_domain("", &home.to_string_lossy());

@@ -349,6 +349,12 @@ pub fn run_steps(
                         cmd.env(k, tmpl(v.as_str().unwrap_or(""), ctx));
                     }
                 }
+                // P8(2026-10-17): 进程环境不再继承绑定解释器(进程内 set_var 已删)——
+                // 步骤子进程显式注入进程本地绑定值(唯一子进程读取者 = deer-flow
+                // install-skill.sh / install-mcp.sh 的 ${AIMAIL_PYTHON};未绑定 ⇒ 不注入)。
+                if let Some((k, v)) = crate::core::sdkroot::bound_python_env() {
+                    cmd.env(&k, &v);
+                }
                 match cmd.status() {
                     Err(_) => {
                         let mode = st

@@ -36,6 +36,8 @@ pub struct SetupArgs {
     pub save_raw_snapshots: bool,
     pub manager_address: String,
     pub system_home: String,
+    /// 显式给过 `-n/--system-name`(reset 语义: 决定是否继承旧 system_name)。
+    pub name_explicit: bool,
 }
 
 /// Python 侧的日志口径（照抄，别"顺手"升级）：
@@ -122,7 +124,7 @@ pub fn setup(a: &SetupArgs) -> Value {
                 .unwrap_or("")
                 .to_string()
         };
-        let explicit_name = config::env_val("INTEGRATE_NAME_EXPLICIT", "") == "true";
+        let explicit_name = a.name_explicit;
         let prev_has_snaps = prev.contains_key("save_raw_snapshots");
         let snaps = if a.save_raw_snapshots || !prev_has_snaps {
             a.save_raw_snapshots

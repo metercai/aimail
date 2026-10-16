@@ -343,73 +343,32 @@ fn ensure_system(a: &Args) -> i32 {
     } else if gw_src == "default" {
         eprintln!("gateway_url: no local value, falling back to default {gw_url}");
     }
-    let mut env: Vec<(String, String)> = Vec::new();
-    env.push(("INTEGRATE_GATEWAY_URL".into(), gw_url.clone()));
-    env.push(("INTEGRATE_SYSTEM_ID".into(), sid.clone()));
-    env.push(("INTEGRATE_SYSTEM_NAME".into(), sys_name.clone()));
-    env.push((
-        "INTEGRATE_NAME_EXPLICIT".into(),
-        if a.system_name.is_empty() {
-            "false"
-        } else {
-            "true"
-        }
-        .into(),
-    ));
-    env.push(("INTEGRATE_MANAGER_ADDRESS".into(), manager.clone()));
-    // F10：绑定写入点读 AIMAIL_MANAGER_ADDRESS（只导 INTEGRATE_* 会让绑定 manager 恒空）
-    if !manager.is_empty() {
-        env.push(("AIMAIL_MANAGER_ADDRESS".into(), manager.clone()));
-    }
     // 新系统（产品码）路径：域属于产品 ⇒ 不替它转发机器级 .env 的域（否则共享域产品 409）
     let new_system_domain = if !prod_code.is_empty() {
         a.domain.clone()
     } else {
         want_domain.clone()
     };
-    env.push(("INTEGRATE_AIMAIL_DOMAIN".into(), new_system_domain.clone()));
-    let snaps = config::env_val("AIMAIL_SAVE_SNAPSHOTS", "yes").to_lowercase();
-    env.push((
-        "INTEGRATE_SAVE_SNAPSHOTS".into(),
-        if matches!(snaps.as_str(), "yes" | "true" | "1") {
-            "true"
-        } else {
-            "false"
-        }
-        .into(),
-    ));
-    // system_home 归属只在新建/显式凭据写；本地复用继承 prev
-    if !prod_code.is_empty() {
-        env.push(("INTEGRATE_USE_PRODUCT_CODE".into(), "true".into()));
-        env.push(("INTEGRATE_PRODUCT_CODE".into(), prod_code.clone()));
-        env.push((
-            "INTEGRATE_SYSTEM_HOME".into(),
-            system_home.to_string_lossy().to_string(),
-        ));
-    } else if !adm_key.is_empty() {
-        env.push(("INTEGRATE_ADMIN_KEY".into(), adm_key.clone()));
-        env.push((
-            "INTEGRATE_SYSTEM_HOME".into(),
-            system_home.to_string_lossy().to_string(),
-        ));
-    } else if !sid.is_empty() {
-        let key = config::load_gateway_config(&sid)
-            .map(|c| c.admin_key)
-            .unwrap_or_default();
-        if !key.is_empty() {
-            env.push(("INTEGRATE_ADMIN_KEY".into(), key));
+    // P8(2026-10-17): INTEGRATE_* 进程环境握手删除（env Vec 从未传给任何子进程 = 死装配；
+    // worker 已走 SetupArgs 显式参数）；凭据三选一校验保留（报错文案/退出码是机器面 ABI）。
+    if prod_code.is_empty() && adm_key.is_empty() {
+        if !sid.is_empty() {
+            let key = config::load_gateway_config(&sid)
+                .map(|c| c.admin_key)
+                .unwrap_or_default();
+            if key.is_empty() {
+                return err_json(
+                    &format!("system {sid} has no local admin_key"),
+                    "pass -k <admin-key> or -c <product-code>",
+                );
+            }
             eprintln!("reuse admin_key for {sid}");
         } else {
             return err_json(
-                &format!("system {sid} has no local admin_key"),
-                "pass -k <admin-key> or -c <product-code>",
+                "no credential to activate with",
+                "export AIMAIL_GW_URL + AIMAIL_PRODUCT_CODE then retry (or run bootstrap), or pass -c <code> / -k <admin-key>",
             );
         }
-    } else {
-        return err_json(
-            "no credential to activate with",
-            "export AIMAIL_GW_URL + AIMAIL_PRODUCT_CODE then retry (or run bootstrap), or pass -c <code> / -k <admin-key>",
-        );
     }
 
     // ── 激活/复用 worker（`setup_system.py` 的 Rust 复刻，**进程内**执行）──────────────
@@ -435,8 +394,8 @@ fn ensure_system(a: &Args) -> i32 {
         ),
         manager_address: manager.clone(),
         system_home: system_home.to_string_lossy().to_string(),
+        name_explicit: !a.system_name.is_empty(),
     };
-    let _ = &env; // env 仍按 Python 口径装配（日志/子进程契约），worker 用显式参数
     let data = crate::core::setup::setup(&wa);
     if !data
         .get("success")
@@ -739,59 +698,23 @@ fn install_human(a: &Args) -> i32 {
     };
 
     // 凭据三选一：产品码 / 显式 admin-key / 从既有配置复用
+    // P8(2026-10-17): INTEGRATE_* 进程环境握手删除 —— 值经 SetupArgs 显式参数进 worker；
+    // 仅保留 manager → AIMAIL_MANAGER_ADDRESS 回写(SDK 子进程继承进程环境直读, 契约名, Q1 裁决)。
     let mut env_admin_key = String::new();
     if !prod_code.is_empty() {
-        std::env::set_var("INTEGRATE_USE_PRODUCT_CODE", "true");
-        std::env::set_var("INTEGRATE_PRODUCT_CODE", &prod_code);
-        std::env::set_var(
-            "INTEGRATE_SYSTEM_HOME",
-            system_home.to_string_lossy().to_string(),
-        );
+        // 产品码路径: 无本地 admin_key（激活响应回填, 见下）
     } else if !adm_key.is_empty() {
         env_admin_key = adm_key.clone();
-        std::env::set_var("INTEGRATE_ADMIN_KEY", &adm_key);
-        std::env::set_var(
-            "INTEGRATE_SYSTEM_HOME",
-            system_home.to_string_lossy().to_string(),
-        );
     } else if !sid.is_empty() {
         if let Some(c) = config::load_gateway_config(&sid) {
             if !c.admin_key.is_empty() {
                 env_admin_key = c.admin_key.clone();
-                std::env::set_var("INTEGRATE_ADMIN_KEY", &c.admin_key);
-                std::env::set_var("INTEGRATE_SYSTEM_ID", &sid);
             }
         }
     }
-    std::env::set_var("INTEGRATE_GATEWAY_URL", &gw_url);
-    std::env::set_var("INTEGRATE_SYSTEM_ID", &sid);
-    std::env::set_var("INTEGRATE_SYSTEM_NAME", &sys_name);
-    std::env::set_var(
-        "INTEGRATE_NAME_EXPLICIT",
-        if a.system_name.is_empty() {
-            "false"
-        } else {
-            "true"
-        },
-    );
-    std::env::set_var("INTEGRATE_MANAGER_ADDRESS", &manager);
     if !manager.is_empty() {
         std::env::set_var("AIMAIL_MANAGER_ADDRESS", &manager);
     }
-    std::env::set_var("INTEGRATE_AIMAIL_DOMAIN", &new_system_domain);
-    std::env::set_var(
-        "INTEGRATE_SAVE_SNAPSHOTS",
-        if matches!(
-            config::env_val("AIMAIL_SAVE_SNAPSHOTS", "yes")
-                .to_lowercase()
-                .as_str(),
-            "yes" | "true" | "1"
-        ) {
-            "true"
-        } else {
-            "false"
-        },
-    );
 
     // 激活/复用 worker（进程内；与 `--system-only` 同一条）
     let wa = setup::SetupArgs {
@@ -809,6 +732,7 @@ fn install_human(a: &Args) -> i32 {
         ),
         manager_address: manager.clone(),
         system_home: system_home.to_string_lossy().to_string(),
+        name_explicit: !a.system_name.is_empty(),
     };
     let data = setup::setup(&wa);
     if !data
@@ -831,18 +755,18 @@ fn install_human(a: &Args) -> i32 {
         }
     }
     if !sid2.is_empty() && sid2 != a.system_id {
-        std::env::set_var("INTEGRATE_SYSTEM_ID", &sid2);
         ok(&format!("system_id: {sid2}"));
     }
-    // 激活产物回填（新系统激活路径没有显式 -k）
+    // 激活产物回填（新系统激活路径没有显式 -k）；
+    // admin_key/域 回填进局部变量(P8: 不再写进程 env, 下方消费点直读)
+    let mut system_domain = new_system_domain.clone();
     let mut cfg2 = config::load_gateway_config(&sid2);
     if let Some(c) = cfg2.take() {
         if !c.admin_key.is_empty() {
             env_admin_key = c.admin_key.clone();
-            std::env::set_var("INTEGRATE_ADMIN_KEY", &c.admin_key);
         }
         if !c.domain.is_empty() {
-            std::env::set_var("INTEGRATE_AIMAIL_DOMAIN", &c.domain);
+            system_domain = c.domain.clone();
         }
         cfg2 = Some(c);
     }
@@ -910,7 +834,7 @@ fn install_human(a: &Args) -> i32 {
                 gateway_url: gw_url.clone(),
                 admin_key: env_admin_key.clone(),
                 system_id: sid2.clone(),
-                domain: std::env::var("INTEGRATE_AIMAIL_DOMAIN").unwrap_or_default(),
+                domain: system_domain.clone(),
                 webhook_mode_bridge: true, // S2 = pull 模式
                 announce_arg: String::new(),
                 cfg_webhook_host: cfg_wh_host,
@@ -937,13 +861,13 @@ fn install_human(a: &Args) -> i32 {
         .map(|c| serde_json::Value::Object(c.to_json()))
         .unwrap_or_else(|| {
             serde_json::json!({
-                "system_id": std::env::var("INTEGRATE_SYSTEM_ID").unwrap_or_default(),
+                "system_id": sid2.clone(),
                 "gateway_url": gw_url,
                 "admin_key": env_admin_key,
                 "domain": "",
                 "system_name": sys_name,
                 "manager_address": manager,
-                "system_home": std::env::var("INTEGRATE_SYSTEM_HOME").unwrap_or_default(),
+                "system_home": system_home.to_string_lossy().to_string(),
             })
         });
     ctx.insert(
@@ -951,8 +875,9 @@ fn install_human(a: &Args) -> i32 {
         serde_json::json!(system_home.to_string_lossy().to_string()),
     );
     ctx.insert("sid".into(), serde_json::json!(sid2));
-    // 单真源绑定（契约 §4.1(2)）：域发现解释器经 AIMAIL_PYTHON 回传给 SDK 调用面
-    // （sdk_install/register/sdk_ops 门），与 step 0 的 {python} 同一解释器（C-4）；
+    // 单真源绑定（契约 §4.1(2)）：域发现解释器存进程本地态(P8: 进程环境写删除),
+    // python 门/注册器经 python_bin() 读取、步骤子进程经 bound_python_env 显式注入,
+    // 与 step 0 的 {python} 同一解释器（C-4）；
     // 容器守卫（docker exec 返回的是容器内路径）在 bind_domain 内统一。
     let _py = crate::core::sdkroot::bind_domain(&a.container, &system_home.to_string_lossy());
     let _pkgmgr = crate::core::sdkroot::probe_pkgmgr(&a.container, &_py);
