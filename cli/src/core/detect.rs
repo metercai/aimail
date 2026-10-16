@@ -305,22 +305,16 @@ pub fn detect_static(home: &Path, explicit: Option<&str>) -> Result<StaticInfo, 
     })
 }
 
-/// `aimail platform spec --json` 的载荷：常量表 +（可选的）探测结果。
+/// `aimail platform spec --json` 的载荷：完整平台注册表（类型化常量的值视图）+（可选的）探测结果。
+///
+/// P2c S3a（2026-10-16）：导出面从"8 字段检测表"扩为**全形状**（`install_steps`/
+/// `uninstall_steps`/`health_checks`/`pointer`/`register`/`aliases`/`ops`/`agents`/
+/// `detect` 全键），使本命令成为 advanced 门禁/夹具的**唯一平台知识入口**（取代直读
+/// `cli/platforms.json`，该文件 S3b 删除）。形状对齐原 platforms.json（`order` +
+/// `platforms`{id→对象} + `detected`），改锚面最小。数据 = `platforms::raw()`（由
+/// `platforms_data` 类型化常量重建，语义等价由往返棘轮证明）。
 pub fn spec_json(home: Option<&Path>, explicit: Option<&str>) -> Value {
-    let plats: Vec<Value> = PLATFORMS
-        .iter()
-        .map(|p| {
-            json!({
-                "id": p.id,
-                "home_dir": p.home_dir,
-                "markers": p.markers,
-                "install_argv": p.install_argv,
-                "node_pkg": p.node_pkg,
-                "entry_patterns": p.entry_patterns,
-                "python_host": p.python_host,
-            })
-        })
-        .collect();
+    let reg = crate::core::platforms::raw();
     let detected = match home {
         Some(h) => match detect_static(h, explicit) {
             Ok(info) => info.to_json(),
@@ -328,7 +322,11 @@ pub fn spec_json(home: Option<&Path>, explicit: Option<&str>) -> Value {
         },
         None => Value::Null,
     };
-    json!({ "platforms": plats, "detected": detected })
+    json!({
+        "order": reg.get("order").cloned().unwrap_or_else(|| json!([])),
+        "platforms": reg.get("platforms").cloned().unwrap_or_else(|| json!({})),
+        "detected": detected,
+    })
 }
 
 #[cfg(test)]
@@ -435,14 +433,29 @@ mod tests {
     }
 
     #[test]
-    fn spec_json_carries_constants_and_detection() {
+    fn spec_json_carries_full_registry_and_detection() {
         let h = tmp("specjson");
         std::fs::create_dir_all(h.join("profiles")).ok();
         let v = spec_json(Some(&h), Some("dsh"));
-        let plats = v.get("platforms").unwrap().as_array().unwrap();
-        assert_eq!(plats.len(), PLATFORMS.len());
-        let ids: Vec<&str> = plats.iter().map(|p| p["id"].as_str().unwrap()).collect();
+        // S3a 后形状 = 原 platforms.json（order + platforms{id→对象}）+ detected。
+        let order = v["order"].as_array().unwrap();
+        let ids: Vec<&str> = order.iter().map(|p| p.as_str().unwrap()).collect();
         assert_eq!(ids, vec!["pi", "dsh", "hermes", "openclaw", "deerflow"]);
+        let plats = v["platforms"].as_object().unwrap();
+        assert_eq!(plats.len(), PLATFORMS.len());
+        // 全形状导出面：install_steps / health_checks / register / pointer 键在位。
+        let dsh = &plats["dsh"];
+        assert!(dsh["install_steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s["kind"] == "register_default"));
+        assert!(dsh["health_checks"].as_array().is_some());
+        assert_eq!(dsh["register"]["kind"], "node_entry");
+        assert_eq!(
+            dsh["pointer"]["file"],
+            crate::core::contract::pointer_file()
+        );
         assert_eq!(v["detected"]["platform"], "dsh");
         assert_eq!(v["detected"]["transport"], ""); // 显式给平台但未装 ⇒ 无入口、非 python 宿主
     }
