@@ -1640,7 +1640,7 @@ def plan_address_name(requested_name: str, *, agent_id: str, domain: str,
                       register_argv=()) -> dict:
     """注册编排的"定名字"单真源(owner 裁决 2026-10-02 P6-A / C1)。
 
-    输入 = 意图 + 映射层数据(平台注册表 platforms.json: 别名表/注册模板 argv —— 由
+    输入 = 意图 + 映射层数据(平台注册表(类型化常量): 别名表/注册模板 argv —— 由
     CLI 作为映射层传入); 规则全在 SDK, CLI 只"取计划 → 执行":
       1. 校验: 请求名必须 atext-no-dot(不合法抛 ValueError,CLI _fail 呈现);
       2. 别名归一: 平台内部 id(openclaw main / hermes default)不是地址基名 → "agent";
@@ -2424,7 +2424,7 @@ def register_agent_email(client, system_id: str, email: str,
                 # 仍没有 ⇒ **不写**（保留云端现值），大声告警，绝不抹空。
                 # 2026-10-02 第 10 缺陷定因(E1): **绑定优先** —— 绑定是唯一真源(卡B 口径),
                 # 调用方给的值只在绑定缺 secret 时才采用。原"参数优先"在 deerflow 上必分叉:
-                # 一轮 install 注册 3 次(platforms.json install_steps: sdk_install →
+                # 一轮 install 注册 3 次(注册表 install_steps: sdk_install →
                 # register_default → register_all), 每次新铸随机值(manage.py:217/:362) ⇒
                 # 新值 PUT 覆写网关(storage.rs:693 全量覆写), 而绑定只在拿到
                 # api_key/activation_code 时才落盘(manage.py:224-235) ⇒ 网关=第 3 把 /

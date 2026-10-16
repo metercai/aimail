@@ -310,7 +310,7 @@ pub fn detect_static(home: &Path, explicit: Option<&str>) -> Result<StaticInfo, 
 /// P2c S3a（2026-10-16）：导出面从"8 字段检测表"扩为**全形状**（`install_steps`/
 /// `uninstall_steps`/`health_checks`/`pointer`/`register`/`aliases`/`ops`/`agents`/
 /// `detect` 全键），使本命令成为 advanced 门禁/夹具的**唯一平台知识入口**（取代直读
-/// `cli/platforms.json`，该文件 S3b 删除）。形状对齐原 platforms.json（`order` +
+/// 平台注册表 JSON，S3b 删除）。形状对齐原注册表（`order` +
 /// `platforms`{id→对象} + `detected`），改锚面最小。数据 = `platforms::raw()`（由
 /// `platforms_data` 类型化常量重建，语义等价由往返棘轮证明）。
 pub fn spec_json(home: Option<&Path>, explicit: Option<&str>) -> Value {
@@ -437,7 +437,7 @@ mod tests {
         let h = tmp("specjson");
         std::fs::create_dir_all(h.join("profiles")).ok();
         let v = spec_json(Some(&h), Some("dsh"));
-        // S3a 后形状 = 原 platforms.json（order + platforms{id→对象}）+ detected。
+        // S3a 后形状 = 原平台注册表（order + platforms{id→对象}）+ detected。
         let order = v["order"].as_array().unwrap();
         let ids: Vec<&str> = order.iter().map(|p| p.as_str().unwrap()).collect();
         assert_eq!(ids, vec!["pi", "dsh", "hermes", "openclaw", "deerflow"]);
@@ -458,95 +458,5 @@ mod tests {
         );
         assert_eq!(v["detected"]["platform"], "dsh");
         assert_eq!(v["detected"]["transport"], ""); // 显式给平台但未装 ⇒ 无入口、非 python 宿主
-    }
-
-    /// 保真棘轮（过渡件，随 `cli/platforms.json` 退役一并删除）：
-    /// 本模块常量必须与那份注册表里的**同名知识**逐项一致 —— 删文件时才可证无损。
-    /// 有意的不一致只有一类，且在此显式记账：注册表 `agents.names` 里的**固定 agent 名**
-    /// 归 SDK 门内（owner 2026-10-02 C1 + 2026-10-11 裁定），CLI 常量表不再持有。
-    #[test]
-    fn constants_match_the_registry_being_retired() {
-        let reg: Value = serde_json::from_str(include_str!("../../platforms.json"))
-            .expect("platforms.json 可解析");
-        let platforms = reg["platforms"].as_object().expect("platforms 是对象");
-        assert_eq!(platforms.len(), PLATFORMS.len(), "平台集合一致");
-        for spec in PLATFORMS {
-            let pl = platforms
-                .get(spec.id)
-                .unwrap_or_else(|| panic!("注册表缺平台 {}", spec.id));
-            assert_eq!(
-                spec.home_dir,
-                pl["home_dir"].as_str().unwrap(),
-                "{}: home_dir",
-                spec.id
-            );
-            let markers: Vec<&str> = pl["detect"]["markers"]
-                .as_array()
-                .unwrap_or_else(|| panic!("{}: 缺 detect.markers", spec.id))
-                .iter()
-                .map(|v| v.as_str().unwrap())
-                .collect();
-            assert_eq!(spec.markers.to_vec(), markers, "{}: 宿主标记", spec.id);
-            assert_eq!(
-                pl["pointer"]["file"].as_str().unwrap(),
-                crate::core::contract::pointer_file(),
-                "{}: 指针文件名（契约常量）",
-                spec.id
-            );
-            // 传输分类：register.kind 决定 python / node（node 宿主一律 node_entry）
-            let kind = pl["register"]["kind"].as_str().unwrap();
-            assert_eq!(
-                spec.python_host,
-                matches!(kind, "python_module" | "python_script"),
-                "{}: 传输分类（register.kind={kind}）",
-                spec.id
-            );
-            if !spec.python_host {
-                assert!(
-                    !spec.node_pkg.is_empty(),
-                    "{}: node 宿主必须有包名",
-                    spec.id
-                );
-                // 同目录（owner 2026-10-11：不存在已装旧版 ⇒ 三个 node 宿主一律 dist/）
-                assert!(
-                    !spec.entry_patterns.is_empty()
-                        && spec
-                            .entry_patterns
-                            .iter()
-                            .all(|p| p.ends_with("/dist/register-cli.js")),
-                    "{}: 入口模式必须落在 dist/register-cli.js — {:?}",
-                    spec.id,
-                    spec.entry_patterns
-                );
-            }
-            // agent 容器：容器型 kinds 导出容器名；fixed* 型 ⇒ CLI 不持有名字（SDK 门内）
-            match pl["agents"]["kind"].as_str().unwrap() {
-                "profiles_plus_default" => {
-                    assert_eq!(spec.agents_container, "profiles", "{}: 容器", spec.id)
-                }
-                "glob_dir" => assert_eq!(
-                    spec.agents_container,
-                    pl["agents"]["dir"].as_str().unwrap(),
-                    "{}: 容器 = 注册表 agents.dir",
-                    spec.id
-                ),
-                // dsh：注册表记 fixed 名，但宿主是多 profile 布局（install argv 带
-                // `--profile web`，入口模式 `profiles/*/…`）⇒ 容器仍是 profiles。
-                "fixed" if spec.id == "dsh" => {
-                    assert_eq!(spec.agents_container, "profiles", "dsh: 容器")
-                }
-                "fixed" | "fixed_with_pointer" => {
-                    assert_eq!(
-                        spec.agents_container, "",
-                        "{}: 固定名归 SDK，CLI 不持有容器",
-                        spec.id
-                    )
-                }
-                other => panic!(
-                    "{}: agents.kind={other} 未纳入保真棘轮，请显式裁决",
-                    spec.id
-                ),
-            }
-        }
     }
 }

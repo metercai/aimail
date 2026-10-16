@@ -223,7 +223,7 @@ def register_agents(manager: str = "", system_id: str = "", agent: str = "",
         # 2026-10-02 E2(与核心 E1 配套, 调用方卫生): 已有绑定 ⇒ 复用它的 secret, 只在缺失时
         # 新铸。原实现每轮新随机会让"重注册"看起来像轮换: exists 分支把新值 PUT 覆写网关,
         # 而绑定只在拿到 api_key/activation_code 时才落盘(manage.py:224-235)⇒ 两把钥匙
-        # (第 10 缺陷的引信; 一次 install 会注册 3 次 —— platforms.json install_steps)。
+        # (第 10 缺陷的引信; 一次 install 会注册 3 次 —— 注册表 install_steps)。
         webhook_secret = (_core.existing_binding_webhook_secret(system_id, email)
                           or _core.new_webhook_secret())
         cfg = register_one(
@@ -373,7 +373,7 @@ def reconcile(system_id: str = "", manager: str = "", dry_run: bool = False) -> 
         # 2026-10-02 E2(与核心 E1 配套, 调用方卫生): 已有绑定 ⇒ 复用它的 secret, 只在缺失时
         # 新铸。原实现每轮新随机会让"重注册"看起来像轮换: exists 分支把新值 PUT 覆写网关,
         # 而绑定只在拿到 api_key/activation_code 时才落盘(manage.py:224-235)⇒ 两把钥匙
-        # (第 10 缺陷的引信; 一次 install 会注册 3 次 —— platforms.json install_steps)。
+        # (第 10 缺陷的引信; 一次 install 会注册 3 次 —— 注册表 install_steps)。
         webhook_secret = (_core.existing_binding_webhook_secret(system_id, email)
                           or _core.new_webhook_secret())
         # 本地接收端点(进程内预处理,DeerFlow 本地 gateway + 契约 INBOUND_PATH;

@@ -10,16 +10,15 @@ J4e 根因(二选一定死 = **(i) 跳过**, 非写错目录):
   两次都不会写 platform_toolsets ⇒ webhook 会话回退默认工具集 ⇒
   agent 写好回信也发不出(J4e sent=1 reply=0)。
 写/读同源: 写入目标 = HERMES_HOME/<profile>/config.yaml, 读取目标 = check 的
-`yaml_toolsets` glob(cli/platforms.json → platforms/hermes/health_checks[3]),
-两者是同一个文件(本组测试用真实 glob 断言, 不靠"看起来一样")。
+`yaml_toolsets` glob(注册表 `hermes.health_checks`, 现由 `aimail platform spec
+--json` 导出; 断言迁 tests/cli/test_platforms_registry.py),
+两者是同一个文件(该测试用真实 glob 断言, 不靠"看起来一样")。
 
 覆盖:
   1. 工具集未注册 ⇒ ensure 后已注册(config 缺失也补);
   2. 已注册 ⇒ 不重复写(幂等: 无改动、文件字节不变);
-  3. 写入路径与读取路径同源(真 glob);
-  4. 注册标记(pointer 已匹配 ⇒ registered:0)不再短路 ensure。
+  3. 注册标记(pointer 已匹配 ⇒ registered:0)不再短路 ensure。
 """
-import glob
 import json
 import os
 import re
@@ -200,31 +199,6 @@ def test_ensure_keeps_existing_webhook_secret(tmp_path):
     cfg = _read(cfg_path)
     assert cfg["platforms"]["webhook"]["extra"]["secret"] == secret
     assert _TOOLSET in (_toolsets(cfg).get("webhook") or [])
-
-
-# ── 3. 写入路径与读取路径同源(真 glob, 非肉眼比对) ────────────────────────
-def test_write_path_is_the_file_check_reads(tmp_path):
-    reg = json.loads((_REPO / "cli" / "platforms.json").read_text(encoding="utf-8"))
-    checks = reg["platforms"]["hermes"]["health_checks"]
-    toolsets_check = next(c for c in checks if c.get("kind") == "yaml_toolsets")
-
-    # 默认 profile: 写 <HERMES_HOME>/config.yaml
-    ensure_config.ensure_profile_config(tmp_path)
-    # 具名 profile: 写 <HERMES_HOME>/profiles/<name>/config.yaml
-    named = tmp_path / "profiles" / "p1"
-    named.mkdir(parents=True)
-    ensure_config.ensure_profile_config(named)
-
-    matched = set()
-    for pattern in toolsets_check["configs"]:
-        matched.update(glob.glob(pattern.replace("{home}", str(tmp_path))))
-
-    for written in (tmp_path / "config.yaml", named / "config.yaml"):
-        assert str(written) in matched, (
-            f"写入的 {written} 不在 check 的读取 glob {toolsets_check['configs']} 里"
-        )
-        pt = _toolsets(_read(written))
-        assert _TOOLSET in (pt.get("webhook") or []) or _TOOLSET in (pt.get("cli") or [])
 
 
 # ── 4. 注册标记短路 ⇒ registered:0 之后配置照样补上(核心回归) ─────────────

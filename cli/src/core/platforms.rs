@@ -8,8 +8,8 @@
 //! `to_json()` 重建（语义等价，由 `platforms_data` 的往返棘轮证明），既有访问器
 //! （order / platform / install_steps / 指针 / 别名 …）照旧从该值视图取数；指针扫描、
 //! home 归一化等 FS 逻辑也在此（它们不解析注册表，只消费它）。
-//! 待退役的 `cli/platforms.json` 于 S3 删除；删前门禁 `tests/cli/check-registry.py`
-//! 仍校验仓里那份文件（见本模块测试：文件与值视图语义等价）。
+//! 平台注册表 JSON 已于 S3b（2026-10-16）删除；形状门禁 = `aimail platform spec --json`
+//! 黑盒（tests/cli/test_platforms_registry.py + advanced tests/cli/check-registry.py）。
 
 use crate::core::{contract, platforms_data};
 use serde_json::{json, Map, Value};
@@ -665,40 +665,50 @@ mod tests {
     }
 
     #[test]
-    fn registry_view_is_semantically_equal_to_the_repo_file() {
-        // S2 后值视图由类型化常量重建（键序可能异于原文件）⇒ 断言语义等价（对象键序
-        // 无关、数组序敏感）。门禁 tests/cli/check-registry.py 校验同一份文件 ⇒ 门禁与
-        // 二进制不会各说各话。S3 删文件时本测试随文件一并移除。
-        let on_disk = std::fs::read_to_string(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("platforms.json"),
-        )
-        .expect("cli/platforms.json readable");
-        let on_disk: Value = serde_json::from_str(&on_disk).expect("repo file parses");
-        assert!(
-            same_value(&on_disk, registry()),
-            "registry view drifted from cli/platforms.json"
-        );
-    }
-
-    fn same_value(a: &Value, b: &Value) -> bool {
-        match (a, b) {
-            (Value::Object(x), Value::Object(y)) => {
-                x.len() == y.len()
-                    && x.iter()
-                        .all(|(k, v)| y.get(k).is_some_and(|ov| same_value(v, ov)))
-            }
-            (Value::Array(x), Value::Array(y)) => {
-                x.len() == y.len() && x.iter().zip(y.iter()).all(|(x, y)| same_value(x, y))
-            }
-            _ => a == b,
-        }
-    }
-
-    #[test]
     fn missing_platform_is_none_not_a_guess() {
         assert!(platform("definitely-not-a-platform").is_none());
         assert!(home_dir("definitely-not-a-platform").is_none());
         assert!(install_steps("definitely-not-a-platform").is_empty());
+    }
+
+    /// 负控棘轮(P2c S3b, 2026-10-16):平台注册表 JSON 文件已退役,不得回潮。
+    /// 平台知识真源 = `platforms_data.rs` 类型化常量 + env 输入与自动探测;文件重新出现
+    /// ⇒ 双真源混淆 ⇒ 红。判据取"零加载"(zero-bridge 先例):文件不存在 + 源码无加载引用。
+    #[test]
+    fn retired_platforms_json_must_not_return() {
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        assert!(
+            !manifest.join(["plat", "forms.json"].concat()).exists(),
+            "平台注册表 JSON 已退役(真源 = platforms_data.rs 类型化常量);\
+             新增平台数据 ⇒ 改 platforms_data.rs,不要恢复该文件"
+        );
+        // 源码零加载模式:任何 .rs 里出现该文件名(含 include_str! 与字符串路径)即回潮;
+        // 本测试自身用拼接形态规避自指。
+        let mut offenders: Vec<String> = Vec::new();
+        let mut stack = vec![manifest.join("src")];
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for e in entries.flatten() {
+                let path = e.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().is_some_and(|x| x == "rs") {
+                    let Ok(t) = std::fs::read_to_string(&path) else {
+                        continue;
+                    };
+                    let needle = ["plat", "forms.json"].concat();
+                    if t.contains(&needle) {
+                        offenders.push(path.display().to_string());
+                    }
+                }
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "源码出现平台注册表 JSON 加载引用(应改引用 platforms_data.rs): {offenders:?}"
+        );
     }
 
     #[test]

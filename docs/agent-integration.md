@@ -323,12 +323,14 @@ bootstrap; TS hosts never deploy the bridge themselves.
 
 ### 6.1 Boundary rule (one rule, enforced)
 
-**Platform knowledge lives only in `cli/platforms.json`; every platform
-adapter lives in its SDK (pysdk for Python platforms, the TS package for
-TS platforms). The CLI holds zero platform protocol** — it reads the
-registry and runs generic executors. Adding a platform must never touch
-`cli/aimail`, `cli/check_status.py` or `cli/repair.py`; the L0 gate
-fails on any platform literal in those files (only documented special:
+**Platform knowledge lives only in the typed registry constants
+(`cli/src/core/platforms_data.rs` — the `cli/platforms.json` file was
+retired; `aimail platform spec --json` is the assertable export of it);
+every platform adapter lives in its SDK (pysdk for Python platforms, the
+TS package for TS platforms). The CLI holds zero platform protocol** — it
+reads the registry and runs generic executors. Adding a platform must
+never touch `cli/aimail`, `cli/check_status.py` or `cli/repair.py`; the L0
+gate fails on any platform literal in those files (only documented special:
 cmd_reset's hermes full-profile re-scan). Verified with a mock sixth
 platform: detect / install_steps / registration delegate / uninstall /
 health-checks all ran with zero CLI code changes.
@@ -364,7 +366,11 @@ dispatchers; kinds are shared across platforms, never per-platform code.
   install/uninstall (app.py patch, config rewrites, profile state) —
   shipped and reverted by the SDK (who-writes-it-reverts-it).
 
-### 6.4 Registry entry reference (`platforms.json`, per platform)
+### 6.4 Registry entry reference (typed constants, per platform)
+
+The shape below is exactly what `aimail platform spec --json` emits
+(`order` + `platforms`{id → entry} + `detected`); the single source is
+the typed constants in `cli/src/core/platforms_data.rs`.
 
 | field | meaning |
 |---|---|

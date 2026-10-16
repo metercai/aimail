@@ -2,7 +2,7 @@
  * sdk-ops — node 侧可执行 op 入口(单行 JSON ABI)。
  *
  * 契约 v1.0 §4.1(2):node transport 与 Python 门(`python3 -m aimail.sdk_ops <op>`)
- * 语义与信封一致、仅传输不同。CLI 按 platforms.json 的 `ops.argv` 分派并读结果:
+ * 语义与信封一致、仅传输不同。CLI 按注册表(类型化常量)的 `ops.argv` 分派并读结果:
  *
  *   in :  --op <assemble|update|teardown> --args '<单个 JSON 对象>'
  *   out : stdout 恰一行

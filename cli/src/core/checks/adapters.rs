@@ -5,7 +5,7 @@
 //! reconcile 自证）⇒ 这里也**不提供适配器**，由 [`run_l3_l4`] 走注册表
 //! `agent_check_remote` 的提示分支。
 //!
-//! 端口/路径/名字这类平台知识有两条来源：**注册表**（platforms.json）与**契约**
+//! 端口/路径/名字这类平台知识有两条来源：**注册表**（类型化常量 `platforms_data.rs`，经 `platform spec --json` 导出）与**契约**
 //! （contract/aimail-contract.json）。本模块只用这两者，不复制字面量
 //! （hermes 的 hook 路由名与入站路径取自契约；pi 端口无关）。
 

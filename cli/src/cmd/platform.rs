@@ -5,7 +5,7 @@
 //!   · 带 `--home` ⇒ 附上对该 home 的探测结果（命中即平台/transport/agent 键/指针/入口；
 //!     探测失败以 `{"error": "…"}` 呈现，禁用 `unknown` 冒充成功）。
 //!
-//! 为什么由 CLI 导出：门禁与夹具原先直读 `cli/platforms.json`（已退役）；单一真源仍是
+//! 为什么由 CLI 导出：门禁与夹具原先直读平台注册表 JSON 文件（S3b 已删）；单一真源仍是
 //! `core::detect` 内的常量，本命令只是可断言的导出面（契约 §5）。
 
 pub struct Args {

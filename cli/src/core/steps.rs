@@ -1,4 +1,4 @@
-//! 平台动作序列执行器（`cli/aimail:427-678` 的 Rust 复刻）—— `platforms.json` 的
+//! 平台动作序列执行器（`cli/aimail:427-678` 的 Rust 复刻）—— 平台注册表（类型化常量）的
 //! `install_steps` / `uninstall_steps` 表驱动，**CLI 零平台知识**。
 //!
 //! kind：`print` | `warn` | `spawn` | `sdk_install` | `register_default` | `register_all`
@@ -486,7 +486,7 @@ pub fn run_steps(
     Ok(())
 }
 
-/// 注册表驱动入口：读 `platforms.json` 的 `install_steps`（空表 ⇒ 直接返回）。
+/// 注册表驱动入口：读注册表（类型化常量）的 `install_steps`（空表 ⇒ 直接返回）。
 pub fn run_install_steps(
     platform: &str,
     ctx: &mut Map<String, Value>,
