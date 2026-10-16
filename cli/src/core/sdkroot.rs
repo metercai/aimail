@@ -389,8 +389,9 @@ pub fn probe_pkgmgr(container: &str, python: &str) -> String {
 mod tests {
     use super::*;
 
-    // `AIMAIL_PYTHON` 是进程级全局态：同模块里多个用例各改各的会互踩(P8 同类)，故串行化。
-    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    // `AIMAIL_PYTHON`/进程本地绑定是进程级全局态：跨文件用例(l0/repair 读 python_bin)
+    // 各改各的会互踩(P8 同类) ⇒ 共用 testutil 进程级锁串行化。
+    use crate::core::testutil::ENV_LOCK;
 
     // P8(2026-10-17): 进程本地绑定(BOUND_PYTHON)也是进程级全局态 —— RAII 保存/清空/恢复,
     // 与 ENV_LOCK + env 存/还原同一模式。

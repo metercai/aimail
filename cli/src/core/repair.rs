@@ -1922,6 +1922,7 @@ mod tests {
     #[test]
     fn pointer_never_overwrites_an_existing_pointer_for_this_sid() {
         // cli/repair.py:522：本 sid 已有指针 => 直接返回，绝不改写。
+        let _g = crate::core::testutil::ENV_LOCK.lock().unwrap();
         let td = std::env::temp_dir().join(format!("ptr-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&td);
         std::fs::create_dir_all(td.join(".pi")).unwrap();
@@ -1946,6 +1947,7 @@ mod tests {
     #[test]
     fn routes_entries_skips_bad_binding_files_without_aborting() {
         // Python 2026-09-20 实测：单个坏绑定文件只跳过它，绝不中止整步（repair.py:740）。
+        let _g = crate::core::testutil::ENV_LOCK.lock().unwrap();
         let td = std::env::temp_dir().join(format!("rt-bad-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&td);
         std::fs::create_dir_all(td.join("systems/s1/leaf")).unwrap();
@@ -2070,6 +2072,7 @@ mod tests {
     #[test]
     fn runtime_resources_skips_when_root_unresolvable() {
         // 平台根解析不出 ⇒ 明确跳过（不 spawn 安装、不报成功）
+        let _g = crate::core::testutil::ENV_LOCK.lock().unwrap();
         let d = tempfile::tempdir().unwrap();
         let ah = d.path().join("aimail");
         std::fs::create_dir_all(ah.join("systems/s1")).unwrap();
@@ -2118,6 +2121,7 @@ mod tests {
 
     #[test]
     fn gateway_config_fills_gaps_only_and_never_overwrites() {
+        let _g = crate::core::testutil::ENV_LOCK.lock().unwrap();
         let td = std::env::temp_dir().join(format!("aimail-gwcfg-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&td);
         let sdir = td.join("systems").join("s1");

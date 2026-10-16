@@ -879,6 +879,7 @@ mod tests {
     #[test]
     fn drift_check_emits_record_when_s2_empty_and_gateway_local() {
         // 127.0.0.1 = 本机 GW（L 真，离线可判）+ S2 空串 ⇒ 判定函数只会判 S3 ⇒ 漂移。
+        let _g = crate::core::testutil::ENV_LOCK.lock().unwrap();
         let (ah, pd) = empty_roots("drift-local");
         std::env::set_var("AIMAIL_HOME", ah.path());
         std::env::set_var("AIMAIL_PROG_DIR", pd.path());
@@ -900,6 +901,7 @@ mod tests {
     #[test]
     fn drift_check_silent_when_no_contradiction() {
         // S3 键缺席 ⇒ 离线不可证伪 ⇒ 静默（无记录）。
+        let _g = crate::core::testutil::ENV_LOCK.lock().unwrap();
         let (ah, pd) = empty_roots("drift-absent");
         std::env::set_var("AIMAIL_HOME", ah.path());
         std::env::set_var("AIMAIL_PROG_DIR", pd.path());

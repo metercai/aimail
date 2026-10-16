@@ -52,6 +52,12 @@ pub(crate) mod testutil {
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU32, Ordering};
 
+    /// 进程级测试环境锁(P8 第2层): 碰进程环境(set_var/remove_var)或进程本地
+    /// 绑定态的测试一律先持此锁 —— 进程 env 是跨线程全局, 并行 `cargo test` 下
+    /// 各改各的会互踩(实测 bridge_pids/drain_stuck 交替红)。持锁覆盖整段
+    /// 设值→被测代码读→还原。
+    pub(crate) static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     static SEQ: AtomicU32 = AtomicU32::new(0);
 
     /// `<系统临时目录>/aimail-rs-test-<pid>-<seq>-<tag>`，Drop 时递归删除。
