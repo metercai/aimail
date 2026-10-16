@@ -123,12 +123,12 @@ jobs:
             platform: macos-arm64
             ext: ""
           # ── Windows ──
-          # CLI 未完成 Windows 移植(bridge/repair 深度依赖 unix 命令, 非 cfg 补丁能覆盖);
-          # 移植完成前从发版链移除 —— 先把 L3 走通, 恢复后取消注释即可。
-          # - target: x86_64-pc-windows-msvc
-          #   os: windows-latest
-          #   platform: windows-amd64
-          #   ext: ".exe"
+          # CLI Windows 移植完成(2026-10-17: W1 cfg 门 + W2 运行期 6 组 windows 分支);
+          # bridge 不在 L3 闭环依赖面(L3 只装 CLI+SDK+网关), windows 格无 bridge 前置。
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            platform: windows-amd64
+            ext: ".exe"
     steps:
       - uses: actions/checkout@v5
 

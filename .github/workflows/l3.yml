@@ -73,10 +73,10 @@ jobs:
           - { platform: macos-arm64, os: macos-14,        agent: dsh-aimail }
           - { platform: macos-arm64, os: macos-14,        agent: dsh-plugin }
           # ── Windows ──
-          # CLI 未完成 Windows 移植, 移植完成前不跑(恢复后取消注释 = 12 job)。
-          # - { platform: windows-amd64, os: windows-latest, agent: hermes }
-          # - { platform: windows-amd64, os: windows-latest, agent: dsh-aimail }
-          # - { platform: windows-amd64, os: windows-latest, agent: dsh-plugin }
+          # CLI Windows 移植完成(2026-10-17)恢复 3 格 = 12 job。
+          - { platform: windows-amd64, os: windows-latest, agent: hermes }
+          - { platform: windows-amd64, os: windows-latest, agent: dsh-aimail }
+          - { platform: windows-amd64, os: windows-latest, agent: dsh-plugin }
 
     timeout-minutes: 45
     env:
