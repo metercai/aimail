@@ -29,6 +29,7 @@ pub mod payload;
 pub mod perms;
 pub mod ping;
 pub mod platforms;
+pub mod platforms_data;
 pub mod probe;
 pub mod pyjson;
 pub mod register;
