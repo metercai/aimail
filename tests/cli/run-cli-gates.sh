@@ -57,6 +57,15 @@ else
 fi
 
 echo
+echo "═══ [CLI] 2c) 注册表形状测试(pytest, 数据源 = spec --json 黑盒)═══"
+# P2c S3b: 平台注册表形状断言的数据源 = 已构建二进制的 `aimail platform spec --json`
+# (cli/platforms.json 已退役)。前置 = 步骤 2 已 cargo build(target/debug/aimail 在位);
+# 依赖 pytest + PyYAML(CI 在 ci.yml cli-gates job 钉版安装; 本地缺 pytest ⇒ 响亮失败)。
+if [ -d cli ] && [ -d tests/cli ] && ls tests/cli/*.py >/dev/null 2>&1; then
+  python3 -m pytest tests/cli/ -q || fail=1
+fi
+
+echo
 echo "═══ [CLI] 3) CLI 宿主 L1/L2 门禁（黑盒，被测物 = rust 二进制）═══"
 if [ -x "$HOME/aimail-advanced/tests/cli/run-cli-gate.sh" ]; then
   (cd "$HOME/aimail-advanced" && bash tests/cli/run-cli-gate.sh) || fail=1

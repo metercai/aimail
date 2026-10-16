@@ -71,6 +71,16 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
       - name: cargo test (dev battery — no SDK required)
         run: cargo test --all-targets
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install gate deps (pinned — 与 sdk-gates 同版; 注册表形状测试用)
+        run: python3 -m pip install --quiet pytest==9.1.1 PyYAML==6.0.2
+      - name: Registry shape tests (pytest — data source = spec --json black-box)
+        working-directory: .
+        # P2c S3b: 断言语义自 tests/sdk/ 迁入; 数据源 = 上一步 cargo test 已构建的
+        # target/debug/aimail 经 `platform spec --json` 导出(黑盒, 与被测物同源)。
+        run: python3 -m pytest tests/cli/ -q
       - name: L2 battery — sdk-parity cases (need an installed aimailsdk)
         # 这批用例经 python 门调**已装** aimailsdk ⇒ 属 L2(装件级),故 dev 电池里由
         # `sdk-parity` feature 关掉, 在这里显式装官方发布版到 venv 并用 AIMAIL_PYTHON
