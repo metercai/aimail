@@ -6,7 +6,7 @@
 #   ① 装目标 agent 系统 + 配 LLM(deepseek-flash) + 验证 agent 自身可运行
 #   ② 取已发布网关(基础版, GitHub Release 二进制)并起, 捕获 system/admin key
 #   ③ 取已发布 CLI(bootstrap.sh 在线 = 用户真实入口)
-#   ④ SDK 安装(README 原样命令: 裸 aimail install --home <agent root> / dsh plugin add)
+#   ④ SDK 安装(README 原样命令: aimail install(home 由 AGENT_HOME env 提供) / dsh plugin add)
 #   ⑤ welcome 闭环: welcome → agent 回三标签 → manager(安全员)approve persona
 #   ⑥ 身份断言: SDK 同形 send_mail 一封查询 → whoami 读回身份名片(agent_persona)
 #      + 邮件签名(agent_signature) 已生效(whoami.rs:44-52, welcome approve UPSERT 的读回点)
@@ -17,14 +17,14 @@
 # 环境(由 workflow 注入):
 #   L3_PLATFORM  linux-amd64|linux-arm64|macos-arm64|windows-amd64
 #   L3_AGENT     hermes | dsh-aimail | dsh-plugin
-#                (dsh 两条 README 公布路径各一格: aimail install --home ~/.dsh / dsh plugin add)
+#                (dsh 两条 README 公布路径各一格: AGENT_HOME env + aimail install / dsh plugin add)
 #   AIMAIL_REPO  aimail 仓 checkout(环境准备单源 + llm-config.py 都在 tests/agent-env/)
 #   LLM_BASE_URL / LLM_MODEL / LLM_API_KEY
 #
 # 流程契约(README Quick Start 场景 4, 原样复现, 严禁自行调整):
 #   ③ env 四件套(AIMAIL_GW_URL/ADMIN_KEY/DOMAIN/MANAGER_ADDRESS) + 在线自举 curl|bash
-#   ④ aimail install --home <agent root>(裸命令) 或 dsh plugin --profile web add dsh-aimail
-#   ⑤ 裸 aimail welcome(AGENT_HOME env → .agentmail 指针解析系统参数)  # contract-allowed: L3 注释引用契约指针文件名
+#   ④ aimail install(home 由 AGENT_HOME env 提供, 无 --home flag) 或 dsh plugin --profile web add dsh-aimail
+#   ⑤ aimail welcome(AGENT_HOME env → .agentmail 指针解析系统参数)  # contract-allowed: L3 注释引用契约指针文件名
 #
 # 退出码: 0=绿(闭环完成) · 1=红(某阶段断言失败, 原因已打印) · 2=环境缺前置
 # ═══════════════════════════════════════════════════════════════════════
@@ -377,7 +377,7 @@ say "  admin  key : ${ADMIN_KEY:0:8}… (platform, welcome/approve)"
 # ── ③ 取已发布 CLI(README 场景 4 原样: env 四件套 + 在线自举)────────
 # 严格复现 README(130-135 行)公布的用户流程: 先 export 四个 env, 再在线 curl|bash。
 # bootstrap.sh 把 env 落盘 ~/.aimail/.env(机器级, config.rs:284 后续 CLI 命令读它),
-# ④ 裸 install 与 ⑤ 裸 welcome 靠 .env + 指针文件, 不靠本 shell 的 export 残留。
+# ④ AGENT_HOME install 与 ⑤ AGENT_HOME welcome 靠 .env + 指针文件, 不靠本 shell 的 export 残留。
 echo "── [3/6] published CLI (README scenario 4: env + online bootstrap)"
 export AIMAIL_GW_URL="$GW_URL"
 export AIMAIL_ADMIN_KEY="$SYS_KEY"
@@ -408,7 +408,7 @@ ok "published CLI: $( "$AIMAIL_BIN" version 2>/dev/null | head -1 )"
 # README: "install either through the aimail command line or through the Agent's
 # plugin — pick one of the two"。两种路径都是对外公布的 ⇒ 都测(矩阵 agent 维
 # 扩展: hermes / dsh-aimail / dsh-plugin)。命令形态 = README 原样:
-#   CLI 入口 = 裸 `aimail install`(home 由 ④ 开头的 export AGENT_HOME 提供,
+#   CLI 入口 = `aimail install`(home 由 ④ 开头的 export AGENT_HOME 提供,
 #   与 ⑤ welcome 共享同一 env; 无 --home flag)。
 #   插件入口 = `dsh plugin --profile web add dsh-aimail`(无 AGENT_HOME 依赖)。
 # env 已由 ③ 落盘 ~/.aimail/.env + 本 shell export。
@@ -421,7 +421,7 @@ case "$AGENT" in
       || die "dsh plugin add dsh-aimail failed (README plugin path)"
     ;;
   dsh-aimail|hermes)
-    # README: 裸 aimail install(AGENT_HOME env 提供 home; 与 welcome 共享)
+    # README: aimail install(AGENT_HOME env 提供 home; 与 welcome 共享)
     "$AIMAIL_BIN" install \
       || die "aimail install failed (README CLI path)"
     ;;
@@ -599,7 +599,7 @@ esac
 
 # ── ⑤ welcome 闭环(welcome → agent 回三标签 → manager approve)──
 echo "── [5/6] welcome closed loop (manager approves identity card + signature)"
-# README 原样: 裸 `aimail welcome`。上下文解析链(welcome.rs:25-91):
+# README 原样: `aimail welcome`。上下文解析链(welcome.rs:25-91):
 #   sid:      AGENT_HOME env(④ 已 export, install 与 welcome 共享)
 #             → {AGENT_HOME}/.agentmail 指针(install/插件注册时写)→ 结束;  # contract-allowed: L3 注释引用契约指针文件名
 #             用户不知道 system_id, 不传 --system-id。
