@@ -342,10 +342,13 @@ impl Step {
                         if changed {
                             let txt = serde_json::to_string_pretty(&v).unwrap_or_default();
                             let _ = std::fs::write(&gw_path, txt + "\n");
-                            let _ = std::fs::set_permissions(
-                                &gw_path,
-                                std::os::unix::fs::PermissionsExt::from_mode(0o600),
-                            );
+                            #[cfg(unix)]
+                            {
+                                let _ = std::fs::set_permissions(
+                                    &gw_path,
+                                    std::os::unix::fs::PermissionsExt::from_mode(0o600),
+                                );
+                            }
                             StepResult::Fixed
                         } else {
                             StepResult::NothingToDo
@@ -800,9 +803,12 @@ fn replace_first_admin_key(block: &str, gk: &str) -> Option<String> {
     Some(out)
 }
 
-fn chmod600(p: &std::path::Path) {
-    use std::os::unix::fs::PermissionsExt;
-    let _ = std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o600));
+fn chmod600(_p: &std::path::Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(_p, std::fs::Permissions::from_mode(0o600));
+    }
 }
 
 /// `_repair_binding_webhook_secrets`（`repair.py:183-253`）—— 本地密钥对账（**先跑**）。

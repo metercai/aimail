@@ -1,3 +1,5 @@
+#![cfg(unix)]
+// 整文件 unix 语义(stub 可执行位 / sh 驱动 / symlink), windows 分支(W2)落地后重开。
 //! P2 切片3c 离线验收：桥生命周期契约 + `bridge --restart` 单实例。
 //!
 //! 用一个**实现契约的 stub 桥**（`--status [--json] --pid-file` / `--stop --pid-file` /

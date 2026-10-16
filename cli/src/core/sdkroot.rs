@@ -570,6 +570,8 @@ mod tests {
         got
     }
 
+    // 判据依赖 unix 可执行位(tools 工具链"能实跑"= 0755)⇒ 仅 unix
+    #[cfg(unix)]
     #[test]
     fn uv_managed_env_venv_preferred_over_tools_toolchain() {
         // L3 2026-10-15(本地全量复现)：hermes 官方宿主 launcher = tools/python `-I`
@@ -617,6 +619,8 @@ mod tests {
         );
     }
 
+    // 同上:tools 工具链落点判据依赖 unix 可执行位 ⇒ 仅 unix
+    #[cfg(unix)]
     #[test]
     fn uv_managed_env_rejects_env_outside_environments_or_without_pyvenv() {
         // 校验镜像 hermes `_recorded_venv`：env 不在本 install 的 environments/ 下 ⇒ 拒；
@@ -669,6 +673,8 @@ mod tests {
         );
     }
 
+    // 同上:tools 工具链"能实跑"判据依赖 unix 可执行位 ⇒ 仅 unix
+    #[cfg(unix)]
     #[test]
     fn tools_toolchain_python_discovered_for_official_host_layout() {
         // L3 2026-10-11(run 38139097257)：官方宿主(hermes v0.21.6)把 uv 托管的 CPython 放在

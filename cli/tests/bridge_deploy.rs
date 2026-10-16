@@ -1,3 +1,5 @@
+#![cfg(unix)]
+// 整文件 unix 语义(stub 可执行位 / sh 驱动 / symlink), windows 分支(W2)落地后重开。
 //! P2 切片3a 离线验收：桥二进制就位（`core::bridge_deploy`）。
 //!
 //! 判据（逐条对齐 `deploy_bridge._ensure_binary`/`latest_bridge_zip`/`_version_key`）：

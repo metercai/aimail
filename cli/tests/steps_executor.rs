@@ -1,3 +1,5 @@
+#![cfg(unix)]
+// 整文件 unix 语义(stub 可执行位 / sh 驱动 / symlink), windows 分支(W2)落地后重开。
 //! `install_steps` 执行器（`core::steps`）的离线验收。
 //!
 //! 用**合成步骤表**驱动（执行器本身接受外部表 ⇒ 可测；`run_install_steps` 只是读注册表的薄壳），

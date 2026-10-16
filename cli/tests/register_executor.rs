@@ -1,3 +1,5 @@
+#![cfg(unix)]
+// 整文件 unix 语义(stub 可执行位 / sh 驱动 / symlink), windows 分支(W2)落地后重开。
 //! 平台注册执行器（`core::register`）的离线验收。
 //!
 //! 判据：模板填充后的**真实 argv**（`--name/--system-id/--manager`）、

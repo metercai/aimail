@@ -65,11 +65,17 @@ pub fn latest_bridge_zip(bridge_dir_local: &Path, arch: &str) -> String {
 }
 
 /// 文件是否可执行（`os.access(X_OK)` 等价）。
+/// unix = 权限位含执行位；windows = 文件在场（无 POSIX 位，.exe 在场即可执行）。
+#[cfg(unix)]
 pub fn is_executable(p: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     std::fs::metadata(p)
         .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
         .unwrap_or(false)
+}
+#[cfg(not(unix))]
+pub fn is_executable(p: &Path) -> bool {
+    p.is_file()
 }
 
 /// 本机桥**可部署**（判定函数 BR 输入，2026-10-13）：已就位的可执行二进制，
@@ -118,8 +124,11 @@ pub fn ensure_binary(bridge_bin: &Path, bridge_dir: &Path) -> bool {
             warn("Failed to extract bridge: cannot place the binary");
             return false;
         }
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(bridge_bin, std::fs::Permissions::from_mode(0o755));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(bridge_bin, std::fs::Permissions::from_mode(0o755));
+        }
     }
     is_executable(bridge_bin)
 }
@@ -327,8 +336,12 @@ pub fn write_bridge_config(spec: &BridgeConfigSpec) -> Result<(), String> {
     let body =
         config_lines(&spec.addr, &spec.mode, &merged, &log_path, &spec.hostname).join("\n") + "\n";
     std::fs::write(&spec.path, body).map_err(|e| e.to_string())?;
-    use std::os::unix::fs::PermissionsExt;
-    let _ = std::fs::set_permissions(&spec.path, std::fs::Permissions::from_mode(0o600)); // 凭据文件（AUDIT-1 F6）
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&spec.path, std::fs::Permissions::from_mode(0o600));
+        // 凭据文件（AUDIT-1 F6）
+    }
     Ok(())
 }
 
@@ -1236,8 +1249,11 @@ pub fn upgrade_bridge() -> i32 {
         let _ = std::fs::remove_dir_all(&td);
         return fail("替换二进制失败");
     }
-    use std::os::unix::fs::PermissionsExt;
-    let _ = std::fs::set_permissions(&bin_path, std::fs::Permissions::from_mode(0o755));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&bin_path, std::fs::Permissions::from_mode(0o755));
+    }
     let _ = std::fs::remove_dir_all(&td);
     ok(&format!(
         "二进制已更新(sha {} → {})",

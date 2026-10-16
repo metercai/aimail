@@ -1,3 +1,5 @@
+#![cfg(unix)]
+// 整文件 unix 语义(stub 可执行位 / sh 驱动 / symlink), windows 分支(W2)落地后重开。
 //! `prompt` 切片1 验收：`list`/`rm`/`create-file` 与命令面（`add` 的 SDK 落盘路径留 L2；`test` 未移植）。
 //!
 //! 判据：①裸 `prompt` ⇒ rc=2（`paction` required）；②`list` 渲染三态（地址级 role / common.md 兜底 /
