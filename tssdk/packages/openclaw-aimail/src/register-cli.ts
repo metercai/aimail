@@ -20,18 +20,17 @@
  * 注册语义在 mail-core 的 op 实现内（定名/派生/注册/改名/落绑定/注销），本文件只做
  * argv 解析与信封输出 —— CLI 不实现平台适配，平台包只提供宿主布局数据。
  */
-import { opAssemble, opPromptTest, opTeardown, opUpdate, UsageError } from '@aimail/mail-core'
+import {
+  opAssemble,
+  opPromptTest,
+  opTeardown,
+  opUpdate,
+  UsageError,
+  cliArg as arg,
+  cliEmit as emit,
+} from '@aimail/mail-core'
 
 const OPS = 'assemble|update|teardown|prompt-test'
-
-function arg(argv: string[], name: string): string {
-  const i = argv.indexOf(name)
-  return i >= 0 && i + 1 < argv.length ? argv[i + 1]! : ''
-}
-
-function emit(obj: Record<string, unknown>): void {
-  process.stdout.write(JSON.stringify(obj) + '\n')
-}
 
 /** 单行 JSON 信封 + usage/call 两类错误分类（与 python 门同形）。 */
 export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {

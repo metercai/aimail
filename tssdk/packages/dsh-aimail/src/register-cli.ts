@@ -23,6 +23,7 @@
  *        [--local-webhook URL] [--force]
  */
 import { randomUUID } from 'node:crypto'
+import { cliArg as arg, cliFlag as flag } from '@aimail/mail-core'
 import {
   autoBind,
   ensureSkillToolExposure,
@@ -41,14 +42,6 @@ import {
   resolveRegisterWebhook,
   saveBinding,
 } from '@aimail/mail-core'
-
-function arg(argv: string[], name: string): string {
-  const i = argv.indexOf(name)
-  return i >= 0 && i + 1 < argv.length ? argv[i + 1]! : ''
-}
-function flag(argv: string[], name: string): boolean {
-  return argv.includes(name)
-}
 
 /** dsh 宿主的布局数据(共享装配器要的 profile patch 落点 + 要启用的 id)。
  *  dsh 宿主默认把这两行写成 disabled ⇒ 不启用则 skills 落点对、但进不了模型可见清单。 */

@@ -5,6 +5,7 @@
  * can import this package directly without touching dsh adapter packages.
  */
 export * from './types.js'
+export { arg as cliArg, flag as cliFlag, emit as cliEmit } from './cli-arg.js'
 export * from './typebox-params.js'
 export * from './contract.js'
 export { GatewayClient } from './gateway.js'

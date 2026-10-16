@@ -25,6 +25,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import {
   autoBind,
+  cliArg as arg,
   opAssemble,
   opPromptTest,
   opTeardown,
@@ -36,11 +37,6 @@ import {
   listSystemDirs,
   readSystemConfig,
 } from '@aimail/mail-core'
-
-function arg(argv: string[], name: string): string {
-  const i = argv.indexOf(name)
-  return i >= 0 && i + 1 < argv.length ? argv[i + 1]! : ''
-}
 
 async function main(): Promise<number> {
   const argv = process.argv.slice(2)
