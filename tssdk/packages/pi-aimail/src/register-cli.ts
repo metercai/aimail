@@ -114,7 +114,9 @@ async function main(): Promise<number> {
     email: emailArg,
     domain: gw.domain || '',
     systemName: gw.system_name || '',
-    fallbackBase: 'pi',
+    // 默认主 agent 名 'agent'(owner 裁决 2026-10-16,与 dsh/openclaw 地址统一);
+    // CLI install 路径经注册表 --name agent 直达此基名。
+    fallbackBase: 'agent',
   })
 
   try {
@@ -123,7 +125,9 @@ async function main(): Promise<number> {
       email,
       webhookUrl: localWebhook,
       ...(manager ? { managerAddress: manager } : {}),
-      extraFields: { agent_id: 'pi' },
+      // agent_id 是可经 CLI 改名的 agent「名」,不是平台身份特征(见 identity.ts
+      // 头注);CLI check 按平台指针识别 pi,不再按 agent_id。
+      extraFields: { agent_id: 'agent' },
     })
     // platform pointer — pi extensions read identity from ~/.pi/.agentmail
     const platformHome =

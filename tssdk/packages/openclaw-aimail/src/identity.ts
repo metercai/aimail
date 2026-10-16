@@ -19,16 +19,24 @@ import * as fs from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import * as path from 'node:path'
 import {
-  autoBind,
-  emailForAgent,
+  ensureAgentBinding,
   hasAnySystem,
-  listSystemDirs,
-  loadAgentConfig,
   loadConfigByAgentId,
-  readSystemConfig,
   type AgentConfig,
 } from '@aimail/mail-core'
 import { INBOUND_PATH } from './inbound.js'
+
+/**
+ * Default agent id (owner ruling 2026-10-16): openclaw is a MULTI-agent host
+ * — the runtime agent id stays the host's 'main' (inbound dispatch sends it to
+ * /hooks/agent; it must exist in the host's agents.entries). "定名恒 agent"
+ * applies to the ADDRESS: 'main' derives the uniform address base 'agent' via
+ * the ['main'] alias ⇒ agent@domain, same as dsh/pi.
+ */
+export const DEFAULT_AGENT_ID = 'main'
+
+/** Address-base aliases (['main'] ⇒ 'main' derives the base 'agent'). */
+export const ADDRESS_ALIASES: readonly string[] = ['main']
 
 export interface SystemPointer {
   system_id?: string
@@ -245,53 +253,31 @@ export function resetAutoBindOnce(): void {
 }
 
 /**
- * One-shot auto-bind for an openclaw agent id. Adopts an existing binding
- * for the id when present (pointer lost but binding alive); otherwise
- * derives the address (python email_for_agent: main → agent), runs the
- * register chain + binding + bridge route, writes the pointer.
- * Never throws — failures warn and fall through to the caller's own error.
+ * One-shot auto-bind for an openclaw agent id — thin wrapper over the
+ * mail-core single source (system readiness + idempotent binding + pointer
+ * write). Adopts an existing binding for the id when present (the single
+ * source does the adopt); otherwise derives the address and runs the
+ * register chain. Never throws — failures warn and fall through to the
+ * caller's own error.
  */
-async function tryAutoBindOnce(agentId: string): Promise<AgentConfig | undefined> {
+export async function tryAutoBindOnce(agentId: string): Promise<AgentConfig | undefined> {
   if (_autoBindAttempted) return undefined
   _autoBindAttempted = true
-  try {
-    const sids = await listSystemDirs()
-    if (sids.length !== 1) return undefined
-    const systemId = sids[0] as string
-    const gw = await readSystemConfig(systemId)
-    if (!gw.domain) return undefined
-
-    // Binding already exists for this agent id (different/earlier address)?
-    // Adopt it and repair the pointer — no network involved.
-    const existing = await loadConfigByAgentId(systemId, agentId)
-    if (existing && existing.api_key) {
-      await writePointer({ system_id: systemId, email: existing.email })
-      console.warn(
-        `[openclaw-aimail] auto-bind: adopted existing binding ${existing.email} (system ${systemId})`,
-      )
-      return existing
+  const r = await ensureAgentBinding({
+    home: path.join(openclawHome(), '.openclaw'),
+    agentId,
+    aliases: ADDRESS_ALIASES,
+    webhookUrl: openclawWebhookUrl(),
+    log: (l) => console.warn(`[openclaw-aimail] ${l}`),
+  })
+  if (!r.ok || !r.email || !r.systemId) {
+    if (r.error) {
+      console.warn(`[openclaw-aimail] auto-bind failed: ${r.error}`)
     }
-
-    const email = emailForAgent(agentId, gw.domain, gw.system_name ?? '', ['main'])
-    const webhookUrl = openclawWebhookUrl()
-    const res = await autoBind({
-      systemId,
-      email,
-      webhookUrl,
-      extraFields: { agent_id: agentId },
-    })
-    if (res.registered || res.exists) {
-      await writePointer({ system_id: systemId, email })
-      const cfg = await loadAgentConfig(systemId, email)
-      if (cfg) return cfg
-    }
-    return undefined
-  } catch (e) {
-    console.warn(
-      `[openclaw-aimail] auto-bind failed: ${e instanceof Error ? e.message : String(e)}`,
-    )
     return undefined
   }
+  await writePointer({ system_id: r.systemId, email: r.email })
+  return r.config ?? (await loadConfigByAgentId(r.systemId, r.email).catch(() => undefined))
 }
 
 /**
@@ -302,7 +288,7 @@ async function tryAutoBindOnce(agentId: string): Promise<AgentConfig | undefined
 export async function resolveConfigForAgent(
   agentId: string | undefined,
 ): Promise<AgentConfig> {
-  const id = agentId && agentId.trim() ? agentId.trim() : 'main'
+  const id = agentId && agentId.trim() ? agentId.trim() : DEFAULT_AGENT_ID
   const ptr = await readPointer()
   const systemId = ptr.system_id ?? ''
   if (!systemId) {

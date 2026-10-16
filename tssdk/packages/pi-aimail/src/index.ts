@@ -21,9 +21,9 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
-import { ensureSystem, notifyInboundForSystem, formatInboundNotifyLine, isInboundNotifyWarning, processInboundMail, releaseAllSystems, routeAddressFromHeaders, startAgentPullEntries, verifySignature, INBOUND_PATH, INBOUND_PORTS, type AgentConfig, type AgentPullHandle, type AgentPullOverrides, type InboundPayload } from '@aimail/mail-core'
+import { notifyInboundForSystem, formatInboundNotifyLine, isInboundNotifyWarning, processInboundMail, releaseAllSystems, routeAddressFromHeaders, startAgentPullEntries, verifySignature, INBOUND_PATH, INBOUND_PORTS, type AgentConfig, type AgentPullHandle, type AgentPullOverrides, type InboundPayload } from '@aimail/mail-core'
 import { resolveByRecipient } from '@aimail/mail'
-import { agentIdentity, initIdentity, readPointer, setInboundEndpoint } from './identity.js'
+import { agentIdentity, initIdentity, readPointer, setInboundEndpoint, tryAutoBindOnce } from './identity.js'
 import { buildPiTools } from './tools.js'
 
 // 契约常量唯一副本 = @aimail/mail-core(src/contract.ts ← contract/aimail-contract.json)。
@@ -217,27 +217,6 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
   }
   log.info(`[pi-aimail] identity ${agentIdentity()}`)
 
-  // Install readiness: system activation lives ONCE, in `aimail
-  // install --system-only` (L1 only) — reverse-call it when THIS platform has no
-  // owning system yet. Never platform wiring → acyclic call graph.
-  {
-    const platformHome =
-      process.env.AIMAIL_SYSTEM_HOME?.trim() ||
-      path.join(os.homedir(), '.pi')
-    void ensureSystem({ systemHome: platformHome })
-      .then((r) => {
-        if (r.ok) {
-          if (r.activated) log.info(`[pi-aimail] system activated: ${r.systemId}`)
-        } else {
-          const hint = r.hint ? ` (${r.hint})` : ''
-          log.warn(`[pi-aimail] no aimail system yet — ${r.error ?? 'unknown'}` + hint)
-        }
-      })
-      .catch((e) => {
-        log.warn(`[pi-aimail] system ensure failed: ${e instanceof Error ? e.message : String(e)}`)
-      })
-  }
-
   // ── 15 mail/board tools (bare names, MAIL_TOOLS single source) ──
   for (const tool of buildPiTools()) {
     pi.registerTool({
@@ -311,40 +290,60 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
     // so the route can be pinned to the deterministic port.
     const confirmedUrl = `http://127.0.0.1:${port}${INBOUND_PATH}`
     setInboundEndpoint(confirmedUrl)
-    server.listen(port, '127.0.0.1', () => {
-      log.info(`[pi-aimail] inbound listening on http://127.0.0.1:${port}${INBOUND_PATH}`)
-      // 入站通知(owner 裁决 2026-09-28, SDK 去桥化): 监听就绪 ⇒ 逐地址告诉环境主控
-      // (the `aimail` CLI)`aimail address -a <addr> --inbound-live`。时序的实质不变
-      // —— "入站真在服务"之后才成立; 但**桥语义不在 SDK**: 由 CLI 决定这意味着什么。
-      // best-effort: 仅 argv、4s 超时、不阻塞本回调、绝不抛给宿主(无 CLI ⇒ 一行日志,
-      // 宿主照常服务并自注册)。
-      void notifyInboundForSystem('live', { inboundUrl: confirmedUrl })
-        .then((outcomes) => {
-          for (const o of outcomes) {
-            const line = `[pi-aimail] ${formatInboundNotifyLine(o, 'live')}`
-            if (isInboundNotifyWarning(o)) log.warn(line)
-            else log.info(line)
-          }
-        })
-        .catch((e: unknown) => {
-          log.warn(
-            `[pi-aimail] inbound notify failed (non-fatal): ${e instanceof Error ? e.message : String(e)}`,
-          )
-        })
+    // Eager default-agent binding (dsh parity, 2026-10-16 batch): the
+    // `pi install`/plugin path never runs the CLI's register_default step, so
+    // without a proactive bind the host would LISTEN without the default
+    // agent's binding — "inbound port up" would not imply "binding written".
+    // Gate the listen on the idempotent self-bind (once-guarded; the lazy
+    // tool path shares it). A binding failure degrades: the host still
+    // listens (unbound path), it does not wedge.
+    void tryAutoBindOnce()
+      .then(() => {
+        if (!server) return
+        server.listen(port, '127.0.0.1', () => {
+          log.info(`[pi-aimail] inbound listening on http://127.0.0.1:${port}${INBOUND_PATH}`)
+          // 入站通知(owner 裁决 2026-09-28, SDK 去桥化): 监听就绪 ⇒ 逐地址告诉环境主控
+          // (the `aimail` CLI)`aimail address -a <addr> --inbound-live`。时序的实质不变
+          // —— "入站真在服务"之后才成立; 但**桥语义不在 SDK**: 由 CLI 决定这意味着什么。
+          // best-effort: 仅 argv、4s 超时、不阻塞本回调、绝不抛给宿主(无 CLI ⇒ 一行日志,
+          // 宿主照常服务并自注册)。
+          void notifyInboundForSystem('live', { inboundUrl: confirmedUrl })
+            .then((outcomes) => {
+              for (const o of outcomes) {
+                const line = `[pi-aimail] ${formatInboundNotifyLine(o, 'live')}`
+                if (isInboundNotifyWarning(o)) log.warn(line)
+                else log.info(line)
+              }
+            })
+            .catch((e: unknown) => {
+              log.warn(
+                `[pi-aimail] inbound notify failed (non-fatal): ${e instanceof Error ? e.message : String(e)}`,
+              )
+            })
 
-      // Pull entry (2026-09-27): an address activated by an activation CODE has
-      // no push path (the gateway stores webhook_url=NULL for it), so this
-      // long-lived session fetches its own mail on a timer, delivering through
-      // the SAME chain (`deliverPiInbound`). Armed only for agent-scope
-      // bindings — the decision lives in mail-core, never here.
-      void startInboundPull(pi, { log })
-        .then((handles) => {
-          pullHandles = handles
+          // Pull entry (2026-09-27): an address activated by an activation CODE has
+          // no push path (the gateway stores webhook_url=NULL for it), so this
+          // long-lived session fetches its own mail on a timer, delivering through
+          // the SAME chain (`deliverPiInbound`). Armed only for agent-scope
+          // bindings — the decision lives in mail-core, never here.
+          void startInboundPull(pi, { log })
+            .then((handles) => {
+              pullHandles = handles
+            })
+            .catch((e: unknown) => {
+              log.warn(`[pi-aimail] pull entry failed to start: ${e instanceof Error ? e.message : String(e)}`)
+            })
         })
-        .catch((e: unknown) => {
-          log.warn(`[pi-aimail] pull entry failed to start: ${e instanceof Error ? e.message : String(e)}`)
+      })
+      // tryAutoBindOnce never throws (failures warn + undefined); a reject
+      // here would be a code defect — degrade to the unbound path anyway.
+      .catch((e: unknown) => {
+        log.warn(`[pi-aimail] eager binding gate failed: ${e instanceof Error ? e.message : String(e)}`)
+        if (!server) return
+        server.listen(port, '127.0.0.1', () => {
+          log.info(`[pi-aimail] inbound listening (unbound) on http://127.0.0.1:${port}${INBOUND_PATH}`)
         })
-    })
+      })
     server.on('error', (e) => {
       log.error(`[pi-aimail] inbound listener error: ${e.message}`)
     })

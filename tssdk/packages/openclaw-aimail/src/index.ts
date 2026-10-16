@@ -7,7 +7,6 @@
  */
 import { definePluginEntry, type OpenClawPluginDefinition } from 'openclaw/plugin-sdk/plugin-entry'
 import {
-  ensureSystem,
   notifyInboundForSystem,
   formatInboundNotifyLine,
   isInboundNotifyWarning,
@@ -21,7 +20,7 @@ import { fileURLToPath } from 'node:url'
 import { createMailTools } from './tools.js'
 import { createInboundHandler, startInboundPull, INBOUND_PATH } from './inbound.js'
 import { createAimailCommands } from './commands.js'
-import { agentIdentity } from './identity.js'
+import { agentIdentity, resolveAgentId, tryAutoBindOnce, DEFAULT_AGENT_ID } from './identity.js'
 
 // SDK-shipped board resources (role prompts/souls) live at the package root.
 const boardRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'resources', 'board')
@@ -70,33 +69,6 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
       console.error(`[openclaw-aimail] skill release failed: ${String(e)}`)
     }
 
-    // Install readiness: system activation lives ONCE, in `aimail
-    // install --system-only` (L1 only) — reverse-call it when THIS platform has no
-    // owning system yet. Never platform wiring → the install↔plugin call
-    // graph stays acyclic. No env/code → actionable warn on stderr.
-    {
-      const platformHome =
-        process.env.AIMAIL_SYSTEM_HOME?.trim() ||
-        path.join(os.homedir(), '.openclaw')
-      void ensureSystem({ systemHome: platformHome })
-        .then((r) => {
-          if (r.ok) {
-            if (r.activated) {
-              // 宿主生命周期诊断 ⇒ stderr:op 路径(--op/--args)stdout 恰一行 JSON(契约 §4.1(2))
-              console.error(`[openclaw-aimail] system activated: ${r.systemId}`)
-            }
-          } else {
-            const hint = r.hint ? ` (${r.hint})` : ''
-            console.warn(`[openclaw-aimail] no aimail system yet — ${r.error ?? 'unknown'}` + hint)
-          }
-        })
-        .catch((e) => {
-          console.warn(
-            `[openclaw-aimail] system ensure failed: ${e instanceof Error ? e.message : String(e)}`,
-          )
-        })
-    }
-
     // 15 bare-name tools (MAIL_TOOLS single source; identity from ctx.agentId)
     api.registerTool(createMailTools)
 
@@ -109,55 +81,72 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
       handler: createInboundHandler(api),
     })
 
-    // Pull entry (2026-09-27): an address activated by an activation CODE has
-    // no push path (the gateway stores webhook_url=NULL for it), so this host
-    // must fetch its own mail on a timer. Started AFTER the inbound route is
-    // live (the pulled mail enters the same chain through that handler's core),
-    // and ONLY for agent-scope bindings — the decision lives in mail-core
-    // (startAgentPullEntries: `shared_addr_*` activation source), never here.
-    // OpenClaw's plugin API exposes no dispose hook: the poll timers are
-    // unref'd by mail-core, so they die with the process and can never keep it
-    // alive (see poll-entry.ts pollSleep).
-    void startInboundPull(api, {
-      // 诊断行 ⇒ stderr:op 路径 stdout 恰一行 JSON(契约 §4.1(2));stdout 污染 ⇒ CLI Transport 判"门输出异常"
-      log: (line: string) => console.error(line),
-    })
-      .then((handles) => {
-        if (handles.length) {
-          console.error(
-            `[openclaw-aimail] pull entry armed for ${handles.length} agent-scope binding(s)`,
+    // Eager default-agent binding (dsh parity, 2026-10-16 batch): the
+    // `openclaw plugins install` path never runs the CLI's register_default
+    // step, so nothing else writes the default agent's binding — without a
+    // proactive bind a plugin-installed host has a system but no binding, and
+    // the gateway can dispatch/welcome no mail. One call covers system
+    // readiness (owning system short-circuit, else CLI L1 reverse-call) + the
+    // idempotent bind. It runs AFTER the in-gateway route below is registered
+    // (the pulled mail enters that same chain), and arms the pull entry + live
+    // notify only once the default agent is bound. The agent id is the host's
+    // own (resolveAgentId; default 'main') — the same id the inbound dispatch
+    // sends to /hooks/agent. Never fatal: on failure the host degrades to the
+    // unbound path (the lazy tool path retries).
+    {
+      void (async () => {
+        const agentId = resolveAgentId() || DEFAULT_AGENT_ID
+        await tryAutoBindOnce(agentId)
+        // Pull entry (2026-09-27): an address activated by an activation CODE
+        // has no push path (the gateway stores webhook_url=NULL for it), so
+        // this host must fetch its own mail on a timer. Started AFTER the
+        // inbound route is live and the default agent is bound; ONLY for
+        // agent-scope bindings — the decision lives in mail-core
+        // (startAgentPullEntries: `shared_addr_*` activation source), never
+        // here. OpenClaw's plugin API exposes no dispose hook: the poll timers
+        // are unref'd by mail-core, so they die with the process and can never
+        // keep it alive (see poll-entry.ts pollSleep).
+        void startInboundPull(api, {
+          // 诊断行 ⇒ stderr:op 路径 stdout 恰一行 JSON(契约 §4.1(2));stdout 污染 ⇒ CLI Transport 判"门输出异常"
+          log: (line: string) => console.error(line),
+        }).then((handles) => {
+          if (handles.length) {
+            console.error(
+              `[openclaw-aimail] pull entry armed for ${handles.length} agent-scope binding(s)`,
+            )
+          }
+        }).catch((e: unknown) => {
+          console.warn(
+            `[openclaw-aimail] pull entry failed to start: ${e instanceof Error ? e.message : String(e)}`,
           )
-        }
-      })
-      .catch((e) => {
-        console.warn(
-          `[openclaw-aimail] pull entry failed to start: ${e instanceof Error ? e.message : String(e)}`,
-        )
-      })
+        })
 
-    // Inbound notification (owner ruling 2026-09-28, SDK 去桥化): the in-gateway
-    // route above is live, so this plugin tells the environment master (the
-    // `aimail` CLI), per address it serves, that inbound is live:
-    //     aimail address -a <addr> --inbound-live
-    // The timing substance is unchanged — it happens only once inbound really
-    // serves (registration-time pushes landed before the gateway served the
-    // plugin; production 2026-09-21/09-26) — but the SDK speaks no bridge: the
-    // CLI owns the environment and decides what the note means. Best-effort and
-    // never fatal (argv, 4s timeout, no CLI ⇒ one log line).
-    void notifyInboundForSystem('live')
-      .then((outcomes) => {
-        for (const o of outcomes) {
-          const line = `[openclaw-aimail] ${formatInboundNotifyLine(o, 'live')}`
-          // 诊断行 ⇒ stderr(警告/普通分流,契约"failure 是 warning line"):op 路径 stdout 恰一行 JSON(§4.1(2))
-          if (isInboundNotifyWarning(o)) console.warn(line)
-          else console.error(line)
-        }
-      })
-      .catch((e) => {
+        // Inbound notification (owner ruling 2026-09-28, SDK 去桥化): the
+        // in-gateway route is live AND the default agent is bound, so this
+        // plugin tells the environment master (the `aimail` CLI), per address
+        // it serves, that inbound is live: `aimail address -a <addr>
+        // --inbound-live`. Best-effort and never fatal (argv, 4s timeout, no
+        // CLI ⇒ one log line).
+        void notifyInboundForSystem('live')
+          .then((outcomes) => {
+            for (const o of outcomes) {
+              const line = `[openclaw-aimail] ${formatInboundNotifyLine(o, 'live')}`
+              // 诊断行 ⇒ stderr(警告/普通分流,契约"failure 是 warning line"):op 路径 stdout 恰一行 JSON(§4.1(2))
+              if (isInboundNotifyWarning(o)) console.warn(line)
+              else console.error(line)
+            }
+          })
+          .catch((e: unknown) => {
+            console.warn(
+              `[openclaw-aimail] inbound notify failed (non-fatal): ${e instanceof Error ? e.message : String(e)}`,
+            )
+          })
+      })().catch((e: unknown) => {
         console.warn(
-          `[openclaw-aimail] inbound notify failed (non-fatal): ${e instanceof Error ? e.message : String(e)}`,
+          `[openclaw-aimail] eager binding gate failed (degraded to unbound path): ${e instanceof Error ? e.message : String(e)}`,
         )
       })
+    }
 
     // Registration / status commands
     for (const command of createAimailCommands()) {

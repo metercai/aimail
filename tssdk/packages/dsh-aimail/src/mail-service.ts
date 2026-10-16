@@ -23,8 +23,7 @@ import {
 import {
   autoBind,
   emailForAgent,
-  ensureSystem,
-  detectSystemForHome,
+  ensureAgentBinding,
   hasAnySystem,
   INBOUND_PATH,
   INBOUND_PORTS,
@@ -131,54 +130,22 @@ function platformHome(): string {
  * Never throws — failures warn and leave the host to its usual unbound path.
  */
 export async function ensureDefaultAgentBinding(): Promise<void> {
-  const home = platformHome()
-  // 1) System readiness (same semantics as the pre-existing reverse-call: an
-  //    owning system short-circuits; otherwise activate via the CLI's L1 ABI).
-  let systemId = ''
-  try {
-    const owned = await detectSystemForHome(home)
-    if (owned) {
-      systemId = owned
-    } else {
-      const r = await ensureSystem({ systemHome: home })
-      if (!r.ok) {
-        const hint = r.hint ? `\n  hint: ${r.hint}` : ''
-        console.warn(
-          `[dsh-aimail] no AIMail system is bound to this dsh home yet: ${r.error ?? 'unknown'}${hint}` +
-            `\n  to activate: aimail install --home ${home} -c <activation-code> -m <manager@address>`,
-        )
-        return
-      }
-      systemId = r.systemId ?? ''
-      if (r.activated) console.log(`[dsh-aimail] system activated: ${systemId}`)
-    }
-  } catch (e) {
-    console.warn(
-      `[dsh-aimail] AIMail system check failed: ${e instanceof Error ? e.message : String(e)}`,
-    )
-    return
-  }
-  if (!systemId) return
-
-  // 2) Default agent binding (idempotent autoBind). The email mirrors the CLI
-  //    register step's default agent (`agent@domain`); the webhook is the local
-  //    inbound endpoint; the manager mirrors the CLI's resolution (env first).
-  try {
-    const gw = await readSystemConfig(systemId)
-    const email = emailForAgent('agent', gw.domain ?? '', gw.system_name ?? '', [])
-    const manager =
-      process.env.AIMAIL_MANAGER_ADDRESS?.trim() || process.env.MANAGER?.trim() || ''
-    const res = await autoBind({
-      systemId,
-      email,
-      webhookUrl: inboundWebhookUrl(),
-      ...(manager ? { managerAddress: manager } : {}),
-    })
-    if (res.registered) console.log(`[dsh-aimail] default agent bound: ${email}`)
-  } catch (e) {
-    console.warn(
-      `[dsh-aimail] default agent auto-bind failed: ${e instanceof Error ? e.message : String(e)}`,
-    )
+  // Single-source default-agent binding (mail-core ensureAgentBinding):
+  // system readiness (owning system short-circuit, else CLI L1 reverse-call)
+  // → address derivation → idempotent autoBind (adopt-existing by agent_id,
+  // register+write binding otherwise). The `dsh plugin add` path never runs
+  // the CLI's register_default step, so this is what gives a plugin-installed
+  // host its default agent binding — the inbound listener is gated on it so
+  // "port up" = "binding written".
+  const r = await ensureAgentBinding({
+    home: platformHome(),
+    agentId: 'agent',
+    writeAgentId: false,
+    webhookUrl: inboundWebhookUrl(),
+    log: (l) => console.log(`[dsh-aimail] ${l}`),
+  })
+  if (!r.ok) {
+    console.warn(`[dsh-aimail] default agent binding failed: ${r.error ?? 'unknown'}`)
   }
 }
 

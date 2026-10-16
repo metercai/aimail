@@ -1,15 +1,16 @@
 /**
  * pi-aimail identity — resolves the AIMail binding for a pi agent.
  *
- * Identity chain (single source of truth, mirrors openclaw-aimail):
- *   ~/.pi/.agentmail pointer ({system_id, email})
+ * Identity chain (single source of truth, mirrors dsh-aimail / openclaw-aimail):
+ *   ~/.pi/POINTER_FILE pointer ({system_id, email})
  *   → system_id scoped → @aimail/mail-core loadConfigByAgentId/loadConfigByEmail
  *
- * Auto-bind (SDK auto-binding): when the pointer is missing (or empty) but
- * the machine has a system config, the first resolution auto-registers the
- * pi address once per process (register chain + agentmail.json + bridge
- * route via mail-core autoBind), writes the pointer and returns the config.
- * Failures fall back to the loud unbound error with guidance.
+ * Auto-bind: system readiness + default-agent binding live ONCE in
+ * mail-core `ensureAgentBinding` (single source; dsh/pi/openclaw parity,
+ * batch 2026-10-16). The host start entry calls it BEFORE the inbound
+ * listener is gated up ("port up" = "binding written"); the lazy path here
+ * is the same call for the tool-resolution flow. The pointer is package-
+ * level: written here, never in mail-core.
  *
  * Outbound X-AIMail-Agent: walk up from this module to the installed pi
  * package.json (@earendil-works/pi-coding-agent); detect, never guess.
@@ -17,16 +18,13 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import {
-  autoBind,
-  emailForAgent,
+  ensureAgentBinding,
   hasAnySystem,
   INBOUND_PATH,
   INBOUND_PORTS,
-  listSystemDirs,
-  loadAgentConfig,
+  POINTER_FILE,
   loadConfigByAgentId,
   loadConfigByEmail,
-  readSystemConfig,
   setAgentIdentity,
   type AgentConfig,
 } from '@aimail/mail-core'
@@ -34,8 +32,19 @@ import {
 const POINTER_PATH = path.join(
   process.env.HOME ?? process.env.USERPROFILE ?? '',
   '.pi',
-  '.agentmail',
+  POINTER_FILE,
 )
+
+/**
+ * pi's default agent id (owner ruling 2026-10-16: uniform 'agent' — the
+ * default main-agent name, and it may later be renamed via CLI commands, so
+ * no adapter may treat the NAME as a platform identity marker). pi is a
+ * single-agent host: the binding is written/read under agent_id 'agent' and
+ * the derived address is agent@domain (same as dsh). The CLI check
+ * (cli/src/core/checks/adapters.rs pi_list_agents) identifies pi by the
+ * PLATFORM POINTER (the ~/.pi pointer file), never by the name.
+ */
+export const DEFAULT_AGENT_ID = 'agent'
 
 export interface SystemPointer {
   system_id?: string
@@ -74,7 +83,7 @@ export function initIdentity(): void {
   setAgentIdentity(agentIdentity())
 }
 
-/** Read the ~/.pi/.agentmail pointer. Missing/corrupt → {}. */
+/** Read the ~/.pi pointer. Missing/corrupt → {}. */
 export function readPointer(): SystemPointer {
   try {
     const raw = fs.readFileSync(POINTER_PATH, 'utf-8')
@@ -86,7 +95,7 @@ export function readPointer(): SystemPointer {
   return {}
 }
 
-/** Write the ~/.pi/.agentmail pointer (mkdir -p, JSON). */
+/** Write the ~/.pi pointer (mkdir -p, JSON). */
 export function writePointer(ptr: SystemPointer): void {
   fs.mkdirSync(path.dirname(POINTER_PATH), { recursive: true })
   fs.writeFileSync(
@@ -113,7 +122,7 @@ export function setInboundEndpoint(url: string): void {
   _inboundEndpoint = url.replace(/\/+$/, '')
 }
 
-function inboundWebhookUrl(): string {
+export function inboundWebhookUrl(): string {
   const fromEnv = (process.env.AIMAIL_INBOUND_URL ?? '').trim()
   if (fromEnv) return fromEnv.replace(/\/+$/, '') + INBOUND_PATH
   if (_inboundEndpoint) return _inboundEndpoint
@@ -132,62 +141,33 @@ export function resetAutoBindOnce(): void {
 }
 
 /**
- * One-shot auto-bind for the pi agent. Derives the pi address (python
- * email_for_agent: 'pi' keeps its name), adopts an existing binding when
- * one is present, otherwise runs the register chain + binding + bridge
- * route and writes the pointer. Never throws — failures warn and fall
- * through to the caller's own error.
+ * One-shot auto-bind for the default pi agent — thin wrapper over the
+ * mail-core single source (system readiness + idempotent binding + pointer
+ * write). Never throws — failures warn and fall through to the caller's
+ * own error.
  */
-async function tryAutoBindOnce(): Promise<AgentConfig | undefined> {
+export async function tryAutoBindOnce(): Promise<AgentConfig | undefined> {
   if (_autoBindAttempted) return undefined
   _autoBindAttempted = true
-  try {
-    const ptr = readPointer()
-    const scope = ptr.system_id ?? ''
-    const sids = scope ? [scope] : await listSystemDirs()
-    if (sids.length !== 1) return undefined
-    const systemId = sids[0] as string
-    const gw = await readSystemConfig(systemId)
-    if (!gw.domain) return undefined
-
-    const email = emailForAgent('pi', gw.domain, gw.system_name ?? '')
-    // dsh 同款授权源：**每地址绑定文件为唯一权威**（dsh-aimail/inbound.ts:281）。
-    // 指针只用来定位系统（scope）与作可重建缓存，不作地址真源。
-    const existing =
-      (await loadConfigByAgentId(systemId, 'pi')) ??
-      (await loadConfigByEmail(email, systemId))
-    if (existing && existing.api_key) {
-      writePointer({ system_id: systemId, email: existing.email })
-      console.warn(
-        `[pi-aimail] auto-bind: adopted existing binding ${existing.email} (system ${systemId})`,
-      )
-      return existing
+  const r = await ensureAgentBinding({
+    home: path.dirname(POINTER_PATH),
+    agentId: DEFAULT_AGENT_ID,
+    webhookUrl: inboundWebhookUrl(),
+    log: (l) => console.warn(`[pi-aimail] ${l}`),
+  })
+  if (!r.ok || !r.email || !r.systemId) {
+    if (r.error) {
+      console.warn(`[pi-aimail] auto-bind failed: ${r.error}`)
     }
-
-    const webhookUrl = inboundWebhookUrl()
-    const res = await autoBind({
-      systemId,
-      email,
-      webhookUrl,
-      extraFields: { agent_id: 'pi' },
-    })
-    if (res.registered || res.exists) {
-      writePointer({ system_id: systemId, email })
-      const cfg = await loadAgentConfig(systemId, email)
-      if (cfg) return cfg
-    }
-    return undefined
-  } catch (e) {
-    console.warn(
-      `[pi-aimail] auto-bind failed: ${e instanceof Error ? e.message : String(e)}`,
-    )
     return undefined
   }
+  writePointer({ system_id: r.systemId, email: r.email })
+  return r.config ?? (await loadConfigByEmail(r.email, r.systemId).catch(() => undefined))
 }
 
 /**
  * Resolve the AIMail config for the running pi agent.
- * Order: binding file (agent_id 'pi' → pointer email, both system-scoped) →
+ * Order: binding file (agent_id → pointer email, both system-scoped) →
  * auto-bind once when the machine has a system config. The binding is the
  * authority (dsh parity); the pointer is only a system scope / rebuildable cache.
  * Throws loud when still unbound.
@@ -195,10 +175,9 @@ async function tryAutoBindOnce(): Promise<AgentConfig | undefined> {
 export async function resolveConfig(): Promise<AgentConfig> {
   const ptr = readPointer()
   const systemId = ptr.system_id ?? ''
-  // dsh 同款：**每地址绑定文件为唯一权威**（dsh-aimail/inbound.ts:281）；指针仅作
-  // 系统 scope 与可重建缓存（地址真源不作它用）。
+  // dsh 同款：**每地址绑定文件为唯一权威**；指针仅作系统 scope 与可重建缓存。
   if (systemId) {
-    const byAgent = await loadConfigByAgentId(systemId, 'pi')
+    const byAgent = await loadConfigByAgentId(systemId, DEFAULT_AGENT_ID)
     if (byAgent) return byAgent
   }
   if (ptr.email && systemId) {

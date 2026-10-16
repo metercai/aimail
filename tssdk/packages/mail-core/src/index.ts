@@ -53,6 +53,8 @@ export type {
 export { listAgentConfigs } from './config.js'
 export { detectSystemForHome, ensureSystem } from './ensure-system.js'
 export type { EnsureSystemOptions, EnsureSystemResult } from './ensure-system.js'
+export { ensureAgentBinding } from './ensure-binding.js'
+export type { EnsureAgentBindingOptions, EnsureAgentBindingResult } from './ensure-binding.js'
 export {
   activateAddressCode,
   activateAddressCodePersist,

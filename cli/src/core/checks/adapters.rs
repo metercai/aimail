@@ -949,49 +949,40 @@ pub fn dsh_check_hook(c: &mut Check, _ctx: &Ctx, agent: &Agent) {
 // ── pi ─────────────────────────────────────────────────────────
 
 pub fn pi_list_agents(ctx: &Ctx) -> Vec<Agent> {
-    // 与 dsh 一致：**绑定文件是地址的权威**（dsh-aimail/src/inbound.ts:281 同款语义）；
-    // 平台指针降级为可重建缓存/回退。~/.pi/agent/ 是运行时数据目录，永不作枚举源。
+    // pi 的特征检测点 = **平台指针**(~/.pi 下的 POINTER_FILE),不是绑定的 agent_id。
+    // agent_id 是可经 CLI 命令改名的 agent「名」(owner 裁决 2026-10-16),不是平台身份特征,
+    // 拿它当"这是 pi 适配器"的检测点,改名即失效。指针是平台专属落点(install 的
+    // register-cli 与 auto-bind 的 identity 都写它、uninstall rm_pointer 删它),其 email
+    // 即 pi 服务的地址。systems/{sid}/ 为 dsh/pi/openclaw 共享 ⇒ 不再"扫共享目录按名过滤"
+    // (旧 is_pi 的问题)。指针 email → binding_for(email) = 标准 email 键绑定路径,
+    // 与 pi_check_config / pi_check_hook 一致。
     let mut agents = Vec::new();
-    let mut email = String::new();
-    let mut binding = None;
-    let sysdir =
-        crate::core::config::system_dir_in(&crate::core::home::aimail_home(), ctx.resolve_sid);
-    if let Ok(rd) = std::fs::read_dir(&sysdir) {
-        let mut subs: Vec<std::path::PathBuf> =
-            rd.filter_map(|e| e.ok().map(|x| x.path())).collect();
-        subs.sort();
-        for sub in subs {
-            let aj = sub.join(contract::binding_file());
-            if let Some(v) = read_json(&aj) {
-                let is_pi = v.get("agent_id").and_then(Value::as_str) == Some("pi");
-                let em = v
-                    .get("email")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string();
-                if is_pi && !em.is_empty() {
-                    email = em;
-                    binding = Some(aj);
-                    break;
-                }
-            }
-        }
+    let ptr = ctx.user_home.join(".pi").join(contract::pointer_file());
+    let pv = read_json(&ptr);
+    let email = pv
+        .as_ref()
+        .and_then(|v| v.get("email").and_then(Value::as_str))
+        .unwrap_or("")
+        .to_string();
+    // 指针的 system scope 须与本次检查上下文一致(空 = 未标注,容忍)。
+    let ptr_sid = pv
+        .as_ref()
+        .and_then(|v| v.get("system_id").and_then(Value::as_str))
+        .unwrap_or("")
+        .to_string();
+    if email.is_empty() || (!ptr_sid.is_empty() && ptr_sid != ctx.resolve_sid) {
+        return agents;
     }
-    if email.is_empty() {
-        let ptr = ctx.user_home.join(".pi").join(contract::pointer_file());
-        email = read_json(&ptr)
-            .and_then(|v| v.get("email").and_then(Value::as_str).map(str::to_string))
-            .unwrap_or_default();
-        binding = Some(ptr);
-    }
-    if !email.is_empty() {
-        agents.push(Agent {
-            name: "pi".to_string(),
-            email,
-            binding,
-            ..Default::default()
-        });
-    }
+    let email_binding = binding_for(ctx, &email);
+    let binding = email_binding
+        .filter(|p| p.is_file())
+        .unwrap_or_else(|| ptr.clone());
+    agents.push(Agent {
+        name: "pi".to_string(), // 显示标签(平台行名),非检测键
+        email,
+        binding: Some(binding),
+        ..Default::default()
+    });
     agents
 }
 
