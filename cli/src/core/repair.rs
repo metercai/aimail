@@ -1596,14 +1596,13 @@ fn detect_platform_for_repair(dir: &Path) -> &'static str {
 /// `_failing_file_checks`（`repair.py:570-596`）：注册表里**文件类** health_checks 中"没有命中"的项。
 ///
 /// 三个定位键都必须认（`path` / `alt` / `glob` —— openclaw 的插件目录检查用 glob，漏认它会把
-/// "资源在位"误读成"缺失"）。`glob_dir_any` = 目录类，命中即算在位（不做内容匹配）。
+/// "资源在位"误读成"缺失"）。
 fn failing_file_checks(plat: &str, sh: &str, user_home: &Path) -> Vec<Value> {
     const FILE_KINDS: &[&str] = &[
         "file_contains",
         "file_contains_alt",
         "file_exists",
         "file_exists_any",
-        "glob_dir_any",
     ];
     let mut fails = Vec::new();
     for ch in platforms::health_checks(plat) {
@@ -1620,10 +1619,6 @@ fn failing_file_checks(plat: &str, sh: &str, user_home: &Path) -> Vec<Value> {
         let mut ok = false;
         if let Ok(paths) = glob::glob(&pat) {
             for cand in paths.flatten() {
-                if kind == "glob_dir_any" {
-                    ok = true;
-                    break;
-                }
                 if kind == "file_exists" || kind == "file_exists_any" {
                     if cand.is_file() {
                         ok = true;

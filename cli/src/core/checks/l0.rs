@@ -79,7 +79,7 @@ pub fn pointer_platforms_for_sid(ctx: &Ctx, sid: &str) -> Vec<String> {
     let mut candidates: Vec<(String, PathBuf)> = Vec::new();
     for name in platforms::order() {
         let root = platform_root(&ctx.user_home, name);
-        let ptr_name = platforms::pointer_file_for(name);
+        let ptr_name = contract::pointer_file();
         let root_ptr = root.join(ptr_name);
         if root_ptr.is_file() {
             candidates.push((name.to_string(), root_ptr));

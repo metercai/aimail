@@ -538,12 +538,11 @@ impl Detect {
 
 pub struct Pointer {
     pub kind: &'static str,
-    pub file: &'static str,
 }
 
 impl Pointer {
     pub fn to_json(&self) -> Value {
-        json!({ "kind": self.kind, "file": self.file })
+        json!({ "kind": self.kind })
     }
 }
 
@@ -555,7 +554,6 @@ pub struct PlatformDef {
     pub pointer: Pointer,
     pub register: Register,
     pub register_all: Option<RegisterAll>,
-    pub ops: Option<&'static [&'static str]>,
     pub install_steps: &'static [Step],
     pub uninstall_steps: &'static [Step],
     pub health_checks: &'static [Health],
@@ -569,11 +567,6 @@ impl PlatformDef {
         v.insert("detect".into(), self.detect.to_json());
         v.insert("pointer".into(), self.pointer.to_json());
         v.insert("register".into(), self.register.to_json());
-        if let Some(o) = self.ops {
-            let mut m = Map::new();
-            m.insert("argv".to_string(), json!(o));
-            v.insert("ops".into(), Value::Object(m));
-        }
         v.insert("home_dir".into(), json!(self.home_dir));
         v.insert(
             "install_steps".into(),
@@ -621,7 +614,7 @@ pub const ORDER: &[&str] = &["pi", "dsh", "hermes", "openclaw", "deerflow"];
 pub const NODE_OP_TEMPLATE: &[&str] = &["node", "{node_path}", "--op", "{op}", "--args", "{args}"];
 
 /// 注册表头注（原 JSON `_comment`；保真棘轮逐字比对）。
-pub const COMMENT: &str = "AIMail CLI 平台注册表 — CLI 侧唯一平台知识源(Phase 1: 检测/指针/枚举/别名/注册委托)。适配实现全在 SDK:pysdk(hermes/deer-flow)+ tssdk 包(openclaw 宿主命令/dsh/pi node 入口)。CLI 读本表调度,零平台协议。";
+pub const COMMENT: &str = "AIMail CLI 平台注册表 — CLI 侧唯一平台知识源(检测/指针/枚举/注册委托/安装步骤)。适配实现全在 SDK:pysdk(hermes/deer-flow)+ tssdk 包(openclaw 宿主命令/dsh/pi node 入口)。CLI 读本表调度,零平台协议。";
 
 /// 五平台全部静态知识（S3 后为单真源）。
 pub const PLATFORMS: &[PlatformDef] = &[
@@ -629,10 +622,9 @@ PlatformDef {
         id: "pi",
         home_dir: ".pi",
         detect: Detect { dir_name: Some(".pi"), markers: &["agent"] },
-        pointer: Pointer { kind: "root", file: ".agentmail" },
+        pointer: Pointer { kind: "root" },
         register: Register::NodeEntry { node_path: "{home}/agent/npm/node_modules/pi-aimail/dist/register-cli.js", fail_hint: "pi-aimail 扩展未就绪——先 `pi install npm:pi-aimail` 装扩展再注册" },
         register_all: None,
-        ops: Some(NODE_OP_TEMPLATE),
         install_steps: &[Step::Print { when: None, text: "pi platform: ensure the pi-aimail extension (auto; skipped when present) + register the agent:" }, Step::Spawn { when: None, argv: &["pi", "install", "npm:pi-aimail"], env: None, skip_if: Some(SkipIf { argv: &["pi", "list"], match_: "pi-aimail" }), on_missing: Some("fail"), fail_hint: Some("`pi` executable not found (platform detected but host CLI missing?)"), on_error: Some("warn"), warn_hint: Some("pi-aimail extension install failed (check network/registry) — after fixing, rerun `aimail reset -s {sid}`"), ok_text: Some("pi-aimail extension installed (npm registry latest stable; takes effect after the pi session restarts)"), skipped_text: Some("pi-aimail extension already present (install skipped)") }, Step::RegisterDefault { when: Some(When { cfg_complete: Some(true), sid_set: None, path_exists: None, command_exists: None, runtime: None, runtime_not: None }), on_error: Some("warn"), warn_hint: Some("pi agent registration failed (see above) — rerun `aimail reset -s {sid}` once the extension is in place (地址名由 SDK 决定，CLI 不涉及)") }, Step::Warn { when: Some(When { cfg_complete: Some(false), sid_set: None, path_exists: None, command_exists: None, runtime: None, runtime_not: None }), text: "pi registration skipped (config incomplete — retry after activation/install, or run `aimail address -s SID`)" }, Step::Print { when: None, text: "  pi: inbound listener lives with the pi session lifecycle (restart the session to apply)" }],
         uninstall_steps: &[Step::RmPointer { path: "{home}/.agentmail", ok_text: Some("removed pointer {home}/.agentmail") }, Step::RmDir { path: "{home}/skills/agentmail", ok_text: Some("removed skill {home}/skills/agentmail") }, Step::Print { when: None, text: "  pi: 扩展移除 = pi 宿主侧移除 pi-aimail 扩展" }],
         health_checks: &[Health::PointerMatch { id: "pointer", path: "{user_home}/.pi/.agentmail", ok_text: ".pi pointer matches system", fail_text: ".pi pointer missing/mismatch" }],
@@ -643,10 +635,9 @@ PlatformDef {
         id: "dsh",
         home_dir: ".dsh",
         detect: Detect { dir_name: Some(".dsh"), markers: &["profiles"] },
-        pointer: Pointer { kind: "root", file: ".agentmail" },
+        pointer: Pointer { kind: "root" },
         register: Register::NodeEntry { node_path: "{home}/profiles/*/node_modules/dsh-aimail/dist/register-cli.js", fail_hint: "dsh-aimail 插件未就绪——先 `dsh plugin --profile web add dsh-aimail` 装插件再注册" },
         register_all: None,
-        ops: Some(NODE_OP_TEMPLATE),
         install_steps: &[Step::Spawn { when: None, argv: &["dsh", "plugin", "--profile", "web", "add", "dsh-aimail", "--config.minimumReleaseAge=0"], env: Some(&[("DSH_HOME","{home}")]), skip_if: None, on_missing: Some("fail"), fail_hint: Some("`dsh` CLI not found — build/install deepseek-harness first (e.g. cd ~/deepseek-harness && cargo build --release && ln -sf \"$PWD/target/release/dsh\" ~/.local/bin/dsh), then re-run aimail install"), on_error: Some("warn"), warn_hint: Some("dsh plugin add aimail 失败(检查 aimail npm 包发布与网络)"), ok_text: Some("aimail 插件已安装(dsh bundle 层挂载)"), skipped_text: None }, Step::RegisterDefault { when: Some(When { cfg_complete: Some(true), sid_set: None, path_exists: None, command_exists: None, runtime: None, runtime_not: None }), on_error: Some("warn"), warn_hint: Some("dsh agent registration failed (see above) — rerun `aimail reset -s {sid}` once the plugin is in place") }, Step::Print { when: None, text: "  dsh: 绑定 = 创建 dsh session(mail preset)后自动 auto-bind;" }, Step::Print { when: None, text: "        CLI 侧注册:`aimail address -s SID`" }],
         uninstall_steps: &[Step::Print { when: None, text: "  dsh: 共享配置已清理;dsh 侧卸载 mail 插件(mail/mail-inbound/tool-mail)+ 删 preset 即可" }],
         health_checks: &[],
@@ -657,10 +648,9 @@ PlatformDef {
         id: "hermes",
         home_dir: ".hermes",
         detect: Detect { dir_name: None, markers: &["hermes-agent"] },
-        pointer: Pointer { kind: "root_or_profiles", file: ".agentmail" },
+        pointer: Pointer { kind: "root_or_profiles" },
         register: Register::PythonModule { module: "aimail_hermes", fn_name: "_auto_register_email", profile_kind: "root_or_named", root_when: &["default", "{home_name}"], pythonpath: &["hermes"] },
         register_all: Some(RegisterAll::PythonScript { python: "hermes/register_profiles.py", args: &[], env: &[("AIMAIL_SYSTEM_ID","{sid}")], fail_hint: "register_profiles 执行失败(见上输出)" }),
-        ops: None,
         install_steps: &[Step::Spawn { when: Some(When { cfg_complete: None, sid_set: None, path_exists: Some("{home}/hermes-agent"), command_exists: None, runtime: None, runtime_not: Some("docker") }), argv: &["sh", "-c", "P='{python}'; if command -v uv >/dev/null 2>&1; then echo 'pkgmgr=uv'; uv pip install --python \"$P\" --index-url \"${AIMAIL_PIP_INDEX:-https://pypi.org/simple/}\" aimailsdk; else echo 'pkgmgr=pip'; \"$P\" -m pip --version >/dev/null 2>&1 || \"$P\" -m ensurepip --default-pip >/dev/null 2>&1 || \"$P\" -m ensurepip >/dev/null 2>&1 || true; \"$P\" -m pip install -q --upgrade --index-url \"${AIMAIL_PIP_INDEX:-https://pypi.org/simple/}\" aimailsdk; fi"], env: None, skip_if: None, on_missing: None, fail_hint: None, on_error: Some("warn"), warn_hint: Some("aimailsdk 安装失败(宿主包管理器自适配 uv→venv pip→ensurepip 三径均不可用) exit {rc}(webhook 适配运行时缺失?)"), ok_text: Some("aimailsdk installed via uv|pip into {python}"), skipped_text: None }, Step::Spawn { when: Some(When { cfg_complete: None, sid_set: None, path_exists: None, command_exists: None, runtime: Some("docker"), runtime_not: None }), argv: &["docker", "exec", "{container}", "sh", "-c", "cd /; unset UV_EXCLUDE_NEWER UV_INDEX_URL UV_INDEX PIP_INDEX_URL PIP_EXTRA_INDEX_URL 2>/dev/null; P=/opt/hermes/.venv/bin/python; [ -x \"$P\" ] || P=\"{container_home}/.venv/bin/python\"; ok=0\nif command -v uv >/dev/null 2>&1; then\n  [ -x \"$P\" ] || uv venv \"$P\" >/dev/null 2>&1 || true\n  for i in 1 2 3; do uv pip install --no-cache --upgrade --python \"$P\" --index-url \"${AIMAIL_PIP_INDEX:-https://pypi.org/simple/}\" aimailsdk && { ok=1; break; }; sleep 8; done\nfi\nif [ \"$ok\" = 0 ]; then\n  echo pkgmgr=pip\n  \"$P\" -m pip --version >/dev/null 2>&1 || \"$P\" -m ensurepip --default-pip >/dev/null 2>&1 || \"$P\" -m ensurepip >/dev/null 2>&1 || true\n  for j in 1 2 3; do \"$P\" -m pip install -q --upgrade --index-url \"${AIMAIL_PIP_INDEX:-https://pypi.org/simple/}\" aimailsdk && { ok=1; break; }; sleep 8; done\nfi\n\"$P\" -c \"import aimail\" >/dev/null 2>&1 || ok=0\n[ \"$ok\" = 1 ] || { echo '✗ aimailsdk 安装失败(uv 与 venv pip 两径均失败)'; exit 1; }\necho \"aimailsdk=$(\"$P\" -c 'import importlib.metadata as m;print(m.version(\"aimailsdk\"))' 2>/dev/null)\"\n"], env: None, skip_if: None, on_missing: Some("fail"), fail_hint: Some("docker CLI not found — --container mode requires docker on the host PATH"), on_error: Some("warn"), warn_hint: Some("aimailsdk 安装失败(容器内包管理器自适配 uv→venv pip→ensurepip 三径) exit {rc} —— register/sdk 文件步骤已由 sdk_install 落盘, 可人工 docker exec <c> <home>/.venv/bin/python -m pip install aimailsdk 后重跑 install"), ok_text: Some("aimailsdk installed inside container {container} (uv|pip adapted)"), skipped_text: None }, Step::SdkInstall { target: "hermes", fn_name: "install_hermes", ok_text: Some("hermes SDK install done(重启 hermes gateway 生效)"), fail_hint: None, on_error: None }, Step::RegisterDefault { when: None, on_error: None, warn_hint: Some("hermes 主 agent 注册失败(见上)——稍后 reset 重试") }, Step::RegisterAll { ok_text: Some("hermes --all-agents 全量注册完成"), warn_hint: Some("hermes 全量注册失败(可 reset --all-agents 重试)") }, Step::Print { when: Some(When { cfg_complete: None, sid_set: None, path_exists: None, command_exists: None, runtime: Some("docker"), runtime_not: None }), text: "  docker: 重启宿主 = `docker restart {container}`; 容器重建后必须重跑 aimail install -H <home> … --container {container}(幂等)" }],
         uninstall_steps: &[Step::SdkUninstall { target: "hermes", fn_name: "uninstall_hermes" }, Step::Spawn { when: Some(When { cfg_complete: None, sid_set: None, path_exists: Some("{home}/hermes-agent"), command_exists: None, runtime: None, runtime_not: None }), argv: &["{python}", "-m", "pip", "uninstall", "-y", "aimailsdk"], env: None, skip_if: None, on_missing: None, fail_hint: None, on_error: Some("warn"), warn_hint: Some("pip uninstall aimailsdk exit {rc}(webhook 适配运行时残留)"), ok_text: None, skipped_text: None }],
         health_checks: &[Health::FileContains { id: "patch-webhook", path: "{home}/hermes-agent/gateway/platforms/webhook.py", marker: "PREPROCESS_REGISTRY", ok_text: "webhook.py patched (PREPROCESS_REGISTRY present)", fail_text: "webhook.py NOT patched or missing" }, Health::FileContainsAlt { id: "patch-profiles", path: "{home}/hermes-agent/hermes_cli/profiles.py", alt: "{home}/hermes-agent/cli/profiles.py", marker: "AimailGateway", ok_text: "profiles.py patched (AimailGateway hook present)", fail_text: "profiles.py NOT patched or missing" }, Health::FileExistsAny { id: "skills", paths: &["{home}/skills/agentmail/SKILL.md", "{home}/profiles/*/skills/agentmail/SKILL.md"], ok_text: "at least one profile has skills/agentmail/SKILL.md", fail_text: "no profile has skills/agentmail/SKILL.md" }, Health::YamlToolsets { id: "toolsets", configs: &["{home}/config.yaml", "{home}/profiles/*/config.yaml"], ok_text: "platform_toolsets contains agentmail", fail_text: "platform_toolsets lacks agentmail" }],
@@ -671,10 +661,9 @@ PlatformDef {
         id: "openclaw",
         home_dir: ".openclaw",
         detect: Detect { dir_name: None, markers: &["openclaw.json"] },
-        pointer: Pointer { kind: "root", file: ".agentmail" },
+        pointer: Pointer { kind: "root" },
         register: Register::NodeEntry { node_path: "{home}/npm/projects/*/node_modules/openclaw-aimail/dist/register-cli.js", fail_hint: "先安装 openclaw-aimail 插件(`openclaw plugins install openclaw-aimail --force --accept-capabilities` → 重启 gateway);注册经插件自带的 node 入口 --op assemble(owner 2026-10-11:host_command 形态退役)" },
         register_all: Some(RegisterAll::NodeEntry { node_path: "{home}/npm/projects/*/node_modules/openclaw-aimail/dist/register-cli.js", fail_hint: "openclaw-aimail 需含独立 node 入口(dist/register-cli.js, --op 门)" }),
-        ops: Some(NODE_OP_TEMPLATE),
         install_steps: &[Step::Print { when: None, text: "openclaw platform: ensure the openclaw-aimail plugin (auto; skipped when present) + register the agent (`aimail address -s SID`):" }, Step::Spawn { when: None, argv: &["openclaw", "plugins", "install", "openclaw-aimail@latest", "--force", "--accept-capabilities"], env: None, skip_if: Some(SkipIf { argv: &["openclaw", "plugins", "list"], match_: "aimail" }), on_missing: Some("fail"), fail_hint: Some("`openclaw` executable not found (platform detected but host CLI missing?)"), on_error: Some("warn"), warn_hint: Some("openclaw-aimail plugin install failed (check network/registry) — after fixing, rerun `aimail reset -s {sid}`; keep `@latest` in the spec: a bare name is shadowed by a same-named local dir in cwd"), ok_text: Some("openclaw-aimail plugin installed (npm registry latest stable; takes effect after the gateway restarts)"), skipped_text: Some("openclaw-aimail plugin already present (install skipped)") }, Step::Print { when: None, text: "  restart the openclaw gateway to activate the plugin: `openclaw gateway install` (or `restart`)" }, Step::Print { when: Some(When { cfg_complete: None, sid_set: Some(true), path_exists: None, command_exists: None, runtime: None, runtime_not: None }), text: "  register: `aimail address -s SID`（经插件 node 入口 --op assemble）" }, Step::Print { when: Some(When { cfg_complete: None, sid_set: Some(false), path_exists: None, command_exists: None, runtime: None, runtime_not: None }), text: "  register: `aimail address -s SID` (once pointer/system ready)" }, Step::RegisterDefault { when: None, on_error: None, warn_hint: Some("openclaw agent registration failed (see above) — rerun `aimail reset -s {sid}` once the plugin is in place") }, Step::RegisterAll { ok_text: Some("openclaw --all-agents registration complete"), warn_hint: Some("openclaw register-all failed (rerun `aimail reset -s {sid} --all-agents` once the plugin is in place)") }],
         uninstall_steps: &[Step::Print { when: None, text: "  openclaw: 对接全在 TS 插件(openclaw-aimail)——插件移除 = openclaw 宿主侧卸载 + AIMail 侧 teardown（经插件 node 入口 --op teardown）;共享系统数据已在上段(网关注销+本机数据)清理" }],
         health_checks: &[Health::CommandMatch { id: "plugin-installed", argv: &["openclaw", "plugins", "list"], match_: "openclaw-aimail", fallback_glob: Some("{user_home}/.openclaw/npm/projects/openclaw-aimail*"), ok_text: "openclaw-aimail 插件在位(openclaw plugins list)", fail_text: "openclaw-aimail 插件未安装", fix: Some("aimail install --home <openclaw home>(自动装;已装则跳过)或 openclaw plugins install openclaw-aimail@latest --force --accept-capabilities") }, Health::FileExists { id: "skills", path: "{user_home}/.openclaw/skills/agentmail/SKILL.md", ok_text: "skills/agentmail/SKILL.md present", fail_text: "skills/agentmail/SKILL.md missing", fix: Some("插件自带 skill(openclaw-aimail resources)——检查插件 enabled:openclaw plugins list") }],
@@ -685,10 +674,9 @@ PlatformDef {
         id: "deerflow",
         home_dir: ".deer-flow",
         detect: Detect { dir_name: None, markers: &["backend/app/gateway"] },
-        pointer: Pointer { kind: "root", file: ".agentmail" },
+        pointer: Pointer { kind: "root" },
         register: Register::PythonScript { python: "deer-flow/manage.py", args: &["register", "--system-id", "{sid}", "--agent", "{agent}", "--manager", "{manager}", "--name", "{name}"], fail_hint: "deer-flow manage.py 注册器失败——检查 deer-flow 模块与系统配置" },
         register_all: Some(RegisterAll::PythonScript { python: "deer-flow/manage.py", args: &["register", "--all", "--system-id", "{sid}"], env: &[], fail_hint: "manage.py register --all 失败(见上输出)" }),
-        ops: None,
         install_steps: &[Step::Spawn { when: Some(When { cfg_complete: None, sid_set: None, path_exists: None, command_exists: Some("python3"), runtime: None, runtime_not: None }), argv: &["sh", "-c", "P=\"{python}\"; command -v \"$P\" >/dev/null 2>&1 || P=python3; if command -v uv >/dev/null 2>&1; then uv pip install --python \"$P\" -q aimailsdk && exit 0; fi; \"$P\" -m pip install -q --break-system-packages aimailsdk 2>/dev/null || \"$P\" -m pip install -q aimailsdk"], env: None, skip_if: None, on_missing: None, fail_hint: None, on_error: Some("warn"), warn_hint: Some("aimailsdk 安装失败(宿主 python 自适配 uv→pip(含 PEP668 --break-system-packages) 均不可用) exit {rc}"), ok_text: Some("aimailsdk installed into the SAME interpreter the CLI resolves (${AIMAIL_PYTHON:-python3})"), skipped_text: None }, Step::SdkInstall { target: "deerflow", fn_name: "install_deerflow", ok_text: Some("deerflow SDK install done"), fail_hint: None, on_error: None }, Step::Spawn { when: None, argv: &["bash", "{sdk}/deer-flow/install-skill.sh"], env: Some(&[("AIMAIL_SYSTEM_ID","{sid}")]), skip_if: None, on_missing: None, fail_hint: Some("deer-flow install-skill.sh exit {rc}(关键装配步: skills 落点; 失败必须可见, 不许当成功)"), on_error: Some("fail"), warn_hint: None, ok_text: None, skipped_text: None }, Step::Spawn { when: None, argv: &["bash", "{sdk}/deer-flow/install-mcp.sh"], env: Some(&[("AIMAIL_SYSTEM_ID","{sid}")]), skip_if: None, on_missing: None, fail_hint: None, on_error: Some("fail"), warn_hint: Some("deer-flow install-mcp.sh exit {rc}(关键装配步: MCP toolset 落点; 失败必须可见, 不许当成功)"), ok_text: None, skipped_text: None }, Step::RegisterDefault { when: None, on_error: None, warn_hint: Some("deerflow 主 agent 注册失败(见上)——稍后 reset 重试") }, Step::RegisterAll { ok_text: Some("deerflow --all-agents 全量注册完成"), warn_hint: Some("deerflow 全量注册失败(可 reset --all-agents 重试)") }],
         uninstall_steps: &[Step::SdkUninstall { target: "deerflow", fn_name: "uninstall_deerflow" }, Step::Print { when: None, text: "  deerflow: skill/mcp 宿主装配残留可用宿主侧管理清理" }],
         health_checks: &[Health::FileContainsAlt { id: "patch-app", path: "{home}/backend/app/gateway/app.py", alt: "{home}/app/gateway/app.py", marker: "aimail_inbound", ok_text: "app.py patched (aimail_inbound router present)", fail_text: "app.py NOT patched or missing" }],
@@ -696,8 +684,3 @@ PlatformDef {
         agent_check_remote: true,
         },
 ];
-
-/// 按 id 取平台定义（不存在 ⇒ None，不猜）。
-pub fn def(id: &str) -> Option<&'static PlatformDef> {
-    PLATFORMS.iter().find(|p| p.id == id)
-}

@@ -152,20 +152,11 @@ pub fn platform_root(user_home: &std::path::Path, name: &str) -> std::path::Path
     user_home.join(dir)
 }
 
-/// 平台指针文件名（注册表 `pointer.file`；缺省 = 契约常量，不在本处复制字面量）。
-pub fn pointer_file_for(name: &str) -> &'static str {
-    platform(name)
-        .and_then(|p| p.get("pointer"))
-        .and_then(|p| p.get("file"))
-        .and_then(Value::as_str)
-        .unwrap_or_else(|| contract::pointer_file())
-}
-
 /// 平台指针**全部候选**路径（`_pointer_paths_for` 语义）：
 /// `root_or_profiles` ⇒ 根指针 + `profiles/*/<指针文件>`（排序）；其余 ⇒ 只有根指针。
 pub fn pointer_paths(user_home: &std::path::Path, name: &str) -> Vec<std::path::PathBuf> {
     let root = platform_root(user_home, name);
-    let file = pointer_file_for(name);
+    let file = contract::pointer_file();
     let root_ptr = root.join(file);
     if pointer_kind(name) != "root_or_profiles" {
         return vec![root_ptr];
@@ -201,7 +192,7 @@ pub fn pointer_kind(name: &str) -> &'static str {
 /// `profiles/*/<指针文件>` 的第一个；都不存在返回根路径（Python 同语义）。
 pub fn pointer_path(user_home: &std::path::Path, name: &str) -> std::path::PathBuf {
     let kind = pointer_kind(name);
-    let root_ptr = platform_root(user_home, name).join(pointer_file_for(name));
+    let root_ptr = platform_root(user_home, name).join(contract::pointer_file());
     if kind != "root_or_profiles" {
         return root_ptr;
     }
@@ -213,7 +204,7 @@ pub fn pointer_path(user_home: &std::path::Path, name: &str) -> std::path::PathB
         .into_iter()
         .flatten()
         .flatten()
-        .map(|e| e.path().join(pointer_file_for(name)))
+        .map(|e| e.path().join(contract::pointer_file()))
         .filter(|p| p.is_file())
         .collect();
     candidates.sort();
@@ -305,20 +296,21 @@ pub fn sdk_install_target(name: &str) -> String {
         .to_string()
 }
 
-/// 平台的 **op 入口 argv 模板**（注册表 `ops.argv`；契约 v1.0 §4.1(2) 的 node transport）。
-/// 缺失 ⇒ `None` = python 门默认形态（`<解释器> -m aimail.sdk_ops`）。
+/// 平台的 **op 入口 argv 模板**（契约 v1.0 §4.1(2) 的 node transport）。
+/// `register.kind == node_entry` ⇒ [`platforms_data::NODE_OP_TEMPLATE`]；其余 ⇒ `None`
+/// = python 门默认形态（`<解释器> -m aimail.sdk_ops`）。
 /// 模板占位符：`{op}` = op 名、`{args}` = 单个 JSON 入参、`{node_path}` = 注册表 `register.node_path` 解析结果。
 pub fn ops_argv(name: &str) -> Option<Vec<String>> {
-    platform(name)?
-        .get("ops")?
-        .get("argv")?
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect()
-        })
+    let kind = platform(name)?.get("register")?.get("kind")?.as_str()?;
+    if kind != "node_entry" {
+        return None;
+    }
+    Some(
+        platforms_data::NODE_OP_TEMPLATE
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+    )
 }
 
 /// 注册表**模板路径**落成实路径：`{home}` 逐个候选展开，含 `*` 走 glob（排序取首个命中）。

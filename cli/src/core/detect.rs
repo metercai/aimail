@@ -452,10 +452,9 @@ mod tests {
             .any(|s| s["kind"] == "register_default"));
         assert!(dsh["health_checks"].as_array().is_some());
         assert_eq!(dsh["register"]["kind"], "node_entry");
-        assert_eq!(
-            dsh["pointer"]["file"],
-            crate::core::contract::pointer_file()
-        );
+        // pointer.file 归契约单源（`contract::pointer_file()`），注册表只留 kind。
+        assert_eq!(dsh["pointer"]["kind"], "root");
+        assert!(dsh["pointer"].get("file").is_none());
         assert_eq!(v["detected"]["platform"], "dsh");
         assert_eq!(v["detected"]["transport"], ""); // 显式给平台但未装 ⇒ 无入口、非 python 宿主
     }

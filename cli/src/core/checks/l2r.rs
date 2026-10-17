@@ -13,13 +13,12 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// 已实现的 `health_checks[].kind`（注册表当前用到 7 种；`glob_dir_any` 一并实现备用）。
+/// 已实现的 `health_checks[].kind`（注册表当前用到 7 种，与 `Health` 变体一一对应）。
 const SUPPORTED_KINDS: &[&str] = &[
     "file_contains",
     "file_contains_alt",
     "file_exists",
     "file_exists_any",
-    "glob_dir_any",
     "command_match",
     "pointer_match",
     "yaml_toolsets",
@@ -185,15 +184,6 @@ fn run_checks(
                         break;
                     }
                 }
-            }
-            "glob_dir_any" => {
-                let g = fill(
-                    ch.get("glob").and_then(Value::as_str).unwrap_or(""),
-                    home,
-                    user_home,
-                    sid,
-                );
-                ok = glob_matches(&g);
             }
             "command_match" => {
                 let argv: Vec<String> = ch
