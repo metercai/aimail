@@ -105,7 +105,7 @@ def _write_json(path: Path, data: dict) -> None:
         bak = path.with_suffix(path.suffix + ".pre-llm.bak")
         if not bak.exists():
             shutil.copy2(path, bak)
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
 # ── writers: each returns the list of files it wrote ──────────────────────────
@@ -229,11 +229,11 @@ def write_hermes(home: Path, base_url: str, model: str, api_key: str,
                 start, end = len(lines) - 1, len(lines)
             assert start is not None and end is not None
             end = _hermes_upsert_model(lines, start, end, keys)
-            p.write_text("".join(lines))
+            p.write_text("".join(lines), encoding="utf-8")
         else:
             p.parent.mkdir(parents=True, exist_ok=True)
             body = ["model:\n"] + [f'  {k}: "{v}"\n' for k, v in keys.items()]
-            p.write_text("".join(body))
+            p.write_text("".join(body), encoding="utf-8")
         written.append(p)
     return written
 
@@ -516,7 +516,7 @@ def write_dsh(home: Path, base_url: str, model: str, api_key: str) -> list[Path]
                 f"    provider: {_DSH_PI_PROVIDER_ID}\n",
                 f"    model: {model}\n",
             ])
-            p.write_text("".join(lines))
+            p.write_text("".join(lines), encoding="utf-8")
             written.append(p)
             continue
         keys = {"apiKeyEnv": "DEEPSEEK_API_KEY"}
@@ -538,7 +538,7 @@ def write_dsh(home: Path, base_url: str, model: str, api_key: str) -> list[Path]
             bak = p.with_suffix(p.suffix + ".pre-llm.bak")
             if not bak.exists():
                 shutil.copy2(p, bak)
-        p.write_text("".join(lines))
+        p.write_text("".join(lines), encoding="utf-8")
         written.append(p)
     return written
 

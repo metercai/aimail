@@ -342,11 +342,13 @@ GW_HTTP_PORT=18123; GW_SMTP_PORT=12526
 # Windows(git-bash): config 是网关(native PE)读的**文件内容**, MSYS 只翻译 argv
 # 不翻译文件内字符串 —— /d/a/... 在 Windows 语义下 = D:\d\a\...(当前盘根相对),
 # 与 bash 侧的 D:\a\... 错位 ⇒ 网关写对了自己理解的路径, bash 找不到 key。
-# cygpath -u 转正斜杠路径(C:/a/...)写入 config: Windows API 双斜杠都接受,
-# Rust Path 兼容, 且 TOML 字符串无 \U/\R unicode 转义面(-w 单反斜杠必炸)。unix 不变。
+# cygpath -w 转 Windows 原生路径(C:\\a\\...)写入 config: -w 的反斜杠在 TOML
+# basic string 里是转义面(\U/\R = unicode 8-hex, 第 3 轮实证 Invalid hex value),
+# 故 [storage] path 用 TOML literal string(单引号, 反斜杠非转义); Windows API 接受
+# 正/反双斜杠。unix 分支: 无 cygpath, 原 POSIX 路径进 basic string, 行为不变。
 case "$(uname -s)" in
-  MINGW*) GW_DATA_PATH="$(cygpath -u "${GW_HOME}/data")" ;;
-  *)      GW_DATA_PATH="${GW_HOME}/data" ;;
+  MINGW*) GW_DATA_PATH="$(cygpath -w "${GW_HOME}/data")"; GW_PATH_TOML="'${GW_DATA_PATH}'" ;;
+  *)      GW_PATH_TOML=""${GW_HOME}/data"" ;;
 esac
 cat > "$GW_HOME/config.toml" <<EOF
 [http]
@@ -356,7 +358,7 @@ hostname = "l3.local"
 bind = "127.0.0.1:${GW_SMTP_PORT}"
 hostname = "l3.local"
 [storage]
-path = "${GW_DATA_PATH}"
+path = ${GW_PATH_TOML}
 [logging]
 level = "info"
 [admin]
