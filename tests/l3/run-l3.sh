@@ -412,7 +412,17 @@ case "${L3_PLATFORM:-}" in
 esac
 curl -fsSL "https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh" | bash \
   || die "online bootstrap failed (published CLI unavailable)"
-AIMAIL_BIN="$(command -v aimail || echo "$HOME/.aimail/bin/aimail")"
+# bootstrap 落点 ~/.local/bin 靠 PATH 可达(产品契约: bootstrap 日志自证
+# "⚠ add to PATH: export PATH=~/.local/bin:$PATH")。unix runner 默认 PATH 已含;
+# Windows git-bash 默认 PATH 不含 ⇒ node 侧 execFile('aimail') ENOENT
+# (L3 2026-10-17 实证: dsh-host.log "aimail CLI not found ('aimail')",
+# 同格 linux 绿 = 默认 PATH 含)。显式 export = 复现 bootstrap 公布的契约, 非产品改动。
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    export PATH="$HOME/.local/bin:$PATH"
+    ;;
+esac
+AIMAIL_BIN="$(command -v aimail || echo "$HOME/.local/bin/aimail")"
 [ -x "$AIMAIL_BIN" ] || die "aimail binary not on PATH after bootstrap: $AIMAIL_BIN"
 ok "published CLI: $( "$AIMAIL_BIN" version 2>/dev/null | head -1 )"
 

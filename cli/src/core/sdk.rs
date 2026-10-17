@@ -132,17 +132,26 @@ fn run_capture(
 ) -> Result<(Vec<u8>, Vec<u8>, i32), AbiError> {
     // ETXTBSY(26) 重试：刚写完的可执行文件在多线程 fork/exec 争用下会瞬间"忙"
     // （测试里现场生成 stub 脚本时实测踩到；生产侧同类场景 = 刚解包出来的门）。
+    // Windows: python 子进程 locale 编码默认 cp1252(charmap) —— print 中文到管道
+    // stdout 崩 UnicodeEncodeError、open() 读 UTF-8 崩 UnicodeDecodeError
+    // (L3 2026-10-17 实证: "pysdk 入口调用失败: 'charmap' codec can't encode
+    // position 2001-2063" / "failed to write hermes webhook config: 'charmap'
+    // codec can't decode byte 0x8f")。PYTHONUTF8=1 = PEP 540 UTF-8 mode,
+    // 一个 env 覆盖标准 IO + 文件 open 默认编码双面; unix 不设(行为不变)。
     let mut child = {
         let mut attempt = 0;
         loop {
-            match Command::new(program)
-                .args(args)
-                .envs(env.iter().cloned())
-                .stdin(Stdio::null())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
+            let mut cmd = Command::new(program);
+            cmd.args(args);
+            cmd.envs(env.iter().cloned());
+            #[cfg(windows)]
             {
+                cmd.env("PYTHONUTF8", "1");
+            }
+            cmd.stdin(Stdio::null());
+            cmd.stdout(Stdio::piped());
+            cmd.stderr(Stdio::piped());
+            match cmd.spawn() {
                 Ok(c) => break c,
                 Err(e) if e.raw_os_error() == Some(26) && attempt < 5 => {
                     attempt += 1;
