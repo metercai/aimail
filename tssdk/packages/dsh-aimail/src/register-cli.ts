@@ -24,6 +24,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { cliArg as arg, cliFlag as flag } from '@aimail/mail-core'
+import { hostLayoutArgs } from './host-layout'
 import {
   autoBind,
   ensureSkillToolExposure,
@@ -39,25 +40,15 @@ import {
   saveBinding,
 } from '@aimail/mail-core'
 
-/** dsh 宿主的布局数据(共享装配器要的 profile patch 落点 + 要启用的 id)。
- *  dsh 宿主默认把这两行写成 disabled ⇒ 不启用则 skills 落点对、但进不了模型可见清单。 */
-function skillExposureArgs (): { skill_expose_patch: string, skill_expose_ids: string } {
-  const dshHome = process.env.DSH_HOME || `${process.env.HOME || '/root'}/.dsh`
-  const profile = process.env.DSH_PROFILE || 'web'
-  return {
-    skill_expose_patch: `${dshHome}/profiles/${profile}/cordis.patch.yml`,
-    skill_expose_ids: 'skill-filesystem tool-skill',
-  }
-}
-
+/** dsh 宿主布局数据(preset + skill exposure)—— 单源见 ./host-layout.ts。 */
 async function main(): Promise<number> {
   const argv = process.argv.slice(2)
   // 契约 v1.0 §4.1(2):op 入口形态(CLI 经注册表 ops.argv 调)——
   //   node <register-cli.js> --op <assemble|update|teardown|prompt-test> --args '<json>'
   // 单行 JSON 信封 {ok,result|error},与 python 门同形。op 分支单源 = mail-core
-  // runOpEntry(C2 2026-10-17);dsh 差异 = opAssemble 附带 skill exposure 布局数据。
+  // runOpEntry(C2 2026-10-17);dsh 差异 = opAssemble 附带宿主布局数据(preset + skill exposure)。
   return runOpEntry(argv, {
-    assembleExtra: skillExposureArgs,
+    assembleExtra: hostLayoutArgs,
     onNoOp: () => legacyBind(argv),
   })
 }
@@ -78,7 +69,7 @@ async function legacyBind(argv: string[]): Promise<number> {
   // 这里只提供 dsh 的宿主布局数据。失败响亮但不阻断绑定(CLI 的 register_default 转 warn)。
   let exposureRc = 0
   try {
-    const _exp = skillExposureArgs()
+    const _exp = hostLayoutArgs()
     const exp = ensureSkillToolExposure({
       patchFile: _exp.skill_expose_patch,
       ids: _exp.skill_expose_ids.split(' '),

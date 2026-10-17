@@ -130,8 +130,10 @@ fn register_executor_offline_behaviour() {
         "pi 未声明 preset ⇒ 信封不得带该字段（{payload:?}）"
     );
 
-    // 1b) dsh（node_entry + register.args 声明 --preset mail）：
-    //     local_webhook_url 用 dsh 契约端口 + 信封携带 preset（值来自注册表 args 单真源）。
+    // 1b) dsh（node_entry）：local_webhook_url 用 dsh 契约端口。
+    // P3-C(2026-10-17):preset 改由 SDK 侧自报(dsh register-cli assembleExtra,
+    // 10-11 三来源裁决「宿主自报/内部 → SDK 内部」)⇒ CLI 信封不再携带 preset
+    // (旧断言「值来自 register.args --preset 声明」随 G1b 提取通道删除而失效)。
     let dsh_entry = home.join("profiles/agent/node_modules/dsh-aimail/dist/register-cli.js");
     fs::create_dir_all(dsh_entry.parent().unwrap()).unwrap();
     fs::write(&dsh_entry, "// stub\n").unwrap();
@@ -157,10 +159,9 @@ fn register_executor_offline_behaviour() {
         ),
         "dsh 信封 local_webhook_url 应为 dsh 契约端口（{payload:?}）"
     );
-    assert_eq!(
-        payload["preset"],
-        json!("mail"),
-        "dsh 信封 preset 应来自 register.args 的 --preset 声明（{payload:?}）"
+    assert!(
+        payload.get("preset").is_none(),
+        "P3-C: preset 由 SDK 自报, CLI 信封不得携带（{payload:?}）"
     );
     // 用例 4（dsh 包缺失必须失败）的前提：删掉 1b 的 dsh 入口夹具。
     fs::remove_file(&dsh_entry).ok();

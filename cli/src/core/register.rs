@@ -251,21 +251,10 @@ pub fn register_agent(
             asm["local_webhook_url"] =
                 json!(format!("http://127.0.0.1:{}", port) + crate::core::contract::inbound_path());
         }
-        // G1b（2026-10-13）：preset（dsh register.args `--preset mail`）。legacy 路径经
-        // CLI 传参落绑定；op 路径信封不传、opAssemble/saveBinding 也不存 ⇒ 绑定缺
-        // preset ⇒ check session 维红（判据只认 preset；session_id 瞬态不认）。
-        // 值从注册表 args 声明提取（单真源，不硬编码平台值）。
-        if let Some(args_arr) = rdef.get("args").and_then(Value::as_array) {
-            let mut it = args_arr.iter();
-            while let Some(flag) = it.next() {
-                if flag.as_str() == Some("--preset") {
-                    if let Some(val) = it.next().and_then(Value::as_str) {
-                        asm["preset"] = json!(val);
-                    }
-                    break;
-                }
-            }
-        }
+        // G1b(2026-10-13)→P3-C(2026-10-17):preset 由 SDK 侧自报(dsh register-cli
+        // assembleExtra 宿主布局数据,10-11 三来源裁决「宿主自报/内部 → SDK 内部」);
+        // CLI 不再从注册表 args 声明提取 ⇒ 注册表 register.args 无宿主概念。
+        // dsh check session 维判据只认绑定顶层 preset(adapters.rs:895)。
     }
     let res = crate::core::sdk::sdk_ops_call_for(
         platform,
