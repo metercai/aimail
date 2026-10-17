@@ -123,9 +123,9 @@ PY
         echo "  [hermes webhook 路由] $SUBS (skills 字段 = 回信协议注入)"
         python3 - "$SUBS" "$CONTRACT_JSON" <<'PY' | sed 's/^/    /'
 import json, sys
-d = json.load(open(sys.argv[1]))
+d = json.load(open(sys.argv[1], encoding="utf-8"))
 try:
-    c = json.load(open(sys.argv[2]))
+    c = json.load(open(sys.argv[2], encoding="utf-8"))
     route, skill = c["hermes_route_name"], c["agent_skill_name"]
 except Exception:
     route = skill = None
@@ -342,9 +342,10 @@ GW_HTTP_PORT=18123; GW_SMTP_PORT=12526
 # Windows(git-bash): config 是网关(native PE)读的**文件内容**, MSYS 只翻译 argv
 # 不翻译文件内字符串 —— /d/a/... 在 Windows 语义下 = D:\d\a\...(当前盘根相对),
 # 与 bash 侧的 D:\a\... 错位 ⇒ 网关写对了自己理解的路径, bash 找不到 key。
-# cygpath -w 转原生路径(D:\a\...)写入 config。unix 不变。
+# cygpath -u 转正斜杠路径(C:/a/...)写入 config: Windows API 双斜杠都接受,
+# Rust Path 兼容, 且 TOML 字符串无 \U/\R unicode 转义面(-w 单反斜杠必炸)。unix 不变。
 case "$(uname -s)" in
-  MINGW*) GW_DATA_PATH="$(cygpath -w "${GW_HOME}/data")" ;;
+  MINGW*) GW_DATA_PATH="$(cygpath -u "${GW_HOME}/data")" ;;
   *)      GW_DATA_PATH="${GW_HOME}/data" ;;
 esac
 cat > "$GW_HOME/config.toml" <<EOF
@@ -455,7 +456,7 @@ case "$AGENT" in
     HERMES_PORT="$(python3 - "$HERMES_HOME/config.yaml" <<'PY'
 import re, sys
 port = 0
-lines = open(sys.argv[1]).read().splitlines()
+lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
 in_plat = in_wh = in_extra = False
 for ln in lines:
     s = ln.strip()

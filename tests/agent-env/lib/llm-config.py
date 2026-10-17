@@ -80,7 +80,7 @@ def _load_yaml(path: Path) -> dict:
     if not path.is_file():
         return {}
     try:
-        data = yaml.safe_load(path.read_text() or "{}")
+        data = yaml.safe_load(path.read_text(encoding="utf-8") or "{}")
     except Exception as e:  # noqa: BLE001
         raise RuntimeError(f"existing {path} is not valid YAML: {e}")
     return data if isinstance(data, dict) else {}
@@ -96,7 +96,7 @@ def _write_yaml(path: Path, data: dict, merged: bool) -> None:
         if not bak.exists():
             shutil.copy2(path, bak)
     assert isinstance(data, dict), "this writer only emits top-level mappings"
-    path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
+    path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
 
 
 def _write_json(path: Path, data: dict) -> None:
