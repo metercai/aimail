@@ -1,31 +1,28 @@
-//! 平台注册表 —— 数据源为**类型化常量** `platforms_data`（P2c S2 切换，2026-10-16）。
+//! 平台宿主表的值视图 + 文件系统算法。
 //!
-//! 它是 CLI↔SDK 的**映射层**（平台注册表 + 安装动作表，见边界定稿 §1.4 D）；CLI 侧
-//! 的平台知识单真源 = `platforms_data::PLATFORMS`（类型系统兜底形状），代码里不得出现
-//! 平台字面量分支（L0.c 判据同精神）。
-//!
-//! 本模块是 `platforms_data` 的**值视图 + FS 逻辑层**：`registry()` 由类型化常量经
-//! `to_json()` 重建（语义等价，由 `platforms_data` 的往返棘轮证明），既有访问器
-//! （order / platform / install_steps / 指针 / 别名 …）照旧从该值视图取数；指针扫描、
-//! home 归一化等 FS 逻辑也在此（它们不解析注册表，只消费它）。
-//! 平台注册表 JSON 已于 S3b（2026-10-16）删除；形状门禁 = `aimail platform spec --json`
-//! 黑盒（tests/cli/test_platforms_registry.py + advanced tests/cli/check-registry.py）。
+//! 数据源 = [`crate::core::platforms_hosts::PLATFORMS`]（类型化常量，serde 直出值视图）。
+//! 本模块只做四件事：取表访问器、平台判定（`hits_dir` / `detect_platform_from_home` /
+//! `resolve_platform`）、指针定位与归属（`pointer_*` / `scan_pointers`）、路径模板展开。
+//! CLI 侧平台知识的单真源是 `platforms_hosts`，代码里不得出现平台字面量分支
+//! （L0.c 判据同精神）。形状门禁 = `aimail platform spec --json` 黑盒
+//! （tests/cli/test_platforms_registry.py + advanced tests/cli/check-registry.py）。
 
-use crate::core::{contract, platforms_data};
+use crate::core::{contract, platforms_hosts};
 use serde_json::{json, Map, Value};
 use std::sync::OnceLock;
 
 fn registry() -> &'static Value {
     static R: OnceLock<Value> = OnceLock::new();
     R.get_or_init(|| {
-        // 单真源 = 类型化常量；JSON 视图由 to_json() 重建（键序可能异于原文件，语义恒等）。
+        // 单真源 = 类型化常量；值视图由 serde 序列化（字段声明序 = 键序）。
         let mut platforms = Map::new();
-        for p in platforms_data::PLATFORMS {
-            platforms.insert(p.id.to_string(), p.to_json());
+        for p in platforms_hosts::PLATFORMS {
+            let v = serde_json::to_value(p).expect("platform def must serialize");
+            platforms.insert(p.id.to_string(), v);
         }
         json!({
-            "_comment": platforms_data::COMMENT,
-            "order": platforms_data::ORDER,
+            "_comment": platforms_hosts::COMMENT,
+            "order": platforms_hosts::ORDER,
             "platforms": platforms,
         })
     })
@@ -297,7 +294,7 @@ pub fn sdk_install_target(name: &str) -> String {
 }
 
 /// 平台的 **op 入口 argv 模板**（契约 v1.0 §4.1(2) 的 node transport）。
-/// `register.kind == node_entry` ⇒ [`platforms_data::NODE_OP_TEMPLATE`]；其余 ⇒ `None`
+/// `register.kind == node_entry` ⇒ [`platforms_hosts::NODE_OP_TEMPLATE`]；其余 ⇒ `None`
 /// = python 门默认形态（`<解释器> -m aimail.sdk_ops`）。
 /// 模板占位符：`{op}` = op 名、`{args}` = 单个 JSON 入参、`{node_path}` = 注册表 `register.node_path` 解析结果。
 pub fn ops_argv(name: &str) -> Option<Vec<String>> {
@@ -306,7 +303,7 @@ pub fn ops_argv(name: &str) -> Option<Vec<String>> {
         return None;
     }
     Some(
-        platforms_data::NODE_OP_TEMPLATE
+        platforms_hosts::NODE_OP_TEMPLATE
             .iter()
             .map(|s| s.to_string())
             .collect(),

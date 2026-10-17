@@ -5,7 +5,7 @@
 //! | [`home`] | 主根 / 程序根 / 发布形态 | `cli/runtime_core.py:161-171`、`pysdk/aimail_base.aimail_home()` |
 //! | [`perms`] | 凭据文件权限（跨平台助手） | Python 各写点的 `os.chmod(..., 0o600)` |
 //! | [`contract`] | agent 侧契约常量（编译期内嵌单真源） | `contract/aimail-contract.json` |
-//! | [`platforms`] | 平台注册表（类型化常量，S3b 后 JSON 已删） | `cli/src/core/platforms_data.rs` |
+//! | [`platforms`] | 平台宿主表（类型化常量 + 值视图） | `cli/src/core/platforms_hosts.rs` |
 //! | [`config`] | 系统级环境文件读写（CLI 独占写权）+ 绑定文件只读入口 | `cli/setup_system.py:331-370`、`cli/aimail:2460-2467` |
 //!
 //! 未落的还有 `gateway` / `smtp`（HTTP/SMTP 客户端）与 `proc`：它们要靠 S3/S6 的
@@ -29,7 +29,7 @@ pub mod payload;
 pub mod perms;
 pub mod ping;
 pub mod platforms;
-pub mod platforms_data;
+pub mod platforms_hosts;
 pub mod probe;
 pub mod procwin;
 pub mod pyjson;

@@ -34,10 +34,10 @@ glob = "0.3"
 hmac = "0.12"
 md-5 = "0.10"
 rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12", "logging"] }
-# 只依赖 serde_json（配置/注册表都是 JSON；手写"地图 ↔ 结构体"映射以便逐字控制
-# 键序与"仅非空才写"的条件键语义，故不需要 serde derive）。
+# serde derive：平台宿主表的类型化常量直接序列化成值视图（省掉手写 to_json）。
 # preserve_order：JSON 对象保持**读写顺序**（indexmap），与 Python json.dump 的
 # insertion-order 行为一致 ⇒ 更新一份凭据文件不会造成无谓的键序重排/文件抖动。
+serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 sha2 = "0.10"
 toml = "0.8"
