@@ -339,6 +339,14 @@ chmod +x "$GW_BIN"
 
 # 最小 config(本地回环, 端口自选避开宿主进程 —— 见 advanced agent-turn 口径)
 GW_HTTP_PORT=18123; GW_SMTP_PORT=12526
+# Windows(git-bash): config 是网关(native PE)读的**文件内容**, MSYS 只翻译 argv
+# 不翻译文件内字符串 —— /d/a/... 在 Windows 语义下 = D:\d\a\...(当前盘根相对),
+# 与 bash 侧的 D:\a\... 错位 ⇒ 网关写对了自己理解的路径, bash 找不到 key。
+# cygpath -w 转原生路径(D:\a\...)写入 config。unix 不变。
+case "$(uname -s)" in
+  MINGW*) GW_DATA_PATH="$(cygpath -w "${GW_HOME}/data")" ;;
+  *)      GW_DATA_PATH="${GW_HOME}/data" ;;
+esac
 cat > "$GW_HOME/config.toml" <<EOF
 [http]
 bind = "127.0.0.1:${GW_HTTP_PORT}"
@@ -347,7 +355,7 @@ hostname = "l3.local"
 bind = "127.0.0.1:${GW_SMTP_PORT}"
 hostname = "l3.local"
 [storage]
-path = "${GW_HOME}/data"
+path = "${GW_DATA_PATH}"
 [logging]
 level = "info"
 [admin]

@@ -108,7 +108,7 @@ install_hermes() {
     _hps=(); [ -n "${HERMES_COMMIT:-}" ] && _hps=(-Commit "$HERMES_COMMIT")
     say "pinned hermes commit: ${HERMES_COMMIT:-<installer default>}"
     HERMES_HOME="$hh" powershell -NoProfile -ExecutionPolicy Bypass -File "$tmp/install.ps1" \
-      ${_hps[@]+"${_hps[@]}"} </dev/null \
+      -SkipSetup ${_hps[@]+"${_hps[@]}"} </dev/null \
       || die "hermes official install (install.ps1) failed"
     ok "hermes installed (official install.ps1) at $hh"
     return 0
