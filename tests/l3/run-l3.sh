@@ -605,7 +605,7 @@ PY
     # 绑定文件名 = 契约 binding_file 常量;shell 无 import 常量模块,只能字面量 glob。
     DSH_BIND="$(ls "${HOME}/.aimail/systems/${SYSTEM_ID}"/*/agentmail.json 2>/dev/null | head -1)"  # contract-allowed: shell 探针 glob 磁盘真实绑定文件(契约 binding_file);shell 无 import 常量模块,字面量为唯一取法
     [ -n "$DSH_BIND" ] || die "dsh binding not found under ${HOME}/.aimail/systems/${SYSTEM_ID} (install did not write it)"
-    # Windows git-bash: ls glob 返回 MSYS 形态 /c/Users/.../agentmail.json,native
+    # Windows git-bash: ls glob 返回 MSYS 形态 /c/Users/.../agentmail.json,native  # contract-allowed: L3 注释引用契约绑定文件名
     # Windows python 不认 /c/ 前缀(当相对路径)⇒ open 失败(L3 2026-10-17 实证:
     # FileNotFoundError '/c/Users/runneradmin/.aimail/...' ⇒ 误判 no webhook_url)。
     # cygpath -m 转 C:/Users/...(正斜杠): Windows API 接受, 且 python 字符串无
