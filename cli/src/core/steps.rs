@@ -101,10 +101,64 @@ fn command_in_path(bin: &str) -> bool {
     if Path::new(bin).is_absolute() {
         return Path::new(bin).is_file();
     }
-    std::env::var("PATH")
-        .unwrap_or_default()
-        .split(':')
-        .any(|d| !d.is_empty() && Path::new(d).join(bin).is_file())
+    let path = std::env::var("PATH").unwrap_or_default();
+    let sep = if cfg!(windows) { ';' } else { ':' };
+    for d in path.split(sep) {
+        if d.is_empty() {
+            continue;
+        }
+        // Windows: 可执行体按 PATHEXT 扩展(npm 全局安装落 <name>.cmd,
+        // 裸名 is_file 恒 false);unix 无扩展。
+        if cfg!(windows) {
+            for ext in path_exts() {
+                if Path::new(d).join(format!("{}{}", bin, ext)).is_file() {
+                    return true;
+                }
+            }
+        } else if Path::new(d).join(bin).is_file() {
+            return true;
+        }
+    }
+    false
+}
+
+/// Windows 可执行扩展列表(PATHEXT 环境变量, 缺省 .COM;.EXE;.BAT;.CMD)。
+#[cfg(windows)]
+fn path_exts() -> Vec<String> {
+    std::env::var("PATHEXT")
+        .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into())
+        .split(';')
+        .map(|e| e.trim().to_string())
+        .filter(|e| !e.is_empty())
+        .collect()
+}
+
+#[cfg(not(windows))]
+fn path_exts() -> Vec<String> {
+    Vec::new()
+}
+
+/// 程序名 ⇒ 实际可执行文件路径(W2-Windows: CreateProcess 不解析 PATHEXT,
+/// npm 全局的 `dsh` 落 `dsh.cmd` ⇒ 裸名 spawn 恒 Err;L3 windows 格实证
+/// "`dsh` CLI not found" 而 git-bash 侧 `command -v dsh` 可见)。unix 原样返回。
+fn resolve_program(bin: &str) -> String {
+    if bin.contains('\\') || bin.contains('/') || bin.contains('.') {
+        return bin.to_string();
+    }
+    for ext in path_exts() {
+        if command_in_path_ext(bin, &ext) {
+            return format!("{}{}", bin, ext);
+        }
+    }
+    bin.to_string()
+}
+
+/// PATH 内是否存在 bin+ext(与 command_in_path 的 Windows 分支同判据, 单真源)。
+fn command_in_path_ext(bin: &str, ext: &str) -> bool {
+    let path = std::env::var("PATH").unwrap_or_default();
+    let sep = if cfg!(windows) { ';' } else { ':' };
+    path.split(sep)
+        .any(|d| !d.is_empty() && Path::new(d).join(format!("{}{}", bin, ext)).is_file())
 }
 
 /// `_probe_present`：`skip_if` 探针（跑 argv，输出含 match（忽略大小写）⇒ "已在场"）。
@@ -126,7 +180,7 @@ pub fn probe_present(spec: &Value, ctx: &Map<String, Value>) -> bool {
     if argv.is_empty() || m.is_empty() {
         return false;
     }
-    let mut c = Command::new(&argv[0]);
+    let mut c = Command::new(resolve_program(&argv[0]));
     c.args(&argv[1..]);
     let _ = PROBE_TIMEOUT; // Python 侧 probe 带 30s 上限；这里靠子进程自然退出
     match c.output() {
@@ -342,7 +396,7 @@ pub fn run_steps(
                         continue;
                     }
                 }
-                let mut cmd = Command::new(&argv[0]);
+                let mut cmd = Command::new(resolve_program(&argv[0]));
                 cmd.args(&argv[1..]);
                 if let Some(env) = st.get("env").and_then(Value::as_object) {
                     for (k, v) in env {

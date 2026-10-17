@@ -84,23 +84,37 @@ echo "── [2] base environment + LLM config"
 case "$AGENT" in
   hermes|deerflow)
     # the interpreter the agent actually runs: a venv beside the tree (docker image) or the
-    # uv-provisioned portable CPython under <home>/tools/python-<ver>-*/bin (official host
-    # install — it creates no venv). Judged by running it, not by the path existing.
+    # uv-provisioned portable CPython under <home>/tools/python-<ver>-*/bin (unix official
+    # host install) or tools/python-<ver>-.../python.exe (Windows, no /bin segment).
+    # Judged by running it, not by the path existing.
     _py=""
     for _cand in "$HOME_DIR" ${EXTRA_HOMES[@]+"${EXTRA_HOMES[@]}"} /opt/hermes /app/backend "${HERMES_HOME:-}"; do
       [ -n "$_cand" ] || continue
-      for c in "$_cand/.venv/bin/python3" "$_cand/.hermes/venv/bin/python3" "$_cand"/tools/python-*/bin/python3; do
+      for c in "$_cand/.venv/bin/python3" "$_cand/.hermes/venv/bin/python3" "$_cand"/tools/python-*/bin/python3 "$_cand"/tools/python-*/python.exe; do
         [ -x "$c" ] && { _py="$c"; break 2; }
       done
     done
+    # uv: on PATH (unix) or the installer-pinned <home>/tools/uv-<ver>-<target>/uv.exe
+    # (Windows: install.ps1 Get-PmStoreRoot = $HermesHome/tools, not on PATH).
+    _uv_bin=""
+    if command -v uv >/dev/null 2>&1; then
+      _uv_bin="uv"
+    else
+      for _cand in "$HOME_DIR" ${EXTRA_HOMES[@]+"${EXTRA_HOMES[@]}"} "${HERMES_HOME:-}"; do
+        [ -n "$_cand" ] || continue
+        for c in "$_cand"/tools/uv-*/uv.exe; do
+          [ -x "$c" ] && { _uv_bin="$c"; break 2; }
+        done
+      done
+    fi
     if [ -n "$_py" ] && "$_py" -c 'import sys' >/dev/null 2>&1; then
       pass "agent interpreter present and runs: $_py"
-    elif [ -n "$_bin" ] && command -v uv >/dev/null 2>&1; then
+    elif [ -n "$_bin" ] && [ -n "$_uv_bin" ]; then
       # official host layout: no dedicated venv next to the tree — the installer drives its
       # own toolchain through uv, and it is uv that resolves the packages the agent imports
       pass "agent interpreter: official host layout (launcher + uv, no venv beside the tree)"
     else red "no agent interpreter found (venv, tools/python-*, or official host launcher + uv)"; fi
-    if command -v uv >/dev/null 2>&1; then pass "package manager: uv ($(uv --version 2>/dev/null | head -1))"
+    if [ -n "$_uv_bin" ]; then pass "package manager: uv ($("$_uv_bin" --version 2>/dev/null | head -1))"
     elif [ -n "$_py" ] && "$_py" -m pip --version >/dev/null 2>&1; then pass "package manager: pip (venv)"
     else red "no package manager available for the agent interpreter"; fi ;;
   dsh|pi)

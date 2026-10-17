@@ -14,7 +14,7 @@
 #   3. fetch the binary from the aimail GitHub Release:
 #      AIMAIL_VERSION pins a tag (e.g. cli-v0.1.37), default = newest cli-v* release
 #   4. main dir skeleton ~/.aimail/{systems,logs,bridge} (0700) +
-#      place the binary at ~/.aimail/bin/aimail (idempotent, atomic-ish swap)
+#      place the binary at ~/.aimail/bin/aimail(.exe on Windows, idempotent, atomic-ish swap)
 #   5. disk headroom check (<100 MiB fail, <1 GiB warn)
 #   6. smoke: `aimail version` (also proves the binary runs on this machine)
 #   7. link ~/.local/bin/aimail → ~/.aimail/bin/aimail
@@ -112,28 +112,40 @@ else
 fi
 
 if [ "${AIMAIL_SKIP_INSTALL:-0}" = "1" ]; then
-  [ -x "$PROG/aimail" ] || die "AIMAIL_SKIP_INSTALL=1 but no binary at $PROG/aimail"
+  [ -x "$PROG/aimail" ] && AIMAIL_BIN_NAME="aimail" || AIMAIL_BIN_NAME="aimail.exe"
+  [ -x "$PROG/$AIMAIL_BIN_NAME" ] || die "AIMAIL_SKIP_INSTALL=1 but no binary at $PROG/$AIMAIL_BIN_NAME"
   ok "existing binary kept (skip-install)"
 else
   mkdir -p "$PROG"
+  # Windows: 落盘名保留 .exe —— node 侧 spawn('aimail') 走 CreateProcess, 只追加
+  # .exe 不解析 PATHEXT, bin/aimail(无扩展) 对 SDK 侧恒不可达(L3 windows 实证:
+  # dsh-host.log "aimail CLI not found ('aimail')"); git-bash 两种名都能执行。
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) AIMAIL_BIN_NAME="aimail.exe" ;;
+    *)                    AIMAIL_BIN_NAME="aimail" ;;
+  esac
   OLD="$PROG/aimail.old.$$"
-  [ -f "$PROG/aimail" ] && mv "$PROG/aimail" "$OLD" 2>/dev/null || true
-  mv "$TMP_BIN" "$PROG/aimail"
-  chmod 755 "$PROG/aimail"
+  [ -f "$PROG/$AIMAIL_BIN_NAME" ] && mv "$PROG/$AIMAIL_BIN_NAME" "$OLD" 2>/dev/null || true
+  mv "$TMP_BIN" "$PROG/$AIMAIL_BIN_NAME"
+  chmod 755 "$PROG/$AIMAIL_BIN_NAME"
   rm -f "$OLD"
   trap - EXIT
-  ok "binary installed at $PROG/aimail"
+  ok "binary installed at $PROG/$AIMAIL_BIN_NAME"
 fi
 
 # ── 5. smoke: the binary must actually run here ──────────────────
 # version 是子命令(CLI clap 顶层无 --version flag, 用 flag 会 unexpected argument rc=2)
-"$PROG/aimail" version >/dev/null 2>&1 || die "binary did not run: $PROG/aimail version"
-ok "smoke: $( "$PROG/aimail" version 2>/dev/null | head -1 )"
+"$PROG/$AIMAIL_BIN_NAME" version >/dev/null 2>&1 || die "binary did not run: $PROG/$AIMAIL_BIN_NAME version"
+ok "smoke: $( "$PROG/$AIMAIL_BIN_NAME" version 2>/dev/null | head -1 )"
 
 # ── 6. PATH entry ────────────────────────────────────────────────
+# Windows: 双链接 aimail.exe(node CreateProcess 解析)+ aimail(git-bash 习惯名)。
 mkdir -p "$BIN_DIR"
-ln -sf "$PROG/aimail" "$BIN_DIR/aimail"
-ok "linked $BIN_DIR/aimail"
+ln -sf "$PROG/$AIMAIL_BIN_NAME" "$BIN_DIR/$AIMAIL_BIN_NAME"
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) ln -sf "$PROG/$AIMAIL_BIN_NAME" "$BIN_DIR/aimail" ;;
+esac
+ok "linked $BIN_DIR/$AIMAIL_BIN_NAME"
 case ":$PATH:" in
   *":$BIN_DIR:"*) ;;
   *) warn "add to PATH: export PATH=\"$BIN_DIR:\$PATH\"" ;;
