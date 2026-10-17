@@ -107,8 +107,11 @@ install_hermes() {
       || die "hermes install.ps1 download failed"
     _hps=(); [ -n "${HERMES_COMMIT:-}" ] && _hps=(-Commit "$HERMES_COMMIT")
     say "pinned hermes commit: ${HERMES_COMMIT:-<installer default>}"
+    # 最小化: L3 只用 host + LLM + webhook 入站 + aimail preprocessor,
+    # 浏览器栈(agent-browser/chromium)与 computer-use(cua-driver)零消费者,
+    # 经 hermes 官方裁剪口 -SkipBrowser/-SkipComputerUse 裁掉(pm declined 记录)。
     HERMES_HOME="$hh" powershell -NoProfile -ExecutionPolicy Bypass -File "$tmp/install.ps1" \
-      -SkipSetup ${_hps[@]+"${_hps[@]}"} </dev/null \
+      -SkipSetup -SkipBrowser -SkipComputerUse ${_hps[@]+"${_hps[@]}"} </dev/null \
       || die "hermes official install (install.ps1) failed"
     ok "hermes installed (official install.ps1) at $hh"
     return 0
