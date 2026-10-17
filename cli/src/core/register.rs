@@ -107,7 +107,6 @@ pub fn register_agent(
     let _home = setup::pget(cfg, "system_home");
     let domain = setup::pget(cfg, "domain");
     let system_name = setup::pget(cfg, "system_name");
-    let aliases = platforms::aliases(platform);
     let pdef = platforms::platform(platform).cloned().unwrap_or(json!({}));
     let rdef = pdef.get("register").cloned().unwrap_or(json!({}));
 
@@ -226,7 +225,6 @@ pub fn register_agent(
         "system_cfg": cfg.clone(),
         "domain": domain,
         "system_name": system_name,
-        "aliases": aliases,
         "manager_address": mgr,
         "home": cand_homes.first().cloned().unwrap_or_default(),
     });

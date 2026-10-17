@@ -341,118 +341,10 @@ pub fn resolve_path_template(tmpl: &str, homes: &[String]) -> String {
     String::new()
 }
 
-/// 平台别名表（注册表 `aliases`；空 ⇒ 空表，不猜）。
-pub fn aliases(name: &str) -> Vec<String> {
-    platform(name)
-        .and_then(|p| p.get("aliases"))
-        .and_then(Value::as_array)
-        .map(|a| {
-            a.iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// 全部平台的别名（按注册表 `order` 保序）—— 仅供地址表头的"默认映射"行。
-pub fn all_aliases() -> Vec<(String, Vec<String>)> {
-    order()
-        .into_iter()
-        .map(|n| (n.to_string(), aliases(n)))
-        .collect()
-}
-
-/// 平台 agent 标识全集（注册表 `agents.kind` 驱动：
-/// `fixed` / `fixed_with_pointer` / `glob_dir` / `profiles_plus_default`）。
-/// `cli/aimail:1355-1381` 的复刻。
-pub fn agent_names(root: &std::path::Path, name: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    if !root.is_dir() {
-        return out;
-    }
-    let Some(def) = platform(name) else {
-        return out;
-    };
-    let block = def.get("agents");
-    let kind = block
-        .and_then(|a| a.get("kind"))
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    let list_of = |key: &str| -> Vec<String> {
-        block
-            .and_then(|a| a.get(key))
-            .and_then(Value::as_array)
-            .map(|v| {
-                v.iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_string)
-                    .collect()
-            })
-            .unwrap_or_default()
-    };
-    let ptr_present = root.join(pointer_file_for(name)).exists();
-    match kind {
-        "fixed" => out.extend(list_of("names")),
-        "fixed_with_pointer" => {
-            if ptr_present {
-                out.extend(list_of("names"));
-            }
-        }
-        "glob_dir" => {
-            let dir = root.join(
-                block
-                    .and_then(|a| a.get("dir"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("agents"),
-            );
-            if dir.is_dir() {
-                out.extend(sorted_subdir_names(&dir));
-            } else if ptr_present {
-                let al = aliases(name);
-                out.extend(if al.is_empty() {
-                    vec!["main".to_string()]
-                } else {
-                    al
-                });
-            }
-        }
-        "profiles_plus_default" => {
-            let dir = root.join(
-                block
-                    .and_then(|a| a.get("profiles"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("profiles"),
-            );
-            if dir.is_dir() {
-                out.extend(sorted_subdir_names(&dir));
-            }
-            if ptr_present {
-                out.extend(aliases(name));
-            }
-        }
-        _ => {}
-    }
-    out
-}
-
-fn sorted_subdir_names(dir: &std::path::Path) -> Vec<String> {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return Vec::new();
-    };
-    let mut names: Vec<String> = entries
-        .flatten()
-        .filter(|e| e.path().is_dir())
-        .map(|e| e.file_name().to_string_lossy().into_owned())
-        .collect();
-    names.sort();
-    names
-}
-
 /// 平台根下扫到的注册指针：`(agent_name, email, system_id)`。
 ///
 /// `cli/aimail:1480-1514` 的复刻（递归、跳过 `.git`/`node_modules`/`.venv`；
-/// 根级指针对应的 agent 名取注册表别名首个、无名则 `agent`，命名目录用目录名）。
+/// 根级指针对应主 agent（地址基名由 SDK 归一为 `agent`），命名目录用目录名）。
 ///
 /// **有意差异**：Python 还认历史名 `.aimail`（改名前的指针名）。按 owner 2026-09-07
 /// 裁决「开发态零安装存量 ⇒ 兼容/迁移代码都是多余适配」，Rust 侧只认契约常量
@@ -520,9 +412,9 @@ fn walk_pointers(
             continue;
         }
         let agent_name = if dir == root {
-            let plat = detect_platform_from_home(root);
-            let al = aliases(plat);
-            al.first().cloned().unwrap_or_else(|| "agent".to_string())
+            // 根指针 = 主 agent；其地址基名由 SDK 归一为 `agent`（平台私有根名
+            // default/main 不参与定名，owner 2026-10-02 C1）⇒ CLI 不再查别名表。
+            "agent".to_string()
         } else {
             dir.file_name()
                 .map(|s| s.to_string_lossy().into_owned())
@@ -601,16 +493,6 @@ mod tests {
         // 合法 = 注册表里的平台名
         for n in order() {
             assert_eq!(platform_override(n).unwrap().as_deref(), Some(n));
-        }
-        // 别名**不吃**（与 Python 同判：只在 platforms 键里查）
-        for (name, al) in all_aliases() {
-            for a in al {
-                let e = platform_override(&a).unwrap_err();
-                assert!(
-                    e.contains(&format!("--platform '{a}' unknown; valid: ")),
-                    "别名 {a}（{name}）必须按未知拒掉: {e}"
-                );
-            }
         }
         // 错误文案带全部合法值（升序、逗号分隔）
         let e = platform_override("nope").unwrap_err();

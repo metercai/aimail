@@ -308,8 +308,8 @@ pub fn detect_static(home: &Path, explicit: Option<&str>) -> Result<StaticInfo, 
 /// `aimail platform spec --json` 的载荷：完整平台注册表（类型化常量的值视图）+（可选的）探测结果。
 ///
 /// P2c S3a（2026-10-16）：导出面从"8 字段检测表"扩为**全形状**（`install_steps`/
-/// `uninstall_steps`/`health_checks`/`pointer`/`register`/`aliases`/`ops`/`agents`/
-/// `detect` 全键），使本命令成为 advanced 门禁/夹具的**唯一平台知识入口**（取代直读
+/// `uninstall_steps`/`health_checks`/`pointer`/`register`/`ops`/`detect` 全键），
+/// 使本命令成为 advanced 门禁/夹具的**唯一平台知识入口**（取代直读
 /// 平台注册表 JSON，S3b 删除）。形状对齐原注册表（`order` +
 /// `platforms`{id→对象} + `detected`），改锚面最小。数据 = `platforms::raw()`（由
 /// `platforms_data` 类型化常量重建，语义等价由往返棘轮证明）。

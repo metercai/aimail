@@ -8,7 +8,7 @@
 //! JSON → 类型化 → JSON 往返无损（S3 删文件时随文件一并移除）。
 //!
 //! 形状（穷举）：Step 9 kind · When 6 谓词 · SkipIf · Health 7 kind ·
-//! Register 3 kind · RegisterAll 2 kind · Agents 4 kind。
+//! Register 3 kind · RegisterAll 2 kind。
 
 use serde_json::{json, Map, Value};
 
@@ -525,29 +525,6 @@ impl RegisterAll {
     }
 }
 
-/// agent 标识全集的驱动形态（4 kind）。
-pub enum Agents {
-    Fixed { names: &'static [&'static str] },
-    FixedWithPointer { names: &'static [&'static str] },
-    GlobDir { dir: &'static str },
-    ProfilesPlusDefault { profiles: &'static str },
-}
-
-impl Agents {
-    pub fn to_json(&self) -> Value {
-        match self {
-            Agents::Fixed { names } => json!({ "kind": "fixed", "names": names }),
-            Agents::FixedWithPointer { names } => {
-                json!({ "kind": "fixed_with_pointer", "names": names })
-            }
-            Agents::GlobDir { dir } => json!({ "kind": "glob_dir", "dir": dir }),
-            Agents::ProfilesPlusDefault { profiles } => {
-                json!({ "kind": "profiles_plus_default", "profiles": profiles })
-            }
-        }
-    }
-}
-
 pub struct Detect {
     pub dir_name: Option<&'static str>,
     pub markers: &'static [&'static str],
@@ -581,8 +558,6 @@ pub struct PlatformDef {
     pub home_dir: &'static str,
     pub detect: Detect,
     pub pointer: Pointer,
-    pub agents: Agents,
-    pub aliases: &'static [&'static str],
     pub register: Register,
     pub register_all: Option<RegisterAll>,
     pub ops: Option<&'static [&'static str]>,
@@ -598,8 +573,6 @@ impl PlatformDef {
         let mut v = Map::new();
         v.insert("detect".into(), self.detect.to_json());
         v.insert("pointer".into(), self.pointer.to_json());
-        v.insert("agents".into(), self.agents.to_json());
-        v.insert("aliases".into(), json!(self.aliases));
         v.insert("register".into(), self.register.to_json());
         if let Some(o) = self.ops {
             let mut m = Map::new();
@@ -662,8 +635,6 @@ PlatformDef {
         home_dir: ".pi",
         detect: Detect { dir_name: Some(".pi"), markers: &["agent"] },
         pointer: Pointer { kind: "root", file: ".agentmail" },
-        agents: Agents::Fixed { names: &["pi"] },
-        aliases: &[],
         register: Register::NodeEntry { node_path: "{home}/agent/npm/node_modules/pi-aimail/dist/register-cli.js", args: Some(&["--name", "{name}", "--system-id", "{sid}", "--manager", "{manager}"]), fail_hint: "pi-aimail 扩展未就绪——先 `pi install npm:pi-aimail` 装扩展再注册" },
         register_all: None,
         ops: Some(NODE_OP_TEMPLATE),
@@ -678,8 +649,6 @@ PlatformDef {
         home_dir: ".dsh",
         detect: Detect { dir_name: Some(".dsh"), markers: &["profiles"] },
         pointer: Pointer { kind: "root", file: ".agentmail" },
-        agents: Agents::Fixed { names: &["agent"] },
-        aliases: &[],
         register: Register::NodeEntry { node_path: "{home}/profiles/*/node_modules/dsh-aimail/dist/register-cli.js", args: Some(&["--name", "{name}", "--system-id", "{sid}", "--manager", "{manager}"]), fail_hint: "dsh-aimail 插件未就绪——先 `dsh plugin --profile web add dsh-aimail` 装插件再注册" },
         register_all: None,
         ops: Some(NODE_OP_TEMPLATE),
@@ -694,8 +663,6 @@ PlatformDef {
         home_dir: ".hermes",
         detect: Detect { dir_name: None, markers: &["hermes-agent"] },
         pointer: Pointer { kind: "root_or_profiles", file: ".agentmail" },
-        agents: Agents::ProfilesPlusDefault { profiles: "profiles" },
-        aliases: &["default"],
         register: Register::PythonModule { module: "aimail_hermes", fn_name: "_auto_register_email", profile_kind: "root_or_named", root_when: &["default", "{home_name}"], pythonpath: &["hermes"] },
         register_all: Some(RegisterAll::PythonScript { python: "hermes/register_profiles.py", args: &[], env: &[("AIMAIL_SYSTEM_ID","{sid}")], fail_hint: "register_profiles 执行失败(见上输出)" }),
         ops: None,
@@ -710,8 +677,6 @@ PlatformDef {
         home_dir: ".openclaw",
         detect: Detect { dir_name: None, markers: &["openclaw.json"] },
         pointer: Pointer { kind: "root", file: ".agentmail" },
-        agents: Agents::GlobDir { dir: "agents" },
-        aliases: &["main"],
         register: Register::NodeEntry { node_path: "{home}/npm/projects/*/node_modules/openclaw-aimail/dist/register-cli.js", args: None, fail_hint: "先安装 openclaw-aimail 插件(`openclaw plugins install openclaw-aimail --force --accept-capabilities` → 重启 gateway);注册经插件自带的 node 入口 --op assemble(owner 2026-10-11:host_command 形态退役)" },
         register_all: Some(RegisterAll::NodeEntry { node_path: "{home}/npm/projects/*/node_modules/openclaw-aimail/dist/register-cli.js", fail_hint: "openclaw-aimail 需含独立 node 入口(dist/register-cli.js, --op 门)" }),
         ops: Some(NODE_OP_TEMPLATE),
@@ -726,8 +691,6 @@ PlatformDef {
         home_dir: ".deer-flow",
         detect: Detect { dir_name: None, markers: &["backend/app/gateway"] },
         pointer: Pointer { kind: "root", file: ".agentmail" },
-        agents: Agents::FixedWithPointer { names: &["agent"] },
-        aliases: &[],
         register: Register::PythonScript { python: "deer-flow/manage.py", args: &["register", "--system-id", "{sid}", "--agent", "{agent}", "--manager", "{manager}", "--name", "{name}"], fail_hint: "deer-flow manage.py 注册器失败——检查 deer-flow 模块与系统配置" },
         register_all: Some(RegisterAll::PythonScript { python: "deer-flow/manage.py", args: &["register", "--all", "--system-id", "{sid}"], env: &[], fail_hint: "manage.py register --all 失败(见上输出)" }),
         ops: None,

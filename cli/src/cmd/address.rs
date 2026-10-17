@@ -102,27 +102,6 @@ fn pointers_in(dir: &Path) -> Vec<(String, String, String)> {
     out
 }
 
-/// 期望地址的 local part 归一（`cli/aimail:1463` 的同字符集：atext-**no-dot**；
-/// 清空则落 `agent`）。注意与目录名归一（`[^\w.\-]`）**不是**同一套字符集。
-fn local_part_sanitize(name: &str) -> String {
-    const EXTRA: &str = "!#$%&'*+-/=?^_`{|}~";
-    let s: String = name
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || EXTRA.contains(c) {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    if s.is_empty() {
-        "agent".to_string()
-    } else {
-        s
-    }
-}
-
 pub(crate) fn list_agents(aimail_home: &Path, sid: &str, cfg: &config::GatewayConfig) -> Vec<Row> {
     let mut rows: Vec<Row> = Vec::new();
     let base = config::system_dir_in(aimail_home, sid);
@@ -200,7 +179,7 @@ pub(crate) fn list_agents(aimail_home: &Path, sid: &str, cfg: &config::GatewayCo
         }
     }
 
-    // 平台枚举：未注册的 agent（新增场景检测）
+    // 指针补充：已带本系统指针的 agent 目录（改名/接管场景；名字取自目录）
     let platform = if cfg.system_home.is_empty() {
         String::new()
     } else {
@@ -224,33 +203,6 @@ pub(crate) fn list_agents(aimail_home: &Path, sid: &str, cfg: &config::GatewayCo
                     platform: platform.clone(),
                 });
                 known.push(nm);
-            }
-        }
-        let aliases = platforms::aliases(&platform);
-        for name in platforms::agent_names(home_path, &platform) {
-            if known.contains(&name) {
-                continue;
-            }
-            let base_name = if aliases.contains(&name) {
-                "agent".to_string()
-            } else {
-                name.clone()
-            };
-            let cleaned = local_part_sanitize(&base_name);
-            let want = if cfg.system_name.is_empty() {
-                format!("{cleaned}@{}", cfg.domain)
-            } else {
-                format!("{cleaned}.{}@{}", cfg.system_name, cfg.domain)
-            };
-            if !rows.iter().any(|r| r.email == want) {
-                rows.push(Row {
-                    agent: name,
-                    email: want,
-                    manager: String::new(),
-                    webhook: String::new(),
-                    registered: false,
-                    platform: platform.clone(),
-                });
             }
         }
     }
@@ -278,13 +230,6 @@ fn header_lines(sid: &str, cfg: &config::GatewayConfig) -> Vec<String> {
         ),
         format!("  默认主 agent 名: {current}"),
     ];
-    let pairs: Vec<String> = platforms::all_aliases()
-        .iter()
-        .flat_map(|(k, al)| al.iter().map(move |a| format!("{k} {a}")))
-        .collect();
-    if !pairs.is_empty() {
-        lines.push(format!("  (默认映射: {} → {current})", pairs.join(", ")));
-    }
     lines.push(String::new());
     lines
 }
@@ -720,15 +665,6 @@ fn binding_registered(home: &std::path::Path, sid: &str, email: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn local_part_sanitize_keeps_atext_and_drops_dot() {
-        assert_eq!(local_part_sanitize("agent"), "agent");
-        assert_eq!(local_part_sanitize("a.b"), "a_b"); // 点不在集合内 → 归一
-        assert_eq!(local_part_sanitize("a+b_c"), "a+b_c");
-        assert_eq!(local_part_sanitize("中文"), "__");
-        assert_eq!(local_part_sanitize(""), "agent");
-    }
 
     #[test]
     fn table_header_matches_python_layout() {

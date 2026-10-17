@@ -370,6 +370,17 @@ def _run_registrar(spec, values=None):
     return {"rc": pr.returncode, "stdout_tail": (pr.stdout or "")[-400:]}
 
 
+def _platform_aliases(args) -> tuple:
+    """平台私有根名归一表（宿主自报 → SDK 内部；owner 2026-10-11 三来源裁决）。
+
+    P3-C(2026-10-17): CLI 不再在 op 信封里传 `aliases`（注册表 `aliases` 条目删除）。
+    主 agent 路径的 sentinel 是 `default`（hermes 的 root profile id），由 hermes
+    适配模块归一为地址基名 `agent`；无别名平台（deerflow 等）返回空表，行为不变。
+    """
+    spec = args.get("register_spec") or {}
+    return ("default",) if str(spec.get("module") or "") == "aimail_hermes" else ()
+
+
 def _op_assemble(args):
     """装配：自定位配置 → 命名 → 跑平台注册器 → 必要时改名 → 注册 → 落绑定。只返回最终结果。"""
     system_id = args.get("system_id") or ""
@@ -390,7 +401,7 @@ def _op_assemble(args):
         agent_id=_aid,
         domain=args.get("domain") or syscfg.get("domain") or "",
         system_name=args.get("system_name") or syscfg.get("system_name") or "",
-        aliases=tuple(args.get("aliases") or ()),
+        aliases=_platform_aliases(args),
         register_argv=tuple(args.get("register_argv") or ()),
     )
     target_email_pre = email or plan.get("email") or ""
