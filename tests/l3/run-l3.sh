@@ -261,6 +261,7 @@ case "$AGENT" in
     # 与 hermes_cli/profiles.py ⇒ pip wheel 布局必挂; hermes 树自己的 pyproject.toml 带
     # `[tool.uv] exclude-newer="14 days"`, uv 从 CWD 向上发现它 ⇒ 装 SDK 会静默落旧版。
     HERMES_HOME="${HOME}/.hermes"
+    export HERMES_HOME   # 子进程(prepare/verify)按宿主真 home 定位安装树/launcher
     AGENT_HOME="$HERMES_HOME"
     # LLM 双写(journey J4b 权威形态): --home 落 scratch(verify 读它, 不被宿主进程读到),
     # --extra-home 落真 $HERMES_HOME(宿主进程读它)。

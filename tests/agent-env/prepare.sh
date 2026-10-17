@@ -94,10 +94,25 @@ npm_install_pinned() {
 
 install_hermes() {
   local hh="${HERMES_HOME:-$HOME/.hermes}"
-  if [ -x /opt/hermes/bin/hermes ] || [ -x "$hh/hermes-agent/.hermes/bin/hermes" ]; then
+  if [ -x /opt/hermes/bin/hermes ] || [ -x "$hh/hermes-agent/.hermes/bin/hermes" ] \
+     || [ -f "$hh/bin/hermes.exe" ] || [ -f "$hh/hermes-agent/.hermes/bin/hermes.exe" ]; then
     say "hermes present (official layout) — skip install"; return 0
   fi
   local tmp; tmp="$(mktemp -d)"
+  if [[ "$(uname -s)" == MINGW* ]]; then
+    # Windows(git-bash): 官方安装器 install.sh 拒 MINGW("On Windows use install.ps1")。
+    # install.ps1 布局与 install.sh 同树: tree=$hh/hermes-agent, launcher→$hh/bin/hermes.exe。
+    curl -fsSL --retry 2 --connect-timeout 20 --max-time 60 \
+      https://hermes-agent.nousresearch.com/install.ps1 -o "$tmp/install.ps1" \
+      || die "hermes install.ps1 download failed"
+    _hps=(); [ -n "${HERMES_COMMIT:-}" ] && _hps=(-Commit "$HERMES_COMMIT")
+    say "pinned hermes commit: ${HERMES_COMMIT:-<installer default>}"
+    HERMES_HOME="$hh" powershell -NoProfile -ExecutionPolicy Bypass -File "$tmp/install.ps1" \
+      ${_hps[@]+"${_hps[@]}"} </dev/null \
+      || die "hermes official install (install.ps1) failed"
+    ok "hermes installed (official install.ps1) at $hh"
+    return 0
+  fi
   curl -fsSL --retry 2 --connect-timeout 20 --max-time 60 \
     https://hermes-agent.nousresearch.com/install.sh -o "$tmp/install.sh" \
     || die "hermes install.sh download failed"

@@ -20,11 +20,18 @@ agent_launcher() {
     hermes)
       # 官方宿主安装: 源码树在 <home>/hermes-agent, launcher 在 <tree>/.hermes/bin/hermes,
       # 并把一份放到 PATH(~/.local/bin/hermes)。docker 镜像里是 /opt/hermes/bin/hermes。
-      for t in "${home_dir:-/nonexistent}/hermes-agent" "/opt/hermes"; do
+      # HERMES_HOME env(宿主真 home): verify.sh 的 home_dir 是 scratch 时,
+      # 真安装树只在 $HERMES_HOME/hermes-agent。
+      for t in "${home_dir:-/nonexistent}/hermes-agent" "${HERMES_HOME:-/nonexistent}/hermes-agent" "/opt/hermes"; do
         [ -f "$t/gateway/platforms/webhook.py" ] && { tree="$t"; break; }
       done
+      # Windows(官方 install.ps1): launcher 发布到 <HermesHome>/bin/hermes.{exe,cmd}
+      # (git-bash 的 [ -x ] 对 .exe 有效); unix 布局不变。
       for b in "${tree:-/nonexistent}/.hermes/bin/hermes" "/opt/hermes/bin/hermes" \
                "${home_dir:-/nonexistent}/.local/bin/hermes" "$HOME/.local/bin/hermes" \
+               "${HERMES_HOME:-/nonexistent}/bin/hermes.exe" "${HERMES_HOME:-/nonexistent}/bin/hermes.cmd" \
+               "${home_dir:-/nonexistent}/bin/hermes.exe" "${home_dir:-/nonexistent}/bin/hermes.cmd" \
+               "${tree:-/nonexistent}/.hermes/bin/hermes.exe" \
                "$(command -v hermes 2>/dev/null)"; do
         [ -n "$b" ] && [ -x "$b" ] && { printf '%s\n' "$b"; return 0; }
       done
