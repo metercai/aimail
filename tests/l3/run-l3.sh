@@ -61,7 +61,7 @@ dump_failure_evidence() {
   # (run-cli-gates 第 1 步 shared 边界扫全仓): 真源 = contract/aimail-contract.json。
   skill="$(python3 - "${AIMAIL_REPO:-}/contract/aimail-contract.json" <<'PY'
 import json, sys
-print(json.load(open(sys.argv[1]))["agent_skill_name"])
+print(json.load(open(sys.argv[1], encoding="utf-8"))["agent_skill_name"])
 PY
 )"
   pat="Response for webhook|toolset|not registered|unknown name|send_mail|ImportError|ModuleNotFound"
@@ -528,7 +528,7 @@ PY
     # toolset 名从契约读(字面量棘轮: 禁硬编码契约值, 同 dump_failure_evidence 取 skill)。
     TS="$(python3 - "${AIMAIL_REPO:-}/contract/aimail-contract.json" <<'PY'
 import json, sys
-print(json.load(open(sys.argv[1]))["agent_toolset_name"])
+print(json.load(open(sys.argv[1], encoding="utf-8"))["agent_toolset_name"])
 PY
 )" || die "cannot read agent_toolset_name from contract"
     [ -n "$TS" ] || die "empty agent_toolset_name from contract"
@@ -605,7 +605,17 @@ PY
     # 绑定文件名 = 契约 binding_file 常量;shell 无 import 常量模块,只能字面量 glob。
     DSH_BIND="$(ls "${HOME}/.aimail/systems/${SYSTEM_ID}"/*/agentmail.json 2>/dev/null | head -1)"  # contract-allowed: shell 探针 glob 磁盘真实绑定文件(契约 binding_file);shell 无 import 常量模块,字面量为唯一取法
     [ -n "$DSH_BIND" ] || die "dsh binding not found under ${HOME}/.aimail/systems/${SYSTEM_ID} (install did not write it)"
-    DSH_BIND_URL="$(python3 -c "import json;print(json.load(open('$DSH_BIND')).get('webhook_url') or '')")"
+    # Windows git-bash: ls glob 返回 MSYS 形态 /c/Users/.../agentmail.json,native
+    # Windows python 不认 /c/ 前缀(当相对路径)⇒ open 失败(L3 2026-10-17 实证:
+    # FileNotFoundError '/c/Users/runneradmin/.aimail/...' ⇒ 误判 no webhook_url)。
+    # cygpath -m 转 C:/Users/...(正斜杠): Windows API 接受, 且 python 字符串无
+    # 反斜杠转义面(-w 的 C:\Users 在 python 源码里 \U 是 unicode 转义 ⇒ SyntaxError)。
+    # unix 分支不变。
+    case "$(uname -s)" in
+      MINGW*|MSYS*|CYGWIN*) DSH_BIND_PY="$(cygpath -m "$DSH_BIND")" ;;
+      *) DSH_BIND_PY="$DSH_BIND" ;;
+    esac
+    DSH_BIND_URL="$(python3 -c "import json;print(json.load(open('$DSH_BIND_PY', encoding='utf-8')).get('webhook_url') or '')")"
     [ -n "$DSH_BIND_URL" ] || die "dsh binding has no webhook_url (pull mode — welcome push cannot be judged)"
     say "dsh inbound route readiness: probing $DSH_BIND_URL (mounted = 200 no_agent; 404 = not mounted)"
     RDY=0; _i=0
