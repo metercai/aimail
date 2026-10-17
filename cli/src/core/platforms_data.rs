@@ -406,7 +406,6 @@ impl Health {
 pub enum Register {
     NodeEntry {
         node_path: &'static str,
-        args: Option<&'static [&'static str]>,
         fail_hint: &'static str,
     },
     PythonModule {
@@ -435,15 +434,11 @@ impl Register {
         match self {
             Register::NodeEntry {
                 node_path,
-                args,
                 fail_hint,
             } => {
                 let mut v = Map::new();
                 v.insert("kind".into(), json!("node_entry"));
                 v.insert("node_path".into(), json!(node_path));
-                if let Some(a) = args {
-                    v.insert("args".into(), json!(a));
-                }
                 v.insert("fail_hint".into(), json!(fail_hint));
                 Value::Object(v)
             }
@@ -635,7 +630,7 @@ PlatformDef {
         home_dir: ".pi",
         detect: Detect { dir_name: Some(".pi"), markers: &["agent"] },
         pointer: Pointer { kind: "root", file: ".agentmail" },
-        register: Register::NodeEntry { node_path: "{home}/agent/npm/node_modules/pi-aimail/dist/register-cli.js", args: Some(&["--name", "{name}", "--system-id", "{sid}", "--manager", "{manager}"]), fail_hint: "pi-aimail 扩展未就绪——先 `pi install npm:pi-aimail` 装扩展再注册" },
+        register: Register::NodeEntry { node_path: "{home}/agent/npm/node_modules/pi-aimail/dist/register-cli.js", fail_hint: "pi-aimail 扩展未就绪——先 `pi install npm:pi-aimail` 装扩展再注册" },
         register_all: None,
         ops: Some(NODE_OP_TEMPLATE),
         install_steps: &[Step::Print { when: None, text: "pi platform: ensure the pi-aimail extension (auto; skipped when present) + register the agent:" }, Step::Spawn { when: None, argv: &["pi", "install", "npm:pi-aimail"], env: None, skip_if: Some(SkipIf { argv: &["pi", "list"], match_: "pi-aimail" }), on_missing: Some("fail"), fail_hint: Some("`pi` executable not found (platform detected but host CLI missing?)"), on_error: Some("warn"), warn_hint: Some("pi-aimail extension install failed (check network/registry) — after fixing, rerun `aimail reset -s {sid}`"), ok_text: Some("pi-aimail extension installed (npm registry latest stable; takes effect after the pi session restarts)"), skipped_text: Some("pi-aimail extension already present (install skipped)") }, Step::RegisterDefault { when: Some(When { cfg_complete: Some(true), sid_set: None, path_exists: None, command_exists: None, runtime: None, runtime_not: None }), on_error: Some("warn"), warn_hint: Some("pi agent registration failed (see above) — rerun `aimail reset -s {sid}` once the extension is in place (地址名由 SDK 决定，CLI 不涉及)") }, Step::Warn { when: Some(When { cfg_complete: Some(false), sid_set: None, path_exists: None, command_exists: None, runtime: None, runtime_not: None }), text: "pi registration skipped (config incomplete — retry after activation/install, or run `aimail address -a pi`)" }, Step::Print { when: None, text: "  pi: inbound listener lives with the pi session lifecycle (restart the session to apply)" }],
@@ -649,7 +644,7 @@ PlatformDef {
         home_dir: ".dsh",
         detect: Detect { dir_name: Some(".dsh"), markers: &["profiles"] },
         pointer: Pointer { kind: "root", file: ".agentmail" },
-        register: Register::NodeEntry { node_path: "{home}/profiles/*/node_modules/dsh-aimail/dist/register-cli.js", args: Some(&["--name", "{name}", "--system-id", "{sid}", "--manager", "{manager}"]), fail_hint: "dsh-aimail 插件未就绪——先 `dsh plugin --profile web add dsh-aimail` 装插件再注册" },
+        register: Register::NodeEntry { node_path: "{home}/profiles/*/node_modules/dsh-aimail/dist/register-cli.js", fail_hint: "dsh-aimail 插件未就绪——先 `dsh plugin --profile web add dsh-aimail` 装插件再注册" },
         register_all: None,
         ops: Some(NODE_OP_TEMPLATE),
         install_steps: &[Step::Spawn { when: None, argv: &["dsh", "plugin", "--profile", "web", "add", "dsh-aimail", "--config.minimumReleaseAge=0"], env: Some(&[("DSH_HOME","{home}")]), skip_if: None, on_missing: Some("fail"), fail_hint: Some("`dsh` CLI not found — build/install deepseek-harness first (e.g. cd ~/deepseek-harness && cargo build --release && ln -sf \"$PWD/target/release/dsh\" ~/.local/bin/dsh), then re-run aimail install"), on_error: Some("warn"), warn_hint: Some("dsh plugin add aimail 失败(检查 aimail npm 包发布与网络)"), ok_text: Some("aimail 插件已安装(dsh bundle 层挂载)"), skipped_text: None }, Step::RegisterDefault { when: Some(When { cfg_complete: Some(true), sid_set: None, path_exists: None, command_exists: None, runtime: None, runtime_not: None }), on_error: Some("warn"), warn_hint: Some("dsh agent registration failed (see above) — rerun `aimail reset -s {sid}` once the plugin is in place") }, Step::Print { when: None, text: "  dsh: 绑定 = 创建 dsh session(mail preset)后自动 auto-bind;" }, Step::Print { when: None, text: "        CLI 侧注册:`aimail address -s <sid> -a agent`" }],
@@ -677,7 +672,7 @@ PlatformDef {
         home_dir: ".openclaw",
         detect: Detect { dir_name: None, markers: &["openclaw.json"] },
         pointer: Pointer { kind: "root", file: ".agentmail" },
-        register: Register::NodeEntry { node_path: "{home}/npm/projects/*/node_modules/openclaw-aimail/dist/register-cli.js", args: None, fail_hint: "先安装 openclaw-aimail 插件(`openclaw plugins install openclaw-aimail --force --accept-capabilities` → 重启 gateway);注册经插件自带的 node 入口 --op assemble(owner 2026-10-11:host_command 形态退役)" },
+        register: Register::NodeEntry { node_path: "{home}/npm/projects/*/node_modules/openclaw-aimail/dist/register-cli.js", fail_hint: "先安装 openclaw-aimail 插件(`openclaw plugins install openclaw-aimail --force --accept-capabilities` → 重启 gateway);注册经插件自带的 node 入口 --op assemble(owner 2026-10-11:host_command 形态退役)" },
         register_all: Some(RegisterAll::NodeEntry { node_path: "{home}/npm/projects/*/node_modules/openclaw-aimail/dist/register-cli.js", fail_hint: "openclaw-aimail 需含独立 node 入口(dist/register-cli.js, --op 门)" }),
         ops: Some(NODE_OP_TEMPLATE),
         install_steps: &[Step::Print { when: None, text: "openclaw platform: ensure the openclaw-aimail plugin (auto; skipped when present) + register the agent (single agent: `aimail address -s SID -a main`):" }, Step::Spawn { when: None, argv: &["openclaw", "plugins", "install", "openclaw-aimail@latest", "--force", "--accept-capabilities"], env: None, skip_if: Some(SkipIf { argv: &["openclaw", "plugins", "list"], match_: "aimail" }), on_missing: Some("fail"), fail_hint: Some("`openclaw` executable not found (platform detected but host CLI missing?)"), on_error: Some("warn"), warn_hint: Some("openclaw-aimail plugin install failed (check network/registry) — after fixing, rerun `aimail reset -s {sid}`; keep `@latest` in the spec: a bare name is shadowed by a same-named local dir in cwd"), ok_text: Some("openclaw-aimail plugin installed (npm registry latest stable; takes effect after the gateway restarts)"), skipped_text: Some("openclaw-aimail plugin already present (install skipped)") }, Step::Print { when: None, text: "  restart the openclaw gateway to activate the plugin: `openclaw gateway install` (or `restart`)" }, Step::Print { when: Some(When { cfg_complete: None, sid_set: Some(true), path_exists: None, command_exists: None, runtime: None, runtime_not: None }), text: "  register: `aimail address -a main`（经插件 node 入口 --op assemble）" }, Step::Print { when: Some(When { cfg_complete: None, sid_set: Some(false), path_exists: None, command_exists: None, runtime: None, runtime_not: None }), text: "  register: `aimail address -a main` (once pointer/system ready)" }, Step::RegisterDefault { when: None, on_error: None, warn_hint: Some("openclaw main agent registration failed (see above) — rerun `aimail reset -s {sid}` once the plugin is in place") }, Step::RegisterAll { ok_text: Some("openclaw --all-agents registration complete"), warn_hint: Some("openclaw register-all failed (rerun `aimail reset -s {sid} --all-agents` once the plugin is in place)") }],

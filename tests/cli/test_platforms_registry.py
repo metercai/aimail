@@ -193,54 +193,11 @@ def test_write_path_is_the_file_check_reads(tmp_path):
             or _contract.AGENT_TOOLSET_NAME in (pt.get("cli") or [])
 
 
-# ── dsh/pi register 模板 {name} token(自 test_register_name_token_registry.py)─
-from aimail_base import plan_address_name  # noqa: E402  (SDK single source)
-
-_PLATFORMS = ("dsh", "pi")
-
-
-def test_dsh_pi_register_templates_carry_name_token():
-    for plat in _PLATFORMS:
+# ── node 宿主 register 只声明入口节点(owner 2026-10-17:CLI 无定名责任)──
+def test_node_host_register_declares_entry_only():
+    """注册器参数归宿主包自带 op 入口 ⇒ 注册表不得回填 args/argv/preset 等宿主 flag。"""
+    for plat in ("dsh", "pi", "openclaw"):
         r = PLATS[plat]["register"]
         assert r["kind"] == "node_entry", plat
-        assert "{name}" in json.dumps(r), (
-            f"{plat} register template lost the {{name}} token — F13 pin would "
-            "revert to the platform-default registration"
-        )
-
-
-def test_dsh_pi_custom_name_registers_directly_no_rename():
-    for plat in _PLATFORMS:
-        pdef = PLATS[plat]
-        r = pdef["register"]
-        argv = (r.get("argv") or []) + (r.get("args") or [])
-        plan = plan_address_name(
-            "foo",
-            agent_id="agent",
-            domain="x.example",
-            system_name="",
-            aliases=pdef.get("aliases", []),
-            register_argv=argv,
-        )
-        assert plan["needs_rename"] is False, plat
-        assert plan["reg_as"] == "foo", plan
-        assert plan["email"] == plan["target_email"] == "foo@x.example", plan
-
-
-def test_dsh_pi_default_flow_unchanged_direct():
-    # reset/install register the default name: direct + legacy address preserved
-    for plat in _PLATFORMS:
-        pdef = PLATS[plat]
-        r = pdef["register"]
-        argv = (r.get("argv") or []) + (r.get("args") or [])
-        plan = plan_address_name(
-            "agent",
-            agent_id="agent",
-            domain="x.example",
-            system_name="",
-            aliases=pdef.get("aliases", []),
-            register_argv=argv,
-        )
-        assert plan["needs_rename"] is False, plat
-        assert plan["reg_as"] == plan["target_name"] == "agent", plan
-        assert plan["email"] == plan["target_email"], plan
+        for dead in ("args", "argv", "preset"):
+            assert dead not in r, f"{plat} register 回填了宿主 flag {dead}"

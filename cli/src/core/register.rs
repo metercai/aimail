@@ -125,7 +125,6 @@ pub fn register_agent(
     let mut spec = json!({
         "kind": kind,
         "args_template": rdef.get("args").cloned().unwrap_or(json!([])),
-        "argv": rdef.get("argv").cloned().unwrap_or(json!([])),
         "manager_arg": rdef.get("manager_arg").cloned().unwrap_or(json!([])),
         "fail_hint": rdef.get("fail_hint").cloned().unwrap_or(json!("")),
     });
@@ -251,7 +250,8 @@ pub fn register_agent(
         }
         // G1b(2026-10-13)→P3-C(2026-10-17):preset 由 SDK 侧自报(dsh register-cli
         // assembleExtra 宿主布局数据,10-11 三来源裁决「宿主自报/内部 → SDK 内部」);
-        // CLI 不再从注册表 args 声明提取 ⇒ 注册表 register.args 无宿主概念。
+        // P3-F(2026-10-17):node 宿主 register.args 已删 —— CLI 无定名责任,
+        // 声明不产生行为(信封不带它、生产代码零调用 plan_address_name)。
         // dsh check session 维判据只认绑定顶层 preset(adapters.rs:895)。
     }
     let res = crate::core::sdk::sdk_ops_call_for(
