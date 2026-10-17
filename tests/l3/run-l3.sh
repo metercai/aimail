@@ -650,7 +650,11 @@ echo "── [6/6] query-mail signature assertion"
 # v1 签名协议), 然后 whoami 读回网关侧已生效的身份名片(agent_persona)+ 邮件签名
 # (agent_signature) —— welcome approve 后 UPSERT 到 domain_addr_meta 的权威断言点
 # (whoami.rs:44-52; CLI check/l1 同源)。
-PYTHONPATH="$AIMAIL_REPO" python3 - "$GW_URL" "$SYSTEM_ID" "$AIMAIL_MANAGER_ADDRESS" <<'PYEOF' || die "signature assertion failed"
+# Windows: [6/6] 末行 print 含 ✓(U+2713), 管道 stdout 默认 cp1252 无法编码
+# (L3 2026-10-17 实证: UnicodeEncodeError '\u2713' position 2 —— persona/signature
+# 已读回, 只差最后一行)。PYTHONIOENCODING=utf-8 覆盖 stdout/stderr 编码;
+# unix 默认即 UTF-8 ⇒ 行为不变。
+PYTHONPATH="$AIMAIL_REPO" PYTHONIOENCODING=utf-8 python3 - "$GW_URL" "$SYSTEM_ID" "$AIMAIL_MANAGER_ADDRESS" <<'PYEOF' || die "signature assertion failed"
 import sys, json, os, time, urllib.request, urllib.error
 import hashlib, hmac
 
