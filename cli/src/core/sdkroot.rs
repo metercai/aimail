@@ -180,7 +180,15 @@ pub fn probe_in_domain(container: &str, home: &str) -> String {
             if !under || !envp.join("pyvenv.cfg").is_file() {
                 continue;
             }
-            for bin in ["bin/python3", "bin/python"] {
+            for bin in [
+                "bin/python3",
+                "bin/python",
+                // Windows hermes PM venv = `Scripts/` 布局(2026-10-17 L3 windows/hermes
+                // 实证: "Activate with: venv\Scripts\activate" + "Using Python ... at: venv")。
+                // unix 上该路径不存在 ⇒ 自然跳过, 跨平台无副作用。
+                "Scripts/python.exe",
+                "Scripts/python",
+            ] {
                 let c = envp.join(bin);
                 if c.is_file() {
                     let mt = std::fs::metadata(&facts)
@@ -642,6 +650,42 @@ mod tests {
             new_py.to_string_lossy().to_string(),
             "应取 facts.json 最新的 install, 实得 {got} (old={})",
             old_py.to_string_lossy()
+        );
+    }
+
+    #[test]
+    fn windows_hermes_pm_venv_scripts_layout_is_discovered() {
+        // L3 2026-10-17 windows/hermes(实证 run 39001152324)：Windows 上 hermes PM 的
+        // uv venv 是 `Scripts/` 布局("Activate with: venv\Scripts\activate" +
+        // "Using Python 3.14.7 environment at: venv")。facts.json 档只认 `bin/` ⇒
+        // 全落空回退 PATH 裸 python3 ⇒ SDK 装进宿主进程 import 不到的解释器 ⇒
+        // preprocessor 静默未注册(`except ImportError: pass`)⇒ welcome 120s 不闭环。
+        // 判据 = 布局(facts.json + pyvenv.cfg + 解释器在场), 无平台可执行位依赖 ⇒ 双平台可跑。
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        let keydir = home.join("installs").join("3a8b74792452ca04");
+        let env = keydir
+            .join("environments")
+            .join("3a8b74792452ca04")
+            .join("venv");
+        let scripts = env.join("Scripts");
+        std::fs::create_dir_all(&scripts).unwrap();
+        let py = scripts.join("python.exe");
+        std::fs::write(&py, b"MZ").unwrap();
+        std::fs::write(env.join("pyvenv.cfg"), b"home = /x\n").unwrap();
+        std::fs::write(
+            keydir.join("facts.json"),
+            format!(
+                r#"{{"packages":{{"venv":{{"environment":"{}"}}}}, "schema": 1}}"#,
+                env.to_string_lossy()
+            ),
+        )
+        .unwrap();
+        let got = probe_with_lock(&home.to_string_lossy());
+        assert_eq!(
+            got,
+            py.to_string_lossy().to_string(),
+            "facts.json 记录的 uv venv 应按 Scripts 布局命中, 实得 {got}"
         );
     }
 
