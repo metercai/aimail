@@ -348,7 +348,7 @@ GW_HTTP_PORT=18123; GW_SMTP_PORT=12526
 # 正/反双斜杠。unix 分支: 无 cygpath, 原 POSIX 路径进 basic string, 行为不变。
 case "$(uname -s)" in
   MINGW*) GW_DATA_PATH="$(cygpath -w "${GW_HOME}/data")"; GW_PATH_TOML="'${GW_DATA_PATH}'" ;;
-  *)      GW_PATH_TOML=""${GW_HOME}/data"" ;;
+  *)      GW_PATH_TOML="'${GW_HOME}/data'" ;;
 esac
 cat > "$GW_HOME/config.toml" <<EOF
 [http]
