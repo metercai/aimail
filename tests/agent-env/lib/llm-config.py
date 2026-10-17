@@ -69,7 +69,7 @@ def _load_json(path: Path) -> dict:
     if not path.is_file():
         return {}
     try:
-        data = json.loads(path.read_text() or "{}")
+        data = json.loads(path.read_text(encoding="utf-8") or "{}")
     except Exception:  # noqa: BLE001 - a corrupt file must be surfaced, not silently replaced
         raise RuntimeError(f"existing {path} is not valid JSON")
     return data if isinstance(data, dict) else {}
@@ -222,7 +222,7 @@ def write_hermes(home: Path, base_url: str, model: str, api_key: str,
             bak = p.with_suffix(p.suffix + ".pre-llm.bak")
             if not bak.exists():
                 shutil.copy2(p, bak)
-            lines = p.read_text().splitlines(keepends=True)
+            lines = p.read_text(encoding="utf-8").splitlines(keepends=True)
             start, end = _hermes_model_block(lines)
             if start is None:
                 lines += ["model:\n"]
@@ -470,7 +470,7 @@ def write_dsh(home: Path, base_url: str, model: str, api_key: str) -> list[Path]
     written = []
     for prof in profs:
         p = prof / "cordis.patch.yml"
-        lines = p.read_text().splitlines(keepends=True) if p.is_file() else []
+        lines = p.read_text(encoding="utf-8").splitlines(keepends=True) if p.is_file() else []
         _dsh_assert_list(p, lines)
         span = _dsh_row_span(lines)
         if span is None:
@@ -647,7 +647,7 @@ def verify_hermes(home: Path, base_url: str, model: str, extra_homes: list[str] 
         if not p.is_file():
             bad.append(f"{p} does not exist")
             continue
-        lines = p.read_text().splitlines(keepends=True)
+        lines = p.read_text(encoding="utf-8").splitlines(keepends=True)
         start, end = _hermes_model_block(lines)
         if start is None:
             bad.append(f"{p} has no top-level model: block")
@@ -685,7 +685,7 @@ def verify_dsh(home: Path, base_url: str, model: str) -> list[str]:
         if not p.is_file():
             bad.append(f"{p} does not exist")
             continue
-        lines = p.read_text().splitlines(keepends=True)
+        lines = p.read_text(encoding="utf-8").splitlines(keepends=True)
         if openai:
             # Check the rows the inbound turn actually composes from: the pi-ai provider
             # row (api protocol / baseURL / credential NAME / the target model present)

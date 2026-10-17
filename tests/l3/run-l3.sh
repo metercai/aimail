@@ -372,7 +372,7 @@ for i in $(seq 1 30); do
   sleep 1
 done
 SYS_KEY_FILE="$(ls "$GW_HOME/data"/*.system.key 2>/dev/null | head -1)"
-[ -n "$SYS_KEY_FILE" ] || die "gateway did not provision system key (see boot.log)"
+[ -n "$SYS_KEY_FILE" ] || die "gateway did not provision system key — boot.log: $(tail -10 "$GW_HOME/boot.log" 2>/dev/null | tr '\n' ' ') | data dir: $(ls -la "$GW_HOME/data" 2>&1 | tr '\n' ' ') | config: $(cat "$GW_HOME/config.toml" | tr '\n' ' ')"
 SYSTEM_ID="$(cat "$GW_HOME/data/system.id" 2>/dev/null | tr -d '[:space:]')"
 SYS_KEY="$(tr -d '[:space:]' < "$SYS_KEY_FILE")"
 ADMIN_KEY_FILE="$GW_HOME/data/aimail.db.admin_key"
