@@ -43,8 +43,8 @@ pub(crate) fn email_for_agent(name: &str, domain: &str, system_name: &str) -> St
 
 /// 主 agent 地址：首个本地已注册绑定 → 默认名派生。
 ///
-/// 定名归 SDK/宿主（owner 2026-10-18 删除 `default_agent_name`）：CLI 不再持有"主 agent 名"，
-/// 需要指定目标时用 `-a <agent>`（ping/welcome 各自的参数）。
+/// 定名归 SDK/宿主（owner 2026-10-18 删除 `default_agent_name`）：CLI 不再持有"主 agent 名"；
+/// 需要指定目标时用 `aimail ping -a <agent>`（welcome 的 `--agent` 属内部开关，不进命令面）。
 pub(crate) fn main_agent_email(cfg: &serde_json::Value) -> String {
     let dom = cfg.get("domain").and_then(|v| v.as_str()).unwrap_or("");
     let sysname = cfg
