@@ -283,9 +283,9 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 | `version` | 显示 CLI/引导版本(升级检测) |
 | `welcome` | welcome 端到端测试(含 LLM 双向;最终验收,与 `ping` 双测并列) |
 
-**平台推断(无 --agent-type)**:`--home` 目录特征按序判定——`pi`(`~/.pi` + agent/)、`dsh`(`~/.dsh` + profiles/ + storages/;dsh 也有 profiles/,须在 hermes 特征前)、`hermes`(hermes-agent/ 或 profiles/)、`openclaw`(openclaw.json)、`deerflow`(backend/app/gateway)→ 配置 system_home 反查 → 自动探测指针。
+**平台推断(无 --agent-type)**:`--home` 目录特征按序判定——`pi`(`~/.pi` + agent/)、`dsh`(`~/.dsh` 且含 profiles/;dsh 也有 profiles/,须在 hermes 特征前)、`hermes`(hermes-agent)、`openclaw`(openclaw.json)、`deerflow`(backend/app/gateway)→ 配置 system_home 反查 → 自动探测指针。
 
-**.env 自动加载**:CLI 参数 > shell env > `~/.aimail/.env`(bootstrap 固化)> 仓库 `.env` > 内置默认。bootstrap 固化的键:AIMAIL_URL / AIMAIL_ADMIN_KEY / AIMAIL_PRODUCT_CODE / AIMAIL_MANAGER_ADDRESS / AIMAIL_SYSTEM_NAME / AIMAIL_DOMAIN。
+**.env 自动加载**:CLI 参数 > shell env > `~/.aimail/.env`(bootstrap 固化)> 仓库 `.env` > 内置默认。bootstrap 固化的键:AIMAIL_GW_URL / AIMAIL_ADMIN_KEY / AIMAIL_PRODUCT_CODE / AIMAIL_MANAGER_ADDRESS / AIMAIL_SYSTEM_NAME / AIMAIL_DOMAIN。
 install 全非交互:激活 → 从 setup_system JSON stdout 取 server 分配的 system_id → domain 预置/创建 → deploy_bridge → 平台适配。
 
 **系统激活 ABI — `install --system-only`(L1 单一实现)**

@@ -287,7 +287,7 @@ added 2026-09-23):
 | `version` | Show the CLI/bootstrap version (upgrade detection) |
 | `welcome` | welcome end-to-end test (incl. LLM round-trip; final acceptance, peer to the `ping` test) |
 
-**Platform inference (without --agent-type)**: decided in order by the `--home` directory features — `pi` (`~/.pi` + agent/), `dsh` (`~/.dsh` + profiles/ + storages/; dsh also has profiles/, so it must be checked before hermes), `hermes` (hermes-agent/ or profiles/), `openclaw` (openclaw.json), `deerflow` (backend/app/gateway) → resolve the configured system_home → auto-detect the pointer.
+**Platform inference (without --agent-type)**: decided in order by the `--home` directory features — `pi` (`~/.pi` + agent/), `dsh` (`~/.dsh` containing profiles/; dsh also has profiles/, so it must be checked before hermes), `hermes` (hermes-agent), `openclaw` (openclaw.json), `deerflow` (backend/app/gateway) → resolve the configured system_home → auto-detect the pointer.
 
 **.env auto-loading**: CLI args > shell env > `~/.aimail/.env` (persisted by bootstrap) > repo `.env` > built-in defaults. Keys persisted by bootstrap: AIMAIL_GW_URL / AIMAIL_ADMIN_KEY / AIMAIL_PRODUCT_CODE / AIMAIL_MANAGER_ADDRESS / AIMAIL_SYSTEM_NAME / AIMAIL_DOMAIN.
 install is fully non-interactive: activate → take the server-assigned system_id from the setup_system JSON stdout → preset/create domain → deploy_bridge → platform adapter.
