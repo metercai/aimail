@@ -46,7 +46,7 @@ Host adapters never import the package path directly: each entry calls
 Resources are **seeds**, released at install time: board prompts land in
 `~/.aimail/systems/{system_id}/board/` (read by both the Python and TypeScript
 runtimes, so one edit applies to every platform), and skills are expanded into
-each host's own skills directory (e.g. hermes `profiles/*/skills/agentmail`).
+each host's own skills directory (hermes: per-profile `skills/`).
 
 ## Development
 
