@@ -9,9 +9,26 @@ key.
 The **system-level** forms are out of scope here: creating/reusing an AIMail
 *system* (shared-domain system identifier, dedicated domain,
 `AIMAIL_PRODUCT_CODE`), self-hosting the gateway, and the bridge/push delivery
-those use. Those are operator actions, documented in the repository README (the
-four install scenarios), `docs/agent-integration.md` and `cli/README.md`. Do not
-ask for a product code and do not run `aimail install` for your own mailbox.
+those use. Those are operator actions that need the CLI and the bridge in the
+local environment, documented in the repository README (the four install
+scenarios) and `docs/agent-integration.md`. Do not ask for a product code and
+do not run `aimail install` for your own mailbox.
+
+## 0. Which SDK you load — language is the only split
+
+There are exactly two integration paths, told apart by **language**, never by
+agent product:
+
+- **Python** — load the `pysdk`. Every Python host uses it; a platform adapter
+  wraps the same functions and calls them for you.
+- **TypeScript** — load `@aimail/mail-core`, the generic TS core. If your host
+  has a matching adapter package, that package wraps this core; a host without
+  one uses the core directly.
+
+The generic TypeScript core covers **agent-level** integration only. Adding a
+system, a dedicated domain, a system key or push delivery is the system-level
+form above and needs the CLI plus the bridge; the agent-level path never
+requires either.
 
 ## 1. What you receive
 
@@ -36,7 +53,8 @@ administrator can change it later.
 
 ## 2. Activate and persist — one call, no CLI
 
-TypeScript platforms (openclaw / pi / dsh) — from `@aimail/mail-core`:
+TypeScript — from `@aimail/mail-core` (the generic core; a host adapter wraps
+it):
 
 ```ts
 import { GatewayClient, activateAddressCodePersist } from "@aimail/mail-core"
@@ -50,7 +68,7 @@ const res = await activateAddressCodePersist(client, code, address, {
 // res.raw_key / res.system_id / res.email_address / res.expires_at / res.config_path
 ```
 
-Python platforms (hermes / deer-flow) — from the pysdk:
+Python — from the `pysdk`:
 
 ```python
 from aimail_tools import _GatewayClient
@@ -65,6 +83,10 @@ Under the hood both call `POST /api/v1/activate-address-code` and then persist:
 - your **own agent key** (never a system admin key) → `agentmail.json`,
   mode `0600`, register-isomorphic fields (`agent_id`, `email`, `gateway_url`,
   `domain`, `system_id`, `api_key`, `expires_at`);
+- the **manager (safety officer) the gateway recorded** for this address,
+  returned by the same activation call and stored as `manager_address` — it is
+  the recipient of the contact-approval flow, and the gateway remains the
+  source of truth for it;
 - the identity pointer `.agentmail` (so later runs resolve which mailbox is
   yours);
 - a create-if-absent system connection file for the hosting system
@@ -81,14 +103,13 @@ only by an agent-level activation code, and the binding it produces carries a
 
 ### 3.1 Start the pull entry for your own mailbox
 
-The pull entry starts by itself on every adapted platform (Hermes, OpenClaw,
-DSH, Pi, DeerFlow): the adapter starts it while it initialises and stops it on
-dispose/shutdown, and it delivers each pulled mail into **the same inbound chain
-push uses** — a pulled mail reaches you exactly like a pushed one.
+If your host ships an adapter, the adapter starts the pull entry while it
+initialises and stops it on dispose/shutdown, and it delivers each pulled mail
+into **the same inbound chain push uses** — a pulled mail reaches you exactly
+like a pushed one.
 
-When you embed the SDK in a host that has no adapter yet, start it yourself: one
-call, one polling loop per agent-level binding, delivering into your own inbound
-entry.
+When you embed the SDK yourself, start it: one call, one polling loop per
+agent-level binding, delivering into your own inbound entry.
 
 TypeScript (`@aimail/mail-core`):
 
@@ -123,23 +144,24 @@ handles = start_agent_pull_entries(
 stop_agent_pull_entries(handles)
 ```
 
+Activating through the SDK's `activate_address_code` entry already hands the
+just-activated address to the shared core (`set_agent_context`), so the
+module-level mail tools work right after activation. If you drive the raw
+client instead (`_GatewayClient`), call `set_agent_context` once with the
+address local-part and `system_id`; without it those tools answer "aimail not
+configured for this profile".
+
 To drive it by hand instead, the underlying calls are `start_polling` (Python,
 a blocking loop to run in a worker thread) plus `pull_list` and `pull_ack`
 (both SDKs) for a single round.
 
-### 3.2 Where a pulled mail lands (inbound entry per platform)
+### 3.2 Where a pulled mail lands
 
-The pull hands the mail to the platform's own inbound entry — the very same one
-push targets, so nothing about your mail handling changes between the two
-modes.
-
-| Platform | Inbound entry | Kind |
-| -------- | ---------------------------------------------------- | -------------------------- |
-| Hermes | `/webhooks/aimail-inbound` | Long-running app route |
-| OpenClaw | `/aimail/inbound` on the host gateway (port 18789) | Inside the host process |
-| DSH | `/aimail/inbound` on port 9099 | Inside the host process |
-| Pi | `/aimail/inbound` on port 9101 | Inside the host process |
-| DeerFlow | `/aimail/inbound` on port 8001 | Long-running app route |
+A pulled mail goes to the inbound handler **you** passed (onEmail in
+TypeScript, on_email in Python) — the very same entry push targets, so
+nothing about your mail handling changes between the two modes. Which local
+endpoint an adapter exposes is an adapter fact, not part of this flow; the
+per-platform endpoints are listed in `docs/agent-integration.md`.
 
 ### 3.3 Reply with the agentmail skill protocol
 
@@ -162,17 +184,15 @@ name below is a contract value, not a free choice.
 
 | What | Value |
 | ------------------------------- | ------------------------ |
-| Inbound path (all but Hermes) | `/aimail/inbound` |
-| Inbound path (Hermes, the only exception) | `/webhooks/aimail-inbound` |
 | Skill and toolset registration name | `agentmail` |
 | Per-address binding file | `agentmail.json` |
 | System pointer file | `.agentmail` |
 | Agent-level binding system prefix | `shared_addr_` |
 
-Ports are configurable (defaults 9099 for DSH, 9101 for Pi, 8001 for DeerFlow,
-18789 = the OpenClaw host gateway's own port); **paths are not**. Hermes is the
-single path exception because its inbound is a route of the Hermes gateway
-itself.
+The inbound paths and listener ports a host exposes belong to the host (or to
+its adapter) and are listed in `docs/agent-integration.md`; the agent-level
+flow above needs none of them, because the pull delivers to the handler you
+pass in.
 
 **Name boundary:** everything inside the agent is `agentmail` — that is the
 skill/toolset name the host looks up, and the name you use with yourself.

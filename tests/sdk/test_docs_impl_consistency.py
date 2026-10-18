@@ -20,6 +20,7 @@ SCRIPT = ROOT / "tests" / "contract" / "check-docs-consistency.py"
 MANIFEST = ROOT / "contract" / "aimail-contract.json"
 DOC_EN = ROOT / "docs" / "agent-self-setup.md"
 DOC_ZH = ROOT / "docs" / "agent-self-setup_zh.md"
+PLATFORM_EN = ROOT / "docs" / "agent-integration.md"
 
 
 def _run(*args: str) -> tuple:
@@ -49,15 +50,30 @@ def test_bad_symbol_name_is_red_with_file_line(tmp_path):
 def test_wrong_contract_value_is_red(tmp_path):
     man = json.loads(MANIFEST.read_text(encoding="utf-8"))
     text = DOC_EN.read_text(encoding="utf-8")
-    assert man["inbound_path"] in text, "前置: 文档里本就引用了真源路径"
-    # 把路径改坏到"真源值再也出现不了"(前缀式子串也算命中, 所以要整体换掉)
-    bad_text = text.replace(man["inbound_path"], man["inbound_path"].replace("/", "_"))
-    assert man["inbound_path"] not in bad_text, "前置: 坏文档里确已无真源值"
+    assert man["binding_file"] in text, "前置: 文档里本就引用了真源值"
+    # 把值改坏到"真源值再也出现不了"(前缀式子串也算命中, 所以要整体换掉)
+    bad_text = text.replace(man["binding_file"], man["binding_file"].replace(".", "_"))
+    assert man["binding_file"] not in bad_text, "前置: 坏文档里确已无真源值"
     bad = tmp_path / "bad-doc.md"
     bad.write_text(bad_text, encoding="utf-8")
     rc, out = _run("--en", str(bad))
     assert rc == 1, out
-    assert man["inbound_path"] in out, out  # 报告里点名缺哪个真源值
+    assert "binding_file" in out, out  # 报告里点名缺哪个真源值
+
+
+def test_platform_doc_path_drift_is_red(tmp_path):
+    """Host-side facts (inbound path + ports) are pinned to the platform doc:
+    a typo there must stay red even though the self-setup doc is clean."""
+    man = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    text = PLATFORM_EN.read_text(encoding="utf-8")
+    assert man["inbound_path"] in text, "前置: 平台文档里本就引用了真源路径"
+    bad_text = text.replace(man["inbound_path"], man["inbound_path"].replace("/", "_"))
+    assert man["inbound_path"] not in bad_text
+    bad = tmp_path / "bad-platform.md"
+    bad.write_text(bad_text, encoding="utf-8")
+    rc, out = _run("--platform-en", str(bad))
+    assert rc == 1, out
+    assert "inbound_path" in out, out
 
 
 def test_missing_doc_cannot_judge():

@@ -6,8 +6,21 @@ skill 回信。不需要 CLI、不需要系统级凭据、不需要 admin key。
 
 **系统级**形态不在本文件范围内：创建/复用 AIMail *系统*（共享域系统标识、
 独享域名、`AIMAIL_PRODUCT_CODE`）、自建网关，以及它们所用的桥（push）投递。
-那些是运维动作，见仓库 README（四种安装场景）、`docs/agent-integration_zh.md`
-与 `cli/README_zh.md`。不要索取产品码，也不要为自己的邮箱执行 `aimail install`。
+那些是运维动作，需要本机具备 CLI 与 bridge，见仓库 README（四种安装场景）与
+`docs/agent-integration_zh.md`。不要索取产品码，也不要为自己的邮箱执行
+`aimail install`。
+
+## 0. 你加载哪个 SDK —— 只按语言分
+
+只有两条对接路径，只按**语言**区分，从不按 agent 产品区分：
+
+- **Python** —— 加载 `pysdk`。所有 Python 宿主都用它；平台适配层只是包在同一批
+  函数外面替你调用。
+- **TypeScript** —— 加载 `@aimail/mail-core`，通用 TS 核心。宿主若有匹配的适配包，
+  适配包包在这个核心外面；没有适配包的宿主直接用核心本身。
+
+通用 TS 核心只覆盖 **agent 级**对接。增加系统、独享域名、系统 key 或 push 投递
+属于上面的系统级形态，需要 CLI 和 bridge；agent 级路径两者都不需要。
 
 ## 1. 你会收到什么
 
@@ -29,7 +42,7 @@ Activate my AIMail mailbox <your-address> using the activation code
 
 ## 2. 激活并落盘 — 一次调用，不碰 CLI
 
-TypeScript 平台（openclaw / pi / dsh）—— 来自 `@aimail/mail-core`：
+TypeScript —— 来自 `@aimail/mail-core`（通用核心；宿主适配包包在它外面）：
 
 ```ts
 import { GatewayClient, activateAddressCodePersist } from "@aimail/mail-core"
@@ -43,7 +56,7 @@ const res = await activateAddressCodePersist(client, code, address, {
 // res.raw_key / res.system_id / res.email_address / res.expires_at / res.config_path
 ```
 
-Python 平台（hermes / deer-flow）—— 来自 pysdk：
+Python —— 来自 `pysdk`：
 
 ```python
 from aimail_tools import _GatewayClient
@@ -58,6 +71,8 @@ res = client.activate_address_code_persist(code, address,
 - 你**自己的 agent key**（绝不是系统 admin key）→ `agentmail.json`，权限
   `0600`，字段与注册链同构（`agent_id`、`email`、`gateway_url`、`domain`、
   `system_id`、`api_key`、`expires_at`）；
+- 网关为这条地址**实际记录的 manager（安全官）** —— 由同一次激活调用带回并落成
+  `manager_address`；它是联系人审批信件的收件人，权威仍在网关；
 - 身份指针 `.agentmail`（之后的运行靠它认出哪个邮箱是你的）；
 - 承载系统的一条「不存在才创建」的系统连接文件（`shared_addr_<domain>`），
   首次激活时自动生成。
@@ -72,12 +87,12 @@ agent 级激活**不会为你注册 push 目标**，所以网关会把你的信�
 
 ### 3.1 为自己这条邮箱起轮询入口
 
-在每一个已适配平台（Hermes、OpenClaw、DSH、Pi、DeerFlow）上，轮询入口会**自己
-起来**：适配器在初始化时起、在 dispose/shutdown 时停，并把每封拉到的信投进
-**push 用的同一条入站链** —— 拉来的信与推来的信对你的到达方式完全一样。
+宿主若带适配层，轮询入口会**自己起来**：适配器在初始化时起、在 dispose/shutdown
+时停，并把每封拉到的信投进 **push 用的同一条入站链** —— 拉来的信与推来的信对你
+的到达方式完全一样。
 
-当你在一个还没有适配器的宿主里自行嵌入 SDK 时，就自己起：一次调用，每条 agent 级
-绑定一条轮询循环，投进你自己的入站入口。
+自行嵌入 SDK 时，就自己起：一次调用，每条 agent 级绑定一条轮询循环，投进你自己的
+入站入口。
 
 TypeScript（`@aimail/mail-core`）：
 
@@ -112,21 +127,20 @@ handles = start_agent_pull_entries(
 stop_agent_pull_entries(handles)
 ```
 
+经 SDK 的 `activate_address_code` 入口激活时，共享核心的 agent 上下文已经替你设好
+（`set_agent_context`），模块级邮件工具激活后即可使用。若你直接用底层客户端
+（`_GatewayClient`），需自己调一次 `set_agent_context`（地址 local-part 与
+`system_id`）；否则这些工具会答 “aimail not configured for this profile”。
+
 若要自己手动驱动，底层调用是 `start_polling`（Python，阻塞循环，放进工作线程）
 以及 `pull_list` 与 `pull_ack`（两个 SDK 都有），用来手工跑一轮。
 
-### 3.2 拉进来的信落在哪（各平台入站入口）
+### 3.2 拉进来的信落在哪
 
-轮询把信交给平台自己的入站入口 —— 就是 push 指向的那一个，所以两种模式下你的
-收信处理没有任何差别。
-
-| 平台 | 入站入口 | 形态 |
-| -------- | ---------------------------------------------------- | -------------------------- |
-| Hermes | `/webhooks/aimail-inbound` | 长驻应用路由 |
-| OpenClaw | 宿主网关上的 `/aimail/inbound`（端口 18789） | 宿主进程内 |
-| DSH | 端口 9099 上的 `/aimail/inbound` | 宿主进程内 |
-| Pi | 端口 9101 上的 `/aimail/inbound` | 宿主进程内 |
-| DeerFlow | 端口 8001 上的 `/aimail/inbound` | 长驻应用路由 |
+拉来的信交给你传进去的入站处理函数（TypeScript 的 onEmail、Python 的 on_email）
+—— 就是 push 指向的那一个，所以两种模式下你的收信处理没有任何差别。适配层对外
+暴露哪个本机端点属于适配层事实、不是本流程的一环；各平台的端点列在
+`docs/agent-integration_zh.md`。
 
 ### 3.3 按 agentmail skill 协议回信
 
@@ -146,16 +160,14 @@ stop_agent_pull_entries(handles)
 
 | 什么 | 值 |
 | ------------------------------- | ------------------------ |
-| 入站路径（除 Hermes 外全部） | `/aimail/inbound` |
-| 入站路径（Hermes，唯一例外） | `/webhooks/aimail-inbound` |
 | skill 与 toolset 注册名 | `agentmail` |
 | 每地址绑定文件 | `agentmail.json` |
 | 系统指针文件 | `.agentmail` |
 | agent 级绑定的系统前缀 | `shared_addr_` |
 
-端口可配（默认 DSH 9099、Pi 9101、DeerFlow 8001、OpenClaw 18789 = 宿主网关自身
-端口）；**路径不可变**。Hermes 是唯一的路径例外，因为它的入站是 Hermes 网关
-自身的一条路由。
+宿主（或其适配层）对外暴露的入站路径与监听端口属于宿主一侧，列在
+`docs/agent-integration_zh.md`；上面的 agent 级流程一个都不需要，因为拉来的信
+交给你自己传进去的处理函数。
 
 **命名边界：** agent 内部一切都叫 `agentmail` —— 宿主按这个名字查 skill/toolset
 表，你也只用这个名字与自己对账。`aimail` 是产品 / 仓库 / CLI 的品牌（`~/.aimail`

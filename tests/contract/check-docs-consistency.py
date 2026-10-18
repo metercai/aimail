@@ -17,11 +17,13 @@
       「层级 + 序号」一致(标题文本是译文, 故不按字面比), 否则两份文档讲的
       不是同一件事。
 
-  (c) 契约值 == 单一真源: 文档里出现的契约值(入站路径、hermes 例外路径、
-      agent 内部 skill/toolset 注册名、绑定文件名、指针文件名、各平台入站
-      端口、agent 级绑定系统前缀)必须逐字等于单一真源清单
+  (c) 契约值 == 单一真源: 文档里出现的契约值必须逐字等于单一真源清单
       ``contract/aimail-contract.json``(前缀另引 TS 侧常量事实源)。
-      文档写错值(哪怕只差一个字符)⇒ 真源值在文档里**找不到** ⇒ 红。
+      归属按层划分: 自举文档只钉 agent 内部名(skill/toolset 注册名、绑定文件名、
+      指针文件名); 宿主侧事实(入站路径、Hermes 例外、各平台入站端口)钉在平台
+      文档 ``docs/agent-integration*.md`` —— agent 级流程只按语言分, 平台端点
+      属适配层(owner 裁决 2026-10-19 去品牌)。文档写错值(哪怕只差一个字符)
+      ⇒ 真源值在归属文档里**找不到** ⇒ 红。
 
 退出码:
   0 = 通过;
@@ -44,16 +46,21 @@ from pathlib import Path
 # ── 被检文档与真源 ─────────────────────────────────────────────────────────
 DEFAULT_EN = "docs/agent-self-setup.md"
 DEFAULT_ZH = "docs/agent-self-setup_zh.md"
+#: 平台事实(入站路径/端口)的归属文档 —— agent 级流程只按语言分, 平台端点属适配层,
+#: 因此这些契约值钉在平台文档上, 不再要求自举文档出现(owner 裁决 2026-10-19 去品牌)。
+PLATFORM_EN = "docs/agent-integration.md"
+PLATFORM_ZH = "docs/agent-integration_zh.md"
 MANIFEST_REL = "contract/aimail-contract.json"
 #: agent 级绑定的 system_id 前缀 —— 实现侧事实源(文档讲"哪条路径被开启"要写出它)。
 PREFIX_SRC = "tssdk/packages/mail-core/src/poll-entry.ts"
 PREFIX_CONST = "AGENT_SCOPE_SYSTEM_PREFIX"
 
-#: 文档必须逐字引用的契约键(值型字符串键; 缺任一 = 文档与真源不一致)。
+#: 自举文档必须逐字引用的 agent 内部契约名(语言无关; 缺任一 = 与真源不一致)。
 CONTRACT_KEYS = (
-    "inbound_path", "hermes_inbound_path", "agent_skill_name",
-    "binding_file", "pointer_file",
+    "agent_skill_name", "binding_file", "pointer_file",
 )
+#: 平台文档必须逐字引用的宿主侧契约值(入站路径 + 各平台端口)。
+PLATFORM_CONTRACT_KEYS = ("inbound_path", "hermes_inbound_path")
 
 # ── 非符号名白名单(短; 每条带理由)──────────────────────────────────────────
 NON_SYMBOLS = {
@@ -259,11 +266,13 @@ def agent_scope_prefix(repo: Path) -> str:
     return m.group(1)
 
 
-def check_contract_values(rel: str, text: str, man: dict, prefix: str) -> None:
+def check_contract_values(rel: str, text: str, man: dict, prefix: str,
+                          keys: tuple = CONTRACT_KEYS, ports: bool = False,
+                          require_prefix: bool = True) -> None:
     out(f"[docs] (c) {rel}: 契约值 == 单一真源")
     nlines = len(text.splitlines())
     hits = 0
-    for key in CONTRACT_KEYS:
+    for key in keys:
         val = man[key]
         if val in text:
             hits += 1
@@ -271,21 +280,24 @@ def check_contract_values(rel: str, text: str, man: dict, prefix: str) -> None:
         viol("c", f"{rel}:1 (全文 {nlines} 行未命中) 缺契约值 {key}={val!r} "
                   f"← 单一真源 {MANIFEST_REL}; 文档写的值必须逐字等于真源")
         out(f"  ✗ {rel}: 全文未命中契约值 {key}={val!r}")
-    for plat, port in sorted(man["inbound_ports"].items()):
-        if str(port) in text:
+    if ports:
+        for plat, port in sorted(man["inbound_ports"].items()):
+            if str(port) in text:
+                hits += 1
+                continue
+            viol("c", f"{rel}:1 (全文 {nlines} 行未命中) 缺清单入站端口 "
+                      f"{plat}={port} ← 单一真源 {MANIFEST_REL}[inbound_ports]")
+            out(f"  ✗ {rel}: 全文未命中入站端口 {plat}={port}")
+    total = len(keys) + (len(man["inbound_ports"]) if ports else 0)
+    if require_prefix:
+        total += 1
+        if prefix in text:
             hits += 1
-            continue
-        viol("c", f"{rel}:1 (全文 {nlines} 行未命中) 缺清单入站端口 "
-                  f"{plat}={port} ← 单一真源 {MANIFEST_REL}[inbound_ports]")
-        out(f"  ✗ {rel}: 全文未命中入站端口 {plat}={port}")
-    if prefix in text:
-        hits += 1
-    else:
-        viol("c", f"{rel}:1 (全文 {nlines} 行未命中) 缺 agent 级绑定前缀 {prefix!r} "
-                  f"← 实现事实源 {PREFIX_SRC}:{PREFIX_CONST}")
-        out(f"  ✗ {rel}: 全文未命中 agent 级绑定前缀 {prefix!r}")
-    out(f"  ✓ {rel}: {hits}/{len(CONTRACT_KEYS) + len(man['inbound_ports']) + 1} "
-        f"项契约值逐字命中真源")
+        else:
+            viol("c", f"{rel}:1 (全文 {nlines} 行未命中) 缺 agent 级绑定前缀 {prefix!r} "
+                      f"← 实现事实源 {PREFIX_SRC}:{PREFIX_CONST}")
+            out(f"  ✗ {rel}: 全文未命中 agent 级绑定前缀 {prefix!r}")
+    out(f"  ✓ {rel}: {hits}/{total} 项契约值逐字命中真源")
 
 
 # ── main ───────────────────────────────────────────────────────────────────
@@ -303,6 +315,10 @@ def main(argv: list) -> int:
     ap.add_argument("--repo", default="", help="仓根(默认由本文件位置推导)")
     ap.add_argument("--en", default=DEFAULT_EN, help=f"英文文档(默认 {DEFAULT_EN})")
     ap.add_argument("--zh", default=DEFAULT_ZH, help=f"中文文档(默认 {DEFAULT_ZH})")
+    ap.add_argument("--platform-en", default=PLATFORM_EN,
+                    help=f"英文平台文档(默认 {PLATFORM_EN})")
+    ap.add_argument("--platform-zh", default=PLATFORM_ZH,
+                    help=f"中文平台文档(默认 {PLATFORM_ZH})")
     args = ap.parse_args(argv)
 
     repo = Path(args.repo).expanduser().resolve() if args.repo \
@@ -311,6 +327,8 @@ def main(argv: list) -> int:
     try:
         text_en = _read(repo, args.en)
         text_zh = _read(repo, args.zh)
+        plat_en = _read(repo, args.platform_en)
+        plat_zh = _read(repo, args.platform_zh)
         man = load_manifest(repo)
         prefix = agent_scope_prefix(repo)
         idx = build_symbol_index(repo)
@@ -319,6 +337,7 @@ def main(argv: list) -> int:
         return 2
 
     out(f"[docs] 被检文档: {args.en} / {args.zh}")
+    out(f"[docs] 平台文档: {args.platform_en} / {args.platform_zh}")
     out(f"[docs] 符号索引: {len(idx)} 个定义(来自 pysdk/ + tssdk/packages/)")
     out(f"[docs] 单一真源: {MANIFEST_REL}")
 
@@ -327,7 +346,13 @@ def main(argv: list) -> int:
                lambda: check_symbols(args.zh, text_zh, idx),
                lambda: check_structure(args.en, text_en, args.zh, text_zh),
                lambda: check_contract_values(args.en, text_en, man, prefix),
-               lambda: check_contract_values(args.zh, text_zh, man, prefix)):
+               lambda: check_contract_values(args.zh, text_zh, man, prefix),
+               lambda: check_contract_values(
+                   args.platform_en, plat_en, man, prefix,
+                   keys=PLATFORM_CONTRACT_KEYS, ports=True, require_prefix=False),
+               lambda: check_contract_values(
+                   args.platform_zh, plat_zh, man, prefix,
+                   keys=PLATFORM_CONTRACT_KEYS, ports=True, require_prefix=False)):
         try:
             fn()
         except CannotJudge as e:
