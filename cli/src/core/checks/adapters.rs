@@ -69,55 +69,7 @@ pub fn detect_agent_type(
     root: Option<&Path>,
     agent_home_explicit: bool,
 ) -> String {
-    if agent_home_explicit {
-        // `--agent-home` 显式指定 ⇒ Hermes 意图（Hermes 是唯一用 agent-home 定位的平台）
-        return "hermes".to_string();
-    }
-    let home = match root {
-        Some(r) => expand(r),
-        None => user_home.to_path_buf(),
-    };
-    for name in platforms::order() {
-        let Some(def) = platforms::platform(name) else {
-            continue;
-        };
-        let det = def.get("detect");
-        let dir_name = det
-            .and_then(|d| d.get("dir_name"))
-            .and_then(Value::as_str)
-            .map(str::to_string)
-            .or_else(|| platforms::home_dir(name).map(str::to_string))
-            .unwrap_or_else(|| format!(".{name}"));
-        let markers: Vec<&str> = det
-            .and_then(|d| d.get("markers"))
-            .and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(Value::as_str).collect())
-            .unwrap_or_default();
-        if markers.is_empty() {
-            continue;
-        }
-        let cands: Vec<PathBuf> = if root.is_none() {
-            vec![home.join(&dir_name)]
-        } else {
-            vec![home.clone(), home.join(&dir_name)]
-        };
-        for base in cands {
-            if markers.iter().all(|m| base.join(m).exists()) {
-                return name.to_string();
-            }
-        }
-    }
-    "unknown".to_string()
-}
-
-fn expand(p: &Path) -> PathBuf {
-    let s = p.to_string_lossy();
-    if let Some(rest) = s.strip_prefix("~/") {
-        if let Some(home) = std::env::var_os("HOME") {
-            return PathBuf::from(home).join(rest);
-        }
-    }
-    p.to_path_buf()
+    crate::hosts::identity::detect_agent_type(user_home, root, agent_home_explicit).to_string()
 }
 
 /// 一个待检 agent（各平台字段取用不同，缺省留空 —— 与 Python 的 dict 同形）。

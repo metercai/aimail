@@ -1571,26 +1571,7 @@ pub fn drain_stuck(client: &Option<crate::core::gateway::GatewayClient>) -> bool
 /// storages 是使用期产物，不入特征）。名字是平台语义（注册表只描述
 /// 特征，表达不了这里的 OR/文件/目录三种形状）。
 fn detect_platform_for_repair(dir: &Path) -> &'static str {
-    let name = dir
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_default();
-    if name == ".pi" && dir.join("agent").is_dir() {
-        return "pi";
-    }
-    if name == ".dsh" && dir.join("profiles").is_dir() {
-        return "dsh";
-    }
-    if dir.join("hermes-agent").exists() || dir.join("profiles").is_dir() {
-        return "hermes";
-    }
-    if dir.join("openclaw.json").is_file() {
-        return "openclaw";
-    }
-    if dir.join("backend").join("app").join("gateway").is_dir() {
-        return "deerflow";
-    }
-    "unknown"
+    crate::hosts::identity::detect_for_repair(dir)
 }
 
 /// `_failing_file_checks`（`repair.py:570-596`）：注册表里**文件类** health_checks 中"没有命中"的项。

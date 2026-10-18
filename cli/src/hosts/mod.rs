@@ -52,6 +52,16 @@ pub trait Host: Sync {
         }
     }
 
+    /// `--agent-home` 语义归谁（默认无人；hermes 是唯一用它定位的平台）。
+    fn uses_agent_home(&self) -> bool {
+        false
+    }
+
+    /// repair 宽松判定时额外认可的路径（默认无；hermes 历史语义还认 `profiles/`）。
+    fn repair_hints(&self) -> &'static [&'static str] {
+        &[]
+    }
+
     /// node 宿主的 op 入口 argv 模板；`None` ⇒ python 门（`-m aimail.sdk_ops`）。
     fn op_template(&self) -> Option<&'static [&'static str]> {
         match self.lang() {
@@ -79,13 +89,18 @@ pub const ORDER: &[&str] = &["pi", "dsh", "hermes", "openclaw", "deerflow"];
 pub const COMMENT: &str = "AIMail CLI 平台宿主表 — CLI 侧唯一平台知识源(检测/指针/枚举/注册委托/安装步骤)。适配实现全在 SDK:pysdk(hermes/deer-flow)+ tssdk 包(openclaw 宿主命令/dsh/pi node 入口)。CLI 读本表调度,零平台协议。";
 
 /// 全部宿主（顺序 = [`ORDER`]）。
-pub static ALL: &[&dyn Host] = &[
+pub static ALL: &[&'static dyn Host] = &[
     &pi::PI,
     &dsh::DSH,
     &hermes::HERMES,
     &openclaw::OPENCLAW,
     &deerflow::DEERFLOW,
 ];
+
+/// 全部宿主（顺序 = [`ORDER`]）。
+pub fn all() -> &'static [&'static dyn Host] {
+    ALL
+}
 
 /// 按 id 取宿主（不存在 ⇒ None，不猜）。
 pub fn get(id: &str) -> Option<&'static dyn Host> {

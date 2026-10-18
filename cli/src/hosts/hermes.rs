@@ -27,6 +27,12 @@ impl Host for Hermes {
     fn pointer_kind(&self) -> PointerKind {
         PointerKind::RootOrProfiles
     }
+    fn uses_agent_home(&self) -> bool {
+        true
+    }
+    fn repair_hints(&self) -> &'static [&'static str] {
+        &["profiles"]
+    }
     fn register(&self) -> Register {
         Register::PythonModule {
             module: "aimail_hermes",

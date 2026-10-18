@@ -58,7 +58,7 @@ pub fn raw() -> &'static Value {
 /// 按 home 目录特征判平台（注册表 `order` × `detect`；顺序语义保真：pi/dsh 特征先行，
 /// 防 `profiles/` 撞车）。识别不出 ⇒ `"unknown"`（不猜）。
 pub fn detect_platform_from_home(system_home: &std::path::Path) -> &'static str {
-    hits_dir(system_home).unwrap_or("unknown")
+    crate::hosts::identity::detect_platform_from_home(system_home)
 }
 
 /// 某个目录本身是否命中某平台（注册表 `detect`：`dir_name` **可选** + `markers` 必需）。
@@ -68,28 +68,7 @@ pub fn detect_platform_from_home(system_home: &std::path::Path) -> &'static str 
 /// [`crate::core::checks::adapters::detect_agent_type`] 的判定**不同**（那里 `dir_name`
 /// 缺省会回落到 `home_dir`）—— 两边都照抄，不合并。
 pub fn hits_dir(d: &std::path::Path) -> Option<&'static str> {
-    let name_of = d.file_name().map(|s| s.to_string_lossy().into_owned());
-    for name in order() {
-        let Some(detect) = platform(name).and_then(|p| p.get("detect")) else {
-            continue;
-        };
-        let want_dir = detect.get("dir_name").and_then(Value::as_str).unwrap_or("");
-        let markers: Vec<&str> = detect
-            .get("markers")
-            .and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(Value::as_str).collect())
-            .unwrap_or_default();
-        if markers.is_empty() {
-            continue;
-        }
-        if !want_dir.is_empty() && name_of.as_deref() != Some(want_dir) {
-            continue;
-        }
-        if markers.iter().all(|m| d.join(m).exists()) {
-            return Some(name);
-        }
-    }
-    None
+    crate::hosts::identity::hits_dir(d)
 }
 
 /// `runtime_core.normalize_platform_home`：把 `--home` 归一成**平台根**。
@@ -102,41 +81,12 @@ pub fn hits_dir(d: &std::path::Path) -> Option<&'static str> {
 /// ⇒ 之后换 cwd 跑命令时平台 home 解析漂移）。此处不用 `std::path::absolute`
 /// （1.79 才稳定，本 crate 的 MSRV 更低），改用 `current_dir` 手工绝对化。
 pub fn normalize_platform_home(home: &std::path::Path) -> std::path::PathBuf {
-    let p = if home.is_absolute() {
-        home.to_path_buf()
-    } else {
-        std::env::current_dir()
-            .map(|c| c.join(home))
-            .unwrap_or_else(|_| home.to_path_buf())
-    };
-    if !p.is_dir() {
-        return p;
-    }
-    if hits_dir(&p).is_some() {
-        return p;
-    }
-    let mut subs: Vec<std::path::PathBuf> = std::fs::read_dir(&p)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|e| e.path())
-        .filter(|q| q.is_dir())
-        .collect();
-    subs.sort();
-    for sub in subs {
-        if hits_dir(&sub).is_some() {
-            return sub;
-        }
-    }
-    p
+    crate::hosts::identity::normalize_platform_home(home)
 }
 
 /// 平台根目录（`<user_home>/<home_dir>`）；注册表缺 `home_dir` ⇒ `.<name>`（Python 同默认）。
 pub fn platform_root(user_home: &std::path::Path, name: &str) -> std::path::PathBuf {
-    let dir = home_dir(name)
-        .map(str::to_string)
-        .unwrap_or_else(|| format!(".{name}"));
-    user_home.join(dir)
+    crate::hosts::identity::platform_root(user_home, name)
 }
 
 /// 平台指针**全部候选**路径（`_pointer_paths_for` 语义）：
@@ -408,11 +358,7 @@ fn walk_pointers(
 
 /// 平台根存在**且**特征识别为该平台（`cli/aimail:3071-3075` 同判据）。
 pub fn platform_root_exists(user_home: &std::path::Path, name: &str) -> bool {
-    let root = platform_root(user_home, name);
-    if !root.exists() {
-        return false;
-    }
-    detect_platform_from_home(&root) == name
+    crate::hosts::identity::platform_root_exists(user_home, name)
 }
 
 /// `_platform_override`（`cli/aimail:279-296`）：`--platform` 显式覆盖的取值校验。
@@ -422,19 +368,7 @@ pub fn platform_root_exists(user_home: &std::path::Path, name: &str) -> bool {
 /// 用户看不到报错却按别的平台跑了 —— 2026-09-29 取证）。注意：**只认平台名**，别名（`hermes`
 /// 的 `default`、`openclaw` 的 `main`）同样按"未知"拒掉，与 Python 同判。
 pub fn platform_override(name: &str) -> Result<Option<String>, String> {
-    let p = name.trim();
-    if p.is_empty() {
-        return Ok(None);
-    }
-    if !order().contains(&p) {
-        let mut names: Vec<&str> = order().to_vec();
-        names.sort_unstable();
-        return Err(format!(
-            "--platform '{p}' unknown; valid: {}",
-            names.join(", ")
-        ));
-    }
-    Ok(Some(p.to_string()))
+    crate::hosts::identity::platform_override(name)
 }
 
 /// `resolve_platform`（`cli/aimail:267-276`）：home 特征优先，回退"第一个有 aimail 指针的平台"。
