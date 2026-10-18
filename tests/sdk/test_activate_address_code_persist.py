@@ -30,6 +30,7 @@ Contract literals (binding / pointer filenames) always come from
 ``aimail_contract`` — never spelled out here (the literal ratchet gate).
 """
 import json
+import os
 import stat
 import sys
 import threading
@@ -362,3 +363,67 @@ def test_mcp_registry_advertises_profile_home(hermes_home):
     assert "profile_home" in props, sorted(props)
     assert props["profile_home"]["type"] == "string"
     assert tool["inputSchema"]["required"] == ["code", "address"]
+
+
+# ── 5. manager = the value the gateway stored (first source) ───────────────
+
+@pytest.fixture(autouse=True)
+def _isolate_agent_ctx():
+    """Every test here activates an address, and activation injects the agent
+    context into the shared core (G2). Snapshot/clear/restore so neither the
+    process globals nor the AIMAIL_AGENT_* env can leak into other test files."""
+    saved = (base._ACTIVE_AGENT_CONFIG, base._CONFIG_LOADER)
+    saved_env = {k: os.environ.get(k) for k in
+                 ("AIMAIL_AGENT_EMAIL", "AIMAIL_AGENT_ID", "AIMAIL_SYSTEM_ID")}
+    base._ACTIVE_AGENT_CONFIG = None
+    base._CONFIG_LOADER = None
+    for k in saved_env:
+        os.environ.pop(k, None)
+    yield
+    base._ACTIVE_AGENT_CONFIG, base._CONFIG_LOADER = saved
+    for k, v in saved_env.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
+
+
+def test_binding_carries_the_manager_the_gateway_stored(hermes_home, gateway):
+    """The activation response is the agent-side first source for the manager:
+    the gateway returns the value it wrote in that transaction, and the binding
+    keeps it so manage_contacts(add) has a recipient (no later whoami guess)."""
+    url, _ = gateway
+    _FakeGateway.response = {**_FakeGateway.response,
+                             "manager_address": "mgr@example.test"}
+
+    res = activate_address_code("c", ADDR, gateway_url=url)
+
+    assert res["manager_address"] == "mgr@example.test", res
+    assert json.loads(_binding(hermes_home).read_text())["manager_address"] == \
+        "mgr@example.test"
+
+
+def test_binding_omits_manager_when_the_gateway_has_none(hermes_home, gateway):
+    url, _ = gateway
+    _FakeGateway.response = {**_FakeGateway.response, "manager_address": ""}
+
+    activate_address_code("c", ADDR, gateway_url=url)
+
+    assert "manager_address" not in json.loads(_binding(hermes_home).read_text())
+
+
+# ── 6. generic host: activation wires the shared-core context ─────────────
+
+def test_generic_host_gets_agent_context_from_activation(hermes_home, gateway):
+    """A host with no adapter has no other code calling set_agent_context; the
+    documented flow (activate -> pull -> reply) must not need a manual call."""
+    url, _ = gateway
+    assert base._load_profile_config() is None
+
+    res = activate_address_code("c", ADDR, gateway_url=url)
+
+    assert res["success"] is True
+    cfg = base._load_profile_config()
+    assert cfg is not None and cfg["email"] == ADDR, cfg
+    assert base._ACTIVE_AGENT_CONFIG["system_id"] == AGENT_SCOPE_SID
+    assert os.environ.get("AIMAIL_AGENT_EMAIL") == ADDR

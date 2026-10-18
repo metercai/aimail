@@ -441,6 +441,10 @@ class _GatewayClient:
             "system_id": result.get("system_id", ""),
             "email_address": result.get("email_address", ""),
             "expires_at": result.get("expires_at", ""),
+            # Manager the gateway stored in the activation transaction. Lets the
+            # binding carry the same value the gateway wrote instead of
+            # inferring it later (whoami needs the key this call just issued).
+            "manager_address": result.get("manager_address", ""),
         }
 
     def activate_address_code_persist(
@@ -518,6 +522,12 @@ class _GatewayClient:
             or _abm.new_webhook_secret())
         if act.get("expires_at"):
             cfg["expires_at"] = act["expires_at"]
+        # 1c. 安全官(manager) = 激活事务里网关**实际写入**的那个值(激活响应原样带回)。
+        #     这是 agent 侧的第一来源: whoami 要等 key 可读之后才能查, 且它读的
+        #     就是同一张 domain_addr_meta 表 ⇒ 不再做二次推断/自行解析 prompt 文本。
+        #     有了它, manage_contacts(add) 不必再"无 manager 可用"。
+        if str(act.get("manager_address") or "").strip():
+            cfg["manager_address"] = str(act["manager_address"]).strip()
         p = _abm.save_agent_config(aid, cfg, sid)
 
         # 2026-10-01 owner 方案A(激活站): 激活本地生成的 secret 必须与网关对齐 ——
@@ -618,6 +628,7 @@ class _GatewayClient:
             "system_id": sid,
             "email_address": email,
             "expires_at": act.get("expires_at", ""),
+            "manager_address": str(cfg.get("manager_address") or ""),
             "config_path": str(p),
             "pointer_written": pointer_written,
             "pointer_path": pointer_path,
@@ -825,8 +836,23 @@ def activate_address_code(
     if not gw:
         raise ValueError("gateway_url is required (or set AIMAIL_GW_URL)")
     client = _GatewayClient(gw, "")
-    return client.activate_address_code_persist(
+    res = client.activate_address_code_persist(
         code, address, profile_dir=(profile_home or ""))
+    if res.get("success"):
+        # 通用宿主(没有平台适配层)里没有别的代码会去调注入点 ⇒ 激活落盘成功
+        # 就是"这个地址是本 agent 的"这一刻: 顺手把上下文交给共享核心, 让随后的
+        # pull / send_mail / manage_contacts 直接可用(适配层显式再调一次是幂等的)。
+        # 注入失败只降级为"需显式 set_agent_context", 不把已完成的激活判成失败。
+        try:
+            import aimail_base as _abm
+            email = str(res.get("email_address") or "")
+            _abm.set_agent_context(email.split("@")[0], str(res.get("system_id") or ""))
+        except Exception as e:  # noqa: BLE001 — 上下文注入是便利路径, 不是激活的一部分
+            logger.warning(
+                "[aimail] activation succeeded but agent context injection failed (%s); "
+                "call aimail_base.set_agent_context(...) explicitly before using the mail "
+                "tools", e)
+    return res
 
 
 def send_mail(
