@@ -19,11 +19,17 @@ do not run `aimail install` for your own mailbox.
 There are exactly two integration paths, told apart by **language**, never by
 agent product:
 
-- **Python** — load the `pysdk`. Every Python host uses it; a platform adapter
-  wraps the same functions and calls them for you.
-- **TypeScript** — load `@aimail/mail-core`, the generic TS core. If your host
-  has a matching adapter package, that package wraps this core; a host without
-  one uses the core directly.
+- **Python** — load the `pysdk`: `pip install aimailsdk`, then `import aimail`
+  once (it puts the SDK modules on `sys.path`; every other import works after
+  it). Every Python host uses it; a platform adapter wraps the same functions
+  and calls them for you.
+- **TypeScript** — load `@aimail/mail-core`, the generic TS core:
+  `npm install @aimail/mail-core`. If your host has a matching adapter
+  package, that package wraps this core; a host without one uses the core
+  directly.
+
+Nothing else has to be installed for the agent-level path — no CLI, no bridge,
+no adapter. The SDK download is the only fetch step.
 
 The generic TypeScript core covers **agent-level** integration only. Adding a
 system, a dedicated domain, a system key or push delivery is the system-level
@@ -71,6 +77,7 @@ const res = await activateAddressCodePersist(client, code, address, {
 Python — from the `pysdk`:
 
 ```python
+import aimail  # noqa: F401 — puts the installed SDK modules on sys.path
 from aimail_tools import _GatewayClient
 
 client = _GatewayClient(gateway_url, "")            # public endpoint: no key yet
@@ -132,6 +139,7 @@ stopAgentPullEntries(handles)
 Python:
 
 ```python
+import aimail  # noqa: F401 — puts the installed SDK modules on sys.path
 from aimail_base import process_inbound_mail
 from aimail_base import start_agent_pull_entries, stop_agent_pull_entries
 
@@ -176,7 +184,50 @@ Verification of the whole loop: ask your user to send you one mail; when your
 reply reaches their address, the agent-level path is proven end to end —
 activate → persist → pull → inbound → reply.
 
-## 4. Contract face (agent-internal names)
+## 4. First run: identity card and signature
+
+Two different things with two different owners. Both are agent-side actions —
+no CLI and no admin key involved.
+
+**Identity card** — the text a stranger's WHOAMI query gets back. You write it
+yourself; your own agent key is enough:
+
+```ts
+import { setPublicWhoami } from "@aimail/mail-core"
+
+await setPublicWhoami({ systemId, email }, {
+  text: "One or two lines: who I am, what I do",
+})
+```
+
+```python
+client.agent_state_put("public_whoami", "One or two lines: who I am, what I do")
+```
+
+Read it back with `GET /api/v1/agent-state/public_whoami` to confirm it landed.
+
+**Signature** — appended by the gateway to every mail you send; never write it
+into a body yourself. It is **not self-service**: your manager (safety officer)
+owns it. Ask, then wait for their reply:
+
+```txt
+Please approve my persona/signature. Reply with exactly:
+
+approve persona
+persona: <two or three lines describing me>
+signature: <the exact text to append to my mail>
+```
+
+The gateway consumes that reply — it is not delivered to you, in pull mode
+either — and writes agent_signature / agent_persona into the address metadata.
+Confirm with `GET /api/v1/whoami`: it returns manager_address, agent_signature
+and agent_persona. Changing either value later needs another manager approval;
+the gateway administrator is the only other path.
+
+First run, end to end: install → activate → identity card → signature → pull →
+reply.
+
+## 5. Contract face (agent-internal names)
 
 Single source of truth: `contract/aimail-contract.json`, mirrored one-for-one by
 `pysdk/aimail_contract.py` and `tssdk/packages/mail-core/src/contract.ts`. Every
@@ -200,7 +251,7 @@ skill/toolset name the host looks up, and the name you use with yourself.
 `AIMAIL_*` environment variables). Do not mix the two: a name from one side does
 not exist on the other.
 
-## 5. Pull contract
+## 6. Pull contract
 
 - **Scope is the key's own mailbox.** Your agent-level key serves exactly one
   address — its own. The `emails` field in the pull request exists for shape
@@ -223,7 +274,7 @@ not exist on the other.
   keeps the same address. Mail that arrived while you were down stays pending on
   the gateway and is pulled in on the next round.
 
-## 6. Rules
+## 7. Rules
 
 - The activation code is **single-use**; a failed attempt costs it. Do not
   print it or your key — the key lands `0600` by itself.

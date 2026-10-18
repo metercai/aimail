@@ -14,10 +14,15 @@ skill 回信。不需要 CLI、不需要系统级凭据、不需要 admin key。
 
 只有两条对接路径，只按**语言**区分，从不按 agent 产品区分：
 
-- **Python** —— 加载 `pysdk`。所有 Python 宿主都用它；平台适配层只是包在同一批
-  函数外面替你调用。
-- **TypeScript** —— 加载 `@aimail/mail-core`，通用 TS 核心。宿主若有匹配的适配包，
-  适配包包在这个核心外面；没有适配包的宿主直接用核心本身。
+- **Python** —— 加载 `pysdk`：`pip install aimailsdk`，随后 `import aimail`
+  一次（它把 SDK 模块挂上 `sys.path`，之后其它 import 才成立）。所有 Python 宿主
+  都用它；平台适配层只是包在同一批函数外面替你调用。
+- **TypeScript** —— 加载 `@aimail/mail-core`，通用 TS 核心：
+  `npm install @aimail/mail-core`。宿主若有匹配的适配包，适配包包在这个核心外面；
+  没有适配包的宿主直接用核心本身。
+
+agent 级路径不需要再装别的 —— 不要 CLI、不要 bridge、不要适配层；SDK 这一步
+是唯一需要下载的东西。
 
 通用 TS 核心只覆盖 **agent 级**对接。增加系统、独享域名、系统 key 或 push 投递
 属于上面的系统级形态，需要 CLI 和 bridge；agent 级路径两者都不需要。
@@ -59,6 +64,7 @@ const res = await activateAddressCodePersist(client, code, address, {
 Python —— 来自 `pysdk`：
 
 ```python
+import aimail  # noqa: F401 —— 把已安装的 SDK 模块挂上 sys.path
 from aimail_tools import _GatewayClient
 
 client = _GatewayClient(gateway_url, "")            # 公共端点：此时还没有 key
@@ -115,6 +121,7 @@ stopAgentPullEntries(handles)
 Python：
 
 ```python
+import aimail  # noqa: F401 —— 把已安装的 SDK 模块挂上 sys.path
 from aimail_base import process_inbound_mail
 from aimail_base import start_agent_pull_entries, stop_agent_pull_entries
 
@@ -152,7 +159,45 @@ stop_agent_pull_entries(handles)
 整条闭环的验证：请用户给你发一封信；当你的回信到达对方地址时，agent 级路径就
 端到端地被证明了 —— 激活 → 落盘 → 轮询 → 入站 → 回信。
 
-## 4. 契约面（agent 内部名）
+## 4. 首次运行：身份名片与签名
+
+两件不同的事、两个不同的归属。两者都在 agent 侧完成 —— 不碰 CLI、不用 admin key。
+
+**身份名片** —— 陌生人发 WHOAMI 查询时拿到的内容。你自己写，自己的 agent key 就够：
+
+```ts
+import { setPublicWhoami } from "@aimail/mail-core"
+
+await setPublicWhoami({ systemId, email }, {
+  text: "一两行：我是谁、我做什么",
+})
+```
+
+```python
+client.agent_state_put("public_whoami", "一两行：我是谁、我做什么")
+```
+
+用 `GET /api/v1/agent-state/public_whoami` 读回确认已落地。
+
+**签名** —— 由网关在你每封外发邮件上追加；自己不要写进正文。它**不是自助的**：
+归你的 manager（安全官）所有。先请求，再等他的回信：
+
+```txt
+Please approve my persona/signature. Reply with exactly:
+
+approve persona
+persona: <两三行描述我>
+signature: <要追加到我邮件末尾的原文>
+```
+
+网关会消费这封回信（pull 模式下也不会投给你），把 agent_signature /
+agent_persona 写进该地址的元数据。用 `GET /api/v1/whoami` 确认：它返回
+manager_address、agent_signature 与 agent_persona。之后要改，仍需 manager 再批一次；
+另一条路只有网关管理员。
+
+首次运行全链：安装 → 激活 → 身份名片 → 签名 → pull → 回信。
+
+## 5. 契约面（agent 内部名）
 
 单一真源：`contract/aimail-contract.json`，由 `pysdk/aimail_contract.py` 与
 `tssdk/packages/mail-core/src/contract.ts` 逐项镜像。下表每个名字都是契约值，
@@ -173,7 +218,7 @@ stop_agent_pull_entries(handles)
 表，你也只用这个名字与自己对账。`aimail` 是产品 / 仓库 / CLI 的品牌（`~/.aimail`
 目录、`AIMAIL_*` 环境变量）。两者不要混：一侧的名字在另一侧并不存在。
 
-## 5. pull 契约
+## 6. pull 契约
 
 - **作用域就是这个 key 自己的邮箱。** agent 级 key 只服务一个地址 —— 它自己的。
   pull 请求里的 `emails` 字段是为了与桥的报文形状兼容而存在，网关侧忽略它：
@@ -191,7 +236,7 @@ stop_agent_pull_entries(handles)
   一个新码并重做 §2，续期**保持同一地址**。你停机期间到达的信会继续留在网关，
   下一轮被拉进来。
 
-## 6. 规则
+## 7. 规则
 
 - 激活码**一次性**；一次失败就废掉。不要打印它或你的 key —— key 自己以 `0600`
   落盘。
