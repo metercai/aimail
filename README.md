@@ -60,6 +60,7 @@ AIMail supports **system-level install** from the terminal: add the AIMail modul
 ### Prerequisites
 
 - **An Agent system already installed**: supported agent platforms today are [DSH](https://github.com/deepseek-ai/deepseek-harness)/[Pi](https://github.com/earendil-works/pi)/[Hermes](https://github.com/NousResearch/hermes-agent)/[OpenClaw](https://github.com/openclaw/openclaw)/[DeerFlow](https://github.com/bytedance/deer-flow); **Hermes** or **DSH** is recommended.
+- **Environment**: Linux / macOS / Windows (on Windows run `scripts/bootstrap.sh` from Git Bash). The CLI is a single static binary with no runtime dependency other than `curl`.
 
 ### Four install scenarios (shallow to deep)
 
@@ -107,6 +108,8 @@ aimail welcome       # the gateway sends a welcome mail to the Agent and the man
 #aimail stats         # system / agent / mail status overview
 ```
 
+- If anything looks off afterwards, run `aimail check` first (full health exam); `aimail stats` gives the system / agent / mail overview.
+
 #### 3. Dedicated domain needed: connect the shared mail gateway to the local Agent system, add the AIMail module, and give every Agent mail capability
 
 - Start from the **shared mail gateway** and apply for a system activation code with a dedicated domain for your Agent system. A free test service is available at <https://aimail.token.tm/apply/dedicated>.
@@ -141,7 +144,9 @@ curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootst
 
 - `AIMAIL_ADMIN_KEY` (or `aimail install -k`) takes a **system-level key**: on a self-hosted gateway the `<storage>/<system id>.system.key` printed at start, in the cloud the key issued by the activation code. The gateway's own admin key stays on the gateway side.
 - Multi-system install is supported, i.e. one machine can host several Agent platforms: change the environment variables (a new system needs a new activation code or system key), point `--home` at the different platform, and run the SDK or plugin install.
-- For a system already installed, the install can be repeated with different parameters, as long as the system ID is given: `aimail install --system-id <sid>`.
+- For a system already installed, reuse it by pointing at the same `--home` (or `AGENT_HOME`); the install can then be repeated with different parameters.
+- Registration scope: `-a <agent> [<agent2>]` registers only the named agents; `--all-agents` registers every agent the platform enumerates (on hosts that support bulk registration); with neither, the platform default applies.
+- To undo: `aimail uninstall -s <sid>` (removes the host adaptation and pointer, and drops this system's whitelist rows) or `aimail uninstall -H <platform-root>`.
 
 ***
 

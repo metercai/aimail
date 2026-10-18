@@ -139,12 +139,12 @@ fn restart_starts_single_instance_and_status_sees_it() {
 #[test]
 fn bridge_pids_anchors_on_executable_path_and_never_over_matches() {
     let tmp = tempfile::tempdir().unwrap();
-    // 真形态：把 sleep 二进制拷成 `<tmp>/aimail-bridge`（argv[0] 即该路径）
+    // 真形态：argv[0] 就是 `<tmp>/aimail-bridge`。用 `exec -a` 设 argv[0]，
+    // 不再"拷贝二进制再执行"——那条路在并行测试下会撞 ETXTBSY（写 fd 未全关时 exec 同 inode）。
     let fake = tmp.path().join("aimail-bridge");
-    std::fs::copy("/bin/sleep", &fake).unwrap();
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let mut real = Command::new(&fake).arg("30").spawn().unwrap();
+    // bash 的 `exec -a` 才能改 argv[0]（dash 的 exec 不支持 -a，进程会直接退出）
+    let cmd = format!("exec -a '{}' sleep 30", fake.display());
+    let mut real = Command::new("bash").args(["-c", &cmd]).spawn().unwrap();
 
     // 反例形态：命令行里出现该串，但首 token 是别的程序（`sh -c`）⇒ 不许命中
     let mut decoy = Command::new("sh")
@@ -152,8 +152,17 @@ fn bridge_pids_anchors_on_executable_path_and_never_over_matches() {
         .spawn()
         .unwrap();
 
-    let pids = aimail::core::bridge_deploy::bridge_pids_for_probe();
+    // `sh -c 'exec -a …'` 有 sh→exec 的窗口：轮询到 argv[0] 就位（≤2s），避免时序假红。
     let real_pid = real.id();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let mut pids = Vec::new();
+    while std::time::Instant::now() < deadline {
+        pids = aimail::core::bridge_deploy::bridge_pids_for_probe();
+        if pids.contains(&real_pid) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
     assert!(
         pids.contains(&real_pid),
         "真形态进程必须命中: {pids:?} vs {real_pid}"

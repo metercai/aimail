@@ -55,23 +55,24 @@ AIMail 既不同于 IM，也不是传统邮箱。它是在传统邮件系统上�
 
 ## 快速开始
 
-支持在终端命令行上的**系统级安装**，为Agent系统添加AIMail模块，让所有 Agent 都拥有邮件地址和收发能力；同时，也支持为单个 Agent 申请专属邮件地址，再通过对话框的prompt提交进行安装和激活。
+支持在终端命令行上的**系统级安装**，为Agent系统添加AIMail能力，让所有 Agent 都拥有邮件地址和收发能力；同时，也支持在对话框里为单独 Agent 激活专属邮件地址的简洁模式。
 
 ### 前置准备
 
 - **已安装好 Agent 系统**:目前已适配的Agent平台系统包括，[DSH](https://github.com/deepseek-ai/deepseek-harness)/[Pi](https://github.com/earendil-works/pi)/[Hermes](https://github.com/NousResearch/hermes-agent)/[OpenClaw](https://github.com/openclaw/openclaw)/[DeerFlow](https://github.com/bytedance/deer-flow)，推荐安装 **Hermes** 或 **DSH**。
+- **安装环境**:Linux / macOS / Windows(Windows 用 Git Bash 运行 `scripts/bootstrap.sh`)。CLI 是单文件静态二进制,除 `curl` 外无运行时依赖。
 
-### 四种安装场景（由浅入深）
+### 四种安装场景
 
-#### 1，不需要独享域名，使用共享域的邮件网关，只为 Agent 配置专属的邮件地址
+#### 1，为单独 Agent 配置专属邮件地址，不需要独享域名，可使用云端共享邮件网关。
 
-- 先从 **共享域邮件网关** 申请专属Agent邮件地址，获得对应的激活prompt。目前有可用的免费测试服务：<https://aimail.token.tm/apply/address>
+- 先从 **共享邮件网关** 申请专属Agent邮件地址，获得对应的激活prompt。目前有可用的免费测试服务：<https://aimail.token.tm/apply/address>
 - 然后，把收到的激活 prompt 复制到 Agent 对话框执行即可。
 - 这条 agent 级闭环（激活并落盘 → 拉取接入自己的入站流程 → 回信）的逐步说明见 [单 Agent 地址自举](docs/agent-self-setup_zh.md)。
 
-#### 2，不需要独享域名，用共享邮件网关对接本机的 Agent 系统，增加AIMail模块，为所有Agent提供邮件功能
+#### 2，为本机 Agent 系统增加 AIMail 能力，不需要独享域名，可使用云端共享邮件网关。
 
-- 先从 **共享域邮件网关** 申请Agent系统专属的共享域系统标识和系统激活码。目前有可用的免费测试服务：<https://aimail.token.tm/apply/system>
+- 先从 **共享邮件网关** 申请Agent系统专属的共享域系统标识和系统激活码。目前有可用的免费测试服务：<https://aimail.token.tm/apply/system>
 - 然后，将收到的系统标识和激活码等信息设置环境变量，并执行AIMail的自举安装脚本，完成本地环境的初始化。例如：
 
 ```bash
@@ -109,7 +110,9 @@ aimail welcome       # 网关向Agent和安全员发欢迎邮件，Agent回复�
 #aimail stats         # 系统 / agent / 邮件的状态总览
 ```
 
-#### 3，需要独享域名，用共享邮件网关对接本机的Agent系统，增加AIMail模块，为所有Agent提供邮件功能
+- 装完若表现异常,先跑 `aimail check`(全面体检);`aimail stats` 看系统 / agent / 邮件总览。
+
+#### 3，为本机的 Agent 系统增加独享域名的 AIMail 能力，可使用云端共享邮件网关。
 
 - 先从 **共享邮件网关** 申请Agent系统专属独享域的系统激活码。目前有可用的免费测试服务：<https://aimail.token.tm/apply/dedicated>
 - 然后，将收到的系统激活码等相关信息设置环境变量，并执行AIMail的自举安装脚本，完成本地环境的初始化。例如：
@@ -126,7 +129,7 @@ curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootst
 
 - 自举成功后，可参照前面所述的共享域的步骤，完成本地Agent系统的适配对接和闭环检测。
 
-#### 4，需要独享域名，自建邮件网关对接Agent系统，AIMail全系统自建和运维
+#### 4，自建独享域名的邮件网关对接Agent系统，AIMail全系统自建和运维。
 
 - 安装自己的 aimail-gateway 独立网关服务。仓库地址：<https://github.com/metercai/aimail-gateway>
 - 然后，将系统级 key 等相关信息设置环境变量，并执行AIMail的自举安装脚本，完成本地环境的初始化。例如：
@@ -145,9 +148,11 @@ curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootst
 
 #### 提示：
 
-- `AIMAIL_ADMIN_KEY`（或 `aimail install -k`）填**系统级 key**：自建网关用启动时打印的 `<storage>/<系统 ID>.system.key`，云端用激活下发的 key；网关自身的 admin key 只留在网关侧。
+- `AIMAIL_ADMIN_KEY` 填**系统级 key**：自建网关用启动时打印的 `<storage>/<系统 ID>.system.key`，云端用激活下发的 key；网关自身的 admin key 只留在网关侧。
 - 支持本地多系统安装，即支持单机多Agent平台，修改环境变量后（新系统要用新的激活码或系统级 key），指定不同的`--home`，执行SDK或插件安装。
-- 对已安装系统，可用不同参数重复安装，但需指定系统ID: `aimail install --system-id <sid>`。
+- 对已安装系统，指定相同的 `--home` 或环境变量 `AGENT_HOME` 保持一致即可用不同参数重复安装。
+- 注册范围：`-a <agent> [<agent2>]` 只注册指定的 agent；`--all-agents` 在支持全量注册的宿主上注册平台枚举到的全部 agent；都不给则按平台默认策略。
+- 撤销对接：`aimail uninstall -s <sid>`（撤宿主适配与指针、退订本系统白名单）或 `aimail uninstall -H <平台根>`。
 
 ***
 

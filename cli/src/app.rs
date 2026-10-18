@@ -358,7 +358,7 @@ fn install_args(cmd: Command) -> Command {
             Arg::new("gateway-url")
                 .short('g')
                 .long("gateway-url")
-                .help("gateway base URL (default: AIMAIL_GATEWAY_URL env, then the system cfg)"),
+                .help("gateway base URL (default: AIMAIL_GW_URL env, then the system cfg)"),
         )
         .arg(
             Arg::new("system-name")

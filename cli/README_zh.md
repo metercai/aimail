@@ -29,7 +29,7 @@
 | Hermes   | `~/.hermes`    | Python(pysdk) | 在平台自己的解释器里装 `aimailsdk`（导入名 `aimail`;解释器由 CLI 在平台根内探测,uv → pip → ensurepip);SDK 安装展开 SKILL/toolsets/board 资源并给 webhook.py 注入 `PREPROCESS_REGISTRY`;注册本根的 agent 集合（`--all-agents` 时注册全部 profile） | 重启 hermes gateway                        |
 | DeerFlow | `~/.deer-flow` | Python(pysdk) | SDK 安装 → `install-skill.sh` + `install-mcp.sh` → 注册(`manage.py register --all`)                                                                                             | 重启 8001(上游仓由补丁安装)                        |
 | OpenClaw | `~/.openclaw`  | TS(tssdk)     | `openclaw plugins install openclaw-aimail --force --accept-capabilities` → 注册(`openclaw aimail register`;全量 `register-all`)                                                 | 重启 openclaw gateway                      |
-| DSH      | `~/.dsh`       | TS(tssdk)     | `dsh plugin --profile web add dsh-aimail --config.minimumReleaseAge=0`(需先有 `dsh` CLI)                                                                                                                    | 绑定由 dsh session(mail preset)自动 auto-bind |
+| DSH      | `~/.dsh`       | TS(tssdk)     | `dsh plugin --profile web add dsh-aimail`(需先有 `dsh` CLI;仅在 npm 设了最小发布年龄限制的环境(如受限镜像)追加 `--config.minimumReleaseAge=0`)                                                                                                                    | 绑定由 dsh session(mail preset)自动 auto-bind |
 | Pi       | `~/.pi`        | TS(tssdk)     | `pi install npm:pi-aimail`                                                                                                                                                  | 重启 pi                                    |
 
 通用命令:
