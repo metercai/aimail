@@ -18,7 +18,7 @@
 | ------- | ------------------------- | --------------- | --------------------------------- |
 | 本机基础环境  | bootstrap.sh/bridge命令     | 宿主机系统           | 主目录/网关判定/bridge 就位                |
 | Agent平台 | `install/check/repair等命令` | Agent平台的根目录/SID | 激活/复用系统、绑定平台、绑定资源导入、合并 bridge 条目等 |
-| Agent   | `address 等命令`             | Agent 标识/地址     | 查看/设默认主地址名/地址改名/设安全员(manager)     |
+| Agent   | `address 等命令`             | Agent 标识/地址     | 查看/地址改名/设安全员(manager)     |
 
 ### 平台安装对接
 
@@ -98,7 +98,7 @@ aimail repair       →  按 check 发现执行幂等修复阶梯
 
 | 文件                                                 | 内容                                                                                                                                                        | 写入方                                                                            |
 | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `systems/{sid}/aimail_gateway.json`                | gateway\_url, admin\_key, system\_id, system\_name, manager\_address, system\_home, domain, webhook\_host(另含 save\_raw\_snapshots / default\_agent\_name) | `install` / `reset`;`repair` 只补缺 `system_home`/`webhook_host` |
+| `systems/{sid}/aimail_gateway.json`                | gateway\_url, admin\_key, system\_id, system\_name, manager\_address, system\_home, domain, webhook\_host(另含 save\_raw\_snapshots) | `install` / `reset`;`repair` 只补缺 `system_home`/`webhook_host` |
 | `systems/{sid}/{addr}/agentmail.json`              | 9 字段:email, gateway\_url, domain, system\_id, system\_name, manager\_address, api\_key, webhook\_url, webhook\_secret                                     | 注册链(经宿主注册入口/SDK 门)                            |
 | `bridge/aimail_bridge.toml` + `aimail_routes.toml` | pull 系统列表 + 路由表                                                                                                                                           | `aimail install`(部署);`aimail bridge --system-id`(重刷)                                  |
 
@@ -115,7 +115,6 @@ aimail repair       →  按 check 发现执行幂等修复阶梯
 | domain               | 系统域名(独享裸域或共享域)                                                                                                        |
 | webhook\_host        | 网关回调本机的三态开关:`IP:port` = 有 bridge/push;空串 = 有 bridge/pull;字段缺失 = 无 bridge,直连本机端点                                       |
 | save\_raw\_snapshots | 是否落每封邮件的原始快照(默认 true)                                                                                                 |
-| default\_agent\_name | 默认主 agent 名(`aimail address -d` 写入)                                                                                   |
 
 `agentmail.json` 地址级配置项:
 
@@ -237,7 +236,7 @@ aimail repair [--system-id <sid>] [--home <root>] [--deep] [--dry-run]
 | 查看域名      | `aimail domain -s <sid>`                                         | 非共享系统可持多个裸域;任一个裸域都可承载续期码领取                          |
 | 续期        | `aimail renew -s <sid> -c <码>`                                   | 叠加式 `max(now,当前)+validity`,配额 max 合并,自动解除挂起         |
 | 到期查看      | `aimail renew -s <sid> --status`                                 | 只读,不耗码                                              |
-| Agent 地址  | `aimail address -s <sid> [-d 默认名\|-a agent -n 新地址名\|-m manager]` | 查看/设默认主 agent 名/地址改名(set-name,服务端资源全继承)/设 manager   |
+| Agent 地址  | `aimail address -s <sid> [-a agent -n 新地址名\|-m manager]`      | 查看/地址改名(set-name,服务端资源全继承)/设 manager        |
 | 重置配置      | `aimail reset -H <root> -s <sid>`                                | 只走 admin-key 路径,key 不动                              |
 | bridge 维护 | `aimail bridge` / `--restart` / `-s <sid>`                       | 状态 / 单实例重启 / 重刷路由                                   |
 | 卸载        | `aimail uninstall -s <sid> [-H <root>] [-y]`                     | 网关注销 → 平台清理 → 本机数据;幂等                               |
@@ -245,7 +244,7 @@ aimail repair [--system-id <sid>] [--home <root>] [--deep] [--dry-run]
 
 短参数全局一致:`-s` system-id · `-H` home · `-g` gateway-url · `-m`
 manager · `-c` code · `-n` system-name(install/reset)/新地址名(address)/
-dry-run(repair)· `-d` domain(install)或 default(address)· `-w` no-wait
+dry-run(repair)· `-d` domain(install)· `-w` no-wait
 (welcome/persona)(或 domain 的 `--webhook-url`)· `-a` all(stats)/
 add(domain)/agent 名(address)· `-t` status(renew)或 timeout(ping)·
 `-D` deep · `-r` restart · `-k` admin-key · `-y` yes。长参数永不改名。
@@ -274,7 +273,7 @@ operate    日常状态与生命周期,以及体检与流程
 
 resources  系统级资源
   domain          列出 / 新增系统自有域名
-  address         查看 / 维护系统内 agent 地址(默认名 / 改名 / 设 manager)
+  address         查看 / 维护系统内 agent 地址(改名 / 设 manager)
   prompt          维护 agent 提示规则:subject/body/sender/recipient → 角色文件
   bridge          本机桥:状态 / 重刷路由 / 重启 / 升级
   platform        导出宿主静态知识表(+ 给定 home 的探测结果;门禁与夹具的唯一入口)

@@ -100,7 +100,7 @@ fn fixture(gw: &str, admin_key: &str) -> tempfile::TempDir {
     std::fs::write(
         home.join("systems/s1/aimail_gateway.json"),
         format!(
-            r#"{{"gateway_url":"{}","admin_key":"{}","system_id":"s1","system_name":"","domain":"example.test","manager_address":"m@example.test","default_agent_name":"default","webhook_host":""}}"#,
+            r#"{{"gateway_url":"{}","admin_key":"{}","system_id":"s1","system_name":"","domain":"example.test","manager_address":"m@example.test","webhook_host":""}}"#,
             gw, admin_key
         ),
     )

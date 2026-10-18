@@ -25,7 +25,7 @@ gateway.
 |-------|------|-----------------|----------------|
 | Establishing the machine environment | bootstrap (automatic) | host system | home dir / gateway decision / bridge in place (settled during bootstrap) |
 | Agent-system integration | `aimail install` etc. | platform root / SID | activate or reuse a system, bind the platform, import bound resources, merge the bridge entry |
-| Agent parameter configuration | `aimail address` | agent identity / address | view / set the default main-address name / rename an address / set the manager (safety officer) |
+| Agent parameter configuration | `aimail address` | agent identity / address | view / rename an address / set the manager (safety officer) |
 
 ### Platform Integration
 
@@ -116,7 +116,7 @@ from the **installed `aimailsdk`** (site-packages) — nothing is copied into th
 
 | File | Content | Written by |
 |------|---------|-----------|
-| `systems/{sid}/aimail_gateway.json` | gateway_url, admin_key, system_id, system_name, manager_address, system_home, domain, webhook_host (+ save_raw_snapshots / default_agent_name) | `install` / `reset`; `repair` backfills `system_home`/`webhook_host` only |
+| `systems/{sid}/aimail_gateway.json` | gateway_url, admin_key, system_id, system_name, manager_address, system_home, domain, webhook_host (+ save_raw_snapshots) | `install` / `reset`; `repair` backfills `system_home`/`webhook_host` only |
 | `systems/{sid}/{addr}/agentmail.json` | 9 fields: email, gateway_url, domain, system_id, system_name, manager_address, api_key, webhook_url, webhook_secret | registration chain (host registrar entry / SDK door) |
 | `bridge/aimail_bridge.toml` + `aimail_routes.toml` | pull systems + route table | `aimail install` (deploy); `aimail bridge --system-id` (refresh) |
 
@@ -133,7 +133,6 @@ from the **installed `aimailsdk`** (site-packages) — nothing is copied into th
 | domain | system domain (dedicated bare domain or shared domain) |
 | webhook_host | tri-state switch for gateway → machine callbacks: `IP:port` = bridge present, push; empty string = bridge present, pull; field absent = no bridge, call the local endpoint directly |
 | save_raw_snapshots | keep a raw snapshot of every mail (default true) |
-| default_agent_name | default main agent name (written by `aimail address -d`) |
 
 `agentmail.json` (address level, the only trusted source) fields:
 
@@ -271,7 +270,7 @@ papering over them.
 | List domains | `aimail domain -s <sid>` | non-shared systems may own several bare domains; any one of them can carry a renewal pickup |
 | Renew a system | `aimail renew -s <sid> -c <code>` | stacked `max(now, current)+validity`, quotas max-merge, auto-unsuspend |
 | Expiry view | `aimail renew -s <sid> --status` | read-only, no code consumed |
-| Agent addresses | `aimail address -s <sid> [-d NAME \| -a agent -n NAME \| -m mgr]` | list / set default main-agent name / set-name (rename w/ full server-side resource inheritance) / set-manager |
+| Agent addresses | `aimail address -s <sid> [-a agent -n NAME \| -m mgr]` | list / rename (set-name, all server resources inherited) / set manager |
 | Reset config | `aimail reset -H <root> -s <sid>` | admin-key path only, key untouched |
 | Bridge ops | `aimail bridge` / `--restart` / `-s <sid>` | status / single-instance restart / route refresh |
 | Remove integration | `aimail uninstall -s <sid> [-H <root>] [-y]` | gateway deregister → platform cleanup → local data; idempotent |
@@ -279,8 +278,8 @@ papering over them.
 
 Short flags are globally consistent: `-s` system-id · `-H` home · `-g`
 gateway-url · `-m` manager · `-c` code · `-n` system-name (install/reset) /
-new address name (address) / dry-run (repair) · `-d` domain (install) or
-default (address) · `-w` no-wait (welcome/persona) (or the domain's
+new address name (address) / dry-run (repair) · `-d` domain (install) ·
+`-w` no-wait (welcome/persona) (or the domain's
 `--webhook-url`) · `-a` all (stats) / add (domain) / agent name (address) ·
 `-t` status (renew) or timeout (ping) · `-D` deep · `-r` restart ·
 `-k` admin-key · `-y` yes. Long names never change.
@@ -309,7 +308,7 @@ operate    daily status and lifecycle, plus exams and flows
 
 resources  system-scoped resources
   domain          list / create domains owned by a system
-  address         view / maintain system agent addresses (default name / rename / set manager)
+  address         view / maintain system agent addresses (rename / set manager)
   prompt          maintain agent prompt rules: subject/body/sender/recipient → role file
   bridge          local bridge: status / refresh routes / restart / upgrade
   platform        export the host knowledge table (+ detection for a given home; gate/fixture entry)

@@ -31,8 +31,7 @@ pub const GATEWAY_CONFIG_NAME: &str = "aimail_gateway.json";
 /// 系统级环境文件的内容模型。
 ///
 /// - 基础键恒写（与现状码一致，即使是空串）；
-/// - `domain` / `manager_address` / `system_home` / `container_home` /
-///   `default_agent_name` **仅非空才写**；
+/// - `domain` / `manager_address` / `system_home` / `container_home` **仅非空才写**；
 /// - `webhook_host` 是**三态**（owner 2026-10-13）：`None` = 键缺席（S3 直连）、
 ///   `Some("")` = 空串（S2 桥 pull）、`Some(url)` = S1 经桥 push 的 BRIDGE_HOST。
 ///   用 `Option` 而非 `String` 正是为了区分"缺席"与"空串"——现状 `String` 把两者
@@ -50,7 +49,6 @@ pub struct GatewayConfig {
     pub webhook_host: Option<String>,
     pub system_home: String,
     pub container_home: String,
-    pub default_agent_name: String,
     pub extra: Map<String, Value>,
 }
 
@@ -65,13 +63,7 @@ const BASE_KEYS: [&str; 5] = [
 
 /// 条件键（仅非空才写）。`webhook_host` 不在此列——它是三态（见结构体注释），
 /// 在 `to_json` 里单独处理（`None` 不写、`Some("")` 写空串、`Some(url)` 写 url）。
-const CONDITIONAL_KEYS: [&str; 5] = [
-    "domain",
-    "manager_address",
-    "system_home",
-    "container_home",
-    "default_agent_name",
-];
+const CONDITIONAL_KEYS: [&str; 4] = ["domain", "manager_address", "system_home", "container_home"];
 
 impl Default for GatewayConfig {
     fn default() -> Self {
@@ -86,7 +78,6 @@ impl Default for GatewayConfig {
             webhook_host: None,
             system_home: String::new(),
             container_home: String::new(),
-            default_agent_name: String::new(),
             extra: Map::new(),
         }
     }
@@ -114,7 +105,6 @@ impl GatewayConfig {
             .map(|v| v.to_string());
         cfg.system_home = s("system_home");
         cfg.container_home = s("container_home");
-        cfg.default_agent_name = s("default_agent_name");
         for (k, v) in obj {
             if !BASE_KEYS.contains(&k.as_str()) && !CONDITIONAL_KEYS.contains(&k.as_str()) {
                 cfg.extra.insert(k.clone(), v.clone());
@@ -142,13 +132,12 @@ impl GatewayConfig {
         );
         // 条件键按现状码书写顺序；webhook_host 是 Option：None 不写（S3 键缺席）、
         // Some("")/Some(url) 都写（S2 空串 / S1 URL）。其余键仍"仅非空才写"。
-        let entries: [(&str, Option<&String>); 6] = [
+        let entries: [(&str, Option<&String>); 5] = [
             ("domain", Some(&self.domain)),
             ("manager_address", Some(&self.manager_address)),
             ("webhook_host", self.webhook_host.as_ref()),
             ("system_home", Some(&self.system_home)),
             ("container_home", Some(&self.container_home)),
-            ("default_agent_name", Some(&self.default_agent_name)),
         ];
         for (key, val) in entries {
             if let Some(v) = val {
@@ -478,10 +467,9 @@ mod tests {
             "no trailing newline expected"
         );
 
-        update_gateway_config_in(h, "sid1", |c| c.default_agent_name = "agent".into())
-            .expect("second write");
+        update_gateway_config_in(h, "sid1", |c| c.system_home = "/h".into()).expect("second write");
         let after = load_gateway_config_in(h, "sid1").unwrap();
-        assert_eq!(after.default_agent_name, "agent");
+        assert_eq!(after.system_home, "/h");
         assert_eq!(
             after.gateway_url, "http://g",
             "earlier fields must survive the merge"

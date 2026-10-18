@@ -1,7 +1,7 @@
 //! `aimail ping` —— `cli/ping_test.py` 的 Rust 复刻（P3b）。
 //!
 //! 流程：身份链（`--agent-home`/`AGENT_HOME` 下的**平台指针文件** → `resolve_system_id` → 读系统配置）→
-//! 主 agent 地址（`default_agent_name` → 首个本地绑定 → 别名归一）→ agent api_key（**只认
+//! 主 agent 地址（`-a` 显式 → 首个本地绑定 → 别名归一；定名归 SDK，CLI 不再持有默认名）→ agent api_key（**只认
 //! agent key**，auth.local 是 1:1 语义、无 admin 回退）→ 探测 edition → SMTP 发送（advanced
 //! 失败回落 base 白名单直发）→ **三阶段日志事件**轮询判定 → 快照检查。
 
@@ -41,20 +41,16 @@ pub(crate) fn email_for_agent(name: &str, domain: &str, system_name: &str) -> St
     }
 }
 
-/// `_main_agent_email`：显式默认名 → 首个本地已注册绑定 → 别名归一。
+/// 主 agent 地址：首个本地已注册绑定 → 默认名派生。
+///
+/// 定名归 SDK/宿主（owner 2026-10-18 删除 `default_agent_name`）：CLI 不再持有"主 agent 名"，
+/// 需要指定目标时用 `-a <agent>`（ping/welcome 各自的参数）。
 pub(crate) fn main_agent_email(cfg: &serde_json::Value) -> String {
     let dom = cfg.get("domain").and_then(|v| v.as_str()).unwrap_or("");
     let sysname = cfg
         .get("system_name")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    let name = cfg
-        .get("default_agent_name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    if !name.is_empty() {
-        return email_for_agent(if name == "agent" { "default" } else { name }, dom, sysname);
-    }
     let sid = cfg.get("system_id").and_then(|v| v.as_str()).unwrap_or("");
     let sys_dir = crate::core::config::systems_root_in(&crate::core::home::aimail_home()).join(sid);
     if !sid.is_empty() && sys_dir.is_dir() {

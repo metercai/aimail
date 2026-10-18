@@ -12,7 +12,7 @@
 //! 2 Path A 的 `whoami` 身份对齐：platform 级 key **拒收**（必须留在网关）、system_id 可从 key 采纳、
 //!   不符则报错；`whoami` 拿不到时只 warn **不臆断**；
 //! 3 Path A 的"空参数继承已有值"（reset 语义）+ 写回后把 prev 里未覆盖的业务字段**补回**
-//!   （`default_agent_name` 曾因此丢失）；
+//!   （曾因缺这层保护丢过业务字段）；
 //! 4 `_downgrade_to_domain_admin_key`：whoami 预检（已是 agent/domain 级 ⇒ 不降级）+ 配置里已有本域
 //!   domain key ⇒ 复用不轮换 + 无域可收窄 ⇒ 保留系统级 key + 失败文案含 "privilege level"/"at or above"
 //!   ⇒ 视为"无需降级"（**不得**把受限 key 当系统 key 落盘）；
@@ -181,7 +181,7 @@ pub fn setup(a: &SetupArgs) -> Value {
         if let Err(e) = config::save_gateway_config_in(&home::aimail_home(), &system_id, &cfg) {
             return err(&format!("failed to write config: {e}"));
         }
-        // 把 prev 中未被覆盖的业务字段补回（通用保护；default_agent_name 曾丢）
+        // 把 prev 中未被覆盖的业务字段补回（通用保护）
         restore_prev_keys(&system_id, &prev);
 
         // 注意：给降级的 domain 是**未套默认值**的那个（Python `domain or prev.get("domain","")`）；

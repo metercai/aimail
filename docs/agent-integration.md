@@ -163,7 +163,7 @@ Field semantics follow the config-file table in `cli/README.md` and the code con
 
 ### 3.4 aimail_gateway.json Fields (system level)
 
-`gateway_url` / `admin_key` / `system_id` / `system_name` / `save_raw_snapshots` / `domain` / `manager_address` / `webhook_host` / `system_home` / `default_agent_name` (OpenClaw).
+`gateway_url` / `admin_key` / `system_id` / `system_name` / `save_raw_snapshots` / `domain` / `manager_address` / `webhook_host` / `system_home`.
 
 **webhook_host tri-state** (set at install time; determines the address registration parameter):
 

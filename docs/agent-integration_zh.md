@@ -161,7 +161,7 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 
 ### 3.4 aimail_gateway.json 字段(系统级)
 
-`gateway_url` / `admin_key` / `system_id` / `system_name` / `save_raw_snapshots` / `domain` / `manager_address` / `webhook_host` / `system_home` / `default_agent_name`(OpenClaw)。
+`gateway_url` / `admin_key` / `system_id` / `system_name` / `save_raw_snapshots` / `domain` / `manager_address` / `webhook_host` / `system_home`。
 
 **webhook_host 三态**(安装时设置,决定地址注册参数):
 

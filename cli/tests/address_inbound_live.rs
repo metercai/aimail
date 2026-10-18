@@ -123,7 +123,7 @@ fn fixture(
     let sys = home.join("systems/s1");
     std::fs::create_dir_all(&sys).unwrap();
     let mut cfg = format!(
-        r#"{{"gateway_url":"http://127.0.0.1:{gw_port}","admin_key":"AK","system_id":"s1","domain":"example.test","manager_address":"m@example.test","default_agent_name":"agent""#
+        r#"{{"gateway_url":"http://127.0.0.1:{gw_port}","admin_key":"AK","system_id":"s1","domain":"example.test","manager_address":"m@example.test""#
     );
     if let Some(p) = declared_bridge {
         cfg.push_str(&format!(r#","bridge_admin_port":{p}"#));

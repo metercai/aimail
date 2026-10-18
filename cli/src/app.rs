@@ -69,7 +69,7 @@ const SUBCOMMANDS: &[(&str, &str)] = &[
     ("domain", "list or create domains owned by a system"),
     (
         "address",
-        "view/maintain system agent addresses (default name / set-name / set-manager)",
+        "view/maintain system agent addresses (set-name / set-manager)",
     ),
     (
         "prompt",
@@ -544,13 +544,6 @@ fn address_view_args(cmd: Command) -> Command {
             .help(SID_HELP),
     )
     .arg(
-        Arg::new("default")
-            .short('d')
-            .long("default")
-            .value_name("NAME")
-            .help("set the default main-agent name (was: mailname)"),
-    )
-    .arg(
         Arg::new("agent")
             .short('a')
             .long("agent")
@@ -567,7 +560,7 @@ fn address_view_args(cmd: Command) -> Command {
             .short('n')
             .long("name")
             .value_name("NAME")
-            .help("new address name (set-name) or with -d the default name"),
+            .help("new address name (set-name)"),
     )
     .arg(
         Arg::new("manager")
@@ -776,7 +769,6 @@ pub fn run() -> i32 {
         }),
         Some(("address", m)) => crate::cmd::address::run(crate::cmd::address::Args {
             system_id: arg_str(m, "system-id"),
-            default: arg_opt(m, "default"),
             agent: arg_opt(m, "agent"),
             email: arg_opt(m, "email"),
             name: arg_opt(m, "name"),

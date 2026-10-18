@@ -60,7 +60,7 @@ fn fixture() -> (tempfile::TempDir, PathBuf) {
     std::fs::create_dir_all(leaf.join("role_prompt")).unwrap();
     std::fs::write(
         sys.join("aimail_gateway.json"),
-        r#"{"gateway_url":"http://127.0.0.1:1","admin_key":"AK","system_id":"s1","domain":"example.test","default_agent_name":"agent"}"#,
+        r#"{"gateway_url":"http://127.0.0.1:1","admin_key":"AK","system_id":"s1","domain":"example.test"}"#,
     )
     .unwrap();
     let rules = r#"[
