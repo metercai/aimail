@@ -12,7 +12,7 @@
 //!   头+空行 250 且落库）。传输是逐字节的 ⇒ `_smtp_send` 的 `subject` 形参实际**未被使用**，
 //!   主题真源就是本函数写出的 `Subject:` 头。
 
-use serde_json::{json, Value};
+use serde_json::json;
 
 /// 完整 RFC-5322 报文（头 + 空行 + 正文）。
 pub fn rfc5322_message(
@@ -86,14 +86,6 @@ pub fn api_send(
     }
 }
 
-/// `_agent_log_path` 的目录部分：`systems/<sid>/<addr>/agentmail.log`。
-pub fn agent_log_path(email: &str, sid: &str) -> std::path::PathBuf {
-    crate::core::config::systems_root_in(&crate::core::home::aimail_home())
-        .join(sid)
-        .join(crate::core::bridge_wire::addr_clean(email))
-        .join("agentmail.log")
-}
-
 fn now_secs() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -108,11 +100,6 @@ fn short_hex(n: usize) -> String {
         .unwrap_or(0)
         ^ (std::process::id() as u128);
     format!("{:032x}", seed).chars().take(n).collect()
-}
-
-/// 兜底：把 `Value` 原样给调用方（供后续编排用）。
-pub fn body_of(v: &Value) -> String {
-    crate::core::pyjson::str_python(Some(v))
 }
 
 // ── 引擎余下：常量 · 归属 · 轮询回复 · 草案解析 · 两封信的正文 ──────────────────

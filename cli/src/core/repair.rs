@@ -467,64 +467,17 @@ impl Step {
                 }
             }
             Step::Pointer => {
-                // `cli/repair.py:520-555`：某平台根 + 本 sid 无指针 + 目标指针文件不存在 ⇒ 才写。
-                let uh = crate::core::home::user_home();
-                if sid_has_pointer(&uh, sid) || home.is_empty() {
-                    return StepResult::NothingToDo;
-                }
-                let plat =
-                    crate::hosts::identity::detect_platform_from_home(std::path::Path::new(home));
-                if plat == "unknown" {
-                    return StepResult::NothingToDo;
-                }
-                let sysdir =
-                    crate::core::config::system_dir_in(&crate::core::home::aimail_home(), sid);
-                let mut email = String::new();
-                if let Ok(rd) = std::fs::read_dir(&sysdir) {
-                    let mut subs: Vec<std::path::PathBuf> =
-                        rd.filter_map(|e| e.ok().map(|x| x.path())).collect();
-                    subs.sort();
-                    for sub in subs {
-                        let aj = sub.join(crate::core::contract::binding_file());
-                        let d = std::fs::read_to_string(&aj)
-                            .ok()
-                            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok());
-                        if let Some(e) = d
-                            .as_ref()
-                            .and_then(|v| v.get("email"))
-                            .and_then(|v| v.as_str())
-                        {
-                            if !e.is_empty() {
-                                email = e.to_string();
-                                break;
-                            }
-                        }
-                    }
-                }
-                if email.is_empty() {
-                    return StepResult::NothingToDo;
-                }
-                let ptr = crate::hosts::pointer::paths_for(&uh, plat)
-                    .into_iter()
-                    .next()
-                    .unwrap_or_default();
-                if ptr.as_os_str().is_empty() || ptr.exists() {
-                    return StepResult::NothingToDo;
-                }
-                if let Some(dir) = ptr.parent() {
-                    let _ = std::fs::create_dir_all(dir);
-                }
-                let body = serde_json::json!({"system_id": sid, "email": email});
-                let text = serde_json::to_string_pretty(&body).unwrap_or_default();
-                match std::fs::write(&ptr, text) {
-                    Ok(_) => {
-                        ok(&format!("pointer created: {} → {sid}", ptr.display()));
-                        StepResult::Fixed
-                    }
-                    Err(e) => {
-                        fail(&format!("pointer write failed: {} ({e})", ptr.display()));
-                        StepResult::NothingToDo
-                    }
+                // `cli/repair.py:520-555`：平台根确定 + 本 sid 无指针 + 目标指针不存在 ⇒ 才写。
+                // 单一实现 = [`repair_pointer`]（含 perms 0600；内联副本已于 2026-10-18 删除）。
+                if repair_pointer(
+                    &crate::core::home::aimail_home(),
+                    &crate::core::home::user_home(),
+                    sid,
+                    home,
+                ) {
+                    StepResult::Fixed
+                } else {
+                    StepResult::NothingToDo
                 }
             }
             Step::PullEntryKey => {

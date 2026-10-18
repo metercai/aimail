@@ -14,11 +14,11 @@
 
 ### 三层运维对象
 
-| 层         | 工具                | 对象标识            | 职责                                |
-| --------- | ----------------- | --------------- | --------------------------------- |
-| 本机基础环境的建立 | bootstrap(自动)     | 宿主机系统           | 主目录/网关判定/bridge 就位(bootstrap 时完成) |
-| Agent系统对接 | `aimail install等` | Agent平台的根目录/SID | 激活/复用系统、绑定平台、绑定资源导入、合并 bridge 条目等 |
-| Agent参数配置 | `aimail address`  | Agent 标识/地址     | 查看/设默认主地址名/地址改名/设安全员(manager)     |
+| 层       | 工具                        | 对象标识            | 职责                                |
+| ------- | ------------------------- | --------------- | --------------------------------- |
+| 本机基础环境  | bootstrap.sh/bridge命令     | 宿主机系统           | 主目录/网关判定/bridge 就位                |
+| Agent平台 | `install/check/repair等命令` | Agent平台的根目录/SID | 激活/复用系统、绑定平台、绑定资源导入、合并 bridge 条目等 |
+| Agent   | `address/persona等命令`      | Agent 标识/地址     | 查看/设默认主地址名/地址改名/设安全员(manager)     |
 
 ### 平台安装对接
 
@@ -99,31 +99,31 @@ aimail repair       →  按 check 发现执行幂等修复阶梯
 
 `aimail_gateway.json` 系统级配置项:
 
-| 字段                   | 含义                                                                              |
-| -------------------- | ------------------------------------------------------------------------------- |
-| gateway\_url         | 网关地址;回环地址 = 本机直推,否则入站经 bridge                                                   |
-| admin\_key           | 系统级凭据:安装时派生受限的 domain 级 key(category `domain`、身份=本系统裸域、scope `system`)落盘,原始系统 key 存 `.system_raw_key/{sid}_admin.key`   |
-| system\_id           | 系统标识(SID)                                                                       |
-| system\_name         | 系统名;共享域下是 agent 地址前缀的来源                                                         |
-| manager\_address     | 系统默认安全员地址                                                                       |
-| system\_home         | 平台根(如 `~/.hermes`)                                                              |
-| domain               | 系统域名(独享裸域或共享域)                                                                  |
-| webhook\_host        | 网关回调本机的三态开关:`IP:port` = 有 bridge/push;空串 = 有 bridge/pull;字段缺失 = 无 bridge,直连本机端点 |
-| save\_raw\_snapshots | 是否落每封邮件的原始快照(默认 true)                                                           |
-| default\_agent\_name | 默认主 agent 名(`aimail address -d` 写入)                                             |
+| 字段                   | 含义                                                                                                                    |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| gateway\_url         | 网关地址;回环地址 = 本机直推,否则入站经 bridge                                                                                         |
+| admin\_key           | 系统级凭据:安装时派生受限的 domain 级 key(category `domain`、身份=本系统裸域、scope `system`)落盘,原始系统 key 存 `.system_raw_key/{sid}_admin.key` |
+| system\_id           | 系统标识(SID)                                                                                                             |
+| system\_name         | 系统名;共享域下是 agent 地址前缀的来源                                                                                               |
+| manager\_address     | 系统默认安全员地址                                                                                                             |
+| system\_home         | 平台根(如 `~/.hermes`)                                                                                                    |
+| domain               | 系统域名(独享裸域或共享域)                                                                                                        |
+| webhook\_host        | 网关回调本机的三态开关:`IP:port` = 有 bridge/push;空串 = 有 bridge/pull;字段缺失 = 无 bridge,直连本机端点                                       |
+| save\_raw\_snapshots | 是否落每封邮件的原始快照(默认 true)                                                                                                 |
+| default\_agent\_name | 默认主 agent 名(`aimail address -d` 写入)                                                                                   |
 
 `agentmail.json` 地址级配置项:
 
-| 字段                        | 含义                        |
-| ------------------------- | ------------------------- |
+| 字段                        | 含义                      |
+| ------------------------- | ----------------------- |
 | email                     | agent 全地址               |
-| gateway\_url              | 网关地址                      |
-| domain                    | 地址所属域(= email 后缀)         |
-| system\_id / system\_name | 所属系统id/系统标识名             |
-| manager\_address          | 该地址的安全员                   |
-| api\_key                  | 该地址的服务端 key(注册链签发)        |
-| webhook\_url              | 本机入站端点(bridge 路由的唯一真源)    |
-| webhook\_secret           | 入站签名密钥(网关签名 → agent 验签)   |
+| gateway\_url              | 网关地址                    |
+| domain                    | 地址所属域(= email 后缀)       |
+| system\_id / system\_name | 所属系统id/系统标识名            |
+| manager\_address          | 该地址的安全员                 |
+| api\_key                  | 该地址的服务端 key(注册链签发)      |
+| webhook\_url              | 本机入站端点(bridge 路由的唯一真源)  |
+| webhook\_secret           | 入站签名密钥(网关签名 → agent 验签) |
 
 ***
 
@@ -135,19 +135,20 @@ aimail repair       →  按 check 发现执行幂等修复阶梯
 - 然后，将系统admin-key/product\_code等相关信息设置环境变量，并执行AIMail的自举安装脚本，完成本地环境的初始化。例如：
 
 ```bash
-export AIMAIL_URL=<你的网关地址>                # 自主独立安装的网关地址，如 https://mail.example.com
+export AIMAIL_GW_URL=<你的网关地址>                # 自主独立安装的网关地址，如 https://mail.example.com
 export AIMAIL_ADMIN_KEY=<admin key>           # 网关的管理key
 export AIMAIL_DOMAIN=<你的域名>                # 独享域名,如 example.com
 export AIMAIL_MANAGER_ADDRESS=you@example.com # 管理agent的默认安全员邮件地址，可每个agent不一样
+#export AIMAIL_BRIDGE_HOST=<domain/ip:port>        # 指定桥接地址，用于Gateway的Push的透明转发，可选
+#export AIMAIL_AGENT_HOST=<domain/ip:port>         # 指定本机Agent地址，用于直接接收Gateway的Push，可选
 curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
 ```
-
-- 程序副本(`~/.aimail/bin/aimail-src`,PATH 的 `aimail` 指向它)与宿主载荷(`~/.aimail/bin/mcp`)都归在 `~/.aimail/bin/` 程序根下,由 bootstrap 一并刷新(强制重下载:先 `export AIMAIL_FORCE_UPGRADE=1`)。
 
 ### 第 2 步 — `aimail install`(系统级,可重复,幂等)
 
 ```bash
-aimail install --home <平台根>  --system-id <sid>
+export AGENT_HOME=~/.hermes   # Agent的主目录，亦可 ~/.dsh、~/.openclaw、~/.pi、~/.deer-flow
+aimail install  
 ```
 
 ### 第 3 步 — 闭环验证
@@ -199,22 +200,22 @@ aimail repair [--system-id <sid>] [--home <root>] [--deep] [--dry-run]
 1. bridge 存活(死了则拉起)
 2. 路由重刷(bridge --system-id)
 3. 网关 webhook 配对修复
-4. 网关配置回填(system_home/webhook_host, 只补缺、绝不覆盖)
+4. 网关配置回填(system\_home/webhook\_host, 只补缺、绝不覆盖)
 5. 平台指针重建(仅当平台根确定且指针缺失)
 6. 运行时资源重部署(只有带 SDK 安装入口的平台会自动重装, 其余打印 check 的修复提示;
    平台在远端时跳过并给提示)
 7. 运行时载荷刷新(mcp 载荷缺失/陈旧 → 用本机 bundle 幂等重装, 不需要网络)
-8. agentmail.json 补缺 + webhook_url 对齐存活路由(仅本机)
+8. agentmail.json 补缺 + webhook\_url 对齐存活路由(仅本机)
 9. routes 条目补齐
-10. bridge pull 条目: 缺失则按 gateway.json 本地创建(aimail_url/admin_key/system_id),
-    已存在则把 admin_key 对齐 gateway.json(权威源)
+10. bridge pull 条目: 缺失则按 gateway.json 本地创建(aimail\_url/admin\_key/system\_id),
+    已存在则把 admin\_key 对齐 gateway.json(权威源)
 
 修复过程有两种类型, 明确收口:
 
 - 可自修(auto): 确定性、只依赖本机、不看服务端/宿主状态。阶梯必须覆盖它;
-  修完前提满足却仍 FAIL ⇒ 缺陷(输出 [D 本机可修·仍未修], 退出码 1), 请连同日志反馈维护者。
+  修完前提满足却仍 FAIL ⇒ 缺陷(输出 \[D 本机可修·仍未修], 退出码 1), 请连同日志反馈维护者。
 - 仅提示(hint): 不可靠自修(需要网关/agent 进程、服务端注册或管理员参与)。
-  repair 只打印原因与建议动作, 不硬试; 残留 [H 需管理员/宿主] 属正常。
+  repair 只打印原因与建议动作, 不硬试; 残留 \[H 需管理员/宿主] 属正常。
 
 复检结尾固定输出「本机可修缺陷 <n> 项 / 需管理员介入 <m> 项」。未登记的维度按 hint 处理
 并给原因。

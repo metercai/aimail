@@ -511,7 +511,7 @@ pub fn run_steps(
                     ));
                 }
                 ctx.insert("manager".into(), Value::String(m.clone()));
-                let agent = register::default_agent_name(platform);
+                let agent = "agent".to_string(); // 定名归 SDK（默认 agent），CLI 不再查表
                 match register::register_agent(
                     platform,
                     &agent,
@@ -706,8 +706,8 @@ mod tests {
     #[test]
     fn node_hosts_never_reference_sdk_root_placeholders() {
         for id in crate::hosts::order() {
-            let py_host = crate::core::detect::spec(id)
-                .map(|s| s.python_host)
+            let py_host = crate::hosts::get(id)
+                .map(|h| crate::hosts::exec::needs_sdk_root(h))
                 .unwrap_or(false);
             if py_host {
                 continue;

@@ -48,21 +48,6 @@ use std::path::{Path, PathBuf};
 
 use crate::hosts::{all, get, order, Host};
 
-/// 三档判定语义。差异是历史契约，**禁止合并**：
-///
-/// * `Strict` —— basename 必须等于 `dir_name`（若声明）+ 全部 markers 命中。
-///   install / reset / uninstall 用它回答"这个 `--home` 是哪个平台"。
-/// * `Scan` —— `dir_name` 缺省回落 `home_dir`，`--agent-home` 直接判该平台。
-///   扫 `user_home` 找"这台机器上装了哪些 agent"。
-/// * `Repair` —— basename 闸（若声明）+ markers **任一**（外加宿主私有 `repair_hints`）。
-///   修的时候宁认不弃：`.hermes` 里有 `profiles/` 也算 hermes 的线索。
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum DetectMode {
-    Strict,
-    Scan,
-    Repair,
-}
-
 /// `Strict`：目录本身命中哪个平台（`dir_name` 可选 + `markers` 全命中）。
 pub fn hits_dir(d: &Path) -> Option<&'static str> {
     let name_of = d.file_name().map(|s| s.to_string_lossy().into_owned());
@@ -142,14 +127,10 @@ pub fn detect_for_repair(dir: &Path) -> &'static str {
     "unknown"
 }
 
+/// `~`/`~/x` 展开走 [`crate::core::home::expand_user`]（跨平台单一实现：
+/// HOME 缺失时回落程序根父目录；Windows 同源），不在此另写一份。
 fn expand(p: &Path) -> PathBuf {
-    let s = p.to_string_lossy();
-    if let Some(rest) = s.strip_prefix("~/") {
-        if let Some(home) = std::env::var_os("HOME") {
-            return PathBuf::from(home).join(rest);
-        }
-    }
-    p.to_path_buf()
+    crate::core::home::expand_user(&p.to_string_lossy())
 }
 
 /// 把 `--home` 归一成**平台根**：自身命中 ⇒ 原样；恰有一个子目录命中 ⇒ 该子目录；

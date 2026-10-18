@@ -13,7 +13,7 @@ use crate::core::checks::l0::{field_str, read_gw_cfg, Ctx};
 use crate::core::{bridge as bridgectl, http, sig};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::SystemTime;
 
 fn bridge_dir(ctx: &Ctx) -> PathBuf {
@@ -544,18 +544,6 @@ impl Paths {
             pid: bridge_pid(ctx),
         }
     }
-}
-
-/// 让 `Path` 参与判断（保留给后续切片用：routes 表等）。
-pub fn is_deployed(ctx: &Ctx) -> bool {
-    Path::new(&bridge_cfg(ctx)).exists()
-}
-
-/// 桥配置里的 pull 段（真 TOML；无则空对象）—— `repair` 切片会复用。
-pub fn pull_section(text: &str) -> Value {
-    real_toml(text)
-        .and_then(|t| t.get("pull").cloned())
-        .unwrap_or_else(|| json!({}))
 }
 
 #[cfg(test)]

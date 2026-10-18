@@ -10,7 +10,7 @@
 //! 名字清单仍以边界稿 B-3 为准。
 
 use serde_json::Value;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 use crate::core::sdk::AbiError;
@@ -143,17 +143,11 @@ fn parse_envelope(stdout: &[u8]) -> Result<Value, AbiError> {
     }
 }
 
-/// **测试/自证用**：把 shim 源落成一个临时脚本（部署形态下由 CLI 内嵌，不需要落盘）。
-pub fn materialize_shim(dir: &Path) -> std::io::Result<PathBuf> {
-    let p = dir.join("sdk_call_shim.py");
-    std::fs::write(&p, SHIM_SRC)?;
-    Ok(p)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::path::PathBuf;
 
     fn core_dir() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))

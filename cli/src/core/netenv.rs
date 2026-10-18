@@ -168,11 +168,6 @@ fn global_ipv4_from_cmd() -> Vec<IpAddr> {
     }
 }
 
-/// 某 IP 是否「本机」：回环，或在全局 IP 列表里。
-pub fn is_local_ip(ip: IpAddr) -> bool {
-    is_loopback_ip(ip) || local_ips().contains(&ip)
-}
-
 /// 解析 host（IP 字面量或域名）→ 全部 IP。解析失败返回空。
 pub fn resolve(host: &str) -> Vec<IpAddr> {
     match (host, 0u16).to_socket_addrs() {

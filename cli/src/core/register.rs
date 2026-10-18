@@ -232,7 +232,7 @@ pub fn register_agent(
         "manager_address": mgr,
         "home": cand_homes.first().cloned().unwrap_or_default(),
     });
-    if matches!(kind, "python_module" | "python_script") {
+    if matches!(host.lang(), crate::hosts::Lang::Python) {
         asm["register_spec"] = spec.clone();
     }
     // 宿主身份键（node 多 agent 宿主如 openclaw 的 `main`）—— 定名/别名归一**仍在 SDK 内**
@@ -248,7 +248,7 @@ pub fn register_agent(
     // （平台包自算）不受影响 —— 故仅对 node_entry 注入，PY 宿主信封零变化。
     // 契约字面量棘轮：端口/路径取自契约单真源；主机 127.0.0.1 = 入站监听约定
     // （与 legacy `inboundUrl(port, host='127.0.0.1')` 默认一致）。
-    if kind == "node_entry" {
+    if matches!(host.lang(), crate::hosts::Lang::Node) {
         if let Some(port) = crate::core::contract::inbound_port(platform) {
             asm["local_webhook_url"] =
                 json!(format!("http://127.0.0.1:{}", port) + crate::core::contract::inbound_path());
@@ -281,13 +281,6 @@ pub fn register_agent(
     Ok(())
 }
 
-/// 从注册表取 `register` 块的 `default_name`（空则 `"agent"`）。
-pub fn default_agent_name(platform: &str) -> String {
-    let _ = platform;
-    // 定名归 SDK（默认名 = `agent`）；宿主表不再声明 default_name。
-    "agent".to_string()
-}
-
 /// `_run_register_all`：注册表 `register_all` 块驱动的全量注册（未定义 ⇒ 单 agent 平台）。
 pub fn register_all(
     platform: &str,
@@ -296,7 +289,11 @@ pub fn register_all(
     platform_home: &str,
     core_dir: &Path,
 ) -> Result<(), String> {
-    let rall = crate::hosts::get(platform).and_then(|h| crate::hosts::exec::register_all_json(h));
+    let Some(host) = crate::hosts::get(platform) else {
+        warn(&format!("{platform} 不在宿主表内(register_all 跳过)"));
+        return Ok(());
+    };
+    let rall = crate::hosts::exec::register_all_json(host);
     let sid = setup::pget(cfg, "system_id");
     let home_dir = crate::hosts::get(platform)
         .map(|h| h.home_dir())
@@ -328,7 +325,7 @@ pub fn register_all(
     // 契约 v1.0 §4.1(2)：node 侧**一律经 op 门**（`--op assemble`）—— 不再拼 legacy flag argv
     // （那套 argv 只对 python_script 形态成立）。多 agent 宿主按宿主容器枚举身份键
     // （openclaw: `agents/*`），逐个经门注册；枚举为空 ⇒ 单次注册。定名/别名归一去 SDK。
-    if kind == "node_entry" {
+    if matches!(host.lang(), crate::hosts::Lang::Node) {
         let homes = candidate_homes(platform, cfg, platform_home);
         let node = resolve_node_entry(
             rall.get("node_path").and_then(Value::as_str).unwrap_or(""),

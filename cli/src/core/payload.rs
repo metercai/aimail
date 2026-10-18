@@ -172,16 +172,6 @@ pub struct Bundle {
     pub no_stamp: bool,
 }
 
-/// 核心运行时模块（`_CORE_FILES`）—— mcp / deer-flow 两个 bundle 共用。
-pub const CORE_FILES: &[(&str, &str)] = &[
-    ("aimail_base.py", "aimail_base.py"),
-    ("aimail_tools.py", "aimail_tools.py"),
-    ("aimail_board.py", "aimail_board.py"),
-    ("aimail_contract.py", "aimail_contract.py"),
-    ("gateway_api.py", "gateway_api.py"),
-    ("_aimail_bootstrap.py", "_aimail_bootstrap.py"),
-];
-
 const DEERFLOW_FILES: &[(&str, &str)] = &[
     ("aimail_base.py", "aimail_base.py"),
     ("aimail_tools.py", "aimail_tools.py"),

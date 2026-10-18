@@ -202,7 +202,7 @@ pub fn run(a: &Args) -> i32 {
             ));
         }
     } else {
-        let agent = register::default_agent_name(&platform);
+        let agent = "agent".to_string(); // 定名归 SDK（默认 agent），CLI 不再查表
         if let Err(e) =
             register::register_agent(&platform, &agent, &cfg, &manager, &home_str, &core_dir)
         {

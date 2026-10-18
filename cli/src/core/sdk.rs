@@ -311,10 +311,6 @@ pub fn sdk_ops(op: &str, args: &Value) -> Result<Value, AbiError> {
     sdk_ops_call(op, args, Duration::from_secs(120), &[])
 }
 
-pub fn sdk_ops_with_timeout(op: &str, args: &Value, timeout: Duration) -> Result<Value, AbiError> {
-    sdk_ops_call(op, args, timeout, &[])
-}
-
 /// 可测核心：op + 入参 JSON + 超时 + 子进程环境（夹具隔离无需改进程 env ⇒ 并行安全）。
 /// transport（python 门 / node op 入口）由 `args.system_id` 指向的系统级 cfg 决定。
 pub fn sdk_ops_call(

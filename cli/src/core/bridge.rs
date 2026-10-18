@@ -10,7 +10,6 @@
 use serde_json::{json, Map, Value};
 use std::path::Path;
 use std::process::Command;
-use std::time::Duration;
 
 /// 桥二进制是否支持生命周期契约（rc∈{0,3} 且 stdout 含 `"running"`）。
 pub fn ctl_supported(bin: &Path) -> bool {
@@ -98,9 +97,6 @@ pub fn pid_alive(pid: i32) -> bool {
         .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
         .unwrap_or(false)
 }
-
-/// 契约调用的默认超时（`subprocess.run(..., timeout=10)`）。
-pub const CTL_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[cfg(test)]
 mod tests {
