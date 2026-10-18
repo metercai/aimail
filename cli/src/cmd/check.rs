@@ -15,7 +15,7 @@ use crate::core::checks::adapters::{self, Ctx, DEFAULT_SID_ORDER};
 use crate::core::checks::l0::{self, Ctx as L0Ctx};
 use crate::core::checks::{l1, l2, l2r};
 use crate::core::style::{BOLD, CROSS, GREEN, NC, YELLOW};
-use crate::core::{config, home, payload, platforms};
+use crate::core::{config, home, payload};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
@@ -49,8 +49,11 @@ fn resolve_platform_sid(
     if !argv_sid.is_empty() {
         return argv_sid.to_string();
     }
-    if platforms::home_dir(agent_type).is_some() {
-        let ptr = platforms::pointer_path(user_home, agent_type);
+    if crate::hosts::get(agent_type)
+        .map(|h| h.home_dir())
+        .is_some()
+    {
+        let ptr = crate::hosts::pointer::path_for(user_home, agent_type);
         if ptr.is_file() {
             if let Ok(text) = std::fs::read_to_string(&ptr) {
                 if let Ok(v) = serde_json::from_str::<Value>(&text) {
@@ -69,7 +72,7 @@ fn resolve_platform_sid(
 /// `_detect_default_sid`：按 Python `PLATFORMS` 声明顺序找"已装且已集成"的首个平台指针。
 fn detect_default_sid(user_home: &Path, argv_sid: &str, env_sid: Option<&str>) -> String {
     for pid in DEFAULT_SID_ORDER {
-        let root = platforms::platform_root(user_home, pid);
+        let root = crate::hosts::identity::platform_root(user_home, pid);
         if !root.exists() {
             continue;
         }
@@ -89,8 +92,8 @@ fn platform_by_system_home(user_home: &Path, sid: &str) -> Option<&'static str> 
         return None;
     }
     let sh = std::fs::canonicalize(sh).unwrap_or_else(|_| PathBuf::from(sh));
-    for name in platforms::order() {
-        let hd = platforms::home_dir(name).unwrap_or("");
+    for name in crate::hosts::order() {
+        let hd = crate::hosts::get(name).map(|h| h.home_dir()).unwrap_or("");
         if hd.is_empty() {
             continue;
         }
@@ -123,7 +126,7 @@ fn build_out(
     // AGENT_HOME：`--home` 归一后的平台根 > env AGENT_HOME > `~/.hermes`（Python 同）
     let agent_home_explicit = a.home.is_some();
     let agent_home: PathBuf = match &a.home {
-        Some(h) => platforms::normalize_platform_home(Path::new(h)),
+        Some(h) => crate::hosts::identity::normalize_platform_home(Path::new(h)),
         None => match env_nonempty("AGENT_HOME") {
             Some(v) => PathBuf::from(v),
             None => user_home.join(".hermes"),

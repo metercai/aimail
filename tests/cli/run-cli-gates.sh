@@ -7,7 +7,7 @@
 [ -n "${L2_JOURNEY:-}" ] && export CLI_JOURNEY=1
 #   3) CLI 宿主 L1/L2 门禁：aimail-advanced/tests/cli/（黑盒：rust 二进制为被测物）
 #
-# 平台字面量判据不在本脚本：Rust 侧由 cli/src/core/platforms.rs 注册表不变量单测
+# 平台字面量判据不在本脚本：Rust 侧由 cli/src/hosts/ 的宿主不变量单测
 # + adapters 单测守住（随第 2 步 cargo test 跑），2026-10-08 删除对已退役 Python 文件的死 grep。
 #
 # 不进本脚本的（属 SDK 域，见 tests/sdk/l0-gate-tests.sh）：

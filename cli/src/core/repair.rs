@@ -15,7 +15,7 @@
 
 use crate::core::check::{Check, Record};
 use crate::core::style::{NC, RED, YELLOW};
-use crate::core::{config, platforms, sdk};
+use crate::core::{config, sdk};
 use serde_json::Value;
 use std::path::Path;
 
@@ -328,7 +328,7 @@ impl Step {
                             .is_empty();
                         if need_home {
                             if !root.is_empty()
-                                && crate::core::platforms::detect_platform_from_home(
+                                && crate::hosts::identity::detect_platform_from_home(
                                     std::path::Path::new(&root),
                                 ) != "unknown"
                             {
@@ -473,7 +473,7 @@ impl Step {
                     return StepResult::NothingToDo;
                 }
                 let plat =
-                    crate::core::platforms::detect_platform_from_home(std::path::Path::new(home));
+                    crate::hosts::identity::detect_platform_from_home(std::path::Path::new(home));
                 if plat == "unknown" {
                     return StepResult::NothingToDo;
                 }
@@ -504,7 +504,7 @@ impl Step {
                 if email.is_empty() {
                     return StepResult::NothingToDo;
                 }
-                let ptr = crate::core::platforms::pointer_paths(&uh, plat)
+                let ptr = crate::hosts::pointer::paths_for(&uh, plat)
                     .into_iter()
                     .next()
                     .unwrap_or_default();
@@ -1256,9 +1256,9 @@ pub fn run(
 /// （**不猜**）。
 pub fn auto_platform_home(user_home: &Path, stored_system_home: Option<&str>) -> String {
     let mut hits: Vec<String> = Vec::new();
-    for name in platforms::order() {
-        let root = platforms::platform_root(user_home, name);
-        if root.exists() && platforms::detect_platform_from_home(&root) == name {
+    for name in crate::hosts::order() {
+        let root = crate::hosts::identity::platform_root(user_home, name);
+        if root.exists() && crate::hosts::identity::detect_platform_from_home(&root) == *name {
             hits.push(root.to_string_lossy().into_owned());
         }
     }
@@ -1276,8 +1276,8 @@ pub fn auto_platform_home(user_home: &Path, stored_system_home: Option<&str>) ->
 
 /// `_sid_has_pointer(sid)`：任一平台的任一指针（root / root_or_profiles）指向该 sid。
 pub fn sid_has_pointer(user_home: &Path, sid: &str) -> bool {
-    for name in platforms::order() {
-        for ptr in platforms::pointer_paths(user_home, name) {
+    for name in crate::hosts::order() {
+        for ptr in crate::hosts::pointer::paths_for(user_home, name) {
             if ptr.is_file() {
                 if let Ok(text) = std::fs::read_to_string(&ptr) {
                     if let Ok(v) = serde_json::from_str::<Value>(&text) {
@@ -1389,7 +1389,7 @@ pub fn repair_pointer(
     if platform_home.is_empty() {
         return false;
     }
-    let plat = platforms::detect_platform_from_home(Path::new(platform_home));
+    let plat = crate::hosts::identity::detect_platform_from_home(Path::new(platform_home));
     if plat == "unknown" {
         return false;
     }
@@ -1423,7 +1423,8 @@ pub fn repair_pointer(
     if email.is_empty() {
         return false;
     }
-    let ptr = platforms::platform_root(user_home, plat).join(crate::core::contract::pointer_file());
+    let ptr = crate::hosts::identity::platform_root(user_home, plat)
+        .join(crate::core::contract::pointer_file());
     if ptr.exists() {
         return false; // 已有指针（可能是别的系统）—— 不覆盖
     }
@@ -2006,12 +2007,42 @@ mod tests {
         // **python 宿主**（hermes / deerflow）带自足安装入口（sdk_install 步）；
         // **node 宿主**（dsh / pi / openclaw）**不带** —— 其 SDK/扩展由宿主包管理器装入，
         // 注册/受控变更/拆除经注册表 `ops.argv` 的 op 入口直达（契约 v1.0 §4.1(2)）。
-        assert_eq!(platforms::sdk_install_target("hermes"), "hermes");
-        assert_eq!(platforms::sdk_install_target("deerflow"), "deerflow");
-        assert_eq!(platforms::sdk_install_target("dsh"), "");
-        assert_eq!(platforms::sdk_install_target("pi"), "");
-        assert_eq!(platforms::sdk_install_target("openclaw"), "");
-        assert_eq!(platforms::sdk_install_target("nope"), "");
+        assert_eq!(
+            crate::hosts::get("hermes")
+                .map(crate::hosts::exec::sdk_install_target)
+                .unwrap_or_default(),
+            "hermes"
+        );
+        assert_eq!(
+            crate::hosts::get("deerflow")
+                .map(crate::hosts::exec::sdk_install_target)
+                .unwrap_or_default(),
+            "deerflow"
+        );
+        assert_eq!(
+            crate::hosts::get("dsh")
+                .map(crate::hosts::exec::sdk_install_target)
+                .unwrap_or_default(),
+            ""
+        );
+        assert_eq!(
+            crate::hosts::get("pi")
+                .map(crate::hosts::exec::sdk_install_target)
+                .unwrap_or_default(),
+            ""
+        );
+        assert_eq!(
+            crate::hosts::get("openclaw")
+                .map(crate::hosts::exec::sdk_install_target)
+                .unwrap_or_default(),
+            ""
+        );
+        assert_eq!(
+            crate::hosts::get("nope")
+                .map(crate::hosts::exec::sdk_install_target)
+                .unwrap_or_default(),
+            ""
+        );
     }
 
     #[test]

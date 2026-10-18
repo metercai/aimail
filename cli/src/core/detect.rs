@@ -311,10 +311,10 @@ pub fn detect_static(home: &Path, explicit: Option<&str>) -> Result<StaticInfo, 
 /// `uninstall_steps`/`health_checks`/`pointer`/`register`/`ops`/`detect` 全键），
 /// 使本命令成为 advanced 门禁/夹具的**唯一平台知识入口**（取代直读
 /// 平台注册表 JSON，S3b 删除）。形状对齐原注册表（`order` +
-/// `platforms`{id→对象} + `detected`），改锚面最小。数据 = `platforms::raw()`（由
-/// `platforms_data` 类型化常量重建，语义等价由往返棘轮证明）。
+/// `platforms`{id→对象} + `detected`），改锚面最小。数据 = `crate::hosts::describe_all()`（由
+/// `hosts::describe_all()` 重建，语义等价由 spec 逐字节门禁证明）。
 pub fn spec_json(home: Option<&Path>, explicit: Option<&str>) -> Value {
-    let reg = crate::core::platforms::raw();
+    let reg = crate::hosts::describe_all();
     let detected = match home {
         Some(h) => match detect_static(h, explicit) {
             Ok(info) => info.to_json(),

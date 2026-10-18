@@ -10,7 +10,7 @@
 //! `:1480-1514`（指针扫描）· `:1974-2002`（表头/表体）· `:2030-2109`（op 链与查看面）。
 
 use crate::cmd::report;
-use crate::core::{config, contract, gateway::GatewayClient, home, platforms};
+use crate::core::{config, contract, gateway::GatewayClient, home};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
@@ -146,7 +146,7 @@ pub(crate) fn list_agents(aimail_home: &Path, sid: &str, cfg: &config::GatewayCo
                 if key.is_empty() || !Path::new(key).is_dir() {
                     continue;
                 }
-                for (nm, ptr_email, ptr_sid) in platforms::scan_pointers(Path::new(key)) {
+                for (nm, ptr_email, ptr_sid) in crate::hosts::pointer::scan(Path::new(key)) {
                     if ptr_email == email && ptr_sid == sid {
                         agent_name = nm;
                         break;
@@ -183,13 +183,13 @@ pub(crate) fn list_agents(aimail_home: &Path, sid: &str, cfg: &config::GatewayCo
     let platform = if cfg.system_home.is_empty() {
         String::new()
     } else {
-        platforms::detect_platform_from_home(Path::new(&cfg.system_home)).to_string()
+        crate::hosts::identity::detect_platform_from_home(Path::new(&cfg.system_home)).to_string()
     };
     if !cfg.system_home.is_empty() {
         let home_path = Path::new(&cfg.system_home);
         let mut known: Vec<String> = rows.iter().map(|r| r.agent.clone()).collect();
         // pointer-first：已带本系统指针的 profile/agent 目录按其指针邮箱登记（改名场景）
-        for (nm, pe, psid) in platforms::scan_pointers(home_path) {
+        for (nm, pe, psid) in crate::hosts::pointer::scan(home_path) {
             if psid != sid || nm.is_empty() {
                 continue;
             }
@@ -221,7 +221,7 @@ fn header_lines(sid: &str, cfg: &config::GatewayConfig) -> Vec<String> {
     let platform = if cfg.system_home.is_empty() {
         String::new()
     } else {
-        platforms::detect_platform_from_home(Path::new(&cfg.system_home)).to_string()
+        crate::hosts::identity::detect_platform_from_home(Path::new(&cfg.system_home)).to_string()
     };
     let mut lines = vec![
         format!(

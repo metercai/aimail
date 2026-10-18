@@ -8,7 +8,7 @@
 //! 只在"到期值不可解析"这类异常上与 Python 一致地落到 `unreachable` 分支。
 
 use crate::core::style::{GREEN, NC, RED, YELLOW};
-use crate::core::{config, contract, gateway::GatewayClient, home, mail, platforms, time};
+use crate::core::{config, contract, gateway::GatewayClient, home, mail, time};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
@@ -87,7 +87,7 @@ fn platform_label(home: &str, fallback: &str) -> String {
     if home.is_empty() {
         return fallback.to_string();
     }
-    let p = platforms::detect_platform_from_home(Path::new(home));
+    let p = crate::hosts::identity::detect_platform_from_home(Path::new(home));
     if p.is_empty() || p == "unknown" {
         fallback.to_string()
     } else {
@@ -145,7 +145,7 @@ pub fn run(all_view: bool) -> i32 {
     let mut total_agents = 0usize;
     let mut broken: Vec<(String, String)> = Vec::new();
     let ptr_map = if all_view {
-        platforms::all_pointer_sids(&user_home)
+        crate::hosts::pointer::all_sids(&user_home)
     } else {
         Vec::new()
     };
@@ -235,10 +235,10 @@ pub fn run(all_view: bool) -> i32 {
         println!();
         println!("  Platforms on this machine:");
         let mut linked_any = false;
-        for plat in platforms::order() {
-            let exists = platforms::platform_root_exists(&user_home, plat);
-            let ptr_sid = platforms::pointer_sid_for(&user_home, plat);
-            let root = platforms::platform_root(&user_home, plat);
+        for plat in crate::hosts::order() {
+            let exists = crate::hosts::identity::platform_root_exists(&user_home, plat);
+            let ptr_sid = crate::hosts::pointer::sid_for_name(&user_home, plat);
+            let root = crate::hosts::identity::platform_root(&user_home, plat);
             let shown = root.display();
             if exists && !ptr_sid.is_empty() {
                 println!("    {plat:<9} {shown}   linked → {ptr_sid}");

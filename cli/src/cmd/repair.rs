@@ -21,7 +21,7 @@ pub struct Args {
 pub fn run(a: &Args) -> i32 {
     let home = match a.home.as_deref() {
         Some(h) => {
-            crate::core::platforms::normalize_platform_home(&crate::core::home::expand_user(h))
+            crate::hosts::identity::normalize_platform_home(&crate::core::home::expand_user(h))
                 .to_string_lossy()
                 .into_owned()
         }

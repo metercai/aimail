@@ -1,6 +1,6 @@
 """平台注册表形状测试 —— 数据源 = `aimail platform spec --json`(P2c S3b, 2026-10-16)。
 
-`cli/platforms.json` 已退役(真源 = 类型化常量 `cli/src/core/platforms_data.rs`);
+`cli/platforms.json` 已退役(真源 = 宿主模块 `cli/src/hosts/*.rs`);
 本文件的断言语义逐字自 tests/sdk/ 迁移,只换数据源:注册表一律经**已构建的 CLI
 二进制**导出(黑盒,与被测物同源 ⇒ 断言的是真产物的形状,不是仓里某份文件)。
 

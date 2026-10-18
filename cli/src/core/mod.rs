@@ -28,7 +28,6 @@ pub mod netenv;
 pub mod payload;
 pub mod perms;
 pub mod ping;
-pub mod platforms;
 pub mod probe;
 pub mod procwin;
 pub mod pyjson;

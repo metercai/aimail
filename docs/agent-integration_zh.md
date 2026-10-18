@@ -315,7 +315,7 @@ bootstrap;TS 宿主自身从不部署 bridge。
 
 ### 6.1 边界规则(一条,gate 强制)
 
-**平台知识只存在于类型化注册表常量(`cli/src/core/platforms_data.rs` ——
+**平台知识只存在于宿主模块(`cli/src/hosts/`,每宿主一个文件;
 `cli/platforms.json` 文件已退役,`aimail platform spec --json` 是它的可断言
 导出面);平台适配只存在于其 SDK(pysdk=Python 平台,TS 包=TS 平台)。CLI 零
 平台协议**——读注册表、跑通用执行器。新增平台永不允许改 `cli/aimail` /
@@ -353,7 +353,7 @@ health_checks。CLI 执行器是平台无关的 `kind` 分发;kind 跨平台共�
 ### 6.4 注册表条目参考(类型化常量,每平台)
 
 下表形状与 `aimail platform spec --json` 的输出完全一致(`order` +
-`platforms`{id → 条目}+ `detected`);单真源 = `cli/src/core/platforms_data.rs`
+`platforms`{id → 条目}+ `detected`);单真源 = `cli/src/hosts/`
 的类型化常量。
 
 | 字段 | 含义 |

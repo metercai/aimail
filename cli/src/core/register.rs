@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
-use crate::core::{platforms, setup, style};
+use crate::core::{setup, style};
 
 const REGISTRAR_TIMEOUT: Duration = Duration::from_secs(120);
 
@@ -31,7 +31,9 @@ fn warn(msg: &str) {
 /// 候选平台根：调用方给的 home → cfg.system_home → `~/.<home_dir>`。
 /// 供注册器与 op 入口（`core::sdk::ops_target`）共用 —— 模板路径的单真源。
 pub(crate) fn candidate_homes(platform: &str, cfg: &Value, platform_home: &str) -> Vec<String> {
-    let home_dir = platforms::home_dir(platform).unwrap_or("");
+    let home_dir = crate::hosts::get(platform)
+        .map(|h| h.home_dir())
+        .unwrap_or("");
     let fallback = crate::core::home::user_home()
         .join(format!(".{home_dir}"))
         .to_string_lossy()
@@ -280,16 +282,9 @@ pub fn register_agent(
 
 /// 从注册表取 `register` 块的 `default_name`（空则 `"agent"`）。
 pub fn default_agent_name(platform: &str) -> String {
-    let dn = platforms::platform(platform)
-        .and_then(|p| p.get("register"))
-        .and_then(|r| r.get("default_name"))
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    if dn.is_empty() {
-        "agent".to_string()
-    } else {
-        dn.to_string()
-    }
+    let _ = platform;
+    // 定名归 SDK（默认名 = `agent`）；宿主表不再声明 default_name。
+    "agent".to_string()
 }
 
 /// `_run_register_all`：注册表 `register_all` 块驱动的全量注册（未定义 ⇒ 单 agent 平台）。
@@ -302,7 +297,9 @@ pub fn register_all(
 ) -> Result<(), String> {
     let rall = crate::hosts::get(platform).and_then(crate::hosts::exec::register_all_json);
     let sid = setup::pget(cfg, "system_id");
-    let home_dir = platforms::home_dir(platform).unwrap_or("");
+    let home_dir = crate::hosts::get(platform)
+        .map(|h| h.home_dir())
+        .unwrap_or("");
     let home = {
         let h = setup::pget(cfg, "system_home");
         if h.is_empty() {

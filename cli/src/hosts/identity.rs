@@ -220,6 +220,28 @@ pub fn platform_override(name: &str) -> Result<Option<String>, String> {
     Ok(Some(p.to_string()))
 }
 
+/// 平台解析：home 特征优先，回退"第一个有指针指向某 system 的宿主"；都没有 ⇒ `""`。
+///
+/// 与 [`detect_platform_from_home`] 的区别：后者无命中返回 `"unknown"`（**非空**），
+/// 直接当平台名会把"没识别出来"当成平台 ⇒ 必须走本函数收成 `""`。
+pub fn resolve_platform(system_home: &Path) -> String {
+    let p = if system_home.as_os_str().is_empty() {
+        String::new()
+    } else {
+        detect_platform_from_home(system_home).to_string()
+    };
+    if p != "unknown" {
+        return p;
+    }
+    let uh = crate::core::home::user_home();
+    for h in all() {
+        if !crate::hosts::pointer::sid_for(&uh, *h).is_empty() {
+            return h.id().to_string();
+        }
+    }
+    String::new()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -286,5 +308,22 @@ mod tests {
         let got = normalize_platform_home(&root);
         assert_eq!(got, root.join("openclaw"));
         assert_eq!(detect_platform_from_home(&got), "openclaw");
+    }
+
+    /// `--platform` 取值校验：空 ⇒ None；合法 ⇒ 原样；未知 ⇒ 文案带全部合法值（升序）。
+    #[test]
+    fn platform_override_validates_against_the_registry() {
+        assert_eq!(platform_override("").unwrap(), None);
+        assert_eq!(platform_override("   ").unwrap(), None);
+        for n in order() {
+            assert_eq!(platform_override(n).unwrap().as_deref(), Some(*n));
+        }
+        let e = platform_override("nope").unwrap_err();
+        let mut names: Vec<&str> = order().to_vec();
+        names.sort_unstable();
+        assert_eq!(
+            e,
+            format!("--platform 'nope' unknown; valid: {}", names.join(", "))
+        );
     }
 }

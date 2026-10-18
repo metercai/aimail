@@ -323,8 +323,8 @@ bootstrap; TS hosts never deploy the bridge themselves.
 
 ### 6.1 Boundary rule (one rule, enforced)
 
-**Platform knowledge lives only in the typed registry constants
-(`cli/src/core/platforms_data.rs` — the `cli/platforms.json` file was
+**Platform knowledge lives only in the host modules
+(`cli/src/hosts/` — one module per host; the `cli/platforms.json` file was
 retired; `aimail platform spec --json` is the assertable export of it);
 every platform adapter lives in its SDK (pysdk for Python platforms, the
 TS package for TS platforms). The CLI holds zero platform protocol** — it
@@ -370,7 +370,7 @@ dispatchers; kinds are shared across platforms, never per-platform code.
 
 The shape below is exactly what `aimail platform spec --json` emits
 (`order` + `platforms`{id → entry} + `detected`); the single source is
-the typed constants in `cli/src/core/platforms_data.rs`.
+the host modules under `cli/src/hosts/`.
 
 | field | meaning |
 |---|---|

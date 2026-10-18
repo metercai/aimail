@@ -5,7 +5,7 @@
 //! reconcile 自证）⇒ 这里也**不提供适配器**，由 [`run_l3_l4`] 走注册表
 //! `agent_check_remote` 的提示分支。
 //!
-//! 端口/路径/名字这类平台知识有两条来源：**注册表**（类型化常量 `platforms_hosts.rs`，经 `platform spec --json` 导出）与**契约**
+//! 端口/路径/名字这类平台知识有两条来源：**宿主模块**（`hosts/`，经 `platform spec --json` 导出）与**契约**
 //! （contract/aimail-contract.json）。本模块只用这两者，不复制字面量
 //! （hermes 的 hook 路由名与入站路径取自契约；pi 端口无关）。
 
@@ -61,7 +61,7 @@ pub fn resolve_system_id(
 
 /// `_detect_agent_type`：注册表 `detect`（dir_name + markers）逐平台判定。
 ///
-/// 与 [`platforms::detect_platform_from_home`] **不是**同一算法：这里 `dir_name`
+/// 与 [`crate::hosts::identity::detect_platform_from_home`] **不是**同一算法：这里 `dir_name`
 /// 缺省回落到 `home_dir`（hermes 因此要求目录真的叫 `.hermes`），而 L2r 那个是
 /// 目录名可选。两边都照抄，不合并。
 pub fn detect_agent_type(

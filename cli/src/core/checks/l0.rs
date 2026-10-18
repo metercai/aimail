@@ -11,7 +11,7 @@
 use crate::core::check::Check;
 use crate::core::contract;
 use crate::core::probe;
-use crate::core::{config, home, platforms};
+use crate::core::{config, home};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
@@ -68,7 +68,7 @@ fn is_falsy(v: Option<&Value>) -> bool {
 
 /// 平台根目录（注册表 `home_dir`，缺省 `.{name}`）—— 与 `_pointer_platforms_for_sid` 同算法。
 fn platform_root(user_home: &Path, name: &str) -> PathBuf {
-    match platforms::home_dir(name) {
+    match crate::hosts::get(name).map(|h| h.home_dir()) {
         Some(dir) => user_home.join(dir),
         None => user_home.join(format!(".{name}")),
     }
@@ -77,14 +77,14 @@ fn platform_root(user_home: &Path, name: &str) -> PathBuf {
 /// 哪些平台的指针文件引用了该 sid（`check_status.py:1026-1052`；**不去重**，与 Python 一致）。
 pub fn pointer_platforms_for_sid(ctx: &Ctx, sid: &str) -> Vec<String> {
     let mut candidates: Vec<(String, PathBuf)> = Vec::new();
-    for name in platforms::order() {
+    for name in crate::hosts::order() {
         let root = platform_root(&ctx.user_home, name);
         let ptr_name = contract::pointer_file();
         let root_ptr = root.join(ptr_name);
         if root_ptr.is_file() {
             candidates.push((name.to_string(), root_ptr));
         }
-        if platforms::pointer_kind(name) == "root_or_profiles" {
+        if crate::hosts::pointer::kind_of(name) == "root_or_profiles" {
             let profiles = root.join("profiles");
             if profiles.is_dir() {
                 let mut hits: Vec<PathBuf> = std::fs::read_dir(&profiles)

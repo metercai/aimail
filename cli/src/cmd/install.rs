@@ -13,7 +13,7 @@
 //! 未移植清单在 `cli/tests/cli_surface.rs::unported_faces_are_honest` 里钉住。
 
 use crate::core::payload;
-use crate::core::{config, home, platforms, setup, steps};
+use crate::core::{config, home, setup, steps};
 use std::path::PathBuf;
 
 /// `install` 的全部参数（人面 + 隐藏机器面；未定义的值一律空串/`false`）。
@@ -242,7 +242,7 @@ fn sid_from_system_home(system_home: &std::path::Path) -> String {
             if let Some(cfg) = crate::core::config::load_gateway_config(&sid) {
                 let sh = cfg.system_home.clone();
                 if !sh.is_empty()
-                    && crate::core::platforms::normalize_platform_home(std::path::Path::new(&sh))
+                    && crate::hosts::identity::normalize_platform_home(std::path::Path::new(&sh))
                         .to_string_lossy()
                         == target
                 {
@@ -286,7 +286,7 @@ fn ensure_system(a: &Args) -> i32 {
 
     // home 解析:--home flag > AGENT_HOME env(C-7,与 welcome 对齐)> --system-id 反查
     let system_home: std::path::PathBuf = if !a.home.is_empty() {
-        crate::core::platforms::normalize_platform_home(std::path::Path::new(&a.home))
+        crate::hosts::identity::normalize_platform_home(std::path::Path::new(&a.home))
     } else if let Some(ah) = agent_home_env() {
         ah
     } else if sid.is_empty() {
@@ -606,7 +606,7 @@ fn install_human(a: &Args) -> i32 {
 
     // 目标解析:--home flag > AGENT_HOME env(C-7,与 welcome 对齐)> --system-id 反查
     let system_home = if !a.home.is_empty() {
-        platforms::normalize_platform_home(&home::expand_user(&a.home))
+        crate::hosts::identity::normalize_platform_home(&home::expand_user(&a.home))
     } else if let Some(ah) = agent_home_env() {
         println!("  --home 由 AGENT_HOME env 解析: {}", ah.to_string_lossy());
         ah
@@ -651,10 +651,10 @@ fn install_human(a: &Args) -> i32 {
     if !a.container_home.is_empty() && a.container.is_empty() {
         return fail("--container-home requires --container <name>");
     }
-    let platform = match platforms::platform_override(&a.platform) {
+    let platform = match crate::hosts::identity::platform_override(&a.platform) {
         Ok(Some(p)) => p,
         Ok(None) => {
-            let p = platforms::resolve_platform(&system_home);
+            let p = crate::hosts::identity::resolve_platform(&system_home);
             if p.is_empty() {
                 return fail(&format!(
                     "无法确定平台:{} 目录无特征且无 aimail 指针(可用 --platform 显式指定)",

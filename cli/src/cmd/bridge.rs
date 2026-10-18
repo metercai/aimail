@@ -127,7 +127,7 @@ fn status(pids: &[u32]) -> i32 {
 
 /// 重刷转发路由（有 `-s`/`-H`）。
 fn refresh(a: &Args, running: bool) -> i32 {
-    use crate::core::platforms::{normalize_platform_home, platform_override, resolve_platform};
+    use crate::hosts::identity::{normalize_platform_home, platform_override, resolve_platform};
 
     let system_home = if a.home.is_empty() {
         std::path::PathBuf::new()

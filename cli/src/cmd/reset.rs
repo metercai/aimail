@@ -7,7 +7,7 @@
 
 use serde_json::{json, Value};
 
-use crate::core::{config, platforms, register, setup, style};
+use crate::core::{config, register, setup, style};
 
 pub struct Args {
     pub home: String,
@@ -49,7 +49,7 @@ pub fn run(a: &Args) -> i32 {
         println!("  --home 由 --system-id 反查: {}", p.to_string_lossy());
         p
     } else {
-        platforms::normalize_platform_home(&crate::core::home::expand_user(&a.home))
+        crate::hosts::identity::normalize_platform_home(&crate::core::home::expand_user(&a.home))
     };
     if !system_home.exists() {
         return fail(&format!(
@@ -58,16 +58,16 @@ pub fn run(a: &Args) -> i32 {
         ));
     }
     // --platform 显式覆盖（注册表校验）优先，否则按 home 特征判定
-    let platform = match platforms::platform_override(&a.platform) {
+    let platform = match crate::hosts::identity::platform_override(&a.platform) {
         Ok(Some(p)) => p,
-        Ok(None) => platforms::resolve_platform(&system_home),
+        Ok(None) => crate::hosts::identity::resolve_platform(&system_home),
         Err(msg) => return fail(&msg),
     };
     if platform.is_empty() {
         return fail("无法确定平台");
     }
     if sid.is_empty() {
-        sid = platforms::pointer_sid_for(&crate::core::home::user_home(), &platform);
+        sid = crate::hosts::pointer::sid_for_name(&crate::core::home::user_home(), &platform);
     }
     if sid.is_empty() {
         return fail("无法确定 system_id(用 --system-id 指定)");

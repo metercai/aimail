@@ -18,6 +18,7 @@
 pub mod exec;
 pub mod health;
 pub mod identity;
+pub mod pointer;
 pub mod runtime;
 
 mod deerflow;
@@ -181,6 +182,65 @@ mod tests {
             assert!(get(id).is_some(), "catalog missing {id}");
         }
         assert!(get("nope").is_none());
+    }
+
+    /// 平台注册表 JSON 已退役（P2c S3b），不得回潮：文件不存在 + 源码零加载引用。
+    #[test]
+    fn retired_platforms_json_must_not_return() {
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let needle = ["plat", "forms.json"].concat();
+        assert!(
+            !manifest.join(&needle).exists(),
+            "平台注册表 JSON 已退役（真源 = hosts/ 各宿主模块），不要恢复该文件"
+        );
+        let mut offenders: Vec<String> = Vec::new();
+        let mut stack = vec![manifest.join("src")];
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for e in entries.flatten() {
+                let path = e.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().is_some_and(|x| x == "rs") {
+                    if let Ok(t) = std::fs::read_to_string(&path) {
+                        if t.contains(&needle) {
+                            offenders.push(path.display().to_string());
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "源码出现平台注册表 JSON 加载引用: {offenders:?}"
+        );
+    }
+
+    /// 条目一律是 **SDK 根相对**；出现 `pysdk/` 即布局知识回流 ⇒ 红。
+    #[test]
+    fn registry_data_has_no_repo_layout_paths() {
+        let raw = describe_all().to_string();
+        assert!(!raw.contains("\"pysdk/"), "注册表数据里出现了仓库布局路径");
+        for entry in [
+            "hermes/register_profiles.py",
+            "deer-flow/manage.py",
+            "hermes",
+        ] {
+            assert!(raw.contains(entry), "注册表应含 SDK 根相对入口 {entry}");
+        }
+    }
+
+    /// 每个宿主的安装步骤都能序列化成带 kind 的对象（serde 回归钉）。
+    #[test]
+    fn step_tables_serialize_with_kind() {
+        for h in ALL {
+            for st in h.install_plan().iter().chain(h.uninstall_plan()) {
+                let v = serde_json::to_value(st).expect("step serializes");
+                assert!(v.get("kind").is_some(), "{} 的步骤缺少 kind: {v}", h.id());
+            }
+        }
     }
 
     /// 语言类型只有一处映射：node 宿主声明 node op 模板，python 宿主没有。

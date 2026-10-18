@@ -297,7 +297,7 @@ fn ops_target(args: &Value) -> (String, Vec<String>) {
     let platform = if !recorded.is_empty() {
         recorded
     } else if !home.is_empty() {
-        crate::core::platforms::detect_platform_from_home(Path::new(&home)).to_string()
+        crate::hosts::identity::detect_platform_from_home(Path::new(&home)).to_string()
     } else {
         String::new()
     };

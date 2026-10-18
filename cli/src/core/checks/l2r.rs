@@ -8,7 +8,7 @@
 
 use crate::core::check::Check;
 use crate::core::checks::l0::{field_str, read_gw_cfg, Ctx};
-use crate::core::{config, contract, platforms};
+use crate::core::{config, contract};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -37,7 +37,7 @@ pub fn runtime(c: &mut Check, sid: &str, ctx: &Ctx, prog_root: &Path) {
     let sh = field_str(&gw, "system_home").to_string();
     let mut platform = String::new();
     if !sh.is_empty() && Path::new(&sh).is_dir() {
-        let detected = platforms::detect_platform_from_home(Path::new(&sh));
+        let detected = crate::hosts::identity::detect_platform_from_home(Path::new(&sh));
         if !detected.is_empty() && detected != "unknown" {
             platform = detected.to_string();
         }

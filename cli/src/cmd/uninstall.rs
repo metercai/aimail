@@ -9,7 +9,7 @@
 use serde_json::{json, Value};
 use std::io::Write;
 
-use crate::core::{config, home, platforms, setup, steps, style};
+use crate::core::{config, home, setup, steps, style};
 
 pub struct Args {
     pub system_id: String,
@@ -40,7 +40,7 @@ pub(crate) fn resolve_system_id(
     let platform = if system_home.as_os_str().is_empty() {
         String::new()
     } else {
-        platforms::detect_platform_from_home(system_home).to_string()
+        crate::hosts::identity::detect_platform_from_home(system_home).to_string()
     };
     if explicit_sid.is_empty() {
         // 单系统自动判定（welcome/ping 文案承诺的路径, C-6）：本机恰好一个有效系统
@@ -56,7 +56,7 @@ pub(crate) fn resolve_system_id(
     if let Some(c) = config::load_gateway_config(explicit_sid) {
         if !c.system_home.is_empty() {
             let p = home::abs_path(&home::expand_user(&c.system_home));
-            let det = platforms::detect_platform_from_home(&p);
+            let det = crate::hosts::identity::detect_platform_from_home(&p);
             if det != "unknown" {
                 return (explicit_sid.to_string(), det.to_string());
             }
@@ -64,8 +64,8 @@ pub(crate) fn resolve_system_id(
     }
     // 回退：哪个平台指针指向该 sid（注册表 order 驱动）
     let uh = home::user_home();
-    for p in platforms::order() {
-        if platforms::pointer_sid_for(&uh, p) == explicit_sid {
+    for p in crate::hosts::order() {
+        if crate::hosts::pointer::sid_for_name(&uh, p) == explicit_sid {
             return (explicit_sid.to_string(), p.to_string());
         }
     }
@@ -117,7 +117,7 @@ pub fn run(a: &Args) -> i32 {
         return fail("uninstall 需要 --system-id(或用 --home 定位平台)");
     }
     let system_home = if !a.home.is_empty() {
-        platforms::normalize_platform_home(&home::expand_user(&a.home))
+        crate::hosts::identity::normalize_platform_home(&home::expand_user(&a.home))
     } else {
         // 有 sid 无 --home：权威 cfg 反查 system_home；无本地配置留空（交给 resolve_system_id）
         let sh0 = config::load_gateway_config(&sid)
@@ -138,20 +138,20 @@ pub fn run(a: &Args) -> i32 {
     let systems_dir = config::systems_root_in(&home::aimail_home());
     let has_dir = systems_dir.join(&sid).is_dir();
     let uh = home::user_home();
-    let has_ptr = platforms::order()
+    let has_ptr = crate::hosts::order()
         .iter()
-        .any(|p| platforms::pointer_sid_for(&uh, p) == sid);
+        .any(|p| crate::hosts::pointer::sid_for_name(&uh, p) == sid);
     if !has_dir && !has_ptr {
         println!("  system {sid} not installed (already uninstalled?)");
         return 0;
     }
-    platform = match platforms::platform_override(&a.platform) {
+    platform = match crate::hosts::identity::platform_override(&a.platform) {
         Ok(Some(p)) => p,
         Ok(None) => {
             if !platform.is_empty() {
                 platform
             } else {
-                platforms::resolve_platform(&system_home)
+                crate::hosts::identity::resolve_platform(&system_home)
             }
         }
         Err(msg) => return fail(&msg),
