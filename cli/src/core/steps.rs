@@ -236,6 +236,49 @@ fn sdk_install(
     }
 }
 
+/// `-a/--agent` 的选取：名字 = 宿主内部 agent 名，一对一；对不上的忽略。
+///
+/// 宿主能枚举 agent(`agent_keys` 非空) ⇒ 取交集；枚举不到(单 agent 宿主) ⇒ `-a`
+/// 无法校验，退回主 agent 并告警（保持 install 可用，不静默丢绑定）。
+struct AgentPick {
+    agents: Vec<String>,
+    ignored: Vec<String>,
+    no_enumeration: bool,
+}
+
+fn pick_agents(requested: &[String], keys: &[String]) -> AgentPick {
+    if requested.is_empty() {
+        return AgentPick {
+            agents: vec!["agent".to_string()],
+            ignored: Vec::new(),
+            no_enumeration: false,
+        };
+    }
+    if keys.is_empty() {
+        return AgentPick {
+            agents: vec!["agent".to_string()],
+            ignored: Vec::new(),
+            no_enumeration: true,
+        };
+    }
+    let mut agents: Vec<String> = Vec::new();
+    let mut ignored: Vec<String> = Vec::new();
+    for r in requested {
+        if keys.iter().any(|k| k == r) {
+            if !agents.iter().any(|a| a == r) {
+                agents.push(r.clone());
+            }
+        } else if !ignored.iter().any(|a| a == r) {
+            ignored.push(r.clone());
+        }
+    }
+    AgentPick {
+        agents,
+        ignored,
+        no_enumeration: false,
+    }
+}
+
 /// 执行一串动作（表由调用方给：注册表读或测试合成）。返回 Err = `_fail` 语义（调用方 rc=1）。
 pub fn run_steps(
     platform: &str,
@@ -501,6 +544,7 @@ pub fn run_steps(
                     }
                 }
             }
+
             "register_default" => {
                 let cfg = ctx.get("cfg").cloned().unwrap_or(json!({}));
                 let m = setup::resolve_mgr(&ctx_str(ctx, "manager"), &cfg);
@@ -511,26 +555,56 @@ pub fn run_steps(
                     ));
                 }
                 ctx.insert("manager".into(), Value::String(m.clone()));
-                let agent = "agent".to_string(); // 定名归 SDK（默认 agent），CLI 不再查表
-                match register::register_agent(
-                    platform,
-                    &agent,
-                    &cfg,
-                    &m,
-                    &ctx_str(ctx, "home"),
-                    &sdk_dir,
-                ) {
-                    Ok(()) => ok(&format!("{platform} agent registered + pointer written")),
-                    Err(e) => {
-                        let wh = st
-                            .get("warn_hint")
-                            .and_then(Value::as_str)
-                            .map(|s| s.to_string())
-                            .unwrap_or_else(|| {
-                                format!("{platform} agent 注册失败(见上)——稍后重试")
-                            });
-                        warn(&format!("{}; 异常: {e}", tmpl(&wh, ctx)));
+                let home = ctx_str(ctx, "home");
+                // `-a/--agent`：名字 = 宿主内部 agent 名，一对一；对不上就忽略。
+                let requested: Vec<String> = ctx
+                    .get("agents")
+                    .and_then(Value::as_array)
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_string)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let keys = crate::core::detect::detect_static(Path::new(&home), Some(platform))
+                    .map(|i| i.agent_keys)
+                    .unwrap_or_default();
+                let pick = pick_agents(&requested, &keys);
+                for name in &pick.ignored {
+                    warn(&format!(
+                        "{platform}: agent '{name}' 不在该平台的 agent 列表里, 已忽略"
+                    ));
+                }
+                if pick.no_enumeration && !requested.is_empty() {
+                    warn(&format!(
+                        "{platform}: 该宿主无法枚举 agent, -a 不适用 —— 按主 agent 注册"
+                    ));
+                }
+                let mut done = 0usize;
+                let mut last_err = String::new();
+                for agent in &pick.agents {
+                    match register::register_agent(platform, agent, &cfg, &m, &home, &sdk_dir) {
+                        Ok(()) => done += 1,
+                        Err(e) => last_err = e.to_string(),
                     }
+                }
+                if done > 0 {
+                    ok(&format!(
+                        "{platform} agent registered + pointer written ({done}/{} agent)",
+                        pick.agents.len()
+                    ));
+                } else if pick.agents.is_empty() {
+                    warn(&format!(
+                        "{platform}: 指定的 agent 都不在该平台, 未注册任何地址(已全部忽略)"
+                    ));
+                } else {
+                    let wh = st
+                        .get("warn_hint")
+                        .and_then(Value::as_str)
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| format!("{platform} agent 注册失败(见上)——稍后重试"));
+                    warn(&format!("{}; 异常: {last_err}", tmpl(&wh, ctx)));
                 }
             }
             other => {
@@ -703,6 +777,34 @@ pub fn run_uninstall_steps(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `-a/--agent` 选取规则：名字=宿主内部 agent 名，一对一；对不上的忽略。
+    #[test]
+    fn pick_agents_selects_by_host_keys_and_ignores_unknown() {
+        let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        // 未指定 ⇒ 主 agent（行为不变）
+        let p = pick_agents(&[], &s(&["web", "writer"]));
+        assert_eq!(p.agents, s(&["agent"]));
+        assert!(!p.no_enumeration);
+
+        // 命中 + 未命中 + 重复
+        let p = pick_agents(
+            &s(&["web", "nope", "web", "writer"]),
+            &s(&["web", "writer", "main"]),
+        );
+        assert_eq!(p.agents, s(&["web", "writer"]));
+        assert_eq!(p.ignored, s(&["nope"]));
+
+        // 全部未命中 ⇒ 一个都不注册
+        let p = pick_agents(&s(&["ghost"]), &s(&["web"]));
+        assert!(p.agents.is_empty());
+        assert_eq!(p.ignored, s(&["ghost"]));
+
+        // 宿主无法枚举(单 agent 宿主) ⇒ 退回主 agent 并标记
+        let p = pick_agents(&s(&["main"]), &[]);
+        assert_eq!(p.agents, s(&["agent"]));
+        assert!(p.no_enumeration);
+    }
 
     /// 回归钉子（owner 2026-10-12）：**node 宿主的步骤不得引用 `{sdk}` / `{python}`** ——
     /// 那会让「SDK 根」对 node 宿主成为必需，于是在没装 aimailsdk 的机器上打出误导错误

@@ -48,6 +48,7 @@ Common commands:
 ```bash
 aimail install --home <platform-root>                     # main agent only; a pointer in that home auto-reuses the system
 aimail install --home <platform-root> --all-agents        # register every agent under the root (hermes/openclaw/deerflow)
+aimail install --home <platform-root> -a <agent> [-a <agent2>]  # register only these agents (host agent ids; unknown ones ignored)
 aimail install -s <sid>                                   # resolve the platform root from local config
 aimail install --home <platform-root> --system-id <sid>   # explicit bind: missing pointer / ambiguous systems / new root
 ```
@@ -76,26 +77,33 @@ host-side items remain.
 ```
 ~/.aimail/
 ├── systems/{system_id}/
-│   ├── aimail_gateway.json     # gateway connection config (system level)
-│   ├── board/                  # system-level A2A role prompts (fallback)
-│   └── {agent_addr}/           # per-address dir (keyed by cleaned email)
-│       ├── agentmail.json      # agent config — 9 mandatory fields
-│       └── role_prompt/        # address-level role prompts (priority)
-├── logs/
-│   ├── aimail-bridge.log       # bridge runtime log
-│   └── aimail.{addr}.log       # per-agent processing log
+│   ├── aimail_gateway.json              # system config (gateway / domain / manager / system_home)
+│   ├── .system_raw_key.key              # raw system key (integration only, 0600)
+│   ├── board/role_prompt/common.md      # system-level A2A role prompt (fallback)
+│   └── {agent_addr}/                    # one dir per address: config + log + mail + prompts
+│       ├── agentmail.json               # the 9-field binding
+│       ├── agentmail.log                # per-address processing log (JSON lines; ping stages)
+│       ├── board_creds.json             # board credentials for this address
+│       ├── role_prompt/                 # address-level role prompts (higher priority)
+│       └── mail/{yyyymm}/               # in-*.json / out-*.json / attch/; meta, threads, .search here too
 ├── bridge/
-│   ├── aimail_bridge.toml      # bridge config (pull.systems list)
-│   ├── aimail_routes.toml      # route table: email → local inbound endpoint
-│   ├── bin/aimail-bridge       # bridge binary
+│   ├── aimail_bridge.toml               # pull.systems list
+│   ├── aimail_routes.toml               # route table: email → local inbound endpoint
+│   ├── aimail-bridge.log                # bridge runtime log
+│   ├── aimail-bridge                    # bridge binary
 │   └── bridge.pid
-├── bin/                            # program root
-│   ├── aimail                      # CLI binary (single file, no runtime deps)
-│   └── mcp/                        # host-adapter runtime payload (version-stamped)
-├── mail/{addr}/{yyyymm}/in-*.json   # snapshots: in-* (inbound) / out-* (outbound)
-├── .system_raw_key/{sid}_admin.key  # raw admin key (integration only)
-└── .env                            # machine-level env (bootstrapped installs)
+├── bin/                                 # program root
+│   ├── aimail                           # CLI binary (~/.local/bin/aimail points here)
+│   └── mcp/                             # runtime payload: flat copies of 7 pysdk core modules
+│       └── .aimail-runtime.json         # per-file md5 version stamp
+└── .env                                 # machine-level env (written by bootstrap)
 ```
+
+Per-address isolation: mail snapshots, processing log, binding, role prompts and board
+credentials all live inside `systems/{sid}/{addr}/`, so removing one address never touches
+another; an unresolved sid falls back to `systems/_unassigned/`. The `bin/mcp/` payload is
+copied from the installed SDK core (repo: `pysdk/`; installed: site-packages or the program-root
+snapshot) by `aimail install --payload mcp` (or repair step 7), idempotently and offline.
 
 ### Network model
 
@@ -316,10 +324,10 @@ installed plugin entry claims the host), and `repair` uses a lenient rule
 (hermes also accepts `profiles/`). `--system-id` + stored `system_home`
 reverse lookup beats auto-probe; pointer ownership is the next fallback.
 
-Logs: bridge → `~/.aimail/logs/aimail-bridge.log`; per-agent →
-`~/.aimail/logs/aimail.{addr}.log` (JSON lines; `dir` = ping_intercepted /
+Logs: bridge → `~/.aimail/bridge/aimail-bridge.log`; per-agent →
+`~/.aimail/systems/{sid}/{addr}/agentmail.log` (JSON lines; `dir` = ping_intercepted /
 pong_sent / pong_returned). Mail direction (`inbound` / `outbound`) is a
-different thing — it is recorded in the local mail meta, not in this ping log.
+different thing — it is recorded in the mail meta under `mail/`, not in this ping log.
 No auto-rotation — use logrotate if needed.
 
 ---
@@ -363,14 +371,14 @@ align webhook_url to the live target). If the target host is remote
 ### ping stuck on "pong not returned"
 
 Check the per-agent log for the three phases:
-`grep <ping_id> ~/.aimail/logs/aimail.{addr}.log`; verify email + api_key
+`grep <ping_id> ~/.aimail/systems/<sid>/<addr>/agentmail.log`; verify email + api_key
 match in `agentmail.json`; re-run `aimail reset -H <platform-root> -s <sid>`
 to re-persist.
 
 ### Bridge cannot pull emails
 
 `aimail bridge` (process/config/routes) → `curl https://aimail.token.tm/health`
-→ `tail -20 ~/.aimail/logs/aimail-bridge.log` → `aimail repair -s <sid>`.
+→ `tail -20 ~/.aimail/bridge/aimail-bridge.log` → `aimail repair -s <sid>`.
 
 ### Repeated install created problems?
 

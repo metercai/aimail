@@ -379,6 +379,14 @@ fn install_args(cmd: Command) -> Command {
                 .help("domain to pre-create (default: AIMAIL_DOMAIN env)"),
         )
         .arg(
+            Arg::new("agent")
+                .short('a')
+                .long("agent")
+                .action(ArgAction::Append)
+                .value_name("AGENT")
+                .help("register only these platform agents (repeatable; names are platform agent ids, unknown ones are ignored)"),
+        )
+        .arg(
             Arg::new("all-agents")
                 .long("all-agents")
                 .action(ArgAction::SetTrue)
@@ -852,6 +860,10 @@ pub fn run() -> i32 {
             manager: arg_str(m, "manager"),
             domain: arg_str(m, "domain"),
             all_agents: m.get_flag("all-agents"),
+            agents: m
+                .get_many::<String>("agent")
+                .map(|v| v.cloned().collect())
+                .unwrap_or_default(),
             system_only: m.get_flag("system-only"),
             payload: arg_str(m, "payload"),
             payload_name: arg_str(m, "payload_name"),

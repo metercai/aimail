@@ -29,6 +29,8 @@ pub struct Args {
     pub manager: String,
     pub domain: String,
     pub all_agents: bool,
+    /// `-a/--agent`（可重复）：只注册这些平台 agent；不在宿主 agent 列表里的忽略。
+    pub agents: Vec<String>,
     pub system_only: bool,
     pub payload: String,
     pub payload_name: String,
@@ -42,13 +44,17 @@ pub struct Args {
 
 pub fn run(a: Args) -> i32 {
     // ── 机器面分派（互斥；并拒绝另一侧的参数 —— 绝不静默吞掉）─────────────────
+    if a.all_agents && !a.agents.is_empty() {
+        eprintln!("ERROR: --all-agents 与 -a/--agent 互斥（要么全部，要么指定）");
+        return 2;
+    }
     if a.system_only && !a.payload.is_empty() {
         eprintln!("ERROR: --system-only 与 --payload 互斥");
         return 2;
     }
     if !a.payload.is_empty() {
         // payload 通道只认自身参数；激活/接线类参数一律拒（exit 2）
-        let rejects: [(&str, bool); 9] = [
+        let rejects: [(&str, bool); 10] = [
             ("-H", !a.home.is_empty()),
             ("-s", !a.system_id.is_empty()),
             ("-c", !a.product_code.is_empty()),
@@ -57,6 +63,7 @@ pub fn run(a: Args) -> i32 {
             ("-n", !a.system_name.is_empty()),
             ("-m", !a.manager.is_empty()),
             ("-d", !a.domain.is_empty()),
+            ("-a", !a.agents.is_empty()),
             ("--all-agents", a.all_agents),
         ];
         for (flag, present) in rejects {
@@ -75,8 +82,9 @@ pub fn run(a: Args) -> i32 {
     }
     if a.system_only {
         // system-only 是 L1-only 铁律入口：接线/捆绑两侧的参数都拒
-        let rejects: [(&str, bool); 5] = [
+        let rejects: [(&str, bool); 6] = [
             ("--all-agents", a.all_agents),
+            ("-a", !a.agents.is_empty()),
             ("--dest", !a.dest.is_empty()),
             ("--source-root", !a.source_root.is_empty()),
             ("--force", a.force),
@@ -926,6 +934,7 @@ fn install_human(a: &Args) -> i32 {
     ctx.insert("sdk".into(), serde_json::json!(""));
     ctx.insert("cfg".into(), cfg_for_steps);
     ctx.insert("all_agents".into(), serde_json::json!(a.all_agents));
+    ctx.insert("agents".into(), serde_json::json!(a.agents));
     let rcfg = cfg2.as_ref().map(|c| c.to_json()).unwrap_or_default();
     let g = |k: &str| -> String {
         rcfg.get(k)

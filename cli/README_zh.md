@@ -37,6 +37,7 @@
 ```bash
 aimail install --home <平台根>                    # 只注册主 agent;该 home 有指针时自动复用系统
 aimail install --home <平台根> --all-agents        # 平台根下每个 agent 都注册(hermes/openclaw/deerflow)
+aimail install --home <平台根> -a <agent> [-a <agent2>]  # 只注册这些 agent(名字=宿主内部 agent 名;对不上的忽略)
 aimail install -s <sid>                            # 由 sid 反查本机已配置的平台根
 aimail install --home <平台根> --system-id <sid>   # 显式绑定:指针缺失 / 多系统歧义 / 换平台根
 ```
@@ -63,26 +64,32 @@ aimail repair       →  按 check 发现执行幂等修复阶梯
 ```
 ~/.aimail/
 ├── systems/{system_id}/
-│   ├── aimail_gateway.json     # 网关连接配置(系统级)
-│   ├── board/                  # 系统级 A2A 角色 prompt(回退)
-│   └── {agent_addr}/           # 按地址隔离目录(清洗后的邮箱)
-│       ├── agentmail.json      # agent 配置——9 个必备字段
-│       └── role_prompt/        # 地址级角色 prompt(优先)
-├── logs/
-│   ├── aimail-bridge.log       # bridge 运行日志
-│   └── aimail.{addr}.log       # 每 agent 处理日志
+│   ├── aimail_gateway.json              # 系统级配置(网关/域名/安全员/system_home)
+│   ├── .system_raw_key.key              # 原始系统级 key(仅集成时落盘,0600)
+│   ├── board/role_prompt/common.md      # 系统级 A2A 角色 prompt(兜底)
+│   └── {agent_addr}/                    # 一地址一层:配置/日志/邮件/角色都在这里
+│       ├── agentmail.json               # 九字段绑定
+│       ├── agentmail.log                # 该地址的处理日志(JSON 行;ping 三阶段在此)
+│       ├── board_creds.json             # 该地址的 board 凭据
+│       ├── role_prompt/                 # 地址级角色 prompt(优先于系统级)
+│       └── mail/{yyyymm}/               # in-*.json / out-*.json / attch/;meta、threads、.search 同叶
 ├── bridge/
-│   ├── aimail_bridge.toml      # bridge 配置(pull.systems 列表)
-│   ├── aimail_routes.toml      # 路由表:email → 本地入站端点
-│   ├── bin/aimail-bridge       # bridge 二进制
+│   ├── aimail_bridge.toml               # pull 系统列表
+│   ├── aimail_routes.toml               # 路由表:email → 本机入站端点
+│   ├── aimail-bridge.log                # bridge 运行日志
+│   ├── aimail-bridge                    # bridge 二进制
 │   └── bridge.pid
-├── bin/                            # 程序根
-│   ├── aimail                      # CLI 二进制(单文件,零环境依赖)
-│   └── mcp/                        # 宿主适配运行时载荷(带版本戳)
-├── mail/{addr}/{yyyymm}/in-*.json   # 快照:in-*(入站)/out-*(出站)
-├── .system_raw_key/{sid}_admin.key  # 原始 admin key(仅集成时)
-└── .env                            # 机器级 env(自举安装)
+├── bin/                                 # 程序根
+│   ├── aimail                           # CLI 二进制(~/.local/bin/aimail 指向它)
+│   └── mcp/                             # 运行时载荷:7 个 pysdk 核心模块的扁平副本
+│       └── .aimail-runtime.json         # 逐文件 md5 版本戳
+└── .env                                 # 机器级 env(自举安装落盘)
 ```
+
+按地址隔离:邮件快照、处理日志、绑定、角色 prompt、board 凭据都在 `systems/{sid}/{addr}/`
+一层之内,删一个地址目录不会碰到别的地址;sid 解析不出来时收口到 `systems/_unassigned/`。
+`bin/mcp/` 的载荷来自已装 SDK 的核心目录(仓库态 `pysdk/`,安装态 site-packages 或程序根快照),
+由 `aimail install --payload mcp`(或 repair 第 7 步)幂等刷新,不做网络下载。
 
 ### 网络模型
 
@@ -103,7 +110,7 @@ aimail repair       →  按 check 发现执行幂等修复阶梯
 | 字段                   | 含义                                                                                                                    |
 | -------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | gateway\_url         | 网关地址;回环地址 = 本机直推,否则入站经 bridge                                                                                         |
-| admin\_key           | 系统级凭据:安装时派生受限的 domain 级 key(category `domain`、身份=本系统裸域、scope `system`)落盘,原始系统 key 存 `.system_raw_key/{sid}_admin.key` |
+| admin\_key           | 系统级凭据:安装时派生受限的 domain 级 key(category `domain`、身份=本系统裸域、scope `system`)落盘,原始系统 key 存 `systems/{sid}/.system_raw_key.key` |
 | system\_id           | 系统标识(SID)                                                                                                             |
 | system\_name         | 系统名;共享域下是 agent 地址前缀的来源                                                                                               |
 | manager\_address     | 系统默认安全员地址                                                                                                             |
@@ -286,11 +293,10 @@ pi/dsh 的目录名必须精确匹配,其余只看特征。`aimail platform spec
 (hermes 额外认 `profiles/`)。`--system-id` + 已存 `system_home` 反查优先于
 自动探测;指针归属为次。
 
-日志:bridge → `~/.aimail/logs/aimail-bridge.log`;每 agent →
-`~/.aimail/logs/aimail.{addr}.log`(JSON 行;`dir` = ping\_intercepted /
-pong\_sent / pong\_returned)。邮件方向 `inbound`/`outbound` 记在本地邮件 meta 里,
-不是这个日志。无自动轮转——需要时用
-logrotate。
+日志:bridge → `~/.aimail/bridge/aimail-bridge.log`;每 agent →
+`~/.aimail/systems/{sid}/{addr}/agentmail.log`(JSON 行;`dir` = ping\_intercepted /
+pong\_sent / pong\_returned)。邮件方向 `inbound`/`outbound` 记在 `mail/` 下的 meta 里,
+不是这个日志。无自动轮转——需要时用 logrotate。
 
 ***
 
@@ -328,13 +334,13 @@ webhook 不一致。
 
 ### ping 卡在 "pong not returned"
 
-查每 agent 日志三阶段:`grep <ping_id> ~/.aimail/logs/aimail.{addr}.log`;
+查每 agent 日志三阶段:`grep <ping_id> ~/.aimail/systems/<sid>/<addr>/agentmail.log`;
 核对 `agentmail.json` 的 email 与 api\_key;`aimail reset -H <平台根> -s <sid>` 重新固化。
 
 ### bridge 拉不到邮件
 
 `aimail bridge`(进程/配置/路由)→ `curl https://aimail.token.tm/health` →
-`tail -20 ~/.aimail/logs/aimail-bridge.log` → `aimail repair -s <sid>`。
+`tail -20 ~/.aimail/bridge/aimail-bridge.log` → `aimail repair -s <sid>`。
 
 ### 重复 install 出问题了?
 
