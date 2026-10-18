@@ -14,7 +14,8 @@
 
 use crate::core::payload;
 use crate::core::{config, home, setup, steps};
-use std::path::PathBuf;
+use serde_json::Value;
+use std::path::{Path, PathBuf};
 
 /// `install` 的全部参数（人面 + 隐藏机器面；未定义的值一律空串/`false`）。
 #[derive(Default, Clone)]
@@ -212,6 +213,34 @@ fn resolve_gateway_url(explicit: &str, sid: &str) -> (String, &'static str) {
         crate::core::config::GATEWAY_URL_DEFAULT.to_string(),
         "default",
     )
+}
+
+/// 指针归属硬门（owner 2026-10-18）：`{home}/{pointer_file}` 已指向**另一个仍在本地
+/// 配置里**的系统 ⇒ 拒绝覆盖。
+///
+/// 为什么必须拦：注册链会把指针改写成目标 sid（SDK `_write_pointer` 无条件覆盖），
+/// 同时 `system_home` 也会被写成这个 home（`setup.rs` 直接覆盖参数值）⇒ 两个系统
+/// 抢同一个 home，原系统在自己 home 上静默失去指针，且没有任何报错。
+///
+/// 放行两种情况：指针指向的正是目标 sid；指针指向的系统本地配置已不存在（孤儿指针）。
+fn pointer_conflict_in(aimail_home: &Path, system_home: &Path, target_sid: &str) -> Option<String> {
+    let ptr = system_home.join(crate::core::contract::pointer_file());
+    let text = std::fs::read_to_string(&ptr).ok()?;
+    let v: Value = serde_json::from_str(&text).ok()?;
+    let owner = v.get("system_id").and_then(Value::as_str).unwrap_or("");
+    if owner.is_empty() || owner == target_sid {
+        return None;
+    }
+    let cfg = crate::core::config::gateway_config_path_in(aimail_home, owner);
+    if !cfg.is_file() {
+        // 孤儿指针（系统已在本机消失）⇒ 允许接管
+        return None;
+    }
+    Some(format!(
+        "{} 已绑定其它系统 {owner}(本机配置仍在)——拒绝覆盖(不允许多系统共用一个 home)。\n  若确实要改绑: 先 `aimail uninstall -s {owner} -H {}`,或手工删除该指针文件,再重试",
+        ptr.display(),
+        system_home.display()
+    ))
 }
 
 /// `sid_from_system_home(home)`：平台指针文件（`{home}/<pointer_file>`）**优先**（权威），
@@ -665,6 +694,10 @@ fn install_human(a: &Args) -> i32 {
         }
         Err(msg) => return fail(&msg),
     };
+    // 指针归属硬门：home 已属于另一个存活系统 ⇒ 早退（在任何写入之前）
+    if let Some(msg) = pointer_conflict_in(&crate::core::home::aimail_home(), &system_home, &sid) {
+        return fail(&msg);
+    }
     let mut line = format!(
         "  install platform={platform} system_home={} system_id={}",
         system_home.to_string_lossy(),
@@ -979,4 +1012,71 @@ fn install_human(a: &Args) -> i32 {
         format!("  install done. 建议: aimail check {tail}").trim_end()
     );
     0
+}
+
+#[cfg(test)]
+mod gate_tests {
+    use super::*;
+
+    fn tmp() -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!(
+            "aimail-gate-{}-{}",
+            std::process::id(),
+            rand_suffix()
+        ));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+    fn rand_suffix() -> u128 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    }
+    fn write(path: &Path, body: &str) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, body).unwrap();
+    }
+
+    #[test]
+    fn pointer_owned_by_another_live_system_is_rejected() {
+        let ah = tmp(); // 伪 AIMAIL_HOME
+        let home = tmp(); // 伪平台根
+        write(
+            &home.join(crate::core::contract::pointer_file()),
+            r#"{"system_id":"s1","email":"a@d.test"}"#,
+        );
+        // s1 的本地系统配置存在 ⇒ 存活
+        write(
+            &crate::core::config::gateway_config_path_in(&ah, "s1"),
+            r#"{"system_id":"s1","system_home":"/x"}"#,
+        );
+        let msg = pointer_conflict_in(&ah, &home, "s2").expect("必须拒绝");
+        assert!(msg.contains("已绑定其它系统 s1"), "{msg}");
+        assert!(
+            msg.contains("aimail uninstall -s s1"),
+            "给可执行出路: {msg}"
+        );
+        // 目标就是 s1 本身 ⇒ 放行（重复 install）
+        assert!(pointer_conflict_in(&ah, &home, "s1").is_none());
+    }
+
+    #[test]
+    fn orphan_pointer_and_empty_target_are_allowed() {
+        let ah = tmp();
+        let home = tmp();
+        write(
+            &home.join(crate::core::contract::pointer_file()),
+            r#"{"system_id":"gone","email":"a@d.test"}"#,
+        );
+        // 无 s='gone' 的本地配置 ⇒ 孤儿 ⇒ 允许接管
+        assert!(pointer_conflict_in(&ah, &home, "s2").is_none());
+        // 新建系统（target 为空）落到别人的存活 home ⇒ 拒绝
+        write(
+            &crate::core::config::gateway_config_path_in(&ah, "gone"),
+            r#"{"system_id":"gone"}"#,
+        );
+        assert!(pointer_conflict_in(&ah, &home, "").is_some());
+    }
 }
