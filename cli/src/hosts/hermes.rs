@@ -92,7 +92,6 @@ pub static HERMES: HostDef = HostDef {
                 },
             },
         ],
-    payload_refs: &[],
     register_all: Some(RegisterAll::PythonScript {
             python: "hermes/register_profiles.py",
             args: &[],

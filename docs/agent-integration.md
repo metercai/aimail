@@ -256,12 +256,13 @@ Field semantics follow the config-file table in `cli/README.md` and the code con
 
 ## 5. CLI Contract (cli/aimail)
 
-**Command installation**: bootstrap installs `aimail` as a global command (`~/.local/bin/aimail` → the program copy's `cli/aimail` under `~/.aimail/bin/aimail-src`); the repo-root `./aimail` is a symlink to the same file, for in-repo debugging only.
+**Command installation**: bootstrap installs `aimail` as a global command (`~/.local/bin/aimail` → `~/.aimail/bin/aimail`, the single static binary); the repo-root `./aimail` is a debug launcher for in-repo use only.
 
 Subcommands (15, grouped into 4 scenarios; the former standalone `payload`
-and `ensure-system` subcommands were removed by ruling B 2026-09-23 — both
-machine ABIs now ride `install --payload` / `install --system-only`; `prompt`
-was added 2026-09-23):
+and `ensure-system` subcommands are gone — the machine ABI rides
+`install --system-only` (`--payload` was retired with the self-contained
+payload; host-side Python always uses the installed package); `prompt` was
+added 2026-09-23):
 
 - **setup**: `install` `uninstall` `reset`
 - **operate**: `stats` `renew` `version`
@@ -273,7 +274,7 @@ was added 2026-09-23):
 | `bridge` | Maintain the local bridge: no args = status; `--system-id` refreshes routes; `--restart` restarts the single instance |
 | `check` | Full-pipeline status check (config files L0 → gateway/bridge L1/L2 → platform runtime resources L2r → agent config L3 → links L4) |
 | `domain` | View/create the system domain (list by default / `--add DOMAIN`) |
-| `install` | Integrate an agent platform into the AIMail system (activate or reuse an existing system, incl. platform adapter and supplementary registration); its hidden machine parameters also carry both ABIs: `--system-only` (L1 activation/reuse, SDK reverse-call) and `--payload` (runtime bundle install/dir/resource/source) |
+| `install` | Integrate an agent platform into the AIMail system (activate or reuse an existing system, incl. platform adapter and supplementary registration); its hidden machine parameter carries one ABI: `--system-only` (L1 activation/reuse, SDK reverse-call); `-a/--agent` registers only the named agents |
 | `address` | View/maintain system agent addresses: set default main-agent name (`-d`), rename an agent's address (`-a agent -n NAME`; server-side resources fully inherited), set manager (`-m`) |
 | `prompt` | Maintain the agent's `prompt_rules` (recognition ⇄ role file): `add/list/rm/test/create-file` — fields subject/body/sender/recipient, containment with field-internal OR / cross-field AND, `name={10-99}_{filename}`; `test` dry-runs the fixed chain (WHOAMI > welcome > board > `X-AIMail-Prompt` header > local rules, first hit wins) against a sample mail |
 | `persona` | Persona flow: the manager sends 'update persona', the agent replies with a draft |

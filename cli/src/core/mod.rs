@@ -25,7 +25,6 @@ pub mod http;
 pub mod inbound_route;
 pub mod mail;
 pub mod netenv;
-pub mod payload;
 pub mod perms;
 pub mod ping;
 pub mod probe;

@@ -53,7 +53,6 @@ pub static DEERFLOW: HostDef = HostDef {
                 fail_text: "app.py NOT patched or missing",
             },
         }],
-    payload_refs: &["{home}/extensions_config.json"],
     register_all: Some(RegisterAll::PythonScript {
             python: "deer-flow/manage.py",
             args: &["register", "--all", "--system-id", "{sid}"],

@@ -1,9 +1,7 @@
-//! `install` 机器面（S6 切片1）的闸门：分派/拒参/只读动作/未移植诚实性。
+//! `install` 机器面闸门：分派 / 拒参 / 人路径口径。
 //!
-//! 为什么单列：机器面（`--system-only` / `--payload`）是**SDK 反向调用 CLI 的 ABI**，
-//! 判据是"文案 + 流向 + rc"三者逐字；其中拒参必须 exit 2 且**不静默忽略**（Python 侧
-//! `cli/aimail:784-827` 的裁决）。这里钉住 Rust 侧行为；与 Python 的逐字对照由
-//! `/tmp/install-machine-parity.sh` 式的人工复核补充（解析器级错文差异除外，见下）。
+//! 机器面只剩 `--system-only`（SDK 反调 ABI）；`--payload` 通道已随 payload 机制退役删除
+//! （自包含载荷被 owner 2026-10-06 的"零拷贝、用已装包"取代，全仓已无调用者）。
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -40,36 +38,16 @@ fn machine_channels_reject_the_other_side_and_exit_2() {
     let prog = d.path().to_string_lossy().to_string();
     let cases: &[(&[&str], &str)] = &[
         (
-            &["install", "--system-only", "--payload", "dir"],
-            "ERROR: --system-only 与 --payload 互斥",
+            &["install", "--system-only", "--all-agents"],
+            "ERROR: --system-only 通道不接受 --all-agents",
         ),
         (
-            &["install", "--payload", "dir", "-s", "s1"],
-            "ERROR: --payload 通道不接受 -s",
+            &["install", "--system-only", "-a", "web"],
+            "ERROR: --system-only 通道不接受 -a",
         ),
         (
-            &["install", "--payload", "dir", "-H", "/tmp"],
-            "ERROR: --payload 通道不接受 -H",
-        ),
-        (
-            &["install", "--payload", "dir", "--all-agents"],
-            "ERROR: --payload 通道不接受 --all-agents",
-        ),
-        (
-            &["install", "--system-only", "--dest", "/tmp/x"],
-            "ERROR: --system-only 通道不接受 --dest",
-        ),
-        (
-            &["install", "--system-only", "mcp"],
-            "ERROR: --system-only 通道不接受 payload operand",
-        ),
-        (
-            &["install", "mcp"],
-            "ERROR: payload operand 只在 --payload 通道有效",
-        ),
-        (
-            &["install", "--force"],
-            "ERROR: --force 只在 --payload 通道有效",
+            &["install", "--home", "/tmp", "--all-agents", "-a", "web"],
+            "ERROR: --all-agents 与 -a/--agent 互斥",
         ),
     ];
     for (args, msg) in cases {
@@ -81,34 +59,6 @@ fn machine_channels_reject_the_other_side_and_exit_2() {
         );
         assert!(out.is_empty(), "{args:?} 拒参时 stdout 应为空");
     }
-}
-
-#[test]
-fn payload_readonly_actions_print_paths_and_rc0() {
-    let d = tempfile::tempdir().unwrap();
-    let prog = d.path().to_string_lossy().to_string();
-    // dir：默认 mcp；显式 bundle 也要认
-    let (rc, out, _) = run(&prog, &["install", "--payload", "dir"]);
-    assert_eq!(rc, 0);
-    assert_eq!(out.trim(), format!("{prog}/mcp"));
-    let (rc, out, _) = run(&prog, &["install", "--payload", "dir", "skill-dsh"]);
-    assert_eq!(rc, 0);
-    assert_eq!(
-        out.trim(),
-        &format!(
-            "~/.dsh/skills/{}",
-            aimail::core::contract::agent_skill_name()
-        ),
-        "~ 不展开（与 Python 同）"
-    );
-    // resource 缺 name ⇒ stdout 报错 + rc2（Python 的流向也是 stdout）
-    let (rc, out, err) = run(&prog, &["install", "--payload", "resource"]);
-    assert_eq!(rc, 2);
-    assert!(out.contains("ERROR: payload resource 需要 <name>"));
-    assert!(err.is_empty());
-    // 未知 payload 动作：clap 的选择集先拦（rc2）
-    let (rc, _, _) = run(&prog, &["install", "--payload", "nope"]);
-    assert_eq!(rc, 2);
 }
 
 #[test]
@@ -162,21 +112,6 @@ fn install_surfaces_behave_like_python() {
         "单行 JSON 成功信封: {out2:?}"
     );
     assert_eq!(out2.trim_end().lines().count(), 1, "恰一行");
-
-    // `--payload install` 已实现：**两形态皆不可用**时必须**明确报错非零**（与 Python 同一失败文案），
-    // 绝不静默成功。
-    // 注（契约 v1.0 §3 阶段三）：解析链 = repo→pip，pip 形态**是契约允许的正当来源**；
-    // 故本用例须同时掐断两条路 —— 临时把 `python_bin()` 的单真源 `AIMAIL_PYTHON` 指向
-    // 无法 import aimail 的解释器（prog 为临时目录 ⇒ 无 sdk-staging-removed/pysdk）。测试串行运行，
-    // 该赋值只影响本用例。
-    std::env::set_var("AIMAIL_PYTHON", "/nonexistent/python");
-    let (rc, out, err) = run(&prog, &["install", "--payload", "install", "mcp"]);
-    std::env::remove_var("AIMAIL_PYTHON");
-    assert_ne!(rc, 0, "源根不可解析必须非零");
-    assert!(
-        err.contains("aimailsdk"),
-        "应报源缺失: out={out:?} err={err:?}"
-    );
 }
 
 /// 子进程级 env 注入(不污染测试进程,规避并行用例的进程级 env 竞态)。

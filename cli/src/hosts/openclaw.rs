@@ -30,7 +30,6 @@ pub static OPENCLAW: HostDef = HostDef {
             },
         ],
     health_checks: &[Health { id: "plugin-installed", spec: HealthSpec::CommandMatch { argv: &["openclaw", "plugins", "list"], match_: "openclaw-aimail", fallback_glob: Some("{user_home}/.openclaw/npm/projects/openclaw-aimail*"), ok_text: "openclaw-aimail 插件在位(openclaw plugins list)", fail_text: "openclaw-aimail 插件未安装", fix: Some("aimail install --home <openclaw home>(自动装;已装则跳过)或 openclaw plugins install openclaw-aimail@latest --force --accept-capabilities") } }, Health { id: "skills", spec: HealthSpec::FileExists { path: "{user_home}/.openclaw/skills/agentmail/SKILL.md", ok_text: "skills/agentmail/SKILL.md present", fail_text: "skills/agentmail/SKILL.md missing", fix: Some("插件自带 skill(openclaw-aimail resources)——检查插件 enabled:openclaw plugins list") } }],
-    payload_refs: &[],
     register_all: Some(RegisterAll::NodeEntry {
             node_path: "{home}/npm/projects/*/node_modules/openclaw-aimail/dist/register-cli.js",
             fail_hint: "openclaw-aimail 需含独立 node 入口(dist/register-cli.js, --op 门)",

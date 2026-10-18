@@ -33,7 +33,6 @@ pub static DSH: HostDef = HostDef {
             },
         ],
     health_checks: &[],
-    payload_refs: &[],
     register_all: None,
     agent_check_remote: false,
     uses_agent_home: false,

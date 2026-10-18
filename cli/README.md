@@ -48,7 +48,7 @@ Common commands:
 ```bash
 aimail install --home <platform-root>                     # main agent only; a pointer in that home auto-reuses the system
 aimail install --home <platform-root> --all-agents        # register every agent under the root (hermes/openclaw/deerflow)
-aimail install --home <platform-root> -a <agent> [-a <agent2>]  # register only these agents (host agent ids; unknown ones ignored)
+aimail install --home <platform-root> -a <agent> [<agent2>]  # register only these agents (host agent ids; unknown ones ignored)
 aimail install -s <sid>                                   # resolve the platform root from local config
 aimail install --home <platform-root> --system-id <sid>   # explicit bind: missing pointer / ambiguous systems / new root
 ```
@@ -93,17 +93,14 @@ host-side items remain.
 │   ├── aimail-bridge                    # bridge binary
 │   └── bridge.pid
 ├── bin/                                 # program root
-│   ├── aimail                           # CLI binary (~/.local/bin/aimail points here)
-│   └── mcp/                             # runtime payload: flat copies of 7 pysdk core modules
-│       └── .aimail-runtime.json         # per-file md5 version stamp
+│   └── aimail                           # CLI binary (~/.local/bin/aimail points here)
 └── .env                                 # machine-level env (written by bootstrap)
 ```
 
 Per-address isolation: mail snapshots, processing log, binding, role prompts and board
 credentials all live inside `systems/{sid}/{addr}/`, so removing one address never touches
-another; an unresolved sid falls back to `systems/_unassigned/`. The `bin/mcp/` payload is
-copied from the installed SDK core (repo: `pysdk/`; installed: site-packages or the program-root
-snapshot) by `aimail install --payload mcp` (or repair step 7), idempotently and offline.
+another; an unresolved sid falls back to `systems/_unassigned/`. Host-side Python always runs
+from the **installed `aimailsdk`** (site-packages) — nothing is copied into the program root.
 
 ### Network model
 
@@ -171,7 +168,7 @@ curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootst
 ```
 
 - `AIMAIL_ADMIN_KEY` (or `aimail install -k`) takes a **system-level key**: on a self-hosted gateway the `<storage>/<system id>.system.key` printed at start, in the cloud the key issued by the activation code.
-- The CLI binary (`~/.aimail/bin/aimail`, symlinked from `~/.local/bin`) and the host payload (`~/.aimail/bin/mcp`) live under the `~/.aimail/bin` program root and are refreshed together by bootstrap (to force a re-fetch, `export AIMAIL_FORCE_UPGRADE=1` first).
+- The CLI binary (`~/.aimail/bin/aimail`, symlinked from `~/.local/bin`) lives under the `~/.aimail/bin` program root and is refreshed idempotently by bootstrap (to force a re-fetch, `export AIMAIL_FORCE_UPGRADE=1` first).
 
 ### Step 2 — `aimail install` (system level, repeatable, idempotent)
 
@@ -234,11 +231,9 @@ aimail repair [--system-id <sid>] [--home <root>] [--deep] [--dry-run]
 6. runtime resource redeploy (only platforms that ship an SDK install entry are reinstalled
    automatically; the rest print the fix hint from check; idempotent; skipped with a hint when
    the platform host is remote)
-7. runtime payload refresh (mcp payload missing/stale → reinstalled from the local bundle;
-   no network needed)
-8. `agentmail.json` backfill + `webhook_url` alignment to the live route target (local-only)
-9. route-entry rebuild
-10. bridge pull-entry: created locally from gateway.json when missing (aimail_url/admin_key/
+7. `agentmail.json` backfill + `webhook_url` alignment to the live route target (local-only)
+8. route-entry rebuild
+9. bridge pull-entry: created locally from gateway.json when missing (aimail_url/admin_key/
     system_id), otherwise its admin_key is aligned to gateway.json (authoritative source)
 
 Every step prints its own verdict (`✓ fixed` / `✓ nothing to fix` / `⚠ skipped + reason`),

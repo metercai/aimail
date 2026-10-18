@@ -44,7 +44,6 @@ pub static PI: HostDef = HostDef {
                 fail_text: ".pi pointer missing/mismatch",
             },
         }],
-    payload_refs: &[],
     register_all: None,
     agent_check_remote: false,
     uses_agent_home: false,

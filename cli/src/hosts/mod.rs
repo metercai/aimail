@@ -85,7 +85,6 @@ pub trait Host: Sync {
 
     // ── ④ 体检 ──
     fn health_checks(&self) -> &'static [health::Health];
-    fn payload_refs(&self) -> &'static [&'static str];
     fn agent_check_remote(&self) -> bool;
 }
 
@@ -135,8 +134,6 @@ pub struct HostDef {
     pub install_steps: &'static [exec::Step],
     pub uninstall_steps: &'static [exec::Step],
     pub health_checks: &'static [health::Health],
-    #[serde(skip_serializing_if = "refs_empty")]
-    pub payload_refs: &'static [&'static str],
     #[serde(skip_serializing_if = "Option::is_none")]
     pub register_all: Option<exec::RegisterAll>,
     #[serde(skip_serializing_if = "is_false")]
@@ -185,16 +182,9 @@ impl Host for HostDef {
     fn health_checks(&self) -> &'static [health::Health] {
         self.health_checks
     }
-    fn payload_refs(&self) -> &'static [&'static str] {
-        self.payload_refs
-    }
     fn agent_check_remote(&self) -> bool {
         self.agent_check_remote
     }
-}
-
-fn refs_empty(v: &&'static [&'static str]) -> bool {
-    v.is_empty()
 }
 
 fn is_false(b: &bool) -> bool {

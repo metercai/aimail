@@ -1,7 +1,7 @@
 //! L2r 探针：平台运行时资源就绪 —— `cli/check_status.py:1706-1853` 的复刻。
 //!
 //! 结构：平台定位（注册表 `detect`）→ `health_checks` 表驱动（8 种 kind）→ 板级资源
-//! （`board/role_prompt/common.md`）→ 宿主对运行时载荷的引用（注册表 `payload_refs`）。
+//! （`board/role_prompt/common.md`）→ 宿主配置里对已装运行时的引用。
 //!
 //! 不支持的 kind 会**显式出红记录**（不是静默跳过）：注册表将来加了新 kind 而这里没实现时，
 //! 必须看得见 —— 静默跳过正是"漏判级别"那类假绿的来源。
@@ -9,7 +9,6 @@
 use crate::core::check::Check;
 use crate::core::checks::l0::{field_str, read_gw_cfg, Ctx};
 use crate::core::{config, contract};
-use crate::hosts::Host;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -33,7 +32,7 @@ fn fill(template: &str, home: &str, user_home: &str, sid: &str) -> String {
         .replace("{sid}", sid)
 }
 
-pub fn runtime(c: &mut Check, sid: &str, ctx: &Ctx, prog_root: &Path) {
+pub fn runtime(c: &mut Check, sid: &str, ctx: &Ctx) {
     let gw = read_gw_cfg(ctx, sid).unwrap_or_else(|| serde_json::json!({}));
     let sh = field_str(&gw, "system_home").to_string();
     let mut platform = String::new();
@@ -90,8 +89,6 @@ pub fn runtime(c: &mut Check, sid: &str, ctx: &Ctx, prog_root: &Path) {
         },
         &fix_install,
     );
-
-    payload_refs(c, &platform, &sh, &user_home, prog_root);
 }
 
 /// `_run_l2_checks`：注册表 `health_checks` 逐项执行。
@@ -330,102 +327,4 @@ fn glob_list(pattern: &str) -> Vec<PathBuf> {
 
 fn glob_matches(pattern: &str) -> bool {
     !glob_list(pattern).is_empty()
-}
-
-/// `_check_payload_refs`：宿主配置里引用的载荷文件是否还在。
-///
-/// 载荷目录 = 程序根 `/mcp`（`runtime_bundle.payload_dir("mcp")`）；宿主文件路径由注册表
-/// `payload_refs` 声明（CLI 零平台字面量）。查不到的引用 = 改名/prune 后的静默断链。
-fn payload_refs(c: &mut Check, platform: &str, home: &str, user_home: &str, prog_root: &Path) {
-    let refs: Vec<String> = crate::hosts::get(platform)
-        .map(|h| h.payload_refs().iter().map(|s| s.to_string()).collect())
-        .unwrap_or_default();
-    if refs.is_empty() {
-        return;
-    }
-    let dest = prog_root.join("mcp");
-    let dest_str = dest.to_string_lossy().into_owned();
-    let variants = if user_home.is_empty() {
-        vec![dest_str.clone()]
-    } else {
-        vec![dest_str.clone(), dest_str.replace(user_home, "~")]
-    };
-    for tpl in refs {
-        let f = fill(&tpl, home, user_home, "");
-        if !Path::new(&f).is_file() {
-            continue;
-        }
-        let Ok(text) = std::fs::read_to_string(&f) else {
-            continue;
-        };
-        let mut names: Vec<String> = variants
-            .iter()
-            .flat_map(|v| refs_in_text(&text, v))
-            .collect();
-        names.sort();
-        names.dedup();
-        if names.is_empty() {
-            continue;
-        }
-        let missing: Vec<&String> = names
-            .iter()
-            .filter(|n| !dest.join(n.as_str()).is_file())
-            .collect();
-        let detail = if missing.is_empty() {
-            format!("{f}: {}", names.join(", "))
-        } else {
-            format!(
-                "{f}: missing {}",
-                missing
-                    .iter()
-                    .map(|s| s.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-        };
-        c.add(
-            "runtime",
-            "host-payload-refs",
-            missing.is_empty(),
-            &detail,
-            &format!(
-                "python3 {} install mcp",
-                // 提示里的脚本路径按**部署形态**给：已装程序根下的源码快照副本
-                // （`toolkit_dir()/cli/runtime_bundle.py`）。源码检出的 Python 侧给的是
-                // 仓库路径 —— 两者在开发机上天然不同，parity 侧对该字段做窄归一。
-                prog_root
-                    .join("aimail-src")
-                    .join("cli")
-                    .join("runtime_bundle.py")
-                    .display()
-            ),
-        );
-    }
-}
-
-/// 文本里 `<variant>/<名字>.py` 形式的引用（对应 Python 的 `re.escape(v)+r"/([\w.@+-]+\.py)"`）。
-fn refs_in_text(text: &str, variant: &str) -> Vec<String> {
-    let needle = format!("{variant}/");
-    let mut out = Vec::new();
-    let mut idx = 0usize;
-    while let Some(pos) = text[idx..].find(&needle) {
-        let start = idx + pos + needle.len();
-        let mut end = start;
-        for (i, ch) in text[start..].char_indices() {
-            if ch.is_alphanumeric() || matches!(ch, '_' | '.' | '@' | '+' | '-') {
-                end = start + i + ch.len_utf8();
-            } else {
-                break;
-            }
-        }
-        let token = &text[start..end];
-        if token.ends_with(".py") {
-            out.push(token.to_string());
-        }
-        idx = if end > start { end } else { start + 1 };
-        if idx >= text.len() {
-            break;
-        }
-    }
-    out
 }

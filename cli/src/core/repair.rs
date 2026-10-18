@@ -140,9 +140,7 @@ pub const REPAIRABILITY: &[((&str, &str), Repairability)] = &[
             why: Some("the agent session/endpoint is down -> start that agent on the host side"),
         },
     ),
-    (("runtime", "mcp-payload"), Auto { step: 6 }),
     (("runtime", "board-resources"), Auto { step: 6 }),
-    (("runtime", "host-payload-refs"), Auto { step: 6 }),
     (("runtime", "platform-locatable"), Auto { step: 5 }),
     (("system", "id"), Auto { step: 4 }),
 ];
@@ -187,7 +185,6 @@ pub enum Step {
     GatewayConfig,
     Pointer,
     RuntimeResources,
-    McpPayload,
     AgentmailJson,
     RoutesEntries,
     PullEntryKey,
@@ -217,10 +214,6 @@ impl Step {
             }
             Step::RuntimeResources => {
                 "redeploy runtime resources (patch marker/resources missing -> idempotent reinstall)"
-                    .to_string()
-            }
-            Step::McpPayload => {
-                "refresh the runtime payload (mcp missing/stale -> idempotent local bundle install)"
                     .to_string()
             }
             // 描述里含绑定文件名 —— 用**契约常量**拼（不抄字面量）
@@ -438,34 +431,6 @@ impl Step {
                     StepResult::NothingToDo
                 }
             }
-            Step::McpPayload => {
-                // `cli/repair.py:915+`：结论取自 payload 状态，绝不看退出码（防误报）。
-                let dest = crate::core::payload::bundle_default_dest("mcp").unwrap_or_default();
-                let dp = std::path::PathBuf::from(&dest);
-                let st =
-                    crate::core::payload::payload_state(crate::core::payload::MCP_FILES, &dp, None);
-                if !st.present {
-                    warn("mcp payload not installed -> idempotent install");
-                } else if st.missing.is_empty() && st.stale.is_empty() {
-                    ok("mcp payload ok (complete and in step with the current version)");
-                    return StepResult::NothingToDo;
-                } else {
-                    let mut bad: Vec<String> = st.missing.clone();
-                    bad.extend(st.stale.clone());
-                    warn(&format!(
-                        "mcp payload missing/stale ({}) -> idempotent reinstall",
-                        bad.join(", ")
-                    ));
-                }
-                let rc = crate::core::payload::install_bundle("mcp", &dest, "", true);
-                if rc == 0 {
-                    ok("mcp payload installed");
-                    StepResult::Fixed
-                } else {
-                    fail("mcp payload install failed");
-                    StepResult::NothingToDo
-                }
-            }
             Step::Pointer => {
                 // `cli/repair.py:520-555`：平台根确定 + 本 sid 无指针 + 目标指针不存在 ⇒ 才写。
                 // 单一实现 = [`repair_pointer`]（含 perms 0600；内联副本已于 2026-10-18 删除）。
@@ -626,7 +591,6 @@ pub fn ladder(deep: bool) -> Vec<Step> {
         Step::GatewayConfig,
         Step::Pointer,
         Step::RuntimeResources,
-        Step::McpPayload,
         Step::AgentmailJson,
         Step::RoutesEntries,
         Step::PullEntryKey,
@@ -1946,12 +1910,12 @@ mod tests {
     #[test]
     fn ladder_order_matches_python_and_deep_appends_drain() {
         let base = ladder(false);
-        assert_eq!(base.len(), 10);
+        assert_eq!(base.len(), 9);
         assert_eq!(base[0], Step::BridgeAlive);
-        assert_eq!(base[9], Step::PullEntryKey);
+        assert_eq!(base[8], Step::PullEntryKey);
         let deep = ladder(true);
-        assert_eq!(deep.len(), 11);
-        assert_eq!(deep[10], Step::DrainStuck);
+        assert_eq!(deep.len(), 10);
+        assert_eq!(deep[9], Step::DrainStuck);
     }
 
     #[test]

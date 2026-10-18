@@ -1,7 +1,7 @@
 //! clap 命令树 + 分发（S1：命令面注册 + 诚实出口）。
 //!
 //! 命令面是**冻结面**（边界定稿 §1；变更须 owner 签字）：16 个顶层子命令名 + `prompt` 的 5 个嵌套
-//! 子命令 + install 的两个隐藏机器面参数（`--system-only` / `--payload …`）。
+//! 子命令 + install 的唯一隐藏机器面参数（`--system-only`）。
 //! 冻结判据由 `tests/test_cli_parity.py` 与 Python 侧 `--help` 做集合比对。
 //!
 //! S1 只实现 `version`；其余一律 `not_yet_ported`（rc 1），Python CLI 仍是权威。
@@ -100,7 +100,7 @@ const PROMPT_SUBCOMMANDS: &[(&str, &str)] = &[
     ("create-file", "scaffold role_prompt/<filename>.md for -n"),
 ];
 
-/// 机器面隐藏参数（边界定稿 §1：仅 `--system-only` 与 `--payload …` 属反调 ABI；
+/// 机器面隐藏参数（仅 `--system-only` 属反调 ABI；
 /// 其余是 install 的隐藏开关）。隐藏 = clap `hide(true)`，人面 help 不得出现。
 /// `install` 的参数（Python `cli/aimail:3462-3490`：人面 9 个 + 隐藏机器面 6 个）。
 /// 隐藏项的注册顺序与 Python 一致（usage 行只显示人面）。
@@ -383,8 +383,9 @@ fn install_args(cmd: Command) -> Command {
                 .short('a')
                 .long("agent")
                 .action(ArgAction::Append)
+                .num_args(1..)
                 .value_name("AGENT")
-                .help("register only these platform agents (repeatable; names are platform agent ids, unknown ones are ignored)"),
+                .help("register only these platform agents (one -a, then the agent ids; unknown ones are ignored)"),
         )
         .arg(
             Arg::new("all-agents")
@@ -420,21 +421,6 @@ fn install_hidden_args(cmd: Command) -> Command {
     cmd.arg(
         Arg::new("system-only")
             .long("system-only")
-            .action(ArgAction::SetTrue)
-            .hide(true),
-    )
-    .arg(
-        Arg::new("payload")
-            .long("payload")
-            .value_parser(["install", "dir", "resource", "source"])
-            .hide(true),
-    )
-    .arg(Arg::new("payload_name").hide(true))
-    .arg(Arg::new("dest").long("dest").hide(true))
-    .arg(Arg::new("source-root").long("source-root").hide(true))
-    .arg(
-        Arg::new("force")
-            .long("force")
             .action(ArgAction::SetTrue)
             .hide(true),
     )
@@ -865,11 +851,6 @@ pub fn run() -> i32 {
                 .map(|v| v.cloned().collect())
                 .unwrap_or_default(),
             system_only: m.get_flag("system-only"),
-            payload: arg_str(m, "payload"),
-            payload_name: arg_str(m, "payload_name"),
-            dest: arg_str(m, "dest"),
-            source_root: arg_str(m, "source-root"),
-            force: m.get_flag("force"),
             container: arg_str(m, "container"),
             container_home: arg_str(m, "container-home"),
             platform: arg_str(m, "platform"),

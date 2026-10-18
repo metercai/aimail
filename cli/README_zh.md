@@ -37,7 +37,7 @@
 ```bash
 aimail install --home <平台根>                    # 只注册主 agent;该 home 有指针时自动复用系统
 aimail install --home <平台根> --all-agents        # 平台根下每个 agent 都注册(hermes/openclaw/deerflow)
-aimail install --home <平台根> -a <agent> [-a <agent2>]  # 只注册这些 agent(名字=宿主内部 agent 名;对不上的忽略)
+aimail install --home <平台根> -a <agent> [<agent2>]  # 只注册这些 agent(名字=宿主内部 agent 名;对不上的忽略)
 aimail install -s <sid>                            # 由 sid 反查本机已配置的平台根
 aimail install --home <平台根> --system-id <sid>   # 显式绑定:指针缺失 / 多系统歧义 / 换平台根
 ```
@@ -80,16 +80,13 @@ aimail repair       →  按 check 发现执行幂等修复阶梯
 │   ├── aimail-bridge                    # bridge 二进制
 │   └── bridge.pid
 ├── bin/                                 # 程序根
-│   ├── aimail                           # CLI 二进制(~/.local/bin/aimail 指向它)
-│   └── mcp/                             # 运行时载荷:7 个 pysdk 核心模块的扁平副本
-│       └── .aimail-runtime.json         # 逐文件 md5 版本戳
+│   └── aimail                           # CLI 二进制(~/.local/bin/aimail 指向它)
 └── .env                                 # 机器级 env(自举安装落盘)
 ```
 
 按地址隔离:邮件快照、处理日志、绑定、角色 prompt、board 凭据都在 `systems/{sid}/{addr}/`
 一层之内,删一个地址目录不会碰到别的地址;sid 解析不出来时收口到 `systems/_unassigned/`。
-`bin/mcp/` 的载荷来自已装 SDK 的核心目录(仓库态 `pysdk/`,安装态 site-packages 或程序根快照),
-由 `aimail install --payload mcp`(或 repair 第 7 步)幂等刷新,不做网络下载。
+宿主侧 python 运行时一律取**已安装的 `aimailsdk`**(site-packages),不再复制到程序根。
 
 ### 网络模型
 
@@ -153,7 +150,7 @@ curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootst
 ```
 
 - `AIMAIL_ADMIN_KEY`(或 `aimail install -k`)取的是**系统级 key**:自建网关用启动时打印的 `<storage>/<system id>.system.key`,云端用激活码签发的 key。
-- CLI 二进制(`~/.aimail/bin/aimail`,`~/.local/bin` 上有链接)与宿主载荷(`~/.aimail/bin/mcp`)同在 `~/.aimail/bin` 程序根下,自举时一起刷新(强制重取先 `export AIMAIL_FORCE_UPGRADE=1`)。
+- CLI 二进制(`~/.aimail/bin/aimail`,`~/.local/bin` 上有链接)装在 `~/.aimail/bin` 程序根下,自举时幂等刷新(强制重取先 `export AIMAIL_FORCE_UPGRADE=1`)。
 
 ### 第 2 步 — `aimail install`(系统级,可重复,幂等)
 
@@ -215,10 +212,9 @@ aimail repair [--system-id <sid>] [--home <root>] [--deep] [--dry-run]
 5. 平台指针重建(仅当平台根确定且指针缺失)
 6. 运行时资源重部署(只有带 SDK 安装入口的平台会自动重装, 其余打印 check 的修复提示;
    平台在远端时跳过并给提示)
-7. 运行时载荷刷新(mcp 载荷缺失/陈旧 → 用本机 bundle 幂等重装, 不需要网络)
-8. agentmail.json 补缺 + webhook\_url 对齐存活路由(仅本机)
-9. routes 条目补齐
-10. bridge pull 条目: 缺失则按 gateway.json 本地创建(aimail\_url/admin\_key/system\_id),
+7. agentmail.json 补缺 + webhook\_url 对齐存活路由(仅本机)
+8. routes 条目补齐
+9. bridge pull 条目: 缺失则按 gateway.json 本地创建(aimail\_url/admin\_key/system\_id),
     已存在则把 admin\_key 对齐 gateway.json(权威源)
 
 修复过程有两种类型, 明确收口:

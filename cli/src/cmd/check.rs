@@ -15,7 +15,7 @@ use crate::core::checks::adapters::{self, Ctx, DEFAULT_SID_ORDER};
 use crate::core::checks::l0::{self, Ctx as L0Ctx};
 use crate::core::checks::{l1, l2, l2r};
 use crate::core::style::{BOLD, CROSS, GREEN, NC, YELLOW};
-use crate::core::{config, home, payload};
+use crate::core::{config, home};
 use crate::hosts::Host;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -214,9 +214,7 @@ fn build_out(
     l0::bridge_completeness(&mut c, &platform_sid, &ctx);
     l0::agentmail_json(&mut c, &platform_sid, &ctx);
     // L2r 运行时资源 + 载荷
-    let prog_root = home::program_root();
-    l2r::runtime(&mut c, &platform_sid, &ctx, &prog_root);
-    payload::check_payload(&mut c, &prog_root, resolve_core_dir(&prog_root).as_deref());
+    l2r::runtime(&mut c, &platform_sid, &ctx);
 
     // L3/L4 适配面
     let resolve_sid =
@@ -260,20 +258,6 @@ pub fn run(a: Args) -> i32 {
     }
 }
 
-/// 运行时核心目录（Python `runtime_core.resolve_core_dir`：仓库 pysdk/ 优先）。
-///
-/// Rust 单二进制没有"自身所在源码目录" ⇒ 取**部署形态**的程序根源码快照副本
-/// （`{program_root}/aimail-src/pysdk`，含 `aimail_base.py` 才算数）；找不到 ⇒ None
-/// （等价 Python 侧 `src=""`：跳过 md5 陈旧判读）。
-fn resolve_core_dir(prog_root: &Path) -> Option<PathBuf> {
-    let cand = prog_root.join("aimail-src").join("pysdk");
-    if cand.join("aimail_base.py").is_file() {
-        Some(cand)
-    } else {
-        None
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -297,15 +281,5 @@ mod tests {
         )
         .unwrap();
         assert_eq!(resolve_platform_sid(uh, "hermes", "", Some("env")), "ptr");
-    }
-
-    #[test]
-    fn core_dir_is_none_without_deployed_snapshot() {
-        let tmp = TempDir::new("check-core");
-        assert!(resolve_core_dir(tmp.path()).is_none());
-        let sn = tmp.path().join("aimail-src").join("pysdk");
-        std::fs::create_dir_all(&sn).unwrap();
-        std::fs::write(sn.join("aimail_base.py"), "x").unwrap();
-        assert_eq!(resolve_core_dir(tmp.path()), Some(sn));
     }
 }
