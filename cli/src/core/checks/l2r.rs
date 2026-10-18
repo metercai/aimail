@@ -67,14 +67,10 @@ pub fn runtime(c: &mut Check, sid: &str, ctx: &Ctx, prog_root: &Path) {
 
     let fix_install = format!("python -m aimail.install --type {platform} --home {sh}");
     let user_home = ctx.user_home.to_string_lossy().into_owned();
-    run_checks(
-        c,
-        &platforms::health_checks(&platform),
-        &sh,
-        &user_home,
-        sid,
-        &fix_install,
-    );
+    let checks = crate::hosts::get(&platform)
+        .map(crate::hosts::health::checks_json)
+        .unwrap_or_default();
+    run_checks(c, &checks, &sh, &user_home, sid, &fix_install);
 
     // 通用：板级资源（a2a board 角色查找链）
     let rp = config::system_dir_in(&ctx.aimail_home, sid)
@@ -340,7 +336,9 @@ fn glob_matches(pattern: &str) -> bool {
 /// 载荷目录 = 程序根 `/mcp`（`runtime_bundle.payload_dir("mcp")`）；宿主文件路径由注册表
 /// `payload_refs` 声明（CLI 零平台字面量）。查不到的引用 = 改名/prune 后的静默断链。
 fn payload_refs(c: &mut Check, platform: &str, home: &str, user_home: &str, prog_root: &Path) {
-    let refs = platforms::payload_refs(platform);
+    let refs: Vec<String> = crate::hosts::get(platform)
+        .map(|h| h.payload_refs().iter().map(|s| s.to_string()).collect())
+        .unwrap_or_default();
     if refs.is_empty() {
         return;
     }

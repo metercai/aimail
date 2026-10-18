@@ -42,8 +42,8 @@ impl Host for Pi {
     fn uninstall_plan(&self) -> &'static [Step] {
         &[
             Step::RmPointer {
-                path: "{home}/.agentmail",
-                ok_text: Some("removed pointer {home}/.agentmail"),
+                path: "{home}/{pointer_file}",
+                ok_text: Some("removed pointer {home}/{pointer_file}"),
             },
             Step::RmDir {
                 path: "{home}/skills/agentmail",

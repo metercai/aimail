@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
-use crate::core::{platforms, register, sdkcall, setup, style};
+use crate::core::{register, sdkcall, setup, style};
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 const SDK_INSTALL_TIMEOUT: Duration = Duration::from_secs(300);
@@ -260,14 +260,9 @@ pub fn run_steps(
     let mut sdk_tried = false;
     let mut sdk_warned = false;
     // python 宿主才需要 SDK 根（注册器 python_script 落在 SDK 包内；node 宿主注册走 op 门，不需要）
-    let py_host = matches!(
-        platforms::platform(platform)
-            .and_then(|p| p.get("register"))
-            .and_then(|r| r.get("kind"))
-            .and_then(Value::as_str)
-            .unwrap_or(""),
-        "python_module" | "python_script"
-    );
+    let py_host = crate::hosts::get(platform)
+        .map(crate::hosts::exec::needs_sdk_root)
+        .unwrap_or(false);
     for st in steps {
         let when = st.get("when").cloned().unwrap_or(json!({}));
         if when.as_object().map(|o| !o.is_empty()).unwrap_or(false) && !when_ok(&when, ctx) {
@@ -552,7 +547,9 @@ pub fn run_install_steps(
     ctx: &mut Map<String, Value>,
     core_dir: &Path,
 ) -> Result<(), String> {
-    let steps = platforms::install_steps(platform).to_vec();
+    let steps = crate::hosts::get(platform)
+        .map(crate::hosts::exec::install_steps_json)
+        .unwrap_or_default();
     if steps.is_empty() {
         return Ok(());
     }
@@ -608,7 +605,9 @@ pub fn run_uninstall_steps(
     ctx: &mut Map<String, Value>,
     core_dir: &Path,
 ) -> Result<(), String> {
-    let steps = platforms::uninstall_steps(platform);
+    let steps = crate::hosts::get(platform)
+        .map(crate::hosts::exec::uninstall_steps_json)
+        .unwrap_or_default();
     if steps.is_empty() {
         return Ok(());
     }
@@ -706,15 +705,18 @@ mod tests {
     /// （实测：L2 里 dsh/pi 都出现 `✗ 未找到已安装的 aimailsdk`）。只有 python 宿主需要它们。
     #[test]
     fn node_hosts_never_reference_sdk_root_placeholders() {
-        for id in platforms::order() {
+        for id in crate::hosts::order() {
             let py_host = crate::core::detect::spec(id)
                 .map(|s| s.python_host)
                 .unwrap_or(false);
             if py_host {
                 continue;
             }
-            let mut all: Vec<Value> = platforms::install_steps(id).to_vec();
-            all.extend(platforms::uninstall_steps(id));
+            let Some(h) = crate::hosts::get(id) else {
+                continue;
+            };
+            let mut all: Vec<Value> = crate::hosts::exec::install_steps_json(h);
+            all.extend(crate::hosts::exec::uninstall_steps_json(h));
             for st in &all {
                 let body = serde_json::to_string(st).unwrap_or_default();
                 assert!(

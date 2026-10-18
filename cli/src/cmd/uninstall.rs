@@ -210,7 +210,10 @@ pub fn run(a: &Args) -> i32 {
         let _cn = setup::pget(&gw, "container");
         crate::core::sdkroot::bind_domain(&_cn, &system_home.to_string_lossy());
     }
-    let core_dir = if crate::core::platforms::ops_argv(&transport_platform).is_some() {
+    let core_dir = if crate::hosts::get(&transport_platform)
+        .map(|h| h.op_template().is_some())
+        .unwrap_or(false)
+    {
         std::path::PathBuf::new()
     } else {
         crate::core::sdkroot::resolve_or_placeholder().path
@@ -441,6 +444,11 @@ pub fn run(a: &Args) -> i32 {
     );
     ctx.insert("sid".into(), json!(sid));
     ctx.insert("cfg".into(), gw.clone());
+    // 契约单源：步骤里写 `{pointer_file}`，值取 contract（宿主表零契约字面量）。
+    ctx.insert(
+        "pointer_file".into(),
+        json!(crate::core::contract::pointer_file()),
+    );
     if let Err(e) = steps::run_uninstall_steps(&platform, &mut ctx, &core_dir) {
         warn(&e);
     }

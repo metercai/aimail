@@ -1,8 +1,8 @@
 {
  "_comment": "字面量棘轮基线(按 文件×清单键 计数)。规则 = 不得新增:计数只许减不许增;新增位置必须改用常量模块, 或在该行加 `contract-allowed: <理由>` 注释(测试专用逃生门)。重生成: python3 tests/contract/check-contract-single-source.py --update-baseline",
- "generated_at": "2026-10-18T02:51:51Z",
- "tracked_files": 353,
- "hits": 330,
+ "generated_at": "2026-10-18T03:08:49Z",
+ "tracked_files": 354,
+ "hits": 328,
  "files": {
   "bridge/aimail_routes.toml.example": {
    "hermes_inbound_path": 1,
@@ -22,7 +22,7 @@
   },
   "cli/src/hosts/pi.rs": {
    "agent_skill_name": 2,
-   "pointer_file": 3
+   "pointer_file": 1
   },
   "docs/agent-integration.md": {
    "agent_skill_name": 1,

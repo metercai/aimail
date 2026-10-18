@@ -107,8 +107,10 @@ pub fn register_agent(
     let _home = setup::pget(cfg, "system_home");
     let domain = setup::pget(cfg, "domain");
     let system_name = setup::pget(cfg, "system_name");
-    let pdef = platforms::platform(platform).cloned().unwrap_or(json!({}));
-    let rdef = pdef.get("register").cloned().unwrap_or(json!({}));
+    let Some(host) = crate::hosts::get(platform) else {
+        return Err(format!("未知平台 {platform}（注册表无此项）"));
+    };
+    let rdef = crate::hosts::exec::register_json(host);
 
     // manager 解析链（参数 → cfg → env 三名互认），仍为空即**硬门**（不许以 '' 注册）
     let mgr = setup::resolve_mgr(manager, cfg);
@@ -298,8 +300,7 @@ pub fn register_all(
     platform_home: &str,
     core_dir: &Path,
 ) -> Result<(), String> {
-    let pdef = platforms::platform(platform).cloned().unwrap_or(json!({}));
-    let rall = pdef.get("register_all").cloned();
+    let rall = crate::hosts::get(platform).and_then(crate::hosts::exec::register_all_json);
     let sid = setup::pget(cfg, "system_id");
     let home_dir = platforms::home_dir(platform).unwrap_or("");
     let home = {

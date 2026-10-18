@@ -10,7 +10,7 @@
 //! （hermes 的 hook 路由名与入站路径取自契约；pi 端口无关）。
 
 use crate::core::check::Check;
-use crate::core::{config, contract, http, platforms};
+use crate::core::{config, contract, http};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
@@ -1104,9 +1104,8 @@ pub fn run_l3_l4(c: &mut Check, ctx: &Ctx, agent_type: &str) -> Option<String> {
         return None;
     }
 
-    let remote = platforms::platform(agent_type)
-        .and_then(|p| p.get("agent_check_remote"))
-        .and_then(Value::as_bool)
+    let remote = crate::hosts::get(agent_type)
+        .map(|h| h.agent_check_remote())
         .unwrap_or(false);
     if remote {
         return Some(format!(

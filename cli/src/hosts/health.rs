@@ -61,3 +61,15 @@ pub enum HealthSpec {
         fail_text: &'static str,
     },
 }
+
+use serde_json::Value;
+
+use crate::hosts::Host;
+
+/// 健康检查的 JSON 视图（通用引擎 [`crate::core::checks::l2r`] 与 repair 的输入）。
+pub fn checks_json(h: &dyn Host) -> Vec<Value> {
+    h.health_checks()
+        .iter()
+        .map(|c| serde_json::to_value(c).expect("health check must serialize"))
+        .collect()
+}

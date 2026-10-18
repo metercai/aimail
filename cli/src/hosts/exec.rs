@@ -176,3 +176,69 @@ pub enum RegisterAll {
 /// 常量」的 node 型；python 型 = `sdk.rs::python_door_command` 函数）。三 node 宿主
 /// （pi/dsh/openclaw）共用，不再逐平台复制。占位符：`{op}`/`{args}`/`{node_path}`。
 pub const NODE_OP_TEMPLATE: &[&str] = &["node", "{node_path}", "--op", "{op}", "--args", "{args}"];
+
+use serde_json::Value;
+
+use crate::hosts::{Host, Lang};
+
+/// 安装步骤的 JSON 视图（通用引擎 [`crate::core::steps`] 的输入；空表 ⇒ 该宿主无 CLI 侧安装动作）。
+pub fn install_steps_json(h: &dyn Host) -> Vec<Value> {
+    h.install_plan()
+        .iter()
+        .map(|s| serde_json::to_value(s).expect("install step must serialize"))
+        .collect()
+}
+
+/// 卸载步骤的 JSON 视图。
+pub fn uninstall_steps_json(h: &dyn Host) -> Vec<Value> {
+    h.uninstall_plan()
+        .iter()
+        .map(|s| serde_json::to_value(s).expect("uninstall step must serialize"))
+        .collect()
+}
+
+/// 注册入口的 JSON 视图（`core::register` 的输入）。
+pub fn register_json(h: &dyn Host) -> Value {
+    serde_json::to_value(h.register()).expect("register entry must serialize")
+}
+
+/// 全量注册入口（未定义 ⇒ 单 agent 宿主）。
+pub fn register_all_json(h: &dyn Host) -> Option<Value> {
+    h.register_all()
+        .map(|r| serde_json::to_value(r).expect("register_all entry must serialize"))
+}
+
+/// 该宿主是否走 python 注册器（决定是否需要 SDK 根：node 宿主经 op 门，不需要）。
+pub fn needs_sdk_root(h: &dyn Host) -> bool {
+    matches!(h.lang(), Lang::Python)
+}
+
+/// 该宿主是否自足 SDK 安装（安装步骤里有 `sdk_install` ⇒ 其 target；否则 `""`）。
+pub fn sdk_install_target(h: &dyn Host) -> String {
+    for st in h.install_plan() {
+        if let Step::SdkInstall { target, .. } = st {
+            return target.to_string();
+        }
+    }
+    String::new()
+}
+
+/// node 入口模板展开：`{home}` 逐个候选替换；含 `*` 则 glob 取排序首个命中；否则按文件判在。
+/// 未命中 ⇒ `""`（不猜）。
+pub fn resolve_path_template(tmpl: &str, homes: &[String]) -> String {
+    for h in homes {
+        let cand = tmpl.replace("{home}", h);
+        if cand.contains('*') {
+            if let Ok(hits) = glob::glob(&cand) {
+                let mut v: Vec<std::path::PathBuf> = hits.flatten().collect();
+                v.sort();
+                if let Some(first) = v.first() {
+                    return first.to_string_lossy().to_string();
+                }
+            }
+        } else if std::path::Path::new(&cand).is_file() {
+            return cand;
+        }
+    }
+    String::new()
+}

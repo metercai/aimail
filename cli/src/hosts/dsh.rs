@@ -41,7 +41,16 @@ impl Host for Dsh {
         &[Step::Spawn { when: None, argv: &["dsh", "plugin", "--profile", "web", "add", "dsh-aimail", "--config.minimumReleaseAge=0"], env: Some(EnvPairs(&[("DSH_HOME","{home}")])), skip_if: None, on_missing: Some("fail"), fail_hint: Some("`dsh` CLI not found — build/install deepseek-harness first (e.g. cd ~/deepseek-harness && cargo build --release && ln -sf \"$PWD/target/release/dsh\" ~/.local/bin/dsh), then re-run aimail install"), on_error: Some("warn"), warn_hint: Some("dsh plugin add aimail 失败(检查 aimail npm 包发布与网络)"), ok_text: Some("aimail 插件已安装(dsh bundle 层挂载)"), skipped_text: None }, Step::RegisterDefault { when: Some(When { cfg_complete: Some(true), sid_set: None, path_exists: None, command_exists: None, runtime: None, runtime_not: None }), on_error: Some("warn"), warn_hint: Some("dsh agent registration failed (see above) — rerun `aimail reset -s {sid}` once the plugin is in place") }, Step::Print { when: None, text: "  dsh: 绑定 = 创建 dsh session(mail preset)后自动 auto-bind;" }, Step::Print { when: None, text: "        CLI 侧注册:`aimail address -s SID`" }]
     }
     fn uninstall_plan(&self) -> &'static [Step] {
-        &[Step::Print { when: None, text: "  dsh: 共享配置已清理;dsh 侧卸载 mail 插件(mail/mail-inbound/tool-mail)+ 删 preset 即可" }]
+        &[
+            Step::RmPointer {
+                path: "{home}/{pointer_file}",
+                ok_text: Some("removed pointer {home}/{pointer_file}"),
+            },
+            Step::Print {
+                when: None,
+                text: "  dsh: 共享配置已清理;dsh 侧卸载 mail 插件(mail/mail-inbound/tool-mail)+ 删 preset 即可",
+            },
+        ]
     }
     fn health_checks(&self) -> &'static [Health] {
         &[]

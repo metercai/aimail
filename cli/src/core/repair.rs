@@ -1586,7 +1586,10 @@ fn failing_file_checks(plat: &str, sh: &str, user_home: &Path) -> Vec<Value> {
         "file_exists_any",
     ];
     let mut fails = Vec::new();
-    for ch in platforms::health_checks(plat) {
+    for ch in crate::hosts::get(plat)
+        .map(crate::hosts::health::checks_json)
+        .unwrap_or_default()
+    {
         let kind = ch.get("kind").and_then(Value::as_str).unwrap_or("");
         if !FILE_KINDS.contains(&kind) {
             continue;
@@ -1656,7 +1659,9 @@ pub fn runtime_resources(sid: &str, platform_home: &str, prog_root: &Path) -> bo
         ok(&format!("{plat} runtime resources ok"));
         return false;
     }
-    let tgt = platforms::sdk_install_target(plat);
+    let tgt = crate::hosts::get(plat)
+        .map(crate::hosts::exec::sdk_install_target)
+        .unwrap_or_default();
     if tgt.is_empty() {
         warn(&format!(
             "{plat} runtime resources missing; this platform has no SDK install entry (its own installer manages them) -> follow the hint:"

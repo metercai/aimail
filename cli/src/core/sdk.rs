@@ -229,18 +229,18 @@ pub fn op_argv(
     op: &str,
     args: &Value,
 ) -> Result<Vec<String>, AbiError> {
-    let Some(tmpl) = crate::core::platforms::ops_argv(platform) else {
+    let Some(host) = crate::hosts::get(platform) else {
         return Ok(python_door_command(op, args));
     };
-    let rdef = crate::core::platforms::platform(platform)
-        .and_then(|p| p.get("register"))
-        .cloned()
-        .unwrap_or_else(|| serde_json::json!({}));
+    let Some(tmpl) = host.op_template() else {
+        return Ok(python_door_command(op, args));
+    };
+    let rdef = crate::hosts::exec::register_json(host);
     let node_tmpl = rdef.get("node_path").and_then(Value::as_str).unwrap_or("");
     let node_path = if node_tmpl.is_empty() {
         String::new()
     } else {
-        crate::core::platforms::resolve_path_template(node_tmpl, homes)
+        crate::hosts::exec::resolve_path_template(node_tmpl, homes)
     };
     if tmpl.iter().any(|t| t.contains("{node_path}")) && node_path.is_empty() {
         // 明确失败，不猜：平台包没装就没有可执行门 ⇒ 给注册表自带的修复提示
@@ -251,7 +251,7 @@ pub fn op_argv(
     }
     Ok(tmpl
         .iter()
-        .map(|t| match t.as_str() {
+        .map(|t| match *t {
             "{op}" => op.to_string(),
             "{args}" => args.to_string(),
             other => other.replace("{node_path}", &node_path),
