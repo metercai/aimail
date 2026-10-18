@@ -41,6 +41,12 @@ export interface ActivateAddressCodeResult {
   system_id?: string | undefined
   email_address?: string | undefined
   expires_at?: string | undefined
+  /**
+   * The manager (safety officer) the gateway stored for this address during
+   * activation. Carried into the binding so the agent-side tools address the
+   * same mailbox the gateway recorded; empty when the gateway has none.
+   */
+  manager_address?: string | undefined
   error?: string | undefined
   status?: number | undefined
 }
@@ -74,6 +80,7 @@ export async function activateAddressCode(
     system_id: res.system_id as string | undefined,
     email_address: res.email_address as string | undefined,
     expires_at: res.expires_at as string | undefined,
+    manager_address: (res.manager_address as string | undefined) || undefined,
   }
 }
 
@@ -102,10 +109,12 @@ export interface ActivateAddressCodePersistResult extends ActivateAddressCodeRes
  *
  * Writes:
  * 1. `~/.aimail/systems/{sid}/{cleaned_addr}/agentmail.json` — fields
- *    isomorphic to the register path (saveBinding), plus `expires_at`
- *    so the agent can surface its own renewal window.
- * 2. `~/.aimail/systems/{sid}/aimail_gateway.json` — create-if-absent
- *    only (never clobbers an existing system's admin_key), 0600.
+ *    isomorphic to the register path (saveBinding), plus `expires_at` so the
+ *    agent can surface its own renewal window and `manager_address` (the value
+ *    the gateway stored at activation, returned by the endpoint).
+ * 2. `~/.aimail/systems/{sid}/aimail_gateway.json` — create-if-absent only
+ *    (never clobbers an existing system file), agent scope: connection facts
+ *    only, no admin key, 0600.
  * 3. `{platformHome}/.agentmail` pointer (best-effort) when given —
  *    discovery/log naming read it.
  */
@@ -134,9 +143,20 @@ export async function activateAddressCodePersist(
     agent_id: agentId,
   }
   if (act.expires_at) cfg.expires_at = act.expires_at
+  // Manager = what the gateway actually stored during activation (read back
+  // in the activation transaction and returned in the response). Carried
+  // into the binding so `manageContacts(add)` can send its approval request
+  // without inferring the manager later; the gateway stays authoritative.
+  if (act.manager_address) cfg.manager_address = act.manager_address
   const p = await saveAgentConfig(cfg, sid)
 
-  // 2. Gateway connection file — create-if-absent only.
+  // 2. Gateway connection file — create-if-absent only, **agent scope**.
+  //    Audit D3: this used to write the agent's raw key into a field named
+  //    `admin_key` — a semantic mismatch (it is not a management key) and a
+  //    second copy of the key. It now holds connection facts + the scope
+  //    marker only; the agent key lives in the binding alone
+  //    (`aimail_base._load_gateway_config` accepts a scope=agent file, and
+  //    the pull loop reads gateway_url from the binding).
   const gwPath = gatewayConfigPath(sid)
   try {
     await fs.access(gwPath)
@@ -147,9 +167,9 @@ export async function activateAddressCodePersist(
       JSON.stringify(
         {
           gateway_url: opts.gatewayUrl,
-          admin_key: act.raw_key,
           system_id: sid,
           domain,
+          scope: 'agent',
         },
         null,
         2,

@@ -5,9 +5,9 @@
  * 1. activateAddressCode — lowercases the email, maps failure shapes,
  *    surfaces raw_key/system_id/expires_at on success.
  * 2. activateAddressCodePersist — writes a register-isomorphic
- *    agentmail.json (saveBinding field set + expires_at), the
- *    create-if-absent connection file, and the discovery pointer;
- *    never clobbers an existing admin_key.
+ *    agentmail.json (saveBinding field set + expires_at + manager_address),
+ *    the create-if-absent agent-scope connection file (no admin key), and the
+ *    discovery pointer; never clobbers an existing connection file.
  * 3. pullList/pullAck — agent-scope pull + ack contract.
  * 4. startPolling — dedup by delivery id, on_email failure stays
  *    un-acked, pull failure counts an error and continues.
@@ -103,6 +103,7 @@ describe('activateAddressCodePersist', () => {
       system_id: 'shared_addr_e2e',
       email_address: 'e2e-agent2@e2e.local',
       expires_at: '2026-09-13T00:00:00Z',
+      manager_address: 'mgr@e2e.local',
     })
     const platformHome = await fs.mkdtemp(path.join(os.tmpdir(), 'plat-'))
     const r = await activateAddressCodePersist(c, 'shared_a-y', 'e2e-agent2@e2e.local', {
@@ -131,7 +132,11 @@ describe('activateAddressCodePersist', () => {
       await fs.readFile(path.join(home, 'systems', 'shared_addr_e2e', 'aimail_gateway.json'), 'utf8'),
     ) as Record<string, unknown>
     expect(gw.gateway_url).toBe('http://127.0.0.1:38080')
-    expect(gw.admin_key).toBe('rk-2')
+    // Agent scope: connection facts only — the agent key stays in the binding
+    // (an `admin_key` here made later code treat an agent key as a system key).
+    expect(gw.scope).toBe('agent')
+    expect('admin_key' in gw).toBe(false)
+    expect(cfg.manager_address).toBe('mgr@e2e.local')
 
     const ptr = JSON.parse(
       await fs.readFile(path.join(platformHome, '.agentmail'), 'utf8'),
