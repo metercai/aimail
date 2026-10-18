@@ -49,25 +49,6 @@ pub(crate) fn candidate_homes(platform: &str, cfg: &Value, platform_home: &str) 
     .collect()
 }
 
-/// `_resolve_node_entry`：在候选 home 上解析 node 入口（模板 `{home}` → 首个命中）。
-fn resolve_node_entry(tmpl: &str, homes: &[String]) -> String {
-    for h in homes {
-        let cand = tmpl.replace("{home}", h);
-        if cand.contains('*') {
-            if let Ok(hits) = glob::glob(&cand) {
-                let mut v: Vec<PathBuf> = hits.flatten().collect();
-                v.sort();
-                if let Some(first) = v.first() {
-                    return first.to_string_lossy().to_string();
-                }
-            }
-        } else if Path::new(&cand).is_file() {
-            return cand;
-        }
-    }
-    String::new()
-}
-
 /// `_run_registrar`：子进程调用平台注册器 → (rc, stdout+stderr)。
 fn run_registrar(argv: &[String], env: &[(String, String)]) -> (i32, String) {
     let mut c = Command::new(&argv[0]);
@@ -199,7 +180,7 @@ pub fn register_agent(
                 o.insert("python".into(), json!(setup::python_bin()));
             }
             "node_entry" => {
-                let node = resolve_node_entry(
+                let node = crate::hosts::exec::resolve_path_template(
                     rdef.get("node_path").and_then(Value::as_str).unwrap_or(""),
                     &cand_homes,
                 );
@@ -327,7 +308,7 @@ pub fn register_all(
     // （openclaw: `agents/*`），逐个经门注册；枚举为空 ⇒ 单次注册。定名/别名归一去 SDK。
     if matches!(host.lang(), crate::hosts::Lang::Node) {
         let homes = candidate_homes(platform, cfg, platform_home);
-        let node = resolve_node_entry(
+        let node = crate::hosts::exec::resolve_path_template(
             rall.get("node_path").and_then(Value::as_str).unwrap_or(""),
             &homes,
         );
