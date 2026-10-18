@@ -156,7 +156,7 @@ jobs:
       - name: Rename binary
         shell: bash
         working-directory: cli
-        run: cp "target/${{ matrix.target }}/release/aimail${{ matrix.ext }}" "aimail-${{ matrix.platform }}${{ matrix.ext }}"
+        run: cp "target/${{ matrix.target }}/release/aimail${{ matrix.ext }}" "aimail-${{ needs.meta.outputs.cli_version }}-${{ matrix.platform }}${{ matrix.ext }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v5
@@ -195,14 +195,16 @@ jobs:
           body: |
             ## Platform variants
 
-            | Suffix | Compatible with |
-            |--------|-----------------|
-            | `linux-amd64` | musl, **no runtime deps** |
-            | `linux-arm64` | musl, **no runtime deps** |
-            | `macos-arm64` | macOS 11+ (Apple Silicon) |
+            | Asset | Compatible with |
+            |-------|-----------------|
+            | `aimail-${{ needs.meta.outputs.cli_version }}-linux-amd64` | musl, **no runtime deps** |
+            | `aimail-${{ needs.meta.outputs.cli_version }}-linux-arm64` | musl, **no runtime deps** |
+            | `aimail-${{ needs.meta.outputs.cli_version }}-macos-arm64` | macOS 11+ (Apple Silicon) |
+            | `aimail-${{ needs.meta.outputs.cli_version }}-windows-amd64.exe` | Windows 10+ (x86_64) |
 
-            Rust single binary, zero runtime deps. `aimail-<platform>` is
-            fetched by `scripts/bootstrap.sh` (curl | bash) per platform.
+            Rust single binary, zero runtime deps. Assets are versioned
+            (`aimail-<version>-<platform>[.exe]`) and fetched by
+            `scripts/bootstrap.sh` (curl | bash) per platform.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

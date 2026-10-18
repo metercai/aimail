@@ -10,7 +10,7 @@
 #
 # What it does (all writes confined to ~/.aimail and ~/.local/bin, no sudo):
 #   1. preflight: curl present
-#   2. detect platform → aimail-<platform>[.exe] asset
+#   2. detect platform → aimail-<version>-<platform>[.exe] asset
 #   3. fetch the binary from the aimail GitHub Release:
 #      AIMAIL_VERSION pins a tag (e.g. cli-v0.1.37), default = newest cli-v* release
 #   4. main dir skeleton ~/.aimail/{systems,logs,bridge} (0700) +
@@ -79,16 +79,18 @@ fi
 say "release: $TAG ($platform)"
 
 # ── 3. fetch the platform binary from the release ────────────────
+# 资产名带版本(publish.yml 生成, 单真源): aimail-<version>-<platform>[.exe]
+VER="${TAG#cli-v}"
+ASSET="aimail-$VER-$platform$ext"
 ASSET_URL="$(curl -fsSL --retry 2 --connect-timeout 15 --max-time 60 \
   "https://api.github.com/repos/$REPO/releases/tags/$TAG" \
   | grep -o '"browser_download_url": *"[^"]*"' | sed 's/"browser_download_url": *"//; s/"$//' \
-  | grep -m1 "aimail-$platform$ext\$" )" || ASSET_URL=""
+  | grep -m1 "/$ASSET\$" )" || ASSET_URL=""
 if [ -z "$ASSET_URL" ]; then
-  # 回退(裁决 5): release 资产直链 —— 资产命名约定与上面 grep 的过滤串同一
-  # (aimail-$platform$ext, 由 publish.yml 生成, 单真源); 直链不经过 API。
-  ASSET_URL="https://github.com/$REPO/releases/download/$TAG/aimail-$platform$ext"
+  # 回退(裁决 5): release 资产直链 —— 与上面 grep 的过滤串同一命名, 直链不经过 API。
+  ASSET_URL="https://github.com/$REPO/releases/download/$TAG/$ASSET"
 fi
-[ -n "$ASSET_URL" ] || die "no aimail-$platform asset on release $TAG"
+[ -n "$ASSET_URL" ] || die "no $ASSET asset on release $TAG"
 
 TMP_BIN="$(mktemp /tmp/aimail-bootstrap-XXXXXX)"
 trap 'rm -f "$TMP_BIN"' EXIT
