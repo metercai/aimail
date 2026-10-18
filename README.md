@@ -55,22 +55,21 @@ AIMail is neither IM nor a traditional mailbox. It is an upgrade of the traditio
 
 ## Quick Start
 
-AIMail supports **system-level install** from the terminal: add the AIMail module to an Agent system so that every Agent gets a mail address and send/receive capability. It also supports applying for a **dedicated mail address for a single Agent**, then submitting the activation prompt in the agent's chat to install and activate it.
+AIMail supports **system-level install** from the terminal: add AIMail capability to an Agent system so that every Agent can have a mail address and send/receive capability. It also supports applying for a **dedicated mail address for a single Agent**, then submitting the activation prompt in the agent's chat to install and activate it.
 
 ### Prerequisites
 
 - **An Agent system already installed**: supported agent platforms today are [DSH](https://github.com/deepseek-ai/deepseek-harness)/[Pi](https://github.com/earendil-works/pi)/[Hermes](https://github.com/NousResearch/hermes-agent)/[OpenClaw](https://github.com/openclaw/openclaw)/[DeerFlow](https://github.com/bytedance/deer-flow); **Hermes** or **DSH** is recommended.
-- **Environment**: Linux / macOS / Windows (on Windows run `scripts/bootstrap.sh` from Git Bash). The CLI is a single static binary with no runtime dependency other than `curl`.
 
-### Four install scenarios (shallow to deep)
+### Four install scenarios
 
-#### 1. No dedicated domain needed: use the gateway's shared domain and configure a dedicated mail address for one Agent
+#### 1. Configure a dedicated mail address for a single Agent: no dedicated domain needed, the cloud shared mail gateway works.
 
 - Start from the **shared-domain mail gateway** and apply for a dedicated Agent mail address, which gives you the matching activation prompt. A free test service is available at <https://aimail.token.tm/apply/address>.
 - Then copy the activation prompt for the address you received into the Agent's chat and run it.
 - The agent-side loop this prompt drives — activate and persist, then pull the mail into the Agent's own inbound chain and reply — is documented step by step in [Single-Agent address self-setup](docs/agent-self-setup.md).
 
-#### 2. No dedicated domain needed: connect the shared mail gateway to the local Agent system, add the AIMail module, and give every Agent mail capability
+#### 2. Add AIMail capability to the local Agent system: no dedicated domain needed, the cloud shared mail gateway works.
 
 - Start from the **shared-domain mail gateway** and apply for a system identifier and system activation code on the shared domain for your Agent system. A free test service is available at <https://aimail.token.tm/apply/system>.
 - Then set the received system identifier, activation code, and the rest as environment variables and run the AIMail bootstrap script to initialize the local environment. For example:
@@ -80,10 +79,12 @@ export AIMAIL_GW_URL=https://aimail.token.tm     # cloud gateway address
 export AIMAIL_PRODUCT_CODE=<activation-code>  # activation code claimed in the cloud
 export AIMAIL_SYSTEM_NAME=<your-id>           # shared-domain system: agent.<id>@<shared domain>
 export AIMAIL_MANAGER_ADDRESS=you@example.com # default manager mail for the agent; each agent may differ
+#export AIMAIL_BRIDGE_HOST=<domain/ip:port>    # bridge address for the gateway's push passthrough (optional)
+#export AIMAIL_AGENT_HOST=<domain/ip:port>     # this machine's agent endpoint for direct gateway push (optional)
 curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
 ```
 
-- Once bootstrap succeeds, install either through the aimail command line or through the Agent's plugin — pick one of the two, and the local Agent integration is done.
+- Once bootstrap succeeds, configure the Agent system directory's environment variable, then install either through the aimail command line or through the Agent's plugin (the Agent itself must support it). Either one completes the local Agent integration.
 
 **aimail command-line install:**
 
@@ -108,9 +109,7 @@ aimail welcome       # the gateway sends a welcome mail to the Agent and the man
 #aimail stats         # system / agent / mail status overview
 ```
 
-- If anything looks off afterwards, run `aimail check` first (full health exam); `aimail stats` gives the system / agent / mail overview.
-
-#### 3. Dedicated domain needed: connect the shared mail gateway to the local Agent system, add the AIMail module, and give every Agent mail capability
+#### 3. Add AIMail capability with a dedicated domain to the local Agent system: the cloud shared mail gateway works.
 
 - Start from the **shared mail gateway** and apply for a system activation code with a dedicated domain for your Agent system. A free test service is available at <https://aimail.token.tm/apply/dedicated>.
 - Then set the received system activation code and related values as environment variables and run the AIMail bootstrap script to initialize the local environment. For example:
@@ -120,12 +119,14 @@ export AIMAIL_GW_URL=https://aimail.token.tm     # cloud gateway address
 export AIMAIL_PRODUCT_CODE=<activation-code>  # activation code claimed in the cloud
 export AIMAIL_DOMAIN=<your-domain>            # dedicated domain: agent@<dedicated domain>
 export AIMAIL_MANAGER_ADDRESS=you@example.com # default manager mail address for the agent; each agent may differ
+#export AIMAIL_BRIDGE_HOST=<domain/ip:port>    # bridge address for the gateway's push passthrough (optional)
+#export AIMAIL_AGENT_HOST=<domain/ip:port>     # this machine's agent endpoint for direct gateway push (optional)
 curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
 ```
 
 - Once bootstrap succeeds, follow the shared-domain steps above to finish the local Agent integration and closed-loop verification.
 
-#### 4. Dedicated domain needed: self-host the mail gateway and connect it to the Agent system, building and running the whole AIMail system yourself
+#### 4. Self-host a dedicated-domain mail gateway and connect the Agent system to it: the whole AIMail stack is self-hosted and self-operated.
 
 - Install your own aimail-gateway standalone gateway service. Repository: <https://github.com/metercai/aimail-gateway>.
 - Then set the system-level key and related values as environment variables and run the AIMail bootstrap script to initialize the local environment. For example:
@@ -135,6 +136,8 @@ export AIMAIL_GW_URL=<your-gateway-url>          # your self-hosted gateway addr
 export AIMAIL_ADMIN_KEY=<system key>         # system-level key (not the gateway's own admin key)
 export AIMAIL_DOMAIN=<your-domain>            # dedicated domain, e.g. example.com
 export AIMAIL_MANAGER_ADDRESS=you@example.com # default manager mail address for the agent; each agent may differ
+#export AIMAIL_BRIDGE_HOST=<domain/ip:port>    # bridge address for the gateway's push passthrough (optional)
+#export AIMAIL_AGENT_HOST=<domain/ip:port>     # this machine's agent endpoint for direct gateway push (optional)
 curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
 ```
 
@@ -142,11 +145,9 @@ curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootst
 
 #### Notes
 
-- `AIMAIL_ADMIN_KEY` (or `aimail install -k`) takes a **system-level key**: on a self-hosted gateway the `<storage>/<system id>.system.key` printed at start, in the cloud the key issued by the activation code. The gateway's own admin key stays on the gateway side.
+- `AIMAIL_ADMIN_KEY` takes a **system-level key**: on a self-hosted gateway the `<storage>/<system id>.system.key` printed at start, in the cloud the key issued by the activation code. The gateway's own admin key stays on the gateway side.
 - Multi-system install is supported, i.e. one machine can host several Agent platforms: change the environment variables (a new system needs a new activation code or system key), point `--home` at the different platform, and run the SDK or plugin install.
 - For a system already installed, reuse it by pointing at the same `--home` (or `AGENT_HOME`); the install can then be repeated with different parameters.
-- Registration scope: `-a <agent> [<agent2>]` registers only the named agents; `--all-agents` registers every agent the platform enumerates (on hosts that support bulk registration); with neither, the platform default applies.
-- To undo: `aimail uninstall -s <sid>` (removes the host adaptation and pointer, and drops this system's whitelist rows) or `aimail uninstall -H <platform-root>`.
 
 ***
 
@@ -208,9 +209,9 @@ Two kinds of application can be made on a shared domain: a **shared-domain addre
 
 | Type | Format | Example |
 | ---------- | --------------------------------------------------- | ------------------------------------ |
-| Root profile | `agent.{system_name}@{shared_domain}` | `agent.meter@aimail.token.tm` |
-| Named profile | `{profile}.{system_name}@{shared_domain}` | `report.meter@aimail.token.tm` |
-| Persona | `{persona}.{profile}.{system_name}@{shared_domain}` | `sales.report.meter@aimail.token.tm` |
+| root profile | `agent.{system_name}@{shared_domain}` | `agent.meter@aimail.token.tm` |
+| named profile | `{profile}.{system_name}@{shared_domain}` | `report.meter@aimail.token.tm` |
+| persona | `{persona}.{profile}.{system_name}@{shared_domain}` | `sales.report.meter@aimail.token.tm` |
 
 > The system identifier `system_name` is 3-8 characters long, starting with a lowercase letter, followed only by lowercase letters (a-z), digits (0-9), and the symbols '-' or '_'. 'a2a' is reserved as the exclusive marker for collaboration board addresses.
 
@@ -220,9 +221,9 @@ Deploy your own [aimail-gateway](https://github.com/metercai/aimail-gateway), or
 
 | Type | Format | Example |
 | ---------- | ------------------------------ | -------------------------- |
-| Root profile | `agent@{domain}` | `agent@company.com` |
-| Named profile | `{profile}@{domain}` | `report@company.com` |
-| Persona | `{persona}.{profile}@{domain}` | `sales.report@company.com` |
+| root profile | `agent@{domain}` | `agent@company.com` |
+| named profile | `{profile}@{domain}` | `report@company.com` |
+| persona | `{persona}.{profile}@{domain}` | `sales.report@company.com` |
 
 > In both shared and dedicated domains, `profile` and `persona` must not contain a '.' character, to avoid misidentification.
 

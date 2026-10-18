@@ -55,12 +55,11 @@ AIMail 既不同于 IM，也不是传统邮箱。它是在传统邮件系统上�
 
 ## 快速开始
 
-支持在终端命令行上的**系统级安装**，为Agent系统添加AIMail能力，让所有 Agent 都拥有邮件地址和收发能力；同时，也支持在对话框里为单独 Agent 激活专属邮件地址的简洁模式。
+支持在终端命令行上的**系统级安装**，为Agent系统添加AIMail能力，让所有 Agent 都可以拥有邮件地址和收发能力；同时，也支持在对话框里为单独 Agent 激活专属邮件地址的简洁模式。
 
 ### 前置准备
 
 - **已安装好 Agent 系统**:目前已适配的Agent平台系统包括，[DSH](https://github.com/deepseek-ai/deepseek-harness)/[Pi](https://github.com/earendil-works/pi)/[Hermes](https://github.com/NousResearch/hermes-agent)/[OpenClaw](https://github.com/openclaw/openclaw)/[DeerFlow](https://github.com/bytedance/deer-flow)，推荐安装 **Hermes** 或 **DSH**。
-- **安装环境**:Linux / macOS / Windows(Windows 用 Git Bash 运行 `scripts/bootstrap.sh`)。CLI 是单文件静态二进制,除 `curl` 外无运行时依赖。
 
 ### 四种安装场景
 
@@ -72,8 +71,8 @@ AIMail 既不同于 IM，也不是传统邮箱。它是在传统邮件系统上�
 
 #### 2，为本机 Agent 系统增加 AIMail 能力，不需要独享域名，可使用云端共享邮件网关。
 
-- 先从 **共享邮件网关** 申请Agent系统专属的共享域系统标识和系统激活码。目前有可用的免费测试服务：<https://aimail.token.tm/apply/system>
-- 然后，将收到的系统标识和激活码等信息设置环境变量，并执行AIMail的自举安装脚本，完成本地环境的初始化。例如：
+- 先从 **共享邮件网关** 申请Agent系统专属的共享域的系统标识名和系统激活码。目前有可用的免费测试服务：<https://aimail.token.tm/apply/system>
+- 然后，将收到的系统标识名和激活码等信息设置环境变量，并执行AIMail的自举安装脚本，完成本地环境的初始化。例如：
 
 ```bash
 export AIMAIL_GW_URL=https://aimail.token.tm      # 云端网关地址
@@ -109,8 +108,6 @@ aimail welcome       # 网关向Agent和安全员发欢迎邮件，Agent回复�
 #aimail check         # 全面体检(配置 → 运行时资源 → 链路);有问题先跑它
 #aimail stats         # 系统 / agent / 邮件的状态总览
 ```
-
-- 装完若表现异常,先跑 `aimail check`(全面体检);`aimail stats` 看系统 / agent / 邮件总览。
 
 #### 3，为本机的 Agent 系统增加独享域名的 AIMail 能力，可使用云端共享邮件网关。
 
@@ -151,8 +148,6 @@ curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootst
 - `AIMAIL_ADMIN_KEY` 填**系统级 key**：自建网关用启动时打印的 `<storage>/<系统 ID>.system.key`，云端用激活下发的 key；网关自身的 admin key 只留在网关侧。
 - 支持本地多系统安装，即支持单机多Agent平台，修改环境变量后（新系统要用新的激活码或系统级 key），指定不同的`--home`，执行SDK或插件安装。
 - 对已安装系统，指定相同的 `--home` 或环境变量 `AGENT_HOME` 保持一致即可用不同参数重复安装。
-- 注册范围：`-a <agent> [<agent2>]` 只注册指定的 agent；`--all-agents` 在支持全量注册的宿主上注册平台枚举到的全部 agent；都不给则按平台默认策略。
-- 撤销对接：`aimail uninstall -s <sid>`（撤宿主适配与指针、退订本系统白名单）或 `aimail uninstall -H <平台根>`。
 
 ***
 
@@ -210,25 +205,25 @@ AIMail 核心由**aimail-gateway**（邮件网关）和 Agent 内的 **aimail SD
 在共享域名上可以有两种申请：**共享域地址**申请和**共享域系统标识名**申请。
 
 - 共享域地址只对应一个 Agent邮件地址，关联绑定一个 Agent， 格式为： `{agentname}@{shared_domain}`，例如： `support@aimail.token.tm`。这里的 `agentname` 遵循邮件地址规范，但不能含有'.'字符。
-- 共享域系统标识名则可对接一个Agent系统，有自己的地址命名空间，例如: 申请到系统标识名`meter`，这样在Hermes下，Agent的邮件地址格式为：
+- 共享域的系统标识名则可对接一个Agent系统，有自己的地址命名空间，例如: 申请到系统标识名`meter`，这样在Hermes下，Agent的邮件地址格式为：
 
 | 类型         | 格式                                                  | 示例                                   |
 | ---------- | --------------------------------------------------- | ------------------------------------ |
-| 根 Profile  | `agent.{system_name}@{shared_domain}`               | `agent.meter@aimail.token.tm`        |
-| 命名 Profile | `{profile}.{system_name}@{shared_domain}`           | `report.meter@aimail.token.tm`       |
-| Persona    | `{persona}.{profile}.{system_name}@{shared_domain}` | `sales.report.meter@aimail.token.tm` |
+| 根 profile  | `agent.{system_name}@{shared_domain}`               | `agent.meter@aimail.token.tm`        |
+| 命名 profile | `{profile}.{system_name}@{shared_domain}`           | `report.meter@aimail.token.tm`       |
+| persona    | `{persona}.{profile}.{system_name}@{shared_domain}` | `sales.report.meter@aimail.token.tm` |
 
 > 系统标识名 `system_name` 由3-8个字符组成，首字符为小写字母，后续仅可用小写字母（a-z）、数字（0-9）和符号'-'、'\_'。'a2a'作为保留名，留给协作看板地址作为专属特征标识使用。
 
 ### 独享域名
 
-部署独立网关 [aimail-gateway](https://github.com/metercai/aimail-gateway)，或者申请独享域名的系统激活码完成系统激活后，就拥有独享域名的地址空间。以Hermes为例，根 Profile 默认为 `agent@{domain}`，其他通过 `hermes -p` 创建的 Profile，直接取其名字为地址  `{profile}@{domain}`。AIMail 特别支持了Hermes的单 profile 多个 Persona 的场景，自动衍生Persona地址。
+部署独立网关 [aimail-gateway](https://github.com/metercai/aimail-gateway)，或者申请独享域名的系统激活码完成系统激活后，就拥有独享域名的地址空间。以Hermes为例，根 profile 默认为 `agent@{domain}`，其他通过 `hermes -p` 创建的 profile，直接取其名字为地址  `{profile}@{domain}`。AIMail 特别支持了Hermes的单 profile 多个 persona 的场景，自动衍生persona地址。
 
 | 类型         | 格式                             | 示例                         |
 | ---------- | ------------------------------ | -------------------------- |
-| 根 Profile  | `agent@{domain}`               | `agent@company.com`        |
-| 命名 Profile | `{profile}@{domain}`           | `report@company.com`       |
-| Persona    | `{persona}.{profile}@{domain}` | `sales.report@company.com` |
+| 根 profile  | `agent@{domain}`               | `agent@company.com`        |
+| 命名 profile | `{profile}@{domain}`           | `report@company.com`       |
+| persona    | `{persona}.{profile}@{domain}` | `sales.report@company.com` |
 
 > 共享域名和独享域名里的 `profile` 和 `persona` 都禁止包含'.'字符，避免识别错误。
 

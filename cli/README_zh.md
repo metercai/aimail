@@ -18,7 +18,7 @@
 | ------- | ------------------------- | --------------- | --------------------------------- |
 | 本机基础环境  | bootstrap.sh/bridge命令     | 宿主机系统           | 主目录/网关判定/bridge 就位                |
 | Agent平台 | `install/check/repair等命令` | Agent平台的根目录/SID | 激活/复用系统、绑定平台、绑定资源导入、合并 bridge 条目等 |
-| Agent   | `address/persona等命令`      | Agent 标识/地址     | 查看/设默认主地址名/地址改名/设安全员(manager)     |
+| Agent   | `address 等命令`             | Agent 标识/地址     | 查看/设默认主地址名/地址改名/设安全员(manager)     |
 
 ### 平台安装对接
 
@@ -26,7 +26,7 @@
 
 | 平台       | 平台根            | 运行时           | 安装动作                                                                                                                                                                        | 重启要求                                     |
 | -------- | -------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| Hermes   | `~/.hermes`    | Python(pysdk) | 在平台自己的解释器里装 `aimailsdk`（导入名 `aimail`;解释器由 CLI 在平台根内探测,uv → pip → ensurepip);SDK 安装展开 SKILL/toolsets/board 资源并给 webhook.py 注入 `PREPROCESS_REGISTRY`;注册本根的 agent 集合（`--all-agents` 时注册全部 profile） | 重启 hermes gateway                        |
+| Hermes   | `~/.hermes`    | Python(pysdk) | 在平台自己的解释器里装 `aimailsdk`（导入名 `aimail`;解释器由 CLI 在平台根内探测,uv → pip → ensurepip);SDK 安装展开 SKILL/toolsets/board 资源并给 webhook.py 注入 `PREPROCESS_REGISTRY`;注册本根的 agent 集合（SDK 安装入口即注册全部 profile） | 重启 hermes gateway                        |
 | DeerFlow | `~/.deer-flow` | Python(pysdk) | SDK 安装 → `install-skill.sh` + `install-mcp.sh` → 注册(`manage.py register --all`)                                                                                             | 重启 8001(上游仓由补丁安装)                        |
 | OpenClaw | `~/.openclaw`  | TS(tssdk)     | `openclaw plugins install openclaw-aimail --force --accept-capabilities` → 注册(`openclaw aimail register`;全量 `register-all`)                                                 | 重启 openclaw gateway                      |
 | DSH      | `~/.dsh`       | TS(tssdk)     | `dsh plugin --profile web add dsh-aimail`(需先有 `dsh` CLI;仅在 npm 设了最小发布年龄限制的环境(如受限镜像)追加 `--config.minimumReleaseAge=0`)                                                                                                                    | 绑定由 dsh session(mail preset)自动 auto-bind |
@@ -35,7 +35,7 @@
 通用命令:
 
 ```bash
-aimail install --home <平台根>                    # 只注册主 agent;该 home 有指针时自动复用系统
+aimail install --home <平台根>                    # 注册主 agent(python 宿主由 SDK 安装入口全量注册);该 home 有指针时自动复用系统
 aimail install --home <平台根> --all-agents        # 平台根下每个 agent 都注册(hermes/openclaw/deerflow)
 aimail install --home <平台根> -a <agent> [<agent2>]  # 只注册这些 agent(名字=宿主内部 agent 名;对不上的忽略)
 aimail install -s <sid>                            # 由 sid 反查本机已配置的平台根
@@ -141,7 +141,7 @@ aimail repair       →  按 check 发现执行幂等修复阶梯
 
 ```bash
 export AIMAIL_GW_URL=<你的网关地址>                # 自主独立安装的网关地址，如 https://mail.example.com
-export AIMAIL_ADMIN_KEY=<admin key>           # 网关的管理key
+export AIMAIL_ADMIN_KEY=<系统级 key>          # 系统级 key(不是网关自身的 admin key)
 export AIMAIL_DOMAIN=<你的域名>                # 独享域名,如 example.com
 export AIMAIL_MANAGER_ADDRESS=you@example.com # 管理agent的默认安全员邮件地址，可每个agent不一样
 #export AIMAIL_BRIDGE_HOST=<domain/ip:port>        # 指定桥接地址，用于Gateway的Push的透明转发，可选
@@ -241,15 +241,14 @@ aimail repair [--system-id <sid>] [--home <root>] [--deep] [--dry-run]
 | 重置配置      | `aimail reset -H <root> -s <sid>`                                | 只走 admin-key 路径,key 不动                              |
 | bridge 维护 | `aimail bridge` / `--restart` / `-s <sid>`                       | 状态 / 单实例重启 / 重刷路由                                   |
 | 卸载        | `aimail uninstall -s <sid> [-H <root>] [-y]`                     | 网关注销 → 平台清理 → 本机数据;幂等                               |
-| 端到端       | `aimail ping` / `welcome` / `persona`                            | 心跳 / welcome / persona 闭环                           |
+| 端到端       | `aimail ping` / `welcome`                                        | 心跳 / welcome 闭环(persona 已并入 welcome)             |
 
 短参数全局一致:`-s` system-id · `-H` home · `-g` gateway-url · `-m`
-manager · `-c` code · `-n` system-name(install/reset)或 dry-run(repair)
-· `-d` domain(install)或 default(address)· `-w` no-wait
-(welcome/persona)(或 domain 的 `--webhook-url`)· `-a` all(stats)或
-add(domain)· `-t` status(renew)
-或 timeout(ping)· `-D` deep · `-r` restart · `-k` admin-key · `-y` yes。
-长参数永不改名。
+manager · `-c` code · `-n` system-name(install/reset)/新地址名(address)/
+dry-run(repair)· `-d` domain(install)或 default(address)· `-w` no-wait
+(welcome/persona)(或 domain 的 `--webhook-url`)· `-a` all(stats)/
+add(domain)/agent 名(address)· `-t` status(renew)或 timeout(ping)·
+`-D` deep · `-r` restart · `-k` admin-key · `-y` yes。长参数永不改名。
 
 ***
 
@@ -293,55 +292,6 @@ pi/dsh 的目录名必须精确匹配,其余只看特征。`aimail platform spec
 `~/.aimail/systems/{sid}/{addr}/agentmail.log`(JSON 行;`dir` = ping\_intercepted /
 pong\_sent / pong\_returned)。邮件方向 `inbound`/`outbound` 记在 `mail/` 下的 meta 里,
 不是这个日志。无自动轮转——需要时用 logrotate。
-
-***
-
-## 6. 故障排查
-
-### stats 显示 `[?]` / check FAIL `config/system_home`
-
-**原因:** `aimail_gateway.json` 无 `system_home`(或目录已失效)——平台标签
-与所有平台相关检查失去锚点。
-
-**修复**(在平台自身宿主上):
-
-```bash
-aimail install --home <平台根> --system-id <sid>   # 只补缺,不覆盖
-# 或交给 repair:
-aimail repair --system-id <sid> --home <平台根>
-```
-
-### check FAIL `hook … 404`
-
-**原因:** 平台入站路由未注册(插件缺失、装插件后网关未重启、端点路径过期)。
-404 如今按设计判 FAIL。
-
-**修复:** openclaw:`openclaw plugins install openclaw-aimail --force --accept-capabilities` + 重启网关(离线/本地包改用 `npm-pack:<tgz> --force`);hermes:重跑 SDK 安装
-(`python -m aimail.install install --type hermes --home ~/.hermes`)+ 重启
-profile 网关;然后 `aimail repair --system-id <sid>`。
-
-### check FAIL `routes-entry` / `routes-target`
-
-**原因:** bridge 路由表缺该 agent(pull 模式无法投递)或路由目标与声明
-webhook 不一致。
-
-**修复:** `aimail repair --system-id <sid>`(阶梯 2/8/9:重刷路由、webhook\_url
-对齐存活目标、routes 条目补齐)。目标主机是远端(pi/deerflow 在别机)→ 到该机启动其入站。
-
-### ping 卡在 "pong not returned"
-
-查每 agent 日志三阶段:`grep <ping_id> ~/.aimail/systems/<sid>/<addr>/agentmail.log`;
-核对 `agentmail.json` 的 email 与 api\_key;`aimail reset -H <平台根> -s <sid>` 重新固化。
-
-### bridge 拉不到邮件
-
-`aimail bridge`(进程/配置/路由)→ `curl https://aimail.token.tm/health` →
-`tail -20 ~/.aimail/bridge/aimail-bridge.log` → `aimail repair -s <sid>`。
-
-### 重复 install 出问题了?
-
-不可能:激活服务端原子、配置写入合并/存在性检查、bridge key 复用。若中途
-失败,`aimail check` + `aimail repair` 恢复不变量状态。
 
 ***
 
