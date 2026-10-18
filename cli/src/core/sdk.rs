@@ -231,7 +231,9 @@ pub fn op_argv(
     args: &Value,
 ) -> Result<Vec<String>, AbiError> {
     let Some(host) = crate::hosts::get(platform) else {
-        return Ok(python_door_command(op, args));
+        return Err(AbiError::Transport(format!(
+            "未知平台 '{platform}'（宿主表无此项）—— 不猜门型"
+        )));
     };
     let Some(tmpl) = host.op_template() else {
         return Ok(python_door_command(op, args));
@@ -260,52 +262,6 @@ pub fn op_argv(
         .collect())
 }
 
-/// op 的落点：平台名 + 候选平台根。
-/// 平台来源：调用方给的 `system_cfg`（assemble 入参）⇒ 否则系统级 cfg（`args.system_id`）的
-/// `platform` 键（`aimail install` 写入，CLI 唯一写该文件）⇒ 缺失时按 `system_home` 探测（OR 语义）
-/// ⇒ 仍不可得 ⇒ 空串（回退 python 门，不猜）。
-fn ops_target(args: &Value) -> (String, Vec<String>) {
-    let sid = args.get("system_id").and_then(Value::as_str).unwrap_or("");
-    let cfg_json: Value = match args.get("system_cfg").filter(|v| v.is_object()) {
-        Some(inline) => inline.clone(),
-        None => {
-            if sid.is_empty() {
-                serde_json::json!({})
-            } else {
-                crate::core::config::load_gateway_config(sid)
-                    .map(|c| Value::Object(c.to_json()))
-                    .unwrap_or_else(|| serde_json::json!({}))
-            }
-        }
-    };
-    let home = args
-        .get("home")
-        .and_then(Value::as_str)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .or_else(|| {
-            cfg_json
-                .get("system_home")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        })
-        .unwrap_or_default();
-    let recorded = cfg_json
-        .get("platform")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-    let platform = if !recorded.is_empty() {
-        recorded
-    } else if !home.is_empty() {
-        crate::hosts::identity::detect_platform_from_home(Path::new(&home)).to_string()
-    } else {
-        String::new()
-    };
-    let homes = crate::core::register::candidate_homes(&platform, &cfg_json, &home);
-    (platform, homes)
-}
-
 /// 调一个 SDK 门 op（默认 120s 超时，与 Python 侧一致）。
 pub fn sdk_ops(op: &str, args: &Value) -> Result<Value, AbiError> {
     sdk_ops_call(op, args, Duration::from_secs(120), &[])
@@ -319,8 +275,16 @@ pub fn sdk_ops_call(
     timeout: Duration,
     env: &[(String, String)],
 ) -> Result<Value, AbiError> {
-    let (platform, homes) = ops_target(args);
-    sdk_ops_call_for(&platform, &homes, op, args, timeout, env)
+    // 与宿主 transport 无关的 CLI→SDK 动作（update / prompt / address / repair backfill）：
+    // **固定 python 门**，不做平台反查（那是 `sdk_ops_call_for` 的职责）。
+    let argv = python_door_command(op, args);
+    let program = PathBuf::from(argv.first().cloned().unwrap_or_default());
+    run_json_abi(&AbiCall {
+        program: &program,
+        args: argv[1..].to_vec(),
+        timeout,
+        env: env.to_vec(),
+    })
 }
 
 /// 同上，但**平台与候选平台根由调用方给定**（调用方已知平台时用 —— 免去反查的脆弱性；

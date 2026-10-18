@@ -533,9 +533,11 @@ pub fn run_steps(
                     }
                 }
             }
-            other => warn(&format!(
-                "install_steps 未知 kind '{other}'({platform})——跳过"
-            )),
+            other => {
+                return Err(format!(
+                "install_steps 未知 kind '{other}'({platform}) —— 宿主表与执行器不一致(拒绝半装)"
+            ))
+            }
         }
     }
     Ok(())
@@ -688,9 +690,11 @@ pub fn run_uninstall_steps(
                     ok(&m);
                 }
             }
-            other => warn(&format!(
-                "uninstall_steps 未知 kind '{other}'({platform})——跳过"
-            )),
+            other => {
+                return Err(format!(
+                "uninstall_steps 未知 kind '{other}'({platform}) —— 宿主表与执行器不一致(拒绝半清)"
+            ))
+            }
         }
     }
     Ok(())

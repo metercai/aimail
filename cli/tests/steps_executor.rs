@@ -144,8 +144,11 @@ fn step_executor_offline_behaviour() {
     ];
     let mut ctx = ctx_with(cfg);
     assert!(aimail::core::steps::run_steps("dsh", &pure_step, &mut ctx, &core_dir()).is_ok());
+    // 6b) 未知 step kind ⇒ **硬失败**（owner 2026-10-18：拒绝半装；旧行为是 warn 后跳过）
     let unknown = vec![json!({"kind": "no_such_kind"})];
     let mut ctx = Map::new();
-    assert!(aimail::core::steps::run_steps("dsh", &unknown, &mut ctx, &core_dir()).is_ok());
+    let err = aimail::core::steps::run_steps("dsh", &unknown, &mut ctx, &core_dir())
+        .expect_err("未知 kind 必须硬失败");
+    assert!(err.contains("未知 kind 'no_such_kind'"), "{err}");
     let _ = Value::Null;
 }

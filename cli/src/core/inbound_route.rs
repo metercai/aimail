@@ -11,6 +11,35 @@ use std::path::Path;
 
 use crate::core::bridge_wire as bw;
 
+/// 本 sid 名下的**已注册地址**（`<aimail_home>/systems/<sid>/*/<binding_file>` 的 `email`）。
+///
+/// 空集 = 本地没有该 sid 的绑定（未注册/已清）⇒ 调用方退化为域名作用域，
+/// 保证"撤本系统全部路由行"在绑定缺失时仍能清干净（不留残留）。
+fn sid_owned_emails(aimail_home: &Path, sid: &str) -> Vec<String> {
+    let dir = crate::core::config::system_dir_in(aimail_home, sid);
+    let mut out: Vec<String> = std::fs::read_dir(&dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .filter_map(|sub| {
+            let f = sub.join(crate::core::contract::binding_file());
+            let text = std::fs::read_to_string(f).ok()?;
+            let v: Value = serde_json::from_str(&text).ok()?;
+            let e = v.get("email").and_then(Value::as_str)?;
+            (!e.is_empty()).then(|| e.to_string())
+        })
+        .collect();
+    out.sort();
+    out
+}
+
+/// 路由行是否属于本 sid：域名作用域命中，且（能确定归属时）地址在该 sid 名下。
+fn route_in_scope(email: &str, domain_hit: bool, owned: &[String]) -> bool {
+    domain_hit && (owned.is_empty() || owned.iter().any(|e| e == email))
+}
+
 /// `_withdraw_inbound_routes(sid, cfg)`：撤 **本系统** 全部路由行（幂等）。
 ///
 /// 返回 `(withdrawn, failed, no_bridge, anchor_out)`：
@@ -22,7 +51,7 @@ pub fn withdraw_inbound_routes(
     bridge_cfg: &Path,
     anchor_email: &str,
 ) -> (usize, usize, bool, Option<Value>) {
-    let _ = sid;
+    let owned = sid_owned_emails(&crate::core::home::aimail_home(), sid);
     let would_be_decl = bw::load_declaration(cfg, bridge_cfg);
     let routes = bw::read_routes(&bw::routes_file());
     let pred = bw::system_route_scope(cfg);
@@ -30,10 +59,11 @@ pub fn withdraw_inbound_routes(
     let mut failed: usize = 0;
     let mut anchor_out: Option<Value> = None;
     for (email, target) in routes.iter() {
-        let in_scope = match &pred {
+        let domain_hit = match &pred {
             Some(f) => f(email),
             None => false,
         };
+        let in_scope = route_in_scope(email, domain_hit, &owned);
         if !in_scope {
             continue;
         }
@@ -392,6 +422,24 @@ fn binding_webhook_secret(sid: &str, email: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn sid_scope_limits_to_owned_addresses_and_falls_back_when_unknown() {
+        let owned = vec!["a@d.test".to_string()];
+        assert!(route_in_scope("a@d.test", true, &owned));
+        assert!(
+            !route_in_scope("b@d.test", true, &owned),
+            "别的 sid 的地址不得撤"
+        );
+        assert!(
+            !route_in_scope("a@d.test", false, &owned),
+            "域名不命中不得撤"
+        );
+        assert!(
+            route_in_scope("x@d.test", true, &[]),
+            "归属未知时退化为域名作用域"
+        );
+    }
+
     use super::*;
 
     fn state_of(out: &Value) -> &str {
