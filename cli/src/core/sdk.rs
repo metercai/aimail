@@ -13,6 +13,7 @@
 //! 同一棵树；`install.py` 的混装教训）；否则回退 `-m aimail.sdk_ops`（pip 装的 aimailsdk ≥ 0.1.35）。
 //! 解释器：`AIMAIL_PYTHON` > `python3`。
 
+use crate::hosts::Host;
 use serde_json::Value;
 use std::io::Read;
 use std::path::{Path, PathBuf};

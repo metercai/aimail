@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 use std::io::Write;
 
 use crate::core::{config, home, setup, steps, style};
+use crate::hosts::Host;
 
 pub struct Args {
     pub system_id: String,

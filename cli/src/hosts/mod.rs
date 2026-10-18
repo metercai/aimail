@@ -1,7 +1,7 @@
 //! 宿主（agent 系统）语义分层。
 //!
-//! 旧结构 `core/platforms_hosts.rs`（数据）+ `core/platforms.rs`（值视图 + FS 算法）
-//! 已按功能语义拆成本目录的六个面：
+//! 旧结构是一个数据表 + 一层值视图算法（两个 core 模块，2026-10-18 退役）；
+//! 现按功能语义拆成本目录的六个面：
 //!
 //! | 面 | 模块 | 职责 |
 //! |----|------|------|
@@ -96,7 +96,7 @@ pub const ORDER: &[&str] = &["pi", "dsh", "hermes", "openclaw", "deerflow"];
 pub const COMMENT: &str = "AIMail CLI 平台宿主表 — CLI 侧唯一平台知识源(检测/指针/枚举/注册委托/安装步骤)。适配实现全在 SDK:pysdk(hermes/deer-flow)+ tssdk 包(openclaw 宿主命令/dsh/pi node 入口)。CLI 读本表调度,零平台协议。";
 
 /// 全部宿主（顺序 = [`ORDER`]）。
-pub static ALL: &[&'static dyn Host] = &[
+pub static ALL: &[&HostDef] = &[
     &pi::PI,
     &dsh::DSH,
     &hermes::HERMES,
@@ -105,13 +105,13 @@ pub static ALL: &[&'static dyn Host] = &[
 ];
 
 /// 全部宿主（顺序 = [`ORDER`]）。
-pub fn all() -> &'static [&'static dyn Host] {
+pub fn all() -> &'static [&'static HostDef] {
     ALL
 }
 
 /// 按 id 取宿主（不存在 ⇒ None，不猜）。
-pub fn get(id: &str) -> Option<&'static dyn Host> {
-    ALL.iter().copied().find(|h| h.id() == id)
+pub fn get(id: &str) -> Option<&'static HostDef> {
+    ALL.iter().copied().find(|h| h.id == id)
 }
 
 /// 枚举顺序。
@@ -119,22 +119,74 @@ pub fn order() -> &'static [&'static str] {
     ORDER
 }
 
-/// `spec --json` 的单平台视图（字段声明序 = JSON 键序，逐字节保真）。
+/// 一个宿主的**静态定义**：各 `hosts/<name>.rs` 的唯一内容。
+///
+/// 序列化形状即 `platform spec --json` 的条目（字段声明序 = 键序）；
+/// `#[serde(skip)]` 的两个字段是宿主私有语义（`--agent-home` 归属、repair 宽松线索），
+/// 不进值视图。`impl Host` 只在本文件写一次，宿主模块只填数据。
 #[derive(Serialize)]
-struct HostDesc {
-    detect: Detect,
-    pointer: PointerKind,
-    register: exec::Register,
-    home_dir: &'static str,
-    install_steps: &'static [exec::Step],
-    uninstall_steps: &'static [exec::Step],
-    health_checks: &'static [health::Health],
+pub struct HostDef {
+    #[serde(skip)]
+    pub id: &'static str,
+    pub detect: Detect,
+    pub pointer: PointerKind,
+    pub register: exec::Register,
+    pub home_dir: &'static str,
+    pub install_steps: &'static [exec::Step],
+    pub uninstall_steps: &'static [exec::Step],
+    pub health_checks: &'static [health::Health],
     #[serde(skip_serializing_if = "refs_empty")]
-    payload_refs: &'static [&'static str],
+    pub payload_refs: &'static [&'static str],
     #[serde(skip_serializing_if = "Option::is_none")]
-    register_all: Option<exec::RegisterAll>,
+    pub register_all: Option<exec::RegisterAll>,
     #[serde(skip_serializing_if = "is_false")]
-    agent_check_remote: bool,
+    pub agent_check_remote: bool,
+    #[serde(skip)]
+    pub uses_agent_home: bool,
+    #[serde(skip)]
+    pub repair_hints: &'static [&'static str],
+}
+
+impl Host for HostDef {
+    fn id(&self) -> &'static str {
+        self.id
+    }
+    fn home_dir(&self) -> &'static str {
+        self.home_dir
+    }
+    fn detect(&self) -> Detect {
+        self.detect
+    }
+    fn pointer_kind(&self) -> PointerKind {
+        self.pointer
+    }
+    fn uses_agent_home(&self) -> bool {
+        self.uses_agent_home
+    }
+    fn repair_hints(&self) -> &'static [&'static str] {
+        self.repair_hints
+    }
+    fn register(&self) -> exec::Register {
+        self.register
+    }
+    fn register_all(&self) -> Option<exec::RegisterAll> {
+        self.register_all
+    }
+    fn install_plan(&self) -> &'static [exec::Step] {
+        self.install_steps
+    }
+    fn uninstall_plan(&self) -> &'static [exec::Step] {
+        self.uninstall_steps
+    }
+    fn health_checks(&self) -> &'static [health::Health] {
+        self.health_checks
+    }
+    fn payload_refs(&self) -> &'static [&'static str] {
+        self.payload_refs
+    }
+    fn agent_check_remote(&self) -> bool {
+        self.agent_check_remote
+    }
 }
 
 fn refs_empty(v: &&'static [&'static str]) -> bool {
@@ -149,21 +201,9 @@ fn is_false(b: &bool) -> bool {
 pub fn describe_all() -> Value {
     let mut platforms = Map::new();
     for h in ALL {
-        let d = HostDesc {
-            detect: h.detect(),
-            pointer: h.pointer_kind(),
-            register: h.register(),
-            home_dir: h.home_dir(),
-            install_steps: h.install_plan(),
-            uninstall_steps: h.uninstall_plan(),
-            health_checks: h.health_checks(),
-            payload_refs: h.payload_refs(),
-            register_all: h.register_all(),
-            agent_check_remote: h.agent_check_remote(),
-        };
         platforms.insert(
-            h.id().to_string(),
-            serde_json::to_value(&d).expect("host desc must serialize"),
+            h.id.to_string(),
+            serde_json::to_value(h).expect("host def must serialize"),
         );
     }
     json!({ "_comment": COMMENT, "order": ORDER, "platforms": platforms })

@@ -1,6 +1,6 @@
 {
  "_comment": "字面量棘轮基线(按 文件×清单键 计数)。规则 = 不得新增:计数只许减不许增;新增位置必须改用常量模块, 或在该行加 `contract-allowed: <理由>` 注释(测试专用逃生门)。重生成: python3 tests/contract/check-contract-single-source.py --update-baseline",
- "generated_at": "2026-10-18T03:18:09Z",
+ "generated_at": "2026-10-18T03:26:31Z",
  "tracked_files": 354,
  "hits": 328,
  "files": {

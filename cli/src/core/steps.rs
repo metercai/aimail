@@ -261,7 +261,7 @@ pub fn run_steps(
     let mut sdk_warned = false;
     // python 宿主才需要 SDK 根（注册器 python_script 落在 SDK 包内；node 宿主注册走 op 门，不需要）
     let py_host = crate::hosts::get(platform)
-        .map(crate::hosts::exec::needs_sdk_root)
+        .map(|h| crate::hosts::exec::needs_sdk_root(h))
         .unwrap_or(false);
     for st in steps {
         let when = st.get("when").cloned().unwrap_or(json!({}));
@@ -548,7 +548,7 @@ pub fn run_install_steps(
     core_dir: &Path,
 ) -> Result<(), String> {
     let steps = crate::hosts::get(platform)
-        .map(crate::hosts::exec::install_steps_json)
+        .map(|h| crate::hosts::exec::install_steps_json(h))
         .unwrap_or_default();
     if steps.is_empty() {
         return Ok(());
@@ -606,7 +606,7 @@ pub fn run_uninstall_steps(
     core_dir: &Path,
 ) -> Result<(), String> {
     let steps = crate::hosts::get(platform)
-        .map(crate::hosts::exec::uninstall_steps_json)
+        .map(|h| crate::hosts::exec::uninstall_steps_json(h))
         .unwrap_or_default();
     if steps.is_empty() {
         return Ok(());

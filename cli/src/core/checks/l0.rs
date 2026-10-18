@@ -12,6 +12,7 @@ use crate::core::check::Check;
 use crate::core::contract;
 use crate::core::probe;
 use crate::core::{config, home};
+use crate::hosts::Host;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 

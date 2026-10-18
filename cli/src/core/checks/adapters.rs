@@ -11,6 +11,7 @@
 
 use crate::core::check::Check;
 use crate::core::{config, contract, http};
+use crate::hosts::Host;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 

@@ -17,6 +17,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use crate::core::{setup, style};
+use crate::hosts::Host;
 
 const REGISTRAR_TIMEOUT: Duration = Duration::from_secs(120);
 
@@ -295,7 +296,7 @@ pub fn register_all(
     platform_home: &str,
     core_dir: &Path,
 ) -> Result<(), String> {
-    let rall = crate::hosts::get(platform).and_then(crate::hosts::exec::register_all_json);
+    let rall = crate::hosts::get(platform).and_then(|h| crate::hosts::exec::register_all_json(h));
     let sid = setup::pget(cfg, "system_id");
     let home_dir = crate::hosts::get(platform)
         .map(|h| h.home_dir())

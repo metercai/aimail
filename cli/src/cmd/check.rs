@@ -16,6 +16,7 @@ use crate::core::checks::l0::{self, Ctx as L0Ctx};
 use crate::core::checks::{l1, l2, l2r};
 use crate::core::style::{BOLD, CROSS, GREEN, NC, YELLOW};
 use crate::core::{config, home, payload};
+use crate::hosts::Host;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 

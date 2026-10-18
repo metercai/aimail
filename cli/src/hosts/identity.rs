@@ -46,7 +46,7 @@ pub struct Detect {
 
 use std::path::{Path, PathBuf};
 
-use crate::hosts::{all, get, order};
+use crate::hosts::{all, get, order, Host};
 
 /// 三档判定语义。差异是历史契约，**禁止合并**：
 ///

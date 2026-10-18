@@ -9,6 +9,7 @@
 use crate::core::check::Check;
 use crate::core::checks::l0::{field_str, read_gw_cfg, Ctx};
 use crate::core::{config, contract};
+use crate::hosts::Host;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -68,7 +69,7 @@ pub fn runtime(c: &mut Check, sid: &str, ctx: &Ctx, prog_root: &Path) {
     let fix_install = format!("python -m aimail.install --type {platform} --home {sh}");
     let user_home = ctx.user_home.to_string_lossy().into_owned();
     let checks = crate::hosts::get(&platform)
-        .map(crate::hosts::health::checks_json)
+        .map(|h| crate::hosts::health::checks_json(h))
         .unwrap_or_default();
     run_checks(c, &checks, &sh, &user_home, sid, &fix_install);
 

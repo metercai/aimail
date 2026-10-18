@@ -8,6 +8,7 @@
 use serde_json::{json, Value};
 
 use crate::core::{config, register, setup, style};
+use crate::hosts::Host;
 
 pub struct Args {
     pub home: String,

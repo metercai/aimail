@@ -1588,7 +1588,7 @@ fn failing_file_checks(plat: &str, sh: &str, user_home: &Path) -> Vec<Value> {
     ];
     let mut fails = Vec::new();
     for ch in crate::hosts::get(plat)
-        .map(crate::hosts::health::checks_json)
+        .map(|h| crate::hosts::health::checks_json(h))
         .unwrap_or_default()
     {
         let kind = ch.get("kind").and_then(Value::as_str).unwrap_or("");
@@ -1661,7 +1661,7 @@ pub fn runtime_resources(sid: &str, platform_home: &str, prog_root: &Path) -> bo
         return false;
     }
     let tgt = crate::hosts::get(plat)
-        .map(crate::hosts::exec::sdk_install_target)
+        .map(|h| crate::hosts::exec::sdk_install_target(h))
         .unwrap_or_default();
     if tgt.is_empty() {
         warn(&format!(
@@ -2009,37 +2009,37 @@ mod tests {
         // 注册/受控变更/拆除经注册表 `ops.argv` 的 op 入口直达（契约 v1.0 §4.1(2)）。
         assert_eq!(
             crate::hosts::get("hermes")
-                .map(crate::hosts::exec::sdk_install_target)
+                .map(|h| crate::hosts::exec::sdk_install_target(h))
                 .unwrap_or_default(),
             "hermes"
         );
         assert_eq!(
             crate::hosts::get("deerflow")
-                .map(crate::hosts::exec::sdk_install_target)
+                .map(|h| crate::hosts::exec::sdk_install_target(h))
                 .unwrap_or_default(),
             "deerflow"
         );
         assert_eq!(
             crate::hosts::get("dsh")
-                .map(crate::hosts::exec::sdk_install_target)
+                .map(|h| crate::hosts::exec::sdk_install_target(h))
                 .unwrap_or_default(),
             ""
         );
         assert_eq!(
             crate::hosts::get("pi")
-                .map(crate::hosts::exec::sdk_install_target)
+                .map(|h| crate::hosts::exec::sdk_install_target(h))
                 .unwrap_or_default(),
             ""
         );
         assert_eq!(
             crate::hosts::get("openclaw")
-                .map(crate::hosts::exec::sdk_install_target)
+                .map(|h| crate::hosts::exec::sdk_install_target(h))
                 .unwrap_or_default(),
             ""
         );
         assert_eq!(
             crate::hosts::get("nope")
-                .map(crate::hosts::exec::sdk_install_target)
+                .map(|h| crate::hosts::exec::sdk_install_target(h))
                 .unwrap_or_default(),
             ""
         );
