@@ -879,12 +879,10 @@ fn install_human(a: &Args) -> i32 {
     // python 门/注册器经 python_bin() 读取、步骤子进程经 bound_python_env 显式注入,
     // 与 step 0 的 {python} 同一解释器（C-4）；
     // 容器守卫（docker exec 返回的是容器内路径）在 bind_domain 内统一。
-    let _py = crate::core::sdkroot::bind_domain(&a.container, &system_home.to_string_lossy());
-    let _pkgmgr = crate::core::sdkroot::probe_pkgmgr(&a.container, &_py);
-    ctx.insert("pkgmgr".into(), serde_json::json!(_pkgmgr));
-    let core_dir = crate::core::sdkroot::resolve_with(&_py)
-        .map(|r| r.path)
+    let _py = crate::hosts::get(&platform)
+        .map(|h| crate::hosts::runtime::python(h, &system_home, &a.container))
         .unwrap_or_default();
+    let core_dir = crate::hosts::runtime::sdk_root(&_py).unwrap_or_default();
     ctx.insert("python".into(), serde_json::json!(_py));
     ctx.insert("manager".into(), serde_json::json!(manager));
     // `{sdk}` / `{scripts}` **不在此处解析**（owner 2026-10-12）：此刻 SDK 还没装

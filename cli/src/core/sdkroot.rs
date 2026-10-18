@@ -378,47 +378,6 @@ pub fn resolve_or_placeholder() -> SdkRoot {
     }
 }
 
-/// 对探测所得解释器**实测**包管理器：uv 可用 ⇒ uv；否则该解释器的 pip 可用 ⇒ pip；否则空
-pub fn probe_pkgmgr(container: &str, python: &str) -> String {
-    #[cfg(windows)]
-    {
-        // 宿主域 = 直接试 python 自身(windows 无 sh -c 语义; 容器域在 windows 不成立)
-        let py_ok = std::process::Command::new(python)
-            .args(["-m", "pip", "--version"])
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
-        if py_ok {
-            return "pip".to_string();
-        }
-        let _ = container; // windows 宿主域不区分容器, 参数仅为与 unix 签名一致
-        return String::new();
-    }
-    #[cfg(unix)]
-    {
-        let run = |cmd: &str| -> bool {
-            let mut c = if container.is_empty() {
-                std::process::Command::new("sh")
-            } else {
-                let mut d = std::process::Command::new("docker");
-                d.args(["exec", container, "sh"]);
-                d
-            };
-            c.args(["-c", cmd])
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false)
-        };
-        if run(&format!("command -v uv >/dev/null 2>&1 && uv pip --version >/dev/null 2>&1 || uv pip install --python {} --dry-run aimailsdk >/dev/null 2>&1", python)) {
-        return "uv".to_string();
-    }
-        if run(&format!("{} -m pip --version >/dev/null 2>&1", python)) {
-            return "pip".to_string();
-        }
-        String::new()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

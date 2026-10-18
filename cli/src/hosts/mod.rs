@@ -18,6 +18,7 @@
 pub mod exec;
 pub mod health;
 pub mod identity;
+pub mod runtime;
 
 mod deerflow;
 mod dsh;
@@ -50,6 +51,11 @@ pub trait Host: Sync {
             exec::Register::NodeEntry { .. } => Lang::Node,
             _ => Lang::Python,
         }
+    }
+
+    /// 是否需要 python 解释器（node 宿主不需要：其步骤不引用 `{python}`）。
+    fn uses_python(&self) -> bool {
+        matches!(self.lang(), Lang::Python)
     }
 
     /// `--agent-home` 语义归谁（默认无人；hermes 是唯一用它定位的平台）。
