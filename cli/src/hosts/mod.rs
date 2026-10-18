@@ -145,6 +145,10 @@ pub struct HostDef {
     pub uses_agent_home: bool,
     #[serde(skip)]
     pub repair_hints: &'static [&'static str],
+    /// agent 键容器目录（宿主 home 内）：`profiles`（hermes/dsh）、`agents`（openclaw）、
+    /// `""`（单 agent 宿主）。只供 `platform spec` 的 agent_keys 扫描，不进值视图。
+    #[serde(skip)]
+    pub agents_container: &'static str,
 }
 
 impl Host for HostDef {

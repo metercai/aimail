@@ -63,4 +63,5 @@ pub static DEERFLOW: HostDef = HostDef {
     agent_check_remote: true,
     uses_agent_home: false,
     repair_hints: &[],
+    agents_container: "",
 };

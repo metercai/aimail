@@ -49,4 +49,5 @@ pub static PI: HostDef = HostDef {
     agent_check_remote: false,
     uses_agent_home: false,
     repair_hints: &[],
+    agents_container: "",
 };

@@ -1,119 +1,28 @@
 //! CLI 检测面 —— 契约 v1.0 §5（owner 2026-10-11 增列）。
 //!
-//! 平台静态知识**无跨平台数据文件**，按来源三分落位：
-//!   · 可推导（本模块的扫描/glob）：指针、agents 容器与多 profile 名字、插件入口的**命中**；
-//!   · 常量（本模块的 [`PLATFORMS`]）：home 目录名、宿主特征标记、宿主包管理器安装命令、
-//!     **宿主布局模式**（插件入口的宿主相对路径）；
-//!   · 宿主自报 / 内部（SDK 门内，本模块不持有）：固定 agent 名、别名、平台私有注册参数。
+//! **平台知识的唯一真源 = `crate::hosts`**（每个宿主一个 `HostDef`）。本模块只做
+//! "给定 home 回答这是哪个宿主 / 东西在哪 / 装了什么"，数据一律从宿主表派生：
+//!   · 特征标记 ← `HostDef.detect.markers`            · 落点 ← `HostDef.home_dir`
+//!   · 插件入口 ← `register.node_path`（node 宿主）   · 语言 ← `HostDef.lang()`
+//!   · agent 键容器 ← `HostDef.agents_container`
 //!
-//! 边界（契约 §1 不变）：探测属"检测/自检"职责；本模块**不实现**平台适配与 SDK 逻辑
-//! —— 它只回答"这是哪个宿主 / 东西在哪 / 装了什么"，不回答"怎么适配"。
+//! 本模块**不实现**平台适配与 SDK 逻辑（那是 SDK 的事），也不持有任何平台常量。
 //!
 //! 优先级（契约 §5）：显式 `--platform`（校验，不静默回落）→ 已装组件（入口在位）
 //! → 宿主特征标记（未装态兜底）→ `unknown` ⇒ 响亮失败。未装态**只允许**前两法。
 //!
-//! 候选根 = `[home, home/<平台的 home_dir>]`：调用方按约定给**宿主根**（如 `~/.hermes`），
-//! 也可能给它们的父目录（如 `~`）。**只在候选根下按该平台自己的布局模式找入口**
-//! ——不做无界深度遍历：否则父目录下任意嵌套的另一个宿主树都会被误claim（实测缺陷）。
+//! 候选根 = `[home, home/<home_dir>]`：调用方按约定给**宿主根**（如 `~/.hermes`），
+//! 也可能给它们的父目录（如 `~`）。**只在候选根下按该宿主自己的布局找入口**
+//! ——不做无界深度遍历：否则父目录下任意嵌套的另一个宿主树都会被误 claim（实测缺陷）。
 
 use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
-/// 一个平台的静态知识（常量部分）。`python_host` 为真时 `node_pkg` / `entry_patterns`
-/// 为空：python 宿主的 SDK 由 `pip install aimailsdk` 装入，入口是门（零路径）。
-pub struct PlatformSpec {
-    pub id: &'static str,
-    pub home_dir: &'static str,
-    pub markers: &'static [&'static str],
-    pub install_argv: &'static [&'static str],
-    pub node_pkg: &'static str,
-    /// 入口在**平台 home 内**的相对路径模式：`*` = 单层任意目录名，`{lib,dist}` = 二者之一。
-    pub entry_patterns: &'static [&'static str],
-    /// agent 键的**容器目录名**（平台 home 内的相对名）：多 agent 宿主由此派生键；
-    /// 空 = 单 agent / 名字在 SDK 门内，CLI 不猜（owner 2026-10-02 C1）。
-    pub agents_container: &'static str,
-    pub python_host: bool,
-}
+use crate::hosts::exec::Register;
+use crate::hosts::{all, order, Host, HostDef, Lang};
 
-/// 平台常量表（唯一真源；顺序 = 枚举/帮助顺序）。
-pub const PLATFORMS: &[PlatformSpec] = &[
-    PlatformSpec {
-        id: "pi",
-        home_dir: ".pi",
-        markers: &["agent"],
-        install_argv: &["pi", "install", "npm:pi-aimail"],
-        node_pkg: "pi-aimail",
-        agents_container: "",
-        entry_patterns: &["agent/npm/node_modules/pi-aimail/dist/register-cli.js"],
-        python_host: false,
-    },
-    PlatformSpec {
-        id: "dsh",
-        home_dir: ".dsh",
-        markers: &["profiles"],
-        install_argv: &[
-            "dsh",
-            "plugin",
-            "--profile",
-            "web",
-            "add",
-            "dsh-aimail",
-            "--config.minimumReleaseAge=0",
-        ],
-        node_pkg: "dsh-aimail",
-        agents_container: "profiles",
-        entry_patterns: &["profiles/*/node_modules/dsh-aimail/dist/register-cli.js"],
-        python_host: false,
-    },
-    PlatformSpec {
-        id: "hermes",
-        home_dir: ".hermes",
-        markers: &["hermes-agent"],
-        agents_container: "profiles",
-        install_argv: &[],
-        node_pkg: "",
-        entry_patterns: &[],
-        python_host: true,
-    },
-    PlatformSpec {
-        id: "openclaw",
-        home_dir: ".openclaw",
-        markers: &["openclaw.json"],
-        install_argv: &[
-            "openclaw",
-            "plugins",
-            "install",
-            "openclaw-aimail@latest",
-            "--force",
-            "--accept-capabilities",
-        ],
-        node_pkg: "openclaw-aimail",
-        agents_container: "agents",
-        entry_patterns: &["npm/projects/*/node_modules/openclaw-aimail/dist/register-cli.js"],
-        python_host: false,
-    },
-    PlatformSpec {
-        id: "deerflow",
-        home_dir: ".deer-flow",
-        markers: &["backend/app/gateway"],
-        agents_container: "",
-        install_argv: &[],
-        node_pkg: "",
-        entry_patterns: &[],
-        python_host: true,
-    },
-];
-
-pub fn spec(id: &str) -> Option<&'static PlatformSpec> {
-    PLATFORMS.iter().find(|p| p.id == id)
-}
-
-pub fn ids() -> Vec<&'static str> {
-    PLATFORMS.iter().map(|p| p.id).collect()
-}
-
-/// 由 `home_dir` 推导出的静态信息。
+/// 探测结果（`platform spec --json` 的 `detected` 段）。
 #[derive(Debug, Clone)]
 pub struct StaticInfo {
     pub platform: String,
@@ -141,10 +50,10 @@ impl StaticInfo {
     }
 }
 
-/// 候选根：`home` 自身，以及 `home/<平台的 home_dir>`（调用方给父目录时）。
-fn candidate_roots(home: &Path, p: &PlatformSpec) -> Vec<PathBuf> {
+/// 候选根：`home` 自身，以及 `home/<home_dir>`（调用方给父目录时）。
+fn candidate_roots(home: &Path, h: &HostDef) -> Vec<PathBuf> {
     let mut roots = vec![home.to_path_buf()];
-    let nested = home.join(p.home_dir);
+    let nested = home.join(h.home_dir);
     if nested.is_dir() {
         roots.push(nested);
     }
@@ -195,124 +104,118 @@ fn match_pattern(root: &Path, pattern: &str) -> Option<PathBuf> {
     walk(root, &segs)
 }
 
-fn find_entry(root: &Path, p: &PlatformSpec) -> Option<PathBuf> {
-    p.entry_patterns
-        .iter()
-        .find_map(|pat| match_pattern(root, pat))
+/// node 宿主的入口模板（`register.node_path`，`{home}` 相对宿主根）；python 宿主 ⇒ None。
+fn entry_pattern(h: &HostDef) -> Option<&'static str> {
+    match h.register {
+        Register::NodeEntry { node_path, .. } => Some(node_path),
+        _ => None,
+    }
 }
 
-fn markers_hit(root: &Path, p: &PlatformSpec) -> bool {
-    !p.markers.is_empty() && p.markers.iter().all(|m| root.join(m).exists())
+fn find_entry(root: &Path, h: &HostDef) -> Option<PathBuf> {
+    let pat = entry_pattern(h)?;
+    let rel = pat.strip_prefix("{home}/").unwrap_or(pat);
+    match_pattern(root, rel)
 }
 
-/// 扫描 agent 键（可推导）：`<root>/profiles/*`（hermes 式）或 `<root>/agents/*`（openclaw 式）。
+fn markers_hit(root: &Path, h: &HostDef) -> bool {
+    let det = h.detect;
+    !det.markers.is_empty() && det.markers.iter().all(|m| root.join(m).exists())
+}
+
+/// 扫描 agent 键（可推导）：`<root>/profiles/*`（hermes/dsh）或 `<root>/agents/*`（openclaw）。
 /// 单 agent 宿主扫不到 ⇒ 空集（定名归 SDK，CLI 不猜）。
-fn scan_agent_keys(root: &Path, p: &PlatformSpec) -> Vec<String> {
-    if p.agents_container.is_empty() {
-        return Vec::new(); // 单 agent 宿主：名字定在 SDK 门内，CLI 不猜
+fn scan_agent_keys(root: &Path, h: &HostDef) -> Vec<String> {
+    if h.agents_container.is_empty() {
+        return Vec::new();
     }
-    {
-        let dir = root.join(p.agents_container);
-        if !dir.is_dir() {
-            return Vec::new();
-        }
-        let mut keys: Vec<String> = std::fs::read_dir(&dir)
-            .map(|rd| {
-                rd.flatten()
-                    .filter(|e| e.path().is_dir())
-                    .filter_map(|e| e.file_name().to_str().map(str::to_string))
-                    .collect()
-            })
-            .unwrap_or_default();
-        keys.sort();
-        if !keys.is_empty() {
-            return keys;
-        }
+    let dir = root.join(h.agents_container);
+    if !dir.is_dir() {
+        return Vec::new();
     }
-    Vec::new()
+    let mut keys: Vec<String> = std::fs::read_dir(&dir)
+        .map(|rd| {
+            rd.flatten()
+                .filter(|e| e.path().is_dir())
+                .filter_map(|e| e.file_name().to_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    keys.sort();
+    keys
 }
 
 /// 探测静态信息。`explicit` 为 `--platform` 显式值：命中即用（并跑一次自检），
 /// 未命中**响亮失败**、不静默回落（契约 §5）。
 pub fn detect_static(home: &Path, explicit: Option<&str>) -> Result<StaticInfo, String> {
-    let (spec, root) = match explicit {
-        Some(id) => match spec(id) {
-            Some(s) => (
-                s,
-                candidate_roots(home, s)
+    let (h, root) = match explicit {
+        Some(id) => match crate::hosts::get(id) {
+            Some(h) => (
+                h,
+                candidate_roots(home, h)
                     .pop()
                     .unwrap_or_else(|| home.to_path_buf()),
             ),
             None => {
                 return Err(format!(
                     "--platform '{id}' unknown; valid: {}",
-                    ids().join(", ")
+                    order().join(", ")
                 ))
             }
         },
         None => {
             // 已装组件（入口在位）优先于特征标记：入口是"装过"的硬证据。
-            let mut by_entry: Option<(&'static PlatformSpec, PathBuf)> = None;
-            let mut by_marker: Option<(&'static PlatformSpec, PathBuf)> = None;
-            for p in PLATFORMS {
+            let mut by_entry: Option<(&'static HostDef, PathBuf)> = None;
+            let mut by_marker: Option<(&'static HostDef, PathBuf)> = None;
+            for p in all() {
                 for r in candidate_roots(home, p) {
                     if by_entry.is_none() && find_entry(&r, p).is_some() {
-                        by_entry = Some((p, r));
+                        by_entry = Some((*p, r));
                         break;
                     }
                     if by_marker.is_none() && markers_hit(&r, p) {
-                        by_marker = Some((p, r));
+                        by_marker = Some((*p, r));
                     }
                 }
             }
             match by_entry.or(by_marker) {
-                Some((s, r)) => (s, r),
+                Some((p, r)) => (p, r),
                 None => {
                     return Err(format!(
                         "无法确定平台: {} 目录无特征且无 aimail 指针(可用 --platform 显式指定; valid: {})",
                         home.display(),
-                        ids().join(", ")
+                        order().join(", ")
                     ))
                 }
             }
         }
     };
 
-    let entry = if spec.entry_patterns.is_empty() {
-        None
-    } else {
-        find_entry(&root, spec)
-    };
+    let entry = find_entry(&root, h);
     let transport = if entry.is_some() {
         "node"
-    } else if spec.python_host {
+    } else if matches!(h.lang(), Lang::Python) {
         "python"
     } else {
         ""
     };
     let pointer = {
-        // 契约常量单一真源（5 平台同值：`core/contract.rs`）
+        // 契约常量单一真源：文件名取 `contract::pointer_file()`
         let p = root.join(crate::core::contract::pointer_file());
         p.is_file().then_some(p)
     };
     Ok(StaticInfo {
-        platform: spec.id.to_string(),
+        platform: h.id.to_string(),
         transport,
         home: root.clone(),
-        agent_keys: scan_agent_keys(&root, spec),
+        agent_keys: scan_agent_keys(&root, h),
         pointer,
         entry,
     })
 }
 
-/// `aimail platform spec --json` 的载荷：完整平台注册表（类型化常量的值视图）+（可选的）探测结果。
-///
-/// P2c S3a（2026-10-16）：导出面从"8 字段检测表"扩为**全形状**（`install_steps`/
-/// `uninstall_steps`/`health_checks`/`pointer`/`register`/`ops`/`detect` 全键），
-/// 使本命令成为 advanced 门禁/夹具的**唯一平台知识入口**（取代直读
-/// 平台注册表 JSON，S3b 删除）。形状对齐原注册表（`order` +
-/// `platforms`{id→对象} + `detected`），改锚面最小。数据 = `crate::hosts::describe_all()`（由
-/// `hosts::describe_all()` 重建，语义等价由 spec 逐字节门禁证明）。
+/// `aimail platform spec --json` 的载荷：宿主表的值视图 +（可选）探测结果。
+/// 形状 = `order` + `platforms`{id→对象} + `detected`；高级门禁/夹具以本命令为唯一入口。
 pub fn spec_json(home: Option<&Path>, explicit: Option<&str>) -> Value {
     let reg = crate::hosts::describe_all();
     let detected = match home {
@@ -442,7 +345,7 @@ mod tests {
         let ids: Vec<&str> = order.iter().map(|p| p.as_str().unwrap()).collect();
         assert_eq!(ids, vec!["pi", "dsh", "hermes", "openclaw", "deerflow"]);
         let plats = v["platforms"].as_object().unwrap();
-        assert_eq!(plats.len(), PLATFORMS.len());
+        assert_eq!(plats.len(), crate::hosts::ALL.len());
         // 全形状导出面：install_steps / health_checks / register / pointer 键在位。
         let dsh = &plats["dsh"];
         assert!(dsh["install_steps"]

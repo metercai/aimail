@@ -102,4 +102,5 @@ pub static HERMES: HostDef = HostDef {
     agent_check_remote: false,
     uses_agent_home: true,
     repair_hints: &["profiles"],
+    agents_container: "profiles",
 };
