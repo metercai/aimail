@@ -1,31 +1,21 @@
 //! 平台宿主表的值视图 + 文件系统算法。
 //!
-//! 数据源 = [`crate::core::platforms_hosts::PLATFORMS`]（类型化常量，serde 直出值视图）。
+//! 数据源 = [`crate::hosts::ALL`]（每个宿主一个模块，serde 直出值视图）。
 //! 本模块只做四件事：取表访问器、平台判定（`hits_dir` / `detect_platform_from_home` /
 //! `resolve_platform`）、指针定位与归属（`pointer_*` / `scan_pointers`）、路径模板展开。
-//! CLI 侧平台知识的单真源是 `platforms_hosts`，代码里不得出现平台字面量分支
+//! CLI 侧平台知识的单真源是 `hosts/`，代码里不得出现平台字面量分支
 //! （L0.c 判据同精神）。形状门禁 = `aimail platform spec --json` 黑盒
 //! （tests/cli/test_platforms_registry.py + advanced tests/cli/check-registry.py）。
 
-use crate::core::{contract, platforms_hosts};
-use serde_json::{json, Map, Value};
+use crate::core::contract;
+use crate::hosts;
+use serde_json::Value;
 use std::sync::OnceLock;
 
 fn registry() -> &'static Value {
     static R: OnceLock<Value> = OnceLock::new();
-    R.get_or_init(|| {
-        // 单真源 = 类型化常量；值视图由 serde 序列化（字段声明序 = 键序）。
-        let mut platforms = Map::new();
-        for p in platforms_hosts::PLATFORMS {
-            let v = serde_json::to_value(p).expect("platform def must serialize");
-            platforms.insert(p.id.to_string(), v);
-        }
-        json!({
-            "_comment": platforms_hosts::COMMENT,
-            "order": platforms_hosts::ORDER,
-            "platforms": platforms,
-        })
-    })
+    // 单真源 = `hosts::ALL`（各宿主模块）；值视图由 `hosts::describe_all()` 序列化。
+    R.get_or_init(hosts::describe_all)
 }
 
 /// 平台枚举顺序（唯一平台知识源；帮助分组/指针扫描序都用它）。
@@ -294,7 +284,7 @@ pub fn sdk_install_target(name: &str) -> String {
 }
 
 /// 平台的 **op 入口 argv 模板**（契约 v1.0 §4.1(2) 的 node transport）。
-/// `register.kind == node_entry` ⇒ [`platforms_hosts::NODE_OP_TEMPLATE`]；其余 ⇒ `None`
+/// `register.kind == node_entry` ⇒ [`hosts::exec::NODE_OP_TEMPLATE`]；其余 ⇒ `None`
 /// = python 门默认形态（`<解释器> -m aimail.sdk_ops`）。
 /// 模板占位符：`{op}` = op 名、`{args}` = 单个 JSON 入参、`{node_path}` = 注册表 `register.node_path` 解析结果。
 pub fn ops_argv(name: &str) -> Option<Vec<String>> {
@@ -303,7 +293,7 @@ pub fn ops_argv(name: &str) -> Option<Vec<String>> {
         return None;
     }
     Some(
-        platforms_hosts::NODE_OP_TEMPLATE
+        hosts::exec::NODE_OP_TEMPLATE
             .iter()
             .map(|s| s.to_string())
             .collect(),
