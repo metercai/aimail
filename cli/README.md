@@ -29,17 +29,18 @@ gateway.
 
 ### Platform Integration
 
-All platform adaptation lives in the SDKs; the CLI only dispatches through the
-registry (`cli/platforms.json`). Adding a platform = one registry entry + SDK-side
-adapter, with no change to the CLI protocol. Per-platform install action, registrar
-and restart requirement:
+All platform adaptation lives in the SDKs. On the CLI side each host has one
+declaration file (`cli/src/hosts/<name>.rs`: home, detection markers, registrar
+entry, install/uninstall steps, health checks). Adding a platform = one host file,
+one line in `hosts/mod.rs`'s `ALL`, and an SDK adapter — no command-layer change.
+Per-platform install action, registrar and restart requirement:
 
 | Platform | Platform root | Runtime | Install action | Restart |
 |----------|---------------|---------|----------------|---------|
-| Hermes | `~/.hermes` | Python (pysdk) | When the venv exists, install the runtime package into it first (`pip install aimailsdk`, import name `aimail`); the SDK install expands SKILL/toolsets/board resources and injects `PREPROCESS_REGISTRY` into webhook.py; registers the agent set for this root (`--all-agents` registers every profile) | restart the hermes gateway |
+| Hermes | `~/.hermes` | Python (pysdk) | Install `aimailsdk` (import name `aimail`) into the platform's own interpreter, which the CLI probes inside the platform root (uv → pip → ensurepip); the SDK install expands SKILL/toolsets/board resources and injects `PREPROCESS_REGISTRY` into webhook.py; registers the agent set for this root (`--all-agents` registers every profile) | restart the hermes gateway |
 | DeerFlow | `~/.deer-flow` | Python (pysdk) | SDK install → `install-skill.sh` + `install-mcp.sh` → register (`manage.py register --all`) | restart 8001 (upstream repo installed by patch) |
 | OpenClaw | `~/.openclaw` | TS (tssdk) | `openclaw plugins install openclaw-aimail --force --accept-capabilities` → register (`openclaw aimail register`; `register-all` for all) | restart the openclaw gateway |
-| DSH | `~/.dsh` | TS (tssdk) | `dsh plugin --profile web add dsh-aimail` (needs the `dsh` CLI first) | binding is auto-bound when a dsh session (mail preset) starts |
+| DSH | `~/.dsh` | TS (tssdk) | `dsh plugin --profile web add dsh-aimail --config.minimumReleaseAge=0` (needs the `dsh` CLI first) | binding is auto-bound when a dsh session (mail preset) starts |
 | Pi | `~/.pi` | TS (tssdk) | `pi install npm:pi-aimail` | restart pi |
 
 Common commands:
@@ -87,8 +88,8 @@ host-side items remain.
 │   ├── aimail_routes.toml      # route table: email → local inbound endpoint
 │   ├── bin/aimail-bridge       # bridge binary
 │   └── bridge.pid
-├── bin/                            # program root (program copy + host payload)
-│   ├── aimail-src/                 # aimail program copy installed by bootstrap
+├── bin/                            # program root
+│   ├── aimail                      # CLI binary (single file, no runtime deps)
 │   └── mcp/                        # host-adapter runtime payload (version-stamped)
 ├── mail/{addr}/{yyyymm}/in-*.json   # snapshots: in-* (inbound) / out-* (outbound)
 ├── .system_raw_key/{sid}_admin.key  # raw admin key (integration only)
@@ -109,9 +110,9 @@ host-side items remain.
 
 | File | Content | Written by |
 |------|---------|-----------|
-| `systems/{sid}/aimail_gateway.json` | gateway_url, admin_key, system_id, system_name, manager_address, system_home, domain, webhook_host (+ save_raw_snapshots / default_agent_name) | `install`/`reset` → setup_system.py; `repair` backfills `system_home`/`webhook_host` only |
-| `systems/{sid}/{addr}/agentmail.json` | 9 fields: email, gateway_url, domain, system_id, system_name, manager_address, api_key, webhook_url, webhook_secret | registration chain (register_profiles / register_agent / bind_agent) |
-| `bridge/aimail_bridge.toml` + `aimail_routes.toml` | pull systems + route table | deploy_bridge.py; `aimail bridge --system-id` |
+| `systems/{sid}/aimail_gateway.json` | gateway_url, admin_key, system_id, system_name, manager_address, system_home, domain, webhook_host (+ save_raw_snapshots / default_agent_name) | `install` / `reset`; `repair` backfills `system_home`/`webhook_host` only |
+| `systems/{sid}/{addr}/agentmail.json` | 9 fields: email, gateway_url, domain, system_id, system_name, manager_address, api_key, webhook_url, webhook_secret | registration chain (host registrar entry / SDK door) |
+| `bridge/aimail_bridge.toml` + `aimail_routes.toml` | pull systems + route table | `aimail install` (deploy); `aimail bridge --system-id` (refresh) |
 
 `aimail_gateway.json` (system level) fields:
 
@@ -161,7 +162,7 @@ curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootst
 ```
 
 - `AIMAIL_ADMIN_KEY` (or `aimail install -k`) takes a **system-level key**: on a self-hosted gateway the `<storage>/<system id>.system.key` printed at start, in the cloud the key issued by the activation code.
-- The program copy (`~/.aimail/bin/aimail-src`, where PATH's `aimail` points) and the host payload (`~/.aimail/bin/mcp`) both live under the `~/.aimail/bin` program root and are refreshed together by bootstrap (to force a re-fetch, `export AIMAIL_FORCE_UPGRADE=1` first).
+- The CLI binary (`~/.aimail/bin/aimail`, symlinked from `~/.local/bin`) and the host payload (`~/.aimail/bin/mcp`) live under the `~/.aimail/bin` program root and are refreshed together by bootstrap (to force a re-fetch, `export AIMAIL_FORCE_UPGRADE=1` first).
 
 ### Step 2 — `aimail install` (system level, repeatable, idempotent)
 
@@ -204,7 +205,7 @@ resources → agent config → delivery links**.
 |-----------|-------|------------------|
 | Config files | L0 | `aimail_gateway.json` completeness (gateway_url/admin_key/`system_home`/pointer) · `aimail_bridge.toml` structure (mode, pull entries, admin_key match vs gateway.json) · `agentmail.json` 9-field completeness + internal consistency (system_id=sid, gateway_url same, domain=email suffix) |
 | Gateway / Bridge | L1/L2 | gateway health + SMTP :25 + whoami scope; bridge process + pull path + routes coverage (every agent email must have a route entry) |
-| Platform runtime resources | L2r | hermes: webhook.py `PREPROCESS_REGISTRY` + profiles.py `AimailGateway` patch markers, toolsets, skills, board/role_prompt/common.md · openclaw: plugin installed + skills · deerflow: app.py `aimail_inbound` anchors · pi: pointer match |
+hermes: webhook.py `PREPROCESS_REGISTRY` patch / profiles.py `AimailGateway` patch / skills (incl. board/role_prompt/common.md) / toolsets · openclaw: plugin installed / skills · deerflow: app.py `aimail_inbound` patch · pi: pointer match · dsh: nothing local (the dsh session creates the binding)
 | Agent config | L3 | per-platform adapter: name&api_key / webhook secret / skill / toolset / register |
 | Delivery links | L4 | hook probes against the real inbound endpoints — **404 = route not registered = FAIL**; remote (non-loopback) targets are not probeable locally → PASS-with-note, never a false FAIL |
 
@@ -295,19 +296,24 @@ operate    daily status and lifecycle, plus exams and flows
   check           full health exam: config files -> runtime resources -> links
   repair          apply the idempotent fix ladder for check findings, then re-check
   ping            end-to-end ping-pong delivery test (manager <-> agent)
-  welcome         end-to-end welcome + identity approval (persona flow merged here, 2026-09-22)
+  welcome         end-to-end welcome + identity approval (persona merged here: pointer only, exit 2)
 
 resources  system-scoped resources
   domain          list / create domains owned by a system
   address         view / maintain system agent addresses (default name / rename / set manager)
+  prompt          maintain agent prompt rules: subject/body/sender/recipient → role file
   bridge          local bridge: status / refresh routes / restart / upgrade
+  platform        export the host knowledge table (+ detection for a given home; gate/fixture entry)
 ```
 
-Platform feature detection (order): `pi` (~/.pi + agent/) → `dsh`
-(~/.dsh + profiles/ + storages/) → `hermes` (hermes-agent/ or profiles/)
-→ `openclaw` (openclaw.json) → `deerflow` (backend/app/gateway/) →
-`unknown`. `--system-id` + stored `system_home` reverse lookup beats
-auto-probe; pointer ownership is the next fallback.
+Platform detection order: `pi` (`~/.pi` with `agent/`) → `dsh` (`~/.dsh` with
+`profiles/`) → `hermes` (`hermes-agent`) → `openclaw` (`openclaw.json`) →
+`deerflow` (`backend/app/gateway/`) → `unknown` (loud failure, no guessing).
+pi/dsh require an exact directory-name match; the rest match on features only.
+`aimail platform spec --home <R>` uses a separate "entry first" rule (an
+installed plugin entry claims the host), and `repair` uses a lenient rule
+(hermes also accepts `profiles/`). `--system-id` + stored `system_home`
+reverse lookup beats auto-probe; pointer ownership is the next fallback.
 
 Logs: bridge → `~/.aimail/logs/aimail-bridge.log`; per-agent →
 `~/.aimail/logs/aimail.{addr}.log` (JSON lines; `dir` = ping_intercepted /

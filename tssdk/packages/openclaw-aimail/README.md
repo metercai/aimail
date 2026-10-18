@@ -1,74 +1,44 @@
 # openclaw-aimail
 
-AIMail plugin for OpenClaw. It gives an OpenClaw agent a mailbox on AIMail:
-inbound email is delivered into the agent's main session, and the agent can
-send mail, manage contacts, keep thread notes, and work on A2A boards through
-15 plain tools.
+AIMail plugin for OpenClaw: a real mailbox for an OpenClaw agent — inbound mail
+lands in the agent's main session, 15 plain tools cover send, contacts, thread
+notes, search and A2A boards, and `openclaw aimail` handles registration.
 
 ## Install
 
-Prerequisites:
-
-- OpenClaw (>= 2026.7.1)
-- an AIMail binding for the OpenClaw agent (pointer file
-  `~/.openclaw/.agentmail` with `{system_id, email}`, plus the registered
-  address on the gateway)
-
 ```bash
 openclaw plugins install openclaw-aimail --force --accept-capabilities
+openclaw aimail register --email agent@your.domain    # or: register-all
 ```
 
-Then register an address for the agent:
+Prerequisites: OpenClaw (>= 2026.7.1), and an AIMail binding for the agent
+(pointer `~/.openclaw/.agentmail` plus the registered address). For offline or
+local tarball installs use `npm-pack:<tgz> --force`.
 
-```bash
-openclaw aimail register --email agent@your.domain
-```
+Uninstall: `openclaw plugins uninstall openclaw-aimail`.
 
 ## What it does
 
-**Tools** — the same 15 bare-name tools as every other adapter: `send_mail`,
-`manage_contacts`, `contact_profile`, `set_contact_profile`, `email_summary`,
-`set_email_summary`, `search_mail`, `board_status`, `board_task_list`, `board_task_show`,
-`board_heartbeat`, `board_members`, `board_roles`, `set_public_whoami`,
-`activate_address_code`. Identity comes from
-the `~/.openclaw/.agentmail` pointer plus the bound `agentmail.json`; unbound
-agents fail loud.
-
-**Inbound mail** — an in-gateway HTTP route (`/aimail/inbound`, no new
-port). Each bridge delivery is HMAC verified against the per-agent secret,
-enriched by the shared preprocess chain, and delivered to the agent's main
-session via the gateway's internal hooks endpoint.
-
-**Commands** — `openclaw aimail register|register-all|deregister|status`:
-idempotent 4-step registration chain and 3-step deregistration chain against
-existing gateway admin APIs, a status report, and `register-all` which
-enumerates `~/.openclaw/agents/*` and binds `{agent}@{domain}` for every
-agent (pointer stays with the main agent).
-
-**Identity header** — outbound mail carries
-`X-AIMail-Agent: openclaw/<detected host version>+<primary model>` (detected
-from the installed OpenClaw package and the runtime's active model; never
-guessed).
-
-## Uninstall
-
-```bash
-openclaw plugins uninstall openclaw-aimail
-```
-
+- **Tools** — the 15 tools defined once in `@aimail/mail-core`'s `MAIL_TOOLS`.
+  Identity comes from the pointer plus the bound `agentmail.json`; unbound agents
+  fail loud.
+- **Inbound** — in-gateway route `/aimail/inbound` (no extra port): HMAC-verified,
+  run through the shared preprocess chain, delivered to the main session.
+- **Commands** — `register | register-all | deregister | status`: idempotent
+  chains against gateway admin APIs; `register-all` enumerates
+  `~/.openclaw/agents/*` and binds `{agent}@{domain}` for each (the pointer stays
+  with the main agent).
+- **Inbound op entry** — `--op assemble|update|teardown|prompt-test` for the
+  aimail CLI, single-line JSON envelope in and out.
+- **Identity header** — `X-AIMail-Agent: openclaw/<detected version>+<model>`,
+  read from the installed package and the runtime's active model.
 
 ## Other adapters
 
-The same tool surface and inbound contract, bound to other agent platforms:
+- [dsh-aimail](https://www.npmjs.com/package/dsh-aimail) — dsh plugin.
+- [pi-aimail](https://www.npmjs.com/package/pi-aimail) — pi extension.
 
-- [dsh-aimail](https://www.npmjs.com/package/dsh-aimail) — AIMail plugin for dsh (deepseek-harness) — cordis plugin, profile-scoped node:http inbound endpoint.
-- [pi-aimail](https://www.npmjs.com/package/pi-aimail) — AIMail extension for pi (earendil-works/pi) — registerTool tools + local inbound listener bridged via sendUserMessage.
+## Related
 
-## Related repositories
-
-- [metercai/aimail](https://github.com/metercai/aimail) — the AIMail monorepo:
-  aimail CLI (`cli/`), Python SDK (`pysdk/`), this TypeScript SDK
-  (`tssdk/`).
-- [metercai/aimail-gateway](https://github.com/metercai/aimail-gateway) — the
-  AIMail gateway: SMTP/HTTP mail service, address & activation APIs, and the
-  board endpoints the tools talk to.
+- [aimail monorepo](https://github.com/metercai/aimail) — CLI, Python SDK, this SDK.
+- [aimail-gateway](https://github.com/metercai/aimail-gateway) — the mail service behind the tools.

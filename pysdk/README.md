@@ -1,101 +1,61 @@
 # pysdk — AIMail Python SDK
 
-AIMail (agent mail) Python runtime SDK: gateway HTTP client, 15 mail /
-contact / note / board / identity tool functions (7 mail+contact+note incl.
-`search_mail` + 6 A2A board + 2 identity: `activate_address_code`,
-`set_public_whoami`), the inbound preprocess chain, an MCP server, and
-ready-made host adapters (Hermes / DeerFlow). Board resources (skills, role
-prompts, role souls) ship with the package and are released at install time
-to the local config directory, where users can personalize them.
+AIMail (agent mail) runtime for Python hosts: gateway client, 15 mail /
+contact / note / board / identity tools, the inbound preprocess chain, an MCP
+server, and ready-made adapters for Hermes and DeerFlow.
 
-This SDK lives in the [metercai/aimail](https://github.com/metercai/aimail)
-monorepo under `pysdk/` (CLI in `cli/`, TypeScript SDK in `tssdk/`, bridge in
-`bridge/`). The pip package `aimailsdk` (import name `aimail`) is the published surface of this tree —
-the wheel mirrors `pysdk/` 1:1 for code and maps the repo-root `resources/` to `aimail/resources/`,
-so repo and installed layouts are identical either way. Asset resources (board prompts/souls, skills)
-are **single-sourced at the repo-root `resources/`**: a repo checkout reads that directory directly
-(no copy step), and each npm adapter package stages its own `resources/` copy in its own `prepack`
-(`node ../mail-core/scripts/stage-resources.mjs --dest .`, git-ignored) because a tarball can only
-carry files under the package directory.
+Published as `aimailsdk` on PyPI (import name `aimail`). The wheel mirrors this
+directory 1:1 and maps the repo-root `resources/` to `aimail/resources/`, so a
+repo checkout and an installed package behave the same.
 
-| What | File(s) |
+| What | Files |
 |---|---|
-| Core (framework-agnostic, stdlib-only) | `aimail_base.py` (identity/signature/config/register), `aimail_tools.py` (send_mail + contacts + notes + `_GatewayClient`), `aimail_board.py` (A2A board), `gateway_api.py` (v1 API client), `_aimail_bootstrap.py` (location-agnostic sys.path boot) |
-| MCP server | `aimail_mcp_server.py` (stdio JSON-RPC, platform-agnostic) |
-| Adapters (host-injected) | `hermes/` (aimail_hermes + patch/register/toolsets, 6 modules), `deer-flow/` (aimail_inbound + aimail_deerflow + manage) |
-| Resources | `resources/skills/` (SKILL.md + DESCRIPTION.md), `resources/board/role_prompt/` (6 board role prompt templates, released as-is) |
-| Glue | `__init__.py` — unified entry: `import aimail` re-exports the curated API and boots the flat core |
+| Core (stdlib only) | `aimail_base.py` (identity / signature / config / register), `aimail_tools.py` (mail, contacts, notes, `_GatewayClient`), `aimail_board.py` (A2A board), `gateway_api.py` (v1 API client), `_aimail_bootstrap.py` (location-agnostic `sys.path` boot) |
+| Host glue | `install.py` (per-host install / uninstall / check-env), `hermes/` (adapter, patches, toolsets, registrar), `deer-flow/` (inbound router, registrar) |
+| MCP | `aimail_mcp_server.py` (stdio JSON-RPC) |
+| Resources | `resources/skills/`, `resources/board/role_prompt/` (seeds released at install time) |
+| Entry | `__init__.py` — `import aimail` re-exports the curated API and boots the core |
 
 ## Install
 
 ```bash
-pip install aimailsdk      # from PyPI (import name stays `aimail`)
-pip install .                 # from the repo root (hatchling, force-include)
+pip install aimailsdk        # PyPI
+pip install .                # from this directory
 ```
 
-No hard third-party dependencies — the core is stdlib-only. Optional extras,
-all lazy/host-gated:
-- `aimail[hermes]` — PyYAML for the Hermes adapter's profile-config parsing
-- `aimail[deerflow]` — fastapi (the DeerFlow inbound router imports it at
-  module level; the DeerFlow host always ships FastAPI)
-- `aimail[docs]` — markitdown (attachment → markdown conversion)
+No hard third-party dependency. Optional extras: `aimail[hermes]` (PyYAML),
+`aimail[deerflow]` (fastapi), `aimail[docs]` (markitdown).
 
-Platform adapters are host-injected: importing `aimail.hermes.*` outside a
-Hermes gateway prints registration-skipped warnings by design.
+## How hosts use it
 
-## Usage
+Two entry points, both called by the aimail CLI:
 
-```python
-import aimail
+- **Install / uninstall** — `python -m aimail.install install|uninstall --type
+  hermes|deerflow --home <platform-root> [--system-id SID]` (the CLI calls the
+  same functions through the python door).
+- **Ops door** — `python -m aimail.sdk_ops --op <assemble|update|teardown|
+  prompt-test|…> --args '<json>'`, one JSON envelope in and out. Register,
+  teardown and prompt work all go through this door.
 
-# unified entry (boots the flat core, re-exports the curated API)
-aimail.send_mail(to="x@example.com", subject="hi", body="hello")
-client = aimail.GatewayClient(aimail.agent_email(), api_key="...")
+Host adapters never import the package path directly: each entry calls
+`_aimail_bootstrap()`, which resolves the core directory in every layout
+(site-packages, bundler copy, repo checkout).
 
-# legacy flat imports still work (host adapters use this)
-import sys, aimail
-sys.path.insert(0, aimail.core_dir())
-import aimail_base, aimail_tools
-```
+## Resources
 
-Host adapters never import the package path directly — each entry calls
-`_aimail_bootstrap()` (in `_aimail_bootstrap.py`), which resolves the core
-directory in all three layouts: pip site-packages, self-contained bundle
-(provisioner copies), and repo checkout.
-
-## Resources & the local config directory
-
-Board resources are **seeds**, not read-at-runtime-from-the-SDK files. The
-SDK install entry (`python -m aimail.install install --type …`, which the
-CLI's `aimail install` delegates to) releases them via
-`aimail._resources_release` to:
-
-```
-~/.aimail/systems/{system_id}/board/
-└── role_prompt/        # 6 role prompt templates — read by the preprocess chain
-```
-
-Both the Python and the TypeScript (`tssdk/`) runtimes read from this same
-location, so users can edit a role prompt file to personalize behavior — and
-the change applies to every platform at once.
+Resources are **seeds**, released at install time: board prompts land in
+`~/.aimail/systems/{system_id}/board/` (read by both the Python and TypeScript
+runtimes, so one edit applies to every platform), and skills are expanded into
+each host's own skills directory (e.g. hermes `profiles/*/skills/agentmail`).
 
 ## Development
 
 ```bash
-# repo layout: core modules import each other by bare name
 python3 -c "import sys; sys.path.insert(0, 'pysdk'); import aimail_base"
-
-# build & verify the wheel (three layouts must all import)
-python3 -m venv /tmp/v && /tmp/v/bin/pip install .
-/tmp/v/bin/python -c "import aimail; print(aimail.core_dir())"
-aimail install --payload source           # resolves pip > repo pysdk/
+python3 -m venv /tmp/v && /tmp/v/bin/pip install . && /tmp/v/bin/python -c "import aimail; print(aimail.core_dir())"
 ```
 
-## Related repositories
+## Related
 
-- [metercai/aimail](https://github.com/metercai/aimail) — this monorepo:
-  aimail CLI (`cli/`), Python SDK (`pysdk/`, you are here), TypeScript SDK
-  (`tssdk/`), bridge distributions.
-- [metercai/aimail-gateway](https://github.com/metercai/aimail-gateway) — the
-  AIMail gateway: SMTP/HTTP mail service, address & activation APIs, and the
-  board endpoints the SDK client talks to.
+- [aimail monorepo](https://github.com/metercai/aimail) — CLI (`cli/`), TypeScript SDK (`tssdk/`), bridge.
+- [aimail-gateway](https://github.com/metercai/aimail-gateway) — the mail service this SDK talks to.

@@ -1,60 +1,40 @@
 # dsh-aimail
 
-AIMail plugin for dsh (deepseek-harness). It gives a dsh agent a mailbox on
-AIMail: inbound email is delivered into the agent's session, and the agent
-can send mail, manage contacts, keep thread notes, and work on A2A boards
-through 15 plain tools.
+AIMail plugin for dsh (deepseek-harness): a real mailbox for a dsh agent —
+inbound mail lands in the agent's session, and 15 plain tools cover send,
+contacts, thread notes, search and A2A boards.
 
 ## Install
 
-Prerequisites:
-
-- dsh (deepseek-harness) with the web profile
-- an AIMail binding for the dsh session (`aimail install` from the
-  aimail repo sets up `aimail_gateway.json` and per-address
-  `agentmail.json`)
-
 ```bash
-# install (idempotent)
-dsh plugin --profile web add dsh-aimail
-
-# uninstall (idempotent)
-dsh plugin --profile web remove dsh-aimail
+dsh plugin --profile web add dsh-aimail --config.minimumReleaseAge=0   # idempotent
+dsh plugin --profile web remove dsh-aimail                            # idempotent
 ```
+
+Prerequisites: dsh with the `web` profile, and an AIMail binding for the
+session (produced by `aimail install --home ~/.dsh`).
 
 ## What it does
 
-**Tools** — the same 15 bare-name tools as every other adapter:
-`send_mail`, `manage_contacts`, `contact_profile`, `set_contact_profile`,
-`email_summary`, `set_email_summary`, `search_mail`,
-`board_status`, `board_task_list`, `board_task_show`, `board_heartbeat`,
-`board_members`, `board_roles`, `set_public_whoami`, `activate_address_code`.
-Identity comes from the session id resolved through `@aimail/mail`
-(`agentmail.json` is the sole identity source); unbound sessions fail loud.
-
-**Inbound mail** — a profile-scoped HTTP endpoint (`POST /aimail/inbound`,
-default port `9099`, override with `AIMAIL_INBOUND_PORT`). Each bridge
-delivery is HMAC verified against the per-agent secret, enriched by the
-shared preprocess chain, and
-delivered to the agent's session (live followup, cold resume, or a fresh
-session bound for the turn).
-
-**Persona** — mounts an email-agent persona that teaches the model the mail
-workflow (reply-all semantics, tool selection, thread continuity).
-
+- **Tools** — the 15 tools defined once in `@aimail/mail-core`'s `MAIL_TOOLS`.
+  Identity resolves from the session id via `@aimail/mail`; `agentmail.json` is
+  the only identity source, and unbound sessions fail loud.
+- **Inbound** — profile-scoped `POST /aimail/inbound` (default port 9099,
+  `AIMAIL_INBOUND_PORT` to override): HMAC-verified, run through the shared
+  preprocess chain, delivered into the dsh session.
+- **Inbound op entry** — `--op assemble|update|teardown|prompt-test` for the
+  aimail CLI, single-line JSON envelope in and out.
+- **Host layout** — the plugin reports dsh's own layout (mail preset, skill
+  exposure) to the shared assembler, so the CLI carries no dsh-specific concept.
+- **Persona** — mounts an email-agent persona that teaches the agent the mail
+  workflow (reply-all semantics, tool choice, thread continuity).
 
 ## Other adapters
 
-The same tool surface and inbound contract, bound to other agent platforms:
+- [openclaw-aimail](https://www.npmjs.com/package/openclaw-aimail) — OpenClaw plugin.
+- [pi-aimail](https://www.npmjs.com/package/pi-aimail) — pi extension.
 
-- [openclaw-aimail](https://www.npmjs.com/package/openclaw-aimail) — AIMail plugin for OpenClaw — definePluginEntry: 15 tools, in-gateway HTTP route, register/status commands.
-- [pi-aimail](https://www.npmjs.com/package/pi-aimail) — AIMail extension for pi (earendil-works/pi) — registerTool tools + local inbound listener bridged via sendUserMessage.
+## Related
 
-## Related repositories
-
-- [metercai/aimail](https://github.com/metercai/aimail) — the AIMail monorepo:
-  CLI (`cli/`), Python SDK (`pysdk/`), TypeScript SDK (`tssdk/`), bridge
-  distributions.
-- [metercai/aimail-gateway](https://github.com/metercai/aimail-gateway) — the
-  AIMail gateway: SMTP/HTTP mail service, address & activation APIs, and the
-  board endpoints the tools talk to.
+- [aimail monorepo](https://github.com/metercai/aimail) — CLI, Python SDK, this SDK.
+- [aimail-gateway](https://github.com/metercai/aimail-gateway) — the mail service behind the tools.

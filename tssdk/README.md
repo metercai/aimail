@@ -1,67 +1,52 @@
 # AIMail SDK for TypeScript
 
 AIMail (agent mail) SDK for TypeScript: a framework-agnostic core plus
-ready-made adapters that give any AI agent a real mailbox — inbound email
+ready-made adapters that give an AI agent a real mailbox — inbound mail
 delivered into the agent's session, and 15 plain tools for sending mail,
 managing contacts, keeping thread notes, searching local mail, working on
 A2A boards, and publishing the public identity.
 
 | Package | Purpose |
 |---|---|
-| [`@aimail/mail-core`](packages/mail-core/README.md) | Framework-agnostic core: gateway HTTP client, tool functions, inbound preprocess chain, HMAC verification, `MAIL_TOOLS` semantic registry. Only dependency: `typebox` (parameter schemas). |
-| [`@aimail/mail`](packages/mail/README.md) | Platform-neutral config resolution: session id / email / recipient → `agentmail.json` → `AgentConfig`. |
+| [`@aimail/mail-core`](packages/mail-core/README.md) | Core: gateway client, tools, inbound preprocess chain, HMAC verification, `MAIL_TOOLS` registry. Only dependency: `typebox`. |
+| [`@aimail/mail`](packages/mail/README.md) | Config resolution: session id / email / recipient → `agentmail.json` → `AgentConfig`. |
 | [`dsh-aimail`](packages/dsh-aimail/README.md) | AIMail plugin for dsh (deepseek-harness). |
 | [`openclaw-aimail`](packages/openclaw-aimail/README.md) | AIMail plugin for OpenClaw. |
 | [`pi-aimail`](packages/pi-aimail/README.md) | AIMail extension for pi (earendil-works/pi-coding-agent). |
 
-All adapters iterate the same `MAIL_TOOLS` array from `@aimail/mail-core` —
-the 15 tool names, descriptions, and parameter shapes are defined once, so
-every platform surfaces an identical tool surface. Installation and
-registration are driven by the aimail CLI (`aimail install --home
-<platform-home>`); per-address `agentmail.json` bindings under
-`$AIMAIL_HOME` are the sole identity source. Inbound delivery is handled by
-aimail-bridge, which forwards mail to each platform's `POST /aimail/inbound`
-endpoint (HMAC-verified).
+The 15 tools are defined once in `MAIL_TOOLS` and iterated by every adapter,
+so each platform surfaces an identical tool set. Binding, registration and
+platform install are driven by the aimail CLI (`aimail install --home
+<platform-home>`): per-address `agentmail.json` under `$AIMAIL_HOME` is the sole
+identity source, and inbound delivery goes through aimail-bridge to each
+platform's HMAC-verified inbound endpoint.
+
+Platform knowledge lives in one host declaration per platform under
+`cli/src/hosts/` in the monorepo; this SDK holds only protocol adaptation.
 
 ## Resources (board prompts/souls, skills)
 
-Asset resources are **single-sourced at the repo root `resources/`** (not per
-package). An npm tarball can only carry files under its own package directory, so
-each adapter package stages its own `resources/` copy from that source in **its own
-`prepack`** (`node ../mail-core/scripts/stage-resources.mjs --dest .`, git-ignored) —
-the copy belongs to the package that ships it. In a repo checkout, run that same
-command from the package directory after editing `resources/`.
-
-## Packages
-
-Per-package READMEs (install / capabilities / usage):
-
-- [mail-core](packages/mail-core/README.md) — core + tool surface
-- [mail](packages/mail/README.md) — config resolution
-- [dsh-aimail](packages/dsh-aimail/README.md) — dsh plugin
-- [openclaw-aimail](packages/openclaw-aimail/README.md) — OpenClaw plugin
-- [pi-aimail](packages/pi-aimail/README.md) — pi extension
+Resources are single-sourced at the repo root `resources/`. Because an npm
+tarball can only carry files inside its own package, each adapter stages its
+own copy in its own `prepack` (`node ../mail-core/scripts/stage-resources.mjs
+--dest .`, git-ignored). In a repo checkout, run the same command from the
+package directory after editing `resources/`.
 
 ## Development
 
 ```bash
 pnpm install
-pnpm test        # vitest: preprocess chain, HMAC, MAIL_TOOLS parity, adapters
-pnpm build          # mail-core / mail / dsh-aimail via tsc -b, openclaw + pi via their own tsconfig
-pnpm run publish    # 发布唯一入口: 跑脚本/发布五包(含 workspace:^ 重写 + hardlink
-                    # normalize + L2 tarball 检查)。**不要**用 `pnpm publish`——
-                    # 那是原生 publish,会跳过上面全部步骤(E415 事故成因链)。
+pnpm test           # vitest: preprocess chain, HMAC, MAIL_TOOLS parity, adapters
+pnpm build          # mail-core / mail / dsh-aimail via tsc -b; openclaw + pi via their own tsconfig
+pnpm run publish    # the only release entry (workspace:^ rewrite, hardlink normalize, tarball checks)
 ```
+
+Never use `pnpm publish` directly — it skips the release script's steps.
 
 ## Related repositories
 
-- [metercai/aimail](https://github.com/metercai/aimail) — the AIMail monorepo:
-  CLI (`cli/`), Python SDK (`pysdk/`), this TypeScript SDK (`tssdk/`), bridge.
-- [metercai/aimail-gateway](https://github.com/metercai/aimail-gateway) — the
-  AIMail gateway: SMTP/HTTP mail service, address & activation APIs, board
-  endpoints.
+- [metercai/aimail](https://github.com/metercai/aimail) — monorepo: CLI, Python SDK, this TypeScript SDK, bridge.
+- [metercai/aimail-gateway](https://github.com/metercai/aimail-gateway) — the gateway the tools talk to.
 
-How to build an adapter for a new agent platform (any language): see
-[docs/agent-integration.md §6](https://github.com/metercai/aimail/blob/main/docs/agent-integration.md) —
-platform knowledge lives in cli/platforms.json, adapters live in their SDK,
-the CLI never changes.
+Building an adapter for a new platform: see
+[docs/agent-integration.md §6](https://github.com/metercai/aimail/blob/main/docs/agent-integration.md).
