@@ -46,9 +46,10 @@ Per-platform install action, registrar and restart requirement:
 Common commands:
 
 ```bash
-aimail install --home <platform-root>                     # single agent
-aimail install --home <platform-root> --all-agents        # every agent under the root (multi-profile platforms)
-aimail install --home <platform-root> --system-id <sid>   # reuse an existing system (no re-activation)
+aimail install --home <platform-root>                     # main agent only; a pointer in that home auto-reuses the system
+aimail install --home <platform-root> --all-agents        # register every agent under the root (hermes/openclaw/deerflow)
+aimail install -s <sid>                                   # resolve the platform root from local config
+aimail install --home <platform-root> --system-id <sid>   # explicit bind: missing pointer / ambiguous systems / new root
 ```
 
 Integration is complete when, after `aimail welcome`, the manager receives the

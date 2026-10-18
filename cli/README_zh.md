@@ -35,9 +35,10 @@
 通用命令:
 
 ```bash
-aimail install --home <平台根>                    # 单 agent
-aimail install --home <平台根> --all-agents        # 平台根下全部 agent(多 profile 平台)
-aimail install --home <平台根> --system-id <sid>   # 复用已有系统(不重新激活)
+aimail install --home <平台根>                    # 只注册主 agent;该 home 有指针时自动复用系统
+aimail install --home <平台根> --all-agents        # 平台根下每个 agent 都注册(hermes/openclaw/deerflow)
+aimail install -s <sid>                            # 由 sid 反查本机已配置的平台根
+aimail install --home <平台根> --system-id <sid>   # 显式绑定:指针缺失 / 多系统歧义 / 换平台根
 ```
 
 对接完成的判定: `执行 aimail welcome 后，安全员收到 agent 回复的欢迎邮件`。
