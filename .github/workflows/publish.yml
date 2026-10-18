@@ -162,7 +162,8 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: aimail-${{ matrix.platform }}
-          path: cli/aimail-${{ matrix.platform }}${{ matrix.ext }}
+          path: cli/aimail-${{ needs.meta.outputs.cli_version }}-${{ matrix.platform }}${{ matrix.ext }}
+          if-no-files-found: error
 
   cli-release:
     needs: [meta, cli-build]
