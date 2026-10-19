@@ -32,6 +32,7 @@ const TOP_LEVEL: &[&str] = &[
     "address",
     "prompt",
     "bridge",
+    "agent",
 ];
 
 const PROMPT_SUBCOMMANDS: &[&str] = &["add", "list", "rm", "test", "create-file"];
@@ -71,6 +72,8 @@ const IMPLEMENTED: &[&str] = &[
     // repair：十步阶梯 + `-D` deep 扩展（引擎早已在 core::repair）+ 命令面接线。
     // 写面行为（真跑修复）由 CLI L2 覆盖；此处只验 --dry-run 与面。
     "repair",
+    // agent：address-level bootstrap 控制面（doctor 只读探测 + SDK 选型）。
+    "agent",
 ];
 
 static SEQ: AtomicU32 = AtomicU32::new(0);

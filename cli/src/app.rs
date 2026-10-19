@@ -83,6 +83,10 @@ const SUBCOMMANDS: &[(&str, &str)] = &[
         "platform",
         "platform static knowledge + detection (machine surface)",
     ),
+    (
+        "agent",
+        "address-level bootstrap: host profile + SDK choice (control plane)",
+    ),
 ];
 
 /// `prompt` 的嵌套子命令（Python `cli/aimail:3621-3647`）。
@@ -595,6 +599,7 @@ pub fn build_cli() -> Command {
             "uninstall" => sub = uninstall_args(sub),
             "stats" => sub = stats_args(sub),
             "platform" => sub = platform_args(sub),
+            "agent" => sub = agent_args(sub),
             "check" => sub = check_args(sub),
             "persona" => sub = persona_args(sub),
             "domain" => sub = domain_args(sub),
@@ -696,12 +701,57 @@ pub fn build_cli() -> Command {
     app
 }
 
+fn agent_args(cmd: Command) -> Command {
+    cmd.subcommand_required(true).subcommand(
+        Command::new("doctor")
+            .about("verify the agent's self-description and pick the SDK (read-only)")
+            .arg(
+                Arg::new("questions")
+                    .long("questions")
+                    .action(ArgAction::SetTrue)
+                    .help("print the one-shot question block for the agent"),
+            )
+            .arg(
+                Arg::new("answers")
+                    .long("answers")
+                    .value_name("JSON")
+                    .help("the agent's answer table as JSON"),
+            )
+            .arg(
+                Arg::new("answers-file")
+                    .long("answers-file")
+                    .value_name("PATH")
+                    .help("read the answers JSON from a file"),
+            )
+            .arg(
+                Arg::new("json")
+                    .long("json")
+                    .action(ArgAction::SetTrue)
+                    .help("print the host profile as JSON"),
+            ),
+    )
+}
+
 /// 进程入口：解析 argv 并分发，返回退出码。
 pub fn run() -> i32 {
     // 与 Python `main():3442` 同序：先把机器级/仓库 .env 灌进进程环境（绝不覆盖已有值）
     crate::core::config::load_env();
     let matches = build_cli().get_matches();
     match matches.subcommand() {
+        Some(("agent", m)) => {
+            let Some((action, am)) = m.subcommand() else {
+                return 2;
+            };
+            match action {
+                "doctor" => crate::cmd::agent::run(&crate::cmd::agent::Args {
+                    questions: am.get_flag("questions"),
+                    answers: am.get_one::<String>("answers").cloned(),
+                    answers_file: am.get_one::<String>("answers-file").cloned(),
+                    json: am.get_flag("json"),
+                }),
+                _ => 2,
+            }
+        }
         Some(("version", _)) => crate::cmd::version::run(),
         Some(("stats", m)) => crate::cmd::stats::run(m.get_flag("all")),
         Some(("persona", _)) => crate::cmd::persona::run(),
