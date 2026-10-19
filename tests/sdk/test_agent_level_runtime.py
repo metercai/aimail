@@ -8,7 +8,7 @@ one-call pull runtime. This file pins:
    (board_* excluded — no board membership/token; measured HTTP 401);
    every entry carries its handler.
 2. ``install_agent_skill`` copies the shipped skill into
-   ``<skills>/<agentmail>/SKILL.md`` and is idempotent.
+   ``<skills>/<skill name>/SKILL.md`` and is idempotent.
 3. ``start_agent_level`` injects the agent context, starts one loop per
    agent-scope binding, defaults the inbound chain to the shared
    ``process_inbound_mail`` pipeline, and refuses to guess when the process

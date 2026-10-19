@@ -13,6 +13,7 @@ vi.mock('../src/preprocess.js', () => ({
   processInboundMail: (...args: unknown[]) => processInboundMail(...args),
 }))
 
+import { BINDING_FILE } from '../src/contract.js'
 import { startAgentLevel } from '../src/agent-level.js'
 
 let tmp: string
@@ -25,7 +26,7 @@ beforeEach(async () => {
   const dir = path.join(process.env.AIMAIL_HOME, 'systems', 'shared_addr_t', 'a_t.local')
   await fs.mkdir(dir, { recursive: true })
   await fs.writeFile(
-    path.join(dir, 'agentmail.json'),
+    path.join(dir, BINDING_FILE),
     JSON.stringify({ agent_id: 'a', system_id: 'shared_addr_t', email: 'a@t.local',
       gateway_url: 'http://127.0.0.1:1', api_key: 'k' }),
   )

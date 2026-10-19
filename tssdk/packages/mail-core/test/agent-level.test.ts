@@ -20,6 +20,7 @@ import {
   startAgentLevel,
 } from '../src/agent-level.js'
 import { MAIL_TOOLS } from '../src/tool-registry.js'
+import { AGENT_SKILL_NAME, BINDING_FILE } from '../src/contract.js'
 
 const PKG = path.resolve(__dirname, '..')
 const RESOURCE_SKILL = path.join(PKG, 'resources', 'skills', 'SKILL.md')
@@ -61,11 +62,11 @@ describe('agentTools', () => {
 })
 
 describe('installAgentSkill', () => {
-  it('copies the shipped skill into <skills>/agentmail/SKILL.md (idempotent)', async () => {
+  it('copies the shipped skill into <skills>/<skill name>/SKILL.md (idempotent)', async () => {
     const skills = path.join(tmp, 'skills')
     const first = await installAgentSkill(skills)
     expect(first.installed).toBe(true)
-    expect(first.path).toBe(path.join(skills, 'agentmail', 'SKILL.md'))
+    expect(first.path).toBe(path.join(skills, AGENT_SKILL_NAME, 'SKILL.md'))
     expect(await fs.readFile(first.path, 'utf-8')).toBe(
       await fs.readFile(RESOURCE_SKILL, 'utf-8'),
     )
@@ -86,7 +87,7 @@ describe('startAgentLevel', () => {
     const dir = path.join(process.env.AIMAIL_HOME as string, 'systems', sid, email.replace('@', '_'))
     await fs.mkdir(dir, { recursive: true })
     await fs.writeFile(
-      path.join(dir, 'agentmail.json'),
+      path.join(dir, BINDING_FILE),
       JSON.stringify({ system_id: sid, email, gateway_url: 'http://127.0.0.1:1', api_key: 'k' }),
     )
 

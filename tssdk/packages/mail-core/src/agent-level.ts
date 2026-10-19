@@ -61,7 +61,7 @@ export interface InstallAgentSkillResult {
 }
 
 /**
- * Copy the shipped skill into `<skillsDir>/<agentmail>/SKILL.md`.
+ * Copy the shipped skill into `<skillsDir>/<skill name>/SKILL.md`.
  * Idempotent: rewrites only when the content differs.
  */
 export async function installAgentSkill(

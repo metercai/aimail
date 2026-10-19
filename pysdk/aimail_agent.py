@@ -62,7 +62,7 @@ def _skill_source() -> Path:
 
 
 def install_agent_skill(skills_dir: str, subdir: str = "") -> dict:
-    """Copy the shipped skill into ``<skills_dir>/<agentmail>/SKILL.md``.
+    """Copy the shipped skill into ``<skills_dir>/<skill name>/SKILL.md``.
 
     Idempotent: rewrites only when the content differs (user edits are kept
     out of it — the file is a package artifact, not a user config).
