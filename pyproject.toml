@@ -59,6 +59,10 @@ Repository = "https://github.com/metercai/aimail"
 # package mirrors pysdk/ exactly — flat core + adapters + resources — so
 # the runtime's sys.path bootstrap and the runtime_bundle resource
 # resolution (root/resources/...) work identically for pip and repo.
+[project.scripts]
+aimail-agent = "aimail.aimail_agent:main"
+# 宿主没有 toolset 时的最小引导面(activate / pull)。有 toolset 的宿主用工具, 不用它。
+
 [tool.hatch.build.targets.wheel]
 packages = []
 

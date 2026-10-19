@@ -27,6 +27,7 @@
 | advanced | `src/advanced/api/address.rs:182` `act_err_to_app` | `ActErr` 保留语义映射到 `AppError`（Invalid/NoBareDomain/DomainConflict→400、BoundToOther→403、AlreadyActive→409、Db→500）；删除旧死代码与 `act_err_msg` | 仅激活路径；错误文案不变 |
 | advanced | `src/advanced/api/address.rs:437-496` | 激活事务 6c 写 `domain_addr_meta` 后新增 6d：按**回读的 effective manager** 插 `direction='all'` 的 agent↔manager 白名单（与 register 同款，`category='system'`，`ON CONFLICT` 保 `is_active=1`）；`ActivationOutcome` 增加 `manager_address`（:154）并随响应返回（:264） | 续期沿用已存 manager，不被本轮申请人覆盖；白名单插入不走 API 配额 |
 | advanced | `src/advanced/storage.rs` `get_active_board_count` / `scan_active_boards`、`src/advanced/board_quota.rs:53` | 板配额**按系统计数**：产品配额是每系统的 ⇒ 只数该系统自己的板；网关 `[board]` 默认与 standalone/license 授权是整机口径 ⇒ 数全部板。计数缓存带作用域（每系统答案不会被当成全局答案或别的系统答案）。原先用**全局** actively 数对比**每系统**上限，一个系统的板会吃掉另一个系统的额度 | 仅准入判断；地址码产品 `max_active_boards=Some(0)` 不变（owner 裁定：只能当成员） |
+| gateway | `src/core/api/webhook.rs` `notify_agent_persona_applied` + `outbound.rs` `AckCtx: Copy` | 角色批准后**同时**给 agent 本人发一封 `[AIMail] Persona applied` 闭环通知（复述已落库的 persona/signature），安全官仍收回执。内部收件人不能走 `enqueue_outbound_simple`（pull 地址无 webhook ⇒ 退 MX ⇒ loopback 丢弃），改为按 board 通知同款 `create_inbound`，自建 `message_id` 头 | 仅 persona 批准路径；通知自身不会被当指令消费（发件人是系统 noreply） |
 | gateway | `src/core/api/send.rs:1327` `normalize_thread_headers` | 合并 headers 后、board 注入与 Auto-gen 之前，把 `Message-ID`/`In-Reply-To`/`References` 按名归一为 `message_id`/`in_reply_to`/`references`（大小写与 `-`/`_` 不敏感，规范键优先），其它 header（含 `X-Board-*`）不动；Auto-gen 只看规范化后的 `message_id` | **D3 单点修在网关**，SDK 保持发 RFC 大写键不动；gateway+advanced 同批发 |
 
 ### 1.2 SDK（Python pysdk / TypeScript @aimail/mail-core）
@@ -41,6 +42,7 @@
 | `tssdk/.../board.ts:55` `boardInviteFrom` + `preprocess.ts` | 同上，单一解析器；`processInboundMail` 用它注册/落盘 token |
 | `pysdk/aimail_board.py` `_board_id_of` | board 工具接受**裸 board id**（邀请邮件里的就是裸 id）、`b_<id>`、task id；原先把裸 id 走 task-id 解析器得到空串 ⇒ 跳过 token ⇒ 用 agent key ⇒ 401 |
 | `tssdk/.../package.json` + `scripts/stage-resources.mjs` | 通用核也随包发 `resources/**`（prepack 暂存、gitignore），非适配 TS 宿主因此能拿到 skill 源 |
+| `pysdk/aimail_agent.py:main` + `pyproject.toml [project.scripts]` | 引导命令行 `aimail-agent`：`activate "<粘贴行>" --skills-dir DIR` 与 `pull --once/--loop`。宿主**没有 toolset 但有 shell** 时，装完 SDK 就用这两条命令完成激活与收信 —— 不需要 agent 现写代码；两者都没有时文档明说"agent 内部无法完成" | 只加 CLI 入口，不改运行时语义；`pull --once` 打印一行一个 JSON |
 
 ### 1.3 文档
 
@@ -50,7 +52,8 @@
 - §1 你的工具：以 **toolset/工具名**表述，不再写 Python/TS 函数调用；
 - §2 激活：只调 `activate_address_code`（address / code / gateway_url 三值），manager 由网关记录；
 - §3 校准身份：agent 主动执行 role_calibrator（persona / signature / current_time → 安全官 approve）——**完成即激活完成**，文档到此结束；
-- 宿主接线（安装 SDK、toolset/skill 注册、pull 运行时）只留一句安装命令 + 指向 `docs/agent-integration*.md`，不写代码；
+- 宿主接线（安装 SDK、toolset/skill 注册、pull 运行时）只留一句安装命令 + 指向 `docs/agent-integration*.md`；无 toolset 但有 shell 时给 `aimail-agent activate / pull --once` 两条命令，两者都没有则明说"agent 内部无法完成"；
+- §3 写明闭环：批准后安全官收回执、**agent 收到 `[AIMail] Persona applied` 通知**（复述 persona/signature）；
 - 契约值（绑定文件/指针/前缀/入站路径/端口）**全部移出本文**，单一归属平台文档（checker 相应按层重钉：自举文档 0 项，平台文档 9 项）。
 
 ## 2. 产物的验证方法（可复现）
@@ -103,7 +106,7 @@ cd ~/aimail-advanced && python3 tests/advanced/e2e-open-apply.py   # 期望 42 P
 
 ```
 组件 / 版本 / commit
-  aimail-gateway    2c2e65c   version 1.0.3（未 bump）
+  aimail-gateway    2c2e65c + 本次闭环提交   version 1.0.3（未 bump）
   aimail-advanced   d6be955 + b7f207b（板配额按系统计数）
                     version 1.0.1（未 bump）binary md5 0bf902a0，0 个源码新于二进制
   aimail (SDK)      65dd3af f416aa6 ec7a2f4 863127e 1c8f8bf 0ccac9f b4affe9 d07a9ae
@@ -175,6 +178,7 @@ SDK
 | 真 LLM 自主选工具 | 不可为（约束） | 需固定模型/key，属另轮 report-only |
 | 地址级 agent **创建** board | 不可为（产品裁决） | `advanced/src/server.rs:1124` 地址码产品 `max_active_boards: Some(0)`；owner 已裁定“只能当成员、不能自己开 board”合理，本次保留 |
 | ~~board 配额计数口径~~ | **已在本批修复** | `board_quota.rs` + `storage.rs` 改为“配额与计数同作用域”；回归测试：某系统配额 1、另系统已有 1 块板时，新系统仍应放行（修复前会被误拒）。advanced 单测 94 passed |
+| ~~批准后 agent 无闭环通知~~ | **已在本批修复** | 网关新增 agent 侧 `[AIMail] Persona applied` 通知（内部收件人走 `create_inbound`，绕开 loopback）；`/tmp/cli-loop/probe.py` 实测 8/8 |
 | Python 身份名片无模块级 helper | 已知不对称 | 用 `client.agent_state_put("public_whoami", …)`（文档已按此写并实测）；TS 有 `setPublicWhoami`。是否补同名 helper 待定，不影响可用性 |
 
 ## 6. 门禁改动声明（SDK 侧，非本场景门禁）

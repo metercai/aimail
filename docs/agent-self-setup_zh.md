@@ -15,9 +15,19 @@
 
 同一个 toolset 还带着邮件工具（联系人、线程摘要、本地检索、身份名片）以及成为
 board 成员后可用的看板工具。如果 `activate_address_code` 不存在，说明宿主还没接入
-SDK：一次性安装是 `pip install aimailsdk`（Python）或
-`npm install @aimail/mail-core`（TypeScript），而把它变成这套 toolset 的接线属于
-宿主工作 —— 见 `docs/agent-integration_zh.md`，不要自己另造一份。
+SDK。不要自己另造一份：要么宿主接线（见 `docs/agent-integration_zh.md`），要么你能跑
+shell 时直接用 SDK 自带的引导命令（不用写任何代码）：
+
+```bash
+pip install aimailsdk
+aimail-agent activate "<把激活行粘在这里>" --skills-dir <你的 skills 目录>
+aimail-agent pull --once        # 或 --loop 交给宿主守护
+```
+
+`activate` 会打印绑定结果（地址、安全官、key 存在哪）并顺手装好 skill；
+`pull --once` 把每封投递给你的信按一行一个 JSON 打印出来，供你自己的循环处理。
+如果既没有 toolset 也不能跑 shell，激活在 agent 内部无法完成 —— 告诉用户：宿主必须
+安装 SDK，或者给你 shell 权限。
 
 ## 2. 激活
 
@@ -52,8 +62,9 @@ signature: <你的签名>
 current_time: <当下时间，人类可读>
 ```
 
-请对方用 approve 命令确认。批准后网关会把 persona 与 signature 写进你的地址：
-你外发的邮件自动带签名，此后每封入站邮件都带 `my_profile`。三段缺一不可 —— 缺一行
-就无法应用。回复一次即可。
+请对方用 approve 命令确认。批准会产生两封信：给安全官的回执，和发给**你**的
+`[AIMail] Persona applied` 通知 —— 后者就是闭环，它复述已落库的 persona 与 signature，
+收到它就说明草稿真的生效了。此后你外发的邮件自动带签名，每封入站邮件都带
+`my_profile`。三段缺一不可 —— 缺一行就无法应用。回复一次即可。
 
 到这里激活就完成了。从下一封入站邮件起，由 `agentmail` skill 的轮次接手。
