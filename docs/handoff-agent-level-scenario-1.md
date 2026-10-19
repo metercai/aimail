@@ -8,15 +8,17 @@
 
 ## 0. 一页结论
 
-- 场景 1 = 用户把激活 prompt 粘进对话，agent 自己装 SDK → 激活 → 收信回信。
-  **不需要 CLI、bridge、系统级凭据、admin key；不监听任何端口（纯 pull）。**
-- 门禁 `GATE a1 all: PASS`（L1-PY 29/29、L1-TS 13/13、L2-PY 14/14、L2-TS 14/14，
-  四份 JSON `fail=0`、无 GAP）。
-- 额外用两个**干净环境探针**（无 CLI、空 HOME、只给 prompt 文本）验证了真实宿主路径：
-  Python 16/16、TypeScript 17/17；另有一个 board 成员链路探针 `board_status` = 200。
-- 待发版：gateway 1.0.3→1.0.4、advanced 1.0.1→1.0.2、`@aimail/mail-core`
-  0.1.54→0.1.55、pysdk 0.1.55→0.1.56，外加三个适配包同批升（bundled 内容变了）。
-  **未打 tag、未 publish、未 push**（push main = 发布，等 owner 点头）。
+- 场景 1 = 用户在对话里把激活行交给一个干净 agent：它拿到 shell → 装控制面 CLI →
+  doctor 自证宿主 → setup 装适配包/skill → **在 agent 内部**激活 → 校准身份 → 自主收发。
+  **数据面不经过 CLI；不用 bridge、系统级凭据、admin key；不监听任何端口（纯 pull）。**
+- 闭环已实测（同一进程）：0 绑定起运行时 → 进程内激活 → 句柄 0→1（**hot-add，无需第二次
+  重启**）→ 来信成为回合 → 回信 → 对端收到（`/tmp/hotadd-driver.py` 6/6）。
+- 门禁 `GATE a1 all: PASS`（29/13/14/14，`fail=0`，证据 `/tmp/a1-final7`）；L0 PASS；
+  pytest 277；vitest 288；CLI 集成测试 4 + 10；适配选型矩阵 11/11。
+- 待发版：**CLI 0.1.55→0.1.56（必须先发）**、gateway 1.0.3→1.0.4、advanced 1.0.1→1.0.2、
+  `@aimail/mail-core` 0.1.54→0.1.55、pysdk 0.1.55→0.1.56，外加三适配包同批升。
+- 代码已 push（`aimail` main `b377f99`、gateway `1ca59da`、advanced `b7f207b`）；
+  **未 bump、未打 tag、未 publish**。
 
 ## 1. 产品侧新增与变更
 
@@ -216,11 +218,14 @@ SDK
 
 ## 8. 复验请回传
 
-1. `GATE a1 all` 的 rc 与四份 JSON 的 `fail`/`GAP`（本批证据 `/tmp/a1-final6`）；
-2. 是否认可 §4 的版本/顺序/配对（尤其适配三包必须重发）；
+1. `GATE a1 all` 的 rc 与四份 JSON 的 `fail`/`GAP`（本批证据 `/tmp/a1-final7`）；
+2. 是否认可 §4 的版本/顺序/配对（尤其 **CLI 必须先发**、适配三包必须重发）；
 3. 若发现本文与代码不符，直接指出 `file:line`，不要改门禁判据；
-4. 发版后请在 PyPI/npm 实测一次 `pip install aimailsdk` / `npm i @aimail/mail-core`
-   再跑 `driver_py.py` / `driver_ts.py`（这是“干净环境照文档可跑”的最终判据）。
+4. 发版后请在 PyPI/npm 实测一次 `pip install aimailsdk` / `npm i @aimail/mail-core`，
+   再跑 `driver_py.py` / `driver_ts.py`（"干净环境照文档可跑"的最终判据）；
+5. 发版后用**发布出去的**二进制跑一遍：`scripts/agent-install.sh` → `aimail version`
+   → `aimail agent doctor --questions`，确认装到的版本**带 `agent` 子命令**（这是 §10 的 S1/S2 门槛）；
+6. 真机冒烟若已具备条件，贴 `tests/cli/agent_host_smoke.py --json` 的表格；不具备就写"未跑（无平台）"。
 
 ## 9. agent 级自举（本轮新增，M1–M6）
 
@@ -268,3 +273,71 @@ SDK
 home / npm root 查找），并回放平台表里的重启提示。实测：`--host openclaw --apply` 命中
 `skip_if`（已装 ⇒ 跳过安装、校验在位、rc=0，**未改动现场环境**）；`--host pi|hermes` dry-run
 给出各自命令；未知 host ⇒ rc=2 并列出已知宿主。
+
+## 10. 发版执行清单（verifier 可直接照做）
+
+### 10.1 版本 bump（一次改完，再统一跑门禁）
+
+| 文件 | 现在 | 目标 | 备注 |
+|---|---|---|---|
+| `cli/Cargo.toml` `version` | 0.1.55 | **0.1.56** | 独立版本线；publish.yml 由此推导 `cli-v<ver>` |
+| `aimail-gateway/Cargo.toml` | 1.0.3 | 1.0.4 | 与 advanced 同批 |
+| `aimail-advanced/Cargo.toml` | 1.0.1 | 1.0.2 | path 依赖 gateway |
+| `pyproject.toml` (`aimailsdk`) | 0.1.55 | 0.1.56 | |
+| `tssdk/packages/mail-core/package.json` | 0.1.54 | 0.1.55 | |
+| `tssdk/packages/mail/package.json` | 0.1.54 | 0.1.55 | 五包齐升约定（无代码变更，仅对齐） |
+| `tssdk/packages/openclaw-aimail/package.json` | 0.1.57 | 0.1.58 | bundled mail-core 变了 ⇒ 必须重发 |
+| `tssdk/packages/pi-aimail/package.json` | 0.1.56 | 0.1.57 | 同上 |
+| `tssdk/packages/dsh-aimail/package.json` | 0.1.58 | 0.1.59 | 同上 |
+
+### 10.2 本地预检（bump 之后）
+
+```bash
+cd aimail && bash tests/sdk/l0-gate-tests.sh              # 期望 L0 PASS
+cd aimail-gateway && cargo test --lib                     # 期望 291 passed（含 persona 闭环）
+cd aimail-advanced && cargo build --bin aimail-advanced && cargo test --bin aimail-advanced
+A1_EVIDENCE=/tmp/a1-rel bash tests/SDK/agent-level/gate.sh   # 期望 GATE a1 all: PASS
+cd aimail/cli && cargo test --test cli_surface --test agent_bootstrap   # 10 + 4
+python3 tests/cli/agent_host_smoke.py --json /tmp/host-smoke.json        # 只读，记录表格
+```
+
+### 10.3 发布（dispatch，不手打 tag）
+
+1. `publish.yml` → **dry_run=true** 先验：构建四平台 CLI 资产、SDK 打包、门禁；不建 tag、不发布。
+2. dry-run 绿后 → `publish.yml` → dry_run=false（`release-type` 留空按版本推导，或显式 `stable`）：
+   自动建 `cli-v0.1.56` 与 SDK tag，发 Release 资产，publish npm/PyPI。
+3. **顺序不可倒**：CLI 先落地（`agent-install.sh` 拉的是 release 资产；0.1.55 没有 `agent`
+   子命令，先发 SDK 也跑不通 S1→S3）。SDK / 适配包可在同一 dispatch 内完成。
+
+### 10.4 发版后验收（硬证据，非"job 绿"）
+
+```bash
+curl -s https://pypi.org/integrity/aimailsdk/0.1.56/<wheel>.whl/provenance   # workflow=publish.yml, environment=pypi-release
+npm view @aimail/mail-core@0.1.55 version          # 可见
+npm view openclaw-aimail versions --json | tail -3  # 三个适配包都在
+# 干净容器（无 SDK、无 HOME 残留）：
+curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/agent-install.sh | bash
+aimail version                                      # 期望 0.1.56
+aimail agent doctor --questions | head -3           # 期望打印提问块（证明 agent 子命令在）
+aimail agent setup --host openclaw                  # dry-run，期望给出 native 命令
+pip install aimailsdk==0.1.56 && python -c "import aimail, aimail_agent; print(aimail_agent.agent_toolset() and 'ok')"
+npm i @aimail/mail-core@0.1.55 && node -e "const m=require('@aimail/mail-core');console.log(m.agentTools().length)"   # 期望 15
+```
+
+### 10.5 回滚
+
+- 逐包回退版本（tag 保留，Release 可下架）；本批**无 DB schema 变更**，advanced 回退后旧 SDK 仍可用。
+- CLI 回退 = 重新 dispatch 上一版本（`cli-v0.1.55`），`agent-install.sh --version cli-v0.1.55` 可钉住。
+- 适配包必须与 mail-core 同批回退，避免 bundle 内 SKILL.md 与核心包语义不一致。
+
+## 11. 交接边界（我做了什么、没做什么）
+
+**做了**：产品代码（gateway/advanced/SDK/CLI/文档/skill）、自验（门禁 + 单测 + 单进程探针 +
+适配矩阵 + 冒烟脚本）、交接文档、push 代码仓。
+
+**没做（不在实现方权限内）**：bump 版本、打 tag、dispatch publish、PyPI/npm 发布；
+在 owner 机器上安装缺失的适配包（`pi-aimail`/`dsh-aimail`/`aimailsdk`）——那会改动其现有 agent 环境；
+四家宿主真机端到端（本机四家宿主程序在位，但只跑了只读冒烟，未改动）。
+
+**判据归属**：门禁判据、场景用例、断言、夹具归验证方；本文只描述产品事实与证据，两者冲突时以
+`aimail-advanced/tests/SDK/agent-level/HANDOFF.md` 的门禁口径为准，并把冲突指回来。
