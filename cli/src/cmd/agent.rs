@@ -821,7 +821,6 @@ pub fn package_setup(args: &PackageArgs) -> i32 {
             .collect();
 
     let already = pkg_present(pkg, &host_home, &python);
-    let restart = all_restart_hints(&args.host);
 
     let mut ctx = serde_json::Map::new();
     ctx.insert(
@@ -837,6 +836,8 @@ pub fn package_setup(args: &PackageArgs) -> i32 {
     ctx.insert("container".into(), json!(""));
     ctx.insert("all_agents".into(), json!(false));
     ctx.insert("agents".into(), json!([]));
+
+    let restart = all_restart_hints(&args.host, &ctx);
 
     if steps.is_empty() {
         let out = json!({
@@ -940,8 +941,14 @@ pub fn package_setup(args: &PackageArgs) -> i32 {
 }
 
 /// Restart hints come from the platform table's `print` steps (single source).
-fn all_restart_hints(host: &str) -> Vec<String> {
+///
+/// 只回**本机成立**的提示：`print` 步的 `when` 与安装步同一套守卫，容器专属的提示
+/// （`when.runtime = "docker"`）在本机模式下不出现 —— 否则本机 dry-run 会给出
+/// 「docker restart {container}」这种与场景不符、且占位符没展开的行。模板按调用方的
+/// ctx 展开（`{container}`/`{home}` 等）。
+fn all_restart_hints(host: &str, ctx: &serde_json::Map<String, Value>) -> Vec<String> {
     let spec = crate::core::detect::spec_json(None, Some(host));
+    let empty_when = json!({});
     let mut out = Vec::new();
     if let Some(arr) = spec
         .get("platforms")
@@ -950,10 +957,13 @@ fn all_restart_hints(host: &str) -> Vec<String> {
         .and_then(|s| s.as_array())
     {
         for st in arr {
+            if !crate::core::steps::when_ok(st.get("when").unwrap_or(&empty_when), ctx) {
+                continue;
+            }
             if let Some(t) = st.get("text").and_then(|t| t.as_str()) {
                 let low = t.to_lowercase();
                 if low.contains("restart") || low.contains("reload") || t.contains("重启") {
-                    out.push(t.trim().to_string());
+                    out.push(crate::core::steps::tmpl(t, ctx).trim().to_string());
                 }
             }
         }
