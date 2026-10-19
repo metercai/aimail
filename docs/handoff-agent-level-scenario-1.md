@@ -35,7 +35,7 @@
 |---|---|
 | `pysdk/aimail_tools.py:529`、`tssdk/.../address-code.ts` | 激活响应里的 `manager_address` 落进 binding（空则不写键）；这是 manager 的**第一来源**（网关在激活事务内回读后返回），不解析 prompt、不事后 whoami 反查 |
 | `pysdk/aimail_tools.py:845`、tssdk `address-code.ts:150` | 连接文件只写 `gateway_url/system_id/domain/scope=agent`，**不再写 `admin_key`**（D4）；激活成功后自动 `set_agent_context`（G2），显式再调幂等 |
-| `pysdk/aimail_agent.py`（新）、`tssdk/.../agent-level.ts`（新） | agent 级运行时：`agent_toolset()`/`agentTools()`（15 个工具，含 6 个 board 工具，每条自带 handler）、`install_agent_skill()`/`installAgentSkill()`（幂等装 `<skills>/agentmail/SKILL.md`）、`start_agent_level()`/`startAgentLevel()`（装 skill + toolset + pull 循环；默认链 = 共享入站管线，把 enriched 交给 `on_agent`/`onAgent`；ping/pong 不入回合；单绑定注入上下文） |
+| `pysdk/aimail_agent.py`（新）、`tssdk/.../agent-level.ts`（新） | agent 级运行时：`agent_toolset()`/`agentTools()`（15 个工具，含 6 个 board 工具，每条自带 handler）、`install_agent_skill()`/`installAgentSkill()`（幂等装到 `<skills>/<skill name>/SKILL.md`）、`start_agent_level()`/`startAgentLevel()`（装 skill + toolset + pull 循环；默认链 = 共享入站管线，把 enriched 交给 `on_agent`/`onAgent`；ping/pong 不入回合；单绑定注入上下文） |
 | `tssdk/.../meta.ts:218` `saveInboundSnapshot` | TS 补齐 Python 的入站快照落盘（meta 常写 + `in-*.json` 受 `save_raw_snapshots` 控制 + FTS 行）。原因：TS 链原先不写入站快照，`search_mail` 只能搜到出站 |
 | `pysdk/aimail_base.py` `_extract_board_gateway` | board 邀请解析：**`Board ID:` 优先**；回退用**发件人地址的邮件域**算 `sha256(board address)[:20]`（不再用网关 host）；pull 报文只有 `sender` 时也认 |
 | `tssdk/.../board.ts:55` `boardInviteFrom` + `preprocess.ts` | 同上，单一解析器；`processInboundMail` 用它注册/落盘 token |
@@ -44,18 +44,14 @@
 
 ### 1.3 文档
 
-`docs/agent-self-setup.md` / `_zh.md` 重写为 0–9 节（en/zh 标题逐条一致）：
+`docs/agent-self-setup.md` / `_zh.md` 重写为 **agent 面三步**（4 个标题，en/zh 逐条同构）：
 
 - 只按语言分（py→`pysdk`、ts→`@aimail/mail-core`），**不按 agent 产品分**；
-- §2 下载并加载：`pip install aimailsdk` + **必须先 `import aimail`**（实测：干净 venv 直接
-  `from aimail_tools import …` = ModuleNotFoundError）；`npm install @aimail/mail-core`；
-- §3 只写两次 SDK 调用（toolset + skill 安装），不再教宿主抄代码；
-- §5 一次 `start_agent_level` 起 pull：**不开端口/不暴露路由/不注册 push 目标**，
-  信交进程内 `on_agent`；`webhook_url` 为空合法；
-- §6 首次运行：身份名片（agent 自写 `public_whoami`）+ 签名（**非自助**，manager 邮件
-  审批，pull 模式下该审批信由网关消费、不投给 agent）；
-- 系统级能力清单**不在文档里**（属运维信息，不进 prompt）；平台端点事实留在
-  `docs/agent-integration*.md`。
+- §1 你的工具：以 **toolset/工具名**表述，不再写 Python/TS 函数调用；
+- §2 激活：只调 `activate_address_code`（address / code / gateway_url 三值），manager 由网关记录；
+- §3 校准身份：agent 主动执行 role_calibrator（persona / signature / current_time → 安全官 approve）——**完成即激活完成**，文档到此结束；
+- 宿主接线（安装 SDK、toolset/skill 注册、pull 运行时）只留一句安装命令 + 指向 `docs/agent-integration*.md`，不写代码；
+- 契约值（绑定文件/指针/前缀/入站路径/端口）**全部移出本文**，单一归属平台文档（checker 相应按层重钉：自举文档 0 项，平台文档 9 项）。
 
 ## 2. 产物的验证方法（可复现）
 
@@ -140,9 +136,9 @@ SDK
 - host 只收到 prompt 文本，自行解析 address/code/manager/gateway，随后激活成功；
 - binding 的 `manager_address` == 网关写入值；连接文件键 ==
   `[domain, gateway_url, scope, system_id]`（无 admin key）；
-- toolset = **15** 个（含 6 个 board 工具）；skill 落在 `<skills>/agentmail/SKILL.md`；
+- toolset = **15** 个（含 6 个 board 工具）；skill 落在 `<skills>/<skill name>/SKILL.md`；
 - pull 运行时 1 条循环；SDK 把 enriched 交回合（`message_id` 非空）；
-- 身份名片写入 200 且能读回；签名经 manager 审批后 whoami 可见；
+- 签名/persona 经 manager 审批后 whoami 可见（role_calibrator 的批准环节）；
 - 本地 `search_mail` 命中入站 token（两语言一致）；
 - 同线程回信 201，manager sink 收到正文。
 

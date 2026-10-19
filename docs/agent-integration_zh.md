@@ -63,6 +63,8 @@ AIMail 与任意 agent 系统(LLM 运行时)对接,agent 获得完整邮件能�
 | `agentmail.json`(systems/{sid}/{addr}/) | 地址级 | 地址全部事实(含 webhook_url/webhook_secret 成对) |
 | `aimail_gateway.json`(systems/{sid}/) | 系统级 | 系统全部事实(含 webhook_host 三态) |
 
+agent 级绑定落在 **`shared_addr_`** 系统前缀下(网关为地址码自动创建的系统);系统级绑定用系统自己的 id。
+
 ---
 
 ## 2. 共享核心(对接必读)

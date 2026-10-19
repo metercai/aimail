@@ -65,6 +65,8 @@ AIMail integrates with any agent system (LLM runtime); the agent gains complete 
 | `agentmail.json` (systems/{sid}/{addr}/) | Address level | All address facts (incl. webhook_url/webhook_secret pair) |
 | `aimail_gateway.json` (systems/{sid}/) | System level | All system facts (incl. webhook_host tri-state) |
 
+Agent-level bindings live under a **`shared_addr_`** system prefix (the system the gateway auto-creates for address codes); system-level bindings use the system's own id.
+
 ---
 
 ## 2. Shared Core (Must-Read for Integration)

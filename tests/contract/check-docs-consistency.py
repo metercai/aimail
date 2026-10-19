@@ -345,14 +345,16 @@ def main(argv: list) -> int:
     for fn in (lambda: check_symbols(args.en, text_en, idx),
                lambda: check_symbols(args.zh, text_zh, idx),
                lambda: check_structure(args.en, text_en, args.zh, text_zh),
-               lambda: check_contract_values(args.en, text_en, man, prefix),
-               lambda: check_contract_values(args.zh, text_zh, man, prefix),
+               # 自举文档 = agent 面: 只查符号 + 标题同构。契约值属宿主事实,
+               # 单一归属在平台文档(下面两条) —— 写进自举文档只会制造歧义。
+               lambda: out(f"[docs] (c) {args.en}: 契约值不适用"
+                           "(自举文档不携带宿主基础设施名, 见平台文档)"),
                lambda: check_contract_values(
                    args.platform_en, plat_en, man, prefix,
-                   keys=PLATFORM_CONTRACT_KEYS, ports=True, require_prefix=False),
+                   keys=CONTRACT_KEYS + PLATFORM_CONTRACT_KEYS, ports=True),
                lambda: check_contract_values(
                    args.platform_zh, plat_zh, man, prefix,
-                   keys=PLATFORM_CONTRACT_KEYS, ports=True, require_prefix=False)):
+                   keys=CONTRACT_KEYS + PLATFORM_CONTRACT_KEYS, ports=True)):
         try:
             fn()
         except CannotJudge as e:

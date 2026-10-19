@@ -37,26 +37,28 @@ def test_docs_are_consistent():
 
 def test_bad_symbol_name_is_red_with_file_line(tmp_path):
     text = DOC_EN.read_text(encoding="utf-8")
-    assert "`start_polling`" in text, "文档里应有 start_polling 的反引号引用"
+    assert "`activate_address_code`" in text, "文档里应有 activate_address_code 的反引号引用"
     bad = tmp_path / "bad-doc.md"
-    bad.write_text(text.replace("`start_polling`", "`start_polling_typo`"),
-                   encoding="utf-8")
+    bad.write_text(text.replace("`activate_address_code`",
+                                "`activate_address_code_typo`"), encoding="utf-8")
     rc, out = _run("--en", str(bad))
     assert rc == 1, out
-    assert "start_polling_typo" in out, out
+    assert "activate_address_code_typo" in out, out
     assert "bad-doc.md:" in out, out  # file:line 必须给
 
 
 def test_wrong_contract_value_is_red(tmp_path):
+    """Contract values are pinned where they live: the host doc. A typo there
+    must stay red (the agent-facing self-setup doc carries no infra names)."""
     man = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    text = DOC_EN.read_text(encoding="utf-8")
-    assert man["binding_file"] in text, "前置: 文档里本就引用了真源值"
+    text = PLATFORM_EN.read_text(encoding="utf-8")
+    assert man["binding_file"] in text, "前置: 平台文档里本就引用了真源值"
     # 把值改坏到"真源值再也出现不了"(前缀式子串也算命中, 所以要整体换掉)
     bad_text = text.replace(man["binding_file"], man["binding_file"].replace(".", "_"))
     assert man["binding_file"] not in bad_text, "前置: 坏文档里确已无真源值"
-    bad = tmp_path / "bad-doc.md"
+    bad = tmp_path / "bad-platform.md"
     bad.write_text(bad_text, encoding="utf-8")
-    rc, out = _run("--en", str(bad))
+    rc, out = _run("--platform-en", str(bad))
     assert rc == 1, out
     assert "binding_file" in out, out  # 报告里点名缺哪个真源值
 
