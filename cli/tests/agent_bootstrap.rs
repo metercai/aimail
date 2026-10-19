@@ -132,7 +132,10 @@ fn unknown_node_host_is_recognised_and_installed_then_removed() {
     assert!(body.contains("startAgentPullEntries"), "{body}");
     assert!(body.contains("api.registerTool"), "{body}");
     assert!(body.contains("api.sendMessage"), "{body}");
-    assert!(skills.join("agentmail").join("SKILL.md").is_file());
+    assert!(skills
+        .join(aimail::core::contract::agent_skill_name())
+        .join("SKILL.md")
+        .is_file());
     assert!(home.join(".aimail/state/adapter-acme-agent.json").is_file());
 
     // uninstall: removes exactly what it wrote

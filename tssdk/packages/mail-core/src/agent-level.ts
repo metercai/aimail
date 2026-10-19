@@ -21,9 +21,13 @@ import { saveInboundSnapshot, saveLocalMeta } from './meta.js'
 import {
   processInboundMail,
 } from './preprocess.js'
+import { onBindingCreated } from './binding-hooks.js'
 import {
+  startAgentPullEntry,
   startAgentPullEntries,
+  stopAgentPullEntries,
   type AgentPullHandle,
+  type StartAgentPullEntryOptions,
   type AgentPullOverrides,
   type PulledMail,
   type StartAgentPullEntriesOptions,
@@ -114,9 +118,15 @@ export interface AgentLevelOptions {
 }
 
 export interface AgentLevelRuntime {
+  /**
+   * Live list: grows when a binding is activated while this process runs
+   * (hot-add) — the host does not restart.
+   */
   handles: AgentPullHandle[]
   tools: MailToolDef[]
   skill?: InstallAgentSkillResult | undefined
+  /** Unregister the hot-add hook and stop every loop (idempotent). */
+  stop: () => void
 }
 
 /**
@@ -158,11 +168,27 @@ export async function startAgentLevel(
       }
       if (opts.onAgent) await opts.onAgent(enriched, cfg, mail)
     })
-  const pull: Parameters<typeof startAgentPullEntries>[0] = { onEmail: deliver }
-  if (opts.env !== undefined) pull.env = opts.env
-  if (opts.overrides !== undefined) pull.overrides = opts.overrides
-  if (opts.log !== undefined) pull.log = opts.log
-  if (opts.clientFor !== undefined) pull.clientFor = opts.clientFor
-  const handles = await startAgentPullEntries(pull)
-  return { handles, tools: agentTools(), skill }
+  const entryOpts: StartAgentPullEntryOptions = { onEmail: deliver }
+  if (opts.env !== undefined) entryOpts.env = opts.env
+  if (opts.overrides !== undefined) entryOpts.overrides = opts.overrides
+  if (opts.log !== undefined) entryOpts.log = opts.log
+  if (opts.clientFor !== undefined) entryOpts.clientFor = opts.clientFor
+
+  const handles = await startAgentPullEntries(entryOpts)
+
+  // Hot-add: the normal agent-level order is "host boots (0 bindings) →
+  // activation later". Start a loop for the binding the moment it is persisted.
+  const off = onBindingCreated(async (cfg: AgentConfig) => {
+    if (handles.some((h) => h.email === cfg.email)) return
+    const h = await startAgentPullEntry(cfg, entryOpts)
+    if (h) handles.push(h)
+  })
+
+  const stop = () => {
+    off()
+    stopAgentPullEntries(handles)
+    handles.length = 0
+  }
+
+  return { handles, tools: agentTools(), skill, stop }
 }

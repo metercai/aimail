@@ -199,3 +199,50 @@ def test_setup_command_installs_skill_and_reports_the_toolset(tmp_path, capsys):
     assert "activate_address_code" in out["toolset"]
     assert len(out["toolset"]) == 15
     assert (tmp_path / "skills" / contract.AGENT_SKILL_NAME / "SKILL.md").is_file()
+
+class _HotAddClient:
+    def __init__(self):
+        self.started = 0
+
+    def start_polling(self, cb, interval=30.0, limit=20, stop_event=None):
+        self.started += 1
+        while stop_event is not None and not stop_event.is_set():
+            stop_event.wait(0.05)
+        return {"pulled": 0, "acked": 0, "errors": 0}
+
+
+def test_runtime_starts_with_no_binding_and_hot_adds_the_activated_one(tmp_path, monkeypatch):
+    """The normal agent-level order is: host boots → activation happens later.
+
+    Starting with zero bindings must be fine, and the binding that activation
+    persists must be picked up by the *same* process (no second restart).
+    """
+    home = tmp_path / "home"
+    monkeypatch.setattr(base, "AIMAIL_HOME", home, raising=False)
+    monkeypatch.setenv("AIMAIL_HOME", str(home))
+    monkeypatch.delenv("AIMAIL_PULL", raising=False)
+    cfg = {
+        "agent_id": "hotadd", "email": "hotadd@a1.local",
+        "gateway_url": "http://127.0.0.1:1", "domain": "a1.local",
+        "system_id": "shared_addr_a1", "api_key": "k", "scope": "agent",
+    }
+
+    client = _HotAddClient()
+    rt = A.start_agent_level(on_agent=lambda *a: None,
+                             client_for=lambda _c: client,
+                             log=lambda _l: None)
+    assert rt["handles"] == [], "a fresh process has no binding to poll"
+
+    saved = base.save_agent_config("hotadd", cfg, cfg["system_id"])
+    base._fire_binding_created(dict(cfg, config_path=str(saved)))
+    assert len(rt["handles"]) == 1, "activation must hot-add the pull handle"
+    assert rt["handles"][0].email == cfg["email"]
+    assert client.started == 1
+
+    # idempotent: the same binding must not start a second loop
+    base._fire_binding_created(dict(cfg, config_path=str(saved)))
+    assert len(rt["handles"]) == 1
+    assert client.started == 1
+
+    rt["stop"]()
+    assert rt["handles"] == []

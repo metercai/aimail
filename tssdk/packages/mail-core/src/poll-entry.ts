@@ -158,6 +158,83 @@ export interface StartAgentPullEntriesOptions {
   clientFor?: (cfg: AgentConfig) => RequestClient
 }
 
+/** Options for one binding (same knobs as the batch starter, minus enumeration). */
+export type StartAgentPullEntryOptions = Omit<StartAgentPullEntriesOptions, 'systemId'>
+
+/**
+ * Start the poll loop for ONE agent-scope binding — the hot-add unit.
+ *
+ * Activation happens long after the host booted, and the batch starter only
+ * enumerates bindings once. `startAgentLevel` calls this from the
+ * `binding-created` hook so the new mailbox starts receiving in the SAME
+ * process, without a host restart. Semantics match the batch version (disabled
+ * ⇒ null, a throw from `onEmail` ⇒ no ack).
+ */
+export async function startAgentPullEntry(
+  cfg: AgentConfig,
+  opts: StartAgentPullEntryOptions,
+): Promise<AgentPullHandle | null> {
+  const env = opts.env ?? process.env
+  const log = opts.log ?? ((line: string) => console.log(line))
+  const settings = resolveAgentPullSettings(cfg, env, opts.overrides ?? {})
+  if (!settings.enabled) {
+    // Only report the NOT-agent-scope decision for a binding that exists;
+    // silence for push-side bindings would hide a mis-wiring.
+    log(
+      `[aimail-pull] ${cfg.email}: not polling (${settings.reason}) — ` +
+        'push/system binding unchanged',
+    )
+    return null
+  }
+  const client = opts.clientFor
+    ? opts.clientFor(cfg)
+    : new GatewayClient(cfg.gateway_url, cfg.api_key, 30_000, cfg.email)
+  const controller = new AbortController()
+  const live: PollStats = { pulled: 0, acked: 0, errors: 0 }
+  const done = startPolling(
+    client,
+    async (mail) => {
+      // Count first: startPolling awaits this, a throw ⇒ un-acked ⇒ re-pull.
+      live.pulled += 1
+      await opts.onEmail(cfg, {
+        id: mail.id,
+        email: mail.email,
+        headers: (mail.headers ?? {}) as Record<string, unknown>,
+        body: mail.body,
+      })
+    },
+    {
+      intervalMs: settings.intervalMs,
+      limit: settings.limit,
+      signal: controller.signal,
+    },
+  )
+    .then((stats) => {
+      live.pulled = stats.pulled
+      live.acked = stats.acked
+      live.errors = stats.errors
+      return stats
+    })
+    .catch((e: unknown) => {
+      log(`[aimail-pull] ${cfg.email}: loop ended with error: ${String(e)}`)
+      return live
+    })
+  log(
+    `[aimail-pull] ${cfg.email}: polling enabled every ${settings.intervalMs}ms ` +
+      `(limit ${settings.limit}, agent-scope key)`,
+  )
+  return {
+    email: cfg.email,
+    started: true,
+    reason: settings.reason,
+    intervalMs: settings.intervalMs,
+    limit: settings.limit,
+    stop: () => controller.abort(),
+    done,
+    stats: () => ({ ...live }),
+  }
+}
+
 /**
  * Start one poll loop per **agent-scope** binding, delivering into the
  * caller's inbound chain. Returns the handles (empty ⇒ nothing enabled,
@@ -166,7 +243,6 @@ export interface StartAgentPullEntriesOptions {
 export async function startAgentPullEntries(
   opts: StartAgentPullEntriesOptions,
 ): Promise<AgentPullHandle[]> {
-  const env = opts.env ?? process.env
   const log = opts.log ?? ((line: string) => console.log(line))
   const sids = opts.systemId ? [opts.systemId] : await listSystemDirs()
   const bindings: AgentConfig[] = []
@@ -175,63 +251,8 @@ export async function startAgentPullEntries(
   }
   const handles: AgentPullHandle[] = []
   for (const cfg of bindings) {
-    const settings = resolveAgentPullSettings(cfg, env, opts.overrides ?? {})
-    if (!settings.enabled) {
-      // Only report the NOT-agent-scope decision for a binding that exists;
-      // silence for push-side bindings would hide a mis-wiring.
-      log(
-        `[aimail-pull] ${cfg.email}: not polling (${settings.reason}) — ` +
-          'push/system binding unchanged',
-      )
-      continue
-    }
-    const client = opts.clientFor
-      ? opts.clientFor(cfg)
-      : new GatewayClient(cfg.gateway_url, cfg.api_key, 30_000, cfg.email)
-    const controller = new AbortController()
-    const live: PollStats = { pulled: 0, acked: 0, errors: 0 }
-    const done = startPolling(
-      client,
-      async (mail) => {
-        // Count first: startPolling awaits this, a throw ⇒ un-acked ⇒ re-pull.
-        live.pulled += 1
-        await opts.onEmail(cfg, {
-          id: mail.id,
-          email: mail.email,
-          headers: (mail.headers ?? {}) as Record<string, unknown>,
-          body: mail.body,
-        })
-      },
-      {
-        intervalMs: settings.intervalMs,
-        limit: settings.limit,
-        signal: controller.signal,
-      },
-    )
-      .then((stats) => {
-        live.pulled = stats.pulled
-        live.acked = stats.acked
-        live.errors = stats.errors
-        return stats
-      })
-      .catch((e: unknown) => {
-        log(`[aimail-pull] ${cfg.email}: loop ended with error: ${String(e)}`)
-        return live
-      })
-    log(
-      `[aimail-pull] ${cfg.email}: polling enabled every ${settings.intervalMs}ms ` +
-        `(limit ${settings.limit}, agent-scope key)`,
-    )
-    handles.push({
-      email: cfg.email,
-      started: true,
-      reason: settings.reason,
-      intervalMs: settings.intervalMs,
-      limit: settings.limit,
-      stop: () => controller.abort(),
-      done,
-      stats: () => ({ ...live }),
-    })
+    const h = await startAgentPullEntry(cfg, opts)
+    if (h !== null) handles.push(h)
   }
   if (handles.length === 0) {
     log(

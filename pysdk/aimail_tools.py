@@ -622,6 +622,10 @@ class _GatewayClient:
             except Exception:
                 pass
 
+        # hot-add: 绑定刚刚落盘 ⇒ 通知同进程里已在跑的 pull 运行时为它起句柄。
+        # 没有这一句，地址码激活（发生在宿主启动之后）要等下一次重启才会被收信。
+        _abm._fire_binding_created(dict(cfg))
+
         return {
             "success": True,
             "raw_key": act["raw_key"],

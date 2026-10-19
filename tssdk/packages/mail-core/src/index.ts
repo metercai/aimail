@@ -175,3 +175,7 @@ export {
 export { opAssemble, opUpdate, opTeardown, opPromptTest, UsageError } from './sdk-ops.js'
 export { ensureSkillToolExposure } from './skill-exposure.js'
 export { logAimailDispatch } from './log.js'
+
+/** Hot-add seam: fired after a binding is persisted (activation). */
+export { onBindingCreated, fireBindingCreated, type BindingCreatedHook } from './binding-hooks.js'
+export { startAgentPullEntry, type StartAgentPullEntryOptions } from './poll-entry.js'

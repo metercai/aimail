@@ -16,6 +16,7 @@
  */
 import { promises as fs } from 'node:fs'
 import * as path from 'node:path'
+import { fireBindingCreated } from './binding-hooks.js'
 import {
   type AgentConfig,
 } from './types.js'
@@ -149,6 +150,9 @@ export async function activateAddressCodePersist(
   // without inferring the manager later; the gateway stays authoritative.
   if (act.manager_address) cfg.manager_address = act.manager_address
   const p = await saveAgentConfig(cfg, sid)
+  // hot-add: the runtime that is already running must start polling this
+  // mailbox now, not after the next host restart.
+  await fireBindingCreated(cfg)
 
   // 2. Gateway connection file — create-if-absent only, **agent scope**.
   //    Audit D3: this used to write the agent's raw key into a field named

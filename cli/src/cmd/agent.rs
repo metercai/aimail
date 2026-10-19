@@ -529,7 +529,9 @@ pub fn setup(args: &SetupArgs) -> i32 {
     let entry = adapter_dir.join(if py { "adapter.py" } else { "index.mjs" });
     let tpl = if py { TPL_PY } else { TPL_NODE };
     let body = render(tpl, host, sdk_pkg, &register, inbound, py);
-    let skill_path = Path::new(skills_dir).join("agentmail").join("SKILL.md");
+    let skill_path = Path::new(skills_dir)
+        .join(crate::core::contract::agent_skill_name())
+        .join("SKILL.md");
 
     let files = vec![
         (entry.clone(), body.clone()),

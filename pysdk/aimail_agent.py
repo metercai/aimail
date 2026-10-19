@@ -99,21 +99,27 @@ def start_agent_level(skills_dir: str = "", on_email: Optional[Callable] = None,
 
     - ``skills_dir``: when given, install the shipped skill there first.
     - ``on_agent(enriched, cfg, mail)``: your agent turn. Used by the default
-      inbound chain: the SDK runs the shared pipeline
-      (``process_inbound_mail`` — the same chain push feeds) and hands the
-      enriched payload to you; ping/pong frames are consumed by the pipeline
-      and never reach this callback.
-    - ``on_email(cfg, mail)``: raw-delivery escape hatch — replaces the whole
-      inbound chain with your own (no preprocessing).
-    - The default chain needs exactly one agent-scope binding in the process
-      (agent-level = one mailbox per agent).
-    - Injects the agent context for a single binding, so the module-level mail
-      tools work without a manual ``set_agent_context`` call.
-    Returns ``{handles, tools, skill}``.
+      inbound chain: the SDK runs the shared pipeline (``process_inbound_mail``)
+      and hands the enriched payload to you; ping/pong frames never reach it.
+    - ``on_email(cfg, mail)``: raw-delivery escape hatch (no preprocessing).
+    - **Hot-add**: the runtime starts fine with zero bindings (that is the normal
+      state before activation) and picks up the binding the moment
+      ``activate_address_code`` persists it — no host restart. The returned
+      ``handles`` list grows in place; ``stop()`` unregisters the hook and stops
+      every loop.
+    - One mailbox per process: the default chain adopts the first binding's
+      context (agent-level = one address per agent).
+
+    Returns ``{handles, tools, skill, stop}``.
     """
     skill = install_agent_skill(skills_dir) if skills_dir else None
     bindings = [c for c in base.iter_agentmail_configs(system_id)
                 if base.is_agent_scope_binding(c)]
+    if on_email is None and len(bindings) > 1:
+        raise ValueError(
+            "start_agent_level: %d agent-scope bindings in this process — "
+            "the default inbound chain is single-mailbox; pass on_email "
+            "to route per binding" % len(bindings))
 
     def _adopt(cfg: dict) -> None:
         email = str(cfg.get("email") or "")
@@ -122,13 +128,6 @@ def start_agent_level(skills_dir: str = "", on_email: Optional[Callable] = None,
 
     deliver = on_email
     if deliver is None:
-        if len(bindings) != 1:
-            raise ValueError(
-                "start_agent_level: %d agent-scope bindings in this process — "
-                "the default inbound chain is single-mailbox; pass on_email "
-                "to route per binding" % len(bindings))
-        _adopt(bindings[0])
-
         def _default_inbound(cfg, mail):
             enriched = base.process_inbound_mail(mail.get("body") or {},
                                                  mail.get("headers") or {})
@@ -137,12 +136,44 @@ def start_agent_level(skills_dir: str = "", on_email: Optional[Callable] = None,
                 return on_agent(enriched, cfg, mail)
             return enriched
         deliver = _default_inbound
-    elif len(bindings) == 1:
-        _adopt(bindings[0])
 
-    handles = base.start_agent_pull_entries(
-        on_email=deliver, env=env, log=log, system_id=system_id, **pull_opts)
-    return {"handles": handles, "tools": agent_toolset(), "skill": skill}
+    handles: list = []
+
+    def _start_for(cfg: dict):
+        email = str(cfg.get("email") or "")
+        for h in handles:
+            if getattr(h, "email", "") == email:
+                return h  # already polling this binding (idempotent)
+        if not handles:
+            _adopt(cfg)
+        h = base.start_agent_pull_entry(cfg, on_email=deliver, env=env, log=log,
+                                        **pull_opts)
+        if h is not None:
+            handles.append(h)
+        return h
+
+    for cfg in bindings:
+        _start_for(cfg)
+    if len(bindings) == 1:
+        _adopt(bindings[0])  # context even when polling is disabled for it
+
+    def _on_binding_created(cfg: dict) -> None:
+        if not base.is_agent_scope_binding(cfg):
+            return
+        _start_for(cfg)
+        if log is not None:
+            log("[aimail-pull] %s: bound after activation — polling started "
+                "without a reload" % cfg.get("email"))
+
+    base.register_binding_created_hook(_on_binding_created)
+
+    def stop() -> None:
+        base.unregister_binding_created_hook(_on_binding_created)
+        base.stop_agent_pull_entries(handles)
+        handles.clear()
+
+    return {"handles": handles, "tools": agent_toolset(), "skill": skill,
+            "stop": stop}
 
 
 # ═══════════════════════════════════════════════════════════════
