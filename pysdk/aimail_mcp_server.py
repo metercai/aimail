@@ -38,13 +38,19 @@ _env_identity = os.environ.get("AIMAIL_AGENT_IDENTITY", "").strip()
 if _env_identity:
     _tools._AGENT_IDENTITY_OVERRIDE = _env_identity
 else:
+    # 告警推迟到 server 真正启动(main): 通用宿主只为取 TOOLS/HANDLERS 而 import
+    # 本模块时不该被 stderr 噪声打扰(agent 级对接没有 MCP 配置可写)。
     _tools._AGENT_IDENTITY_OVERRIDE = "unknown/unknown"
-    print(
-        "[aimail_mcp] WARNING: AIMAIL_AGENT_IDENTITY not set — "
-        "X-AIMail-Agent will report unknown/unknown. Set it in the "
-        "MCP client config (see scripts/<platform>/install-mcp.sh).",
-        file=sys.stderr,
-    )
+
+
+def _warn_identity_if_unknown() -> None:
+    if not _env_identity:
+        print(
+            "[aimail_mcp] WARNING: AIMAIL_AGENT_IDENTITY not set — "
+            "X-AIMail-Agent will report unknown/unknown. Set it in the "
+            "MCP client config (see scripts/<platform>/install-mcp.sh).",
+            file=sys.stderr,
+        )
 
 
 # ── MCP stdio 帧（OpenClaw 打包的 SDK 用 newline-delimited JSON，
@@ -350,6 +356,7 @@ HANDLERS = {
 # ── MCP 主循环 ──────────────────────────────────────────────────
 
 def main() -> int:
+    _warn_identity_if_unknown()
     while True:
         try:
             msg = read_msg()

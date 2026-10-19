@@ -80,7 +80,8 @@ echo "[L0] docs↔impl: symbols defined; en/zh heading structure equal; contract
 # scripts (hermes/patch_* etc.) intentionally import `aimail` for
 # side-effect/eval use — syntax-check only those.
 python3 -m pyflakes pysdk/aimail_base.py pysdk/aimail_board.py pysdk/aimail_tools.py \
-  pysdk/aimail_mcp_server.py pysdk/hermes/aimail_hermes.py pysdk/deer-flow/*.py 2>/dev/null \
+  pysdk/aimail_mcp_server.py pysdk/aimail_agent.py pysdk/hermes/aimail_hermes.py \
+  pysdk/deer-flow/*.py 2>/dev/null \
   || { echo "[L0] FAIL: pyflakes (core)"; exit 1; }
 for f in $(find pysdk -name '*.py' -not -path '*__pycache__*'); do
   python3 -m py_compile "$f" || { echo "[L0] FAIL: py_compile $f"; exit 1; }

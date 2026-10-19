@@ -72,6 +72,8 @@ packages = []
 "pysdk/aimail_contract.py" = "aimail/aimail_contract.py"
 "pysdk/gateway_api.py" = "aimail/gateway_api.py"
 "pysdk/aimail_mcp_server.py" = "aimail/aimail_mcp_server.py"
+# agent 级运行时(场景 1): toolset + skill 安装 + pull 启动, 通用宿主直接调
+"pysdk/aimail_agent.py" = "aimail/aimail_agent.py"
 "pysdk/install.py" = "aimail/install.py"
 # SDK 侧可执行门（进程命令契约）—— 与 install.py 同类：可被任何语言的调用方 spawn，
 # 结果走单行 JSON。TS 侧对等物 = 平台包自带的 register-cli.js。
