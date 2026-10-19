@@ -207,3 +207,47 @@ export async function saveOutboundSnapshot(
     console.warn(`Failed to save outbound email snapshot for ${safeMid}: ${e instanceof Error ? e.message : String(e)}`)
   }
 }
+
+/**
+ * Save an inbound snapshot ({yyyymm}/in-{safe}.json) + its FTS row, from the
+ * AGENT-VISIBLE payload (after preprocessing). 1:1 with the Python
+ * `store_inbound_message`: local meta is always written (reply threading reads
+ * it), the snapshot itself is gated by `save_raw_snapshots` at the call site.
+ * Failures are non-fatal (warn only).
+ */
+export async function saveInboundSnapshot(
+  email: string,
+  messageId: string,
+  payload: Record<string, unknown>,
+  references: string | string[] | undefined = undefined,
+  myAimailAddr: string = '',
+): Promise<void> {
+  const mid = (messageId || '').trim()
+  if (!mid) return
+  await saveLocalMeta(email, mid, references, myAimailAddr || email, 'inbound')
+  const safeMid = sanitizeMessageId(mid)
+  const now = new Date()
+  const yyyymm = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`
+  const snapshotDir = path.join(agentMailDir(email), yyyymm)
+  const snapshotPath = path.join(snapshotDir, `in-${safeMid}.json`)
+  try {
+    await fs.mkdir(snapshotDir, { recursive: true })
+    const tmp = `${snapshotPath}.tmp`
+    await fs.writeFile(tmp, JSON.stringify(payload, null, 2), 'utf-8')
+    await fs.rename(tmp, snapshotPath)
+    // Incremental FTS5 index AFTER the snapshot file is on disk.
+    await indexSnapshotRecord(email, {
+      mid,
+      dir: 'inbound',
+      ts: String(payload['ts'] ?? payload['date'] ?? now.toISOString()),
+      subject: String(payload['subject'] ?? ''),
+      fromAddr: String(payload['sender'] ?? payload['from'] ?? ''),
+      toJson: JSON.stringify(payload['to'] ?? ''),
+      body: String(payload['body'] ?? ''),
+      attText: '',
+      threadId: '',
+    })
+  } catch (e) {
+    console.warn(`Failed to save inbound email snapshot for ${safeMid}: ${e instanceof Error ? e.message : String(e)}`)
+  }
+}

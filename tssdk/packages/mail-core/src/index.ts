@@ -65,6 +65,17 @@ export {
   startPolling,
 } from './address-code.js'
 export {
+  AGENT_TOOL_NAMES,
+  agentTools,
+  installAgentSkill,
+  startAgentLevel,
+} from './agent-level.js'
+export type {
+  AgentLevelOptions,
+  AgentLevelRuntime,
+  InstallAgentSkillResult,
+} from './agent-level.js'
+export {
   AGENT_SCOPE_SYSTEM_PREFIX,
   DEFAULT_PULL_INTERVAL_MS,
   DEFAULT_PULL_LIMIT,
@@ -128,6 +139,7 @@ export {
   readLocalMeta,
   resolveThreadId,
   saveOutboundSnapshot,
+  saveInboundSnapshot,
 } from './meta.js'
 export type { LocalMeta } from './meta.js'
 export {
