@@ -176,14 +176,13 @@ cli-release/npm/pypi/l3 按设计 skipped）+ 正式 run（npm 一定在 cli-rel
   **安装产物**判据，必须绿；docker 多宿主此时只记 CANNOT JUDGE，**不得写成产品红**。
 - 发版后：L3 12 格（workflow 内）+ docker 五宿主（验证方重建镜像后跑）**必须**有结论；
   任一红 ⇒ 本批不得称“已验证”，只能前滚补丁版本。
-- 修复工作（进行中，属验证方）：dangling 镜像已清（回收 3.7G）；`build-hosts.sh hermes` 先行验证失败在
-  build-time acceptance —— `verify.sh --offline` 报 `agent_launcher: command not found`、
-  `hermes installed='none'`、`version drift: installed='none' pinned=0.21.4`。
-  根因是 **pins 的 base 与 prepare/verify 的路径假设不一致**（base 内实际有 `/opt/hermes/bin/hermes`，
-  但 verify 的 launcher 解析不到；pins.env 的 `HERMES_IMAGE_VERSION=0.21.4` 与 base 实际版本不一致）。
-  旧镜像未被破坏（`aimail-host-hermes:latest` 仍是 8 天前那份），失败构建不产生半成品 tag。
-  下一步：比对 base 的 PATH/launcher 解析并修正 verify（或改钉可用 digest），再逐个平台重建。
-  在此之前 docker 五宿主一律记 CANNOT JUDGE，不得写成产品红。
+- 修复工作（验证方，hermes 已验证通过）：dangling 镜像已清（回收 3.7G）。
+  根因不是 pins 漂移：`docker/build.sh` 只把 `prepare.sh/verify.sh/pins.env` 拷进镜像，
+  **漏了 `verify.sh` 依赖的 `agent-paths.sh`** ⇒ `agent_launcher: command not found`
+  ⇒ `hermes installed='none'` ⇒ 误报 version drift。
+  补上拷贝后 `build-hosts.sh hermes` rc=0，`AGENT-ENV VERIFY: PASS`（15 passed / 0 failed / 2 skipped），
+  镜像内 `/opt/regression/install-sdk.sh` 在位（`/tmp/docker-rebuild-hermes2.log`）。
+  其余四平台（openclaw/dsh/pi/deerflow）随后重建；完成前 docker 五宿主仍记 CANNOT JUDGE。
 - 后续（不计入本批）：让 harness 支持本地适配包 tarball，使 docker 能在发版前判新版本。
 
 ### 4.4 sdk-e2e 的前置
