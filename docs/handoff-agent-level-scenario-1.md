@@ -17,7 +17,8 @@
   pytest 277；vitest 288；CLI 集成测试 4 + 10；适配选型矩阵 11/11。
 - 待发版：**CLI 0.1.55→0.1.56（必须先发）**、gateway 1.0.3→1.0.4、advanced 1.0.1→1.0.2、
   `@aimail/mail-core` 0.1.54→0.1.55、pysdk 0.1.55→0.1.56，外加三适配包同批升。
-- 代码已 push（`aimail` main `b377f99`、gateway `1ca59da`、advanced `b7f207b`）；
+- 代码已 push（`aimail` main `e56b9d1`（= `b377f99` 代码提交 + `c1943bd`/`e56b9d1` 两个文档提交）、
+  gateway `1ca59da`、advanced `b7f207b`）；
   **未 bump、未打 tag、未 publish**。
 
 ## 1. 产品侧新增与变更
@@ -73,8 +74,8 @@ cd ~/aimail-advanced && A1_EVIDENCE=/tmp/<dir> bash tests/SDK/agent-level/gate.s
 
 ```bash
 cd ~/aimail && bash tests/sdk/l0-gate-tests.sh        # 契约单真源 + frontmatter 5/5 + literal 棘轮 + tsc + pytest + vitest
-cd ~/aimail && python3 -m pytest tests/sdk -q         # 期望 275 passed
-cd ~/aimail/tssdk && pnpm build && pnpm test          # 期望 287 passed / 35 files
+cd ~/aimail && python3 -m pytest tests/sdk -q         # 期望 277 passed
+cd ~/aimail/tssdk && pnpm build && pnpm test          # 期望 288 passed / 37 files
 ```
 
 ### 2.3 干净环境探针（真实宿主路径，无 CLI）
@@ -98,7 +99,10 @@ cd ~/aimail-advanced && python3 tests/advanced/e2e-open-apply.py   # 期望 42 P
 ### 2.5 对抗性复核建议
 
 1. 断网/停网关跑 `gate.sh`：应 rc=2 或对应 case 红，不得静默通过；
-2. 把 `docs/agent-self-setup.md` 里任一契约值改坏 → `check-docs-consistency.py` 必红；
+2. 改坏 `docs/agent-integration.md` 里任一契约值（或改坏其中任一符号）→
+   `tests/contract/check-docs-consistency.py` 必红。自举文档 `docs/agent-self-setup.md`
+   按设计只带 **0 项**契约值（全部归平台文档），所以对它只能做**符号**对抗（改坏被引用的
+   符号/命令名），不能期待"改契约值变红"；
 3. 同一 L1 连跑两次结论一致（不允许“重跑当修复”）；
 4. 抽查四份 JSON 的 `evidence` 与 `fixture/server.log`，确认无密钥泄漏；
 5. 复核 `board_status`：用 agent key（不带 board token）调用必须 401 —— 证明
@@ -124,8 +128,8 @@ cd ~/aimail-advanced && python3 tests/advanced/e2e-open-apply.py   # 期望 42 P
 
 SDK
   tests/sdk/l0-gate-tests.sh  → [L0] PASS（契约 4/4 + 平台 5/5 + frontmatter 5/5 + literal 棘轮）
-  pytest tests/sdk            → 275 passed
-  pnpm test (vitest)          → 287 passed / 35 files
+  pytest tests/sdk            → 277 passed
+  pnpm test (vitest)          → 288 passed / 37 files
 
 干净环境探针
   driver_py.py  16/16 PASS   （fresh venv，安装 wheel；空 HOME；只给 prompt）

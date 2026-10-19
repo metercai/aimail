@@ -731,17 +731,15 @@ fn adapter_package(host: &str) -> &'static str {
 }
 
 fn pkg_present(pkg: &str, home: &Path, python: &str) -> String {
-    if pkg == "aimailsdk" {
-        if !python.is_empty() {
-            if let Some(v) = sh(&format!(
-                "{} -c \"import importlib.metadata as m;print(m.version('{}'))\" 2>/dev/null",
-                shell_escape(python),
-                pkg
-            )) {
-                if !v.is_empty() {
-                    return format!("import ok, version {v}");
-                }
-            }
+    if pkg == "aimailsdk" && !python.is_empty() {
+        if let Some(v) = sh(&format!(
+            "{} -c \"import importlib.metadata as m;print(m.version('{}'))\" 2>/dev/null",
+            shell_escape(python),
+            pkg
+        ))
+        .filter(|v| !v.is_empty())
+        {
+            return format!("import ok, version {v}");
         }
     }
     if let Some(hit) = sh(&format!(
