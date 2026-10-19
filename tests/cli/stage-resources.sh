@@ -17,8 +17,8 @@ STAGER="$REPO/tssdk/packages/mail-core/scripts/stage-resources.mjs"
 [ -d "$REPO/resources" ] || { echo "✗ stage-resources: 真源缺失 $REPO/resources" >&2; exit 2; }
 command -v node >/dev/null 2>&1 || { echo "✗ stage-resources: 需要 node" >&2; exit 2; }
 
-for p in dsh-aimail openclaw-aimail pi-aimail; do
+for p in mail-core dsh-aimail openclaw-aimail pi-aimail; do
   node "$STAGER" --dest "$REPO/tssdk/packages/$p/resources" >/dev/null \
     || { echo "✗ stage-resources: $p 暂存失败" >&2; exit 1; }
 done
-echo "staged: dsh-aimail openclaw-aimail pi-aimail ← $REPO/resources"
+echo "staged: mail-core dsh-aimail openclaw-aimail pi-aimail ← $REPO/resources"

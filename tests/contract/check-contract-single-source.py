@@ -14,8 +14,9 @@
       其余位置按"文件 × 字面量"计数, 与基线
       ``tests/contract/contract-literal-baseline.json`` 比对 —— **只许减不许增**;
       新增位置 ⇒ FAIL 并给 ``file:line`` + 当前/基线计数。
-  (c) SKILL.md frontmatter 契约名: 单一真源 ``resources/skills/SKILL.md`` 与 4 份
-      物化产物(pysdk + tssdk/{openclaw,dsh,pi}-aimail)的 ``name:`` / ``toolset:``
+  (c) SKILL.md frontmatter 契约名: 单一真源 ``resources/skills/SKILL.md`` 与各包
+      prepack 暂存的那份(mail-core / openclaw-aimail / dsh-aimail / pi-aimail)的
+      ``name:`` / ``toolset:``
       必须 == 清单的 agent_skill_name / agent_toolset_name。
       (正是能抓住改名提交 d701dae(2026-09-03)那类破坏的检查。)
 
@@ -80,9 +81,11 @@ DOCS_WHITELIST_GAPS = ()
 WHITELIST_FILES = (MANIFEST_REL, TS_CONTRACT, PY_CONTRACT, BASELINE_REL) + DOCS_WHITELIST
 ALLOW_MARKER = "contract-allowed:"    # 行内逃生门(必须带理由)
 
-# ── 规则 (c): 5 份 SKILL.md(1 真源 + 4 物化产物)──────────────────────────
+# ── 规则 (c): SKILL.md frontmatter(1 真源 + 各包 prepack 暂存的那份)────────
 SKILL_SOURCE = "resources/skills/SKILL.md"
 SKILL_MATERIALIZED = (
+    # 通用 TS 核心也随包发 skill(非适配宿主没有别的来源;2026-10-19)
+    "tssdk/packages/mail-core/resources/skills/SKILL.md",
     "tssdk/packages/openclaw-aimail/resources/skills/SKILL.md",
     "tssdk/packages/dsh-aimail/resources/skills/SKILL.md",
     "tssdk/packages/pi-aimail/resources/skills/SKILL.md",
@@ -397,7 +400,7 @@ def _frontmatter_fields(path: Path, rel: str) -> tuple:
 
 
 def check_skill_frontmatter(man: dict) -> None:
-    out("[contract] (c) SKILL.md frontmatter 契约名(1 真源 + 4 物化产物)")
+    out(f"[contract] (c) SKILL.md frontmatter 契约名(1 真源 + {len(SKILL_MATERIALIZED)} 份包内暂存)")
     want_name = man["agent_skill_name"]
     want_tool = man["agent_toolset_name"]
     ok = 0
