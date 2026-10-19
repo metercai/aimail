@@ -702,34 +702,74 @@ pub fn build_cli() -> Command {
 }
 
 fn agent_args(cmd: Command) -> Command {
-    cmd.subcommand_required(true).subcommand(
-        Command::new("doctor")
-            .about("verify the agent's self-description and pick the SDK (read-only)")
-            .arg(
-                Arg::new("questions")
-                    .long("questions")
-                    .action(ArgAction::SetTrue)
-                    .help("print the one-shot question block for the agent"),
-            )
-            .arg(
-                Arg::new("answers")
-                    .long("answers")
-                    .value_name("JSON")
-                    .help("the agent's answer table as JSON"),
-            )
-            .arg(
-                Arg::new("answers-file")
-                    .long("answers-file")
-                    .value_name("PATH")
-                    .help("read the answers JSON from a file"),
-            )
-            .arg(
-                Arg::new("json")
-                    .long("json")
-                    .action(ArgAction::SetTrue)
-                    .help("print the host profile as JSON"),
-            ),
-    )
+    cmd.subcommand_required(true)
+        .subcommand(
+            Command::new("doctor")
+                .about("verify the agent's self-description and pick the SDK (read-only)")
+                .arg(
+                    Arg::new("questions")
+                        .long("questions")
+                        .action(ArgAction::SetTrue)
+                        .help("print the one-shot question block for the agent"),
+                )
+                .arg(
+                    Arg::new("answers")
+                        .long("answers")
+                        .value_name("JSON")
+                        .help("the agent's answer table as JSON"),
+                )
+                .arg(
+                    Arg::new("answers-file")
+                        .long("answers-file")
+                        .value_name("PATH")
+                        .help("read the answers JSON from a file"),
+                )
+                .arg(
+                    Arg::new("json")
+                        .long("json")
+                        .action(ArgAction::SetTrue)
+                        .help("print the host profile as JSON"),
+                ),
+        )
+        .subcommand(
+            Command::new("setup")
+                .about("render the adapter + skill from a ready profile (dry-run by default)")
+                .arg(
+                    Arg::new("answers")
+                        .long("answers")
+                        .value_name("JSON")
+                        .help("the agent's answer table as JSON"),
+                )
+                .arg(
+                    Arg::new("answers-file")
+                        .long("answers-file")
+                        .value_name("PATH")
+                        .help("read the answers JSON from a file"),
+                )
+                .arg(
+                    Arg::new("apply")
+                        .long("apply")
+                        .action(ArgAction::SetTrue)
+                        .help("actually write the files (default: dry-run)"),
+                )
+                .arg(
+                    Arg::new("no-reload")
+                        .long("no-reload")
+                        .action(ArgAction::SetTrue)
+                        .help("do not call the host reload hook"),
+                ),
+        )
+        .subcommand(
+            Command::new("uninstall")
+                .about("remove what setup wrote (only files whose sha256 is unchanged)")
+                .arg(
+                    Arg::new("host")
+                        .long("host")
+                        .value_name("NAME")
+                        .required(true)
+                        .help("host name used at setup time"),
+                ),
+        )
 }
 
 /// 进程入口：解析 argv 并分发，返回退出码。
@@ -748,6 +788,15 @@ pub fn run() -> i32 {
                     answers: am.get_one::<String>("answers").cloned(),
                     answers_file: am.get_one::<String>("answers-file").cloned(),
                     json: am.get_flag("json"),
+                }),
+                "setup" => crate::cmd::agent::setup(&crate::cmd::agent::SetupArgs {
+                    answers: am.get_one::<String>("answers").cloned(),
+                    answers_file: am.get_one::<String>("answers-file").cloned(),
+                    apply: am.get_flag("apply"),
+                    reload: !am.get_flag("no-reload"),
+                }),
+                "uninstall" => crate::cmd::agent::uninstall(&crate::cmd::agent::UninstallArgs {
+                    host: am.get_one::<String>("host").cloned(),
                 }),
                 _ => 2,
             }
