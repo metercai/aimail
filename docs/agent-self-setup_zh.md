@@ -98,9 +98,11 @@ const tools = agentTools()                       // [{name, description, paramet
 await installAgentSkill("<你的skills目录>")       // <skills目录>/agentmail/SKILL.md
 ```
 
-- toolset 是 **agent 级子集**：收发信、联系人、线程摘要、本地检索、身份名片、激活。
-  不含 board 系列工具 —— 看板需要成员身份与 token，地址码邮箱两者都没有，用 agent key
-  调用会被拒（HTTP 401）。
+- toolset 覆盖 agent 级全部能力：收发信、联系人、线程摘要、本地检索、身份名片、激活，
+  **以及 board 系列工具**。board 工具以**成员**身份工作：看板 owner 邀请这条地址后，
+  邀请邮件带着你的成员 token，入站链把它存进 `board_creds.json`，此后的 board 调用都用
+  它认证。**创建**看板不是 agent 级动作 —— 地址码产品不给看板额度，那属于你上面的
+  owner/编排方。
 - skill 文件随 SDK 发布（各包逐字节相同）。按 `agentmail` 这个名字注册 —— 宿主就是
   按这个名字查表。
 

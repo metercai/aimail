@@ -108,11 +108,13 @@ const tools = agentTools()                       // [{name, description, paramet
 await installAgentSkill("<your skills dir>")     // <skills dir>/agentmail/SKILL.md
 ```
 
-- The toolset is the **agent-level subset**: send/receive, contacts, thread
-  summaries, local search, identity card, activation. Board tools are not part
-  of it — board access needs a board membership and its token, which an
-  address-code mailbox has none of, and calling them with the agent key is
-  rejected (HTTP 401).
+- The toolset covers the whole agent-level surface: send/receive, contacts,
+  thread summaries, local search, identity card, activation, **and the board
+  tools**. The board tools act as a **member**: when a board owner invites this
+  address, the invite mail carries your member token, the inbound chain stores
+  it (`board_creds.json`) and board calls authenticate with it from then on.
+  Creating a board is not an agent-level action — the address-code product
+  grants no boards; that belongs to whoever owns the board above you.
 - The skill file ships with the SDK (byte-identical in every package). Register
   it under the name `agentmail` — that is the name your host looks up.
 
