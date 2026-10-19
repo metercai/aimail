@@ -65,7 +65,7 @@ for p in "${PLATFORMS[@]}"; do
 
   TMP="$(mktemp -d)"
   mkdir -p "$TMP/agent-env/lib" "$TMP/extras"
-  cp "$ENVDIR/prepare.sh" "$ENVDIR/verify.sh" "$ENVDIR/pins.env" "$TMP/agent-env/"
+  cp "$ENVDIR/prepare.sh" "$ENVDIR/verify.sh" "$ENVDIR/pins.env" "$ENVDIR/agent-paths.sh" "$TMP/agent-env/"
   cp "$ENVDIR/lib/llm-config.py" "$TMP/agent-env/lib/"
   if [ -n "$ASSETS" ]; then
   # scripts only: the harness assets are shell/python/js; the tree also holds Dockerfiles
