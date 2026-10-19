@@ -227,3 +227,27 @@ cd ~/aimail-advanced && A1_EVIDENCE=/tmp/<your-dir> bash tests/SDK/agent-level/g
 
 反馈路径：你把 D5/D6 判绿 + 对 §4 的 A/B 口径给一句裁决 → owner 发版授权 → 我 push 并按
 §5.1 第 2、3 步 dispatch（dry_run 先验）。
+
+## 10. 本文档的目标（可判定的"交回"）
+
+**目标**：把 D5/D6 从"验证方判红"推到"验证方独立复跑判绿"，并拿到 §4 的口径裁决，使本批可以
+进入发版序列（§5.1 第 1 步）。本文档的用途是给出**可重跑的命令与判定行**，不是让人相信结论。
+
+**达成判据（三条同时成立才算交回成功）**：
+
+1. **缺陷清零**：你按 §9 复跑，`cli` / `advanced` / `gateway` 的 fmt + clippy 全 `rc=0`；
+   D5 无残留、D6 无新增（含不出现新的 `#[allow]`、不出现阈值放宽）。
+2. **回归不倒退**：SDK L0 PASS、A1 `all` 29/13/14/14 `fail=0`，与上一轮基线一致
+   —— 不新增红、不新增 GAP、不新增 CANNOT JUDGE。
+3. **口径有结论**：§4 的 A/B 得到一句裁决（A = 接受 vendor 一行 whitespace；
+   B = 判据退成 `cargo fmt --check`，我回退该 hunk）。
+
+**达成后我做什么**：push 三仓 → `publish.yml` `dry_run=true` 验形状 → `dry_run=false`
+（CLI 0.1.56 → npm `core→mail→三适配` ∥ PyPI 0.1.56 → L3 12 格）→ 交 §5.4 的发版后硬证据；
+gateway/advanced 部署仍须 owner 单独授权。
+
+**本轮不承诺（不是遗漏，是判据归属）**：L3 12 格、docker 五宿主、真机冒烟属发版后判据；
+本轮零产品行为变更，因此不重新论证兼容性。
+
+**未达成时**：任一条红即停在原地，只交归因（现象 / 复现 / 期望 vs 实际）与最小修复，
+不重开范围、不动判据。
