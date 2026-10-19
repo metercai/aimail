@@ -8,13 +8,13 @@
  */
 import { promises as fsp } from 'node:fs'
 import * as path from 'node:path'
-import { createHmac, createHash, timingSafeEqual } from 'node:crypto'
+import { createHmac, timingSafeEqual } from 'node:crypto'
 import { GatewayClient } from './gateway.js'
 import { cleanAddr, loadAgentConfig, systemDir } from './config.js'
 import { sendMail, sanitizeMessageId } from './tools.js'
 import { appendLog } from './log.js'
 import { saveLocalMeta, threadPath, agentMailDir } from './meta.js'
-import { registerBoardGateway } from './board.js'
+import { boardInviteFrom, registerBoardGateway } from './board.js'
 import type { AgentConfig, EnrichedPayload, InboundPayload } from './types.js'
 import type { ToolCtx, ToolResult } from './tools.js'
 
@@ -426,31 +426,19 @@ export async function processInboundMail(
   const subjectRaw = payload.subject ?? ''
   const bodyRaw = payload.body ?? ''
   if (fromRaw.includes('.a2a@') || subjectRaw.startsWith('[A2A]')) {
-    const gwMatch = /API:\s*(https?:\/\/\S+)/.exec(bodyRaw)
-    const tokenMatch = /Token:\s*(bdt_\S+)/.exec(bodyRaw)
-    if (gwMatch && gwMatch[1]) {
-      const gatewayUrl = gwMatch[1].replace(/\/+$/, '')
-      // board_id must match the gateway's derive_board_id: sha256 of the FULL
-      // board address {short}.a2a@{gw-domain} [:20] — embeds the domain, so
-      // no cross-system collision (mirror Python _extract_board_gateway; the
-      // former body-regex guess was not the gateway's id).
-      const fromMatch = /(\S+)\.a2a@/.exec(fromRaw)
-      if (fromMatch?.[1]) {
-        const gwDomain = /:\/\/([^/]+)/.exec(gatewayUrl)?.[1] ?? ''
-        const boardEmail = `${fromMatch[1]}.a2a@${gwDomain}`
-        const bid = createHash('sha256').update(boardEmail, 'utf-8').digest('hex').slice(0, 20)
-        registerBoardGateway(bid, gatewayUrl)
-        // token persistence (board_creds.json) when token present
-        if (tokenMatch?.[1] && ctx.systemId && ctx.email) {
-          try {
-            const credsPath = path.join(systemDir(ctx.systemId), cleanAddr(ctx.email), 'board_creds.json')
-            const existing = JSON.parse(await fsp.readFile(credsPath, 'utf-8').catch(() => '{}')) as Record<string, unknown>
-            existing[bid] = { gateway_url: gatewayUrl, token: tokenMatch[1] }
-            await fsp.mkdir(path.dirname(credsPath), { recursive: true })
-            await fsp.writeFile(credsPath, JSON.stringify(existing, null, 2) + '\n', { mode: 0o600 })
-          } catch {
-            /* non-fatal */
-          }
+    const inv = boardInviteFrom(bodyRaw, fromRaw)
+    if (inv) {
+      registerBoardGateway(inv.boardId, inv.gatewayUrl)
+      // token persistence (board_creds.json) when the invite carries one
+      if (inv.token && ctx.systemId && ctx.email) {
+        try {
+          const credsPath = path.join(systemDir(ctx.systemId), cleanAddr(ctx.email), 'board_creds.json')
+          const existing = JSON.parse(await fsp.readFile(credsPath, 'utf-8').catch(() => '{}')) as Record<string, unknown>
+          existing[inv.boardId] = { gateway_url: inv.gatewayUrl, token: inv.token }
+          await fsp.mkdir(path.dirname(credsPath), { recursive: true })
+          await fsp.writeFile(credsPath, JSON.stringify(existing, null, 2) + '\n', { mode: 0o600 })
+        } catch {
+          /* non-fatal */
         }
       }
     }

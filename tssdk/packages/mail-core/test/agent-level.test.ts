@@ -50,14 +50,17 @@ afterEach(async () => {
 })
 
 describe('agentTools', () => {
-  it('exposes exactly the agent-level tool set (no board tools)', () => {
+  it('exposes the agent-level tool set, board tools included (member scope)', () => {
     const names = agentTools().map((t) => t.name).sort()
     expect(names).toEqual([...AGENT_TOOL_NAMES].sort())
-    expect(names.some((n) => n.startsWith('board_'))).toBe(false)
+    expect(names.filter((n) => n.startsWith('board_'))).toEqual([
+      'board_heartbeat', 'board_members', 'board_roles', 'board_status',
+      'board_task_list', 'board_task_show',
+    ])
     // every entry is executable (handler travels with the definition)
     for (const tool of agentTools()) expect(typeof tool.handler).toBe('function')
-    // the full registry still carries the board tools for adapted hosts
-    expect(MAIL_TOOLS.length).toBeGreaterThan(agentTools().length)
+    // the agent-level set is the whole registry
+    expect(agentTools().length).toBe(MAIL_TOOLS.length)
   })
 })
 

@@ -4,6 +4,7 @@
  * email passed as query param on every board API call.
  */
 import { promises as fsp } from 'node:fs'
+import { createHash } from 'node:crypto'
 import * as path from 'node:path'
 import { GatewayClient } from './gateway.js'
 import { AIMAIL_HOME, cleanAddr, loadAgentConfig } from './config.js'
@@ -39,6 +40,35 @@ export function resolveBoard(taskId: string): string {
 /** board_creds.json at systems/{sid}/{cleaned_addr}/board_creds.json. */
 function boardCredsPath(systemId: string, email: string): string {
   return path.join(AIMAIL_HOME(), 'systems', systemId, cleanAddr(email), 'board_creds.json')
+}
+
+/**
+ * Fields of a board invite mail.
+ *
+ * The board id is stated by the gateway (`Board ID:`) — authoritative. The
+ * fallback mirrors the gateway's `derive_board_id` (sha256 of the FULL board
+ * address [:20]); that address carries the MAIL domain of the sender, never the
+ * gateway host — they differ whenever the gateway is not served on the mail
+ * domain, and keying board_creds.json with the wrong id makes every board call
+ * answer 401.
+ */
+export function boardInviteFrom(
+  body: string,
+  fromRaw: string,
+): { boardId: string; boardEmail: string; gatewayUrl: string; token: string } | null {
+  const gw = /API:\s*(https?:\/\/\S+)/.exec(body)
+  if (!gw?.[1]) return null
+  const gatewayUrl = gw[1].replace(/\/+$/, '')
+  const token = (/Token:\s*(bdt_\S+)/.exec(body)?.[1] ?? '').trim()
+  const stated = /Board ID:\s*([0-9a-f]{20})/i.exec(body)?.[1] ?? ''
+  const addr = /([A-Za-z0-9._-]+\.a2a@[A-Za-z0-9._-]+)/.exec(fromRaw)?.[1] ?? ''
+  const boardEmail = addr.toLowerCase()
+  let boardId = stated.toLowerCase()
+  if (!boardId && boardEmail) {
+    boardId = createHash('sha256').update(boardEmail, 'utf-8').digest('hex').slice(0, 20)
+  }
+  if (!boardId) return null
+  return { boardId, boardEmail, gatewayUrl, token }
 }
 
 interface BoardCredsFile {

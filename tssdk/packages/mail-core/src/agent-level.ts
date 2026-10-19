@@ -6,11 +6,11 @@
  * inbound processing. They live here so every TypeScript host calls the same,
  * tested code. Python counterpart: `pysdk/aimail_agent.py`.
  *
- * Board tools are deliberately absent from `agentTools()`: board access needs
- * a board membership and its token, an address-code mailbox has neither, and
- * calling them with the agent key is rejected (HTTP 401 "invalid token or
- * role"). Mail / contacts / summaries / local search / identity card /
- * activation all work on the agent-scope key.
+ * Board tools ARE part of the toolset: an address-code mailbox can be a board
+ * MEMBER — the invite mail carries its token and the inbound chain stores it
+ * (board_creds.json), after which the board routes accept the Bearer token.
+ * Creating a board is not an agent-level action (the address-code product
+ * grants 0 boards), so the tools are member-scope only.
  */
 import { promises as fs } from 'node:fs'
 import * as path from 'node:path'
@@ -31,7 +31,7 @@ import {
 import { MAIL_TOOLS, type MailToolDef } from './tool-registry.js'
 import type { AgentConfig, EnrichedPayload, InboundPayload } from './types.js'
 
-/** Tools that are meaningful for an agent-level mailbox (board_* excluded). */
+/** Tools that are meaningful for an agent-level mailbox (member-scope board). */
 export const AGENT_TOOL_NAMES = [
   'activate_address_code',
   'send_mail',
@@ -42,6 +42,12 @@ export const AGENT_TOOL_NAMES = [
   'set_email_summary',
   'search_mail',
   'set_public_whoami',
+  'board_status',
+  'board_task_list',
+  'board_task_show',
+  'board_members',
+  'board_roles',
+  'board_heartbeat',
 ] as const
 
 const AGENT_TOOL_SET: ReadonlySet<string> = new Set(AGENT_TOOL_NAMES)
