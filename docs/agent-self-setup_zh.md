@@ -1,31 +1,36 @@
 # AIMail 地址自举 — 激活你自己的邮箱
 
-**范围：只覆盖 agent 级激活码。** 用户把激活信息转发给你；你在自己的 agent
-运行时里激活自己的邮箱，打开轮询把信接进你自己的入站流程，再按 `agentmail`
-skill 回信。不需要 CLI、不需要系统级凭据、不需要 admin key。
+**范围：只覆盖 agent 级激活码。** 用户把激活信息转发给你；你安装本语言的 SDK，
+在自己的 agent 运行时里激活自己的邮箱，把信接进你自己的入站处理流程，再按
+`agentmail` skill 回信。不需要 CLI、不需要系统级凭据、不需要 admin key、不需要
+bridge —— 而且**不监听任何端口**。
 
 **系统级**形态不在本文件范围内：创建/复用 AIMail *系统*（共享域系统标识、
 独享域名、`AIMAIL_PRODUCT_CODE`）、自建网关，以及它们所用的桥（push）投递。
 那些是运维动作，需要本机具备 CLI 与 bridge，见仓库 README（四种安装场景）与
-`docs/agent-integration_zh.md`。不要索取产品码，也不要为自己的邮箱执行
-`aimail install`。
+`docs/agent-integration_zh.md`。
 
-## 0. 你加载哪个 SDK —— 只按语言分
+## 0. 这条路径需要什么 —— 不需要什么
 
-只有两条对接路径，只按**语言**区分，从不按 agent 产品区分：
+**需要：** 本语言的 SDK（一次安装）、激活 prompt、以及激活时发给你的 agent key。
 
-- **Python** —— 加载 `pysdk`：`pip install aimailsdk`，随后 `import aimail`
-  一次（它把 SDK 模块挂上 `sys.path`，之后其它 import 才成立）。所有 Python 宿主
-  都用它；平台适配层只是包在同一批函数外面替你调用。
-- **TypeScript** —— 加载 `@aimail/mail-core`，通用 TS 核心：
-  `npm install @aimail/mail-core`。宿主若有匹配的适配包，适配包包在这个核心外面；
-  没有适配包的宿主直接用核心本身。
+**不需要：** CLI、bridge、系统身份、独享域名、系统 admin key、webhook/push 目标、
+入站端口、常驻 HTTP 端点。
 
-agent 级路径不需要再装别的 —— 不要 CLI、不要 bridge、不要适配层；SDK 这一步
-是唯一需要下载的东西。
+| | agent 级（本文件） | 系统级（运维路径） |
+| --- | --- | --- |
+| 谁动手 | agent 自己，在对话里 | 机器上的运维 |
+| 安装 | `pip install aimailsdk` / `npm install @aimail/mail-core` | bootstrap 脚本 + `aimail install` |
+| 凭据 | 自己的 agent key（来自激活码） | 系统 key；CLI 与 bridge 的 key |
+| 身份 | 一个邮箱、一个地址 | 一个系统标识、多个地址 |
+| 域名 | 激活码指定的共享域 | 共享系统标识或独享域名 |
+| 投递 | **pull**：网关留着信等你去取 | **push** webhook，或经 bridge 拉取 |
+| 入站 | 你自己的处理函数，进程内 —— 无端口 | 宿主/桥后面的端点或路由 |
+| toolset/skill | SDK 自带，你自己注册 | CLI/插件替你装 |
 
-通用 TS 核心只覆盖 **agent 级**对接。增加系统、独享域名、系统 key 或 push 投递
-属于上面的系统级形态，需要 CLI 和 bridge；agent 级路径两者都不需要。
+只有两条语言路径，从不按 agent 产品分：Python 加载 `pysdk`；TypeScript 加载
+`@aimail/mail-core`（通用核心）。如果宿主有对应的平台适配包，那个包包在同一核心
+外面、替你做下面的步骤。
 
 ## 1. 你会收到什么
 
@@ -42,31 +47,85 @@ Activate my AIMail mailbox <your-address> using the activation code
 你拿到的邮箱有效期为该共享域的 `validity_days`（例如 15 天）。
 
 **安全官在激活时就已经为你配置好** —— 网关在这次激活调用里从已核验的申请人
-地址记录下来。agent 侧没有任何步骤：粘贴的那行里这个值只是告知。不要自己去设置
-或修改它；之后只有网关管理员能改。
+地址记录下来，并在响应里带回给你。agent 侧没有设置它的步骤：粘贴的那行里这个值
+只是告知。之后只有网关管理员能改。
 
-## 2. 激活并落盘 — 一次调用，不碰 CLI
+## 2. 下载并加载 SDK
 
-TypeScript —— 来自 `@aimail/mail-core`（通用核心；宿主适配包包在它外面）：
+Python：
+
+```bash
+pip install aimailsdk
+```
+
+```python
+import aimail  # 必须调用一次 —— 它把 SDK 模块挂上 sys.path
+from aimail_tools import _GatewayClient
+```
+
+TypeScript：
+
+```bash
+npm install @aimail/mail-core
+```
 
 ```ts
 import { GatewayClient, activateAddressCodePersist } from "@aimail/mail-core"
+```
 
+agent 级路径不需要再装别的；SDK 这一步是唯一需要下载的东西。
+
+## 3. 注册 toolset 并安装 skill
+
+SDK 同时自带工具与 skill 文本；你按契约名把它们交给模型（一个 toolset、一个
+skill，两个都叫 `agentmail`）。
+
+**Python** —— 把 SDK 的工具清单与处理器交给宿主，或直接把该模块当 MCP server 跑
+（它自带 JSON-RPC 主循环）：
+
+```python
+from aimail_mcp_server import TOOLS, HANDLERS   # 工具 schema + 处理器
+```
+
+**TypeScript** —— 把导出的工具表注册进宿主：
+
+```ts
+import { MAIL_TOOLS } from "@aimail/mail-core"
+// 每条: { name, description, parameters, handler }
+```
+
+**Skill** —— 把随包发布的 skill 文件拷进你的 skills 目录，并保留其 frontmatter 名。
+该文件在各包里逐字节相同：
+
+```bash
+# Python（已安装的 wheel）
+cp "$(python -c 'import aimail,os;print(os.path.dirname(aimail.__file__))')/resources/skills/SKILL.md" \
+   <你的skills目录>/agentmail/SKILL.md
+
+# TypeScript（已安装的包）
+cp node_modules/@aimail/mail-core/resources/skills/SKILL.md <你的skills目录>/agentmail/SKILL.md
+```
+
+工具要在 §4 把绑定落盘之后才真正可用；先注册没有关系。
+
+## 4. 激活并落盘 — 一次调用，不碰 CLI
+
+TypeScript：
+
+```ts
 const client = new GatewayClient(gatewayUrl, "")   // 公共端点：此时还没有 key
 const res = await activateAddressCodePersist(client, code, address, {
   gatewayUrl,                     // 落进你的配置
   agentId: "<you>",               // 可选：默认取地址的 local-part
   platformHome: process.env.HOME, // 可选：.agentmail 指针写到哪
 })
-// res.raw_key / res.system_id / res.email_address / res.expires_at / res.config_path
+// res.raw_key / res.system_id / res.email_address / res.expires_at /
+// res.manager_address / res.config_path
 ```
 
-Python —— 来自 `pysdk`：
+Python：
 
 ```python
-import aimail  # noqa: F401 —— 把已安装的 SDK 模块挂上 sys.path
-from aimail_tools import _GatewayClient
-
 client = _GatewayClient(gateway_url, "")            # 公共端点：此时还没有 key
 res = client.activate_address_code_persist(code, address,
                                           agent_id="<you>", profile_dir=None)
@@ -77,41 +136,32 @@ res = client.activate_address_code_persist(code, address,
 - 你**自己的 agent key**（绝不是系统 admin key）→ `agentmail.json`，权限
   `0600`，字段与注册链同构（`agent_id`、`email`、`gateway_url`、`domain`、
   `system_id`、`api_key`、`expires_at`）；
-- 网关为这条地址**实际记录的 manager（安全官）** —— 由同一次激活调用带回并落成
-  `manager_address`；它是联系人审批信件的收件人，权威仍在网关；
+- 网关**实际记录的 manager（安全官）**，由同一次调用带回并落成 `manager_address`
+  —— 联系人审批信件的收件人；权威仍在网关；
 - 身份指针 `.agentmail`（之后的运行靠它认出哪个邮箱是你的）；
-- 承载系统的一条「不存在才创建」的系统连接文件（`shared_addr_<domain>`），
-  首次激活时自动生成。
+- 承载系统的一条「不存在才创建」的连接文件（`shared_addr_<domain>`），agent 作用域：
+  只写连接事实，不持 admin key。
 
-## 3. 走完闭环：把信拉进来，然后回信
+经 SDK 的 `activate_address_code` 入口激活时，共享核心的 agent 上下文已经替你设好
+（`set_agent_context`），模块级邮件工具激活后即可使用。若你直接用底层客户端
+（`_GatewayClient`），需自己调一次 `set_agent_context`（地址 local-part 与
+`system_id`）。
 
-agent 级激活**不会为你注册 push 目标**，所以网关会把你的信留在收件队列里，
-等你来取：这就是 **pull 模式**。`webhook_url` 为空是合法的 —— 不是缺陷 ——
-信照样投递；那里有值则是系统级部署所用的 push 形态。pull 模式只为 agent 级激活码
-开启，它产出的绑定其 `system_id` 以 `shared_addr_` 开头，这个前缀就是 agent 级的
-标记。
+## 5. 起 pull 循环 —— 信进你的处理函数，不开端口
 
-### 3.1 为自己这条邮箱起轮询入口
+agent 级激活**不会为你注册 push 目标**，所以网关会把你的信留在队列里，等你来取：
+这就是 **pull 模式**。`webhook_url` 为空是合法的 —— 不是缺陷 —— 信照样投递。
+这条路径**不开端口、不暴露路由、也不要求任何人能连到你**：pull 循环主动向网关取件，
+把每封信交给你进程内的处理函数。
 
-宿主若带适配层，轮询入口会**自己起来**：适配器在初始化时起、在 dispose/shutdown
-时停，并把每封拉到的信投进 **push 用的同一条入站链** —— 拉来的信与推来的信对你
-的到达方式完全一样。
-
-自行嵌入 SDK 时，就自己起：一次调用，每条 agent 级绑定一条轮询循环，投进你自己的
-入站入口。
-
-TypeScript（`@aimail/mail-core`）：
+TypeScript：
 
 ```ts
 import { startAgentPullEntries, stopAgentPullEntries } from "@aimail/mail-core"
 
 const handles = await startAgentPullEntries({
-  // 你自己的入站链 —— push 用的那个入口
-  onEmail: (cfg, mail) =>
-    processInboundMail(
-      mail.body as Record<string, unknown>,
-      mail.headers as Record<string, string>,
-    ),
+  // 你的入站处理 —— push 会喂进去的同一条链
+  onEmail: (cfg, mail) => processInboundMail(mail.body, mail.headers),
 })
 
 // 宿主关停时：
@@ -121,11 +171,10 @@ stopAgentPullEntries(handles)
 Python：
 
 ```python
-import aimail  # noqa: F401 —— 把已安装的 SDK 模块挂上 sys.path
 from aimail_base import process_inbound_mail
 from aimail_base import start_agent_pull_entries, stop_agent_pull_entries
 
-# on_email(cfg, mail) 把拉到的信交给 push 用的那个入口
+# on_email(cfg, mail) 把拉到的信交给你的入站处理
 handles = start_agent_pull_entries(
     on_email=lambda cfg, mail: process_inbound_mail(mail, mail.get("headers") or {}),
 )
@@ -134,32 +183,21 @@ handles = start_agent_pull_entries(
 stop_agent_pull_entries(handles)
 ```
 
-经 SDK 的 `activate_address_code` 入口激活时，共享核心的 agent 上下文已经替你设好
-（`set_agent_context`），模块级邮件工具激活后即可使用。若你直接用底层客户端
-（`_GatewayClient`），需自己调一次 `set_agent_context`（地址 local-part 与
-`system_id`）；否则这些工具会答 “aimail not configured for this profile”。
+循环的契约：
 
-若要自己手动驱动，底层调用是 `start_polling`（Python，阻塞循环，放进工作线程）
-以及 `pull_list` 与 `pull_ack`（两个 SDK 都有），用来手工跑一轮。
+- **范围就是 key 自己的邮箱。** agent 级 key 只服务一个地址 —— 它自己；网关对它
+  忽略任何更大的范围。
+- **失败不丢信。** 处理函数抛错 ⇒ 该次投递不 ack，下一轮重新取到；已成功的投递
+  不重复（去重键 = delivery id）。
+- **间隔与批量。** `AIMAIL_PULL_INTERVAL_MS`（默认 30000 ms，下限 1000 ms）与
+  `AIMAIL_PULL_LIMIT`（默认 20，网关上限 200）。
+- **可关、可停。** `AIMAIL_PULL=0|false|off|no` 关闭轮询；上面的 stop 函数结束循环
+  （幂等、立即生效，且循环永远不会成为拖住宿主进程的句柄）。
+- **不用循环、手动跑一轮：** `start_polling`（Python，阻塞，放进工作线程），或用
+  `pull_list` 与 `pull_ack`（两个 SDK 都有）跑单轮。
+- **ack 归属由服务端强制。** ack 只删自己地址的行；别的地址的 id 影响 0 行。
 
-### 3.2 拉进来的信落在哪
-
-拉来的信交给你传进去的入站处理函数（TypeScript 的 onEmail、Python 的 on_email）
-—— 就是 push 指向的那一个，所以两种模式下你的收信处理没有任何差别。适配层对外
-暴露哪个本机端点属于适配层事实、不是本流程的一环；各平台的端点列在
-`docs/agent-integration_zh.md`。
-
-### 3.3 按 agentmail skill 协议回信
-
-拉来的信在你的入站链里就是一次普通的对话回合，之后一切由 `agentmail` skill
-掌管：它的六步是 理解 → 结合上下文 → 执行 → 决策 → 回信或转发 → 记住。发信走
-`send_mail`（用同一个 `message_id` 回，线程才不会断），最后用
-`set_email_summary` 把线程状态存下来，供下一回合起步。
-
-整条闭环的验证：请用户给你发一封信；当你的回信到达对方地址时，agent 级路径就
-端到端地被证明了 —— 激活 → 落盘 → 轮询 → 入站 → 回信。
-
-## 4. 首次运行：身份名片与签名
+## 6. 首次运行：身份名片与签名
 
 两件不同的事、两个不同的归属。两者都在 agent 侧完成 —— 不碰 CLI、不用 admin key。
 
@@ -195,9 +233,37 @@ agent_persona 写进该地址的元数据。用 `GET /api/v1/whoami` 确认：�
 manager_address、agent_signature 与 agent_persona。之后要改，仍需 manager 再批一次；
 另一条路只有网关管理员。
 
-首次运行全链：安装 → 激活 → 身份名片 → 签名 → pull → 回信。
+## 7. 按 agentmail skill 协议回信
 
-## 5. 契约面（agent 内部名）
+拉来的信在你的入站链里就是一次普通的对话回合，之后一切由 `agentmail` skill
+掌管：它的六步是 理解 → 结合上下文 → 执行 → 决策 → 回信或转发 → 记住。发信走
+`send_mail`（用同一个 `message_id` 回，线程才不会断），最后用
+`set_email_summary` 把线程状态存下来，供下一回合起步。
+
+整条闭环的验证：请用户给你发一封信；当你的回信到达对方地址时，agent 级路径就
+端到端地被证明了 —— 安装 → 激活 → 拉取 → 入站 → 回信。
+
+## 8. 通用 SDK 做不到的系统级形态
+
+下面这些都是**系统级**能力。agent 级 SDK 在设计中就没有通往它们的路径；每一项都
+需要本机 CLI（push 还需要 bridge）以及运维手里的凭据：
+
+| agent 级路径上不可用 | 原因 / 需要什么 |
+| --- | --- |
+| 注册或复用**系统身份**（共享域的 `system_id`） | 系统激活码 + `aimail install`；系统 key 归运维 |
+| 使用**独享域名** | 域名在网关上按系统配置；要走运维路径 |
+| 持有或使用**系统级 key**（多地址管理） | 系统才有；agent key 天生只对应一个地址 |
+| **push** 投递（`webhook_url`、bridge、入站监听） | 需要常驻宿主端点与 bridge/CLI 接线；agent 级只有 pull |
+| 系统邮件链（`aimail welcome`、`check`）与**卸载/teardown** | 运维侧 CLI 动作 |
+| 管理**其他 agent** 的地址或整个系统 | 系统作用域，不是 agent 作用域 |
+
+上面这些都不需要用于本文件的 prompt 流程。若用户要其中一项，那就是运维路径 ——
+不要索取或使用平台 admin key 去伪造，也不要为自己的邮箱执行 CLI install 命令。
+
+平台与适配层事实（适配层对外暴露哪个本机端点、端口，以及 Hermes 的路径例外）写在
+`docs/agent-integration_zh.md`；agent 级流程一个都不需要。
+
+## 9. 契约面（agent 内部名）
 
 单一真源：`contract/aimail-contract.json`，由 `pysdk/aimail_contract.py` 与
 `tssdk/packages/mail-core/src/contract.ts` 逐项镜像。下表每个名字都是契约值，
@@ -210,39 +276,16 @@ manager_address、agent_signature 与 agent_persona。之后要改，仍需 mana
 | 系统指针文件 | `.agentmail` |
 | agent 级绑定的系统前缀 | `shared_addr_` |
 
-宿主（或其适配层）对外暴露的入站路径与监听端口属于宿主一侧，列在
-`docs/agent-integration_zh.md`；上面的 agent 级流程一个都不需要，因为拉来的信
-交给你自己传进去的处理函数。
-
 **命名边界：** agent 内部一切都叫 `agentmail` —— 宿主按这个名字查 skill/toolset
 表，你也只用这个名字与自己对账。`aimail` 是产品 / 仓库 / CLI 的品牌（`~/.aimail`
 目录、`AIMAIL_*` 环境变量）。两者不要混：一侧的名字在另一侧并不存在。
 
-## 6. pull 契约
+## 10. 规则
 
-- **作用域就是这个 key 自己的邮箱。** agent 级 key 只服务一个地址 —— 它自己的。
-  pull 请求里的 `emails` 字段是为了与桥的报文形状兼容而存在，网关侧忽略它：
-  你的作用域**本身就是**范围。
-- **ack 的所有权在服务端强制。** 一次 ack 只删除属于你自己地址的行；属于别的地址
-  的 id 影响 0 行。
-- **失败不会丢信。** 你的入站处理抛异常时，那件投递不做 ack，下一轮会重新拉到；
-  已经成功投递的不会重复。去重键是 delivery id。
-- **间隔与批量。** `AIMAIL_PULL_INTERVAL_MS` 定轮询间隔（默认 30000 ms，下限
-  1000 ms）；`AIMAIL_PULL_LIMIT` 定单轮批量（默认 20，网关上限 200）。
-- **可以关、可以停。** `AIMAIL_PULL=0|false|off|no` 关闭轮询；
-  `stopAgentPullEntries`（TypeScript）与 `stop_agent_pull_entries`（Python）停掉
-  循环 —— 幂等、立即生效，而且轮询循环永远不会成为吊住你宿主进程的那个句柄。
-- **key 到期与续期。** `expires_at` 在你的绑定里。到期前请用户重新申请：你会拿到
-  一个新码并重做 §2，续期**保持同一地址**。你停机期间到达的信会继续留在网关，
-  下一轮被拉进来。
-
-## 7. 规则
-
-- 激活码**一次性**；一次失败就废掉。不要打印它或你的 key —— key 自己以 `0600`
+- 激活码**一次性**；失败一次就作废。不要打印它或你的 key —— key 会自己以 `0600`
   落盘。
-- 你的**安全官（manager）**由网关在激活时按已核验的申请人地址记录。永远不要尝试
-  设置或修改它 —— 没有 agent 侧或自助路径；改它属于网关管理员。
-- 永远不要索取或使用系统 admin key，也不要为自己的邮箱跑 CLI 安装命令：那是
-  系统级路径，只属于运维。
-- 激活若报 `code already claimed` / 过期，就再要一个新码；若报网络错误，把同一次
-  调用重试一次。
+- 你的**安全官（manager）**由网关在激活时按已核验的申请人地址记录。永远不要试图
+  设置或修改它 —— agent 侧没有自助路径；变更归网关管理员。
+- 永远不要索要或使用系统 admin key，也不要为自己的邮箱执行 CLI install 命令：
+  那是系统级路径，属于运维。
+- 激活返回 `code already claimed` / 已过期 ⇒ 换一个新码；网络错误 ⇒ 同一调用重试一次。
