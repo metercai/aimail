@@ -720,6 +720,32 @@ pub struct PackageArgs {
     pub apply: bool,
 }
 
+/// 包安装步的判定：`kind == "spawn"` + **argv 里真的出现适配包** + 不在容器里跑。
+///
+/// 「不在容器里跑」按**结构**判（`when.runtime == "docker"`），不按序列化文本判：非 docker 步的
+/// `when.runtime_not = "docker"` 序列化后同样含 "docker" 字样，按文本排除会把宿主**本机**的包安装
+/// 步一起滤掉 —— hermes 因此在干净机器上命中"平台表里没有包安装步"，dry-run 直接 exit 5。
+fn is_local_package_step(st: &Value, pkg: &str) -> bool {
+    if st.get("kind").and_then(Value::as_str) != Some("spawn") {
+        return false;
+    }
+    let names_pkg = st
+        .get("argv")
+        .and_then(Value::as_array)
+        .map(|argv| {
+            argv.iter()
+                .filter_map(Value::as_str)
+                .any(|a| a.contains(pkg))
+        })
+        .unwrap_or(false);
+    let container = st
+        .get("when")
+        .and_then(|w| w.get("runtime"))
+        .and_then(Value::as_str)
+        == Some("docker");
+    names_pkg && !container
+}
+
 /// Adapter package each adapted host installs through its own package manager.
 fn adapter_package(host: &str) -> &'static str {
     match host {
@@ -788,18 +814,29 @@ pub fn package_setup(args: &PackageArgs) -> i32 {
     };
 
     let python = crate::hosts::runtime::python(host_def as &dyn crate::hosts::Host, &host_home, "");
-    let all = crate::hosts::exec::install_steps_json(host_def as &dyn crate::hosts::Host);
-    let steps: Vec<Value> = all
-        .into_iter()
-        .filter(|st| {
-            let kind = st.get("kind").and_then(|k| k.as_str()).unwrap_or("");
-            let body = serde_json::to_string(st).unwrap_or_default();
-            kind == "spawn" && body.contains(pkg) && !body.contains("docker")
-        })
-        .collect();
+    let steps: Vec<Value> =
+        crate::hosts::exec::install_steps_json(host_def as &dyn crate::hosts::Host)
+            .into_iter()
+            .filter(|st| is_local_package_step(st, pkg))
+            .collect();
 
     let already = pkg_present(pkg, &host_home, &python);
     let restart = all_restart_hints(&args.host);
+
+    let mut ctx = serde_json::Map::new();
+    ctx.insert(
+        "home".into(),
+        json!(host_home.to_string_lossy().to_string()),
+    );
+    ctx.insert("python".into(), json!(python));
+    ctx.insert("sid".into(), json!(""));
+    ctx.insert("sdk".into(), json!(""));
+    ctx.insert("scripts".into(), json!(""));
+    ctx.insert("cfg".into(), json!({}));
+    ctx.insert("runtime".into(), json!("local"));
+    ctx.insert("container".into(), json!(""));
+    ctx.insert("all_agents".into(), json!(false));
+    ctx.insert("agents".into(), json!([]));
 
     if steps.is_empty() {
         let out = json!({
@@ -822,8 +859,11 @@ pub fn package_setup(args: &PackageArgs) -> i32 {
                 st.get("argv")
                     .and_then(|a| a.as_array())
                     .map(|a| {
+                        // dry-run 打**可执行**的命令：占位符按同一条 ctx 展开
+                        // （`{python}` 等），不能把模板原样当命令回给用户。
                         a.iter()
                             .filter_map(|v| v.as_str())
+                            .map(|v| crate::core::steps::tmpl(v, &ctx))
                             .collect::<Vec<_>>()
                             .join(" ")
                     })
@@ -844,20 +884,34 @@ pub fn package_setup(args: &PackageArgs) -> i32 {
         return 0;
     }
 
-    let mut ctx = serde_json::Map::new();
-    ctx.insert(
-        "home".into(),
-        json!(host_home.to_string_lossy().to_string()),
-    );
-    ctx.insert("python".into(), json!(python));
-    ctx.insert("sid".into(), json!(""));
-    ctx.insert("sdk".into(), json!(""));
-    ctx.insert("scripts".into(), json!(""));
-    ctx.insert("cfg".into(), json!({}));
-    ctx.insert("runtime".into(), json!("local"));
-    ctx.insert("container".into(), json!(""));
-    ctx.insert("all_agents".into(), json!(false));
-    ctx.insert("agents".into(), json!([]));
+    // `--apply` 的出口要能解释"一步都没跑到"：步的 `when` 守卫在本机不成立时（例：
+    // `{home}/hermes-agent` 不存在 ⇒ 没有宿主可装）不许假报 `applied: true`。
+    let empty_when = json!({});
+    let live: Vec<&Value> = steps
+        .iter()
+        .filter(|st| crate::core::steps::when_ok(st.get("when").unwrap_or(&empty_when), &ctx))
+        .collect();
+    if live.is_empty() {
+        let guards: Vec<String> = steps
+            .iter()
+            .filter_map(|st| st.get("when"))
+            .map(|w| crate::core::steps::tmpl(&w.to_string(), &ctx))
+            .collect();
+        let out = json!({
+            "applied": false,
+            "host": args.host,
+            "mechanism": "package",
+            "package": pkg,
+            "installed": if already.is_empty() { Value::Null } else { json!(already.clone()) },
+            "reason": format!(
+                "no install step applies on this machine (step guards unmet: {})",
+                guards.join(" ")
+            ),
+            "restart": restart,
+        });
+        println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+        return if already.is_empty() { 5 } else { 0 };
+    }
 
     let rc = match crate::core::steps::run_steps(&args.host, &steps, &mut ctx, Path::new("")) {
         Ok(()) => 0,
@@ -872,7 +926,7 @@ pub fn package_setup(args: &PackageArgs) -> i32 {
         "host": args.host,
         "mechanism": "package",
         "package": pkg,
-        "steps_run": steps.len(),
+        "steps_run": live.len(),
         "step_rc": rc,
         "installed": if installed.is_empty() { Value::Null } else { json!(installed) },
         "restart": restart,

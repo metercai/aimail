@@ -205,9 +205,32 @@ fn package_hosts_show_their_native_command_without_touching_the_machine() {
     assert!(out.contains("openclaw-aimail"), "{out}");
     assert!(out.contains("openclaw plugins install"), "{out}");
 
+    // hermes 的**本机**包安装步必须真的被挑出来（不是被 "docker" 词面误滤掉），
+    // 且容器步不得混进本机 dry-run。断言按分支判，不按"机器上是否已装 SDK"判。
     let (rc, out) = run(&home, &home, &["agent", "setup", "--host", "hermes"]);
     assert_eq!(rc, 0, "{out}");
+    assert!(
+        out.contains("\"dry_run\": true"),
+        "must be the dry-run branch: {out}"
+    );
     assert!(out.contains("aimailsdk"), "{out}");
+    assert!(
+        out.contains("pip install"),
+        "hermes must print its real package command: {out}"
+    );
+    assert!(
+        !out.contains("docker exec"),
+        "the container step must not leak into local mode: {out}"
+    );
+
+    // 未检测到宿主 ⇒ 守卫不成立 ⇒ 不假报 applied=true，并说明"没有可跑的步"
+    let (_, out) = run(
+        &home,
+        &home,
+        &["agent", "setup", "--host", "hermes", "--apply"],
+    );
+    assert!(out.contains("\"applied\": false"), "{out}");
+    assert!(out.contains("no install step applies"), "{out}");
 
     // unknown host is refused, and the message names the known ones
     let (rc, out) = run(&home, &home, &["agent", "setup", "--host", "nope"]);
