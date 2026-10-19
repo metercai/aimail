@@ -52,7 +52,11 @@ bootstrap — you cannot activate from inside without the tool.
 
 The pull runtime belongs to the host process, not to a shell cron: only the
 in-process runtime hands a delivered mail to you as a turn. A shell loop can
-print JSON at most, so it cannot create the turn by itself.
+print JSON at most, so it cannot create the turn by itself. It is started once
+per host process (adapters do it in their plugin init, a generic host in its
+boot code) and lives and dies with that process — so the host must be
+long-running, and after a restart the boot code starts it again. Never start it
+from a tool call, and never twice in the same process: that double-polls.
 
 ## 2. Activate
 
