@@ -2094,20 +2094,51 @@ mod tests {
     fn drain_stuck_posts_pending_then_acks_only_stuck() {
         use std::io::{Read, Write};
         use std::net::TcpListener;
+        use std::sync::atomic::{AtomicBool, Ordering};
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         listener.set_nonblocking(true).unwrap();
         let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
         let seen2 = seen.clone();
+        let stop = std::sync::Arc::new(AtomicBool::new(false));
+        let stop2 = stop.clone();
         let h = std::thread::spawn(move || {
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
-            let mut served = 0;
-            while std::time::Instant::now() < deadline && served < 4 {
+            // 服务到**客户端自己结束**（stop）为止：不用"已服务 N 条"硬上限，
+            // 否则请求数变化时多出来的连接会被拒（Connection reset）。
+            while !stop2.load(Ordering::Relaxed) && std::time::Instant::now() < deadline {
                 match listener.accept() {
                     Ok((mut sock, _)) => {
+                        sock.set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                            .ok();
+                        // 一个请求可能分多段 TCP 到达（头 + body）⇒ 读到
+                        // Content-Length 声明的 body 齐了再回包；只读一次会在
+                        // 单核/低核 runner 上拿到空 body（旧写法 1-4 核必红）。
+                        let mut raw: Vec<u8> = Vec::new();
                         let mut buf = [0u8; 4096];
-                        let n = sock.read(&mut buf).unwrap_or(0);
-                        let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                        loop {
+                            match sock.read(&mut buf) {
+                                Ok(0) => break,
+                                Ok(n) => raw.extend_from_slice(&buf[..n]),
+                                Err(_) => break,
+                            }
+                            let text = String::from_utf8_lossy(&raw).to_string();
+                            let Some(head_end) = text.find("\r\n\r\n") else {
+                                continue;
+                            };
+                            let head = &text[..head_end];
+                            let have = text.len() - (head_end + 4);
+                            let want = head
+                                .lines()
+                                .filter_map(|l| l.split_once(':'))
+                                .find(|(k, _)| k.eq_ignore_ascii_case("content-length"))
+                                .and_then(|(_, v)| v.trim().parse::<usize>().ok())
+                                .unwrap_or(0);
+                            if have >= want {
+                                break;
+                            }
+                        }
+                        let req = String::from_utf8_lossy(&raw).to_string();
                         let first = req.lines().next().unwrap_or("").to_string();
                         let body = req.split("\r\n\r\n").nth(1).unwrap_or("").to_string();
                         seen2.lock().unwrap().push(format!("{first} | {body}"));
@@ -2119,17 +2150,18 @@ mod tests {
                                 {\"id\":\"fresh\",\"email\":\"b@example.test\",\"created_at\":\"2999-01-01T00:00:00Z\"}
                             ]}]}"
                         };
+                        // `Connection: close` + 处理完即关：客户端不再复用连接，
+                        // 下一个请求必走新的 accept（否则会在半读的连接上 reset）。
                         let resp = format!(
-                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
                             payload.len(),
                             payload
                         );
                         let _ = sock.write_all(resp.as_bytes());
                         let _ = sock.flush();
-                        served += 1;
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        std::thread::sleep(std::time::Duration::from_millis(20));
+                        std::thread::sleep(std::time::Duration::from_millis(5));
                     }
                     Err(_) => break,
                 }
@@ -2140,6 +2172,7 @@ mod tests {
             "k",
         );
         let changed = drain_stuck(&Some(client));
+        stop.store(true, Ordering::Relaxed);
         h.join().ok();
         assert!(changed, "有卡住的 pending ⇒ 应报告已处理");
         let log = seen.lock().unwrap().clone();
