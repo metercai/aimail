@@ -16,6 +16,26 @@ _TOOLSET = "agentmail"
 # a2a_board toolset — board query tools for role prompts
 # ═══════════════════════════════════════════════════════════════
 
+_BARE_BOARD_ID = __import__("re").compile(r"[0-9a-f]{20}")
+
+
+def _board_id_of(key: str) -> str:
+    """Board id from any handle an agent may hold.
+
+    Accepts a bare board id (what the invite mail states as `Board ID:` and what
+    board_creds.json is keyed by), the `b_<id>` form, and task ids
+    (`t_<id>...` / `board:<id>...`). A bare id used to fall through
+    `_resolve_board`, which returned "" — the token lookup then missed and the
+    call went out with the agent key, answering 401.
+    """
+    key = (key or "").strip()
+    if _BARE_BOARD_ID.fullmatch(key):
+        return key
+    if key.startswith("b_"):
+        return key[2:]
+    return _resolve_board(key)
+
+
 def _resolve_board(task_id: str) -> str:
     """Extract board_id from task_id."""
     if task_id.startswith("t_"):
@@ -56,7 +76,7 @@ def _board_client(board_key: str, cfg: dict):
     """Board 客户端构造:有 board token → Bearer 通道(api_key 置空,不发
     HMAC 签名——board 契约是 Bearer+email,网关 board/handlers.rs);
     无 token → api_key HMAC 通道(兼容系统级调用)。"""
-    board_id = _resolve_board(board_key) if not board_key.startswith("b_") else board_key
+    board_id = _board_id_of(board_key)
     gateway_url = _resolve_gateway_url(board_key)
     token = _get_board_token(board_id) if board_id else None
     if token:
@@ -87,7 +107,7 @@ def board_task_list(board: str, status: str = "", assignee: str = "") -> str:
     cfg = _load_profile_config()
     if not cfg:
         return "{\"error\": \"no profile config\"}"
-    board_id = _resolve_board(board) if not board.startswith("b_") else board
+    board_id = _board_id_of(board)
     client, token = _board_client(board_id, cfg)
     _email = cfg.get("email", "")
     params = {}

@@ -89,12 +89,16 @@ def test_agent_toolset_is_the_agent_level_subset():
     names = sorted(t["name"] for t in tools)
     assert names == sorted(A.AGENT_TOOL_NAMES)
     assert len(names) == len(set(names))
-    assert not [n for n in names if n.startswith("board_")]
+    # board tools are included: an address-code mailbox can be a board MEMBER
+    # (the invite carries the token); it just cannot create boards.
+    assert sorted(n for n in names if n.startswith("board_")) == [
+        "board_heartbeat", "board_members", "board_roles", "board_status",
+        "board_task_list", "board_task_show"]
     for tool in tools:
         assert callable(tool["handler"]), tool["name"]
         assert tool.get("inputSchema"), tool["name"]
-    # the full MCP registry still carries the board tools for adapted hosts
-    assert len(TOOLS) > len(tools)
+    # the agent-level toolset is the full registry (board included)
+    assert sorted(x["name"] for x in TOOLS) == names
 
 
 # ── 2. skill install ───────────────────────────────────────────────────────

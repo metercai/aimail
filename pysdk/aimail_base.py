@@ -1584,7 +1584,8 @@ def _extract_board_gateway(payload: dict):
     """Extract board_id and gateway_url from board notification emails."""
     subject = payload.get("subject", "")
     body = payload.get("body", "")
-    from_addr = payload.get("from", "")
+    # push payloads carry "from"; the pull body may carry only "sender".
+    from_addr = payload.get("from") or payload.get("sender") or ""
     if ".a2a@" not in from_addr and not subject.startswith("[A2A]"):
         return
     token_match = re.search(r'Token:\s*(bdt_\S+)', body)
@@ -1592,17 +1593,20 @@ def _extract_board_gateway(payload: dict):
     if not gw_match:
         return
     gateway_url = gw_match.group(1).rstrip()
-    from_match = re.search(r'(\S+)\.a2a@', from_addr)
-    if not from_match:
+    # Board ID: the invite states it — authoritative. Fallback = the gateway's
+    # derive_board_id: sha256(FULL board address)[:20]. The address carries the
+    # MAIL domain of the sender, never the gateway host — they differ whenever
+    # the gateway is not served on the mail domain (that mismatch used to key
+    # board_creds.json with an id the gateway never knew, so every board call
+    # answered 401).
+    bid_match = re.search(r'Board ID:\s*([0-9a-f]{20})', body)
+    addr_match = re.search(r'([A-Za-z0-9._\-]+\.a2a@[A-Za-z0-9._\-]+)', from_addr)
+    board_email = addr_match.group(1).lower() if addr_match else ""
+    board_id = bid_match.group(1).lower() if bid_match else ""
+    if not board_id and board_email:
+        board_id = hashlib.sha256(board_email.encode()).hexdigest()[:20]
+    if not board_id:
         return
-    board_short_id = from_match.group(1)
-    gw_domain = re.search(r'://([^/]+)', gateway_url)
-    domain = gw_domain.group(1) if gw_domain else ""
-    # board_id must match the gateway's derive_board_id: hash of the FULL
-    # board address ({short}.a2a@{domain}) — embeds system name on shared
-    # domains, no cross-system collision.
-    board_email = f"{board_short_id}.a2a@{domain}"
-    board_id = hashlib.sha256(board_email.encode()).hexdigest()[:20]
     _register_board_gateway(board_id, gateway_url)
     if token_match:
         token = token_match.group(1).rstrip()
