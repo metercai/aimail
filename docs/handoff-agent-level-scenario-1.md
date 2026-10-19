@@ -231,7 +231,7 @@ SDK
 | 地址级安装入口 | `scripts/agent-install.sh` | 只要 shell+curl：平台探测 → 静态二进制 → sha256（有 sidecar 则校验，否则记录）→ `~/.local/bin/aimail` → `aimail version` 冒烟 → `~/.aimail/agent-install.json`。无环境变量、无 bridge、不写 `.env` |
 | `aimail agent doctor` | `cli/src/cmd/agent.rs` | `--questions` 输出 1-shot 提问块（表格+反例+自检）；`--answers` 逐条验证（`command -v`/`test -d`/`test -w`/读示例插件取注册形态/抽 Q7 注入符号）→ host profile + **SDK 选型** + verdict（ready/blocked/unsupported，rc 0/5/4） |
 | SDK 选型 | 同上 §2 | 命中已适配宿主 → 其包（aimailsdk/dsh-aimail/openclaw-aimail/pi-aimail）；否则按 runtime → `@aimail/mail-core` / `aimailsdk`；other → unsupported |
-| `aimail agent setup` | 同上 | 按 profile 渲染 node/python 适配包（工具从 SDK 注册表取、pull 在 init 起、投递走 Q7 给的入站调用）+ 装 skill；写 `<plugin>/aimail-<host>/` 与 `<skills>/agentmail/`，state 记 sha256；默认 dry-run，`--apply` 才写，可选调 reload |
+| `aimail agent setup` | 同上 | 按 profile 渲染 node/python 适配包（工具从 SDK 注册表取、pull 在 init 起、投递走 Q7 给的入站调用）+ 装 skill；写 `<plugin>/aimail-<host>/` 与 `<skills>/<skill 名>/`，state 记 sha256；默认 dry-run，`--apply` 才写，可选调 reload |
 | `aimail agent uninstall` | 同上 | 只删 sha256 未变的本次文件，外来插件不动 |
 | **SDK hot-add** | `pysdk/aimail_base.py`、`aimail_tools.py`、`aimail_agent.py`；`tssdk/.../poll-entry.ts`、`binding-hooks.ts`、`agent-level.ts`、`address-code.ts` | 激活落盘触发 binding-created 钩子 → 同进程为新绑定起 pull 句柄（按 email 去重、可 stop）。**激活后不需要第二次重启** |
 
@@ -242,7 +242,7 @@ SDK
 
 **发版顺序（新增，重要）**
 1. **CLI 必须先发**（`cli-v*`）：`agent-install.sh` 装的是 release 二进制，当前 0.1.55 没有 `agent` 子命令 ⇒ 先发 CLI，S1→S3 才成立。
-2. SDK 两包按 §4 顺序；适配包同批（`agentmail` skill 已含首运行/边界规则，bundled 内容变化）。
+2. SDK 两包按 §4 顺序；适配包同批（skill 已含首运行/边界规则，bundled 内容变化）。
 3. 建议同时给 release 补 `<asset>.sha256` sidecar（安装器已支持校验，缺 sidecar 时只记录）。
 
 **未做（本机无这些平台）**
@@ -252,3 +252,13 @@ SDK
 - 无 shell ⇒ 无法自举（明确告知用户开权限，不做假装）。
 - 宿主无"入站注入"能力（Q7=none）⇒ 判 unsupported：没有它就没有进程内 pull，收信不成立。
 - 未识别宿主且插件 API 无法用两种 runtime 模板表达 ⇒ unsupported，profile 留档供后续加模板。
+
+**冒烟脚本（新增）**：`tests/cli/agent_host_smoke.py`（手动，不入 L0）。读 `aimail platform spec`，
+对本机已装宿主输出 detected / mechanism / package / installed / profile / native_cmd / restart，
+`--json` 给全量命令；directory 类宿主可 `--answers-dir` + `--apply` 走 doctor/setup。
+本机实跑：openclaw 适配包已装，pi/dsh/hermes 缺包（各自 native 命令已列出），deerflow 未安装。
+
+**由此确认的机制分裂（待接，verifier 需知）**：五家已适配宿主是 **package 机制**（包管理器装
+`openclaw-aimail` / `pi-aimail` / `dsh-aimail` / `aimailsdk`），`setup` 应调用平台表里的 native
+命令而不是写文件；**directory 机制**（未知宿主）才用本次实现的模板渲染。当前 `setup` 只覆盖
+directory 分支，package 分支待补。这不影响 SDK hot-add 与 activate 语义，只影响"已知宿主的安装动作"。
