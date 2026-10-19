@@ -152,6 +152,7 @@ SDK
 
 | 顺序 | 包 / 仓 | 当前 → 目标 | 内容 | 配对声明 |
 |---|---|---|---|---|
+| **0** | **CLI（`cli-v*`）** | 0.1.55 → 0.1.56 | 新增 `aimail agent doctor/setup/uninstall`；`scripts/agent-install.sh` 装的就是这个二进制 ⇒ **必须先发**，否则 S1 装到旧二进制（无 `agent` 子命令） | 独立版本线；与 SDK 无版本绑定 |
 | 1 | aimail-gateway | 1.0.3 → 1.0.4 | D3 线程头归一（单点） | advanced 以 path 依赖编入，两者同批；SDK 不改 |
 | 1 | aimail-advanced | 1.0.1 → 1.0.2 | D1 白名单、D2 错误映射、激活响应 `manager_address` | 与 gateway 同批 |
 | 2 | `@aimail/mail-core` | 0.1.54 → 0.1.55 | D4 连接文件、G1 manager 落盘、agent-level 运行时、入站快照、board 邀请解析、board 裸 id、随包 skill | 先发；旧 pysdk 忽略新字段不受影响 |
@@ -171,6 +172,9 @@ SDK
   （只是没有 manager/快照等新行为）。
 - **`pip install aimailsdk` 目前仍拿 0.1.55，`npm i @aimail/mail-core` 仍是 0.1.54
   （旧代码）**：干净环境按新文档一步不落，以本批发版为前提。
+- **CLI 必须先发**：`agent-install.sh` 拉的是 release 资产；0.1.55 没有 `agent` 子命令，
+  发 CLI 之前 S1→S3 跑不起来（安装器本身可用，`aimail version` 会过）。
+- 建议同批给 release 增加 `<asset>.sha256` sidecar：安装器已支持"有则校验"，当前只记录哈希。
 
 ## 5. 未做 / 不可为（区分范围与约束）
 
@@ -217,3 +221,34 @@ SDK
 3. 若发现本文与代码不符，直接指出 `file:line`，不要改门禁判据；
 4. 发版后请在 PyPI/npm 实测一次 `pip install aimailsdk` / `npm i @aimail/mail-core`
    再跑 `driver_py.py` / `driver_ts.py`（这是“干净环境照文档可跑”的最终判据）。
+
+## 9. agent 级自举（本轮新增，M1–M6）
+
+**做了什么**
+
+| 产物 | 位置 | 说明 |
+|---|---|---|
+| 地址级安装入口 | `scripts/agent-install.sh` | 只要 shell+curl：平台探测 → 静态二进制 → sha256（有 sidecar 则校验，否则记录）→ `~/.local/bin/aimail` → `aimail version` 冒烟 → `~/.aimail/agent-install.json`。无环境变量、无 bridge、不写 `.env` |
+| `aimail agent doctor` | `cli/src/cmd/agent.rs` | `--questions` 输出 1-shot 提问块（表格+反例+自检）；`--answers` 逐条验证（`command -v`/`test -d`/`test -w`/读示例插件取注册形态/抽 Q7 注入符号）→ host profile + **SDK 选型** + verdict（ready/blocked/unsupported，rc 0/5/4） |
+| SDK 选型 | 同上 §2 | 命中已适配宿主 → 其包（aimailsdk/dsh-aimail/openclaw-aimail/pi-aimail）；否则按 runtime → `@aimail/mail-core` / `aimailsdk`；other → unsupported |
+| `aimail agent setup` | 同上 | 按 profile 渲染 node/python 适配包（工具从 SDK 注册表取、pull 在 init 起、投递走 Q7 给的入站调用）+ 装 skill；写 `<plugin>/aimail-<host>/` 与 `<skills>/agentmail/`，state 记 sha256；默认 dry-run，`--apply` 才写，可选调 reload |
+| `aimail agent uninstall` | 同上 | 只删 sha256 未变的本次文件，外来插件不动 |
+| **SDK hot-add** | `pysdk/aimail_base.py`、`aimail_tools.py`、`aimail_agent.py`；`tssdk/.../poll-entry.ts`、`binding-hooks.ts`、`agent-level.ts`、`address-code.ts` | 激活落盘触发 binding-created 钩子 → 同进程为新绑定起 pull 句柄（按 email 去重、可 stop）。**激活后不需要第二次重启** |
+
+**验证（本机实测）**
+- 单进程热加 `/tmp/hotadd-driver.py` **6/6 PASS**：0 绑定起 runtime → 进程内激活 → handles 0→1 → 来信成为回合 → 回信 → 对端收到。无 reload、无重启、数据面不经 CLI。
+- 适配选型矩阵 `/tmp/m6-matrix.py` **11/11 PASS**：hermes/dsh/openclaw/pi/deerflow 各命中自己的包；未知 node 宿主 → generic mail-core 并成功落盘；runtime=other ⇒ unsupported(4)；无 Q7 ⇒ unsupported(4)；目录不可写 ⇒ blocked(5)；reload 失败 ⇒ `"ok": false` 且安装仍记录。
+- 单测/门禁：pytest 277、vitest 288、`cargo test --test agent_bootstrap` 3 passed、cli_surface 10 passed、L0 PASS、`GATE a1 all PASS`（/tmp/a1-final7）。
+
+**发版顺序（新增，重要）**
+1. **CLI 必须先发**（`cli-v*`）：`agent-install.sh` 装的是 release 二进制，当前 0.1.55 没有 `agent` 子命令 ⇒ 先发 CLI，S1→S3 才成立。
+2. SDK 两包按 §4 顺序；适配包同批（`agentmail` skill 已含首运行/边界规则，bundled 内容变化）。
+3. 建议同时给 release 补 `<asset>.sha256` sidecar（安装器已支持校验，缺 sidecar 时只记录）。
+
+**未做（本机无这些平台）**
+- 四家宿主**真机**冒烟（hermes/dsh/openclaw/pi 未安装在本机）：本批只做了"适配选型 + 假宿主全链路"，真机冒烟需在装有对应平台的机器上跑 `agent-install.sh → doctor --questions → setup --apply`，并记录是零重启还是一次重启。
+
+**已知边界**
+- 无 shell ⇒ 无法自举（明确告知用户开权限，不做假装）。
+- 宿主无"入站注入"能力（Q7=none）⇒ 判 unsupported：没有它就没有进程内 pull，收信不成立。
+- 未识别宿主且插件 API 无法用两种 runtime 模板表达 ⇒ unsupported，profile 留档供后续加模板。
