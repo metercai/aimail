@@ -294,7 +294,7 @@ home / npm root 查找），并回放平台表里的重启提示。实测：`--h
 
 ```bash
 cd aimail && bash tests/sdk/l0-gate-tests.sh              # 期望 L0 PASS
-cd aimail-gateway && cargo test --lib                     # 期望 291 passed（含 persona 闭环）
+cd aimail-gateway && cargo test --lib                     # 期望 290 passed（含 persona 闭环通知）
 cd aimail-advanced && cargo build --bin aimail-advanced && cargo test --bin aimail-advanced
 A1_EVIDENCE=/tmp/a1-rel bash tests/SDK/agent-level/gate.sh   # 期望 GATE a1 all: PASS
 cd aimail/cli && cargo test --test cli_surface --test agent_bootstrap   # 10 + 4
