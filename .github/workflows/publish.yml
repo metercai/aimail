@@ -210,7 +210,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   npm:
-    needs: [gate, meta]
+    # 顺序裁决(2026-10-19 验证方): CLI 资产必须先落地再发 SDK —— agent-install.sh 拉的是
+    # cli-v* release 资产，0.1.55 没有 `agent` 子命令，先发 SDK 会出现"装得上但用不了"的窗口。
+    # dry_run 时 cli-release 按设计 skipped，这里显式放行（只做 pack/校验，不发布）。
+    needs: [gate, meta, cli-release]
+    if: ${{ always() && needs.gate.result == 'success' && needs.meta.result == 'success' && (needs.cli-release.result == 'success' || inputs.dry_run == 'true') }}
     runs-on: ubuntu-latest
     # TP binding pins this environment name; OIDC claims include it and npm
     # compares it exactly against the npmjs-side configuration.
@@ -331,9 +335,11 @@ jobs:
         run: bash tests/sdk/release/l2-verify-wheel.sh
 
   pypi:
-    needs: [gate, meta, pypi-build]
+    # 顺序裁决(2026-10-19 验证方): 同 npm —— CLI 发布成功后才允许 SDK 上架；
+    # 任前序失败/取消则 PyPI 不发布（宁可整批停住，也不留半批发布态）。
+    needs: [gate, meta, pypi-build, cli-release]
     # dry_run ⇒ 只跑上面的构建 + L2 校验, 不上传(语义与原 reusable 调用的 publish 输入等价)。
-    if: ${{ inputs.dry_run != 'true' }}
+    if: ${{ always() && inputs.dry_run != 'true' && needs.gate.result == 'success' && needs.meta.result == 'success' && needs.pypi-build.result == 'success' && needs.cli-release.result == 'success' }}
     runs-on: ubuntu-latest
     # TP binding pins this environment name; OIDC claims include it and PyPI
     # compares it exactly against the publisher configuration.

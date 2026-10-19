@@ -92,6 +92,30 @@ print('[L1] PASS (versions aligned, release type consistent)')
 PYEOF
 
 echo "[L1] npm dependency-order gate (registry lookups may be slow)"
+# ── 同批待发(pending) 语义 ────────────────────────────────────────────────
+# RELEASE_BATCH="mail-core,mail,dsh-aimail,openclaw-aimail,pi-aimail"
+#   逗号分隔，按**发布顺序**排列。放行一条"依赖还没上架"必须三条同时成立：
+#     1) 依赖在本批清单里；
+#     2) 依赖在清单里的位置**早于**依赖方（publish-npm.sh 按同一顺序串行发布）；
+#     3) workspace 里该依赖的本地版本 == 依赖声明解析出的版本。
+#   缺任何一条 ⇒ 仍按原判据红。**不设 RELEASE_BATCH = 完全保持原来的严格行为**，
+#   所以 CI / 第三方调用不受影响；批次只是把"本次同批发布"显式说出来。
+declare -A BATCH_POS=() BATCH_VER=()
+BATCH="${RELEASE_BATCH:-}"
+if [ -n "$BATCH" ]; then
+  while read -r _bn _bi _bv; do
+    [ -n "$_bn" ] || continue
+    BATCH_POS["$_bn"]="$_bi"; BATCH_VER["$_bn"]="$_bv"
+  done < <(python3 - "$BATCH" <<'PY'
+import json, os, sys
+for i, n in enumerate([x.strip() for x in sys.argv[1].split(',') if x.strip()]):
+    f = os.path.join('tssdk/packages', n, 'package.json')
+    v = json.load(open(f))['version'] if os.path.isfile(f) else ''
+    print(n, i, v)
+PY
+)
+  echo "[L1] release batch declared (publish order): ${BATCH}"
+fi
 for p in mail-core mail dsh-aimail openclaw-aimail pi-aimail; do
   dir="tssdk/packages/$p"
   ver=$(python3 -c "import json;print(json.load(open('$dir/package.json'))['version'])")
@@ -127,6 +151,24 @@ for sub in os.listdir(root):
       echo "[L1] FAIL: registry query failed for $dname@$dver"; exit 1
     fi
     if [ -z "$ok" ]; then
+      base="${dname##*/}"
+      if [ -n "${BATCH_POS[$base]+x}" ]; then
+        pos_dep="${BATCH_POS[$base]}"; pos_self="${BATCH_POS[$p]:-}"
+        if [ -z "$pos_self" ]; then
+          echo "[L1] FAIL: $p@$ver depends on $dname@$dver (declared in batch) but $p itself is not in RELEASE_BATCH"
+          exit 1
+        fi
+        if [ "$pos_dep" -ge "$pos_self" ]; then
+          echo "[L1] FAIL: batch order wrong: $p(pos=$pos_self) depends on $dname(pos=$pos_dep) — dependency must come earlier"
+          exit 1
+        fi
+        if [ "${BATCH_VER[$base]}" != "$dver" ]; then
+          echo "[L1] FAIL: $p@$ver declares $dname@$dver but the batch has $dname@${BATCH_VER[$base]}"
+          exit 1
+        fi
+        echo "  pending(batch[$pos_dep<$pos_self]): $p deps $dname@$dver (not on registry yet; lands earlier in this batch)"
+        continue
+      fi
       echo "[L1] FAIL: $p@$ver depends on $dname@$dver which is NOT on the registry"
       exit 1
     fi
