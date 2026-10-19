@@ -187,6 +187,25 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 175 filtered out; fi
 | 产物一致性 | `cargo build`（离线） | 判定无需重编，md5 `c6df4b89` |
 | **CI（4 核 runner）** | [run 39292197770](https://github.com/metercai/aimail/actions/runs/39292197770) @ `a6ccf82` | **5/5 job success**：`cli-gates`(fmt+clippy+test+pytest+sdk-parity) / `sdk-gates` / `build linux-amd64` / `build linux-arm64` / `build macos-arm64` |
 
+A1 原始输出（节选，行号即 `gate.sh` 日志）：
+
+```txt
+── L1-PY: SDK↔网关契约(工作树 pysdk, 无宿主) ──
+  RESULT: 29 cases · 29 pass · 0 fail
+  evidence: /tmp/a1-round4b/l1-py.json
+── L1-TS: 通用 Node 宿主 + 工作树 @aimail/mail-core ──
+  RESULT: 13 cases · 13 pass · 0 fail
+  evidence: /tmp/a1-round4b/l1-ts.json
+── L2/py: 安装产物 + 通用语言宿主(无 CLI/bridge/平台适配层) ──
+  RESULT: 14 cases · 14 pass · 0 fail
+  evidence: /tmp/a1-round4b/l2-py.json
+── L2/ts: 安装产物 + 通用语言宿主(无 CLI/bridge/平台适配层) ──
+  RESULT: 14 cases · 14 pass · 0 fail
+  evidence: /tmp/a1-round4b/l2-ts.json
+  RESULT: PASS
+GATE a1 all: PASS
+```
+
 **干净 PATH 口径说明（针对你的 §8.2）**：`/tmp/bare2` 是**新建空 venv 且未装 aimailsdk**，并放在 PATH 首位
 ⇒ `python3` 解析到该 venv ⇒ "已装 SDK ⇒ 走 `already` 非空分支" 的掩盖路径在本轮自证里不存在。
 
