@@ -3,7 +3,7 @@
 > 出具方：实现方　接收方：验证方
 > 回应对象：`handoff-agent-level-scenario-1-round3-verifier-hold.md`（HOLD，不 dispatch）
 > 判定口径未改：不改判据、不指定实现、不扩范围。本轮只做 D7 / D8 两条阻塞的修复与自验。
-> **待授权项**：push（`aimail` 三提交）以产出新 SHA 上的 `ci.yml` run —— 见 §5。
+> **CI 已绿**：[run 39292197770](https://github.com/metercai/aimail/actions/runs/39292197770)（`a6ccf82`，5/5 job success）。
 
 ---
 
@@ -11,8 +11,8 @@
 
 | # | 缺陷 | 修法（一句话） | 你的清关条件 | 本轮自验 |
 |---|---|---|---|---|
-| D8 | `agent setup --host hermes` 在干净机器 rc=5 | 选步判据从**序列化文本**换成**结构**：`kind=="spawn"` ∧ `argv` 真含适配包 ∧ `when.runtime != "docker"`；dry-run 展开占位符；`--apply` 不再假报 `applied:true` | 干净机器 rc=0 且输出含 pip/uv 安装命令；CI `cli-gates` 绿 | `rc=0` 且打印真实命令（§2.3 原始输出）；CI 待授权 push |
-| D7 | `drain_stuck` mock server 只读一次 socket，1–4 核必红 | mock 读到 `Content-Length` 声明的 body 齐了再回包、回包带 `Connection: close`、以客户端结束停 accept（删掉 `served < 4`） | `taskset -c 0` 连跑 10 次全过；CI 绿 | **10/10 PASS，每次 0.00s**（§3.3 原始输出）；CI 待授权 push |
+| D8 | `agent setup --host hermes` 在干净机器 rc=5 | 选步判据从**序列化文本**换成**结构**：`kind=="spawn"` ∧ `argv` 真含适配包 ∧ `when.runtime != "docker"`；dry-run 展开占位符；`--apply` 不再假报 `applied:true` | 干净机器 rc=0 且输出含 pip/uv 安装命令；CI `cli-gates` 绿 | `rc=0` 且打印真实命令（§2.3 原始输出）；CI `cli-gates` **success**（run 39292197770） |
+| D7 | `drain_stuck` mock server 只读一次 socket，1–4 核必红 | mock 读到 `Content-Length` 声明的 body 齐了再回包、回包带 `Connection: close`、以客户端结束停 accept（删掉 `served < 4`） | `taskset -c 0` 连跑 10 次全过；CI 绿 | **10/10 PASS，每次 0.00s**（§3.3 原始输出）；CI `cli-gates` **success**（run 39292197770） |
 
 产品代码改动面：`cli/src/cmd/agent.rs`（D8 面 + 同函数的重启提示口径）、`cli/src/core/repair.rs`（**仅测试**）、
 `cli/tests/agent_bootstrap.rs`（**仅测试**）。SDK / 桥 / 网关 / advanced 零改动。逐文件见 §6。
@@ -185,6 +185,7 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 175 filtered out; fi
 | cli L2 配对 | `cargo test --features sdk-parity --test repair_backfill_parity` | 2 passed |
 | A1（场景 1，L1+L2） | `A1_EVIDENCE=/tmp/a1-round4b bash tests/SDK/agent-level/gate.sh`（advanced） | l1-py 29 / l1-ts 13 / l2-py 14 / l2-ts 14 = **70 · 0 fail** ⇒ `GATE a1 all: PASS` |
 | 产物一致性 | `cargo build`（离线） | 判定无需重编，md5 `c6df4b89` |
+| **CI（4 核 runner）** | [run 39292197770](https://github.com/metercai/aimail/actions/runs/39292197770) @ `a6ccf82` | **5/5 job success**：`cli-gates`(fmt+clippy+test+pytest+sdk-parity) / `sdk-gates` / `build linux-amd64` / `build linux-arm64` / `build macos-arm64` |
 
 **干净 PATH 口径说明（针对你的 §8.2）**：`/tmp/bare2` 是**新建空 venv 且未装 aimailsdk**，并放在 PATH 首位
 ⇒ `python3` 解析到该 venv ⇒ "已装 SDK ⇒ 走 `already` 非空分支" 的掩盖路径在本轮自证里不存在。
@@ -195,7 +196,7 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 175 filtered out; fi
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| 新 SHA 上的 `ci.yml` run 链接 | **待授权** | 我不擅自 push。授权后我立刻 push 三提交并把 run 链接补进本文；`cli-gates` 的命令与本机 §4 同款（fmt / clippy / `cargo test --all-targets` / `pytest tests/cli` / sdk-parity L2）。 |
+| 新 SHA 上的 `ci.yml` run 链接 | **已产出（绿）** | [run 39292197770](https://github.com/metercai/aimail/actions/runs/39292197770) @ `a6ccf82`，5/5 job success（`cli-gates` 首绿：此前 run 39280603075 / 39286096020 / 39287716482 三跑全红）。 |
 | `publish.yml` dry-run 形状 | 未做（按你 §7 由你做） | gate 绿后才有形状可核。 |
 | L3 12 格、docker 五宿主冒烟、`SDK/sdk-e2e` | 未做（同上） | 需正式 dispatch 后的已发布产物 / 完整 RELAY_BIN 环境。 |
 | 版本号 | 未动 | 0.1.56 未发版（HOLD 轮无 tag），重交不需要再 bump。 |
