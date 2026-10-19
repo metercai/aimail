@@ -752,6 +752,9 @@ fn agent_args(cmd: Command) -> Command {
                         .action(ArgAction::SetTrue)
                         .help("actually write the files (default: dry-run)"),
                 )
+                .arg(Arg::new("host").long("host").value_name("NAME").help(
+                    "adapted host (openclaw/pi/dsh/hermes/deerflow): install its adapter PACKAGE",
+                ))
                 .arg(
                     Arg::new("no-reload")
                         .long("no-reload")
@@ -789,6 +792,12 @@ pub fn run() -> i32 {
                     answers_file: am.get_one::<String>("answers-file").cloned(),
                     json: am.get_flag("json"),
                 }),
+                "setup" if am.get_one::<String>("host").is_some() => {
+                    crate::cmd::agent::package_setup(&crate::cmd::agent::PackageArgs {
+                        host: am.get_one::<String>("host").cloned().unwrap_or_default(),
+                        apply: am.get_flag("apply"),
+                    })
+                }
                 "setup" => crate::cmd::agent::setup(&crate::cmd::agent::SetupArgs {
                     answers: am.get_one::<String>("answers").cloned(),
                     answers_file: am.get_one::<String>("answers-file").cloned(),

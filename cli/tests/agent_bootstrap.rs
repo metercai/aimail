@@ -191,3 +191,27 @@ fn setup_refuses_a_blocked_profile() {
     assert_eq!(rc, 5, "blocked profile must not install:\n{out}");
     assert!(out.contains("\"applied\": false"), "{out}");
 }
+
+#[test]
+fn package_hosts_show_their_native_command_without_touching_the_machine() {
+    let tmp = TempDir::new("pkg");
+    let home = tmp.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // dry-run: the platform table holds the command, nothing is executed
+    let (rc, out) = run(&home, &home, &["agent", "setup", "--host", "openclaw"]);
+    assert_eq!(rc, 0, "{out}");
+    assert!(out.contains("\"mechanism\": \"package\""), "{out}");
+    assert!(out.contains("openclaw-aimail"), "{out}");
+    assert!(out.contains("openclaw plugins install"), "{out}");
+
+    let (rc, out) = run(&home, &home, &["agent", "setup", "--host", "hermes"]);
+    assert_eq!(rc, 0, "{out}");
+    assert!(out.contains("aimailsdk"), "{out}");
+
+    // unknown host is refused, and the message names the known ones
+    let (rc, out) = run(&home, &home, &["agent", "setup", "--host", "nope"]);
+    assert_eq!(rc, 2, "{out}");
+    assert!(out.contains("openclaw"), "{out}");
+    assert!(out.contains("hermes"), "{out}");
+}

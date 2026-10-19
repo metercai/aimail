@@ -258,7 +258,13 @@ SDK
 `--json` 给全量命令；directory 类宿主可 `--answers-dir` + `--apply` 走 doctor/setup。
 本机实跑：openclaw 适配包已装，pi/dsh/hermes 缺包（各自 native 命令已列出），deerflow 未安装。
 
-**由此确认的机制分裂（待接，verifier 需知）**：五家已适配宿主是 **package 机制**（包管理器装
-`openclaw-aimail` / `pi-aimail` / `dsh-aimail` / `aimailsdk`），`setup` 应调用平台表里的 native
-命令而不是写文件；**directory 机制**（未知宿主）才用本次实现的模板渲染。当前 `setup` 只覆盖
-directory 分支，package 分支待补。这不影响 SDK hot-add 与 activate 语义，只影响"已知宿主的安装动作"。
+**由此确认的机制分裂（不可混用）**：五家已适配宿主是 **package 机制**（包管理器装
+`openclaw-aimail` / `pi-aimail` / `dsh-aimail` / `aimailsdk`）；**directory 机制**（未知宿主）
+才用模板渲染。
+
+**package 分支已补**：`aimail agent setup --host <name>` 只挑平台表里"argv 含该适配包"的
+`spawn` 步（不跑 sdk_install/register 系统级步、不跑 docker 步），复用 `core::steps::run_steps`
+的占位符与 `skip_if` 语义，跑完用 `pkg_present` 校验（python 走 importlib.metadata，node 走
+home / npm root 查找），并回放平台表里的重启提示。实测：`--host openclaw --apply` 命中
+`skip_if`（已装 ⇒ 跳过安装、校验在位、rc=0，**未改动现场环境**）；`--host pi|hermes` dry-run
+给出各自命令；未知 host ⇒ rc=2 并列出已知宿主。

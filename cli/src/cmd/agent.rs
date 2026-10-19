@@ -712,3 +712,199 @@ fn shell_escape(s: &str) -> String {
         format!("'{}'", s.replace('\'', "'\\''"))
     }
 }
+
+// ───────────────────── package-mechanism hosts (adapted five) ─────────────────────
+
+pub struct PackageArgs {
+    pub host: String,
+    pub apply: bool,
+}
+
+/// Adapter package each adapted host installs through its own package manager.
+fn adapter_package(host: &str) -> &'static str {
+    match host {
+        "openclaw" => "openclaw-aimail",
+        "pi" => "pi-aimail",
+        "dsh" => "dsh-aimail",
+        _ => "aimailsdk", // hermes / deerflow
+    }
+}
+
+fn pkg_present(pkg: &str, home: &Path, python: &str) -> String {
+    if pkg == "aimailsdk" {
+        if !python.is_empty() {
+            if let Some(v) = sh(&format!(
+                "{} -c \"import importlib.metadata as m;print(m.version('{}'))\" 2>/dev/null",
+                shell_escape(python),
+                pkg
+            )) {
+                if !v.is_empty() {
+                    return format!("import ok, version {v}");
+                }
+            }
+        }
+    }
+    if let Some(hit) = sh(&format!(
+        "find {} -maxdepth 6 -type d -name {} 2>/dev/null | head -1",
+        shell_escape(&home.to_string_lossy()),
+        shell_escape(pkg)
+    )) {
+        if !hit.is_empty() {
+            return hit;
+        }
+    }
+    if let Some(root) = sh("npm root -g 2>/dev/null") {
+        if !root.is_empty() && Path::new(&root).join(pkg).is_dir() {
+            return format!("{root}/{pkg}");
+        }
+    }
+    String::new()
+}
+
+/// `aimail agent setup --host <name>`: adapted hosts install an adapter PACKAGE
+/// through their own package manager — the platform table already encodes the exact
+/// command. We run only the `spawn` steps that name the adapter package (never the
+/// system-level `sdk_install` / register steps), then verify the package is in place.
+pub fn package_setup(args: &PackageArgs) -> i32 {
+    let Some(host_def) = crate::hosts::get(&args.host) else {
+        eprintln!(
+            "setup: unknown host {:?}; known hosts: {}",
+            args.host,
+            crate::hosts::order().join(", ")
+        );
+        return 2;
+    };
+    let pkg = adapter_package(&args.host);
+    let home_dir = crate::core::detect::spec_json(None, Some(&args.host))
+        .get("platforms")
+        .and_then(|p| p.get(&args.host))
+        .and_then(|p| p.get("home_dir"))
+        .and_then(|h| h.as_str())
+        .unwrap_or("")
+        .to_string();
+    let user_home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let host_home = if home_dir.is_empty() {
+        PathBuf::from(&user_home)
+    } else {
+        Path::new(&user_home).join(home_dir)
+    };
+
+    let python = crate::hosts::runtime::python(host_def as &dyn crate::hosts::Host, &host_home, "");
+    let all = crate::hosts::exec::install_steps_json(host_def as &dyn crate::hosts::Host);
+    let steps: Vec<Value> = all
+        .into_iter()
+        .filter(|st| {
+            let kind = st.get("kind").and_then(|k| k.as_str()).unwrap_or("");
+            let body = serde_json::to_string(st).unwrap_or_default();
+            kind == "spawn" && body.contains(pkg) && !body.contains("docker")
+        })
+        .collect();
+
+    let already = pkg_present(pkg, &host_home, &python);
+    let restart = all_restart_hints(&args.host);
+
+    if steps.is_empty() {
+        let out = json!({
+            "applied": false,
+            "host": args.host,
+            "mechanism": "package",
+            "package": pkg,
+            "installed": if already.is_empty() { Value::Null } else { json!(already) },
+            "reason": "no package step in the platform table for this host",
+            "restart": restart,
+        });
+        println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+        return if already.is_empty() { 5 } else { 0 };
+    }
+
+    if !args.apply {
+        let cmds: Vec<String> = steps
+            .iter()
+            .map(|st| {
+                st.get("argv")
+                    .and_then(|a| a.as_array())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_str())
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    })
+                    .unwrap_or_default()
+            })
+            .collect();
+        let out = json!({
+            "applied": false,
+            "dry_run": true,
+            "host": args.host,
+            "mechanism": "package",
+            "package": pkg,
+            "installed": if already.is_empty() { Value::Null } else { json!(already) },
+            "commands": cmds,
+            "restart": restart,
+        });
+        println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+        return 0;
+    }
+
+    let mut ctx = serde_json::Map::new();
+    ctx.insert(
+        "home".into(),
+        json!(host_home.to_string_lossy().to_string()),
+    );
+    ctx.insert("python".into(), json!(python));
+    ctx.insert("sid".into(), json!(""));
+    ctx.insert("sdk".into(), json!(""));
+    ctx.insert("scripts".into(), json!(""));
+    ctx.insert("cfg".into(), json!({}));
+    ctx.insert("runtime".into(), json!("local"));
+    ctx.insert("container".into(), json!(""));
+    ctx.insert("all_agents".into(), json!(false));
+    ctx.insert("agents".into(), json!([]));
+
+    let rc = match crate::core::steps::run_steps(&args.host, &steps, &mut ctx, Path::new("")) {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("setup: step failed: {e}");
+            1
+        }
+    };
+    let installed = pkg_present(pkg, &host_home, &python);
+    let out = json!({
+        "applied": true,
+        "host": args.host,
+        "mechanism": "package",
+        "package": pkg,
+        "steps_run": steps.len(),
+        "step_rc": rc,
+        "installed": if installed.is_empty() { Value::Null } else { json!(installed) },
+        "restart": restart,
+    });
+    println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+    if installed.is_empty() {
+        5
+    } else {
+        rc
+    }
+}
+
+/// Restart hints come from the platform table's `print` steps (single source).
+fn all_restart_hints(host: &str) -> Vec<String> {
+    let spec = crate::core::detect::spec_json(None, Some(host));
+    let mut out = Vec::new();
+    if let Some(arr) = spec
+        .get("platforms")
+        .and_then(|p| p.get(host))
+        .and_then(|p| p.get("install_steps"))
+        .and_then(|s| s.as_array())
+    {
+        for st in arr {
+            if let Some(t) = st.get("text").and_then(|t| t.as_str()) {
+                let low = t.to_lowercase();
+                if low.contains("restart") || low.contains("reload") || t.contains("重启") {
+                    out.push(t.trim().to_string());
+                }
+            }
+        }
+    }
+    out
+}
