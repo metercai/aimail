@@ -27,7 +27,7 @@
 | advanced | `src/advanced/api/address.rs:182` `act_err_to_app` | `ActErr` 保留语义映射到 `AppError`（Invalid/NoBareDomain/DomainConflict→400、BoundToOther→403、AlreadyActive→409、Db→500）；删除旧死代码与 `act_err_msg` | 仅激活路径；错误文案不变 |
 | advanced | `src/advanced/api/address.rs:437-496` | 激活事务 6c 写 `domain_addr_meta` 后新增 6d：按**回读的 effective manager** 插 `direction='all'` 的 agent↔manager 白名单（与 register 同款，`category='system'`，`ON CONFLICT` 保 `is_active=1`）；`ActivationOutcome` 增加 `manager_address`（:154）并随响应返回（:264） | 续期沿用已存 manager，不被本轮申请人覆盖；白名单插入不走 API 配额 |
 | advanced | `src/advanced/storage.rs` `get_active_board_count` / `scan_active_boards`、`src/advanced/board_quota.rs:53` | 板配额**按系统计数**：产品配额是每系统的 ⇒ 只数该系统自己的板；网关 `[board]` 默认与 standalone/license 授权是整机口径 ⇒ 数全部板。计数缓存带作用域（每系统答案不会被当成全局答案或别的系统答案）。原先用**全局** actively 数对比**每系统**上限，一个系统的板会吃掉另一个系统的额度 | 仅准入判断；地址码产品 `max_active_boards=Some(0)` 不变（owner 裁定：只能当成员） |
-| gateway | `src/core/api/webhook.rs` `notify_agent_persona_applied` + `outbound.rs` `AckCtx: Copy` | 角色批准后**同时**给 agent 本人发一封 `[AIMail] Persona applied` 闭环通知（复述已落库的 persona/signature），安全官仍收回执。内部收件人不能走 `enqueue_outbound_simple`（pull 地址无 webhook ⇒ 退 MX ⇒ loopback 丢弃），改为按 board 通知同款 `create_inbound`，自建 `message_id` 头 | 仅 persona 批准路径；通知自身不会被当指令消费（发件人是系统 noreply） |
+| gateway 1ca59da | `src/core/api/webhook.rs` `notify_agent_persona_applied` + `outbound.rs` `AckCtx: Copy` | 角色批准后**同时**给 agent 本人发一封 `[AIMail] Persona applied` 闭环通知（复述已落库的 persona/signature），安全官仍收回执。内部收件人不能走 `enqueue_outbound_simple`（pull 地址无 webhook ⇒ 退 MX ⇒ loopback 丢弃），改为按 board 通知同款 `create_inbound`，自建 `message_id` 头 | 仅 persona 批准路径；通知自身不会被当指令消费（发件人是系统 noreply） |
 | gateway | `src/core/api/send.rs:1327` `normalize_thread_headers` | 合并 headers 后、board 注入与 Auto-gen 之前，把 `Message-ID`/`In-Reply-To`/`References` 按名归一为 `message_id`/`in_reply_to`/`references`（大小写与 `-`/`_` 不敏感，规范键优先），其它 header（含 `X-Board-*`）不动；Auto-gen 只看规范化后的 `message_id` | **D3 单点修在网关**，SDK 保持发 RFC 大写键不动；gateway+advanced 同批发 |
 
 ### 1.2 SDK（Python pysdk / TypeScript @aimail/mail-core）
@@ -108,17 +108,17 @@ cd ~/aimail-advanced && python3 tests/advanced/e2e-open-apply.py   # 期望 42 P
 组件 / 版本 / commit
   aimail-gateway    2c2e65c + 本次闭环提交   version 1.0.3（未 bump）
   aimail-advanced   d6be955 + b7f207b（板配额按系统计数）
-                    version 1.0.1（未 bump）binary md5 0bf902a0，0 个源码新于二进制
+                    version 1.0.1（未 bump）binary md5 106df369，0 个源码新于二进制
   aimail (SDK)      65dd3af f416aa6 ec7a2f4 863127e 1c8f8bf 0ccac9f b4affe9 d07a9ae
                     27d104b 2bd24a2 eddc454 36b850e d670c63
   安装产物          aimailsdk 0.1.55 / @aimail/mail-core 0.1.54（**仍是旧产物**，见 §4）
 
-门禁（证据 /tmp/a1-final5）
+门禁（证据 /tmp/a1-final6）
   RESULT: 29 cases · 29 pass · 0 fail        l1-py.json
   RESULT: 13 cases · 13 pass · 0 fail        l1-ts.json
   RESULT: 14 cases · 14 pass · 0 fail        l2-py.json
   RESULT: 14 cases · 14 pass · 0 fail        l2-ts.json
-  GATE a1 all: PASS（含板配额修复后的二进制 0bf902a0）
+  GATE a1 all: PASS（含板配额修复 + 闭环通知的二进制 106df369）
 
 SDK
   tests/sdk/l0-gate-tests.sh  → [L0] PASS（契约 4/4 + 平台 5/5 + frontmatter 5/5 + literal 棘轮）
@@ -205,11 +205,11 @@ SDK
 - 首轮失败报告（对照基线）：`aimail-advanced/tests/SDK/agent-level/reports/2026-10-19-first-run.md`
 - 探针（本地、不入库）：`/tmp/clean-env-verify/driver_py.py`、`driver_ts.py`、
   `/tmp/board-probe/focus.py`
-- 门禁证据：`/tmp/a1-final5/`（四份 JSON + 日志）
+- 门禁证据：`/tmp/a1-final6/`（四份 JSON + 日志）
 
 ## 8. 复验请回传
 
-1. `GATE a1 all` 的 rc 与四份 JSON 的 `fail`/`GAP`（本批证据 `/tmp/a1-final5`）；
+1. `GATE a1 all` 的 rc 与四份 JSON 的 `fail`/`GAP`（本批证据 `/tmp/a1-final6`）；
 2. 是否认可 §4 的版本/顺序/配对（尤其适配三包必须重发）；
 3. 若发现本文与代码不符，直接指出 `file:line`，不要改门禁判据；
 4. 发版后请在 PyPI/npm 实测一次 `pip install aimailsdk` / `npm i @aimail/mail-core`
