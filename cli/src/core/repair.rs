@@ -2094,20 +2094,57 @@ mod tests {
     fn drain_stuck_posts_pending_then_acks_only_stuck() {
         use std::io::{Read, Write};
         use std::net::TcpListener;
+        use std::sync::atomic::{AtomicBool, Ordering};
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         listener.set_nonblocking(true).unwrap();
         let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
         let seen2 = seen.clone();
+        let done = std::sync::Arc::new(AtomicBool::new(false));
+        let done2 = done.clone();
         let h = std::thread::spawn(move || {
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
-            let mut served = 0;
-            while std::time::Instant::now() < deadline && served < 4 {
+            // Read the WHOLE request — head plus the body announced by
+            // Content-Length — before replying. A single `read()` returned only
+            // the head whenever the body arrived in a second TCP segment, so the
+            // recorded body was empty and the assertions below failed on 1-4 core
+            // runners while passing on a 64-core dev box (CI cli-gates,
+            // 2026-10-19). The server also answered with `Connection: close` so
+            // the client cannot reuse a socket this loop never reads again.
+            let read_full = |sock: &mut std::net::TcpStream| -> String {
+                let mut raw: Vec<u8> = Vec::new();
+                let mut tmp = [0u8; 1024];
+                loop {
+                    if let Some(he) = raw.windows(4).position(|w| w == b"\r\n\r\n").map(|p| p + 4) {
+                        let head = String::from_utf8_lossy(&raw[..he]).to_string();
+                        let clen = head
+                            .lines()
+                            .find_map(|l| {
+                                let (k, v) = l.split_once(':')?;
+                                if k.eq_ignore_ascii_case("content-length") {
+                                    v.trim().parse::<usize>().ok()
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or(0);
+                        if raw.len() >= he + clen {
+                            return String::from_utf8_lossy(&raw).to_string();
+                        }
+                    }
+                    match sock.read(&mut tmp) {
+                        Ok(0) | Err(_) => return String::from_utf8_lossy(&raw).to_string(),
+                        Ok(n) => raw.extend_from_slice(&tmp[..n]),
+                    }
+                    if raw.len() > 1 << 20 {
+                        return String::from_utf8_lossy(&raw).to_string();
+                    }
+                }
+            };
+            while std::time::Instant::now() < deadline && !done2.load(Ordering::SeqCst) {
                 match listener.accept() {
                     Ok((mut sock, _)) => {
-                        let mut buf = [0u8; 4096];
-                        let n = sock.read(&mut buf).unwrap_or(0);
-                        let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                        let req = read_full(&mut sock);
                         let first = req.lines().next().unwrap_or("").to_string();
                         let body = req.split("\r\n\r\n").nth(1).unwrap_or("").to_string();
                         seen2.lock().unwrap().push(format!("{first} | {body}"));
@@ -2120,13 +2157,13 @@ mod tests {
                             ]}]}"
                         };
                         let resp = format!(
-                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
                             payload.len(),
                             payload
                         );
                         let _ = sock.write_all(resp.as_bytes());
                         let _ = sock.flush();
-                        served += 1;
+                        let _ = sock.shutdown(std::net::Shutdown::Write);
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         std::thread::sleep(std::time::Duration::from_millis(20));
@@ -2140,6 +2177,7 @@ mod tests {
             "k",
         );
         let changed = drain_stuck(&Some(client));
+        done.store(true, Ordering::SeqCst);
         h.join().ok();
         assert!(changed, "有卡住的 pending ⇒ 应报告已处理");
         let log = seen.lock().unwrap().clone();
