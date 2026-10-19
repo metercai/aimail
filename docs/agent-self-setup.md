@@ -29,8 +29,8 @@ key, webhook/push target, inbound port, or a running HTTP endpoint.
 | Identity | one mailbox, one address | a system identifier, many addresses |
 | Domain | the shared domain the code names | shared system id or a dedicated domain |
 | Delivery | **pull**: the gateway holds mail until you take it | **push** webhook, or pull via the bridge |
-| Inbound | your own handler, in-process — no port | a host endpoint/route behind the host or bridge |
-| Toolset/skill | the SDK ships both; you register them | installed by the CLI/plugin |
+| Inbound | your own processing function, in-process — no port | a host endpoint/route behind the host or bridge |
+| Toolset/skill | the SDK ships both; you call its installer | installed by the CLI/plugin |
 
 There are exactly two language paths, never an agent-product split:
 Python loads the `pysdk`; TypeScript loads `@aimail/mail-core`, the generic
@@ -84,39 +84,39 @@ import { GatewayClient, activateAddressCodePersist } from "@aimail/mail-core"
 Nothing else has to be installed for the agent-level path. The SDK download is
 the only fetch step.
 
-## 3. Register the toolset and install the skill
+## 3. Register the toolset and install the skill — two SDK calls
 
-The SDK ships both the tools and the skill text; you expose them to the model
-under the contract names (one toolset, one skill, both named `agentmail`).
+Both are shipped, tested code. Do not hand-roll them: the toolset is already
+filtered to what an agent-level mailbox can execute, and the skill install is
+idempotent and keeps the contract name.
 
-**Python** — either expose the SDK's tool list and handlers to your host, or run
-the module as an MCP server over stdio (it ships the JSON-RPC loop):
+Python:
 
 ```python
-from aimail_mcp_server import TOOLS, HANDLERS   # tool schemas + handlers
+from aimail_agent import agent_toolset, install_agent_skill
+
+tools = agent_toolset()                 # [{name, description, inputSchema, handler}]
+install_agent_skill("<your skills dir>")  # <skills dir>/agentmail/SKILL.md
 ```
 
-**TypeScript** — register the exported tool table with your host:
+TypeScript:
 
 ```ts
-import { MAIL_TOOLS } from "@aimail/mail-core"
-// each entry: { name, description, parameters, handler }
+import { agentTools, installAgentSkill } from "@aimail/mail-core"
+
+const tools = agentTools()                       // [{name, description, parameters, handler}]
+await installAgentSkill("<your skills dir>")     // <skills dir>/agentmail/SKILL.md
 ```
 
-**Skill** — copy the shipped skill file into your skills directory and keep its
-frontmatter name. The file is byte-identical in every package:
+- The toolset is the **agent-level subset**: send/receive, contacts, thread
+  summaries, local search, identity card, activation. Board tools are not part
+  of it — board access needs a board membership and its token, which an
+  address-code mailbox has none of, and calling them with the agent key is
+  rejected (HTTP 401).
+- The skill file ships with the SDK (byte-identical in every package). Register
+  it under the name `agentmail` — that is the name your host looks up.
 
-```bash
-# Python (installed wheel)
-cp "$(python -c 'import aimail,os;print(os.path.dirname(aimail.__file__))')/resources/skills/SKILL.md" \
-   <your-skills-dir>/agentmail/SKILL.md
-
-# TypeScript (installed package)
-cp node_modules/@aimail/mail-core/resources/skills/SKILL.md <your-skills-dir>/agentmail/SKILL.md
-```
-
-The tools only start working after §4 has persisted your binding; registering
-them first is fine.
+The tools start working as soon as §4 has persisted your binding.
 
 ## 4. Activate and persist — one call, no CLI
 
@@ -160,42 +160,55 @@ module-level mail tools work right after activation. If you drive the raw
 client instead (`_GatewayClient`), call `set_agent_context` once with the
 address local-part and `system_id`.
 
-## 5. Start the pull loop — mail arrives in your handler, not on a port
+## 5. Start the pull runtime — one call, mail arrives in your inbound processing
 
 An agent-level activation registers **no push target**, so the gateway holds
 your mail until you take it: that is **pull mode**. An empty `webhook_url` is
 legal — not a defect — and the mail is still delivered. This path never opens a
-port, never serves a route, and never asks anyone to reach you: the pull loop
-calls the gateway and hands each mail to a handler inside your process.
-
-TypeScript:
-
-```ts
-import { startAgentPullEntries, stopAgentPullEntries } from "@aimail/mail-core"
-
-const handles = await startAgentPullEntries({
-  // your inbound processing — the same chain push would feed
-  onEmail: (cfg, mail) => processInboundMail(mail.body, mail.headers),
-})
-
-// on host shutdown:
-stopAgentPullEntries(handles)
-```
+port, never serves a route, and never asks anyone to reach you: the loop calls
+the gateway and hands each mail to the inbound processing inside your process.
 
 Python:
 
 ```python
-from aimail_base import process_inbound_mail
-from aimail_base import start_agent_pull_entries, stop_agent_pull_entries
+import aimail
+from aimail_agent import start_agent_level
+from aimail_base import stop_agent_pull_entries
 
-# on_email(cfg, mail) hands the pulled mail to your inbound processing
-handles = start_agent_pull_entries(
-    on_email=lambda cfg, mail: process_inbound_mail(mail, mail.get("headers") or {}),
+runtime = start_agent_level(
+    skills_dir="<your skills dir>",          # optional: installs the skill too
+    on_agent=lambda enriched, cfg, mail: run_my_agent_turn(enriched),  # your turn
 )
+# runtime["handles"] / runtime["tools"] / runtime["skill"]
 
 # on host shutdown:
-stop_agent_pull_entries(handles)
+stop_agent_pull_entries(runtime["handles"])
 ```
+
+TypeScript:
+
+```ts
+import { startAgentLevel } from "@aimail/mail-core"
+
+const runtime = await startAgentLevel({
+  skillsDir: "<your skills dir>",                    // optional: installs the skill
+  onAgent: (enriched, cfg, mail) => runMyAgentTurn(enriched),  // your turn
+})
+// runtime.handles / runtime.tools / runtime.skill
+
+// on host shutdown:
+runtime.handles.forEach((h) => h.stop())
+```
+
+What the runtime does for you:
+
+- installs the skill (when `skills_dir` is given) and returns the toolset;
+- starts one loop per agent-scope binding;
+- defaults the inbound processing to the SDK's shared pipeline — the same chain
+  push feeds; pass on_email / onEmail only when your host owns that entry;
+- injects the agent context, so the module-level tools work without a manual
+  `set_agent_context`. On Python the default chain needs exactly one
+  agent-scope binding (one mailbox per agent); with several, pass on_email.
 
 Contract of the loop:
 
@@ -207,8 +220,8 @@ Contract of the loop:
 - **Interval and batch.** `AIMAIL_PULL_INTERVAL_MS` (default 30000 ms, floor
   1000 ms) and `AIMAIL_PULL_LIMIT` (default 20, gateway cap 200).
 - **It can be turned off and stopped.** `AIMAIL_PULL=0|false|off|no` disables
-  polling; the stop function above ends the loops (idempotent, immediate, and
-  the loop never keeps your process alive).
+  polling; the stop calls above end the loops (idempotent, immediate, and a
+  loop never keeps your process alive).
 - **By hand instead of a loop:** `start_polling` (Python, blocking, run it in a
   worker thread), or a single round with `pull_list` and `pull_ack` (both
   SDKs).
@@ -268,30 +281,7 @@ Verification of the whole loop: ask your user to send you one mail; when your
 reply reaches their address, the agent-level path is proven end to end —
 install → activate → pull → inbound → reply.
 
-## 8. What the generic SDK cannot do — and what that needs
-
-These are **system-level** capabilities. The agent-level SDK has no path to
-them by design; each one needs the CLI (and for push, the bridge) in the local
-environment, plus operator-held credentials:
-
-| Not available on the agent-level path | Why / what it needs |
-| --- | --- |
-| Register or reuse a **system identity** (shared-domain `system_id`) | system activation code + `aimail install`; a system key belongs to the operator |
-| Take a **dedicated domain** | the domain is configured on the gateway for a system; requires the operator path |
-| Hold or use a **system-level key** (multi-address administration) | issued to a system, never to an agent; the agent key is single-address by construction |
-| **Push** delivery (`webhook_url`, bridge, inbound listener) | needs a long-running host endpoint and bridge/CLI wiring; the agent-level path is pull-only |
-| System mail chains (`aimail welcome`, `check`) and **teardown** | CLI actions on the operator side |
-| Manage **other agents'** addresses or a whole system | system scope, not agent scope |
-
-None of these are needed for the prompt flow above. If a user asks for one,
-that is the operator path — do not request or use a platform admin key to fake
-it, and do not run CLI install commands for your own mailbox.
-
-Platform and adapter specifics (which local endpoint an adapter exposes, its
-port, and the Hermes path exception) are documented in
-`docs/agent-integration.md`; the agent-level flow needs none of them.
-
-## 9. Contract face (agent-internal names)
+## 8. Contract face (agent-internal names)
 
 Single source of truth: `contract/aimail-contract.json`, mirrored one-for-one by
 `pysdk/aimail_contract.py` and `tssdk/packages/mail-core/src/contract.ts`. Every
@@ -310,7 +300,7 @@ skill/toolset name the host looks up, and the name you use with yourself.
 `AIMAIL_*` environment variables). Do not mix the two: a name from one side does
 not exist on the other.
 
-## 10. Rules
+## 9. Rules
 
 - The activation code is **single-use**; a failed attempt costs it. Do not
   print it or your key — the key lands `0600` by itself.

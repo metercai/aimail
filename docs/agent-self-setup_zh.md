@@ -26,7 +26,7 @@ bridge —— 而且**不监听任何端口**。
 | 域名 | 激活码指定的共享域 | 共享系统标识或独享域名 |
 | 投递 | **pull**：网关留着信等你去取 | **push** webhook，或经 bridge 拉取 |
 | 入站 | 你自己的处理函数，进程内 —— 无端口 | 宿主/桥后面的端点或路由 |
-| toolset/skill | SDK 自带，你自己注册 | CLI/插件替你装 |
+| toolset/skill | SDK 自带；调它的安装器 | CLI/插件替你装 |
 
 只有两条语言路径，从不按 agent 产品分：Python 加载 `pysdk`；TypeScript 加载
 `@aimail/mail-core`（通用核心）。如果宿主有对应的平台适配包，那个包包在同一核心
@@ -75,38 +75,36 @@ import { GatewayClient, activateAddressCodePersist } from "@aimail/mail-core"
 
 agent 级路径不需要再装别的；SDK 这一步是唯一需要下载的东西。
 
-## 3. 注册 toolset 并安装 skill
+## 3. 注册 toolset 并安装 skill —— 两次 SDK 调用
 
-SDK 同时自带工具与 skill 文本；你按契约名把它们交给模型（一个 toolset、一个
-skill，两个都叫 `agentmail`）。
+两件事都是 SDK 自带、已验证的代码，不要自己临时写：toolset 已经过滤成 agent 级
+邮箱真能执行的那些，skill 安装幂等且保留契约名。
 
-**Python** —— 把 SDK 的工具清单与处理器交给宿主，或直接把该模块当 MCP server 跑
-（它自带 JSON-RPC 主循环）：
+Python：
 
 ```python
-from aimail_mcp_server import TOOLS, HANDLERS   # 工具 schema + 处理器
+from aimail_agent import agent_toolset, install_agent_skill
+
+tools = agent_toolset()                 # [{name, description, inputSchema, handler}]
+install_agent_skill("<你的skills目录>")   # <skills目录>/agentmail/SKILL.md
 ```
 
-**TypeScript** —— 把导出的工具表注册进宿主：
+TypeScript：
 
 ```ts
-import { MAIL_TOOLS } from "@aimail/mail-core"
-// 每条: { name, description, parameters, handler }
+import { agentTools, installAgentSkill } from "@aimail/mail-core"
+
+const tools = agentTools()                       // [{name, description, parameters, handler}]
+await installAgentSkill("<你的skills目录>")       // <skills目录>/agentmail/SKILL.md
 ```
 
-**Skill** —— 把随包发布的 skill 文件拷进你的 skills 目录，并保留其 frontmatter 名。
-该文件在各包里逐字节相同：
+- toolset 是 **agent 级子集**：收发信、联系人、线程摘要、本地检索、身份名片、激活。
+  不含 board 系列工具 —— 看板需要成员身份与 token，地址码邮箱两者都没有，用 agent key
+  调用会被拒（HTTP 401）。
+- skill 文件随 SDK 发布（各包逐字节相同）。按 `agentmail` 这个名字注册 —— 宿主就是
+  按这个名字查表。
 
-```bash
-# Python（已安装的 wheel）
-cp "$(python -c 'import aimail,os;print(os.path.dirname(aimail.__file__))')/resources/skills/SKILL.md" \
-   <你的skills目录>/agentmail/SKILL.md
-
-# TypeScript（已安装的包）
-cp node_modules/@aimail/mail-core/resources/skills/SKILL.md <你的skills目录>/agentmail/SKILL.md
-```
-
-工具要在 §4 把绑定落盘之后才真正可用；先注册没有关系。
+工具在 §4 把绑定落盘之后即可使用。
 
 ## 4. 激活并落盘 — 一次调用，不碰 CLI
 
@@ -147,41 +145,53 @@ res = client.activate_address_code_persist(code, address,
 （`_GatewayClient`），需自己调一次 `set_agent_context`（地址 local-part 与
 `system_id`）。
 
-## 5. 起 pull 循环 —— 信进你的处理函数，不开端口
+## 5. 起 pull 运行时 —— 一次调用，信进你的入站处理
 
 agent 级激活**不会为你注册 push 目标**，所以网关会把你的信留在队列里，等你来取：
 这就是 **pull 模式**。`webhook_url` 为空是合法的 —— 不是缺陷 —— 信照样投递。
-这条路径**不开端口、不暴露路由、也不要求任何人能连到你**：pull 循环主动向网关取件，
-把每封信交给你进程内的处理函数。
-
-TypeScript：
-
-```ts
-import { startAgentPullEntries, stopAgentPullEntries } from "@aimail/mail-core"
-
-const handles = await startAgentPullEntries({
-  // 你的入站处理 —— push 会喂进去的同一条链
-  onEmail: (cfg, mail) => processInboundMail(mail.body, mail.headers),
-})
-
-// 宿主关停时：
-stopAgentPullEntries(handles)
-```
+这条路径**不开端口、不暴露路由、也不要求任何人能连到你**：循环主动向网关取件，
+把每封信交给你进程内的入站处理。
 
 Python：
 
 ```python
-from aimail_base import process_inbound_mail
-from aimail_base import start_agent_pull_entries, stop_agent_pull_entries
+import aimail
+from aimail_agent import start_agent_level
+from aimail_base import stop_agent_pull_entries
 
-# on_email(cfg, mail) 把拉到的信交给你的入站处理
-handles = start_agent_pull_entries(
-    on_email=lambda cfg, mail: process_inbound_mail(mail, mail.get("headers") or {}),
+runtime = start_agent_level(
+    skills_dir="<你的skills目录>",            # 可选：顺带装 skill
+    on_agent=lambda enriched, cfg, mail: run_my_agent_turn(enriched),  # 你的回合
 )
+# runtime["handles"] / runtime["tools"] / runtime["skill"]
 
 # 宿主关停时：
-stop_agent_pull_entries(handles)
+stop_agent_pull_entries(runtime["handles"])
 ```
+
+TypeScript：
+
+```ts
+import { startAgentLevel } from "@aimail/mail-core"
+
+const runtime = await startAgentLevel({
+  skillsDir: "<你的skills目录>",                       // 可选：顺带装 skill
+  onAgent: (enriched, cfg, mail) => runMyAgentTurn(enriched),  // 你的回合
+})
+// runtime.handles / runtime.tools / runtime.skill
+
+// 宿主关停时：
+runtime.handles.forEach((h) => h.stop())
+```
+
+运行时替你做的事：
+
+- 装 skill（给了 `skills_dir` 时）并返回 toolset；
+- 每条 agent 级绑定起一条循环；
+- 入站处理默认用 SDK 的共享管线 —— 就是 push 会喂进去的那条链；只有宿主自己有
+  入站入口时才传 on_email / onEmail；
+- 注入 agent 上下文，模块级工具因此无需手调 `set_agent_context`。Python 的默认链
+  要求进程内只有一条 agent 级绑定（一个 agent 一个邮箱）；有多条时传 on_email。
 
 循环的契约：
 
@@ -191,7 +201,7 @@ stop_agent_pull_entries(handles)
   不重复（去重键 = delivery id）。
 - **间隔与批量。** `AIMAIL_PULL_INTERVAL_MS`（默认 30000 ms，下限 1000 ms）与
   `AIMAIL_PULL_LIMIT`（默认 20，网关上限 200）。
-- **可关、可停。** `AIMAIL_PULL=0|false|off|no` 关闭轮询；上面的 stop 函数结束循环
+- **可关、可停。** `AIMAIL_PULL=0|false|off|no` 关闭轮询；上面的 stop 调用结束循环
   （幂等、立即生效，且循环永远不会成为拖住宿主进程的句柄）。
 - **不用循环、手动跑一轮：** `start_polling`（Python，阻塞，放进工作线程），或用
   `pull_list` 与 `pull_ack`（两个 SDK 都有）跑单轮。
@@ -243,27 +253,7 @@ manager_address、agent_signature 与 agent_persona。之后要改，仍需 mana
 整条闭环的验证：请用户给你发一封信；当你的回信到达对方地址时，agent 级路径就
 端到端地被证明了 —— 安装 → 激活 → 拉取 → 入站 → 回信。
 
-## 8. 通用 SDK 做不到的系统级形态
-
-下面这些都是**系统级**能力。agent 级 SDK 在设计中就没有通往它们的路径；每一项都
-需要本机 CLI（push 还需要 bridge）以及运维手里的凭据：
-
-| agent 级路径上不可用 | 原因 / 需要什么 |
-| --- | --- |
-| 注册或复用**系统身份**（共享域的 `system_id`） | 系统激活码 + `aimail install`；系统 key 归运维 |
-| 使用**独享域名** | 域名在网关上按系统配置；要走运维路径 |
-| 持有或使用**系统级 key**（多地址管理） | 系统才有；agent key 天生只对应一个地址 |
-| **push** 投递（`webhook_url`、bridge、入站监听） | 需要常驻宿主端点与 bridge/CLI 接线；agent 级只有 pull |
-| 系统邮件链（`aimail welcome`、`check`）与**卸载/teardown** | 运维侧 CLI 动作 |
-| 管理**其他 agent** 的地址或整个系统 | 系统作用域，不是 agent 作用域 |
-
-上面这些都不需要用于本文件的 prompt 流程。若用户要其中一项，那就是运维路径 ——
-不要索取或使用平台 admin key 去伪造，也不要为自己的邮箱执行 CLI install 命令。
-
-平台与适配层事实（适配层对外暴露哪个本机端点、端口，以及 Hermes 的路径例外）写在
-`docs/agent-integration_zh.md`；agent 级流程一个都不需要。
-
-## 9. 契约面（agent 内部名）
+## 8. 契约面（agent 内部名）
 
 单一真源：`contract/aimail-contract.json`，由 `pysdk/aimail_contract.py` 与
 `tssdk/packages/mail-core/src/contract.ts` 逐项镜像。下表每个名字都是契约值，
@@ -280,7 +270,7 @@ manager_address、agent_signature 与 agent_persona。之后要改，仍需 mana
 表，你也只用这个名字与自己对账。`aimail` 是产品 / 仓库 / CLI 的品牌（`~/.aimail`
 目录、`AIMAIL_*` 环境变量）。两者不要混：一侧的名字在另一侧并不存在。
 
-## 10. 规则
+## 9. 规则
 
 - 激活码**一次性**；失败一次就作废。不要打印它或你的 key —— key 会自己以 `0600`
   落盘。
