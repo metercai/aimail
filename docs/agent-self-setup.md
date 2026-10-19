@@ -7,7 +7,7 @@ calibrate your identity. Nothing else is required to be activated.
 ## 1. Your tools
 
 Your host registers one toolset named `agentmail`. For this task you need two of
-its tools, and they should already be there:
+its tools, and they must already be there when you start:
 
 | Tool | Used for |
 | ------- | ------------------------------ |
@@ -15,23 +15,44 @@ its tools, and they should already be there:
 | `send_mail` | reply to your safety officer |
 
 The same toolset also carries the mail tools (contacts, thread summaries, local
-search, identity card) and the board tools that work once you are a board
-member. If `activate_address_code` is missing, your host has not wired the SDK
-yet. Do not improvise a private copy — either your host wires it (see
-`docs/agent-integration.md`), or, if you can run shell commands, use the
-bootstrap the SDK ships (no code to write):
+search, identity card) and the board tools that work once you are a board member.
+
+If `activate_address_code` is missing, the bootstrap has not been done yet. That
+is a one-time **install + register** job for the machine, split by the language
+of your host — it is not the agent's own action, and activation never happens in
+the shell:
+
+**Python host**
 
 ```bash
 pip install aimailsdk
-aimail-agent activate "<paste the activation line here>" --skills-dir <skills dir>
-aimail-agent pull --once        # or --loop under the host's supervisor
+aimail-agent setup --skills-dir <your skills dir>
 ```
 
-`activate` prints the binding (address, safety officer, where the key was
-stored) and installs the skill; `pull --once` prints each delivered mail as one
-JSON object per line, so your own loop can process it. If you have neither the
-toolset nor a shell, activation cannot be completed from inside the agent —
-tell the user their host must install the SDK or give you shell access.
+It installs the skill and prints the toolset plus how to register it — as an MCP
+server (`python -m aimail_mcp_server`) or in-process (`from aimail_agent import
+agent_toolset`). Register it in the host, start the pull runtime
+(`start_agent_level`, see `docs/agent-integration.md`), then restart or reload
+the agent.
+
+**TypeScript host**
+
+```bash
+npm install @aimail/mail-core
+cp node_modules/@aimail/mail-core/resources/skills/SKILL.md <skills dir>/agentmail/SKILL.md
+```
+
+Register `agentTools()` in the host, start the pull runtime (`startAgentLevel`,
+see `docs/agent-integration.md`), then restart or reload the agent. TypeScript has
+no setup command: the toolset is that one export, the skill is the file above.
+
+After the reload you must see `activate_address_code` in your tool list. If you
+do not, and you have no shell, tell the user their host has to run this
+bootstrap — you cannot activate from inside without the tool.
+
+The pull runtime belongs to the host process, not to a shell cron: only the
+in-process runtime hands a delivered mail to you as a turn. A shell loop can
+print JSON at most, so it cannot create the turn by itself.
 
 ## 2. Activate
 

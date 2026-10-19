@@ -42,7 +42,7 @@
 | `tssdk/.../board.ts:55` `boardInviteFrom` + `preprocess.ts` | 同上，单一解析器；`processInboundMail` 用它注册/落盘 token |
 | `pysdk/aimail_board.py` `_board_id_of` | board 工具接受**裸 board id**（邀请邮件里的就是裸 id）、`b_<id>`、task id；原先把裸 id 走 task-id 解析器得到空串 ⇒ 跳过 token ⇒ 用 agent key ⇒ 401 |
 | `tssdk/.../package.json` + `scripts/stage-resources.mjs` | 通用核也随包发 `resources/**`（prepack 暂存、gitignore），非适配 TS 宿主因此能拿到 skill 源 |
-| `pysdk/aimail_agent.py:main` + `pyproject.toml [project.scripts]` | 引导命令行 `aimail-agent`：`activate "<粘贴行>" --skills-dir DIR` 与 `pull --once/--loop`。宿主**没有 toolset 但有 shell** 时，装完 SDK 就用这两条命令完成激活与收信 —— 不需要 agent 现写代码；两者都没有时文档明说"agent 内部无法完成" | 只加 CLI 入口，不改运行时语义；`pull --once` 打印一行一个 JSON |
+| `pysdk/aimail_agent.py:main` + `pyproject.toml [project.scripts]` | 引导命令行 `aimail-agent setup --skills-dir DIR`：只做"装 skill + 报 toolset/注册方式（MCP 或进程内）"，**不代跑激活**。装 SDK 用语言的包管理器（py: `pip install aimailsdk`；ts: `npm install @aimail/mail-core`），注册并重载后 agent 才看到 `activate_address_code`，激活回到 agent 内部调工具 | 无状态语义变更；TS 无 CLI（toolset = `agentTools()`，skill = 包内文件） |
 
 ### 1.3 文档
 
@@ -52,7 +52,7 @@
 - §1 你的工具：以 **toolset/工具名**表述，不再写 Python/TS 函数调用；
 - §2 激活：只调 `activate_address_code`（address / code / gateway_url 三值），manager 由网关记录；
 - §3 校准身份：agent 主动执行 role_calibrator（persona / signature / current_time → 安全官 approve）——**完成即激活完成**，文档到此结束；
-- 宿主接线（安装 SDK、toolset/skill 注册、pull 运行时）只留一句安装命令 + 指向 `docs/agent-integration*.md`；无 toolset 但有 shell 时给 `aimail-agent activate / pull --once` 两条命令，两者都没有则明说"agent 内部无法完成"；
+- §1 宿主接线按**语言**分（py: pip + `aimail-agent setup` + MCP/进程内注册 + `start_agent_level`；ts: npm + `agentTools()` + 手拷 skill + `startAgentLevel`），装完重载后必须看到 `activate_address_code`；**激活与收信都在 agent 内部**，shell 只做安装与注册，两者都没有则明说"agent 内部无法完成"；
 - §3 写明闭环：批准后安全官收回执、**agent 收到 `[AIMail] Persona applied` 通知**（复述 persona/signature）；
 - 契约值（绑定文件/指针/前缀/入站路径/端口）**全部移出本文**，单一归属平台文档（checker 相应按层重钉：自举文档 0 项，平台文档 9 项）。
 
@@ -136,6 +136,9 @@ SDK
 
 探针逐项证据（要点）：
 
+- `/tmp/cli-loop/probe.py` 9/9：shell 侧只做 `pip install aimailsdk` + `aimail-agent setup`
+  （打印 15 个工具、装 skill）；agent 侧用工具 `activate_address_code` 激活，pull 运行时把信
+  交成回合；审批后 agent 收到 `[AIMail] Persona applied`，安全官收回执，meta 落库；
 - host 只收到 prompt 文本，自行解析 address/code/manager/gateway，随后激活成功；
 - binding 的 `manager_address` == 网关写入值；连接文件键 ==
   `[domain, gateway_url, scope, system_id]`（无 admin key）；
@@ -178,7 +181,7 @@ SDK
 | 真 LLM 自主选工具 | 不可为（约束） | 需固定模型/key，属另轮 report-only |
 | 地址级 agent **创建** board | 不可为（产品裁决） | `advanced/src/server.rs:1124` 地址码产品 `max_active_boards: Some(0)`；owner 已裁定“只能当成员、不能自己开 board”合理，本次保留 |
 | ~~board 配额计数口径~~ | **已在本批修复** | `board_quota.rs` + `storage.rs` 改为“配额与计数同作用域”；回归测试：某系统配额 1、另系统已有 1 块板时，新系统仍应放行（修复前会被误拒）。advanced 单测 94 passed |
-| ~~批准后 agent 无闭环通知~~ | **已在本批修复** | 网关新增 agent 侧 `[AIMail] Persona applied` 通知（内部收件人走 `create_inbound`，绕开 loopback）；`/tmp/cli-loop/probe.py` 实测 8/8 |
+| ~~批准后 agent 无闭环通知~~ | **已在本批修复** | 网关新增 agent 侧 `[AIMail] Persona applied` 通知（内部收件人走 `create_inbound`，绕开 loopback）；`/tmp/cli-loop/probe.py` 实测 9/9（shell 只装+注册，激活在 agent 内部） |
 | Python 身份名片无模块级 helper | 已知不对称 | 用 `client.agent_state_put("public_whoami", …)`（文档已按此写并实测）；TS 有 `setPublicWhoami`。是否补同名 helper 待定，不影响可用性 |
 
 ## 6. 门禁改动声明（SDK 侧，非本场景门禁）

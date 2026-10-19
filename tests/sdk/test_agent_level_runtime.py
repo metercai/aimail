@@ -191,16 +191,11 @@ def test_start_agent_level_installs_skill_when_asked(tmp_path):
     for h in rt["handles"]:
         h.stop()
 
-def test_parse_activation_line_reads_the_three_values():
-    line = ("Activate my AIMail mailbox clia@a1.local using the activation code "
-            "shared_a-1234-abcd-5678-ef90-1234. Your safety officer (manager) is "
-            "m@ext.test. AIMail gateway is at http://127.0.0.1:38600.")
-    got = A.parse_activation_line(line)
-    assert got == {"address": "clia@a1.local",
-                   "code": "shared_a-1234-abcd-5678-ef90-1234",
-                   "gateway_url": "http://127.0.0.1:38600"}
-
-
-def test_parse_activation_line_needs_all_three():
-    with pytest.raises(ValueError):
-        A.parse_activation_line("Activate clia@a1.local with code shared_a-1234-abcd")
+def test_setup_command_installs_skill_and_reports_the_toolset(tmp_path, capsys):
+    rc = A.main(["setup", "--skills-dir", str(tmp_path / "skills")])
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert out["activate_tool_visible"] is True
+    assert "activate_address_code" in out["toolset"]
+    assert len(out["toolset"]) == 15
+    assert (tmp_path / "skills" / contract.AGENT_SKILL_NAME / "SKILL.md").is_file()

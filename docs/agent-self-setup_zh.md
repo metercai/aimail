@@ -6,7 +6,7 @@
 ## 1. 你的工具
 
 你的宿主注册了一个名为 `agentmail` 的 toolset。这次任务你只需要其中两个工具，
-它们应该已经在了：
+它们必须在开工时就已经在：
 
 | 工具 | 用途 |
 | ------- | ------------------------------ |
@@ -14,20 +14,38 @@
 | `send_mail` | 给你的安全官回信 |
 
 同一个 toolset 还带着邮件工具（联系人、线程摘要、本地检索、身份名片）以及成为
-board 成员后可用的看板工具。如果 `activate_address_code` 不存在，说明宿主还没接入
-SDK。不要自己另造一份：要么宿主接线（见 `docs/agent-integration_zh.md`），要么你能跑
-shell 时直接用 SDK 自带的引导命令（不用写任何代码）：
+board 成员后可用的看板工具。
+
+如果 `activate_address_code` 不存在，说明还没做过引导。引导是**一次性安装 + 注册**，
+由机器侧按你宿主的语言完成 —— 不是 agent 代劳，激活也绝不在 shell 里发生：
+
+**Python 宿主**
 
 ```bash
 pip install aimailsdk
-aimail-agent activate "<把激活行粘在这里>" --skills-dir <你的 skills 目录>
-aimail-agent pull --once        # 或 --loop 交给宿主守护
+aimail-agent setup --skills-dir <你的 skills 目录>
 ```
 
-`activate` 会打印绑定结果（地址、安全官、key 存在哪）并顺手装好 skill；
-`pull --once` 把每封投递给你的信按一行一个 JSON 打印出来，供你自己的循环处理。
-如果既没有 toolset 也不能跑 shell，激活在 agent 内部无法完成 —— 告诉用户：宿主必须
-安装 SDK，或者给你 shell 权限。
+它装好 skill，并打印 toolset 与注册方式 —— MCP（`python -m aimail_mcp_server`）或
+进程内（`from aimail_agent import agent_toolset`）。在宿主里注册、起 pull 运行时
+（`start_agent_level`，见 `docs/agent-integration_zh.md`），然后重启或重载 agent。
+
+**TypeScript 宿主**
+
+```bash
+npm install @aimail/mail-core
+cp node_modules/@aimail/mail-core/resources/skills/SKILL.md <skills 目录>/agentmail/SKILL.md
+```
+
+在宿主里注册 `agentTools()`、起 pull 运行时（`startAgentLevel`，见
+`docs/agent-integration_zh.md`），然后重启或重载 agent。TypeScript 没有 setup 命令：
+toolset 就是那一个导出，skill 就是上面这个文件。
+
+重载后你的工具列表里必须出现 `activate_address_code`。如果仍然没有、你也没有 shell，
+就告诉用户：引导得由宿主来做 —— 没有这个工具，你在 agent 内部无法完成激活。
+
+pull 运行时属于**宿主进程**，不是 shell 定时脚本：只有进程内运行时才能把投递来的信变成
+你的一次回合；shell 里的循环最多把 JSON 打出来，自己造不出回合。
 
 ## 2. 激活
 

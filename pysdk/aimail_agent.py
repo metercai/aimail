@@ -13,15 +13,12 @@ no boards).
 from __future__ import annotations
 
 import json
-import re
-import time
 from pathlib import Path
 from typing import Any, Callable, Optional
 
 import _resources_release
 import aimail_base as base
 import aimail_contract as contract
-import aimail_tools as tools
 from aimail_mcp_server import HANDLERS, TOOLS
 
 #: Tools that are meaningful for an agent-level mailbox (board = member scope).
@@ -149,93 +146,34 @@ def start_agent_level(skills_dir: str = "", on_email: Optional[Callable] = None,
 
 
 # ═══════════════════════════════════════════════════════════════
-# 引导命令行 —— 宿主没有 toolset、但有 shell 时的最小路径
+# 引导命令行 —— shell 只做"装 SDK / 装 skill / 报注册面", 激活仍在 agent 内部
 #
-# 激活任务不能靠 agent 自己现写代码: 装完 SDK 后, 这套子命令就是全部动作。
-#   python -m aimail_agent activate "<粘进来的激活行>" --skills-dir DIR
-#   python -m aimail_agent pull --once            # 或 --loop 交给宿主守护
-# 有 toolset 的宿主(D4/D5 场景)不需要这几条命令, toolset 才是主路径。
+#   pip install aimailsdk
+#   aimail-agent setup --skills-dir <skills dir>
+#
+# 这条命令不改任何状态之外的语义: 它装 skill、打印 toolset(工具名)与注册方式
+# (MCP 或进程内 agent_toolset)。宿主注册并重载后, agent 应看到
+# activate_address_code, 再由 agent 自己调工具完成激活 —— 不在 shell 里代跑激活。
+# TypeScript 环境没有 CLI: 工具面就是 `agentTools()`, 见 docs/agent-self-setup.md。
 # ═══════════════════════════════════════════════════════════════
 
-_CODE_RE = re.compile(r"\b([A-Za-z0-9_]+-[0-9a-f]{4}(?:-[0-9a-f]{4}){2,})\b")
-_ADDR_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+")
-_URL_RE = re.compile(r"https?://[^\s,;\"'<>)]+")
 
-
-def parse_activation_line(text: str) -> dict:
-    """Pull address / code / gateway out of the activation line a user pastes.
-
-    The line is prose ("Activate my AIMail mailbox a@b using the activation code
-    shared_a-… . AIMail gateway is at http://…"), so this only has to be exact
-    about the three shapes — not about wording.
-    """
-    body = " ".join(str(text or "").split())
-    addr = _ADDR_RE.search(body)
-    code = _CODE_RE.search(body)
-    url = _URL_RE.search(body)
-    if not (addr and code and url):
-        raise ValueError(
-            "cannot read address/code/gateway from the line "
-            "(expected an address, an activation code like shared_a-xxxx-…, and a gateway URL)"
-        )
-    # the line is prose: a sentence-ending dot is not part of the URL
-    gateway_url = url.group(0).rstrip(".,;:")
-    return {"address": addr.group(0), "code": code.group(1), "gateway_url": gateway_url}
-
-
-def _binding_for(address: str, system_id: str = "") -> dict:
-    wanted = address.strip().lower()
-    for cfg in base.iter_agentmail_configs(system_id):
-        if str(cfg.get("email") or "").strip().lower() == wanted:
-            return cfg
-    raise SystemExit("no local binding for %s — run `activate` first" % address)
-
-
-def _cmd_activate(args) -> int:
-    parsed = parse_activation_line(args.line)
-    res = tools.activate_address_code(
-        code=parsed["code"], address=parsed["address"],
-        gateway_url=parsed["gateway_url"], profile_home=args.home or None)
-    out = dict(res)
-    if out.get("success") and args.skills_dir:
-        out["skill"] = install_agent_skill(args.skills_dir)
-    if out.get("success"):
-        out["tools"] = [t["name"] for t in agent_toolset()]
+def _cmd_setup(args) -> int:
+    skill = install_agent_skill(args.skills_dir) if args.skills_dir else None
+    names = [t["name"] for t in agent_toolset()]
+    out = {
+        "skill": skill,
+        "toolset": names,
+        "register": {
+            "mcp": "python -m aimail_mcp_server",
+            "in_process": "from aimail_agent import agent_toolset",
+        },
+        "activate_tool_visible": "activate_address_code" in names,
+        "next": "register this toolset in the host, reload the agent, then call "
+                "activate_address_code from inside the agent",
+    }
     print(json.dumps(out, ensure_ascii=False, indent=2))
-    return 0 if out.get("success") else 1
-
-
-def _mail_line(cfg, mail) -> None:
-    body = mail.get("body") if isinstance(mail, dict) else None
-    headers = (mail or {}).get("headers") if isinstance(mail, dict) else None
-    enriched = base.process_inbound_mail(body or {}, headers or {})
-    if enriched is not None:
-        print(json.dumps(enriched, ensure_ascii=False), flush=True)
-
-
-def _cmd_pull(args) -> int:
-    cfg = _binding_for(args.address, args.system_id)
-    email = str(cfg.get("email") or "")
-    base.set_agent_context(email.split("@")[0], str(cfg.get("system_id") or ""))
-    if args.loop:
-        rt = start_agent_level(on_email=_mail_line)
-        handles = rt["handles"]
-        if not handles:
-            print(json.dumps({"error": "no agent-scope binding to poll"}))
-            return 2
-        try:
-            while True:
-                time.sleep(3600)
-        except KeyboardInterrupt:
-            base.stop_agent_pull_entries(handles)
-        return 0
-    client = tools._GatewayClient(
-        str(cfg.get("gateway_url") or ""), str(cfg.get("api_key") or ""),
-        identity=email)
-    stats = client.start_polling(lambda mail: _mail_line(cfg, mail),
-                                interval=0, limit=args.limit, max_rounds=1)
-    print(json.dumps({"stats": stats}, ensure_ascii=False))
-    return 0
+    return 0 if out["activate_tool_visible"] else 1
 
 
 def main(argv=None) -> int:
@@ -244,22 +182,14 @@ def main(argv=None) -> int:
 
     ap = argparse.ArgumentParser(
         prog="aimail-agent",
-        description="Agent-level AIMail bootstrap: activate one address, then drain its mail.")
+        description="Install the agent-level AIMail toolset+skill into a host "
+                    "(the activation itself runs inside the agent).")
     ap.add_argument("--home", default="", help="AIMAIL_HOME override (default: ~/.aimail)")
     sub = ap.add_subparsers(dest="cmd", required=True)
-
-    a = sub.add_parser("activate", help="claim the activation code in the pasted line")
-    a.add_argument("line", help="the activation line the user pasted")
-    a.add_argument("--skills-dir", default="", help="also install the skill here")
-    a.set_defaults(fn=_cmd_activate)
-
-    p = sub.add_parser("pull", help="drain pending mail (one round, or a loop)")
-    p.add_argument("--address", required=True)
-    p.add_argument("--system-id", default="")
-    p.add_argument("--once", action="store_true", help="drain one round (default)")
-    p.add_argument("--loop", action="store_true", help="poll until interrupted")
-    p.add_argument("--limit", type=int, default=20)
-    p.set_defaults(fn=_cmd_pull)
+    s = sub.add_parser("setup", help="install the skill and print the toolset to register")
+    s.add_argument("--skills-dir", default="",
+                   help="also install the skill here (<dir>/<skill name>/SKILL.md)")
+    s.set_defaults(fn=_cmd_setup)
 
     args = ap.parse_args(argv)
     if args.home:
