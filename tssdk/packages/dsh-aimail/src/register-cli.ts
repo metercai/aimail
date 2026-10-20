@@ -24,7 +24,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { cliArg as arg, cliFlag as flag } from '@aimail/mail-core'
-import { hostLayoutArgs } from './host-layout'
+import { hostLayoutArgs } from './host-layout.js'
 import {
   autoBind,
   ensureSkillToolExposure,
