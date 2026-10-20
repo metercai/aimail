@@ -14,10 +14,12 @@ ARG LLM_MODEL=Qwen3.8-27B-UD-Q4_K_M
 # single-source env tooling (prepare/verify + the one LLM writer)
 COPY agent-env /opt/agent-env
 
-# The base's uv (0.11.6) is old enough to reject the newer `exclude-newer = false` form;
-# prepare.sh therefore writes a far-future timestamp instead, which that uv understands.
-# No uv upgrade is needed — a built-in gate is not what filters here (measured: removing
-# uv.toml in this image resolves aimailsdk 0.1.16, adding it resolves the true latest).
+# The base's uv lives at /opt/hermes/tools/uv-<ver>-linux-x64/uv (v0.22.2+ base:
+# beside the portable CPython, NOT on PATH). prepare.sh writes a far-future
+# `exclude-newer` timestamp (understood by uv >= 0.11.6, which rejects the newer
+# `false` form). No uv upgrade is needed — a built-in gate is not what filters here
+# (measured: removing uv.toml in this image resolves aimailsdk 0.1.16, adding it
+# resolves the true latest).
 
 # official install is already in the base image; this fixes the environment in place.
 RUN bash /opt/agent-env/prepare.sh hermes --home "${HERMES_HOME:-/opt/data}" \

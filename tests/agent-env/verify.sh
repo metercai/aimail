@@ -22,6 +22,26 @@ pass() { echo "  ✓ $*"; PASS=$((PASS + 1)); }
 red()  { echo "  ✗ $*"; FAIL=$((FAIL + 1)); }
 skip() { echo "  · SKIP: $*"; SKIP=$((SKIP + 1)); }
 
+# uv discovery — single source (used by [2] package-manager and [5] gate checks).
+# Layouts, in order of preference:
+#   PATH (old bases, e.g. deer-flow's /usr/local/bin/uv; official host installs)
+#   <tree>/tools/uv-*/uv        (new official base image layout: v0.22.2+ keeps uv
+#                                beside the portable CPython, NOT on PATH)
+#   <home>/tools/uv-*/uv(.exe)  (Windows install.ps1 layout, Get-PmStoreRoot)
+find_uv_bin() {
+  local c p
+  if command -v uv >/dev/null 2>&1; then
+    echo "uv"; return 0
+  fi
+  for c in "$HOME_DIR" ${EXTRA_HOMES[@]+"${EXTRA_HOMES[@]}"} "${HERMES_HOME:-}" /opt/hermes; do
+    [ -n "$c" ] || continue
+    for p in "$c"/tools/uv-*/uv "$c"/tools/uv-*/uv.exe; do
+      [ -x "$p" ] && { echo "$p"; return 0; }
+    done
+  done
+  return 1
+}
+
 AGENT="${1:-}"; shift || true
 [ -n "$AGENT" ] || { echo "usage: verify.sh <hermes|openclaw|dsh|pi|deerflow> [--home PATH] [--llm-url URL] [--llm-model M] [--llm-key K] [--offline]" >&2; exit 2; }
 HOME_DIR=""; LLM_URL=""; LLM_MODEL=""; LLM_KEY=""; OFFLINE=0; EXTRA_HOMES=()
@@ -94,19 +114,10 @@ case "$AGENT" in
         [ -x "$c" ] && { _py="$c"; break 2; }
       done
     done
-    # uv: on PATH (unix) or the installer-pinned <home>/tools/uv-<ver>-<target>/uv.exe
+    # uv: on PATH (unix), beside the tree (<tree>/tools/uv-*/uv, the v0.22.2+
+    # official base layout), or the installer-pinned <home>/tools/uv-<ver>-<target>/uv.exe
     # (Windows: install.ps1 Get-PmStoreRoot = $HermesHome/tools, not on PATH).
-    _uv_bin=""
-    if command -v uv >/dev/null 2>&1; then
-      _uv_bin="uv"
-    else
-      for _cand in "$HOME_DIR" ${EXTRA_HOMES[@]+"${EXTRA_HOMES[@]}"} "${HERMES_HOME:-}"; do
-        [ -n "$_cand" ] || continue
-        for c in "$_cand"/tools/uv-*/uv.exe; do
-          [ -x "$c" ] && { _uv_bin="$c"; break 2; }
-        done
-      done
-    fi
+    _uv_bin="$(find_uv_bin || true)"
     if [ -n "$_py" ] && "$_py" -c 'import sys' >/dev/null 2>&1; then
       pass "agent interpreter present and runs: $_py"
     elif [ -n "$_bin" ] && [ -n "$_uv_bin" ]; then
@@ -178,13 +189,14 @@ for t in $_uv_trees; do
     red "uv gate still active (no far-future/disabled exclude-newer) in tree: $t"
   fi
 done
-if [ -n "$_uv_trees" ] && command -v uv >/dev/null 2>&1; then
-  # A uv that cannot PARSE the override (e.g. the base image's 0.11.6 fails with
+_uv_gate="$(find_uv_bin || true)"
+if [ -n "$_uv_trees" ] && [ -n "$_uv_gate" ]; then
+  # A uv that cannot PARSE the override (e.g. the old base's 0.11.6 failed with
   # "data did not match any variant of untagged enum Helper") is a red even offline:
   # the environment then still filters, silently. Network errors are a SKIP, not a red.
   _t1="$(printf '%s' "$_uv_trees" | awk '{print $1}')"
   _target_py="${_py:-$(command -v python3)}"
-  _dry="$(cd "$_t1" && uv pip install --dry-run --python "$_target_py" aimailsdk 2>&1)"
+  _dry="$(cd "$_t1" && "$_uv_gate" pip install --dry-run --python "$_target_py" aimailsdk 2>&1)"
   case "$_dry" in
     *"did not match any variant"*|*"Failed to parse"*|*"failed to parse"*)
       red "uv cannot express the release-age override (unsupported uv in the image): $(printf '%s' "$_dry" | tail -1)" ;;
