@@ -9,12 +9,15 @@
 """
 import os
 import sys
+import importlib
 
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from pysdk.hosts import activate, detect, registry  # noqa: E402
+
+_REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 @pytest.fixture()
@@ -177,4 +180,67 @@ def test_sdk_ops_subdir_list_matches_registry():
         spec = registry.get_host(h)
         assert spec is not None
         expected.add(spec["adapter_dir"])
-    assert declared == expected, f"sdk_ops 目录集 {declared} ≠ 注册表 adapter_dir {expected}"
+    assert declared == expected, f"sdk_ops 目录集 {declared} ≠ 注册表 {expected}"
+
+
+def _import_entry_fresh(name, adapter):
+    """强制 fresh 执行 entry 模块(清 import 缓存——_HOST_VERIFY 在模块顶层
+    按当时的 env 计算,缓存会让后续测试拿到上一次的判定)。
+    返回 (module, cleanup)。"""
+    sys.path.insert(0, os.path.join(_REPO, "pysdk"))
+    sys.path.insert(0, os.path.join(_REPO, "pysdk", adapter))
+    sys.modules.pop(name, None)
+
+    def _cleanup():
+        sys.modules.pop(name, None)
+        for p in (os.path.join(_REPO, "pysdk", adapter), os.path.join(_REPO, "pysdk")):
+            if p in sys.path:
+                sys.path.remove(p)
+    return importlib.import_module(name), _cleanup
+
+
+# ── entry 接线(activate on entry load)──
+def _make_verified_home(tmp_path, host_id):
+    """按 registry 规格造一棵 marker 在位的宿主树,返回宿主 home(检测候选根)。"""
+    spec = registry.get_host(host_id)
+    assert spec is not None
+    home = tmp_path / spec["home_dir"]
+    marker_path = home / spec["marker"]
+    marker_path.mkdir(parents=True, exist_ok=True)
+    (marker_path / "x.txt").write_text("x")
+    return str(home)
+
+
+def test_entry_wiring_hermes_verified(tmp_path, monkeypatch):
+    """hermes entry 接线:HERMES_HOME 指向真 hermes 树 ⇒ import 时 _HOST_VERIFY
+    必须 verified=True(activate on entry load,与 tssdk register-cli 同构)。"""
+    monkeypatch.setenv("HERMES_HOME", _make_verified_home(tmp_path, "hermes"))
+    m, cleanup = _import_entry_fresh("aimail_hermes", "hermes")
+    try:
+        assert m._HOST_VERIFY["verified"] is True
+        assert m._HOST_VERIFY["detected"] == "hermes"
+    finally:
+        cleanup()
+
+
+def test_entry_wiring_hermes_mismatch_never_raises(tmp_path, monkeypatch):
+    """hermes entry 装错宿主(空 home)⇒ import 不抛(never raise),
+    consistent=False + warn —— 半失败必须可见但不阻塞宿主。"""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))  # 空目录,无 marker
+    m, cleanup = _import_entry_fresh("aimail_hermes", "hermes")
+    try:
+        assert m._HOST_VERIFY["consistent"] is False
+        assert m._HOST_VERIFY["verified"] is False
+    finally:
+        cleanup()
+
+
+def test_entry_wiring_deerflow_verified(tmp_path, monkeypatch):
+    """deerflow entry 接线:DEER_FLOW_HOME 指向真 deer-flow 树 ⇒ verified=True。"""
+    monkeypatch.setenv("DEER_FLOW_HOME", _make_verified_home(tmp_path, "deerflow"))
+    m, cleanup = _import_entry_fresh("aimail_deerflow", "deer-flow")
+    try:
+        assert m._HOST_VERIFY["verified"] is True
+        assert m._HOST_VERIFY["detected"] == "deerflow"
+    finally:
+        cleanup()

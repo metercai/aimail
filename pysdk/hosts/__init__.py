@@ -16,6 +16,7 @@
 """
 from . import detect, registry, activate  # noqa: F401
 
-__all__ = ["detect", "registry", "activate", "HOSTS", "host_ids", "get_host"]
+__all__ = ["detect", "registry", "activate", "activate_host", "HOSTS", "host_ids", "get_host"]
 
 from .registry import HOSTS, host_ids, get_host  # noqa: F401,E402
+from .activate import activate_host  # noqa: F401,E402

@@ -37,6 +37,18 @@ import aimail_board as board
 # contract/aimail-contract.json, 门禁 tests/contract/check-contract-single-source.py)
 import aimail_contract as _contract
 
+# ── 宿主识别(移植 tssdk "activate on entry load"): declared=hermes, 在入口加载
+#    时复验当前环境确实是 hermes 宿主。never raises(装错宿主只 warn, 见
+#    hosts/activate.py); 与 CLI 装配期探测互补(CLI 定位未装态, 本处确认已装态)。
+#    core 目录已在 sys.path(L29-31), hosts 是其子包: pip 布局走 aimail.hosts,
+#    仓库 dev / bundle 扁平布局直接 import hosts。
+try:
+    from aimail import hosts as _aimail_hosts
+except ImportError:
+    import hosts as _aimail_hosts
+_HOST_VERIFY = _aimail_hosts.activate_host(
+    "hermes", os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes"))
+
 # API 客户端（公共 aimail_tools._GatewayClient 全方法）
 _GatewayClient = tools._GatewayClient
 

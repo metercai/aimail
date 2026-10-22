@@ -51,6 +51,17 @@ _aimail_bootstrap()
 import aimail_base as _ab          # noqa: E402  (共享核心)
 import aimail_tools as _tools      # noqa: E402  (X-AIMail-Agent 身份注入)
 
+# ── 宿主识别(移植 tssdk "activate on entry load"): declared=deerflow, 入口加载时
+#    复验环境。never raises(装错宿主只 warn); home 语义与 CLI 对齐(DEER_FLOW_HOME
+#    或 ~/.deer-flow; marker backend/app/gateway 在其下)。_aimail_bootstrap 已把
+#    core 挂 sys.path ⇒ hosts 子包可 import(pip 走 aimail.hosts, dev 直接 hosts)。
+try:
+    from aimail import hosts as _aimail_hosts
+except ImportError:
+    import hosts as _aimail_hosts
+_HOST_VERIFY = _aimail_hosts.activate_host(
+    "deerflow", os.environ.get("DEER_FLOW_HOME") or os.path.expanduser("~/.deer-flow"))
+
 
 # ── DeerFlow 身份检测(只报真实检测结果)───────────────────────────
 def _detect_deerflow_version() -> str:
