@@ -96,10 +96,11 @@ def test_detect_parent_dir_candidate_root(tmp_path):
 
 
 def test_pointer_alone_is_not_a_marker_hit(tmp_path):
-    """.agentmail 指针存在但 marker 不在 ⇒ 不算该宿主 present(指针是弱证据)。"""
+    """POINTER_FILE 指针存在但 marker 不在 ⇒ 不算该宿主 present(指针是弱证据)。"""
+    from aimail_contract import POINTER_FILE
     home = tmp_path / ".hermes"
     home.mkdir()
-    (home / ".agentmail").write_text("{}")
+    (home / POINTER_FILE).write_text("{}")
     assert detect.detect_hosts_present(str(tmp_path)) == []
 
 

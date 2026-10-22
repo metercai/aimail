@@ -6,7 +6,7 @@
   · 候选根 = [home, home/<home_dir>]:调用方给宿主根(~/.hermes)或父目录(~);
   · 信号来源(与 registry 同真源):
       ① marker 在位(host 特征目录,如 ~/.hermes/hermes-agent)
-      ② 已装证据(host 的 aimail 指针文件 <root>/.agentmail 存在)
+      ② 已装证据(host 的 aimail 指针文件 <root>/<POINTER_FILE> 存在)
 
 与 CLI detect.rs 的分工:CLI 做"装配期"探测(未装态也要定位 home);
 本层做"运行时"识别(入口加载时确认 declared 与实际环境一致)。
@@ -18,8 +18,12 @@ from typing import Dict, List, Optional
 
 from . import registry
 
-# host id → 该宿主 aimail 指针文件名(CLI contract::pointer_file 同值)
-_POINTER_FILE = ".agentmail"
+# 指针文件名 = 契约字面量,单真源(门禁棘轮:禁裸写该字面量)。
+# 双形态:pip 布局 core 在 aimail 包内;仓库 dev / bundle 布局 core 已挂 sys.path。
+try:
+    from aimail.aimail_contract import POINTER_FILE as _POINTER_FILE
+except ImportError:  # pragma: no cover - 布局分支
+    from aimail_contract import POINTER_FILE as _POINTER_FILE
 
 
 def _candidate_roots(home: str, host: str) -> List[str]:
