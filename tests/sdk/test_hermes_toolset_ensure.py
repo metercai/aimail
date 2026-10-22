@@ -264,7 +264,7 @@ def test_register_emails_creates_config_for_fresh_home(tmp_path, monkeypatch, ca
 # ── 5. C-13 锁(2026-10-11):声明面必须带 YAML 解析器;缺它必须响亮失败 ────────
 def test_pyyaml_is_a_declared_runtime_dependency():
     """官方 uv 宿主(裸 CPython)只有 ruamel-yaml、没有 PyYAML,而安装面
-    `pip install aimailsdk` **不带 extra** ⇒ PyYAML 若只躺在 extra 里,hermes
+    `pip install agent-aimail` **不带 extra** ⇒ PyYAML 若只躺在 extra 里,hermes
     适配器写宿主 config 时就没有解析器(C-13)。这条锁"必须是硬依赖"。"""
     root = Path(__file__).resolve().parent.parent.parent
     pt = (root / "pyproject.toml").read_text(encoding="utf-8")

@@ -17,7 +17,7 @@ rust-version = "1.75"
 # `cli/Cargo.toml` 即 CLI 版本身份的唯一真源；**不与** SDK/仓根 `pyproject.toml` 绑定、不要求同值。
 # 发布打 tag 用 `cli-vX.Y.Z` 前缀，与 SDK 的 `vX.Y.Z` 两线分离。
 # 门禁分层（owner 2026-10-11 裁决）："需要已装件"的用例（tests/repair_backfill_parity.rs，
-# 经 python 门调**已装** aimailsdk）不进 dev 门禁 —— ci.yml 的干净 runner 上装不到 SDK，
+# 经 python 门调**已装** agent-aimail）不进 dev 门禁 —— ci.yml 的干净 runner 上装不到 SDK，
 # 该目标曾长期红。本 feature 由 L2 门禁（tests/cli/run-cli-gates.sh 步骤 2b）与 release
 # 门禁显式开启；默认关闭时该测试文件编译为空。
 [features]

@@ -25,7 +25,8 @@ echo "== 1/5 build wheel → $OUT_DIR"
 rm -rf "$OUT_DIR"
 "$PY" -m build --wheel --outdir "$OUT_DIR" . >/dev/null 2>&1 || {
   echo "build failed (need: python3 -m pip install build)"; exit 1; }
-WHL=$(ls "$OUT_DIR"/aimailsdk-*.whl | head -1)
+# PEP 427:wheel 文件名用归一化名(agent-aimail → agent_aimail,连字符→下划线)
+WHL=$(ls "$OUT_DIR"/agent_aimail-*.whl | head -1)
 echo "   wheel: $WHL"
 
 echo "== 2/5 clean venv install"
@@ -89,8 +90,8 @@ EXPECT_VER="$("$PY" -c "import tomllib; print(tomllib.load(open('pyproject.toml'
 "$VENV_DIR/bin/python" - "$EXPECT_VER" <<'PY'
 import sys
 from importlib.metadata import version
-assert version("aimailsdk") == sys.argv[1], f"{version('aimailsdk')} != {sys.argv[1]}"
-print(f"   OK: installed version {version('aimailsdk')} matches pyproject")
+assert version("agent-aimail") == sys.argv[1], f"{version('agent-aimail')} != {sys.argv[1]}"
+print(f"   OK: installed version {version('agent-aimail')} matches pyproject")
 PY
 
 rm -rf "$VENV_DIR"

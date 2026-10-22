@@ -7,7 +7,7 @@
 
 被测物（全部用**已发布**产物，除闭源 advanced 用本地构建件并记录 sha256）：
   · CLI        = cli-v0.1.56 的 linux-amd64 发布资产（--aimail-bin）
-  · SDK        = aimail install 时装入宿主的那一份（aimailsdk 0.1.56 / @aimail/mail-core 0.1.55）
+  · SDK        = aimail install 时装入宿主的那一份（agent-aimail 0.1.56 / @aimail/mail-core 0.1.55）
   · 网关       = aimail-advanced 1.0.2（--adv-bin，闭源，只本地）
   · 宿主       = 真实 hermes / dsh（official install，隔离 HOME）
 

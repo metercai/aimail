@@ -2,7 +2,7 @@
 //!
 //! 为什么要这一层（照抄 Python 模块的原始理由，别拿 SDK 的桥 helper 替代）：SDK 侧的桥接线
 //! （`aimail_base.ensure_bridge_route` 等）已排期删除；CLI 调那些符号会在 SDK 移除后立刻断。
-//! 所以 CLI 自持一个桥客户端在这里。**本模块不 import pysdk/aimailsdk 的任何东西。**
+//! 所以 CLI 自持一个桥客户端在这里。**本模块不 import pysdk/agent-aimail 的任何东西。**
 //!
 //! 契约（从桥仓读出：`~/aimail-bridge/src/admin.rs` + `router.rs`）—— admin API 服务在桥的
 //! 配置地址上，与模式无关：

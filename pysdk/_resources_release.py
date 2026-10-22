@@ -24,7 +24,7 @@ _CORE = os.path.dirname(os.path.abspath(__file__))
 _MANIFEST = ".aimail-resources.json"
 
 # 缺资源时的可执行指引(仓库态=直接读仓根 resources/, 打包态=wheel 自带)
-_RESOURCE_HINT = ("仓库态: 资源直接取自仓根 resources/(无需物化步骤); pip 态: 重装 aimailsdk(wheel 自带 resources)")
+_RESOURCE_HINT = ("仓库态: 资源直接取自仓根 resources/(无需物化步骤); pip 态: 重装 agent-aimail(wheel 自带 resources)")
 
 # 源子目录(包内 resources/board) → 配置目录目标子目录
 # 2026-09-25 用户裁决: board 只保留 en 角色提示(源目录已改名 role_prompt, 不再带 _en 后缀);

@@ -68,7 +68,11 @@ _CORE = os.path.dirname(os.path.abspath(__file__))
 if _CORE not in sys.path:
     sys.path.insert(0, _CORE)
 # owner 2026-10-07：适配器子目录无 __init__.py ⇒ 必须挂进 sys.path ✓（与 pysdk/install.py 同约定 ✓）
-for _sub in ("hermes", "deer-flow", "dsh"):
+# 2026-10-21：旧硬编码里的 dsh 死条目已清（dsh 是 node 宿主，pysdk 无 dsh/ 目录）。
+# 此处**不**import hosts 注册表：sdk_ops 是 spawn 入口（python -m aimail.sdk_ops），
+# 自举保持最小依赖面；目录集与注册表 adapter_dir 的一致性由
+# tests/sdk/test_hosts_layer.py::test_sdk_ops_subdir_list_matches_registry 守护。
+for _sub in ("hermes", "deer-flow"):
     _p = os.path.join(_CORE, _sub)
     if os.path.isdir(_p) and _p not in sys.path:
         sys.path.insert(0, _p)
@@ -164,7 +168,7 @@ def _op_version(_args: dict) -> dict:
     try:
         from importlib.metadata import version as _v
 
-        ver = _v("aimailsdk")
+        ver = _v("agent-aimail")
     except Exception:
         try:
             import aimail  # type: ignore
@@ -224,7 +228,7 @@ def _sdk_version():
     """SDK 版本（握手用）：优先包元数据，其次模块属性。"""
     try:
         from importlib.metadata import version as _v
-        return _v("aimailsdk")
+        return _v("agent-aimail")
     except Exception:
         pass
     try:

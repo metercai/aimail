@@ -37,7 +37,7 @@ Per-platform install action, registrar and restart requirement:
 
 | Platform | Platform root | Runtime | Install action | Restart |
 |----------|---------------|---------|----------------|---------|
-| Hermes | `~/.hermes` | Python (pysdk) | Install `aimailsdk` (import name `aimail`) into the platform's own interpreter, which the CLI probes inside the platform root (uv → pip → ensurepip); the SDK install expands SKILL/toolsets/board resources and injects `PREPROCESS_REGISTRY` into webhook.py; the SDK install entry itself registers every profile of this root | restart the hermes gateway |
+| Hermes | `~/.hermes` | Python (pysdk) | Install `agent-aimail` (import name `aimail`) into the platform's own interpreter, which the CLI probes inside the platform root (uv → pip → ensurepip); the SDK install expands SKILL/toolsets/board resources and injects `PREPROCESS_REGISTRY` into webhook.py; the SDK install entry itself registers every profile of this root | restart the hermes gateway |
 | DeerFlow | `~/.deer-flow` | Python (pysdk) | SDK install → `install-skill.sh` + `install-mcp.sh` → register (`manage.py register --all`) | restart 8001 (upstream repo installed by patch) |
 | OpenClaw | `~/.openclaw` | TS (tssdk) | `openclaw plugins install agent-aimail --force --accept-capabilities` → register (`openclaw aimail register`; `register-all` for all) | restart the openclaw gateway |
 | DSH | `~/.dsh` | TS (tssdk) | `dsh plugin --profile web add agent-aimail` (needs the `dsh` CLI first; add `--config.minimumReleaseAge=0` only where npm enforces a minimum release age, e.g. restricted images) | binding is auto-bound when a dsh session (mail preset) starts |
@@ -100,7 +100,7 @@ host-side items remain.
 Per-address isolation: mail snapshots, processing log, binding, role prompts and board
 credentials all live inside `systems/{sid}/{addr}/`, so removing one address never touches
 another; an unresolved sid falls back to `systems/_unassigned/`. Host-side Python always runs
-from the **installed `aimailsdk`** (site-packages) — nothing is copied into the program root.
+from the **installed `agent-aimail`** (site-packages) — nothing is copied into the program root.
 
 ### Network model
 

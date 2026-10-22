@@ -156,8 +156,8 @@ fn call_symbol(call: &str) -> String {
 fn sdk_for(host_name: &str, runtime: &str) -> (String, String, bool) {
     let h = host_name.to_lowercase();
     for (needle, pkg) in [
-        ("hermes", "aimailsdk"),
-        ("deerflow", "aimailsdk"),
+        ("hermes", "agent-aimail"),
+        ("deerflow", "agent-aimail"),
         ("dsh", "agent-aimail"),
         ("openclaw", "agent-aimail"),
         ("pi", "agent-aimail"),
@@ -168,7 +168,7 @@ fn sdk_for(host_name: &str, runtime: &str) -> (String, String, bool) {
     }
     match runtime {
         "node" | "ts" | "typescript" => ("agent-aimail".to_string(), "generic".to_string(), true),
-        "python" | "py" => ("aimailsdk".to_string(), "generic".to_string(), true),
+        "python" | "py" => ("agent-aimail".to_string(), "generic".to_string(), true),
         _ => (String::new(), "none".to_string(), false),
     }
 }
@@ -750,12 +750,12 @@ fn adapter_package(host: &str) -> &'static str {
         "openclaw" => "agent-aimail",
         "pi" => "agent-aimail",
         "dsh" => "agent-aimail",
-        _ => "aimailsdk", // hermes / deerflow
+        _ => "agent-aimail", // hermes / deerflow
     }
 }
 
 fn pkg_present(pkg: &str, home: &Path, python: &str) -> String {
-    if pkg == "aimailsdk" && !python.is_empty() {
+    if pkg == "agent-aimail" && !python.is_empty() {
         if let Some(v) = sh(&format!(
             "{} -c \"import importlib.metadata as m;print(m.version('{}'))\" 2>/dev/null",
             shell_escape(python),

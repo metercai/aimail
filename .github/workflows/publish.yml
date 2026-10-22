@@ -21,7 +21,7 @@ name: publish
 #
 # Trusted Publisher 绑定(外部契约, 云端一侧须与本文件一致):
 #   · npm  (tssdk 5 包): repo metercai/aimail + workflow "publish.yml" + environment "npm-release"
-#   · PyPI (aimailsdk) : repo metercai/aimail + workflow "publish.yml" + environment "pypi-release"
+#   · PyPI (agent-aimail) : repo metercai/aimail + workflow "publish.yml" + environment "pypi-release"
 #   两侧同为 publish.yml 的原因(实测, 非偏好): GitHub 对 reusable workflow 一律以**顶层
 #   调用方**签名 —— Sigstore 证书的 Build Config URI(oid 1.3.6.1.4.1.57264.1.18)记的是
 #   publish.yml, 即便发布 job 当时跑在被调用的 publish-pypi.yml 里(2026-10-11 实测);
@@ -329,7 +329,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: aimail-wheel
-          path: dist/aimailsdk-*.whl
+          path: dist/agent_aimail-*.whl   # PEP 427: wheel 文件名用归一化名(agent-aimail → agent_aimail)
 
       - name: Release gate — tests/sdk/release/l2-verify-wheel.sh (clean-venv 3-layout smoke)
         run: bash tests/sdk/release/l2-verify-wheel.sh
@@ -358,7 +358,7 @@ jobs:
         env:
           VER: ${{ needs.pypi-build.outputs.version }}
         run: |
-          if curl -fsS "https://pypi.org/pypi/aimailsdk/$VER/json" >/dev/null 2>&1; then
+          if curl -fsS "https://pypi.org/pypi/agent-aimail/$VER/json" >/dev/null 2>&1; then
             echo "aimail $VER already published — nothing to do"
             echo "published=true" >> "$GITHUB_OUTPUT"
           else

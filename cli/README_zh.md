@@ -26,7 +26,7 @@
 
 | 平台       | 平台根            | 运行时           | 安装动作                                                                                                                                                                        | 重启要求                                     |
 | -------- | -------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| Hermes   | `~/.hermes`    | Python(pysdk) | 在平台自己的解释器里装 `aimailsdk`（导入名 `aimail`;解释器由 CLI 在平台根内探测,uv → pip → ensurepip);SDK 安装展开 SKILL/toolsets/board 资源并给 webhook.py 注入 `PREPROCESS_REGISTRY`;注册本根的 agent 集合（SDK 安装入口即注册全部 profile） | 重启 hermes gateway                        |
+| Hermes   | `~/.hermes`    | Python(pysdk) | 在平台自己的解释器里装 `agent-aimail`（导入名 `aimail`;解释器由 CLI 在平台根内探测,uv → pip → ensurepip);SDK 安装展开 SKILL/toolsets/board 资源并给 webhook.py 注入 `PREPROCESS_REGISTRY`;注册本根的 agent 集合（SDK 安装入口即注册全部 profile） | 重启 hermes gateway                        |
 | DeerFlow | `~/.deer-flow` | Python(pysdk) | SDK 安装 → `install-skill.sh` + `install-mcp.sh` → 注册(`manage.py register --all`)                                                                                             | 重启 8001(上游仓由补丁安装)                        |
 | OpenClaw | `~/.openclaw`  | TS(tssdk)     | `openclaw plugins install agent-aimail --force --accept-capabilities` → 注册(`openclaw aimail register`;全量 `register-all`)                                                 | 重启 openclaw gateway                      |
 | DSH      | `~/.dsh`       | TS(tssdk)     | `dsh plugin --profile web add agent-aimail`(需先有 `dsh` CLI;仅在 npm 设了最小发布年龄限制的环境(如受限镜像)追加 `--config.minimumReleaseAge=0`)                                                                                                                    | 绑定由 dsh session(mail preset)自动 auto-bind |
@@ -86,7 +86,7 @@ aimail repair       →  按 check 发现执行幂等修复阶梯
 
 按地址隔离:邮件快照、处理日志、绑定、角色 prompt、board 凭据都在 `systems/{sid}/{addr}/`
 一层之内,删一个地址目录不会碰到别的地址;sid 解析不出来时收口到 `systems/_unassigned/`。
-宿主侧 python 运行时一律取**已安装的 `aimailsdk`**(site-packages),不再复制到程序根。
+宿主侧 python 运行时一律取**已安装的 `agent-aimail`**(site-packages),不再复制到程序根。
 
 ### 网络模型
 

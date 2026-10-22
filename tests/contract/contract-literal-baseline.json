@@ -1,18 +1,18 @@
 {
  "_comment": "字面量棘轮基线(按 文件×清单键 计数)。规则 = 不得新增:计数只许减不许增;新增位置必须改用常量模块, 或在该行加 `contract-allowed: <理由>` 注释(测试专用逃生门)。重生成: python3 tests/contract/check-contract-single-source.py --update-baseline",
- "generated_at": "2026-10-18T03:26:31Z",
- "tracked_files": 354,
- "hits": 328,
+ "generated_at": "2026-10-22T18:00:36Z",
+ "tracked_files": 369,
+ "hits": 307,
  "files": {
   "bridge/aimail_routes.toml.example": {
    "hermes_inbound_path": 1,
    "hermes_route_name": 1
   },
   "cli/README.md": {
-   "binding_file": 6
+   "binding_file": 5
   },
   "cli/README_zh.md": {
-   "binding_file": 6
+   "binding_file": 5
   },
   "cli/src/hosts/hermes.rs": {
    "agent_skill_name": 6
@@ -125,116 +125,98 @@
    "pointer_file": 1
   },
   "tssdk/README.md": {
-   "binding_file": 2,
-   "inbound_path": 1
+   "binding_file": 1
   },
   "tssdk/docs/platform-adapter-guide.md": {
    "binding_file": 4,
    "inbound_path": 3,
    "pointer_file": 1
   },
-  "tssdk/packages/dsh-aimail/README.md": {
-   "binding_file": 2,
-   "inbound_path": 1
+  "tssdk/packages/agent-aimail/README.md": {
+   "binding_file": 1
   },
-  "tssdk/packages/dsh-aimail/src/inbound.ts": {
+  "tssdk/packages/agent-aimail/src/core/address-code.ts": {
+   "binding_file": 2,
+   "pointer_file": 2
+  },
+  "tssdk/packages/agent-aimail/src/core/auto-bind.ts": {
+   "binding_file": 8
+  },
+  "tssdk/packages/agent-aimail/src/core/config.ts": {
+   "binding_file": 10
+  },
+  "tssdk/packages/agent-aimail/src/core/ensure-system.ts": {
+   "pointer_file": 2
+  },
+  "tssdk/packages/agent-aimail/src/core/resources-root.ts": {
+   "agent_skill_name": 1
+  },
+  "tssdk/packages/agent-aimail/src/core/tools.ts": {
+   "binding_file": 1
+  },
+  "tssdk/packages/agent-aimail/src/core/types.ts": {
+   "binding_file": 2
+  },
+  "tssdk/packages/agent-aimail/src/dsh/inbound.ts": {
    "agent_skill_name": 2,
    "binding_file": 2,
    "inbound_path": 2
   },
-  "tssdk/packages/dsh-aimail/src/mail-service.ts": {
+  "tssdk/packages/agent-aimail/src/dsh/mail-service.ts": {
    "binding_file": 3
   },
-  "tssdk/packages/mail-core/README.md": {
-   "binding_file": 4
+  "tssdk/packages/agent-aimail/src/mail/index.ts": {
+   "binding_file": 3
   },
-  "tssdk/packages/mail-core/src/address-code.ts": {
-   "binding_file": 2,
-   "pointer_file": 2
-  },
-  "tssdk/packages/mail-core/src/auto-bind.ts": {
-   "binding_file": 8
-  },
-  "tssdk/packages/mail-core/src/config.ts": {
-   "binding_file": 10
-  },
-  "tssdk/packages/mail-core/src/ensure-system.ts": {
-   "pointer_file": 2
-  },
-  "tssdk/packages/mail-core/src/tools.ts": {
-   "binding_file": 1
-  },
-  "tssdk/packages/mail-core/src/types.ts": {
-   "binding_file": 2
-  },
-  "tssdk/packages/mail-core/test/address-code.test.ts": {
+  "tssdk/packages/agent-aimail/src/openclaw/commands.ts": {
    "binding_file": 2,
    "pointer_file": 1
   },
-  "tssdk/packages/mail-core/test/contacts.test.ts": {
-   "binding_file": 1
-  },
-  "tssdk/packages/mail-core/test/ensure-system.test.ts": {
-   "pointer_file": 2
-  },
-  "tssdk/packages/mail-core/test/preprocess-align.test.ts": {
-   "binding_file": 1
-  },
-  "tssdk/packages/mail-core/test/preprocess.test.ts": {
-   "binding_file": 1
-  },
-  "tssdk/packages/mail-core/test/prompt-rules.test.ts": {
-   "binding_file": 2
-  },
-  "tssdk/packages/mail-core/test/sendmail.test.ts": {
-   "binding_file": 1
-  },
-  "tssdk/packages/mail-core/test/thread.test.ts": {
-   "binding_file": 1
-  },
-  "tssdk/packages/mail/README.md": {
-   "binding_file": 3
-  },
-  "tssdk/packages/mail/package.json": {
-   "binding_file": 1
-  },
-  "tssdk/packages/mail/src/index.ts": {
-   "binding_file": 3
-  },
-  "tssdk/packages/mail/test/resolve.test.ts": {
-   "binding_file": 1
-  },
-  "tssdk/packages/openclaw-aimail/README.md": {
-   "binding_file": 1,
-   "inbound_path": 1,
-   "pointer_file": 2
-  },
-  "tssdk/packages/openclaw-aimail/src/commands.ts": {
-   "binding_file": 2,
-   "pointer_file": 1
-  },
-  "tssdk/packages/openclaw-aimail/src/identity.ts": {
+  "tssdk/packages/agent-aimail/src/openclaw/identity.ts": {
    "binding_file": 1,
    "pointer_file": 6
   },
-  "tssdk/packages/openclaw-aimail/src/index.ts": {
+  "tssdk/packages/agent-aimail/src/openclaw/index.ts": {
    "agent_skill_name": 2,
    "binding_file": 1
   },
-  "tssdk/packages/pi-aimail/README.md": {
-   "binding_file": 1,
-   "inbound_path": 1,
-   "pointer_file": 2
-  },
-  "tssdk/packages/pi-aimail/src/identity.ts": {
+  "tssdk/packages/agent-aimail/src/pi/identity.ts": {
    "inbound_path": 1
   },
-  "tssdk/packages/pi-aimail/src/index.ts": {
+  "tssdk/packages/agent-aimail/src/pi/index.ts": {
    "agent_skill_name": 2,
    "pointer_file": 2
   },
-  "tssdk/packages/pi-aimail/src/register-cli.ts": {
+  "tssdk/packages/agent-aimail/src/pi/register-cli.ts": {
    "pointer_file": 3
+  },
+  "tssdk/packages/agent-aimail/test/core/address-code.test.ts": {
+   "binding_file": 2,
+   "pointer_file": 1
+  },
+  "tssdk/packages/agent-aimail/test/core/contacts.test.ts": {
+   "binding_file": 1
+  },
+  "tssdk/packages/agent-aimail/test/core/ensure-system.test.ts": {
+   "pointer_file": 2
+  },
+  "tssdk/packages/agent-aimail/test/core/preprocess-align.test.ts": {
+   "binding_file": 1
+  },
+  "tssdk/packages/agent-aimail/test/core/preprocess.test.ts": {
+   "binding_file": 1
+  },
+  "tssdk/packages/agent-aimail/test/core/prompt-rules.test.ts": {
+   "binding_file": 2
+  },
+  "tssdk/packages/agent-aimail/test/core/sendmail.test.ts": {
+   "binding_file": 1
+  },
+  "tssdk/packages/agent-aimail/test/core/thread.test.ts": {
+   "binding_file": 1
+  },
+  "tssdk/packages/agent-aimail/test/mail/resolve.test.ts": {
+   "binding_file": 1
   }
  }
 }

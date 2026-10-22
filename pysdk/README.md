@@ -4,7 +4,7 @@ AIMail (agent mail) runtime for Python hosts: gateway client, 15 mail /
 contact / note / board / identity tools, the inbound preprocess chain, an MCP
 server, and ready-made adapters for Hermes and DeerFlow.
 
-Published as `aimailsdk` on PyPI (import name `aimail`). The wheel mirrors this
+Published as `agent-aimail` on PyPI (import name `aimail`). The wheel mirrors this
 directory 1:1 and maps the repo-root `resources/` to `aimail/resources/`, so a
 repo checkout and an installed package behave the same.
 
@@ -19,7 +19,7 @@ repo checkout and an installed package behave the same.
 ## Install
 
 ```bash
-pip install aimailsdk        # PyPI
+pip install agent-aimail        # PyPI
 pip install .                # from this directory
 ```
 

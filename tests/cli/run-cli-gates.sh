@@ -34,10 +34,10 @@ else
 fi
 
 echo
-echo "═══ [CLI] 2b) 需已装件的 parity 用例（L2：经 python 门调已装 aimailsdk）═══"
+echo "═══ [CLI] 2b) 需已装件的 parity 用例（L2：经 python 门调已装 agent-aimail）═══"
 if [ -d cli ]; then
   # 属 L2(装件级)：dev 门禁(ci.yml)不装 SDK,故 cli/tests 里这类用例由 feature 关掉。
-  # 前置条件 = 域内解释器可 import aimailsdk(probe_in_domain 链首 AIMAIL_PYTHON)；
+  # 前置条件 = 域内解释器可 import agent-aimail(probe_in_domain 链首 AIMAIL_PYTHON)；
   # 缺则响亮 SKIP —— 环境缺失不是产品红,与步骤 3 对 advanced 缺失同款。
   _sdk_py=""
   # 同类判据(owner 2026-10-11):CWD 下同名目录会被当成命名空间包 ⇒ 必须要求"真包"
@@ -47,9 +47,9 @@ if [ -d cli ]; then
     if command -v "$c" >/dev/null 2>&1 && ( cd / && "$c" -c "import importlib.util,sys; s=importlib.util.find_spec('aimail'); sys.exit(0 if (s and s.origin) else 1)" ) >/dev/null 2>&1; then _sdk_py="$c"; break; fi
   done
   if [ -z "$_sdk_py" ]; then
-    echo "[CLI] SKIP(env): 无解释器可 import aimailsdk —— parity 用例未跑"
+    echo "[CLI] SKIP(env): 无解释器可 import agent-aimail —— parity 用例未跑"
   else
-    echo "[CLI] 解释器 = $_sdk_py（aimailsdk 可导入）"
+    echo "[CLI] 解释器 = $_sdk_py（agent-aimail 可导入）"
     (cd cli && cargo test --offline --features sdk-parity --test repair_backfill_parity) || fail=1
   fi
 else

@@ -213,7 +213,7 @@ fn package_hosts_show_their_native_command_without_touching_the_machine() {
         out.contains("\"dry_run\": true"),
         "must be the dry-run branch: {out}"
     );
-    assert!(out.contains("aimailsdk"), "{out}");
+    assert!(out.contains("agent-aimail"), "{out}");
     assert!(
         out.contains("pip install"),
         "hermes must print its real package command: {out}"

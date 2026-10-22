@@ -15,7 +15,7 @@
 #        node/pnpm : minimumReleaseAge = 0 (one npmrc, npm+pnpm both read it)
 #      Why: uv walks up from the CWD and the hermes tree pins
 #      `[tool.uv] exclude-newer = "14 days"` in its own pyproject.toml; pnpm applies a
-#      release-age gate of its own. Both silently resolve an *older* aimailsdk than the
+#      release-age gate of its own. Both silently resolve an *older* agent-aimail than the
 #      registry latest — the install "succeeds" and ships a stale package. That is a
 #      property of the ENVIRONMENT, so it is removed once, here, not re-patched per run.
 #   6. the result is verified by verify.sh (fail-closed): a prepare that cannot pass the

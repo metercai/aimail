@@ -168,7 +168,7 @@ for c in python3 /opt/hermes/.venv/bin/python3 /app/backend/.venv/bin/python; do
 done
 [ -z "$_py_hits" ] && pass "no interpreter can import the pysdk (aimail)" || red "pysdk importable by:$_py_hits"
 _pip_hits="$( { python3 -m pip list 2>/dev/null; /opt/hermes/.venv/bin/python3 -m pip list 2>/dev/null; /app/backend/.venv/bin/python -m pip list 2>/dev/null; } | grep -i '^aimail' | head -3)"
-[ -z "$_pip_hits" ] && pass "no aimailsdk distribution installed" || red "aimailsdk installed: $_pip_hits"
+[ -z "$_pip_hits" ] && pass "no agent-aimail distribution installed" || red "agent-aimail installed: $_pip_hits"
 _ts_hits="$( { npm ls -g --depth=0 2>/dev/null; } | grep -i aimail | head -3)"
 [ -z "$_ts_hits" ] && pass "no @aimail/* npm package installed globally" || red "tssdk present: $_ts_hits"
 
@@ -196,20 +196,20 @@ if [ -n "$_uv_trees" ] && [ -n "$_uv_gate" ]; then
   # the environment then still filters, silently. Network errors are a SKIP, not a red.
   _t1="$(printf '%s' "$_uv_trees" | awk '{print $1}')"
   _target_py="${_py:-$(command -v python3)}"
-  _dry="$(cd "$_t1" && "$_uv_gate" pip install --dry-run --python "$_target_py" aimailsdk 2>&1)"
+  _dry="$(cd "$_t1" && "$_uv_gate" pip install --dry-run --python "$_target_py" agent-aimail 2>&1)"
   case "$_dry" in
     *"did not match any variant"*|*"Failed to parse"*|*"failed to parse"*)
       red "uv cannot express the release-age override (unsupported uv in the image): $(printf '%s' "$_dry" | tail -1)" ;;
     *)
       if [ "$OFFLINE" = 1 ]; then skip "uv functional check needs network (offline)"
       else
-        _latest="$(python3 -c "import json,urllib.request;print(json.load(urllib.request.urlopen('https://pypi.org/pypi/aimailsdk/json',timeout=20))['info']['version'])" 2>/dev/null)"
+        _latest="$(python3 -c "import json,urllib.request;print(json.load(urllib.request.urlopen('https://pypi.org/pypi/agent-aimail/json',timeout=20))['info']['version'])" 2>/dev/null)"
         if [ -z "$_latest" ]; then skip "registry latest unreachable — cannot judge the gate functionally"
         else
-          _resolved="$(printf '%s' "$_dry" | grep -oE 'aimailsdk==[0-9][0-9.]*' | head -1)"
-          [ "$_resolved" = "aimailsdk==$_latest" ] \
+          _resolved="$(printf '%s' "$_dry" | grep -oE 'agent-aimail==[0-9][0-9.]*' | head -1)"
+          [ "$_resolved" = "agent-aimail==$_latest" ] \
             && pass "uv resolves the registry latest from inside the tree ($_resolved)" \
-            || red "uv resolves $_resolved but registry latest is aimailsdk==$_latest (gate still filtering)"
+            || red "uv resolves $_resolved but registry latest is agent-aimail==$_latest (gate still filtering)"
         fi
       fi ;;
   esac

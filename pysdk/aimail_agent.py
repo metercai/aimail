@@ -179,7 +179,7 @@ def start_agent_level(skills_dir: str = "", on_email: Optional[Callable] = None,
 # ═══════════════════════════════════════════════════════════════
 # 引导命令行 —— shell 只做"装 SDK / 装 skill / 报注册面", 激活仍在 agent 内部
 #
-#   pip install aimailsdk
+#   pip install agent-aimail
 #   aimail-agent setup --skills-dir <skills dir>
 #
 # 这条命令不改任何状态之外的语义: 它装 skill、打印 toolset(工具名)与注册方式

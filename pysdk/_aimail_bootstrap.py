@@ -12,7 +12,8 @@ directory, for sibling imports — on sys.path.
 Resolution order (most specific first):
   1. AIMAIL_RUNTIME_DIR env var (explicit override)
   2. the directory above the entry point (bundle / site-packages layout:
-     adapter dirs openclaw|deer-flow sit directly under the core dir)
+     adapter dirs sit directly under the core dir; the dir-name whitelist is
+     derived from the hosts registry — single source)
   3. the entry point's own directory (flat layout: entry lives in core)
 
 The repo checkout is deliberately NOT a path fallback: installed runtimes
@@ -48,6 +49,27 @@ def _core_ok(d):
     return bool(d) and os.path.isfile(os.path.join(d, "aimail_base.py"))
 
 
+def _adapter_dir_names():
+    """adapter 目录名白名单 —— 从 hosts 注册表派生(单真源)。
+
+    旧硬编码 ``("openclaw", "deer-flow", "hermes")`` 里 openclaw 是 node 宿主
+    死分支(pysdk 无 openclaw/ 目录,装配归 tssdk 包);2026-10-21 起按
+    注册表 adapter_dir 推导。注册表不可用时(极端自举早期)回退最小集。
+    """
+    try:
+        import hosts.registry as _hr  # repo 形态: pysdk/ 在 sys.path
+        return tuple((_hr.get_host(h) or {}).get("adapter_dir", "")
+                     for h in _hr.host_ids())
+    except ImportError:
+        pass
+    try:
+        from aimail.hosts import registry as _hr  # pip 形态
+        return tuple((_hr.get_host(h) or {}).get("adapter_dir", "")
+                     for h in _hr.host_ids())
+    except ImportError:
+        return ("hermes", "deer-flow")
+
+
 def ensure_core(self_dir=None):
     """Put the core module dir (and the entry point's own dir) on sys.path.
 
@@ -64,8 +86,8 @@ def ensure_core(self_dir=None):
         d = os.path.expanduser(env)
         if _core_ok(d):
             core = d
-    # 2. parent dir (adapter layout: core sits above openclaw|deer-flow)
-    if core is None and os.path.basename(here) in ("openclaw", "deer-flow", "hermes"):
+    # 2. parent dir (adapter layout: core sits above the adapter dir)
+    if core is None and os.path.basename(here) in _adapter_dir_names():
         d = os.path.dirname(here)
         if _core_ok(d):
             core = d

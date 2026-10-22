@@ -18,7 +18,7 @@ An environment produced by `prepare.sh` must satisfy all of:
 3. **The agent runs and its LLM answers.** The agent's own entry point executes, and a live
    LLM probe returns content. If the endpoint is unreachable the check is reported as
    `SKIP`, **never** as a pass.
-4. **Nothing of ours is pre-installed.** The aimail CLI, the pysdk (`aimailsdk`) and the
+4. **Nothing of ours is pre-installed.** The aimail CLI, the pysdk (`agent-aimail`) and the
    tssdk (`@aimail/*`) must be absent; installing them is the thing under test.
 5. **No package-manager release-age gate is left in the environment.**
    * python/uv: `<tree>/uv.toml` with a far-future cutoff (`exclude-newer`), which every uv

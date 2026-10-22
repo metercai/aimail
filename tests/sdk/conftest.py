@@ -8,7 +8,7 @@ import os
 import sys
 
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-for _d in ("pysdk", os.path.join("pysdk", "hermes")):
+for _d in ("pysdk", os.path.join("pysdk", "hermes"), os.path.join("pysdk", "deer-flow")):
     _p = os.path.join(_REPO, _d)
     if _p not in sys.path:
         sys.path.insert(0, _p)

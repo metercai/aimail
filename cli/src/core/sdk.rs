@@ -10,7 +10,7 @@
 //! 换 `program` 即可复用同一判读，不新造第三种形态。
 //!
 //! 定位（**同源优先**）：`{program_root}/aimail-src/pysdk/sdk_ops.py` 存在就直接跑它（调用方与被调方
-//! 同一棵树；`install.py` 的混装教训）；否则回退 `-m aimail.sdk_ops`（pip 装的 aimailsdk ≥ 0.1.35）。
+//! 同一棵树；`install.py` 的混装教训）；否则回退 `-m aimail.sdk_ops`（pip 装的 agent-aimail ≥ 0.1.35）。
 //! 解释器：`AIMAIL_PYTHON` > `python3`。
 
 use crate::hosts::Host;
@@ -463,7 +463,7 @@ mod tests {
 
     #[test]
     fn real_door_is_callable_when_python_and_sdk_are_present() {
-        // 真门联调（本机有 python3 + 已装 aimailsdk 时必跑；否则打印原因跳过，不伪装通过）
+        // 真门联调（本机有 python3 + 已装 agent-aimail 时必跑；否则打印原因跳过，不伪装通过）
         let home = tempfile::tempdir().unwrap();
         let r = sdk_ops_call(
             "iter_bindings",

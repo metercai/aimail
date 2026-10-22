@@ -472,7 +472,7 @@ Rules (docker mode):
    `--container-home <path>` only when the in-container home path differs from `--home`
    (SOP default = identical paths, so the flag is unnecessary).
 3. Inside install: only steps that must execute in the container use
-   `docker exec {container} …` (hermes venv `pip install aimailsdk`); everything writing
+   `docker exec {container} …` (hermes venv `pip install agent-aimail`); everything writing
    the shared home (sdk_install / register / mcp payload) runs host-side against the mount.
 4. After container rebuild/recreate: re-run `aimail install` with the same flags —
    the recorded runtime/container keys make re-detection stable.

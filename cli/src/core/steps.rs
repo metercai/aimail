@@ -807,8 +807,8 @@ mod tests {
     }
 
     /// 回归钉子（owner 2026-10-12）：**node 宿主的步骤不得引用 `{sdk}` / `{python}`** ——
-    /// 那会让「SDK 根」对 node 宿主成为必需，于是在没装 aimailsdk 的机器上打出误导错误
-    /// （实测：L2 里 dsh/pi 都出现 `✗ 未找到已安装的 aimailsdk`）。只有 python 宿主需要它们。
+    /// 那会让「SDK 根」对 node 宿主成为必需，于是在没装 agent-aimail 的机器上打出误导错误
+    /// （实测：L2 里 dsh/pi 都出现 `✗ 未找到已安装的 agent-aimail`）。只有 python 宿主需要它们。
     #[test]
     fn node_hosts_never_reference_sdk_root_placeholders() {
         for id in crate::hosts::order() {

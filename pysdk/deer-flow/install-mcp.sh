@@ -103,7 +103,7 @@ sys.stdout.write(p if os.path.isfile(p) else "")')"
 # owner 2026-10-06（目标态）：MCP 服务**取自已装包**（`site-packages/aimail/aimail_mcp_server.py`）✓ ——
 # 不再使用 `<程序根>/mcp/` 的 SDK 文件拷贝 ✗（自包含载荷/仓库态一律取消 ✓）。
 if [ -z "$SERVER" ]; then
-  echo "ERROR: 已装包内缺 aimail_mcp_server.py（重装 aimailsdk 或检查包完整性）" >&2
+  echo "ERROR: 已装包内缺 aimail_mcp_server.py（重装 agent-aimail 或检查包完整性）" >&2
   exit 1
 fi
 [ -f "$SERVER" ] || { echo "MCP payload missing: $SERVER" >&2; exit 1; }

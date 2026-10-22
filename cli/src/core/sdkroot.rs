@@ -350,7 +350,7 @@ pub fn resolve_with(python: &str) -> Result<SdkRoot, String> {
         }
     }
     Err(format!(
-        "ERROR: 未找到已安装的 aimailsdk(解释器 {python} 下未定位到 aimail 包)"
+        "ERROR: 未找到已安装的 agent-aimail(解释器 {python} 下未定位到 aimail 包)"
     ))
 }
 
@@ -372,7 +372,7 @@ pub fn resolve_or_placeholder() -> SdkRoot {
         Err(e) => {
             // owner 2026-10-06：**不存在**仓库态/自包含载荷 ⇒ 解析不到 = "SDK 未安装" ⇒ 必须**响亮失败** ✗
             eprintln!("✗ SDK 未安装或不可用：{e}");
-            eprintln!("  请先安装最新已发布版：pip install --index-url https://pypi.org/simple/ aimailsdk");
+            eprintln!("  请先安装最新已发布版：pip install --index-url https://pypi.org/simple/ agent-aimail");
             std::process::exit(2);
         }
     }

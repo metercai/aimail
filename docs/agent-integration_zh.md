@@ -433,7 +433,7 @@ health_checks。CLI 执行器是平台无关的 `kind` 分发;kind 跨平台共�
    `--container-home <路径>` 仅当容器内 home 路径与 `--home` 不同时需要
    (SOP 默认同路径, 该旗标无需)。
 3. install 内部:必须在容器里执行的步骤才走 `docker exec {container} …`
-   (hermes venv `pip install aimailsdk`);写共享 home 的动作
+   (hermes venv `pip install agent-aimail`);写共享 home 的动作
    (sdk_install / register / mcp payload)全在宿主侧对挂载完成。
 4. 容器重建后:带同样旗标重跑 `aimail install` —— 运行态/容器名在系统记录里,
    重识别稳定。

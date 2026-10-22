@@ -3,8 +3,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "aimailsdk"
-version = "0.1.56"
+name = "agent-aimail"
+version = "0.2.0"
 description = "AIMail runtime SDK (Python): gateway client, platform adapters, resources. Provisioning tools stay in the aimail repository."
 # PyPI long description = the SDK-facing README (pysdk/README.md). The repo
 # root README stays the repository homepage.
@@ -28,7 +28,7 @@ classifiers = [
 # install/register path, so a YAML parser has to exist in the interpreter the
 # SDK actually runs in. The official uv-managed host ships a bare CPython —
 # it carries its own ruamel-yaml but NO PyYAML — and the CLI installs the SDK
-# with `pip install aimailsdk` (no extras). PyYAML is therefore a hard dep
+# with `pip install agent-aimail` (no extras). PyYAML is therefore a hard dep
 # (cp314 wheels exist for every release platform). The remaining third-party
 # imports stay optional and host-gated: markitdown (docs extra) degrades to
 # keeping the original attachment, fastapi (deerflow extra) is a module-level
@@ -83,6 +83,11 @@ packages = []
 # 结果走单行 JSON。TS 侧对等物 = 平台包自带的 register-cli.js。
 "pysdk/sdk_ops.py" = "aimail/sdk_ops.py"
 "pysdk/_resources_release.py" = "aimail/_resources_release.py"
+# hosts 识别层(移植 tssdk 三件套)—— 注册表/检测/激活, 宿主单真源
+"pysdk/hosts/__init__.py" = "aimail/hosts/__init__.py"
+"pysdk/hosts/registry.py" = "aimail/hosts/registry.py"
+"pysdk/hosts/detect.py" = "aimail/hosts/detect.py"
+"pysdk/hosts/activate.py" = "aimail/hosts/activate.py"
 "pysdk/hermes/aimail_hermes.py" = "aimail/hermes/aimail_hermes.py"
 "pysdk/hermes/patch_webhook.py" = "aimail/hermes/patch_webhook.py"
 "pysdk/hermes/patch_profiles.py" = "aimail/hermes/patch_profiles.py"

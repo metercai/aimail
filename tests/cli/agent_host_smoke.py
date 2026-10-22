@@ -40,8 +40,8 @@ from pathlib import Path
 RUNTIME = {"hermes": "python", "deerflow": "python"}
 # package each adapted host installs (native mechanism, not our generated adapter)
 ADAPTER_PKG = {
-    "hermes": "aimailsdk",
-    "deerflow": "aimailsdk",
+    "hermes": "agent-aimail",
+    "deerflow": "agent-aimail",
     "dsh": "dsh-aimail",
     "openclaw": "openclaw-aimail",
     "pi": "pi-aimail",

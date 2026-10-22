@@ -10,7 +10,7 @@
 - 命令面（**16**，按 `aimail --help` 实测，2026-10-11 复核）：address · bridge · check · domain · install · persona · ping · **platform** · prompt · renew · repair · reset · stats · uninstall · version · welcome。（`mod.rs`、`stub.rs`、`report.rs`（用户面输出助手 `ok/warn/fail`）为内部文件，非命令；2026-10-11 订正：旧表把内部助手 `report` 误列为命令、且缺 `platform`）
 - **bridge（硬边界）**：`bridge restart` 只能由 CLI 实施；**bridge 的实施与维护全在 CLI**。SDK 侧**代码级零桥符号**（棘轮 `tests/contract/check-zero-bridge.py`，L0 生效）；但 webhook 语义可**按模式取值**——SDK 依 CLI 给出的 `webhook_host` **三态**决定 `webhook_url`：① **键缺席** = 直连 push（注册为 agent 本机入站端点，端口由入站 up 时确认，见 §4.2 入站 up 反馈）；② **空串** = 桥 pull（注册为空、桥长轮询取）；③ **URL 值** = 桥 push（注册为 BRIDGE_HOST URL，`host:port` 无 path）。**单 agent pull 是绑定级自包含路径**（绑定 `shared_addr_` 前缀），**不**是系统级 `webhook_host` 态、SDK **不**解析网关的 NULL 参数识别它（`pysdk/deer-flow/manage.py:383`、`:397`）。存在"SDK 反调 CLI 过程中**间接**触发 bridge 子命令"的可能。
 
-**SDK（`pysdk/`=Python、`tssdk/`=TypeScript 真源；发布 PyPI `aimailsdk` + 5 个 npm 包）**
+**SDK（`pysdk/`=Python、`tssdk/`=TypeScript 真源；发布 PyPI `agent-aimail` + 5 个 npm 包）**
 - 职责：运行时**实现**层——命名 / 注册 / 改名 / 绑定内容 / 入站实现 / 收发 / webhook / 预处理 / 工具。
 - 按平台各自成包，版本号各自独立，**由该 agent 宿主自己的安装环节装入**；不由 CLI 提供。不写系统级配置；不感知 bridge。
 
@@ -51,7 +51,7 @@
 **阶段3 SDK安装（一步，两入口：`aimail install --home <agent根>` / 宿主插件自装）**
 - 两层，**时序硬约束：先激活、后适配**，由 CLI 流程控制：① 系统级激活（检测判定agent环境的解析器-包管理-SDK根/产出 `system_id`/域/系统级 key ⇒ 写 `aimail_gateway.json`；install.rs:824）② 平台适配（CLI 按注册表分派步骤；install.rs:944。步骤 `when: cfg_complete` 即该时序依赖的体现）。
 - **两条入口 = 同一子流程（步骤集相同），差异仅两点**：触发者不同（CLI / 宿主插件管理器）；系统级激活承担者不同（CLI install 内 / 插件路径由 SDK 反调 `install --system-only`）。
-- **SDK 的安装由宿主包管理器执行、由 CLI 控制时机**：`pip install aimailsdk` / `dsh plugin add agent-aimail` / `pi install npm:agent-aimail` / `openclaw plugins install …`；SDK **不需要 install 触点**。
+- **SDK 的安装由宿主包管理器执行、由 CLI 控制时机**：`pip install agent-aimail` / `dsh plugin add agent-aimail` / `pi install npm:agent-aimail` / `openclaw plugins install …`；SDK **不需要 install 触点**。
 
 **阶段4 闭环运行**：`aimail welcome` 闭环检测覆盖所有路径，用户可感知的在运行。
 

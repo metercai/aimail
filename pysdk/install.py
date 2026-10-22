@@ -36,9 +36,29 @@ from pathlib import Path
 _CORE = os.path.dirname(os.path.abspath(__file__))
 if _CORE not in sys.path:
     sys.path.insert(0, _CORE)
-# owner 2026-10-07：适配器子目录（hermes/ deer-flow/ dsh/）**无 __init__.py** ✗ ⇒ 既非包内模块 ✓、
+
+# ── 宿主注册表单真源(双形态:repo pysdk/ 在 sys.path / pip aimail 包)────────
+def _host_registry():
+    try:
+        import hosts.registry as _hr  # repo 形态: pysdk/ 已在 sys.path
+        return _hr
+    except ImportError:
+        from aimail.hosts import registry as _hr  # pip 形态
+        return _hr
+
+
+_HOSTS = _host_registry()
+PYTHON_HOST_IDS = tuple(_HOSTS.host_ids())  # hermes / deerflow
+# node 宿主(dsh/pi/openclaw)的装配在 tssdk 包 agent-aimail 的 node 入口里,
+# 不在本入口;其中 **dsh** 是原 --type 值域(保留接受并响亮报错,CLI 面参数一致),
+# pi/openclaw 从未在 pysdk 值域内,不新增。
+NODE_HOST_IDS = ("dsh", "pi", "openclaw")
+INSTALL_NODE_CHOICES = ("dsh",)
+
+# owner 2026-10-07：适配器子目录（hermes/ deer-flow/）**无 __init__.py** ✗ ⇒ 既非包内模块 ✓、
 # 也非顶层名 ✗ ⇒ 必须把各子目录本身挂进 sys.path（沿用扁平模块约定 ✓），否则 `import aimail_hermes` 必失败 ✓。
-for _sub in ("hermes", "deer-flow", "dsh"):
+# 2026-10-21：目录清单从 hosts 注册表派生（单真源；旧硬编码里的 dsh 死条目已清——dsh 是 node 宿主）。
+for _sub in ((_HOSTS.get_host(h) or {})["adapter_dir"] for h in _HOSTS.host_ids()):
     _p = os.path.join(_CORE, _sub)
     if os.path.isdir(_p) and _p not in sys.path:
         sys.path.insert(0, _p)
@@ -46,32 +66,32 @@ for _sub in ("hermes", "deer-flow", "dsh"):
 from _resources_release import agentmail_home, release_all_systems, resources_board_dir, resources_skills_dir  # noqa: E402
 
 
-def _import_hermes(name: str):
-    """import hermes 子模块 —— **同源优先**:先取与本 install.py 同一棵树的
-    `hermes/<name>.py`(`_CORE` 已插在 sys.path 头),才回退包名 `aimail.hermes.<name>`。
+def _import_host(host_id: str, name: str):
+    """import 宿主适配子模块 —— 同源优先:先取与本 install.py 同一棵树的
+    `<adapter_dir>/<name>.py`(`_CORE` 已插在 sys.path 头),才回退包名
+    `aimail.<adapter_dir>.<name>`。
 
-    2026-09-30 P2 取证:原顺序(包名优先)在"CLI 自举把源码快照到
-    `~/.aimail/bin/aimail-src/pysdk/` + 镜像里 pip 装着旧 aimailsdk(0.1.30)"
-    的形态下取到**另一棵树**的旧实现(iso15 原文):
-        File ".../aimail-src/pysdk/install.py", line 135, in hermes_webhook_anchor_gate
-          gaps = list(ph.webhook_patch_gaps(webhook_py))
-        AttributeError: module 'aimail.hermes.patch_webhook' has no attribute 'webhook_patch_gaps'
-    ⇒ install.py 是新快照、patch_webhook 是 pip 旧包 = 混装,新增锚闸直接炸
-    (rc≠0),后续 J 段全部缺前置成 GAP。**调用方与被调方必须同一棵树**;
+    2026-09-30 P2 取证(hermes 原文):原"包名优先"在 CLI 自举把源码快照到
+    `~/.aimail/bin/aimail-src/pysdk/` + 镜像里 pip 装着旧包的形态下取到
+    **另一棵树**的旧实现 ⇒ 混装直接炸。调用方与被调方必须同一棵树;
     pip 形态下两路指向同一文件,换序无副作用。
     """
+    spec = _HOSTS.get_host(host_id)
+    if spec is None:
+        raise ValueError(f"unknown host {host_id!r}")
+    adapter = spec["adapter_dir"]
     try:
-        return __import__(f"hermes.{name}", fromlist=["*"])
+        return __import__(f"{adapter}.{name}", fromlist=["*"])
     except ImportError:
-        return __import__(f"aimail.hermes.{name}", fromlist=["*"])
+        return __import__(f"aimail.{adapter}.{name}", fromlist=["*"])
+
+
+def _import_hermes(name: str):
+    return _import_host("hermes", name)
 
 
 def _import_deerflow(name: str):
-    """同 `_import_hermes`:同源优先(`deer-flow/<name>.py` 与本文件同树)。"""
-    try:
-        return __import__(f"deer-flow.{name}", fromlist=["*"])
-    except ImportError:
-        return __import__(f"aimail.deer-flow.{name}", fromlist=["*"])
+    return _import_host("deerflow", name)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -168,7 +188,7 @@ def hermes_webhook_anchor_gate(ph, webhook_py: str) -> int:
 
 
 def install_hermes(hermes_dir: str, system_id: str = "") -> int:
-    """Hermes 平台自足安装:pip 运行时已装(本命令即来自 pip aimailsdk);
+    """Hermes 平台自足安装:pip 运行时已装(本命令即来自 pip agent-aimail);
     webhook/profiles/toolsets 补丁 + profile 注册 + board 资源展开。"""
     ha = os.path.join(hermes_dir, "hermes-agent")
     webhook_py = os.path.join(ha, "gateway", "platforms", "webhook.py")
@@ -249,7 +269,7 @@ def _release_hermes_skills(hermes_dir: str) -> int:
         # 不再静默 return 0: 包自带资源缺失 = 打包缺陷, 必须当场可见
         raise RuntimeError(
             f"skills 资源缺失: {skills_src}(仓库态: 资源在仓根 resources/, 检查检出完整性;"
-            f" pip 态: 重装 aimailsdk)")
+            f" pip 态: 重装 agent-aimail)")
     missing = [f for f in ("SKILL.md", "DESCRIPTION.md")
                if not os.path.isfile(os.path.join(skills_src, f))]
     if missing:
@@ -559,21 +579,23 @@ def _cmd_register_profiles(env) -> int:
 def main(argv: list | None = None) -> int:
     ap = argparse.ArgumentParser(prog="aimail.install", description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
+    # --type 值域从 hosts 注册表派生(单真源):python 宿主 + dsh(接受后响亮报错,
+    # 保持 CLI 面参数一致;dsh 装配归 tssdk 包)。
     p_ins = sub.add_parser("install", help="安装(幂等)")
-    p_ins.add_argument("--type", choices=["hermes", "deerflow", "dsh"], required=True)
+    p_ins.add_argument("--type", choices=list(PYTHON_HOST_IDS) + list(INSTALL_NODE_CHOICES), required=True)
     p_ins.add_argument("--home", default="", help="宿主根:hermes=~/.hermes;deerflow=backend 目录;dsh=DSH home")
     p_ins.add_argument("--system-id", default="")
     p_ins.add_argument("--manager", default="")
     p_ins.set_defaults(fn=_run_install)
 
     p_uni = sub.add_parser("uninstall", help="卸载(撤销自身 patch)")
-    p_uni.add_argument("--type", choices=["hermes", "deerflow"], required=True)
+    p_uni.add_argument("--type", choices=list(PYTHON_HOST_IDS), required=True)
     p_uni.add_argument("--home", default="")
     p_uni.add_argument("--system-id", default="")
     p_uni.set_defaults(fn=_run_uninstall)
 
     p_chk = sub.add_parser("check-env", help="环境自检")
-    p_chk.add_argument("--type", choices=["hermes", "deerflow"], required=True)
+    p_chk.add_argument("--type", choices=list(PYTHON_HOST_IDS), required=True)
     p_chk.add_argument("--home", default="")
     p_chk.set_defaults(fn=_run_check)
 
@@ -591,14 +613,16 @@ def _run_install(args) -> int:
     if not home:
         _say("✗ install 需要 --home(宿主根目录)")
         return 1
+    # 支持集 = 注册表键(单真源);不在集内 ⇒ 响亮报错(node 宿主装配归 tssdk 包)。
+    if _HOSTS.get_host(args.type) is None:
+        _say(
+            f"✗ {args.type}: python 侧只装配 {', '.join(PYTHON_HOST_IDS)}"
+            "(node 宿主由 tssdk 包 agent-aimail 装配)"
+        )
+        return 1
     if args.type == "hermes":
         return install_hermes(home, args.system_id)
-    if args.type == "deerflow":
-        return install_deerflow(home, args.system_id, args.manager)
-    # node 宿主(dsh/pi/openclaw)的装配在宿主自己的 node 入口里(共享实现在 tssdk mail-core),
-    # 不在这里 —— 本入口只装配 python 宿主。
-    _say(f"✗ {args.type}: python 侧只装配 hermes/deerflow(node 宿主由自己的包装配)")
-    return 1
+    return install_deerflow(home, args.system_id, args.manager)
 
 
 def _run_uninstall(args) -> int:
