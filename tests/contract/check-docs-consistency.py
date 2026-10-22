@@ -52,7 +52,7 @@ PLATFORM_EN = "docs/agent-integration.md"
 PLATFORM_ZH = "docs/agent-integration_zh.md"
 MANIFEST_REL = "contract/aimail-contract.json"
 #: agent 级绑定的 system_id 前缀 —— 实现侧事实源(文档讲"哪条路径被开启"要写出它)。
-PREFIX_SRC = "tssdk/packages/mail-core/src/poll-entry.ts"
+PREFIX_SRC = "tssdk/packages/agent-aimail/src/core/poll-entry.ts"
 PREFIX_CONST = "AGENT_SCOPE_SYSTEM_PREFIX"
 
 #: 自举文档必须逐字引用的 agent 内部契约名(语言无关; 缺任一 = 与真源不一致)。

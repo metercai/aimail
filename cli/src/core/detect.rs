@@ -287,15 +287,15 @@ mod tests {
     fn installed_node_entry_wins_over_markers_and_is_derived_by_layout_pattern() {
         let h = tmp("entry");
         std::fs::create_dir_all(h.join("openclaw.json")).ok();
-        // dsh 布局: profiles/<profile>/node_modules/dsh-aimail/dist/register-cli.js
-        touch(&h.join("profiles/web/node_modules/dsh-aimail/dist/register-cli.js"));
+        // dsh 布局: profiles/<profile>/node_modules/agent-aimail/dist/dsh/register-cli.js
+        touch(&h.join("profiles/web/node_modules/agent-aimail/dist/dsh/register-cli.js"));
         let info = detect_static(&h, None).unwrap();
         assert_eq!(info.platform, "dsh", "已装组件优先于特征标记");
         assert_eq!(info.transport, "node");
         assert!(info
             .entry
             .unwrap()
-            .ends_with("node_modules/dsh-aimail/dist/register-cli.js"));
+            .ends_with("node_modules/agent-aimail/dist/dsh/register-cli.js"));
         assert_eq!(info.agent_keys, vec!["web".to_string()]);
     }
 
@@ -303,7 +303,7 @@ mod tests {
     fn nested_foreign_home_is_not_claimed() {
         // 实测缺陷回归：给 /tmp(其下嵌套另一个宿主树)不得把 /tmp 当成 dsh。
         let outer = tmp("outer");
-        touch(&outer.join("inner/profiles/web/node_modules/dsh-aimail/dist/register-cli.js"));
+        touch(&outer.join("inner/profiles/web/node_modules/agent-aimail/dist/dsh/register-cli.js"));
         let err = detect_static(&outer, None).unwrap_err();
         assert!(
             err.contains("无法确定平台"),
@@ -315,17 +315,17 @@ mod tests {
     fn parent_dir_with_nested_own_home_is_detected() {
         // 调用方给父目录(~ 式)：候选根含 <parent>/.dsh ⇒ 命中
         let parent = tmp("parent");
-        touch(&parent.join(".dsh/profiles/web/node_modules/dsh-aimail/dist/register-cli.js"));
+        touch(&parent.join(".dsh/profiles/web/node_modules/agent-aimail/dist/dsh/register-cli.js"));
         let info = detect_static(&parent, None).unwrap();
         assert_eq!(info.platform, "dsh");
         assert_eq!(info.home, parent.join(".dsh"));
-        assert!(info.entry.unwrap().ends_with("dist/register-cli.js"));
+        assert!(info.entry.unwrap().ends_with("dist/dsh/register-cli.js"));
     }
 
     #[test]
     fn single_agent_host_leaves_agent_keys_empty() {
         let h = tmp("single");
-        touch(&h.join("agent/npm/node_modules/pi-aimail/dist/register-cli.js"));
+        touch(&h.join("agent/npm/node_modules/agent-aimail/dist/pi/register-cli.js"));
         let info = detect_static(&h, None).unwrap();
         assert_eq!(info.platform, "pi");
         assert_eq!(info.transport, "node");

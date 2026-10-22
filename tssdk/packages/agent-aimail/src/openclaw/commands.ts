@@ -1,0 +1,419 @@
+/**
+ * openclaw-aimail commands — `openclaw aimail register|register-all|deregister|status`.
+ *
+ * register: 4-step idempotent chain ported from Python register_agent_email
+ *   (register_email(generate_code) → exists? update webhook → manager
+ *   whitelist → activate_address) using existing gateway admin APIs only.
+ * deregister: 3-step idempotent chain (api-key → domain → whitelist).
+ * status: pointer + binding report.
+ *
+ * The chains are pure functions over a GatewayClient-like surface so they
+ * are unit-testable with a MockClient (P2 acceptance).
+ */
+import { randomUUID } from 'node:crypto'
+import { promises as fs } from 'node:fs'
+import * as path from 'node:path'
+import type { GatewayResponse } from '../core/index.js'
+import { systemDir, UsageError } from '../core/index.js'
+import type {
+  OpenClawPluginCommandDefinition,
+  PluginCommandContext,
+  PluginCommandResult,
+} from 'openclaw/plugin-sdk/plugin-entry'
+import { ensureHooksWiring, openclawWebhookUrl, readPointer, writePointer } from './identity.js'
+import { emailForAgent } from '../core/index.js'
+
+/** Minimal admin client surface the chains depend on (MockClient-friendly). */
+export interface AdminClient {
+  request(
+    method: string,
+    path: string,
+    body?: Record<string, unknown>,
+    headers?: Record<string, string>,
+    rawBody?: Uint8Array,
+  ): Promise<GatewayResponse>
+}
+
+export interface DeregisterResult {
+  api_key: string
+  domain: string
+  whitelist: string
+}
+
+/** 3-step idempotent deregistration chain (api-key → domain → whitelist). */
+export async function deregisterAgentEmail(
+  client: AdminClient,
+  opts: { systemId: string; email: string; domainAddr: string; managerAddress?: string },
+): Promise<DeregisterResult> {
+  const out: DeregisterResult = { api_key: '', domain: '', whitelist: '' }
+
+  // 1. API key by email → delete
+  try {
+    const k = await client.request(
+      'GET',
+      `/api/v1/admin/api-keys?email=${encodeURIComponent(opts.email)}`,
+    )
+    const entries = Array.isArray(k.data)
+      ? k.data
+      : (k.entries as unknown[] | undefined) ?? []
+    const key = entries[0] as Record<string, unknown> | undefined
+    if (key && key.id) {
+      const r = await client.request(
+        'DELETE',
+        `/api/v1/admin/api-keys/${String(key.id)}`,
+      )
+      out.api_key = String(r.status ?? '')
+    } else {
+      out.api_key = 'not_found'
+    }
+  } catch (e) {
+    out.api_key = `err:${e instanceof Error ? e.message : String(e)}`
+  }
+
+  // 2. Domain entry by name → delete
+  try {
+    const domains = await client.request(
+      'GET',
+      `/api/v1/admin/systems/${opts.systemId}/domains`,
+    )
+    const entries = Array.isArray(domains.data)
+      ? domains.data
+      : (domains.entries as unknown[] | undefined) ?? []
+    let addrId = ''
+    for (const d of entries) {
+      const row = d as Record<string, unknown>
+      if (row.domain === opts.email) {
+        addrId = String(row.id ?? '')
+        break
+      }
+    }
+    if (addrId) {
+      const r = await client.request(
+        'DELETE',
+        `/api/v1/admin/system-domains/${addrId}`,
+      )
+      out.domain = String(r.status ?? '')
+    } else {
+      out.domain = 'not_found'
+    }
+  } catch (e) {
+    out.domain = `err:${e instanceof Error ? e.message : String(e)}`
+  }
+
+  // 3. Whitelist entry — 先按 (domain_addr, value) **精确匹配**, 再按 id 删。
+  //    审计 2026-09-21: 原实现按 value 删(`DELETE /api/v1/whitelists?domain_addr=&value=`),
+  //    而网关 admin 分支把该参数当**域**用(按域解析 system → 列该系统全部行 → 取首个
+  //    value 命中) ⇒ 传完整地址得到空列表 → 404(行永不删除, 实测残留); 传域则会误删
+  //    同 manager 的**其它**地址行。与 Python 侧 deregister_agent_email 同口径修复。
+  try {
+    const domain = opts.domainAddr || opts.email.split('@')[1] || ''
+    const manager = opts.managerAddress ?? ''
+    if (!domain) {
+      out.whitelist = 'unsupported'
+    } else {
+      const res = await client.request('GET', `/api/v1/whitelists?${new URLSearchParams({ domain })}`)
+      const rows = (Array.isArray(res.data)
+        ? res.data
+        : (res.entries as unknown[] | undefined) ?? []) as Array<Record<string, unknown>>
+      // 先 (domain_addr, value) 精确匹配; 落空则收敛到"本地址名下的行"。
+      // F10(2026-09-25, 与 Python 侧同口径): 注销语义 = 该地址被拆除, 其名下白名单行
+      // 都是孤儿; domain_addr 已唯一钉住地址 ⇒ 不误伤别的 agent。实测两类落空:
+      // 绑定 manager_address 为空、或网关行的 value 本身为空 ⇒ 只按 value 匹配必留残留。
+      const mine = rows.filter(r => r.domain_addr === opts.email && r.id !== undefined && r.id !== null)
+      const exact = manager ? mine.filter(r => r.value === manager) : []
+      const targets = exact.length > 0 ? exact : mine
+      if (targets.length > 0) {
+        const st: string[] = []
+        for (const r of targets) {
+          const dr = await client.request('DELETE', `/api/v1/whitelists/${String(r.id)}`)
+          st.push(String(dr.status ?? ''))
+        }
+        out.whitelist = st.join(',') + (exact.length > 0 ? '' : '(by_addr)')
+      } else {
+        out.whitelist = rows.length > 0 ? 'not_found_addr' : 'not_found'
+      }
+    }
+  } catch (e) {
+    out.whitelist = `err:${e instanceof Error ? e.message : String(e)}`
+  }
+
+  return out
+}
+
+/** Resolve system_id from --system-id / pointer (throws when unknown). */
+async function resolveSystemId(explicit: string): Promise<string> {
+  if (explicit) return explicit
+  const ptr = await readPointer()
+  if (ptr.system_id) return ptr.system_id
+  throw new Error(
+    'no system_id — pass --system-id or activate the aimail pointer (~/.openclaw/.agentmail)',
+  )
+}
+
+async function readGatewayConfig(
+  systemId: string,
+): Promise<Record<string, string>> {
+  // canonical aimail_gateway.json only; report the canonical name on failure
+  const p = path.join(systemDir(systemId), 'aimail_gateway.json')
+  try {
+    return JSON.parse(await fs.readFile(p, 'utf-8')) as Record<string, string>
+  } catch {
+    throw new Error(
+      `gateway config not found (aimail_gateway.json) for ${systemId} — activate first`,
+    )
+  }
+}
+
+function cmdText(lines: string[]): PluginCommandResult {
+  return { text: lines.join('\n') }
+}
+
+/**
+ * One English line describing THIS adapter's wake path (owner ruling 2026-09-27: the SDK
+ * only manages config it can derive itself — never the operator's LLM/agent settings).
+ */
+function hooksTokenLine(state: 'kept' | 'created' | 'no-config' | 'disabled'): string {
+  if (state === 'created') {
+    return '  hooks token: created in openclaw.json (the inbound dispatch path needs it)'
+  }
+  if (state === 'kept') return '  hooks wiring: enabled (inbound dispatch path wired)'
+  if (state === 'disabled') return '  hooks wiring: DISABLED by the host config (hooks.enabled=false) — inbound mail cannot reach the agent'
+  return '  hooks token: NOT set — no readable ~/.openclaw/openclaw.json yet; inbound mail cannot reach the agent until it exists'
+}
+
+const USAGE = `openclaw aimail <register|register-all|deregister|status> [...args]
+  register  --name <base> | --email <addr> [--system-id SID] [--webhook-url URL] [--manager ADDR]
+             (4-step idempotent chain; writes agentmail.json + pointer)
+  register-all [--system-id SID] [--domain D]
+             (multi-agent: enumerate ~/.openclaw/agents/* → {agent}@{domain}
+              per agent, same chain; pointer stays with the main agent)
+  deregister --email <addr> [--system-id SID] [--domain-addr ADDR]
+             (3-step idempotent chain; removes api-key/domain/whitelist)
+  status    [--system-id SID]   (pointer + binding report)`
+
+function parseArgs(args: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  const tokens = args.trim().split(/\s+/)
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i]
+    if (t.startsWith('--')) {
+      const key = t.slice(2)
+      const next = tokens[i + 1]
+      if (next && !next.startsWith('--')) {
+        out[key] = next
+        i++
+      } else {
+        out[key] = 'true'
+      }
+    }
+  }
+  return out
+}
+
+export async function handleCommand(
+  ctx: PluginCommandContext,
+): Promise<PluginCommandResult> {
+  const args = ctx.args ?? ''
+  const sub = (args.trim().split(/\s+/)[0] ?? '').toLowerCase()
+  // 契约 v1.0 §4.1(2):op 入口形态(CLI 经注册表 host_command 调)——
+  //   openclaw aimail <assemble|update|teardown|prompt-test> --args '<json>'
+  // --args 的 JSON 是**单个 argv 元素**(内部含空格);ctx.args 是宿主拼回的字符串,
+  // 这里按 `--args` 之后的**原始子串**取(不走 parseArgs 的空白分词,否则 JSON 被切碎)。
+  if (sub === 'assemble' || sub === 'update' || sub === 'teardown' || sub === 'prompt-test') {
+    const aIdx = args.indexOf('--args')
+    const raw = aIdx >= 0 ? args.slice(aIdx + 6).trim() : ''
+    let parsed: Record<string, unknown>
+    try {
+      parsed = JSON.parse(raw || '{}') as Record<string, unknown>
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not a JSON object')
+    } catch (e) {
+      return cmdText([JSON.stringify({ ok: false, kind: 'usage', exc: 'UsageError', error: `--args is not valid JSON: ${e instanceof Error ? e.message : String(e)}` })])
+    }
+    try {
+      const { opAssemble, opTeardown, opUpdate, opPromptTest } = await import('../core/index.js')
+      const result =
+        sub === 'assemble' ? await opAssemble(parsed)
+        : sub === 'update' ? await opUpdate(parsed)
+        : sub === 'prompt-test' ? await opPromptTest(parsed)
+        : await opTeardown(parsed)
+      return cmdText([JSON.stringify({ ok: true, result })])
+    } catch (e) {
+      // 与 python 门同形(usage ⇒ error=纯消息;call ⇒ "<Cls>: <msg>";JS 子类 e.name 恒 'Error')
+      if (e instanceof UsageError) {
+        return cmdText([JSON.stringify({ ok: false, kind: 'usage', exc: 'UsageError', error: e.message })])
+      }
+      const exc = e instanceof Error ? e.constructor.name : 'Error'
+      const msg = e instanceof Error ? e.message : String(e)
+      return cmdText([JSON.stringify({ ok: false, kind: 'call', exc, error: `${exc}: ${msg}` })])
+    }
+  }
+  const opts = parseArgs(args.replace(/^\S+/, ''))
+  try {
+    if (sub === 'register') {
+      const systemId = await resolveSystemId(opts['system-id'] ?? '')
+      const gw = await readGatewayConfig(systemId)
+      let email = opts.email ?? ''
+      if (!email && opts.name) {
+        // C3(owner 裁决 2026-10-02 P6): CLI 传意图(--name), 地址派生在 SDK —— 与
+        // register-all / identity auto-bind 同源(emailForAgent), 同一 agent 名在每条
+        // 路径得到同一个地址; --email 保留兼容(既有脚本/显式地址)。
+        if (!gw.domain) return cmdText(['register --name needs a domain (gateway cfg has none — pass --email or set domain)', '', USAGE])
+        email = emailForAgent(opts.name, gw.domain, gw.system_name ?? '', ['main'])
+      }
+      if (!email) return cmdText(['register requires --name <base> or --email <addr>', '', USAGE])
+      const webhookSecret = randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, '')
+      // 统一走 mail-core autoBind(归属读 → 4 步注册 → agentmail.json 原子
+      // 写 0600 → bridge route)。此前本命令用复制链 + 非原子落盘 + 从不配
+      // bridge route → 命令注册的地址收不到信(AUDIT-1 P1-9)。
+      const { autoBind } = await import('../core/index.js')
+      const agentId = ctx.agentId ?? 'main'
+      try {
+        const res = await autoBind({
+          systemId,
+          email,
+          webhookUrl: opts['webhook-url'] ?? openclawWebhookUrl(),
+          webhookSecret,
+          managerAddress: opts.manager ?? gw.manager_address ?? '',
+          extraFields: { agent_id: agentId },
+        })
+        if (res.exists) {
+          return cmdText([
+            `registered ${email} (system ${systemId})`,
+            '  address already bound locally — nothing to do (idempotent)',
+          ])
+        }
+        await writePointer({ system_id: systemId, email })
+        return cmdText([
+          `✓ registered ${email} (system ${systemId}, agent ${agentId})`,
+          `  api_key ok; webhook_url=${opts['webhook-url'] ?? '(local gateway route)'}`,
+          hooksTokenLine(ensureHooksWiring()),
+        ])
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        if (/already exists/i.test(msg)) {
+          return cmdText([
+            `registered ${email}: remote address exists but no local api_key binding —`,
+            `  run 'openclaw aimail deregister --email ${email} --system-id ${systemId}' first,`,
+            `  then register again (or remove the stale binding and re-run)`,
+          ])
+        }
+        throw e
+      }
+    }
+
+    if (sub === 'register-all') {
+      // 多 agent 全量注册:枚举 ~/.openclaw/agents/*,每个 agent 自动
+      // 派生地址 {agent名}@{domain} 走 autoBind(与 register 同链)。
+      // 无显式 email/agent 参数——agent 集合是平台的,地址派生是 SDK 的。
+      const systemId = await resolveSystemId(opts['system-id'] ?? '')
+      const gw = await readGatewayConfig(systemId)
+      const domain = opts.domain ?? gw.domain ?? ''
+      if (!domain) {
+        return cmdText(['register-all requires a domain (gateway cfg has none — pass --domain)'])
+      }
+      const agentsRoot = path.join(process.env.HOME ?? '', '.openclaw', 'agents')
+      let agentNames: string[] = []
+      try {
+        const entries = await fs.readdir(agentsRoot, { withFileTypes: true })
+        agentNames = entries.filter((e) => e.isDirectory() && !e.name.startsWith('.')).map((e) => e.name).sort()
+      } catch {
+        return cmdText([`register-all: no agents dir at ${agentsRoot}`, USAGE])
+      }
+      if (agentNames.length === 0) return cmdText([`register-all: no agents under ${agentsRoot}`])
+      const { autoBind } = await import('../core/index.js')
+      const systemName = gw.system_name ?? ''
+      const out: string[] = [`register-all: ${agentNames.length} agent(s) → ${domain} (system ${systemId})`]
+      let okN = 0
+      for (const name of agentNames) {
+        // 地址派生与 identity.ts auto-bind 同源:emailForAgent(别名归一/
+        // 共享域 {base}.{system_name} 形态/atext 清洗)——两条路径同一 agent 同一地址
+        const email = emailForAgent(name, domain, systemName, ['main'])
+        const secret = randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, '')
+        try {
+          const res = await autoBind({
+            systemId,
+            email,
+            webhookUrl: opts['webhook-url'] ?? openclawWebhookUrl(),
+            webhookSecret: secret,
+            managerAddress: opts.manager ?? gw.manager_address ?? '',
+            extraFields: { agent_id: name },
+          })
+          if (res.exists) {
+            out.push(`  ${email}: already bound (idempotent)`)
+          } else {
+            out.push(`  ✓ ${email}: registered (agent ${name})`)
+          }
+          okN++
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e)
+          if (/already exists/i.test(msg)) {
+            out.push(`  ${email}: remote exists, no local key — deregister first (see register help)`)
+          } else {
+            out.push(`  ✗ ${email}: ${msg}`)
+          }
+        }
+      }
+      out.push(`register-all done: ${okN}/${agentNames.length} ok (pointer unchanged — main agent owns it)`)
+      out.push(hooksTokenLine(ensureHooksWiring()))
+      return cmdText(out)
+    }
+
+    if (sub === 'deregister') {
+      const email = opts.email ?? ''
+      if (!email) return cmdText(['deregister requires --email <addr>', '', USAGE])
+      const systemId = await resolveSystemId(opts['system-id'] ?? '')
+      const gw = await readGatewayConfig(systemId)
+      const { GatewayClient } = await import('../core/index.js')
+      const admin = new GatewayClient(gw.gateway_url ?? '', gw.admin_key ?? '', 30_000, systemId)
+      const out = await deregisterAgentEmail(admin, {
+        systemId,
+        email,
+        domainAddr: opts['domain-addr'] ?? gw.domain ?? '',
+        managerAddress: opts['manager'] ?? opts['manager-address'] ?? gw.manager_address ?? '',
+      })
+      return cmdText([
+        `deregistered ${email} (system ${systemId})`,
+        `  api_key: ${out.api_key}`,
+        `  domain:  ${out.domain}`,
+        `  whitelist: ${out.whitelist}`,
+      ])
+    }
+
+    if (sub === 'status') {
+      const systemId = await resolveSystemId(opts['system-id'] ?? '')
+      const ptr = await readPointer()
+      const lines = [
+        `system_id: ${systemId}`,
+        `pointer email: ${ptr.email ?? '(none)'}`,
+      ]
+      try {
+        const gw = await readGatewayConfig(systemId)
+        lines.push(`gateway_url: ${gw.gateway_url ?? '(unknown)'}`)
+        lines.push(`domain: ${gw.domain ?? '(unknown)'}`)
+      } catch (e) {
+        lines.push(`gateway config: ${e instanceof Error ? e.message : String(e)}`)
+      }
+      return cmdText(lines)
+    }
+
+    return cmdText([USAGE])
+  } catch (e) {
+    return cmdText([
+      `error: ${e instanceof Error ? e.message : String(e)}`,
+      '',
+      USAGE,
+    ])
+  }
+}
+
+/** The three aimail commands (name "aimail" + subcommands). */
+export function createAimailCommands(): OpenClawPluginCommandDefinition[] {
+  return [
+    {
+      name: 'aimail',
+      description: 'AIMail registration and status: register|register-all|deregister|status',
+      acceptsArgs: true,
+      handler: handleCommand,
+    },
+  ]
+}

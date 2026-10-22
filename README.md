@@ -96,9 +96,9 @@ aimail install
 **Or the Agent's plugin install:**
 
 ```bash
-dsh plugin --profile web add dsh-aimail
-#pi install npm:pi-aimail
-#openclaw plugins install openclaw-aimail --force --accept-capabilities  
+dsh plugin --profile web add agent-aimail
+#pi install npm:agent-aimail
+#openclaw plugins install agent-aimail --force --accept-capabilities  
 ```
 
 - After a successful install, verify the closed loop or run problem detection.

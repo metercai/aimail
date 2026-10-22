@@ -109,7 +109,7 @@ fn unknown_node_host_is_recognised_and_installed_then_removed() {
     );
     assert_eq!(rc, 0, "doctor should be ready:\n{out}");
     assert!(out.contains("\"verdict\": \"ready\""), "{out}");
-    assert!(out.contains("@aimail/mail-core"), "{out}");
+    assert!(out.contains("agent-aimail"), "{out}");
     assert!(out.contains("registerTool"), "{out}");
 
     // setup: dry-run writes nothing
@@ -202,7 +202,7 @@ fn package_hosts_show_their_native_command_without_touching_the_machine() {
     let (rc, out) = run(&home, &home, &["agent", "setup", "--host", "openclaw"]);
     assert_eq!(rc, 0, "{out}");
     assert!(out.contains("\"mechanism\": \"package\""), "{out}");
-    assert!(out.contains("openclaw-aimail"), "{out}");
+    assert!(out.contains("agent-aimail"), "{out}");
     assert!(out.contains("openclaw plugins install"), "{out}");
 
     // hermes 的**本机**包安装步必须真的被挑出来（不是被 "docker" 词面误滤掉），

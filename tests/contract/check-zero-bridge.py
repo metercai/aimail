@@ -15,7 +15,7 @@ owner 裁决 2026-09-28(**SDK 去桥化**): 环境(桥/路由)由 CLI 自持
       (它是棘轮自身的符号表 —— 那些字面量是断言数据, 不是引用)。
   (c) 契约真源不得含桥键: ``contract/aimail-contract.json`` 的**键**、
       ``pysdk/aimail_contract.py`` 与
-      ``tssdk/packages/mail-core/src/contract.ts`` 的常量名。
+      ``tssdk/packages/agent-aimail/src/core/contract.ts`` 的常量名。
 
   (d) **引用侧**(2026-09-28 补, 定义侧的漏网面): ``pysdk/**`` ``tssdk/**``
       ``cli/**`` ``tests/**`` 里, 退役符号不得被**引用** ——
@@ -63,7 +63,7 @@ FORBIDDEN_CONTRACT_KEYS = ("bridge_default_path", "BRIDGE_DEFAULT_PATH", "bridge
 TS_RATCHET_FILE = "tssdk/test/startup-hook.test.ts"
 CONTRACT_JSON = "contract/aimail-contract.json"
 CONTRACT_PY = "pysdk/aimail_contract.py"
-CONTRACT_TS = "tssdk/packages/mail-core/src/contract.ts"
+CONTRACT_TS = "tssdk/packages/agent-aimail/src/core/contract.ts"
 
 #: ── (d) 引用侧 ────────────────────────────────────────────────────────────────
 #: 扫描范围: 退役符号**被引用的地方**(定义侧只守 SDK 自己, 这里守"谁在 import/调用它")。

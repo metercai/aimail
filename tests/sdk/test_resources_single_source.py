@@ -3,7 +3,7 @@
 约定:
   * 真源 = 仓库根 ``resources/{board,skills}`` —— git 跟踪, 唯一可编辑处。
   * 各 adapter 包内 ``resources/`` 是**各包 prepack 自己暂存**的生成物
-    (``tssdk/packages/mail-core/scripts/stage-resources.mjs --dest .``):
+    (``tssdk/packages/agent-aimail/scripts/stage-resources.mjs --dest .``):
     必须被 git 忽略、不得入库;存在时**必须与真源逐字节一致**(否则就是"只改了一份"的漂移)。
   * pysdk 不落副本: 仓库检出里 SDK 直接读仓根 ``resources/``
     (``_resources_release.resources_root``);wheel 自包含由 pyproject 的目录级
@@ -19,10 +19,9 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 CANON = REPO / "resources"
 # 只列**包内**生成物: pysdk 不再需要副本(仓库检出直接读真源)。
+# 2026-10-22 单包合并: 原 3 适配宿主包各自暂存一份 ⇒ 收敛为 agent-aimail 单包内的一份。
 TARGETS = {
-    "dsh": REPO / "tssdk" / "packages" / "dsh-aimail" / "resources",
-    "openclaw": REPO / "tssdk" / "packages" / "openclaw-aimail" / "resources",
-    "pi": REPO / "tssdk" / "packages" / "pi-aimail" / "resources",
+    "agent-aimail": REPO / "tssdk" / "packages" / "agent-aimail" / "resources",
 }
 EXPECTED_FILE_COUNT = 8  # 6 board role prompts(role_prompt/) + 2 skills
 
@@ -82,8 +81,8 @@ def test_existing_copies_match_canonical():
         diff = sorted(k for k in set(canon) & set(fp) if canon[k] != fp[k])
         assert not (extra or missing or diff), (
             f"{name} 包内生成物与真源漂移: extra={extra} missing={missing} diff={diff}\n"
-            f"  → 跑该包自己的 prepack: node tssdk/packages/mail-core/scripts/"
-            f"stage-resources.mjs --dest tssdk/packages/{name}-aimail/resources")
+            f"  → 跑该包自己的 prepack: node tssdk/packages/agent-aimail/scripts/"
+            f"stage-resources.mjs --dest tssdk/packages/agent-aimail/resources")
 
 
 def test_sdk_reads_the_canonical_dir_in_a_checkout():

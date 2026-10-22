@@ -24,10 +24,10 @@ import {
   notifyInboundState,
   resolveAimailBin,
   type CommandRunner,
-} from '../packages/mail-core/src/inbound-notify.js'
+} from '../packages/agent-aimail/src/core/inbound-notify.js'
 // Contract single source (2026-10-13 ratchet): the inbound path literal in these
 // §4.3 fixtures comes from the contract constant, never inlined.
-import { INBOUND_PATH } from '../packages/mail-core/src/contract.js'
+import { INBOUND_PATH } from '../packages/agent-aimail/src/core/contract.js'
 
 const calls: Array<{ bin: string; args: string[]; timeoutMs: number }> = []
 const recorder = (result: { code: number | null; error?: string }): CommandRunner =>

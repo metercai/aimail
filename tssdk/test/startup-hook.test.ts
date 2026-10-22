@@ -25,7 +25,7 @@
  * no dispose hook (its own comment says so), so it notifies live only.
  *
  * COVERAGE GAP (registered, not hidden): the dsh hook cannot be exercised
- * end-to-end here — importing packages/dsh-aimail/src/inbound.ts pulls
+ * end-to-end here — importing packages/agent-aimail/src/dsh/inbound.ts pulls
  * '@deepseek-ai/dsh-llm', whose peer dep '@deepseek-ai/dsh-timeout' is not
  * installed in this workspace (module resolution fails before any mock applies).
  * dsh's hook therefore runs for real only in the L2 host container with the
@@ -53,7 +53,7 @@ const BRIDGE_SYMBOLS = [
 const HOSTS = [
   {
     name: 'dsh',
-    file: 'packages/dsh-aimail/src/inbound.ts',
+    file: 'packages/agent-aimail/src/dsh/inbound.ts',
     live: 'server.listen(port, host',
     liveLabel: 'the inbound listener',
     down: true,
@@ -62,7 +62,7 @@ const HOSTS = [
   },
   {
     name: 'openclaw',
-    file: 'packages/openclaw-aimail/src/index.ts',
+    file: 'packages/agent-aimail/src/openclaw/index.ts',
     live: 'api.registerHttpRoute({',
     liveLabel: 'the in-gateway HTTP route',
     down: false,
@@ -71,7 +71,7 @@ const HOSTS = [
   },
   {
     name: 'pi',
-    file: 'packages/pi-aimail/src/index.ts',
+    file: 'packages/agent-aimail/src/pi/index.ts',
     live: "server.listen(port, '127.0.0.1'",
     liveLabel: 'the inbound listener',
     down: true,
@@ -118,7 +118,9 @@ describe('host startup hooks (inbound notification, zero bridge)', () => {
   test('the helper is imported from the shared core (no per-host reimplementation)', () => {
     for (const h of HOSTS) {
       const src = fs.readFileSync(path.join(REPO, h.file), 'utf-8')
-      expect(src.includes("from '@aimail/mail-core'"), `${h.name}: must use the shared core`).toBe(true)
+      // 2026-10-22 单包合并: 共享 core 从独立 npm 包(@aimail/mail-core)变为同包内
+      // 的 ../core/ 相对导入 — 断言目标不变(宿主复用共享 core, 不各自重实现)。
+      expect(src.includes("from '../core/index.js'"), `${h.name}: must use the shared core`).toBe(true)
       expect(src.includes('child_process'), `${h.name}: the notification must be shared, not re-spawned here`)
         .toBe(false)
     }

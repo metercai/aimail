@@ -556,7 +556,7 @@ pub fn openclaw_check_config(c: &mut Check, ctx: &Ctx, agent: &Agent) {
         "name_apikey",
         ok,
         &name_apikey_detail(&agent.name, &agent.email, &api_key),
-        "Run `openclaw aimail register`(openclaw-aimail 插件)",
+        "Run `openclaw aimail register`(agent-aimail 插件)",
     );
 
     let wh_ok = binding
@@ -598,7 +598,7 @@ pub fn openclaw_check_config(c: &mut Check, ctx: &Ctx, agent: &Agent) {
             contract::agent_skill_name(),
             if skill_ok { "✓" } else { "MISSING" }
         ),
-        "Reinstall the openclaw-aimail plugin (skill ships with the plugin)",
+        "Reinstall the agent-aimail plugin (skill ships with the plugin)",
     );
 
     let mut ts_ok = false;
@@ -631,8 +631,8 @@ pub fn openclaw_check_config(c: &mut Check, ctx: &Ctx, agent: &Agent) {
                         .starts_with(&format!("{}-aimail", "openclaw"))
                 });
             ts_ok = installed
-                && (entries.contains_key("openclaw-aimail")
-                    || allow.iter().any(|a| a == "openclaw-aimail")
+                && (entries.contains_key("agent-aimail")
+                    || allow.iter().any(|a| a == "agent-aimail")
                     || entries.is_empty());
         }
     }
@@ -641,11 +641,11 @@ pub fn openclaw_check_config(c: &mut Check, ctx: &Ctx, agent: &Agent) {
         "toolset",
         ts_ok,
         &format!(
-            "{}: openclaw-aimail plugin {}",
+            "{}: agent-aimail plugin {}",
             agent.name,
             if ts_ok { "✓" } else { "MISSING" }
         ),
-        "openclaw plugins install npm-pack:<openclaw-aimail.tgz>; restart gateway",
+        "openclaw plugins install npm-pack:<agent-aimail.tgz>; restart gateway",
     );
 
     let reg_ok = !api_key.is_empty();
@@ -662,7 +662,7 @@ pub fn openclaw_check_config(c: &mut Check, ctx: &Ctx, agent: &Agent) {
                 "api_key MISSING"
             }
         ),
-        "Run `openclaw aimail register`(openclaw-aimail 插件)",
+        "Run `openclaw aimail register`(agent-aimail 插件)",
     );
 }
 
@@ -705,7 +705,7 @@ pub fn openclaw_check_hook(c: &mut Check, _ctx: &Ctx, agent: &Agent) {
                     "hook",
                     false,
                     &format!("POST {path} → 404 (route not registered)"),
-                    "Reinstall: openclaw plugins install npm-pack:<openclaw-aimail.tgz>; restart gateway",
+                    "Reinstall: openclaw plugins install npm-pack:<agent-aimail.tgz>; restart gateway",
                 );
             } else if status == 400 || status == 401 || status == 405 {
                 c.add(
@@ -730,7 +730,7 @@ pub fn openclaw_check_hook(c: &mut Check, _ctx: &Ctx, agent: &Agent) {
             "hook",
             false,
             &format!("Cannot reach {url}: {e}"),
-            &format!("Is the OpenClaw gateway running on :{port} with the openclaw-aimail plugin installed?"),
+            &format!("Is the OpenClaw gateway running on :{port} with the agent-aimail plugin installed?"),
         ),
     }
 }
@@ -841,7 +841,7 @@ pub fn dsh_check_config(c: &mut Check, _ctx: &Ctx, agent: &Agent) {
                 ", secret ✓"
             }
         ),
-        "注册链落盘 webhook_url + webhook_secret(aimail address/dsh-aimail register-cli)",
+        "注册链落盘 webhook_url + webhook_secret(aimail address/agent-aimail register-cli)",
     );
 
     // session_id 是瞬态的（0.1.14 起每封入站一个一次性 session）⇒ 判据只认 preset

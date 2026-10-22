@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 按包 bump 版本（owner 2026-10-07：各包版本独立；核心包变动 ⇒ 五包齐升，由调用者逐包调用）
-# 用法: bump.sh <mail-core|mail|dsh-aimail|openclaw-aimail|pi-aimail> <ver>
+# 用法: bump.sh <agent-aimail> <ver>
 #       bump.sh pysdk <ver>     ← 只改 pyproject.toml + pysdk/__init__.py
 set -u
 cd "$(dirname "$0")/.." || exit 1

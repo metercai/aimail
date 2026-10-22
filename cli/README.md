@@ -39,9 +39,9 @@ Per-platform install action, registrar and restart requirement:
 |----------|---------------|---------|----------------|---------|
 | Hermes | `~/.hermes` | Python (pysdk) | Install `aimailsdk` (import name `aimail`) into the platform's own interpreter, which the CLI probes inside the platform root (uv → pip → ensurepip); the SDK install expands SKILL/toolsets/board resources and injects `PREPROCESS_REGISTRY` into webhook.py; the SDK install entry itself registers every profile of this root | restart the hermes gateway |
 | DeerFlow | `~/.deer-flow` | Python (pysdk) | SDK install → `install-skill.sh` + `install-mcp.sh` → register (`manage.py register --all`) | restart 8001 (upstream repo installed by patch) |
-| OpenClaw | `~/.openclaw` | TS (tssdk) | `openclaw plugins install openclaw-aimail --force --accept-capabilities` → register (`openclaw aimail register`; `register-all` for all) | restart the openclaw gateway |
-| DSH | `~/.dsh` | TS (tssdk) | `dsh plugin --profile web add dsh-aimail` (needs the `dsh` CLI first; add `--config.minimumReleaseAge=0` only where npm enforces a minimum release age, e.g. restricted images) | binding is auto-bound when a dsh session (mail preset) starts |
-| Pi | `~/.pi` | TS (tssdk) | `pi install npm:pi-aimail` | restart pi |
+| OpenClaw | `~/.openclaw` | TS (tssdk) | `openclaw plugins install agent-aimail --force --accept-capabilities` → register (`openclaw aimail register`; `register-all` for all) | restart the openclaw gateway |
+| DSH | `~/.dsh` | TS (tssdk) | `dsh plugin --profile web add agent-aimail` (needs the `dsh` CLI first; add `--config.minimumReleaseAge=0` only where npm enforces a minimum release age, e.g. restricted images) | binding is auto-bound when a dsh session (mail preset) starts |
+| Pi | `~/.pi` | TS (tssdk) | `pi install npm:agent-aimail` | restart pi |
 
 Common commands:
 

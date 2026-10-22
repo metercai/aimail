@@ -9,8 +9,8 @@
   },
   "scripts": {
     "test": "vitest run",
-    "build": "pnpm exec tsc -b packages/mail-core && pnpm exec tsc -b packages/mail && pnpm exec tsc -b packages/dsh-aimail && pnpm exec tsc -p packages/openclaw-aimail/tsconfig.json && pnpm exec tsc -p packages/pi-aimail/tsconfig.json",
-    "publish": "bash ../scripts/publish-npm.sh packages/mail-core packages/mail packages/dsh-aimail packages/openclaw-aimail packages/pi-aimail"
+    "build": "pnpm exec tsc -b packages/agent-aimail",
+    "publish": "bash ../scripts/publish-npm.sh packages/agent-aimail"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",

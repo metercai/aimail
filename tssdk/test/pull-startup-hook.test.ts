@@ -27,12 +27,12 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { INBOUND_PATH } from '../packages/mail-core/src/contract'
+import { INBOUND_PATH } from '../packages/agent-aimail/src/core/contract'
 
 const REPO = path.resolve(__dirname, '..')
 
 /** mail-core's own poll loop, which every retained handle comes from. */
-const CORE_POLL = 'packages/mail-core/src/address-code.ts'
+const CORE_POLL = 'packages/agent-aimail/src/core/address-code.ts'
 /** The stop line both retaining hosts use for the handles they keep. */
 const STOP_LINE = 'for (const h of pullHandles) h.stop()'
 
@@ -56,31 +56,31 @@ interface HostPull {
 const HOSTS: HostPull[] = [
   {
     name: 'dsh',
-    file: 'packages/dsh-aimail/src/inbound.ts',
+    file: 'packages/agent-aimail/src/dsh/inbound.ts',
     live: 'server.listen(port, host',
     liveLabel: 'the inbound listener',
     pull: 'void startInboundPull(ctx, ',
     dispose: 'return () => {',
-    impl: 'packages/dsh-aimail/src/inbound.ts',
+    impl: 'packages/agent-aimail/src/dsh/inbound.ts',
   },
   {
     name: 'openclaw',
-    file: 'packages/openclaw-aimail/src/index.ts',
+    file: 'packages/agent-aimail/src/openclaw/index.ts',
     live: 'api.registerHttpRoute({',
     liveLabel: 'the in-gateway HTTP route',
     pull: 'void startInboundPull(api, ',
     // OpenClaw's plugin API has no dispose hook ⇒ nothing to register a stop on.
     dispose: '',
-    impl: 'packages/openclaw-aimail/src/inbound.ts',
+    impl: 'packages/agent-aimail/src/openclaw/inbound.ts',
   },
   {
     name: 'pi',
-    file: 'packages/pi-aimail/src/index.ts',
+    file: 'packages/agent-aimail/src/pi/index.ts',
     live: "server.listen(port, '127.0.0.1'",
     liveLabel: 'the inbound listener',
     pull: 'void startInboundPull(pi, ',
     dispose: "pi.on('session_shutdown', () => {",
-    impl: 'packages/pi-aimail/src/index.ts',
+    impl: 'packages/agent-aimail/src/pi/index.ts',
   },
 ]
 

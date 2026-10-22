@@ -270,7 +270,7 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run == 'true' && '1' || '0' }}
         run: |
           bash "$GITHUB_WORKSPACE/scripts/publish-npm.sh" \
-            packages/mail-core packages/mail packages/dsh-aimail packages/openclaw-aimail packages/pi-aimail
+            packages/agent-aimail
 
   # PyPI(pysdk)—— 内联, 不用 reusable workflow: PyPI 的 Trusted Publisher 不接受 reusable
   # workflow 作为绑定对象(warehouse#11096), 且证书里的 Build Config URI 记的是顶层调用方

@@ -9,7 +9,7 @@
 #   (X.Y.Z stable / X.Y.Z-rc.N). Release type must MATCH across all three:
 #   dev iterations are rc on every source, go-live is stable everywhere.
 #   A stable (non-rc) TS version is what makes bare-name host installs
-#   (openclaw plugins install openclaw-aimail) work — host installers
+#   (openclaw plugins install agent-aimail) work — host installers
 #   reject prerelease versions from bare-name resolution.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -56,7 +56,7 @@ if tag:
     if t_rc != py_rc:
         fail.append(f'release-type mismatch: tag rc={t_rc} vs PyPI rc={py_rc} (dev=rc, go-live=stable)')
 
-for p in ['mail-core', 'mail', 'dsh-aimail', 'openclaw-aimail', 'pi-aimail']:
+for p in ['agent-aimail']:
     d = json.load(open(f'tssdk/packages/{p}/package.json'))
     v = d['version']
     b, rc = base_and_rc(v)
@@ -73,7 +73,7 @@ if not _root.get('private'):
     fail.append('tssdk/package.json must stay private (workspace root is not published)')
 print(f"[L1] workspace root {_root.get('name')} {_root.get('version')} (private={bool(_root.get('private'))})")
 
-_grp = {'mail-core'}
+_grp = {'agent-aimail'}
 _ch = True
 while _ch:
     _ch = False
@@ -93,7 +93,7 @@ PYEOF
 
 echo "[L1] npm dependency-order gate (registry lookups may be slow)"
 # ── 同批待发(pending) 语义 ────────────────────────────────────────────────
-# RELEASE_BATCH="mail-core,mail,dsh-aimail,openclaw-aimail,pi-aimail"
+# RELEASE_BATCH="agent-aimail"
 #   逗号分隔，按**发布顺序**排列。放行一条"依赖还没上架"必须三条同时成立：
 #     1) 依赖在本批清单里；
 #     2) 依赖在清单里的位置**早于**依赖方（publish-npm.sh 按同一顺序串行发布）；

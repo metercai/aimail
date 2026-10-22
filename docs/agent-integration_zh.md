@@ -46,7 +46,7 @@ AIMail 与任意 agent 系统(LLM 运行时)对接,agent 获得完整邮件能�
 |----|------|------|
 | 共享核心 | `pysdk/aimail_base.py`、`aimail_tools.py`、`aimail_board.py`、`aimail_mcp_server.py` | 入站预处理链、ping/pong、地址派生、注册/注销链、邮件工具实现、board 工具 |
 | 平台适配 | `pysdk/{platform}/`(hermes/openclaw/deer-flow)+ 平台侧 TS 插件(dsh/pi/openclaw,见 §4.4/§4.5/§4.2) | 配置源、persona 开关、身份注入、工具注册、接收端点 |
-| 运行时 | TS 插件命令(`openclaw aimail register\|deregister\|status`) | agent 生命周期(注册/注销,openclaw-aimail) |
+| 运行时 | TS 插件命令(`openclaw aimail register\|deregister\|status`) | agent 生命周期(注册/注销,agent-aimail) |
 | CLI 层 | `cli/aimail`(15 子命令;bootstrap 装为全局命令 `aimail`,仓库根 `./aimail` 为同一文件的符号链接)+ 运维脚本 `cli/{check_status,send_welcome,repair,setup_system,deploy_bridge,ping_test}.py`;API 客户端 `pysdk/gateway_api.py` | 安装/检查/测试/卸载/运维 |
 | 安装源 | 仓根 `resources/skills/SKILL.md` + `DESCRIPTION.md`(包内副本为生成物) | 通用邮件技能(逐字拷贝,零改写) |
 
@@ -150,10 +150,10 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 | 平台 | 端点 | 预处理位置 |
 |------|------|------------|
 | Hermes | `http://127.0.0.1:{port}/webhooks/aimail-inbound` | 进程内(preprocessor) |
-| OpenClaw | `http://127.0.0.1:18789/aimail/inbound` | OpenClaw gateway 插件端点(openclaw-aimail inbound.ts 注册,`gateway.port` 默认 18789)→ 验签 → TS `processInboundMail` → agent turn |
+| OpenClaw | `http://127.0.0.1:18789/aimail/inbound` | OpenClaw gateway 插件端点(agent-aimail openclaw 入口 inbound.ts 注册,`gateway.port` 默认 18789)→ 验签 → TS `processInboundMail` → agent turn |
 | DeerFlow | `http://127.0.0.1:8001/aimail/inbound` | 进程内(8001 router)→ start_run |
-| dsh | `http://127.0.0.1:9099/aimail/inbound` | dsh-aimail 插件 profile 级 listener(端口 `AIMAIL_INBOUND_PORT`,默认 9099)→ TS `processInboundMail` |
-| pi | `http://127.0.0.1:9101/aimail/inbound` | pi-aimail 扩展本地 listener(默认 9101)→ TS `processInboundMail` |
+| dsh | `http://127.0.0.1:9099/aimail/inbound` | agent-aimail(dsh 入口)插件级 listener(端口 `AIMAIL_INBOUND_PORT`,默认 9099)→ TS `processInboundMail` |
+| pi | `http://127.0.0.1:9101/aimail/inbound` | agent-aimail(pi 入口)扩展本地 listener(默认 9101)→ TS `processInboundMail` |
 
 ### 3.3 agentmail.json 字段(地址级,唯一信任源)
 
@@ -182,8 +182,7 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 
 ## 4. 实例示范(五平台生产运行)
 
-> TS 适配索引:三个 TS 平台适配器(`dsh-aimail` / `openclaw-aimail` /
-> `pi-aimail`)的实现;`tssdk/README.md` 是 SDK 总览;新增平台(任意语言)
+> TS 适配索引:三个 TS 平台适配器(`agent-aimail` 包,宿主入口 `dsh` / `openclaw` / `pi`)的实现;`tssdk/README.md` 是 SDK 总览;新增平台(任意语言)
 > 的适配指南见本文档 §6。
 
 ### 4.1 Hermes
@@ -201,11 +200,11 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 
 | 组件 | 位置 |
 |------|------|
-| 适配层 | tssdk `openclaw-aimail` 插件(identity = `~/.openclaw/.agentmail` 指针 + agentmail.json 单一事实源;出站 X-AIMail-Agent = `openclaw/{ver}`) |
+| 适配层 | tssdk `agent-aimail`(openclaw 入口)插件(identity = `~/.openclaw/.agentmail` 指针 + agentmail.json 单一事实源;出站 X-AIMail-Agent = `openclaw/{ver}`) |
 | 工具 | 15 邮件/board/身份裸名工具,插件进程内注册(MAIL_TOOLS 单一语义源;非 MCP) |
 | 入站接收端 | **网关插件 HTTP 路由** `POST http://127.0.0.1:18789/aimail/inbound`(`openclaw.json gateway.port` 默认 18789;auth=plugin,桥/直推目标不变):HMAC 验签 → TS `processInboundMail` → 经网关内部 `POST /hooks/agent` 钩子触发 agent turn(多 agent 经 sessionKey 路由) |
 | 生命周期 | 插件 register/register-all/deregister/status 命令(`openclaw aimail register\|register-all\|deregister\|status`);Python 注册链已退役 |
-| 部署 | `openclaw plugins install openclaw-aimail`(或经 tssdk 包);Python 侧仅注册/检查(cli/check_status L4 探测插件端点) |
+| 部署 | `openclaw plugins install agent-aimail`(或经 tssdk 包);Python 侧仅注册/检查(cli/check_status L4 探测插件端点) |
 | 关键坑 | 入站处理前 `setAgentIdentity`(身份注入 TS 版);日志/事件契约与 Python 逐字对齐;8799 外置桥已退役 |
 
 ### 4.3 DeerFlow
@@ -223,11 +222,11 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 
 | 组件 | 位置 |
 |------|------|
-| 适配层 | tssdk `dsh-aimail` 插件(3 子包:mail-service / tools / inbound;identity = `~/.dsh/.agentmail` 指针;preset = 定义 / uuid = 实例) |
+| 适配层 | tssdk `agent-aimail`(dsh 入口)插件(3 子模块:mail-service / tools / inbound;identity = `~/.dsh/.agentmail` 指针;preset = 定义 / uuid = 实例) |
 | 工具 | 15 邮件/board/身份裸名工具(preset 层注册,joined session 可见;出站 X-AIMail-Agent = `dsh/{ver}`) |
 | 入站 | host 层 `mail-inbound`:node:http listener(`POST /aimail/inbound`,默认端口 `AIMAIL_INBOUND_PORT`/9099)→ HMAC 验签 → TS `processInboundMail` → `followup` 唤醒对应 session |
-| 生命周期 | dsh-aimail `lib/register-cli.js`(CLI spawn,平台注册表 node_entry)+ 宿主 auto-bind;共享 mail-core 链(不打桥调用——路由维护归 CLI) |
-| 部署 | `dsh plugin --profile web add dsh-aimail`(bundle 经 cordis.patch.yml 自挂载) |
+| 生命周期 | agent-aimail `dist/dsh/register-cli.js`(CLI spawn,平台注册表 node_entry)+ 宿主 auto-bind;共享 core 链(不打桥调用——路由维护归 CLI) |
+| 部署 | `dsh plugin --profile web add agent-aimail`(bundle 经 cordis.patch.yml 自挂载) |
 | 关键坑 | persona 关闭(`PERSONA_SUPPORTED=False`,dsh-persona 同名不同义);多 session 隔离由网关 `sender==key.email` 兜底;契约逐字对齐 Python |
 
 
@@ -235,7 +234,7 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 
 | 组件 | 位置 |
 |------|------|
-| 适配层 | tssdk `pi-aimail` 扩展(identity = `~/.pi/.agentmail` 指针 + agentmail.json) |
+| 适配层 | tssdk `agent-aimail`(pi 入口)扩展(identity = `~/.pi/.agentmail` 指针 + agentmail.json) |
 | 工具 | 15 邮件/board/身份裸名工具(`pi.registerTool`,TypeBox 参数;出站 X-AIMail-Agent = `pi/{ver}`) |
 | 入站 | 扩展自有本地 listener `http://127.0.0.1:9101/aimail/inbound`(默认端口 9101;bridge push 目标)→ HMAC 验签 → TS `processInboundMail` → `pi.sendUserMessage`(必触发 turn) |
 | 生命周期 | `~/.pi/.agentmail` 指针 + 共享注册链(与 openclaw 同构);安装补充注册见 cli/check_status pi adapter |
@@ -248,7 +247,7 @@ deregister_agent_email(client, system_id, email, manager_address) -> {api_key, d
 |------|--------|----------|----------|
 | 入站模型 | 单入单出(每 profile 独立端口,进程内预处理) | 网关插件路由 `/aimail/inbound`(进程内,多 agent 经 sessionKey) | 进程内预处理(8001 router,start_run 投递) |
 | 工具暴露 | 进程内 registry | 插件进程内裸名(15 工具) | MCP stdio server(aimail__ 前缀) |
-| 部署 | copy-deploy(`aimail install` 驱动) | TS 插件(`openclaw plugins install openclaw-aimail`) | 适配层 repo-direct;预处理在 deer-flow 仓(补丁安装 + 重启) |
+| 部署 | copy-deploy(`aimail install` 驱动) | TS 插件(`openclaw plugins install agent-aimail`) | 适配层 repo-direct;预处理在 deer-flow 仓(补丁安装 + 重启) |
 | 生命周期 | 事件总线(profile_created/deleted) | 插件 register 命令 / CLI 注册链 | manage.py reconcile 对账 |
 | persona | 全能力(PERSONA_SUPPORTED=True) | 无(False) | 无(False) |
 
@@ -297,7 +296,7 @@ install 全非交互:激活 → 从 setup_system JSON stdout 取 server 分配�
 
 - 人工路径:`aimail install -H <root>` → L1 激活/复用 + L2 平台接线(可能
   spawn 宿主插件命令);
-- 宿主路径:`dsh plugin --profile web add dsh-aimail`(openclaw/pi 同构)→
+- 宿主路径:`dsh plugin --profile web add agent-aimail`(openclaw/pi 同构)→
   插件就绪检查反调 `aimail install --system-only -H <root>`。
 
 `install --system-only` 刻意**绝不**执行平台接线、也不部署 bridge——两个不同入口、

@@ -58,7 +58,7 @@ fn register_executor_offline_behaviour() {
     std::env::set_var("AIMAIL_HOME", &ahome);
 
     let home = tmp.path().join("home");
-    let node_entry = home.join("agent/npm/node_modules/pi-aimail/dist/register-cli.js");
+    let node_entry = home.join("agent/npm/node_modules/agent-aimail/dist/pi/register-cli.js");
     fs::create_dir_all(node_entry.parent().unwrap()).unwrap();
     fs::write(&node_entry, "// stub\n").unwrap();
     let cfg = json!({
@@ -134,7 +134,7 @@ fn register_executor_offline_behaviour() {
     // P3-C(2026-10-17):preset 改由 SDK 侧自报(dsh register-cli assembleExtra,
     // 10-11 三来源裁决「宿主自报/内部 → SDK 内部」)⇒ CLI 信封不再携带 preset
     // (旧断言「值来自 register.args --preset 声明」随 G1b 提取通道删除而失效)。
-    let dsh_entry = home.join("profiles/agent/node_modules/dsh-aimail/dist/register-cli.js");
+    let dsh_entry = home.join("profiles/agent/node_modules/agent-aimail/dist/dsh/register-cli.js");
     fs::create_dir_all(dsh_entry.parent().unwrap()).unwrap();
     fs::write(&dsh_entry, "// stub\n").unwrap();
     aimail::core::register::register_agent(

@@ -20,10 +20,8 @@ PLATFORM-BOUNDARY-PLAN.md
 # ── SDK 资源:单一真源 = 仓根 resources/(git 跟踪) ──
 # 以下为物化产物(scripts/materialize-resources.sh 生成), 禁止提交:
 /pysdk/resources/
-/tssdk/packages/dsh-aimail/resources/
-/tssdk/packages/openclaw-aimail/resources/
-/tssdk/packages/pi-aimail/resources/
-/tssdk/packages/mail-core/resources/
+/tssdk/packages/agent-aimail/resources/
 
 # ── rust 侧构建产物(cli 域)──
 /cli/target/
+/tssdk/packages/agent-aimail/agent-aimail-*.tgz

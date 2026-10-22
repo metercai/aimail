@@ -158,18 +158,16 @@ fn sdk_for(host_name: &str, runtime: &str) -> (String, String, bool) {
     for (needle, pkg) in [
         ("hermes", "aimailsdk"),
         ("deerflow", "aimailsdk"),
-        ("dsh", "dsh-aimail"),
-        ("openclaw", "openclaw-aimail"),
-        ("pi", "pi-aimail"),
+        ("dsh", "agent-aimail"),
+        ("openclaw", "agent-aimail"),
+        ("pi", "agent-aimail"),
     ] {
         if h.contains(needle) {
             return (pkg.to_string(), "adapter".to_string(), true);
         }
     }
     match runtime {
-        "node" | "ts" | "typescript" => {
-            ("@aimail/mail-core".to_string(), "generic".to_string(), true)
-        }
+        "node" | "ts" | "typescript" => ("agent-aimail".to_string(), "generic".to_string(), true),
         "python" | "py" => ("aimailsdk".to_string(), "generic".to_string(), true),
         _ => (String::new(), "none".to_string(), false),
     }
@@ -749,9 +747,9 @@ fn is_local_package_step(st: &Value, pkg: &str) -> bool {
 /// Adapter package each adapted host installs through its own package manager.
 fn adapter_package(host: &str) -> &'static str {
     match host {
-        "openclaw" => "openclaw-aimail",
-        "pi" => "pi-aimail",
-        "dsh" => "dsh-aimail",
+        "openclaw" => "agent-aimail",
+        "pi" => "agent-aimail",
+        "dsh" => "agent-aimail",
         _ => "aimailsdk", // hermes / deerflow
     }
 }

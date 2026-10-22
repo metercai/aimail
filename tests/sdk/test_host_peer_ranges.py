@@ -22,12 +22,15 @@ _REPO = Path(__file__).resolve().parent.parent.parent
 # 宿主 → (pins.env 的键, 该宿主**与本宿主同版本发布**的 peer 目标包集合)。
 # 实测依据(2026-10-11,aimail-host-dsh 镜像):dsh 0.2.0-rc.2 自带
 # dsh-agent/dsh-llm/dsh-tools 0.2.0-rc.2(同版本线)⇒ 可用宿主版本作目标版本。
-_HOSTS = {
-    "dsh-aimail": ("DSH_VERSION", {
+# 2026-10-22: 5 包合并为单包 agent-aimail — peer 集合收敛到单一 manifest。
+# 单包同时带三宿主的 peer, 同一包名不能做 dict key ⇒ 表改成 list。
+# 每个宿主 peer 仍按各自 pin 判同版本线; 未列出的 peer 必须登记 _EXCLUDED_PEERS。
+_HOSTS = [
+    ("agent-aimail", "DSH_VERSION", {
         "@deepseek-ai/dsh-agent", "@deepseek-ai/dsh-llm", "@deepseek-ai/dsh-tools"}),
-    "pi-aimail": ("PI_VERSION", {"@earendil-works/pi-coding-agent"}),
-    "openclaw-aimail": ("OPENCLAW_VERSION", {"openclaw"}),
-}
+    ("agent-aimail", "PI_VERSION", {"@earendil-works/pi-coding-agent"}),
+    ("agent-aimail", "OPENCLAW_VERSION", {"openclaw"}),
+]
 
 # 无法用"宿主版本"作目标版本的 peer:必须在此显式登记原因(新 peer 不许静默漏检)。
 _EXCLUDED_PEERS = {
@@ -99,7 +102,12 @@ def test_judge_itself_detects_the_s1_condition(semver_dir):
 def test_host_peers_accept_the_pinned_host_version(semver_dir):
     pins = _pins()
     bad, unchecked = [], []
-    for pkg, (pin_key, same_line) in _HOSTS.items():
+    # 单包同时带多宿主 peer: 属于任一宿主行的 peer 在该行迭代里接受, 其余行跳过
+    # (旧 5 包时代每包只带自己宿主的 peer, 无需此并集)。
+    union = set()
+    for _, _, peers in _HOSTS:
+        union |= set(peers)
+    for pkg, pin_key, same_line in _HOSTS:
         pj = json.loads((_REPO / "tssdk" / "packages" / pkg / "package.json").read_text(encoding="utf-8"))
         host_ver = pins.get(pin_key, "")
         assert host_ver, f"pins.env 缺 {pin_key}"
@@ -107,6 +115,8 @@ def test_host_peers_accept_the_pinned_host_version(semver_dir):
             if peer in same_line:
                 if not _satisfies(host_ver, rng, semver_dir):
                     bad.append(f"{pkg}: {peer} {rng} 不接受 {pin_key}={host_ver}")
+            elif peer in union:
+                continue  # 其他宿主行的 peer, 在它的行迭代里接受
             elif peer not in _EXCLUDED_PEERS:
                 unchecked.append(f"{pkg}: {peer} {rng}")
     assert not unchecked, ("新增了未分类的宿主 peer —— 要么纳入同版本线判定,"

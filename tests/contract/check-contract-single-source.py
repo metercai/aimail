@@ -53,7 +53,7 @@ REQUIRED_KEYS = (
 )
 
 # ── 白名单(字面量允许出现的文件;路径相对仓根)──────────────────────────────
-TS_CONTRACT = "tssdk/packages/mail-core/src/contract.ts"
+TS_CONTRACT = "tssdk/packages/agent-aimail/src/core/contract.ts"
 PY_CONTRACT = "pysdk/aimail_contract.py"
 MANIFEST_REL = "contract/aimail-contract.json"
 BASELINE_REL = "tests/contract/contract-literal-baseline.json"
@@ -84,11 +84,9 @@ ALLOW_MARKER = "contract-allowed:"    # 行内逃生门(必须带理由)
 # ── 规则 (c): SKILL.md frontmatter(1 真源 + 各包 prepack 暂存的那份)────────
 SKILL_SOURCE = "resources/skills/SKILL.md"
 SKILL_MATERIALIZED = (
-    # 通用 TS 核心也随包发 skill(非适配宿主没有别的来源;2026-10-19)
-    "tssdk/packages/mail-core/resources/skills/SKILL.md",
-    "tssdk/packages/openclaw-aimail/resources/skills/SKILL.md",
-    "tssdk/packages/dsh-aimail/resources/skills/SKILL.md",
-    "tssdk/packages/pi-aimail/resources/skills/SKILL.md",
+    # 2026-10-22 单包合并: 原 4 包各自暂存一份(通用 core + 3 适配宿主)
+    # 收敛为 agent-aimail 单包内的一份。
+    "tssdk/packages/agent-aimail/resources/skills/SKILL.md",
 )
 
 # 清单键 → (TS 常量名, Python 常量名)
@@ -417,7 +415,7 @@ def check_skill_frontmatter(man: dict) -> None:
                     # 包内生成物缺失 = 该包尚未暂存自己的那份(跑它自己的 prepack)
                     raise CannotJudge(
                         f"{rel}: 包内生成物不存在, frontmatter 无法判定(先跑该包 prepack: "
-                        f"node tssdk/packages/mail-core/scripts/stage-resources.mjs --dest <pkg>;门禁已在暂存后调用本检查)")
+                        f"node tssdk/packages/agent-aimail/scripts/stage-resources.mjs --dest <pkg>;门禁已在暂存后调用本检查)")
                 raise CannotJudge(f"{rel}: 不存在")
             name, nline, tool, tline = _frontmatter_fields(path, rel)
             bad = []

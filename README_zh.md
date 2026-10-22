@@ -96,9 +96,9 @@ aimail install
 **或 Agent的插件安装**
 
 ```bash
-dsh plugin --profile web add dsh-aimail
-#pi install npm:pi-aimail
-#openclaw plugins install openclaw-aimail --force --accept-capabilities  
+dsh plugin --profile web add agent-aimail
+#pi install npm:agent-aimail
+#openclaw plugins install agent-aimail --force --accept-capabilities  
 ```
 
 - 安装成功后，可进行闭环验证或问题检测
