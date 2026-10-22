@@ -86,9 +86,11 @@ jobs:
         # `sdk-parity` feature 关掉, 在这里显式装**本仓构建的 wheel**(改名后 PyPI 新名
         # 未发布前,装官方发布版会 404)到 venv 并用 AIMAIL_PYTHON 钉住解释器
         # (sdkroot::probe_in_domain 的链首 = 显式覆盖优先)。
+        # NB: 本 job 的默认 working-directory = cli(Cargo 在此),而 pyproject.toml 在**仓根**
+        # ⇒ build 必须显式指向 $GITHUB_WORKSPACE;cargo test 沿用 job 默认(cli/)。
         run: |
           python3 -m pip install --quiet build
-          python3 -m build --wheel --outdir /tmp/sdk-wheel .
+          python3 -m build --wheel --outdir /tmp/sdk-wheel "$GITHUB_WORKSPACE"
           python3 -m venv /tmp/sdk-venv
           /tmp/sdk-venv/bin/pip install --quiet --disable-pip-version-check /tmp/sdk-wheel/agent_aimail-*.whl
           AIMAIL_PYTHON=/tmp/sdk-venv/bin/python cargo test --features sdk-parity --test repair_backfill_parity
