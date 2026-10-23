@@ -1,5 +1,19 @@
 # 复验交接：agent-aimail npm 包在干净项目无法安装（L2/ts 红）
 
+## 0. 复验结论（2026-10-23，已关闭）
+
+三条清关条件全部满足，本节以下的红点已消除：
+
+```
+条件1 干净项目不带 flag 安装        npm install agent-aimail@0.2.2 → rc=0（"added 2 packages"）
+条件2 工具面可用                    api missing: none；agentTools 15；含 activate_address_code
+条件3 L2/ts 转绿且不回退            A1: L1/py 29/29 · L1/ts 13/13 · L2/py 14/14 · L2/ts 14/14 → PASS
+配套   CLI 配对缺口已闭            发布资产 cli-v0.1.57（sha256 05663735…）安装步骤指向 agent-aimail
+上线后回归（用发布资产跑）           hermes 18/0 · dsh 19/0 → SCENARIO-1 LOCAL REGRESSION: PASS
+```
+
+复验用命令与证据见第 7 节；以下正文保留为缺陷存档。
+
 > 出具方：验证方　接收方：实现方（worker）　日期：2026-10-23
 > 判定：**HOLD（仅 L2/ts 与 TS 宿主安装面）**。单包化本身通过，PyPI 侧与 dsh 宿主侧均绿。
 
