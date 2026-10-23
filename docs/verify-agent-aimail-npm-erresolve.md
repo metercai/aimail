@@ -52,8 +52,64 @@ npm error   peerOptional @deepseek-ai/dsh-llm@"^0.0.1-rc.1 || ^0.2.0-rc.2 || ^0.
 
 已发布的 CLI `0.1.56` 的安装步骤仍指向旧包名（实测发布资产输出 3 处 `aimailsdk`，仓库 HEAD 构建输出 3 处 `agent-aimail`）。因此新双包目前到不了真实用户安装路径；功能本身在 HEAD CLI 下已验通。**需要发一版装 `agent-aimail` 的 CLI**，发版后我用发布资产把场景 1 本地回归（hermes + dsh）再跑一遍，才算"上线后回归"成立。
 
-## 7. 复现与证据
+---
 
-- 证据目录：`/tmp/verify-r3/a1-final/`（`l2-ts-install.log`、`l2-ts.log`）
-- 用户形态复现脚本：`/tmp/verify-r3/npm-user-check.sh`
-- 场景 1 本地回归证据：`/tmp/verify-r3/s1-newcli.log`（hermes 18/0、dsh 19/0）
+# 实现方复查与修复（2026-10-23）
+
+## 7. 复查结论：阻塞事实复现成立
+
+环境 npm 11.12.1 / node 24.15.0。干净项目 `npm install --no-audit --no-fund agent-aimail@0.2.1` ⇒ **rc=1，ERESOLVE**，报错文本与上文逐字一致。判定为**产品缺陷**，不接受 `--legacy-peer-deps` 作为交付形态。
+
+## 8. 根因更正（比"三家宿主互斥"更窄）
+
+不是三家宿主互相冲突：openclaw / pi 两条 peer 是单包单线，实测各自在位时都能装（见 §10）。真正的断点是 **dsh 家族内部的 range 漂移**：
+
+| 包 | 包内声明 | 上游实际需要 |
+|---|---|---|
+| `dsh-agent` | `^0.1.0-rc.6 \|\| ^0.2.0-rc.2 \|\| ^0.2.1-rc.1` | `latest` = **0.1.0-rc.6**，其 peer 要求 `dsh-llm ^0.1.0-rc.6`、`dsh-session ^0.1.0-rc.6` |
+| `dsh-session` | （传递 peer） | `0.1.0-rc.8` 的 peer 要求 `dsh-llm ^0.1.0-rc.8` |
+| `dsh-llm` | `^0.0.1-rc.1 \|\| ^0.2.0-rc.2 \|\| ^0.2.1-rc.1` | **缺 0.1.0 线** ⇒ 与 `^0.1.0-rc.8` 无交集 |
+| `dsh-tools` | `^0.0.1-rc.1 \|\| ^0.2.0-rc.2 \|\| ^0.2.1-rc.1` | 同样**缺 0.1.0 线** |
+
+即：`dsh-agent` 声明含 0.1.0 线，`dsh-llm` / `dsh-tools` 却只有 0.0.1 / 0.2.x —— 三条声明不对称，npm 按 `latest` 解析出的组合必然落进空档。
+
+同类问题在 `docs/l3-product-defects.md` S-1 已发生过一次（peerDeps 钉旧系列，dsh 升级后拒装）。这说明**单点改 range 不够，必须加"发版前真装一次"的门**（§9）。
+
+## 9. 修复（版本 0.2.2）
+
+1. **peer 范围对称化**（`tssdk/packages/agent-aimail/package.json`）：
+   - `dsh-llm` / `dsh-tools`：`^0.0.1-rc.1 || ^0.2.0-rc.2 || ^0.2.1-rc.1`
+     → `^0.1.0-rc.6 || ^0.2.0-rc.2 || ^0.2.1-rc.1`
+   - 去掉 `^0.0.1-rc.1`：0.0.1 线与 `dsh-agent` 支持的 0.1.0+ 互斥，属**错误声明**，保留只会诱导 npm 解析出不兼容组合。
+2. **防复发门禁**（`tests/sdk/release/l2-check-tarball.sh` 新增第 9 步）：
+   发布前拿**真实 tarball** 在干净项目里真装两次，都必须 rc=0，且**禁止 `--legacy-peer-deps`**：
+   - G1 裸项目（无宿主）——npm 仍要完成 peer 解析校验；
+   - G2 预装 `dsh-agent@latest`——传递 peer 树全部物化，正是互斥触发路径。
+   该门已在 `scripts/publish-npm.sh` 的发布前链路（L134），坏包发不出去。
+
+## 10. 验证矩阵（0.2.2 tarball 实测）
+
+| 场景 | 结果 |
+|---|---|
+| 干净裸项目 | **rc=0** |
+| 预装 `dsh-agent@latest`（0.1.0 线） | **rc=0** |
+| 预装 dsh 0.2.1-rc.2 线（agent+llm） | **rc=0** |
+| 预装 `openclaw` | **rc=0** |
+| 预装 `@earendil-works/pi-coding-agent` | **rc=0** |
+| 负向：0.2.1 tarball（旧声明） | **rc=1 + ERESOLVE**（门禁能抓） |
+| `dsh plugin add agent-aimail` 路径 | 未变（只放宽 range，不动 plugin 装配） |
+
+导出面（清点装好的包）：`dist/hosts/index.js` 共 132 个导出，`agentTools` / `activateAddressCodePersist` 均为 function ⇒ 清关条件 2 满足。
+回归：tssdk `vitest` **296 passed / 1 skipped**（peer 改动不影响运行时代码）。
+
+## 11. 第 6 条（CLI 旧包名）已在 2026-10-23 的发布 run 中解除，但产生一个新问题
+
+同日 `publish.yml` 的 `cli-release` job 重传了 `cli-v0.1.56` 的二进制资产（softprops action 更新模式），所以：
+
+- 实测发布资产：`aimailsdk` **0 次** / `agent-aimail` **41 次** ⇒ 安装步骤已指向新包名，QA 第 6 条的前提消失；
+- **但**：`0.1.56` 这个版本号的产物内容被替换了（版本号未变、二进制已变），破坏"版本 ⇄ 产物"一一对应。
+- 建议：发一版 **CLI 0.1.57** 作为干净落点（内容 = 现在 0.1.56 资产），把不可变性还回去。此条属发布决策，等 owner 拍板。
+
+## 12. 待验证方复跑
+
+新版本 `agent-aimail@0.2.2` 发布后，请按 §4 三条重跑 L2/ts（以及 L2/py、L1/py、L1/ts 不回退）。实现方本地已完成 §10 全部场景，L2/ts 的最终判定权在验证方。

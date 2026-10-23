@@ -126,4 +126,35 @@ else
   exit 1
 fi
 
+# 9) 干净项目可安装性 —— peer 解析可行性(publish 前最后一道)
+#    2026-10-23 实测缺陷: agent-aimail@0.2.1 在**干净 npm 项目**里 `npm install` 直接
+#    ERESOLVE(rc=1)。根因不是"宿主没装",而是 npm 解析 optional peer 时仍会把
+#    传递 peer 树算进去: dsh-session@0.1.0-rc.8 的 peer 要求 dsh-llm ^0.1.0-rc.8,
+#    而包内 dsh-llm 声明漏了 0.1.0 线(只有 ^0.0.1-rc.1/^0.2.0/^0.2.1) ⇒ 无解。
+#    `--legacy-peer-deps` 能装上但属于绕过解析,**不算通过**。
+#    两个场景都必须 rc=0:
+#      G1 裸项目(无任何宿主): npm 仍需完成 peer 解析校验
+#      G2 先装 dsh-agent@latest: 传递 peer 树全部物化 —— 这是触发互斥的真实路径
+INSTALL_TMP=$(mktemp -d)
+trap 'rm -rf "$INSTALL_TMP"' EXIT
+clean_install() {  # $1 = 场景名; 其余 = 预装命令(可空)
+  local name="$1"
+  shift
+  local d="$INSTALL_TMP/$name"
+  local log="$INSTALL_TMP/$name.log"
+  mkdir -p "$d" && ( cd "$d" && npm init -y >/dev/null 2>&1 )
+  if [ "$#" -gt 0 ]; then
+    ( cd "$d" && "$@" ) >"$INSTALL_TMP/$name-pre.log" 2>&1 || {
+      echo "[L2] FAIL: $name 预装失败(registry 不可达? 见 $INSTALL_TMP/$name-pre.log)"; tail -5 "$INSTALL_TMP/$name-pre.log"; exit 1; }
+  fi
+  ( cd "$d" && npm install --no-audit --no-fund "$TGZ" ) >"$log" 2>&1 && return 0
+  echo "[L2] FAIL: $name — 干净项目 npm install 失败(禁 --legacy-peer-deps 绕过)"
+  grep -E "ERESOLVE|npm error" "$log" | head -8
+  exit 1
+}
+clean_install bare
+echo "[L2] ok: clean install (bare project)"
+clean_install with-dsh npm install --no-audit --no-fund @deepseek-ai/dsh-agent@latest
+echo "[L2] ok: clean install with dsh-agent@latest present"
+
 echo "[L2] PASS: $TGZ ($VER)"
