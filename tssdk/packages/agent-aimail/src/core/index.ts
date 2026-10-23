@@ -170,9 +170,12 @@ export {
   promptRuleNameOk,
   readPromptRules,
   promptRuleMatches,
+  setSoulProvider,
+  setSkillsProvider,
 } from './preprocess.js'
 export { opAssemble, opUpdate, opTeardown, opPromptTest, UsageError } from './sdk-ops.js'
 export { ensureSkillToolExposure } from './skill-exposure.js'
+export { listSkillNames, combineSkillNames } from './skill-roots.js'
 export { logAimailDispatch } from './log.js'
 
 /** Hot-add seam: fired after a binding is persisted (activation). */

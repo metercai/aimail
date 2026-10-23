@@ -11,7 +11,11 @@ import {
   formatInboundNotifyLine,
   isInboundNotifyWarning,
   releaseAllSystems,
-  setAgentIdentity, packageResourcesRoot} from '../core/index.js'
+  setAgentIdentity,
+  setSoulProvider,
+  setSkillsProvider,
+  combineSkillNames,
+  packageResourcesRoot} from '../core/index.js'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -20,6 +24,7 @@ import { createMailTools } from './tools.js'
 import { createInboundHandler, startInboundPull, INBOUND_PATH } from './inbound.js'
 import { createAimailCommands } from './commands.js'
 import { agentIdentity, resolveAgentId, tryAutoBindOnce, DEFAULT_AGENT_ID } from './identity.js'
+import { resolveOpenclawSkillRoots } from './skills.js'
 import { activateHost } from '../hosts/activate.js'
 
 // SDK-shipped board resources (role prompts/souls) live at the package root.
@@ -37,6 +42,56 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
 
     // Outbound X-AIMail-Agent header (real detected host version, no guess)
     setAgentIdentity(agentIdentity())
+
+    // Per-agent SOUL.md: resolve from the OWNING agent's workspace, mirroring
+    // openclaw's own resolveAgentWorkspaceDir(cfg, agentId) contract:
+    //   1. explicit per-agent agents.{id}.workspace
+    //   2. legacy data-owner (main) inherits agents.defaults.workspace
+    //   3. any other agent: {defaults.workspace}/{agentId}
+    // SOUL.md is a bootstrap file OF the agent workspace (openclaw
+    // skipOptionalBootstrapFiles: SOUL.md/USER.md/IDENTITY.md), so the
+    // per-agent SOUL lives at <resolved workspace>/SOUL.md. Missing ⇒ ''
+    // (a fresh agent workspace has no SOUL.md until its bootstrap runs).
+    const ocHome = path.join(os.homedir(), '.openclaw')
+    const readOcConfig = (): Record<string, any> => {
+      try {
+        return JSON.parse(fs.readFileSync(path.join(ocHome, 'openclaw.json'), 'utf-8'))
+      } catch {
+        return {}
+      }
+    }
+    const resolveAgentWorkspaceDir = (agentId: string): string => {
+      const cfg = readOcConfig()
+      const agents = cfg.agents ?? {}
+      const entry = agents[agentId]
+      const explicit = entry?.workspace?.trim?.()
+      if (explicit) return explicit.replace(/^~(?=\/|$)/, os.homedir())
+      const defaults = agents.defaults ?? {}
+      const fallback = defaults.workspace?.trim?.()
+      if (agentId === 'main') {
+        if (fallback) return fallback.replace(/^~(?=\/|$)/, os.homedir())
+        return path.join(ocHome, 'workspace')
+      }
+      if (fallback) return path.join(fallback.replace(/^~(?=\/|$)/, os.homedir()), agentId)
+      return path.join(ocHome, 'workspace', agentId)
+    }
+    setSoulProvider((cfg) => {
+      const agentId = (cfg.agent_id ?? 'main').trim() || 'main'
+      const p = path.join(resolveAgentWorkspaceDir(agentId), 'SOUL.md')
+      try {
+        return fs.existsSync(p) ? fs.readFileSync(p, 'utf-8') : ''
+      } catch {
+        return ''
+      }
+    })
+    // OpenClaw skills: report every skill THIS AGENT's configuration can
+    // load (owner ruling 2026-10-23 — shared roots included, not just
+    // per-agent ones). Root set + order mirrors openclaw's runtime
+    // resolveWorkspaceSkillSourcePlan; names via the shared enumerator.
+    setSkillsProvider((cfg) => {
+      const agentId = (cfg.agent_id ?? 'main').trim() || 'main'
+      return combineSkillNames(resolveOpenclawSkillRoots(agentId))
+    })
 
     // SDK-shipped board resources → ~/.aimail/systems/*/board/ (idempotent;
     // never overwrites user-personalized files). Covers openclaw-only

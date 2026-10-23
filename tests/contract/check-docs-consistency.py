@@ -20,10 +20,11 @@
   (c) 契约值 == 单一真源: 文档里出现的契约值必须逐字等于单一真源清单
       ``contract/aimail-contract.json``(前缀另引 TS 侧常量事实源)。
       归属按层划分: 自举文档只钉 agent 内部名(skill/toolset 注册名、绑定文件名、
-      指针文件名); 宿主侧事实(入站路径、Hermes 例外、各平台入站端口)钉在平台
-      文档 ``docs/agent-integration*.md`` —— agent 级流程只按语言分, 平台端点
-      属适配层(owner 裁决 2026-10-19 去品牌)。文档写错值(哪怕只差一个字符)
-      ⇒ 真源值在归属文档里**找不到** ⇒ 红。
+      指针文件名); 宿主侧事实(入站路径、Hermes 例外、各平台入站端口)钉在适配层
+      文档 ``docs/agent-adapter-playbook*.md`` —— agent 级流程只按语言分, 平台端点
+      属适配层(owner 裁决 2026-10-19 去品牌; 2026-10-23 原平台文档退役,
+      归属迁至适配层文档)。文档写错值(哪怕只差一个字符) ⇒ 真源值在归属文档里
+      **找不到** ⇒ 红。
 
 退出码:
   0 = 通过;
@@ -47,9 +48,11 @@ from pathlib import Path
 DEFAULT_EN = "docs/agent-self-setup.md"
 DEFAULT_ZH = "docs/agent-self-setup_zh.md"
 #: 平台事实(入站路径/端口)的归属文档 —— agent 级流程只按语言分, 平台端点属适配层,
-#: 因此这些契约值钉在平台文档上, 不再要求自举文档出现(owner 裁决 2026-10-19 去品牌)。
-PLATFORM_EN = "docs/agent-integration.md"
-PLATFORM_ZH = "docs/agent-integration_zh.md"
+#: 因此这些契约值钉在适配层文档上, 不再要求自举文档出现(owner 裁决 2026-10-19 去品牌;
+#: 2026-10-23 原平台文档退役删除, 平台事实归属随之迁到
+#: agent-adapter-playbook{,_zh}.md —— SDK 适配层唯一维护文档)。
+PLATFORM_EN = "docs/agent-adapter-playbook.md"
+PLATFORM_ZH = "docs/agent-adapter-playbook_zh.md"
 MANIFEST_REL = "contract/aimail-contract.json"
 #: agent 级绑定的 system_id 前缀 —— 实现侧事实源(文档讲"哪条路径被开启"要写出它)。
 PREFIX_SRC = "tssdk/packages/agent-aimail/src/core/poll-entry.ts"

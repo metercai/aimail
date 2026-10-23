@@ -384,6 +384,54 @@ describe('processInboundMail', () => {
     expect(r?._a2a_session_key).toBeUndefined()
   })
 
+  it('B3: welcome marker + three body labels injects role_calibrator.md (early-return)', async () => {
+    // Python parity (test_role_prompts.py): gateway welcome = subject marker
+    // AND three body labels (persona:/signature:/current_time: at line start)
+    // ⇒ Role_Calibrator; personalized subject suffix must not break detection.
+    const roleDir = path.join(home, 'systems', SYSTEM_ID, 'board', 'role_prompt')
+    await fs.mkdir(roleDir, { recursive: true })
+    await fs.writeFile(
+      path.join(roleDir, 'role_calibrator.md'),
+      'Draft a persona for {{AGENTMAIL_ADDRESS}}; inquiry: {{INQUIRY_SUBJECT}}',
+      'utf-8',
+    )
+    const m = mail({
+      subject: 'Welcome to AIMail World, agent1, since 2026-09-22!',
+      body:
+        'To verify that the full delivery path works end to end, please reply-all with:\n' +
+        '  persona: <who you are>\n' +
+        '  signature: <your signature>\n' +
+        '  current_time: <2026-09-22 21:05 UTC>\n',
+    })
+    const r = await processInboundMail(m, {}, CTX)
+    expect(r?._role_prompt).toBe(
+      `Draft a persona for ${AGENT_EMAIL}; inquiry: Welcome to AIMail World, agent1, since 2026-09-22!`,
+    )
+    // early-return: no whoami prompt, no board session key
+    expect(r?._whoami_prompt).toBeUndefined()
+    expect(r?._a2a_session_key).toBeUndefined()
+  })
+
+  it('B3: welcome marker without the three body labels does NOT inject role_calibrator', async () => {
+    // Python parity: subject marker alone (labels missing) ⇒ default prompt,
+    // no Role_Calibrator — the marker mismatch is visible, not a silent
+    // fallback to a fabricated prompt.
+    const roleDir = path.join(home, 'systems', SYSTEM_ID, 'board', 'role_prompt')
+    await fs.mkdir(roleDir, { recursive: true })
+    await fs.writeFile(
+      path.join(roleDir, 'role_calibrator.md'),
+      'Draft a persona for {{AGENTMAIL_ADDRESS}}',
+      'utf-8',
+    )
+    const m = mail({
+      subject: 'Welcome to AIMail World, agent1, since 2026-09-22!',
+      body: 'no labels here',
+    })
+    const r = await processInboundMail(m, {}, CTX)
+    expect(r?._role_prompt).toBeUndefined()
+    expect(r?._a2a_session_key).toBeUndefined()
+  })
+
   it('role lookup is case-insensitive (readRoleFile lowercases the name)', async () => {
     const roleDir = path.join(home, 'systems', SYSTEM_ID, 'board', 'role_prompt')
     await fs.mkdir(roleDir, { recursive: true })

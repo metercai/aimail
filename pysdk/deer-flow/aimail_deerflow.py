@@ -98,6 +98,49 @@ def _deerflow_profile_dir() -> Optional[str]:
     return None
 
 
+def _deerflow_soul_md(config=None) -> str:
+    """SOUL.md per-agent: 锚定该 agent 自己的地址目录。
+
+    DeerFlow「目录即 agent」(SOUL.md/agents/ — manage.py 目录真相源);SDK
+    自持的唯一 per-agent 目录 = save_agent_config 落盘绑定的地址键目录
+    systems/{sid}/{cleaned_addr}/,SOUL 锚在那里:<dir>/SOUL.md。缺失 ⇒ ''
+    (未作者 SOUL 的 agent 渲染空,文档化)。全 agents/ 树扫描归上游
+    DeerFlow(manage.discover 简化 stub,「扩展扫描留待后续」),不在此复制。
+    """
+    if not config:
+        return ""
+    sid = str(config.get("system_id") or "")
+    email = str(config.get("email") or "")
+    if not (sid and email):
+        return ""
+    soul = Path(_ab._aimail_system_dir(sid)) / _ab._clean_agent_dir_name(email) / "SOUL.md"
+    if soul.is_file():
+        return soul.read_text(encoding="utf-8")
+    return ""
+
+
+def _deerflow_skills(config=None) -> list:
+    """skills 列表(per-agent)。DeerFlow「目录即 agent」:skills 与 SOUL.md
+    同锚在 agent 自己的地址目录。枚举 systems/{sid}/{cleaned_addr}/skills/
+    下的子目录(每 skill 一子目录,与 SOUL 同锚、与 pi 同款)。缺失 ⇒ []
+    (不臆造;与 SOUL 缺失⇒'' 同形)。全平台 agents/ 树扫描归上游 DeerFlow
+    (manage.discover 简化 stub,「扩展扫描留待后续」),不在此复制。"""
+    if not config:
+        return []
+    sid = str(config.get("system_id") or "")
+    email = str(config.get("email") or "")
+    if not (sid and email):
+        return []
+    skills_dir = Path(_ab._aimail_system_dir(sid)) / _ab._clean_agent_dir_name(email) / "skills"
+    try:
+        return sorted(
+            e.name for e in skills_dir.iterdir()
+            if e.is_dir() and not e.name.startswith(".")
+        )
+    except OSError:
+        return []
+
+
 def set_agent_context(agent_id: str, system_id: str = "") -> None:
     """把当前 agent 的 config 挂到公共核心注入点(转发共享实现)。"""
     _ab.set_agent_context(agent_id, system_id)
@@ -151,6 +194,10 @@ def detect_system_id() -> str:
 # ── ② 注入点 + 能力开关 ─────────────────────────────────────────
 _ab.PERSONA_SUPPORTED = False        # DeerFlow 无 persona 派生地址概念
 _ab._PROFILE_DIR_RESOLVER = _deerflow_profile_dir
+# per-agent SOUL/skills(填 deer-flow 原先 0 注入的缺口: SOUL 与 skills 均按
+# agent 地址目录解析;skills 枚举该目录 skills/ 子目录,缺失 ⇒ [])
+_ab._SOUL_PROVIDER = _deerflow_soul_md
+_ab._SKILLS_PROVIDER = _deerflow_skills
 # 注入后自检: 指针解析不出来时入站预处理会降级(邮件照常投递,丢画像/附件下载),
 # 在启动处留一条 warn,而不是每封邮件才报。
 _ab.check_profile_pointer()

@@ -57,9 +57,8 @@ AIMail 既不同于 IM，也不是传统邮箱。它是在传统邮件系统上�
 
 支持在终端命令行上的**系统级安装**，为Agent系统添加AIMail能力，让所有 Agent 都可以拥有邮件地址和收发能力；同时，也支持在对话框里为单独 Agent 激活专属邮件地址的简洁模式。
 
-### 前置准备
-
-- **已安装好 Agent 系统**:目前已适配的Agent平台系统包括，[DSH](https://github.com/deepseek-ai/deepseek-harness)/[Pi](https://github.com/earendil-works/pi)/[Hermes](https://github.com/NousResearch/hermes-agent)/[OpenClaw](https://github.com/openclaw/openclaw)/[DeerFlow](https://github.com/bytedance/deer-flow)，推荐安装 **Hermes** 或 **DSH**。
+- 前置准备： **已安装好 Agent 系统**，最好是下面所列的已适配 Agent 系统，推荐 **Hermes** 或 **DSH**。
+- 已适配 Agent 系统：[Hermes](https://github.com/NousResearch/hermes-agent)、[DSH](https://github.com/deepseek-ai/deepseek-harness)、[Pi](https://github.com/earendil-works/pi)、[OpenClaw](https://github.com/openclaw/openclaw)、[DeerFlow](https://github.com/bytedance/deer-flow)
 
 ### 四种安装场景
 
@@ -246,7 +245,7 @@ AIMail 核心由**aimail-gateway**（邮件网关）和 Agent 内的 **aimail SD
 ## 延伸阅读
 
 - [aimail CLI（安装与维护）](cli/README_zh.md)
-- [AIMail 对接适配指导](docs/agent-integration_zh.md)
+- [Agent 适配层适配点清单](docs/agent-adapter-playbook_zh.md)
 - [A2A Board 项目协作指导手册](docs/board/a2a-board-guide_zh.md)
 - [API 依赖说明](docs/api-deps.md)
 - [aimail-gateway](https://github.com/metercai/aimail-gateway)

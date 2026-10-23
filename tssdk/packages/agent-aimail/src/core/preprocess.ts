@@ -367,7 +367,7 @@ async function readRoleFile(cfg: AgentConfig, name: string): Promise<string> {
 }
 
 /** Template context from the enriched payload (mirror build_ctx). */
-function buildBoardCtx(result: Record<string, unknown>): Record<string, string> {
+function buildBoardCtx(result: Record<string, unknown>, cfg: AgentConfig): Record<string, string> {
   return {
     AGENTMAIL_ADDRESS: String(result.my_aimail_addr ?? ''),
     BOARD_ID: String(result.board_id ?? ''),
@@ -375,8 +375,47 @@ function buildBoardCtx(result: Record<string, unknown>): Record<string, string> 
     FROM_ROLE: String(result.from_role ?? ''),
     INQUIRY_SENDER: String(result.from ?? ''),
     INQUIRY_SUBJECT: String(result.subject ?? ''),
-    SOUL_MD_CONTENT: '', // Python injects per-platform (Hermes); dsh: none
-    SKILLS_LIST: '',     // Python injects per-platform (Hermes); dsh: none
+    SOUL_MD_CONTENT: readSoulMd(cfg),
+    SKILLS_LIST: readSkills(cfg).join(', '),
+  }
+}
+
+// ── per-agent SOUL / skills providers (host adapters inject; mirror Python
+// _SOUL_PROVIDER/_SKILLS_PROVIDER) ─────────────────────────────────────────
+// The core stays platform-agnostic: it passes the agent's loaded config
+// (agent_id / email / system_id — the identity of WHICH agent this inbound
+// mail belongs to) to the adapter-provided reader and renders whatever it
+// returns. Multi-agent hosts resolve per-agent SOUL.md / skills from that
+// identity (e.g. openclaw agents/{agent_id}/SOUL.md, dsh profiles/{profile}/,
+// hermes $HERMES_PROFILE_DIR/SOUL.md). Uninjected ⇒ empty (same shape as the
+// Python default: who has a SOUL fills it, the core never touches the FS).
+let soulProvider: ((cfg: AgentConfig) => string) | null = null
+let skillsProvider: ((cfg: AgentConfig) => string[]) | null = null
+
+export function setSoulProvider(fn: ((cfg: AgentConfig) => string) | null): void {
+  soulProvider = fn
+}
+
+export function setSkillsProvider(fn: ((cfg: AgentConfig) => string[]) | null): void {
+  skillsProvider = fn
+}
+
+function readSoulMd(cfg: AgentConfig): string {
+  if (!soulProvider) return ''
+  try {
+    return soulProvider(cfg) || ''
+  } catch {
+    return ''
+  }
+}
+
+function readSkills(cfg: AgentConfig): string[] {
+  if (!skillsProvider) return []
+  try {
+    const out = skillsProvider(cfg)
+    return Array.isArray(out) ? out : []
+  } catch {
+    return []
   }
 }
 
@@ -622,12 +661,13 @@ export async function processInboundMail(
   const subj = subjectRaw.trim()
   if (subj.toUpperCase().startsWith('[WHOAMI]')) {
     const whoamiRaw = await readRoleFile(cfg, 'whoami')
-    if (whoamiRaw) result._whoami_prompt = fillTemplate(whoamiRaw, buildBoardCtx(result))
+    if (whoamiRaw) result._whoami_prompt = fillTemplate(whoamiRaw, buildBoardCtx(result, cfg))
     return result as unknown as EnrichedPayload
   }
   // B3: Role_Calibrator (persona 更新请求 / welcome 引导) — mirror Python B3.
   // 2026-09-22 合并后两种识别形式:
-  //   (a) 兼容旧: 主题含 "update persona"(保留一版; 下一版删除)
+  //   (a) 安全员指令邮件: 主题含 "update persona"(安全运营面发送的角色更新指令,
+  //       生产流, 长期保留 — 裁决 2026-10-23, 非临时兼容)
   //   (b) 合并后的 welcome: **主题标记 + 正文三标签同时命中**
   //       主题含 "welcome to aimail world" 且正文行首有 persona:/signature:/current_time:
   // 命中 ⇒ 注入 role_calibrator.md 并 early-return(避免被 board 角色覆盖);
@@ -640,7 +680,12 @@ export async function processInboundMail(
   )
   if (subjLc.includes('update persona') || (welcomeMarker && labelsOk)) {
     const calibRaw = await readRoleFile(cfg, 'role_calibrator')
-    if (calibRaw) result._role_prompt = fillTemplate(calibRaw, buildBoardCtx(result))
+    if (calibRaw) {
+      result._role_prompt = fillTemplate(calibRaw, buildBoardCtx(result, cfg))
+    } else {
+      // Python parity: a missing role file is a visible WARN, never a silent skip
+      console.warn('[aimail] Role_Calibrator role file missing — persona update will proceed without a role prompt')
+    }
     return result as unknown as EnrichedPayload
   }
   if (welcomeMarker || labelsOk) {
@@ -652,7 +697,7 @@ export async function processInboundMail(
   const boardRole = (result.board_role as string) ?? ''
   if (boardId && boardRole) {
     const roleRaw = await readRoleFile(cfg, boardRole)
-    if (roleRaw) result._role_prompt = fillTemplate(roleRaw, buildBoardCtx(result))
+    if (roleRaw) result._role_prompt = fillTemplate(roleRaw, buildBoardCtx(result, cfg))
     result._a2a_session_key = `a2a:${boardId}:${(result.from as string) ?? ''}`
   }
 
@@ -662,7 +707,7 @@ export async function processInboundMail(
   // incl. common.md) ⇒ WARN + fall through; never blocks delivery. Mirror:
   // pysdk aimail_base.preprocess_mail_payload.) ──
   if (!result._role_prompt) {
-    const ctx = buildBoardCtx(result)
+    const ctx = buildBoardCtx(result, cfg)
     let injected = false
     // header 双源(网关盖头位置未锁死 = 扩展点): 邮件头 payload.headers 优先,
     // HTTP 头 _headers 兜底; key 大小写不敏感, 空值视为未给。

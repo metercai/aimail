@@ -246,7 +246,7 @@ Deploy your own [aimail-gateway](https://github.com/metercai/aimail-gateway), or
 ## Further Reading
 
 - [aimail CLI (installation & maintenance)](cli/README.md)
-- [AIMail Agent Integration Guide](docs/agent-integration.md)
+- [Agent Adapter Playbook](docs/agent-adapter-playbook.md)
 - [A2A Board Collaboration Guide](docs/board/a2a-board-guide.md)
 - [API Dependencies](docs/api-deps.md)
 - [aimail-gateway](https://github.com/metercai/aimail-gateway)

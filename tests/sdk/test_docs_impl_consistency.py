@@ -20,7 +20,9 @@ SCRIPT = ROOT / "tests" / "contract" / "check-docs-consistency.py"
 MANIFEST = ROOT / "contract" / "aimail-contract.json"
 DOC_EN = ROOT / "docs" / "agent-self-setup.md"
 DOC_ZH = ROOT / "docs" / "agent-self-setup_zh.md"
-PLATFORM_EN = ROOT / "docs" / "agent-integration.md"
+# 2026-10-23: 原平台文档退役删除, 宿主侧契约事实的归属
+# 迁到 SDK 适配层唯一维护文档(双语对)。
+PLATFORM_EN = ROOT / "docs" / "agent-adapter-playbook.md"
 
 
 def _run(*args: str) -> tuple:

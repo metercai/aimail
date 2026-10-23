@@ -22,7 +22,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
-import { notifyInboundForSystem, formatInboundNotifyLine, isInboundNotifyWarning, processInboundMail, releaseAllSystems, routeAddressFromHeaders, startAgentPullEntries, verifySignature, INBOUND_PATH, INBOUND_PORTS, type AgentConfig, type AgentPullHandle, type AgentPullOverrides, type InboundPayload, packageResourcesRoot } from '../core/index.js'
+import { notifyInboundForSystem, formatInboundNotifyLine, isInboundNotifyWarning, processInboundMail, releaseAllSystems, routeAddressFromHeaders, startAgentPullEntries, setSoulProvider, setSkillsProvider, listSkillNames, verifySignature, INBOUND_PATH, INBOUND_PORTS, type AgentConfig, type AgentPullHandle, type AgentPullOverrides, type InboundPayload, packageResourcesRoot } from '../core/index.js'
 import { resolveByRecipient } from '../mail/index.js'
 import { agentIdentity, initIdentity, readPointer, setInboundEndpoint, tryAutoBindOnce } from './identity.js'
 import { buildPiTools } from './tools.js'
@@ -179,6 +179,26 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
   // Host identification (#5): verify environment before activating.
   activateHost('pi')
   initIdentity()
+
+  // Per-agent SOUL.md: pi is a single-agent host (agent_id 'agent'), and
+  // ~/.pi/agent/ IS the per-agent dir (extensions/ skills/ sessions/ all live
+  // under it), so the SOUL anchor is ~/.pi/agent/SOUL.md. Missing ⇒ '' (most
+  // pi installs never author one; the template renders empty, documented).
+  const piAgentDir = path.join(os.homedir(), '.pi', 'agent')
+  setSoulProvider(() => {
+    const p = path.join(piAgentDir, 'SOUL.md')
+    try {
+      return fs.existsSync(p) ? fs.readFileSync(p, 'utf-8') : ''
+    } catch {
+      return ''
+    }
+  })
+  // pi skills ARE per-agent: every skill is a subdirectory of
+  // ~/.pi/agent/skills/<name>/ (one dir per skill, each with a SKILL.md).
+  // Enumerate via the shared helper (frontmatter `name` ?? dir name) — this
+  // is genuinely the owning agent's list.
+  setSkillsProvider(() => listSkillNames(path.join(piAgentDir, 'skills')))
+
   // SDK-shipped board resources → ~/.aimail/systems/*/board/ (idempotent;
   // never overwrites user-personalized files). Covers pi-only machines that
   // never install the Python SDK/CLI.

@@ -214,8 +214,12 @@ def _recipients_text(result: dict) -> str:
     return str(rec)
 
 
-def build_ctx(payload: dict, headers: dict) -> dict:
-    """Build template context dict from available data."""
+def build_ctx(payload: dict, headers: dict, config: Optional[dict] = None) -> dict:
+    """Build template context dict from available data.
+
+    ``config`` is the current agent's loaded config (identity: email/agent_id/
+    system_id) — the per-agent anchor the SOUL/skills providers resolve from.
+    """
     return {
         "AGENTMAIL_ADDRESS": payload.get("my_aimail_addr", ""),
         "BOARD_ID": payload.get("board_id", ""),
@@ -223,8 +227,8 @@ def build_ctx(payload: dict, headers: dict) -> dict:
         "FROM_ROLE": payload.get("from_role", ""),
         "INQUIRY_SENDER": payload.get("from", ""),
         "INQUIRY_SUBJECT": payload.get("subject", ""),
-        "SOUL_MD_CONTENT": _read_soul_md(),
-        "SKILLS_LIST": ", ".join(_read_skills()),
+        "SOUL_MD_CONTENT": _read_soul_md(config),
+        "SKILLS_LIST": ", ".join(_read_skills(config)),
     }
 
 
@@ -343,22 +347,36 @@ def _load_gateway_config(system_id: str = "") -> Optional[dict]:
 #             DeerFlow → pysdk/deer-flow/aimail_deerflow.py）────────────
 # 平台差异（config 来源/personas/profile 目录/board 登记）由适配层注入，
 # 公共核心保持平台无关。未注入时使用安全默认（None/空/no-op）。
+# _SOUL/_SKILLS_PROVIDER 接收当前 agent 的 config（agent 身份：email/agent_id/
+# system_id），适配层据此解析"这个 agent"的 SOUL.md / skills——多 agent 平台
+# 下不同名 agent 的 SOUL 各不相同。核心只传身份、不碰文件系统。
 _CONFIG_LOADER = None          # () -> Optional[dict]      agent 配置加载
 _PERSONAS_PROVIDER = None      # () -> dict                personas 配置
 _PROFILE_DIR_RESOLVER = None   # () -> Optional[str]       profile 目录（gateway config 定位）
-_SOUL_PROVIDER = None          # () -> str                 SOUL 内容（board ctx）
-_SKILLS_PROVIDER = None        # () -> list[str]           skills 列表（board ctx）
+_SOUL_PROVIDER = None          # (config) -> str           SOUL 内容（board ctx，按 agent 身份解析）
+_SKILLS_PROVIDER = None        # (config) -> list[str]     skills 列表（board ctx，按 agent 身份解析）
 _BOARD_GATEWAY_SINK = None     # (board_id, gateway_url) -> None
 
 
-def _read_soul_md() -> str:
-    """SOUL 内容（注入点）。Hermes 适配层注入；默认空。"""
-    return _SOUL_PROVIDER() if _SOUL_PROVIDER is not None else ""
+def _read_soul_md(config: Optional[dict] = None) -> str:
+    """SOUL 内容（注入点，按 agent 身份解析）。适配层注入；默认空。"""
+    if _SOUL_PROVIDER is None:
+        return ""
+    try:
+        return _SOUL_PROVIDER(config) or ""
+    except Exception:
+        return ""
 
 
-def _read_skills() -> list:
-    """skills 列表（注入点）。Hermes 适配层注入；默认空。"""
-    return _SKILLS_PROVIDER() if _SKILLS_PROVIDER is not None else []
+def _read_skills(config: Optional[dict] = None) -> list:
+    """skills 列表（注入点，按 agent 身份解析）。适配层注入；默认空。"""
+    if _SKILLS_PROVIDER is None:
+        return []
+    try:
+        out = _SKILLS_PROVIDER(config)
+        return list(out) if out else []
+    except Exception:
+        return []
 
 
 def _load_profile_config() -> Optional[dict]:
@@ -1433,7 +1451,7 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
     # ── a2a_board: [WhoAmI]问询检测 ──
     subject = (payload.get("subject") or "").strip()
     if subject.upper().startswith("[WHOAMI]"):
-        ctx = build_ctx(result, dict(headers))
+        ctx = build_ctx(result, dict(headers), config)
         whoami_raw = _read_role_file("whoami")
         if whoami_raw:
             result["_whoami_prompt"] = fill_template(whoami_raw, ctx)
@@ -1441,7 +1459,8 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
 
     # ── B3: Role_Calibrator (persona 更新请求 / welcome 引导) ──
     # 2026-09-22 合并后两种识别形式:
-    #   (a) 兼容旧: 主题含 "update persona"(保留一版; 下一版删除)
+    #   (a) 安全员指令邮件: 主题含 "update persona"(安全运营面发送的角色更新
+    #       指令,生产流,长期保留 — 裁决 2026-10-23,非临时兼容)
     #   (b) 合并后的 welcome: **主题标记 + 正文三标签同时命中**
     #       - 主题(小写化)含 "welcome to aimail world"
     #         (网关生成: "Welcome to AIMail World, {agent}, since {date}!")
@@ -1456,7 +1475,7 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
         for k in ("persona", "signature", "current_time")
     )
     if "update persona" in _subj or (_welcome_marker and _labels_ok):
-        ctx = build_ctx(result, dict(headers))
+        ctx = build_ctx(result, dict(headers), config)
         calib_raw = _read_role_file("role_calibrator")
         if calib_raw:
             result["_role_prompt"] = fill_template(calib_raw, ctx)
@@ -1474,7 +1493,7 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
     board_id = result.get("board_id")
     board_role = result.get("board_role")
     if board_id and board_role:
-        ctx = build_ctx(result, dict(headers))
+        ctx = build_ctx(result, dict(headers), config)
         role_raw = _read_role_file(board_role)
         if role_raw:
             result["_role_prompt"] = fill_template(role_raw, ctx)
@@ -1487,7 +1506,7 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
     # > 本地自定义(name 字母序)。任何一层注入成功即止;命中但文件缺失
     # ⇒ WARN 并继续向下(绝不阻断送达)。
     if not result.get("_role_prompt"):
-        ctx = build_ctx(result, dict(headers))
+        ctx = build_ctx(result, dict(headers), config)
         injected = False
         # header 双源(网关盖头位置未锁死 = 扩展点): 邮件头 payload.headers 优先,
         # HTTP 头参数兜底; key 大小写不敏感, 空值视为未给。

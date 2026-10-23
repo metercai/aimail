@@ -100,9 +100,16 @@ _profile_hooks: Dict[str, List[Callable]] = {
 # ═══════════════════════════════════════════════════════════════
 # 1. Hermes 平台实现（自公共核心移出的 Hermes 专属函数）
 # ═══════════════════════════════════════════════════════════════
-def _read_soul_md() -> str:
-    """Read SOUL.md from current Hermes profile."""
-    profile_dir = os.environ.get("HERMES_PROFILE_DIR", "")
+def _read_soul_md(config=None) -> str:
+    """Read SOUL.md from the current Hermes profile (per-agent).
+
+    Anchored via _resolve_profile_dir(): HERMES_PROFILE_DIR env → live
+    HERMES_HOME (contextvar-aware, per-profile — set per agent by the gateway
+    spawner) → ~/.hermes. The old code checked only HERMES_PROFILE_DIR and
+    fell back to the DEFAULT profile's ~/.hermes, so when the process ran with
+    HERMES_HOME pointed at a profile dir it read the wrong (default) SOUL.
+    """
+    profile_dir = _resolve_profile_dir()
     if not profile_dir:
         profile_dir = str(Path.home() / ".hermes")
     soul = Path(profile_dir) / "SOUL.md"
@@ -111,20 +118,43 @@ def _read_soul_md() -> str:
     return ""
 
 
-def _read_skills() -> list[str]:
-    """Read loaded skills list from profile config."""
-    profile_dir = os.environ.get("HERMES_PROFILE_DIR", "")
-    if not profile_dir:
-        profile_dir = str(Path.home() / ".hermes")
-    cfg = Path(profile_dir) / "config.yaml"
-    if cfg.exists():
-        import yaml
-        try:
-            data = yaml.safe_load(cfg.read_text(encoding="utf-8"))
-            return data.get("skills", []) or []
-        except Exception:
-            pass
-    return []
+def _read_skills(config=None) -> list[str]:
+    """Enumerate the skills available to this Hermes agent (per-agent).
+
+    Single source of truth = the host's own `skills_list` tool — the
+    authoritative "skills this agent can use" entry point. It resolves the
+    LIVE profile-scoped skills dir (HERMES_HOME, the per-agent anchor set by
+    the gateway spawner) plus config external_dirs, applies the host's
+    platform/env/disabled gates and name dedup, and includes plugin-provided
+    skills — exactly the list the agent itself sees.
+
+    The old code read config.yaml's `skills:` field, which is the skills
+    subsystem's *config block* (external_dirs / template_vars / ...), not a
+    skill name list — so it returned that dict (joined to garbage in the
+    board ctx) or [] when the key was absent. Never the real list.
+
+    Falls back to [] when the host module is unavailable (running outside a
+    Hermes process).
+    """
+    try:
+        from tools.skills_tool import skills_list
+    except Exception:
+        return []
+    try:
+        import json
+        data = json.loads(skills_list())
+    except Exception:
+        return []
+    if not isinstance(data, dict) or not data.get("success"):
+        return []
+    out: list = []
+    seen = set()
+    for s in data.get("skills") or []:
+        n = s.get("name") if isinstance(s, dict) else None
+        if n and n not in seen:
+            seen.add(n)
+            out.append(n)
+    return out
 
 
 def _resolve_profile_dir() -> Optional[str]:
@@ -1176,7 +1206,7 @@ try:
 except Exception as _e:
     logger.warning("[aimail] set_email_summary registration failed: %s", _e)
 
-# 3b-bis. 身份类一等工具(审计 D1: Hermes 曾只注册 13 个, 与 README/agent-integration
+# 3b-bis. 身份类一等工具(审计 D1: Hermes 曾只注册 13 个, 与 README/adapter-playbook
 #         声明的 15 及 TS 侧 15/15 不符 —— 补齐这两个, 描述与 MCP TOOLS 逐字对齐)。
 try:
     registry.register(

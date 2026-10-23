@@ -27,8 +27,9 @@ import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { processInboundMail, verifySignature, routeAddressFromHeaders, updateAgentConfig, loadAgentConfig, saveAgentConfig, startAgentPullEntries, type AgentConfig, type AgentPullHandle, type AgentPullOverrides, INBOUND_PATH, INBOUND_PORTS, type InboundPayload, packageResourcesRoot} from '../core/index.js'
+import { processInboundMail, verifySignature, routeAddressFromHeaders, updateAgentConfig, loadAgentConfig, saveAgentConfig, startAgentPullEntries, setSoulProvider, setSkillsProvider, combineSkillNames, type AgentConfig, type AgentPullHandle, type AgentPullOverrides, INBOUND_PATH, INBOUND_PORTS, type InboundPayload, packageResourcesRoot} from '../core/index.js'
 import { notifyInboundForSystem, formatInboundNotifyLine, isInboundNotifyWarning } from '../core/index.js'
+import { resolveDshSkillRoots } from './skills.js'
 import { ensureDefaultAgentBinding, type MailService } from './mail-service.js'
 
 export const name = 'mail-inbound'
@@ -313,6 +314,31 @@ export function apply(ctx: Context, config: Config = {}): () => void {
   const mail = ctx.get('mail') as MailService | undefined
   if (mail === undefined) {
     throw new Error('mail-inbound requires the mail service: mount dsh-aimail/mail-service first')
+  }
+
+  // Per-agent SOUL.md: a dsh process serves ONE profile (DSH_PROFILE — the
+  // per-agent unit, same resolution as host-layout.ts), so the profile dir is
+  // the per-agent anchor: <dshHome>/profiles/<profile>/SOUL.md. Missing ⇒ ''
+  // (most profiles never author a SOUL.md; the template then renders empty,
+  // which is the documented behavior, not an error).
+  {
+    const dshHome =
+      process.env.DSH_HOME?.trim() ||
+      path.join(os.homedir(), '.dsh')
+    const profile = process.env.DSH_PROFILE?.trim() || 'web'
+    setSoulProvider(() => {
+      const p = path.join(dshHome, 'profiles', profile, 'SOUL.md')
+      try {
+        return fs.existsSync(p) ? fs.readFileSync(p, 'utf-8') : ''
+      } catch {
+        return ''
+      }
+    })
+    // dsh skills: report every skill THIS profile's configuration can load
+    // (owner ruling 2026-10-23 — shared roots included, not just per-agent
+    // ones). Root set + rank order mirror dsh's FileSystemSkillProvider;
+    // names via the shared enumerator.
+    setSkillsProvider(() => combineSkillNames(resolveDshSkillRoots()))
   }
 
   // SDK-shipped skill → <dshHome>/skills/agentmail/ (idempotent;

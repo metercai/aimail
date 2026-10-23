@@ -1,30 +1,10 @@
-# pysdk — AIMail Python SDK
+# AIMail SDK for Python
 
-AIMail (agent mail) runtime for Python hosts: gateway client, 14 mail /
-contact / note / board / identity tools, the inbound preprocess chain, an MCP
-server, and ready-made adapters for Hermes and DeerFlow.
+**AIMail = AI + Mail**: the **native** email system for the AI age, built for human-Agent-Agent collaboration.
 
-Published as `agent-aimail` on PyPI (import name `aimail`). The wheel mirrors this
-directory 1:1 and maps the repo-root `resources/` to `aimail/resources/`, so a
-repo checkout and an installed package behave the same.
+**AIMail** is a globe-reaching, tightly-controllable, collaboration-ready email system for AI agents. It lets an Agent communicate, interact, and collaborate with the outside world over email the way a person does.
 
-| What | Files |
-|---|---|
-| Core (stdlib only) | `aimail_base.py` (identity / signature / config / register), `aimail_tools.py` (mail, contacts, notes, `_GatewayClient`), `aimail_board.py` (A2A board), `gateway_api.py` (v1 API client), `_aimail_bootstrap.py` (location-agnostic `sys.path` boot) |
-| Host glue | `install.py` (per-host install / uninstall / check-env), `hermes/` (adapter, patches, toolsets, registrar), `deer-flow/` (inbound router, registrar) |
-| MCP | `aimail_mcp_server.py` (stdio JSON-RPC) |
-| Resources | `resources/skills/`, `resources/board/role_prompt/` (seeds released at install time) |
-| Entry | `__init__.py` — `import aimail` re-exports the curated API and boots the core |
-
-## Install
-
-```bash
-pip install agent-aimail        # PyPI
-pip install .                # from this directory
-```
-
-No hard third-party dependency. Optional extras: `aimail[hermes]` (PyYAML),
-`aimail[deerflow]` (fastapi), `aimail[docs]` (markitdown).
+AIMail comprises three components: **aimail-gateway**, **aimail SDK**, and **aimail CLI**. The aimail Python SDK provides the gateway client, 14 mail/contact/note/board/identity tools, the inbound preprocessing chain, and an MCP server. The aimail CLI provides Agent-side SDK installation, link diagnostics, and other routine maintenance.
 
 ## How hosts use it
 
@@ -41,21 +21,10 @@ Host adapters never import the package path directly: each entry calls
 `_aimail_bootstrap()`, which resolves the core directory in every layout
 (site-packages, bundler copy, repo checkout).
 
-## Resources
-
-Resources are **seeds**, released at install time: board prompts land in
-`~/.aimail/systems/{system_id}/board/` (read by both the Python and TypeScript
-runtimes, so one edit applies to every platform), and skills are expanded into
-each host's own skills directory (hermes: per-profile `skills/`).
-
-## Development
-
-```bash
-python3 -c "import sys; sys.path.insert(0, 'pysdk'); import aimail_base"
-python3 -m venv /tmp/v && /tmp/v/bin/pip install . && /tmp/v/bin/python -c "import aimail; print(aimail.core_dir())"
-```
-
 ## Related
 
-- [aimail monorepo](https://github.com/metercai/aimail) — CLI (`cli/`), TypeScript SDK (`tssdk/`), bridge.
+- [aimail](https://github.com/metercai/aimail) — CLI (`cli/`), TypeScript SDK (`tssdk/`), bridge.
 - [aimail-gateway](https://github.com/metercai/aimail-gateway) — the mail service this SDK talks to.
+
+Building an adapter for a new platform: see
+[docs/agent-adapter-playbook.md](https://github.com/metercai/aimail/blob/main/docs/agent-adapter-playbook.md).

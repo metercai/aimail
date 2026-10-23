@@ -73,11 +73,21 @@ DOCS_WHITELIST = ("docs/agent-self-setup.md", "docs/agent-self-setup_zh.md",
                   # 2026-10-08 由 docs/contract-boundary_zh.md 迁入 cli/contract-boundary.md；
                   # 旧 cli/cli-sdk-bridge-boundaries.md（2026-10-03 边界稿）已被 v1.0 契约取代删除。
                   "cli/contract-boundary.md")
+#: 2026-10-23 追加: SDK 适配层唯一维护文档(原平台文档退役
+#: 删除, 其宿主侧契约事实归属随之迁入)。与 agent-self-setup 同列的理由一致:
+#: 讲清适配契约面(入站路径/端口/绑定/指针文件名/注册名/agent 级前缀)必须逐字
+#: 引用契约值; 等价兜底 = 同目录 check-docs-consistency.py 的 (c) 检查
+#: (PLATFORM_EN/ZH 已重指到这两份, 值与单一真源逐字命中, 写错一个字符就红)
+#: ⇒ 不登记 DOCS_WHITELIST_GAPS(有兜底, 覆盖不降级)。
+_DOCS_PLAYBOOK = ("docs/agent-adapter-playbook.md",
+                  "docs/agent-adapter-playbook_zh.md")
 #: 白名单里"无等价 verbatim 兜底"的文档 —— 必须显式登记, 不许静默降级。
 #: 原 cli/cli-sdk-bridge-boundaries.md(边界稿, 无兜底)已随 v1.0 契约删除; 其继任
 #: cli/contract-boundary.md 与 agent-self-setup 同列, 不在此 GAP 登记(维持原口径)。
+#: 2026-10-23 追加的 _DOCS_PLAYBOOK 有 check-docs-consistency (c) 兜底, 同不登记。
 DOCS_WHITELIST_GAPS = ()
-WHITELIST_FILES = (MANIFEST_REL, TS_CONTRACT, PY_CONTRACT, BASELINE_REL) + DOCS_WHITELIST
+WHITELIST_FILES = ((MANIFEST_REL, TS_CONTRACT, PY_CONTRACT, BASELINE_REL)
+                   + DOCS_WHITELIST + _DOCS_PLAYBOOK)
 ALLOW_MARKER = "contract-allowed:"    # 行内逃生门(必须带理由)
 
 # ── 规则 (c): SKILL.md frontmatter(1 真源 + 各包 prepack 暂存的那份)────────
