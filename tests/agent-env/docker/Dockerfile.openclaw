@@ -1,6 +1,6 @@
 # agent-env/docker/Dockerfile.openclaw — openclaw test host image (environment prep only).
 #
-# Pure native: the openclaw-aimail plugin is installed by the test itself.
+# Pure native: the agent-aimail plugin is installed by the test itself.
 # This layer prepares the official openclaw base + LLM config, and switches off the
 # pnpm release-age gate the image ships with (measured: minimumReleaseAge=10080).
 ARG BASE_IMG=ghcr.io/openclaw/openclaw:latest

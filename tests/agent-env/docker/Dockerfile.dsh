@@ -1,6 +1,6 @@
 # agent-env/docker/Dockerfile.dsh — dsh test host image (environment prep only).
 #
-# Pure native: the dsh-aimail plugin is installed by the test itself (it is the thing
+# Pure native: the agent-aimail plugin is installed by the test itself (it is the thing
 # under test). This layer prepares dsh + its base environment (node/npm/pnpm) + LLM
 # config, and switches pnpm's release-age gate off once (pnpm otherwise resolves an
 # older plugin than the registry latest).

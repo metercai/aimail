@@ -42,9 +42,9 @@ RUNTIME = {"hermes": "python", "deerflow": "python"}
 ADAPTER_PKG = {
     "hermes": "agent-aimail",
     "deerflow": "agent-aimail",
-    "dsh": "dsh-aimail",
-    "openclaw": "openclaw-aimail",
-    "pi": "pi-aimail",
+    "dsh": "agent-aimail",
+    "openclaw": "agent-aimail",
+    "pi": "agent-aimail",
 }
 
 

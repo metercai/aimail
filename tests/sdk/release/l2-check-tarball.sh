@@ -7,8 +7,7 @@
 #   3. manifest inside has no "workspace:" dep spec
 #   4. version == expected
 #   5. main/types/bin targets exist inside the tarball
-#   6. bundled packages (openclaw-aimail/pi-aimail): declared
-#      bundleDependencies exist under package/node_modules/
+#   6. bundled deps (仅当包声明了 bundleDependencies；单包 agent-aimail 通常没有)
 #   7. tarball is non-empty (catches silent npm pack failures)
 set -euo pipefail
 TGZ="${1:?usage: check-tarball.sh <tgz> <expected-version>}"

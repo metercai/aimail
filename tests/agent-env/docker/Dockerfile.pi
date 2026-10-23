@@ -1,6 +1,6 @@
 # agent-env/docker/Dockerfile.pi — pi test host image (environment prep only).
 #
-# Pure native: the pi-aimail extension is installed by the test itself.
+# Pure native: the agent-aimail extension is installed by the test itself.
 # This layer prepares the official pi (npm) + its base environment + LLM config.
 ARG BASE_IMG=nikolaik/python-nodejs:python3.12-nodejs22
 FROM ${BASE_IMG}

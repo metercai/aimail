@@ -23,7 +23,7 @@
 #
 # 流程契约(README Quick Start 场景 4, 原样复现, 严禁自行调整):
 #   ③ env 四件套(AIMAIL_GW_URL/ADMIN_KEY/DOMAIN/MANAGER_ADDRESS) + 在线自举 curl|bash
-#   ④ aimail install(home 由 AGENT_HOME env 提供, 无 --home flag) 或 dsh plugin --profile web add dsh-aimail
+#   ④ aimail install(home 由 AGENT_HOME env 提供, 无 --home flag) 或 dsh plugin --profile web add agent-aimail
 #   ⑤ aimail welcome(AGENT_HOME env → .agentmail 指针解析系统参数)  # contract-allowed: L3 注释引用契约指针文件名
 #
 # 退出码: 0=绿(闭环完成) · 1=红(某阶段断言失败, 原因已打印) · 2=环境缺前置
@@ -432,15 +432,15 @@ ok "published CLI: $( "$AIMAIL_BIN" version 2>/dev/null | head -1 )"
 # 扩展: hermes / dsh-aimail / dsh-plugin)。命令形态 = README 原样:
 #   CLI 入口 = `aimail install`(home 由 ④ 开头的 export AGENT_HOME 提供,
 #   与 ⑤ welcome 共享同一 env; 无 --home flag)。
-#   插件入口 = `dsh plugin --profile web add dsh-aimail`(无 AGENT_HOME 依赖)。
+#   插件入口 = `dsh plugin --profile web add agent-aimail`(无 AGENT_HOME 依赖)。
 # env 已由 ③ 落盘 ~/.aimail/.env + 本 shell export。
 echo "── [4/6] SDK install (README command shape)"
 export AGENT_HOME="$AGENT_HOME"
 case "$AGENT" in
   dsh-plugin)
-    # README: dsh plugin --profile web add dsh-aimail (Agent 插件入口)
-    DSH_HOME="$DSH_HOME" dsh plugin --profile web add dsh-aimail \
-      || die "dsh plugin add dsh-aimail failed (README plugin path)"
+    # README: dsh plugin --profile web add agent-aimail (Agent 插件入口)
+    DSH_HOME="$DSH_HOME" dsh plugin --profile web add agent-aimail \
+      || die "dsh plugin add agent-aimail failed (README plugin path)"
     ;;
   dsh-aimail|hermes)
     # README: aimail install(AGENT_HOME env 提供 home; 与 welcome 共享)
@@ -578,7 +578,7 @@ PY
     ok "send_mail exposed to webhook sessions (platform_toolsets.webhook ⊇ $TS)"
     ;;
   dsh|dsh-aimail|dsh-plugin)
-    # 入站 = dsh-aimail 插件的 mail-inbound server(宿主生命周期自持, server.listen
+    # 入站 = agent-aimail 插件的 mail-inbound server(宿主生命周期自持, server.listen
     # 随宿主起)。注册时 localWebhook = inboundUrl(INBOUND_PORTS.dsh=9099) ⇒ 绑定的
     # webhook_url 端口 = 9099(默认, 除非 AIMAIL_INBOUND_URL/PORT 环境覆盖)。
     DSH_INBOUND_PORT="${AIMAIL_INBOUND_PORT:-9099}"
@@ -596,7 +596,7 @@ PY
     [ "$UP" = 1 ] || { tail -15 "$WORK/dsh-host.log" | sed 's/^/    /'; die "dsh inbound port $DSH_INBOUND_PORT not up in 120s"; }
     ok "dsh host up (inbound :$DSH_INBOUND_PORT)"
     # ── 插件入站路由就绪门(V7, L2 同源: J4e flaky 机制 2026-10-13)──────────────
-    # 端口监听 ≠ 插件路由挂载: dsh-aimail 插件的 mail-inbound 路由挂载晚于宿主端口,
+    # 端口监听 ≠ 插件路由挂载: agent-aimail 插件的 mail-inbound 路由挂载晚于宿主端口,
     # 网关 welcome 首推若落在未挂载窗口 ⇒ 404 ⇒ 3 次重试(5s/15s/40s)耗尽 ⇒ 永久丢
     # (L2 j4e6 实证: 360s 零回信)。L3 每格只跑一次 ⇒ 必须在 welcome 前确保挂载。
     # 判据(L2 journey 同源): 无签 POST 绑定 webhook_url —— handler resolve 先于验签,

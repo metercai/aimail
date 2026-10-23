@@ -116,7 +116,7 @@ PY
 )
   echo "[L1] release batch declared (publish order): ${BATCH}"
 fi
-for p in mail-core mail dsh-aimail openclaw-aimail pi-aimail; do
+for p in agent-aimail; do
   dir="tssdk/packages/$p"
   ver=$(python3 -c "import json;print(json.load(open('$dir/package.json'))['version'])")
   # 审计 P2: 查询失败(网络/registry)必须与"未发布"区分(见 _npmview.sh)
