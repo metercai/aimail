@@ -113,3 +113,13 @@ npm error   peerOptional @deepseek-ai/dsh-llm@"^0.0.1-rc.1 || ^0.2.0-rc.2 || ^0.
 ## 12. 待验证方复跑
 
 新版本 `agent-aimail@0.2.2` 发布后，请按 §4 三条重跑 L2/ts（以及 L2/py、L1/py、L1/ts 不回退）。实现方本地已完成 §10 全部场景，L2/ts 的最终判定权在验证方。
+
+## 13. 发布落地（2026-10-23，实现方）
+
+- **npm `agent-aimail@0.2.2` 已发布**，`dist-tags.latest = 0.2.2`，带 SLSA provenance（`dist.attestations.provenance.predicateType = slsa.dev/provenance/v1`，CI OIDC 发布）。
+- **0.2.1 / 0.2.0 均已 deprecate**（0.2.1 文案指向 0.2.2+；0.2.0 文案已校正为同样指引）。
+- **CLI `cli-v0.1.57` 已发布**（4 平台资产）：`aimail 0.1.57`，资产内 `aimailsdk` 0 次 / `agent-aimail` 41 次。
+- **CI run `39880503781`**：attempt 1 有 1 例失败（`l3 / linux-arm64 / dsh-plugin`，卡在 "persona/signature 三标签草案"；同一场景 linux-amd64 已成功 ⇒ LLM 输出方差）；按"真实 L3 真绿"口径 rerun failed job，attempt 2 该 job success，**run 终态 26/26 全绿**。
+- **发布前新门禁在 CI 实际生效**：`publish-npm.sh` → `l2-check-tarball.sh` 第 9 步（裸项目 + dsh-agent@latest 在位两次干净安装）通过后才 publish。
+- 发包侧公开验收（本机实测，公网 registry）：`npm install agent-aimail` 干净项目 **rc=0**（无任何 flag），装到 0.2.2，`agentTools` / `activateAddressCodePersist` 均为 function。
+
