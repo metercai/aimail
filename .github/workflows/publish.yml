@@ -176,19 +176,27 @@ jobs:
 
       - uses: actions/download-artifact@v5
 
+      # SDK-only releases (tssdk/pysdk) re-dispatch this workflow while the CLI
+      # version is unchanged. The tag exists then, and creating/refreshing the
+      # Release again would rewrite assets users already pinned by sha256 — so the
+      # upload step only runs when this run actually created the tag.
       - name: Create tag cli-v<version> if absent
+        id: tag
         env:
           VER: ${{ needs.meta.outputs.cli_version }}
         run: |
           tag="cli-v$VER"
           if git ls-remote --tags origin "refs/tags/$tag" | grep -q .; then
             echo "$tag already on origin — nothing to create"
+            echo "created=false" >> "$GITHUB_OUTPUT"
           else
             git tag "$tag" && git push origin "$tag"
             echo "created $tag"
+            echo "created=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Release
+        if: steps.tag.outputs.created == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: cli-v${{ needs.meta.outputs.cli_version }}
