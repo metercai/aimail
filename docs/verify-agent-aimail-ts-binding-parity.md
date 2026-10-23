@@ -1,5 +1,22 @@
 # 改进要求（非退回件）：TS 侧 binding 的 gateway_url 应与 Python 侧一致，永远有
 
+## 0. 复验结论（2026-10-23，改进项已关闭）
+
+实现方提交 `25ab8d9`（本地，尚未推送）。验证方独立复验，**四条全部达标**：
+
+```
+代码形态   RequestClient.baseUrl 改为**必填**(类型级不变量)；opts.gatewayUrl 转为可选；
+           派生 `opts.gatewayUrl ?? client.baseUrl` 发生在**发激活请求之前**(不会漏出孤儿 raw_key)；
+           绑定与连接文件两处写入都用派生值；派生为空 ⇒ 显式 success:false + 可读错误
+开发单测   vitest 331 passed / 1 skipped（41 files，含新增 2 例）
+独立行为   自写脚本(不用其单测)：不传 opts → 七字段、gateway_url == client.baseUrl；
+           空 baseUrl + 不传 opts → 显式失败且报错含 "cannot derive gateway_url"，无静默落盘
+无回归     A1 gate PASS：L1/py 29 · L1/ts 13 · L2/py 14 · L2/ts 14(含七字段用例)
+```
+
+生效时点：新逻辑**尚未发布**（npm 上 0.2.2 仍是旧行为），随下一次 ts 发版生效；
+发版后我用**发布产物**再跑一遍 dsh 插件路径与场景 1 本地门。
+
 > 出具方：验证方　接收方：实现方　日期：2026-10-23
 > 当前判定：**PASS 保持**（五家 docker 发版门禁 + 场景 1 本地回归全绿）。
 > 本文件不是 HOLD，是 owner 2026-10-23 裁决的**下一版改进要求**：
@@ -9,7 +26,7 @@
 
 ```
 tssdk/packages/agent-aimail/src/core/address-code.ts:122  activateAddressCodePersist(client, code, emailAddress, opts)
-tssdk/packages/agent-aimail/src/core/address-code.ts:140  gateway_url: opts.gatewayUrl      ← 绑定 agentmail.json
+tssdk/packages/agent-aimail/src/core/address-code.ts:140  gateway_url: opts.gatewayUrl      ← 绑定文件(契约常量 BINDING_FILE)
 tssdk/packages/agent-aimail/src/core/address-code.ts:173  gateway_url: opts.gatewayUrl      ← 系统连接文件
 tssdk/packages/agent-aimail/src/core/address-code.ts:31   interface RequestClient { request(...) }   ← 无 baseUrl
 tssdk/packages/agent-aimail/src/core/gateway.ts:12        class GatewayClient { readonly baseUrl }   ← 其实有
