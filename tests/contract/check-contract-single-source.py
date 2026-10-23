@@ -4,7 +4,7 @@
 
 单一真源 = 仓根 ``contract/aimail-contract.json``。本脚本实现三条规则:
 
-  (a) 常量与清单一致: TS ``tssdk/packages/mail-core/src/contract.ts`` 与
+  (a) 常量与清单一致: TS ``tssdk/packages/agent-aimail/src/core/contract.ts`` 与
       Python ``pysdk/aimail_contract.py`` 的每个契约常量必须逐项 == 清单。
       **Rust 侧本批未覆盖**(gateway/bridge 两仓留下批)⇒ 输出里登记为 GAP。
   (b) 字面量白名单棘轮: 清单里的字面量只允许出现在白名单(清单自身、两个
@@ -14,9 +14,8 @@
       其余位置按"文件 × 字面量"计数, 与基线
       ``tests/contract/contract-literal-baseline.json`` 比对 —— **只许减不许增**;
       新增位置 ⇒ FAIL 并给 ``file:line`` + 当前/基线计数。
-  (c) SKILL.md frontmatter 契约名: 单一真源 ``resources/skills/SKILL.md`` 与各包
-      prepack 暂存的那份(mail-core / openclaw-aimail / dsh-aimail / pi-aimail)的
-      ``name:`` / ``toolset:``
+  (c) SKILL.md frontmatter 契约名: 单一真源 ``resources/skills/SKILL.md`` 与
+      agent-aimail 包内 prepack 暂存的那份的 ``name:`` / ``toolset:``
       必须 == 清单的 agent_skill_name / agent_toolset_name。
       (正是能抓住改名提交 d701dae(2026-09-03)那类破坏的检查。)
 

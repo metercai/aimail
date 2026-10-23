@@ -492,8 +492,8 @@ def write_dsh(home: Path, base_url: str, model: str, api_key: str) -> list[Path]
             # and cannot serve it. Write the llm-pi-ai provider row (api: openai-
             # completions, credential by env NAME — the host process carries LLM_API_KEY,
             # J4c's job, never this file) + point agent-default-model at it: the inbound
-            # turn selects via currentSelection() (dsh-headless:296-302 / dsh-aimail
-            # inbound.ts:158), which ships as deepseek-official/deepseek-flash and would
+            # turn selects via currentSelection() (dsh-headless:296-302 / agent-aimail
+            # src/dsh/inbound.ts:158), which ships as deepseek-official/deepseek-flash and would
             # otherwise ignore the pi-ai row entirely. Shape proven byte-for-byte by the
             # local L3-clone (54s reply, modelSelection.xiaomi, llmMs=43170).
             lines = _dsh_upsert_row(lines, _DSH_PI_PLUGIN_ID, [
@@ -595,12 +595,12 @@ def verify_openclaw(home: Path, base_url: str, model: str) -> list[str]:
     if not mode:
         bad.append("gateway.mode is empty — openclaw refuses to start in that state")
     # 装前模式(owner 裁决 C, 2026-10-03): 预置镜像 = 纯原生, 适配器接线(hooks.token
-    # ensureHooksToken)发生在门禁的安装步 ⇒ 构建期验收只判 LLM 配置本体, 接线项留给
+    # ensureHooksWiring)发生在门禁的安装步 ⇒ 构建期验收只判 LLM 配置本体, 接线项留给
     # 装后(旅程 J4b)的同一 verifier。LLM_CONFIG_PRE_INSTALL=1 时跳过接线类判项。
     if os.environ.get("LLM_CONFIG_PRE_INSTALL") != "1":
         if not ((cfg.get("hooks") or {}).get("token") or "").strip():
             bad.append("hooks.token missing — the openclaw ADAPTER must have wired it "
-                       "(openclaw-aimail ensureHooksToken); fresh scratch homes fail this on purpose")
+                       "(agent-aimail ensureHooksWiring); fresh scratch homes fail this on purpose")
     return bad
 
 
