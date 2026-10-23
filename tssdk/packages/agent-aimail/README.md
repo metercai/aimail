@@ -1,7 +1,7 @@
 # agent-aimail
 
 AIMail's single TypeScript SDK package. One package serves all Node.js agent
-hosts: the shared core (gateway client, 15 mail tools, inbound preprocess
+hosts: the shared core (gateway client, 14 mail tools, inbound preprocess
 chain, HMAC verification, auto-bind) plus a host adapter for each supported
 platform.
 

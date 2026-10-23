@@ -1,6 +1,6 @@
 /**
  * MAIL_TOOLS contract tests:
- *   - structural: 15 tools, exact names/order, non-empty semantic text
+ *   - structural: 14 tools, exact names/order, non-empty semantic text
  *   - parity (best-effort): names + descriptions + parameter text must match
  *     the shared tool spec materialized in aimail/pysdk/aimail_mcp_server.py.
  *     That file is the Python-platform MCP fallback; the TS SDK embeds tools
@@ -29,7 +29,6 @@ const EXPECTED_NAMES = [
   'board_heartbeat',
   'board_members',
   'board_roles',
-  'set_public_whoami',
   'activate_address_code',
 ] as const
 
@@ -67,7 +66,7 @@ print(json.dumps(ns['TOOLS']))
 }
 
 describe('MAIL_TOOLS structure', () => {
-  it('registers exactly the 15 bare tool names, in order', () => {
+  it('registers exactly the 14 bare tool names, in order', () => {
     expect(MAIL_TOOLS.map(t => t.name)).toEqual([...EXPECTED_NAMES])
   })
 
@@ -96,7 +95,7 @@ describe('MAIL_TOOLS ↔ Python registry parity', () => {
     return
   }
 
-  it('has the same 15 tools with identical names and descriptions', () => {
+  it('has the same 14 tools with identical names and descriptions', () => {
     expect(py.map(t => t.name)).toEqual([...EXPECTED_NAMES])
     py.forEach((pt, i) => {
       const tt = MAIL_TOOLS[i]

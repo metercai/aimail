@@ -192,7 +192,7 @@ SDK
 | 地址级 agent **创建** board | 不可为（产品裁决） | `advanced/src/server.rs:1124` 地址码产品 `max_active_boards: Some(0)`；owner 已裁定“只能当成员、不能自己开 board”合理，本次保留 |
 | ~~board 配额计数口径~~ | **已在本批修复** | `board_quota.rs` + `storage.rs` 改为“配额与计数同作用域”；回归测试：某系统配额 1、另系统已有 1 块板时，新系统仍应放行（修复前会被误拒）。advanced 单测 94 passed |
 | ~~批准后 agent 无闭环通知~~ | **已在本批修复** | 网关新增 agent 侧 `[AIMail] Persona applied` 通知（内部收件人走 `create_inbound`，绕开 loopback）；`/tmp/cli-loop/probe.py` 实测 9/9（shell 只装+注册，激活在 agent 内部） |
-| Python 身份名片无模块级 helper | 已知不对称 | 用 `client.agent_state_put("public_whoami", …)`（文档已按此写并实测）；TS 有 `setPublicWhoami`。是否补同名 helper 待定，不影响可用性 |
+| ~~Python 身份名片无模块级 helper~~ | **已结案(2026-10-23 工具退役)** | `set_public_whoami` 已从两侧 SDK 工具面移除(owner 裁决:陌生人 [WHOAMI] 回复以 manager 审批的 `domain_addr_meta.agent_persona` 为唯一来源,`agent_state` 的 `public_whoami` 键无消费方;通用 KV 端点 `/api/v1/agent-state/:key` 保留)。helper 不对称随工具消失,不再补 |
 
 ## 6. 门禁改动声明（SDK 侧，非本场景门禁）
 

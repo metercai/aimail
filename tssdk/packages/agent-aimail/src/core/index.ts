@@ -152,9 +152,8 @@ export {
   boardHeartbeat,
   boardMembers,
   boardRoles,
-  setPublicWhoami,
 } from './board.js'
-export type { BoardStatusArgs, BoardTaskListArgs, BoardTaskShowArgs, BoardHeartbeatArgs, BoardMembersArgs, BoardRolesArgs, SetPublicWhoamiArgs } from './board.js'
+export type { BoardStatusArgs, BoardTaskListArgs, BoardTaskShowArgs, BoardHeartbeatArgs, BoardMembersArgs, BoardRolesArgs } from './board.js'
 export { MAIL_TOOLS } from './tool-registry.js'
 export type { MailToolDef, MailToolParam } from './tool-registry.js'
 export {

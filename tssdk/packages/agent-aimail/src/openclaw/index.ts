@@ -1,7 +1,7 @@
 /**
  * openclaw-aimail — AIMail plugin for OpenClaw.
  *
- * definePluginEntry: 15 tools (factory form, iterating MAIL_TOOLS) + inbound
+ * definePluginEntry: 14 tools (factory form, iterating MAIL_TOOLS) + inbound
  * HTTP route + register/deregister/status commands. No plugin-level config
  * schema — identity stays pointer + agentmail.json (single source of truth).
  */
@@ -29,7 +29,7 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
   id: 'agent-aimail',
   name: 'AIMail',
   description:
-    'AIMail email capability for OpenClaw: 15 mail/board tools, inbound email delivery with HMAC verification, register/deregister/status commands.',
+    'AIMail email capability for OpenClaw: 14 mail/board tools, inbound email delivery with HMAC verification, register/deregister/status commands.',
   register(api) {
     // Host identification (#5): this entry is loaded by OpenClaw's plugin
     // loader; verify the environment matches before activating.
@@ -72,7 +72,7 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
       console.error(`[agent-aimail] skill release failed: ${String(e)}`)
     }
 
-    // 15 bare-name tools (MAIL_TOOLS single source; identity from ctx.agentId)
+    // 14 bare-name tools (MAIL_TOOLS single source; identity from ctx.agentId)
     api.registerTool(createMailTools)
 
     // Inbound delivery route (in-gateway, no new port; auth=plugin, HMAC is

@@ -165,15 +165,4 @@ export async function boardRoles(ctx: ToolCtx, args: BoardRolesArgs): Promise<To
   return toResult(await client.boardRoles(args.board, email, args.role ?? ''))
 }
 
-export interface SetPublicWhoamiArgs {
-  text: string
-}
 
-export async function setPublicWhoami(ctx: ToolCtx, args: SetPublicWhoamiArgs): Promise<ToolResult> {
-  const cfg = await loadAgentConfig(ctx.systemId, ctx.email ?? '')
-  if (!cfg || !cfg.api_key) throw new Error('aimail not configured for this agent')
-  const client = new GatewayClient(cfg.gateway_url, cfg.api_key, 30_000, cfg.email)
-  const r = await client.agentStatePut('public_whoami', args.text)
-  if (r.status >= 200 && r.status < 300) return { success: true, status: 'ok' }
-  return { success: false, error: r.error ?? `HTTP ${r.status}` }
-}

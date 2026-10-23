@@ -10,7 +10,7 @@ A2A boards, and publishing the public identity.
 |---|---|
 | [`agent-aimail`](packages/agent-aimail/README.md) | Single TS SDK package: shared core (gateway client, tools, inbound preprocess chain, HMAC verification, `MAIL_TOOLS` registry) + host adapters (OpenClaw plugin / dsh self-mounting bundle / pi extension). Host identification on startup, then branch. Only runtime dependency: `typebox`. |
 
-The 15 tools are defined once in `MAIL_TOOLS` and iterated by every adapter,
+The 14 tools are defined once in `MAIL_TOOLS` and iterated by every adapter,
 so each platform surfaces an identical tool set. Binding, registration and
 platform install are driven by the aimail CLI (`aimail install --home
 <platform-home>`): per-address `agentmail.json` under `$AIMAIL_HOME` is the sole

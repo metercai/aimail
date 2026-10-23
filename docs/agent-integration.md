@@ -204,7 +204,7 @@ Field semantics follow the config-file table in `cli/README.md` and the code con
 | Component | Location |
 |-----------|----------|
 | Adapter layer | tssdk `agent-aimail` (openclaw entry) plugin (identity = `~/.openclaw/.agentmail` pointer + agentmail.json as the single source of truth; outbound X-AIMail-Agent = `openclaw/{ver}`) |
-| Tools | 15 bare-name email/board/identity tools registered in-process by the plugin (MAIL_TOOLS as the single semantic source; not MCP) |
+| Tools | 14 bare-name email/board/identity tools registered in-process by the plugin (MAIL_TOOLS as the single semantic source; not MCP) |
 | Inbound endpoint | **Gateway-plugin HTTP route** `POST http://127.0.0.1:18789/aimail/inbound` (`openclaw.json gateway.port` defaults to 18789; auth=plugin, same target for bridge/direct push): HMAC signature verify → TS `processInboundMail` → agent turn via the gateway internal `POST /hooks/agent` hook (multiple agents routed via sessionKey) |
 | Lifecycle | Plugin register/deregister/status commands (`openclaw aimail register|register-all|deregister|status`); Python registration chain retired |
 | Deployment | `openclaw plugins install agent-aimail` (or via the tssdk package); the Python side only registers/checks (cli/check_status probes the plugin endpoint at L4) |
@@ -226,7 +226,7 @@ Field semantics follow the config-file table in `cli/README.md` and the code con
 | Component | Location |
 |-----------|----------|
 | Adapter layer | tssdk `agent-aimail` (dsh entry) plugin (3 submodules: mail-service / tools / inbound; identity = `~/.dsh/.agentmail` pointer; preset = definition / uuid = instance) |
-| Tools | 15 bare-name email/board/identity tools (registered at the preset layer, visible to joined sessions; outbound X-AIMail-Agent = `dsh/{ver}`) |
+| Tools | 14 bare-name email/board/identity tools (registered at the preset layer, visible to joined sessions; outbound X-AIMail-Agent = `dsh/{ver}`) |
 | Inbound | Host-layer `mail-inbound`: node:http listener (`POST /aimail/inbound`, default port `AIMAIL_INBOUND_PORT`/9099) → HMAC signature verify → TS `processInboundMail` → `followup` wakes the corresponding session |
 | Lifecycle | agent-aimail `dist/dsh/register-cli.js`(CLI spawn,platform registry node_entry)+ host auto-bind;shared core chain(no bridge calls — route upkeep = CLI) |
 | Deployment | `dsh plugin --profile web add agent-aimail` (the bundle self-mounts via cordis.patch.yml) |
@@ -238,7 +238,7 @@ Field semantics follow the config-file table in `cli/README.md` and the code con
 | Component | Location |
 |-----------|----------|
 | Adapter layer | tssdk `agent-aimail` (pi entry) extension (identity = `~/.pi/.agentmail` pointer + agentmail.json) |
-| Tools | 15 bare-name email/board/identity tools (`pi.registerTool`, TypeBox parameters; outbound X-AIMail-Agent = `pi/{ver}`) |
+| Tools | 14 bare-name email/board/identity tools (`pi.registerTool`, TypeBox parameters; outbound X-AIMail-Agent = `pi/{ver}`) |
 | Inbound | The extension's own local listener `http://127.0.0.1:9101/aimail/inbound` (default port 9101; bridge push target) → HMAC signature verify → TS `processInboundMail` → `pi.sendUserMessage` (always triggers a turn) |
 | Lifecycle | `~/.pi/.agentmail` pointer + shared registration chain (same structure as openclaw); install-time supplementary registration via cli/check_status pi adapter |
 | Deployment | Copy/symlink → `~/.pi/agent/extensions/` (or the pi package); board resources expanded idempotently |
@@ -249,7 +249,7 @@ Field semantics follow the config-file table in `cli/README.md` and the code con
 | Dimension | Hermes | OpenClaw | DeerFlow |
 |-----------|--------|----------|----------|
 | Inbound model | One inbound, one outbound (each profile its own port, in-process preprocessing) | Gateway-plugin route `/aimail/inbound` (in-process; multiple agents via sessionKey) | In-process preprocessing (8001 router, start_run delivery) |
-| Tool exposure | In-process registry | Plugin in-process bare names (15 tools) | MCP stdio server (aimail__ prefix) |
+| Tool exposure | In-process registry | Plugin in-process bare names (14 tools) | MCP stdio server (aimail__ prefix) |
 | Deployment | Copy-deploy (driven by `aimail install`) | TS plugin (`openclaw plugins install agent-aimail`) | Adapter repo-direct; preprocessing lives in the deer-flow repo (patched install + restart) |
 | Lifecycle | Event bus (profile_created/deleted) | Plugin register command / CLI registration chain | manage.py reconcile |
 | Persona | Full capability (PERSONA_SUPPORTED=True) | None (False) | None (False) |

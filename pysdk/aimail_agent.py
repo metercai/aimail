@@ -31,7 +31,6 @@ AGENT_TOOL_NAMES = (
     "email_summary",
     "set_email_summary",
     "search_mail",
-    "set_public_whoami",
     # board tools: usable as a board MEMBER — the invite mail carries the token
     # and the inbound chain stores it (board_creds.json). Creating a board is
     # not an agent-level action: the address-code product grants 0 boards.

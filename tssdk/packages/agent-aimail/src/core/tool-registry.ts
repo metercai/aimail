@@ -35,14 +35,12 @@ import {
   boardHeartbeat,
   boardMembers,
   boardRoles,
-  setPublicWhoami,
   type BoardStatusArgs,
   type BoardTaskListArgs,
   type BoardTaskShowArgs,
   type BoardHeartbeatArgs,
   type BoardMembersArgs,
   type BoardRolesArgs,
-  type SetPublicWhoamiArgs,
 } from './board.js'
 import { activateAddressCode, type ActivateAddressCodeArgs } from './tools.js'
 
@@ -193,14 +191,6 @@ export const MAIL_TOOLS: readonly MailToolDef[] = [
       role: { type: 'string', description: 'Filter by role name' },
     },
     handler: (ctx, args) => boardRoles(ctx, args as unknown as BoardRolesArgs),
-  },
-  {
-    name: 'set_public_whoami',
-    description: 'Set the public identity card returned for stranger WHOAMI queries.',
-    parameters: {
-      text: { type: 'string', description: 'Public identity text', required: true },
-    },
-    handler: (ctx, args) => setPublicWhoami(ctx, args as unknown as SetPublicWhoamiArgs),
   },
   {
     name: 'activate_address_code',

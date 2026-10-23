@@ -27,7 +27,7 @@ describe('dsh-aimail tool registration', () => {
     }
     apply(ctx as never)
     expect(registered.length).toBe(MAIL_TOOLS.length)
-    expect(registered.length).toBe(15)
+    expect(registered.length).toBe(14)
     expect([...registered].sort()).toEqual(MAIL_TOOLS.map(t => t.name).sort())
   })
 

@@ -1,6 +1,6 @@
 # pysdk — AIMail Python SDK
 
-AIMail (agent mail) runtime for Python hosts: gateway client, 15 mail /
+AIMail (agent mail) runtime for Python hosts: gateway client, 14 mail /
 contact / note / board / identity tools, the inbound preprocess chain, an MCP
 server, and ready-made adapters for Hermes and DeerFlow.
 

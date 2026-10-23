@@ -43,11 +43,11 @@ correctly, or pass an explicit system id.
 
 ## 2. Tools — iterate `MAIL_TOOLS`, never restate semantics
 
-`@aimail/mail-core` exports `MAIL_TOOLS`: the 15 tools (`send_mail`,
+`@aimail/mail-core` exports `MAIL_TOOLS`: the 14 tools (`send_mail`,
 `manage_contacts`, `contact_profile`, `set_contact_profile`,
 `email_summary`, `set_email_summary`, `search_mail`, `board_status`,
 `board_task_list`, `board_task_show`, `board_heartbeat`, `board_members`,
-`board_roles`, `set_public_whoami`, `activate_address_code`)
+`board_roles`, `activate_address_code`)
 with name, description, and TypeBox parameter shapes. Your adapter only
 binds the platform execute context:
 
@@ -136,7 +136,7 @@ isolated linker cannot pack them — use `scripts/publish-npm.sh`.
 ## 6. Checklist before shipping
 
 - [ ] pointer file + `agentmail.json` resolution (fail loud when unbound)
-- [ ] 15 bare-name tools from `MAIL_TOOLS` (no restated semantics)
+- [ ] 14 bare-name tools from `MAIL_TOOLS` (no restated semantics)
 - [ ] inbound `POST /aimail/inbound`, HMAC → resolve → 13-step chain → session
 - [ ] ping/pong probes intercepted, never dispatched to the model
 - [ ] `X-AIMail-Agent: {platform}/{version}+{model}` on outbound mail

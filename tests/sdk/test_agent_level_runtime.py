@@ -197,7 +197,7 @@ def test_setup_command_installs_skill_and_reports_the_toolset(tmp_path, capsys):
     assert rc == 0
     assert out["activate_tool_visible"] is True
     assert "activate_address_code" in out["toolset"]
-    assert len(out["toolset"]) == 15
+    assert len(out["toolset"]) == 14
     assert (tmp_path / "skills" / contract.AGENT_SKILL_NAME / "SKILL.md").is_file()
 
 class _HotAddClient:

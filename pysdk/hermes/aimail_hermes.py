@@ -840,16 +840,6 @@ def _handle_activate_address_code(args, **_kw):
     ))
 
 
-def _handle_set_public_whoami(args, **_kw):
-    """设置陌生人 WHOAMI 返回的公开身份卡(与 MCP 侧 tool_set_public_whoami 同源)。"""
-    cfg = _load_profile_config()
-    if not cfg or not cfg.get("api_key"):
-        return tool_result({"success": False, "error": "aimail not configured for this profile"})
-    client = _GatewayClient(cfg["gateway_url"], cfg["api_key"])
-    client.agent_state_put("public_whoami", args.get("text", ""))
-    return tool_result({"success": True})
-
-
 # ═══════════════════════════════════════════════════════════════
 # 2. 注入公共核心的注入点
 # ═══════════════════════════════════════════════════════════════
@@ -1214,27 +1204,6 @@ try:
     )
 except Exception as _e:
     logger.warning("[aimail] activate_address_code registration failed: %s", _e)
-
-try:
-    registry.register(
-        name="set_public_whoami",
-        toolset=_TOOLSET,
-        schema={
-            "name": "set_public_whoami",
-            "description": "Set the public identity card returned for stranger WHOAMI queries.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "text": {"type": "string", "description": "Public identity text"},
-                },
-                "required": ["text"],
-            },
-        },
-        handler=_handle_set_public_whoami,
-        emoji="🪪",
-    )
-except Exception as _e:
-    logger.warning("[aimail] set_public_whoami registration failed: %s", _e)
 
 # 3c. profile 生命周期钩子（地址自动注册/注销）
 register_profile_hook("profile_created", _auto_register_email)

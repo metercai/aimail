@@ -46,7 +46,6 @@ export const AGENT_TOOL_NAMES = [
   'email_summary',
   'set_email_summary',
   'search_mail',
-  'set_public_whoami',
   'board_status',
   'board_task_list',
   'board_task_show',
