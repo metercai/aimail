@@ -27,8 +27,15 @@ import {
 import { POINTER_FILE } from './contract.js'
 import type { GatewayResponse } from './types.js'
 
-/** Minimal client surface these helpers need (GatewayClient satisfies it). */
+/**
+ * Minimal client surface these helpers need (GatewayClient satisfies it).
+ * `baseUrl` is required: the persist chain derives `gateway_url` from it when
+ * the caller omits `opts.gatewayUrl` — Python-side parity, where the binding
+ * always carries the client's configured gateway URL.
+ */
 export interface RequestClient {
+  /** Base URL the client talks to (GatewayClient stores it without trailing slash). */
+  readonly baseUrl: string
   request(
     method: string,
     path: string,
@@ -86,8 +93,12 @@ export async function activateAddressCode(
 }
 
 export interface ActivateAddressCodePersistOptions {
-  /** Gateway base URL recorded in the binding (the gateway the agent uses). */
-  gatewayUrl: string
+  /**
+   * Gateway base URL recorded in the binding (the gateway the agent uses).
+   * Optional: when omitted it is derived from `client.baseUrl` (Python parity
+   * — `self.gateway_url`), so the binding always carries a `gateway_url`.
+   */
+  gatewayUrl?: string
   /**
    * Agent id recorded in the binding. Defaults to the address local-part
    * (the mailbox IS the agent — the address flow has no separate agent
@@ -125,6 +136,18 @@ export async function activateAddressCodePersist(
   emailAddress: string,
   opts: ActivateAddressCodePersistOptions,
 ): Promise<ActivateAddressCodePersistResult> {
+  // Derive the binding's gateway_url BEFORE the activation request: when the
+  // caller omits opts.gatewayUrl, fall back to the client's configured base
+  // URL (Python parity — self.gateway_url). Failing early means an empty
+  // result cannot leak an orphaned raw_key from a half-persisted activation.
+  const gatewayUrl = (opts.gatewayUrl ?? client.baseUrl ?? '').trim()
+  if (!gatewayUrl) {
+    return {
+      success: false,
+      error: 'cannot derive gateway_url: opts.gatewayUrl missing and client has no ' +
+        'baseUrl — refusing to persist a binding without it (contract: 7 fields)',
+    }
+  }
   const act = await activateAddressCode(client, code, emailAddress)
   if (!act.success || !act.raw_key || !act.system_id || !act.email_address) {
     return act
@@ -137,7 +160,7 @@ export async function activateAddressCodePersist(
   // 1. Address-keyed agentmail.json (register-isomorphic + expires_at).
   const cfg: AgentConfig = {
     email,
-    gateway_url: opts.gatewayUrl,
+    gateway_url: gatewayUrl,
     domain,
     system_id: sid,
     api_key: act.raw_key,
@@ -170,7 +193,7 @@ export async function activateAddressCodePersist(
       gwPath,
       JSON.stringify(
         {
-          gateway_url: opts.gatewayUrl,
+          gateway_url: gatewayUrl,
           system_id: sid,
           domain,
           scope: 'agent',

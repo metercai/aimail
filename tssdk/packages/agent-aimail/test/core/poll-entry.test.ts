@@ -52,6 +52,7 @@ function binding(over: Partial<AgentConfig> = {}): AgentConfig {
 
 /** Fake gateway: scripted list responses + ack call log (the assertion surface). */
 class FakeGateway implements RequestClient {
+  baseUrl = 'http://127.0.0.1:38080'
   calls: Array<{ method: string; path: string; body?: Record<string, unknown> }> = []
   ackCalls: number[][] = []
   private queue: Array<Record<string, unknown>>

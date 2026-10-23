@@ -25,8 +25,10 @@ import {
   type RequestClient,
 } from '../../src/core/address-code.js'
 import type { GatewayResponse } from '../../src/core/types.js'
+import { BINDING_FILE } from '../../src/core/contract.js'
 
 class MockClient implements RequestClient {
+  baseUrl = 'http://127.0.0.1:38080'
   calls: Array<{ method: string; path: string; body?: Record<string, unknown> }> = []
   /** Queued responses for the pull (list) endpoint, consumed in order. */
   responses: Array<Record<string, unknown>> = []
@@ -164,6 +166,53 @@ describe('activateAddressCodePersist', () => {
       await fs.readFile(path.join(gwDir, 'aimail_gateway.json'), 'utf8'),
     ) as Record<string, unknown>
     expect(gw.admin_key).toBe('keep-me')
+  })
+
+  it('derives gateway_url from client.baseUrl when opts.gatewayUrl is omitted', async () => {
+    const c = new MockClient()
+    c.baseUrl = 'http://derived.example:9999'
+    c.responses.push({
+      status: 200,
+      raw_key: 'rk-derive',
+      system_id: 'shared_addr_e2e',
+      email_address: 'e2e-derive@e2e.local',
+      expires_at: '2026-12-01T00:00:00Z',
+    })
+    const r = await activateAddressCodePersist(c, 'code', 'e2e-derive@e2e.local', {})
+    expect(r.success).toBe(true)
+    const cfg = JSON.parse(
+      await fs.readFile(
+        path.join(home, 'systems', 'shared_addr_e2e', 'e2e-derive_e2e.local', BINDING_FILE),
+        'utf8',
+      ),
+      'utf8',
+    ) as Record<string, unknown>
+    expect(cfg.gateway_url).toBe(c.baseUrl)
+    // The documented 7-field set (S1-09): every one present, no silent drop.
+    const need = ['agent_id', 'api_key', 'domain', 'email', 'expires_at', 'gateway_url', 'system_id']
+    for (const k of need) expect(cfg[k], `missing ${k}`).toBeTruthy()
+    const gw = JSON.parse(
+      await fs.readFile(path.join(home, 'systems', 'shared_addr_e2e', 'aimail_gateway.json'), 'utf8'),
+      'utf8',
+    ) as Record<string, unknown>
+    expect(gw.gateway_url).toBe(c.baseUrl)
+  })
+
+  it('fails explicitly (no silent 6-field binding) when no gateway_url is derivable', async () => {
+    const c = new MockClient()
+    c.baseUrl = ''
+    c.responses.push({
+      status: 200,
+      raw_key: 'rk-orphan',
+      system_id: 'shared_addr_e2e',
+      email_address: 'x@e2e.local',
+    })
+    const r = await activateAddressCodePersist(c, 'code', 'x@e2e.local', {})
+    expect(r.success).toBe(false)
+    expect(r.error).toContain('cannot derive gateway_url')
+    // Fails before the activation request: no orphaned raw_key, nothing on disk.
+    expect(c.calls).toHaveLength(0)
+    expect(await fs.readdir(path.join(home, 'systems')).catch(() => [])).toEqual([])
   })
 })
 
