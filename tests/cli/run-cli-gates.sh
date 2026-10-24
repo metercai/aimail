@@ -1,76 +1,76 @@
 #!/usr/bin/env bash
-# ▓ CLI 域门禁（owner 2026-10-04 裁决：CLI 与 SDK 的门禁拆开、各归各位）
+# ▓ CLI domain gate (owner 2026-10-04 ruling: CLI and SDK gates are split, each in its own place)
 #
-# 本脚本只含**主体是 CLI** 的检查：
-#   1) 共享边界块（契约单一真源棘轮 / zero-bridge / 文件归属 / docs↔impl）—— 边界两侧共用，故按共享件调用
-#   2) rust 电池：fmt --check · clippy -D warnings · test --all-targets（CLI 二进制自身）
+# This script only contains checks where **the main subject is CLI**:
+#   1) Shared boundary block (contract single source of truth ratchet / zero-bridge / file ownership / docs<->impl) -- shared by both sides of the boundary, hence invoked as a shared component
+#   2) rust battery: fmt --check · clippy -D warnings · test --all-targets (the CLI binary itself)
 [ -n "${L2_JOURNEY:-}" ] && export CLI_JOURNEY=1
-#   3) CLI 宿主 L1/L2 门禁：aimail-advanced/tests/cli/（黑盒：rust 二进制为被测物）
+#   3) CLI host L1/L2 gate: aimail-advanced/tests/cli/ (black-box: rust binary is the test subject)
 #
-# 平台字面量判据不在本脚本：Rust 侧由 cli/src/hosts/ 的宿主不变量单测
-# + adapters 单测守住（随第 2 步 cargo test 跑），2026-10-08 删除对已退役 Python 文件的死 grep。
+# Platform literal criteria are not in this script: on the Rust side, they are covered by host invariant unit tests in cli/src/hosts/
+# + adapters unit tests guard (run with step 2 cargo test), 2026-10-08 remove dead grep for retired Python files.
 #
-# 不进本脚本的（属 SDK 域，见 tests/sdk/l0-gate-tests.sh）：
-#   SDK 资源(各包 prepack 自暂存) · pysdk pyflakes/py_compile · 产品面 pytest(tests/sdk/) · tssdk build/vitest。
+# Not in this script (belongs to SDK domain, see tests/sdk/l0-gate-tests.sh):
+#   SDK resources (each package prepacks from staging) · pysdk pyflakes/py_compile · product surface pytest (tests/sdk/) · tssdk build/vitest.
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO" || exit 2
 fail=0
 
-echo "═══ [CLI] 1) 共享边界块 ═══"
+echo "═══ [CLI] 1) Shared boundary block ═══"
 bash tests/shared/shared-boundary-checks.sh || fail=1
 
 echo
-echo "═══ [CLI] 2) rust 电池（顺序不可换：cli 测试比对的是已构建产物）═══"
+echo "═══ [CLI] 2) rust battery (order cannot be swapped: cli tests compare against built artifacts) ═══"
 if [ -d cli ]; then
-  # 进程环境写点全部持 testutil::ENV_LOCK 串行化(P8 第2层: 产品码 set_var 已清零 +
-  # 测试侧 11 个 env 写用例加进程级锁)⇒ 并行安全, 去掉 --test-threads=1 串行掩盖。
+  # All process environment write points hold testutil::ENV_LOCK for serialization (P8 layer 2: product code set_var is zeroed +
+  # Added process-level lock to 11 env write cases on the test side) ⇒ parallel safe, removed --test-threads=1 serial masking.
   (cd cli && cargo fmt --all --check \
         && cargo clippy --offline --all-targets -- -D warnings \
         && cargo build --offline \
         && cargo test --offline --all-targets) || fail=1
 else
-  echo "[CLI] SKIP: 无 cli/ 目录"
+  echo "[CLI] SKIP: no cli/ directory"
 fi
 
 echo
-echo "═══ [CLI] 2b) 需已装件的 parity 用例（L2：经 python 门调已装 agent-aimail）═══"
+echo "═══ [CLI] 2b) parity cases requiring installed components (L2: via python gate calling installed agent-aimail) ═══"
 if [ -d cli ]; then
-  # 属 L2(装件级)：dev 门禁(ci.yml)不装 SDK,故 cli/tests 里这类用例由 feature 关掉。
-  # 前置条件 = 域内解释器可 import agent-aimail(probe_in_domain 链首 AIMAIL_PYTHON)；
-  # 缺则响亮 SKIP —— 环境缺失不是产品红,与步骤 3 对 advanced 缺失同款。
+  # Belongs to L2 (component level): dev gate (ci.yml) does not install SDK, so such cases in cli/tests are disabled by feature.
+  # Precondition = in-domain interpreter can import agent-aimail (probe_in_domain chain head AIMAIL_PYTHON);
+  # Loudly SKIP if missing —— a missing environment is not a product red, same as step 3 for missing advanced.
   _sdk_py=""
-  # 同类判据(owner 2026-10-11):CWD 下同名目录会被当成命名空间包 ⇒ 必须要求"真包"
-  # (cd / 去掉 CWD 影响 + find_spec 有 origin;命名空间包 origin=None)。只修错、不放宽。
+  # Same class of criteria (owner 2026-10-11): a same-named directory under CWD is treated as a namespace package ⇒ must require a "real package"
+  # (cd / to remove CWD influence + find_spec has origin; namespace package origin=None). Only fix errors, do not loosen.
   for c in "${AIMAIL_PYTHON:-}" python3; do
     [ -n "$c" ] || continue
     if command -v "$c" >/dev/null 2>&1 && ( cd / && "$c" -c "import importlib.util,sys; s=importlib.util.find_spec('aimail'); sys.exit(0 if (s and s.origin) else 1)" ) >/dev/null 2>&1; then _sdk_py="$c"; break; fi
   done
   if [ -z "$_sdk_py" ]; then
-    echo "[CLI] SKIP(env): 无解释器可 import agent-aimail —— parity 用例未跑"
+    echo "[CLI] SKIP(env): No interpreter available to import agent-aimail -- parity case not run"
   else
-    echo "[CLI] 解释器 = $_sdk_py（agent-aimail 可导入）"
+    echo "[CLI] interpreter = $_sdk_py (agent-aimail importable)"
     (cd cli && cargo test --offline --features sdk-parity --test repair_backfill_parity) || fail=1
   fi
 else
-  echo "[CLI] SKIP: 无 cli/ 目录"
+  echo "[CLI] SKIP: no cli/ directory"
 fi
 
 echo
-echo "═══ [CLI] 2c) 注册表形状测试(pytest, 数据源 = spec --json 黑盒)═══"
-# P2c S3b: 平台注册表形状断言的数据源 = 已构建二进制的 `aimail platform spec --json`
-# (cli/platforms.json 已退役)。前置 = 步骤 2 已 cargo build(target/debug/aimail 在位);
-# 依赖 pytest + PyYAML(CI 在 ci.yml cli-gates job 钉版安装; 本地缺 pytest ⇒ 响亮失败)。
+echo "═══ [CLI] 2c) registry shape tests (pytest, data source = spec --json black-box) ═══"
+# P2c S3b: data source for platform registry shape assertions = `aimail platform spec --json` of the built binary
+# (cli/platforms.json is retired). Precondition = step 2 has cargo build (target/debug/aimail in place);
+# Depends on pytest + PyYAML (CI pins versions in ci.yml cli-gates job; local missing pytest ⇒ loud failure).
 if [ -d cli ] && [ -d tests/cli ] && ls tests/cli/*.py >/dev/null 2>&1; then
   python3 -m pytest tests/cli/ -q || fail=1
 fi
 
 echo
-echo "═══ [CLI] 3) CLI 宿主 L1/L2 门禁（黑盒，被测物 = rust 二进制）═══"
+echo "═══ [CLI] 3) CLI host L1/L2 gate (black-box, test subject = rust binary) ═══"
 if [ -x "$HOME/aimail-advanced/tests/cli/run-cli-gate.sh" ]; then
   (cd "$HOME/aimail-advanced" && bash tests/cli/run-cli-gate.sh) || fail=1
 else
-  echo "[CLI] SKIP: 未找到 aimail-advanced/tests/cli/run-cli-gate.sh"
+  echo "[CLI] SKIP: aimail-advanced/tests/cli/run-cli-gate.sh not found"
 fi
 
 echo

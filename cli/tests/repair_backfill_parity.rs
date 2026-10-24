@@ -1,17 +1,17 @@
-//! repair 第 7 步（绑定文件补空 + `webhook_url` 对齐）的**写入面字节级**跨语言验收。
+//! The **write-surface, byte-level** cross-language acceptance of repair step 7 (binding-file backfill + `webhook_url` alignment).
 //!
-//! 这一步是 rust 侧**第一个经 SDK 门写入**的动作，所以验收标准定成"落盘结果逐字节相同"：
-//! - 同一夹具形状（绑定文件 + 系统级网关配置 + 路由表）；
-//! - **同一个活路由探针端口**（Python 与 Rust 各自探同一地址，避免端口不同导致字节差异）；
-//! - 两侧各自跑：Python 的对应私函数 / Rust `repair::agentmail_backfill_with`
-//!   （Rust 侧经 python 门调用已装 agent-aimail；`AIMAIL_HOME` 经门 env 注入 ⇒ 不改进程环境，测试可并行）。
+//! This step is the **first write through the SDK door on the rust side**, so the acceptance criterion is set to "the on-disk result is byte-for-byte identical":
+//! - the same fixture shape (binding file + system-level gateway config + route table);
+//! - **the same live-route probe port** (Python and Rust each probe the same address, avoiding byte differences caused by different ports);
+//! - each side runs its own: Python's corresponding private function / Rust's `repair::agentmail_backfill_with`
+//!   (the Rust side calls the installed agent-aimail through the python door; `AIMAIL_HOME` is injected via the door env => the process environment is not modified, and the tests can run in parallel).
 //!
-//! 覆盖两条分支：① 可重建字段**补空**（网关配置为准）；② `webhook_url` 与活路由**对齐**
-//! （声明值已死、路由活 ⇒ 改写；这是 `_alive()` 探针与 `url_host()` 本机判定的联合路径）。
+//! Two branches are covered: ① **backfill** of rebuildable fields (deferring to the gateway config); ② **aligning** `webhook_url` with the live route
+//! (the declared value is dead, the route is live => rewrite; this is the combined path of the `_alive()` probe and the `url_host()` local verdict).
 
-// 门禁分层（owner 2026-10-11 裁决）：本文件经 python 门调**已装** agent-aimail ⇒ 属 L2（装件级），
-// 不进 dev 门禁（干净 runner 上装不到 SDK，本目标曾长期红）。由 L2 门禁与 release 门禁显式
-// `--features sdk-parity` 运行；默认（无该 feature）整个文件编译为空 ⇒ dev 门禁不再红。
+// Gate layering (owner ruling 2026-10-11): this file calls the **installed** agent-aimail through the python door => it belongs to L2 (install level),
+// and does not enter the dev gate (a clean runner cannot install the SDK, and this target was red for a long time). The L2 gate and the release gate run it explicitly
+// with `--features sdk-parity`; by default (without that feature) the whole file compiles to nothing => the dev gate is no longer red.
 #![cfg(feature = "sdk-parity")]
 
 use aimail::core::contract;
@@ -21,13 +21,13 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::Path;
 
-/// 起一个极简探针：任何请求都回 200（模拟"活路由"）。返回端口与线程句柄。
+/// Start a minimal probe: every request gets a 200 (simulating a "live route"). Returns the port and the thread handle.
 fn spawn_live_probe() -> (u16, std::thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind probe");
     let port = listener.local_addr().unwrap().port();
     listener.set_nonblocking(true).unwrap();
     let h = std::thread::spawn(move || {
-        // 限时 + 非阻塞：只服务到截止时间或请求数上限（否则 join 会等一个永不到来的连接）
+        // time-bounded + non-blocking: serve only until the deadline or the request-count cap (otherwise join would wait for a connection that never comes)
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
         let mut served = 0;
         while std::time::Instant::now() < deadline && served < 8 {
@@ -49,14 +49,14 @@ fn spawn_live_probe() -> (u16, std::thread::JoinHandle<()>) {
     (port, h)
 }
 
-/// 与 Python 侧完全同形的夹具（唯一变量 = 探针端口，两侧共用同一个）。
+/// A fixture with exactly the same shape as the Python side (the only variable = the probe port, shared by both sides).
 fn build_fixture(root: &Path, port: u16) {
     let ah = root.join("aimail");
     let sysdir = ah.join("systems").join("s1");
     let agent = sysdir.join("a_example.test");
     std::fs::create_dir_all(&agent).unwrap();
     std::fs::create_dir_all(ah.join("bridge")).unwrap();
-    // 系统级网关配置 = 补空来源（不含任何路径字段 ⇒ 两侧字节可比）
+    // the system-level gateway config = the backfill source (it carries no path fields at all => the bytes of both sides are comparable)
     std::fs::write(
         sysdir.join("aimail_gateway.json"),
         serde_json::to_string_pretty(&json!({
@@ -70,7 +70,7 @@ fn build_fixture(root: &Path, port: u16) {
         .unwrap(),
     )
     .unwrap();
-    // 绑定文件：缺可重建字段（补空分支）+ webhook_url 指向死端口（对齐分支）
+    // the binding file: rebuildable fields missing (the backfill branch) + webhook_url pointing at a dead port (the alignment branch)
     std::fs::write(
         agent.join(contract::binding_file()),
         serde_json::to_string_pretty(&json!({
@@ -87,7 +87,7 @@ fn build_fixture(root: &Path, port: u16) {
         .unwrap(),
     )
     .unwrap();
-    // 路由表：本机活路由（探针端口）
+    // the route table: a local live route (the probe port)
     std::fs::write(
         ah.join("bridge").join("aimail_routes.toml"),
         format!(
@@ -113,41 +113,41 @@ fn agentmail_backfill_writes_byte_identical_to_python() {
     let rs_root = tempfile::tempdir().unwrap();
     build_fixture(rs_root.path(), port);
 
-    // transport：python 宿主经 python 门（解释器自带 ⇒ 不再有"程序根"入参）；
-    // AIMAIL_HOME 经门 env 注入 ⇒ 不改进程环境，测试可并行。
+    // transport: the python host goes through the python door (the interpreter is self-contained => the "program root" argument no longer exists);
+    // AIMAIL_HOME is injected via the door env => the process environment is not modified, and the tests can run in parallel.
     let ah = rs_root.path().join("aimail");
     let changed = agentmail_backfill_with(
         "s1",
         &ah,
         &[("AIMAIL_HOME".to_string(), ah.to_string_lossy().to_string())],
     );
-    assert!(changed, "rust 侧应报告有改动");
+    assert!(changed, "the rust side should report that there are changes");
     let rs_bytes = binding_bytes(rs_root.path());
 
-    // 旧 python CLI 已放弃（以终为始）⇒ 不再作参照；改为直接断言终态（委托 SDK 后一致性由构造保证）
+    // the old python CLI has been abandoned (starting from the end) => it is no longer used as a reference; instead assert the final state directly (after delegating to the SDK, consistency is guaranteed by construction)
     let v: Value = serde_json::from_slice(&rs_bytes).unwrap();
-    assert_eq!(v["system_name"], "e2e", "补空字段应来自网关配置");
+    assert_eq!(v["system_name"], "e2e", "the backfilled field should come from the gateway config");
     assert_eq!(
         v["webhook_url"],
         format!("http://127.0.0.1:{port}{}", contract::inbound_path()),
-        "webhook_url 应对齐到活路由（声明值已死）"
+        "webhook_url should be aligned to the live route (the declared value is dead)"
     );
     probe.join().ok();
 }
 
 #[test]
 fn agentmail_backfill_is_idempotent_and_no_route_means_no_write() {
-    // 无路由表 ⇒ 只补空一次；再跑一次应无改动（幂等、不重复写）
+    // no route table => the backfill happens only once; a second run should produce no change (idempotent, no repeated writes)
     let rs_root = tempfile::tempdir().unwrap();
     build_fixture(rs_root.path(), 1);
     std::fs::remove_file(rs_root.path().join("aimail/bridge/aimail_routes.toml")).unwrap();
     let ah = rs_root.path().join("aimail");
     let env = vec![("AIMAIL_HOME".to_string(), ah.to_string_lossy().to_string())];
-    assert!(agentmail_backfill_with("s1", &ah, &env), "首次应补空");
+    assert!(agentmail_backfill_with("s1", &ah, &env), "the first run should backfill");
     let after_first = binding_bytes(rs_root.path());
     assert!(
         !agentmail_backfill_with("s1", &ah, &env),
-        "第二次应无改动（幂等）"
+        "the second run should produce no change (idempotent)"
     );
-    assert_eq!(after_first, binding_bytes(rs_root.path()), "幂等：内容不变");
+    assert_eq!(after_first, binding_bytes(rs_root.path()), "idempotent: the content is unchanged");
 }

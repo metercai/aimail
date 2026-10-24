@@ -1,36 +1,36 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""aimail.sdk_ops — SDK 侧**可执行门**（进程命令契约）。
+"""aimail.sdk_ops — SDK-side **executable gate** (process command contract).
 
-架构（与 `install.py` 同一原则，2026-10-04 新增）：
+Architecture (same principle as `install.py`, added 2026-10-04):
 
-    每个 SDK 自带**可被 spawn 的入口**，调用方（宿主运维程序或人）只执行它，不
-    自己持有 SDK 的算法。TS 侧的平台包早已是这个形态（`dist/register-cli.js` /
-    `dist/register-cli.js`，注册表 `register.kind=node_entry`）；本模块是 Python 侧
-    的**对等门**：把 CLI 侧需要的几个"薄入口"暴露成同形进程契约，从而让任何语言
-    的调用方（Rust CLI / 未来的 Python CLI / 宿主脚本）都只依赖**一条协议**，
-    而不是依赖某语言的运行时内部结构。
+    Each SDK has its own **spawnable entry point**; the caller (host ops program or human) only executes it and does not
+    hold the SDK's algorithms itself. The TS-side platform packages have long been in this form (`dist/register-cli.js` /
+    `dist/register-cli.js`, registry `register.kind=node_entry`); this module is the Python-side
+    **parity gate**: expose the few "thin entry points" the CLI side needs as same-shaped process contracts, so any language
+    (Rust CLI / future Python CLI / host scripts) depend only on **one protocol**,
+    rather than on the internal structure of a specific language's runtime.
 
-    · 门长在 SDK 侧，因为**算法归 SDK**（webhook secret 生成、注册链、`webhook_host`
-      三态派生）：语言中立的是**数据**（绑定文件格式、网关 HTTP），不是算法。
-      ⇒ 调用方只能"调"，不许抄一份实现。
-    · 本模块**自带判定与编排**（2026-10-06 owner 契约 v1.0 §4.1）：与 TS 侧
-      `register-cli.js` 同形 —— 命名/派生/注册/改名/落绑定/受控变更/注销的判定与
-      编排都在 SDK 侧完成；调用方（CLI）只做 **transport 分派 + 参数传递 + 收单行 JSON**，
-      不再自己拼注册器 argv、不再持有 SDK 算法（此前"判定留在调用方"的立场已废止）。
+    · The gate is on the SDK side because **algorithms belong to the SDK** (webhook secret generation, registration chain, `webhook_host`
+      three-state derivation): what is language-neutral is **data** (binding file format, gateway HTTP), not algorithms.
+      ⇒ Callers can only "call", they are not allowed to copy an implementation.
+    · This module **owns judgment and orchestration** (2026-10-06 owner contract v1.0 §4.1): isomorphic to the TS-side
+      `register-cli.js` is isomorphic —— the determination of naming/derivation/registration/renaming/binding landing/controlled changes/deregistration and
+      completed on the SDK side; the caller (CLI) only does **transport dispatch + parameter passing + receiving single-line JSON**,
+      no longer assembling the register argv itself, no longer holding SDK algorithms (the previous stance of "judgment stays with the caller" has been abolished).
 
-进程命令契约（ABI）：
+Process command contract (ABI):
 
     python -m aimail.sdk_ops <op> [--args '<json-object>']
 
-    stdout  恰一行 JSON（**结果只在 stdout，人类可读文本一律走 stderr**）：
-              成功: {"ok": true, "result": <any>}
-              失败: {"ok": false, "kind": "usage|import|call", "exc": "<异常类名>", "error": "<文本>"}
-    exit    0 = 成功 · 1 = 运行期失败(import/call) · 2 = 用法错误(usage)
-    stderr  用法提示 / 异常回溯 / SDK 自身的输出（被重定向到这里，保证 stdout 单行）
-    --args  缺省 `{}`；必须是 JSON **对象**，键 = 各 op 的参数名
+    stdout  Exactly one line of JSON (**result only on stdout, human-readable text always goes to stderr**):
+              Success: {"ok": true, "result": <any>}
+              Failure: {"ok": false, "kind": "usage|import|call", "exc": "<exception class name>", "error": "<text>"}
+    exit    0 = success · 1 = runtime failure (import/call) · 2 = usage error (usage)
+    stderr  Usage hints / exception traceback / SDK's own output (redirected here to ensure single-line stdout)
+    --args  Default `{}`; must be a JSON **object**, keys = parameter names for each op
 
-op 表（op → SDK 薄入口；均为幂等或只读）：
+op table (op → SDK thin entry; all idempotent or read-only):
 
     iter_bindings                  system_id                → aimail_base.iter_agentmail_configs
     ensure_webhook_secret          binding                  → aimail_base.ensure_binding_webhook_secret
@@ -39,15 +39,15 @@ op 表（op → SDK 薄入口；均为幂等或只读）：
                                    webhook_url?, webhook_secret?, manager_address?
     backfill_binding               binding, system_id       → aimail_base.backfill_binding
 
-    · `binding` = `iter_bindings` 返回的元素**原样回传**（含 SDK 注入的 `_config_path`，
-      它是"这条绑定落在哪"的唯一依据 —— 自己拼路径会绕过 SDK 的落盘语义）。
-    · `gw` = 系统级网关配置对象（`gateway_url` / `admin_key`）：本模块据此建网关客户端，
-      不自己读盘 ⇒ 调用方仍是"环境主控"。
-    · `register_agent_email` 的 manager 硬门语义不变：缺 manager 时由 SDK 抛
-      `ManagerRequiredError`，此处**原样上报**（kind=call, exc=ManagerRequiredError），
-      绝不降级成空值注册。
+    · `binding` = the element returned by `iter_bindings` **passed through as-is** (including the SDK-injected `_config_path`,
+      it is the sole basis for "where this binding lands" —— assembling paths yourself would bypass SDK's persistence semantics).
+    · `gw` = system-level gateway config object (`gateway_url` / `admin_key`): this module uses it to build the gateway client,
+      does not read disk itself ⇒ caller remains the "environment controller".
+    · `register_agent_email` manager hard-gate semantics unchanged: when manager is missing, SDK raises
+      `ManagerRequiredError`, reported **as-is** here (kind=call, exc=ManagerRequiredError),
+      never downgraded to empty-value registration.
 
-签名/正确性单真源仍在 `aimail_base`；本模块只做参数校验与结果封装。
+Signature/correctness single source of truth remains in `aimail_base`; this module only does parameter validation and result wrapping.
 """
 from __future__ import annotations
 
@@ -56,22 +56,22 @@ import json
 import os
 import subprocess
 
-# 注册器执行超时上限（秒）
+# Registrar execution timeout limit (seconds)
 REGISTRAR_TIMEOUT = 120
 import sys
 from pathlib import Path
 
-# ── 双形态自举：本文件位于 core 目录（pysdk/ 或 site-packages/aimail/）──
-# flat core（aimail_base.py 等）就在此目录下；包形态下 `python -m aimail.sdk_ops`
-# 会先执行包 __init__ 完成同样的自举，这里是仓库形态与直接执行时的兜底。
+# ── Dual-form bootstrap: this file is in core directory (pysdk/ or site-packages/aimail/) ──
+# flat core (aimail_base.py etc.) is in this directory; in package form `python -m aimail.sdk_ops`
+# will first execute package __init__ to complete the same bootstrap, this is the fallback for repo form and direct execution.
 _CORE = os.path.dirname(os.path.abspath(__file__))
 if _CORE not in sys.path:
     sys.path.insert(0, _CORE)
-# owner 2026-10-07：适配器子目录无 __init__.py ⇒ 必须挂进 sys.path ✓（与 pysdk/install.py 同约定 ✓）
-# 2026-10-21：旧硬编码里的 dsh 死条目已清（dsh 是 node 宿主，pysdk 无 dsh/ 目录）。
-# 此处**不**import hosts 注册表：sdk_ops 是 spawn 入口（python -m aimail.sdk_ops），
-# 自举保持最小依赖面；目录集与注册表 adapter_dir 的一致性由
-# tests/sdk/test_hosts_layer.py::test_sdk_ops_subdir_list_matches_registry 守护。
+# owner 2026-10-07: adapter subdirectory has no __init__.py ⇒ must be added to sys.path ✓ (same convention as pysdk/install.py ✓)
+# 2026-10-21: old hardcoded dsh dead entry cleared (dsh is node host, pysdk has no dsh/ directory).
+# This does **not** import hosts registry: sdk_ops is spawn entry (python -m aimail.sdk_ops),
+# bootstrap keeps minimal dependency surface; consistency between directory set and registry adapter_dir is
+# guarded by tests/sdk/test_hosts_layer.py::test_sdk_ops_subdir_list_matches_registry.
 for _sub in ("hermes", "deer-flow"):
     _p = os.path.join(_CORE, _sub)
     if os.path.isdir(_p) and _p not in sys.path:
@@ -83,7 +83,7 @@ EXIT_USAGE = 2
 
 
 class UsageError(Exception):
-    """用法/参数错误（exit 2）。"""
+    """Usage/parameter error (exit 2)."""
 
 
 def _require(args: dict, key: str) -> object:
@@ -108,17 +108,17 @@ def _require_obj(args: dict, key: str) -> dict:
     return val
 
 
-# ── SDK 薄入口的引入（延迟到调用时，便于把 import 失败报成 kind=import）──────
+# ── Import of SDK thin entries (deferred to call time, to report import failures as kind=import) ──────
 
 
 def _sdk():
-    import aimail_base  # noqa: PLC0415 — 延迟导入：import 失败要报成 import 类而非 traceback
+    import aimail_base  # noqa: PLC0415 — deferred import: import failure should be reported as import type not traceback
 
     return aimail_base
 
 
 def _gateway_client(gw: dict):
-    """按 `gateway_url` / `admin_key` 建网关客户端（`aimail_tools._GatewayClient` 全集）。"""
+    """Build gateway client based on `gateway_url` / `admin_key` (full set of `aimail_tools._GatewayClient`)."""
     from aimail_tools import _GatewayClient  # noqa: PLC0415
 
     return _GatewayClient(gw.get("gateway_url", ""), gw.get("admin_key", ""))
@@ -159,10 +159,10 @@ def _op_backfill_binding(args: dict):
 
 
 def _op_version(_args: dict) -> dict:
-    """SDK 能力自述：包版本 + 本 SDK 暴露的 op 名单。
+    """SDK capability self-description: package version + the op names this SDK exposes.
 
-    调用方（CLI/宿主）可用它在**使用前**校验能力，避免旧快照/旧包给出"看似成功
-    实则过时"的结论（例如旧的 prompt 规则逻辑误报）。无参数、只读、幂等。
+    Caller (CLI/host) can use it to verify capabilities **before use**, avoiding old snapshots/old packages giving "seemingly successful
+    but actually outdated" conclusions (e.g., old prompt rule logic false positives). No parameters, read-only, idempotent.
     """
     ver = ""
     try:
@@ -179,13 +179,13 @@ def _op_version(_args: dict) -> dict:
     return {"version": ver, "ops": sorted(OPS)}
 
 
-# ── 自持动作 op（契约 v1.0 §4.1）─────────────────────────────────────────────
-# 与 TS 侧 register-cli.js 同形：判定与编排在 SDK 内；调用方只传参、只收单行 JSON。
-# 复用既有 aimail_base 薄入口（不新写逻辑）；按目标函数签名过滤 kwargs，缺参响亮失败。
+# ── Self-contained action ops (contract v1.0 §4.1) ─────────────────────────────────────────────
+# Same shape as TS side register-cli.js: judgment and orchestration in SDK; caller only passes params, only receives single-line JSON.
+# Reuses existing aimail_base thin entries (no new logic); filters kwargs by target function signature, missing params fail loudly.
 
 
 def _call(fn, **kw):
-    """按目标函数真实签名映射参数后调用（未知 kwargs / 缺必填 ⇒ 响亮失败）。"""
+    """Call after mapping parameters to target function's real signature (unknown kwargs / missing required ⇒ loud failure)."""
     import inspect as _inspect
 
     sig = _inspect.signature(fn)
@@ -211,13 +211,13 @@ def _call(fn, **kw):
         if unknown:
             raise RuntimeError(f"{getattr(fn, '__name__', fn)}: unsupported args {unknown}")
     if missing:
-        raise RuntimeError(f"{getattr(fn, '__name__', fn)}: 缺少必填参数 {missing}")
+        raise RuntimeError(f"{getattr(fn, '__name__', fn)}: missing required parameter {missing}")
     return fn(*pos_args, **call_kw)
 
 def _import_base():
-    """取 aimail_base（双形态：flat core 目录直接执行 / 包形态 aimail.aimail_base）。"""
+    """Get aimail_base (dual form: flat core directory direct execution / package form aimail.aimail_base)."""
     try:
-        import aimail_base  # flat core: pysdk/（或 site-packages/aimail/）内直接可 import
+        import aimail_base  # flat core: directly importable inside pysdk/ (or site-packages/aimail/)
         return aimail_base
     except Exception:  # noqa: BLE001
         from aimail import aimail_base
@@ -225,7 +225,7 @@ def _import_base():
 
 
 def _sdk_version():
-    """SDK 版本（握手用）：优先包元数据，其次模块属性。"""
+    """SDK version (for handshake): prefer package metadata, then module attribute."""
     try:
         from importlib.metadata import version as _v
         return _v("agent-aimail")
@@ -239,10 +239,10 @@ def _sdk_version():
 
 
 def _load_system(system_id, override=None):
-    """系统级配置（CLI 写、SDK 只读）+ 网关客户端。
+    """System-level config (CLI writes, SDK read-only) + gateway client.
 
-    默认自定位（读 CLI 写的系统级配置）；仅当调用方**显式**给出 gw/admin_key
-    （夹具/测试场景）时用其覆盖 —— 不新增 op、不改边界。
+    Default self-locating (reads system-level config written by CLI); only when caller **explicitly** provides gw/admin_key
+    (fixture/test scenario) use it to override —— no new ops, no boundary changes.
     """
     base = _import_base()
     cfg = None
@@ -253,7 +253,7 @@ def _load_system(system_id, override=None):
         except Exception:
             cfg = None
     ov = override or {}
-    # 显式 system_cfg（CLI 已持有该系统级配置时传入；默认仍走自定位，行为不变）
+    # Explicit system_cfg (passed when CLI already holds this system-level config; default still uses self-locating, behavior unchanged)
     given = ov.get("system_cfg")
     if not cfg and isinstance(given, dict) and given:
         cfg = given
@@ -261,21 +261,21 @@ def _load_system(system_id, override=None):
         cfg = {"gateway_url": ov.get("gw"), "admin_key": ov.get("admin_key") or "",
                "system_id": system_id}
     if not cfg:
-        raise UsageError(f"找不到系统级配置 system_id={system_id!r}（须先 aimail install）")
+        raise UsageError(f"System-level config not found system_id={system_id!r} (must run aimail install first)")
     if not (cfg.get("gateway_url") and cfg.get("admin_key")):
         raise UsageError(
-            "系统级配置缺少 gateway_url/admin_key"
-            f"（system_id={system_id!r}）—— 先跑 aimail install")
+            "System-level config missing gateway_url/admin_key"
+            f"(system_id={system_id!r}) —— run aimail install first")
     try:
         from aimail_tools import _GatewayClient
         client = _GatewayClient(cfg.get("gateway_url"), cfg.get("admin_key"))
     except Exception as e:
-        raise RuntimeError(f"无法构造网关客户端: {e}")
+        raise RuntimeError(f"Failed to construct gateway client: {e}")
     return base, cfg, client
 
 
 def _agent_binding(base, agent_id, system_id, email=""):
-    """取 binding 元素（形状与 CLI 现用的 iter_bindings 同源）。"""
+    """Fetch the binding element (same shape as the CLI's current iter_bindings source)."""
     f = getattr(base, "iter_agentmail_configs", None)
     if f:
         try:
@@ -298,7 +298,7 @@ def _agent_binding(base, agent_id, system_id, email=""):
 
 
 def _expand(tmpl, values):
-    """展开 {name}/{agent}/{sid}/{system_id}/{manager}/{home}/{email}/{domain}（纯模板，无业务判断）。"""
+    """Expand {name}/{agent}/{sid}/{system_id}/{manager}/{home}/{email}/{domain} (pure template, no business logic)."""
     out = []
     for x in tmpl or []:
         x = str(x)
@@ -309,7 +309,7 @@ def _expand(tmpl, values):
 
 
 def _run_registrar(spec, values=None):
-    """按 spec.kind 跑平台注册器；支持 args_template 展开；未知 kind ⇒ 响亮失败。"""
+    """Run platform registrar based on spec.kind; supports args_template expansion; unknown kind ⇒ loud failure."""
     kind = str((spec or {}).get("kind") or "")
     raw = spec.get("argv") or spec.get("args_template") or spec.get("args") or []
     argv = _expand(raw, values or {})
@@ -318,12 +318,12 @@ def _run_registrar(spec, values=None):
         env[str(k)] = str(v)
     py = str(spec.get("python") or "python3")
     if kind == "python_module":
-        # 与 CLI 现行为同语义：调用模块里的**函数**（不是 `python -m`）——
-        # 进程内直接 import 调用，参数用值袋按签名映射。
+        # Same semantics as current CLI behavior: call the **function** in the module (not `python -m`) ——
+        # Direct in-process import call; parameters are mapped by signature using value bags.
         mod_name = str(spec.get("module") or "")
         fn_name = str(spec.get("fn") or "")
         if not (mod_name and fn_name):
-            raise UsageError("register_spec.kind=python_module 需要 module 与 fn")
+            raise UsageError("register_spec.kind=python_module requires module and fn")
         import importlib
         import sys as _sys
         core = str(spec.get("core_dir") or "")
@@ -332,15 +332,15 @@ def _run_registrar(spec, values=None):
         try:
             mod = importlib.import_module(mod_name)
         except Exception as e:
-            raise RuntimeError(f"register_spec: 无法 import {mod_name}: {e}")
+            raise RuntimeError(f"register_spec: failed to import {mod_name}: {e}")
         fn = getattr(mod, fn_name, None)
         if not callable(fn):
-            raise RuntimeError(f"register_spec: {mod_name}.{fn_name} 不可调用")
+            raise RuntimeError(f"register_spec: {mod_name}.{fn_name} is not callable")
         v = values or {}
         import inspect as _ins
         _params = set(_ins.signature(fn).parameters)
         if "config" in _params and "profile_dir" in _params:
-            # owner 2026-10-07：适配器新形参 (name, profile_dir, config) ⇒ 只给这三个 ✓（不再塞别名 ✗）
+            # owner 2026-10-07: adapter new signature (name, profile_dir, config) ⇒ only provide these three ✓ (no longer stuffing aliases ✗)
             bag = {"name": v.get("name"), "profile_dir": v.get("profile_dir") or v.get("home"),
                    "config": v.get("config") or {}}
         else:
@@ -363,40 +363,40 @@ def _run_registrar(spec, values=None):
     elif kind == "host_command":
         cmd = [str(spec.get("command") or "")] + argv
     else:
-        raise UsageError(f"未知 register_spec.kind={kind!r}（拒绝静默跳过）")
+        raise UsageError(f"Unknown register_spec.kind={kind!r} (refusing to silently skip)")
     if not cmd[0] or (len(cmd) > 1 and not cmd[1]):
-        raise UsageError("register_spec 缺少可执行体（拒绝静默）")
+        raise UsageError("register_spec missing executable body (refusing to be silent)")
     pr = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=REGISTRAR_TIMEOUT)
     if pr.returncode != 0:
         raise RuntimeError(
-            f"注册器失败 rc={pr.returncode}: {' '.join(cmd[:2])}: {(pr.stderr or pr.stdout or '')[-400:]}"
+            f"Registrar failed rc={pr.returncode}: {' '.join(cmd[:2])}: {(pr.stderr or pr.stdout or '')[-400:]}"
         )
     return {"rc": pr.returncode, "stdout_tail": (pr.stdout or "")[-400:]}
 
 
 def _platform_aliases(args) -> tuple:
-    """平台私有根名归一表（宿主自报 → SDK 内部；owner 2026-10-11 三来源裁决）。
+    """Platform private root name normalization table (host self-report → SDK internal; owner 2026-10-11 three-source arbitration).
 
-    P3-C(2026-10-17): CLI 不再在 op 信封里传 `aliases`（注册表 `aliases` 条目删除）。
-    主 agent 路径的 sentinel 是 `default`（hermes 的 root profile id），由 hermes
-    适配模块归一为地址基名 `agent`；无别名平台（deerflow 等）返回空表，行为不变。
+    P3-C(2026-10-17): CLI no longer passes `aliases` in the op envelope (registry `aliases` entries removed).
+    The sentinel for the main-agent path is `default` (hermes' root profile id), provided by hermes
+    adapter module to the address base name `agent`; platforms without aliases (deerflow, etc.) return an empty table, behavior unchanged.
     """
     spec = args.get("register_spec") or {}
     return ("default",) if str(spec.get("module") or "") == "aimail_hermes" else ()
 
 
 def _op_assemble(args):
-    """装配：自定位配置 → 命名 → 跑平台注册器 → 必要时改名 → 注册 → 落绑定。只返回最终结果。"""
+    """Assembly: self-locating config → naming → run platform registrar → rename if necessary → register → persist binding. Only returns the final result."""
     system_id = args.get("system_id") or ""
     email = args.get("email") or ""
     if not system_id:
-        raise UsageError("assemble: 需要 system_id")
+        raise UsageError("assemble: system_id is required")
     base, syscfg, client = _load_system(system_id, args)
-    # agent_id = 地址名（atext，无点/空格/@）；email = 目标地址（可由 plan 产出）
+    # agent_id = address name (atext, no dot/space/@); email = target address (can be produced by plan)
     agent_id = args.get("agent_id") or args.get("name") or args.get("requested_name") or ""
     binding_cfg = _agent_binding(base, agent_id, system_id, email)
-    # 主 agent 的地址名归一：**不以调用方给的名字作基名来源**
-    # （平台私有叫法 pi/main/default 一律不参与定名）；仅当显式标记 non_main 才用其标识
+    # Normalization of the main agent's address name: **do not use the name given by the caller as the base name source**
+    # (platform private names pi/main/default are all excluded from naming); only use its identifier when explicitly marked non_main
     _non_main = bool(args.get("non_main"))
     _aid = (args.get("agent_id") or "") if _non_main else "default"
     _req = (args.get("requested_name") or "") if _non_main else "agent"
@@ -422,7 +422,7 @@ def _op_assemble(args):
     renamed = None
     _old = (plan.get("old_email") or "").strip()
     if plan.get("needs_rename") and not _old:
-        sys.stderr.write("assemble: 当前地址未知 ⇒ 跳过改名（绑定尚未建立）\n")
+        sys.stderr.write("assemble: current address unknown ⇒ skip rename (binding not yet established)\n")
     if plan.get("needs_rename") and _old and getattr(base, "rename_address", None):
         renamed = base.rename_address(
             system_id, plan.get("old_email") or "",
@@ -434,9 +434,9 @@ def _op_assemble(args):
                           "admin_key": syscfg.get("admin_key")}, webhook_url) or webhook_url
     target_email = email or plan.get("email") or ""
     if not target_email:
-        raise UsageError("assemble: 既未给 email，plan 也未产出目标地址")
-    # 双注册规避：register_spec 已执行 ⇒ 默认不再调 SDK 注册（幂等但会多打一次网关）；
-    # 仅当显式 sdk_register=true 或缺注册器时调用。
+        raise UsageError("assemble: neither email provided nor target address produced by plan")
+    # Double registration avoidance: register_spec already executed ⇒ do not call SDK registration by default (idempotent but hits gateway one extra time);
+    # only call when explicitly sdk_register=true or registrar is missing.
     reg = None
     if bool(args.get("sdk_register")) or not (args.get("register_spec") or {}).get("kind"):
         reg = base.register_agent_email(
@@ -456,14 +456,14 @@ def _op_assemble(args):
 
 
 def _op_update(args):
-    """受控变更：action = rename | set-manager | prompt | persona | webhook-secret | backfill | repair。"""
+    """Controlled change: action = rename | set-manager | prompt | persona | webhook-secret | backfill | repair."""
     system_id = args.get("system_id") or ""
     if not system_id:
-        raise UsageError("update: 需要 system_id")
+        raise UsageError("update: system_id is required")
     base, syscfg, client = _load_system(system_id, args)
     action = (args.get("action") or "").strip()
     email = args.get("email") or args.get("old_email") or ""
-    # repair 是**系统级**动作：未给目标 ⇒ 遍历该系统全部绑定（与旧 CLI 的 _repair_agentmail_json(sid) 同语义）
+    # repair is a **system-level** action: no target given ⇒ iterate all bindings of that system (same semantics as old CLI's _repair_agentmail_json(sid))
     if action == "repair" and not (args.get("email") or args.get("agent_id")):
         filled_flat = []
         for _el in (base.iter_agentmail_configs(system_id) or []):
@@ -483,13 +483,13 @@ def _op_update(args):
     elif action == "backfill":
         r = {"binding_path": str(base.backfill_binding(cfg, system_id))}
     elif action == "repair":
-        # 修复的判定收在 SDK 内（CLI 只触发）。**幂等**：只记"真补上的字段"，
-        # 无改动则不写回（api_key 需网关 ⇒ 不作为本地缺口，避免永久"有改动"）。
+        # Repair judgment is contained within the SDK (CLI only triggers). **Idempotent**: only record "fields truly filled in",
+        # do not write back if no changes (api_key requires gateway ⇒ not treated as a local gap, avoiding permanent "has changes").
         out = {}
         filled = []
         out = {}
         filled = []
-        # ① 来自系统级网关配置的可重建字段（绑定缺失 ⇒ 补空；网关配置为准）
+        # ① Reconstructible fields from system-level gateway config (binding missing ⇒ fill empty; gateway config is authoritative)
         for _k in ("gateway_url", "domain", "system_name"):
             if not str(cfg.get(_k) or "").strip():
                 _v = str((syscfg or {}).get(_k) or "").strip()
@@ -506,7 +506,7 @@ def _op_update(args):
                         filled.append("manager_address")
                 except Exception:
                     pass
-        # ② webhook_url 与**活路由**对齐（不等即换；相等则不动 ⇒ 幂等）
+        # ② Align webhook_url with **live routing** (replace if not equal; do nothing if equal ⇒ idempotent)
         _local = (args.get("routes") or {}).get(cfg.get("email") or "") or cfg.get("local_webhook_url") or args.get("local_webhook_url") or ""
         _fn = getattr(base, "resolve_register_webhook_url", None)
         if _local and callable(_fn):
@@ -529,9 +529,9 @@ def _op_update(args):
         out["filled"] = filled
         r = out
     elif action in ("prompt", "persona", "webhook-secret"):
-        # 受控字段值:顶层键 > 嵌套 `updates`/`fields`(CLI prompt.rs 同传 updates+fields;
-        # TS 门 opUpdate 同形)。缺值 ⇒ 响亮失败(与 TS 门一致;webhook-secret 的无值
-        # provision 调用在**两路门都**是缺口,不在此降级)。
+        # Controlled field value: top-level key > nested `updates`/`fields` (CLI prompt.rs passes updates+fields;
+        # TS gate opUpdate has the same shape). Missing value ⇒ loud failure (consistent with TS gate; webhook-secret's valueless
+        # provision call is a gap in **both gates**, not downgraded here).
         def _pick(key):
             v = args.get(key)
             if v is not None:
@@ -544,39 +544,39 @@ def _op_update(args):
 
         if action == "prompt":
             _rules = _pick("prompt_rules")
-            # prompt_rules = 规则 dict 列表;名字校验取每项的 name(与 TS 门 opUpdate 同形)
+            # prompt_rules = list of rule dicts; name validation takes each item's name (same shape as TS gate opUpdate)
             if isinstance(_rules, list):
                 _ok = getattr(base, "prompt_rule_name_ok", None)
                 for _r in _rules:
                     _name = _r.get("name") if isinstance(_r, dict) else _r
                     if callable(_ok) and not _ok(str(_name or "")):
-                        raise UsageError(f"update action=prompt: 规则名不合法 {_name!r}")
+                        raise UsageError(f"update action=prompt: invalid rule name {_name!r}")
             _val = _rules
         elif action == "persona":
             _val = _pick("persona")
         else:
             _val = _pick("webhook_secret")
         if _val is None:
-            raise UsageError(f"update action={action}: 缺少要更新的字段")
+            raise UsageError(f"update action={action}: missing field to update")
         updates = {"prompt_rules": _val} if action == "prompt" else (
             {"persona": _val} if action == "persona" else {"webhook_secret": _val})
         r = {"binding_path": str(base.update_binding(system_id, cfg, updates))}
     else:
-        raise UsageError(f"update: 未知 action={action!r}（rename|set-manager|prompt|persona|webhook-secret|backfill|repair）")
+        raise UsageError(f"update: unknown action={action!r} (rename|set-manager|prompt|persona|webhook-secret|backfill|repair)")
     return {"ok": True, "action": action, "sdk_version": _sdk_version(), **(r or {})}
 
 
 def _op_teardown(args):
-    """拆除：注销 → 白名单清理 → 绑定回填（顺序固定；缺目标 ⇒ 响亮失败）。"""
+    """Teardown: deregister → whitelist cleanup → binding backfill (fixed order; missing target ⇒ loud failure)."""
     system_id = args.get("system_id") or ""
     email = args.get("email") or ""
     mode = args.get("mode") or {}
     wants = mode.get("unregister", True) or mode.get("whitelist") or mode.get("backfill")
     if not wants:
-        # 显式关闭全部动作 ⇒ 幂等 no-op（不触网、不要求目标）
+        # Explicitly closing all actions ⇒ idempotent no-op (no network, no target required)
         return {"ok": True, "actions": [], "sdk_version": _sdk_version()}
     if not system_id or not email:
-        raise UsageError("teardown: 需要 system_id 与 email（有动作时缺目标 ⇒ 响亮失败）")
+        raise UsageError("teardown: system_id and email are required (missing target when action is present ⇒ loud failure)")
     base, syscfg, client = _load_system(system_id, args)
     actions = []
     if mode.get("unregister", True):
@@ -593,28 +593,28 @@ def _op_teardown(args):
 
 
 def _op_prompt_test(args: dict):
-    """只读 op（契约 §4.1 三 op 增列，owner 2026-10-10 (a) 裁定）：L5 过滤 + 匹配 + 名字校验。
+    """Read-only op (contract §4.1 three op additions, owner 2026-10-10 (a) ruling): L5 filtering + matching + name validation.
 
-    与 TS 侧 `opPromptTest` 同形（契约 §4.1(2) 两路语义/JSON 一致）：
-      读绑定 → 过滤（仅 dict · 名过谓词 · file 非空 · enabled is False 跳过 · 至少一个非空字段，按名排序）
-      → 逐规则 `prompt_rule_matches`（字段内或 / 字段间且）。**不触网、不写盘**。
-    CLI `prompt test` 的 L5 面改调本 op（替代 CLI 侧过滤镜像 + 逐规则 python shim）；
-    CLI `prompt add` / `create-file` 的名字合法性改读本 op 的 `name_ok`。
+    Same shape as TS side `opPromptTest` (contract §4.1(2) two-path semantics/JSON consistent):
+      Read binding → filter (dict only · name passes predicate · file non-empty · skip if enabled is False · at least one non-empty field, sorted by name)
+      → per-rule `prompt_rule_matches` (OR within fields / AND between fields). **No network, no disk writes**.
+    CLI `prompt test` L5 surface now calls this op (replacing CLI-side filter mirror + per-rule python shim);
+    CLI `prompt add` / `create-file` name validity now reads this op's `name_ok`.
 
-    入：{system_id, email|agent_id, subject, body, sender, recipient, name?}
-    出：{ok, rules:[{name,file,match}], name_ok?, sdk_version}
+    In: {system_id, email|agent_id, subject, body, sender, recipient, name?}
+    Out: {ok, rules:[{name,file,match}], name_ok?, sdk_version}
     """
     base = _import_base()
     system_id = args.get("system_id") or ""
     if not system_id:
-        raise UsageError("prompt-test: 需要 system_id")
+        raise UsageError("prompt-test: system_id is required")
     email = str(args.get("email") or "")
     agent_id = str(args.get("agent_id") or "")
     subject = str(args.get("subject") or "")
     body = str(args.get("body") or "")
     sender = str(args.get("sender") or "")
     recipient = str(args.get("recipient") or "")
-    # 绑定定位（email 精确 > agent_id 扫全部）；只读，缺绑定 ⇒ 空规则（CLI 侧已保证绑定存在）。
+    # Binding location (email exact > agent_id scan all); read-only, missing binding ⇒ empty rules (CLI side guarantees binding exists).
     cfg = _agent_binding(base, agent_id, system_id, email)
     raw = (cfg or {}).get("prompt_rules")
     kept = []
@@ -659,20 +659,20 @@ OPS = {
     "resolve_register_webhook_url": _op_resolve_register_webhook_url,
     "register_agent_email": _op_register_agent_email,
     "backfill_binding": _op_backfill_binding,
-    # 自持动作 op（契约 v1.0 §4.1；调用方只做 transport 分派与传参）
+    # Self-contained action op (contract v1.0 §4.1; caller only does transport dispatch and argument passing)
     "assemble": _op_assemble,
     "update": _op_update,
     "teardown": _op_teardown,
-    # 只读 op（契约 §4.1 三 op 增列，owner 2026-10-10 (a) 裁定）
+    # Read-only op (contract §4.1 three op additions, owner 2026-10-10 (a) ruling)
     "prompt-test": _op_prompt_test,
 }
 
 
-# ── ABI 外壳 ────────────────────────────────────────────────────────────────
+# ── ABI Shell ────────────────────────────────────────────────────────────────
 
 
 def _emit(obj: dict) -> None:
-    """把信封写到**真正的** stdout（恰一行）。"""
+    """Write envelope to **real** stdout (exactly one line)."""
     out = sys.__stdout__ or sys.stdout
     out.write(json.dumps(obj, ensure_ascii=False, default=str) + "\n")
     out.flush()
@@ -685,7 +685,7 @@ def _parse_args_argv(argv: list) -> dict:
     )
     parser.add_argument("op", choices=sorted(OPS), help="operation name")
     parser.add_argument("--args", default="{}", help="JSON object with the op's arguments")
-    ns = parser.parse_args(argv)  # 用法错 → argparse 自身 stderr + exit 2
+    ns = parser.parse_args(argv)  # Usage error → argparse own stderr + exit 2
     try:
         parsed = json.loads(ns.args)
     except Exception as e:  # noqa: BLE001
@@ -699,8 +699,8 @@ def main(argv: list | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     try:
         parsed = _parse_args_argv(argv)
-    except SystemExit as e:  # argparse 已打印用法/帮助，沿用其退出码（--help=0，用法错=2）
-        # 注意 `e.code or DEFAULT` 会把 0 吞成 DEFAULT（--help 本该 exit 0）—— 必须判 None。
+    except SystemExit as e:  # argparse already printed usage/help, reuse its exit code (--help=0, usage error=2)
+        # Note that `e.code or DEFAULT` will swallow 0 into DEFAULT (--help should exit 0) — must check for None.
         return int(e.code) if e.code is not None else EXIT_USAGE
     except UsageError as e:
         print(f"sdk_ops: {e}", file=sys.stderr)
@@ -708,7 +708,7 @@ def main(argv: list | None = None) -> int:
         return EXIT_USAGE
 
     op, args = parsed["op"], parsed["args"]
-    # op 执行期间把 stdout 重定向到 stderr：SDK/依赖自身的任何打印都不许污染单行 JSON。
+    # During op execution, redirect stdout to stderr: any prints from the SDK/dependencies themselves must not pollute the single-line JSON.
     real_stdout = sys.stdout
     sys.stdout = sys.stderr
     try:
@@ -721,7 +721,7 @@ def main(argv: list | None = None) -> int:
             msg = f"{type(e).__name__}: {e}"
             _emit({"ok": False, "kind": "import", "exc": type(e).__name__, "error": msg})
             return EXIT_ERROR
-        except Exception as e:  # noqa: BLE001 — 一切调用期异常按 ABI 上报，不外泄 traceback 到 stdout
+        except Exception as e:  # noqa: BLE001 — all call-time exceptions reported per ABI, no traceback leakage to stdout
             print(f"sdk_ops: {op} failed: {type(e).__name__}: {e}", file=sys.stderr)
             _emit({"ok": False, "kind": "call", "exc": type(e).__name__, "error": f"{type(e).__name__}: {e}"})
             return EXIT_ERROR

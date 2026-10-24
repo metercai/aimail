@@ -1,54 +1,54 @@
-//! 入站 webhook 判定 —— 系统级 install 的**单一判定函数**（owner 2026-10-13 定稿）。
+//! inbound webhook decision — the **single decision function** of system-level install (owner 2026-10-13 finalized).
 //!
-//! 输入（env + 本机事实 + 两个探测端点的分类结果，全部由调用方采集后注入）：
-//! - `gw_reachable`  前置：GW 从本机可达（否 ⇒ 所有态依赖 GW，直接 Fail）；
-//! - `bridge_host`   `AIMAIL_BRIDGE_HOST`（`http(s)://host:port`，无 path；缺省/无效 ⇒ None）；
-//! - `probe_gw_to_bridge`     probe1：GW 视角探 BRIDGE_HOST（桥服务端点）；
-//! - `probe_bridge_to_agent`  probe2：桥视角探 agent 入站目标（第二跳）；
-//! - `gw_is_local`  L：GW 解析 IP ∈ 本机列表；
-//! - `probe_gw_to_agent` R：GW 视角探 AGENT_HOST（直连入站端点）；
-//! - `bridge_deployable` BR：本机桥可部署。
+//! Inputs (env + local facts + classification results of two probe endpoints, all collected by caller and injected):
+//! - `gw_reachable`  Precondition: GW is reachable from local machine (No ⇒ all states depend on GW, direct Fail);
+//! - `bridge_host`   `AIMAIL_BRIDGE_HOST` (`http(s)://host:port`, no path; missing/invalid ⇒ None);
+//! - `probe_gw_to_bridge`     probe1: probe BRIDGE_HOST from the GW view (the bridge server endpoint);
+//! - `probe_bridge_to_agent`  probe2: Probe agent inbound target from bridge perspective (second hop);
+//! - `gw_is_local`  L: GW resolved IP ∈ local machine list;
+//! - `probe_gw_to_agent` R: probe AGENT_HOST from GW perspective (direct inbound endpoint);
+//! - `bridge_deployable` BR: Local bridge is deployable.
 //!
-//! 判定（owner 裁定逐字）：
+//! Determination (owner ruling verbatim):
 //! ```text
-//! B = probe1(桥服务级: connected) ∧ probe2(路径级: connected ∨ connection_refused)
-//!     —— 任一缺失或无效 ⇒ B=false（BRIDGE_HOST 降级为不存在）
-//! B                       ⇒ S1 经桥 push   webhook_host = BRIDGE_HOST
-//! ¬B ∧ (L ∨ R)            ⇒ S3 直连 push   webhook_host 键缺席
-//! ¬B ∧ ¬L ∧ ¬R ∧ BR       ⇒ S2 桥 pull     webhook_host = ""（空串）
-//! ¬B ∧ ¬L ∧ ¬R ∧ ¬BR      ⇒ Fail 需桥而不可部署（大声失败，无静默降级，非 S4）
+//! B = probe1(bridge service level: connected) ∧ probe2(path level: connected ∨ connection_refused)
+//!     —— Any missing or invalid ⇒ B=false (BRIDGE_HOST degrades to non-existent)
+//! B                       ⇒ S1 push via bridge   webhook_host = BRIDGE_HOST
+//! ¬B ∧ (L ∨ R)            ⇒ S3 direct push   webhook_host key absent
+//! ¬B ∧ ¬L ∧ ¬R ∧ BR       ⇒ S2 bridge pull     webhook_host = "" (empty string)
+//! ¬B ∧ ¬L ∧ ¬R ∧ ¬BR      ⇒ Fail bridge required but not deployable (fail loudly, no silent degradation, not S4)
 //! ```
 //!
-//! **纯函数**：探测在调用方执行（`POST /api/v1/admin/probe-webhook`、桥
-//! `POST /api/v1/probe`），本模块只解释分类结果并落态。两条解释语义不同、不可混用：
-//! - 桥**服务**端点（probe1）：只有 `connected` = 活（refused = 桥没起 = 死）；
-//! - agent **入站**端点（probe2 / R）：`connection_refused` = 路径通（agent 进程
-//!   install 后才起，端口未监听是预期的）= 可用。
+//! **Pure function**: Probes are executed by the caller (`POST /api/v1/admin/probe-webhook`, bridge
+//! `POST /api/v1/probe`), this module only interprets classification results and sets state. Two interpretations have different semantics, cannot be mixed:
+//! - Bridge **service** endpoint (probe1): Only `connected` = alive (refused = bridge not started = dead);
+//! - agent **inbound** endpoint (probe2 / R): `connection_refused` = path reachable (agent process
+//!   starts after install, port not listening is expected) = available.
 
 use crate::core::netenv::ProbeResult;
 
-/// 判定结果。
+/// Determination result.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WebhookPlan {
-    /// S1 经桥 push：`webhook_host = BRIDGE_HOST`（`http(s)://host:port`，无 path；
-    /// GW 填到桥，桥转发时才拼上 agent 真实入站 path）。
+    /// S1 push via bridge: `webhook_host = BRIDGE_HOST` (`http(s)://host:port`, no path;
+    /// GW fills to bridge, bridge appends agent real inbound path when forwarding).
     BridgePush { bridge_host: String },
-    /// S2 桥 pull：`webhook_host = ""`（空串；GW 侧 pending，桥长轮询取并 push agent）。
+    /// S2 bridge pull: `webhook_host = ""` (empty string; GW side pending, bridge long-polls and pushes to agent).
     BridgePull,
-    /// S3 直连 push：`webhook_host` 键缺席（GW 直接 push agent 入站端点，自带 path）。
+    /// S3 direct push: `webhook_host` key absent (GW directly pushes to agent inbound endpoint, with path).
     Direct,
-    /// install 大声失败（需桥而不可部署 / GW 不可达）。
+    /// install fails loudly (bridge required but not deployable / GW unreachable).
     Fail { reason: String },
 }
 
 impl WebhookPlan {
-    /// webhook_host 的三值（owner 裁定：S1 URL / S2 空串 / S3 键缺席）。
-    /// `Fail` 时返回 `None`（不应落盘）。
+    /// Three values for webhook_host (owner ruling: S1 URL / S2 empty string / S3 key absent).
+    /// Returns `None` on `Fail` (should not be persisted).
     pub fn webhook_host(&self) -> Option<String> {
         match self {
             WebhookPlan::BridgePush { bridge_host } => Some(bridge_host.clone()),
             WebhookPlan::BridgePull => Some(String::new()),
-            WebhookPlan::Direct => None, // 键缺席
+            WebhookPlan::Direct => None, // key absent
             WebhookPlan::Fail { .. } => None,
         }
     }
@@ -58,45 +58,45 @@ impl WebhookPlan {
     }
 }
 
-/// 判定输入（全部由调用方采集后注入）。
+/// Determination inputs (all collected by caller and injected).
 #[derive(Debug, Clone)]
 pub struct PlanInputs {
-    /// 前置：GW 从本机可达。
+    /// Precondition: GW is reachable from local machine.
     pub gw_reachable: bool,
-    /// `AIMAIL_BRIDGE_HOST`（解析成功；缺省/无效 ⇒ None）。
+    /// `AIMAIL_BRIDGE_HOST` (parsed successfully; missing/invalid ⇒ None).
     pub bridge_host: Option<String>,
-    /// probe1：GW 视角探 BRIDGE_HOST（无 bridge_host ⇒ None）。
+    /// probe1: probe BRIDGE_HOST from GW perspective (no bridge_host ⇒ None).
     pub probe_gw_to_bridge: Option<ProbeResult>,
-    /// probe2：桥视角探 agent 入站目标（无 bridge_host ⇒ None）。
+    /// probe2: Probe agent inbound target from bridge perspective (no bridge_host ⇒ None).
     pub probe_bridge_to_agent: Option<ProbeResult>,
-    /// L：GW 解析 IP ∈ 本机列表（GW 在本机）。
+    /// L: GW resolves IP ∈ local list (GW is on the local machine).
     pub gw_is_local: bool,
-    /// R：GW 视角探 AGENT_HOST（无有效 AGENT_HOST ⇒ None）。
+    /// R: probe AGENT_HOST from GW perspective (no valid AGENT_HOST ⇒ None).
     pub probe_gw_to_agent: Option<ProbeResult>,
-    /// BR：本机桥可部署。
+    /// BR: local bridge is deployable.
     pub bridge_deployable: bool,
 }
 
-/// 桥**服务**端点解释：只有 `connected` = 活。
+/// Bridge **service** endpoint interpretation: only `connected` = alive.
 fn bridge_service_alive(p: &ProbeResult) -> bool {
     p.reachable
 }
 
-/// agent **入站**端点解释（路径级）：`connected` ∨ `connection_refused` = 路径通。
+/// Interpretation of agent **inbound** endpoint (path level): `connected` ∨ `connection_refused` = path reachable.
 fn inbound_path_open(p: &ProbeResult) -> bool {
     p.reachable || p.error == "connection_refused"
 }
 
-/// 单一判定函数。
+/// Single decision function.
 pub fn plan(i: &PlanInputs) -> WebhookPlan {
-    // 前置：所有态依赖 GW。
+    // Precondition: all states depend on GW.
     if !i.gw_reachable {
         return WebhookPlan::Fail {
             reason: "gateway is not reachable from this machine".into(),
         };
     }
 
-    // B = probe1(桥活) ∧ probe2(路径通)；任一缺失/无效 ⇒ false（降级）。
+    // B = probe1(bridge alive) ∧ probe2(path reachable); any missing/invalid ⇒ false (degrade).
     let b = match (
         i.probe_gw_to_bridge.as_ref(),
         i.probe_bridge_to_agent.as_ref(),
@@ -105,7 +105,7 @@ pub fn plan(i: &PlanInputs) -> WebhookPlan {
         _ => false,
     };
     if b {
-        // bridge_host 必然在场（否则 probe 不会是 Some）。
+        // bridge_host must be present (otherwise probe would not be Some).
         let host = i
             .bridge_host
             .clone()
@@ -113,13 +113,13 @@ pub fn plan(i: &PlanInputs) -> WebhookPlan {
         return WebhookPlan::BridgePush { bridge_host: host };
     }
 
-    // R：直连入站路径通（路径级）。
+    // R: direct inbound path reachable (path level).
     let r = i.probe_gw_to_agent.as_ref().is_some_and(inbound_path_open);
     if i.gw_is_local || r {
         return WebhookPlan::Direct;
     }
 
-    // 需桥而直连不可。
+    // Bridge required but direct connection unavailable.
     if i.bridge_deployable {
         WebhookPlan::BridgePull
     } else {
@@ -132,38 +132,38 @@ pub fn plan(i: &PlanInputs) -> WebhookPlan {
     }
 }
 
-/// **计划漂移判定**（check/repair 的离线单真源；与 [`plan`] 同源、纯函数）。
+/// **Plan drift detection** (offline single source of truth for check/repair; same source as [`plan`], pure function).
 ///
-/// `webhook_host` 归**判定函数**所有（install 写、check 验、repair 不写）。这里只判
-/// **离线稳定事实**能证伪的漂移——网络事实（B 桥活 / R 直连可达）**不查**：check 在
-/// repair 写路径里被复用 ~20 次，且网络态会随进程启停抖动，查了就是假红。
+/// `webhook_host` is owned by the **decision function** (written by install, verified by check, not written by repair). Here we only judge
+/// Drift that can be falsified by **offline stable facts** — network facts (B bridge alive / R direct reachable) are **not checked**: check is
+/// reused ~20 times in the repair write path, and network state fluctuates with process start/stop; checking it would cause false reds.
 ///
-/// 输入：
-/// - `stored`：持久化 `webhook_host` 三态（键缺席 = None；键在 = Some(字符串，含空串)）；
-/// - `gw_is_local`：L（纯解析，离线）；
-/// - `bridge_deployable`：BR（文件系统，离线）。
+/// Inputs:
+/// - `stored`: persisted `webhook_host` tri-state (key absent = None; key present = Some(string, including empty string));
+/// - `gw_is_local`: L (pure resolution, offline);
+/// - `bridge_deployable`: BR (filesystem, offline).
 ///
-/// 返回 `Some(why)` = 漂移（判定函数**不可能**写出该态）；`None` = 不矛盾（含"离线不可判"）。
+/// Returns `Some(why)` = drift (decision function **cannot** write this state); `None` = no contradiction (including "offline undecidable").
 pub fn plan_drift(
     stored: Option<&str>,
     gw_is_local: bool,
     bridge_deployable: bool,
 ) -> Option<String> {
     match stored {
-        // S3 键缺席：判定函数 S3 只需 ¬B ∧ (L ∨ R)，R 是网络事实 ⇒ 离线不可证伪。
+        // S3 key absent: Decision function S3 only needs ¬B ∧ (L ∨ R); R is a network fact ⇒ not falsifiable offline.
         None => None,
-        // S1 非空：判定函数 S1 值 = 可解析的 BRIDGE_HOST（parse 失败 ⇒ env 视为不存在 ⇒ 无 S1）。
+        // S1 non-empty: Decision function S1 value = parseable BRIDGE_HOST (parse failure ⇒ env considered non-existent ⇒ no S1).
         Some(url) if !url.is_empty() => {
             if crate::core::netenv::parse_bridge_host(url).is_none() {
                 Some(format!(
                     "persisted webhook_host '{url}' is not a bridge host (expected http(s)://host:port or host:port, no path) — the install plan only writes a parseable BRIDGE_HOST"
                 ))
             } else {
-                // B（桥活）是网络事实 ⇒ 离线不可判。
+                // B (bridge alive) is a network fact ⇒ not determinable offline.
                 None
             }
         }
-        // S2 空串：判定函数 S2 需 ¬B ∧ ¬L ∧ ¬R ∧ BR，其中 L / BR 离线可判。
+        // S2 empty string: predicate function S2 requires ¬B ∧ ¬L ∧ ¬R ∧ BR, where L / BR are decidable offline.
         Some(_) => {
             if gw_is_local {
                 Some(
@@ -180,16 +180,16 @@ pub fn plan_drift(
                         .to_string(),
                 )
             } else {
-                // ¬L ∧ BR：S2 仍可能成立（取决于网络事实 B / R）⇒ 不矛盾。
+                // ¬L ∧ BR: S2 may still hold (depends on network facts B / R) ⇒ no contradiction.
                 None
             }
         }
     }
 }
 
-// ── 采集层（install 调用；探测走既有端点，分类结果解释在上方纯函数）──────────────
+// ── Collection layer (install call; probes use existing endpoints, classification result interpretation is in the pure function above) ──────────────
 
-/// 解析一个探测端点的 JSON 应答 → `ProbeResult`；缺字段/非对象 ⇒ `None`（视为未探测）。
+/// Parse a probe endpoint's JSON response → `ProbeResult`; missing fields/non-object ⇒ `None` (treated as not probed).
 pub fn parse_probe(v: &serde_json::Value) -> Option<ProbeResult> {
     let o = v.as_object()?;
     let reachable = o.get("reachable")?.as_bool()?;
@@ -201,8 +201,8 @@ pub fn parse_probe(v: &serde_json::Value) -> Option<ProbeResult> {
     Some(ProbeResult { reachable, error })
 }
 
-/// GW 视角探一个 `host:port`（`POST /api/v1/admin/probe-webhook`，system-scope key）。
-/// GW 不可达/未认证/非对象 ⇒ `None`（调用方按"未探测"降级）。
+/// GW perspective probes a `host:port` (`POST /api/v1/admin/probe-webhook`, system-scope key).
+/// GW unreachable/unauthenticated/non-object ⇒ `None` (caller degrades to "not probed").
 pub fn probe_gw(gw_url: &str, admin_key: &str, addr: &str) -> Option<ProbeResult> {
     if admin_key.is_empty() {
         return None;
@@ -225,8 +225,8 @@ pub fn probe_gw(gw_url: &str, admin_key: &str, addr: &str) -> Option<ProbeResult
     parse_probe(&resp)
 }
 
-/// 桥视角探一个 `host:port`（桥 `POST /api/v1/probe`，admin 白名单内）。
-/// 桥不可达/非对象 ⇒ `None`。
+/// Bridge perspective probes a `host:port` (bridge `POST /api/v1/probe`, within admin whitelist).
+/// Bridge unreachable/non-object ⇒ `None`.
 pub fn probe_bridge(admin_host: &str, admin_port: u16, addr: &str) -> Option<ProbeResult> {
     let body = serde_json::json!({ "addr": addr }).to_string();
     let (code, body_text) = crate::core::http::raw_req_method(
@@ -243,7 +243,7 @@ pub fn probe_bridge(admin_host: &str, admin_port: u16, addr: &str) -> Option<Pro
     parse_probe(&serde_json::from_str(&body_text).ok()?)
 }
 
-/// `AIMAIL_BRIDGE_HOST` / `AIMAIL_BRIDGE_ADMIN` / `AIMAIL_AGENT_HOST` env → 解析。
+/// `AIMAIL_BRIDGE_HOST` / `AIMAIL_BRIDGE_ADMIN` / `AIMAIL_AGENT_HOST` env → parse.
 pub fn env_bridge_host() -> Option<String> {
     let raw = crate::core::config::env_val("AIMAIL_BRIDGE_HOST", "");
     if raw.trim().is_empty() {
@@ -252,8 +252,8 @@ pub fn env_bridge_host() -> Option<String> {
     crate::core::netenv::parse_bridge_host(&raw).map(|_| raw.trim().to_string())
 }
 
-/// 外部桥 admin 端点（`AIMAIL_BRIDGE_ADMIN` 优先，缺省回退 BRIDGE_HOST 的 host:port）。
-/// 外部桥 admin 与数据端口可能不同，故允许显式 env 覆盖。
+/// External bridge admin endpoint (`AIMAIL_BRIDGE_ADMIN` preferred, fallback to BRIDGE_HOST host:port if missing).
+/// External bridge admin and data ports may differ, so explicit env override is allowed.
 pub fn env_bridge_admin() -> Option<(String, u16)> {
     let raw = crate::core::config::env_val("AIMAIL_BRIDGE_ADMIN", "");
     if !raw.trim().is_empty() {
@@ -270,26 +270,26 @@ pub fn env_agent_host() -> Option<String> {
         return None;
     }
     if !crate::core::netenv::agent_host_valid(raw.trim()) {
-        // owner：不是公网也不是本机 IP ⇒ 视为不存在
+        // owner: not public network nor local machine IP ⇒ treated as non-existent
         return None;
     }
     Some(raw.trim().to_string())
 }
 
-/// install 的入站模式判定：采集 env + 本机事实 + 探测，跑 `plan`。
-/// `gw_reachable` 由 GW admin 端点应答判定（带 system key 的 GET /admin/systems）。
+/// install inbound mode decision: collect env + local facts + probes, run `plan`.
+/// `gw_reachable` is determined by the response from the GW admin endpoint (GET /admin/systems with system key).
 pub fn plan_inbound(gw_url: &str, admin_key: &str) -> WebhookPlan {
     let gw_reachable = gw_admin_reachable(gw_url, admin_key);
     let bridge_host = env_bridge_host();
     let agent_host = env_agent_host();
 
-    // probe1：GW 视角探桥服务（桥活 = connected）。
+    // probe1: GW perspective probes bridge service (bridge alive = connected).
     let probe_gw_to_bridge = bridge_host.as_ref().and_then(|h| {
         crate::core::netenv::parse_bridge_host(h)
             .and_then(|(host, port)| probe_gw(gw_url, admin_key, &format!("{host}:{port}")))
     });
-    // probe2：桥视角探 agent 入站（第二跳）。仅当 bridge+agent 都在场才跑。
-    // 探测端点 = 该桥自己的 admin（S1 外部桥 / S2 本机桥），不是 GW。
+    // probe2: bridge perspective probes agent inbound (second hop). Only runs when both bridge+agent are present.
+    // Probe endpoint = the bridge's own admin (S1 external bridge / S2 local bridge), not GW.
     let probe_bridge_to_agent = if let (Some(ah), Some((badmin, bport))) =
         (&agent_host, env_bridge_admin())
     {
@@ -298,7 +298,7 @@ pub fn plan_inbound(gw_url: &str, admin_key: &str) -> WebhookPlan {
     } else {
         None
     };
-    // R：GW 视角探 agent 入站（路径级）。
+    // R: GW-side probe of agent inbound (path-level).
     let probe_gw_to_agent = agent_host.as_ref().and_then(|ah| {
         crate::core::netenv::parse_hostport(ah)
             .and_then(|(host, port)| probe_gw(gw_url, admin_key, &format!("{host}:{port}")))
@@ -317,14 +317,14 @@ pub fn plan_inbound(gw_url: &str, admin_key: &str) -> WebhookPlan {
     })
 }
 
-/// GW admin 端点可达性（带 key 的 GET；2xx = 可达）。
+/// GW admin endpoint reachability (GET with key; 2xx = reachable).
 ///
-/// 探针 = `GET /api/v1/whoami`（`pysdk/gateway_api.py:118` 的 CLI 既有可达性判据）：
-/// 任何已认证 key 都 200、无 scope 门槛 ⇒ 只表达"网关活着且本 key 有效"，不掺入
-/// 任何 admin 权限假设。**不**用 `/api/v1/admin/systems`（该路由不存在 ⇒ 恒 404）。
+/// Probe = `GET /api/v1/whoami` (existing CLI reachability criterion in `pysdk/gateway_api.py:118`):
+/// Any authenticated key returns 200, no scope threshold ⇒ only expresses "gateway is alive and this key is valid", does not mix in
+/// any admin permission assumption. **Do not** use `/api/v1/admin/systems` (this route does not exist ⇒ always 404).
 pub fn gw_admin_reachable(gw_url: &str, admin_key: &str) -> bool {
     if admin_key.is_empty() {
-        // 无 key（如复用路径未取到）⇒ 退化为 TCP 可达性。
+        // No key (e.g., reuse path did not obtain one) ⇒ degrade to TCP reachability.
         let Ok(u) = crate::core::bridge_wire::parse_abs_url(gw_url) else {
             return false;
         };
@@ -347,7 +347,7 @@ pub fn gw_admin_reachable(gw_url: &str, admin_key: &str) -> bool {
 mod tests {
     use super::*;
 
-    // 探针结果构造器（ProbeResult 已 Clone）
+    // Probe result constructor (ProbeResult is already Clone)
     fn conn() -> ProbeResult {
         ProbeResult {
             reachable: true,
@@ -390,8 +390,8 @@ mod tests {
     fn b_valid_gives_bridge_push_with_host() {
         let mut i = base();
         i.bridge_host = Some("http://203.0.113.7:38080".into());
-        i.probe_gw_to_bridge = Some(conn()); // 桥活
-        i.probe_bridge_to_agent = Some(refused()); // 路径通（agent 未起）
+        i.probe_gw_to_bridge = Some(conn()); // bridge alive
+        i.probe_bridge_to_agent = Some(refused()); // path open (agent not started)
         match plan(&i) {
             WebhookPlan::BridgePush { bridge_host } => {
                 assert_eq!(bridge_host, "http://203.0.113.7:38080");
@@ -406,18 +406,18 @@ mod tests {
 
     #[test]
     fn bridge_down_degrades_not_bridge_push() {
-        // probe1 refused = 桥没起 ⇒ B 无效 ⇒ 降级
+        // probe1 refused = bridge not up ⇒ B invalid ⇒ downgrade
         let mut i = base();
         i.bridge_host = Some("http://203.0.113.7:38080".into());
         i.probe_gw_to_bridge = Some(refused());
         i.probe_bridge_to_agent = Some(conn());
-        i.gw_is_local = true; // 降级后走 S3
+        i.gw_is_local = true; // after degradation, go to S3
         assert!(matches!(plan(&i), WebhookPlan::Direct));
     }
 
     #[test]
     fn second_hop_timeout_degrades() {
-        // probe2 timeout = 第二跳不通 ⇒ B 无效
+        // probe2 timeout = second hop unreachable ⇒ B invalid
         let mut i = base();
         i.bridge_host = Some("http://203.0.113.7:38080".into());
         i.probe_gw_to_bridge = Some(conn());
@@ -428,7 +428,7 @@ mod tests {
 
     #[test]
     fn no_bridge_probe_is_not_bridge_push() {
-        // bridge_host 在场但没跑探测（None）⇒ B 无效
+        // bridge_host present but no probe run (None) ⇒ B invalid
         let mut i = base();
         i.bridge_host = Some("http://203.0.113.7:38080".into());
         i.gw_is_local = true;
@@ -438,7 +438,7 @@ mod tests {
     #[test]
     fn local_gw_gives_direct_even_without_r() {
         let mut i = base();
-        i.gw_is_local = true; // L ⇒ 直连（agent 在本机，loopback 可达）
+        i.gw_is_local = true; // L ⇒ direct connection (agent is on local machine, loopback reachable)
         assert!(matches!(plan(&i), WebhookPlan::Direct));
     }
 
@@ -446,7 +446,7 @@ mod tests {
     fn remote_gw_reachable_agent_gives_direct() {
         let mut i = base();
         i.gw_is_local = false;
-        i.probe_gw_to_agent = Some(refused()); // R 路径通（agent 未起）
+        i.probe_gw_to_agent = Some(refused()); // R path open (agent not started)
         assert!(matches!(plan(&i), WebhookPlan::Direct));
     }
 
@@ -454,7 +454,7 @@ mod tests {
     fn remote_gw_unreachable_agent_bridge_deployable_gives_pull() {
         let mut i = base();
         i.gw_is_local = false;
-        i.probe_gw_to_agent = Some(timeout()); // R 不通
+        i.probe_gw_to_agent = Some(timeout()); // R not open
         i.bridge_deployable = true; // BR
         assert!(matches!(plan(&i), WebhookPlan::BridgePull));
         assert_eq!(plan(&i).webhook_host().as_deref(), Some(""));
@@ -471,7 +471,7 @@ mod tests {
 
     #[test]
     fn no_agent_probe_and_not_local_needs_bridge() {
-        // 无 AGENT_HOST（R=None）且 GW 非本机 ⇒ 需桥
+        // No AGENT_HOST (R=None) and GW not local ⇒ bridge needed
         let mut i = base();
         i.gw_is_local = false;
         i.bridge_deployable = true;
@@ -486,11 +486,11 @@ mod tests {
         i.probe_gw_to_bridge = Some(conn());
         i.probe_bridge_to_agent = Some(conn());
         assert_eq!(plan(&i).webhook_host().as_deref(), Some("http://b:1"));
-        // S2 空串
+        // S2 empty string
         let mut j = base();
         j.bridge_deployable = true;
         assert_eq!(plan(&j).webhook_host().as_deref(), Some(""));
-        // S3 键缺席
+        // S3 key absent
         let mut k = base();
         k.gw_is_local = true;
         assert_eq!(plan(&k).webhook_host(), None);
@@ -498,7 +498,7 @@ mod tests {
 
     #[test]
     fn bridge_push_wins_over_direct_when_b_valid() {
-        // B 有效时优先 S1（即使 L 也成立）
+        // When B is valid, prefer S1 (even if L also holds)
         let mut i = base();
         i.bridge_host = Some("http://b:1".into());
         i.probe_gw_to_bridge = Some(conn());
@@ -525,7 +525,7 @@ mod tests {
                 error: "connection_refused".into()
             })
         );
-        // 缺 error 字段 ⇒ 归 "unknown"（仍返回 Some）；非对象 / 缺 reachable ⇒ None
+        // Missing error field ⇒ classify as "unknown" (still returns Some); non-object / missing reachable ⇒ None
         assert_eq!(
             parse_probe(&serde_json::json!({"reachable": true})),
             Some(ProbeResult {
@@ -542,11 +542,11 @@ mod tests {
         assert_eq!(parse_probe(&serde_json::json!(null)), None);
     }
 
-    // ── plan_drift：离线单真源（只判离线稳定事实，网络事实不判）────────────────
+    // ── plan_drift: offline single source of truth (only judges offline stable facts, does not judge network facts)────────────────
 
     #[test]
     fn plan_drift_absent_key_is_never_offline_drift() {
-        // S3 键缺席：判定函数 S3 只需 ¬B ∧ (L ∨ R)，R 是网络事实 ⇒ 离线不可证伪。
+        // S3 key absent: decision function S3 only needs ¬B ∧ (L ∨ R), R is a network fact ⇒ offline cannot be falsified.
         assert_eq!(plan_drift(None, false, false), None);
         assert_eq!(plan_drift(None, true, true), None);
         assert_eq!(plan_drift(None, true, false), None);
@@ -554,28 +554,28 @@ mod tests {
 
     #[test]
     fn plan_drift_s1_only_flags_unparseable_hosts() {
-        // 可解析 BRIDGE_HOST（含裸 host:port）⇒ 不矛盾（B 是网络事实，离线不判）。
+        // Parseable BRIDGE_HOST (including bare host:port) ⇒ no contradiction (B is a network fact, not judged offline).
         assert_eq!(plan_drift(Some("http://10.1.2.3:9000"), true, false), None);
         assert_eq!(plan_drift(Some("10.1.2.3:9000"), false, false), None);
-        // 本机 GW + 外部桥是合法 S1 ⇒ 不判漂移。
+        // Local GW + external bridge is a legal S1 ⇒ do not judge drift.
         assert_eq!(plan_drift(Some("http://b.test:38080"), true, true), None);
-        // 不可解析 ⇒ 漂移（判定函数只会写可解析值）。
+        // Unresolvable ⇒ drift (the decision function only writes resolvable values).
         assert!(plan_drift(Some("not-a-bridge"), false, false).is_some());
-        // 带 path ⇒ 不可解析（owner：BRIDGE_HOST 无 path）。
+        // With path ⇒ unresolvable (owner: BRIDGE_HOST has no path).
         assert!(plan_drift(Some("http://b.test:38080/with/path"), false, false).is_some());
     }
 
     #[test]
     fn plan_drift_s2_empty_string_is_offline_disprovable() {
-        // 本机 GW ⇒ plan 必判 S3（L 离线可判）⇒ S2 是漂移。
+        // Local GW ⇒ plan must decide S3 (L offline can decide) ⇒ S2 is drift.
         let local = plan_drift(Some(""), true, false);
         assert!(local.is_some(), "{local:?}");
         assert!(local.unwrap().contains("direct-push"));
-        // 远端 GW + 无桥可部署 ⇒ plan 必 Fail（BR 离线可判）⇒ S2 是漂移。
+        // Remote GW + no bridge deployable ⇒ plan must Fail (BR offline can decide) ⇒ S2 is drift.
         let nobridge = plan_drift(Some(""), false, false);
         assert!(nobridge.is_some(), "{nobridge:?}");
         assert!(nobridge.unwrap().contains("bridge is required"));
-        // 远端 GW + 桥可部署 ⇒ S2 仍可能成立（取决于 B/R）⇒ 不判。
+        // Remote GW + bridge deployable ⇒ S2 may still hold (depends on B/R) ⇒ do not decide.
         assert_eq!(plan_drift(Some(""), false, true), None);
     }
 }

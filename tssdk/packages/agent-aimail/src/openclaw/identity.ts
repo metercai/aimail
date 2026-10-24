@@ -29,7 +29,7 @@ import { INBOUND_PATH } from './inbound.js'
 /**
  * Default agent id (owner ruling 2026-10-16): openclaw is a MULTI-agent host
  * — the runtime agent id stays the host's 'main' (inbound dispatch sends it to
- * /hooks/agent; it must exist in the host's agents.entries). "定名恒 agent"
+ * /hooks/agent; it must exist in the host's agents.entries). "Fixed name always agent"
  * applies to the ADDRESS: 'main' derives the uniform address base 'agent' via
  * the ['main'] alias ⇒ agent@domain, same as dsh/pi.
  */
@@ -130,14 +130,14 @@ export function ensureHooksWiring(): 'kept' | 'created' | 'no-config' | 'disable
     return 'no-config'
   }
   const hooks = (cfg.hooks ?? {}) as Record<string, unknown>
-  if (hooks.enabled === false) return 'disabled' // 管理员显式关掉: 不越权改, 但要报出来
+  if (hooks.enabled === false) return 'disabled' // Admin explicitly turned off: do not override, but must report
   let changed = false
   if (!(typeof hooks.token === 'string' && hooks.token.trim())) {
     hooks.token = randomBytes(24).toString('hex')
     changed = true
   }
-  // 2026-09-27: token 只是认证; 端点本身要 hooks.enabled=true 才存在
-  // (宿主文档 /gateway/config-hooks: "404 ... Disabled hooks fall through").
+  // 2026-09-27: token is only for authentication; endpoint itself requires hooks.enabled=true to exist
+  // (host documentation /gateway/config-hooks: "404 ... Disabled hooks fall through").
   if (hooks.enabled !== true) {
     hooks.enabled = true
     changed = true
@@ -148,7 +148,7 @@ export function ensureHooksWiring(): 'kept' | 'created' | 'no-config' | 'disable
   return 'created'
 }
 
-/** hooks 前缀(宿主配置 hooks.path, 默认 /hooks): 派发 URL 必须用它, 不能写死。 */
+/** hooks prefix (host config hooks.path, default /hooks): dispatch URL must use it, cannot be hardcoded. */
 export function hooksPath(): string {
   try {
     const p = path.join(openclawHome(), '.openclaw', 'openclaw.json')
@@ -161,12 +161,12 @@ export function hooksPath(): string {
   }
 }
 
-/** 宿主已配置的 agent id（S1b, 2026-09-27）: 派发不带给合同时宿主直接 400 ——
- * 宿主文档 /gateway/config-hooks: "agentId ... Must name a configured agent when supplied
- * directly. Required when no implicit/retained owner can be resolved"，且
- * "Direct request agent ids must exist."。键位以宿主文档为准: agents.entries.<id>,
+/** Host-configured agent id (S1b, 2026-09-27): if dispatch is sent without a contract, the host returns 400 directly --
+ * host documentation /gateway/config-hooks: "agentId ... Must name a configured agent when supplied
+ * directly. Required when no implicit/retained owner can be resolved", and
+ * "Direct request agent ids must exist.". Keys follow the host document: agents.entries.<id>,
  * agents.defaults.sessionStore.agentId / agents.defaults.systemAgent.agentId。
- * 解析不到就返回空串 —— 由调用方明确报错, 不猜一个 id。 */
+ * If it cannot be resolved, return an empty string —— the caller must explicitly report the error, do not guess an id. */
 export function resolveAgentId(): string {
   try {
     const p = path.join(openclawHome(), '.openclaw', 'openclaw.json')
@@ -297,7 +297,7 @@ export async function resolveConfigForAgent(
       if (cfg) return cfg
     }
     const fix = hasAnySystem()
-      ? 'Run: aimail install --home ~/.openclaw (或 openclaw aimail register)'
+      ? 'Run: aimail install --home ~/.openclaw (or openclaw aimail register)'
       : 'Machine has no aimail environment yet. Run: aimail install --home ~/.openclaw (or restart the host so auto-ensure via `aimail install --system-only` kicks in)'
     throw new Error(
       `aimail not configured for this agent — no ~/.openclaw/.agentmail pointer. ${fix}`,

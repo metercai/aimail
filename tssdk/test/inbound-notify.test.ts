@@ -1,5 +1,5 @@
 /**
- * Inbound notification behaviour (owner ruling 2026-09-28, SDK 去桥化).
+ * Inbound notification behaviour (owner ruling 2026-09-28, SDK de-bridging).
  *
  * The SDK's only job towards the environment master is: for every address this
  * host serves, run

@@ -1,19 +1,19 @@
-//! CLI 侧 SMTP 发送客户端（`cli/_common.smtp_cmd` + `ping_test._smtp_send_ping`）。
+//! CLI side SMTP sending client (`cli/_common.smtp_cmd` + `ping_test._smtp_send_ping`).
 //!
-//! 两处机制（照抄 Python，含它的历史坑）：
-//! · **host 解析**：只剥 scheme 是不够的 —— 带端口的 `gateway_url`（`http://127.0.0.1:34401`）
-//!   必须取**纯主机名**，否则 `connect(("127.0.0.1:34401", 25))` 直接 `gaierror`
-//!   （2026-09-29 CLI L2 / J5-1 实测）。端口固定 **25**（SMTP 约定；网关 SMTP 不在 25 是已登记项）。
-//! · **STARTTLS**：网关对 `auth.local` 发件人强制 TLS ⇒ 服务器通告 STARTTLS 就升级，升级后按
-//!   RFC 3207 **重新 EHLO**；证书按系统根校验（网关证书由 ACME 管理）。
+//! Two mechanisms (copied from Python, including its historical pitfalls):
+//! · **host parsing**: stripping scheme alone is not enough —— `gateway_url` with port (`http://127.0.0.1:34401`)
+//!   must take the **pure hostname**, otherwise `connect(("127.0.0.1:34401", 25))` directly `gaierror`
+//!   (2026-09-29 CLI L2 / J5-1 measured). Port fixed at **25** (SMTP convention; gateway SMTP not on 25 is a registered item).
+//! · **STARTTLS**: the gateway enforces TLS for `auth.local` senders ⇒ upgrade if the server advertises STARTTLS, and after upgrading
+//!   RFC 3207 **re-EHLO**; certificate verified against system roots (gateway certificate managed by ACME).
 //!
-//! TLS 用 `rustls` + `ring` + `webpki-roots`（都在 ureq 的依赖树里 ⇒ 零新增下载）。
+//! TLS uses `rustls` + `ring` + `webpki-roots` (all in ureq's dependency tree ⇒ zero new downloads).
 
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::Arc;
 
-/// 连接的两种形态（明文 / STARTTLS 之后），统一当作读写流用。
+/// Two forms of connection (plaintext / after STARTTLS), uniformly used as read/write streams.
 pub enum Conn {
     Plain(TcpStream),
     Tls(Box<rustls::StreamOwned<rustls::ClientConnection, TcpStream>>),
@@ -42,7 +42,7 @@ impl Write for Conn {
     }
 }
 
-/// `urlparse(raw).hostname` 的等价物（raw 无 `//` 时补 `http://`；IPv6 去方括号）。
+/// Equivalent of `urlparse(raw).hostname` (prepends `http://` if raw has no `//`; strips brackets for IPv6).
 pub fn smtp_host_from_url(gw_url: &str) -> String {
     let raw = if gw_url.contains("//") {
         gw_url.to_string()
@@ -55,7 +55,7 @@ pub fn smtp_host_from_url(gw_url: &str) -> String {
     }
 }
 
-/// `_common.smtp_cmd`：发一行、读完多行响应，行间以 `" | "` 合并（行首 `NNN-` 表示续行）。
+/// `_common.smtp_cmd`: send one line, read multi-line response, join lines with `" | "` (line start `NNN-` indicates continuation).
 pub fn smtp_cmd(c: &mut Conn, cmd: &str) -> String {
     let _ = c.write_all(format!("{}\r\n", cmd).as_bytes());
     let _ = c.flush();
@@ -74,7 +74,7 @@ pub fn smtp_cmd(c: &mut Conn, cmd: &str) -> String {
             }
         }
         let last = all.last().cloned().unwrap_or_default();
-        // `NNN-` 续行 / `NNN ` 末行（第 4 字符非 '-' 即结束）
+        // `NNN-` continuation / `NNN ` final line (4th char not '-' means end)
         if last.len() < 4 || last.as_bytes()[3] != b'-' {
             break;
         }
@@ -86,7 +86,7 @@ pub fn smtp_cmd(c: &mut Conn, cmd: &str) -> String {
         .join(" | ")
 }
 
-/// `detect_edition`：`GET {gw}/health` 的 version 含 `advanced-` ⇒ advanced，否则 base；失败取 default。
+/// `detect_edition`: `GET {gw}/health` version contains `advanced-` ⇒ advanced, otherwise base; on failure use default.
 pub fn detect_edition(gateway_url: &str, default: &str) -> String {
     let url = format!("{}/health", gateway_url.trim_end_matches('/'));
     match crate::core::http::raw_req(&url, None, None, 10) {
@@ -111,9 +111,9 @@ pub fn detect_edition(gateway_url: &str, default: &str) -> String {
     }
 }
 
-/// `gateway_smtp_port`：`GET {gw}/health` 的 `smtp_port` 字段（网关 SMTP 监听端口，
-/// 由网关从 `[smtp] bind` 解析后上报）。健康检查失败 / 旧版网关无此字段 ⇒ 兜底 25
-/// （SMTP 公开协议契约，生产环境恒 25）。
+/// `gateway_smtp_port`: the `smtp_port` field of `GET {gw}/health` (gateway SMTP listening port,
+/// parsed by the gateway from `[smtp] bind` and reported). Health check failure / old gateway without this field ⇒ fallback 25
+/// (SMTP public protocol contract, always 25 in production).
 pub fn gateway_smtp_port(gateway_url: &str) -> u16 {
     let url = format!("{}/health", gateway_url.trim_end_matches('/'));
     match crate::core::http::raw_req(&url, None, None, 10) {
@@ -127,7 +127,7 @@ pub fn gateway_smtp_port(gateway_url: &str) -> u16 {
     }
 }
 
-/// /health body 中的 `smtp_port` 解析：缺失 / 非数字 / 越界 ⇒ 25。
+/// Parsing `smtp_port` from /health body: missing / non-numeric / out of range => 25.
 fn parse_smtp_port(v: &serde_json::Value) -> u16 {
     v.get("smtp_port")
         .and_then(|x| x.as_u64())
@@ -136,8 +136,8 @@ fn parse_smtp_port(v: &serde_json::Value) -> u16 {
         .unwrap_or(25)
 }
 
-/// `_smtp_send_ping` 的 MAIL FROM 形态：advanced ⇒ `base64(hex解码(api_key))=<manager @→=>@auth.local`；
-/// base ⇒ 直接用 manager（已自动加白）。
+/// MAIL FROM format of `_smtp_send_ping`: advanced => `base64(hex_decode(api_key))=<manager @->=>@auth.local`;
+/// base ⇒ use manager directly (already auto-whitelisted).
 pub fn auth_from(api_key: &str, manager: &str, edition: &str) -> String {
     if edition == "advanced" {
         let key_hex_decoded = hex_decode(api_key);
@@ -151,18 +151,18 @@ pub fn auth_from(api_key: &str, manager: &str, edition: &str) -> String {
     }
 }
 
-/// 通用发送（ping 与 welcome 同机制）：连 host:port → banner → EHLO → 可选 STARTTLS → 重新 EHLO
-/// → MAIL FROM → RCPT TO → DATA → 报文（逐字节，`\n`→`\r\n`；welcome 侧另有"不以 \n 结尾补一行"的既有差异）
-/// → `.` → 读 DATA end 响应。返回响应串（调用方判 `250` 前缀）。
+/// Generic send (ping and welcome use the same mechanism): connect host:port → banner → EHLO → optional STARTTLS → re-EHLO
+/// → MAIL FROM → RCPT TO → DATA → message (byte-by-byte, `\n`→`\r\n`; welcome side has an existing difference of "append a line if not ending with \n")
+/// → `.` → read DATA end response. Returns response string (caller checks for `250` prefix).
 pub struct SmtpJob<'a> {
-    /// 用来取 HOST 的 URL（含端口会被正确剥掉）
+    /// URL used to fetch HOST (port included will be correctly stripped)
     pub url_for_host: &'a str,
     pub port: u16,
     pub ehlo_name: &'a str,
     pub mail_from: &'a str,
     pub rcpt: &'a str,
     pub raw_message: &'a str,
-    /// welcome 侧既有差异：报文不以 `\n` 结尾时补一行（ping 恒为 false，报文本身以 `\n` 结尾）
+    /// Existing difference on welcome side: append a line if message does not end with `\n` (ping is always false, message itself ends with `\n`)
     pub ensure_trailing_newline: bool,
     pub timeout_secs: u64,
 }
@@ -239,7 +239,7 @@ pub fn send_raw(job: &SmtpJob) -> String {
     out
 }
 
-/// `_smtp_send_ping`：返回 DATA end 的响应串（`250` 开头即成功）。
+/// `_smtp_send_ping`: returns the response string from DATA end (`250` prefix indicates success).
 pub fn send_ping(
     gw_url: &str,
     api_key: &str,
@@ -254,7 +254,7 @@ pub fn send_ping(
         "From: {}\nTo: {}\nSubject: {}{}\nMessage-ID: <ping-{}@aimail.token.tm>\n\nPing test message\n",
         manager, email, crate::core::ping::PING_PREFIX, ping_id, ping_id
     );
-    // ping 侧既有形态：报文以 \n 结尾 ⇒ ensure_trailing_newline 分支不触发（与 Python 同）
+    // Existing format on ping side: message ends with \n ⇒ ensure_trailing_newline branch is not triggered (same as Python)
     send_raw(&SmtpJob {
         url_for_host: gw_url,
         port: gateway_smtp_port(gw_url),
@@ -277,19 +277,19 @@ fn starttls(mut c: Conn, host: &str) -> Result<Conn, String> {
         rustls::pki_types::ServerName::try_from(host.to_string()).map_err(|e| format!("{}", e))?;
     let conn =
         rustls::ClientConnection::new(Arc::new(cfg), server_name).map_err(|e| format!("{}", e))?;
-    // 明文 socket 取出后套 TLS
+    // Wrap plaintext socket with TLS after extraction
     let sock = match &mut c {
         Conn::Plain(s) => s.try_clone().map_err(|e| format!("{}", e))?,
         Conn::Tls(_) => return Err("already tls".to_string()),
     };
     let tls = rustls::StreamOwned::new(conn, sock);
-    // 握手（写一次空数据触发）
+    // Handshake (triggered by writing empty data once)
     let mut boxed = Conn::Tls(Box::new(tls));
     boxed.flush().map_err(|e| format!("{}", e))?;
     Ok(boxed)
 }
 
-/// hex 解码（`bytes.fromhex` 等价；非法即空串）。
+/// hex decode (equivalent to `bytes.fromhex`; invalid input yields an empty string).
 fn hex_decode(s: &str) -> Vec<u8> {
     let s = s.trim();
     if s.len() % 2 != 0 {
@@ -302,7 +302,7 @@ fn hex_decode(s: &str) -> Vec<u8> {
         .unwrap_or_default()
 }
 
-/// 标准 base64（`base64.b64encode` 等价，带 `=` 填充；调用方 rstrip("=")）。
+/// Standard base64 (equivalent to `base64.b64encode`, with `=` padding; caller rstrip("=")).
 fn base64_std(data: &[u8]) -> String {
     const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::new();

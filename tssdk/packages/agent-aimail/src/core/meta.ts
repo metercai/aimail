@@ -29,8 +29,8 @@ export function sanitizeMessageId(messageId: string): string {
 }
 
 /** Per-agent mail data leaf: {AIMAIL_HOME}/systems/{sid}/{clean_addr}/mail/
- * (三层收口 2026-09-23, 顶层不再有 mail/; in/out 快照、attch、meta、threads、
- * .search 整叶归 agent 层;sid 解析失败收口 _unassigned)。 */
+ * (Three-layer convergence 2026-09-23, top-level no longer has mail/; in/out snapshots, attch, meta, threads,
+ * .search entire leaf belongs to agent layer; sid resolution failure converges to _unassigned). */
 export function agentMailDir(email: string): string {
   const sid = systemIdForEmail(email) || '_unassigned'
   return path.join(AIMAIL_HOME(), 'systems', sid, cleanAddr(email), 'mail')
@@ -69,7 +69,7 @@ function normalizeRefs(references: string | string[] | undefined): string[] {
 }
 
 /**
- * Store per-message metadata (常写 — always written, NOT controlled by
+ * Store per-message metadata (frequently written — always written, NOT controlled by
  * save_raw_snapshots). references/thread_id/my_aimail_addr replace the former
  * gateway agent_state msg:{mid} key.
  */

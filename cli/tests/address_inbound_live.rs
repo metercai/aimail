@@ -1,12 +1,12 @@
-//! P4 切片5 验收：`address --inbound-live/--inbound-down`（hidden 面）。
+//! P4 slice 5 acceptance: `address --inbound-live/--inbound-down` (hidden surface).
 //!
-//! 判据：①两开关互斥逐字；②缺定位逐字；③`-e` 未命中；④`-a` 未命中并列本地 agent；
-//! ⑤（略，见测试内注释）；⑥live + pull 绑定 ⇒ `skipped` 合成 + **rc=0**（幂等）；
-//! ⑦down 且未声明桥 ⇒ `no_bridge` **静默 rc=0**；⑧down 且已声明桥 + 表内有本系统行 ⇒
-//!   撤行 + `; backlog N pending`（stub 网关）+ 锚点 `route withdrawn` + rc=0。
+//! Criteria: ① the two flags are mutually exclusive, verbatim; ② missing locator, verbatim; ③ `-e` miss; ④ `-a` miss and list the local agents;
+//! ⑤ (omitted, see the in-test comments); ⑥ live + pull binding => `skipped` synthesis + **rc=0** (idempotent);
+//! ⑦ down with no bridge declared => `no_bridge` **silent rc=0**; ⑧ down with a bridge declared + a row for this system in the table =>
+//!   row withdrawal + `; backlog N pending` (stub gateway) + anchor `route withdrawn` + rc=0.
 //!
-//! 说明：夹具必须带**绑定文件**（否则 `list_agents` 无从知道该 leaf 的 email ⇒ `-e` 查不到，
-//! 这正是上一轮⑦判红的真因：夹具缺绑定文件，走的是"无绑定"守卫，不是 write 失败）。
+//! Note: the fixture must carry a **binding file** (otherwise `list_agents` cannot know this leaf's email => `-e` cannot find it,
+//! which is exactly the true cause of the previous round's ⑦ red verdict: the fixture lacked the binding file, hitting the "no binding" guard, not a write failure).
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -111,7 +111,7 @@ fn spawn_stub() -> Stub {
     Stub { port, rx }
 }
 
-/// 夹具：`with_binding` 决定是否写绑定文件；`webhook` 决定 pull(空) 还是 push。
+/// Fixture: `with_binding` decides whether to write the binding file; `webhook` decides pull (empty) or push.
 fn fixture(
     gw_port: u16,
     with_binding: bool,
@@ -145,14 +145,14 @@ fn fixture(
 #[test]
 fn inbound_faces_validate_and_finish_by_state() {
     let stub = spawn_stub();
-    // ①② 互斥 / 缺定位：夹具带绑定（避免误撞守卫）
+    // ①② mutual exclusion / missing locator: the fixture carries a binding (avoid accidentally hitting the guard)
     let (_t0, h0) = fixture(stub.port, true, "", Some(0));
     let (rc, out, _) = run(
         &h0,
         &["address", "-s", "s1", "--inbound-live", "--inbound-down"],
     );
     assert_eq!(rc, 1, "{out}");
-    assert!(out.contains("互斥"), "{out}");
+    assert!(out.contains("mutually exclusive"), "{out}");
     let (rc, out, _) = run(&h0, &["address", "-s", "s1", "--inbound-live"]);
     assert_eq!(rc, 1, "{out}");
     assert!(
@@ -160,7 +160,7 @@ fn inbound_faces_validate_and_finish_by_state() {
         "{out}"
     );
 
-    // ③④ 定位未命中
+    // ③④ locator miss
     let (rc, out, _) = run(
         &h0,
         &["address", "-s", "s1", "--inbound-live", "-e", "nope@x.test"],
@@ -174,30 +174,30 @@ fn inbound_faces_validate_and_finish_by_state() {
     assert_eq!(rc, 1, "{out}");
     assert!(out.contains("no local address for -a nope"), "{out}");
 
-    // ⑤（略）"已定位但无绑定文件 ⇒ 守卫" 只在**平台枚举到、本地无绑定**时才可能触发：
-    // 纯本地夹具下 list_agents 为空 ⇒ 与 Python 同样落 "no local address"（不是守卫）。
-    // 该路径需平台 home 夹具（hermes profiles 等），留 CLI L2 门禁覆盖。
+    // ⑤ (omitted) "located but no binding file => guard" can only trigger when the **platform is enumerated but there is no local binding**:
+    // under a purely local fixture list_agents is empty => it lands on "no local address" just like Python (not the guard).
+    // that path needs a platform home fixture (hermes profiles, etc.); leave it to the CLI L2 gate.
 
-    // ⑥ live + pull 绑定 + 未声明桥 ⇒ skipped 合成、rc=0
+    // ⑥ live + pull binding + no bridge declared => skipped synthesis, rc=0
     let (_t2, h2) = fixture(stub.port, true, "", None);
     let (rc, out, err) = run(
         &h2,
         &["address", "-s", "s1", "--inbound-live", "-a", "agent"],
     );
-    assert_eq!(rc, 0, "⑥ 幂等应 rc=0\nout={out}\nerr={err}");
+    assert_eq!(rc, 0, "⑥ idempotent should be rc=0\nout={out}\nerr={err}");
     assert!(
         out.contains("nothing to do"),
-        "⑥ 应为 pull 的 skipped 合成: {out}"
+        "⑥ should be the pull skipped synthesis: {out}"
     );
 
-    // ⑦ down 且未声明桥 ⇒ no_bridge 静默 rc=0
+    // ⑦ down with no bridge declared => no_bridge silent rc=0
     let (rc, out, err) = run(
         &h2,
         &["address", "-s", "s1", "--inbound-down", "-a", "agent"],
     );
-    assert_eq!(rc, 0, "⑦ no_bridge 应静默 rc=0\nout={out}\nerr={err}");
+    assert_eq!(rc, 0, "⑦ no_bridge should be silent rc=0\nout={out}\nerr={err}");
 
-    // ⑧ down 且已声明桥 + 表内有本系统行 ⇒ 撤行 + backlog + 锚点 already absent
+    // ⑧ down with a bridge declared + a row for this system in the table => row withdrawal + backlog + anchor already absent
     let (_t3, h3) = fixture(stub.port, true, "", Some(stub.port));
     let bdir = h3.join("bridge");
     std::fs::create_dir_all(&bdir).unwrap();
@@ -213,19 +213,19 @@ fn inbound_faces_validate_and_finish_by_state() {
         &h3,
         &["address", "-s", "s1", "--inbound-down", "-a", "agent"],
     );
-    assert_eq!(rc, 0, "⑧ 应 rc=0\nout={out}\nerr={err}");
+    assert_eq!(rc, 0, "⑧ should be rc=0\nout={out}\nerr={err}");
     assert!(
         out.contains("route(s) withdrawn for system s1"),
-        "⑧ 应播报撤行数: {out}"
+        "⑧ should announce the withdrawn row count: {out}"
     );
     assert!(
         out.contains("backlog 2 pending"),
-        "⑧ backlog 应来自 stub: {out}"
+        "⑧ the backlog should come from the stub: {out}"
     );
-    // 锚点行**在**表内 ⇒ 真实结果是 `route withdrawn`（already absent 只用于"锚点不在表里"）
+    // the anchor row **is** in the table => the real result is `route withdrawn` (already absent is only for "the anchor is not in the table")
     assert!(
         out.contains("route withdrawn: agent@example.test"),
-        "⑧ 锚点结果: {out}"
+        "⑧ anchor result: {out}"
     );
     let mut saw_delete = false;
     while let Ok((m, p, _)) = stub.rx.try_recv() {
@@ -233,5 +233,5 @@ fn inbound_faces_validate_and_finish_by_state() {
             saw_delete = true;
         }
     }
-    assert!(saw_delete, "⑧ 应真的发过 DELETE 撤行");
+    assert!(saw_delete, "⑧ should really have sent the DELETE row withdrawal");
 }

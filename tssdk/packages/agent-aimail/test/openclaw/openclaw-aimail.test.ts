@@ -99,7 +99,7 @@ describe('deregisterAgentEmail', () => {
       { status: 200 }, // DELETE api-key
       { status: 200, data: [{ id: 22, domain: 'agent@test.example' }] }, // domains GET
       { status: 200 }, // DELETE domain
-      { status: 200, data: [ // whitelists GET (该系统全部行)
+      { status: 200, data: [ // whitelists GET (all rows of this system)
         { id: 33, domain_addr: 'agent@test.example', value: 'mgr@test.example' },
         { id: 44, domain_addr: 'other@test.example', value: 'mgr@test.example' },
       ] },
@@ -118,7 +118,7 @@ describe('deregisterAgentEmail', () => {
     expect(delCalls.map(c => c.path)).toEqual([
       '/api/v1/admin/api-keys/11',
       '/api/v1/admin/system-domains/22',
-      // 精确匹配到本地址的行(33) —— 绝不误删同 manager 的 other@ 行(44)
+      // Exact match to the line for this address (33) — never accidentally delete other@ lines under the same manager (44)
       '/api/v1/whitelists/33',
     ])
   })

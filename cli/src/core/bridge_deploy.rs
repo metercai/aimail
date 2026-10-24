@@ -1,20 +1,20 @@
-//! `cli/deploy_bridge.py` 的**二进制就位**部分（P2 切片3a）—— zip 取件 + 落盘 + 可执行位。
+//! The **binary placement** part of `cli/deploy_bridge.py` (P2 slice 3a) —— zip extraction + disk write + executable bit.
 //!
-//! 与 Python 的差异（**刻意的改进，不改变语义**）：Python 是"先试 `unzip` 可执行，失败再回退纯
-//! Python `zipfile`"（2026-10-02 L2 容器实测无 unzip ⇒ 双通道正是为它）。Rust 侧直接内置 zip
-//! 解压（zip crate），**连 `unzip` 都不需要** ⇒ 更贴合 owner 口径"CLI 自身零环境依赖"，
-//! 且不再有"宿主少一个工具就装不了桥"的失败面。解出的文件名、`aimail-bridge` 前缀筛选、
-//! 临时目录 → 原子替换 → `0755` 的语义与 Python 逐条对齐。
+//! Differences from Python (**deliberate improvements, no semantic change**): Python is "try `unzip` executable first, fallback to pure
+//! Python `zipfile`" (2026-10-02 L2 container test showed no unzip ⇒ the dual channel is precisely for this). The Rust side directly embeds zip
+//! extraction (zip crate), **not even `unzip` is needed** ⇒ better aligns with the owner's stance of "zero environment dependencies for the CLI itself",
+//! and eliminates the failure mode of "can't install bridge if host lacks one tool". Extracted filenames, `aimail-bridge` prefix filtering,
+//! The semantics of temporary directory → atomic replacement → `0755` are aligned line-by-line with Python.
 //!
-//! 其余口径照抄：`bridge/` 取件目录在 `<program_root>/bridge`；zip 名
-//! `aimail-bridge-v<semver>-linux-<arch>.zip`；**版本按语义比较**（v1.10.0 > v1.2.3 > v1.2）；
-//! 已就位（可执行）则完全不动 zip（幂等）。
+//! Other specs copied: `bridge/` extraction dir is at `<program_root>/bridge`; zip name
+//! `aimail-bridge-v<semver>-linux-<arch>.zip`; **version compared semantically** (v1.10.0 > v1.2.3 > v1.2);
+//! if already placed (executable), do not touch zip at all (idempotent).
 
 use std::path::{Path, PathBuf};
 
 use crate::cmd::report::warn;
 
-/// `_version_key`：从 `aimail-bridge-vX.Y[.Z]-…` 抽 (major, minor, patch)。
+/// `_version_key`: extract (major, minor, patch) from `aimail-bridge-vX.Y[.Z]-…`.
 pub fn version_key(name: &str) -> (u64, u64, u64) {
     let Some(i) = name.find("-v") else {
         return (0, 0, 0);
@@ -33,7 +33,7 @@ pub fn version_key(name: &str) -> (u64, u64, u64) {
     (num(0), num(1), num(2))
 }
 
-/// 本机架构名（`platform.machine()` 的等价映射）。
+/// Local architecture name (equivalent mapping of `platform.machine()`).
 pub fn arch_name() -> &'static str {
     match std::env::consts::ARCH {
         "x86_64" => "amd64",
@@ -42,7 +42,7 @@ pub fn arch_name() -> &'static str {
     }
 }
 
-/// `latest_bridge_zip`：`<bridge_dir_local>` 里最新的 `aimail-bridge-v*-linux-{arch}.zip`。
+/// `latest_bridge_zip`: the latest `aimail-bridge-v*-linux-{arch}.zip` in `<bridge_dir_local>`.
 pub fn latest_bridge_zip(bridge_dir_local: &Path, arch: &str) -> String {
     let suffix = format!("-linux-{}.zip", arch);
     let mut best: Option<(String, (u64, u64, u64))> = None;
@@ -64,8 +64,8 @@ pub fn latest_bridge_zip(bridge_dir_local: &Path, arch: &str) -> String {
     }
 }
 
-/// 文件是否可执行（`os.access(X_OK)` 等价）。
-/// unix = 权限位含执行位；windows = 文件在场（无 POSIX 位，.exe 在场即可执行）。
+/// Whether the file is executable (equivalent to `os.access(X_OK)`).
+/// unix = permission bits include execute bit; windows = file exists (no POSIX bits, .exe presence is executable).
 #[cfg(unix)]
 pub fn is_executable(p: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
@@ -78,8 +78,8 @@ pub fn is_executable(p: &Path) -> bool {
     p.is_file()
 }
 
-/// 本机桥**可部署**（判定函数 BR 输入，2026-10-13）：已就位的可执行二进制，
-/// 或本仓 `bridge/` 里有当前架构的 zip 可解。纯只读判定，不触发任何部署动作。
+/// Local bridge **deployable** (decision function BR input, 2026-10-13): an in-place executable binary,
+/// Or there is a zip for the current architecture in this repo's `bridge/` that can be extracted. Pure read-only check, does not trigger any deployment action.
 pub fn bridge_deployable() -> bool {
     let bridge_dir = crate::core::home::aimail_home().join("bridge/bin");
     if is_executable(&bridge_dir.join("aimail-bridge")) {
@@ -89,7 +89,7 @@ pub fn bridge_deployable() -> bool {
     !latest_bridge_zip(&crate::core::home::program_root().join("bridge"), arch).is_empty()
 }
 
-/// `_ensure_binary`：二进制缺失时从本仓 `bridge/` 的 zip 解出；幂等。
+/// `_ensure_binary`: extract from this repo's `bridge/` zip when binary is missing; idempotent.
 pub fn ensure_binary(bridge_bin: &Path, bridge_dir: &Path) -> bool {
     if !is_executable(bridge_bin) {
         let bridge_dir_local = crate::core::home::program_root().join("bridge");
@@ -103,7 +103,7 @@ pub fn ensure_binary(bridge_bin: &Path, bridge_dir: &Path) -> bool {
             ));
             return false;
         }
-        // 解到临时目录后统一改名，不依赖 zip 内部命名（照抄 Python）
+        // Extract to a temporary directory and rename uniformly, not relying on internal zip naming (copied from Python)
         let Some(td) = temp_dir() else {
             warn("Failed to extract bridge: cannot create a temp dir");
             return false;
@@ -133,7 +133,7 @@ pub fn ensure_binary(bridge_bin: &Path, bridge_dir: &Path) -> bool {
     is_executable(bridge_bin)
 }
 
-/// 在 zip 里找**顶层**的 `aimail-bridge*` 常规文件并解到 `td`（返回落地路径）。
+/// Find the **top-level** `aimail-bridge*` regular file in the zip and extract it to `td` (returns the landing path).
 fn extract_bridge(zip_path: &str, td: &Path) -> Option<PathBuf> {
     let file = match std::fs::File::open(zip_path) {
         Ok(f) => f,
@@ -149,7 +149,7 @@ fn extract_bridge(zip_path: &str, td: &Path) -> Option<PathBuf> {
             return None;
         }
     };
-    // Python：`os.listdir(td)` ⇒ 只看**顶层**名字且需是常规文件
+    // Python: `os.listdir(td)` ⇒ only look at **top-level** names and must be regular files
     let mut idx: Option<usize> = None;
     for i in 0..archive.len() {
         let name = match archive.by_index_raw(i) {
@@ -163,7 +163,7 @@ fn extract_bridge(zip_path: &str, td: &Path) -> Option<PathBuf> {
         break;
     }
     let Some(i) = idx else {
-        warn(&format!("zip 内无 aimail-bridge 可执行文件: {zip_path}"));
+        warn(&format!("no aimail-bridge executable in zip: {zip_path}"));
         return None;
     };
     let mut entry = archive.by_index(i).ok()?;
@@ -195,9 +195,9 @@ fn nanos() -> u128 {
         .unwrap_or(0)
 }
 
-// ── 配置写入（`_config_lines` / `write_bridge_config`）────────────────────────────
+// ── Config writing (`_config_lines` / `write_bridge_config`) ────────────────────────────
 
-/// `_config_lines`：单桥多系统的 TOML 体。逐行照抄 Python（含注释与键序）。
+/// `_config_lines`: TOML body for single bridge multi-system. Line-by-line copy from Python (including comments and key order).
 pub fn config_lines(
     addr: &str,
     mode: &str,
@@ -221,7 +221,7 @@ pub fn config_lines(
             "level = \"info\"",
             "",
             "[pull]",
-            "# 单 bridge 多系统:每系统一条,独立 key/system_id/dedup/backoff",
+            "# Single bridge multi-system: one entry per system, independent key/system_id/dedup/backoff",
             "systems = [",
         ]
         .iter()
@@ -264,7 +264,7 @@ pub fn config_lines(
     lines
 }
 
-/// `write_bridge_config` 的入参（单桥多系统的合并式写入）。
+/// Input parameters for `write_bridge_config` (merged writing for single bridge multi-system).
 pub struct BridgeConfigSpec {
     pub path: PathBuf,
     pub mode: String,
@@ -277,7 +277,7 @@ pub struct BridgeConfigSpec {
     pub hostname: String,
 }
 
-/// `write_bridge_config`：**合并**（单桥多系统）——已有 `[pull].systems` 里非本 sid 的条目保留。
+/// `write_bridge_config`: **merge** (single bridge multiple systems) —— entries in existing `[pull].systems` that are not this sid are preserved.
 pub fn write_bridge_config(spec: &BridgeConfigSpec) -> Result<(), String> {
     let log_path = crate::core::home::aimail_home()
         .join("bridge")
@@ -309,7 +309,7 @@ pub fn write_bridge_config(spec: &BridgeConfigSpec) -> Result<(), String> {
     }
     let new_entry = toml::Value::Table(new_entry);
 
-    // 读旧配置（坏 TOML 静默忽略 —— 照抄 Python 的 `except Exception: pass`）
+    // Read old config (silently ignore bad TOML — mirrors Python's `except Exception: pass`)
     let mut existing: Vec<toml::Value> = Vec::new();
     if spec.path.exists() {
         if let Ok(text) = std::fs::read_to_string(&spec.path) {
@@ -340,18 +340,18 @@ pub fn write_bridge_config(spec: &BridgeConfigSpec) -> Result<(), String> {
     {
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(&spec.path, std::fs::Permissions::from_mode(0o600));
-        // 凭据文件（AUDIT-1 F6）
+        // Credential file (AUDIT-1 F6)
     }
     Ok(())
 }
 
-// ── 桥生命周期（`_common.bridge_ctl_supported/status/stop` + `deploy_bridge.start_bridge`）──
+// ── Bridge lifecycle (`_common.bridge_ctl_supported/status/stop` + `deploy_bridge.start_bridge`) ──
 //
-// 契约（aimail-bridge >= 0.7.4）：`--status [--json]` / `--stop --pid-file <p>`;
-// 退出码 0 成功|运行中 · 1 错误|拒绝 · 2 配置非法 · 3 未运行。
-// 不支持的旧桥 ⇒ 回退"pid 文件 + 存活探测"（并告警），CLI 不再自行 kill 进程。
+// Contract (aimail-bridge >= 0.7.4): `--status [--json]` / `--stop --pid-file <p>`;
+// Exit codes 0 success|running · 1 error|rejected · 2 invalid config · 3 not running.
+// Unsupported old bridge ⇒ fallback to "pid file + liveness probe" (with warning), CLI no longer kills processes itself.
 
-/// `bridge_ctl_supported`：二进制是否支持生命周期契约。
+/// `bridge_ctl_supported`: whether the binary supports the lifecycle contract.
 pub fn ctl_supported(bin_path: &str) -> bool {
     match run_capture(&[bin_path, "--status", "--json"], 10) {
         Some((rc, out, _)) => (rc == 0 || rc == 3) && out.contains("\"running\""),
@@ -359,7 +359,7 @@ pub fn ctl_supported(bin_path: &str) -> bool {
     }
 }
 
-/// `bridge_status`：契约优先；旧桥回退 pid 文件 + 存活探测。
+/// `bridge_status`: contract first; old bridge falls back to pid file + liveness probe.
 pub fn bridge_status(bin_path: &str, pid_path: &str) -> serde_json::Value {
     if ctl_supported(bin_path) {
         return match run_capture(
@@ -392,7 +392,7 @@ pub fn bridge_status(bin_path: &str, pid_path: &str) -> serde_json::Value {
     })
 }
 
-/// `bridge_stop`：契约优先（含身份校验，非桥拒绝）；旧桥回退 TERM→KILL。
+/// `bridge_stop`: contract first (including identity verification, non-bridge rejected); old bridge falls back to TERM→KILL.
 pub fn bridge_stop(bin_path: &str, pid_path: &str) -> i32 {
     if ctl_supported(bin_path) {
         return match run_capture(&[bin_path, "--stop", "--pid-file", pid_path], 40) {
@@ -415,7 +415,7 @@ pub fn bridge_stop(bin_path: &str, pid_path: &str) -> i32 {
     if !pid_alive(pid) {
         return 0;
     }
-    println!("    (旧桥无契约能力 → 回退 TERM/KILL(windows = taskkill); 建议升级桥到 >= 0.7.4)");
+    println!("    (Old bridge has no contract capability → fallback to TERM/KILL(windows = taskkill); recommend upgrading bridge to >= 0.7.4)");
     kill_pid_compat(pid as u32, false);
     std::thread::sleep(std::time::Duration::from_secs(1));
     if pid_alive(pid) {
@@ -431,7 +431,7 @@ pub fn read_pid_file(pid_path: &str) -> Option<i32> {
         .and_then(|t| t.trim().parse::<i32>().ok())
 }
 
-/// `pid_alive`（unix：`kill -0`；windows：tasklist，与 bridge.rs 同判据）。
+/// `pid_alive` (unix: `kill -0`; windows: tasklist, same criteria as bridge.rs).
 pub fn pid_alive(pid: i32) -> bool {
     #[cfg(windows)]
     {
@@ -454,8 +454,8 @@ pub fn pid_alive(pid: i32) -> bool {
     }
 }
 
-/// 平台自适应终止(unix = `kill -15`/`-9` 两级;windows = `taskkill /F` 直接强杀,
-/// 无严格优雅停对应 —— W2 计划裁决 2026-10-16;调用方的等待循环仍按 pid_alive 原语义)。
+/// Platform-adaptive termination (unix = `kill -15`/`-9` two levels; windows = `taskkill /F` direct force kill,
+/// No strict graceful stop counterpart — W2 plan decision 2026-10-16; caller's wait loop still follows pid_alive original semantics).
 #[cfg(unix)]
 fn kill_pid_compat(pid: u32, force: bool) {
     let _ = run_capture(
@@ -469,13 +469,13 @@ fn kill_pid_compat(pid: u32, _force: bool) {
     let _ = crate::core::procwin::kill_pid(pid as i32);
 }
 
-/// 通用按模式枚举 pid（Python `_common.pids_by_pattern`；无 pgrep 时回退扫 `/proc`）。
-/// 这里的模式族是 `start_bridge` 的清理口径：`aimail-bridge` **且**带 `--config` 或 `.toml`。
+/// Generic pattern-based pid enumeration (Python `_common.pids_by_pattern`; falls back to scanning `/proc` when pgrep is unavailable).
+/// The pattern family here is the cleanup scope for `start_bridge`: `aimail-bridge` **and** with `--config` or `.toml`.
 pub fn bridge_cleanup_pids() -> Vec<u32> {
     #[cfg(windows)]
     {
-        // Windows 无 cmdline 匹配(进程表拿不到可靠命令行)⇒ 按专属进程名枚举
-        // (aimail-bridge 是专属名, 无撞名面; unix 的路径首 token 判据在此无对应物)。
+        // Windows has no cmdline matching (cannot get reliable command line from process table) ⇒ enumerate by dedicated process name
+        // (aimail-bridge is a dedicated name, no name collision; unix's path first token criterion has no equivalent here).
         return crate::core::procwin::bridge_pids_by_name();
     }
     #[cfg(unix)]
@@ -518,25 +518,25 @@ pub fn bridge_cleanup_pids() -> Vec<u32> {
     }
 }
 
-/// `start_bridge`：**单实例**启动。返回是否已运行。
+/// `start_bridge`: **single instance** start. Returns whether it is already running.
 pub fn start_bridge(bin_path: &str, cfg_path: &str, pid_path: &str) -> bool {
     let ctl = ctl_supported(bin_path);
     if ctl {
         let st = bridge_status(bin_path, pid_path);
         if st.get("running").and_then(|v| v.as_bool()).unwrap_or(false) {
             let pid = st.get("pid").cloned().unwrap_or(serde_json::Value::Null);
-            crate::cmd::report::ok(&format!("检测到已运行桥(pid={}) → 优雅停止", pid));
+            crate::cmd::report::ok(&format!("Detected running bridge (pid={}) → graceful stop", pid));
             let rc = bridge_stop(bin_path, pid_path);
             if rc != 0 {
                 warn(&format!(
-                    "桥停止失败(rc={}) → 放弃本次启动, 请先 `aimail-bridge --stop` 排查",
+                    "Bridge stop failed (rc={}) → abort this start, please run `aimail-bridge --stop` to investigate",
                     rc
                 ));
                 return false;
             }
         }
     } else {
-        warn("桥二进制不支持生命周期契约(--status/--stop) → 回退旧清理逻辑; 建议升级桥到 >= 0.7.4");
+        warn("Bridge binary does not support lifecycle contract (--status/--stop) → fallback to old cleanup logic; recommend upgrading bridge to >= 0.7.4");
         if let Some(old) = read_pid_file(pid_path) {
             kill_pid_compat(old as u32, false);
             std::thread::sleep(std::time::Duration::from_secs(1));
@@ -546,7 +546,7 @@ pub fn start_bridge(bin_path: &str, cfg_path: &str, pid_path: &str) -> bool {
         }
     }
 
-    // pgrep 兜底：按 PID 逐个杀（不依赖模式匹配的"漏杀"假设）
+    // pgrep fallback: kill by PID one by one (does not rely on pattern matching "missed kill" assumption)
     for pid in bridge_cleanup_pids() {
         kill_pid_compat(pid, false);
     }
@@ -559,7 +559,7 @@ pub fn start_bridge(bin_path: &str, cfg_path: &str, pid_path: &str) -> bool {
     }
 
     if ctl {
-        // 桥自守护：--daemon 由桥自己 fork 脱离并写 pid（跨平台的正确做法）
+        // Bridge self-daemon: --daemon is forked and detached by the bridge itself and writes pid (cross-platform correct approach)
         let _ = run_capture(
             &[bin_path, "-c", cfg_path, "--daemon", "--pid-file", pid_path],
             30,
@@ -574,11 +574,11 @@ pub fn start_bridge(bin_path: &str, cfg_path: &str, pid_path: &str) -> bool {
                 return true;
             }
         }
-        warn("桥启动后 10s 内未就绪(`aimail-bridge --status` 查)");
+        warn("Bridge not ready within 10s after start (check with `aimail-bridge --status`)");
         return false;
     }
 
-    // 旧桥：脱离会话直接起，1.5s 后仍活则写 pid
+    // Old bridge: starts detached from the session; if still alive after 1.5s, write pid
     let devnull = std::fs::OpenOptions::new().write(true).open("/dev/null");
     let mut cmd = std::process::Command::new(bin_path);
     cmd.arg("-c").arg(cfg_path);
@@ -599,13 +599,13 @@ pub fn start_bridge(bin_path: &str, cfg_path: &str, pid_path: &str) -> bool {
             }
         }
         Err(e) => {
-            warn(&format!("桥启动失败: {e}"));
+            warn(&format!("Bridge startup failed: {e}"));
             false
         }
     }
 }
 
-/// 跑子进程并取 (rc, stdout, stderr)；超时/启动失败 ⇒ None。
+/// Run subprocess and get (rc, stdout, stderr); timeout/startup failure ⇒ None.
 fn run_capture(argv: &[&str], timeout_secs: u64) -> Option<(i32, String, String)> {
     use std::sync::mpsc;
     let argv: Vec<String> = argv.iter().map(|s| s.to_string()).collect();
@@ -626,29 +626,29 @@ fn run_capture(argv: &[&str], timeout_secs: u64) -> Option<(i32, String, String)
     }
 }
 
-/// `bridge_pids` 的公开探测入口（`cmd_bridge` 的状态视图与测试共用同一实现，避免复刻）。
+/// Public probe entry for `bridge_pids` (shared implementation for `cmd_bridge` status view and tests to avoid duplication).
 pub fn bridge_pids_for_probe() -> Vec<u32> {
     crate::core::bridge_wire::bridge_pids()
 }
 
-// ── 公告地址链（U2 tail）────────────────────────────────────────────────────────
+// ── Announcement address chain (U2 tail)────────────────────────────────────────────────────────
 //
-// 读自桥仓（aimail-bridge/src/{config.rs,admin.rs}）：`hostname` 是桥**对外宣告**的顶层键；
-// `POST /api/v1/routes` 用它回 `http(s)://{hostname or bind}<push path>`。没写 `hostname`
-// 时桥拿 `bind`（监听指令，默认 0.0.0.0:38080）当目标 ⇒ 注册出去没人能投递（U2）。
-// 因此：写入即判定 —— 凡注册出去的必须是**可投递的绝对 http(s) URL**，不可投递绝不静默写。
+// Read from bridge repo (aimail-bridge/src/{config.rs,admin.rs}): `hostname` is the bridge's **externally announced** top-level key;
+// `POST /api/v1/routes` uses it to return `http(s)://{hostname or bind}<push path>`. If `hostname` is not set,
+// Time bridge takes `bind` (listen directive, default 0.0.0.0:38080) as target ⇒ registered but nobody can deliver (U2).
+// Therefore: write-time validation — anything registered must be a **deliverable absolute http(s) URL**, never silently write if undeliverable.
 
-/// 桥自己读取的公告地址环境变量（config.rs:394）。
+/// Environment variable for the announcement address read by the bridge itself (config.rs:394).
 pub const ANNOUNCE_ENV: &str = "AIMAIL_BRIDGE_HOSTNAME";
-/// 桥自报 push 入口时追加的路径（admin.rs:143-148）——**mirror**，不是本仓定义。
+/// Path appended when bridge self-reports push entry (admin.rs:143-148) — **mirror**, not defined in this repo.
 #[allow(dead_code)]
 pub const BRIDGE_ANNOUNCE_PATH: &str = "/webhooks/aimail-inbound"; // contract-allowed: mirrored from aimail-bridge/src/admin.rs:143-148 (the bridge's own hardcoded self-report path), not defined here.
-/// 未指定地址 = 监听指令，投递到那里永远到不了。
+/// Unspecified address = listen directive; delivery there will never arrive.
 pub const WILDCARD_HOSTS: [&str; 4] = ["0.0.0.0", "::", "0:0:0:0:0:0:0:0", "[::]"];
-/// 桥自己的默认监听端口。
+/// The bridge's own default listen port.
 pub const DEFAULT_BIND_PORT: u64 = 38080;
 
-/// `_split_host_port`：拆 `host:port` / `[v6]:port` / `[v6]` / `host`。
+/// `_split_host_port`: splits `host:port` / `[v6]:port` / `[v6]` / `host`.
 pub fn split_host_port(value: &str) -> (String, String) {
     let s = value.trim();
     if s.is_empty() {
@@ -665,7 +665,7 @@ pub fn split_host_port(value: &str) -> (String, String) {
     if s.contains(':') {
         if let Some((host, port)) = s.rsplit_once(':') {
             if host.contains(':') {
-                return (s.to_string(), String::new()); // 裸 IPv6（无方括号）
+                return (s.to_string(), String::new()); // Bare IPv6 (no brackets)
             }
             return (host.to_string(), port.to_string());
         }
@@ -673,7 +673,7 @@ pub fn split_host_port(value: &str) -> (String, String) {
     (s.to_string(), String::new())
 }
 
-/// `_valid_port`：0 < n < 65536 才算。
+/// `_valid_port`: only valid if 0 < n < 65536.
 pub fn valid_port(value: &str) -> u64 {
     value
         .trim()
@@ -683,7 +683,7 @@ pub fn valid_port(value: &str) -> u64 {
         .unwrap_or(0)
 }
 
-/// `normalize_announced`：`(host:port, note)` —— 写进桥 `hostname` 的值。
+/// `normalize_announced`: `(host:port, note)` — value written to bridge `hostname`.
 pub fn normalize_announced(value: &str, default_port: u64) -> (String, String) {
     let raw = value.trim();
     if raw.is_empty() {
@@ -768,7 +768,7 @@ pub fn normalize_announced(value: &str, default_port: u64) -> (String, String) {
     (format!("{}:{}", shown, port), note)
 }
 
-/// `_announce_input`（显式输入：仅 `--bridge-hostname` 参数与两个环境变量）。
+/// `_announce_input` (explicit input: only `--bridge-hostname` argument and two environment variables).
 pub fn announce_input(arg_value: &str) -> String {
     if !arg_value.is_empty() {
         return arg_value.to_string();
@@ -780,12 +780,12 @@ pub fn announce_input(arg_value: &str) -> String {
     String::new()
 }
 
-/// `announced_url`：本环境为桥的 push 入口宣告/注册的 URL。
+/// `announced_url`: URL announced/registered for this environment's bridge push entry.
 pub fn announced_url(hostport: &str) -> String {
     format!("http://{}{}", hostport, BRIDGE_ANNOUNCE_PATH)
 }
 
-/// `judge_deliverable`：**(大声判定**）云端到底能不能 POST 到这个 URL。
+/// `judge_deliverable`: **(loud judgment)** whether the cloud can actually POST to this URL.
 pub fn judge_deliverable(url: &str) -> (bool, String) {
     let raw = url.trim();
     if raw.is_empty() {
@@ -832,7 +832,7 @@ pub fn judge_deliverable(url: &str) -> (bool, String) {
     (true, String::new())
 }
 
-/// `bind_address`：桥**实际可以 bind** 的值 —— IP 公告绑该地址，域名公告绑 0.0.0.0+端口。
+/// `bind_address`: value the bridge **can actually bind** to — IP announcement binds to that address, domain announcement binds to 0.0.0.0+port.
 pub fn bind_address(hostport: &str) -> (String, String) {
     let (host, port) = split_host_port(hostport);
     let is_v4 = host.parse::<std::net::Ipv4Addr>().is_ok();
@@ -854,11 +854,11 @@ pub fn bind_address(hostport: &str) -> (String, String) {
     )
 }
 
-/// `detect_ip`：本机全局地址（IPv4 → IPv6 → 主机名解析 → 127.0.0.1）。
+/// `detect_ip`: local global address (IPv4 → IPv6 → hostname resolution → 127.0.0.1).
 pub fn detect_ip() -> String {
     #[cfg(windows)]
     {
-        // ipconfig 取第一个全局 IPv4 ⇒ 主机名解析 ⇒ 127.0.0.1(unix 的 ip//etc/hostname 链镜像)
+        // ipconfig takes the first global IPv4 ⇒ hostname resolution ⇒ 127.0.0.1 (unix ip//etc/hostname chain mirror)
         if let Some(ip) = crate::core::procwin::local_ipv4().into_iter().next() {
             return ip.to_string();
         }
@@ -917,7 +917,7 @@ pub fn detect_ip() -> String {
     "127.0.0.1".to_string()
 }
 
-/// `format_webhook_host`：IP → 带默认端口（IPv6 加方括号）。
+/// `format_webhook_host`: IP → with default port (IPv6 adds square brackets).
 pub fn format_webhook_host(ip: &str) -> String {
     if ip.contains(':') && !ip.contains('.') {
         format!("[{}]:38081", ip)
@@ -926,22 +926,22 @@ pub fn format_webhook_host(ip: &str) -> String {
     }
 }
 
-// ── 部署编排（`deploy_bridge.main()` 的 deploy 分支）──────────────────────────────
+// ── Deployment orchestration (`deploy_bridge.main()` deploy branch)──────────────────────────────
 
 pub struct DeploySpec {
     pub gateway_url: String,
     pub admin_key: String,
     pub system_id: String,
     pub domain: String,
-    /// S2（桥 pull 态，`webhookplan::WebhookPlan::BridgePull`）⇒ pull（云端来取，桥不需要 hostname）
+    /// S2 (bridge pull state, `webhookplan::WebhookPlan::BridgePull`) ⇒ pull (cloud fetches, bridge does not need hostname)
     pub webhook_mode_bridge: bool,
-    /// `--bridge-hostname` 参数值（显式输入优先）
+    /// `--bridge-hostname` argument value (explicit input takes priority)
     pub announce_arg: String,
-    /// `systems/<sid>/aimail_gateway.json` 里已落盘的 `webhook_host`（声明回退源）
+    /// `webhook_host` already persisted in `systems/<sid>/aimail_gateway.json` (declared fallback source)
     pub cfg_webhook_host: String,
 }
 
-/// 部署本机桥（二进制就位 → 公告判定 → 配置合并 → 起桥）。返回 rc（0 ok / 1 fail）。
+/// Deploy local bridge (binary in place → announcement check → config merge → start bridge). Returns rc (0 ok / 1 fail).
 pub fn deploy(spec: &DeploySpec) -> i32 {
     use crate::cmd::report::{ok, warn};
 
@@ -957,7 +957,7 @@ pub fn deploy(spec: &DeploySpec) -> i32 {
     let bridge_bin = bridge_dir.join("aimail-bridge");
     let _ = std::fs::create_dir_all(&bridge_dir);
     if !ensure_binary(&bridge_bin, &bridge_dir) {
-        warn("bridge 二进制不可用");
+        warn("bridge binary unavailable");
         return 1;
     }
 
@@ -967,7 +967,7 @@ pub fn deploy(spec: &DeploySpec) -> i32 {
         "push"
     };
 
-    // ── 公告地址：**写任何东西之前**判可投递性（不可投递 = 邮件黑洞 U2 ⇒ 大声失败）
+    // ── Announcement address: **before writing anything** check deliverability (undeliverable = email black hole U2 ⇒ fail loudly)
     let mut announced = String::new();
     let mut bind = "127.0.0.1:38081".to_string();
     let mut registration_url = String::new();
@@ -1055,8 +1055,8 @@ pub fn deploy(spec: &DeploySpec) -> i32 {
     let _ = std::fs::create_dir_all(&cfg_dir);
     let bridge_cfg = cfg_dir.join("aimail_bridge.toml");
 
-    // 桥用的 key：优先系统级 raw key，回退 admin key；**幂等复用**已落盘的 bridge key
-    // （否则每次 install 都会 mint 一把新 key —— 网关库里 orphan key 泛滥，2026-09-04 定调）
+    // Key used by bridge: prefer system-level raw key, fallback to admin key; **idempotent reuse** of persisted bridge key
+    // (otherwise every install mints a new key — orphan keys flood the gateway DB, decided 2026-09-04)
     let system_key = crate::core::config::read_system_raw_key(&spec.system_id);
     let bridge_ak = if !system_key.is_empty() {
         system_key
@@ -1107,7 +1107,7 @@ pub fn deploy(spec: &DeploySpec) -> i32 {
         }
     }
 
-    // webhook secret：单源 = 宿主 hermes config.yaml 的 webhook.extra.secret
+    // webhook secret: single source = host hermes config.yaml webhook.extra.secret
     let mut webhook_secret = String::new();
     let hc = crate::core::home::user_home().join(".hermes/config.yaml");
     if let Ok(text) = std::fs::read_to_string(&hc) {
@@ -1137,8 +1137,8 @@ pub fn deploy(spec: &DeploySpec) -> i32 {
         return 1;
     }
 
-    // 回写 `webhook_host`（只由 CLI 写，SDK 只读）：值必须是**可投递的绝对 URL**；
-    // pull = Some("")（空串，S2）；push = Some(url)（S1）；值没变就不写（幂等）。
+    // Write back `webhook_host` (only written by CLI, SDK read-only): value must be a **deliverable absolute URL**;
+    // pull = Some("") (empty string, S2); push = Some(url) (S1); do not write if value unchanged (idempotent).
     if !spec.system_id.is_empty() {
         let sub = crate::core::config::gateway_config_path(&spec.system_id);
         if sub.is_file() {
@@ -1165,7 +1165,7 @@ pub fn deploy(spec: &DeploySpec) -> i32 {
         }
     }
 
-    // 起桥
+    // Start bridge
     let pid_path = cfg_dir.join("bridge.pid");
     if start_bridge(
         &bridge_bin.to_string_lossy(),
@@ -1201,16 +1201,16 @@ fn short_hex(n: usize) -> String {
     hex.chars().take(n).collect()
 }
 
-/// `_bridge_upgrade`：按本仓 `bridge/` 的最新 zip 升级二进制（官方取件通道）。
+/// `_bridge_upgrade`: upgrade binary using latest zip from this repo's `bridge/` (official retrieval channel).
 ///
-/// 取最新 zip → 解到临时目录 → sha256 比对 → 相同即 no-op；不同则：运行中先**契约** `--stop`
-/// 优雅停止（旧桥无契约 ⇒ 回退按 pid TERM→10s→KILL→5s）→ 原子替换 → `start_bridge` 重启 → 校验。
+/// Fetch latest zip → extract to temp dir → sha256 compare → no-op if same; if different: if running, first **contract** `--stop`
+/// graceful stop (old bridge without contract ⇒ fallback to pid TERM→10s→KILL→5s) → atomic replace → `start_bridge` restart → verify.
 pub fn upgrade_bridge() -> i32 {
     use crate::cmd::report::{fail, ok, warn};
 
     let cfg = crate::core::bridge_wire::bridge_cfg_file();
     if !cfg.exists() {
-        return fail(&format!("bridge 配置不存在: {}(未部署?)", cfg.display()));
+        return fail(&format!("bridge configuration does not exist: {}(not deployed?)", cfg.display()));
     }
     let bin_path = crate::core::home::aimail_home().join("bridge/bin/aimail-bridge");
     let repo_bridge = crate::core::home::program_root().join("bridge");
@@ -1218,18 +1218,18 @@ pub fn upgrade_bridge() -> i32 {
     let zip_path = latest_bridge_zip(&repo_bridge, arch);
     if zip_path.is_empty() {
         return fail(&format!(
-            "本仓无 {} 平台 zip: {}(先完成发布流程: Release 资产→zip→本目录)",
+            "No {} platform zip in this repo: {}(complete the release process first: Release assets→zip→this directory)",
             arch,
             repo_bridge.display()
         ));
     }
     let Some(td) = temp_dir() else {
-        return fail("解包失败: 无法创建临时目录");
+        return fail("Unpack failed: unable to create temporary directory");
     };
     let new_bin = extract_bridge(&zip_path, &td);
     let Some(new_bin) = new_bin else {
         let _ = std::fs::remove_dir_all(&td);
-        return fail(&format!("zip 内无 aimail-bridge: {}", zip_path));
+        return fail(&format!("zip contains no aimail-bridge: {}", zip_path));
     };
     let new_sha = sha256_file(&new_bin).unwrap_or_default();
     let old_sha = if bin_path.is_file() {
@@ -1238,23 +1238,23 @@ pub fn upgrade_bridge() -> i32 {
         String::new()
     };
     println!(
-        "  来源: {}",
+        "  Source: {}",
         std::path::Path::new(&zip_path)
             .file_name()
             .unwrap_or_default()
             .to_string_lossy()
     );
     println!(
-        "  现行 sha={}  新件 sha={}",
+        "  Current sha={}  New sha={}",
         if old_sha.is_empty() {
-            "(无)".to_string()
+            "(none)".to_string()
         } else {
             old_sha.chars().take(12).collect()
         },
         new_sha.chars().take(12).collect::<String>()
     );
     if !old_sha.is_empty() && old_sha == new_sha {
-        ok("已是最新(sha 相同) —— 无需升级");
+        ok("Already up to date (sha identical) —— no upgrade needed");
         let _ = std::fs::remove_dir_all(&td);
         return 0;
     }
@@ -1269,11 +1269,11 @@ pub fn upgrade_bridge() -> i32 {
             }
         }
         if !stopped {
-            warn("契约停止不可用 → 回退按 pid 终止(旧桥 < 0.7.4)");
+            warn("Contract stop unavailable → falling back to kill by pid (old bridge < 0.7.4)");
             for p in &pids {
                 kill_pid_compat(*p, false);
             }
-            // 桥对 SIGTERM 是**优雅**处理，且 pid 文件正常退出时由桥自己删 ⇒ 给足 10s 窗口再 KILL
+            // The bridge handles SIGTERM **gracefully**, and the pid file is deleted by the bridge itself on normal exit ⇒ allow a 10s window before KILL
             for _ in 0..40 {
                 if bridge_cleanup_pids().is_empty() {
                     break;
@@ -1292,17 +1292,17 @@ pub fn upgrade_bridge() -> i32 {
         }
         if !bridge_cleanup_pids().is_empty() {
             let _ = std::fs::remove_dir_all(&td);
-            return fail("桥仍在运行, 中止升级(避免替换出双实例)");
+            return fail("Bridge still running, aborting upgrade (to avoid replacing into dual instances)");
         }
     }
 
     if let Some(parent) = bin_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    // 原子替换：运行中的旧 inode 不受影响，不留半截二进制
+    // Atomic replacement: the running old inode is unaffected, no half-written binary left behind
     if std::fs::rename(&new_bin, &bin_path).is_err() {
         let _ = std::fs::remove_dir_all(&td);
-        return fail("替换二进制失败");
+        return fail("Failed to replace binary");
     }
     #[cfg(unix)]
     {
@@ -1311,9 +1311,9 @@ pub fn upgrade_bridge() -> i32 {
     }
     let _ = std::fs::remove_dir_all(&td);
     ok(&format!(
-        "二进制已更新(sha {} → {})",
+        "Binary updated (sha {} → {})",
         if old_sha.is_empty() {
-            "无".to_string()
+            "none".to_string()
         } else {
             old_sha.chars().take(12).collect()
         },
@@ -1329,17 +1329,17 @@ pub fn upgrade_bridge() -> i32 {
         let pid = std::fs::read_to_string(&pid_path)
             .map(|s| s.trim().to_string())
             .unwrap_or_else(|_| "?".to_string());
-        ok(&format!("bridge 已以新二进制启动 (pid={})", pid));
+        ok(&format!("bridge started with new binary (pid={})", pid));
         0
     } else {
         fail(&format!(
-            "新二进制启动失败——查日志 {}",
+            "New binary failed to start——check log {}",
             crate::core::bridge_wire::bridge_log_file().display()
         ))
     }
 }
 
-/// `_sha256`：文件 sha256 十六进制。
+/// `_sha256`: file sha256 in hexadecimal.
 pub fn sha256_file(p: &std::path::Path) -> Option<String> {
     use sha2::{Digest, Sha256};
     let bytes = std::fs::read(p).ok()?;

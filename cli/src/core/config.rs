@@ -1,22 +1,22 @@
-//! 系统级环境文件（`aimail_gateway.json`）的读写 + per-agent 绑定文件的**只读**入口。
+//! Read/write of the system-level env file (`aimail_gateway.json`) + **read-only** entry for per-agent binding files.
 //!
-//! 归属铁律（owner 2026-09-28 裁决，判定器 `tests/contract/check-file-ownership.py:5-17`）：
+//! Ownership iron rule (owner 2026-09-28 ruling, checker `tests/contract/check-file-ownership.py:5-17`):
 //!
 //! ```text
-//! 系统级环境文件  aimail_gateway.json  ← 只由 CLI 写（读双向允许）
-//! per-agent 绑定文件                   ← 只由 SDK 写（读双向允许）
+//! System-level environment file  aimail_gateway.json  ← written only by CLI (bidirectional read allowed)
+//! per-agent binding file                   ← written only by SDK (bidirectional read allowed)
 //! ```
 //!
-//! ⇒ 本模块**只实现系统级文件的写**；绑定文件只提供路径解析（供读），
-//! **不得**出现任何写调用，也不得把绑定文件名写进写调用的实参。
+//! ⇒ This module **only implements writing system-level files**; for binding files it only provides path resolution (for reading),
+//! **must not** contain any write calls, nor write binding file names into write call arguments.
 //!
-//! 现状码对照（逐字对齐字段与条件键）：
-//! - 写：`cli/setup_system.py:331-370`（`_save_gateway_config`：基础键恒写，
-//!   `domain/manager_address/webhook_host/system_home` **仅非空才写**）
-//! - 原子落盘：`cli/aimail:2460-2467`（`_atomic_json_write`：`<path>.json.tmp` →
+//! Current code comparison (field and condition key alignment verbatim):
+//! - Write: `cli/setup_system.py:331-370` (`_save_gateway_config`: base keys always written,
+//!   `domain/manager_address/webhook_host/system_home` **only written if non-empty**)
+//! - Atomic write: `cli/aimail:2460-2467` (`_atomic_json_write`: `<path>.json.tmp` →
 //!   chmod 0600 → `replace`）
-//! - 读：`pysdk/gateway_api.py:16-31`（路径 = `<aimail_home>/systems/<sid>/` +
-//!   文件名；读不到/解析不了 ⇒ `None`）
+//! - Read: `pysdk/gateway_api.py:16-31` (path = `<aimail_home>/systems/<sid>/` +
+//!   filename; unreadable/unparseable ⇒ `None`)
 
 use crate::core::{contract, home, perms};
 use serde_json::{Map, Value};
@@ -24,19 +24,19 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-/// 系统级环境文件名。**不属** agent 内部契约面（契约清单只约束注册名/绑定名/指针名/入站路径）
-/// ⇒ 这里是本模块自己的常量，不是契约字面量的副本。
+/// System-level environment file name. **Not part of** agent internal contract surface (contract list only constrains registration name/binding name/pointer name/inbound path)
+/// ⇒ These are this module's own constants, not copies of contract literals.
 pub const GATEWAY_CONFIG_NAME: &str = "aimail_gateway.json";
 
-/// 系统级环境文件的内容模型。
+/// Content model for system-level environment file.
 ///
-/// - 基础键恒写（与现状码一致，即使是空串）；
-/// - `domain` / `manager_address` / `system_home` / `container_home` **仅非空才写**；
-/// - `webhook_host` 是**三态**（owner 2026-10-13）：`None` = 键缺席（S3 直连）、
-///   `Some("")` = 空串（S2 桥 pull）、`Some(url)` = S1 经桥 push 的 BRIDGE_HOST。
-///   用 `Option` 而非 `String` 正是为了区分"缺席"与"空串"——现状 `String` 把两者
-///   都归一成空串，无法表达 S3；
-/// - 未知/未来键原样保留在 `extra`（读→写不丢字段，等价 Python dict 行为）。
+/// - Base keys always written (consistent with current code, even if empty string);
+/// - `domain` / `manager_address` / `system_home` / `container_home` **only written if non-empty**;
+/// - `webhook_host` is **tri-state** (owner 2026-10-13): `None` = key absent (S3 direct),
+///   `Some("")` = empty string (S2 bridge pull), `Some(url)` = S1 via bridge push BRIDGE_HOST.
+///   Using `Option` instead of `String` is precisely to distinguish "absent" from "empty string" — currently `String` conflates the two
+///   to empty string, unable to express S3;
+/// - Unknown/future keys are preserved as-is in `extra` (read→write does not lose fields, equivalent to Python dict behavior).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GatewayConfig {
     pub gateway_url: String,
@@ -52,7 +52,7 @@ pub struct GatewayConfig {
     pub extra: Map<String, Value>,
 }
 
-/// 基础键（恒写，不参与 extra）。
+/// Base keys (always written, not part of extra).
 const BASE_KEYS: [&str; 5] = [
     "gateway_url",
     "admin_key",
@@ -61,8 +61,8 @@ const BASE_KEYS: [&str; 5] = [
     "save_raw_snapshots",
 ];
 
-/// 条件键（仅非空才写）。`webhook_host` 不在此列——它是三态（见结构体注释），
-/// 在 `to_json` 里单独处理（`None` 不写、`Some("")` 写空串、`Some(url)` 写 url）。
+/// Conditional keys (written only if non-empty). `webhook_host` is not in this list — it is tri-state (see struct comment),
+/// handled separately in `to_json` (`None` not written, `Some("")` writes empty string, `Some(url)` writes url).
 const CONDITIONAL_KEYS: [&str; 4] = ["domain", "manager_address", "system_home", "container_home"];
 
 impl Default for GatewayConfig {
@@ -72,7 +72,7 @@ impl Default for GatewayConfig {
             admin_key: String::new(),
             system_id: String::new(),
             system_name: String::new(),
-            save_raw_snapshots: true, // 现状默认 True（setup_system 构造默认）
+            save_raw_snapshots: true, // Current default True (setup_system construction default)
             domain: String::new(),
             manager_address: String::new(),
             webhook_host: None,
@@ -84,7 +84,7 @@ impl Default for GatewayConfig {
 }
 
 impl GatewayConfig {
-    /// 从 JSON 对象宽松读取：未知键进 `extra`；类型不符时按"缺失"处理（不抛）。
+    /// Loose read from JSON object: unknown keys go to `extra`; type mismatch treated as "missing" (no throw).
     pub fn from_json(obj: &Map<String, Value>) -> Self {
         let mut cfg = Self::default();
         let s = |k: &str| obj.get(k).and_then(Value::as_str).unwrap_or("").to_string();
@@ -98,7 +98,7 @@ impl GatewayConfig {
             .unwrap_or(true);
         cfg.domain = s("domain");
         cfg.manager_address = s("manager_address");
-        // webhook_host 三态：键缺席 ⇒ None；键在（哪怕空串）⇒ Some(值)。
+        // webhook_host tri-state: key absent ⇒ None; key present (even if empty string) ⇒ Some(value).
         cfg.webhook_host = obj
             .get("webhook_host")
             .and_then(Value::as_str)
@@ -113,7 +113,7 @@ impl GatewayConfig {
         cfg
     }
 
-    /// 转回 JSON 对象（键序 = 现状码的书写顺序；`extra` 追加在末尾）。
+    /// Convert back to JSON object (key order = current code writing order; `extra` appended at end).
     pub fn to_json(&self) -> Map<String, Value> {
         let mut m = Map::new();
         m.insert(
@@ -130,8 +130,8 @@ impl GatewayConfig {
             "save_raw_snapshots".into(),
             Value::Bool(self.save_raw_snapshots),
         );
-        // 条件键按现状码书写顺序；webhook_host 是 Option：None 不写（S3 键缺席）、
-        // Some("")/Some(url) 都写（S2 空串 / S1 URL）。其余键仍"仅非空才写"。
+        // Conditional keys in current code writing order; webhook_host is Option: None not written (S3 key absent),
+        // Some("")/Some(url) both written (S2 empty string / S1 URL). Other keys still "only written if non-empty".
         let entries: [(&str, Option<&String>); 5] = [
             ("domain", Some(&self.domain)),
             ("manager_address", Some(&self.manager_address)),
@@ -141,7 +141,7 @@ impl GatewayConfig {
         ];
         for (key, val) in entries {
             if let Some(v) = val {
-                // webhook_host 允许空串（Some("") 落盘）；其余键空串不写
+                // webhook_host allows empty string (Some("") persisted); other keys empty string not written
                 let skip = key != "webhook_host" && v.is_empty();
                 if !skip {
                     m.insert(key.into(), Value::String(v.clone()));
@@ -155,9 +155,9 @@ impl GatewayConfig {
     }
 }
 
-// ── 路径 ───────────────────────────────────────────────────────────────────
+// ── Path ───────────────────────────────────────────────────────────────────
 
-/// `<home>/systems`（`home` 显式传入，便于测试与 `-H`）。
+/// `<home>/systems` (`home` is passed explicitly for testing and `-H`).
 pub fn systems_root_in(home_dir: &Path) -> PathBuf {
     home_dir.join("systems")
 }
@@ -167,8 +167,8 @@ pub fn system_dir_in(home_dir: &Path, sid: &str) -> PathBuf {
     systems_root_in(home_dir).join(sid)
 }
 
-/// 本机有效系统 id 列表（`<home>/systems/<sid>/` 且含 `aimail_gateway.json`），
-/// 排序稳定（调用方按"唯一性"判定,顺序无业务含义）。
+/// List of valid system ids on this machine (`<home>/systems/<sid>/` containing `aimail_gateway.json`),
+/// sorted stably (caller determines "uniqueness", order has no business meaning).
 pub fn list_system_ids_in(home_dir: &Path) -> Vec<String> {
     let mut out = Vec::new();
     if let Ok(rd) = fs::read_dir(systems_root_in(home_dir)) {
@@ -186,34 +186,34 @@ pub fn list_system_ids_in(home_dir: &Path) -> Vec<String> {
     out
 }
 
-/// 系统级环境文件路径：`<home>/systems/<sid>/<GATEWAY_CONFIG_NAME>`。
+/// System-level environment file path: `<home>/systems/<sid>/<GATEWAY_CONFIG_NAME>`.
 pub fn gateway_config_path_in(home_dir: &Path, sid: &str) -> PathBuf {
     system_dir_in(home_dir, sid).join(GATEWAY_CONFIG_NAME)
 }
 
-/// 同上，用本机主根（`AIMAIL_HOME` > `~/.aimail`）。
+/// Same as above, using the local main root (`AIMAIL_HOME` > `~/.aimail`).
 pub fn gateway_config_path(sid: &str) -> PathBuf {
     gateway_config_path_in(&home::aimail_home(), sid)
 }
 
-/// per-agent 绑定文件路径 —— **只读入口**（写权在 SDK，见模块头部的归属铁律）。
+/// per-agent binding file path —— **read-only entry** (write authority lies with SDK, see ownership iron rule in module header).
 ///
-/// 目录名 = 地址按 `clean_agent_dir_name` 归一（与 Python 同一公式）；
-/// 文件名 = 契约常量（`contract::binding_file()`），**不在本文件里复制字面量**。
+/// Directory name = address normalized by `clean_agent_dir_name` (same formula as Python);
+/// File name = contract constant (`contract::binding_file()`), **do not duplicate the literal in this file**.
 pub fn binding_file_path_in(home_dir: &Path, sid: &str, addr: &str) -> PathBuf {
     system_dir_in(home_dir, sid)
         .join(clean_agent_dir_name(addr))
         .join(contract::binding_file())
 }
 
-/// 同上，用本机主根。
+/// Same as above, using the local main root.
 pub fn binding_file_path(sid: &str, addr: &str) -> PathBuf {
     binding_file_path_in(&home::aimail_home(), sid, addr)
 }
 
-/// 地址 → 目录名。与 `cli/_common.py:37-39` / `pysdk/aimail_base._clean_agent_dir_name`
-/// 同一公式：`re.sub(r"[^\w.\-]", "_", addr, flags=re.ASCII)`
-/// —— **ASCII** 语义：非 ASCII 字母也算非法字符，替换成 `_`。
+/// Address → directory name. Consistent with `cli/_common.py:37-39` / `pysdk/aimail_base._clean_agent_dir_name`
+/// `re.sub(r"[^\w.\-]", "_", addr, flags=re.ASCII)`
+/// —— **ASCII** semantics: non-ASCII letters are also considered invalid characters and replaced with `_`.
 pub fn clean_agent_dir_name(addr: &str) -> String {
     addr.chars()
         .map(|c| {
@@ -226,9 +226,9 @@ pub fn clean_agent_dir_name(addr: &str) -> String {
         .collect()
 }
 
-// ── 读写 ───────────────────────────────────────────────────────────────────
+// ── Read/Write ───────────────────────────────────────────────────────────────────
 
-/// 读系统级环境文件：缺失或不可解析 ⇒ `None`（与现状 `load_gateway_config` 同语义）。
+/// Read system-level environment file: missing or unparseable ⇒ `None` (same semantics as current `load_gateway_config`).
 pub fn load_gateway_config_in(home_dir: &Path, sid: &str) -> Option<GatewayConfig> {
     let raw = fs::read_to_string(gateway_config_path_in(home_dir, sid)).ok()?;
     let value: Value = serde_json::from_str(&raw).ok()?;
@@ -236,14 +236,14 @@ pub fn load_gateway_config_in(home_dir: &Path, sid: &str) -> Option<GatewayConfi
     Some(GatewayConfig::from_json(obj))
 }
 
-/// 同上，用本机主根。
+/// Same as above, using the local main root.
 pub fn load_gateway_config(sid: &str) -> Option<GatewayConfig> {
     load_gateway_config_in(&home::aimail_home(), sid)
 }
 
-/// 读-改-写（原子）系统级环境文件；返回落盘路径。
+/// Read-modify-write (atomic) system-level environment file; returns the persisted path.
 ///
-/// 缺失文件按 `GatewayConfig::default()` 起步（等价现状"读不到当空 dict"）。
+/// Missing files start with `GatewayConfig::default()` (equivalent to current "treat as empty dict if unreadable").
 pub fn update_gateway_config_in<F>(home_dir: &Path, sid: &str, mutate: F) -> io::Result<PathBuf>
 where
     F: FnOnce(&mut GatewayConfig),
@@ -253,7 +253,7 @@ where
     save_gateway_config_in(home_dir, sid, &cfg)
 }
 
-/// 整体写入系统级环境文件（原子 + 0600）。
+/// Write entire system-level environment file (atomic + 0600).
 pub fn save_gateway_config_in(
     home_dir: &Path,
     sid: &str,
@@ -267,11 +267,11 @@ pub fn save_gateway_config_in(
     Ok(path)
 }
 
-/// 原子写 JSON + 收紧权限（对齐 `cli/aimail:2460-2467`）：
-/// 同目录 `<path>.json.tmp` → chmod 0600 → `rename` 覆盖。
+/// Atomic JSON write + tighten permissions (aligned with `cli/aimail:2460-2467`):
+/// Same directory `<path>.json.tmp` → chmod 0600 → `rename` overwrite.
 ///
-/// 序列化沿用 Python 现状：2 空格缩进 + UTF-8 原样（不转义非 ASCII）+ **无尾部换行**。
-/// 0600 私密**文本**写（`_persist_system_raw_key` 用：`os.open(..., 0o600)` + 写入）。
+/// Serialization follows Python current state: 2-space indent + UTF-8 as-is (no escaping of non-ASCII) + **no trailing newline**.
+/// 0600 private **text** write (used by `_persist_system_raw_key`: `os.open(..., 0o600)` + write).
 pub fn write_private_text(path: &Path, text: &str) -> io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -291,13 +291,13 @@ pub fn write_private_json(path: &Path, value: &Value) -> io::Result<()> {
     let tmp = path.with_extension("json.tmp");
     let text = serde_json::to_string_pretty(value).map_err(io::Error::other)?;
     fs::write(&tmp, text)?;
-    // 尽力而为：权限收紧失败不阻断（Python 侧同样 except OSError: pass）。
+    // Best effort: permission tightening failure does not block (Python side also does except OSError: pass).
     let _ = perms::set_user_only(&tmp);
     fs::rename(&tmp, path)
 }
 
-/// `_env_val`：shell env **优先**，其次 `$AIMAIL_HOME/.env`（bootstrap 落盘的机器级配置），
-/// 最后 fallback。install / ensure-system 必须认 .env —— 调用的 shell 里常常没有 export。
+/// `_env_val`: shell env **priority**, then `$AIMAIL_HOME/.env` (machine-level config persisted by bootstrap),
+/// Final fallback. install / ensure-system must recognize .env —— the invoked shell often lacks export.
 pub fn env_val(key: &str, fallback: &str) -> String {
     if let Ok(v) = std::env::var(key) {
         if !v.is_empty() {
@@ -317,11 +317,11 @@ pub fn env_val(key: &str, fallback: &str) -> String {
     fallback.to_string()
 }
 
-/// `_GATEWAY_URL_DEFAULT`（`cli/aimail:146`）：网关生产默认地址（非契约清单值）。
+/// `_GATEWAY_URL_DEFAULT` (`cli/aimail:146`): gateway production default address (not a contract list value).
 pub const GATEWAY_URL_DEFAULT: &str = "https://aimail.token.tm";
 
-/// 系统层**原始** key 文件（`setup_system._persist_system_raw_key` 落盘、0600 三层收口）。
-/// 只读；缺失/不可读 ⇒ 空串（调用方接着走配置里的 admin_key，见 `cmd_reset`/`uninstall`）。
+/// System layer **raw** key file (persisted by `setup_system._persist_system_raw_key`, 0600 three-layer closure).
+/// Read-only; missing/unreadable ⇒ empty string (caller then proceeds with admin_key from config, see `cmd_reset`/`uninstall`).
 pub const SYSTEM_RAW_KEY_FILE: &str = ".system_raw_key.key";
 
 pub fn read_system_raw_key(sid: &str) -> String {
@@ -331,12 +331,12 @@ pub fn read_system_raw_key(sid: &str) -> String {
         .unwrap_or_default()
 }
 
-/// `_load_env`（`cli/aimail:86-108`）：把**机器级与仓库** `.env` 灌进进程环境（**绝不覆盖**已有值）。
+/// `_load_env` (`cli/aimail:86-108`): inject **machine-level and repository** `.env` into process environment (**never overwrite** existing values).
 ///
-/// 顺序：`$HOME/.aimail/.env` → `<program_root>/aimail-src/.env`（= Python 的 `<cli>/../.env`）
-/// → `<program_root>/aimail-src/cli/.env`。跳过空行/注释/无 `=` 行，值去引号。
-/// 为什么 CLI 必须照做：`.env` 是 bootstrap 落盘的机器级配置，调用方的 shell 里常常没有 export，
-/// 而 install/reset/check 的取值口径都以进程环境为准（实测：漏了它会让 manager_address 等字段分叉）。
+/// Order: `$HOME/.aimail/.env` → `<program_root>/aimail-src/.env` (= Python's `<cli>/../.env`)
+/// → `<program_root>/aimail-src/cli/.env`. Skip empty lines/comments/lines without `=`, strip quotes from values.
+/// Why CLI must do this: `.env` is machine-level config persisted by bootstrap, the caller's shell often does not have export,
+/// and install/reset/check value retrieval criteria are based on process environment (empirically: missing it causes fields like manager_address to diverge).
 pub fn load_env() {
     let prog = crate::core::home::program_root();
     let cands = [
@@ -373,7 +373,7 @@ mod tests {
         assert_eq!(clean_agent_dir_name("agent@host.test"), "agent_host.test");
         assert_eq!(clean_agent_dir_name("a+b@c"), "a_b_c");
         assert_eq!(clean_agent_dir_name("keep._-"), "keep._-");
-        // ASCII 语义：非 ASCII 字母同样算非法字符（rust 侧不按 unicode 放宽）
+        // ASCII semantics: non-ASCII letters are also considered invalid characters (rust side does not relax by unicode)
         assert_eq!(clean_agent_dir_name("агент@x"), "______x");
     }
 
@@ -441,9 +441,9 @@ mod tests {
             let back = load_gateway_config_in(h, "sid3").unwrap();
             assert_eq!(back.webhook_host, wh, "round trip must be lossless");
         };
-        write_and_check(Some("".into()), true, ""); // S2 空串
+        write_and_check(Some("".into()), true, ""); // S2 empty string
         write_and_check(Some("http://b:38080".into()), true, "http://b:38080"); // S1
-        write_and_check(None, false, ""); // S3 键缺席
+        write_and_check(None, false, ""); // S3 key absent
     }
 
     #[test]
@@ -509,7 +509,7 @@ mod tests {
     fn list_system_ids_only_counts_dirs_with_gateway_config() {
         let tmp = TempDir::new("config-list");
         let h = tmp.path();
-        // 有效系统(有 cfg)+ 无 cfg 的目录 + 点开头目录 + 无 cfg 的"坏"目录
+        // Valid systems (with cfg) + directories without cfg + dot-prefixed directories + "bad" directories without cfg
         save_gateway_config_in(h, "sid_a", &GatewayConfig::default()).unwrap();
         save_gateway_config_in(h, "sid_b", &GatewayConfig::default()).unwrap();
         fs::create_dir_all(system_dir_in(h, "no_cfg")).unwrap();
@@ -518,7 +518,7 @@ mod tests {
         assert_eq!(
             ids,
             vec!["sid_a", "sid_b"],
-            "只数含 aimail_gateway.json 的系统: {ids:?}"
+            "Only count systems containing aimail_gateway.json: {ids:?}"
         );
     }
 }

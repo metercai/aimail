@@ -638,8 +638,8 @@ export async function processInboundMail(
     )
   }
 
-  // step 14c: always-write local meta for inbound (回复链依赖, 不受快照开关
-  // 控制) — mirror Python store_inbound_message (meta/{xx}/{mid}.json).
+  // step 14c: always-write local meta for inbound (reply chain dependency, not controlled by snapshot switch
+  // ) — mirror Python store_inbound_message (meta/{xx}/{mid}.json).
   const midRaw = (result.message_id as string) ?? ''
   const myAddrMeta = result.my_aimail_addr as string
   if (midRaw && myAddrMeta) {
@@ -664,14 +664,14 @@ export async function processInboundMail(
     if (whoamiRaw) result._whoami_prompt = fillTemplate(whoamiRaw, buildBoardCtx(result, cfg))
     return result as unknown as EnrichedPayload
   }
-  // B3: Role_Calibrator (persona 更新请求 / welcome 引导) — mirror Python B3.
-  // 2026-09-22 合并后两种识别形式:
-  //   (a) 安全员指令邮件: 主题含 "update persona"(安全运营面发送的角色更新指令,
-  //       生产流, 长期保留 — 裁决 2026-10-23, 非临时兼容)
-  //   (b) 合并后的 welcome: **主题标记 + 正文三标签同时命中**
-  //       主题含 "welcome to aimail world" 且正文行首有 persona:/signature:/current_time:
-  // 命中 ⇒ 注入 role_calibrator.md 并 early-return(避免被 board 角色覆盖);
-  // 只命中其一 ⇒ 不注入 + warn, 使模板漂移可见(不静默退化为默认 prompt)。
+  // B3: Role_Calibrator (persona update request / welcome guide) — mirror Python B3.
+  // After 2026-09-22 merge, two recognition forms:
+  //   (a) Security officer instruction email: subject contains "update persona" (role update instruction sent from security operations side,
+  //       production flow, long-term retention — ruling 2026-10-23, not temporary compatibility)
+  //   (b) Merged welcome: **subject marker + body three tags hit simultaneously**
+  //       subject contains "welcome to aimail world" and body line starts with persona:/signature:/current_time:
+  // hit ⇒ inject role_calibrator.md and early-return (to avoid being overridden by board role);
+  // hit only one ⇒ do not inject + warn, making template drift visible (do not silently degrade to default prompt).
   const subjLc = subj.toLowerCase()
   const bodyLc = String((result.body as string) ?? '').toLowerCase()
   const welcomeMarker = subjLc.includes('welcome to aimail world')
@@ -709,8 +709,8 @@ export async function processInboundMail(
   if (!result._role_prompt) {
     const ctx = buildBoardCtx(result, cfg)
     let injected = false
-    // header 双源(网关盖头位置未锁死 = 扩展点): 邮件头 payload.headers 优先,
-    // HTTP 头 _headers 兜底; key 大小写不敏感, 空值视为未给。
+    // header dual source (gateway header position not locked = extension point): email header payload.headers takes priority,
+    // HTTP header _headers as fallback; key case-insensitive, empty value treated as not provided.
     const hdr =
       headerValue(rawHeaders as unknown as Record<string, unknown>, 'x-aimail-prompt') ||
       headerValue(_headers as unknown as Record<string, unknown>, 'x-aimail-prompt')

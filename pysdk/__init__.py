@@ -101,8 +101,8 @@ def core_dir() -> str:
 
 
 def _resources_root() -> str:
-    """SDK 资源根(单源闭环) —— 见 _resources_release.resources_root。"""
-    from _resources_release import resources_root  # 扁平导入: core 目录已在 sys.path 上
+    """SDK resource root (single-source closed loop) —— see _resources_release.resources_root."""
+    from _resources_release import resources_root  # flat import: core directory is already on sys.path
     return resources_root()
 
 

@@ -1,23 +1,23 @@
-"""hermes 工具集 ensure 链单元测试(J4e 根因回归锁, 2026-09-30)。
+"""hermes toolset ensure chain unit tests (J4e root cause regression lock, 2026-09-30).
 
-J4e 根因(二选一定死 = **(i) 跳过**, 非写错目录):
-  iso16 L2 日志 86 行 `registered:0`(install 自报) 与 557 行
+J4e root cause (binary choice fixed = **(i) skip**, not wrong directory):
+  iso16 L2 log line 86 `registered:0` (install self-report) and line 557
   `ensure_profile_config: ['config.yaml missing (/opt/data/config.yaml) — skipped']`
-  是同一个缺口的两次现身 ——
-    · 首次 install: config.yaml 还不存在 ⇒ ensure 直接 return(不写);
-    · 之后的 install: `.agentmail` 指针同 system_id ⇒ register_emails 整段跳过  contract-allowed: 文字说明(非代码)引用契约指针文件名
-      (registered:0) ⇒ ensure 根本不被调用。
-  两次都不会写 platform_toolsets ⇒ webhook 会话回退默认工具集 ⇒
-  agent 写好回信也发不出(J4e sent=1 reply=0)。
-写/读同源: 写入目标 = HERMES_HOME/<profile>/config.yaml, 读取目标 = check 的
-`yaml_toolsets` glob(注册表 `hermes.health_checks`, 现由 `aimail platform spec
---json` 导出; 断言迁 tests/cli/test_platforms_registry.py),
-两者是同一个文件(该测试用真实 glob 断言, 不靠"看起来一样")。
+       are two appearances of the same gap —
+    · First install: config.yaml does not exist yet ⇒ ensure returns directly (no write);
+    · Subsequent installs: `.agentmail` pointer same system_id ⇒ register_emails entire segment skipped  contract-allowed: text description (non-code) references contract pointer filename
+      (registered:0) ⇒ ensure is not called at all.
+  Neither writes platform_toolsets ⇒ webhook session falls back to default toolset ⇒
+  agent writes the reply but cannot send it (J4e sent=1 reply=0).
+Write/read same source: Write target = HERMES_HOME/<profile>/config.yaml, read target = check's
+`yaml_toolsets` glob (registry `hermes.health_checks`, now by `aimail platform spec
+--json` export; assertions moved to tests/cli/test_platforms_registry.py),
+Both are the same file (this test uses real glob assertions, not relying on "looking the same").
 
-覆盖:
-  1. 工具集未注册 ⇒ ensure 后已注册(config 缺失也补);
-  2. 已注册 ⇒ 不重复写(幂等: 无改动、文件字节不变);
-  3. 注册标记(pointer 已匹配 ⇒ registered:0)不再短路 ensure。
+Coverage:
+  1. Toolset not registered ⇒ registered after ensure (also fills in if config is missing);
+  2. Already registered ⇒ no duplicate write (idempotent: no changes, file bytes unchanged);
+  3. Registration marker (pointer already matched ⇒ registered:0) no longer short-circuits ensure.
 """
 import json
 import os
@@ -33,7 +33,7 @@ _PATHS = [str(_REPO / _d) for _d in ("cli", "pysdk", os.path.join("pysdk", "herm
 
 
 def _scope_paths():
-    """把 repo 的 cli/pysdk/pysdk/hermes 挂上 sys.path，返回撤销函数（用完即撤）。"""
+    """Mount the repo's cli/pysdk/pysdk/hermes onto sys.path, returning an undo function (undo immediately after use)."""
     added = [p for p in _PATHS if p not in sys.path]
     for p in reversed(added):
         sys.path.insert(0, p)
@@ -47,63 +47,63 @@ def _scope_paths():
 
 _undo = _scope_paths()
 import ensure_config  # noqa: E402
-import aimail_contract as _contract  # noqa: E402 — 契约常量单一真源(值 = 清单)
+import aimail_contract as _contract  # noqa: E402 — single source of truth for contract constants (value = manifest)
 _undo()
 
 
-# aimail_base 的 6 个平台注入点（真源: pysdk/hermes/aimail_hermes.py 模块级
-# `core._X = ...` 一段）。import register_profiles ⇒ import aimail_hermes ⇒
-# 这 6 个全局被**永久写入**，不随 sys.path 撤销而恢复。
+# aimail_base 6 platform injection points (source of truth: pysdk/hermes/aimail_hermes.py module level
+# `core._X = ...` block in pysdk/hermes/aimail_hermes.py). import register_profiles ⇒ import aimail_hermes ⇒
+# these 6 globals are **permanently written**, not restored when sys.path is undone.
 _CORE_INJECTION_POINTS = (
     "_PROFILE_DIR_RESOLVER", "_CONFIG_LOADER", "_PERSONAS_PROVIDER",
     "_SOUL_PROVIDER", "_SKILLS_PROVIDER", "_BOARD_GATEWAY_SINK",
 )
-_core_snapshot: dict = {}   # import 前快照 → 中和后清空（fixture teardown 兜底）
+_core_snapshot: dict = {}   # snapshot before import → cleared after neutralization (fixture teardown fallback)
 
 
 def _restore_core_injections():
-    """把 aimail_base 注入点还原成 import register_profiles 之前的值。"""
+    """Restore the aimail_base injection point to its value before import register_profiles."""
     global _core_snapshot
     if not _core_snapshot:
         return
-    import aimail_base  # noqa: F401 — 此时必已在 sys.modules(快照即由它而来)
+    import aimail_base  # noqa: F401 — at this point it must already be in sys.modules (the snapshot came from it)
     for _attr, _val in _core_snapshot.items():
         setattr(aimail_base, _attr, _val)
     _core_snapshot = {}
 
 
 def _register_profiles():
-    """延迟导入 register_profiles，并**中和**它带进来的运行期全局副作用。
+    """Lazily import register_profiles and **neutralize** the runtime global side effects it brings in.
 
-    二分证据（2026-09-30，本仓实跑）:
-      · 只挂 sys.path                 ⇒ 两文件同跑 2 passed（无害）
-      · 挂路径 + import ensure_config ⇒ 2 passed（无害）
-      · 挂路径 + **import register_profiles** ⇒ 1 failed（复现）
+    Bisect evidence (2026-09-30, actual run in this repo):
+      · Only adding to sys.path                 ⇒ both files run 2 passed (harmless)
+      · Adding path + import ensure_config ⇒ 2 passed (harmless)
+      · Adding path + **import register_profiles** ⇒ 1 failed (reproduced)
 
-    污染机制（2026-09-30 定死，探针 /tmp/probe_mech.py 实测输出）:
-      import register_profiles ⇒ import aimail_hermes ⇒ 模块级执行
+    Pollution mechanism (fixed on 2026-09-30, actual output from probe /tmp/probe_mech.py):
+      import register_profiles ⇒ import aimail_hermes ⇒ module-level execution
       `core._PROFILE_DIR_RESOLVER = _resolve_profile_dir; core._CONFIG_LOADER = _load_profile_config`
-      (pysdk/hermes/aimail_hermes.py:834-835)，把 aimail_base 里默认为 None 的
-      平台注入点**永久写上**。于是 `aimail_tools._aimail_dir()` 依赖的
-      `resolve_system_id_for_email()` 第 3 步（平台指针兜底）开始命中本机真实
-      `~/.hermes/.agentmail`：  contract-allowed: 文字说明(非代码)引用契约指针文件名
+      (pysdk/hermes/aimail_hermes.py:834-835), permanently writing to the platform injection point in aimail_base that defaults to None.
+      Platform injection point **permanently written**. Thus `aimail_tools._aimail_dir()` depends on
+      `resolve_system_id_for_email()` 3rd step (platform pointer fallback) starts hitting the local real
+      `~/.hermes/.agentmail`:  contract-allowed: textual description (non-code) referencing the contract pointer filename
         BEFORE: sid=''  resolver=None  loader=None
         AFTER : sid='shared-token-8872d2bb'  resolver=<_resolve_profile_dir>  loader=<_load_profile_config>
-      `.search/index.db` 于是落 `systems/shared-token-…/…/mail/`，而
-      test_local_mail_search 断言的 `_leaf(home)` = `systems/_unassigned/…/mail/`
-      从未被创建 ⇒ `sqlite3.OperationalError: unable to open database file`
-      （`search_mail()["count"]==1` 仍过，因为写读同源、一起偏移）。
-      导入期那串 `… registration failed: 'NoneType' object has no attribute 'register'`
-      是 hermes 自己的 registry 为 None 的噪声，与本失败**无关**（测试直调
-      aimail_tools.search_mail，不经 registry）。
+      `.search/index.db` thus lands in `systems/shared-token-…/…/mail/`, while
+      test_local_mail_search asserts `_leaf(home)` = `systems/_unassigned/…/mail/`
+      is never created ⇒ `sqlite3.OperationalError: unable to open database file`
+      (`search_mail()["count"]==1` still passes, because write and read share the same source and shift together).
+      The string `… registration failed: 'NoneType' object has no attribute 'register'` during import
+      is noise from hermes's own registry being None, and is **unrelated** to this failure (the test calls
+      aimail_tools.search_mail directly, bypassing the registry).
 
-    中和: import 前快照 6 个注入点，import 后立即还原（`_restore_core_injections`），
-    fixture teardown 再兜底一次。只动测试侧，产品码一行不改。
-    延迟到用例内导入: 收集期导入会让整个进程在任何用例跑之前就被注入。"""
+    neutralization: snapshot the 6 injection points before import, restore immediately after import (`_restore_core_injections`),
+    and have fixture teardown do a final safety net. Only the test side is touched; not a single line of product code is changed.
+    Deferred import to within the test case: importing during collection would cause the entire process to be injected before any test case runs."""
     global _core_snapshot
     undo = _scope_paths()
     try:
-        import aimail_base  # 挂好路径后先快照(此时注入点仍是干净值)
+        import aimail_base  # snapshot first after setting up paths (injection points are still clean values at this point)
         _core_snapshot = {a: getattr(aimail_base, a, None)
                           for a in _CORE_INJECTION_POINTS}
         import register_profiles  # noqa: E402
@@ -112,7 +112,7 @@ def _register_profiles():
         _restore_core_injections()
         undo()
 
-_TOOLSET = _contract.AGENT_TOOLSET_NAME  # 契约常量(清单 agent_skill_name / agent_toolset_name)
+_TOOLSET = _contract.AGENT_TOOLSET_NAME  # Contract constant (manifest agent_skill_name / agent_toolset_name)
 
 
 def _read(path: Path) -> dict:
@@ -123,17 +123,17 @@ def _toolsets(cfg: dict) -> dict:
     return cfg.get("platform_toolsets") or {}
 
 
-# ── 1. 工具集未注册 ⇒ ensure 后已注册 ──────────────────────────────────────
+# ── 1. Toolset not registered ⇒ registered after ensure ──────────────────────────────────────
 @pytest.fixture(autouse=True)
 def _restore_hermes_env(monkeypatch):
-    """双保险(2026-09-30 定死污染后加):
-    1) register_emails() 会**直接写** os.environ(HERMES_PROFILE_DIR=…, 不走
-       monkeypatch)。泄漏后后续测试读到指向已删除 tmp 目录的值。
-       monkeypatch.delenv 会在用例结束后**还原原值**(含原本不存在的情况)。
-    2) import register_profiles 注入的 aimail_base 平台注入点(见
-       _register_profiles docstring 的 BEFORE/AFTER 证据)在用例结束后**再兜底
-       还原一次** —— 正常路径下 _register_profiles 的 finally 已还原, 这里只防
-       用例体内又发生注入。"""
+    """Double insurance (added after 2026-09-30 fixed pollution):
+    1) register_emails() will **directly write** os.environ(HERMES_PROFILE_DIR=…, without going through
+       monkeypatch). After leakage, subsequent tests read values pointing to deleted tmp directories.
+       monkeypatch.delenv will **restore the original value** after the test case ends (including cases where it originally did not exist).
+    2) import register_profiles injected aimail_base platform injection point (see
+       _register_profiles docstring's BEFORE/AFTER evidence) as a fallback after the test case ends**
+       once more** after the test case ends —— in the normal path, _register_profiles' finally has already restored it, here it only prevents
+       injection occurring again within the test case body."""
     monkeypatch.delenv("HERMES_PROFILE_DIR", raising=False)
     yield
     _restore_core_injections()
@@ -150,12 +150,12 @@ def test_ensure_registers_toolset_when_config_exists_but_toolset_missing(tmp_pat
     assert _TOOLSET in (pt.get("webhook") or []), changes
     assert _TOOLSET in (pt.get("cli") or []), changes
     assert cfg["platforms"]["webhook"]["enabled"] is True
-    # 既有键不被覆盖(幂等语义: 只补缺失)
+    # Existing keys are not overwritten (idempotent semantics: only fill in missing ones)
     assert cfg["model"] == {"default": "m"}
 
 
 def test_ensure_creates_config_yaml_when_missing(tmp_path):
-    """首次 install 时 hermes 还没生成 config.yaml —— 不许再 "skipped"。"""
+    """On first install, hermes has not yet generated config.yaml —— no more "skipped" allowed."""
     cfg_path = tmp_path / "config.yaml"
     assert not cfg_path.exists()
 
@@ -167,11 +167,11 @@ def test_ensure_creates_config_yaml_when_missing(tmp_path):
     assert _TOOLSET in (pt.get("webhook") or []), changes
     assert _TOOLSET in (pt.get("cli") or []), changes
     assert cfg["platforms"]["webhook"]["enabled"] is True
-    # 文件创建必须出现在 changes 里(可观测, 不静默)
+    # File creation must appear in changes (observable, not silent)
     assert any(str(cfg_path) in c for c in changes)
 
 
-# ── 2. 已注册 ⇒ 不重复写 ───────────────────────────────────────────────────
+# ── 2. Registered ⇒ no duplicate writes ───────────────────────────────────────────────────
 def test_ensure_is_idempotent_when_already_registered(tmp_path):
     cfg_path = tmp_path / "config.yaml"
     cfg_path.write_text(yaml.safe_dump({"model": {"default": "m"}}), encoding="utf-8")
@@ -186,7 +186,7 @@ def test_ensure_is_idempotent_when_already_registered(tmp_path):
 
 
 def test_ensure_keeps_existing_webhook_secret(tmp_path):
-    """secret 变更会致 bridge 转发 HMAC 401 —— 已存在的必须原样保留。"""
+    """secret changes will cause bridge to forward HMAC 401 — existing ones must be preserved as-is."""
     secret = "s" * 64
     cfg_path = tmp_path / "config.yaml"
     cfg_path.write_text(yaml.safe_dump({
@@ -201,9 +201,9 @@ def test_ensure_keeps_existing_webhook_secret(tmp_path):
     assert _TOOLSET in (_toolsets(cfg).get("webhook") or [])
 
 
-# ── 4. 注册标记短路 ⇒ registered:0 之后配置照样补上(核心回归) ─────────────
+# ── 4. Registration marker short-circuit ⇒ after registered:0, configuration is still filled in (core regression) ─────────────
 def test_register_emails_ensures_even_when_pointer_matches(tmp_path, monkeypatch, capsys):
-    register_profiles = _register_profiles()  # 延迟导入，见 _register_profiles 注释
+    register_profiles = _register_profiles()  # Lazy import, see _register_profiles comment
     home = tmp_path / "hermes-home"
     home.mkdir()
     profiles = home / "profiles"
@@ -213,7 +213,7 @@ def test_register_emails_ensures_even_when_pointer_matches(tmp_path, monkeypatch
         yaml.safe_dump({"model": {"default": "m"}}), encoding="utf-8")
 
     system_id = "sid-iso17"
-    # 指针已匹配 ⇒ 旧逻辑整段跳过(iso16: registered:0)
+    # Pointer already matched ⇒ old logic skips the entire section (iso16: registered:0)
     (home / _contract.POINTER_FILE).write_text(json.dumps({"system_id": system_id}))
     (named / _contract.POINTER_FILE).write_text(json.dumps({"system_id": system_id}))
 
@@ -228,11 +228,11 @@ def test_register_emails_ensures_even_when_pointer_matches(tmp_path, monkeypatch
     register_profiles.register_emails()
 
     out = capsys.readouterr().out
-    # 注册幂等语义保持: 指针匹配 ⇒ 不重注册
+    # Registration idempotent semantics maintained: pointer matched ⇒ no re-registration
     assert "registered:0" in out, out
     assert registered == []
 
-    # 但配置补全必须真跑了(旧 bug: 这里什么都没写)
+    # But configuration completion must have actually run (old bug: nothing was written here)
     for cfg_dir in (home, named):
         pt = _toolsets(_read(cfg_dir / "config.yaml"))
         assert _TOOLSET in (pt.get("webhook") or []), cfg_dir
@@ -240,8 +240,8 @@ def test_register_emails_ensures_even_when_pointer_matches(tmp_path, monkeypatch
 
 
 def test_register_emails_creates_config_for_fresh_home(tmp_path, monkeypatch, capsys):
-    """全新 HOME(无 config.yaml、无指针): install 一次就得让会话拿到工具集。"""
-    register_profiles = _register_profiles()  # 延迟导入，见 _register_profiles 注释
+    """Brand new HOME (no config.yaml, no pointer): one install must let the session get the toolset."""
+    register_profiles = _register_profiles()  # Lazy import, see _register_profiles comment
     home = tmp_path / "fresh-home"
     home.mkdir()
     system_id = "sid-fresh"
@@ -261,23 +261,23 @@ def test_register_emails_creates_config_for_fresh_home(tmp_path, monkeypatch, ca
     assert _TOOLSET in (pt.get("cli") or []), pt
 
 
-# ── 5. C-13 锁(2026-10-11):声明面必须带 YAML 解析器;缺它必须响亮失败 ────────
+# ── 5. C-13 Lock (2026-10-11): Declaration surface must include YAML parser; missing it must fail loudly ────────
 def test_pyyaml_is_a_declared_runtime_dependency():
-    """官方 uv 宿主(裸 CPython)只有 ruamel-yaml、没有 PyYAML,而安装面
-    `pip install agent-aimail` **不带 extra** ⇒ PyYAML 若只躺在 extra 里,hermes
-    适配器写宿主 config 时就没有解析器(C-13)。这条锁"必须是硬依赖"。"""
+    """Official uv host (bare CPython) only has ruamel-yaml, no PyYAML, and the install surface
+    `pip install agent-aimail` **does not include extra** ⇒ if PyYAML only lies in extra, hermes
+    adapter writing to host config will have no parser (C-13). This lock says "must be a hard dependency"."""
     root = Path(__file__).resolve().parent.parent.parent
     pt = (root / "pyproject.toml").read_text(encoding="utf-8")
     m = re.search(r"(?ms)^dependencies = \[(.*?)\]", pt)
-    assert m, "pyproject.toml 缺 dependencies 段"
-    assert "PyYAML" in m.group(1), f"PyYAML 必须是硬依赖(实得: {m.group(1).strip()})"
+    assert m, "pyproject.toml missing dependencies section"
+    assert "PyYAML" in m.group(1), f"PyYAML must be a hard dependency (actual: {m.group(1).strip()})"
 
 
 def test_missing_yaml_fails_loudly_instead_of_silently_skipping(tmp_path, monkeypatch, capsys):
-    """缺 YAML 解析器时:注册入口必须**非零退出 + 打印原因**,且不产出 config。
+    """When YAML parser is missing: registration entry must **exit non-zero + print reason**, and not produce config.
 
-    旧行为(`logger.warning` + `return None`)让 install 照样报 ok_text 成功、
-    而 platforms.webhook 从未落地 ⇒ 宿主起不来(L3 `[4b/6] port not set`)。
+    Old behavior (`logger.warning` + `return None`) let install still report ok_text success,
+    while platforms.webhook was never landed ⇒ host cannot start (L3 `[4b/6] port not set`).
     """
     register_profiles = _register_profiles()
     home = tmp_path / "no-yaml-home"
@@ -286,15 +286,15 @@ def test_missing_yaml_fails_loudly_instead_of_silently_skipping(tmp_path, monkey
     monkeypatch.setenv("HERMES_PROFILES_DIR", str(home / "profiles"))
     monkeypatch.setattr(register_profiles, "load_gateway_config",
                         lambda: {"system_id": "sid-noyaml", "admin_key": "k"})
-    # 只让"缺 yaml"成为唯一失败源:注册本体(与 YAML 无关)照常成功
+    # Only let "missing yaml" be the sole failure source: registration body (unrelated to YAML) succeeds as usual
     monkeypatch.setattr(register_profiles.aimail_hermes, "_auto_register_email",
                         lambda name, profile_dir, cfg: None)
-    # 官方 uv 宿主条件:解释器里没有 PyYAML(sys.modules 置 None ⇒ import 抛 ImportError)
+    # Official uv host condition: no PyYAML in interpreter (sys.modules set to None ⇒ import raises ImportError)
     monkeypatch.setitem(sys.modules, "yaml", None)
 
     rc = register_profiles.register_emails()
 
     out = capsys.readouterr().out
-    assert rc == 1, f"缺解析器必须让该步非零退出(静默成功=旧缺陷);out={out}"
+    assert rc == 1, f"Missing parser must cause this step to exit non-zero (silent success = old defect); out={out}"
     assert "failed:ensure:" in out, out
-    assert not (home / "config.yaml").exists(), "写不进去就不该留下产物"
+    assert not (home / "config.yaml").exists(), "If it cannot be written, no artifact should be left behind"

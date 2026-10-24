@@ -60,7 +60,7 @@ function toDshParam(p: MailToolParam): ParameterPropertySpec {
     if (p.items !== undefined) base.items = { type: p.items.type }
   }
   if (p.description !== undefined) base.description = p.description
-  // 审计 2026-09-21: default 也要透传到宿主 schema(与 mail-core 的 TypeBox 转换同口径)
+  // Audit 2026-09-21: default must also be passed through to the host schema (same standard as mail-core TypeBox conversion)
   if (p.default !== undefined) base.default = p.default
   if (p.required === true) base.required = true
   return base as unknown as ParameterPropertySpec

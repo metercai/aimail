@@ -1,15 +1,15 @@
 /**
- * prompt_rules 契约(TS 侧, 与 pysdk tests/test_prompt_rules.py 同型)。
+ * prompt_rules contract (TS side, isomorphic to pysdk tests/test_prompt_rules.py).
  *
- * 裁决 2026-09-23:
- *   ① 字段=subject/body/sender/recipient 包含匹配(大小写不敏感);
- *      字段内多关键字=或, 字段间=且
- *   ② name={10-99 序号}_{filename}; 实际加载看 rule.file
- *   ③ 链序固定: [WHOAMI] > welcome > board > X-AIMail-Prompt header >
- *      本地规则(name 字母序, 首中即止); 命中但文件缺失(含 common 兜底都无)
- *      ⇒ WARN 续走; 任何一层不阻断送达
- *   ④ 键 prompt_rules(存 agentmail.json, 仅该 agent)
- *   ⑦ header 是网关扩展点: 双源 payload.headers / HTTP 头参数, 大小写不敏感
+ * Ruling 2026-09-23:
+ *   ① Fields = subject/body/sender/recipient inclusion match (case-insensitive);
+ *      Multiple keywords within a field = OR, between fields = AND
+ *   ② name={10-99 sequence}_{filename}; actual loading depends on rule.file
+ *   ③ Chain order is fixed: [WHOAMI] > welcome > board > X-AIMail-Prompt header >
+ *      local rules (name alphabetical order, stop at first hit); hit but file missing (including common fallback none)
+ *      ⇒ WARN continue; no layer blocks delivery
+ *   ④ Key prompt_rules (stored in agentmail.json, only that agent)
+ *   ⑦ header is gateway extension point: dual source payload.headers / HTTP header param, case-insensitive
  */
 import { beforeAll, beforeEach, afterAll, describe, it, expect, vi } from 'vitest'
 import { promises as fs } from 'node:fs'
@@ -134,7 +134,7 @@ describe('selection chain (③⑦ header layer + board + first hit)', () => {
     expect(r?._role_prompt).toBe('HDR quarterly review')
   })
 
-  it('L4 header also read from HTTP headers param (双源)', async () => {
+  it('L4 header also read from HTTP headers param (dual source)', async () => {
     const d = await roleDir()
     await fs.writeFile(path.join(d, 'hdr_role.md'), 'HDR-VIA-HTTP', 'utf-8')
     const r = await processInboundMail(mail({}), { 'x-aimail-prompt': 'hdr_role' }, CTX)
@@ -178,7 +178,7 @@ describe('selection chain (③⑦ header layer + board + first hit)', () => {
 
   it('matched rule with missing file → warn + next rule (③)', async () => {
     const d = await roleDir()
-    await fs.writeFile(path.join(d, 'real.md'), 'REAL', 'utf-8') // ghost 三级都无(无 common)
+    await fs.writeFile(path.join(d, 'real.md'), 'REAL', 'utf-8') // ghost all three levels none (no common)
     await writeAgentConfig({ prompt_rules: [
       { name: '10_ghost', file: 'ghost', subject: ['quarterly'] },
       { name: '12_real', file: 'real', subject: ['quarterly'] },

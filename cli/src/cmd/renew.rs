@@ -1,13 +1,13 @@
-//! `aimail renew` —— `cli/aimail:2974-3049` 的 Rust 复刻（P3a）。
+//! `aimail renew` — the Rust re-implementation of `cli/aimail:2974-3049` (P3a).
 //!
-//! `--code` 给出 ⇒ `POST /api/v1/admin/renew-system`（叠加式：max(now,到期)+新码 validity）；
-//! `--code` 省略或 `--status` ⇒ `GET /api/v1/quotas` 只读展示 expires_at/配额。
+//! `--code` provided => `POST /api/v1/admin/renew-system` (additive: max(now, expiry) + new code validity);
+//! `--code` omitted or `--status` => `GET /api/v1/quotas` read-only display of expires_at/quota.
 //!
-//! **一处已登记分歧（不隐瞒）**：Python 的目标解析 `_resolve_renew_target` 在
-//! "没有系统 / 多系统 / 指定系统不在本地" 三种情形下只 `_fail(...)` **不 return**（`_fail` 返回
-//! 1 但不中断），于是继续用**空 admin_key + 生产默认网关 URL** 发请求 —— 会在真机上打到生产网关。
-//! 我们打印**同样的 fail 文案**后 `rc=1` 返回，**不发网络**（生产边界：未授权不触生产）。
-//! 文案逐字相同、流向相同（stdout），差别只在 rc 与"没有那次请求"。
+//! **One registered discrepancy (not hidden)**: The Python target resolution `_resolve_renew_target` in
+//! the three cases of "no system / multiple systems / specified system not local" only calls `_fail(...)` **without returning** (`_fail` returns
+//! 1 but does not interrupt), so it continues to send requests with **empty admin_key + production default gateway URL** -- this will hit the production gateway on real devices.
+//! We print the **same fail message** then return `rc=1`, **without sending network requests** (production boundary: unauthorized does not touch production).
+//! The message is verbatim identical, the flow is identical (stdout), the difference is only in rc and "that request did not happen".
 
 use serde_json::json;
 
@@ -29,7 +29,7 @@ pub fn run(a: &Args) -> i32 {
             for l in lines {
                 fail(&l);
             }
-            return 1; // 分歧点：Python 此处会继续并打生产网关（见文件头）
+            return 1; // Divergence point: Python continues here and hits the production gateway (see file header)
         }
     };
     let client = GatewayClient::with_defaults(&gw_url, &admin_key);
@@ -53,7 +53,7 @@ pub fn run(a: &Args) -> i32 {
             str_python(r.get("validity_days"))
         );
         println!("    expires_at: {}", exp);
-        // ≤3 天预警（与 stats 同规则）
+        // ≤3 day warning (same rule as stats)
         if !exp_raw.is_empty() {
             if let Some(ts) = crate::core::time::parse_rfc3339_secs(exp_raw) {
                 let days = (ts - crate::core::time::now_secs()) / 86400;
@@ -120,10 +120,10 @@ pub fn run(a: &Args) -> i32 {
     0
 }
 
-/// `_resolve_renew_target`：`--system-id` 显式；省略时唯一系统自动选定、多系统报错列出。
+/// `_resolve_renew_target`: `--system-id` explicit; when omitted, unique system is auto-selected, multiple systems result in an error listing them.
 fn resolve_target(a: &Args) -> Result<(String, String, String), Vec<String>> {
     use crate::core::config;
-    // 候选 = SYSTEMS_DIR 下有配置文件的目录（sorted）
+    // Candidates = directories under SYSTEMS_DIR with config files (sorted)
     let mut candidates: Vec<String> = Vec::new();
     let systems = config::systems_root_in(&crate::core::home::aimail_home());
     if systems.is_dir() {

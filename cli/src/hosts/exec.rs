@@ -1,10 +1,10 @@
-//! ③ 执行面：步骤模型 + 注册入口。数据（各宿主的步骤表）在各宿主模块内，
-//! 本模块只定义模型与通用执行语义（真正跑步骤的引擎仍是 `core::steps`）。
+//! ③ Execution plane: step model + registration entry. Data (step tables for each host) resides in each host module,
+//! this module only defines the model and generic execution semantics (the engine that actually runs steps is still `core::steps`).
 
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
-/// `env` 对 → JSON 对象（serde 默认把 `[(k, v)]` 序列化成嵌套数组，这里保持对象形状）。
+/// `env` pair → JSON object (serde by default serializes `[(k, v)]` into a nested array; here we preserve the object shape).
 #[derive(Clone, Copy)]
 pub struct EnvPairs(pub &'static [(&'static str, &'static str)]);
 
@@ -24,7 +24,7 @@ impl Serialize for EnvPairs {
     }
 }
 
-/// `when` 前置条件（谓词并集，AND 语义）。
+/// `when` preconditions (predicate union, AND semantics).
 #[derive(Serialize, Clone, Copy)]
 pub struct When {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -41,7 +41,7 @@ pub struct When {
     pub runtime_not: Option<&'static str>,
 }
 
-/// `skip_if` 探针：跑 argv，输出含 `match`（忽略大小写）⇒「已在场」。
+/// `skip_if` probe: run argv, output contains `match` (case-insensitive) ⇒ "already present".
 #[derive(Serialize, Clone, Copy)]
 pub struct SkipIf {
     pub argv: &'static [&'static str],
@@ -49,7 +49,7 @@ pub struct SkipIf {
     pub match_: &'static str,
 }
 
-/// 安装/卸载动作（9 kind）。
+/// Install/uninstall actions (9 kinds).
 #[derive(Serialize, Clone, Copy)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Step {
@@ -126,14 +126,14 @@ pub enum Step {
     },
 }
 
-/// hermes 的 profile 判定表（`root_when` 命中 ⇒ 根 profile）。
+/// hermes profile determination table (`root_when` hit ⇒ root profile).
 #[derive(Serialize, Clone, Copy)]
 pub struct Profile {
     pub kind: &'static str,
     pub root_when: &'static [&'static str],
 }
 
-/// 注册器入口（3 kind：node 宿主 node_entry / python 宿主 python_module|python_script）。
+/// Registrar entry (3 kinds: node host node_entry / python host python_module|python_script).
 #[derive(Serialize, Clone, Copy)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Register {
@@ -155,7 +155,7 @@ pub enum Register {
     },
 }
 
-/// 全量注册入口（2 kind；未定义 ⇒ 单 agent 平台）。
+/// Full registration entry (2 kinds; undefined ⇒ single agent platform).
 #[derive(Serialize, Clone, Copy)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RegisterAll {
@@ -172,16 +172,16 @@ pub enum RegisterAll {
     },
 }
 
-/// node 宿主 op 入口 argv 模板（owner 2026-10-11 三来源裁决「op 入口模板两类型各一条
-/// 常量」的 node 型；python 型 = `sdk.rs::python_door_command` 函数）。三 node 宿主
-/// （pi/dsh/openclaw）共用，不再逐平台复制。占位符：`{op}`/`{args}`/`{node_path}`。
+/// node host op entry argv template (owner 2026-10-11 three-source ruling "one constant for each of the two op entry template types"
+/// node type; python type = `sdk.rs::python_door_command` function). Shared by the three node hosts
+/// (pi/dsh/openclaw), no longer copied per platform. Placeholders: `{op}`/`{args}`/`{node_path}`.
 pub const NODE_OP_TEMPLATE: &[&str] = &["node", "{node_path}", "--op", "{op}", "--args", "{args}"];
 
 use serde_json::Value;
 
 use crate::hosts::{Host, Lang};
 
-/// 安装步骤的 JSON 视图（通用引擎 [`crate::core::steps`] 的输入；空表 ⇒ 该宿主无 CLI 侧安装动作）。
+/// JSON view of install steps (input for the generic engine [`crate::core::steps`]; empty table ⇒ no CLI-side install action for this host).
 pub fn install_steps_json(h: &dyn Host) -> Vec<Value> {
     h.install_plan()
         .iter()
@@ -189,7 +189,7 @@ pub fn install_steps_json(h: &dyn Host) -> Vec<Value> {
         .collect()
 }
 
-/// 卸载步骤的 JSON 视图。
+/// JSON view of uninstall steps.
 pub fn uninstall_steps_json(h: &dyn Host) -> Vec<Value> {
     h.uninstall_plan()
         .iter()
@@ -197,23 +197,23 @@ pub fn uninstall_steps_json(h: &dyn Host) -> Vec<Value> {
         .collect()
 }
 
-/// 注册入口的 JSON 视图（`core::register` 的输入）。
+/// JSON view of registration entry (input for `core::register`).
 pub fn register_json(h: &dyn Host) -> Value {
     serde_json::to_value(h.register()).expect("register entry must serialize")
 }
 
-/// 全量注册入口（未定义 ⇒ 单 agent 宿主）。
+/// Full registration entry (undefined ⇒ single agent host).
 pub fn register_all_json(h: &dyn Host) -> Option<Value> {
     h.register_all()
         .map(|r| serde_json::to_value(r).expect("register_all entry must serialize"))
 }
 
-/// 该宿主是否走 python 注册器（决定是否需要 SDK 根：node 宿主经 op 门，不需要）。
+/// Whether this host uses the python registrar (determines if SDK root is needed: node hosts go through the op gate, so it is not needed).
 pub fn needs_sdk_root(h: &dyn Host) -> bool {
     matches!(h.lang(), Lang::Python)
 }
 
-/// 该宿主是否自足 SDK 安装（安装步骤里有 `sdk_install` ⇒ 其 target；否则 `""`）。
+/// Whether this host has a self-contained SDK install (install steps contain `sdk_install` ⇒ its target; otherwise `""`).
 pub fn sdk_install_target(h: &dyn Host) -> String {
     for st in h.install_plan() {
         if let Step::SdkInstall { target, .. } = st {
@@ -223,8 +223,8 @@ pub fn sdk_install_target(h: &dyn Host) -> String {
     String::new()
 }
 
-/// node 入口模板展开：`{home}` 逐个候选替换；含 `*` 则 glob 取排序首个命中；否则按文件判在。
-/// 未命中 ⇒ `""`（不猜）。
+/// node entry template expansion: `{home}` is replaced candidate by candidate; if it contains `*`, glob takes the first sorted hit; otherwise checks file existence.
+/// No hit ⇒ `""` (do not guess).
 pub fn resolve_path_template(tmpl: &str, homes: &[String]) -> String {
     for h in homes {
         let cand = tmpl.replace("{home}", h);

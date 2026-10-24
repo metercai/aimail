@@ -76,7 +76,7 @@ class _FakeGateway(BaseHTTPRequestHandler):
     def log_message(self, *_a):  # keep pytest output clean
         pass
 
-    def _reply(self, obj, status=200):  # 与 do_POST 同款响应写法
+    def _reply(self, obj, status=200):  # same response writing style as do_POST
         payload = json.dumps(obj).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
@@ -84,9 +84,9 @@ class _FakeGateway(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
-    # 2026-10-01 方案A(激活站)引入的窄同步打这两条路由; 假网关必须提供:
-    #   GET  /api/v1/admin/systems/:sid/domains  → 行列表(含 domain)
-    #   PUT  /api/v1/admin/system-domains/:id    → 记录 update(带 webhook_secret)
+    # 2026-10-01 Plan A (Activation Station) introduced narrow sync hitting these two routes; the fake gateway must provide:
+    #   GET  /api/v1/admin/systems/:sid/domains  → list of rows (including domain)
+    #   PUT  /api/v1/admin/system-domains/:id    → record update(with webhook_secret)
     def do_GET(self):  # noqa: N802 (http.server API)
         if self.path.endswith("/domains"):
             self._reply({"data": [{"id": "1", "domain": ADDR}]})
@@ -171,9 +171,9 @@ def test_activation_lands_private_binding_with_register_isomorphic_fields(
     assert res["expires_at"] == "2026-12-31T00:00:00Z"
 
     # the wire call really happened, lowercased address (pull matches exact SQL)
-    # 2026-10-01 owner 方案A(激活站): 激活后多一次**窄同步**把本地 secret 对齐给网关
-    # (第 10 缺陷: 网关另持一把 ⇒ D2B 两侧永不相等) ⇒ 网关调用 1 次 → 2 次。
-    # 第一次(激活)断言一字未改; 第二次必须是 PUT system-domains 且**携带落盘同一把 secret**。
+    # 2026-10-01 owner Plan A (Activation Station): after activation, one extra **narrow sync** aligns the local secret to the gateway
+    # (Defect 10: gateway holds another key ⇒ D2B sides never equal) ⇒ gateway call 1 time → 2 times.
+    # First call (activation) asserts no change; second call must be PUT system-domains and **carry the same secret persisted to disk**.
     assert len(seen) == 2, seen
     assert seen[0]["path"] == "/api/v1/activate-address-code"
     assert seen[0]["body"] == {"code": "shared_a-CODE",

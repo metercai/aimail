@@ -1,8 +1,8 @@
-//! P3c 收官验收：`aimail welcome` **API 模式**端到端（stub 网关 + 真轮询日志）。
+//! P3c final acceptance: `aimail welcome` **API mode** end-to-end (stub gateway + real polling logs).
 //!
-//! 判据：4 行播报 · `api_send` 成功行（email_id/message_id 回显）· 轮询到 `dir=outbound` 的回复
-//! ⇒ "Bidirectional … verified" · 第 3 段因**快照无三标签草案**而明确失败 **rc=2**（不假装成功）·
-//! `-w` 短路 rc=0 · 缺 admin_key ⇒ rc=1。SMTP 路径（端口 25）留 CLI L2 门禁。
+//! Criteria: 4 lines of broadcast · `api_send` success line (echoing email_id/message_id) · polling for reply with `dir=outbound`
+//! ⇒ "Bidirectional … verified" · The 3rd segment explicitly fails **rc=2** due to **no three-label draft in the snapshot** (does not pretend success) ·
+//! `-w` short-circuit rc=0 · missing admin_key ⇒ rc=1. SMTP path (port 25) left for CLI L2 gate.
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -30,7 +30,7 @@ fn run(home: &Path, args: &[&str]) -> (i32, String) {
     )
 }
 
-/// stub 网关：`POST /api/v1/system/welcome` → `{"email_id":"E1","message_id":"M1"}`。
+/// stub gateway: `POST /api/v1/system/welcome` → `{"email_id":"E1","message_id":"M1"}`.
 fn stub() -> (u16, std::sync::mpsc::Receiver<String>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -105,13 +105,13 @@ fn fixture(gw: &str, admin_key: &str) -> tempfile::TempDir {
         ),
     )
     .unwrap();
-    // 绑定文件（三层收口靠它归属 sid —— 缺了就会落到 _unassigned，轮询到错的日志）
+    // Binding file (three-layer closure relies on it to attribute sid —— missing it falls back to _unassigned, polling the wrong logs)
     std::fs::write(
         leaf.join(aimail::core::contract::binding_file()),
         r#"{"email":"default@example.test","api_key":"k"}"#,
     )
     .unwrap();
-    // 日志先有一行（基线），outbound 由另一线程在轮询期间追加
+    // Log has one line first (baseline), outbound is appended by another thread during polling
     std::fs::write(leaf.join("agentmail.log"), "{\"dir\":\"noop\"}\n").unwrap();
     tmp
 }
@@ -124,7 +124,7 @@ fn welcome_api_mode_end_to_end() {
     let home = tmp.path().join("ahome");
     let log = home.join("systems/s1/default_example.test/agentmail.log");
 
-    // 轮询期间追加一条 outbound（poll 每 5s 扫一次 ⇒ 1s 后追加即可被看到）
+    // Append one outbound during polling (poll scans every 5s ⇒ appending after 1s is visible)
     let log2 = log.clone();
     thread::spawn(move || {
         thread::sleep(std::time::Duration::from_secs(1));
@@ -165,23 +165,23 @@ fn welcome_api_mode_end_to_end() {
         out.contains("  ✓ Bidirectional send/receive verified (reply email_id=R9)"),
         "{out}"
     );
-    // 第 3 段：快照无三标签草案 ⇒ 明确失败 rc=2（不假装成功）
-    assert!(out.contains("  ✗ 未取得 persona/signature"), "{out}");
+    // 3rd segment: snapshot missing three-label draft ⇒ explicit failure rc=2 (do not pretend success)
+    assert!(out.contains("  ✗ persona/signature not obtained"), "{out}");
     assert_eq!(rc, 2, "{out}");
 
-    // `-w` 短路：只发不等 ⇒ rc=0
+    // `-w` short-circuit: send only, do not wait ⇒ rc=0
     let tmp2 = fixture(&gw, "ADMINKEY");
     let (rc2, out2) = run(&tmp2.path().join("ahome"), &["welcome", "-s", "s1", "-w"]);
     assert_eq!(rc2, 0, "{out2}");
     assert!(out2.contains("  ✓ Welcome email sent via API "), "{out2}");
-    assert!(!out2.contains("Polling reply"), "不应轮询: {out2}");
+    assert!(!out2.contains("Polling reply"), "must not poll: {out2}");
 
-    // 缺 admin_key ⇒ rc=1（API 模式需系统 admin key）
+    // Missing admin_key ⇒ rc=1 (API mode requires system admin key)
     let tmp3 = fixture(&gw, "");
     let (rc3, out3) = run(&tmp3.path().join("ahome"), &["welcome", "-s", "s1"]);
     assert_eq!(rc3, 1, "{out3}");
     assert!(
-        out3.contains("✗ aimail_gateway.json 无 admin_key——API 模式需系统 admin key"),
+        out3.contains("✗ aimail_gateway.json has no admin_key — API mode needs the system admin key"),
         "{out3}"
     );
 }

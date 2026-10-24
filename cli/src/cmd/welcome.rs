@@ -1,12 +1,12 @@
-//! `aimail welcome` —— `cli/send_welcome.py:main` 的 Rust 复刻（P3c 收官）。
+//! `aimail welcome` — the Rust re-implementation of `cli/send_welcome.py:main` (P3c finale).
 //!
-//! API 模式（默认）：admin key 调 `POST /api/v1/system/welcome`（服务器固定 cc/subject/body）→
-//! 轮询 agent 日志等回复 → 第 3 段身份审批（以 **manager 身份**发 `approve persona`）。
-//! SMTP 模式（`--smtp`，旧路）：agent key + `auth.local` 发 welcome 信（advanced 失败回落 base 白名单直发）。
+//! API mode (default): admin key calls `POST /api/v1/system/welcome` (server fixed cc/subject/body) →
+//! poll the agent log for the reply → stage-3 identity approval (send `approve persona` **as the manager**).
+//! SMTP mode (`--smtp`, legacy path): agent key + `auth.local` sends welcome email (advanced failure falls back to base whitelist direct send).
 //!
-//! 出口语义（照抄）：拿不到草案 ⇒ **2**（明确失败、不假装成功）；发送/等待失败 ⇒ 1；成功 ⇒ 0。
-//! 命令面只有 `-s/-m/-w/--smtp/--timeout`（脚本内部开关 `--to/--agent/--persona/--signature` **不进面**——
-//! CLI 解析器才是契约面，内部开关从 `sys.argv` 直接读）。
+//! Exit semantics (copied): cannot get draft ⇒ **2** (explicit failure, do not pretend success); send/wait failure ⇒ 1; success ⇒ 0.
+//! the command surface only has `-s/-m/-w/--smtp/--timeout` (the script-internal switches `--to/--agent/--persona/--signature` **do not enter the surface** —
+//! CLI parser is the contract surface, internal switches read directly from `sys.argv`).
 
 use crate::cmd::report::fail;
 use crate::core::welcome::{self, approve_message, welcome_message};
@@ -22,14 +22,14 @@ pub struct Args {
 pub fn run(a: &Args) -> i32 {
     let systems = crate::core::config::systems_root_in(&crate::core::home::aimail_home());
 
-    // 回信等待窗(秒):默认 120;慢 runner(如 arm64)用 --timeout 放宽(10..=1800,越界 ⇒ 默认)。
+    // Reply wait window (seconds): default 120; slow runner (e.g. arm64) uses --timeout to relax (10..=1800, out of bounds ⇒ default).
     let reply_timeout = if (10..=1800).contains(&a.reply_timeout) {
         a.reply_timeout
     } else {
         120
     };
 
-    // ── 身份链：AGENT_HOME 指针（面上无 --agent-home）→ resolve_system_id ──
+    // ── Identity chain: AGENT_HOME pointer (no --agent-home on surface) → resolve_system_id ──
     let mut sid = a.system_id.clone();
     let mut email = String::new();
     let agent_home = std::env::var("AGENT_HOME")
@@ -64,7 +64,7 @@ pub fn run(a: &Args) -> i32 {
         sid = s;
     }
     if sid.is_empty() {
-        println!("✗ system_id 未解析(需 --system-id,或本机单系统/平台指针可自动判定)");
+        println!("✗ system_id unresolved (needs --system-id, or single-system local / platform pointer auto-detect)");
         return 1;
     }
 
@@ -97,7 +97,7 @@ pub fn run(a: &Args) -> i32 {
             cfg_str("manager_address")
         }
     };
-    // 收件地址：--to（不在面）> 指针 email > config 派生
+    // Recipient address: --to (not on surface) > pointer email > config derived
     let recipient = if !email.is_empty() {
         email
     } else {
@@ -111,7 +111,7 @@ pub fn run(a: &Args) -> i32 {
 
     if !a.smtp {
         if admin_key.is_empty() {
-            println!("✗ aimail_gateway.json 无 admin_key——API 模式需系统 admin key");
+            println!("✗ aimail_gateway.json has no admin_key — API mode needs the system admin key");
             return 1;
         }
         println!("  Gateway:     {}", gw_url);
@@ -149,9 +149,9 @@ pub fn run(a: &Args) -> i32 {
         return 1;
     }
 
-    // ── SMTP 模式（旧，--smtp 显式）──
+    // ── SMTP mode (legacy, --smtp explicit) ──
     if manager.is_empty() {
-        println!("✗ SMTP 模式需 manager 地址(发件人): --manager 或 config.manager_address");
+        println!("✗ SMTP mode requires manager address (sender): --manager or config.manager_address");
         return 1;
     }
     let agent_dir = crate::core::bridge_wire::addr_clean(&recipient);
@@ -170,7 +170,7 @@ pub fn run(a: &Args) -> i32 {
         .unwrap_or_default();
     if ak.is_empty() {
         println!(
-            "✗ agent api_key 未找到(需 systems/{}/{}/{})——auth.local 只接受 agent key",
+            "✗ agent api_key not found (requires systems/{}/{}/{})——auth.local only accepts agent key",
             sid,
             agent_dir,
             crate::core::contract::binding_file()
@@ -184,9 +184,9 @@ pub fn run(a: &Args) -> i32 {
         "  Edition:     {}({})",
         edition,
         if edition == "advanced" {
-            "auth.local 认证"
+            "auth.local authentication"
         } else {
-            "白名单直发"
+            "whitelist direct send"
         }
     );
     println!("  To:          {}", recipient);
@@ -196,7 +196,7 @@ pub fn run(a: &Args) -> i32 {
     let mut resp = welcome::smtp_send(&gw_url, &ak, &recipient, &manager, &edition, &msg);
     if !resp.starts_with("250") && edition == "advanced" {
         let head: String = resp.chars().take(50).collect();
-        println!("  ⚠ auth.local 发送失败({}),回落 base 白名单直发", head);
+        println!("  ⚠ auth.local send failed ({}), falling back to the base allowlist direct send", head);
         resp = welcome::smtp_send(&gw_url, &ak, &recipient, &manager, "base", &msg);
     }
     if !resp.starts_with("250") {
@@ -223,9 +223,9 @@ pub fn run(a: &Args) -> i32 {
     1
 }
 
-/// 第 3 段：以 manager 身份发含触发词的审批邮件（网关唯一 UPSERT 写 persona/signature）。
+/// 3rd stage: send approval email containing trigger words as manager (gateway only UPSERT writes persona/signature).
 fn approve_identity(gw_url: &str, api_key: &str, recipient: &str, manager: &str) -> i32 {
-    // 面上无 --persona/--signature（脚本内部开关）⇒ 只能从回复快照解析
+    // No --persona/--signature on surface (script internal switches) ⇒ can only parse from reply snapshot
     let got = welcome::parse_draft_from_reply(recipient);
     let per = got
         .get("persona")
@@ -241,7 +241,7 @@ fn approve_identity(gw_url: &str, api_key: &str, recipient: &str, manager: &str)
         .to_string();
     if per.is_empty() || sig.is_empty() {
         println!(
-            "  ✗ 未取得 persona/signature(回复快照无三标签草案且未显式给出)⇒ 请用 --persona/--signature 提供"
+            "  ✗ persona/signature not obtained (reply snapshot has no 3-tag draft and none given explicitly) ⇒ provide via --persona/--signature"
         );
         return 2;
     }
@@ -254,11 +254,11 @@ fn approve_identity(gw_url: &str, api_key: &str, recipient: &str, manager: &str)
     if resp.starts_with("250") {
         let p36: String = per.chars().take(36).collect();
         let s28: String = sig.chars().take(28).collect();
-        println!("  ✓ 身份审批已提交(persona={}…, signature={}…)", p36, s28);
+        println!("  ✓ Identity approval submitted (persona={}…, signature={}…)", p36, s28);
         return 0;
     }
     let head: String = resp.chars().take(80).collect();
     let _ = fail;
-    println!("  ✗ 审批邮件发送失败: {}", head);
+    println!("  ✗ Approval email send failed: {}", head);
     1
 }

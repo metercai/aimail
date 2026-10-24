@@ -107,7 +107,7 @@ describe('three-op node door', () => {
     expect(bind['email']).toBe('agent.j93482@shared-e2e.local')
     expect(bind['api_key']).toBe('AK-NEW')
     expect(bind['manager_address']).toBe('mgr@ext.test')
-    // 信封未带 preset ⇒ 绑定不得带该字段(G1b 反例)
+    // Envelope did not carry preset ⇒ binding must not carry that field (G1b counter-example)
     expect(bind['preset']).toBeUndefined()
     vi.unstubAllGlobals()
   })
@@ -128,7 +128,7 @@ describe('three-op node door', () => {
     const bind = JSON.parse(
       fs.readFileSync(path.join(bindDir, BINDING_FILE), 'utf-8'),
     ) as Record<string, unknown>
-    // check session 维判据只认绑定顶层 preset(adapters.rs)
+    // check session dimension criteria only recognizes top-level preset in binding (adapters.rs)
     expect(bind['preset']).toBe('mail')
     vi.unstubAllGlobals()
   })
@@ -256,7 +256,7 @@ describe('three-op node door', () => {
     stubGateway()
     const r = await opUpdate({ system_id: 'sys-rp', action: 'repair' })
     expect(r['ok']).toBe(true)
-    // system-level repair prefixes each filled field with "<email>:" (python _op_update 同形)
+    // system-level repair prefixes each filled field with "<email>:" (python _op_update same shape)
     const filled = r['filled'] as string[]
     expect(filled).toContain('agent.sysx@example.com:domain')
     expect(filled).toContain('agent.sysx@example.com:system_name')

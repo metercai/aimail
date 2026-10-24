@@ -1,21 +1,21 @@
-"""第 10 缺陷(两把钥匙)的**重注册**分支: 绑定是唯一真源(2026-10-02 E1+E2)。
+"""The **re-registration** branch of defect #10 (two keys): the binding is the single source of truth (2026-10-02 E1+E2).
 
-定因(2026-10-02, 只读取证 + 三轮复现 /tmp/d10-repro.py):
-  一次 `aimail install` 对 deerflow 会注册 **3 次**
+Root cause (2026-10-02, read-only evidence + three rounds of reproduction /tmp/d10-repro.py):
+  A single `aimail install` for deerflow registers **3 times**
   (`cli/platforms.json` install_steps = sdk_install → register_default → register_all),
-  而 `pysdk/deer-flow/manage.py` 每次都 `secrets.token_hex(32)` **新铸一把**;
-  `register_agent_email` 的 exists 分支原为"参数优先" ⇒ 新值 PUT 覆写网关
-  (`storage.rs:693` 全量覆写), 绑定却只在拿到 api_key/activation_code 时才落盘
-  (`manage.py:224-235`) ⇒ **网关=第 3 把 / 绑定=第 1 把** ⇒ D2B 两侧摘要不等。
-  历史读数: 13 红全在 deerflow, 其余四平台 56 绿。
+  while `pysdk/deer-flow/manage.py` calls `secrets.token_hex(32)` to **mint a new one** each time;
+  `register_agent_email` exists branch was originally "parameter priority" ⇒ new value PUT overwrites gateway
+  (`storage.rs:693` full overwrite), but binding is only persisted when api_key/activation_code is obtained
+  (`manage.py:224-235`) ⇒ **gateway = key #3 / binding = key #1** ⇒ D2B digests on both sides do not match.
+  Historical reading: 13 reds all in deerflow, other four platforms 56 green.
 
-修法(两层, 不矛盾):
-  E1 核心 `aimail_base.register_agent_email` exists 分支: **绑定优先**, 调用方的值只在
-     绑定缺 secret 时采用; 绑定文件在但缺 secret ⇒ 先回写绑定再 PUT(真源补齐)。
-  E2 调用方 `pysdk/deer-flow/manage.py`: 有绑定就复用, 只在缺失时新铸(不再制造新值)。
+Fix (two layers, not contradictory):
+  E1 core `aimail_base.register_agent_email` exists branch: **binding priority**, caller's value only adopted when
+     Adopted when the binding lacks a secret; if the binding file exists but lacks a secret ⇒ write back to the binding first, then PUT (completing the source of truth).
+  E2 caller `pysdk/deer-flow/manage.py`: reuse if binding exists, only mint new when missing (no longer creates new values).
 
-与卡B(`228ebaa`)六条契约的关系: ①④绑定值照写 ③两边都没有⇒现补 ⑤无绑定⇒不写
-⑥无绑定+参数⇒原样写 —— 本文件只新增"绑定有值 + 调用方另给一把"这一象限。
+Relationship to the six contracts of Card B (`228ebaa`): ①④ write binding values as-is ③ neither side has it ⇒ supplement now ⑤ no binding ⇒ do not write
+⑥ no binding + parameter ⇒ write as-is —— this file only adds the quadrant "binding has value + caller provides another".
 """
 import importlib.util
 import json
@@ -43,7 +43,7 @@ MGR = "m@d.tm"
 
 @pytest.fixture(autouse=True)
 def _writes(monkeypatch):
-    """记录注册链发出的每一次写 —— 本文件唯一可观测量。"""
+    """Record every write issued by the registration chain —— the only observable metric in this file."""
     _FakeClient.writes = []
     _FakeClient.registers = []
     monkeypatch.setattr(aimail_tools, "_GatewayClient", _FakeClient)
@@ -57,7 +57,7 @@ def home(tmp_path, monkeypatch):
 
 
 class _FakeClient:
-    """网关语义: 首次 register 收下 secret; 再注册回 "already exists"; PUT 全量覆写。"""
+    """Gateway semantics: first register accepts secret; re-register returns "already exists"; PUT full overwrite."""
 
     writes: list = []
     registers: list = []
@@ -72,7 +72,7 @@ class _FakeClient:
         return {"status": "0", "error": "address already exists"}
 
     def list_system_domains(self, sid):
-        # 域列表按本轮注册的地址回(网关按 email 找行 —— 定因测试里地址是派生出来的)
+        # Domain list returns based on addresses registered in this round (gateway finds row by email —— in root cause test address is derived)
         return [{"id": "7", "domain": getattr(_FakeClient, "last_email", EMAIL)}]
 
     def update_system_domain(self, domain_id, webhook_url="", webhook_secret=""):
@@ -96,9 +96,9 @@ def _write_binding(home: pathlib.Path, *, secret: str, email: str = EMAIL,
     return p
 
 
-# ── E1: 绑定有值 ⇒ 调用方另给一把也不许改写网关 ────────────────────────────
+# ── E1: binding has value ⇒ caller providing another key is not allowed to rewrite gateway ────────────────────────────
 def test_reregistration_keeps_the_binding_secret(home):
-    """RED 先证: 修复前 PUT 带的是 CALLER_SECRET ⇒ 网关/绑定两把钥匙。"""
+    """RED proof first: before fix PUT carried CALLER_SECRET ⇒ gateway/binding two keys."""
     _write_binding(home, secret=BINDING_SECRET)
 
     core.register_agent_email(_FakeClient(), SID, EMAIL, webhook_url=URL,
@@ -109,7 +109,7 @@ def test_reregistration_keeps_the_binding_secret(home):
         "gateway (that is exactly the deerflow install re-registration divergence)")
 
 
-# ── E1 回填: 绑定文件在但缺 secret ⇒ 调用方的值先落绑定再 PUT ───────────────
+# ── E1 backfill: binding file exists but lacks secret ⇒ caller's value written to binding first then PUT ───────────────
 def test_caller_secret_is_carried_into_an_existing_binding_first(home):
     bp = _write_binding(home, secret="")
 
@@ -124,7 +124,7 @@ def test_caller_secret_is_carried_into_an_existing_binding_first(home):
         "gateway gets a key the binding never had (the other half of the split)")
 
 
-# ── E2: deerflow 重注册不再新铸 —— 调用方复用绑定里的那把 ───────────────────
+# ── E2: deerflow re-registration no longer mints new —— caller reuses the one in binding ───────────────────
 def test_deerflow_reregister_reuses_the_binding_secret(home, monkeypatch):
     DOMAIN = "gw.test"
     gw_cfg = home / "systems" / SID / "aimail_gateway.json"

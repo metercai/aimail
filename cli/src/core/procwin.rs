@@ -1,20 +1,20 @@
-//! Windows 进程/主机事实提取(W2 运行期 unix 命令面的 windows 分支, 单真源)。
+//! Windows process/host fact extraction (W2 runtime unix command surface windows branch, single source of truth).
 //!
-//! 消费点(与 unix 的 pgrep//proc/ip 族一一对应):
-//! - 桥 pid 枚举: `bridge_deploy::bridge_cleanup_pids` / `bridge_wire::bridge_pids`
-//!   (unix = `pgrep -f` → 扫 `/proc/<pid>/cmdline`)
-//! - 活 python 探测: `sdkroot::probe_agent_python`(unix = 扫 `/proc`)
-//! - 本机 IPv4: `netenv::global_ipv4_from_cmd`(unix = `ip` → `ifconfig`)
-//! - 主机名: `gateway::is_local_gateway` / `bridge_deploy::detect_ip`(unix = `/proc`/`/etc/hostname`)
+//! Consumption points (one-to-one correspondence with unix's pgrep//proc/ip family):
+//! - Bridge pid enumeration: `bridge_deploy::bridge_cleanup_pids` / `bridge_wire::bridge_pids`
+//!   (unix = `pgrep -f` → scan `/proc/<pid>/cmdline`)
+//! - Live python probe: `sdkroot::probe_agent_python` (unix = scan `/proc`)
+//! - Local IPv4: `netenv::global_ipv4_from_cmd` (unix = `ip` → `ifconfig`)
+//! - Hostname: `gateway::is_local_gateway` / `bridge_deploy::detect_ip` (unix = `/proc`/`/etc/hostname`)
 //!
-//! 语义纪律(owner 2026-10-16):windows 分支若本机拿不到数据 = 返回空/None(响亮降级),
-//! **不假装成功**;unix 原路全部不动(各消费点 `#[cfg(windows)]` 首行短路)。
+//! Semantic discipline (owner 2026-10-16): if the windows branch cannot get data locally = return empty/None (loud degradation),
+//! **do not pretend success**; unix original paths remain untouched (each consumption point `#[cfg(windows)]` short-circuits on the first line).
 //!
-//! 枚举源: PowerShell `Get-CimInstance Win32_Process`(Win7+ 系统自带)。`Name` 非特权可读;
-//! `ExecutablePath` 在个别系统需特权 ⇒ 取不到时空串, 调用方按"无路径"降级。
+//! Enumeration source: PowerShell `Get-CimInstance Win32_Process` (built-in on Win7+ systems). `Name` is readable without privilege;
+//! `ExecutablePath` requires privilege on some systems ⇒ empty string if unavailable, caller degrades as "no path".
 
 use std::net::IpAddr;
-/// 全进程表 `(pid, name, executable_path)`;PowerShell 不可用/解析失败 ⇒ 空(不假装成功)。
+/// Full process table `(pid, name, executable_path)`; PowerShell unavailable/parse failure ⇒ empty (do not pretend success).
 pub fn processes() -> Vec<(u32, String, String)> {
     let out = std::process::Command::new("powershell")
         .args([
@@ -57,11 +57,11 @@ pub fn processes() -> Vec<(u32, String, String)> {
         .collect()
 }
 
-/// 按**进程名**枚举桥(`aimail-bridge.exe`, 大小写不敏感)。
+/// Enumerate bridges by **process name** (`aimail-bridge.exe`, case-insensitive).
 ///
-/// unix 的判据是"可执行文件**路径**首 token 以 `aimail-bridge` 结尾"——Windows 进程表里
-/// `Name` 就是裸名(无路径歧义), `aimail-bridge` 是专属名(不与其他程序撞名)⇒ 名匹配即精确
-/// (2026-08-16/09-21 误杀事故的根因是 unix 宽松 `pgrep -f` 撞路径子串, 此处无此面)。
+/// The unix criterion is "the first token of the **path** of the executable file ends with `aimail-bridge`"——in the Windows process list
+/// `Name` is the bare name (no path ambiguity), `aimail-bridge` is a unique name (does not collide with other programs) ⇒ name match is exact
+/// (The root cause of the 2026-08-16/09-21 accidental kill incident was unix's loose `pgrep -f` colliding with path substrings, this surface does not have that issue).
 pub fn bridge_pids_by_name() -> Vec<u32> {
     let mut pids: Vec<u32> = processes()
         .into_iter()
@@ -73,8 +73,8 @@ pub fn bridge_pids_by_name() -> Vec<u32> {
     pids
 }
 
-/// 按 pid 强制终止(`taskkill /F`)。unix 的 TERM/KILL 两级在 Windows 无严格对应
-/// (计划裁决: 直接 /F)——调用方的"TERM→等→KILL"等待循环仍按 `pid_alive` 原语义生效。
+/// Force terminate by pid (`taskkill /F`). The two-level TERM/KILL on unix has no strict equivalent on Windows
+/// (planned decision: direct /F)——the caller's "TERM→wait→KILL" wait loop still works with the original semantics of `pid_alive`.
 pub fn kill_pid(pid: i32) -> bool {
     std::process::Command::new("taskkill")
         .args(["/PID", &pid.to_string(), "/F"])
@@ -83,7 +83,7 @@ pub fn kill_pid(pid: i32) -> bool {
         .unwrap_or(false)
 }
 
-/// 主机名(`COMPUTERNAME` 标准 env;unix 对应物 = `/proc/sys/kernel/hostname`)。
+/// Hostname (`COMPUTERNAME` standard env; unix equivalent = `/proc/sys/kernel/hostname`).
 pub fn hostname() -> Option<String> {
     std::env::var("COMPUTERNAME")
         .ok()
@@ -91,8 +91,8 @@ pub fn hostname() -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-/// 本机全局 IPv4(`ipconfig` 的 "IPv4 Address" 行;unix 对应物 = `ip` → `ifconfig`)。
-/// ipconfig 输出按系统 ANSI 编码, 但前缀与 IP 数字均为 ASCII ⇒ lossy 安全。
+/// Local global IPv4 (the "IPv4 Address" line from `ipconfig`; unix equivalent = `ip` → `ifconfig`).
+/// ipconfig output is in the system ANSI encoding, but the prefix and IP digits are ASCII ⇒ lossy is safe.
 pub fn local_ipv4() -> Vec<IpAddr> {
     let mut v = Vec::new();
     if let Ok(o) = std::process::Command::new("ipconfig").output() {
@@ -119,12 +119,12 @@ pub fn local_ipv4() -> Vec<IpAddr> {
     v
 }
 
-/// 探测本机正在运行的 agent 所用解释器(unix `probe_agent_python` 的 Windows 镜像)。
+/// Probe the interpreter used by the agent running on this machine (Windows mirror of unix `probe_agent_python`).
 ///
-/// 判据与 unix 同构: 运行中的 python 族进程, 且其 venv 内确有 `aimail`(不误采无关 venv)。
-/// Windows venv 布局镜像: `<venv>\Scripts\python.exe` → site-packages = `<venv>\Lib\site-packages`
+/// Criteria is isomorphic to unix: running python family processes, and their venv actually contains `aimail` (do not mistakenly collect unrelated venvs).
+/// Windows venv layout mirror: `<venv>\Scripts\python.exe` → site-packages = `<venv>\Lib\site-packages`
 /// (unix = `<venv>/bin/python` → `<venv>/lib/*/site-packages`)。
-/// `ExecutablePath` 取不到(个别系统需特权)⇒ 无法定位 venv ⇒ 跳过该进程(降级, 不猜)。
+/// `ExecutablePath` cannot be retrieved (some systems require privileges) ⇒ cannot locate venv ⇒ skip that process (degrade, do not guess).
 pub fn probe_agent_python() -> Option<String> {
     for (_, name, path) in processes() {
         if !name.to_ascii_lowercase().starts_with("python") || path.is_empty() {
@@ -134,7 +134,7 @@ pub fn probe_agent_python() -> Option<String> {
         if !pb.is_file() {
             continue;
         }
-        // Scripts/python.exe → 上两级 = venv 根
+        // Scripts/python.exe → two levels up = venv root
         if let Some(venv) = pb.parent().and_then(|b| b.parent()) {
             let sp = venv.join("Lib").join("site-packages").join("aimail");
             if sp.is_dir() {

@@ -1,15 +1,15 @@
-//! 核心基础设施层（plan v3 S2 起逐模块填充）。
+//! Core infrastructure layer (filled module by module from plan v3 S2 onwards).
 //!
-//! | 模块 | 职责 | 现状码对照 |
+//! | Module | Responsibility | Current code reference |
 //! |---|---|---|
-//! | [`home`] | 主根 / 程序根 / 发布形态 | `cli/runtime_core.py:161-171`、`pysdk/aimail_base.aimail_home()` |
-//! | [`perms`] | 凭据文件权限（跨平台助手） | Python 各写点的 `os.chmod(..., 0o600)` |
-//! | [`contract`] | agent 侧契约常量（编译期内嵌单真源） | `contract/aimail-contract.json` |
-//! | [`platforms`] | 平台宿主表的值视图（数据在 `hosts/`） | `cli/src/hosts/mod.rs` |
-//! | [`config`] | 系统级环境文件读写（CLI 独占写权）+ 绑定文件只读入口 | `cli/setup_system.py:331-370`、`cli/aimail:2460-2467` |
+//! | [`home`] | Main root / program root / release form | `cli/runtime_core.py:161-171`, `pysdk/aimail_base.aimail_home()` |
+//! | [`perms`] | Credential file permissions (cross-platform helper) | `os.chmod(..., 0o600)` at each Python write point |
+//! | [`contract`] | Agent-side contract constants (compile-time embedded single source of truth) | `contract/aimail-contract.json` |
+//! | [`platforms`] | Value view of platform host table (data in `hosts/`) | `cli/src/hosts/mod.rs` |
+//! | [`config`] | System-level environment file read/write (CLI exclusive write permission) + binding file read-only entry | `cli/setup_system.py:331-370`, `cli/aimail:2460-2467` |
 //!
-//! 未落的还有 `gateway` / `smtp`（HTTP/SMTP 客户端）与 `proc`：它们要靠 S3/S6 的
-//! 真实消费方才有意义，先落会变成"零调用方的死代码 + 无谓依赖"（最小机制原则）。
+//! Not yet implemented are `gateway` / `smtp` (HTTP/SMTP clients) and `proc`: they rely on S3/S6's
+//! Only meaningful for real consumers; landing it first would become "dead code with zero callers + unnecessary dependencies" (principle of minimal mechanism).
 
 pub mod bridge;
 pub mod bridge_deploy;
@@ -46,19 +46,19 @@ pub mod welcome;
 
 #[cfg(test)]
 pub(crate) mod testutil {
-    //! 极小临时目录助手 —— 不引第三方 crate（tempfile），够用即止。
+    //! Minimal temporary directory helper — does not import third-party crate (tempfile), sufficient for the purpose.
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU32, Ordering};
 
-    /// 进程级测试环境锁(P8 第2层): 碰进程环境(set_var/remove_var)或进程本地
-    /// 绑定态的测试一律先持此锁 —— 进程 env 是跨线程全局, 并行 `cargo test` 下
-    /// 各改各的会互踩(实测 bridge_pids/drain_stuck 交替红)。持锁覆盖整段
-    /// 设值→被测代码读→还原。
+    /// Process-level test environment lock (P8 layer 2): Tests touching process environment (set_var/remove_var) or process-local
+    /// Tests involving bound state must always hold this lock first — process env is global across threads, under parallel `cargo test`
+    /// will cause mutual interference if each modifies its own (observed alternating reds in bridge_pids/drain_stuck). Hold the lock to cover the entire
+    /// set value → code under test reads → restore sequence.
     pub(crate) static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     static SEQ: AtomicU32 = AtomicU32::new(0);
 
-    /// `<系统临时目录>/aimail-rs-test-<pid>-<seq>-<tag>`，Drop 时递归删除。
+    /// `<system temp dir>/aimail-rs-test-<pid>-<seq>-<tag>`, recursively deleted on Drop.
     pub struct TempDir {
         path: PathBuf,
     }

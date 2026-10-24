@@ -1,17 +1,17 @@
-//! CLI → SDK 委派执行器（**语言无关**）—— 2026-10-04 owner 裁决 A′。
+//! CLI -> SDK delegation executor (**language-agnostic**) -- 2026-10-04 owner ruling A'.
 //!
-//! 契约（边界定稿 §1.5）：`python -m aimail.sdk_ops <op> [--args '<json>']`
-//! · stdout **恰一行** JSON：`{"ok":true,"result":…}` / `{"ok":false,"kind":"usage|import|call","exc":…,"error":…}`
-//! · exit `0` 成功 · `1` 运行期失败(import/call) · `2` 用法错误(usage)
-//! · stderr = 人话/回溯/SDK 自身打印
+//! Contract (boundary finalization §1.5): `python -m aimail.sdk_ops <op> [--args '<json>']`
+//! · stdout **exactly one line** JSON: `{"ok":true,"result":…}` / `{"ok":false,"kind":"usage|import|call","exc":…,"error":…}`
+//! · exit `0` success · `1` runtime failure (import/call) · `2` usage error (usage)
+//! · stderr = human-readable text/traceback/SDK self-printed output
 //!
-//! 为什么是"执行器"而不是"python 桥"：TS 侧的平台包早已是可执行门（`register-cli.js`，注册表
-//! `register.kind=node_entry`）。本模块只认"可执行体 + argv + 单行 JSON"这条通则 —— 将来 Node 侧
-//! 换 `program` 即可复用同一判读，不新造第三种形态。
+//! Why it is an "executor" and not a "python bridge": The TS-side platform package is already an executable gate (`register-cli.js`, registry
+//! `register.kind=node_entry`). This module only recognizes the general rule "executable + argv + single-line JSON" -- future Node side
+//! can switch to `program` to reuse the same interpretation, without creating a third form.
 //!
-//! 定位（**同源优先**）：`{program_root}/aimail-src/pysdk/sdk_ops.py` 存在就直接跑它（调用方与被调方
-//! 同一棵树；`install.py` 的混装教训）；否则回退 `-m aimail.sdk_ops`（pip 装的 agent-aimail ≥ 0.1.35）。
-//! 解释器：`AIMAIL_PYTHON` > `python3`。
+//! Location (**same-source priority**): If `{program_root}/aimail-src/pysdk/sdk_ops.py` exists, run it directly (caller and callee
+//! the same tree; the mixed-installation lesson from `install.py`); otherwise fall back to `-m aimail.sdk_ops` (pip-installed agent-aimail ≥ 0.1.35).
+//! Interpreter: `AIMAIL_PYTHON` > `python3`.
 
 use crate::hosts::Host;
 use serde_json::Value;
@@ -20,21 +20,21 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-/// 门的一次调用失败，按 kind 分档 —— 与 Python 侧 `sdk_ops()` 的三档**一一对应**。
+/// One call failure of the gate, categorized by kind -- **one-to-one correspondence** with the three tiers of `sdk_ops()` on the Python side.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AbiError {
-    /// kind=usage：op 不存在 / --args 不是对象 / 缺必填键（调用方的 bug）
+    /// kind=usage: op does not exist / --args is not an object / missing required key (caller's bug)
     Usage(String),
-    /// kind=import：SDK 模块不可用（没装 / 版本过老）。**明确失败，不降级**
+    /// kind=import: SDK module unavailable (not installed / version too old). **Explicit failure, no degradation**
     Import(String),
-    /// kind=call：SDK 内抛异常。`exc` = 异常类名（如 `ManagerRequiredError`），`msg` = 去前缀后的消息
+    /// kind=call: Exception thrown inside SDK. `exc` = exception class name (e.g., `ManagerRequiredError`), `msg` = message with prefix removed
     Call { exc: String, msg: String },
-    /// 本地传输层失败（进程起不来 / 超时 / stdout 不是"恰一行 JSON"）
+    /// Local transport layer failure (process cannot start / timeout / stdout is not "exactly one line of JSON")
     Transport(String),
 }
 
 impl AbiError {
-    /// 供调用方拼 `({exc}: {msg})` 文案用的异常类名（Transport/Usage/Import 也给一个稳定名）。
+    /// Exception class name for callers to construct `({exc}: {msg})` messages (Transport/Usage/Import also provide a stable name).
     pub fn exc_name(&self) -> &str {
         match self {
             AbiError::Usage(_) => "UsageError",
@@ -51,25 +51,25 @@ impl AbiError {
         }
     }
 
-    /// 与 Python 的 `({type(e).__name__}: {e})` 逐字同形。
+    /// Character-for-character identical to Python's `({type(e).__name__}: {e})`.
     pub fn display_like_python(&self) -> String {
         format!("{}: {}", self.exc_name(), self.message())
     }
 }
 
-/// 门（或任何"单行 JSON ABI"可执行体）的调用参数。
+/// Call parameters for the gate (or any "single-line JSON ABI" executable).
 pub struct AbiCall<'a> {
     pub program: &'a Path,
     pub args: Vec<String>,
     pub timeout: Duration,
-    /// 追加/覆盖的子进程环境（隔离夹具用；空 = 继承）
+    /// Append/override subprocess environment (for isolation fixtures; empty = inherit)
     pub env: Vec<(String, String)>,
 }
 
-/// 跑一条进程命令契约，返回信封里的 `result`。
+/// Run a process command contract, returning the `result` from the envelope.
 ///
-/// 判读顺序：进程起不来 ⇒ Transport；stdout 非"恰一行" ⇒ Transport；信封 ok=true ⇒ result；
-/// 否则按 kind(usage/import/call) 分档；kind 未知 ⇒ Transport（不猜）。
+/// Interpretation order: process fails to start ⇒ Transport; stdout is not "exactly one line" ⇒ Transport; envelope ok=true ⇒ result;
+/// otherwise categorize by kind (usage/import/call); unknown kind ⇒ Transport (do not guess).
 pub fn run_json_abi(call: &AbiCall<'_>) -> Result<Value, AbiError> {
     let output = run_capture(call.program, &call.args, call.timeout, &call.env)?;
     let stdout = String::from_utf8_lossy(&output.0).to_string();
@@ -77,7 +77,7 @@ pub fn run_json_abi(call: &AbiCall<'_>) -> Result<Value, AbiError> {
     if lines.len() != 1 {
         let stderr = String::from_utf8_lossy(&output.1);
         return Err(AbiError::Transport(format!(
-            "可执行门输出异常（rc={}, {} 行）: {}{}",
+            "Executable gate output anomaly (rc={}, {} lines): {}{}",
             output.2,
             lines.len(),
             lines.first().copied().unwrap_or(""),
@@ -85,7 +85,7 @@ pub fn run_json_abi(call: &AbiCall<'_>) -> Result<Value, AbiError> {
         )));
     }
     let env: Value = serde_json::from_str(lines[0])
-        .map_err(|e| AbiError::Transport(format!("可执行门输出不是 JSON: {e}")))?;
+        .map_err(|e| AbiError::Transport(format!("Executable gate output is not JSON: {e}")))?;
     if env.get("ok").and_then(Value::as_bool) == Some(true) {
         return Ok(env.get("result").cloned().unwrap_or(Value::Null));
     }
@@ -99,7 +99,7 @@ pub fn run_json_abi(call: &AbiCall<'_>) -> Result<Value, AbiError> {
         "usage" => Err(AbiError::Usage(err.to_string())),
         "import" => Err(AbiError::Import(err.to_string())),
         "call" => {
-            // 门上报的 error 形如 "ExcName: msg" ⇒ 去掉前缀，调用方再拼一次前缀才是 Python 同形
+            // The error reported by the gate is in the form "ExcName: msg" ⇒ remove the prefix; the caller must prepend the prefix again to match the Python format
             let prefix = format!("{exc}: ");
             let msg = err.strip_prefix(prefix.as_str()).unwrap_or(err).to_string();
             Err(AbiError::Call {
@@ -108,13 +108,13 @@ pub fn run_json_abi(call: &AbiCall<'_>) -> Result<Value, AbiError> {
             })
         }
         other => Err(AbiError::Transport(format!(
-            "可执行门返回未知 kind={other:?}: {err}"
+            "Executable gate returned unknown kind={other:?}: {err}"
         ))),
     }
 }
 
-/// 跑任意子程序并带超时（复用同一套"读取线程 + 轮询 + kill"机器）—— 供委派给 SDK 的
-/// 其它入口（如 `install.py`）使用，输出不做 JSON 判读。
+/// Run any subprocess with timeout (reusing the same "read thread + polling + kill" machinery) -- for delegation to SDK
+/// delegated to the SDK (such as `install.py`), output is not interpreted as JSON.
 pub fn run_program(
     program: &Path,
     args: &[String],
@@ -124,21 +124,21 @@ pub fn run_program(
     run_capture(program, args, timeout, env)
 }
 
-/// 跑子进程并带超时（无外部依赖：读取线程 + try_wait 轮询 + 超时 kill）。
+/// Run subprocess with timeout (no external dependencies: read thread + try_wait polling + timeout kill).
 fn run_capture(
     program: &Path,
     args: &[String],
     timeout: Duration,
     env: &[(String, String)],
 ) -> Result<(Vec<u8>, Vec<u8>, i32), AbiError> {
-    // ETXTBSY(26) 重试：刚写完的可执行文件在多线程 fork/exec 争用下会瞬间"忙"
-    // （测试里现场生成 stub 脚本时实测踩到；生产侧同类场景 = 刚解包出来的门）。
-    // Windows: python 子进程 locale 编码默认 cp1252(charmap) —— print 中文到管道
-    // stdout 崩 UnicodeEncodeError、open() 读 UTF-8 崩 UnicodeDecodeError
-    // (L3 2026-10-17 实证: "pysdk 入口调用失败: 'charmap' codec can't encode
+    // ETXTBSY(26) retry: just-written executable file may be momentarily "busy" under multi-threaded fork/exec contention
+    // (actually encountered when generating stub scripts on the fly in tests; similar production scenario = gate just unpacked).
+    // Windows: python subprocess locale encoding defaults to cp1252(charmap) -- print Chinese to pipe
+    // stdout crashes with UnicodeEncodeError, open() reading UTF-8 crashes with UnicodeDecodeError
+    // (L3 2026-10-17 empirical: "pysdk entry call failed: 'charmap' codec can't encode
     // position 2001-2063" / "failed to write hermes webhook config: 'charmap'
     // codec can't decode byte 0x8f")。PYTHONUTF8=1 = PEP 540 UTF-8 mode,
-    // 一个 env 覆盖标准 IO + 文件 open 默认编码双面; unix 不设(行为不变)。
+    // One env override for standard IO + file open default encoding on both sides; unix does not set (behavior unchanged).
     let mut child = {
         let mut attempt = 0;
         loop {
@@ -160,7 +160,7 @@ fn run_capture(
                 }
                 Err(e) => {
                     return Err(AbiError::Transport(format!(
-                        "门不可用({}): {e}",
+                        "Gate unavailable ({}): {e}",
                         program.display()
                     )))
                 }
@@ -190,13 +190,13 @@ fn run_capture(
                     let _ = out_h.join();
                     let _ = err_h.join();
                     return Err(AbiError::Transport(format!(
-                        "门超时（{}s）",
+                        "Gate timeout ({}s)",
                         timeout.as_secs()
                     )));
                 }
                 std::thread::sleep(Duration::from_millis(50));
             }
-            Err(e) => return Err(AbiError::Transport(format!("门等待失败: {e}"))),
+            Err(e) => return Err(AbiError::Transport(format!("Gate wait failed: {e}"))),
         }
     };
     let out = out_h.join().unwrap_or_default();
@@ -204,11 +204,11 @@ fn run_capture(
     Ok((out, err, code))
 }
 
-/// python transport 的门 argv（契约 §4.1(2)：`<宿主解释器> -m aimail.sdk_ops <op>`）。
-/// 解释器定位链见 `core::sdkroot::python_bin`（`$AIMAIL_PYTHON` → 宿主 venv 探测 → `python3`）。
-/// 门一律走**已装包**（零路径 ✓）。
+/// python transport gate argv (contract §4.1(2): `<host_interpreter> -m aimail.sdk_ops <op>`).
+/// Interpreter location chain see `core::sdkroot::python_bin` (`$AIMAIL_PYTHON` -> host venv probe -> `python3`).
+/// Gate always uses **installed package** (zero path ✓).
 pub fn python_door_command(op: &str, args: &Value) -> Vec<String> {
-    // 解释器定位链单真源 = `core::sdkroot::python_bin`（契约 §4.1(2)）
+    // Interpreter location chain single source of truth = `core::sdkroot::python_bin` (contract §4.1(2))
     let py = crate::core::sdkroot::python_bin();
     vec![
         py,
@@ -220,10 +220,10 @@ pub fn python_door_command(op: &str, args: &Value) -> Vec<String> {
     ]
 }
 
-/// op 的 argv —— **transport 分派**（契约 v1.0 §4.1(2)：两种 transport 承载同一套语义）。
-/// · 注册表给了 `ops.argv`（node 侧：`node_entry`）⇒ 展开该模板；
-/// · 没给（python 宿主：hermes / deerflow）⇒ python 门。
-/// 模板占位符：`{op}` / `{args}` / `{node_path}`（由 `register.node_path` + 候选 home 解析）。
+/// op's argv —— **transport dispatch** (contract v1.0 §4.1(2): two transports carry the same set of semantics).
+/// · Registry provided `ops.argv` (node side: `node_entry`) ⇒ expand that template;
+/// · Not provided (python host: hermes / deerflow) ⇒ python gate.
+/// Template placeholders: `{op}` / `{args}` / `{node_path}` (resolved by `register.node_path` + candidate home).
 pub fn op_argv(
     platform: &str,
     homes: &[String],
@@ -232,7 +232,7 @@ pub fn op_argv(
 ) -> Result<Vec<String>, AbiError> {
     let Some(host) = crate::hosts::get(platform) else {
         return Err(AbiError::Transport(format!(
-            "未知平台 '{platform}'（宿主表无此项）—— 不猜门型"
+            "Unknown platform '{platform}' (not in host table) -- do not guess gate type"
         )));
     };
     let Some(tmpl) = host.op_template() else {
@@ -246,9 +246,9 @@ pub fn op_argv(
         crate::hosts::exec::resolve_path_template(node_tmpl, homes)
     };
     if tmpl.iter().any(|t| t.contains("{node_path}")) && node_path.is_empty() {
-        // 明确失败，不猜：平台包没装就没有可执行门 ⇒ 给注册表自带的修复提示
+        // Explicit failure, do not guess: if platform package is not installed, there is no executable gate ⇒ provide the fix hint from the registry
         return Err(AbiError::Transport(format!(
-            "{platform} 平台包未安装(op 入口缺失) — {}",
+            "{platform} platform package not installed (op entry missing) — {}",
             rdef.get("fail_hint").and_then(Value::as_str).unwrap_or("")
         )));
     }
@@ -262,21 +262,21 @@ pub fn op_argv(
         .collect())
 }
 
-/// 调一个 SDK 门 op（默认 120s 超时，与 Python 侧一致）。
+/// Call an SDK gate op (default 120s timeout, consistent with Python side).
 pub fn sdk_ops(op: &str, args: &Value) -> Result<Value, AbiError> {
     sdk_ops_call(op, args, Duration::from_secs(120), &[])
 }
 
-/// 可测核心：op + 入参 JSON + 超时 + 子进程环境（夹具隔离无需改进程 env ⇒ 并行安全）。
-/// transport（python 门 / node op 入口）由 `args.system_id` 指向的系统级 cfg 决定。
+/// Testable core: op + input JSON + timeout + subprocess environment (fixture isolation does not require modifying process env ⇒ parallel safe).
+/// transport (python gate / node op entry) is determined by the system-level cfg pointed to by `args.system_id`.
 pub fn sdk_ops_call(
     op: &str,
     args: &Value,
     timeout: Duration,
     env: &[(String, String)],
 ) -> Result<Value, AbiError> {
-    // 与宿主 transport 无关的 CLI→SDK 动作（update / prompt / address / repair backfill）：
-    // **固定 python 门**，不做平台反查（那是 `sdk_ops_call_for` 的职责）。
+    // CLI→SDK actions unrelated to the host transport (update / prompt / address / repair backfill):
+    // **Fixed python gate**, no platform reverse lookup (that is the responsibility of `sdk_ops_call_for`).
     let argv = python_door_command(op, args);
     let program = PathBuf::from(argv.first().cloned().unwrap_or_default());
     run_json_abi(&AbiCall {
@@ -287,8 +287,8 @@ pub fn sdk_ops_call(
     })
 }
 
-/// 同上，但**平台与候选平台根由调用方给定**（调用方已知平台时用 —— 免去反查的脆弱性；
-/// 如 `register.rs` 的 platform + cand_homes、`uninstall.rs` 的 platform + system_home）。
+/// Same as above, but **the platform and candidate platform root are given by the caller** (when the caller already knows the platform —— avoiding the fragility of reverse lookup;
+/// e.g., platform + cand_homes in `register.rs`, platform + system_home in `uninstall.rs`).
 pub fn sdk_ops_call_for(
     platform: &str,
     homes: &[String],
@@ -373,18 +373,18 @@ mod tests {
         let call_e = stub_script(
             d.path(),
             "call.sh",
-            "#!/bin/sh\nprintf '%s\\n' '{\"ok\":false,\"kind\":\"call\",\"exc\":\"ManagerRequiredError\",\"error\":\"ManagerRequiredError: 缺 manager\"}'\nexit 1\n",
+            "#!/bin/sh\nprintf '%s\\n' '{\"ok\":false,\"kind\":\"call\",\"exc\":\"ManagerRequiredError\",\"error\":\"ManagerRequiredError: manager missing\"}'\nexit 1\n",
         );
         let e = call(&call_e, &[]).unwrap_err();
         assert_eq!(
             e,
             AbiError::Call {
                 exc: "ManagerRequiredError".into(),
-                msg: "缺 manager".into()
+                msg: "manager missing".into()
             }
         );
-        // 调用方文案 = Python 的 ({type(e).__name__}: {e}) 同形
-        assert_eq!(e.display_like_python(), "ManagerRequiredError: 缺 manager");
+        // Caller message = same shape as Python's ({type(e).__name__}: {e})
+        assert_eq!(e.display_like_python(), "ManagerRequiredError: manager missing");
     }
 
     #[test]
@@ -400,7 +400,7 @@ mod tests {
             call(&junk, &[]).unwrap_err(),
             AbiError::Transport(_)
         ));
-        // SDK 自身打印若混进 stdout 也会被"恰一行"判掉（门内已把 stdout 改道 stderr）
+        // If SDK's own prints mix into stdout, they will also be rejected by the "exactly one line" check (stdout has already been redirected to stderr inside the gate)
         let noise = stub_script(
             d.path(),
             "noise.sh",
@@ -429,13 +429,13 @@ mod tests {
         })
         .unwrap_err();
         assert!(matches!(e, AbiError::Transport(_)));
-        assert!(e.message().contains("超时"), "{}", e.message());
+        assert!(e.message().contains("timeout"), "{}", e.message());
     }
 
     #[test]
     fn python_door_command_uses_installed_package_no_paths() {
-        // owner 2026-10-06：门一律走**已装包**（零路径 ✗ 无"同源"分支）—— python transport 的 argv 恒为
-        // `<解释器> -m aimail.sdk_ops <op> --args <json>`（契约 §4.1(2)）。
+        // owner 2026-10-06: the gate always goes through **installed packages** (zero path ✗ no "same-origin" branch) —— the argv of the python transport is always
+        // `<interpreter> -m aimail.sdk_ops <op> --args <json>` (contract §4.1(2)).
         let argv = python_door_command("iter_bindings", &json!({"system_id": "s1"}));
         assert_eq!(argv[1], "-m", "{argv:?}");
         assert_eq!(argv[2], "aimail.sdk_ops", "{argv:?}");
@@ -446,16 +446,16 @@ mod tests {
 
     #[test]
     fn op_argv_dispatches_by_registry_ops_block() {
-        // 契约 §4.1(2)：node 宿主（注册表给了 ops.argv）直接调平台包自带的 op 入口，不经 python；
-        // python 宿主（无 ops 块）走 python 门。
+        // Contract §4.1(2): node host (registry provided ops.argv) directly calls the platform package's built-in op entry, not via python;
+        // python host (no ops block) goes through python gate.
         let node = op_argv(
             "dsh",
             &["/nonexistent-home".to_string()],
             "assemble",
             &json!({"a": 1}),
         );
-        assert!(node.is_err(), "缺 node 入口 ⇒ 明确失败（不猜）: {node:?}");
-        let py = op_argv("hermes", &[], "assemble", &json!({"a": 1})).expect("python 门");
+        assert!(node.is_err(), "missing node entry ⇒ explicit failure (do not guess): {node:?}");
+        let py = op_argv("hermes", &[], "assemble", &json!({"a": 1})).expect("python gate");
         assert_eq!(py[1], "-m");
         assert_eq!(py[2], "aimail.sdk_ops");
         assert_eq!(py[3], "assemble");
@@ -463,7 +463,7 @@ mod tests {
 
     #[test]
     fn real_door_is_callable_when_python_and_sdk_are_present() {
-        // 真门联调（本机有 python3 + 已装 agent-aimail 时必跑；否则打印原因跳过，不伪装通过）
+        // Real gate integration (must run if local machine has python3 + installed agent-aimail; otherwise print reason and skip, do not fake pass)
         let home = tempfile::tempdir().unwrap();
         let r = sdk_ops_call(
             "iter_bindings",
@@ -475,9 +475,9 @@ mod tests {
             )],
         );
         match r {
-            Ok(Value::Array(items)) => assert!(items.is_empty(), "夹具 home 下不应有绑定"),
-            Ok(other) => panic!("iter_bindings 应返回数组, 得到 {other:?}"),
-            Err(e) => println!("SKIP: python 门不可用: {}", e.display_like_python()),
+            Ok(Value::Array(items)) => assert!(items.is_empty(), "should not have bindings under fixture home"),
+            Ok(other) => panic!("iter_bindings should return array, got {other:?}"),
+            Err(e) => println!("SKIP: python gate unavailable: {}", e.display_like_python()),
         }
     }
 }

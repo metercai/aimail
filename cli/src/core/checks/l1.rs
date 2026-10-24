@@ -1,7 +1,7 @@
-//! L1 探针：aimail-gateway（外部邮件网关）—— `cli/check_status.py:906-969` 的复刻。
+//! L1 probe: aimail-gateway (the external mail gateway) — the re-implementation of `cli/check_status.py:906-969`.
 //!
-//! 四步：配置存在 → `/health` → SMTP 25 端口横幅 → 签名 `whoami` 的密钥范围判读。
-//! 与 Python 一致地"早退"：health 不通就不再查 SMTP/密钥。
+//! Four steps: config exists → `/health` → SMTP port 25 banner → key scope interpretation of signed `whoami`.
+//! "early-return" consistent with Python: once health is unreachable, no longer check SMTP/keys.
 
 use crate::core::check::Check;
 use crate::core::checks::l0::{field_str, read_gw_cfg, Ctx};
@@ -16,7 +16,7 @@ fn take_chars(s: &str, n: usize) -> String {
     s.chars().take(n).collect()
 }
 
-/// Python `f"{value}"` 的近似：字符串按原文，其余按 JSON 文本。
+/// Approximation of Python `f"{value}"`: strings as-is, others as JSON text.
 fn py_display(v: &Value) -> String {
     match v {
         Value::String(s) => s.clone(),
@@ -24,7 +24,7 @@ fn py_display(v: &Value) -> String {
     }
 }
 
-/// 取主机名（`gw_url.replace("https://","").replace("http://","").split("/")[0].split(":")[0]`）。
+/// Get hostname (`gw_url.replace("https://"," ").replace("http://"," ").split("/")[0].split(":")[0]`).
 fn url_host_only(url: &str) -> String {
     url.replace("https://", "")
         .replace("http://", "")
@@ -44,7 +44,7 @@ pub fn gateway(c: &mut Check, sid: &str, ctx: &Ctx) {
             "config",
             false,
             &format!("{} not found", crate::core::config::GATEWAY_CONFIG_NAME),
-            "Run: aimail install (激活系统)",
+            "Run: aimail install (activate the system)",
         );
         return;
     };
@@ -94,8 +94,8 @@ pub fn gateway(c: &mut Check, sid: &str, ctx: &Ctx) {
         return;
     }
 
-    // 1.2 SMTP 端口（端口取自 /health 的 smtp_port 字段；旧版网关无此字段 ⇒ 兜底 25）。
-    // 连上即读横幅；超时 5s
+    // 1.2 SMTP port (port taken from smtp_port field of /health; old gateway lacks this field ⇒ fallback 25).
+    // Connect and read banner; timeout 5s
     let host = url_host_only(&gw_url);
     let smtp_port = body
         .get("smtp_port")
@@ -120,14 +120,14 @@ pub fn gateway(c: &mut Check, sid: &str, ctx: &Ctx) {
         ),
     }
 
-    // 1.3 API key scope（签名 whoami）
+    // 1.3 API key scope (signed whoami)
     if ak.is_empty() {
         c.add(
             "gateway",
             "api_key",
             false,
             "No admin_key configured",
-            "Run: aimail install --with-key (或 AIMAIL_ADMIN_KEY 激活)",
+            "Run: aimail install --with-key (or AIMAIL_ADMIN_KEY to activate)",
         );
         return;
     }
@@ -179,7 +179,7 @@ pub fn gateway(c: &mut Check, sid: &str, ctx: &Ctx) {
     }
 }
 
-/// 连 SMTP 端口并读横幅（`socket.connect` + `recv(256)`）。
+/// Connect to SMTP port and read banner (`socket.connect` + `recv(256)`).
 fn smtp_banner(host: &str, port: u16, timeout: Duration) -> std::io::Result<String> {
     let addr = (host, port)
         .to_socket_addrs()?
@@ -244,7 +244,7 @@ mod tests {
         let mut c = Check::new();
         gateway(&mut c, "s1", &ctx);
         let names: Vec<&str> = c.checks.iter().map(|r| r.check.as_str()).collect();
-        assert_eq!(names, vec!["health"], "health 不通应当早退：{names:?}");
+        assert_eq!(names, vec!["health"], "health failure should early exit: {names:?}");
         assert!(!c.checks[0].pass);
         assert!(
             c.checks[0].detail.starts_with("HTTP 0: "),

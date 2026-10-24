@@ -1,18 +1,18 @@
-"""快照开关的默认值必须是**开**(2026-10-02 D1, J4f 根因的第二半)。
+"""The default value of the snapshot switch must be **on**(2026-10-02 D1, second half of J4f root cause).
 
-背景(实测): J4e 已绿(deerflow 真回信, outbound 行在 agentmail.log 里)但 J4f 仍红
-`persona='' signature=''` —— 因为 `aimail welcome` 第 3 段的草案解析只读
-`mail/<yyyymm>/out-*.json`(`cli/send_welcome.py:344-352`), 而快照根本没写:
-`pysdk/aimail_tools.py` 曾用 `config.get("save_raw_snapshots")`(**缺键即关**),
-这一步的 config 是 `set_agent_context` 注入的**绑定文件(契约 BINDING_FILE)**, 而绑定从来没有这个键。
+Background(verified): J4e is green(deerflow really replied, outbound line in agentmail.log) but J4f is still red
+`persona='' signature=''` —— because `aimail welcome` section 3 draft parsing only reads
+`mail/<yyyymm>/out-*.json`(`cli/send_welcome.py:344-352`), and snapshot never wrote:
+`pysdk/aimail_tools.py` used to use `config.get("save_raw_snapshots")`(**missing key means off**),
+ The config at this step is the **binding file (contract BINDING_FILE)** injected by `set_agent_context`, and the binding has never had this key.
 
-三方对照(必须同口径):
-  * TS        `mail-core/src/tools.ts:329`  `cfg.save_raw_snapshots !== false` ⇒ 缺键=开
+Three-way comparison(must be same standard):
+  * TS        `mail-core/src/tools.ts:329`  `cfg.save_raw_snapshots !== false` ⇒ missing key=on
   * hermes    `pysdk/hermes/aimail_hermes.py:579` `config.get("save_raw_snapshots", True)`
-  * 文档      `cli/README.md:128` "keep a raw snapshot of every mail (default true)"
-  * Python    曾是唯一"缺键即关"的实现 ⇒ 本文件钉死:缺键=开, 显式 false 才关。
+  * Docs      `cli/README.md:128` "keep a raw snapshot of every mail (default true)"
+  * Python    was the only "missing key means off" implementation ⇒ this file pins: missing key=on, explicit false turns off.
 
-覆盖两条写盘路径(出站/入站)与开关的两个方向。
+Covers two disk-writing paths (outbound/inbound) and two directions of the switch.
 """
 import glob
 import json
@@ -25,16 +25,16 @@ sys.path.insert(0, "pysdk")  # ensure repo pysdk wins over any cli/ shadow
 
 import aimail_base as base  # noqa: E402
 import aimail_tools as tools  # noqa: E402
-from aimail_contract import BINDING_FILE, INBOUND_PATH  # noqa: E402 — 契约单源: 禁字面量
+from aimail_contract import BINDING_FILE, INBOUND_PATH  # noqa: E402 — contract single source: no literals
 
 SID = "sys-snap"
 EMAIL = "agent@snap.test"
-ADDR = "agent_snap.test"   # = _clean_agent_dir_name(EMAIL) — 目录名与地址派生同源
+ADDR = "agent_snap.test"   # = _clean_agent_dir_name(EMAIL) — directory name and address derive from the same source
 
 
 @pytest.fixture(autouse=True)
 def _isolated_home(tmp_path, monkeypatch):
-    """AIMAIL_HOME / 身份 env 指进 tmp, 且模块级上下文在用完后复位。"""
+    """AIMAIL_HOME / identity env points to tmp, and module-level context is reset after use."""
     home = tmp_path / "aimail-home"
     bind_dir = home / "systems" / SID / ADDR
     bind_dir.mkdir(parents=True)
@@ -52,7 +52,7 @@ def _isolated_home(tmp_path, monkeypatch):
 
 @pytest.fixture
 def home(_isolated_home):
-    """同一份隔离 home(由 autouse fixture 建好并负责复位)。"""
+    """Same isolated home (created by autouse fixture and responsible for reset)."""
     return _isolated_home
 
 
@@ -71,7 +71,7 @@ def _snapshots(home: Path, prefix: str):
 
 
 def _use(cfg: dict, monkeypatch):
-    """模拟 set_agent_context 注入的绑定型 config(没有 save_raw_snapshots 键)。"""
+    """Simulate the binding-type config injected by set_agent_context (no save_raw_snapshots key)."""
     monkeypatch.setattr(tools, "_load_profile_config", lambda: dict(cfg))
 
 
@@ -86,7 +86,7 @@ def _fake_gateway(monkeypatch):
     monkeypatch.setattr(tools, "_GatewayClient", _Client)
 
 
-# ── 出站: 缺键 ⇒ 仍写 out-*.json(J4f 草案解析的唯一输入) ──────────────────
+# ── Outbound: missing key ⇒ still write out-*.json (the sole input for J4f draft parsing) ──────────────────
 def test_outbound_snapshot_written_when_the_key_is_absent(home, monkeypatch):
     cfg = _binding(home)
     _use(cfg, monkeypatch)
@@ -104,7 +104,7 @@ def test_outbound_snapshot_written_when_the_key_is_absent(home, monkeypatch):
     assert "persona: p" in (snap.get("body") or "")
 
 
-# ── 出站: 显式 false ⇒ 仍然不写(关的能力不许被 D1 削弱) ────────────────────
+# ── Outbound: explicit false ⇒ still do not write (the capability to turn off must not be weakened by D1) ────────────────────
 def test_outbound_snapshot_still_honours_explicit_false(home, monkeypatch):
     cfg = _binding(home, save_raw_snapshots=False)
     _use(cfg, monkeypatch)
@@ -115,7 +115,7 @@ def test_outbound_snapshot_still_honours_explicit_false(home, monkeypatch):
     assert _snapshots(home, "out") == [], "explicit false must still disable snapshots"
 
 
-# ── 入站: 缺键 ⇒ 仍写 in-*.json(与出站同一口径) ────────────────────────────
+# ── Inbound: missing key ⇒ still write in-*.json (same convention as outbound) ────────────────────────────
 def test_inbound_snapshot_written_when_the_key_is_absent(home, monkeypatch):
     cfg = _binding(home)
     _use(cfg, monkeypatch)
@@ -127,7 +127,7 @@ def test_inbound_snapshot_written_when_the_key_is_absent(home, monkeypatch):
     assert Path(path).is_file() and Path(path).name.startswith("in-")
 
 
-# ── 入站: 显式 false ⇒ 不写 ────────────────────────────────────────────────
+# ── Inbound: explicit false ⇒ do not write ────────────────────────────────────────────────
 def test_inbound_snapshot_still_honours_explicit_false(home, monkeypatch):
     cfg = _binding(home, save_raw_snapshots=False)
     _use(cfg, monkeypatch)

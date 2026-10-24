@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""把 manifest 里的 `workspace:` 依赖规格重写成具体 semver 范围。
+"""Rewrite `workspace:` dependency specs in a manifest to concrete semver ranges.
 
-为什么需要独立脚本(2026-09-21): 原实现内联在 publish-npm.sh 步骤 1, 只作用于
-**包自身**的 package.json; 而步骤 3 会把 bundledDependencies 指向的 @aimail/*
-从工作区 deref 成**实体副本**, 那些副本的 package.json 仍是工作区原样 ⇒
-pi-aimail/openclaw-aimail 的发布 tarball 内嵌 manifest 遗留
-`"@aimail/mail-core": "workspace:^"`, pnpm 系宿主安装即
-EUNSUPPORTEDPROTOCOL("Unsupported URL Type workspace:")。故抽成脚本, 主 manifest
-与每个 bundled 副本都过一遍。
+Why a standalone script (2026-09-21): the original was inlined in publish-npm.sh step 1 and only
+touched **the package's own** package.json; but step 3 derefs the @aimail/* packages pointed to by
+bundledDependencies into **physical copies** whose package.json is still the workspace original ⇒
+the embedded manifest in the pi-aimail/openclaw-aimail release tarball kept
+`"@aimail/mail-core": "workspace:^"`, and a pnpm-based host install immediately hit
+EUNSUPPORTEDPROTOCOL ("Unsupported URL Type workspace:"). So it is extracted into a script that the
+main manifest and every bundled copy all pass through.
 
-用法: rewrite_ws_deps.py <workspace_root> <manifest_or_dir> [<manifest_or_dir> ...]
+Usage: rewrite_ws_deps.py <workspace_root> <manifest_or_dir> [<manifest_or_dir> ...]
 """
 import json
 import os
@@ -17,11 +17,11 @@ import sys
 
 
 def ws_versions(root: str) -> dict:
-    """workspace 内 包名 → 版本(用于把 workspace:^ 落成 ^<ver>)。"""
+    """Package name → version within the workspace (used to resolve workspace:^ to ^<ver>)."""
     out: dict = {}
     ws_root = os.path.join(root, "packages")
     if not os.path.isdir(ws_root):
-        ws_root = root  # 独立仓: 包就在根下
+        ws_root = root  # standalone repo: the packages live at the root
     for sub in sorted(os.listdir(ws_root)):
         sub_pkg = os.path.join(ws_root, sub, "package.json")
         if os.path.isfile(sub_pkg):
@@ -50,7 +50,7 @@ def rewrite(root: str, target: str) -> bool:
             ver = vers.get(k)
             if ver is None:
                 raise SystemExit(f"ERROR: workspace dep {k} not found under {root}/packages")
-            # workspace:^x.y.z / ~x.y.z → ^x.y.z / ~x.y.z; 裸 ^ / ~ / * → 前缀+具体版本
+            # workspace:^x.y.z / ~x.y.z → ^x.y.z / ~x.y.z; bare ^ / ~ / * → prefix + concrete version
             if spec in ("", "*"):
                 deps[k] = ver
             elif spec in ("^", "~"):

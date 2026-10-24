@@ -1,19 +1,19 @@
-//! 宿主（agent 系统）语义分层。
+//! Host (agent system) semantic layering.
 //!
-//! 旧结构是一个数据表 + 一层值视图算法（两个 core 模块，2026-10-18 退役）；
-//! 现按功能语义拆成本目录的六个面：
+//! The old structure was a data table + a layer of value view algorithms (two core modules, retired on 2026-10-18);
+//! Now split into six surfaces in this directory by functional semantics:
 //!
-//! | 面 | 模块 | 职责 |
+//! | Surface | Module | Responsibility |
 //! |----|------|------|
-//! | ① 身份 | [`identity`] | 产品类型 / 语言类型 / home 落点 / 识别规则 / 指针形态 |
-//! | ② 运行时 | `runtime`（P3） | 解析器 / 包管理器 / SDK 根（唯一子进程面，惰性） |
-//! | ③ 执行 | [`exec`] | 注册 / 全量注册 / 安装步骤 / 卸载步骤 / op 入口 |
-//! | ④ 体检 | [`health`] | 健康检查 / 载荷引用 / 远端自证 |
-//! | ⑤ 指针 | `pointer`（P6） | 指针路径 / 归属 sid / 扫描 |
-//! | ⑥ 目录 | 本模块 | 枚举顺序 / 按 id 取宿主 / `spec --json` 导出 |
+//! | ① Identity | [`identity`] | Product type / Language type / home location / Identification rules / Pointer shape |
+//! | ② Runtime | `runtime` (P3) | Parser / Package manager / SDK root (only subprocess surface, lazy) |
+//! | ③ Execution | [`exec`] | Registration / Full registration / Install steps / Uninstall steps / op entry |
+//! | ④ Health | [`health`] | Health check / Payload reference / Remote self-proof |
+//! | ⑤ Pointer | `pointer` (P6) | Pointer path / Owning sid / Scanning |
+//! | ⑥ Directory | This module | Enumeration order / Get host by id / `spec --json` export |
 //!
-//! 对外唯一契约是 [`Host`]：调用方只经 [`get`] / [`all`] 取宿主，不接触任何数据表。
-//! 新增一个 agent 类型 = 新增 `hosts/<name>.rs` + 在 [`ALL`] 注册一行，引擎不动。
+//! The only external contract is [`Host`]: callers only get hosts via [`get`] / [`all`], not touching any data table.
+//! Adding a new agent type = adding `hosts/<name>.rs` + registering a line in [`ALL`], engine unchanged.
 
 pub mod exec;
 pub mod health;
@@ -32,21 +32,21 @@ use serde_json::{json, Map, Value};
 
 use identity::{Detect, PointerKind};
 
-/// agent 系统的实现语言。由 [`Host::register`] 的 kind 派生（单一映射点）。
+/// Implementation language of the agent system. Derived from the kind in [`Host::register`] (single mapping point).
 pub use identity::Lang;
 
-/// 一个宿主系统的全部能力面。
+/// The full capability surface of a host system.
 ///
-/// 语义边界：身份/指针只读文件系统；运行时（P3）是唯一会起子进程的面；
-/// 执行/体检只提供数据，真正跑步骤的引擎在 `core::steps` / `core::checks::l2r`。
+/// Semantic boundary: identity/pointer is a read-only filesystem; the runtime (P3) is the only surface that spawns child processes;
+/// execution/health-check only provides data; the engine that actually runs steps is in `core::steps` / `core::checks::l2r`.
 pub trait Host: Sync {
-    // ── ① 身份 ──
+    // ── ① Identity ──
     fn id(&self) -> &'static str;
     fn home_dir(&self) -> &'static str;
     fn detect(&self) -> Detect;
     fn pointer_kind(&self) -> PointerKind;
 
-    /// 语言类型：唯一的派生点（node_entry ⇒ Node，其余 ⇒ Python）。
+    /// Language type: the single derivation point (node_entry ⇒ Node, others ⇒ Python).
     fn lang(&self) -> Lang {
         match self.register() {
             exec::Register::NodeEntry { .. } => Lang::Node,
@@ -54,22 +54,22 @@ pub trait Host: Sync {
         }
     }
 
-    /// 是否需要 python 解释器（node 宿主不需要：其步骤不引用 `{python}`）。
+    /// Whether a python interpreter is required (node hosts do not need one: their steps do not reference `{python}`).
     fn uses_python(&self) -> bool {
         matches!(self.lang(), Lang::Python)
     }
 
-    /// `--agent-home` 语义归谁（默认无人；hermes 是唯一用它定位的平台）。
+    /// Who owns the `--agent-home` semantics (default: none; hermes is the only platform that uses it for location).
     fn uses_agent_home(&self) -> bool {
         false
     }
 
-    /// repair 宽松判定时额外认可的路径（默认无；hermes 历史语义还认 `profiles/`）。
+    /// Additional paths accepted during loose repair judgment (default: none; hermes historical semantics also accept `profiles/`).
     fn repair_hints(&self) -> &'static [&'static str] {
         &[]
     }
 
-    /// node 宿主的 op 入口 argv 模板；`None` ⇒ python 门（`-m aimail.sdk_ops`）。
+    /// op entry argv template for node host; `None` => python gate (`-m aimail.sdk_ops`).
     fn op_template(&self) -> Option<&'static [&'static str]> {
         match self.lang() {
             Lang::Node => Some(exec::NODE_OP_TEMPLATE),
@@ -77,24 +77,24 @@ pub trait Host: Sync {
         }
     }
 
-    // ── ③ 执行 ──
+    // ── ③ Execution ──
     fn register(&self) -> exec::Register;
     fn register_all(&self) -> Option<exec::RegisterAll>;
     fn install_plan(&self) -> &'static [exec::Step];
     fn uninstall_plan(&self) -> &'static [exec::Step];
 
-    // ── ④ 体检 ──
+    // ── ④ Health Check ──
     fn health_checks(&self) -> &'static [health::Health];
     fn agent_check_remote(&self) -> bool;
 }
 
-/// 平台枚举顺序（判定序、扫描序、帮助分组都用它）。
+/// Platform enumeration order (used for judgment order, scan order, and help grouping).
 pub const ORDER: &[&str] = &["pi", "dsh", "hermes", "openclaw", "deerflow"];
 
-/// 注册表头注（`spec --json` 的 `_comment`）。
-pub const COMMENT: &str = "AIMail CLI 平台宿主表 — CLI 侧唯一平台知识源(检测/指针/枚举/注册委托/安装步骤)。适配实现全在 SDK:pysdk(hermes/deer-flow)+ tssdk 包(openclaw 宿主命令/dsh/pi node 入口)。CLI 读本表调度,零平台协议。";
+/// Registry header comment (the `_comment` in `spec --json`).
+pub const COMMENT: &str = "AIMail CLI Platform Host Table — The sole source of platform knowledge on the CLI side (detection/pointer/enumeration/registration delegation/installation steps). All adaptation implementations are in the SDK: pysdk (hermes/deer-flow) + tssdk package (openclaw host commands/dsh/pi node entry). The CLI reads this table for scheduling, with zero platform protocol.";
 
-/// 全部宿主（顺序 = [`ORDER`]）。
+/// All hosts (order = [`ORDER`]).
 pub static ALL: &[&HostDef] = &[
     &pi::PI,
     &dsh::DSH,
@@ -103,26 +103,26 @@ pub static ALL: &[&HostDef] = &[
     &deerflow::DEERFLOW,
 ];
 
-/// 全部宿主（顺序 = [`ORDER`]）。
+/// All hosts (order = [`ORDER`]).
 pub fn all() -> &'static [&'static HostDef] {
     ALL
 }
 
-/// 按 id 取宿主（不存在 ⇒ None，不猜）。
+/// Get host by id (non-existent ⇒ None, no guessing).
 pub fn get(id: &str) -> Option<&'static HostDef> {
     ALL.iter().copied().find(|h| h.id == id)
 }
 
-/// 枚举顺序。
+/// Enumeration order.
 pub fn order() -> &'static [&'static str] {
     ORDER
 }
 
-/// 一个宿主的**静态定义**：各 `hosts/<name>.rs` 的唯一内容。
+/// The **static definition** of a host: the sole content of each `hosts/<name>.rs`.
 ///
-/// 序列化形状即 `platform spec --json` 的条目（字段声明序 = 键序）；
-/// `#[serde(skip)]` 的两个字段是宿主私有语义（`--agent-home` 归属、repair 宽松线索），
-/// 不进值视图。`impl Host` 只在本文件写一次，宿主模块只填数据。
+/// The serialization shape is the entry in `platform spec --json` (field declaration order = key order);
+/// The two fields with `#[serde(skip)]` are host-private semantics (`--agent-home` ownership, repair loose clues),
+/// and do not enter the value view. `impl Host` is written only in this file; host modules only fill in data.
 #[derive(Serialize)]
 pub struct HostDef {
     #[serde(skip)]
@@ -142,8 +142,8 @@ pub struct HostDef {
     pub uses_agent_home: bool,
     #[serde(skip)]
     pub repair_hints: &'static [&'static str],
-    /// agent 键容器目录（宿主 home 内）：`profiles`（hermes/dsh）、`agents`（openclaw）、
-    /// `""`（单 agent 宿主）。只供 `platform spec` 的 agent_keys 扫描，不进值视图。
+    /// agent key container directory (inside host home): `profiles` (hermes/dsh), `agents` (openclaw),
+    /// `""` (single agent host). Only for `platform spec` agent_keys scanning, does not enter the value view.
     #[serde(skip)]
     pub agents_container: &'static str,
 }
@@ -191,7 +191,7 @@ fn is_false(b: &bool) -> bool {
     !*b
 }
 
-/// 整份注册表视图（`aimail platform spec --json` 的数据源）。
+/// Full registry view (data source for `aimail platform spec --json`).
 pub fn describe_all() -> Value {
     let mut platforms = Map::new();
     for h in ALL {
@@ -207,7 +207,7 @@ pub fn describe_all() -> Value {
 mod tests {
     use super::*;
 
-    /// 目录完整性：`all()` 与 `ORDER` 一一对应且顺序一致。
+    /// Directory integrity: `all()` corresponds one-to-one with `ORDER` and has consistent order.
     #[test]
     fn catalog_matches_order() {
         let ids: Vec<&str> = ALL.iter().map(|h| h.id()).collect();
@@ -218,14 +218,14 @@ mod tests {
         assert!(get("nope").is_none());
     }
 
-    /// 平台注册表 JSON 已退役（P2c S3b），不得回潮：文件不存在 + 源码零加载引用。
+    /// Platform registry JSON is deprecated (P2c S3b), must not regress: file does not exist + zero load references in source code.
     #[test]
     fn retired_platforms_json_must_not_return() {
         let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         let needle = ["plat", "forms.json"].concat();
         assert!(
             !manifest.join(&needle).exists(),
-            "平台注册表 JSON 已退役（真源 = hosts/ 各宿主模块），不要恢复该文件"
+            "Platform registry JSON is deprecated (true source = hosts/ host modules), do not restore this file"
         );
         let mut offenders: Vec<String> = Vec::new();
         let mut stack = vec![manifest.join("src")];
@@ -248,36 +248,36 @@ mod tests {
         }
         assert!(
             offenders.is_empty(),
-            "源码出现平台注册表 JSON 加载引用: {offenders:?}"
+            "Platform registry JSON load reference found in source code: {offenders:?}"
         );
     }
 
-    /// 条目一律是 **SDK 根相对**；出现 `pysdk/` 即布局知识回流 ⇒ 红。
+    /// Entries are always **SDK root relative**; appearance of `pysdk/` means layout knowledge reflux ⇒ red.
     #[test]
     fn registry_data_has_no_repo_layout_paths() {
         let raw = describe_all().to_string();
-        assert!(!raw.contains("\"pysdk/"), "注册表数据里出现了仓库布局路径");
+        assert!(!raw.contains("\"pysdk/"), "Repository layout path found in registry data");
         for entry in [
             "hermes/register_profiles.py",
             "deer-flow/manage.py",
             "hermes",
         ] {
-            assert!(raw.contains(entry), "注册表应含 SDK 根相对入口 {entry}");
+            assert!(raw.contains(entry), "Registry should contain SDK root relative entry {entry}");
         }
     }
 
-    /// 每个宿主的安装步骤都能序列化成带 kind 的对象（serde 回归钉）。
+    /// Installation steps for each host can be serialized into an object with kind (serde regression pin).
     #[test]
     fn step_tables_serialize_with_kind() {
         for h in ALL {
             for st in h.install_plan().iter().chain(h.uninstall_plan()) {
                 let v = serde_json::to_value(st).expect("step serializes");
-                assert!(v.get("kind").is_some(), "{} 的步骤缺少 kind: {v}", h.id());
+                assert!(v.get("kind").is_some(), "{} steps missing kind: {v}", h.id());
             }
         }
     }
 
-    /// 语言类型只有一处映射：node 宿主声明 node op 模板，python 宿主没有。
+    /// Language type has only one mapping point: node hosts declare node op templates, python hosts do not.
     #[test]
     fn lang_matches_register_kind_and_op_template() {
         for h in ALL {
@@ -286,7 +286,7 @@ mod tests {
                     assert_eq!(h.lang(), Lang::Node, "{}", h.id());
                     assert!(
                         h.op_template().is_some(),
-                        "{} 是 node 宿主，必须声明 op 模板",
+                        "{} is a node host, must declare op template",
                         h.id()
                     );
                 }
@@ -294,7 +294,7 @@ mod tests {
                     assert_eq!(h.lang(), Lang::Python, "{}", h.id());
                     assert!(
                         h.op_template().is_none(),
-                        "{} 是 python 宿主，不得声明 node op 模板",
+                        "{} is a python host, must not declare node op template",
                         h.id()
                     );
                 }

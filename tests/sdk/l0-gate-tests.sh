@@ -6,19 +6,19 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 echo "═══ [L0] python lint + unit tests ═══"
-# SDK 资源单一真源(2026-09-25): 真源=仓根 resources/(git 跟踪, 唯一可编辑处)。
-# 各 adapter 包自带的那份是**各包 prepack 自己暂存**的生成物(已 gitignore) —— npm
-# tarball 只能装包目录内的文件, 所以暂存是各包打包环节的一部分, 没有仓级统一脚本。
-# pysdk 侧不需要副本: 仓库检出里 SDK 直接读仓根 resources/(_resources_release.resources_root)。
-# 门禁这里把 3 个包各自那份暂存出来, 让契约规则 ③ 读到(clean clone 里生成物不存在)。
+# SDK resource single true source (2026-09-25): true source=repo root resources/ (git tracked, only editable place).
+# The copy bundled with each adapter package is a generated artifact **staged by each package's own prepack** (already gitignored) —— npm
+# tarball can only pack files within the package directory, so staging is part of each package's packaging process, no repo-level unified script.
+# pysdk side does not need a copy: in repo checkout, SDK reads repo root resources/ directly (_resources_release.resources_root).
+# The gate here stages the copy for each of the 3 packages, so that contract rule ③ can read it (in a clean clone, the generated artifact does not exist).
 bash tests/cli/stage-resources.sh
-# 契约单一真源 gate(2026-09-27): agent 内部契约面(skill/toolset 注册名、绑定文件名、
-# 指针文件名、入站路径)的单一真源 =
-# contract/aimail-contract.json;由 ①两个常量模块(pysdk/aimail_contract.py +
-# tssdk/.../mail-core/src/contract.ts)逐项 == 清单 ②5 份 SKILL.md frontmatter 的
-# name:/toolset: == 清单 ③字面量位置棘轮基线(只许减不许增)三条规则守。Rust 侧
-# (gateway/bridge)本批未覆盖, 脚本输出里登记为 GAP(脚本第 (a) 条)。
-# ⚠ 必须放在各包资源暂存之后 —— 规则 ③ 要读 3 份包内 SKILL.md(生成物)。
+# Contract single true source gate (2026-09-27): agent internal contract surface (skill/toolset registration names, binding file names,
+# Single source of truth for (pointer filename, inbound path) =
+# contract/aimail-contract.json; guarded by ① two constant modules (pysdk/aimail_contract.py +
+# tssdk/.../mail-core/src/contract.ts) item-by-item == checklist ② 5 SKILL.md frontmatter
+# name:/toolset: == checklist ③ literal location ratchet baseline (only decrease allowed, no increase) three rules. Rust side
+# (gateway/bridge) not covered in this batch, registered as GAP in script output (script item (a)).
+# ⚠ Must be placed after each package resource staging —— Rule ③ needs to read 3 in-package SKILL.md (generated artifacts).
 _css_rc=0
 python3 tests/contract/check-contract-single-source.py || _css_rc=$?
 if [ "$_css_rc" -ne 0 ]; then
@@ -26,47 +26,47 @@ if [ "$_css_rc" -ne 0 ]; then
   exit 1
 fi
 echo "[L0] contract single-source: consts == manifest; frontmatter 5/5; literal ratchet clean"
-# 零桥符号棘轮(2026-09-28 SDK 去桥化, owner 裁决): 环境(桥/路由)由 CLI 自持 ——
-# SDK 只做 best-effort 的"入站 live/down"通知(`aimail address -a <addr> --inbound-live`)。
-# 静态负断言四条(命中 = 0): ①pysdk/**/*.py 的 AST 标识符 ②tssdk/packages/*/src + test
-# (排除棘轮自身的符号表 startup-hook.test.ts)剥注释后的代码 ③契约真源不得含桥键
-# ④**引用侧**(2026-09-28 补): pysdk/ tssdk/ cli/ tests/ 的 .py/.ts/.sh/.md **∪ 无扩展名
-# 可执行/shebang 脚本**(2026-09-28 二次补: 扩展名白名单曾把无后缀主入口 cli/aimail 整个
-# 跳过 —— 它的死引用 `from aimail_base import ensure_bridge_routes_for_system` 又躲过一轮,
-# 门禁 L1 101 PASS/12 FAIL 全败于该 ImportError)里, 退役
-# 符号不得被 import/别名/成员访问/定义/参数/动态调用名引用 —— 根因: ①②只守 SDK 自己的
-# 文件, "别处 import 一个已删除的符号"漏网(实测 cli/setup_system.py + cli/repair.py 三处
-# 死引用 ⇒ 门禁 L1 45 红全败于同一 ImportError), 而 pyflakes **不报**"从模块 import
-# 不存在的名字"。注释/文档字符串不算引用; 显式 `retired:` 说明行单独成节打印。
-# 新增一个桥符号/回退一处路由调用/别处引用退役符号 ⇒ 本步红(fail-closed, rc=2 判不了也红)。
+# Zero-bridge symbol ratchet (2026-09-28 SDK de-bridging, owner ruling): Environment (bridge/routing) is self-held by CLI ——
+# SDK only does best-effort "inbound live/down" notification (`aimail address -a <addr> --inbound-live`).
+# Static negative assertions four (hit = 0): ① AST identifiers in pysdk/**/*.py ② tssdk/packages/*/src + test
+# (excluding ratchet's own symbol table startup-hook.test.ts) code after stripping comments ③ Contract source of truth must not contain bridge keys
+# ④**Citation side**(2026-09-28 supplement): .py/.ts/.sh/.md in pysdk/ tssdk/ cli/ tests/ **∪ no extension
+# executable/shebang scripts** (2026-09-28 second supplement: extension whitelist previously skipped the entire no-suffix main entry cli/aimail
+# —— its dead reference `from aimail_base import ensure_bridge_routes_for_system` slipped through another round,
+# Gate L1 101 PASS/12 FAIL all failed due to that ImportError) where, retired
+# symbols must not be referenced by import/alias/member access/definition/parameter/dynamic call name —— Root cause: ①② only guard SDK's own
+# files, "importing a deleted symbol elsewhere" slipped through (measured cli/setup_system.py + cli/repair.py three places
+# dead references ⇒ Gate L1 45 red all failed due to same ImportError), and pyflakes **does not report** "importing
+# non-existent name from module". Comments/docstrings do not count as references; explicit `retired:` explanation lines are printed in a separate section.
+# Adding a bridge symbol/rolling back a routing call/referencing retired symbol elsewhere ⇒ this step red (fail-closed, rc=2 cannot-judge also red).
 _zb_rc=0
 python3 tests/contract/check-zero-bridge.py . || _zb_rc=$?
 if [ "$_zb_rc" -ne 0 ]; then
-  echo "[L0] FAIL: zero-bridge ratchet rc=$_zb_rc (1=桥符号命中, 2=cannot-judge; fail-closed)"
+  echo "[L0] FAIL: zero-bridge ratchet rc=$_zb_rc (1=bridge symbol hit, 2=cannot-judge; fail-closed)"
   exit 1
 fi
-echo "[L0] zero-bridge: SDK/引用侧零桥符号"
-# 文件归属 gate(owner 分层裁决 A, 2026-09-28; 接法同 [zero-bridge]):
-#   系统级环境文件(aimail_gateway.json)只由 **CLI** 写; per-agent 绑定文件
-#   (契约键 binding_file, 不写字面量以免撞字面量棘轮)只由 **SDK** 写; 反向只许读。
-#   CLI 改绑定内容必须经 pysdk 的语义化薄函数(update_binding / backfill_binding /
-#   rename_binding → 内部走 save_agent_config, 原子 tmp+rename+0600 不变),
-#   不再自持写调用。
-# 判定证据四条(a)(b)(c)(d)见 tests/contract/check-file-ownership.py 模块 docstring;
-# 基线 tests/contract/file-ownership-baseline.json 当前**为空** ⇒ 任何一处新越界写
-# 立刻红(rc=1); 行内逃生门 file-ownership-allowed:<理由> 的行由脚本**单独成节打印**
-# (可见不静默); 判不了(基线缺失/路径读不到)rc=2 ⇒ fail-closed 也红。
+echo "[L0] zero-bridge: SDK/reference side zero bridge symbols"
+# File ownership gate (owner layered ruling A, 2026-09-28; integration same as [zero-bridge]):
+#   System-level environment file (aimail_gateway.json) only written by **CLI**; per-agent binding file
+#   (contract key binding_file, no literal written to avoid hitting literal ratchet) only written by **SDK**; reverse only read allowed.
+#   CLI modifying binding content must go through pysdk's semantic thin functions (update_binding / backfill_binding /
+#   rename_binding → internally via save_agent_config, atomic tmp+rename+0600 invariant),
+#   no longer self-holding write calls.
+# Four judgment evidence items (a)(b)(c)(d) see tests/contract/check-file-ownership.py module docstring;
+# Baseline tests/contract/file-ownership-baseline.json currently **empty** ⇒ any new out-of-bounds write
+# immediately red (rc=1); inline escape hatch file-ownership-allowed:<reason> lines are **printed in a separate section** by script
+# (visible not silent); cannot-judge (baseline missing/path unreadable) rc=2 ⇒ fail-closed also red.
 _fo_rc=0
 python3 tests/contract/check-file-ownership.py . || _fo_rc=$?
 if [ "$_fo_rc" -ne 0 ]; then
-  echo "[L0] FAIL: file-ownership rc=$_fo_rc (1=越界写, 2=cannot-judge; fail-closed)"
+  echo "[L0] FAIL: file-ownership rc=$_fo_rc (1=out-of-bounds write, 2=cannot-judge; fail-closed)"
   exit 1
 fi
-echo "[L0] file-ownership: CLI ↛ 绑定文件 / SDK ↛ 系统 env (baseline 空)"
-# 文档↔实现一致性(2026-09-27, 用户裁决「文档承诺的能力必须被实现兜住」):
-# docs/agent-self-setup{,_zh}.md ①反引号里的 SDK 符号必须真有定义
-# ②en/zh 标题结构逐条一致 ③文档里的契约值必须逐字命中单一真源清单。
-# rc: 0=通过 1=违约(带 file:line) 2=判不了(文档/清单读不到) —— fail-closed。
+echo "[L0] file-ownership: CLI ↛ binding file / SDK ↛ system env (baseline empty)"
+# Documentation↔Implementation consistency (2026-09-27, user ruling "capabilities promised in docs must be backed by implementation"):
+# docs/agent-self-setup{,_zh}.md ① SDK symbols in backticks must actually have definitions
+# ② en/zh title structure item-by-item consistent ③ Contract values in docs must hit single source of truth checklist verbatim.
+# rc: 0=pass 1=violation (with file:line) 2=cannot-judge (docs/checklist unreadable) —— fail-closed.
 _doc_rc=0
 python3 tests/contract/check-docs-consistency.py || _doc_rc=$?
 if [ "$_doc_rc" -ne 0 ]; then
@@ -74,8 +74,8 @@ if [ "$_doc_rc" -ne 0 ]; then
   exit 1
 fi
 echo "[L0] docs↔impl: symbols defined; en/zh heading structure equal; contract values == manifest"
-# 平台边界 gate:CLI 代码不得出现平台字面分支(新增平台/多 agent 注册只改
-# platform-boundary（CLI 不含平台字面量）已迁至 CLI 域门禁：tests/cli/run-cli-gates.sh
+# Platform boundary gate: CLI code must not contain platform literal branches (adding platform/multi-agent registration only changes
+# platform-boundary (CLI contains no platform literals) migrated to CLI domain gate: tests/cli/run-cli-gates.sh
 # Core runtime modules: strict (no unused/undefined). Deploy-time patch
 # scripts (hermes/patch_* etc.) intentionally import `aimail` for
 # side-effect/eval use — syntax-check only those.
@@ -90,11 +90,11 @@ python3 -m pytest tests/sdk/ -q 2>&1 | tail -2
 
 echo "═══ [L0] tssdk: build (pnpm build) + orphan guard + vitest ═══"
 cd tssdk
-# 单一入口: 根 package.json 的 build 脚本封装 5 包 tsc(避免三处清单各自维护 —— 审计 P2)
+# Single entry: root package.json build script encapsulates 5 packages tsc (avoiding three checklists maintained separately —— audit P2)
 pnpm build
-# 孤儿产物守卫(审计 2026-09-21): lib/dist 里的 *.js 必须有对应 src/*.ts。
-# 反例: mail-core 的 install.ts 已删, 但陈旧 lib/install.js 仍被 package.json 的
-# files glob 打进发布包(14.5KB 死代码 + 与 src 不符的 .d.ts)。
+# Orphan artifact guard (audit 2026-09-21): *.js in lib/dist must have a corresponding src/*.ts.
+# Counterexample: mail-core's install.ts has been deleted, but the stale lib/install.js is still referenced by package.json's
+# files glob packed into the release bundle (14.5KB dead code + .d.ts inconsistent with src).
 orphans=0
 for pkg in packages/*/; do
   for d in lib dist; do
@@ -108,7 +108,7 @@ for pkg in packages/*/; do
   done
 done
 [ "$orphans" -eq 0 ] || { echo "[L0] FAIL: $orphans orphan artifact(s) in lib/dist"; exit 1; }
-echo "[L0] orphan-artifact guard: 所有 lib/dist 产物均有对应 src"
+echo "[L0] orphan-artifact guard: all lib/dist artifacts have corresponding src"
 pnpm test 2>&1 | tail -2
 
 echo "═══ [L0] PASS — all gates green ═══"

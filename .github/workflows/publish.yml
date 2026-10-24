@@ -1,38 +1,38 @@
 name: publish
 
 # ═══════════════════════════════════════════════════════════════════════
-# 发布单入口 — owner 2026-10-11 裁决 Q1-B(触发面单一 = dispatch)
+# single release entry point — owner ruling 2026-10-11 Q1-B (single trigger surface = dispatch)
 #
-# 为什么不再用 tag 触发(实测, 非偏好):
-#   ① 本批 7 个 tag 首次 `git push --tags` 远端已存在但**一个 run 都没产生**(仓库总
-#      run 数不变), 删+重推才触发 —— tag 事件不可靠, 且没有可重放的补发入口;
-#   ② concurrency 组只容一个 pending: 连推多个 tag 时后到的 tag 会取消先到的
-#      (本批 3 个 publish run cancelled);
-#   ③ 被取消/中断的发布在 npm 服务端可能留下"已暂存未落地"的版本, 后续同版本重发
-#      报 `E409 Cannot publish over previously staged version`。
-#   ⇒ tag 改为**由本流程发布时创建**, 只作记录与 Release 名(不再作触发器)。
+# Why tag triggering was dropped (measured, not preference):
+#   ① for this batch of 7 tags, the first `git push --tags` found them already on the remote but **produced zero runs** (the repo's total
+#      run count was unchanged); only delete+re-push triggered — tag events are unreliable, and there is no replayable re-issue entry;
+#   ② a concurrency group holds only one pending: pushing several tags in a row makes a later tag cancel the earlier
+#      (3 publish runs cancelled in this batch);
+#   ③ a cancelled/aborted release can leave a "staged but not landed" version on the npm server side; a later same-version re-publish
+#      reports `E409 Cannot publish over previously staged version`.
+#   ⇒ tags are now **created by this flow at publish time**, serving only as records and Release names (no longer triggers).
 #
-# 一次 dispatch 串起(用 needs, 不用 workflow_run):
-#   gate(dev 门禁 = 复用 ci.yml) → cli-build(3 平台) → cli-release(建 tag + Release)
-#                                 → npm(scripts/publish-npm.sh, 幂等) 
-#                                 → pypi-build → pypi(内联; PyPI 侧必须绑定本文件名)
-#                                 → l3(可复用 l3.yml, 装**已发布**件)
-#   dry_run=true: 只构建/打包/校验 —— 不建 tag、不发 Release、不发布、不跑 L3。
+# One dispatch chains (using needs, not workflow_run):
+#   gate (dev gate = reusing ci.yml) → cli-build (3 platforms) → cli-release (create tag + Release)
+#                                 → npm (scripts/publish-npm.sh, idempotent) 
+#                                 → pypi-build → pypi (inlined; the PyPI side must bind this file name)
+#                                 → l3 (reuses l3.yml, installing **released** artifacts)
+#   dry_run=true: build/package/verify only — no tag, no Release, no publish, no L3.
 #
-# Trusted Publisher 绑定(外部契约, 云端一侧须与本文件一致):
-#   · npm  (tssdk 5 包): repo metercai/aimail + workflow "publish.yml" + environment "npm-release"
+# Trusted Publisher bindings (external contract; the cloud side must match this file):
+#   · npm  (the 5 tssdk packages): repo metercai/aimail + workflow "publish.yml" + environment "npm-release"
 #   · PyPI (agent-aimail) : repo metercai/aimail + workflow "publish.yml" + environment "pypi-release"
-#   两侧同为 publish.yml 的原因(实测, 非偏好): GitHub 对 reusable workflow 一律以**顶层
-#   调用方**签名 —— Sigstore 证书的 Build Config URI(oid 1.3.6.1.4.1.57264.1.18)记的是
-#   publish.yml, 即便发布 job 当时跑在被调用的 publish-pypi.yml 里(2026-10-11 实测);
-#   且 PyPI 官方明确 reusable workflow **不能**作为 Trusted Publisher 的 workflow
-#   (warehouse#11096)。⇒ PyPI 发布 job 只能内联在本文件, 云端绑定也只能是 publish.yml。
-#   改名须先更新 npmjs/pypi 侧绑定。
-#   环境名无歧义(PyPI Integrity API 对 aimailsdk 0.1.48–0.1.50 记录的 publisher):
+#   Why both sides are publish.yml (measured, not preference): GitHub signs a reusable workflow with its **top-level
+#   caller** — the Sigstore certificate's Build Config URI (oid 1.3.6.1.4.1.57264.1.18) records
+#   publish.yml, even when the publish job ran inside the called publish-pypi.yml (measured 2026-10-11);
+#   and PyPI explicitly states a reusable workflow **cannot** serve as a Trusted Publisher workflow
+#   (warehouse#11096). ⇒ the PyPI publish job can only be inlined in this file, and the cloud binding can only be publish.yml.
+#   A rename must first update the npmjs/pypi-side bindings.
+#   Environment names are unambiguous (the publisher recorded by the PyPI Integrity API for aimailsdk 0.1.48–0.1.50):
 #     {"repository":"metercai/aimail","workflow":"publish-pypi.yml","environment":"pypi-release"}
-#   ⇒ 本次只改 workflow 名(publish-pypi.yml → publish.yml), environment 保持 pypi-release。
-#   重派后的验收手段: curl https://pypi.org/integrity/aimailsdk/<ver>/<wheel>/provenance
-#   应显示 workflow=publish.yml + environment=pypi-release(比"job 绿"更硬的证据)。
+#   ⇒ this change only renames the workflow (publish-pypi.yml → publish.yml); the environment stays pypi-release.
+#   Acceptance after re-dispatch: curl https://pypi.org/integrity/aimailsdk/<ver>/<wheel>/provenance
+#   should show workflow=publish.yml + environment=pypi-release (harder evidence than "the job is green").
 # ═══════════════════════════════════════════════════════════════════════
 on:
   workflow_dispatch:
@@ -55,28 +55,28 @@ on:
           - rc
           - stable
 
-# 顶层 permissions = 本流程**及其调用的 reusable workflow** 所需权限的并集:
-#   被调用的 workflow(workflow_call = ci.yml / l3.yml)不能请求超过调用方顶层所允许的
-#   权限 —— 2026-10-11 第一次 dry-run dispatch 就栽在这里:
+# Top-level permissions = the union of the permissions needed by this flow **and the reusable workflows it calls**:
+#   a called workflow (workflow_call = ci.yml / l3.yml) cannot request permissions beyond what the caller's top level allows
+#   — the first dry-run dispatch on 2026-10-11 fell over exactly here:
 #     "The nested job 'publish' is requesting 'actions: read, id-token: write',
 #      but is only allowed 'actions: none, id-token: none'"。
-#   所以这里的并集必须是 contents: write(建 tag/Release) + id-token: write(OIDC)
-#   + actions: read(artifact 下载);各 job 再按需**收窄**(job 级只能缩小, 不能放大)。
+#   so the union here must be contents: write (create tag/Release) + id-token: write (OIDC)
+#   + actions: read (artifact download); each job then **narrows** as needed (job level can only shrink, never expand).
 permissions:
   contents: write
   id-token: write
   actions: read
 
-# 一次只允许一个发布 run;发布不可中断(即便有新 pending, cancel-in-progress: false
-# 也只影响 pending 之间, 不会砍正在跑的发布)。
+# Only one release run at a time; a release is not interruptible (even with a new pending, cancel-in-progress: false
+# affects only between pendings and never kills a release in flight).
 concurrency:
   group: release
   cancel-in-progress: false
 
 jobs:
   gate:
-    # 发布前跑同一套 dev 门禁 —— 门禁只在 ci.yml 一处定义(单真源)。
-    # platforms: false ⇒ 平台编译由下面的 cli-build 负责, 不重复建 3 次。
+    # Run the same dev gate before release — the gate is defined in ci.yml alone (single source).
+    # platforms: false ⇒ platform compilation is the cli-build below's job; no 3× duplicate builds.
     uses: ./.github/workflows/ci.yml
     with:
       platforms: false
@@ -90,7 +90,7 @@ jobs:
       cli_version: ${{ steps.v.outputs.cli }}
     steps:
       - uses: actions/checkout@v4
-      - name: Resolve CLI version (cli/Cargo.toml = 唯一真源)
+      - name: Resolve CLI version (cli/Cargo.toml = the single source of truth)
         id: v
         run: |
           cli=$(python3 -c "import re; print(re.search(r'^version = \"([^\"]+)\"', open('cli/Cargo.toml').read(), re.M).group(1))")
@@ -123,8 +123,8 @@ jobs:
             platform: macos-arm64
             ext: ""
           # ── Windows ──
-          # CLI Windows 移植完成(2026-10-17: W1 cfg 门 + W2 运行期 6 组 windows 分支);
-          # bridge 不在 L3 闭环依赖面(L3 只装 CLI+SDK+网关), windows 格无 bridge 前置。
+          # CLI Windows port complete (2026-10-17: W1 cfg gate + W2 six runtime windows branches);
+          # the bridge is outside the L3 closed-loop dependency surface (L3 installs CLI+SDK+gateway only); the windows cell has no bridge precondition.
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             platform: windows-amd64
@@ -170,7 +170,7 @@ jobs:
     if: ${{ inputs.dry_run != 'true' }}
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # 建 tag + 发 GitHub Release
+      contents: write   # create the tag + publish the GitHub Release
     steps:
       - uses: actions/checkout@v5
 
@@ -218,9 +218,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   npm:
-    # 顺序裁决(2026-10-19 验证方): CLI 资产必须先落地再发 SDK —— agent-install.sh 拉的是
-    # cli-v* release 资产，0.1.55 没有 `agent` 子命令，先发 SDK 会出现"装得上但用不了"的窗口。
-    # dry_run 时 cli-release 按设计 skipped，这里显式放行（只做 pack/校验，不发布）。
+    # Order ruling (2026-10-19 verifier): CLI assets must land before the SDKs publish — agent-install.sh fetches
+    # cli-v* release assets; 0.1.55 has no `agent` subcommand, so publishing the SDKs first opens an "installable but unusable" window.
+    # under dry_run, cli-release is skipped by design; this step passes explicitly (pack/verify only, no publish).
     needs: [gate, meta, cli-release]
     if: ${{ always() && needs.gate.result == 'success' && needs.meta.result == 'success' && (needs.cli-release.result == 'success' || inputs.dry_run == 'true') }}
     runs-on: ubuntu-latest
@@ -259,35 +259,35 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build all packages
-        # 单一入口: 根 package.json 的 build 脚本(审计: 三处手抄清单易漏包)
+        # Single entry: the root package.json build script (audit: three hand-copied lists tend to miss a package)
         run: pnpm build
 
       - name: Test
         run: pnpm test
 
       - name: Publish changed packages (TP/OIDC, dist-tag by release type)
-        # 幂等/skip、"上架可查"判据、逐包失败汇总,全部在 scripts/publish-npm.sh 一处
-        # (owner 裁决 2026-10-11: 原先这里的 while 循环重抄了一份 skip 逻辑 ⇒ 双真源,
-        #  且 set -e 让首个失败即中断, 发布会静默少发几个包)。本 step 只给包目录清单。
+        # Idempotency/skip, the "visible on the registry" criterion, and the per-package failure summary all live in scripts/publish-npm.sh alone
+        # (owner ruling 2026-10-11: the former while loop here re-copied the skip logic ⇒ a dual source,
+        #  and set -e aborted on the first failure, so the release silently skipped a few packages). This step only hands over the package list.
         # Repo-level tooling lives in <repo>/scripts (NOT tssdk/scripts); this step runs
         # with working-directory: tssdk, so resolve it absolutely.
         env:
-          # 审计 D8: dispatch 声明的 release-type 透传给 publish-npm.sh 做真校验
+          # Audit D8: the dispatch-declared release-type is passed through to publish-npm.sh for a real check
           REQUIRE_RELEASE_TYPE: ${{ inputs.release-type }}
-          # dry_run ⇒ script 只 pack + L2 校验, 不真发(且跳过"上架可查"轮询)
+          # dry_run ⇒ the script only packs + L2-verifies, no real publish (and skips the "visible on the registry" poll)
           DRY_RUN: ${{ inputs.dry_run == 'true' && '1' || '0' }}
         run: |
           bash "$GITHUB_WORKSPACE/scripts/publish-npm.sh" \
             packages/agent-aimail
 
-  # PyPI(pysdk)—— 内联, 不用 reusable workflow: PyPI 的 Trusted Publisher 不接受 reusable
-  # workflow 作为绑定对象(warehouse#11096), 且证书里的 Build Config URI 记的是顶层调用方
-  # ⇒ 发布 job 必须就在本文件里, 云端绑定 workflow 名 = publish.yml(见文件头契约)。
+  # PyPI (pysdk) — inlined, not a reusable workflow: PyPI's Trusted Publisher does not accept reusable
+  # accept a reusable workflow as the binding object (warehouse#11096), and the Build Config URI in the certificate records the top-level caller
+  # ⇒ the publish job must be in this file; the cloud-bound workflow name = publish.yml (see the file-header contract).
   pypi-build:
     needs: [gate, meta]
     runs-on: ubuntu-latest
     permissions:
-      contents: read   # 审计 D8: build job 只需读仓库(原为无显式声明=默认权限偏宽)
+      contents: read   # audit D8: the build job only needs to read the repo (previously an undeclared default = overly broad permissions)
     outputs:
       version: ${{ steps.check.outputs.version }}
     steps:
@@ -307,20 +307,20 @@ jobs:
           echo "version=$py_ver" >> "$GITHUB_OUTPUT"
 
       - name: Release gate L0 (python) — pytest + pyflakes
-        # shell: bash ⇒ GH 展开为 `bash -e -o pipefail`。默认 shell 无 pipefail，
-        # 而下面 pytest 走 `| tail -2`：单测红灯会被 tail 的 0 退出码吞掉 →
-        # 仍发 PyPI（审计 P0，2026-09-21 实测复现）。
+        # shell: bash ⇒ GH expands this to `bash -e -o pipefail`. The default shell has no pipefail,
+        # and the pytest below goes through `| tail -2`: a red unit test would be swallowed by tail's exit code 0 →
+        # PyPI still gets published (audit P0, reproduced 2026-09-21).
         shell: bash
         run: |
-          # 审计 D8: 门禁依赖钉版(与 npm 侧钉 npm@11.12.1 同理), 否则上游行为
-          # 变化会静默改变门禁结论。
+          # Audit D8: gate deps pinned (same rationale as pinning npm@11.12.1 on the npm side); otherwise upstream
+          # behavior changes would silently change the gate's verdict.
           # PyYAML: tests/sdk/test_hermes_toolset_ensure.py imports yaml at module level
           # (pyproject extra `hermes`; landed 2026-09-30, i.e. after v0.1.30, so the
           # first tag since then hit a clean-environment collection error).
           python3 -m pip install --quiet pytest==9.1.1 pyflakes==3.4.0 PyYAML==6.0.2
-          python3 -m pytest tests/sdk/ -q | tail -40   # tail 宽度只影响可见性; rc 由 pipefail 保真(P0 审计不变)
-          # pyflakes 仅查核心模块;hermes 辅助脚本(patch_*/register_profiles/
-          # toolsets)有意 `import aimail`(side-effect sys.path 注入),只做语法检查。
+          python3 -m pytest tests/sdk/ -q | tail -40   # the tail width only affects visibility; the rc stays faithful via pipefail (audit P0 unchanged)
+          # pyflakes checks only the core modules; the hermes helper scripts (patch_*/register_profiles/
+          # toolsets) deliberately `import aimail` (side-effect sys.path injection) and get a syntax check only.
           python3 -m pyflakes pysdk/aimail_base.py pysdk/aimail_board.py pysdk/aimail_tools.py \
             pysdk/aimail_mcp_server.py pysdk/hermes/aimail_hermes.py pysdk/deer-flow/*.py || exit 1
           for f in $(find pysdk -name '*.py' -not -path '*__pycache__*'); do
@@ -337,16 +337,16 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: aimail-wheel
-          path: dist/agent_aimail-*.whl   # PEP 427: wheel 文件名用归一化名(agent-aimail → agent_aimail)
+          path: dist/agent_aimail-*.whl   # PEP 427: wheel file names use the normalized name (agent-aimail → agent_aimail)
 
       - name: Release gate — tests/sdk/release/l2-verify-wheel.sh (clean-venv 3-layout smoke)
         run: bash tests/sdk/release/l2-verify-wheel.sh
 
   pypi:
-    # 顺序裁决(2026-10-19 验证方): 同 npm —— CLI 发布成功后才允许 SDK 上架；
-    # 任前序失败/取消则 PyPI 不发布（宁可整批停住，也不留半批发布态）。
+    # Order ruling (2026-10-19 verifier): same as npm — the SDKs may reach the registry only after a successful CLI publish;
+    # any upstream failure/cancellation stops the PyPI publish (better to stop the whole batch than leave a half-published state).
     needs: [gate, meta, pypi-build, cli-release]
-    # dry_run ⇒ 只跑上面的构建 + L2 校验, 不上传(语义与原 reusable 调用的 publish 输入等价)。
+    # dry_run ⇒ run only the builds + L2 checks above, no upload (semantics equivalent to the publish input of the former reusable call).
     if: ${{ always() && inputs.dry_run != 'true' && needs.gate.result == 'success' && needs.meta.result == 'success' && needs.pypi-build.result == 'success' && needs.cli-release.result == 'success' }}
     runs-on: ubuntu-latest
     # TP binding pins this environment name; OIDC claims include it and PyPI
@@ -374,7 +374,7 @@ jobs:
           fi
 
       - name: Publish to PyPI (Trusted Publishing / OIDC)
-        # 真正的跳过：step 内 `exit 0` 只结束本 step，后续 step 照跑（PyPI 会 400）。
+        # A true skip: `exit 0` inside the step ends only that step; the following steps still run (PyPI would 400).
         if: steps.skip.outputs.published != 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:

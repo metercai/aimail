@@ -1,10 +1,10 @@
 #![cfg(unix)]
-// 整文件 unix 语义(stub 可执行位 / sh 驱动 / symlink), windows 分支(W2)落地后重开。
-//! `prompt` 切片1 验收：`list`/`rm`/`create-file` 与命令面（`add` 的 SDK 落盘路径留 L2；`test` 未移植）。
+// the whole file is unix semantics (stub executable bit / sh-driven / symlink); reopen after the windows branch (W2) lands.
+//! `prompt` slice 1 acceptance: `list`/`rm`/`create-file` and the command surface (the SDK disk path of `add` is left to L2; `test` is unported).
 //!
-//! 判据：①裸 `prompt` ⇒ rc=2（`paction` required）；②`list` 渲染三态（地址级 role / common.md 兜底 /
-//! MISSING）+ 按名排序 + 字段 `|` 连接 + `[disabled]` + 无字段行告警；③`rm` 未命中逐字；
-//! ④`create-file` 校验与落盘；⑤`test` 响亮未移植。
+//! Criteria: ① bare `prompt` => rc=2 (`paction` required); ② `list` renders the three states (address-level role / the common.md fallback /
+//! MISSING) + name ordering + fields joined with `|` + `[disabled]` + the warning for field-less lines; ③ the `rm` miss, verbatim;
+//! ④ `create-file` validation and disk write; ⑤ `test` loudly unported.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -18,10 +18,10 @@ fn bin() -> PathBuf {
 }
 
 fn run(home: &Path, argv: &[&str]) -> (i32, String, String) {
-    // 3-op 门（`python -m aimail.sdk_ops`）恒走**已装包**（零路径）⇒ 命中已装旧快照会缺新 op
-    // （如 `prompt-test`）。单测不依赖已装版本（禁依赖本机环境铁律）：用 `PYTHONPATH` 把 `aimail`
-    // 指到**仓库 pysdk**（与旧 `sdkcall` 的 staging 同口径）—— 门解释器仍 `python3`（移除
-    // `AIMAIL_PYTHON`），`-m aimail.sdk_ops` 经 `PYTHONPATH` 导入仓库包（含新 op）。
+    // the 3-op door (`python -m aimail.sdk_ops`) always goes to the **installed package** (zero paths) => hitting an old installed snapshot misses the new op
+    // (e.g. `prompt-test`). The unit test does not depend on the installed version (the iron rule against relying on the local environment): use `PYTHONPATH` to point `aimail`
+    // at the **repo pysdk** (the same stance as the old `sdkcall` staging) — the door interpreter is still `python3` (with
+    // `AIMAIL_PYTHON` removed), and `-m aimail.sdk_ops` imports the repo package (with the new op) via `PYTHONPATH`.
     let prog = home.join("prog");
     std::fs::create_dir_all(&prog).unwrap();
     let stage = prog.join("sdk-pythonpath");
@@ -51,7 +51,7 @@ fn run(home: &Path, argv: &[&str]) -> (i32, String, String) {
     )
 }
 
-/// 夹具：两个规则（一个带字段+禁用、一个无字段），三个 role 文件（地址级 / 系统级 common 兜底 / 无）。
+/// Fixture: two rules (one with fields+disabled, one without fields), three role files (address-level / the system-level common fallback / none).
 fn fixture() -> (tempfile::TempDir, PathBuf) {
     let tmp = tempfile::tempdir().unwrap();
     let home = tmp.path().join("ahome");
@@ -76,14 +76,14 @@ fn fixture() -> (tempfile::TempDir, PathBuf) {
         ),
     )
     .unwrap();
-    // 地址级 role（10_first）；系统级 common.md 兜底（50_common 自身文件不存在 ⇒ 走 common.md）
+    // the address-level role (10_first); the system-level common.md fallback (the 50_common file itself does not exist => it goes to common.md)
     std::fs::write(leaf.join("role_prompt/first.md"), "# first\n").unwrap();
     std::fs::create_dir_all(sys.join("board/role_prompt")).unwrap();
     std::fs::write(sys.join("board/role_prompt/common.md"), "# common\n").unwrap();
     (tmp, home)
 }
 
-/// 角色文件完全缺失（连 `common.md` 都没有）⇒ `list` 必须提示 MISSING（loader 匹配时会跳过）。
+/// The role files are entirely missing (even `common.md` is gone) => `list` must report MISSING (the loader skips them when matching).
 #[test]
 fn role_missing_is_reported_when_no_common_md() {
     let (_t, home) = fixture();
@@ -95,18 +95,18 @@ fn role_missing_is_reported_when_no_common_md() {
     assert_eq!(rc, 0, "rc={rc}\nout={out}\nerr={err}");
     assert!(
         out.contains("MISSING (loader will skip on match)"),
-        "缺 role 应提示 MISSING: {out}"
+        "a missing role should report MISSING: {out}"
     );
 }
 
 #[test]
 fn prompt_faces_list_rm_createfile_and_command_surface() {
     let (_t, home) = fixture();
-    // ① 裸 prompt ⇒ rc=2（子命令必填）
+    // ① bare prompt => rc=2 (the subcommand is required)
     let (rc, _, err) = run(&home, &["prompt"]);
-    assert_eq!(rc, 2, "裸 prompt 应 rc=2: {err}");
+    assert_eq!(rc, 2, "bare prompt should be rc=2: {err}");
 
-    // ② list：按名排序 + 字段渲染 + 禁用标记 + role 三态
+    // ② list: name ordering + field rendering + the disabled marker + the three role states
     let (rc, out, err) = run(
         &home,
         &["prompt", "list", "-s", "s1", "-e", "agent@example.test"],
@@ -114,23 +114,23 @@ fn prompt_faces_list_rm_createfile_and_command_surface() {
     assert_eq!(rc, 0, "rc={rc}\nout={out}\nerr={err}");
     let i30 = out.find("30_later").unwrap();
     let i10 = out.find("10_first").unwrap();
-    assert!(i10 < i30, "应按名排序（10 在 30 前）: {out}");
+    assert!(i10 < i30, "it should be ordered by name (10 before 30): {out}");
     assert!(
         out.contains("subject=[审批 | approve]; body=[x]"),
-        "字段渲染: {out}"
+        "the field rendering: {out}"
     );
-    assert!(out.contains("file=first  [disabled]"), "禁用标记: {out}");
+    assert!(out.contains("file=first  [disabled]"), "the disabled marker: {out}");
     assert!(
         out.contains("(NO FIELD — loader skips this rule)"),
-        "无字段行告警: {out}"
+        "the field-less line warning: {out}"
     );
-    assert!(out.contains("role_prompt/first.md"), "地址级 role: {out}");
+    assert!(out.contains("role_prompt/first.md"), "the address-level role: {out}");
     assert!(
         out.contains("common.md (common.md fallback)"),
-        "系统级 common 兜底: {out}"
+        "the system-level common fallback: {out}"
     );
 
-    // ③ rm 未命中
+    // ③ the rm miss
     let (rc, out, _) = run(
         &home,
         &[
@@ -150,7 +150,7 @@ fn prompt_faces_list_rm_createfile_and_command_surface() {
         "{out}"
     );
 
-    // ④ create-file：坏 stem ⇒ rc=1；好 stem ⇒ 落盘 + 内容头
+    // ④ create-file: a bad stem => rc=1; a good stem => the disk write + the content header
     let (rc, out, _) = run(
         &home,
         &[
@@ -187,11 +187,11 @@ fn prompt_faces_list_rm_createfile_and_command_surface() {
         .join("systems/s1")
         .join(bw::addr_clean("agent@example.test"))
         .join("role_prompt/new.md");
-    let text = std::fs::read_to_string(&f).expect("角色文件应已创建");
+    let text = std::fs::read_to_string(&f).expect("the role file should have been created");
     assert!(text.starts_with("# new"), "{text}");
 
-    // ⑤ test 已接线（L1–L5 仿真）：裸跑（无输入）⇒ rc=0 + 兜底行
-    //    （L1–L5 的逐层语义由 `prompt_test_walks_the_chain_and_matches_via_sdk` 覆盖）
+    // ⑤ test is wired (the L1–L5 simulation): a bare run (no input) => rc=0 + the fallback line
+    //    (the layer-by-layer semantics of L1–L5 are covered by `prompt_test_walks_the_chain_and_matches_via_sdk`)
     let (rc, out, err) = run(
         &home,
         &["prompt", "test", "-s", "s1", "-e", "agent@example.test"],
@@ -203,12 +203,12 @@ fn prompt_faces_list_rm_createfile_and_command_surface() {
     );
 }
 
-/// `prompt test`（L1–L5 单源匹配仿真）：内建两级 + L4 头 + L5 本机规则 + 兜底行。
+/// `prompt test` (the L1–L5 single-source matching simulation): the two built-in levels + the L4 header + the L5 local rules + the fallback line.
 #[test]
 fn prompt_test_walks_the_chain_and_matches_via_sdk() {
     let (_t, home) = fixture();
 
-    // L1 内建 [WHOAMI]（role 文件缺 ⇒ MISSING，但**已命中即返回**）
+    // the L1 built-in [WHOAMI] (the role file missing => MISSING, but **it returns as soon as it hits**)
     let (rc, out, err) = run(
         &home,
         &[
@@ -227,11 +227,11 @@ fn prompt_test_walks_the_chain_and_matches_via_sdk() {
         out.contains("L1 [WHOAMI] (built-in) → file=whoami"),
         "{out}"
     );
-    // 夹具里系统级 `common.md` 存在 ⇒ whoami 走兜底（MISSING 只在连 common.md 都缺时出现，
-    // 该态由 `role_missing_is_reported_when_no_common_md` 覆盖）
+    // the system-level `common.md` exists in the fixture => whoami takes the fallback (MISSING only appears when even common.md is missing,
+    // that state is covered by `role_missing_is_reported_when_no_common_md`)
     assert!(out.contains("common.md (common.md fallback)"), "{out}");
 
-    // L2 内建 welcome（标记 + 三标签齐）
+    // the L2 built-in welcome (the marker + all three tags present)
     let (rc, out, _) = run(
         &home,
         &[
@@ -253,7 +253,7 @@ fn prompt_test_walks_the_chain_and_matches_via_sdk() {
         "{out}"
     );
 
-    // 标记在、标签缺 ⇒ MISMATCH 提示（并继续往下走）
+    // the marker is present but a tag is missing => the MISMATCH hint (and it keeps going down)
     let (rc, out, _) = run(
         &home,
         &[
@@ -272,8 +272,8 @@ fn prompt_test_walks_the_chain_and_matches_via_sdk() {
     assert_eq!(rc, 0, "{out}");
     assert!(out.contains("marker=true labels=false"), "{out}");
 
-    // L5：`30_later` 命中 —— 注意匹配是"字段间**且**"（规则同时带 subject 与 body 关键词）
-    // ⇒ 样本必须**同时**满足两个字段，否则正确结果就是 miss。
+    // L5: `30_later` hits — note that matching is **AND across fields** (the rule carries subject and body keywords at once)
+    // => the sample must satisfy **both** fields at the same time, otherwise the correct result is a miss.
     let (rc, out, _) = run(
         &home,
         &[
@@ -297,7 +297,7 @@ fn prompt_test_walks_the_chain_and_matches_via_sdk() {
         "{out}"
     );
 
-    // 反例：只给 subject（body 空）⇒ `body:["x"]` 不命中 ⇒ 正确落 miss（字段间且）
+    // counter example: only the subject is given (body empty) => `body:["x"]` does not hit => correctly lands on miss (AND across fields)
     let (rc, out, _) = run(
         &home,
         &[
@@ -312,9 +312,9 @@ fn prompt_test_walks_the_chain_and_matches_via_sdk() {
         ],
     );
     assert_eq!(rc, 0, "{out}");
-    assert!(out.contains("L5 miss 30_later"), "字段间且: {out}");
+    assert!(out.contains("L5 miss 30_later"), "AND across fields: {out}");
 
-    // L5：无命中 ⇒ 兜底行；且**禁用规则不参与**（`10_first` 已 enabled=false）
+    // L5: no hit => the fallback line; and **disabled rules do not take part** (`10_first` already has enabled=false)
     let (rc, out, _) = run(
         &home,
         &[
@@ -333,14 +333,14 @@ fn prompt_test_walks_the_chain_and_matches_via_sdk() {
         out.contains("L5: no rule matched — chain falls through (default prompt)"),
         "{out}"
     );
-    assert!(!out.contains("L5 HIT 10_first"), "禁用规则不得命中: {out}");
+    assert!(!out.contains("L5 HIT 10_first"), "a disabled rule must not hit: {out}");
     assert!(
         !out.contains("L5 miss 10_first"),
-        "禁用规则不进匹配循环: {out}"
+        "a disabled rule does not enter the matching loop: {out}"
     );
 
-    // L4：头指定且 role 文件不存在 ⇒ 仍经 `common.md` 兜底命中（同 L1 的口径）；
-    // 「连 common.md 都缺 ⇒ MISSING + falls through」由无 common.md 的夹具覆盖（见另一用例）。
+    // L4: the header is specified but the role file does not exist => it still hits via the `common.md` fallback (the same stance as L1);
+    // "even common.md is missing => MISSING + falls through" is covered by the fixture without common.md (see the other case).
     let (rc, out, _) = run(
         &home,
         &[

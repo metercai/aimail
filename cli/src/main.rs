@@ -1,4 +1,5 @@
-//! 薄入口：全部实现在 lib（`aimail::app::run`），这里只把退出码交给进程。
+//! Thin entry: all implementation lives in the lib (`aimail::app::run`); this
+//! only hands the exit code to the process.
 
 use std::process::ExitCode;
 

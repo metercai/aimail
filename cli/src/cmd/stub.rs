@@ -1,9 +1,9 @@
-//! 未移植子命令的诚实出口。
+//! `aimail install` —— integration entry (human face + only hidden machine face `--system-only`).
 //!
-//! 为什么不是"静默成功"：CLI 门禁与用户脚本按退出码判读，静默 0 会把"没做事"
-//! 读成"做好了"。plan v3 S1 的验收要求 = 未实现命令返回明确的非零退出。
+//! Why not "silent success": CLI gates and user scripts interpret exit codes; a silent 0 would read "did nothing"
+//! as "done". The acceptance requirement for plan v3 S1 = unimplemented commands return a clear non-zero exit.
 
-/// 打印一行英文说明到 stderr（用户面全英文），返回退出码 1。
+/// Print a one-line English explanation to stderr (user-facing is all English), return exit code 1.
 pub fn not_yet_ported(name: &str) -> i32 {
     eprintln!(
         "aimail: '{name}' is not yet ported to the Rust CLI \

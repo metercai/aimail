@@ -1,47 +1,47 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""check-file-ownership.py — 文件归属静态断言 (L0)。
+"""check-file-ownership.py — Static assertion for file ownership (L0).
 
-owner 分层裁决(2026-09-28, 承接 Phase 1/2a 的"SDK 去桥化"):
+owner layered adjudication (2026-09-28, inheriting Phase 1/2a's "SDK de-bridging"):
 
-    系统级环境文件  ``aimail_gateway.json``  ← 只由 **CLI** 写
-    per-agent 绑定文件 ``agentmail.json``     ← 只由 **SDK** 写
-    只读永远是允许的(两个方向都允许读)。
+     System-level environment file  ``aimail_gateway.json``  ← written only by **CLI**
+     per-agent binding file ``agentmail.json``     ← written only by **SDK**
+    Read-only is always allowed (reading is allowed in both directions).
 
-本脚本把该裁决变成可否证的静态断言 —— 每条目带"文件名字面量 + 写调用"**双重证据**,
-只读(``open`` 无写模式 / ``read_text`` / ``json.load`` / ``.is_file()`` / ``glob``)一律不判:
+This script turns that ruling into falsifiable static assertions —— each entry carries "filename literal + write call" **dual evidence**,
+Read-only (``open`` without write mode / ``read_text`` / ``json.load`` / ``.is_file()`` / ``glob``) is never judged:
 
-  (a) SDK 面(``pysdk/**`` + ``tssdk/**``)**不得写** ``aimail_gateway.json``。
-      SDK 只读它(取 gateway_url/admin_key/…)—— 写它 = SDK 越界替 CLI 管环境。
-  (b) CLI 面(``cli/**``)**不得写** ``agentmail.json``。
-      CLI 只读它(SDK 权限的 per-agent 事实源)—— 写它 = CLI 越界替 SDK 管身份。
-  (c) 帮助函数面: 通过 SDK 的"绑定文件原子写"API(``save_agent_config``;含
-      ``import … as alias`` 别名)写绑定文件, 在 CLI 面同样是 (b) 的越界写 —— 证据是
-      **调用名**而不是文件名字面量(实测 ``cli/repair.py`` 走这条路, 只看字面量会漏判)。
-  (d) 本地原子落盘 helper 面(2026-09-28 补): 路径传进**仓内自己的**原子写 helper
-      (``_atomic_json_write(path, data)`` 这类)时, 只看 ``open``/``write_text`` 会整段
-      漏判 —— 实测 ``cli/aimail`` 有五处经 ``_atomic_json_write(jf, cfg)``
-      直写绑定文件而检查器判绿(假绿的实证)。现在 helper 名 + **首实参**(字面量或
-      汚染名)也算写证据。
+  (a) SDK surface (``pysdk/**`` + ``tssdk/**``) **must not write** to ``aimail_gateway.json``.
+      SDK only reads it (gets gateway_url/admin_key/…) —— writing to it = SDK overstepping to manage environment for CLI.
+  (b) CLI surface (``cli/**``) **must not write** to ``agentmail.json``.
+      the CLI only reads it (the per-agent source of truth for SDK permissions) — writing it = the CLI overstepping to manage identity on behalf of the SDK.
+  (c) Helper function surface: Writing binding files via the SDK's "atomic binding file write" API (``save_agent_config``; including
+      ``import … as alias`` alias) write binding file, in CLI side is also (b) out-of-bounds write —— evidence is
+      **call name** rather than filename literal (measured ``cli/repair.py`` goes through this path, looking only at literals will miss judgments).
+  (d) Local atomic disk-write helper surface (added 2026-09-28): When a path is passed to the **repo's own** atomic write helper
+      (like ``_atomic_json_write(path, data)``), looking only at ``open``/``write_text`` will miss the entire segment
+      Missed detection —— in practice ``cli/aimail`` has five instances via ``_atomic_json_write(jf, cfg)``
+      while the checker judges them green (proof of false green). Now the helper name + **first argument** (literal or
+      tainted name) also counts as write evidence.
 
-判定手法(诚实登记近似性):
-  · Python: ``ast`` + **按作用域**的轻量污点传播。字面量 ⇒ 赋值目标被汚染(同名跨作用域
-    不串), ``x = y`` 传播, 返回被汚染值的函数名算汚染源;写调用的实参含字面量或汚染名
-    ⇒ 命中。写调用白名单是**文件语义**专用的(``open(mode含w/a/x/+)``/``write_text``/
+Judgment method (honestly registering approximation):
+  · Python: ``ast`` + **scope-based** lightweight taint propagation. Literal ⇒ assignment target is tainted (same name across scopes
+    does not cross), ``x = y`` propagates, function names returning tainted values count as taint sources; if write call arguments contain a literal or tainted name
+    ⇒ hit. The write call whitelist is specific to **file semantics** (``open(mode contains w/a/x/+)``/``write_text``/
     ``write_bytes``/``unlink``/``touch``/``rename``/``mkdir*``/``rmtree``/``copy*``/
-    ``move`` + ``os.remove``/``os.replace``) —— ``str.replace`` 这类同名但无关的方法
-    不判(否则满屏假命中)。**不做跨模块数据流**(跨模块靠规则 (c) 与基线人工登记)。
-  · TypeScript(``tssdk/**/*.ts``): 剥注释后按行扫, 同上的"赋值即汚染" + 写 API 名单。
-  · Shell(``cli/**/*.sh``): 同行的字面量 + 重定向/``tee``/``sed -i``/``cp``/``mv``/``rm``。
-  · 注释里的文件名不算引用(退役/说明是文档); 行内逃生门 ``file-ownership-allowed: <理由>``
-    必须带理由, 被放过的行**单独成节打印**(``allowed by marker``)= 可见, 不静默。
+    ``move`` + ``os.remove``/``os.replace``) —— ``str.replace`` and other methods with the same name but unrelated
+    are not judged (otherwise the screen would be full of false hits). **No cross-module data flow** (cross-module relies on rule (c) and manual baseline registration).
+  · TypeScript (``tssdk/**/*.ts``): Strip comments then scan line by line, same "assignment is taint" + write API list.
+  · Shell (``cli/**/*.sh``): Literal on the same line + redirection/``tee``/``sed -i``/``cp``/``mv``/``rm``.
+  · Filenames in comments do not count as references (retired/explanatory is documentation); inline escape hatch ``file-ownership-allowed: <reason>``
+    must include a reason, and allowed lines are **printed in a separate section** (``allowed by marker``) = visible, not silent.
 
-基线(``tests/contract/file-ownership-baseline.json``): 与字面量棘轮同法 —— **只许减不许增**。
-当下已知的实现↔裁决不符项(带 reason)登记在基线里, 门禁把它们当 GAP **大声打印**而不是假装
-全绿; 任何**新增**越界写 ⇒ FAIL(rc=1); 基线项已消失 ⇒ 打印 stale 提示(应删该条)。
-``--strict`` 让基线项也 FAIL(把基线清零时用)。
+Baseline(``tests/contract/file-ownership-baseline.json``): Same method as literal ratchet —— **only decrease, no increase**.
+Currently known implementation↔adjudication mismatches (with reason) are registered in the baseline, the gate prints them as GAP **loudly** instead of pretending
+all green; any **new** overstepping write ⇒ FAIL (rc=1); baseline item disappeared ⇒ print stale hint (should delete that entry).
+``--strict`` makes baseline items FAIL too (used when clearing the baseline).
 
-退出码: 0 = 无新增命中(基线内 GAP 原样打印); 1 = 有新增命中/无法解析; 2 = 判不了(路径读不到)。
+Exit codes: 0 = no new hits (baseline GAPs printed as-is); 1 = new hits/unparseable; 2 = undecidable (path unreadable).
 """
 from __future__ import annotations
 
@@ -52,11 +52,11 @@ import re
 import sys
 from pathlib import Path
 
-# ── 受管文件与两个方向 ─────────────────────────────────────────────────────────
+ # ── Managed files and two directions ─────────────────────────────────────────────────────────
 GATEWAY_FILE_LITERALS = ("aimail_gateway.json", "aimail-gateway.json")
 BINDING_FILE_LITERALS = ("agentmail.json",)
 
-#: (规则 id, 扫描根, 目标文件名字面量, 说明)
+#: (Rule id, scan root, target filename literal, description)
 RULES = (
     ("sdk-writes-gateway-config", "pysdk/", GATEWAY_FILE_LITERALS),
     ("sdk-writes-gateway-config", "tssdk/", GATEWAY_FILE_LITERALS),
@@ -71,23 +71,23 @@ RULE_WHY = {
         "owns it (read-only for the CLI)",
 }
 
-#: 规则 (c): 经这些 API 写绑定文件 = 越界写(证据 = 调用名;别名也认)
+#: Rule (c): Writing binding files via these APIs = overstepping write (evidence = call name; aliases also recognized)
 BINDING_WRITE_APIS = ("save_agent_config", "saveAgentConfig", "writeAgentConfig",
                       "write_agent_config")
 
-#: 文件语义专用的写调用(同名的 str/list 方法不在内 —— 见模块 docstring)
+#: Write calls specific to file semantics (same-named str/list methods are not included — see module docstring)
 PATH_WRITE_METHODS = {
     "write_text", "write_bytes", "unlink", "touch", "rmdir",
     "rename", "replace", "remove", "rmtree", "copy", "copyfile", "copy2", "move",
     "mkdir", "makedirs", "link", "symlink_to", "truncate",
 }
-#: 规则 (d): 仓内自己的"原子落盘 helper"。字面量/汚染名出现在 helper 的**首实参**
-#: (路径位)就算写证据 —— 只看 ``open``/``write_text`` 会整段漏判:
-#: 实测 ``cli/aimail`` 曾用 ``_atomic_json_write(jf, cfg)`` 直写绑定文件而检查器全绿。
+#: Rule (d): The repo's own "atomic disk-write helper". Literal/tainted name appearing in the helper's **first argument**
+#: (path bit) even if writing evidence —— only looking at ``open``/``write_text`` will miss the whole segment:
+ #: Empirically ``cli/aimail`` once used ``_atomic_json_write(jf, cfg)`` to write directly to binding files while the checker was all green.
 ATOMIC_WRITE_HELPERS = ("_atomic_json_write", "atomic_json_write", "_atomic_write",
                         "atomic_write", "atomic_write_private", "write_json",
                         "_write_json")
-#: 只有 ``模块.方法(...)`` 形态才算的(os.remove 是文件, list.remove 不是)
+#: Only ``module.method(...)`` form counts (os.remove is a file, list.remove is not)
 MODULE_WRITE_CALLS = {
     "os": {"remove", "unlink", "replace", "rename", "rmdir", "mkdir", "makedirs",
            "link", "symlink", "truncate"},
@@ -105,13 +105,13 @@ GATE_DIR = "tests/contract/"
 
 
 class CannotJudge(Exception):
-    """判不了 ⇒ rc=2(fail-closed)。"""
+    """Undecidable ⇒ rc=2 (fail-closed)."""
 
 
-# ── 小工具 ────────────────────────────────────────────────────────────────────
+ # ── Small utilities ────────────────────────────────────────────────────────────────────
 
 def _literal_in(node: ast.AST, literals: tuple) -> str:
-    """子树里出现的目标文件名字面量(拼接/format 的字符串常量都算)。"""
+    """Target file name literals appearing in the subtree (including string constants from concatenation/format)."""
     for n in ast.walk(node):
         if isinstance(n, ast.Constant) and isinstance(n.value, str):
             for lit in literals:
@@ -131,7 +131,7 @@ def _names_in(node: ast.AST) -> set:
 
 
 def _write_targets(call: ast.Call) -> list:
-    """这个调用是不是"写文件"? 是则返回要检查的实参列表(否则空)。
+    """Is this call a "file write"? If so, return the list of arguments to check (otherwise empty).
 
     ``open(path, 'w')`` → [path];``p.write_text(x)`` → [p];``os.remove(p)`` → [p]。
     """
@@ -139,7 +139,7 @@ def _write_targets(call: ast.Call) -> list:
     if isinstance(fn, ast.Attribute):
         recv = fn.value.id if isinstance(fn.value, ast.Name) else ""
         name = fn.attr
-        if name == "open":                       # Path.open 与内建 open 同判
+        if name == "open":                       # Path.open and built-in open judged the same
             modes = [a.value for a in call.args[1:] if isinstance(a, ast.Constant)
                      and isinstance(a.value, str)]
             if any(any(c in m for c in "wax+") for m in modes):
@@ -158,7 +158,7 @@ def _write_targets(call: ast.Call) -> list:
     return []
 
 
-# ── Python 判定(作用域感知的污点传播) ────────────────────────────────────────
+# ── Python determination (scope-aware taint propagation) ────────────────────────────────────────
 
 _SCOPE_NODES = (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda,
                 ast.ClassDef)
@@ -181,14 +181,14 @@ def _parents_and_scope(tree: ast.AST):
 
 
 def _ordered(node: ast.AST):
-    """按源码顺序深度优先(父语句先于子语句 ⇒ 赋值先于使用)。"""
+    """Depth-first in source code order (parent statements before child statements ⇒ assignment before use)."""
     yield node
     for ch in ast.iter_child_nodes(node):
         yield from _ordered(ch)
 
 
 def _py_hits(text: str, literals: tuple, api_rule: bool) -> tuple:
-    """(hits, allowed) —— Python 面的命中清单;每条 (lineno, kind, detail, source)。"""
+    """(hits, allowed) —— Hit list for the Python side; each entry is (lineno, kind, detail, source)."""
     try:
         tree = ast.parse(text)
     except SyntaxError as e:
@@ -196,7 +196,7 @@ def _py_hits(text: str, literals: tuple, api_rule: bool) -> tuple:
     lines = text.splitlines()
     parents, scope_of = _parents_and_scope(tree)
     taint: dict = {}          # scope node -> {names}
-    tainted_funcs: set = set()  # 返回被汚染值的函数名(汚染源)
+    tainted_funcs: set = set()  # Function names returning tainted values (taint sources)
     hits: list = []
     allowed: list = []
 
@@ -210,7 +210,7 @@ def _py_hits(text: str, literals: tuple, api_rule: bool) -> tuple:
         (allowed if ALLOW_MARKER in src else hits).append(row)
 
     def _visible(node) -> set:
-        """该节点可见的汚染名(本作用域 → 外层 → 模块, 并上汚染函数名)。"""
+        """Tainted names visible to this node (current scope → outer scope → module, union with tainted function names)."""
         out = set(tainted_funcs)
         cur = scope_of(node)
         seen = set()
@@ -220,7 +220,7 @@ def _py_hits(text: str, literals: tuple, api_rule: bool) -> tuple:
             cur = parents.get(cur)
         return out
 
-    # 0) 绑定写 API 的 import 别名(cli/repair.py 的 `save_agent_config as _sac`)
+    # 0) Bind the import alias for the write API (`save_agent_config as _sac` from cli/repair.py)
     aliases: dict = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
@@ -233,7 +233,7 @@ def _py_hits(text: str, literals: tuple, api_rule: bool) -> tuple:
                     aliases[(a.asname or a.name).split(".")[-1]] = a.name
 
     for node in _ordered(tree):
-        # 1) 作用域内赋值 ⇒ 汚染(不跨作用域串名)
+        # 1) Assignment within scope ⇒ tainted (no name leakage across scopes)
         if isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
             value = getattr(node, "value", None)
             if value is None:
@@ -260,7 +260,7 @@ def _py_hits(text: str, literals: tuple, api_rule: bool) -> tuple:
                             _names_in(sub.value) & taint.get(sc, set())):
                         tainted_funcs.add(node.name)
                         break
-        # 2) 写调用 + (字面量 | 汚染名)
+        # 2) Write call + (literal | tainted name)
         if isinstance(node, ast.Call):
             fn = node.func
             name = fn.attr if isinstance(fn, ast.Attribute) else (
@@ -269,7 +269,7 @@ def _py_hits(text: str, literals: tuple, api_rule: bool) -> tuple:
                 _record(node, "helper-write", f"{name}() writes the binding file")
             _targets = _write_targets(node)
             if not _targets and name in ATOMIC_WRITE_HELPERS:
-                _targets = list(node.args[:1])   # 规则 (d): helper 首实参 = 路径位
+                _targets = list(node.args[:1])   # Rule (d): first argument of helper = path position
             for arg in _targets:
                 lit = _literal_in(arg, literals)
                 if lit:
@@ -282,7 +282,7 @@ def _py_hits(text: str, literals: tuple, api_rule: bool) -> tuple:
     return hits, allowed
 
 
-# ── TypeScript / Shell 判定 ───────────────────────────────────────────────────
+# ── TypeScript / Shell determination ───────────────────────────────────────────────────
 
 def _strip_ts(code: str) -> str:
     code = re.sub(r"/\*.*?\*/", "", code, flags=re.S)
@@ -336,7 +336,7 @@ def _literal_in_line(line: str, literals: tuple) -> str:
     return ""
 
 
-# ── 扫描 ──────────────────────────────────────────────────────────────────────
+# ── Scanning ──────────────────────────────────────────────────────────────────────
 
 def _looks_python(path: Path) -> bool:
     if path.suffix == ".py":
@@ -394,13 +394,13 @@ def scan(root: Path) -> tuple:
 def load_baseline(root: Path) -> dict:
     p = root / BASELINE_REL
     if not p.is_file():
-        raise CannotJudge(f"基线缺失: {BASELINE_REL}")
+        raise CannotJudge(f"Baseline missing: {BASELINE_REL}")
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
     except ValueError as e:
-        raise CannotJudge(f"基线不是合法 JSON: {BASELINE_REL} ({e})") from e
+        raise CannotJudge(f"Baseline is not valid JSON: {BASELINE_REL} ({e})") from e
     if not isinstance(data.get("entries"), dict):
-        raise CannotJudge(f"基线缺 entries 映射: {BASELINE_REL}")
+        raise CannotJudge(f"Baseline missing entries mapping: {BASELINE_REL}")
     return data
 
 
@@ -408,13 +408,13 @@ def main(argv: list) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("repo", nargs="?", default=".")
     ap.add_argument("--strict", action="store_true",
-                    help="基线项也算 FAIL(基线清零后用)")
+                    help="Baseline items also count as FAIL (use after clearing baseline)")
     ap.add_argument("--suggest-baseline", action="store_true",
-                    help="只打印当前命中的基线 JSON 骨架(reason 留 TODO, 不写文件)")
+                    help="Only print the current hit baseline JSON skeleton (reason left as TODO, do not write file)")
     args = ap.parse_args(argv[1:])
     root = Path(args.repo).resolve()
     if not (root / "pysdk").is_dir() or not (root / "cli").is_dir():
-        print(f"CANNOT JUDGE: {root} 下找不到 pysdk/ 与 cli/", file=sys.stderr)
+        print(f"CANNOT JUDGE: {root} cannot find pysdk/ and cli/", file=sys.stderr)
         return 2
     try:
         baseline = load_baseline(root)
@@ -426,7 +426,7 @@ def main(argv: list) -> int:
     known = baseline["entries"]
 
     def _key(rel: str, rule: str, kind: str, src: str) -> str:
-        """命中身份 = 文件::规则::写调用种类::源码行(行号会漂, 片段不会)。"""
+        """Hit identity = file::rule::write_call_kind::source_line (line numbers drift, snippets do not)."""
         return f"{rel}::{rule}::{kind}|{src[:80]}"
 
     if args.suggest_baseline:
@@ -434,7 +434,7 @@ def main(argv: list) -> int:
         for rel, ln, rule, kind, detail, src in hits:
             k = _key(rel, rule, kind, src)
             entries.setdefault(k, {"line": ln, "detail": detail,
-                                   "count": 0, "reason": "TODO: <为什么现在还在>"})
+                                   "count": 0, "reason": "TODO: <why is it still here>"})
             entries[k]["count"] += 1
         print(json.dumps({"entries": entries}, ensure_ascii=False, indent=1))
         return 0

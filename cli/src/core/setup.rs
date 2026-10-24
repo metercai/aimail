@@ -1,28 +1,28 @@
-//! `cli/setup_system.py` 的 Rust 复刻 —— **L1 只激活/复用 worker**（P1 咽喉）。
+//! Rust re-implementation of `cli/setup_system.py` — **L1 only activates/reuses the worker** (P1 chokepoint).
 //!
-//! 契约（`cli/aimail:1076-1240` 的 `cmd_ensure_system` 依赖它）：
-//! · SDK 反调入口，**绝不**做平台接线、**绝不**部署桥（跳过它们才是打断 install↔plugin 调用环的关键）；
-//! · 两种路径：Path A = `admin_key`（已激活系统的复用/重置）；Path B = `product_code`（新系统激活）；
-//! · 返回 Python 同形 dict（`{success, error?, system_id?, path?, admin_key?}`），由调用方决定怎么播。
+//! Contract (depends on `cmd_ensure_system` in `cli/aimail:1076-1240`):
+//! · SDK callback entry, **never** performs platform wiring, **never** deploys bridge (skipping them is the key to breaking the install↔plugin call cycle);
+//! · Two paths: Path A = `admin_key` (reuse/reset of activated system); Path B = `product_code` (new system activation);
+//! · Returns Python-shaped dict (`{success, error?, system_id?, path?, admin_key?}`), caller decides how to broadcast.
 //!
-//! 照抄点（易漏，逐条来自 Python 原文）：
-//! 1 `webhook_host` 三态：单真源 = `webhookplan`（owner 2026-10-13）—— install 探测后写
-//!   （S1 url / S2 空串 / S3 键缺席）；admin_key 路径（reset 语义）这里**只继承已有 cfg**
-//!   （实测探测出的 IPv6 地址曾覆写 NAT 公网值），不写三态；
-//! 2 Path A 的 `whoami` 身份对齐：platform 级 key **拒收**（必须留在网关）、system_id 可从 key 采纳、
-//!   不符则报错；`whoami` 拿不到时只 warn **不臆断**；
-//! 3 Path A 的"空参数继承已有值"（reset 语义）+ 写回后把 prev 里未覆盖的业务字段**补回**
-//!   （曾因缺这层保护丢过业务字段）；
-//! 4 `_downgrade_to_domain_admin_key`：whoami 预检（已是 agent/domain 级 ⇒ 不降级）+ 配置里已有本域
-//!   domain key ⇒ 复用不轮换 + 无域可收窄 ⇒ 保留系统级 key + 失败文案含 "privilege level"/"at or above"
-//!   ⇒ 视为"无需降级"（**不得**把受限 key 当系统 key 落盘）；
-//! 5 系统级 key **拿到即落盘**（`.system_raw_key.key`），与后续降级成功与否无关；受限 key 不落盘。
+//! Copy points (easy to miss, each from Python original):
+//! 1 `webhook_host` three-state: single source = `webhookplan` (owner 2026-10-13) — written after install probing
+//!   (S1 url / S2 empty string / S3 key absent); admin_key path (reset semantics) here **only inherits existing cfg**
+//!   (measured probed IPv6 address once overwrote NAT public value), does not write tri-state;
+//! 2 Path A `whoami` identity alignment: platform level key **rejected** (must stay in gateway), system_id can be adopted from key,
+//!   mismatch then error; when `whoami` unavailable only warn **do not assume**;
+//! 3 Path A "empty args inherit existing values" (reset semantics) + after write-back, **restore** business fields in prev not overwritten
+//!   (once lost business fields due to missing this protection);
+//! 4 `_downgrade_to_domain_admin_key`: whoami pre-check (already agent/domain level ⇒ no downgrade) + existing domain key in config
+//!   domain key => reuse without rotation + no domain to narrow => keep system-level key + failure message contains "privilege level"/"at or above"
+//!   ⇒ treated as "no downgrade needed" (**must not** persist restricted key as system key);
+//! 5 System level key **persisted immediately upon acquisition** (`.system_raw_key.key`), regardless of subsequent downgrade success; restricted key not persisted.
 
 use serde_json::{json, Map, Value};
 
 use crate::core::{config, home};
 
-/// 原始系统级 key 文件（`setup_system._persist_system_raw_key`）。
+/// Raw system level key file (`setup_system._persist_system_raw_key`).
 pub const SYSTEM_RAW_KEY_FILE: &str = ".system_raw_key.key";
 
 #[derive(Default, Clone)]
@@ -36,14 +36,14 @@ pub struct SetupArgs {
     pub save_raw_snapshots: bool,
     pub manager_address: String,
     pub system_home: String,
-    /// 显式给过 `-n/--system-name`(reset 语义: 决定是否继承旧 system_name)。
+    /// Explicitly provided `-n/--system-name` (reset semantics: decides whether to inherit old system_name).
     pub name_explicit: bool,
 }
 
-/// Python 侧的日志口径（照抄，别"顺手"升级）：
-/// · 默认 root 级别是 **WARNING** ⇒ `logger.info/debug` **不输出**；
-/// · 无 handler 时走 lastResort ⇒ **裸消息**（无 `LEVEL:name:` 前缀）打到 stderr；
-/// · 一律 stderr（stdout 是"恰一行 JSON"的契约载体，绝不能被日志污染）。
+/// Python side logging standard (copy as-is, do not "casually" upgrade):
+/// · Default root level is **WARNING** ⇒ `logger.info/debug` **not output**;
+/// · No handler goes to lastResort ⇒ **bare message** (no `LEVEL:name:` prefix) printed to stderr;
+/// · Always stderr (stdout is the contract carrier for "exactly one line of JSON", must not be polluted by logs).
 fn log(level: &str, msg: &str) {
     if level == "WARNING" || level == "ERROR" {
         eprintln!("{msg}");
@@ -59,7 +59,7 @@ pub fn setup(a: &SetupArgs) -> Value {
     if a.gateway_url.is_empty() {
         return err("gateway_url is required");
     }
-    // ── Path A: admin_key（已激活系统的复用/重置）──────────────────────────────
+    // ── Path A: admin_key (reuse/reset for activated systems) ──────────────────────────────
     if !a.admin_key.is_empty() {
         let mut system_id = a.system_id.clone();
         let me = crate::core::gateway::whoami(&a.gateway_url, &a.admin_key, "");
@@ -114,7 +114,7 @@ pub fn setup(a: &SetupArgs) -> Value {
             return err("system_id is required for admin_key path");
         }
 
-        // reset 语义：已有配置存在时，空参数继承已有值（只重写核心连接参数）
+        // reset semantics: when existing config is present, empty parameters inherit existing values (only rewrite core connection parameters)
         let prev = config::load_gateway_config(&system_id)
             .map(|c| c.to_json())
             .unwrap_or_default();
@@ -165,8 +165,8 @@ pub fn setup(a: &SetupArgs) -> Value {
             } else {
                 a.manager_address.clone()
             },
-            // webhook_host 三态：单真源 = webhookplan（install 探测后写）；reset 只继承已有值
-            // （prev 键缺席 ⇒ None=S3；prev 键在含空串 ⇒ Some(值)，reset 时保住 S2 空串）。
+            // webhook_host tri-state: single source of truth = webhookplan (written after install probe); reset only inherits existing values
+            // (prev key absent => None=S3; prev key present with empty string => Some(value), preserve S2 empty string on reset).
             webhook_host: prev
                 .get("webhook_host")
                 .and_then(Value::as_str)
@@ -181,12 +181,12 @@ pub fn setup(a: &SetupArgs) -> Value {
         if let Err(e) = config::save_gateway_config_in(&home::aimail_home(), &system_id, &cfg) {
             return err(&format!("failed to write config: {e}"));
         }
-        // 把 prev 中未被覆盖的业务字段补回（通用保护）
+        // Restore business fields from prev that were not overwritten (general protection)
         restore_prev_keys(&system_id, &prev);
 
-        // 注意：给降级的 domain 是**未套默认值**的那个（Python `domain or prev.get("domain","")`）；
-        // 写进 cfg 的是带了 "admin.local" 默认值的那份 —— 两者不同，别合并
-        // （实测：合并会让"无域"的系统误降级出 domain key）。
+        // Note: the domain passed for downgrade is the one **without default value applied** (Python `domain or prev.get("domain","")`);
+        // What is written to cfg is the one with "admin.local" default -- they differ, do not merge
+        // (Empirical: merging causes "no domain" systems to incorrectly downgrade with a domain key).
         let downgrade_domain = if a.domain.is_empty() {
             pget("domain")
         } else {
@@ -207,7 +207,7 @@ pub fn setup(a: &SetupArgs) -> Value {
         });
     }
 
-    // ── Path B: product_code（新系统激活）─────────────────────────────────────
+    // ── Path B: product_code (new system activation) ─────────────────────────────────────
     if !a.product_code.is_empty() {
         let mut r = init_system(
             &a.gateway_url,
@@ -230,7 +230,7 @@ pub fn setup(a: &SetupArgs) -> Value {
     err("Either admin_key or product_code is required")
 }
 
-/// `_save_gateway_config` 之后把 prev 里未覆盖的键补回（`setup_system.py:590-605`）。
+/// After `_save_gateway_config`, restore keys from prev that were not overwritten (`setup_system.py:590-605`).
 fn restore_prev_keys(system_id: &str, prev: &Map<String, Value>) {
     let path = config::gateway_config_path(system_id);
     let Ok(text) = std::fs::read_to_string(&path) else {
@@ -259,7 +259,7 @@ fn restore_prev_keys(system_id: &str, prev: &Map<String, Value>) {
     let _ = std::fs::write(&path, text);
 }
 
-/// `_persist_system_raw_key`（幂等；已有**不同**值 ⇒ 保留旧值）。
+/// `_persist_system_raw_key` (idempotent; existing **different** value => keep old value).
 pub fn persist_system_raw_key(system_id: &str, key: &str) {
     if key.is_empty() {
         return;
@@ -292,7 +292,7 @@ pub fn persist_system_raw_key(system_id: &str, key: &str) {
     }
 }
 
-/// `_write_admin_key`：替换既有配置里的 `admin_key`（其余字段保持，重新落盘）。
+/// `_write_admin_key`: replace `admin_key` in existing config (keep other fields, rewrite to disk).
 pub fn write_admin_key(cfg_path: &std::path::Path, key: &str) {
     let Ok(text) = std::fs::read_to_string(cfg_path) else {
         return;
@@ -309,7 +309,7 @@ pub fn write_admin_key(cfg_path: &std::path::Path, key: &str) {
 
 /// `_downgrade_to_domain_admin_key`（`setup_system.py:76-202`）。
 ///
-/// 成功 ⇒ 新 domain 级 key（并写回配置）；无需降级/失败 ⇒ **原系统级 key**（绝不把受限 key 当系统 key 落盘）。
+/// Success ⇒ new domain-level key (and write back to config); no downgrade/failure needed ⇒ **original system-level key** (never persist a restricted key as a system key).
 pub fn downgrade_to_domain_admin_key(
     gateway_url: &str,
     system_admin_key: &str,
@@ -317,7 +317,7 @@ pub fn downgrade_to_domain_admin_key(
     domain: &str,
     existing_key: &str,
 ) -> String {
-    // 0) whoami 预检：已是受限级 ⇒ 无需降级（网关会以 "cannot create scopes at level 1 or above" 拒绝）
+    // 0) whoami pre-check: already at restricted level ⇒ no downgrade needed (gateway will reject with "cannot create scopes at level 1 or above")
     let me = crate::core::gateway::whoami(gateway_url, system_admin_key, system_id);
     let me_nonempty = matches!(&me, Value::Object(m) if !m.is_empty());
     if me_nonempty {
@@ -341,7 +341,7 @@ pub fn downgrade_to_domain_admin_key(
             return system_admin_key.to_string();
         }
         if cat == "system" || (scope == "system" && email.is_empty()) {
-            // whoami 证明这是系统级 key（空 email）⇒ 立刻落盘（"拿到即落盘"契约）
+            // whoami proves this is a system-level key (empty email) ⇒ persist immediately ("persist upon acquisition" contract)
             persist_system_raw_key(system_id, system_admin_key);
         }
         if cat == "domain" && !email.is_empty() && email == domain {
@@ -353,7 +353,7 @@ pub fn downgrade_to_domain_admin_key(
         }
     }
 
-    // 0b) 配置里已存**本域** domain 级 key ⇒ 复用不轮换
+    // 0b) Config already stores **this domain's** domain-level key ⇒ reuse without rotation
     if !domain.is_empty() && !existing_key.is_empty() && existing_key != system_admin_key {
         let ex = crate::core::gateway::whoami(gateway_url, existing_key, "");
         let ex_ok = ex
@@ -456,7 +456,7 @@ pub fn init_system(
     }
     let result = client.post("/api/v1/activate-system", &Value::Object(body));
     let status = result.get("status").cloned().unwrap_or(json!(0));
-    // 成功判定照抄：success ∈ {true,"true","ok"} / status ∈ {activated,200,201} / 有 raw_key
+    // Success criteria copied verbatim: success ∈ {true,"true","ok"} / status ∈ {activated,200,201} / has raw_key
     let is_ok = matches!(result.get("success"), Some(Value::Bool(true)))
         || matches!(
             result.get("success").and_then(Value::as_str),
@@ -515,7 +515,7 @@ pub fn init_system(
         save_raw_snapshots,
         domain: created_domain.clone(),
         manager_address: manager_address.to_string(),
-        // webhook_host 三态：单真源 = webhookplan（install 探测后回填）；激活时刻一律键缺席
+        // webhook_host tri-state: single source of truth = webhookplan (backfilled after install probe); at activation time, key is always absent
         webhook_host: None,
         system_home: if system_home.is_empty() {
             String::new()
@@ -553,7 +553,7 @@ pub fn init_system(
     })
 }
 
-/// `__main__` 的播报形状（`setup_system.py:637-658`）：**去掉 success/path** 后的缩进 JSON。
+/// Broadcast shape of `__main__` (`setup_system.py:637-658`): indented JSON **without success/path**.
 pub fn display_json(result: &Value) -> String {
     let mut map = match result {
         Value::Object(m) => m.clone(),
@@ -564,12 +564,12 @@ pub fn display_json(result: &Value) -> String {
     serde_json::to_string_pretty(&Value::Object(map)).unwrap_or_else(|_| "{}".to_string())
 }
 
-/// manager env 名互认：外部输入 `AIMAIL_MANAGER_ADDRESS` + 历史集成契约
-/// `INTEGRATE_MANAGER_ADDRESS`（2026-10-17 owner 裁决：历史裸名 `AIMAIL_MANAGER`
-/// 退役，当不存在）。
+/// manager env name mutual recognition: external input `AIMAIL_MANAGER_ADDRESS` + historical integration contract
+/// `INTEGRATE_MANAGER_ADDRESS` (2026-10-17 owner ruling: historical bare name `AIMAIL_MANAGER`
+/// retired, treated as non-existent).
 pub const MANAGER_ENV_NAMES: [&str; 2] = ["AIMAIL_MANAGER_ADDRESS", "INTEGRATE_MANAGER_ADDRESS"];
 
-/// cfg 取字符串字段（缺省空串）——Python `cfg.get(k, "")` 的等价物。
+/// Get string field from cfg (default empty string) -- equivalent to Python `cfg.get(k, "")`.
 pub fn pget(cfg: &Value, key: &str) -> String {
     cfg.get(key)
         .and_then(Value::as_str)
@@ -577,14 +577,14 @@ pub fn pget(cfg: &Value, key: &str) -> String {
         .to_string()
 }
 
-/// 解释器：**单真源委派** `core::sdkroot::python_bin`（契约 §4.1(2)）。
-/// 本函数曾是第二份退化链（`AIMAIL_PYTHON` → `python3`，连域内探测都没有）⇒ 删实现只留委派。
+/// Interpreter: **single source of truth delegation** `core::sdkroot::python_bin` (contract §4.1(2)).
+/// This function was once a second fallback chain (`AIMAIL_PYTHON` → `python3`, without even in-domain probing) ⇒ implementation removed, only delegation kept.
 pub fn python_bin() -> String {
     crate::core::sdkroot::python_bin()
 }
 
-/// `_resolve_mgr`：manager 解析链 = 显式参数（须含 `@`）→ cfg → env **三名互认**。
-/// 空串表示未解析到（调用方按硬门处理：注册/写白名单不接受空值）。
+/// `_resolve_mgr`: manager resolution chain = explicit parameter (must contain `@`) → cfg → env **three names mutually recognized**.
+/// Empty string indicates unresolved (caller handles as hard gate: registration/whitelist writing does not accept empty values).
 pub fn resolve_mgr(manager: &str, cfg: &Value) -> String {
     if !manager.is_empty() && manager.contains('@') {
         return manager.to_string();

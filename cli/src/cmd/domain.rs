@@ -1,11 +1,11 @@
-//! `aimail domain` —— 查看/创建指定系统的域名（P4 切片1：**创建面**落地）。
+//! `aimail domain` — view/create the domain of a given system (P4 slice 1: **creation surface** landed).
 //!
-//! 创建面（`--add`）：校验在**动作之前**（非法域名直接失败、不发请求）；
-//! `id` 省略 ⇒ `d{epoch}`；`-w/--webhook-url` 有值才带；响应带 `error` ⇒ 失败文案
-//! `创建失败: {error} {detail}`（`.strip()`）。
+//! Creation surface (`--add`): validation happens **before action** (invalid domain fails directly, no request sent);
+//! `id` omitted ⇒ `d{epoch}`; `-w/--webhook-url` included only if set; response contains `error` ⇒ failure message
+//! `create failed: {error} {detail}` (`.strip()`).
 //!
-//! 现状码对照：`cli/aimail:2923-2969`（`cmd_domain`）+ `pysdk/aimail_tools.py:333-337`
-//! （`list_system_domains`：GET `/api/v1/admin/systems/{sid}/domains`，非 list ⇒ 空表）。
+//! Current code reference: `cli/aimail:2923-2969` (`cmd_domain`) + `pysdk/aimail_tools.py:333-337`
+//! (`list_system_domains`: GET `/api/v1/admin/systems/{sid}/domains`, non-list ⇒ empty table).
 
 use crate::cmd::report;
 use crate::core::{config, gateway::GatewayClient, home};
@@ -21,30 +21,30 @@ pub struct Args {
 pub fn run(args: Args) -> i32 {
     let sid = args.system_id;
     if sid.is_empty() {
-        return report::fail("domain 需要 --system-id");
+        return report::fail("domain requires --system-id");
     }
     let aimail_home = home::aimail_home();
     let cfg_path = config::gateway_config_path_in(&aimail_home, &sid);
     if !cfg_path.is_file() {
-        return report::fail(&format!("无系统配置: {}", cfg_path.display()));
+        return report::fail(&format!("no system config: {}", cfg_path.display()));
     }
     let cfg = match config::load_gateway_config_in(&aimail_home, &sid) {
         Some(c) => c,
         None => {
-            return report::fail(&format!("配置读取失败: {}", cfg_path.display()));
+            return report::fail(&format!("failed to read config: {}", cfg_path.display()));
         }
     };
     let gw = cfg.gateway_url.trim_end_matches('/');
     if gw.is_empty() || cfg.admin_key.is_empty() {
-        return report::fail(&format!("无网关凭据(system {sid})"));
+        return report::fail(&format!("No gateway credentials (system {sid})"));
     }
 
-    // ── 创建面（`--add`）：校验在动作之前（非法域名不发请求）──
+    // ── Creation side (`--add`): validation before action (invalid domain no request sent) ──
     if let Some(raw_add) = args.add.as_deref() {
         let domain = raw_add.trim().to_lowercase();
         if domain.is_empty() || domain.contains('@') || !domain.contains('.') {
-            // 文案打**原文**（Python 用 args.add 而非归一后的值）
-            return report::fail(&format!("非法域名: '{}'", raw_add));
+            // Message prints **original text** (Python uses args.add not normalized value)
+            return report::fail(&format!("Invalid domain: '{}'", raw_add));
         }
         let id = if args.id.is_empty() {
             format!("d{}", crate::core::time::now_secs())
@@ -60,7 +60,7 @@ pub fn run(args: Args) -> i32 {
         if let Some(err) = result.get("error").filter(|v| !v.is_null()) {
             let detail = result.get("detail").and_then(|v| v.as_str()).unwrap_or("");
             let msg = format!(
-                "创建失败: {} {}",
+                "create failed: {} {}",
                 crate::core::pyjson::str_python(Some(err)),
                 detail
             );
@@ -72,7 +72,7 @@ pub fn run(args: Args) -> i32 {
 
     let client = GatewayClient::with_defaults(gw, &cfg.admin_key);
     let result = client.get(&format!("/api/v1/admin/systems/{sid}/domains"));
-    // 复刻 list_system_domains：有 `data` 取 `data`，否则整份；非数组 ⇒ 空表
+    // Replicate list_system_domains: if `data` exists take `data`, else whole payload; non-array ⇒ empty table
     let payload = match result.get("data") {
         Some(d) => d.clone(),
         None => result,

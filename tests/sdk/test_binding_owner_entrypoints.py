@@ -1,19 +1,19 @@
-"""pysdk 侧的绑定写入口单测(owner 裁决 A, 2026-09-28)。
+"""Unit tests for the binding write entry point on the pysdk side (owner decision A, 2026-09-28).
 
-分层裁决: 系统级环境文件由 CLI 写, per-agent 绑定文件由 SDK 写; CLI 需要改绑定
-内容时不许自持写调用 ⇒ 它只调 pysdk 的三个语义化薄函数
-(``update_binding`` / ``backfill_binding`` / ``rename_binding``), 三者内部一律走既有
-的 ``save_agent_config``(原子 tmp+rename + 0600 语义不变)。
+Layered adjudication: System-level environment files are written by CLI, per-agent binding files are written by SDK; when CLI needs to modify binding
+content, it is not allowed to hold write calls ⇒ it only calls the three semantic thin functions of pysdk
+(``update_binding`` / ``backfill_binding`` / ``rename_binding``), all of which internally go through the existing
+``save_agent_config`` (atomic tmp+rename + 0600 semantics unchanged).
 
-本测试盯住的正是这三个薄函数的**语义**, 不是实现:
-  1. ``update_binding`` 字段级合并 + 落盘(其它字段逐字保留; 文件 0600)
-  2. ``backfill_binding`` 整份落盘(repair 回填/对齐路径)
-  3. ``rename_binding`` = 「搬目录 + 写内容」同一件事(附件随目录一起走;
-     目标目录已存在 ⇒ merged=True 且**不动**源目录)
-  4. 三者落盘格式与 ``save_agent_config`` 同款(indent=2 + 结尾换行)
+This test focuses on the **semantics** of these three thin functions, not the implementation:
+  1. ``update_binding`` field-level merge + persistence (other fields preserved verbatim; file 0600)
+  2. ``backfill_binding`` full persistence (repair backfill/alignment path)
+  3. ``rename_binding`` = "move directory + write content" is the same thing (attachments move with the directory;
+     target directory already exists ⇒ merged=True and **do not touch** source directory)
+  4. Persistence format of all three is the same as ``save_agent_config`` (indent=2 + trailing newline)
 
-文件名走契约常量(``aimail_contract.BINDING_FILE``), 不写字面量 —— 契约字面量棘轮
-按「文件 × 键」只许减不许增。
+File names use contract constants (``aimail_contract.BINDING_FILE``), no literals written —— contract literal ratchet
+allows only reduction, not addition, by "file × key".
 """
 import json
 import stat
@@ -33,7 +33,7 @@ SID = "system-test0001"
 
 @pytest.fixture()
 def home(tmp_path, monkeypatch):
-    """隔离的 aimail home(aimail_home() 每次读 env ⇒ 可重定向)。"""
+    """Isolated aimail home (aimail_home() reads env each time ⇒ can be redirected)."""
     monkeypatch.setenv("AIMAIL_HOME", str(tmp_path))
     return tmp_path
 
@@ -62,13 +62,13 @@ def test_update_binding_merges_fields_and_persists(home):
 
     out = ab.update_binding(SID, before, {"manager_address": "mgr@example.test"})
 
-    assert out == p, "落盘路径必须仍是该地址的绑定文件"
+    assert out == p, "Persistence path must still be the binding file for that address"
     after = json.loads(p.read_text())
     assert after["manager_address"] == "mgr@example.test"
-    # 其余字段逐字保留 + agent_id 未丢
+    # Other fields preserved verbatim + agent_id not lost
     for k, v in before.items():
         if k != "manager_address":
-            assert after[k] == v, f"{k} 被 update_binding 改动了"
+            assert after[k] == v, f"{k} was modified by update_binding"
     assert after["agent_id"] == "agent"
     assert _mode(p) == 0o600
     assert p.read_text().endswith("\n") and '"manager_address"' in p.read_text()
@@ -81,7 +81,7 @@ def test_update_binding_does_not_mutate_caller_dict(home):
 
     ab.update_binding(SID, cfg, {"manager_address": "m2@example.test"})
 
-    assert cfg == snapshot, "薄函数不得就地改调用方传入的 dict"
+    assert cfg == snapshot, "Thin function must not modify the dict passed by the caller in place"
 
 
 def test_backfill_binding_writes_whole_content(home):
@@ -101,7 +101,7 @@ def test_rename_binding_moves_dir_and_rewrites_content(home):
     old, new = "dave@example.test", "dave2@example.test"
     cfg = _seed(home, old, webhook_url="http://127.0.0.1:8799/hook")
     old_dir = _binding_path(home, old).parent
-    # 目录里的**兄弟文件**也必须跟着走(证明是搬目录, 不是只改 json)
+    # **Sibling files** in the directory must also move along (proving it is moving the directory, not just changing json)
     (old_dir / "role_prompt").mkdir()
     (old_dir / "role_prompt" / "10_x.md").write_text("# x\n", encoding="utf-8")
 
@@ -110,8 +110,8 @@ def test_rename_binding_moves_dir_and_rewrites_content(home):
     new_dir = _binding_path(home, new).parent
     assert res["moved"] is True and res["merged"] is False
     assert res["dir"] == new_dir and res["path"] == new_dir / BINDING_FILE
-    assert not old_dir.exists(), "旧目录必须已被搬走"
-    assert (new_dir / "role_prompt" / "10_x.md").is_file(), "兄弟文件未随目录搬迁"
+    assert not old_dir.exists(), "Old directory must have been moved"
+    assert (new_dir / "role_prompt" / "10_x.md").is_file(), "Sibling file did not move with directory"
     d = json.loads((new_dir / BINDING_FILE).read_text())
     assert d["email"] == new and d["webhook_url"] == "http://127.0.0.1:8799/hook"
     assert d["agent_id"] == "agent"
@@ -123,12 +123,12 @@ def test_rename_binding_merges_when_target_exists(home):
     cfg = _seed(home, old)
     old_dir = _binding_path(home, old).parent
     new_dir = _binding_path(home, new).parent
-    new_dir.mkdir(parents=True)          # 目标目录先存在(旧代码行为: 保留两个目录)
+    new_dir.mkdir(parents=True)          # Target directory exists first (old code behavior: keep two directories)
     (new_dir / "keep.md").write_text("keep\n", encoding="utf-8")
 
     res = ab.rename_binding(old_dir, new, {**cfg, "email": new}, SID)
 
     assert res["moved"] is False and res["merged"] is True
-    assert old_dir.is_dir(), "目标已存在时不得动源目录"
-    assert (new_dir / "keep.md").is_file(), "合并不得清掉目标目录里的既有文件"
+    assert old_dir.is_dir(), "Must not touch source directory when target already exists"
+    assert (new_dir / "keep.md").is_file(), "Merge must not clear existing files in target directory"
     assert json.loads((new_dir / BINDING_FILE).read_text())["email"] == new

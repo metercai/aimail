@@ -1,19 +1,19 @@
 /**
- * register-cli op 入口骨架(C2: 三宿主 register-cli.ts 的 op 分支逐字同构,
- * 2026-10-17 提取为单源)。
+ * register-cli op entry skeleton (C2: three host register-cli.ts op branches are verbatim isomorphic,
+ * extracted as single source on 2026-10-17).
  *
- * 契约 v1.0 §4.1(2): `node <register-cli.js> --op <op> --args '<json>'`。
- * 单行 JSON 信封(与 python 门同形):
- *   成功  {ok:true,result:{…}}                exit 0
+ * Contract v1.0 §4.1(2): `node <register-cli.js> --op <op> --args '<json>'`.
+ * Single-line JSON envelope (same shape as python gate):
+ *   Success  {ok:true,result:{…}}                exit 0
  *   usage {ok:false,kind:'usage',exc,error}   exit 2
  *   call  {ok:false,kind:'call',exc,error}    exit 1
- * 诊断 → stderr。
+ * diagnostics → stderr.
  *
- * 宿主差异收敛为两个 hook:
- * - `assembleExtra`: opAssemble 参数附加的宿主布局数据(dsh = skill exposure;
- *   merge 顺序 `{ ...args, ...extra }` 与原 dsh 逐字一致 = extra 覆盖 args)。
- * - `onNoOp`: 无 `--op` 时的宿主行为(dsh/pi = legacy 绑定分支;
- *   openclaw = usage 错误,无 legacy)。
+ * Host differences converge to two hooks:
+ * - `assembleExtra`: host layout data appended to opAssemble parameters (dsh = skill exposure;
+ *   merge order `{ ...args, ...extra }` is verbatim consistent with original dsh = extra overrides args).
+ * - `onNoOp`: host behavior when no `--op` (dsh/pi = legacy binding branch;
+ *   openclaw = usage error, no legacy).
  */
 import {
   opAssemble,
@@ -25,9 +25,9 @@ import {
 import { arg, emit } from './cli-arg.js'
 
 export interface OpEntryHooks {
-  /** opAssemble 附加参数(宿主布局数据);缺省 = 不附加。 */
+  /** opAssemble appended parameters (host layout data); default = not appended. */
   assembleExtra?: () => Record<string, unknown>
-  /** 无 `--op` 时调用(宿主 legacy 分支或 usage 错误),返回 exit code。 */
+  /** Called when no `--op` (host legacy branch or usage error), returns exit code. */
   onNoOp: (argv: string[]) => Promise<number> | number
 }
 
@@ -67,15 +67,15 @@ export async function runOpEntry(argv: string[], hooks: OpEntryHooks): Promise<n
         ok: false,
         kind: 'usage',
         exc: 'UsageError',
-        error: `unknown op '${op}'(期望 assemble|update|teardown|prompt-test)`,
+        error: `unknown op '${op}' (expected assemble|update|teardown|prompt-test)`,
       })
       return 2
     }
     emit({ ok: true, result })
     return 0
   } catch (e) {
-    // 与 python 门同形:usage ⇒ error=纯消息;call ⇒ error="<Cls>: <msg>"
-    // (JS 子类实例的 e.name 恒为 'Error',须用 e.constructor.name —— 对应 python type(e).__name__)
+    // Same shape as python gate: usage ⇒ error=pure message; call ⇒ error="<Cls>: <msg>"
+    // (e.name of JS subclass instances is always 'Error', must use e.constructor.name — corresponds to python type(e).__name__)
     if (e instanceof UsageError) {
       process.stderr.write(`register-cli: ${op} failed: ${e.message}\n`)
       emit({ ok: false, kind: 'usage', exc: 'UsageError', error: e.message })

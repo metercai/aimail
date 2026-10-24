@@ -39,8 +39,8 @@ import {
   resolveAgentId,
 } from './identity.js'
 
-// 契约常量唯一副本 = @aimail/mail-core(src/contract.ts ← contract/aimail-contract.json)。
-// 这里 re-export 保持本模块既有公开面(identity.ts / index.ts 从 './inbound.js' 取它)。
+// Single source of truth for contract constants = @aimail/mail-core(src/contract.ts <- contract/aimail-contract.json).
+// this re-export keeps the module's existing public surface (identity.ts / index.ts take it from './inbound.js').
 export { INBOUND_PATH }
 
 function writeJson(res: ServerResponse, code: number, body: unknown): void {
@@ -82,20 +82,20 @@ export async function deliverToAgent(
     body: JSON.stringify({
       message: opts.message,
       name: 'aimail',
-      // S1b (2026-09-27): 必须显式给 agentId —— 宿主文档的 Hook agent payload 规定
+      // S1b (2026-09-27): Must explicitly provide agentId —— the host documentation's Hook agent payload specifies
       // "agentId ... Must name a configured agent"、"Required when no implicit/retained
-      // owner can be resolved"，不给就是 400(实测: 端点在了、认证过了, 仍 400)。
+      // owner can be resolved", not providing it results in 400 (tested: endpoint exists, auth passed, still 400).
       agentId,
-      // S1e (2026-09-27): **不送 caller sessionKey**。直连 /agent 上调用方自带 key 需要宿主
-      // 显式 allowRequestSessionKey + 前缀白名单(文档 "Hook session and agent policy"),
-      // 否则按合同 400(routing/session policy)。省略 ⇒ 宿主生成 hook:<uuid>,
-      // 每次邮件都是干净的新 turn(本集成不需要会话复用)。
+      // S1e (2026-09-27): **Do not send caller sessionKey**. Direct /agent calls with caller's own key require host
+      // explicit allowRequestSessionKey + prefix whitelist (documentation "Hook session and agent policy"),
+      // Otherwise return 400 per contract (routing/session policy). Omitted => host generates hook:<uuid>,
+      // each email is a clean new turn (this integration does not need session reuse).
       deliver: false,
     }),
   })
   if (!r.ok) {
-    // S1d (2026-09-27): 宿主文档明确要求 "Read the `error` before retrying" ——
-    // 只记状态码会把"为什么被拒"丢掉(404/401/400 三轮都吃过这个亏)。
+    // S1d (2026-09-27): Host documentation explicitly requires "Read the `error` before retrying" ——
+    // only logging status code loses "why it was rejected" (404/401/400 all suffered this loss in three rounds).
     let why = ''
     try {
       why = (await r.text()).slice(0, 300)

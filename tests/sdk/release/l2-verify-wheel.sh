@@ -15,17 +15,17 @@ VENV_DIR="$(mktemp -d /tmp/aimail-venv.XXXXXX)"
 PY="${PYTHON:-python3}"
 
 cd "$REPO"
-# owner 2026-10-07（R5）：无内容变化且已发版的包 ⇒ 本门禁 SKIP（**响亮标注**，不静默假绿）
+# owner 2026-10-07 (R5): package with no content change and already released ⇒ this gate SKIP (**loudly marked**, no silent false green)
 bash scripts/what-changed.sh | sed 's/^/[L2][changed] /'
 _pv=$(python3 -c "import re;print(re.search(r'(?m)^version = \"(.*)\"', open('pyproject.toml').read()).group(1))")
 if git tag -l "pysdk-v$_pv" | grep -q . && git diff --quiet "pysdk-v$_pv" -- pysdk pyproject.toml; then
-  echo "== verify-wheel: SKIP (pysdk 无内容变化，已发版 pysdk-v$_pv —— 未做重复回归)"; exit 0
+  echo "== verify-wheel: SKIP (pysdk no content changes, released pysdk-v$_pv —— no duplicate regression done)"; exit 0
 fi
 echo "== 1/5 build wheel → $OUT_DIR"
 rm -rf "$OUT_DIR"
 "$PY" -m build --wheel --outdir "$OUT_DIR" . >/dev/null 2>&1 || {
   echo "build failed (need: python3 -m pip install build)"; exit 1; }
-# PEP 427:wheel 文件名用归一化名(agent-aimail → agent_aimail,连字符→下划线)
+# PEP 427:wheel filename uses normalized name(agent-aimail → agent_aimail,hyphen→underscore)
 WHL=$(ls "$OUT_DIR"/agent_aimail-*.whl | head -1)
 echo "   wheel: $WHL"
 
@@ -54,7 +54,7 @@ for m in modules:
 for d in (aimail.skills_dir(), aimail.board_role_prompt_dir()):
     assert os.path.isdir(d), f"missing dir: {d}"
 assert os.path.isfile(aimail.mcp_server_path())
-# 审计 D4: deer-flow 的两个安装脚本必须随 wheel 分发(CLI 以 {sdk}=包目录 spawn 它们)
+# Audit D4: The two installation scripts of deer-flow must be distributed with the wheel (CLI spawns them with {sdk}=package directory)
 import importlib.resources as _ir
 _pkg_dir = _ir.files("aimail") / "deer-flow"
 for _sh in ("install-mcp.sh", "install-skill.sh"):
@@ -70,14 +70,14 @@ echo "   OK: aimail.install entry works"
 
 echo "== 4b/5 sdk_ops entry contract (one-line JSON ABI)"
 "$VENV_DIR/bin/python" -m aimail.sdk_ops --help >/dev/null
-# 契约: stdout 恰一行 JSON、exit 0、用法错 exit 2（空系统表 ⇒ ok:true 且 result 是列表）
+# Contract: stdout exactly one line JSON, exit 0, usage error exit 2 (empty system table ⇒ ok:true and result is list)
 _SDK_OPS_OUT="$("$VENV_DIR/bin/python" -m aimail.sdk_ops iter_bindings --args '{"system_id":""}')" || {
     echo "   sdk_ops iter_bindings failed"; exit 1; }
 [ "$(printf '%s\n' "$_SDK_OPS_OUT" | wc -l | tr -d ' ')" = "1" ] || {
     echo "   sdk_ops stdout must be exactly one line"; exit 1; }
 printf '%s' "$_SDK_OPS_OUT" | "$VENV_DIR/bin/python" -c \
     'import json,sys; d=json.loads(sys.stdin.read()); assert d.get("ok") is True and isinstance(d.get("result"), list), d'
-# 用法错必须 exit 2 —— set -e 下非零命令会直接中止脚本，故先关再开（2026-10-04 实测踩过）
+# Usage error must exit 2 —— under set -e non-zero commands abort script directly, so turn off then on(2026-10-04 tested pitfall)
 set +e
 "$VENV_DIR/bin/python" -m aimail.sdk_ops nope --args '{}' >/dev/null 2>&1
 _USAGE_RC=$?

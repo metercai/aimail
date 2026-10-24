@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
-"""aimail_contract — AIMail agent 侧契约常量(Python 侧唯一副本)。
+"""aimail_contract — AIMail agent-side contract constants (sole copy on the Python side).
 
-⚠ 值必须等于仓根 ``contract/aimail-contract.json``(单一真源)。
-本文件是**硬编码常量 + 门禁断言**形态(不是运行时读文件):轮子(hatchling
-force-include)/运行时捆绑都是自包含的,发布产物里没有仓根 contract/ 目录,
-运行时读清单会在 pip/捆绑形态下直接崩 —— 所以真源落盘、常量硬编码,由
-``tests/contract/check-contract-single-source.py`` 在 L0 门禁里逐项断言两者相等
-(漂移即红并给 file:line),``verify_against_manifest()`` 是同一断言的库形态。
+⚠ Values must equal repo root ``contract/aimail-contract.json`` (single source of truth).
+This file is in **hardcoded constants + gate assertions** form (not runtime file reading): wheel (hatchling
+force-include)/runtime bundling are self-contained, release artifacts do not have repo root contract/ directory,
+Reading the manifest at runtime will crash directly under pip/bundled form —— so the true source is written to disk, constants are hardcoded, by
+``tests/contract/check-contract-single-source.py`` asserts item by item in the L0 gate that the two are equal
+(drift turns red and provides file:line), ``verify_against_manifest()`` is the library form of the same assertion.
 
-边界(owner 裁决 2026-09-27):合法的 ``aimail`` 面 = 产品/仓库/框架/CLI 名 +
-``~/.aimail`` + ``AIMAIL_*`` 环境变量 —— 这些**不是** agent 内部契约名, 不要
-按本模块判违约。本模块只约束 agent 内部契约面: skill/toolset 注册名、绑定
-文件名、指针文件名、入站路径。
+Boundary (owner ruling 2026-09-27): the legitimate ``aimail`` surface = product/repo/framework/CLI names +
+``~/.aimail`` + ``AIMAIL_*`` environment variables —— these are **not** internal agent contract names, do not
+judge violations based on this module. This module only constrains the agent internal contract surface: skill/toolset registration names, binding
+filename, pointer filename, inbound path.
 """
 
 from __future__ import annotations
@@ -19,40 +19,40 @@ from __future__ import annotations
 import json
 import os
 
-# ── 契约值(必须等于 contract/aimail-contract.json)─────────────────────────
+# ── Contract values (must equal contract/aimail-contract.json)─────────────────────────
 
-#: 四个平台(openclaw / dsh / pi / deer-flow)的固定入站路径。
+#: Fixed inbound paths for the four platforms (openclaw / dsh / pi / deer-flow).
 INBOUND_PATH = "/aimail/inbound"
 
-#: hermes 是唯一例外:入站挂在 hermes 网关自身的 webhook 路由上。
+#: hermes is the only exception: inbound is hooked onto the hermes gateway's own webhook routing.
 HERMES_INBOUND_PATH = "/webhooks/aimail-inbound"
 
-#: hermes 网关路由名(webhook_subscriptions.json 的 route 键)。
+#: hermes gateway route name (route key in webhook_subscriptions.json).
 HERMES_ROUTE_NAME = "aimail-inbound"
 
-#: agent 内部 skill 注册名 == SKILL.md frontmatter ``name:``(目录名亦同)。
+#: Internal agent skill registration name == SKILL.md frontmatter ``name:`` (directory name is the same).
 AGENT_SKILL_NAME = "agentmail"
 
-#: agent 内部 toolset 注册名 == SKILL.md frontmatter ``toolset:`` / hermes
-#: ``platform_toolsets`` 键名。
+#: agent internal toolset registration name == SKILL.md frontmatter ``toolset:`` / hermes
+#: ``platform_toolsets`` key name.
 AGENT_TOOLSET_NAME = "agentmail"
 
-#: 每个地址的绑定文件名(布局 systems/{sid}/{cleaned_addr}/agentmail.json)。
+#: Binding file name for each address (layout systems/{sid}/{cleaned_addr}/agentmail.json).
 BINDING_FILE = "agentmail.json"
 
-#: 系统指针文件名(如 ~/.hermes/.agentmail、~/.deer-flow/.agentmail)。
+#: System pointer file name (e.g., ~/.hermes/.agentmail, ~/.deer-flow/.agentmail).
 POINTER_FILE = ".agentmail"
 
-#: 入站监听端口默认值 —— **端口可配, 路径不可变**。
+#: Default value for inbound listening port —— **port is configurable, path is immutable**.
 INBOUND_PORTS = {"dsh": 9099, "pi": 9101, "deerflow": 8001}
 
-# 注: 曾有的 BRIDGE_DEFAULT_PATH 常量随 SDK 去桥化退役(owner 裁决 2026-09-28)—— SDK
-# 对桥无感, 路由由 CLI 自持(cli/bridge_wire.py); 契约真源不再含桥键。
+# Note: The former BRIDGE_DEFAULT_PATH constant was retired with the SDK de-bridging (owner decision 2026-09-28)—— SDK
+# is bridge-agnostic, routing is self-held by CLI (cli/bridge_wire.py); contract true source no longer contains bridge keys.
 
-#: 清单相对仓根的路径(门禁/库校验用)。
+#: Manifest path relative to repo root (for gate/library validation).
 MANIFEST_REL_PATH = os.path.join("contract", "aimail-contract.json")
 
-# 清单键 → 本模块属性(常量一致性断言用; Rust 侧本批未覆盖 = GAP)。
+# Manifest key → module attribute (for constant consistency assertion; Rust side not covered in this batch = GAP).
 MANIFEST_MAP = {
     "inbound_path": "INBOUND_PATH",
     "hermes_inbound_path": "HERMES_INBOUND_PATH",
@@ -66,19 +66,19 @@ MANIFEST_MAP = {
 
 
 def inbound_url(port: int, host: str = "127.0.0.1") -> str:
-    """拼本机入站接收端点(非 hermes 平台)。"""
+    """Build local inbound receiving endpoint (non-hermes platforms)."""
     return "http://%s:%d%s" % (host, int(port), INBOUND_PATH)
 
 
 def hermes_inbound_url(port: int, host: str = "127.0.0.1") -> str:
-    """拼 hermes 进程内入站接收端点。"""
+    """Build hermes in-process inbound receiving endpoint."""
     return "http://%s:%d%s" % (host, int(port), HERMES_INBOUND_PATH)
 
 
 def load_manifest(path: str | None = None) -> dict:
-    """读清单。path 缺省 = 从本文件位置推导仓根(设 AIMAIL_CONTRACT_MANIFEST
-    可覆盖 —— 门禁的三态演练/负例用)。文件缺失/不可解析时抛异常, 调用方决定
-    退出码(门禁判 rc=2 = 判不了, 不假装通过)。"""
+    """Read manifest. path default = derive repo root from this file's location (set AIMAIL_CONTRACT_MANIFEST
+    Overridable —— three-state drill/negative case for access control). Throw an exception when the file is missing/unparseable, caller decides
+    exit code (gate judges rc=2 = cannot judge, do not pretend to pass)."""
     p = path or os.environ.get("AIMAIL_CONTRACT_MANIFEST", "")
     if not p:
         p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", MANIFEST_REL_PATH)
@@ -87,20 +87,20 @@ def load_manifest(path: str | None = None) -> dict:
 
 
 def verify_against_manifest(path: str | None = None) -> list:
-    """逐项断言本模块常量 == 清单。返回不符项描述列表(空 = 一致)。"""
+    """Assert item-by-item that module constants == manifest. Returns list of mismatch descriptions (empty = consistent)."""
     m = load_manifest(path)
     bad = []
     for key, attr in MANIFEST_MAP.items():
         if key not in m:
-            bad.append("manifest 缺键: %s" % key)
+            bad.append("manifest missing key: %s" % key)
             continue
         want, got = m[key], globals()[attr]
         if want != got:
-            bad.append("%s: 常量 %r != 清单 %r" % (attr, got, want))
+            bad.append("%s: constant %r != manifest %r" % (attr, got, want))
     return bad
 
 
-if __name__ == "__main__":  # pragma: no cover - 手工自检
+if __name__ == "__main__":  # pragma: no cover - manual self-check
     _bad = verify_against_manifest()
     print("aimail_contract vs manifest: %s" % ("OK" if not _bad else "; ".join(_bad)))
     raise SystemExit(1 if _bad else 0)

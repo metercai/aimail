@@ -1,28 +1,28 @@
-//! `cli/bridge_wire.py` 的 Rust 复刻 —— **CLI 拥有的桥路由接线**（零 SDK 依赖）。
+//! Rust port of `cli/bridge_wire.py` -- **CLI-owned bridge routing wiring** (zero SDK dependency).
 //!
-//! 为什么要这一层（照抄 Python 模块的原始理由，别拿 SDK 的桥 helper 替代）：SDK 侧的桥接线
-//! （`aimail_base.ensure_bridge_route` 等）已排期删除；CLI 调那些符号会在 SDK 移除后立刻断。
-//! 所以 CLI 自持一个桥客户端在这里。**本模块不 import pysdk/agent-aimail 的任何东西。**
+//! Why this layer (copied from the original rationale of the Python module, do not replace with SDK bridge helpers): the bridge wiring on the SDK side
+//! (e.g., `aimail_base.ensure_bridge_route`) is scheduled for removal; CLI calls to those symbols will break immediately after SDK removal.
+//! So the CLI maintains its own bridge client here. **This module does not import anything from pysdk/agent-aimail.**
 //!
-//! 契约（从桥仓读出：`~/aimail-bridge/src/admin.rs` + `router.rs`）—— admin API 服务在桥的
-//! 配置地址上，与模式无关：
+//! Contract (read from bridge repo: `~/aimail-bridge/src/admin.rs` + `router.rs`) —— admin API service is on the bridge's
+//! configured address, independent of mode:
 //! ```text
 //!   GET    /health                -> {"status","uptime_secs","version"}
 //!   GET    /api/v1/routes         -> [{"email","host","port"}, ...]
-//!   POST   /api/v1/routes         <- {"email","host","port"}   (upsert; 幂等)
+//!   POST   /api/v1/routes         <- {"email","host","port"}   (upsert; idempotent)
 //!   DELETE /api/v1/routes/:email  -> "ok"                      (withdraw)
 //! ```
-//! `host` 字段**必须是完整绝对 URL**：桥对含 `://` 的 host 走 `ProfileRoute::from_url`（URL 保真、
-//! 路径不丢）；传裸 `host:port` 会让桥套默认路径并把 host 当字面量，产出 `http://host:port:80/...`
-//! 这类不可投递目标（2026-09-21 实测：重刷把 `127.0.0.1:9101` 写成 `127.0.0.1:9101:80` ⇒ 投递静默断）。
-//! 因此本模块**只送校验过的绝对 URL，绝不自己拼一个**。
+//! `host` field **must be a complete absolute URL**: bridge uses `ProfileRoute::from_url` for hosts containing `://` (URL fidelity,
+//! path preserved); passing bare `host:port` will make the bridge apply default path and treat host as literal, producing `http://host:port:80/...`
+//! such undeliverable targets (2026-09-21 measured: reflush wrote `127.0.0.1:9101` as `127.0.0.1:9101:80` => delivery silently broken).
+//! Therefore this module **only sends validated absolute URLs, and never constructs one itself**.
 //!
-//! 只读纪律：不写任何文件。桥自己的配置文件是"这里有桥"的信号，系统配置给 admin 端口，绑定给目标。
+//! Read-only discipline: do not write any files. The bridge's own config file is the "there is a bridge here" signal; system config provides the admin port, and binding provides the target.
 //!
-//! 四态词表（不新造词）：`ok` / `skipped` / `no_bridge` / `failed`（failed = 已声明但不可用 ⇒
-//! fail closed、什么都不改、说清原因）。`up`/`down` **不对称**（2026-09-28 裁决）：路由以地址为键，
-//! 撤回只需要 email + 可达的桥；绑定端点为空的（pull）绑定**仍须撤回**曾经 push 时建的路由
-//! —— 旧"空 ⇒ skip"的短路会把这行留到桥自身健康清理（最长 180s），期间邮件一直往已停收的宿主推。
+//! Four-state vocabulary (no new terms): `ok` / `skipped` / `no_bridge` / `failed` (failed = declared but unavailable ⇒
+//! fail closed, change nothing, state the reason clearly). `up`/`down` are **asymmetric** (2026-09-28 ruling): routes are keyed by address,
+//! withdrawal only requires email + a reachable bridge; bindings with an empty bind endpoint (pull) **must still withdraw** the routes created during push
+//! —— the old "empty ⇒ skip" short-circuit would leave this line until the bridge's own health cleanup (up to 180s), during which emails keep being pushed to the host that has stopped receiving.
 
 use std::collections::BTreeMap;
 use std::net::{TcpStream, ToSocketAddrs};
@@ -31,9 +31,9 @@ use std::time::Duration;
 
 use serde_json::{json, Map, Value};
 
-/// admin API 宿主：桥绑定在本机地址、admin API 默认仅限 localhost ⇒ CLI 一律走环回。
+/// admin API host: the bridge binds to a local address, and the admin API is restricted to localhost by default ⇒ the CLI always uses loopback.
 pub const ADMIN_HOST: &str = "127.0.0.1";
-/// 系统配置与桥配置都没说时的 admin 端口兜底。
+/// Fallback admin port when neither system config nor bridge config specifies one.
 pub const DEFAULT_ADMIN_PORT: u16 = 38081;
 
 pub const STATE_OK: &str = "ok";
@@ -46,7 +46,7 @@ pub const ACTION_DOWN: &str = "down";
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
-/// `_valid_port`：非法/越界 ⇒ 0（叫"无效"）。
+/// `_valid_port`: invalid/out-of-range ⇒ 0 (called "invalid").
 pub fn valid_port(value: &Value) -> u16 {
     let n = match value {
         Value::Number(n) => n.as_i64().unwrap_or(0),
@@ -60,7 +60,7 @@ pub fn valid_port(value: &Value) -> u16 {
     }
 }
 
-/// `_port_from_bind`：`"0.0.0.0:38080"` / `"[::1]:38081"` / `"38081"` 里的端口段。
+/// `_port_from_bind`: the port segment in `"0.0.0.0:38080"` / `"[::1]:38081"` / `"38081"`.
 pub fn port_from_bind(bind: &str) -> u16 {
     let s = bind.trim();
     if s.is_empty() {
@@ -80,7 +80,7 @@ pub fn port_from_bind(bind: &str) -> u16 {
     valid_port(&Value::String(s.to_string()))
 }
 
-/// 桥声明（`load_declaration` 的返回）。
+/// Bridge declaration (return value of `load_declaration`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Declaration {
     pub declared: bool,
@@ -94,11 +94,11 @@ pub struct Declaration {
     pub gateway_port: u16,
 }
 
-/// 只读判定：本机有没有声明桥、它的 admin API 在哪。
+/// Read-only determination: whether a bridge is declared on this machine, and where its admin API is.
 ///
-/// `declared` 在"桥自己的配置文件在位"或"系统配置带 `bridge_admin_port`"时为真；
-/// `usable=false` 表示声明了但坏了（不可读/TOML 非法）—— 这种必须 **fail closed**，
-/// 绝不能被当成"这里没有桥"。**永不抛错。**
+/// `declared` is true when "the bridge's own config file is in place" or "the system config has `bridge_admin_port`";
+/// `usable=false` indicates declared but broken (unreadable/invalid TOML) -- this must **fail closed**,
+/// and must never be treated as "no bridge here". **Never raises an error.**
 pub fn load_declaration(gateway_cfg: &Value, bridge_cfg_path: &Path) -> Declaration {
     let mut out = Declaration {
         declared: false,
@@ -139,7 +139,7 @@ pub fn load_declaration(gateway_cfg: &Value, bridge_cfg_path: &Path) -> Declarat
     let toml_cfg = match parsed {
         Ok(v) => v,
         Err(e) => {
-            // 坏声明 = fail closed 态（Python 报 `{ExcName}: {e}`；此处给等价文本）
+            // Bad declaration = fail closed state (Python reports `{ExcName}: {e}`; here we provide equivalent text)
             out.declared = true;
             out.usable = false;
             out.source = bridge_cfg_path.display().to_string();
@@ -174,7 +174,7 @@ pub fn load_declaration(gateway_cfg: &Value, bridge_cfg_path: &Path) -> Declarat
     out
 }
 
-/// 真 TCP 探测：`host:port` 上有没有人在听。
+/// Real TCP probe: is anyone listening on `host:port`.
 pub fn tcp_open(host: &str, port: u16, timeout: Duration) -> bool {
     let addrs = match (host, port).to_socket_addrs() {
         Ok(a) => a,
@@ -188,7 +188,7 @@ pub fn tcp_open(host: &str, port: u16, timeout: Duration) -> bool {
     false
 }
 
-/// `GET /health` → admin API 应答时的 JSON 对象，否则 None（仅信息用；可达性判据是 TCP 探测）。
+/// JSON object when `GET /health` -> admin API responds, otherwise None (informational only; reachability criterion is TCP probe).
 pub fn admin_health(host: &str, port: u16, timeout_secs: u64) -> Option<Value> {
     let url = format!("http://{}:{}/health", host, port);
     let (code, body) = crate::core::http::raw_req(&url, None, None, timeout_secs).ok()?;
@@ -203,7 +203,7 @@ pub fn admin_health(host: &str, port: u16, timeout_secs: u64) -> Option<Value> {
     }
 }
 
-/// `(reachable, detail)` —— reachable = admin 端口接受连接。
+/// `(reachable, detail)` -- reachable = admin port accepts connection.
 pub fn admin_reachable(host: &str, port: u16) -> (bool, String) {
     if tcp_open(host, port, Duration::from_millis(500)) {
         match admin_health(host, port, 1) {
@@ -234,7 +234,7 @@ pub fn admin_reachable(host: &str, port: u16) -> (bool, String) {
     }
 }
 
-/// 解析出的绝对 URL（`urlparse` + `u.port` 的语义子集）。
+/// The parsed absolute URL (a semantic subset of `urlparse` + `u.port`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedUrl {
     pub scheme: String,
@@ -246,15 +246,15 @@ pub struct ParsedUrl {
     pub fragment: String,
 }
 
-/// 手写解析，镜像 `urlparse` 的关键行为：`scheme://netloc[/path]`，
-/// 端口非数字或越界 ⇒ Err（对应 Python `u.port` 抛 `ValueError`）。
+/// Hand-written parsing, mirroring the key behavior of `urlparse`: `scheme://netloc[/path]`,
+/// non-numeric or out-of-range port ⇒ Err (corresponds to Python `u.port` raising `ValueError`).
 pub fn parse_abs_url(raw: &str) -> Result<ParsedUrl, String> {
     let (scheme, rest) = match raw.split_once("://") {
         Some((s, r)) => (s.to_lowercase(), r),
         None => (String::new(), raw),
     };
     let netloc = rest.split(['/', '?', '#']).next().unwrap_or("").to_string();
-    // userinfo 不属于本场景；取 @ 之后
+    // userinfo is not part of this scenario; take the part after @
     let hostpart = netloc.rsplit('@').next().unwrap_or("").to_string();
     let (hostname, port_str) = if let Some(rest2) = hostpart.strip_prefix('[') {
         match rest2.split_once(']') {
@@ -282,7 +282,7 @@ pub fn parse_abs_url(raw: &str) -> Result<ParsedUrl, String> {
             Some(n as u16)
         }
     };
-    // path/query/fragment（`urlparse` 语义：scheme://netloc 之后的部分）
+    // path/query/fragment (`urlparse` semantics: the part after scheme://netloc)
     let after_scheme = match raw.split_once("://") {
         Some((_, r)) => r,
         None => raw,
@@ -315,10 +315,10 @@ pub fn parse_abs_url(raw: &str) -> Result<ParsedUrl, String> {
     })
 }
 
-/// `(absolute_url, reason)` —— 目标必须已经是可投递的绝对 URL。`reason` 为空表示接受。
+/// `(absolute_url, reason)` -- target must already be a deliverable absolute URL. Empty `reason` indicates accepted.
 ///
-/// 裸 `host:port`（或 `host:port/path`）**拒绝**而不是补前缀：补前缀恰好产出 2026-09-27 实测的
-/// 不可投递形态 `http://host:port:80/...`。被接受的 URL **原样透传，绝不重建**。
+/// Bare `host:port` (or `host:port/path`) is **rejected** rather than prefixed: prefixing exactly produces the 2026-09-27 measured
+/// undeliverable form `http://host:port:80/...` observed in the 2026-09-27 test. Accepted URLs are **passed through as-is, never reconstructed**.
 pub fn validate_target(value: &Value) -> (String, String) {
     let raw = match value {
         Value::Null => String::new(),
@@ -363,7 +363,7 @@ pub fn validate_target(value: &Value) -> (String, String) {
 
 // ── bridge client ──────────────────────────────────────────────────────────────
 
-/// `(ok, detail)` —— 一次 admin 调用。**永不抛错**，原因以文本回传。
+/// `(ok, detail)` -- one admin call. **Never throws**, reason returned as text.
 pub fn admin_request(
     method: &str,
     host: &str,
@@ -385,7 +385,7 @@ pub fn admin_request(
             if (200..300).contains(&code) {
                 (true, body_text.trim().to_string())
             } else {
-                // 镜像 Python 的 `HTTPError` 分档：状态码 + 原因短语
+                // Mirrors Python's `HTTPError` categorization: status code + reason phrase
                 (
                     false,
                     format!("bridge answered HTTP {} ({})", code, body_text),
@@ -396,21 +396,21 @@ pub fn admin_request(
     }
 }
 
-/// `POST /api/v1/routes {email, host, port}` —— 幂等 upsert（桥侧表）。
+/// `POST /api/v1/routes {email, host, port}` —— idempotent upsert (bridge-side table).
 ///
-/// `port` 是占位（host 为完整 URL 时桥忽略它）；只能给 80，因为 `admin.rs` 拒绝 0。
+/// `port` is a placeholder (ignored by the bridge when host is a full URL); it can only be 80, because `admin.rs` rejects 0.
 pub fn upsert_route(email: &str, target_url: &str, host: &str, port: u16) -> (bool, String) {
     let body = json!({"email": email, "host": target_url, "port": 80});
     admin_request("POST", host, port, "/api/v1/routes", Some(&body), 5)
 }
 
-/// `DELETE /api/v1/routes/:email` —— 撤回该地址的路由。
+/// `DELETE /api/v1/routes/:email` —— revoke the route for this address.
 pub fn withdraw_route(email: &str, host: &str, port: u16) -> (bool, String) {
     let path = format!("/api/v1/routes/{}", percent_encode(email));
     admin_request("DELETE", host, port, &path, None, 5)
 }
 
-/// `urllib.parse.quote(s, safe='')` 的最小实现（非 unreserved 字符全部 %XX）。
+/// Minimal implementation of `urllib.parse.quote(s, safe='')` (all non-unreserved characters are %XX).
 fn percent_encode(s: &str) -> String {
     let mut out = String::new();
     for b in s.as_bytes() {
@@ -426,13 +426,13 @@ fn percent_encode(s: &str) -> String {
 
 // ── the three-step decision ────────────────────────────────────────────────────
 
-/// 判这一个地址该做什么，并去做。**永不抛错**。
+/// Determine what to do for this single address, and do it. **Never throws errors**.
 ///
-/// 1. 只有 `action="live"`（up）才看绑定的本地端点：空值 = 合法 pull 绑定 ⇒ `skipped` + 原因；
-///    非空但不可投递 = 缺陷 ⇒ `failed`（拒绝并给原因，绝不静默放过）。`down` **完全不看 URL**：
-///    路由以 email 为键，绑定端点变空时反而**更要**撤回（2026-09-28）；
-/// 2. 已声明的桥必须可达，否则 `failed` + 原因且**什么都不动**（fail closed：半配置的桥不许写）；
-/// 3. 没有声明桥 ⇒ `no_bridge`：刻意的 no-op，不是错误。
+/// 1. Only `action="live"` (up) checks the bound local endpoint: empty value = valid pull binding ⇒ `skipped` + reason;
+///    non-empty but undeliverable = defect ⇒ `failed` (reject and provide reason, never silently pass). `down` **does not look at the URL at all**:
+///    Routes are keyed by email; when the bound endpoint becomes empty, we **must** revoke it (2026-09-28);
+/// 2. Declared bridges must be reachable, otherwise `failed` + reason and **do nothing** (fail closed: half-configured bridges are not allowed to write);
+/// 3. No bridge declared ⇒ `no_bridge`: an intentional no-op, not an error.
 pub fn sync_route(
     action: &str,
     email: &str,
@@ -556,7 +556,7 @@ pub fn sync_route(
     Value::Object(out)
 }
 
-/// 回执行（与 SDK 的路由行同形）。
+/// Return execution (same shape as SDK route lines).
 pub fn format_line(outcome: &Value) -> String {
     let state = outcome.get("state").and_then(|v| v.as_str()).unwrap_or("");
     let email = outcome.get("email").and_then(|v| v.as_str()).unwrap_or("");
@@ -601,10 +601,10 @@ pub fn format_line(outcome: &Value) -> String {
     )
 }
 
-// ── 本地路由表 / 归属判据（`cmd_bridge` 与对账共用）────────────────────────────
+// ── Local routing table / ownership criteria (shared by `cmd_bridge` and reconciliation)────────────────────────────
 
-/// `_read_routes`：读 `aimail_routes.toml`（email → target URL）。
-/// 注意：**逐行解析**（不是真 TOML —— 值里带 URL，且历史文件是 `key = "value"` 形式）。
+/// `_read_routes`: read `aimail_routes.toml` (email -> target URL).
+/// Note: **line-by-line parsing** (not real TOML -- values contain URLs, and historical files are in `key = "value"` format).
 pub fn read_routes(path: &Path) -> BTreeMap<String, String> {
     let mut routes = BTreeMap::new();
     let text = match std::fs::read_to_string(path) {
@@ -625,8 +625,8 @@ pub fn read_routes(path: &Path) -> BTreeMap<String, String> {
     routes
 }
 
-/// `_target_to_route_fields`：接收端 URL → 桥 admin API 的 `{host, port}` 字段。
-/// host 必须是完整 URL（含 `://`）⇒ 返回 `(url, 80)`；裸 `host:port` 兜底拆两字段。
+/// `_target_to_route_fields`: receiver URL -> bridge admin API `{host, port}` fields.
+/// host must be a full URL (containing `://`) => return `(url, 80)`; bare `host:port` fallback splits into two fields.
 pub fn target_to_route_fields(target: &str) -> (String, u16) {
     let t = target.trim();
     if t.contains("://") {
@@ -640,9 +640,9 @@ pub fn target_to_route_fields(target: &str) -> (String, u16) {
     (t.to_string(), 80)
 }
 
-/// `_system_route_scope`：本系统路由行判据。判不出归属（缺 domain）⇒ None。
+/// `_system_route_scope`: criteria for this system's route lines. If ownership cannot be determined (missing domain) => None.
 ///
-/// shared（配置带 `system_name`）：后缀 `.{system_name}@{domain}`；非 shared：后缀 `@{domain}`。
+/// shared (config has `system_name`): suffix `.{system_name}@{domain}`; non-shared: suffix `@{domain}`.
 pub type RouteScope = Box<dyn Fn(&str) -> bool>;
 
 pub fn system_route_scope(cfg: &Value) -> Option<RouteScope> {
@@ -670,12 +670,12 @@ pub fn system_route_scope(cfg: &Value) -> Option<RouteScope> {
     }
 }
 
-// ── 对账编排（`_reconcile_inbound_routes` / `_ensure_inbound_routes`）──────────────
+// ── reconciliation orchestration (`_reconcile_inbound_routes` / `_ensure_inbound_routes`) ──────────────
 
-/// 本机**已注册**绑定的 `(email, webhook_url)` —— 对账的期望态来源。
+/// `(email, webhook_url)` of the **already-registered** bindings on this machine — the expected-state source for reconciliation.
 ///
-/// 只取"绑定文件可读且带 email"的项：平台枚举里的**未注册**期望项在路由层没有意义
-/// （路由以地址为键，未注册地址没有可投递的云端身份）。
+/// Only take items where "binding file is readable and has email": **unregistered** expected items in platform enumeration are meaningless at the route layer
+/// (routes are keyed by address, unregistered addresses have no deliverable cloud identity).
 pub fn registered_bindings(sid: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
     if sid.is_empty() {
@@ -695,7 +695,7 @@ pub fn registered_bindings(sid: &str) -> Vec<(String, String)> {
         let jf = d.join(crate::core::contract::binding_file());
         let text = match std::fs::read_to_string(&jf) {
             Ok(t) => t,
-            Err(_) => continue, // 权限/IO 异常按未注册处理，列举不中断
+            Err(_) => continue, // Permission/IO exceptions treated as unregistered, enumeration does not interrupt
         };
         let v: Value = match serde_json::from_str(&text) {
             Ok(v) => v,
@@ -716,10 +716,10 @@ pub fn registered_bindings(sid: &str) -> Vec<(String, String)> {
     out
 }
 
-/// `_reconcile_inbound_routes`：live 对账 —— 期望态 = 本系统全部注册绑定，实际态 = 桥路由表。
+/// `_reconcile_inbound_routes`: live reconciliation -- expected state = all registered bindings of this system, actual state = bridge route table.
 ///
-/// 缺/变 ⇒ upsert；配置已不需要（绑定消失/变 pull）的**本系统**行 ⇒ 撤回；归属判不出的行只告警不动。
-/// 返回 `(reported, anchor_out)`；`anchor_out=None` 表示锚点无事可报。
+/// Missing/changed => upsert; **this system's** lines where config is no longer needed (binding disappeared/changed to pull) => revoke; lines with undetermined ownership only warn, no action.
+/// Returns `(reported, anchor_out)`; `anchor_out=None` indicates anchor has nothing to report.
 pub fn reconcile_inbound_routes(
     sid: &str,
     cfg: &Value,
@@ -795,65 +795,65 @@ pub fn reconcile_inbound_routes(
     (reported, anchor_out)
 }
 
-/// 桥运行时目录下的路由表路径（`ROUTES_FILE`）。
+/// Route table path under bridge runtime directory (`ROUTES_FILE`).
 pub fn routes_file() -> std::path::PathBuf {
     crate::core::home::aimail_home()
         .join("bridge")
         .join("aimail_routes.toml")
 }
 
-/// 桥配置文件路径（`BRIDGE_CFG`）。
+/// Bridge config file path (`BRIDGE_CFG`).
 pub fn bridge_cfg_file() -> std::path::PathBuf {
     crate::core::home::aimail_home()
         .join("bridge")
         .join("aimail_bridge.toml")
 }
 
-/// `_ensure_inbound_routes`：按系统配置做一次 live 对账。**best-effort**：永不改调用方 rc。
+/// `_ensure_inbound_routes`: Perform one live reconciliation based on system config. **best-effort**: never changes caller rc.
 pub fn ensure_inbound_routes(sid: &str) -> i32 {
     use crate::cmd::report::warn;
     if sid.is_empty() {
         return 0;
     }
-    // Python：读不到系统配置时 cfg={} ⇒ 仍走对账，但归属判据缺 domain ⇒ 只告警不动
+    // Python: when system config cannot be read, cfg={} => still proceed with reconciliation, but ownership criteria missing domain => only warn, no action
     let cfg: Value = match crate::core::config::load_gateway_config(sid) {
         Some(c) => Value::Object(c.to_json()),
         None => json!({}),
     };
     let _ = reconcile_inbound_routes(sid, &cfg, "", &bridge_cfg_file());
-    let _ = warn; // 保持与 Python 同形（失败只 warn）
+    let _ = warn; // Keep same shape as Python (failure only warns)
     0
 }
 
-// ── 桥维护（`cmd_bridge` 用：进程探测 / 路径 / 期望路由）────────────────────────────
+// ── bridge maintenance (used by `cmd_bridge`: process detection / path / expected routes) ────────────────────────────
 
-/// 桥运行时目录（`BRIDGE_DIR`）。
+/// Bridge runtime directory (`BRIDGE_DIR`).
 pub fn bridge_dir() -> std::path::PathBuf {
     crate::core::home::aimail_home().join("bridge")
 }
 
-/// 桥 pid 文件（`BRIDGE_PID`）。
+/// Bridge pid file (`BRIDGE_PID`).
 pub fn bridge_pid_file() -> std::path::PathBuf {
     bridge_dir().join("bridge.pid")
 }
 
-/// 桥日志（`BRIDGE_LOG`）。
+/// Bridge log (`BRIDGE_LOG`).
 pub fn bridge_log_file() -> std::path::PathBuf {
     bridge_dir().join("aimail-bridge.log")
 }
 
-/// bridge 维护命令用的 admin 地址（`BRIDGE_ADDR` = 默认 38081；与"声明式"的 `sync_route` 不同：
-/// `cmd_bridge` 的刷新**直接打这个固定地址**，照抄 Python）。
+/// admin address used by bridge maintenance commands (`BRIDGE_ADDR` = default 38081; different from "declarative" `sync_route`:
+/// `cmd_bridge` refresh **directly hits this fixed address**, copied from Python).
 pub const BRIDGE_ADDR: &str = "127.0.0.1:38081";
 
-/// `_bridge_pids`：锚定**可执行文件路径**的精确匹配（不许宽松匹配 —— 2026-08-16/09-21 两次误杀事故的口径）。
+/// `_bridge_pids`: exact match anchored on **executable file path** (no loose matching -- criteria from the two accidental kill incidents on 2026-08-16/09-21).
 ///
-/// 先试 `pgrep -f '^[^ ]*/aimail-bridge( |$)'`；宿主没装 procps（deerflow 镜像，F12）时回退扫
-/// `/proc/<pid>/cmdline` 的**首 token**，判据相同（以 `aimail-bridge` 结尾）⇒ 精确度不变、不崩。
+/// First try `pgrep -f '^[^ ]*/aimail-bridge( |$)'`; if host doesn't have procps installed (deerflow image, F12), fallback to scanning
+/// **first token** of `/proc/<pid>/cmdline`, same criteria (ends with `aimail-bridge`) => precision unchanged, no crash.
 pub fn bridge_pids() -> Vec<u32> {
     #[cfg(windows)]
     {
-        // Windows: 按专属进程名枚举(无路径首 token 判据的对应物; 单真源 = procwin)
+        // Windows: enumerate by dedicated process name (no equivalent to path first token criteria; single source of truth = procwin)
         return crate::core::procwin::bridge_pids_by_name();
     }
     #[cfg(unix)]
@@ -872,7 +872,7 @@ pub fn bridge_pids() -> Vec<u32> {
                 pids.dedup();
                 return pids;
             }
-            return Vec::new(); // pgrep 在、但没匹配到
+            return Vec::new(); // pgrep exists, but no match found
         }
         let mut pids = Vec::new();
         if let Ok(entries) = std::fs::read_dir("/proc") {
@@ -901,7 +901,7 @@ pub fn bridge_pids() -> Vec<u32> {
     }
 }
 
-/// `_addr_clean`：地址 → 目录键（`re.sub(r"[^\w.\-]", "_", email, flags=ASCII)`）。
+/// `_addr_clean`: address → directory key (`re.sub(r"[^\w.\-]", "_", email, flags=ASCII)`).
 pub fn addr_clean(email: &str) -> String {
     email
         .chars()
@@ -915,8 +915,8 @@ pub fn addr_clean(email: &str) -> String {
         .collect()
 }
 
-/// `_default_recv_url`：平台默认接收端（hermes ⇒ 读宿主 config.yaml 的 webhook 端口，默认 8646，
-/// 路径取契约的 hermes 入站路径；否则 openclaw 的 `127.0.0.1:8799/hook`）。
+/// `_default_recv_url`: platform default receiver (hermes => read webhook port from host config.yaml, default 8646,
+/// path taken from the contract's hermes inbound path; otherwise openclaw's `127.0.0.1:8799/hook`).
 pub fn default_recv_url(sid: &str, email: &str) -> String {
     let aj = crate::core::config::systems_root_in(&crate::core::home::aimail_home())
         .join(sid)
@@ -955,7 +955,7 @@ pub fn default_recv_url(sid: &str, email: &str) -> String {
                     wh["port"].as_i64().or_else(|| wh["extra"]["port"].as_i64())
                 })
                 .unwrap_or(8646);
-            // hermes 的入站路径是**契约值**（hermes 是唯一路径例外）⇒ 走常量，不写字面量
+            // hermes's inbound path is a **contract value** (hermes is the only path exception) ⇒ use constant, do not write literal
             return format!(
                 "http://127.0.0.1:{}{}",
                 port,
@@ -966,9 +966,9 @@ pub fn default_recv_url(sid: &str, email: &str) -> String {
     "http://127.0.0.1:8799/hook".to_string()
 }
 
-/// `_system_agents`：该系统所有 agent 的 `(email, 接收端 URL)`。
-/// 接收端**优先取绑定的 webhook_url**（唯一信任源，含平台真实路径）；
-/// 回退历史路由表，再回退平台默认（照抄 Python 的三级顺序）。
+/// `_system_agents`: `(email, receiver URL)` for all agents of this system.
+/// Receiver **prioritizes the bound webhook_url** (single source of truth, includes platform real path);
+/// falls back to historical routing table, then falls back to platform default (mirrors Python's three-level order).
 pub fn system_agents(sid: &str) -> Vec<(String, String)> {
     let routes = read_routes(&routes_file());
     let mut out = Vec::new();

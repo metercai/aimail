@@ -1,11 +1,11 @@
 /**
- * register-cli 进程 argv 解析单源(C1: 三宿主 register-cli.ts 各自的
- * arg/flag/emit 副本合并于此, 宿主侧只留 import)。
+ * register-cli process argv parsing single source (C1: the three host register-cli.ts copies of
+ * arg/flag/emit copies merged here, host side only keeps import).
  *
- * 语义(与三宿主原副本逐字一致, 2026-10-17 提取):
- * - `arg`: `--name value` 取 value; 缺失/尾随无值 ⇒ ''。
- * - `flag`: 名字出现即 true(无值)。
- * - `emit`: 单行 JSON + 换行写到 stdout(register-cli 的 ABI 面)。
+ * Semantics (verbatim identical to the three host original copies, extracted 2026-10-17):
+ * - `arg`: `--name value` takes value; missing/trailing without value ⇒ ''.
+ * - `flag`: true if name appears (no value).
+ * - `emit`: single line JSON + newline written to stdout (register-cli's ABI surface).
  */
 
 export function arg(argv: string[], name: string): string {

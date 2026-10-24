@@ -1,11 +1,11 @@
-// pi-aimail 回归守卫（审计 2026-09-21 补齐：本包此前零测试）。
+// pi-aimail regression guard (completed in audit 2026-09-21: this package previously had zero tests).
 //
-// 覆盖两类曾经真出问题/无人守卫的事项：
-//   1. 注册面 = MAIL_TOOLS 全集（适配器只绑定身份，不得漏/多注册）
-//   2. **pi manifest 必须在位**：pi 宿主 `readPiManifest()` 读 package.json 的
-//      `pi` 键，缺失时只按约定目录(extensions/skills/prompts/themes)自动发现；
-//      两者皆无 ⇒ `pi install npm:pi-aimail` 装完**零资源**(静默不注册任何工具)。
-//      实测宿主 readPiManifest(本包旧 package.json) 返回 null。
+// Covers two types of items that previously really had problems/no one guarded:
+//   1. Registration surface = full set of MAIL_TOOLS (adapter only binds identity, must not miss/over-register)
+//   2. **the pi manifest must be in place**: the pi host `readPiManifest()` reads package.json's
+//      `pi` key; when missing it auto-discovers only by the agreed directories (extensions/skills/prompts/themes);
+//      both none ⇒ `pi install npm:pi-aimail` installs **zero resources** (silently registers no tools).
+//      Verified that host readPiManifest (old package.json of this package) returns null.
 import { describe, it, expect } from 'vitest'
 import { readFileSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -27,9 +27,9 @@ describe('pi-aimail tool registration', () => {
     const pkg = JSON.parse(readFileSync(join(pkgDir, 'package.json'), 'utf-8')) as {
       pi?: { extensions?: string[] }
     }
-    expect(pkg.pi?.extensions?.length, 'pi.extensions 缺失 ⇒ pi install 后零扩展').toBeTruthy()
+    expect(pkg.pi?.extensions?.length, 'pi.extensions missing ⇒ zero extensions after pi install').toBeTruthy()
     for (const rel of pkg.pi!.extensions!) {
-      expect(existsSync(join(pkgDir, rel)), `${rel} 不存在(先 pnpm build)`).toBe(true)
+      expect(existsSync(join(pkgDir, rel)), `${rel} does not exist (run pnpm build first)`).toBe(true)
     }
   })
 })

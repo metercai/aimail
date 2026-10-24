@@ -36,13 +36,13 @@ import {
 
 async function main(): Promise<number> {
   const argv = process.argv.slice(2)
-  // 契约 v1.0 §4.1(2):op 入口形态(CLI 经注册表 ops.argv 调)——
+  // Contract v1.0 §4.1(2): op entry shape (CLI calls via registry ops.argv) ——
   //   node <register-cli.js> --op <assemble|update|teardown> --args '<json>'
-  // op 分支单源 = mail-core runOpEntry(C2 2026-10-17);无 `--op` ⇒ legacy 绑定分支。
+  // op branch single source = mail-core runOpEntry(C2 2026-10-17); no `--op` ⇒ legacy binding branch.
   return runOpEntry(argv, { onNoOp: () => legacyBind(argv) })
 }
 
-/** legacy 绑定分支(无 `--op`,旧注册表形态;C2 骨架化后原样保留)。 */
+/** legacy binding branch (no `--op`, old registry form; preserved as-is after C2 skeletonization). */
 async function legacyBind(argv: string[]): Promise<number> {
   const systemIdArg = arg(argv, '--system-id')
   const nameArg = arg(argv, '--name')
@@ -68,8 +68,8 @@ async function legacyBind(argv: string[]): Promise<number> {
     email: emailArg,
     domain: gw.domain || '',
     systemName: gw.system_name || '',
-    // 默认主 agent 名 'agent'(owner 裁决 2026-10-16,与 dsh/openclaw 地址统一);
-    // CLI install 路径经注册表 --name agent 直达此基名。
+    // Default main agent name 'agent' (owner decision 2026-10-16, unified with dsh/openclaw address);
+    // CLI install path reaches this base name directly via registry --name agent.
     fallbackBase: 'agent',
   })
 
@@ -79,8 +79,8 @@ async function legacyBind(argv: string[]): Promise<number> {
       email,
       webhookUrl: localWebhook,
       ...(manager ? { managerAddress: manager } : {}),
-      // agent_id 是可经 CLI 改名的 agent「名」,不是平台身份特征(见 identity.ts
-      // 头注);CLI check 按平台指针识别 pi,不再按 agent_id。
+      // agent_id is the agent "name" that can be renamed via CLI, not a platform identity feature (see identity.ts
+      // header comment); CLI check identifies pi by platform pointer, not by agent_id.
       extraFields: { agent_id: 'agent' },
     })
     // platform pointer — pi extensions read identity from ~/.pi/.agentmail

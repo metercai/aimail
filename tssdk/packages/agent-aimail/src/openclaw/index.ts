@@ -165,7 +165,7 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
         // are unref'd by mail-core, so they die with the process and can never
         // keep it alive (see poll-entry.ts pollSleep).
         void startInboundPull(api, {
-          // 诊断行 ⇒ stderr:op 路径 stdout 恰一行 JSON(契约 §4.1(2));stdout 污染 ⇒ CLI Transport 判"门输出异常"
+          // Diagnostic line ⇒ stderr: op path stdout exactly one line JSON (Contract §4.1(2)); stdout pollution ⇒ CLI Transport judges "gate output abnormal"
           log: (line: string) => console.error(line),
         }).then((handles) => {
           if (handles.length) {
@@ -179,7 +179,7 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
           )
         })
 
-        // Inbound notification (owner ruling 2026-09-28, SDK 去桥化): the
+        // Inbound notification (owner ruling 2026-09-28, SDK de-bridging): the
         // in-gateway route is live AND the default agent is bound, so this
         // plugin tells the environment master (the `aimail` CLI), per address
         // it serves, that inbound is live: `aimail address -a <addr>
@@ -189,7 +189,7 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
           .then((outcomes) => {
             for (const o of outcomes) {
               const line = `[agent-aimail] ${formatInboundNotifyLine(o, 'live')}`
-              // 诊断行 ⇒ stderr(警告/普通分流,契约"failure 是 warning line"):op 路径 stdout 恰一行 JSON(§4.1(2))
+              // Diagnostic line ⇒ stderr (warning/normal split, contract "failure is warning line"): op path stdout exactly one line JSON (§4.1(2))
               if (isInboundNotifyWarning(o)) console.warn(line)
               else console.error(line)
             }
@@ -236,7 +236,7 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
         }).action(async (...args: unknown[]) => {
             const { handleCommand } = await import('./commands.js')
             const argv = (args[0] as string[] | undefined) ?? []
-            // CLI 调用与 chat 命令同构:args 字符串 + senderIsOwner(本机操作者)
+            // CLI call is isomorphic to chat command: args string + senderIsOwner (local operator)
             const result = await handleCommand({
               args: argv.join(' '),
               channel: 'cli',

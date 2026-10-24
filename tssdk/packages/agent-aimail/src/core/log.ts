@@ -1,8 +1,8 @@
 /**
  * Per-agent agentmail.log helpers — shared by preprocess (inbound/ping) and
  * tools (outbound). Mirrors Python `_log_aimail` / `aimail_log_path`:
- *   {AIMAIL_HOME}/systems/{sid}/{cleanAddr(email)}/agentmail.log (三层收口
- *   2026-09-23, 顶层不再有 logs/), one JSON line per
+ *   {AIMAIL_HOME}/systems/{sid}/{cleanAddr(email)}/agentmail.log (three-layer convergence
+ *   2026-09-23, top-level no longer has logs/), one JSON line per
  * entry, keys: ts, dir, from, to, subj, email_id (optional), ping_id (ping).
  *
  * Extracted into its own module so tools.ts can log outbound lines without

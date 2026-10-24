@@ -1,50 +1,50 @@
 name: l3
 
 # ═══════════════════════════════════════════════════════════════════════
-# L3 — 发布后对接闭环回归(用户环境 / 已发布产物)
+# L3 — post-release integration closed-loop regression (user environment / released artifacts)
 #
-# 以终为始: 用**最新已发布**的 CLI + SDK + 基础版网关, 在**真·用户环境**(真 OS
-# 硬件 + 真 agent 系统 + 真 LLM)验证"CLI×SDK×网关"三者能完成对接、并闭环跑起来。
-# 被测物全部来自发布渠道(GitHub Release / PyPI / npm), 绝不来自工作树。
+# End-state first: use the **latest released** CLI + SDK + base gateway, in a **true user environment** (real OS
+# hardware + real agent system + real LLM) to verify the "CLI×SDK×gateway" trio completes integration and runs the loop closed.
+# Every artifact under test comes from a release channel (GitHub Release / PyPI / npm), never from the working tree.
 #
-# 与 L2 的关系(不重复):
-#   L2 旅程 = 发布**前**门禁, 测**工作树** rust 二进制, 在 advanced docker 宿主里;
-#   L3      = 发布**后**冒烟, 测**发布版**, 在 GitHub runner 原生 OS/硬件上。
+# Relation to L2 (no duplication):
+#   L2 journey = the **pre**-release gate, testing the **working-tree** rust binary, inside the advanced docker host;
+#   L3      = the **post**-release smoke, testing the **released** build, on the GitHub runner's native OS/hardware.
 #
-# 触发(owner 2026-10-11 梳理 Q1-B: 触发面单一, 不再用 workflow_run 链):
-#   ① 被 publish.yml 调用(workflow_call, 发布成功后自动跑);
-#   ② nightly(schedule) —— 抓"发布后漂移";
-#   ③ workflow_dispatch 手动。
-#   原先由三个发布 workflow 的 workflow_run 触发 —— 一次发版会带起 7 次 L3(多为
-#   skipped/cancelled), 状态无法读, 且发布失败也会触发; 现由调用方用 needs/if 控制。
+# Triggers (owner 2026-10-11 cleanup Q1-B: a single trigger surface, no more workflow_run chain):
+#   ① invoked by publish.yml (workflow_call, runs automatically after a successful release);
+#   ② nightly (schedule) — catches "post-release drift";
+#   ③ workflow_dispatch manually.
+#   formerly triggered by workflow_run of the three release workflows — one release fanned out 7 L3 runs (mostly
+#   skipped/cancelled), unreadable status, and it fired even on a failed release; now the caller controls it with needs/if.
 #
-# 矩阵 = 3 平台 × 3 agent 格 = 9 job(回归内容完全一致, 见 run-l3.sh):
-#   平台: linux-amd64 / linux-arm64(原生 ARM) / macos-arm64
-#   (Windows: CLI 未完成 Windows 移植, 移植完成前不跑; 恢复后 = 4 平台 × 3 格 = 12 job)
-#   agent 格: hermes(pysdk 路径) / dsh-aimail(CLI 入口: aimail install --home ~/.dsh)
-#             / dsh-plugin(插件入口: dsh plugin --profile web add dsh-aimail)。
-#   dsh 两条 README 公布路径(README 90/96 行 "pick one of the two")各占一格,
-#   独立失败点: aimail install 路径多走 CLI detect/平台适配, 插件路径直连 dsh 管理器。
+# Matrix = 3 platforms × 3 agent cells = 9 jobs (regression content identical, see run-l3.sh):
+#   platforms: linux-amd64 / linux-arm64 (native ARM) / macos-arm64
+#   (Windows: the CLI port is incomplete; not run until the port lands; once restored = 4 platforms × 3 cells = 12 jobs)
+#   agent cells: hermes (pysdk path) / dsh-aimail (CLI entry: aimail install --home ~/.dsh)
+#             / dsh-plugin (plugin entry: dsh plugin --profile web add dsh-aimail).
+#   dsh's two README-published paths (README lines 90/96, "pick one of the two") each take a cell,
+#   with independent failure points: the aimail install path goes through CLI detect/platform adaptation; the plugin path goes straight to the dsh manager.
 #
-# 每 job 三步(D3 裁决):
-#   ① 装目标 agent + 配 LLM(小米 OpenAI 兼容端点, secret XIAOMI_API_KEY) + 验证可运行
-#   ② 取已发布 CLI(bootstrap.sh 在线, 用户真实入口) + 已发布网关(Release 二进制)
-#   ③ 同一套回归: aimail install(admin-key 激活) → welcome 闭环 → 查询邮件签名断言
+# Each job in three steps (D3 ruling):
+#   ① install the target agent + configure the LLM (Xiaomi OpenAI-compatible endpoint, secret XIAOMI_API_KEY) + verify it runs
+#   ② fetch the released CLI (bootstrap.sh online, the user's real entry) + the released gateway (Release binary)
+#   ③ the same regression: aimail install (admin-key activation) → welcome loop → mail-query signature assertion
 #
-# 激活流: 只测 **admin-key** 激活(基础版网关), 不测激活码(高级版)。
-#   (网关发布在 aimail-gateway 仓, 跨仓不能 workflow_run; L3 直接取其最新 Release,
-#    缺失即明确报错, 不猜。)
+# Activation flow: only **admin-key** activation is tested (base gateway); activation codes (advanced) are not.
+#   (the gateway releases in the aimail-gateway repo; cross-repo workflow_run is not possible; L3 takes its newest Release directly,
+#    erroring loudly when it is missing, never guessing.)
 # ═══════════════════════════════════════════════════════════════════════
 on:
-  workflow_call:          # publish.yml 发布成功后调用
+  workflow_call:          # invoked by publish.yml after a successful release
   schedule:
-    - cron: "17 3 * * *"  # nightly — 抓"发布后漂移"
-  workflow_dispatch: {}   # 显式空对象 — null 值 GitHub 不注册该触发器(dispatch API 422)
+    - cron: "17 3 * * *"  # nightly — catches "post-release drift"
+  workflow_dispatch: {}   # explicit empty object — a null value makes GitHub not register the trigger (dispatch API 422)
 
 permissions:
   contents: read
 
-# 同一时刻只跑一个 L3(矩阵内部并发, 但跨 run 串行): 避免重复烧 LLM token / 抢 runner。
+# only one L3 at a time (matrix-internal parallelism, but runs serialized across runs): avoids double-burning LLM tokens / contending for runners.
 concurrency:
   group: l3
   cancel-in-progress: false
@@ -58,7 +58,7 @@ jobs:
     name: L3 ${{ matrix.platform }} / ${{ matrix.agent }}
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false   # 一个平台红不取消其余 —— 8 格都要看到裁决
+      fail-fast: false   # one red platform does not cancel the rest — verdicts from all 8 cells must be visible
       matrix:
         include:
           # ── Linux ──
@@ -73,7 +73,7 @@ jobs:
           - { platform: macos-arm64, os: macos-14,        agent: dsh-aimail }
           - { platform: macos-arm64, os: macos-14,        agent: dsh-plugin }
           # ── Windows ──
-          # CLI Windows 移植完成(2026-10-17)恢复 3 格 = 12 job。
+          # restore 3 cells = 12 jobs once the CLI Windows port completes (2026-10-17).
           - { platform: windows-amd64, os: windows-latest, agent: hermes }
           - { platform: windows-amd64, os: windows-latest, agent: dsh-aimail }
           - { platform: windows-amd64, os: windows-latest, agent: dsh-plugin }
@@ -87,9 +87,9 @@ jobs:
         with:
           path: aimail
 
-      # L3 对 advanced 的全部依赖 = tests/agent-env/**(环境准备单源 prepare/verify +
-      # llm-config.py, 已自包含进 aimail 仓, 纯标准库)——不再跨仓 checkout:advanced 是私有仓,
-      # 触发仓的 GITHUB_TOKEN 无权访问(实测 404), 且 L3 原则是被测物不来自工作树。
+      # L3's entire dependency on advanced = tests/agent-env/** (the single source of environment prep: prepare/verify +
+      # llm-config.py, now self-contained in the aimail repo, pure stdlib) — no more cross-repo checkout: advanced is private,
+      # and the triggering repo's GITHUB_TOKEN cannot access it (measured 404); also, L3's principle is that artifacts under test never come from the working tree.
 
       - name: L3 gate (agent env → published CLI+gateway → closed loop)
         shell: bash
@@ -99,14 +99,14 @@ jobs:
           export L3_AGENT="${{ matrix.agent }}"
           export AIMAIL_REPO="$GITHUB_WORKSPACE/aimail"
           export LLM_API_KEY="${{ secrets.XIAOMI_API_KEY }}"
-          # 日志统一落 workspace(两个 context 都有效): env.HOME 是 GitHub env context
-          # (非 OS HOME, 表达式里为空 ⇒ path 变 /l3-logs 找不到文件 ⇒ 0 artifact)。
+          # logs land in the workspace uniformly (valid in both contexts): env.HOME is the GitHub env context
+          # (not the OS HOME; empty inside the expression ⇒ the path becomes /l3-logs, file not found ⇒ 0 artifacts).
           export L3_LOG_ARCHIVE="$GITHUB_WORKSPACE/l3-logs"
           mkdir -p "$L3_LOG_ARCHIVE"
-          # 全量捕获 stdout(含子进程): runner 日志读不了时这是唯一证据通道。
+          # capture all stdout (including child processes): when runner logs are unreadable this is the only evidence channel.
           bash "$AIMAIL_REPO/tests/l3/run-l3.sh" 2>&1 | tee "$L3_LOG_ARCHIVE/l3-stdout.log"
           rc="${PIPESTATUS[0]}"
-          # 落盘自检: 日志必须存在, 否则 upload 步 error 暴露(而非静默 0 artifact)。
+          # self-check the on-disk log: it must exist, otherwise the upload step errors (instead of a silent 0 artifacts).
           echo "[l3] log archive: $L3_LOG_ARCHIVE"; ls -la "$L3_LOG_ARCHIVE" 2>&1
           exit "$rc"
 
@@ -115,7 +115,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: l3-${{ matrix.platform }}-${{ matrix.agent }}-logs
-          # 绝对路径: 相对 path 在本 job 解析不到 $GITHUB_WORKSPACE/l3-logs
-          # (checkout path:aimail 偏移了有效工作目录 ⇒ 0 artifact)。github.workspace 无歧义。
+          # absolute path: a relative path in this job does not resolve to $GITHUB_WORKSPACE/l3-logs
+          # (checkout path:aimail shifts the effective working directory ⇒ 0 artifacts). github.workspace is unambiguous.
           path: ${{ github.workspace }}/l3-logs
           if-no-files-found: warn

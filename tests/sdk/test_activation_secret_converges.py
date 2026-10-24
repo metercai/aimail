@@ -1,10 +1,10 @@
-"""2026-10-01 owner 方案A(激活站): 激活本地生成的 webhook_secret 必须与网关对齐。
+"""2026-10-01 owner plan A (activation station): Activating locally generated webhook_secret must align with gateway.
 
-病灶(实测 L2 原文): 注册侧 sha256=31ad2cfe5140 vs 本地绑定 sha256=e6b42e73e32b —— 第 10 缺陷。
-机制: `activate-address-code` 的 body 只有 {code, email_address}(aimail_tools.py:429)，网关
-自己签发一把；`activate_address_code_persist` 在 **其后** 本地生成另一把(:516-518)且**从不回传**
-⇒ 两把永久不等。B(`228ebaa`) 修的是 register 路径，本流程不经过它 ⇒ 实测仍不等。
-本测试: 网关侧预置一把不同的 secret ⇒ 断言激活收尾必须把它对齐成**绑定这一把**(单一真源=绑定)。
+Lesion (measured L2 original text): registration side sha256=31ad2cfe5140 vs local binding sha256=e6b42e73e32b -- Defect 10.
+Mechanism: `activate-address-code` body only has {code, email_address} (aimail_tools.py:429), gateway
+issues one itself; `activate_address_code_persist` generates another one locally **afterwards** (:516-518) and **never returns it**
+⇒ the two are permanently unequal. B (`228ebaa`) fixes the register path, this flow does not go through it ⇒ measured still unequal.
+This test: gateway side pre-sets a different secret ⇒ assert activation finalization must align it to **this binding one** (single source of truth = binding).
 """
 import logging
 import pathlib
@@ -18,16 +18,16 @@ for _d in (ROOT / "pysdk",):
         sys.path.insert(0, str(_d))
 
 import aimail_tools  # noqa: E402
-from aimail_contract import BINDING_FILE  # noqa: E402 — 契约单源: 禁字面量(撞棘轮)
+from aimail_contract import BINDING_FILE  # noqa: E402 — contract single source: no literals (ratchet collision)
 
-_REAL = aimail_tools._GatewayClient  # 导入期抓真类(autouse fixture 会顶掉模块名)
+_REAL = aimail_tools._GatewayClient  # capture real class at import time (autouse fixture will override module name)
 
 EMAIL = "agent.converge@demo.test"
 GATEWAY_OLD_SECRET = "a" * 64
 
 
 class _FakeGateway:
-    """网关替身: 已持有一把**不同**的 secret(预置), 记录所有 update 写入。"""
+    """Gateway stub: already holds a **different** secret (preset), records all update writes."""
     writes: list = []
 
     def __init__(self, url="", key=""):
@@ -42,8 +42,8 @@ class _FakeGateway:
 
 
 def _real_host():
-    """真 `_GatewayClient` 实例(:74, 被测方法就挂在它身上), 实例级遮蔽激活调用。"""
-    h = _REAL.__new__(_REAL)          # 跳过 __init__(签名与被测逻辑无关)
+    """Real `_GatewayClient` instance (:74, the method under test is attached to it), instance-level shadowing activates the call."""
+    h = _REAL.__new__(_REAL)          # Skip __init__ (signature is irrelevant to the logic under test)
     h.gateway_url = "https://gw.test"
     h.activate_address_code = lambda code, ea: {
         "success": True,
@@ -76,7 +76,7 @@ def test_activation_converges_gateway_secret_to_the_binding_secret(tmp_path, mon
     local = str(binding.get("webhook_secret") or "")
     assert local and len(local) == 64, "binding must carry a 64-hex local secret"
 
-    # 网关那把(预置的不同值)必须被对齐成绑定这一把: 恰好一次写、带非空 secret、值相等。
+    # The gateway's one (preset different value) must be aligned to this bound one: exactly one write, with non-empty secret, value equal.
     assert len(_FakeGateway.writes) == 1, (
         "expected exactly one gateway sync write, got %r" % (_FakeGateway.writes,))
     _did, _url, _gwsec = _FakeGateway.writes[0]
@@ -87,16 +87,16 @@ def test_activation_converges_gateway_secret_to_the_binding_secret(tmp_path, mon
 
 
 def test_activation_keeps_an_existing_binding_secret_untouched(tmp_path, monkeypatch):
-    """已有 secret ⇒ 复用不覆盖(不变), 但仍要把对齐动作做完(幂等收敛)。"""
+    """Existing secret ⇒ reuse without overwriting (invariant), but still complete the alignment action (idempotent convergence)."""
     monkeypatch.setenv("HOME", str(tmp_path))
 
     h = _real_host()
-    # 第一次跑: 生成并落盘
+    # First run: generate and persist to disk
     h.activate_address_code_persist("CODE-1", EMAIL)
     first = _load_binding(tmp_path)["webhook_secret"]
     _FakeGateway.writes.clear()
 
-    # 第二次跑(同地址): existing ⇒ 复用同一把
+    # Second run (same address): existing ⇒ reuse the same one
     h.activate_address_code_persist("CODE-1", EMAIL)
     second = _load_binding(tmp_path)["webhook_secret"]
     assert second == first, "existing binding secret must be reused (no churn)"
@@ -104,11 +104,11 @@ def test_activation_keeps_an_existing_binding_secret_untouched(tmp_path, monkeyp
         assert _FakeGateway.writes[-1][2] == first, "any sync must carry that same secret"
 
 
-# ── F1(2026-10-02 卡A 收尾): 看不见行 ⇒ 不再把激活打死 ──────────────────────
+# ── F1 (2026-10-02 Card A wrap-up): invisible row ⇒ no longer kill activation ──────────────────────
 class _FakeGatewayNoRow(_FakeGateway):
-    """纯地址级激活现场: 该地址在网关**没有** system_domains 行
-    (gw 日志只有 domain_created + address_code_activated) ⇒ list 回 [];
-    `_request` 可被设成 401/403 以复现 agent-scope key 被 http.rs:744-747 拒之门外。"""
+    """Pure address-level activation scene: this address has **no** system_domains row in the gateway
+    (gw log only has domain_created + address_code_activated) ⇒ list returns [];
+    `_request` can be set to 401/403 to reproduce agent-scope key being rejected by http.rs:744-747."""
 
     status = 0
 
@@ -120,7 +120,7 @@ class _FakeGatewayNoRow(_FakeGateway):
 
 
 def test_activation_continues_when_the_gateway_has_no_visible_row(tmp_path, monkeypatch):
-    """F1 RED/GREEN: 修复前这里 raise ⇒ **地址级激活整体失败** ⇒ E2-pull 连红 7 轮。"""
+    """F1 RED/GREEN: before the fix, this raises ⇒ **address-level activation fails entirely** ⇒ E2-pull red for 7 rounds."""
     monkeypatch.setattr(aimail_tools, "_GatewayClient", _FakeGatewayNoRow)
     monkeypatch.setenv("HOME", str(tmp_path))
     _FakeGatewayNoRow.status = 0
@@ -135,7 +135,7 @@ def test_activation_continues_when_the_gateway_has_no_visible_row(tmp_path, monk
 
 
 def test_activation_continues_and_calls_out_the_scope(tmp_path, monkeypatch, caplog):
-    """F1: 403 ⇒ 不抛, 且告警必须点名 scope(响亮 ≠ 静默)。"""
+    """F1: 403 ⇒ no exception, and the warning must name the scope (loud ≠ silent)."""
     monkeypatch.setattr(aimail_tools, "_GatewayClient", _FakeGatewayNoRow)
     monkeypatch.setenv("HOME", str(tmp_path))
     _FakeGatewayNoRow.status = 403
@@ -149,7 +149,7 @@ def test_activation_continues_and_calls_out_the_scope(tmp_path, monkeypatch, cap
 
 def test_activation_still_fails_loudly_when_the_visible_row_cannot_be_written(
         tmp_path, monkeypatch):
-    """卡A 原意不动: 行可见但 PUT 坏了 ⇒ 必须 raise(绝不留两把钥匙)。"""
+    """Card A original intent unchanged: line visible but PUT broken ⇒ must raise(never leave two keys)."""
     monkeypatch.setenv("HOME", str(tmp_path))
 
     class _Broken(_FakeGateway):

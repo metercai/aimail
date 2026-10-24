@@ -27,18 +27,18 @@ import subprocess
 import sys
 from pathlib import Path
 
-# ── 双形态自举(repo pysdk/ ↔ pip site-packages/aimail/)──
-# repo 形态: dirname(dirname(__file__)) = pysdk/(含 aimail_base.py 等 flat core,
-# 裸 import 可用)→ 加入 sys.path。pip 形态: 该目录 = site-packages/(无 flat core),
-# 需先 import aimail 触发 aimail/__init__.py glue(把 aimail/ 目录插 sys.path,
-# flat core 裸 import 才可用)。
+# ── Dual-form bootstrap (repo pysdk/ ↔ pip site-packages/aimail/) ──
+# repo form: dirname(dirname(__file__)) = pysdk/ (contains aimail_base.py etc flat core,
+# Bare import available) → add to sys.path. pip form: this dir = site-packages/ (no flat core),
+# need to import aimail first to trigger aimail/__init__.py glue (insert aimail/ dir into sys.path,
+# flat core bare import then available).
 _CORE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if os.path.isfile(os.path.join(_CORE_DIR, "aimail_base.py")):
     if _CORE_DIR not in sys.path:
         sys.path.insert(0, _CORE_DIR)
 else:
     try:
-        import aimail  # noqa: F401  (pip 形态 glue)
+        import aimail  # noqa: F401  (pip form glue)
     except Exception:
         pass
 
@@ -135,11 +135,11 @@ def _auto_detect_anchors(lines: list) -> dict:
 
 
 
-# ── 插入文本单真源(canonical insertion blocks)──────────────────────
-# patch_webhook() 与 unpatch_webhook() 共用同一批常量 → unpatch 剥离的
-# 字节 == patch 实际插入的字节(逐字节对称,杜绝漂移)。unpatch 先剥离
-# Hermes adapter import(patch 7 插在 registry 块尾部空行中间,必须先移除
-# 才恢复 registry 块连续),再剥离其余块。
+# ── Single source of truth for insertion text (canonical insertion blocks) ──────────────────────
+# patch_webhook() and unpatch_webhook() share the same set of constants → unpatch strips
+# == bytes actually inserted by patch (byte-for-byte symmetric, eliminating drift). unpatch first strips
+# Hermes adapter import (patch 7 inserted in middle of blank lines at end of registry block, must be removed
+# first to restore registry block continuity), then strips remaining blocks.
 WEBHOOK_REGISTRY_BLOCK = """
 
 # ═══════════════════════════════════════════════════════════════
@@ -201,11 +201,11 @@ try:
 except Exception:
     aimail_hermes = None
 
-# ── agent-scope 定时轮询入口(pull-entry, pysdk/aimail_base)──
-# 宿主(网关进程)初始化收尾把"自己这条 pull 唤起路径"接上: 地址级激活码兑来的
-# 地址取不到 push(网关给它写 webhook_url = NULL), 只能自己定时 pull。只有
-# agent-scope 绑定会被启用; 没绑定 / 被 AIMAIL_PULL=0 关掉时为空操作。派生线程
-# 是 daemon ⇒ 进程退出即停, 另有 atexit 收尾。
+# ── agent-scope scheduled polling entry (pull-entry, pysdk/aimail_base) ──
+# The host (gateway process) initialization finalization hooks up "its own pull wake-up path": addresses activated by address-level activation codes
+# cannot obtain push (the gateway writes webhook_url = NULL for them), so they can only poll themselves on a schedule. Only
+# agent-scope bindings are enabled; if not bound / disabled by AIMAIL_PULL=0, it is a no-op. The derived thread
+# is a daemon ⇒ stops when the process exits, with additional atexit cleanup.
 if aimail_hermes is not None:
     try:
         aimail_hermes.ensure_agent_pull_started()
@@ -215,54 +215,54 @@ if aimail_hermes is not None:
 '''
 
 
-# ── 关键锚清单(P2, owner 2026-09-30): 名字 → 该块的专属判据串 ──────────────
-# 与 WEBHOOK_*_BLOCK 同源(判据串必须逐字出现在对应插入块里), 调用方(以及
-# tests/cli/docker/journey-in-host.sh 的守卫)只按这里的串判"钩子在位"。
+# ── Key anchor list (P2, owner 2026-09-30): name → exclusive criterion string for that block ──────────────
+# Same source as WEBHOOK_*_BLOCK (criterion strings must appear verbatim in the corresponding insertion block), the caller (and
+# the guard in tests/cli/docker/journey-in-host.sh) only checks for "hook in place" based on the strings here.
 WEBHOOK_REQUIRED_ANCHORS = (
-    ("registry 块(PREPROCESS_REGISTRY 定义)",
+    ("registry block (PREPROCESS_REGISTRY definition)",
      "PREPROCESS_REGISTRY: Dict[str, Callable] = {}"),
-    ("preprocessor 调用钩子(CALL 块)",
+    ("preprocessor call hook (CALL block)",
      "preprocessor = PREPROCESS_REGISTRY.get(preprocess_name)"),
-    ("adapter 导入块(from aimail.hermes import aimail_hermes)",
+    ("adapter import block (from aimail.hermes import aimail_hermes)",
      "from aimail.hermes import aimail_hermes"),
 )
 
 
 def missing_webhook_anchors(text: str) -> list:
-    """P2(owner 2026-09-30): 补丁后**关键锚**必须在 —— 判据只增不减。
+    """P2 (owner 2026-09-30): **Key anchors** after patching must be present —— criteria only increase, never decrease.
 
-    缺任何一块都意味着"声明了但没实现": registry 缺 ⇒ 没有注册表;
-    调用钩子缺 ⇒ 有注册无调用, preprocessor **永不执行**(agentmail.log 恒 0 行,
-    而 202 照旧由原生非阻塞回执返回 ⇒ 表象是"装好了"); adapter 导入缺 ⇒
-    适配器不挂。返回缺失块名清单(空 = 齐)。
+    Missing any block means "declared but not implemented": missing registry ⇒ no registry;
+    missing call hook ⇒ registry exists but no call, preprocessor **never executes** (agentmail.log always 0 lines,
+    while 202 is still returned by native non-blocking receipt ⇒ appearance is "installed"); missing adapter import ⇒
+    adapter not attached. Returns list of missing block names (empty = complete).
     """
     return [name for name, anchor in WEBHOOK_REQUIRED_ANCHORS
             if anchor not in text]
 
 
 def webhook_patch_gaps(target_path: str) -> list:
-    """磁盘形态的关键锚体检(供 install_hermes 等调用方判失败)。"""
+    """Key anchor health check for disk form (for callers like install_hermes to determine failure)."""
     try:
         with open(target_path) as f:
             text = f.read()
     except OSError as e:
-        return [f"webhook.py 不可读: {e}"]
+        return [f"webhook.py unreadable: {e}"]
     return missing_webhook_anchors(text)
 
 
-# ── Patch 3 的 prompt 渲染锚(2026-09-30 取证, 形态 A/B 双兼容)────────────────
-# 形态 A(旧 hermes handler):注释行 `        # Format prompt from template`。
-# 形态 B(现行 hermes —— handler 改写成 `with self._profile_scope(profile):` 后
-#   行内渲染, 注释已删):锚是
+# ── Prompt rendering anchor for Patch 3 (2026-09-30 forensics, compatible with forms A/B)────────────────
+# Form A (old hermes handler): comment line `        # Format prompt from template`.
+# Form B (current hermes —— handler rewritten to `with self._profile_scope(profile):`
+#   inline rendering, comment removed): anchor is
 #   `prompt = self._render_prompt(route_config.get("prompt", ""), payload, ...)`。
-# 取证原文(镜像 aimail-host-hermes 的 /opt/data/hermes-agent/gateway/platforms/
-# webhook.py, 883 行, 非 git 仓): `grep -c 'Format prompt from template'` = 0,
-# 只有形态 B ⇒ 只认 A 会让 patch 3 静默跳过 ⇒ 调用钩子锚恒 0(preprocessor 永不执行)。
+# Forensic original text (mirrors aimail-host-hermes's /opt/data/hermes-agent/gateway/platforms/
+# webhook.py, 883 lines, not a git repo): `grep -c 'Format prompt from template'` = 0,
+# only Form B ⇒ recognizing only A would cause patch 3 to silently skip ⇒ call hook anchor always 0 (preprocessor never executes).
 PROMPT_ANCHOR_LEGACY = "# Format prompt from template"
 PROMPT_ANCHOR_INLINE = 'prompt = self._render_prompt(route_config.get("prompt", "")'
 CALL_BLOCK_MARKER = "# ── Preprocess payload (AimailGateway integration)"
-PROMPT_ANCHOR_HINT = ("prompt 渲染锚(二选一): "
-                      f"{PROMPT_ANCHOR_LEGACY!r} 或 {PROMPT_ANCHOR_INLINE!r}")
+PROMPT_ANCHOR_HINT = ("prompt rendering anchor (one of two): "
+                      f"{PROMPT_ANCHOR_LEGACY!r} or {PROMPT_ANCHOR_INLINE!r}")
 
 
 def _find_call_marker_line(lines: list):
@@ -274,11 +274,11 @@ def _find_call_marker_line(lines: list):
 
 
 def _find_prompt_anchor_line(lines: list):
-    """Return index of the prompt-render anchor line: 形态 A 优先, 再试形态 B。
+    """Return index of the prompt-render anchor line: Form A preferred, then try Form B.
 
-    形态 B 取**首个**命中行(= webhook POST handler 里 script 变换之后、
-    `_render_prompt` 那一行); 文件别处的 `_render_prompt(...)` 调用形态不同
-    (`return {key: self._render_prompt(value, ...)}`)不会误命中。
+    Form B takes the **first** hit line (= in webhook POST handler after script transformation,
+    the `_render_prompt` line); `_render_prompt(...)` calls elsewhere in the file have different forms
+    (`return {key: self._render_prompt(value, ...)}`) and will not falsely match.
     """
     for i, ln in enumerate(lines):
         if ln.strip().startswith(PROMPT_ANCHOR_LEGACY):
@@ -290,11 +290,11 @@ def _find_prompt_anchor_line(lines: list):
 
 
 def _strip_call_block_lines(text: str) -> tuple:
-    """按行剥离已插入的调用钩子块(任意缩进) → (新文本, 是否剥离了)。
+    """Strip already inserted call hook block line by line (any indentation) → (new text, whether stripped).
 
-    行区间 = [marker, prompt 锚) 外加紧邻 marker 的那一行空白 —— 那行空白是
-    WEBHOOK_CALL_BLOCK 开头 `\\n` 造出来的, 一并删掉才能回到补丁前的字节
-    (幂等重跑不涨空行)。patch 与 unpatch 共用本函数 ⇒ 逐字节对称。
+    Line range = [marker, prompt anchor) plus the blank line immediately adjacent to marker —— that blank line is
+    created by the leading `\n` of WEBHOOK_CALL_BLOCK; deleting them together is what returns to the pre-patch bytes
+    (idempotent re-run does not increase blank lines). patch and unpatch share this function ⇒ byte-for-byte symmetric.
     """
     lines = text.split('\n')
     mi = _find_call_marker_line(lines)
@@ -314,9 +314,9 @@ def patch_webhook(target_path: str) -> bool:
     Returns True if the file was modified (any add/update patch applied).
     Idempotent: already-patched files are detected and reported as ALREADY PATCHED.
 
-    P2(owner 2026-09-30): **锚缺失不再"WARNING 后返回成功"** —— 关键锚缺任一块
-    即返回 False(ERROR 行点名缺哪块); 调用方要区分"已打好"与"打失败"就读
-    `webhook_patch_gaps(path)`(空 = 齐)。
+    P2 (owner 2026-09-30): **Missing anchor no longer "WARNING then return success"** —— if any key anchor is missing
+    i.e., return False (ERROR line names which block is missing); caller must distinguish "already applied" from "failed" by reading
+    `webhook_patch_gaps(path)` to distinguish "already patched" from "patch failed" (empty = complete).
     """
     if not os.path.isfile(target_path):
         print(f"patch_webhook: target file not found: {target_path}", file=sys.stderr)
@@ -367,19 +367,19 @@ def patch_webhook(target_path: str) -> bool:
         print("WARNING: could not find logger marker — patch 2 skipped", file=sys.stderr)
 
     # ── Patch 3: add preprocessor call in webhook handler (always replace) ──
-    # 形态 A(旧 hermes, 有 `# Format prompt from template` 注释):走原有字节
-    # 形态 —— 插入文本与 unpatch 的 exact-strip 逐字节对称, 别改这段。
-    # 形态 B(现行 hermes, 注释已删):按行删旧块 + 在行内渲染锚前按**锚行缩进**
-    # 插入; 否则 patch 3 静默跳过 ⇒ 调用钩子锚恒 0。
+    # Form A (old hermes, has `# Format prompt from template` comment): use original byte
+    # form —— inserted text is byte-for-byte symmetric with unpatch's exact-strip, do not modify this section.
+    # Form B (current hermes, comments removed): delete old blocks line by line + render anchors inline before the anchor line using **anchor line indentation**
+    # insertion; otherwise patch 3 silently skips ⇒ call hook anchor is always 0.
     # NOTE: must NOT reuse the module-level `target` variable (holds the
     # webhook.py path from sys.argv[1]) — assigning it here silently
     # redirected every later `open(target, "w")` to a file literally named
     # "# Format prompt from template", leaving webhook.py unpatched while
     # the script reported success. Use a dedicated local name.
     if PROMPT_ANCHOR_LEGACY in content:
-        # old_end 用无缩进锚点 —— 补丁重跑时该行可能以不同缩进存在(8 空格手工补丁
-        # vs 16 空格脚本补丁),硬编码缩进会导致 ValueError 且中断(webhook.py 已补丁
-        # 场景)。
+        # old_end uses an unindented anchor —— when the patch is re-run, that line may exist with different indentation (8-space manual patch
+        # vs 16 spaces script patch), hardcoded indentation causes ValueError and interruption (webhook.py already patched
+        # scenario).
         old_start = '        # ── Preprocess payload (AimailGateway integration) ──────────'
         if old_start in content:
             before = content[:content.index(old_start)]
@@ -407,8 +407,8 @@ def patch_webhook(target_path: str) -> bool:
             print(f"WARNING: no prompt-render anchor found — patch 3 skipped; "
                   f"{PROMPT_ANCHOR_HINT}", file=sys.stderr)
         else:
-            # 锚行缩进决定块缩进(现行 hermes 锚在 `with self._profile_scope` 内, 12 空格
-            # ⇒ 相对 canonical 8 空格 +4); 锚行缩进 < 8 时不缩进(canonical 原样)。
+            # Anchor line indentation determines block indentation (current hermes anchor is inside `with self._profile_scope`, 12 spaces
+            # ⇒ relative to canonical 8 spaces +4); if anchor line indentation < 8, no indentation (canonical as-is).
             _lead = len(_l3[_ai]) - len(_l3[_ai].lstrip(' '))
             _extra = max(_lead - 8, 0)
             _blk = WEBHOOK_CALL_BLOCK
@@ -522,9 +522,9 @@ def patch_webhook(target_path: str) -> bool:
         else:
             print("WARNING: could not find session_chat_id assignment — patch 6 skipped", file=sys.stderr)
 
-    # ── Patch 7: import Hermes adapter (pip 形态: aimail.hermes.aimail_hermes) ──
-    # 先移除任何旧适配器 import 块(tools.hermes 旧名/新名,或 pip 名),再插入
-    # pip 形态 import —— 跨 pysdk/→pip 迁移幂等。
+    # ── Patch 7: import Hermes adapter (pip form: aimail.hermes.aimail_hermes) ──
+    # First remove any old adapter import block (tools.hermes old name/new name, or pip name), then insert
+    # pip form import —— idempotent across pysdk/→pip migration.
     _p7_old_re = re.compile(
         r'# ── AimailGateway Hermes adapter \(shared core injection \+ registration\) ──\n'
         r'try:\n'
@@ -557,16 +557,16 @@ def patch_webhook(target_path: str) -> bool:
     else:
         print("ALREADY PATCHED")
 
-    # ── P2 硬校验(owner 2026-09-30): 关键锚缺任一块 ⇒ 显式失败, 不再
-    # "WARNING 后返回成功"(旧行为: CALL 锚找不到只打 warning, patch_webhook
-    # 照样返回成功 ⇒ install 打印 applied/already, 但 preprocessor 永不被调用)。
+    # ── P2 hard validation (owner 2026-09-30): if any critical anchor block is missing ⇒ explicit failure, no longer
+    # "return success after WARNING" (old behavior: if CALL anchor not found, only print warning, patch_webhook
+    # still returns success ⇒ install prints applied/already, but preprocessor is never called).
     _missing = missing_webhook_anchors(content)
     if _missing:
-        print("ERROR: 关键锚缺失 — " + "; ".join(_missing)
-              + " — preprocessor 不会被调用(补丁不完整), "
-                "patch_webhook 判失败; 检查宿主 webhook.py 版本/锚点",
+        print("ERROR: critical anchor missing — " + "; ".join(_missing)
+              + " — the preprocessor will not be called (the patch is incomplete); "
+                "patch_webhook fails; check the host webhook.py version/anchors",
               file=sys.stderr)
-        print("      期望锚原文(缺哪块就打哪块):", file=sys.stderr)
+        print("      Expected anchor original text (print which block is missing):", file=sys.stderr)
         for _nm, _an in WEBHOOK_REQUIRED_ANCHORS:
             if _nm in _missing:
                 print(f"        · {_nm}: {_an!r}", file=sys.stderr)
@@ -702,7 +702,7 @@ def _log_ping_event(dir_: str, ping_id: str, payload: dict, pong_status: str):
     }
     if pong_status:
         entry["pong_status"] = pong_status
-    # 三层收口(2026-09-23): 权威日志 = {home}/systems/{sid}/{addr}/agentmail.log
+    # Three-layer closure (2026-09-23): authoritative log = {home}/systems/{sid}/{addr}/agentmail.log
     _home = _os.environ.get("AIMAIL_HOME", "") or _os.path.expanduser("~/.aimail")
     _sid = ""
     _email = ""
@@ -741,10 +741,10 @@ def unpatch_webhook(fp: Path) -> int:
     changes = 0
 
     # 1) Canonical blocks — byte-identical to what patch_webhook() inserts
-    #    today (patch 与 unpatch 共用同一批常量,见 WEBHOOK_*_BLOCK 定义)。
-    #    顺序敏感:patch 7 的 Hermes-adapter import 是拼在 patch 2 registry 块
-    #    尾部空行中间的(registry 尾部 `fn\n\n` 被拆开),必须先把 adapter 块
-    #    剥离掉 registry 块才恢复连续、才能被整块匹配。
+    #    today (patch and unpatch share the same set of constants, see WEBHOOK_*_BLOCK definitions).
+    #    Order sensitive: patch 7's Hermes-adapter import is spliced into the middle of the trailing blank lines of patch 2 registry block
+    #    (registry trailing `fn\n\n` is split), must first strip the adapter block
+    #    to restore registry block continuity, then it can be matched as a whole block.
     for name, block in [
         ("Hermes adapter import",    WEBHOOK_ADAPTER_BLOCK),
         ("PREPROCESS_REGISTRY",      WEBHOOK_REGISTRY_BLOCK),
@@ -755,17 +755,17 @@ def unpatch_webhook(fp: Path) -> int:
         if ok:
             changes += 1
 
-    # 形态 B(现行 hermes)的调用钩子块按锚行缩进(+4)插入 ⇒ 上面的 exact-strip
-    # 匹配不上, 这里按行剥离(与 patch 同一函数 ⇒ 逐字节对称)。形态 A 已被
-    # exact-strip 拿掉、marker 不在 ⇒ 本步 no-op(顺序不能反: 先按行剥会吃掉
-    # 形态 A 锚行原有的缩进, unpatch 不再逐字节还原)。
+    # Form B (current hermes) call hook block is inserted with anchor line indentation (+4) ⇒ the exact-strip above
+    # does not match, here strip by line (same function as patch ⇒ byte-for-byte symmetric). Form A has been
+    # removed by exact-strip, marker not present ⇒ this step is no-op (order cannot be reversed: stripping by line first would eat
+    # the original indentation of Form A anchor line, unpatch no longer restores byte-for-byte).
     _text2, _stripped = _strip_call_block_lines(text)
     if _stripped:
         text = _text2
         changes += 1
 
-    # 2) Legacy blocks(旧版 pysdk/cli 注入的字节形态;现代 patch 不再插入,
-    #    仅用于清理仍带旧补丁的宿主)— best effort,无匹配即 no-op。
+    # 2) Legacy blocks (byte form injected by old pysdk/cli; modern patch no longer inserts,
+    #    only used to clean up hosts still with old patches) — best effort, no match is no-op.
     for name, block in [
         ("legacy PREPROCESS_REGISTRY",   WEBHOOK_BLOCK1),
         ("legacy preprocessor call",     WEBHOOK_BLOCK2),
@@ -777,7 +777,7 @@ def unpatch_webhook(fp: Path) -> int:
         if ok:
             changes += 1
 
-    # Adapter import block (pip 形态 aimail.hermes / legacy tools.hermes) — remove
+    # Adapter import block (pip form aimail.hermes / legacy tools.hermes) — remove
     text, n = re.subn(
         r'# ── AimailGateway Hermes adapter \(shared core injection \+ registration\) ──\n'
         r'try:\n    from [^\n]*?# noqa: F401\nexcept Exception:\n    pass\n',

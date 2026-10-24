@@ -1,18 +1,18 @@
-//! 极简时间助手 —— 只为复刻"到期天数"判读（`stats` 的 expires 行）。
+//! Minimal time helper -- only for replicating "days until expiry" interpretation (`stats` expires line).
 //!
-//! 现状码：`cli/aimail:3144-3148`
+//! Current code: `cli/aimail:3144-3148`
 //! ```python
 //! dt = datetime.fromisoformat(str(qr["expires_at"]).replace("Z", "+00:00"))
 //! days = (dt - datetime.now(timezone.utc)).days
 //! ```
-//! 语义要点：`timedelta.days` 是**向下取整**的天数（负值也向下），本模块照此实现。
+//! Semantic note: `timedelta.days` is the **floor** of days (floors for negative values too); this module implements it accordingly.
 //!
-//! 覆盖的范围（够用即止）：`YYYY-MM-DDTHH:MM:SS[.frac][Z|±HH:MM|±HHMM]`。
-//! 解析不了 ⇒ `None`（调用方按"没有到期信息"处理，而不是编一个值）。
+//! Scope covered (sufficient for now): `YYYY-MM-DDTHH:MM:SS[.frac][Z|±HH:MM|±HHMM]`.
+//! Unparseable ⇒ `None` (callers treat it as "no expiry info" rather than fabricating a value).
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// 把一个 RFC3339 子集解析成 Unix 秒（UTC）；失败 ⇒ None。
+/// Parse an RFC3339 subset into Unix seconds (UTC); failure ⇒ None.
 pub fn parse_rfc3339_secs(text: &str) -> Option<i64> {
     let t = text.trim();
     let (date, rest) = t.split_once(['T', 't', ' '])?;
@@ -26,7 +26,7 @@ pub fn parse_rfc3339_secs(text: &str) -> Option<i64> {
     if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
         return None;
     }
-    // 时间部分：HH:MM[:SS[.frac]]，后面可能直接跟 Z 或偏移
+    // Time part: HH:MM[:SS[.frac]], possibly followed directly by Z or an offset
     let (clock, tz) = {
         let bytes = rest.as_bytes();
         let mut idx = None;
@@ -36,7 +36,7 @@ pub fn parse_rfc3339_secs(text: &str) -> Option<i64> {
                 break;
             }
             if c == '-' && i > 0 {
-                // 'Z' 之外唯一的 '-' 出现在时间之后（时区偏移）
+                // The only '-' outside of 'Z' appears after the time (timezone offset)
                 idx = Some(i);
                 break;
             }
@@ -62,7 +62,7 @@ pub fn parse_rfc3339_secs(text: &str) -> Option<i64> {
     Some(days * 86_400 + hh * 3600 + mm * 60 + ss - offset)
 }
 
-/// 时区后缀 → 秒偏移（`Z`/空 = 0；`+HH:MM`/`-HHMM` 等）。
+/// Timezone suffix → second offset (`Z`/empty = 0; `+HH:MM`/`-HHMM`, etc.).
 fn tz_offset_secs(tz: &str) -> Option<i64> {
     let t = tz.trim();
     if t.is_empty() || t.eq_ignore_ascii_case("z") {
@@ -82,7 +82,7 @@ fn tz_offset_secs(tz: &str) -> Option<i64> {
     Some(sign * (hh * 3600 + mm * 60))
 }
 
-/// 民用日期 → 天数（Howard Hinnant 的 days_from_civil，1970-01-01 = 0）。
+/// Civil date → days (Howard Hinnant's days_from_civil, 1970-01-01 = 0).
 fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
     let y = if m <= 2 { y - 1 } else { y };
     let era = if y >= 0 { y } else { y - 399 } / 400;
@@ -93,7 +93,7 @@ fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
     era * 146_097 + doe - 719_468
 }
 
-/// 当前 Unix 秒（UTC）。
+/// Current Unix seconds (UTC).
 pub fn now_secs() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -101,12 +101,12 @@ pub fn now_secs() -> i64 {
         .unwrap_or(0)
 }
 
-/// Unix 秒 → 天数（向下取整，含负值）—— 对齐 Python `timedelta.days`。
+/// Unix seconds -> days (floor, including negative values) — aligned with Python `timedelta.days`.
 pub fn secs_to_days_floor(secs: i64) -> i64 {
     secs.div_euclid(86_400)
 }
 
-/// 民用日期 ← 天数（Howard Hinnant 的 civil_from_days，`days_from_civil` 的逆）。
+/// Civil date ← days (Howard Hinnant's civil_from_days, the inverse of `days_from_civil`).
 fn civil_from_days(z: i64) -> (i64, i64, i64) {
     let z = z + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
@@ -120,10 +120,10 @@ fn civil_from_days(z: i64) -> (i64, i64, i64) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
-/// 当前时刻的 ISO8601（UTC，微秒 6 位，`Z` 结尾）。
+/// Current moment in ISO8601 (UTC, 6-digit microseconds, ending with `Z`).
 ///
-/// 对齐 Python `datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")`
-/// （`check --json` 的 `timestamp` 字段就是它，parity 侧按时间戳白名单归一）。
+/// Aligned with Python `datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")`
+/// (The `timestamp` field in `check --json` is this, normalized by timestamp whitelist on the parity side).
 pub fn now_iso8601_z() -> String {
     let d = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -141,7 +141,7 @@ pub fn now_iso8601_z() -> String {
     )
 }
 
-/// `expires_at` 距 `now` 的天数（向下取整；`stats` 的 `(expires in Nd)` 用它）。
+/// Days from `expires_at` to `now` (floor; used by `stats`'s `(expires in Nd)`).
 pub fn days_until(expires_secs: i64, now_secs: i64) -> i64 {
     secs_to_days_floor(expires_secs - now_secs)
 }
@@ -170,17 +170,17 @@ mod tests {
 
     #[test]
     fn day_difference_floors_like_python_timedelta() {
-        // 23:59:59 之后 < 1 天 ⇒ 0 天；跨一天 ⇒ 1 天
+        // After 23:59:59 < 1 day ⇒ 0 days; crossing a day ⇒ 1 day
         assert_eq!(days_until(86_400 - 1, 0), 0);
         assert_eq!(days_until(86_400, 0), 1);
-        // 负值向下取整（-1 秒 ⇒ -1 天）
+        // Floor for negative values (-1 second ⇒ -1 day)
         assert_eq!(days_until(-1, 0), -1);
     }
 
     #[test]
     fn iso8601_now_round_trips_and_is_python_shaped() {
         let s = now_iso8601_z();
-        // 形态：YYYY-MM-DDTHH:MM:SS.ffffffZ（Python isoformat 的等价物）
+        // Format: YYYY-MM-DDTHH:MM:SS.ffffffZ (equivalent to Python isoformat)
         assert_eq!(s.len(), 27, "{s}");
         assert!(s.ends_with('Z'), "{s}");
         assert_eq!(s.as_bytes()[10], b'T', "{s}");

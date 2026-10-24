@@ -1,18 +1,18 @@
-//! 最简 JSON 请求助手 —— `cli/check_status.py:830-845`（`_json_req`）的逐语义复刻。
+//! Minimal JSON request helper —— semantic replica of `cli/check_status.py:830-845` (`_json_req`).
 //!
-//! 返回 `(status, parsed)`，三种分档必须一致：
-//! - 2xx ⇒ `(status, body 的 JSON)`；
-//! - HTTP 错误（4xx/5xx）⇒ `(code, body 的 JSON 或 {})`；
-//! - 其它异常（含"2xx 但不是合法 JSON"）⇒ `(0, {"error": ...})`。
+//! Returns `(status, parsed)`, three tiers must be consistent:
+//! - 2xx ⇒ `(status, JSON of body)`;
+//! - HTTP errors (4xx/5xx) ⇒ `(code, JSON of body or {})`;
+//! - Other exceptions (including "2xx but not valid JSON") ⇒ `(0, {"error": ...})`.
 //!
-//! 最后一条容易漏：Python 的 `json.loads(r.read())` 在同一个 try 里，解析失败会落到
-//! `except Exception` 分支 ⇒ 状态码变 0。照抄，不要"顺手"保留 200。
+//! The last one is easy to miss: Python's `json.loads(r.read())` is in the same try, parse failure falls into
+//! `except Exception` branch ⇒ status code becomes 0. Copy as-is, do not "conveniently" keep 200.
 
 use std::time::Duration;
 
 use serde_json::{json, Value};
 
-/// `data` 为 `None` 且 `method` 为 `None` 时按 urllib 语义取 GET，否则 POST。
+/// When `data` is `None` and `method` is `None`, use GET per urllib semantics, otherwise POST.
 pub fn json_req(
     url: &str,
     headers: &[(&str, String)],
@@ -52,10 +52,10 @@ pub fn json_req(
     }
 }
 
-/// 原始请求（不解析 JSON）—— 供 L4 hook 探测这类"只看状态码/原文"的调用。
+/// Raw request (does not parse JSON) —— for L4 hook probes and other calls that "only look at status code/raw text".
 ///
-/// 对应 Python 的 `urllib.request.urlopen(...)`：**HTTP 错误也算 Ok**（状态码可达，
-/// 由调用方按 code 分档），只有传输层失败才 Err（Python 的 `except Exception`）。
+/// Corresponds to Python's `urllib.request.urlopen(...)`: **HTTP errors are also Ok** (status code reachable,
+/// caller categorizes by code), only transport layer failures are Err (Python's `except Exception`).
 pub fn raw_req(
     url: &str,
     data: Option<&[u8]>,
@@ -66,7 +66,7 @@ pub fn raw_req(
     raw_req_method(method, url, data, content_type, timeout_secs)
 }
 
-/// 同上但显式给方法（桥 admin API 需要 `DELETE /api/v1/routes/:email`）。
+/// Same as above but explicitly specifies method (bridge admin API needs `DELETE /api/v1/routes/:email`).
 pub fn raw_req_method(
     method: &str,
     url: &str,
@@ -92,7 +92,7 @@ pub fn raw_req_method(
             Ok((status, text))
         }
         Err(ureq::Error::Status(code, resp)) => {
-            // HTTP 错误也算"可达"：状态码 + 原因短语交给调用方（镜像 Python 的 HTTPError）
+            // HTTP errors also count as "reachable": status code + reason phrase are passed to the caller (mirroring Python's HTTPError)
             let reason = resp.status_text().to_string();
             Ok((code, reason))
         }
@@ -152,7 +152,7 @@ mod tests {
 
     #[test]
     fn non_json_2xx_falls_back_to_status_zero_like_python() {
-        // Python 在同一 try 里 json.loads ⇒ 解析失败落到 except ⇒ (0, {"error": ...})
+        // Python in the same try json.loads ⇒ parse failure falls to except ⇒ (0, {"error": ...})
         let port = serve(200, "not json at all");
         let (code, body) = json_req(&format!("http://127.0.0.1:{port}/x"), &[], None, None, 5);
         assert_eq!(code, 0);

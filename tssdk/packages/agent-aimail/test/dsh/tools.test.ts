@@ -1,11 +1,11 @@
-// dsh-aimail 回归守卫（审计 2026-09-21 补齐：本包此前零测试）。
+// dsh-aimail regression guard (filled in during the 2026-09-21 audit: this package previously had zero tests).
 //
-// 用最小 stub 的 cordis ctx 驱动 apply()，断言注册的工具集 == MAIL_TOOLS 全集
-// (适配器只做"翻译 schema + 绑定身份"，不得漏注册或多注册)。
+// drive apply() with a minimal-stub cordis ctx, asserting the registered tool set == the full MAIL_TOOLS set
+// (the adapter only does "translate schema + bind identity"; it must not miss-register or over-register).
 //
-// 注: 宿主包 @deepseek-ai/dsh-tools 会传递依赖未安装的 @deepseek-ai/dsh-scope，
-// 工作区里无法真实加载 ⇒ 用 vi.mock 隔离(只替换 defineTool 一个运行时符号，
-// 其余导入均为 type-only，不影响被测逻辑)。
+// Note: The host package @deepseek-ai/dsh-tools transitively depends on the uninstalled @deepseek-ai/dsh-scope,
+// cannot be truly loaded in the workspace ⇒ use vi.mock to isolate (only replace defineTool one runtime symbol,
+// all other imports are type-only, not affecting the logic under test).
 import { describe, it, expect, vi } from 'vitest'
 
 vi.mock('@deepseek-ai/dsh-tools', () => ({
@@ -22,7 +22,7 @@ describe('dsh-aimail tool registration', () => {
       get: (key: string) =>
         key === 'mail'
           ? { resolveCtx: async () => ({}) }        // MailService stub
-          : undefined,                              // agentDefaultModel 缺失 → 走默认分支
+          : undefined,                              // agentDefaultModel missing → go to default branch
       tools: { register: (tool: { name: string }) => registered.push(tool.name) },
     }
     apply(ctx as never)

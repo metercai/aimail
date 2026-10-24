@@ -1,5 +1,5 @@
 {
- "_comment": "字面量棘轮基线(按 文件×清单键 计数)。规则 = 不得新增:计数只许减不许增;新增位置必须改用常量模块, 或在该行加 `contract-allowed: <理由>` 注释(测试专用逃生门)。重生成: python3 tests/contract/check-contract-single-source.py --update-baseline",
+ "_comment": "Literal ratchet baseline (counted by file × manifest key). Rule = no new additions: count can only decrease, not increase; new locations must use constant module, or add `contract-allowed: <reason>` comment on that line (test-only escape hatch). Regenerate: python3 tests/contract/check-contract-single-source.py --update-baseline",
  "generated_at": "2026-10-23T14:56:08Z",
  "tracked_files": 374,
  "hits": 244,

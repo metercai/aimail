@@ -1,13 +1,13 @@
-//! `aimail address` —— 地址查看/维护。S3 只移植**查看面**（`list` / `show`）。
+//! `aimail address` —— address view/maintenance. S3 only ports the **view surface** (`list` / `show`).
 //!
-//! 维护面（`-d/--default`、`set-name`、`set-manager`、隐藏的 `--inbound-live|down`）
-//! 保留命令面但一律走 [`crate::cmd::stub::not_yet_ported`]（rc 1）—— **绝不**静默
-//! 落成 `list`：Python 侧 `cli/aimail:2045-2065` 有亲笔记录的两起静默降级事故
-//! （2026-09-25 未登记 flag 落 list；2026-09-29 `-e` 单独出现时列表掩盖"目标不存在"），
-//! op 顺序照抄即为此。
+//! The maintenance side (`-d/--default`, `set-name`, `set-manager`, hidden `--inbound-live|down`)
+//! Keep command surface but all go through [`crate::cmd::stub::not_yet_ported`] (rc 1) —— **never** silently
+//! falls back to `list`: Python side `cli/aimail:2045-2065` has two recorded incidents of silent degradation
+//! (2026-09-25 unregistered flag fell back to list; 2026-09-29 `-e` appearing alone masked "target does not exist" in the list),
+//! op order is copied exactly for this reason.
 //!
-//! 现状码对照：`cli/aimail:1355-1381`（平台枚举）· `:1384-1477`（`_list_agents`）·
-//! `:1480-1514`（指针扫描）· `:1974-2002`（表头/表体）· `:2030-2109`（op 链与查看面）。
+//! Current code reference: `cli/aimail:1355-1381` (platform enum) · `:1384-1477` (`_list_agents`) ·
+//! `:1480-1514` (pointer scan) · `:1974-2002` (header/body) · `:2030-2109` (op chain and view side).
 
 use crate::cmd::report;
 use crate::core::{config, contract, home};
@@ -22,8 +22,8 @@ pub struct Args {
     pub manager: Option<String>,
     pub inbound_live: bool,
     pub inbound_down: bool,
-    /// 确认入站端点（契约 §4.3，owner 2026-10-13）：入站 up 携带的"确定"URL。
-    /// 有值 ⇒ 按态把确定 URL 写回路由层（覆盖 install 预注册值）；无值 ⇒ 走既有全量对账。
+    /// Confirm inbound endpoint (contract §4.3, owner 2026-10-13): the "confirmed" URL carried by inbound up.
+    /// If present ⇒ write the confirmed URL back to the route layer based on state (overwriting the install pre-registered value); if absent ⇒ proceed with existing full reconciliation.
     pub inbound_url: Option<String>,
 }
 
@@ -36,7 +36,7 @@ pub(crate) struct Row {
     pub(crate) platform: String,
 }
 
-/// 地址 → 目录键反查归属系统（`cli/aimail:2005-2027`）。
+/// Address → directory key reverse lookup for owning system (`cli/aimail:2005-2027`).
 fn sid_for_address(aimail_home: &Path, email: &str) -> String {
     let want = email.trim().to_lowercase();
     if want.is_empty() {
@@ -64,7 +64,7 @@ fn sid_for_address(aimail_home: &Path, email: &str) -> String {
     String::new()
 }
 
-/// 系统目录下每个 agent 目录里的绑定文件 → `(agent_name, email, sid)`。
+/// Binding file in each agent directory under the system directory → `(agent_name, email, sid)`.
 fn pointers_in(dir: &Path) -> Vec<(String, String, String)> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Vec::new();
@@ -132,7 +132,7 @@ pub(crate) fn list_agents(aimail_home: &Path, sid: &str, cfg: &config::GatewayCo
             if email.is_empty() {
                 continue;
             }
-            // agent 名 = 平台指针所在目录名（指针扫 cfg.system_home / 绑定里的 home）
+            // agent name = directory name where the platform pointer resides (pointer scans cfg.system_home / home in bindings)
             let mut agent_name = String::new();
             for key in [
                 cfg.system_home.as_str(),
@@ -178,7 +178,7 @@ pub(crate) fn list_agents(aimail_home: &Path, sid: &str, cfg: &config::GatewayCo
         }
     }
 
-    // 指针补充：已带本系统指针的 agent 目录（改名/接管场景；名字取自目录）
+    // Pointer supplement: agent directories already carrying this system's pointer (rename/takeover scenarios; name taken from directory)
     let platform = if cfg.system_home.is_empty() {
         String::new()
     } else {
@@ -187,7 +187,7 @@ pub(crate) fn list_agents(aimail_home: &Path, sid: &str, cfg: &config::GatewayCo
     if !cfg.system_home.is_empty() {
         let home_path = Path::new(&cfg.system_home);
         let mut known: Vec<String> = rows.iter().map(|r| r.agent.clone()).collect();
-        // pointer-first：已带本系统指针的 profile/agent 目录按其指针邮箱登记（改名场景）
+        // pointer-first: profile/agent directories already carrying this system's pointer are registered by their pointer email (rename scenario)
         for (nm, pe, psid) in crate::hosts::pointer::scan(home_path) {
             if psid != sid || nm.is_empty() {
                 continue;
@@ -206,7 +206,7 @@ pub(crate) fn list_agents(aimail_home: &Path, sid: &str, cfg: &config::GatewayCo
         }
     }
 
-    // 已注册在前，其次按 agent 名（Python 同键：`(not registered, agent)`；稳定排序）
+    // Registered first, then by agent name (Python same key: `(not registered, agent)`; stable sort)
     rows.sort_by_key(|r| (!r.registered, r.agent.clone()));
     rows
 }
@@ -227,14 +227,14 @@ fn header_lines(sid: &str, cfg: &config::GatewayConfig) -> Vec<String> {
 
 fn table_lines(rows: &[Row]) -> Vec<String> {
     let mut out = vec![format!(
-        "  {:<18} {:<46} {:<30} webhook   状态",
+        "  {:<18} {:<46} {:<30} webhook   status",
         "agent", "email", "manager"
     )];
     for a in rows {
         let webhook: String = a.webhook.chars().take(28).collect();
         if a.registered {
             out.push(format!(
-                "  {:<18} {:<46} {:<30} {webhook}  已注册",
+                "  {:<18} {:<46} {:<30} {webhook}  Registered",
                 a.agent, a.email, a.manager
             ));
         } else {
@@ -244,7 +244,7 @@ fn table_lines(rows: &[Row]) -> Vec<String> {
                 a.platform.as_str()
             };
             out.push(format!(
-                "  {:<18} {:<46} {:<30} {:<28}  未注册(平台 {plat} 有该 agent,先 install/bind 注册)",
+                "  {:<18} {:<46} {:<30} {:<28}  Not registered (platform {plat} has this agent, install/bind to register first)",
                 a.agent, a.email, "", ""
             ));
         }
@@ -264,25 +264,25 @@ pub fn run(args: Args) -> i32 {
         sid = sid_for_address(&aimail_home, &target);
     }
     if sid.is_empty() {
-        return report::fail("address 需要 --system-id");
+        return report::fail("address requires --system-id");
     }
     let cfg_path = config::gateway_config_path_in(&aimail_home, &sid);
     if !cfg_path.is_file() {
-        return report::fail(&format!("无系统配置: {}", cfg_path.display()));
+        return report::fail(&format!("no system config: {}", cfg_path.display()));
     }
     let cfg = match config::load_gateway_config_in(&aimail_home, &sid) {
         Some(c) => c,
-        None => return report::fail(&format!("配置读取失败: {}", cfg_path.display())),
+        None => return report::fail(&format!("failed to read config: {}", cfg_path.display())),
     };
-    // 域内宿主解释器绑定（契约 §4.1(2) 单真源）：维护面（set-manager/set-name/入站 live）走 SDK 门，
-    // 不绑就退化成 CLI 自己的 `python3` 起门 ⇒ 与目标系统不匹配。
+    // In-domain host interpreter binding (Contract §4.1(2) single source of truth): maintenance side (set-manager/set-name/inbound live) goes through SDK gate,
+    // if not bound, it degrades to CLI's own `python3` starting the gate ⇒ mismatch with target system.
     let _ = crate::core::sdkroot::bind_domain_for_system(&sid);
 
-    // ── 入站 live/down：必须先于 op 链（否则 flag 会静默落成 list）──────────
+    // ── Inbound live/down: must precede op chain (otherwise flag will silently fall back to list) ──────────
     if args.inbound_live || args.inbound_down {
-        // ①② 互斥 + 定位（照抄 `cli/aimail:_cmd_inbound_route` 的三条文案）
+        // ①② Mutual exclusion + location (copied from the three messages in `cli/aimail:_cmd_inbound_route`)
         if args.inbound_live && args.inbound_down {
-            return crate::cmd::report::fail("inbound-live 与 inbound-down 互斥,只能选一个");
+            return crate::cmd::report::fail("inbound-live and inbound-down are mutually exclusive, pick only one");
         }
         let loc = if args.email.is_some() {
             args.email.clone().unwrap_or_default()
@@ -351,9 +351,9 @@ pub fn run(args: Args) -> i32 {
         }
 
         // live：
-        // · 带确认 URL（`--inbound-url`，契约 §4.3）⇒ 按态把确定端点写回路由层，
-        //   只动锚点地址（S1/S2 桥 route upsert / S3 网关 per-address webhook narrow 刷新）；
-        // · 无确认 URL ⇒ 走既有全量对账（期望态 = 本地注册绑定；锚点不在表里 ⇒ 合成 skipped）。
+        // · With confirmed URL (`--inbound-url`, Contract §4.3) ⇒ write the confirmed endpoint back to the route layer based on state,
+        //   only touching the anchor address (S1/S2 bridge route upsert / S3 gateway per-address webhook narrow refresh);
+        // · Without confirmed URL ⇒ proceed with existing full reconciliation (expected state = local registered bindings; anchor not in table ⇒ synthesize skipped).
         if let Some(confirmed) = &args.inbound_url {
             let out =
                 crate::core::inbound_route::live_confirmed(&sid, &anchor, confirmed, &cfgj, &bcfg);
@@ -369,7 +369,7 @@ pub fn run(args: Args) -> i32 {
         return crate::core::inbound_route::finish_anchor(synth.as_ref());
     }
 
-    // ── op 推导（顺序照抄 Python；只有"无任何定位参数"才是 list）────────────
+    // ── Op derivation (order copied from Python; only "no location parameters at all" is list) ────────────
     let op = if args.manager.is_some() {
         "set-manager"
     } else if args.name.is_some() {
@@ -387,7 +387,7 @@ pub fn run(args: Args) -> i32 {
                 println!("{line}");
             }
             if agents.is_empty() {
-                println!("  无本地注册 agent(地址键目录为空)。");
+                println!("  No locally registered agent (address key directory is empty).");
                 return 0;
             }
             for line in table_lines(&agents) {
@@ -396,8 +396,8 @@ pub fn run(args: Args) -> i32 {
             0
         }
         "add" | "rm" => {
-            // 契约 v1.0 §4.1(2)：为 SDK 反调预留（agent 新增/删除属 address 子命令）。
-            // 未实现必须**响亮失败**（非 0），不得静默当成功。
+            // Contract v1.0 §4.1(2): Reserved for SDK reverse calls (agent add/remove belongs to address subcommand).
+            // Unimplemented must **fail loudly** (non-0), must not silently treat as success.
             crate::cmd::stub::not_yet_ported("address add|rm")
         }
         "show" => {
@@ -405,7 +405,7 @@ pub fn run(args: Args) -> i32 {
             let want = args.email.clone().unwrap_or_default().to_lowercase();
             match agents.iter().find(|r| r.email == want) {
                 None => report::fail(&format!(
-                    "本机未找到地址 {want} 的 {}(先在该 agent 上跑 install 注册)",
+                    "address {want} not found on this machine ({}: run install on that agent first to register)",
                     contract::binding_file()
                 )),
                 Some(target) => {
@@ -420,17 +420,17 @@ pub fn run(args: Args) -> i32 {
             }
         }
         "set-manager" => {
-            // `-m` 校验（Python：空或缺 `@` ⇒ 同一句文案）
+            // `-m` validation (Python: empty or missing `@` ⇒ same message text)
             let mgr = args.manager.clone().unwrap_or_default();
             if mgr.is_empty() || !mgr.contains('@') {
-                return report::fail("address set-manager 需要 -m <manager 邮箱>");
+                return report::fail("address set-manager requires -m <manager email>");
             }
             let agents = list_agents(&aimail_home, &sid, &cfg);
             let target = locate(&agents, &args);
             let Some(t) = target else {
-                return report::fail("该操作需要 -a <agent> 或 -e <email> 定位目标地址");
+                return report::fail("this operation requires -a <agent> or -e <email> to locate the target address");
             };
-            // 契约 v1.0 §4.1：走 SDK 门 update(action=set-manager)——判定与落盘在 SDK，CLI 不读中间值。
+            // Contract v1.0 §4.1: go through SDK gate update(action=set-manager)——judgment and persistence are in SDK, CLI does not read intermediate values.
             let res = match crate::core::sdk::sdk_ops_call(
                 "update",
                 &serde_json::json!({
@@ -448,26 +448,26 @@ pub fn run(args: Args) -> i32 {
                         crate::core::sdk::AbiError::Call { msg, .. } => msg.clone(),
                         other => format!("{other:?}"),
                     };
-                    return report::fail(&format!("更新 manager 失败: {msg}"));
+                    return report::fail(&format!("Failed to update manager: {msg}"));
                 }
             };
             let _ = &res;
-            report::ok(&format!("manager: {} → {}(云端+本地已同步)", t.email, mgr));
+            report::ok(&format!("manager: {} → {} (cloud + local synced)", t.email, mgr));
             0
         }
         "set-name" => {
             let new_name = args.name.clone().unwrap_or_default();
             if new_name.is_empty() {
-                return report::fail("address set-name 需要 -n <新地址名>");
+                return report::fail("address set-name requires -n <new address name>");
             }
             let agents = list_agents(&aimail_home, &sid, &cfg);
             let Some(t) = locate(&agents, &args) else {
-                return report::fail("该操作需要 -a <agent> 或 -e <email> 定位目标地址");
+                return report::fail("this operation requires -a <agent> or -e <email> to locate the target address");
             };
-            // 改名 = SDK 的 CRUD（owner 裁决）：校验/派生/冲突预检/云端 rename/白名单清理/
-            // 本地迁移/指针全在 SDK；CLI 只触发、不自拼名字、不自打桥。**不复刻算法**。
-            // 契约 v1.0 §4.1：经 SDK 门 `update(action=rename)`（判定/派生/落盘全在 SDK；
-            // CLI 只触发、不自拼名字、不取中间值）。
+            // Rename = SDK's CRUD (owner adjudication): validation/derivation/conflict pre-check/cloud rename/whitelist cleanup/
+            // local migration/pointers all in SDK; CLI only triggers, does not assemble names itself, does not bridge itself. **Do not replicate algorithm**.
+            // Contract v1.0 §4.1: Via SDK gate `update(action=rename)` (judgment/derivation/persistence all in SDK;
+            // CLI only triggers, does not assemble names itself, does not take intermediate values).
             let res = match crate::core::sdk::sdk_ops_call(
                 "update",
                 &serde_json::json!({
@@ -486,7 +486,7 @@ pub fn run(args: Args) -> i32 {
                         crate::core::sdk::AbiError::Call { msg, .. } => msg.clone(),
                         other => format!("{:?}", other),
                     };
-                    return report::fail(&format!("地址改名失败: {msg}"));
+                    return report::fail(&format!("Address rename failed: {msg}"));
                 }
             };
             if res
@@ -494,12 +494,12 @@ pub fn run(args: Args) -> i32 {
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false)
             {
-                println!("  已是该地址: {}", t.email);
+                println!("  Already this address: {}", t.email);
                 return 0;
             }
             if res.get("merged").and_then(|v| v.as_bool()).unwrap_or(false) {
                 report::warn(&format!(
-                    "本地目录 {} 已存在,合并内容字段(保留两个目录)",
+                    "Local directory {} already exists, merging content fields (keeping both directories)",
                     res.get("dir").and_then(|v| v.as_str()).unwrap_or("")
                 ));
             }
@@ -508,15 +508,15 @@ pub fn run(args: Args) -> i32 {
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false)
             {
-                report::warn("本地迁移失败(云端已改名,重跑 install 可重建本地)");
+                report::warn("Local migration failed (cloud renamed, rerun install to rebuild local)");
             }
             report::ok(&format!(
-                "地址改名: {} → {}",
+                "Address renamed: {} → {}",
                 t.email,
                 res.get("new_email").and_then(|v| v.as_str()).unwrap_or("")
             ));
             println!(
-                "  服务端资源(白名单/联系人/看板/密钥)与本地 {} 全部继承",
+                "  Server-side resources (whitelist/contacts/kanban/keys) and local {} all inherited",
                 contract::binding_file()
             );
             let sig = res
@@ -525,10 +525,10 @@ pub fn run(args: Args) -> i32 {
                 .unwrap_or_else(|| serde_json::json!({}));
             let state = sig.get("state").and_then(|v| v.as_str()).unwrap_or("");
             if state == "notified" {
-                println!("  生效:同 key 继续使用;上线信号已触发路由对账,新地址即日起收发");
+                println!("  Effective: same key continues to be used; online signal triggered route reconciliation, new address sends/receives from today");
             } else {
                 report::warn(&format!(
-                    "上线信号未送达({}): {} — 路由未刷新,重启 agent 或 inbound-live 后自愈",
+                    "Online signal not delivered ({}): {} — route not refreshed, self-heals after restarting agent or inbound-live",
                     if state.is_empty() { "skipped" } else { state },
                     sig.get("detail").and_then(|v| v.as_str()).unwrap_or("")
                 ));
@@ -539,8 +539,8 @@ pub fn run(args: Args) -> i32 {
     }
 }
 
-/// 目标定位（照抄 `cli/aimail:2082-2098`）：`-e` 精确 email；`-a` 按 agent 名或
-/// email 本地段前缀匹配。命中不到 ⇒ 返回 None（调用方给统一失败文案）。
+/// Target location (copied from `cli/aimail:2082-2098`): `-e` exact email; `-a` by agent name or
+/// email local part prefix match. No hit ⇒ return None (caller provides unified failure message).
 fn locate<'a>(agents: &'a [Row], args: &Args) -> Option<&'a Row> {
     if let Some(em) = &args.email {
         return agents.iter().find(|r| r.email == em.to_lowercase());
@@ -558,7 +558,7 @@ fn locate<'a>(agents: &'a [Row], args: &Args) -> Option<&'a Row> {
     None
 }
 
-/// 绑定是否"已注册"（绑定文件存在且可解析为对象）—— hidden 面锚点守卫用。
+/// Whether binding is "registered" (binding file exists and can be parsed as an object)—— used by hidden surface anchor guard.
 fn binding_registered(home: &std::path::Path, sid: &str, email: &str) -> bool {
     let leaf = home
         .join("systems")
@@ -582,7 +582,7 @@ mod tests {
         assert_eq!(
             lines[0],
             format!(
-                "  {:<18} {:<46} {:<30} webhook   状态",
+                "  {:<18} {:<46} {:<30} webhook   status",
                 "agent", "email", "manager"
             )
         );

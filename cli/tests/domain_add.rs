@@ -1,12 +1,12 @@
-//! P4 切片1 验收：`aimail domain --add`（域名创建面）—— stub 网关 + 请求形状断言。
+//! P4 slice 1 acceptance: `aimail domain --add` (the domain-create surface) — stub gateway + request-shape assertions.
 //!
-//! 判据（逐条对齐 `cli/aimail:cmd_domain` 的创建分支）：
-//! ①非法域名（空 / 含 `@` / 不含 `.`）⇒ **不发请求**，文案打**原文**；
-//! ②合法 ⇒ `POST /api/v1/admin/systems/{sid}/domains`，body = `{id, domain(小写归一)}`，
-//!   `-w` 有值才带 `webhook_url`；`id` 省略 ⇒ `d{epoch}`；
-//! ③响应带 `error` ⇒ `创建失败: {error} {detail}`（`.strip()`）且 rc=1；
-//! ④成功 ⇒ `domain created: {domain} (system {sid})` rc=0；
-//! ⑤校验顺序：先存在性/凭据，再域名合法性（与 Python 同）。
+//! Criteria (aligned item by item with the create branch of `cli/aimail:cmd_domain`):
+//! ① an illegal domain (empty / contains `@` / contains no `.`) => **no request sent**, the wording printed **as the original**;
+//! ② legal => `POST /api/v1/admin/systems/{sid}/domains`, body = `{id, domain(lowercase-normalized)}`,
+//!   `webhook_url` is only carried when `-w` has a value; `id` omitted => `d{epoch}`;
+//! ③ the response carries `error` => `create failed: {error} {detail}` (`.strip()`) and rc=1;
+//! ④ success => `domain created: {domain} (system {sid})` rc=0;
+//! ⑤ the validation order: existence/credentials first, then domain legality (same as Python).
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -31,7 +31,7 @@ fn run(home: &Path, args: &[&str]) -> (i32, String) {
     )
 }
 
-/// stub 网关：固定回一份 JSON（由调用方给），并把 (METHOD, PATH, BODY) 发回通道。
+/// The stub gateway: answers a fixed JSON (given by the caller) and sends (METHOD, PATH, BODY) back over the channel.
 fn stub(reply: &'static str) -> (u16, std::sync::mpsc::Receiver<(String, String, String)>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -109,7 +109,7 @@ fn fixture(gw: &str) -> tempfile::TempDir {
 
 #[test]
 fn domain_add_creates_and_rejects() {
-    // ①+⑤ 非法域名：不发请求（先校验）
+    // ①+⑤ an illegal domain: no request sent (validation first)
     let (port, rx) = stub(r#"{"ok":true}"#);
     let gw = format!("http://127.0.0.1:{}", port);
     let tmp = fixture(&gw);
@@ -118,17 +118,17 @@ fn domain_add_creates_and_rejects() {
         let (rc, out) = run(&home, &["domain", "-s", "s1", "-a", bad]);
         assert_eq!(rc, 1, "bad={bad} out={out}");
         assert!(
-            out.contains(&format!("非法域名: '{}'", bad)),
+            out.contains(&format!("Invalid domain: '{}'", bad)),
             "bad={bad} out={out}"
         );
     }
     assert!(
         rx.recv_timeout(std::time::Duration::from_millis(300))
             .is_err(),
-        "非法域名不得发出任何请求"
+        "an illegal domain must not send any request"
     );
 
-    // ② 合法创建：POST 形状 + 小写归一 + 省略 id ⇒ d{epoch}
+    // ② a legal creation: the POST shape + lowercase normalization + id omitted => d{epoch}
     let (port2, rx2) = stub(r#"{"status":200,"domain":"new.test"}"#);
     let tmp2 = fixture(&format!("http://127.0.0.1:{}", port2));
     let (rc2, out2) = run(
@@ -144,10 +144,10 @@ fn domain_add_creates_and_rejects() {
     assert_eq!(m, "POST");
     assert_eq!(p, "/api/v1/admin/systems/s1/domains");
     assert!(b.contains(r#""domain":"new.test""#), "{b}");
-    assert!(b.contains(r#""id":"d"#), "省略 id 应生成 d{{epoch}}: {b}");
-    assert!(!b.contains("webhook_url"), "未给 -w 不得带该字段: {b}");
+    assert!(b.contains(r#""id":"d"#), "an omitted id should generate d{{epoch}}: {b}");
+    assert!(!b.contains("webhook_url"), "no -w given, so the field must not be present: {b}");
 
-    // ③ -w 有值才带；显式 --id 生效
+    // ③ carried only when -w has a value; an explicit --id takes effect
     let (port3, rx3) = stub(r#"{"status":200}"#);
     let tmp3 = fixture(&format!("http://127.0.0.1:{}", port3));
     let (rc3, _) = run(
@@ -172,7 +172,7 @@ fn domain_add_creates_and_rejects() {
     assert!(b3.contains(r#""id":"dX""#), "{b3}");
     assert!(b3.contains(r#""webhook_url":"#), "{b3}");
 
-    // ④ 响应带 error ⇒ 失败文案（含 detail）+ rc=1
+    // ④ the response carries error => the failure wording (with the detail) + rc=1
     let (port4, _rx4) = stub(r#"{"error":"domain exists","detail":"already registered"}"#);
     let tmp4 = fixture(&format!("http://127.0.0.1:{}", port4));
     let (rc4, out4) = run(
@@ -181,11 +181,11 @@ fn domain_add_creates_and_rejects() {
     );
     assert_eq!(rc4, 1, "{out4}");
     assert!(
-        out4.contains("创建失败: domain exists already registered"),
+        out4.contains("create failed: domain exists already registered"),
         "{out4}"
     );
 
-    // ⑤ 无系统配置 ⇒ 先报存在性（先于域名校验）
+    // ⑤ no system config => existence is reported first (before the domain validation)
     let (port5, _rx5) = stub(r#"{}"#);
     let tmp5 = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(tmp5.path().join("ahome/uhome")).unwrap();
@@ -194,6 +194,6 @@ fn domain_add_creates_and_rejects() {
         &["domain", "-s", "nope", "-a", "zz"],
     );
     assert_eq!(rc5, 1, "{out5}");
-    assert!(out5.contains("无系统配置:"), "{out5}");
+    assert!(out5.contains("no system config:"), "{out5}");
     let _ = port5;
 }

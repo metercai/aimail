@@ -1,21 +1,21 @@
 /**
- * L1（纯本地）: 地址级(agent-scope)绑定的**派发目标解析** —— 防退化钉子。
+ * L1 (pure local): **dispatch-target resolution** of the address-level (agent-scope) binding — anti-regression nail.
  *
- * 缺陷(0.1.25, E2-pull/openclaw 实跑原文):
- *   地址码激活得到的绑定里 `agent_id` 是**地址本地部分**（绑定文件: agent_id="agenta"），
- *   旧实现 `inbound.ts:200 const agentId = cfg.agent_id || 'main'` 把它当**宿主 agentId**
- *   送给 `/hooks/agent` ⇒ 宿主 `400 {"error":"unknown agentId \"agenta\""}` ⇒ deliverInbound
- *   返 `ok:false` ⇒ `startInboundPull` 的 onEmail 抛 ⇒ mail-core 不 ack ⇒ 下轮重拉
- *   （`deliveries=1`）、stub 命中 0→0：**取到信却永远进不了 agent turn**。
+ * Defect (0.1.25, E2-pull/openclaw actual run original text):
+ *   The binding obtained from address code activation has `agent_id` as the **address local part** (binding file: agent_id="agenta"),
+ *   the old implementation `inbound.ts:200 const agentId = cfg.agent_id || 'main'` treated it as the **host agentId**
+ *   and sent it to `/hooks/agent` ⇒ host `400 {"error":"unknown agentId \"agenta\""}` ⇒ deliverInbound
+ *   returned `ok:false` ⇒ `startInboundPull`'s onEmail threw ⇒ mail-core did not ack ⇒ next round re-pulled
+ *   (`deliveries=1`), stub hits 0→0: **email received but never enters agent turn**.
  *
- * 本测试把"地址级绑定必须解析到**宿主承认的** agent"这条在本地钉住：
- *   ① 地址本地部分**不在**宿主名册 ⇒ 落到宿主声明的 agent（不再是 'agenta'）
- *   ② 地址本地部分**在**宿主名册 ⇒ 就用它（真地址级命中）
- *   ③ 系统级/桥绑定的 agent_id **一字不变**（push 路径零影响）
- *   ④ 宿主配置缺失 ⇒ 返空串（不猜；调用方兜底 resolveAgentId() || 'main'），
- *      且**绝不**把地址本地部分当 agentId 交出去
- *   ⑤ 集成：按解析出的目标真的 POST 一个只认宿主名册的 stub ⇒ 200 delivered
- *      （负对照：旧值 'agenta' ⇒ 400，且宿主的原因被带出来）
+ * this test nails down locally the rule "an address-level binding must resolve to an agent the **host accepts**":
+ *   ① Address local part **not in** host roster ⇒ falls back to host-declared agent (no longer 'agenta')
+ *   ② Address local part **is in** host roster ⇒ use it (true address-level hit)
+ *   ③ System-level/bridge binding agent_id **unchanged** (zero impact on push path)
+ *   ④ Host config missing ⇒ return empty string (do not guess; caller falls back to resolveAgentId() || 'main'),
+ *      and **never** passes the address local part as agentId
+ *   ⑤ Integration: actually POST to a stub that only accepts host roster based on resolved target ⇒ 200 delivered
+ *      (negative control: old value 'agenta' ⇒ 400, and host's reason is surfaced)
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createServer, type Server } from 'node:http'
@@ -34,7 +34,7 @@ let port = 0
 let seen: Array<Record<string, unknown>> = []
 
 const ADDRESS_SCOPE: AgentConfig = {
-  // 地址码兑换产物: system_id = shared_addr_*, agent_id = 地址本地部分
+  // Address code redemption artifact: system_id = shared_addr_*, agent_id = address local part
   system_id: 'shared_addr_addra',
   email: ADDR,
   agent_id: 'agenta',
@@ -43,7 +43,7 @@ const ADDRESS_SCOPE: AgentConfig = {
 } as AgentConfig
 
 const SYSTEM_SCOPE: AgentConfig = {
-  // 平台注册产物: system_id 无 shared_addr_ 前缀, agent_id = 宿主 agent
+  // Platform registration artifact: system_id has no shared_addr_ prefix, agent_id = host agent
   system_id: 'hosts123456',
   email: 'support@e2.local',
   agent_id: 'support',
@@ -67,7 +67,7 @@ function writeHostConfig(agents: string[] | null): void {
   )
 }
 
-/** stub /hooks/agent —— 只认 HOST_AGENTS（与宿主合同同形: 直给未配置 agent ⇒ 400）。 */
+/** stub /hooks/agent — only recognizes HOST_AGENTS (same shape as host contract: directly giving an unconfigured agent ⇒ 400). */
 function startStub(): Promise<number> {
   return new Promise((resolve) => {
     server = createServer((req, res) => {
@@ -112,39 +112,39 @@ afterEach(() => {
   rmSync(home, { recursive: true, force: true })
 })
 
-describe('resolveDispatchAgentId — 地址级绑定不打地址本地部分给宿主 (L1 防退化)', () => {
-  it('① 地址码激活绑定 + 宿主名册没有该本地部分 ⇒ 落到宿主声明的 agent(绝不是 agent_id)', () => {
+describe('resolveDispatchAgentId — address-level bindings do not pass address local part to host (L1 anti-regression)', () => {
+  it('① Address code activation binding + host roster does not have that local part ⇒ falls back to host-declared agent (never agent_id)', () => {
     const id = resolveDispatchAgentId(ADDRESS_SCOPE, ADDR)
     expect(id).toBe('main')
     expect(id).not.toBe('agenta')
   })
 
-  it('② 地址本地部分确实是宿主 agent ⇒ 用它(真地址级命中)', () => {
+  it('② Address local part is indeed a host agent ⇒ use it (true address-level hit)', () => {
     writeHostConfig(['agenta', 'main'])
     expect(resolveDispatchAgentId(ADDRESS_SCOPE, ADDR)).toBe('agenta')
   })
 
-  it('③ 系统级/桥绑定: agent_id 一字不变(push 路径零影响, 与名册无关)', () => {
+  it('③ System-level/bridge binding: agent_id unchanged (zero impact on push path, unrelated to roster)', () => {
     expect(resolveDispatchAgentId(SYSTEM_SCOPE, SYSTEM_SCOPE.email as string)).toBe('support')
     writeHostConfig(['other'])
     expect(resolveDispatchAgentId(SYSTEM_SCOPE, SYSTEM_SCOPE.email as string)).toBe('support')
   })
 
-  it('④ 宿主配置缺失 ⇒ 空串(不猜), 且绝不交出地址本地部分', () => {
+  it('④ Host config missing ⇒ empty string (do not guess), and never passes address local part', () => {
     writeHostConfig(null)
     const id = resolveDispatchAgentId(ADDRESS_SCOPE, ADDR)
     expect(id).toBe('')
     expect(id).not.toBe('agenta')
   })
 
-  it('⑤ 集成: 解析出的目标被宿主接受(delivered); 旧值地址本地部分被拒(原因带出来)', async () => {
+  it('⑤ Integration: resolved target accepted by host (delivered); old value address local part rejected (reason surfaced)', async () => {
     const good = resolveDispatchAgentId(ADDRESS_SCOPE, ADDR)
     const out = await deliverToAgent({} as never, { agentId: good, message: 'pulled mail' })
     expect(out.status).toBe('delivered')
     expect(seen).toHaveLength(1)
     expect(seen[0].agentId).toBe('main')
 
-    // 负对照: 旧实现交出去的值——宿主按合同 400, 且适配器把原因原样带出(不吞)
+    // Negative control: the value handed over by the old implementation — host returns 400 per contract, and the adapter passes the reason through as-is (does not swallow it)
     const bad = await deliverToAgent({} as never, {
       agentId: String(ADDRESS_SCOPE.agent_id),
       message: 'pulled mail',

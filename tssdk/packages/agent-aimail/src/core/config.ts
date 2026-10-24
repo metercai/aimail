@@ -13,10 +13,10 @@ import type { AgentConfig } from './types.js'
 export const AIMAIL_HOME = (): string =>
   process.env.AIMAIL_HOME || path.join(os.homedir(), '.aimail')
 
-/** 三层收口(2026-09-23): email → system_id — 扫 systems/<sid>/[cleanAddr]/
- * agentmail.json 落点(权威归属映射, 覆盖任意地址);失败返回 '' —— 调用方
- * 收口 `_unassigned`, 绝不回落旧的顶层 logs/ 或 mail/。
- * 同步实现: 路径构造函数均为同步 API, 邮件级频率的目录扫描可接受。 */
+/** Three-layer closure (2026-09-23): email → system_id — scan systems/<sid>/[cleanAddr]/
+ * agentmail.json landing point (authoritative ownership mapping, overrides any address); returns '' on failure —— caller
+ * converges to `_unassigned`, never falls back to old top-level logs/ or mail/.
+ * Synchronous implementation: path constructor functions are all synchronous APIs, directory scanning at email-level frequency is acceptable. */
 export function systemIdForEmail(email: string): string {
   const cleaned = cleanAddr(email)
   const root = path.join(AIMAIL_HOME(), 'systems')

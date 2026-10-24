@@ -1,13 +1,13 @@
-"""aimail_hermes.py — Hermes 适配层（公共核心的平台接线）
+"""aimail_hermes.py — Hermes adapter layer (platform wiring for the public core)
 
-公共核心（pysdk/aimail_base.py / aimail_tools.py / aimail_board.py）
-保持平台无关，通过注入点提供业务逻辑；本模块：
-  1. 注入 Hermes 平台实现（config 加载 / personas / profile 目录 / SOUL / skills /
-     board 登记 / persona 上下文）
-  2. 提供 Hermes 专属功能（profile 生命周期钩子 / webhook 路由 / 端口管理）
-  3. 在 Hermes 运行时注册（webhook preprocessor / tools registry / 生命周期钩子）
+The public core (pysdk/aimail_base.py / aimail_tools.py / aimail_board.py)
+remains platform-agnostic, providing business logic via injection points; this module:
+  1. Injects the Hermes platform implementation (config loading / personas / profile directory / SOUL / skills /
+     board registration / persona context)
+  2. Provides Hermes-specific features (profile lifecycle hooks / webhook routing / port management)
+  3. Registers in the Hermes runtime (webhook preprocessor / tools registry / lifecycle hooks)
 
-DeerFlow 对应适配层：pysdk/deer-flow/aimail_deerflow.py
+DeerFlow corresponding adapter layer: pysdk/deer-flow/aimail_deerflow.py
 """
 
 import json
@@ -21,11 +21,11 @@ import time
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
-# ── Hermes 运行时定位:本模块随捆绑落到 {install-root}/tools/hermes/,
- #    共享核心(aimail_base/tools/board/gateway_api)在父目录。Hermes 以包形式
- #    加载工具(tools.*),顶层 import 需要 tools/ 目录在 sys.path 上——父目录
- #    探测位置无关(捆绑 / pip site-packages / 仓库 dev 三态通用)。直接 import
- #    本模块(独立脚本 / register_profiles.py)同样依赖此引导。
+# ── Hermes runtime location: this module is bundled and lands in {install-root}/tools/hermes/,
+ #    the shared core (aimail_base/tools/board/gateway_api) is in the parent directory. Hermes as a package
+ #    loads the tools (tools.*); the top-level import needs the tools/ dir on sys.path — the parent dir
+ #    detection location is agnostic (works for bundled / pip site-packages / repo dev tri-state). Directly importing
+ #    this module (standalone scripts / register_profiles.py) also relies on this bootstrap.
 _HERMES_TOOLS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _HERMES_TOOLS_DIR not in sys.path:
     sys.path.insert(0, _HERMES_TOOLS_DIR)
@@ -33,15 +33,15 @@ if _HERMES_TOOLS_DIR not in sys.path:
 import aimail_base as core
 import aimail_tools as tools
 import aimail_board as board
-# agent 侧契约常量(dsh/pi/deer-flow/hermes 共用同一份; 真源 = 仓根
-# contract/aimail-contract.json, 门禁 tests/contract/check-contract-single-source.py)
+# agent-side contract constants (dsh/pi/deer-flow/hermes share the same copy; single source = repo root
+# contract/aimail-contract.json, gate tests/contract/check-contract-single-source.py)
 import aimail_contract as _contract
 
-# ── 宿主识别(移植 tssdk "activate on entry load"): declared=hermes, 在入口加载
-#    时复验当前环境确实是 hermes 宿主。never raises(装错宿主只 warn, 见
-#    hosts/activate.py); 与 CLI 装配期探测互补(CLI 定位未装态, 本处确认已装态)。
-#    core 目录已在 sys.path(L29-31), hosts 是其子包: pip 布局走 aimail.hosts,
-#    仓库 dev / bundle 扁平布局直接 import hosts。
+# ── Host identification (ported from tssdk "activate on entry load"): declared=hermes, on entry load
+#    re-verify that the current environment is indeed the hermes host. Never raises (wrong host only warns, see
+#    hosts/activate.py); complements CLI assembly-time detection (CLI locates uninstalled state, this confirms installed state).
+#    core directory is already on sys.path (L29-31), hosts is its subpackage: pip layout uses aimail.hosts,
+#    repo dev / bundle flat layout imports hosts directly.
 try:
     from aimail import hosts as _aimail_hosts
 except ImportError:
@@ -49,14 +49,14 @@ except ImportError:
 _HOST_VERIFY = _aimail_hosts.activate_host(
     "hermes", os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes"))
 
-# API 客户端（公共 aimail_tools._GatewayClient 全方法）
+# API client (public aimail_tools._GatewayClient all methods)
 _GatewayClient = tools._GatewayClient
 
-# ── 公共函数转发（搬移函数/_handle_* 内部裸调用——同源公共核心）──
+# ── public-function forwarding (relocated functions / bare calls inside _handle_* — same-source public core) ──
 _aimail_system_dir = core._aimail_system_dir
 _load_gateway_config = core._load_gateway_config
 list_personas = core.list_personas
-# ── 主模型注入 X-AIMail-Agent(profile config.yaml → model.default)──
+# ── Main model injection X-AIMail-Agent(profile config.yaml → model.default)──
 def _init_agent_model() -> None:
     try:
         profile_dir = os.environ.get("HERMES_PROFILE_DIR", "") or str(Path.home() / ".hermes")
@@ -73,7 +73,7 @@ def _init_agent_model() -> None:
 
 _init_agent_model()
 
-# 6 工具函数体（注册表 handler 包装器裸调用）
+# 6 Tool function bodies (registry handler wrapper bare calls)
 send_mail = tools.send_mail
 manage_contacts = tools.manage_contacts
 contact_profile = tools.contact_profile
@@ -81,24 +81,24 @@ set_contact_profile = tools.set_contact_profile
 email_summary = tools.email_summary
 set_email_summary = tools.set_email_summary
 search_mail = tools.search_mail
-# A2A Board 工具函数体（registry 注册 handler 裸调用）
+# A2A Board tool function bodies (registry registered handler bare calls)
 board_task_show = board.board_task_show
 board_task_list = board.board_task_list
 board_members = board.board_members
 board_roles = board.board_roles
 board_status = board.board_status
 board_heartbeat = board.board_heartbeat
-_TOOLSET = _contract.AGENT_TOOLSET_NAME  # 契约值 "agentmail"(不是外部品牌 aimail)
+_TOOLSET = _contract.AGENT_TOOLSET_NAME  # Contract value "agentmail" (not external brand aimail)
 
 logger = logging.getLogger(__name__)
 
-# profile 生命周期钩子注册表（Hermes 平台专属）
+# profile lifecycle hook registry (Hermes platform exclusive)
 _profile_hooks: Dict[str, List[Callable]] = {
     "profile_created": [],
     "profile_deleted": [],
 }
 # ═══════════════════════════════════════════════════════════════
-# 1. Hermes 平台实现（自公共核心移出的 Hermes 专属函数）
+# 1. Hermes platform implementation (Hermes exclusive functions moved out from public core)
 # ═══════════════════════════════════════════════════════════════
 def _read_soul_md(config=None) -> str:
     """Read SOUL.md from the current Hermes profile (per-agent).
@@ -180,7 +180,7 @@ def _resolve_profile_dir() -> Optional[str]:
     return None
 
 
-_profile_config_path = core._agent_config_path  # 地址键 per-agent 配置路径（共享）
+_profile_config_path = core._agent_config_path  # Address key per-agent config path (shared)
 
 
 def _load_profile_config() -> Optional[dict]:
@@ -194,7 +194,7 @@ def _load_profile_config() -> Optional[dict]:
     search_paths = []
 
     if profile_dir:
-        # 指针文件(契约名唯一真源: aimail_contract.POINTER_FILE)
+        # Pointer file (contract name single source of truth: aimail_contract.POINTER_FILE)
         pointer_data = core._read_pointer(Path(profile_dir) / _contract.POINTER_FILE)
         sid = pointer_data.get("system_id", "")
         email = pointer_data.get("email", "")
@@ -245,7 +245,7 @@ def _inject_profile_config(profile_dir: str, config: dict) -> None:
             merged.pop("activation_code", None)
         core.save_agent_config(config.get("agent_id", ""), merged, system_id)
 
-    # 写指针文件(契约名见 aimail_contract.POINTER_FILE)
+    # Write pointer file (contract name see aimail_contract.POINTER_FILE)
     core._write_pointer(Path(profile_dir) / _contract.POINTER_FILE, system_id, email)
 
 
@@ -282,7 +282,7 @@ def _next_available_webhook_port(base_port: int = 8644) -> int:
     actual port availability. Increments until an unused port is found.
     """
     # Scan existing profiles for max configured port
-    # (home 解析走本模块 resolver——自定义 HERMES_HOME 实例的已占端口也要进扫描集)
+    # (home resolution goes through this module's resolver — occupied ports of custom HERMES_HOME instances must also enter the scan set)
     max_port = base_port - 1
     _home = Path(_resolve_profile_dir() or os.path.expanduser(
         os.environ.get("HERMES_HOME", "~/.hermes")))
@@ -347,10 +347,10 @@ def _ensure_profile_webhook(profile_dir: str) -> Optional[dict]:
             "extra": {"port": port, "secret": secret},
         }
         existing["platforms"] = platforms
-        # 审计 D2: 原写法 `cfg_path.with_suffix(".tmp")` 得到 "config.tmp"(名字也错),
-        # 且以默认 umask 写 ⇒ 把宿主 0600 的 config.yaml 覆写成 0644, 并残留一份含
-        # webhook HMAC secret 的 config.tmp。统一走 core.atomic_write_private
-        # (host 自己的 profile 目录不做 chmod ⇒ ensure_dir_mode=None)。
+        # Audit D2: Original writing `cfg_path.with_suffix(".tmp")` yields "config.tmp" (name is also wrong),
+        # and writes with default umask ⇒ overwrites host's 0600 config.yaml to 0644, and leaves a copy containing
+        # the config.tmp of the webhook HMAC secret. uniformly goes through core.atomic_write_private
+        # (the host's own profile dir is not chmod'd ⇒ ensure_dir_mode=None).
         core.atomic_write_private(
             cfg_path,
             yaml.safe_dump(existing, allow_unicode=True, sort_keys=False),
@@ -447,7 +447,7 @@ def _ensure_webhook_route(
     # was never written, so inbound webhook delivery 404'd.
     subs_path.parent.mkdir(parents=True, exist_ok=True)
     tmp = subs_path.with_suffix(".json.tmp")
-    # 路由表含 HMAC secret:tmp 以 0600 创建(默认 umask 0644 全局可读)
+    # Routing table contains HMAC secret: tmp is created with 0600 (default umask 0644 is globally readable)
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(json.dumps(subs, indent=2, ensure_ascii=False))
@@ -478,17 +478,17 @@ def trigger_profile_hooks(event: str, profile_name: str, profile_dir: str) -> No
         config = None
 
     if not config and event == "profile_created":
-        # ensure home 与运行时探测统一(HERMES_PROFILE_DIR > hermes
+        # Unify ensure home with runtime detection (HERMES_PROFILE_DIR > hermes
         # get_hermes_home() > ~/.hermes)——
-        # 自定义 home 会归属错位(AUDIT-1 P1-6)。
+        # Custom home will cause ownership mismatch (AUDIT-1 P1-6).
         hermhome = _resolve_profile_dir() or str(Path.home() / ".hermes")
         try:
             r = core.ensure_system(hermhome)
             if r.get("ok"):
                 if r.get("activated"):
                     logger.info("[aimail_gateway] system activated via CLI: %s", r.get("system_id"))
-                # 激活/复用成功 → 按返回 sid 直读配置,不依赖指针文件
-                # (aimail_contract.POINTER_FILE;78a0262 闭环缺口:激活不产生指针;AUDIT-1 P1-6)
+                # Activation/reuse success → read config directly by returned sid, do not rely on pointer file
+                # (aimail_contract.POINTER_FILE; 78a0262 closed-loop gap: activation does not produce pointer; AUDIT-1 P1-6)
                 sid = r.get("system_id") or ""
                 if sid:
                     try:
@@ -548,13 +548,13 @@ def _auto_register_email(name: str, profile_dir: str, config: dict) -> None:
 
     client = _GatewayClient(gateway_url, admin_key)
     system_name = config.get("system_name", "") or ""
-    # 地址派生统一走公共 email_for_agent（Hermes 默认名 default → agent；其余保持原名；
-    # 非法字符清洗 '.' → '_'；合规标准由 gateway register_address 校验——http.rs）
+    # Address derivation uniformly uses public email_for_agent (Hermes default name default → agent; others keep original name;
+    # Illegal character cleaning '.' → '_'; compliance standard validated by gateway register_address——http.rs)
     email = core.email_for_agent(name, domain, system_name)
     manager_address = config.get("manager_address", "")
 
-    # 事实源优先:agentmail.json 已有 webhook_url/secret 则复用(aimail 唯一
-    # 信任源;profile config 是 Hermes 运行时副本,值同源——重注册不漂移)
+    # Source of truth priority: if agentmail.json already has webhook_url/secret, reuse (aimail sole
+    # trust source; profile config is Hermes runtime copy, values are same source——re-registration does not drift)
     existing_cfg = _load_profile_config()
     if (existing_cfg and existing_cfg.get("webhook_url")
             and existing_cfg.get("webhook_secret")):
@@ -577,23 +577,23 @@ def _auto_register_email(name: str, profile_dir: str, config: dict) -> None:
         else:
             webhook_secret = wh_config["secret"]
             wh_port = wh_config["port"]
-            # 本地接收端点(进程内 preprocess 的 webhook 路由; hermes 是唯一
-            # 路径例外 —— 契约值见 aimail_contract.HERMES_INBOUND_PATH)
+            # Local receiving endpoint (in-process preprocess webhook route; hermes is the only
+            # path exception —— contract value see aimail_contract.HERMES_INBOUND_PATH)
             local_webhook_url = _contract.hermes_inbound_url(wh_port)
             # Ensure aimail-inbound route exists (idempotent)
             # skills=[AGENT_SKILL_NAME] so webhook sessions get the agentmail
             # skill (send_mail protocol); without it the agent cannot reply by
-            # email. 注:skills 列表 = Agent 内标识 agentmail(不是外部品牌
-            # aimail); 路由名 = hermes 网关自身路由名(契约 HERMES_ROUTE_NAME)。
+            # email. Note: skills list = Agent internal identifier agentmail (not external brand
+            # aimail); route name = hermes gateway own route name (contract HERMES_ROUTE_NAME).
             _ensure_webhook_route(
                 _contract.HERMES_ROUTE_NAME, webhook_secret, profile_dir=profile_dir,
                 skills=[_contract.AGENT_SKILL_NAME],
             )
 
-    # 注册参数三态(webhook_host):push=bridge 公网入口 / pull=空 / 无 bridge=本地端点
+    # Registration parameter tri-state (webhook_host): push=bridge public entry / pull=empty / no bridge=local endpoint
     reg_url = core.resolve_register_webhook_url(config, local_webhook_url)
 
-    # Register the email + generate activation code（公共注册链，幂等）
+    # Register the email + generate activation code (public registration chain, idempotent)
     reg = core.register_agent_email(
         client, system_id, email, reg_url, webhook_secret,
         manager_address,
@@ -628,9 +628,9 @@ def _auto_register_email(name: str, profile_dir: str, config: dict) -> None:
         "manager_address": manager_address,
         "save_raw_snapshots": config.get("save_raw_snapshots", True),
         "webhook_host": config.get("webhook_host", ""),
-        # aimail 唯一信任源:webhook_url + webhook_secret 成对落盘
-        # (注册链/验签/路由统一从 agentmail.json 读;profile config 的
-        # platforms.webhook 只是 Hermes 运行时副本,值同源)
+        # aimail sole trust source: webhook_url + webhook_secret persisted as pair
+        # (registration chain/signature verification/routing uniformly read from agentmail.json; profile config's
+        # platforms.webhook is just Hermes runtime copy, values are same source)
         "webhook_url": local_webhook_url,
         "webhook_secret": webhook_secret,
     }
@@ -640,15 +640,15 @@ def _auto_register_email(name: str, profile_dir: str, config: dict) -> None:
         inject_cfg["activation_code"] = activation_code
     _inject_profile_config(profile_dir, inject_cfg)
 
-    # Inbound notification (owner ruling 2026-09-28, SDK 去桥化): hermes is the host
+    # Inbound notification (owner ruling 2026-09-28, SDK de-bridging): hermes is the host
     # whose gateway serves this address's inbound, and the webhook route above is
     # now registered — so the SDK reports exactly that, best-effort, per address:
     #     aimail address -a <addr> --inbound-live
     # The CLI owns the environment (routes included) and decides what it means; the
     # SDK speaks no bridge. Never fatal: a missing CLI / a non-zero exit is one line.
     if local_webhook_url:
-        # 确认 URL(契约 §4.3): local_webhook_url 即 hermes 网关实际服务的入站 URL
-        # (契约路径派生, 非猜测) ⇒ CLI 可据此把路由钉到确定端口。
+        # the confirmation URL (contract §4.3): local_webhook_url is the inbound URL the hermes gateway actually serves
+        # (contract path derived, not guessed) ⇒ CLI can pin route to deterministic port based on this.
         _note = core.notify_inbound_state(email, "live", url=local_webhook_url)
         _line = f"[aimail_gateway] {core.format_inbound_notify_line(_note, 'live')}"
         if core.inbound_notify_is_warning(_note):
@@ -707,8 +707,8 @@ def _auto_activate_profile(profile_dir: str, config: dict) -> None:
         return
 
     def _persist(prof: dict) -> None:
-        """落盘 agentmail.json — 统一共享原子写(0600/tmp+rename,
-        AUDIT-1 P1-5:此前 4 处 open+json.dump 直写,非原子且无 0600 保证)。"""
+        """Persist agentmail.json — unified shared atomic write (0600/tmp+rename,
+        AUDIT-1 P1-5: previously 4 places open+json.dump direct write, non-atomic and no 0600 guarantee)."""
         core.save_agent_config(prof.get("agent_id", ""), prof, sid)
 
     activation_code = prof.get("activation_code", "")
@@ -731,9 +731,9 @@ def _auto_activate_profile(profile_dir: str, config: dict) -> None:
         _persist(prof)
         logger.info("[aimail_gateway] Activated profile, api_key saved")
 
-        # 注:旧 "Port refresh"(激活时刷 bridge 路由)与同文件 sync 双写
-        # 均已删(2026-08-18/2026-09-07)——config_path 本就是 address-keyed
-        # agentmail.json,激活写已落唯一信任源;bridge 路由目标不变。
+        # Note: old "Port refresh" (refresh bridge route on activation) and same file sync double write
+        # both deleted (2026-08-18/2026-09-07)——config_path was originally address-keyed
+        # agentmail.json, activation write already persisted to sole trust source; bridge route target unchanged.
     else:
         # Rate-limit retries: skip if recently attempted (avoids spamming gateway
         # with a permanently invalid activation code)
@@ -752,7 +752,7 @@ def _auto_activate_profile(profile_dir: str, config: dict) -> None:
 
 def _auto_deregister_email(name: str, profile_dir: str, config: dict) -> None:
     """When a Profile is deleted, clean up its AIMail registration
-    （API 注销链走公共 deregister_agent_email——幂等，补全原缺口）。"""
+    (API deregistration chain uses public deregister_agent_email——idempotent, fills original gap)."""
     gateway_url = config.get("gateway_url", "")
     admin_key = config.get("admin_key", "")
     domain = config.get("domain", "")
@@ -816,13 +816,13 @@ def _handle_set_contact_profile(args, **_kw):
     ))
 
 def _current_persona_name() -> Optional[str]:
-    """当前 persona 名（注入点）。Hermes 适配层注入（profile 目录派生）；
-    OpenClaw 无 persona 概念 → None（发件用基础地址）。"""
+    """Current persona name (injection point). Hermes adapter layer injects (derived from profile directory);
+    OpenClaw has no persona concept → None (sending uses base address)."""
     return _PERSONA_NAME_PROVIDER() if _PERSONA_NAME_PROVIDER is not None else None
 
 
 def _hermes_persona_name() -> Optional[str]:
-    """Hermes 版 persona 名：从 profile 目录派生（原 aimail_tools 实现）。
+    """Hermes version persona name: derived from profile directory (original aimail_tools implementation).
     default（~/.hermes）→ None；profiles/<name> → name。"""
     profile_dir = _resolve_profile_dir() or ""
     if not profile_dir:
@@ -862,7 +862,7 @@ def _handle_search_mail(args, **_kw):
 
 
 def _handle_activate_address_code(args, **_kw):
-    """地址级自助激活(code → 自己的 agent key)。审计 D1: 补齐 Hermes 侧缺失的一等工具。"""
+    """Address-level self-service activation (code → own agent key). Audit D1: fills missing first-class tool on Hermes side."""
     return tool_result(tools.activate_address_code(
         code=args.get("code", ""),
         address=args.get("address", ""),
@@ -871,7 +871,7 @@ def _handle_activate_address_code(args, **_kw):
 
 
 # ═══════════════════════════════════════════════════════════════
-# 2. 注入公共核心的注入点
+# 2. Injection points for public core
 # ═══════════════════════════════════════════════════════════════
 core._PROFILE_DIR_RESOLVER = _resolve_profile_dir
 core._CONFIG_LOADER = _load_profile_config
@@ -879,20 +879,20 @@ core._PERSONAS_PROVIDER = _list_personas
 core._SOUL_PROVIDER = _read_soul_md
 core._SKILLS_PROVIDER = _read_skills
 core._BOARD_GATEWAY_SINK = _register_board_gateway
-# 注入后自检: 指针解析不出来时入站预处理会降级(邮件照常投递,丢画册/附件下载),
-# 在启动处留一条 warn,而不是每封邮件才报。
+# Post-injection self-check: when pointer cannot be resolved, inbound preprocessing degrades (email delivered as usual, loses album/attachment download),
+# leave a warn at startup, instead of reporting for every email.
 core.check_profile_pointer()
-# board 凭据存储（_store_board_credential）已提升到公共核心默认实现；
-# 跨模块名（store_inbound_message/_log_aimail/_GatewayClient）已由公共核心
-# 函数级 import 自解析——均无需适配层注入。
+# board credential storage (_store_board_credential) has been promoted to public core default implementation;
+# cross-module names (store_inbound_message/_log_aimail/_GatewayClient) are already resolved by public core
+# function-level import——no adapter layer injection needed.
 tools._PERSONA_NAME_PROVIDER = _hermes_persona_name
-_PERSONA_NAME_PROVIDER = _hermes_persona_name          # 适配层命名空间（_current_persona_name 注入点）
-core.PERSONA_SUPPORTED = True  # Hermes 全能力（默认值，显式声明）
+_PERSONA_NAME_PROVIDER = _hermes_persona_name          # Adapter layer namespace (_current_persona_name injection point)
+core.PERSONA_SUPPORTED = True  # Hermes full capability (default value, explicit declaration)
 
 # ═══════════════════════════════════════════════════════════════
-# 3. Hermes 平台注册（gateway 进程内执行）
+# 3. Hermes platform registration (executed in gateway process)
 # ═══════════════════════════════════════════════════════════════
-# 3a. webhook preprocessor（入站富化）
+# 3a. webhook preprocessor (inbound enrichment)
 try:
     from gateway.platforms.webhook import register_preprocessor
 
@@ -901,7 +901,7 @@ try:
 except ImportError:
     pass
 
-# 3b. tools registry（6 邮件工具 + board 工具）
+# 3b. tools registry (6 email tools + board tools)
 try:
     from tools.registry import registry, tool_result
 except ImportError:
@@ -1037,9 +1037,9 @@ if registry is not None:
     except Exception as _e:
         logger.warning("[a2a_board] tool registration failed: %s", _e)
 
-# 3b.2 邮件工具注册（6 个: send_mail / 联系人 / summary）
-# 与 board 工具同机制: registry.register 在 import 时执行,
-# 名字需与 toolsets.py _HERMES_CORE_TOOLS 中的条目一致。
+# 3b.2 Email tool registration (6: send_mail / contacts / summary)
+# Same mechanism as the board tool: registry.register runs at import time,
+# the name must match the entries in toolsets.py _HERMES_CORE_TOOLS.
 try:
     registry.register(
         name="send_mail",
@@ -1206,8 +1206,8 @@ try:
 except Exception as _e:
     logger.warning("[aimail] set_email_summary registration failed: %s", _e)
 
-# 3b-bis. 身份类一等工具(审计 D1: Hermes 曾只注册 13 个, 与 README/adapter-playbook
-#         声明的 15 及 TS 侧 15/15 不符 —— 补齐这两个, 描述与 MCP TOOLS 逐字对齐)。
+# 3b-bis. Identity first-class tools (Audit D1: Hermes previously registered only 13, inconsistent with the 15 declared in README/adapter-playbook
+#         the declared 15 and the TS side 15/15 mismatched — filling in these two; the descriptions align verbatim with MCP TOOLS).
 try:
     registry.register(
         name="activate_address_code",
@@ -1235,34 +1235,34 @@ try:
 except Exception as _e:
     logger.warning("[aimail] activate_address_code registration failed: %s", _e)
 
-# 3c. profile 生命周期钩子（地址自动注册/注销）
+# 3c. profile lifecycle hooks (automatic address registration/deregistration)
 register_profile_hook("profile_created", _auto_register_email)
 register_profile_hook("profile_deleted", _auto_deregister_email)
 
 
 # ═══════════════════════════════════════════════════════════════
-# 4. agent-scope 定时轮询入口(pull-entry)—— install/初始化收尾接的最后一根线
+# 4. the agent-scope periodic polling entry (pull-entry) — the last wire hooked up at the tail of install/initialization
 # ═══════════════════════════════════════════════════════════════
-# 地址级激活码兑回来的地址**没有 push 路径**(网关给它写 webhook_url = NULL),
-# 只能自己定时 pull。判定/间隔/关停/失败不 ack 全部复用共享核心
-# (core. 那一套, 语义与 TS mail-core poll-entry.ts 逐条对齐), 本段只做两件
-# hermes 专属的事:
-#   1. 把"打回本机入站端点"的目标解析出来 —— 用绑定里已有的 webhook_url /
-#      webhook_secret + profile 的 webhook 端口(**不需要任何额外信息**);
-#   2. 在宿主初始化收尾(网关进程内, 由 patch_webhook 在 webhook.py 注入的
-#      aimail_hermes 导入处调用 ensure_agent_pull_started())起循环, 并在进程
-#      退出时停(atexit + daemon 线程双重保证)。
+# Addresses redeemed via address-level activation codes **have no push path** (the gateway writes webhook_url = NULL for them),
+# so they can only pull on a schedule. Decision/interval/shutdown/no-ack-on-failure all reuse the shared core
+# (core. that set, semantics aligned item-by-item with TS mail-core poll-entry.ts), this section only does two
+# hermes-specific things:
+#   1. resolve the "bounce back to the local inbound endpoint" target — using the webhook_url /
+#      webhook_secret in the binding + the profile's webhook port (**no extra information needed**);
+#   2. At the end of host initialization (within the gateway process, injected by patch_webhook in webhook.py
+#      aimail_hermes import site in webhook.py via ensure_agent_pull_started()), and stop it on process
+#      exit (dual guarantee via atexit + daemon thread).
 #
-# 注意(刻意不自动起): 本模块被 CLI/安装链 import 时不启动轮询 —— 那会
-# 在安装进程里凭空起线程打网关。起停由**宿主进程**显式收尾调用, 与 TS 适配器
-# (openclaw/pi 的 startInboundPull 由宿主插件调用)同一形态。
+# note (deliberately not auto-started): when this module is imported by the CLI/install chain it does not start polling — that would
+# spawn threads out of thin air in the install process to hit the gateway. Start/stop is explicitly handled by the **host process** at the end, same shape as the TS adapter
+# (openclaw/pi's startInboundPull is called by the host plugin).
 _PULL_HANDLES: List = []
 _pull_lock = threading.Lock()
 _pull_atexit_armed = False
 
 
 def _pull_route_secret() -> str:
-    """读 webhook 路由表里契约路由名的 secret(注册链写入, 与绑定同源)。"""
+    """Read the secret of the contract route name in the webhook route table (written by the registration chain, same source as the binding)."""
     hermhome = _resolve_profile_dir() or str(Path.home() / ".hermes")
     subs_path = Path(hermhome) / "webhook_subscriptions.json"
     try:
@@ -1276,13 +1276,13 @@ def _pull_route_secret() -> str:
 
 
 def _pull_replay_target(cfg: dict) -> dict:
-    """解析"把这封 pull 到的投递打回本进程入站端点"所需的 (url, secret)。
+    """Resolve the (url, secret) needed to "bounce this pulled delivery back to this process's inbound endpoint".
 
-    ``prefer_route_secret=True``: hermes 的入站验签由**宿主 webhook 平台**按
-    ``webhook_subscriptions.json`` 的路由 secret 做(不是我们自己读绑定)—— 路由表
-    才是 live 验签真值; 绑定里的同名字段只是注册期同源副本。二者冲突时以路由为准,
-    否则重放签名与验签方不一致 ⇒ 401 且永不 ack(地址级激活给新绑定自供 secret 时
-    会走到这种冲突: 宿主路由还是安装期的旧值)。
+    ``prefer_route_secret=True``: hermes inbound signature verification is done by the **host webhook platform** according to
+    done via the route secret of ``webhook_subscriptions.json`` (not by us reading the binding) — the route table
+    is the live truth for signature verification; the same-named field in the binding is just a same-source copy from registration time. When they conflict, the route takes precedence,
+    otherwise replay signature and verifier mismatch ⇒ 401 and never ack (when address-level activation supplies a new binding's own secret
+    will hit this conflict: the host route still has the old value from install time).
     """
     profile_dir = _resolve_profile_dir() or ""
     default_url = ""
@@ -1296,7 +1296,7 @@ def _pull_replay_target(cfg: dict) -> dict:
 
 
 def _pull_system_id() -> str:
-    """本 profile 绑定的 system_id(有指针就用它定位自己那条链; 否则全系统扫)。"""
+    """The system_id bound to this profile (if there is a pointer, use it to locate my own chain; otherwise scan all systems)."""
     profile_dir = _resolve_profile_dir() or ""
     if not profile_dir:
         return ""
@@ -1305,11 +1305,11 @@ def _pull_system_id() -> str:
 
 
 def _on_pull_email(cfg: dict, mail: dict) -> dict:
-    """pull 来的信走**与 webhook push 同一条**入站链 —— 原样请求打回本机端点。
+    """Mail pulled in goes through the **same** inbound chain as webhook push — the raw request is bounced back to the local endpoint.
 
-    路径/签名头与 bridge 转发/网关直推逐字同形(契约 HERMES_INBOUND_PATH +
-    per-address HMAC), 因此入站预处理器(富化/persona/附件/ping-pong 拦截)
-    与 6 步回信协议全部生效。失败抛异常 ⇒ start_polling 不 ack ⇒ 下轮重拉。
+    Path/signature headers are verbatim identical to bridge forwarding/gateway direct push (contract HERMES_INBOUND_PATH +
+    per-address HMAC), so the inbound preprocessor (enrichment/persona/attachments/ping-pong interception)
+    and the 6-step reply protocol all take effect. Failure raises an exception ⇒ start_polling does not ack ⇒ re-pull next round.
     """
     target = _pull_replay_target(cfg)
     if not target.get("ok"):
@@ -1321,10 +1321,10 @@ def _on_pull_email(cfg: dict, mail: dict) -> dict:
 
 
 def start_agent_pull(env=None, overrides=None, log=None) -> list:
-    """起 agent-scope 定时轮询(幂等: 已在跑则原样返回句柄)。
+    """Start agent-scope scheduled polling (idempotent: returns the handle as-is if already running).
 
-    只有 agent-scope 绑定(`shared_addr_*` 宿主系统下的地址码激活产物)会起循环;
-    没有则返回空列表 —— 禁用/系统场景**不抛**。
+    Only agent-scope bindings (address code activation artifacts under ``shared_addr_*`` host systems) will start the loop;
+    returns an empty list if there is none — **no throw** in disabled/system scenarios.
     """
     global _PULL_HANDLES, _pull_atexit_armed
     with _pull_lock:
@@ -1339,7 +1339,7 @@ def start_agent_pull(env=None, overrides=None, log=None) -> list:
         if _PULL_HANDLES and not _pull_atexit_armed:
             try:
                 import atexit
-                atexit.register(stop_agent_pull)  # 进程退出即停(另有 daemon 兜底)
+                atexit.register(stop_agent_pull)  # Stop on process exit (plus daemon fallback)
                 _pull_atexit_armed = True
             except Exception:
                 pass
@@ -1347,23 +1347,23 @@ def start_agent_pull(env=None, overrides=None, log=None) -> list:
 
 
 def ensure_agent_pull_started(env=None, overrides=None, log=None) -> list:
-    """宿主初始化收尾调用(幂等, 永不抛): 接上"自己这条 pull 唤起路径"。"""
+    """Called at the end of host initialization (idempotent, never raises): connects the "own pull wake-up path"."""
     try:
         return start_agent_pull(env=env, overrides=overrides, log=log)
-    except Exception as e:  # noqa: BLE001 — 接线失败不许拖垮网关启动
+    except Exception as e:  # noqa: BLE001 — wiring failure must not crash gateway startup
         logger.warning("[aimail-pull] start failed: %s", e)
         return []
 
 
 def stop_agent_pull() -> None:
-    """停掉全部轮询句柄(宿主停服/进程退出; 幂等)。"""
+    """Stop all polling handles (host shutdown/process exit; idempotent)."""
     global _PULL_HANDLES
     with _pull_lock:
         if not _PULL_HANDLES:
             return
         core.stop_agent_pull_entries(_PULL_HANDLES)
         _PULL_HANDLES = []
-    # Reliable teardown hook (atexit + daemon 兜底) ⇒ the mirror of the live
+    # Reliable teardown hook (atexit + daemon fallback) ⇒ the mirror of the live
     # notification: this gateway stops serving these addresses' inbound, so report
     # it best-effort, per address (`aimail address -a <addr> --inbound-down`).
     # The CLI owns the environment (routes included); the SDK speaks no bridge.
@@ -1375,5 +1375,5 @@ def stop_agent_pull() -> None:
                 logger.warning("%s", _line)
             else:
                 logger.info("%s", _line)
-    except Exception as e:  # noqa: BLE001 — 关停通知绝不拖垮宿主停服
+    except Exception as e:  # noqa: BLE001 — shutdown notification must never crash host service stop
         logger.debug("[aimail_gateway] inbound-down notification skipped: %s", e)

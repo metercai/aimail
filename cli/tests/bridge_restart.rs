@@ -1,11 +1,11 @@
 #![cfg(unix)]
-// 整文件 unix 语义(stub 可执行位 / sh 驱动 / symlink), windows 分支(W2)落地后重开。
-//! P2 切片3c 离线验收：桥生命周期契约 + `bridge --restart` 单实例。
+// the whole file is unix semantics (stub executable bit / sh-driven / symlink); reopen after the windows branch (W2) lands.
+//! P2 slice 3c offline acceptance: the bridge lifecycle contract + the single instance of `bridge --restart`.
 //!
-//! 用一个**实现契约的 stub 桥**（`--status [--json] --pid-file` / `--stop --pid-file` /
-//! `-c CFG --daemon --pid-file`，退出码 0/3 语义）替换真二进制，断言：
-//! ①`--restart` 起桥并写 pid（rc=0）②`bridge`（状态）能看到该 pid ③再 `--restart` ⇒ **单实例**
-//! （换 pid、旧进程已死）④收尾不留进程。
+//! A **contract-implementing stub bridge** (`--status [--json] --pid-file` / `--stop --pid-file` /
+//! `-c CFG --daemon --pid-file`, with the 0/3 exit-code semantics) replaces the real binary; assert that:
+//! ① `--restart` starts the bridge and writes the pid (rc=0) ② `bridge` (status) can see that pid ③ another `--restart` => **a single instance**
+//! (a new pid, the old process is dead) ④ the cleanup leaves no process.
 
 use std::path::Path;
 use std::process::Command;
@@ -70,8 +70,8 @@ if "--stop" in argv:
 if "--serve" in argv:
     time.sleep(300)
     sys.exit(0)
-# 守护进程**就是本 stub 自己**（cmdline 里含二进制路径 —— 与真桥同形，
-# 这样状态视图的"锚定可执行文件"扫描才看得见）
+# the daemon **is this stub itself** (the cmdline carries the binary path — the same shape as the real bridge,
+# so that the status view's "anchored executable file" scan can see it)
 p = subprocess.Popen([sys.argv[0], "--serve", "--pid-file", pidf], start_new_session=True,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 if pidf: open(pidf, "w").write(str(p.pid))
@@ -98,22 +98,22 @@ fn restart_starts_single_instance_and_status_sees_it() {
     .unwrap();
     let pid_file = home.join("bridge/bridge.pid");
 
-    // ① --restart：起桥 + 写 pid
+    // ① --restart: start the bridge + write the pid
     let (rc, out, err) = run(&home, &["bridge", "--restart"]);
     assert_eq!(rc, 0, "restart rc / out={out} err={err}");
     let pid1: i32 = std::fs::read_to_string(&pid_file)
-        .expect("pid 文件应存在")
+        .expect("the pid file should exist")
         .trim()
         .parse()
         .unwrap();
-    assert!(pid_alive(pid1), "pid1 应存活");
+    assert!(pid_alive(pid1), "pid1 should be alive");
 
-    // ② 状态视图的**契约部分**（配置/路由表）可见，进程扫描口径另测（见下）
+    // ② the **contract part** of the status view (config/route table) is visible; the process-scan criterion is tested separately (below)
     let (rc, out, _) = run(&home, &["bridge"]);
     assert_eq!(rc, 0);
-    assert!(out.contains("配置: mode=pull"), "{out}");
+    assert!(out.contains("Config: mode=pull"), "{out}");
 
-    // ③ 再 --restart ⇒ 单实例（换 pid、旧的已死）
+    // ③ another --restart => a single instance (a new pid, the old one is dead)
     let (rc, _, err) = run(&home, &["bridge", "--restart"]);
     assert_eq!(rc, 0, "{err}");
     let pid2: i32 = std::fs::read_to_string(&pid_file)
@@ -121,38 +121,38 @@ fn restart_starts_single_instance_and_status_sees_it() {
         .trim()
         .parse()
         .unwrap();
-    assert_ne!(pid1, pid2, "单实例：应换新 pid");
+    assert_ne!(pid1, pid2, "single instance: a new pid should be written");
     assert!(
         !pid_alive(pid1),
-        "旧进程必须已被停止（否则会双拉同一 pending）"
+        "the old process must have been stopped (otherwise it would double-pull the same pending)"
     );
     assert!(pid_alive(pid2));
 
-    // ④ 收尾：不留进程
+    // ④ the cleanup: leave no process
     let _ = Command::new("kill")
         .args(["-9", &pid2.to_string()])
         .status();
 }
 
-/// `bridge_pids` 的**锚定口径**：只认"首 token 以 `aimail-bridge` 结尾"的进程
-/// （真桥的 argv[0] 就是二进制路径），命令行里只是**提到**该串的进程不得被算进来（不误杀）。
+/// The **anchored criterion** of `bridge_pids`: only processes "whose first token ends in `aimail-bridge`" count
+/// (the real bridge's argv[0] is the binary path); a process that merely **mentions** that string on the command line must not be counted (no mis-killing).
 #[test]
 fn bridge_pids_anchors_on_executable_path_and_never_over_matches() {
     let tmp = tempfile::tempdir().unwrap();
-    // 真形态：argv[0] 就是 `<tmp>/aimail-bridge`。用 `exec -a` 设 argv[0]，
-    // 不再"拷贝二进制再执行"——那条路在并行测试下会撞 ETXTBSY（写 fd 未全关时 exec 同 inode）。
+    // the real shape: argv[0] is exactly `<tmp>/aimail-bridge`. Use `exec -a` to set argv[0];
+    // no more "copy the binary and then run it" — that path hits ETXTBSY under parallel tests (exec of the same inode while the write fd is not fully closed).
     let fake = tmp.path().join("aimail-bridge");
-    // bash 的 `exec -a` 才能改 argv[0]（dash 的 exec 不支持 -a，进程会直接退出）
+    // only bash's `exec -a` can change argv[0] (dash's exec does not support -a, and the process would exit immediately)
     let cmd = format!("exec -a '{}' sleep 30", fake.display());
     let mut real = Command::new("bash").args(["-c", &cmd]).spawn().unwrap();
 
-    // 反例形态：命令行里出现该串，但首 token 是别的程序（`sh -c`）⇒ 不许命中
+    // the counter shape: the string appears on the command line, but the first token is another program (`sh -c`) => it must not hit
     let mut decoy = Command::new("sh")
         .args(["-c", "sleep 30 # /aimail-bridge --config x.toml"])
         .spawn()
         .unwrap();
 
-    // `sh -c 'exec -a …'` 有 sh→exec 的窗口：轮询到 argv[0] 就位（≤2s），避免时序假红。
+    // `sh -c 'exec -a …'` has a sh→exec window: poll until argv[0] is in place (≤2s) to avoid a timing-induced false red.
     let real_pid = real.id();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
     let mut pids = Vec::new();
@@ -165,11 +165,11 @@ fn bridge_pids_anchors_on_executable_path_and_never_over_matches() {
     }
     assert!(
         pids.contains(&real_pid),
-        "真形态进程必须命中: {pids:?} vs {real_pid}"
+        "the real-shape process must hit: {pids:?} vs {real_pid}"
     );
     assert!(
         !pids.contains(&decoy.id()),
-        "命令行只是提到该串的进程不许命中（不误杀）: {pids:?} vs {}",
+        "a process that merely mentions the string must not hit (no mis-killing): {pids:?} vs {}",
         decoy.id()
     );
 

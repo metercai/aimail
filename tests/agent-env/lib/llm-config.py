@@ -164,11 +164,11 @@ def write_pi(home: Path, base_url: str, model: str, api_key: str) -> list[Path]:
 def write_deerflow(home: Path, base_url: str, model: str, api_key: str) -> list[Path]:
     p = home / "config.yaml"
     cfg = _load_yaml(p)
-    # 最小骨架必须在(sandbox.use 必填): deer-flow 的 AppConfig 是整文件校验, 缺 sandbox
-    # ⇒ create_app pydantic ValidationError ⇒ gateway 起不来。镜像里原本【没有】config.yaml
-    # (探针按"文件不存在"自造含 sandbox 的骨架), 一旦预置/写入器先落了只有 models 的文件,
-    # 探针的创建分支被跳过、gateway 全线起不来(r48 实测教训)。与 agent-turn-deerflow 的
-    # 骨架同形, 缺则补种(sandbox.use 必填), 已有则原样保留。
+    # Minimal skeleton must be in (sandbox.use required): deer-flow's AppConfig is whole-file validation, missing sandbox
+    # ⇒ create_app pydantic ValidationError ⇒ gateway cannot start. The image originally [did not have] config.yaml
+    # (the probe fabricates a skeleton containing sandbox as "file does not exist"), once the preset/writer first writes a file with only models,
+    # The probe creation branch is skipped, and the gateway fails to start across the board (lesson from r48 live test). Same skeleton as agent-turn-deerflow's
+    # skeleton; if missing, seed it (sandbox.use is required); if present, keep it as-is.
     if not isinstance(cfg.get("sandbox"), dict) or not cfg["sandbox"].get("use"):
         sb = cfg.get("sandbox") if isinstance(cfg.get("sandbox"), dict) else {}
         sb.setdefault("use", "deerflow.sandbox.local:LocalSandboxProvider")
@@ -550,8 +550,8 @@ def write_dsh(home: Path, base_url: str, model: str, api_key: str) -> list[Path]
 # spelling accepted so any other caller keeps working.
 PLATFORM_ALIASES = {
     "deer-flow": "deerflow",
-    # L3 矩阵格名 ≠ 注册表平台 id: dsh 两条 README 公布路径各占一格,
-    # LLM 配置形态相同 ⇒ 都归 dsh writer(2026-10-09 矩阵扩展时补)。
+    # L3 matrix cell name ≠ registry platform id: dsh two README published paths each occupy one cell,
+    # LLM config form is identical ⇒ both belong to dsh writer (added during 2026-10-09 matrix expansion).
     "dsh-aimail": "dsh",
     "dsh-plugin": "dsh",
 }
@@ -594,9 +594,9 @@ def verify_openclaw(home: Path, base_url: str, model: str) -> list[str]:
     mode = (cfg.get("gateway") or {}).get("mode")
     if not mode:
         bad.append("gateway.mode is empty — openclaw refuses to start in that state")
-    # 装前模式(owner 裁决 C, 2026-10-03): 预置镜像 = 纯原生, 适配器接线(hooks.token
-    # ensureHooksWiring)发生在门禁的安装步 ⇒ 构建期验收只判 LLM 配置本体, 接线项留给
-    # 装后(旅程 J4b)的同一 verifier。LLM_CONFIG_PRE_INSTALL=1 时跳过接线类判项。
+    # Pre-install mode (owner ruling C, 2026-10-03): preset image = pure native, adapter wiring (hooks.token
+    # ensureHooksWiring) happens in the gate's installation step ⇒ build-time acceptance only checks LLM config body, wiring items left for
+    # post-install (journey J4b) with the same verifier. When LLM_CONFIG_PRE_INSTALL=1, skip wiring-related checks.
     if os.environ.get("LLM_CONFIG_PRE_INSTALL") != "1":
         if not ((cfg.get("hooks") or {}).get("token") or "").strip():
             bad.append("hooks.token missing — the openclaw ADAPTER must have wired it "
@@ -636,9 +636,9 @@ def verify_deerflow(home: Path, base_url: str, model: str) -> list[str]:
 
 
 def verify_hermes(home: Path, base_url: str, model: str, extra_homes: list[str] | None = None) -> list[str]:
-    # 双写布局: 宿主进程读 extra-homes 的 config.yaml(真 HERMES_HOME),
-    # scratch 是 verify 专用副本 —— 两个位置都要对, 宿主那份才是真正生效的。
-    # 文本读取(model 块内活跃行), 与 write_hermes 同形; 纯标准库(macOS 无 PyYAML)。
+    # Dual-write layout: host process reads extra-homes config.yaml (real HERMES_HOME),
+    # scratch is a dedicated copy for verify — both locations must match, and the host's copy is the one that actually takes effect.
+    # Text reading (active lines within model block), same shape as write_hermes; pure standard library (macOS has no PyYAML).
     bad: list[str] = []
     checked = [home / ".hermes" / "config.yaml"]
     for e in (extra_homes or []):

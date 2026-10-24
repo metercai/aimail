@@ -322,8 +322,8 @@ export async function sendMail(ctx: ToolCtx, args: SendMailArgs): Promise<ToolRe
     return { success: false, error: 'All attachments failed', details: uploadErrors }
   }
 
-  // ── 先存再调: meta 常写 + outbox 快照按开关, 随后才调 API ──
-  // Message-ID 本地生成并传给 gateway, 本地值即线上值(不再回填 API 返回值)。
+  // ── Save first, then call: meta always written + outbox snapshot per switch, then call API ──
+  // Message-ID generated locally and passed to gateway, local value is the online value (no longer backfilling API return value).
   const generatedMid = buildMessageId(cfg)
   await storeMessageMeta(cfg.email, generatedMid, references, sender, 'outbound')
   if (cfg.save_raw_snapshots !== false) {
@@ -350,7 +350,7 @@ export async function sendMail(ctx: ToolCtx, args: SendMailArgs): Promise<ToolRe
     messageId: generatedMid,
     headers: { 'X-AIMail-Agent': agentIdentity() },
   }
-  // cc 透传数组 — 网关 SendEmailRequest.cc: Option<Vec<String>>,join(',') 会 422
+  // cc pass-through array — gateway SendEmailRequest.cc: Option<Vec<String>>, join(',') will 422
   if (ccList?.length) sendOpts.cc = ccList
   if (attachmentIds.length) sendOpts.attachments = attachmentIds
   if (inReplyTo) sendOpts.inReplyTo = inReplyTo
@@ -569,7 +569,7 @@ export async function setEmailSummary(ctx: ToolCtx, args: { message_id: string; 
 
   const threadId = await resolveThreadId(email, args.message_id)
   if (!args.summary.trim()) {
-    // 空 summary = 删除线程文件(与原 gateway 语义一致)
+    // Empty summary = delete thread file (consistent with original gateway semantics)
     try {
       await fsp.rm(threadPath(email, threadId), { force: true })
     } catch {

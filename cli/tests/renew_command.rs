@@ -1,8 +1,8 @@
-//! P3a 离线验收：`aimail renew`（目标解析文案 / 只读视图与天数 / 续期成功与失败 / 配额查询失败）。
-//! 全程 stub 网关（离线）；并断言**发出**的请求形状（方法+路径）。
+//! P3a offline acceptance: `aimail renew` (target-resolution wording / the read-only view and days / renewal success and failure / quota-query failure).
+//! The whole run uses a stub gateway (offline); and it asserts the shape of the **sent** request (method + path).
 //!
-//! 已登记分歧：Python 在"无系统/多系统/指定系统不在本地"时 `_fail` 后**继续**用空 key 打
-//! 生产默认网关；本实现打印同样文案后 rc=1 返回、**不发网络**（测试据此断言 rc=1 且零请求）。
+//! A registered divergence: in the "no system / multiple systems / the specified system is not local" cases, Python **continues** after `_fail` and hits
+//! the prod default gateway; this implementation prints the same wording, then returns rc=1 and **sends no network** (the test asserts rc=1 and zero requests accordingly).
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -31,7 +31,7 @@ fn run(home: &Path, args: &[&str]) -> (i32, String) {
     )
 }
 
-/// stub 网关：`replies` 键 = "METHOD path"；默认 200 `{}`。记录收到的请求。
+/// The stub gateway: the `replies` key = "METHOD path"; the default is 200 `{}`. It records the requests received.
 fn stub(replies: HashMap<String, (u16, String)>) -> (u16, Receiver<String>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -129,7 +129,7 @@ fn days_from_now(days: i64) -> String {
         .unwrap()
         .as_secs() as i64
         + days * 86400;
-    // 秒级 ISO8601（Z 结尾），与 Python `datetime.fromisoformat(...replace Z)` 可解析
+    // second-precision ISO8601 (ending in Z), parseable by Python's `datetime.fromisoformat(...replace Z)`
     let (y, m, d, hh, mm, ss) = epoch_to_utc(t);
     format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", y, m, d, hh, mm, ss)
 }
@@ -138,7 +138,7 @@ fn epoch_to_utc(ts: i64) -> (i64, u32, u32, u32, u32, u32) {
     let days = ts.div_euclid(86400);
     let rem = ts.rem_euclid(86400);
     let (hh, mm, ss) = (rem / 3600, (rem % 3600) / 60, rem % 60);
-    // 民用历（Howard Hinnant 算法）
+    // the civil calendar (the Howard Hinnant algorithm)
     let z = days + 719468;
     let era = z.div_euclid(146097);
     let doe = z.rem_euclid(146097);
@@ -158,7 +158,7 @@ fn renew_offline_paths_and_stub_gateway() {
     let home = tmp.path().join("ahome");
     std::fs::create_dir_all(home.join("uhome")).unwrap();
 
-    // 1) 无系统 ⇒ 文案 + rc=1（且**不发网络**）
+    // 1) no system => the wording + rc=1 (and **no network sent**)
     let (rc, out) = run(&home, &["renew", "--status"]);
     assert_eq!(rc, 1, "{out}");
     assert!(
@@ -166,7 +166,7 @@ fn renew_offline_paths_and_stub_gateway() {
         "{out}"
     );
 
-    // 2) 多系统未指定 ⇒ 列出候选
+    // 2) multiple systems, none specified => list the candidates
     for sid in ["s1", "s2"] {
         let dir = home.join("systems").join(sid);
         std::fs::create_dir_all(&dir).unwrap();
@@ -179,7 +179,7 @@ fn renew_offline_paths_and_stub_gateway() {
         "{out}"
     );
 
-    // 3) 指定系统不在本地
+    // 3) the specified system is not local
     let (rc, out) = run(&home, &["renew", "-s", "nope", "--status"]);
     assert_eq!(rc, 1);
     assert!(
@@ -187,7 +187,7 @@ fn renew_offline_paths_and_stub_gateway() {
         "{out}"
     );
 
-    // 4) 只读视图（远期到期）+ 5) 续期成功 + 6) 续期失败 + 7) 配额查询失败
+    // 4) the read-only view (a far-future expiry) + 5) renewal success + 6) renewal failure + 7) quota-query failure
     let mut replies = HashMap::new();
     replies.insert(
         "GET /api/v1/quotas".to_string(),
@@ -242,7 +242,7 @@ fn renew_offline_paths_and_stub_gateway() {
     );
     assert!(
         out.contains("renewed: expires_at "),
-        "标记带 ANSI 颜色，断言只看正文: {out}"
+        "the marker carries ANSI colors; the assertion only looks at the plain text: {out}"
     );
     assert!(
         out.contains("    merged quotas: domains 9 · addresses 99 · daily 900 · attachments 9"),
@@ -254,7 +254,7 @@ fn renew_offline_paths_and_stub_gateway() {
         "POST /api/v1/admin/renew-system"
     );
 
-    // 6) 续期失败：stub 答 400 + 错误体 ⇒ python-repr 文案
+    // 6) renewal failure: the stub answers 400 + an error body => the python-repr wording
     let mut replies2 = HashMap::new();
     replies2.insert(
         "POST /api/v1/admin/renew-system".to_string(),
@@ -264,14 +264,14 @@ fn renew_offline_paths_and_stub_gateway() {
     let tmp3 = fixture(&["s1"], &format!("http://127.0.0.1:{}", port2));
     let home3 = tmp3.path().join("ahome");
     let (rc, out) = run(&home3, &["renew", "-s", "s1", "-c", "BAD"]);
-    assert_eq!(rc, 0, "Python 在 renew 失败后继续走完并返回 0: {out}");
+    assert_eq!(rc, 0, "Python continues to the end after a renew failure and returns 0: {out}");
     assert!(
         out.contains("failed: {'status': 400, 'error': 'bad code'}")
             || out.contains("renew failed:"),
         "{out}"
     );
 
-    // 7) 配额查询失败（500）⇒ 同形：先报失败，再照旧打印空视图
+    // 7) quota-query failure (500) => the same shape: report the failure first, then print the empty view as usual
     let mut replies3 = HashMap::new();
     replies3.insert("GET /api/v1/quotas".to_string(), (500, "boom".to_string()));
     let (port3, _rx3) = stub(replies3);

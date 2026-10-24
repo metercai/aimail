@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
-"""宿主检测 —— "给定宿主 home,回答这里实际能跑哪些宿主"。
+"""Host detection — "given a host home, answer which hosts can actually run here".
 
-移植自 tssdk `src/hosts/detect.ts`,语义逐条对齐:
-  · 多信号 lazy、never throws —— 信号缺失只是"未检测到",不是错误;
-  · 候选根 = [home, home/<home_dir>]:调用方给宿主根(~/.hermes)或父目录(~);
-  · 信号来源(与 registry 同真源):
-      ① marker 在位(host 特征目录,如 ~/.hermes/hermes-agent)
-      ② 已装证据(host 的 aimail 指针文件 <root>/<POINTER_FILE> 存在)
+Ported from tssdk `src/hosts/detect.ts`, semantics aligned line by line:
+  · multi-signal lazy, never throws — a missing signal is only "not detected", not an error;
+  · Candidate roots = [home, home/<home_dir>]: caller provides host root (~/.hermes) or parent directory (~);
+  · Signal sources (same source of truth as registry):
+      ① marker present (host feature directory, e.g. ~/.hermes/hermes-agent)
+      ② installed evidence (host's aimail pointer file <root>/<POINTER_FILE> exists)
 
-与 CLI detect.rs 的分工:CLI 做"装配期"探测(未装态也要定位 home);
-本层做"运行时"识别(入口加载时确认 declared 与实际环境一致)。
+Division of labor with CLI detect.rs: CLI performs "assembly-time" detection (locating home even in uninstalled state);
+this layer performs "runtime" identification (confirming declared matches actual environment at entry load).
 """
 from __future__ import annotations
 
@@ -18,16 +18,16 @@ from typing import Dict, List, Optional
 
 from . import registry
 
-# 指针文件名 = 契约字面量,单真源(门禁棘轮:禁裸写该字面量)。
-# 双形态:pip 布局 core 在 aimail 包内;仓库 dev / bundle 布局 core 已挂 sys.path。
+# Pointer filename = contract literal, single source of truth (gate ratchet: forbids writing this literal bare).
+# Dual forms: pip layout has core inside aimail package; repo dev / bundle layout has core attached to sys.path.
 try:
     from aimail.aimail_contract import POINTER_FILE as _POINTER_FILE
-except ImportError:  # pragma: no cover - 布局分支
+except ImportError:  # pragma: no cover - layout branch
     from aimail_contract import POINTER_FILE as _POINTER_FILE
 
 
 def _candidate_roots(home: str, host: str) -> List[str]:
-    """候选根:[home, home/<home_dir>](父目录语义,与 CLI candidate_roots 一致)。"""
+    """Candidate roots: [home, home/<home_dir>] (parent directory semantics, consistent with CLI candidate_roots)."""
     roots = [home]
     home_dir = (registry.get_host(host) or {}).get("home_dir", "")
     if home_dir:
@@ -38,7 +38,7 @@ def _candidate_roots(home: str, host: str) -> List[str]:
 
 
 def _signals_present(home: str, host: str) -> Dict[str, bool]:
-    """该宿主在 home 下的信号集合(marker / 已装指针)。"""
+    """The set of signals for this host under home (marker / installed pointer)."""
     spec = registry.get_host(host) or {}
     out = {"marker": False, "installed": False}
     for root in _candidate_roots(home, host):
@@ -53,12 +53,12 @@ def _signals_present(home: str, host: str) -> Dict[str, bool]:
 
 
 def detect_host(home: str) -> Optional[str]:
-    """在 home 里识别出**恰好一个** python 宿主时返回其 id;
-    零个或多个命中 ⇒ None(歧义/空,由 activate 判 consistent,不抛)。"""
+    """Returns the id when **exactly one** python host is identified in the home;
+    zero or multiple hits ⇒ None (ambiguity/empty; activate decides consistent, no throw)."""
     hits = [h for h in registry.host_ids() if _signals_present(home, h)["marker"]]
     return hits[0] if len(hits) == 1 else None
 
 
 def detect_hosts_present(home: str) -> List[str]:
-    """home 里**全部**命中的宿主 id(多宿主共存时不丢信息)。"""
+    """**All** host ids that hit in the home (no info loss when multiple hosts coexist)."""
     return [h for h in registry.host_ids() if _signals_present(home, h)["marker"]]

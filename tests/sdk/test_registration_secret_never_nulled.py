@@ -1,27 +1,27 @@
-"""第 10 缺陷 (2026-09-28, CLI 门禁 L2「经桥 + J4d repair」401) —— 注册写入必须携带
-绑定 secret,且**缺 secret 时不得把云端已存 secret 抹空**。
+"""Defect 10 (2026-09-28, CLI gate L2 "via bridge + J4d repair" 401) —— registration write must carry
+binding secret, and **must not wipe out cloud-stored secret when secret is missing**.
 
-实测病灶链:
-  repair 阶梯最后一步(桥入口对齐) → `register_agent_email(..., webhook_url=url)`
-    ← **无 webhook_secret**
-      → exists 分支 `update_system_domain(id, webhook_url, "")`
-        → aimail_tools.py `update_system_domain` body 里 `if webhook_secret:` 不成立
-          ⇒ **键被省略** ⇒ 网关全量覆写 (storage.rs `webhook_url=?1, webhook_secret=?2`)
-            ⇒ 注册侧 secret = NULL ⇒ 签名侧空签名 vs 验签侧 64-hex ⇒ 401 bad_signature。
+Measured lesion chain:
+  repair ladder last step (bridge entry alignment) → `register_agent_email(..., webhook_url=url)`
+    ← **no webhook_secret**
+      → exists branch `update_system_domain(id, webhook_url, "")`
+        → aimail_tools.py `update_system_domain` body `if webhook_secret:` is false
+          ⇒ **key omitted** ⇒ gateway full overwrite (storage.rs `webhook_url=?1, webhook_secret=?2`)
+            ⇒ registration side secret = NULL ⇒ signature side empty signature vs verification side 64-hex ⇒ 401 bad_signature.
 
-两侧摘要实测(已发布 0.1.28): 验签侧 len=64 sha256=22d94b163553… vs 签名侧 secret=EMPTY。
+Measured digests on both sides (released 0.1.28): verification side len=64 sha256=22d94b163553… vs signature side secret=EMPTY.
 
-SDK 去桥化(owner 裁决 2026-09-28)删掉了那次对齐步(`ensure_bridge_routes_for_system`
-→ `_align_registrations_to_bridge`): **注册链成了唯一的写入路径**,Phase 0 的规则因此
-必须原样守在它身上。规则 = **绑定 webhook_secret 即真源**;任何注册写入必须携带它。
-本文件的断言:
-  ⓪ 对齐步与其桥符号已随去桥化一并退役(符号级棘轮);
-  ① 注册链**必带**绑定 secret(url+secret 成对写);
-  ③ 取不到 secret(调用方省略 + 绑定也没有)⇒ **就地补一把并携带**(2026-10-01 owner 方案A/B;
-  ④ 调用方省略 secret ⇒ 从绑定补全(真源);
-  ⑤ 调用方省略 + 绑定根本不存在 ⇒ **不写**(不得抹空);
-  ⑥ 两个值都给 ⇒ 原样成对写(无行为变化)。
-③/⑤ 是"缺 secret 不得覆写"的双保险;去掉任一条 ⇒ 本文件变红(红绿双向见报告)。
+SDK de-bridging (owner decision 2026-09-28) removed that alignment step (`ensure_bridge_routes_for_system`
+→ `_align_registrations_to_bridge`): **registration chain became the only write path**, Phase 0 rules therefore
+must be guarded on it as-is. Rule = **binding webhook_secret is source of truth**; any registration write must carry it.
+Assertions in this file:
+  ⓪ Alignment step and its bridge symbol have been retired along with de-bridging (symbol-level ratchet);
+  ① Registration chain **must carry** bound secret (url+secret written as a pair);
+  ③ Cannot obtain secret (caller omitted + binding also missing) ⇒ **generate one on the spot and carry it** (2026-10-01 owner plan A/B;
+  ④ Caller omits secret ⇒ complete from binding (single source of truth);
+  ⑤ Caller omits + binding does not exist at all ⇒ **do not write** (must not erase);
+  ⑥ Both values provided ⇒ write as a pair as-is (no behavior change).
+③/⑤ are the double insurance for "missing secret must not overwrite"; removing either ⇒ this file turns red (see report for red-green bidirectional).
 """
 import json
 import pathlib
@@ -45,11 +45,11 @@ BRIDGE_URL = f"http://127.0.0.1:38081{_c.HERMES_INBOUND_PATH}"
 LOCAL_URL = f"http://127.0.0.1:39100{_c.INBOUND_PATH}"
 GW = {"gateway_url": "https://gw.test", "admin_key": "AK"}
 
-# owner 裁决 2026-09-30:「env 可兜底但不可为空,不满足直接报错」—— 注册链不接受
-# manager='' ⇒ 本文件各调用点必须给出 manager(满足新前置),否则先撞
-# ManagerRequiredError, 连"写入是否带 secret"都测不到。本文件守护的契约是
-# **secret 成对写**(与 manager 正交): 断言一字未改(不删测试、不放宽判据),
-# 只按新契约补齐入参。
+# owner ruling 2026-09-30: "env can be a fallback but cannot be empty, error directly if not satisfied" —— registration chain does not accept
+# manager='' ⇒ each call site in this file must provide manager (satisfy new precondition), otherwise it will first hit
+# ManagerRequiredError, unable to even test "whether write carries secret". The contract guarded by this file is
+# **secret written as a pair** (orthogonal to manager): assertions unchanged word for word (no test deletion, no criteria relaxation),
+# only supplementing input parameters according to the new contract.
 MGR = "m@d.tm"
 
 
@@ -99,7 +99,7 @@ def _write_binding(home, email=EMAIL, secret=SECRET, sid=SID) -> pathlib.Path:
     return p
 
 
-# ── ⓪ 桥符号退役: 写入路径只剩注册链 ──────────────────────────────────────────
+# ── ⓪ Bridge symbol retirement: write path only has registration chain ──────────────────────────────────────────
 def test_the_bridge_align_step_is_retired():
     """The defect's carrier is gone; a resurrection must be visible as a red here."""
     for sym in ("ensure_bridge_routes_for_system", "_align_registrations_to_bridge",
@@ -107,9 +107,9 @@ def test_the_bridge_align_step_is_retired():
         assert not hasattr(core, sym), f"retired bridge symbol {sym} is back in aimail_base"
 
 
-# ── ① 注册链必带绑定 secret(url+secret 成对写) ────────────────────────────────
+# ── ① Registration chain must carry bound secret (url+secret written as a pair) ────────────────────────────────
 def test_registration_write_carries_the_binding_secret(home):
-    """RED/GREEN anchor: 修复前这里记录到的是 (..., URL, "") ⇒ 云端 secret = NULL."""
+    """RED/GREEN anchor: before fix, what was recorded here was (..., URL, "") ⇒ cloud secret = NULL."""
     _write_binding(home)
 
     core.register_agent_email(_FakeClient(), SID, EMAIL, webhook_url=LOCAL_URL,
@@ -119,18 +119,18 @@ def test_registration_write_carries_the_binding_secret(home):
         "url+secret must be written as a pair — a url-only write nulls the cloud secret")
 
 
-# ── ③ 取不到 secret ⇒ 一条写都不发(不得抹空) ─────────────────────────────────
+# ── ③ Cannot obtain secret ⇒ no write is sent (must not erase) ─────────────────────────────────
 def test_write_carries_a_provisioned_secret_when_the_binding_has_none(home):
-    """2026-10-01 owner 裁决(方案A/B): 绑定缺 secret ⇒ **就地补一把并携带**到网关
-    (单一真源=绑定 ⇒ 网关采纳同一把 ⇒ D2B 两侧摘要同源, 修"两把钥匙")。
+    """2026-10-01 owner ruling (plan A/B): binding missing secret ⇒ **generate one on the spot and carry it** to gateway
+    (single source of truth=binding ⇒ gateway adopts the same one ⇒ D2B both sides digest same source, fix "two keys").
 
-    ⚠ 旧断言 `writes == []`(一条写都不发)与该裁决**正面冲突** ⇒ 按新契约改写并换名;
-    **深层意图原样保留**: 任何写都必须携带**非空 secret**, 永不 url-only PUT
-    (那会把云端 secret 抹成 NULL ⇒ 永久 401; 见文件头病灶链)。
-    依据: owner 2026-10-01「A 和 B 不矛盾, 都可以要」+「缺则补一把并 PUT 同步」。
+    ⚠ Old assertion `writes == []` (no write sent) **directly conflicts** with this ruling ⇒ rewrite and rename according to new contract;
+    **deep intent preserved as-is**: any write must carry **non-empty secret**, never url-only PUT
+    (that would erase cloud secret to NULL ⇒ permanent 401; see file header lesion chain).
+    Basis: owner 2026-10-01 "A and B are not contradictory, both can be required" + "if missing, generate one and PUT sync".
 
-    修复前: 走到 register_agent_email 的 exists 分支 ⇒ PUT body 无 secret 键 ⇒
-    网关把云端已存 secret 覆写成 NULL ⇒ 永久 401。"""
+    Before the fix: reaching the exists branch of register_agent_email ⇒ the PUT body has no secret key ⇒
+    gateway overwrites stored cloud secret with NULL ⇒ permanent 401."""
     bp = _write_binding(home, secret="")
 
     core.register_agent_email(_FakeClient(), SID, EMAIL, webhook_url=LOCAL_URL,
@@ -144,7 +144,7 @@ def test_write_carries_a_provisioned_secret_when_the_binding_has_none(home):
         "binding and the write must share ONE secret (single source: binding)"
 
 
-# ── ④ 注册链: 调用方省略 secret ⇒ 从绑定补全 ─────────────────────────────────
+# ── ④ Registration chain: caller omits secret ⇒ complete from binding ─────────────────────────────────
 def test_register_chain_falls_back_to_the_binding_secret(home):
     _write_binding(home)
 
@@ -154,7 +154,7 @@ def test_register_chain_falls_back_to_the_binding_secret(home):
     assert _FakeClient.writes == [("7", BRIDGE_URL, SECRET)]
 
 
-# ── ⑤ 注册链: 调用方省略 + 绑定也没有 ⇒ 不写 ────────────────────────────────
+# ── ⑤ Registration chain: caller omits + binding also missing ⇒ do not write ────────────────────────────────
 def test_register_chain_never_issues_a_secretless_write(home):
     assert _FakeClient.writes == []
 
@@ -164,7 +164,7 @@ def test_register_chain_never_issues_a_secretless_write(home):
     assert _FakeClient.writes == [], "no binding secret ⇒ leave the cloud row untouched"
 
 
-# ── ⑥ 基线不变式: 两个值都给 ⇒ 原样成对写(无行为变化) ──────────────────────────
+# ── ⑥ Baseline invariant: both values provided ⇒ write as a pair as-is (no behavior change) ──────────────────────────
 def test_register_chain_still_writes_the_pair_verbatim(home):
     core.register_agent_email(_FakeClient(), SID, EMAIL,
                               webhook_url=BRIDGE_URL, webhook_secret="x" * 64,

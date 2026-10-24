@@ -1,12 +1,12 @@
-//! `whoami` / `create_api_key` 的 rust 原生实现（owner 2026-10-04 裁决）**跨语言 parity**。
+//! **Cross-language parity** of the rust-native implementations of `whoami` / `create_api_key` (owner ruling 2026-10-04).
 //!
-//! 判据分两层：
-//! 1. **请求形状**：同一个 stub 上，Python（`pysdk/gateway_api.py`）与 Rust 发的方法/路径/
-//!    头名（含 `X-Api-Identity` 的有无）/体 JSON 必须一致。签名值**不比**（时间戳与体字节
-//!    差异使其必然不同：Python 的 `json.dumps` 带空格、serde 紧凑，两侧各自按实发字节自洽 ——
-//!    这是 `core/gateway.rs` 头注已登记的既有近似）。
-//! 2. **返回形状**：成功体、4xx 的分支形状（`whoami` 吞成 `{}`；`create_api_key` 给
-//!    `{raw_key,error,detail,status}`）两侧逐字段相同。
+//! The criteria come in two layers:
+//! 1. **request shape**: on the same stub, the method/path/
+//!    header names (including the presence/absence of `X-Api-Identity`) / body JSON sent by Python (`pysdk/gateway_api.py`) and Rust must agree. The signature value is **not** compared (the timestamp and body-byte
+//!    differences make them inevitably different: Python's `json.dumps` carries spaces, serde is compact, each side is self-consistent over the bytes it really sends —
+//!    this is a pre-existing approximation already registered in the header comment of `core/gateway.rs`).
+//! 2. **return shape**: the success body and the 4xx branch shapes (`whoami` swallows it into `{}`; `create_api_key` returns
+//!    `{raw_key,error,detail,status}`) are field-for-field identical on both sides.
 
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
@@ -24,7 +24,7 @@ struct Recorded {
     body: String,
 }
 
-/// 起一个 stub 网关：按路径给固定回复，记录收到的请求（读满 `expect_reqs` 条后退出）。
+/// Start a stub gateway: fixed replies per path, recording the requests received (exits after reading `expect_reqs` of them).
 fn stub_gateway(
     replies: BTreeMap<String, (u16, String)>,
     expect_reqs: usize,
@@ -37,7 +37,7 @@ fn stub_gateway(
             let Ok((mut sock, _)) = listener.accept() else {
                 break;
             };
-            // 累积读：ureq 可能把 head 与 body 分两次写（单次 read 只拿到 head）
+            // accumulate the read: ureq may write the head and the body in two pieces (a single read only gets the head)
             let _ = sock.set_read_timeout(Some(std::time::Duration::from_millis(300)));
             let mut raw: Vec<u8> = Vec::new();
             let mut buf = vec![0u8; 16384];
@@ -46,7 +46,7 @@ fn stub_gateway(
                     Ok(0) => break,
                     Ok(n) => {
                         raw.extend_from_slice(&buf[..n]);
-                        // head 齐了且 Content-Length 满足 ⇒ 收工
+                        // the head is complete and the Content-Length is satisfied => done
                         if let Some(pos) = raw.windows(4).position(|w| w == b"\r\n\r\n") {
                             let head = String::from_utf8_lossy(&raw[..pos]).to_lowercase();
                             let want: usize = head
@@ -111,7 +111,7 @@ fn pysdk_dir() -> PathBuf {
         .join("pysdk")
 }
 
-/// 在 Python 侧调用 `gateway_api.<fn>(...)`，把返回值以 JSON 打到 stdout。
+/// Call `gateway_api.<fn>(...)` on the Python side and print the return value as JSON to stdout.
 fn python_call(expr: &str) -> Option<Value> {
     let script = format!(
         "import sys, json; sys.path.insert(0, {dir:?}); import gateway_api as ga; print(json.dumps({expr}))",
@@ -122,7 +122,7 @@ fn python_call(expr: &str) -> Option<Value> {
         .output()
         .ok()?;
     if !out.status.success() {
-        eprintln!("python 侧失败: {}", String::from_utf8_lossy(&out.stderr));
+        eprintln!("the python side failed: {}", String::from_utf8_lossy(&out.stderr));
         return None;
     }
     serde_json::from_slice(&out.stdout).ok()
@@ -141,35 +141,35 @@ fn whoami_request_and_result_match_python() {
         200,
         r#"{"category":"system_admin","scope":"system","system_id":"s1"}"#,
     )]);
-    // Python 侧
+    // the Python side
     let (purl, prx) = stub_gateway(rp.clone(), 1);
     let py_val = python_call(&format!("ga.whoami({purl:?}, 'k', '')"));
     let py_req = prx
         .recv_timeout(std::time::Duration::from_secs(5))
-        .expect("py 请求");
-    // Rust 侧
+        .expect("the py request");
+    // the Rust side
     let (rurl, rrx) = stub_gateway(rp, 1);
     let rs_val = aimail::core::gateway::whoami(&rurl, "k", "");
     let rs_req = rrx
         .recv_timeout(std::time::Duration::from_secs(5))
-        .expect("rs 请求");
+        .expect("the rs request");
 
-    assert_eq!(py_req.method, rs_req.method, "方法");
-    assert_eq!(py_req.path, rs_req.path, "路径");
+    assert_eq!(py_req.method, rs_req.method, "method");
+    assert_eq!(py_req.path, rs_req.path, "path");
     assert!(
         !rs_req.headers.contains_key("x-api-identity"),
-        "identity 空 ⇒ 不发该头"
+        "an empty identity => the header is not sent"
     );
-    assert!(!py_req.headers.contains_key("x-api-identity"), "Python 同");
+    assert!(!py_req.headers.contains_key("x-api-identity"), "the same for Python");
     for h in ["x-api-timestamp", "x-api-signature"] {
-        assert!(py_req.headers.contains_key(h), "Python 应发 {h}");
-        assert!(rs_req.headers.contains_key(h), "Rust 应发 {h}");
+        assert!(py_req.headers.contains_key(h), "Python should send {h}");
+        assert!(rs_req.headers.contains_key(h), "Rust should send {h}");
     }
     let Some(py_val) = py_val else {
-        println!("SKIP: Python 侧不可用");
+        println!("SKIP: the Python side is unavailable");
         return;
     };
-    assert_eq!(py_val, rs_val, "whoami 返回体应与 Python 相同");
+    assert_eq!(py_val, rs_val, "the whoami return body should be the same as Python");
 }
 
 #[test]
@@ -181,9 +181,9 @@ fn whoami_swallows_http_error_to_empty_object() {
     let (rurl, rrx) = stub_gateway(rp, 1);
     let rs_val = aimail::core::gateway::whoami(&rurl, "k", "");
     let _ = rrx.recv_timeout(std::time::Duration::from_secs(5));
-    assert_eq!(rs_val, serde_json::json!({}), "4xx ⇒ 空对象");
+    assert_eq!(rs_val, serde_json::json!({}), "4xx => an empty object");
     if let Some(pv) = py_val {
-        assert_eq!(pv, rs_val, "Python 同判");
+        assert_eq!(pv, rs_val, "the same verdict for Python");
     }
 }
 
@@ -196,7 +196,7 @@ fn create_api_key_request_and_result_match_python() {
     ));
     let py_req = prx
         .recv_timeout(std::time::Duration::from_secs(5))
-        .expect("py 请求");
+        .expect("the py request");
     let (rurl, rrx) = stub_gateway(rp, 1);
     let scopes = vec!["send".to_string()];
     let rs_val = aimail::core::gateway::create_api_key(
@@ -209,15 +209,15 @@ fn create_api_key_request_and_result_match_python() {
     );
     let rs_req = rrx
         .recv_timeout(std::time::Duration::from_secs(5))
-        .expect("rs 请求");
+        .expect("the rs request");
 
     assert_eq!(py_req.method, "POST");
     assert_eq!(rs_req.method, "POST");
-    assert_eq!(py_req.path, rs_req.path, "路径");
+    assert_eq!(py_req.path, rs_req.path, "path");
     assert_eq!(
         py_req.headers.get("x-api-identity"),
         Some(&"s1".to_string()),
-        "Python 用 system_id 作 identity"
+        "Python uses the system_id as the identity"
     );
     assert_eq!(
         rs_req.headers.get("x-api-identity"),
@@ -231,19 +231,19 @@ fn create_api_key_request_and_result_match_python() {
         rs_req.headers.get("content-type"),
         Some(&"application/json".to_string())
     );
-    // 体：语义相等（字节不必相同 —— 空格差异是已登记的近似）
+    // body: semantically equal (the bytes need not be identical — the whitespace difference is a registered approximation)
     let pj: Value = serde_json::from_str(&py_req.body).expect("py body json");
     let rj: Value = serde_json::from_str(&rs_req.body).expect("rs body json");
-    assert_eq!(pj, rj, "体 JSON 语义");
+    assert_eq!(pj, rj, "the semantic equality of the body JSON");
     assert_eq!(
         pj.get("scopes").and_then(|s| s.as_array()).map(|a| a.len()),
         Some(1)
     );
     let Some(py_val) = py_val else {
-        println!("SKIP: Python 侧不可用");
+        println!("SKIP: the Python side is unavailable");
         return;
     };
-    assert_eq!(py_val, rs_val, "create_api_key 返回体应与 Python 相同");
+    assert_eq!(py_val, rs_val, "the create_api_key return body should be the same as Python");
 }
 
 #[test]
@@ -274,6 +274,6 @@ fn create_api_key_error_shape_matches_python() {
         serde_json::json!({"raw_key":"", "error":"denied", "detail":"why", "status":403})
     );
     if let Some(pv) = py_val {
-        assert_eq!(pv, rs_val, "4xx 分支形状应与 Python 相同");
+        assert_eq!(pv, rs_val, "the 4xx branch shape should be the same as Python");
     }
 }

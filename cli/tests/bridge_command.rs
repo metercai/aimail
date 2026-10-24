@@ -1,11 +1,11 @@
-//! `aimail bridge` 命令面（`cmd::bridge`）的离线验收。
+//! Offline acceptance of the `aimail bridge` command surface (`cmd::bridge`).
 //!
-//! 判据：无参 ⇒ 状态查看（rc=0，含"配置不存在/路由表为空"的诚实播报）· `-s` ⇒ 按系统重刷
-//! （目标取绑定 webhook_url、`host` 传**完整 URL**、请求落 `/api/v1/routes`、汇总行逐字）·
-//! `--restart`/`--upgrade`（部署面，P2 切片3）⇒ **响亮未移植**（rc=1）而非静默成功。
+//! Criteria: no args => status view (rc=0, including the honest reports "config does not exist / route table empty") · `-s` => per-system re-refresh
+//! (target taken from the binding webhook_url, `host` passed as the **full URL**, the request lands on `/api/v1/routes`, the summary line verbatim) ·
+//! `--restart`/`--upgrade` (deployment surface, P2 slice 3) => **loudly unported** (rc=1), not a silent success.
 //!
-//! 说明：重刷按 Python 口径**直接打固定 admin 地址 `127.0.0.1:38081`** ⇒ stub 就绑这个端口
-//! （正是要被验证的"固定地址"行为）；若该端口被占则本测试会失败 —— 属预期（真机同此）。
+//! Note: the re-refresh, per the Python stance, **hits the fixed admin address `127.0.0.1:38081` directly** => the stub binds exactly this port
+//! (which is precisely the "fixed address" behavior under verification); if that port is occupied this test will fail — as expected (the real machine behaves the same).
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -40,30 +40,30 @@ fn status_refresh_and_deploy_flags_are_honest() {
     std::fs::create_dir_all(home.join("systems/s1/agent1")).unwrap();
     std::fs::create_dir_all(home.join("uhome")).unwrap();
 
-    // 1) 无参 ⇒ 状态查看：进程未运行 + 配置不存在 + 路由表为空，全是诚实播报，rc=0
+    // 1) no args => status view: process not running + config does not exist + route table empty, all honest reports, rc=0
     let (rc, out, _) = run(&home, &["bridge"]);
     assert_eq!(rc, 0, "{out}");
-    assert!(out.contains("  bridge 状态:"), "{out}");
-    assert!(out.contains("进程: 未运行"), "{out}");
-    assert!(out.contains("配置: aimail_bridge.toml 不存在"), "{out}");
-    assert!(out.contains("路由表为空(aimail_routes.toml)"), "{out}");
+    assert!(out.contains("  bridge status:"), "{out}");
+    assert!(out.contains("process: not running"), "{out}");
+    assert!(out.contains("config: aimail_bridge.toml does not exist"), "{out}");
+    assert!(out.contains("route table is empty (aimail_routes.toml)"), "{out}");
 
-    // 2) 部署面两开关都已接线：本夹具无桥配置/无桥二进制 ⇒ 都必须**响亮失败**（rc=1），
-    //    不得静默 0（`--upgrade` 缺配置 = "bridge 配置不存在"；`--restart` 启动失败）
+    // 2) both deployment-surface flags are wired: this fixture has no bridge config / no bridge binary => both must **fail loudly** (rc=1),
+    //    no silent 0 (`--upgrade` missing config = "bridge config does not exist"; `--restart` startup failure)
     let (rc, out, _) = run(&home, &["bridge", "--upgrade"]);
-    assert_eq!(rc, 1, "--upgrade 应 rc=1: {out}");
-    assert!(out.contains("bridge 配置不存在"), "--upgrade 输出: {out}");
+    assert_eq!(rc, 1, "--upgrade should be rc=1: {out}");
+    assert!(out.contains("bridge configuration does not exist"), "--upgrade output: {out}");
     let (rc, out, _) = run(&home, &["bridge", "--restart"]);
     assert!(
         rc == 1,
-        "无桥二进制时 --restart 必须 rc=1（不得静默成功）: {out}"
+        "--restart without a bridge binary must be rc=1 (no silent success): {out}"
     );
     assert!(
-        out.contains("桥启动失败") || out.contains("旧桥"),
-        "--restart 输出: {out}"
+        out.contains("Bridge startup failed") || out.contains("Old bridge"),
+        "--restart output: {out}"
     );
 
-    // 3) 重刷：stub admin 绑固定地址 127.0.0.1:38081（Python 同款行为）
+    // 3) re-refresh: the stub admin binds the fixed address 127.0.0.1:38081 (the same behavior as Python)
     let listener = TcpListener::bind("127.0.0.1:38081").unwrap();
     let (tx, rx): (_, Receiver<(String, String, String)>) = channel();
     thread::spawn(move || {
@@ -74,7 +74,7 @@ fn status_refresh_and_deploy_flags_are_honest() {
             };
             sock.set_read_timeout(Some(std::time::Duration::from_millis(500)))
                 .unwrap();
-            // 读到 Content-Length 满足为止（ureq 可能分两次写头与体 —— 早退会读到空 body）
+            // read until the Content-Length is satisfied (ureq may write header and body in two pieces — an early exit would read an empty body)
             let mut buf = Vec::new();
             let mut tmpb = [0u8; 4096];
             let mut need: Option<usize> = None;
@@ -126,9 +126,9 @@ fn status_refresh_and_deploy_flags_are_honest() {
         }
     });
 
-    // 夹具：系统配置（存在性检查用）+ 一个已注册绑定（webhook_url 是唯一信任源）
-    // 平台由"配置里的 system_home 反查"得出（与 Python 同序）⇒ 夹具给一个带 hermes 特征的 home
-    // 平台 detect 认特征 marker（C-3：hermes = hermes-agent；profiles 是使用期产物，不入特征）
+    // fixture: system config (for the existence check) + one registered binding (webhook_url is the only source of trust)
+    // the platform is derived by "reverse lookup from the config's system_home" (same order as Python) => the fixture gives a home with the hermes marker
+    // platform detect recognizes the marker features (C-3: hermes = hermes-agent; profiles is a runtime product and does not enter the features)
     std::fs::create_dir_all(home.join("phome/hermes-agent")).unwrap();
     std::fs::write(
         home.join("systems/s1/aimail_gateway.json"),
@@ -150,19 +150,19 @@ fn status_refresh_and_deploy_flags_are_honest() {
 
     let (rc, out, _) = run(&home, &["bridge", "-s", "s1"]);
     assert_eq!(rc, 0, "{out}");
-    assert!(out.contains("bridge 未运行"), "{out}");
+    assert!(out.contains("bridge not running"), "{out}");
     assert!(
         out.contains(&format!(
-            "↻ a@example.test: (无) → http://127.0.0.1:9101{}",
+            "↻ a@example.test: (none) → http://127.0.0.1:9101{}",
             aimail::core::contract::inbound_path()
         )),
         "{out}"
     );
-    assert!(out.contains("重刷完成: 1 条路由已注册/确认"), "{out}");
+    assert!(out.contains("Refresh complete: 1 routes registered/confirmed"), "{out}");
 
     let (method, path, body) = rx
         .recv_timeout(std::time::Duration::from_secs(5))
-        .expect("stub 应收到一次路由请求");
+        .expect("the stub should receive one route request");
     assert_eq!(method, "POST");
     assert_eq!(path, "/api/v1/routes");
     assert!(
@@ -170,9 +170,9 @@ fn status_refresh_and_deploy_flags_are_honest() {
             "\"host\":\"http://127.0.0.1:9101{}\"",
             aimail::core::contract::inbound_path()
         )),
-        "host 必须是完整 URL: {body}"
+        "host must be the full URL: {body}"
     );
-    // 一个绑定只应产生一次请求（stub 记录的就是证据）
+    // one binding should produce exactly one request (what the stub records is the evidence)
     assert!(rx
         .recv_timeout(std::time::Duration::from_millis(300))
         .is_err());

@@ -1,8 +1,8 @@
-//! dsh 宿主（node / agent-aimail 插件，多 profile）。
+//! dsh host (node / agent-aimail plugin, multi-profile).
 //!
-//! 本文件是该宿主的**全部数据**：身份特征、指针形态、注册/装配步骤、体检项。
-//! 引擎在 `hosts/{mod,identity,pointer,runtime}.rs`；新增宿主 = 新增本目录一个文件，
-//! 再在 `mod.rs` 的 `ALL` 里加一行。
+//! This file is the **complete data** for this host: identity features, pointer forms, registration/assembly steps, health check items.
+//! Engine is in `hosts/{mod,identity,pointer,runtime}.rs`; new host = new file in this directory,
+//! Then add a line in `ALL` in `mod.rs`.
 
 use crate::hosts::exec::{EnvPairs, Register, Step, When};
 use crate::hosts::identity::{Detect, PointerKind};
@@ -18,10 +18,10 @@ pub static DSH: HostDef = HostDef {
     register: Register::NodeEntry {
             node_path: "{home}/profiles/*/node_modules/agent-aimail/dist/dsh/register-cli.js",
             fail_hint:
-                "agent-aimail 插件未就绪——先 `dsh plugin --profile web add agent-aimail` 装插件再注册",
+                "agent-aimail plugin not ready — first `dsh plugin --profile web add agent-aimail` to install plugin then register",
         },
     home_dir: ".dsh",
-    install_steps: &[Step::Spawn { when: None, argv: &["dsh", "plugin", "--profile", "web", "add", "agent-aimail", "--config.minimumReleaseAge=0"], env: Some(EnvPairs(&[("DSH_HOME","{home}")])), skip_if: None, on_missing: Some("fail"), fail_hint: Some("`dsh` CLI not found — build/install deepseek-harness first (e.g. cd ~/deepseek-harness && cargo build --release && ln -sf \"$PWD/target/release/dsh\" ~/.local/bin/dsh), then re-run aimail install"), on_error: Some("warn"), warn_hint: Some("dsh plugin add aimail 失败(检查 aimail npm 包发布与网络)"), ok_text: Some("aimail 插件已安装(dsh bundle 层挂载)"), skipped_text: None }, Step::RegisterDefault { when: Some(When { cfg_complete: Some(true), sid_set: None, path_exists: None, command_exists: None, runtime: None, runtime_not: None }), on_error: Some("warn"), warn_hint: Some("dsh agent registration failed (see above) — rerun `aimail reset -s {sid}` once the plugin is in place") }, Step::Print { when: None, text: "  dsh: 绑定 = 创建 dsh session(mail preset)后自动 auto-bind;" }, Step::Print { when: None, text: "        CLI 侧注册:`aimail address -s SID`" }],
+    install_steps: &[Step::Spawn { when: None, argv: &["dsh", "plugin", "--profile", "web", "add", "agent-aimail", "--config.minimumReleaseAge=0"], env: Some(EnvPairs(&[("DSH_HOME","{home}")])), skip_if: None, on_missing: Some("fail"), fail_hint: Some("`dsh` CLI not found — build/install deepseek-harness first (e.g. cd ~/deepseek-harness && cargo build --release && ln -sf \"$PWD/target/release/dsh\" ~/.local/bin/dsh), then re-run aimail install"), on_error: Some("warn"), warn_hint: Some("dsh plugin add aimail failed (check aimail npm package publish and network)"), ok_text: Some("aimail plugin installed (mounted at the dsh bundle layer)"), skipped_text: None }, Step::RegisterDefault { when: Some(When { cfg_complete: Some(true), sid_set: None, path_exists: None, command_exists: None, runtime: None, runtime_not: None }), on_error: Some("warn"), warn_hint: Some("dsh agent registration failed (see above) — rerun `aimail reset -s {sid}` once the plugin is in place") }, Step::Print { when: None, text: "  dsh: binding = auto auto-bind after creating a dsh session (mail preset);" }, Step::Print { when: None, text: "        CLI-side registration: `aimail address -s SID`" }],
     uninstall_steps: &[
             Step::RmPointer {
                 path: "{home}/{pointer_file}",
@@ -29,7 +29,7 @@ pub static DSH: HostDef = HostDef {
             },
             Step::Print {
                 when: None,
-                text: "  dsh: 共享配置已清理;dsh 侧卸载 mail 插件(mail/mail-inbound/tool-mail)+ 删 preset 即可",
+                text: "  dsh: shared config cleaned; on dsh side, uninstall mail plugin (mail/mail-inbound/tool-mail) + delete preset to complete",
             },
         ],
     health_checks: &[],

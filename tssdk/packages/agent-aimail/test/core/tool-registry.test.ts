@@ -114,7 +114,7 @@ describe('MAIL_TOOLS ↔ Python registry parity', () => {
         const tp = tsParams[k]
         expect(tp?.type, `${pt.name}.${k} type`).toBe(pp.type)
         if (pp.enum) expect(tp?.enum, `${pt.name}.${k} enum`).toEqual(pp.enum)
-        // 审计 2026-09-21: default 也是两端契约的一部分(曾漏比 → 转换层丢 default 无人发现)
+        // Audit 2026-09-21: default is also part of the two-end contract (previously missed comparison → conversion layer lost default without anyone noticing)
         if (pp.default !== undefined) {
           expect(tp?.default, `${pt.name}.${k} default`).toBe(pp.default)
         }

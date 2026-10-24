@@ -16,18 +16,18 @@ import re
 import sys
 from pathlib import Path
 
-# ── 双形态自举(repo pysdk/ ↔ pip site-packages/aimail/)──
-# repo 形态: dirname(dirname(__file__)) = pysdk/(含 aimail_base.py 等 flat core,
-# 裸 import 可用)→ 加入 sys.path。pip 形态: 该目录 = site-packages/(无 flat core),
-# 需先 import aimail 触发 aimail/__init__.py glue(把 aimail/ 目录插 sys.path,
-# flat core 裸 import 才可用)。
+# ── Dual-form bootstrap (repo pysdk/ ↔ pip site-packages/aimail/) ──
+# repo form: dirname(dirname(__file__)) = pysdk/ (contains aimail_base.py etc flat core,
+# Bare import available) → add to sys.path. pip form: this dir = site-packages/ (no flat core),
+# need to import aimail first to trigger aimail/__init__.py glue (insert aimail/ dir into sys.path,
+# flat core bare import then available).
 _CORE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if os.path.isfile(os.path.join(_CORE_DIR, "aimail_base.py")):
     if _CORE_DIR not in sys.path:
         sys.path.insert(0, _CORE_DIR)
 else:
     try:
-        import aimail  # noqa: F401  (pip 形态 glue)
+        import aimail  # noqa: F401  (pip form glue)
     except Exception:
         pass
 

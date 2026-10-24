@@ -1,26 +1,26 @@
-//! v1 API 签名 —— 协议契约的实现。
+//! v1 API signature — the implementation of the protocol contract.
 //!
-//! 真源：gateway `docs/API-SIGNATURE-PROTOCOL.md`；Python 权威实现
-//! `pysdk/aimail_base.compute_api_signature:29-59`（另有离线副本
-//! `cli/check_status._signed_headers`）。Rust 侧必须逐字复刻：
+//! Source of truth: gateway `docs/API-SIGNATURE-PROTOCOL.md`; Python authoritative implementation
+//! `pysdk/aimail_base.compute_api_signature:29-59` (also offline copy
+//! `cli/check_status._signed_headers`). The Rust side must replicate verbatim:
 //!
 //! ```text
-//! key_hash = sha256_hex(raw_key)          # 原始 key 不上线
+//! key_hash = sha256_hex(raw_key)          # raw key not sent online
 //! base     = "{METHOD}\n{path_and_query}\n{timestamp_ms}\n{sha256_hex(body)}"
-//! sig      = hex(HMAC-SHA256(key = key_hash 的 utf-8 字节, msg = base))
+//! sig      = hex(HMAC-SHA256(key = utf-8 bytes of key_hash, msg = base))
 //! ```
 //!
-//! `path` 必须是**上线时用的**请求目标（path + query，URL 编码后），否则服务端
-//! `path_and_query()` 重算出的 base 不相等。空 `api_key` ⇒ `None`（调用方不发签名头）。
+//! `path` must be the request target **used when going online** (path + query, after URL encoding), otherwise the server-side
+//! not equal to the base recomputed by `path_and_query()`. Empty `api_key` ⇒ `None` (caller does not send the signature header).
 //!
-//! 黄金向量跨语言固化在 `tests/test_signature.py:16-24`（该文件自陈"portable to the
-//! Rust side for cross-language diff"）—— 本模块的单测直接钉同一组值。
+//! Golden vectors are cross-language fixed in `tests/test_signature.py:16-24` (the file self-describes as "portable to the
+//! Rust side for cross-language diff") — the unit tests in this module pin the same set of values directly.
 
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// 签名头（`X-Api-Timestamp` / `X-Api-Signature`）。
+/// Signature headers (`X-Api-Timestamp` / `X-Api-Signature`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Signature {
     pub timestamp: String,
@@ -35,7 +35,7 @@ fn hex(bytes: &[u8]) -> String {
     out
 }
 
-/// sha256 十六进制小写（与 Python `hashlib.sha256(...).hexdigest()` 同值）。
+/// sha256 hex lowercase (same value as Python `hashlib.sha256(...).hexdigest()`).
 pub fn sha256_hex(data: &[u8]) -> String {
     hex(Sha256::digest(data).as_slice())
 }
@@ -47,7 +47,7 @@ fn now_ms() -> u128 {
         .as_millis()
 }
 
-/// 计算 v1 签名头。`api_key` 为空 ⇒ `None`（与 Python 同语义）。
+/// Compute the v1 signature header. `api_key` empty ⇒ `None` (same semantics as Python).
 pub fn compute(
     api_key: &str,
     method: &str,
@@ -79,10 +79,10 @@ pub fn compute(
     })
 }
 
-/// 签名 HTTP 头（`cli/check_status.py:800-817` / `pysdk/aimail_base._signed_headers` 同协议）。
+/// Sign HTTP headers (`cli/check_status.py:800-817` / `pysdk/aimail_base._signed_headers` same protocol).
 ///
-/// 注意两点与 Python 逐字一致：① `Content-Type: application/json` **总是**带上
-/// （即使 GET 无体）；② `X-Api-Identity` 仅在 identity 非空时出现。
+/// Note two points consistent with Python verbatim: ① `Content-Type: application/json` is **always** included
+/// (even for GET with no body); ② `X-Api-Identity` appears only when identity is non-empty.
 pub fn signed_headers(
     api_key: &str,
     method: &str,
@@ -95,7 +95,7 @@ pub fn signed_headers(
     if !identity.is_empty() {
         headers.push(("X-Api-Identity", identity.to_string()));
     }
-    // 空 key 不签名（Python 侧同样不产生签名头；调用方此时应已判失败）
+    // Empty key does not sign (Python side also does not produce signature headers; caller should have already determined failure at this point)
     if let Some(sig) = compute(api_key, method, path, body.unwrap_or(b""), None) {
         headers.push(("X-Api-Timestamp", sig.timestamp));
         headers.push(("X-Api-Signature", sig.signature));
@@ -107,7 +107,7 @@ pub fn signed_headers(
 mod tests {
     use super::*;
 
-    // ── 与 Python 侧 tests/test_signature.py:16-24 同一组黄金向量（跨语言 diff） ──
+    // ── Same set of golden vectors as Python side tests/test_signature.py:16-24 (cross-language diff) ──
     const GOLDEN_KEY: &str = "0123456789abcdef";
     const GOLDEN_TS: u128 = 1_700_000_000_000;
     const GOLDEN_SIG: &str = "febe8865310009c77673b64a04310ef531ec6e2d49c9d05538a13b7ff80e268d";
@@ -128,7 +128,7 @@ mod tests {
 
     #[test]
     fn base_string_layout_is_independent_of_key_derivation() {
-        // 手算一遍文档里的 base 串布局（不依赖实现内部函数）
+        // Manually calculate the base string layout in the documentation (does not rely on internal implementation functions)
         let key_hash = sha256_hex(GOLDEN_KEY.as_bytes());
         let base = format!(
             "POST\n/api/v1/whoami\n{}\n{}",

@@ -1,9 +1,9 @@
-"""C2 (P6, owner ruling 2026-10-02): deer-flow register 接受 --name 直达目标名.
+"""C2 (P6, owner ruling 2026-10-02): deer-flow register accepts --name to directly target name.
 
-- argparse: register 子命令带 --name(空 = 按 --agent 派生, 旧行为);
-- _cmd_register: --name 只对单 agent 生效(--all 枚举各 agent 自派生, 不接受统一名);
-- register_agents: 邮箱派生 name 优先(name or agent_id) —— 退役"先默认名注册再
-  rename"的中间态(F13 根), 终态与旧 rename 路径同形(agent_id 承载平台语义)。
+- argparse: register subcommand has --name (empty = derived from --agent, old behavior);
+- _cmd_register: --name only effective for single agent (--all enumerates each agent self-derived, does not accept unified name);
+- register_agents: email derived name takes priority (name or agent_id) —— retires the intermediate state of "register with default name then
+  rename" (F13 root), final state isomorphic to old rename path (agent_id carries platform semantics).
 """
 import sys
 from pathlib import Path
@@ -28,7 +28,7 @@ def test_register_subcommand_exposes_name_flag():
             manage.main(["register", "--help"])
         except SystemExit:
             pass
-    assert "--name" in buf.getvalue(), "register 子命令必须暴露 --name(C2)"
+    assert "--name" in buf.getvalue(), "register subcommand must expose --name (C2)"
 
 
 def test_cmd_register_threads_name_for_single_agent(monkeypatch):
@@ -51,14 +51,14 @@ def test_cmd_register_ignores_name_for_all(monkeypatch):
         agent="", all=True, name="alice",
         manager="m@x.tm", system_id="s1"))
     assert seen["agent"] == "all"
-    assert seen["name"] == "", "--all 枚举各 agent 自派生, 不接受统一名"
+    assert seen["name"] == "", "--all enumerates each agent self-derived, does not accept unified name"
 
 
 def test_email_derivation_rules_used_by_register_agents():
-    """register_agents 内联表达式 email_for_agent(name or agent_id, …) 的两条规则:
-    目标名原样派生; 缺省(空 name 回落 agent_id)保持默认名归一(default → agent)。
+    """register_agents inline expression email_for_agent(name or agent_id, ...) two rules:
+    target name derived as-is; default (empty name falls back to agent_id) maintains default name normalization (default → agent).
     """
     real = manage.email_for_agent
-    assert real("alice", "d.tm", "") == "alice@d.tm"      # name 直达
-    assert real("default", "d.tm", "") == "agent@d.tm"    # 旧行为(默认名归一)不变
-    assert real("bob", "d.tm", "s1") == "bob.s1@d.tm"     # 共享域中缀
+    assert real("alice", "d.tm", "") == "alice@d.tm"      # name direct
+    assert real("default", "d.tm", "") == "agent@d.tm"    # old behavior (default name normalization) unchanged
+    assert real("bob", "d.tm", "s1") == "bob.s1@d.tm"     # shared domain infix

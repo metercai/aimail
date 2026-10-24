@@ -1,38 +1,38 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""check-contract-single-source.py — AIMail agent 侧契约"不可漂移"门禁(L0)。
+"""check-contract-single-source.py — AIMail agent-side contract "no drift" gate (L0).
 
-单一真源 = 仓根 ``contract/aimail-contract.json``。本脚本实现三条规则:
+Single source of truth = repo root ``contract/aimail-contract.json``. This script implements three rules:
 
-  (a) 常量与清单一致: TS ``tssdk/packages/agent-aimail/src/core/contract.ts`` 与
-      Python ``pysdk/aimail_contract.py`` 的每个契约常量必须逐项 == 清单。
-      **Rust 侧本批未覆盖**(gateway/bridge 两仓留下批)⇒ 输出里登记为 GAP。
-  (b) 字面量白名单棘轮: 清单里的字面量只允许出现在白名单(清单自身、两个
-      常量模块、本门禁目录、两份自举文档 `DOCS_WHITELIST`(理由见其注释:
-      它们必须逐字引用契约值, 改由 check-docs-consistency.py 强校验)、以及带
-      ``contract-allowed: <理由>`` 注释的行)。
-      其余位置按"文件 × 字面量"计数, 与基线
-      ``tests/contract/contract-literal-baseline.json`` 比对 —— **只许减不许增**;
-      新增位置 ⇒ FAIL 并给 ``file:line`` + 当前/基线计数。
-  (c) SKILL.md frontmatter 契约名: 单一真源 ``resources/skills/SKILL.md`` 与
-      agent-aimail 包内 prepack 暂存的那份的 ``name:`` / ``toolset:``
-      必须 == 清单的 agent_skill_name / agent_toolset_name。
-      (正是能抓住改名提交 d701dae(2026-09-03)那类破坏的检查。)
+  (a) Constants consistent with manifest: TS ``tssdk/packages/agent-aimail/src/core/contract.ts`` and
+      Each contract constant in Python ``pysdk/aimail_contract.py`` must be item-by-item == manifest.
+      **Rust side not covered in this batch** (gateway/bridge two repos left for next batch) ⇒ registered as GAP in output.
+  (b) Literal whitelist ratchet: literals in manifest are only allowed in whitelist (manifest itself, two
+      constant modules, this gate directory, two bootstrap docs `DOCS_WHITELIST` (reason in their comments:
+      they must quote contract values verbatim, enforced by check-docs-consistency.py), and lines with
+      ``contract-allowed: <reason>`` comment).
+      Other locations counted by "file × literal", compared with baseline
+      ``tests/contract/contract-literal-baseline.json`` comparison -- **only reductions allowed, no additions**;
+      New location ⇒ FAIL and provide ``file:line`` + current/baseline count.
+  (c) SKILL.md frontmatter contract name: single source of truth ``resources/skills/SKILL.md`` and
+       the copy staged in the agent-aimail package prepack must have ``name:`` / ``toolset:``
+      must == manifest's agent_skill_name / agent_toolset_name.
+      (This is exactly the check that catches breaking changes like the rename commit d701dae(2026-09-03).)
 
-退出码:
-  0 = 全绿;
-  1 = 漂移或违约(有确定违约项时优先于 2 —— 两者都非零, 门禁都红);
-  2 = 判不了(清单读不到/不可解析/缺键、物化产物尚未物化、git 不可用、基线缺失)。
+Exit codes:
+  0 = all green;
+  1 = drift or violation (takes precedence over 2 when definite violations exist —— both are non-zero, gates are red);
+  2 = undecidable (manifest unreadable/unparseable/missing keys, materialized artifacts not yet materialized, git unavailable, baseline missing).
 
-纪律: 诊断输出一律原样打印(绝不 ``2>/dev/null`` 或 ``cut`` 吞掉);每条结论带
-file:line 或命令原文。基线用 ``--update-baseline`` 生成(只在**有意**减少/新增
-白名单后重跑)。
+Discipline: diagnostic output must be printed as-is (never ``2>/dev/null`` or ``cut`` to swallow it); each conclusion must include
+file:line or the original command. Baseline is generated with ``--update-baseline`` (re-run only after **intentional** reduction/addition
+of the whitelist).
 
-用法:
+Usage:
   python3 tests/contract/check-contract-single-source.py [--repo DIR]
         [--update-baseline] [--show-baseline-diff]
-环境:
-  AIMAIL_CONTRACT_MANIFEST 覆盖清单路径(三态自验"清单读不到 ⇒ rc=2"用)。
+Environment:
+  AIMAIL_CONTRACT_MANIFEST manifest path (used for tri-state self-verification "manifest unreadable ⇒ rc=2").
 """
 from __future__ import annotations
 
@@ -51,54 +51,54 @@ REQUIRED_KEYS = (
     "inbound_ports",
 )
 
-# ── 白名单(字面量允许出现的文件;路径相对仓根)──────────────────────────────
+# ── Whitelist (files where literals are allowed; paths relative to repo root) ──────────────────────────────
 TS_CONTRACT = "tssdk/packages/agent-aimail/src/core/contract.ts"
 PY_CONTRACT = "pysdk/aimail_contract.py"
 MANIFEST_REL = "contract/aimail-contract.json"
 BASELINE_REL = "tests/contract/contract-literal-baseline.json"
-GATE_DIR = "tests/contract/"          # 门禁自身目录(含基线)整体白名单
-# 文档面白名单(2026-09-27, 用户裁决「文档能力必须被实现兜住」): docs/agent-self-setup
-# 这两份自举文档**必须逐字引用**契约值(入站路径、注册名、绑定/指针文件名、端口、
-# agent 级前缀)才讲得清闭环, 所以"字面量位置计数"这套棘轮对它们不适用; 它们改由
-# 同目录的 check-docs-consistency.py 以「值 == 清单」逐字命中方式强校验(比位置计数
-# 更强: 写错一个字符就红), 两套检查同在 L0 里跑, 覆盖不降级。
-# 2026-10-03 追加 (owner 批准修法 A): cli/cli-sdk-bridge-boundaries.md —— 边界定稿
-# 要讲清契约面(skill/toolset 注册名、绑定/指针文件名、入站路径)就必须逐字引用契约值,
-# 与上面两份同理由 ⇒ 同样从"位置计数"棘轮里排除。⚠ 与上面两份的差别: 它**没有**
-# check-docs-consistency.py 等价兜底 ⇒ 文档内契约值与真源漂移不受本门禁约束,
-# 已在 GAP 里登记(见 DOCS_WHITELIST_GAPS)。
+GATE_DIR = "tests/contract/"          # The gate's own directory (including baseline) is whitelisted as a whole
+# Documentation surface whitelist (2026-09-27, user ruling "documentation capabilities must be backed by implementation"): docs/agent-self-setup
+# These two bootstrap documents **must quote contract values verbatim** (inbound paths, registration names, binding/pointer file names, ports,
+# agent-level prefixes) to clearly explain the closed loop, so the "literal location count" ratchet does not apply to them; they are instead
+# strictly validated by check-docs-consistency.py in the same directory via "value == manifest" verbatim matching (stronger than location count:
+# Stronger: red if one character is wrong), both checks run in L0, coverage not downgraded.
+# 2026-10-03 added (owner approved fix A): cli/cli-sdk-bridge-boundaries.md —— boundaries finalized
+# To clearly explain the contract surface (skill/toolset registration names, binding/pointer file names, inbound paths), contract values must be quoted verbatim,
+# Same reason as the two above ⇒ similarly excluded from the "location count" ratchet. ⚠ Difference from the two above: it **does not have**
+# check-docs-consistency.py equivalent fallback ⇒ contract values in documentation drifting from source of truth are not constrained by this gate,
+# already registered in GAP (see DOCS_WHITELIST_GAPS).
 DOCS_WHITELIST = ("docs/agent-self-setup.md", "docs/agent-self-setup_zh.md",
-                  # 2026-10-06 追加（owner 签字契约 v1.0）：CLI↔SDK 边界规范文档，
-                  # 必须逐字引用契约值（同原 cli/cli-sdk-bridge-boundaries.md 修法 A）。
-                  # 2026-10-08 由 docs/contract-boundary_zh.md 迁入 cli/contract-boundary.md；
-                  # 旧 cli/cli-sdk-bridge-boundaries.md（2026-10-03 边界稿）已被 v1.0 契约取代删除。
+                  # 2026-10-06 added (owner signed contract v1.0): CLI↔SDK boundary specification document,
+                  # must quote contract values verbatim (same as original cli/cli-sdk-bridge-boundaries.md fix A).
+                  # 2026-10-08 moved from docs/contract-boundary_zh.md to cli/contract-boundary.md;
+                  # old cli/cli-sdk-bridge-boundaries.md (2026-10-03 boundary draft) has been replaced and deleted by v1.0 contract.
                   "cli/contract-boundary.md")
-#: 2026-10-23 追加: SDK 适配层唯一维护文档(原平台文档退役
-#: 删除, 其宿主侧契约事实归属随之迁入)。与 agent-self-setup 同列的理由一致:
-#: 讲清适配契约面(入站路径/端口/绑定/指针文件名/注册名/agent 级前缀)必须逐字
-#: 引用契约值; 等价兜底 = 同目录 check-docs-consistency.py 的 (c) 检查
-#: (PLATFORM_EN/ZH 已重指到这两份, 值与单一真源逐字命中, 写错一个字符就红)
-#: ⇒ 不登记 DOCS_WHITELIST_GAPS(有兜底, 覆盖不降级)。
+#: 2026-10-23 addition: SDK adaptation layer sole maintenance document (original platform documentation retired
+#: deleted, its host-side contract facts migrated accordingly). Same reason as agent-self-setup:
+#: To clearly explain the adaptation contract surface (inbound paths/ports/bindings/pointer file names/registration names/agent-level prefixes), contract values must be quoted verbatim
+#: Reference contract value; equivalent fallback = (c) check in check-docs-consistency.py in the same directory
+#: (PLATFORM_EN/ZH have been re-pointed to these two, values match the single source of truth verbatim, a single character error turns it red)
+#: ⇒ Do not register in DOCS_WHITELIST_GAPS (has fallback, coverage not downgraded).
 _DOCS_PLAYBOOK = ("docs/agent-adapter-playbook.md",
                   "docs/agent-adapter-playbook_zh.md")
-#: 白名单里"无等价 verbatim 兜底"的文档 —— 必须显式登记, 不许静默降级。
-#: 原 cli/cli-sdk-bridge-boundaries.md(边界稿, 无兜底)已随 v1.0 契约删除; 其继任
-#: cli/contract-boundary.md 与 agent-self-setup 同列, 不在此 GAP 登记(维持原口径)。
-#: 2026-10-23 追加的 _DOCS_PLAYBOOK 有 check-docs-consistency (c) 兜底, 同不登记。
+#: Documents in the whitelist with "no equivalent verbatim fallback" —— must be explicitly registered, no silent downgrade.
+#: Original cli/cli-sdk-bridge-boundaries.md (boundary draft, no fallback) has been deleted with v1.0 contract; its successor
+#: cli/contract-boundary.md is listed with agent-self-setup, not registered in this GAP (maintaining original criteria).
+#: 2026-10-23 Added _DOCS_PLAYBOOK has check-docs-consistency (c) fallback, same as not registered.
 DOCS_WHITELIST_GAPS = ()
 WHITELIST_FILES = ((MANIFEST_REL, TS_CONTRACT, PY_CONTRACT, BASELINE_REL)
                    + DOCS_WHITELIST + _DOCS_PLAYBOOK)
-ALLOW_MARKER = "contract-allowed:"    # 行内逃生门(必须带理由)
+ALLOW_MARKER = "contract-allowed:"    # Inline escape hatch (must include reason)
 
-# ── 规则 (c): SKILL.md frontmatter(1 真源 + 各包 prepack 暂存的那份)────────
+# ── Rule (c): SKILL.md frontmatter (1 source of truth + the copy staged by each package's prepack) ────────
 SKILL_SOURCE = "resources/skills/SKILL.md"
 SKILL_MATERIALIZED = (
-    # 2026-10-22 单包合并: 原 4 包各自暂存一份(通用 core + 3 适配宿主)
-    # 收敛为 agent-aimail 单包内的一份。
+    # 2026-10-22 Single package merge: originally 4 packages each staged a copy (generic core + 3 host adapters)
+     # Converged to one copy within the agent-aimail single package.
     "tssdk/packages/agent-aimail/resources/skills/SKILL.md",
 )
 
-# 清单键 → (TS 常量名, Python 常量名)
+# Manifest key → (TS constant name, Python constant name)
 CONST_MAP = {
     "inbound_path": ("INBOUND_PATH", "INBOUND_PATH"),
     "hermes_inbound_path": ("HERMES_INBOUND_PATH", "HERMES_INBOUND_PATH"),
@@ -110,23 +110,23 @@ CONST_MAP = {
     "inbound_ports": ("INBOUND_PORTS", "INBOUND_PORTS"),
 }
 
-# 字面量扫描策略: 路径/文件名类 = 子串计数;单 token 的 skill/toolset 名 =
-# 词边界计数(否则 agentmail.json / agentmail_home / .agentmail / AGENTMAIL_* 全被误算)。
+# Literal scanning strategy: path/filename type = substring count; single token skill/toolset name =
+# word boundary count (otherwise agentmail.json / agentmail_home / .agentmail / AGENTMAIL_* would all be miscounted).
 TOKEN_KEYS = ("agent_skill_name", "agent_toolset_name")
 
 
 def _token_re(lit: str):
-    """词边界正则(按清单值动态构建, 不钉死字符串 ⇒ 契约改名门禁自动跟着走)。"""
+    """Word boundary regex (dynamically built based on manifest values, not hardcoded strings ⇒ contract rename gate follows automatically)."""
     return re.compile(r"(?<![A-Za-z0-9_.\-])%s(?![A-Za-z0-9_.\-])" % re.escape(lit))
 
 
 class CannotJudge(Exception):
-    """判不了 ⇒ rc=2(fail-closed,绝不假装通过)。"""
+    """Cannot judge ⇒ rc=2 (fail-closed, never pretend to pass)."""
 
 
-# ── 输出 ───────────────────────────────────────────────────────────────────
+# ── Output ───────────────────────────────────────────────────────────────────
 _VIOLATIONS: list = []
-#: (规则, 说明) —— 未覆盖/判不了项,门禁必须如实登记
+#: (Rule, Description) —— Uncovered/undecidable items, gate must register them honestly
 _GAPS: list = []
 
 
@@ -142,7 +142,7 @@ def gap(rule: str, msg: str) -> None:
     _GAPS.append((rule, msg))
 
 
-# ── 清单 ───────────────────────────────────────────────────────────────────
+# ── Manifest ───────────────────────────────────────────────────────────────────
 def load_manifest() -> tuple[dict, str]:
     p = os.environ.get("AIMAIL_CONTRACT_MANIFEST", "").strip()
     path = Path(p).expanduser() if p else None
@@ -151,27 +151,27 @@ def load_manifest() -> tuple[dict, str]:
     try:
         raw = path.read_text(encoding="utf-8")
     except OSError as e:
-        raise CannotJudge(f"清单读不到: {path} ({e.__class__.__name__}: {e})") from e
+        raise CannotJudge(f"Manifest unreadable: {path} ({e.__class__.__name__}: {e})") from e
     if not raw.strip():
-        raise CannotJudge(f"清单为空: {path}")
+        raise CannotJudge(f"Manifest is empty: {path}")
     try:
         man = json.loads(raw)
     except ValueError as e:
-        raise CannotJudge(f"清单不是合法 JSON: {path} ({e})") from e
+        raise CannotJudge(f"Manifest is not valid JSON: {path} ({e})") from e
     if not isinstance(man, dict):
-        raise CannotJudge(f"清单顶层不是对象: {path} ({type(man).__name__})")
+        raise CannotJudge(f"Manifest top-level is not an object: {path} ({type(man).__name__})")
     missing = [k for k in REQUIRED_KEYS if k not in man]
     if missing:
-        raise CannotJudge(f"清单缺契约键: {path} 缺 {missing}")
+        raise CannotJudge(f"Manifest missing contract keys: {path} missing {missing}")
     ports = man["inbound_ports"]
     if not isinstance(ports, dict) or not ports:
-        raise CannotJudge(f"清单 inbound_ports 不是非空对象: {path} ({ports!r})")
+        raise CannotJudge(f"Manifest inbound_ports is not a non-empty object: {path} ({ports!r})")
     return man, str(path)
 
 
-# ── 规则 (a): 常量一致性 ───────────────────────────────────────────────────
+# ── Rule (a): Constant consistency ───────────────────────────────────────────────────
 def _ts_consts(path: Path) -> dict:
-    """从 TS 常量模块抓 export const 值(字符串 + INBOUND_PORTS 对象)。"""
+    """Grab export const values from the TS constants module (strings + the INBOUND_PORTS object)."""
     found = {}
     lines = path.read_text(encoding="utf-8").splitlines()
     str_re = re.compile(r"^export const ([A-Z][A-Z0-9_]*) = '([^']*)'")
@@ -189,12 +189,12 @@ def _ts_consts(path: Path) -> dict:
 
 
 def _py_consts(path: Path) -> dict:
-    """从 Python 常量模块抓契约常量(执行模块 = 真值,行号另用正则定位)。"""
+    """Extract contract constants from Python constant module (execution module = truth, line numbers located separately via regex)."""
     import importlib.util
 
     spec = importlib.util.spec_from_file_location("_aimail_contract_probe", str(path))
     if spec is None or spec.loader is None:
-        raise CannotJudge(f"无法装载 Python 常量模块: {path}")
+        raise CannotJudge(f"Cannot load Python constant module: {path}")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     found = {}
@@ -212,48 +212,48 @@ def _py_consts(path: Path) -> dict:
 
 
 def check_constants(man: dict) -> None:
-    out("[contract] (a) 常量 == 清单")
+    out("[contract] (a) constants == manifest")
     for label, rel, loader in (("python", PY_CONTRACT, _py_consts),
                                ("ts", TS_CONTRACT, _ts_consts)):
         path = REPO / rel
         if not path.is_file():
-            viol("a", f"{rel}: 常量模块缺失(契约要求它存在;删掉=违约,不是判不了)")
-            out(f"  ✗ {rel}: 常量模块缺失")
+            viol("a", f"{rel}: constant module missing (contract requires it to exist; deleting = breach, not undecidable)")
+            out(f"  ✗ {rel}: constant module missing")
             continue
         try:
             consts = loader(path)
         except CannotJudge:
             raise
-        except Exception as e:  # noqa: BLE001 — 常量模块自身坏了 = 判不了
-            raise CannotJudge(f"{rel}: 常量模块无法解析/执行 ({e.__class__.__name__}: {e})") from e
+        except Exception as e:  # noqa: BLE001 — constants module itself is broken = undecidable
+            raise CannotJudge(f"{rel}: constant module cannot be parsed/executed ({e.__class__.__name__}: {e})") from e
         bad = 0
         for key, (ts_name, py_name) in CONST_MAP.items():
             name = ts_name if label == "ts" else py_name
             want = man[key]
             if name not in consts:
-                viol("a", f"{rel}: 找不到契约常量 {name}(清单键 {key})")
-                out(f"  ✗ {rel}: 无常量 {name} ← 清单键 {key}")
+                viol("a", f"{rel}: contract constant {name} not found (manifest key {key})")
+                out(f"  ✗ {rel}: no constant {name} ← manifest key {key}")
                 bad += 1
                 continue
             got, line_no, src = consts[name]
             if got != want:
-                viol("a", f"{rel}:{line_no} {name} = {got!r} != 清单 {want!r}")
-                out(f"  ✗ {rel}:{line_no} {name} = {got!r} != 清单 {want!r}(原文: {src})")
+                viol("a", f"{rel}:{line_no} {name} = {got!r} != manifest {want!r}")
+                out(f"  ✗ {rel}:{line_no} {name} = {got!r} != manifest {want!r} (source: {src})")
                 bad += 1
         if not bad:
-            out(f"  ✓ {rel} == 清单 ({len(CONST_MAP)} 项)")
-    # Rust 侧本批不做 ⇒ 登记 GAP(不许静默)
-    gap("a", "rust: gateway/bridge 两仓的 Rust 常量本批未覆盖(下批接 ⇒ 见备案 "
-             "aimail-contract-hardening-pending.md); 契约真源**不含任何桥键**(owner 裁决 "
-             "2026-09-28 SDK 去桥化): 桥 = CLI 的环境职责, 不属 agent 内部契约面")
-    out("  · GAP rust: 未覆盖(gateway/bridge 留下批)")
+            out(f"  ✓ {rel} == manifest ({len(CONST_MAP)} items)")
+    # Rust side not done in this batch ⇒ register GAP (no silent omission)
+    gap("a", "rust: gateway/bridge Rust constants in both repos not covered in this batch (next batch follows ⇒ see record "
+             "aimail-contract-hardening-pending.md); contract source of truth **contains no bridge keys** (owner ruling "
+             "2026-09-28 SDK de-bridging): bridge = CLI's environmental responsibility, not part of agent internal contract surface")
+    out("  · GAP rust: not covered (gateway/bridge left for next batch)")
 
 
-# ── 规则 (b): 字面量白名单棘轮 ────────────────────────────────────────────
+ # ── Rule (b): Literal whitelist ratchet ────────────────────────────────────────────
 def literal_specs(man: dict) -> dict:
-    """清单键 → 字面量值(同值去重;同值合并为同一逻辑字面量)。
+    """Manifest key → literal value (deduplicate same values; merge same values into the same logical literal).
 
-    结构型契约键(``inbound_ports`` 是对象)不参与字面量扫描 —— 只扫字符串面。
+    Structural contract keys (``inbound_ports`` is an object) do not participate in literal scanning —— only scan string surface.
     """
     specs: dict = {}
     for key, val in man.items():
@@ -271,15 +271,15 @@ def _tracked_files() -> list:
         r = subprocess.run(["git", "-C", str(REPO), "ls-files", "-z"],
                            capture_output=True, check=False)
     except OSError as e:
-        raise CannotJudge(f"git 不可用,无法取跟踪文件清单({e.__class__.__name__}: {e})") from e
+        raise CannotJudge(f"git unavailable, cannot get tracked file manifest ({e.__class__.__name__}: {e})") from e
     if r.returncode != 0:
-        raise CannotJudge(f"git ls-files 失败(rc={r.returncode}): "
+        raise CannotJudge(f"git ls-files failed (rc={r.returncode}): "
                           f"{r.stderr.decode('utf-8', 'replace').strip()}")
     return [p for p in r.stdout.decode("utf-8", "replace").split("\0") if p]
 
 
 def scan_literals(man: dict) -> tuple[dict, dict]:
-    """返回 (counts[path][literal] = n, hits[path] = [(lineno, literal, text)])。"""
+    """Returns (counts[path][literal] = n, hits[path] = [(lineno, literal, text)])."""
     specs = literal_specs(man)
     matchers = [(lit, group, keys[0], _token_re(lit) if group == "token" else None)
                 for (lit, group), keys in specs.items()]
@@ -294,7 +294,7 @@ def scan_literals(man: dict) -> tuple[dict, dict]:
         try:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
-            continue  # 二进制/不可读 = 不参与(不是判不了)
+            continue  # binary/unreadable = not participating (not undecidable)
         for lineno, line in enumerate(text.splitlines(), 1):
             if ALLOW_MARKER in line:
                 continue
@@ -310,32 +310,32 @@ def scan_literals(man: dict) -> tuple[dict, dict]:
 def load_baseline() -> dict:
     p = REPO / BASELINE_REL
     if not p.is_file():
-        raise CannotJudge(f"基线缺失: {BASELINE_REL}(用 --update-baseline 生成并提交)")
+        raise CannotJudge(f"Baseline missing: {BASELINE_REL} (use --update-baseline to generate and commit)")
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
     except ValueError as e:
-        raise CannotJudge(f"基线不是合法 JSON: {BASELINE_REL} ({e})") from e
+        raise CannotJudge(f"Baseline is not valid JSON: {BASELINE_REL} ({e})") from e
     files = data.get("files")
     if not isinstance(files, dict):
-        raise CannotJudge(f"基线缺 files 映射: {BASELINE_REL}")
+        raise CannotJudge(f"Baseline missing files mapping: {BASELINE_REL}")
     return data
 
 
 def check_literals(man: dict, update: bool, show_diff: bool) -> None:
-    out("[contract] (b) 字面量白名单棘轮")
-    # 白名单里"无等价 verbatim 兜底"的文档必须显式登记 —— 不许静默降级覆盖
-    # (self-setup 两份有 check-docs-consistency.py 兜; 边界定稿没有)。
+    out("[contract] (b) Literal whitelist ratchet")
+    # Documents in the whitelist with "no equivalent verbatim fallback" must be explicitly registered —— no silent downgrade coverage
+    # (self-setup has two with check-docs-consistency.py fallback; boundary finalization does not).
     for rel in DOCS_WHITELIST_GAPS:
-        gap("b", f"{rel} 已在文档白名单(owner 2026-10-03 批准修法 A: 边界文档必须逐字引用契约值)"
-                 f", 但**无 check-docs-consistency 等价兜底** ⇒ 该文档内的契约值与真源漂移"
-                 f"不受本门禁约束(登记, 非通过项)")
+        gap("b", f"{rel} is already in the document whitelist (owner 2026-10-03 approved fix A: boundary documents must quote contract values verbatim)"
+                 f", but **no check-docs-consistency equivalent fallback** ⇒ contract values in that document drift from the source of truth"
+                 f"are not constrained by this gate (registered, not a pass item)")
     counts, hits = scan_literals(man)
     if update:
         payload = {
-            "_comment": ("字面量棘轮基线(按 文件×清单键 计数)。规则 = 不得新增:"
-                         "计数只许减不许增;新增位置必须改用常量模块, 或在该行加 "
-                         "`contract-allowed: <理由>` 注释(测试专用逃生门)。"
-                         "重生成: python3 tests/contract/check-contract-single-source.py "
+            "_comment": ("Literal ratchet baseline (counted by file × manifest key). Rule = no new additions:"
+                         "counts may only decrease, not increase; new locations must use the constant module, or add a "
+                         "`contract-allowed: <reason>` comment on that line (test-only escape hatch)."
+                         "Regenerate: python3 tests/contract/check-contract-single-source.py "
                          "--update-baseline"),
             "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "tracked_files": len(_tracked_files()),
@@ -344,8 +344,8 @@ def check_literals(man: dict, update: bool, show_diff: bool) -> None:
         }
         (REPO / BASELINE_REL).write_text(
             json.dumps(payload, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-        out(f"  · 基线已重写: {BASELINE_REL} "
-            f"(文件 {len(counts)}, 命中 {payload['hits']}, 跟踪文件 {payload['tracked_files']})")
+        out(f"  · Baseline rewritten: {BASELINE_REL} "
+            f"(files {len(counts)}, hits {payload['hits']}, tracked files {payload['tracked_files']})")
         return
 
     base = load_baseline()
@@ -359,9 +359,9 @@ def check_literals(man: dict, update: bool, show_diff: bool) -> None:
             if n > b:
                 added += 1
                 where = ", ".join(f"{rel}:{ln}" for ln, k, _ in hits.get(rel, []) if k == key)
-                viol("b", f"{rel} {key}={man[key]!r} 计数 {n} > 基线 {b} "
-                          f"(新增位置: {where or '(未定位)'})")
-                out(f"  ✗ {rel} {key}={man[key]!r}: 当前 {n} > 基线 {b} (+{n - b})")
+                viol("b", f"{rel} {key}={man[key]!r} count {n} > baseline {b} "
+                          f"(new locations: {where or '(unlocated)'}))")
+                out(f"  ✗ {rel} {key}={man[key]!r}: current {n} > baseline {b} (+{n - b})")
                 for ln, k, text in hits.get(rel, []):
                     if k == key:
                         out(f"      {rel}:{ln}: {text}")
@@ -371,28 +371,28 @@ def check_literals(man: dict, update: bool, show_diff: bool) -> None:
             if n < b:
                 removed += 1
                 if show_diff:
-                    out(f"  · 减少 {rel} {key}={man[key]!r}: {b} → {n}")
+                    out(f"  · reduced {rel} {key}={man[key]!r}: {b} → {n}")
     total_now = sum(sum(v.values()) for v in counts.values())
     total_base = sum(sum(v.values()) for v in base_files.values())
     if added == 0:
-        out(f"  ✓ 无新增位置(文件 {len(counts)} 命中 {total_now};基线 {len(base_files)} 文件 "
-            f"/ {total_base} 命中;减少 {removed} 处/字面量 属允许方向)")
+        out(f"  ✓ No new locations (files {len(counts)} hits {total_now}; baseline {len(base_files)} files "
+            f"/ {total_base} hits; reduction of {removed} locations/literals is an allowed direction)")
     else:
-        out(f"  ✗ 新增 {added} 处(应改用常量模块,或加 `{ALLOW_MARKER} <理由>` 注释)")
+        out(f"  ✗ Added {added} locations (should use constant module, or add `{ALLOW_MARKER} <reason>` comment)")
 
 
-# ── 规则 (c): SKILL.md frontmatter 契约名 ─────────────────────────────────
+ # ── Rule (c): SKILL.md frontmatter contract name ─────────────────────────────────
 def _frontmatter_fields(path: Path, rel: str) -> tuple:
     lines = path.read_text(encoding="utf-8").splitlines()
     if not lines or lines[0].strip() != "---":
-        raise CannotJudge(f"{rel}: 首行不是 frontmatter 分隔符 `---`")
+        raise CannotJudge(f"{rel}: first line is not frontmatter delimiter `---`")
     end = None
     for i in range(1, len(lines)):
         if lines[i].strip() == "---":
             end = i
             break
     if end is None:
-        raise CannotJudge(f"{rel}: frontmatter 未闭合")
+        raise CannotJudge(f"{rel}: frontmatter not closed")
     name = tool = None
     name_line = tool_line = 0
     for i in range(1, end):
@@ -407,25 +407,25 @@ def _frontmatter_fields(path: Path, rel: str) -> tuple:
 
 
 def check_skill_frontmatter(man: dict) -> None:
-    out(f"[contract] (c) SKILL.md frontmatter 契约名(1 真源 + {len(SKILL_MATERIALIZED)} 份包内暂存)")
+    out(f"[contract] (c) SKILL.md frontmatter contract name (1 single source of truth + {len(SKILL_MATERIALIZED)} in-package staged copies)")
     want_name = man["agent_skill_name"]
     want_tool = man["agent_toolset_name"]
     ok = 0
     src = REPO / SKILL_SOURCE
     if not src.is_file():
-        viol("c", f"{SKILL_SOURCE}: 单一真源 SKILL.md 缺失")
-        out(f"  ✗ {SKILL_SOURCE}: 缺失")
+        viol("c", f"{SKILL_SOURCE}: single source of truth SKILL.md missing")
+        out(f"  ✗ {SKILL_SOURCE}: missing")
     else:
         targets = [(SKILL_SOURCE, False)] + [(p, True) for p in SKILL_MATERIALIZED]
         for rel, materialized in targets:
             path = REPO / rel
             if not path.is_file():
                 if materialized:
-                    # 包内生成物缺失 = 该包尚未暂存自己的那份(跑它自己的 prepack)
+                    # In-package generated artifact missing = that package has not staged its own copy (run its own prepack)
                     raise CannotJudge(
-                        f"{rel}: 包内生成物不存在, frontmatter 无法判定(先跑该包 prepack: "
-                        f"node tssdk/packages/agent-aimail/scripts/stage-resources.mjs --dest <pkg>;门禁已在暂存后调用本检查)")
-                raise CannotJudge(f"{rel}: 不存在")
+                        f"{rel}: in-package generated artifact does not exist, frontmatter cannot be judged (run that package's prepack first: "
+                        f"node tssdk/packages/agent-aimail/scripts/stage-resources.mjs --dest <pkg>; gate calls this check after staging)")
+                raise CannotJudge(f"{rel}: does not exist")
             name, nline, tool, tline = _frontmatter_fields(path, rel)
             bad = []
             if name != want_name:
@@ -440,18 +440,18 @@ def check_skill_frontmatter(man: dict) -> None:
                 ok += 1
                 out(f"  ✓ {rel}: name={name!r} toolset={tool!r}")
     if ok == len(SKILL_MATERIALIZED) + 1:
-        out(f"  ✓ {ok}/{ok} 份 frontmatter == 清单(宿主按 `/{want_name}` 查表 ⇒ 这是断链防线)")
+        out(f"  ✓ {ok}/{ok} frontmatter == manifest (host looks up by `/{want_name}` ⇒ this is the broken link defense line)")
 
 
 # ── main ───────────────────────────────────────────────────────────────────
 def main(argv: list) -> int:
     global REPO
-    ap = argparse.ArgumentParser(description="AIMail agent 侧契约单一真源门禁")
-    ap.add_argument("--repo", default="", help="仓根(默认由本文件位置推导)")
+    ap = argparse.ArgumentParser(description="AIMail agent side contract single source of truth gate")
+    ap.add_argument("--repo", default="", help="Repo root (default derived from this file's location)")
     ap.add_argument("--update-baseline", action="store_true",
-                    help="重写字面量棘轮基线(只在有意变更后跑)")
+                    help="Rewrite literal ratchet baseline (only run after intentional changes)")
     ap.add_argument("--show-baseline-diff", action="store_true",
-                    help="打印计数减少明细")
+                    help="Print count reduction details")
     args = ap.parse_args(argv)
 
     REPO = Path(args.repo).expanduser().resolve() if args.repo \
@@ -463,10 +463,10 @@ def main(argv: list) -> int:
         out(f"[contract] CANNOT JUDGE (rc=2): {e}")
         return 2
     out(f"[contract] manifest: {man_path}")
-    out(f"[contract] 契约键 {len(REQUIRED_KEYS)}: " +
+    out(f"[contract] Contract keys {len(REQUIRED_KEYS)}: " +
         ", ".join(f"{k}={man[k]!r}" for k in REQUIRED_KEYS))
 
-    # 三条规则都跑完(一条判不了不影响其余规则的判决输出)
+    # Run all three rules (one rule being unable to judge does not affect the verdict output of the remaining rules)
     cannot: list = []
     update = bool(args.update_baseline)
     show_diff = bool(args.show_baseline_diff)
@@ -483,26 +483,26 @@ def main(argv: list) -> int:
             out(f"[contract] CANNOT JUDGE: {e}")
 
     if _GAPS:
-        out("[contract] GAP(未覆盖,已登记,非通过项):")
+        out("[contract] GAP (uncovered, registered, not a pass item):")
         for rule, msg in _GAPS:
             out(f"  · ({rule}) {msg}")
     if _VIOLATIONS:
-        out(f"[contract] FAIL — {len(_VIOLATIONS)} 项违约"
-            + (f";另有 {len(cannot)} 项判不了" if cannot else "") + ":")
+        out(f"[contract] FAIL — {len(_VIOLATIONS)} violations"
+            + (f"; plus {len(cannot)} items unable to be judged" if cannot else "") + ":")
         for rule, msg in _VIOLATIONS:
             out(f"  ✗ ({rule}) {msg}")
         for c in cannot:
-            out(f"  ? 判不了: {c}")
+            out(f"  ? Unable to judge: {c}")
         return 1
     if cannot:
-        out(f"[contract] CANNOT JUDGE (rc=2) — {len(cannot)} 项无法判定:")
+        out(f"[contract] CANNOT JUDGE (rc=2) — {len(cannot)} items cannot be judged:")
         for c in cannot:
             out(f"  ? {c}")
         return 2
     if args.update_baseline:
-        out("[contract] PASS(基线已重写)")
+        out("[contract] PASS (baseline rewritten)")
         return 0
-    out("[contract] PASS — 契约单一真源一致, 无新增字面量位置, frontmatter 契约名正确")
+    out("[contract] PASS — contract single source of truth consistent, no new literal locations, frontmatter contract name correct")
     return 0
 
 
@@ -511,11 +511,11 @@ REPO = Path(__file__).resolve().parents[2]
 if __name__ == "__main__":
     try:
         sys.exit(main(sys.argv[1:]))
-    except CannotJudge as _e:  # 兜底:任何"判不了"都不许伪装成功
+    except CannotJudge as _e:  # Fallback: any "unable to judge" must not be disguised as success
         print(f"[contract] CANNOT JUDGE (rc=2): {_e}")
         sys.exit(2)
-    except Exception as _e:  # noqa: BLE001 — 未预期异常同样是"判不了",绝不返回 0
+    except Exception as _e:  # noqa: BLE001 — unexpected exceptions are also "cannot judge", never return 0
         import traceback
         traceback.print_exc()
-        print(f"[contract] CANNOT JUDGE (rc=2): 未预期异常 {_e.__class__.__name__}: {_e}")
+        print(f"[contract] CANNOT JUDGE (rc=2): unexpected exception {_e.__class__.__name__}: {_e}")
         sys.exit(2)

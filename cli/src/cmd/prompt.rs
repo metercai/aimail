@@ -1,14 +1,14 @@
-//! `aimail prompt` —— `cli/aimail:1517-1729`（`cmd_prompt`）的 Rust 复刻。
+//! `aimail prompt` -- Rust reimplementation of `cli/aimail:1517-1729` (`cmd_prompt`).
 //!
-//! 五个嵌套面：`list`（按名排序列规则）· `add` · `rm` · `create-file`（scaffold 角色文件）·
-//! `test`（dry-run，**永不发送**）。
+//! Five nested faces: `list` (list rules sorted by name) · `add` · `rm` · `create-file` (scaffold role file) ·
+//! `test` (dry-run, **never sends**).
 //!
-//! 归属铁律：`prompt_rules` 写进 per-agent 绑定文件**只由 SDK 写** ⇒ CLI 只触发
-//! SDK 门 `update`（受控字段落盘）；名字合法性与 L5 过滤/匹配判定走 SDK 门**只读 op
-//! `prompt-test`**（契约 v1.0 §4.1 增列，owner 2026-10-10 (a) 裁定）—— CLI 不复刻谓词。
-//! 角色文件三级查找（地址级 → 系统级 → `common.md` 兜底）与 `aimail_base._read_role_file` **同序**。
+//! Ownership iron rule: `prompt_rules` written to per-agent binding files are **written only by the SDK** => CLI only triggers
+//! SDK gate `update` (controlled fields persisted); name validity and L5 filter/matching judgment go through SDK gate **read-only op
+//! `prompt-test`** (added in contract v1.0 §4.1, owner ruling 2026-10-10 (a)) —— CLI does not reimplement predicates.
+//! Role file three-level lookup (address level -> system level -> `common.md` fallback) is in the **same order** as `aimail_base._read_role_file`.
 //!
-//! 五面齐全：`list` / `add` / `rm` / `create-file` / `test`（L1–L5 单源匹配仿真，**永不发送**）。
+//! All five faces present: `list` / `add` / `rm` / `create-file` / `test` (L1–L5 single-source matching simulation, **never sends**).
 
 use std::path::{Path, PathBuf};
 
@@ -24,12 +24,12 @@ pub struct Args {
     pub name: String,
     pub file: String,
     pub disable: bool,
-    /// add 面的关键词字段（与 Python 同：可重复 ⇒ 列表）
+    /// Keyword fields for the add face (same as Python: repeatable ⇒ list)
     pub k_subject: Vec<String>,
     pub k_body: Vec<String>,
     pub k_sender: Vec<String>,
     pub k_recipient: Vec<String>,
-    /// test 面的输入（不做 split，整体字符串）
+    /// Input for the test face (no split, whole string)
     pub subject: String,
     pub body: String,
     pub sender: String,
@@ -46,9 +46,9 @@ struct Target {
 }
 
 fn prompt_name_ok(sid: &str, email: &str, name: &str) -> Result<bool, String> {
-    // 名字合法性 = SDK 门只读 op `prompt-test` 的 `name_ok`(契约 v1.0 §4.1 增列,owner
-    // 2026-10-10 (a) 裁定)—— 不复刻谓词;两路 transport 同形(python 门 / node op 入口)。
-    // **失败必须响亮**(绝不用 `false` 冒充"名字非法"——那会把 SDK 不可用伪装成校验结果)。
+    // Name validity = SDK gate read-only op `prompt-test`'s `name_ok` (Contract v1.0 §4.1 added, owner
+    // 2026-10-10 (a) ruling) —— does not replicate predicates; both transport paths are isomorphic (python gate / node op entry).
+    // **Failure must be loud** (never use `false` to impersonate "invalid name" —— that would disguise SDK unavailability as a validation result).
     let args = json!({ "system_id": sid, "email": email, "name": name });
     crate::core::sdk::sdk_ops_call(
         "prompt-test",
@@ -63,9 +63,9 @@ fn prompt_name_ok(sid: &str, email: &str, name: &str) -> Result<bool, String> {
     })
 }
 
-/// L5 规则匹配 = SDK 门只读 op `prompt-test`(过滤 + 字段内或/字段间且判定都在 SDK,
-/// 两路 transport 同形)—— CLI 只打印 miss/hit,角色文件存在性仍本地判定。
-/// 返回按名排序的 `[{name, file, match}]`(与运行时 loader 同一批规则)。
+/// L5 rule matching = SDK gate read-only op `prompt-test` (filtering + intra-field OR/inter-field AND logic all in SDK,
+/// both transport paths are isomorphic) —— CLI only prints miss/hit, role file existence is still determined locally.
+/// Returns `[{name, file, match}]` sorted by name (same batch of rules as the runtime loader).
 fn prompt_rules_test(
     sid: &str,
     email: &str,
@@ -101,8 +101,8 @@ fn prompt_rules_test(
 }
 
 fn update_binding(sid: &str, cfg: &Value, patch: &Value) -> Result<(), String> {
-    // 契约 v1.0 §4.1：经 SDK 门 `update`（判定与落盘在 SDK）；action 由 patch 字段派生。
-    // 兼容保留 `updates`/`fields` 两种键名（SDK 侧读入不受影响）。
+    // Contract v1.0 §4.1: via SDK gate `update` (judgment and persistence in SDK); action derived from patch fields.
+    // Compatibility retention of `updates`/`fields` key names (SDK side reading is unaffected).
     let action = if patch.get("persona").is_some() {
         "persona"
     } else {
@@ -123,7 +123,7 @@ fn update_binding(sid: &str, cfg: &Value, patch: &Value) -> Result<(), String> {
         })
 }
 
-/// 规则文件名（`_stem_from`：`{serial}_{filename}` 取下划线后段，无下划线 ⇒ 空）。
+/// Rule file name (`_stem_from`: `{serial}_{filename}` takes the segment after the underscore, no underscore ⇒ empty).
 fn stem_from(name: &str) -> String {
     match name.split_once('_') {
         Some((_, rest)) => rest.to_string(),
@@ -139,7 +139,7 @@ fn stem_ok(stem: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
 }
 
-/// `_role_path`：地址级 → 系统级 → `common.md` 兜底（与 `aimail_base._read_role_file` 同序）。
+/// `_role_path`: address level → system level → `common.md` fallback (same order as `aimail_base._read_role_file`).
 fn role_path(addr_role_dir: &Path, sys_role_dir: &Path, stem: &str) -> String {
     if stem.is_empty() {
         return String::new();
@@ -163,7 +163,7 @@ fn pyjson_str(v: &Value) -> String {
     crate::core::pyjson::str_python(Some(v))
 }
 
-/// 规则字段渲染（`list`）：`subject=[a | b]`；空/缺 ⇒ 不渲染（Python：`if not v: continue`）。
+/// Rule field rendering (`list`): `subject=[a | b]`; empty/missing ⇒ not rendered (Python: `if not v: continue`).
 fn field_render(r: &Value, f: &str) -> Option<String> {
     let v = r.get(f)?;
     let empty = match v {
@@ -183,7 +183,7 @@ fn field_render(r: &Value, f: &str) -> Option<String> {
     Some(format!("{f}=[{}]", items.join(" | ")))
 }
 
-/// 目标解析（三处 `_fail` 文案逐字，与 `cli/aimail:1530-1549` 同）。
+/// Target resolution (three `_fail` messages verbatim, same as `cli/aimail:1530-1549`).
 fn resolve_target(home: &Path, sid: &str, a: &Args) -> Result<Target, String> {
     let cfg_path = crate::core::config::gateway_config_path(sid);
     if !cfg_path.is_file() {
@@ -240,7 +240,7 @@ fn resolve_target(home: &Path, sid: &str, a: &Args) -> Result<Target, String> {
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_else(|| Value::Object(Map::new()));
     Ok(Target {
-        // Row 不带目录字段 ⇒ 由 email 推 leaf 目录（与绑定文件落盘口径 `addr_clean(email)` 一致）
+        // Row does not carry a directory field => derive leaf directory from email (consistent with the binding file persistence criterion `addr_clean(email)`)
         dir: home
             .join("systems")
             .join(sid)
@@ -270,7 +270,7 @@ pub fn run(a: &Args) -> i32 {
     if sid.is_empty() {
         return fail("prompt needs --system-id");
     }
-    // 域内宿主解释器绑定（契约 §4.1(2) 单真源）：本命令经 SDK 门 `update`/`prompt-test`。
+    // In-domain host interpreter binding (Contract §4.1(2) single source of truth): this command goes via SDK gate `update`/`prompt-test`.
     let _ = crate::core::sdkroot::bind_domain_for_system(&sid);
     let home = crate::core::home::aimail_home();
     let t = match resolve_target(&home, &sid, a) {
@@ -384,7 +384,7 @@ pub fn run(a: &Args) -> i32 {
             let mut next = rules.clone();
             next.push(Value::Object(rule));
             next.sort_by_key(|r| r.get("name").map(pyjson_str).unwrap_or_default());
-            // 落盘**只经 SDK**（per-agent 绑定文件只由 SDK 写）
+            // Persistence **only via SDK** (per-agent binding file written only by SDK)
             if let Err(e) = update_binding(&sid, &t.cfg, &json!({"prompt_rules": next})) {
                 return fail(&format!("update_binding failed: {e}"));
             }
@@ -459,7 +459,7 @@ Describe how this agent should behave for that class of mail here.\n"
             0
         }
         "test" => {
-            // ── L1–L5 单源匹配仿真（**永不发送**）；匹配判定全部委托 SDK ──
+            // ── L1–L5 single-source matching simulation (**never sends**); all matching logic delegated to SDK ──
             let subj = a.subject.clone();
             let body = a.body.clone();
             let sender = a.sender.clone();
@@ -478,11 +478,11 @@ Describe how this agent should behave for that class of mail here.\n"
                 );
                 0
             };
-            // L1 内建 [WHOAMI]
+            // L1 built-in [WHOAMI]
             if s_l.starts_with("[whoami]") {
                 return hit("L1 [WHOAMI] (built-in)", "whoami");
             }
-            // L2 内建 welcome（标记 + 三标签，与 preprocess 同字面量）
+            // L2 built-in welcome (marker + three tags, same literals as preprocess)
             let marker = s_l.contains("welcome to aimail world");
             let labels_ok = ["persona", "signature", "current_time"].iter().all(|k| {
                 body.lines()
@@ -498,12 +498,12 @@ Describe how this agent should behave for that class of mail here.\n"
                 ));
             }
             println!("{line}");
-            // L3 板级（网关注入；--board-role 仿真）
+            // L3 board level (gateway injection; --board-role simulation)
             if !a.board_role.trim().is_empty() {
                 return hit("L3 board (simulated)", a.board_role.trim());
             }
             println!("  L3 board: gateway-injected — pass --board-role to simulate");
-            // L4 X-AIMail-Prompt 头
+            // L4 X-AIMail-Prompt header
             if !a.header.trim().is_empty() {
                 let stem = a.header.trim();
                 if !role_path(&addr_role_dir, &sys_role_dir, stem).is_empty() {
@@ -514,8 +514,8 @@ Describe how this agent should behave for that class of mail here.\n"
                     crate::core::pyjson::repr_python(&json!(stem))
                 );
             }
-            // L5 本机 prompt_rules:过滤 + 匹配**全部在 SDK 门只读 op `prompt-test`**
-            // (两路 transport 同形)—— CLI 只打印 miss/hit,角色文件存在性仍本地判定。
+            // L5 local prompt_rules: filtering + matching **all in SDK gate read-only op `prompt-test`**
+            // (both transport paths are isomorphic) —— CLI only prints miss/hit, role file existence is still determined locally.
             let sorted = match prompt_rules_test(&sid, &t.email, &subj, &body, &sender, &recp) {
                 Ok(v) => v,
                 Err(e) => return fail(&format!("prompt-test (L5) failed: {e}")),
@@ -537,7 +537,7 @@ Describe how this agent should behave for that class of mail here.\n"
                     continue;
                 }
                 println!("  L5 HIT {name} → file={file}");
-                println!("  role: {path}"); // 路径可能带 common.md fallback 标注 = 运行时实际注入内容
+                println!("  role: {path}"); // Path may include common.md fallback annotation = actual runtime injected content
                 matched_any = true;
                 break;
             }

@@ -7,7 +7,7 @@
 #   3. manifest inside has no "workspace:" dep spec
 #   4. version == expected
 #   5. main/types/bin targets exist inside the tarball
-#   6. bundled deps (仅当包声明了 bundleDependencies；单包 agent-aimail 通常没有)
+#   6. bundled deps (only if package declares bundleDependencies; single package agent-aimail usually doesn't)
 #   7. tarball is non-empty (catches silent npm pack failures)
 set -euo pipefail
 TGZ="${1:?usage: check-tarball.sh <tgz> <expected-version>}"
@@ -24,15 +24,15 @@ FILES=$(tar tvf "$TGZ" 2>/dev/null | grep -c '^-' || true)
 echo "[L2] ok: $FILES regular files, 0 hard/sym links"
 
 MANIFEST=$(tar xOzf "$TGZ" package/package.json 2>/dev/null) || { echo "[L2] FAIL: package/package.json missing"; exit 1; }
-# 顶端 + **所有内嵌** manifest 都不得含 workspace: 规格。
-# (2026-09-21 实测盲点: 原实现只查 package/package.json ⇒ pi-aimail/openclaw-aimail
-#  的 bundled 副本 package/node_modules/@aimail/mail/package.json 遗留
-#  "workspace:^" 也照样 PASS, 而 pnpm 系宿主安装即 EUNSUPPORTEDPROTOCOL。)
+# Top + **all embedded** manifests must not contain workspace: spec.
+# (2026-09-21 measured blind spot: original implementation only checked package/package.json ⇒ pi-aimail/openclaw-aimail
+#  bundled copy package/node_modules/@aimail/mail/package.json leftover
+#  "workspace:^" still PASS, while pnpm host install is EUNSUPPORTEDPROTOCOL.)
 LEAKS=$(tar xOzf "$TGZ" --wildcards 'package/**/package.json' 'package/package.json' 2>/dev/null | grep -c 'workspace:' || true)
 if [ "${LEAKS:-0}" -gt 0 ]; then
-  echo "[L2] FAIL: 'workspace:' leaked into published manifest(s) — 含内嵌 bundled 副本"
+  echo "[L2] FAIL: 'workspace:' leaked into published manifest(s) — including embedded bundled copy"
   tar tzf "$TGZ" | grep 'package.json$' | while read -r m; do
-    if tar xOzf "$TGZ" "$m" 2>/dev/null | grep -q 'workspace:'; then echo "        泄漏: $m"; fi
+    if tar xOzf "$TGZ" "$m" 2>/dev/null | grep -q 'workspace:'; then echo "        leak: $m"; fi
   done
   exit 1
 fi
@@ -63,8 +63,8 @@ PYEOF
 echo "[L2] ok: main/types/bin resolve"
 
 # 6) bundled deps present
-#    (审计 P1 2026-09-21: 原来尾部 `|| true` 把失败吞掉 —— 会先打印 FAIL 再打印
-#     PASS 且 exit 0。bundleDependencies 缺失正是 E415 事故同族的打包回归。)
+#    (Audit P1 2026-09-21: original trailing `|| true` swallowed failure —— would print FAIL then print
+#     PASS and exit 0. Missing bundleDependencies is same family of packaging regression as E415 incident.)
 if python3 - "$TGZ" <<'PYEOF'
 import sys, tarfile, json
 t = tarfile.open(sys.argv[1], "r:gz")
@@ -81,19 +81,19 @@ PYEOF
 then
   :
 else
-  echo "[L2] FAIL: bundled-deps check failed — 声明了 bundleDependencies 但 tarball 内缺失(见上方 FAIL 行)"
+  echo "[L2] FAIL: bundled-deps check failed — declared bundleDependencies but missing in tarball(see FAIL line above)"
   exit 1
 fi
 
-# 8) resources 指纹 == 仓库根真源(2026-09-25 单一真源改造)
-#    分发点(dsh/openclaw/pi)的 resources/** 由 prepack 从仓根 resources/ 物化而来。
-#    这条兜住"prepack 没跑 / 物化过期 / 只改了一份"⇒ 空或旧资源包**发不出去**。
-#    (宿主侧 release 现在也会响亮报错, 但那时包已发布 → 必须在产物层拦。)
-#    只对声明了 resources 的包生效(mail-core/mail 不带资源 → 跳过)。
+# 8) resources fingerprint == repo root true source (2026-09-25 single source of truth refactor)
+#    Distribution points(dsh/openclaw/pi) resources/** are materialized by prepack from repo root resources/.
+#    This catches "prepack not run / materialization stale / only one copy changed" ⇒ empty or stale resource package **cannot be released**.
+#    (Host-side release will now also fail loudly, but by then the package is already published → must intercept at the artifact layer.)
+#    Only applies to packages that declare resources (mail-core/mail do not carry resources → skip).
 GATE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# 门在 <repo>/tests/sdk/release/(仓根下 3 层)⇒ 上爬 3 层到仓根。
-# (历史 bug:原 `../..` 只上 2 层 = <repo>/tests ⇒ canon_dir 指向不存在的
-#  tests/resources ⇒ canon={} ⇒ 所有 shipped 资源被判 extra,带资源的包必 FAIL。)
+# Gate is at <repo>/tests/sdk/release/ (3 levels down from repo root) ⇒ climb up 3 levels to repo root.
+# (Historical bug: original `../..` only climbed 2 levels = <repo>/tests ⇒ canon_dir pointed to non-existent
+#  tests/resources ⇒ canon={} ⇒ all shipped resources judged as extra, packages with resources must FAIL.)
 REPO_ROOT="$(cd "$GATE_DIR/../.." && cd .. && pwd)"
 if python3 - "$TGZ" "$REPO_ROOT" <<'PYEOF'
 import hashlib, json, pathlib, sys, tarfile
@@ -115,29 +115,29 @@ missing = sorted(set(canon) - set(inpk))
 extra = sorted(set(inpk) - set(canon))
 diff = sorted(k for k in set(canon) & set(inpk) if canon[k] != inpk[k])
 if missing or extra or diff:
-    print(f"[L2] FAIL: resources 与真源不一致: missing={missing} extra={extra} diff={diff}")
+    print(f"[L2] FAIL: resources inconsistent with source of truth: missing={missing} extra={extra} diff={diff}")
     sys.exit(1)
 print(f"[L2] ok: resources == repo canonical ({len(canon)} files)")
 PYEOF
 then
   :
 else
-  echo "[L2] FAIL: resources 指纹校验失败(prepack 未跑 / 物化过期 / 只改了一份)"
+  echo "[L2] FAIL: resources fingerprint check failed (prepack not run / materialization expired / only one copy modified)"
   exit 1
 fi
 
-# 9) 干净项目可安装性 —— peer 解析可行性(publish 前最后一道)
-#    2026-10-23 实测缺陷: agent-aimail@0.2.1 在**干净 npm 项目**里 `npm install` 直接
-#    ERESOLVE(rc=1)。根因不是"宿主没装",而是 npm 解析 optional peer 时仍会把
-#    传递 peer 树算进去: dsh-session@0.1.0-rc.8 的 peer 要求 dsh-llm ^0.1.0-rc.8,
-#    而包内 dsh-llm 声明漏了 0.1.0 线(只有 ^0.0.1-rc.1/^0.2.0/^0.2.1) ⇒ 无解。
-#    `--legacy-peer-deps` 能装上但属于绕过解析,**不算通过**。
-#    两个场景都必须 rc=0:
-#      G1 裸项目(无任何宿主): npm 仍需完成 peer 解析校验
-#      G2 先装 dsh-agent@latest: 传递 peer 树全部物化 —— 这是触发互斥的真实路径
+# 9) Clean project installability —— peer resolution feasibility(last check before publish)
+#    2026-10-23 measured defect: agent-aimail@0.2.1 in a **clean npm project** `npm install` directly
+#    ERESOLVE(rc=1). Root cause is not "host not installed", but npm resolving optional peer still will
+#    transitive peer tree when resolving optional peers: dsh-session@0.1.0-rc.8 peer requires dsh-llm ^0.1.0-rc.8,
+#    while dsh-llm declaration in package missed 0.1.0 line (only ^0.0.1-rc.1/^0.2.0/^0.2.1) ⇒ no solution.
+#    `--legacy-peer-deps` can install but is a bypass of resolution, **not considered passing**.
+#    Both scenarios must have rc=0:
+#      G1 Bare project (no host at all): npm still needs to complete peer resolution validation
+#      G2 first install dsh-agent@latest: materialize the entire peer tree — this is the real path that triggers mutual exclusion
 INSTALL_TMP=$(mktemp -d)
 trap 'rm -rf "$INSTALL_TMP"' EXIT
-clean_install() {  # $1 = 场景名; 其余 = 预装命令(可空)
+clean_install() {  # $1 = scenario name; rest = pre-install commands (can be empty)
   local name="$1"
   shift
   local d="$INSTALL_TMP/$name"
@@ -145,10 +145,10 @@ clean_install() {  # $1 = 场景名; 其余 = 预装命令(可空)
   mkdir -p "$d" && ( cd "$d" && npm init -y >/dev/null 2>&1 )
   if [ "$#" -gt 0 ]; then
     ( cd "$d" && "$@" ) >"$INSTALL_TMP/$name-pre.log" 2>&1 || {
-      echo "[L2] FAIL: $name 预装失败(registry 不可达? 见 $INSTALL_TMP/$name-pre.log)"; tail -5 "$INSTALL_TMP/$name-pre.log"; exit 1; }
+      echo "[L2] FAIL: $name pre-install failed (registry unreachable? see $INSTALL_TMP/$name-pre.log)"; tail -5 "$INSTALL_TMP/$name-pre.log"; exit 1; }
   fi
   ( cd "$d" && npm install --no-audit --no-fund "$TGZ" ) >"$log" 2>&1 && return 0
-  echo "[L2] FAIL: $name — 干净项目 npm install 失败(禁 --legacy-peer-deps 绕过)"
+  echo "[L2] FAIL: $name — clean project npm install failed (bypass via --legacy-peer-deps forbidden)"
   grep -E "ERESOLVE|npm error" "$log" | head -8
   exit 1
 }

@@ -86,9 +86,9 @@ class GatewayClient:
                         domain: str = "") -> dict:
         """POST /api/v1/activate-system (public — no auth).
 
-        CLI L1-ONLY:系统激活唯一实现在 CLI(cli/setup_system.py 经此共享
-        客户端调用);SDK 一律反调 `aimail install --system-only`,不得直连本方法
-        (AUDIT-1 P2-2)。随 wheel 分发仅为 CLI 共用同一读库。
+        CLI L1-ONLY: The sole implementation of system activation is in the CLI (cli/setup_system.py shares this via
+        client call); SDK always reverse-calls `aimail install --system-only`, must not directly connect to this method
+        (AUDIT-1 P2-2). Distributed with the wheel only for CLI to share the same read library.
         """
         body = {"code": code}
         if system_name:

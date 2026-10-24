@@ -1,10 +1,10 @@
-//! `aimail repair` —— `cli/aimail:cmd_repair` + `cli/repair.py` 的 Rust 命令面。
+//! `aimail repair` — the Rust command surface of `cli/aimail:cmd_repair` + `cli/repair.py`.
 //!
-//! Python 的命令面只是个 **spawn 包装**（`python3 repair.py --system-id/--home/--deep/--dry-run`）；
-//! 真正的引擎（十步阶梯 + deep 扩展）早已在 `core::repair` 落地，本文件把命令面接上它 ——
-//! `-s/-H/-D/-n` 四个面与 Python 逐字一致（无 `--json` 机器面）。
+//! Python's command surface is just a **spawn wrapper** (`python3 repair.py --system-id/--home/--deep/--dry-run`);
+//! The real engine (ten-step ladder + deep extension) is already implemented in `core::repair`, this file connects the command surface to it ——
+//! `-s/-H/-D/-n` four surfaces are verbatim consistent with Python (no `--json` machine surface).
 //!
-//! `-H` 走 `normalize_platform_home`（与 Python 同口径），`-s` 允许空（引擎自行判定并打印 header）。
+//! `-H` goes through `normalize_platform_home` (same standard as Python); `-s` allows empty (the engine decides on its own and prints the header).
 
 use std::path::Path;
 
@@ -12,9 +12,9 @@ pub struct Args {
     pub system_id: String,
     /// `-H/--home`（Python：`normalize_platform_home(Path(...).expanduser())`）
     pub home: Option<String>,
-    /// `-D/--deep`：改写 webhook 配对 + 冲掉卡住待投递
+    /// `-D/--deep`: rewrite webhook pairing + flush stuck pending deliveries
     pub deep: bool,
-    /// `-n/--dry-run`：只打印修复计划
+    /// `-n/--dry-run`: only print the repair plan
     pub dry_run: bool,
 }
 
@@ -27,7 +27,7 @@ pub fn run(a: &Args) -> i32 {
         }
         None => String::new(),
     };
-    // 域内宿主解释器绑定（契约 §4.1(2) 单真源）：重建阶梯要按宿主解释器跑 SDK 安装。
+    // In-domain host interpreter binding (Contract §4.1(2) single source of truth): the rebuild ladder must run SDK installation using the host interpreter.
     let _ = if a.system_id.is_empty() {
         crate::core::sdkroot::bind_domain("", &home)
     } else {

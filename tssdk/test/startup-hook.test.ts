@@ -1,7 +1,7 @@
 /**
  * Host startup hooks: every host TELLS THE ENVIRONMENT MASTER (the `aimail` CLI)
  * that its inbound is live, once its INBOUND IS UP (owner ruling 2026-09-28,
- * SDK 去桥化).
+ * SDK de-bridging).
  *
  * Why this file exists: the restore contract has two halves. The route side is now
  * the CLI's business (`cli/bridge_wire.py`: `aimail address --inbound-live` pushes
@@ -118,8 +118,8 @@ describe('host startup hooks (inbound notification, zero bridge)', () => {
   test('the helper is imported from the shared core (no per-host reimplementation)', () => {
     for (const h of HOSTS) {
       const src = fs.readFileSync(path.join(REPO, h.file), 'utf-8')
-      // 2026-10-22 单包合并: 共享 core 从独立 npm 包(@aimail/mail-core)变为同包内
-      // 的 ../core/ 相对导入 — 断言目标不变(宿主复用共享 core, 不各自重实现)。
+      // 2026-10-22 single package merge: shared core changed from independent npm package (@aimail/mail-core) to relative import
+      // of ../core/ within the same package — assertion target unchanged (host reuses shared core, does not re-implement individually).
       expect(src.includes("from '../core/index.js'"), `${h.name}: must use the shared core`).toBe(true)
       expect(src.includes('child_process'), `${h.name}: the notification must be shared, not re-spawned here`)
         .toBe(false)

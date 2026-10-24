@@ -176,15 +176,15 @@ def start_agent_level(skills_dir: str = "", on_email: Optional[Callable] = None,
 
 
 # ═══════════════════════════════════════════════════════════════
-# 引导命令行 —— shell 只做"装 SDK / 装 skill / 报注册面", 激活仍在 agent 内部
+# Bootstrap command line —— shell only does "install SDK / install skill / report registration surface", activation still happens inside the agent
 #
 #   pip install agent-aimail
 #   aimail-agent setup --skills-dir <skills dir>
 #
-# 这条命令不改任何状态之外的语义: 它装 skill、打印 toolset(工具名)与注册方式
-# (MCP 或进程内 agent_toolset)。宿主注册并重载后, agent 应看到
-# activate_address_code, 再由 agent 自己调工具完成激活 —— 不在 shell 里代跑激活。
-# TypeScript 环境没有 CLI: 工具面就是 `agentTools()`, 见 docs/agent-self-setup.md。
+# This command does not change any semantics other than state: it installs skill, prints toolset (tool names) and registration method
+# (MCP or in-process agent_toolset). After host registers and reloads, agent should see
+# activate_address_code, then the agent itself calls the tool to complete activation —— do not run activation on behalf in the shell.
+# TypeScript environment has no CLI: tool surface is `agentTools()`, see docs/agent-self-setup.md.
 # ═══════════════════════════════════════════════════════════════
 
 

@@ -70,8 +70,8 @@ def _store_outbound(mid, subject="", body="", sender=AGENT, to="peer@corp.com",
 
 
 def _leaf(home) -> Path:
-    """三层收口(2026-09-23): 本测试的 profile 无 system_id 且无 systems 目录
-    ⇒ 解析收口到 systems/_unassigned/(与真源解析器同语义)。"""
+    """Three-layer closure (2026-09-23): This test's profile has no system_id and no systems directory
+    ⇒ resolution closes to systems/_unassigned/ (same semantics as the true source resolver)."""
     return home / "systems" / "_unassigned" / "agent.probe_test.local" / "mail"
 
 

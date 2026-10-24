@@ -1,17 +1,17 @@
-//! 桥的生命周期契约客户端（"契约优先，旧桥回退"）。
+//! Bridge lifecycle contract client ("contract first, old bridge fallback").
 //!
-//! 现状码：`cli/_common.py:42-121`（`bridge_ctl_supported` / `bridge_status` /
+//! Current code: `cli/_common.py:42-121` (`bridge_ctl_supported` / `bridge_status` /
 //! `_read_pid_file` / `pid_alive`）。
 //!
-//! 契约（aimail-bridge ≥ 0.7.4）：`--status [--json] [--pid-file p]`；
-//! 退出码 `0` 成功|运行中 · `1` 错误|拒绝（pid 不属桥）· `2` 配置非法 · `3` 未运行。
-//! 不支持的旧桥回退"pid 文件 + 存活探测"，并且 **CLI 侧不自行 kill 进程**。
+//! Contract (aimail-bridge ≥ 0.7.4): `--status [--json] [--pid-file p]`;
+//! Exit codes `0` success|running · `1` error|rejected (pid not belonging to bridge) · `2` invalid config · `3` not running.
+//! Unsupported old bridge falls back to "pid file + liveness probe", and **CLI side does not kill process itself**.
 
 use serde_json::{json, Map, Value};
 use std::path::Path;
 use std::process::Command;
 
-/// 桥二进制是否支持生命周期契约（rc∈{0,3} 且 stdout 含 `"running"`）。
+/// Whether bridge binary supports lifecycle contract (rc∈{0,3} and stdout contains `"running"`).
 pub fn ctl_supported(bin: &Path) -> bool {
     let Ok(out) = Command::new(bin).args(["--status", "--json"]).output() else {
         return false;
@@ -21,7 +21,7 @@ pub fn ctl_supported(bin: &Path) -> bool {
     (code == 0 || code == 3) && stdout.contains("\"running\"")
 }
 
-/// 桥运行状态。契约优先；旧桥回退 pid 文件 + 存活探测。
+/// Bridge running state. Contract first; legacy bridge falls back to pid file + liveness probe.
 pub fn status(bin: &Path, pid_file: &Path) -> Value {
     if ctl_supported(bin) {
         let out = Command::new(bin)
@@ -69,17 +69,17 @@ pub fn status(bin: &Path, pid_file: &Path) -> Value {
     })
 }
 
-/// `_read_pid_file`：整数 pid 或 None。
+/// `_read_pid_file`: integer pid or None.
 pub fn read_pid_file(pid_file: &Path) -> Option<i32> {
     std::fs::read_to_string(pid_file)
         .ok()
         .and_then(|t| t.trim().parse::<i32>().ok())
 }
 
-/// 进程存活探测（`pid_alive`：unix = signal 0；windows = tasklist）。
+/// Process liveness probe (`pid_alive`: unix = signal 0; windows = tasklist).
 #[cfg(unix)]
 pub fn pid_alive(pid: i32) -> bool {
-    // 用 `kill -0`（POSIX 标准），避免为此引入 libc 依赖
+    // Use `kill -0` (POSIX standard) to avoid introducing a libc dependency for this
     Command::new("kill")
         .args(["-0", &pid.to_string()])
         .stdout(std::process::Stdio::null())
@@ -124,7 +124,7 @@ mod tests {
     #[test]
     fn legacy_fallback_reads_pid_file_and_probes_liveness() {
         let pid_file = tmp_pid_file("legacy");
-        // 不存在的二进制 ⇒ 回退分支；无 pid 文件 ⇒ running=false
+        // Non-existent binary ⇒ fallback branch; no pid file ⇒ running=false
         let v = status(Path::new("/nonexistent/aimail-bridge"), &pid_file);
         assert_eq!(v.get("running").and_then(Value::as_bool), Some(false));
         assert_eq!(v.get("_via").and_then(Value::as_str), Some("pid-file"));
@@ -133,12 +133,12 @@ mod tests {
             Some("legacy-pid-check")
         );
 
-        // 写一个"必然不存在"的 pid ⇒ 仍 false（覆盖 pid_alive 的失败路径）
+        // Write a "definitely non-existent" pid ⇒ still false (covers the failure path of pid_alive)
         std::fs::write(&pid_file, "999999").unwrap();
         let v = status(Path::new("/nonexistent/aimail-bridge"), &pid_file);
         assert_eq!(v.get("running").and_then(Value::as_bool), Some(false));
 
-        // 写本进程 pid ⇒ true
+        // Write this process's pid ⇒ true
         std::fs::write(&pid_file, std::process::id().to_string()).unwrap();
         let v = status(Path::new("/nonexistent/aimail-bridge"), &pid_file);
         assert_eq!(v.get("running").and_then(Value::as_bool), Some(true));

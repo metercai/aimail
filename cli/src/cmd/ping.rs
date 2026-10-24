@@ -1,9 +1,9 @@
-//! `aimail ping` —— `cli/ping_test.py` 的 Rust 复刻（P3b）。
+//! `aimail ping` — the Rust re-implementation of `cli/ping_test.py` (P3b).
 //!
-//! 流程：身份链（`--agent-home`/`AGENT_HOME` 下的**平台指针文件** → `resolve_system_id` → 读系统配置）→
-//! 主 agent 地址（`-a` 显式 → 首个本地绑定 → 别名归一；定名归 SDK，CLI 不再持有默认名）→ agent api_key（**只认
-//! agent key**，auth.local 是 1:1 语义、无 admin 回退）→ 探测 edition → SMTP 发送（advanced
-//! 失败回落 base 白名单直发）→ **三阶段日志事件**轮询判定 → 快照检查。
+//! Flow: identity chain (`--agent-home`/`AGENT_HOME` **platform pointer file** → `resolve_system_id` → read system config) →
+//! Main agent address (`-a` explicit → first local binding → alias normalization; naming defined by SDK, CLI no longer holds default name) → agent api_key (**only accepts
+//! agent key**, auth.local is 1:1 semantic, no admin fallback) → probe edition → SMTP send (advanced
+//! failure falls back to base whitelist direct send) → **three-stage log event** polling determination → snapshot check.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -18,13 +18,13 @@ pub struct Args {
     pub no_snapshot: bool,
 }
 
-/// 邮箱 local-part 的字符归一（`[^A-Za-z0-9!#$%&'*+\-/=?^_`{|}~]` → `_`）。
+/// Character normalization for the local-part of an email address (`[^A-Za-z0-9!#$%&'*+\-/=?^_`{|}~]` → `_`).
 pub(crate) fn sanitize_local(name: &str) -> String {
     let ok = |c: char| c.is_ascii_alphanumeric() || "!#$%&'*+-/=?^_`{|}~".contains(c);
     name.chars().map(|c| if ok(c) { c } else { '_' }).collect()
 }
 
-/// `email_for_agent`：共享域拼 `<name>.<system_name>@<domain>`。
+/// `email_for_agent`: shared domain constructs `<name>.<system_name>@<domain>`.
 pub(crate) fn email_for_agent(name: &str, domain: &str, system_name: &str) -> String {
     let base = {
         let s = sanitize_local(name);
@@ -41,10 +41,10 @@ pub(crate) fn email_for_agent(name: &str, domain: &str, system_name: &str) -> St
     }
 }
 
-/// 主 agent 地址：首个本地已注册绑定 → 默认名派生。
+/// Primary agent address: first locally registered binding → derived from default name.
 ///
-/// 定名归 SDK/宿主（owner 2026-10-18 删除 `default_agent_name`）：CLI 不再持有"主 agent 名"；
-/// 需要指定目标时用 `aimail ping -a <agent>`（welcome 的 `--agent` 属内部开关，不进命令面）。
+/// Naming is owned by SDK/host (owner removed `default_agent_name` on 2026-10-18): CLI no longer holds "primary agent name";
+/// Use `aimail ping -a <agent>` when target needs to be specified (welcome's `--agent` is internal switch, not in command surface).
 pub(crate) fn main_agent_email(cfg: &serde_json::Value) -> String {
     let dom = cfg.get("domain").and_then(|v| v.as_str()).unwrap_or("");
     let sysname = cfg
@@ -77,7 +77,7 @@ pub fn run(a: &Args) -> i32 {
     let home = crate::core::home::aimail_home();
     let systems = crate::core::config::systems_root_in(&home);
 
-    // ── 身份链：平台指针文件（--agent-home / AGENT_HOME）→ resolve_system_id ──
+    // ── Identity chain: platform pointer file (--agent-home / AGENT_HOME) → resolve_system_id ──
     let mut sid = a.system_id.clone();
     let mut email = a.agent.clone();
     let agent_home = if !a.agent_home.is_empty() {
@@ -118,7 +118,7 @@ pub fn run(a: &Args) -> i32 {
         sid = s;
     }
     if sid.is_empty() {
-        println!("✗ system_id 未解析(需 --system-id,或本机单系统/平台指针可自动判定)");
+        println!("✗ system_id unresolved (needs --system-id, or single-system local / platform pointer auto-detect)");
         return 1;
     }
 
@@ -148,7 +148,7 @@ pub fn run(a: &Args) -> i32 {
             .to_string()
     };
 
-    // agent api_key（只认 agent key；auth.local 无 admin 回退）
+    // agent api_key (only accepts agent key; auth.local has no admin fallback)
     let agent_dir = crate::core::bridge_wire::addr_clean(&email);
     let agent_cfg = systems
         .join(&sid)
@@ -165,7 +165,7 @@ pub fn run(a: &Args) -> i32 {
         .unwrap_or_default();
     if ak.is_empty() {
         println!(
-            "✗ agent api_key 未找到(需 systems/{}/{}/{})——auth.local 只接受 agent key",
+            "✗ agent api_key not found (requires systems/{}/{}/{})——auth.local only accepts agent key",
             sid,
             agent_dir,
             crate::core::contract::binding_file()
@@ -192,7 +192,7 @@ pub fn run(a: &Args) -> i32 {
     let mut resp = crate::core::smtp::send_ping(&gw_url, &ak, &email, &manager, &ping_id, &edition);
     if !resp.starts_with("250") && edition == "advanced" {
         let head: String = resp.chars().take(50).collect();
-        println!("  ⚠ auth.local 发送失败({}),回落 base 白名单直发", head);
+        println!("  ⚠ auth.local send failed ({}), falling back to the base allowlist direct send", head);
         resp = crate::core::smtp::send_ping(&gw_url, &ak, &email, &manager, &ping_id, "base");
     }
     if !resp.starts_with("250") {
@@ -201,7 +201,7 @@ pub fn run(a: &Args) -> i32 {
     }
     println!("  Ping sent: {}{}", crate::core::ping::PING_PREFIX, ping_id);
 
-    // ── 三阶段事件轮询 ──
+    // ── Three-stage event polling ──
     let mut w = crate::core::ping::Watcher::new(&ping_id, t_sent);
     let deadline = t_sent + a.timeout as f64;
     loop {

@@ -1,9 +1,9 @@
-//! `aimail reset` —— `cli/aimail:1241-1348` 的 Rust 复刻。
+//! `aimail reset` — the Rust re-implementation of `cli/aimail:1241-1348`.
 //!
-//! 语义：**只走 admin-key 路径**，重置本机当前实际配置（不重激活、不碰云端 key）。
-//! 顺序：home(可反查) → 平台判定 → sid(可指针反查) → 读 admin-key(只读) → 读 prev 取默认
-//! → **进程内跑激活 worker**（复用 `core::setup`，与 `--system-only` 同一条）→ 注册链幂等重跑
-//! （尽力语义：失败只告警不中断）→ 路由对账（**桥未移植 ⇒ 明确告警**）→ 建议行。
+//! Semantics: **admin-key path only**, resets the current actual local configuration (no re-activation, does not touch cloud key).
+//! Order: home (reverse lookup possible) → platform detection → sid (pointer reverse lookup possible) → read admin-key (read-only) → read prev to get defaults
+//! → **run activation worker in-process** (reuses `core::setup`, same path as `--system-only`) → idempotent re-run of registration chain
+//! (best-effort semantics: failure only warns, does not interrupt) → route reconciliation (**bridge not ported ⇒ explicit warning**) → suggestion line.
 
 use serde_json::{json, Value};
 
@@ -35,46 +35,46 @@ fn warn(msg: &str) {
 
 pub fn run(a: &Args) -> i32 {
     let mut sid = a.system_id.clone();
-    // home：未给则按 --system-id 反查本地配置（空判按真值，别用 Path 的 truthiness）
+    // home: if not provided, reverse lookup local config by --system-id (empty check by truthiness, do not use Path's truthiness)
     let system_home = if a.home.is_empty() {
         if sid.is_empty() {
-            return fail("reset 需要 --home(系统 home/平台根),或带 --system-id 以便反查");
+            return fail("reset requires --home (system home / platform root), or pass --system-id to look it up");
         }
         let sh = crate::core::home::system_home_from_sid(&sid);
         if sh.is_empty() {
             return fail(&format!(
-                "--system-id {sid} 无本地配置可反查 --home(系统不在这台机器?)"
+                "--system-id {sid} has no local config to look up --home from (is this system not on this machine?)"
             ));
         }
         let p = std::path::PathBuf::from(&sh);
-        println!("  --home 由 --system-id 反查: {}", p.to_string_lossy());
+        println!("  --home looked up from --system-id: {}", p.to_string_lossy());
         p
     } else {
         crate::hosts::identity::normalize_platform_home(&crate::core::home::expand_user(&a.home))
     };
     if !system_home.exists() {
         return fail(&format!(
-            "home 目录不存在: {}",
+            "home directory does not exist: {}",
             system_home.to_string_lossy()
         ));
     }
-    // --platform 显式覆盖（注册表校验）优先，否则按 home 特征判定
+    // --platform explicit override (registry validation) takes priority, otherwise determined by home characteristics
     let platform = match crate::hosts::identity::platform_override(&a.platform) {
         Ok(Some(p)) => p,
         Ok(None) => crate::hosts::identity::resolve_platform(&system_home),
         Err(msg) => return fail(&msg),
     };
     if platform.is_empty() {
-        return fail("无法确定平台");
+        return fail("cannot determine platform");
     }
     if sid.is_empty() {
         sid = crate::hosts::pointer::sid_for_name(&crate::core::home::user_home(), &platform);
     }
     if sid.is_empty() {
-        return fail("无法确定 system_id(用 --system-id 指定)");
+        return fail("Cannot determine system_id (use --system-id to specify)");
     }
 
-    // admin-key：只读（系统层原始 key 文件优先，其次已有配置）
+    // admin-key: read-only (system-level raw key file preferred, then existing config)
     let raw_key_path = config::systems_root_in(&crate::core::home::aimail_home())
         .join(&sid)
         .join(setup::SYSTEM_RAW_KEY_FILE);
@@ -88,12 +88,12 @@ pub fn run(a: &Args) -> i32 {
     }
     if admin_key.is_empty() {
         return fail(&format!(
-            "无 admin-key({} 或配置)——reset 只走 admin-key 路径",
+            "No admin-key ({} or config) —— reset only uses admin-key path",
             raw_key_path.to_string_lossy()
         ));
     }
 
-    // 默认参数：CLI 显式覆盖 > prev（system_name 只认显式 + prev，不取 .env：身份字段）
+    // Default parameters: CLI explicit override > prev (system_name only accepts explicit + prev, does not take .env: identity field)
     let prev = config::load_gateway_config(&sid);
     let pget = |k: &str| -> String {
         prev.as_ref()
@@ -133,8 +133,8 @@ pub fn run(a: &Args) -> i32 {
     };
 
     println!("  reset platform={platform} system_id={sid}");
-    // P8(2026-10-17): 进程内 INTEGRATE_* env 握手删除, 凭据走 SetupArgs 显式参数;
-    // 仅保留 manager → AIMAIL_MANAGER_ADDRESS 回写(SDK 子进程继承进程 env 直读, 契约名)。
+    // P8(2026-10-17): In-process INTEGRATE_* env handshake removed, credentials via SetupArgs explicit parameters;
+    // Only keep manager → AIMAIL_MANAGER_ADDRESS write-back (SDK subprocess inherits process env and reads directly, contract name).
     if !manager.is_empty() {
         std::env::set_var("AIMAIL_MANAGER_ADDRESS", &manager);
     }
@@ -158,16 +158,16 @@ pub fn run(a: &Args) -> i32 {
     };
     let r = setup::setup(&wa);
     if !r.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
-        return fail("setup_system(reset) 失败");
+        return fail("setup_system(reset) failed");
     }
     ok("config parameters reset (admin-key path; least-privilege key re-derived)");
 
-    // 注册链幂等重跑（注册表驱动；尽力语义：失败只告警，不阻断 reset）
+    // Idempotent re-run of registration chain (registry-driven; best-effort semantics: failure only warns, does not block reset)
     let cfg: Value = config::load_gateway_config(&sid)
         .map(|c| Value::Object(c.to_json()))
         .unwrap_or_else(|| json!({}));
-    // 平台取值优先**系统级 cfg 记录的 `platform`**（`aimail install` 写入，权威）；
-    // `--platform` / 探测在共享域等场景可能取不到 ⇒ 传给注册链的平台必须与 transport 同一真源。
+    // Platform value priority is **system-level cfg recorded `platform`** (written by `aimail install`, authoritative);
+    // `--platform` / detection may fail in shared domain scenarios ⇒ the platform passed to the registration chain must be the same single source of truth as transport.
     let recorded = cfg
         .get("platform")
         .and_then(|v| v.as_str())
@@ -178,14 +178,14 @@ pub fn run(a: &Args) -> i32 {
     } else {
         recorded
     };
-    // 域内宿主解释器绑定（契约 §4.1(2) 单真源）—— **必须在解析 SDK 根之前**：
-    // 否则用 CLI 自己的 `python3` 去找 SDK，宿主 venv 里的已装 SDK 会被判成"未安装"。
+    // In-domain host interpreter binding (contract §4.1(2) single source of truth) —— **must be before resolving SDK root**:
+    // Otherwise, use the CLI's own `python3` to find the SDK, and the installed SDK in the host venv will be judged as "not installed".
     let _ = crate::core::sdkroot::bind_domain(
         &setup::pget(&cfg, "container"),
         &system_home.to_string_lossy(),
     );
-    // transport 分派（契约 §4.1(2)）：**只有 python 宿主**需要 SDK 根（门的解释器自带）；
-    // node 宿主（node_entry）的 op 入口由注册表 `ops.argv` 直达 ⇒ 不得因缺 pysdk 硬退出。
+    // transport dispatch (contract §4.1(2)): **only python host** needs SDK root (the gate's interpreter has it built-in);
+    // The op entry for the node host (node_entry) is directly reached by the registry `ops.argv` => must not hard exit due to missing pysdk.
     let core_dir = if crate::hosts::get(&platform)
         .map(|h| h.op_template().is_some())
         .unwrap_or(false)
@@ -198,23 +198,23 @@ pub fn run(a: &Args) -> i32 {
     if a.all_agents {
         if let Err(e) = register::register_all(&platform, &cfg, &manager, &home_str, &core_dir) {
             warn(&format!(
-                "registration chain re-run: registration failed (see above); 异常: {e}"
+                "registration chain re-run: registration failed (see above); exception: {e}"
             ));
         }
     } else {
-        let agent = "agent".to_string(); // 定名归 SDK（默认 agent），CLI 不再查表
+        let agent = "agent".to_string(); // Naming belongs to SDK (default agent), CLI no longer looks up table
         if let Err(e) =
             register::register_agent(&platform, &agent, &cfg, &manager, &home_str, &core_dir)
         {
             warn(&format!(
-                "registration chain re-run: registration failed (see above); 异常: {e}"
+                "registration chain re-run: registration failed (see above); exception: {e}"
             ));
         } else {
             ok("registration chain re-run (idempotent)");
         }
     }
-    // 路由对账：`_ensure_inbound_routes` 等价物（best-effort，永不改 rc）
+    // Route reconciliation: equivalent of `_ensure_inbound_routes` (best-effort, never changes rc)
     crate::core::bridge_wire::ensure_inbound_routes(&sid);
-    println!("  建议: aimail check --system-id {sid}");
+    println!("  Suggestion: aimail check --system-id {sid}");
     0
 }

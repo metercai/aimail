@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""aimail_mcp_server.py — 共享 AIMail MCP server（stdio,兜底服务）。
+"""aimail_mcp_server.py — Shared AIMail MCP server (stdio, fallback service).
 
-暴露 Hermes 等价工具集（结构化调用,替代 CLI 方式）:
+Exposes Hermes equivalent toolset (structured calls, replacing CLI method):
   send_mail / manage_contacts / contact_profile / set_contact_profile
   email_summary / set_email_summary / board_*（A2A）
 
-平台无关（2026-08-18 从 tools/openclaw/ 提升）:任何 agent 系统只需按共享
-布局落 ~/.aimail/systems/{sid}/{cleaned_addr}/agentmail.json(register 链
-自动写),即可复用本服务——不 import 任何平台适配层,直接依赖共享核心
+ Platform-agnostic (promoted from tools/openclaw/ on 2026-08-18): any agent system only needs to follow the shared
+layout to land ~/.aimail/systems/{sid}/{cleaned_addr}/agentmail.json (register chain
+auto-writes), to reuse this service——does not import any platform adaptation layer, directly depends on shared core
 (aimail_base/aimail_tools/aimail_board)。
 
-agent 上下文：env AIMAIL_AGENT_ID（mcp.servers.<name>.env 配置,默认 main）。
-每工具也可显式传 agentId 参数覆盖（多 agent 共享 server 时）。
+agent context: env AIMAIL_AGENT_ID (configured in mcp.servers.<name>.env, default main).
+Each tool can also explicitly pass agentId parameter to override (when multiple agents share server).
 
-零第三方依赖：纯标准库 JSON-RPC over stdio。
+Zero third-party dependencies: pure standard library JSON-RPC over stdio.
 """
 from __future__ import annotations
 
@@ -27,19 +27,19 @@ import aimail_base as _base            # noqa: E402
 import aimail_tools as _tools          # noqa: E402
 import aimail_board as _board          # noqa: E402
 
-# 平台身份注入:共享 MCP server 不 import 平台适配层(平台无关),
-# 身份由平台安装脚本(install-mcp.sh 等)经 env 注入真实检测结果
-# (如 AIMAIL_AGENT_IDENTITY=deerflow/2.1.0)——与 OpenClaw 适配层
-# _AGENT_IDENTITY_OVERRIDE 注入同性质。
-# 无 env 时显式置 unknown/unknown 而非目录检测:本机多 agent 共存
-# (~/.hermes 与 ~/.openclaw 同在),目录检测必然误报(hermes 优先),
-# 身份只能由调用接口层声明,server 零猜测。
+# Platform identity injection: shared MCP server does not import platform adaptation layer (platform-agnostic),
+# identity is injected by platform install scripts (install-mcp.sh etc.) via env with real detection results
+# (e.g., AIMAIL_AGENT_IDENTITY=deerflow/2.1.0)——same nature as OpenClaw adaptation layer
+# _AGENT_IDENTITY_OVERRIDE injection.
+# When env is absent, explicitly set unknown/unknown instead of directory detection: multiple agents coexist locally
+# (~/.hermes and ~/.openclaw both present), directory detection will inevitably misreport (hermes takes priority),
+# identity can only be declared by the calling interface layer, server makes zero guesses.
 _env_identity = os.environ.get("AIMAIL_AGENT_IDENTITY", "").strip()
 if _env_identity:
     _tools._AGENT_IDENTITY_OVERRIDE = _env_identity
 else:
-    # 告警推迟到 server 真正启动(main): 通用宿主只为取 TOOLS/HANDLERS 而 import
-    # 本模块时不该被 stderr 噪声打扰(agent 级对接没有 MCP 配置可写)。
+    # Defer alerting until the server actually starts (main): the generic host only imports to fetch TOOLS/HANDLERS
+    # this module just to get TOOLS/HANDLERS should not be disturbed by stderr noise (agent-level integration has no MCP config to write).
     _tools._AGENT_IDENTITY_OVERRIDE = "unknown/unknown"
 
 
@@ -53,23 +53,23 @@ def _warn_identity_if_unknown() -> None:
         )
 
 
-# ── MCP stdio 帧（OpenClaw 打包的 SDK 用 newline-delimited JSON，
-#    不支持 Content-Length 帧）─────────────────────────────────
+# ── MCP stdio frames (OpenClaw packaged SDK uses newline-delimited JSON,
+#    does not support Content-Length frames)─────────────────────────────────
 
 def read_msg():
-    """读一行 newline-delimited JSON。
+    """Read a line of newline-delimited JSON.
 
-    审计 D5: 原实现把"空行"与 EOF 当同一分支(readline 得空行 → strip 后为空 →
-    return None) ⇒ 对端偶发 keep-alive/缓冲抖动发来的空白行会被当成流结束,
-    server 静默退出(后续 tools/call 全部无响应)。现在: 空行跳过, 只有真 EOF
-    才结束。
+    Audit D5: original implementation treated "empty line" and EOF as the same branch (readline gets empty line → strip results in empty →
+    return None) ⇒ sporadic whitespace lines sent by peer due to keep-alive/buffer jitter would be treated as stream end,
+    server silently exits (subsequent tools/call all unresponsive). Now: empty lines are skipped, only true EOF
+    ends the stream.
     """
     while True:
         line = sys.stdin.buffer.readline()
         if not line:            # EOF
             return None
         line = line.strip()
-        if not line:            # 空白行: 跳过继续读(不再终止服务)
+        if not line:            # Blank line: skip and continue reading (no longer terminates service)
             continue
         return json.loads(line)
 
@@ -79,17 +79,17 @@ def write_msg(obj):
     sys.stdout.flush()
 
 
-# ── agent 上下文 ────────────────────────────────────────────────
+# ── agent context ────────────────────────────────────────────────
 
 def _agent_ctx(agent_id: str = "") -> str:
-    """确定当前 agentId（显式参数 > env）并切换上下文（共享 set_agent_context）。
+    """Determine current agentId (explicit parameter > env) and switch context (shared set_agent_context).
 
-    system_id 取 env ``AIMAIL_SYSTEM_ID``（由 install-mcp.sh 随 mcpServers.env 写入，
-    装配步 pysdk/install.py::_assembly_env 供给）：同一 home 下多个 system 常有同名
-    agent_id，钉住安装时的 system 才不会被 ``_scan_systems_for_agent`` 的"按目录序
-    首匹配"挑到别的地址。钉住的 system 里找不到（绑定搬走/陈旧 env）⇒ **响亮回退**到
-    全 systems 扫描（即本函数的原行为），stderr 一行告警（stdout 是 MCP 协议，不许混）。
-    没有该 env ⇒ 保持旧行为：全 systems 扫描。
+    system_id taken from env ``AIMAIL_SYSTEM_ID`` (written by install-mcp.sh via mcpServers.env,
+    supplied by the assembly step pysdk/install.py::_assembly_env): multiple systems under the same home often have same-named
+    agent_id, pinning the system at install time prevents ``_scan_systems_for_agent``'s "first match by directory order"
+    first match" picks a different address. If not found in the pinned system (binding moved/stale env) ⇒ **loud fallback** to
+    full systems scan (i.e., original behavior of this function), one line warning on stderr (stdout is MCP protocol, no mixing allowed).
+    No such env ⇒ keep old behavior: scan all systems.
     """
     aid = agent_id or os.environ.get("AIMAIL_AGENT_ID", "main")
     sid = (os.environ.get("AIMAIL_SYSTEM_ID", "") or "").strip()
@@ -107,14 +107,14 @@ def _agent_ctx(agent_id: str = "") -> str:
 
 
 def _safe(fn):
-    """工具调用包装：异常 → MCP error。"""
+    """Tool call wrapper: exception → MCP error."""
     try:
         return {"ok": True, **fn()}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
 
-# ── 工具实现 ────────────────────────────────────────────────────
+# ── Tool implementation ────────────────────────────────────────────────────
 
 def tool_send_mail(args: dict) -> dict:
     def fn():
@@ -227,7 +227,7 @@ def tool_board_roles(args: dict) -> dict:
     return _safe(fn)
 
 
-# ── 工具注册表 ──────────────────────────────────────────────────
+# ── Tool registry ──────────────────────────────────────────────────
 
 SCHEMA_STR = {"type": "string"}
 TOOLS = [
@@ -338,7 +338,7 @@ HANDLERS = {
     "activate_address_code": tool_activate_address_code,
 }
 
-# ── MCP 主循环 ──────────────────────────────────────────────────
+# ── MCP main loop ──────────────────────────────────────────────────
 
 def main() -> int:
     _warn_identity_if_unknown()
@@ -346,8 +346,8 @@ def main() -> int:
         try:
             msg = read_msg()
         except json.JSONDecodeError:
-            # 坏帧(JSON 非法):按 JSON-RPC 回 -32700 并继续——
-            # 单帧脏输入不允许杀死整个 server
+            # Bad frame (invalid JSON): return -32700 per JSON-RPC and continue——
+            # single frame dirty input is not allowed to kill the entire server
             write_msg({"jsonrpc": "2.0", "id": None,
                        "error": {"code": -32700, "message": "Parse error"}})
             continue
@@ -375,7 +375,7 @@ def main() -> int:
                 write_msg({"jsonrpc": "2.0", "id": mid,
                            "error": {"code": -32601, "message": f"unknown tool {name}"}})
                 continue
-            # agent 上下文：显式 agentId 参数 > env
+            # agent context: explicit agentId parameter > env
             agent_id = args.pop("agentId", "") if isinstance(args, dict) else ""
             try:
                 _agent_ctx(agent_id)

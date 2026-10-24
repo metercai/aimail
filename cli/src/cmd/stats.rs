@@ -1,18 +1,18 @@
-//! `aimail stats` —— 本机 aimail 对接状态（只读）。
+//! `aimail uninstall` —— Rust port of `cli/aimail:3250-3435`.
 //!
-//! 逐字复刻 Python 侧 `cli/aimail:3084-3237`：默认视图（系统行 + agent 行）与
-//! `-a/--all` 全面视图（健康标注 / 断链系统段 / 本机平台段 / 维护链路提示）。
+//! Line-by-line re-implementation of the Python side `cli/aimail:3084-3237`: the default view (system rows + agent rows) and
+//! the `-a/--all` full view (health annotation / broken-link system section / local-platform section / maintenance-chain hint).
 //!
-//! 云状态分档（与 Python 完全同判据，注意 `_request` 失败返回 `status:0` 而**不抛**）：
-//! `200 + expires_at` ⇒ ok 并给到期行；`403/404` ⇒ unlinked；无 url/key ⇒ broken-config。
-//! 只在"到期值不可解析"这类异常上与 Python 一致地落到 `unreachable` 分支。
+//! Cloud status tiers (same criteria as Python, note that `_request` failure returns `status:0` and **does not throw**):
+//! `200 + expires_at` ⇒ ok and provide expiration line; `403/404` ⇒ unlinked; no url/key ⇒ broken-config.
+//! Only falls into `unreachable` branch consistently with Python in exceptions like "expiry value unparseable".
 
 use crate::core::style::{GREEN, NC, RED, YELLOW};
 use crate::core::{config, contract, gateway::GatewayClient, home, mail, time};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
-/// 一个 agent 行（`stats` 两段视图共用）。
+/// An agent line (shared by the two `stats` view sections).
 struct AgentRow {
     email: String,
     manager: String,
@@ -20,7 +20,7 @@ struct AgentRow {
     size: u64,
 }
 
-/// `sorted(systems/*)` 里**带系统级环境文件**的目录（`(sid, dir)`）。
+/// Directories in `sorted(systems/*)` that **contain system-level environment files** (`(sid, dir)`).
 fn system_dirs(systems_root: &Path) -> Vec<(String, PathBuf)> {
     let Ok(entries) = std::fs::read_dir(systems_root) else {
         return Vec::new();
@@ -31,7 +31,7 @@ fn system_dirs(systems_root: &Path) -> Vec<(String, PathBuf)> {
         .filter(|e| e.path().join(config::GATEWAY_CONFIG_NAME).is_file())
         .map(|e| (e.file_name().to_string_lossy().into_owned(), e.path()))
         .collect();
-    out.sort_by(|a, b| a.0.cmp(&b.0)); // 与 Python `sorted(...)` 同序
+    out.sort_by(|a, b| a.0.cmp(&b.0)); // Same order as Python `sorted(...)`
     out
 }
 
@@ -49,7 +49,7 @@ fn binding_rows(aimail_home: &Path, dir: &Path, gw: &config::GatewayConfig) -> V
     for sub in subs {
         let path = sub.join(contract::binding_file());
         if !path.is_file() {
-            continue; // 权限/IO 错误也算"没有"（Python `_is_readable_file` 同）
+            continue; // Permission/IO errors also count as "not present" (same as Python `_is_readable_file`)
         }
         let Ok(text) = std::fs::read_to_string(&path) else {
             continue;
@@ -82,7 +82,7 @@ fn binding_rows(aimail_home: &Path, dir: &Path, gw: &config::GatewayConfig) -> V
     rows
 }
 
-/// 平台标签：`""` 或 `unknown` ⇒ 视图相关的兜底字面量（系统段 `unknown`、agent 段 `?`）。
+/// Platform label: `""` or `unknown` ⇒ view-specific fallback literal (system section `unknown`, agent section `?`).
 fn platform_label(home: &str, fallback: &str) -> String {
     if home.is_empty() {
         return fallback.to_string();
@@ -95,7 +95,7 @@ fn platform_label(home: &str, fallback: &str) -> String {
     }
 }
 
-/// 返回 `(expiry_line, cloud_status)`；`Err(())` = 落到 Python 的 `except` 分支。
+/// Returns `(expiry_line, cloud_status)`; `Err(())` = falls into Python's `except` branch.
 fn quota_probe(gw: &config::GatewayConfig, sid: &str) -> Result<(String, String), ()> {
     let mut cloud_status = "ok".to_string();
     if !gw.gateway_url.is_empty() && !gw.admin_key.is_empty() {
@@ -276,7 +276,7 @@ mod tests {
 
     fn write_system(home: &Path, sid: &str, system_home: &str) {
         let mut cfg = config::GatewayConfig {
-            gateway_url: "http://127.0.0.1:1".into(), // 必然连不上 ⇒ status 0
+            gateway_url: "http://127.0.0.1:1".into(), // Guaranteed connection failure ⇒ status 0
             admin_key: "k".into(),
             system_id: sid.into(),
             system_home: system_home.into(),
@@ -318,8 +318,8 @@ mod tests {
 
     #[test]
     fn probe_on_dead_gateway_keeps_ok_like_python_status_zero() {
-        // 有 url+key 但没人监听 ⇒ _request 返回 status 0 ⇒ Python 侧 cloud 仍为 ok、
-        // 且不打印到期行（这是复刻的关键语义，别"顺手"改成 unreachable）
+        // Has url+key but no one listening ⇒ _request returns status 0 ⇒ Python side cloud is still ok,
+        // and does not print the expiry line (this is the key semantic to replicate, do not "casually" change to unreachable)
         let gw = config::GatewayConfig {
             gateway_url: "http://127.0.0.1:1".into(),
             admin_key: "k".into(),

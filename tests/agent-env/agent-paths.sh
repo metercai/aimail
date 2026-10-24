@@ -1,32 +1,32 @@
 #!/usr/bin/env bash
-# agent 运行时路径的**单真源**(owner 2026-10-11 裁决)。
+# agent runtime path **single source of truth** (owner 2026-10-11 ruling).
 #
-# 背景(为什么有本文件):launcher 的候选顺序原本在 verify.sh(两处)与 tests/l3/run-l3.sh
-# (一处赋值)各写一份;2026-10-11 把 L3 接线到单源 agent-env 时, run-l3.sh 那份赋值连同
-# `[ -x ]` 守卫被删掉, 只留下消费者 ⇒ CI 报 `HERMES_BIN: unbound variable`, L3 9/9 红
-# (set -u 直接中断, hermes host 从未启动)。收敛到本文件后不再有第二份可漂移的副本。
+# Background (why this file exists): the launcher candidate order was originally written in verify.sh (two places) and tests/l3/run-l3.sh
+# (one assignment) separately; on 2026-10-11 when wiring L3 to the single-source agent-env, the assignment in run-l3.sh along with
+# the `[ -x ]` guard was removed, leaving only consumers ⇒ CI reported `HERMES_BIN: unbound variable`, L3 9/9 red
+# (set -u interrupted directly, hermes host never started). After converging to this file, there is no second copy that can drift.
 #
-# 用法(仅在 bash 脚本里 source;本文件无副作用):
-#   . "$(dirname "${BASH_SOURCE[0]}")/agent-paths.sh"     # 同目录
+# Usage (only source in bash scripts; this file has no side effects):
+#   . "$(dirname "${BASH_SOURCE[0]}")/agent-paths.sh"     # same directory
 #   bin="$(agent_launcher hermes "$HOME_DIR" || true)"
 #
-# agent_launcher <agent> [home_dir] —— 成功时打印可执行 launcher 的绝对路径并返回 0;
-# 找不到则返回非零(调用方自行决定 die / red / gap)。
+# agent_launcher <agent> [home_dir] —— on success, prints the absolute path of the executable launcher and returns 0;
+# returns non-zero if not found (caller decides die / red / gap).
 
 agent_launcher() {
   local agent="$1" home_dir="${2:-}" b="" t="" tree=""
 
   case "$agent" in
     hermes)
-      # 官方宿主安装: 源码树在 <home>/hermes-agent, launcher 在 <tree>/.hermes/bin/hermes,
-      # 并把一份放到 PATH(~/.local/bin/hermes)。docker 镜像里是 /opt/hermes/bin/hermes。
-      # HERMES_HOME env(宿主真 home): verify.sh 的 home_dir 是 scratch 时,
-      # 真安装树只在 $HERMES_HOME/hermes-agent。
+      # Official host install: source tree is at <home>/hermes-agent, launcher is at <tree>/.hermes/bin/hermes,
+      # and a copy is placed in PATH (~/.local/bin/hermes). In docker images it is /opt/hermes/bin/hermes.
+      # HERMES_HOME env (host real home): when verify.sh's home_dir is scratch,
+      # the real install tree is only at $HERMES_HOME/hermes-agent.
       for t in "${home_dir:-/nonexistent}/hermes-agent" "${HERMES_HOME:-/nonexistent}/hermes-agent" "/opt/hermes"; do
         [ -f "$t/gateway/platforms/webhook.py" ] && { tree="$t"; break; }
       done
-      # Windows(官方 install.ps1): launcher 发布到 <HermesHome>/bin/hermes.{exe,cmd}
-      # (git-bash 的 [ -x ] 对 .exe 有效); unix 布局不变。
+      # Windows (official install.ps1): launcher is published to <HermesHome>/bin/hermes.{exe,cmd}
+      # (git-bash's [ -x ] works for .exe); unix layout unchanged.
       for b in "${tree:-/nonexistent}/.hermes/bin/hermes" "/opt/hermes/bin/hermes" \
                "${home_dir:-/nonexistent}/.local/bin/hermes" "$HOME/.local/bin/hermes" \
                "${HERMES_HOME:-/nonexistent}/bin/hermes.exe" "${HERMES_HOME:-/nonexistent}/bin/hermes.cmd" \

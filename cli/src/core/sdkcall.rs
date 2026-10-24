@@ -1,13 +1,13 @@
-//! CLI 侧的**通用 SDK 按名调用**（owner 2026-10-04 口径：SDK 冻结，glue 归 CLI）。
+//! **generic SDK call-by-name** on the CLI side (owner 2026-10-04 ruling: SDK frozen, glue belongs to CLI).
 //!
-//! 与 `core/sdk.rs` 的关系（两者都是"进程命令契约"，不是两套协议）：
-//! · `sdk.rs`  = 调**已发布的 SDK 可执行门** `python -m aimail.sdk_ops <op>`（op 清单在 SDK 侧，
-//!               已随 v0.1.35 发布并登记在边界稿 §1.5；**不再扩 op**）。
-//! · 本模块    = 按名调用 SDK **已发布的公共函数**（`<module>.<function>(**kwargs)`），
-//!               shim 随本二进制内嵌 ⇒ CLI 侧能力扩展**零 SDK 改动、零发版**。
+//! Relationship with `core/sdk.rs` (both are "process command contracts", not two separate protocols):
+//! · `sdk.rs`  = invokes the **published SDK executable gate** `python -m aimail.sdk_ops <op>` (op list is on the SDK side,
+//!               already published with v0.1.35 and registered in the boundary draft §1.5; **no more ops added**).
+//! · This module = invokes SDK **published public functions** by name (`<module>.<function>(**kwargs)`),
+//!               shim is embedded in this binary ⇒ CLI-side capability expansion requires **zero SDK changes, zero releases**.
 //!
-//! 边界（硬）：shim 只做"取参数 → 调函数 → 回信封"；**任何算法都不许在这里复刻**，
-//! 名字清单仍以边界稿 B-3 为准。
+//! Boundary (hard): shim only does "get params → call function → return envelope"; **no algorithm may be replicated here**,
+//! the name list still follows boundary draft B-3.
 
 use serde_json::Value;
 use std::path::Path;
@@ -15,15 +15,15 @@ use std::time::Duration;
 
 use crate::core::sdk::AbiError;
 
-/// 内嵌 shim 源（CLI 域文件，随二进制发布；不依赖部署机上另有一份脚本）。
+/// Embedded shim source (CLI domain file, shipped with the binary; does not depend on a separate script on the deployment machine).
 const SHIM_SRC: &str = include_str!("sdk_call_shim.py");
 
-/// shim 的调用形状：`python3 -c <shim> <core_dir> <module> <function> <kwargs-json>`。
+/// Shim invocation shape: `python3 -c <shim> <core_dir> <module> <function> <kwargs-json>`.
 pub fn shim_argv(core_dir: &Path, module: &str, function: &str, kwargs: &Value) -> Vec<String> {
     shim_argv_full(core_dir, module, function, kwargs, &[])
 }
 
-/// 带**位置参数**的形态（有些 SDK 函数按位置传：hermes 适配层 `(name, profile_dir, config)`）。
+/// Shape with **positional arguments** (some SDK functions take positional args: hermes adapter layer `(name, profile_dir, config)`).
 pub fn shim_argv_full(
     core_dir: &Path,
     module: &str,
@@ -43,11 +43,11 @@ pub fn shim_argv_full(
 }
 
 fn python_bin() -> String {
-    // 定位链单真源 = `core::sdkroot::python_bin`（契约 §4.1(2)）
+    // Single source of truth for location chain = `core::sdkroot::python_bin` (contract §4.1(2))
     crate::core::sdkroot::python_bin()
 }
 
-/// 调 `module.function(**kwargs)`：成功返回 SDK 的返回值；失败按 `usage|import|call` 分档。
+/// Call `module.function(**kwargs)`: returns the SDK's return value on success; failure is categorized as `usage|import|call`.
 pub fn call(
     module: &str,
     function: &str,
@@ -94,7 +94,7 @@ pub fn call(
     }
 }
 
-/// 带位置参数的调用（其余同 `call`）。
+/// Call with positional arguments (rest same as `call`).
 pub fn call_positional(
     module: &str,
     function: &str,
@@ -158,7 +158,7 @@ mod tests {
 
     #[test]
     fn calls_a_published_sdk_function_by_name() {
-        // 真调（纯算法、离线）：定名规则在 SDK 内，CLI 只取计划
+        // Real call (pure algorithm, offline): naming rules are in the SDK, CLI only fetches the plan
         let plan = call(
             "aimail_base",
             "plan_address_name",
@@ -172,7 +172,7 @@ mod tests {
             Duration::from_secs(60),
             &[],
         )
-        .expect("plan_address_name 应可用（SDK 已发布按名可调）");
+        .expect("plan_address_name should be available (SDK published callable by name)");
         assert_eq!(plan["target_name"], json!("billing"));
         assert_eq!(plan["needs_rename"], json!(false));
         assert_eq!(plan["email"], json!("billing@example.test"));
@@ -180,7 +180,7 @@ mod tests {
 
     #[test]
     fn sdk_algorithm_errors_are_reported_not_swallowed() {
-        // 非法名 ⇒ SDK 抛 ValueError ⇒ 分档 call + 异常名原样上报（不臆断成成功）
+        // Invalid name ⇒ SDK raises ValueError ⇒ tiered call + exception name reported as-is (do not assume success)
         let err = call(
             "aimail_base",
             "plan_address_name",
@@ -189,10 +189,10 @@ mod tests {
             Duration::from_secs(60),
             &[],
         )
-        .expect_err("非法名必须报错");
+        .expect_err("Invalid name must raise an error");
         match err {
             AbiError::Call { exc, .. } => assert_eq!(exc, "ValueError"),
-            other => panic!("应为 call 档: {other:?}"),
+            other => panic!("Should be call tier: {other:?}"),
         }
     }
 
@@ -206,10 +206,10 @@ mod tests {
             Duration::from_secs(60),
             &[],
         )
-        .expect_err("未知函数必须报错");
+        .expect_err("Unknown function must raise an error");
         assert!(
             matches!(err, AbiError::Import(_)),
-            "应为 import 档: {err:?}"
+            "Should be import tier: {err:?}"
         );
     }
 }

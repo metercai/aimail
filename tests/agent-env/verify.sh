@@ -78,8 +78,8 @@ case "$AGENT" in
     else
       red "hermes official source tree missing (no gateway/platforms/webhook.py under /opt/hermes or <home>/hermes-agent)"
     fi
-    # launcher 候选顺序的**单真源** = tests/agent-env/agent-paths.sh。本文件曾自带一份副本,
-    # 与 run-l3.sh 的那份各自漂移, 最终导致 CI `HERMES_BIN: unbound variable`(L3 9/9 红)。
+    # The **single source of truth** for the launcher candidate order = tests/agent-env/agent-paths.sh. This file once carried its own copy,
+    # which drifted separately from the one in run-l3.sh, ultimately causing CI `HERMES_BIN: unbound variable` (L3 9/9 red).
     # shellcheck source=agent-paths.sh
     . "$(dirname "${BASH_SOURCE[0]}")/agent-paths.sh"
     _bin="$(agent_launcher hermes "$HOME_DIR" || true)"
@@ -158,12 +158,12 @@ _hits="$(find / -xdev -type f -name 'aimail' -not -path '/proc/*' -not -path '/o
 _py_hits=""
 for c in python3 /opt/hermes/.venv/bin/python3 /app/backend/.venv/bin/python; do
   command -v "$c" >/dev/null 2>&1 || [ -x "$c" ] || continue
-  # 判据必须是"真包"(owner 2026-10-11):CI 里 step 的 CWD 是 $GITHUB_WORKSPACE, 而 checkout
-  # 落在 $GITHUB_WORKSPACE/aimail(无 __init__.py)⇒ Python 3 把它当**命名空间包**, 裸
-  # `import aimail` 会"成功" ⇒ 本负向断言假红(L3 9/9 格全红即此:hermes 臂与 dsh 臂红在同一
-  # 行同一判据, 与"臂间污染"无关)。故:①探测固定在 / 下执行(CWD 影响归零)②要求 find_spec
-  # 有 origin(命名空间包的 origin 为 None)。实证矩阵:干净 py + CWD 含 aimail/ ⇒ 旧判据红/新判据绿;
-  # 真装 SDK 时新判据在两种 CWD 下**都仍报红** ⇒ 判据只修错、不放宽。
+  # The criterion must be a "real package" (owner 2026-10-11): in CI, the step's CWD is $GITHUB_WORKSPACE, while checkout
+  # lands in $GITHUB_WORKSPACE/aimail (no __init__.py) ⇒ Python 3 treats it as a **namespace package**, bare
+  # `import aimail` will "succeed" ⇒ this negative assertion falsely red (L3 9/9 grid all red is exactly this: hermes arm and dsh arm red on the same
+  # line with the same criterion, unrelated to "cross-arm pollution"). Therefore: ① probe is fixed to execute under / (CWD impact zeroed) ② require find_spec
+  # to have origin (namespace package's origin is None). Empirical matrix: clean py + CWD containing aimail/ ⇒ old criterion red / new criterion green;
+  # When the SDK is actually installed, the new criterion **still reports red** under both CWDs ⇒ the criterion only fixes errors, it does not loosen.
   ( cd / && "$c" -c "import importlib.util,sys; s=importlib.util.find_spec('aimail'); sys.exit(0 if (s and s.origin) else 1)" ) >/dev/null 2>&1 && _py_hits="$_py_hits $c"
 done
 [ -z "$_py_hits" ] && pass "no interpreter can import the pysdk (aimail)" || red "pysdk importable by:$_py_hits"
@@ -234,7 +234,7 @@ echo "── [3] agent runs + LLM answers"
 case "$AGENT" in
   hermes)
     _probe=""
-    _b="$(agent_launcher hermes "$HOME_DIR" || true)"   # 单真源(同上)
+    _b="$(agent_launcher hermes "$HOME_DIR" || true)"   # single source of truth (same as above)
     [ -n "$_b" ] && _probe="$("$_b" --version 2>/dev/null)" || _probe="" ;;
   dsh)      _probe="$(dsh --version 2>/dev/null)" ;;
   pi)       _probe="$(pi --version 2>/dev/null)" ;;

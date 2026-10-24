@@ -1,15 +1,15 @@
-"""SDK 资源单一真源契约(2026-09-25 改造; 2026-10-11 取消仓级物化脚本)。
+"""SDK resource single source of truth contract (2026-09-25 refactoring; 2026-10-11 cancelled repo-level materialization script).
 
-约定:
-  * 真源 = 仓库根 ``resources/{board,skills}`` —— git 跟踪, 唯一可编辑处。
-  * 各 adapter 包内 ``resources/`` 是**各包 prepack 自己暂存**的生成物
+Convention:
+  * Source of truth = repo root ``resources/{board,skills}`` —— git tracked, only editable location.
+  * The ``resources/`` inside each adapter package is the generated artifact **temporarily staged by each package's own prepack**
     (``tssdk/packages/agent-aimail/scripts/stage-resources.mjs --dest .``):
-    必须被 git 忽略、不得入库;存在时**必须与真源逐字节一致**(否则就是"只改了一份"的漂移)。
-  * pysdk 不落副本: 仓库检出里 SDK 直接读仓根 ``resources/``
-    (``_resources_release.resources_root``);wheel 自包含由 pyproject 的目录级
-    force-include(源=仓根 ``resources/``)保证;产物层指纹校验在 L2 check-tarball.sh。
+    Must be git ignored, not committed to repo; if present, **must be byte-for-byte identical to source of truth** (otherwise it is "only one copy modified" drift).
+  * pysdk does not keep copies: in repo checkout, SDK directly reads repo root ``resources/``
+    (``_resources_release.resources_root``); wheel self-containment is guaranteed by pyproject's directory-level
+    force-include (source=repo root ``resources/``); artifact layer fingerprint verification is in L2 check-tarball.sh.
 
-本测试只读、无外部依赖(不钉开发机绝对路径 —— 仓根由本文件位置推导)。
+This test is read-only and has no external dependencies (no absolute paths to dev machines — the repo root is derived from this file's location).
 """
 import hashlib
 import subprocess
@@ -18,8 +18,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 CANON = REPO / "resources"
-# 只列**包内**生成物: pysdk 不再需要副本(仓库检出直接读真源)。
-# 2026-10-22 单包合并: 原 3 适配宿主包各自暂存一份 ⇒ 收敛为 agent-aimail 单包内的一份。
+# Only lists **in-package** generated artifacts: pysdk no longer needs a copy (repo checkout reads the true source directly).
+# 2026-10-22 Single package merge: The original 3 adapter host packages each staged a copy => converged to a single copy within the agent-aimail package.
 TARGETS = {
     "agent-aimail": REPO / "tssdk" / "packages" / "agent-aimail" / "resources",
 }
@@ -42,36 +42,36 @@ def _git(*args: str) -> str:
 
 def test_canonical_source_exists_and_is_complete():
     for sub in ("board", "skills"):
-        assert (CANON / sub).is_dir(), f"真源缺 {sub}/: {CANON}"
+        assert (CANON / sub).is_dir(), f"True source missing {sub}/: {CANON}"
     fp = _fingerprint(CANON)
     assert len(fp) == EXPECTED_FILE_COUNT, (
-        f"真源文件数 {len(fp)} != 契约 {EXPECTED_FILE_COUNT};"
-        f"增删资源请同步本断言与 pyproject/check-tarball 口径: {sorted(fp)}")
+        f"True source file count {len(fp)} != contract {EXPECTED_FILE_COUNT};"
+        f"Add/remove resources please sync this assertion with pyproject/check-tarball criteria: {sorted(fp)}")
     for sub in ("role_prompt",):
-        assert (CANON / "board" / sub).is_dir(), f"真源缺 board/{sub}/"
+        assert (CANON / "board" / sub).is_dir(), f"True source missing board/{sub}/"
     for f in ("SKILL.md", "DESCRIPTION.md"):
-        assert (CANON / "skills" / f).is_file(), f"真源缺 skills/{f}"
+        assert (CANON / "skills" / f).is_file(), f"True source missing skills/{f}"
 
 
 def test_generated_copies_are_not_tracked_by_git():
-    """生成物绝不入库(否则又变回"N 份副本"的老问题)。"""
+    """Generated artifacts must never be committed (otherwise it reverts to the old "N copies" problem)."""
     rels = [str(t.relative_to(REPO)) for t in TARGETS.values()]
     tracked = _git("ls-files", "--", *[r + "/" for r in rels])
     assert tracked == "", (
-        "包内生成物被 git 跟踪(应 gitignore + `git rm -r --cached`):\n"
+        "In-package generated artifacts are tracked by git (should be gitignored + `git rm -r --cached`):\n"
         + "\n".join(tracked.splitlines()[:5]))
 
 
 def test_generated_copies_are_gitignored():
     for name, d in TARGETS.items():
-        rel = str(d.relative_to(REPO)) + "/board"   # 判规则(路径不存在也算)
+        rel = str(d.relative_to(REPO)) + "/board"   # Judgment rule (counts even if path does not exist)
         r = subprocess.run(["git", "-C", str(REPO), "check-ignore", "-q", rel],
                            capture_output=True, text=True, check=False)
-        assert r.returncode == 0, f"{name}: {rel} 未被 .gitignore 忽略"
+        assert r.returncode == 0, f"{name}: {rel} not ignored by .gitignore"
 
 
 def test_existing_copies_match_canonical():
-    """存在即必须一致 —— 未暂存(clean clone)不算失败, 由各包 prepack / 门禁暂存。"""
+    """If it exists it must be consistent — un-staged (clean clone) is not a failure; each package's prepack / gate stages it."""
     canon = _fingerprint(CANON)
     present = {n: d for n, d in TARGETS.items() if d.is_dir()}
     for name, d in present.items():
@@ -80,21 +80,21 @@ def test_existing_copies_match_canonical():
         missing = sorted(set(canon) - set(fp))
         diff = sorted(k for k in set(canon) & set(fp) if canon[k] != fp[k])
         assert not (extra or missing or diff), (
-            f"{name} 包内生成物与真源漂移: extra={extra} missing={missing} diff={diff}\n"
-            f"  → 跑该包自己的 prepack: node tssdk/packages/agent-aimail/scripts/"
+            f"{name} in-package generated artifacts drifted from true source: extra={extra} missing={missing} diff={diff}\n"
+            f"  → Run the package's own prepack: node tssdk/packages/agent-aimail/scripts/"
             f"stage-resources.mjs --dest tssdk/packages/agent-aimail/resources")
 
 
 def test_sdk_reads_the_canonical_dir_in_a_checkout():
-    """pysdk 侧闭环: 仓库检出里资源根就是仓根真源(不依赖任何副本/物化步骤)。"""
+    """pysdk side closed loop: in repo checkout, resource root is the repo root true source (does not depend on any copy/materialization step)."""
     sys.path.insert(0, str(REPO / "pysdk"))
     try:
-        import _resources_release as R  # noqa: PLC0415 — 仅为触发仓库态解析
+        import _resources_release as R  # noqa: PLC0415 — solely to trigger repository state resolution
     finally:
         sys.path.pop(0)
     root = Path(R.resources_root()).resolve()
     assert root == CANON.resolve(), (
-        f"仓库检出里 resources_root()={root} 应指向真源 {CANON.resolve()}")
+        f"In the repository checkout, resources_root()={root} should point to the true source {CANON.resolve()}")
     for d in (R.resources_board_dir(), R.resources_skills_dir()):
-        assert Path(d).is_dir(), f"{d} 不存在(SDK 应能直接读真源)"
-    assert (Path(R.resources_skills_dir()) / "SKILL.md").is_file(), "真源 SKILL.md 不可见"
+        assert Path(d).is_dir(), f"{d} does not exist (SDK should be able to read true source directly)"
+    assert (Path(R.resources_skills_dir()) / "SKILL.md").is_file(), "True source SKILL.md not visible"

@@ -1,13 +1,13 @@
 /**
- * L1 契约测试（用户 2026-09-27 口径: 先本地把契约定住, 再上 L2 做集成确认）。
+ * L1 contract test (user 2026-09-27 scope: first lock down the contract locally, then go to L2 for integration confirmation).
  *
- * 用一个按宿主文档实现的 **stub /hooks/agent** 本地验证派发契约, 秒级、零 docker、零发布:
- *   · 无 Authorization ⇒ 401（"Hook authentication failed"）
- *   · 路径不是 <hooks.path>/agent ⇒ 404（"Disabled hooks fall through"）
- *   · message 空 / agentId 缺失或非已配置 agent ⇒ 400
- *   · 带 caller sessionKey 且未 opt-in ⇒ 400（"routing/session policy"）
- *   · 干净载荷 ⇒ 200 {ok:true}
- * 这四条正是 404/401/400 那三轮在 L2 上"发现"的东西——本该在这里先钉住。
+ * Uses a **stub /hooks/agent** implemented per host documentation to locally verify the dispatch contract, in seconds, zero docker, zero release:
+ *   · No Authorization ⇒ 401 ("Hook authentication failed")
+ *   · Path is not <hooks.path>/agent ⇒ 404 ("Disabled hooks fall through")
+ *   · message empty / agentId missing or not a configured agent ⇒ 400
+ *   · carrying a caller sessionKey without opting in ⇒ 400 ("routing/session policy")
+ *   · clean payload ⇒ 200 {ok:true}
+ * These four are exactly what was "discovered" in the three rounds of 404/401/400 on L2 — they should have been pinned down here first.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createServer, type Server } from 'node:http'
@@ -91,7 +91,7 @@ describe('dispatch contract (/hooks/agent) — L1', () => {
   })
 
   it('a caller sessionKey without opt-in is refused, and the reason survives (S1d/S1e pin)', async () => {
-    // 模拟"有人又把 caller key 加回来": stub 按文档 400, 适配器必须把宿主的原因带出来。
+    // Simulate "someone added the caller key back": stub returns 400 per docs, adapter must surface the host's reason.
     const { hooksPath } = await import('../../src/openclaw/identity.js')
     expect(hooksPath()).toBe('/hooks')
     const res = await fetch(`http://127.0.0.1:${port}/hooks/agent`, {

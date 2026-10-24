@@ -1,14 +1,14 @@
-//! check 引擎的探针分组（按 plan v3 S4 的切片逐个落）。
+//! Probe grouping for the check engine (implemented slice by slice according to plan v3 S4).
 //!
-//! | 模块 | 层 | 现状码 | 状态 |
+//! | Module | Layer | Current Code | Status |
 //! |---|---|---|---|
-//! | [`l0`] | L0 配置（gateway/绑定文件/桥配置） | `cli/check_status.py:983-1185` | 已落 |
-//! | `l1` | L1 gateway（health/SMTP/凭据） | `cli/check_status.py:906-982` | 待落 |
-//! | `l2` | L2 bridge + 运行时资源 + 载荷 | `cli/check_status.py:1205-1460` | 待落 |
-//! | `l3l4` | L3 agent 配置 + L4 hook（五平台适配） | `cli/check_status.py:185-799` | 待落 |
+//! | [`l0`] | L0 configuration (gateway/binding files/bridge config) | `cli/check_status.py:983-1185` | Implemented |
+//! | `l1` | L1 gateway (health/SMTP/credentials) | `cli/check_status.py:906-982` | Pending |
+//! | `l2` | L2 bridge + runtime resources + payload | `cli/check_status.py:1205-1460` | Pending |
+//! | `l3l4` | L3 agent config + L4 hook (five-platform adaptation) | `cli/check_status.py:185-799` | Pending |
 //!
-//! 所有探针只**产出记录**，不打印、不退出 —— 输出与退出码统一由
-//! [`crate::core::check::Check`] 与命令面负责（现状码也是这个分层）。
+//! All probes only **produce records**, no printing, no exiting — output and exit codes are unified by
+//! [`crate::core::check::Check`] and the command interface (the current code also follows this layering).
 
 pub mod adapters;
 pub mod l0;

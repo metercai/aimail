@@ -1,36 +1,36 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════════════
-# run-l3.sh — L3 对接闭环回归(由 l3.yml 的矩阵驱动)。
+# run-l3.sh — L3 integration closed-loop regression (driven by the matrix in l3.yml).
 #
-# 回归内容**完全一致**, 不随 OS/agent 变(D3 裁决):
-#   ① 装目标 agent 系统 + 配 LLM(deepseek-flash) + 验证 agent 自身可运行
-#   ② 取已发布网关(基础版, GitHub Release 二进制)并起, 捕获 system/admin key
-#   ③ 取已发布 CLI(bootstrap.sh 在线 = 用户真实入口)
-#   ④ SDK 安装(README 原样命令: aimail install(home 由 AGENT_HOME env 提供) / dsh plugin add)
-#   ⑤ welcome 闭环: welcome → agent 回三标签 → manager(安全员)approve persona
-#   ⑥ 身份断言: SDK 同形 send_mail 一封查询 → whoami 读回身份名片(agent_persona)
-#      + 邮件签名(agent_signature) 已生效(whoami.rs:44-52, welcome approve UPSERT 的读回点)
+# Regression content **completely identical**, does not vary with OS/agent (D3 ruling):
+#   ① Install target agent system + configure LLM (deepseek-flash) + verify agent itself can run
+#   ② Get published gateway (basic version, GitHub Release binary) and start it, capture system/admin key
+#   ③ Get published CLI (bootstrap.sh online = real user entry point)
+#   ④ SDK installation (README original commands: aimail install (home provided by AGENT_HOME env) / dsh plugin add)
+#   ⑤ welcome closed loop: welcome → agent replies with three tags → manager (security officer) approves persona
+#   ⑥ Identity assertion: SDK isomorphic send_mail sends one query → whoami reads back the identity card (agent_persona)
+#      + email signature (agent_signature) is effective (whoami.rs:44-52, welcome approve UPSERT read-back point)
 #
-# 激活流: 只走 **admin-key**(基础版网关); 不测激活码(高级版)。
-# 被测物: 全部来自发布渠道(GitHub Release / PyPI / npm), 绝不来自工作树。
+# Activation flow: only goes through **admin-key** (basic version gateway); does not test activation code (advanced version).
+# Test targets: all from published channels (GitHub Release / PyPI / npm), never from the working tree.
 #
-# 环境(由 workflow 注入):
+# Environment (injected by workflow):
 #   L3_PLATFORM  linux-amd64|linux-arm64|macos-arm64|windows-amd64
 #   L3_AGENT     hermes | dsh-aimail | dsh-plugin
-#                (dsh 两条 README 公布路径各一格: AGENT_HOME env + aimail install / dsh plugin add)
-#   AIMAIL_REPO  aimail 仓 checkout(环境准备单源 + llm-config.py 都在 tests/agent-env/)
+#                (dsh two README published paths each one slot: AGENT_HOME env + aimail install / dsh plugin add)
+#   AIMAIL_REPO  aimail repo checkout (environment preparation single source + llm-config.py both in tests/agent-env/)
 #   LLM_BASE_URL / LLM_MODEL / LLM_API_KEY
 #
-# 流程契约(README Quick Start 场景 4, 原样复现, 严禁自行调整):
-#   ③ env 四件套(AIMAIL_GW_URL/ADMIN_KEY/DOMAIN/MANAGER_ADDRESS) + 在线自举 curl|bash
-#   ④ aimail install(home 由 AGENT_HOME env 提供, 无 --home flag) 或 dsh plugin --profile web add agent-aimail
-#   ⑤ aimail welcome(AGENT_HOME env → .agentmail 指针解析系统参数)  # contract-allowed: L3 注释引用契约指针文件名
+# Process contract (README Quick Start scenario 4, reproduced as-is, strictly no self-adjustment):
+#   ③ env four-piece set (AIMAIL_GW_URL/ADMIN_KEY/DOMAIN/MANAGER_ADDRESS) + online bootstrap curl|bash
+#   ④ aimail install (home provided by AGENT_HOME env, no --home flag) or dsh plugin --profile web add agent-aimail
+#   ⑤ aimail welcome (AGENT_HOME env → .agentmail pointer resolves system parameters)  # contract-allowed: L3 comment references contract pointer filename
 #
-# 退出码: 0=绿(闭环完成) · 1=红(某阶段断言失败, 原因已打印) · 2=环境缺前置
+# Exit codes: 0=green (closed loop complete) · 1=red (assertion failed in some stage, reason printed) · 2=environment missing prerequisites
 # ═══════════════════════════════════════════════════════════════════════
 set -uo pipefail
 
-# 可移植 timeout(macOS runner 无 GNU timeout): 有则用, 无则后台+看门狗, 超时 rc=124 语义同 GNU。
+# Portable timeout (macOS runner has no GNU timeout): use if available, otherwise background+watchdog, timeout rc=124 semantics same as GNU.
 run_timeout() {
   local secs="$1"; shift
   if command -v timeout >/dev/null 2>&1; then
@@ -50,15 +50,15 @@ warn(){ printf '  \033[33m⚠ %s\n' "$*"; }
 die() { printf '\033[31m✗ %s\n' "$*" ; exit 1; }
 gap() { printf '\033[35m⊘ ENV GAP: %s\n' "$*"; exit 2; }
 
-# 失败取证(owner 纪律: 红必须能"只读日志定因", 不许靠猜、也不靠反复重跑)。
-# welcome 不闭环时把**三跳证据**打到 stdout —— CI 用 tee 收 stdout, 故同时进了 job 日志
-# 与 l3-logs 工件。三跳 = ①网关投递 ②入站落账(agentmail.log) ③宿主原话(agent host log);
-# 另附"SDK 落在哪个解释器"与 hermes 的 platform_toolsets(历史已知缺口: 缺它 ⇒ agent
-# 收得到回不出)。此前只打"无回信" ⇒ 只能猜, 实测无法定因。
+# Failure forensics (owner discipline: red must be able to "determine cause by read-only logs", no guessing, and no repeated reruns).
+# welcome when not closed-loop, print **three-hop evidence** to stdout —— CI uses tee to capture stdout, so it also goes into the job log
+# and l3-logs artifacts. Three hops = ① gateway delivery ② inbound ledger (agentmail.log) ③ host original words (agent host log);
+# Also attach "which interpreter the SDK lands in" and hermes's platform_toolsets (historically known gap: missing it ⇒ agent
+ # it can receive but not send out). Previously it only printed "no reply" ⇒ we could only guess; in practice the cause was undeterminable.
 dump_failure_evidence() {
   local h g f found_am=0 skill pat
-  # 契约常量单真源: 检索词里的 SKILL 名**从清单读** —— 硬编码字面量会撞契约字面量棘轮
-  # (run-cli-gates 第 1 步 shared 边界扫全仓): 真源 = contract/aimail-contract.json。
+  # Single source of truth for contract constants: SKILL names in search terms **are read from the manifest** — hardcoded literals will collide with contract literal ratchets
+  # (run-cli-gates step 1 shared boundary scan whole repo): source of truth = contract/aimail-contract.json.
   skill="$(python3 - "${AIMAIL_REPO:-}/contract/aimail-contract.json" <<'PY'
 import json, sys
 print(json.load(open(sys.argv[1], encoding="utf-8"))["agent_skill_name"])
@@ -66,32 +66,32 @@ PY
 )"
   pat="Response for webhook|toolset|not registered|unknown name|send_mail|ImportError|ModuleNotFound"
   [ -n "$skill" ] && pat="$pat|$skill"
-  echo "  ────────── 失败取证 dump ──────────"
+  echo "  ────────── Failure forensics dump ──────────"
   for h in "$WORK"/*-host.log; do
     [ -f "$h" ] || continue
-    echo "  [③宿主原话] $h (tail -40)"
+    echo "  [③Host original words] $h (tail -40)"
     tail -80 "$h" | sed 's/^/    /'
-    echo "  [③宿主原话: webhook/toolset/邮件工具 关键行]"
+    echo "  [③Host original words: webhook/toolset/email tool key lines]"
     grep -aiE "$pat" "$h" | tail -25 | sed 's/^/    /'
   done
   for g in "$GW_HOME/boot.log" "$GW_HOME"/*.log; do
     [ -f "$g" ] || continue
-    echo "  [①网关投递] $g (webhook/deliver/pending 相关行, tail -25)"
+    echo "  [①Gateway delivery] $g (webhook/deliver/pending related lines, tail -25)"
     grep -aiE "webhook|deliver|inbound|non_2xx|overlimit|pending" "$g" | tail -25 | sed 's/^/    /'
   done
-  # 全文尾: agent 侧若真发出过邮件, 出站记录只在这里能看到(过滤词会漏掉别的措辞)
-  [ -f "$GW_HOME/boot.log" ] && { echo "  [①网关投递: boot.log 全文尾 -40]"; tail -40 "$GW_HOME/boot.log" | sed 's/^/    /'; }
+  # Full text tail: if agent side actually sent emails, outbound records can only be seen here (filter words will miss other phrasings)
+  [ -f "$GW_HOME/boot.log" ] && { echo "  [①Gateway delivery: boot.log full text tail -40]"; tail -40 "$GW_HOME/boot.log" | sed 's/^/    /'; }
   for f in "$HOME"/.aimail/systems/*/*/agentmail.log; do
     [ -f "$f" ] || continue
     found_am=1
-    echo "  [②入站落账] $f (tail -30)"
+    echo "  [②Inbound ledger] $f (tail -30)"
     tail -30 "$f" | sed 's/^/    /'
   done
-  # 显式报告"没有 agentmail.log"(此前静默跳过 ⇒ 分不清"文件不存在"与"取样写错")
-  [ "$found_am" = 1 ] || echo "  [②入站落账] 不存在 agentmail.log(glob: $HOME/.aimail/systems/*/*/agentmail.log;系统目录: $(ls -d "$HOME"/.aimail/systems/*/ 2>/dev/null | tr '\n' ' '))"
-  # 关键不是"系统 python3 有没有 SDK", 而是 **agent 运行时用的那个解释器**有没有 ——
-  # 官方 hermes 宿主跑在它自带的 tools/python-*/bin/python3(不在 PATH)上。
-  echo "  [SDK 落点] 逐解释器 import 探测:"
+  # Explicitly report "no agentmail.log" (previously silently skipped ⇒ cannot distinguish "file does not exist" from "sampling written incorrectly")
+  [ "$found_am" = 1 ] || echo "  [②Inbound ledger] agentmail.log does not exist (glob: $HOME/.aimail/systems/*/*/agentmail.log; system dirs: $(ls -d "$HOME"/.aimail/systems/*/ 2>/dev/null | tr '\n' ' '))"
+  # The key is not "whether system python3 has the SDK", but **whether the interpreter used by the agent runtime** has it ——
+  # official hermes host runs on its bundled tools/python-*/bin/python3 (not in PATH).
+  echo "  [SDK landing point] Per-interpreter import probe:"
   for p in "$(command -v python3)" "$HOME"/.hermes/tools/*/bin/python3 \
            "$HOME"/.hermes/hermes-agent/.venv/bin/python3 "$HOME"/.hermes/hermes-agent/venv/bin/python3 \
            "$HOME"/.hermes/*/venv/bin/python3 "$HOME"/.hermes/*/.venv/bin/python3; do
@@ -99,28 +99,28 @@ PY
     printf '    %-62s %s\n' "$p" \
       "$("$p" -c "import importlib.util as u; s=u.find_spec('aimail'); print(s.origin if s else 'NONE')" 2>&1 | tail -1)"
   done
-  echo "  [agentmail.log 位置] $(find "$HOME" -name 'agentmail.log' 2>/dev/null | head -5 | tr '\n' ' ')(空 = SDK 从未写过该日志)"
+  echo "  [agentmail.log location] $(find "$HOME" -name 'agentmail.log' 2>/dev/null | head -5 | tr '\n' ' ') (empty = SDK never wrote this log)"
   if [ -n "${HERMES_HOME:-}" ]; then
-    # 整块打印(此前 -A3 截断 ⇒ 看不到 webhook: 键在不在, 而缺它正是
-    # ensure_config.py:4-11 记的"收得到回不出"根因: webhook 会话回退无 send_mail 的默认工具集)
-    echo "  [hermes config] $HERMES_HOME/config.yaml: platform_toolsets / platforms.webhook 整块"
+    # Print the entire block (previously -A3 truncated ⇒ cannot see if the webhook: key is present, and its absence is exactly
+    # ensure_config.py:4-11 Remember the root cause of "can receive but cannot send out": webhook session fallback lacks the default toolset with send_mail)
+    echo "  [hermes config] $HERMES_HOME/config.yaml: platform_toolsets / platforms.webhook whole block"
     sed -n '/^platform_toolsets:/,/^[a-z_]*:/p' "$HERMES_HOME/config.yaml" 2>/dev/null | head -30 | sed 's/^/    /'
     sed -n '/^platforms:/,/^[a-z_]*:/p' "$HERMES_HOME/config.yaml" 2>/dev/null | head -30 | sed 's/^/    /'
     grep -aqE "^\s*webhook:" <(sed -n '/^platform_toolsets:/,/^[a-z_]*:/p' "$HERMES_HOME/config.yaml") \
-      && echo "    ✓ platform_toolsets.webhook 存在" \
-      || echo "    ✗ platform_toolsets.webhook 缺失 —— ensure_config.py:4-11 的已知根因(agent'收得到回不出')"
-    # 回信协议注入通道: webhook 路由的 skills 字段(webhook.py:853 按 route skills 注入
-    # SKILL 内容进 prompt; 缺契约 skill 名 ⇒ agent 有 send_mail 工具但无回信协议)。
-    # 路由表落 {HERMES_HOME}/webhook_subscriptions.json(_ensure_webhook_route 写入)。
-    # 路由名/skill 名从契约单一真源读(字面量棘轮: 禁新增硬编码位置)。
+      && echo "    ✓ platform_toolsets.webhook exists" \
+      || echo "    ✗ platform_toolsets.webhook missing —— known root cause in ensure_config.py:4-11 (agent 'received but cannot reply')"
+    # Reply protocol injection channel: skills field of webhook route (webhook.py:853 injects by route skills
+    # SKILL content into prompt; missing contract skill name ⇒ agent has send_mail tool but no reply protocol).
+    # Route table lands in {HERMES_HOME}/webhook_subscriptions.json (written by _ensure_webhook_route).
+    # Route name/skill name read from contract single source of truth (literal ratchet: no new hardcoded locations allowed).
     CONTRACT_JSON="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/contract/aimail-contract.json"
     SUBS="$HERMES_HOME/webhook_subscriptions.json"
-    # 两处都可能: 网关运行时读 get_hermes_home()(= $HERMES_HOME), 而
-    # _ensure_webhook_route 在 profile_dir 非空时写 profile 目录 —— 两处都要看。
+    # Both places possible: gateway runtime reads get_hermes_home() (= $HERMES_HOME), while
+    # _ensure_webhook_route writes to the profile directory when profile_dir is non-empty — check both places.
     for SUBS in "$HERMES_HOME/webhook_subscriptions.json" \
                 "$HERMES_HOME/profiles/agent/webhook_subscriptions.json"; do
       if [ -f "$SUBS" ]; then
-        echo "  [hermes webhook 路由] $SUBS (skills 字段 = 回信协议注入)"
+        echo "  [hermes webhook route] $SUBS (skills field = reply protocol injection)"
         python3 - "$SUBS" "$CONTRACT_JSON" <<'PY' | sed 's/^/    /'
 import json, sys
 d = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -134,30 +134,30 @@ for name, r in d.items():
     if route and name == route:
         sk = r.get("skills") or []
         if skill in sk:
-            print(f"  ✓ route {route} skills 含 {skill} =", sk)
+            print(f"  ✓ route {route} skills contains {skill} =", sk)
         else:
-            print(f"  ✗ route {route} skills={sk} 缺 {skill} —— webhook 会话拿不到回信协议")
+            print(f"  ✗ route {route} skills={sk} missing {skill} —— webhook session cannot get reply protocol")
 PY
       fi
     done
     [ -f "$HERMES_HOME/webhook_subscriptions.json" ] || [ -f "$HERMES_HOME/profiles/agent/webhook_subscriptions.json" ] \
-      || echo "  ✗ webhook_subscriptions.json 两处都不存在 —— _ensure_webhook_route 未执行(install 路径断)"
+      || echo "  ✗ webhook_subscriptions.json does not exist in either location —— _ensure_webhook_route was not executed (install path broken)"
   fi
-  # dsh 格取证盲区: 宿主 agent 对话不走 stdout(dsh-host.log 只有启动帧, 历史实证 4 行),
-  # 会话持久化在 $DSH_HOME/storages/(workspace.json: global.sessionIds + tables;
-  # 单会话在 storages/session_projcache/sessions/<id>.json —— 三层, L3 实证)——
-  # dsh 格"③宿主原话"的真实数据源(活实验实锤 dsh 落盘布局)。
+  # dsh grid forensics blind spot: host agent conversations do not go through stdout (dsh-host.log only has startup frames, historically proven 4 lines),
+  # session persistence is in $DSH_HOME/storages/ (workspace.json: global.sessionIds + tables;
+  # single session is in storages/session_projcache/sessions/<id>.json —— three layers, L3 proven) ——
+  # the real data source for dsh grid "③ host original text" (live experiment confirms dsh disk layout).
   if [ -n "${DSH_HOME:-}" ] && [ -d "$DSH_HOME/storages" ]; then
-    echo "  [③ dsh 会话持久化] $DSH_HOME/storages/"
+    echo "  [③ dsh session persistence] $DSH_HOME/storages/"
     find "$DSH_HOME/storages" -type f 2>/dev/null | head -10 | sed 's/^/    /'
-    # 递归取全部会话 json(workspace + 单会话), 不只顶层两层 —— 单会话文件在
-    # session_projcache/sessions/ 第三层, 是 agent 实际 turn 的对话记录。
+    # Recursively get all session json (workspace + single session), not just the top two layers —— single session files are in
+    # session_projcache/sessions/ third layer, which are the conversation records of the agent's actual turns.
     while IFS= read -r sf; do
       [ -f "$sf" ] || continue
       sz=$(wc -c < "$sf")
-      echo "  [③ dsh 会话] ${sf#"$DSH_HOME"/storages/} ($sz bytes, 全文 ≤12KB / 超则截断)"
-      # 会话文件前部=agent turn 对话(消息), 尾部=元数据 —— 必须从前部读,
-      # 不能用 tail(历史实证 8KB 会话, tail -40 只抓到元数据, turn 内容全丢)。
+      echo "  [③ dsh session] ${sf#"$DSH_HOME"/storages/} ($sz bytes, full text ≤12KB / truncated if exceeded)"
+      # Front part of session file = agent turn conversations (messages), tail part = metadata —— must read from the front,
+      # cannot use tail (historically proven 8KB session, tail -40 only captured metadata, all turn content lost).
       if [ "$sz" -le 12000 ]; then
         cat "$sf" | sed 's/^/    /'
       else
@@ -166,33 +166,33 @@ PY
       fi
     done < <(find "$DSH_HOME/storages" -type f -name '*.json' 2>/dev/null)
   elif [ -n "${DSH_HOME:-}" ]; then
-    echo "  [③ dsh 会话持久化] 不存在 $DSH_HOME/storages (dsh 宿主未落盘 —— 宿主可能从未 boot 到会话层)"
+    echo "  [③ dsh session persistence] does not exist $DSH_HOME/storages (dsh host not persisted —— host may never have booted to session layer)"
   fi
-  # dsh 格 LLM 死因定位: 会话实证 llmMs=0 + response="" = LLM 调用发起前即失败
-  # (dsh-llm-deepseek-api-key: 缺 key 时在 adapter 层抛错, 宿主吞错)。
-  # 两判据: ①宿主进程环境里 DEEPSEEK_API_KEY 是否真的在(env 传递链实证, 值只判存在);
-  # ②同 key 真打一次 /anthropic 端点(401=key 失效, 404=端点漂移, 200=key 有效)。
+  # dsh grid LLM death cause localization: session proven llmMs=0 + response="" = LLM call failed before initiation
+  # (dsh-llm-deepseek-api-key: throw an error at the adapter layer when the key is missing, the host swallows the error).
+  # Two criteria: ① whether DEEPSEEK_API_KEY is really in the host process environment (env propagation chain proven, value only checks existence);
+  # ② Actually hit the /anthropic endpoint once with the same key (401=key expired, 404=endpoint drift, 200=key valid).
   if [ -n "${HOST_PID:-}" ] && [ -r "/proc/$HOST_PID/environ" ]; then
     python3 - "/proc/$HOST_PID/environ" <<'PY' | sed 's/^/    /'
 import sys
-pref = b"LLM_" + b"API_KEY" + b"="   # 拼接: 避免字面量被当 secret 打码
+pref = b"LLM_" + b"API_KEY" + b"="   # Concatenation: avoid literal being masked as secret
 data = open(sys.argv[1], "rb").read().split(b"\0")
 v = next((d for d in data if d.startswith(pref) and len(d) > len(pref)), None)
 if v:
-    print("  [③ dsh LLM] ✓ 宿主进程环境含 LLM_API_KEY(非空, 值不打印)")
+    print("  [③ dsh LLM] ✓ host process environment contains LLM_API_KEY (non-empty, value not printed)")
 else:
-    print("  [③ dsh LLM] ✗ 宿主进程环境无 LLM_API_KEY 或为空 —— MISSING_CREDENTIAL, turn 0ms 死的根因")
+    print("  [③ dsh LLM] ✗ host process environment has no LLM_API_KEY or it is empty —— MISSING_CREDENTIAL, root cause of turn dying in 0ms")
 PY
   else
-    echo "  [③ dsh LLM] ✗ 宿主进程 ${HOST_PID:-?} 已死或 environ 不可读 —— 无法判 env 传递"
+    echo "  [③ dsh LLM] ✗ host process ${HOST_PID:-?} is dead or environ is not readable —— cannot judge env propagation"
   fi
   python3 - "$LLM_BASE_URL" "$LLM_MODEL" <<'PY' | sed 's/^/    /'
 import os, sys, json, time, urllib.request
 key = os.environ.get("LLM_API_KEY", "")
 if not key:
-    print("  ✗ 取证进程自身无 LLM_API_KEY, 跳过探针"); raise SystemExit
-# 探针打 agent 实际调用的端点(OpenAI chat/completions, = llm-pi-ai / hermes custom 同形),
-# 不再硬编码 deepseek/anthropic —— 硬编码探针与 agent 真实路径脱节 = 假绿灯盲区。
+    print("  ✗ forensics process itself has no LLM_API_KEY, skipping probe"); raise SystemExit
+# Probe hits the endpoint actually called by the agent (OpenAI chat/completions, = llm-pi-ai / hermes custom same shape),
+# no longer hardcoding deepseek/anthropic —— hardcoded probe disconnected from agent real path = false green light blind spot.
 base = sys.argv[1].rstrip("/")
 url = base + "/chat/completions" if base.endswith("/v1") else base + "/v1/chat/completions"
 body = json.dumps({"model": sys.argv[2], "max_tokens": 8,
@@ -202,23 +202,23 @@ req = urllib.request.Request(url, data=body, method="POST",
 t0 = time.time()
 try:
     with urllib.request.urlopen(req, timeout=30) as r:
-        print(f"  ✓ LLM 探针: HTTP {r.status} in {time.time()-t0:.1f}s (key 有效, 端点通)")
+        print(f"  ✓ LLM probe: HTTP {r.status} in {time.time()-t0:.1f}s (key valid, endpoint reachable)")
 except urllib.error.HTTPError as e:
     frag = (e.read() or b"")[:200].decode(errors="replace")
-    print(f"  ✗ LLM 探针: HTTP {e.code} in {time.time()-t0:.1f}s — {frag}")
+    print(f"  ✗ LLM probe: HTTP {e.code} in {time.time()-t0:.1f}s — {frag}")
 except Exception as e:
-    print(f"  ✗ LLM 探针: {type(e).__name__} in {time.time()-t0:.1f}s — {str(e)[:120]}")
+    print(f"  ✗ LLM probe: {type(e).__name__} in {time.time()-t0:.1f}s — {str(e)[:120]}")
 PY
-  # 产品自己的判据(历史 L2 里正是它报 '✗ toolset: … platform_toolsets MISSING')
-  [ -x "${AIMAIL_BIN:-/nonexistent}" ] && { echo "  [产品自检] aimail check:"; "$AIMAIL_BIN" check 2>&1 | tail -30 | sed 's/^/    /'; }
+  # Product's own criteria (historically in L2 it reported '✗ toolset: … platform_toolsets MISSING')
+  [ -x "${AIMAIL_BIN:-/nonexistent}" ] && { echo "  [Product Self-Check] aimail check:"; "$AIMAIL_BIN" check 2>&1 | tail -30 | sed 's/^/    /'; }
   echo "  ──────────────────────────────────"
 }
 
 PLATFORM="${L3_PLATFORM:?L3_PLATFORM not set}"
 AGENT="${L3_AGENT:?L3_AGENT not set}"
 AIMAIL_REPO="${AIMAIL_REPO:?AIMAIL_REPO not set}"
-# 环境准备单源 = aimail 仓 tests/agent-env/(官方安装 + 基础环境 + 关包管理器年龄闸 + LLM 配置;
-# 契约见 tests/agent-env/README.md)。LLM 写入器也只有那一份。
+# Environment preparation single source = aimail repo tests/agent-env/ (official install + basic environment + disable package manager age gate + LLM config;
+# contract see tests/agent-env/README.md). LLM writer is also only that one copy.
 AGENT_ENV="$AIMAIL_REPO/tests/agent-env"
 LLMCFG="$AGENT_ENV/lib/llm-config.py"
 [ -f "$AGENT_ENV/prepare.sh" ] || die "agent-env/prepare.sh missing at $AGENT_ENV (self-contained in the aimail repo)"
@@ -231,12 +231,12 @@ WORK="$(mktemp -d /tmp/l3-XXXXXX)"
 GW_HOME="$WORK/gw"
 mkdir -p "$GW_HOME/data"
 LOG="$WORK/l3.log"
-# 日志归档: 失败时 workflow 上传 $HOME/l3-logs(全 OS 确定路径); EXIT trap 兜底落最终日志
+# Log archive: on failure workflow uploads $HOME/l3-logs (full OS deterministic path); EXIT trap fallback lands final log
 LOG_ARCHIVE="${L3_LOG_ARCHIVE:-$HOME/l3-logs}"
 mkdir -p "$LOG_ARCHIVE" 2>/dev/null || true
 trap 'cp -f "$WORK"/* "$LOG_ARCHIVE/" 2>/dev/null; cp -f "$LOG" "$LOG_ARCHIVE/" 2>/dev/null; true' EXIT
 
-# 资产名平台 → 发布资产后缀
+# Asset name platform → release asset suffix
 asset_suffix() {
   case "$PLATFORM" in
     linux-amd64)    echo "linux-amd64" ;;
@@ -252,19 +252,19 @@ GW_BIN="$GW_HOME/aimail-gateway$EXT"
 
 echo "════ L3: $PLATFORM / $AGENT  (LLM=$LLM_MODEL @ $LLM_BASE_URL)"
 
-# ── ① 装 agent + 配 LLM + 验证可运行 ─────────────────────────────
+# ── ① Install agent + configure LLM + verify runnable ─────────────────────────────
 echo "── [1/6] agent env: $AGENT"
 case "$AGENT" in
   hermes)
-    # 官方安装(源码树+venv, **不是 pip**)+ 关年龄闸 + LLM 配置 全在单源 prepare.sh:
-    # CLI 适配器的 health_checks 查源码文件 {home}/hermes-agent/gateway/platforms/webhook.py
-    # 与 hermes_cli/profiles.py ⇒ pip wheel 布局必挂; hermes 树自己的 pyproject.toml 带
-    # `[tool.uv] exclude-newer="14 days"`, uv 从 CWD 向上发现它 ⇒ 装 SDK 会静默落旧版。
+    # Official install (source tree+venv, **not pip**) + disable age gate + LLM config all in single source prepare.sh:
+    # CLI adapter's health_checks checks source file {home}/hermes-agent/gateway/platforms/webhook.py
+    # and hermes_cli/profiles.py ⇒ pip wheel layout must fail; hermes tree's own pyproject.toml has
+    # `[tool.uv] exclude-newer="14 days"`, uv discovers it upwards from CWD ⇒ installing SDK will silently fall back to old version.
     HERMES_HOME="${HOME}/.hermes"
-    export HERMES_HOME   # 子进程(prepare/verify)按宿主真 home 定位安装树/launcher
+     export HERMES_HOME   # child processes (prepare/verify) locate the install tree/launcher via the host's real home
     AGENT_HOME="$HERMES_HOME"
-    # LLM 双写(journey J4b 权威形态): --home 落 scratch(verify 读它, 不被宿主进程读到),
-    # --extra-home 落真 $HERMES_HOME(宿主进程读它)。
+    # LLM dual write (journey J4b authoritative form): --home lands in scratch (verify reads it, not read by host process),
+    # --extra-home lands in real $HERMES_HOME (host process reads it).
     bash "$AGENT_ENV/prepare.sh" hermes \
       --home "$WORK/llm-scratch" --extra-home "$HERMES_HOME" \
       --llm-url "$LLM_BASE_URL" --llm-model "$LLM_MODEL" --llm-key "$LLM_API_KEY" \
@@ -274,9 +274,9 @@ case "$AGENT" in
     ok "hermes env ready (official install + LLM configured; single source)"
     ;;
   dsh|dsh-aimail|dsh-plugin)
-    # 官方 npm 装 dsh + pnpm(属 dsh 自身基础环境, 必须预置: 冷容器首调用会联网拉 pnpm,
-    # 坏网时探针挂死; CI runner 无 pnpm ⇒ 插件安装必挂)+ profile 预热(profiles/web/
-    # cordis.patch.yml 是 LLM 写入与插件安装的落点)+ 关年龄闸 + LLM 配置 = 单源 prepare.sh。
+    # Official npm install dsh + pnpm (part of dsh's own base environment, must be pre-installed: cold container first call will fetch pnpm from network,
+    # hangs on probe if network is bad; CI runner has no pnpm ⇒ plugin install will fail) + profile warm-up (profiles/web/
+    # cordis.patch.yml is the landing point for LLM writes and plugin installs) + disable age gate + LLM config = single-source prepare.sh.
     DSH_HOME="${HOME}/.dsh"
     AGENT_HOME="$DSH_HOME"
     bash "$AGENT_ENV/prepare.sh" dsh --home "$DSH_HOME" \
@@ -289,7 +289,7 @@ case "$AGENT" in
   *) die "unknown agent $AGENT" ;;
 esac
 
-# agent 自身可运行(D3 前置): 探活 LLM 端点可达 + agent 版本可打印
+# The agent itself is runnable (D3 prerequisite): probe that the LLM endpoint is reachable + the agent version can be printed
 say "verifying agent runs + LLM endpoint reachable…"
 python3 "$LLMCFG" verify \
   --platform "$AGENT" --home "$VERIFY_HOME" ${VERIFY_EXTRA[@]+"${VERIFY_EXTRA[@]}"} \
@@ -297,12 +297,12 @@ python3 "$LLMCFG" verify \
   || warn "agent LLM verify returned non-zero (continuing; welcome will surface the real failure)"
 ok "agent env ready: $AGENT"
 
-# ── ② 取已发布基础版网关并起(捕获 key)───────────────────────────
+# ── ② Fetch published base gateway and start it (capture key)───────────────────────────
 echo "── [2/6] published gateway (basic edition, $PLATFORM)"
-# 资产发现主路 = github.com releases/latest 重定向(web 端点, CDN 分发,
-# 不受 api.github.com 未认证 IP 限流 60/h 约束)。api.github.com 只作回退:
-# 9 格矩阵并发下未认证调用会撞限流(403, 实测 2026-10-09 macos 两格),
-# 且限流响应与"资产缺失"必须区分 —— 误报 ENV GAP 会掩盖真死因。
+# Primary path for asset discovery = github.com releases/latest redirect (web endpoint, CDN distribution,
+# not subject to api.github.com unauthenticated IP rate limit 60/h constraint). api.github.com is only a fallback:
+# Under 9-cell matrix concurrency, unauthenticated calls will hit rate limit (403, observed 2026-10-09 macos two cells),
+# and rate limit responses must be distinguished from "asset missing" —— false positive ENV GAP would mask the real cause of death.
 GW_TAG=""
 GW_TAG_URL="$(curl -sIL -o /dev/null -w '%{url_effective}' --connect-timeout 15 --max-time 30 \
   "https://github.com/metercai/aimail-gateway/releases/latest" 2>/dev/null)"
@@ -313,7 +313,7 @@ if [ -n "$GW_TAG" ]; then
   say "fetching gateway: $GW_URL_ASSET (latest release $GW_TAG)"
   curl -fsSL --retry 2 --retry-delay 2 --connect-timeout 15 --max-time 300 "$GW_URL_ASSET" -o "$GW_BIN" \
     && GW_DOWNLOADED=1 \
-    || say "  latest release 无此平台资产/瞬时失败 → 回退 releases API 扫描…"
+    || say "  latest release has no asset for this platform/transient failure → fallback to releases API scan…"
 fi
 if [ -z "$GW_DOWNLOADED" ]; then
   GW_URL_ASSET=""
@@ -322,13 +322,13 @@ if [ -z "$GW_DOWNLOADED" ]; then
     GW_API_RESP="$(curl -s --connect-timeout 15 --max-time 60 \
       "https://api.github.com/repos/metercai/aimail-gateway/releases?per_page=30")" || GW_API_RESP=""
     if [ -n "$GW_API_RESP" ] && grep -q '"message"' <<<"$GW_API_RESP"; then
-      say "  releases API 限流/错误: $(head -c 120 <<<"$GW_API_RESP") — 重试 ${attempt}/5…"
+      say "  releases API rate limit/error: $(head -c 120 <<<"$GW_API_RESP") — retry ${attempt}/5…"
       sleep $((attempt * 20))
       continue
     fi
     GW_URL_ASSET="$(grep -o '"browser_download_url": *"[^"]*"' <<<"$GW_API_RESP" \
       | sed 's/"browser_download_url": *"//; s/"$//' | grep -m1 "aimail-gateway-$ASSET$EXT\$")"
-    break   # API 正常(无论资产在不在): 重试无意义
+    break   # API normal (regardless of whether asset exists): retry is meaningless
   done
   [ -n "$GW_URL_ASSET" ] || gap "no aimail-gateway-$ASSET release asset (latest=$GW_TAG, API: $(head -c 100 <<<"$GW_API_RESP") — run the gateway release workflow first)"
   say "fetching gateway: $GW_URL_ASSET"
@@ -337,15 +337,15 @@ if [ -z "$GW_DOWNLOADED" ]; then
 fi
 chmod +x "$GW_BIN"
 
-# 最小 config(本地回环, 端口自选避开宿主进程 —— 见 advanced agent-turn 口径)
+# Minimal config (local loopback, port auto-selected to avoid host processes —— see advanced agent-turn criteria)
 GW_HTTP_PORT=18123; GW_SMTP_PORT=12526
-# Windows(git-bash): config 是网关(native PE)读的**文件内容**, MSYS 只翻译 argv
-# 不翻译文件内字符串 —— /d/a/... 在 Windows 语义下 = D:\d\a\...(当前盘根相对),
-# 与 bash 侧的 D:\a\... 错位 ⇒ 网关写对了自己理解的路径, bash 找不到 key。
-# cygpath -w 转 Windows 原生路径(C:\\a\\...)写入 config: -w 的反斜杠在 TOML
-# basic string 里是转义面(\U/\R = unicode 8-hex, 第 3 轮实证 Invalid hex value),
-# 故 [storage] path 用 TOML literal string(单引号, 反斜杠非转义); Windows API 接受
-# 正/反双斜杠。unix 分支: 无 cygpath, 原 POSIX 路径进 basic string, 行为不变。
+# Windows(git-bash): config is the **file content** read by the gateway(native PE), MSYS only translates argv
+# does not translate strings inside files —— /d/a/... in Windows semantics = D:\d\a\... (relative to current drive root),
+# Misalignment with the D:\a\... on the bash side ⇒ the gateway wrote to the path it understood, but bash cannot find the key.
+ # cygpath -w converts to a Windows native path (C:\\a\\...) for writing into config: the backslashes from -w in TOML
+# basic string are escape sequences (\U/\R = unicode 8-hex, round 3 empirical Invalid hex value),
+# so [storage] path uses TOML literal string (single quotes, backslashes not escaped); Windows API accepts
+# forward/backward double slashes. unix branch: no cygpath, original POSIX path goes into basic string, behavior unchanged.
 case "$(uname -s)" in
   MINGW*) GW_DATA_PATH="$(cygpath -w "${GW_HOME}/data")"; GW_PATH_TOML="'${GW_DATA_PATH}'" ;;
   *)      GW_PATH_TOML="'${GW_HOME}/data'" ;;
@@ -367,7 +367,7 @@ EOF
 say "starting gateway…"
 "$GW_BIN" --config "$GW_HOME/config.toml" > "$GW_HOME/boot.log" 2>&1 &
 GW_PID=$!
-# 等 system key 落盘(setup_admin_key 一次性打印 + 持久化)
+# Wait for system key to be persisted (setup_admin_key prints once + persists)
 for i in $(seq 1 30); do
   if ls "$GW_HOME/data"/*.system.key >/dev/null 2>&1; then break; fi
   kill -0 "$GW_PID" 2>/dev/null || die "gateway exited early — boot log: $(tail -5 "$GW_HOME/boot.log")"
@@ -386,37 +386,37 @@ say "  system key : ${SYS_KEY:0:8}… (agent-side, install -k)"
 say "  admin  key : ${ADMIN_KEY:0:8}… (platform, welcome/approve)"
 [ -n "$SYS_KEY" ] && [ -n "$ADMIN_KEY" ] || die "missing gateway key(s)"
 
-# ── ③ 取已发布 CLI(README 场景 4 原样: env 四件套 + 在线自举)────────
-# 严格复现 README(130-135 行)公布的用户流程: 先 export 四个 env, 再在线 curl|bash。
-# bootstrap.sh 把 env 落盘 ~/.aimail/.env(机器级, config.rs:284 后续 CLI 命令读它),
-# ④ AGENT_HOME install 与 ⑤ AGENT_HOME welcome 靠 .env + 指针文件, 不靠本 shell 的 export 残留。
+# ── ③ Fetch published CLI (README scenario 4 as-is: env four-piece set + online bootstrap)────────
+# Strictly reproduce the user flow published in README (lines 130-135): first export four envs, then online curl|bash.
+# bootstrap.sh persists env to ~/.aimail/.env (machine-level, config.rs:284 subsequent CLI commands read it),
+# ④ AGENT_HOME install and ⑤ AGENT_HOME welcome rely on .env + pointer files, not on residual exports from this shell.
 echo "── [3/6] published CLI (README scenario 4: env + online bootstrap)"
 export AIMAIL_GW_URL="$GW_URL"
 export AIMAIL_ADMIN_KEY="$SYS_KEY"
 export AIMAIL_DOMAIN="l3.local"
-# 安全员(manager)= 外部域地址:网关反环路(receiver.rs:232-249)拒绝**发件域已注册**
-# 的入站邮件(MAIL FROM 域 = l3.local ⇒ 550)。审批信走 SMTP inbound(base 版
-# auth_from=manager),安全员必须用未注册域才能过反环路。l3-mgr.example = RFC 2606
-# 保留域,无真实 MX、无真实邮件外发。审批校验(webhook.rs:716)按 sender == install
-# 时注册的 manager_address 匹配,换域不影响审批流。
+# Security officer (manager) = external domain address: gateway anti-loop (receiver.rs:232-249) rejects **sender domain registered**
+# inbound emails (MAIL FROM domain = l3.local ⇒ 550). Approval emails go via SMTP inbound (base version
+# auth_from=manager), security officer must use unregistered domain to pass anti-loop. l3-mgr.example = RFC 2606
+# reserved domain, no real MX, no real outbound email. Approval validation (webhook.rs:716) matches by sender == install
+# registered manager_address, changing domain does not affect approval flow.
 export AIMAIL_MANAGER_ADDRESS="manager@l3-mgr.example"
-# arm64 慢 runner:实测冷启动 turn 超默认 120s 回信窗(llmMs=65.9s 仍在飞即超时,
-# 2026-10-15 run 38683702165 linux-arm64/dsh-aimail 实证:路径活、非死)⇒ 放宽到 300s。
-# macos-arm64 同 arm64 慢 runner:2026-10-16 run 38872198518 macos-arm64/dsh-aimail
-# 实证同型 flake——webhook 200 投递成功 + dsh 会话取证证 turn 收工(output 1808
-# tokens/step 6/llmRetry 空),turn 落在 (120s,140s] 窗口外 ⇒ 非产品回归。
-# 窗口本体在发布版 CLI 内(welcome poll_reply, --timeout flag 可配,
-# 默认 120 不变)⇒ 本行需配套 CLI 发版才在 L3 生效。
+# arm64 slow runner: observed cold start turn exceeds default 120s reply window (llmMs=65.9s still in flight when timeout,
+# 2026-10-15 run 38683702165 linux-arm64/dsh-aimail empirical: path alive, not dead) ⇒ relax to 300s.
+# macos-arm64 same arm64 slow runner: 2026-10-16 run 38872198518 macos-arm64/dsh-aimail
+# empirical same type flake——webhook 200 delivery success + dsh session forensics prove turn finished (output 1808
+# tokens/step 6/llmRetry empty), turn falls outside (120s,140s] window ⇒ not product regression.
+# Window itself is in published CLI (welcome poll_reply, --timeout flag configurable,
+# default 120 unchanged) ⇒ this line requires corresponding CLI release to take effect in L3.
 case "${L3_PLATFORM:-}" in
   linux-arm64|macos-arm64) WELCOME_TIMEOUT=300 ;;
 esac
 curl -fsSL "https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh" | bash \
   || die "online bootstrap failed (published CLI unavailable)"
-# bootstrap 落点 ~/.local/bin 靠 PATH 可达(产品契约: bootstrap 日志自证
-# "⚠ add to PATH: export PATH=~/.local/bin:$PATH")。unix runner 默认 PATH 已含;
-# Windows git-bash 默认 PATH 不含 ⇒ node 侧 execFile('aimail') ENOENT
-# (L3 2026-10-17 实证: dsh-host.log "aimail CLI not found ('aimail')",
-# 同格 linux 绿 = 默认 PATH 含)。显式 export = 复现 bootstrap 公布的契约, 非产品改动。
+# bootstrap landing point ~/.local/bin relies on PATH reachability (product contract: bootstrap log self-proves
+# "⚠ add to PATH: export PATH=~/.local/bin:$PATH"). unix runner default PATH already includes it;
+# Windows git-bash default PATH does not include it ⇒ node side execFile('aimail') ENOENT
+# (L3 2026-10-17 empirical: dsh-host.log "aimail CLI not found ('aimail')",
+# same cell linux green = default PATH includes it). Explicit export = reproducing the contract published by bootstrap, not a product change.
 case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*)
     export PATH="$HOME/.local/bin:$PATH"
@@ -426,44 +426,44 @@ AIMAIL_BIN="$(command -v aimail || echo "$HOME/.local/bin/aimail")"
 [ -x "$AIMAIL_BIN" ] || die "aimail binary not on PATH after bootstrap: $AIMAIL_BIN"
 ok "published CLI: $( "$AIMAIL_BIN" version 2>/dev/null | head -1 )"
 
-# ── ④ aimail install / dsh plugin add(README 公布的两种入口)──────
+# ── ④ aimail install / dsh plugin add (the two entry points published in README) ──────
 # README: "install either through the aimail command line or through the Agent's
-# plugin — pick one of the two"。两种路径都是对外公布的 ⇒ 都测(矩阵 agent 维
-# 扩展: hermes / dsh-aimail / dsh-plugin)。命令形态 = README 原样:
-#   CLI 入口 = `aimail install`(home 由 ④ 开头的 export AGENT_HOME 提供,
-#   与 ⑤ welcome 共享同一 env; 无 --home flag)。
-#   插件入口 = `dsh plugin --profile web add agent-aimail`(无 AGENT_HOME 依赖)。
-# env 已由 ③ 落盘 ~/.aimail/.env + 本 shell export。
+# plugin — pick one of the two". Both paths are publicly published ⇒ both are tested (matrix agent dimension
+# extension: hermes / dsh-aimail / dsh-plugin). Command form = exactly as in README:
+#   CLI entry point = `aimail install` (home is provided by export AGENT_HOME starting with ④, 
+#   Shares the same env as ⑤ welcome; no --home flag).
+#   Plugin entry = `dsh plugin --profile web add agent-aimail` (no AGENT_HOME dependency).
+# env has been persisted by ③ to ~/.aimail/.env + exported in this shell.
 echo "── [4/6] SDK install (README command shape)"
 export AGENT_HOME="$AGENT_HOME"
 case "$AGENT" in
   dsh-plugin)
-    # README: dsh plugin --profile web add agent-aimail (Agent 插件入口)
+    # README: dsh plugin --profile web add agent-aimail (Agent plugin entry)
     DSH_HOME="$DSH_HOME" dsh plugin --profile web add agent-aimail \
       || die "dsh plugin add agent-aimail failed (README plugin path)"
     ;;
   dsh-aimail|hermes)
-    # README: aimail install(AGENT_HOME env 提供 home; 与 welcome 共享)
+    # README: aimail install (AGENT_HOME env provides home; shared with welcome)
     "$AIMAIL_BIN" install \
       || die "aimail install failed (README CLI path)"
     ;;
 esac
 ok "install done (system activated + platform adapted)"
 
-# ── ④b 起 agent 宿主(收信回信)────────────────────────────────────
-# welcome 闭环需要宿主**活着**: 网关把 welcome 信 POST 到绑定的 webhook_url,
-# 宿主的 LLM turn 调 send_mail 回信, CLI 轮询到三标签才 approve。
-# 只装不启 ⇒ welcome 120s 超时(首跑必红)。入站端点由 install 的注册步接线,
-# 这里只起宿主 + 等端口就绪(等的是**注册时写进绑定的同一个端口**)。
+# ── ④b Start agent host (receive and reply to mail) ────────────────────────────────────
+# welcome closed loop requires the host to be **alive**: the gateway POSTs the welcome message to the bound webhook_url,
+# the host's LLM turn calls send_mail to reply, and the CLI polls until three labels are present to approve.
+# Installing without starting ⇒ welcome times out at 120s (first run will definitely be red). The inbound endpoint is wired by the registration step of install,
+# here we only start the host + wait for the port to be ready (waiting for the **same port written into the binding during registration**).
 echo "── [4b/6] agent host up (inbound endpoint ready)"
 HOST_PID=""
 case "$AGENT" in
   hermes)
-    # 宿主进程读 $HERMES_HOME/config.yaml(install 注册步已写 platforms.webhook)。
-    # webhook 端口 = 注册时 _next_available_webhook_port(基 8644) 写入的 extra.port;
-    # gateway 起平台时监听同一端口 ⇒ 从 config 读回, 不猜不硬编码。
-    # 纯标准库文本读取(macOS 系统 python3 无 PyYAML): 找顶层 platforms: 块内
-    # webhook: 的 extra: 的 port(活跃行, 注释行不认)。install 注册步写的是
+    # The host process reads $HERMES_HOME/config.yaml (install registration step has already written platforms.webhook).
+    # webhook port = extra.port written by _next_available_webhook_port(base 8644) during registration;
+    # gateway listens on the same port when starting the platform ⇒ read it back from config, do not guess or hardcode.
+    # Pure standard library text reading (macOS system python3 has no PyYAML): find the top-level platforms: block
+    # webhook: extra: port (active lines only, comment lines ignored). The install registration step writes
     # platforms.webhook.{enabled, extra:{host,port,secret}}(aimail_hermes.py)。
     HERMES_PORT="$(python3 - "$HERMES_HOME/config.yaml" <<'PY'
 import re, sys
@@ -497,10 +497,10 @@ print(port)
 PY
 )" || die "cannot read hermes webhook port"
     [ "${HERMES_PORT:-0}" -gt 0 ] 2>/dev/null || die "hermes platforms.webhook.port not set (install did not wire the webhook)"
-    # launcher 走单真源(tests/agent-env/agent-paths.sh)。此前本块自带一份赋值 + `[ -x ]` 守卫,
-    # 2026-10-11 接线到单源 agent-env 时被连带删除, 只留下面的消费者 ⇒ CI 报
-    # `HERMES_BIN: unbound variable`(set -u 直接中断; hermes host 从未启动, 端口 8644 永不就绪,
-    # L3 9/9 红)。守卫一并恢复: 找不到 launcher 必须响亮失败, 不能静默起一个空命令。
+    # launcher uses the single source of truth (tests/agent-env/agent-paths.sh). Previously this block had its own assignment + `[ -x ]` guard,
+    # 2026-10-11 was incidentally deleted when wired to single-source agent-env, leaving only the consumer below ⇒ CI reports
+    # `HERMES_BIN: unbound variable` (set -u interrupts directly; hermes host never started, port 8644 never ready,
+    # L3 9/9 red). The guard is restored together: if the launcher is not found, it must fail loudly, not silently start an empty command.
     # shellcheck source=../agent-env/agent-paths.sh
     . "$(dirname "${BASH_SOURCE[0]}")/../agent-env/agent-paths.sh"
     HERMES_BIN="$(agent_launcher hermes "${HERMES_HOME:-}" || true)"
@@ -516,16 +516,16 @@ PY
     done
     [ "$UP" = 1 ] || { tail -15 "$WORK/hermes-host.log" | sed 's/^/    /'; die "hermes inbound port $HERMES_PORT not up in 120s"; }
     ok "hermes host up (inbound :$HERMES_PORT)"
-    # ── send_mail 工具暴露断言(install 后、welcome 前)──────────────────────
-    # send_mail 在 webhook 会话的暴露 = config.yaml 的 platform_toolsets.webhook
-    # 含契约 toolset(hermes boot 期读, install 的 ensure_config 负责写入)。
-    # 入站端口活着只证明宿主起了, 不证明工具暴露 —— 历史已知根因
-    # (ensure_config.py:4-11 "收得到回不出"): 缺它 ⇒ webhook 会话无 send_mail ⇒
-    # welcome 触发后 agent 回不了 ⇒ 120s 超时。此处响亮失败, 不让 welcome 替它背锅。
-    # dsh 格不需要等价断言: send_mail(tool-mail)与 mail-inbound 是同一原子 bundle
-    # (cordis.patch.yml), boot fail-loud ⇒ 上面 V7 入站路由门(路由已挂载)已传递
-    # 保证 tool-mail 注册; 重复探针是冗余。
-    # toolset 名从契约读(字面量棘轮: 禁硬编码契约值, 同 dump_failure_evidence 取 skill)。
+    # ── send_mail tool exposure assertion (after install, before welcome) ──────────────────────
+    # send_mail exposure in webhook session = platform_toolsets.webhook in config.yaml
+    # contains the contract toolset (read during hermes boot, written by install's ensure_config).
+    # Inbound port being alive only proves the host started, not that the tool is exposed —— known historical root cause
+    # (ensure_config.py:4-11 "receives but cannot send out"): missing it ⇒ webhook session has no send_mail ⇒
+    # after welcome trigger, agent cannot reply ⇒ 120s timeout. Fail loudly here, don't let welcome take the blame.
+    # dsh cell does not need an equivalent assertion: send_mail (tool-mail) and mail-inbound are the same atomic bundle
+    # (cordis.patch.yml), boot fail-loud ⇒ the V7 inbound routing gate above (routing already mounted) has transitively
+    # guaranteed tool-mail registration; a duplicate probe is redundant.
+    # toolset name is read from the contract (literal ratchet: hardcoding contract values is forbidden, same as dump_failure_evidence taking skill).
     TS="$(python3 - "${AIMAIL_REPO:-}/contract/aimail-contract.json" <<'PY'
 import json, sys
 print(json.load(open(sys.argv[1], encoding="utf-8"))["agent_toolset_name"])
@@ -534,16 +534,16 @@ PY
     [ -n "$TS" ] || die "empty agent_toolset_name from contract"
     PT="$(python3 - "$HERMES_HOME/config.yaml" <<'PY'
 import sys
-# 无 PyYAML(L3 容器 macOS 系统 python3 无)⇒ 纯标准库文本解析, 与上方 port 解析同纪律。
-# 兼容三种 yaml.safe_dump 形态: 同级块列表(默认, 2 空格与 webhook: 同级)、
-# 嵌套块列表(4 空格)、flow 列表([a, b])。
+# No PyYAML (L3 container macOS system python3 has none) ⇒ pure standard library text parsing, same discipline as the port parsing above.
+# Compatible with three yaml.safe_dump forms: sibling block list (default, 2 spaces, same level as webhook:),
+# nested block list (4 spaces), flow list ([a, b]).
 tools = []
 lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
 n = len(lines)
 i = 0
 while i < n and not (lines[i].strip() == "platform_toolsets:" and not lines[i].startswith(" ")):
     i += 1
-i += 1  # 进入 platform_toolsets 块
+i += 1  # enter platform_toolsets block
 web_indent = None
 while i < n:
     ln = lines[i]
@@ -553,7 +553,7 @@ while i < n:
         continue
     ind = len(ln) - len(ln.lstrip(" "))
     if ind == 0:
-        break  # 离开 platform_toolsets 块
+        break  # leave platform_toolsets block
     if web_indent is None and ind == 2 and s.startswith("webhook:"):
         web_indent = ind
         rest = s[len("webhook:"):].strip()
@@ -566,7 +566,7 @@ while i < n:
         i += 1
         continue
     if web_indent is not None and ind <= web_indent:
-        break  # 下一个同级键(webhook 列表结束)
+        break  # next sibling key (webhook list ends)
     i += 1
 print(" ".join(tools))
 PY
@@ -578,9 +578,9 @@ PY
     ok "send_mail exposed to webhook sessions (platform_toolsets.webhook ⊇ $TS)"
     ;;
   dsh|dsh-aimail|dsh-plugin)
-    # 入站 = agent-aimail 插件的 mail-inbound server(宿主生命周期自持, server.listen
-    # 随宿主起)。注册时 localWebhook = inboundUrl(INBOUND_PORTS.dsh=9099) ⇒ 绑定的
-    # webhook_url 端口 = 9099(默认, 除非 AIMAIL_INBOUND_URL/PORT 环境覆盖)。
+    # inbound = agent-aimail plugin's mail-inbound server (host lifecycle self-managed, server.listen
+    # starts with host). On registration localWebhook = inboundUrl (INBOUND_PORTS.dsh=9099) ⇒ bound
+    # webhook_url port = 9099 (default, unless overridden by AIMAIL_INBOUND_URL/PORT env).
     DSH_INBOUND_PORT="${AIMAIL_INBOUND_PORT:-9099}"
     DSH_HOME="$DSH_HOME" AIMAIL_HOME="${HOME}/.aimail" AIMAIL_INBOUND_PORT="$DSH_INBOUND_PORT" \
       LLM_API_KEY="$LLM_API_KEY" \
@@ -595,22 +595,22 @@ PY
     done
     [ "$UP" = 1 ] || { tail -15 "$WORK/dsh-host.log" | sed 's/^/    /'; die "dsh inbound port $DSH_INBOUND_PORT not up in 120s"; }
     ok "dsh host up (inbound :$DSH_INBOUND_PORT)"
-    # ── 插件入站路由就绪门(V7, L2 同源: J4e flaky 机制 2026-10-13)──────────────
-    # 端口监听 ≠ 插件路由挂载: agent-aimail 插件的 mail-inbound 路由挂载晚于宿主端口,
-    # 网关 welcome 首推若落在未挂载窗口 ⇒ 404 ⇒ 3 次重试(5s/15s/40s)耗尽 ⇒ 永久丢
-    # (L2 j4e6 实证: 360s 零回信)。L3 每格只跑一次 ⇒ 必须在 welcome 前确保挂载。
-    # 判据(L2 journey 同源): 无签 POST 绑定 webhook_url —— handler resolve 先于验签,
-    # 空体 ⇒ 200 no_agent = 已挂载; 404 = 宿主在但路由未挂; 000 = 拒连。
-    # 探测目标 = 绑定的 webhook_url(网关推 welcome 的同一个 URL, 单一真源, 不猜)。
-    # 绑定文件名 = 契约 binding_file 常量;shell 无 import 常量模块,只能字面量 glob。
-    DSH_BIND="$(ls "${HOME}/.aimail/systems/${SYSTEM_ID}"/*/agentmail.json 2>/dev/null | head -1)"  # contract-allowed: shell 探针 glob 磁盘真实绑定文件(契约 binding_file);shell 无 import 常量模块,字面量为唯一取法
+    # ── Plugin inbound route readiness gate (V7, L2 same source: J4e flaky mechanism 2026-10-13)──────────────
+    # Port listening ≠ plugin route mounting: agent-aimail plugin's mail-inbound route mounts later than host port,
+    # if gateway welcome first push falls in unmounted window ⇒ 404 ⇒ 3 retries (5s/15s/40s) exhausted ⇒ permanent loss
+    # (L2 j4e6 evidence: 360s zero reply). L3 runs each cell once ⇒ must ensure mounting before welcome.
+    # Criterion (L2 journey same source): unsigned POST to bound webhook_url —— handler resolve precedes signature verification,
+    # empty body ⇒ 200 no_agent = mounted; 404 = host present but route not mounted; 000 = connection refused.
+    # Target to probe = bound webhook_url (the same URL the gateway pushes welcome to, single source of truth, no guessing).
+    # Binding filename = contract binding_file constant; shell has no import constant module, only literal glob possible.
+    DSH_BIND="$(ls "${HOME}/.aimail/systems/${SYSTEM_ID}"/*/agentmail.json 2>/dev/null | head -1)"  # contract-allowed: shell probe glob real disk binding file (contract binding_file); shell has no import constant module, literal is only way
     [ -n "$DSH_BIND" ] || die "dsh binding not found under ${HOME}/.aimail/systems/${SYSTEM_ID} (install did not write it)"
-    # Windows git-bash: ls glob 返回 MSYS 形态 /c/Users/.../agentmail.json,native  # contract-allowed: L3 注释引用契约绑定文件名
-    # Windows python 不认 /c/ 前缀(当相对路径)⇒ open 失败(L3 2026-10-17 实证:
-    # FileNotFoundError '/c/Users/runneradmin/.aimail/...' ⇒ 误判 no webhook_url)。
-    # cygpath -m 转 C:/Users/...(正斜杠): Windows API 接受, 且 python 字符串无
-    # 反斜杠转义面(-w 的 C:\Users 在 python 源码里 \U 是 unicode 转义 ⇒ SyntaxError)。
-    # unix 分支不变。
+    # Windows git-bash: ls glob returns MSYS form /c/Users/.../agentmail.json, native  # contract-allowed: L3 comment references contract binding filename
+    # Windows python does not recognize /c/ prefix (treats as relative path) ⇒ open fails (L3 2026-10-17 evidence:
+    # FileNotFoundError '/c/Users/runneradmin/.aimail/...' ⇒ misjudged as no webhook_url).
+    # cygpath -m converts to C:/Users/... (forward slashes): Windows API accepts, and python string has no
+    # backslash escape surface (-w's C:\Users in python source \U is unicode escape ⇒ SyntaxError).
+    # unix branch unchanged.
     case "$(uname -s)" in
       MINGW*|MSYS*|CYGWIN*) DSH_BIND_PY="$(cygpath -m "$DSH_BIND")" ;;
       *) DSH_BIND_PY="$DSH_BIND" ;;
@@ -625,62 +625,62 @@ PY
       sleep 2
     done
     [ "$RDY" = 1 ] || { tail -15 "$WORK/dsh-host.log" | sed 's/^/    /'; die "dsh plugin inbound route not mounted in 240s (last probe code=$_code, URL=$DSH_BIND_URL) — welcome would race the gateway's 3 retries"; }
-    ok "dsh inbound route mounted (probe code=$_code, 就绪耗时 ≈$((_i * 2))s)"
+    ok "dsh inbound route mounted (probe code=$_code, ready time ≈$((_i * 2))s)"
     ;;
 esac
 
-# ── ⑤ welcome 闭环(welcome → agent 回三标签 → manager approve)──
+# ── ⑤ welcome closed loop (welcome → agent replies three tags → manager approve)──
 echo "── [5/6] welcome closed loop (manager approves identity card + signature)"
-# README 原样: `aimail welcome`。上下文解析链(welcome.rs:25-91):
-#   sid:      AGENT_HOME env(④ 已 export, install 与 welcome 共享)
-#             → {AGENT_HOME}/.agentmail 指针(install/插件注册时写)→ 结束;  # contract-allowed: L3 注释引用契约指针文件名
-#             用户不知道 system_id, 不传 --system-id。
-#   manager:  -m flag → AIMAIL_MANAGER_ADDRESS env(③ 已 export + bootstrap 落盘 .env)
+# README as-is: `aimail welcome`. Context resolution chain (welcome.rs:25-91):
+#   sid:      AGENT_HOME env (④ already exported, shared by install and welcome)
+#             → {AGENT_HOME}/.agentmail pointer (written during install/plugin registration) → end;  # contract-allowed: L3 comment references contract pointer filename
+#             user does not know system_id, does not pass --system-id.
+#   manager:  -m flag → AIMAIL_MANAGER_ADDRESS env (③ already exported + bootstrap persisted to .env)
 #             → config.manager_address。
-#   admin_key: systems/<sid>/aimail_gateway.json(install 写入, welcome.rs:102)。
-# 需 agent 的入站端点已起(install 已接线), 且 agent+LLM 能生成三标签回复。
+#   admin_key: systems/<sid>/aimail_gateway.json (written by install, welcome.rs:102).
+# Requires agent inbound endpoint started (install already wired), and agent+LLM can generate three-tag reply.
 "$AIMAIL_BIN" welcome --timeout "${WELCOME_TIMEOUT:-120}" 2>&1 | tee "$WORK/welcome.log"
 WELC_RC=${PIPESTATUS[0]}
 [ "$WELC_RC" -eq 0 ] || { dump_failure_evidence; die "welcome closed loop failed (rc=$WELC_RC) — $(tail -12 "$WORK/welcome.log")"; }
 ok "welcome loop complete (identity card + signature approved)"
 
-# ── ⑥ 查询邮件签名断言 ─────────────────────────────────────────
+# ── ⑥ Query mail signature assertion ─────────────────────────────────────────
 echo "── [6/6] query-mail signature assertion"
-# 用 agent 绑定里的地址级 key 发一封**查询邮件**(POST /api/v1/send, SDK send_mail 同形,
-# v1 签名协议), 然后 whoami 读回网关侧已生效的身份名片(agent_persona)+ 邮件签名
-# (agent_signature) —— welcome approve 后 UPSERT 到 domain_addr_meta 的权威断言点
-# (whoami.rs:44-52; CLI check/l1 同源)。
-# Windows: [6/6] 末行 print 含 ✓(U+2713), 管道 stdout 默认 cp1252 无法编码
-# (L3 2026-10-17 实证: UnicodeEncodeError '\u2713' position 2 —— persona/signature
-# 已读回, 只差最后一行)。PYTHONIOENCODING=utf-8 覆盖 stdout/stderr 编码;
-# unix 默认即 UTF-8 ⇒ 行为不变。
+# Use the address-level key from the agent binding to send a **query email** (POST /api/v1/send, SDK send_mail same shape,
+# v1 signature protocol), then whoami reads back gateway-side effective identity card (agent_persona) + mail signature
+# (agent_signature) —— authoritative assertion point for UPSERT to domain_addr_meta after welcome approve
+# (whoami.rs:44-52; CLI check/l1 same source).
+# Windows: [6/6] last line print contains ✓ (U+2713), pipe stdout default cp1252 cannot encode
+# (L3 2026-10-17 evidence: UnicodeEncodeError '\u2713' position 2 —— persona/signature
+# already read back, only last line missing). PYTHONIOENCODING=utf-8 overrides stdout/stderr encoding;
+# unix default is UTF-8 ⇒ behavior unchanged.
 PYTHONPATH="$AIMAIL_REPO" PYTHONIOENCODING=utf-8 python3 - "$GW_URL" "$SYSTEM_ID" "$AIMAIL_MANAGER_ADDRESS" <<'PYEOF' || die "signature assertion failed"
 import sys, json, os, time, urllib.request, urllib.error
 import hashlib, hmac
 
 gw_url, system_id, manager_addr = sys.argv[1], sys.argv[2], sys.argv[3]
 
-# ── 1) 定位 agent 绑定文件(install 落的单一真源, check/l0 同源) ──
-# 布局: ~/.aimail/systems/<sid>/*/agentmail.json —— 字段 email/api_key 必填  # contract-allowed: L3 校验 install 写入契约绑定文件
+# ── 1) Locate agent binding file (single source of truth dropped by install, check/l0 same source) ──
+# Layout: ~/.aimail/systems/<sid>/*/agentmail.json —— fields email/api_key required  # contract-allowed: L3 validates install written contract binding file
 # (BINDING_REQUIRED, cli/src/core/checks/l0.rs:36)。
 home = os.path.expanduser("~/.aimail")
 binding = None
 base = os.path.join(home, "systems", system_id)
 for entry in sorted(os.listdir(base)) if os.path.isdir(base) else []:
-    aj = os.path.join(base, entry, "agentmail.json")  # contract-allowed: L3 读契约绑定文件
+    aj = os.path.join(base, entry, "agentmail.json")  # contract-allowed: L3 reads contract binding file
     if os.path.isfile(aj):
         binding = json.load(open(aj, encoding="utf-8"))
         break
 if not binding:
-    print(f"  ✗ no agentmail.json under {base} (install did not adapt the platform)"); sys.exit(1)  # contract-allowed: L3 报错引用契约绑定文件名
+    print(f"  ✗ no agentmail.json under {base} (install did not adapt the platform)"); sys.exit(1)  # contract-allowed: L3 error references contract-bound filename
 email, key = binding.get("email", ""), binding.get("api_key", "")
 if not email or not key:
     print(f"  ✗ binding missing email/api_key: {list(binding.keys())}"); sys.exit(1)
 print(f"  agent address : {email}")
 
-# ── 2) 发一封查询邮件(SDK send_mail 同形: POST /api/v1/send, agent key) ──
-# v1 签名协议(aimail_base.py:29-59 精确复刻): HMAC key = sha256(raw_key),
-# base = METHOD\npath\nms_timestamp\nsha256(body); 身份头 X-Api-Identity = 地址级 key 的 email。
+# ── 2) Send a query email (SDK send_mail isomorphic: POST /api/v1/send, agent key) ──
+# v1 signature protocol (aimail_base.py:29-59 exact replica): HMAC key = sha256(raw_key),
+# base = METHOD\npath\nms_timestamp\nsha256(body); Identity header X-Api-Identity = email of the address-level key.
 def signed(method, path, body_obj=None, api_key=key, identity=email):
     body = json.dumps(body_obj).encode() if body_obj is not None else b""
     ts = str(int(time.time() * 1000))
@@ -707,9 +707,9 @@ if st not in (200, 201, 202):
     print(f"  ✗ query mail send failed: HTTP {st} {str(resp)[:200]}"); sys.exit(1)
 print(f"  query mail sent (HTTP {st}) — persona/signature are applied by the gateway")
 
-# ── 3) 断言: whoami 读回身份名片(agent_persona)+ 邮件签名(agent_signature) ──
-# whoami.rs:44-52 —— welcome approve 后网关 UPSERT 到 domain_addr_meta, whoami 读回。
-# 这是"身份名片 + 邮件签名已生效"的权威断言点(CLI check/l1 同源, checks/l1.rs:130)。
+# ── 3) Assertion: whoami reads back identity card (agent_persona) + email signature (agent_signature) ──
+# whoami.rs:44-52 —— after welcome approve, gateway UPSERTs to domain_addr_meta, whoami reads back.
+# This is the authoritative assertion point for "identity card + email signature is effective" (same source as CLI check/l1, checks/l1.rs:130).
 st, who = signed("GET", "/api/v1/whoami")
 if st != 200:
     print(f"  ✗ whoami failed: HTTP {st} {str(who)[:200]}"); sys.exit(1)
@@ -723,7 +723,7 @@ print("  ✓ identity card (persona) + email signature in effect")
 PYEOF
 
 echo
-ok "════ L3 PASS: $PLATFORM / $AGENT — CLI×SDK×gateway 对接闭环完成"
+ok "════ L3 PASS: $PLATFORM / $AGENT — CLI×SDK×gateway integration loop completed"
 # teardown
 kill "$GW_PID" 2>/dev/null || true
 [ -n "${HOST_PID:-}" ] && kill "$HOST_PID" 2>/dev/null || true

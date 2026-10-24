@@ -7,19 +7,24 @@ description = "aimail CLI - set up, operate and maintain the AIMail link between
 repository = "https://github.com/metercai/aimail"
 rust-version = "1.75"
 
-# 形态：lib + bin 同包。
-# - bin `aimail`（src/main.rs）= 单一命令行二进制，无 daemon；
-# - lib `aimail`（src/lib.rs）= 同一份实现，供集成测试与后续用例直接调用
-#   （基础设施层在命令移植完成前没有调用方，bin-only crate 会被
-#   `clippy -D warnings` 判 dead_code —— lib 形态既解决该问题，也让
-#   cli/tests 能直接对 config/home 做断言）。
-# 版本：**rust 化后 CLI 是独立子项目，版本线独立**（owner 2026-10-04 裁决）——
-# `cli/Cargo.toml` 即 CLI 版本身份的唯一真源；**不与** SDK/仓根 `pyproject.toml` 绑定、不要求同值。
-# 发布打 tag 用 `cli-vX.Y.Z` 前缀，与 SDK 的 `vX.Y.Z` 两线分离。
-# 门禁分层（owner 2026-10-11 裁决）："需要已装件"的用例（tests/repair_backfill_parity.rs，
-# 经 python 门调**已装** agent-aimail）不进 dev 门禁 —— ci.yml 的干净 runner 上装不到 SDK，
-# 该目标曾长期红。本 feature 由 L2 门禁（tests/cli/run-cli-gates.sh 步骤 2b）与 release
-# 门禁显式开启；默认关闭时该测试文件编译为空。
+# Shape: lib + bin in one package.
+# - bin `aimail` (src/main.rs) = a single command-line binary, no daemon;
+# - lib `aimail` (src/lib.rs) = the same implementation, called directly by
+#   integration tests and later use cases (the infrastructure layer has no
+#   callers until the command ports are done, and a bin-only crate is judged
+#   dead_code by `clippy -D warnings` -- the lib shape solves that and also
+#   lets cli/tests assert on config/home directly).
+# Version: **after the Rust port the CLI is an independent sub-project with an
+# independent version line** (owner 2026-10-04 ruling) --
+# `cli/Cargo.toml` is the single source (of truth) of the CLI version identity;
+# **not** bound to the SDK/repo-root `pyproject.toml`, same value not required.
+# Release tags use the `cli-vX.Y.Z` prefix, two separate lines from the SDK's `vX.Y.Z`.
+# Gate layering (owner 2026-10-11 ruling): cases that "need installed parts"
+# (tests/repair_backfill_parity.rs, which invokes the **installed** agent-aimail
+# through the python gate) do not enter the dev gate -- a clean ci.yml runner
+# cannot install the SDK, and that target was red for a long time. This feature
+# is enabled explicitly by the L2 gate (tests/cli/run-cli-gates.sh step 2b) and
+# the release gate; when off (the default) that test file compiles to empty.
 [features]
 default = []
 sdk-parity = []
@@ -34,9 +39,9 @@ glob = "0.3"
 hmac = "0.12"
 md-5 = "0.10"
 rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12", "logging"] }
-# serde derive：平台宿主表的类型化常量直接序列化成值视图（省掉手写 to_json）。
-# preserve_order：JSON 对象保持**读写顺序**（indexmap），与 Python json.dump 的
-# insertion-order 行为一致 ⇒ 更新一份凭据文件不会造成无谓的键序重排/文件抖动。
+# serde derive: the typed constants of the platform host table serialize directly into value views (no hand-written to_json).
+# preserve_order: JSON objects keep **read/write order** (indexmap), matching the
+# insertion-order behavior of Python json.dump => updating a credentials file causes no needless key reordering/file churn.
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 sha2 = "0.10"

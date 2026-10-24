@@ -175,7 +175,7 @@ export async function tryAutoBindOnce(): Promise<AgentConfig | undefined> {
 export async function resolveConfig(): Promise<AgentConfig> {
   const ptr = readPointer()
   const systemId = ptr.system_id ?? ''
-  // dsh 同款：**每地址绑定文件为唯一权威**；指针仅作系统 scope 与可重建缓存。
+  // dsh style: **per-address binding file is the sole authority**; pointer is only for system scope and rebuildable cache.
   if (systemId) {
     const byAgent = await loadConfigByAgentId(systemId, DEFAULT_AGENT_ID)
     if (byAgent) return byAgent

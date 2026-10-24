@@ -100,11 +100,11 @@ export async function deregisterAgentEmail(
     out.domain = `err:${e instanceof Error ? e.message : String(e)}`
   }
 
-  // 3. Whitelist entry — 先按 (domain_addr, value) **精确匹配**, 再按 id 删。
-  //    审计 2026-09-21: 原实现按 value 删(`DELETE /api/v1/whitelists?domain_addr=&value=`),
-  //    而网关 admin 分支把该参数当**域**用(按域解析 system → 列该系统全部行 → 取首个
-  //    value 命中) ⇒ 传完整地址得到空列表 → 404(行永不删除, 实测残留); 传域则会误删
-  //    同 manager 的**其它**地址行。与 Python 侧 deregister_agent_email 同口径修复。
+  // 3. Whitelist entry — first by (domain_addr, value) **exact match**, then delete by id.
+  //    Audit 2026-09-21: original implementation deleted by value (`DELETE /api/v1/whitelists?domain_addr=&value=`),
+  //    while gateway admin branch treats that parameter as **domain** (resolves system by domain → lists all rows of that system → takes first
+  //    value hit) ⇒ passing full address gets empty list → 404 (row never deleted, measured residue); passing domain would mistakenly delete
+  //    the **other** address rows of the same manager. Same-criteria fix as the Python-side deregister_agent_email.
   try {
     const domain = opts.domainAddr || opts.email.split('@')[1] || ''
     const manager = opts.managerAddress ?? ''
@@ -115,10 +115,10 @@ export async function deregisterAgentEmail(
       const rows = (Array.isArray(res.data)
         ? res.data
         : (res.entries as unknown[] | undefined) ?? []) as Array<Record<string, unknown>>
-      // 先 (domain_addr, value) 精确匹配; 落空则收敛到"本地址名下的行"。
-      // F10(2026-09-25, 与 Python 侧同口径): 注销语义 = 该地址被拆除, 其名下白名单行
-      // 都是孤儿; domain_addr 已唯一钉住地址 ⇒ 不误伤别的 agent。实测两类落空:
-      // 绑定 manager_address 为空、或网关行的 value 本身为空 ⇒ 只按 value 匹配必留残留。
+      // First (domain_addr, value) exact match; if miss, converge to "rows under this address name".
+      // F10 (2026-09-25, same criteria as Python side): deregistration semantics = the address is dismantled, its whitelist rows
+      // are all orphans; domain_addr has uniquely pinned the address ⇒ does not hurt other agents. Measured two types of misses:
+      // bound manager_address is empty, or gateway row's value itself is empty ⇒ matching by value only will leave residue.
       const mine = rows.filter(r => r.domain_addr === opts.email && r.id !== undefined && r.id !== null)
       const exact = manager ? mine.filter(r => r.value === manager) : []
       const targets = exact.length > 0 ? exact : mine
@@ -215,10 +215,10 @@ export async function handleCommand(
 ): Promise<PluginCommandResult> {
   const args = ctx.args ?? ''
   const sub = (args.trim().split(/\s+/)[0] ?? '').toLowerCase()
-  // 契约 v1.0 §4.1(2):op 入口形态(CLI 经注册表 host_command 调)——
+  // Contract v1.0 §4.1(2): op entry form (CLI calls via registry host_command) ——
   //   openclaw aimail <assemble|update|teardown|prompt-test> --args '<json>'
-  // --args 的 JSON 是**单个 argv 元素**(内部含空格);ctx.args 是宿主拼回的字符串,
-  // 这里按 `--args` 之后的**原始子串**取(不走 parseArgs 的空白分词,否则 JSON 被切碎)。
+  // --args JSON is **a single argv element** (contains spaces internally); ctx.args is the string reassembled by host,
+  // Here we take the **raw substring** after `--args` (bypassing parseArgs whitespace tokenization, otherwise JSON gets fragmented).
   if (sub === 'assemble' || sub === 'update' || sub === 'teardown' || sub === 'prompt-test') {
     const aIdx = args.indexOf('--args')
     const raw = aIdx >= 0 ? args.slice(aIdx + 6).trim() : ''
@@ -238,7 +238,7 @@ export async function handleCommand(
         : await opTeardown(parsed)
       return cmdText([JSON.stringify({ ok: true, result })])
     } catch (e) {
-      // 与 python 门同形(usage ⇒ error=纯消息;call ⇒ "<Cls>: <msg>";JS 子类 e.name 恒 'Error')
+      // Same shape as python gate (usage ⇒ error=pure message; call ⇒ "<Cls>: <msg>"; JS subclass e.name is always 'Error')
       if (e instanceof UsageError) {
         return cmdText([JSON.stringify({ ok: false, kind: 'usage', exc: 'UsageError', error: e.message })])
       }
@@ -254,17 +254,17 @@ export async function handleCommand(
       const gw = await readGatewayConfig(systemId)
       let email = opts.email ?? ''
       if (!email && opts.name) {
-        // C3(owner 裁决 2026-10-02 P6): CLI 传意图(--name), 地址派生在 SDK —— 与
-        // register-all / identity auto-bind 同源(emailForAgent), 同一 agent 名在每条
-        // 路径得到同一个地址; --email 保留兼容(既有脚本/显式地址)。
+        // C3 (owner decision 2026-10-02 P6): CLI passes intent (--name), address derivation is in the SDK -- and
+        // register-all / identity auto-bind same source (emailForAgent), same agent name in each
+        // path gets the same address; --email kept for compatibility (existing scripts/explicit address).
         if (!gw.domain) return cmdText(['register --name needs a domain (gateway cfg has none — pass --email or set domain)', '', USAGE])
         email = emailForAgent(opts.name, gw.domain, gw.system_name ?? '', ['main'])
       }
       if (!email) return cmdText(['register requires --name <base> or --email <addr>', '', USAGE])
       const webhookSecret = randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, '')
-      // 统一走 mail-core autoBind(归属读 → 4 步注册 → agentmail.json 原子
-      // 写 0600 → bridge route)。此前本命令用复制链 + 非原子落盘 + 从不配
-      // bridge route → 命令注册的地址收不到信(AUDIT-1 P1-9)。
+      // Unified via mail-core autoBind (ownership read → 4-step registration → agentmail.json atomic
+      // write 0600 → bridge route). Previously this command used copy chain + non-atomic disk write + never configured
+      // bridge route → addresses registered by command cannot receive mail (AUDIT-1 P1-9).
       const { autoBind } = await import('../core/index.js')
       const agentId = ctx.agentId ?? 'main'
       try {
@@ -302,9 +302,9 @@ export async function handleCommand(
     }
 
     if (sub === 'register-all') {
-      // 多 agent 全量注册:枚举 ~/.openclaw/agents/*,每个 agent 自动
-      // 派生地址 {agent名}@{domain} 走 autoBind(与 register 同链)。
-      // 无显式 email/agent 参数——agent 集合是平台的,地址派生是 SDK 的。
+      // Full registration for multiple agents: enumerate ~/.openclaw/agents/*, each agent automatically
+      // derives address {agent_name}@{domain} via autoBind (same chain as register).
+      // No explicit email/agent parameters -- the agent set is platform-level, address derivation is SDK-level.
       const systemId = await resolveSystemId(opts['system-id'] ?? '')
       const gw = await readGatewayConfig(systemId)
       const domain = opts.domain ?? gw.domain ?? ''
@@ -325,8 +325,8 @@ export async function handleCommand(
       const out: string[] = [`register-all: ${agentNames.length} agent(s) → ${domain} (system ${systemId})`]
       let okN = 0
       for (const name of agentNames) {
-        // 地址派生与 identity.ts auto-bind 同源:emailForAgent(别名归一/
-        // 共享域 {base}.{system_name} 形态/atext 清洗)——两条路径同一 agent 同一地址
+        // Address derivation shares the same source as identity.ts auto-bind: emailForAgent (alias normalization/
+        // Shared domain {base}.{system_name} format/atext sanitization) -- same agent, same address on both paths
         const email = emailForAgent(name, domain, systemName, ['main'])
         const secret = randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, '')
         try {

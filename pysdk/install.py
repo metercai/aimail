@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""aimail.install — SDK 自足安装/卸载入口(进程命令契约)。
+"""aimail.install — SDK self-contained install/uninstall entry point (process command contract).
 
-架构(2026-09-02 定稿):CLI 是运维工具,不携带资源/patch;每个 SDK
-(pysdk / tssdk 平台包)自带资源与平台 patch,并提供可被 spawn 的安装
-入口 —— CLI(或用户)只需执行:
+Architecture (2026-09-02 finalized): CLI is an ops tool, does not carry resources/patches; each SDK
+(pysdk / tssdk platform package) carries its own resources and platform patches, and provides a spawnable install
+Entry —— CLI (or user) only needs to execute:
 
     python -m aimail.install install            --type hermes   [--home ~/.hermes] [--system-id SID]
     python -m aimail.install install            --type deerflow [--home <backend>] [--system-id SID]
@@ -11,7 +11,7 @@
     python -m aimail.install check-env          --type hermes   [--home ...]
     python -m aimail.install register-profiles  --home <hermes-root> [--system-id SID]  # internal
 
-所有动作幂等;环境自检失败时明确提示"先运行 aimail CLI"。
+All actions are idempotent; if environment self-check fails, clearly prompt "run aimail CLI first".
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ import sys
 
 
 def _say(*a, **k):
-    """SDK 进度/诊断输出一律走 stderr：调用方（CLI）以 stdout 为单行 JSON 协议。"""
+    """SDK progress/diagnostic output always goes to stderr: caller (CLI) uses stdout as single-line JSON protocol."""
     print(*a, file=sys.stderr, **k)
 
 import argparse
@@ -31,33 +31,33 @@ import subprocess
 import sys
 from pathlib import Path
 
-# ── 双形态自举:本文件位于 core 目录(pysdk/ 或 site-packages/aimail/)──
-# flat core(aimail_base.py…)与 hermes/ deer-flow/ 子模块都在此目录下。
+# ── Dual-form bootstrap: this file is located in the core directory (pysdk/ or site-packages/aimail/) ──
+# flat core (aimail_base.py…) and hermes/ deer-flow/ submodules are all in this directory.
 _CORE = os.path.dirname(os.path.abspath(__file__))
 if _CORE not in sys.path:
     sys.path.insert(0, _CORE)
 
-# ── 宿主注册表单真源(双形态:repo pysdk/ 在 sys.path / pip aimail 包)────────
+# ── Host registration form single source of truth (dual form: repo pysdk/ on sys.path / pip aimail package)────────
 def _host_registry():
     try:
-        import hosts.registry as _hr  # repo 形态: pysdk/ 已在 sys.path
+        import hosts.registry as _hr  # repo form: pysdk/ already in sys.path
         return _hr
     except ImportError:
-        from aimail.hosts import registry as _hr  # pip 形态
+        from aimail.hosts import registry as _hr  # pip form
         return _hr
 
 
 _HOSTS = _host_registry()
 PYTHON_HOST_IDS = tuple(_HOSTS.host_ids())  # hermes / deerflow
-# node 宿主(dsh/pi/openclaw)的装配在 tssdk 包 agent-aimail 的 node 入口里,
-# 不在本入口;其中 **dsh** 是原 --type 值域(保留接受并响亮报错,CLI 面参数一致),
-# pi/openclaw 从未在 pysdk 值域内,不新增。
+# node host (dsh/pi/openclaw) assembly is in the node entry of the tssdk package agent-aimail,
+# not in this entry; among them **dsh** is the original --type value domain (kept accepted and loudly errors, CLI side parameters consistent),
+# pi/openclaw were never in the pysdk value domain, no new additions.
 NODE_HOST_IDS = ("dsh", "pi", "openclaw")
 INSTALL_NODE_CHOICES = ("dsh",)
 
-# owner 2026-10-07：适配器子目录（hermes/ deer-flow/）**无 __init__.py** ✗ ⇒ 既非包内模块 ✓、
-# 也非顶层名 ✗ ⇒ 必须把各子目录本身挂进 sys.path（沿用扁平模块约定 ✓），否则 `import aimail_hermes` 必失败 ✓。
-# 2026-10-21：目录清单从 hosts 注册表派生（单真源；旧硬编码里的 dsh 死条目已清——dsh 是 node 宿主）。
+# owner 2026-10-07: adapter subdirectories (hermes/ deer-flow/) **have no __init__.py** ✗ ⇒ neither in-package modules ✓,
+# nor top-level names ✗ ⇒ must attach each subdirectory itself to sys.path (following the flat module convention ✓), otherwise `import aimail_hermes` will definitely fail ✓.
+# 2026-10-21: Directory listing is derived from the hosts registry (single source of truth; the dead dsh entry in the old hardcoded list has been removed — dsh is a node host).
 for _sub in ((_HOSTS.get_host(h) or {})["adapter_dir"] for h in _HOSTS.host_ids()):
     _p = os.path.join(_CORE, _sub)
     if os.path.isdir(_p) and _p not in sys.path:
@@ -67,14 +67,14 @@ from _resources_release import agentmail_home, release_all_systems, resources_bo
 
 
 def _import_host(host_id: str, name: str):
-    """import 宿主适配子模块 —— 同源优先:先取与本 install.py 同一棵树的
-    `<adapter_dir>/<name>.py`(`_CORE` 已插在 sys.path 头),才回退包名
+    """import host adaptation submodule —— same-origin priority: first take the one from the same tree as this install.py
+    `<adapter_dir>/<name>.py` (`_CORE` already inserted at sys.path head), then fallback to package name
     `aimail.<adapter_dir>.<name>`。
 
-    2026-09-30 P2 取证(hermes 原文):原"包名优先"在 CLI 自举把源码快照到
-    `~/.aimail/bin/aimail-src/pysdk/` + 镜像里 pip 装着旧包的形态下取到
-    **另一棵树**的旧实现 ⇒ 混装直接炸。调用方与被调方必须同一棵树;
-    pip 形态下两路指向同一文件,换序无副作用。
+    2026-09-30 P2 forensics (hermes original text): original "package name priority" in CLI bootstrap snapshotting source code to
+    `~/.aimail/bin/aimail-src/pysdk/` + mirror with pip installing old package form retrieves
+    **Another tree**'s old implementation ⇒ mixed loading blows up directly. The caller and callee must be in the same tree;
+    In pip form, both paths point to the same file, so reordering has no side effects.
     """
     spec = _HOSTS.get_host(host_id)
     if spec is None:
@@ -95,53 +95,53 @@ def _import_deerflow(name: str):
 
 
 # ═══════════════════════════════════════════════════════════════
-# 环境自检(加载/安装前置:配置不到位 → 明确指引先跑 CLI)
+# Environment self-check (pre-load/install: if configuration is missing → clear guidance to run CLI first)
 # ═══════════════════════════════════════════════════════════════
 
 def _machine_state() -> tuple:
-    """机器环境三态:
-    ('empty', msg)   — ~/.aimail/systems 无任何系统配置 → init + install
-    ('systems', msg) — 有系统配置(可 install 复用/激活)
+    """Machine environment three states:
+    ('empty', msg)   — no system configuration in ~/.aimail/systems → init + install
+    ('systems', msg) — system config exists (install can reuse/activate)
     """
     systems_root = os.path.join(agentmail_home(), "systems")
     if not os.path.isdir(systems_root) or not os.listdir(systems_root):
         return ("empty",
-                "未发现任何系统配置(~/.aimail/systems 空)。\n\n"
-                "  运行:   aimail install --home <宿主根>(激活系统并绑定)")
+                "No system configuration found (~/.aimail/systems is empty).\n\n"
+                "  Run:   aimail install --home <host root> (activate system and bind)")
     return ("systems", "")
 
 
 def env_check_hermes(hermes_dir: str) -> int:
-    """Hermes 自检:webhook.py/profiles.py 存在、pip aimail 可达。"""
+    """Hermes self-check: webhook.py/profiles.py exist, pip aimail reachable."""
     state, hint = _machine_state()
     problems = []
     ha = os.path.join(hermes_dir, "hermes-agent")
     if not os.path.isdir(ha):
-        _say("[env-check] ✗ hermes-agent 未安装(hermes 宿主缺失或 --home 指向错误)")
-        _say(f"  先安装 hermes 宿主,再: aimail install --home {hermes_dir}")
+        _say("[env-check] ✗ hermes-agent not installed (hermes host missing or --home points to wrong location)")
+        _say(f"  Install hermes host first, then: aimail install --home {hermes_dir}")
         return 1
     webhook_py = os.path.join(ha, "gateway", "platforms", "webhook.py")
     profiles_py = os.path.join(ha, "hermes_cli", "profiles.py")
     if not os.path.isfile(webhook_py):
-        problems.append(f"webhook.py 缺失:{webhook_py}")
+        problems.append(f"webhook.py missing: {webhook_py}")
     if not os.path.isfile(profiles_py):
         if not os.path.isfile(os.path.join(ha, "cli", "profiles.py")):
-            problems.append("profiles.py 缺失")
+            problems.append("profiles.py missing")
     if state == "empty":
         for p in problems:
             _say(f"[env-check] ✗ {p}")
         _say(f"[env-check] ✗ {hint}")
         return 1
-    # 配置绑定:系统目录/指针是否已由 CLI 建立(--home 参数化,AUDIT-1 P2-1)
+    # Configuration binding: whether system directory/pointer has been established by CLI (--home parameterized, AUDIT-1 P2-1)
     ptr = os.path.join(hermes_dir, ".agentmail")
     if not os.path.isfile(ptr):
         problems.append(
-            f"未找到绑定配置 {hermes_dir}/.agentmail\n"
-            f"  先运行: aimail install --home {hermes_dir}(激活并绑定)")
+            f"Binding configuration not found {hermes_dir}/.agentmail\n"
+            f"  Run first: aimail install --home {hermes_dir} (activate and bind)")
     for p in problems:
         _say(f"[env-check] ✗ {p}")
     if problems:
-        _say("[env-check] 缺失项需 aimail CLI 先行完成环境配置")
+        _say("[env-check] Missing items require aimail CLI to complete environment configuration first")
         return 1
     _say("[env-check] hermes: OK")
     return 0
@@ -152,11 +152,11 @@ def env_check_deerflow(backend_dir: str) -> int:
     app_py = os.path.join(backend_dir, "app", "gateway", "app.py")
     if not os.path.isfile(app_py):
         _say(
-            f"[env-check] ✗ 未找到 deer-flow 入口 {app_py}(--home 应为 backend 目录)")
+            f"[env-check] ✗ deer-flow entry not found {app_py} (--home should be backend directory)")
         if state == "empty":
             _say(f"[env-check] ✗ {hint}")
         else:
-            _say("  先运行: aimail install(配置环境)")
+            _say("  Run first: aimail install (configure environment)")
         return 1
     if state == "empty":
         _say(f"[env-check] ✗ {hint}")
@@ -170,26 +170,26 @@ def env_check_deerflow(backend_dir: str) -> int:
 # ═══════════════════════════════════════════════════════════════
 
 # ═══════════════════════════════════════════════════════════════
-# P2 关键锚硬门(owner 2026-09-30)
+# P2 critical anchor hard gate (owner 2026-09-30)
 # ═══════════════════════════════════════════════════════════════
 def hermes_webhook_anchor_gate(ph, webhook_py: str) -> int:
-    """补丁后关键锚体检: 缺任一块 ⇒ rc=1 并点名缺哪块;齐锚 ⇒ rc=0。
+    """Post-patch critical anchor health check: if any block is missing ⇒ rc=1 and name the missing block; all anchors present ⇒ rc=0.
 
-    锚是 patch_webhook **打进去**的 ⇒ 必须在 patch_webhook 之后量;只看它的
-    返回值不够 —— 返回值只说"有没有写文件"(幂等重跑恒 False), 锚在不在才是硬门。
+    the anchor is **written in** by patch_webhook ⇒ it must be measured after patch_webhook; looking only at its
+    return value is not enough —— return value only says "whether file was written" (idempotent rerun always False), whether anchors are present is the hard gate.
     """
     gaps = list(ph.webhook_patch_gaps(webhook_py))
     if gaps:
-        _say(f"  ✗ webhook 关键锚缺失:{', '.join(gaps)} — {webhook_py}")
-        _say("      (缺任一块 ⇒ preprocessor 钩子/适配器挂不上, 该补丁不算已打好;"
-              "宿主 webhook.py 版本与锚点不符, 修锚后重跑 install)")
+        _say(f"  ✗ webhook critical anchor missing: {', '.join(gaps)} — {webhook_py}")
+        _say("      (if any block is missing ⇒ preprocessor hook/adapter cannot attach, this patch is not considered applied;"
+              "host webhook.py version does not match anchor points, fix anchors and rerun install)")
         return 1
     return 0
 
 
 def install_hermes(hermes_dir: str, system_id: str = "") -> int:
-    """Hermes 平台自足安装:pip 运行时已装(本命令即来自 pip agent-aimail);
-    webhook/profiles/toolsets 补丁 + profile 注册 + board 资源展开。"""
+    """Hermes platform self-sufficient install: pip runtime already installed (this command comes from pip agent-aimail);
+    webhook/profiles/toolsets patches + profile registration + board resource expansion."""
     ha = os.path.join(hermes_dir, "hermes-agent")
     webhook_py = os.path.join(ha, "gateway", "platforms", "webhook.py")
     profiles_py = os.path.join(ha, "hermes_cli", "profiles.py")
@@ -202,14 +202,14 @@ def install_hermes(hermes_dir: str, system_id: str = "") -> int:
     ph = _import_hermes("patch_webhook")
     if os.path.isfile(webhook_py):
         changed = ph.patch_webhook(webhook_py)
-        # P2(owner 2026-09-30): 关键锚缺任一块 ⇒ rc≠0 且点名缺哪块;齐锚(含幂等
-        # "已打好")⇒ rc=0 —— 硬门见 hermes_webhook_anchor_gate()。
+        # P2 (owner 2026-09-30): if any critical anchor block is missing ⇒ rc≠0 and name the missing block; all anchors present (including idempotent
+        # "already applied") ⇒ rc=0 —— hard gate see hermes_webhook_anchor_gate().
         if hermes_webhook_anchor_gate(ph, webhook_py):
             rc = 1
         else:
             _say(f"  hermes webhook patch: {'applied' if changed else 'already clean'}")
     else:
-        _say(f"  ✗ webhook.py 缺失:{webhook_py}(--home 应为 hermes 根)")
+        _say(f"  ✗ webhook.py missing: {webhook_py} (--home should be hermes root)")
         rc = 1
 
     pp = _import_hermes("patch_profiles")
@@ -217,20 +217,20 @@ def install_hermes(hermes_dir: str, system_id: str = "") -> int:
         changed = pp.patch_profiles(profiles_py)
         _say(f"  hermes profiles patch: {'applied' if changed else 'already clean'}")
     else:
-        _say(f"  ✗ profiles.py 缺失:{profiles_py}")
+        _say(f"  ✗ profiles.py missing: {profiles_py}")
         rc = 1
 
     try:
         pt = _import_hermes("toolsets")
         changed = pt.patch_toolsets(ha)
         _say(f"  hermes toolsets: {'registered' if changed else 'already registered'}")
-    except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py 失败路径 raise SystemExit
+    except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py failure path raises SystemExit
         _say(f"  ✗ toolsets patch failed: {e}")
         rc = 1
 
-    # profile 注册(读 env:HERMES_HOME/SYSTEM_ID/HERMES_PROFILES_DIR)——直接
-    # 函数调用(Rust CLI 终态走 spawn python -m aimail.install register-profiles,
-    # 同 env 契约;repo 形态无 aimail 包名,不能 spawn)
+    # profile registration (reads env: HERMES_HOME/SYSTEM_ID/HERMES_PROFILES_DIR) —— direct
+    # function call (Rust CLI final state goes through spawn python -m aimail.install register-profiles,
+    # same env contract; repo form has no aimail package name, cannot spawn)
     try:
         rp = _import_hermes("register_profiles")
         saved = {k: os.environ.get(k) for k in ("HERMES_HOME", "HERMES_PROFILES_DIR", "SYSTEM_ID")}
@@ -246,36 +246,36 @@ def install_hermes(hermes_dir: str, system_id: str = "") -> int:
                     os.environ.pop(k, None)
                 else:
                     os.environ[k] = v
-    except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py 失败路径 raise SystemExit
+    except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py failure path raises SystemExit
         _say(f"  ✗ register profiles failed: {e}")
         rc = 1
 
-    # board 资源展开(幂等;覆盖全部已有 system 目录)
+    # board resource expansion (idempotent; covers all existing system directories)
     rel = release_all_systems(resources_board_dir())
     for r in rel:
         _say(f"  resources: {r['board_dir']} (copied {r['copied']}, kept {r['skipped']})")
 
-    # skills 展开(SKILL.md/DESCRIPTION.md → 每个 hermes profile 的 skills/agentmail)
+    # skills expansion (SKILL.md/DESCRIPTION.md → skills/agentmail for each hermes profile)
     _release_hermes_skills(hermes_dir)
 
-    _say("  hermes install done. 重启 hermes gateway 使补丁生效(aimail bridge restart 或宿主重启)")
+    _say("  hermes install done. Restart hermes gateway to make patches take effect (aimail bridge restart or host restart)")
     return rc
 
 
 def _release_hermes_skills(hermes_dir: str) -> int:
-    """SKILL.md + DESCRIPTION.md → {home}/profiles/*/skills/agentmail/(幂等)。"""
+    """SKILL.md + DESCRIPTION.md → {home}/profiles/*/skills/agentmail/ (idempotent)."""
     skills_src = resources_skills_dir()
     if not os.path.isdir(skills_src):
-        # 不再静默 return 0: 包自带资源缺失 = 打包缺陷, 必须当场可见
+        # No longer silently return 0: missing package-bundled resources = packaging defect, must be visible on the spot
         raise RuntimeError(
-            f"skills 资源缺失: {skills_src}(仓库态: 资源在仓根 resources/, 检查检出完整性;"
-            f" pip 态: 重装 agent-aimail)")
+            f"skills resources missing: {skills_src} (repo state: resources are in repo root resources/, check checkout integrity;"
+            f" pip state: reinstall agent-aimail)")
     missing = [f for f in ("SKILL.md", "DESCRIPTION.md")
                if not os.path.isfile(os.path.join(skills_src, f))]
     if missing:
-        raise RuntimeError(f"skills 资源不完整: {skills_src} 缺 {missing}")
+        raise RuntimeError(f"skills resources incomplete: {skills_src} missing {missing}")
     profiles_root = os.path.join(hermes_dir, "profiles")
-    targets = [hermes_dir]  # 默认 profile 根
+    targets = [hermes_dir]  # default profile root
     if os.path.isdir(profiles_root):
         targets += [os.path.join(profiles_root, d) for d in sorted(os.listdir(profiles_root))
                     if os.path.isdir(os.path.join(profiles_root, d))]
@@ -303,18 +303,18 @@ def _release_hermes_skills(hermes_dir: str) -> int:
 
 
 def _deerflow_backend(root: str) -> str:
-    """backend 目录归一:仓根含 backend/(标准布局)→ backend;否则视为已 backend。"""
+    """backend directory normalization: repo root contains backend/ (standard layout) → backend; otherwise treated as already backend."""
     r = os.path.expanduser(root)
     return os.path.join(r, "backend") if os.path.isdir(os.path.join(r, "backend")) else r
 
 
 def _assembly_env(system_id: str = "", extra_env: dict | None = None) -> dict:
-    """装配步(install-skill.sh / install-mcp.sh)的 spawn 环境。
+    """Spawn environment for the assembly steps (install-skill.sh / install-mcp.sh).
 
-    两脚本按契约走 CLI 公开命令面(缺 `aimail` ⇒ exit 1, 不兜底),而仓库/容器
-    形态里 CLI 常不在 PATH(镜像内 `command -v aimail` 必空)⇒ 这里把**同一棵树**
-    的 `cli/` 补到 PATH 头;pip 布局没有该目录 ⇒ 保持环境 PATH(真缺 CLI 时
-    脚本自己响亮失败 —— 不回退、不静默)。
+    Both scripts follow the contract via the CLI public command surface (missing `aimail` ⇒ exit 1, no fallback), while in repo/container
+    forms the CLI is often not in PATH (`command -v aimail` inside the image is always empty) ⇒ here we prepend the `cli/` of the **same tree**
+    `cli/` appended to the head of PATH; pip layout does not have this directory ⇒ keep the environment PATH (when the CLI is truly missing,
+    The script fails loudly on its own — no fallback, no silence).
     """
     env = dict(os.environ)
     if shutil.which("aimail", path=env.get("PATH")) is None:
@@ -329,21 +329,21 @@ def _assembly_env(system_id: str = "", extra_env: dict | None = None) -> dict:
 
 
 def _assemble_deerflow(home_root: str, system_id: str = "") -> int:
-    """deerflow agent 侧装配:skills 落点 + MCP toolset 落点(幂等)。
+    """deerflow agent-side assembly: skills landing point + MCP toolset landing point (idempotent).
 
-    **复用产品既有脚本** `pysdk/deer-flow/install-skill.sh` / `install-mcp.sh`
-    的解析与写入逻辑 —— SDK 不自持第二套写入;两脚本自身幂等(同内容跳过/覆盖),
-    重复 install 不产生重复写。
-    `DEER_FLOW_PROJECT_ROOT` 只在环境未声明时补成平台 home(沿用 install-mcp.sh
-    落点序的 ③「运维已断言项目根 ⇒ 在其中新建」),让落点同时是 deer-flow
-    `resolve_config_path()` **与** `get_skills_path()` 真会读的位置 ——
-    否则写进状态目录/会话不读的目录等于没写(2026-09-30: skills 落点错即此)。
-    任一脚本 rc!=0 ⇒ 返回 1(装配失败必须可见, 不静默降级)。
+    **Reuses the product's existing scripts** `pysdk/deer-flow/install-skill.sh` / `install-mcp.sh`
+    parsing and writing logic —— SDK does not maintain a second set of writing; the two scripts themselves are idempotent (skip/overwrite same content),
+    repeated install does not produce duplicate writes.
+    `DEER_FLOW_PROJECT_ROOT` is only filled with the platform home when not declared in the environment (following install-mcp.sh
+    landing point order ③ "ops has asserted project root ⇒ create new within it"), making the landing point a location that deer-flow
+    `resolve_config_path()` **and** `get_skills_path()` really read from ——
+    otherwise writing to a state directory/session that is not read is equivalent to not writing (2026-09-30: skills landing point error was this).
+    Any script rc!=0 ⇒ return 1 (assembly failure must be visible, no silent degradation).
     """
     sdk = os.path.join(_CORE, "deer-flow")
-    # 两步给**同一份** env: skills 与 MCP 的落点都必须是 deer-flow 真会读的
-    # project_root(get_skills_path ③ / resolve_config_path ③)—— 少传一步 =
-    # 那一步写进状态目录 = 会话读不到(2026-09-30 实测 skills 根因)。
+    # Both steps get the **same** env: skills and MCP landing points must both be the deer-flow project_root
+    # project_root(get_skills_path ③ / resolve_config_path ③)—— one less step passed =
+    # that step writes to the state directory = session cannot read it (2026-09-30 measured skills root cause).
     asm_env = _assembly_env(system_id, {"DEER_FLOW_PROJECT_ROOT": home_root})
     steps = (
         ("install-skill.sh", asm_env),
@@ -353,12 +353,12 @@ def _assemble_deerflow(home_root: str, system_id: str = "") -> int:
     for name, env in steps:
         path = os.path.join(sdk, name)
         if not os.path.isfile(path):
-            _say(f"  ✗ deerflow 装配脚本缺失: {path}(打包/物化缺陷, 不静默跳过)")
+            _say(f"  ✗ deerflow assembly script missing: {path} (packaging/materialization defect, no silent skip)")
             rc = 1
             continue
         r = subprocess.call(["bash", path], env=env, stdout=sys.stderr)
         if r != 0:
-            _say(f"  ✗ deerflow {name} 装配失败(exit {r})")
+            _say(f"  ✗ deerflow {name} assembly failed (exit {r})")
             rc = 1
         else:
             _say(f"  deerflow {name}: assembled")
@@ -366,37 +366,37 @@ def _assemble_deerflow(home_root: str, system_id: str = "") -> int:
 
 
 def install_deerflow(backend_dir: str, system_id: str = "", manager: str = "") -> int:
-    """DeerFlow 平台自足安装:app.py patch + 运行时 bundle + agent 侧装配 + 注册/对账。
-    参数为仓根或 backend(backend 归一在 SDK 内——平台布局是适配知识)。"""
-    home_root = os.path.expanduser(backend_dir)  # 平台 home(装配落点序的 ③ 用)
+    """DeerFlow platform self-sufficient install: app.py patch + runtime bundle + agent-side assembly + registration/reconciliation.
+    Parameter is the repo root or backend (backend normalization is handled inside the SDK — platform layout is adaptation knowledge)."""
+    home_root = os.path.expanduser(backend_dir)  # platform home (used for assembly landing point order ③)
     backend_dir = _deerflow_backend(backend_dir)
     md = _import_deerflow("manage")
     rc = 0
     try:
         changed = md.patch_backend_app(backend_dir)
         _say(f"  deerflow app.py patch: {'applied' if changed else 'already clean'}")
-    except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py 失败路径 raise SystemExit
+    except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py failure path raises SystemExit
         _say(f"  ✗ app.py patch failed: {e}")
         rc = 1
     try:
         n = md.install_bundle(backend_dir)
         _say(f"  deerflow bundle: {n} file(s) installed")
-    except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py 失败路径 raise SystemExit
+    except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py failure path raises SystemExit
         _say(f"  ✗ bundle install failed: {e}")
         rc = 1
-    # agent 侧装配(卡①(i), owner 批 2026-09-30): skills + MCP toolset 落点。
-    # 纯 SDK 入口原来只做 patch/bundle/register ⇒ harness 只调 SDK 入口时
-    # toolset 永远缺;这里把它并进安装链(复用既有脚本, 见 _assemble_deerflow)。
+    # agent-side assembly (card ①(i), owner batch 2026-09-30): skills + MCP toolset landing points.
+    # Pure SDK entry originally only did patch/bundle/register ⇒ when harness only calls SDK entry
+    # toolset is always missing; here it is merged into the install chain (reusing existing scripts, see _assemble_deerflow).
     if _assemble_deerflow(home_root, system_id=system_id):
         rc = 1
-    # 注册(地址+路由);幂等
+    # registration (address + routing); idempotent
     try:
         if manager:
             md.register_agents(manager=manager, system_id=system_id, agent="all")
         else:
             md.reconcile(system_id=system_id)
         _say("  deerflow agents registered/reconciled")
-    except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py 失败路径 raise SystemExit
+    except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py failure path raises SystemExit
         _say(f"  ✗ register/reconcile failed: {e}")
         rc = 1
     rel = release_all_systems(resources_board_dir())
@@ -406,14 +406,14 @@ def install_deerflow(backend_dir: str, system_id: str = "", manager: str = "") -
 
 
 # ═══════════════════════════════════════════════════════════════
-# uninstall(与 install 对称:撤销自己打的 patch + 清理)
+# uninstall (symmetric with install: undo patches applied + cleanup)
 # ═══════════════════════════════════════════════════════════════
 
 
 def uninstall_hermes(hermes_dir: str, system_id: str = "") -> int:
     ha = os.path.join(hermes_dir, "hermes-agent")
     rc = 0
-    # git 形态:精确还原(gateway 是 git checkout,且无其他本地改动时)
+    # git form: precise restoration (gateway is a git checkout, and when there are no other local changes)
     if os.path.isdir(os.path.join(ha, ".git")):
         try:
             out = subprocess.check_output(
@@ -426,18 +426,18 @@ def uninstall_hermes(hermes_dir: str, system_id: str = "") -> int:
                     subprocess.call(["git", "-C", str(ha), "checkout", "--", f], stdout=sys.stderr)
                     _say(f"  ✓ reverted {f} (git)")
             else:
-                _say("  ⚠ hermes-agent 有额外未提交改动——跳过 git 还原,请检查 aimail 痕迹")
-        except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py 失败路径 raise SystemExit
+                _say("  ⚠ hermes-agent has additional uncommitted changes——skipping git restore, please check aimail traces")
+        except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py failure path raises SystemExit
             _say(f"  git revert failed: {e}")
     else:
-        # 非 git → exact-text 撤销(与 patch 插入逐字匹配)
+        # non-git → exact-text undo (matches patch insertion verbatim)
         pw = _import_hermes("patch_webhook")
         pp = _import_hermes("patch_profiles")
         try:
             pt = _import_hermes("toolsets")
         except Exception:  # noqa: BLE001
             pt = None
-        # 与 install 的路径探测同一逻辑:profiles.py 可能在 hermes_cli/ 或 cli/(AUDIT-1 P2-3)
+        # Same path detection logic as install: profiles.py may be in hermes_cli/ or cli/ (AUDIT-1 P2-3)
         profiles_rel = "hermes_cli/profiles.py"
         alt = os.path.join(ha, "cli", "profiles.py")
         if not os.path.exists(os.path.join(ha, profiles_rel)) and os.path.exists(alt):
@@ -454,32 +454,32 @@ def uninstall_hermes(hermes_dir: str, system_id: str = "") -> int:
                 fp = os.path.join(ha, rel)
                 if os.path.exists(fp):
                     pt.unpatch_toolsets(Path(fp))
-        # 清 pyc
+        # clean pyc
         for cache in ("gateway/platforms/__pycache__", "hermes_cli/__pycache__",
                       "cli/__pycache__", "tools/__pycache__"):
             cd = os.path.join(ha, cache)
             if os.path.isdir(cd):
                 shutil.rmtree(cd, ignore_errors=True)
-    # 移除旧 tools/ 拷贝(若有)
+    # remove old tools/ copy (if any)
     for rel in ("tools/aimail_tools.py", "tools/aimail_base.py",
                 "tools/aimail_board.py", "tools/hermes"):
         tgt = os.path.join(ha, rel)
         if os.path.exists(tgt):
             shutil.rmtree(tgt) if os.path.isdir(tgt) else os.unlink(tgt)
             _say(f"  ✓ removed {rel}")
-    # 本 SDK 进程即 pip aimail——不自行卸载(宿主 venv 管理由 CLI 决定)
-    # profile 级状态撤销(与 install 的注册链/skills 发布对称——曾由 CLI
-    # _uninstall_hermes 持有,平台边界收口迁 SDK):
-    #   指针(sid 匹配)/skills/agentmail 目录/config.yaml toolsets 条目/
-    #   webhook_subscriptions 路由(含根 profile=hermes_dir,install 的
-    #   release targets 也含根——对称)
+    # This SDK process is pip aimail — it does not uninstall itself (host venv management is decided by the CLI)
+    # profile-level state revocation (symmetric with install's registration chain/skills publishing — previously by CLI
+    # _uninstall_hermes, platform boundary closure migrated to SDK):
+    #   pointers (sid match)/skills/agentmail directory/config.yaml toolsets entries/
+    #   webhook_subscriptions routing (including root profile=hermes_dir, install's
+    #   release targets also include the root — symmetric)
     _uninstall_hermes_profiles(hermes_dir, system_id)
-    _say("  hermes uninstall done(本地配置/网关侧清理由 aimail CLI 负责)")
+    _say("  hermes uninstall done (local config/gateway-side cleanup is handled by aimail CLI)")
     return rc
 
 
 def _uninstall_hermes_profiles(hermes_dir: str, system_id: str) -> None:
-    """撤销各 profile(含根)的 aimail 状态:pointer/skills/toolsets 条目/路由。"""
+    """Revoke aimail state for each profile (including root): pointer/skills/toolsets entries/routes."""
     targets = [hermes_dir]
     profiles_root = os.path.join(hermes_dir, "profiles")
     if os.path.isdir(profiles_root):
@@ -500,7 +500,7 @@ def _uninstall_hermes_profiles(hermes_dir: str, system_id: str) -> None:
         if os.path.isdir(sk):
             shutil.rmtree(sk, ignore_errors=True)
             _say(f"  ✓ removed skill {sk}")
-        # config.yaml:platform_toolsets 移除 agentmail 条目(终态单名)
+        # config.yaml:platform_toolsets remove agentmail entry (final state single name)
         cfg = os.path.join(prof, "config.yaml")
         if os.path.isfile(cfg):
             try:
@@ -511,9 +511,9 @@ def _uninstall_hermes_profiles(hermes_dir: str, system_id: str) -> None:
                     with open(cfg, "w") as f:
                         f.write(new)
                     _say(f"  ✓ config toolset cleaned {cfg}")
-            except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py 失败路径 raise SystemExit
+            except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py failure path raises SystemExit
                 _say(f"  ⚠ config.yaml clean failed: {e}")
-        # webhook 订阅路由(aimail-inbound,终态单名)
+        # webhook subscription routing (aimail-inbound, final state single name)
         subs = os.path.join(prof, "webhook_subscriptions.json")
         if os.path.isfile(subs):
             try:
@@ -527,27 +527,27 @@ def _uninstall_hermes_profiles(hermes_dir: str, system_id: str) -> None:
                     with open(subs, "w") as f:
                         json.dump(data, f, indent=2, ensure_ascii=False)
                     _say(f"  ✓ webhook route removed {subs}")
-            except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py 失败路径 raise SystemExit
+            except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py failure path raises SystemExit
                 _say(f"  ⚠ webhook_subscriptions clean failed: {e}")
 
 
 def uninstall_deerflow(backend_dir: str, system_id: str = "") -> int:
-    """DeerFlow SDK 卸载:还原 app.py patch + 删运行时 bundle。
-    参数为仓根或 backend(归一在 SDK 内)。
+    """DeerFlow SDK uninstall: restore app.py patch + delete runtime bundle.
+    Parameter is repo root or backend (normalized within SDK).
 
-    system_id: 由注册表驱动调用传入。registry 的 sdk_uninstall 步按
-    `fn(home, sid)` 位置调用(见 cli/aimail `_sdk_uninstall`),与
-    `uninstall_hermes(hermes_dir, system_id="")` 对齐;本函数不消费它
-    (deer-flow 的运行时产物都落在 backend 目录下,不按 sid 分)。F9 2026-09-25:
-    原签名只收 1 个位置参数 ⇒ `aimail uninstall` 在 deerflow 上抛 TypeError,
-    网关侧注销整段被跳过、夹具零残留门禁判红。"""
+    system_id: passed in by registry-driven call. registry's sdk_uninstall step calls by
+    `fn(home, sid)` position (see cli/aimail `_sdk_uninstall`), aligned with
+    `uninstall_hermes(hermes_dir, system_id="")`; this function does not consume it
+    (deer-flow runtime artifacts all land in backend directory, not partitioned by sid). F9 2026-09-25:
+    The original signature took only 1 positional argument ⇒ `aimail uninstall` raised TypeError on deerflow,
+    gateway-side deregistration entire segment was skipped, fixture zero-residue gate judged red."""
     backend_dir = _deerflow_backend(backend_dir)
     md = _import_deerflow("manage")
     rc = 0
-    # 先还原 app.py(否则删 bundle 后宿主重启 import 失败——AUDIT-1 P1-4)
+    # First restore app.py (otherwise after deleting bundle, host restart import fails — AUDIT-1 P1-4)
     try:
         md.unpatch_backend_app(backend_dir)
-    except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py 失败路径 raise SystemExit
+    except (Exception, SystemExit) as e:  # noqa: BLE001 — manage.py failure path raises SystemExit
         _say(f"  ✗ app.py unpatch failed: {e}")
         rc = 1
     bundle_dir = os.path.join(backend_dir, "routers", "aimail")
@@ -579,27 +579,27 @@ def _cmd_register_profiles(env) -> int:
 def main(argv: list | None = None) -> int:
     ap = argparse.ArgumentParser(prog="aimail.install", description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    # --type 值域从 hosts 注册表派生(单真源):python 宿主 + dsh(接受后响亮报错,
-    # 保持 CLI 面参数一致;dsh 装配归 tssdk 包)。
-    p_ins = sub.add_parser("install", help="安装(幂等)")
+    # --type value domain derived from hosts registry (single source of truth): python host + dsh (accept then loud error,
+    # keep CLI surface parameter consistent; dsh assembly belongs to tssdk package).
+    p_ins = sub.add_parser("install", help="Install (idempotent)")
     p_ins.add_argument("--type", choices=list(PYTHON_HOST_IDS) + list(INSTALL_NODE_CHOICES), required=True)
-    p_ins.add_argument("--home", default="", help="宿主根:hermes=~/.hermes;deerflow=backend 目录;dsh=DSH home")
+    p_ins.add_argument("--home", default="", help="Host root: hermes=~/.hermes; deerflow=backend directory; dsh=DSH home")
     p_ins.add_argument("--system-id", default="")
     p_ins.add_argument("--manager", default="")
     p_ins.set_defaults(fn=_run_install)
 
-    p_uni = sub.add_parser("uninstall", help="卸载(撤销自身 patch)")
+    p_uni = sub.add_parser("uninstall", help="Uninstall (undo own patch)")
     p_uni.add_argument("--type", choices=list(PYTHON_HOST_IDS), required=True)
     p_uni.add_argument("--home", default="")
     p_uni.add_argument("--system-id", default="")
     p_uni.set_defaults(fn=_run_uninstall)
 
-    p_chk = sub.add_parser("check-env", help="环境自检")
+    p_chk = sub.add_parser("check-env", help="Environment self-check")
     p_chk.add_argument("--type", choices=list(PYTHON_HOST_IDS), required=True)
     p_chk.add_argument("--home", default="")
     p_chk.set_defaults(fn=_run_check)
 
-    p_rp = sub.add_parser("register-profiles", help="(内部)Hermes profile 注册")
+    p_rp = sub.add_parser("register-profiles", help="(internal) Hermes profile registration")
     p_rp.add_argument("--home", default="")
     p_rp.add_argument("--system-id", default="")
     p_rp.set_defaults(fn=_run_regprof)
@@ -611,13 +611,13 @@ def main(argv: list | None = None) -> int:
 def _run_install(args) -> int:
     home = args.home or os.environ.get("AIMAIL_SYSTEM_HOME", "")
     if not home:
-        _say("✗ install 需要 --home(宿主根目录)")
+        _say("✗ install requires --home (the host root dir)")
         return 1
-    # 支持集 = 注册表键(单真源);不在集内 ⇒ 响亮报错(node 宿主装配归 tssdk 包)。
+    # Supported set = registry keys (single source of truth); not in set ⇒ loud error (node host assembly belongs to tssdk package).
     if _HOSTS.get_host(args.type) is None:
         _say(
-            f"✗ {args.type}: python 侧只装配 {', '.join(PYTHON_HOST_IDS)}"
-            "(node 宿主由 tssdk 包 agent-aimail 装配)"
+            f"✗ {args.type}: python side only assembles {', '.join(PYTHON_HOST_IDS)}"
+            "(node host assembled by tssdk package agent-aimail)"
         )
         return 1
     if args.type == "hermes":
@@ -628,7 +628,7 @@ def _run_install(args) -> int:
 def _run_uninstall(args) -> int:
     home = args.home or os.environ.get("AIMAIL_SYSTEM_HOME", "")
     if not home:
-        _say("✗ uninstall 需要 --home")
+        _say("✗ uninstall requires --home")
         return 1
     if args.type == "hermes":
         return uninstall_hermes(home, args.system_id)
@@ -638,7 +638,7 @@ def _run_uninstall(args) -> int:
 def _run_check(args) -> int:
     home = args.home or os.environ.get("AIMAIL_SYSTEM_HOME", "")
     if not home:
-        _say("✗ check-env 需要 --home")
+        _say("✗ check-env requires --home")
         return 1
     if args.type == "hermes":
         return env_check_hermes(home)

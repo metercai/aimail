@@ -1,24 +1,24 @@
-//! check 引擎的记录模型与输出（`cli/check_status.py:131-171` 的复刻）。
+//! Record model and output of the check engine (replica of `cli/check_status.py:131-171`).
 //!
-//! 下游（`repair`、`--json` 消费者）依赖的形状：
+//! Shape relied upon by downstream (`repair`, `--json` consumers):
 //!
 //! ```text
-//! 记录 = {"level","check","pass","detail","fix"}   ← 键集合精确、pass 必须是 bool
-//! JSON = {"all_pass": bool, "timestamp": ISO8601Z, "checks": [记录…]}
+//! record = {"level","check","pass","detail","fix"}   ← exact key set, pass must be bool
+//! JSON = {"all_pass": bool, "timestamp": ISO8601Z, "checks": [records...]}
 //! ```
 //!
-//! 文本输出按**固定分组顺序**渲染（分组表见 [`GROUPS`]），空分组不打印；
-//! 失败项在 `--verbose` 下追加 `→ fix` 行。
+//! Text output is rendered in **fixed group order** (see [`GROUPS`] for group table); empty groups are not printed;
+//! Failed items append a `→ fix` line under `--verbose`.
 //!
-//! 纪律：本模块只提供"装记录 + 渲染"。各层探针在各自步骤接入；
-//! **`check` 子命令在 L0–L4 全部落完之前保持 not-ported**（半个 check =
-//! 漏判级别 ⇒ 假绿，是安全类命令里最危险的失败模式）。
+//! Discipline: this module only provides "record assembly + rendering". Each layer's probes hook in at their respective steps;
+//! **The `check` subcommand remains not-ported until all of L0–L4 are implemented** (half a check =
+//! missing level ⇒ false green, the most dangerous failure mode in safety-critical commands).
 
 use crate::core::style::{BROWN, CHECK, CROSS, GREEN, NC, RED, YELLOW};
 use crate::core::time;
 use serde_json::{json, Map, Value};
 
-/// `(level, 分组标题)` —— 顺序即文本输出的分组顺序（`check_status.py:146-155`）。
+/// `(level, group title)` —— order is the grouping order for text output (`check_status.py:146-155`).
 pub const GROUPS: &[(&str, &str)] = &[
     ("system", "system (check scope)"),
     ("config", "config (config files: gateway/bridge/agent)"),
@@ -33,7 +33,7 @@ pub const GROUPS: &[(&str, &str)] = &[
     ("profile", "agent-profile (agent entity)"),
 ];
 
-/// 一条检查记录。
+/// A single check record.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Record {
     pub level: String,
@@ -43,7 +43,7 @@ pub struct Record {
     pub fix: String,
 }
 
-/// 检查集合。
+/// Check collection.
 #[derive(Debug, Default, Clone)]
 pub struct Check {
     pub checks: Vec<Record>,
@@ -69,7 +69,7 @@ impl Check {
         self.checks.iter().all(|c| c.pass)
     }
 
-    /// 文本视图（分组、颜色、可选 fix 行）。
+    /// Text view (groups, colors, optional fix lines).
     pub fn print_table(&self) {
         for (level, title) in GROUPS {
             let items: Vec<&Record> = self.checks.iter().filter(|c| c.level == *level).collect();
@@ -91,12 +91,12 @@ impl Check {
         }
     }
 
-    /// JSON 视图（`all_pass` / `timestamp` / `checks`，2 空格缩进，非 ASCII 不转义）。
+    /// JSON view (`all_pass` / `timestamp` / `checks`, 2-space indent, non-ASCII not escaped).
     pub fn print_json(&self) {
         println!("{}", self.json_string());
     }
 
-    /// 便于测试与复用的 JSON 文本。
+    /// JSON text for testing and reuse.
     pub fn json_string(&self) -> String {
         let mut root = Map::new();
         root.insert("all_pass".into(), Value::Bool(self.all_pass()));
@@ -129,7 +129,7 @@ mod tests {
 
     #[test]
     fn record_shape_matches_the_pinned_contract() {
-        // 对应 Python tests/test_check_contract.py:test_check_record_shape
+        // Corresponds to Python tests/test_check_contract.py:test_check_record_shape
         let mut c = Check::new();
         c.add("config", "system_home", true, "/home/.hermes", "");
         c.add("agent", "hook", false, "404", "reinstall plugin");
@@ -141,7 +141,7 @@ mod tests {
 
     #[test]
     fn json_view_has_the_three_root_keys_and_record_keys() {
-        // 对应 test_check_json_output
+        // Corresponds to test_check_json_output
         let mut c = Check::new();
         c.add("bridge", "process", false, "not running", "start_bridge");
         let data: Value = serde_json::from_str(&c.json_string()).expect("valid json");
@@ -152,7 +152,7 @@ mod tests {
         assert_eq!(rec.get("check").and_then(Value::as_str), Some("process"));
         assert_eq!(rec.get("pass").and_then(Value::as_bool), Some(false));
         assert_eq!(rec.get("fix").and_then(Value::as_str), Some("start_bridge"));
-        // 键集合精确（多一个键都会破坏下游）
+        // Exact key set (one extra key breaks downstream)
         let keys: Vec<&str> = rec
             .as_object()
             .unwrap()
@@ -164,13 +164,13 @@ mod tests {
 
     #[test]
     fn every_production_level_has_a_group() {
-        // 对应 test_known_levels_printable：生产用到的 level 都必须落在分组表里
+        // Corresponds to test_known_levels_printable: all levels used in production must be in the group table
         for lvl in [
             "system", "config", "gateway", "bridge", "runtime", "agent", "agent-gw", "profile",
         ] {
             assert!(
                 GROUPS.iter().any(|(l, _)| *l == lvl),
-                "level {lvl} 没有分组 ⇒ 文本视图会漏印"
+                "level {lvl} has no group ⇒ text view will miss printing"
             );
         }
     }

@@ -1,11 +1,11 @@
-// 契约 v1.0 §4.1(2) 回归钉子（owner 2026-10-11 裁定：node 侧一律 node_entry）：
-// 独立入口 `dist/register-cli.js` 的 stdout 必须**恰一行 JSON**。
+// Contract v1.0 §4.1(2) regression nail (owner 2026-10-11 ruling: node side uniformly node_entry):
+// Independent entry `dist/register-cli.js` stdout must be **exactly one line JSON**.
 //
-// 与 op-stdout-clean.test.ts 的关系：那条钉子保证"若经宿主 register(api) 派发也不得
-// console.log"；本条钉子保证独立入口**根本不加载宿主插件**时信封依旧成立，并覆盖
-// usage/call 两类错误的 exit 码与形状（与 python 门、dsh/pi 入口同形）。
+// Relationship with op-stdout-clean.test.ts: that nail guarantees "if dispatched via host register(api) also must not
+// console.log"; this nail guarantees independent entry **does not load host plugin at all** envelope still holds, and covers
+// usage/call two types of errors exit code and shape (same shape as python gate, dsh/pi entry).
 //
-// main() 被导出 ⇒ 无需在测试进程里 process.exit（入口自跑由 argv[1] 尾名守卫）。
+// main() is exported ⇒ no need for process.exit in test process (entry self-run guarded by argv[1] tail name).
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 
 import { main } from '../../src/openclaw/register-cli.js'
@@ -27,11 +27,11 @@ function capture(): Captured {
 
 function envelope(c: Captured): { lines: string[]; json: Record<string, unknown> } {
   const lines = c.out.join('').split('\n').filter((l) => l.length > 0)
-  expect(lines).toHaveLength(1) // 恰一行 ⇒ 无宿主生命周期诊断混入 stdout
+  expect(lines).toHaveLength(1) // Exactly one line ⇒ no host lifecycle diagnostics mixed into stdout
   return { lines, json: JSON.parse(lines[0]!) as Record<string, unknown> }
 }
 
-describe('openclaw-aimail register-cli (node_entry, 契约 §4.1(2))', () => {
+describe('openclaw-aimail register-cli (node_entry, contract §4.1(2))', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
   })
@@ -39,7 +39,7 @@ describe('openclaw-aimail register-cli (node_entry, 契约 §4.1(2))', () => {
     vi.restoreAllMocks()
   })
 
-  it('缺 --op ⇒ usage 信封 + exit 2', async () => {
+  it('missing --op ⇒ usage envelope + exit 2', async () => {
     const c = capture()
     const rc = await main([])
     const { json } = envelope(c)
@@ -49,7 +49,7 @@ describe('openclaw-aimail register-cli (node_entry, 契约 §4.1(2))', () => {
     expect(String(json['error'])).toContain('--op')
   })
 
-  it('未知 op ⇒ usage 信封 + exit 2（列出期望集合）', async () => {
+  it('unknown op ⇒ usage envelope + exit 2 (listing expected set)', async () => {
     const c = capture()
     const rc = await main(['--op', 'bogus', '--args', '{}'])
     const { json } = envelope(c)
@@ -59,7 +59,7 @@ describe('openclaw-aimail register-cli (node_entry, 契约 §4.1(2))', () => {
     expect(String(json['error'])).toContain('prompt-test')
   })
 
-  it('--args 非 JSON 对象 ⇒ usage 信封 + exit 2', async () => {
+  it('--args not a JSON object ⇒ usage envelope + exit 2', async () => {
     const c = capture()
     const rc = await main(['--op', 'assemble', '--args', 'not-json'])
     const { json } = envelope(c)
@@ -68,7 +68,7 @@ describe('openclaw-aimail register-cli (node_entry, 契约 §4.1(2))', () => {
     expect(String(json['error'])).toContain('not valid JSON')
   })
 
-  it('assemble 缺 system_id ⇒ 门内 UsageError 冒泡为 usage 信封 + exit 2（无网络）', async () => {
+  it('assemble missing system_id ⇒ UsageError inside gate bubbles up as usage envelope + exit 2 (no network)', async () => {
     const c = capture()
     const rc = await main(['--op', 'assemble', '--args', '{}'])
     const { json } = envelope(c)
@@ -76,7 +76,7 @@ describe('openclaw-aimail register-cli (node_entry, 契约 §4.1(2))', () => {
     expect(json['kind']).toBe('usage')
     expect(json['exc']).toBe('UsageError')
     expect(String(json['error'])).toContain('system_id')
-    // 诊断允许走 stderr（契约只约束 stdout）
+    // Diagnostics are allowed on stderr (contract only constrains stdout)
     expect(c.err.join('')).toContain('register-cli: assemble failed')
   })
 })

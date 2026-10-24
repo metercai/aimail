@@ -1,14 +1,14 @@
 #![cfg(unix)]
-// 整文件 unix 语义(stub 可执行位 / sh 驱动 / symlink), windows 分支(W2)落地后重开。
-//! P2 切片3a 离线验收：桥二进制就位（`core::bridge_deploy`）。
+// the whole file is unix semantics (stub executable bit / sh-driven / symlink); reopen after the windows branch (W2) lands.
+//! P2 slice 3a offline acceptance: the bridge binary in place (`core::bridge_deploy`).
 //!
-//! 判据（逐条对齐 `deploy_bridge._ensure_binary`/`latest_bridge_zip`/`_version_key`）：
-//! 版本**语义**比较（v1.10.0 > v1.2.3 > v1.2，不是字典序）· 架构后缀筛选 · 顶层
-//! `aimail-bridge*` 文件解出并改名成裸名 + 可执行位 · **幂等**（已就位则完全不动 zip）·
-//! 无 zip ⇒ false + 告警（不静默）。
+//! Criteria (aligned item by item with `deploy_bridge._ensure_binary`/`latest_bridge_zip`/`_version_key`):
+//! version **semantic** comparison (v1.10.0 > v1.2.3 > v1.2, not lexicographic) · architecture suffix filtering · the top-level
+//! `aimail-bridge*` file is extracted and renamed to the bare name + executable bit · **idempotent** (when already in place, the zip is not touched at all) ·
+//! no zip => false + warning (not silent).
 //!
-//! 与 Python 的差异（刻意改进，语义不变）：Rust 内置 zip 解压，**不再需要宿主有 `unzip`**
-//! （Python 的双通道正是为"容器无 unzip"存在的）。
+//! The difference from Python (a deliberate improvement, semantics unchanged): Rust has built-in zip extraction, **the host no longer needs `unzip`**
+//! (Python's dual channel exists precisely for "containers without unzip").
 
 use std::io::Write;
 use std::path::Path;
@@ -30,7 +30,7 @@ fn make_zip(path: &Path, entry: &str, content: &str, mode: u32) {
 
 #[test]
 fn version_key_arch_pick_and_idempotent_extract() {
-    // 1) 版本键（`-vX.Y[.Z]`），非法名 → (0,0,0)
+    // 1) the version key (`-vX.Y[.Z]`); an invalid name -> (0,0,0)
     assert_eq!(
         version_key("aimail-bridge-v1.2.3-linux-amd64.zip"),
         (1, 2, 3)
@@ -44,7 +44,7 @@ fn version_key_arch_pick_and_idempotent_extract() {
     std::fs::create_dir_all(&zdir).unwrap();
     std::fs::create_dir_all(root.join("ahome")).unwrap();
 
-    // 2) 取最新：语义版本优先（v1.10.0 胜过 v1.2.3），且架构后缀必须匹配
+    // 2) take the newest: semantic version wins (v1.10.0 beats v1.2.3), and the architecture suffix must match
     make_zip(
         &zdir.join("aimail-bridge-v1.2.3-linux-amd64.zip"),
         "aimail-bridge-v1.2.3-amd64",
@@ -75,16 +75,16 @@ fn version_key_arch_pick_and_idempotent_extract() {
         "{picked}"
     );
 
-    // 3) 就位：解出 → 裸名 + 0755
+    // 3) in place: extract -> bare name + 0755
     std::env::set_var("AIMAIL_PROG_DIR", &root);
     let bin_dir = tmp.path().join("bridge/bin");
     let bin = bin_dir.join("aimail-bridge");
-    assert!(ensure_binary(&bin, &bin_dir), "应从 zip 解出二进制");
+    assert!(ensure_binary(&bin, &bin_dir), "the binary should be extracted from the zip");
     assert!(is_executable(&bin));
     let body = std::fs::read_to_string(&bin).unwrap();
-    assert!(body.contains("v1.10.0"), "解出的应是选中的版本: {body}");
+    assert!(body.contains("v1.10.0"), "the extraction should be the selected version: {body}");
 
-    // 4) 幂等：换了 zip 内容也不重解（已就位 ⇒ 完全不动）
+    // 4) idempotent: even a changed zip content is not re-extracted (in place => not touched at all)
     make_zip(
         &zdir.join("aimail-bridge-v1.10.0-linux-amd64.zip"),
         "aimail-bridge-v1.10.0-amd64",
@@ -93,19 +93,19 @@ fn version_key_arch_pick_and_idempotent_extract() {
     );
     assert!(ensure_binary(&bin, &bin_dir));
     let body2 = std::fs::read_to_string(&bin).unwrap();
-    assert_eq!(body, body2, "已就位时不得重解/覆盖");
+    assert_eq!(body, body2, "when in place, no re-extraction/overwrite");
 
-    // 5) 无 zip ⇒ false（并告警），不静默成功
+    // 5) no zip => false (with a warning), no silent success
     let empty_root = tmp.path().join("prog-empty");
     std::fs::create_dir_all(empty_root.join("bridge")).unwrap();
     std::env::set_var("AIMAIL_PROG_DIR", &empty_root);
     let bin2 = tmp.path().join("bridge2/bin/aimail-bridge");
     assert!(!ensure_binary(&bin2, &tmp.path().join("bridge2/bin")));
-    assert!(!bin2.exists(), "取件失败时不得留半个文件");
+    assert!(!bin2.exists(), "no half-file may remain when fetching fails");
 }
 
-/// 合并语义 + **与 Python 逐字节等价**（期望文本取自 `deploy_bridge.write_bridge_config`
-/// 在同一场景下的真实输出，见 /tmp/py-bridge-cfg.sh）。
+/// Merge semantics + **byte-for-byte equivalent to Python** (the expected text comes from `deploy_bridge.write_bridge_config`
+/// in the same scenario; see /tmp/py-bridge-cfg.sh).
 #[test]
 fn write_bridge_config_merges_and_matches_python_bytes() {
     let tmp = tempfile::tempdir().unwrap();
@@ -118,7 +118,7 @@ fn write_bridge_config_merges_and_matches_python_bytes() {
         .to_string_lossy()
         .to_string();
 
-    // 预置：s2 在册 + s1 的旧条目（旧的 api_key 应被新值覆盖）
+    // preset: s2 registered + s1's old entry (the old api_key should be overwritten by the new value)
     let s2: toml::Value = "aimail_url = \"http://old2\"\nadmin_key = \"ak2\"\nsystem_id = \"s2\"\npoll_interval_sec = 2"
         .parse()
         .unwrap();
@@ -151,7 +151,7 @@ file = "__LOG__"
 level = "info"
 
 [pull]
-# 单 bridge 多系统:每系统一条,独立 key/system_id/dedup/backoff
+# Single bridge multi-system: one entry per system, independent key/system_id/dedup/backoff
 systems = [
   { aimail_url = "http://old2", admin_key = "ak2", system_id = "s2", poll_interval_sec = 2 },
   { aimail_url = "http://gw", admin_key = "AK", system_id = "s1", poll_interval_sec = 2, api_key = "K1", webhook_secret = "WH" }
@@ -163,20 +163,20 @@ fail_threshold = 6
 connect_timeout_sec = 3
 "#
     .replace("__LOG__", &log);
-    assert_eq!(got, want, "与 Python 的输出必须逐字节一致");
+    assert_eq!(got, want, "the output must be byte-for-byte identical to Python");
 
     use std::os::unix::fs::PermissionsExt;
     assert_eq!(
         std::fs::metadata(&cfg).unwrap().permissions().mode() & 0o777,
         0o600,
-        "凭据文件必须 0600"
+        "the credentials file must be 0600"
     );
 }
 
-/// 公告地址链（U2 tail）：接受形态 / 拒绝理由逐字 / bind 判定 / 可投递判定。
+/// The announced-address chain (U2 tail): accepted forms / rejection reasons verbatim / the bind verdict / the deliverability verdict.
 #[test]
 fn announced_address_chain_matches_python_rules() {
-    // 1) split_host_port：host:port / [v6]:port / [v6] / 裸 v6 / host
+    // 1) split_host_port: host:port / [v6]:port / [v6] / bare v6 / host
     assert_eq!(
         split_host_port("example.com:38081"),
         ("example.com".into(), "38081".into())
@@ -198,14 +198,14 @@ fn announced_address_chain_matches_python_rules() {
         ("example.com".into(), "".into())
     );
 
-    // 2) normalize_announced：裸 host 补默认端口；IPv6 加方括号；https 带 note；URL 去 scheme
+    // 2) normalize_announced: a bare host gets the default port; IPv6 gets brackets; https carries a note; a URL drops its scheme
     assert_eq!(
         normalize_announced("bridge.example.com", 38081).0,
         "bridge.example.com:38081"
     );
     assert_eq!(
         normalize_announced("2001:db8::1:38081", 38081).0,
-        "[2001:db8::1:38081]:38081" // 裸 v6+端口有歧义 ⇒ 整体当 host（与 Python 同）
+        "[2001:db8::1:38081]:38081" // a bare v6+port is ambiguous => treat the whole thing as the host (same as Python)
     );
     assert_eq!(
         normalize_announced("2001:db8::1", 38081).0,
@@ -219,7 +219,7 @@ fn announced_address_chain_matches_python_rules() {
         "bridge.example.com:9000"
     );
 
-    // 3) 拒绝形态（理由逐字，绝不静默）
+    // 3) rejected forms (the reason verbatim, never silent)
     assert_eq!(normalize_announced("", 38081).1, "no address announced");
     assert!(normalize_announced("http://h/x/../p", 38081)
         .1
@@ -235,7 +235,7 @@ fn announced_address_chain_matches_python_rules() {
         "'h:99999' carries an invalid port '99999'"
     );
 
-    // 4) announced_url / format_webhook_host（路径走本仓 mirror 常量，不写字面量）
+    // 4) announced_url / format_webhook_host (the path goes through this repo's mirror constant, no literal)
     assert_eq!(
         announced_url("bridge.example.com:38081"),
         format!(
@@ -246,7 +246,7 @@ fn announced_address_chain_matches_python_rules() {
     assert_eq!(format_webhook_host("203.0.113.9"), "203.0.113.9:38081");
     assert_eq!(format_webhook_host("2001:db8::1"), "[2001:db8::1]:38081");
 
-    // 5) judge_deliverable：绝对 http(s) 才可投递；裸 host:port / 通配 / 空 都拒
+    // 5) judge_deliverable: only an absolute http(s) is deliverable; bare host:port / wildcard / empty are all rejected
     let good = format!(
         "http://bridge.example.com:38081{}",
         aimail::core::bridge_deploy::BRIDGE_ANNOUNCE_PATH
@@ -260,7 +260,7 @@ fn announced_address_chain_matches_python_rules() {
         .1
         .contains("bind/unspecified"));
 
-    // 6) bind_address：IP 绑该地址；域名 → 0.0.0.0 + 端口并给出告警理由
+    // 6) bind_address: an IP binds that address; a domain -> 0.0.0.0 + port, with the warning reason given
     assert_eq!(
         bind_address("203.0.113.9:38081"),
         ("203.0.113.9:38081".into(), "".into())

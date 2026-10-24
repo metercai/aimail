@@ -1,12 +1,12 @@
 #![cfg(unix)]
-// 整文件 unix 语义(stub 可执行位 / sh 驱动 / symlink), windows 分支(W2)落地后重开。
-//! P2 切片3d/3e 离线验收：桥部署编排（`deploy`）与二进制升级（`upgrade_bridge`）。
+// the whole file is unix semantics (stub executable bit / sh-driven / symlink); reopen after the windows branch (W2) lands.
+//! P2 slice 3d/3e offline acceptance: bridge deployment orchestration (`deploy`) and binary upgrade (`upgrade_bridge`).
 //!
-//! 判据：
-//! ①`deploy`（pull 模式）—— 二进制就位 → **幂等复用**已有 bridge api_key（此路径**不打网关**）→
-//!   配置落地（含 api_key）→ 起桥成功；②缺 key 时才向网关 mint（断言 stub 收到
-//!   `POST /api/v1/admin/api-keys`）；③`upgrade_bridge` —— sha 不同 ⇒ 原子替换 + 重启 + 回报新 sha；
-//!   sha 相同 ⇒ no-op（"已是最新"）。全程 stub（网关/桥），不触网。
+//! Criteria:
+//! ① `deploy` (pull mode) — the binary is in place => **idempotent reuse** of the existing bridge api_key (this path **does not hit the gateway**) =>
+//!   the config lands (with the api_key) => the bridge starts; ② only when the key is missing does it mint from the gateway (assert the stub receives
+//!   `POST /api/v1/admin/api-keys`); ③ `upgrade_bridge` — different sha => atomic replacement + restart + report the new sha;
+//!   same sha => no-op ("already up to date"). The whole run uses stubs (gateway/bridge), no network.
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -16,7 +16,7 @@ use std::thread;
 
 use aimail::core::bridge_deploy::{deploy, upgrade_bridge, DeploySpec};
 
-/// 契约 stub 桥（与 tests/bridge_restart.rs 同源思路：守护进程就是自己）。
+/// The contract stub bridge (the same idea as tests/bridge_restart.rs: the daemon is itself).
 const STUB_BRIDGE: &str = r#"#!/usr/bin/env python3
 import sys, os, json, subprocess, time
 argv = sys.argv[1:]
@@ -64,7 +64,7 @@ fn make_zip(path: &Path, entry: &str, content: &str) {
     zw.finish().unwrap();
 }
 
-/// stub 网关：`POST /api/v1/admin/api-keys` → `{"raw_key": "minted-key"}`，并记录收到的请求。
+/// The stub gateway: `POST /api/v1/admin/api-keys` -> `{"raw_key": "minted-key"}`, and it records the requests it receives.
 fn stub_gateway() -> (u16, Receiver<String>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -139,7 +139,7 @@ fn spec(gw: &str) -> DeploySpec {
         admin_key: "ADMIN".to_string(),
         system_id: "s1".to_string(),
         domain: "example.test".to_string(),
-        webhook_mode_bridge: true, // pull：不进入公告链
+        webhook_mode_bridge: true, // pull: does not enter the announcement chain
         announce_arg: String::new(),
         cfg_webhook_host: String::new(),
     }
@@ -151,13 +151,13 @@ fn deploy_and_upgrade_e2e() {
     upgrade_replaces_binary_and_restarts_then_noops_when_sha_matches();
 }
 
-/// （同名移除 #[test]，作为上面顺序用例的第二段 —— 两段共用进程 env，串行避免竞态）
+/// (the #[test] of the same name was removed; it serves as the second leg of the ordered case above — the two legs share the process env, serialized to avoid a race)
 fn deploy_reuses_existing_key_without_calling_gateway_then_mints_when_missing() {
     let (_tmp, home) = fixture(STUB_BRIDGE);
     let (port, rx) = stub_gateway();
     let gw = format!("http://127.0.0.1:{}", port);
 
-    // ① 已有 key ⇒ 幂等复用，**不**打网关
+    // ① an existing key => idempotent reuse, **no** gateway call
     std::fs::write(
         home.join("bridge/aimail_bridge.toml"),
         format!(
@@ -166,21 +166,21 @@ fn deploy_reuses_existing_key_without_calling_gateway_then_mints_when_missing() 
         ),
     )
     .unwrap();
-    assert_eq!(deploy(&spec(&gw)), 0, "deploy 应成功");
+    assert_eq!(deploy(&spec(&gw)), 0, "deploy should succeed");
     let cfg = std::fs::read_to_string(home.join("bridge/aimail_bridge.toml")).unwrap();
     assert!(
         cfg.contains("api_key = \"existing-key\""),
-        "应复用既有 key: {cfg}"
+        "the existing key should be reused: {cfg}"
     );
     assert!(
         rx.recv_timeout(std::time::Duration::from_millis(400))
             .is_err(),
-        "复用路径不得调用网关"
+        "the reuse path must not call the gateway"
     );
     let pid = home.join("bridge/bridge.pid");
-    assert!(pid.exists(), "桥应已启动并写 pid");
+    assert!(pid.exists(), "the bridge should have started and written its pid");
 
-    // ② 无 key ⇒ 向网关 mint（断言收到 POST /api/v1/admin/api-keys），新 key 落配置
+    // ② no key => mint from the gateway (assert it receives POST /api/v1/admin/api-keys); the new key lands in the config
     std::fs::write(
         home.join("bridge/aimail_bridge.toml"),
         "schema_version = 1\nbind = \"127.0.0.1:38081\"\nmode = \"pull\"\n",
@@ -189,7 +189,7 @@ fn deploy_reuses_existing_key_without_calling_gateway_then_mints_when_missing() 
     assert_eq!(deploy(&spec(&gw)), 0);
     let req = rx
         .recv_timeout(std::time::Duration::from_secs(5))
-        .expect("缺 key 时应向网关 mint");
+        .expect("a missing key should mint from the gateway");
     assert_eq!(req, "POST /api/v1/admin/api-keys");
     let cfg2 = std::fs::read_to_string(home.join("bridge/aimail_bridge.toml")).unwrap();
     assert!(cfg2.contains("api_key = \"minted-key\""), "{cfg2}");
@@ -199,7 +199,7 @@ fn upgrade_replaces_binary_and_restarts_then_noops_when_sha_matches() {
     let (_tmp, home) = fixture("#!/bin/sh\necho OLD\n");
     let prog = std::env::var("AIMAIL_PROG_DIR").unwrap();
     let arch = aimail::core::bridge_deploy::arch_name();
-    // 新件：内容不同（sha 必不同）且是**契约 stub**（升级后要能重启成功）
+    // the new piece: different content (the sha must differ) and a **contract stub** (it must restart successfully after the upgrade)
     make_zip(
         &Path::new(&prog)
             .join("bridge")
@@ -208,14 +208,14 @@ fn upgrade_replaces_binary_and_restarts_then_noops_when_sha_matches() {
         STUB_BRIDGE,
     );
 
-    assert_eq!(upgrade_bridge(), 0, "升级应成功");
+    assert_eq!(upgrade_bridge(), 0, "the upgrade should succeed");
     let bin = std::fs::read_to_string(home.join("bridge/bin/aimail-bridge")).unwrap();
-    assert!(bin.contains("--serve"), "二进制应已替换为新件: {bin}");
+    assert!(bin.contains("--serve"), "the binary should have been replaced by the new piece: {bin}");
     assert!(
         home.join("bridge/bridge.pid").exists(),
-        "升级后应重启并写 pid"
+        "it should restart and write the pid after the upgrade"
     );
 
-    // 再升一次：sha 相同 ⇒ no-op
+    // upgrade again: same sha => no-op
     assert_eq!(upgrade_bridge(), 0);
 }

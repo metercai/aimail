@@ -1,11 +1,11 @@
-//! 程序根 / 主根解析 —— 与 Python 侧同语义的单点。
+//! Program root / main root resolution — single point with same semantics as Python side.
 //!
-//! Python 真源：`cli/runtime_core.py:161-171`（`program_root()` / `toolkit_dir()`）
-//! 与 `pysdk/aimail_base.aimail_home()`。Rust 侧不得在别处再拼 `~/.aimail/bin`。
+//! Python source of truth: `cli/runtime_core.py:161-171` (`program_root()` / `toolkit_dir()`)
+//! and `pysdk/aimail_base.aimail_home()`. Rust side must not assemble `~/.aimail/bin` elsewhere.
 //!
-//! 分层：
-//! - 主根（aimail_home）= `AIMAIL_HOME` 环境变量 > `~/.aimail`
-//! - 程序根（program_root）= `AIMAIL_PROG_DIR` 环境变量 > `<主根>/bin`
+//! Hierarchy:
+//! - Main root (aimail_home) = `AIMAIL_HOME` env var > `~/.aimail`
+//! - Program root (program_root) = `AIMAIL_PROG_DIR` environment variable > `<main_root>/bin`
 
 use std::path::PathBuf;
 
@@ -25,8 +25,8 @@ fn expand(path: &str) -> PathBuf {
     PathBuf::from(path)
 }
 
-/// 本机 aimail 主根：`AIMAIL_HOME` > `~/.aimail`。
-/// 绝对化但不解析符号链接（等价 Python `os.path.abspath`）。
+/// Local aimail main root: `AIMAIL_HOME` > `~/.aimail`.
+/// Absolute path but does not resolve symlinks (equivalent to Python `os.path.abspath`).
 pub fn abs_path(p: &std::path::Path) -> std::path::PathBuf {
     if p.is_absolute() {
         return p.to_path_buf();
@@ -43,7 +43,7 @@ pub fn aimail_home() -> PathBuf {
     }
 }
 
-/// 本机程序根：`AIMAIL_PROG_DIR` > `<主根>/bin`（bootstrap 的安装落点）。
+/// Local program root: `AIMAIL_PROG_DIR` > `<main_root>/bin` (bootstrap installation location).
 pub fn program_root() -> PathBuf {
     match env_nonempty("AIMAIL_PROG_DIR") {
         Some(v) => expand(&v),
@@ -51,11 +51,11 @@ pub fn program_root() -> PathBuf {
     }
 }
 
-/// 本机用户主目录（`HOME`）—— 平台根（`~/.hermes` 等）挂在它下面。
+/// Local user home directory (`HOME`) — platform root (`~/.hermes` etc.) hangs under it.
 ///
-/// 与 `aimail_home()` 的区别：主根是 **aimail 数据根**（`~/.aimail`），用户主目录是
-/// **平台根的父目录**（`stats` 的平台段扫描用）。`HOME` 缺失时退到主根的父目录，
-/// 保证不 panic、也不猜别的路径。
+/// Difference from `aimail_home()`: main root is the **aimail data root** (`~/.aimail`), user home directory is
+/// **the parent directory of the platform root** (used for `stats` platform segment scanning). If `HOME` is missing, falls back to the parent of the main root,
+/// ensuring no panic and no guessing of other paths.
 pub fn user_home() -> PathBuf {
     match env_nonempty("HOME") {
         Some(v) => expand(&v),
@@ -66,10 +66,10 @@ pub fn user_home() -> PathBuf {
     }
 }
 
-/// 发布形态：`dev`（仓内运行）| `bootstrapped`（已装进程序根）。
+/// Release form: `dev` (running in repo) | `bootstrapped` (installed into program root).
 ///
-/// Python 侧判据是「脚本目录是否在 toolkit_dir 之下」（`cli/aimail:772`）；
-/// Rust 是单文件二进制，等价判据 = 当前可执行文件是否落在程序根下。
+/// Python side criterion is "whether the script directory is under toolkit_dir" (`cli/aimail:772`);
+/// Rust is a single-file binary, equivalent criterion = whether the current executable is under the program root.
 pub fn release_mode() -> &'static str {
     let Ok(exe) = std::env::current_exe() else {
         return "dev";
@@ -81,7 +81,7 @@ pub fn release_mode() -> &'static str {
     }
 }
 
-/// `~` 展开（`Path.expanduser()` 的常用子集：`~` 与 `~/…`）。
+/// `~` expansion (common subset of `Path.expanduser()`: `~` and `~/…`).
 pub fn expand_user(s: &str) -> std::path::PathBuf {
     if let Some(rest) = s.strip_prefix("~/") {
         user_home().join(rest)
@@ -92,8 +92,8 @@ pub fn expand_user(s: &str) -> std::path::PathBuf {
     }
 }
 
-/// `runtime_core.system_home_from_sid`：从系统级配置反查 `system_home`（没有 ⇒ 空串，
-/// 由调用方按 `_fail` 处理）。
+/// `runtime_core.system_home_from_sid`: reverse lookup of `system_home` from system-level config (none ⇒ empty string,
+/// handled by caller as `_fail`).
 pub fn system_home_from_sid(sid: &str) -> String {
     crate::core::config::load_gateway_config(sid)
         .map(|c| c.system_home)

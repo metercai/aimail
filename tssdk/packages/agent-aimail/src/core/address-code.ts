@@ -6,7 +6,7 @@
  *
  *   apply-address (web) → activation code arrives by email
  *     → `activateAddressCode` (public endpoint; the code IS the credential)
- *     → `activateAddressCodePersist` (same + register-isomorphic落盘)
+ *     → `activateAddressCodePersist` (same + register-isomorphic persistence)
  *     → `startPolling` pulls its own mail (agent-scope key)
  *
  * The persist step writes the same files the register path produces
@@ -304,7 +304,7 @@ export interface StartPollingOptions {
 }
 
 /** Abortable interval sleep. The timer is unref'd so a polling loop can
- *  never be the handle that keeps a host process alive ("进程退出即停"):
+ *  never be the handle that keeps a host process alive ("stop on process exit"):
  *  the host's own listener/session remains the liveness owner. */
 function pollSleep(ms: number, signal?: AbortSignal): Promise<void> {
   if (signal?.aborted) return Promise.resolve()

@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# run-s1-local.sh — 场景 1（单 Agent 专属地址）**上线后本地回归**。
+# run-s1-local.sh — Scenario 1 (Single Agent Dedicated Address) **post-release local regression**.
 #
-# 为什么只在本地跑：aimail-advanced 闭源，不能进 GitHub Actions runner。
-# 因此场景 1 的发布后回归不进 L3 云矩阵，只在本机（linux）上用两个典型宿主
-# （hermes / dsh）跑真实用户链，每次从"获取激活码"开始。
+# Why only run locally: aimail-advanced is closed-source, cannot enter GitHub Actions runner.
+# Therefore, the post-release regression for scenario 1 does not enter the L3 cloud matrix; it only runs on the local machine (linux) using two typical hosts
+# (hermes / dsh) to execute real user chains, starting from "get activation code" each time.
 #
-# 与 runner 口径一致的部分：官方宿主安装形态、agent 自己的工具门、真实 apply 链。
-# 本地化处理：宿主用一份**干净快照**（从本机已有官方安装拷贝，源目录只读），
-#             不重复下载 3.6G 宿主树；网关是本地 advanced 真二进制（闭源）。
+# Parts consistent with the runner: official host installation form, the agent's own tool gate, and the real apply chain.
+# Localization: the host uses a **clean snapshot** (copied from an existing official installation on the local machine, source directory is read-only),
+#             Do not re-download the 3.6G host tree; the gateway is a local advanced real binary (closed-source).
 #
-# 用法：
-#   bash tests/l3/run-s1-local.sh --cli <已发布 CLI 资产路径> [--adv-bin <advanced>] \
+#      + email signature (agent_signature) is effective (whoami.rs:44-52, welcome approve UPSERT read-back point)
+#   bash tests/l3/run-s1-local.sh --cli <published CLI asset path> [--adv-bin <advanced>] \
 #        [--hosts "hermes dsh"] [--evidence /tmp/s1-local]
-# 退出码：0 全 PASS · 1 有 FAIL · 2 CANNOT JUDGE
+# Exit codes: 0 all PASS · 1 has FAIL · 2 CANNOT JUDGE
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
@@ -34,7 +34,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$CLI" ] || [ ! -x "$CLI" ]; then
-  echo "✗ 需要 --cli <已发布 CLI 资产路径>（上线后回归必须用发布资产，不用本机构建）" >&2
+  echo "✗ Requires --cli <published CLI asset path> (post-release regression must use published assets, not local build)" >&2
   exit 2
 fi
 if [ -z "$ADV_BIN" ]; then
@@ -44,12 +44,12 @@ if [ -z "$ADV_BIN" ]; then
   done
 fi
 if [ -z "$ADV_BIN" ] || [ ! -x "$ADV_BIN" ]; then
-  echo "✗ 找不到 aimail-advanced 二进制（--adv-bin）；闭源件只能本地" >&2
+  echo "✗ Cannot find aimail-advanced binary (--adv-bin); closed-source items only local" >&2
   exit 2
 fi
 
 echo "════════════════════════════════════════════════════════════"
-echo " 场景1 上线后回归（本地）"
+echo " Scenario 1 post-release regression (local)"
 echo "   CLI      : $CLI  ($( sha256sum "$CLI" | cut -c1-12 )…)"
 echo "   advanced : $ADV_BIN  ($( sha256sum "$ADV_BIN" | cut -c1-12 )…)"
 echo "   hosts    : $HOSTS"

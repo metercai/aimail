@@ -54,7 +54,7 @@ export interface MailService {
 }
 
 /** The local receive endpoint registered as this session's webhook_url.
- * 路径/端口契约常量唯一副本 = @aimail/mail-core(contract/aimail-contract.json)。 */
+ * Path/port contract constants single copy = @aimail/mail-core (contract/aimail-contract.json). */
 function inboundWebhookUrl(): string {
   const fromEnv = (process.env.AIMAIL_INBOUND_URL ?? '').trim()
   if (fromEnv) return fromEnv.replace(/\/+$/, '') + INBOUND_PATH

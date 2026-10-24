@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# _npmview.sh — 让门禁脚本区分两种"npm view 拿不到版本"的情形(审计 2026-09-21):
-#   · E404 / no match found  → 版本确实**未发布**(正常状态)
-#   · 其他错误(ETIMEDOUT/EAI_AGAIN/ENOTFOUND/权限…) → **查询失败**(硬失败, 必须报出来)
-# 原写法 `npm view … 2>/dev/null || true` 把两者都变成"空字符串" ⇒ 网络抖动被当成
-# "未发布", 根因丢失(历史上 E415/空包事故即此类)。
+# _npmview.sh — lets gate scripts distinguish the two "npm view cannot get the version" cases (audit 2026-09-21):
+#   · E404 / no match found  → the version is genuinely **not published** (normal state)
+#   · other errors (ETIMEDOUT/EAI_AGAIN/ENOTFOUND/permission…) → **query failed** (hard failure, must be reported)
+# The original `npm view … 2>/dev/null || true` collapsed both into an "empty string" ⇒ a network blip was treated
+# as "not published" and the root cause was lost (the historical E415/empty-package incident is exactly this class).
 #
-# 用法: npm_version <pkg> [<ver>]
-#   成功(已发布) → stdout 打印版本号, rc=0
-#   未发布       → stdout 空, rc=0
-#   查询失败     → stdout 空, rc=2(调用方须 exit 1 并打印原因)
+# Usage: npm_version <pkg> [<ver>]
+#   success (published) → prints the version on stdout, rc=0
+#   not published       → empty stdout, rc=0
+#   query failed        → empty stdout, rc=2 (the caller must exit 1 and print the reason)
 npm_version() {
   local pkg="$1" ver="${2:-}" spec out
   if [ -n "$ver" ]; then spec="$pkg@$ver"; else spec="$pkg"; fi
   if out=$(npm view "$spec" version --prefer-online 2>&1); then
-    # --prefer-online: 绕开 npm 本地缓存 —— 发布后立刻复核时缓存会让刚发布的版本
-    # 仍报 E404(2026-09-21 v0.1.12 实测: pi-aimail@0.1.12 已发布却查不到, 直连
-    # registry.npmjs.org 确认 dist-tags 已更新) ⇒ 门禁假红。
+    # --prefer-online: bypass the npm local cache — an immediate post-publish recheck against the cache would
+    # still report E404 for the just-published version (measured 2026-09-21 v0.1.12: pi-aimail@0.1.12 was published
+    # yet unqueryable; a direct registry.npmjs.org hit confirmed dist-tags already updated) ⇒ a false-red gate.
     printf '%s' "$out"; return 0
   fi
   if printf '%s' "$out" | grep -qiE 'E404|no match found|not found|could not be found'; then

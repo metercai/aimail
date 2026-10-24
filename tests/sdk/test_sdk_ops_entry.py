@@ -1,15 +1,15 @@
-"""SDK 侧可执行门 `aimail.sdk_ops` 的验收（SDK 域，2026-10-04 A′ 落地）。
+"""Acceptance of the SDK-side executable gate `aimail.sdk_ops` (SDK domain, 2026-10-04 A' landing).
 
-钉住三件事：
-1. **进程命令契约**（ABI）：stdout 恰一行 JSON、exit 0/1/2、用法错/import 错/调用抛异常三分档；
-2. **委派正确性**：每个 op 真的把参数送到了对应的 SDK 薄入口（monkeypatch 取证）。
-   注（契约 v1.0 §4.1, 2026-10-06）：`assemble`/`update`/`teardown` 为**自持动作 op**——
-   判定与编排在 SDK 内（向 TS `register-cli.js` 靠拢），但编排最终必须**委派到既有实现**，
-   不得复制逻辑；旧 op 保留可用（白名单期）。
-3. **stdout 不被污染**：SDK/依赖自身的打印一律进 stderr —— 否则调用方解析单行 JSON 会炸。
+J4e root cause (binary choice fixed = **(i) skip**, not wrong directory):
+1. **Process command contract** (ABI): stdout exactly one line of JSON, exit 0/1/2, three tiers for usage error/import error/call exception;
+2. **Delegation correctness**: each op actually sends parameters to the corresponding SDK thin entry (monkeypatch evidence).
+   Note (Contract v1.0 §4.1, 2026-10-06): `assemble`/`update`/`teardown` are **self-contained action ops**——
+   judgment and orchestration are within the SDK (aligning with TS `register-cli.js`), but orchestration must ultimately **delegate to existing implementations**,
+   must not copy logic; old ops remain available (whitelist period).
+3. **stdout is not polluted**: All prints from the SDK/dependencies themselves go to stderr — otherwise, the caller's parsing of single-line JSON will break.
 
-跑法：仓库形态直接 `python3 pysdk/sdk_ops.py <op> --args …`（模块自带双形态自举），
-以及 pip 形态 `python -m aimail.sdk_ops`（由 tests/sdk/release/l2-verify-wheel.sh 覆盖）。
+Usage: In repository form, run `python3 pysdk/sdk_ops.py <op> --args ...` (the module includes dual-form self-bootstrapping),
+and pip form `python -m aimail.sdk_ops` (covered by tests/sdk/release/l2-verify-wheel.sh).
 """
 from __future__ import annotations
 
@@ -21,12 +21,12 @@ from pathlib import Path
 
 import pytest
 
-from aimail_contract import BINDING_FILE, INBOUND_PATH  # noqa: E402 — 契约单源: 禁字面量(撞棘轮)
+from aimail_contract import BINDING_FILE, INBOUND_PATH  # noqa: E402 — contract single source: no literals (ratchet collision)
 
 REPO = Path(__file__).resolve().parent.parent.parent
 SDK_OPS = REPO / "pysdk" / "sdk_ops.py"
 
-# manager 相关 env：清掉才能验 P1 硬门（不吃环境兜底）
+# manager related env: clear to verify P1 hard gate (no environment fallback)
 _MGR_ENV_KEYS = (
     "AIMAIL_MANAGER_ADDRESS",
     "MANAGER_ADDRESS",
@@ -56,7 +56,7 @@ def _run(tmp_path: Path, *argv: str, cwd: Path | None = None, env: dict | None =
 
 def _envelope(proc) -> dict:
     lines = [l for l in proc.stdout.splitlines() if l.strip()]
-    assert len(lines) == 1, f"stdout 必须恰一行 JSON，实得 {len(lines)} 行: {proc.stdout!r}"
+    assert len(lines) == 1, f"stdout must be exactly one line of JSON, got {len(lines)} lines: {proc.stdout!r}"
     return json.loads(lines[0])
 
 
@@ -68,7 +68,7 @@ def test_iter_bindings_ok_is_one_line_json(tmp_path):
 
 
 def test_help_exits_0(tmp_path):
-    """`--help` 必须 exit 0（argparse 的 0 被 `or` 吞成默认码是实测踩过的坑）。"""
+    """`--help` must exit 0 (argparse's 0 being swallowed by `or` into default code is a pitfall actually stepped in)."""
     proc = _run(tmp_path, "--help")
     assert proc.returncode == 0, proc.stderr
     assert "usage:" in (proc.stdout + proc.stderr)
@@ -77,7 +77,7 @@ def test_help_exits_0(tmp_path):
 def test_unknown_op_exits_2_without_stdout_json(tmp_path):
     proc = _run(tmp_path, "nope", "--args", "{}")
     assert proc.returncode == 2
-    assert proc.stdout.strip() == ""  # argparse 的用法走 stderr
+    assert proc.stdout.strip() == ""  # argparse usage goes to stderr
     assert "invalid choice" in proc.stderr
 
 
@@ -97,7 +97,7 @@ def test_missing_required_arg_is_usage_error(tmp_path):
 
 
 def test_import_failure_reports_kind_import(tmp_path):
-    """把门拷到隔离目录 ⇒ `import aimail_base` 找不到 ⇒ kind=import、exit 1（不是 traceback）。"""
+    """Copy gate to isolated dir ⇒ `import aimail_base` not found ⇒ kind=import, exit 1 (not traceback)."""
     isolated = tmp_path / "isolated"
     isolated.mkdir()
     (isolated / "sdk_ops.py").write_text(SDK_OPS.read_text(encoding="utf-8"), encoding="utf-8")
@@ -118,7 +118,7 @@ def test_import_failure_reports_kind_import(tmp_path):
 
 
 def test_manager_hard_gate_survives_the_entry(tmp_path):
-    """P1 硬门不被门糊掉：缺 manager ⇒ SDK 抛 ManagerRequiredError ⇒ kind=call 且 exc 保留。"""
+    """P1 hard gate not obscured by gate: missing manager ⇒ SDK raises ManagerRequiredError ⇒ kind=call and exc preserved."""
     proc = _run(
         tmp_path,
         "register_agent_email",
@@ -138,7 +138,7 @@ def test_manager_hard_gate_survives_the_entry(tmp_path):
 
 
 def test_sdk_prints_do_not_pollute_stdout(tmp_path):
-    """SDK 自身打印必须进 stderr —— 否则「恰一行 JSON」的契约不成立。"""
+    """SDK's own prints must go to stderr — otherwise the 'exactly one line of JSON' contract is violated."""
     wrapper = tmp_path / "wrap.py"
     wrapper.write_text(
         "import sys, sdk_ops, aimail_base\n"
@@ -157,12 +157,12 @@ def test_sdk_prints_do_not_pollute_stdout(tmp_path):
         timeout=60,
     )
     assert proc.returncode == 0, proc.stderr
-    env_obj = _envelope(proc)  # 单行断言在 _envelope 里
+    env_obj = _envelope(proc)  # single-line assertion in _envelope
     assert env_obj["ok"] is True
     assert "NOISE-FROM-SDK" in proc.stderr
 
 
-# ── 委派正确性（in-process，monkeypatch 取证：参数真的送到 SDK 薄入口）──────────
+# ── Delegation correctness (in-process, monkeypatch forensics: parameters really sent to SDK thin entry)──────────
 
 
 @pytest.fixture()
@@ -259,7 +259,7 @@ def test_backfill_binding_returns_path_string(sdk):
     assert calls["backfill_binding"][0] == (binding, "s1")
 
 
-# ── 契约 v1.0 §4.1：自持动作 op 的最小用例（SDK 域）─────────────────────────
+# ── Contract v1.0 §4.1: minimal cases for self-contained action ops (SDK domain)─────────────────────────
 CONVERGED_OPS = ("assemble", "update", "teardown")
 
 
@@ -271,7 +271,7 @@ def _door_env(tmp_path: Path) -> dict:
 
 
 def test_converged_ops_registered(tmp_path):
-    """三个自持 op 必须在门内注册，且旧 op 仍保留（白名单期不破坏既有调用）。"""
+    """Three self-contained ops must be registered within the gate, and old ops remain (whitelist period does not break existing calls)."""
     r = subprocess.run([sys.executable, str(SDK_OPS), "version"],
                        capture_output=True, text=True, env=_door_env(tmp_path))
     assert r.returncode == 0, r.stderr
@@ -283,7 +283,7 @@ def test_converged_ops_registered(tmp_path):
 
 
 def test_converged_ops_fail_loudly_on_missing_args(tmp_path):
-    """缺参必须响亮失败（exit 2 / ok:false / kind:usage），不得静默成分默认值。"""
+    """Missing params must fail loudly (exit 2 / ok:false / kind:usage), no silent default values."""
     for op in ("assemble", "update"):
         r = subprocess.run([sys.executable, str(SDK_OPS), op, "--args", "{}"],
                            capture_output=True, text=True, env=_door_env(tmp_path))
@@ -293,7 +293,7 @@ def test_converged_ops_fail_loudly_on_missing_args(tmp_path):
 
 
 def test_teardown_requires_target_when_acting(tmp_path):
-    """teardown 有动作但缺目标 ⇒ 响亮失败（rc=2/usage），不得静默当成功。"""
+    """teardown has action but missing target ⇒ fail loudly (rc=2/usage), no silent success."""
     r = subprocess.run([sys.executable, str(SDK_OPS), "teardown", "--args", "{}"],
                        capture_output=True, text=True, env=_door_env(tmp_path))
     assert r.returncode == 2, f"rc={r.returncode} stderr={r.stderr[:200]}"
@@ -302,7 +302,7 @@ def test_teardown_requires_target_when_acting(tmp_path):
 
 
 def test_teardown_noop_when_all_modes_off(tmp_path):
-    """显式关闭全部动作 ⇒ 幂等返回 ok:true + actions:[]。"""
+    """Explicitly close all actions ⇒ idempotent return ok:true + actions:[]."""
     args = json.dumps({"mode": {"unregister": False, "whitelist": False}})
     r = subprocess.run([sys.executable, str(SDK_OPS), "teardown", "--args", args],
                        capture_output=True, text=True, env=_door_env(tmp_path))

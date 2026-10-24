@@ -1,12 +1,12 @@
 #![cfg(unix)]
-// 整文件 unix 语义(stub 可执行位 / sh 驱动 / symlink), windows 分支(W2)落地后重开。
-//! 平台注册执行器（`core::register`）的离线验收。
+// the whole file is unix semantics (stub executable bit / sh-driven / symlink); reopen after the windows branch (W2) lands.
+//! Offline acceptance of the platform registration executor (`core::register`).
 //!
-//! 判据：模板填充后的**真实 argv**（`--name/--system-id/--manager`）、
-//! 三条必须响亮失败的路径（缺 manager 硬门 / 定名非法 / 平台包缺失），
-//! 全程离线（stub `node` + 夹具平台根，不触网、不碰真机）。
+//! Criteria: the **real argv** after template filling (`--name/--system-id/--manager`),
+//! the three paths that must fail loudly (the missing-manager hard gate / an illegal name / a missing platform package),
+//! fully offline (a stub `node` + a fixture platform root; no network, no real machine).
 //!
-//! 放在同一个测试函数里跑：PATH / env 是进程级的，拆开会互相干扰。
+//! Run inside a single test function: PATH / env are process-level, and splitting them apart would cause interference.
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -31,7 +31,7 @@ fn write_exec(p: &Path, body: &str) {
 
 #[test]
 fn register_executor_offline_behaviour() {
-    // ── 夹具：stub node（记录 argv）+ 平台根里的 dsh/pi 包入口 ────────────────
+    // ── fixture: a stub node (records argv) + the dsh/pi package entries in the platform root ────────────────
     let tmp = tempfile::tempdir().unwrap();
     let bin = tmp.path().join("bin");
     let record = tmp.path().join("argv.txt");
@@ -51,8 +51,8 @@ fn register_executor_offline_behaviour() {
     ] {
         std::env::remove_var(k);
     }
-    // AIMAIL_HOME 也必须隔离：机器级 `.env` 会被 `env_val` 兜底读到（否则"缺 manager"用例
-    // 会被真机 .env 里的 manager 兜住 —— 这正是本条断言的取证价值）
+    // AIMAIL_HOME must be isolated too: a machine-level `.env` would be read as a fallback by `env_val` (otherwise the "missing manager" case
+    // would be rescued by the manager in the real machine's .env — which is exactly the evidentiary value of this assertion)
     let ahome = tmp.path().join("ahome");
     fs::create_dir_all(&ahome).unwrap();
     std::env::set_var("AIMAIL_HOME", &ahome);
@@ -71,7 +71,7 @@ fn register_executor_offline_behaviour() {
         "admin_key": "k",
     });
 
-    // 1) 正向：pi（node_entry）—— 参数必须来自**定名计划 + 注册表模板**
+    // 1) positive: pi (node_entry) — the arguments must come from the **naming plan + registry template**
     aimail::core::register::register_agent(
         "pi",
         "pi",
@@ -80,24 +80,24 @@ fn register_executor_offline_behaviour() {
         &home.to_string_lossy(),
         &core_dir(),
     )
-    .expect("pi 注册应成功（stub node）");
+    .expect("the pi registration should succeed (stub node)");
     let recorded = fs::read_to_string(&record).unwrap();
-    // transport 分派（契约 §4.1(2)）：node 宿主**不自跑外部注册器** —— CLI 直接调平台包自带的
-    // op 入口（`node <register-cli.js> --op assemble --args '<单个 JSON>'`），定名/注册/落绑定在门内。
+    // transport dispatch (contract §4.1(2)): a node host **does not run an external registrar itself** — the CLI directly calls the
+    // op entry (`node <register-cli.js> --op assemble --args '<a single JSON>'`); naming/registration/binding landing happen inside the door.
     let lines: Vec<&str> = recorded.lines().collect();
     assert!(
         lines
             .first()
             .map(|l| l.ends_with("register-cli.js"))
             .unwrap_or(false),
-        "argv[1] 应是平台包自带的 op 入口（{recorded:?}）"
+        "argv[1] should be the op entry shipped with the platform package ({recorded:?})"
     );
     assert_eq!(
         &lines[1..4],
         &["--op", "assemble", "--args"],
         "{recorded:?}"
     );
-    let payload: Value = serde_json::from_str(lines[4]).expect("op 入参应为一个 JSON");
+    let payload: Value = serde_json::from_str(lines[4]).expect("the op argument should be a single JSON");
     assert_eq!(payload["system_id"], json!("s1"), "{payload:?}");
     assert_eq!(
         payload["manager_address"],
@@ -111,29 +111,29 @@ fn register_executor_offline_behaviour() {
     );
     assert!(
         payload.get("register_spec").is_none(),
-        "node 宿主不自跑外部注册器 ⇒ 不得带 register_spec（{payload:?}）"
+        "a node host does not run an external registrar => no register_spec may be carried ({payload:?})"
     );
-    // G1a（2026-10-13）：node_entry 信封携带本机入站端点（契约 inbound_ports 单真源）
-    // —— 三态①：注册值 = 本机端点。期望值从契约常量构造（契约字面量棘轮：禁字面量）。
+    // G1a (2026-10-13): the node_entry envelope carries the local inbound endpoint (the contract inbound_ports single source)
+    // — three-state ①: the registered value = the local endpoint. The expected value is built from contract constants (the contract literal ratchet: no literals).
     let expected_lw = format!(
         "http://127.0.0.1:{}",
-        aimail::core::contract::inbound_port("pi").expect("契约应有 pi 入站端口")
+        aimail::core::contract::inbound_port("pi").expect("the contract should have a pi inbound port")
     ) + aimail::core::contract::inbound_path();
     assert_eq!(
         payload["local_webhook_url"],
         json!(expected_lw),
-        "node_entry 信封应携带 local_webhook_url（{payload:?}）"
+        "the node_entry envelope should carry local_webhook_url ({payload:?})"
     );
-    // pi 未声明 --preset（register.args 无该 flag）⇒ 信封不得带 preset。
+    // pi does not declare --preset (register.args has no such flag) => the envelope must not carry preset.
     assert!(
         payload.get("preset").is_none(),
-        "pi 未声明 preset ⇒ 信封不得带该字段（{payload:?}）"
+        "pi does not declare preset => the envelope must not carry that field ({payload:?})"
     );
 
-    // 1b) dsh（node_entry）：local_webhook_url 用 dsh 契约端口。
-    // P3-C(2026-10-17):preset 改由 SDK 侧自报(dsh register-cli assembleExtra,
-    // 10-11 三来源裁决「宿主自报/内部 → SDK 内部」)⇒ CLI 信封不再携带 preset
-    // (旧断言「值来自 register.args --preset 声明」随 G1b 提取通道删除而失效)。
+    // 1b) dsh (node_entry): local_webhook_url uses the dsh contract port.
+    // P3-C (2026-10-17): preset is now self-reported by the SDK side (dsh register-cli assembleExtra,
+    // the 10-11 three-source ruling "host self-report/internal => inside the SDK") => the CLI envelope no longer carries preset
+    // (the old assertion "the value comes from the register.args --preset declaration" became void with the deletion of the G1b extraction channel).
     let dsh_entry = home.join("profiles/agent/node_modules/agent-aimail/dist/dsh/register-cli.js");
     fs::create_dir_all(dsh_entry.parent().unwrap()).unwrap();
     fs::write(&dsh_entry, "// stub\n").unwrap();
@@ -145,28 +145,28 @@ fn register_executor_offline_behaviour() {
         &home.to_string_lossy(),
         &core_dir(),
     )
-    .expect("dsh 注册应成功（stub node）");
+    .expect("the dsh registration should succeed (stub node)");
     let recorded = fs::read_to_string(&record).unwrap();
     let lines: Vec<&str> = recorded.lines().collect();
-    let payload: Value = serde_json::from_str(lines[lines.len() - 1]).expect("op 入参应为 JSON");
+    let payload: Value = serde_json::from_str(lines[lines.len() - 1]).expect("the op argument should be JSON");
     assert_eq!(
         payload["local_webhook_url"],
         json!(
             format!(
                 "http://127.0.0.1:{}",
-                aimail::core::contract::inbound_port("dsh").expect("契约应有 dsh 入站端口")
+                aimail::core::contract::inbound_port("dsh").expect("the contract should have a dsh inbound port")
             ) + aimail::core::contract::inbound_path()
         ),
-        "dsh 信封 local_webhook_url 应为 dsh 契约端口（{payload:?}）"
+        "the dsh envelope local_webhook_url should be the dsh contract port ({payload:?})"
     );
     assert!(
         payload.get("preset").is_none(),
-        "P3-C: preset 由 SDK 自报, CLI 信封不得携带（{payload:?}）"
+        "P3-C: preset is self-reported by the SDK; the CLI envelope must not carry it ({payload:?})"
     );
-    // 用例 4（dsh 包缺失必须失败）的前提：删掉 1b 的 dsh 入口夹具。
+    // the precondition for case 4 (a missing dsh package must fail): remove the dsh entry fixture of 1b.
     fs::remove_file(&dsh_entry).ok();
 
-    // 2) 缺 manager 硬门（参数/env 均无）⇒ 响亮失败，禁以空注册
+    // 2) the missing-manager hard gate (neither the argument nor the env has one) => fail loudly; an empty registration is forbidden
     let cfg_nomgr = json!({
         "system_id": "s1",
         "domain": "example.test",
@@ -180,10 +180,10 @@ fn register_executor_offline_behaviour() {
         &home.to_string_lossy(),
         &core_dir(),
     )
-    .expect_err("空 manager 必须硬门失败");
-    assert!(err.contains("缺 manager"), "{err}");
+    .expect_err("an empty manager must fail at the hard gate");
+    assert!(err.contains("manager missing"), "{err}");
 
-    // 4) 平台包缺失（夹具 home 里没有 dsh 包）⇒ 带注册表 fail_hint 的响亮失败
+    // 4) a missing platform package (no dsh package in the fixture home) => a loud failure carrying the registry fail_hint
     let err = aimail::core::register::register_agent(
         "dsh",
         "agent",
@@ -192,6 +192,6 @@ fn register_executor_offline_behaviour() {
         &home.to_string_lossy(),
         &core_dir(),
     )
-    .expect_err("dsh 包缺失必须失败");
-    assert!(err.contains("node 入口缺失"), "{err}");
+    .expect_err("a missing dsh package must fail");
+    assert!(err.contains("node entry missing"), "{err}");
 }

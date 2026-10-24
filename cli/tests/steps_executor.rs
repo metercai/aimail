@@ -1,10 +1,10 @@
 #![cfg(unix)]
-// 整文件 unix 语义(stub 可执行位 / sh 驱动 / symlink), windows 分支(W2)落地后重开。
-//! `install_steps` 执行器（`core::steps`）的离线验收。
+// Whole file unix semantics (stub executable bit / sh driver / symlink), windows branch (W2) to be reopened after landing.
+//! Offline acceptance for `install_steps` executor (`core::steps`).
 //!
-//! 用**合成步骤表**驱动（执行器本身接受外部表 ⇒ 可测；`run_install_steps` 只是读注册表的薄壳），
-//! 判据：`when` 门 · `spawn` 的 `skip_if`/`on_missing`/`on_error` 三态 · 未知 kind 只 warn ·
-//! **manager 硬门**在任何异常兜底之前生效（空即 Err，禁以空注册/写白名单）。
+//! Driven by **synthetic step table** (executor itself accepts external table ⇒ testable; `run_install_steps` is just a thin shell reading registry),
+//! Criteria: `when` gate · `spawn`'s `skip_if`/`on_missing`/`on_error` three states · unknown kind only warns ·
+//! **manager hard gate** takes effect before any exception fallback (empty is Err, forbidden to register empty/write whitelist).
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -62,7 +62,7 @@ fn step_executor_offline_behaviour() {
     fs::create_dir_all(&ahome).unwrap();
     std::env::set_var("AIMAIL_HOME", &ahome);
 
-    // 1) when 门：path_exists 不成立 ⇒ 该步被跳过（不执行）
+    // 1) when gate: path_exists not true ⇒ step skipped (not executed)
     let cfg = json!({"gateway_url": "http://127.0.0.1:9", "admin_key": "k",
                      "system_id": "s1", "system_home": tmp.path().to_string_lossy()});
     let steps = vec![
@@ -74,18 +74,18 @@ fn step_executor_offline_behaviour() {
                "ok_text": "spawned ok"}),
     ];
     let mut ctx = ctx_with(cfg.clone());
-    aimail::core::steps::run_steps("openclaw", &steps, &mut ctx, &core_dir()).expect("应成功");
+    aimail::core::steps::run_steps("openclaw", &steps, &mut ctx, &core_dir()).expect("should succeed");
     let recorded = fs::read_to_string(&rec).unwrap();
     assert!(
         recorded.contains("--name\ns1\n"),
-        "模板填充 + 执行: {recorded:?}"
+        "Template filling + execution: {recorded:?}"
     );
     assert!(
         !recorded.contains("should-not-run"),
-        "when 不成立必须跳过: {recorded:?}"
+        "when not true must skip: {recorded:?}"
     );
 
-    // 2) skip_if 探针说"已在场" ⇒ 跳过（幂等）
+    // 2) skip_if probe says "already present" ⇒ skip (idempotent)
     fs::write(&rec, "").unwrap();
     let steps = vec![json!({
         "kind": "spawn",
@@ -93,62 +93,62 @@ fn step_executor_offline_behaviour() {
         "skip_if": {"argv": ["/bin/sh", "-c", "echo PRESENT"], "match": "present"}
     })];
     let mut ctx = ctx_with(cfg.clone());
-    aimail::core::steps::run_steps("openclaw", &steps, &mut ctx, &core_dir()).expect("应成功");
+    aimail::core::steps::run_steps("openclaw", &steps, &mut ctx, &core_dir()).expect("should succeed");
     assert!(
         fs::read_to_string(&rec).unwrap().is_empty(),
-        "探针说已在场 ⇒ 不该再跑安装"
+        "Probe says already present ⇒ should not run install again"
     );
 
-    // 3) on_error=warn（默认）⇒ 只告警不中断；on_error=fail ⇒ 中断
+    // 3) on_error=warn (default) ⇒ only warn not interrupt; on_error=fail ⇒ interrupt
     let warn_step = vec![json!({"kind": "spawn", "argv": [bin.join("fail.sh").to_string_lossy()]})];
     let mut ctx = ctx_with(cfg.clone());
     assert!(aimail::core::steps::run_steps("openclaw", &warn_step, &mut ctx, &core_dir()).is_ok());
     let fail_step = vec![
         json!({"kind": "spawn", "argv": [bin.join("fail.sh").to_string_lossy()],
-                                "on_error": "fail", "warn_hint": "插件安装失败"}),
+                                "on_error": "fail", "warn_hint": "plugin install failed"}),
     ];
     let mut ctx = ctx_with(cfg.clone());
     let err = aimail::core::steps::run_steps("openclaw", &fail_step, &mut ctx, &core_dir())
-        .expect_err("on_error=fail 必须中断");
-    assert!(err.contains("插件安装失败"), "{err}");
+        .expect_err("on_error=fail must interrupt");
+    assert!(err.contains("plugin install failed"), "{err}");
 
-    // 4) on_missing=fail 与 skip 两态
+    // 4) on_missing=fail and skip two states
     let missing_fail = vec![json!({"kind": "spawn", "argv": ["/tmp/no-such-bin-aimail"],
-                                   "fail_hint": "`no-such-bin` 不可执行"})];
+                                   "fail_hint": "`no-such-bin` is not executable"})];
     let mut ctx = ctx_with(cfg.clone());
     let err = aimail::core::steps::run_steps("openclaw", &missing_fail, &mut ctx, &core_dir())
-        .expect_err("默认 on_missing=fail");
-    assert!(err.contains("不可执行"), "{err}");
+        .expect_err("default on_missing=fail");
+    assert!(err.contains("not executable"), "{err}");
     let missing_skip = vec![json!({"kind": "spawn", "argv": ["/tmp/no-such-bin-aimail"],
-                                   "on_missing": "skip", "warn_hint": "缺 `no-such-bin`,跳过"})];
+                                   "on_missing": "skip", "warn_hint": "`no-such-bin` missing, skipped"})];
     let mut ctx = ctx_with(cfg.clone());
     assert!(
         aimail::core::steps::run_steps("openclaw", &missing_skip, &mut ctx, &core_dir()).is_ok()
     );
 
-    // 5) manager 硬门：空 manager 时 sdk_install（needs_manager 默认 true）必须先失败，
-    //    且**不受** on_error=warn 兜底影响（F9 教训：异常兜底吞不掉基本契约）
+    // 5) manager hard gate: when manager is empty, sdk_install (needs_manager defaults to true) must fail first,
+    //    and is **not** affected by on_error=warn fallback (F9 lesson: exception fallback cannot swallow basic contracts)
     let sdk_step = vec![
         json!({"kind": "sdk_install", "target": "hermes", "fn": "install_hermes",
                                "on_error": "warn"}),
     ];
     let mut ctx = ctx_with(cfg.clone());
     let err = aimail::core::steps::run_steps("hermes", &sdk_step, &mut ctx, &core_dir())
-        .expect_err("空 manager 必须硬门失败");
-    assert!(err.contains("缺 manager"), "{err}");
+        .expect_err("empty manager must hard gate fail");
+    assert!(err.contains("manager missing"), "{err}");
 
-    // 6) needs_manager:false（纯装配步）不受门限制；未知 kind 只 warn 不中断
+    // 6) needs_manager:false (pure assembly step) is not subject to gate restrictions; unknown kind only warns and does not interrupt
     let pure_step = vec![
         json!({"kind": "sdk_install", "target": "dsh", "fn": "no_such_entry_aimail",
                                 "needs_manager": false, "on_error": "warn"}),
     ];
     let mut ctx = ctx_with(cfg);
     assert!(aimail::core::steps::run_steps("dsh", &pure_step, &mut ctx, &core_dir()).is_ok());
-    // 6b) 未知 step kind ⇒ **硬失败**（owner 2026-10-18：拒绝半装；旧行为是 warn 后跳过）
+    // 6b) unknown step kind ⇒ **hard fail** (owner 2026-10-18: reject half-install; old behavior was warn then skip)
     let unknown = vec![json!({"kind": "no_such_kind"})];
     let mut ctx = Map::new();
     let err = aimail::core::steps::run_steps("dsh", &unknown, &mut ctx, &core_dir())
-        .expect_err("未知 kind 必须硬失败");
-    assert!(err.contains("未知 kind 'no_such_kind'"), "{err}");
+        .expect_err("unknown kind must hard fail");
+    assert!(err.contains("unknown kind 'no_such_kind'"), "{err}");
     let _ = Value::Null;
 }

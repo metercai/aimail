@@ -1,40 +1,40 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""check-zero-bridge.py — 零桥符号棘轮 (L0, 静态负断言)。
+"""check-zero-bridge.py — zero-bridge symbol ratchet (L0, static negative assertion).
 
-owner 裁决 2026-09-28(**SDK 去桥化**): 环境(桥/路由)由 CLI 自持
-(``cli/bridge_wire.py``; 入口 = 宿主 best-effort 通知 ``aimail address -a <addr>
---inbound-live|--inbound-down``)。SDK **不谈桥**: 它不得定义/调用/导入任何桥符号。
+owner adjudication 2026-09-28 (**SDK de-bridging**): environment (bridge/routing) is self-held by CLI
+ (``cli/bridge_wire.py``; entry = host best-effort notification ``aimail address -a <addr>
+--inbound-live|--inbound-down``). SDK **does not talk about bridges**: it must not define/call/import any bridge symbols.
 
-三条规则(全部为"命中 = 0"的负断言):
+Three rules (all are negative assertions where "hit = 0"):
 
-  (a) ``pysdk/**/*.py``: AST 扫描标识符(变量/属性/函数/类/参数/导入别名)——
-      **注释与文档字符串不算引用**(退役说明是文档, 不是引用)。
-  (b) ``tssdk/packages/*/src/**/*.ts``(发布面): 剥掉块注释/行注释后扫描;
-      另扫 ``tssdk/test/**/*.ts``,**排除** ``startup-hook.test.ts``
-      (它是棘轮自身的符号表 —— 那些字面量是断言数据, 不是引用)。
-  (c) 契约真源不得含桥键: ``contract/aimail-contract.json`` 的**键**、
-      ``pysdk/aimail_contract.py`` 与
-      ``tssdk/packages/agent-aimail/src/core/contract.ts`` 的常量名。
+  (a) ``pysdk/**/*.py``: AST scan identifiers (variables/properties/functions/classes/parameters/import aliases)——
+      **comments and docstrings do not count as references** (retirement notes are documentation, not references).
+  (b) ``tssdk/packages/*/src/**/*.ts`` (release surface): strip block comments/line comments then scan;
+      also scan ``tssdk/test/**/*.ts``, **excluding** ``startup-hook.test.ts``
+      (it is the symbol table of the ratchet itself —— those literals are assertion data, not references).
+  (c) the contract source of truth must not contain bridge keys: the **keys** of ``contract/aimail-contract.json``, 
+      ``pysdk/aimail_contract.py`` and
+      constant names in ``tssdk/packages/agent-aimail/src/core/contract.ts``.
 
-  (d) **引用侧**(2026-09-28 补, 定义侧的漏网面): ``pysdk/**`` ``tssdk/**``
-      ``cli/**`` ``tests/**`` 里, 退役符号不得被**引用** ——
-      import / 别名 / 成员访问 / 定义名 / 参数名 / 动态调用名(``getattr(x, "sym")`` 形态)。
-      扫描面 = 白名单扩展 **.py/.ts/.sh/.md** **∪ 无扩展名可执行/shebang 脚本**
-      (2026-09-28 二次补: 扩展名白名单曾把无后缀的主入口 ``cli/aimail`` 整个跳过 ——
-      它的死引用 ``from aimail_base import ensure_bridge_routes_for_system`` 又躲过一轮,
-      门禁 L1 101 PASS/12 FAIL 全败于该 ImportError)。
-      根因: (a)(b) 只守 SDK 自己的文件; 别处 ``from aimail_base import is_bridge_host_port``
-      这种"import 一个已删除的符号"完全漏网, 而 **pyflakes 不报"从模块 import 不存在的
-      名字"** ⇒ L0 假绿(实测: cli/setup_system.py + cli/repair.py 两处死引用, 门禁 L1
-      45 红全败于同一个 ImportError)。
-      判据细则(与 (a)(b) 同法): **注释与文档字符串不算引用**; 字符串字面量按**数据**处理
-      (配置键 / 桥 API 路径 / 符号表都是数据) —— 只有被当**调用名**取用的字符串才算引用。
-      行内逃生门: 该行含显式 ``retired:`` 说明标记 ⇒ 单独成节打印, 不算引用; 但**可执行
-      代码**上的标识符命中**不允许**用标记豁免(标记只豁免注释/数据行)。
-      生成物与第三方目录(``node_modules`` ``__pycache__`` ``lib`` ``dist``)不扫。
+  (d) **Reference side** (added 2026-09-28, the missed surface of the definition side): in ``pysdk/**`` ``tssdk/**``
+      in ``cli/**`` ``tests/**``, retired symbols must not be **referenced** ——
+      import / alias / member access / definition name / parameter name / dynamic call name (``getattr(x, "sym")`` form).
+      Scan surface = whitelist extensions **.py/.ts/.sh/.md** **∪ extensionless executable/shebang scripts**
+      (2026-09-28 Second supplement: The extension whitelist previously skipped the suffix-less main entry ``cli/aimail`` entirely ——
+      its dead reference ``from aimail_base import ensure_bridge_routes_for_system`` dodged another round,
+      gate L1 101 PASS/12 FAIL all failed due to that ImportError).
+      Root cause: (a)(b) only guard the SDK's own files; elsewhere ``from aimail_base import is_bridge_host_port``
+      this kind of "importing a deleted symbol" completely slipped through, and **pyflakes does not report "importing a non-existent
+      name from a module"** ⇒ L0 false green (measured: cli/setup_system.py + cli/repair.py two dead references, gate L1
+      45 red all failed due to the same ImportError).
+      Criteria details (same method as (a)(b)): **comments and docstrings do not count as references**; string literals are treated as **data**
+      (Configuration keys / bridge API paths / symbol tables are all data) —— only strings retrieved as **call names** count as references.
+      Inline escape hatch: if the line contains an explicit ``retired:`` description marker ⇒ printed in a separate section, not counted as a reference; but **executable
+      code** identifier hits are **not allowed** to be exempted by the marker (marker only exempts comment/data lines).
+      Generated artifacts and third-party directories (``node_modules`` ``__pycache__`` ``lib`` ``dist``) are not scanned.
 
-退出码: 0 = 全绿; 1 = 有命中(逐条给 file:line); 2 = 判不了(路径读不到)。
+Exit codes: 0 = all green; 1 = hits found (file:line given for each); 2 = cannot judge (path unreadable).
 """
 from __future__ import annotations
 
@@ -58,34 +58,34 @@ RETIRED_TS = (
     "resolveBridgeAdminPort", "BridgeRouteOutcome", "BRIDGE_DEFAULT_PATH",
     "bridgeDefaultPath", "/api/v1/routes",
 )
-#: 契约真源里不许出现的桥键(键名 / 常量名)。
+#: Bridge keys not allowed to appear in the contract source of truth (key names / constant names).
 FORBIDDEN_CONTRACT_KEYS = ("bridge_default_path", "BRIDGE_DEFAULT_PATH", "bridgeDefaultPath")
 TS_RATCHET_FILE = "tssdk/test/startup-hook.test.ts"
 CONTRACT_JSON = "contract/aimail-contract.json"
 CONTRACT_PY = "pysdk/aimail_contract.py"
 CONTRACT_TS = "tssdk/packages/agent-aimail/src/core/contract.ts"
 
-#: ── (d) 引用侧 ────────────────────────────────────────────────────────────────
-#: 扫描范围: 退役符号**被引用的地方**(定义侧只守 SDK 自己, 这里守"谁在 import/调用它")。
+ #: ── (d) Reference side ────────────────────────────────────────────────────────────────
+#: Scan scope: **where** retired symbols are **referenced** (definition side only guards the SDK itself, here guards "who is importing/calling it").
 REF_SCAN_DIRS = ("pysdk", "tssdk", "cli", "tests")
 REF_SCAN_EXT = (".py", ".ts", ".sh", ".md")
-#: **无扩展名脚本**(2026-09-28 第二次漏网, 补面): 扩展名白名单会把没有后缀的主入口
-#: 直接跳过 —— CLI 主入口 ``cli/aimail``(无后缀, shebang ``#!/usr/bin/env python3``)
-#: 里的死引用又躲过一轮: ``cli/aimail:2091``
+#: **Extensionless scripts** (second miss 2026-09-28, added surface): extension whitelist will skip main entries without suffix
+#: Skip directly —— CLI main entry ``cli/aimail`` (no extension, shebang ``#!/usr/bin/env python3``)
+#: dead reference dodged another round: ``cli/aimail:2091``
 #: ``from aimail_base import (ensure_bridge_routes_for_system, ...)`` ⇒ ImportError ⇒
-#: 门禁 L1 101 PASS / 12 FAIL 全败于同一处。判据 = 白名单扩展 **∪**
-#: (无后缀 且 (可执行位 或 首行 ``#!``) 且 文本 且 <= REF_SCAN_MAX_BYTES);
-#: 按 shebang 选解析法(见 ``_ref_kind``: python → AST、sh → 剥行注释、其它 → 文本 token)。
+ #: Gate L1 101 PASS / 12 FAIL all failed due to the same place. Criteria = whitelist extensions **∪**
+#: (no suffix and (executable bit or first line ``#!``) and text and <= REF_SCAN_MAX_BYTES);
+#: choose parser by shebang (see ``_ref_kind``: python → AST, sh → strip line comments, others → text token).
 REF_SCAN_EXTENSIONLESS = True
 REF_SCAN_MAX_BYTES = 1_000_000
-#: 不扫生成物/第三方(源真源在 src/; 见 docstring)。
+#: Do not scan generated artifacts/third-party (source of truth is in src/; see docstring).
 REF_SKIP_DIRS = {"node_modules", "__pycache__", ".git", "lib", "dist", "build"}
-#: 逃生门标记: 行内含该显式注释才允许"提及退役符号"(说明行 / 符号表), 单独成节打印。
+#: Escape hatch marker: only if the line contains this explicit comment is "mentioning retired symbols" allowed (description lines / symbol tables), printed in a separate section.
 ESCAPE_MARKER = "retired:"
-#: "字符串调用名"形态: 符号名以字符串形式被当**调用/属性名**取用(动态调用), 而不是数据。
+#: "String call name" form: symbol name is taken as **call/attribute name** in string form (dynamic call), not as data.
 DYNAMIC_NAME_HINTS = ("getattr(", "setattr(", "import_module(", "__import__(",
                       "globals()[", "require(", "import(")
-#: 全部退役符号(py 定义面 + ts 定义面), 引用侧对两者都判。
+#: All retired symbols (py definition side + ts definition side), reference side checks both.
 RETIRED_ALL = tuple(RETIRED_PY) + tuple(RETIRED_TS)
 _RETIRED_SET = frozenset(RETIRED_ALL)
 
@@ -151,7 +151,7 @@ def rule_c(repo: Path) -> list:
     py_txt = (repo / CONTRACT_PY).read_text(encoding="utf-8")
     ts_txt = _strip_ts_comments((repo / CONTRACT_TS).read_text(encoding="utf-8"))
     for sym in FORBIDDEN_CONTRACT_KEYS:
-        # 常量**定义**(赋值/声明)才算, 注释/文档字符串不算
+        # Only constant **definitions** (assignment/declaration) count, comments/docstrings do not
         if re.search(r"^\s*%s\s*[:=]" % re.escape(sym), py_txt, re.M):
             hits.append(f"{CONTRACT_PY}: constant {sym} defined")
         if re.search(r"^\s*(export\s+)?const\s+%s\b" % re.escape(sym), ts_txt, re.M):
@@ -168,7 +168,7 @@ def _has_shebang(f: Path) -> bool:
 
 
 def _is_ref_file(f: Path) -> bool:
-    """白名单扩展 **∪** 无扩展名可执行/shebang 脚本(见 REF_SCAN_EXTENSIONLESS 的漏网记录)。"""
+    """Whitelist extension **∪** extensionless executable/shebang scripts (see REF_SCAN_EXTENSIONLESS for missed records)."""
     if f.suffix in REF_SCAN_EXT:
         return True
     if not REF_SCAN_EXTENSIONLESS or f.suffix:
@@ -183,7 +183,7 @@ def _is_ref_file(f: Path) -> bool:
 
 
 def _iter_ref_files(repo: Path):
-    """引用侧扫描面: REF_SCAN_DIRS × (REF_SCAN_EXT ∪ 无扩展名脚本), 跳过生成物/第三方目录。"""
+    """Reference side scan surface: REF_SCAN_DIRS × (REF_SCAN_EXT ∪ extensionless scripts), skipping generated/third-party directories."""
     for d in REF_SCAN_DIRS:
         base = repo / d
         if not base.is_dir():
@@ -197,11 +197,11 @@ def _iter_ref_files(repo: Path):
 
 
 def _ref_kind(f: Path, text: str) -> str:
-    """扫描模式: ``py``(AST) / ``ts``(剥注释+字符串) / ``sh``(剥行注释) / ``generic``(整文本 token)。
+    """Scan mode: ``py``(AST) / ``ts``(strip comments+strings) / ``sh``(strip line comments) / ``generic``(whole text token).
 
-    无扩展名脚本按**首行 shebang** 选法 —— 判据与同后缀文件一致:
-    python ⇒ AST(注释与文档字符串天然出局, 与 (a) 同法)、sh/bash/zsh/dash ⇒ 剥行注释、
-    其它 ⇒ 文本 token(与 .md 同法: 只有 ``retired:`` 标记豁免)。
+    Extension-less scripts select method by **first-line shebang** —— criteria consistent with same-extension files:
+    python ⇒ AST(comments and docstrings naturally excluded, same method as (a)), sh/bash/zsh/dash ⇒ strip line comments,
+    others ⇒ text token(same method as .md: only ``retired:`` marker exempted).
     """
     if f.suffix in (".py", ".ts", ".sh", ".md"):
         return {".py": "py", ".ts": "ts", ".sh": "sh", ".md": "generic"}[f.suffix]
@@ -214,7 +214,7 @@ def _ref_kind(f: Path, text: str) -> str:
 
 
 def _token_hits(text: str, syms=RETIRED_ALL) -> list:
-    """[(lineno, symbol, line)] —— 整词标识符命中(两边不许是标识符字符)。"""
+    """[(lineno, symbol, line)] —— whole word identifier hits (neither side can be identifier character)."""
     hits: list = []
     pat = {s: re.compile(r"(?<![A-Za-z0-9_$])%s(?![A-Za-z0-9_$])" % re.escape(s))
            for s in syms}
@@ -226,13 +226,13 @@ def _token_hits(text: str, syms=RETIRED_ALL) -> list:
 
 
 def _py_code_hits(rel: str, text: str) -> tuple:
-    """(violations, benign) —— Python 引用侧。
+    """(violations, benign) —— Python reference side.
 
-    违规 = **代码标识符**命中: import 名/别名、成员访问(``mod.sym``)、裸名、定义名、
-    参数名 —— 即"这个名字真的被当作符号用"。注释与文档字符串天然出局(AST 里没有注释;
-    字符串常量单独判)。
-    benign = 同名的**字符串字面量**(配置键 / 桥 API 路径 / 符号表 / 说明文字)= 数据;
-    唯一例外: 字符串被当**调用名**取用(``getattr(x, "sym")`` 形态)⇒ 违规。
+    Violation = **code identifier** hit: import name/alias, member access(``mod.sym``), bare name, definition name,
+    parameter name —— i.e. "this name is really used as a symbol". Comments and docstrings naturally excluded (no comments in AST;
+    string constants judged separately).
+    benign = same name **string literal**(config key / bridge API path / symbol table / description text)= data;
+    only exception: string used as **call name**(``getattr(x, "sym")`` form)⇒ violation.
     """
     try:
         tree = ast.parse(text, filename=rel)
@@ -241,7 +241,7 @@ def _py_code_hits(rel: str, text: str) -> tuple:
     lines = text.splitlines()
     viol: list = []
     for node in ast.walk(tree):
-        # 一个节点可能带**两个**名字(import 的原名 + as 别名), 两个都是引用。
+        # A node may carry **two** names(import original name + as alias), both are references.
         pairs: list = []
         if isinstance(node, ast.Name):
             pairs = [(node.id, "py name")]
@@ -276,10 +276,10 @@ def _py_code_hits(rel: str, text: str) -> tuple:
 
 
 def _ts_code(text: str) -> str:
-    """TS: 剥注释 + 剥字符串字面量 ⇒ 剩下的才是**代码标识符**(字符串是数据)。
+    """TS: strip comments + strip string literals ⇒ remaining are **code identifiers**(strings are data).
 
-    剥字符串用等长占位, 行号保持对齐。符号表(startup-hook.test.ts 那类)里的名字
-    因此天然出局 —— 它们是断言数据, 不是引用。
+    String stripping uses equal length placeholder, line numbers stay aligned. Names in symbol tables(startup-hook.test.ts type)
+    are therefore naturally excluded —— they are assertion data, not references.
     """
     code = _strip_ts_comments(text)
     code = re.sub(r"`(?:\\.|[^`\\])*`", "''", code, flags=re.S)
@@ -289,12 +289,12 @@ def _ts_code(text: str) -> str:
 
 
 def _sh_code(text: str) -> str:
-    """shell: 只剥行注释; **保留**字符串(``python3 -c "from aimail_base import x"`` 是真引用)。"""
+    """shell: only strip line comments; **preserve** strings(``python3 -c "from aimail_base import x"`` is a real reference)."""
     return "\n".join(re.sub(r"(^|\s)#.*$", r"\1", ln) for ln in text.splitlines())
 
 
 def _scan_ref_file(f: Path, root: Path, prefix: str = "") -> tuple:
-    """判读**一个**引用侧文件 —— (violations, escapes, benign, scanned)。"""
+    """Judge **one** reference side file —— (violations, escapes, benign, scanned)."""
     rel = prefix + f.relative_to(root).as_posix()
     violations: list = []
     escapes: list = []
@@ -310,7 +310,7 @@ def _scan_ref_file(f: Path, root: Path, prefix: str = "") -> tuple:
     elif kind == "ts":
         hits = [(i, s, f"{rel}:{i}: ts identifier {s}")
                 for i, s, _ in _token_hits(_ts_code(text))]
-        # TS 侧字符串: 只判"动态调用名"形态(require('sym') / import('sym'))
+        # TS side strings: only judge "dynamic call name" form(require('sym') / import('sym'))
         for i, line in enumerate(text.splitlines(), 1):
             for s in RETIRED_ALL:
                 if re.search(r"""["'`]%s["'`]""" % re.escape(s), line):
@@ -321,7 +321,7 @@ def _scan_ref_file(f: Path, root: Path, prefix: str = "") -> tuple:
     elif kind == "sh":
         hits = [(i, s, f"{rel}:{i}: sh identifier {s}")
                 for i, s, _ in _token_hits(_sh_code(text))]
-    else:      # .md / 其它无扩展名脚本: 文本 token(与 .md 同法)
+    else:      # .md / other extensionless scripts: text token(same method as .md)
         label = "doc token" if f.suffix == ".md" else "text token"
         hits = [(i, s, f"{rel}:{i}: {label} {s}")
                 for i, s, _ in _token_hits(text)]
@@ -338,8 +338,8 @@ def _scan_ref_file(f: Path, root: Path, prefix: str = "") -> tuple:
             violations.append(f"{msg}  (escape marker ignored: executable code, not a comment)")
         else:
             violations.append(msg)
-    # 纯注释里的显式说明行(不产生任何 code/string 命中)也要单独成节打印 ——
-    # "允许提及"和"静默忽略"是两回事: 逃生门必须是可见的。
+    # Explicit description lines in pure comments(do not produce any code/string hits) must also be printed as separate section ——
+    # "allowed mention" and "silent ignore" are two different things: escape hatch must be visible.
     for i, line in enumerate(src, 1):
         if i in escaped_lines or ESCAPE_MARKER not in line:
             continue
@@ -351,7 +351,7 @@ def _scan_ref_file(f: Path, root: Path, prefix: str = "") -> tuple:
 
 
 def rule_d(repo: Path) -> tuple:
-    """(violations, escapes, benign, scanned) —— 引用侧棘轮(退役符号不得被引用)。"""
+    """(violations, escapes, benign, scanned) —— reference side ratchet(retired symbols must not be referenced)."""
     violations: list = []
     escapes: list = []
     benign: list = []
@@ -365,34 +365,34 @@ def rule_d(repo: Path) -> tuple:
     return violations, escapes, benign, scanned
 
 
-#: ── (e) 跨仓引用侧(2026-09-28 第三次漏网) ────────────────────────────────────────
-#: 门禁脚本本身也引用契约/产品符号 ⇒ 退役符号的漏网不止发生在 aimail 仓:
-#: tests/cli/docker/journey-in-host.sh:359 引用退役的 BRIDGE_DEFAULT_PATH, 而 (d) 只扫本仓,
-#: 于是它一路绿着走到 L2 才以"桥形态分支不可达(桥分支被判成直推)"的形式暴露 —— 一次
-#: 跨仓的**假绿**。所有权说明: 这里扫的是**只读的兄弟仓**(门禁仓), 不写不改; 判据
-#: (退役符号引用 = 0)与 (d) **同源同强**, 只是把扫描面从"本仓"扩到"本仓 ∪ 兄弟仓"。
-#: 兄弟仓不存在(如 SDK 单独 checkout / CI)⇒ 记一条可见的 CANNOT JUDGE(缺口, 不是通过)。
+#: ── (e) Cross-repo reference side(2026-09-28 third miss) ────────────────────────────────────────
+#: Gate script itself also references contract/product symbols ⇒ retired symbol misses not only happen in aimail repo:
+#: tests/cli/docker/journey-in-host.sh:359 references retired BRIDGE_DEFAULT_PATH, while (d) only scans this repo,
+#: so it went green all the way to L2 before exposing itself in the form of "bridge form branch unreachable(bridge branch judged as direct push)" —— a
+#: cross-repo **false green**. Ownership note: here we scan **read-only sibling repo**(gate repo), no write no modify; criteria
+#: (retired symbol references = 0) and (d) are **same source and same strength**, just expanding the scan surface from "this repo" to "this repo ∪ sibling repos".
+#: Sibling repo does not exist(e.g. SDK standalone checkout / CI)⇒ record a visible CANNOT JUDGE(gap, not pass).
 SIBLING_REPOS = ("../aimail-advanced",)
 SIBLING_SCAN_DIRS = ("tests",)
 
-#: ── 引用侧**基线**(只许减不许增, 2026-09-28 收口) ────────────────────────────────
-#: 跨仓面扩上来当场报出 5 条既有命中, 逐条判定后的去向:
-#:   · `tests/cli/README.md:45` 的 3 条(register_bridge_route / ensureBridgeRoute /
-#:     `/api/v1/routes`)= **文档性枚举**, 走既有可见逃生门(行内 `retired:` 标记,
-#:     单独成节打印), 不进基线;
-#:   · `tests/cli/docker/route-helpers.sh` 的 2 条 `/api/v1/routes` = **数据**(夹具只读
-#:     读桥自己的 admin API: `GET /api/v1/routes` / `DELETE /api/v1/routes/:email`,
-#:     见 cli/bridge_wire.py 的契约注释), 不是对退役 SDK 符号的引用 —— 但 .sh 分支按
-#:     设计**保留字符串**(`python3 -c "from aimail_base import x"` 那种字符串里是真引用),
-#:     所以判据上它只能以**基线显式祖父化**, 不许静默、也不许为了让它变绿去放松 .sh 规则。
-#: 基线语义: 按 `路径:符号` 记计数, 当前计数 > 基线 ⇒ rc=1(逐条打 file:line + 当前/基线);
-#: 当前 < 基线 ⇒ 打一行 stale(只许减不许增, 提醒下一次把它调低)。基线文件不存在 ⇒
-#: 视作全 0(任何命中都算违规, fail-closed), 并打一条可见说明。
+#: ── Reference side **baseline**(only decrease allowed, no increase, 2026-09-28 closure) ────────────────────────────────
+#: Cross-repo surface expansion immediately reported 5 existing hits, destination after individual judgment:
+#:   · `tests/cli/README.md:45` 3 items (register_bridge_route / ensureBridgeRoute /
+#:     `/api/v1/routes`)= **documentary enumeration**, goes through existing visible escape hatch(inline `retired:` marker,
+#:     printed as separate section), not entering baseline;
+#:   · `tests/cli/docker/route-helpers.sh` 2 `/api/v1/routes` = **data** (fixtures read-only
+ #:     reading the bridge's own admin API: `GET /api/v1/routes` / `DELETE /api/v1/routes/:email`,
+#:     see contract comments in cli/bridge_wire.py), not reference to retired SDK symbols —— but .sh branch by
+#:     design **preserves strings**(strings like `python3 -c "from aimail_base import x"` contain real references),
+#:     Therefore, the criterion can only be met by **explicitly grandfathering the baseline**; it must not be silent, nor can the .sh rules be relaxed just to make it green.
+#: Baseline semantics: record counts by `path:symbol`, current count > baseline ⇒ rc=1 (print file:line + current/baseline for each);
+#: current < baseline ⇒ print one stale line (only decreases allowed, no increases; remind to lower it next time). Baseline file missing ⇒
+#: treat as all 0 (any hit is a violation, fail-closed), and print a visible explanation.
 REF_BASELINE_JSON = "tests/contract/zero-bridge-ref-baseline.json"
 
 
 def _iter_sibling_files(root: Path):
-    """兄弟仓扫描面: SIBLING_SCAN_DIRS × 同一套扩展名/无后缀规则(判据不另造)。"""
+    """Sibling repo scan surface: SIBLING_SCAN_DIRS × same set of extension/no-extension rules (criteria not separately created)."""
     for d in SIBLING_SCAN_DIRS:
         base = root / d
         if not base.is_dir():
@@ -406,7 +406,7 @@ def _iter_sibling_files(root: Path):
 
 
 def rule_e(repo: Path) -> tuple:
-    """(violations, escapes, benign, scanned, notes) —— 兄弟仓(门禁仓)引用侧。"""
+    """(violations, escapes, benign, scanned, notes) —— sibling repo (gatekeeper repo) reference side."""
     violations: list = []
     escapes: list = []
     benign: list = []
@@ -428,7 +428,7 @@ def rule_e(repo: Path) -> tuple:
 
 
 def _hit_key(msg: str) -> str:
-    """`<路径>:<符号>` —— 基线键(与行号无关: 同一文件里同符号的出现次数才可比)。"""
+    """`<path>:<symbol>` —— baseline key (independent of line number: only the occurrence count of the same symbol in the same file is comparable)."""
     m = re.match(r"^(?P<path>.+?):\d+: ", msg)
     path = m.group("path") if m else msg.split(":", 1)[0]
     for sym in RETIRED_ALL:
@@ -438,7 +438,7 @@ def _hit_key(msg: str) -> str:
 
 
 def _load_baseline(repo: Path) -> tuple:
-    """(entries, note) —— 引用侧基线(文件不存在 ⇒ 空基线 = 任何命中即违规)。"""
+    """(entries, note) —— reference side baseline (file missing ⇒ empty baseline = any hit is a violation)."""
     p = repo / REF_BASELINE_JSON
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
@@ -466,16 +466,16 @@ def main(argv: list) -> int:
         return 2
     hits = rule_a(repo) + rule_b(repo) + rule_c(repo)
     ref_hits, escapes, benign, scanned = rule_d(repo)
-    # (e) 兄弟仓(门禁仓)引用侧 —— 与 (d) 同源同强, 只是把扫描面扩到本仓 ∪ 兄弟仓。
-    # 兄弟仓缺席(SDK 单独 checkout / CI)不是通过: 打一条可见 GAP 行, 但不改变退出码
-    # (CI 上兄弟仓本就不存在, 让它红会把"没扫"和"扫到命中"混成同一个信号)。
+    # (e) Sibling repo (gatekeeper repo) reference side —— same source and strength as (d), just expanding the scan surface to this repo ∪ sibling repos.
+    # Sibling repo absence (SDK standalone checkout / CI) is not a pass: print a visible GAP line, but do not change the exit code
+    # (on CI, sibling repos do not exist anyway; making it red would mix "not scanned" and "scanned with hits" into the same signal).
     sib_hits, sib_escapes, sib_benign, sib_scanned, sib_notes = rule_e(repo)
     ref_hits = ref_hits + sib_hits
     escapes = escapes + sib_escapes
     benign = benign + sib_benign
     for note in sib_notes:
         print(f"[zero-bridge/references] GAP: {note}")
-    # ── 引用侧基线(只许减不许增) ───────────────────────────────────────────────
+    # ── Reference side baseline (only decreases allowed, no increases) ───────────────────────────────────────────────
     base, base_note = _load_baseline(repo)
     counts: dict = {}
     for h in ref_hits:

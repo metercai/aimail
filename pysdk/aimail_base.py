@@ -59,12 +59,12 @@ def compute_api_signature(api_key: str, method: str, path: str,
     return {"X-Api-Timestamp": timestamp, "X-Api-Signature": sig}
 
 
-# ── persona 能力开关（跨 agent 系统共享，接入新系统时按能力设置）────
-# True  = 支持 persona：派生地址 {role}.{profile}@{domain} 保留 + 配置校验 +
-#         LLM session 前 persona 切换（Hermes 全能力，默认值）
-# False = 不支持 persona：角色 = 独立 agent，收件地址归一为基础地址
-#         （OpenClaw 等：aimail_base 被 import 后由系统层设 False）
-# 处理逻辑框架一致，差异仅由本开关驱动——preprocess 内部读取。
+# ── persona capability switches (shared across agent systems, set by capability when integrating new systems) ────
+# True  = supports persona: derived address {role}.{profile}@{domain} preserved + config validation +
+#         LLM session pre persona switch (Hermes full capabilities, default value)
+# False = does not support persona: role = independent agent, recipient address normalized to base address
+#         (OpenClaw etc.: aimail_base imported then set to False by system layer)
+# Processing logic framework is consistent; differences are driven only by this switch——read internally by preprocess.
 PERSONA_SUPPORTED = True
 
 
@@ -117,27 +117,27 @@ def _read_role_file(name: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════
-# prompt_rules: 识别条件 ↔ 角色文件的可定制关系(裁决 2026-09-23)
-#   - 字段: subject/body/sender/recipient;每字段"包含"匹配(大小写不敏感),
-#     字段内多关键字=或, 字段间=且(裁决①)
-#   - name = {序号}_{filename}, 序号 10..99(裁决②);实际加载看 rule["file"]
-#     (CLI 落盘时显式写出;读侧不做字符串推导)
-#   - 存储: agentmail.json 的 prompt_rules 键(仅该 agent;裁决④键名)
-# 单一真源: CLI `aimail prompt test` 干跑也调这里的函数。
+# prompt_rules: customizable relationship between recognition conditions ↔ role files (ruling 2026-09-23)
+#   - fields: subject/body/sender/recipient; each field "contains" match (case-insensitive),
+#     Multiple keywords within a field = OR, between fields = AND (ruling ①)
+#   - name = {index}_{filename}, index 10..99 (ruling ②); actual loading depends on rule["file"]
+#     (explicitly written when CLI persists; read side does not do string derivation)
+#   - Storage: prompt_rules key in agentmail.json (only for this agent; ruling ④ key name)
+# Single source of truth: CLI `aimail prompt test` dry-run also calls the functions here.
 # ═══════════════════════════════════════════════════════════
 PROMPT_RULE_NAME_RE = re.compile(r"^[1-9][0-9]_[a-z0-9_-]{1,64}$")
 
 
 def prompt_rule_name_ok(name: str) -> bool:
-    """name = {10..99 序号}_{filename};filename 段 1..64 位(裁决②+CLI 校验)。"""
+    """name = {10..99 sequence}_{filename}; filename segment 1..64 chars (ruling ② + CLI validation)."""
     return bool(PROMPT_RULE_NAME_RE.fullmatch(name or ""))
 
 
 def read_prompt_rules() -> list:
-    """读 agent 级 prompt_rules(agentmail.json 经适配层配置加载器注入)。
+    """Read agent-level prompt_rules (agentmail.json injected via adapter layer config loader).
 
-    读到的每一项都过合法性筛(坏项丢弃 + WARN —— 送达链路绝不因规则坏而失败),
-    返回按 name 字母序(= 序号数值序, 前缀等宽)排列的规则表。
+    Every item read passes a validity filter (bad items are discarded + WARN —— the delivery chain never fails due to bad rules),
+    returns the rule table sorted by name alphabetically (= sequence numeric order, prefix fixed-width).
     """
     cfg = _load_profile_config()
     if not cfg:
@@ -183,7 +183,7 @@ def _prompt_rule_has_any_field(rule: dict) -> bool:
 
 def prompt_rule_matches(rule: dict, subject: str, body: str,
                         sender: str, recipient: str) -> bool:
-    """字段内或 / 字段间且(裁决①)。缺席字段不参与;空列表=未给;坏类型=不命中。"""
+    """OR within a field / AND across fields (ruling ①). Absent fields do not participate; empty list = not given; bad type = no match."""
     hay = {
         "subject": (subject or "").lower(),
         "body": (body or "").lower(),
@@ -238,7 +238,7 @@ def aimail_home() -> Path:
     """Canonical aimail home root (single source of truth).
 
     Resolves env AIMAIL_HOME to a home-root dir,
-    falling back to ~/.aimail. All path constructors (三层收口 2026-09-23:
+    falling back to ~/.aimail. All path constructors (three-layer convergence 2026-09-23:
     systems/{sid}/{addr}/agentmail.log、systems/{sid}/{addr}/mail、
     systems/{sid}/.system_raw_key.key、bridge/) derive from this so the env var relocates the whole
     tree consistently on Python and TS sides (mirrors TS config.ts
@@ -315,10 +315,10 @@ def _load_gateway_config(system_id: str = "") -> Optional[dict]:
                 except Exception:
                     pass
         if not resolved_sid:
-            # 不是"错误"而是"本机还没装/适配层未注入指针": 调用方(入站预处理、
-            # 平台钩子)一律按"无网关"降级 —— B1 联系画像与附件下载跳过,邮件本身
-            # 照常投递给 agent。这里只留一条可定位的 warn;把配置问题顶到启动时的
-            # 自检见 check_profile_pointer()。
+            # Not an "error" but "not installed on this machine/adapter layer has not injected pointer": callers (inbound preprocessing,
+            # platform hooks) all degrade to "no gateway" —— B1 contact profile and attachment download skipped, the email itself
+            # is delivered to the agent as usual. Only a locatable warn is left here; see check_profile_pointer() for the startup
+            # self-check see check_profile_pointer().
             logger.warning(
                 "[aimail_gateway] gateway config unresolvable: no system_id and no "
                 "platform .agentmail pointer (profile dir %r) — run `aimail install` "
@@ -331,8 +331,8 @@ def _load_gateway_config(system_id: str = "") -> Optional[dict]:
     if gw_path.is_file():
         try:
             cfg = json.loads(gw_path.read_text())
-            # 审计 D3: agent 自助激活写出的网关文件是 agent 作用域(scope=agent,
-            # 不含管理 key) —— 它同样"可用", 判定不能只看 admin_key/product_code。
+            # Audit D3: the gateway file written by agent self-activation is agent-scoped (scope=agent,
+            # without admin key) —— it is also "available", the determination cannot only look at admin_key/product_code.
             if cfg.get("gateway_url") and (
                 cfg.get("admin_key") or cfg.get("product_code") or cfg.get("scope") == "agent"
             ):
@@ -343,23 +343,23 @@ def _load_gateway_config(system_id: str = "") -> Optional[dict]:
     return None
 
 
-# ── 注入点（适配层设置；Hermes → pysdk/hermes/aimail_hermes.py，
+# ── Injection point (set by adapter layer; Hermes → pysdk/hermes/aimail_hermes.py,
 #             DeerFlow → pysdk/deer-flow/aimail_deerflow.py）────────────
-# 平台差异（config 来源/personas/profile 目录/board 登记）由适配层注入，
-# 公共核心保持平台无关。未注入时使用安全默认（None/空/no-op）。
-# _SOUL/_SKILLS_PROVIDER 接收当前 agent 的 config（agent 身份：email/agent_id/
-# system_id），适配层据此解析"这个 agent"的 SOUL.md / skills——多 agent 平台
-# 下不同名 agent 的 SOUL 各不相同。核心只传身份、不碰文件系统。
-_CONFIG_LOADER = None          # () -> Optional[dict]      agent 配置加载
-_PERSONAS_PROVIDER = None      # () -> dict                personas 配置
-_PROFILE_DIR_RESOLVER = None   # () -> Optional[str]       profile 目录（gateway config 定位）
-_SOUL_PROVIDER = None          # (config) -> str           SOUL 内容（board ctx，按 agent 身份解析）
-_SKILLS_PROVIDER = None        # (config) -> list[str]     skills 列表（board ctx，按 agent 身份解析）
+# Platform differences (config source/personas/profile directory/board registration) are injected by the adapter layer,
+# the common core remains platform-agnostic. Safe defaults (None/empty/no-op) are used when not injected.
+# _SOUL/_SKILLS_PROVIDER receive the current agent's config (agent identity: email/agent_id/
+# system_id), the adaptation layer uses this to resolve the SOUL.md / skills of "this agent" — multi-agent platform
+# different agents have different SOULs. The core only passes identity, does not touch the file system.
+_CONFIG_LOADER = None          # () -> Optional[dict]      agent config loader
+_PERSONAS_PROVIDER = None      # () -> dict                personas config
+_PROFILE_DIR_RESOLVER = None   # () -> Optional[str]       profile directory (gateway config location)
+_SOUL_PROVIDER = None          # (config) -> str           SOUL content (board ctx, resolved by agent identity)
+_SKILLS_PROVIDER = None        # (config) -> list[str]     skills list (board ctx, resolved by agent identity)
 _BOARD_GATEWAY_SINK = None     # (board_id, gateway_url) -> None
 
 
 def _read_soul_md(config: Optional[dict] = None) -> str:
-    """SOUL 内容（注入点，按 agent 身份解析）。适配层注入；默认空。"""
+    """SOUL content (injection point, resolved by agent identity). Injected by adapter layer; default empty."""
     if _SOUL_PROVIDER is None:
         return ""
     try:
@@ -369,7 +369,7 @@ def _read_soul_md(config: Optional[dict] = None) -> str:
 
 
 def _read_skills(config: Optional[dict] = None) -> list:
-    """skills 列表（注入点，按 agent 身份解析）。适配层注入；默认空。"""
+    """skills list (injection point, resolved by agent identity). Injected by adapter layer; default empty."""
     if _SKILLS_PROVIDER is None:
         return []
     try:
@@ -380,28 +380,28 @@ def _read_skills(config: Optional[dict] = None) -> list:
 
 
 def _load_profile_config() -> Optional[dict]:
-    """agent 配置加载（注入点）。适配层注入平台实现；未注入返回 None
-    （preprocess 走 'not configured' 分支）。"""
+    """agent config loader (injection point). Adapter layer injects platform implementation; returns None if not injected
+    (preprocess goes to 'not configured' branch)."""
     if _CONFIG_LOADER is not None:
         return _CONFIG_LOADER()
     return None
 
 
 def check_profile_pointer() -> bool:
-    """适配层注册注入点后自检：profile 目录里的 .agentmail 指针能否解析出 system_id。
+    """Self-check after the adapter-layer registration injection: whether the .agentmail pointer in the profile dir resolves to a system_id.
 
-    指针是平台契约的一部分（preprocess 的 B1 步骤无参调用 gateway 配置解析，
-    只能靠它定位 system_id）。返回 False 不代表故障，而是"本机尚未安装/未注入"：
-    此时入站预处理降级（B1 联系画像与附件下载跳过，**邮件照常投递给 agent**，
-    不会再整条失败），本函数同时留一条 warn 让降级可见，并把配置问题顶到
-    适配层启动而不是每封邮件。
+    The pointer is part of the platform contract (preprocess B1 step calls gateway config resolution with no args,
+    can only rely on it to locate system_id). Returning False does not mean failure, but "not yet installed/not injected on this machine":
+    at this time inbound preprocessing degrades (B1 contact profile and attachment download skipped, **email delivered to agent as usual**,
+    will not fail entirely), this function also leaves a warn to make the degradation visible, and surfaces the configuration issue to
+    the adapter layer startup instead of every email.
     """
     resolver = _PROFILE_DIR_RESOLVER
     profile_dir = None
     if resolver is not None:
         try:
             profile_dir = resolver()
-        except Exception:  # noqa: BLE001 — 自检本身绝不抛
+        except Exception:  # noqa: BLE001 — self-check itself never raises
             profile_dir = None
     ok = False
     if profile_dir:
@@ -409,7 +409,7 @@ def check_profile_pointer() -> bool:
         if pointer.is_file():
             try:
                 ok = bool(json.loads(pointer.read_text()).get("system_id"))
-            except Exception:  # noqa: BLE001 — 指针损坏等同未安装
+            except Exception:  # noqa: BLE001 — corrupted pointer treated as not installed
                 ok = False
     if not ok:
         logger.warning(
@@ -422,28 +422,28 @@ def check_profile_pointer() -> bool:
 
 
 def list_personas() -> dict:
-    """personas 配置（注入点）。默认空（无 persona 配置）。"""
+    """personas config (injection point). Default empty (no persona config)."""
     if _PERSONAS_PROVIDER is not None:
         return _PERSONAS_PROVIDER()
     return {}
 
 
 def _register_board_gateway(board_id: str, gateway_url: str) -> None:
-    """board 网关注册（注入点）。Hermes 适配层注入写 profile_cfg；默认 no-op。"""
+    """board gateway registration (injection point). Hermes adapter layer injects writing profile_cfg; default no-op."""
     if _BOARD_GATEWAY_SINK is not None:
         _BOARD_GATEWAY_SINK(board_id, gateway_url)
 
 
-# ── 平台无关 agent 上下文（兜底 MCP/CLI 共用,2026-08-18 提升）─────
-# 兜底 MCP/CLI 与各平台适配层共用同一实现(单一权威):任何 agent 系统
-# 只需按共享布局落 agentmail.json 即可复用。
-_ACTIVE_AGENT_CONFIG: Optional[dict] = None  # 最近一次 set_agent_context 的配置
+# ── Platform-agnostic agent context (fallback MCP/CLI shared, promoted on 2026-08-18) ─────
+# Fallback MCP/CLI and each platform adapter layer share the same implementation (single authority): any agent system
+# Just drop agentmail.json into the shared layout to reuse it.
+_ACTIVE_AGENT_CONFIG: Optional[dict] = None  # Configuration from the most recent set_agent_context
 
 
 def _scan_systems_for_agent(agent_id: str, system_id: str = "") -> Optional[dict]:
-    """按 agentId 遍历 systems/{sid}/*/agentmail.json 找匹配配置(平台无关)。
+    """Walk systems/{sid}/*/agentmail.json by agentId to find matching configs (platform-agnostic).
 
-    system_id 缺省时扫描全部 systems/ 目录;命中返回 agentmail.json 内容。
+    If system_id is omitted, scan all systems/ directories; return agentmail.json content on match.
     """
     base = aimail_home() / "systems"
     candidates = [base / system_id] if system_id else (
@@ -466,26 +466,26 @@ def _scan_systems_for_agent(agent_id: str, system_id: str = "") -> Optional[dict
 
 
 def load_agent_config(agent_id: str, system_id: str = "") -> Optional[dict]:
-    """按 agentId 找地址键 config(共享布局 agentmail.json,平台无关)。"""
+    """Find the address-key config by agentId (shared layout agentmail.json, platform-agnostic)."""
     return _scan_systems_for_agent(agent_id, system_id)
 
 
 def save_agent_config(agent_id: str, cfg: dict, system_id: str) -> Path:
-    """原子写地址键 agentmail.json(共享布局,平台无关)——Python 侧唯一
-    共享落盘实现,对齐 TS mail-core config.ts saveBinding(tmp+rename+0600)。
+    """Atomic write address key agentmail.json (shared layout, platform-agnostic) — the only one on the Python side
+    shared persistence implementation, aligned with TS mail-core config.ts saveBinding (tmp+rename+0600).
 
-    hermes/deer-flow 注册链统一经此落盘;agent_id 非空时写入 cfg
-    (load_agent_config/set_agent_context 按 agent_id 匹配)。
+    hermes/deer-flow registration chains uniformly persist via this; if agent_id is non-empty, write to cfg
+    (load_agent_config/set_agent_context match by agent_id).
     """
     cfg = dict(cfg)
     if agent_id:
         cfg["agent_id"] = agent_id
     cleaned = _clean_agent_dir_name(cfg.get("email", ""))
     p = aimail_home() / "systems" / str(system_id) / cleaned / "agentmail.json"
-    # 地址目录 0o700:凭证(api_key)所在目录,组/其他不可进
+    # Address directory 0o700: directory containing credentials (api_key), group/others cannot enter
     p.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
     tmp = p.with_name(p.name + ".tmp")
-    # tmp 以 0600 创建:先写后 chmod 的写法存在短暂全局可读窗口(含 api_key)
+    # tmp created with 0600: writing then chmod creates a brief globally readable window (including api_key)
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
         f.write(json.dumps(cfg, indent=2, ensure_ascii=False) + "\n")
@@ -493,18 +493,18 @@ def save_agent_config(agent_id: str, cfg: dict, system_id: str) -> Path:
     return p
 
 
-# ── CLI 侧的语义化薄入口(owner 裁决 A, 2026-09-28)────────────────────────────
-# 分层裁决: 系统级环境文件由 **CLI** 写, per-agent 绑定文件由 **SDK** 写。
-# CLI 需要改绑定内容时不再自持写调用, 只调下面这几个语义化薄函数; 三者内部一律走
-# 上面既有的 `save_agent_config`(原子 tmp+rename + 0600 语义逐字不变, 未复制实现)。
-# 写作约定: 这几个函数的文档串里**不出现**绑定文件名字面量 —— 契约字面量棘轮按
-# 「文件 × 键」只许减不许增, 本模块已是该键的既有持有者, 不能因新代码再加。
+# ── Semantic thin entry points on the CLI side (owner ruling A, 2026-09-28)────────────────────────────
+# Layering ruling: System-level environment files are written by **CLI**, per-agent binding files by **SDK**.
+# When CLI needs to modify binding content, it no longer holds write calls itself, only calls these semantic thin functions below; internally all three go through
+# the existing `save_agent_config` above (atomic tmp+rename + 0600 semantics unchanged verbatim, implementation not copied).
+# Writing conventions: The docstrings of these functions **do not contain** the literal binding file name —— the contract literal ratchet is by
+# "file × key" only allows reduction not addition, this module is already the existing holder of this key, cannot add due to new code.
 
 def update_binding(system_id: str, cfg: dict, updates: dict) -> Path:
-    """字段级更新绑定内容并原子落盘(语义化薄函数: updates 并入 → `save_agent_config`)。
+    """Field-level update binding content and atomically persist (semantic thin function: merge updates → `save_agent_config`).
 
-    CLI 侧只做触发与取值(`aimail prompt add|rm` 改 prompt_rules、`aimail address
-    set-manager` 改 manager_address); 判定与落盘在 SDK 侧。
+    CLI side only triggers and gets values (`aimail prompt add|rm` modifies prompt_rules, `aimail address
+    set-manager` modifies manager_address); judgment and persistence are on the SDK side.
     """
     merged = dict(cfg)
     merged.update(updates or {})
@@ -512,23 +512,23 @@ def update_binding(system_id: str, cfg: dict, updates: dict) -> Path:
 
 
 def backfill_binding(cfg: dict, system_id: str) -> Path:
-    """把**已经算好的整份**绑定内容落盘（纯写回入口）。
+    """Persist the **already calculated full** binding content (pure write-back entry).
 
-    判定（哪些字段要补、webhook 目标是否对齐）由上层 repair 承担：SDK 门
-    `update(action="repair")` 自判自补；本函数只负责经 `save_agent_config` 写回。
+    Judgment (which fields to fill, whether webhook target is aligned) is handled by upper-layer repair: SDK gate
+    `update(action="repair")` self-judges and self-fills; this function is only responsible for writing back via `save_agent_config`.
     """
     return save_agent_config(cfg.get("agent_id", ""), cfg, system_id)
 
 
 def rename_binding(old_dir, new_email: str, cfg: dict, system_id: str) -> dict:
-    """地址改名时的本地绑定迁移 —— **目录 + 内容 = 同一件事**。
+    """Local binding migration when renaming an address —— **directory + content = the same thing**.
 
-    绑定按地址目录存放, 所以「搬目录」与「写内容」拆开必留中间态(目录已改名、
-    内容未落盘); 两者都在这里完成, 内容仍走 `save_agent_config`(原子+0600)。
-    `old_dir` 必须是调用方已定位到的**实际**绑定目录(容忍遗留命名), 不做二次推导。
+    Bindings are stored by address directory, so "moving directory" and "writing content" separated will leave intermediate state (directory renamed,
+    content not persisted); both are completed here, content still goes through `save_agent_config` (atomic+0600).
+    `old_dir` must be the **actual** binding directory located by the caller (tolerating legacy naming), no secondary derivation.
 
-    返回 ``{"path": Path, "dir": Path, "moved": bool, "merged": bool}`` ——
-    ``merged=True`` 表示目标目录已存在(只把内容并过去、不动目录), 由调用方告警。
+    Returns ``{"path": Path, "dir": Path, "moved": bool, "merged": bool}`` --
+    ``merged=True`` indicates target directory already exists (only merge content, do not move directory), caller warns.
     """
     root = aimail_home() / "systems" / str(system_id)
     src = Path(old_dir)
@@ -546,20 +546,20 @@ def rename_binding(old_dir, new_email: str, cfg: dict, system_id: str) -> dict:
 
 
 def rename_address(system_id: str, old_email: str, new_name: str, cfg: dict) -> dict:
-    """地址改名的 SDK 域完整操作(owner 裁决 2026-10-02: agent 数量与命名 = SDK 域,
-    改名也是 SDK 的 CRUD; CLI 只是调用方/数据消费者)。
+    """Complete SDK domain operation for address rename (owner ruling 2026-10-02: agent count and naming = SDK domain,
+    rename is also SDK CRUD; CLI is just caller/data consumer).
 
-    顺序(任一步抛出即停, 前面已生效的部分在异常文本中写明):
-      1. 校验 + 派生(`email_for_agent` 唯一命名真源) + 冲突预检(本地绑定, 同旧语义);
-      2. 云端 rename(失败即抛 —— 本地未动);
-      3. 白名单孤儿清理: 按**完整 old_email** 为键查询(地址行 ∈ 本系统 ⇒ shared 域
-         也正确解析到本系统, 而非域属主) —— best-effort;
-      4. 本地绑定迁移(`rename_binding`: 目录+内容一次完成);
-      5. 平台根指针(契约 POINTER_FILE 及历史备选名)同步 —— 保留既有字段;
-      6. **改名收尾 = 上线信号** `address --inbound-live`(契约 payload=address only):
-         环境主控(CLI)收到后按落盘数据全量对账路由 —— 时机与内容因此唯一、幂等。
+    Order (stop if any step throws, previously effective parts are stated in exception text):
+      1. Validation + derivation (`email_for_agent` unique naming source of truth) + conflict pre-check (local binding, same old semantics);
+      2. Cloud rename (throws on failure — local unchanged);
+      3. Whitelist orphan cleanup: query by **full old_email** as key (address line ∈ this system ⇒ shared domain
+         also correctly resolves to this system, rather than the domain owner) —— best-effort;
+      4. Local binding migration (`rename_binding`: directory+content completed at once);
+      5. Platform root pointer (contract POINTER_FILE and historical alternative names) synchronization —— retain existing fields;
+      6. **Rename finish = online signal** `address --inbound-live` (contract payload=address only):
+         Environment Master (CLI) performs full reconciliation of routing based on persisted data upon receipt — timing and content are therefore unique and idempotent.
 
-    返回 ``{"old_email", "new_email", "unchanged", "dir", "moved", "merged",
+    Returns ``{"old_email", "new_email", "unchanged", "dir", "moved", "merged",
     "migrated", "signal"}``。
     """
     name = str(new_name or "").strip()
@@ -578,14 +578,14 @@ def rename_address(system_id: str, old_email: str, new_name: str, cfg: dict) -> 
     ak = str(cfg.get("admin_key") or "")
     if not gw or not ak:
         raise ValueError("system config lacks gateway_url/admin_key")
-    # 唯一命名真源(不自拼): 清洗规则与别名归一都在 email_for_agent 内
+    # Single source of truth for unique naming (no manual concatenation): cleaning rules and alias normalization are all inside email_for_agent
     new = email_for_agent(name, domain, system_name, default_aliases=())
     if new == old:
         return {"old_email": old, "new_email": old, "unchanged": True,
                 "dir": "", "moved": False, "merged": False, "migrated": True,
                 "signal": None}
-    # 1) 冲突预检: 同系统其它已注册地址的 base 撞名(本地绑定 = 与旧 CLI 同语义,
-    #    不新增网络依赖; 云端唯一性由 gateway rename 端点兜底)。
+    # 1) Conflict pre-check: base name collision with other registered addresses in the same system (local binding = same semantics as old CLI,
+    #    no new network dependencies; cloud uniqueness is guaranteed by the gateway rename endpoint).
     for row in iter_agentmail_configs(system_id):
         em = str((row or {}).get("email") or "")
         if not em or em == old:
@@ -596,14 +596,14 @@ def rename_address(system_id: str, old_email: str, new_name: str, cfg: dict) -> 
                 f"new address name {name!r} conflicts with registered address {em}")
     from aimail_tools import _GatewayClient
     client = _GatewayClient(gw, ak)
-    # 2) 云端 rename —— 服务端校验 old 存在(404 ⇒ 抛), 本地不动
+    # 2) Cloud rename —— server-side validates old exists (404 ⇒ throw), local unchanged
     try:
         client._request("POST", f"/api/v1/admin/systems/{system_id}/addresses/rename",
                         body={"old_email": old, "new_email": new})
     except Exception as e:  # noqa: BLE001
         raise ValueError(f"server-side rename {old} -> {new} failed "
                          f"(local untouched): {e}") from e
-    # 3) 白名单孤儿行清理(best-effort): 键 = 完整 old 地址 ⇒ 解析到本系统行
+    # 3) Whitelist orphan line cleanup (best-effort): key = full old address ⇒ resolves to this system's line
     try:
         if hasattr(client, "list_whitelists_by_domain"):
             rows = client.list_whitelists_by_domain(old)
@@ -617,7 +617,7 @@ def rename_address(system_id: str, old_email: str, new_name: str, cfg: dict) -> 
                 logger.info("rename: removed %d stale whitelist row(s) for %s", n, old)
     except Exception as e:  # noqa: BLE001
         logger.warning("rename: whitelist cleanup for %s failed: %s", old, e)
-    # 4) 本地迁移: 目录改名 + email 更新(一次 SDK 调用, owner 裁决 A)
+    # 4) Local migration: directory rename + email update (single SDK call, owner decision A)
     base_root = aimail_home() / "systems" / str(system_id)
     dir_path, moved, merged, migrated = "", False, False, True
     if base_root.is_dir():
@@ -625,7 +625,7 @@ def rename_address(system_id: str, old_email: str, new_name: str, cfg: dict) -> 
             jf = d / "agentmail.json"
             try:
                 acfg = json.loads(jf.read_text())
-            except Exception:  # noqa: BLE001 — 非绑定目录跳过
+            except Exception:  # noqa: BLE001 — skip non-bound directories
                 continue
             if str(acfg.get("email") or "") != old:
                 continue
@@ -635,12 +635,12 @@ def rename_address(system_id: str, old_email: str, new_name: str, cfg: dict) -> 
                 dir_path = str(res.get("dir") or "")
                 moved = bool(res.get("moved"))
                 merged = bool(res.get("merged"))
-            except Exception as e:  # noqa: BLE001 — 云端已改名, 不致命
+            except Exception as e:  # noqa: BLE001 — cloud has renamed, not fatal
                 migrated = False
                 logger.warning("rename: local binding migration failed "
                                "(cloud already renamed, reinstall rebuilds local): %s", e)
             break
-    # 5) 平台根指针同步(契约 POINTER_FILE + 历史备选名; 保留指针内既有字段)
+    # 5) Platform root pointer sync (contract POINTER_FILE + historical alternate names; preserve existing fields in pointer)
     home = str(cfg.get("system_home") or "")
     if home and Path(home).is_dir():
         for ptr_name in (POINTER_FILE, ".aimail"):
@@ -655,7 +655,7 @@ def rename_address(system_id: str, old_email: str, new_name: str, cfg: dict) -> 
                         pp, json.dumps(pdata, ensure_ascii=False, indent=2) + "\n")
             except Exception as e:  # noqa: BLE001
                 logger.warning("rename: pointer %s update failed: %s", pp, e)
-    # 6) 改名收尾 = 上线信号(触发 CLI 全量对账; 永不抛)
+    # 6) Rename finalization = online signal (triggers full CLI reconciliation; never raises)
     signal = None
     if migrated:
         signal = notify_inbound_state(new, "live")
@@ -666,19 +666,19 @@ def rename_address(system_id: str, old_email: str, new_name: str, cfg: dict) -> 
 
 def cleanup_system_whitelists(client, system_id: str, addresses, domains,
                               deregistered) -> dict:
-    """卸载兜底: 清**本系统自己的**白名单行。返回 {"removed", "per_key", "errors"}。
+    """Uninstall fallback: clean **this system's own** whitelist rows. Returns {"removed", "per_key", "errors"}.
 
-    N2-B(裁决 2026-10-02, 与 rename_address 同模式收口): 白名单资源的云端 CRUD 归 SDK,
-    CLI 只触发与播报。事实依据 /tmp/d2-repro.log(网关 SQL 数据层重放):
-      · 查询键**只能**是本系统 system_domains 行(address 行 + 自有裸域行; upstream =
-        list_system_domains(sid)) —— domain_addr UNIQUE ⇒ 回解析恒得本系统;
-        共享租户没有裸域行, 旧实现拿裸 cfg_domain 当键会解析到**域属主系统**
-        ⇒ 删平台/域主的行、自家行漏清(共享域双半边缺陷)。
-      · 成功注销过的地址键不再扫(其行由注销链自己清)。
-      · 删除前按响应 system_id==sid 再过滤一道(响应带 system_id; gateway types.rs:279);
-        缺失(None)视为兼容旧网关, 信任已证明的键。
-      · 键集为空即跳过(判不出归属宁可不扫) —— 旧的 cfg_domain 兜底正是病灶。
-    client 由调用方注入(与 deregister_agent_email 同约定: 本函数族共享同一 client)。
+    N2-B (decision 2026-10-02, same pattern closure as rename_address): cloud CRUD for whitelist resources belongs to SDK,
+    CLI only triggers and reports. Factual basis /tmp/d2-repro.log (gateway SQL data layer replay):
+      · Query key **can only** be this system's system_domains row (address row + own bare domain row; upstream =
+        list_system_domains(sid)) —— domain_addr UNIQUE ⇒ reverse resolution always yields this system;
+        shared tenants have no bare domain row, old implementation using bare cfg_domain as key would resolve to **domain owner system**
+        ⇒ delete platform/domain owner lines, miss cleaning own lines (shared domain dual-half defect).
+      · Address keys that have been successfully deregistered are no longer scanned (their rows are cleaned by the deregistration chain itself).
+      · Before deletion, filter again by response system_id==sid (response includes system_id; gateway types.rs:279);
+        missing (None) is treated as compatible with old gateway, trusting proven keys.
+      · If key set is empty, skip (better not to scan if ownership cannot be determined) —— the old cfg_domain fallback was exactly the root cause.
+    client is injected by caller (same convention as deregister_agent_email: this function family shares the same client).
     """
     if not hasattr(client, "list_whitelists_by_domain"):
         return {"removed": 0, "per_key": {}, "errors": []}
@@ -693,7 +693,7 @@ def cleanup_system_whitelists(client, system_id: str, addresses, domains,
     for key in sweep_keys:
         try:
             rows = client.list_whitelists_by_domain(key)
-        except Exception as e:  # noqa: BLE001 — 单键失败不阻断其余键
+        except Exception as e:  # noqa: BLE001 — single key failure does not block other keys
             errors.append(f"list {key}: {e}")
             continue
         n = 0
@@ -701,7 +701,7 @@ def cleanup_system_whitelists(client, system_id: str, addresses, domains,
             if not isinstance(r, dict) or r.get("id") is None:
                 continue
             if r.get("system_id") not in (None, system_id):
-                continue                      # 双保险: 别人的行永不触碰
+                continue                      # Double insurance: never touch others' rows
             rid = int(r["id"])
             if rid in seen:
                 continue
@@ -718,8 +718,8 @@ def cleanup_system_whitelists(client, system_id: str, addresses, domains,
 
 def set_agent_manager(system_id: str, email: str, manager: str,
                       cfg: dict, binding_cfg: dict) -> None:
-    """set-manager 的 SDK 域收口(owner 裁决 2026-10-02): 云端 agent-meta 与本地
-    绑定是同一资源的两半, 一次调用完成; 云端失败即抛(本地不动)。"""
+    """set-manager SDK domain closure (owner decision 2026-10-02): cloud agent-meta and local
+    binding are two halves of the same resource, completed in one call; cloud failure raises (local unchanged)."""
     mgr = str(manager or "").strip()
     if not mgr or "@" not in mgr:
         raise ValueError(f"invalid manager address {manager!r}")
@@ -738,7 +738,7 @@ def set_agent_manager(system_id: str, email: str, manager: str,
 
 
 def _ensure_private_dir(d: Path, mode: Optional[int]) -> None:
-    """私有目录: 不存在则按 mode 建; 已存在但过宽则收紧(仅本 SDK 管理的目录)。"""
+    """Private directory: create if not exists according to mode; tighten if exists but too wide (only directories managed by this SDK)."""
     d.mkdir(parents=True, mode=mode or 0o700, exist_ok=True)
     if mode is None:
         return
@@ -750,11 +750,11 @@ def _ensure_private_dir(d: Path, mode: Optional[int]) -> None:
 
 
 def atomic_write_private(path: Path, text: str, ensure_dir_mode: Optional[int] = 0o700) -> None:
-    """私有内容原子落盘 —— 单一入口(审计 2026-09-21: 多处默认 umask 写私有数据)。
+    """Atomic write of private content —— single entry point (audit 2026-09-21: multiple places writing private data with default umask).
 
-    约定: 父目录 0700(除宿主自有目录可传 None) + tmp 以 0600 创建(无"先写后
-    chmod"的全局可读窗口) + 原子 replace。凭证/指针/邮件正文/快照/线程摘要
-    统一走这里, 不再各自 `tmp.write_text(...)`(默认 umask 会产出 0644)。
+    Convention: parent directory 0700 (except host-owned directories where None can be passed) + tmp created with 0600 (no "write first then
+    "write then chmod") + atomic replace. Credentials/pointers/email bodies/snapshots/thread summaries
+    all go through here, no longer using `tmp.write_text(...)` individually (default umask produces 0644).
     """
     _ensure_private_dir(path.parent, ensure_dir_mode)
     tmp = path.with_name(path.name + ".tmp")
@@ -765,7 +765,7 @@ def atomic_write_private(path: Path, text: str, ensure_dir_mode: Optional[int] =
 
 
 def append_private(path: Path, text: str, ensure_dir_mode: Optional[int] = 0o700) -> None:
-    """私有日志追加(日志不能原子替换): 目录收紧 + 文件按 0600 创建。"""
+    """Private log append (logs cannot be atomically replaced): tighten directory + create file with 0600."""
     _ensure_private_dir(path.parent, ensure_dir_mode)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     with os.fdopen(fd, "a", encoding="utf-8") as f:
@@ -773,12 +773,12 @@ def append_private(path: Path, text: str, ensure_dir_mode: Optional[int] = 0o700
 
 
 def set_agent_context(agent_id: str, system_id: str = "") -> None:
-    """把当前 agent 的 config 挂到公共核心注入点(平台无关,兜底 MCP 服务用)。
+    """Attach current agent's config to public core injection point (platform-agnostic, fallback for MCP service).
 
-    原 OpenClaw 版(读 ~/.openclaw/.agentmail 指针 + AIMAIL_AGENT_EMAIL)提升为
-    共享实现:遍历 systems/{sid}/*/agentmail.json 匹配 agent_id,命中后设置
-    _CONFIG_LOADER 与 AIMAIL_AGENT_EMAIL(日志落位),供 preprocess 与 6 工具共用。
-    未注册 → RuntimeError(与 OpenClaw 原语义一致)。
+    Original OpenClaw version (reads ~/.openclaw/.agentmail pointer + AIMAIL_AGENT_EMAIL) promoted to
+    shared implementation: iterates systems/{sid}/*/agentmail.json to match agent_id, upon hit sets
+    _CONFIG_LOADER and AIMAIL_AGENT_EMAIL (log location), shared by preprocess and 6 tools.
+    Unregistered → RuntimeError (consistent with OpenClaw original semantics).
     """
     global _ACTIVE_AGENT_CONFIG, _CONFIG_LOADER
     cfg = _scan_systems_for_agent(agent_id, system_id)
@@ -793,25 +793,25 @@ def set_agent_context(agent_id: str, system_id: str = "") -> None:
 
 
 def _clean_agent_dir_name(addr: str) -> str:
-    """agent 地址 → 目录名：非 [A-Za-z0-9_.-] 字符替换为 _。
+    """agent address → directory name: replace non [A-Za-z0-9_.-] characters with _.
 
-    邮件地址是 7-bit ASCII(RFC 5321),re.ASCII 让 \\w 退化为 [a-zA-Z0-9_],
-    任何非 ASCII 字符(理论上不出现)也归一为 _,与 TS cleanAddr(/[^\\w.-]/g)
-    1:1 对齐,且文件系统路径始终 ASCII 安全。
-    与 bridge 顶层 agent 目录命名同规则（mike_aimail.token.tm）。
+    Email addresses are 7-bit ASCII (RFC 5321), re.ASCII makes \\w degrade to [a-zA-Z0-9_],
+    Any non-ASCII character (theoretically should not occur) is also normalized to _, aligning 1:1 with TS cleanAddr(/[^\\w.-]/g)
+    1:1 alignment, and filesystem paths are always ASCII-safe.
+    Same naming rule as the bridge top-level agent directory (mike_aimail.token.tm).
     """
     return re.sub(r"[^\w.\-]", "_", addr, flags=re.ASCII)
 
 
 def _agent_config_path(system_id: str, email: str) -> Path:
-    """地址键 per-agent 配置路径：systems/{sid}/{cleaned_addr}/agentmail.json。"""
+    """Address key per-agent config path: systems/{sid}/{cleaned_addr}/agentmail.json."""
     return _aimail_system_dir(system_id) / _clean_agent_dir_name(email) / "agentmail.json"
 
 
 def route_agent_for_email(registry: dict, email: str) -> str:
-    """收件地址 → agent_id（精确匹配 + persona 前缀剥离：support.alice@… → alice@…）。
+    """Recipient address → agent_id (exact match + persona prefix stripping: support.alice@… → alice@…).
 
-    多收件人入站路由共享（OpenClaw/DeerFlow 等单入多出平台）。
+    Shared for multi-recipient inbound routing (single-inbound multi-outbound platforms like OpenClaw/DeerFlow).
     """
     if email in registry:
         return registry[email]
@@ -824,16 +824,16 @@ def route_agent_for_email(registry: dict, email: str) -> str:
 
 
 def render_message(payload: dict) -> str:
-    """把富化后的 AIMail payload 组装成 agent 输入 message。
+    """Assemble the enriched AIMail payload into the agent input message.
 
-    对齐 Hermes webhook.py 空模板 fallback 渲染语义
-    （json.dumps(payload, indent=2)[:4000]），各平台保持一致。
+    Aligns with Hermes webhook.py empty template fallback rendering semantics
+    (json.dumps(payload, indent=2)[:4000]), keeping consistency across platforms.
     """
     return json.dumps(payload, indent=2)[:4000]
 
 
 def _read_pointer(pointer: Path) -> dict:
-    """读取 {dir}/.aimail 指针（{system_id, email}）。缺失/损坏返回 {}。"""
+    """Read the {dir}/.aimail pointer ({system_id, email}). Returns {} when missing/corrupt."""
     if pointer.is_file():
         try:
             return json.loads(pointer.read_text())
@@ -843,10 +843,10 @@ def _read_pointer(pointer: Path) -> dict:
 
 
 def _write_pointer(pointer: Path, system_id: str, email: str) -> None:
-    """写 {dir}/.aimail 指针（系统身份唯一来源）。
+    """Write {dir}/.aimail pointer (single source of truth for system identity).
 
-    审计 D2: 原实现用默认 umask(实测 0664 文件 / 0775 目录)+ 非原子写 ⇒
-    统一走 atomic_write_private(目录 0700、tmp 0600、原子替换)。
+    Audit D2: The original implementation uses the default umask (measured 0664 files / 0775 directories) + non-atomic write ⇒
+    Unified to use atomic_write_private (dir 0700, tmp 0600, atomic replace).
     """
     atomic_write_private(
         pointer,
@@ -878,10 +878,10 @@ def _board_creds_path() -> Optional[Path]:
 
 
 def _store_board_credential(board_id: str, gateway_url: str, token: str) -> None:
-    """board 凭据存储（共享默认实现）：写入 per-agent board_creds.json。
+    """board credential storage (shared default implementation): writes per-agent board_creds.json.
 
-    所有平台共用。此前是 Hermes 适配层注入的 sink（OpenClaw 未注入 → 凭据
-    静默不落盘），现提升到共享核心作默认实现，各平台无需注入即得持久化。
+    Shared by all platforms. Previously a sink injected by the Hermes adapter layer (OpenClaw did not inject → credential
+    silently not persisted), now promoted to the shared core as the default implementation, so platforms get persistence without injection.
     """
     try:
         creds_path = _board_creds_path()
@@ -894,8 +894,8 @@ def _store_board_credential(board_id: str, gateway_url: str, token: str) -> None
             except Exception:
                 pass
         creds[board_id] = {"gateway_url": gateway_url, "token": token}
-        # token 与 api_key 同级敏感: 目录 0700 + tmp 0600 + 原子替换(审计 D2:
-        # 原 mkdir 无 mode, 目录一旦本函数先建就比 0700 宽)。
+        # token is as sensitive as api_key: dir 0700 + tmp 0600 + atomic replace (Audit D2:
+        # original mkdir had no mode, so if this function created the dir first, it would be wider than 0700).
         atomic_write_private(creds_path, json.dumps(creds, indent=2))
     except Exception:
         pass
@@ -1004,14 +1004,14 @@ def send_pong(body: dict, pong_id_value: str) -> bool:
 
 
 def resolve_system_id_for_email(email: str = "") -> str:
-    """email → system_id(三层收口布局 systems/{sid}/{addr}/… 的归属解析, 2026-09-23)。
+    """email → system_id (three-layer convergence layout systems/{sid}/{addr}/… ownership resolution, 2026-09-23).
 
-    顺序: 1) 活动 profile 配置(email 匹配时, 零扫描)
-          2) 扫 {home}/systems/*/{cleaned}/agentmail.json 落点(权威映射,
-             覆盖任意地址, 如 ping 收件人)
-          3) 平台指针 .agentmail 的 system_id 兜底
-    解析失败返回 "" —— 调用方收口到 systems/_unassigned/, 保持三层布局纯净
-    (绝不回落旧的顶层 logs/ 或 mail/)。
+    Order: 1) Active profile config (when email matches, zero scan)
+          2) Scan {home}/systems/*/{cleaned}/agentmail.json landing points (authoritative mapping,
+             covers any address, e.g., ping recipients)
+          3) the platform pointer .agentmail system_id as fallback
+    Return "" on parse failure —— caller falls back to systems/_unassigned/, keeping the three-layer layout pure
+    (never falls back to old top-level logs/ or mail/).
     """
     if email:
         try:
@@ -1045,10 +1045,10 @@ def resolve_system_id_for_email(email: str = "") -> str:
 def aimail_log_path(email: str = "") -> Path:
     """Canonical per-agent processing log path (user-mandated 2026-08-16).
 
-    三层收口(2026-09-23 裁决): 每 agent 日志落 agent 层, 与 agentmail.json
-    同目录 —— {home}/systems/{system_id}/{cleaned_addr}/agentmail.log;
-    顶层不再有 logs/(原 logs/aimail.{cleaned_addr}.log 已废弃)。
-    system_id 解析失败收口到 systems/_unassigned/(不落旧路径)。
+    Three-layer convergence (2026-09-23 decision): Each agent's logs land in the agent layer, in the same directory as agentmail.json
+    Same directory —— {home}/systems/{system_id}/{cleaned_addr}/agentmail.log;
+    No more top-level logs/ (original logs/aimail.{cleaned_addr}.log is deprecated).
+    If system_id resolution fails, converge to systems/_unassigned/ (do not use old paths).
     """
     cleaned = _clean_agent_dir_name(email) if email else "default"
     sid = resolve_system_id_for_email(email) or "_unassigned"
@@ -1262,8 +1262,8 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
     persona, profile, _sys_name = parse_aimail_persona(my_to_addr, system_name) if my_to_addr else ('', '', '')
     if persona:
         if not PERSONA_SUPPORTED:
-            # 系统不支持 persona：收件地址归一为基础地址（剥离 persona 前缀），
-            # 不做配置校验与派生地址保留——agent 身份即注册的基础地址。
+            # System does not support persona: normalize recipient address to base address (strip persona prefix),
+            # No configuration validation or derived address retention — the agent identity is the base address for registration.
             result["my_aimail_addr"] = agent_email
         else:
             # Validate persona against configured personalities
@@ -1272,7 +1272,7 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
                 result["my_aimail_addr"] = my_to_addr
             else:
                 logger.warning("[aimail_gateway] Persona '%s' not found in agent.personalities — falling back to base address", persona)
-                # 未配置 persona：剥离 persona 前缀，回退注册基础地址（与创建端幂等）
+                # Persona not configured: strip persona prefix, fall back to registered base address (idempotent with creation side)
                 result["my_aimail_addr"] = agent_email
     if not result.get("my_aimail_addr"):
         result["my_aimail_addr"] = my_to_addr or agent_email
@@ -1448,7 +1448,7 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
                  or payload.get("subject") or payload.get("Subject") or "")
         _log_aimail("inbound", str(_from), my_addr, str(_subj))
 
-    # ── a2a_board: [WhoAmI]问询检测 ──
+    # ── a2a_board: [WhoAmI] inquiry detection ──
     subject = (payload.get("subject") or "").strip()
     if subject.upper().startswith("[WHOAMI]"):
         ctx = build_ctx(result, dict(headers), config)
@@ -1457,16 +1457,16 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
             result["_whoami_prompt"] = fill_template(whoami_raw, ctx)
         return result
 
-    # ── B3: Role_Calibrator (persona 更新请求 / welcome 引导) ──
-    # 2026-09-22 合并后两种识别形式:
-    #   (a) 安全员指令邮件: 主题含 "update persona"(安全运营面发送的角色更新
-    #       指令,生产流,长期保留 — 裁决 2026-10-23,非临时兼容)
-    #   (b) 合并后的 welcome: **主题标记 + 正文三标签同时命中**
-    #       - 主题(小写化)含 "welcome to aimail world"
-    #         (网关生成: "Welcome to AIMail World, {agent}, since {date}!")
-    #       - 正文行首出现 persona: / signature: / current_time: 三标签
-    # 命中 ⇒ 注入 Role_Calibrator(SOUL + skills 由 build_ctx 自动填充)并早返回, 以免被 board 角色覆盖。
-    # 只命中其一 ⇒ 不注入 + WARN, 使模板漂移可见(不静默退化成默认 prompt)。
+    # ── B3: Role_Calibrator (persona update request / welcome guidance) ──
+    # Two identification forms after 2026-09-22 merge:
+    #   (a) Security officer instruction email: subject contains "update persona" (role update
+    #       instructions, production flow, long-term retention — adjudicated 2026-10-23, not temporary compatibility)
+    #   (b) Merged welcome: **subject marker + body three tags hit simultaneously**
+    #       - Subject (lowercased) contains "welcome to aimail world"
+    #         (generated by gateway: "Welcome to AIMail World, {agent}, since {date}!")
+    #       - persona: / signature: / current_time: tags appear at the start of body lines
+    # Hit ⇒ inject Role_Calibrator(SOUL + skills auto-filled by build_ctx) and return early, to avoid being overridden by board role.
+    # Only one hit ⇒ do not inject + WARN, making template drift visible (do not silently degrade to default prompt).
     _subj = subject.lower()
     _body_lc = (result.get("body") or "").lower()
     _welcome_marker = "welcome to aimail world" in _subj
@@ -1489,7 +1489,7 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
             _labels_ok,
         )
 
-    # ── a2a_board: Board上下文检测（由Rust A2aInterceptor注入 board_id / board_role）──
+    # ── a2a_board: Board context detection (injected by Rust A2aInterceptor with board_id / board_role) ──
     board_id = result.get("board_id")
     board_role = result.get("board_role")
     if board_id and board_role:
@@ -1500,16 +1500,16 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
         sender = result.get("from", "")
         result["_a2a_session_key"] = f"a2a:{board_id}:{sender}"
 
-    # ── L4 网关 header → L5 本地 prompt_rules(裁决 2026-09-23) ──
-    # 链序(首中即止, 只识别命中一次): [WHOAMI] > welcome > board >
-    # X-AIMail-Prompt(网关判定"已命中"后盖头, 值=文件名不含.md/不带序号)
-    # > 本地自定义(name 字母序)。任何一层注入成功即止;命中但文件缺失
-    # ⇒ WARN 并继续向下(绝不阻断送达)。
+    # ── L4 gateway header → L5 local prompt_rules (ruling 2026-09-23) ──
+    # Chain order (stop on first hit, only recognize one hit): [WHOAMI] > welcome > board >
+    # X-AIMail-Prompt (gateway stamps header after determining "hit", value = filename without .md/no sequence number)
+    # > local custom (name alphabetical order). Stop if any layer injection succeeds; if hit but file missing
+    # ⇒ WARN and continue down (never block delivery).
     if not result.get("_role_prompt"):
         ctx = build_ctx(result, dict(headers), config)
         injected = False
-        # header 双源(网关盖头位置未锁死 = 扩展点): 邮件头 payload.headers 优先,
-        # HTTP 头参数兜底; key 大小写不敏感, 空值视为未给。
+        # header dual source (gateway stamp position not locked = extension point): email header payload.headers preferred,
+        # HTTP header parameter fallback; key case-insensitive, empty value treated as not provided.
         hdr = ""
         for _src in (raw_headers, headers):
             for hk, hv in (_src or {}).items():
@@ -1534,10 +1534,10 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
                 if not prompt_rule_matches(rule, str(result.get("subject", "")),
                                            str(result.get("body", "")),
                                            sender_txt, recp_txt):
-                    continue  # 首中即止: 未命中继续按 name 序评估下一条
+                    continue  # Stop on first hit: if not hit, continue evaluating next by name order
                 raw = _read_role_file(str(rule["file"]))
                 if not raw:
-                    # 命中但文件缺失 ⇒ WARN 续走(批准语义: 不阻断、不注入)
+                    # Hit but file missing ⇒ WARN and continue (approved semantics: do not block, do not inject)
                     logger.warning(
                         "[aimail_gateway] prompt rule %s matched but role file '%s' missing — next rule",
                         rule["name"], rule["file"])
@@ -1632,25 +1632,25 @@ def _extract_board_gateway(payload: dict):
         _store_board_credential(board_id, gateway_url, token)
 
 # ═══════════════════════════════════════════════════════════════
-# 生命周期公共链（注册/注销 agent 地址——跨 agent 系统统一，
-# Hermes 适配层与 OpenClaw 注册脚本共用，修订只改此处）
+# Lifecycle common chain (register/unregister agent address — unified across agent systems,
+# shared by Hermes adapter layer and OpenClaw registration scripts, revisions only change here)
 # ═══════════════════════════════════════════════════════════════
 
 def email_for_agent(agent_id: str, domain: str, system_name: str = "",
                     default_aliases: tuple = ("default",)) -> str:
-    """agent 地址派生（跨系统统一规则 + 注册前合规清洗）。
+    """agent address derivation (cross-system unified rules + pre-registration compliance cleaning).
 
-    1. 默认名归一：**各系统自己的默认 agent 名** → "agent"
-       （Hermes 传 ("default",)，OpenClaw 传 ("main",)；互不替换——Hermes 的
-       "main" profile 保持 "main"，OpenClaw 的 "default" agent 保持 "default"）。
-    2. 非法字符清洗（作用于**原始地址名** base 段，不含共享域 system_name 标识名）：
-       - '.' → '_' **全系统严格统一**（点是 persona 分隔符保留位 + gateway 点规则：
-         shared 恰 1 点 / non-shared 0 点，base 含点必拒；与 persona 支持无关）
-       - 其他非 atext-no-dot 字符 → '_'（字符集 = gateway is_atext_no_dot）
-       - 清洗后为空 → 回退 "agent"
+    1. Default name normalization: **each system's own default agent name** → "agent"
+       (Hermes passes ("default",), OpenClaw passes ("main",); they do not replace each other——Hermes's
+       "main" profile remains "main", OpenClaw's "default" agent remains "default").
+    2. Illegal character cleaning (applies to **original address name** base segment, excluding shared domain system_name identifier):
+       - '.' → '_' **strictly unified across all systems** (dot is persona separator reserved slot + gateway dot rule:
+         shared exactly 1 dot / non-shared 0 dots, base containing dot must be rejected; unrelated to persona support)
+       - Other non atext-no-dot characters → '_' (charset = gateway is_atext_no_dot)
+       - If empty after cleaning → fallback to "agent"
     """
     base = "agent" if agent_id in default_aliases else agent_id
-    # 严格清洗：非 atext-no-dot 字符（含 '.'）→ '_'；空结果回退 "agent"
+    # Strict cleaning: non atext-no-dot characters (including '.') → '_'; empty result fallback to "agent"
     cleaned = re.sub(r"[^A-Za-z0-9!#$%&'*+\-/=?^_`{|}~]", "_", base)
     base = cleaned or "agent"
     if system_name:
@@ -1661,28 +1661,28 @@ def email_for_agent(agent_id: str, domain: str, system_name: str = "",
 def plan_address_name(requested_name: str, *, agent_id: str, domain: str,
                       system_name: str = "", aliases=(),
                       register_argv=()) -> dict:
-    """注册编排的"定名字"单真源(owner 裁决 2026-10-02 P6-A / C1)。
+    """Single source of truth for "naming" in registration orchestration (owner ruling 2026-10-02 P6-A / C1).
 
-    输入 = 意图 + 映射层数据(平台注册表(类型化常量): 别名表/注册模板 argv —— 由
-    CLI 作为映射层传入); 规则全在 SDK, CLI 只"取计划 → 执行":
-      1. 校验: 请求名必须 atext-no-dot(不合法抛 ValueError,CLI _fail 呈现);
-      2. 别名归一: 平台内部 id(openclaw main / hermes default)不是地址基名 → "agent";
-      3. 直达判定(F13 根): 注册模板含 {name}/{email} ⇒ 注册器接受地址名 → 直达目标
-         (needs_rename=False); 否则先按平台默认名注册, 注册后必须 rename 收口
-         (needs_rename=True —— 中间态会在网关留下无本地绑定的孤儿行);
-      4. 邮箱派生: email_for_agent(唯一规则真源)。
-    返回:
-      default_name : 平台默认基名(别名归一后)
-      target_name  : 目标基名(请求名归一, 未给请求名 = default_name)
-      reg_as       : 本次注册应使用的基名(可达 ⇒ target_name, 否则 default_name)
-      needs_rename : reg_as != target_name ⇒ 注册后需 rename 收口
-      email        : 本次注册落的完整地址(email_for_agent(reg_as))
-      target_email : 最终目标地址(email_for_agent(target_name))
+    input = intent + mapping_layer_data(platform_registry(typed_constants): alias_table/registration_template argv —— by
+    CLI as mapping layer); all rules in SDK, CLI only "get plan → execute":
+      1. Validation: requested name must be atext-no-dot (raise ValueError if invalid, CLI _fail presents);
+      2. Alias normalization: platform internal id (openclaw main / hermes default) is not address base name → "agent";
+      3. Direct hit determination (F13 root): registration template contains {name}/{email} ⇒ registrar accepts address name → direct target
+         (needs_rename=False); otherwise register with platform default name first, must rename after registration to close loop
+         (needs_rename=True —— intermediate state leaves orphan rows without local bindings at the gateway);
+      4. Email derivation: email_for_agent (single source of truth for rules).
+    Returns:
+      default_name : platform default base name (after alias normalization)
+      target_name  : target base name (requested name normalized, no requested name = default_name)
+      reg_as       : base name to use for this registration (reachable ⇒ target_name, otherwise default_name)
+      needs_rename : reg_as != target_name ⇒ rename required after registration to close loop
+      email        : full address landed for this registration (email_for_agent(reg_as))
+      target_email : final target address (email_for_agent(target_name))
     """
     name = requested_name or ""
-    # 与旧 CLI 逐字同义: 对**原始请求**做 fullmatch(含空串 ⇒ 不合法), 消息不变
+    # Verbatim equivalent to the old CLI: fullmatch on the **original request** (including empty string ⇒ invalid), message unchanged
     if not re.fullmatch(r"[A-Za-z0-9!#$%&'*+\-/=?^_`{|}~]+", name):
-        raise ValueError(f"非法地址名 '{name}':须为 atext-no-dot 字符(不能含点/空格/@)")
+        raise ValueError(f"illegal address name '{name}': must be atext-no-dot characters (no dot/space/@)")
     als = tuple(aliases or ())
     plat_default = (agent_id or "").strip() or "agent"
     default_name = "agent" if plat_default in als else plat_default
@@ -1713,22 +1713,22 @@ def trigger_profile_hooks(event: str, profile_name: str, profile_dir: str) -> No
         _ah = importlib.import_module("aimail_hermes")  # repo form
     return _ah.trigger_profile_hooks(event, profile_name, profile_dir)
 # ── Inbound notification (SDK → CLI, best-effort; ZERO bridge semantics) ──────
-# owner 裁决 2026-09-28 (SDK 去桥化): 路由/桥 = **CLI 的环境职责**(cli/bridge_wire.py)。
-# SDK 只报告自己真正掌握的两个事实 —— 本宿主服务的每个地址, 入站"在服务"/"已停止":
+# owner ruling 2026-09-28 (SDK de-bridging): routing/bridge = **CLI's environmental responsibility** (cli/bridge_wire.py).
+# SDK only reports the two facts it truly knows — every address of this host service, inbound "in service"/"stopped": 
 #     aimail address -a <addr> --inbound-live | --inbound-down
-# 契约(与 TS 侧 mail-core/src/inbound-notify.ts 逐条同形):
-#   · 二进制解析 AIMAIL_BIN → ~/.aimail/bin/aimail → PATH 的 aimail; **都没有 ⇒ 一行
-#     debug 后跳过** —— 无 CLI 的机器 SDK 仍自足(照常绑定/服务/自注册)。
-#   · **argv 传参(不经 shell)**、超时 3–5s、非 0/异常 ⇒ **一行日志后继续**: 绝不阻塞
-#     宿主、不重试风暴、绝不抛给调用方。
-#   · 载荷只有 address(零桥语义: 不提桥、不提端口、不提协议)。
+# Contract (item-by-item isomorphic with TS side mail-core/src/inbound-notify.ts):
+#   · Binary parsing AIMAIL_BIN → ~/.aimail/bin/aimail → aimail in PATH; **none found ⇒ one line
+#     skip after debug** —— the machine SDK without CLI is still self-contained (binds/serves/self-registers as usual).
+#   · **argv passing (no shell)**, timeout 3–5s, non-0/exception ⇒ **continue after one log line**: never block
+#     host, no retry storm, never throw to caller.
+#   · Payload contains only address (zero-bridge semantics: no mention of bridge, no mention of port, no mention of protocol).
 
 INBOUND_NOTIFY_TIMEOUT = 4.0
 INBOUND_STATE_FLAG = {"live": "--inbound-live", "down": "--inbound-down"}
 
 
 def resolve_aimail_bin() -> str:
-    """AIMAIL_BIN → ~/.aimail/bin/aimail → PATH `aimail`; '' = 本机没有 CLI。"""
+    """AIMAIL_BIN → ~/.aimail/bin/aimail → PATH `aimail`; '' = no CLI on this machine."""
     env = str(os.environ.get("AIMAIL_BIN") or "").strip()
     if env:
         return env
@@ -1745,15 +1745,15 @@ def resolve_aimail_bin() -> str:
 def notify_inbound_state(email: str, state: str,
                          timeout: float = INBOUND_NOTIFY_TIMEOUT, runner=None,
                          url: str = "") -> dict:
-    """best-effort 通知环境主控(CLI)某地址的入站状态。**永不抛、永不阻塞调用方**。
+    """best-effort notify the environment master (CLI) of the inbound status of a certain address. **Never throws, never blocks the caller**. 
 
-    runner 是测试注入点, 签名 ``(bin, args, timeout) -> (rc, detail)``; 缺省用
-    subprocess(argv, 无 shell)。返回 ``{"state": "notified"|"no_cli"|"failed",
-    "email", "bin", "detail"}``。
+    runner is the test injection point, signature ``(bin, args, timeout) -> (rc, detail)``; default uses
+    subprocess(argv, no shell). Returns ``{"state": "notified"|"no_cli"|"failed",
+    "email", "bin", "detail"}``.
 
-    ``url`` = 确认入站 URL(契约 §4.3): 该监听器**实际服务**的 URL。仅当宿主知道自己的
-    具体服务地址(回环默认是具体的; 通配绑定不是)才传 —— 非空时 argv 在**状态 flag 之前**
-    插入 ``--inbound-url <url>``(flag 恒为末项, 与无 URL 形态逐字兼容)。
+    ``url`` = the confirmed inbound URL (contract §4.3): the URL this listener **actually serves**. Only when the host knows its own
+    specific service address (loopback default is specific; wildcard binding is not) —— when non-empty, argv inserts ``--inbound-url <url>`` **before the status flag**
+    Insert ``--inbound-url <url>`` (flag is always the last item, verbatim compatible with the no-URL form).
     """
     addr = str(email or "").strip()
     flag = INBOUND_STATE_FLAG.get(str(state))
@@ -1764,7 +1764,7 @@ def notify_inbound_state(email: str, state: str,
     if not binary:
         return {"state": "no_cli", "email": addr, "bin": "",
                 "detail": "no aimail CLI on this machine"}
-    # 确认 URL(§4.3): 插在状态 flag 之前 ⇒ flag 恒为 argv 末项; 空 ⇒ 形态与 §4.3 前逐字一致。
+    # Confirmed URL (§4.3): inserted before the state flag ⇒ flag is always the last argv item; empty ⇒ form is verbatim identical to pre-§4.3.
     confirmed = str(url or "").strip()
     args = ["address", "-a", addr]
     if confirmed:
@@ -1783,16 +1783,16 @@ def notify_inbound_state(email: str, state: str,
             return {"state": "failed", "email": addr, "bin": binary, "rc": rc,
                     "detail": detail or f"exit {rc}"}
         return {"state": "notified", "email": addr, "bin": binary, "rc": 0}
-    except Exception as e:  # noqa: BLE001 — 通知是 best-effort, 绝不冒泡
+    except Exception as e:  # noqa: BLE001 — notification is best-effort, never bubbles up
         return {"state": "failed", "email": addr, "bin": binary, "detail": str(e)}
 
 
 def notify_inbound_for_system(state: str, system_id: str = "",
                               timeout: float = INBOUND_NOTIFY_TIMEOUT,
                               runner=None, url: str = "") -> list:
-    """对本系统**每个地址**通知一次入站状态(宿主钩子载荷)。永不抛, 无绑定 ⇒ []。
+    """Notify inbound state once for **each address** of this system (host hook payload). Never throws, no bindings ⇒ [].
 
-    ``url`` = 确认入站 URL(§4.3), 透传给每个地址的 ``notify_inbound_state``。
+    ``url`` = confirmed inbound URL (§4.3), passed through to ``notify_inbound_state`` for each address.
     """
     rows = iter_agentmail_configs(system_id)
     out = []
@@ -1878,74 +1878,74 @@ def iter_agentmail_configs(system_id: str = "") -> list:
 
 
 # ═══════════════════════════════════════════════════════════════
-# agent-scope 定时轮询入口(pull-entry)—— 适配器 install/初始化收尾接的最后一根线
+# agent-scope scheduled polling entry (pull-entry) —— the last wire connected at the end of adapter install/initialization
 # ═══════════════════════════════════════════════════════════════
-# 背景: 地址级激活码兑换来的 agent-scope key **取不到 push** —— 网关给该地址写的
-# 是 `webhook_url = NULL`, 只能自己定时 pull。库能力(pull_list/pull_ack/
-# start_polling, aimail_tools)早已存在却**零调用方** ⇒ "agent 自主接入"在产线上
-# 缺最后一跳。本段是那根线, 两个适配器(hermes / deer-flow)共用同一实现, 语义与
-# TS mail-core `src/poll-entry.ts` 逐条对齐:
+# Background: the agent-scope key redeemed via address-level activation code **cannot get push** —— the gateway writes for that address
+# `webhook_url = NULL` for that address, so it can only pull on a schedule. Library capabilities (pull_list/pull_ack/
+# start_polling, aimail_tools) have long existed but had **zero callers** ⇒ "agent autonomous access" was missing the last hop in production.
+# This section is that wire, shared by two adapters (hermes / deer-flow) with the same implementation, semantics aligned item-by-item with
+# TS mail-core `src/poll-entry.ts`:
 #
-#   - **只有 agent 级激活产物启用**: 绑定 system_id 以 `shared_addr_` 开头。
-#     这是网关侧现成事实(只有该宿主系统下的激活码可被兑换 —— advanced
+#   - **Enabled only for agent-level activation artifacts**: binding system_id starts with `shared_addr_`.
+#     This is a ready-made fact on the gateway side (only activation codes under that host system can be redeemed —— advanced
 #     `src/advanced/api/address.rs`: `if !sid.starts_with("shared_addr_")
-#     { return Ok(Err(ActErr::Invalid)); }`), 平台注册/产品创建路径**永不**产生
-#     该前缀 ⇒ 系统/bridge 绑定(走 push)不会被误判。
-#   - **失败不 ack / 去重**: 由 start_polling 保证(on_email 抛错 ⇒ 不 ack +
-#     下轮重取; 去重键 = delivery id)。
-#   - **可关停 / 可配间隔**: 一条绑定一条循环, stop() 幂等; 间隔/批量/总开关走
-#     env(名称与 TS 同名: AIMAIL_PULL / AIMAIL_PULL_INTERVAL_MS / AIMAIL_PULL_LIMIT)
-#     或显式 override; 线程 daemon ⇒ 进程退出即停(不拖住退出)。
-#   - **pull 与 push 共用同一条入站链**: 投递按 push 的原样请求打回宿主自己的入站
-#     端点(同一路径 + 同一 HMAC 头)⇒ 富化/persona/附件/6 步回信协议全部生效。
-#   - **本机 secret 自供**(2026-09-27 第 7 缺陷修 A): "重放"要 (url, secret) 成对
-#     —— url 缺了有回退(宿主按契约常量拼), secret 原先**没有**回退 ⇒ 地址级激活
-#     落的绑定(不含 webhook 两字段)一律 `no-secret` 跳过, pull 循环根本不启动。
-#     现在两条腿都有: ①地址级激活落盘即带本机 secret
-#     (aimail_tools.activate_address_code_persist); ②升级前落的老绑定在本入口
-#     **就地自供**(``ensure_binding_webhook_secret``, 幂等: 已有 ⇒ 不覆盖)。
-#     语义边界: 该 secret 只用于"agent 把 pull 到的信重放给**自己**的本机入站端点"
-#     这本地一跳的签名, 云端既不下发也不需要知晓 ⇒ **不请求网关、不改云端契约**。
+#     { return Ok(Err(ActErr::Invalid)); }`), platform registration/product creation paths **never** produce
+#     that prefix ⇒ system/bridge bindings (using push) will not be misjudged.
+#   - **No ack on failure / deduplication**: guaranteed by start_polling (on_email throws ⇒ no ack +
+#     re-fetch next round; dedup key = delivery id).
+#   - **Stoppable / configurable interval**: one loop per binding, stop() is idempotent; interval/batch/master switch via
+#     env (names same as TS: AIMAIL_PULL / AIMAIL_PULL_INTERVAL_MS / AIMAIL_PULL_LIMIT)
+#     or explicit override; thread daemon ⇒ stops on process exit (does not delay exit).
+#   - **pull and push share the same inbound chain**: delivery is bounced back to the host's own inbound as the original push request
+#     endpoint (same path + same HMAC header) ⇒ enrichment/persona/attachments/6-step reply protocol all take effect.
+#   - **Local secret self-supplied** (2026-09-27 defect 7 fix A): "replay" requires (url, secret) pair
+#     —— url has a fallback if missing (host constructs it per contract constants), secret originally **had no** fallback ⇒ address-level activation
+#     resulting bindings (not containing the two webhook fields) are all skipped as `no-secret`, the pull loop simply does not start.
+#     Now both legs are covered: ① address-level activation persists with the local secret
+#     (aimail_tools.activate_address_code_persist); ② old bindings persisted before the upgrade are
+#     **self-provisioned in place** (``ensure_binding_webhook_secret``, idempotent: existing ⇒ no overwrite).
+#     Semantic boundary: this secret is only used for the signature of the local hop where the "agent replays pulled mail to **its own** local inbound endpoint"
+#     This local hop's signature is neither issued by nor needs to be known to the cloud ⇒ **no gateway request, no cloud contract change**.
 
-#: 地址级激活产物的系统 id 前缀(网关侧事实, 见上)。
+#: System id prefix for address-level activation artifacts (gateway-side fact, see above).
 AGENT_SCOPE_SYSTEM_PREFIX = "shared_addr_"
 
-#: 默认轮询间隔(30s)/ 单轮批量(网关上限 200, pull_list 自行收敛)。
+#: Default polling interval (30s) / batch size per round (gateway limit 200, pull_list converges on its own).
 DEFAULT_PULL_INTERVAL_MS = 30_000
 DEFAULT_PULL_LIMIT = 20
 
-#: 间隔下限 1s(更密就是打网关, 没有业务理由)/ 上限 24h。
+#: Interval lower bound 1s (denser is just hitting the gateway, no business reason) / upper bound 24h.
 MIN_PULL_INTERVAL_MS = 1_000
 MAX_PULL_INTERVAL_MS = 24 * 3600_000
 
-#: 总开关/间隔/批量环境变量(与 TS poll-entry.ts 同名, 便于文档统一)。
+#: Master switch / interval / batch environment variables (same names as TS poll-entry.ts, for documentation consistency).
 PULL_ENABLE_ENV = "AIMAIL_PULL"
 PULL_INTERVAL_ENV = "AIMAIL_PULL_INTERVAL_MS"
 PULL_LIMIT_ENV = "AIMAIL_PULL_LIMIT"
 
 
 def _env_flag_off(raw) -> bool:
-    """总开关判定: 0/false/off/no(大小写不敏感)⇒ 关。缺省 = 开。"""
+    """Master switch check: 0/false/off/no (case-insensitive) ⇒ off. Default = on."""
     if raw is None:
         return False
     return str(raw).strip().lower() in ("0", "false", "off", "no")
 
 
 def _clamp_int(raw, default: int, lo: int, hi: int) -> int:
-    """数值钳制(与 TS clampInt 同序: 非法/非正 ⇒ default; 否则 trunc 后钳 [lo, hi])。"""
+    """Numeric clamping (same order as TS clampInt: invalid/non-positive ⇒ default; otherwise truncate then clamp to [lo, hi])."""
     try:
         if raw is None or isinstance(raw, bool):
             raise ValueError(raw)
         n = float(str(raw).strip()) if isinstance(raw, str) else float(raw)
     except (TypeError, ValueError):
         return int(default)
-    if n != n or n <= 0:  # NaN / 非正数 ⇒ 缺省
+    if n != n or n <= 0:  # NaN / non-positive ⇒ default
         return int(default)
     return int(max(lo, min(int(n), hi)))
 
 
 def is_agent_scope_binding(cfg) -> bool:
-    """该绑定是不是地址级激活(agent scope)产物 —— 用现成事实判定, 不猜。"""
+    """Is this binding an artifact of address-level activation (agent scope) — determined by existing facts, not guesswork."""
     if not isinstance(cfg, dict):
         return False
     sid = str(cfg.get("system_id") or "")
@@ -1955,12 +1955,12 @@ def is_agent_scope_binding(cfg) -> bool:
 
 
 def resolve_agent_pull_settings(cfg, env=None, overrides=None) -> dict:
-    """解析一条绑定"要不要 poll / 怎么 poll"。
+    """Parse whether a binding "should poll / how to poll".
 
-    优先级: 显式 override > env > 默认值。``enabled`` 对 agent-scope 绑定默认为
-    真(那是它**唯一**的入站路径), 且**没有** agent-scope 绑定时永不为真。
-    reason ∈ {enabled, no-binding, not-agent-scope, disabled-by-config}(日志与
-    单测按它断言, 与 TS PullDecisionReason 同集合)。
+    Priority: explicit override > env > default. ``enabled`` is bound to agent-scope by default as
+    true for agent-scope bindings (that is their **only** inbound path), and is never true when there are **no** agent-scope bindings.
+    reason ∈ {enabled, no-binding, not-agent-scope, disabled-by-config} (logs and
+    unit tests assert on this, same set as TS PullDecisionReason).
     """
     env = os.environ if env is None else env
     ov = overrides or {}
@@ -1990,28 +1990,28 @@ def resolve_agent_pull_settings(cfg, env=None, overrides=None) -> dict:
 
 
 def list_agent_scope_bindings(system_id: str = "") -> list:
-    """所有 agent-scope 绑定(system_id 空 = 全部系统; 与 TS 的 listAgentConfigs 同义)。"""
+    """All agent-scope bindings (empty system_id = all systems; synonymous with TS listAgentConfigs)."""
     return [c for c in iter_agentmail_configs(system_id) if is_agent_scope_binding(c)]
 
 
 def resolve_inbound_replay_target(cfg, default_url: str = "",
                                   route_secret: str = "",
                                   prefer_route_secret: bool = False) -> dict:
-    """解析"把这封 pull 到的投递打回宿主入站端点"所需的 (url, secret)。
+    """Resolve the (url, secret) needed to "bounce this pulled delivery back to the host inbound endpoint".
 
-    - url: 绑定自身的 ``webhook_url``(注册链落盘的本地接收端点 = 唯一信任源)优先;
-      缺失 ⇒ ``default_url``(宿主当前入站端点, 由适配器按契约常量拼出)。
-    - secret: 绑定自身的 ``webhook_secret``(注册链与 webhook 路由同源)优先,
-      回退 ``route_secret``(宿主路由表里的同名 secret)。
-    - ``prefer_route_secret=True``: 宿主**进程外验签**的平台(hermes 的入站由宿主
-      webhook 平台按 ``webhook_subscriptions.json`` 里的 secret 验)以**路由表**为准
-      —— 它才是 live 验签真值, 绑定里的同名字段只是注册期副本(二者同源时无差异)。
-      不这么做的后果: 地址级激活给绑定自供了一个新 secret 而宿主路由还是旧值 ⇒
-      重放签名与验签方不一致 ⇒ 401 且永不 ack(邮件卡在网关)。deer-flow 相反:
-      入站处理函数**自己读绑定**验签(aimail_inbound.py)⇒ 绑定为真值, 保持默认。
+    - url: The binding's own ``webhook_url`` (local receiving endpoint persisted by the registration chain = single source of truth) takes priority;
+      missing ⇒ ``default_url`` (host's current inbound endpoint, constructed by the adapter from contract constants).
+    - secret: The binding's own ``webhook_secret`` (same source as registration chain and webhook routing) takes priority,
+      fallback to ``route_secret`` (same-named secret in the host routing table).
+    - ``prefer_route_secret=True``: For platforms where the host performs **out-of-process signature verification** (hermes inbound is verified by the host
+      the webhook platform verifies with the secret in ``webhook_subscriptions.json``) — the **route table** is authoritative
+      — it is the live signature truth; the same-named field in the binding is only a registration-time copy (no difference when both share a source).
+      Consequence of not doing this: address-level activation self-provisions a new secret for the binding while the host routing still has the old value ⇒
+      replay signature and verifier mismatch ⇒ 401 and never ack (mail stuck at gateway). deer-flow is the opposite:
+      inbound handler **reads the binding itself** to verify signature (aimail_inbound.py) ⇒ binding is the truth, keep default.
 
-    返回 ``{"url", "secret", "ok", "reason"}``; ``ok=False`` 时 reason ∈
-    {no-url, no-secret} —— 调用方据此**不启动**该绑定(不假装能投递)。
+    Returns ``{"url", "secret", "ok", "reason"}``; when ``ok=False``, reason ∈
+    {no-url, no-secret} —— the caller uses this to **not start** the binding (does not pretend it can deliver).
     """
     cfg = cfg if isinstance(cfg, dict) else {}
     url = str(cfg.get("webhook_url") or "").strip() or str(default_url or "").strip()
@@ -2028,21 +2028,21 @@ def resolve_inbound_replay_target(cfg, default_url: str = "",
     return {"url": url, "secret": secret, "ok": True, "reason": ""}
 
 
-# ── 本机 inbound secret 自供(地址级激活 + 老绑定)─────────────────────────
-#: 生成用的字节数 —— 与系统级安装链**同一机制/同一格式**:
-#: hermes ``aimail_hermes.py`` 与 deer-flow ``manage.py`` 都是
-#: ``secrets.token_hex(32)``(⇒ 64 位十六进制)。这里只把"生成"收敛成一个入口,
-#: 不新造机制。
+# ── Local inbound secret self-provisioning (address-level activation + old bindings)─────────────────────────
+ #: bytes used for generation — **same mechanism / same format** as the system-level install chain:
+#: hermes ``aimail_hermes.py`` and deer-flow ``manage.py`` both use
+#: ``secrets.token_hex(32)`` (⇒ 64 hex digits). Here we just converge "generation" into a single entry point,
+#: not creating a new mechanism.
 WEBHOOK_SECRET_HEX_BYTES = 32
 
 
 def new_webhook_secret() -> str:
-    """生成一个本机 inbound 签名 secret(复用安装链既有机制与格式)。"""
+    """Generate a local inbound signature secret (reusing existing installation chain mechanism and format)."""
     return secrets.token_hex(WEBHOOK_SECRET_HEX_BYTES)
 
 
 def binding_config_path(cfg):
-    """绑定的落盘路径 —— ``iter_agentmail_configs`` 读入时注入的 ``_config_path``。"""
+    """On-disk path of the binding — the ``_config_path`` injected when ``iter_agentmail_configs`` reads it in."""
     if not isinstance(cfg, dict):
         return None
     raw = str(cfg.get("_config_path") or "").strip()
@@ -2050,14 +2050,14 @@ def binding_config_path(cfg):
 
 
 def existing_binding_webhook_secret(system_id: str, email: str) -> str:
-    """已落盘绑定里的本机 secret(未落盘/无该字段/读不到 ⇒ "")。
+    """The local secret in a persisted binding (empty string if not persisted / field missing / unreadable ⇒ "").
 
-    地址级激活落盘时用它复用既有 secret(**不覆盖** —— 覆盖会让已经对账好的宿主
-    入站路由密钥失配)。
+    Use it to reuse the existing secret when address-level activation is persisted to disk (**do not overwrite** —— overwriting would cause hosts that have already been reconciled
+    inbound routing key).
     """
     try:
         d = json.loads(_agent_config_path(system_id, email).read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001 — 读不到就当作没有(由调用方生成新的)
+    except Exception:  # noqa: BLE001 — treat as absent if unreadable (caller will generate a new one)
         return ""
     if not isinstance(d, dict):
         return ""
@@ -2065,13 +2065,13 @@ def existing_binding_webhook_secret(system_id: str, email: str) -> str:
 
 
 def write_binding_config(path, cfg) -> None:
-    """按**既有绑定格式**原子重写一条绑定(私有 0600)。
+    """Atomically rewrite a binding in the **existing binding format** (private 0600).
 
-    格式与 ``save_agent_config`` / TS ``saveBinding`` 逐字同款(JSON indent=2、
-    UTF-8 原文、结尾换行、tmp+rename、0600 —— 走 ``atomic_write_private``, 即私有
-    落盘的单一入口, 不存在"先写后 chmod"的全局可读窗口)。内部字段(``_`` 前缀,
-    如 ``_config_path``)不落盘; ``webhook_secret`` 紧跟 ``api_key``(与
-    ``saveBinding`` 里 webhook_url/webhook_secret 相对 api_key 的位置一致)。
+    The format is byte-for-byte identical to ``save_agent_config`` / TS ``saveBinding`` (JSON indent=2,
+    UTF-8 original, trailing newline, tmp+rename, 0600 —— use ``atomic_write_private``, i.e., private
+    persistence, eliminating any global-readable window from "write then chmod"). Internal fields (prefixed with ``_``,
+    e.g., ``_config_path``) are not persisted; ``webhook_secret`` follows ``api_key`` (consistent with
+    ``saveBinding`` has the same relative position of webhook_url/webhook_secret to api_key).
     """
     src = cfg if isinstance(cfg, dict) else {}
     fields: Dict[str, object] = {}
@@ -2088,17 +2088,17 @@ def write_binding_config(path, cfg) -> None:
 
 
 def ensure_binding_webhook_secret(cfg) -> dict:
-    """给一条绑定**就地自供**本机 webhook secret 并落盘(幂等: 已有 ⇒ 不覆盖)。
+    """**Self-provision** a local webhook secret for a binding in-place and persist it (idempotent: if exists ⇒ do not overwrite).
 
-    用途 = "纯地址级(无系统级安装)"的 pull 循环启动前的**防御性纠正**: 升级前落的
-    绑定没有 webhook_secret, 而重放必须 (url, secret) 成对 ⇒ 就地补一个本机 secret
-    并写回绑定, 让循环真能启动(而不是被 ``no-secret`` 永久跳过)。
+    purpose = "pure address-level (no system-level installation)" pull loop pre-start **defensive correction**: dropped before upgrade
+    before the upgrade lack webhook_secret, while replay requires (url, secret) pairs ⇒ provision a local secret in-place
+    and write it back to the binding, allowing the loop to actually start (instead of being permanently skipped by ``no-secret``).
 
-    不请求网关、不改云端契约: 该 secret 只签"打回自己本机入站端点"这一跳。
+    Does not request the gateway or change the cloud contract: this secret only signs the hop "back to its own local inbound endpoint".
 
-    返回 ``{"changed", "secret", "path", "reason", "detail"}``, reason ∈
-    {exists(已有, 未动), provisioned(本次生成并落盘), no-path(绑定没有落盘位置,
-    例如内存构造的 cfg —— 不假装成功), write-failed}。
+    Returns ``{"changed", "secret", "path", "reason", "detail"}``, where reason ∈
+    {exists (already present, untouched), provisioned (generated and persisted this time), no-path (binding has no persistence location,
+    e.g. memory-constructed cfg —— not pretending success), write-failed}.
     """
     src = cfg if isinstance(cfg, dict) else {}
     p = binding_config_path(src)
@@ -2110,11 +2110,11 @@ def ensure_binding_webhook_secret(cfg) -> dict:
         return {"changed": False, "secret": "", "path": "",
                 "reason": "no-path", "detail": ""}
     secret = new_webhook_secret()
-    src["webhook_secret"] = secret          # 就地更新: 同一轮 target_for 立刻可见
+    src["webhook_secret"] = secret          # In-place update: immediately visible to target_for in the same round
     try:
         write_binding_config(p, src)
-    except Exception as e:  # noqa: BLE001 — 自供失败只是回到"未自供", 不抛
-        src.pop("webhook_secret", None)     # 内存里也不留没落盘的假值
+    except Exception as e:  # noqa: BLE001 — self-provisioning failure just reverts to "not provisioned", no exception raised
+        src.pop("webhook_secret", None)     # Do not leave a fake value in memory that was not persisted
         return {"changed": False, "secret": "", "path": str(p),
                 "reason": "write-failed", "detail": e.__class__.__name__}
     return {"changed": True, "secret": secret, "path": str(p),
@@ -2124,16 +2124,16 @@ def ensure_binding_webhook_secret(cfg) -> dict:
 
 def replay_inbound_delivery(cfg, mail: dict, url: str, secret: str,
                             timeout: float = 15.0) -> dict:
-    """把 pull 到的一封投递按 **push 的原样请求**打回宿主入站端点(同一条链)。
+    """Send a pulled delivery back to the host inbound endpoint as the **original push request** (same chain).
 
-    与 bridge/网关推来的请求逐字同形: body = envelope JSON(原样), 头
+    Byte-for-byte identical to requests pushed by bridge/gateway: body = envelope JSON (as-is), headers
     ``X-AIMail-Email`` + ``X-Webhook-Signature = hex(HMAC-SHA256(body, secret))``
-    (gateway webhook.rs sign_payload 同款)。
+    (same as gateway webhook.rs sign_payload).
 
-    失败语义(调用方据此 **不 ack** ⇒ 下轮重拉, 不丢件): 非 2xx / 链路异常 /
-    端点明确回"没有该地址的绑定"(``no_agent`` / ``no_local_config``)⇒ 抛异常。
-    端点回 ``intercepted``(ping/pong 已被共享链吞掉并发过 pong)/ ``ignored`` /
-    ``delivered`` / ``duplicate`` ⇒ 视为**已投递**(该 ack)。
+    Failure semantics (caller uses this to **not ack** ⇒ re-pull next round, no loss): non-2xx / chain exception /
+    endpoint explicitly returns "no binding for this address" (``no_agent`` / ``no_local_config``) ⇒ raise exception.
+    Endpoint returns ``intercepted`` (ping/pong already consumed by shared chain and pong sent) / ``ignored`` /
+    ``delivered`` / ``duplicate`` ⇒ treat as **delivered** (should ack).
     """
     payload = mail.get("body")
     if not isinstance(payload, (dict, list)):
@@ -2150,7 +2150,7 @@ def replay_inbound_delivery(cfg, mail: dict, url: str, secret: str,
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             code, raw = int(resp.status), resp.read()
-    except urllib.error.HTTPError as e:  # noqa: PERF203 — 明确分类, 不吞诊断
+    except urllib.error.HTTPError as e:  # noqa: PERF203 — explicit classification, do not swallow diagnostics
         detail = ""
         try:
             detail = e.read().decode("utf-8", "replace")[:200]
@@ -2174,7 +2174,7 @@ def replay_inbound_delivery(cfg, mail: dict, url: str, secret: str,
 
 
 class AgentPullHandle:
-    """一条绑定的轮询句柄(与 TS AgentPullHandle 同形: 可查 stats / 可停 / 可等退出)。"""
+    """Polling handle for a single binding (same shape as TS AgentPullHandle: stats queryable / stoppable / awaitable for exit)."""
 
     def __init__(self, email: str, system_id: str, settings: dict,
                  thread, stop_event) -> None:
@@ -2189,22 +2189,22 @@ class AgentPullHandle:
         self._stats: dict = {"pulled": 0, "acked": 0, "errors": 0}
 
     def stop(self) -> None:
-        """停这条循环(幂等; 睡眠中也能立刻停)。"""
+        """Stop this loop (idempotent; can stop immediately even while sleeping)."""
         self._stop_event.set()
 
     def stats(self) -> dict:
-        """当前计数视图(pulled 实时, acked/errors 循环结束后为终值)。"""
+        """Current counter view (pulled is real-time, acked/errors are final values after loop ends)."""
         return dict(self._stats)
 
     def alive(self) -> bool:
         return bool(self._thread.is_alive())
 
     def join(self, timeout: Optional[float] = None) -> bool:
-        """等循环退出; True = 已退出。"""
+        """Wait for loop exit; True = exited."""
         self._thread.join(timeout)
         return not self._thread.is_alive()
 
-    def __repr__(self) -> str:  # pragma: no cover - 诊断用
+    def __repr__(self) -> str:  # pragma: no cover - for diagnostics
         return "<AgentPullHandle %s %s every %dms>" % (
             self.email, self.reason, self.interval_ms)
 
@@ -2212,19 +2212,19 @@ class AgentPullHandle:
 def start_agent_pull_entry(cfg: dict, on_email=None, env=None, overrides=None,
                            log=None, client_for=None, target_for=None,
                            timeout: float = 15.0):
-    """为**一条** agent-scope 绑定起轮询循环 —— hot-add 的最小单元。
+    """Start a polling loop for **one** agent-scope binding — the minimal unit for hot-add.
 
-    地址码激活发生在宿主进程启动之后，而 ``start_agent_pull_entries`` 只在启动时
-    枚举一次绑定 ⇒ 新绑定不会被已在跑的循环捡到。``start_agent_level`` 通过
-    ``register_binding_created_hook`` 在新绑定落盘后调用本函数，把它接进同一个
-    进程，**无需重启**。语义与批量版完全一致（禁用不抛、失败不 ack）。
+    Address code activation occurs after the host process starts, while ``start_agent_pull_entries`` only
+    enumerates bindings once at startup ⇒ new bindings will not be picked up by already-running loops. ``start_agent_level`` calls
+    this function via ``register_binding_created_hook`` after a new binding is persisted, connecting it to the same
+    process, **without restart**. Semantics are fully consistent with the batch version (disabled does not raise, failure does not ack).
     """
     env = os.environ if env is None else env
     log = log or (lambda line: logger.info("%s", line))
     email = str(cfg.get("email") or "")
     settings = resolve_agent_pull_settings(cfg, env, overrides)
     if not settings["enabled"]:
-        # 有绑定但被判不启用 → 留一条解释行(静默会掩盖接线错误)。
+        # Binding exists but judged as not enabled → leave an explanatory line (silence would mask wiring errors).
         log("[aimail-pull] %s: not polling (%s) — push/system binding unchanged"
             % (email, settings["reason"]))
         return None
@@ -2233,8 +2233,8 @@ def start_agent_pull_entry(cfg: dict, on_email=None, env=None, overrides=None,
         target = target_for(cfg)
         if (target and not target.get("ok")
                 and target.get("reason") == "no-secret"):
-            # 防御性自供(幂等): 升级前落的绑定没有本机 secret ⇒ 就地补一个并写回
-            # 绑定, 再**重解析一次**。已有 secret 的绑定不会走到这里(绝不覆盖)。
+            # Defensive self-provisioning (idempotent): bindings created before upgrade lack local secret ⇒ add one in place and write back
+            # the binding, then **re-parse once**. Bindings with existing secrets will not reach here (never overwrite).
             prov = ensure_binding_webhook_secret(cfg)
             if prov.get("changed"):
                 log("[aimail-pull] %s: binding had no local webhook secret — "
@@ -2260,7 +2260,7 @@ def start_agent_pull_entry(cfg: dict, on_email=None, env=None, overrides=None,
             client = _GatewayClient(str(cfg.get("gateway_url") or ""),
                                     str(cfg.get("api_key") or ""),
                                     timeout=timeout, identity=email)
-    except Exception as e:  # noqa: BLE001 — 单条绑定失败不拖垮其余
+    except Exception as e:  # noqa: BLE001 — single binding failure does not drag down the rest
         log("[aimail-pull] %s: client build failed (%s) — binding skipped"
             % (email, e))
         return None
@@ -2277,7 +2277,7 @@ def start_agent_pull_entry(cfg: dict, on_email=None, env=None, overrides=None,
     handle = AgentPullHandle(email, str(cfg.get("system_id") or ""),
                              settings, None, stop_event)
 
-    def _live(_c, mail, _h=handle, _cb=cb):  # 实时计数(失败照旧抛出 ⇒ 不 ack)
+    def _live(_c, mail, _h=handle, _cb=cb):  # real-time count (failures still raise ⇒ no ack)
         _h._stats["pulled"] += 1
         return _cb(_c, mail)
 
@@ -2301,12 +2301,12 @@ def start_agent_pull_entry(cfg: dict, on_email=None, env=None, overrides=None,
 def start_agent_pull_entries(system_id: str = "", on_email=None, env=None,
                              overrides=None, log=None, client_for=None,
                              target_for=None, timeout: float = 15.0) -> list:
-    """给**每一条 agent-scope 绑定**起一条真轮询循环, 投递给调用方的入站链。
+    """Start a real polling loop for **every agent-scope binding**, delivering to the caller's inbound chain.
 
-    - ``on_email(cfg, mail)``: 适配器自己的入站入口(pull 与 push 必须共用同一条链)。
-    - ``target_for``: 预检 + 内置回调用的目标解析器。ok=False 的绑定**不启动**。
-    - ``client_for``: 测试缝 —— 给绑定造请求客户端(默认 _GatewayClient)。
-    - 返回句柄列表(空 = 没有任何 agent-scope 绑定要 poll); 禁用场景**不抛异常**。
+    - ``on_email(cfg, mail)``: the adapter's own inbound entry point (pull and push must share the same chain).
+    - ``target_for``: target resolver for pre-check + built-in callbacks. Bindings with ok=False are **not started**.
+    - ``client_for``: test seam — create a request client for the binding (default _GatewayClient).
+    - Returns list of handles (empty = no agent-scope bindings to poll); disabled scenarios **do not raise**.
     """
     env = os.environ if env is None else env
     log = log or (lambda line: logger.info("%s", line))
@@ -2323,12 +2323,12 @@ def start_agent_pull_entries(system_id: str = "", on_email=None, env=None,
     return handles
 
 
-# ── binding-created 钩子：激活落盘 → 同进程热加 pull 句柄（无需重启） ──
+# ── binding-created hook: activate persistence → hot-add pull handle in same process (no restart needed) ──
 _BINDING_HOOKS: list = []
 
 
 def register_binding_created_hook(fn):
-    """注册"新绑定已落盘"回调；激活路径保存 binding 后触发。"""
+    """Register the "new binding persisted" callback; triggered after the activation path saves the binding."""
     _BINDING_HOOKS.append(fn)
     return fn
 
@@ -2344,16 +2344,16 @@ def _fire_binding_created(cfg: dict) -> None:
     for fn in list(_BINDING_HOOKS):
         try:
             fn(dict(cfg))
-        except Exception as e:  # noqa: BLE001 — 钩子失败不拖垮激活本身
+        except Exception as e:  # noqa: BLE001 — hook failure does not drag down activation itself
             logger.warning("[aimail] binding-created hook failed: %s", e)
 
 
 def stop_agent_pull_entries(handles) -> None:
-    """宿主机停服/进程退出时停掉全部句柄(幂等)。"""
+    """Stop all handles when host service stops/process exits (idempotent)."""
     for h in handles or []:
         try:
             h.stop()
-        except Exception:  # noqa: BLE001 — 关停路径不抛
+        except Exception:  # noqa: BLE001 — shutdown path does not raise
             pass
 def _is_absolute_http_url(value: str) -> bool:
     """Only an absolute http(s) URL can be delivered to: the gateway hands the stored
@@ -2363,63 +2363,63 @@ def _is_absolute_http_url(value: str) -> bool:
 
 
 def resolve_register_webhook_url(gw: dict, local_webhook_url: str) -> str:
-    """webhook_host 三态 → 地址注册参数 webhook_url(SDK 去桥化, 2026-09-28 收敛).
+    """webhook_host three states → address registration parameter webhook_url (SDK de-bridged, 2026-09-28 convergence).
 
-    注册值只有三个来源, 按此顺序判定 —— **只看 `webhook_host` 一个键**:
+    Registration values have only three sources, determined in this order —— **only look at the `webhook_host` key**:
 
-      ① 键缺席                      → 本绑定的本机接收端点(直连 / 独立场景)
-      ② 显式空值("", "   ")         → 空注册值 = pull(云端不回调;空不是缺陷)
-      ③ 是可投递的绝对 http(s) URL  → 用它(环境主控声明的 push 入口;桥在场时
-                                      CLI 已把桥对外 URL 写在 webhook_host)
-      ③' 值不可投递(裸 host / host:port)→ **大声告警** + 退回本机端点: 绝不把
-         网关无法 POST 的值注册出去(实测 builder error); 有桥的部署应注册桥自己的
-         URL, 而不是 host:port。
+      ① Key absent                      → local receiving endpoint for this binding (direct / standalone scenario)
+      ② Explicit empty value ("", "   ")         → empty registration value = pull (cloud does not callback; empty is not a defect)
+      ③ Deliverable absolute http(s) URL  → use it (push entry declared by environment master; when bridge is present
+                                      CLI has written bridge's external URL to webhook_host)
+      ③' Value not deliverable (bare host / host:port)→ **loud warning** + fallback to local endpoint: never register
+         a value that gateway cannot POST (measured builder error); deployments with bridge should register bridge's own
+         URL, not host:port.
 
-    · 经桥响应自采的第三来源 `webhook_register_url` **已退役**: 磁盘残留值一律忽略
-      (SDK 也不写它) —— 注册值不再由 SDK 从桥那里学, 桥语义不属于 SDK。
-    · agentmail.json 的 webhook_url 恒为本地接收端点(与注册值是两个值)。
+    · Third source `webhook_register_url` self-collected via bridge response **retired**: residual disk values always ignored
+      (the SDK does not write it either) — the registration value is no longer learned by the SDK from the bridge; bridge semantics do not belong to the SDK.
+    · webhook_url in agentmail.json is always the local receive endpoint (a different value from the registration value).
     """
     whh = gw.get("webhook_host") if isinstance(gw, dict) else None
     if whh is None:
-        # 键缺席 = 没有环境声明的回调入口 ⇒ 直连/独立场景: 注册本机端点。
+        # Key absent = no environment-declared callback entry ⇒ direct/standalone scenario: register local endpoint.
         return local_webhook_url
     declared = str(whh).strip()
     if not declared:
-        return ""                                    # ①/② 显式空 = pull
+        return ""                                    # ①/② explicit empty = pull
     if _is_absolute_http_url(declared):
-        return declared                              # ③ push 入口(必须是可投递 URL)
+        return declared                              # ③ push entry (must be deliverable URL)
     logger.warning(
         "[aimail] webhook_host %r is not an absolute http(s) URL — the cloud cannot "
         "POST to it (builder error), so the local endpoint %r is registered instead. "
         "For a bridged deployment register the bridge's own URL "
         "(http://<host>/webhooks/aimail-inbound), not a bare host:port.",
         declared, local_webhook_url)
-    return local_webhook_url                         # ③' 不可投递 ⇒ 退回本机端点
+    return local_webhook_url                         # ③' not deliverable ⇒ fallback to local endpoint
 
 
 # ═══════════════════════════════════════════════════════════════
-# manager 解析 + 注册/写白名单硬门(P1, owner 裁决 2026-09-30)
+# manager resolution + registration/whitelist write hard gate (P1, owner decision 2026-09-30)
 # ═══════════════════════════════════════════════════════════════
-# 两个既有 env 名**互认**, 不新增第三种名: SDK 契约 export
-# `AIMAIL_MANAGER_ADDRESS`、CLI 集成契约 export `INTEGRATE_MANAGER_ADDRESS`。
-# 历史裸名 `AIMAIL_MANAGER` 已退役(2026-10-17 owner 裁决: 当不存在) ——
-# 旧三名互认的混乱正是 deerflow 白名单行落成 `value=''` 的根因之一
-# (取证 p1-p2-forensics-20260930.md)。
+# Two existing env names **mutually recognized**, no third name added: SDK contract export
+# `AIMAIL_MANAGER_ADDRESS`, CLI integration contract export `INTEGRATE_MANAGER_ADDRESS`.
+# Historical bare name `AIMAIL_MANAGER` has been retired (2026-10-17 owner ruling: treat as non-existent) ——
+# The chaos of old three-name mutual recognition is one of the root causes of deerflow whitelist line landing as `value=''`
+# (forensics p1-p2-forensics-20260930.md).
 MANAGER_ENV_VARS = ("AIMAIL_MANAGER_ADDRESS",
                     "INTEGRATE_MANAGER_ADDRESS")
 
 
 class ManagerRequiredError(RuntimeError):
-    """注册/写白名单硬门: manager 解析链(显式参数 → env 名互认)走完仍为空。
+    """Registration/whitelist write hard gate: manager resolution chain (explicit param → env name mutual recognition) completed but still empty.
 
-    以空值注册会在网关建出 `value=''` 的 manager 白名单行 ⇒ 出站
-    `550 Sender not whitelisted`(deerflow J4e/J5-1 实测)。owner 裁决:
-    不允许静默降级, 必须响亮失败。注销/只读等不需要 manager 的路径不走此门。
+    Registering with empty value creates `value=''` manager whitelist line in gateway ⇒ outbound
+    `550 Sender not whitelisted`(deerflow J4e/J5-1 tested). owner ruling:
+    No silent degradation allowed, must fail loudly. Paths like deregistration/read-only that do not need manager do not go through this gate.
     """
 
 
 def resolve_manager_address(manager_address: str = "") -> str:
-    """显式参数 → env 名互认 → 仍空返回 `''`(由调用方决定是否报错)。"""
+    """Explicit parameter → env name mutual recognition → return `''` if still empty (caller decides whether to raise an error)."""
     v = str(manager_address or "").strip()
     if v:
         return v
@@ -2431,31 +2431,31 @@ def resolve_manager_address(manager_address: str = "") -> str:
 
 
 def require_manager_address(manager_address: str = "", where: str = "register") -> str:
-    """硬门: 解析完仍为空 ⇒ 抛 ManagerRequiredError(rc≠0, 文案指明缺哪块)。"""
+    """Hard gate: if still empty after parsing ⇒ raise ManagerRequiredError(rc≠0, message specifies which part is missing)."""
     v = resolve_manager_address(manager_address)
     if not v:
         raise ManagerRequiredError(
-            f"缺 manager(参数/env 均未给): {where} 的注册/白名单不接受空值 —— "
-            f"请给显式参数,或设置 env {' / '.join(MANAGER_ENV_VARS)}"
-            f"(禁止以 '' 注册, 否则白名单行 value='' ⇒ 出站 550 Sender not whitelisted)")
+            f"manager missing (not given via arg or env): {where} register/allowlist does not accept empty values — "
+            f"Please provide explicit parameters, or set env {' / '.join(MANAGER_ENV_VARS)}"
+            f"(Registration with '' is forbidden, otherwise whitelist line value='' ⇒ outbound 550 Sender not whitelisted)")
     return v
 
 
 def register_agent_email(client, system_id: str, email: str,
                          webhook_url: str = "", webhook_secret: str = "",
                          manager_address: str = "") -> dict:
-    """注册链（幂等，4 步）：register_email(generate_code) → 已存在更新 webhook →
-    manager 白名单 → activate_address。返回 {"api_key", "activation_code"}
-    （api_key 为空 = 激活 pending/已存在；activation_code 供延迟激活语义）。
-    域由 gateway 从 email 地址自行提取（2026-08-18 起不再传 mx_domain/domain 参数）。
+    """Registration chain (idempotent, 4 steps): register_email(generate_code) → update webhook if exists →
+    manager whitelist → activate_address. Returns {"api_key", "activation_code"}
+    (api_key empty = activation pending/exists; activation_code for delayed activation semantics).
+    The domain is extracted by the gateway from the email address itself (no mx_domain/domain parameter passed since 2026-08-18).
 
-    client 须提供：register_email / list_system_domains / update_system_domain /
-    activate_address（aimail_tools._GatewayClient 全具备；白名单由网关注册接口自动创建）。
+    client must provide: register_email / list_system_domains / update_system_domain /
+    activate_address (aimail_tools._GatewayClient has all; whitelist is auto-created by gateway registration interface).
 
-    **P1 硬门(2026-09-30 owner 裁决)**: 这是"注册/写白名单"的公共收口,
-    install / register / reconcile 三条路都过这道门 —— 显式参数与 env 兜底
-    走完仍为空即抛 `ManagerRequiredError`, 不允许以 `''` 注册(注销/只读路径
-    走 `deregister_agent_email`, 不经此处)。
+    **P1 Hard Gate (2026-09-30 owner ruling)**: This is the common entry point for "registration/whitelist writing",
+    install / register / reconcile all pass through this gate —— if explicit parameters and env fallback
+    are still empty, raise `ManagerRequiredError`, registration with `''` is not allowed (deregistration/read-only paths
+    go through `deregister_agent_email`, not here).
     """
     manager_address = require_manager_address(manager_address,
                                               where=f"register {email}")
@@ -2468,36 +2468,36 @@ def register_agent_email(client, system_id: str, email: str,
     if isinstance(result, dict):
         activation_code = result.get("activation_code", "") or ""
         status = result.get("status", "")
-        # status=0 = 传输层失败(_request 兜底),与 HTTP 错误同等对待:
-        # 静默吞掉会让调用方误判为"激活 pending"继续走完链(审计教训:静默失败面)
+        # status=0 = transport layer failure (_request fallback), treated same as HTTP error:
+        # Silently swallowing it would make caller misjudge as "activation pending" and continue the chain (audit lesson: silent failure surface)
         if not status or str(status) not in ("created", "200", "201", 200, 201):
             msg = str(result.get("error", "")) + str(result.get("detail", ""))
             if "already exists" in msg.lower() or "exists" in msg.lower():
                 activation_code = ""
-                # 已存在 → 更新 webhook 配置（幂等）；两个值全空时跳过——
-                # 空 body 更新会让网关把已存 webhook_url/secret 无条件覆写为 NULL
+                # Exists → update webhook config (idempotent); skip if both values are empty——
+                # Empty body update would make gateway unconditionally overwrite stored webhook_url/secret with NULL
                 if not webhook_url and not webhook_secret:
                     return {"api_key": "", "activation_code": ""}
-                # 缺 secret 不得覆写（第 10 缺陷防御纵深，2026-09-28）：网关 PUT 是**全量
-                # 覆写**（body 里没有 webhook_secret 键 ⇒ 云端 secret 被写成 NULL），
-                # 而验签方按**本地绑定**的 secret 验 ⇒ 两边分叉 = 入站恒 401。
-                # 故本分支先按**真源**补全：调用方没给 ⇒ 读该地址的绑定（唯一真源）；
-                # 仍没有 ⇒ **不写**（保留云端现值），大声告警，绝不抹空。
-                # 2026-10-02 第 10 缺陷定因(E1): **绑定优先** —— 绑定是唯一真源(卡B 口径),
-                # 调用方给的值只在绑定缺 secret 时才采用。原"参数优先"在 deerflow 上必分叉:
-                # 一轮 install 注册 3 次(注册表 install_steps: sdk_install →
-                # register_default → register_all), 每次新铸随机值(manage.py:217/:362) ⇒
-                # 新值 PUT 覆写网关(storage.rs:693 全量覆写), 而绑定只在拿到
-                # api_key/activation_code 时才落盘(manage.py:224-235) ⇒ 网关=第 3 把 /
-                # 绑定=第 1 把 ⇒ D2B 两侧摘要不等(历史 13 红全在 deerflow, 其余四平台 56 绿)。
+                # Missing secret must not overwrite (defense in depth for defect #10, 2026-09-28): Gateway PUT is **full
+                # Override** (no webhook_secret key in body ⇒ cloud secret is written as NULL),
+                # while verifier verifies against **locally bound** secret ⇒ divergence on both sides = inbound always 401.
+                # So this branch first completes based on **source of truth**: if caller didn't provide ⇒ read binding for that address (sole source of truth);
+                # if still missing ⇒ **do not write** (preserve current cloud value), warn loudly, never wipe to empty.
+                # 2026-10-02 Defect #10 root cause (E1): **Binding priority** —— binding is the sole source of truth (Card B standard),
+                # value provided by caller is only adopted when binding lacks secret. Original "parameter priority" will always diverge on deerflow:
+                # One install registers 3 times (registry install_steps: sdk_install →
+                # register_default → register_all), each time minting a new random value (manage.py:217/:362) ⇒
+                # New value PUT overwrites gateway (storage.rs:693 full overwrite), while binding is only persisted when
+                # api_key/activation_code is obtained (manage.py:224-235) ⇒ gateway=3rd key /
+                # binding=1st key ⇒ D2B side digests unequal (historical 13 reds all on deerflow, other four platforms 56 green).
                 _bp = _agent_config_path(system_id, email)
                 _bind_secret = str(existing_binding_webhook_secret(system_id, email) or "").strip()
                 secret = _bind_secret or str(webhook_secret or "").strip()
                 if not secret:
-                    # 2026-10-01 owner 裁决(方案B): 绑定缺 secret ⇒ 就地补一把并**携带**到网关,
-                    # 绝不出 url-only PUT(保留 2026-09-28 第 10 缺陷防御: 不把云端 secret 抹成 NULL)。
-                    # 单一真源=绑定 ⇒ 网关采纳同一把 ⇒ D2B 两侧摘要同源(修"两把钥匙")。
-                    # 原"弃权返回"会让 D2B 判 BAD(两侧不等), 故改为可自愈补全; 补不全才弃权且大声。
+                    # 2026-10-01 owner ruling (Plan B): binding lacks secret ⇒ mint one on the spot and **carry** it to gateway,
+                    # never issue url-only PUT (preserve 2026-09-28 defect #10 defense: do not wipe cloud secret to NULL).
+                    # Single source of truth=binding ⇒ gateway adopts same key ⇒ D2B side digests same source (fixes "two keys").
+                    # Original "abstain and return" would make D2B judge BAD (sides unequal), so changed to self-healing completion; only abstain if cannot complete, and loudly.
                     if _bp is None:
                         logger.warning(
                             "[aimail] registration update for %s skipped: no binding path "
@@ -2510,13 +2510,13 @@ def register_agent_email(client, system_id: str, email: str,
                             _t = json.loads(_bp.read_text(encoding="utf-8"))
                             if isinstance(_t, dict):
                                 _bcfg = _t
-                    except Exception:  # noqa: BLE001 — 读坏就当没有, 由下方补全
+                    except Exception:  # noqa: BLE001 — treat read failure as missing, completed by below
                         _bcfg = {}
                     if not str(_bcfg.get("webhook_secret") or "").strip():
                         _bcfg["webhook_secret"] = new_webhook_secret()
                         try:
                             write_binding_config(_bp, _bcfg)
-                        except Exception as _we:  # noqa: BLE001 — 补不全必须弃权(不许静默分叉)
+                        except Exception as _we:  # noqa: BLE001 — must abstain if cannot complete (no silent divergence allowed)
                             logger.warning(
                                 "[aimail] %s: binding webhook_secret provisioning failed (%s); "
                                 "skipping update to avoid a url-only PUT", email, _we)
@@ -2531,15 +2531,15 @@ def register_agent_email(client, system_id: str, email: str,
                             "skipping update (url-only PUT would null the cloud secret)", email)
                         return {"api_key": "", "activation_code": ""}
                 elif _bp is not None and _bp.exists() and not _bind_secret:
-                    # 绑定文件在但缺 secret、调用方给了 ⇒ 先把这把回写绑定(真源补齐)再 PUT:
-                    # 否则网关=参数值、绑定空 ⇒ 又是一对分叉(卡B ③ 只覆盖"两边都没给"的一半)。
-                    # 回写失败 ⇒ 不发 PUT(保持现状, 不制造新分叉) —— 与卡B 同口径"宁可弃权"。
+                    # Binding file exists but lacks secret, caller provided ⇒ first write this key back to binding (complete source of truth) then PUT:
+                    # otherwise gateway=parameter value, binding empty ⇒ another pair of divergences (Card B ③ only covers the half where "neither side provided").
+                    # Write-back failure ⇒ do not send PUT (keep status quo, do not create new divergence) —— same standard as Card B "better to abstain".
                     _bcfg_back = {}
                     try:
                         _t = json.loads(_bp.read_text(encoding="utf-8"))
                         if isinstance(_t, dict):
                             _bcfg_back = _t
-                    except Exception:  # noqa: BLE001 — 读坏就按空配置重建字段
+                    except Exception:  # noqa: BLE001 — treat read failure as empty config and rebuild fields
                         _bcfg_back = {}
                     if not str(_bcfg_back.get("webhook_secret") or "").strip():
                         _bcfg_back["webhook_secret"] = secret
@@ -2571,22 +2571,22 @@ def register_agent_email(client, system_id: str, email: str,
         if act.get("success") and act.get("raw_key"):
             api_key = act["raw_key"]
 
-    # 注册链到此结束: **没有第 5 步**。路由是环境主控(CLI)的职责(2026-09-28 SDK 去桥化),
-    # 由宿主在入站真的在服务时通知 CLI(`aimail address -a <addr> --inbound-live`)后由
-    # CLI 自行决定; SDK 不写桥、不问桥、不写环境配置。
+    # Registration chain ends here: **no step 5**. Routing is the responsibility of the environment controller (CLI) (2026-09-28 SDK de-bridging),
+    # notified by the host to the CLI (`aimail address -a <addr> --inbound-live`) when inbound is actually live, then
+    # the CLI decides on its own; the SDK does not write bridges, does not ask about bridges, and does not write environment configuration.
     return {"api_key": api_key, "activation_code": activation_code}
 
 
 def deregister_agent_email(client, system_id: str, email: str,
                            manager_address: str = "") -> dict:
-    """注销链（API 部分，幂等）：api-key → domain → whitelist。
-    返回各步状态 {api_key, domain, whitelist}。
+    """Deregistration chain (API part, idempotent): api-key → domain → whitelist.
+    Returns the status of each step {api_key, domain, whitelist}.
 
-    client 须提供：get_api_key_by_email / delete_api_key / list_system_domains /
+    client must provide: get_api_key_by_email / delete_api_key / list_system_domains /
     delete_whitelist_by_value。
     """
     out: dict = {}
-    # 1. 删 API key（按 email 查 id）
+    # 1. Delete API key (look up id by email)
     try:
         k = client.get_api_key_by_email(email)
         if isinstance(k, dict) and k.get("id"):
@@ -2597,7 +2597,7 @@ def deregister_agent_email(client, system_id: str, email: str,
     except Exception as e:
         out["api_key"] = f"err:{e}"
 
-    # 2. 删 domain entry（按 id，回退按名）
+    # 2. Delete domain entry (by id, fallback by name)
     try:
         domains = client.list_system_domains(system_id)
         addr_id = ""
@@ -2614,11 +2614,11 @@ def deregister_agent_email(client, system_id: str, email: str,
     except Exception as e:
         out["domain"] = f"err:{e}"
 
-    # 3. 白名单清理 —— 精确匹配 (domain_addr==email, value==manager) 后**按 id 删**。
-    #    审计 2026-09-21: 原实现走 DELETE /api/v1/whitelists?domain_addr=&value=,
-    #    而网关 admin 分支把 domain_addr 当**域**用(按域列 system 全部行再取首个
-    #    value 命中) ⇒ 传完整地址得到空列表 → 404;传域则可能误删同 manager 的
-    #    其它地址的行。夹具实测: 地址注销后 whitelists 行仍残留。
+    # 3. Whitelist cleanup —— exact match (domain_addr==email, value==manager) then **delete by id**.
+    #    Audit 2026-09-21: The original implementation used DELETE /api/v1/whitelists?domain_addr=&value=,
+    #    while the gateway admin branch treats domain_addr as a **domain** (lists all system rows by domain then takes the first
+    #    value hit) ⇒ passing the full address yields an empty list → 404; passing the domain may accidentally delete entries with the same manager
+    #    other addresses with the same manager. Fixture test: whitelists rows remain after address deregistration.
     try:
         domain = email.split("@", 1)[1] if "@" in email else ""
         if not domain or not hasattr(client, "list_whitelists_by_domain"):
@@ -2630,12 +2630,12 @@ def deregister_agent_email(client, system_id: str, email: str,
                     and r.get("domain_addr") == email
                     and r.get("id") is not None]
             exact = [r for r in mine if manager_address and r.get("value") == manager_address]
-            # F10(2026-09-25): 精确匹配落空时的兜底 —— 本地址名下的行都是孤儿。
-            # 注销的语义就是"该地址被拆除"(api-key / system_domains 已删), 而
-            # domain_addr==email 已唯一钉住地址 ⇒ 不会误伤别的 agent(2026-09-21 要求
-            # value==manager 是为了防"按 value 盲删"跨地址误伤, 不适用于按地址收敛)。
-            # 实测两类落空: openclaw 绑定里 manager_address 为空(CLI 未导出 AIMAIL_*),
-            # deerflow 的白名单行 value 本身为空 ⇒ 只按 value 匹配必然留残留。
+            # F10(2026-09-25): Fallback when exact match fails -- all rows under this address are orphans.
+            # The semantics of deregistration is "this address is dismantled" (api-key / system_domains already deleted), and
+            # domain_addr==email uniquely pins the address ⇒ will not affect other agents (2026-09-21 requirement
+            # value==manager was to prevent "blind deletion by value" cross-address accidents, not applicable to address-based convergence).
+            # Empirically two types of misses: in openclaw bindings manager_address is empty (CLI did not export AIMAIL_*),
+            # deerflow whitelist rows have empty value ⇒ matching by value alone will inevitably leave residuals.
             targets = exact or mine
             if targets:
                 st = []

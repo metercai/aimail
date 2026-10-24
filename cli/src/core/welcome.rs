@@ -1,20 +1,20 @@
-//! `cli/send_welcome.py` 的**引擎件**（P3c 切片 1/2）：报文构造、两条传输。
+//! **engine piece** of `cli/send_welcome.py` (P3c slice 1/2): message construction, two transports.
 //!
-//! ⚠ `rfc5322_message` 是本命令发给网关的**唯一**报文构造点（welcome 信与审批信共用）——
-//! 不许再另写一套头（2026-09-28 第 12 缺陷就是这个形状）。
+//! ⚠ `rfc5322_message` is the **only** message construction point for this command sent to the gateway (shared by welcome and approval messages)——
+//! Do not write another set of headers (2026-09-28 defect #12 was exactly this shape).
 //!
-//! 为什么必须是**完整报文**（实测契约，不是风格问题；网关侧 `core/smtp/receiver.rs:729-741`）：
-//! · 网关在 DATA end 用 MIME `To:`/`Cc:` 头与 RCPT 信封集合**取交集**，交集空 ⇒
-//!   `550 No recipients match between envelope and email headers` ⇒ 裸正文**从不摄入**；
-//! · 头齐但**缺空行**会被收下（250），但正文行被 MIME 当**头**解析 ⇒ `record.body` 为空 ⇒
-//!   manager 指令不被消费（`webhook.rs:686-697`）。
-//! ⇒ 判"通道是否修好"必须同时看**状态码 + 下游副作用**（三态实测：裸正文 550 / 缺空行 250 不落库 /
-//!   头+空行 250 且落库）。传输是逐字节的 ⇒ `_smtp_send` 的 `subject` 形参实际**未被使用**，
-//!   主题真源就是本函数写出的 `Subject:` 头。
+//! Why it must be a **complete message** (measured contract, not a style issue; gateway side `core/smtp/receiver.rs:729-741`):
+//! · at DATA end the gateway takes the **intersection** of the MIME `To:`/`Cc:` headers with the RCPT envelope set; empty intersection ⇒
+//!   `550 No recipients match between envelope and email headers` ⇒ bare body is **never ingested**;
+//! · headers complete but **missing blank line** are accepted (250), but the body lines get parsed as **headers** by MIME ⇒ `record.body` empty ⇒
+//!   manager instructions are not consumed (`webhook.rs:686-697`).
+//! ⇒ To determine "whether the channel is fixed", one must look at **status code + downstream side effects** simultaneously (three-state measurement: bare body 550 / missing blank line 250 not persisted /
+//!   Headers + blank line 250 and persisted to DB). Transport is byte-by-byte ⇒ the `subject` parameter of `_smtp_send` is actually **not used**,
+//!   the true source of the subject is the `Subject:` header written by this function.
 
 use serde_json::json;
 
-/// 完整 RFC-5322 报文（头 + 空行 + 正文）。
+/// Complete RFC-5322 message (headers + blank line + body).
 pub fn rfc5322_message(
     sender: &str,
     recipient: &str,
@@ -29,7 +29,7 @@ pub fn rfc5322_message(
     )
 }
 
-/// `_smtp_send`：EHLO 名 `aimail-welcome`；返回 DATA end 响应（`250` 前缀即成功）。
+/// `_smtp_send`: EHLO name `aimail-welcome`; returns DATA end response (`250` prefix means success).
 pub fn smtp_send(
     gateway_url: &str,
     api_key: &str,
@@ -46,13 +46,13 @@ pub fn smtp_send(
         mail_from: &mail_from,
         rcpt: agent_email,
         raw_message,
-        ensure_trailing_newline: true, // 既有差异：不以 \n 结尾时补一行
+        ensure_trailing_newline: true, // Existing difference: append a line if it does not end with \n
         timeout_secs: 15,
     })
 }
 
-/// `_api_send`：`POST /api/v1/system/welcome`（唯一参数 `to`；cc/subject/body 服务器固定）。
-/// 返回 `(ok, email_id, message_id, err)`。
+/// `_api_send`: `POST /api/v1/system/welcome` (only parameter `to`; cc/subject/body are fixed by the server).
+/// Returns `(ok, email_id, message_id, err)`.
 pub fn api_send(
     gw_url: &str,
     admin_key: &str,
@@ -102,14 +102,14 @@ fn short_hex(n: usize) -> String {
     format!("{:032x}", seed).chars().take(n).collect()
 }
 
-// ── 引擎余下：常量 · 归属 · 轮询回复 · 草案解析 · 两封信的正文 ──────────────────
+// ── Remaining engine: constants · ownership · polling reply · draft parsing · body of the two letters ──────────────────
 
-/// 主题标记（SDK 用它识别"这是 welcome"）。
+/// Subject marker (SDK uses it to identify "this is welcome").
 pub const WELCOME_SUBJECT_MARKER: &str = "welcome to aimail world";
-/// 回复必须齐的三个标签（缺段 ⇒ 上层明确报错，不猜不编）。
+/// The three labels that must be present in the reply (missing section ⇒ upper layer reports a clear error, no guessing or fabricating).
 pub const WELCOME_REPLY_LABELS: [&str; 3] = ["persona", "signature", "current_time"];
 
-/// 三层收口：扫 `{home}/systems/*/{cleaned}/<绑定文件>` 得归属 sid（失败空串）。
+/// Three-layer convergence: scan `{home}/systems/*/{cleaned}/<binding file>` to get ownership sid (empty string on failure).
 pub fn sid_for(home: &std::path::Path, cleaned: &str) -> String {
     let root = home.join("systems");
     let mut names: Vec<_> = std::fs::read_dir(&root)
@@ -134,8 +134,8 @@ pub fn sid_for(home: &std::path::Path, cleaned: &str) -> String {
 
 /// `_agent_log_path`：`{home}/systems/{sid}/{addr}/agentmail.log`。
 ///
-/// Python 会优先调 SDK 的 `aimail_base.aimail_log_path()`，失败回退本地拼；两侧的 home 解析
-/// （`aimail_home()`）与三元组完全同构 ⇒ 本地拼即等价（sid 由三层收口扫出，找不到用 `_unassigned`）。
+/// Python will preferentially call the SDK's `aimail_base.aimail_log_path()`, falling back to local concatenation on failure; the home resolution on both sides
+/// (`aimail_home()`) is completely isomorphic to the triple ⇒ local concatenation is equivalent (sid is scanned by three-layer convergence, use `_unassigned` if not found).
 pub fn agent_log_path_for(agent_email: &str) -> std::path::PathBuf {
     let cleaned = crate::core::bridge_wire::addr_clean(agent_email);
     let home = crate::core::home::aimail_home();
@@ -150,8 +150,8 @@ pub fn agent_log_path_for(agent_email: &str) -> std::path::PathBuf {
         .join("agentmail.log")
 }
 
-/// `_poll_reply`：轮询 agent 侧 agentmail.log，直到 welcome 之后出现新 outbound 记录。
-/// 返回 `(ok, email_id, to)`。
+/// `_poll_reply`: Poll the agent-side agentmail.log until a new outbound record appears after welcome.
+/// Returns `(ok, email_id, to)`.
 pub fn poll_reply(agent_email: &str, timeout_secs: i64) -> (bool, String, String) {
     let log_path = agent_log_path_for(agent_email);
     let baseline = std::fs::read_to_string(&log_path)
@@ -198,8 +198,8 @@ pub fn poll_reply(agent_email: &str, timeout_secs: i64) -> (bool, String, String
     (false, String::new(), String::new())
 }
 
-/// `_parse_draft_from_reply`：从 agent 最近两个月的 outbound 快照里解析 persona/signature 草案。
-/// 双条件（主题含标记 **或** 三标签齐）任一命中即视为草案回复；三标签齐且 persona/signature 非空才可用。
+/// `_parse_draft_from_reply`: Parse persona/signature draft from the agent's outbound snapshots of the last two months.
+/// Dual condition (subject contains marker **or** three labels complete) any hit is considered a draft reply; three labels complete and persona/signature non-empty to be usable.
 pub fn parse_draft_from_reply(agent_email: &str) -> serde_json::Value {
     let cleaned = crate::core::bridge_wire::addr_clean(agent_email);
     let home = crate::core::home::aimail_home();
@@ -306,7 +306,7 @@ pub fn parse_draft_from_reply(agent_email: &str) -> serde_json::Value {
     serde_json::json!({})
 }
 
-/// `_approve_identity` 用的审批信 body（正文首行 `approve persona` 是网关触发词）。
+/// Approval letter body used by `_approve_identity` (first line of body `approve persona` is the gateway trigger word).
 pub fn approve_message(manager: &str, recipient: &str, persona: &str, signature: &str) -> String {
     rfc5322_message(
         manager,
@@ -320,8 +320,8 @@ pub fn approve_message(manager: &str, recipient: &str, persona: &str, signature:
     )
 }
 
-/// SMTP 模式的 welcome 信（主题/正文与 canonical 系统 welcome 同形：主题含 SDK 识别标记、
-/// 正文含三标签指令块——缺任一，agent 就收不到"回三标签"的指令，第 3 段永远取不到草案）。
+/// SMTP mode welcome message (subject/body isomorphic to the canonical system welcome: subject contains the SDK identification marker,
+/// body contains three-label instruction block——missing any, the agent will not receive the "reply with three labels" instruction, and the 3rd segment will never get the draft).
 pub fn welcome_message(manager: &str, recipient: &str) -> String {
     let agent_name = recipient
         .split('@')
@@ -331,7 +331,7 @@ pub fn welcome_message(manager: &str, recipient: &str) -> String {
         .to_string();
     let (date, stamp) = utc_date_and_stamp();
     let subject = format!("Welcome to AIMail World, {}, since {}!", agent_name, date);
-    // 正文用**原样多行串**（转义会漂移：曾因 `\n` 转义被写成字面反斜杠）——占位符替换，避免 format! 转义。
+    // Body uses **raw multi-line string** (escaping causes drift: once `\n` escaping was written as literal backslash)——placeholder replacement, avoiding format! escaping.
     let template = r#"Welcome to the AIMail world!
 
 Your AIMail address has been activated. This is the first welcome email
@@ -359,7 +359,7 @@ Sent __STAMP__
     rfc5322_message(manager, recipient, &subject, &body, "welcome")
 }
 
-/// UTC 日期（YYYY-MM-DD）与时间戳（YYYY-MM-DD HH:MM UTC）。
+/// UTC date (YYYY-MM-DD) and timestamp (YYYY-MM-DD HH:MM UTC).
 fn utc_date_and_stamp() -> (String, String) {
     let secs = now_secs();
     let (y, mo, d, hh, mi, _) = crate::core::ping::epoch_to_utc_parts(secs);
@@ -387,9 +387,9 @@ mod tests {
             "{m}"
         );
         assert!(m.contains("\nSubject: Sub ject\n\nline1\nline2"), "{m}");
-        // msg_id 形如 <welcome-<epoch>-<4hex>@aimail>
+        // msg_id is in the form <welcome-<epoch>-<4hex>@aimail>
         let id_line = m.lines().find(|l| l.starts_with("Message-ID: ")).unwrap();
         assert!(id_line.ends_with("@aimail>"), "{id_line}");
-        assert_eq!(m.matches("\n\n").count(), 1, "必须恰有一个空行分隔头与正文");
+        assert_eq!(m.matches("\n\n").count(), 1, "Must have exactly one blank line separating headers and body");
     }
 }

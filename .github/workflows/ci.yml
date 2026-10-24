@@ -1,26 +1,26 @@
 name: ci
 
 # ═══════════════════════════════════════════════════════════════════════
-# dev 门禁 — owner 2026-10-11 梳理(workflow 5 → 3;发布链不再有 reusable workflow)
+# dev gate — owner 2026-10-11 cleanup (workflows 5 → 3; the release chain no longer uses a reusable workflow)
 #
-#   ci.yml            ← 本文件。dev 门禁: CLI 与 SDK 的 L0 + "需已装件"的 L2 用例
-#                       + 平台原生编译检查。push/PR 触发;同时被 publish.yml 作为
-#                       发布前 gate 复用(workflow_call) ⇒ 门禁只有一处定义。
-#   publish.yml       发布单入口(workflow_dispatch): gate → CLI 构建 + GitHub Release
-#                       → npm → PyPI(内联) → L3。取代原先 tag 触发的 cli-release.yml +
-#                       publish.yml + publish-pypi.yml 三件套与 workflow_run 链。
-#   l3.yml            L3 矩阵: nightly(schedule) + 手动 + 被 publish.yml 调用。
+#   ci.yml            ← this file. dev gate: L0 for CLI and SDK + the "requires installed artifacts" L2 cases
+#                       + native platform compile checks. Triggered by push/PR; also reused by publish.yml as the
+#                       pre-release gate (workflow_call) ⇒ the gate is defined in exactly one place.
+#   publish.yml       single release entry point (workflow_dispatch): gate → CLI build + GitHub Release
+#                       → npm → PyPI (inlined) → L3. Replaces the old tag-triggered cli-release.yml +
+#                       publish.yml + publish-pypi.yml trio and the workflow_run chain.
+#   l3.yml            L3 matrix: nightly (schedule) + manual + invoked by publish.yml.
 #
-# 外部契约(云端一侧须与本仓一致): 唯一发布文件名 publish.yml —— npm 的 Trusted
-# Publisher 绑 repo + workflow "publish.yml" + env "npm-release";PyPI 绑 "publish.yml"
-# + env "pypi-release"。改名须先更新 npmjs/pypi 侧绑定。历史文件 cli.yml /
-# cli-release.yml / l3-integration.yml 已删除;publish-pypi.yml 已并入 publish.yml
-# (PyPI 不接受 reusable workflow 作 TP workflow, 且证书里的 Build Config URI 记的是
-# 顶层调用方 ⇒ 发布 job 必须内联在 publish.yml 里)。
+# External contract (the cloud side must match this repo): the sole publish file name publish.yml — npm's Trusted
+# Publisher binds repo + workflow "publish.yml" + env "npm-release"; PyPI binds "publish.yml"
+# + env "pypi-release". A rename must first update the npmjs/pypi-side bindings. Historical files cli.yml /
+# cli-release.yml / l3-integration.yml are deleted; publish-pypi.yml was merged into publish.yml
+# (PyPI does not accept a reusable workflow as a TP workflow, and the Build Config URI in the certificate records the
+# top-level caller ⇒ the publish job must be inlined in publish.yml).
 #
-# 平台集(owner 裁决 Q2): 统一为**发布集** = linux-musl amd64/arm64 + macos-arm64。
-#   Windows: CLI 未完成移植(bridge/repair 依赖 unix 命令), 全链不建 —— 此前 cli.yml
-#   建 windows 且长期红, 属"红门禁无人管"的来源之一。
+# Platform set (owner ruling Q2): unified to the **release set** = linux-musl amd64/arm64 + macos-arm64.
+#   Windows: the CLI port is incomplete (bridge/repair depend on unix commands), no full chain is built — cli.yml previously
+#   built windows and stayed red for a long time, one source of "red gate with no owner".
 # ═══════════════════════════════════════════════════════════════════════
 on:
   push:
@@ -42,7 +42,7 @@ on:
       - "scripts/**"
       - "pyproject.toml"
       - ".github/workflows/ci.yml"
-  workflow_call:   # publish.yml 的 gate job 复用本文件(单真源, 不在两处维护门禁)
+  workflow_call:   # publish.yml gate job reuses this file (single source; the gate is not maintained in two places)
     inputs:
       platforms:
         description: 'run the 3-platform compile check (publish.yml builds the same set itself)'
@@ -74,20 +74,20 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install gate deps (pinned — 与 sdk-gates 同版; 注册表形状测试用)
+      - name: Install gate deps (pinned — same version as sdk-gates; for the registry-shape tests)
         run: python3 -m pip install --quiet pytest==9.1.1 PyYAML==6.0.2
       - name: Registry shape tests (pytest — data source = spec --json black-box)
         working-directory: .
-        # P2c S3b: 断言语义自 tests/sdk/ 迁入; 数据源 = 上一步 cargo test 已构建的
-        # target/debug/aimail 经 `platform spec --json` 导出(黑盒, 与被测物同源)。
+        # P2c S3b: assertion semantics moved in from tests/sdk/; data source = target/debug/aimail already built by the previous cargo test
+        # step, exported via `platform spec --json` (black-box, same source as the artifact under test).
         run: python3 -m pytest tests/cli/ -q
       - name: L2 battery — sdk-parity cases (need an installed agent-aimail)
-        # 这批用例经 python 门调**已装** agent-aimail ⇒ 属 L2(装件级),故 dev 电池里由
-        # `sdk-parity` feature 关掉, 在这里显式装**本仓构建的 wheel**(改名后 PyPI 新名
-        # 未发布前,装官方发布版会 404)到 venv 并用 AIMAIL_PYTHON 钉住解释器
-        # (sdkroot::probe_in_domain 的链首 = 显式覆盖优先)。
-        # NB: 本 job 的默认 working-directory = cli(Cargo 在此),而 pyproject.toml 在**仓根**
-        # ⇒ build 必须显式指向 $GITHUB_WORKSPACE;cargo test 沿用 job 默认(cli/)。
+        # This batch of cases drives the **installed** agent-aimail via the python gate ⇒ it is L2 (artifact level), so the dev battery turns it off
+        # via the `sdk-parity` feature; here we explicitly install **the wheel built from this repo** (before the new PyPI name post-rename is
+        # published, installing the official release 404s) into a venv and pin the interpreter with AIMAIL_PYTHON
+        # (the head of sdkroot::probe_in_domain's chain = an explicit override wins).
+        # NB: this job's default working-directory = cli (Cargo lives here), but pyproject.toml is at the **repo root**
+        # ⇒ build must explicitly point at $GITHUB_WORKSPACE; cargo test keeps the job default (cli/).
         run: |
           python3 -m pip install --quiet build
           python3 -m build --wheel --outdir /tmp/sdk-wheel "$GITHUB_WORKSPACE"
@@ -111,7 +111,7 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: tssdk/pnpm-lock.yaml
-      - name: Install gate deps (pinned — 门禁依赖钉版, 上游行为变化不得静默改变结论)
+      - name: Install gate deps (pinned — gate deps pinned; upstream behavior changes must not silently change the verdict)
         run: python3 -m pip install --quiet pytest==9.1.1 pyflakes==3.4.0 PyYAML==6.0.2
       - name: pnpm install (tssdk workspace)
         working-directory: tssdk
@@ -121,7 +121,7 @@ jobs:
 
   platform-check:
     name: build ${{ matrix.name }}
-    # push/PR 恒跑;被 publish.yml 复用时置 false(它自己的 cli-build 就是同一组平台)。
+    # always runs on push/PR; set to false when reused by publish.yml (its own cli-build is the same platform set).
     if: ${{ github.event_name != 'workflow_call' || inputs.platforms }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -148,8 +148,8 @@ jobs:
       - name: cargo build --release
         working-directory: cli
         env:
-          # musl: 显式 crt-static(否则得到动态链接的 musl 二进制, 目标机缺 loader)。
-          # NB: 单次 contains() 判断 —— 串 `a || b && c || d` 会在第一个真值短路。
+          # musl: explicit crt-static (otherwise you get a dynamically linked musl binary and the target machine lacks the loader).
+          # NB: a single contains() check — the string `a || b && c || d` short-circuits at the first true value.
           RUSTFLAGS: ${{ contains(matrix.target, 'linux-musl') && '-D warnings -C target-feature=+crt-static' || '-D warnings' }}
           MACOSX_DEPLOYMENT_TARGET: ${{ contains(matrix.os, 'macos') && '11.0' || '' }}
         run: cargo build --release --target ${{ matrix.target }}

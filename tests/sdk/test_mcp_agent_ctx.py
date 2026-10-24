@@ -1,18 +1,18 @@
-"""MCP server 的 agent 上下文解析: 钉 system + 响亮回退(2026-10-02, J4e 根因的第二半)。
+"""MCP server agent context parsing: pin system + loud fallback (2026-10-02, second half of J4e root cause).
 
-`_agent_ctx()` 原实现只按 agent_id 全 systems 扫描(`aimail_base._scan_systems_for_agent`
-按目录序**首匹配**)——同一 home 下多个 system 常写同一个 agent_id(本仓夹具实测:
-旅程 system 与共享域 system 都是 `agent_id=default`), 首匹配可能挑到**别的地址**。
-安装侧现在会把 `AIMAIL_SYSTEM_ID` 随 mcpServers.env 写进来(见
-`tests/test_deerflow_mcp_env.py`), 所以 server 侧要:
+ The original `_agent_ctx()` implementation only scanned all systems by agent_id (`aimail_base._scan_systems_for_agent`
+ **first match** by directory order) — multiple systems under the same home often write the same agent_id (measured with this repo's fixtures:
+journey system and shared domain system both have `agent_id=default`), first match may pick **another address**.
+Installation side now writes `AIMAIL_SYSTEM_ID` into mcpServers.env (see
+`tests/test_deerflow_mcp_env.py`), so server side must:
 
-  * 有该 env ⇒ 钉住安装时的 system 再匹配;
-  * 钉住的 system 里没有(绑定搬走 / 陈旧 env)⇒ **不静默**: 回退到原"全 systems 扫描"
-    行为, 并往 stderr 打一行 WARNING(stdout 是 MCP 协议帧, 不能混);
-  * 没有该 env ⇒ 逐字保持旧行为(零回归)。
+  * If this env exists ⇒ pin the system from installation time and then match;
+  * If pinned system does not have it (binding moved / stale env) ⇒ **do not be silent**: fallback to original "all systems scan"
+    behavior, and print one WARNING line to stderr (stdout carries MCP protocol frames, must not be mixed);
+  * If this env does not exist ⇒ keep old behavior verbatim (zero regression).
 
-同文件顺带钉住 J4e 的正面判据: 绑定在 `AIMAIL_HOME` 指向的根里才找得到 —— 这正是
-2026-10-02 实测的根因(子进程无 AIMAIL_HOME ⇒ 回落 `~/.aimail` ⇒ 抛
+Also pin down the positive criterion for J4e in the same file: binding is only found in the root pointed to by `AIMAIL_HOME` —— this is exactly
+the root cause measured on 2026-10-02 (subprocess without AIMAIL_HOME ⇒ falls back to `~/.aimail` ⇒ throws
 `agent 'default' not registered`)。
 """
 import json
@@ -26,14 +26,14 @@ sys.path.insert(0, "pysdk")  # ensure repo pysdk wins over any cli/ shadow
 
 import aimail_base as base  # noqa: E402
 import aimail_mcp_server as mcp  # noqa: E402
-from aimail_contract import BINDING_FILE  # noqa: E402 — 契约单源: 禁字面量(撞棘轮)
+from aimail_contract import BINDING_FILE  # noqa: E402 — contract single source: forbid literals (hits ratchet)
 
 AGENT = "default"
 
 
 @pytest.fixture(autouse=True)
 def _isolate_agent_context(monkeypatch):
-    """set_agent_context 会改模块全局 + 往 os.environ 里 setdefault —— 全部隔离。"""
+    """set_agent_context mutates module globals + setdefaults into os.environ — isolate all of it."""
     saved_cfg = base._ACTIVE_AGENT_CONFIG
     saved_loader = base._CONFIG_LOADER
     saved_env = {k: v for k, v in os.environ.items() if k.startswith("AIMAIL_")}
@@ -48,7 +48,7 @@ def _isolate_agent_context(monkeypatch):
 
 
 def _mk_home(root: Path, *systems: str) -> Path:
-    """按共享布局造 systems/{sid}/{addr}/绑定文件(契约单源 BINDING_FILE; agent_id 同名, 地址各异)。"""
+    """Create systems/{sid}/{addr}/binding file per shared layout (contract single source BINDING_FILE; agent_id same name, addresses differ)."""
     for sid in systems:
         addr = root / "systems" / sid / f"agent_{sid}".replace("-", "_")
         addr.mkdir(parents=True)
@@ -63,7 +63,7 @@ def _mk_home(root: Path, *systems: str) -> Path:
 
 
 def test_context_found_when_home_is_correct(tmp_path, monkeypatch):
-    """正面判据(= J4e 的反事实 B 行): AIMAIL_HOME 指向绑定所在根 ⇒ 解析成功。"""
+    """Positive criterion (= J4e's counterfactual line B): AIMAIL_HOME points at the root holding the binding ⇒ resolution succeeds."""
     home = _mk_home(tmp_path / "aimail-home", "sys-a")
     monkeypatch.setenv("AIMAIL_HOME", str(home))
     monkeypatch.setenv("AIMAIL_AGENT_ID", AGENT)
@@ -73,20 +73,20 @@ def test_context_found_when_home_is_correct(tmp_path, monkeypatch):
 
 
 def test_context_raises_without_aimail_home(tmp_path, monkeypatch):
-    """根因复现(= 反事实 A 行): home 根里没有绑定 ⇒ RuntimeError 原文。"""
+    """Root cause reproduction (= counterfactual A line): no binding in the home root ⇒ original RuntimeError message."""
     real_home = _mk_home(tmp_path / "elsewhere", "sys-a")
-    monkeypatch.setenv("AIMAIL_HOME", str(tmp_path / "empty"))  # 空根, 模拟 ~/.aimail 错根
+    monkeypatch.setenv("AIMAIL_HOME", str(tmp_path / "empty"))  # empty root, simulates wrong root ~/.aimail
     monkeypatch.setenv("AIMAIL_AGENT_ID", AGENT)
     (tmp_path / "empty").mkdir()
 
     with pytest.raises(RuntimeError, match="not registered"):
         mcp._agent_ctx()
-    # 真绑定在别处却读不到 —— 与 2026-10-02 实测同形(供读日志的人对号)
+    # The real binding is elsewhere but unreadable —— same shape as the 2026-10-02 live test (for log readers to match)
     assert (real_home / "systems" / "sys-a").is_dir()
 
 
 def test_pinned_system_wins_over_directory_order(tmp_path, monkeypatch):
-    """钉住的 system 优先于"按目录序首匹配": sys-b 被钉住 ⇒ 取 sys-b 的地址。"""
+    """Pinned system takes precedence over "first match by directory order": sys-b is pinned ⇒ take the address of sys-b."""
     home = _mk_home(tmp_path / "aimail-home", "sys-a", "sys-b")
     monkeypatch.setenv("AIMAIL_HOME", str(home))
     monkeypatch.setenv("AIMAIL_AGENT_ID", AGENT)
@@ -97,7 +97,7 @@ def test_pinned_system_wins_over_directory_order(tmp_path, monkeypatch):
 
 
 def test_pinned_system_miss_falls_back_loudly(tmp_path, monkeypatch, capsys):
-    """钉住的 system 没有绑定 ⇒ 回退全扫描(旧行为)且 stderr 必须有告警(不许静默)。"""
+    """Pinned system has no binding ⇒ fall back to full scan (old behavior) and stderr must have a warning (no silent failure)."""
     home = _mk_home(tmp_path / "aimail-home", "sys-a")
     monkeypatch.setenv("AIMAIL_HOME", str(home))
     monkeypatch.setenv("AIMAIL_AGENT_ID", AGENT)
@@ -110,7 +110,7 @@ def test_pinned_system_miss_falls_back_loudly(tmp_path, monkeypatch, capsys):
 
 
 def test_without_pinned_system_keeps_legacy_scan(tmp_path, monkeypatch, capsys):
-    """没写 AIMAIL_SYSTEM_ID ⇒ 逐字旧行为(全 systems 扫描, 无告警)。"""
+    """AIMAIL_SYSTEM_ID not set ⇒ exact old behavior (scan all systems, no warning)."""
     home = _mk_home(tmp_path / "aimail-home", "sys-a", "sys-b")
     monkeypatch.setenv("AIMAIL_HOME", str(home))
     monkeypatch.setenv("AIMAIL_AGENT_ID", AGENT)

@@ -1,7 +1,7 @@
-//! `uninstall` 的离线验收（真删夹具数据；不触网、不碰真机）。
+//! Offline acceptance for `uninstall` (actually deletes fixture data; no network, no real machine).
 //!
-//! 判据：幂等短路（数据与指针都不在 ⇒ 视为已卸载）· `-y` 确认路径真删（mail 目录 + 系统目录 +
-//! 原始 key）· 未给 `-y` 且 stdin EOF ⇒ cancelled 且 rc=1（**什么都不删**）· 缺 `-s`/`-H` ⇒ 响亮失败。
+//! Criteria: idempotent short-circuit (data and pointer both absent ⇒ considered uninstalled) · `-y` confirmation path really deletes (mail dir + system dir +
+//! original key) · no `-y` and stdin EOF ⇒ cancelled and rc=1 (**deletes nothing**) · missing `-s`/`-H` ⇒ loud failure.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -16,7 +16,7 @@ fn core_dir() -> PathBuf {
 }
 
 fn setup_fixture(ahome: &Path, uh: &Path, sid: &str, platform_home: &Path) {
-    // 系统数据：systems/<sid>/<dir>/<绑定文件> + mail/ + 原始 key（文件名走契约常量）
+    // System data: systems/<sid>/<dir>/<bound file> + mail/ + original key (file names follow contract constants)
     let sys = ahome.join("systems").join(sid);
     let agent_dir = sys.join("billing.example.test");
     fs::create_dir_all(agent_dir.join("mail")).unwrap();
@@ -32,8 +32,8 @@ fn setup_fixture(ahome: &Path, uh: &Path, sid: &str, platform_home: &Path) {
     .unwrap();
     fs::write(agent_dir.join("mail").join("1.eml"), "x").unwrap();
     fs::write(sys.join(".system_raw_key.key"), "k\n").unwrap();
-    // cfg 不给（⇒ 跳过网关注销路径，保持离线）
-    // 平台指针：让幂等判定认为"装着"
+    // cfg not provided (⇒ skip gateway deregistration path, keep offline)
+    // Platform pointer: make idempotent check think "installed"
     let ptr_dir = uh.join(".pi");
     fs::create_dir_all(&ptr_dir).unwrap();
     fs::write(
@@ -60,7 +60,7 @@ fn uninstall_offline_behaviour() {
     let sid = "testsid01";
     setup_fixture(&ahome, &uh, sid, &platform_home);
 
-    // 1) 缺 --system-id/--home ⇒ 响亮失败
+    // 1) missing --system-id/--home ⇒ loud failure
     let rc = aimail::cmd::uninstall::run(&aimail::cmd::uninstall::Args {
         system_id: String::new(),
         home: String::new(),
@@ -70,7 +70,7 @@ fn uninstall_offline_behaviour() {
     });
     assert_eq!(rc, 1);
 
-    // 2) 未给 -y 且 stdin EOF ⇒ cancelled 且 rc=1，且**什么都不删**
+    // 2) no -y and stdin EOF ⇒ cancelled and rc=1, and **deletes nothing**
     let args = aimail::cmd::uninstall::Args {
         system_id: sid.to_string(),
         home: platform_home.to_string_lossy().to_string(),
@@ -78,28 +78,28 @@ fn uninstall_offline_behaviour() {
         yes: false,
         platform: "pi".to_string(),
     };
-    // 测试进程的 stdin 已到 EOF ⇒ read_line 返回 0 字节 ⇒ 视作 EOF（等同 Python EOFError）
+    // Test process stdin is at EOF ⇒ read_line returns 0 bytes ⇒ treated as EOF (equivalent to Python EOFError)
     let rc = aimail::cmd::uninstall::run(&args);
-    assert_eq!(rc, 1, "未确认必须 rc=1");
+    assert_eq!(rc, 1, "unconfirmed must rc=1");
     assert!(
         ahome
             .join("systems")
             .join(sid)
             .join(".system_raw_key.key")
             .is_file(),
-        "未确认时不得删任何数据"
+        "must not delete any data when unconfirmed"
     );
 
-    // 3) `-y` ⇒ 真删（mail 目录 + 系统目录 + key 都消失）
+    // 3) `-y` ⇒ really deletes (mail dir + system dir + key all disappear)
     let args = aimail::cmd::uninstall::Args { yes: true, ..args };
     let rc = aimail::cmd::uninstall::run(&args);
-    assert_eq!(rc, 0, "确认卸载应成功");
+    assert_eq!(rc, 0, "confirmed uninstall should succeed");
     assert!(
         !ahome.join("systems").join(sid).exists(),
-        "系统目录必须删除"
+        "system directory must be deleted"
     );
 
-    // 4) 幂等：再跑一次 ⇒ "not installed" 且 rc=0
+    // 4) Idempotent: run again ⇒ "not installed" and rc=0
     let rc = aimail::cmd::uninstall::run(&args);
-    assert_eq!(rc, 0, "重复卸载必须幂等 rc=0");
+    assert_eq!(rc, 0, "repeated uninstall must be idempotent rc=0");
 }

@@ -1,12 +1,12 @@
-//! 平台动作序列执行器（`cli/aimail:427-678` 的 Rust 复刻）—— 平台注册表（类型化常量）的
-//! `install_steps` / `uninstall_steps` 表驱动，**CLI 零平台知识**。
+//! Platform action sequence executor (Rust reimplementation of `cli/aimail:427-678`) — platform registry (typed constants)'
+//! `install_steps` / `uninstall_steps` table-driven, **CLI has zero platform knowledge**.
 //!
 //! kind：`print` | `warn` | `spawn` | `sdk_install` | `register_default` | `register_all`
-//! · `when` 前置条件（path_exists / command_exists / sid_set / cfg_complete / runtime / runtime_not）
-//! · `spawn`：`skip_if`（探针说"已在场"就跳过）· `on_missing`（fail/skip）· `on_error`（warn/fail）
+//! · `when` preconditions (path_exists / command_exists / sid_set / cfg_complete / runtime / runtime_not)
+//! · `spawn`: `skip_if` (skip if probe says "already present") · `on_missing` (fail/skip) · `on_error` (warn/fail)
 //!
-//! 两条**硬门**照抄且不可被异常兜底吞掉（F9 教训）：需要注册/写白名单的步（`sdk_install`
-//! 默认、`register_default`、`register_all`）在进任何 try 之前先判 manager 非空 ⇒ 空即 rc≠0。
+//! Two **hard gates** are copied verbatim and must not be swallowed by exception fallbacks (F9 lesson): steps that require registration/whitelist writing (`sdk_install`
+//! Default, `register_default`, `register_all`) check that manager is non-null before entering any try ⇒ if null, rc≠0.
 
 use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
@@ -26,7 +26,7 @@ fn warn(msg: &str) {
     println!("  {}{}{} {}", style::YELLOW, style::CROSS, style::NC, msg);
 }
 
-/// `_tmpl`：`{k}` 逐键替换（ctx 的所有键）。
+/// `_tmpl`: `{k}` per-key replacement (all keys in ctx).
 pub fn tmpl(text: &str, ctx: &Map<String, Value>) -> String {
     let mut out = text.to_string();
     for (k, v) in ctx {
@@ -48,7 +48,7 @@ fn ctx_str(ctx: &Map<String, Value>, key: &str) -> String {
         .unwrap_or_default()
 }
 
-/// `_when_ok`：`when` 条件求值。
+/// `_when_ok`: `when` condition evaluation.
 pub fn when_ok(when: &Value, ctx: &Map<String, Value>) -> bool {
     let Some(obj) = when.as_object() else {
         return true;
@@ -87,7 +87,7 @@ pub fn when_ok(when: &Value, ctx: &Map<String, Value>) -> bool {
                 }
             }
             "runtime_not" if ctx_str(ctx, "runtime") == val.as_str().unwrap_or("") => return false,
-            // 其余键忽略（与 Python 同：未知 when 键不参与判定）
+            // Ignore other keys (same as Python: unknown when keys do not participate in the decision)
             _ => {}
         }
     }
@@ -107,8 +107,8 @@ fn command_in_path(bin: &str) -> bool {
         if d.is_empty() {
             continue;
         }
-        // Windows: 可执行体按 PATHEXT 扩展(npm 全局安装落 <name>.cmd,
-        // 裸名 is_file 恒 false);unix 无扩展。
+        // Windows: executables are extended by PATHEXT (npm global installs land as <name>.cmd,
+        // bare name is_file is always false); unix has no extension.
         if cfg!(windows) {
             for ext in path_exts() {
                 if Path::new(d).join(format!("{}{}", bin, ext)).is_file() {
@@ -122,7 +122,7 @@ fn command_in_path(bin: &str) -> bool {
     false
 }
 
-/// Windows 可执行扩展列表(PATHEXT 环境变量, 缺省 .COM;.EXE;.BAT;.CMD)。
+/// Windows executable extension list (PATHEXT environment variable, default .COM;.EXE;.BAT;.CMD).
 #[cfg(windows)]
 fn path_exts() -> Vec<String> {
     std::env::var("PATHEXT")
@@ -138,9 +138,9 @@ fn path_exts() -> Vec<String> {
     Vec::new()
 }
 
-/// 程序名 ⇒ 实际可执行文件路径(W2-Windows: CreateProcess 不解析 PATHEXT,
-/// npm 全局的 `dsh` 落 `dsh.cmd` ⇒ 裸名 spawn 恒 Err;L3 windows 格实证
-/// "`dsh` CLI not found" 而 git-bash 侧 `command -v dsh` 可见)。unix 原样返回。
+/// Program name ⇒ actual executable file path (W2-Windows: CreateProcess does not resolve PATHEXT,
+/// npm global `dsh` lands as `dsh.cmd` ⇒ bare name spawn always Err; L3 windows cell empirical
+/// "`dsh` CLI not found" while git-bash side `command -v dsh` is visible). unix returns as-is.
 fn resolve_program(bin: &str) -> String {
     if bin.contains('\\') || bin.contains('/') || bin.contains('.') {
         return bin.to_string();
@@ -153,7 +153,7 @@ fn resolve_program(bin: &str) -> String {
     bin.to_string()
 }
 
-/// PATH 内是否存在 bin+ext(与 command_in_path 的 Windows 分支同判据, 单真源)。
+/// Whether bin+ext exists in PATH (same criteria as the Windows branch of command_in_path, single source of truth).
 fn command_in_path_ext(bin: &str, ext: &str) -> bool {
     let path = std::env::var("PATH").unwrap_or_default();
     let sep = if cfg!(windows) { ';' } else { ':' };
@@ -161,7 +161,7 @@ fn command_in_path_ext(bin: &str, ext: &str) -> bool {
         .any(|d| !d.is_empty() && Path::new(d).join(format!("{}{}", bin, ext)).is_file())
 }
 
-/// `_probe_present`：`skip_if` 探针（跑 argv，输出含 match（忽略大小写）⇒ "已在场"）。
+/// `_probe_present`: `skip_if` probe (runs argv, output contains match (case-insensitive) ⇒ "already present").
 pub fn probe_present(spec: &Value, ctx: &Map<String, Value>) -> bool {
     let argv: Vec<String> = spec
         .get("argv")
@@ -182,7 +182,7 @@ pub fn probe_present(spec: &Value, ctx: &Map<String, Value>) -> bool {
     }
     let mut c = Command::new(resolve_program(&argv[0]));
     c.args(&argv[1..]);
-    let _ = PROBE_TIMEOUT; // Python 侧 probe 带 30s 上限；这里靠子进程自然退出
+    let _ = PROBE_TIMEOUT; // Python side probe has a 30s limit; here we rely on the subprocess exiting naturally
     match c.output() {
         Ok(o) => {
             if !o.status.success() {
@@ -196,7 +196,7 @@ pub fn probe_present(spec: &Value, ctx: &Map<String, Value>) -> bool {
     }
 }
 
-/// `_sdk_install`：调 SDK 自足安装入口（按名调**已发布**函数，`manager` 只在其签名接受时才传）。
+/// `_sdk_install`: calls the SDK self-contained install entry (calls **published** function by name, `manager` is only passed if its signature accepts it).
 fn sdk_install(
     kind: &str,
     fn_name: &str,
@@ -207,7 +207,7 @@ fn sdk_install(
 ) -> i32 {
     if fn_name.is_empty() {
         warn(&format!(
-            "sdk_install: 注册表未给平台 '{kind}' 配置 fn(SDK 入口缺失)"
+            "sdk_install: registry did not configure fn for platform '{kind}' (SDK entry missing)"
         ));
         return 1;
     }
@@ -230,16 +230,16 @@ fn sdk_install(
     ) {
         Ok(v) => v.as_i64().unwrap_or(0) as i32,
         Err(e) => {
-            warn(&format!("pysdk 入口调用失败: {}", e.display_like_python()));
+            warn(&format!("pysdk entry call failed: {}", e.display_like_python()));
             1
         }
     }
 }
 
-/// `-a/--agent` 的选取：名字 = 宿主内部 agent 名，一对一；对不上的忽略。
+/// Selection of `-a/--agent`: name = host internal agent name, one-to-one; ignore mismatches.
 ///
-/// 宿主能枚举 agent(`agent_keys` 非空) ⇒ 取交集；枚举不到(单 agent 宿主) ⇒ `-a`
-/// 无法校验，退回主 agent 并告警（保持 install 可用，不静默丢绑定）。
+/// Host can enumerate agents (`agent_keys` non-empty) ⇒ take intersection; cannot enumerate (single agent host) ⇒ `-a`
+/// cannot be validated, fall back to main agent and warn (keep install usable, do not silently drop binding).
 struct AgentPick {
     agents: Vec<String>,
     ignored: Vec<String>,
@@ -279,21 +279,21 @@ fn pick_agents(requested: &[String], keys: &[String]) -> AgentPick {
     }
 }
 
-/// 执行一串动作（表由调用方给：注册表读或测试合成）。返回 Err = `_fail` 语义（调用方 rc=1）。
+/// Execute a series of actions (table provided by caller: registry read or test synthesis). Returns Err = `_fail` semantics (caller rc=1).
 pub fn run_steps(
     platform: &str,
     steps: &[Value],
     ctx: &mut Map<String, Value>,
     core_dir: &Path,
 ) -> Result<(), String> {
-    // SDK 根（`{sdk}`）**按步懒解析**（owner 2026-10-12）：装之前它不存在（sdk_install 之后才有），
-    // 只有引用 `{sdk}` 或要跑注册步的平台才需要 ⇒ node 宿主不触发、不再误报；deerflow 的 `{sdk}`
-    // 也能拿到**装后**的真根（原来展开成空根 = exit 127 的真根因）。
+    // SDK root (`{sdk}`) is **lazily resolved per step** (owner 2026-10-12): it does not exist before install (only exists after sdk_install),
+    // Only platforms that reference `{sdk}` or need to run the registration step require it ⇒ node host does not trigger, no more false positives; deerflow's `{sdk}`
+    // can also get the **post-install** true root (originally expanded to empty root = true root cause of exit 127).
     let mut sdk_dir: PathBuf = core_dir.to_path_buf();
     let mut sdk_ready =
         !sdk_dir.as_os_str().is_empty() && crate::core::sdkroot::is_sdk_root(&sdk_dir);
-    // 若调用方给的 `core_dir` 本就有效(装后重跑/已装环境),立刻回填模板值 ——
-    // 否则 `{sdk}` 会展开成空(install.rs 不再提前解析)。
+    // If the `core_dir` provided by the caller is already valid (re-run after install/installed environment), immediately backfill template values ——
+    // otherwise `{sdk}` will expand to empty (install.rs no longer resolves early).
     if sdk_ready {
         ctx.insert(
             "sdk".into(),
@@ -302,7 +302,7 @@ pub fn run_steps(
     }
     let mut sdk_tried = false;
     let mut sdk_warned = false;
-    // python 宿主才需要 SDK 根（注册器 python_script 落在 SDK 包内；node 宿主注册走 op 门，不需要）
+    // Only python host needs SDK root (registrar python_script lands inside SDK package; node host registration goes through op gate, not needed)
     let py_host = crate::hosts::get(platform)
         .map(|h| crate::hosts::exec::needs_sdk_root(h))
         .unwrap_or(false);
@@ -329,7 +329,7 @@ pub fn run_steps(
                     }
                     Err(e) => {
                         if !sdk_warned {
-                            // 只在**确有**步骤需要它时报（响亮），且只报一次
+                            // Only report (loudly) when there **are** steps that need it, and only report once
                             eprintln!("  ✗ {e}");
                             sdk_warned = true;
                         }
@@ -347,7 +347,7 @@ pub fn run_steps(
                 ctx,
             )),
             "sdk_install" => {
-                // P1 硬门：注册/写白名单的步不接受空 manager（判在 try 之前）
+                // P1 hard gate: registration/whitelist writing steps do not accept empty manager (checked before try)
                 if st
                     .get("needs_manager")
                     .and_then(Value::as_bool)
@@ -357,7 +357,7 @@ pub fn run_steps(
                     let m = setup::resolve_mgr(&ctx_str(ctx, "manager"), &cfg);
                     if m.is_empty() {
                         return Err(format!(
-                            "缺 manager(参数/env 均未给)—— install sdk_install({}) 的注册/白名单不接受空值(owner 契约 2026-09-30)。\n  给值: -m/--manager <addr>,或 env {}",
+                            "manager missing (not given via arg or env) — install sdk_install({}) register/allowlist does not accept empty values (owner contract 2026-09-30).\n  provide a value: -m/--manager <addr>, or env {}",
                             st.get("fn").and_then(Value::as_str).unwrap_or(""),
                             setup::MANAGER_ENV_NAMES.join(" / ")
                         ));
@@ -390,7 +390,7 @@ pub fn run_steps(
                         .get("fail_hint")
                         .and_then(Value::as_str)
                         .map(|s| s.to_string())
-                        .unwrap_or_else(|| format!("sdk install({fn_name}) 失败(exit {{rc}})"));
+                        .unwrap_or_else(|| format!("sdk install({fn_name}) failed(exit {{rc}})"));
                     return Err(format!(
                         "{}\n  python={} sdk={} cmd={}",
                         tmpl(&tmpl_text, &ectx),
@@ -441,9 +441,9 @@ pub fn run_steps(
                         cmd.env(k, tmpl(v.as_str().unwrap_or(""), ctx));
                     }
                 }
-                // P8(2026-10-17): 进程环境不再继承绑定解释器(进程内 set_var 已删)——
-                // 步骤子进程显式注入进程本地绑定值(唯一子进程读取者 = deer-flow
-                // install-skill.sh / install-mcp.sh 的 ${AIMAIL_PYTHON};未绑定 ⇒ 不注入)。
+                // P8(2026-10-17): Process environment no longer inherits bound interpreter (in-process set_var removed)——
+                // Step subprocess explicitly injects process-local bound value (only subprocess reader = deer-flow
+                // ${AIMAIL_PYTHON} in install-skill.sh / install-mcp.sh; not bound ⇒ do not inject).
                 if let Some((k, v)) = crate::core::sdkroot::bound_python_env() {
                     cmd.env(&k, &v);
                 }
@@ -457,7 +457,7 @@ pub fn run_steps(
                             .get("fail_hint")
                             .and_then(Value::as_str)
                             .map(|s| s.to_string())
-                            .unwrap_or_else(|| format!("`{}` 不可执行", argv[0]));
+                            .unwrap_or_else(|| format!("`{}` not executable", argv[0]));
                         if mode == "fail" {
                             println!(
                                 "  [step-fail] python={} sdk={}",
@@ -475,7 +475,7 @@ pub fn run_steps(
                             .get("warn_hint")
                             .and_then(Value::as_str)
                             .map(|s| s.to_string())
-                            .unwrap_or_else(|| format!("`{}` 缺失,跳过", argv[0]));
+                            .unwrap_or_else(|| format!("`{}` missing, skipping", argv[0]));
                         warn(&tmpl(&wh, ctx));
                     }
                     Ok(status) => {
@@ -516,7 +516,7 @@ pub fn run_steps(
                 let m = setup::resolve_mgr(&ctx_str(ctx, "manager"), &cfg);
                 if m.is_empty() {
                     return Err(format!(
-                        "缺 manager(参数/env 均未给)—— install register_all({platform}) 的注册/白名单不接受空值(owner 契约 2026-09-30)。\n  给值: -m/--manager <addr>,或 env {}",
+                        "manager missing (not given via arg or env) — install register_all({platform}) register/allowlist does not accept empty values (owner contract 2026-09-30).\n  provide a value: -m/--manager <addr>, or env {}",
                         setup::MANAGER_ENV_NAMES.join(" / ")
                     ));
                 }
@@ -527,7 +527,7 @@ pub fn run_steps(
                             .get("ok_text")
                             .and_then(Value::as_str)
                             .map(|s| s.to_string())
-                            .unwrap_or_else(|| format!("{platform} 全量注册完成"));
+                            .unwrap_or_else(|| format!("{platform} full registration complete"));
                         ok(&tmpl(&t, ctx));
                     }
                     Err(e) => {
@@ -537,10 +537,10 @@ pub fn run_steps(
                             .map(|s| s.to_string())
                             .unwrap_or_else(|| {
                                 format!(
-                                    "{platform} 全量注册失败(见上)——可稍后 reset --all-agents 重试"
+                                    "{platform} full registration failed (see above)——can retry later with reset --all-agents"
                                 )
                             });
-                        warn(&format!("{}; 异常: {e}", tmpl(&wh, ctx)));
+                        warn(&format!("{}; exception: {e}", tmpl(&wh, ctx)));
                     }
                 }
             }
@@ -550,13 +550,13 @@ pub fn run_steps(
                 let m = setup::resolve_mgr(&ctx_str(ctx, "manager"), &cfg);
                 if m.is_empty() {
                     return Err(format!(
-                        "缺 manager(参数/env 均未给)—— install register_default({platform}) 的注册/白名单不接受空值(owner 契约 2026-09-30)。\n  给值: -m/--manager <addr>,或 env {}",
+                        "manager missing (not given via arg or env) — install register_default({platform}) register/allowlist does not accept empty values (owner contract 2026-09-30).\n  provide a value: -m/--manager <addr>, or env {}",
                         setup::MANAGER_ENV_NAMES.join(" / ")
                     ));
                 }
                 ctx.insert("manager".into(), Value::String(m.clone()));
                 let home = ctx_str(ctx, "home");
-                // `-a/--agent`：名字 = 宿主内部 agent 名，一对一；对不上就忽略。
+                // `-a/--agent`: name = host internal agent name, one-to-one; ignore if mismatched.
                 let requested: Vec<String> = ctx
                     .get("agents")
                     .and_then(Value::as_array)
@@ -573,12 +573,12 @@ pub fn run_steps(
                 let pick = pick_agents(&requested, &keys);
                 for name in &pick.ignored {
                     warn(&format!(
-                        "{platform}: agent '{name}' 不在该平台的 agent 列表里, 已忽略"
+                        "{platform}: agent '{name}' is not in the agent list for this platform, ignored"
                     ));
                 }
                 if pick.no_enumeration && !requested.is_empty() {
                     warn(&format!(
-                        "{platform}: 该宿主无法枚举 agent, -a 不适用 —— 按主 agent 注册"
+                        "{platform}: this host cannot enumerate agents, -a not applicable —— register as main agent"
                     ));
                 }
                 let mut done = 0usize;
@@ -596,20 +596,20 @@ pub fn run_steps(
                     ));
                 } else if pick.agents.is_empty() {
                     warn(&format!(
-                        "{platform}: 指定的 agent 都不在该平台, 未注册任何地址(已全部忽略)"
+                        "{platform}: none of the specified agents are on this platform, no addresses registered (all ignored)"
                     ));
                 } else {
                     let wh = st
                         .get("warn_hint")
                         .and_then(Value::as_str)
                         .map(|s| s.to_string())
-                        .unwrap_or_else(|| format!("{platform} agent 注册失败(见上)——稍后重试"));
-                    warn(&format!("{}; 异常: {last_err}", tmpl(&wh, ctx)));
+                        .unwrap_or_else(|| format!("{platform} agent registration failed (see above)——retry later"));
+                    warn(&format!("{}; exception: {last_err}", tmpl(&wh, ctx)));
                 }
             }
             other => {
                 return Err(format!(
-                "install_steps 未知 kind '{other}'({platform}) —— 宿主表与执行器不一致(拒绝半装)"
+                "install_steps: unknown kind '{other}' ({platform}) — host table and executor disagree (refusing half-install)"
             ))
             }
         }
@@ -617,7 +617,7 @@ pub fn run_steps(
     Ok(())
 }
 
-/// 注册表驱动入口：读注册表（类型化常量）的 `install_steps`（空表 ⇒ 直接返回）。
+/// Registry-driven entry: reads the registry (typed constants) `install_steps` (empty table ⇒ return directly).
 pub fn run_install_steps(
     platform: &str,
     ctx: &mut Map<String, Value>,
@@ -633,11 +633,11 @@ pub fn run_install_steps(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// 卸载清理执行器（`cli/aimail:688-727`）：kind = print|warn|sdk_uninstall|rm_pointer|rm_dir
-// （注册表里 hermes 的 `spawn` 步在 Python 侧同样落到"未知 kind"告警 —— 照抄，不顺手补）
+// Uninstall cleanup executor (`cli/aimail:688-727`): kind = print|warn|sdk_uninstall|rm_pointer|rm_dir
+// (The `spawn` step for hermes in the registry also falls into the "unknown kind" warning on the Python side — copy as-is, do not fix on the fly)
 // ════════════════════════════════════════════════════════════════════════════
 
-/// `_cleanup_home`：调用方给的 home（存在）或 cfg.system_home。
+/// `_cleanup_home`: the home provided by the caller (if it exists) or cfg.system_home.
 fn cleanup_home(ctx: &Map<String, Value>) -> String {
     let h = ctx_str(ctx, "home");
     if !h.is_empty() && Path::new(&h).is_dir() {
@@ -647,11 +647,11 @@ fn cleanup_home(ctx: &Map<String, Value>) -> String {
     setup::pget(&cfg, "system_home")
 }
 
-/// `_sdk_uninstall`：调 SDK 自足卸载入口（按名调**已发布**函数）。
+/// `_sdk_uninstall`: calls the SDK self-contained uninstall entry (calls **published** functions by name).
 fn sdk_uninstall(kind: &str, fn_name: &str, home: &str, sid: &str, core_dir: &Path) -> i32 {
     if fn_name.is_empty() {
         warn(&format!(
-            "sdk_uninstall: 注册表未给平台 '{kind}' 配置 fn(SDK 入口缺失)"
+            "sdk_uninstall: registry did not configure fn for platform '{kind}' (SDK entry missing)"
         ));
         return 1;
     }
@@ -675,7 +675,7 @@ fn sdk_uninstall(kind: &str, fn_name: &str, home: &str, sid: &str, core_dir: &Pa
     }
 }
 
-/// 执行卸载清理动作表。
+/// Executes the uninstall cleanup action table.
 pub fn run_uninstall_steps(
     platform: &str,
     ctx: &mut Map<String, Value>,
@@ -717,7 +717,7 @@ pub fn run_uninstall_steps(
                     core_dir,
                 );
                 if rc != 0 {
-                    warn(&format!("{target} SDK uninstall exit {rc}(见上)"));
+                    warn(&format!("{target} SDK uninstall exit {rc} (see above)"));
                 }
             }
             "rm_pointer" => {
@@ -766,7 +766,7 @@ pub fn run_uninstall_steps(
             }
             other => {
                 return Err(format!(
-                "uninstall_steps 未知 kind '{other}'({platform}) —— 宿主表与执行器不一致(拒绝半清)"
+                "uninstall_steps: unknown kind '{other}' ({platform}) — host table and executor disagree (refusing half-cleanup)"
             ))
             }
         }
@@ -778,16 +778,16 @@ pub fn run_uninstall_steps(
 mod tests {
     use super::*;
 
-    /// `-a/--agent` 选取规则：名字=宿主内部 agent 名，一对一；对不上的忽略。
+    /// `-a/--agent` selection rule: name = host internal agent name, one-to-one; mismatches are ignored.
     #[test]
     fn pick_agents_selects_by_host_keys_and_ignores_unknown() {
         let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
-        // 未指定 ⇒ 主 agent（行为不变）
+        // Not specified ⇒ main agent (behavior unchanged)
         let p = pick_agents(&[], &s(&["web", "writer"]));
         assert_eq!(p.agents, s(&["agent"]));
         assert!(!p.no_enumeration);
 
-        // 命中 + 未命中 + 重复
+        // Hits + misses + duplicates
         let p = pick_agents(
             &s(&["web", "nope", "web", "writer"]),
             &s(&["web", "writer", "main"]),
@@ -795,20 +795,20 @@ mod tests {
         assert_eq!(p.agents, s(&["web", "writer"]));
         assert_eq!(p.ignored, s(&["nope"]));
 
-        // 全部未命中 ⇒ 一个都不注册
+        // All misses ⇒ none registered
         let p = pick_agents(&s(&["ghost"]), &s(&["web"]));
         assert!(p.agents.is_empty());
         assert_eq!(p.ignored, s(&["ghost"]));
 
-        // 宿主无法枚举(单 agent 宿主) ⇒ 退回主 agent 并标记
+        // Host cannot enumerate (single-agent host) ⇒ fall back to main agent and mark it
         let p = pick_agents(&s(&["main"]), &[]);
         assert_eq!(p.agents, s(&["agent"]));
         assert!(p.no_enumeration);
     }
 
-    /// 回归钉子（owner 2026-10-12）：**node 宿主的步骤不得引用 `{sdk}` / `{python}`** ——
-    /// 那会让「SDK 根」对 node 宿主成为必需，于是在没装 agent-aimail 的机器上打出误导错误
-    /// （实测：L2 里 dsh/pi 都出现 `✗ 未找到已安装的 agent-aimail`）。只有 python 宿主需要它们。
+    /// Regression pin (owner 2026-10-12): **Steps on node hosts must not reference `{sdk}` / `{python}`** ——
+    /// That would make the "SDK root" required for node hosts, resulting in misleading errors on machines without agent-aimail installed
+    /// (Observed: in L2, both dsh/pi showed `✗ installed agent-aimail not found`). Only python hosts need them.
     #[test]
     fn node_hosts_never_reference_sdk_root_placeholders() {
         for id in crate::hosts::order() {
@@ -827,7 +827,7 @@ mod tests {
                 let body = serde_json::to_string(st).unwrap_or_default();
                 assert!(
                     !body.contains("{sdk}") && !body.contains("{python}"),
-                    "{id} 是 node 宿主，步骤不得引用 {{sdk}}/{{python}}: {body}"
+                    "{id} is a node host, steps must not reference {{sdk}}/{{python}}: {body}"
                 );
             }
         }

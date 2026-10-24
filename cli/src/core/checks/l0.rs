@@ -1,12 +1,12 @@
-//! L0 配置层探针 —— `cli/check_status.py:983-1185` 的复刻。
+//! L0 config-layer probe — the re-implementation of `cli/check_status.py:983-1185`.
 //!
-//! 三块：
-//! 1. [`l0_configs`] 系统级环境文件完备性 + `system_home` + 指针归属（`:989-1023`）；
-//! 2. [`agentmail_json`] 逐 agent 绑定文件九字段完备性 + 内部一致性（`:1055-1090`）；
-//! 3. [`bridge_completeness`] 桥 TOML 结构 + pull 条目 + routes 覆盖（`:1093-1184`）。
+//! Three parts:
+//! 1. [`l0_configs`] system-level environment file completeness + `system_home` + pointer ownership (`:989-1023`);
+//! 2. [`agentmail_json`] per-agent binding file nine-field completeness + internal consistency (`:1055-1090`);
+//! 3. [`bridge_completeness`] bridge TOML structure + pull entries + routes coverage (`:1093-1184`).
 //!
-//! 读**原始 JSON**（不是 [`crate::core::config::GatewayConfig`]）：Python 侧这几处按
-//! dict 语义判读（`if sid and gw:` 判的是"dict 非空"），用原始 Value 才对得上。
+//! Read **raw JSON** (not [`crate::core::config::GatewayConfig`]): the Python side interprets these places by
+//! dict semantics (`if sid and gw:` checks "dict is not empty"), using raw Value matches correctly.
 
 use crate::core::check::Check;
 use crate::core::contract;
@@ -16,7 +16,7 @@ use crate::hosts::Host;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
-/// 探针需要的两侧根目录（显式传入 ⇒ 测试可指向夹具，不依赖进程环境）。
+/// Root directories on both sides required by the probe (explicitly passed in => tests can point to fixtures, not relying on process environment).
 #[derive(Debug, Clone)]
 pub struct Ctx {
     pub aimail_home: PathBuf,
@@ -24,7 +24,7 @@ pub struct Ctx {
 }
 
 impl Ctx {
-    /// 取进程环境里的真实根（命令面用）。
+    /// Get the real root from the process environment (used by the command interface).
     pub fn from_env() -> Self {
         Self {
             aimail_home: home::aimail_home(),
@@ -33,7 +33,7 @@ impl Ctx {
     }
 }
 
-/// 绑定文件必备九字段（`check_status.py:983-986` 的逐字清单）。
+/// Nine required fields for binding files (verbatim list from `check_status.py:983-986`).
 pub const BINDING_REQUIRED: &[&str] = &[
     "email",
     "gateway_url",
@@ -46,7 +46,7 @@ pub const BINDING_REQUIRED: &[&str] = &[
     "webhook_secret",
 ];
 
-/// `_read_gw_cfg`：读系统级环境文件，缺失/不可读/非 JSON ⇒ None。
+/// `_read_gw_cfg`: read system-level environment file, missing/unreadable/non-JSON => None.
 pub fn read_gw_cfg(ctx: &Ctx, sid: &str) -> Option<Value> {
     let path = config::gateway_config_path_in(&ctx.aimail_home, sid);
     let text = std::fs::read_to_string(path).ok()?;
@@ -67,7 +67,7 @@ fn is_falsy(v: Option<&Value>) -> bool {
     }
 }
 
-/// 平台根目录（注册表 `home_dir`，缺省 `.{name}`）—— 与 `_pointer_platforms_for_sid` 同算法。
+/// Platform root directory (registry `home_dir`, default `.{name}`) — same algorithm as `_pointer_platforms_for_sid`.
 fn platform_root(user_home: &Path, name: &str) -> PathBuf {
     match crate::hosts::get(name).map(|h| h.home_dir()) {
         Some(dir) => user_home.join(dir),
@@ -75,7 +75,7 @@ fn platform_root(user_home: &Path, name: &str) -> PathBuf {
     }
 }
 
-/// 哪些平台的指针文件引用了该 sid（`check_status.py:1026-1052`；**不去重**，与 Python 一致）。
+/// Which platforms' pointer files reference this sid (`check_status.py:1026-1052`; **no deduplication**, consistent with Python).
 pub fn pointer_platforms_for_sid(ctx: &Ctx, sid: &str) -> Vec<String> {
     let mut candidates: Vec<(String, PathBuf)> = Vec::new();
     for name in crate::hosts::order() {
@@ -121,7 +121,7 @@ pub fn pointer_platforms_for_sid(ctx: &Ctx, sid: &str) -> Vec<String> {
         .collect()
 }
 
-/// L0：系统级环境文件完备性 + `system_home` + 指针归属。
+/// L0: system-level environment file completeness + `system_home` + pointer ownership.
 pub fn l0_configs(c: &mut Check, sid: &str, ctx: &Ctx) {
     let Some(gw) = read_gw_cfg(ctx, sid) else {
         c.add(
@@ -137,7 +137,7 @@ pub fn l0_configs(c: &mut Check, sid: &str, ctx: &Ctx) {
         return;
     };
 
-    // 1. 连接字段完备
+    // 1. Connection field completeness
     let missing: Vec<&str> = ["gateway_url", "admin_key"]
         .iter()
         .filter(|k| is_falsy(gw.get(**k)))
@@ -155,7 +155,7 @@ pub fn l0_configs(c: &mut Check, sid: &str, ctx: &Ctx) {
         &format!("Run: aimail install --system-id {sid}"),
     );
 
-    // 2. system_home 存在且目录有效
+    // 2. system_home exists and directory is valid
     let sh = field_str(&gw, "system_home");
     if sh.is_empty() {
         c.add(
@@ -177,7 +177,7 @@ pub fn l0_configs(c: &mut Check, sid: &str, ctx: &Ctx) {
         c.add("config", "system_home", true, sh, "");
     }
 
-    // 3. pointer 归属（任一平台指针引用该 sid 即可）
+    // 3. pointer ownership (any platform pointer referencing this sid is sufficient)
     let hits = pointer_platforms_for_sid(ctx, sid);
     c.add(
         "config",
@@ -195,7 +195,7 @@ pub fn l0_configs(c: &mut Check, sid: &str, ctx: &Ctx) {
     );
 }
 
-/// L0 扩展：逐 agent 绑定文件完备性 + 内部一致性。
+/// L0 extension: per-agent binding file completeness + internal consistency.
 pub fn agentmail_json(c: &mut Check, sid: &str, ctx: &Ctx) {
     let sysdir = ctx.aimail_home.join("systems").join(sid);
     if !sysdir.is_dir() {
@@ -250,7 +250,7 @@ pub fn agentmail_json(c: &mut Check, sid: &str, ctx: &Ctx) {
             "Re-run `openclaw aimail register`(api_key/webhook_secret cannot be rebuilt locally)",
         );
 
-        // 内部一致性：system_id / gateway_url / domain vs email
+        // Internal consistency: system_id / gateway_url / domain vs email
         let mut issues: Vec<String> = Vec::new();
         let d_sid = field_str(&d, "system_id");
         if !d_sid.is_empty() && d_sid != sid {
@@ -291,20 +291,20 @@ pub fn agentmail_json(c: &mut Check, sid: &str, ctx: &Ctx) {
     }
 }
 
-/// L0 扩展：**入站 webhook 计划漂移**（`webhook_host` 三态 vs 判定函数单真源，离线）。
+/// L0 extension: **Inbound webhook plan drift** (`webhook_host` tri-state vs decision function single source of truth, offline).
 ///
-/// `webhook_host` 归**判定函数**所有（install 写、check 验、repair 不写）。这里不重跑
-/// 探测、不重判态——只调 [`webhookplan::plan_drift`] 判"持久化三态是不是判定函数**离线**
-/// 能证伪的矛盾"（S2 空串遇本机 GW / 无桥可部署；S1 值不可解析）。网络事实（B 桥活 /
-/// R 直连可达）不查：check 在 repair 写路径里被复用 ~20 次，且网络态会随进程启停抖动，
-/// 查了就是假红。`plan_drift` 返回 `None`（不矛盾）⇒ **不出记录**（静默通过，不刷噪音）。
+/// `webhook_host` is owned by the **decision function** (install writes, check verifies, repair does not write). We do not re-run
+/// Detect, do not re-judge state — only call [`webhookplan::plan_drift`] to judge "whether the persisted three-state is the decision function **offline**
+/// falsify" (S2 empty string meets local GW / no bridge deployable; S1 value unparseable). Network facts (B bridge alive /
+/// R direct connection reachable) not checked: check is reused ~20 times in the repair write path, and network state fluctuates with process start/stop,
+/// checking it would be a false red. `plan_drift` returns `None` (no contradiction) ⇒ **no record emitted** (silent pass, no noise).
 pub fn webhook_plan_drift(c: &mut Check, sid: &str, ctx: &Ctx) {
     let Some(gw) = read_gw_cfg(ctx, sid) else {
-        return; // 配置缺失由 `gateway_json` 报（L0 第一步）
+        return; // Missing configuration is reported by `gateway_json` (L0 first step)
     };
     let stored: Option<String> = match gw.get("webhook_host") {
         Some(Value::String(s)) => Some(s.clone()),
-        Some(_) => return, // 非字符串（形状坏）⇒ 别的检查兜底
+        Some(_) => return, // Non-string (bad shape) ⇒ other checks catch it
         None => None,
     };
     let gw_is_local = crate::core::gateway::is_local_gateway(field_str(&gw, "gateway_url"));
@@ -312,7 +312,7 @@ pub fn webhook_plan_drift(c: &mut Check, sid: &str, ctx: &Ctx) {
     let Some(why) =
         crate::core::webhookplan::plan_drift(stored.as_deref(), gw_is_local, bridge_deployable)
     else {
-        return; // 不矛盾 ⇒ 不刷记录
+        return; // No contradiction ⇒ no record emitted
     };
     c.add(
         "config",
@@ -325,11 +325,11 @@ pub fn webhook_plan_drift(c: &mut Check, sid: &str, ctx: &Ctx) {
     );
 }
 
-/// L0 扩展：桥配置完备性 + pull 条目 + routes 覆盖。
+/// L0 extension: Bridge configuration completeness + pull entries + routes coverage.
 pub fn bridge_completeness(c: &mut Check, sid: &str, ctx: &Ctx) {
     let cfg = ctx.aimail_home.join("bridge").join("aimail_bridge.toml");
     if !cfg.exists() {
-        return; // direct-connect 合法，check_bridge（L2）会报
+        return; // direct-connect is legal, check_bridge (L2) will report
     }
     let td: toml::Value = match std::fs::read_to_string(&cfg)
         .map_err(|e| e.to_string())
@@ -403,7 +403,7 @@ pub fn bridge_completeness(c: &mut Check, sid: &str, ctx: &Ctx) {
         }
     }
 
-    // routes 覆盖：每个本系统 agent 的 email 在投递路径表里有条目
+    // routes coverage: every local system agent's email has an entry in the delivery path table
     let routes_file = ctx.aimail_home.join("bridge").join("aimail_routes.toml");
     if !routes_file.exists() {
         return;
@@ -525,7 +525,7 @@ pub fn bridge_completeness(c: &mut Check, sid: &str, ctx: &Ctx) {
     }
 }
 
-// ── 小工具 ─────────────────────────────────────────────────────
+// ── Small utilities ─────────────────────────────────────────────────────
 
 fn sorted_subdirs(dir: &Path) -> Vec<PathBuf> {
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -554,7 +554,7 @@ fn json_object_nonempty(v: &Value) -> bool {
     v.as_object().map(|o| !o.is_empty()).unwrap_or(false)
 }
 
-/// TOML → JSON 视图（只为复用同一套取值代码，语义与 tomllib.load 的 dict 一致）。
+/// TOML → JSON view (only to reuse the same value retrieval code, semantics consistent with tomllib.load dict).
 pub fn toml_to_json(v: &toml::Value) -> Value {
     match v {
         toml::Value::String(s) => Value::String(s.clone()),
@@ -573,7 +573,7 @@ pub fn toml_to_json(v: &toml::Value) -> Value {
     }
 }
 
-/// 主机名提取（`urllib.parse.urlparse(...).hostname` 的等价：小写、去 userinfo/端口）。
+/// Hostname extraction (equivalent to `urllib.parse.urlparse(...).hostname`: lowercase, strip userinfo/port).
 fn url_host(url: &str) -> String {
     let after = url.split("://").nth(1).unwrap_or("");
     let authority = after.split(['/', '?', '#']).next().unwrap_or("");
@@ -589,7 +589,7 @@ mod tests {
     use super::*;
     use crate::core::testutil::TempDir;
 
-    /// 造一个"系统配置 + 一个 agent"的最小夹具，返回 (tmp, ctx, sid)。
+    /// Create a minimal fixture of "system config + one agent", returns (tmp, ctx, sid).
     fn fixture(tag: &str) -> (TempDir, Ctx, String) {
         let tmp = TempDir::new(tag);
         let aimail_home = tmp.path().join("aimail");
@@ -646,7 +646,7 @@ mod tests {
     #[test]
     fn complete_system_home_and_pointer_records() {
         let (_t, ctx, sid) = fixture("l0-ok");
-        // system_home 指向真实目录 ⇒ 通过；无指针 ⇒ pointer 失败
+        // system_home points to a real directory ⇒ pass; no pointer ⇒ pointer fails
         let sh = ctx.user_home.join(".hermes");
         std::fs::create_dir_all(&sh).unwrap();
         let path = ctx
@@ -720,7 +720,7 @@ mod tests {
         assert_eq!(
             details(&c, "agent", "config-complete").len(),
             1,
-            "坏文件不阻断后续"
+            "Bad file does not block subsequent"
         );
     }
 
@@ -796,7 +796,7 @@ mod tests {
             "mode = \"pull\"\n\n[[pull.systems]]\nsystem_id = \"s1\"\nadmin_key = \"k\"\n",
         )
         .unwrap();
-        // 127.0.0.1:1 必然连不上，且是本地地址 ⇒ 走 FAIL 分支（不是 remote WARN）
+        // 127.0.0.1:1 will definitely not connect, and is a local address ⇒ goes to FAIL branch (not remote WARN)
         std::fs::write(
             bridge.join("aimail_routes.toml"),
             "a@example.test = \"http://127.0.0.1:1/x\"\n",
@@ -832,9 +832,9 @@ mod tests {
         assert_eq!(url_host("not-a-url"), "");
     }
 
-    // ── webhook_plan_drift（计划漂移，离线单真源）────────────────────────────
+    // ── webhook_plan_drift (plan drift, offline single source of truth)────────────────────────────
 
-    /// 造一个带 `webhook_host` 三态的网关配置（gateway_url 按参给）。
+    /// Create a gateway config with `webhook_host` tri-state (gateway_url given by param).
     fn gw_cfg_with_webhook(tag: &str, gateway_url: &str, webhook: Option<&str>) -> (TempDir, Ctx) {
         let tmp = TempDir::new(tag);
         let aimail_home = tmp.path().join("aimail");
@@ -868,9 +868,9 @@ mod tests {
         )
     }
 
-    /// 门控 `bridge_deployable`（BR）的两个空根：`AIMAIL_HOME`（无桥二进制）+
-    /// `AIMAIL_PROG_DIR`（无桥 zip）⇒ BR=false。进程 env 只在本测试内改
-    /// （门禁 `--test-threads=1`，与 repair.rs 既有 set_var 测试同风格）。
+    /// Gate `bridge_deployable` (BR) two empty roots: `AIMAIL_HOME` (no bridge binary) +
+    /// `AIMAIL_PROG_DIR` (no bridge zip) ⇒ BR=false. Process env is only modified within this test
+    /// (gate `--test-threads=1`, same style as existing set_var tests in repair.rs).
     fn empty_roots(tag: &str) -> (TempDir, TempDir) {
         let ah = TempDir::new(&format!("{tag}-ah"));
         let pd = TempDir::new(&format!("{tag}-pd"));
@@ -879,7 +879,7 @@ mod tests {
 
     #[test]
     fn drift_check_emits_record_when_s2_empty_and_gateway_local() {
-        // 127.0.0.1 = 本机 GW（L 真，离线可判）+ S2 空串 ⇒ 判定函数只会判 S3 ⇒ 漂移。
+        // 127.0.0.1 = local GW (L true, offline decidable) + S2 empty string ⇒ decision function will only judge S3 ⇒ drift.
         let _g = crate::core::testutil::ENV_LOCK.lock().unwrap();
         let (ah, pd) = empty_roots("drift-local");
         std::env::set_var("AIMAIL_HOME", ah.path());
@@ -901,7 +901,7 @@ mod tests {
 
     #[test]
     fn drift_check_silent_when_no_contradiction() {
-        // S3 键缺席 ⇒ 离线不可证伪 ⇒ 静默（无记录）。
+        // S3 key absent ⇒ offline unfalsifiable ⇒ silent (no record).
         let _g = crate::core::testutil::ENV_LOCK.lock().unwrap();
         let (ah, pd) = empty_roots("drift-absent");
         std::env::set_var("AIMAIL_HOME", ah.path());
@@ -913,7 +913,7 @@ mod tests {
         std::env::remove_var("AIMAIL_PROG_DIR");
         assert!(
             c.checks.iter().all(|r| r.check != "webhook-plan-drift"),
-            "S3 缺席不应出漂移记录: {:?}",
+            "S3 absence should not emit drift record: {:?}",
             c.checks
         );
     }

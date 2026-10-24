@@ -1,14 +1,14 @@
 //! `aimail agent` —— address-level bootstrap (control plane only).
 //!
-//! `doctor --questions`：打印"一次提问、一张答案表"的 1-shot 提问块（由 prompt 原样交给 agent）。
-//! `doctor --answers '<json>'`：逐条**验证**自述（路径存在/可写、命令可执行、示例插件可读、
-//!   入站注入调用可见），产出 host profile + SDK 选型 + verdict；不写任何文件。
-//! `setup --answers '<json>' [--apply]`：按 profile 渲染适配包与 skill，记 state（文件+sha256），
-//!   可选调用宿主的 reload 钩子；默认 dry-run。
-//! `uninstall --host <name>`：按 state 反序还原（只删本次写入且 sha256 未变的文件）。
+//! `doctor --questions`: prints the 1-shot question block of "one question, one answer table" (passed as-is to the agent by prompt).
+//! `doctor --answers '<json>'`: **verify** self-report item by item (path exists/writable, command executable, sample plugin readable,
+//!   inbound injection call visible), produce host profile + SDK selection + verdict; do not write any files.
+//! `setup --answers '<json>' [--apply]`: renders the adapter package and skill per profile, records state (file + sha256),
+//!   optionally call host's reload hook; default dry-run.
+//! `uninstall --host <name>`: reverse restore per state (only delete files written this time and sha256 unchanged).
 //!
-//! 约束：不信自述（每项都要机器证据）；不改宿主既有文件（只新建 `aimail-<host>/` 子目录）；
-//! 没有"入站注入"就没有进程内 pull ⇒ 直接判 unsupported，不假装能收信。
+//! Constraints: do not trust self-report (each item needs machine evidence); do not modify host existing files (only create new `aimail-<host>/` subdirectory);
+//! no "inbound injection" means no in-process pull ⇒ directly judge unsupported, do not pretend to receive mail.
 
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -18,32 +18,32 @@ const TPL_NODE: &str = include_str!("../../templates/adapter-node.mjs.tpl");
 const TPL_PY: &str = include_str!("../../templates/adapter-python.py.tpl");
 const SKILL_MD: &str = include_str!("../../../resources/skills/SKILL.md");
 
-/// 1-shot 提问块：表格 + 反例 + 答题前自检 + JSON 骨架。
-const QUESTIONS: &str = r#"请按下面这张表回答，一次答完，只输出表格和 JSON，不要解释。
+/// 1-shot question block: table + counter-examples + pre-answer self-check + JSON skeleton.
+const QUESTIONS: &str = r#"Please answer according to the table below, answer all at once, only output table and JSON, do not explain.
 
-【示例】
-| # | 问题 | 我的答案 | 我怎么验证的 |
+[Example]
+| # | Question | My Answer | How I Verified |
 |---|---|---|---|
-| Q1 | 宿主程序名/版本/runtime | acme-agent@2.3.1 · node | `command -v acme-agent` → /usr/local/bin/acme-agent；`acme-agent version` → 2.3.1 |
-| Q2 | 插件目录绝对路径 | /home/me/.acme/plugins | `test -d` 通过、`test -w` 通过、目录内有 existing-hello.js |
-| Q3 | 生效方式（一条命令 / none） | `acme-agent reload` | `command -v acme-agent` 存在；`acme-agent reload --help` 正常返回 |
-| Q4 | skills 目录（可写） | /home/me/.acme/skills | `test -d` + `test -w` 通过 |
-| Q5 | 是否常驻（yes/no） | yes | `ps -o etimes= -p $PPID` → 86400 |
-| Q6 | 注册工具的最小写法（文件路径/片段） | /home/me/.acme/plugins/existing-hello.js | 已读该文件：`api.registerTool({name, description, parameters, handler})` |
-| Q7 | 新邮件怎么交给会话（一条调用 / none） | `api.sendMessage(sessionId, mail.subject + "\n\n" + mail.body)` | 该函数名出现在 existing-hello.js 里 |
+| Q1 | Host program name/version/runtime | acme-agent@2.3.1 · node | `command -v acme-agent` → /usr/local/bin/acme-agent; `acme-agent version` → 2.3.1 |
+| Q2 | Plugin directory absolute path | /home/me/.acme/plugins | `test -d` passed, `test -w` passed, directory contains existing-hello.js |
+|| Q3 | Activation method (one command / none) | `acme-agent reload` | `command -v acme-agent` exists; `acme-agent reload --help` returns normally |
+|| Q4 | skills directory (writable) | /home/me/.acme/skills | `test -d` + `test -w` pass |
+|| Q5 | Resident or not (yes/no) | yes | `ps -o etimes= -p $PPID` → 86400 |
+|| Q6 | Minimal registration tool syntax (file path/snippet) | /home/me/.acme/plugins/existing-hello.js | Read that file: `api.registerTool({name, description, parameters, handler})` |
+|| Q7 | How to pass new mail to the session (one call / none) | `api.sendMessage(sessionId, mail.subject + "\n\n" + mail.body)` | This function name appears in existing-hello.js |
 
-【反例（这样答会被拒）】
-- 相对路径 `./plugins` → 必须绝对路径
-- Q1 只写 `node` → 必须有宿主程序名与版本
-- Q3 写"重启一下就行" → 必须给一条可执行命令，或 `none`
-- Q6 写"标准写法" → 必须给文件路径或 3 行真实代码
-- Q7 写"agent 自己会看到" → 必须给具体调用，或 `none`（没有注入能力）
+【Counter-examples (answers like this will be rejected)】
+- Relative path `./plugins` → Must be an absolute path
+- Q1 only writes `node` → Must include host program name and version
+- Q3 writes "just restart it" → Must provide one executable command, or `none`
+- Q6 writes "standard syntax" → Must provide file path or 3 lines of real code
+- Q7 writes "agent will see it itself" → Must provide specific call, or `none` (no injection capability)
 
-【答题前自检（先跑再答）】
+【Self-check before answering (run first, then answer)】
 `test -d <dir>` / `test -w <dir>` / `command -v <cmd>` / `sed -n '1,40p' <plugin-file>` / `ps -o etimes= -p $PPID`
 
-【输出】
-表格之外再给一段 JSON：
+【Output】
+Provide a JSON block in addition to the table:
 {"host":{"name":"","version":"","runtime":"node|python|other"},"plugin":{"dir":""},"reload":{"mode":"command|http|signal|none","cmd":""},"skills":{"dir":""},"process":{"long_running":true},"sample_file":"","inbound":{"mode":"call|none","call":""}}
 "#;
 
@@ -699,7 +699,7 @@ fn chrono_now() -> String {
     }
 }
 
-/// 只允许安全字符进 shell，防止自述里的奇怪字符变成命令。
+/// Only allow safe characters into shell, preventing strange characters in self-description from becoming commands.
 fn shell_escape(s: &str) -> String {
     let ok = s.chars().all(|c| {
         c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/' | ':' | '@' | '+' | '~')
@@ -718,11 +718,11 @@ pub struct PackageArgs {
     pub apply: bool,
 }
 
-/// 包安装步的判定：`kind == "spawn"` + **argv 里真的出现适配包** + 不在容器里跑。
+/// Determination for package installation step: `kind == "spawn"` + **adaptation package actually appears in argv** + not running in a container.
 ///
-/// 「不在容器里跑」按**结构**判（`when.runtime == "docker"`），不按序列化文本判：非 docker 步的
-/// `when.runtime_not = "docker"` 序列化后同样含 "docker" 字样，按文本排除会把宿主**本机**的包安装
-/// 步一起滤掉 —— hermes 因此在干净机器上命中"平台表里没有包安装步"，dry-run 直接 exit 5。
+/// "Not running in a container" is judged by **structure** (`when.runtime == "docker"`), not by serialized text: non-docker steps'
+/// `when.runtime_not = "docker"` also contains the string "docker" after serialization, excluding by text would filter out the host **local** package installation
+/// steps together —— hermes therefore hits "no package installation step in platform table" on a clean machine, dry-run directly exits 5.
 fn is_local_package_step(st: &Value, pkg: &str) -> bool {
     if st.get("kind").and_then(Value::as_str) != Some("spawn") {
         return false;
@@ -858,8 +858,8 @@ pub fn package_setup(args: &PackageArgs) -> i32 {
                 st.get("argv")
                     .and_then(|a| a.as_array())
                     .map(|a| {
-                        // dry-run 打**可执行**的命令：占位符按同一条 ctx 展开
-                        // （`{python}` 等），不能把模板原样当命令回给用户。
+                        // dry-run prints **executable** commands: placeholders are expanded using the same ctx
+                        // (`{python}`, etc.), cannot return the template as-is to the user as a command.
                         a.iter()
                             .filter_map(|v| v.as_str())
                             .map(|v| crate::core::steps::tmpl(v, &ctx))
@@ -883,8 +883,8 @@ pub fn package_setup(args: &PackageArgs) -> i32 {
         return 0;
     }
 
-    // `--apply` 的出口要能解释"一步都没跑到"：步的 `when` 守卫在本机不成立时（例：
-    // `{home}/hermes-agent` 不存在 ⇒ 没有宿主可装）不许假报 `applied: true`。
+    // The exit of `--apply` must be able to explain "not a single step was run": when the step's `when` guard does not hold on this machine (e.g.,
+    // `{home}/hermes-agent` does not exist ⇒ no host to install on), it is not allowed to falsely report `applied: true`.
     let empty_when = json!({});
     let live: Vec<&Value> = steps
         .iter()
@@ -940,10 +940,10 @@ pub fn package_setup(args: &PackageArgs) -> i32 {
 
 /// Restart hints come from the platform table's `print` steps (single source).
 ///
-/// 只回**本机成立**的提示：`print` 步的 `when` 与安装步同一套守卫，容器专属的提示
-/// （`when.runtime = "docker"`）在本机模式下不出现 —— 否则本机 dry-run 会给出
-/// 「docker restart {container}」这种与场景不符、且占位符没展开的行。模板按调用方的
-/// ctx 展开（`{container}`/`{home}` 等）。
+/// Only returns hints that are **valid locally**: the `when` of the `print` step uses the same guards as the install step, container-specific hints
+/// (`when.runtime = "docker"`) do not appear in local mode —— otherwise local dry-run would give
+/// lines like "docker restart {container}" that do not match the scenario and have unexpanded placeholders. Templates are expanded by the caller's
+/// ctx (`{container}`/`{home}`, etc.).
 fn all_restart_hints(host: &str, ctx: &serde_json::Map<String, Value>) -> Vec<String> {
     let spec = crate::core::detect::spec_json(None, Some(host));
     let empty_when = json!({});
@@ -960,7 +960,7 @@ fn all_restart_hints(host: &str, ctx: &serde_json::Map<String, Value>) -> Vec<St
             }
             if let Some(t) = st.get("text").and_then(|t| t.as_str()) {
                 let low = t.to_lowercase();
-                if low.contains("restart") || low.contains("reload") || t.contains("重启") {
+                if low.contains("restart") || low.contains("reload") || t.contains("restart") {
                     out.push(crate::core::steps::tmpl(t, ctx).trim().to_string());
                 }
             }

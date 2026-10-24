@@ -1,12 +1,12 @@
-//! L2 探针：aimail-bridge（本地 NAT 穿透桥，**可选组件**）——
-//! `cli/check_status.py:1205-1427` 的复刻。
+//! L2 probe: aimail-bridge (local NAT-piercing bridge, **optional component**) —
+//! Replication of `cli/check_status.py:1205-1427`.
 //!
-//! 与 Python 同序同判读：
-//! 2.1 配置（无配置文件 = 未部署，合法）→ 2.2 进程 → 2.3 活跃度 → 2.4 pull 通路（P0，
-//! 远端也能测）→ 2.5 桥自健康（HTTP 到 addr，P1）→ 2.6 与网关的跨配置一致性。
+//! Same order and interpretation as Python:
+//! 2.1 config (no config file = not deployed, valid) → 2.2 process → 2.3 activity → 2.4 pull path (P0,
+//! remote can also test) → 2.5 bridge self-health (HTTP to addr, P1) → 2.6 cross-config consistency with gateway.
 //!
-//! 注意 2.1 用**自定义极简 TOML 解析**（`_parse_toml`，不支持数组），2.6/2.4 用
-//! **真 TOML**（Python 侧用 tomllib 重读）—— 两者差异是原实现的既有行为，照抄。
+//! Note 2.1 uses **custom minimal TOML parsing** (`_parse_toml`, no array support), 2.6/2.4 use
+//! **Real TOML** (Python side re-reads with tomllib) — the difference between the two is existing behavior of the original implementation, copied as-is.
 
 use crate::core::check::Check;
 use crate::core::checks::l0::{field_str, read_gw_cfg, Ctx};
@@ -32,7 +32,7 @@ fn bridge_pid(ctx: &Ctx) -> PathBuf {
     bridge_dir(ctx).join("bridge.pid")
 }
 
-/// 极简 TOML（`_parse_toml`：裸键 + `[section]`，不支持数组）。
+/// Minimal TOML (`_parse_toml`: bare keys + `[section]`, no array support).
 fn parse_toml_min(text: &str) -> BTreeMap<String, BTreeMap<String, String>> {
     let mut data: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
     data.insert("__top__".to_string(), BTreeMap::new());
@@ -57,7 +57,7 @@ fn parse_toml_min(text: &str) -> BTreeMap<String, BTreeMap<String, String>> {
     data
 }
 
-/// `^\[(\w+)\]$` 的等价（只有单层方括号才算 section）。
+/// Equivalent of `^\[(\w+)\]$` (only single-layer brackets count as section).
 fn section_name(s: &str) -> Option<String> {
     let inner = s.strip_prefix('[')?.strip_suffix(']')?;
     if inner.is_empty() || !inner.chars().all(|c| c.is_alphanumeric() || c == '_') {
@@ -77,7 +77,7 @@ fn toml_get<'a>(
         .unwrap_or("")
 }
 
-/// `_split_host_port`（支持 `[ipv6]:port`）。
+/// `_split_host_port` (supports `[ipv6]:port`).
 pub fn split_host_port(addr: &str) -> (String, String) {
     let addr = addr.trim();
     if let Some(rest) = addr.strip_prefix('[') {
@@ -91,7 +91,7 @@ pub fn split_host_port(addr: &str) -> (String, String) {
 }
 
 pub fn bridge(c: &mut Check, sid: &str, ctx: &Ctx) {
-    // 2.1 配置：桥是否存在以配置文件为准
+    // 2.1 Config: bridge existence is based on config file
     if !bridge_cfg(ctx).exists() {
         c.add(
             "bridge",
@@ -147,7 +147,7 @@ pub fn bridge(c: &mut Check, sid: &str, ctx: &Ctx) {
     }
     c.add("bridge", "config", true, &parts.join(", "), "");
 
-    // 2.2/2.3 进程与活跃度（仅本地桥有意义）
+    // 2.2/2.3 Process and activity (only meaningful for local bridge)
     let st = bridgectl::status(&bridge_bin(ctx), &bridge_pid(ctx));
     let local_pid = if st.get("running").and_then(Value::as_bool).unwrap_or(false) {
         st.get("pid").map(py_display).unwrap_or_default()
@@ -185,15 +185,15 @@ pub fn bridge(c: &mut Check, sid: &str, ctx: &Ctx) {
         c.add("bridge", "activity", true, "N/A — bridge is remote", "");
     }
 
-    // 2.4 pull 通路（P0）
+    // 2.4 pull path (P0)
     bridge_pull_path(c, sid, ctx, &text);
 
-    // 2.5 桥自健康（P1）
+    // 2.5 bridge self-health (P1)
     if !addr.is_empty() {
         bridge_health(c, &addr);
     }
 
-    // 2.6 跨配置一致性
+    // 2.6 cross-config consistency
     bridge_gateway_consistency(c, sid, ctx, &text);
 }
 
@@ -205,7 +205,7 @@ fn py_display(v: &Value) -> String {
     }
 }
 
-/// 2.3 日志新鲜度（`_check_bridge_activity`：三条都是"不算失败"的信息记录）。
+/// 2.3 Log freshness (`_check_bridge_activity`: all three are informational records that "do not count as failure").
 fn bridge_activity(c: &mut Check, ctx: &Ctx) {
     let path = bridge_log(ctx);
     let Ok(meta) = std::fs::metadata(&path) else {
@@ -260,7 +260,7 @@ fn bridge_activity(c: &mut Check, ctx: &Ctx) {
     }
 }
 
-/// 2.4 `_check_bridge_pull_path`：用真 TOML 重读（数组支持）。
+/// 2.4 `_check_bridge_pull_path`: re-read with real TOML (array support).
 fn bridge_pull_path(c: &mut Check, sid: &str, _ctx: &Ctx, text: &str) -> bool {
     let pull = real_toml(text)
         .and_then(|t| t.get("pull").cloned())
@@ -361,7 +361,7 @@ fn bridge_pull_path(c: &mut Check, sid: &str, _ctx: &Ctx, text: &str) -> bool {
     code == 200
 }
 
-/// 2.5 `_check_bridge_health`：GET `{addr}/health`（addr 无 scheme 时补 http://）。
+/// 2.5 `_check_bridge_health`: GET `{addr}/health` (prepend http:// if addr has no scheme).
 fn bridge_health(c: &mut Check, addr: &str) {
     let url = if addr.contains("://") {
         format!("{addr}/health")
@@ -394,16 +394,16 @@ fn bridge_health(c: &mut Check, addr: &str) {
     }
 }
 
-/// 真 TOML 重读（失败则 None，由调用方回退）。
+/// Re-read with real TOML (None on failure, caller falls back).
 fn real_toml(text: &str) -> Option<Value> {
     let parsed: toml::Value = toml::from_str(text).ok()?;
     Some(crate::core::checks::l0::toml_to_json(&parsed))
 }
 
-/// 2.6 `_check_bridge_gateway_consistency`：三处比对（URL 主机 / system_id / addr↔webhook_host）。
+/// 2.6 `_check_bridge_gateway_consistency`: three-way comparison (URL host / system_id / addr↔webhook_host).
 fn bridge_gateway_consistency(c: &mut Check, sid: &str, ctx: &Ctx, text: &str) {
     let Some(gw) = read_gw_cfg(ctx, sid) else {
-        return; // gateway 层会自己报错
+        return; // gateway layer will report its own errors
     };
     let td = real_toml(text);
     let mut mismatches: Vec<String> = Vec::new();
@@ -506,7 +506,7 @@ fn bridge_gateway_consistency(c: &mut Check, sid: &str, ctx: &Ctx, text: &str) {
             "config_consistency",
             false,
             &mismatches.join("; "),
-            "Re-run: aimail install (同步配置)",
+            "Re-run: aimail install (sync config)",
         );
     }
 }
@@ -527,7 +527,7 @@ fn take_chars(s: &str, n: usize) -> String {
     s.chars().take(n).collect()
 }
 
-/// 桥相关的路径集合（供命令面/其它探针复用）。
+/// Set of bridge-related paths (for reuse by command surface/other probes).
 pub struct Paths {
     pub cfg: PathBuf,
     pub log: PathBuf,

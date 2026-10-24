@@ -1,12 +1,12 @@
-"""文档 ↔ 实现一致性门禁的 pytest 包装(L0 里另有一处直调)。
+"""pytest wrapper for the documentation ↔ implementation consistency gate (there is another direct call in L0).
 
-门禁本体 = ``tests/contract/check-docs-consistency.py``(退出码 0=通过 / 1=违约 /
-2=判不了)。这里把它跑成 RED-GREEN 三态, 免得"文档承诺了、实现没兜住"再漂回去:
+The gate body = ``tests/contract/check-docs-consistency.py`` (exit code 0=pass / 1=violation /
+2=cannot judge). Here it is run as a RED-GREEN tri-state, to prevent "documentation promised, implementation didn't catch up" from drifting back:
 
-* 默认两份自举文档 ⇒ rc=0;
-* 故意写错一个反引号符号名 ⇒ rc=1 且带 ``file:line``;
-* 把契约值写错一个字符 ⇒ rc=1(逐字命中单一真源那套);
-* 文档读不到 ⇒ rc=2(判不了, 绝不假装通过)。
+* Default two bootstrap documents ⇒ rc=0;
+* Intentionally write a wrong backtick symbol name ⇒ rc=1 and include ``file:line``;
+* Write a contract value with one character wrong ⇒ rc=1 (literal hit on the single source of truth);
+* Documentation unreadable ⇒ rc=2 (cannot judge, never pretend to pass).
 """
 from __future__ import annotations
 
@@ -20,8 +20,8 @@ SCRIPT = ROOT / "tests" / "contract" / "check-docs-consistency.py"
 MANIFEST = ROOT / "contract" / "aimail-contract.json"
 DOC_EN = ROOT / "docs" / "agent-self-setup.md"
 DOC_ZH = ROOT / "docs" / "agent-self-setup_zh.md"
-# 2026-10-23: 原平台文档退役删除, 宿主侧契约事实的归属
-# 迁到 SDK 适配层唯一维护文档(双语对)。
+# 2026-10-23: Original platform documentation retired and deleted, ownership of host-side contract facts
+# migrated to the SDK adaptation layer's sole maintenance document (bilingual pair).
 PLATFORM_EN = ROOT / "docs" / "agent-adapter-playbook.md"
 
 
@@ -39,14 +39,14 @@ def test_docs_are_consistent():
 
 def test_bad_symbol_name_is_red_with_file_line(tmp_path):
     text = DOC_EN.read_text(encoding="utf-8")
-    assert "`activate_address_code`" in text, "文档里应有 activate_address_code 的反引号引用"
+    assert "`activate_address_code`" in text, "Documentation should have a backtick reference to activate_address_code"
     bad = tmp_path / "bad-doc.md"
     bad.write_text(text.replace("`activate_address_code`",
                                 "`activate_address_code_typo`"), encoding="utf-8")
     rc, out = _run("--en", str(bad))
     assert rc == 1, out
     assert "activate_address_code_typo" in out, out
-    assert "bad-doc.md:" in out, out  # file:line 必须给
+    assert "bad-doc.md:" in out, out  # file:line must be provided
 
 
 def test_wrong_contract_value_is_red(tmp_path):
@@ -54,15 +54,15 @@ def test_wrong_contract_value_is_red(tmp_path):
     must stay red (the agent-facing self-setup doc carries no infra names)."""
     man = json.loads(MANIFEST.read_text(encoding="utf-8"))
     text = PLATFORM_EN.read_text(encoding="utf-8")
-    assert man["binding_file"] in text, "前置: 平台文档里本就引用了真源值"
-    # 把值改坏到"真源值再也出现不了"(前缀式子串也算命中, 所以要整体换掉)
+    assert man["binding_file"] in text, "Precondition: platform documentation originally referenced the source of truth value"
+    # Corrupt the value so that "the source of truth value can no longer appear" (prefix-style substrings also count as hits, so it must be replaced entirely)
     bad_text = text.replace(man["binding_file"], man["binding_file"].replace(".", "_"))
-    assert man["binding_file"] not in bad_text, "前置: 坏文档里确已无真源值"
+    assert man["binding_file"] not in bad_text, "Precondition: the bad documentation indeed no longer contains the source of truth value"
     bad = tmp_path / "bad-platform.md"
     bad.write_text(bad_text, encoding="utf-8")
     rc, out = _run("--platform-en", str(bad))
     assert rc == 1, out
-    assert "binding_file" in out, out  # 报告里点名缺哪个真源值
+    assert "binding_file" in out, out  # report names which source of truth value is missing
 
 
 def test_platform_doc_path_drift_is_red(tmp_path):
@@ -70,7 +70,7 @@ def test_platform_doc_path_drift_is_red(tmp_path):
     a typo there must stay red even though the self-setup doc is clean."""
     man = json.loads(MANIFEST.read_text(encoding="utf-8"))
     text = PLATFORM_EN.read_text(encoding="utf-8")
-    assert man["inbound_path"] in text, "前置: 平台文档里本就引用了真源路径"
+    assert man["inbound_path"] in text, "Precondition: the platform documentation already references the true source path"
     bad_text = text.replace(man["inbound_path"], man["inbound_path"].replace("/", "_"))
     assert man["inbound_path"] not in bad_text
     bad = tmp_path / "bad-platform.md"
@@ -87,6 +87,6 @@ def test_missing_doc_cannot_judge():
 
 
 def test_zh_doc_exists_and_is_covered():
-    assert DOC_ZH.is_file(), "中文对必须存在(双语成对维护)"
+    assert DOC_ZH.is_file(), "Chinese pair must exist (maintained as bilingual pairs)"
     text = DOC_ZH.read_text(encoding="utf-8")
-    assert text.strip(), "中文对不能是空文件"
+    assert text.strip(), "Chinese pair cannot be an empty file"

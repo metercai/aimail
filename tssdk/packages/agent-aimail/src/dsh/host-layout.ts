@@ -1,8 +1,8 @@
-/** dsh 宿主布局数据(宿主概念, 10-11 三来源裁决「宿主自报/内部 → SDK 内部」)。
- * 独立无副作用模块 ⇒ 可单测, 不触发 register-cli 入口的 main() 自执行。
- * P3-C(2026-10-17): preset 由本模块自报(原 CLI 注册表 register.args `--preset mail`,
- * CLI 提取进 op 信封的旧通道已删); op 信封 merge `{...args, ...extra}` ⇒ 本值直达
- * opAssemble 落绑定顶层, dsh check session 维判据只认它(adapters.rs)。 */
+/** dsh host layout data (host concept, 10-11 three-source ruling "host self-report/internal → SDK internal").
+ * Independent side-effect-free module ⇒ unit-testable, does not trigger register-cli entry main() self-execution.
+ * P3-C (2026-10-17): preset is self-reported by this module (original CLI registry register.args `--preset mail`,
+ * CLI extraction into op envelope old channel removed); op envelope merge `{...args, ...extra}` ⇒ this value direct
+ * opAssemble binding top-level directly, dsh check session dimension criteria only recognizes it (adapters.rs). */
 export type DshHostLayout = Record<string, unknown> & {
   preset: string
   skill_expose_patch: string

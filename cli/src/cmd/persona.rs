@@ -1,13 +1,13 @@
-//! `aimail persona` —— 已并入 `welcome`（2026-09-22），此处只做**明确指引**。
+//! `aimail persona` — merged into `welcome` (2026-09-22); here it only does an **explicit signpost**.
 //!
-//! 逐字复刻 Python 侧 `cli/aimail:403-412`：三行 stderr 文案 + **rc 2**。
-//! `2` 不是"跑错了"，而是"这个命令名保留只为指路，别再走这里"——契约面里
-//! `persona` 仍是 15 个顶层子命令之一（指路壳），所以必须原样存在。
+//! Verbatim replication of Python side `cli/aimail:403-412`: three lines of stderr text + **rc 2**.
+//! `2` is not "ran it wrong" but "this command name is kept only as a signpost, don't go here" — in the contract surface
+//! `persona` is still one of the 15 top-level subcommands (guidance shell), so it must exist as-is.
 
 pub fn run() -> i32 {
-    eprintln!("✗ `aimail persona` 已合并到 `aimail welcome`(2026-09-22)");
-    eprintln!("  改用: aimail welcome -s <system-id> [--persona '<草案>' --signature '<签名>']");
-    eprintln!("  (省略 --persona/--signature 时, welcome 会尝试从 agent 回复解析)");
+    eprintln!("✗ `aimail persona` has been merged into `aimail welcome`(2026-09-22)");
+    eprintln!("  Use instead: aimail welcome -s <system-id> [--persona '<draft>' --signature '<signature>']");
+    eprintln!("  (when --persona/--signature are omitted, welcome will attempt to parse from agent reply)");
     2
 }
 
@@ -15,7 +15,7 @@ pub fn run() -> i32 {
 mod tests {
     #[test]
     fn pointer_shell_returns_two() {
-        // 退出码是契约（Python `cmd_persona` 末行 `return 2`）
+        // exit code is contract (Python `cmd_persona` last line `return 2`)
         assert_eq!(super::run(), 2);
     }
 }

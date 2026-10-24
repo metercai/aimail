@@ -1,14 +1,14 @@
-//! `aimail bridge` —— `cli/aimail:2682-2808` 的 Rust 复刻（**status / 按系统重刷路由**）。
+//! `aimail bridge` — the Rust re-implementation of `cli/aimail:2682-2808` (**status / re-flush routes per system**).
 //!
-//! `--restart` / `--upgrade` 走部署面（`core::bridge_deploy`：二进制就位 + 起进程 + zip 升级），
-//! 与 `deploy_bridge.py` 的 standalone 分支同语义。
+//! `--restart` / `--upgrade` go through deployment surface (`core::bridge_deploy`: binary in place + start process + zip upgrade),
+//! same semantics as `deploy_bridge.py`'s standalone branch.
 //!
-//! 口径（照抄 Python）：
-//! · 无 `-s`/`-H` ⇒ 状态查看（进程 / 配置 / 路由表 / 日志新鲜度）；
-//! · 有 `-s`/`-H` ⇒ 重刷该系统的转发路由：**目标优先取绑定 webhook_url**（唯一信任源），
-//!   回退历史路由表、再回退平台默认；`host` 传**完整 URL**（含 `://`）或裸 `host:port` 两字段，
-//!   由 `target_to_route_fields` 决定（传错会生成不可投递目标 —— 2026-09-21 实测）；
-//! · 桥刷新**直接打固定 admin 地址** `127.0.0.1:38081`（与 `sync_route` 的"声明式"取址不同，照抄）。
+//! Scope (copied from Python):
+//! · no `-s`/`-H` ⇒ status check (process / config / route table / log freshness);
+//! · with `-s`/`-H` ⇒ refresh forwarding routes for that system: **target priority takes bound webhook_url** (single source of truth),
+//!   fallback to historical route table, then fallback to platform default; `host` passes **full URL** (including `://`) or bare `host:port` two fields,
+//!   Determined by `target_to_route_fields` (passing wrong values generates undeliverable targets —— tested 2026-09-21);
+//! · bridge refresh **directly hits fixed admin address** `127.0.0.1:38081` (different from `sync_route`'s "declarative" addressing, copied verbatim).
 
 use serde_json::json;
 
@@ -34,7 +34,7 @@ pub fn run(a: &Args) -> i32 {
         return crate::core::bridge_deploy::upgrade_bridge();
     }
     if a.restart {
-        // 独立重启：起/重启本机单实例桥（不依赖系统配置，照抄 Python 的 --restart 分支）
+        // independent restart: start/restart local single-instance bridge (does not depend on system config, copied from Python's --restart branch)
         let bin = crate::core::home::aimail_home().join("bridge/bin/aimail-bridge");
         let cfg = crate::core::bridge_wire::bridge_cfg_file();
         let pid = crate::core::bridge_wire::bridge_pid_file();
@@ -53,14 +53,14 @@ pub fn run(a: &Args) -> i32 {
     refresh(a, running)
 }
 
-/// 状态查看（无 `-s`/`-H`）。
+/// Status check (no `-s`/`-H`).
 fn status(pids: &[u32]) -> i32 {
-    println!("  bridge 状态:");
+    println!("  bridge status:");
     if !pids.is_empty() {
         let list: Vec<String> = pids.iter().map(|p| p.to_string()).collect();
-        ok(&format!("进程: {} 个 ({})", pids.len(), list.join(", ")));
+        ok(&format!("Processes: {} ({})", pids.len(), list.join(", ")));
     } else {
-        warn("进程: 未运行");
+        warn("process: not running");
     }
 
     let cfg = bridge_cfg_file();
@@ -71,7 +71,7 @@ fn status(pids: &[u32]) -> i32 {
         {
             Some(td) => {
                 let mode = td.get("mode").and_then(|v| v.as_str()).unwrap_or("?");
-                // 配置里的键是 `bind`（历史兼容 `addr`）—— 旧代码读 addr 恒为 `?`
+                // The key in config is `bind` (historical compatibility with `addr`) —— old code reading addr is always `?`
                 let bind = td
                     .get("bind")
                     .or_else(|| td.get("addr"))
@@ -93,24 +93,24 @@ fn status(pids: &[u32]) -> i32 {
                     })
                     .unwrap_or_default();
                 ok(&format!(
-                    "配置: mode={} addr={} systems={:?}",
+                    "Config: mode={} addr={} systems={:?}",
                     mode, bind, sys_ids
                 ));
             }
-            None => warn("配置读取失败: invalid TOML"),
+            None => warn("Failed to read config: invalid TOML"),
         }
     } else {
-        warn("配置: aimail_bridge.toml 不存在");
+        warn("config: aimail_bridge.toml does not exist");
     }
 
     let routes = read_routes(&routes_file());
     if !routes.is_empty() {
-        ok(&format!("路由: {} 条", routes.len()));
+        ok(&format!("Routes: {}", routes.len()));
         for (email, target) in &routes {
             println!("       {} → {}", email, target);
         }
     } else {
-        warn("路由表为空(aimail_routes.toml)");
+        warn("route table is empty (aimail_routes.toml)");
     }
 
     let log = bridge_log_file();
@@ -119,13 +119,13 @@ fn status(pids: &[u32]) -> i32 {
             .modified()
             .map(|t| t.elapsed().map(|d| d.as_secs()).unwrap_or(0))
         {
-            ok(&format!("日志: {}s 前更新 ({})", secs, log.display()));
+            ok(&format!("Log: updated {}s ago ({})", secs, log.display()));
         }
     }
     0
 }
 
-/// 重刷转发路由（有 `-s`/`-H`）。
+/// Refresh forwarding routes (with `-s`/`-H`).
 fn refresh(a: &Args, running: bool) -> i32 {
     use crate::hosts::identity::{normalize_platform_home, platform_override, resolve_platform};
 
@@ -136,7 +136,7 @@ fn refresh(a: &Args, running: bool) -> i32 {
     };
     let (sid, platform0) = crate::cmd::uninstall::resolve_system_id(&system_home, &a.system_id);
     if sid.is_empty() {
-        return fail("无法确定 system_id(用 --system-id 或 --home 指定)");
+        return fail("Cannot determine system_id (specify with --system-id or --home)");
     }
     let platform = match platform_override(&a.platform) {
         Ok(Some(p)) => p,
@@ -150,15 +150,15 @@ fn refresh(a: &Args, running: bool) -> i32 {
         Err(msg) => return fail(&msg),
     };
     if platform.is_empty() {
-        return fail(&format!("无法确定平台(system {})", sid));
+        return fail(&format!("cannot determine platform (system {})", sid));
     }
 
     let cfg_path = crate::core::config::gateway_config_path(&sid);
     if !cfg_path.is_file() {
-        return fail(&format!("系统配置不存在: {}", cfg_path.display()));
+        return fail(&format!("System config does not exist: {}", cfg_path.display()));
     }
     if !running {
-        warn("bridge 未运行——仅更新本地路由表,不会热加载(先 --restart)");
+        warn("bridge not running —— only updating local route table, no hot reload (run --restart first)");
     }
 
     let routes = read_routes(&routes_file());
@@ -167,7 +167,7 @@ fn refresh(a: &Args, running: bool) -> i32 {
     for (email, target) in system_agents(&sid) {
         let old = routes.get(&email).cloned();
         let (host, port) = target_to_route_fields(&target);
-        // host 传完整 URL 时桥走 from_url（URL 保真）；port 仅为过必填校验
+        // When host passes a full URL, the bridge uses from_url (URL fidelity); port is only for required field validation
         let body = json!({"email": email, "host": host, "port": port});
         let (okcall, detail) = crate::core::http::raw_req_method(
             "POST",
@@ -184,7 +184,7 @@ fn refresh(a: &Args, running: bool) -> i32 {
                 println!(
                     "  ↻ {}: {} → {}",
                     email,
-                    old.as_deref().unwrap_or("(无)"),
+                    old.as_deref().unwrap_or("(none)"),
                     target
                 );
             } else {
@@ -192,15 +192,15 @@ fn refresh(a: &Args, running: bool) -> i32 {
             }
         } else {
             missing += 1;
-            warn(&format!("  ✗ {} 路由注册失败: {}", email, detail));
+            warn(&format!("  ✗ {} route registration failed: {}", email, detail));
         }
     }
 
     if refreshed > 0 {
-        ok(&format!("重刷完成: {} 条路由已注册/确认", refreshed));
+        ok(&format!("Refresh complete: {} routes registered/confirmed", refreshed));
     }
     if missing > 0 {
-        warn(&format!("{} 条失败(检查 bridge 是否运行)", missing));
+        warn(&format!("{} failed (check if bridge is running)", missing));
         return 1;
     }
     0

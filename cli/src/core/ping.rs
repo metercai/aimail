@@ -1,14 +1,14 @@
-//! `aimail ping` 的判定引擎（`cli/ping_test.py:main` 后半段）—— **只信三阶段日志事件**。
+//! `aimail ping` decision engine (second half of `cli/ping_test.py:main`) —— **only trusts three-stage log events**.
 //!
-//! 三阶段事件（`systems/<sid>/<agent>/agentmail.log`，用户定调 2026-08-16 = 唯一权威判定）：
-//! `ping_intercepted`（webhook 收到 ping）→ `pong_sent`（send_mail 发回 pong，成败写在
-//! `pong_status` 字段）→ `pong_returned`（webhook 收到 pong）。
-//! 判定：ping+pong 都到 ⇒ 通过；`pong_status` 全量采样后**一条 ok 都没有** ⇒ 翻红
-//! （事件发生过但 send_mail 实际失败，2026-09-30 前驱定因①）；字段缺席**不判**（判据只增不减）。
+//! Three-stage events (`systems/<sid>/<agent>/agentmail.log`, user-defined 2026-08-16 = sole authoritative decision):
+//! `ping_intercepted` (webhook received ping) → `pong_sent` (send_mail sends back pong, success/failure written in
+//! `pong_status` field) → `pong_returned` (webhook received pong).
+//! Decision: both ping+pong arrived ⇒ pass; `pong_status` after full sampling has **no ok at all** ⇒ turn red
+//! (events occurred but send_mail actually failed, 2026-09-30 predecessor cause①); field absence **does not decide** (criteria only increase, never decrease).
 
 pub const PING_PREFIX: &str = "__aimail_ping__:";
 
-/// 解析日志里的时间戳（容忍：带/不带微秒、带/不带时区）。
+/// Parse timestamps in logs (tolerant: with/without microseconds, with/without timezone).
 pub fn parse_ts(s: &str) -> Option<f64> {
     let t = s.get(..s.len().min(26)).unwrap_or(s);
     let (date, rest) = t.split_once('T')?;
@@ -41,7 +41,7 @@ pub fn parse_ts(s: &str) -> Option<f64> {
             frac,
         )
     };
-    // 民用历 → epoch（Howard Hinnant）
+    // Civil calendar → epoch (Howard Hinnant)
     let (yy, mm2) = if mo <= 2 { (y - 1, mo + 12) } else { (y, mo) };
     let era = yy.div_euclid(400);
     let yoe = yy - era * 400;
@@ -51,7 +51,7 @@ pub fn parse_ts(s: &str) -> Option<f64> {
     Some(days as f64 * 86400.0 + hh as f64 * 3600.0 + mm as f64 * 60.0 + ss + frac)
 }
 
-/// 事件观察器（每轮喂日志全文，返回是否已可结束）。
+/// Event observer (feeds full log text each round, returns whether it can end).
 pub struct Watcher {
     pub ping_id: String,
     pub t0: f64,
@@ -79,12 +79,12 @@ impl Watcher {
         parse_ts(ts).map(|t| t - self.t0).unwrap_or(0.0)
     }
 
-    /// 扫日志（**倒序**，与 Python 同）并记录新事件。
+    /// Scan logs (**reverse order**, same as Python) and record new events.
     ///
-    /// 循环到"这一遍没新事件"为止：Python 靠在 3s 轮询里反复扫同一份日志把
-    /// `pong_returned`（反向扫描时先于 `ping_intercepted` 出现，受 `found_ping` 前置条件挡住）
-    /// 补上；这里在一次调用内补完，**行序与 Python 多轮轮询一致**。
-    /// 返回本遍是否新增了事件。
+    /// Loop until "no new events in this pass": Python relies on repeatedly scanning the same log in 3s polling to
+    /// supplement `pong_returned` (appears before `ping_intercepted` in reverse scan, blocked by `found_ping` precondition)
+    ///; here it is completed within one call, **line order consistent with Python multi-round polling**.
+    /// Returns whether new events were added in this pass.
     pub fn observe(&mut self, log_text: &str) -> bool {
         let mut changed = false;
         loop {
@@ -146,7 +146,7 @@ impl Watcher {
                         "✗"
                     };
                     let note = if st.is_empty() {
-                        " (pong_status 缺席, 不判)".to_string()
+                        " (pong_status absent, no verdict)".to_string()
                     } else {
                         format!(" (pong_status={})", st)
                     };
@@ -177,7 +177,7 @@ impl Watcher {
         self.found_ping && self.found_pong
     }
 
-    /// 结果判定（返回 (追加行, 是否通过)）。
+    /// Result determination (returns (appended lines, passed or not)).
     pub fn verdict(&mut self, timeout: i64, log_path: &str) -> (Vec<String>, bool) {
         let mut ok = if self.found_ping && self.found_pong {
             self.out.push(format!(
@@ -203,10 +203,10 @@ impl Watcher {
             sorted.sort();
             let joined = sorted.join(",");
             self.out
-                .push(format!("  · pong_sent.pong_status 采样: {}", joined));
+                .push(format!("  · pong_sent.pong_status sample: {}", joined));
             if !sorted.iter().any(|s| s == "ok") {
                 self.out.push(format!(
-                    "  ✗ pong_sent.pong_status 无一条 ok ({}) — send_mail 实际失败, 上面的事件 ✓ 不作数",
+                    "  ✗ pong_sent.pong_status has no ok at all ({}) — send_mail actually failed, the ✓ above do not count",
                     joined
                 ));
                 ok = false;
@@ -216,7 +216,7 @@ impl Watcher {
     }
 }
 
-/// 快照检查（`mail/` 下 5 分钟内新文件数）。
+/// Snapshot check (number of new files under `mail/` within 5 minutes).
 pub fn snapshot_line(mail_dir: &std::path::Path, sid: &str, agent: &str) -> String {
     let (mut total, mut fresh) = (0usize, 0usize);
     let now = std::time::SystemTime::now();
@@ -253,7 +253,7 @@ pub fn snapshot_line(mail_dir: &std::path::Path, sid: &str, agent: &str) -> Stri
     }
 }
 
-/// epoch 秒 → (年, 月, 日, 时, 分, 秒) UTC（民用历，Howard Hinnant 算法）。
+/// epoch seconds → (year, month, day, hour, minute, second) UTC (civil calendar, Howard Hinnant algorithm).
 pub fn epoch_to_utc_parts(ts: i64) -> (i64, u32, u32, u32, u32, u32) {
     let days = ts.div_euclid(86400);
     let rem = ts.rem_euclid(86400);

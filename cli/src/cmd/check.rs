@@ -1,14 +1,14 @@
-//! `aimail check` —— 全机体检（配置 / 运行时资源 / 投递链路）。
+//! `aimail check` —— full machine health check (config / runtime resources / delivery chain).
 //!
-//! 编排逐条对齐 Python `check_status.py:1482-1607`（含 CLI 侧转发面
-//! `cli/aimail:356-368`：只暴露 `-s/--system-id`、`-H/--home`、`-v/--verbose`；
-//! `--json` 是 check_status 的内部开关，**不在命令面**）。
+//! Orchestration aligns line-by-line with Python `check_status.py:1482-1607` (including CLI side forwarding surface
+//! `cli/aimail:356-368`: only exposes `-s/--system-id`, `-H/--home`, `-v/--verbose`;
+//! `--json` is an internal switch for check_status, **not on the command surface**).
 //!
-//! 顺序即语义：system 锚点 → L0 配置 → L1 gateway → L2 bridge → bridge 完备性 →
-//! 绑定文件 → L2r 运行时资源 → 载荷 → L3/L4 适配面 → 输出（表 + 结论行）→ rc。
+//! Order is semantics: system anchor → L0 config → L1 gateway → L2 bridge → bridge completeness →
+//! Bind file → L2r runtime resources → payload → L3/L4 adapter surface → output (table + conclusion line) → rc.
 //!
-//! [`engine`] 是给 `repair` 的**进程内复用**入口（Python 侧用"子进程 + 捕获输出"
-//! 达到同样效果）；[`run`] 才是命令面包装。
+//! [`engine`] is the **in-process reuse** entry for `repair` (Python side uses "subprocess + output capture"
+//!); [`run`] is the command-line wrapper.
 
 use crate::core::check::Check;
 use crate::core::checks::adapters::{self, Ctx, DEFAULT_SID_ORDER};
@@ -26,8 +26,8 @@ pub struct Args {
     pub verbose: bool,
 }
 
-/// 引擎输出：记录 + "表之前"的打印行（平台反选 / default sid / 无 sid 提示 / L3-L4 提示）。
-/// 拆出来是为了让调用方决定这些行要不要打（repair 会丢弃，对应 Python 侧的捕获）。
+/// Engine output: records + print lines "before the table" (platform deselection / default sid / no sid hint / L3-L4 hints).
+/// Extracted to let the caller decide whether to print these lines (repair discards them, corresponding to the Python side's capture).
 pub struct EngineOut {
     pub check: Check,
     pub pre_lines: Vec<String>,
@@ -37,10 +37,10 @@ fn env_nonempty(k: &str) -> Option<String> {
     std::env::var(k).ok().filter(|v| !v.is_empty())
 }
 
-/// `_resolve_platform_sid`：argv 显式 > 该平台指针（root / root_or_profiles）> env `SYSTEM_ID`。
+/// `_resolve_platform_sid`: explicit argv > platform pointer (root / root_or_profiles) > env `SYSTEM_ID`.
 ///
-/// 细节照抄：指针文件存在但解析失败 → 落到 env；解析成功但缺 `system_id` 键 → 返回空串
-/// （**不**落 env）。
+/// Details copied verbatim: pointer file exists but parsing fails → falls back to env; parsing succeeds but `system_id` key is missing → returns empty string
+/// (**does not** fall back to env).
 fn resolve_platform_sid(
     user_home: &Path,
     agent_type: &str,
@@ -70,7 +70,7 @@ fn resolve_platform_sid(
     env_sid.unwrap_or("").to_string()
 }
 
-/// `_detect_default_sid`：按 Python `PLATFORMS` 声明顺序找"已装且已集成"的首个平台指针。
+/// `_detect_default_sid`: finds the first platform pointer that is "installed and integrated" according to the declaration order of Python `PLATFORMS`.
 fn detect_default_sid(user_home: &Path, argv_sid: &str, env_sid: Option<&str>) -> String {
     for pid in DEFAULT_SID_ORDER {
         let root = crate::hosts::identity::platform_root(user_home, pid);
@@ -85,7 +85,7 @@ fn detect_default_sid(user_home: &Path, argv_sid: &str, env_sid: Option<&str>) -
     String::new()
 }
 
-/// `_system_agent_path(sid)` 的 system_home 反查（锚点反选的兜底分支）。
+/// Reverse lookup of system_home for `_system_agent_path(sid)` (fallback branch for anchor reverse selection).
 fn platform_by_system_home(user_home: &Path, sid: &str) -> Option<&'static str> {
     let cfg = config::load_gateway_config(sid)?;
     let sh = cfg.system_home.trim();
@@ -106,7 +106,7 @@ fn platform_by_system_home(user_home: &Path, sid: &str) -> Option<&'static str> 
     None
 }
 
-/// 跑一遍完整 check 引擎（`sid` 视同 argv `--system-id` 已给；`agent_home` = `-H` 归一后的平台根）。
+/// Runs the full check engine once (`sid` is treated as if argv `--system-id` was provided; `agent_home` = normalized platform root from `-H`).
 pub fn engine(sid: &str, agent_home: Option<&Path>, verbose: bool) -> EngineOut {
     let a = Args {
         system_id: sid.to_string(),
@@ -117,14 +117,14 @@ pub fn engine(sid: &str, agent_home: Option<&Path>, verbose: bool) -> EngineOut 
     build_out(&a, &home::user_home(), &home::aimail_home(), &mut pre_lines)
 }
 
-/// 记录编排主体（`check_status.main()` 的 :1489-1592）。`pre_lines` 收集"表之前"的输出。
+/// Records the orchestration body (`check_status.main()` at :1489-1592). `pre_lines` collects output "before the table".
 fn build_out(
     a: &Args,
     user_home: &Path,
     aimail_home: &Path,
     pre_lines: &mut Vec<String>,
 ) -> EngineOut {
-    // AGENT_HOME：`--home` 归一后的平台根 > env AGENT_HOME > `~/.hermes`（Python 同）
+    // AGENT_HOME: normalized platform root from `--home` > env AGENT_HOME > `~/.hermes` (same as Python)
     let agent_home_explicit = a.home.is_some();
     let agent_home: PathBuf = match &a.home {
         Some(h) => crate::hosts::identity::normalize_platform_home(Path::new(h)),
@@ -134,11 +134,11 @@ fn build_out(
         },
     };
 
-    // 平台识别：`--agent-type` 显式 > 自动探测
+    // Platform identification: explicit `--agent-type` > auto-detection
     let mut agent_type = adapters::detect_agent_type(user_home, None, agent_home_explicit);
     let env_sid = env_nonempty("SYSTEM_ID");
 
-    // sid 归属平台反选（双平台共存时按 sid 指针归属覆盖探测结果）
+    // Platform deselection by sid ownership (overrides detection result when dual platforms coexist based on sid pointer ownership)
     if !a.system_id.is_empty() {
         let sid_platform = {
             let hits = l0::pointer_platforms_for_sid(
@@ -165,7 +165,7 @@ fn build_out(
         }
     }
 
-    // system_id 锚点
+    // system_id anchor
     let mut platform_sid =
         resolve_platform_sid(user_home, &agent_type, &a.system_id, env_sid.as_deref());
     if platform_sid.is_empty() {
@@ -179,7 +179,7 @@ fn build_out(
     }
     if platform_sid.is_empty() {
         pre_lines.push(format!(
-            "{YELLOW}⚠ No system_id resolved — 请用 --system-id 指定(或确认本机已安装 agent 平台且有 aimail 指针){NC}"
+            "{YELLOW}⚠ No system_id resolved — please specify with --system-id (or confirm that an agent platform is installed on this machine and has an aimail pointer){NC}"
         ));
     }
 
@@ -194,7 +194,7 @@ fn build_out(
         } else {
             platform_sid.as_str()
         },
-        "Run: aimail install (激活系统)",
+        "Run: aimail install (activate the system)",
     );
 
     let ctx = L0Ctx {
@@ -202,21 +202,21 @@ fn build_out(
         user_home: user_home.to_path_buf(),
     };
 
-    // L0 配置
+    // L0 configuration
     l0::l0_configs(&mut c, &platform_sid, &ctx);
-    // L0 扩展：入站 webhook 计划漂移（三态 vs 判定函数单真源，离线）
+    // L0 extension: inbound webhook plan drift (three-state vs judgment function single source of truth, offline)
     l0::webhook_plan_drift(&mut c, &platform_sid, &ctx);
     // L1 gateway
     l1::gateway(&mut c, &platform_sid, &ctx);
     // L2 bridge
     l2::bridge(&mut c, &platform_sid, &ctx);
-    // L0 扩展：bridge 完备性 + 绑定文件完备性/一致性
+    // L0 extension: bridge completeness + bind file completeness/consistency
     l0::bridge_completeness(&mut c, &platform_sid, &ctx);
     l0::agentmail_json(&mut c, &platform_sid, &ctx);
-    // L2r 运行时资源 + 载荷
+    // L2r runtime resources + payload
     l2r::runtime(&mut c, &platform_sid, &ctx);
 
-    // L3/L4 适配面
+    // L3/L4 adapter surface
     let resolve_sid =
         adapters::resolve_system_id(&agent_home, Some(&a.system_id), env_sid.as_deref());
     let systems_dir = aimail_home.join("systems");
@@ -272,7 +272,7 @@ mod tests {
             "argv"
         );
         assert_eq!(resolve_platform_sid(uh, "hermes", "", Some("env")), "env");
-        // 平台指针（hermes root 布局）
+        // Platform pointer (hermes root layout)
         let hermes = uh.join(".hermes");
         std::fs::create_dir_all(&hermes).unwrap();
         std::fs::write(

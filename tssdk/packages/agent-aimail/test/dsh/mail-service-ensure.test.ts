@@ -1,13 +1,13 @@
-// dsh-aimail 启动自举 + 默认 agent 绑定回归测试
+// dsh-aimail startup bootstrap + default agent binding regression test
 //
-// P2(2026-10-15): 自举收敛进 ensureDefaultAgentBinding() —— 系统就绪 + 默认 agent
-// 绑定是一体的就绪动作, 且被 inbound 入口 gate 住 listen, 使"入站端口 up"成为可靠
-// 就绪信号(绑定 + 监听)。`dsh plugin add` 装法不跑 CLI 的 register_default ⇒ 默认
-// agent 的 binding 只由这里写; 幂等 ⇒ 两种装法收敛同一绑定态。
+// P2 (2026-10-15): bootstrap converged into ensureDefaultAgentBinding() — system ready + default agent
+// binding is the readiness action of a single body, and the inbound entry gates the listen, making "inbound port up" a reliable
+// ready signal (binding + listening). `dsh plugin add` installation method does not run CLI's register_default ⇒ default
+// agent's binding is only written here; idempotent ⇒ two installation methods converge to the same binding state.
 //
-// 批1+A(2026-10-16): 系统就绪 + 地址派生 + 幂等 autoBind(adopt/register)已归并到
-// mail-core ensureAgentBinding(单源); 本测试只验 dsh 的薄壳: 以正确参数调用单源、
-// 失败不崩宿主、成功/失败日志可读。单源自身语义由 mail-core/ensure-binding.test.ts 覆盖。
+// Batch 1+A (2026-10-16): system ready + address derivation + idempotent autoBind (adopt/register) have been merged into
+// mail-core ensureAgentBinding (single source); this test only verifies dsh's thin shell: calls single source with correct parameters,
+// failure does not crash host, success/failure logs readable. Single source's own semantics are covered by mail-core/ensure-binding.test.ts.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { INBOUND_PATH } from '../../src/core/index.js'
 

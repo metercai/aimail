@@ -1,31 +1,31 @@
-//! 网关 HTTP 客户端 —— 逐语义复刻 Python 侧 `_GatewayClient._request`
-//! （`pysdk/aimail_tools.py:100-147`，CLI 侧经 `load_core()` 调同名实现）。
+//! gateway HTTP client — semantic line-by-line re-implementation of the Python side `_GatewayClient._request`
+//! (`pysdk/aimail_tools.py:100-147`, CLI side calls same-named implementation via `load_core()`).
 //!
-//! 返回**同构 dict**（不是 Result）：这是被复刻对象的核心语义 —— 传输层失败
-//! 也返回 `{"status": 0, "error": ...}` 而不是抛异常，调用方按 `status` 分档判读
-//! （例如 `stats` 的云状态分档：200=ok / 403·404=unlinked / 0=保持原判）。
+//! Returns **isomorphic dict** (not Result): this is the core semantics of the replicated object -- transport layer failure
+//! also returns `{"status": 0, "error": ...}` instead of throwing exception, caller judges by `status` tier
+//! (e.g. `stats` cloud status tiering: 200=ok / 403·404=unlinked / 0=keep original judgment).
 //!
-//! | 场景 | 返回 |
+//! | Scenario | Return |
 //! |---|---|
-//! | 2xx + JSON 对象 | `{"status": <code>, **body}`（body 自带的 `status` 被丢掉） |
-//! | 2xx + JSON 数组 | `{"status": <code>, "data": [...]}` |
-//! | 2xx + 非 JSON | `{"status": <code>, "body": "<原文>"}` |
+//! | 2xx + JSON object | `{"status": <code>, **body}` (body's own `status` is dropped) |
+//! | 2xx + JSON array | `{"status": <code>, "data": [...]}` |
+//! | 2xx + non-JSON | `{"status": <code>, "body": "<original text>"}` |
 //! | 4xx/5xx | `{"status": <code>, "error": "...", **err_body}` |
-//! | 传输失败 | `{"status": 0, "error": "..."}` |
+//! | Transport failure | `{"status": 0, "error": "..."}` |
 //!
-//! 已知的两处**有意近似**（都在错误文案上，不影响分档判读）：
-//! 1. HTTP 错误里的 `error` 文案：Python 是 urllib 的 `str(e)`（"HTTP Error 403:
-//!    Forbidden"），Rust 侧给 `"HTTP Error <code>"`；带 JSON body 时服务端自己的
-//!    `error` 字段会覆盖它（与 Python 的 `**err_body` 同序）；
-//! 2. body 序列化：Python `json.dumps(body)` 带空格（`{"a": 1}`），Rust
-//!    `serde_json::to_vec` 无空格（`{"a":1}`）—— 签名是按**实际发送的字节**算的，
-//!    服务端按收到的字节验签，故两侧各自自洽；黄金向量测试用的是固定字节。
+//! Two known **intentional approximations** (both in error messages, do not affect tier judgment):
+//! 1. `error` message in HTTP errors: Python uses urllib's `str(e)` ("HTTP Error 403:
+//!    Forbidden"), Rust side gives `"HTTP Error <code>"`; when JSON body is present, server's own
+//!    `error` field overrides it (same order as Python's `**err_body`);
+//! 2. body serialization: Python `json.dumps(body)` has spaces (`{"a": 1}`), Rust
+//!    `serde_json::to_vec` no spaces (`{"a":1}`) -- signature is calculated based on **actual sent bytes**,
+//!    server verifies signature based on received bytes, so both sides are self-consistent; golden vector tests use fixed bytes.
 
 use crate::core::sig;
 use serde_json::{json, Map, Value};
 use std::time::Duration;
 
-/// 网关客户端（可复用于 stats / domain / renew / welcome / check 的云探针）。
+/// Gateway client (reusable for stats / domain / renew / welcome / check cloud probes).
 pub struct GatewayClient {
     base: String,
     api_key: String,
@@ -34,7 +34,7 @@ pub struct GatewayClient {
 }
 
 impl GatewayClient {
-    /// `gateway_url` 末尾斜杠会被去掉（Python 同）；`timeout_secs` 对齐 Python 默认 30。
+    /// Trailing slash in `gateway_url` is removed (same as Python); `timeout_secs` aligns with Python default 30.
     pub fn new(gateway_url: &str, api_key: &str, identity: &str, timeout_secs: u64) -> Self {
         let agent = ureq::AgentBuilder::new()
             .timeout(Duration::from_secs(timeout_secs))
@@ -47,12 +47,12 @@ impl GatewayClient {
         }
     }
 
-    /// 默认超时（Python `_GatewayClient(..., timeout=30)`）。
+    /// Default timeout (Python `_GatewayClient(..., timeout=30)`).
     pub fn with_defaults(gateway_url: &str, api_key: &str) -> Self {
         Self::new(gateway_url, api_key, "", 30)
     }
 
-    /// GET（无 body）。
+    /// GET (no body).
     pub fn get(&self, path: &str) -> Value {
         self.request("GET", path, None)
     }
@@ -62,7 +62,7 @@ impl GatewayClient {
         self.request("POST", path, Some(body))
     }
 
-    /// 通用请求；返回同构 dict（见模块头部的分档表）。
+    /// Generic request; returns isomorphic dict (see tier table in module header).
     pub fn request(&self, method: &str, path: &str, body: Option<&Value>) -> Value {
         let url = format!("{}{}", self.base, path);
         let data: Option<Vec<u8>> =
@@ -127,7 +127,7 @@ fn success_body(status: u64, text: &str) -> Value {
             Value::Object(m)
         }
         Ok(Value::Object(mut body)) => {
-            body.remove("status"); // 响应体不许覆盖 HTTP status（Python 同）
+            body.remove("status"); // Response body must not override HTTP status (same as Python)
             let mut m = obj_with_status(status);
             for (k, v) in body {
                 m.insert(k, v);
@@ -149,7 +149,7 @@ fn error_body(status: u64, text: &str) -> Value {
     if let Ok(Value::Object(mut body)) = serde_json::from_str::<Value>(text) {
         body.remove("status");
         if let Some(Value::String(s)) = body.get("error") {
-            // 服务端给了具体原因 ⇒ 它就是主文案（Python 的 **err_body 覆盖同序）
+            // Server gave specific reason ⇒ it is the main message (Python's **err_body override same order)
             err = s.clone();
         }
         m.insert("error".into(), Value::from(err));
@@ -163,18 +163,18 @@ fn error_body(status: u64, text: &str) -> Value {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// 独立 API 函数（不需要 client 实例）—— `pysdk/gateway_api.py:118-161` 的 Rust 复刻
-//   2026-10-04 owner 裁决：这两个调用 rust **原生**实现（它们只是"签名 + HTTP 端点"，
-//   签名算法 rust 侧已在用且有 L0/L2 验证），不新增 SDK 公共面、不因此发版。
+// Standalone API functions (no client instance needed) -- Rust replication of `pysdk/gateway_api.py:118-161`
+//   2026-10-04 owner ruling: these two calls are implemented in rust **natively** (they are just "signature + HTTP endpoint",
+//   signature algorithm is already used on rust side and has L0/L2 verification), no new SDK public surface, no release for this.
 // ════════════════════════════════════════════════════════════════════════════
 
 /// `whoami(gw, ak, identity="")`（`gateway_api.py:118-130`）：`GET /api/v1/whoami`。
 ///
-/// **任何失败都返回空对象**（Python 把所有异常都吞成 `{}`：4xx/5xx 的 HTTPError、
-/// 传输失败、2xx 但非 JSON 一律如此）⇒ 调用方只能"拿不到元数据"，不能据此判失败。
+/// **Any failure returns empty object** (Python swallows all exceptions into `{}`: 4xx/5xx HTTPError,
+/// transport failure, 2xx but non-JSON all behave this way) ⇒ caller can only "not get metadata", cannot judge failure based on this.
 pub fn whoami(gateway_url: &str, api_key: &str, identity: &str) -> Value {
     let path = "/api/v1/whoami";
-    // 注意：signed_headers 已按 Python 口径**总是**带 Content-Type（GET 也一样）
+    // Note: signed_headers **always** include Content-Type per Python criteria (same for GET)
     let headers = sig::signed_headers(api_key, "GET", path, None, identity);
     let url = format!("{}{}", gateway_url.trim_end_matches('/'), path);
     let (status, v) = crate::core::http::json_req(&url, &headers, None, Some("GET"), 10);
@@ -186,11 +186,11 @@ pub fn whoami(gateway_url: &str, api_key: &str, identity: &str) -> Value {
 }
 
 /// `create_api_key(gw, ak, system_id, email, scopes, category)`（`:133-161`）：
-/// `POST /api/v1/admin/api-keys`，体 = `{system_id, email_address, scopes, category}`
-/// （**键序照抄**，签名按实际发送字节算），identity = `system_id`。
+/// `POST /api/v1/admin/api-keys`, body = `{system_id, email_address, scopes, category}`
+/// (**key order copied exactly**, signature calculated based on actual sent bytes), identity = `system_id`.
 ///
-/// 返回形状照抄 Python：2xx ⇒ 原始体；HTTP 错误 ⇒ `{raw_key:"", error, detail, status}`；
-/// 其它异常 ⇒ `{raw_key:"", error: str(e)}`。
+/// Return shape copied from Python: 2xx ⇒ raw body; HTTP error ⇒ `{raw_key:"", error, detail, status}`;
+/// Other exceptions ⇒ `{raw_key:"", error: str(e)}`.
 pub fn create_api_key(
     gateway_url: &str,
     api_key: &str,
@@ -209,7 +209,7 @@ pub fn create_api_key(
     );
     body.insert("category".into(), Value::String(category.to_string()));
     let data = serde_json::to_vec(&Value::Object(body)).unwrap_or_default();
-    // Content-Type 由 signed_headers 提供（与 Python 的 compute_api_signature 同）
+    // Content-Type is provided by signed_headers (same as Python's compute_api_signature)
     let headers = sig::signed_headers(api_key, "POST", path, Some(&data), system_id);
     let url = format!("{}{}", gateway_url.trim_end_matches('/'), path);
     let (status, v) = crate::core::http::json_req(&url, &headers, Some(&data), Some("POST"), 10);
@@ -233,11 +233,11 @@ pub fn create_api_key(
     })
 }
 
-/// `cli/_common.is_local_gateway`：网关是否本机/本地（直连 push ⇒ 不需要桥）。
+/// `cli/_common.is_local_gateway`: whether the gateway is local/on this machine (direct push ⇒ no bridge needed).
 ///
-/// 判据照抄：hostname ∈ {127.0.0.1, localhost, ::1}，**或** host 命中本机自有地址
-/// （Python 侧用 `socket.getaddrinfo(socket.gethostname())`；这里用 std 的解析器等价实现）。
-/// 解析不出的 url **不算**本地（调用方必须自己处理"判不出来"，不许默认直连）。
+/// Criteria copied verbatim: hostname ∈ {127.0.0.1, localhost, ::1}, **or** host matches a local address
+/// (Python side uses `socket.getaddrinfo(socket.gethostname())`; here we use an equivalent implementation with std's parser).
+/// Unresolvable urls are **not** considered local (callers must handle "cannot determine" themselves; defaulting to direct connection is not allowed).
 pub fn is_local_gateway(url: &str) -> bool {
     let host = crate::core::repair::url_host_pub(url);
     if host.is_empty() {
@@ -271,7 +271,7 @@ mod tests {
 
     #[test]
     fn connection_refused_is_status_zero_not_a_panic() {
-        // 无人监听的本地端口 ⇒ 传输失败 ⇒ {"status": 0, "error": ...}
+        // Local port with no listener ⇒ transmission failure ⇒ {"status": 0, "error": ...}
         let c = GatewayClient::new("http://127.0.0.1:1", "k", "", 5);
         let r = c.get("/api/v1/quotas");
         assert_eq!(r.get("status").and_then(Value::as_u64), Some(0), "{r}");

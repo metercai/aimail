@@ -84,15 +84,15 @@ def test_unpatch_on_clean_file_is_noop(webhook_py):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# P2(2026-09-30) 调用钩子锚:两种宿主 hermes 形态 + 红绿双向
-# 取证:镜像 aimail-host-hermes 的 /opt/data/hermes-agent/gateway/platforms/
-# webhook.py(883 行)**没有** `# Format prompt from template`(现行 hermes 把
-# handler 改写成 `with self._profile_scope(profile):` + 行内 `_render_prompt`),
-# 只认形态 A ⇒ patch 3 静默跳过 ⇒ 钩子锚恒 0(preprocessor 永不执行)。
+# P2(2026-09-30) Call hook anchor: two host hermes forms + red-green bidirectional
+# Forensics: mirror of aimail-host-hermes's /opt/data/hermes-agent/gateway/platforms/
+# webhook.py (883 lines) **does not have** `# Format prompt from template` (current hermes
+# rewrites handler to `with self._profile_scope(profile):` + inline `_render_prompt`),
+# only recognizes form A ⇒ patch 3 silently skipped ⇒ hook anchor always 0 (preprocessor never executes).
 # ═══════════════════════════════════════════════════════════════════════════
 HOOK_ANCHOR = "preprocessor = PREPROCESS_REGISTRY.get(preprocess_name)"
 
-FAKE_WEBHOOK_INLINE = """# fake webhook.py — 现行 hermes 形态(行内 prompt 渲染, 无 Format-prompt 注释)
+FAKE_WEBHOOK_INLINE = """# fake webhook.py — current hermes form (inline prompt rendering, no Format-prompt comment)
 import logging
 logger = logging.getLogger(__name__)
 
@@ -112,7 +112,7 @@ class Handler:
         return prompt, session_chat_id
 """
 
-FAKE_WEBHOOK_NO_ANCHOR = """# fake webhook.py — 既没有 legacy 注释锚, 也没有行内渲染锚
+FAKE_WEBHOOK_NO_ANCHOR = """# fake webhook.py — has neither the legacy comment anchor nor the inline render anchor
 import logging
 logger = logging.getLogger(__name__)
 
@@ -130,33 +130,33 @@ def webhook_py_inline(tmp_path):
 
 
 def test_patch_inline_render_form_inserts_call_hook(webhook_py_inline):
-    """本机形态(现行 hermes)⇒ 调用钩子锚 ≥1 且关键锚全齐、文件仍是合法 Python。"""
+    """Local form (current hermes) ⇒ call hook anchor ≥1 and all key anchors present, file is still valid Python."""
     assert patch_webhook(str(webhook_py_inline)) is True, "patch must modify"
     patched = webhook_py_inline.read_text()
-    assert patched.count(HOOK_ANCHOR) == 1, "调用钩子必须恰好插入一次"
-    assert webhook_patch_gaps(str(webhook_py_inline)) == [], "关键锚必须全齐"
-    compile(patched, str(webhook_py_inline), "exec")  # 缩进跟着锚行走, 不能写坏文件
+    assert patched.count(HOOK_ANCHOR) == 1, "Call hook must be inserted exactly once"
+    assert webhook_patch_gaps(str(webhook_py_inline)) == [], "All key anchors must be present"
+    compile(patched, str(webhook_py_inline), "exec")  # Indentation follows the anchor line, cannot corrupt the file
 
-    # 幂等重跑:仍成功、钩子不翻倍
+    # Idempotent re-run: still succeeds, hook does not double
     assert patch_webhook(str(webhook_py_inline)) is True
     twice = webhook_py_inline.read_text()
-    assert twice.count(HOOK_ANCHOR) == 1, "幂等重跑把钩子块插了两份"
+    assert twice.count(HOOK_ANCHOR) == 1, "Idempotent re-run inserted the hook block twice"
 
-    # unpatch 剥掉钩子(与 patch 同一行区间规则 ⇒ 对称)
+    # unpatch strips the hook (same line range rule as patch ⇒ symmetric)
     unpatch_webhook(webhook_py_inline)
     assert HOOK_ANCHOR not in webhook_py_inline.read_text()
 
 
 def test_patch_unknown_form_fails_with_expected_anchor(tmp_path, capsys):
-    """不匹配形态 ⇒ rc≠0(patch_webhook 返回 False)且文案含**期望锚原文**。"""
+    """Non-matching form ⇒ rc≠0 (patch_webhook returns False) and message contains **expected anchor original text**."""
     p = tmp_path / "webhook.py"
     p.write_text(FAKE_WEBHOOK_NO_ANCHOR)
-    assert patch_webhook(str(p)) is False, "锚齐不了就必须判失败"
+    assert patch_webhook(str(p)) is False, "Must judge as failure if anchors cannot be aligned"
     err = capsys.readouterr().err
-    assert "ERROR: 关键锚缺失" in err
-    # 期望锚原文:调用钩子锚 + 两套 prompt 渲染锚, 缺哪块点名哪块
-    assert HOOK_ANCHOR in err, "失败文案必须带调用钩子锚原文"
-    assert "# Format prompt from template" in err, "失败文案必须带 legacy 渲染锚原文"
-    assert '_render_prompt(route_config.get("prompt", "")' in err, "失败文案必须带行内渲染锚原文"
+    assert "ERROR: critical anchor missing" in err
+    # Expected anchor original text: call hook anchor + two sets of prompt rendering anchors, name the missing block
+    assert HOOK_ANCHOR in err, "Failure message must contain call hook anchor original text"
+    assert "# Format prompt from template" in err, "Failure message must contain legacy rendering anchor original text"
+    assert '_render_prompt(route_config.get("prompt", "")' in err, "Failure message must contain inline rendering anchor original text"
     assert missing_webhook_anchors(p.read_text()) != []
     assert webhook_patch_gaps(str(p)) != []

@@ -1,17 +1,17 @@
-"""SDK 语言边界契约(owner 裁决 2026-10-11): pysdk 与 tssdk 相互独立 ——
-``pysdk/`` 里不得有 nodejs 代码, ``tssdk/`` 里不得有 python 代码。
+"""SDK language boundary contract (owner ruling 2026-10-11): pysdk and tssdk are independent ——
+``pysdk/`` must not contain nodejs code, ``tssdk/`` must not contain python code.
 
-为什么码层固化: "独立"靠人记会漂。两边各自被自己的语言工具链消费(pip wheel / npm
-tarball), 掺入对侧语言会引出对侧工具链依赖(装 node 才能跑 pysdk?装 python 才能
-发 tssdk?), 跨机复现时先坏在这里。仓根 ``scripts/`` 是语言中立的仓级工具区, 不受此限。
+Why hardcoded at code level: "independence" drifts if relied on memory. Each side is consumed by its own language toolchain (pip wheel / npm
+tarball), mixing in the other language introduces dependencies on the other toolchain (install node to run pysdk? install python to
+publish tssdk?), cross-machine reproduction breaks here first. Repo root ``scripts/`` is language-neutral repo-level tool area, not subject to this limit.
 
-本测试只做文件树断言(不做产物断言: 产物层指纹在 L2 check-tarball / npm pack 各自守)。
+This test only does file tree assertions (no artifact assertions: artifact layer fingerprints are guarded by L2 check-tarball / npm pack respectively).
 """
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 
-# 允许的例外(生成物/第三方): 只跳过 node_modules 与编译产物目录。
+# Allowed exceptions (generated/third-party): only skip node_modules and compiled artifact directories.
 SKIP_DIRS = {"node_modules", "__pycache__", ".git", "lib", "dist", "target"}
 
 
@@ -33,12 +33,12 @@ def test_no_node_code_in_pysdk():
     hits += [str(p.relative_to(REPO)) for p in (REPO / "pysdk").rglob("package.json")
              if not any(part in SKIP_DIRS for part in p.relative_to(REPO / "pysdk").parts[:-1])]
     assert not hits, (
-        "pysdk/ 里出现 nodejs 代码(应移出到 tssdk/ 或仓根 scripts/):\n  "
+        "pysdk/ contains nodejs code (should be moved to tssdk/ or repo root scripts/):\n  "
         + "\n  ".join(sorted(hits)))
 
 
 def test_no_python_code_in_tssdk():
     hits = _files_under(REPO / "tssdk", {".py"})
     assert not hits, (
-        "tssdk/ 里出现 python 代码(应移出到 pysdk/ 或仓根 scripts/):\n  "
+        "tssdk/ contains python code (should be moved to pysdk/ or repo root scripts/):\n  "
         + "\n  ".join(hits))

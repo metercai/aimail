@@ -1,12 +1,12 @@
-//! `aimail platform` —— 检测面机器导出（契约 v1.0 §5）。
+//! `aimail platform` — machine-readable export of the detection surface (contract v1.0 §5).
 //!
 //! `aimail platform spec [--home <dir>] [--json]`：
-//!   · 无 `--home` ⇒ 打印平台静态知识表（常量三分里的"CLI 探测模块"部分）；
-//!   · 带 `--home` ⇒ 附上对该 home 的探测结果（命中即平台/transport/agent 键/指针/入口；
-//!     探测失败以 `{"error": "…"}` 呈现，禁用 `unknown` 冒充成功）。
+//!   · Without `--home` ⇒ print the platform static knowledge table (the "CLI probe module" part of the constant tripartite);
+//!   · With `--home` ⇒ append the probe results for that home (hit means platform/transport/agent key/pointer/entry;
+//!     probe failure is presented as `{"error": "…"}`, forbidding `unknown` to masquerade as success).
 //!
-//! 为什么由 CLI 导出：门禁与夹具原先直读平台注册表 JSON 文件（S3b 已删）；单一真源仍是
-//! `core::detect` 内的常量，本命令只是可断言的导出面（契约 §5）。
+//! Why exported by CLI: gates and fixtures originally read platform registry JSON files directly (removed in S3b); the single source of truth is still
+//! the constants in `core::detect`; this command is just an assertable export interface (Contract §5).
 
 pub struct Args {
     pub home: Option<String>,

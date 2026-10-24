@@ -1,14 +1,14 @@
-"""prompt_rules 契约(Python 侧, 与 tssdk prompt-rules.test.ts 同型)。
+"""prompt_rules contract (Python side, isomorphic to tssdk prompt-rules.test.ts).
 
-裁决 2026-09-23:
-  ① 字段=subject/body/sender/recipient 包含匹配(大小写不敏感);
-     字段内多关键字=或, 字段间=且
-  ② name={10-99 序号}_{filename}; 实际加载看 rule["file"]
-  ③ 链序固定: [WHOAMI] > welcome > board > X-AIMail-Prompt header >
-     本地规则(name 字母序, 首中即止); 命中但文件缺失(含 common 兜底都无)
-     ⇒ WARN 续走; 任何一层不阻断送达
-  ④ 键 prompt_rules(存 agentmail.json, 仅该 agent)
-  ⑦ header 是网关扩展点: 双源 payload.headers / HTTP 头参数, 大小写不敏感
+Ruling 2026-09-23:
+  ① Fields=subject/body/sender/recipient contain match (case-insensitive);
+     Multiple keywords within a field=OR, between fields=AND
+  ② name={10-99 sequence}_{filename}; actual loading depends on rule["file"]
+  ③ Chain order fixed: [WHOAMI] > welcome > board > X-AIMail-Prompt header >
+     Local rules (name alphabetical order, stop at first match); matched but file missing (including common fallback also absent)
+     ⇒ WARN continue; no layer blocks delivery
+  ④ Key prompt_rules (stored in agentmail.json, only for that agent)
+  ⑦ header is a gateway extension point: dual source payload.headers / HTTP header parameter, case-insensitive
 """
 import json
 import logging
@@ -33,7 +33,7 @@ def _mail(subject="quarterly review", body="please review the numbers", **over):
 
 
 def _sandbox(tmp_path, monkeypatch, rules=None):
-    """沙箱: AIMAIL_HOME→tmp, 注入 agent 配置(含 prompt_rules)与 profile 指针。"""
+    """Sandbox: AIMAIL_HOME→tmp, inject agent config (including prompt_rules) and profile pointer."""
     monkeypatch.setenv("AIMAIL_HOME", str(tmp_path))
     cfg = {"email": AGENT_EMAIL, "system_id": SYSTEM_ID}
     if rules is not None:
@@ -50,37 +50,37 @@ def _sandbox(tmp_path, monkeypatch, rules=None):
     return role_dir
 
 
-# ── ① 匹配矩阵: 字段内或 / 字段间且 / 大小写 / 缺席与坏型 ──────────
+# ── ① Matching matrix: OR within field / AND between fields / case / absence and bad type ──────────
 
 def test_field_or_within_and_across_fields():
     rule = {"name": "10_a", "file": "a",
             "subject": ["[incident]", "告警"], "sender": ["ops@x.com"]}
     assert ab.prompt_rule_matches(rule, "[INCIDENT] cluster down", "", "ops@x.com", "")
     assert ab.prompt_rule_matches(rule, "集群有告警", "", "OPS@X.COM", "")   # 字段内 or + 大小写
-    assert not ab.prompt_rule_matches(rule, "plain mail", "", "ops@x.com", "")   # subject 未中
-    assert not ab.prompt_rule_matches(rule, "[incident]", "", "boss@corp.com", "")  # 字段间 and
+    assert not ab.prompt_rule_matches(rule, "plain mail", "", "ops@x.com", "")   # subject not hit
+    assert not ab.prompt_rule_matches(rule, "[incident]", "", "boss@corp.com", "")  # and between fields
 
 
 def test_absent_field_skips_empty_list_skips_bad_type_fails():
     absent = {"name": "10_a", "file": "a", "sender": ["boss@"]}
     assert ab.prompt_rule_matches(absent, "anything at all", "", "boss@corp.com", "")
     empty_ok = {"name": "10_a", "file": "a", "subject": [], "sender": ["boss@"]}
-    assert ab.prompt_rule_matches(empty_ok, "anything", "", "boss@corp.com", "")  # 空表=未给
+    assert ab.prompt_rule_matches(empty_ok, "anything", "", "boss@corp.com", "")  # empty table=not provided
     bad_type = {"name": "10_a", "file": "a", "subject": {"k": 1}}
-    assert not ab.prompt_rule_matches(bad_type, "x", "", "", "")                  # 坏型=不命中
+    assert not ab.prompt_rule_matches(bad_type, "x", "", "", "")                  # bad type=no hit
 
 
-# ── loader: 过滤坏项 + name 字母序(裁决②③) ────────────────────────
+# ── loader: filter bad items + name alphabetical order (ruling ②③) ────────────────────────
 
 def test_loader_filters_bad_items_and_orders_by_name(tmp_path, monkeypatch):
     _sandbox(tmp_path, monkeypatch, rules=[
         {"name": "12_incident", "file": "incident", "subject": ["x"]},
         {"name": "10_audit", "file": "audit", "body": ["a"]},
-        {"name": "09_bad_serial", "file": "bad", "subject": ["x"]},   # 序号 <10
-        {"name": "13_nofile", "subject": ["x"]},                      # 缺 file
+        {"name": "09_bad_serial", "file": "bad", "subject": ["x"]},   # serial <10
+        {"name": "13_nofile", "subject": ["x"]},                      # missing file
         {"name": "14_off", "file": "off", "subject": ["x"], "enabled": False},
-        {"name": "15_nofield", "file": "nf"},                         # 无任何字段
-        {"name": "16_badtype", "file": "bt", "subject": 123},         # 字段坏型
+        {"name": "15_nofield", "file": "nf"},                         # no fields at all
+        {"name": "16_badtype", "file": "bt", "subject": 123},         # field bad type
         "not-an-object",
     ])
     assert [r["name"] for r in ab.read_prompt_rules()] == ["10_audit", "12_incident"]
@@ -89,11 +89,11 @@ def test_loader_filters_bad_items_and_orders_by_name(tmp_path, monkeypatch):
 def test_loader_no_config_or_no_key_is_empty_not_error(tmp_path, monkeypatch):
     monkeypatch.setattr(ab, "_CONFIG_LOADER", None)
     assert ab.read_prompt_rules() == []
-    _sandbox(tmp_path, monkeypatch, rules=None)  # cfg 无 prompt_rules 键
+    _sandbox(tmp_path, monkeypatch, rules=None)  # cfg has no prompt_rules key
     assert ab.read_prompt_rules() == []
 
 
-# ── 链序集成(③⑦): header 双源 / board 压制 / 首中即止 / 缺文件续走 ──
+# ── Chain order integration (③⑦): header dual source / board suppression / stop at first hit / continue on missing file ──
 
 def test_header_layer_wins_over_local_rules(tmp_path, monkeypatch):
     role_dir = _sandbox(tmp_path, monkeypatch, rules=[
@@ -111,7 +111,7 @@ def test_header_also_read_from_payload_headers(tmp_path, monkeypatch):
 
     r = ab.preprocess_mail_payload(
         _mail(headers={"X-aimail-prompt": "hdr_role"}), {})
-    assert r["_role_prompt"] == "HDR-VIA-PAYLOAD"        # 邮件头源(网关扩展点)
+    assert r["_role_prompt"] == "HDR-VIA-PAYLOAD"        # Email header source (gateway extension point)
 
 
 def test_header_missing_file_warns_and_falls_through(tmp_path, monkeypatch, caplog):
@@ -133,7 +133,7 @@ def test_board_role_blocks_custom_layers(tmp_path, monkeypatch):
 
     r = ab.preprocess_mail_payload(
         _mail(board_id="B-7", board_role="worker"), {"X-AIMail-Prompt": "ghost"})
-    assert r["_role_prompt"] == "WORKER B-7"             # board(L3) 压制 L4/L5
+    assert r["_role_prompt"] == "WORKER B-7"             # board(L3) suppresses L4/L5
     assert r["_a2a_session_key"] == "a2a:B-7:boss@corp.com"
 
 
@@ -146,7 +146,7 @@ def test_name_order_first_hit(tmp_path, monkeypatch):
     (role_dir / "incident.md").write_text("INCIDENT", encoding="utf-8")
 
     r = ab.preprocess_mail_payload(_mail(), {})
-    assert r["_role_prompt"] == "AUDIT"                  # 10 < 12, 首中即止
+    assert r["_role_prompt"] == "AUDIT"                  # 10 < 12, stop at first hit
 
 
 def test_matched_rule_missing_file_warns_and_next_rule(tmp_path, monkeypatch, caplog):
@@ -154,7 +154,7 @@ def test_matched_rule_missing_file_warns_and_next_rule(tmp_path, monkeypatch, ca
         {"name": "10_ghost", "file": "ghost", "subject": ["quarterly"]},
         {"name": "12_real", "file": "real", "subject": ["quarterly"]},
     ])
-    (role_dir / "real.md").write_text("REAL", encoding="utf-8")  # ghost 三级都没有(无 common)
+    (role_dir / "real.md").write_text("REAL", encoding="utf-8")  # ghost none of the three levels (no common)
 
     with caplog.at_level(logging.WARNING, logger=ab.logger.name):
         r = ab.preprocess_mail_payload(_mail(), {})
@@ -170,11 +170,11 @@ def test_builtins_preempt_custom_rules(tmp_path, monkeypatch):
     (role_dir / "role_calibrator.md").write_text("CALIBRATOR", encoding="utf-8")
     (role_dir / "whoami.md").write_text("WHOAMI", encoding="utf-8")
 
-    # L1 [WHOAMI] 早返回
+    # L1 [WHOAMI] early return
     r = ab.preprocess_mail_payload(_mail(subject="[WHOAMI] who?"), {})
     assert r.get("_whoami_prompt") == "WHOAMI"
     assert "_role_prompt" not in r
-    # L2 welcome(主题标记 + 三标签) 早返回
+    # L2 welcome (subject marker + three tags) early return
     body = ("persona: P\nsignature: S\ncurrent_time: 2026-09-23\n")
     r = ab.preprocess_mail_payload(
         _mail(subject="Welcome to AIMail World, a1, since 2026-09-23!", body=body), {})

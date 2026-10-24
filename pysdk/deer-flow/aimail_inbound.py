@@ -1,19 +1,19 @@
-"""aimail_inbound.py — AIMail 入站端点(2026-08-18 重构)。
+"""aimail_inbound.py — AIMail inbound endpoint (2026-08-18 refactor).
 
-预处理并入 DeerFlow 本地 gateway 进程(仿 Hermes 进程内预处理)。
+Preprocessing merged into DeerFlow local gateway process (mimicking Hermes in-process preprocessing).
 
-链路:
-  aimail-gateway → aimail-bridge(透明代理,跨网 pull / 同内网直连)
+Chain:
+  aimail-gateway -> aimail-bridge (transparent proxy, cross-network pull / same intranet direct connection)
     → POST /aimail/inbound
-      → HMAC 验签(X-Webhook-Signature, per-address webhook_secret)
-      → 共享 process_inbound_mail(aimail 适配层 aimail_deerflow)
-      → ping/pong 拦截 → 200 吞掉(不触发 agent)
-      → 未拦截 → start_run 内部投递(thread = uuid5("aimail", email),
-        会话按地址稳定;assistant_id 从 agentmail.json 读)
-      → 立即 200(bridge 即刻 ack pending,agent 后台处理)
+      → HMAC signature verification (X-Webhook-Signature, per-address webhook_secret)
+      → Shared process_inbound_mail (aimail adapter layer aimail_deerflow)
+      → ping/pong interception → 200 swallowed (does not trigger agent)
+      → Not intercepted → start_run internal delivery (thread = uuid5("aimail", email),
+        session stable by address; assistant_id read from agentmail.json)
+      → Immediate 200 (bridge acks pending immediately, agent processes in background)
 
-依赖:aimail 仓库(pysdk/aimail_base + pysdk/deer-flow/aimail_deerflow)
-按共享布局落 agentmail.json(~/.aimail/systems/{sid}/{cleaned_addr}/)。
+Dependencies: aimail repository (pysdk/aimail_base + pysdk/deer-flow/aimail_deerflow)
+Place agentmail.json according to shared layout (~/.aimail/systems/{sid}/{cleaned_addr}/).
 """
 from __future__ import annotations
 
@@ -32,12 +32,12 @@ from fastapi.responses import JSONResponse
 
 logger = logging.getLogger(__name__)
 
-# 注:router 在下方 _aimail_bootstrap() 之后建立 —— prefix/route 两段都取自契约
-# 常量(aimail_contract.INBOUND_PATH), 而常量模块要等核心目录进 sys.path。
+# Note: router is established after _aimail_bootstrap() below —— both prefix/route segments are taken from the contract
+# constants (aimail_contract.INBOUND_PATH), and the constants module must wait for the core directory to enter sys.path.
 
-# ── aimail 运行时核心定位(bundle / site-packages / 仓库 dev;不再依赖仓库路径)──
+# ── aimail runtime core location (bundle / site-packages / repo dev; no longer depends on repo path) ──
 def _aimail_bootstrap():
-    """定位 aimail 运行时核心,装配 sys.path。"""
+    """Locate aimail runtime core, assemble sys.path."""
     import importlib.util as _ilu
     _here = os.path.dirname(os.path.abspath(__file__))
     for _d in (_here, os.path.dirname(_here)):
@@ -58,24 +58,24 @@ def _aimail_bootstrap():
 
 _aimail_bootstrap()
 
-# 共享核心(aimail_home 等):_find_agent_config 用 _ab.aimail_home()
-# 解析 home,必须 import aimail_base——缺了会 NameError。
+# Shared core (aimail_home etc.): _find_agent_config uses _ab.aimail_home()
+# Resolving home, must import aimail_base —— missing it will cause NameError.
 import aimail_base as _ab  # noqa: E402
-import aimail_contract as _contract  # noqa: E402  (入站路径唯一真源 = 契约)
+import aimail_contract as _contract  # noqa: E402  (inbound path single source of truth = contract)
 
-# 契约入站路径(默认 /aimail/inbound)必须**原样**成为 FastAPI 的挂载路径。
-# ⚠ 不得拆成 APIRouter(prefix=…) + @router.post(leaf) 两段: 叶子段无前导斜杠时
-# FastAPI 把 prefix 与它**直接相接**, 契约里那个 "/" 就没了 ⇒ "/aimail"+"inbound"
-# = "/aimailinbound"(2026-09-27 实机取证: 契约路径 404、畸形路径 200)。注册链
-# (manage.py)/桥/网关一律按契约路径投递 ⇒ 那一跳永远到不了适配器(可投递性缺陷)。
-# 现在整条路径直接取自唯一真源, 挂载路径 == 契约路径(单测
-# tests/test_deerflow_inbound_route.py 对此做断言)。
+# Contract inbound path (default /aimail/inbound) must become the FastAPI mount path **as-is**.
+# ⚠ Must not be split into APIRouter(prefix=…) + @router.post(leaf) two segments: when the leaf segment has no leading slash
+# FastAPI **directly concatenates** the prefix with it, and the "/" in the contract is lost ⇒ "/aimail"+"inbound"
+# = "/aimailinbound" (2026-09-27 live evidence: contract path 404, malformed path 200). Registration chain
+# (manage.py)/bridge/gateway all deliver according to contract path ⇒ that hop never reaches the adapter (deliverability defect).
+# Now the entire path is taken directly from the single source of truth, mount path == contract path (unit test
+# tests/test_deerflow_inbound_route.py asserts this).
 _INBOUND_PATH = _contract.INBOUND_PATH
 router = APIRouter(tags=["aimail"])
 
 
 def _verify_hmac(secret: str, body: bytes, signature: str) -> bool:
-    """对照 aimail gateway webhook.rs sign_payload:HMAC-SHA256(body, secret),hex 比较。"""
+    """Compare with aimail gateway webhook.rs sign_payload: HMAC-SHA256(body, secret), hex comparison."""
     if not secret or not signature:
         return False
     expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
@@ -83,7 +83,7 @@ def _verify_hmac(secret: str, body: bytes, signature: str) -> bool:
 
 
 def _find_agent_config(email: str) -> dict | None:
-    """遍历共享布局 systems/{sid}/*/agentmail.json,按收件地址匹配。"""
+    """Iterate shared layout systems/{sid}/*/agentmail.json, match by recipient address."""
     base = Path(_ab.aimail_home()) / "systems"
     if not base.is_dir():
         return None
@@ -105,7 +105,7 @@ def _find_agent_config(email: str) -> dict | None:
 
 
 def _thread_id_for(email: str) -> str:
-    """按地址稳定派生 thread_id(与旧 dispatch_to_deerflow 同构,会话连续)。"""
+    """Stably derive thread_id by address (isomorphic to old dispatch_to_deerflow, session continuous)."""
     return str(uuid.uuid5(uuid.NAMESPACE_DNS, f"aimail:{email}"))
 
 
@@ -117,10 +117,10 @@ async def aimail_inbound(request: Request) -> JSONResponse:
     except Exception:
         return JSONResponse({"error": "invalid body"}, status_code=400)
 
-    # ── 1. 收件地址 + 验签(per-address webhook_secret)──
-    # 路由目标 = X-AIMail-Email 头(网关/bridge 按每份投递目标注入的 rcpt 地址;
-    # aimail-gateway 只写 X-AIMail-Email)。payload.to 是过滤后的全量列表
-    # (外投在前),to[0] 常为外部地址,不能作为路由依据——仅当头缺失时兜底。
+    # ── 1. Recipient address + signature verification (per-address webhook_secret) ──
+    # Routing target = X-AIMail-Email header (gateway/bridge injects rcpt address per delivery target;
+    # aimail-gateway only writes X-AIMail-Email). payload.to is the filtered full list
+    # (external delivery first), to[0] is often an external address, cannot be used as routing basis —— only fallback when head is missing.
     email = request.headers.get("X-AIMail-Email", "")
     if not email and isinstance(payload, dict):
         email = payload.get("to", "")
@@ -128,8 +128,8 @@ async def aimail_inbound(request: Request) -> JSONResponse:
             email = email[0] if email else ""
     cfg = _find_agent_config(email)
     if not cfg:
-        # 响应不回显地址(未认证探测者可按 200/401 差异+回显枚举注册状态);
-        # 具体地址只进服务端日志
+        # Response does not echo address (unauthenticated prober can enumerate registration status by 200/401 difference + echo);
+        # specific address only goes to server-side logs
         logger.warning("aimail: no agent config for %s", email)
         return JSONResponse({"status": "no_agent"})
 
@@ -138,9 +138,9 @@ async def aimail_inbound(request: Request) -> JSONResponse:
         logger.warning("aimail: bad signature for %s", email)
         return JSONResponse({"error": "bad signature"}, status_code=401)
 
-    # ── 2. 共享入站预处理(与 Hermes 同一实现)──
-    # 身份解析 → persona 归一 → 富化 → 附件落盘 → 存储;最后一步 ping/pong 拦截。
-    import aimail_deerflow as _base  # 适配层:注入点赋值 + 身份注入 + 转发共享函数
+    # ── 2. Shared inbound preprocessing (same implementation as Hermes) ──
+    # Identity resolution → persona normalization → enrichment → attachment disk write → storage; last step ping/pong interception.
+    import aimail_deerflow as _base  # Adapter layer: injection point assignment + identity injection + forward shared functions
 
     agent_id = cfg.get("agent_id", "") or "default"
     try:
@@ -155,11 +155,11 @@ async def aimail_inbound(request: Request) -> JSONResponse:
         logger.exception("aimail: preprocess failed for %s", email)
         return JSONResponse({"error": f"preprocess failed: {e}"}, status_code=500)
     if enriched is None:
-        return JSONResponse({"status": "intercepted"})  # ping/pong,不触发 agent
+        return JSONResponse({"status": "intercepted"})  # ping/pong, does not trigger agent
 
-    # ── 3. 内部投递:start_run(后台任务,立即返回)──
-    # 完整渲染(共享 render_message = json.dumps(payload) 语义,与 Hermes/
-    # OpenClaw 一致):agent 需要 sender/recipients/my_aimail_addr 才知道回复谁。
+    # ── 3. Internal delivery: start_run (background task, returns immediately) ──
+    # Full rendering (shared render_message = json.dumps(payload) semantics, consistent with Hermes/
+    # OpenClaw): agent needs sender/recipients/my_aimail_addr to know who to reply to.
     from app.gateway.run_models import RunCreateRequest
     from app.gateway.services import start_run
 
@@ -187,20 +187,20 @@ async def aimail_inbound(request: Request) -> JSONResponse:
 
 
 # ═══════════════════════════════════════════════════════════════
-# agent-scope 定时轮询入口(pull-entry)—— install/启动收尾接的最后一根线
+# agent-scope scheduled polling entry (pull-entry) —— the last wire connected by install/startup finishing
 # ═══════════════════════════════════════════════════════════════
-# 地址级激活码兑回来的地址**没有 push 路径**(网关给它写 webhook_url = NULL),
-# 只能自己定时 pull; 而 DeerFlow 宿主是长驻应用 ⇒ 在**应用启动**时把这条线接上
-# (由 manage.py 的 app.py 补丁在 include_router 之后调 start_pull_on_startup(app),
-# 见 patch_backend_app)。判定/间隔/关停/失败不 ack 全部复用共享核心
+# Addresses redeemed by address-level activation codes **have no push path** (gateway writes webhook_url = NULL for them),
+# Only self-scheduled pull; and the DeerFlow host is a long-running application ⇒ wire this up at **application startup**
+# (called by manage.py's app.py patch after include_router to call start_pull_on_startup(app),
+# see patch_backend_app). Judgment/interval/shutdown/failure-no-ack all reuse the shared core
 # (aimail_base: is_agent_scope_binding / resolve_agent_pull_settings /
-# start_agent_pull_entries), 语义与 TS mail-core poll-entry.ts 逐条对齐。
+# start_agent_pull_entries), semantics aligned line-by-line with TS mail-core poll-entry.ts.
 #
-# pull 与 push 共用**同一条入站链**: 投递按 push 的原样请求(同一契约路径 +
-# per-address HMAC 头)打回本机入站端点 ⇒ 上面那个 aimail_inbound 处理函数
-# (验签 → 共享预处理 → start_run)逐字生效。
+# pull and push share **the same inbound chain**: delivery is sent back to the local inbound endpoint as the original push request (same contract path +
+# per-address HMAC header) ⇒ the aimail_inbound handler above
+# (signature verification → shared preprocessing → start_run) applies verbatim.
 
-#: 本机入站端点(注册链同源: manage.py 用同一环境变量拼 webhook_url)。
+#: Local inbound endpoint (same source as registration chain: manage.py uses the same environment variable to build webhook_url).
 _DEERFLOW_INBOUND_BASE_ENV = "DEERFLOW_INBOUND_URL"
 
 
@@ -210,19 +210,19 @@ def _inbound_base() -> str:
 
 
 def _pull_replay_target(cfg: dict) -> dict:
-    """解析"把这封 pull 到的投递打回本机入站端点"所需的 (url, secret)。
+    """Resolve the (url, secret) needed to "bounce this pulled delivery back to the local inbound endpoint".
 
-    绑定自身的 webhook_url/webhook_secret(注册链落盘, 唯一信任源)优先;
-    url 缺失则回退到宿主当前入站端点(环境变量 / 契约端口 + 契约路径)。
+    Binding its own webhook_url/webhook_secret (persisted by registration chain, single source of truth) takes priority;
+    if url is missing, fall back to the host's current inbound endpoint (environment variable / contract port + contract path).
     """
     default_url = _inbound_base().rstrip("/") + _contract.INBOUND_PATH
     return _ab.resolve_inbound_replay_target(cfg, default_url=default_url)
 
 
 def _on_pull_email(cfg: dict, mail: dict) -> dict:
-    """pull 来的信按 push 原样请求打回本机入站端点(同一条链)。
+    """Send pulled mail back to the local inbound endpoint as the original push request (same chain).
 
-    失败抛异常 ⇒ start_polling 不 ack ⇒ 下轮重拉(不丢件)。
+    Failure raises exception ⇒ start_polling does not ack ⇒ re-pull next round (no loss).
     """
     target = _pull_replay_target(cfg)
     if not target.get("ok"):
@@ -233,10 +233,10 @@ def _on_pull_email(cfg: dict, mail: dict) -> dict:
 
 
 def _pull_system_id() -> str:
-    """本机 system_id(AIMAIL_SYSTEM_ID / 平台指针; 空 = 扫全部系统)。
+    """Local system_id (AIMAIL_SYSTEM_ID / platform pointer; empty = scan all systems).
 
-    与注册链同源: 用适配层 forward 的 detect_system_id(manage.py 对账也用同一个),
-    取不到就退到共享核心的 resolve_system_id_for_email 指针兜底。
+    Same source as registration chain: uses the adapter layer forward's detect_system_id (manage.py reconciliation uses the same one),
+    if unavailable, falls back to the shared core's resolve_system_id_for_email pointer.
     """
     try:
         import aimail_deerflow as _df
@@ -252,36 +252,36 @@ def _pull_system_id() -> str:
 
 
 def _wire_pull_to_lifespan(app, on_startup, on_shutdown) -> None:
-    """把 (on_startup, on_shutdown) 包进**宿主 lifespan**(`app.router.lifespan_context`)。
+    """Wrap (on_startup, on_shutdown) into the **host lifespan** (`app.router.lifespan_context`).
 
-    为什么是包装 lifespan 而不是事件钩子(2026-09-28 同镜像实测, 宿主
-    fastapi 0.136.1 / starlette 1.3.1 —— 见
+    Why wrap lifespan instead of event hooks (2026-09-28 same image test, host
+    fastapi 0.136.1 / starlette 1.3.1 —— see
     `tests/SDK/docker-regression/hosts/e2-deerflow-pull-wiring-findings.md`):
-      · `app.add_event_handler("startup", …)` 已被删除 ⇒ AttributeError(原缺陷);
-      · `@app.on_event("startup")` 在宿主给了显式 `lifespan=` 时 **HOOK_FIRED=False**;
-      · 包装 `app.router.lifespan_context` ⇒ **HOOK_FIRED=True**。
-    `lifespan_context` 是星形应用唯一保留的启动机制(默认 `_DefaultLifespan` 亦为
-    callable), 对**没有**自定 lifespan 的宿主同样有效 ⇒ **主路径不依赖任何已删除 API**。
+      · `app.add_event_handler("startup", …)` has been removed ⇒ AttributeError (original defect);
+      · `@app.on_event("startup")` when the host provides an explicit `lifespan=` **HOOK_FIRED=False**;
+      · Wrapping `app.router.lifespan_context` ⇒ **HOOK_FIRED=True**.
+    `lifespan_context` is the only startup mechanism retained by star applications (default `_DefaultLifespan` is also
+    callable), and works for hosts **without** a custom lifespan ⇒ **main path does not depend on any removed API**.
 
-    次序(缺一不可): 宿主 lifespan 先 ENTER(路由/持久化/端点就绪 —— pull 要把投递
-    打回宿主自己的入站端点) → 我们的 on_startup → **原样透传**宿主 yield 的 state
-    (丢掉会静默改变宿主行为) → finally 反向关停。
-    幂等: 已包装过则直接返回(`_aimail_pull_wrapped` 与 `app._aimail_pull_wired` 双保险)。
+    Order (none can be missing): host lifespan ENTER first (routing/persistence/endpoints ready —— pull bounces delivery
+    bounce back to the host's own inbound endpoint) → our on_startup → **pass through as-is** the state the host yields
+    (dropping it would silently change host behavior) → finally reverse shutdown.
+    Idempotent: if already wrapped, return directly (`_aimail_pull_wrapped` and `app._aimail_pull_wired` double insurance).
     """
     router = getattr(app, "router", None)
     if router is None or not hasattr(router, "lifespan_context"):
         raise RuntimeError(
-            "host app 没有 router.lifespan_context —— 无法把 agent-scope pull 接上")
+            "host app has no router.lifespan_context —— cannot connect agent-scope pull")
     orig = router.lifespan_context
     if getattr(orig, "_aimail_pull_wrapped", False):
         return
 
     @contextlib.asynccontextmanager
     async def _aimail_pull_lifespan(inner_app):
-        async with orig(inner_app) as _state:   # 宿主 lifespan 先起
+        async with orig(inner_app) as _state:   # host lifespan starts first
             await on_startup()
             try:
-                yield _state                    # 原样透传宿主 yield 的 state
+                yield _state                    # pass through host yielded state as-is
             finally:
                 await on_shutdown()
 
@@ -290,16 +290,16 @@ def _wire_pull_to_lifespan(app, on_startup, on_shutdown) -> None:
 
 
 def start_pull_on_startup(app) -> bool:
-    """把 agent-scope 轮询挂到**宿主 lifespan**上(长驻宿主生命周期)。
+    """Attach agent-scope polling to the **host lifespan** (long-running host lifecycle).
 
-    由 app.py 补丁在 include_router 之后调用(manage.py:patch_backend_app)。
-    启动收尾起循环、关停收尾停循环; 幂等(重复调用只挂一次)。
+    Called by the app.py patch after include_router (manage.py:patch_backend_app).
+    Start loop at startup finish, stop loop at shutdown finish; idempotent (repeated calls only wire once).
 
-    **接线失败不许静默**(本缺陷的病因: 异常被吞 ⇒ 潜伏到门禁才发现): 失败时
-    ① 大声记 `logger.error`(带异常类型与原因) ② 返回值 `False` ③ 在 `app` 上留
-    可查询的标志(`_aimail_pull_wired=False` + `_aimail_pull_wire_error=<原因>`)。
-    这里**不抛出**: 调用点在宿主 app.py 的模块级导入路径上, 抛出会把整个宿主
-    (deer-flow 网关) 拖死 —— 静默与拖死都不是选项, 故取"大声 + 可查询 + 不拖垮"。
+    **Wiring failure must not be silent** (cause of this defect: exception swallowed ⇒ latent until gate check): on failure
+    ① loudly log `logger.error` (with exception type and reason) ② return value `False` ③ leave on `app`
+    a queryable flag (`_aimail_pull_wired=False` + `_aimail_pull_wire_error=<reason>`).
+    Here **do not raise**: the call site is on the module-level import path of the host app.py, raising would drag down the entire host
+    (deer-flow gateway) dragging to death —— silence and dragging to death are both not options, so choose "loud + queryable + not dragging down".
     """
     if getattr(app, "_aimail_pull_wired", False):
         return True
@@ -313,16 +313,16 @@ def start_pull_on_startup(app) -> bool:
                 target_for=_pull_replay_target,
                 log=lambda line: logger.info("%s", line),
             ))
-        except Exception as e:  # noqa: BLE001 — 循环起不来不拖垮宿主, 但必须大声
-            logger.error("aimail: pull entry start FAILED (%s: %s) —— 轮询未运行",
+        except Exception as e:  # noqa: BLE001 — loop failure does not drag down host, but must be loud
+            logger.error("aimail: pull entry start FAILED (%s: %s) —— polling not running",
                          type(e).__name__, e)
         logger.info("aimail: agent-scope pull entries: %d started", len(handles))
-        # Inbound notification (owner ruling 2026-09-28, SDK 去桥化): deer-flow 的
-        # 宿主 gateway 正是服务这些地址入站的进程, 且 lifespan 已跑起来 ⇒ SDK 只报告
-        # 这个它真正掌握的事实, best-effort, 每地址一次:
-        #     aimail address -a <addr> --inbound-live --inbound-url <确认URL>
-        # 确认 URL(契约 §4.3)= _inbound_base()+契约路径(宿主网关实际服务的入站端点,
-        # DEERFLOW_INBOUND_URL 覆盖 / 契约默认), 非猜测 ⇒ CLI 可把路由钉到确定端口。
+        # Inbound notification (owner ruling 2026-09-28, SDK de-bridging): deer-flow's
+        # host gateway is the process serving inbound for these addresses, and lifespan has already started ⇒ SDK only reports
+        # this fact it truly controls, best-effort, once per address:
+        #     aimail address -a <addr> --inbound-live --inbound-url <confirmed URL>
+        # Confirmed URL (contract §4.3) = _inbound_base() + contract path (inbound endpoint actually served by host gateway,
+        # DEERFLOW_INBOUND_URL override / contract default), not a guess ⇒ CLI can pin routing to a definite port.
         _confirmed_url = _inbound_base().rstrip("/") + _INBOUND_PATH
         for _n in _ab.notify_inbound_for_system("live", system_id=_pull_system_id(), url=_confirmed_url):
             _line = "aimail: " + _ab.format_inbound_notify_line(_n, "live")
@@ -333,7 +333,7 @@ def start_pull_on_startup(app) -> bool:
 
     async def _aimail_pull_shutdown() -> None:
         _ab.stop_agent_pull_entries(handles)
-        # 关停: 入站不再服务 ⇒ 同样的 best-effort 反向通知(宿主自有 teardown 钩子)。
+        # Shutdown: inbound no longer served ⇒ same best-effort reverse notification (host's own teardown hook).
         for _n in _ab.notify_inbound_for_system("down", system_id=_pull_system_id()):
             _line = "aimail: " + _ab.format_inbound_notify_line(_n, "down")
             if _ab.inbound_notify_is_warning(_n):
@@ -343,21 +343,21 @@ def start_pull_on_startup(app) -> bool:
 
     try:
         _wire_pull_to_lifespan(app, _aimail_pull_startup, _aimail_pull_shutdown)
-    except Exception as e:  # noqa: BLE001 — 接线失败不拖垮宿主, 但绝不静默
+    except Exception as e:  # noqa: BLE001 — wiring failure does not crash host, but never silent
         app._aimail_pull_wired = False
         app._aimail_pull_lifespan_wrapped = False
         app._aimail_pull_wire_error = f"{type(e).__name__}: {e}"
         logger.error(
-            "aimail: pull entry wiring FAILED (%s: %s) —— agent-scope 轮询循环未建立; "
-            "纯地址级(无系统级安装)的 pull 收信会整段失效, 需人工介入",
+            "aimail: pull entry wiring FAILED (%s: %s) —— agent-scope polling loop not established; "
+            "pure address-level (no system-level install) pull receiving will be entirely disabled, manual intervention required",
             type(e).__name__, e)
         return False
     app._aimail_pull_wired = True
-    # 标志放在 **app 上**(而不是只放在被包装的那个 callable 上): 补丁调用点之后宿主
-    # 还会继续 include_router, FastAPI 的 include_router 会把 `lifespan_context`
-    # 用 `_merge_lifespan_context(self.…, router.…)` **重新 merge**(deer-flow 实测
-    # 35 次)⇒ 我们那个包装被**嵌套进链条**(行为保留: 轮询照起)但已不是最外层 callable,
-    # 挂在它身上的属性会读不到。app 级标志不受 merge 影响, 是稳定的可查询物证。
+    # Flag placed on **app** (not just on the wrapped callable): after patching call sites host
+    # will continue include_router, FastAPI's include_router will **re-merge** `lifespan_context`
+    # Use `_merge_lifespan_context(self.…, router.…)` to **re-merge** (verified in deer-flow
+    # 35 times) ⇒ our wrapper gets **nested into the chain** (behavior preserved: polling still starts) but is no longer the outermost callable,
+    # attributes attached to it will be unreadable. App-level flag is unaffected by merge, is a stable queryable artifact.
     app._aimail_pull_lifespan_wrapped = True
     app._aimail_pull_wire_error = None
     logger.info("aimail: pull entry wired to app lifespan (startup/shutdown)")

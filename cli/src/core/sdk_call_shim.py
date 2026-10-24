@@ -1,19 +1,19 @@
-"""CLI 侧通用 SDK 调用 shim（**CLI 域**，随 rust 二进制内嵌发布）。
+"""CLI-side generic SDK call shim (**CLI domain**, embedded and shipped with the rust binary).
 
-为什么长这样（owner 2026-10-04 口径）：CLI 要用的 SDK 算法函数**早已发布**，按名可调；
-不该为此在 SDK 侧"每加一个能力就加一段代码"（那会把 CLI 的每次开发都变成 SDK 发版）。
-所以：**SDK 冻结**，调用 glue 归 CLI —— 本 shim 只做"取参数 → 调已发布函数 → 回信封"，
-**不允许**在此复刻任何 SDK 算法。
+Why it looks like this (owner 2026-10-04 ruling): the SDK algorithm functions the CLI needs are **already published**, callable by name;
+should not add code on the SDK side "for every new capability" (that would turn every CLI development into an SDK release).
+So: **SDK frozen**, invocation glue belongs to CLI — this shim only does "get params -> call published function -> return envelope",
+**Not allowed** to replicate any SDK algorithm here.
 
-用法（由 Rust 侧 `core::sdkcall::call` 调起）：
-    python3 -c "<本文件内容>" <core_dir> <module> <function> <kwargs-json> [<positional-json>]
+Usage (invoked by Rust-side `core::sdkcall::call`):
+    python3 -c "<content of this file>" <core_dir> <module> <function> <kwargs-json> [<positional-json>]
 
-位置参数可选（有些 SDK 函数按位置传，如 hermes 适配层的 `(name, profile_dir, config)`）：
-仍只是"取参数 → 调函数"，不含任何算法。
+Positional arguments are optional (some SDK functions pass by position, e.g. hermes adapter's `(name, profile_dir, config)`):
+Still just "fetch params → call function", no algorithm included.
 
-ABI（与边界稿 §1.5 同形）：
-    stdout 恰一行 JSON：{"ok": true, "result": …} / {"ok": false, "kind": "usage|import|call",
-    "exc": …, "error": …}；exit 0/1/2；人话与 SDK 自身打印一律 stderr。
+ABI (same shape as boundary draft §1.5):
+    stdout exactly one line JSON: {"ok": true, "result": …} / {"ok": false, "kind": "usage|import|call",
+    "exc": …, "error": …}; exit 0/1/2; human-readable text and SDK's own prints all go to stderr.
 """
 
 import json
@@ -70,7 +70,7 @@ def main(argv):
             }
         )
         return 2
-    # 让已发布的 SDK 可导入：仓库/快照形态的 pysdk 目录优先（pip 形态无需此步）
+    # Make published SDK importable: repo/snapshot form pysdk directory takes priority (pip form does not need this step)
     if core_dir and core_dir not in sys.path:
         sys.path.insert(0, core_dir)
     try:
@@ -89,8 +89,8 @@ def main(argv):
             }
         )
         return 1
-    # 通用对象 glue：任何位置的 `{"__client__": {"gateway_url":…, "admin_key":…}}`
-    # 替换为 SDK 的网关客户端对象（CLI 只是"怎么传对象"，不含算法）。
+    # Generic object glue: any position's `{"__client__": {"gateway_url":…, "admin_key":…}}`
+    # is replaced by SDK's gateway client object (CLI is just "how to pass object", no algorithm).
     def _materialize(v):
         if isinstance(v, dict) and set(v.keys()) == {"__client__"}:
             spec = v["__client__"] or {}
@@ -102,8 +102,8 @@ def main(argv):
     positional = [_materialize(v) for v in positional]
     kwargs = {k: _materialize(v) for k, v in kwargs.items()}
 
-    # 通用能力过滤：`__if_accepted__` 里的键**仅当目标签名接受时才传**（CLI 零平台知识，
-    # 例如 `_sdk_install` 的 manager 形参只看被调函数签名）。
+    # Generic capability filtering: keys in `__if_accepted__` are **only passed if target signature accepts them** (CLI has zero platform knowledge,
+    # e.g. `_sdk_install`'s manager formal parameter only looks at called function signature).
     conditional = kwargs.pop("__if_accepted__", None) or {}
     if conditional:
         try:
@@ -115,9 +115,9 @@ def main(argv):
                     kwargs[k] = v
         except Exception:  # noqa: BLE001
             pass
-    # 被调 SDK 函数的输出改道 stderr：stdout 是"单行 JSON"协议面，不能被污染。
-    # 必须是 **fd 级**（os.dup2）——只重绑 Python 的 sys.stdout 抓不到 SDK 自己 spawn 的子进程
-    # （实测：pnpm/uv 那类子进程的输出直接落 fd 1 ⇒ 信封被踩 ⇒ 调用方判 TransportError）。
+    # Redirect output of called SDK function to stderr: stdout is "single-line JSON" protocol surface, cannot be polluted.
+    # Must be **fd-level** (os.dup2) — only rebinding Python's sys.stdout cannot capture child processes spawned by the SDK itself
+    # (tested: pnpm/uv type sub-process output lands directly on fd 1 ⇒ envelope corrupted ⇒ caller judges TransportError).
     sys.stdout.flush()
     _saved_fd = os.dup(1)
     try:
@@ -127,7 +127,7 @@ def main(argv):
         finally:
             sys.stdout.flush()
             os.dup2(_saved_fd, 1)
-    except SystemExit as e:  # SDK 里的显式退出（如 manager 硬门）原样上报，不降级
+    except SystemExit as e:  # Explicit exit in SDK (e.g. manager hard gate) reported as-is, no downgrade
         _emit(
             {
                 "ok": False,

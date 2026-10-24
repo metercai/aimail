@@ -1,9 +1,9 @@
-//! `core::bridge_wire`（= `cli/bridge_wire.py` 的 rust 复刻）**离线验收**。
+//! **Offline acceptance** of `core::bridge_wire` (= the rust re-implementation of `cli/bridge_wire.py`).
 //!
-//! 判据：四态决策（ok/skipped/no_bridge/failed）与三步顺序 · `validate_target` 的拒绝理由逐字 ·
-//! 声明读取的四种形态（无/系统配置带端口/桥配置在/TOML 坏 ⇒ fail closed）· 请求形状
-//! （POST `/api/v1/routes` 体 `{email,host(完整URL),port:80}`、DELETE `/api/v1/routes/<email>`）·
-//! `down` 不对称（绑定端点为空也**必须**撤回）· 回执行文案逐字。全程 stub admin API，不触网。
+//! Criteria: the four-state decision (ok/skipped/no_bridge/failed) and the three-step order · the rejection reasons of `validate_target` verbatim ·
+//! the four forms of declaration reading (none / system config with port / bridge config present / broken TOML => fail closed) · the request shape
+//! (POST `/api/v1/routes` body `{email,host(full URL),port:80}`, DELETE `/api/v1/routes/<email>`) ·
+//! the `down` asymmetry (an empty binding endpoint **must** be withdrawn too) · the rollback wording verbatim. The whole run uses the stub admin API, no network.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -24,8 +24,8 @@ struct Req {
     body: String,
 }
 
-/// 起一个 stub admin API：按 `replies`（path → (status, reason/body)）应答，并记录收到的请求。
-/// `/health` 默认答 200 + `{"status":"ok","uptime_secs":1,"version":"9.9.9"}`。
+/// Start a stub admin API: reply per `replies` (path -> (status, reason/body)), and record the requests received.
+/// `/health` answers 200 by default + `{"status":"ok","uptime_secs":1,"version":"9.9.9"}`.
 fn stub_admin(replies: HashMap<String, (u16, String)>) -> (u16, Receiver<Req>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -132,7 +132,7 @@ fn declaration_forms() {
     let tmp = tempfile::tempdir().unwrap();
     let missing = tmp.path().join("aimail_bridge.toml");
 
-    // 1) 无桥配置、无端口 ⇒ 未声明 + 原因逐字
+    // 1) no bridge config, no port => not declared + the reason verbatim
     let d = load_declaration(&json!({}), &missing);
     assert!(!d.declared && d.usable);
     assert_eq!(
@@ -144,14 +144,14 @@ fn declaration_forms() {
     );
     assert_eq!(d.admin_port, DEFAULT_ADMIN_PORT);
 
-    // 2) 系统配置带 bridge_admin_port ⇒ 已声明、端口取自系统配置
+    // 2) the system config carries bridge_admin_port => declared, the port taken from the system config
     let d = load_declaration(&json!({"bridge_admin_port": 39999}), &missing);
     assert!(d.declared && d.usable);
     assert_eq!(d.admin_port, 39999);
     assert_eq!(d.source, "system config bridge_admin_port");
     assert_eq!(d.gateway_port, 39999);
 
-    // 3) 桥配置在位：mode/bind 读出；端口取 bind（系统配置没给端口时）
+    // 3) the bridge config is in place: mode/bind read out; the port taken from bind (when the system config gives no port)
     let cfg = write_bridge_cfg(tmp.path(), "mode = \"pull\"\nbind = \"0.0.0.0:38080\"\n");
     let d = load_declaration(&json!({}), &cfg);
     assert!(d.declared && d.usable);
@@ -160,7 +160,7 @@ fn declaration_forms() {
     assert_eq!(d.admin_port, 38080);
     assert_eq!(d.source, cfg.display().to_string());
 
-    // 4) 坏 TOML ⇒ 声明了但不可用（fail closed），且**不是**"没有桥"
+    // 4) a broken TOML => declared but unavailable (fail closed), and **not** "no bridge"
     let bad = write_bridge_cfg(tmp.path(), "mode = = broken\n");
     let d = load_declaration(&json!({}), &bad);
     assert!(d.declared && !d.usable);
@@ -178,7 +178,7 @@ fn validate_target_messages_are_verbatim() {
          there is no local endpoint to route to)"
     );
 
-    // 裸 host:port 必须被拒（补前缀会产出不可投递形态）
+    // a bare host:port must be rejected (adding a prefix would produce a non-deliverable form)
     let (t, why) = validate_target(&json!("127.0.0.1:9101"));
     assert!(t.is_empty());
     assert_eq!(
@@ -187,7 +187,7 @@ fn validate_target_messages_are_verbatim() {
          (a bare host:port cannot be delivered to)"
     );
 
-    // 绝对 URL 原样透传（含路径）
+    // an absolute URL passes through as-is (path included)
     let (t, why) = validate_target(&json!(format!(
         "http://127.0.0.1:9101{}",
         aimail::core::contract::inbound_path()
@@ -201,13 +201,13 @@ fn validate_target_messages_are_verbatim() {
     );
     assert!(why.is_empty());
 
-    // 越界端口：Python 的 `u.port` 直接抛 ValueError ⇒ 走 "not a usable URL (...)" 分支
+    // an out-of-range port: Python's `u.port` raises ValueError directly => it goes through the "not a usable URL (...)" branch
     let (_, why) = validate_target(&json!("http://host:99999/x"));
     assert_eq!(
         why,
         "'http://host:99999/x' is not a usable URL (Port out of range 0-65535)"
     );
-    // 端口 0：`u.port` 不抛，但 `_valid_port` 拒 ⇒ "carries an invalid port"
+    // port 0: `u.port` does not raise, but `_valid_port` rejects => "carries an invalid port"
     let (_, why) = validate_target(&json!("http://host:0/x"));
     assert_eq!(why, "'http://host:0/x' carries an invalid port");
 }
@@ -222,7 +222,7 @@ fn sync_route_four_states_and_request_shapes() {
         aimail::core::contract::inbound_path()
     ));
 
-    // 1) 没有声明桥 ⇒ no_bridge（刻意的 no-op，不报错）
+    // 1) no bridge declared => no_bridge (a deliberate no-op, no error)
     let out = sync_route(
         ACTION_LIVE,
         "a@example.test",
@@ -234,7 +234,7 @@ fn sync_route_four_states_and_request_shapes() {
     assert_eq!(out["state"], STATE_NO_BRIDGE);
     assert!(format_line(&out).starts_with("route skipped for a@example.test: no bridge config at"));
 
-    // 2) 声明了但不可达 ⇒ failed + "nothing changed"（fail closed）
+    // 2) declared but unreachable => failed + "nothing changed" (fail closed)
     let cfg = write_bridge_cfg(tmp.path(), "mode = \"pull\"\nbind = \"127.0.0.1:38999\"\n");
     let out = sync_route(ACTION_LIVE, "a@example.test", &url, &gw, &cfg, ADMIN_HOST);
     assert_eq!(out["state"], STATE_FAILED);
@@ -245,7 +245,7 @@ fn sync_route_four_states_and_request_shapes() {
         "{line}"
     );
 
-    // 3) 可达 + live + 合法 URL ⇒ ok，且请求形状 = POST /api/v1/routes {email,host(完整URL),port:80}
+    // 3) reachable + live + a legal URL => ok, and the request shape = POST /api/v1/routes {email,host(full URL),port:80}
     let (port, rx) = stub_admin(HashMap::new());
     let cfg = write_bridge_cfg(
         tmp.path(),
@@ -264,8 +264,8 @@ fn sync_route_four_states_and_request_shapes() {
             "http://127.0.0.1:9101{}",
             aimail::core::contract::inbound_path()
         )
-    ); // 完整 URL、原样
-    assert_eq!(body["port"], 80); // 占位（admin.rs 拒绝 0）
+    ); // the full URL, as-is
+    assert_eq!(body["port"], 80); // a placeholder (admin.rs rejects 0)
     assert_eq!(
         format_line(&out),
         format!(
@@ -274,7 +274,7 @@ fn sync_route_four_states_and_request_shapes() {
         )
     );
 
-    // 4) live + 空端点 ⇒ skipped（合法 pull 绑定），**不发请求**
+    // 4) live + an empty endpoint => skipped (a legal pull binding), **no request sent**
     let out = sync_route(
         ACTION_LIVE,
         "p@example.test",
@@ -287,7 +287,7 @@ fn sync_route_four_states_and_request_shapes() {
     assert!(format_line(&out)
         .starts_with("route skipped for p@example.test: the binding carries no webhook_url"));
 
-    // 5) down + 空端点 ⇒ **仍须撤回**（不对称），DELETE 路径带转义
+    // 5) down + an empty endpoint => **still must be withdrawn** (asymmetric), the DELETE path is escaped
     let out = sync_route(
         ACTION_DOWN,
         "p@example.test",
@@ -302,7 +302,7 @@ fn sync_route_four_states_and_request_shapes() {
     assert_eq!(req.path, "/api/v1/routes/p%40example.test");
     assert_eq!(format_line(&out), "route withdrawn: p@example.test");
 
-    // 6) 桥答 5xx ⇒ failed，原因带状态码
+    // 6) the bridge answers 5xx => failed, the reason carries the status code
     let mut replies = HashMap::new();
     replies.insert(
         "POST /api/v1/routes".to_string(),
@@ -348,7 +348,7 @@ fn routes_table_and_scope_helpers() {
         )
     );
 
-    // `_target_to_route_fields`：完整 URL ⇒ (url, 80)；裸 host:port ⇒ 拆两字段
+    // `_target_to_route_fields`: a full URL => (url, 80); a bare host:port => split into two fields
     assert_eq!(
         target_to_route_fields("http://127.0.0.1:9101/x"),
         ("http://127.0.0.1:9101/x".to_string(), 80)
@@ -358,15 +358,15 @@ fn routes_table_and_scope_helpers() {
         ("127.0.0.1".to_string(), 9101)
     );
 
-    // `_system_route_scope`：shared 后缀 / 非 shared 后缀 / 缺 domain ⇒ None
+    // `_system_route_scope`: the shared suffix / the non-shared suffix / a missing domain => None
     let sc = system_route_scope(&json!({"domain": "d.test", "system_name": "sys1"})).unwrap();
     assert!(sc("billing.sys1@d.test"));
     assert!(!sc("billing.sys2@d.test"));
     assert!(!sc("billing@d.test"));
     let sc2 = system_route_scope(&json!({"domain": "d.test"})).unwrap();
     assert!(sc2("billing@d.test"));
-    // 非 shared（无 system_name）：`@{domain}` 后缀 ⇒ 该域内**全部**地址都属本系统
-    // （`system_domains.domain_addr UNIQUE` ⇒ 域唯一属主），shared 形态也落在此后缀内
+    // non-shared (no system_name): the `@{domain}` suffix => **all** addresses in that domain belong to this system
+    // (`system_domains.domain_addr UNIQUE` => the domain has a unique owner); the shared form also falls inside this suffix
     assert!(sc2("billing.sys1@d.test"));
     assert!(!sc2("billing@other.test"));
     assert!(system_route_scope(&json!({})).is_none());
@@ -379,7 +379,7 @@ fn reconcile_upserts_withdraws_and_leaves_out_of_scope_rows() {
     std::fs::create_dir_all(home.join("systems/s1/agent1")).unwrap();
     std::fs::create_dir_all(home.join("systems/s1/agent2")).unwrap();
     std::fs::create_dir_all(home.join("bridge")).unwrap();
-    // 期望态：agent1 = push（有 webhook_url）⇒ upsert；agent2 = pull（空）⇒ 不在期望态，但属本系统
+    // expected state: agent1 = push (has webhook_url) => upsert; agent2 = pull (empty) => not in the expected state, but belongs to this system
     std::fs::write(
         home.join("systems/s1/agent1")
             .join(contract::binding_file()),
@@ -395,7 +395,7 @@ fn reconcile_upserts_withdraws_and_leaves_out_of_scope_rows() {
         r#"{"email":"p@example.test","webhook_url":""}"#,
     )
     .unwrap();
-    // 实际态：p@ 是历史 push 留下的陈旧行（须撤回）；other@ 不属本系统（不许动）
+    // actual state: p@ is a stale row left by a historical push (must be withdrawn); other@ does not belong to this system (must not be touched)
     std::fs::write(
         home.join("bridge/aimail_routes.toml"),
         "p@example.test = \"http://127.0.0.1:9101{}\"\n\
@@ -430,10 +430,10 @@ fn reconcile_upserts_withdraws_and_leaves_out_of_scope_rows() {
             "DELETE".to_string(),
             "/api/v1/routes/p%40example.test".to_string()
         )),
-        "陈旧行必须撤回: {seen:?}"
+        "a stale row must be withdrawn: {seen:?}"
     );
     assert!(
         !seen.iter().any(|(_, p)| p.contains("elsewhere")),
-        "不属本系统的行不许动: {seen:?}"
+        "a row not belonging to this system must not be touched: {seen:?}"
     );
 }

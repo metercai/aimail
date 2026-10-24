@@ -16,7 +16,7 @@ import urllib.request
 import urllib.error
 
 from aimail_base import _load_profile_config, list_personas
-import aimail_contract as _contract   # agent 侧契约常量(指针文件名等唯一真源)
+import aimail_contract as _contract   # agent-side contract constants (pointer file name, etc., single source of truth)
 import urllib.parse
 
 
@@ -25,10 +25,10 @@ _TOOLSET = "agentmail"
 
 
 def _poll_sleep(seconds: float, stop_event: Optional[threading.Event] = None) -> None:
-    """轮询间隔睡眠 —— 有 stop_event 时用它中断睡眠(可关停 = 立即停, 不等满一个间隔)。
+    """Polling interval sleep — use stop_event to interrupt the sleep when present (graceful shutdown = stop immediately, do not wait for a full interval).
 
-    与 TS `pollSleep(ms, signal)`(poll-entry.ts)同义: 那个用 AbortSignal 打断
-    setTimeout, 这里用 threading.Event.wait。
+    Synonymous with TS `pollSleep(ms, signal)` (poll-entry.ts): that uses AbortSignal to interrupt
+    setTimeout, here uses threading.Event.wait.
     """
     if seconds <= 0:
         return
@@ -39,11 +39,11 @@ def _poll_sleep(seconds: float, stop_event: Optional[threading.Event] = None) ->
 
 
 def _await_if_needed(fn: Callable, arg: Any) -> Any:
-    """调 ``fn(arg)``; 返回值是 awaitable 就 await 到完成(否则异步回调的失败会被吞)。
+    """Call ``fn(arg)``; if return value is awaitable, await until completion (otherwise async callback failures will be swallowed).
 
-    轮询循环跑在自己的线程里, 没有事件循环 ⇒ 这里起一个**本线程私有**的循环把它跑完。
-    失败照旧抛出(由 start_polling 计失败 ⇒ 不 ack ⇒ 下轮重取), 与 TS
-    `await onEmail(...)`(address-code.ts:305)同义。
+    Polling loop runs in its own thread, no event loop ⇒ start a **thread-private** loop here to run it to completion.
+    Failures are still raised (counted as failure by start_polling ⇒ no ack ⇒ re-fetch next round), synonymous with TS
+    `await onEmail(...)` (address-code.ts:305).
     """
     import asyncio
     import inspect
@@ -51,7 +51,7 @@ def _await_if_needed(fn: Callable, arg: Any) -> Any:
     res = fn(arg)
     if not inspect.isawaitable(res):
         return res
-    # 拿本线程可用的循环: 已在 run / 已关闭 / 拿不到 ⇒ 自己起一个(用完关掉)。
+    # Get loop available for this thread: already running / already closed / cannot get ⇒ start one ourselves (close after use).
     own_loop = False
     try:
         loop = asyncio.get_event_loop_policy().get_event_loop()
@@ -258,26 +258,26 @@ class _GatewayClient:
     def delete_whitelist_by_value(self, domain_addr: str, value: str) -> dict:
         """DELETE /api/v1/whitelists?domain_addr=&value= — delete by composite key.
 
-        注意(审计 2026-09-21): 网关的 admin 分支把该查询参数当**域**用
-        (`factory.list_whitelist_entries(domain)` → 按域解析 system 再列该系统全部行,
-        然后按 value 取首个匹配)。因此传完整地址会得到空列表 → 404 "not found";
-        传域则可能命中**别的同 manager 地址**的行(误删)。请改用
-        `list_whitelists_by_domain` + 精确匹配 + `delete_whitelist_entry_by_id`。
+        Note (Audit 2026-09-21): Gateway's admin branch treats this query parameter as **domain**
+        (`factory.list_whitelist_entries(domain)` → resolve system by domain then list all rows for that system,
+        then take first match by value). Therefore passing full address will result in empty list → 404 "not found";
+        passing domain may hit rows for **other addresses with same manager** (accidental deletion). Please use
+        `list_whitelists_by_domain` + exact match + `delete_whitelist_entry_by_id` instead.
         """
         return self._request("DELETE",
             f"/api/v1/whitelists?domain_addr={domain_addr}&value={value}")
 
     def list_whitelists_by_domain(self, domain: str) -> list:
-        """GET /api/v1/whitelists?domain= — 列出该域所属 system 的全部白名单行。
+        """GET /api/v1/whitelists?domain= — List all whitelist rows for the system this domain belongs to.
 
-        参数名是 `domain`(ListWhitelistsQuery{domain}), 不是 domain_addr。
+        Parameter name is `domain` (ListWhitelistsQuery{domain}), not domain_addr.
         """
         r = self._request("GET", f"/api/v1/whitelists?domain={domain}")
         data = r.get("data", r) if isinstance(r, dict) else r
         return data if isinstance(data, list) else []
 
     def delete_whitelist_entry_by_id(self, entry_id: int) -> dict:
-        """DELETE /api/v1/whitelists/:id — 按主键删(精确, 不会误伤同值行)。"""
+        """DELETE /api/v1/whitelists/:id — Delete by primary key (precise, will not accidentally affect rows with same value)."""
         return self._request("DELETE", f"/api/v1/whitelists/{int(entry_id)}")
 
     # ── Agent State API (per-agent KV store) ─────────────────────
@@ -511,42 +511,42 @@ class _GatewayClient:
             "system_id": sid,
             "api_key": act["raw_key"],
         }
-        # 1b. 本机 inbound 签名 secret —— 地址级激活**没有系统级安装**, 没有人会替它
-        #     生成: 而"把 pull 到的信重放进自己的本机入站端点"必须 (url, secret) 成对
-        #     ⇒ 缺 secret 时 pull 循环根本不启动(pull-entry 判 no-secret 跳过)。只在
-        #     **本机**语义下生成(复用安装链同款 secrets.token_hex(32) 机制/格式),
-        #     不请求网关、不改云端契约; 同一地址已有 secret ⇒ 复用不覆盖(重复激活
-        #     不churn 既有宿主路由的密钥)。
+        # 1b. Local inbound signing secret — address-level activation **has no system-level installation**, no one will do it for it
+        #     Generate: while "putting pulled mail back into the local inbound endpoint" must be paired (url, secret)
+        #     ⇒ when secret is missing, the pull loop does not start at all (pull-entry checks no-secret and skips). Only
+        #     generated under **local** semantics (reusing the same secrets.token_hex(32) mechanism/format as the install chain),
+        #     does not request the gateway, does not change the cloud contract; if the same address already has a secret ⇒ reuse without overwriting (repeated activation
+        #     does not churn the keys of existing host routes).
         cfg["webhook_secret"] = (
             _abm.existing_binding_webhook_secret(sid, email)
             or _abm.new_webhook_secret())
         if act.get("expires_at"):
             cfg["expires_at"] = act["expires_at"]
-        # 1c. 安全官(manager) = 激活事务里网关**实际写入**的那个值(激活响应原样带回)。
-        #     这是 agent 侧的第一来源: whoami 要等 key 可读之后才能查, 且它读的
-        #     就是同一张 domain_addr_meta 表 ⇒ 不再做二次推断/自行解析 prompt 文本。
-        #     有了它, manage_contacts(add) 不必再"无 manager 可用"。
+        # 1c. Security officer (manager) = the value **actually written** by the gateway in the activation transaction (returned as-is in the activation response).
+        #     This is the first source on the agent side: whoami can only be queried after the key is readable, and it reads
+        #     the same domain_addr_meta table ⇒ no more secondary inference/self-parsing of prompt text.
+        #     With this, manage_contacts(add) no longer needs to say "no manager available".
         if str(act.get("manager_address") or "").strip():
             cfg["manager_address"] = str(act["manager_address"]).strip()
         p = _abm.save_agent_config(aid, cfg, sid)
 
-        # 2026-10-01 owner 方案A(激活站): 激活本地生成的 secret 必须与网关对齐 ——
-        # `activate-address-code` 的 body 只有 {code,email_address}(:429), 网关另持一把;
-        # 本地这把不回传 ⇒ D2B 两侧摘要永不相等(第 10 缺陷, 实测 31ad2cfe5140 vs e6b42e73e32b)。
-        # 窄同步 = register 更新路径同款三件套(无需 manager ⇒ 不触 P1 非空硬门);
-        # webhook_url 为空时不带该键(gateway_api:105-108 条件键) ⇒ 不会抹掉云端 URL。
-        # 2026-10-02 F1(卡A 收尾): **按可观测事实分级**, 不再把"看不见行"当"两把钥匙"。
-        # 实测(j4e7 E2-pull, 卡A 42c0714 后 7 连红): 纯地址级激活网关**没有**该地址的
-        # system_domains 行(gw 日志只有 domain_created + address_code_activated) ⇒ 查不到行是
-        # 本形态的常态; 即便有行, 旧实现用的是激活刚签发的 **agent-scope key**
-        # (activation.rs:97 actual_scopes=["agent"]), 而 GET /admin/systems/:sid/domains 要求
-        # system/platform admin(http.rs:744-747) ⇒ 403 ⇒ list 静默回 [] ⇒ 旧实现 raise ⇒
-        # **地址级激活整体失败**, pull 循环永远起不来。分级:
-        #   · 行可见且 PUT 成功 ⇒ 对齐完成(卡A 的目标态);
-        #   · 行可见但 PUT 失败 ⇒ 照旧 raise(卡A 原意: 绝不留两把钥匙);
-        #   · 看不见行(无行 / 401/403 scope 不足) ⇒ **loud warning 后继续** —— 本进程手里
-        #     没有更高权限的 key, 从这里无解; 且 pull 形态网关不投递, 云端 secret 不参与签名。
-        # key 优先用 self.api_key(调用方可能持系统/平台 key, 能对齐就真对齐), 空才退回 agent key。
+        # 2026-10-01 owner Plan A (activation site): the locally generated secret during activation must align with the gateway ——
+        # `activate-address-code` body only has {code,email_address}(:429), gateway holds another;
+        # the local one is not sent back ⇒ D2B summaries on both sides are never equal (Defect 10, measured 31ad2cfe5140 vs e6b42e73e32b).
+        # Narrow sync = same three-piece set as the register update path (no manager needed ⇒ does not trigger P1 non-empty hard gate);
+        # when webhook_url is empty, do not include that key (gateway_api:105-108 conditional key) ⇒ will not wipe out the cloud URL.
+        # 2026-10-02 F1 (Card A wrap-up): **grade by observable facts**, no longer treating "invisible row" as "two keys".
+        # Measured (j4e7 E2-pull, after Card A 42c0714, 7 consecutive reds): pure address-level activation gateway **does not have** that address's
+        # system_domains row for that address (gw logs only show domain_created + address_code_activated) ⇒ not finding the row is
+        # the norm for this form; even if there is a row, the old implementation used the **agent-scope key** just issued by activation
+        # (activation.rs:97 actual_scopes=["agent"]), while GET /admin/systems/:sid/domains requires
+        # system/platform admin (http.rs:744-747) ⇒ 403 ⇒ list silently returns [] ⇒ old implementation raises ⇒
+        # **address-level activation fails entirely**, pull loop never starts. Grading:
+        #   · Row visible and PUT succeeds ⇒ alignment complete (Card A's target state);
+        #   · Row visible but PUT fails ⇒ raise as before (Card A's original intent: never leave two keys);
+        #   · Row invisible (no row / 401/403 insufficient scope) ⇒ **loud warning then continue** —— this process does not have
+        #     a higher-privilege key, no solution from here; and in pull form the gateway does not deliver, cloud secret does not participate in signing.
+        # key prefers self.api_key (caller may hold system/platform key, if it can align then it truly aligns), falls back to agent key only if empty.
         try:
             _sync_key = str(getattr(self, "api_key", "") or "") or str(cfg.get("api_key") or "")
             _sync_cli = _GatewayClient(self.gateway_url, _sync_key)
@@ -573,7 +573,7 @@ class _GatewayClient:
                                     "(http.rs:744-747)" % _st)
                         elif _st >= 400:
                             _why = "lookup failed with HTTP %d" % _st
-                    except Exception:  # noqa: BLE001 — 诊断性探测, 失败就按"无行"描述
+                    except Exception:  # noqa: BLE001 — diagnostic probe, if it fails describe as "no row"
                         _why = ""
                 if not _why:
                     _why = ("gateway has no visible row for this address — address-level "
@@ -590,11 +590,11 @@ class _GatewayClient:
                 "(binding was persisted at %s; refusing to leave two different secrets)"
                 % (email, _se, p)) from _se
 
-        # 2. Gateway connection file — create-if-absent only, **agent 作用域**。
-        #    审计 D3: 这里曾把 agent 级 raw_key 写进名为 admin_key 的字段 —— 语义错配
-        #    (它不是管理 key)且与 agentmail.json 重复持有一把 key。现在只写连接信息
-        #    + scope 标记; agent 自己的 key 只在 agentmail.json 一份
-        #    (aimail_base._load_gateway_config 已接受 scope=agent 的文件)。
+        # 2. Gateway connection file — create-if-absent only, **agent scope**.
+        #    Audit D3: here we once wrote the agent-level raw_key into a field named admin_key —— semantic mismatch
+        #    (it is not a management key) and duplicates holding a key with agentmail.json. Now only write connection info
+        #    + scope marker; the agent's own key is only in one copy in agentmail.json
+        #    (aimail_base._load_gateway_config already accepts files with scope=agent).
         gp = gateway_config_path(sid)
         if not gp.is_file():
             import aimail_base as _abm
@@ -606,8 +606,8 @@ class _GatewayClient:
             }, indent=2, ensure_ascii=False) + "\n")
 
         # 3. Discovery pointer (best-effort — log naming degrades without it).
-        #    ``profile_dir`` = 该 agent 的平台 home(含 `~`/相对路径, 落盘前展开+
-        #    绝对化); 契约文件名引 ``aimail_contract.POINTER_FILE``(禁字面量)。
+        #    ``profile_dir`` = the agent's platform home (contains `~`/relative paths, expand before writing to disk +
+        #    absolutized before writing to disk); contract file name references ``aimail_contract.POINTER_FILE`` (no literals).
         pointer_written = False
         pointer_path = ""
         if profile_dir:
@@ -622,8 +622,8 @@ class _GatewayClient:
             except Exception:
                 pass
 
-        # hot-add: 绑定刚刚落盘 ⇒ 通知同进程里已在跑的 pull 运行时为它起句柄。
-        # 没有这一句，地址码激活（发生在宿主启动之后）要等下一次重启才会被收信。
+        # hot-add: binding just written to disk ⇒ notify the pull runtime already running in the same process to start a handle for it.
+        # Without this line, address code activation (which happens after host startup) would have to wait for the next restart to receive mail.
         _abm._fire_binding_created(dict(cfg))
 
         return {
@@ -673,20 +673,20 @@ class _GatewayClient:
         """Poll pull_list → deliver each pending email to ``on_email`` → ack
         the delivered ids. Dedup key = delivery id (stable, unique).
 
-        Semantics — **逐条对齐 TS mail-core address-code.ts:startPolling**:
+        Semantics — **align item-by-item with TS mail-core address-code.ts:startPolling**:
 
-        * ``on_email`` failure ⇒ **该 delivery 不 ack, 且从去重集合移除** ⇒
-          下一轮重取同一 id(既不重复投递成功件, 也不丢件)。此前 Python 侧只做
-          了前半句: 失败后 id 仍留在 ``seen`` ⇒ 下一轮跳过 ⇒ 网关侧虽未 ack,
-          本地**永不重投**(邮件卡死)。这是本函数修掉的语义缺口。
-        * ``on_email`` 可以是 async 函数: 返回 awaitable 时在**本线程私有事件循环**
-          里 await 到完成 —— async 回调 reject 同样计失败(不 ack), 与 TS 的
-          ``await onEmail(...)`` 同义; fire-and-forget 会把 agent 没收下的信 ack 掉。
-        * ``stop_event``(threading.Event, 可关停): 每轮开始前检查, 睡眠用
-          ``stop_event.wait(interval)`` ⇒ stop 立即生效(不是等满一个间隔)。
-        * ``max_rounds`` 只给测试收敛循环(None = 一直跑)。
+        * ``on_email`` failure ⇒ **that delivery is not acked, and removed from the deduplication set** ⇒
+          next round re-fetches the same id (neither duplicate delivery of successful items, nor lost items). Previously the Python side only did
+          the first half: after failure the id still remains in ``seen`` ⇒ next round skips ⇒ gateway side did not ack,
+          Local **never redelivers** (email stuck). This is the semantic gap this function fixes.
+        * ``on_email`` can be an async function: when returning an awaitable, it is awaited to completion in the **thread-private event loop**
+          here await until completion —— async callback reject also counts as failure (no ack), same as TS's
+          synonymous with ``await onEmail(...)``; fire-and-forget would ack the mail the agent did not handle.
+        * ``stop_event`` (threading.Event, can stop): checked before each round, sleep uses
+          ``stop_event.wait(interval)`` ⇒ stop takes effect immediately (not waiting for a full interval).
+        * ``max_rounds`` is only for test loop convergence (None = run forever).
 
-        Blocking loop — run it in a worker thread (start_agent_pull_entries 负责).
+        Blocking loop — run it in a worker thread (start_agent_pull_entries is responsible).
         """
         seen: set = set()
         rounds = 0
@@ -743,15 +743,15 @@ class _GatewayClient:
 # Different agent systems are detected (and versioned) differently.
 # Add a new entry to extend support; explicit config/env always wins
 # over automatic detection (see _agent_identity).
-# 显式身份覆盖:多 agent 共存机器上"目录存在"检测会误判(Hermes 目录在
-# OpenClaw 机器也存在,registry 顺序导致 OpenClaw 进程被检测为 hermes)。
-# 平台适配层(aimail_deerflow / aimail_hermes adapter)在 import 时注入自己的身份。
-_AGENT_IDENTITY_OVERRIDE = None    # 由适配层设置,如 "openclaw/2026.7.1"
-_AGENT_MODEL_OVERRIDE = None       # 由适配层设置,主/默认模型名(如 "glm-5.3-flash")
+# Explicit identity override: on multi-agent coexistence machines, "directory exists" detection misjudges (Hermes directory exists on
+# OpenClaw machines too, registry order causes OpenClaw process to be detected as hermes).
+# Platform adaptation layer (aimail_deerflow / aimail_hermes adapter) injects its own identity at import time.
+_AGENT_IDENTITY_OVERRIDE = None    # Set by adaptation layer, e.g. "openclaw/2026.7.1"
+_AGENT_MODEL_OVERRIDE = None       # Set by adaptation layer, main/default model name (e.g. "glm-5.3-flash")
 
 
 def set_agent_model(model: str) -> None:
-    """设置 X-AIMail-Agent 的模型段(主/默认模型),头变 {platform}/{ver}+{model}。"""
+    """Set the model segment of X-AIMail-Agent (main/default model), header becomes {platform}/{ver}+{model}."""
     global _AGENT_MODEL_OVERRIDE
     if isinstance(model, str) and model.strip():
         _AGENT_MODEL_OVERRIDE = model.strip()
@@ -843,15 +843,15 @@ def activate_address_code(
     res = client.activate_address_code_persist(
         code, address, profile_dir=(profile_home or ""))
     if res.get("success"):
-        # 通用宿主(没有平台适配层)里没有别的代码会去调注入点 ⇒ 激活落盘成功
-        # 就是"这个地址是本 agent 的"这一刻: 顺手把上下文交给共享核心, 让随后的
-        # pull / send_mail / manage_contacts 直接可用(适配层显式再调一次是幂等的)。
-        # 注入失败只降级为"需显式 set_agent_context", 不把已完成的激活判成失败。
+        # In generic hosts (no platform adaptation layer), no other code calls the injection point ⇒ activation persistence success
+        # is the moment "this address belongs to this agent": hand over the context to the shared core, so subsequent
+        # pull / send_mail / manage_contacts are directly available (adaptation layer explicitly calling again is idempotent).
+        # Injection failure only degrades to "requires explicit set_agent_context", does not judge completed activation as failure.
         try:
             import aimail_base as _abm
             email = str(res.get("email_address") or "")
             _abm.set_agent_context(email.split("@")[0], str(res.get("system_id") or ""))
-        except Exception as e:  # noqa: BLE001 — 上下文注入是便利路径, 不是激活的一部分
+        except Exception as e:  # noqa: BLE001 — context injection is a convenience path, not part of activation
             logger.warning(
                 "[aimail] activation succeeded but agent context injection failed (%s); "
                 "call aimail_base.set_agent_context(...) explicitly before using the mail "
@@ -877,9 +877,9 @@ def send_mail(
     # Normalize array args
     if isinstance(to, list):
         to = ", ".join(to)
-    # NOTE: cc 宽容归一化为 list — LLM 常按 schema 传逗号串 "a@x, b@y",
-    # 而网关 SendEmailRequest.cc: Option<Vec<String>> 要求 JSON 数组
-    # (字符串 → axum 反序列化 422)。list 透传,字符串按逗号拆分。
+    # NOTE: cc leniently normalizes to list — LLM often passes comma-separated string "a@x, b@y" per schema,
+    # while gateway SendEmailRequest.cc: Option<Vec<String>> requires JSON array
+    # (string → axum deserialization 422). list passed through, string split by comma.
     if cc is None:
         cc_list: Optional[List[str]] = None
     elif isinstance(cc, str):
@@ -978,14 +978,14 @@ def send_mail(
     if upload_errors and not attachment_ids:
         return {"success": False, "error": "All attachments failed", "details": upload_errors}
 
-    # ── 先存再调: meta 常写 + outbox 快照(默认开), 随后才调 API ──
-    # Message-ID 本地生成并传给 gateway(仅无 id 时才自动补全), 本地值即线上值。
-    # 快照默认开(2026-10-02 D1): 与 TS `cfg.save_raw_snapshots !== false`(mail-core
-    # src/tools.ts:329)、hermes 适配层 `config.get(..., True)`(:579)、cli/README.md:128
-    # "default true" 同口径 —— Python 曾是唯一"缺键即关"的实现, 而 MCP/绑定型 config
-    # 根本没有这个键 ⇒ 回信 out-*.json 永不落盘 ⇒ `send_welcome._parse_draft_from_reply`
-    # 无草案可读 ⇒ J4e 第 3 段 rc=2 ⇒ J4f persona/signature 空(deerflow 实测)。
-    # 显式 false 仍然关(测试 test_local_mail_search 的关断言不受影响)。
+    # ── Save first then call: meta always written + outbox snapshot (default on), then call API ──
+    # Message-ID generated locally and passed to gateway (only auto-completed if no id), local value is the online value.
+    # Snapshot default on (2026-10-02 D1): same standard as TS `cfg.save_raw_snapshots !== false` (mail-core
+    # src/tools.ts:329), hermes adaptation layer `config.get(..., True)` (:579), cli/README.md:128
+    # "default true" same semantics —— Python was the only "missing key means off" implementation, while MCP/binding-type config
+    # does not have this key at all ⇒ reply out-*.json never persisted ⇒ `send_welcome._parse_draft_from_reply`
+    # has no draft to read ⇒ J4e segment 3 rc=2 ⇒ J4f persona/signature empty (deerflow measured).
+    # Explicit false still turns it off (test_local_mail_search off assertion unaffected).
     generated_mid = _build_message_id(config)
     _store_message_meta(generated_mid, references, my_aimail_addr=sender)
     if config.get("save_raw_snapshots", True):
@@ -1040,8 +1040,8 @@ def send_mail(
 
     # Flatten status into success/error
     if 200 <= status < 300:
-        # Thread summary bootstrap 只在发送成功后(终态失败时写 summary
-        # 会留下从未发出的邮件的幽灵线程条目)
+        # Thread summary bootstrap only after successful send (writing summary on terminal failure
+        # would leave ghost thread entries for emails never sent)
         thread_bootstrapped = False
         if not message_id:
             try:
@@ -1249,22 +1249,22 @@ def _sanitize_message_id(message_id: str) -> str:
 # ── Local meta / thread summary (meta/{xx}/, threads/{xx}/) ─────────
 
 def _local_meta_path(message_id: str) -> Path:
-    """meta/{前两位}/{safe_mid}.json — 前两位分片(256 桶)防平铺目录膨胀。"""
+    """meta/{first_two}/{safe_mid}.json — first two digits sharding (256 buckets) prevents flat directory bloat."""
     k = _sanitize_message_id(message_id)
     return _aimail_dir() / "meta" / k[:2] / f"{k}.json"
 
 
 def _thread_path(thread_id: str) -> Path:
-    """threads/{前两位}/{safe_tid}.json — 会话摘要, 与 meta 同分片策略。"""
+    """threads/{first_two}/{safe_tid}.json — conversation summary, same sharding strategy as meta."""
     k = _sanitize_message_id(thread_id)
     return _aimail_dir() / "threads" / k[:2] / f"{k}.json"
 
 
 def _save_local_meta(message_id, references, my_aimail_addr, direction) -> None:
-    """Per-message lightweight metadata (常写, 不受 save_raw_snapshots 控制).
+    """Per-message lightweight metadata (always written, not controlled by save_raw_snapshots).
 
-    回复链依赖: references/thread_id/my_aimail_addr 替代 gateway agent_state
-    的 msg:{mid} key(已在 gateway 侧删除)。"""
+    Reply chain dependency: references/thread_id/my_aimail_addr replaces gateway agent_state
+    msg:{mid} key (already removed on gateway side)."""
     mid = (message_id or "").strip()
     if not mid:
         return
@@ -1296,7 +1296,7 @@ def _read_local_meta(message_id: str) -> Optional[dict]:
 
 
 def _resolve_thread_id(message_id: str) -> str:
-    """thread_id = 首条 References(线程根), 无则 message_id 本身。"""
+    """thread_id = first References (thread root), otherwise message_id itself."""
     meta = _read_local_meta(message_id)
     return (meta or {}).get("thread_id") or (message_id or "").strip()
 
@@ -1509,13 +1509,13 @@ def _save_outbound_snapshot(out_msg_id: str, my_addr: str, sender: str,
         logger.warning("Failed to save outbound email snapshot for %s", safe_mid)
 
 
-# ── persona 上下文注入点（Hermes 适配层注入；OpenClaw 无 persona → None）──
+# ── persona context injection point (Hermes adaptation layer injects; OpenClaw no persona → None) ──
 _PERSONA_NAME_PROVIDER = None  # () -> Optional[str]
 
 
 def _current_persona_name() -> Optional[str]:
-    """当前 persona 名（注入点）。Hermes 适配层注入（profile 目录派生）；
-    OpenClaw 无 persona 概念 → None（发件用基础地址）。"""
+    """Current persona name (injection point). Hermes adaptation layer injects (derived from profile directory);
+    OpenClaw has no persona concept → None (use base address for sending)."""
     return _PERSONA_NAME_PROVIDER() if _PERSONA_NAME_PROVIDER is not None else None
 
 
@@ -1523,8 +1523,8 @@ def _current_persona_name() -> Optional[str]:
 
 def _resolve_agent_email() -> str:
     """Resolve the agent's base email via the pointer file (for log naming)."""
-    # 第一优先:显式注入(OpenClaw set_agent_context 设置;Hermes
-    # 不改此环境变量,走指针逻辑)。避免日志落 aimail.default.log。
+    # First priority: explicit injection (set by OpenClaw set_agent_context; Hermes
+    # does not modify this environment variable, uses pointer logic). Avoids logs falling into aimail.default.log.
     env_email = os.environ.get("AIMAIL_AGENT_EMAIL", "")
     if env_email:
         return env_email
@@ -1545,10 +1545,10 @@ def _resolve_agent_email() -> str:
 def _aimail_dir() -> Path:
     """Per-agent mail data leaf: {aimail_home}/systems/{sid}/{cleaned_addr}/mail/.
 
-    三层收口(2026-09-23): 邮件内容快照(in/out)、attch、meta、threads、
-    .search 整叶归 agent 层; 顶层不再有 mail/(原 {aimail_home}/mail/
-    {cleaned_addr}/ 已废弃)。sid 解析失败收口 systems/_unassigned/。
-    aimail_home() 是 env AIMAIL_HOME 或 ~/.aimail —— env 变量整体搬迁
+    Three-layer closure (2026-09-23): email content snapshots (in/out), attch, meta, threads,
+    .search entire leaf belongs to agent layer; top level no longer has mail/ (original {aimail_home}/mail/
+    {cleaned_addr}/ is deprecated). sid parsing failure closes to systems/_unassigned/.
+    aimail_home() is env AIMAIL_HOME or ~/.aimail —— env variable overall migration
     (mirrors TS agentMailDir())。
     """
     import aimail_base as _abm
@@ -1569,8 +1569,8 @@ def _log_aimail(direction: str, from_addr: str, to_addr: str, subject: str,
                email_id: str = "") -> None:
     """Append a lightweight email processing log entry (not dependent on save_raw_snapshots).
 
-    三层收口(2026-09-23): 落 {home}/systems/{sid}/{addr}/agentmail.log
-    (真源 = aimail_base.aimail_log_path)。
+    Three-layer closure (2026-09-23): lands in {home}/systems/{sid}/{addr}/agentmail.log
+    (true source = aimail_base.aimail_log_path).
     """
     import json as _json
     import aimail_base as _abm
@@ -1608,7 +1608,7 @@ def store_inbound_message(
         return None
     mid = message_id.strip()
 
-    # ── Always-write local meta (回复链依赖, 不受快照开关控制) ──
+    # ── Always-write local meta (reply chain dependency, not controlled by snapshot switch) ──
     _save_local_meta(mid, references, my_aimail_addr, direction="inbound")
 
     # Agent-visible snapshot: default ON (2026-10-02 D1) — same rule as the outbound
@@ -1686,7 +1686,7 @@ def store_inbound_message(
 def _load_message_meta(message_id: str) -> Optional[dict]:
     """Load per-message metadata from the local mail dir. None if not found.
 
-    (Was gateway agent_state msg:{mid}; 本地化后零 HTTP 往返。)
+    (Was gateway agent_state msg:{mid}; zero HTTP round-trips after localization.)
     """
     if not message_id or not message_id.strip():
         return None
@@ -1695,14 +1695,14 @@ def _load_message_meta(message_id: str) -> Optional[dict]:
 
 def _store_message_meta(message_id: str, references: Optional[str] = None,
                         my_aimail_addr: str = "") -> None:
-    """Store outbound message metadata locally for future replies (常写)."""
+    """Store outbound message metadata locally for future replies (always write)."""
     _save_local_meta(message_id, references, my_aimail_addr, direction="outbound")
 
 
 # ═══════════════════════════════════════════════════════════════
 # email_summary / set_email_summary — LOCAL threads/{xx}/{thread_id}.json
 #    value: {"thread_id": ..., "summary": ..., "updated_at": ...}
-#    空 summary = 删除线程文件(与原 gateway 语义一致)
+#    Empty summary = delete thread file (consistent with original gateway semantics)
 # ═══════════════════════════════════════════════════════════════
 
 def email_summary(message_id: str) -> dict:
@@ -1737,7 +1737,7 @@ def set_email_summary(message_id: str, summary: str) -> dict:
 
     thread_id = _resolve_thread_id(message_id)
     if not summary.strip():
-        # 空 summary = 删除线程(与原 gateway 语义一致)
+        # Empty summary = delete thread (consistent with original gateway semantics)
         try:
             _thread_path(thread_id).unlink(missing_ok=True)
         except Exception:
@@ -1759,11 +1759,11 @@ def set_email_summary(message_id: str, summary: str) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════
-# 本地全文检索:快照增量 FTS5 索引 + search_mail(2026-09-05)
-#   顺序契约:快照文件先落盘, 再增量索引(同 mid 幂等)。
-#   附件:文本型附件(护栏内)以 md 转义文本随快照落盘并进索引。
-#   引擎:sqlite FTS5 trigram(python 内置;中文/英文子串均命中);
-#   失败自动降级顺序扫快照(LIKE), 结果语义一致。
+# Local full-text search: snapshot incremental FTS5 index + search_mail (2026-09-05)
+#   Order contract: snapshot file lands on disk first, then incremental index (idempotent for same mid).
+#   Attachments: text-type attachments (within guardrails) are saved with snapshot as md-escaped text and indexed.
+#   Engine: sqlite FTS5 trigram (python built-in; hits both Chinese/English substrings);
+#   Automatic fallback to sequential scan of snapshots (LIKE) on failure, result semantics consistent.
 # ═══════════════════════════════════════════════════════════════
 _TEXT_ATTACH_EXTS = {
     ".txt", ".md", ".markdown", ".json", ".csv", ".eml", ".log",

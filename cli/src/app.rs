@@ -1,16 +1,21 @@
-//! clap 命令树 + 分发（S1：命令面注册 + 诚实出口）。
+//! clap command tree + dispatch (S1: command surface registration + honest exits).
 //!
-//! 命令面是**冻结面**（边界定稿 §1；变更须 owner 签字）：16 个顶层子命令名 + `prompt` 的 5 个嵌套
-//! 子命令 + install 的唯一隐藏机器面参数（`--system-only`）。
-//! 冻结判据由 `tests/test_cli_parity.py` 与 Python 侧 `--help` 做集合比对。
+//! The command surface is a **frozen surface** (boundary finalization §1; changes
+//! require owner sign-off): 16 top-level subcommand names + `prompt`'s 5 nested
+//! subcommands + install's only hidden machine-surface argument (`--system-only`).
+//! The frozen criterion is a set comparison between `tests/test_cli_parity.py`
+//! and the Python side's `--help`.
 //!
-//! S1 只实现 `version`；其余一律 `not_yet_ported`（rc 1），Python CLI 仍是权威。
-//! 帮助文本**逐字**取自 Python 侧 argparse（`cli/aimail:3462-3653`），改一处要
-//! 两边同步 —— 差异由 parity 测试的子命令/选项集合断言兜住。
+//! S1 implements only `version`; everything else is `not_yet_ported` (rc 1), and
+//! the Python CLI remains authoritative.
+//! Help text is taken **verbatim** from the Python argparse
+//! (`cli/aimail:3462-3653`); changing one side requires syncing both -- drift is
+//! caught by the parity test's subcommand/option set assertions.
 
 use clap::{Arg, ArgAction, Command};
 
-/// 各子命令共用的两条帮助文案（Python 侧 `common_sid` / `common_home`，逐字一致）。
+/// Two help texts shared by all subcommands (Python side `common_sid` /
+/// `common_home`, verbatim identical).
 const SID_HELP: &str = "target system id (default: the only installed system)";
 const HOME_HELP: &str = "platform root (auto-resolved on single-platform machines)";
 
@@ -22,8 +27,10 @@ const EPILOG: &str = "scenario groups:
   operate    daily status, lifecycle, exams and flows: stats / renew / version / check / repair / ping / welcome
   resources  system-scoped resources: domain / address / bridge";
 
-/// 顶层 16 个子命令 —— 前 15 个的顺序与 Python 侧 `add_parser` 声明顺序一致（帮助分组顺序）；
-/// 末位 `platform`（2026-10-11 增，owner 签字）是机器导出面，无 Python 侧对应物。
+/// The 16 top-level subcommands -- the first 15 match the Python side's
+/// `add_parser` declaration order (help grouping order);
+/// the trailing `platform` (added 2026-10-11, owner sign-off) is the machine
+/// export surface, with no Python-side counterpart.
 const SUBCOMMANDS: &[(&str, &str)] = &[
     (
         "install",
@@ -89,7 +96,7 @@ const SUBCOMMANDS: &[(&str, &str)] = &[
     ),
 ];
 
-/// `prompt` 的嵌套子命令（Python `cli/aimail:3621-3647`）。
+/// Nested subcommands of `prompt` (Python `cli/aimail:3621-3647`).
 const PROMPT_SUBCOMMANDS: &[(&str, &str)] = &[
     (
         "add",
@@ -104,12 +111,15 @@ const PROMPT_SUBCOMMANDS: &[(&str, &str)] = &[
     ("create-file", "scaffold role_prompt/<filename>.md for -n"),
 ];
 
-/// 机器面隐藏参数（仅 `--system-only` 属反调 ABI；
-/// 其余是 install 的隐藏开关）。隐藏 = clap `hide(true)`，人面 help 不得出现。
-/// `install` 的参数（Python `cli/aimail:3462-3490`：人面 9 个 + 隐藏机器面 6 个）。
-/// 隐藏项的注册顺序与 Python 一致（usage 行只显示人面）。
+/// Machine-surface hidden arguments (only `--system-only` belongs to the
+/// reverse-call ABI; the rest are install hidden switches). Hidden = clap
+/// `hide(true)`; must not appear in the human-surface help.
+/// Arguments for `install` (Python `cli/aimail:3462-3490`: 9 human-surface +
+/// 6 hidden machine-surface).
+/// The registration order of hidden items matches Python (the usage line shows
+/// only the human surface).
 fn welcome_args(cmd: Command) -> Command {
-    // 帮助文本逐字取自 Python（`cli/aimail`，common_sid/common_mgr）
+    // Help text verbatim from Python (`cli/aimail`, common_sid/common_mgr)
     cmd.arg(
         Arg::new("system-id")
             .short('s')
@@ -430,8 +440,8 @@ fn install_hidden_args(cmd: Command) -> Command {
     )
 }
 
-/// `address` 上的隐藏开关（2026-09-28 入站 live/down 通知，Python `:3601/:3603`；
-/// 2026-10-13 加 `--inbound-url` 携带"确定的"入站端点）。
+/// Hidden switches on `address` (2026-09-28 inbound live/down notifications, Python `:3601/:3603`;
+/// 2026-10-13 added `--inbound-url` carrying the "definitive" inbound endpoint).
 fn address_hidden_args(cmd: Command) -> Command {
     cmd.arg(
         Arg::new("inbound-live")
@@ -458,7 +468,7 @@ fn address_hidden_args(cmd: Command) -> Command {
     )
 }
 
-/// `stats` 的参数（Python `cli/aimail:3531-3534`）。
+/// Arguments for `stats` (Python `cli/aimail:3531-3534`).
 fn stats_args(cmd: Command) -> Command {
     cmd.arg(
         Arg::new("all")
@@ -469,8 +479,8 @@ fn stats_args(cmd: Command) -> Command {
     )
 }
 
-/// `persona` 的参数（Python `cli/aimail:3577-3581`）—— 参数只为命令面保真，
-/// 该命令是"指路壳"（rc 2），不读任何参数。
+/// `persona` parameters (Python `cli/aimail:3577-3581`) —— parameters are for command surface fidelity only,
+/// this command is a "pointer shell" (rc 2), does not read any arguments.
 fn persona_args(cmd: Command) -> Command {
     cmd.arg(
         Arg::new("system-id")
@@ -493,7 +503,7 @@ fn persona_args(cmd: Command) -> Command {
     )
 }
 
-/// `check` 的参数（Python `cli/aimail:3547-3552`；`--json` 是内部开关，不在命令面）。
+/// Arguments for `check` (Python `cli/aimail:3547-3552`; `--json` is an internal switch, not on the command surface).
 fn check_args(cmd: Command) -> Command {
     cmd.arg(
         Arg::new("system-id")
@@ -511,7 +521,7 @@ fn check_args(cmd: Command) -> Command {
     )
 }
 
-/// `domain` 的参数（Python `cli/aimail:3584-3589`）。
+/// Arguments for `domain` (Python `cli/aimail:3584-3589`).
 fn domain_args(cmd: Command) -> Command {
     cmd.arg(
         Arg::new("system-id")
@@ -539,7 +549,7 @@ fn domain_args(cmd: Command) -> Command {
     )
 }
 
-/// `address` 的参数（Python `cli/aimail:3591-3606`）；隐藏开关见 [`address_hidden_args`]。
+/// Arguments for `address` (Python `cli/aimail:3591-3606`); see [`address_hidden_args`] for hidden switches.
 fn address_view_args(cmd: Command) -> Command {
     cmd.arg(
         Arg::new("system-id")
@@ -575,7 +585,7 @@ fn address_view_args(cmd: Command) -> Command {
     )
 }
 
-/// 构造完整命令树（集成测试也用它，避免测试复制一份清单）。
+/// Construct the full command tree (integration tests also use it, avoiding duplicating the manifest in tests).
 pub fn build_cli() -> Command {
     let mut app = Command::new("aimail")
         .about(DESCRIPTION)
@@ -604,11 +614,11 @@ pub fn build_cli() -> Command {
             "persona" => sub = persona_args(sub),
             "domain" => sub = domain_args(sub),
             "prompt" => {
-                // 与 argparse `add_subparsers(required=True)` 同：裸 `prompt` ⇒ rc=2 + usage
+                // Same as argparse `add_subparsers(required=True)`: bare `prompt` ⇒ rc=2 + usage
                 sub = sub.subcommand_required(true);
                 for (pn, ph) in PROMPT_SUBCOMMANDS {
                     let mut c = Command::new(*pn).about(*ph);
-                    // `_pr_tgt`：三个面共用（Python `cli/aimail:3618-3621`）
+                    // `_pr_tgt`: shared by three surfaces (Python `cli/aimail:3618-3621`)
                     c = c
                         .arg(
                             Arg::new("system-id")
@@ -775,9 +785,9 @@ fn agent_args(cmd: Command) -> Command {
         )
 }
 
-/// 进程入口：解析 argv 并分发，返回退出码。
+/// Process entry point: parse argv and dispatch, return exit code.
 pub fn run() -> i32 {
-    // 与 Python `main():3442` 同序：先把机器级/仓库 .env 灌进进程环境（绝不覆盖已有值）
+    // Same order as Python `main():3442`: first inject machine-level/repo .env into process environment (never overwrite existing values)
     crate::core::config::load_env();
     let matches = build_cli().get_matches();
     match matches.subcommand() {
@@ -818,14 +828,14 @@ pub fn run() -> i32 {
                 return 2;
             };
             let many = |key: &str| -> Vec<String> {
-                // `try_get_many`：五个面开关不同，未定义的 key 不能 panic
+                // `try_get_many`: five surfaces have different switches, undefined keys must not panic
                 am.try_get_many::<String>(key)
                     .ok()
                     .flatten()
                     .map(|v| v.cloned().collect())
                     .unwrap_or_default()
             };
-            // 五个面的开关各不相同 ⇒ **容错读取**（clap 对未定义 key 的访问会 panic）
+            // The switches for the five aspects are different ⇒ **fault-tolerant reading** (clap panics on accessing undefined keys)
             let sstr = |key: &str| -> String {
                 am.try_get_one::<String>(key)
                     .ok()
@@ -964,7 +974,7 @@ pub fn run() -> i32 {
             })
         }
         Some((name, _)) => crate::cmd::stub::not_yet_ported(name),
-        // subcommand_required(true) ⇒ 到不了这里；留非零兜底而不是伪装成 0。
+        // subcommand_required(true) ⇒ cannot reach here; leave non-zero fallback instead of faking 0.
         None => crate::cmd::stub::not_yet_ported("<none>"),
     }
 }
@@ -977,7 +987,7 @@ fn arg_opt(matches: &clap::ArgMatches, key: &str) -> Option<String> {
     matches.get_one::<String>(key).cloned()
 }
 
-/// `repair` 的参数面（= Python `p_repair`：`-s/-H/-D/-n`，无机器面）。
+/// Argument surface for `repair` (= Python `p_repair`: `-s/-H/-D/-n`, no machine surface).
 fn repair_args(sub: Command) -> Command {
     sub.arg(
         Arg::new("system-id")
@@ -1010,9 +1020,9 @@ fn repair_args(sub: Command) -> Command {
     )
 }
 
-/// `platform` 的参数面（契约 §5 检测面；**无** Python 侧对应物）。
-/// `spec` 是唯一子命令：`-H/--home` 给出时附带探测结果；`--json` 为显式声明
-/// （JSON 是唯一输出形式，开关存在只是为了与契约文本的调用形一致）。
+/// Argument surface for `platform` (contract §5 detection surface; **no** Python counterpart).
+/// `spec` is the only subcommand: `-H/--home` includes probe results when given; `--json` is an explicit declaration
+/// (JSON is the only output form, the switch exists only to match the call form in the contract text).
 fn platform_args(sub: Command) -> Command {
     let spec = Command::new("spec")
         .about("print the platform static knowledge table (+ detection when --home is given)")

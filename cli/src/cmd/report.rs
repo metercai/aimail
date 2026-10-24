@@ -1,27 +1,27 @@
-//! 用户面输出助手（`_fail` / `_ok` 的逐字复刻）。
+//! User-facing output helpers (verbatim replication of `_fail` / `_ok`).
 //!
-//! 现状码：`cli/aimail:76-83`
+//! Current code: `cli/aimail:76-83`
 //! ```python
 //! def _ok(msg):   print(f"  {GREEN}✓{NC} {msg}")
 //! def _warn(msg): print(f"  {YELLOW}⚠{NC} {msg}")
 //! def _fail(msg): print(f"  {RED}✗{NC} {msg}"); sys.exit(1)
 //! ```
-//! 注意 `_fail` 走的是 **stdout**（不是 stderr）且 rc=1 —— 门禁按输出原文判读，
-//! 所以这两点都必须照抄。颜色常量单点在 [`crate::core::style`]。
+//! Note that `_fail` goes through **stdout** (not stderr) and rc=1 —— the gate reads the output verbatim,
+//! so both of these points must be copied exactly. Color constants are single-sourced in [`crate::core::style`].
 
 use crate::core::style::{GREEN, NC, RED, YELLOW};
 
-/// 成功行（stdout，rc 不动）。
+/// Success line (stdout, rc unchanged).
 pub fn ok(msg: &str) {
     println!("  {GREEN}✓{NC} {msg}");
 }
 
-/// 警告行（stdout，rc 不动）。
+/// Warning line (stdout, rc unchanged).
 pub fn warn(msg: &str) {
     println!("  {YELLOW}⚠{NC} {msg}");
 }
 
-/// 失败行（stdout）+ 调用方返回 rc 1。
+/// Failure line (stdout) + caller returns rc 1.
 pub fn fail(msg: &str) -> i32 {
     println!("  {RED}✗{NC} {msg}");
     1

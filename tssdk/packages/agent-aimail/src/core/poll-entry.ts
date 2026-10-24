@@ -1,27 +1,27 @@
 /**
- * poll-entry.ts — agent-scope 定时轮询入口(auto-pull wiring, slice 8)。
+ * poll-entry.ts — agent-scope scheduled polling entry (auto-pull wiring, slice 8).
  *
- * 适配器 install/初始化收尾要接上的**最后一根线**: 地址级激活得到的 agent-scope
- * key 取不到 push(网关给该地址写的是 `webhook_url = NULL`, 见
- * `aimail-advanced src/advanced/api/address.rs` 的 system_domains INSERT),
- * 只能自己定时 pull。此前 `pullList/pullAck/startPolling` 有库有单测、**零调用方**,
- * 文档承诺的"agent 自主接入"在产线上缺这根线 —— 本模块就是它。
+ * The **last wire** that the adapter install/initialization wrap-up needs to connect: the agent-scope obtained from address-level activation
+ * key obtained from address-level activation cannot get push (the gateway writes `webhook_url = NULL` for that address, see
+ * `aimail-advanced src/advanced/api/address.rs` system_domains INSERT),
+ * so it can only pull on a schedule. Previously `pullList/pullAck/startPolling` had libraries and unit tests, **zero callers**,
+ * The "agent autonomous access" promised in the documentation is missing this wire in production — this module is it.
  *
- * 语义(与 startPolling 同族, 不重复实现):
- *   - **只对 agent 级激活启用**: 绑定是地址码兑换产物 ⇒ 启用; 系统/bridge 场景
- *     (平台注册的系统, 走 push) ⇒ 不启用。判据是**现成事实**, 不是猜:
- *     地址码只可能在 `shared_addr_*` 宿主系统下被兑换 ——
+ * Semantics (same family as startPolling, no duplicate implementation):
+ *   - **Only enabled for agent-level activation**: binding is a product of address code redemption ⇒ enabled; system/bridge scenarios
+ *     (system registered by platform, goes through push) ⇒ not enabled. The criterion is an **existing fact**, not a guess:
+ *     Address codes can only be redeemed under the `shared_addr_*` host system —
  *     `aimail-advanced src/advanced/api/address.rs:308`
  *     `if !sid.starts_with("shared_addr_") { return Ok(Err(ActErr::Invalid)); }`
- *     ⇒ 绑定 `system_id` 以该前缀开头 ⇔ 该 key 由地址码兑换而来(agent scope;
- *     见 `src/advanced/api/pull_intercept.rs` 头部: agent scope ⇒ 只服务自己地址)。
- *     regen/产品创建路径**永不**产生该前缀(`products.rs:83` 显式排除)
- *     ⇒ 系统/bridge 绑定不会被误判。
- *   - **失败不 ack / 幂等去重**: 由 `startPolling` 保证(onEmail 抛错或
- *     reject ⇒ 该 delivery 不 ack, 下轮重拉; 去重键 = delivery id)。
- *   - **可关停 / 可配间隔**: 句柄 `stop()`(AbortController) + 进程退出即停
- *     (计时器 unref); 间隔/批量/总开关走 env 或显式 override。
- *   - **不泄漏定时器**: 一个绑定一条循环, 句柄收敛在启动处。
+ *     ⇒ binding `system_id` starts with that prefix ⇔ the key was redeemed from an address code (agent scope;
+ *     see the header of `src/advanced/api/pull_intercept.rs`: agent scope ⇒ only serves its own address).
+ *     regen/product creation paths **never** produce that prefix (`products.rs:83` explicitly excludes it)
+ *     ⇒ system/bridge bindings will not be misjudged.
+ *   - **No ack on failure / idempotent deduplication**: guaranteed by `startPolling` (if onEmail throws an error or
+ *     rejects ⇒ that delivery is not acked, re-pulled in the next round; dedup key = delivery id).
+ *   - **Stoppable / configurable interval**: handle `stop()` (AbortController) + stops on process exit
+ *     (timer unref); interval/batch/master switch via env or explicit override.
+ *   - **No timer leaks**: One binding per loop, handle convergence at startup.
  */
 import type { AgentConfig } from './types.js'
 import { GatewayClient } from './gateway.js'
@@ -30,33 +30,33 @@ import { listSystemDirs } from './auto-bind.js'
 import { startPolling, type PollStats, type RequestClient } from './address-code.js'
 
 /**
- * 地址级激活产物的系统 id 前缀 —— 网关侧事实(证据见模块头):
- * 只有 `shared_addr_*` 宿主系统下的激活码可被兑换, 兑换成功即落该 sid。
+ * System id prefix for address-level activation artifacts — gateway-side fact (evidence in module header):
+ * Only activation codes under `shared_addr_*` host systems can be redeemed, and successful redemption lands on that sid.
  */
 export const AGENT_SCOPE_SYSTEM_PREFIX = 'shared_addr_'
 
-/** 默认轮询间隔(30s): 邮件不是实时通道, 但要比人的耐心快。 */
+/** Default polling interval (30s): email is not a real-time channel, but it must be faster than human patience. */
 export const DEFAULT_PULL_INTERVAL_MS = 30_000
 
-/** 默认单轮批量(网关上限 200, pullList 自行收敛)。 */
+/** Default batch size per round (gateway limit 200, pullList converges itself). */
 export const DEFAULT_PULL_LIMIT = 20
 
-/** 下限 1s: 更密就是打网关, 没有业务理由。 */
+/** Lower bound 1s: denser is just hitting the gateway, no business reason. */
 const MIN_PULL_INTERVAL_MS = 1_000
 
-/** 总开关环境变量: 0/false/off/no(大小写不敏感)⇒ 关。默认开。 */
+/** Master switch environment variable: 0/false/off/no (case-insensitive) ⇒ off. Default on. */
 const PULL_ENABLE_ENV = 'AIMAIL_PULL'
 const PULL_INTERVAL_ENV = 'AIMAIL_PULL_INTERVAL_MS'
 const PULL_LIMIT_ENV = 'AIMAIL_PULL_LIMIT'
 
-/** 该绑定是不是地址级激活(agent scope)产物 —— 用现成事实判定, 不猜。 */
+/** whether this binding is an address-level (agent-scope) activation artifact — decided by existing facts, not guessed. */
 export function isAgentScopeBinding(cfg: AgentConfig | undefined | null): boolean {
   if (!cfg) return false
   if (!cfg.system_id || !cfg.api_key) return false
   return cfg.system_id.startsWith(AGENT_SCOPE_SYSTEM_PREFIX)
 }
 
-/** 判定结果的可解释原因(日志与单测都按它断言)。 */
+/** Explainable reason for the judgment result (asserted by both logs and unit tests). */
 export type PullDecisionReason =
   | 'enabled'
   | 'no-binding'

@@ -1,8 +1,8 @@
-//! pi 宿主（node / agent-aimail 扩展）。
+//! pi host (node / agent-aimail extension).
 //!
-//! 本文件是该宿主的**全部数据**：身份特征、指针形态、注册/装配步骤、体检项。
-//! 引擎在 `hosts/{mod,identity,pointer,runtime}.rs`；新增宿主 = 新增本目录一个文件，
-//! 再在 `mod.rs` 的 `ALL` 里加一行。
+//! this file is the **complete data** of that host: identity features, pointer form, register/assemble steps, health items.
+//! the engine is in `hosts/{mod,identity,pointer,runtime}.rs`; adding a host = adding one file in this directory,
+//! Then add a line in `ALL` in `mod.rs`.
 
 use crate::hosts::exec::{Register, SkipIf, Step, When};
 use crate::hosts::health::{Health, HealthSpec};
@@ -18,10 +18,10 @@ pub static PI: HostDef = HostDef {
     pointer: PointerKind::Root,
     register: Register::NodeEntry {
             node_path: "{home}/agent/npm/node_modules/agent-aimail/dist/pi/register-cli.js",
-            fail_hint: "agent-aimail 扩展未就绪——先 `pi install npm:agent-aimail` 装扩展再注册",
+            fail_hint: "agent-aimail extension not ready -- first `pi install npm:agent-aimail` to install the extension, then register",
         },
     home_dir: ".pi",
-    install_steps: &[Step::Print { when: None, text: "pi platform: ensure the agent-aimail extension (auto; skipped when present) + register the agent:" }, Step::Spawn { when: None, argv: &["pi", "install", "npm:agent-aimail"], env: None, skip_if: Some(SkipIf { argv: &["pi", "list"], match_: "agent-aimail" }), on_missing: Some("fail"), fail_hint: Some("`pi` executable not found (platform detected but host CLI missing?)"), on_error: Some("warn"), warn_hint: Some("agent-aimail extension install failed (check network/registry) — after fixing, rerun `aimail reset -s {sid}`"), ok_text: Some("agent-aimail extension installed (npm registry latest stable; takes effect after the pi session restarts)"), skipped_text: Some("agent-aimail extension already present (install skipped)") }, Step::RegisterDefault { when: Some(When { cfg_complete: Some(true), sid_set: None, path_exists: None, command_exists: None, runtime: None, runtime_not: None }), on_error: Some("warn"), warn_hint: Some("pi agent registration failed (see above) — rerun `aimail reset -s {sid}` once the extension is in place (地址名由 SDK 决定，CLI 不涉及)") }, Step::Warn { when: Some(When { cfg_complete: Some(false), sid_set: None, path_exists: None, command_exists: None, runtime: None, runtime_not: None }), text: "pi registration skipped (config incomplete — retry after activation/install, or run `aimail address -s SID`)" }, Step::Print { when: None, text: "  pi: inbound listener lives with the pi session lifecycle (restart the session to apply)" }],
+    install_steps: &[Step::Print { when: None, text: "pi platform: ensure the agent-aimail extension (auto; skipped when present) + register the agent:" }, Step::Spawn { when: None, argv: &["pi", "install", "npm:agent-aimail"], env: None, skip_if: Some(SkipIf { argv: &["pi", "list"], match_: "agent-aimail" }), on_missing: Some("fail"), fail_hint: Some("`pi` executable not found (platform detected but host CLI missing?)"), on_error: Some("warn"), warn_hint: Some("agent-aimail extension install failed (check network/registry) — after fixing, rerun `aimail reset -s {sid}`"), ok_text: Some("agent-aimail extension installed (npm registry latest stable; takes effect after the pi session restarts)"), skipped_text: Some("agent-aimail extension already present (install skipped)") }, Step::RegisterDefault { when: Some(When { cfg_complete: Some(true), sid_set: None, path_exists: None, command_exists: None, runtime: None, runtime_not: None }), on_error: Some("warn"), warn_hint: Some("pi agent registration failed (see above) — rerun `aimail reset -s {sid}` once the extension is in place (address name is determined by the SDK, CLI is not involved)") }, Step::Warn { when: Some(When { cfg_complete: Some(false), sid_set: None, path_exists: None, command_exists: None, runtime: None, runtime_not: None }), text: "pi registration skipped (config incomplete — retry after activation/install, or run `aimail address -s SID`)" }, Step::Print { when: None, text: "  pi: inbound listener lives with the pi session lifecycle (restart the session to apply)" }],
     uninstall_steps: &[
             Step::RmPointer {
                 path: "{home}/{pointer_file}",
@@ -33,7 +33,7 @@ pub static PI: HostDef = HostDef {
             },
             Step::Print {
                 when: None,
-                text: "  pi: 扩展移除 = pi 宿主侧移除 agent-aimail 扩展",
+                text: "  pi: Extension removal = pi host-side removal of the agent-aimail extension",
             },
         ],
     health_checks: &[Health {

@@ -1,19 +1,19 @@
-//! CLI 检测面 —— 契约 v1.0 §5（owner 2026-10-11 增列）。
+//! CLI detection surface —— Contract v1.0 §5 (owner 2026-10-11 added).
 //!
-//! **平台知识的唯一真源 = `crate::hosts`**（每个宿主一个 `HostDef`）。本模块只做
-//! "给定 home 回答这是哪个宿主 / 东西在哪 / 装了什么"，数据一律从宿主表派生：
-//!   · 特征标记 ← `HostDef.detect.markers`            · 落点 ← `HostDef.home_dir`
-//!   · 插件入口 ← `register.node_path`（node 宿主）   · 语言 ← `HostDef.lang()`
-//!   · agent 键容器 ← `HostDef.agents_container`
+//! **Single source of truth for platform knowledge = `crate::hosts`** (one `HostDef` per host). This module only does
+//! "given home, answer which host this is / where things are / what is installed", data is always derived from host table:
+//!   · Feature markers ← `HostDef.detect.markers`            · Landing point ← `HostDef.home_dir`
+//!   · Plugin entry ← `register.node_path` (node host)   · Language ← `HostDef.lang()`
+//!   · agent key container ← `HostDef.agents_container`
 //!
-//! 本模块**不实现**平台适配与 SDK 逻辑（那是 SDK 的事），也不持有任何平台常量。
+//! This module **does not implement** platform adaptation and SDK logic (that is SDK's job), nor does it hold any platform constants.
 //!
-//! 优先级（契约 §5）：显式 `--platform`（校验，不静默回落）→ 已装组件（入口在位）
-//! → 宿主特征标记（未装态兜底）→ `unknown` ⇒ 响亮失败。未装态**只允许**前两法。
+//! Priority (Contract §5): explicit `--platform` (validated, no silent fallback) → installed components (entry present)
+//! → host feature markers (fallback for uninstalled state) → `unknown` ⇒ loud failure. Uninstalled state **only allows** the first two methods.
 //!
-//! 候选根 = `[home, home/<home_dir>]`：调用方按约定给**宿主根**（如 `~/.hermes`），
-//! 也可能给它们的父目录（如 `~`）。**只在候选根下按该宿主自己的布局找入口**
-//! ——不做无界深度遍历：否则父目录下任意嵌套的另一个宿主树都会被误 claim（实测缺陷）。
+//! Candidate roots = `[home, home/<home_dir>]`: caller provides **host root** by convention (e.g. `~/.hermes`),
+//! or may provide their parent directory (e.g. `~`). **Only search for entry under candidate roots according to that host's own layout**
+//! —— no unbounded depth traversal: otherwise any nested host tree under parent directory would be misclaimed (tested defect).
 
 use std::path::{Path, PathBuf};
 
@@ -22,18 +22,18 @@ use serde_json::{json, Value};
 use crate::hosts::exec::Register;
 use crate::hosts::{all, order, Host, HostDef, Lang};
 
-/// 探测结果（`platform spec --json` 的 `detected` 段）。
+/// Detection result (`platform spec --json`'s `detected` section).
 #[derive(Debug, Clone)]
 pub struct StaticInfo {
     pub platform: String,
-    /// `"node"`（平台注册器入口在位）| `"python"`（python 宿主，走门）| `""`（未知/未装）。
+    /// `"node"` (platform registrar entry present) | `"python"` (python host, goes through gate) | `""` (unknown/uninstalled).
     pub transport: &'static str,
-    /// 命中的候选根（平台 home）。
+    /// Hit candidate root (platform home).
     pub home: PathBuf,
-    /// 扫描所得 agent 键（多 agent 宿主）；单 agent 宿主为空 ⇒ 由 SDK 取默认名。
+    /// Scanned agent keys (multi-agent host); empty for single-agent host ⇒ SDK takes default name.
     pub agent_keys: Vec<String>,
     pub pointer: Option<PathBuf>,
-    /// node 宿主：`<pkg>/dist/register-cli.js`（按宿主布局模式命中；owner 2026-10-11：三包同目录 `dist/`）。
+    /// node host: `<pkg>/dist/register-cli.js` (matched by host layout pattern; owner 2026-10-11: three packages in same `dist/` directory).
     pub entry: Option<PathBuf>,
 }
 
@@ -50,7 +50,7 @@ impl StaticInfo {
     }
 }
 
-/// 候选根：`home` 自身，以及 `home/<home_dir>`（调用方给父目录时）。
+/// Candidate roots: `home` itself, and `home/<home_dir>` (when caller provides parent directory).
 fn candidate_roots(home: &Path, h: &HostDef) -> Vec<PathBuf> {
     let mut roots = vec![home.to_path_buf()];
     let nested = home.join(h.home_dir);
@@ -72,7 +72,7 @@ fn expand_alts(seg: &str) -> Vec<String> {
     }
 }
 
-/// 按模式（`*` 单层通配 + `{a,b}` 备选）在 `root` 下找文件。
+/// Find files under `root` by pattern (`*` single-level wildcard + `{a,b}` alternatives).
 fn match_pattern(root: &Path, pattern: &str) -> Option<PathBuf> {
     let segs: Vec<&str> = pattern.split('/').collect();
     fn walk(dir: &Path, segs: &[&str]) -> Option<PathBuf> {
@@ -104,7 +104,7 @@ fn match_pattern(root: &Path, pattern: &str) -> Option<PathBuf> {
     walk(root, &segs)
 }
 
-/// node 宿主的入口模板（`register.node_path`，`{home}` 相对宿主根）；python 宿主 ⇒ None。
+/// node host entry template (`register.node_path`, `{home}` relative to host root); python host ⇒ None.
 fn entry_pattern(h: &HostDef) -> Option<&'static str> {
     match h.register {
         Register::NodeEntry { node_path, .. } => Some(node_path),
@@ -123,8 +123,8 @@ fn markers_hit(root: &Path, h: &HostDef) -> bool {
     !det.markers.is_empty() && det.markers.iter().all(|m| root.join(m).exists())
 }
 
-/// 扫描 agent 键（可推导）：`<root>/profiles/*`（hermes/dsh）或 `<root>/agents/*`（openclaw）。
-/// 单 agent 宿主扫不到 ⇒ 空集（定名归 SDK，CLI 不猜）。
+/// Scan agent keys (derivable): `<root>/profiles/*` (hermes/dsh) or `<root>/agents/*` (openclaw).
+/// Single-agent host scan finds nothing ⇒ empty set (naming belongs to SDK, CLI does not guess).
 fn scan_agent_keys(root: &Path, h: &HostDef) -> Vec<String> {
     if h.agents_container.is_empty() {
         return Vec::new();
@@ -145,8 +145,8 @@ fn scan_agent_keys(root: &Path, h: &HostDef) -> Vec<String> {
     keys
 }
 
-/// 探测静态信息。`explicit` 为 `--platform` 显式值：命中即用（并跑一次自检），
-/// 未命中**响亮失败**、不静默回落（契约 §5）。
+/// Detect static info. `explicit` is `--platform` explicit value: if hit, use it (and run self-check once),
+/// if not hit **loud failure**, no silent fallback (Contract §5).
 pub fn detect_static(home: &Path, explicit: Option<&str>) -> Result<StaticInfo, String> {
     let (h, root) = match explicit {
         Some(id) => match crate::hosts::get(id) {
@@ -164,7 +164,7 @@ pub fn detect_static(home: &Path, explicit: Option<&str>) -> Result<StaticInfo, 
             }
         },
         None => {
-            // 已装组件（入口在位）优先于特征标记：入口是"装过"的硬证据。
+            // Installed components (entry present) take priority over feature markers: entry is hard evidence of "installed".
             let mut by_entry: Option<(&'static HostDef, PathBuf)> = None;
             let mut by_marker: Option<(&'static HostDef, PathBuf)> = None;
             for p in all() {
@@ -182,7 +182,7 @@ pub fn detect_static(home: &Path, explicit: Option<&str>) -> Result<StaticInfo, 
                 Some((p, r)) => (p, r),
                 None => {
                     return Err(format!(
-                        "无法确定平台: {} 目录无特征且无 aimail 指针(可用 --platform 显式指定; valid: {})",
+                        "cannot determine platform: {} directory has no markers and no aimail pointer (specify --platform explicitly; valid: {})",
                         home.display(),
                         order().join(", ")
                     ))
@@ -200,7 +200,7 @@ pub fn detect_static(home: &Path, explicit: Option<&str>) -> Result<StaticInfo, 
         ""
     };
     let pointer = {
-        // 契约常量单一真源：文件名取 `contract::pointer_file()`
+        // Single source of truth for contract constants: filename taken from `contract::pointer_file()`
         let p = root.join(crate::core::contract::pointer_file());
         p.is_file().then_some(p)
     };
@@ -214,8 +214,8 @@ pub fn detect_static(home: &Path, explicit: Option<&str>) -> Result<StaticInfo, 
     })
 }
 
-/// `aimail platform spec --json` 的载荷：宿主表的值视图 +（可选）探测结果。
-/// 形状 = `order` + `platforms`{id→对象} + `detected`；高级门禁/夹具以本命令为唯一入口。
+/// Payload for `aimail platform spec --json`: value view of the host table + (optional) detection results.
+/// shape = `order` + `platforms`{id→object} + `detected`; advanced gate/clamp uses this command as the sole entry.
 pub fn spec_json(home: Option<&Path>, explicit: Option<&str>) -> Value {
     let reg = crate::hosts::describe_all();
     let detected = match home {
@@ -253,7 +253,7 @@ mod tests {
         let h = tmp("unknown");
         let err = detect_static(&h, Some("nope")).unwrap_err();
         assert!(err.contains("--platform 'nope' unknown"), "{err}");
-        assert!(err.contains("hermes"), "valid 列表应列出平台: {err}");
+        assert!(err.contains("hermes"), "valid list should list platforms: {err}");
     }
 
     #[test]
@@ -263,7 +263,7 @@ mod tests {
         std::fs::create_dir_all(nested.join("profiles")).unwrap();
         let info = detect_static(&h, Some("hermes")).unwrap();
         assert_eq!(info.platform, "hermes");
-        assert_eq!(info.home, nested, "给父目录时应落到 <parent>/.hermes");
+        assert_eq!(info.home, nested, "when given parent dir, should land in <parent>/.hermes");
     }
 
     #[test]
@@ -272,25 +272,25 @@ mod tests {
         std::fs::create_dir_all(h.join("hermes-agent")).unwrap();
         let info = detect_static(&h, None).unwrap();
         assert_eq!(info.platform, "hermes");
-        assert_eq!(info.transport, "python"); // 无 node 入口 ⇒ python 宿主走门
+        assert_eq!(info.transport, "python"); // no node entry ⇒ python host goes through gate
     }
 
     #[test]
     fn markers_all_required_not_any() {
         let h = tmp("markers-all");
-        std::fs::create_dir_all(h.join("backend")).unwrap(); // 只命中 deerflow 标记的前半段
+        std::fs::create_dir_all(h.join("backend")).unwrap(); // only hits the first half of the deerflow marker
         let err = detect_static(&h, None).unwrap_err();
-        assert!(err.contains("无法确定平台"), "{err}");
+        assert!(err.contains("cannot determine platform"), "{err}");
     }
 
     #[test]
     fn installed_node_entry_wins_over_markers_and_is_derived_by_layout_pattern() {
         let h = tmp("entry");
         std::fs::create_dir_all(h.join("openclaw.json")).ok();
-        // dsh 布局: profiles/<profile>/node_modules/agent-aimail/dist/dsh/register-cli.js
+        // dsh layout: profiles/<profile>/node_modules/agent-aimail/dist/dsh/register-cli.js
         touch(&h.join("profiles/web/node_modules/agent-aimail/dist/dsh/register-cli.js"));
         let info = detect_static(&h, None).unwrap();
-        assert_eq!(info.platform, "dsh", "已装组件优先于特征标记");
+        assert_eq!(info.platform, "dsh", "installed components take precedence over feature markers");
         assert_eq!(info.transport, "node");
         assert!(info
             .entry
@@ -301,19 +301,19 @@ mod tests {
 
     #[test]
     fn nested_foreign_home_is_not_claimed() {
-        // 实测缺陷回归：给 /tmp(其下嵌套另一个宿主树)不得把 /tmp 当成 dsh。
+        // Regression for measured defect: giving /tmp (which nests another host tree under it) must not treat /tmp as dsh.
         let outer = tmp("outer");
         touch(&outer.join("inner/profiles/web/node_modules/agent-aimail/dist/dsh/register-cli.js"));
         let err = detect_static(&outer, None).unwrap_err();
         assert!(
-            err.contains("无法确定平台"),
-            "父目录下的陌生树不得被 claim: {err}"
+            err.contains("cannot determine platform"),
+            "unknown tree under parent dir must not be claimed: {err}"
         );
     }
 
     #[test]
     fn parent_dir_with_nested_own_home_is_detected() {
-        // 调用方给父目录(~ 式)：候选根含 <parent>/.dsh ⇒ 命中
+        // caller gives parent dir (~ style): candidate roots include <parent>/.dsh ⇒ hit
         let parent = tmp("parent");
         touch(&parent.join(".dsh/profiles/web/node_modules/agent-aimail/dist/dsh/register-cli.js"));
         let info = detect_static(&parent, None).unwrap();
@@ -331,7 +331,7 @@ mod tests {
         assert_eq!(info.transport, "node");
         assert!(
             info.agent_keys.is_empty(),
-            "单 agent 宿主不猜名字（定名归 SDK）"
+            "single agent host does not guess names (naming belongs to SDK)"
         );
     }
 
@@ -340,13 +340,13 @@ mod tests {
         let h = tmp("specjson");
         std::fs::create_dir_all(h.join("profiles")).ok();
         let v = spec_json(Some(&h), Some("dsh"));
-        // S3a 后形状 = 原平台注册表（order + platforms{id→对象}）+ detected。
+        // After S3a shape = original platform registry (order + platforms{id→object}) + detected.
         let order = v["order"].as_array().unwrap();
         let ids: Vec<&str> = order.iter().map(|p| p.as_str().unwrap()).collect();
         assert_eq!(ids, vec!["pi", "dsh", "hermes", "openclaw", "deerflow"]);
         let plats = v["platforms"].as_object().unwrap();
         assert_eq!(plats.len(), crate::hosts::ALL.len());
-        // 全形状导出面：install_steps / health_checks / register / pointer 键在位。
+        // Full shape export surface: install_steps / health_checks / register / pointer keys are present.
         let dsh = &plats["dsh"];
         assert!(dsh["install_steps"]
             .as_array()
@@ -355,10 +355,10 @@ mod tests {
             .any(|s| s["kind"] == "register_default"));
         assert!(dsh["health_checks"].as_array().is_some());
         assert_eq!(dsh["register"]["kind"], "node_entry");
-        // pointer.file 归契约单源（`contract::pointer_file()`），注册表只留 kind。
+        // pointer.file belongs to contract single source (`contract::pointer_file()`), registry only keeps kind.
         assert_eq!(dsh["pointer"]["kind"], "root");
         assert!(dsh["pointer"].get("file").is_none());
         assert_eq!(v["detected"]["platform"], "dsh");
-        assert_eq!(v["detected"]["transport"], ""); // 显式给平台但未装 ⇒ 无入口、非 python 宿主
+        assert_eq!(v["detected"]["transport"], ""); // platform explicitly given but not installed ⇒ no entry, non-python host
     }
 }

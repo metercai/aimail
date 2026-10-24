@@ -205,8 +205,8 @@ fn package_hosts_show_their_native_command_without_touching_the_machine() {
     assert!(out.contains("agent-aimail"), "{out}");
     assert!(out.contains("openclaw plugins install"), "{out}");
 
-    // hermes 的**本机**包安装步必须真的被挑出来（不是被 "docker" 词面误滤掉），
-    // 且容器步不得混进本机 dry-run。断言按分支判，不按"机器上是否已装 SDK"判。
+    // hermes's **local** package install step must really be picked (not mis-filtered by the surface word "docker"),
+    // and container steps must not mix into the local dry-run. Assertions judge by branch, not by "whether the SDK is already installed on the machine".
     let (rc, out) = run(&home, &home, &["agent", "setup", "--host", "hermes"]);
     assert_eq!(rc, 0, "{out}");
     assert!(
@@ -223,7 +223,7 @@ fn package_hosts_show_their_native_command_without_touching_the_machine() {
         "the container step must not leak into local mode: {out}"
     );
 
-    // 未检测到宿主 ⇒ 守卫不成立 ⇒ 不假报 applied=true，并说明"没有可跑的步"
+    // no host detected => the guard does not hold => do not falsely report applied=true, and explain "there are no steps to run"
     let (_, out) = run(
         &home,
         &home,

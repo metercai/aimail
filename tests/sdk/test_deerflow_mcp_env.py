@@ -1,22 +1,22 @@
-"""deer-flow 装配写进 extensions_config 的 MCP env 必须**自足**(hermetic, 2026-10-02)。
+"""deer-flow assembly written into extensions_config's MCP env must be **self-contained** (hermetic, 2026-10-02).
 
-背景(J4e 根因, 实测取证): deer-flow 起 stdio MCP server 时**只带** `mcpServers.<n>.env`
-(第三方只读参考 `backend/packages/harness/deerflow/mcp/client.py:32-34`:
-`params["env"] = config.env`), 子进程拿不到安装侧的环境。install-mcp.sh 原先只写
-AIMAIL_AGENT_ID / AIMAIL_AGENT_IDENTITY ⇒ 子进程里
-`aimail_base.aimail_home()`(pysdk/aimail_base.py:242-243) 回落 `~/.aimail` ⇒ 扫不到本机
-绑定 ⇒ 每次工具调用抛 `agent '<id>' not registered`(aimail_base.py:573-575) ⇒
-agent 永远发不出信(deerflow J4e 历史 13 红 0 绿)。反事实实测: 只补 AIMAIL_HOME 即 OK。
+Background (J4e root cause, empirical evidence): when deer-flow starts stdio MCP server it **only carries** `mcpServers.<n>.env`
+(third-party read-only reference `backend/packages/harness/deerflow/mcp/client.py:32-34`:
+`params["env"] = config.env`), child process cannot get the installation side environment. install-mcp.sh originally only wrote
+AIMAIL_AGENT_ID / AIMAIL_AGENT_IDENTITY ⇒ in child process
+`aimail_base.aimail_home()`(pysdk/aimail_base.py:242-243) falls back to `~/.aimail` ⇒ cannot scan local
+binding ⇒ every tool call throws `agent '<id>' not registered`(aimail_base.py:573-575) ⇒
+agent can never send mail (deerflow J4e history 13 red 0 green). Counterfactual test: only adding AIMAIL_HOME is OK.
 
-本文件把该契约钉成判决项:
-  1. 写出的 env 自带 AIMAIL_HOME(值 == 安装侧 home, 与 aimail_home() 同语义);
-  2. 装配步给了 AIMAIL_SYSTEM_ID(pysdk/install.py::_assembly_env 会 setdefault)就写进去,
-     没给就不写键(server 侧回退全扫描 = 旧行为, 不写空串冒充"钉住");
-  3. 幂等: 同输入重跑, 文件字节不变;
-  4. 原有键(aimail server 块 / args 指向载荷)不回退。
+This file pins the contract as a verdict item:
+  1. The written env carries AIMAIL_HOME (value == install-side home, same semantics as aimail_home());
+  2. If the assembly step provides AIMAIL_SYSTEM_ID (pysdk/install.py::_assembly_env will setdefault), it is written;
+     if not provided, the key is not written (server-side falls back to full scan = old behavior, does not write empty string to fake "pinned");
+  3. Idempotent: re-running with the same input, file bytes remain unchanged;
+  4. Existing keys (aimail server block / args pointing to payload) are not rolled back.
 
-调用面按产品真实形状: 真跑 `pysdk/deer-flow/install-mcp.sh`, 用 PATH 上的 stub `aimail`
-兑现 `aimail install --payload …`(脚本按 P3 裁决只走 CLI 公开命令面, 不兜底仓内路径)。
+ The call surface follows the real product shape: actually runs `pysdk/deer-flow/install-mcp.sh` with a stub `aimail` on PATH
+to fulfill `aimail install --payload …` (script follows P3 ruling to only use CLI public command surface, no fallback to in-repo paths).
 """
 import json
 import os
@@ -29,10 +29,10 @@ SCRIPT = REPO / "pysdk" / "deer-flow" / "install-mcp.sh"
 
 
 def _stub_cli(bin_dir: Path, mcp_dir: Path) -> Path:
-    """PATH 上的 aimail stub: 兑现脚本用到的两条 payload 子命令。
+    """The aimail stub on PATH: fulfills the two payload subcommands the script uses.
 
-    `--payload dir mcp` 按产品语义返回 **mcp 载荷目录**(脚本据此拼
-    `<dir>/aimail_mcp_server.py` 并断言文件在位)。
+    `--payload dir mcp` returns the **mcp payload directory** per product semantics (script uses this to construct
+    `<dir>/aimail_mcp_server.py` and asserts the file is present).
     """
     bin_dir.mkdir(parents=True, exist_ok=True)
     stub = bin_dir / "aimail"
@@ -49,17 +49,17 @@ def _stub_cli(bin_dir: Path, mcp_dir: Path) -> Path:
 
 
 def _run(tmp_path: Path, *, aimail_home: str | None, system_id: str | None) -> Path:
-    """真跑安装脚本, 返回 extensions_config.json 路径。"""
+    """Actually runs the install script, returns the path to extensions_config.json."""
     payload = tmp_path / "payload"
-    # owner 2026-10-06 目标态：MCP 服务取自**已装包**（零拷贝 ✗ 不再有 <程序根>/mcp/ 拷贝）⇒
-    # 测试提供"已装包"的最小形态：一个 aimail 包目录（含 aimail_mcp_server.py）+ PYTHONPATH 指向它。
+    # owner 2026-10-06 target state: MCP service taken from **installed package** (zero-copy ✗ no more <program root>/mcp/ copy) ⇒
+    # Test provides the minimal form of an "installed package": an aimail package directory (containing aimail_mcp_server.py) + PYTHONPATH pointing to it.
     pkg = tmp_path / "python" / "aimail"
     pkg.mkdir(parents=True, exist_ok=True)
     (pkg / "__init__.py").write_text("")
     (pkg / "aimail_mcp_server.py").write_text("# stub installed-package payload\n")
     bin_dir = _stub_cli(payload / "bin", pkg)
 
-    home_root = tmp_path / "home"            # deer-flow 检出根(装版本号用)
+    home_root = tmp_path / "home"            # deer-flow checkout root (for installing version number)
     (home_root / "backend").mkdir(parents=True, exist_ok=True)
     (home_root / "backend" / "pyproject.toml").write_text('version = "9.9.9"\n')
     cfg = tmp_path / "df" / "extensions_config.json"
@@ -89,7 +89,7 @@ def _run(tmp_path: Path, *, aimail_home: str | None, system_id: str | None) -> P
 
 
 def test_env_carries_aimail_home_and_pinned_system(tmp_path):
-    """装了 home + system 的安装侧: env 必须自带这两项(= server 唯一能读到的地方)。"""
+    """Install side with home + system installed: env must carry these two items (= the only place server can read them)."""
     home = tmp_path / "aimail-home"
     cfg = _run(tmp_path, aimail_home=str(home), system_id="sys-j4e")
     env = json.loads(cfg.read_text())["mcpServers"]["aimail"]["env"]
@@ -98,17 +98,17 @@ def test_env_carries_aimail_home_and_pinned_system(tmp_path):
     assert env["AIMAIL_SYSTEM_ID"] == "sys-j4e", env
     assert env["AIMAIL_AGENT_ID"] == "default", env
     assert env["AIMAIL_AGENT_IDENTITY"].startswith("deerflow/"), env
-    # 服务块形状（args[0] = 已装包内的 MCP 服务；owner 2026-10-06：零拷贝 ✗）
+    # Service block shape (args[0] = MCP service inside installed package; owner 2026-10-06: zero-copy ✗)
     block = json.loads(cfg.read_text())["mcpServers"]["aimail"]
-    # owner 2026-10-06 目标态：MCP 服务取自**已装包**（零拷贝 ✗ —— 不再有 <程序根>/mcp/ 的拷贝）。
-    # 断言只绑**语义**（不是程序根下的拷贝、且为空时脚本会响亮失败），不绑本机是否已装包（环境无关 ✓）。
+    # owner 2026-10-06 target state: MCP service is taken from the **installed package** (zero-copy ✗ —— no more copy of <program root>/mcp/).
+    # Assertion binds only to **semantics** (not a copy under program root, and script will fail loudly if empty), not to whether package is installed locally (environment-agnostic ✓).
     _srv = block["args"][0]
     assert _srv.endswith("/aimail_mcp_server.py"), block
     assert "/mcp/" not in _srv, block
 
 
 def test_env_without_system_id_omits_the_key(tmp_path):
-    """没给 system_id ⇒ 不写空键(空串会被 server 当成钉住一个不存在的 system)。"""
+    """No system_id provided ⇒ do not write empty key (empty string would be treated by server as pinning a non-existent system)."""
     home = tmp_path / "aimail-home"
     cfg = _run(tmp_path, aimail_home=str(home), system_id=None)
     env = json.loads(cfg.read_text())["mcpServers"]["aimail"]["env"]
@@ -118,8 +118,8 @@ def test_env_without_system_id_omits_the_key(tmp_path):
 
 
 def test_env_home_falls_back_like_aimail_home(tmp_path):
-    """安装侧没设 AIMAIL_HOME ⇒ 写出的值 == $HOME/.aimail(与 aimail_base.aimail_home()
-    的回落逐字同语义; MCP 子进程按同一 AIMAIL_HOME 解析 ⇒ 两边落在同一个根)。"""
+    """Install side did not set AIMAIL_HOME ⇒ written value == $HOME/.aimail (same semantics as aimail_base.aimail_home()
+    fallback verbatim; MCP subprocess resolves with same AIMAIL_HOME ⇒ both sides land on the same root)."""
     cfg = _run(tmp_path, aimail_home=None, system_id=None)
     env = json.loads(cfg.read_text())["mcpServers"]["aimail"]["env"]
 
@@ -127,7 +127,7 @@ def test_env_home_falls_back_like_aimail_home(tmp_path):
 
 
 def test_write_is_idempotent(tmp_path):
-    """同输入重跑: 文件字节不变(脚本自称的幂等, 由判决项守住)。"""
+    """Re-run with same input: file bytes unchanged (idempotency claimed by script, guarded by verdict item)."""
     home = tmp_path / "aimail-home"
     cfg = _run(tmp_path, aimail_home=str(home), system_id="sys-j4e")
     first = cfg.read_bytes()
@@ -137,11 +137,11 @@ def test_write_is_idempotent(tmp_path):
 
 
 def test_system_pin_is_kept_across_a_later_install(tmp_path):
-    """set-if-absent: 首次装配钉下的 system 是主身份, 之后为**别的 system** 重装不许改写。
+    """set-if-absent: system pinned by first assembly is primary identity, subsequent reinstall for **another system** must not overwrite.
 
-    2026-10-02 j4e4 实测(反例): last-writer 语义下旅程 J2 的 `install -c`(共享域买家系统)
-    把 AIMAIL_SYSTEM_ID 覆写成共享 system ⇒ MCP 子进程解析到共享地址 ⇒ 欢迎信回信从
-    `agent.j*@shared-e2e.local` 发出 ⇒ 本轮绑定日志 0 行 ⇒ J4e 仍红。
+    2026-10-02 j4e4 measured (counter-example): under last-writer semantics, journey J2's `install -c` (shared domain buyer system)
+    overwrote AIMAIL_SYSTEM_ID with shared system ⇒ MCP subprocess resolved to shared address ⇒ welcome email reply sent from
+    `agent.j*@shared-e2e.local` ⇒ 0 lines in binding log for this round ⇒ J4e still red.
     """
     home = tmp_path / "aimail-home"
     cfg = _run(tmp_path, aimail_home=str(home), system_id="sys-first")

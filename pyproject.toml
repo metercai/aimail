@@ -61,7 +61,7 @@ Repository = "https://github.com/metercai/aimail"
 # resolution (root/resources/...) work identically for pip and repo.
 [project.scripts]
 aimail-agent = "aimail.aimail_agent:main"
-# 宿主没有 toolset 时的最小引导面(activate / pull)。有 toolset 的宿主用工具, 不用它。
+# Minimal bootstrap surface (activate / pull) for hosts without a toolset. Hosts with a toolset use the tools, not this.
 
 [tool.hatch.build.targets.wheel]
 packages = []
@@ -72,18 +72,18 @@ packages = []
 "pysdk/aimail_base.py" = "aimail/aimail_base.py"
 "pysdk/aimail_tools.py" = "aimail/aimail_tools.py"
 "pysdk/aimail_board.py" = "aimail/aimail_board.py"
-# agent 侧契约常量(入站路径/端口/skill 名) —— 适配层与会话工具都裸导入它
+# Agent-side contract constants (inbound path / ports / skill name) — both the adapter layer and the session tools import it bare.
 "pysdk/aimail_contract.py" = "aimail/aimail_contract.py"
 "pysdk/gateway_api.py" = "aimail/gateway_api.py"
 "pysdk/aimail_mcp_server.py" = "aimail/aimail_mcp_server.py"
-# agent 级运行时(场景 1): toolset + skill 安装 + pull 启动, 通用宿主直接调
+# Agent-level runtime (scenario 1): toolset + skill install + pull startup; generic hosts call it directly.
 "pysdk/aimail_agent.py" = "aimail/aimail_agent.py"
 "pysdk/install.py" = "aimail/install.py"
-# SDK 侧可执行门（进程命令契约）—— 与 install.py 同类：可被任何语言的调用方 spawn，
-# 结果走单行 JSON。TS 侧对等物 = 平台包自带的 register-cli.js。
+# SDK-side executable gate (process-command contract) — same class as install.py: spawnable by a caller in any language;
+# the result is a single line of JSON. The TS counterpart = the register-cli.js shipped with the platform package.
 "pysdk/sdk_ops.py" = "aimail/sdk_ops.py"
 "pysdk/_resources_release.py" = "aimail/_resources_release.py"
-# hosts 识别层(移植 tssdk 三件套)—— 注册表/检测/激活, 宿主单真源
+# hosts identification layer (ported from the tssdk trio) — registry / detection / activation, single source for hosts.
 "pysdk/hosts/__init__.py" = "aimail/hosts/__init__.py"
 "pysdk/hosts/registry.py" = "aimail/hosts/registry.py"
 "pysdk/hosts/detect.py" = "aimail/hosts/detect.py"
@@ -97,17 +97,17 @@ packages = []
 "pysdk/deer-flow/aimail_inbound.py" = "aimail/deer-flow/aimail_inbound.py"
 "pysdk/deer-flow/aimail_deerflow.py" = "aimail/deer-flow/aimail_deerflow.py"
 "pysdk/deer-flow/manage.py" = "aimail/deer-flow/manage.py"
-# 审计 D4: CLI 的平台安装步以 {sdk}/deer-flow/install-*.sh 调这两个脚本; 只随源码
-# 分发时 pip 布局找不到(只 warn 降级) ⇒ 一并打进 wheel(verify-wheel 有断言)。
+# Audit D4: the CLI platform install step calls these two scripts as {sdk}/deer-flow/install-*.sh; shipped with source only
+# means the pip layout can't find them (warn + degrade only) ⇒ also bundle them into the wheel (verify-wheel asserts this).
 "pysdk/deer-flow/install-mcp.sh" = "aimail/deer-flow/install-mcp.sh"
 "pysdk/deer-flow/install-skill.sh" = "aimail/deer-flow/install-skill.sh"
 # resources — released at install time to ~/.aimail/systems/{sid}/board/
 # and read from there at runtime (user-personalizable); zh/soul variants are
 # shipped for reference (default en).
-# resources 单一真源 = 仓根 resources/(git 跟踪, 唯一可编辑处);各 adapter 包内那份
-# 是**各包 prepack 自己**暂存的生成物(已 gitignore)。pysdk 不落副本: 仓库检出里
-# SDK 直接读仓根 resources/(见 pysdk/_resources_release.resources_root)。
-# 目录级 1 行即可: wheel 内布局 aimail/resources/... 与旧逐文件枚举完全一致。
+# Single source for resources = the repo-root resources/ (git-tracked, the only editable place); the copy inside each adapter package
+# is a generated artifact **staged by that package's own prepack** (gitignored). pysdk keeps no copy: in a repo checkout
+# the SDK reads the repo-root resources/ directly (see pysdk/_resources_release.resources_root).
+# One directory-level line suffices: the in-wheel layout aimail/resources/... is identical to the old per-file enumeration.
 "resources" = "aimail/resources"
 
 # ── sdist: everything needed to build a wheel from a clean checkout.

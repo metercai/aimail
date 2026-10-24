@@ -1,116 +1,116 @@
 #!/usr/bin/env bash
-# install-mcp.sh — 写 DeerFlow extensions_config.json 的 aimail MCP server 块
-# 复用共享 aimail_mcp_server.py(兜底 MCP 服务,平台无关,零适配),指向
-# 自包含载荷 <程序根>/mcp/(经 runtime_bundle.py 安装,源 pip>repo,版本戳;
-# 与仓库路径解耦,改名/mv 不影响运行;落点由 runtime_bundle 单点给出)。
-# 幂等: 已存在 aimail server 块则更新路径/env,否则追加。
+# install-mcp.sh -- write the aimail MCP server block to DeerFlow extensions_config.json
+# Reuse the shared aimail_mcp_server.py (fallback MCP service, platform-agnostic, zero adaptation), pointing to
+# the self-contained payload <program_root>/mcp/ (installed via runtime_bundle.py, source pip>repo, version stamp;
+# decoupled from repo paths, renaming/mv does not affect execution; the destination is provided by runtime_bundle in a single point).
+# idempotent: update path/env if the aimail server block exists, otherwise append.
 #
-# 落点(2026-09-27 修): 必须与 deer-flow 自己的
-# `ExtensionsConfig.resolve_config_path()` 同序,否则写进去的文件 deer-flow
-# 永远不读 ⇒ 工具一块都不加载(且 install_steps 是 on_error=warn ⇒ 静默)。
-# deer-flow 真实解析(第三方只读参考):
+# Destination (fixed 2026-09-27): must follow the same order as deer-flow's own
+# `ExtensionsConfig.resolve_config_path()`, otherwise the written file will never be read by deer-flow
+# ⇒ no tools will be loaded at all (and install_steps is on_error=warn ⇒ silent).
+# deer-flow actual resolution (third-party read-only reference):
 #   backend/packages/harness/deerflow/config/extensions_config.py:419+
-#     ① 显式 config_path → ② DEER_FLOW_EXTENSIONS_CONFIG_PATH →
-#     ③ project_root() 下**已存在**的 extensions_config.json / mcp_config.json
-#        (`existing_project_file`,先 extensions_config.json)→ ④ backend/ 与仓根兜底
+#     ① explicit config_path → ② DEER_FLOW_EXTENSIONS_CONFIG_PATH →
+#     ③ extensions_config.json / mcp_config.json **already existing** under project_root()
+#        (`existing_project_file`, extensions_config.json first) → ④ backend/ and repo root fallback
 #   backend/packages/harness/deerflow/config/runtime_paths.py:7-17
-#     project_root() = $DEER_FLOW_PROJECT_ROOT 或 cwd
-#     runtime_home() = $DEER_FLOW_HOME 或 project_root()/.deer-flow
-#     ⇒ DEER_FLOW_HOME 在 deer-flow 侧是**状态目录**,从不是 extensions-config 目录
-#       (本仓把它当"deer-flow 检出根"用, 既有部署据此落盘 ⇒ 保留为最后兜底)。
+#     project_root() = $DEER_FLOW_PROJECT_ROOT or cwd
+#     runtime_home() = $DEER_FLOW_HOME or project_root()/.deer-flow
+#     => DEER_FLOW_HOME on the deer-flow side is a **state directory**, never an extensions-config directory
+#       (this repo uses it as the "deer-flow checkout root", existing deployments persist based on this ⇒ kept as the last fallback).
 #
-# 本脚本的选取顺序(与上面同序 + 一个运维显式覆盖):
-#   ① DEER_FLOW_EXT_CFG(本仓运维覆盖,最高)
-#   ② DEER_FLOW_EXTENSIONS_CONFIG_PATH(deer-flow 自己最高优先的 env,设了就必须写它)
+# Selection order for this script (same order as above + one explicit ops override):
+#   ① DEER_FLOW_EXT_CFG (this repo's ops override, highest priority)
+#   ② DEER_FLOW_EXTENSIONS_CONFIG_PATH (deer-flow's own highest priority env, if set it must be written to)
 #   ③ ${DEER_FLOW_PROJECT_ROOT:-$PWD}/extensions_config.json
-#        已存在该文件 ⇒ 用(deer-flow 会优先读它,写别处等于没写)
-#        DEER_FLOW_PROJECT_ROOT 显式声明 ⇒ 在其中新建(运维已断言项目根)
-#        (不无条件用 $PWD: 那是本脚本运行时的 cwd,与 deer-flow 进程的 cwd
-#         不一定相同 —— 无条件新建会既不被读、又丢掉既有默认)
-#   ④ 原默认 ${DEER_FLOW_HOME}/extensions_config.json(既有部署兼容)
-# 最终落点与选取理由一律打印(运维核对),并提示会被 legacy mcp_config.json 抢读的情形。
-# env 必须**自足**(2026-10-02 J4e 根因取证):
-#   deer-flow 起 stdio server 只带本块 env(第三方只读参考
+#        file already exists ⇒ use it (deer-flow will prioritize reading it, writing elsewhere is equivalent to not writing)
+#        DEER_FLOW_PROJECT_ROOT explicitly declared ⇒ create new in it (ops has asserted the project root)
+#        (do not unconditionally use $PWD: that is the cwd when this script runs, which is not necessarily the same as the cwd of the deer-flow process
+#         -- unconditionally creating new would result in it not being read and losing existing defaults)
+#   ④ original default ${DEER_FLOW_HOME}/extensions_config.json (compatibility with existing deployments)
+# The final destination and selection reason are always printed (for ops verification), and a hint is given for cases where it might be preempted by legacy mcp_config.json.
+# env must be **self-sufficient** (2026-10-02 J4e root cause forensics):
+#   deer-flow starts stdio server with only the env from this block (third-party read-only reference
 #   backend/packages/harness/deerflow/mcp/client.py:32-34 `params["env"] = config.env`),
-#   子进程拿不到安装侧环境 ⇒ 少写 AIMAIL_HOME 时 aimail_base.aimail_home()
-#   (pysdk/aimail_base.py:242-243)回落 ~/.aimail ⇒ 扫不到本机绑定 ⇒ 每次工具调用
-#   抛 `agent '<id>' not registered`(aimail_base.py:573-575) ⇒ agent 永远发不出信
-#   (deerflow J4e 历史 13 红 0 绿; 反事实实测: 补 AIMAIL_HOME 即解)。
-#   AIMAIL_SYSTEM_ID 同理: 钉住安装时的 system —— 多 system 同 agent_id 时才不会被
-#   _scan_systems_for_agent 的"按目录序首匹配"挑到别的地址(缺失 ⇒ server 回退全扫描, 同旧行为)。
+#   child process cannot get the installation-side environment ⇒ when AIMAIL_HOME is missing, aimail_base.aimail_home()
+#   (pysdk/aimail_base.py:242-243) falls back to ~/.aimail ⇒ cannot scan local bindings ⇒ every tool call
+#   throws `agent '<id>' not registered` (aimail_base.py:573-575) ⇒ agent can never send mail
+#   (deerflow J4e history 13 red 0 green; counterfactual test: adding AIMAIL_HOME resolves it).
+#   AIMAIL_SYSTEM_ID similarly: pin the system at install time -- only when multiple systems share the same agent_id will it not be
+#   picked by _scan_systems_for_agent's "first match by directory order" to a different address (missing ⇒ server falls back to full scan, same as old behavior).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-# P3(2026-09-20, owner 定调): 不再拼仓库相对路径去调 cli/runtime_bundle.py ——
-# 一律走 CLI 公开命令面(aimail install --payload …); rust 化后同一命令由新二进制实现, 本脚本无需再改。
+# P3(2026-09-20, owner decided): no longer assemble repo-relative paths to call cli/runtime_bundle.py ——
+# always use the CLI public command surface (aimail install --payload …); after rustification, the same command is implemented by the new binary, this script no longer needs changes.
 command -v aimail >/dev/null 2>&1 || {
-    echo "ERROR: 未找到 aimail 命令。请先安装 CLI(bootstrap)后再跑本脚本。" >&2
-    echo "       (不再回退到仓库内 cli/runtime_bundle.py —— 那正是要消除的耦合)" >&2
+    echo "ERROR: aimail command not found. Please install the CLI (bootstrap) before running this script." >&2
+    echo "       (no longer falling back to cli/runtime_bundle.py in the repo —— that is exactly the coupling to be eliminated)" >&2
     exit 1
 }
 DEER_FLOW_HOME="${DEER_FLOW_HOME:-$HOME/deer-flow}"
-# deer-flow 的 project_root(): $DEER_FLOW_PROJECT_ROOT 或 cwd(runtime_paths.py)
+# deer-flow's project_root(): $DEER_FLOW_PROJECT_ROOT or cwd (runtime_paths.py)
 DF_PROJECT_ROOT="${DEER_FLOW_PROJECT_ROOT:-$PWD}"
 LEGACY_CFG="$DEER_FLOW_HOME/extensions_config.json"
 AGENT_ID="${AIMAIL_AGENT_ID:-default}"
-# = pysdk/aimail_base.aimail_home() 语义(env 优先, 否则 ~/.aimail)—— 安装侧知道的
-# home 必须随 env 写进去, 否则 MCP 子进程按它自己的 HOME 猜出另一个根(见文件头)。
+# = pysdk/aimail_base.aimail_home() semantics (env takes precedence, otherwise ~/.aimail) —— known on the install side
+# home must be written along with env, otherwise the MCP subprocess will guess a different root based on its own HOME (see file header).
 AIMAIL_HOME_RESOLVED="${AIMAIL_HOME:-$HOME/.aimail}"
-# 装配步(pysdk/install.py::_assembly_env)会 setdefault; 这里容忍空(空 ⇒ 不写键,
-# server 侧回退全 systems 扫描 = 旧行为)。
+# The assembly step (pysdk/install.py::_assembly_env) will setdefault; here we tolerate empty (empty ⇒ do not write the key,
+# server side falls back to scanning all systems = old behavior).
 AIMAIL_SYSTEM_ID_RESOLVED="${AIMAIL_SYSTEM_ID:-}"
-# 宿主解释器(2026-10-12): **目标系统宿主自己的解释器** —— CLI 命令入口经 AIMAIL_PYTHON
-# 回传(契约 §4.1(2) 单真源), 缺省才是 PATH python3; 显式 PY 覆盖优先(运维/门禁)。
-# 不用它 = 拿镜像系统 python3 去 `import aimail`: 装了等于没装(deerflow 实测
+# Host interpreter (2026-10-12): **the target system's own host interpreter** —— CLI command entry via AIMAIL_PYTHON
+# (contract §4.1(2) single source of truth), default is PATH python3; explicit PY override takes precedence (ops/gatekeeping).
+# Not using it = using the image system's python3 to `import aimail`: installing it is the same as not installing it (deerflow measured
 # `ModuleNotFoundError: No module named 'aimail'` ⇒ install-skill.sh exit 1)。
 PY="${PY:-${AIMAIL_PYTHON:-python3}}"
 
-# ── 0. 落点解析(见文件头;打印最终落点 + 理由)─────────────────────────
+# ── 0. Destination resolution (see file header; print final destination + reason)─────────────────────────
 if [ -n "${DEER_FLOW_EXT_CFG:-}" ]; then
   CFG="$DEER_FLOW_EXT_CFG"
-  CFG_REASON="DEER_FLOW_EXT_CFG (显式覆盖, 最高优先)"
+  CFG_REASON="DEER_FLOW_EXT_CFG (explicit override, highest priority)"
 elif [ -n "${DEER_FLOW_EXTENSIONS_CONFIG_PATH:-}" ]; then
   CFG="$DEER_FLOW_EXTENSIONS_CONFIG_PATH"
-  CFG_REASON="DEER_FLOW_EXTENSIONS_CONFIG_PATH (deer-flow 自身最高优先 env; 设了就必须写它)"
+  CFG_REASON="DEER_FLOW_EXTENSIONS_CONFIG_PATH (deer-flow's own highest priority env; if set, it must be written)"
 elif [ -f "$DF_PROJECT_ROOT/extensions_config.json" ]; then
   CFG="$DF_PROJECT_ROOT/extensions_config.json"
-  CFG_REASON="project root 已有 extensions_config.json (deer-flow resolve_config_path 会优先读它)"
+  CFG_REASON="project root already has extensions_config.json (deer-flow resolve_config_path will read it first)"
 elif [ -n "${DEER_FLOW_PROJECT_ROOT:-}" ]; then
   CFG="$DF_PROJECT_ROOT/extensions_config.json"
-  CFG_REASON="DEER_FLOW_PROJECT_ROOT 显式声明 (在其中新建; deer-flow 只搜 project root)"
+  CFG_REASON="DEER_FLOW_PROJECT_ROOT explicitly declared (create new inside it; deer-flow only searches project root)"
 else
   CFG="$LEGACY_CFG"
-  CFG_REASON="原默认 DEER_FLOW_HOME/extensions_config.json (既有部署兼容)"
+  CFG_REASON="original default DEER_FLOW_HOME/extensions_config.json (compatibility with existing deployments)"
 fi
-CFG="${CFG/#\~/$HOME}"          # 变量里的 ~ 兜底展开(env 传参不经 shell 展开)
+CFG="${CFG/#\~/$HOME}"          # Fallback expansion of ~ in variable (env parameters do not go through shell expansion)
 echo "extensions config: $CFG"
 echo "  selected by: $CFG_REASON"
-echo "  deer-flow project root: $DF_PROJECT_ROOT (DEER_FLOW_PROJECT_ROOT 或 cwd)"
-echo "  deer-flow state home  : $DEER_FLOW_HOME (DEER_FLOW_HOME; deer-flow 侧=状态目录)"
-# 运维核对: 落点不在 deer-flow 的 project root 下、而那里躺着 legacy mcp_config.json 时,
-# deer-flow 的 search 会命中那个文件 → 本次写入不生效(必须显式指路,不许静默)。
+echo "  deer-flow project root: $DF_PROJECT_ROOT (DEER_FLOW_PROJECT_ROOT or cwd)"
+echo "  deer-flow state home  : $DEER_FLOW_HOME (DEER_FLOW_HOME; deer-flow side = state directory)"
+# Ops verification: when the destination is not under deer-flow's project root, but a legacy mcp_config.json lies there,
+# deer-flow's search will hit that file → this write will not take effect (must explicitly point the way, no silent behavior).
 if [ "$CFG" != "$DF_PROJECT_ROOT/extensions_config.json" ] \
    && [ -f "$DF_PROJECT_ROOT/mcp_config.json" ]; then
-  echo "WARNING: $DF_PROJECT_ROOT/mcp_config.json 存在 —— deer-flow 会读它而不是本次落点" >&2
-  echo "         设 DEER_FLOW_EXTENSIONS_CONFIG_PATH=$CFG 让 deer-flow 与本次写入指向同一文件" >&2
+  echo "WARNING: $DF_PROJECT_ROOT/mcp_config.json exists —— deer-flow will read it instead of this destination" >&2
+  echo "         Set DEER_FLOW_EXTENSIONS_CONFIG_PATH=$CFG to make deer-flow and this write point to the same file" >&2
 fi
 
-# ── 1. MCP 服务取自已装包（owner 2026-10-06 目标态：**零拷贝** ✗ 自包含载荷/仓库态一律取消 ✓）──
+# ── 1. MCP service taken from installed package (owner 2026-10-06 target state: **zero-copy** ✗ self-contained payload/repo state all cancelled ✓)──
 SERVER="$("$PY" -c 'import aimail, os, sys
 d = os.path.dirname(aimail.__file__)
 p = os.path.join(d, "aimail_mcp_server.py")
 sys.stdout.write(p if os.path.isfile(p) else "")')"
-# owner 2026-10-06（目标态）：MCP 服务**取自已装包**（`site-packages/aimail/aimail_mcp_server.py`）✓ ——
-# 不再使用 `<程序根>/mcp/` 的 SDK 文件拷贝 ✗（自包含载荷/仓库态一律取消 ✓）。
+# owner 2026-10-06 (target state): MCP service **taken from installed package** (`site-packages/aimail/aimail_mcp_server.py`) ✓ ——
+# No longer use SDK file copying from `<program_root>/mcp/` ✗ (self-contained payload/repo state all cancelled ✓).
 if [ -z "$SERVER" ]; then
-  echo "ERROR: 已装包内缺 aimail_mcp_server.py（重装 agent-aimail 或检查包完整性）" >&2
+  echo "ERROR: aimail_mcp_server.py missing in installed package (reinstall agent-aimail or check package integrity)" >&2
   exit 1
 fi
 [ -f "$SERVER" ] || { echo "MCP payload missing: $SERVER" >&2; exit 1; }
 
-# 真实版本检测(只报检测结果,不猜测):backend/pyproject.toml 的 version
-# 候选顺序: deer-flow 检出根(=DEER_FLOW_HOME, 本仓既有约定) → project root(仅当
-# 它看起来是 deer-flow 检出时, 免得在别的仓的 pyproject.toml 上误报身份)。
+# Real version detection (only reports detection results, no guessing): version in backend/pyproject.toml
+# Candidate order: deer-flow checkout root (=DEER_FLOW_HOME, existing convention in this repo) -> project root (only when
+# it looks like a deer-flow checkout, to avoid misreporting identity on another repo's pyproject.toml).
 DF_VERSION="unknown"
 _VER_CANDIDATES=("$DEER_FLOW_HOME/backend/pyproject.toml" "$DEER_FLOW_HOME/pyproject.toml")
 if [ -d "$DF_PROJECT_ROOT/backend" ]; then
@@ -127,7 +127,7 @@ for pp in "${_VER_CANDIDATES[@]}"; do
 done
 IDENTITY="deerflow/${DF_VERSION:-unknown}"
 
-# 确保配置文件存在(缺失时以示例为模板;示例先在落点同目录找,再回退 DEER_FLOW_HOME)
+# Ensure config file exists (if missing, use example as template; example first searched in destination directory, then falls back to DEER_FLOW_HOME)
 if [ ! -f "$CFG" ]; then
   mkdir -p "$(dirname "$CFG")"
   TPL=""
@@ -157,11 +157,11 @@ with open(cfg_path) as f:
     data = json.load(f)
 
 servers = data.setdefault("mcpServers", {})
-# AIMAIL_SYSTEM_ID = **首次**装配该宿主时的 system = 主身份, set-if-absent:
-# 之后为别的 system 重装(例: 旅程 J2 的 `install -c` 共享域买家系统)不许改写 ——
-# last-writer 会让 MCP 子进程钉到共享 system, 把欢迎信回信身份带偏到共享地址
-# (2026-10-02 j4e4 实测: outbound 落在 agent.j*@shared-e2e.local ⇒ 本轮绑定 0 行 ⇒ J4e 仍红)。
-# 钉住的 system 里没有绑定时 server 侧**响亮回退**全扫描(aimail_mcp_server._agent_ctx)。
+# AIMAIL_SYSTEM_ID = **first** assembly of this host's system = primary identity, set-if-absent:
+# a later reinstall for a different system (e.g. the `install -c` shared-domain buyer system in journey J2) must not rewrite it —
+# last-writer would pin the MCP subprocess to the shared system, skewing the welcome email reply identity to the shared address
+# (2026-10-02 j4e4 measured: outbound lands in agent.j*@shared-e2e.local => 0 lines bound this round => J4e still red).
+# When the pinned system has no binding, the server side **loudly falls back** to full scan (aimail_mcp_server._agent_ctx).
 _prev_env = ((servers.get("aimail") or {}).get("env")) or {}
 _sid_out = _prev_env.get("AIMAIL_SYSTEM_ID") or system_id
 _sid_note = ("kept previous pin" if _prev_env.get("AIMAIL_SYSTEM_ID")
@@ -170,12 +170,12 @@ _sid_note = ("kept previous pin" if _prev_env.get("AIMAIL_SYSTEM_ID")
 servers["aimail"] = {
     "enabled": True,
     "type": "stdio",
-    # MCP stdio 子进程的解释器 = 宿主解释器(否则 deer-flow 用镜像 python3 起 server ⇒
-    # 子进程 import 不到 aimail, 每次工具调用都失败)。
+    # MCP stdio subprocess interpreter = host interpreter (otherwise deer-flow uses image python3 to start server =>
+    # subprocess cannot import aimail, every tool call fails).
     "command": interpreter,
     "args": [server],
-    # env 名与 server 读取一致(AIMAIL_*)。deer-flow 只把这份 env 交给 stdio
-    # 子进程(见文件头), 所以这里必须自带 server 定位绑定所需的全部变量。
+    # env names consistent with server reading (AIMAIL_*). deer-flow only passes this env to the stdio
+    # subprocess (see file header), so all variables required for server location binding must be included here.
     "env": {"AIMAIL_AGENT_ID": agent_id,
             "AIMAIL_AGENT_IDENTITY": identity,
             "AIMAIL_HOME": aimail_home}

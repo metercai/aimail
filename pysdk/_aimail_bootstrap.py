@@ -50,20 +50,20 @@ def _core_ok(d):
 
 
 def _adapter_dir_names():
-    """adapter 目录名白名单 —— 从 hosts 注册表派生(单真源)。
+    """adapter directory name whitelist —— derived from the hosts registry (single source of truth).
 
-    旧硬编码 ``("openclaw", "deer-flow", "hermes")`` 里 openclaw 是 node 宿主
-    死分支(pysdk 无 openclaw/ 目录,装配归 tssdk 包);2026-10-21 起按
-    注册表 adapter_dir 推导。注册表不可用时(极端自举早期)回退最小集。
+    The old hardcoded ``("openclaw", "deer-flow", "hermes")`` included openclaw as a node host
+    dead branch (pysdk has no openclaw/ directory, assembly belongs to the tssdk package); since 2026-10-21 it is
+    derived from the registry's adapter_dir. Falls back to the minimal set when the registry is unavailable (extreme bootstrap early stage).
     """
     try:
-        import hosts.registry as _hr  # repo 形态: pysdk/ 在 sys.path
+        import hosts.registry as _hr  # repo form: pysdk/ is on sys.path
         return tuple((_hr.get_host(h) or {}).get("adapter_dir", "")
                      for h in _hr.host_ids())
     except ImportError:
         pass
     try:
-        from aimail.hosts import registry as _hr  # pip 形态
+        from aimail.hosts import registry as _hr  # pip form
         return tuple((_hr.get_host(h) or {}).get("adapter_dir", "")
                      for h in _hr.host_ids())
     except ImportError:

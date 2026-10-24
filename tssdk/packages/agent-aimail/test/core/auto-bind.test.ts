@@ -32,7 +32,7 @@ describe('auto-bind helpers', () => {
     expect(emailForAgent('pi', 'example.com', 'xianlin')).toBe('pi.xianlin@example.com')
     expect(emailForAgent('weird name', 'example.com')).toMatch(/^weird_name@example\.com$/)
   })
-  test('resolveRegisterEmail: CLI --name intent lands exactly on the Python plan address (族3)', () => {
+  test('resolveRegisterEmail: CLI --name intent lands exactly on the Python plan address (family 3)', () => {
     // plan_address_name derives with default_aliases=() → 'default' must NOT map to agent
     expect(resolveRegisterEmail({ name: 'default', domain: 'example.com', fallbackBase: 'pi' })).toBe('default@example.com')
     expect(resolveRegisterEmail({ name: 'foo', domain: 'example.com', systemName: 'sys', fallbackBase: 'agent' })).toBe('foo.sys@example.com')
@@ -69,8 +69,8 @@ describe('auto-bind helpers', () => {
     const bindingDir = path.join(tmpHome, 'systems', 'sys-x', dirName)
     fs.mkdirSync(bindingDir, { recursive: true })
     const bindingPath = path.join(bindingDir, BINDING_FILE)
-    // 真实绑定文件恒带本地 webhook_url(桥路由目标) —— 但**没有** secret
-    // (升级前落的绑定形态, 正是 J4 的 401 现场: 插件按 '' 验签 ⇒ bad_signature)。
+    // Real binding files always have local webhook_url (bridge routing target) —— but **no** secret
+    // (bind form created before upgrade, exactly the J4 401 scene: plugin verifies signature with '' ⇒ bad_signature).
     fs.writeFileSync(
       bindingPath,
       JSON.stringify({
@@ -117,7 +117,7 @@ describe('auto-bind helpers', () => {
     })
     expect(r.secret_synced).toBe(true)
 
-    // ③ SDK 去桥化(owner 裁决 2026-09-28): the SDK pushes NO route any more —
+    // ③ SDK de-bridging (owner ruling 2026-09-28): the SDK pushes NO route any more —
     //    the environment master (CLI) owns routes; the host only notifies it.
     expect(calls.some(c => c.url.endsWith('/api/v1/routes'))).toBe(false)
     vi.unstubAllGlobals()
@@ -128,7 +128,7 @@ describe('auto-bind helpers', () => {
     const bindingDir = path.join(tmpHome, 'systems', 'sys-x', email.replace(/[^\w.-]/g, '_'))
     fs.mkdirSync(bindingDir, { recursive: true })
     const bindingPath = path.join(bindingDir, BINDING_FILE)
-    // 落盘死口 18789(install 瞬态进程在宿主端口确定前 eager 建出), 调用方声明 9200。
+    // Disk write dead port 18789 (install transient process eagerly creates it before host port is determined), caller declares 9200.
     fs.writeFileSync(
       bindingPath,
       JSON.stringify({
@@ -158,11 +158,11 @@ describe('auto-bind helpers', () => {
       webhookUrl: declared,
     })
     expect(r.exists).toBe(true)
-    // ① 本地 binding 被原子 patch 成 declared(死口不再被复用)
+    // ① Local binding is atomically patched to declared (dead port is no longer reused)
     const written = JSON.parse(fs.readFileSync(bindingPath, 'utf-8')) as Record<string, unknown>
     expect(written['webhook_url']).toBe(declared)
     expect((fs.statSync(bindingPath).mode & 0o777).toString(8)).toBe('600')
-    // ② 云端 (url, secret) 按 declared 重配对(同步的是活口, 不是死口)
+    // ② Cloud (url, secret) is re-paired according to declared (syncing the live port, not the dead port)
     const put = puts.find(c => c.url.includes('/api/v1/admin/system-domains/11'))
     expect(put).toBeDefined()
     const putBody = JSON.parse(put?.body ?? '{}')
@@ -201,7 +201,7 @@ describe('auto-bind helpers', () => {
     )
     const r = await autoBind({ systemId: 'sys-x', email, webhookUrl: '' })
     expect(r.exists).toBe(true)
-    // 无声明 ⇒ 落盘值原样复用(旧语义零变化), 云端同步落盘值
+    // No declaration ⇒ persisted value is reused as-is (zero change in old semantics), cloud syncs persisted value
     const written = JSON.parse(fs.readFileSync(bindingPath, 'utf-8')) as Record<string, unknown>
     expect(written['webhook_url']).toBe('http://127.0.0.1:9301' + INBOUND_PATH)
     const put = puts.find(c => c.url.includes('/api/v1/admin/system-domains/13'))
@@ -255,8 +255,8 @@ describe('auto-bind helpers', () => {
     vi.stubGlobal('fetch', spy)
     const r = await autoBind({ systemId: 'sys-x', email })
     expect(r.exists).toBe(true)
-    expect(spy).not.toHaveBeenCalled() // 无本地端点 ⇒ 无可信路由目标, 不做无意义写入
-    // 但 secret 仍就地自供(本地真源), 并且**不静默**: 结果里给出未同步的原因
+    expect(spy).not.toHaveBeenCalled() // No local endpoint ⇒ no trusted routing target, no meaningless write
+    // But the secret is still self-supplied in place (local true source), and it is **not silent**: the result provides the reason for not syncing
     expect(String((JSON.parse(fs.readFileSync(bindingPath, 'utf-8')) as Record<string, unknown>)['webhook_secret'])).toMatch(
       /^[0-9a-f]{64}$/,
     )
@@ -284,6 +284,6 @@ describe('auto-bind helpers', () => {
   test('autoBind on an empty machine with no system config fails with guidance', async () => {
     await expect(
       autoBind({ systemId: 'sys-none', email: 'agent@example.com', webhookUrl: 'http://127.0.0.1:9/x', webhookSecret: 's' }),
-    ).rejects.toThrow(/init|install|环境/)
+    ).rejects.toThrow(/init|install|environment/)
   })
 })

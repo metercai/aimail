@@ -1,14 +1,14 @@
-"""注册链单元测试:register_agent_email 四步(register→exists 更新→activate)。
+"""Registration chain unit tests: register_agent_email four steps (register → exists update → activate).
 
-fake client 替代 _GatewayClient(无网络),锁定:
-1) 新地址(created)→ activate_address 拿 api_key;
-2) 已存在(exists)→ 走 list_system_domains/update_system_domain 幂等更新;
-3) 参数透传(generate_code=True/webhook/manager);
-4) 失败非 exists → RuntimeError。
+fake client replaces _GatewayClient (no network), locking in:
+1) New address (created) → activate_address to get api_key;
+2) Already exists (exists) → idempotent update via list_system_domains/update_system_domain;
+3) Parameter pass-through (generate_code=True/webhook/manager);
+4) Failure not exists → RuntimeError.
 
-发布前自动回归面:SDK 注册链语义被破坏即 L0 红,不许带问题上线。
-owner 裁决 2026-09-30:「env 可兜底但不可为空,不满足直接报错」—— 注册链不接受
-manager='' ⇒ 下列调用点按新契约补 manager(满足前置);断言一字未改。
+Auto regression before release: SDK registration chain semantics broken means L0 red, no shipping with issues.
+owner ruling 2026-09-30: "env can be a fallback but cannot be empty, error out directly if not satisfied" — registration chain does not accept
+manager='' ⇒ the following call sites are supplemented with manager per the new contract (satisfying prerequisites); assertions unchanged.
 """
 import sys
 from pathlib import Path
@@ -48,7 +48,7 @@ def test_new_registration_created_path():
         c, "sys-1", "agent.a@d.tm",
         webhook_url="http://127.0.0.1:9/in", webhook_secret="s3",
         manager_address="m@d.tm")
-    # 四步:register_email(generate_code) → activate_address
+    # Four steps: register_email(generate_code) → activate_address
     kinds = [x[0] for x in c.calls]
     assert kinds[0] == "register_email" and kinds[-1] == "activate_address"
     reg = c.calls[0][1]
@@ -64,7 +64,7 @@ def test_new_registration_created_path():
 def test_exists_path_updates_webhook():
     c = FakeClient()
     c.register_result = {"status": "409", "error": "address already exists"}
-    # 域列表按网关结构:domain 项含域名;当前匹配语义 domain==email 时更新
+    # Domain list per gateway structure: domain item contains domain name; current matching semantics update when domain==email
     c.domains = [{"id": "dom-9", "domain": "agent.a@d.tm"}]
     out = aimail_base.register_agent_email(c, "sys-1", "agent.a@d.tm",
                                            webhook_url="http://x/in", webhook_secret="n",
@@ -74,7 +74,7 @@ def test_exists_path_updates_webhook():
     upd = next(x[1] for x in c.calls if x[0] == "update_system_domain")
     assert upd["id"] == "dom-9"
     assert upd["url"] == "http://x/in"
-    # exists 路径不激活 → api_key 空
+    # exists path not activated → api_key empty
     assert out["api_key"] == ""
     assert out["activation_code"] == ""
 

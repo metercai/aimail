@@ -1,17 +1,17 @@
-//! repair 引擎 —— `cli/repair.py` 的复刻（plan v3 S5，分切片落地）。
+//! repair engine — a re-implementation of `cli/repair.py` (plan v3 S5, landed in slices).
 //!
-//! 本切片（S5a）落**框架与判读**：
-//! - `REPAIRABILITY` 表（检查维度 → 可修性分类：auto/hint + 阶梯步号 + needs）
-//!   —— 与 `cli/repair.py:851-897` 逐条对齐，并有一条**表一致性守门**测试直接向
-//!   Python 要真值比对（表漂移即红）；
-//! - `classify_residual`：复检残余 → （本地可修的缺陷, 需要管理员/宿主的提示）；
-//! - 阶梯（`ladder`）的描述与顺序（含 `--deep` 追加的 drain 步）；
-//! - `run`：repair 的编排骨架（打印头 → 跑 check（进程内复用引擎，零逻辑重复）
-//!   → 列失败项 → 建阶梯 → dry-run 只列计划 → 否则逐步执行 → 复检 → 残余分类 → rc）。
+//! This slice (S5a) lands the **framework and verdicts**:
+//! - the `REPAIRABILITY` table (check dimension -> repairability class: auto/hint + ladder step no. + needs)
+//!   — aligned entry-by-entry with `cli/repair.py:851-897`, with a **table-consistency gate** test that fetches
+//!   the ground truth from Python and compares (any table drift goes red);
+//! - `classify_residual`: re-check residuals -> (locally fixable defects, hints needing admin/host action);
+//! - the ladder (`ladder`) descriptions and order (including the drain step appended by `--deep`);
+//! - `run`: the repair orchestration skeleton (print header -> run check (in-process engine reuse, zero logic duplication)
+//!   -> list failures -> build the ladder -> dry-run lists the plan only -> otherwise execute step by step -> re-check -> residual classification -> rc).
 //!
-//! **阶梯的十个写面动作在 S5b 落地**：`Step::run` 目前一律返回
-//! `Step::NotPorted(...)`，由编排计入 `ladder_bad` 并打印未移植说明 —— 不是静默通过。
-//! 也因此 `repair` 命令面**仍未接线**（写面残缺的 repair 会"报修好但没修"）。
+//! **The ladder's ten write-surface actions land in S5b**: `Step::run` currently always returns
+//! `Step::NotPorted(...)`, counted into `ladder_bad` by the orchestration with a not-ported note printed — not a silent pass.
+//! As a result the `repair` command surface is **still not wired up** (a repair with incomplete write surfaces would "report fixed but not fix").
 
 use crate::core::check::{Check, Record};
 use crate::core::style::{NC, RED, YELLOW};
@@ -19,12 +19,12 @@ use crate::core::{config, sdk};
 use serde_json::Value;
 use std::path::Path;
 
-/// 可修性分类（`repair.py:903-905` 的返回结构）。
+/// Repairability class (the return shape of `repair.py:903-905`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Repairability {
-    /// 本机可自动修（`kind=auto`），`step` = 阶梯步号（仅用于文档/排序参考）。
+    /// Fixable automatically on this machine (`kind=auto`); `step` = the ladder step no. (for docs/ordering only).
     Auto { step: u8 },
-    /// 只能给提示：需要宿主/服务端/管理员动作。
+    /// Hint only: needs host/server-side/admin action.
     Hint { why: Option<&'static str> },
 }
 
@@ -36,8 +36,8 @@ impl Repairability {
 
 use Repairability::{Auto, Hint};
 
-/// 表一致性守门：本表与 `cli/repair.py:851-897` 必须逐条一致
-/// （`cli/tests/repair_parity.rs` 直接向 Python 要真值比对）。
+/// Table-consistency gate: this table must match `cli/repair.py:851-897` entry by entry
+/// (`cli/tests/repair_parity.rs` fetches the ground truth from Python and compares).
 pub const REPAIRABILITY: &[((&str, &str), Repairability)] = &[
     (("config", "complete"), Auto { step: 4 }),
     (("config", "gateway_json"), Auto { step: 4 }),
@@ -145,14 +145,14 @@ pub const REPAIRABILITY: &[((&str, &str), Repairability)] = &[
     (("system", "id"), Auto { step: 4 }),
 ];
 
-/// 未登记维度的兜底（`_UNREGISTERED`）：当 HINT 处理，并**显式**说明这不是"已覆盖"。
+/// Fallback for unregistered dimensions (`_UNREGISTERED`): treated as a HINT, and **explicitly** stated as not "covered".
 pub const UNREGISTERED: Repairability = Hint {
     why: Some(
         "unregistered check dimension -> treated as needing admin action (please report it to the maintainer)",
     ),
 };
 
-/// `repairability(level, name)`。
+/// `repairability(level, name)`.
 pub fn repairability(level: &str, name: &str) -> Repairability {
     REPAIRABILITY
         .iter()
@@ -161,8 +161,8 @@ pub fn repairability(level: &str, name: &str) -> Repairability {
         .unwrap_or(UNREGISTERED)
 }
 
-/// `classify_residual`：复检残余 → （本地可修的缺陷, 需要管理员/宿主的提示）。
-/// 顺序保真（Python 是单次遍历，两列表各自保持原顺序）。
+/// `classify_residual`: re-check residuals -> (locally fixable defects, hints needing admin/host action).
+/// Order-preserving (Python does a single pass; each list keeps its original order).
 pub fn classify_residual(residual: &[Record]) -> (Vec<Record>, Vec<Record>) {
     let mut defects = Vec::new();
     let mut hints = Vec::new();
@@ -176,7 +176,7 @@ pub fn classify_residual(residual: &[Record]) -> (Vec<Record>, Vec<Record>) {
     (defects, hints)
 }
 
-/// 阶梯一步（描述 + 动作）。描述文本是 dry-run 计划的一部分 ⇒ 逐字照抄。
+/// One ladder step (description + action). The description text is part of the dry-run plan => copied verbatim.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Step {
     BridgeAlive,
@@ -192,7 +192,7 @@ pub enum Step {
 }
 
 impl Step {
-    /// 该步的 dry-run 描述（`repair.py:980-1006` 逐字；含契约值的用常量拼，不抄字面量）。
+    /// This step's dry-run description (verbatim from `repair.py:980-1006`; contract values are assembled from constants, never copied literals).
     pub fn desc(&self) -> String {
         match self {
             Step::BridgeAlive => {
@@ -216,7 +216,7 @@ impl Step {
                 "redeploy runtime resources (patch marker/resources missing -> idempotent reinstall)"
                     .to_string()
             }
-            // 描述里含绑定文件名 —— 用**契约常量**拼（不抄字面量）
+            // the description contains the binding file name — assembled from the **contract constant** (no copied literal)
             Step::AgentmailJson => format!(
                 "fill gaps in {} + align webhook_url with the live route",
                 crate::core::contract::binding_file()
@@ -231,10 +231,10 @@ impl Step {
         }
     }
 
-    /// 执行该步。**仍未移植的步一律 `NotPorted`**（绝不静默当成功）；已落地的走真实现。
+    /// Execute the step. **Steps that are still not ported always return `NotPorted`** (never a silent success); landed steps use the real implementation.
     pub fn run(&self, sid: &str, home: &str, _deep: bool) -> StepResult {
         match self {
-            // 第 7 步：绑定文件补空 + webhook_url 对齐（写回经 SDK 门）
+            // step 7: fill binding-file gaps + align webhook_url (written back through the SDK door)
             Step::AgentmailJson => {
                 let ah = crate::core::home::aimail_home();
                 if agentmail_backfill(sid, &ah) {
@@ -243,7 +243,7 @@ impl Step {
                     StepResult::NothingToDo
                 }
             }
-            // 第 6 步：运行时资源缺失 → 经该平台**自足 SDK 安装入口**幂等重铺
+            // step 6: runtime resources missing -> idempotent redeploy through the platform's **self-contained SDK install entry**
             Step::RuntimeResources => {
                 if runtime_resources(sid, home, &crate::core::home::program_root()) {
                     StepResult::Fixed
@@ -251,7 +251,7 @@ impl Step {
                     StepResult::NothingToDo
                 }
             }
-            // 第 11 步（--deep）：把卡住的 pending 全部 ack（兜底清理）
+            // step 11 (--deep): ack every stuck pending (last-resort cleanup)
             Step::DrainStuck => {
                 let client = gateway_client(sid);
                 if drain_stuck(&client) {
@@ -260,7 +260,7 @@ impl Step {
                     StepResult::NothingToDo
                 }
             }
-            // 第 1 步：桥存活（本地网关=直连模式 ⇒ 无需桥；否则 pid 探测，死了幂等起）
+            // step 1: bridge alive (local gateway = direct mode => no bridge needed; otherwise probe by pid and start idempotently if dead)
             Step::BridgeAlive => {
                 if ensure_bridge_running(sid) {
                     StepResult::Fixed
@@ -268,7 +268,7 @@ impl Step {
                     StepResult::NothingToDo
                 }
             }
-            // 第 2 步：重刷本系统路由 = 复用本仓 `bridge --system-id`（同一实现，不复刻）
+            // step 2: re-refresh this system's routes = reuse this repo's `bridge --system-id` (same implementation, not re-implemented)
             Step::RefreshRoutes => {
                 let rc = crate::cmd::bridge::run(&crate::cmd::bridge::Args {
                     system_id: sid.to_string(),
@@ -284,11 +284,11 @@ impl Step {
                 }
             }
             Step::GatewayConfig => {
-                // 只补 `system_home` 的空缺，**绝不覆写已有值**。
-                // `webhook_host` 已收敛到入站判定函数（单真源 `webhookplan`）：install 写、
-                // check 验（`config/webhook-plan-drift`），repair **不**再探测回填 ——
-                // 旧 `detect_webhook_host`（裸 host 判定）已删除，该分支会把合法的
-                // S3（键缺席）误当"缺口"去补。
+                // only fill gaps in `system_home`, **never overwrite existing values**.
+                // `webhook_host` has converged into the inbound verdict function (single source `webhookplan`): install writes it,
+                // check verifies it (`config/webhook-plan-drift`); repair **no longer** probes/backfills it —
+                // the old `detect_webhook_host` (bare-host verdict) has been deleted; that branch would treat a legitimate
+                // S3 (key absent) as a "gap" and backfill it.
                 let gw_path = crate::core::config::gateway_config_path(sid);
                 if !gw_path.is_file() {
                     fail(&format!(
@@ -350,7 +350,7 @@ impl Step {
                 }
             }
             Step::RoutesEntries => {
-                // `cli/repair.py:720-757`：路由缺失项 ⇒ 交本仓 `bridge --system-id` 刷新（生成在桥侧）。
+                // `cli/repair.py:720-757`: missing route entries => hand to this repo's `bridge --system-id` to refresh (generated on the bridge side).
                 let sysdir =
                     crate::core::config::system_dir_in(&crate::core::home::aimail_home(), sid);
                 let rf = crate::core::bridge_wire::routes_file();
@@ -376,7 +376,7 @@ impl Step {
                     if !aj.is_file() {
                         continue;
                     }
-                    // 逐文件容错：单个文件读不了/坏 ⇒ 只跳过它，绝不中止整步（2026-09-20 实测）
+                    // per-file tolerance: one unreadable/corrupt file => skip only that file, never abort the whole step (measured 2026-09-20)
                     let raw = match std::fs::read_to_string(&aj) {
                         Ok(t) => t,
                         Err(_) => {
@@ -432,8 +432,8 @@ impl Step {
                 }
             }
             Step::Pointer => {
-                // `cli/repair.py:520-555`：平台根确定 + 本 sid 无指针 + 目标指针不存在 ⇒ 才写。
-                // 单一实现 = [`repair_pointer`]（含 perms 0600；内联副本已于 2026-10-18 删除）。
+                // `cli/repair.py:520-555`: the platform root is certain + this sid has no pointer + the target pointer does not exist => only then write.
+                // single implementation = [`repair_pointer`] (includes perms 0600; the inline copy was deleted on 2026-10-18).
                 if repair_pointer(
                     &crate::core::home::aimail_home(),
                     &crate::core::home::user_home(),
@@ -446,7 +446,7 @@ impl Step {
                 }
             }
             Step::PullEntryKey => {
-                // `cli/repair.py:775-8xx`：把桥 `pull.systems[].admin_key` 对齐 gateway.json（唯一权威）。
+                // `cli/repair.py:775-8xx`: align the bridge `pull.systems[].admin_key` with gateway.json (the sole authority).
                 let gw_path = crate::core::config::gateway_config_path(sid);
                 let cfg = crate::core::bridge_wire::bridge_cfg_file();
                 if !gw_path.is_file() || !cfg.is_file() {
@@ -482,7 +482,7 @@ impl Step {
                     .iter()
                     .find(|x| x.get("system_id").and_then(|v| v.as_str()) == Some(sid));
                 if entry.is_none() {
-                    // 缺条目 => 本地创建（无需服务端），复用 install 的写者
+                    // entry missing => create it locally (no server side needed), reusing install's writer
                     let url = gw
                         .get("gateway_url")
                         .and_then(|v| v.as_str())
@@ -543,7 +543,7 @@ impl Step {
                 {
                     return StepResult::NothingToDo;
                 }
-                // 定向替换该条目的 admin_key（两种字段序，等价于 Python 的两条正则）
+                // targeted replacement of this entry's admin_key (both field orders; equivalent to Python's two regexes)
                 match replace_entry_admin_key(&raw, sid, &gk) {
                     Some(new_raw) => {
                         if let Err(e) = std::fs::write(&cfg, &new_raw) {
@@ -574,15 +574,15 @@ impl Step {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StepResult {
-    /// 有实际动作（或幂等确认）。
+    /// An actual action (or an idempotent confirmation).
     Fixed,
-    /// 明确未做（不计为失败，但必须打印）。
+    /// Explicitly not done (not counted as a failure, but must be printed).
     NothingToDo,
-    /// 本切片尚未移植（计为 ladder_bad，打印原因）。
+    /// Not yet ported in this slice (counted as ladder_bad, the reason is printed).
     NotPorted,
 }
 
-/// 阶梯（`--deep` 追加 drain 步）。
+/// The ladder (`--deep` appends the drain step).
 pub fn ladder(deep: bool) -> Vec<Step> {
     let mut plan = vec![
         Step::BridgeAlive,
@@ -612,8 +612,8 @@ fn ok(msg: &str) {
 }
 use crate::core::style::GREEN;
 
-/// 复检/首检的输出尾部（Python `_check_output_tail`：head 240 / tail 600）。
-/// 进程内调用没有子进程 stdout；这里用记录摘要代替，保证"不可判读"时**有证据可看**。
+/// The output tail of a re-check/first check (Python `_check_output_tail`: head 240 / tail 600).
+/// In-process calls have no child-process stdout; a record summary stands in here, guaranteeing **evidence to look at** when something is "unreadable".
 fn checks_tail(records: &[Record]) -> String {
     if records.is_empty() {
         return "(no check output)".to_string();
@@ -636,7 +636,7 @@ fn checks_tail(records: &[Record]) -> String {
     }
 }
 
-/// repair 的表头行（dry-run 计划与测试都按它比对）。
+/// repair's table header row (both the dry-run plan and the tests compare against it).
 pub fn header_line(sid: &str, deep: bool, dry_run: bool) -> String {
     let mut header = format!("  repair system={sid}");
     if dry_run {
@@ -648,7 +648,7 @@ pub fn header_line(sid: &str, deep: bool, dry_run: bool) -> String {
     header
 }
 
-/// dry-run 计划行（`    - {desc}`）—— 单点保证"打印的"与"比对的"是同一份数据。
+/// A dry-run plan line (`    - {desc}`) — a single point guaranteeing that "what is printed" and "what is compared" are the same data.
 pub fn dry_run_plan_lines(deep: bool) -> Vec<String> {
     ladder(deep)
         .iter()
@@ -656,11 +656,11 @@ pub fn dry_run_plan_lines(deep: bool) -> Vec<String> {
         .collect()
 }
 
-/// `repair(sid, deep, dry_run, home)` 的编排（check 走**进程内**引擎，零逻辑重复）。
+/// The orchestration of `repair(sid, deep, dry_run, home)` (check goes through the **in-process** engine, zero logic duplication).
 ///
-/// `check_engine` 由命令层传入（cmd::check 的编排函数），这样 repair 与 check 用的是
-/// 同一份引擎实现 —— Python 侧用"子进程 + 解析 JSON"达到同样目的。
-/// 重刷本系统路由 = 复用本仓 `bridge --system-id`（同一实现，零复刻；Python `repair.py:_refresh_routes`）。
+/// `check_engine` is passed in by the command layer (cmd::check's orchestration function), so that repair and check use
+/// the same engine implementation — the Python side reaches the same goal with "child process + JSON parsing".
+/// Re-refreshing this system's routes = reusing this repo's `bridge --system-id` (same implementation, zero re-implementation; Python `repair.py:_refresh_routes`).
 fn refresh_routes(sid: &str) -> bool {
     crate::cmd::bridge::run(&crate::cmd::bridge::Args {
         system_id: sid.to_string(),
@@ -671,8 +671,8 @@ fn refresh_routes(sid: &str) -> bool {
     }) == 0
 }
 
-/// 把桥配置文本里 `system_id = "<sid>"` 所属 `{…}` 块内的 `admin_key = "…"` 值替换为 gk。
-/// 等价于 Python `repair.py:815-824` 的两条定向正则（字段序两种都试）。
+/// Replace the `admin_key = "…"` value inside the `{…}` block owned by `system_id = "<sid>"` in the bridge config text with gk.
+/// Equivalent to Python's two targeted regexes at `repair.py:815-824` (both field orders are tried).
 fn replace_entry_admin_key(raw: &str, sid: &str, gk: &str) -> Option<String> {
     let sid_tok = format!("system_id = \"{sid}\"");
     let splice = |open: usize, close: usize, block_new: String| -> String {
@@ -728,18 +728,18 @@ fn chmod600(_p: &std::path::Path) {
     }
 }
 
-/// `_repair_binding_webhook_secrets`（`repair.py:183-253`）—— 本地密钥对账（**先跑**）。
+/// `_repair_binding_webhook_secrets` (`repair.py:183-253`) — local secret reconciliation (**runs first**).
 ///
-/// 本地绑定是唯一真源：每个绑定先拿本地 secret（幂等），再把它同步进云端注册副本。
-/// 绑定读入走 SDK 单入口 `iter_bindings`（与 install/适配器同一份，不另造）。
+/// The local binding is the single source of truth: each binding first takes its local secret (idempotent), then syncs it into the cloud registration copy.
+/// Binding reads go through the SDK single entry `iter_bindings` (the same one as install/adapters; none invented separately).
 pub fn binding_webhook_secrets(sid: &str, door_env: &[(String, String)]) -> bool {
     let gw: Value = std::fs::read_to_string(crate::core::config::gateway_config_path(sid))
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or(Value::Null);
     let c = gateway_client(sid);
-    // 契约 v1.0 §4.1(1)：绑定是**数据类** ⇒ CLI 直读（不再向 SDK 取枚举）。
-    // 路径规则已由契约声明（config::binding_file_path / contract::binding_file），不复制 Python 实现。
+    // contract v1.0 §4.1(1): a binding is **data-class** => the CLI reads it directly (no more enumeration fetched from the SDK).
+    // The path rule is already declared by the contract (config::binding_file_path / contract::binding_file); the Python implementation is not copied.
     let list: Vec<Value> = {
         let root =
             crate::core::config::systems_root_in(&crate::core::home::aimail_home()).join(sid);
@@ -752,7 +752,7 @@ pub fn binding_webhook_secrets(sid: &str, door_env: &[(String, String)]) -> bool
                 };
                 match serde_json::from_str::<Value>(&txt) {
                     Ok(mut v) => {
-                        // SDK 门对 `binding` 的契约：原样回传 + `_config_path` 标识落点（此处由直读重建）
+                        // the SDK door's contract for `binding`: echo it back unchanged + `_config_path` marks the landing spot (reconstructed here from the direct read)
                         if let Some(o) = v.as_object_mut() {
                             o.insert(
                                 "_config_path".into(),
@@ -791,7 +791,7 @@ pub fn binding_webhook_secrets(sid: &str, door_env: &[(String, String)]) -> bool
                     .map(|x| x.to_string_lossy().to_string())
             })
             .unwrap_or_default();
-        // 契约 v1.0 §4.1：动作类收敛 —— ensure_webhook_secret 并入 update(action="webhook-secret")
+        // contract v1.0 §4.1: action-class convergence — ensure_webhook_secret is merged into update(action="webhook-secret")
         let prov = sdk::sdk_ops_call(
             "update",
             &serde_json::json!({"system_id": sid, "action": "webhook-secret", "binding": d}),
@@ -840,8 +840,8 @@ pub fn binding_webhook_secrets(sid: &str, door_env: &[(String, String)]) -> bool
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        // 契约 v1.0 §4.1：动作类 + 取值类一并收敛 —— 云端重配对走一次门 assemble
-        // （不传 register_spec ⇒ 不跑平台注册器；webhook 地址由 SDK 内部解析，CLI 不取中间值）
+        // contract v1.0 §4.1: action-class + value-class convergence together — the cloud re-pairing goes through one door assemble
+        // (no register_spec passed => the platform registrar does not run; the webhook address is resolved inside the SDK, and the CLI never takes an intermediate value)
         let res = sdk::sdk_ops_call(
             "assemble",
             &serde_json::json!({
@@ -877,7 +877,7 @@ pub fn binding_webhook_secrets(sid: &str, door_env: &[(String, String)]) -> bool
     fixed
 }
 
-/// 目录键公式（`repair.py:310`：非 `[\w.-]` ⇒ `_`；点分地址 `agent.x@dom` ⇒ `agent.x_dom`）。
+/// Directory key formula (`repair.py:310`: non `[\w.-]` => `_`; dotted address `agent.x@dom` => `agent.x_dom`).
 fn binding_dir_key(email: &str) -> String {
     email
         .chars()
@@ -891,7 +891,7 @@ fn binding_dir_key(email: &str) -> String {
         .collect()
 }
 
-/// `_repair_webhook_pairing`（`repair.py:256-341`）：证据驱动重挂 + `--deep` 全量重写 + 坏 pending ack。
+/// `_repair_webhook_pairing` (`repair.py:256-341`): evidence-driven re-attach + `--deep` full rewrite + bad-pending ack.
 pub fn webhook_pairing(sid: &str, deep: bool, door_env: &[(String, String)]) -> bool {
     let client = gateway_client(sid);
     let mut fixed = binding_webhook_secrets(sid, door_env);
@@ -963,7 +963,7 @@ pub fn webhook_pairing(sid: &str, deep: bool, door_env: &[(String, String)]) -> 
         let aj = if direct.is_file() {
             Some(direct)
         } else {
-            // 松散回退：按目录名找 email 匹配的那一份
+            // loose fallback: find the copy whose email matches, by directory name
             let mut found = None;
             if let Ok(rd) = std::fs::read_dir(&sysdir) {
                 let mut subs: Vec<std::path::PathBuf> =
@@ -1001,8 +1001,8 @@ pub fn webhook_pairing(sid: &str, deep: bool, door_env: &[(String, String)]) -> 
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        // 契约 v1.0 §4.1：取值类 + 动作类一并收敛 —— 重注册走一次门 assemble
-        // （不传 register_spec ⇒ 不跑平台注册器；webhook 地址由 SDK 内部解析 ✓）
+        // contract v1.0 §4.1: value-class + action-class convergence together — re-registration goes through one door assemble
+        // (no register_spec passed => the platform registrar does not run; the webhook address is resolved inside the SDK ✓)
         let res = sdk::sdk_ops_call(
             "assemble",
             &serde_json::json!({
@@ -1064,7 +1064,7 @@ pub fn run(
     };
     let first = check_engine(sid, agent_home);
     let records: Vec<Record> = first.checks.clone();
-    // 空 check = GAP（不可判读），不是"通过"（repair 方案A 2026-09-29）
+    // an empty check = GAP (unreadable), not "pass" (repair plan A 2026-09-29)
     let passed = !records.is_empty() && records.iter().all(|r| r.pass);
     if records.is_empty() {
         warn("check produced no output -- the check step is unjudgeable in this form (NOT a system_id verdict); repair continues with its unconditional ladder");
@@ -1163,14 +1163,14 @@ pub fn run(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// S5b-i：CLI 自有权写入步（系统级文件 / 平台指针）—— 归属铁律：CLI 不写绑定文件
-// 现状码：`cli/repair.py:415-553`（_auto_platform_home / _sid_has_pointer /
-// _repair_pointer）。`_repair_gateway_config` 已收敛：`webhook_host` 归入站判定函数
-// （单真源，install 写 / check 验 / repair 不写），网关配置步只补 `system_home`。
+// S5b-i: steps the CLI is entitled to write itself (system-level files / platform pointers) — ownership iron rule: the CLI never writes binding files
+// reference code: `cli/repair.py:415-553` (_auto_platform_home / _sid_has_pointer /
+// _repair_pointer). `_repair_gateway_config` has converged: `webhook_host` belongs to the inbound verdict function
+// (single source; install writes / check verifies / repair does not write); the gateway config step only fills `system_home`.
 // ════════════════════════════════════════════════════════════════════════════
 
-/// `_auto_platform_home`：单平台机器自动定平台根；多平台回退 cfg 的 system_home；否则空
-/// （**不猜**）。
+/// `_auto_platform_home`: a single-platform machine auto-determines the platform root; multi-platform falls back to cfg's system_home; otherwise empty
+/// (**no guessing**).
 pub fn auto_platform_home(user_home: &Path, stored_system_home: Option<&str>) -> String {
     let mut hits: Vec<String> = Vec::new();
     for name in crate::hosts::order() {
@@ -1191,7 +1191,7 @@ pub fn auto_platform_home(user_home: &Path, stored_system_home: Option<&str>) ->
     String::new()
 }
 
-/// `_sid_has_pointer(sid)`：任一平台的任一指针（root / root_or_profiles）指向该 sid。
+/// `_sid_has_pointer(sid)`: any pointer (root / root_or_profiles) of any platform points at this sid.
 pub fn sid_has_pointer(user_home: &Path, sid: &str) -> bool {
     for name in crate::hosts::order() {
         for ptr in crate::hosts::pointer::paths_for(user_home, name) {
@@ -1209,11 +1209,11 @@ pub fn sid_has_pointer(user_home: &Path, sid: &str) -> bool {
     false
 }
 
-/// `judge_deliverable(url)` —— 云端能不能 POST 到这个 URL（**话说明白**的判据）。
+/// `judge_deliverable(url)` — whether the cloud can POST to this URL (a criterion **stated plainly**).
 ///
-/// 单真源 = `core::bridge_deploy::judge_deliverable`（同一实现，供 bridge_deploy 的
-/// 注册链复用）；`repair` 自身**不写** `webhook_host`（三态归 `webhookplan`，install
-/// 写、check 验）。文案逐字照抄 `cli/deploy_bridge.py:328-350`。
+/// Single source = `core::bridge_deploy::judge_deliverable` (the same implementation, reused by bridge_deploy's
+/// registration chain); `repair` itself **never writes** `webhook_host` (the three states belong to `webhookplan`; install
+/// writes it, check verifies it). The wording is copied verbatim from `cli/deploy_bridge.py:328-350`.
 pub fn judge_deliverable(url: &str) -> (bool, String) {
     let raw = url.trim();
     if raw.is_empty() {
@@ -1278,7 +1278,7 @@ fn port_of(authority: &str) -> Option<i64> {
     a.split(':').nth(1).and_then(|p| p.parse::<i64>().ok())
 }
 
-/// 公开版：install 的"是否本地网关"判定与 repair 共用**同一份** host 解析（单真源）。
+/// Public version: install's "is it a local gateway" verdict and repair share **the same** host resolution (single source).
 pub fn url_host_pub(url: &str) -> String {
     url_host(url)
 }
@@ -1293,7 +1293,7 @@ fn step_ok(msg: &str) {
     println!("  {GREEN}✓{NC} {msg}");
 }
 
-/// `_repair_pointer`：平台根确定 + 本 sid 无指针 + 目标指针文件不存在 ⇒ 建指针。
+/// `_repair_pointer`: the platform root is certain + this sid has no pointer + the target pointer file does not exist => create the pointer.
 pub fn repair_pointer(
     aimail_home: &Path,
     user_home: &Path,
@@ -1310,7 +1310,7 @@ pub fn repair_pointer(
     if plat == "unknown" {
         return false;
     }
-    // 绑定枚举（**只读**）：取第一个有 email 的
+    // binding enumeration (**read-only**): take the first one that has an email
     let sysdir = crate::core::config::system_dir_in(aimail_home, sid);
     let mut email = String::new();
     let mut subs: Vec<std::path::PathBuf> = std::fs::read_dir(&sysdir)
@@ -1343,7 +1343,7 @@ pub fn repair_pointer(
     let ptr = crate::hosts::identity::platform_root(user_home, plat)
         .join(crate::core::contract::pointer_file());
     if ptr.exists() {
-        return false; // 已有指针（可能是别的系统）—— 不覆盖
+        return false; // a pointer already exists (possibly for another system) — do not overwrite
     }
     if let Some(parent) = ptr.parent() {
         if std::fs::create_dir_all(parent).is_err() {
@@ -1362,8 +1362,8 @@ pub fn repair_pointer(
     true
 }
 
-/// 与 `aimail_gateway.json` 同义的网关客户端（`repair.py:72-80` 的 `_gateway_client`）。
-/// 缺 `gateway_url`/`admin_key` ⇒ None（调用方据此打印"客户端不可用"的提示，而不是抛错）。
+/// A gateway client synonymous with `aimail_gateway.json` (`_gateway_client` from `repair.py:72-80`).
+/// missing `gateway_url`/`admin_key` => None (the caller prints a "client unavailable" hint on this basis, instead of erroring).
 pub fn gateway_client(sid: &str) -> Option<crate::core::gateway::GatewayClient> {
     let gw = config::load_gateway_config_in(&crate::core::home::aimail_home(), sid)?;
     let obj = gw.to_json();
@@ -1375,7 +1375,7 @@ pub fn gateway_client(sid: &str) -> Option<crate::core::gateway::GatewayClient> 
     Some(crate::core::gateway::GatewayClient::with_defaults(url, key))
 }
 
-/// pending 查询返回体 → `batches` 列表（`repair.py:281`：`pend["batches"]`，退回顶层数组/`data`）。
+/// The pending-query response body -> the `batches` list (`repair.py:281`: `pend["batches"]`, falling back to the top-level array / `data`).
 pub fn pending_batches(pend: &Value) -> Vec<Value> {
     if let Some(Value::Array(a)) = pend.get("batches") {
         return a.clone();
@@ -1389,8 +1389,8 @@ pub fn pending_batches(pend: &Value) -> Vec<Value> {
     Vec::new()
 }
 
-/// 空签名证据：headers 里既无 `X-Webhook-Signature` 也无 `-V2` 的投递 ⇒ `(id, email)`
-/// （`repair.py:282-290`；`id` 可能是 None = --deep 的人造目标）。
+/// Empty-signature evidence: a delivery whose headers carry neither `X-Webhook-Signature` nor `-V2` => `(id, email)`
+/// (`repair.py:282-290`; `id` may be None = the synthetic target of --deep).
 pub fn pending_empties(pend: &Value) -> Vec<(Option<String>, String)> {
     let mut out = Vec::new();
     for b in pending_batches(pend) {
@@ -1429,7 +1429,7 @@ pub fn pending_empties(pend: &Value) -> Vec<(Option<String>, String)> {
     out
 }
 
-/// 卡住判定（`repair.py:355-366`）：`created_at` 龄期 > 600s ⇒ 收集 id；时间不可解析 ⇒ 跳过该条。
+/// Stuck verdict (`repair.py:355-366`): `created_at` age > 600s => collect the id; an unparseable time => skip that entry.
 pub fn stuck_pending_ids(pend: &Value, now: i64) -> Vec<String> {
     let mut stuck = Vec::new();
     for b in pending_batches(pend) {
@@ -1455,7 +1455,7 @@ pub fn stuck_pending_ids(pend: &Value, now: i64) -> Vec<String> {
     stuck
 }
 
-/// `_drain_stuck`（`repair.py:344-373`，`--deep` 的第 11 步）：把卡住的 pending 全部 ack 兜底。
+/// `_drain_stuck` (`repair.py:344-373`, step 11 of `--deep`): ack every stuck pending as a last resort.
 pub fn drain_stuck(client: &Option<crate::core::gateway::GatewayClient>) -> bool {
     let Some(c) = client else {
         return false;
@@ -1482,20 +1482,20 @@ pub fn drain_stuck(client: &Option<crate::core::gateway::GatewayClient>) -> bool
     !stuck.is_empty()
 }
 
-/// `_detect_platform_from_home`（`repair.py:394-407`）：**repaired 侧的手写判定变体**。
+/// `_detect_platform_from_home` (`repair.py:394-407`): the **hand-written verdict variant on the repair side**.
 ///
-/// 与另两处平台判定**不同**（各自照抄，不合并）：hermes 用 `markers 任一` 的 OR；openclaw 看
-/// `openclaw.json` 文件；deerflow 看 `backend/app/gateway` 目录；dsh 认 `profiles`（C-3：
-/// storages 是使用期产物，不入特征）。名字是平台语义（注册表只描述
-/// 特征，表达不了这里的 OR/文件/目录三种形状）。
+/// **Different** from the other two platform verdicts (each copied separately, not merged): hermes uses an OR over `any marker`; openclaw looks at
+/// the `openclaw.json` file; deerflow looks at the `backend/app/gateway` directory; dsh recognizes `profiles` (C-3:
+/// storages is a runtime product and does not enter the features). The names carry platform semantics (the registry only describes
+/// features and cannot express the three shapes OR/file/directory used here).
 fn detect_platform_for_repair(dir: &Path) -> &'static str {
     crate::hosts::identity::detect_for_repair(dir)
 }
 
-/// `_failing_file_checks`（`repair.py:570-596`）：注册表里**文件类** health_checks 中"没有命中"的项。
+/// `_failing_file_checks` (`repair.py:570-596`): the **file-class** health_checks in the registry that "did not hit".
 ///
-/// 三个定位键都必须认（`path` / `alt` / `glob` —— openclaw 的插件目录检查用 glob，漏认它会把
-/// "资源在位"误读成"缺失"）。
+/// All three locator keys must be honored (`path` / `alt` / `glob` — openclaw's plugin directory check uses glob; failing to honor it would misread
+/// "resources in place" as "missing").
 fn failing_file_checks(plat: &str, sh: &str, user_home: &Path) -> Vec<Value> {
     const FILE_KINDS: &[&str] = &[
         "file_contains",
@@ -1544,12 +1544,12 @@ fn failing_file_checks(plat: &str, sh: &str, user_home: &Path) -> Vec<Value> {
     fails
 }
 
-/// `_repair_runtime_resources`（`repair.py:612-651`）：L2 运行时资源缺失 → 经该平台的**自足 SDK 安装入口**
-/// 幂等重铺（`install.py install --type <tgt> --home <sh> --system-id <sid>`）。
+/// `_repair_runtime_resources` (`repair.py:612-651`): L2 runtime resources missing -> through that platform's **self-contained SDK install entry**
+/// idempotent redeploy (`install.py install --type <tgt> --home <sh> --system-id <sid>`).
 ///
-/// 关键照抄点：① 平台根解析不出 ⇒ 跳过并说明（远端平台如 deerflow 要在宿主上跑）；
-/// ② 该平台**没有** sdk_install 入口 ⇒ 只打印注册表自带的 fix 提示，**不**spawn 一个注定失败的安装；
-/// ③ 安装输出取尾部 600 字符原样转发；④ 一律**幂等**（资源齐全时返回 false 不动作）。
+/// Key verbatim points: ① the platform root cannot be resolved => skip with an explanation (a remote platform like deerflow must run on the host);
+/// ② the platform has **no** sdk_install entry => only print the fix hint shipped with the registry, **do not** spawn an install doomed to fail;
+/// ③ the install output is forwarded verbatim, tail 600 chars; ④ always **idempotent** (returns false and does nothing when resources are complete).
 pub fn runtime_resources(sid: &str, platform_home: &str, prog_root: &Path) -> bool {
     let ah = crate::core::home::aimail_home();
     let gw = config::load_gateway_config_in(&ah, sid)
@@ -1598,10 +1598,10 @@ pub fn runtime_resources(sid: &str, platform_home: &str, prog_root: &Path) -> bo
     warn(&format!(
         "{plat} runtime resources missing -> idempotent reinstall (install.py install --type {tgt} --home {sh})"
     ));
-    // 按**文件路径**调用（与每一步一致），不依赖解释器里 `import aimail`；install.py 自己会做 sys.path 自举，
-    // 因而仓库(pysdk/) 与 pip(site-packages/aimail/) 两种布局都成立。
-    // 按**文件路径**调用（与每一步一致），不依赖解释器里 `import aimail`；install.py 自己会做
-    // sys.path 自举，因而仓库(pysdk/) 与 pip(site-packages/aimail/) 两种布局都成立。
+    // invoked by **file path** (consistent with every step), without relying on `import aimail` in the interpreter; install.py does its own sys.path bootstrap,
+    // so both the repo (pysdk/) and pip (site-packages/aimail/) layouts work.
+    // invoked by **file path** (consistent with every step), without relying on `import aimail` in the interpreter; install.py does
+    // its own sys.path bootstrap, so both the repo (pysdk/) and pip (site-packages/aimail/) layouts work.
     let py = crate::core::sdkroot::python_bin();
     let install_py = prog_root
         .join("aimail-src")
@@ -1663,19 +1663,19 @@ pub fn runtime_resources(sid: &str, platform_home: &str, prog_root: &Path) -> bo
     }
 }
 
-/// `_repair_agentmail_json`（`repair.py:655-717`）：补绑定文件的可重建字段 + 与**活**路由对齐
-/// `webhook_url`；写回**经 SDK 门** `backfill_binding`（per-agent 绑定只由 SDK 写 —— 归属铁律）。
+/// `_repair_agentmail_json` (`repair.py:655-717`): fill the binding file's rebuildable fields + align with the **live** route
+/// `webhook_url`; write back **through the SDK door** `backfill_binding` (per-agent bindings are written only by the SDK — ownership iron rule).
 ///
-/// 照抄点：① 字段补齐以网关配置为准，只补**空**的；② 路由表逐行解析（`k = v`，去引号/逗号，后写覆盖先写）；
-/// ③ 对齐条件 = 路由目标存活 + 目标是本机地址 + 声明值与目标不同（存活的声明值不动）；
-/// ④ 比对原字典决定是否写（值相等即不写，幂等）；⑤ 单个文件失败只跳过该文件。
+/// Verbatim points: ① field filling defers to the gateway config and only fills **empty** ones; ② the route table is parsed line by line (`k = v`, stripping quotes/commas, later writes override earlier ones);
+/// ③ alignment condition = the route target is alive + the target is a local address + the declared value differs from the target (a live declared value is left untouched);
+/// ④ compare against the original dict to decide whether to write (equal value => no write, idempotent); ⑤ a single file failure only skips that file.
 pub fn agentmail_backfill(sid: &str, aimail_home: &Path) -> bool {
     agentmail_backfill_with(sid, aimail_home, &[])
 }
 
-/// 桥路由表值 → SDK 信封值:裸 `host:port`(桥存储设计, router.rs:308-314)还原为完整
-/// 入站 URL(主机 127.0.0.1 = 入站监听约定, 路径 = 契约单真源); 已带 scheme 的原样透传。
-/// PY SDK 期望完整 URL —— 塞裸值会把绑定 `webhook_url` 降级(重注册 ⇒ 500, 见 G2 根因链)。
+/// Bridge route table value -> SDK envelope value: a bare `host:port` (bridge storage design, router.rs:308-314) is restored to the full
+/// inbound URL (host 127.0.0.1 = the inbound listening convention, path = the contract single source); a value already carrying a scheme passes through unchanged.
+/// The PY SDK expects a full URL — stuffing a bare value would downgrade the binding's `webhook_url` (re-registration => 500, see the G2 root-cause chain).
 pub fn bridge_route_to_envelope_value(v: &str) -> String {
     if v.starts_with("http://") || v.starts_with("https://") {
         v.to_string()
@@ -1684,14 +1684,14 @@ pub fn bridge_route_to_envelope_value(v: &str) -> String {
     }
 }
 
-/// 同上，但子进程环境可注入（夹具 AIMAIL_HOME ⇒ 不改本进程环境，并行安全）。
+/// Same as above, but the child-process environment is injectable (a fixture AIMAIL_HOME => this process's environment is untouched, parallel-safe).
 pub fn agentmail_backfill_with(
     sid: &str,
     aimail_home: &Path,
     door_env: &[(String, String)],
 ) -> bool {
-    // 契约 v1.0 §4.1 + owner 裁决（甲）：repair 的**判定归 SDK** —— CLI 只触发
-    // update(action="repair")，由 SDK 自算缺口（filled[]）并补 manager/webhook。
+    // contract v1.0 §4.1 + owner ruling (Jia): repair's **verdict belongs to the SDK** — the CLI only triggers
+    // update(action="repair"); the SDK computes the gaps itself (filled[]) and fills manager/webhook.
     let routes: serde_json::Map<String, serde_json::Value> = crate::core::bridge_wire::read_routes(
         &aimail_home.join("bridge").join("aimail_routes.toml"),
     )
@@ -1725,8 +1725,8 @@ pub fn agentmail_backfill_with(
     }
 }
 
-/// `repair.py:_ensure_bridge_running`：**先判模式**（本地网关=直连，无需桥）再探进程，
-/// 死了才幂等起（模式判定与 install 共用 `gateway::is_local_gateway` —— 2026-09-27 owner 裁决）。
+/// `repair.py:_ensure_bridge_running`: **judge the mode first** (local gateway = direct, no bridge needed), then probe the process;
+/// start idempotently only when dead (the mode verdict is shared with install via `gateway::is_local_gateway` — owner ruling 2026-09-27).
 fn ensure_bridge_running(sid: &str) -> bool {
     let sid = sid.trim();
     let gw_url = if sid.is_empty() {
@@ -1747,8 +1747,8 @@ fn ensure_bridge_running(sid: &str) -> bool {
     }
     warn("bridge not running -> starting it (deploy_bridge.start_bridge)");
     let cfg = crate::core::bridge_wire::bridge_cfg_file();
-    // Python: `BRIDGE_BIN = AIMAIL_HOME/bridge/bin/aimail-bridge`（**带 bin/ 一级**；
-    // 直接按 cfg.parent() 拼会误判"未部署" ⇒ BridgeAlive 假失败，L2 实测抓到）。
+    // Python: `BRIDGE_BIN = AIMAIL_HOME/bridge/bin/aimail-bridge` (**with the bin/ level**;
+    // assembling it directly from cfg.parent() would misjudge it as "not deployed" => a false BridgeAlive failure, caught by an L2 measurement).
     let bin = cfg
         .parent()
         .map(|d| d.join("bin").join("aimail-bridge"))
@@ -1784,12 +1784,12 @@ mod tests {
     #[test]
     fn bridge_route_envelope_restores_bare_value_and_passthroughs_full_url() {
         use crate::core::contract;
-        // 裸 host:port(桥存储形态)⇒ 还原为完整入站 URL(契约单真源构造期望值, 不硬编码路径)
+        // a bare host:port (the bridge storage shape) => restore it to the full inbound URL (the contract single source constructs the expected value; the path is not hardcoded)
         assert_eq!(
             bridge_route_to_envelope_value("127.0.0.1:8644"),
             format!("http://127.0.0.1:8644{}", contract::inbound_path())
         );
-        // 已带 scheme ⇒ 原样透传(桥未来改存完整 URL, 读方无需再动)
+        // already carries a scheme => pass through unchanged (if the bridge later stores full URLs, the reader needs no change)
         let full = format!("http://127.0.0.1:8644{}", contract::inbound_path());
         assert_eq!(bridge_route_to_envelope_value(&full), full);
         let fulls = format!("https://gw.example.test{}", contract::inbound_path());
@@ -1808,25 +1808,25 @@ mod tests {
 
     #[test]
     fn entry_admin_key_replacement_handles_both_field_orders() {
-        // 字段序 ①：system_id 在前
+        // field order ①: system_id first
         let a = r#"[[pull.systems]]
 { system_id = "s1", admin_key = "OLD", aimail_url = "http://x" }"#;
-        let ra = replace_entry_admin_key(a, "s1", "NEW").expect("序①应命中");
+        let ra = replace_entry_admin_key(a, "s1", "NEW").expect("order ① should hit");
         assert!(ra.contains("admin_key = \"NEW\""), "{ra}");
-        assert!(ra.contains("system_id = \"s1\""), "不改动 system_id");
-        // 字段序 ②：admin_key 在前
+        assert!(ra.contains("system_id = \"s1\""), "system_id is not touched");
+        // field order ②: admin_key first
         let b = r#"[[pull.systems]]
 { admin_key = "OLD", system_id = "s1" }"#;
-        let rb = replace_entry_admin_key(b, "s1", "NEW").expect("序②应命中");
+        let rb = replace_entry_admin_key(b, "s1", "NEW").expect("order ② should hit");
         assert!(rb.contains("admin_key = \"NEW\""), "{rb}");
-        // 不同 sid 的条目不动
+        // entries with a different sid are untouched
         let c = r#"{ system_id = "other", admin_key = "KEEP" }"#;
         assert!(replace_entry_admin_key(c, "s1", "NEW").is_none());
     }
 
     #[test]
     fn pointer_never_overwrites_an_existing_pointer_for_this_sid() {
-        // cli/repair.py:522：本 sid 已有指针 => 直接返回，绝不改写。
+        // cli/repair.py:522: this sid already has a pointer => return directly, never rewrite.
         let _g = crate::core::testutil::ENV_LOCK.lock().unwrap();
         let td = std::env::temp_dir().join(format!("ptr-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&td);
@@ -1845,13 +1845,13 @@ mod tests {
                 crate::cmd::check::engine(sid, ah, false).check
             },
         );
-        assert_eq!(std::fs::read(&ptr).unwrap(), orig, "已有指针绝不被覆写");
+        assert_eq!(std::fs::read(&ptr).unwrap(), orig, "an existing pointer is never overwritten");
         std::fs::remove_dir_all(&td).ok();
     }
 
     #[test]
     fn routes_entries_skips_bad_binding_files_without_aborting() {
-        // Python 2026-09-20 实测：单个坏绑定文件只跳过它，绝不中止整步（repair.py:740）。
+        // Python measured 2026-09-20: a single corrupt binding file is only skipped; the whole step is never aborted (repair.py:740).
         let _g = crate::core::testutil::ENV_LOCK.lock().unwrap();
         let td = std::env::temp_dir().join(format!("rt-bad-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&td);
@@ -1882,7 +1882,7 @@ mod tests {
                 .join(crate::core::contract::binding_file()),
         )
         .unwrap();
-        assert_eq!(before, after, "坏文件不得被改写/删除");
+        assert_eq!(before, after, "a corrupt file must not be rewritten/deleted");
         std::fs::remove_dir_all(&td).ok();
     }
 
@@ -1920,10 +1920,10 @@ mod tests {
 
     #[test]
     fn sdk_install_target_matches_registry() {
-        // 注册表口径（owner 2026-10-06 甲 / tests/sdk/test_sdk_install_step_contract.py）：
-        // **python 宿主**（hermes / deerflow）带自足安装入口（sdk_install 步）；
-        // **node 宿主**（dsh / pi / openclaw）**不带** —— 其 SDK/扩展由宿主包管理器装入，
-        // 注册/受控变更/拆除经注册表 `ops.argv` 的 op 入口直达（契约 v1.0 §4.1(2)）。
+        // registry criterion (owner 2026-10-06 Jia / tests/sdk/test_sdk_install_step_contract.py):
+        // **python hosts** (hermes / deerflow) carry a self-contained install entry (the sdk_install step);
+        // **node hosts** (dsh / pi / openclaw) do **not** — their SDK/extension is installed by the host package manager;
+        // registration/controlled change/teardown go straight through the registry's `ops.argv` op entry (contract v1.0 §4.1(2)).
         assert_eq!(
             crate::hosts::get("hermes")
                 .map(|h| crate::hosts::exec::sdk_install_target(h))
@@ -1965,18 +1965,18 @@ mod tests {
     #[test]
     fn detect_platform_for_repair_mirrors_python_variant() {
         let d = tempfile::tempdir().unwrap();
-        // hermes 的 OR 语义：只要 profiles/ 在（无 hermes-agent）也算 hermes —— 与注册表驱动那两处不同
+        // hermes's OR semantics: as long as profiles/ is present (without hermes-agent) it still counts as hermes — different from the two registry-driven ones
         let h = d.path().join(".hermes");
         std::fs::create_dir_all(h.join("profiles")).unwrap();
         assert_eq!(detect_platform_for_repair(&h), "hermes");
-        // pi 需 名字 .pi + agent/；dsh 需 名字 .dsh + profiles/（C-3：storages 是使用期产物，不入特征）
+        // pi requires the name .pi + agent/; dsh requires the name .dsh + profiles/ (C-3: storages is a runtime product and does not enter the features)
         let pi = d.path().join(".pi");
         std::fs::create_dir_all(pi.join("agent")).unwrap();
         assert_eq!(detect_platform_for_repair(&pi), "pi");
         let dsh = d.path().join(".dsh");
         std::fs::create_dir_all(dsh.join("profiles")).unwrap();
         assert_eq!(detect_platform_for_repair(&dsh), "dsh");
-        // openclaw 看文件；deerflow 看目录
+        // openclaw looks at a file; deerflow looks at a directory
         let oc = d.path().join(".openclaw");
         std::fs::create_dir_all(&oc).unwrap();
         std::fs::write(oc.join("openclaw.json"), "{}").unwrap();
@@ -1995,10 +1995,10 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let home = d.path().join(".hermes");
         std::fs::create_dir_all(&home).unwrap();
-        // 资源全缺 ⇒ hermes 的文件类检查应有命中失败项
+        // all resources missing => hermes's file-class checks should have hit failure items
         let missing = failing_file_checks("hermes", &home.to_string_lossy(), d.path());
-        assert!(!missing.is_empty(), "缺资源时应报出失败项");
-        // 注册表自带的 fix 提示必须原样可读（供 repair 打印）
+        assert!(!missing.is_empty(), "failure items should be reported when resources are missing");
+        // the fix hint shipped with the registry must be readable as-is (for repair to print)
         assert!(missing
             .iter()
             .all(|ch| ch.get("id").is_some() || ch.get("path").is_some()));
@@ -2006,7 +2006,7 @@ mod tests {
 
     #[test]
     fn runtime_resources_skips_when_root_unresolvable() {
-        // 平台根解析不出 ⇒ 明确跳过（不 spawn 安装、不报成功）
+        // the platform root cannot be resolved => skip explicitly (no install spawned, no success reported)
         let _g = crate::core::testutil::ENV_LOCK.lock().unwrap();
         let d = tempfile::tempdir().unwrap();
         let ah = d.path().join("aimail");
@@ -2026,12 +2026,12 @@ mod tests {
             {"id": "d4", "email": "d@example.test", "headers": "{\"X-Webhook-Signature-V2\": \"v2\"}"}
         ]}]});
         assert_eq!(pending_batches(&pend).len(), 1);
-        // 空签名证据 = d2（无签名头）+ d3（headers 非 JSON ⇒ 视作 {} ⇒ 也无签名），d1/d4 有签名
+        // empty-signature evidence = d2 (no signature header) + d3 (headers not JSON => treated as {} => also no signature); d1/d4 have signatures
         let empties = pending_empties(&pend);
         let ids: Vec<String> = empties.iter().filter_map(|(i, _)| i.clone()).collect();
         assert_eq!(ids, vec!["d2".to_string(), "d3".to_string()]);
         assert_eq!(empties[0].1, "b@example.test");
-        // 顶层数组 / data 数组两种返回形状都要认
+        // both response shapes — the top-level array / the data array — must be recognized
         assert_eq!(
             pending_batches(&serde_json::json!([{"deliveries": []}])).len(),
             1
@@ -2047,9 +2047,9 @@ mod tests {
     fn stuck_pending_ids_uses_600s_age_and_skips_unparseable() {
         let now = crate::core::time::parse_rfc3339_secs("2026-10-04T12:00:00Z").unwrap();
         let pend = serde_json::json!({"batches": [{"deliveries": [
-            {"id": "old", "created_at": "2026-10-04T11:00:00Z"},   // 3600s 前 ⇒ 卡住
-            {"id": "fresh", "created_at": "2026-10-04T11:59:30Z"},  // 30s 前 ⇒ 不卡
-            {"id": "bad", "created_at": "not-a-time"}               // 不可解析 ⇒ 跳过（Python 同判）
+            {"id": "old", "created_at": "2026-10-04T11:00:00Z"},   // 3600s ago => stuck
+            {"id": "fresh", "created_at": "2026-10-04T11:59:30Z"},  // 30s ago => not stuck
+            {"id": "bad", "created_at": "not-a-time"}               // unparseable => skip (same verdict as Python)
         ]}]});
         assert_eq!(stuck_pending_ids(&pend, now), vec!["old".to_string()]);
     }
@@ -2062,7 +2062,7 @@ mod tests {
         let sdir = td.join("systems").join("s1");
         std::fs::create_dir_all(&sdir).unwrap();
         let p = sdir.join("aimail_gateway.json");
-        // ① 已有值 + 只缺 webhook_host ⇒ 既有值不动
+        // ① an existing value + only webhook_host missing => the existing value is untouched
         std::fs::write(
             &p,
             r#"{"system_home":"/root/.hermes","system_name":"keepme","gateway_url":""}"#,
@@ -2076,16 +2076,16 @@ mod tests {
             serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
         assert_eq!(
             v["system_home"], "/root/.hermes",
-            "已存在的 system_home 不得被覆写"
+            "an existing system_home must not be overwritten"
         );
-        assert_eq!(v["system_name"], "keepme", "无关字段必须保留");
-        // ② 文件不存在 ⇒ 响亮失败且不动盘
+        assert_eq!(v["system_name"], "keepme", "unrelated fields must be preserved");
+        // ② the file does not exist => fail loudly and do not touch disk
         let _ = std::fs::remove_file(&p);
         let rc = crate::core::repair::run("s1", false, false, "", |sid, home| {
             crate::cmd::check::engine(sid, home, false).check
         });
-        assert!(rc >= 0, "缺 cfg 时应响亮失败而非 panic");
-        assert!(!p.exists(), "缺 cfg 时不得新建文件");
+        assert!(rc >= 0, "a missing cfg should fail loudly rather than panic");
+        assert!(!p.exists(), "a missing cfg must not create a new file");
         let _ = std::fs::remove_dir_all(&td);
         std::env::remove_var("AIMAIL_HOME");
     }
@@ -2104,16 +2104,16 @@ mod tests {
         let stop2 = stop.clone();
         let h = std::thread::spawn(move || {
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
-            // 服务到**客户端自己结束**（stop）为止：不用"已服务 N 条"硬上限，
-            // 否则请求数变化时多出来的连接会被拒（Connection reset）。
+            // serve until **the client itself ends** (stop): no hard cap of "served N requests",
+            // otherwise, when the request count changes, the extra connections would be rejected (Connection reset).
             while !stop2.load(Ordering::Relaxed) && std::time::Instant::now() < deadline {
                 match listener.accept() {
                     Ok((mut sock, _)) => {
                         sock.set_read_timeout(Some(std::time::Duration::from_secs(5)))
                             .ok();
-                        // 一个请求可能分多段 TCP 到达（头 + body）⇒ 读到
-                        // Content-Length 声明的 body 齐了再回包；只读一次会在
-                        // 单核/低核 runner 上拿到空 body（旧写法 1-4 核必红）。
+                        // a request may arrive in multiple TCP segments (header + body) => read until
+                        // the Content-Length-declared body is complete, then reply; reading once would
+                        // get an empty body on a single-core/low-core runner (the old way was guaranteed red on 1-4 cores).
                         let mut raw: Vec<u8> = Vec::new();
                         let mut buf = [0u8; 4096];
                         loop {
@@ -2150,8 +2150,8 @@ mod tests {
                                 {\"id\":\"fresh\",\"email\":\"b@example.test\",\"created_at\":\"2999-01-01T00:00:00Z\"}
                             ]}]}"
                         };
-                        // `Connection: close` + 处理完即关：客户端不再复用连接，
-                        // 下一个请求必走新的 accept（否则会在半读的连接上 reset）。
+                        // `Connection: close` + close right after handling: the client no longer reuses the connection,
+                        // the next request must go through a fresh accept (otherwise it would be reset on a half-read connection).
                         let resp = format!(
                             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
                             payload.len(),
@@ -2174,20 +2174,20 @@ mod tests {
         let changed = drain_stuck(&Some(client));
         stop.store(true, Ordering::Relaxed);
         h.join().ok();
-        assert!(changed, "有卡住的 pending ⇒ 应报告已处理");
+        assert!(changed, "stuck pendings present => should report them handled");
         let log = seen.lock().unwrap().clone();
         assert!(
             log[0].starts_with("POST /api/v1/admin/pending ") && log[0].contains("\"filter\":[]"),
-            "首个请求应是 pending 查询: {log:?}"
+            "the first request should be a pending query: {log:?}"
         );
         assert!(
             log.iter()
                 .any(|l| l.contains("/pending/ack") && l.contains("\"old\"")),
-            "应只 ack 卡住的那条: {log:?}"
+            "only the stuck one should be acked: {log:?}"
         );
         assert!(
             !log.iter().any(|l| l.contains("\"fresh\"")),
-            "新鲜的投递不该被 ack: {log:?}"
+            "a fresh delivery should not be acked: {log:?}"
         );
     }
 }

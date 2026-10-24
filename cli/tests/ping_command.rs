@@ -1,5 +1,5 @@
-//! P3b 离线验收：`ping` 的两块可离线部分 —— **SMTP 客户端**（对活桩 TCP，随机端口，不需要 root）
-//! 与**三阶段事件判定引擎**（`core::ping::Watcher`）。真机路径（连网关 25 端口）留 L2 门禁。
+//! P3b offline acceptance: two offline parts of `ping` —— **SMTP client** (against live stub TCP, random port, no root needed)
+//! and **three-stage event determination engine** (`core::ping::Watcher`). Real device path (connecting to gateway port 25) left for L2 gate.
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -10,7 +10,7 @@ use aimail::core::smtp::{auth_from, smtp_cmd, smtp_host_from_url, Conn};
 
 #[test]
 fn smtp_host_parsing_strips_scheme_and_port() {
-    // 2026-09-29 实测坑：带端口的 gateway_url 整串当 HOST ⇒ gaierror
+    // 2026-09-29 measured pitfall: gateway_url with port treated as whole string as HOST ⇒ gaierror
     assert_eq!(smtp_host_from_url("http://127.0.0.1:34401"), "127.0.0.1");
     assert_eq!(smtp_host_from_url("gw.example.com:8080"), "gw.example.com");
     assert_eq!(
@@ -25,18 +25,18 @@ fn smtp_host_parsing_strips_scheme_and_port() {
 
 #[test]
 fn auth_from_forms_match_python() {
-    // advanced：base64(hex解码(key)) rstrip("=") + "=" + manager(@→=) + @auth.local
+    // advanced: base64(hex_decode(key)) rstrip("=") + "=" + manager(@→=) + @auth.local
     // key = b"\x01\x02"、manager = m@example.com
     let got = auth_from("0102", "m@example.com", "advanced");
-    // 精确值（base64(b"\x01\x02") = "AQI="，rstrip("=") ⇒ "AQI"）
+    // Exact value (base64(b"\x01\x02") = "AQI=", rstrip("=") ⇒ "AQI")
     assert_eq!(got, "AQI=m=example.com@auth.local");
-    // 精确值（base64(b"\x01\x02") = "AQI="，rstrip("=") ⇒ "AQI"）
+    // Exact value (base64(b"\x01\x02") = "AQI=", rstrip("=") ⇒ "AQI")
     assert_eq!(auth_from("", "m@example.com", "base"), "m@example.com");
 }
 
 #[test]
 fn smtp_cmd_reads_multiline_replies_until_terminator() {
-    // 活桩：先回多行（250-… \n 250 …），再回单行
+    // Live stub: first reply multi-line (250-… \n 250 …), then reply single line
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     thread::spawn(move || {
@@ -49,7 +49,7 @@ fn smtp_cmd_reads_multiline_replies_until_terminator() {
             let _ = s.read(&mut buf); // EHLO
             let _ = s.write_all(b"250-gw.example.com\r\n250-STARTTLS\r\n250 8BITMIME\r\n");
             let _ = s.flush();
-            let _ = s.read(&mut buf); // 第二条命令
+            let _ = s.read(&mut buf); // second command
             let _ = s.write_all(b"221 Bye\r\n");
             let _ = s.flush();
         }
@@ -73,7 +73,7 @@ fn watcher_verdicts_cover_three_event_chain_and_pong_status() {
         )
     };
 
-    // ① 三阶段齐 ⇒ 通过
+    // ① Three stages complete ⇒ pass
     let mut w = Watcher::new("abc123", t0);
     w.observe(&format!(
         "{}\n{}\n{}\n",
@@ -94,16 +94,16 @@ fn watcher_verdicts_cover_three_event_chain_and_pong_status() {
     assert!(joined.contains("Webhook Return (pong)"), "{joined}");
     assert!(joined.contains("Total round-trip:"), "{joined}");
     assert!(joined.contains("Full pipeline verified"), "{joined}");
-    assert!(joined.contains("pong_status 采样: ok"), "{joined}");
+    assert!(joined.contains("pong_status sample: ok"), "{joined}");
 
-    // ② 只到 ping（pong 未回）⇒ 红
+    // ② only reached ping (pong not returned) ⇒ red
     let mut w2 = Watcher::new("abc123", t0);
     w2.observe(&mk("ping_intercepted", "2026-10-04T00:00:01Z", ""));
     let (lines2, ok2) = w2.verdict(7, "/tmp/x.log");
     assert!(!ok2);
     assert!(lines2.join("\n").contains("pong not returned within 7s"));
 
-    // ③ 一条事件都没有 ⇒ 红（文案带日志路径与超时）
+    // ③ No events at all ⇒ red (message includes log path and timeout)
     let mut w3 = Watcher::new("abc123", t0);
     let (lines3, ok3) = w3.verdict(5, "/tmp/nope.log");
     assert!(!ok3);
@@ -111,7 +111,7 @@ fn watcher_verdicts_cover_three_event_chain_and_pong_status() {
         .join("\n")
         .contains("No ping/pong events in /tmp/nope.log within 5s"));
 
-    // ④ pong_status 采样无 ok ⇒ 事件齐也翻红（2026-09-30 前驱定因①）
+    // ④ pong_status sampling has no ok ⇒ events complete but still red (2026-09-30 predecessor root cause ①)
     let mut w4 = Watcher::new("abc123", t0);
     w4.observe(&format!(
         "{}\n{}\n{}\n",
@@ -125,9 +125,9 @@ fn watcher_verdicts_cover_three_event_chain_and_pong_status() {
     ));
     let (lines4, ok4) = w4.verdict(120, "/tmp/x.log");
     assert!(!ok4, "{lines4:?}");
-    assert!(lines4.join("\n").contains("无一条 ok"), "{lines4:?}");
+    assert!(lines4.join("\n").contains("no ok at all"), "{lines4:?}");
 
-    // ⑤ pong_status 缺席 ⇒ 不判（仍通过）
+    // ⑤ pong_status absent ⇒ do not judge (still pass)
     let mut w5 = Watcher::new("abc123", t0);
     w5.observe(&format!(
         "{}\n{}\n{}\n",
@@ -138,11 +138,11 @@ fn watcher_verdicts_cover_three_event_chain_and_pong_status() {
     let (lines5, ok5) = w5.verdict(120, "/tmp/x.log");
     assert!(ok5, "{lines5:?}");
     assert!(
-        lines5.join("\n").contains("(pong_status 缺席, 不判)"),
+        lines5.join("\n").contains("(pong_status absent, no verdict)"),
         "{lines5:?}"
     );
 
-    // 前缀常量（Subject 里带的标记）
+    // Prefix constants (markers in Subject)
     assert_eq!(PING_PREFIX, "__aimail_ping__:");
 }
 
@@ -156,7 +156,7 @@ fn snapshot_line_counts_recent_files() {
     assert!(line.contains("Snapshots: 1 new file(s)"), "{line}");
     assert!(line.contains("(total 1)"), "{line}");
 
-    // 空目录 ⇒ 告警行（不是失败）
+    // Empty directory ⇒ warning line (not failure)
     let empty = tmp.path().join("empty");
     std::fs::create_dir_all(&empty).unwrap();
     let l2 = snapshot_line(&empty, "s1", "a@b");

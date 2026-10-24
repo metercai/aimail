@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# 按包 bump 版本（owner 2026-10-07：各包版本独立；核心包变动 ⇒ 五包齐升，由调用者逐包调用）
-# 用法: bump.sh <agent-aimail> <ver>
-#       bump.sh pysdk <ver>     ← 只改 pyproject.toml + pysdk/__init__.py
+# Bump version per package (owner 2026-10-07: package versions are independent; a core-package change ⇒ all five packages bump together, invoked per package by the caller)
+# Usage: bump.sh <agent-aimail> <ver>
+#       bump.sh pysdk <ver>     ← only touches pyproject.toml + pysdk/__init__.py
 set -u
 cd "$(dirname "$0")/.." || exit 1
 p=${1:-}; v=${2:-}

@@ -24,18 +24,18 @@ import subprocess
 import sys
 from pathlib import Path
 
-# ── 双形态自举(repo pysdk/ ↔ pip site-packages/aimail/)──
-# repo 形态: dirname(dirname(__file__)) = pysdk/(含 aimail_base.py 等 flat core,
-# 裸 import 可用)→ 加入 sys.path。pip 形态: 该目录 = site-packages/(无 flat core),
-# 需先 import aimail 触发 aimail/__init__.py glue(把 aimail/ 目录插 sys.path,
-# flat core 裸 import 才可用)。
+# ── Dual-form bootstrap (repo pysdk/ ↔ pip site-packages/aimail/)──
+# repo form: dirname(dirname(__file__)) = pysdk/ (contains aimail_base.py etc flat core,
+# bare import available) → add to sys.path. pip form: this directory = site-packages/ (no flat core),
+# must first import aimail to trigger aimail/__init__.py glue (inserts aimail/ directory into sys.path,
+# so flat core bare imports become available).
 _CORE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if os.path.isfile(os.path.join(_CORE_DIR, "aimail_base.py")):
     if _CORE_DIR not in sys.path:
         sys.path.insert(0, _CORE_DIR)
 else:
     try:
-        import aimail  # noqa: F401  (pip 形态 glue)
+        import aimail  # noqa: F401  (pip form glue)
     except Exception:
         pass
 
@@ -175,17 +175,17 @@ def patch_profiles(target_path: str) -> bool:
     _original_lines = list(lines)
     patched = False
 
-    # 插入文本统一引用模块级单真源常量(PROFILES_HOOK / PROFILES_HOOK_DEL,
-    # 见文件尾部定义)——unpatch_profiles() 剥离的字节与这里插入的字节
-    # 逐字节同源,杜绝 patch↔unpatch 漂移。
-    hook_created = PROFILES_HOOK        # profile_created 完整插入字节
-    hook_deleted = PROFILES_HOOK_DEL    # profile_deleted 完整插入字节
+    # Inserted text uniformly references module-level single source of truth constants (PROFILES_HOOK / PROFILES_HOOK_DEL,
+    # See definition at the end of the file)——the bytes stripped by unpatch_profiles() and the bytes inserted here
+    # are byte-for-byte identical, eliminating patch↔unpatch drift.
+    hook_created = PROFILES_HOOK        # profile_created full insertion bytes
+    hook_deleted = PROFILES_HOOK_DEL    # profile_deleted full insertion bytes
 
     # ── Patch 1: profile creation hook (always replace) ───────────
-    # Remove old instance if present(兼容旧形:aimail_base 直 import + 裸调用;
-    # 新形:aimail.hermes 限定调用。created/deleted 两实例基础缩进不同
-    # (4/12 空格)→ 各行缩进 [ \t]* 不校验;import 行 [^\n]* 通配两种形态,
-    # 调用行 [A-Za-z_][\w.]*\.? 前缀通配裸函数与 aimail_hermes. 限定)
+    # Remove old instance if present (compatible with old form: aimail_base direct import + bare call;
+    # new form: aimail.hermes qualified call. created/deleted two instances have different base indentation
+    # (4/12 spaces) → line indentation [ \t]* is not validated; import line [^\n]* matches both forms,
+    # call line [A-Za-z_][\w.]*\.? prefix wildcard matches bare function and aimail_hermes. qualified)
     content = re.sub(
         r'[ \t]*# ── Fire integration hooks \(AimailGateway\) ──\n'
         r'[ \t]*try:\n'
@@ -212,7 +212,7 @@ def patch_profiles(target_path: str) -> bool:
         print("WARNING: could not find insertion point — patch 1 skipped", file=sys.stderr)
 
     # ── Patch 2: profile deletion hook (always replace) ───────────
-    # Remove old instance if present(同 Patch 1:兼容新旧两种 import/调用形态)
+    # Remove old instance if present (same as Patch 1: compatible with both old and new import/call forms)
     content = re.sub(
         r'[ \t]*# ── Fire integration hooks \(AimailGateway\) ──\n'
         r'[ \t]*try:\n'
@@ -223,10 +223,10 @@ def patch_profiles(target_path: str) -> bool:
         '',
         content, count=1, flags=re.DOTALL
     )
-    # Insert after the rmtree fallback line. 注意:rmtree 可能在 try/except
-    # 内(如 _rmtree_with_retry 的 onexc/onerror fallback 行)——在 try 块内
-    # 插钩子会打断宿主 except 链(语法错误)。只匹配 onerror 回退行(重试
-    # 成功删除后的安全点),不匹配 try 内首行调用。
+    # Insert after the rmtree fallback line. Note: rmtree may be inside try/except
+    # inside (e.g., onexc/onerror fallback lines in _rmtree_with_retry)——inside the try block
+    # will break host except chain (syntax error). Only match onerror fallback line (safe point after
+    # successful deletion via retry), do not match first line call inside try.
     _rmtree_re = r'^.*shutil\.rmtree\([^\n]*onerror[^\n]*\).*?$'
     for m in re.finditer(_rmtree_re, content, re.MULTILINE):
         line_end = content.find('\n', m.end())
@@ -237,7 +237,7 @@ def patch_profiles(target_path: str) -> bool:
         print("Patch 2: profile_deleted hook added/updated", file=sys.stderr)
         break
     else:
-        # 无 onerror 行 → 回退:最后一个 rmtree(profile_dir) 行(旧版布局)
+        # No onerror line → fallback: last rmtree(profile_dir) line (legacy layout)
         _m_last = None
         for _m in re.finditer(r'^.*shutil\.rmtree\([^\n]*profile_dir[^\n]*\).*$', content, re.MULTILINE):
             _m_last = _m

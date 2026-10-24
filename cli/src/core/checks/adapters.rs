@@ -1,13 +1,13 @@
-//! L3/L4 五平台适配面 —— `cli/check_status.py:185-799` 的复刻。
+//! L3/L4 five-platform adaptation surface — replica of `cli/check_status.py:185-799`.
 //!
-//! 每平台四件事：`detect` / `list_agents` / `check_config`(L3) / `check_hook`(L4)。
-//! `deerflow` 在 Python 的 `PLATFORMS` 里是 `None`（宿主通常远端，L3/L4 由宿主侧 SDK
-//! reconcile 自证）⇒ 这里也**不提供适配器**，由 [`run_l3_l4`] 走注册表
-//! `agent_check_remote` 的提示分支。
+//! Four things per platform: `detect` / `list_agents` / `check_config`(L3) / `check_hook`(L4).
+//! `deerflow` is `None` in Python's `PLATFORMS` (host is usually remote, L3/L4 handled by host-side SDK
+//! reconcile) ⇒ here we also **do not provide an adapter**, relying on [`run_l3_l4`] to go through the registry
+//! `agent_check_remote` prompt branch.
 //!
-//! 端口/路径/名字这类平台知识有两条来源：**宿主模块**（`hosts/`，经 `platform spec --json` 导出）与**契约**
-//! （contract/aimail-contract.json）。本模块只用这两者，不复制字面量
-//! （hermes 的 hook 路由名与入站路径取自契约；pi 端口无关）。
+//! Platform knowledge like ports/paths/names has two sources: **host modules** (`hosts/`, exported via `platform spec --json`) and **contracts**
+//! (contract/aimail-contract.json). This module only uses these two, does not duplicate literals
+//! (hermes hook route names and inbound paths are taken from the contract; pi is port-agnostic).
 
 use crate::core::check::Check;
 use crate::core::{config, contract, http};
@@ -15,26 +15,26 @@ use crate::hosts::Host;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
-/// 适配器运行上下文：三处根 + 两个 sid 语义（照抄 Python 的两条解析链）。
+/// Adapter runtime context: three roots + two sid semantics (copied from Python's two resolution chains).
 #[derive(Debug, Clone, Copy)]
 pub struct Ctx<'a> {
     pub user_home: &'a Path,
-    /// `AGENT_HOME`（env / `--agent-home`）；仅 Hermes 用它定位。
+    /// `AGENT_HOME` (env / `--agent-home`); only Hermes uses it for location.
     pub agent_home: &'a Path,
     pub systems_dir: &'a Path,
-    /// 已解析的 platform_sid（`main()` 的锚点）。
+    /// Resolved platform_sid (anchor in `main()`).
     pub sid: &'a str,
-    /// `_resolve_system_id()` 的返回值：argv `--system-id` > `AGENT_HOME/指针` > env。
+    /// Return value of `_resolve_system_id()`: argv `--system-id` > `AGENT_HOME/pointer` > env.
     pub resolve_sid: &'a str,
 }
 
-/// `_detect_default_sid` 的平台遍历顺序 —— 照抄 Python `PLATFORMS` dict 的**声明顺序**
-/// （`check_status.py:768-794`：hermes → openclaw → dsh → pi；deerflow 的值为 `None`
-/// 会被跳过）。注意它与注册表 `order`（pi/dsh/hermes/openclaw/deerflow）**不同**，
-/// 多平台同时命中时"首个有指针者"胜 ⇒ 顺序即语义，不能按注册表顺序改。
+/// Platform traversal order of `_detect_default_sid` — copied from Python `PLATFORMS` dict **declaration order**
+/// (`check_status.py:768-794`: hermes → openclaw → dsh → pi; deerflow's value is `None`
+/// will be skipped). Note that it is **different** from the registry `order` (pi/dsh/hermes/openclaw/deerflow),
+/// when multiple platforms hit simultaneously, "the first one with a pointer" wins ⇒ order is semantics, cannot be changed to registry order.
 pub const DEFAULT_SID_ORDER: &[&str] = &["hermes", "openclaw", "dsh", "pi"];
 
-/// `_resolve_system_id`：argv 显式 > `AGENT_HOME/指针` > env `SYSTEM_ID`。
+/// `_resolve_system_id`: argv explicit > `AGENT_HOME/pointer` > env `SYSTEM_ID`.
 pub fn resolve_system_id(
     agent_home: &Path,
     argv_sid: Option<&str>,
@@ -60,11 +60,11 @@ pub fn resolve_system_id(
     env_sid.unwrap_or("").to_string()
 }
 
-/// `_detect_agent_type`：注册表 `detect`（dir_name + markers）逐平台判定。
+/// `_detect_agent_type`: registry `detect` (dir_name + markers) per-platform determination.
 ///
-/// 与 [`crate::hosts::identity::detect_platform_from_home`] **不是**同一算法：这里 `dir_name`
-/// 缺省回落到 `home_dir`（hermes 因此要求目录真的叫 `.hermes`），而 L2r 那个是
-/// 目录名可选。两边都照抄，不合并。
+/// **Not** the same algorithm as [`crate::hosts::identity::detect_platform_from_home`]: here `dir_name`
+/// defaults to falling back to `home_dir` (hermes thus requires the directory to actually be named `.hermes`), while L2r's is
+/// directory name optional. Both are copied as-is, not merged.
 pub fn detect_agent_type(
     user_home: &Path,
     root: Option<&Path>,
@@ -73,7 +73,7 @@ pub fn detect_agent_type(
     crate::hosts::identity::detect_agent_type(user_home, root, agent_home_explicit).to_string()
 }
 
-/// 一个待检 agent（各平台字段取用不同，缺省留空 —— 与 Python 的 dict 同形）。
+/// An agent to be checked (fields used differently per platform, defaults left empty — same shape as Python's dict).
 #[derive(Debug, Clone, Default)]
 pub struct Agent {
     pub name: String,
@@ -82,13 +82,13 @@ pub struct Agent {
     pub agent_dir: Option<PathBuf>,
     pub session_id: String,
     pub preset: String,
-    /// dsh/pi：绑定文件本身即 config
+    /// dsh/pi: the binding file itself is the config
     pub binding: Option<PathBuf>,
-    /// 宿主配置文件（hermes 的 config.yaml / openclaw 的 openclaw.json）
+    /// Host config file (hermes's config.yaml / openclaw's openclaw.json)
     pub host_config: Option<PathBuf>,
 }
 
-// ── 小工具 ─────────────────────────────────────────────────────
+// ── Small utilities ─────────────────────────────────────────────────────
 
 fn read_json(path: &Path) -> Option<Value> {
     let text = std::fs::read_to_string(path).ok()?;
@@ -103,13 +103,13 @@ fn load_yaml(path: &Path) -> Option<yaml_rust2::Yaml> {
         .next()
 }
 
-/// `yaml.get("a").get("b")` 链（非映射 ⇒ None，等价 Python 的 `or {}` 兜底）。
+/// `yaml.get("a").get("b")` chain (non-mapping ⇒ None, equivalent to Python's `or {}` fallback).
 fn yaml_get<'a>(node: &'a yaml_rust2::Yaml, key: &str) -> Option<&'a yaml_rust2::Yaml> {
     node.as_hash()?
         .get(&yaml_rust2::Yaml::String(key.to_string()))
 }
 
-/// 列表含该值（Python 的 `x in tools`：列表比元素、映射比键）。
+/// List contains value (Python's `x in tools`: list compares elements, map compares keys).
 fn yaml_contains(node: &yaml_rust2::Yaml, token: &str) -> bool {
     match node {
         yaml_rust2::Yaml::Array(a) => a.iter().any(|e| e.as_str() == Some(token)),
@@ -140,7 +140,7 @@ fn api_key_from(binding: &Option<PathBuf>) -> String {
         .unwrap_or_default()
 }
 
-/// `name_apikey` / `register` 这类三平台共用的文案。
+/// Copy like `name_apikey` / `register` shared by three platforms.
 fn name_apikey_detail(name: &str, email: &str, api_key: &str) -> String {
     format!(
         "{name}: {}{}",
@@ -177,7 +177,7 @@ pub fn hermes_list_agents(ctx: &Ctx) -> Vec<Agent> {
         return agents;
     }
 
-    // 根布局：default 根 profile
+    // Root layout: default root profile
     if ptr.is_file() {
         if let Some(v) = read_json(&ptr) {
             agents.push(Agent {
@@ -210,7 +210,7 @@ pub fn hermes_list_agents(ctx: &Ctx) -> Vec<Agent> {
                 .and_then(|v| v.get("email").and_then(Value::as_str).map(str::to_string))
                 .unwrap_or_default();
             if email.is_empty() {
-                // 无指针：看 config.yaml 的 platform_toolsets 是否有 aimail 工具标记
+                // No pointer: check if config.yaml's platform_toolsets has the aimail tool marker
                 let cfg_p = pdir.join("config.yaml");
                 if cfg_p.exists() {
                     if let Some(doc) = load_yaml(&cfg_p) {
@@ -227,7 +227,7 @@ pub fn hermes_list_agents(ctx: &Ctx) -> Vec<Agent> {
                     }
                 }
                 if email.is_empty() {
-                    continue; // 无关 profile，跳过（避免噪音）
+                    continue; // Irrelevant profile, skip (avoid noise)
                 }
             }
             agents.push(Agent {
@@ -287,7 +287,7 @@ pub fn hermes_check_config(c: &mut Check, ctx: &Ctx, agent: &Agent) {
                 "MISSING (platforms.webhook)"
             }
         ),
-        "Run: python -m aimail.install install --type hermes (SDK 补全配置)",
+        "Run: python -m aimail.install install --type hermes (SDK config completion)",
     );
 
     let skill_ok = agent
@@ -335,7 +335,7 @@ pub fn hermes_check_config(c: &mut Check, ctx: &Ctx, agent: &Agent) {
             "{}: platform_toolsets {}",
             agent.name,
             if ts_ok {
-                format!("含 {} ✓", contract::agent_toolset_name())
+                format!("Contains {} ✓", contract::agent_toolset_name())
             } else {
                 "MISSING".to_string()
             }
@@ -365,7 +365,7 @@ pub fn hermes_check_config(c: &mut Check, ctx: &Ctx, agent: &Agent) {
             if reg_ok {
                 "registered ✓"
             } else {
-                "api_key/route 不全"
+                "api_key/route incomplete"
             }
         ),
         "Run: python -m aimail.install install --type hermes",
@@ -421,7 +421,7 @@ pub fn hermes_check_hook(c: &mut Check, _ctx: &Ctx, agent: &Agent) {
                     "hook",
                     false,
                     &format!("POST {route_name} → 404 route missing"),
-                    "Run: aimail install (注册链重跑)或 python -m aimail.install",
+                    "Run: aimail install (re-run registration chain) or python -m aimail.install",
                 );
             } else {
                 c.add(
@@ -520,7 +520,7 @@ pub fn openclaw_list_agents(ctx: &Ctx) -> Vec<Agent> {
 }
 
 pub fn openclaw_check_config(c: &mut Check, ctx: &Ctx, agent: &Agent) {
-    // sid 解析链（argv 显式 > OpenClaw 指针 > 默认）—— 照抄 Python 的三段
+    // sid resolution chain (argv explicit > OpenClaw pointer > default) — copied from Python's three segments
     let mut sid = ctx.resolve_sid.to_string();
     let env_sid = std::env::var("SYSTEM_ID").unwrap_or_default();
     if sid.is_empty() || sid == env_sid {
@@ -556,7 +556,7 @@ pub fn openclaw_check_config(c: &mut Check, ctx: &Ctx, agent: &Agent) {
         "name_apikey",
         ok,
         &name_apikey_detail(&agent.name, &agent.email, &api_key),
-        "Run `openclaw aimail register`(agent-aimail 插件)",
+        "Run `openclaw aimail register` (the agent-aimail plugin)",
     );
 
     let wh_ok = binding
@@ -662,7 +662,7 @@ pub fn openclaw_check_config(c: &mut Check, ctx: &Ctx, agent: &Agent) {
                 "api_key MISSING"
             }
         ),
-        "Run `openclaw aimail register`(agent-aimail 插件)",
+        "Run `openclaw aimail register` (the agent-aimail plugin)",
     );
 }
 
@@ -820,7 +820,7 @@ pub fn dsh_check_config(c: &mut Check, _ctx: &Ctx, agent: &Agent) {
         "name_apikey",
         ok,
         &name_apikey_detail(&agent.name, &agent.email, &api_key),
-        "Run: aimail address -s <sid> -a agent(或 dsh 会话内自动 auto-bind)",
+        "Run: aimail address -s <sid> -a agent (or auto-bind inside a dsh session)",
     );
 
     let wh_ok = !wh_url.is_empty() && !wh_secret.is_empty();
@@ -831,7 +831,7 @@ pub fn dsh_check_config(c: &mut Check, _ctx: &Ctx, agent: &Agent) {
         &format!(
             "webhook_url={}{}",
             if wh_url.is_empty() {
-                "(缺)"
+                "(missing)"
             } else {
                 wh_url.as_str()
             },
@@ -841,10 +841,10 @@ pub fn dsh_check_config(c: &mut Check, _ctx: &Ctx, agent: &Agent) {
                 ", secret ✓"
             }
         ),
-        "注册链落盘 webhook_url + webhook_secret(aimail address/agent-aimail register-cli)",
+        "registration chain persisted webhook_url + webhook_secret (aimail address / agent-aimail register-cli)",
     );
 
-    // session_id 是瞬态的（0.1.14 起每封入站一个一次性 session）⇒ 判据只认 preset
+    // session_id is transient (one disposable session per inbound mail since 0.1.14) ⇒ criterion only recognizes preset
     let sess_ok = !preset.is_empty();
     c.add(
         "agent",
@@ -853,18 +853,18 @@ pub fn dsh_check_config(c: &mut Check, _ctx: &Ctx, agent: &Agent) {
         &format!(
             "session_id={}, preset={}",
             if agent.session_id.is_empty() {
-                "(瞬态:每封入站一个一次性 session)"
+                "(transient: one disposable session per inbound)"
             } else {
                 agent.session_id.as_str()
             },
             if preset.is_empty() {
-                "(缺)"
+                "(missing)"
             } else {
                 preset.as_str()
             }
         ),
         &format!(
-            "{} 落盘 preset;session_id 由插件在每轮入站时临时绑定",
+            "{} persists preset; session_id is temporarily bound by the plugin on each inbound round",
             contract::binding_file()
         ),
     );
@@ -887,8 +887,8 @@ pub fn dsh_check_hook(c: &mut Check, _ctx: &Ctx, agent: &Agent) {
             "agent",
             "hook",
             false,
-            "webhook_url 缺失",
-            "注册链落盘 webhook_url(mail-inbound 端点)",
+            "webhook_url missing",
+            "Registration chain persists webhook_url (mail-inbound endpoint)",
         );
         return;
     }
@@ -902,13 +902,13 @@ pub fn dsh_check_hook(c: &mut Check, _ctx: &Ctx, agent: &Agent) {
 // ── pi ─────────────────────────────────────────────────────────
 
 pub fn pi_list_agents(ctx: &Ctx) -> Vec<Agent> {
-    // pi 的特征检测点 = **平台指针**(~/.pi 下的 POINTER_FILE),不是绑定的 agent_id。
-    // agent_id 是可经 CLI 命令改名的 agent「名」(owner 裁决 2026-10-16),不是平台身份特征,
-    // 拿它当"这是 pi 适配器"的检测点,改名即失效。指针是平台专属落点(install 的
-    // register-cli 与 auto-bind 的 identity 都写它、uninstall rm_pointer 删它),其 email
-    // 即 pi 服务的地址。systems/{sid}/ 为 dsh/pi/openclaw 共享 ⇒ 不再"扫共享目录按名过滤"
-    // (旧 is_pi 的问题)。指针 email → binding_for(email) = 标准 email 键绑定路径,
-    // 与 pi_check_config / pi_check_hook 一致。
+    // pi's characteristic detection point = **platform pointer** (POINTER_FILE under ~/.pi), not the bound agent_id.
+    // agent_id is the agent "name" (owner decision 2026-10-16) which can be renamed via CLI command, not a platform identity characteristic,
+    // use it as the "this is the pi adapter" detection point; renaming it invalidates it. The pointer is a platform-specific landing spot (of install
+    // register-cli and auto-bind's identity both write to it, uninstall rm_pointer deletes it), its email
+    // i.e., the address of the pi service. systems/{sid}/ is shared by dsh/pi/openclaw ⇒ no longer "scan shared directory and filter by name"
+    // (the old is_pi problem). Pointer email → binding_for(email) = standard email key binding path,
+    // consistent with pi_check_config / pi_check_hook.
     let mut agents = Vec::new();
     let ptr = ctx.user_home.join(".pi").join(contract::pointer_file());
     let pv = read_json(&ptr);
@@ -917,7 +917,7 @@ pub fn pi_list_agents(ctx: &Ctx) -> Vec<Agent> {
         .and_then(|v| v.get("email").and_then(Value::as_str))
         .unwrap_or("")
         .to_string();
-    // 指针的 system scope 须与本次检查上下文一致(空 = 未标注,容忍)。
+    // The pointer's system scope must match the current check context (empty = unmarked, tolerated).
     let ptr_sid = pv
         .as_ref()
         .and_then(|v| v.get("system_id").and_then(Value::as_str))
@@ -931,7 +931,7 @@ pub fn pi_list_agents(ctx: &Ctx) -> Vec<Agent> {
         .filter(|p| p.is_file())
         .unwrap_or_else(|| ptr.clone());
     agents.push(Agent {
-        name: "pi".to_string(), // 显示标签(平台行名),非检测键
+        name: "pi".to_string(), // Display label (platform row name), not a detection key
         email,
         binding: Some(binding),
         ..Default::default()
@@ -1003,7 +1003,7 @@ pub fn pi_check_hook(c: &mut Check, ctx: &Ctx, agent: &Agent) {
     }
     let host = url_host(&wh_url);
     if host != "127.0.0.1" && host != "localhost" && host != "::1" {
-        // 远端宿主（pi 平台常见）本机不可探测 ⇒ 不算 FAIL
+        // Remote host (common for pi platform) not detectable locally ⇒ not counted as FAIL
         c.add(
             "agent",
             "hook",
@@ -1016,7 +1016,7 @@ pub fn pi_check_hook(c: &mut Check, ctx: &Ctx, agent: &Agent) {
     post_json_probe(c, &wh_url, "");
 }
 
-/// dsh/pi 共用的 hook 探测（POST `{}`，200/401/403 = 接收端活跃，404 = 未注册）。
+/// dsh/pi shared hook probe (POST `{}`, 200/401/403 = receiver active, 404 = not registered).
 fn post_json_probe(c: &mut Check, wh_url: &str, fix: &str) {
     match http::raw_req(wh_url, Some(b"{}"), Some("application/json"), 5) {
         Ok((200, _)) => c.add(
@@ -1061,12 +1061,12 @@ fn url_host(url: &str) -> String {
     host_port.split(':').next().unwrap_or("").to_lowercase()
 }
 
-// ── L3/L4 驱动（`main()` :1570-1592）────────────────────────────
+// ── L3/L4 drivers (`main()` :1570-1592)────────────────────────────
 
-/// 跑某平台的 L3/L4（`agent_type` 由 [`detect_agent_type`] 决定）。
+/// Run L3/L4 for a platform (`agent_type` determined by [`detect_agent_type`]).
 ///
-/// 返回需要由调用方打印的提示行（Python 侧在这两个分支里直接 `print`，
-/// 不在 `Check` 里 —— 保持同样的形状，避免把提示混进 JSON 记录）。
+/// Returns hint lines that need to be printed by the caller (Python side directly `print`s in these two branches,
+/// Not in `Check` — keep the same shape, avoid mixing hints into JSON records).
 pub fn run_l3_l4(c: &mut Check, ctx: &Ctx, agent_type: &str) -> Option<String> {
     let has_adapter = matches!(agent_type, "hermes" | "openclaw" | "dsh" | "pi");
     if has_adapter {
@@ -1150,15 +1150,15 @@ mod tests {
         let tmp = TempDir::new("adapters-detect");
         let home = tmp.path();
         assert_eq!(detect_agent_type(home, None, false), "unknown");
-        // hermes：dir_name 缺省回落到 home_dir(.hermes) + 特征 marker hermes-agent
-        // (C-3：profiles 是使用期产物，官方安装不建 ⇒ 不入 detect 特征)
+        // hermes: dir_name defaults to falling back to home_dir(.hermes) + characteristic marker hermes-agent
+        // (C-3: profiles are runtime artifacts, official install does not create them ⇒ not included in detect features)
         std::fs::create_dir_all(home.join(".hermes").join("hermes-agent")).unwrap();
         assert_eq!(
             detect_agent_type(home, None, false),
             "hermes",
-            "hermes-agent 单特征应识别为 hermes"
+            "hermes-agent single characteristic should be identified as hermes"
         );
-        // 显式 --agent-home ⇒ 直接 hermes 意图
+        // Explicit --agent-home ⇒ direct hermes intent
         assert_eq!(detect_agent_type(home, None, true), "hermes");
     }
 
@@ -1184,9 +1184,9 @@ mod tests {
         let mut c = Check::new();
         dsh_check_config(&mut c, &ctx, &agents[0]);
         let session = c.checks.iter().find(|r| r.check == "session").unwrap();
-        assert!(session.pass, "preset 非空即通过：{session:?}");
+        assert!(session.pass, "Pass if preset is non-empty: {session:?}");
         let apikey = c.checks.iter().find(|r| r.check == "name_apikey").unwrap();
-        assert!(!apikey.pass, "无 api_key ⇒ 失败");
+        assert!(!apikey.pass, "no api_key ⇒ failure");
     }
 
     #[test]
@@ -1197,12 +1197,12 @@ mod tests {
         let systems = tmp.path().join("aimail/systems");
         let ctx = ctx_of(&tmp, &ah, &systems, "s1");
         let mut c = Check::new();
-        let hint = run_l3_l4(&mut c, &ctx, "nope").expect("unknown 应有提示行");
+        let hint = run_l3_l4(&mut c, &ctx, "nope").expect("unknown should have hint line");
         assert!(hint.contains("Unknown agent platform"), "{hint}");
-        assert!(c.checks.is_empty(), "未知平台不出记录：{:?}", c.checks);
+        assert!(c.checks.is_empty(), "Unknown platform does not produce records: {:?}", c.checks);
 
-        // deerflow：注册表 agent_check_remote ⇒ 另一条提示行（远端自证）
-        let hint2 = run_l3_l4(&mut c, &ctx, "deerflow").expect("deerflow 应有提示行");
+        // deerflow: registry agent_check_remote ⇒ another hint line (remote self-verification)
+        let hint2 = run_l3_l4(&mut c, &ctx, "deerflow").expect("deerflow should have hint line");
         assert!(hint2.contains("SDK reconcile"), "{hint2}");
     }
 }

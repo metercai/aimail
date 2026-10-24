@@ -1,10 +1,10 @@
-//! `aimail uninstall` —— `cli/aimail:3250-3435` 的 Rust 复刻。
+//! `aimail uninstall` —— Rust port of `cli/aimail:3250-3435`.
 //!
-//! 与 `install` 对等：消除 aimail 在 agent 系统上的配置。顺序：
-//! sid/home 解析（`resolve_system_id`）→ 幂等短路（数据与指针都不在 ⇒ 视为已卸载）→
-//! 平台判定 → **确认**（`-y` 跳过）→ 注销目标网关判定（`-g` > cfg；**刻意不看 AIMAIL_GW_URL、
-//! 也不落生产默认**）→ 逐绑定网关注销（SDK 单入口）→ 网关侧兜底（按 sid 反查地址表 +
-//! 白名单清理，SDK 单入口）→ 平台 `uninstall_steps`（表驱动）→ 本机数据（mail/系统目录/原始 key）。
+//! Equivalent to `install`: removes aimail configuration from the agent system. Order:
+//! sid/home resolution (`resolve_system_id`) → idempotent short-circuit (if neither data nor pointer exists ⇒ considered uninstalled) →
+//! platform determination → **confirmation** (skipped with `-y`) → target gateway deregistration determination (`-g` > cfg; **deliberately ignores AIMAIL_GW_URL,
+//! and does not fall back to production defaults**) → per-binding gateway deregistration (SDK single entry) → gateway-side fallback (reverse lookup address table by sid +
+//! whitelist cleanup, SDK single entry) → platform `uninstall_steps` (table-driven) → local data (mail/system directory/original key).
 
 use serde_json::{json, Value};
 use std::io::Write;
@@ -33,7 +33,7 @@ fn fail(msg: &str) -> i32 {
     1
 }
 
-/// `resolve_system_id`：显式 sid > 配置 system_home 反查 > 指针归属 > 自动探测。
+/// `resolve_system_id`: explicit sid > reverse lookup of configured system_home > pointer ownership > auto-detection.
 pub(crate) fn resolve_system_id(
     system_home: &std::path::Path,
     explicit_sid: &str,
@@ -44,16 +44,16 @@ pub(crate) fn resolve_system_id(
         crate::hosts::identity::detect_platform_from_home(system_home).to_string()
     };
     if explicit_sid.is_empty() {
-        // 单系统自动判定（welcome/ping 文案承诺的路径, C-6）：本机恰好一个有效系统
-        // （systems/<sid>/ 含 aimail_gateway.json）⇒ 直接判定；零个或多个 ⇒ 不判定
-        // （多个时调用方报"未解析", 不猜）。
+        // Single system auto-determination (path promised in welcome/ping messages, C-6): exactly one valid system on this machine
+        // (systems/<sid>/ contains aimail_gateway.json) ⇒ determine directly; zero or multiple ⇒ do not determine
+        // (if multiple, caller reports "unresolved", do not guess).
         let ids = config::list_system_ids_in(&home::aimail_home());
         if ids.len() == 1 {
             return (ids.into_iter().next().unwrap(), platform);
         }
         return (String::new(), platform);
     }
-    // 配置反查：该 sid 的 cfg.system_home 指向哪个平台
+    // Configuration reverse lookup: which platform does the cfg.system_home for this sid point to
     if let Some(c) = config::load_gateway_config(explicit_sid) {
         if !c.system_home.is_empty() {
             let p = home::abs_path(&home::expand_user(&c.system_home));
@@ -63,7 +63,7 @@ pub(crate) fn resolve_system_id(
             }
         }
     }
-    // 回退：哪个平台指针指向该 sid（注册表 order 驱动）
+    // Fallback: which platform pointer points to this sid (driven by registry order)
     let uh = home::user_home();
     for p in crate::hosts::order() {
         if crate::hosts::pointer::sid_for_name(&uh, p) == explicit_sid {
@@ -89,14 +89,14 @@ fn confirm(msg: &str, yes: bool) -> bool {
     if std::io::stdin().read_line(&mut line).is_err() {
         return false;
     }
-    // EOF（读到 0 字节）等同于 Python 的 EOFError
+    // EOF (reading 0 bytes) is equivalent to Python's EOFError
     if line.is_empty() {
         return false;
     }
     matches!(line.trim().to_lowercase().as_str(), "y" | "yes")
 }
 
-/// `list_system_domains`（`aimail_tools._GatewayClient`）：GET 域表 → 数组或 `data` 数组。
+/// `list_system_domains` (`aimail_tools._GatewayClient`): GET domain table → array or `data` array.
 fn list_system_domains(gw_url: &str, admin_key: &str, sid: &str) -> Option<Vec<Value>> {
     let path = format!("/api/v1/admin/systems/{sid}/domains");
     let headers = crate::core::sig::signed_headers(admin_key, "GET", &path, None, "");
@@ -115,12 +115,12 @@ fn list_system_domains(gw_url: &str, admin_key: &str, sid: &str) -> Option<Vec<V
 pub fn run(a: &Args) -> i32 {
     let mut sid = a.system_id.clone();
     if a.home.is_empty() && sid.is_empty() {
-        return fail("uninstall 需要 --system-id(或用 --home 定位平台)");
+        return fail("uninstall requires --system-id (or locate the platform with --home)");
     }
     let system_home = if !a.home.is_empty() {
         crate::hosts::identity::normalize_platform_home(&home::expand_user(&a.home))
     } else {
-        // 有 sid 无 --home：权威 cfg 反查 system_home；无本地配置留空（交给 resolve_system_id）
+        // Has sid but no --home: authoritative cfg reverse lookup for system_home; leave empty if no local config (hand off to resolve_system_id)
         let sh0 = config::load_gateway_config(&sid)
             .map(|c| c.system_home)
             .unwrap_or_default();
@@ -133,9 +133,9 @@ pub fn run(a: &Args) -> i32 {
     let (sid2, mut platform) = resolve_system_id(&system_home, &sid);
     sid = sid2;
     if sid.is_empty() {
-        return fail("uninstall 需要 --system-id(或用 --home 定位平台)");
+        return fail("uninstall requires --system-id (or locate the platform with --home)");
     }
-    // 幂等：系统数据与指针都不在 ⇒ 视为已卸载
+    // Idempotent: if neither system data nor pointer exists ⇒ considered uninstalled
     let systems_dir = config::systems_root_in(&home::aimail_home());
     let has_dir = systems_dir.join(&sid).is_dir();
     let uh = home::user_home();
@@ -158,19 +158,19 @@ pub fn run(a: &Args) -> i32 {
         Err(msg) => return fail(&msg),
     };
     if platform.is_empty() {
-        return fail(&format!("无法确定平台(system {sid})——用 --home 指定平台根"));
+        return fail(&format!("cannot determine platform (system {sid}) — specify the platform root with --home"));
     }
 
     println!("  uninstall system={sid} platform={platform}");
     if !confirm(
-        &format!("确认卸载 system {sid} 的 aimail 对接(含网关注销与本机数据)?"),
+        &format!("Uninstall the aimail integration of system {sid} (incl. gateway deregistration and local data)?"),
         a.yes,
     ) {
         println!("  cancelled");
         return 1;
     }
 
-    // 注销目标网关判定：-g > cfg（**不看 AIMAIL_GW_URL、不落生产默认**）
+    // Uninstall target gateway determination: -g > cfg (**do not check AIMAIL_GW_URL, do not fall back to production default**)
     let mut gw: Value = config::load_gateway_config(&sid)
         .map(|c| Value::Object(c.to_json()))
         .unwrap_or_else(|| json!({}));
@@ -178,35 +178,35 @@ pub fn run(a: &Args) -> i32 {
     let gw_cfg = setup::pget(&gw, "gateway_url").trim().to_string();
     if !gw_flag.is_empty() {
         gw["gateway_url"] = json!(gw_flag);
-        ok(&format!("gateway_url: {gw_flag}(显式 -g)"));
+        ok(&format!("gateway_url: {gw_flag}(explicit -g)"));
         if !gw_cfg.is_empty() && gw_cfg != gw_flag {
             warn(&format!(
-                "-g {gw_flag} 覆盖 cfg.gateway_url={gw_cfg}(按 -g 注销)"
+                "-g {gw_flag} overrides cfg.gateway_url={gw_cfg}(uninstall per -g)"
             ));
         }
     } else if !gw_cfg.is_empty() {
-        ok(&format!("gateway_url: {gw_cfg}(来自 cfg;可用 -g 覆盖)"));
+        ok(&format!("gateway_url: {gw_cfg}(from cfg; can be overridden by -g)"));
     } else {
         warn(
-            "cfg 缺 gateway_url 且未给 -g —— 无法确定注销目标, 跳过网关侧注销(不按生产默认兜底); 本机数据仍会清除",
+            "cfg missing gateway_url and -g not provided —— cannot determine deregistration target, skipping gateway-side deregistration (no production default fallback); local data will still be cleared",
         );
     }
 
-    // transport 分派（契约 §4.1(2)）：**只有 python 宿主**需要 SDK 根；node 宿主的 op 入口由
-    // 注册表 `ops.argv` 直达 ⇒ 不得因缺 pysdk 硬退出（uninstall_steps 的 sdk_uninstall 仅 python 宿主有）。
-    // 平台取值优先**系统级 cfg 记录的 `platform`**（`aimail install` 写入，权威）；
-    // 调用方解析出的平台名（`--platform` / 探测）在共享域等场景可能取不到。
+    // transport dispatch (contract §4.1(2)): **only python host** needs SDK root; node host op entry is
+    // direct via registry `ops.argv` ⇒ must not hard exit due to missing pysdk (uninstall_steps sdk_uninstall only exists for python host).
+    // Platform value priority is **system-level cfg recorded `platform`** (written by `aimail install`, authoritative);
+    // platform name resolved by caller (`--platform` / probe) may not be available in shared domain scenarios.
     let recorded = setup::pget(&gw, "platform");
     let transport_platform = if recorded.is_empty() {
         platform.clone()
     } else {
         recorded
     };
-    // 单真源对称(install 侧同款)：**先绑定域内宿主解释器**(存进程本地态,P8: 进程环境写删除;
-    // python_bin()/SDK 根解析经绑定读取 —— 与 install 装 SDK 用的是同一解释器,
-    // 否则 pip uninstall 找不到目标环境)。
-    // 顺序铁律（2026-10-12 owner）：绑在 `resolve_or_placeholder` **之前**，否则 SDK 根会用
-    // CLI 自己的 `python3` 去找 ⇒ 宿主 venv 里的已装 SDK 被判成"未安装"（deerflow 实测）。
+    // Single source of truth symmetry (same as install side): **first bind in-domain host interpreter** (store in process local state, P8: process env write delete;
+    // python_bin()/SDK root resolution via binding read —— uses the same interpreter as install for SDK installation,
+    // otherwise pip uninstall cannot find target environment).
+    // Iron rule of order (2026-10-12 owner): bind **before** `resolve_or_placeholder`, otherwise the SDK root will use
+    // the CLI's own `python3` to find it ⇒ installed SDK in the host venv will be judged as "not installed" (verified with deerflow).
     if !system_home.as_os_str().is_empty() {
         let _cn = setup::pget(&gw, "container");
         crate::core::sdkroot::bind_domain(&_cn, &system_home.to_string_lossy());
@@ -224,7 +224,7 @@ pub fn run(a: &Args) -> i32 {
     let manager = setup::pget(&gw, "manager_address");
     let sid_dir = systems_dir.join(&sid);
 
-    // 1. 逐绑定网关注销（公共链：api-key → domain → whitelist，全在 SDK 内）
+    // 1. Per-binding gateway uninstall (public chain: api-key → domain → whitelist, all in SDK)
     if sid_dir.is_dir() {
         let mut subs: Vec<std::path::PathBuf> = std::fs::read_dir(&sid_dir)
             .map(|rd| rd.flatten().map(|e| e.path()).collect())
@@ -267,7 +267,7 @@ pub fn run(a: &Args) -> i32 {
             } else {
                 mgr_binding
             };
-            // 契约 v1.0 §4.1：走 SDK 门 teardown（判定与落盘在 SDK；CLI 不传 client/core_dir）
+            // Contract v1.0 §4.1: go through SDK gate teardown (determination and persistence in SDK; CLI does not pass client/core_dir)
             match crate::core::sdk::sdk_ops_call_for(
                 &platform,
                 &[system_home.to_string_lossy().to_string()],
@@ -305,7 +305,7 @@ pub fn run(a: &Args) -> i32 {
         }
     }
 
-    // 1b. 网关侧兜底：本机绑定覆盖不到的地址与白名单行（SDK 单入口）
+    // 1b. Gateway-side fallback: addresses and whitelist lines not covered by local bindings (SDK single entry)
     if !gw_url.is_empty() && !admin_key.is_empty() {
         let local_emails: Vec<String> = if sid_dir.is_dir() {
             std::fs::read_dir(&sid_dir)
@@ -336,7 +336,7 @@ pub fn run(a: &Args) -> i32 {
         let doms = match list_system_domains(&gw_url, &admin_key, &sid) {
             Some(d) => d,
             None => {
-                warn("gateway reverse lookup failed(跳过网关侧兜底)");
+                warn("gateway reverse lookup failed(skipping gateway-side fallback)");
                 Vec::new()
             }
         };
@@ -437,7 +437,7 @@ pub fn run(a: &Args) -> i32 {
         }
     }
 
-    // 2. 平台侧清理（uninstall_steps 表驱动）
+    // 2. Platform-side cleanup (uninstall_steps table-driven)
     let mut ctx = serde_json::Map::new();
     ctx.insert(
         "home".into(),
@@ -445,7 +445,7 @@ pub fn run(a: &Args) -> i32 {
     );
     ctx.insert("sid".into(), json!(sid));
     ctx.insert("cfg".into(), gw.clone());
-    // 契约单源：步骤里写 `{pointer_file}`，值取 contract（宿主表零契约字面量）。
+    // Contract single source: steps write `{pointer_file}`, value taken from contract (host table has zero contract literals).
     ctx.insert(
         "pointer_file".into(),
         json!(crate::core::contract::pointer_file()),
@@ -454,7 +454,7 @@ pub fn run(a: &Args) -> i32 {
         warn(&e);
     }
 
-    // 3. 本机数据
+    // 3. Local data
     if sid_dir.is_dir() {
         if let Ok(rd) = std::fs::read_dir(&sid_dir) {
             for e in rd.flatten() {
@@ -494,7 +494,7 @@ pub fn run(a: &Args) -> i32 {
     0
 }
 
-/// 契约 v1.0 §4.1：门 op 的 `result.actions[]` 里按动作名取该项载荷。
+/// Contract v1.0 §4.1: In gate op's `result.actions[]`, get that item's payload by action name.
 fn action_of(res: &Value, key: &str) -> Value {
     res.get("actions")
         .and_then(Value::as_array)

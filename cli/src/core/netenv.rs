@@ -1,46 +1,46 @@
-//! 网络环境事实 —— 入站 webhook 判定（`webhookplan`）与 check/repair 的**单真源**。
+//! network-environment facts — the **single source** of the inbound webhook decision (`webhookplan`) and of check/repair.
 //!
-//! 2026-10-13（owner 裁定）：判定要对着「本机 IP 列表」「某 IP 是公网/本机」来判，
-//! 且 `AIMAIL_BRIDGE_HOST` / `AIMAIL_AGENT_HOST` 都要做 IP 识别。这里集中提供：
-//! - 本机 IP 枚举（非回环的全局地址）；
-//! - IP 类别（回环 / 私网 / 公网）；
-//! - 域名解析（std `ToSocketAddrs`）；
-//! - `host:port` 解析（BRIDGE_HOST 带 scheme、AGENT_HOST 不带）；
-//! - AGENT_HOST 有效性（owner：不是公网且不在本机列表 ⇒ 视为不存在；回环拒绝）。
+//! 2026-10-13 (owner ruling): determination must be made against "local IP list" and "whether a given IP is public/local",
+//! and both `AIMAIL_BRIDGE_HOST` / `AIMAIL_AGENT_HOST` must perform IP identification. This module centrally provides:
+//! - Local IP enumeration (non-loopback global addresses);
+//! - IP category (loopback / private / public);
+//! - Domain name resolution (std `ToSocketAddrs`);
+//! - `host:port` parsing (BRIDGE_HOST with scheme, AGENT_HOST without);
+//! - AGENT_HOST validity (owner: not public and not in local list ⇒ considered non-existent; loopback rejected).
 //!
-//! `repair.rs` 里遗留的 `is_loopback_host` / `is_private_host` / `detect_lan_ip` 已随
-//! webhook 判定收敛到本模块而退役（2026-10-14）—— 单真源、不漂移。
+//! Legacy `is_loopback_host` / `is_private_host` / `detect_lan_ip` in `repair.rs` have been removed with
+//! as webhook determination converged to this module (2026-10-14) —— single source of truth, no drift.
 
 use std::net::{IpAddr, ToSocketAddrs};
 
-/// IP 类别。
+/// IP category.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Category {
     /// 127.0.0.0/8 / ::1
     Loopback,
-    /// 私网（10/8、172.16/12、192.168/16）+ 链路本地（169.254/16、fe80::/10）
-    /// + IPv6 唯一本地（fc00::/7）
+    /// Private (10/8, 172.16/12, 192.168/16) + link-local (169.254/16, fe80::/10)
+    /// + IPv6 unique local (fc00::/7)
     Private,
-    /// 其余可路由地址
+    /// Other routable addresses
     Public,
 }
 
-/// 一次 TCP 可达性探测的**分类结果**（与 aimail-gateway `probe-webhook`、桥
-/// `POST /api/v1/probe` 的返回同构）。
+/// **Classification result** of a single TCP reachability probe (with aimail-gateway `probe-webhook`, bridge
+/// `POST /api/v1/probe` return).
 ///
-/// `error` 取值（两端点一致的分类词汇表）：
-/// - `connected`            连上（reachable=true）
-/// - `connection_refused`   包到主机、端口未监听（路径通，进程未起）
-/// - `timeout`              无路由 / 被丢包
-/// - `unreachable`          其它 IO 错误（含 no route to host）
-/// - `loopback_not_allowed` 网关侧对回环目标的拒绝（仅 GW 端点）
+/// `error` values (consistent classification vocabulary for both endpoints):
+/// - `connected`            connected (reachable=true)
+/// - `connection_refused`   packet reached host, port not listening (path open, process not started)
+/// - `timeout`              no route / packet dropped
+/// - `unreachable`          other IO errors (including no route to host)
+/// - `loopback_not_allowed` gateway-side rejection of loopback targets (GW endpoint only)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProbeResult {
     pub reachable: bool,
     pub error: String,
 }
 
-/// 判定一个 IP 的类别。
+/// Determine the category of an IP.
 pub fn classify(ip: IpAddr) -> Category {
     match ip {
         IpAddr::V4(v4) => {
@@ -57,7 +57,7 @@ pub fn classify(ip: IpAddr) -> Category {
             if v6.is_loopback() {
                 Category::Loopback
             } else if (head & 0xfe00) == 0xfc00 || (head & 0xffc0) == 0xfe80 {
-                // fc00::/7 唯一本地、fe80::/10 链路本地
+                // fc00::/7 unique local, fe80::/10 link-local
                 Category::Private
             } else {
                 Category::Public
@@ -74,14 +74,14 @@ pub fn is_public_ip(ip: IpAddr) -> bool {
     classify(ip) == Category::Public
 }
 
-/// 本机全局 IP（非回环、非链路本地）。
+/// Local global IP (not loopback, not link-local).
 ///
-/// 主路：UDP connect 选路取主口（不发包，纯选路由）；补路：Linux `ip -4 -brief`
-/// / macOS `ifconfig` 枚举所有全局 IPv4。两者合并去重。
+/// Primary path: UDP connect to select the primary interface (no packet sent, pure routing); Fallback path: Linux `ip -4 -brief`
+/// / macOS `ifconfig` to enumerate all global IPv4. Merge and deduplicate both.
 pub fn local_ips() -> Vec<IpAddr> {
     let mut seen = std::collections::HashSet::new();
     let mut out: Vec<IpAddr> = Vec::new();
-    // 1) 主口（UDP trick，跨平台）
+    // 1) Primary interface (UDP trick, cross-platform)
     if let Ok(s) = std::net::UdpSocket::bind("0.0.0.0:0") {
         if s.connect("8.8.8.8:80").is_ok() {
             if let Ok(addr) = s.local_addr() {
@@ -92,7 +92,7 @@ pub fn local_ips() -> Vec<IpAddr> {
             }
         }
     }
-    // 2) 补路：所有全局 IPv4
+    // 2) Fallback path: all global IPv4
     for ip in global_ipv4_from_cmd() {
         if !is_loopback_ip(ip) && seen.insert(ip) {
             out.push(ip);
@@ -104,7 +104,7 @@ pub fn local_ips() -> Vec<IpAddr> {
 fn global_ipv4_from_cmd() -> Vec<IpAddr> {
     #[cfg(windows)]
     {
-        // Windows: `ipconfig` 第三支(主路 UDP trick 跨平台已覆盖主口, 本支补全量全局 IPv4)
+        // Windows: `ipconfig` third branch (primary path UDP trick cross-platform already covers primary interface, this branch supplements full global IPv4)
         return crate::core::procwin::local_ipv4();
     }
     #[cfg(unix)]
@@ -140,7 +140,7 @@ fn global_ipv4_from_cmd() -> Vec<IpAddr> {
                 }
             }
         }
-        // macOS: `ifconfig` 解析 inet
+        // macOS: `ifconfig` parse inet
         if let Ok(o) = std::process::Command::new("ifconfig").output() {
             if o.status.success() {
                 let mut v = Vec::new();
@@ -168,7 +168,7 @@ fn global_ipv4_from_cmd() -> Vec<IpAddr> {
     }
 }
 
-/// 解析 host（IP 字面量或域名）→ 全部 IP。解析失败返回空。
+/// Resolve host (IP literal or domain name) → all IPs. Returns empty on resolution failure.
 pub fn resolve(host: &str) -> Vec<IpAddr> {
     match (host, 0u16).to_socket_addrs() {
         Ok(addrs) => addrs.into_iter().map(|a| a.ip()).collect(),
@@ -176,8 +176,8 @@ pub fn resolve(host: &str) -> Vec<IpAddr> {
     }
 }
 
-/// 解析 `host:port`（**不带** scheme，AGENT_HOST 形态）。
-/// 支持 `[v6]:port` 与 `v4:port`；纯 host 无 port ⇒ None。
+/// Parse `host:port` (**without** scheme, AGENT_HOST format).
+/// Supports `[v6]:port` and `v4:port`; pure host without port ⇒ None.
 pub fn parse_hostport(raw: &str) -> Option<(String, u16)> {
     let s = raw.trim();
     if s.is_empty() {
@@ -199,8 +199,8 @@ pub fn parse_hostport(raw: &str) -> Option<(String, u16)> {
     Some((host.to_string(), port))
 }
 
-/// 解析带 scheme 的 `http(s)://host:port`（BRIDGE_HOST 形态）。
-/// 无 scheme 时按裸 `host:port` 处理（宽容）。**不允许**带 path（owner 裁定）。
+/// Parse `http(s)://host:port` with scheme (BRIDGE_HOST format).
+/// If no scheme, treat as bare `host:port` (lenient). **Not allowed** to have path (owner decision).
 pub fn parse_bridge_host(raw: &str) -> Option<(String, u16)> {
     let mut s = raw.trim().to_string();
     if let Some(after) = s.split_once("://") {
@@ -211,24 +211,24 @@ pub fn parse_bridge_host(raw: &str) -> Option<(String, u16)> {
         s = after.1.to_string();
     }
     if s.contains('/') {
-        return None; // owner：BRIDGE_HOST 无 path
+        return None; // owner: BRIDGE_HOST has no path
     }
     parse_hostport(&s)
 }
 
-/// AGENT_HOST 有效性（owner 裁定逐字）：
-/// 「值不正确（不是外网 IP 或本机 IP list，如果是域名要解析到 IP 来判断）⇒ 视为不存在」。
-/// 回环 ⇒ 无效（loopback 拒绝守卫）。域名 ⇒ 任一解析 IP 命中（公网 ∪ 本机非回环）即有效。
+/// AGENT_HOST validity (owner decision verbatim):
+/// "Value is incorrect (not an external IP or local IP list; if it is a domain name, it must resolve to an IP to determine) ⇒ treated as non-existent".
+/// Loopback ⇒ invalid (loopback rejection guard). Domain name ⇒ valid if any resolved IP hits (public ∪ local non-loopback).
 pub fn agent_host_valid(raw: &str) -> bool {
     let (host, _port) = match parse_hostport(raw) {
         Some(hp) => hp,
         None => return false,
     };
-    // 直接是 IP 字面量
+    // Directly an IP literal
     if let Ok(ip) = host.parse::<IpAddr>() {
         return is_public_ip(ip) || local_ips().contains(&ip);
     }
-    // 域名：解析后任一 IP 命中
+    // Domain name: any IP hits after resolution
     resolve(&host)
         .iter()
         .any(|ip| is_public_ip(*ip) || local_ips().contains(ip))
@@ -283,27 +283,27 @@ mod tests {
             parse_bridge_host("http://203.0.113.7:38080"),
             Some(("203.0.113.7".into(), 38080))
         );
-        // 无 scheme 也宽容接受
+        // No scheme is also leniently accepted
         assert_eq!(
             parse_bridge_host("203.0.113.7:38080"),
             Some(("203.0.113.7".into(), 38080))
         );
-        // 带 path ⇒ 拒绝（owner：BRIDGE_HOST 无 path）
+        // With path ⇒ reject (owner: BRIDGE_HOST has no path)
         assert_eq!(parse_bridge_host("http://x:80/some/path"), None);
-        // 非法 scheme
+        // Illegal scheme
         assert_eq!(parse_bridge_host("ftp://x:80"), None);
     }
 
     #[test]
     fn agent_host_valid_rejects_loopback() {
-        // 127.0.0.1 是回环 ⇒ 无效（loopback 拒绝守卫）
+        // 127.0.0.1 is loopback ⇒ invalid (loopback rejection guard)
         assert!(!agent_host_valid("127.0.0.1:9099"));
         assert!(!agent_host_valid("localhost:9099"));
     }
 
     #[test]
     fn agent_host_valid_accepts_public_ip() {
-        // 公网 IP 字面量 ⇒ 有效（不依赖本机列表）
+        // Public IP literal ⇒ valid (does not depend on local list)
         assert!(agent_host_valid("203.0.113.7:9099"));
     }
 
@@ -311,6 +311,6 @@ mod tests {
     fn agent_host_valid_rejects_malformed() {
         assert!(!agent_host_valid(""));
         assert!(!agent_host_valid("noport"));
-        assert!(!agent_host_valid("1.2.3.4:99999999")); // port 溢出
+        assert!(!agent_host_valid("1.2.3.4:99999999")); // port overflow
     }
 }

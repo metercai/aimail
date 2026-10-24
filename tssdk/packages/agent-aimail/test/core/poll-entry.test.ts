@@ -110,7 +110,7 @@ afterEach(async () => {
   await fs.rm(home, { recursive: true, force: true })
 })
 
-describe('isAgentScopeBinding — address-code产物才是 pull 侧', () => {
+describe('isAgentScopeBinding — address-code artifact is the pull side', () => {
   it('accepts a shared_addr_* binding (address-code activation product)', () => {
     expect(isAgentScopeBinding(binding())).toBe(true)
   })
@@ -126,7 +126,7 @@ describe('isAgentScopeBinding — address-code产物才是 pull 侧', () => {
   })
 })
 
-describe('resolveAgentPullSettings — 启用判定 / 间隔 / 批量', () => {
+describe('resolveAgentPullSettings — enablement judgment / interval / batch', () => {
   it('no binding ⇒ no-binding (never enabled)', () => {
     const s = resolveAgentPullSettings(undefined, {})
     expect(s.enabled).toBe(false)
@@ -206,8 +206,8 @@ describe('resolveAgentPullSettings — 启用判定 / 间隔 / 批量', () => {
   })
 })
 
-describe('startAgentPullEntries — 真循环按绑定起停', () => {
-  it('① 未激活(无 agent 级绑定)⇒ 不起轮询, 一条 pending 都不取', async () => {
+describe('startAgentPullEntries — real loop starts/stops by binding', () => {
+  it('① Not activated (no agent-level binding) ⇒ does not start polling, does not fetch any pending', async () => {
     await saveAgentConfig(binding({ system_id: PUSH_SID }), PUSH_SID)
     const client = new FakeGateway([batch(1), batch(2)])
     let clientBuilt = 0
@@ -234,7 +234,7 @@ describe('startAgentPullEntries — 真循环按绑定起停', () => {
     expect(log).toContain('no agent-scope binding')
   })
 
-  it('② 激活后 ⇒ 自取 pending 并 ack, handle.stop() 结束循环', async () => {
+  it('② After activation ⇒ self-fetches pending and acks, handle.stop() ends the loop', async () => {
     await saveAgentConfig(binding(), AGENT_SID)
     const client = new FakeGateway([batch(11, { subject: 'self-pull' })])
     const got: Array<{ id: number; email: string; body: unknown }> = []
@@ -269,7 +269,7 @@ describe('startAgentPullEntries — 真循环按绑定起停', () => {
     expect(client.listCalls).toBe(atStop) // aborted ⇒ the loop really ended
   })
 
-  it('③ 投递失败(onEmail reject)⇒ 不 ack, 下一轮重新取到同一封', async () => {
+  it('③ Delivery failure (onEmail reject) ⇒ does not ack, next round re-fetches the same email', async () => {
     await saveAgentConfig(binding(), AGENT_SID)
     // Same delivery id twice: the first attempt fails, the second succeeds.
     const client = new FakeGateway([batch(21), batch(21)])
@@ -297,7 +297,7 @@ describe('startAgentPullEntries — 真循环按绑定起停', () => {
     expect(stats.errors).toBe(1) // the failure was counted, not swallowed
   })
 
-  it('④ 间隔下限钳制 + AbortSignal 打断 sleep(不是等满间隔)', async () => {
+  it('④ Interval lower bound clamping + AbortSignal interrupts sleep (does not wait for full interval)', async () => {
     await saveAgentConfig(binding(), AGENT_SID)
     const client = new FakeGateway([]) // always an empty batch
     const handles = await startAgentPullEntries({
@@ -322,7 +322,7 @@ describe('startAgentPullEntries — 真循环按绑定起停', () => {
     expect(client.listCalls).toBe(after)
   })
 
-  it('⑤ 一个 agent 级绑定一条循环; systemId 限定作用域; stop 幂等', async () => {
+  it('⑤ One loop per agent-level binding; systemId limits scope; stop is idempotent', async () => {
     await saveAgentConfig(binding({ email: 'a@e2e.local' }), AGENT_SID)
     await saveAgentConfig(binding({ email: 'b@e2e.local' }), AGENT_SID)
     await saveAgentConfig(binding({ email: 'agent@other.local', system_id: `${AGENT_SCOPE_SYSTEM_PREFIX}other` }), `${AGENT_SCOPE_SYSTEM_PREFIX}other`)

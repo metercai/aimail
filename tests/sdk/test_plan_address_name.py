@@ -1,7 +1,7 @@
-"""C1 (P6, owner ruling 2026-10-02): plan_address_name = "定名字" 单真源.
+"""C1 (P6, owner ruling 2026-10-02): plan_address_name = "Fixed Name" single source of truth.
 
-规则(校验/别名归一/直达判定 F13/邮箱派生)全在 SDK; platforms.json 只提供
-映射层数据(别名表/模板 argv), CLI 只"取计划 → 执行"。
+All rules (validation/alias normalization/direct determination F13/email derivation) are in the SDK; platforms.json only provides
+Mapping layer data (alias table/template argv), CLI only "fetch plan → execute".
 """
 import sys
 from pathlib import Path
@@ -17,7 +17,7 @@ import aimail_base
 
 def test_invalid_names_raise_valueerror_with_legacy_message():
     for bad in ("", "a.b", "a b", "a@b"):
-        with pytest.raises(ValueError, match="非法地址名"):
+        with pytest.raises(ValueError, match="illegal address name"):
             aimail_base.plan_address_name(bad, agent_id="agent", domain="d.tm")
 
 
@@ -54,8 +54,8 @@ def test_registrar_without_name_token_registers_default_then_needs_rename():
                                       register_argv=["register", "--agent", "{agent}"])
     assert p["default_name"] == "agent"
     assert p["reg_as"] == "agent" and p["needs_rename"] is True
-    assert p["email"] == "agent@d.tm"          # 本次注册落的地址(默认名)
-    assert p["target_email"] == "alice@d.tm"   # rename 收口后的目标地址
+    assert p["email"] == "agent@d.tm"          # address registered this time (default name)
+    assert p["target_email"] == "alice@d.tm"   # target address after rename closure
 
 
 def test_shared_domain_infix_applies_to_both_addresses():

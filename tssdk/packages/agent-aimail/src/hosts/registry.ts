@@ -26,7 +26,7 @@ export interface HostSpec {
   configDir: string
   /** the entry subpath the host loader consumes (contract, mirrored in CLI). */
   entry: string
-  /** register-cli subpath (CLI 注册命令入口, contract mirrored in hosts.rs). */
+  /** register-cli subpath (CLI registration command entry, contract mirrored in hosts.rs). */
   registerCli: string
   /** the peer dependency the host must provide (all optional at install). */
   peer: string

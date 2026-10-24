@@ -1,9 +1,9 @@
-//! ⑤ 指针面：宿主 home 里的指针文件（`<home>/<pointer_file>`）定位、归属与扫描。
+//! ⑤ Pointer surface: locating, ownership, and scanning of pointer files in host home (`<home>/<pointer_file>`).
 //!
-//! 指针是"某个宿主接了哪个 system"的唯一跨进程事实：`aimail address` / `stats` /
-//! `reset` / `uninstall` / `check` 都靠它建立宿主 ↔ sid 的关联。文件名归契约
-//! （[`crate::core::contract::pointer_file`]），形态归宿主（[`Host::pointer_kind`]）：
-//! `Root` ⇒ 只有根指针；`RootOrProfiles` ⇒ 根 + `profiles/*/`。
+//! The pointer is the sole cross-process fact of "which system a given host is connected to": `aimail address` / `stats` /
+//! `reset` / `uninstall` / `check` all rely on it to establish the host ↔ sid association. The filename belongs to the contract
+//! ([`crate::core::contract::pointer_file`]), and the shape belongs to the host ([`Host::pointer_kind`]):
+//! `Root` ⇒ only root pointer; `RootOrProfiles` ⇒ root + `profiles/*/`.
 
 use std::path::{Path, PathBuf};
 
@@ -13,7 +13,7 @@ use crate::core::contract;
 use crate::hosts::identity::platform_root;
 use crate::hosts::{all, get, Host, PointerKind};
 
-/// 某宿主的全部指针候选路径（`RootOrProfiles` ⇒ 根 + 每个 profile 子目录，排序）。
+/// All pointer candidate paths for a given host (`RootOrProfiles` ⇒ root + each profile subdirectory, sorted).
 pub fn paths(user_home: &Path, h: &dyn Host) -> Vec<PathBuf> {
     let root = platform_root(user_home, h.id());
     let file = contract::pointer_file();
@@ -39,7 +39,7 @@ pub fn paths(user_home: &Path, h: &dyn Host) -> Vec<PathBuf> {
     out
 }
 
-/// 某宿主的**当前**指针路径：根指针存在用根，否则取 `profiles/*` 的第一个；都不存在返回根路径。
+/// The **current** pointer path for a host: use root if root pointer exists, otherwise take the first of `profiles/*`; return root path if neither exists.
 pub fn path(user_home: &Path, h: &dyn Host) -> PathBuf {
     let root_ptr = platform_root(user_home, h.id()).join(contract::pointer_file());
     if h.pointer_kind() != PointerKind::RootOrProfiles {
@@ -60,7 +60,7 @@ pub fn path(user_home: &Path, h: &dyn Host) -> PathBuf {
     candidates.into_iter().next().unwrap_or(root_ptr)
 }
 
-/// 读指针文件里的 `system_id`（读不到/解析不了 ⇒ `""`）。
+/// Read `system_id` from the pointer file (unreadable/unparseable ⇒ `"")`.
 pub fn sid(ptr: &Path) -> String {
     let Ok(text) = std::fs::read_to_string(ptr) else {
         return String::new();
@@ -75,7 +75,7 @@ pub fn sid(ptr: &Path) -> String {
         .unwrap_or_default()
 }
 
-/// 该宿主指针指向的 sid（无指针 ⇒ `""`）。
+/// The sid pointed to by this host's pointer (no pointer ⇒ `"")`.
 pub fn sid_for(user_home: &Path, h: &dyn Host) -> String {
     let ptr = path(user_home, h);
     if ptr.is_file() {
@@ -85,7 +85,7 @@ pub fn sid_for(user_home: &Path, h: &dyn Host) -> String {
     }
 }
 
-/// `sid -> [宿主名]`（按枚举序保序；同一 sid 被多宿主指向时按序累积）。
+/// `sid -> [host names]` (preserving enumeration order; if the same sid is pointed to by multiple hosts, accumulate in order).
 pub fn all_sids(user_home: &Path) -> Vec<(String, Vec<&'static str>)> {
     let mut out: Vec<(String, Vec<&'static str>)> = Vec::new();
     for h in all() {
@@ -101,34 +101,34 @@ pub fn all_sids(user_home: &Path) -> Vec<(String, Vec<&'static str>)> {
     out
 }
 
-// ── 按宿主名取值的薄封装（调用方手里通常只有 id 字符串）──────────────────
+// ── Thin wrappers for getting values by host name (callers usually only have the id string)──────────────────
 
-/// [`paths`] 的按名版本（未知宿主 ⇒ 空表）。
+/// By-name version of [`paths`] (unknown host ⇒ empty table).
 pub fn paths_for(user_home: &Path, name: &str) -> Vec<PathBuf> {
     get(name).map(|h| paths(user_home, h)).unwrap_or_default()
 }
 
-/// [`path`] 的按名版本（未知宿主 ⇒ 空路径）。
+/// By-name version of [`path`] (unknown host ⇒ empty path).
 pub fn path_for(user_home: &Path, name: &str) -> PathBuf {
     get(name).map(|h| path(user_home, h)).unwrap_or_default()
 }
 
-/// [`sid_for`] 的按名版本（未知宿主 ⇒ `""`）。
+/// By-name version of [`sid_for`] (unknown host ⇒ `"")`.
 pub fn sid_for_name(user_home: &Path, name: &str) -> String {
     get(name).map(|h| sid_for(user_home, h)).unwrap_or_default()
 }
 
-/// 指针形态的按名版本（未知宿主 ⇒ `"root"`，与历史缺省一致）。
+/// By-name version of pointer shape (unknown host ⇒ `"root"`, consistent with historical default).
 pub fn kind_of(name: &str) -> &'static str {
     get(name)
         .map(|h| h.pointer_kind().as_str())
         .unwrap_or("root")
 }
 
-/// 平台根下扫到的指针：`(agent_name, email, system_id)`。
+/// Pointer found under the platform root: `(agent_name, email, system_id)`.
 ///
-/// 递归、跳过 `.git` / `node_modules` / `.venv`；根级指针对应主 agent（地址基名由 SDK
-/// 归一为 `agent`），命名目录用目录名。只认契约常量（不为想象中的旧机器留历史名）。
+/// Recursive, skipping `.git` / `node_modules` / `.venv`; root-level pointer corresponds to the main agent (address base name normalized by SDK
+/// to `agent`), named directories use the directory name. Only recognizes contract constants (no historical names for imagined old machines).
 pub fn scan(root: &Path) -> Vec<(String, String, String)> {
     let mut found = Vec::new();
     if !root.is_dir() {
@@ -187,7 +187,7 @@ fn walk(dir: &Path, root: &Path, names: &[&str], out: &mut Vec<(String, String, 
             continue;
         }
         let agent = if dir == root {
-            // 根指针 = 主 agent；地址基名由 SDK 归一为 `agent`（平台私有根名不参与定名）。
+            // Root pointer = main agent; address base name normalized by SDK to `agent` (platform private root name does not participate in naming).
             "agent".to_string()
         } else {
             dir.file_name()

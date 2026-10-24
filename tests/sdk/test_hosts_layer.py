@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-"""tests/sdk/test_hosts_layer.py — Python 宿主识别层(移植 tssdk 三件套)。
+"""tests/sdk/test_hosts_layer.py — Python host identification layer (ported tssdk trio).
 
-覆盖全组合:
-  registry:  键集合 / 未知 id ⇒ None
-  detect:    单宿主命中 / 零命中 / 双宿主歧义 / 父目录候选根 / 指针≠marker
-  activate:  verified(恰一信号) / mismatch 只 warn 不抛 / 未知 declared /
-             多宿主共存 consistent / 空 home
+Covers all combinations:
+  registry:  key set / unknown id ⇒ None
+  detect:    single host hit / zero hit / dual host ambiguity / parent directory candidate root / pointer≠marker
+  activate:  verified (exactly one signal) / mismatch only warn no raise / unknown declared /
+             multi-host coexistence consistent / empty home
 """
 import os
 import sys
@@ -22,7 +22,7 @@ _REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 
 @pytest.fixture()
 def hermes_home(tmp_path):
-    """~/.hermes 形态:hermes-agent marker 在位。"""
+    """~/.hermes form: hermes-agent marker in place."""
     home = tmp_path / ".hermes"
     (home / "hermes-agent" / "gateway").mkdir(parents=True)
     return str(tmp_path)
@@ -30,16 +30,16 @@ def hermes_home(tmp_path):
 
 @pytest.fixture()
 def deerflow_home(tmp_path):
-    """~/.deer-flow 形态:backend/app/gateway marker 在位。"""
+    """~/.deer-flow form: backend/app/gateway marker in place."""
     home = tmp_path / ".deer-flow"
     (home / "backend" / "app" / "gateway").mkdir(parents=True)
     return str(tmp_path)
 
 
 def _make_marker_home(tmp_path, host_id):
-    """按 registry 规格建一个 marker 在位的宿主树,返回父目录(home 的 parent)。"""
+    """Build a host tree with the marker in place per the registry spec; return the parent directory (home's parent)."""
     spec = registry.get_host(host_id)
-    assert spec is not None, f"registry 应有 {host_id}"
+    assert spec is not None, f"registry should have {host_id}"
     home = tmp_path / spec["home_dir"]
     marker_path = home / spec["marker"]
     os.makedirs(marker_path, exist_ok=True)
@@ -53,7 +53,7 @@ def test_registry_keys_are_the_two_python_hosts():
 
 
 def test_registry_fields_align_with_cli_host_table():
-    """字段纪律:与 cli/src/hosts/{hermes,deerflow}.rs 逐字段一致(单真源)。"""
+    """Field discipline: consistent field-by-field with cli/src/hosts/{hermes,deerflow}.rs (single source of truth)."""
     h = registry.get_host("hermes")
     assert h is not None
     assert h["home_dir"] == ".hermes"
@@ -82,7 +82,7 @@ def test_detect_zero_hits(tmp_path):
 
 
 def test_detect_ambiguous_returns_none_for_single(tmp_path):
-    """双宿主 marker 共存 ⇒ detect_host 给 None(歧义不猜),present 给全量。"""
+    """Dual host markers coexist ⇒ detect_host returns None (ambiguity not guessed), present returns full set."""
     _make_marker_home(tmp_path, "hermes")
     _make_marker_home(tmp_path, "deerflow")
     assert detect.detect_host(str(tmp_path)) is None
@@ -90,13 +90,13 @@ def test_detect_ambiguous_returns_none_for_single(tmp_path):
 
 
 def test_detect_parent_dir_candidate_root(tmp_path):
-    """调用方给父目录(~ 式)⇒ 候选根含 <parent>/.hermes 命中。"""
+    """Caller gives parent directory (~ style) ⇒ candidate roots include <parent>/.hermes hit."""
     parent = _make_marker_home(tmp_path, "hermes")
     assert detect.detect_host(parent) == "hermes"
 
 
 def test_pointer_alone_is_not_a_marker_hit(tmp_path):
-    """POINTER_FILE 指针存在但 marker 不在 ⇒ 不算该宿主 present(指针是弱证据)。"""
+    """POINTER_FILE pointer exists but marker not present ⇒ not counted as that host present (pointer is weak evidence)."""
     from aimail_contract import POINTER_FILE
     home = tmp_path / ".hermes"
     home.mkdir()
@@ -118,7 +118,7 @@ def test_activate_verified_on_exactly_one_signal(hermes_home, capsys):
 
 
 def test_activate_mismatch_warns_but_never_raises(hermes_home, capsys):
-    """declared=deerflow 但环境是 hermes ⇒ consistent=False,只 warn 不抛。"""
+    """declared=deerflow but environment is hermes ⇒ consistent=False, only warn no raise."""
     r = activate.activate_host("deerflow", hermes_home)
     assert r["known"] is True
     assert r["detected"] == "hermes"
@@ -138,7 +138,7 @@ def test_activate_unknown_declared_never_raises(tmp_path, capsys):
 
 
 def test_activate_multi_host_still_consistent_for_declared(tmp_path):
-    """双宿主共存 ⇒ declared 那个 consistent=True,verified=False(歧义不 verified)。"""
+    """Dual host coexistence ⇒ declared one consistent=True, verified=False (ambiguity not verified)."""
     _make_marker_home(tmp_path, "hermes")
     _make_marker_home(tmp_path, "deerflow")
     r = activate.activate_host("hermes", str(tmp_path))
@@ -160,34 +160,34 @@ def test_activate_empty_declared_never_raises(hermes_home, capsys):
     assert r["consistent"] is False
 
 
-# ── 单真源漂移守护 ────────────────────────────────────────────────────────
+# ── Single source of truth drift guard ────────────────────────────────────────────────────────
 
 def test_sdk_ops_subdir_list_matches_registry():
-    """sdk_ops.py 的 sys.path 挂载目录集必须 = 注册表 adapter_dir 集。
+    """sdk_ops.py sys.path mount directory set must = registry adapter_dir set.
 
-    sdk_ops 是 spawn 入口,自举保持最小依赖面(不 import 注册表),
-    故目录集是硬编码 —— 本测试防"注册表加了宿主、sdk_ops 漏挂"的漂移。
+    sdk_ops is the spawn entry, bootstrap keeps minimal dependency surface (no import registry),
+    so directory set is hardcoded —— this test prevents drift where "registry added host, sdk_ops missed mount".
     """
     import re
 
-    # tests/sdk/test_hosts_layer.py → 仓根(与 conftest._REPO 同约定:三层 dirname)
+    # tests/sdk/test_hosts_layer.py → repo root (same convention as conftest._REPO: three-level dirname)
     core = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     src = open(os.path.join(core, "pysdk", "sdk_ops.py")).read()
     m = re.search(r'for _sub in \(([^)]*)\):', src)
-    assert m, "sdk_ops.py 的挂载循环丢失(格式变更?)"
+    assert m, "sdk_ops.py mount loop lost (format change?)"
     declared = set(re.findall(r'"([^"]+)"', m.group(1)))
     expected = set()
     for h in registry.host_ids():
         spec = registry.get_host(h)
         assert spec is not None
         expected.add(spec["adapter_dir"])
-    assert declared == expected, f"sdk_ops 目录集 {declared} ≠ 注册表 {expected}"
+    assert declared == expected, f"sdk_ops directory set {declared} ≠ registry {expected}"
 
 
 def _import_entry_fresh(name, adapter):
-    """强制 fresh 执行 entry 模块(清 import 缓存——_HOST_VERIFY 在模块顶层
-    按当时的 env 计算,缓存会让后续测试拿到上一次的判定)。
-    返回 (module, cleanup)。"""
+    """Force fresh execution of entry module (clear import cache —— _HOST_VERIFY at module top level
+    calculated based on current env, cache would make subsequent tests get previous determination).
+    Returns (module, cleanup)."""
     sys.path.insert(0, os.path.join(_REPO, "pysdk"))
     sys.path.insert(0, os.path.join(_REPO, "pysdk", adapter))
     sys.modules.pop(name, None)
@@ -200,9 +200,9 @@ def _import_entry_fresh(name, adapter):
     return importlib.import_module(name), _cleanup
 
 
-# ── entry 接线(activate on entry load)──
+# ── entry wiring (activate on entry load)──
 def _make_verified_home(tmp_path, host_id):
-    """按 registry 规格造一棵 marker 在位的宿主树,返回宿主 home(检测候选根)。"""
+    """Build a host tree with the marker in place per the registry spec; return the host home (detection candidate root)."""
     spec = registry.get_host(host_id)
     assert spec is not None
     home = tmp_path / spec["home_dir"]
@@ -213,8 +213,8 @@ def _make_verified_home(tmp_path, host_id):
 
 
 def test_entry_wiring_hermes_verified(tmp_path, monkeypatch):
-    """hermes entry 接线:HERMES_HOME 指向真 hermes 树 ⇒ import 时 _HOST_VERIFY
-    必须 verified=True(activate on entry load,与 tssdk register-cli 同构)。"""
+    """hermes entry wiring: HERMES_HOME points to real hermes tree ⇒ import time _HOST_VERIFY
+    Must be verified=True (activate on entry load, isomorphic to tssdk register-cli)."""
     monkeypatch.setenv("HERMES_HOME", _make_verified_home(tmp_path, "hermes"))
     m, cleanup = _import_entry_fresh("aimail_hermes", "hermes")
     try:
@@ -225,9 +225,9 @@ def test_entry_wiring_hermes_verified(tmp_path, monkeypatch):
 
 
 def test_entry_wiring_hermes_mismatch_never_raises(tmp_path, monkeypatch):
-    """hermes entry 装错宿主(空 home)⇒ import 不抛(never raise),
-    consistent=False + warn —— 半失败必须可见但不阻塞宿主。"""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))  # 空目录,无 marker
+    """hermes entry installed on wrong host (empty home) ⇒ import does not raise (never raise),
+    consistent=False + warn —— partial failure must be visible but not block the host."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))  # empty directory, no marker
     m, cleanup = _import_entry_fresh("aimail_hermes", "hermes")
     try:
         assert m._HOST_VERIFY["consistent"] is False
@@ -237,7 +237,7 @@ def test_entry_wiring_hermes_mismatch_never_raises(tmp_path, monkeypatch):
 
 
 def test_entry_wiring_deerflow_verified(tmp_path, monkeypatch):
-    """deerflow entry 接线:DEER_FLOW_HOME 指向真 deer-flow 树 ⇒ verified=True。"""
+    """deerflow entry wiring: DEER_FLOW_HOME points to real deer-flow tree ⇒ verified=True."""
     monkeypatch.setenv("DEER_FLOW_HOME", _make_verified_home(tmp_path, "deerflow"))
     m, cleanup = _import_entry_fresh("aimail_deerflow", "deer-flow")
     try:

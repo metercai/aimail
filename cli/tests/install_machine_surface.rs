@@ -1,7 +1,7 @@
-//! `install` 机器面闸门：分派 / 拒参 / 人路径口径。
+//! `install` machine-side gate: dispatch / reject args / human path criteria.
 //!
-//! 机器面只剩 `--system-only`（SDK 反调 ABI）；`--payload` 通道已随 payload 机制退役删除
-//! （自包含载荷被 owner 2026-10-06 的"零拷贝、用已装包"取代，全仓已无调用者）。
+//! Machine-side only has `--system-only` (SDK reverse call ABI); `--payload` channel has been retired and deleted with payload mechanism
+//! (self-contained payload replaced by owner 2026-10-06's "zero-copy, use installed package", no callers left in repo).
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -24,7 +24,7 @@ fn run(prog_dir: &str, args: &[&str]) -> (i32, String, String) {
         .env("AIMAIL_PROG_DIR", prog_dir)
         .env("AIMAIL_HOME", format!("{prog_dir}/home"))
         .output()
-        .expect("rust binary 可执行");
+        .expect("rust binary executable");
     (
         out.status.code().unwrap_or(-1),
         String::from_utf8_lossy(&out.stdout).to_string(),
@@ -39,25 +39,25 @@ fn machine_channels_reject_the_other_side_and_exit_2() {
     let cases: &[(&[&str], &str)] = &[
         (
             &["install", "--system-only", "--all-agents"],
-            "ERROR: --system-only 通道不接受 --all-agents",
+            "ERROR: the --system-only channel does not accept --all-agents",
         ),
         (
             &["install", "--system-only", "-a", "web"],
-            "ERROR: --system-only 通道不接受 -a",
+            "ERROR: the --system-only channel does not accept -a",
         ),
         (
             &["install", "--home", "/tmp", "--all-agents", "-a", "web"],
-            "ERROR: --all-agents 与 -a/--agent 互斥",
+            "ERROR: --all-agents is mutually exclusive with -a/--agent",
         ),
     ];
     for (args, msg) in cases {
         let (rc, out, err) = run(&prog, args);
-        assert_eq!(rc, 2, "{args:?} 必须 exit 2（拒参不静默）");
+        assert_eq!(rc, 2, "{args:?} must exit 2 (reject args, no silent pass)");
         assert!(
             err.contains(msg),
-            "{args:?} stderr 应含 {msg:?}，实到 {err:?}"
+            "{args:?} stderr should contain {msg:?}, actual {err:?}"
         );
-        assert!(out.is_empty(), "{args:?} 拒参时 stdout 应为空");
+        assert!(out.is_empty(), "{args:?} stdout should be empty when rejecting args");
     }
 }
 
@@ -66,25 +66,25 @@ fn install_surfaces_behave_like_python() {
     let d = tempfile::tempdir().unwrap();
     let prog = d.path().to_string_lossy().to_string();
     {
-        // 人路径**已实现**：无 --home/--system-id 时按 Python 口径响亮失败（文案进 stdout，rc=1）
+        // Human path **implemented**: without --home/--system-id, fail loudly per Python spec (message to stdout, rc=1)
         let args = vec!["install"];
         let (rc, out, _err) = run(&prog, &args);
-        assert_eq!(rc, 1, "{args:?} 应 rc=1");
+        assert_eq!(rc, 1, "{args:?} should rc=1");
         assert!(
-            out.contains("install 需要 --home"),
-            "{args:?} 应报缺失参数: out={out:?}"
+            out.contains("install requires --home"),
+            "{args:?} should report missing params: out={out:?}"
         );
     }
-    // `--system-only` 无凭据 ⇒ **ABI 错误信封**（单行 JSON，rc=1），不是"未移植"
+    // `--system-only` without credentials ⇒ **ABI error envelope** (single-line JSON, rc=1), not "not ported"
     let (rc, out, _e) = run(&prog, &["install", "--system-only"]);
-    assert_eq!(rc, 1, "--system-only 缺 home/sid 应 rc=1");
+    assert_eq!(rc, 1, "--system-only missing home/sid should rc=1");
     assert!(
         out.trim().starts_with(r#"{"success": false, "error": "#),
-        "应输出 Python 风格单行 JSON 信封: {out:?}"
+        "should output Python-style single-line JSON envelope: {out:?}"
     );
-    assert_eq!(out.trim_end().lines().count(), 1, "stdout 必须恰一行");
-    // 到达激活 worker ⇒ 已实现：网关不可达时按 Python 口径**继续并成功**（只 warn），
-    // 但必须用 `-g` 指向死地址以免触网（默认会落到生产网关）。
+    assert_eq!(out.trim_end().lines().count(), 1, "stdout must be exactly one line");
+    // Reached the active worker ⇒ implemented: when the gateway is unreachable, **continue and succeed** per Python semantics (warn only),
+    // but must use `-g` to point to dead address to avoid network (default falls to production gateway).
     let home2 = d.path().join("h2");
     std::fs::create_dir_all(&home2).unwrap();
     let (rc2, out2, err2) = run(
@@ -104,29 +104,29 @@ fn install_surfaces_behave_like_python() {
     );
     assert_eq!(
         rc2, 0,
-        "网关不可达 ⇒ 沿用系统级 key 并成功（Python 同）: {err2}"
+        "Gateway unreachable ⇒ fallback to system-level key and succeed (same as Python): {err2}"
     );
     assert!(
         out2.trim()
             .starts_with(r#"{"success": true, "system_id": "s1""#),
-        "单行 JSON 成功信封: {out2:?}"
+        "Single-line JSON success envelope: {out2:?}"
     );
-    assert_eq!(out2.trim_end().lines().count(), 1, "恰一行");
+    assert_eq!(out2.trim_end().lines().count(), 1, "Exactly one line");
 }
 
-/// 子进程级 env 注入(不污染测试进程,规避并行用例的进程级 env 竞态)。
-/// 同时**清除 AIMAIL_* 业务 env**——测试进程可能继承开发机/L3 轮导出的
-/// AIMAIL_PRODUCT_CODE 等,会让"无凭据"对照走产品码路径(环境串扰,非产品行为)。
+/// Subprocess-level env injection (does not pollute test process, avoids process-level env race in parallel cases).
+/// Also **clears AIMAIL_* business env**——the test process may inherit env exported by the dev machine/L3
+/// AIMAIL_PRODUCT_CODE etc., causing "no credential" control to take product code path (env cross-talk, not product behavior).
 fn run_env(prog_dir: &str, args: &[&str], extra: &[(&str, &str)]) -> (i32, String, String) {
     let mut cmd = Command::new(bin());
     cmd.args(args)
         .env("AIMAIL_PROG_DIR", prog_dir)
         .env("AIMAIL_HOME", format!("{prog_dir}/home"))
-        // HOME 指向 prog 临时目录:隔离开发机 ~/.aimail/.env(env_val 的 HOME 回落
-        // 源,含 AIMAIL_PRODUCT_CODE 等机器级配置,strace 实证启动期读取)
+        // HOME points to the prog temp directory: isolates the dev machine's ~/.aimail/.env (HOME fallback for env_val
+        // source, includes machine-level config like AIMAIL_PRODUCT_CODE, strace proves read at startup)
         .env("HOME", prog_dir);
     for (k, _) in std::env::vars() {
-        // harness 变量豁免(上面刚设的),其余 AIMAIL_* 业务 env 全清
+        // harness variable exemption (just set above), clear all other AIMAIL_* business env
         if k.starts_with("AIMAIL_") && k != "AIMAIL_PROG_DIR" && k != "AIMAIL_HOME" {
             cmd.env_remove(k);
         }
@@ -134,7 +134,7 @@ fn run_env(prog_dir: &str, args: &[&str], extra: &[(&str, &str)]) -> (i32, Strin
     for (k, v) in extra {
         cmd.env(k, v);
     }
-    let out = cmd.output().expect("rust binary 可执行");
+    let out = cmd.output().expect("rust binary executable");
     (
         out.status.code().unwrap_or(-1),
         String::from_utf8_lossy(&out.stdout).to_string(),
@@ -148,8 +148,8 @@ fn install_reads_agent_home_env_when_no_flag_or_sid() {
     let prog = d.path().to_string_lossy().to_string();
     let agent_home = d.path().join("agent-home");
     std::fs::create_dir_all(&agent_home).unwrap();
-    // C-7:AGENT_HOME + 无 --home/--system-id ⇒ home 由 env 解析(与 welcome 身份链对齐)。
-    // 空临时目录下游 resolve_platform 无法定平台 ⇒ 响亮失败(rc=1),证明已越过 C-7 关口。
+    // C-7: AGENT_HOME + no --home/--system-id ⇒ home resolved by env (aligned with welcome identity chain).
+    // Empty temp dir causes downstream resolve_platform to fail to determine platform ⇒ loud failure (rc=1), proving C-7 gate passed.
     let (rc, out, _err) = run_env(
         &prog,
         &["install"],
@@ -157,15 +157,15 @@ fn install_reads_agent_home_env_when_no_flag_or_sid() {
     );
     assert_eq!(
         rc, 1,
-        "空目录无法定平台 ⇒ rc=1(证明 home 解析已通过): {out:?}"
+        "Empty dir cannot determine platform ⇒ rc=1 (proves home resolution passed): {out:?}"
     );
     assert!(
-        out.contains("--home 由 AGENT_HOME env 解析"),
-        "应展示 AGENT_HOME home 解析来源: out={out:?}"
+        out.contains("--home resolved from the AGENT_HOME env var"),
+        "Should show AGENT_HOME home resolution source: out={out:?}"
     );
     assert!(
-        !out.contains("install 需要 --home"),
-        "C-7:不再报缺 --home(home 已由 AGENT_HOME 提供): out={out:?}"
+        !out.contains("install requires --home"),
+        "C-7: no longer report missing --home (home provided by AGENT_HOME): out={out:?}"
     );
 }
 
@@ -175,9 +175,9 @@ fn install_reads_admin_key_env_when_no_flag() {
     let prog = d.path().to_string_lossy().to_string();
     let home = d.path().join("h");
     std::fs::create_dir_all(&home).unwrap();
-    // C-1:无 -k flag,AIMAIL_ADMIN_KEY env 作最后回落(复用扫描之后)。
-    // 死网关隔离 C-1 变量:有 env ⇒ 错误落在网关激活调用(凭据已装配);
-    // 无 env ⇒ no credential(凭据未装配)。两者不同 = env 回落生效。
+    // C-1: no -k flag, AIMAIL_ADMIN_KEY env as last fallback (after reuse scan).
+    // Dead gateway isolation C-1 variable: with env ⇒ error falls on gateway activation call (credentials assembled);
+    // without env ⇒ no credential (credentials not assembled). Different = env fallback effective.
     let (rc, out, err) = run_env(
         &prog,
         &[
@@ -190,17 +190,17 @@ fn install_reads_admin_key_env_when_no_flag() {
         ],
         &[("AIMAIL_ADMIN_KEY", "envkey1")],
     );
-    assert_ne!(rc, 0, "死网关必非零");
+    assert_ne!(rc, 0, "Dead gateway must be non-zero");
     assert!(
         !out.contains("no credential to activate with"),
-        "有 env 不应报缺凭据(凭据应已装配): out={out:?}"
+        "With env should not report missing credentials (credentials should be assembled): out={out:?}"
     );
     assert!(
         err.contains("admin_key path") || err.contains("admin key"),
-        "错误应落在 admin_key 激活路径(凭据已从 env 装配、越过缺凭据关口): err={err:?}"
+        "Error should fall on admin_key activation path (credentials assembled from env, passed missing credential gate): err={err:?}"
     );
-    // 对照:同参无 env ⇒ 响亮报缺凭据(rc=1)。**独立空 home**——有 env 那次激活失败前
-    // 已在本 home 写入指针,复用同一目录会让对照走复用分支(读到 sid)而非缺凭据。
+    // Contrast: same args without env ⇒ loudly reports missing credentials (rc=1). **Independent empty home**——before the activation failure with env
+    // writing pointer in this home, reusing same dir would make control take reuse branch (read sid) instead of missing credentials.
     let home2 = d.path().join("h2");
     std::fs::create_dir_all(&home2).unwrap();
     let (rc2, out2, _) = run_env(
@@ -215,21 +215,21 @@ fn install_reads_admin_key_env_when_no_flag() {
         ],
         &[],
     );
-    assert_eq!(rc2, 1, "无 -k 无 env 必须非零: {out2:?}");
+    assert_eq!(rc2, 1, "No -k no env must be non-zero: {out2:?}");
     assert!(
         out2.contains("no credential to activate with"),
-        "无凭据应报缺凭据: out={out2:?}"
+        "No credentials should report missing credentials: out={out2:?}"
     );
 }
 
 #[test]
 fn welcome_auto_resolves_single_system_without_flag() {
-    // C-6:welcome 文案(welcome.rs:59)承诺"本机单系统可自动判定"。
-    // AIMAIL_HOME 恰有一个有效系统(systems/<sid>/aimail_gateway.json)时,
-    // 无 --system-id 的 welcome 应自动判定到该 sid(越过"system_id 未解析"关口)。
-    // 观测点:单系统 ⇒ 落到"Missing gateway_url"(fixture 空 gw_url);
-    //        多系统 ⇒ 仍报"system_id 未解析"(不猜)。
-    // AGENT_HOME 置空,排除继承的平台指针串扰(只看单系统判定)。
+    // C-6: welcome text (welcome.rs:59) promises "local single system can be auto-determined".
+    // AIMAIL_HOME has exactly one valid system (systems/<sid>/aimail_gateway.json) when,
+    // Welcome without --system-id should automatically resolve to that sid (bypassing the "system_id unresolved" gate).
+    // Observation point: single system ⇒ lands on "Missing gateway_url" (fixture has empty gw_url);
+    //        multiple systems ⇒ still reports "system_id unresolved" (does not guess).
+    // AGENT_HOME set to empty, excluding inherited platform pointer interference (only looking at single system determination).
     let d = tempfile::tempdir().unwrap();
     let prog = d.path().to_string_lossy().to_string();
     let sysdir = d.path().join("home").join("systems").join("solo");
@@ -240,16 +240,16 @@ fn welcome_auto_resolves_single_system_without_flag() {
     )
     .unwrap();
     let (rc, out, _err) = run_env(&prog, &["welcome"], &[("AGENT_HOME", "")]);
-    assert_eq!(rc, 1, "fixture 空 gw_url ⇒ rc=1(已过 sid 关口): {out:?}");
+    assert_eq!(rc, 1, "fixture empty gw_url ⇒ rc=1 (passed sid gate): {out:?}");
     assert!(
         out.contains("Missing gateway_url"),
-        "单系统应自动判定到 solo(越过未解析关口、落到缺 gw_url): out={out:?}"
+        "Single system should auto-resolve to solo (passed unresolved gate, landed on missing gw_url): out={out:?}"
     );
     assert!(
-        !out.contains("system_id 未解析"),
-        "C-6:单系统机不应再报 system_id 未解析(应自动判定): out={out:?}"
+        !out.contains("system_id unresolved"),
+        "C-6: Single-system machine should no longer report system_id unresolved (should auto-resolve): out={out:?}"
     );
-    // 对照:两个系统 ⇒ 不猜,响亮报"system_id 未解析"
+    // Control: two systems ⇒ do not guess, loudly report "system_id unresolved"
     let d2 = tempfile::tempdir().unwrap();
     let prog2 = d2.path().to_string_lossy().to_string();
     for sid in ["a", "b"] {
@@ -262,9 +262,9 @@ fn welcome_auto_resolves_single_system_without_flag() {
         .unwrap();
     }
     let (rc2, out2, _e2) = run_env(&prog2, &["welcome"], &[("AGENT_HOME", "")]);
-    assert_eq!(rc2, 1, "多系统不猜必须非零: {out2:?}");
+    assert_eq!(rc2, 1, "Multiple systems must not guess, must be non-zero: {out2:?}");
     assert!(
-        out2.contains("system_id 未解析"),
-        "多系统应响亮报 system_id 未解析(不猜): out={out2:?}"
+        out2.contains("system_id unresolved"),
+        "Multiple systems should loudly report system_id unresolved (do not guess): out={out2:?}"
     );
 }

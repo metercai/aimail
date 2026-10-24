@@ -100,16 +100,16 @@ install_hermes() {
   fi
   local tmp; tmp="$(mktemp -d)"
   if [[ "$(uname -s)" == MINGW* ]]; then
-    # Windows(git-bash): 官方安装器 install.sh 拒 MINGW("On Windows use install.ps1")。
-    # install.ps1 布局与 install.sh 同树: tree=$hh/hermes-agent, launcher→$hh/bin/hermes.exe。
+    # Windows (git-bash): official installer install.sh rejects MINGW ("On Windows use install.ps1").
+    # install.ps1 layout is same tree as install.sh: tree=$hh/hermes-agent, launcher→$hh/bin/hermes.exe.
     curl -fsSL --retry 2 --connect-timeout 20 --max-time 60 \
       https://hermes-agent.nousresearch.com/install.ps1 -o "$tmp/install.ps1" \
       || die "hermes install.ps1 download failed"
     _hps=(); [ -n "${HERMES_COMMIT:-}" ] && _hps=(-Commit "$HERMES_COMMIT")
     say "pinned hermes commit: ${HERMES_COMMIT:-<installer default>}"
-    # 最小化: L3 只用 host + LLM + webhook 入站 + aimail preprocessor,
-    # 浏览器栈(agent-browser/chromium)与 computer-use(cua-driver)零消费者,
-    # 经 hermes 官方裁剪口 -SkipBrowser/-SkipComputerUse 裁掉(pm declined 记录)。
+    # Minimal: L3 only uses host + LLM + webhook inbound + aimail preprocessor,
+    # browser stack (agent-browser/chromium) and computer-use (cua-driver) have zero consumers,
+    # trimmed via hermes official trimming ports -SkipBrowser/-SkipComputerUse (pm declined record).
     HERMES_HOME="$hh" powershell -NoProfile -ExecutionPolicy Bypass -File "$tmp/install.ps1" \
       -SkipSetup -SkipBrowser -SkipComputerUse ${_hps[@]+"${_hps[@]}"} </dev/null \
       || die "hermes official install (install.ps1) failed"

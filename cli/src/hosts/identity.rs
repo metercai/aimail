@@ -1,17 +1,17 @@
-//! ① 身份面：宿主识别特征 + 语言类型 + 指针形态。
-//! 判定算法（Strict/Scan/Repair 三档）在 P2 迁入本模块。
+//! ① identity surface: host recognition features + language type + pointer form.
+//! The decision algorithm (Strict/Scan/Repair tiers) will be migrated to this module in P2.
 
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
-/// agent 系统的实现语言（由 `register.kind` 派生，取代分散的字符串比较）。
+/// The implementation language of the agent system (derived from `register.kind`, replacing scattered string comparisons).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Lang {
     Node,
     Python,
 }
 
-/// 指针形态：根指针 / 根 + `profiles/*`。
+/// Pointer shape: root pointer / root + `profiles/*`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PointerKind {
     Root,
@@ -27,7 +27,7 @@ impl PointerKind {
     }
 }
 
-/// 序列化成注册表里的形状 `{"kind": "..."}`（spec 输出逐字节保真）。
+/// Serialize into the registry shape `{"kind": "..."}` (spec output is byte-for-byte faithful).
 impl Serialize for PointerKind {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         let mut m = s.serialize_map(Some(1))?;
@@ -36,7 +36,7 @@ impl Serialize for PointerKind {
     }
 }
 
-/// 平台识别特征：`dir_name`（可选目录名闸）+ `markers`（必命中）。
+/// Platform identification features: `dir_name` (optional directory name gate) + `markers` (must hit).
 #[derive(Serialize, Clone, Copy)]
 pub struct Detect {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -48,7 +48,7 @@ use std::path::{Path, PathBuf};
 
 use crate::hosts::{all, get, order, Host};
 
-/// `Strict`：目录本身命中哪个平台（`dir_name` 可选 + `markers` 全命中）。
+/// `Strict`: which platform the directory itself hits (`dir_name` optional + all `markers` hit).
 pub fn hits_dir(d: &Path) -> Option<&'static str> {
     let name_of = d.file_name().map(|s| s.to_string_lossy().into_owned());
     for h in all() {
@@ -68,12 +68,12 @@ pub fn hits_dir(d: &Path) -> Option<&'static str> {
     None
 }
 
-/// `Strict`：`home` 的判定结果（识别不出 ⇒ `"unknown"`，不猜）。
+/// `Strict`: the decision result for `home` (if not identified ⇒ `"unknown"`, do not guess).
 pub fn detect_platform_from_home(home: &Path) -> &'static str {
     hits_dir(home).unwrap_or("unknown")
 }
 
-/// `Scan`：按"平台根候选"判定（原 `checks::adapters::detect_agent_type`）。
+/// `Scan`: decide based on "platform root candidates" (formerly `checks::adapters::detect_agent_type`).
 pub fn detect_agent_type(
     user_home: &Path,
     root: Option<&Path>,
@@ -108,7 +108,7 @@ pub fn detect_agent_type(
     "unknown"
 }
 
-/// `Repair`：宽松判定（原 `repair::detect_platform_for_repair`）。
+/// `Repair`: loose decision (formerly `repair::detect_platform_for_repair`).
 pub fn detect_for_repair(dir: &Path) -> &'static str {
     let name_of = dir.file_name().map(|s| s.to_string_lossy().into_owned());
     for h in all() {
@@ -127,14 +127,14 @@ pub fn detect_for_repair(dir: &Path) -> &'static str {
     "unknown"
 }
 
-/// `~`/`~/x` 展开走 [`crate::core::home::expand_user`]（跨平台单一实现：
-/// HOME 缺失时回落程序根父目录；Windows 同源），不在此另写一份。
+/// Expansion of `~`/`~/x` goes through [`crate::core::home::expand_user`] (single cross-platform implementation:
+/// falls back to the parent directory of the program root when HOME is missing; same source on Windows), do not write another copy here.
 fn expand(p: &Path) -> PathBuf {
     crate::core::home::expand_user(&p.to_string_lossy())
 }
 
-/// 把 `--home` 归一成**平台根**：自身命中 ⇒ 原样；恰有一个子目录命中 ⇒ 该子目录；
-/// 都不中 ⇒ 原样（让下游按原逻辑报错，不静默改语义）。返回值一律绝对路径。
+/// Normalize `--home` to a **platform root**: if it hits itself ⇒ keep as is; if exactly one subdirectory hits ⇒ that subdirectory;
+/// if none hit ⇒ keep as is (let downstream report errors according to original logic, do not silently change semantics). Return value is always an absolute path.
 pub fn normalize_platform_home(home: &Path) -> PathBuf {
     let p = if home.is_absolute() {
         home.to_path_buf()
@@ -165,7 +165,7 @@ pub fn normalize_platform_home(home: &Path) -> PathBuf {
     p
 }
 
-/// 平台根目录（`<user_home>/<home_dir>`）。
+/// Platform root directory (`<user_home>/<home_dir>`).
 pub fn platform_root(user_home: &Path, name: &str) -> PathBuf {
     let dir = get(name).map(|h| h.home_dir()).unwrap_or("");
     if dir.is_empty() {
@@ -175,7 +175,7 @@ pub fn platform_root(user_home: &Path, name: &str) -> PathBuf {
     }
 }
 
-/// 平台根存在**且**特征识别为该平台。
+/// Platform root exists **and** features identify it as this platform.
 pub fn platform_root_exists(user_home: &Path, name: &str) -> bool {
     let root = platform_root(user_home, name);
     if !root.exists() {
@@ -184,7 +184,7 @@ pub fn platform_root_exists(user_home: &Path, name: &str) -> bool {
     detect_platform_from_home(&root) == name
 }
 
-/// `--platform` 显式覆盖的取值校验：空 ⇒ `Ok(None)`；未知 ⇒ `Err(文案)`（不静默回落）。
+/// Validation of explicit override values for `--platform`: empty ⇒ `Ok(None)`; unknown ⇒ `Err(message)` (no silent fallback).
 pub fn platform_override(name: &str) -> Result<Option<String>, String> {
     let p = name.trim();
     if p.is_empty() {
@@ -201,10 +201,10 @@ pub fn platform_override(name: &str) -> Result<Option<String>, String> {
     Ok(Some(p.to_string()))
 }
 
-/// 平台解析：home 特征优先，回退"第一个有指针指向某 system 的宿主"；都没有 ⇒ `""`。
+/// Platform resolution: home features take priority, fallback to "the first host with a pointer pointing to a system"; if none ⇒ `""`.
 ///
-/// 与 [`detect_platform_from_home`] 的区别：后者无命中返回 `"unknown"`（**非空**），
-/// 直接当平台名会把"没识别出来"当成平台 ⇒ 必须走本函数收成 `""`。
+/// Difference from [`detect_platform_from_home`]: the latter returns `"unknown"` ( **non-empty** ) when no hit,
+/// using it directly as a platform name would treat "not identified" as a platform ⇒ must use this function to collect into `""`.
 pub fn resolve_platform(system_home: &Path) -> String {
     let p = if system_home.as_os_str().is_empty() {
         String::new()
@@ -234,8 +234,8 @@ mod tests {
             .expect("tempdir")
     }
 
-    /// 反例（历史事故）：`.hermes` 里也有 `profiles/`，Strict 必须靠 basename 闸
-    /// 拒掉 dsh，否则 install 会把 hermes home 判成 dsh。
+    /// Counter-example (historical incident): `.hermes` also has `profiles/`, Strict must rely on the basename gate
+    /// to reject dsh, otherwise install would judge hermes home as dsh.
     #[test]
     fn strict_basename_gate_keeps_hermes_out_of_dsh() {
         let t = tmp("id-strict");
@@ -245,7 +245,7 @@ mod tests {
         assert_eq!(detect_platform_from_home(&home), "hermes");
     }
 
-    /// Strict：pi/dsh 的 basename 闸生效（同特征换目录名 ⇒ 不认）。
+    /// Strict: pi/dsh basename gate is active (same feature with a different directory name ⇒ not recognized).
     #[test]
     fn strict_requires_the_declared_dir_name() {
         let t = tmp("id-gate");
@@ -258,7 +258,7 @@ mod tests {
         assert_eq!(detect_platform_from_home(&other), "unknown");
     }
 
-    /// Scan：扫 user_home 认平台；`--agent-home` 语义归 hermes。
+    /// Scan: scan user_home to recognize platform; `--agent-home` semantics belong to hermes.
     #[test]
     fn scan_mode_finds_hosts_under_user_home_and_honors_agent_home() {
         let t = tmp("id-scan");
@@ -268,7 +268,7 @@ mod tests {
         assert_eq!(detect_agent_type(uh, None, true), "hermes");
     }
 
-    /// Repair：宽松语义 —— 只有 `profiles/` 的 `.hermes` 也认（Strict 认不出）。
+    /// Repair: loose semantics -- only `.hermes` in `profiles/` is also recognized (Strict cannot recognize it).
     #[test]
     fn repair_mode_is_lenient_where_strict_is_not() {
         let t = tmp("id-repair");
@@ -278,20 +278,20 @@ mod tests {
         assert_eq!(detect_for_repair(&home), "hermes");
     }
 
-    /// 平台根归一：给父目录且恰有一个子目录命中 ⇒ 返回该子目录；不认识 ⇒ 原样。
+    /// Platform root normalization: given a parent directory and exactly one subdirectory hits ⇒ return that subdirectory; not recognized ⇒ keep as is.
     #[test]
     fn normalize_picks_the_single_recognized_child() {
         let t = tmp("id-normalize");
         let root = t.path().join("machine");
         std::fs::create_dir_all(root.join("openclaw").join("x")).unwrap();
         std::fs::write(root.join("openclaw/openclaw.json"), "{}").unwrap();
-        // basename 不是 .openclaw ⇒ Strict 不认（openclaw 无 dir_name 闸，但目录名随意）
+        // basename is not .openclaw ⇒ Strict does not recognize (openclaw has no dir_name gate, but directory name is arbitrary)
         let got = normalize_platform_home(&root);
         assert_eq!(got, root.join("openclaw"));
         assert_eq!(detect_platform_from_home(&got), "openclaw");
     }
 
-    /// `--platform` 取值校验：空 ⇒ None；合法 ⇒ 原样；未知 ⇒ 文案带全部合法值（升序）。
+    /// `--platform` value validation: empty ⇒ None; valid ⇒ keep as is; unknown ⇒ message contains all valid values (ascending order).
     #[test]
     fn platform_override_validates_against_the_registry() {
         assert_eq!(platform_override("").unwrap(), None);

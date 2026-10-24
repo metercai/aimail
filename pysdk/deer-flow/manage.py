@@ -1,34 +1,34 @@
 #!/usr/bin/env python3
-"""manage.py — DeerFlow 平台生命周期/入站安装单一管理模块(pysdk 自足)。
+"""manage.py — DeerFlow platform lifecycle/inbound installation single management module (pysdk self-contained).
 
-由 cli/deer-flow/{register_agent.py, reconcile.py, deregister_agent.py,
-install-inbound.sh} 迁移聚合而来(2026-09-02),去掉对 cli/runtime_core.py 的
-依赖:运行时核心/适配层经双形态自举定位(见 _bootstrap_runtime),之后
-裸导入即可用 —— import aimail_deerflow(适配层)/ import aimail_tools(核心)。
-业务逻辑逐字保留(幂等/错误处理/输出行),仅做结构性搬移。
+Migrated and aggregated from cli/deer-flow/{register_agent.py, reconcile.py, deregister_agent.py,
+install-inbound.sh} (2026-09-02), removing dependency on cli/runtime_core.py:
+Dependencies: The runtime core/adapter layer is located via dual-form bootstrap (see _bootstrap_runtime), after which
+bare imports are usable —— import aimail_deerflow (adapter layer) / import aimail_tools (core).
+Business logic preserved verbatim (idempotency/error handling/output lines), only structural relocation performed.
 
-函数:
+Functions:
   register_agents(manager, system_id, agent) -> int    ← register_agent.py main
   reconcile(system_id, manager, dry_run) -> int         ← reconcile.py main
   deregister_agents(agent, manager, system_id) -> int   ← deregister_agent.py main
-  patch_backend_app(backend_dir) -> bool                ← install-inbound.sh 内嵌 python(patch 段)
-  install_bundle(backend_dir, source_root, force) -> int← install-inbound.sh 前段(runtime_bundle 简化)
+  patch_backend_app(backend_dir) -> bool                ← python embedded in install-inbound.sh (patch section)
+  install_bundle(backend_dir, source_root, force) -> int← first section of install-inbound.sh (runtime_bundle simplification)
 
-子命令分发(if __name__ == '__main__',旧脚本用法兼容):
+Subcommand dispatch (if __name__ == '__main__', compatible with old script usage):
 
   python3 manage.py register    [--agent <id>|--all] [--manager M] [--system-id SID]
   python3 manage.py reconcile   [--system-id SID] [--manager M] [--dry-run]
   python3 manage.py deregister  --agent <id> [--manager M] [--system-id SID]
-  python3 manage.py patch       [DEER_FLOW_ROOT]          # 仅 app.py patch 段(幂等)
+  python3 manage.py patch       [DEER_FLOW_ROOT]          # app.py patch section only (idempotent)
   python3 manage.py install     [DEER_FLOW_ROOT] [--source-root DIR] [--force]
-                               # 完整流:捆绑安装 + app.py patch + 语法校验(原 install-inbound.sh)
+                               # Full flow: bundled install + app.py patch + syntax check (original install-inbound.sh)
 
-双形态自举(去 runtime_core):
-  形态1 仓库 dev:本文件在 pysdk/deer-flow/ 下,dirname(dirname(__file__)) =
-        pysdk/(含 aimail_base.py)即核心目录,直接挂 sys.path。
-  形态2 pip:site-packages/aimail/deer-flow/,aimail/ 包目录同样含
-        aimail_base.py;`import aimail`(glue,__init__ 把 aimail/ 插 sys.path)
-        兜底。本模块自身目录(适配层,含 aimail_deerflow.py)一并挂上。
+Dual-form bootstrap (removing runtime_core):
+  Form 1 repo dev: this file is under pysdk/deer-flow/, dirname(dirname(__file__)) =
+        pysdk/ (containing aimail_base.py) is the core directory, directly added to sys.path.
+  Form 2 pip: site-packages/aimail/deer-flow/, the aimail/ package directory also contains
+        aimail_base.py; `import aimail` (glue, __init__ inserts aimail/ into sys.path)
+        as a fallback. This module's own directory (adapter layer, containing aimail_deerflow.py) is also added.
 """
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ from datetime import datetime, timezone
 STAMP_NAME = ".aimail-runtime.json"
 MIN_PAYLOAD_VERSION = "0.1.0"
 
-# 捆绑定义:源相对路径(相对核心目录/源根)→ 目标文件名(宿主 routers/ 下)
+# Bundle definition: source relative path (relative to core directory/source root) → target filename (under host routers/)
 _BUNDLE_FILES = [
     ("deer-flow/aimail_inbound.py", "aimail_inbound.py"),
     ("deer-flow/aimail_deerflow.py", "aimail_deerflow.py"),
@@ -56,30 +56,30 @@ _BUNDLE_FILES = [
 ]
 
 
-# ── 双形态自举(替代 runtime_core.load_core/load_adapter)────────────────
+# ── Dual-form bootstrap (replaces runtime_core.load_core/load_adapter)────────────────
 def _bootstrap_runtime() -> tuple[str, str]:
-    """定位 (适配层目录, 核心目录) 并挂 sys.path(幂等)。
+    """Locate (adapter layer directory, core directory) and add to sys.path (idempotent).
 
-    形态1 仓库 pysdk:本文件在 <core>/deer-flow/manage.py,父目录含
-        aimail_base.py → 核心即 dirname(dirname(__file__))。
-    形态2 pip site-packages/aimail/deer-flow/:aimail/ 包目录同样含
-        aimail_base.py(同一公式命中);再以 `import aimail` glue 兜底
-        (aimail/__init__ 把包目录插 sys.path)。
-    核心缺失 → SystemExit(与原 runtime_core 同风格)。
+    Form 1 repo pysdk: this file is at <core>/deer-flow/manage.py, parent directory contains
+        aimail_base.py → core is dirname(dirname(__file__)).
+    Form 2 pip site-packages/aimail/deer-flow/: the aimail/ package directory also contains
+        aimail_base.py (same formula hits); then `import aimail` glue as fallback
+        (aimail/__init__ inserts package directory into sys.path).
+    Core missing → SystemExit(same style as original runtime_core).
     """
-    _here = os.path.dirname(os.path.abspath(__file__))          # 适配层目录
+    _here = os.path.dirname(os.path.abspath(__file__))          # adapter layer directory
     _parent = os.path.dirname(_here)
     _core = _parent if os.path.isfile(os.path.join(_parent, "aimail_base.py")) else ""
     if not _core:
         try:
-            import aimail  # glue:__init__ 把 aimail/ 目录插 sys.path  # noqa: F401
+            import aimail  # glue: __init__ inserts aimail/ directory into sys.path  # noqa: F401
             _pkg = os.path.dirname(os.path.abspath(aimail.__file__))
             if os.path.isfile(os.path.join(_pkg, "aimail_base.py")):
                 _core = _pkg
         except Exception:
             pass
     if not _core:
-        raise SystemExit("ERROR: aimail 运行时核心未找到(仓库 pysdk/ 与 pip aimail 均不可用)")
+        raise SystemExit("ERROR: aimail runtime core not found (neither repo pysdk/ nor pip aimail available)")
     for _d in (_here, _core):
         if _d not in sys.path:
             sys.path.insert(0, _d)
@@ -88,32 +88,32 @@ def _bootstrap_runtime() -> tuple[str, str]:
 
 _ADAPTER_DIR, _CORE_DIR = _bootstrap_runtime()
 
-import aimail_deerflow as _base     # noqa: E402   (deer-flow 适配层,本目录)
-import aimail_base as _core         # noqa: E402   (共享核心,父目录)
-import aimail_tools as _tools       # noqa: E402   (共享核心,父目录)
-import aimail_contract as _contract  # noqa: E402  (共享核心:agent 侧契约常量)
-# 注:resolve_register_webhook_url 定义在共享核心 aimail_base ——适配层 aimail_deerflow
-# 未转发,直接走 _core。路由/桥不在 SDK 里(2026-09-28 去桥化):注册链只写绑定与注册值,
-# 路由由 CLI 在"入站真在服务"之后自己推(cli/bridge_wire.py)。
+import aimail_deerflow as _base     # noqa: E402   (deer-flow adapter layer, this directory)
+import aimail_base as _core         # noqa: E402   (shared core, parent directory)
+import aimail_tools as _tools       # noqa: E402   (shared core, parent directory)
+import aimail_contract as _contract  # noqa: E402  (shared core: agent side contract constants)
+# Note: resolve_register_webhook_url is defined in the shared core aimail_base -- adapter layer aimail_deerflow
+# does not forward, goes directly to _core. Routing/bridge not in SDK (2026-09-28 de-bridging): registration chain only writes binding and registration value,
+# routing is pushed by CLI itself after "inbound truly in service" (cli/bridge_wire.py).
 
-# DeerFlow 本地入站端点(进程内预处理):路径 = 契约 INBOUND_PATH(不可变);
-# 端口可配(DEERFLOW_INBOUND_URL 覆盖,默认 = 契约 inbound_ports.deerflow)。
+# DeerFlow local inbound endpoint (in-process preprocessing): path = contract INBOUND_PATH (immutable);
+# port configurable (DEERFLOW_INBOUND_URL override, default = contract inbound_ports.deerflow).
 _DEERFLOW_INBOUND_DEFAULT = "http://127.0.0.1:%d" % _contract.INBOUND_PORTS["deerflow"]
 
 
 # ══════════════════════════════════════════════════════════════════════
-# 注册(register_agent.py 逐字移植)
+# Registration (register_agent.py verbatim port)
 # ══════════════════════════════════════════════════════════════════════
 def email_for_agent(agent_id: str, domain: str, system_name: str) -> str:
-    """地址派生(公共核心 email_for_agent;DeerFlow 默认名 default → agent)。"""
+    """Address derivation (public core email_for_agent; DeerFlow default name default → agent)."""
     return _base.email_for_agent(agent_id, domain, system_name,
                                  default_aliases=("default",))
 
 
 def discover_deerflow_agents() -> list:
-    """列出 DeerFlow agents: 扫描 skills 目录 + SOUL.md 判定(默认 lead agent)。
-    简化实现: 返回 ["default"](DeerFlow 默认 lead_agent);后续 reconcile()
-    做完整目录对账。"""
+    """List DeerFlow agents: scan skills directory + SOUL.md determination (default lead agent).
+    Simplified implementation: returns ["default"] (DeerFlow default lead_agent); subsequent reconcile()
+    does full directory reconciliation."""
     return ["default"]
 
 
@@ -121,10 +121,10 @@ def register_one(client, system_id: str, agent_id: str, email: str,
                  webhook_url: str, webhook_secret: str, manager_address: str,
                  domain: str, system_name: str, gateway_url: str,
                  local_webhook_url: str) -> dict:
-    """注册单个 agent: 核心链走公共 register_agent_email,平台部分只做本地落盘组装。
+    """Register single agent: core chain goes through public register_agent_email, platform part only does local disk assembly.
 
-    webhook_url(注册参数)三态(见 resolve_register_webhook_url);落盘的一律是
-    local_webhook_url(本地接收端点,唯一信任源,给 bridge 路由)。
+    webhook_url (registration parameter) three states (see resolve_register_webhook_url); the one persisted is always
+    local_webhook_url (local receiving endpoint, single source of truth, for bridge routing).
     """
     reg = _base.register_agent_email(
         client, system_id, email, webhook_url, webhook_secret,
@@ -141,9 +141,9 @@ def register_one(client, system_id: str, agent_id: str, email: str,
         "system_name": system_name,
         "manager_address": manager_address,
         "api_key": api_key,
-        # 激活 pending 时保留 code:下次 register/reconcile 直连 activate,不重注册
+        # Preserve code when activating pending: next register/reconcile directly connects to activate, no re-registration
         "activation_code": activation_code,
-        # agentmail.json webhook_url = 本地接收端点(唯一信任源,给 bridge 路由)
+        # agentmail.json webhook_url = local receiving endpoint (single source of truth, for bridge routing)
         "webhook_url": local_webhook_url,
         "webhook_secret": webhook_secret,
         "assistant_id": os.environ.get("DEERFLOW_ASSISTANT_ID", "lead_agent"),
@@ -152,33 +152,33 @@ def register_one(client, system_id: str, agent_id: str, email: str,
 
 
 def save_agent_config(agent_id: str, cfg: dict, system_id: str) -> None:
-    """落盘地址键 agentmail.json — 委托共享原子实现
-    (aimail_base.save_agent_config:tmp+rename+0600,与 TS config.ts 对等)。"""
+    """Disk address key agentmail.json — delegate to shared atomic implementation
+    (aimail_base.save_agent_config:tmp+rename+0600, equivalent to TS config.ts)."""
     path = _core.save_agent_config(agent_id, cfg, system_id)
     print(f"  ✓ saved {path}")
 
 
 def register_agents(manager: str = "", system_id: str = "", agent: str = "",
                     name: str = "") -> int:
-    """注册 DeerFlow agent(s) 到 aimail 系统。
+    """Register DeerFlow agent(s) to the aimail system.
 
-    注册链(register_email → 已存在更新 webhook → manager 白名单 → activate_address)
-    走公共核心 aimail_base.register_agent_email(所有平台共用)→ 落盘地址键
+    Register chain (register_email → update webhook if exists → manager whitelist → activate_address)
+    Use the common core aimail_base.register_agent_email(shared by all platforms) → disk address key
     agentmail.json(systems/{sid}/{cleaned_addr}/agentmail.json)。
 
     Args:
-        agent:     agent id;传 "all" 等价原 --all(discover_deerflow_agents());
-                  空串 → SystemExit "need --agent <id> or --all"。
-        name:      目标地址基名(P6/C2, 2026-10-02): 非空 ⇒ 邮箱按此派生, 注册器
-                  **直达**目标名 —— 退役"先默认名注册再 rename"的中间态(F13 根: 中间态
-                  在网关留无本地绑定的孤儿行); 空 = 按 agent_id 派生(旧行为)。
-        manager:   manager_address(审批联系人);缺省读 AIMAIL_MANAGER_ADDRESS 环境变量。
-        system_id: 缺省读 AIMAIL_SYSTEM_ID 环境变量 / detect_system_id()。
+        agent:     agent id; passing "all" is equivalent to the original --all (discover_deerflow_agents());
+                  empty string → SystemExit "need --agent <id> or --all".
+        name:      Target address base name (P6/C2, 2026-10-02): non-empty => email derived from this, registrar
+                  **Direct** target name —— Retire the intermediate state of "first register with default name then rename" (F13 root: intermediate state
+                  leaves orphan rows in the gateway without local binding); empty = derived from agent_id (legacy behavior).
+        manager:   manager_address (approval contact); defaults to reading the AIMAIL_MANAGER_ADDRESS environment variable.
+        system_id: defaults to reading the AIMAIL_SYSTEM_ID environment variable / detect_system_id().
 
     Returns:
-        0(原脚本恒返回 0;计数见输出行 registered: N/M)。
+        0 (original script always returned 0; see output line registered: N/M for counts).
 
-    例:
+    Example:
       register_agents(manager="admin@x.com", agent="default")
       register_agents(manager="admin@x.com", agent="all")
       register_agents(manager="admin@x.com", agent="work", system_id="SID")
@@ -194,36 +194,36 @@ def register_agents(manager: str = "", system_id: str = "", agent: str = "",
     if not manager:
         raise SystemExit("need --manager <addr> or env "
                          + " / ".join(_core.MANAGER_ENV_VARS)
-                         + " (审批联系人; 三名互认, owner 契约 2026-09-30)")
+                         + " (approval contact; three names mutually recognized, owner contract 2026-09-30)")
 
     client = _tools._GatewayClient(gw["gateway_url"], gw.get("admin_key", ""))
     agents = discover_deerflow_agents() if agent == "all" else [agent]
     if not agents:
         agents = ["default"]
 
-    # 本地接收端点(进程内预处理,DeerFlow 本地 gateway + 契约 INBOUND_PATH;
-    # DEERFLOW_INBOUND_URL 可覆盖);注册参数三态由 resolve_register_webhook_url 决定
+    # Local receiving endpoint (in-process preprocessing, DeerFlow local gateway + contract INBOUND_PATH;
+    # DEERFLOW_INBOUND_URL can override); registration parameter tri-state determined by resolve_register_webhook_url
     inbound_base = os.environ.get("DEERFLOW_INBOUND_URL", _DEERFLOW_INBOUND_DEFAULT)
     local_webhook_url = inbound_base.rstrip("/") + _contract.INBOUND_PATH
     reg_url = _core.resolve_register_webhook_url(gw, local_webhook_url)
 
     created = 0
     for agent_id in agents:
-        # 本地已有 pending 激活的绑定 → 直连补激活,不重注册
-        # (重注册走 exists 分支返回空 code,永远拿不到 api_key)
+        # Local pending activation binding already exists → direct reactivation, no re-registration
+        # (re-registration goes through exists branch returning empty code, never gets api_key)
         local = _local_agents(system_id).get(agent_id)
         if local and local.get("activation_code") and not local.get("api_key"):
             if _activate_pending(agent_id, local, system_id, gw):
                 created += 1
             continue
-        # C2: 目标名直达(P6 裁决) —— 邮箱派生用 name(计划给的目标基名), agent_id
-        # 仅承载平台语义(绑定/会话), 与 rename 后的终态同形
+        # C2: Direct target name (P6 ruling) —— email derivation uses name (the target base name given in the plan), agent_id
+        # only carries platform semantics (binding/session), same shape as the final state after rename
         email = email_for_agent(name or agent_id, gw["domain"],
                                 gw.get("system_name", ""))
-        # 2026-10-02 E2(与核心 E1 配套, 调用方卫生): 已有绑定 ⇒ 复用它的 secret, 只在缺失时
-        # 新铸。原实现每轮新随机会让"重注册"看起来像轮换: exists 分支把新值 PUT 覆写网关,
-        # 而绑定只在拿到 api_key/activation_code 时才落盘(manage.py:224-235)⇒ 两把钥匙
-        # (第 10 缺陷的引信; 一次 install 会注册 3 次 —— 注册表 install_steps)。
+        # 2026-10-02 E2 (paired with core E1, caller hygiene): existing binding => reuse its secret, only when missing
+        # Original implementation minted new random each round making "re-registration" look like rotation: exists branch PUT overwrites gateway with new value,
+        # And binding is only persisted when api_key/activation_code is obtained (manage.py:224-235) => two keys
+        # (fuse for defect 10; one install registers 3 times —— registry install_steps).
         webhook_secret = (_core.existing_binding_webhook_secret(system_id, email)
                           or _core.new_webhook_secret())
         cfg = register_one(
@@ -237,11 +237,11 @@ def register_agents(manager: str = "", system_id: str = "", agent: str = "",
             created += 1
             print(f"  ✓ {agent_id} → {email} (api_key ok)")
         elif cfg.get("activation_code"):
-            # 激活 pending:落盘保留 code,下次注册/对账直连 activate_address
-            # (不再重注册——exists 分支返回空 code,重注册永远拿不到 key)
+            # Activate pending: persist code, next registration/reconciliation direct connect to activate_address
+            # (no re-registration — the exists branch returns an empty code, so re-registration can never obtain the key)
             save_agent_config(agent_id, cfg, system_id)
             print(f"  ⚠ {agent_id} → {email} activation pending (code saved;"
-                  f" 重跑 register/reconcile 完成激活)")
+                  f" re-run register/reconcile to complete activation)")
         else:
             print(f"  ⚠ {agent_id} → {email} registered but no api_key (activation pending)")
 
@@ -250,10 +250,10 @@ def register_agents(manager: str = "", system_id: str = "", agent: str = "",
 
 
 # ══════════════════════════════════════════════════════════════════════
-# 对账(reconcile.py 逐字移植)
+# Reconciliation (reconcile.py verbatim port)
 # ══════════════════════════════════════════════════════════════════════
 def _local_agents(system_id: str) -> dict:
-    """读本地 aimail 注册表: {agent_id: cfg}。"""
+    """Read local aimail registry: {agent_id: cfg}."""
     out = {}
     base = os.path.join(_base.aimail_home(), "systems", str(system_id))
     if not os.path.isdir(base):
@@ -272,9 +272,9 @@ def _local_agents(system_id: str) -> dict:
 
 
 def _activate_pending(agent_id: str, cfg: dict, system_id: str, gw: dict) -> bool:
-    """agentmail.json 有 activation_code 无 api_key → activate_address 补激活
-    (对齐 hermes _auto_activate_profile:300s 限频,失败留存时间戳;
-    AUDIT-1 P1-4:曾因 code 不落盘而永远无法补激活)。"""
+    """agentmail.json has activation_code but no api_key → activate_address to complete activation
+    (aligned with hermes _auto_activate_profile:300s rate limit, failure retains timestamp;
+    AUDIT-1 P1-4: previously could never complete activation because code was not persisted)."""
     code = cfg.get("activation_code", "")
     if not code or cfg.get("api_key"):
         return False
@@ -306,25 +306,25 @@ def _activate_pending(agent_id: str, cfg: dict, system_id: str, gw: dict) -> boo
 
 
 def reconcile(system_id: str = "", manager: str = "", dry_run: bool = False) -> int:
-    """DeerFlow 生命周期对账(reconcile.py main 逐字移植,去 argparse;cron 调度用)。
+    """DeerFlow lifecycle reconciliation (reconcile.py main verbatim port, removed argparse; for cron scheduling).
 
-    DeerFlow 无事件总线(无 created/deleted 回调),agent 由目录定义(SOUL.md/
-    agents/)。以"目录为真相源"做幂等对账:
-      1. 扫描 DeerFlow agents 目录(默认只识别 lead agent "default")
-      2. 读 aimail 注册表(systems/{sid}/*/agentmail.json)
-      3. 差异动作(公共链幂等):
-         有/无 → register_agent_email(4 步链)→ 落盘 agentmail.json
-         无/有 → deregister_agent_email(3 步链)→ 清理本地
+    DeerFlow has no event bus (no created/deleted callbacks), agents are defined by directories (SOUL.md/
+    agents/). Perform idempotent reconciliation with "directory as source of truth":
+      1. Scan DeerFlow agents directory (default only recognizes lead agent "default")
+      2. Read aimail registry (systems/{sid}/*/agentmail.json)
+      3. Diff actions (common chain idempotent):
+         with/without → register_agent_email(4-step chain)→ persist to agentmail.json
+         none/yes → deregister_agent_email(3-step chain)→ clean up local
 
     Args:
-        system_id: 缺省读 AIMAIL_SYSTEM_ID 环境变量 / detect_system_id()。
-        manager:   manager_address;缺省读 AIMAIL_MANAGER_ADDRESS。
-        dry_run:   只打印差异,不执行。
+        system_id: Defaults to reading the AIMAIL_SYSTEM_ID environment variable / detect_system_id().
+        manager:   manager_address; defaults to reading AIMAIL_MANAGER_ADDRESS.
+        dry_run:   Only prints differences, does not execute.
 
     Returns:
-        0(成功;缺 system_id / gateway config → 1,stderr 输出)。
+        0(success; missing system_id / gateway config → 1, stderr output).
 
-    cron 示例(系统 crontab,每 30 分钟):
+    cron example (system crontab, every 30 minutes):
       */30 * * * * python3 .../manage.py reconcile --system-id SID
     """
     system_id = system_id or _base.detect_system_id()
@@ -336,24 +336,24 @@ def reconcile(system_id: str = "", manager: str = "", dry_run: bool = False) -> 
         print(f"gateway config not found for {system_id}", file=sys.stderr)
         return 1
 
-    # 1. 目录真相源(DeerFlow lead agent = "default";扩展扫描留待后续)
+    # 1. Directory source of truth (DeerFlow lead agent = "default"; extension scanning deferred to later)
     desired = {"default": {"assistant_id": gw.get("assistant_id", "lead_agent")}}
 
-    # 2. 本地注册表
+    # 2. Local registry
     local = _local_agents(system_id)
 
-    # 名互认兜底(AIMAIL_MANAGER_ADDRESS /
-    # INTEGRATE_MANAGER_ADDRESS)—— 历史裸名 AIMAIL_MANAGER 已退役(2026-10-17),
-    # 旧只认裸名的 bug 曾让 reconcile 恒得 '' 并把空值写进白名单(取证 P1 主跳)。
-    # 解析完仍为空由 register_agent_email 的硬门报错(不静默注册)。
+    # Name mutual recognition fallback (AIMAIL_MANAGER_ADDRESS /
+    # INTEGRATE_MANAGER_ADDRESS)—— historical bare name AIMAIL_MANAGER has been retired (2026-10-17),
+    # an old bug that only recognized the bare name caused reconcile to always get '' and write empty values into the whitelist (forensics P1 main hop).
+    # If still empty after resolution, register_agent_email's hard gate raises an error (no silent registration).
     manager = _core.resolve_manager_address(manager)
     client = _tools._GatewayClient(gw["gateway_url"], gw.get("admin_key", ""))
 
     changes = 0
     for agent_id, meta in desired.items():
         if agent_id in local:
-            # 已注册:补激活闭环(agentmail.json 有 activation_code 无 api_key
-            # → activate_address;对齐 hermes _auto_activate_profile,AUDIT-1 P1-4)
+            # Registered: complete activation loop (agentmail.json has activation_code but no api_key
+            # → activate_address; align hermes _auto_activate_profile, AUDIT-1 P1-4)
             lc = local[agent_id]
             if lc.get("activation_code") and not lc.get("api_key"):
                 if dry_run:
@@ -361,8 +361,8 @@ def reconcile(system_id: str = "", manager: str = "", dry_run: bool = False) -> 
                     changes += 1
                 elif _activate_pending(agent_id, lc, system_id, gw):
                     changes += 1
-            # 路由不在 SDK(2026-09-28 去桥化): 此处只补激活/对齐绑定; 路由由 CLI 在
-            # 入站真在服务之后推(宿主通知 `aimail address -a <addr> --inbound-live`)。
+            # Routing is not in the SDK (2026-09-28 de-bridging): here we only complete activation/align binding; routing is pushed by the CLI after
+            # inbound is truly live (host notification `aimail address -a <addr> --inbound-live`).
             continue
         if dry_run:
             print(f"  [dry] would register {agent_id}")
@@ -370,17 +370,17 @@ def reconcile(system_id: str = "", manager: str = "", dry_run: bool = False) -> 
             continue
         email = _base.email_for_agent(agent_id, gw["domain"], gw.get("system_name", ""),
                                       default_aliases=("default",))
-        # 2026-10-02 E2(与核心 E1 配套, 调用方卫生): 已有绑定 ⇒ 复用它的 secret, 只在缺失时
-        # 新铸。原实现每轮新随机会让"重注册"看起来像轮换: exists 分支把新值 PUT 覆写网关,
-        # 而绑定只在拿到 api_key/activation_code 时才落盘(manage.py:224-235)⇒ 两把钥匙
-        # (第 10 缺陷的引信; 一次 install 会注册 3 次 —— 注册表 install_steps)。
+        # 2026-10-02 E2 (paired with core E1, caller hygiene): existing binding => reuse its secret, only when missing
+        # Original implementation minted a new random value each round making "re-registration" look like rotation: the exists branch PUT overwrote the gateway with the new value,
+        # And binding only persists to disk once api_key/activation_code is obtained (manage.py:224-235) => two keys
+        # (the fuse for Defect 10; a single install registers 3 times -- registry install_steps).
         webhook_secret = (_core.existing_binding_webhook_secret(system_id, email)
                           or _core.new_webhook_secret())
-        # 本地接收端点(进程内预处理,DeerFlow 本地 gateway + 契约 INBOUND_PATH;
-        # DEERFLOW_INBOUND_URL 可覆盖,2026-08-18 重构)
+        # Local receiving endpoint (in-process preprocessing, DeerFlow local gateway + contract INBOUND_PATH;
+        # DEERFLOW_INBOUND_URL can override, 2026-08-18 refactor)
         inbound_base = os.environ.get("DEERFLOW_INBOUND_URL", _DEERFLOW_INBOUND_DEFAULT)
         local_webhook_url = inbound_base.rstrip("/") + _contract.INBOUND_PATH
-        # 注册参数三态:push=bridge 公网入口 / pull=空 / 无 bridge=本地端点
+        # Registration parameter tri-state: push=bridge public entry / pull=empty / no bridge=local endpoint
         reg_url = _core.resolve_register_webhook_url(gw, local_webhook_url)
         reg = _base.register_agent_email(
             client, system_id, email, reg_url, webhook_secret, manager,
@@ -394,18 +394,18 @@ def reconcile(system_id: str = "", manager: str = "", dry_run: bool = False) -> 
                 "system_name": gw.get("system_name", ""),
                 "manager_address": manager,
                 "api_key": reg["api_key"],
-                # agentmail.json webhook_url = 本地接收端点(唯一信任源,给 bridge 路由)
+                # agentmail.json webhook_url = local receiving endpoint (single source of truth, for bridge routing)
                 "webhook_url": local_webhook_url,
                 "webhook_secret": webhook_secret,
                 "assistant_id": meta.get("assistant_id", "lead_agent"),
             }
-            # 落盘走共享薄壳(原子 0600,AUDIT-1 P1-5:曾私有直写无 0600)
+            # Persistence uses shared thin shell (atomic 0600, AUDIT-1 P1-5: was private direct write without 0600)
             save_agent_config(agent_id, cfg, system_id)
             changes += 1
             print(f"  ✓ registered {agent_id} → {email}")
         else:
-            # activation pending:把 activation_code 落盘,后续 reconcile 补激活
-            # (曾只 print 丢弃 code → 永远无法补激活;AUDIT-1 P1-4)
+            # activation pending: persist activation_code, subsequent reconcile completes activation
+            # (previously only print discarded code → could never re-activate; AUDIT-1 P1-4)
             cfg = {
                 "email": email,
                 "gateway_url": gw["gateway_url"],
@@ -414,7 +414,7 @@ def reconcile(system_id: str = "", manager: str = "", dry_run: bool = False) -> 
                 "system_name": gw.get("system_name", ""),
                 "manager_address": manager,
                 "api_key": "",
-                # agentmail.json webhook_url = 本地接收端点(唯一信任源,给 bridge 路由)
+                # agentmail.json webhook_url = local receiving endpoint (single source of truth, for bridge routing)
                 "webhook_url": local_webhook_url,
                 "webhook_secret": webhook_secret,
                 "assistant_id": meta.get("assistant_id", "lead_agent"),
@@ -424,9 +424,9 @@ def reconcile(system_id: str = "", manager: str = "", dry_run: bool = False) -> 
             changes += 1
             print(f"  ⚠ {agent_id} → {email} activation pending (code retained)")
 
-    # 3. 注销:不再由 reconcile 承担(AUDIT-1 P2-4)——desired 目前只含
-    # "default"(目录扩展扫描留待后续),曾注册的非默认 agent 会被误注销。
-    # 废弃 agent 的清理走显式命令 deregister_agents(注销链公共核心,幂等)。
+    # 3. Unregister: no longer handled by reconcile (AUDIT-1 P2-4) -- desired currently only contains
+    # "default" (directory extension scanning deferred to later), previously registered non-default agents would be mistakenly deregistered.
+    # Cleanup of deprecated agents goes through explicit command deregister_agents (deregistration chain common core, idempotent).
 
     if changes == 0:
         print("  no changes")
@@ -434,24 +434,24 @@ def reconcile(system_id: str = "", manager: str = "", dry_run: bool = False) -> 
 
 
 # ══════════════════════════════════════════════════════════════════════
-# 注销(deregister_agent.py 逐字移植)
+# Deregistration (verbatim port from deregister_agent.py)
 # ══════════════════════════════════════════════════════════════════════
 def deregister_agents(agent: str, manager: str = "", system_id: str = "") -> int:
-    """注销 DeerFlow agent。
+    """Deregister DeerFlow agent.
 
-    注销链(api-key → domain → whitelist)走公共核心
-    aimail_base.deregister_agent_email(所有平台共用,幂等),随后清理本地
+    Deregistration chain (api-key → domain → whitelist) uses the common core
+    aimail_base.deregister_agent_email (shared by all platforms, idempotent), then cleans up local
     agentmail.json。
 
     Args:
-        agent:     agent id(默认名 default);空串 → SystemExit "need --agent <id>"。
-        manager:   manager_address;缺省读本地 cfg.manager_address / AIMAIL_MANAGER_ADDRESS。
-        system_id: 缺省读 AIMAIL_SYSTEM_ID 环境变量 / detect_system_id()。
+        agent:     agent id (default name default); empty string → SystemExit "need --agent <id>".
+        manager:   manager_address; defaults to reading local cfg.manager_address / AIMAIL_MANAGER_ADDRESS.
+        system_id: Defaults to reading the AIMAIL_SYSTEM_ID environment variable / detect_system_id().
 
     Returns:
-        0(成功;本地未注册也返回 0 并提示 nothing to do)。
+        0 (success; returns 0 and prompts nothing to do if not registered locally).
 
-    例:
+    Example:
       deregister_agents(agent="default")
       deregister_agents(agent="default", system_id="SID")
     """
@@ -475,8 +475,8 @@ def deregister_agents(agent: str, manager: str = "", system_id: str = "") -> int
     result = _base.deregister_agent_email(client, system_id, email, manager)
     print(f"  deregister {agent} ({email}): {json.dumps(result, ensure_ascii=False)}")
 
-    # 清理本地 agentmail.json(目录键与共享 _clean_agent_dir_name 同源——
-    # 本地 re.sub 缺 re.ASCII,非 ASCII 字符会被 unicode \w 保留而错目录)
+    # Clean up local agentmail.json (directory key shares the same source as _clean_agent_dir_name --
+    # local re.sub lacks re.ASCII, non-ASCII characters are preserved by unicode \w causing wrong directory)
     try:
         cleaned = _core._clean_agent_dir_name(email)
     except Exception:
@@ -489,40 +489,40 @@ def deregister_agents(agent: str, manager: str = "", system_id: str = "") -> int
 
 
 # ══════════════════════════════════════════════════════════════════════
-# app.py patch(install-inbound.sh 内嵌 python 段完整提取,幂等)
+# app.py patch (complete extraction of the embedded python segment in install-inbound.sh, idempotent)
 # ══════════════════════════════════════════════════════════════════════
 def _gateway_layout(backend_dir: str) -> tuple[str, str]:
-    """解析 DeerFlow gateway 目录与 app.py 路径。
+    """Parse DeerFlow gateway directory and app.py path.
 
-    backend_dir 可传 DeerFlow 仓库根(install-inbound.sh 的 DEER_FLOW_ROOT,
-    默认 ~/deer-flow)或已含 backend 的目录(如 .../deer-flow/backend);两者
-    均自动识别。返回 (gateway_dir, app_py)。
+    backend_dir may be the DeerFlow repo root (DEER_FLOW_ROOT of install-inbound.sh,
+    default ~/deer-flow) or a directory already containing backend (e.g., .../deer-flow/backend); both
+    are automatically recognized. Returns (gateway_dir, app_py).
     """
     root = os.path.abspath(os.path.expanduser(backend_dir))
     for g in (os.path.join(root, "backend", "app", "gateway"),
               os.path.join(root, "app", "gateway")):
         if os.path.isfile(os.path.join(g, "app.py")):
             return g, os.path.join(g, "app.py")
-    # 缺省按仓库根布局返回(错误信息展示期望路径)
+    # Default returns based on repository root layout (error message displays expected path)
     g = os.path.join(root, "backend", "app", "gateway")
     return g, os.path.join(g, "app.py")
 
 
 def patch_backend_app(backend_dir: str) -> bool:
-    """patch DeerFlow backend/app/gateway/app.py(幂等;install-inbound.sh patch 段)。
+    """patch DeerFlow backend/app/gateway/app.py (idempotent; install-inbound.sh patch segment).
 
-    2a. import 行: 在 "    agents,\\n" 后插 "    aimail_inbound,\\n"(字母序相邻)。
-    2b. include_router 行: 在 "    app.include_router(agents.router)\\n" 后插
+    2a. import line: after "    agents,\\n" insert "    aimail_inbound,\\n" (adjacent alphabetically).
+    2b. include_router line: after "    app.include_router(agents.router)\\n" insert
         "    app.include_router(aimail_inbound.router)\\n"。
 
     Args:
-        backend_dir: DeerFlow 仓库根(或含 backend 的目录)。
+        backend_dir: DeerFlow repository root (or directory containing backend).
 
     Returns:
-        True  = 本次应用了修改;False = app.py 已含 aimail_inbound(幂等跳过)。
+        True = modifications applied this time; False = app.py already contains aimail_inbound (idempotent skip).
 
     Raises:
-        SystemExit: app.py 不存在或锚点缺失(文案与原脚本一致)。
+        SystemExit: app.py does not exist or anchor is missing (message consistent with original script).
     """
     g_dir, app_py = _gateway_layout(backend_dir)
     if not os.path.isfile(app_py):
@@ -530,16 +530,16 @@ def patch_backend_app(backend_dir: str) -> bool:
     src = open(app_py, encoding="utf-8").read()
     changed = False
 
-    # 2a-0. 先清掉本补丁自身早前形态插入的旧锚点行(模块名改名前的形态)。
-    # 不做这步:app.py 同时含新旧两行 → import 旧模块失败,而幂等检查
-    # (看新名在不在)判定"已含"→ 安装报成功但宿主起不来。
+    # 2a-0. First clear old anchor lines inserted by previous forms of this patch (form before module name change).
+    # Not doing this step: app.py contains both old and new lines → import old module fails, while idempotency check
+    # (check if new name exists) determine "already included" → install reports success but host fails to start.
     for stale in ("    agentmail_inbound,\n",
                   "    app.include_router(agentmail_inbound.router)\n"):
         if stale in src:
             src = src.replace(stale, "", 1)
             changed = True
 
-    # 2a. import 行:挂在 agents 之后(字母序相邻)
+    # 2a. import line: attached after agents (alphabetically adjacent)
     import_marker = "    agents,\n"
     import_line = "    aimail_inbound,\n"
     if import_line not in src:
@@ -549,7 +549,7 @@ def patch_backend_app(backend_dir: str) -> bool:
         else:
             raise SystemExit("ERROR: import anchor 'agents,' not found in routers import block")
 
-    # 2b. include_router 行:挂在 agents.router 之后
+    # 2b. include_router line: attached after agents.router
     route_marker = "    app.include_router(agents.router)\n"
     route_line = "    app.include_router(aimail_inbound.router)\n"
     if route_line not in src:
@@ -559,11 +559,11 @@ def patch_backend_app(backend_dir: str) -> bool:
         else:
             raise SystemExit("ERROR: include_router anchor 'agents.router' not found")
 
-    # 2c. agent-scope 定时轮询入口(install 收尾接线): 长驻宿主启动即起 pull 循环。
-    #     地址级激活码兑来的地址没有 push 路径(网关给它写 webhook_url = NULL),
-    #     只能自己定时 pull —— 判定/间隔/关停/失败不 ack 在共享核心
-    #     (aimail_base start_agent_pull_entries), 这里只把"启动收尾"这一步接上:
-    #     挂在 include_router 之后(与路由同一段 app 装配), 起停随宿主生命周期。
+    # 2c. agent-scope scheduled polling entry (install finishing wiring): long-running host starts pull loop upon startup.
+    #     Addresses activated via address-level activation codes have no push path (gateway writes webhook_url = NULL for them),
+    #     can only pull on its own schedule -- decision/interval/shutdown/failure no-ack in shared core
+    #     (aimail_base start_agent_pull_entries), here we only wire up the "startup finishing" step:
+    #     attached after include_router (same app assembly section as routes), start/stop follows host lifecycle.
     pull_line = ("    aimail_inbound.start_pull_on_startup(app)"
                  "  # aimail: agent-scope pull entry\n")
     if pull_line not in src:
@@ -577,7 +577,7 @@ def patch_backend_app(backend_dir: str) -> bool:
         open(app_py, "w", encoding="utf-8").write(src)
         print("  ✓ app.py patched (import + include_router + pull entry)")
         return True
-    print("  ✓ app.py 已含 aimail_inbound + pull entry(跳过)")
+    print("  ✓ app.py already contains aimail_inbound + pull entry (skipped)")
     return False
 
 
@@ -607,7 +607,7 @@ def unpatch_backend_app(backend_dir: str) -> bool:
 
 
 # ══════════════════════════════════════════════════════════════════════
-# 捆绑安装(install-inbound.sh 前段 runtime_bundle 调用的简化移植)
+# Bundled install (simplified port of the runtime_bundle call in the first half of install-inbound.sh)
 # ══════════════════════════════════════════════════════════════════════
 def _md5(path: str) -> str:
     h = hashlib.md5()
@@ -618,7 +618,7 @@ def _md5(path: str) -> str:
 
 
 def _source_kind(core_dir: str) -> str:
-    """源类型判定(repo pysdk/ vs pip site-packages/aimail/,仅影响版本戳)。"""
+    """Source type determination (repo pysdk/ vs pip site-packages/aimail/, only affects version stamp)."""
     if os.path.basename(os.path.abspath(core_dir)) == "pysdk":
         return "repo"
     try:
@@ -631,7 +631,7 @@ def _source_kind(core_dir: str) -> str:
 
 
 def _bundle_version(core_dir: str, kind: str) -> str:
-    """捆绑源版本: pip → aimail.__version__;repo → git describe(失败 dev)。"""
+    """Bundled source version: pip → aimail.__version__; repo → git describe (dev on failure)."""
     if kind == "pip":
         try:
             import aimail  # type: ignore
@@ -649,36 +649,36 @@ def _bundle_version(core_dir: str, kind: str) -> str:
 
 
 def install_bundle(backend_dir: str, source_root: str = "", force: bool = False) -> int:
-    """安装 deer-flow 运行时捆绑到宿主 routers/(扁平,幂等,md5 漂移可检出)。
+    """Install deer-flow runtime bundle to host routers/ (flat, idempotent, md5 drift detectable).
 
-    源(pysdk 单一真源,8 文件)→ 目标 <gateway>/routers/:
+    Source (pysdk single source of truth, 8 files) → target <gateway>/routers/:
       deer-flow/{aimail_inbound.py, aimail_deerflow.py}
       {aimail_base.py, aimail_tools.py, aimail_board.py, aimail_contract.py,
        gateway_api.py, _aimail_bootstrap.py}
-    落 .aimail-runtime.json 版本戳(bundle/version/source/installed_at/
-    min_version/files md5),与原 runtime_bundle 戳同构。
+    Writes .aimail-runtime.json version stamp (bundle/version/source/installed_at/
+    min_version/files md5), isomorphic to the original runtime_bundle stamp.
 
     Args:
-        backend_dir: DeerFlow 仓库根(或含 backend 的目录)。
-        source_root: 源根显式指定(须含 aimail_base.py);缺省用本模块自举出的
-                     核心目录(仓库 pysdk/ 或 pip aimail/ 包目录)。
-        force:       强制覆盖(忽略 md5 一致跳过)。
+        backend_dir: DeerFlow repository root (or directory containing backend).
+        source_root: Explicitly specify source root (must contain aimail_base.py); default uses the core directory
+                     bootstrapped by this module (repo pysdk/ or pip aimail/ package directory).
+        force:       Force overwrite (ignore md5 match skip).
 
     Returns:
-        0 = 完成(全部一致或已更新);1 = 源文件缺失。
+        0 = completed (all consistent or updated); 1 = source file missing.
     """
     if source_root:
         root = os.path.abspath(os.path.expanduser(source_root))
         if not os.path.isfile(os.path.join(root, "aimail_base.py")):
-            raise SystemExit(f"ERROR: --source-root 无效(无 aimail_base.py): {root}")
+            raise SystemExit(f"ERROR: --source-root invalid (no aimail_base.py): {root}")
         kind = _source_kind(root)
     else:
         root, kind = _CORE_DIR, _source_kind(_CORE_DIR)
     version = _bundle_version(root, kind)
 
     g_dir, _app_py = _gateway_layout(backend_dir)
-    # 扁平铺进 routers/：app.py 以 `from .routers import aimail_inbound` 导入，
-    # router 与 core 必须同目录（与 cli/runtime_bundle.py 的 deer-flow spec 一致）。
+    # Flatten into routers/: app.py imports via `from .routers import aimail_inbound`,
+    # router and core must be in the same directory (consistent with the deer-flow spec in cli/runtime_bundle.py).
     dst_dir = os.path.join(g_dir, "routers")
 
     changed, missing_src = [], []
@@ -695,11 +695,11 @@ def install_bundle(backend_dir: str, source_root: str = "", force: bool = False)
             changed.append(dst_name)
 
     if missing_src:
-        print(f"  ✗ deer-flow: 源缺失 {missing_src}(源根 {root})")
+        print(f"  ✗ deer-flow: source missing {missing_src} (source root {root})")
         return 1
 
     _keep_names = {name for _rel, name in _BUNDLE_FILES}
-    # 清理上一版台账里有、本次不再随包分发的旧文件(改名/退役残留)
+    # Clean up old files from the previous ledger that are no longer distributed with the package (renamed/retired leftovers)
     pruned = []
     _stamp_file = os.path.join(dst_dir, STAMP_NAME)
     if os.path.isfile(_stamp_file):
@@ -711,7 +711,7 @@ def install_bundle(backend_dir: str, source_root: str = "", force: bool = False)
         for _stale in sorted(set(_old_files) - _keep_names):
             _p = os.path.join(dst_dir, _stale)
             if os.path.dirname(os.path.abspath(_p)) != os.path.abspath(dst_dir):
-                continue                    # 只删本目录内的文件(防路径穿越)
+                continue                    # Only delete files within this directory (prevent path traversal)
             if os.path.isfile(_p):
                 os.remove(_p)
                 pruned.append(_stale)
@@ -733,59 +733,59 @@ def install_bundle(backend_dir: str, source_root: str = "", force: bool = False)
     os.replace(tmp, os.path.join(dst_dir, STAMP_NAME))
 
     if pruned:
-        print(f"  ✓ deer-flow: 清理旧文件 {pruned} → {dst_dir}")
+        print(f"  ✓ deer-flow: Cleaned up old files {pruned} → {dst_dir}")
     if changed:
-        print(f"  ✓ deer-flow: 更新 {len(changed)} 文件 → {dst_dir} (v{version}, {kind})")
+        print(f"  ✓ deer-flow: Updated {len(changed)} files → {dst_dir} (v{version}, {kind})")
     else:
-        print(f"  ✓ deer-flow: 已一致(跳过)→ {dst_dir} (v{version}, {kind})")
+        print(f"  ✓ deer-flow: Already consistent (skipped) → {dst_dir} (v{version}, {kind})")
     return 0
 
 
 # ══════════════════════════════════════════════════════════════════════
-# CLI 子命令分发(原脚本用法兼容)
+# CLI subcommand dispatch (compatible with original script usage)
 # ══════════════════════════════════════════════════════════════════════
 def main(argv: list | None = None) -> int:
     import argparse
-    ap = argparse.ArgumentParser(description="DeerFlow aimail 管理(注册/对账/注销/入站安装)")
+    ap = argparse.ArgumentParser(description="DeerFlow aimail management (register/reconcile/deregister/install inbound)")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    # register_agent.py 同款参数
-    p = sub.add_parser("register", description="注册 DeerFlow agent 到 aimail")
+    # Same parameters as register_agent.py
+    p = sub.add_parser("register", description="Register DeerFlow agent to aimail")
     p.add_argument("--agent", default="")
     p.add_argument("--name", default="",
-                   help="目标地址基名(P6/C2: 注册器**直达**此名, 不再先注册默认名再 rename);"
-                        " 空 = 按 --agent 派生(旧行为)")
-    p.add_argument("--all", action="store_true", help="注册全部 DeerFlow agents")
-    p.add_argument("--manager", default="", help="manager_address(审批联系人);缺省读 AIMAIL_MANAGER_ADDRESS 环境变量")
+                   help="Target address base name (P6/C2: registrar **directly** uses this name, no longer registers default name then renames);"
+                        " empty = derived from --agent (legacy behavior)")
+    p.add_argument("--all", action="store_true", help="Register all DeerFlow agents")
+    p.add_argument("--manager", default="", help="manager_address (approval contact); defaults to reading AIMAIL_MANAGER_ADDRESS env var")
     p.add_argument("--system-id", default=os.environ.get("AIMAIL_SYSTEM_ID", ""))
     p.set_defaults(func=lambda a: _cmd_register(a))
 
-    # reconcile.py 同款参数
-    p = sub.add_parser("reconcile", description="DeerFlow 生命周期对账")
+    # Same parameters as reconcile.py
+    p = sub.add_parser("reconcile", description="DeerFlow lifecycle reconciliation")
     p.add_argument("--system-id", default=os.environ.get("AIMAIL_SYSTEM_ID", ""))
-    p.add_argument("--manager", default="", help="manager_address;缺省读 AIMAIL_MANAGER_ADDRESS")
-    p.add_argument("--dry-run", action="store_true", help="只打印差异,不执行")
+    p.add_argument("--manager", default="", help="manager_address; defaults to reading AIMAIL_MANAGER_ADDRESS")
+    p.add_argument("--dry-run", action="store_true", help="Only print differences, do not execute")
     p.set_defaults(func=lambda a: reconcile(system_id=a.system_id, manager=a.manager,
                                             dry_run=a.dry_run))
 
-    # deregister_agent.py 同款参数
-    p = sub.add_parser("deregister", description="注销 DeerFlow agent 从 aimail")
-    p.add_argument("--agent", required=True, help="agent id(默认名 default)")
-    p.add_argument("--manager", default="", help="manager_address;缺省读 AIMAIL_MANAGER_ADDRESS")
+    # Same parameters as deregister_agent.py
+    p = sub.add_parser("deregister", description="Deregister DeerFlow agent from aimail")
+    p.add_argument("--agent", required=True, help="agent id (default name default)")
+    p.add_argument("--manager", default="", help="manager_address; defaults to reading AIMAIL_MANAGER_ADDRESS")
     p.add_argument("--system-id", default=os.environ.get("AIMAIL_SYSTEM_ID", ""))
     p.set_defaults(func=lambda a: deregister_agents(agent=a.agent, manager=a.manager,
                                                     system_id=a.system_id))
 
-    # install-inbound.sh: patch 段(仅 app.py)
-    p = sub.add_parser("patch", description="patch DeerFlow backend app.py(幂等;import + include_router)")
-    p.add_argument("deerflow_root", nargs="?", default="~/deer-flow", help="DeerFlow 仓库根(默认 ~/deer-flow)")
+    # install-inbound.sh: patch section (app.py only)
+    p = sub.add_parser("patch", description="patch DeerFlow backend app.py (idempotent; import + include_router)")
+    p.add_argument("deerflow_root", nargs="?", default="~/deer-flow", help="DeerFlow repo root (default ~/deer-flow)")
     p.set_defaults(func=lambda a: _cmd_patch(a))
 
-    # install-inbound.sh: 完整流(捆绑安装 + patch + 校验)
-    p = sub.add_parser("install", description="安装 deer-flow 入站捆绑 + patch app.py + 校验")
-    p.add_argument("deerflow_root", nargs="?", default="~/deer-flow", help="DeerFlow 仓库根(默认 ~/deer-flow)")
-    p.add_argument("--source-root", default="", help="捆绑源根(缺省=pysdk/pip aimail 包目录)")
-    p.add_argument("--force", action="store_true", help="强制覆盖(忽略 md5 一致跳过)")
+    # install-inbound.sh: full flow (bundled install + patch + verification)
+    p = sub.add_parser("install", description="Install deer-flow inbound bundle + patch app.py + verify")
+    p.add_argument("deerflow_root", nargs="?", default="~/deer-flow", help="DeerFlow repo root (default ~/deer-flow)")
+    p.add_argument("--source-root", default="", help="Bundle source root (default = pysdk/pip aimail package directory)")
+    p.add_argument("--force", action="store_true", help="Force overwrite (ignore md5 match skip)")
     p.set_defaults(func=lambda a: _cmd_install(a))
 
     args = ap.parse_args(argv)
@@ -793,30 +793,30 @@ def main(argv: list | None = None) -> int:
 
 
 def _cmd_register(a) -> int:
-    """register 子命令: --agent/--all 互斥校验(原 argparse 文案)后转函数。"""
+    """register subcommand: --agent/--all mutual exclusion check (original argparse text) then convert to function."""
     if not a.agent and not a.all:
         raise SystemExit("need --agent <id> or --all")
     if a.agent and a.all:
         raise SystemExit("--agent and --all are mutually exclusive")
     agent = a.agent or ("all" if a.all else "")
-    # --name 只对单 agent 生效(--all 枚举各 agent 自派生地址, 不接受统一名)
+    # --name only applies to single agent (--all enumerates each agent to derive address, does not accept unified name)
     name = a.name if a.agent else ""
     return register_agents(manager=a.manager, system_id=a.system_id, agent=agent,
                            name=name)
 
 
 def _cmd_patch(a) -> int:
-    """patch 子命令: 仅 patch app.py + 锚点确认。"""
+    """patch subcommand: only patch app.py + anchor confirmation."""
     patch_backend_app(a.deerflow_root)
-    # 锚点确认(原脚本 step-3 grep;patch 本身成功即锚点存在,此处复核)
+    # Anchor confirmation (original script step-3 grep; patch success implies anchor exists, re-verify here)
     _g, app_py = _gateway_layout(a.deerflow_root)
     if os.path.isfile(app_py) and "aimail_inbound" in open(app_py, encoding="utf-8").read():
-        print("  ✓ 锚点确认(app.py 含 aimail_inbound)")
+        print("  ✓ Anchor confirmed (app.py contains aimail_inbound)")
     return 0
 
 
 def _cmd_install(a) -> int:
-    """install 子命令: 复刻 install-inbound.sh 完整流(捆绑 → patch → 校验)。"""
+    """install subcommand: replicate install-inbound.sh full flow (bundle → patch → verify)."""
     rc = install_bundle(a.deerflow_root, source_root=a.source_root, force=a.force)
     if rc != 0:
         return rc
@@ -826,13 +826,13 @@ def _cmd_install(a) -> int:
         print(e)
         return 1
 
-    # step-3 校验:语法(宿主 venv 存在时)+ 锚点;venv 缺失仅跳过语法编译
+    # step-3 verification: syntax (if host venv exists) + anchor; skip syntax compile if venv missing
     g_dir, app_py = _gateway_layout(a.deerflow_root)
     venv_py = os.path.join(os.path.dirname(g_dir), "..", ".venv", "bin", "python")
     venv_py = os.path.abspath(venv_py)
     ok = True
     if os.path.isfile(venv_py):
-        # 校验全部随包分发的文件(扁平铺进 routers/)+ app.py
+        # Verify all files distributed with the package (flattened into routers/) + app.py
         targets = [os.path.join(g_dir, "routers", dst_name) for _rel, dst_name in _BUNDLE_FILES]
         targets.append(app_py)
         targets = [t for t in targets if os.path.isfile(t)]
@@ -840,15 +840,15 @@ def _cmd_install(a) -> int:
         if r != 0:
             ok = False
     else:
-        print("  (宿主 .venv 未找到,跳过 py_compile 语法校验)")
+        print("  (Host .venv not found, skipping py_compile syntax verification)")
     if "aimail_inbound" not in open(app_py, encoding="utf-8").read():
-        print("ERROR: app.py 锚点缺失")
+        print("ERROR: app.py anchor missing")
         ok = False
     if ok:
-        print("  ✓ 语法校验通过 + 锚点确认")
+        print("  ✓ Syntax verification passed + anchor confirmed")
     root = os.path.expanduser(a.deerflow_root)
     print("")
-    print("完成。重启 DeerFlow gateway(8001)后生效:")
+    print("Done. Restart DeerFlow gateway(8001) to take effect:")
     print(f"  kill <uvicorn-pid> && cd {root}/backend && DEER_FLOW_AUTH_DISABLED=1 \\")
     print("    PYTHONPATH=. PYTHONIOENCODING=utf-8 .venv/bin/uvicorn app.gateway.app:app --host 127.0.0.1 --port 8001")
     return 0 if ok else 1

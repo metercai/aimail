@@ -1,9 +1,9 @@
-"""裸 pysdk（未注入平台指针）的降级契约。
+"""Degradation contract for bare pysdk (no platform pointer injected).
 
-契约：定位不到网关配置时，入站预处理必须**降级而不是整条失败** —— 邮件照常
-处理（角色 prompt 照样注入、继续投递给 agent），只丢掉网关相关富化（B1 联系
-画像、附件下载）。真正的配置问题由适配层启动自检 check_profile_pointer() 报出，
-所以降级不会静默。
+Contract: when the gateway configuration cannot be located, inbound preprocessing must **degrade rather than fail entirely** —— email is processed as usual
+processed (role prompt is still injected, continues to be delivered to the agent), only gateway-related enrichment is dropped (B1 contact
+profile, attachment download). Real config issues are reported by adapter layer startup self-check check_profile_pointer(),
+So degradation will not be silent.
 """
 import json
 
@@ -14,7 +14,7 @@ SYSTEM_ID = "system-test"
 
 
 def _bare(tmp_path, monkeypatch):
-    """沙箱：AIMAIL_HOME=tmp + 注入 agent config，但**不**提供 .agentmail 指针。"""
+    """Sandbox: AIMAIL_HOME=tmp + inject agent config, but **do not** provide .agentmail pointer."""
     monkeypatch.setenv("AIMAIL_HOME", str(tmp_path))
     monkeypatch.setattr(ab, "_CONFIG_LOADER", lambda: {"email": AGENT_EMAIL, "system_id": SYSTEM_ID})
     monkeypatch.setattr(ab, "_PROFILE_DIR_RESOLVER", None)
@@ -39,7 +39,7 @@ def test_inbound_preprocessing_degrades_but_still_processes(tmp_path, monkeypatc
     role_dir.mkdir(parents=True, exist_ok=True)
     (role_dir / "whoami.md").write_text("asker: {{INQUIRY_SENDER}}", encoding="utf-8")
 
-    # 关键：不抛 RuntimeError（此前 B1 步骤无参调配置解析会直接炸掉整条入站）
+    # Key: do not raise RuntimeError (previously B1 step calling config parser without args would directly blow up the entire inbound)
     r = ab.preprocess_mail_payload(
         {
             "mail_id": "m-1",
@@ -72,7 +72,7 @@ def test_check_profile_pointer_flags_missing_then_ok(tmp_path, monkeypatch):
 
 
 def test_check_profile_pointer_tolerates_broken_resolver(tmp_path, monkeypatch):
-    """自检本身绝不抛：解析器抛异常/指针损坏都按"未安装"处理。"""
+    """The self-check itself never raises: a parser exception / corrupt pointer is all treated as "not installed"."""
     _bare(tmp_path, monkeypatch)
 
     def _boom():

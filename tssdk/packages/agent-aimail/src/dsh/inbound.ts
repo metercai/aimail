@@ -394,7 +394,7 @@ export function apply(ctx: Context, config: Config = {}): () => void {
   // "inbound port up" is a reliable readiness signal (binding + listener).
   void ensureDefaultAgentBinding().then(() => {
     server.listen(port, host, () => {
-      // Inbound notification (owner ruling 2026-09-28, SDK 去桥化): the listener is
+      // Inbound notification (owner ruling 2026-09-28, SDK de-bridging): the listener is
       // up, so this host tells the environment master (the `aimail` CLI) — once per
       // address it serves — that inbound is live:
       //     aimail address -a <addr> --inbound-live

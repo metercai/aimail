@@ -1,16 +1,16 @@
-//! Rust CLI 表面契约（plan v3 S1 验收，S3 起扩展）。
+//! The Rust CLI surface contract (plan v3 S1 acceptance, extended from S3).
 //!
-//! 锁五件事：
-//! 1. `version` 输出形态 == `aimail <ver> (<dev|bootstrapped>)`；
-//! 2. 顶层 15 子命令 + `prompt` 5 嵌套全部注册（命令面冻结）；
-//! 3. 机器面（`--system-only` / `--payload` / 旧名 `ensure-system`）**不出现在人面 help**；
-//! 4. **未移植命令必须诚实**：未列进 `IMPLEMENTED` 的子命令一律 rc≠0 且 stderr 含
-//!    "not yet ported"（绝不静默成功）；反过来，已实现的命令不许留在未移植清单里
-//!    （强制维护，防止"移了代码忘了清单"）；
-//! 5. 所有实跑都在**hermetic HOME** 里（临时目录），绝不读开发机的 `~/.aimail`。
+//! Lock in five things:
+//! 1. the `version` output shape == `aimail <ver> (<dev|bootstrapped>)`;
+//! 2. all 15 top-level subcommands + the 5 `prompt` nested ones are registered (the command surface is frozen);
+//! 3. the machine surface (`--system-only` / `--payload` / the old name `ensure-system`) does **not** appear in the human help;
+//! 4. **unported commands must be honest**: a subcommand not listed in `IMPLEMENTED` always gets rc≠0 and stderr containing
+//!    "not yet ported" (never a silent success); conversely, an implemented command must not be left in the unported list
+//!    (forced maintenance, to prevent "ported the code but forgot the list");
+//! 5. every real run happens inside a **hermetic HOME** (a temp dir), never reading the dev machine's `~/.aimail`.
 //!
-//! 第 5 条是 S3 加 `stats` 时暴露出来的真问题：旧版 `run()` 直接用进程环境，`stats`
-//! 一实现就把开发机的真实系统打印出来（那既是测试污染源，也是误判来源）。
+//! Item 5 is a real problem exposed when S3 added `stats`: the old `run()` used the process environment directly, and `stats`
+//! once implemented printed the dev machine's real systems (both a test-pollution source and a misjudgment source).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -37,14 +37,14 @@ const TOP_LEVEL: &[&str] = &[
 
 const PROMPT_SUBCOMMANDS: &[&str] = &["add", "list", "rm", "test", "create-file"];
 
-/// 机器面字样（人面 help 三者皆不得出现；Python 侧同名断言）。
+/// The machine-surface words (none of the three may appear in the human help; the same-named assertion on the Python side).
 const MACHINE_LITERALS: &[&str] = &["ensure-system", "payload", "system-only"];
 
-/// 本步已移植的子命令（每移植一个就加进来 —— 与 `unported_commands_are_honest` 互为棘轮）。
-/// 注意粒度 = **子命令**：已移植命令的未移植**面**（如 `address set-name`、`domain --add`）
-/// 由各自模块显式 `not_yet_ported`，不改变这里的清单。
-// 已实现=命令面已接线且行为已验（`reset` 的桥路由对账仍明确告警："未移植(bridge)"，
-// 但命令本体、激活 worker、注册链都是真实现 ⇒ 计入已实现面）
+/// The subcommands ported so far (add one each time one is ported — a ratchet with `unported_commands_are_honest`).
+/// Note the granularity = **subcommand**: the unported **surface** of a ported command (e.g. `address set-name`, `domain --add`)
+/// is handled by each module's explicit `not_yet_ported`, and does not change the list here.
+// implemented = the command surface is wired and the behavior verified (`reset`'s bridge route reconciliation still explicitly warns: "unported (bridge)",
+// but the command body, the activation worker, and the registration chain are all real implementations => counted as an implemented surface)
 const IMPLEMENTED: &[&str] = &[
     "version",
     "stats",
@@ -53,32 +53,32 @@ const IMPLEMENTED: &[&str] = &[
     "domain",
     "check",
     "reset",
-    // install：机器面（--system-only / --payload）与人路径（激活/复用 + 平台接线）都已接线；
-    // 唯二未移植的**桥相关面**（远端 bridge 部署 / 路由对账）在命令里显式告警，不静默跳过。
+    // install: the machine surface (--system-only / --payload) and the human path (activate/reuse + platform wiring) are both wired;
+    // the only two unported **bridge-related surfaces** (remote bridge deployment / route reconciliation) are explicitly warned in the command, not silently skipped.
     "install",
     "uninstall",
-    // bridge：status/按系统重刷已接线；--restart/--upgrade（部署面）在 P2 切片3 前**响亮未移植**。
+    // bridge: status/per-system re-refresh are wired; --restart/--upgrade (deployment surface) are **loudly unported** before P2 slice 3.
     "bridge",
-    // renew：只读视图 + 续期（rust 原生 HTTP）。**已登记分歧**：Python 解析失败后仍会拿空 key
-    // 打默认网关（生产）⇒ 本实现打印同样文案后 rc=1 且不发网络。
+    // renew: a read-only view + renewal (rust native HTTP). **A registered divergence**: after a Python parse failure it still takes an empty key
+    // to hit the default gateway (prod) => this implementation prints the same wording, then rc=1 and sends no network.
     "renew",
-    // ping：身份链 + SMTP（rustls STARTTLS）+ 三阶段日志判定。真机路径见 CLI L2 门禁。
+    // ping: the identity chain + SMTP (rustls STARTTLS) + the three-phase log verdict. The real-machine path is in the CLI L2 gate.
     "ping",
-    // welcome：API 模式（默认，admin key → /api/v1/system/welcome → 轮询回复 → 身份审批）+
-    // SMTP 模式（--smtp）。出口语义 0/1/2（拿不到草案 ⇒ 2，不假装成功）。真机路径见 CLI L2。
+    // welcome: API mode (default, admin key → /api/v1/system/welcome → poll for the reply → identity approval) +
+    // SMTP mode (--smtp). Exit semantics 0/1/2 (no draft obtainable => 2, no pretending success). The real-machine path is in the CLI L2.
     "welcome",
-    // prompt：list/rm/create-file 已接线；add 走 SDK 落盘（绑定文件只由 SDK 写）；test 响亮未移植。
+    // prompt: list/rm/create-file are wired; add goes through the SDK to disk (binding files are written only by the SDK); test is loudly unported.
     "prompt",
-    // repair：十步阶梯 + `-D` deep 扩展（引擎早已在 core::repair）+ 命令面接线。
-    // 写面行为（真跑修复）由 CLI L2 覆盖；此处只验 --dry-run 与面。
+    // repair: the ten-step ladder + the `-D` deep extension (the engine was long in core::repair) + the command-surface wiring.
+    // the write-surface behavior (really running repairs) is covered by the CLI L2; here only --dry-run and the surface are verified.
     "repair",
-    // agent：address-level bootstrap 控制面（doctor 只读探测 + SDK 选型）。
+    // agent: the address-level bootstrap control surface (doctor's read-only probe + SDK selection).
     "agent",
 ];
 
 static SEQ: AtomicU32 = AtomicU32::new(0);
 
-/// 一次性临时目录（本文件专用；lib 的 testutil 是 `cfg(test)` 私有，集成测试看不到）。
+/// A one-shot temp dir (dedicated to this file; the lib's testutil is `cfg(test)` private, invisible to integration tests).
 struct TempDir {
     path: PathBuf,
 }
@@ -107,13 +107,13 @@ impl Drop for TempDir {
     }
 }
 
-/// 在 hermetic HOME/AIMAIL_HOME 下跑一次二进制。
+/// Run the binary once under a hermetic HOME/AIMAIL_HOME.
 fn run(args: &[&str]) -> (i32, String, String) {
     run_in(args, false)
 }
 
-/// `with_system=true` 时先造一个**合法的系统配置**（`systems/s1/aimail_gateway.json`），
-/// 这样命令能通过校验、走到自己的分支（用于断言"未移植面"的诚实性）。
+/// with `with_system=true`, first create a **legal system config** (`systems/s1/aimail_gateway.json`),
+/// so the command can pass validation and reach its own branch (used to assert the honesty of an "unported surface").
 fn run_in(args: &[&str], with_system: bool) -> (i32, String, String) {
     let tmp = TempDir::new("surface");
     let home = tmp.path().join("home");
@@ -214,7 +214,7 @@ fn unported_commands_are_honest() {
 
 #[test]
 fn implemented_list_does_not_claim_unported_commands() {
-    // 反向棘轮：IMPLEMENTED 里的命令必须真的不再打印 stub 文案
+    // the reverse ratchet: a command in IMPLEMENTED must really no longer print the stub wording
     for name in IMPLEMENTED {
         let (_, _, err) = run(&[name]);
         assert!(
@@ -249,17 +249,17 @@ fn persona_pointer_shell_keeps_rc2() {
 
 #[test]
 fn unported_faces_are_honest() {
-    // 已移植**命令**上的未移植**面**：必须明确非零 + 说明，且绝不静默降级成查看面
-    // （Python 侧 `cli/aimail:2045-2065` 记录过两起静默降级事故，这里用断言钉住）。
+    // the unported **surface** on a ported **command**: must be an explicit non-zero + an explanation, and must never silently degrade into the view surface
+    // (the Python side `cli/aimail:2045-2065` recorded two silent-degradation incidents; assertions nail this down here).
     let cases: &[&[&str]] = &[
-        // `address -n`（set-name）已于 P4 切片4 接线 ⇒ 移出本清单。
-        // `address -m`（set-manager）已于 P4 切片2 接线（走 SDK 按名调用）⇒ 移出本清单；
-        //    校验路径验收：无 -a/-e 定位 ⇒ rc=1「该操作需要 -a <agent> 或 -e <email> 定位目标地址」。
-        // `address -d/--default` 已于 P4 切片3 接线 ⇒ 移出（行为验收 tests/address_default.rs）。
-        // `address --inbound-live/--inbound-down`（hidden 面）已于 P4 切片5 接线 ⇒ 本清单**已空**；
-        // 验收见 tests/address_inbound_live.rs（8 组：互斥/定位/幂等两态/撤行+backlog）。
-        // `domain --add` 已于 P4 切片1 真实现（创建面）⇒ 从"未移植面"清单移出，
-        // 行为验收见 tests/domain_add.rs（stub 网关）。
+        // `address -n` (set-name) was wired in P4 slice 4 => removed from this list.
+        // `address -m` (set-manager) was wired in P4 slice 2 (via the SDK by-name invocation) => removed from this list;
+        //    validation-path acceptance: no -a/-e locator => rc=1 "this operation needs -a <agent> or -e <email> to locate the target address".
+        // `address -d/--default` was wired in P4 slice 3 => removed (behavior acceptance in tests/address_default.rs).
+        // `address --inbound-live/--inbound-down` (hidden surface) was wired in P4 slice 5 => this list is **empty**;
+        // acceptance in tests/address_inbound_live.rs (8 groups: mutual exclusion/locator/idempotency both states/row withdrawal+backlog).
+        // `domain --add` was really implemented in P4 slice 1 (the create surface) => removed from the "unported surface" list;
+        // behavior acceptance in tests/domain_add.rs (stub gateway).
     ];
     for args in cases {
         let (rc, out, err) = run_in(args, true);
@@ -269,7 +269,7 @@ fn unported_faces_are_honest() {
             "{args:?} stderr must say so, got {err:?}"
         );
         assert!(
-            !out.contains("webhook   状态") && !out.contains("Domains of system"),
+            !out.contains("webhook   status") && !out.contains("Domains of system"),
             "{args:?} silently fell back to a view: {out:?}"
         );
     }

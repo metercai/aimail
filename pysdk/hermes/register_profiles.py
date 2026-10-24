@@ -1,32 +1,32 @@
 """Register existing Hermes profiles as AIMail addresses in the current system.
 
-Hermes 平台安装链入口的库形态(cli/hermes/register_profiles.py 迁移):由新的
-安装入口 import 本模块后调用 register_emails()。不再依赖 cli/runtime_core 的
-load_core()/load_adapter('hermes')——顶部双形态自举 + 同目录兄弟模块导入
-(aimail.hermes 包导入优先,回退本目录裸 import)取代旧 _SCRIPTS_DIR hack 与
-importlib.util 动态加载 ensure_webhook_config。
+Library form of the Hermes platform install chain entry (migrated from cli/hermes/register_profiles.py): by the new
+The installation entry imports this module and then calls register_emails(). No longer depends on cli/runtime_core's
+load_core()/load_adapter('hermes')——top-level dual-form bootstrap + sibling module import in the same directory
+|(aimail.hermes package import takes priority, falling back to bare import in this directory) replaces the old _SCRIPTS_DIR hack and
+importlib.util dynamic loading of ensure_webhook_config.
 """
 
 import sys, os, json
 from pathlib import Path
 
-# ── 双形态自举(repo pysdk/ ↔ pip site-packages/aimail/)──
-# repo 形态: dirname(dirname(__file__)) = pysdk/(含 aimail_base.py 等 flat core,
-# 裸 import 可用)→ 加入 sys.path。pip 形态: 该目录 = site-packages/(无 flat core),
-# 需先 import aimail 触发 aimail/__init__.py glue(把 aimail/ 目录插 sys.path,
-# flat core 裸 import 才可用)。
+# ── Dual-form bootstrap (repo pysdk/ ↔ pip site-packages/aimail/) ──
+# repo form: dirname(dirname(__file__)) = pysdk/(containing flat core like aimail_base.py,
+# bare import available) → add to sys.path. pip form: that directory = site-packages/ (no flat core),
+# must first import aimail to trigger aimail/__init__.py glue (inserts aimail/ directory into sys.path,
+# making flat core bare import available).
 _CORE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if os.path.isfile(os.path.join(_CORE_DIR, "aimail_base.py")):
     if _CORE_DIR not in sys.path:
         sys.path.insert(0, _CORE_DIR)
 else:
     try:
-        import aimail  # noqa: F401  (pip 形态 glue)
+        import aimail  # noqa: F401  (pip form glue)
     except Exception:
         pass
 
-# 同目录兄弟模块统一导入: aimail.hermes 包导入优先(pip 形态 / repo 已装
-# aimail),失败则把本目录(hermes/)插 sys.path 后裸 import(repo namespace 形态)。
+# Unified import of same-directory sibling modules: aimail.hermes package import preferred (pip form / repo with
+# aimail installed), on failure insert this directory (hermes/) into sys.path then bare import (repo namespace form).
 try:
     from aimail.hermes import aimail_hermes, ensure_config  # noqa: E402,F401
 except ImportError:
@@ -35,9 +35,9 @@ except ImportError:
     import ensure_config  # noqa: E402,F401
 
 def load_gateway_config():
-    # AIMAIL_SYSTEM_ID env 直定位(经共享 gateway_config_path——曾手拼
-    # aimail_home()/{sid}/aimail_gateway.json 漏 systems/ 段 + 用错
-    # SYSTEM_ID env,恒 None → 安装链注册静默空转;AUDIT-1 P1-3)。
+    # Direct location via AIMAIL_SYSTEM_ID env (via shared gateway_config_path——previously manually concatenated
+    # aimail_home()/{sid}/aimail_gateway.json missing systems/ segment + used wrong
+    # SYSTEM_ID env, always None → installation chain registration silently no-ops; AUDIT-1 P1-3).
     sid = os.environ.get("AIMAIL_SYSTEM_ID", "") or os.environ.get("SYSTEM_ID", "")
     if sid:
         try:
@@ -55,12 +55,12 @@ def register_emails():
         print("no_config")
         return
 
-    # 配置补全(幂等):platform_toolsets.webhook/cli 加 agentmail(内部标识)+
-    # platforms.webhook enabled。断链根因曾多次出现:安装链从未写这些
-    # 配置,全靠手工补——缺 webhook 段 → webhook 会话无 send_mail
-    # ("收得到回不出");缺 cli 段 → CLI 会话无邮件工具。路由
-    # (aimail-inbound)由 _auto_register_email → _ensure_webhook_route
-    # 创建,**不需要第二条 inbound 路由**(bridge 全 URL 路由直接指
+    # Config completion (idempotent): add agentmail (internal identifier) to platform_toolsets.webhook/cli +
+    # platforms.webhook enabled. Root cause of broken chain has occurred multiple times: installation chain never wrote these
+    # configs, relying entirely on manual completion——missing webhook section → webhook session has no send_mail
+    # ("can receive but not send"); missing cli section → CLI session has no email tools. Routing
+    # (aimail-inbound) is created by _auto_register_email → _ensure_webhook_route
+    # created, **no second inbound route needed** (bridge full URL routing directly points
     # /webhooks/aimail-inbound)。
 
     system_id = config.get("system_id", "")
@@ -80,14 +80,14 @@ def register_emails():
         failures.append(msg)
         print(msg)
 
-    # ── config 补全与注册标记解耦(2026-09-30 J4e 根因) ─────────────────────
-    # 旧逻辑把 ensure_profile_config 放在 ".agentmail 指针已匹配 ⇒ 跳过" 之后:  contract-allowed: 注释文字(非代码)引用契约指针文件名
-    # 指针已存在(同一 system_id)时整段被跳过, install 自报 registered:0, 于是
-    # platform_toolsets.webhook/cli 永远补不上 ⇒ webhook 会话回退默认工具集,
-    # agent 写好了回信也发不出(iso16 日志 86 行 registered:0 → J5 报 toolset
-    # MISSING → J4e reply=0)。ensure 本身幂等(只补缺失项、secret 不动), 因此
-    # **无条件执行**; 注册仍按指针幂等跳过(registered 计数语义不变)。
-    # 五个平台走同一段 install/ensure 代码, 不加任何平台特判。
+    # ── Decouple config completion from registration marker (2026-09-30 J4e root cause) ─────────────────────
+    # Old logic placed ensure_profile_config after ".agentmail pointer matched ⇒ skip":  contract-allowed: comment text (non-code) references contract pointer filename
+    # When pointer already exists (same system_id), the entire block is skipped, install self-reports registered:0, thus
+    # platform_toolsets.webhook/cli is never completed ⇒ webhook session falls back to default toolset,
+    # agent writes reply but cannot send it (iso16 log line 86 registered:0 → J5 reports toolset
+    # MISSING → J4e reply=0). ensure itself is idempotent (only fills missing items, secret untouched), therefore
+    # **executed unconditionally**; registration still skips idempotently by pointer (registered count semantics unchanged).
+    # Five platforms go through the same install/ensure code, no platform-specific checks added.
     try:
         ensure_config.ensure_profile_config(Path(home))
     except Exception as e:
@@ -124,8 +124,8 @@ def register_emails():
             profile_dir = os.path.join(profiles_dir, name)
             if not os.path.isdir(profile_dir):
                 continue
-            # config 补全同样与指针解耦(见上): 指针只代表"已注册", 不代表
-            # "配置齐全" —— 幂等 ensure 每次都跑。
+            # Config completion is also decoupled from the pointer (see above): the pointer only means "registered", not
+            # "config complete" —— idempotent ensure runs every time.
             try:
                 ensure_config.ensure_profile_config(Path(profile_dir))
             except Exception as e:
@@ -141,9 +141,9 @@ def register_emails():
                 except:
                     continue
             try:
-                # webhook 复用/路由创建都解析"当前 profile"——批量循环必须
-                # 把 HERMES_PROFILE_DIR 指到本 profile,否则 _load_profile_config
-                # 落到 default 的配置(webhook 串接 + 路由漏建)
+                # webhook reuse/route creation both resolve "current profile"——batch loop must
+                # point HERMES_PROFILE_DIR to this profile, otherwise _load_profile_config
+                # falls back to default config (webhook chaining + route creation missed)
                 os.environ["HERMES_PROFILE_DIR"] = profile_dir
                 aimail_hermes._auto_register_email(name, profile_dir, config)
                 count += 1
@@ -154,7 +154,7 @@ def register_emails():
 
     print(f"registered:{count}")
     if failures:
-        # 失败必须改变退出码(否则 registry 的该步会报 ok_text 成功)。
+        # Failure must change exit code (otherwise registry step will report ok_text success).
         print(f"failed-total:{len(failures)}", file=sys.stderr)
         return 1
     return 0

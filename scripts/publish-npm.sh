@@ -8,42 +8,42 @@
 # restores package.json. Run from repo root: bash scripts/publish-npm.sh <pkg-dir> ...
 #
 # Owner ruling 2026-10-11 (single source + loud failures):
-#   - 幂等/skip 逻辑只在本脚本一处（原先 .github/workflows/publish.yml 的 step 里
-#     重抄了一份，双真源）；workflow 只负责"给包目录清单"。
-#   - **逐包隔离**：某个包失败不再中断其余包（此前 set -e 让首个失败即退出，
-#     发布会静默少发几个包）；末尾汇总失败清单并以非零退出。
-#   - **上架可查**：只作证据与告警，不作失败判据。权威信号是 npm 客户端的退出码
-#     （服务端已接受发布）；registry 可见性最终一致（实测慢至 ~10 min），故有界轮询
-#     （900s）并直查权威 registry，超时只 WARN。版本真伪由 L3 闭环（从 registry 装件）。
+#   - the idempotency/skip logic lives only in this script (it was previously
+#     re-copied in a step of .github/workflows/publish.yml — a dual source); the workflow only "hands over the package list".
+#   - **per-package isolation**: a failure in one package no longer aborts the rest (previously set -e exited on the first failure,
+#     and the release silently skipped a few packages); the failure list is summarized at the end and it exits non-zero.
+#   - **visible on the registry**: evidence and warning only, never a failure criterion. The authoritative signal is the npm client exit code
+#     (the server has accepted the publish); registry visibility is eventually consistent (measured up to ~10 min), so bounded polling
+#     (900s) hitting the authoritative registry directly; a timeout only WARNS. Version authenticity is closed by L3 (installing the artifact from the registry).
 #
-# Prereqs: npm login (token in ~/.npmrc) 或 CI 的 Trusted Publishing OIDC;
-#          pnpm install 已完成; git 工作树干净（第 5 步用 git checkout 还原 manifest）。
+# Prereqs: npm login (token in ~/.npmrc) or CI Trusted Publishing OIDC;
+#          pnpm install already done; a clean git working tree (step 5 restores the manifest via git checkout).
 set -uo pipefail
 
 PKGS=("$@")
 [ ${#PKGS[@]} -eq 0 ] && { echo "usage: $0 packages/mail-core [packages/mail] [packages/dsh-aimail] [packages/openclaw-aimail] [packages/pi-aimail]"; exit 1; }
 
-# 仓级工具单源(owner 裁决 2026-10-11): 开发/发版工具只在仓根 scripts/ 一处。
+# Repo-level tooling single source (owner ruling 2026-10-11): dev/release tools live only in the repo-root scripts/.
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 root="$repo/tssdk"
 
 jver() { python3 -c "import json;print(json.load(open('$1'))['version'])"; }
 jname() { python3 -c "import json;print(json.load(open('$1'))['name'])"; }
 
-# 单包全流程。约定：失败必须 return 非零（不依赖 set -e —— 函数在 `||` 列表里执行时
-# bash 手册明确 -e 会被忽略，靠 -e 兜错不可靠）。成功/已发布均 return 0。
+# Full pipeline for one package. Convention: a failure must return non-zero (do not rely on set -e — the bash manual
+# states that -e is ignored when a function runs inside a `||` list, so leaning on -e for error catching is unreliable). Success/already-published both return 0.
 publish_one() {
   local pkg="$1" dir name ver published tgz dist_tag prov want want_tag vis _i _main git_top target link
 
   dir="$root/$pkg"
-  name=$(jname "$dir/package.json") || { echo "  ERROR: 读不到 name: $dir/package.json"; return 1; }
-  ver=$(jver "$dir/package.json") || { echo "  ERROR: 读不到 version: $dir/package.json"; return 1; }
+  name=$(jname "$dir/package.json") || { echo "  ERROR: cannot read name: $dir/package.json"; return 1; }
+  ver=$(jver "$dir/package.json") || { echo "  ERROR: cannot read version: $dir/package.json"; return 1; }
   echo "═══ $name@$ver ═══"
 
   # 0) idempotency: version already on the registry → skip. Python-only releases
   #    share the v* tag with the npm workflow; unchanged TS versions must not burn
-  #    a version number nor fail the build. --prefer-online: 缓存里的陈旧 404 会让我们
-  #    去重发一个已存在的版本（registry 回 E409）—— 判据必须走线上。
+  #    a version number nor fail the build. --prefer-online: a stale 404 in the cache would make us
+  #    re-publish a version that already exists (the registry answers E409) — the check must go over the network.
   published=$(npm view "$name@$ver" version --prefer-online 2>/dev/null || true)
   if [ -n "$published" ]; then
     echo "  already published ($name@$ver) — SKIP"
@@ -53,22 +53,22 @@ publish_one() {
   # 1) workspace:^ -> concrete registry range (^<dep version>). pnpm resolves
   #    workspace:^ locally, but the published manifest must carry a plain semver
   #    range npm understands — never a bare '^' or 'workspace:'.
-  #    共享脚本: 同一步骤 3 也对 **bundled 副本**复用(见下 deref 循环)。
-  python3 "$repo/scripts/rewrite_ws_deps.py" "$root" "$dir" || { echo "  ERROR: rewrite_ws_deps 失败: $dir"; return 1; }
+  #    Shared script: the same step 3 reuses it for the **bundled copies** (see the deref loop below).
+  python3 "$repo/scripts/rewrite_ws_deps.py" "$root" "$dir" || { echo "  ERROR: rewrite_ws_deps failed: $dir"; return 1; }
 
-  # 2) build — 显式且**绝不吞错**（审计 P0 2026-09-21: 原 `>/dev/null 2>&1 || true`
-  #    会把构建失败静默吞掉, 用旧 lib/dist 带新版本号发上 registry）。
-  #    只有声明了 build script 的包在此构建(openclaw/pi 走 prepack);
-  #    mail-core/mail/dsh 的 lib/ 由工作区 `pnpm build`(tsc -b) 产出 ⇒ 这里
-  #    断言 main 入口在位, 兜住"从未构建"。
+  # 2) build — explicit and **never swallow errors** (audit P0 2026-09-21: the old `>/dev/null 2>&1 || true`
+  #    silently swallowed build failures, publishing the new version number with the stale lib/dist).
+  #    Only packages that declare a build script build here (openclaw/pi use prepack);
+  #    mail-core/mail/dsh lib/ comes from the workspace `pnpm build` (tsc -b) ⇒ here we
+  #    assert the main entry is present, catching the "never built" case.
   if python3 -c "import json,sys;sys.exit(0 if 'build' in json.load(open('$dir/package.json')).get('scripts',{}) else 1)"; then
     (cd "$dir" && npm run build) || { echo "  ERROR: build failed: $dir"; return 1; }
   else
     _main=$(python3 -c "import json;print(json.load(open('$dir/package.json')).get('main',''))") || _main=""
     if [ -n "$_main" ] && [ ! -f "$dir/$_main" ]; then
-      echo "  ERROR: main entry missing: $dir/$_main — 先跑工作区 'pnpm build'"; return 1
+      echo "  ERROR: main entry missing: $dir/$_main — run the workspace 'pnpm build' first"; return 1
     fi
-    echo "  no build script — 工作区 tsc -b 产出的 $_main 在位"
+    echo "  no build script — the workspace tsc -b output $_main is in place"
   fi
 
   # 3) pack (npm, not pnpm — isolated linker blocks bundled deps).
@@ -83,12 +83,12 @@ publish_one() {
     mkdir -p "$link"
     (cd "$target" && tar cf - --exclude=node_modules .) | (cd "$link" && tar xf -) \
       || { echo "  ERROR: deref copy failed: $link"; return 1; }
-    # bundled 副本的 manifest 也必须重写 workspace: 规格 —— 否则发布 tarball 的
-    # 内嵌 package.json 遗留 "workspace:^"(2026-09-21 实测: pi-aimail /
-    # openclaw-aimail 内嵌的 @aimail/mail 带 workspace:^ ⇒ pnpm 系宿主
-    # EUNSUPPORTEDPROTOCOL)。deref 出来的是工作区原样, 须与主 manifest 同待遇。
+    # The bundled copies' manifests must also have their workspace: specs rewritten — otherwise the release tarball's
+    # embedded package.json keeps "workspace:^" (measured 2026-09-21: the embedded @aimail/mail in pi-aimail /
+    # openclaw-aimail carried workspace:^ ⇒ pnpm-based hosts hit
+    # EUNSUPPORTEDPROTOCOL). The deref result is the workspace original and must be treated like the main manifest.
     python3 "$repo/scripts/rewrite_ws_deps.py" "$root" "$link" \
-      || { echo "  ERROR: rewrite_ws_deps 失败(bundled): $link"; return 1; }
+      || { echo "  ERROR: rewrite_ws_deps failed (bundled): $link"; return 1; }
   done
   echo "  building+packing:"
   tgz=$(cd "$dir" && npm pack --pack-destination /tmp | tail -1) || { echo "  ERROR: npm pack failed: $dir"; return 1; }
@@ -149,8 +149,8 @@ PYEOF
     dist_tag="latest"
   fi
   echo "  release-type=$dist_tag (version $ver)"
-  # 审计 D8: 把 workflow_dispatch 声明的 release-type 变成真门禁(原来只在 UI 上,
-  # 选中 rc/stable 被静默忽略 —— 声明与推导不一致时直接失败)。
+  # Audit D8: turn the release-type declared by workflow_dispatch into a real gate (it previously existed only in the UI,
+  # and a selected rc/stable was silently ignored — a declaration/deduction mismatch now fails immediately).
   want="${REQUIRE_RELEASE_TYPE:-}"
   want_tag=""
   case "$want" in
@@ -160,7 +160,7 @@ PYEOF
     *) echo "  ERROR: unknown REQUIRE_RELEASE_TYPE='$want' (expect rc|stable)"; return 1 ;;
   esac
   if [ -n "$want_tag" ] && [ "$want_tag" != "$dist_tag" ]; then
-    echo "  ERROR: release-type mismatch — 声明 '$want' 但版本 $ver 推导为 '$dist_tag'"
+    echo "  ERROR: release-type mismatch — declared '$want' but version $ver deduces '$dist_tag'"
     return 1
   fi
   if [ "${DRY_RUN:-0}" = "1" ]; then
@@ -175,22 +175,22 @@ PYEOF
   git_top=$(git -C "$root" rev-parse --show-toplevel 2>/dev/null || true)
   if [ -n "$git_top" ]; then
     git -C "$git_top" checkout -- "${root#$git_top/}/$pkg/package.json" \
-      || { echo "  ERROR: package.json 还原失败: $pkg —— 工作树被留脏, 请人工处理"; return 1; }
+      || { echo "  ERROR: failed to restore package.json: $pkg — the working tree was left dirty, handle manually"; return 1; }
   else
     (cd "$root" && git checkout -- "$pkg/package.json") \
-      || { echo "  ERROR: package.json 还原失败: $pkg —— 工作树被留脏, 请人工处理"; return 1; }
+      || { echo "  ERROR: failed to restore package.json: $pkg — the working tree was left dirty, handle manually"; return 1; }
   fi
   echo "  package.json restored"
 
-  # 6) 上架可查(DRY_RUN 跳过) —— 可见性是**最终一致**的, 不作失败判据:
-  #    · 权威信号 = npm 客户端的退出码(服务端已接受发布请求, 前面步骤已判);
-  #    · 可见性 = 直查权威 registry 的**版本端点**(带 cache-buster)。`npm view` 会命中
-  #      客户端/边缘缓存(陈旧 404 或陈旧命中), 直查才是真值。
-  #    2026-10-11 实测: dsh-aimail@0.1.51 客户端报 published 后 <90s 可见; 而
-  #    pi-aimail@0.1.51 客户端 13:42:03Z 报 published, registry 直到 13:52:17Z 才可见
-  #    (≈10 min 服务端处理) —— 当时 300s 窗口把一次**成功**判成了失败。
-  #    ⇒ 窗口放宽到 900s; 仍不可见只 WARN 不 FAIL。版本真伪由下游 L3 闭环
-  #      (L3 从 registry 安装已发布件, 拿不到就真红)。
+  # 6) visible on the registry (skipped under DRY_RUN) — visibility is **eventually consistent**, never a failure criterion:
+  #    · authoritative signal = the npm client exit code (the server has accepted the publish request, already judged in the earlier steps);
+  #    · visibility = a direct query to the authoritative registry's **version endpoint** (with a cache-buster). `npm view` can hit
+  #      client/edge caches (a stale 404 or a stale hit); only the direct query is the truth.
+  #    Measured 2026-10-11: dsh-aimail@0.1.51 was visible <90s after the client reported published; whereas
+  #    pi-aimail@0.1.51 — the client reported published at 13:42:03Z, the registry was only visible at 13:52:17Z
+  #    (≈10 min of server-side processing) — the 300s window at the time judged a **success** as a failure.
+  #    ⇒ the window was widened to 900s; still invisible only WARNs, never FAILs. Version authenticity is closed by downstream L3
+  #      (L3 installs the published artifact from the registry; if it cannot, that is a true red).
   if [ "${DRY_RUN:-0}" != "1" ]; then
     vis=""; _code=""
     for _i in $(seq 1 90); do
@@ -199,12 +199,12 @@ PYEOF
       sleep 10
     done
     if [ -z "$vis" ]; then
-      echo "  WARN: $name@$ver 在 900s 内仍未被权威 registry 提供(最后 HTTP $_code)"
-      echo "        客户端已报 published ⇒ 服务端可能仍在处理(npm 侧最终一致), 不作失败判定"
-      echo "        核对命令: curl -s 'https://registry.npmjs.org/$name/$ver?t=\$(date +%s%N)' -o /dev/null -w '%{http_code}\\n'"
-      echo "        真伪由 L3 闭环: 从 registry 安装已发布件, 装不到即真红"
+      echo "  WARN: $name@$ver still not served by the authoritative registry within 900s (last HTTP $_code)"
+      echo "        the client already reported published ⇒ the server may still be processing (npm-side eventual consistency), not judged as a failure"
+      echo "        verify: curl -s 'https://registry.npmjs.org/$name/$ver?t=\$(date +%s%N)' -o /dev/null -w '%{http_code}\\n'"
+      echo "        authenticity is closed by L3: install the published artifact from the registry, and a failed install is a true red"
     else
-      echo "  registry 可见: $name@$ver (HTTP $_code)"
+      echo "  registry visible: $name@$ver (HTTP $_code)"
     fi
   fi
   return 0

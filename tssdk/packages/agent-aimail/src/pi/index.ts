@@ -27,8 +27,8 @@ import { resolveByRecipient } from '../mail/index.js'
 import { agentIdentity, initIdentity, readPointer, setInboundEndpoint, tryAutoBindOnce } from './identity.js'
 import { buildPiTools } from './tools.js'
 
-// 契约常量唯一副本 = @aimail/mail-core(src/contract.ts ← contract/aimail-contract.json)。
-// 这里 re-export 保持本模块既有公开面(dist/index.d.ts 曾导出 INBOUND_PATH)。
+// Contract constants single copy = @aimail/mail-core(src/contract.ts ← contract/aimail-contract.json).
+// re-export here to maintain this module's existing public surface (dist/index.d.ts previously exported INBOUND_PATH).
 export { INBOUND_PATH }
 const DEFAULT_INBOUND_PORT = INBOUND_PORTS.pi
 
@@ -324,11 +324,11 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
         if (!server) return
         server.listen(port, '127.0.0.1', () => {
           log.info(`[agent-aimail] inbound listening on http://127.0.0.1:${port}${INBOUND_PATH}`)
-          // 入站通知(owner 裁决 2026-09-28, SDK 去桥化): 监听就绪 ⇒ 逐地址告诉环境主控
-          // (the `aimail` CLI)`aimail address -a <addr> --inbound-live`。时序的实质不变
-          // —— "入站真在服务"之后才成立; 但**桥语义不在 SDK**: 由 CLI 决定这意味着什么。
-          // best-effort: 仅 argv、4s 超时、不阻塞本回调、绝不抛给宿主(无 CLI ⇒ 一行日志,
-          // 宿主照常服务并自注册)。
+          // Inbound notification (owner decision 2026-09-28, SDK de-bridging): listen ready ⇒ tell environment master per address
+          // (the `aimail` CLI) `aimail address -a <addr> --inbound-live`. The substance of the timing is unchanged
+          // —— Only holds after "inbound is truly serving"; but **bridge semantics are not in the SDK**: the CLI decides what this means.
+          // best-effort: argv only, 4s timeout, does not block this callback, never throws to host (no CLI ⇒ one line of log,
+          // host serves normally and self-registers).
           void notifyInboundForSystem('live', { inboundUrl: confirmedUrl })
             .then((outcomes) => {
               for (const o of outcomes) {
@@ -374,8 +374,8 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
 
   // Listener lifecycle follows the session (pull loops stop with it).
   pi.on('session_shutdown', () => {
-    // 关停通知(2026-09-28): 逐地址 `aimail address -a <addr> --inbound-down`,
-    // 同样 best-effort/不阻塞; CLI 不在 = 什么都不发生。
+    // Shutdown notification (2026-09-28): per address `aimail address -a <addr> --inbound-down`,
+    // also best-effort/non-blocking; CLI absent = nothing happens.
     void notifyInboundForSystem('down')
       .then((outcomes) => {
         for (const o of outcomes) {

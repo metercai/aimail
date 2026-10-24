@@ -1,19 +1,19 @@
 /**
- * sdk-ops — node 侧可执行 op 入口(单行 JSON ABI)。
+ * sdk-ops — node-side executable op entry (single-line JSON ABI).
  *
- * 契约 v1.0 §4.1(2):node transport 与 Python 门(`python3 -m aimail.sdk_ops <op>`)
- * 语义与信封一致、仅传输不同。CLI 按注册表(类型化常量)的 `ops.argv` 分派并读结果:
+ * Contract v1.0 §4.1(2): node transport and Python gate (`python3 -m aimail.sdk_ops <op>`)
+ * semantics and envelope are consistent, only transport differs. CLI dispatches and reads results based on registry (typed constants) `ops.argv`:
  *
- *   in :  --op <assemble|update|teardown> --args '<单个 JSON 对象>'
- *   out : stdout 恰一行
- *         ok   → {"ok":true,"result":{ ...平铺 payload... }}
+ *   in :  --op <assemble|update|teardown> --args '<single JSON object>'
+ *   out : stdout exactly one line
+ *         ok   → {"ok":true,"result":{ ...flat payload... }}
  *         fail → {"ok":false,"kind":"usage"|"import"|"call","exc":"<Cls>","error":"<Cls: msg>"}
- *   exit: 0 ok / 2 usage / 1 其它。SDK 自身打印走 stderr,绝不污染 stdout。
+ *   exit: 0 ok / 2 usage / 1 other. SDK's own printing goes to stderr, never polluting stdout.
  *
- * 语义逐条镜像 pysdk/sdk_ops.py 的 _op_assemble / _op_update / _op_teardown
- * (payload 键被 CLI 逐字读取:`email`、`filled`、`reason`、`secret`、
+ * Semantics mirror pysdk/sdk_ops.py's _op_assemble / _op_update / _op_teardown item by item
+ * (payload keys are read verbatim by CLI: `email`, `filled`, `reason`, `secret`,
  * `actions[].deregister_agent_email`、`actions[].cleanup_system_whitelists.per_key`…)。
- * 判定与落盘在本模块内;调用方(CLI/平台入口)只传参、只收单行 JSON。
+ * Judgment and persistence are within this module; callers (CLI/platform entry) only pass parameters and receive single-line JSON.
  */
 import { promises as fs } from 'node:fs'
 import * as path from 'node:path'
@@ -41,13 +41,13 @@ import {
 
 export class UsageError extends Error {}
 
-// ── 信封 ───────────────────────────────────────────────────────────────────
+// ── Envelope ───────────────────────────────────────────────────────────────────
 
 let _sdkVersion = ''
 async function sdkVersion(): Promise<string> {
   if (_sdkVersion) return _sdkVersion
   try {
-    // 从本模块所在目录向上找 @aimail/mail-core 的 package.json(node 侧 SDK 身份)
+    // Find @aimail/mail-core's package.json upwards from this module's directory (node-side SDK identity)
     let dir = path.dirname(new URL(import.meta.url).pathname)
     for (let i = 0; i < 8; i++) {
       try {
@@ -60,7 +60,7 @@ async function sdkVersion(): Promise<string> {
           return _sdkVersion
         }
       } catch {
-        /* 向上找 */
+        /* Find upwards */
       }
       const parent = path.dirname(dir)
       if (parent === dir) break
@@ -73,27 +73,27 @@ async function sdkVersion(): Promise<string> {
   return ''
 }
 
-// ── 系统级配置(单真源:CLI 写、SDK 只读)─────────────────────────────────────
+// ── System-level configuration (single source of truth: CLI writes, SDK read-only)─────────────────────────────────────
 
 async function loadSystem(
   systemId: string,
   args: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  if (!systemId) throw new UsageError('找不到系统级配置: 缺 system_id')
-  // 显式 system_cfg(CLI 已持有该系统级配置)⇒ 直接用,不再自定位
+  if (!systemId) throw new UsageError('System-level configuration not found: missing system_id')
+  // Explicit system_cfg (CLI already holds this system-level configuration) ⇒ use directly, no self-location
   const given = args['system_cfg']
   if (given && typeof given === 'object') {
     const g = { ...(given as Record<string, unknown>) }
     if (g['gateway_url'] && g['admin_key']) return g
   }
-  // 自定位:~/.aimail/systems/<sid>/aimail_gateway.json
+  // Self-location: ~/.aimail/systems/<sid>/aimail_gateway.json
   try {
     const cfg = (await readSystemConfig(systemId)) as unknown as Record<string, unknown>
     if (cfg && (cfg['gateway_url'] || cfg['admin_key'])) return cfg
   } catch {
-    /* 落到 gw 覆盖 */
+    /* Fall back to gw override */
   }
-  // 显式 gw 覆盖(测试夹具)
+  // Explicit gw override (test fixture)
   const gw = String(args['gw'] || args['gateway_url'] || '').trim()
   if (gw) {
     return {
@@ -104,20 +104,20 @@ async function loadSystem(
       system_name: String(args['system_name'] || ''),
     }
   }
-  throw new UsageError(`找不到系统级配置 system_id=${systemId}(须先 aimail install)`)
+  throw new UsageError(`System-level configuration not found system_id=${systemId} (must run aimail install first)`)
 }
 
 function gwClient(syscfg: Record<string, unknown>): GatewayClient {
   const url = String(syscfg['gateway_url'] || '').replace(/\/+$/, '')
   const key = String(syscfg['admin_key'] || '')
   if (!url || !key) {
-    throw new UsageError('系统级配置缺少 gateway_url/admin_key —— 先跑 aimail install')
+    throw new UsageError('System-level configuration missing gateway_url/admin_key — run aimail install first')
   }
-  // identity 留空:网关按签名自选 key(与 auto-bind registerAddress 同约定)
+  // identity left blank: gateway picks key by signature (same convention as auto-bind registerAddress)
   return new GatewayClient(url, key, 30_000)
 }
 
-// ── admin 端点(镜像 pysdk/aimail_tools.py _GatewayClient)──────────────────
+// ── admin endpoints (mirrors pysdk/aimail_tools.py _GatewayClient)──────────────────
 
 async function listSystemDomains(c: GatewayClient, sid: string): Promise<Array<Record<string, unknown>>> {
   const r = await c.request('GET', `/api/v1/admin/systems/${sid}/domains`)
@@ -148,9 +148,9 @@ async function deleteApiKey(c: GatewayClient, keyId: number): Promise<Record<str
   return r as unknown as Record<string, unknown>
 }
 
-// ── 注销链(镜像 pysdk/aimail_base.py deregister_agent_email)────────────────
+// ── deregistration chain (mirrors pysdk/aimail_base.py deregister_agent_email)────────────────
 
-/** 注销链(api-key → domain → whitelist),返回各步状态 {api_key, domain, whitelist}。 */
+/** Unregister chain (api-key → domain → whitelist), returns status of each step {api_key, domain, whitelist}. */
 async function deregisterAgentEmail(
   c: GatewayClient,
   systemId: string,
@@ -158,7 +158,7 @@ async function deregisterAgentEmail(
   managerAddress: string,
 ): Promise<Record<string, unknown>> {
   const out: Record<string, unknown> = {}
-  // 1. 删 API key(按 email 查 id)
+  // 1. Delete API key (lookup id by email)
   try {
     const k = await getApiKeyByEmail(c, email)
     const id = k['id']
@@ -171,7 +171,7 @@ async function deregisterAgentEmail(
   } catch (e) {
     out['api_key'] = `err:${e instanceof Error ? e.message : e}`
   }
-  // 2. 删 domain entry(按 id,回退按名)
+  // 2. Delete domain entry (by id, fallback by name)
   try {
     const domains = await listSystemDomains(c, systemId)
     let addrId = ''
@@ -188,7 +188,7 @@ async function deregisterAgentEmail(
   } catch (e) {
     out['domain'] = `err:${e instanceof Error ? e.message : e}`
   }
-  // 3. 白名单清理 —— 精确 (domain_addr==email) 后按 id 删(F10:落空时按地址收敛)
+  // 3. Whitelist cleanup — exact (domain_addr==email) then delete by id (F10: converge by address on miss)
   try {
     const domain = email.includes('@') ? email.split('@')[1] : ''
     if (!domain) {
@@ -215,8 +215,8 @@ async function deregisterAgentEmail(
   return out
 }
 
-/** 卸载兜底:清本系统自己的白名单行(镜像 cleanup_system_whitelists)。
- *  返回 {"removed":N,"per_key":{key:n},"errors":[...]}。 */
+/** Uninstall fallback: clear this system's own whitelist rows (mirrors cleanup_system_whitelists).
+ *  Returns {"removed":N,"per_key":{key:n},"errors":[...]}. */
 async function cleanupSystemWhitelists(
   c: GatewayClient,
   systemId: string,
@@ -241,7 +241,7 @@ async function cleanupSystemWhitelists(
     let n = 0
     for (const r of rows) {
       if (r['id'] == null) continue
-      if (r['system_id'] != null && r['system_id'] !== systemId) continue // 双保险
+      if (r['system_id'] != null && r['system_id'] !== systemId) continue // double safety
       const rid = Number(r['id'])
       if (seen.has(rid)) continue
       seen.add(rid)
@@ -258,7 +258,7 @@ async function cleanupSystemWhitelists(
   return { removed, per_key: perKey, errors }
 }
 
-// ── manager 解析(镜像 pysdk resolve_manager_address:显式 > env)────────────
+// ── manager resolution (mirrors pysdk resolve_manager_address: explicit > env)────────────
 
 const MANAGER_ENV_VARS = ['AIMAIL_MANAGER_ADDRESS', 'INTEGRATE_MANAGER_ADDRESS'] as const
 function resolveManager(explicit: string, syscfg: Record<string, unknown>): string {
@@ -271,7 +271,7 @@ function resolveManager(explicit: string, syscfg: Record<string, unknown>): stri
   return String(syscfg['manager_address'] || '').trim()
 }
 
-// ── binding 定位(镜像 pysdk _agent_binding:email 精确 > agent_id 扫全部)────
+// ── binding location (mirrors pysdk _agent_binding: email exact > agent_id scan all)────
 
 async function agentBinding(
   systemId: string,
@@ -279,7 +279,7 @@ async function agentBinding(
   email: string,
   explicit: unknown,
 ): Promise<Record<string, unknown>> {
-  // 显式 binding(repair 的 webhook-secret 调用方直接给了绑定)⇒ 直接用
+  // Explicit binding (repair's webhook-secret caller provided the binding directly) ⇒ use as-is
   if (explicit && typeof explicit === 'object') {
     const b = { ...(explicit as Record<string, unknown>) }
     if (email && !b['email']) b['email'] = email
@@ -299,15 +299,15 @@ async function agentBinding(
   return {}
 }
 
-/** 绑定回填(纯写回,判定归调用方;与 pysdk backfill_binding 同形)。 */
+/** Binding backfill (pure write-back, judgment belongs to caller; same shape as pysdk backfill_binding). */
 async function backfillBinding(cfg: Record<string, unknown>, systemId: string): Promise<string> {
   const ac = { ...(cfg as unknown as AgentConfig) }
-  if (!ac.email) throw new UsageError('backfill_binding: 绑定缺 email')
+  if (!ac.email) throw new UsageError('backfill_binding: binding missing email')
   ac.system_id = systemId
   return saveAgentConfig(ac, systemId)
 }
 
-// ── 定名(镜像 plan_address_name 主 agent 链)────────────────────────────────
+// ── naming (mirrors plan_address_name main agent chain)────────────────────────────────
 
 function mainAgentPlan(
   requestedName: string,
@@ -321,11 +321,11 @@ function mainAgentPlan(
   email: string
   target_email: string
 } {
-  // node 平台注册器接受地址名(直达,needs_rename=False —— F13 根):
-  // 主 agent 恒定名 agent(平台私有叫法不参与),shared 系统拼 .{system_name}。
+  // node platform registrar accepts address name (direct, needs_rename=False — F13 root):
+  // main agent constant name agent (platform private naming not involved), shared system appends .{system_name}.
   const name = requestedName || 'agent'
   if (!/^[A-Za-z0-9!#$%&'*+\/=?^_`{|}~]+$/.test(name)) {
-    throw new UsageError(`非法地址名 '${name}':须为 atext-no-dot 字符(不能含点/空格/@)`)
+    throw new UsageError(`illegal address name '${name}': must be atext-no-dot characters (no dot/space/@)`)
   }
   const email = emailForAgent(name, domain, systemName, [])
   return {
@@ -339,34 +339,34 @@ function mainAgentPlan(
 }
 
 // ── op: assemble ───────────────────────────────────────────────────────────
-/** 装配:自定位配置 → 定名 → 注册链(registerAddress 幂等四步)→ 落绑定。
- *  镜像 pysdk _op_assemble(node 宿主:注册器 = 本入口自己,不跑外部注册器,
- *  register_spec 不存在)。 */
+/** Assembly: self-locating config → naming → registration chain (registerAddress idempotent four steps) → persist binding.
+ *  Mirrors pysdk _op_assemble (node host: registrar = this entry itself, no external registrar,
+ *  register_spec does not exist). */
 export async function opAssemble(args: Record<string, unknown>): Promise<Record<string, unknown>> {
   const systemId = String(args['system_id'] || '')
-  if (!systemId) throw new UsageError('assemble: 需要 system_id')
+  if (!systemId) throw new UsageError('assemble: system_id is required')
   const syscfg = await loadSystem(systemId, args)
   const domain = String(args['domain'] || syscfg['domain'] || '')
   const systemName = String(args['system_name'] || syscfg['system_name'] || '')
   if (!domain) {
-    throw new UsageError(`assemble: 系统 ${systemId} 没有 domain —— 先完成激活/安装`)
+    throw new UsageError(`assemble: system ${systemId} has no domain — complete activation/install first`)
   }
   const requested = String(args['requested_name'] || 'agent')
   const plan = mainAgentPlan(requested, domain, systemName)
-  // 显式 email 优先(repair 的云端重配对走 assemble,直接给地址)
+  // Explicit email priority (repair's cloud re-pairing goes through assemble, provides address directly)
   const email = String(args['email'] || plan.email)
   const manager = resolveManager(String(args['manager_address'] || ''), syscfg)
   if (!manager) {
-    throw new UsageError('assemble: 缺 manager(注册/白名单不接受空值)—— 给 -m/--manager 或 env')
+    throw new UsageError('assemble: missing manager (registration/whitelist does not accept empty values) — provide -m/--manager or env')
   }
-  // 本地收端点(注册值 = resolveRegisterWebhook 按 webhook_host 三态解析)
+  // Local receive endpoint (registration value = resolveRegisterWebhook three-state resolution by webhook_host)
   let webhookUrl = String(args['local_webhook_url'] || args['webhook_url'] || '')
   if (webhookUrl) {
     webhookUrl = resolveRegisterWebhook(syscfg as never, webhookUrl) || webhookUrl
   }
-  // secret 单一真源 = 本地绑定(与 pysdk register_agent_email 第 10 缺陷口径同形):
-  // 本地有 ⇒ 用它(绝不铸新 —— 无条件铸新会让云端≠本地 ⇒ 入站恒 401,J4e 定因);
-  // 本地缺、调用方给(repair 传本地值)⇒ 用它;两者皆缺 ⇒ 铸新。
+  // secret single source of truth = local binding (same shape as pysdk register_agent_email defect 10 criteria):
+  // Local exists ⇒ use it (never mint new — unconditional minting would make cloud≠local ⇒ inbound always 401, J4e root cause);
+  // Local missing, caller provided (repair passes local value) ⇒ use it; both missing ⇒ mint new.
   const _existing = await loadAgentConfig(systemId, email)
   const _existingSecret = String((_existing ?? {})['webhook_secret'] ?? '').trim()
   const _callerSecret = String(args['webhook_secret'] ?? '').trim()
@@ -385,21 +385,21 @@ export async function opAssemble(args: Record<string, unknown>): Promise<Record<
   })
   const registered = reg.exists ? { exists: true } : { api_key: reg.api_key ?? '' }
 
-  // 落绑定:新注册 ⇒ saveBinding;已存在 ⇒ 沿用本地(补 manager/webhook 事实)。
-  // 幂等关键:exists 分支若本地无 api_key 绑定 ⇒ 响亮失败(与 python auto-bind
-  // "already exists but no local binding" 同语义,先注销再重来)。
-  // G1b(2026-10-13)→P3-C(2026-10-17):preset —— 宿主概念,由 SDK 侧自报
-  // (dsh register-cli assembleExtra,10-11 三来源裁决「宿主自报/内部 → SDK 内部」);
-  // op 信封 merge `{...args, ...extra}` 带入 ⇒ 非空则落绑定顶层(extra 通道,
-  // fresh/exists 两分支都写 ⇒ 幂等);dsh check session 维判据只认它(adapters.rs)。
-  // CLI 注册表 register.args 不再声明宿主概念(P3-C 删除 `--preset mail`)。
+  // Persist binding: new registration ⇒ saveBinding; already exists ⇒ reuse local (supplement manager/webhook facts).
+  // Idempotency key: exists branch if local has no api_key binding ⇒ loud failure (consistent with python auto-bind
+  // "already exists but no local binding", deregister first then retry).
+  // G1b(2026-10-13)→P3-C(2026-10-17):preset —— host concept, self-reported by the SDK side
+  // (dsh register-cli assembleExtra, 10-11 three-source adjudication "host self-report/internal → SDK internal");
+  // op envelope merge `{...args, ...extra}` carries it in ⇒ if non-empty, write to binding top-level (extra channel,
+  // both fresh/exists branches write ⇒ idempotent); dsh check session dimension criteria only recognize it (adapters.rs).
+  // CLI registry register.args no longer declares host concept (P3-C removed `--preset mail`).
   const preset = String(args['preset'] || '').trim()
   const presetExtra: Record<string, unknown> = preset ? { preset } : {}
   let bindingPath = ''
   if (reg.exists) {
     if (_existing && _existing.api_key) {
-      // exists 分支:本地 secret 为单一真源 —— 本地缺而网关侧已用入参/新值同步 ⇒ 回写本地
-      // (镜像 pysdk aimail_base.py:2472-2494 "先把这把回写绑定再 PUT",卡B ③ 同口径)。
+      // exists branch: local secret is the single source of truth —— if missing locally but already synced on gateway side via input params/new value ⇒ write back to local
+      // (mirrors pysdk aimail_base.py:2472-2494 "first write back this key to binding then PUT", card B ③ same criteria).
       const merged: Record<string, unknown> = {
         ..._existing,
         manager_address: manager,
@@ -411,13 +411,13 @@ export async function opAssemble(args: Record<string, unknown>): Promise<Record<
       bindingPath = await saveAgentConfig(merged as unknown as AgentConfig, systemId)
     } else {
       throw new UsageError(
-        `assemble: ${email} 已存在于系统 ${systemId} 但本地没有带 api_key 的绑定 —— ` +
-          `先注销该地址(aimail deregister --email ${email})或恢复 ${BINDING_FILE}`,
+        `assemble: ${email} already exists in system ${systemId} but no binding with api_key locally —— ` +
+          `deregister that address first (aimail deregister --email ${email}) or restore ${BINDING_FILE}`,
       )
     }
   } else {
     const apiKey = String(reg.api_key ?? '')
-    if (!apiKey) throw new UsageError(`assemble: ${email} 注册未返回 api_key(${JSON.stringify(registered)})`)
+    if (!apiKey) throw new UsageError(`assemble: ${email} registration did not return api_key(${JSON.stringify(registered)})`)
     bindingPath = await saveBinding({
       systemId,
       email,
@@ -429,8 +429,8 @@ export async function opAssemble(args: Record<string, unknown>): Promise<Record<
       extra: presetExtra,
     })
   }
-  // 共享装配步: 宿主自带的 skill/tool 暴露层若默认关闭, 由平台把(patch 文件 + 要启用的
-  // id)作为**数据**传进来; 原生就暴露的宿主不传 ⇒ 行为不变(无平台特例代码路径)。
+  // Shared assembly step: if the host's built-in skill/tool exposure layer is disabled by default, the platform passes (patch file + ids to enable)
+  // id) passed in as **data**; hosts that natively expose it do not pass it ⇒ behavior unchanged (no platform-specific code path).
   const exposePatch = String(args['skill_expose_patch'] || '')
   const skillExposure = exposePatch
     ? ensureSkillToolExposure({
@@ -454,17 +454,17 @@ export async function opAssemble(args: Record<string, unknown>): Promise<Record<
 }
 
 // ── op: update ─────────────────────────────────────────────────────────────
-/** 受控变更:rename | set-manager | prompt | persona | webhook-secret | backfill | repair。
- *  镜像 pysdk _op_update(payload 键逐字一致)。 */
+/** Controlled changes: rename | set-manager | prompt | persona | webhook-secret | backfill | repair.
+ *  Mirrors pysdk _op_update (payload keys are identical). */
 export async function opUpdate(args: Record<string, unknown>): Promise<Record<string, unknown>> {
   const systemId = String(args['system_id'] || '')
-  if (!systemId) throw new UsageError('update: 需要 system_id')
+  if (!systemId) throw new UsageError('update: system_id is required')
   const syscfg = await loadSystem(systemId, args)
   const action = String(args['action'] || '').trim()
   const email = String(args['email'] || args['old_email'] || '')
   const client = gwClient(syscfg)
 
-  // repair 系统级:未给目标 ⇒ 遍历该系统全部绑定(与 python 同语义)
+  // repair system-level: no target given ⇒ iterate all bindings of that system (same semantics as python)
   if (action === 'repair' && !(args['email'] || args['agent_id'])) {
     const filledFlat: string[] = []
     for (const row of await listAgentConfigs(systemId)) {
@@ -493,7 +493,7 @@ export async function opUpdate(args: Record<string, unknown>): Promise<Record<st
   } else if (action === 'backfill') {
     r = { binding_path: await backfillBinding(cfg, systemId) }
   } else if (action === 'repair') {
-    // 修复判定收在 SDK 内(幂等:只记真补上的字段;api_key 不作本地缺口)
+    // Repair determination is contained within the SDK (idempotent: only records fields actually filled; api_key is not treated as a local gap)
     const filled: string[] = []
     for (const k of ['gateway_url', 'domain', 'system_name']) {
       if (!String(cfg[k] || '').trim()) {
@@ -511,7 +511,7 @@ export async function opUpdate(args: Record<string, unknown>): Promise<Record<st
         filled.push('manager_address')
       }
     }
-    // webhook_url 与活路由对齐(不等即换;相等不动 ⇒ 幂等)
+    // webhook_url aligned with live route (replace if not equal; do nothing if equal ⇒ idempotent)
     const routes = (args['routes'] ?? {}) as Record<string, unknown>
     const local =
       String(routes[email] || cfg['local_webhook_url'] || args['local_webhook_url'] || '')
@@ -522,8 +522,8 @@ export async function opUpdate(args: Record<string, unknown>): Promise<Record<st
         filled.push('webhook_url')
       }
     }
-    // secret:复用本地既有(唯一真源);缺失 ⇒ 生成并写回绑定。
-    // 形状与 python ensure_binding_webhook_secret 同形 {changed,secret,path,reason,detail}
+    // secret: reuse existing local one (single source of truth); if missing ⇒ generate and write back to binding.
+    // Shape is identical to python ensure_binding_webhook_secret {changed,secret,path,reason,detail}
     const ensured = await ensureBindingWebhookSecret(cfg, String(cfg['_config_path'] || ''))
     const secretPath = String(cfg['_config_path'] || '')
     const secretOut: Record<string, unknown> = ensured.provisioned
@@ -541,13 +541,13 @@ export async function opUpdate(args: Record<string, unknown>): Promise<Record<st
     r = out
   } else if (action === 'prompt' || action === 'persona' || action === 'webhook-secret') {
     if (action === 'prompt') {
-      // 名字过 SDK 谓词(promptRuleNameOk = python PROMPT_RULE_NAME_RE 同形)
+      // Name passes SDK predicate (promptRuleNameOk = same shape as python PROMPT_RULE_NAME_RE)
       const list = (args['prompt_rules'] ??
         (args['updates'] as Record<string, unknown> | undefined)?.['prompt_rules']) as unknown
       if (Array.isArray(list)) {
         for (const rule of list) {
           const n = rule && typeof rule === 'object' ? String((rule as Record<string, unknown>)['name'] ?? '') : ''
-          if (n && !promptRuleNameOk(n)) throw new UsageError(`update action=prompt: 规则名不合法 '${n}'`)
+          if (n && !promptRuleNameOk(n)) throw new UsageError(`update action=prompt: invalid rule name '${n}'`)
         }
       }
     }
@@ -559,8 +559,8 @@ export async function opUpdate(args: Record<string, unknown>): Promise<Record<st
       const v = args['persona'] ?? (args['updates'] as Record<string, unknown> | undefined)?.['persona']
       if (v !== undefined && v !== null) patch['persona'] = v
     } else {
-      // webhook-secret:值优先(顶层键 > updates 信封);无值 ⇒ ensure 语义
-      // (CLI repair.rs:872 契约 v1.0 §4.1:不带值调 update 期望复用本地/生成并写回)。
+      // webhook-secret: value priority (top-level key > updates envelope); no value ⇒ ensure semantics
+      // (CLI repair.rs:872 contract v1.0 §4.1: calling update without a value expects reuse of local/generate and write back).
       const v = args['webhook_secret'] ?? (args['updates'] as Record<string, unknown> | undefined)?.['webhook_secret']
       if (v !== undefined && v !== null && String(v).trim() !== '') {
         patch['webhook_secret'] = v
@@ -569,11 +569,11 @@ export async function opUpdate(args: Record<string, unknown>): Promise<Record<st
         patch['webhook_secret'] = ensured.secret
       }
     }
-    if (Object.keys(patch).length === 0) throw new UsageError(`update action=${action}: 缺少要更新的字段`)
+    if (Object.keys(patch).length === 0) throw new UsageError(`update action=${action}: missing fields to update`)
     Object.assign(cfg, patch)
     r = { binding_path: await backfillBinding(cfg, systemId) }
   } else {
-    throw new UsageError(`update: 未知 action='${action}'(rename|set-manager|prompt|persona|webhook-secret|backfill|repair)`)
+    throw new UsageError(`update: unknown action='${action}'(rename|set-manager|prompt|persona|webhook-secret|backfill|repair)`)
   }
   return { ok: true, action, sdk_version: await sdkVersion(), ...(r ?? {}) }
 }
@@ -598,14 +598,14 @@ async function opRename(
   if (newEmail === old) {
     return { old_email: old, new_email: old, unchanged: true, dir: '', moved: false, merged: false, migrated: true, signal: null }
   }
-  // 1) 冲突预检(本地绑定,同 python 语义)
+  // 1) Conflict pre-check (local binding, same semantics as python)
   for (const row of await listAgentConfigs(systemId)) {
     const em = String(row.email || '')
     if (!em || em === old) continue
     const base = em.split('@')[0]?.split('.')[0] ?? ''
     if (base === name) throw new UsageError(`new address name '${name}' conflicts with registered address ${em}`)
   }
-  // 2) 云端 rename(失败即抛 —— 本地未动)
+  // 2) cloud rename (throw on failure —— local unchanged)
   const res = await client.request('POST', `/api/v1/admin/systems/${systemId}/addresses/rename`, { old_email: old, new_email: newEmail })
   if (res.status === 0 || (res.status >= 400 && res.status < 500)) {
     throw new UsageError(
@@ -613,7 +613,7 @@ async function opRename(
         `${JSON.stringify({ status: res.status, error: String(res.error ?? ''), detail: String(res.detail ?? '') })}`,
     )
   }
-  // 3) 白名单孤儿行清理(best-effort,键 = 完整 old 地址)
+  // 3) Whitelist orphan row cleanup (best-effort, key = full old address)
   try {
     const rows = await listWhitelistsByDomain(client, old)
     for (const row of rows) {
@@ -622,9 +622,9 @@ async function opRename(
       }
     }
   } catch {
-    /* best-effort(与 python 同:单键失败不阻断) */
+    /* best-effort (same as python: single key failure does not block) */
   }
-  // 4) 本地绑定迁移(目录 + 内容一次完成)
+  // 4) Local binding migration (directory + content completed in one go)
   const baseRoot = systemDir(systemId)
   let dirPath = ''
   let moved = false
@@ -666,9 +666,9 @@ async function opRename(
 }
 
 // ── op: teardown ───────────────────────────────────────────────────────────
-/** 拆除:注销 → 白名单清理(顺序固定;缺目标 ⇒ 响亮失败)。镜像 pysdk _op_teardown。
+/** Teardown: deregister → whitelist cleanup (fixed order; missing target ⇒ loud failure). Mirrors pysdk _op_teardown.
  *  payload = {ok, actions:[{deregister_agent_email:{...}} | {cleanup_system_whitelists:{...}}], sdk_version}
- *  —— CLI 用 action_of(result, key) 从 actions 数组取对应动作。 */
+ *  —— CLI uses action_of(result, key) to fetch the corresponding action from the actions array. */
 export async function opTeardown(args: Record<string, unknown>): Promise<Record<string, unknown>> {
   const systemId = String(args['system_id'] || '')
   const email = String(args['email'] || '')
@@ -677,16 +677,16 @@ export async function opTeardown(args: Record<string, unknown>): Promise<Record<
   const whitelist = mode['whitelist'] ?? false
   const backfill = mode['backfill'] ?? false
   if (!wants && !whitelist && !backfill) {
-    // 显式关闭全部动作 ⇒ 幂等 no-op(不触网、不要求目标)
+    // Explicitly close all actions ⇒ idempotent no-op (no network, no target required)
     return { ok: true, actions: [], sdk_version: await sdkVersion() }
   }
-  if (!systemId) throw new UsageError('teardown: 需要 system_id')
+  if (!systemId) throw new UsageError('teardown: system_id is required')
   const syscfg = await loadSystem(systemId, args)
   const client = gwClient(syscfg)
   const manager = String(args['manager_address'] || '')
   const actions: Record<string, unknown>[] = []
   if (wants) {
-    if (!email) throw new UsageError('teardown: 需要 email(有动作时缺目标 ⇒ 响亮失败)')
+    if (!email) throw new UsageError('teardown: email required (missing target with actions ⇒ loud failure)')
     actions.push({ deregister_agent_email: await deregisterAgentEmail(client, systemId, email, manager) })
   }
   if (whitelist) {
@@ -702,32 +702,32 @@ export async function opTeardown(args: Record<string, unknown>): Promise<Record<
   return { ok: true, actions, sdk_version: await sdkVersion() }
 }
 
-// ── op: prompt-test(只读;契约 §4.1 三 op 增列,owner 2026-10-10 (a) 裁定)──
-/** L5 过滤 + 匹配的只读判定:读绑定 → `readPromptRules`(过滤:仅 dict · 名过谓词 ·
- *  `file` 非空 · `enabled is False` 跳过 · 至少一个非空字段,按名排序)→ 逐规则
- *  `promptRuleMatches`(字段内或 / 字段间且)。**不触网、不写盘** —— 与 python 门
- *  `read_prompt_rules` / `prompt_rule_matches` 同形(契约 §4.1(2) 两路语义一致)。
+// ── op: prompt-test (read-only; contract §4.1 adds three ops, owner 2026-10-10 (a) ruling)──
+/** L5 filter + matching read-only check: read binding → `readPromptRules` (filter: dict only · name passes predicate ·
+ *  `file` non-empty · skip if `enabled is False` · at least one non-empty field, sorted by name) → per-rule
+ *  `promptRuleMatches` (OR within fields / AND across fields). **No network, no disk write** —— same as python gate
+ *  `read_prompt_rules` / `prompt_rule_matches` (contract §4.1(2) two-path semantics consistent).
  *
- *  CLI `prompt test` 的 L5 面改调本 op(替代 CLI 侧 `loader_rules` 过滤镜像 +
- *  逐规则 `prompt_rule_matches` 的 python shim 调用 —— node 宿主无 python,shim 必红)。
- *  名字校验也收进本 op(`name_ok` = `promptRuleNameOk`)—— CLI `prompt add` / `create-file`
- *  的名字合法性改调本 op(替代 python shim `prompt_rule_name_ok`),`update action=prompt`
- *  落盘前仍自校验(双重保险,门内判据不依赖调用方)。
- *  入:`{system_id, email|agent_id, subject, body, sender, recipient, name?}`。
- *  出:`{ok, rules:[{name, file, match}], name_ok?, sdk_version}`(CLI 按序打印 miss/hit,
- *  角色文件存在性仍由 CLI 本地判定,与本 op 无关)。
+ *  CLI `prompt test` L5 side now calls this op (replacing CLI-side `loader_rules` filter mirror +
+ *  per-rule `prompt_rule_matches` python shim call —— node host has no python, shim must be red).
+ *  Name validation is also included in this op (`name_ok` = `promptRuleNameOk`) —— CLI `prompt add` / `create-file`
+ *  name validity now calls this op (replacing python shim `prompt_rule_name_ok`), `update action=prompt`
+ *  still self-validates before writing to disk (double insurance, gate criteria do not depend on caller).
+ *  In: `{system_id, email|agent_id, subject, body, sender, recipient, name?}`.
+ *  Out: `{ok, rules:[{name, file, match}], name_ok?, sdk_version}` (CLI prints miss/hit in order,
+ *  role file existence is still determined locally by CLI, unrelated to this op).
  */
 export async function opPromptTest(args: Record<string, unknown>): Promise<Record<string, unknown>> {
   const systemId = String(args['system_id'] || '')
-  if (!systemId) throw new UsageError('prompt-test: 需要 system_id')
+  if (!systemId) throw new UsageError('prompt-test: system_id is required')
   const email = String(args['email'] || '')
   const agentId = String(args['agent_id'] || '')
   const subject = String(args['subject'] ?? '')
   const body = String(args['body'] ?? '')
   const sender = String(args['sender'] ?? '')
   const recipient = String(args['recipient'] ?? '')
-  // 绑定定位(email 精确 > agent_id 扫全部);只读,缺绑定 ⇒ 空规则(不触网、不响亮失败 ——
-  // CLI 侧 resolve_target 已保证绑定存在,这里只是防御)。
+  // Binding location (email exact > agent_id scan all); read-only, missing binding ⇒ empty rules (no network, no loud failure ——
+  // CLI side resolve_target already guarantees the binding exists, this is just defensive).
   const cfg = await agentBinding(systemId, agentId, email, null)
   const rules = readPromptRules(cfg as unknown as AgentConfig).map((rule) => ({
     name: rule.name,
@@ -735,15 +735,15 @@ export async function opPromptTest(args: Record<string, unknown>): Promise<Recor
     match: promptRuleMatches(rule, subject, body, sender, recipient),
   }))
   const out: Record<string, unknown> = { ok: true, rules, sdk_version: await sdkVersion() }
-  // 名字校验(CLI `prompt add` / `create-file` 的名字合法性);仅当给了 name 时返回。
+  // Name validation (CLI `prompt add` / `create-file` name legality); only returned when name is provided.
   const name = String(args['name'] ?? '')
   if (name) out['name_ok'] = promptRuleNameOk(name)
   return out
 }
 
-// ── 本模块是**库** ─────────────────────────────────────────────────────────
-// opAssemble/opUpdate/opTeardown 由平台入口调用(dsh/pi 的 register-cli.js、
-// openclaw 的 `aimail` 子命令)——CLI 经注册表 ops.argv 起的就是那些入口,它们负责
-// --op/--args 解析与单行 JSON 信封(与 python 门 `python3 -m aimail.sdk_ops` 同形)。
-// 这里不解析 argv、不自跑 main,保持纯函数库语义。
+// ── This module is a **library** ─────────────────────────────────────────────────────────
+// opAssemble/opUpdate/opTeardown are called by platform entry points (dsh/pi register-cli.js,
+// openclaw's `aimail` subcommand) —— CLI starts those entries via registry ops.argv, which are responsible
+// --op/--args parsing and single-line JSON envelope (same shape as python gate `python3 -m aimail.sdk_ops`).
+// No argv parsing here, no self-running main, maintaining pure function library semantics.
 

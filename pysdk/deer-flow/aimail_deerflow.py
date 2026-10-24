@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
-"""aimail_deerflow.py — DeerFlow 适配层。
+"""aimail_deerflow.py — DeerFlow adapter layer.
 
-与 aimail_hermes 同构（三件套）:
-  ① 平台实现: config 加载 / profile 目录 / set_agent_context
-  ② 注入点赋值 + 能力开关: PERSONA_SUPPORTED = False
-  ③ 平台注册: 身份注入(deerflow/{ver})
+Isomorphic with aimail_hermes (three-piece set):
+  ① Platform implementation: config loading / profile directory / set_agent_context
+  ② Injection point assignment + capability switch: PERSONA_SUPPORTED = False
+  ③ Platform registration: identity injection (deerflow/{ver})
 
-共享核心(pysdk/aimail_base)已提供平台无关 set_agent_context
-(按 agentmail.json 布局扫描),本适配层仅做:
-  - 转发共享函数(与 Hermes 同款)
-  - 注入 DeerFlow 身份(X-AIMail-Agent: deerflow/...)
+Shared core (pysdk/aimail_base) already provides platform-agnostic set_agent_context
+(scans per agentmail.json layout), this adapter layer only does:
+  - Forward shared functions (same as Hermes)
+  - Inject DeerFlow identity (X-AIMail-Agent: deerflow/...)
 
-入站:预处理在 DeerFlow 本地 gateway(8001)进程内完成,
-aimail_inbound router 直接 import 本适配层获得注入点;
-链路 gateway→bridge→8001 /aimail/inbound(验签+预处理+start_run 投递)。
+Inbound: preprocessing completed within DeerFlow local gateway (8001) process,
+aimail_inbound router directly imports this adapter layer to get injection point;
+chain gateway→bridge→8001 /aimail/inbound (signature verification + preprocessing + start_run delivery).
 
-布局: ~/.aimail/systems/{sid}/{cleaned_addr}/agentmail.json(共享)
+Layout: ~/.aimail/systems/{sid}/{cleaned_addr}/agentmail.json (shared)
 """
 from __future__ import annotations
 
@@ -25,9 +25,9 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-# ── aimail 运行时核心定位(bundle / site-packages / 仓库 dev;不再依赖仓库路径)──
+# ── aimail runtime core location (bundle / site-packages / repo dev; no longer depends on repo path) ──
 def _aimail_bootstrap():
-    """定位 aimail 运行时核心,装配 sys.path。"""
+    """Locate aimail runtime core, assemble sys.path."""
     import importlib.util as _ilu
     _here = os.path.dirname(os.path.abspath(__file__))
     for _d in (_here, os.path.dirname(_here)):
@@ -48,13 +48,13 @@ def _aimail_bootstrap():
 
 _aimail_bootstrap()
 
-import aimail_base as _ab          # noqa: E402  (共享核心)
-import aimail_tools as _tools      # noqa: E402  (X-AIMail-Agent 身份注入)
+import aimail_base as _ab          # noqa: E402  (shared core)
+import aimail_tools as _tools      # noqa: E402  (X-AIMail-Agent identity injection)
 
-# ── 宿主识别(移植 tssdk "activate on entry load"): declared=deerflow, 入口加载时
-#    复验环境。never raises(装错宿主只 warn); home 语义与 CLI 对齐(DEER_FLOW_HOME
-#    或 ~/.deer-flow; marker backend/app/gateway 在其下)。_aimail_bootstrap 已把
-#    core 挂 sys.path ⇒ hosts 子包可 import(pip 走 aimail.hosts, dev 直接 hosts)。
+# ── Host identification (ported tssdk "activate on entry load"): declared=deerflow, entry load time
+#    re-verify environment. never raises (wrong host install only warns); home semantics aligned with CLI (DEER_FLOW_HOME
+#    or ~/.deer-flow; marker backend/app/gateway under it). _aimail_bootstrap has already
+#    attached core to sys.path ⇒ hosts subpackage importable (pip via aimail.hosts, dev direct hosts).
 try:
     from aimail import hosts as _aimail_hosts
 except ImportError:
@@ -63,10 +63,10 @@ _HOST_VERIFY = _aimail_hosts.activate_host(
     "deerflow", os.environ.get("DEER_FLOW_HOME") or os.path.expanduser("~/.deer-flow"))
 
 
-# ── DeerFlow 身份检测(只报真实检测结果)───────────────────────────
+# ── DeerFlow identity detection (only report real detection results) ───────────────────────────
 def _detect_deerflow_version() -> str:
-    """检测 DeerFlow 版本:优先 DEER_FLOW_HOME/backend/pyproject.toml,
-    失败回退 unknown。"""
+    """Detect DeerFlow version: prefer DEER_FLOW_HOME/backend/pyproject.toml,
+    fallback to unknown on failure."""
     for pp in (
         os.path.join(os.environ.get("DEER_FLOW_HOME", ""), "backend", "pyproject.toml"),
         os.path.join(os.path.expanduser("~"), "deer-flow", "backend", "pyproject.toml"),
@@ -85,13 +85,13 @@ def _detect_deerflow_version() -> str:
     return "unknown"
 
 
-# ── 注入身份(与 OpenClaw 同模式: 目录检测会误判,必须显式注入)────
+# ── Inject identity (same pattern as OpenClaw: directory detection can misjudge, explicit injection is required)────
 _tools._AGENT_IDENTITY_OVERRIDE = f"deerflow/{_detect_deerflow_version()}"
 
 
-# ── ① 平台实现 ──────────────────────────────────────────────────
+# ── ① Platform implementation ──────────────────────────────────────────────────
 def _deerflow_profile_dir() -> Optional[str]:
-    """profile 目录: 当前 system 目录(system_id 解析同 OpenClaw 指针)。"""
+    """profile directory: current system directory (system_id resolution same as OpenClaw pointer)."""
     sid = os.environ.get("AIMAIL_SYSTEM_ID", "")
     if sid:
         return str(Path(_ab.aimail_home()) / "systems" / sid)
@@ -99,13 +99,13 @@ def _deerflow_profile_dir() -> Optional[str]:
 
 
 def _deerflow_soul_md(config=None) -> str:
-    """SOUL.md per-agent: 锚定该 agent 自己的地址目录。
+    """SOUL.md per-agent: anchors to the agent's own address directory.
 
-    DeerFlow「目录即 agent」(SOUL.md/agents/ — manage.py 目录真相源);SDK
-    自持的唯一 per-agent 目录 = save_agent_config 落盘绑定的地址键目录
-    systems/{sid}/{cleaned_addr}/,SOUL 锚在那里:<dir>/SOUL.md。缺失 ⇒ ''
-    (未作者 SOUL 的 agent 渲染空,文档化)。全 agents/ 树扫描归上游
-    DeerFlow(manage.discover 简化 stub,「扩展扫描留待后续」),不在此复制。
+    DeerFlow 'directory is agent' (SOUL.md/agents/ — manage.py directory source of truth); SDK
+    self-held unique per-agent directory = address key directory bound by save_agent_config persistence
+    systems/{sid}/{cleaned_addr}/, SOUL anchored there: <dir>/SOUL.md. Missing ⇒ ''
+    (agents without an authored SOUL render empty; documented). Scanning the whole agents/ tree belongs to upstream
+    DeerFlow (manage.discover simplified stub, 'extended scan left for later'), not replicated here.
     """
     if not config:
         return ""
@@ -120,11 +120,11 @@ def _deerflow_soul_md(config=None) -> str:
 
 
 def _deerflow_skills(config=None) -> list:
-    """skills 列表(per-agent)。DeerFlow「目录即 agent」:skills 与 SOUL.md
-    同锚在 agent 自己的地址目录。枚举 systems/{sid}/{cleaned_addr}/skills/
-    下的子目录(每 skill 一子目录,与 SOUL 同锚、与 pi 同款)。缺失 ⇒ []
-    (不臆造;与 SOUL 缺失⇒'' 同形)。全平台 agents/ 树扫描归上游 DeerFlow
-    (manage.discover 简化 stub,「扩展扫描留待后续」),不在此复制。"""
+    """skills list (per-agent). DeerFlow 'directory is agent': skills and SOUL.md
+    anchored in the agent's own address directory. Enumerate subdirectories under systems/{sid}/{cleaned_addr}/skills/
+    (one subdirectory per skill, same anchor as SOUL, same style as pi). Missing ⇒ []
+    (do not fabricate; same shape as SOUL missing ⇒ ''). Full platform agents/ tree scan belongs to upstream DeerFlow
+    (manage.discover simplified stub, 'extended scan left for later'), not replicated here."""
     if not config:
         return []
     sid = str(config.get("system_id") or "")
@@ -142,14 +142,14 @@ def _deerflow_skills(config=None) -> list:
 
 
 def set_agent_context(agent_id: str, system_id: str = "") -> None:
-    """把当前 agent 的 config 挂到公共核心注入点(转发共享实现)。"""
+    """Attach current agent's config to public core injection point (forward shared implementation)."""
     _ab.set_agent_context(agent_id, system_id)
 
 
 def make_client(api_key: str = "", system_id: str = ""):
-    """Gateway 客户端(aimail_tools._GatewayClient,全方法集)。
+    """Gateway client (aimail_tools._GatewayClient, full method set).
 
-    api_key 缺省时从当前 agent 的 agentmail.json 读取。
+    api_key defaults to reading from current agent's agentmail.json.
     """
     cfg = load_agent_config_for_key(system_id)
     gw_url = (cfg or {}).get("gateway_url", "")
@@ -158,7 +158,7 @@ def make_client(api_key: str = "", system_id: str = ""):
 
 
 def load_agent_config_for_key(system_id: str = "") -> Optional[dict]:
-    """读取当前 system 的 gateway 配置(aimail_gateway.json)。"""
+    """Read current system's gateway config (aimail_gateway.json)."""
     try:
         sid = system_id or os.environ.get("AIMAIL_SYSTEM_ID", "")
         path = Path(_ab.aimail_home()) / "systems" / sid / "aimail_gateway.json"
@@ -170,17 +170,17 @@ def load_agent_config_for_key(system_id: str = "") -> Optional[dict]:
 
 
 def load_gateway_config(system_id: str = "") -> Optional[dict]:
-    """gateway 连接配置(转发共享 helper)。"""
+    """gateway connection config (forward shared helper)."""
     return _ab._load_gateway_config(system_id)
 
 
-# 转发共享核心函数(AUDIT-1 P0-2:manage.py 曾直调 _base.aimail_home()
-# AttributeError——adapters 只转发声明过的符号)
+# Forward shared core functions (AUDIT-1 P0-2: manage.py previously called _base.aimail_home() directly
+# AttributeError —— adapters only forward declared symbols)
 aimail_home = _ab.aimail_home
 
 
 def detect_system_id() -> str:
-    """系统身份: 指针文件唯一来源(~/.deer-flow/.agentmail 或 env)。"""
+    """System identity: pointer file single source (~/.deer-flow/.agentmail or env)."""
     sid = os.environ.get("AIMAIL_SYSTEM_ID", "")
     if sid:
         return sid
@@ -191,23 +191,23 @@ def detect_system_id() -> str:
             return d["system_id"]
     return ""
 
-# ── ② 注入点 + 能力开关 ─────────────────────────────────────────
-_ab.PERSONA_SUPPORTED = False        # DeerFlow 无 persona 派生地址概念
+# ── ② Injection points + capability switches ─────────────────────────────────────────
+_ab.PERSONA_SUPPORTED = False        # DeerFlow has no persona derived address concept
 _ab._PROFILE_DIR_RESOLVER = _deerflow_profile_dir
-# per-agent SOUL/skills(填 deer-flow 原先 0 注入的缺口: SOUL 与 skills 均按
-# agent 地址目录解析;skills 枚举该目录 skills/ 子目录,缺失 ⇒ [])
+# per-agent SOUL/skills (fills the gap of deer-flow's original 0 injection: SOUL and skills both resolved by
+# agent address directory; skills enumerates subdirectories of that directory's skills/, missing ⇒ [])
 _ab._SOUL_PROVIDER = _deerflow_soul_md
 _ab._SKILLS_PROVIDER = _deerflow_skills
-# 注入后自检: 指针解析不出来时入站预处理会降级(邮件照常投递,丢画像/附件下载),
-# 在启动处留一条 warn,而不是每封邮件才报。
+# Post-injection self-check: when pointer resolution fails, inbound preprocessing degrades (email delivered as usual, profile/attachment download lost),
+# Leave a warn at startup, rather than reporting on every email.
 _ab.check_profile_pointer()
 
 
-# ── ③ 身份注入(在 ② 之上,同 OpenClaw 模式)──────────────────────
-# 注:入站预处理并入 8001 进程后,dispatch_to_deerflow(原 ③)已删除;
-# 投递由 deer-flow backend 的 aimail_inbound router 内部 start_run 完成。
+# ── ③ Identity injection (on top of ②, same OpenClaw pattern)──────────────────────
+# Note: after inbound preprocessing merged into 8001 process, dispatch_to_deerflow (original ③) has been removed;
+# Delivery is completed by start_run inside the aimail_inbound router of the deer-flow backend.
 
-# ── 转发共享核心(复用面,与 OpenClaw 同款)────────────────────────
+# ── Forward shared core (reuse surface, same as OpenClaw)────────────────────────
 preprocess_mail_payload = _ab.preprocess_mail_payload
 process_inbound_mail = _ab.process_inbound_mail
 parse_aimail_persona = _ab.parse_aimail_persona

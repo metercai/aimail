@@ -1,5 +1,5 @@
 /**
- * sendMail 先存再调 tests (tools.ts + meta.ts).
+ * sendMail save-then-call tests (tools.ts + meta.ts).
  * Contract: mirror Python send_mail (2026-08-24 localization):
  *   - Message-ID generated locally ONCE, stored to local meta BEFORE the API
  *     call, and sent as the Message-ID header — the API-returned id is NOT
@@ -113,7 +113,7 @@ afterAll(async () => {
   delete process.env.AIMAIL_HOME
 })
 
-describe('sendMail 先存再调', () => {
+describe('sendMail save-then-call', () => {
   const ctx = { systemId: SYSTEM_ID, email: EMAIL }
 
   it('stores local meta with the locally generated mid; API-returned id not backfilled', async () => {

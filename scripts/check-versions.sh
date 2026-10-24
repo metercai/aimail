@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Release workflow tool — version consistency, checked BEFORE tagging/publishing.
-# (2026-10-08 分层归位：它校验版本元数据、不跑代码，属发布工具而非集成层，
-#  由 scripts/bump.sh 与 advanced run-e2e.sh 在 tag 前调用。)
+# (2026-10-08 layering fix: it checks version metadata and runs no code, so it is a release tool, not an integration layer;
+#  called before tagging by scripts/bump.sh and advanced run-e2e.sh.)
 #
 # Version semantics (v0.1.7+, single product version line):
 #   base X.Y.Z is shared by: git tag (vX.Y.Z / vX.Y.Z-rc.N), PyPI
@@ -14,7 +14,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
-. "$(dirname "${BASH_SOURCE[0]}")/_npmview.sh"   # 区分"未发布"(E404)与"查询失败"
+. "$(dirname "${BASH_SOURCE[0]}")/_npmview.sh"   # distinguishes "not published" (E404) from "query failed"
 
 TAG_ARG="${1:-}"
 python3 - "$TAG_ARG" <<'PYEOF'
@@ -37,11 +37,11 @@ py_base, py_rc = base_and_rc(pyproj)
 
 tag = sys.argv[1] if len(sys.argv) > 1 else ''
 if not tag:
-    # 只认与本地版本**同 base** 的 tag; 同 base 有多个(如 v0.1.12 与 v0.1.12-rc.2)时
-    # **优先与本地版本形态一致**的那个(stable→精确 vX.Y.Z, rc→vX.Y.Z-rc.N)。
-    # 原实现用 `git tag --sort=-v:refname` 取"最新", 而 git 的 version sort 把
-    # '0.1.12-rc.2' 排在 '0.1.12' **之后** ⇒ stable 发版时读到旧 rc tag, 误报
-    # "release-type mismatch"(v0.1.12 实测假红, 2026-09-21)。
+    # Only tags with the **same base** as the local version are considered; when several share the base (e.g. v0.1.12 and v0.1.12-rc.2)
+    # **prefer the one whose shape matches the local version** (stable → exact vX.Y.Z, rc → vX.Y.Z-rc.N).
+    # The original used `git tag --sort=-v:refname` to take the "latest", but git's version sort places
+    # '0.1.12-rc.2' **after** '0.1.12' ⇒ a stable release would read the stale rc tag and falsely report
+    # "release-type mismatch" (measured false-red on v0.1.12, 2026-09-21).
     out = subprocess.run(['git', 'tag', '-l', 'v*'], capture_output=True, text=True).stdout
     cands = [t for t in out.split() if re.match(r'^v\d', t)]
     same = [t for t in cands if base_and_rc(t[1:])[0] == py_base]
@@ -61,13 +61,13 @@ for p in ['agent-aimail']:
     v = d['version']
     b, rc = base_and_rc(v)
     if not b or rc is None:
-        fail.append(f'{p} version {v} 不是合法 semver')
+        fail.append(f'{p} version {v} is not valid semver')
     VERS[p] = v
     DEPS[p] = set((d.get('dependencies') or {}).keys())
     print(f'[L1] {p} {v} (base={b} rc={rc})')
 
-# 审计 D8: 工作区根包必须 private(它不是发布物)。若被误改成可发布, 将来
-# `pnpm -r publish` 类操作会发出错版本且本门禁不拦。
+# Audit D8: the workspace root package must stay private (it is not a publishable artifact). If it were
+# mistakenly made publishable, a future `pnpm -r publish` would ship the wrong version and this gate would not catch it.
 _root = json.load(open('tssdk/package.json'))
 if not _root.get('private'):
     fail.append('tssdk/package.json must stay private (workspace root is not published)')
@@ -82,7 +82,7 @@ while _ch:
             _grp.add(_p); _ch = True
 _gv = {VERS[p] for p in _grp if p in VERS}
 if len(_gv) > 1:
-    print('[L1] 提示(不判红)：闭包组内版本各自独立 ' + str(sorted(_gv)) + ' —— owner 2026-10-07 决定 ✓')
+    print('[L1] note (not a failure): versions within the closure group are independent ' + str(sorted(_gv)) + ' — owner decision 2026-10-07 ✓')
 print(f'[L1] closure(mail-core) = {sorted(_grp)} versions={sorted(_gv)}')
 
 if fail:
@@ -92,14 +92,14 @@ print('[L1] PASS (versions aligned, release type consistent)')
 PYEOF
 
 echo "[L1] npm dependency-order gate (registry lookups may be slow)"
-# ── 同批待发(pending) 语义 ────────────────────────────────────────────────
+# ── Same-batch pending semantics ────────────────────────────────────────────────
 # RELEASE_BATCH="agent-aimail"
-#   逗号分隔，按**发布顺序**排列。放行一条"依赖还没上架"必须三条同时成立：
-#     1) 依赖在本批清单里；
-#     2) 依赖在清单里的位置**早于**依赖方（publish-npm.sh 按同一顺序串行发布）；
-#     3) workspace 里该依赖的本地版本 == 依赖声明解析出的版本。
-#   缺任何一条 ⇒ 仍按原判据红。**不设 RELEASE_BATCH = 完全保持原来的严格行为**，
-#   所以 CI / 第三方调用不受影响；批次只是把"本次同批发布"显式说出来。
+#   Comma-separated, ordered by **publish order**. Allowing one "dependency not on the registry yet" requires all three:
+#     1) the dependency is in this batch list;
+#     2) the dependency's position in the list is **earlier** than the depender's (publish-npm.sh publishes serially in the same order);
+#     3) the dependency's local workspace version == the version resolved from the dependency declaration.
+#   Missing any one ⇒ still red by the original criterion. **Not setting RELEASE_BATCH = exactly the original strict behavior**,
+#   so CI / third-party callers are unaffected; the batch just makes "published in this same batch" explicit.
 declare -A BATCH_POS=() BATCH_VER=()
 BATCH="${RELEASE_BATCH:-}"
 if [ -n "$BATCH" ]; then
@@ -119,7 +119,7 @@ fi
 for p in agent-aimail; do
   dir="tssdk/packages/$p"
   ver=$(python3 -c "import json;print(json.load(open('$dir/package.json'))['version'])")
-  # 审计 P2: 查询失败(网络/registry)必须与"未发布"区分(见 _npmview.sh)
+  # Audit P2: a query failure (network/registry) must be distinguished from "not published" (see _npmview.sh)
   if ! published=$(npm_version "$p" "$ver"); then
     echo "[L1] FAIL: registry query failed for $p@$ver"; exit 1
   fi

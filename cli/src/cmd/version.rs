@@ -1,12 +1,12 @@
-//! `aimail version` —— 与 Python 侧输出逐字同形：`aimail <ver> (<mode>)`。
+//! `aimail version` —— output format identical to Python side: `aimail <ver> (<mode>)`.
 //!
-//! Python 真源：`cli/aimail:758-774`
-//! - `ver` 取仓根 `pyproject.toml` 的 `[project].version`；
-//! - `mode` = `dev` | `bootstrapped`（判据见 `core::home::release_mode`）。
+//! Python source of truth: `cli/aimail:758-774`
+//! - `ver` reads `[project].version` from the repo-root `pyproject.toml`;
+//! - `mode` = `dev` | `bootstrapped` (criteria see `core::home::release_mode`).
 //!
-//! 版本号真源 = 仓根 `pyproject.toml`。Rust 侧编译期取 `Cargo.toml` 的 version，
-//! 两者相等由 `tests/test_cli_parity.py`（读两个文件比对）与
-//! `cli/tests/cli_surface.rs`（输出格式）共同兜住。
+//! Version source of truth = repo root `pyproject.toml`. Rust side takes version from `Cargo.toml` at compile time,
+//! equality of the two is verified by `tests/test_cli_parity.py` (reads and compares both files) and
+//! `cli/tests/cli_surface.rs` (output format) together.
 
 pub fn run() -> i32 {
     println!(

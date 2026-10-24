@@ -1,8 +1,8 @@
-//! ④ 体检面：健康检查模型（7 kind）。执行引擎仍是 `core::checks::l2r`。
+//! ④ Health Check Surface: Health check model (7 kinds). Execution engine is still `core::checks::l2r`.
 
 use serde::Serialize;
 
-/// 运行时健康检查项：`id` 在外层，`kind` + 变体字段由 [`HealthSpec`] 平铺展开。
+/// Runtime health check item: `id` is in the outer layer, `kind` + variant fields are flattened by [`HealthSpec`].
 #[derive(Serialize, Clone, Copy)]
 pub struct Health {
     pub id: &'static str,
@@ -10,7 +10,7 @@ pub struct Health {
     pub spec: HealthSpec,
 }
 
-/// 健康检查的 7 种 kind（`ok_text`/`fail_text` 恒在尾部，保持既有键序）。
+/// The 7 kinds of health checks (`ok_text`/`fail_text` are always at the end, preserving the existing key order).
 #[derive(Serialize, Clone, Copy)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum HealthSpec {
@@ -66,7 +66,7 @@ use serde_json::Value;
 
 use crate::hosts::Host;
 
-/// 健康检查的 JSON 视图（通用引擎 [`crate::core::checks::l2r`] 与 repair 的输入）。
+/// JSON view of health checks (input for the generic engine [`crate::core::checks::l2r`] and repair).
 pub fn checks_json(h: &dyn Host) -> Vec<Value> {
     h.health_checks()
         .iter()

@@ -36,30 +36,30 @@ export interface SystemGatewayConfig {
   /** callback entry point the gateway should push to (environment-declared).
    *  tri-state: non-empty = push; explicit '' = pull; absent = local endpoint. */
   webhook_host?: string
-  /** 曾有的 bridge_admin_port / webhook_register_url 键随 SDK 去桥化退役
-   *  (2026-09-28): 磁盘上残留的值一律忽略, SDK 不再读写桥配置。 */
+  /** Former bridge_admin_port / webhook_register_url keys retired with SDK de-bridging
+   *  (2026-09-28): residual values on disk are all ignored, SDK no longer reads/writes bridge config. */
   [k: string]: unknown
 }
 
 /**
- * webhook_host 三态 → 地址注册参数 webhook_url (1:1 with Python
+ * webhook_host tri-state → address registration parameter webhook_url (1:1 with Python
  * aimail_base.resolve_register_webhook_url):
- * - webhook_host 是可投递的绝对 http(s) URL → 用它(环境主控声明的 push 入口)
- * - webhook_host 显式空串 ''               → 空:注册值 = "" (云端不回调;pull)
- * - 无 webhook_host 键                     → 本绑定的本机接收端点(直连/独立场景)
- * - 键在但值不可投递(裸 host / host:port)→ 大声告警 + 退回本机端点(SDK 绝不把
- *   网关无法 POST 的值注册出去)
- * agentmail.json 的 webhook_url 恒为本地端点(注册值与绑定值是两个值)。
- * 2026-09-28 (SDK 去桥化): 解析只看 `webhook_host` 一个来源 —— 经桥响应自采的
- * webhook_register_url 第三来源已退役(磁盘残留值忽略), SDK 不写环境配置。
+ * - webhook_host is a deliverable absolute http(s) URL → use it (push entry declared by environment master control)
+ * - webhook_host explicitly empty string ''               → empty: registration value = "" (cloud does not callback; pull)
+ * - No webhook_host key                     → local receiving endpoint of this binding (direct connection/standalone scenario)
+ * - Key exists but value is not deliverable (bare host / host:port) → loud warning + fallback to local endpoint (SDK never registers
+ *   values that the gateway cannot POST)
+ * webhook_url in agentmail.json is always the local endpoint (registered value and bound value are two different values).
+ * 2026-09-28 (SDK de-bridging): resolution looks at only one source `webhook_host` — self-collected via bridge response
+ * webhook_register_url self-collected via bridge response has been retired (residual disk values ignored), SDK does not write environment config.
  */
 export function resolveRegisterWebhook(gw: SystemGatewayConfig, localWebhookUrl: string): string {
   const whh = gw === null || gw === undefined ? undefined : gw.webhook_host
   if (whh !== undefined && whh !== null) {
     const declared = String(whh).trim()
-    if (!declared) return '' // 显式空 = pull(云端不回调): 注册值就是空
+    if (!declared) return '' // Explicit empty = pull (cloud does not callback): registration value is empty
     if (declared.startsWith('http://') || declared.startsWith('https://')) return declared
-    // 裸 host / host:port ⇒ 网关交付必然 builder error: 退回本机端点(绝不注册不可投递值)
+    // Bare host / host:port ⇒ gateway delivery will inevitably builder error: fallback to local endpoint (never register undeliverable values)
     console.warn(
       `[auto-bind] webhook_host ${JSON.stringify(declared)} is not an absolute http(s) URL — ` +
         `the cloud cannot POST to it, so the local endpoint (${localWebhookUrl}) is registered instead`,
@@ -126,7 +126,7 @@ export function emailForAgent(
 }
 
 /**
- * CLI register intent → target address (owner ruling 2026-10-02 族3, the C3
+ * CLI register intent → target address (owner ruling 2026-10-02 family 3, the C3
  * pattern): `--email` wins; `--name` derives via emailForAgent with an EMPTY
  * default-alias set — the CLI passes plan_address_name's already-normalized
  * base and the Python plan derives with default_aliases=(), so both sides land
@@ -188,9 +188,9 @@ export async function registerAddress(
   }
   const client: AdminClientLike =
     opts.transport ??
-    // identity 留空:网关按签名自选 key(empty-identity fallback)。传用户侧
-    // systemId 会让网关 list_api_keys_by_identity 查不到(admin key 的 identity
-    // 是网关内部 system id)→ 401 Invalid X-Api-Signature(实测 docker 回归暴露)
+    // identity left empty: gateway selects key by signature (empty-identity fallback). Passing user-side
+    // systemId will cause gateway list_api_keys_by_identity to not find it (admin key's identity
+    // is gateway internal system id) → 401 Invalid X-Api-Signature (exposed by actual docker regression)
     new GatewayClient(gatewayUrl, adminKey, opts.timeoutMs ?? 30_000)
 
   const result = await client.request(
@@ -448,7 +448,7 @@ export interface AutoBindResult {
 }
 
 /**
- * Read config → registerAddress → saveBinding (no route step: SDK 去桥化).
+ * Read config → registerAddress → saveBinding (no route step: SDK de-bridging).
  * Exists guard: an agentmail.json binding for the address short-circuits to
  * {exists:true} before any network call.
  */
@@ -478,14 +478,14 @@ export async function autoBind(opts: AutoBindOptions): Promise<AutoBindResult> {
     if (existing._config_path) out.config_path = existing._config_path
 
     // ── webhook url: caller-declared endpoint wins over a stale stored one
-    //    (2026-10-22, adopt-branch reconcile 的孪生洞) ──────────────────────────
-    // docker 回归实测: openclaw `plugins install` 的瞬态进程在宿主最终入站口确定
-    // 前 eager 建出 binding(默认口 18789); 真网关 register 时命中本 exists 分支,
-    // 若只认落盘值 ⇒ 死口被复用还 sync 上云 ⇒ 投递 fetch failed(与 adopt 分支同款,
-    // 只是入口不同: binding 无 agent_id 时 loadConfigByAgentId 落空, 走不到 adopt)。
-    // 调用方声明的端点反映**当前宿主真实监听口**, 落盘值可能过时 ⇒ declared 优先;
-    // 本地 binding 原子 patch 后再 sync, 保证本地/云两侧一致(本地 patch 失败则不同
-    // 步, 宁可报 repair 也不制造新的不一致)。
+    //    (2026-10-22, adopt-branch reconcile twin hole) ──────────────────────────
+    // docker regression test: the transient process of openclaw `plugins install` eagerly creates the binding (default port 18789) before the host's final inbound port is determined
+    // previously eager created binding (default port 18789); when real gateway registers, it hits this exists branch,
+    // if only recognizing persisted value ⇒ dead port is reused and synced to cloud ⇒ delivery fetch failed (same as adopt branch,
+    // just different entry: when binding has no agent_id, loadConfigByAgentId falls through, cannot reach adopt).
+    // Endpoint declared by caller reflects **current host actual listening port**, persisted value may be outdated ⇒ declared takes priority;
+    // Local binding atomic patch then sync, ensuring local/cloud consistency (if local patch fails then not
+    // in step, better to report repair than create new inconsistency).
     const cfgPath = existing._config_path
     const declaredWebhook = String(opts.webhookUrl || '').trim()
     const storedWebhook = String(existing.webhook_url || '').trim()
@@ -506,13 +506,13 @@ export async function autoBind(opts: AutoBindOptions): Promise<AutoBindResult> {
     }
 
     // ── webhook secret: single source of truth + idempotent sync (2026-09-28) ──
-    // 此前该分支**整体短路**: 绑定里缺 webhook_secret 就永远缺。网关按**注册侧**的
-    // secret 签名, 而插件(openclaw-aimail inbound.ts)按**本地绑定**的 secret 验签
-    // (`verifySignature(rawBody, sig, cfg.webhook_secret ?? '')`) ⇒ 两边不一致 = 必然
-    // 401 bad_signature(生产 J4 实测: 重试 6 次全 401)。修法: **本地绑定即真源** ——
-    // 缺就自供(0600 写回), 存在就复用它, 然后把 (url, secret) **幂等同步**到注册侧。
-    // 绝不静默跳过: 同步不做/失败都写进返回值(secret_synced / secret_detail)。
-    // declared(当前宿主真实端点)优先; 无声明 ⇒ 落盘值(旧语义不变)。
+    // Previously this branch **short-circuited entirely**: if binding lacks webhook_secret it is always missing. Gateway signs by **registration side**
+    // secret, while plugin (openclaw-aimail inbound.ts) verifies signature by **local binding** secret
+    // (`verifySignature(rawBody, sig, cfg.webhook_secret ?? '')`) ⇒ two sides inconsistent = inevitable
+    // 401 bad_signature (production J4 measured: 6 retries all 401). Fix: **local binding is the true source** —
+    // if missing, self-provision (write back with 0600), if exists, reuse it, then **idempotently sync** (url, secret) to the registration side.
+    // Never silently skip: if sync is not done/fails, write it into the return value (secret_synced / secret_detail).
+    // declared (current host's real endpoint) takes priority; no declaration ⇒ use the persisted value (old semantics unchanged).
     const localWebhook = declaredWebhook || String(existing.webhook_url || opts.webhookUrl || '').trim()
     let secret = String(existing.webhook_secret ?? '').trim()
     if (cfgPath) {
@@ -570,9 +570,9 @@ export async function autoBind(opts: AutoBindOptions): Promise<AutoBindResult> {
   }
 
   const gw = await readSystemConfig(systemId)
-  // 注册参数与本地端点两值分离:云端注册参数按 webhook_host 三态
-  // (resolveRegisterWebhook);agentmail.json webhook_url 与 bridge route
-  // 恒用本地端点(AUDIT-1 P1-8)。
+  // Registration parameters and local endpoint values are separated: cloud registration parameters follow webhook_host tri-state
+  // (resolveRegisterWebhook); agentmail.json webhook_url and bridge route
+  // always use local endpoint (AUDIT-1 P1-8).
   const localWebhook = opts.webhookUrl
   const regWebhook = resolveRegisterWebhook(gw, localWebhook)
   const webhookSecret =

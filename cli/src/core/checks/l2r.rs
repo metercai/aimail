@@ -1,10 +1,10 @@
-//! L2r 探针：平台运行时资源就绪 —— `cli/check_status.py:1706-1853` 的复刻。
+//! L2r probe: platform runtime resources ready — the re-implementation of `cli/check_status.py:1706-1853`.
 //!
-//! 结构：平台定位（注册表 `detect`）→ `health_checks` 表驱动（8 种 kind）→ 板级资源
-//! （`board/role_prompt/common.md`）→ 宿主配置里对已装运行时的引用。
+//! Structure: platform location (registry `detect`) -> `health_checks` table-driven (8 kinds) -> board-level resources
+//! (`board/role_prompt/common.md`) -> references to installed runtimes in host configuration.
 //!
-//! 不支持的 kind 会**显式出红记录**（不是静默跳过）：注册表将来加了新 kind 而这里没实现时，
-//! 必须看得见 —— 静默跳过正是"漏判级别"那类假绿的来源。
+//! Unsupported kinds will **explicitly produce red records** (not silently skipped): if the registry adds a new kind in the future but it is not implemented here,
+//! Must be visible — silent skipping is the source of false greens like "missed level detection".
 
 use crate::core::check::Check;
 use crate::core::checks::l0::{field_str, read_gw_cfg, Ctx};
@@ -13,7 +13,7 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// 已实现的 `health_checks[].kind`（注册表当前用到 7 种，与 `Health` 变体一一对应）。
+/// Implemented `health_checks[].kind` (registry currently uses 7 kinds, one-to-one correspondence with `Health` variants).
 const SUPPORTED_KINDS: &[&str] = &[
     "file_contains",
     "file_contains_alt",
@@ -24,7 +24,7 @@ const SUPPORTED_KINDS: &[&str] = &[
     "yaml_toolsets",
 ];
 
-/// 模板填充（`{home}` / `{user_home}` / `{sid}`）。
+/// Template filling (`{home}` / `{user_home}` / `{sid}`).
 fn fill(template: &str, home: &str, user_home: &str, sid: &str) -> String {
     template
         .replace("{home}", home)
@@ -44,7 +44,7 @@ pub fn runtime(c: &mut Check, sid: &str, ctx: &Ctx) {
     }
 
     if platform.is_empty() {
-        // system_home 缺失/无效已在 L0 报；此处只提示平台不可定位
+        // system_home missing/invalid already reported in L0; here only indicates platform cannot be located
         c.add(
             "runtime",
             "platform-locatable",
@@ -72,7 +72,7 @@ pub fn runtime(c: &mut Check, sid: &str, ctx: &Ctx) {
         .unwrap_or_default();
     run_checks(c, &checks, &sh, &user_home, sid, &fix_install);
 
-    // 通用：板级资源（a2a board 角色查找链）
+    // Generic: board-level resources (a2a board role lookup chain)
     let rp = config::system_dir_in(&ctx.aimail_home, sid)
         .join("board")
         .join("role_prompt")
@@ -91,7 +91,7 @@ pub fn runtime(c: &mut Check, sid: &str, ctx: &Ctx) {
     );
 }
 
-/// `_run_l2_checks`：注册表 `health_checks` 逐项执行。
+/// `_run_l2_checks`: execute registry `health_checks` item by item.
 fn run_checks(
     c: &mut Check,
     checks: &[Value],
@@ -227,14 +227,14 @@ fn run_checks(
                         glob_matches(&fb)
                     };
                     let argv_txt = if argv.is_empty() {
-                        "无 argv".to_string()
+                        "No argv".to_string()
                     } else {
                         argv.join(" ")
                     };
                     path = if fb.is_empty() {
-                        format!("命令不可用: {argv_txt}")
+                        format!("Command not available: {argv_txt}")
                     } else {
-                        format!("{fb} (命令不可用: {argv_txt})")
+                        format!("{fb} (Command not available: {argv_txt})")
                     };
                 }
             }
@@ -296,7 +296,7 @@ fn run_checks(
     }
 }
 
-/// `platform_toolsets` 下是否有取值（映射/列表）含契约 skill/toolset 名。
+/// whether any value (mapping/list) under `platform_toolsets` contains a contract skill/toolset name.
 fn yaml_has_toolset_token(path: &Path, token: &str) -> bool {
     let Ok(text) = std::fs::read_to_string(path) else {
         return false;
@@ -317,7 +317,7 @@ fn yaml_has_toolset_token(path: &Path, token: &str) -> bool {
     })
 }
 
-/// `glob.glob(pattern)` 是否有匹配（Python 语义：`*` 不跨 `/`）。
+/// Whether `glob.glob(pattern)` has matches (Python semantics: `*` does not cross `/`).
 fn glob_list(pattern: &str) -> Vec<PathBuf> {
     match glob::glob(pattern) {
         Ok(paths) => paths.flatten().collect(),

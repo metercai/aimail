@@ -1,15 +1,15 @@
-//! 平台注册执行器（`cli/aimail:2174-2458` 的 Rust 复刻）—— 注册表驱动、CLI 零平台协议。
+//! Platform registration executor (Rust reimplementation of `cli/aimail:2174-2458`) — registry-driven, zero platform protocol in CLI.
 //!
-//! 两种粒度：
-//! · `register_agent`  = 单个 agent（`register_default` / `reset` 默认路径）
-//! · `register_all`    = 全量（`--all-agents`；注册表 `register_all` 块）
+//! Two granularities:
+//! · `register_agent`  = single agent (`register_default` / `reset` default path)
+//! · `register_all`    = full (`--all-agents`; registry `register_all` block)
 //!
-//! 边界（硬）：**规则不在本文件**——定名/别名归一/直达判定由 SDK 的 `plan_address_name`
-//! 给计划（经 `core::sdkcall` 按名调用已发布函数），云端改名链由 SDK 的 `rename_address`
-//! 一次完成；本文件只做"读注册表 → 填模板 → 起子进程 → 按结果播报/失败"。
+//! Boundary (hard): **Rules are not in this file** — naming/alias normalization/direct reach determination is done by the SDK's `plan_address_name`
+//! plan (called by name via `core::sdkcall` to published functions), and the cloud rename chain is completed in one go by the SDK's `rename_address`;
+//! in one go; this file only does "read registry -> fill template -> spawn subprocess -> report/fail based on result".
 //!
-//! `_finish_registration` 只播报**生效地址**，**不**推桥路由：路由是平台侧单一契约
-//! （pysdk `register_bridge_route` / TS `mail-core`），第二个写者会造成双真源。
+//! `_finish_registration` only reports the **effective address**, it does **not** push bridge routes: routes are a single contract on the platform side
+//! (pysdk `register_bridge_route` / TS `mail-core`), a second writer would create dual sources of truth.
 
 use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
@@ -29,8 +29,8 @@ fn warn(msg: &str) {
     println!("  {}{}{} {}", style::YELLOW, style::CROSS, style::NC, msg);
 }
 
-/// 候选平台根：调用方给的 home → cfg.system_home → `~/.<home_dir>`。
-/// 供注册器与 op 入口（`core::sdk::ops_target`）共用 —— 模板路径的单真源。
+/// Candidate platform root: home provided by caller -> cfg.system_home -> `~/.<home_dir>`.
+/// Shared by registrar and op entry (`core::sdk::ops_target`) — single source of truth for template paths.
 pub(crate) fn candidate_homes(platform: &str, cfg: &Value, platform_home: &str) -> Vec<String> {
     let home_dir = crate::hosts::get(platform)
         .map(|h| h.home_dir())
@@ -49,7 +49,7 @@ pub(crate) fn candidate_homes(platform: &str, cfg: &Value, platform_home: &str) 
     .collect()
 }
 
-/// `_run_registrar`：子进程调用平台注册器 → (rc, stdout+stderr)。
+/// `_run_registrar`: Subprocess invokes platform registrar -> (rc, stdout+stderr).
 fn run_registrar(argv: &[String], env: &[(String, String)]) -> (i32, String) {
     let mut c = Command::new(&argv[0]);
     c.args(&argv[1..]);
@@ -60,7 +60,7 @@ fn run_registrar(argv: &[String], env: &[(String, String)]) -> (i32, String) {
             s.push_str(&String::from_utf8_lossy(&o.stderr));
             (o.status.code().unwrap_or(-1), s)
         }
-        Err(e) => (127, format!("注册器不可执行: {e}")),
+        Err(e) => (127, format!("registrar not executable: {e}")),
     }
 }
 
@@ -70,7 +70,7 @@ fn tail(s: &str, n: usize) -> String {
     chars[start..].iter().collect()
 }
 
-/// `_finish_registration`：只播报生效地址 + 自检提示（路由不在这里推）。
+/// `_finish_registration`: only reports effective address + self-check hints (routes are not pushed here).
 fn finish_registration(platform: &str, agent: &str, email: &str, sid: &str) {
     ok(&format!(
         "agent '{agent}' registered -> {email} (platform {platform})"
@@ -78,7 +78,7 @@ fn finish_registration(platform: &str, agent: &str, email: &str, sid: &str) {
     println!("  verify: aimail address -s {sid} -a {agent}");
 }
 
-/// `_register_agent_now`（单 agent）。
+/// `_register_agent_now` (single agent).
 pub fn register_agent(
     platform: &str,
     agent: &str,
@@ -92,20 +92,20 @@ pub fn register_agent(
     let domain = setup::pget(cfg, "domain");
     let system_name = setup::pget(cfg, "system_name");
     let Some(host) = crate::hosts::get(platform) else {
-        return Err(format!("未知平台 {platform}（注册表无此项）"));
+        return Err(format!("Unknown platform {platform} (no such item in registry)"));
     };
     let rdef = crate::hosts::exec::register_json(host);
 
-    // manager 解析链（参数 → cfg → env 三名互认），仍为空即**硬门**（不许以 '' 注册）
+    // manager resolution chain (args -> cfg -> env, three names mutually recognized); if still empty, **hard gate** (no registration with '')
     let mgr = setup::resolve_mgr(manager, cfg);
     if mgr.is_empty() {
         return Err(format!(
-            "缺 manager(参数/env 均未给)—— {platform} 注册/白名单不接受空值(owner 契约 2026-09-30)。\n  给值: -m/--manager <addr>,或 env {}",
+            "manager missing (not given via arg or env) — {platform} register/allowlist does not accept empty values (owner contract 2026-09-30).\n  provide a value: -m/--manager <addr>, or env {}",
             setup::MANAGER_ENV_NAMES.join(" / ")
         ));
     }
 
-    // ── CLI 域：宿主路径解析（注册表存的是模板/通配路径，只有 CLI 知道宿主布局）──
+    // ── CLI domain: host path resolution (registry stores template/wildcard paths; only CLI knows host layout) ──
     let cand_homes = candidate_homes(platform, cfg, platform_home);
     let kind = rdef.get("kind").and_then(Value::as_str).unwrap_or("");
     let mut spec = json!({
@@ -118,7 +118,7 @@ pub fn register_agent(
         let o = spec.as_object_mut().unwrap();
         match kind {
             "python_module" => {
-                // hermes：适配层目录（PYTHONPATH）+ profile 目录（规则表驱动）
+                // hermes: adapter layer directory (PYTHONPATH) + profile directory (rule table driven)
                 let mut extra: Vec<String> = Vec::new();
                 if let Some(arr) = rdef.get("pythonpath").and_then(Value::as_array) {
                     for rel in arr {
@@ -149,10 +149,10 @@ pub fn register_agent(
                 } else {
                     let pd = home_path.join("profiles").join(agent);
                     if !pd.is_dir() {
-                        // owner 2026-10-07：仅有主 agent（无其它 agent）时 profile 目录**可以不存在** ✓
-                        // ⇒ 不阻断注册（宿主 agent 启动时会自行创建）✓；仅提示 ✓
+                        // owner 2026-10-07: when only the main agent exists (no other agents), the profile directory **may not exist** ✓
+                        // ⇒ Do not block registration (host agent creates it on startup) ✓; only notify ✓
                         eprintln!(
-                            "⚠ hermes profile 目录暂不存在（agent 启动时自建，不阻断注册）: {}",
+                            "⚠ hermes profile directory does not exist yet (agent will create it upon startup, does not block registration): {}",
                             pd.to_string_lossy()
                         );
                     }
@@ -172,7 +172,7 @@ pub fn register_agent(
                 let script = crate::core::sdkroot::entry_path(core_dir, rel);
                 if !script.is_file() {
                     return Err(format!(
-                        "{platform} 注册器缺失: {}（SDK 未随本机安装）",
+                        "{platform} registrar missing: {} (SDK not installed on this machine)",
                         script.to_string_lossy()
                     ));
                 }
@@ -186,7 +186,7 @@ pub fn register_agent(
                 );
                 if node.is_empty() {
                     return Err(format!(
-                        "{platform} 平台包未安装(node 入口缺失)\n  {}",
+                        "{platform} platform package not installed (node entry missing)\n  {}",
                         rdef.get("fail_hint").and_then(Value::as_str).unwrap_or("")
                     ));
                 }
@@ -195,16 +195,16 @@ pub fn register_agent(
             }
             other => {
                 return Err(format!(
-                    "未知注册委托 kind '{other}'(platform {platform})——注册表损坏"
+                    "Unknown registration delegate kind '{other}'(platform {platform})——registry corrupted"
                 ));
             }
         }
     }
 
-    // ── 契约 v1.0 §4.1：定名 + 注册器执行 + 装配期改名 + 落绑定 —— 全在 SDK 门 assemble 内 ──
-    // transport 分派（§4.1(2)）：node 宿主（node_entry）由注册表 `ops.argv` 直接
-    // 调平台包自带的 op 入口 ⇒ **不传 register_spec**（注册器就是它自己，CLI 不代跑）；
-    // python 宿主（python_module / python_script）仍经 python 门跑外部注册器 ⇒ 带 register_spec。
+    // ── Contract v1.0 §4.1: naming + registrar execution + assembly-time renaming + binding persistence —— all within SDK gate assemble ──
+    // transport dispatch (§4.1(2)): node host (node_entry) directly calls the platform package's own op entry via registry `ops.argv`
+    // Call the op entry bundled with the platform package ⇒ **do not pass register_spec** (the registrar is itself; CLI does not run it on its behalf);
+    // python host (python_module / python_script) still runs external registrar via python gate ⇒ includes register_spec.
     let mut asm = json!({
         "system_id": sid,
         "system_cfg": cfg.clone(),
@@ -216,29 +216,29 @@ pub fn register_agent(
     if matches!(host.lang(), crate::hosts::Lang::Python) {
         asm["register_spec"] = spec.clone();
     }
-    // 宿主身份键（node 多 agent 宿主如 openclaw 的 `main`）—— 定名/别名归一**仍在 SDK 内**
-    // （owner 2026-10-02 C1）；空 = 由 SDK 取默认名（单 agent 宿主保持原状）。
+    // Host identity key (node multi-agent host like openclaw's `main`) —— naming/alias normalization **still within SDK**
+    // (owner 2026-10-02 C1); empty = SDK takes default name (single-agent host remains unchanged).
     if !agent.is_empty() {
         asm["requested_name"] = json!(agent);
     }
-    // 本机入站端点（契约 inbound_ports 单真源）—— 三态①：注册值 = 本机端点。
-    // node 宿主（node_entry）的 opAssemble 是共享库、不猜平台 ⇒ 由 CLI 把契约事实
-    // 作为参数传入（`local_webhook_url`）；已发布 mail-core 的 opAssemble 本就读取
-    // 该参数（`args['local_webhook_url'] || args['webhook_url'] || ''`），三态①（键
-    // 缺席）时原样落盘。python 宿主（PY 门自算 local_webhook_url）与 legacy 路径
-    // （平台包自算）不受影响 —— 故仅对 node_entry 注入，PY 宿主信封零变化。
-    // 契约字面量棘轮：端口/路径取自契约单真源；主机 127.0.0.1 = 入站监听约定
-    // （与 legacy `inboundUrl(port, host='127.0.0.1')` 默认一致）。
+    // Local inbound endpoint (contract inbound_ports single source of truth) —— three states ①: registered value = local endpoint.
+    // node host (node_entry) opAssemble is a shared library, does not guess platform ⇒ CLI injects contract facts
+    // as parameters (`local_webhook_url`); published mail-core opAssemble already reads
+    // this parameter (`args['local_webhook_url'] || args['webhook_url'] || ''`), in three states ① (key
+    // absent) it is persisted as-is. python host (PY gate self-calculates local_webhook_url) and legacy path
+    // (platform package self-calculates) unaffected —— hence only inject for node_entry, PY host envelope zero change.
+    // Contract literal ratchet: port/path taken from contract single source of truth; host 127.0.0.1 = inbound listening convention
+    // (consistent with legacy `inboundUrl(port, host='127.0.0.1')` default).
     if matches!(host.lang(), crate::hosts::Lang::Node) {
         if let Some(port) = crate::core::contract::inbound_port(platform) {
             asm["local_webhook_url"] =
                 json!(format!("http://127.0.0.1:{}", port) + crate::core::contract::inbound_path());
         }
-        // G1b(2026-10-13)→P3-C(2026-10-17):preset 由 SDK 侧自报(dsh register-cli
-        // assembleExtra 宿主布局数据,10-11 三来源裁决「宿主自报/内部 → SDK 内部」);
-        // P3-F(2026-10-17):node 宿主 register.args 已删 —— CLI 无定名责任,
-        // 声明不产生行为(信封不带它、生产代码零调用 plan_address_name)。
-        // dsh check session 维判据只认绑定顶层 preset(adapters.rs:895)。
+        // G1b(2026-10-13)→P3-C(2026-10-17):preset self-reported by SDK side(dsh register-cli
+        // assembleExtra host layout data,10-11 three-source ruling 'host self-report/internal → SDK internal');
+        // P3-F(2026-10-17): node host register.args removed -- CLI has no responsibility for fixed naming,
+        // declaration does not produce behavior (envelope does not carry it, production code has zero calls to plan_address_name).
+        // dsh check session dimension criteria only recognizes top-level preset binding (adapters.rs:895).
     }
     let res = crate::core::sdk::sdk_ops_call_for(
         platform,
@@ -262,7 +262,7 @@ pub fn register_agent(
     Ok(())
 }
 
-/// `_run_register_all`：注册表 `register_all` 块驱动的全量注册（未定义 ⇒ 单 agent 平台）。
+/// `_run_register_all`: full registration driven by the `register_all` block in the registry (undefined ⇒ single agent platform).
 pub fn register_all(
     platform: &str,
     cfg: &Value,
@@ -271,7 +271,7 @@ pub fn register_all(
     core_dir: &Path,
 ) -> Result<(), String> {
     let Some(host) = crate::hosts::get(platform) else {
-        warn(&format!("{platform} 不在宿主表内(register_all 跳过)"));
+        warn(&format!("{platform} is not in the host table (register_all skipped)"));
         return Ok(());
     };
     let rall = crate::hosts::exec::register_all_json(host);
@@ -293,7 +293,7 @@ pub fn register_all(
     let Some(rall) = rall else {
         register_agent(platform, "", cfg, mgr, platform_home, core_dir)?;
         ok(&format!(
-            "{platform} 单 agent 平台(register_all 无定义)——默认 agent 已注册"
+            "{platform} single agent platform (register_all undefined) -- default agent registered"
         ));
         return Ok(());
     };
@@ -303,9 +303,9 @@ pub fn register_all(
             .replace("{mgr}", mgr)
     };
     let kind = rall.get("kind").and_then(Value::as_str).unwrap_or("");
-    // 契约 v1.0 §4.1(2)：node 侧**一律经 op 门**（`--op assemble`）—— 不再拼 legacy flag argv
-    // （那套 argv 只对 python_script 形态成立）。多 agent 宿主按宿主容器枚举身份键
-    // （openclaw: `agents/*`），逐个经门注册；枚举为空 ⇒ 单次注册。定名/别名归一去 SDK。
+    // Contract v1.0 §4.1(2): node side **always via op gate** (`--op assemble`) -- no longer assembling legacy flag argv
+    // (that argv set only holds for python_script form). Multi-agent hosts enumerate identity keys by host container
+    // (openclaw: `agents/*`), registering each through the gate; empty enumeration ⇒ single registration. Naming/alias normalization belongs to SDK.
     if matches!(host.lang(), crate::hosts::Lang::Node) {
         let homes = candidate_homes(platform, cfg, platform_home);
         let node = crate::hosts::exec::resolve_path_template(
@@ -314,7 +314,7 @@ pub fn register_all(
         );
         if node.is_empty() {
             warn(&format!(
-                "{platform} 平台包未装(register-all node 入口缺失)\n  {}",
+                "{platform} platform package not installed (register-all node entry missing)\n  {}",
                 rall.get("fail_hint").and_then(Value::as_str).unwrap_or("")
             ));
             return Ok(());
@@ -325,7 +325,7 @@ pub fn register_all(
         if keys.is_empty() {
             register_agent(platform, "", cfg, mgr, platform_home, core_dir)?;
             ok(&format!(
-                "{platform} register_all 完成(单 agent, 经门 assemble)"
+                "{platform} register_all complete (single agent, via gate assemble)"
             ));
             return Ok(());
         }
@@ -333,11 +333,11 @@ pub fn register_all(
         for k in &keys {
             match register_agent(platform, k, cfg, mgr, platform_home, core_dir) {
                 Ok(()) => done += 1,
-                Err(e) => warn(&format!("{platform} agent '{k}' 注册失败: {e}")),
+                Err(e) => warn(&format!("{platform} agent '{k}' registration failed: {e}")),
             }
         }
         ok(&format!(
-            "{platform} register_all 完成({done}/{} agent 经门 assemble)",
+            "{platform} register_all complete ({done}/{} agents via gate assemble)",
             keys.len()
         ));
         return Ok(());
@@ -350,7 +350,7 @@ pub fn register_all(
             );
             if !script.is_file() {
                 warn(&format!(
-                    "{platform} 全量注册器缺失: {}(SDK 未随本机安装)",
+                    "{platform} full registrar missing: {} (SDK not installed with local machine)",
                     script.to_string_lossy()
                 ));
                 return Ok(());
@@ -363,7 +363,7 @@ pub fn register_all(
         }
         other => {
             warn(&format!(
-                "register_all 未知 kind '{other}'({platform})——注册表损坏"
+                "register_all: unknown kind '{other}' ({platform}) — registry corrupted"
             ));
             return Ok(());
         }
@@ -377,7 +377,7 @@ pub fn register_all(
     let (rc, out) = run_registrar(&argv, &env);
     if rc != 0 {
         warn(&format!(
-            "{platform} 全量注册 exit {rc}: {}{}\n  {}",
+            "{platform} full registration exit {rc}: {}{}\n  {}",
             tail(&out, 400),
             "",
             rall.get("fail_hint").and_then(Value::as_str).unwrap_or("")
@@ -385,12 +385,12 @@ pub fn register_all(
         return Ok(());
     }
     ok(&format!(
-        "{platform} register_all 完成(SDK 注册枚举到的全部 agent)"
+        "{platform} register_all complete (SDK registered all enumerated agents)"
     ));
     Ok(())
 }
 
-/// 供 `reset`/`install` 复用的 cfg → ctx 形状（`Map` 便于后续扩展）。
+/// cfg -> ctx shape reused by `reset`/`install` (`Map` for future extension).
 pub fn ctx_of(cfg: &Value) -> Map<String, Value> {
     cfg.as_object().cloned().unwrap_or_default()
 }

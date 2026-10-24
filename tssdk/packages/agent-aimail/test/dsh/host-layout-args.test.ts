@@ -1,13 +1,13 @@
-// P3-C(2026-10-17): dsh 宿主布局数据(preset)自报单测 —— 10-11 三来源裁决
-// 「宿主自报/内部 → SDK 内部」。全链验证: 本测试钉 hostLayoutArgs 的 preset 值;
-// runOpEntry 的 `{...args, ...extra}` merge 语义 + opAssemble 的 preset→binding
-// 落盘由 mail-core 既有测试覆盖(op-entry.test.ts / sdk-ops.test.ts:118-135)。
-// import 纯模块 ./host-layout.ts(无 main 自执行副作用), 不 mock。
+// P3-C (2026-10-17): dsh host layout data (preset) self-report unit test — 10-11 three-source adjudication
+// "Host self-report/internal → SDK internal". Full chain verification: this test pins hostLayoutArgs preset value;
+// runOpEntry's `{...args, ...extra}` merge semantics + opAssemble's preset→binding
+// persistence is covered by existing mail-core tests (op-entry.test.ts / sdk-ops.test.ts:118-135).
+// import pure module ./host-layout.ts (no main self-execution side effects), no mock.
 import { describe, it, expect } from 'vitest'
 
 import { hostLayoutArgs } from '../../src/dsh/host-layout.js'
 
-describe('dsh hostLayoutArgs (P3-C: preset 宿主自报)', () => {
+describe('dsh hostLayoutArgs (P3-C: preset host self-report)', () => {
   it('reports preset "mail" — the dsh host definition-layer default', () => {
     expect(hostLayoutArgs().preset).toBe('mail')
   })

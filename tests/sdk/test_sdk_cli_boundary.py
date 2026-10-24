@@ -1,16 +1,16 @@
-"""SDK ↔ CLI 边界契约 + hermes 补丁对称性闸门（P3-2 收口, 2026-09-20）。
+"""SDK ↔ CLI boundary contract + hermes patch symmetry gate (P3-2 closure, 2026-09-20).
 
-把计划文档里的"边界验收"落成可执行断言，防止镜像副本悄悄回流：
+Turns the "boundary acceptance" in the planning document into executable assertions, preventing mirror copies from quietly flowing back:
 
-1. 平台补丁内容单真源在 pysdk 侧 —— cli/ 不得再出现这些块的第二份副本
-   （历史：cli/hermes/*.sh 在 9596207 退役，CLI 改为委派 SDK 安装器）。
-2. pysdk/ 的**可执行路径**不得调用/引用 CLI 程序（cli/runtime_bundle.py 等）；
-   注释与文档不受限（人读的说明允许提及）。
-3. 反向：cli/ 不得 import SDK 的平台模块；唯一允许的可选加速是 aimail_base
-   （存在则用、不存在则按同一公式回退，见 cli/_common.py 模块 docstring）。
-4. patch/unpatch 必须共用同一批模块级常量：unpatch 引用的补丁内容常量
-   必须是 patch 引用的超集（内联复制剥离文本会让本断言失败）。
-5. toolsets / profiles 的 patch→unpatch 字节级往返（此前零覆盖，只有 webhook 有）。
+1. The single source of truth for platform patch content is on the pysdk side —— cli/ must not contain a second copy of these blocks
+   (History: cli/hermes/*.sh retired in 9596207, CLI changed to delegate to SDK installer).
+ 2. the **executable paths** of pysdk/ must not call/reference the CLI program (cli/runtime_bundle.py etc.);
+   comments and documentation are not restricted (human-readable explanations are allowed to mention them).
+3. Reverse: cli/ must not import SDK platform modules; the only allowed optional acceleration is aimail_base
+   (use if exists, otherwise fall back to the same formula, see cli/_common.py module docstring).
+4. patch/unpatch must share the same batch of module-level constants: unpatch references the patch content constants
+   Must be a superset of the patch references (inlining copies that strip text would cause this assertion to fail).
+5. toolsets / profiles patch→unpatch byte-level round-trip (previously zero coverage, only webhook had it).
 """
 import ast
 import io
@@ -25,7 +25,7 @@ REPO = Path(__file__).resolve().parent.parent.parent
 CLI = REPO / "cli"
 PYSDK = REPO / "pysdk"
 
-# pysdk/hermes 的平台补丁内容常量（单真源）——cli/ 下不得有同名定义
+# Platform patch content constants for pysdk/hermes (single source of truth) — no same-named definitions allowed under cli/
 PATCH_CONTENT_CONSTANTS = {
     "PROFILES_HOOK", "PROFILES_HOOK_DEL",
     "WEBHOOK_REGISTRY_BLOCK", "WEBHOOK_CALL_BLOCK", "WEBHOOK_A2A_BLOCK",
@@ -34,7 +34,7 @@ PATCH_CONTENT_CONSTANTS = {
     "TOOLSET_AIMAIL", "CORE_TOOL_NAMES",
 }
 
-# CLI 程序名（pysdk 的可执行路径不得引用）
+# CLI program name (pysdk executable paths must not reference this)
 CLI_PROGRAMS = (
     "runtime_bundle", "runtime_core", "check_status", "repair", "deploy_bridge",
     "setup_system", "send_welcome", "ping_test", "request_persona",
@@ -54,7 +54,7 @@ def _sources(root: Path, suffixes=(".py", ".sh")):
 
 
 def _blank_spans(text: str, spans) -> str:
-    """把给定 (lineno, col, end_lineno, end_col) 区间替换为空格（保留行号）。"""
+    """Replace the given (lineno, col, end_lineno, end_col) range with spaces (preserving line numbers)."""
     lines = text.splitlines(keepends=True)
     for l0, c0, l1, c1 in spans:
         for ln in range(l0, l1 + 1):
@@ -66,10 +66,10 @@ def _blank_spans(text: str, spans) -> str:
 
 
 def _py_code_only(path: Path) -> str:
-    """Python 源码：注释与 docstring 置空，其余（含普通字符串字面量）保留。
+    """Python source: blank out comments and docstrings, keep the rest (including regular string literals).
 
-    保留普通字符串是有意的 —— 可执行引用通常就是字符串里的路径
-    （subprocess([sys.executable, "cli/runtime_bundle.py"])），不能一并抹掉。
+    Keeping plain strings is intentional —— executable references are usually just paths in strings
+    (subprocess([sys.executable, "cli/runtime_bundle.py"])), which must not be wiped out together.
     """
     text = path.read_text(encoding="utf-8")
     spans = []
@@ -93,7 +93,7 @@ def _py_code_only(path: Path) -> str:
 
 
 def _sh_code_only(path: Path) -> str:
-    """Shell：整行注释与非执行的输出语句（echo/printf 面向人的文案）置空。"""
+    """Shell: blank out whole-line comments and non-executable output statements (echo/printf human-facing text)."""
     out = []
     for line in path.read_text(encoding="utf-8").splitlines(keepends=True):
         stripped = line.strip()
@@ -104,7 +104,7 @@ def _sh_code_only(path: Path) -> str:
     return "".join(out)
 
 
-# ── 1/2. cli/ 不得再持有平台补丁内容的副本 ────────────────────────────
+# ── 1/2. cli/ must no longer hold copies of platform patch content ────────────────────────────
 
 def test_cli_has_no_platform_patch_content_copy():
     offenders = []
@@ -114,23 +114,23 @@ def test_cli_has_no_platform_patch_content_copy():
             if re.search(r"(?m)^\s*%s\s*[:=]" % re.escape(const), text):
                 offenders.append(f"{path.relative_to(REPO)}: defines {const}")
     assert not offenders, (
-        "CLI 侧出现平台补丁内容副本（单真源应只在 pysdk/hermes/）:\n"
+        "Platform patch content copy found on CLI side (single source of truth should only be in pysdk/hermes/):\n"
         + "\n".join(offenders)
     )
 
 
 def test_no_mirrored_verbatim_claim():
-    """淘汰"逐字镜像自 cli/"这类会在源退役后变成谎话的注释。"""
+    """Phase out comments like "mirrored verbatim from cli/" that become lies after the source is retired."""
     offenders = []
     for root in (CLI, PYSDK):
         for path in _sources(root, suffixes=(".py", ".sh", ".md")):
             for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
                 if "mirrored verbatim" in line.lower():
                     offenders.append(f"{path.relative_to(REPO)}:{i}")
-    assert not offenders, "残留 mirrored-verbatim 表述: " + ", ".join(offenders)
+    assert not offenders, "Residual mirrored-verbatim phrasing: " + ", ".join(offenders)
 
 
-# ── 3. pysdk 可执行路径不得引用 CLI 程序 ──────────────────────────────
+# ── 3. pysdk executable paths must not reference CLI programs ──────────────────────────────
 
 def test_pysdk_executable_paths_do_not_reference_cli_programs():
     offenders = []
@@ -141,24 +141,24 @@ def test_pysdk_executable_paths_do_not_reference_cli_programs():
             if CLI_REF_RE.search(line):
                 offenders.append(f"{path.relative_to(REPO)}:{i}: {line.strip()}")
     assert not offenders, (
-        "pysdk 可执行路径引用了 CLI 程序（应改为 aimail install --payload … / SDK 自带实现）:\n"
+        "pysdk executable path references CLI program (should change to aimail install --payload … / SDK built-in implementation):\n"
         + "\n".join(offenders)
     )
 
 
-# ── 4. 反向：cli/ 的 import 不得越界 ─────────────────────────────────
+# ── 4. Reverse: cli/ imports must not cross boundaries ─────────────────────────────────
 
-# CLI 允许 import 的 SDK 侧模块（实测契约，非猜测；边界稿 §7 原口径
-# "仅 aimail_base 可选" 过宽，已列为待 owner 裁决的订正项）：
-#   aimail_base   —— 纯函数可选加速：存在则用，不存在则按同一公式回退
-#                    （cli/_common.py 模块 docstring 明写）
-#   gateway_api   —— 共享读库：pysdk/gateway_api.py 的 activate_system
-#                    注明 "CLI L1-ONLY：(cl)i/setup_system.py 经此共享客户端
-#                    调用；随 wheel 分发仅为 CLI 共用同一读库"(AUDIT-1 P2-2)
-#   aimail_tools  —— 复用 _GatewayClient 完整方法集（cli/repair.py，不复制实现）
-#   install       —— SDK 自足安装/卸载入口，CLI 由注册表 fn 表驱动委派
-#                    （cli/aimail _sdk_install/_sdk_uninstall，9596207 设计）
-# 禁止的是 pysdk 的**平台补丁模块**（hermes/*、deer-flow/*）与第三方未声明依赖。
+# CLI allows SDK-side modules to be imported (empirically verified contract, not guesswork; boundary draft §7 original wording
+# "only aimail_base optional" is too broad, listed as a correction item pending owner decision):
+#   aimail_base   —— pure function optional acceleration: use if present, otherwise fall back to the same formula
+#                    (explicitly stated in cli/_common.py module docstring)
+#   gateway_api   —— shared read DB: activate_system in pysdk/gateway_api.py
+#                    notes "CLI L1-ONLY: (cl)i/setup_system.py calls via this shared client
+#                    distributed with wheel only for CLI to share the same read library" (AUDIT-1 P2-2)
+#   aimail_tools  —— reuse the full method set of _GatewayClient (cli/repair.py, do not duplicate the implementation)
+#   install       —— SDK self-contained install/uninstall entry, CLI is driven by registry fn table delegation
+#                    (cli/aimail _sdk_install/_sdk_uninstall, 9596207 design)
+# Forbidden are pysdk **platform patch modules** (hermes/*, deer-flow/*) and undeclared third-party dependencies.
 SHARED_SDK_IMPORTS = {"aimail_base", "gateway_api", "aimail_tools", "install"}
 THIRD_PARTY_IMPORTS = {"yaml"}
 
@@ -176,7 +176,7 @@ def test_cli_imports_stay_within_boundary():
             if isinstance(node, ast.Import):
                 names = [a.name.split(".")[0] for a in node.names]
             elif isinstance(node, ast.ImportFrom):
-                if node.level:  # 相对导入 = CLI 内部
+                if node.level:  # relative import = CLI internal
                     continue
                 names = [(node.module or "").split(".")[0]]
             else:
@@ -185,12 +185,12 @@ def test_cli_imports_stay_within_boundary():
                 if n and n not in allowed:
                     offenders.append(f"{path.relative_to(REPO)}:{node.lineno}: import {n}")
     assert not offenders, (
-        "cli/ 出现越界 import（白名单见 SHARED_SDK_IMPORTS，改动需先改契约）:\n"
+        "cli/ out-of-bounds import detected (whitelist see SHARED_SDK_IMPORTS, changes require updating the contract first):\n"
         + "\n".join(offenders)
     )
 
 
-# ── 5. patch/unpatch 单真源（内联复制会被这条抓住）────────────────────
+# ── 5. patch/unpatch single source of truth (inline copies will be caught by this)────────────────────
 
 @pytest.mark.parametrize("modname", ["patch_webhook", "patch_profiles", "toolsets"])
 def test_unpatch_shares_patch_content_constants(modname):
@@ -202,7 +202,7 @@ def test_unpatch_shares_patch_content_constants(modname):
             for t in node.targets:
                 if isinstance(t, ast.Name) and t.id in PATCH_CONTENT_CONSTANTS:
                     module_consts.add(t.id)
-    assert module_consts, f"{modname}: 未找到补丁内容常量"
+    assert module_consts, f"{modname}: patch content constants not found"
 
     used = {}
     for node in tree.body:
@@ -211,17 +211,17 @@ def test_unpatch_shares_patch_content_constants(modname):
             used[node.name] = names
     patchers = [n for n in used if n.startswith("patch")]
     unpatchers = [n for n in used if n.startswith("unpatch")]
-    assert patchers and unpatchers, f"{modname}: 缺少 patch/unpatch 函数"
+    assert patchers and unpatchers, f"{modname}: missing patch/unpatch functions"
 
     patched_consts = set().union(*(used[n] for n in patchers)) & module_consts
     stripped_consts = set().union(*(used[n] for n in unpatchers)) & module_consts
     missing = patched_consts - stripped_consts
     assert not missing, (
-        f"{modname}: unpatch 未引用这些单真源常量（疑内联复制）: {sorted(missing)}"
+        f"{modname}: unpatch does not reference these single source of truth constants (suspected inline copy): {sorted(missing)}"
     )
 
 
-# ── 6. toolsets / profiles 往返（此前零覆盖）─────────────────────────
+# ── 6. toolsets / profiles round-trip (previously zero coverage)─────────────────────────
 
 FAKE_TOOLSETS = '''_HERMES_CORE_TOOLS = [
     "read_file",
@@ -255,7 +255,7 @@ def delete_profile(name):
 
 
 def test_toolsets_patch_unpatch_roundtrip(tmp_path):
-    """patch 登记 7 个工具名 → unpatch 必须逐字节还原（含新增行数）。"""
+    """patch registers 7 tool names → unpatch must restore byte-for-byte (including added line count)."""
     from toolsets import CORE_TOOL_NAMES, patch_toolsets, unpatch_toolsets
 
     (tmp_path / "toolsets.py").write_text(FAKE_TOOLSETS)
@@ -264,20 +264,20 @@ def test_toolsets_patch_unpatch_roundtrip(tmp_path):
     assert patch_toolsets(str(tmp_path)) is True
     patched = (tmp_path / "toolsets.py").read_text()
     for name in CORE_TOOL_NAMES:
-        assert patched.count(f'    "{name}",') == 1, f"{name} 未登记或被重复插入"
-    assert "read_file" in patched  # 宿主原有内容未被破坏
+        assert patched.count(f'    "{name}",') == 1, f"{name} not registered or inserted duplicately"
+    assert "read_file" in patched  # host original content not corrupted
 
     assert unpatch_toolsets(tmp_path / "toolsets.py") > 0
-    assert (tmp_path / "toolsets.py").read_text() == orig, "unpatch 必须逐字节还原"
+    assert (tmp_path / "toolsets.py").read_text() == orig, "unpatch must restore byte-for-byte"
 
-    # 二次往返仍稳定
+    # Second round-trip still stable
     assert patch_toolsets(str(tmp_path)) is True
     assert unpatch_toolsets(tmp_path / "toolsets.py") > 0
     assert (tmp_path / "toolsets.py").read_text() == orig
 
 
 def test_profiles_patch_unpatch_roundtrip(tmp_path):
-    """profile_created/profile_deleted 钩子插入 → unpatch 必须逐字节还原。"""
+    """profile_created/profile_deleted hook insertion → unpatch must restore byte-for-byte."""
     from patch_profiles import patch_profiles, unpatch_profiles
 
     target = tmp_path / "profiles.py"
@@ -290,21 +290,21 @@ def test_profiles_patch_unpatch_roundtrip(tmp_path):
     assert 'trigger_profile_hooks("profile_deleted"' in patched
 
     assert unpatch_profiles(target) >= 1
-    assert target.read_text() == orig, "unpatch 必须逐字节还原"
+    assert target.read_text() == orig, "unpatch must restore byte-for-byte"
 
 
-# ── 6. 门 op 集合棘轮（契约 v1.0 §4.1；第二序：边界固化，独立于功能验证）──────
-# `prompt-test` = (a) 裁定的只读 op（契约 §4.1 三 op 增列，owner 2026-10-10）：
-# 名字校验（`name_ok`）+ L5 过滤/匹配（`rules[].match`），两路 transport 同形。
+# ── 6. Gate op set ratchet (Contract v1.0 §4.1; Second Order: Boundary Solidification, independent of functional verification)──────
+# `prompt-test` = (a) Adjudicated read-only op (Contract §4.1 three op additions, owner 2026-10-10):
+# Name validation (`name_ok`) + L5 filter/match (`rules[].match`), both transport paths are isomorphic.
 CONVERGED_OPS = {"assemble", "update", "teardown", "prompt-test"}
-LEGACY_OPS_WHITELIST = {          # 白名单期：旧 op 保留可用，移除时须走主版本
+LEGACY_OPS_WHITELIST = {          # Whitelist period: legacy ops remain available, removal must go through major version
     "version", "iter_bindings", "ensure_webhook_secret",
     "resolve_register_webhook_url", "register_agent_email", "backfill_binding",
 }
 
 
 def test_door_op_surface_is_ratcheted():
-    """门暴露面必须恰好 = 收敛后集合 ∪ 白名单期旧集合（多一个即红 = 接口漂移）。"""
+    """Gate exposure surface must be exactly = converged set ∪ whitelist period legacy set (one extra is red = interface drift)."""
     import json as _json
     import os as _os
     import subprocess as _sp
@@ -315,13 +315,13 @@ def test_door_op_surface_is_ratcheted():
                 capture_output=True, text=True, env=dict(_os.environ))
     assert r.returncode == 0, r.stderr
     ops = set(_json.loads(r.stdout)["result"]["ops"])
-    assert CONVERGED_OPS <= ops, f"缺少收敛后必备 op: {sorted(CONVERGED_OPS - ops)}"
+    assert CONVERGED_OPS <= ops, f"Missing required converged op: {sorted(CONVERGED_OPS - ops)}"
     extra = ops - CONVERGED_OPS - LEGACY_OPS_WHITELIST
-    assert not extra, f"出现未登记的门 op（接口漂移）: {sorted(extra)}"
+    assert not extra, f"Unregistered gate op appeared (interface drift): {sorted(extra)}"
 
 
-# ── 契约 v1.0 §5 第二序（附加层，独立报告，禁替代功能验证）────────────────────────
-# 3) 系统级配置**只读**：SDK 侧不得出现任何"写系统级配置"的符号（CLI 写、SDK 只读）。
+# ── Contract v1.0 §5 Second Order (Additional Layer, Independent Report, Prohibited from Replacing Functional Verification)────────────────────────
+# 3) System-level configuration is **read-only**: no symbols for "writing system-level configuration" shall appear on the SDK side (CLI writes, SDK read-only).
 def test_sdk_never_writes_system_level_gateway_config():
     repo = Path(__file__).resolve().parent.parent.parent
     offenders = []
@@ -331,12 +331,12 @@ def test_sdk_never_writes_system_level_gateway_config():
         for b in banned:
             if b in src:
                 offenders.append(f"{f.relative_to(repo)}: {b}")
-    assert not offenders, f"SDK 侧出现系统级配置写入符号（越界）: {offenders}"
+    assert not offenders, f"System-level configuration write symbols appeared on SDK side (out of bounds): {offenders}"
 
 
-# 4) SDK→CLI 反调**白名单**：源码里真正"执行" aimail 的位置，其子命令必须在白名单内。
-#    只认命令行令牌（引号内 ["aimail","<sub>"] 或含 run/spawn/exec 的字符串命令），
-#    散文/文档串里的举例不计入。
+# 4) SDK→CLI reverse call **whitelist**: Locations in source code that actually "execute" aimail, their subcommands must be within the whitelist.
+#    Only recognize command-line tokens (quoted ["aimail","<sub>"] or string commands containing run/spawn/exec),
+#    Examples in prose/documentation strings are not counted.
 def test_reverse_call_abi_is_whitelisted():
     repo = Path(__file__).resolve().parent.parent.parent
     allowed = {"install", "uninstall", "address", "version"}
@@ -359,4 +359,4 @@ def test_reverse_call_abi_is_whitelisted():
                 for sub in subs:
                     if sub not in allowed:
                         offenders.append(f"{f.relative_to(repo)}:{i}: aimail {sub}")
-    assert not offenders, f"出现白名单外的 SDK→CLI 反调: {offenders[:8]}"
+    assert not offenders, f"SDK→CLI reverse call outside whitelist appeared: {offenders[:8]}"

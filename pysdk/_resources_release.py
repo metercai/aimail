@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""_resources_release — SDK 资源的本地配置目录展开(python 版)。
+"""_resources_release — Local configuration directory expansion for SDK resources (python version).
 
-架构:资源(board/role_prompt 角色提示 + skills)是公共种子,随 SDK
-分发;安装/启动时释放到 ~/.aimail/systems/{sid}/board/ 供运行时读取
-(pysdk 与 tssdk 运行时同路径)。只补缺失/更新的文件,绝不覆盖用户已在
-配置目录个性化过的内容。
+Architecture: resources (board/role_prompt role prompts + skills) are public seeds, shipped with SDK
+ distributed; released to ~/.aimail/systems/{sid}/board/ at install/startup for runtime reads
+(pysdk and tssdk runtime same path). Only fill missing/update files, never overwrite content user has already
+personalized in configuration directory.
 
-与 tssdk mail-core release-resources.ts、cli 旧 release-board-resources.sh
-同语义;本模块为 pip/repo 双形态的 python 实现。
+Same semantics as tssdk mail-core release-resources.ts, cli old release-board-resources.sh
+ same semantics; this module is the python implementation for the pip/repo dual form.
 """
 from __future__ import annotations
 
@@ -17,18 +17,18 @@ import os
 import shutil
 import sys
 
-# 双形态自举:core 目录(含本模块与 aimail_base.py)即 _CORE
+# Dual-form bootstrap: core directory (containing this module and aimail_base.py) is _CORE
 _CORE = os.path.dirname(os.path.abspath(__file__))
 
-# 发布清单: 记录"本 SDK 上次发布的内容 hash", 用来区分"用户个性化过"与"用户没动过"
+# Release manifest: records the "content hash of the last release of this SDK", used to distinguish between "user has personalized" and "user has not modified"
 _MANIFEST = ".aimail-resources.json"
 
-# 缺资源时的可执行指引(仓库态=直接读仓根 resources/, 打包态=wheel 自带)
-_RESOURCE_HINT = ("仓库态: 资源直接取自仓根 resources/(无需物化步骤); pip 态: 重装 agent-aimail(wheel 自带 resources)")
+# Executable guidance when resources missing (repo state = read repo root resources/ directly, packaged state = wheel includes them)
+_RESOURCE_HINT = ("Repo state: resources taken directly from repo root resources/ (no materialization step needed); pip state: reinstall agent-aimail (wheel includes resources)")
 
-# 源子目录(包内 resources/board) → 配置目录目标子目录
-# 2026-09-25 用户裁决: board 只保留 en 角色提示(源目录已改名 role_prompt, 不再带 _en 后缀);
-# role_prompt_zh / role_soul_en / role_soul_zh 三个目录已删除 —— 无任何运行时消费者。
+# Source subdirectory (in-package resources/board) → configuration directory target subdirectory
+# 2026-09-25 User ruling: board keeps only en role prompts (source directory renamed role_prompt, no longer with _en suffix);
+# role_prompt_zh / role_soul_en / role_soul_zh three directories have been deleted —— no runtime consumers.
 _DIR_MAP = (
     ("role_prompt", "role_prompt"),
 )
@@ -41,16 +41,16 @@ def agentmail_home() -> str:
 
 
 def _is_repo_checkout() -> bool:
-    """<core> 就是 pysdk/ 且旁边有仓根 resources/ ⇒ 在仓库检出里跑(不是安装态)。"""
+    """<core> is pysdk/ and has repo root resources/ next to it ⇒ running in repo checkout (not installed state)."""
     return (os.path.basename(_CORE) == "pysdk"
             and os.path.isdir(os.path.join(os.path.dirname(_CORE), "resources")))
 
 
 def resources_root() -> str:
-    """本 SDK 的资源根 —— 自解自足, 不依赖任何外部物化步骤。
+    """The resource root of this SDK — self-contained, no dependency on any external materialization steps.
 
-    仓库检出: 直接用仓根的 resources/(真源 git 跟踪; 优先于任何本地残留副本);
-    打包态  : <包>/resources(wheel 把仓根 resources/ 装成 aimail/resources)。
+    Repo checkout: use repo root resources/ directly (true source git tracked; preferred over any local residual copies);
+    Packaged state: <package>/resources (wheel installs repo root resources/ as aimail/resources).
     """
     if _is_repo_checkout():
         return os.path.join(os.path.dirname(_CORE), "resources")
@@ -58,12 +58,12 @@ def resources_root() -> str:
 
 
 def resources_board_dir() -> str:
-    """资源里的 board 目录(打包态 aimail/resources/board; 仓库态 <repo>/resources/board)。"""
+    """The board directory in resources (packaged state aimail/resources/board; repo state <repo>/resources/board)."""
     return os.path.join(resources_root(), "board")
 
 
 def resources_skills_dir() -> str:
-    """资源里的 skills 目录(SKILL.md / DESCRIPTION.md)。"""
+    """The skills directory in resources (SKILL.md / DESCRIPTION.md)."""
     return os.path.join(resources_root(), "skills")
 
 
@@ -79,7 +79,7 @@ def _load_manifest(dst_dir: str) -> dict:
     try:
         with open(os.path.join(dst_dir, _MANIFEST), encoding="utf-8") as f:
             return json.load(f)
-    except Exception:  # noqa: BLE001 — 缺/坏清单等价于"无记录"
+    except Exception:  # noqa: BLE001 — missing/corrupt manifest equivalent to "no record"
         return {}
 
 
@@ -92,28 +92,28 @@ def _save_manifest(dst_dir: str, data: dict) -> None:
 
 
 def release_resources(system_id: str, board_root: str | None = None) -> dict:
-    """释放 board 资源到 ~/.aimail/systems/{sid}/board/(幂等)。
+    """Release board resources to ~/.aimail/systems/{sid}/board/ (idempotent).
 
-    判定口径(审计 D6, 2026-09-21): **按内容**而非 mtime。
-      · 目标缺失            → 释放
-      · 目标内容 == 包内      → 跳过(已同版)
-      · 目标内容 == 上次发布 hash(用户没动过) → 覆盖为包内新内容(SDK 升级生效)
-      · 否则(用户个性化过/无记录) → 跳过, 绝不覆盖用户内容
-    mtime 判定会漏发: SDK 升级解包时间戳早于目标文件、或用户 touch 过目标,
-    新内容就永远发不出去。清单记在目标目录的 .aimail-resources.json。
+    Decision criteria (Audit D6, 2026-09-21): **by content** rather than mtime.
+      · Target missing            → Release
+      · Target content == package content      → Skip (same version)
+      · Target content == last release hash (user has not modified) → Overwrite with new package content (SDK upgrade takes effect)
+      · Otherwise (user has personalized/no record) → Skip, never overwrite user content
+    mtime determination will miss releases: SDK upgrade unpacking timestamp is earlier than target file, or user has touched target,
+    new content will never be released. Manifest is recorded in .aimail-resources.json in the target directory.
     """
     src_root = board_root or resources_board_dir()
-    # 缺资源不再静默跳过(2026-09-25 单一真源改造): 包自带资源**必须完整**,
-    # 否则是打包/物化缺陷 —— 静默的后果是"门禁全绿但宿主零角色资源", 更难查。
-    # 严格面 = 默认源(包内 resources/board)与 install/CLI 用的包内路径;
-    # 调用方显式传入的夹具/工具根只要求它存在(允许局部布局)。
+    # Missing resources are no longer silently skipped (2026-09-25 single source of truth refactoring): package-bundled resources **must be complete**,
+    # Otherwise it's a packaging/materialization defect — the silent consequence is "all gates green but zero host role resources", which is harder to debug.
+    # Strict side = default source (package-internal resources/board) and package-internal paths used by install/CLI;
+    # Fixture/tool roots explicitly passed by callers only require existence (allow local layout).
     if not os.path.isdir(src_root):
-        raise RuntimeError(f"资源目录缺失: {src_root}({_RESOURCE_HINT})")
+        raise RuntimeError(f"Resource directory missing: {src_root}({_RESOURCE_HINT})")
     if os.path.abspath(src_root) == os.path.abspath(resources_board_dir()):
         missing = [s for s, _ in _DIR_MAP if not os.path.isdir(os.path.join(src_root, s))]
         if missing:
             raise RuntimeError(
-                f"资源不完整: {src_root} 缺子目录 {missing}({_RESOURCE_HINT})")
+                f"Resources incomplete: {src_root} missing subdirectory {missing}({_RESOURCE_HINT})")
     board_dir = os.path.join(agentmail_home(), "systems", system_id, "board")
     copied = 0
     updated = 0
@@ -144,7 +144,7 @@ def release_resources(system_id: str, board_root: str | None = None) -> dict:
                     updated += 1
                     dirty = True
                     continue
-                skipped += 1        # 用户个性化过(或无记录): 绝不覆盖
+                skipped += 1        # User has personalized (or no record): never overwrite
                 continue
             shutil.copy2(src, dst)
             manifest[fname] = src_hash
@@ -156,7 +156,7 @@ def release_resources(system_id: str, board_root: str | None = None) -> dict:
 
 
 def release_all_systems(board_root: str | None = None) -> list:
-    """对 ~/.aimail/systems/ 下全部已有系统展开(单系统机器亦覆盖)。"""
+    """Expand all existing systems under ~/.aimail/systems/ (also covers single-system machines)."""
     systems_root = os.path.join(agentmail_home(), "systems")
     if not os.path.isdir(systems_root):
         return []
@@ -172,7 +172,7 @@ def release_all_systems(board_root: str | None = None) -> list:
 
 
 if __name__ == "__main__":
-    # 便捷:python _resources_release.py [system_id...]
+    # Convenience: python _resources_release.py [system_id...]
     sids = sys.argv[1:] or sorted(
         d for d in os.listdir(os.path.join(agentmail_home(), "systems"))
         if os.path.isdir(os.path.join(agentmail_home(), "systems", d))

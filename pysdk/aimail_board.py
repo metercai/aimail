@@ -73,9 +73,9 @@ def _get_board_token(board_id: str) -> Optional[str]:
 
 
 def _board_client(board_key: str, cfg: dict):
-    """Board 客户端构造:有 board token → Bearer 通道(api_key 置空,不发
-    HMAC 签名——board 契约是 Bearer+email,网关 board/handlers.rs);
-    无 token → api_key HMAC 通道(兼容系统级调用)。"""
+    """Board client construction: with board token → Bearer channel (api_key set to empty, no
+    HMAC signature——board contract is Bearer+email, gateway board/handlers.rs);
+    without token → api_key HMAC channel (compatible with system-level calls)."""
     board_id = _board_id_of(board_key)
     gateway_url = _resolve_gateway_url(board_key)
     token = _get_board_token(board_id) if board_id else None
@@ -85,7 +85,7 @@ def _board_client(board_key: str, cfg: dict):
 
 
 def board_task_show(task_id: str) -> str:
-    """查询任务详情。返回 task 的所有字段（body、status、assignee、reviewer 等）。"""
+    """Query task details. Returns all fields of the task (body, status, assignee, reviewer, etc.)."""
     cfg = _load_profile_config()
     if not cfg:
         return "{\"error\": \"no profile config\"}"
@@ -102,7 +102,7 @@ def board_task_show(task_id: str) -> str:
 
 
 def board_task_list(board: str, status: str = "", assignee: str = "") -> str:
-    """按条件过滤 task 列表。支持 status、assignee 过滤。常用于巡视。"""
+    """Filter task list by conditions. Supports status, assignee filtering. Commonly used for patrol."""
     import urllib.parse
     cfg = _load_profile_config()
     if not cfg:
@@ -126,7 +126,7 @@ def board_task_list(board: str, status: str = "", assignee: str = "") -> str:
 
 
 def board_members(board_id: str, email: str = "") -> str:
-    """列出 Board 成员。可选按 email 过滤。"""
+    """List Board members. Optional filter by email."""
     import json, urllib.parse
     cfg = _load_profile_config()
     if not cfg:
@@ -142,7 +142,7 @@ def board_members(board_id: str, email: str = "") -> str:
         return json.dumps({"error": str(e)})
 
 def board_roles(board_id: str, role: str = "") -> str:
-    """获取 Board 角色权限表。可选按 role 过滤返回该角色的成员和权限。"""
+    """Get Board role permission table. Optional filter by role to return members and permissions for that role."""
     import json, urllib.parse
     cfg = _load_profile_config()
     if not cfg:
@@ -158,7 +158,7 @@ def board_roles(board_id: str, role: str = "") -> str:
         return json.dumps({"error": str(e)})
 
 def board_status(board_id: str) -> str:
-    """获取 Board 状态总览：管线分布 + 依赖关系 + 负责人。"""
+    """Get Board status overview: pipeline distribution + dependencies + owners."""
     cfg = _load_profile_config()
     if not cfg: return json.dumps({"error": "no profile config"})
     client, token = _board_client(board_id, cfg)
@@ -169,7 +169,7 @@ def board_status(board_id: str) -> str:
         return json.dumps({"error": str(e)})
 
 def board_heartbeat(task_id: str, note: str = "") -> str:
-    """发心跳更新任务时间戳。长任务期间定期调用，让Board/Orchestrator知道任务仍在进行。"""
+    """Send heartbeat to update task timestamp. Call periodically during long tasks to let Board/Orchestrator know the task is still in progress."""
     cfg = _load_profile_config()
     if not cfg:
         return "{\"error\": \"no profile config\"}"
