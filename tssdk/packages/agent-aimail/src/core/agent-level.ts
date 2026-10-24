@@ -18,6 +18,7 @@ import * as path from 'node:path'
 
 
 import { AGENT_SKILL_NAME } from './contract.js'
+import { AGENT_TOOL_NAMES } from './agent-tools.js'
 import { saveInboundSnapshot, saveLocalMeta } from './meta.js'
 import {
   processInboundMail,
@@ -37,22 +38,7 @@ import { MAIL_TOOLS, type MailToolDef } from './tool-registry.js'
 import type { AgentConfig, EnrichedPayload, InboundPayload } from './types.js'
 
 /** Tools that are meaningful for an agent-level mailbox (member-scope board). */
-export const AGENT_TOOL_NAMES = [
-  'activate_address_code',
-  'send_mail',
-  'manage_contacts',
-  'contact_profile',
-  'set_contact_profile',
-  'email_summary',
-  'set_email_summary',
-  'search_mail',
-  'board_status',
-  'board_task_list',
-  'board_task_show',
-  'board_members',
-  'board_roles',
-  'board_heartbeat',
-] as const
+export { AGENT_TOOL_NAMES }
 
 const AGENT_TOOL_SET: ReadonlySet<string> = new Set(AGENT_TOOL_NAMES)
 

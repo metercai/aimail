@@ -21,6 +21,7 @@ import {
   PING_PREFIX,
   PONG_PREFIX,
 } from '../../src/core/preprocess.js'
+import { AGENT_TOOL_NAMES } from '../../src/core/agent-tools.js'
 import { cleanAddr } from '../../src/core/config.js'
 import { threadPath } from '../../src/core/meta.js'
 import type { InboundPayload } from '../../src/core/types.js'
@@ -265,6 +266,18 @@ describe('processInboundMail', () => {
     // early-return: a board role prompt must not clobber the whoami prompt
     expect(r?._role_prompt).toBeUndefined()
     expect(r?._a2a_session_key).toBeUndefined()
+  })
+
+  it('renders {{TOOLSET_LIST}} from the single-source AGENT_TOOL_NAMES (parity with pysdk build_ctx)', async () => {
+    const roleDir = path.join(home, 'systems', SYSTEM_ID, 'board', 'role_prompt')
+    await fs.mkdir(roleDir, { recursive: true })
+    await fs.writeFile(
+      path.join(roleDir, 'whoami.md'),
+      'tools: {{TOOLSET_LIST}}',
+      'utf-8',
+    )
+    const r = await processInboundMail(mail({ subject: '[WHOAMI] tools?' }), {}, CTX)
+    expect(r?._whoami_prompt).toBe(`tools: ${AGENT_TOOL_NAMES.join(', ')}`)
   })
 
   it('adds _a2a_session_key when board_id + board_role present', async () => {

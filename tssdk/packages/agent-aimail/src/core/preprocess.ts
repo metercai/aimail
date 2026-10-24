@@ -9,6 +9,7 @@
 import { promises as fsp } from 'node:fs'
 import * as path from 'node:path'
 import { createHmac, timingSafeEqual } from 'node:crypto'
+import { AGENT_TOOL_NAMES } from './agent-tools.js'
 import { GatewayClient } from './gateway.js'
 import { cleanAddr, loadAgentConfig, systemDir } from './config.js'
 import { sendMail, sanitizeMessageId } from './tools.js'
@@ -377,6 +378,9 @@ function buildBoardCtx(result: Record<string, unknown>, cfg: AgentConfig): Recor
     INQUIRY_SUBJECT: String(result.subject ?? ''),
     SOUL_MD_CONTENT: readSoulMd(cfg),
     SKILLS_LIST: readSkills(cfg).join(', '),
+    // SDK-self-aware (single source: agent-tools AGENT_TOOL_NAMES), not
+    // host-injected like SOUL/SKILLS — always non-empty.
+    TOOLSET_LIST: AGENT_TOOL_NAMES.join(', '),
   }
 }
 
