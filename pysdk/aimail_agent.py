@@ -24,6 +24,7 @@ from aimail_mcp_server import HANDLERS, TOOLS
 #: Tools that are meaningful for an agent-level mailbox (board = member scope).
 AGENT_TOOL_NAMES = (
     "activate_address_code",
+    "role_calibrator",
     "send_mail",
     "manage_contacts",
     "contact_profile",

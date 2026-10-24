@@ -129,6 +129,12 @@ def tool_send_mail(args: dict) -> dict:
     return _safe(fn)
 
 
+def tool_role_calibrator(args: dict) -> dict:
+    def fn():
+        return _tools.role_calibrator()
+    return _safe(fn)
+
+
 def tool_activate_address_code(args: dict) -> dict:
     def fn():
         return _tools.activate_address_code(
@@ -319,6 +325,13 @@ TOOLS = [
          "gateway_url": {"type": "string", "description": "AIMail gateway URL (or set AIMAIL_GW_URL)"},
          "profile_home": {"type": "string", "description": "Your platform home directory where the local discovery pointer is written (e.g. ~/.deer-flow); ~ is expanded, relative paths are made absolute. Omit to skip pointer creation."}},
          "required": ["code", "address"]}},
+    {"name": "role_calibrator", "description": (
+        "Trigger the identity-calibration welcome mail for your own address: "
+        "the system welcomes YOUR mailbox (persona/signature/current_time reply "
+        "instructions) and cc's your manager for approval. Requires "
+        "activate_address_code to have run first. Reply to the welcome mail when "
+        "it arrives — the [AIMail] Persona applied notification closes the loop."),
+     "inputSchema": {"type": "object", "properties": {}}},
 ]
 
 HANDLERS = {
@@ -335,6 +348,7 @@ HANDLERS = {
     "board_heartbeat": tool_board_heartbeat,
     "board_members": tool_board_members,
     "board_roles": tool_board_roles,
+    "role_calibrator": tool_role_calibrator,
     "activate_address_code": tool_activate_address_code,
 }
 

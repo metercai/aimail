@@ -859,6 +859,38 @@ def activate_address_code(
     return res
 
 
+def role_calibrator() -> dict:
+    """Trigger the identity-calibration welcome mail for your own address.
+
+    One gateway call, no local state: the unified ``POST /api/v1/system/welcome``
+    endpoint runs its agent branch — the recipient is derived from this key's
+    own bound address (the body ``to`` is ignored), the mail carries the
+    persona/signature/current_time reply instructions, and your manager is
+    cc'd for approval. Reply to the welcome mail when it arrives; the
+    ``[AIMail] Persona applied`` notification closes the loop.
+
+    Requires activation first: without an agent-scope binding there is no
+    address of your own to welcome.
+    """
+    config = _load_profile_config()
+    if not config or not config.get("api_key"):
+        return {"success": False, "error": "not activated"}
+    client = _GatewayClient(config["gateway_url"], config["api_key"])
+    res = client._request("POST", "/api/v1/system/welcome", body={"to": []})
+    status = int(res.get("status") or 0)
+    if 200 <= status < 300:
+        return {
+            "success": True,
+            "email_id": res.get("email_id", ""),
+            "message_id": res.get("message_id", ""),
+            "cc": res.get("cc", []),
+        }
+    return {
+        "success": False,
+        "error": res.get("error") or "welcome request failed (status %d)" % status,
+    }
+
+
 def send_mail(
     to: Union[str, List[str]],
     subject: str,
