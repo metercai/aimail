@@ -20,7 +20,7 @@ describe('pi-aimail tool registration', () => {
     const built = buildPiTools()
     expect(built.length).toBe(MAIL_TOOLS.length)
     expect(built.map(t => t.name).sort()).toEqual(MAIL_TOOLS.map(t => t.name).sort())
-    expect(built.length).toBe(14)
+    expect(built.length).toBe(15)
   })
 
   it('package.json declares a pi manifest whose extensions resolve', () => {

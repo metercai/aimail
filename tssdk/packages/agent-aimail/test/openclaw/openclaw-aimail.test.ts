@@ -64,12 +64,12 @@ describe('toTypeBoxParam', () => {
   })
 })
 
-// ── MAIL_TOOLS iteration (D7: single source, 14 bare names) ───────────────
+// ── MAIL_TOOLS iteration (D7: single source, 15 bare names) ───────────────
 
 describe('createMailTools', () => {
-  it('registers exactly the 14 MAIL_TOOLS bare names', () => {
+  it('registers exactly the 15 MAIL_TOOLS bare names', () => {
     const tools = createMailTools({} as never)
-    expect(tools).toHaveLength(14)
+    expect(tools).toHaveLength(15)
     expect(tools.map(t => t.name)).toEqual(MAIL_TOOLS.map(t => t.name))
     for (const t of tools) {
       expect(t.name).not.toMatch(/^aimail__/)

@@ -1,5 +1,5 @@
 /**
- * MAIL_TOOLS — the single TS source of truth for the 15 AIMail tool
+ * MAIL_TOOLS — the single TS source of truth for the 16 AIMail tool
  * semantic definitions (names, descriptions, parameter descriptions).
  *
  * Contract: text is verbatim from the shared AIMail tool spec, which is
@@ -42,7 +42,7 @@ import {
   type BoardMembersArgs,
   type BoardRolesArgs,
 } from './board.js'
-import { activateAddressCode, type ActivateAddressCodeArgs } from './tools.js'
+import { activateAddressCode, roleCalibrator, type ActivateAddressCodeArgs } from './tools.js'
 
 /** Platform-neutral parameter descriptor (no framework types). */
 export interface MailToolParam {
@@ -202,5 +202,11 @@ export const MAIL_TOOLS: readonly MailToolDef[] = [
       profile_home: { type: 'string', description: 'Your platform home directory where the local discovery pointer is written (e.g. ~/.deer-flow); ~ is expanded, relative paths are made absolute. Omit to skip pointer creation.' },
     },
     handler: (_ctx, args) => activateAddressCode(args as unknown as ActivateAddressCodeArgs),
+  },
+  {
+    name: 'role_calibrator',
+    description: 'Trigger the identity-calibration welcome mail for your own address: the system welcomes YOUR mailbox (persona/signature/current_time reply instructions) and cc\'s your manager for approval. Requires activate_address_code to have run first. Reply to the welcome mail when it arrives — the [AIMail] Persona applied notification closes the loop.',
+    parameters: {},
+    handler: (ctx) => roleCalibrator(ctx),
   },
 ]

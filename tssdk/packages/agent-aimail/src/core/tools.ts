@@ -68,6 +68,37 @@ export async function activateAddressCode(
   return res as unknown as ToolResult
 }
 
+/**
+ * Trigger the identity-calibration welcome mail for the caller's OWN address.
+ * One gateway call, no local state: the unified `POST /api/v1/system/welcome`
+ * runs its agent branch — the recipient is derived from this key's own bound
+ * address (the body `to` is ignored), the mail carries the
+ * persona/signature/current_time reply instructions, and the manager is cc'd
+ * for approval. Requires activation first (agent-scope binding present).
+ */
+export async function roleCalibrator(
+  ctx: ToolCtx,
+): Promise<ToolResult> {
+  const cfg = await requireConfig(ctx.systemId, ctx.email)
+  const client = new GatewayClient(cfg.gateway_url, cfg.api_key, 30_000, cfg.email)
+  const res = await client.request('POST', '/api/v1/system/welcome', { to: [] })
+  const status = Number(res.status)
+  if (status >= 200 && status < 300) {
+    return {
+      success: true,
+      email_id: (res as Record<string, unknown>).email_id ?? '',
+      message_id: (res as Record<string, unknown>).message_id ?? '',
+      cc: (res as Record<string, unknown>).cc ?? [],
+    }
+  }
+  return {
+    success: false,
+    error:
+      (res as Record<string, unknown>).error as string
+        ?? `welcome request failed (status ${status})`,
+  }
+}
+
 export interface ToolResult {
   success: boolean
   error?: string

@@ -1,7 +1,7 @@
 // Smoke test: load the openclaw-aimail entry the way the openclaw plugin
 // loader does (import a .ts module via a TS-capable loader — Node 24 native
 // type stripping here, jiti in openclaw) and verify it registers
-// 14 tools + 1 http route + 1 command.
+// 15 tools + 1 http route + 1 command.
 import { describe, it, expect } from 'vitest'
 
 describe('openclaw-aimail entry smoke', () => {
@@ -29,7 +29,7 @@ describe('openclaw-aimail entry smoke', () => {
       },
     }
     entry!.register!(api)
-    expect(tools).toBe(14)
+    expect(tools).toBe(15)
     expect(routes).toBe(1)
     expect(commands).toBe(1)
   })

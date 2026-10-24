@@ -8,6 +8,7 @@
  */
 export const AGENT_TOOL_NAMES = [
   'activate_address_code',
+  'role_calibrator',
   'send_mail',
   'manage_contacts',
   'contact_profile',

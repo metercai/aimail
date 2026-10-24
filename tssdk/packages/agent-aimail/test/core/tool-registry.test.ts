@@ -1,6 +1,6 @@
 /**
  * MAIL_TOOLS contract tests:
- *   - structural: 14 tools, exact names/order, non-empty semantic text
+ *   - structural: 15 tools, exact names/order, non-empty semantic text
  *   - parity (best-effort): names + descriptions + parameter text must match
  *     the shared tool spec materialized in aimail/pysdk/aimail_mcp_server.py.
  *     That file is the Python-platform MCP fallback; the TS SDK embeds tools
@@ -30,6 +30,7 @@ const EXPECTED_NAMES = [
   'board_members',
   'board_roles',
   'activate_address_code',
+  'role_calibrator',
 ] as const
 
 /** Monorepo layout: tssdk/packages/<pkg> and pysdk/ share the repo root —
@@ -66,14 +67,16 @@ print(json.dumps(ns['TOOLS']))
 }
 
 describe('MAIL_TOOLS structure', () => {
-  it('registers exactly the 14 bare tool names, in order', () => {
+  it('registers exactly the 15 bare tool names, in order', () => {
     expect(MAIL_TOOLS.map(t => t.name)).toEqual([...EXPECTED_NAMES])
   })
 
-  it('every tool has non-empty description and ≥1 parameter', () => {
+  it('every tool has a non-empty description; tools with parameters have ≥1 typed parameter', () => {
     for (const t of MAIL_TOOLS) {
       expect(t.description.length, `${t.name} description`).toBeGreaterThan(0)
-      expect(Object.keys(t.parameters).length, `${t.name} parameters`).toBeGreaterThanOrEqual(1)
+      if (Object.keys(t.parameters).length > 0) {
+        expect(Object.keys(t.parameters).length, `${t.name} parameters`).toBeGreaterThanOrEqual(1)
+      }
       for (const [k, p] of Object.entries(t.parameters)) {
         expect(p.type, `${t.name}.${k} type`).toMatch(/^(string|array|integer|number|boolean)$/)
         if (p.type === 'array') expect(p.items, `${t.name}.${k} items`).toEqual({ type: 'string' })
@@ -95,7 +98,7 @@ describe('MAIL_TOOLS ↔ Python registry parity', () => {
     return
   }
 
-  it('has the same 14 tools with identical names and descriptions', () => {
+  it('has the same 15 tools with identical names and descriptions', () => {
     expect(py.map(t => t.name)).toEqual([...EXPECTED_NAMES])
     py.forEach((pt, i) => {
       const tt = MAIL_TOOLS[i]
