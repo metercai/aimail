@@ -229,7 +229,20 @@ def build_ctx(payload: dict, headers: dict, config: Optional[dict] = None) -> di
         "INQUIRY_SUBJECT": payload.get("subject", ""),
         "SOUL_MD_CONTENT": _read_soul_md(config),
         "SKILLS_LIST": ", ".join(_read_skills(config)),
+        "TOOLSET_LIST": _toolset_list(),
     }
+
+
+def _toolset_list() -> str:
+    """Agent-level tool names, comma-joined (single source: aimail_agent.AGENT_TOOL_NAMES).
+
+    SDK-self-aware by design: unlike SOUL/SKILLS (host-injected, empty when the
+    host injects nothing), the tool list is a fact of this SDK itself, so it is
+    always non-empty. Imported lazily to avoid a base→agent import cycle at
+    module load (aimail_agent imports aimail_base).
+    """
+    import aimail_agent as A
+    return ", ".join(A.AGENT_TOOL_NAMES)
 
 
 # ── Config helpers ──

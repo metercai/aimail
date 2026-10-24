@@ -121,3 +121,10 @@ def test_missing_role_file_does_not_fake_a_prompt(tmp_path, monkeypatch):
 
     assert "_whoami_prompt" not in r
     assert "_role_prompt" not in r
+
+
+def test_build_ctx_carries_toolset_list():
+    """TOOLSET_LIST = single-source AGENT_TOOL_NAMES joined, SDK-self-aware (no host provider)."""
+    import aimail_agent as A
+    ctx = ab.build_ctx({}, {})
+    assert ctx["TOOLSET_LIST"] == ", ".join(A.AGENT_TOOL_NAMES)
