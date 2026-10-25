@@ -95,6 +95,8 @@ def find_python(host_home: Path) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", required=True, choices=["hermes", "dsh"])
+    ap.add_argument("--sdk-wheel", default="", help="预发布注入: py wheel(发布前验新流程)")
+    ap.add_argument("--sdk-tarball", default="", help="预发布注入: ts tarball")
     ap.add_argument("--adv-bin", required=True)
     ap.add_argument("--aimail-bin", required=True)
     ap.add_argument("--evidence", default="/tmp/s1-local")
@@ -186,6 +188,25 @@ def main() -> int:
                          log=ev / "setup-apply.log")
         applied = '"applied": true' in out_s or "'applied': True" in out_s
         r.rec("S1-03", "agent setup --host … --apply installs tools", rc_s == 0 and applied, out_s[-300:])
+
+        # 预发布注入（可选）：发布前用工作树构建物验 role_calibrator 这类新流程；
+        # 正式上线后回归不带这两个参数，装的就是 registry 上的发布产物。
+        if a.host == "hermes" and a.sdk_wheel:
+            _py_impl = find_python(host_home) or "python3"
+            _impl = sh([_py_impl, "-m", "pip", "install", "-q", "--force-reinstall", "--no-deps", a.sdk_wheel],
+                       env=env, timeout=600, log=ev / "sdk-wheel-install.log")
+            _ver = sh([_py_impl, "-c", "import importlib.metadata as m;print(m.version('agent-aimail'))"], env=env)[1].strip()
+            r.rec("S1-03b", "pre-release wheel injected into the host interpreter", _impl[0] == 0,
+                  f"version={_ver} rc={_impl[0]}")
+        if a.host == "dsh" and a.sdk_tarball:
+            _tdir = work / "sdk-tarball"
+            _tdir.mkdir(parents=True, exist_ok=True)
+            _pkg = next(iter(sorted(host_home.rglob("node_modules/agent-aimail/package.json"))), None)
+            if _pkg:
+                _impl = sh(["npm", "install", "--no-save", "--prefix", str(_pkg.parent.parent.parent),
+                            a.sdk_tarball], env=env, timeout=900, log=ev / "sdk-tarball-install.log")
+                r.rec("S1-03b", "pre-release tarball injected into the host node_modules",
+                      _impl[0] == 0, _impl[1][-200:])
 
         # 3) Real product apply chain → prompt line + activation code (do not hand-write prompt)
         info = fx.apply_address(agentname=f"{a.host}s1")
@@ -294,8 +315,9 @@ def main() -> int:
         persona = f"{a.host} agent: owns inbound triage for its own mailbox; read+reply only."
         signature = f"-- {a.host}-s1 @ aimail scenario-1 gate"
         now_h = time.strftime("%Y-%m-%d %H:%M:%S")
-        draft_body = f"persona: {persona}\nsignature: {signature}\ncurrent_time: {now_h}"
+        reply_body = f"persona: {persona}\nsignature: {signature}\ncurrent_time: {now_h}"
         mgr = info["applicant"]
+        domain = addr.split("@")[-1] if "@" in addr else ""
 
         cfg_literal = json.dumps({"gateway_url": fx.gw, "api_key": api_key, "email": addr,
                                   "system_id": sid, "agent_id": f"{a.host}s1"})
@@ -305,30 +327,68 @@ def main() -> int:
             f"_CFG = {cfg_literal!r}\n"
             "def _loader():\n"
             "    return json.loads(_CFG)\n"
-            # Adapter layer injection point: directly modify the global of the module where the loader resides, avoiding two module identities (aimail_base / aimail.aimail_base)
             "_T._load_profile_config.__globals__['_CONFIG_LOADER'] = _loader\n"
         )
-        py_send = py_cfg + (
+        # ── 身份校准：agent 侧只需调 role_calibrator（系统发 welcome 信，manager 进 cc）；
+        #    收件人由 key 的绑定地址派生，body.to 被忽略。契约见 docs/agent-self-setup.md:48-50。
+        py_cal = py_cfg + (
             "from aimail.aimail_agent import agent_toolset\n"
             "t = {x['name']: x for x in agent_toolset()}\n"
-            f"res = t['send_mail']['handler']({{'to': {mgr!r}, 'subject': 'identity card draft', 'body': {draft_body!r}}})\n"
+            "res = t['role_calibrator']['handler']({})\n"
             "print(json.dumps(res, ensure_ascii=False, default=str))\n"
         )
-        ts_send = "" if a.host != "dsh" else (
+        ts_cal = "" if a.host != "dsh" else (
             "const m = require(%r);\n"
-            "const t = m.agentTools().find(x => x.name === 'send_mail');\n"
-            "t.handler({systemId: %r, email: %r}, {to: %r, subject: 'identity card draft', body: %r})\n"
+            "const t = m.agentTools().find(x => x.name === 'role_calibrator');\n"
+            "t.handler({systemId: %r, email: %r}, {})\n"
             "  .then(r => console.log(JSON.stringify(r)))\n"
             "  .catch(e => { console.error(String(e)); process.exit(1); });\n"
-            % (str(mc), sid, addr, mgr, draft_body)
+            % (str(mc), sid, addr)
         )
-        out_send = _run_door_script("draft", py_send if a.host == "hermes" else "", ts_send)
-        _flat = out_send.replace(" ", "").lower()
-        r.rec("S1-11", "agent uses send_mail to send persona/signature draft to the security officer",
-              '"success":true' in _flat, out_send[-250:])
+        out_cal = _run_door_script("role_calibrator", py_cal if a.host == "hermes" else "", ts_cal)
+        _flat = out_cal.replace(" ", "").lower()
+        r.rec("S1-11", "agent calls role_calibrator (system sends the welcome mail)",
+              '"email_id"' in _flat and "error" not in _flat.split('"error"')[0][-40:], out_cal[-260:])
+        r.rec("S1-12", "welcome mail cc's the security officer (approval path)",
+              mgr.lower() in _flat, out_cal[-260:])
+
+        # welcome 信必须落到**自己**的邮箱，且正文带三行填写说明 + reply-all 指示
+        welcome = ""
+        deadline = time.time() + 30
+        while time.time() < deadline and not welcome:
+            rows = fx.db("SELECT subject, body FROM emails WHERE subject LIKE ? "
+                         "ORDER BY rowid DESC LIMIT 5", ("%Welcome%",))
+            for row in rows:
+                body = row.get("body") or ""
+                if "persona:" in body and "signature:" in body and "current_time:" in body:
+                    welcome = body
+                    break
+            if not welcome:
+                time.sleep(1.0)
+        r.rec("S1-13", "welcome mail carries the three labelled reply lines",
+              bool(welcome) and "reply-all" in welcome.lower(), welcome[:200])
+
+        # agent 按指示 reply-all：回给 noreply@<domain>，三行照抄
+        py_reply = py_cfg + (
+            "from aimail.aimail_agent import agent_toolset\n"
+            "t = {x['name']: x for x in agent_toolset()}\n"
+            "res = t['send_mail']['handler']({'to': %r, 'subject': 're: Welcome to the AIMail world!', 'body': %r})\n"
+            "print(json.dumps(res, ensure_ascii=False, default=str))\n" % (f"noreply@{domain}", reply_body)
+        )
+        ts_reply = "" if a.host != "dsh" else (
+            "const m = require(%r);\n"
+            "const t = m.agentTools().find(x => x.name === 'send_mail');\n"
+            "t.handler({systemId: %r, email: %r}, {to: %r, subject: 're: Welcome to the AIMail world!', body: %r})\n"
+            "  .then(r => console.log(JSON.stringify(r)))\n"
+            "  .catch(e => { console.error(String(e)); process.exit(1); });\n"
+            % (str(mc), sid, addr, f"noreply@{domain}", reply_body)
+        )
+        out_reply = _run_door_script("welcome_reply", py_reply if a.host == "hermes" else "", ts_reply)
+        r.rec("S1-14", "agent replies all with persona / signature / current_time",
+              '"success":true' in out_reply.replace(" ", "").lower(), out_reply[-220:])
 
         # Security officer approval (real manager instruction message)
-        fx.smtp_send(sender=mgr, to=addr, subject="re: identity card draft",
+        fx.smtp_send(sender=mgr, to=addr, subject="re: Welcome to the AIMail world!",
                      body=f"approve persona\npersona: {persona}\nsignature: {signature}")
         notice = ""
         deadline = time.time() + 30
@@ -346,16 +406,16 @@ def main() -> int:
                 ensure_ascii=False, indent=1))
         except Exception as _e:
             (ev / "emails-dump.json").write_text(f"dump failed: {_e}")
-        r.rec("S1-12", "agent receives [AIMail] Persona applied closed-loop message", bool(notice), notice[:200])
-        r.rec("S1-13", "Closed-loop message echoes persona + signature",
+        r.rec("S1-15", "agent receives [AIMail] Persona applied closed-loop message", bool(notice), notice[:200])
+        r.rec("S1-16", "closed-loop message echoes persona + signature",
               persona[:20] in notice and signature[:20] in notice, notice[:200])
 
         meta = fx.db("SELECT agent_persona, agent_signature, manager_address FROM domain_addr_meta "
                      "WHERE email_address=?", (addr,))
         meta = meta[0] if meta else {}
-        r.rec("S1-14", "Server has implemented identity card (persona)", persona[:20] in str(meta.get("agent_persona", "")),
-              str(meta)[:200])
-        r.rec("S1-15", "Server has implemented email signature (signature)",
+        r.rec("S1-17", "server has implemented identity card (persona)",
+              persona[:20] in str(meta.get("agent_persona", "")), str(meta)[:200])
+        r.rec("S1-18", "server has implemented email signature (signature)",
               signature[:20] in str(meta.get("agent_signature", "")), str(meta)[:200])
 
         # After activation, outbound: body must carry the signature
@@ -385,7 +445,7 @@ def main() -> int:
                 got = rows[0].get("body") or ""
             if not got:
                 time.sleep(1.0)
-        r.rec("S1-16", "Outbound email body automatically carries signature (gateway 2b append)", signature[:20] in got, got[-250:])
+        r.rec("S1-19", "Outbound email body automatically carries signature (gateway 2b append)", signature[:20] in got, got[-250:])
 
         rc = 0 if r.failed == 0 else 1
     except SystemExit as e:
