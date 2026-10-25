@@ -2,8 +2,10 @@
 // the whole file is unix semantics (stub executable bit / sh-driven / symlink); reopen after the windows branch (W2) lands.
 //! `prompt` slice 1 acceptance: `list`/`rm`/`create-file` and the command surface (the SDK disk path of `add` is left to L2; `test` is unported).
 //!
-//! Criteria: ① bare `prompt` => rc=2 (`paction` required); ② `list` renders the three states (address-level role / the common.md fallback /
-//! MISSING) + name ordering + fields joined with `|` + `[disabled]` + the warning for field-less lines; ③ the `rm` miss, verbatim;
+//! Criteria: ① bare `prompt` => rc=2 (`paction` required); ② `list` renders the role states (address-level role /
+//! the system-level role / MISSING) + name ordering + fields joined with `|` + `[disabled]` + the warning for field-less lines
+//! (ruling 2026-10-25: common.md is a **board-channel-only** fallback — `list`/L1/L2/L4/L5 must not report it);
+//! ③ the `rm` miss, verbatim;
 //! ④ `create-file` validation and disk write; ⑤ `test` loudly unported.
 
 use std::path::{Path, PathBuf};
@@ -76,9 +78,11 @@ fn fixture() -> (tempfile::TempDir, PathBuf) {
         ),
     )
     .unwrap();
-    // the address-level role (10_first); the system-level common.md fallback (the 50_common file itself does not exist => it goes to common.md)
+    // the address-level role (10_first); the system-level role (30_later); the board-channel common.md exists
+    // but must NOT surface for non-board channels (50_common's own file is absent => list shows MISSING)
     std::fs::write(leaf.join("role_prompt/first.md"), "# first\n").unwrap();
     std::fs::create_dir_all(sys.join("board/role_prompt")).unwrap();
+    std::fs::write(sys.join("board/role_prompt/later.md"), "# later\n").unwrap();
     std::fs::write(sys.join("board/role_prompt/common.md"), "# common\n").unwrap();
     (tmp, home)
 }
@@ -135,8 +139,12 @@ fn prompt_faces_list_rm_createfile_and_command_surface() {
         "the address-level role: {out}"
     );
     assert!(
-        out.contains("common.md (common.md fallback)"),
-        "the system-level common fallback: {out}"
+        out.contains("role_prompt/later.md"),
+        "the system-level role (30_later): {out}"
+    );
+    assert!(
+        !out.contains("common.md (common.md fallback)"),
+        "common.md is board-channel only — list (channel 3) must not surface it: {out}"
     );
 
     // ③ the rm miss
@@ -236,9 +244,12 @@ fn prompt_test_walks_the_chain_and_matches_via_sdk() {
         out.contains("L1 [WHOAMI] (built-in) → file=whoami"),
         "{out}"
     );
-    // the system-level `common.md` exists in the fixture => whoami takes the fallback (MISSING only appears when even common.md is missing,
-    // that state is covered by `role_missing_is_reported_when_no_common_md`)
-    assert!(out.contains("common.md (common.md fallback)"), "{out}");
+    // whoami channel: no common.md fallback (ruling 2026-10-25) => the missing file reports MISSING
+    // (the board-channel fallback is simulated by --board-role, see below)
+    assert!(
+        out.contains("MISSING (no injection; chain continues at runtime)"),
+        "whoami (channel 2) must not surface common.md: {out}"
+    );
 
     // the L2 built-in welcome (the marker + all three tags present)
     let (rc, out, _) = run(
@@ -300,7 +311,10 @@ fn prompt_test_walks_the_chain_and_matches_via_sdk() {
     );
     assert_eq!(rc, 0, "{out}");
     assert!(out.contains("L5 HIT 30_later → file=later"), "{out}");
-    assert!(out.contains("common.md (common.md fallback)"), "{out}");
+    assert!(
+        out.contains("role_prompt/later.md"),
+        "the system-level role file is the injected one (no common.md on this channel): {out}"
+    );
     assert!(
         out.contains("(matched against: subject='please approve this' sender='' to='')"),
         "{out}"
@@ -351,8 +365,8 @@ fn prompt_test_walks_the_chain_and_matches_via_sdk() {
         "a disabled rule does not enter the matching loop: {out}"
     );
 
-    // L4: the header is specified but the role file does not exist => it still hits via the `common.md` fallback (the same stance as L1);
-    // "even common.md is missing => MISSING + falls through" is covered by the fixture without common.md (see the other case).
+    // L4: the header is specified but the role file does not exist => MISSING on this channel (no common.md
+    // fallback, ruling 2026-10-25) => the dry-run mirrors the runtime error+fallthrough.
     let (rc, out, _) = run(
         &home,
         &[
@@ -368,8 +382,33 @@ fn prompt_test_walks_the_chain_and_matches_via_sdk() {
     );
     assert_eq!(rc, 0, "{out}");
     assert!(
-        out.contains("L4 X-AIMail-Prompt (gateway header) → file=nope"),
+        out.contains("role file MISSING (no common.md fallback on this channel)"),
         "{out}"
     );
-    assert!(out.contains("common.md (common.md fallback)"), "{out}");
+    assert!(
+        !out.contains("common.md (common.md fallback)"),
+        "L4 (channel 3) must not surface common.md: {out}"
+    );
+
+    // L3 board (simulated): the common.md fallback IS allowed on the board channel —
+    // the kept channel 1 (ruling 2026-10-25; mirrored by tssdk `preprocess-align` board case)
+    let (rc, out, _) = run(
+        &home,
+        &[
+            "prompt",
+            "test",
+            "-s",
+            "s1",
+            "-e",
+            "agent@example.test",
+            "--board-role",
+            "ghost",
+        ],
+    );
+    assert_eq!(rc, 0, "{out}");
+    assert!(out.contains("L3 board (simulated) → file=ghost"), "{out}");
+    assert!(
+        out.contains("common.md (common.md fallback)"),
+        "the board channel keeps the common.md fallback: {out}"
+    );
 }

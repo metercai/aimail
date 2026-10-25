@@ -6,7 +6,8 @@
 //! Ownership iron rule: `prompt_rules` written to per-agent binding files are **written only by the SDK** => CLI only triggers
 //! SDK gate `update` (controlled fields persisted); name validity and L5 filter/matching judgment go through SDK gate **read-only op
 //! `prompt-test`** (added in contract v1.0 §4.1, owner ruling 2026-10-10 (a)) —— CLI does not reimplement predicates.
-//! Role file three-level lookup (address level -> system level -> `common.md` fallback) is in the **same order** as `aimail_base._read_role_file`.
+//! Role file three-level lookup (address level -> system level -> `common.md`, the last one
+//! board-channel only) is in the **same order and channel gating** as `aimail_base._read_role_file`.
 //!
 //! All five faces present: `list` / `add` / `rm` / `create-file` / `test` (L1–L5 single-source matching simulation, **never sends**).
 
@@ -139,8 +140,9 @@ fn stem_ok(stem: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
 }
 
-/// `_role_path`: address level → system level → `common.md` fallback (same order as `aimail_base._read_role_file`).
-fn role_path(addr_role_dir: &Path, sys_role_dir: &Path, stem: &str) -> String {
+/// `_role_path`: address level → system level → `common.md` (board channel only,
+/// `allow_common`; ruling 2026-10-25 — same channel gating as `aimail_base._read_role_file`).
+fn role_path(addr_role_dir: &Path, sys_role_dir: &Path, stem: &str, allow_common: bool) -> String {
     if stem.is_empty() {
         return String::new();
     }
@@ -152,9 +154,11 @@ fn role_path(addr_role_dir: &Path, sys_role_dir: &Path, stem: &str) -> String {
     if p.is_file() {
         return p.to_string_lossy().to_string();
     }
-    let c = sys_role_dir.join("common.md");
-    if c.is_file() {
-        return format!("{} (common.md fallback)", c.to_string_lossy());
+    if allow_common {
+        let c = sys_role_dir.join("common.md");
+        if c.is_file() {
+            return format!("{} (common.md fallback)", c.to_string_lossy());
+        }
     }
     String::new()
 }
@@ -316,7 +320,7 @@ pub fn run(a: &Args) -> i32 {
                         flds.join("; ")
                     }
                 );
-                let rp = role_path(&addr_role_dir, &sys_role_dir, &file);
+                let rp = role_path(&addr_role_dir, &sys_role_dir, &file, false);
                 println!(
                     "      role: {}",
                     if rp.is_empty() {
@@ -397,7 +401,7 @@ pub fn run(a: &Args) -> i32 {
                 crate::core::contract::binding_file(),
                 t.jf.to_string_lossy()
             );
-            if role_path(&addr_role_dir, &sys_role_dir, &stem).is_empty() {
+            if role_path(&addr_role_dir, &sys_role_dir, &stem, false).is_empty() {
                 println!(
                     "  note: role file not present yet — scaffold it with: aimail prompt create-file -s {sid} -e {} -n {name}",
                     t.email
@@ -465,8 +469,8 @@ Describe how this agent should behave for that class of mail here.\n"
             let sender = a.sender.clone();
             let recp = a.to.join(" ");
             let s_l = subj.to_lowercase();
-            let hit = |layer: &str, stem: &str| -> i32 {
-                let path = role_path(&addr_role_dir, &sys_role_dir, stem);
+            let hit = |layer: &str, stem: &str, allow_common: bool| -> i32 {
+                let path = role_path(&addr_role_dir, &sys_role_dir, stem, allow_common);
                 println!("  {layer} → file={stem}");
                 println!(
                     "  role: {}",
@@ -480,7 +484,7 @@ Describe how this agent should behave for that class of mail here.\n"
             };
             // L1 built-in [WHOAMI]
             if s_l.starts_with("[whoami]") {
-                return hit("L1 [WHOAMI] (built-in)", "whoami");
+                return hit("L1 [WHOAMI] (built-in)", "whoami", false);
             }
             // L2 built-in welcome (marker + three tags, same literals as preprocess)
             let marker = s_l.contains("welcome to aimail world");
@@ -489,7 +493,7 @@ Describe how this agent should behave for that class of mail here.\n"
                     .any(|ln| ln.trim_start().starts_with(&format!("{k}:")))
             });
             if marker && labels_ok {
-                return hit("L2 welcome (built-in)", "role_calibrator");
+                return hit("L2 welcome (built-in)", "role_calibrator", false);
             }
             let mut line = "  L1 [WHOAMI]: no    L2 welcome: no".to_string();
             if marker || labels_ok {
@@ -500,17 +504,18 @@ Describe how this agent should behave for that class of mail here.\n"
             println!("{line}");
             // L3 board level (gateway injection; --board-role simulation)
             if !a.board_role.trim().is_empty() {
-                return hit("L3 board (simulated)", a.board_role.trim());
+                // board channel: common.md fallback is ALLOWED (ruling 2026-10-25, channel 1 kept)
+                return hit("L3 board (simulated)", a.board_role.trim(), true);
             }
             println!("  L3 board: gateway-injected — pass --board-role to simulate");
             // L4 X-AIMail-Prompt header
             if !a.header.trim().is_empty() {
                 let stem = a.header.trim();
-                if !role_path(&addr_role_dir, &sys_role_dir, stem).is_empty() {
-                    return hit("L4 X-AIMail-Prompt (gateway header)", stem);
+                if !role_path(&addr_role_dir, &sys_role_dir, stem, false).is_empty() {
+                    return hit("L4 X-AIMail-Prompt (gateway header)", stem, false);
                 }
                 println!(
-                    "  L4 header={}: role file MISSING (incl. common.md) — runtime falls through to L5",
+                    "  L4 header={}: role file MISSING (no common.md fallback on this channel) — runtime logs error, falls through to L5",
                     crate::core::pyjson::repr_python(&json!(stem))
                 );
             }
@@ -529,15 +534,15 @@ Describe how this agent should behave for that class of mail here.\n"
                     continue;
                 }
                 let file = rule.get("file").map(pyjson_str).unwrap_or_default();
-                let path = role_path(&addr_role_dir, &sys_role_dir, &file);
+                let path = role_path(&addr_role_dir, &sys_role_dir, &file, false);
                 if path.is_empty() {
                     println!(
-                        "  L5 hit {name} but role file '{file}' MISSING (incl. common.md) — next rule"
+                        "  L5 hit {name} but role file '{file}' MISSING (no common.md fallback on this channel) — next rule"
                     );
                     continue;
                 }
                 println!("  L5 HIT {name} → file={file}");
-                println!("  role: {path}"); // Path may include common.md fallback annotation = actual runtime injected content
+                println!("  role: {path}");
                 matched_any = true;
                 break;
             }

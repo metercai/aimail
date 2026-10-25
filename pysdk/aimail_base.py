@@ -81,7 +81,7 @@ def fill_template(text: str, ctx: dict) -> str:
     return text
 
 
-def _read_role_file(name: str) -> str:
+def _read_role_file(name: str, *, allow_common: bool = False) -> str:
     """Read a2a_board role file — address-level first, then system-level.
 
     Role names are case-insensitive: the filename is always lowercased
@@ -90,7 +90,14 @@ def _read_role_file(name: str) -> str:
     Priority:
     1. ~/.aimail/systems/{sid}/{addr}/role_prompt/{name}.md  (address override)
     2. ~/.aimail/systems/{sid}/board/role_prompt/{name}.md   (system-level)
-    3. common.md fallback (system-level dir)
+    3. common.md fallback (system-level dir) — **board channel only**
+       (``allow_common=True``, ruling 2026-10-25: the a2a board keeps its
+       generic role template when the named role is missing)
+
+    When the named file is missing and common.md is not allowed (channels
+    whoami / Role_Calibrator / X-AIMail-Prompt / prompt_rules), logs an
+    ERROR (missing name + searched paths) and returns "" — the caller then
+    continues the chain without injecting (defect 2, 2026-10-25).
     """
     name = name.lower()
     cfg = _load_profile_config()
@@ -107,12 +114,21 @@ def _read_role_file(name: str) -> str:
     p = sys_role_dir / f"{name}.md"
     if p.exists():
         return p.read_text(encoding="utf-8")
-    # 3) common.md fallback
+    # 3) common.md — board channel only (ruling 2026-10-25)
     common = sys_role_dir / "common.md"
-    if common.exists():
+    if allow_common and common.exists():
         logger.info("[a2a_board] role '%s' not found, using common.md", name)
         return common.read_text(encoding="utf-8")
-    logger.warning("[a2a_board] role file not found: %s (common.md also missing)", name)
+    searched = [sys_role_dir / f"{name}.md"]
+    if addr:
+        searched.insert(0, _aimail_system_dir(sid) / addr / "role_prompt" / f"{name}.md")
+    if allow_common:
+        searched.append(common)
+    logger.error(
+        "[aimail_gateway] role file missing: '%s' — searched: %s — no injection, chain continues",
+        name,
+        " | ".join(str(p) for p in searched),
+    )
     return ""
 
 
@@ -1515,7 +1531,7 @@ def preprocess_mail_payload(payload: dict, headers: dict) -> Optional[dict]:
     board_role = result.get("board_role")
     if board_id and board_role:
         ctx = build_ctx(result, dict(headers), config)
-        role_raw = _read_role_file(board_role)
+        role_raw = _read_role_file(board_role, allow_common=True)
         if role_raw:
             result["_role_prompt"] = fill_template(role_raw, ctx)
         sender = result.get("from", "")

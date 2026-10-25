@@ -222,8 +222,10 @@ export function fillTemplate(text: string, ctx: Record<string, string>): string 
  * Read an a2a_board role file with the Python three-level lookup:
  *   1. {home}/systems/{sid}/{addr}/role_prompt/{name}.md  (address override)
  *   2. {home}/systems/{sid}/board/role_prompt/{name}.md   (system-level)
- *   3. {home}/systems/{sid}/board/role_prompt/common.md   (fallback)
- * Empty string when nothing is found.
+ *   3. {home}/systems/{sid}/board/role_prompt/common.md   (board channel ONLY,
+ *      allowCommon=true — ruling 2026-10-25; mirror Python allow_common)
+ * Empty string when nothing is found (defect 2: non-board channels must NOT
+ * silently absorb common.md — the missing file is a loud ERROR, no injection).
  * Role names are case-insensitive: the filename is always lowercased
  * before lookup (mirror Python _read_role_file .lower()).
  */
@@ -342,7 +344,7 @@ function headerValue(headers: Record<string, unknown> | undefined, want: string)
   return ''
 }
 
-async function readRoleFile(cfg: AgentConfig, name: string): Promise<string> {
+async function readRoleFile(cfg: AgentConfig, name: string, allowCommon = false): Promise<string> {
   name = name.toLowerCase()
   const sid = cfg.system_id || 'default'
   const sysRoleDir = path.join(systemDir(sid), 'board', 'role_prompt')
@@ -359,11 +361,20 @@ async function readRoleFile(cfg: AgentConfig, name: string): Promise<string> {
   } catch {
     /* fall through */
   }
-  try {
-    return await fsp.readFile(path.join(sysRoleDir, 'common.md'), 'utf-8')
-  } catch {
-    return ''
+  if (allowCommon) {
+    try {
+      return await fsp.readFile(path.join(sysRoleDir, 'common.md'), 'utf-8')
+    } catch {
+      /* fall through */
+    }
   }
+  const searched = [path.join(sysRoleDir, `${name}.md`)]
+  if (cfg.email) searched.unshift(path.join(systemDir(sid), cleanAddr(cfg.email), 'role_prompt', `${name}.md`))
+  if (allowCommon) searched.push(path.join(sysRoleDir, 'common.md'))
+  console.error(
+    `[aimail] role file missing: '${name}' — searched: ${searched.join(' | ')} — no injection, chain continues`,
+  )
+  return ''
 }
 
 /** Template context from the enriched payload (mirror build_ctx). */
@@ -717,15 +728,16 @@ export async function processInboundMail(
   const boardId = (result.board_id as string) ?? ''
   const boardRole = (result.board_role as string) ?? ''
   if (boardId && boardRole) {
-    const roleRaw = await readRoleFile(cfg, boardRole)
+    const roleRaw = await readRoleFile(cfg, boardRole, true)
     if (roleRaw) result._role_prompt = fillTemplate(roleRaw, buildBoardCtx(result, cfg))
     result._a2a_session_key = `a2a:${boardId}:${(result.from as string) ?? ''}`
   }
 
   // ── L4 gateway X-AIMail-Prompt header → L5 local prompt_rules
   // (ruling 2026-09-23; fixed chain: [WHOAMI] > welcome > board > header >
-  // local name-ordered first hit. Missing role file (all three lookup tiers,
-  // incl. common.md) ⇒ WARN + fall through; never blocks delivery. Mirror:
+  // local name-ordered first hit. Missing role file (all lookup tiers for
+  // this channel; common.md is board-channel only, ruling 2026-10-25) ⇒
+  // loud ERROR + fall through; never blocks delivery. Mirror:
   // pysdk aimail_base.preprocess_mail_payload.) ──
   if (!result._role_prompt) {
     const ctx = buildBoardCtx(result, cfg)

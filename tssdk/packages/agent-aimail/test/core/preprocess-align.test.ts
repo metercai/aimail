@@ -18,6 +18,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { createHash } from 'node:crypto'
 import { processInboundMail, fillTemplate, routeAddressFromHeaders } from '../../src/core/preprocess.js'
+import { BINDING_FILE } from '../../src/core/contract.js'
 import { readLocalMeta, localMetaPath } from '../../src/core/meta.js'
 import { cleanAddr, systemDir } from '../../src/core/config.js'
 import type { InboundPayload } from '../../src/core/types.js'
@@ -165,7 +166,7 @@ describe('D11: role template injection', () => {
     expect(r?._role_prompt).toBe('ADDR worker for B-1')
   })
 
-  it('common.md is the fallback when the named role is missing', async () => {
+  it('common.md is the fallback when the named role is missing (board channel — the ONLY channel that falls back, ruling 2026-10-25)', async () => {
     await writeRole(`systems/${SYSTEM_ID}/board/role_prompt/common.md`, 'COMMON for {{BOARD_ROLE}}')
     const r = await processInboundMail(mail({ board_id: 'B-2', board_role: 'missing-role' }), {}, CTX)
     expect(r?._role_prompt).toBe('COMMON for missing-role')
@@ -175,6 +176,40 @@ describe('D11: role template injection', () => {
     const r = await processInboundMail(mail({ board_id: 'B-3', board_role: 'ghost' }), {}, CTX)
     expect(r?._role_prompt).toBeUndefined()
     expect(r?._a2a_session_key).toBe(`a2a:B-3:peer@example.com`)
+  })
+})
+
+describe('D11b: common.md is board-channel-only (defect 2, ruling 2026-10-25)', () => {
+  async function writeRole(rel: string, content: string): Promise<void> {
+    const p = path.join(home, rel)
+    await fs.mkdir(path.dirname(p), { recursive: true })
+    await fs.writeFile(p, content, 'utf-8')
+  }
+
+  it('whoami channel: missing whoami.md must NOT fall back to common.md (loud error, no _whoami_prompt)', async () => {
+    await writeRole(`systems/${SYSTEM_ID}/board/role_prompt/common.md`, 'COMMON')
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const r = await processInboundMail(mail({ subject: '[WHOAMI] who are you' }), {}, CTX)
+    expect(r?._whoami_prompt).toBeUndefined()
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("role file missing: 'whoami'"))
+    errSpy.mockRestore()
+  })
+
+  it('header channel (L4): missing role file must NOT fall back to common.md', async () => {
+    await writeRole(`systems/${SYSTEM_ID}/board/role_prompt/common.md`, 'COMMON')
+    const payload = mail({ headers: { 'X-AIMail-Prompt': 'ghost' } })
+    const r = await processInboundMail(payload, {}, CTX)
+    expect(r?._role_prompt).toBeUndefined()
+  })
+
+  it('L5 prompt_rules channel: a matched rule with a missing file must NOT fall back to common.md (chain continues)', async () => {
+    await writeRole(`systems/${SYSTEM_ID}/board/role_prompt/common.md`, 'COMMON')
+    const cfgDir = path.join(home, 'systems', SYSTEM_ID, cleanAddr(EMAIL))
+    const cfg = JSON.parse(await fs.readFile(path.join(cfgDir, BINDING_FILE), 'utf-8')) as Record<string, unknown>
+    cfg.prompt_rules = [{ name: '20_hit', file: 'ghost', subject: ['hello'] }]
+    await fs.writeFile(path.join(cfgDir, BINDING_FILE), JSON.stringify(cfg, null, 2) + '\n', { mode: 0o600 })
+    const r = await processInboundMail(mail({}), {}, CTX)
+    expect(r?._role_prompt).toBeUndefined()
   })
 })
 

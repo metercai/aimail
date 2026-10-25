@@ -123,6 +123,89 @@ def test_missing_role_file_does_not_fake_a_prompt(tmp_path, monkeypatch):
     assert "_role_prompt" not in r
 
 
+# ── common.md channel gating (defect 2, ruling 2026-10-25) ───────────────────
+# Channel 1 (a2a board) keeps the common.md fallback; channels 2/3/4
+# (X-AIMail-Prompt header / local prompt_rules / whoami+Role_Calibrator)
+# must NOT fall back to common.md — missing file ⇒ ERROR log + no injection.
+
+def test_board_channel_missing_role_uses_common_md(tmp_path, monkeypatch):
+    """Channel 1 (board) KEPT: named role missing ⇒ common.md is used (behavior unchanged)."""
+    role_dir = _role_prompt_dir(tmp_path, monkeypatch)
+    (role_dir / "common.md").write_text("COMMON for {{BOARD_ROLE}}", encoding="utf-8")
+
+    m = _mail("task update")
+    m["board_id"] = "B-2"
+    m["board_role"] = "missing-role"
+    r = ab.preprocess_mail_payload(m, {})
+
+    assert r.get("_role_prompt") == "COMMON for missing-role"
+    assert r.get("_a2a_session_key") == "a2a:B-2:boss@corp.com"
+
+
+def test_whoami_channel_missing_role_no_common_no_inject(tmp_path, monkeypatch, caplog):
+    """Channel 4 (whoami): common.md must NOT be absorbed — no _whoami_prompt + ERROR log."""
+    role_dir = _role_prompt_dir(tmp_path, monkeypatch)
+    (role_dir / "common.md").write_text("COMMON-MARKER", encoding="utf-8")
+
+    with caplog.at_level("ERROR", logger="aimail_base"):
+        r = ab.preprocess_mail_payload(_mail("[WHOAMI] nobody home"), {})
+
+    assert "_whoami_prompt" not in r
+    assert "_role_prompt" not in r
+    errs = [rec for rec in caplog.records if rec.levelname == "ERROR"]
+    assert any("role file missing" in rec.getMessage() and "whoami" in rec.getMessage() for rec in errs), \
+        f"expected an ERROR naming the missing role: {[r.getMessage() for r in errs]}"
+
+
+def test_role_calibrator_channel_missing_role_no_common_no_inject(tmp_path, monkeypatch, caplog):
+    """Channel 4 (Role_Calibrator): missing file ⇒ no _role_prompt + ERROR (drift made visible, not masked)."""
+    role_dir = _role_prompt_dir(tmp_path, monkeypatch)
+    (role_dir / "common.md").write_text("COMMON-MARKER", encoding="utf-8")
+
+    with caplog.at_level("ERROR", logger="aimail_base"):
+        r = ab.preprocess_mail_payload(_mail("Please update persona for support"), {})
+
+    assert "_role_prompt" not in r
+    assert any("role file missing" in rec.getMessage() and "role_calibrator" in rec.getMessage()
+               for rec in caplog.records if rec.levelname == "ERROR")
+
+
+def test_header_channel_missing_role_no_common_falls_through(tmp_path, monkeypatch, caplog):
+    """Channel 2 (X-AIMail-Prompt header): missing file ⇒ no _role_prompt + ERROR + chain continues to L5 (none)."""
+    role_dir = _role_prompt_dir(tmp_path, monkeypatch)
+    (role_dir / "common.md").write_text("COMMON-MARKER", encoding="utf-8")
+
+    m = _mail("a plain question")
+    with caplog.at_level("ERROR", logger="aimail_base"):
+        r = ab.preprocess_mail_payload(m, {"X-AIMail-Prompt": "missinghdr"})
+
+    assert "_role_prompt" not in r
+    assert any("role file missing" in rec.getMessage() and "missinghdr" in rec.getMessage()
+               for rec in caplog.records if rec.levelname == "ERROR")
+
+
+def test_prompt_rules_channel_missing_role_no_common_next_rule(tmp_path, monkeypatch, caplog):
+    """Channel 3 (local prompt_rules): rule hits but its file is missing ⇒ no injection, next rule (none) ⇒ no _role_prompt."""
+    role_dir = _role_prompt_dir(tmp_path, monkeypatch)
+    (role_dir / "common.md").write_text("COMMON-MARKER", encoding="utf-8")
+    cfg = {
+        "email": AGENT_EMAIL,
+        "system_id": SYSTEM_ID,
+        "prompt_rules": [
+            {"name": "10_missing", "file": "ghostfile", "subject": ["hello"]},
+        ],
+    }
+    monkeypatch.setattr(ab, "_CONFIG_LOADER", lambda: cfg)
+
+    m = _mail("hello there")
+    with caplog.at_level("ERROR", logger="aimail_base"):
+        r = ab.preprocess_mail_payload(m, {})
+
+    assert "_role_prompt" not in r
+    assert any("role file missing" in rec.getMessage() and "ghostfile" in rec.getMessage()
+               for rec in caplog.records if rec.levelname == "ERROR")
+
+
 def test_build_ctx_toolset_list_empty_without_provider():
     """No host provider ⇒ TOOLSET_LIST is empty. No fallback to the AGENT_TOOL_NAMES
     constant (2026-10-25 ruling: host actual state only, empty when undetermined)."""
