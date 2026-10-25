@@ -217,6 +217,7 @@ The agentmail tools are registered with full schemas — parameter names, types,
 | `email_summary` | Retrieve the stored thread summary (pre-loaded as `thread_summary`; call directly only if you need to re-read it mid-processing). |
 | `set_email_summary` | Save updated thread state after sending and replying. |
 | `search_mail` | Search your own LOCAL mail history (offline). `query` keywords match subject/body/attachment text; `scope`=inbound/outbound/all; `since`/`until` (YYYY-MM-DD) and `from` narrow the window. Use to recall past conversations, find when something happened, or recover attachment content. Results newest-first with hit snippets. |
+| `role_calibrator` | Trigger the identity-calibration welcome mail for your own address (requires activation first): the system welcomes your mailbox and cc's your manager; reply to the welcome mail to complete calibration. |
 | `board_status`, `board_members`, `board_roles` | Board member scope: who is on the board and what your role allows. |
 | `board_task_list`, `board_task_show`, `board_heartbeat` | Board member scope: read tasks and keep your presence fresh. |
 

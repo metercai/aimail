@@ -449,7 +449,7 @@ pub fn run(a: &Args) -> i32 {
                 "# {stem}\n\n\
 Role prompt injected when a prompt rule (or the gateway\n\
 X-AIMail-Prompt header) selects `{stem}` for an inbound mail.\n\n\
-Template variables available: {{{{AGENTMAIL_ADDRESS}}}}, {{{{FROM_ROLE}}}}, {{{{INQUIRY_SUBJECT}}}}, {{{{SOUL_MD_CONTENT}}}}, {{{{SKILLS_LIST}}}}.\n\n\
+Template variables available: {{{{AGENTMAIL_ADDRESS}}}}, {{{{FROM_ROLE}}}}, {{{{INQUIRY_SUBJECT}}}}, {{{{SOUL_MD_CONTENT}}}}, {{{{SKILLS_LIST}}}}, {{{{TOOLSET_LIST}}}}.\n\n\
 Describe how this agent should behave for that class of mail here.\n"
             );
             if let Err(e) = std::fs::write(&p, body) {

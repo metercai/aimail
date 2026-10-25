@@ -8,6 +8,9 @@ Your SOUL.md:
 Loaded skills:
 {{SKILLS_LIST}}
 
+Your available tools:
+{{TOOLSET_LIST}}
+
 Received a role-update request from {{INQUIRY_SENDER}} (subject: {{INQUIRY_SUBJECT}}).
 
 Based on your SOUL.md and loaded skills, draft the following three items:
