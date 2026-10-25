@@ -16,6 +16,13 @@ This file is a hermetic regression prevention layer (zero real host, zero networ
   ③ Wiring failure **must not be silent**: loud ERROR log (with exception type and reason) + return False +
      queryable failure flag on the app;
   ④ When the polling body itself throws an exception, it must also not be silent (cannot just leave a single "0 started").
+
+2026-10-25 (owner ruling): the pull entries + the `--inbound-live` callback start
+ONLY once the inbound endpoint is CONFIRMED (``DEERFLOW_INBOUND_URL`` override, or
+the gateway bind discovered via the process's own listening sockets). With an
+unknown endpoint there is NO valid URL ⇒ pull is unstarted and the live callback
+is withheld LOUD (no fabricated port). The start-path tests therefore drive the
+confirmed (env-override) branch, and the unknown branch is pinned separately.
 """
 from __future__ import annotations
 
@@ -143,7 +150,9 @@ def test_wiring_succeeds_when_add_event_handler_does_not_exist(monkeypatch):
         calls.append(kw)
         return []
 
+    monkeypatch.setenv("DEERFLOW_INBOUND_URL", "http://127.0.0.1:43210")
     monkeypatch.setattr(ib._ab, "start_agent_pull_entries", _fake_start)
+    monkeypatch.setattr(ib._ab, "notify_inbound_for_system", lambda *a, **k: [])
     monkeypatch.setattr(ib, "_pull_system_id", lambda: "")
 
     assert ib.start_pull_on_startup(app) is True, "Main path must not rely on deleted API"
@@ -158,8 +167,24 @@ def test_wiring_succeeds_when_add_event_handler_does_not_exist(monkeypatch):
     wrapped = app.router.lifespan_context
     assert ib.start_pull_on_startup(app) is True
     assert app.router.lifespan_context is wrapped, "Repeated call wrapped another layer"
+
+    # Second lifespan cycle: our startup must STILL fire (the wrapper is
+    # host-lifetime), but the poll is armed ONCE (discovery_done guard,
+    # 2026-10-25: the loop is host-lifetime — re-arming per cycle would
+    # duplicate the poll). Proof of "still fires" = the pre-bind snapshot
+    # (_process_listen_socks) runs again; proof of "armed once" = the pull
+    # start count does not grow.
+    sock_calls = 0
+
+    def _count_socks():
+        nonlocal sock_calls
+        sock_calls += 1
+        return []
+
+    monkeypatch.setattr(ib, "_process_listen_socks", _count_socks)
     asyncio.run(_use(app))
-    assert len(calls) == 2, "Duplicate wrapping ⇒ startup called multiple times"
+    assert sock_calls == 1, f"second cycle must still run our startup: {sock_calls}"
+    assert len(calls) == 1, "pull entries must be armed once, not per lifespan cycle"
 
 
 def test_source_never_calls_removed_event_hook_api():
@@ -266,7 +291,12 @@ def test_pull_start_exception_is_loud_but_does_not_kill_host(monkeypatch, caplog
     def _boom(**kw):
         raise RuntimeError("boom-start")
 
+    # Confirmed endpoint (env override) so the pull-start path is actually
+    # reached — under the 2026-10-25 ruling pull starts only once the endpoint
+    # is known; an unknown endpoint withholds it (pinned separately).
+    monkeypatch.setenv("DEERFLOW_INBOUND_URL", "http://127.0.0.1:43210")
     monkeypatch.setattr(ib._ab, "start_agent_pull_entries", _boom)
+    monkeypatch.setattr(ib._ab, "notify_inbound_for_system", lambda *a, **k: [])
     monkeypatch.setattr(ib, "_pull_system_id", lambda: "")
 
     assert ib.start_pull_on_startup(app) is True, "Wiring itself is successful"
@@ -278,3 +308,59 @@ def test_pull_start_exception_is_loud_but_does_not_kill_host(monkeypatch, caplog
         f"Polling failure to start must be loud (cannot just be '0 started'); measured logs: {msgs}"
     assert events == ["host-enter", "host-exit"], (
         f"Loop failure to start must not drag down host lifespan: {events}")
+
+
+# ── ⑤ Endpoint three-state (2026-10-25): never a contract default ──────────────────
+#
+# `_inbound_base()` resolves the local inbound endpoint in exactly three states:
+#   1. `DEERFLOW_INBOUND_URL` env override  → authoritative (returned as-is);
+#   2. a discovered gateway bind            → `_aimail_gateway_base` (set once observed);
+#   3. neither                              → `None` (unknown — the caller must NOT
+#                                            fabricate a port; pull stays unstarted,
+#                                            the live callback is withheld).
+# There is NO contract-default fallback (the old `INBOUND_PORTS["deerflow"]` seed was
+# removed): an unknown endpoint is a real, withheld state, not a guess.
+
+
+def test_inbound_base_state1_env_override_is_authoritative(monkeypatch):
+    monkeypatch.setenv("DEERFLOW_INBOUND_URL", "http://127.0.0.1:51234/")
+    monkeypatch.setattr(ib, "_aimail_gateway_base", "http://127.0.0.1:9999")
+    assert ib._inbound_base() == "http://127.0.0.1:51234", (
+        "env override must win over the discovered bind and be returned rstripped")
+
+
+def test_inbound_base_state2_discovered_bind_when_no_env(monkeypatch):
+    monkeypatch.delenv("DEERFLOW_INBOUND_URL", raising=False)
+    monkeypatch.setattr(ib, "_aimail_gateway_base", "http://127.0.0.1:40000")
+    assert ib._inbound_base() == "http://127.0.0.1:40000", (
+        "with no env override the discovered bind is the source of truth")
+
+
+def test_inbound_base_state3_unknown_returns_none_not_a_default(monkeypatch):
+    monkeypatch.delenv("DEERFLOW_INBOUND_URL", raising=False)
+    monkeypatch.setattr(ib, "_aimail_gateway_base", None)
+    assert ib._inbound_base() is None, (
+        "no env + no observed bind ⇒ None (no fabricated / contract-default port)")
+
+
+def test_pull_replay_target_unknown_endpoint_is_not_ok(monkeypatch):
+    # State 3 must propagate: no valid replay target ⇒ the pull entry is not
+    # started on a fabricated port (mail stays pending, re-pulled once known).
+    monkeypatch.delenv("DEERFLOW_INBOUND_URL", raising=False)
+    monkeypatch.setattr(ib, "_aimail_gateway_base", None)
+    t = ib._pull_replay_target({"webhook_secret": "s" * 64})
+    assert t["ok"] is False and t["reason"] == "no-local-endpoint", (
+        f"unknown endpoint must yield not-ok (no fabricated url); got {t}")
+    assert t["url"] == "", f"no url may be fabricated; got {t['url']!r}"
+
+
+def test_pull_replay_target_confirmed_env_endpoint_is_ok(monkeypatch):
+    # State 1: a confirmed endpoint yields a valid replay target whose url is the
+    # confirmed base + the contract path (the port the gateway really serves on).
+    monkeypatch.setenv("DEERFLOW_INBOUND_URL", "http://127.0.0.1:51234")
+    monkeypatch.setattr(ib, "_aimail_gateway_base", None)
+    t = ib._pull_replay_target({"webhook_secret": "s" * 64})
+    assert t["ok"] is True, f"confirmed env endpoint must yield ok; got {t}"
+    assert t["url"] == "http://127.0.0.1:51234" + ib._contract.INBOUND_PATH, (
+        f"url must be confirmed base + contract path; got {t['url']!r}")
+    assert t["secret"] == "s" * 64, "the binding's webhook_secret stays the signature truth"

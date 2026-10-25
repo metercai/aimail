@@ -67,12 +67,16 @@ pub fn pointer_file() -> &'static str {
     str_key("pointer_file")
 }
 
-/// Platform fixed inbound port (dsh / pi / deer-flow).
-pub fn inbound_port(platform: &str) -> Option<u64> {
+/// Common default inbound port for hosts whose SDK owns the listener (dsh / pi).
+/// On conflict the runtime re-selects an available port (bind probe = source of
+/// truth); the confirmed callback pins the real endpoint. Hosts where the host
+/// gateway owns the port (hermes / deerflow / openclaw) carry no default here —
+/// per-host adaptation discovers the actual port.
+pub fn inbound_port() -> u64 {
     manifest()
-        .get("inbound_ports")
-        .and_then(|m| m.get(platform))
+        .get("inbound_port")
         .and_then(Value::as_u64)
+        .expect("contract manifest missing numeric key: inbound_port")
 }
 
 #[cfg(test)]
@@ -94,10 +98,11 @@ mod tests {
         ] {
             assert!(!v.trim().is_empty(), "{name} must be non-empty");
         }
-        for p in ["dsh", "pi", "deerflow"] {
-            let port = inbound_port(p).unwrap_or_else(|| panic!("missing port for {p}"));
-            assert!(port > 0 && port < 65536, "{p} port out of range: {port}");
-        }
+        let port = inbound_port();
+        assert!(
+            port > 0 && port < 65536,
+            "inbound port out of range: {port}"
+        );
     }
 
     #[test]

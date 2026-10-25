@@ -17,12 +17,15 @@ Place agentmail.json according to shared layout (~/.aimail/systems/{sid}/{cleane
 """
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import hashlib
 import hmac
 import json
 import logging
 import os
+import stat
+import socket
 import sys
 import uuid
 from pathlib import Path
@@ -200,23 +203,107 @@ async def aimail_inbound(request: Request) -> JSONResponse:
 # per-address HMAC header) ⇒ the aimail_inbound handler above
 # (signature verification → shared preprocessing → start_run) applies verbatim.
 
-#: Local inbound endpoint (same source as registration chain: manage.py uses the same environment variable to build webhook_url).
+#: Local inbound endpoint. The host gateway (this process) serves inbound; its
+#: port is discovered at runtime, NOT taken from a contract default (owner ruling
+#: 2026-10-25: host-gateway ports carry no contract default — the adapter
+#: discovers the actual port and the confirmed callback reports the real URL).
 _DEERFLOW_INBOUND_BASE_ENV = "DEERFLOW_INBOUND_URL"
 
+# Discovered gateway base (host + port) — set once the bind is observed.
+_aimail_gateway_base: str | None = None
+# Snapshot of the process's listening sockets at lifespan-startup time (pre-bind);
+# the NEW listening socket after this snapshot is the gateway's bind result.
+_aimail_pre_bind_socks: list = []
 
-def _inbound_base() -> str:
-    return os.environ.get(_DEERFLOW_INBOUND_BASE_ENV) or (
-        "http://127.0.0.1:%d" % _contract.INBOUND_PORTS["deerflow"])
+
+def _process_listen_socks() -> list:
+    """Listening sockets owned by THIS process (fd-based; no netns-wide scan).
+
+    Returns a sorted, de-duplicated list of (host, port). Only sockets this
+    process actually owns appear, so the pre/post diff isolates the gateway's
+    own bind (spike-verified against a kernel-assigned port).
+    """
+    out = set()
+    try:
+        fd_names = os.listdir("/proc/self/fd")
+    except OSError:
+        return []
+    seen_ino = set()
+    for fd in fd_names:
+        try:
+            st = os.stat("/proc/self/fd/%s" % fd)
+        except OSError:
+            continue
+        if not stat.S_ISSOCK(st.st_mode) or st.st_ino in seen_ino:
+            continue
+        seen_ino.add(st.st_ino)
+        s = None
+        for family in (socket.AF_INET, socket.AF_INET6):
+            try:
+                s = socket.fromfd(int(fd), family, socket.SOCK_STREAM)
+                break
+            except OSError:
+                continue
+        if s is None:
+            continue
+        try:
+            sn = s.getsockname()
+            if sn and len(sn) >= 2 and sn[1]:
+                out.add((sn[0], sn[1]))
+        finally:
+            try:
+                s.close()
+            except OSError:
+                pass
+    return sorted(out)
+
+
+def _discover_new_listen_sock(pre_bind: list) -> tuple | None:
+    """The process's newly-listening socket vs the pre-bind snapshot, or None."""
+    pre = {(h, p) for h, p in pre_bind}
+    for (h, p) in _process_listen_socks():
+        if (h, p) not in pre:
+            return (h, p)
+    return None
+
+
+def _inbound_base() -> str | None:
+    """Authoritative local inbound base (host + port) for this gateway process.
+
+    Resolution order (owner ruling 2026-10-25 — never a contract default):
+      1. ``DEERFLOW_INBOUND_URL`` env override (explicit, authoritative);
+      2. the discovered bind (``_aimail_gateway_base``, set once observed);
+      3. ``None`` (unknown — the caller must NOT fabricate a port).
+    """
+    env = os.environ.get(_DEERFLOW_INBOUND_BASE_ENV)
+    if env:
+        return env.rstrip("/")
+    return _aimail_gateway_base
 
 
 def _pull_replay_target(cfg: dict) -> dict:
     """Resolve the (url, secret) needed to "bounce this pulled delivery back to the local inbound endpoint".
 
-    Binding its own webhook_url/webhook_secret (persisted by registration chain, single source of truth) takes priority;
-    if url is missing, fall back to the host's current inbound endpoint (environment variable / contract port + contract path).
+    deer-flow specific (in-process gateway): the URL is the **live** endpoint
+    (``DEERFLOW_INBOUND_URL`` override / the discovered bind — the port the
+    gateway actually serves on), NOT the registration-time best-known seed
+    persisted in the binding (owner ruling 2026-10-25: no contract default; the
+    runtime is the source of truth). The secret stays the binding's
+    ``webhook_secret``: the inbound handler (``aimail_inbound``) reads the
+    binding itself to verify the signature, so the binding is the signature
+    truth and the bounce must sign with the same value. When the endpoint is
+    unknown (no env, bind not yet observed) there is NO valid target — return
+    not-ok so the pull entry is not started on a fabricated port (mail stays
+    pending, re-pulled once the endpoint is known).
     """
-    default_url = _inbound_base().rstrip("/") + _contract.INBOUND_PATH
-    return _ab.resolve_inbound_replay_target(cfg, default_url=default_url)
+    base = _inbound_base()
+    if not base:
+        return {"ok": False, "url": "", "secret": "", "reason": "no-local-endpoint"}
+    url = base + _contract.INBOUND_PATH
+    secret = str(cfg.get("webhook_secret") or "").strip()
+    if not secret:
+        return {"ok": False, "url": url, "secret": "", "reason": "no-secret"}
+    return {"ok": True, "url": url, "secret": secret, "reason": ""}
 
 
 def _on_pull_email(cfg: dict, mail: dict) -> dict:
@@ -304,8 +391,29 @@ def start_pull_on_startup(app) -> bool:
     if getattr(app, "_aimail_pull_wired", False):
         return True
     handles: list = []
+    discovery_done = False
 
-    async def _aimail_pull_startup() -> None:
+    def _start_pull_and_report_live() -> None:
+        """Start agent-scope pull entries + report `--inbound-live` with the
+        CONFIRMED URL (the endpoint this gateway actually serves).
+
+        Called ONCE, after the endpoint is known (env override at wire time, or
+        the discovered bind observed by the background task). The confirmed URL
+        is authoritative (contract §4.3): the CLI pins its route to it. With
+        an unknown endpoint there is NO valid URL — this function must not be
+        called (no fabricated port; owner ruling 2026-10-25).
+        """
+        nonlocal discovery_done
+        if discovery_done:
+            return
+        discovery_done = True
+        base = _inbound_base()
+        if not base:
+            logger.error("aimail: inbound endpoint unknown (no DEERFLOW_INBOUND_URL, "
+                         "gateway bind not yet observed) — live callback withheld, "
+                         "pull entries unstarted; mail delivery for this system is "
+                         "degraded until the endpoint is known")
+            return
         try:
             handles.extend(_ab.start_agent_pull_entries(
                 system_id=_pull_system_id(),
@@ -317,19 +425,57 @@ def start_pull_on_startup(app) -> bool:
             logger.error("aimail: pull entry start FAILED (%s: %s) —— polling not running",
                          type(e).__name__, e)
         logger.info("aimail: agent-scope pull entries: %d started", len(handles))
-        # Inbound notification (owner ruling 2026-09-28, SDK de-bridging): deer-flow's
-        # host gateway is the process serving inbound for these addresses, and lifespan has already started ⇒ SDK only reports
-        # this fact it truly controls, best-effort, once per address:
+        # Inbound notification (owner ruling 2026-09-28 SDK de-bridging + 2026-10-25):
+        # the host gateway (this process) serves inbound for these addresses and the
+        # endpoint is CONFIRMED (env override / discovered bind) ⇒ report
         #     aimail address -a <addr> --inbound-live --inbound-url <confirmed URL>
-        # Confirmed URL (contract §4.3) = _inbound_base() + contract path (inbound endpoint actually served by host gateway,
-        # DEERFLOW_INBOUND_URL override / contract default), not a guess ⇒ CLI can pin routing to a definite port.
-        _confirmed_url = _inbound_base().rstrip("/") + _INBOUND_PATH
+        # with the REAL serving URL (contract §4.3 — never a default) ⇒ CLI pins the
+        # route. Best-effort, once per address.
+        _confirmed_url = base + _INBOUND_PATH
         for _n in _ab.notify_inbound_for_system("live", system_id=_pull_system_id(), url=_confirmed_url):
             _line = "aimail: " + _ab.format_inbound_notify_line(_n, "live")
             if _ab.inbound_notify_is_warning(_n):
                 logger.warning("%s", _line)
             else:
                 logger.info("%s", _line)
+
+    async def _await_bind_then_start() -> None:
+        """Background discovery (no env override): wait for the gateway's bind
+        (uvicorn binds AFTER the lifespan startup completes), observe it via the
+        process's own listening sockets (spike-verified fd scan + pre/post diff),
+        then start pull + report live with the real URL. Bounded (30s): a timeout
+        keeps the loud-withheld state — no fabricated port.
+        """
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + 30.0
+        while loop.time() < deadline:
+            await asyncio.sleep(0.25)
+            found = _discover_new_listen_sock(_aimail_pre_bind_socks)
+            if found:
+                global _aimail_gateway_base
+                _aimail_gateway_base = "http://%s:%d" % (found[0], found[1])
+                logger.info("aimail: gateway inbound bind observed at %s",
+                            _aimail_gateway_base)
+                _start_pull_and_report_live()
+                return
+        logger.error("aimail: gateway bind not observed within 30s (no DEERFLOW_INBOUND_URL) "
+                     "— live callback withheld, pull entries unstarted; mail delivery "
+                     "degraded until the endpoint is known (set DEERFLOW_INBOUND_URL to "
+                     "the gateway's actual base URL to make this deterministic)")
+
+    async def _aimail_pull_startup() -> None:
+        # uvicorn binds the gateway AFTER the lifespan startup completes
+        # (Server.startup: lifespan.startup() → loop.create_server), so at this
+        # point the bind is NOT yet observable. Snapshot the process's current
+        # listening sockets (pre-bind baseline); with the env override the
+        # endpoint is already known — start immediately; without it, a background
+        # task waits for the bind, then starts pull + reports live.
+        global _aimail_pre_bind_socks
+        _aimail_pre_bind_socks = _process_listen_socks()
+        if _inbound_base():
+            _start_pull_and_report_live()
+            return
+        asyncio.get_running_loop().create_task(_await_bind_then_start())
 
     async def _aimail_pull_shutdown() -> None:
         _ab.stop_agent_pull_entries(handles)

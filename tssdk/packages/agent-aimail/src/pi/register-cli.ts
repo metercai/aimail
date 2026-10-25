@@ -29,7 +29,7 @@ import {
   runOpEntry,
   resolveRegisterEmail,
   inboundUrl,
-  INBOUND_PORTS,
+  INBOUND_PORT,
   listSystemDirs,
   readSystemConfig,
 } from '../core/index.js'
@@ -49,7 +49,7 @@ async function legacyBind(argv: string[]): Promise<number> {
   const emailArg = arg(argv, '--email')
   const manager = arg(argv, '--manager')
   const localWebhook =
-    arg(argv, '--local-webhook') || inboundUrl(INBOUND_PORTS.pi)
+    arg(argv, '--local-webhook') || inboundUrl(INBOUND_PORT)
 
   const systemId =
     systemIdArg ||

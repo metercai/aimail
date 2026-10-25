@@ -35,6 +35,23 @@ use identity::{Detect, PointerKind};
 /// Implementation language of the agent system. Derived from the kind in [`Host::register`] (single mapping point).
 pub use identity::Lang;
 
+/// Who owns the inbound listener (owner ruling 2026-10-25: inbound port/path
+/// acquisition is per-host adaptation, NOT a static contract default).
+///
+/// - [`SelfBind`]: the SDK owns a local listener (dsh / pi). The common default
+///   port (`contract::inbound_port`, 9099) is the preferred initial value; on
+///   conflict the runtime re-selects an available port (bind probe = source of
+///   truth) and the confirmed callback pins the real endpoint.
+/// - [`HostGateway`]: the host's own gateway serves inbound (hermes / deerflow /
+///   openclaw). The contract carries **no** default port for these hosts — the
+///   adapter layer discovers the actual port per host (probe / host config /
+///   SDK-managed port) and the confirmed callback always reports the real URL.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum InboundMode {
+    SelfBind,
+    HostGateway,
+}
+
 /// The full capability surface of a host system.
 ///
 /// Semantic boundary: identity/pointer is a read-only filesystem; the runtime (P3) is the only surface that spawns child processes;
@@ -134,6 +151,12 @@ pub struct HostDef {
     pub install_steps: &'static [exec::Step],
     pub uninstall_steps: &'static [exec::Step],
     pub health_checks: &'static [health::Health],
+    /// Inbound listener ownership (self_bind = SDK listener, host_gateway = the
+    /// host's own gateway). Drives the `local_webhook_url` best-known injection
+    /// in `core::register` (self_bind node hosts only; the confirmed callback
+    /// is the authoritative endpoint for every mode).
+    #[serde(skip)]
+    pub inbound_mode: InboundMode,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub register_all: Option<exec::RegisterAll>,
     #[serde(skip_serializing_if = "is_false")]

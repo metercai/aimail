@@ -48,7 +48,7 @@ from pathlib import Path
 REQUIRED_KEYS = (
     "inbound_path", "hermes_inbound_path", "hermes_route_name",
     "agent_skill_name", "agent_toolset_name", "binding_file", "pointer_file",
-    "inbound_ports",
+    "inbound_port",
 )
 
 # ── Whitelist (files where literals are allowed; paths relative to repo root) ──────────────────────────────
@@ -109,7 +109,7 @@ CONST_MAP = {
     "agent_toolset_name": ("AGENT_TOOLSET_NAME", "AGENT_TOOLSET_NAME"),
     "binding_file": ("BINDING_FILE", "BINDING_FILE"),
     "pointer_file": ("POINTER_FILE", "POINTER_FILE"),
-    "inbound_ports": ("INBOUND_PORTS", "INBOUND_PORTS"),
+    "inbound_port": ("INBOUND_PORT", "INBOUND_PORT"),
 }
 
 # Literal scanning strategy: path/filename type = substring count; single token skill/toolset name =
@@ -165,28 +165,27 @@ def load_manifest() -> tuple[dict, str]:
     missing = [k for k in REQUIRED_KEYS if k not in man]
     if missing:
         raise CannotJudge(f"Manifest missing contract keys: {path} missing {missing}")
-    ports = man["inbound_ports"]
-    if not isinstance(ports, dict) or not ports:
-        raise CannotJudge(f"Manifest inbound_ports is not a non-empty object: {path} ({ports!r})")
+    port = man["inbound_port"]
+    if not isinstance(port, int) or isinstance(port, bool) or not (0 < port < 65536):
+        raise CannotJudge(f"Manifest inbound_port is not a valid port number: {path} ({port!r})")
     return man, str(path)
 
 
 # ── Rule (a): Constant consistency ───────────────────────────────────────────────────
 def _ts_consts(path: Path) -> dict:
-    """Grab export const values from the TS constants module (strings + the INBOUND_PORTS object)."""
+    """Grab export const values from the TS constants module (strings + numbers)."""
     found = {}
     lines = path.read_text(encoding="utf-8").splitlines()
     str_re = re.compile(r"^export const ([A-Z][A-Z0-9_]*) = '([^']*)'")
-    ports_re = re.compile(r"^export const ([A-Z][A-Z0-9_]*)[^=]*= \{([^}]*)\}")
+    num_re = re.compile(r"^export const ([A-Z][A-Z0-9_]*)[^=]*= (\d+)")
     for i, line in enumerate(lines, 1):
         m = str_re.match(line)
         if m:
             found[m.group(1)] = (m.group(2), i, line.strip())
             continue
-        m = ports_re.match(line)
+        m = num_re.match(line)
         if m:
-            pairs = re.findall(r"([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(\d+)", m.group(2))
-            found[m.group(1)] = ({k: int(v) for k, v in pairs}, i, line.strip())
+            found[m.group(1)] = (int(m.group(2)), i, line.strip())
     return found
 
 
@@ -255,7 +254,8 @@ def check_constants(man: dict) -> None:
 def literal_specs(man: dict) -> dict:
     """Manifest key → literal value (deduplicate same values; merge same values into the same logical literal).
 
-    Structural contract keys (``inbound_ports`` is an object) do not participate in literal scanning —— only scan string surface.
+    Non-string contract values (``inbound_port`` is a number) do not participate in
+    literal scanning —— only the string surface is scanned.
     """
     specs: dict = {}
     for key, val in man.items():

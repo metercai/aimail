@@ -195,8 +195,14 @@ pysdk/
   platforms); hermes is the only exception,
   `HERMES_INBOUND_PATH = /webhooks/aimail-inbound` (mounted on the hermes
   gateway's own webhook route, route name `aimail-inbound`).
-  Ports `INBOUND_PORTS = { dsh: 9099, pi: 9101, deerflow: 8001 }` —
-  **ports configurable, paths immutable** (`src/core/contract.ts`).
+  Ports: ONE common default `inbound_port = 9099` for the hosts whose SDK
+  owns the listener (dsh / pi) — **ports configurable, paths immutable**
+  (`src/core/contract.ts`). On a port collision the runtime re-selects an
+  available port (the ACTUAL bind result is the source of truth) and the
+  confirmed callback carries that real endpoint. Hosts whose gateway owns
+  the port (hermes, deer-flow, openclaw) carry NO contract default — the
+  adapter discovers the actual port and the confirmed callback always
+  carries the real URL.
 - **Known methods**:
   - pi: in-extension node:http handler → `verifySignature` (HMAC,
     per-address `webhook_secret`) → `routeAddressFromHeaders` →
@@ -425,7 +431,7 @@ pysdk/
 | P1 entry | plugin entry + extensions | cordis.patch.yml self-mounts 3 subpaths | pi.extensions | host-source patch family | local gateway process |
 | P2 self-check | activateHost('openclaw')@register | activateHost('dsh')@mail-service load | activateHost('pi')@entry | the process IS the host | the process IS the host |
 | P3 identity | `~/.openclaw/.agentmail` + auto-bind | exec.agent.id | `~/.pi/.agentmail` + auto-bind | the profile is the identity | `systems/{sid}/{cleaned_addr}/` dir is the agent |
-| P4 inbound | plugin HTTP route | bundle `/inbound` (node:http) | extension node:http (:9101) | gateway webhook `/webhooks/aimail-inbound` | local gateway POST :8001 |
+| P4 inbound | plugin HTTP route | bundle `/inbound` (node:http) | extension node:http (common :9099) | gateway webhook `/webhooks/aimail-inbound` | local gateway POST (discovered) |
 | P5 tools | iterate MAIL_TOOLS (factory) | iterate MAIL_TOOLS (defineTool) | iterate MAIL_TOOLS | patch toolsets.py (7 mail tools into _HERMES_CORE_TOOLS) | core tool functions exposed directly |
 | P6 SOUL | `{workspaceDir(agentId)}/SOUL.md` | `~/.dsh/profiles/{DSH_PROFILE}/SOUL.md` | `~/.pi/agent/SOUL.md` | `{HERMES_HOME}/SOUL.md` (env→live→~/.hermes) | `systems/{sid}/{cleaned}/SOUL.md` |
 | P7 skills | mirrors resolveWorkspaceSkillSourcePlan (86 local) | mirrors FileSystemSkillProvider.roots (32 local) | `~/.pi/agent/skills/` (0 local) | imports host `tools/skills_tool` (147 local) | `systems/{sid}/{cleaned}/skills/` |

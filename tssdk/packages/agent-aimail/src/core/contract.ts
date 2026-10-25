@@ -35,8 +35,15 @@ export const BINDING_FILE = 'agentmail.json'
 /** System pointer file name (e.g., ~/.pi/.agentmail). */
 export const POINTER_FILE = '.agentmail'
 
-/** Default inbound listening port — **port is configurable, path is immutable**. */
-export const INBOUND_PORTS: Readonly<Record<string, number>> = { dsh: 9099, pi: 9101, deerflow: 8001 }
+/**
+ * Common default inbound listening port for hosts whose SDK owns the listener
+ * (dsh/pi) — **port is configurable, path is immutable**. On conflict the
+ * runtime re-selects an available port (bind probe = source of truth); the
+ * confirmed callback (`--inbound-live --inbound-url`) pins the real endpoint.
+ * Hosts where the host gateway owns the port (hermes/deerflow/openclaw) carry
+ * no default here — per-host adaptation discovers the actual port.
+ */
+export const INBOUND_PORT: number = 9099
 
 /**
  * the bridge default forward path — **retired (SDK de-bridged, owner ruling 2026-09-28)**.

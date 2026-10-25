@@ -54,11 +54,12 @@ const HOSTS = [
   {
     name: 'dsh',
     file: 'packages/agent-aimail/src/dsh/inbound.ts',
-    live: 'server.listen(port, host',
+    live: 'listenWithRetry(server, host, port)',
     liveLabel: 'the inbound listener',
     down: true,
-    // owns its listener + a concrete serving host (loopback default) ⇒ §4.3 confirmed URL
-    carriesUrl: true,
+    // owns its listener; the confirmed URL is computed from the ACTUAL bound
+    // port (the bind result is the source of truth — owner ruling 2026-10-25).
+    liveCall: "void notifyInboundForSystem('live', { inboundUrl: confirmedUrl })",
   },
   {
     name: 'openclaw',
@@ -66,17 +67,20 @@ const HOSTS = [
     live: 'api.registerHttpRoute({',
     liveLabel: 'the in-gateway HTTP route',
     down: false,
-    // in-gateway route: the plugin does not own the serving host ⇒ no concrete URL (§4.3 reconcile)
-    carriesUrl: false,
+    // in-gateway route: carries the in-gateway serving endpoint (the gateway
+    // HTTP port + the contract inbound path) — every host carries its real
+    // serving endpoint (owner ruling 2026-10-25).
+    liveCall: "void notifyInboundForSystem('live', { inboundUrl: openclawWebhookUrl() })",
   },
   {
     name: 'pi',
     file: 'packages/agent-aimail/src/pi/index.ts',
-    live: "server.listen(port, '127.0.0.1'",
+    live: "listenWithRetry(server, '127.0.0.1', port)",
     liveLabel: 'the inbound listener',
     down: true,
-    // owns its listener bound to 127.0.0.1 (concrete) ⇒ §4.3 confirmed URL
-    carriesUrl: true,
+    // owns its listener; the confirmed URL is computed from the ACTUAL bound
+    // port (the bind result is the source of truth — owner ruling 2026-10-25).
+    liveCall: "void notifyInboundForSystem('live', { inboundUrl: url })",
   },
 ]
 
@@ -85,14 +89,13 @@ describe('host startup hooks (inbound notification, zero bridge)', () => {
     test(`${h.name}: notifies the CLI after ${h.liveLabel} is live, fire-and-forget, and reports the outcome`, () => {
       const src = fs.readFileSync(path.join(REPO, h.file), 'utf-8')
       const liveAt = src.indexOf(h.live)
-      // §4.3 wiring: hosts that own a concrete serving URL pass it (the CLI pins the
-      // route to the deterministic port); the others keep the address-only form.
-      const call = h.carriesUrl
-        ? "void notifyInboundForSystem('live', { inboundUrl: confirmedUrl })"
-        : "void notifyInboundForSystem('live')"
-      const hookAt = src.indexOf(call)
+      // §4.3 wiring (owner ruling 2026-10-25): every host carries the confirmed
+      // URL of the endpoint it ACTUALLY serves (the real bound port for
+      // self-bind hosts, the in-gateway endpoint for openclaw) — no
+      // address-only fallback remains.
+      const hookAt = src.indexOf(h.liveCall)
       expect(liveAt, `${h.name}: inbound registration not found (${h.live})`).toBeGreaterThan(-1)
-      expect(hookAt, `${h.name}: the inbound notification is not wired (${call})`).toBeGreaterThan(-1)
+      expect(hookAt, `${h.name}: the inbound notification is not wired (${h.liveCall})`).toBeGreaterThan(-1)
       expect(hookAt, `${h.name}: the notification must come after the inbound endpoint is live`)
         .toBeGreaterThan(liveAt)
       // fire-and-forget + failure-tolerant: the host must not be able to see it

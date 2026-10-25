@@ -96,9 +96,13 @@ import aimail_contract as _contract  # noqa: E402  (shared core: agent side cont
 # does not forward, goes directly to _core. Routing/bridge not in SDK (2026-09-28 de-bridging): registration chain only writes binding and registration value,
 # routing is pushed by CLI itself after "inbound truly in service" (cli/bridge_wire.py).
 
-# DeerFlow local inbound endpoint (in-process preprocessing): path = contract INBOUND_PATH (immutable);
-# port configurable (DEERFLOW_INBOUND_URL override, default = contract inbound_ports.deerflow).
-_DEERFLOW_INBOUND_DEFAULT = "http://127.0.0.1:%d" % _contract.INBOUND_PORTS["deerflow"]
+# DeerFlow local inbound endpoint (in-process preprocessing): path = contract INBOUND_PATH (immutable).
+# The gateway's bind port is discovered at RUNTIME by the adapter (aimail_inbound._inbound_base:
+# DEERFLOW_INBOUND_URL override / the discovered bind) and reported via the confirmed live callback —
+# NOT a contract default (owner ruling 2026-10-25). At registration time (manage.py, the gateway may
+# not be running) the only authoritative value is the DEERFLOW_INBOUND_URL override; without it the
+# local endpoint is unknown (empty) and the runtime supplies the real value.
+_DEERFLOW_INBOUND_OVERRIDE_ENV = "DEERFLOW_INBOUND_URL"
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -202,9 +206,11 @@ def register_agents(manager: str = "", system_id: str = "", agent: str = "",
         agents = ["default"]
 
     # Local receiving endpoint (in-process preprocessing, DeerFlow local gateway + contract INBOUND_PATH;
-    # DEERFLOW_INBOUND_URL can override); registration parameter tri-state determined by resolve_register_webhook_url
-    inbound_base = os.environ.get("DEERFLOW_INBOUND_URL", _DEERFLOW_INBOUND_DEFAULT)
-    local_webhook_url = inbound_base.rstrip("/") + _contract.INBOUND_PATH
+    # DEERFLOW_INBOUND_URL override; NO contract default — the runtime discovers the actual port and the
+    # confirmed live callback reports it, owner ruling 2026-10-25); registration parameter tri-state
+    # determined by resolve_register_webhook_url (push = bridge URL / pull = empty / standalone = local).
+    inbound_base = os.environ.get(_DEERFLOW_INBOUND_OVERRIDE_ENV, "").strip()
+    local_webhook_url = (inbound_base.rstrip("/") + _contract.INBOUND_PATH) if inbound_base else ""
     reg_url = _core.resolve_register_webhook_url(gw, local_webhook_url)
 
     created = 0
@@ -377,9 +383,10 @@ def reconcile(system_id: str = "", manager: str = "", dry_run: bool = False) -> 
         webhook_secret = (_core.existing_binding_webhook_secret(system_id, email)
                           or _core.new_webhook_secret())
         # Local receiving endpoint (in-process preprocessing, DeerFlow local gateway + contract INBOUND_PATH;
-        # DEERFLOW_INBOUND_URL can override, 2026-08-18 refactor)
-        inbound_base = os.environ.get("DEERFLOW_INBOUND_URL", _DEERFLOW_INBOUND_DEFAULT)
-        local_webhook_url = inbound_base.rstrip("/") + _contract.INBOUND_PATH
+        # DEERFLOW_INBOUND_URL override; NO contract default — the runtime discovers the actual port and the
+        # confirmed live callback reports it, owner ruling 2026-10-25; 2026-08-18 refactor)
+        inbound_base = os.environ.get(_DEERFLOW_INBOUND_OVERRIDE_ENV, "").strip()
+        local_webhook_url = (inbound_base.rstrip("/") + _contract.INBOUND_PATH) if inbound_base else ""
         # Registration parameter tri-state: push=bridge public entry / pull=empty / no bridge=local endpoint
         reg_url = _core.resolve_register_webhook_url(gw, local_webhook_url)
         reg = _base.register_agent_email(

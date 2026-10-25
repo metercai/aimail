@@ -23,7 +23,7 @@ import * as path from 'node:path'
 import { createMailTools } from './tools.js'
 import { createInboundHandler, startInboundPull, INBOUND_PATH } from './inbound.js'
 import { createAimailCommands } from './commands.js'
-import { agentIdentity, resolveAgentId, tryAutoBindOnce, DEFAULT_AGENT_ID } from './identity.js'
+import { agentIdentity, resolveAgentId, tryAutoBindOnce, DEFAULT_AGENT_ID, openclawWebhookUrl } from './identity.js'
 import { resolveOpenclawSkillRoots } from './skills.js'
 import { activateHost } from '../hosts/activate.js'
 
@@ -183,9 +183,13 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
         // in-gateway route is live AND the default agent is bound, so this
         // plugin tells the environment master (the `aimail` CLI), per address
         // it serves, that inbound is live: `aimail address -a <addr>
-        // --inbound-live`. Best-effort and never fatal (argv, 4s timeout, no
-        // CLI ⇒ one log line).
-        void notifyInboundForSystem('live')
+        // --inbound-live --inbound-url <url>`. The confirmed URL is the
+        // in-gateway endpoint this plugin's route actually serves on (the
+        // OpenClaw gateway HTTP port + the contract inbound path — owner
+        // ruling 2026-10-25: every host carries its real serving endpoint, no
+        // exceptions). Best-effort and never fatal (argv, 4s timeout, no CLI ⇒
+        // one log line).
+        void notifyInboundForSystem('live', { inboundUrl: openclawWebhookUrl() })
           .then((outcomes) => {
             for (const o of outcomes) {
               const line = `[agent-aimail] ${formatInboundNotifyLine(o, 'live')}`

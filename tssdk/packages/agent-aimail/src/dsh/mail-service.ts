@@ -27,7 +27,7 @@ import {
   ensureAgentBinding,
   hasAnySystem,
   INBOUND_PATH,
-  INBOUND_PORTS,
+  INBOUND_PORT,
   listSystemDirs,
   readSystemConfig,
   releaseAllSystems,
@@ -58,8 +58,8 @@ export interface MailService {
 function inboundWebhookUrl(): string {
   const fromEnv = (process.env.AIMAIL_INBOUND_URL ?? '').trim()
   if (fromEnv) return fromEnv.replace(/\/+$/, '') + INBOUND_PATH
-  const port = Number(process.env.AIMAIL_INBOUND_PORT ?? INBOUND_PORTS.dsh)
-  const p = Number.isInteger(port) && port > 0 ? port : INBOUND_PORTS.dsh
+  const port = Number(process.env.AIMAIL_INBOUND_PORT ?? INBOUND_PORT)
+  const p = Number.isInteger(port) && port > 0 ? port : INBOUND_PORT
   return `http://127.0.0.1:${p}${INBOUND_PATH}`
 }
 

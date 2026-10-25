@@ -15,8 +15,14 @@
  *
  * Contract:
  *   - one argv call per address this host serves:
- *       aimail address -a <addr> --inbound-live
+ *       aimail address -a <addr> --inbound-live [--inbound-url <url>]
  *       aimail address -a <addr> --inbound-down
+ *   - for `live`, `--inbound-url <url>` carries the CONFIRMED endpoint — the
+ *     URL the inbound service ACTUALLY serves on (the real bind result / the
+ *     gateway's real port). Owner ruling 2026-10-25: every host reports its
+ *     real serving endpoint, no exceptions, however the service was started.
+ *     A `live` without it is a defect (the CLI warns and falls back to full
+ *     reconciliation), never a legitimate omission.
  *   - binary resolution: `AIMAIL_BIN` → `~/.aimail/bin/aimail` → `aimail` on PATH.
  *     None found ⇒ one debug line, then skip. A machine without the CLI is still
  *     fully self-sufficient: it binds, serves and self-registers (address-level
@@ -24,8 +30,6 @@
  *   - argv only (never a shell), timeout 3–5s, **never throws**, never blocks the
  *     host's startup, never retries: a non-zero exit or a spawn error is one log
  *     line and the host keeps going.
- *   - the payload carries the address and the state, nothing else — no port, no
- *     protocol, no bridge.
  */
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
@@ -46,9 +50,12 @@ export const INBOUND_STATE_FLAG: Readonly<Record<InboundState, string>> = {
 
 /**
  * The CLI argument that carries the CONFIRMED inbound URL (contract §4.3):
- * the URL the listener actually serves on. Appended ONLY when a host knows its
- * concrete serving URL — before the state flag, so the flag stays the last argv
- * element (the no-URL argv shape is byte-identical to the pre-§4.3 form).
+ * the URL the inbound service actually serves on. Carried for EVERY `live`
+ * notification (owner ruling 2026-10-25 — no exceptions, however the service
+ * was started: the real bind result for self-bind hosts, the gateway's real
+ * port for host-gateway / in-gateway hosts). Inserted before the state flag,
+ * so the flag stays the last argv element (the no-URL argv shape is
+ * byte-identical to the pre-§4.3 form — a defect, not a supported path).
  */
 export const INBOUND_URL_FLAG = '--inbound-url'
 
@@ -79,11 +86,13 @@ export interface NotifyOptions {
   /** injected runner (tests); default = real child_process.spawn. */
   runner?: CommandRunner
   /**
-   * Confirmed inbound URL (contract §4.3) — the URL this host's listener
-   * actually serves on. Set ONLY when the host knows a concrete serving host
-   * (the loopback default is concrete; a wildcard bind is NOT — the host then
-   * omits it and the CLI reconciles from the live topology). When set, the
-   * argv gains `--inbound-url <url>` immediately before the state flag.
+   * Confirmed inbound URL (contract §4.3) — the URL this host's inbound
+   * service actually serves on. Required for `live` notifications: it is the
+   * real bind result (self-bind hosts) or the gateway's real serving port
+   * (host-gateway / in-gateway hosts). Omitting it for `live` is a defect —
+   * the CLI warns and falls back to full reconciliation — never a legitimate
+   * path. When set, the argv gains `--inbound-url <url>` immediately before
+   * the state flag.
    */
   inboundUrl?: string
 }

@@ -21,7 +21,7 @@ import {
   ensureAgentBinding,
   hasAnySystem,
   INBOUND_PATH,
-  INBOUND_PORTS,
+  INBOUND_PORT,
   POINTER_FILE,
   loadConfigByAgentId,
   loadConfigByEmail,
@@ -111,7 +111,8 @@ export function writePointer(ptr: SystemPointer): void {
 
 /**
  * pi inbound receive endpoint (the bridge push target). The listener is
- * owned by index.ts (default 127.0.0.1:9101, path /aimail/inbound); the
+ * owned by index.ts (default 127.0.0.1:9099 — the common inbound_port, path
+  * /aimail/inbound); the
  * extension sets the actual URL via setInboundEndpoint at startup.
  * AIMAIL_INBOUND_URL env overrides (python parity).
  */
@@ -126,7 +127,7 @@ export function inboundWebhookUrl(): string {
   const fromEnv = (process.env.AIMAIL_INBOUND_URL ?? '').trim()
   if (fromEnv) return fromEnv.replace(/\/+$/, '') + INBOUND_PATH
   if (_inboundEndpoint) return _inboundEndpoint
-  return `http://127.0.0.1:${INBOUND_PORTS.pi}${INBOUND_PATH}`
+  return `http://127.0.0.1:${INBOUND_PORT}${INBOUND_PATH}`
 }
 
 /** Process once-guard: auto-bind at most once per run. */

@@ -114,12 +114,14 @@ fn register_executor_offline_behaviour() {
         payload.get("register_spec").is_none(),
         "a node host does not run an external registrar => no register_spec may be carried ({payload:?})"
     );
-    // G1a (2026-10-13): the node_entry envelope carries the local inbound endpoint (the contract inbound_ports single source)
-    // — three-state ①: the registered value = the local endpoint. The expected value is built from contract constants (the contract literal ratchet: no literals).
+    // G1a (2026-10-13) + owner ruling 2026-10-25: the node_entry envelope of a
+    // self_bind host carries the local inbound endpoint (the contract `inbound_port`
+    // common default single source) — three-state ①: the registered value = the local
+    // endpoint (best-known; the confirmed callback is the authoritative pin).
+    // The expected value is built from contract constants (the contract literal ratchet: no literals).
     let expected_lw = format!(
         "http://127.0.0.1:{}",
-        aimail::core::contract::inbound_port("pi")
-            .expect("the contract should have a pi inbound port")
+        aimail::core::contract::inbound_port()
     ) + aimail::core::contract::inbound_path();
     assert_eq!(
         payload["local_webhook_url"],
@@ -132,7 +134,9 @@ fn register_executor_offline_behaviour() {
         "pi does not declare preset => the envelope must not carry that field ({payload:?})"
     );
 
-    // 1b) dsh (node_entry): local_webhook_url uses the dsh contract port.
+    // 1b) dsh (node_entry, self_bind): local_webhook_url uses the SAME common
+    // default port as pi (owner ruling 2026-10-25: one common default for all
+    // self_bind hosts; the runtime bind probe re-selects on conflict).
     // P3-C (2026-10-17): preset is now self-reported by the SDK side (dsh register-cli assembleExtra,
     // the 10-11 three-source ruling "host self-report/internal => inside the SDK") => the CLI envelope no longer carries preset
     // (the old assertion "the value comes from the register.args --preset declaration" became void with the deletion of the G1b extraction channel).
@@ -157,11 +161,10 @@ fn register_executor_offline_behaviour() {
         json!(
             format!(
                 "http://127.0.0.1:{}",
-                aimail::core::contract::inbound_port("dsh")
-                    .expect("the contract should have a dsh inbound port")
+                aimail::core::contract::inbound_port()
             ) + aimail::core::contract::inbound_path()
         ),
-        "the dsh envelope local_webhook_url should be the dsh contract port ({payload:?})"
+        "the dsh envelope local_webhook_url should be the common default port ({payload:?})"
     );
     assert!(
         payload.get("preset").is_none(),

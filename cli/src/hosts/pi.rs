@@ -7,7 +7,7 @@
 use crate::hosts::exec::{Register, SkipIf, Step, When};
 use crate::hosts::health::{Health, HealthSpec};
 use crate::hosts::identity::{Detect, PointerKind};
-use crate::hosts::HostDef;
+use crate::hosts::{HostDef, InboundMode};
 
 pub static PI: HostDef = HostDef {
     id: "pi",
@@ -16,6 +16,7 @@ pub static PI: HostDef = HostDef {
             markers: &["agent"],
         },
     pointer: PointerKind::Root,
+    inbound_mode: InboundMode::SelfBind,
     register: Register::NodeEntry {
             node_path: "{home}/agent/npm/node_modules/agent-aimail/dist/pi/register-cli.js",
             fail_hint: "agent-aimail extension not ready -- first `pi install npm:agent-aimail` to install the extension, then register",

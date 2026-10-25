@@ -113,7 +113,7 @@
 - **按态写回**：桥 push ⇒ 外部桥 route（admin `sync_route` action=live，target=确认 URL）；桥 pull ⇒ 本机桥 route（同 API，127.0.0.1）；直连 push ⇒ **复用注册（重发地址）**幂等 upsert 网关 per-address webhook_url=确认 URL。
 - **down 对称**：`--inbound-down` ⇒ 桥 route withdraw / 网关注册撤回。
 - **竞态安全**：桥 pull 无 route 不 ack（下轮重试）⇒ route 补上前信停 pending，不丢。
-- **监听器必须服务在确认 URL 上**：确认 URL 为外网 IP（AGENT_HOST）时监听绑该 IP / 0.0.0.0（**非仅回环**）；端口被占 ⇒ agent 启动失败（锁定端口语义）。
+- **监听器必须服务在确认 URL 上**：确认 URL 为外网 IP（AGENT_HOST）时监听绑该 IP / 0.0.0.0（**非仅回环**）；端口被占（self-bind 宿主 dsh / pi，2026-10-25 起）⇒ 运行期**重选**可用端口（实际 bind 结果为真源），confirmed 回调携带重选后的真实端点，不锁定单一端口。
 
 ## 5 CLI 检测面（2026-10-11 增列）
 

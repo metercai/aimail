@@ -7,7 +7,7 @@
 use crate::hosts::exec::{EnvPairs, Register, RegisterAll, Step, When};
 use crate::hosts::health::{Health, HealthSpec};
 use crate::hosts::identity::{Detect, PointerKind};
-use crate::hosts::HostDef;
+use crate::hosts::{HostDef, InboundMode};
 
 pub static DEERFLOW: HostDef = HostDef {
     id: "deerflow",
@@ -16,6 +16,7 @@ pub static DEERFLOW: HostDef = HostDef {
             markers: &["backend/app/gateway"],
         },
     pointer: PointerKind::Root,
+    inbound_mode: InboundMode::HostGateway,
     register: Register::PythonScript {
             python: "deer-flow/manage.py",
             args: &[

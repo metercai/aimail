@@ -161,8 +161,11 @@ pysdk/
 - **契约**:路径 `INBOUND_PATH = /aimail/inbound`(全平台不可变);
   hermes 唯一例外 `HERMES_INBOUND_PATH = /webhooks/aimail-inbound`
   (挂在 hermes 网关自身 webhook 路由,route 名 `aimail-inbound`)。
-  端口 `INBOUND_PORTS = { dsh: 9099, pi: 9101, deerflow: 8001 }`
-  — **端口可配,路径不可变**(`src/core/contract.ts`)。
+  端口:SDK 拥有监听器的宿主(dsh / pi)共用一个默认 `inbound_port = 9099`
+  — **端口可配,路径不可变**(`src/core/contract.ts`)。端口冲突时运行期重选
+  可用端口(**实际 bind 结果**为真源),confirmed 回调携带该真实端点。
+  gateway 拥有端口的宿主(hermes、deer-flow、openclaw)**不带**契约默认 ——
+  适配层自行探测实际端口,confirmed 回调一律携带真实 URL。
 - **已知方法**:
   - pi:extension 内 node:http handler → `verifySignature`(HMAC,
     per-address `webhook_secret`)→ `routeAddressFromHeaders` →
@@ -363,7 +366,7 @@ pysdk/
 | P1 入口 | plugin entry + extensions | cordis.patch.yml 自挂载 3 子路径 | pi.extensions | patch 宿主源码族 | 本地 gateway 进程 |
 | P2 自检 | activateHost('openclaw')@register | activateHost('dsh')@mail-service 加载 | activateHost('pi')@入口 | 进程即宿主 | 进程即宿主 |
 | P3 身份 | `~/.openclaw/.agentmail` + auto-bind | exec.agent.id | `~/.pi/.agentmail` + auto-bind | profile 即身份 | `systems/{sid}/{cleaned_addr}/` 目录即 agent |
-| P4 入站 | plugin HTTP 路由 | bundle `/inbound`(node:http) | extension node:http(:9101) | 网关 webhook `/webhooks/aimail-inbound` | 本地 gateway POST :8001 |
+| P4 入站 | plugin HTTP 路由 | bundle `/inbound`(node:http) | extension node:http(公共 :9099) | 网关 webhook `/webhooks/aimail-inbound` | 本地 gateway POST(探测) |
 | P5 工具 | 迭代 MAIL_TOOLS(factory) | 迭代 MAIL_TOOLS(defineTool) | 迭代 MAIL_TOOLS | patch toolsets.py(7 mail 工具入 _HERMES_CORE_TOOLS) | core 工具函数直接暴露 |
 | P6 SOUL | `{workspaceDir(agentId)}/SOUL.md` | `~/.dsh/profiles/{DSH_PROFILE}/SOUL.md` | `~/.pi/agent/SOUL.md` | `{HERMES_HOME}/SOUL.md`(env→live→~/.hermes) | `systems/{sid}/{cleaned}/SOUL.md` |
 | P7 skills | 镜像 resolveWorkspaceSkillSourcePlan(本机 86) | 镜像 FileSystemSkillProvider.roots(本机 32) | `~/.pi/agent/skills/`(本机 0) | import host `tools/skills_tool`(本机 147) | `systems/{sid}/{cleaned}/skills/` |

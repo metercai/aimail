@@ -458,7 +458,7 @@ def _mode(p: Path) -> int:
     return stat.S_IMODE(p.stat().st_mode)
 
 
-DEFAULT_INBOUND_URL = contract.inbound_url(contract.INBOUND_PORTS["deerflow"])
+DEFAULT_INBOUND_URL = contract.inbound_url(contract.INBOUND_PORT)
 
 
 def test_provision_lands_secret_in_the_shared_binding_format(tmp_path, monkeypatch):

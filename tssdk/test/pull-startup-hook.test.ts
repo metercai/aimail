@@ -57,7 +57,7 @@ const HOSTS: HostPull[] = [
   {
     name: 'dsh',
     file: 'packages/agent-aimail/src/dsh/inbound.ts',
-    live: 'server.listen(port, host',
+    live: 'listenWithRetry(server, host, port)',
     liveLabel: 'the inbound listener',
     pull: 'void startInboundPull(ctx, ',
     dispose: 'return () => {',
@@ -76,7 +76,7 @@ const HOSTS: HostPull[] = [
   {
     name: 'pi',
     file: 'packages/agent-aimail/src/pi/index.ts',
-    live: "server.listen(port, '127.0.0.1'",
+    live: "listenWithRetry(server, '127.0.0.1', port)",
     liveLabel: 'the inbound listener',
     pull: 'void startInboundPull(pi, ',
     dispose: "pi.on('session_shutdown', () => {",

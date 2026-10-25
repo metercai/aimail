@@ -9,6 +9,7 @@ export { arg as cliArg, flag as cliFlag, emit as cliEmit } from './cli-arg.js'
 export { runOpEntry, type OpEntryHooks } from './cli-op-entry.js'
 export * from './typebox-params.js'
 export * from './contract.js'
+export * from './listen.js'
 export { GatewayClient } from './gateway.js'
 export { computeApiSignature, sha256Hex } from './api-signature.js'
 export {

@@ -31,7 +31,7 @@ import {
   runOpEntry,
   resolveRegisterEmail,
   inboundUrl,
-  INBOUND_PORTS,
+  INBOUND_PORT,
   listSystemDirs,
   loadAgentConfig,
   readSystemConfig,
@@ -62,7 +62,7 @@ async function legacyBind(argv: string[]): Promise<number> {
   const sessionId = arg(argv, '--session-id')
   const preset = arg(argv, '--preset') || 'mail'
   const localWebhook =
-    arg(argv, '--local-webhook') || inboundUrl(INBOUND_PORTS.dsh)
+    arg(argv, '--local-webhook') || inboundUrl(INBOUND_PORT)
   const force = flag(argv, '--force')
 
   // Assembly: enable this host's skill/tool exposure layer. Implementation is shared (mail-core ensureSkillToolExposure),

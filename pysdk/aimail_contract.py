@@ -43,8 +43,13 @@ BINDING_FILE = "agentmail.json"
 #: System pointer file name (e.g., ~/.hermes/.agentmail, ~/.deer-flow/.agentmail).
 POINTER_FILE = ".agentmail"
 
-#: Default value for inbound listening port —— **port is configurable, path is immutable**.
-INBOUND_PORTS = {"dsh": 9099, "pi": 9101, "deerflow": 8001}
+#: Common default inbound listening port for hosts whose SDK owns the listener
+#: (dsh/pi) — **port is configurable, path is immutable**. On conflict the
+#: runtime re-selects an available port (bind probe = source of truth); the
+#: confirmed callback (`--inbound-live --inbound-url`) pins the real endpoint.
+#: Hosts where the host gateway owns the port (hermes/deerflow/openclaw) carry
+#: no default here — per-host adaptation discovers the actual port.
+INBOUND_PORT = 9099
 
 # Note: The former BRIDGE_DEFAULT_PATH constant was retired with the SDK de-bridging (owner decision 2026-09-28)—— SDK
 # is bridge-agnostic, routing is self-held by CLI (cli/bridge_wire.py); contract true source no longer contains bridge keys.
@@ -61,7 +66,7 @@ MANIFEST_MAP = {
     "agent_toolset_name": "AGENT_TOOLSET_NAME",
     "binding_file": "BINDING_FILE",
     "pointer_file": "POINTER_FILE",
-    "inbound_ports": "INBOUND_PORTS",
+    "inbound_port": "INBOUND_PORT",
 }
 
 

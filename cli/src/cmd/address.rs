@@ -361,6 +361,13 @@ pub fn run(args: Args) -> i32 {
                 crate::core::inbound_route::live_confirmed(&sid, &anchor, confirmed, &cfgj, &bcfg);
             return crate::core::inbound_route::finish_anchor(Some(&out));
         }
+        // No confirmed URL: a defect (owner ruling 2026-10-25 — every `live`
+        // carries the real serving endpoint). Warn so the host sees it, then
+        // fall back to full reconciliation so the route still converges from
+        // the registered bindings.
+        crate::cmd::report::warn(&format!(
+            "inbound live without a confirmed URL for {anchor}: falling back to full reconciliation — report the real serving endpoint with --inbound-url"
+        ));
         let (_reported, anchor_out) =
             crate::core::bridge_wire::reconcile_inbound_routes(&sid, &cfgj, &anchor, &bcfg);
         let synth = if anchor_out.is_none() {

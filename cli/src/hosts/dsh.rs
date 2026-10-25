@@ -6,7 +6,7 @@
 
 use crate::hosts::exec::{EnvPairs, Register, Step, When};
 use crate::hosts::identity::{Detect, PointerKind};
-use crate::hosts::HostDef;
+use crate::hosts::{HostDef, InboundMode};
 
 pub static DSH: HostDef = HostDef {
     id: "dsh",
@@ -15,6 +15,7 @@ pub static DSH: HostDef = HostDef {
             markers: &["profiles"],
         },
     pointer: PointerKind::Root,
+    inbound_mode: InboundMode::SelfBind,
     register: Register::NodeEntry {
             node_path: "{home}/profiles/*/node_modules/agent-aimail/dist/dsh/register-cli.js",
             fail_hint:

@@ -20,7 +20,7 @@ vi.mock('../../src/core/index.js', async (importOriginal) => {
     ensureAgentBinding: (...a: unknown[]) => ensureAgentBinding(...a),
     // inboundWebhookUrl() reads these from the real module (single source:
     // mail-core contract constants — never re-typed in the mock)
-    INBOUND_PORTS: actual.INBOUND_PORTS,
+    INBOUND_PORT: actual.INBOUND_PORT,
     INBOUND_PATH: actual.INBOUND_PATH,
   }
 })

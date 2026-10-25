@@ -6,7 +6,7 @@
  * - 14 mail/board tools via MAIL_TOOLS (single TS semantic source), bare
  *   names, registered with pi.registerTool (TypeBox parameters).
  * - Inbound receiver: pi has no HTTP route registration, so the extension
- *   owns a local listener (127.0.0.1:9101 by default) that the bridge pushes
+ *   owns a local listener (127.0.0.1:9099 by default — the common inbound_port) that the bridge pushes
  *   to; the handler runs HMAC verify → processInboundMail (13-step + ping/
  *   pong intercept) → pi.sendUserMessage (always triggers a turn).
  * - Identity: ~/.pi/.agentmail pointer ({system_id, email}) is the sole
@@ -22,7 +22,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
-import { notifyInboundForSystem, formatInboundNotifyLine, isInboundNotifyWarning, processInboundMail, releaseAllSystems, routeAddressFromHeaders, startAgentPullEntries, setSoulProvider, setSkillsProvider, setToolsetProvider, listSkillNames, verifySignature, INBOUND_PATH, INBOUND_PORTS, type AgentConfig, type AgentPullHandle, type AgentPullOverrides, type InboundPayload, packageResourcesRoot } from '../core/index.js'
+import { notifyInboundForSystem, formatInboundNotifyLine, isInboundNotifyWarning, listenWithRetry, processInboundMail, releaseAllSystems, routeAddressFromHeaders, startAgentPullEntries, setSoulProvider, setSkillsProvider, setToolsetProvider, listSkillNames, verifySignature, INBOUND_PATH, INBOUND_PORT, type AgentConfig, type AgentPullHandle, type AgentPullOverrides, type InboundPayload, packageResourcesRoot } from '../core/index.js'
 import { resolveByRecipient } from '../mail/index.js'
 import { agentIdentity, initIdentity, readPointer, setInboundEndpoint, tryAutoBindOnce } from './identity.js'
 import { buildPiTools } from './tools.js'
@@ -30,10 +30,10 @@ import { buildPiTools } from './tools.js'
 // Contract constants single copy = @aimail/mail-core(src/contract.ts ← contract/aimail-contract.json).
 // re-export here to maintain this module's existing public surface (dist/index.d.ts previously exported INBOUND_PATH).
 export { INBOUND_PATH }
-const DEFAULT_INBOUND_PORT = INBOUND_PORTS.pi
+const DEFAULT_INBOUND_PORT = INBOUND_PORT
 
 export interface PiAimailOptions {
-  /** Inbound listener port (default 9101). */
+  /** Inbound listener port (default 9099 — the common inbound_port). */
   inboundPort?: number
 }
 
@@ -322,30 +322,32 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
       })()
     })
     const port = options.inboundPort ?? DEFAULT_INBOUND_PORT
-    // Confirmed inbound URL (contract §4.3): pi binds 127.0.0.1 (concrete), so the
-    // serving URL is always known. It is both the address webhook auto-bind
-    // registers (setInboundEndpoint) and what the CLI is told at `--inbound-live`
-    // so the route can be pinned to the deterministic port.
-    const confirmedUrl = `http://127.0.0.1:${port}${INBOUND_PATH}`
-    setInboundEndpoint(confirmedUrl)
-    // Eager default-agent binding (dsh parity, 2026-10-16 batch): the
-    // `pi install`/plugin path never runs the CLI's register_default step, so
-    // without a proactive bind the host would LISTEN without the default
-    // agent's binding — "inbound port up" would not imply "binding written".
-    // Gate the listen on the idempotent self-bind (once-guarded; the lazy
-    // tool path shares it). A binding failure degrades: the host still
-    // listens (unbound path), it does not wedge.
-    void tryAutoBindOnce()
-      .then(() => {
-        if (!server) return
-        server.listen(port, '127.0.0.1', () => {
-          log.info(`[agent-aimail] inbound listening on http://127.0.0.1:${port}${INBOUND_PATH}`)
-          // Inbound notification (owner decision 2026-09-28, SDK de-bridging): listen ready ⇒ tell environment master per address
-          // (the `aimail` CLI) `aimail address -a <addr> --inbound-live`. The substance of the timing is unchanged
-          // —— Only holds after "inbound is truly serving"; but **bridge semantics are not in the SDK**: the CLI decides what this means.
-          // best-effort: argv only, 4s timeout, does not block this callback, never throws to host (no CLI ⇒ one line of log,
-          // host serves normally and self-registers).
-          void notifyInboundForSystem('live', { inboundUrl: confirmedUrl })
+    // Conflict-tolerant bind (owner ruling 2026-10-25): all self-bind hosts
+    // share the common default port (the contract inbound_port), so the
+    // ACTUAL bound port (the bind result) is the source of truth. On a real
+    // bind: the confirmed URL is computed from the actual port, the auto-bind
+    // endpoint is updated, and `--inbound-live` carries that real URL (no
+    // exceptions, owner ruling 2026-10-25). A failed bind is a LOUD error:
+    // the host must not report inbound live for a port that never came up
+    // (that would pin a route to a dead endpoint).
+    const doListen = (report: boolean): Promise<void> => {
+      if (!server) return Promise.resolve()
+      return listenWithRetry(server, '127.0.0.1', port)
+        .then((actualPort) => {
+          const url = `http://127.0.0.1:${actualPort}${INBOUND_PATH}`
+          if (!report) {
+            log.info(`[agent-aimail] inbound listening (unbound) on ${url}`)
+            return
+          }
+          setInboundEndpoint(url)
+          log.info(`[agent-aimail] inbound listening on ${url}`)
+          // Inbound notification (owner decision 2026-09-28, SDK de-bridging):
+          // listen ready ⇒ tell the environment master (the `aimail` CLI) per
+          // address `aimail address -a <addr> --inbound-live --inbound-url
+          // <url>`. The confirmed URL is the REAL bound endpoint (owner ruling
+          // 2026-10-25). Best-effort: argv only, 4s timeout, does not block
+          // this callback, never throws to the host (no CLI ⇒ one log line).
+          void notifyInboundForSystem('live', { inboundUrl: url })
             .then((outcomes) => {
               for (const o of outcomes) {
                 const line = `[agent-aimail] ${formatInboundNotifyLine(o, 'live')}`
@@ -358,7 +360,6 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
                 `[agent-aimail] inbound notify failed (non-fatal): ${e instanceof Error ? e.message : String(e)}`,
               )
             })
-
           // Pull entry (2026-09-27): an address activated by an activation CODE has
           // no push path (the gateway stores webhook_url=NULL for it), so this
           // long-lived session fetches its own mail on a timer, delivering through
@@ -372,18 +373,36 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
               log.warn(`[agent-aimail] pull entry failed to start: ${e instanceof Error ? e.message : String(e)}`)
             })
         })
+        .catch((e: unknown) => {
+          // A bind failure is now LOUD (was: one log line + a dead listener,
+          // the silent black hole). The host process keeps running.
+          log.error(
+            `[agent-aimail] inbound listener FAILED to bind (preferred ${port}): ` +
+              `${e instanceof Error ? e.message : String(e)} — inbound NOT live`,
+          )
+        })
+    }
+    // Eager default-agent binding (dsh parity, 2026-10-16 batch): the
+    // `pi install`/plugin path never runs the CLI's register_default step, so
+    // without a proactive bind the host would LISTEN without the default
+    // agent's binding — "inbound port up" would not imply "binding written".
+    // Gate the listen on the idempotent self-bind (once-guarded; the lazy
+    // tool path shares it). A binding failure degrades: the host still
+    // listens (unbound path), it does not wedge.
+    void tryAutoBindOnce()
+      .then(() => {
+        void doListen(true)
       })
       // tryAutoBindOnce never throws (failures warn + undefined); a reject
       // here would be a code defect — degrade to the unbound path anyway.
       .catch((e: unknown) => {
         log.warn(`[agent-aimail] eager binding gate failed: ${e instanceof Error ? e.message : String(e)}`)
-        if (!server) return
-        server.listen(port, '127.0.0.1', () => {
-          log.info(`[agent-aimail] inbound listening (unbound) on http://127.0.0.1:${port}${INBOUND_PATH}`)
-        })
+        void doListen(false)
       })
     server.on('error', (e) => {
-      log.error(`[agent-aimail] inbound listener error: ${e.message}`)
+      log.error(
+        `[agent-aimail] inbound listener error: ${e instanceof Error ? e.message : String(e)}`,
+      )
     })
   }
   startInbound()

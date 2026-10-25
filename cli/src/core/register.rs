@@ -223,19 +223,25 @@ pub fn register_agent(
     if !agent.is_empty() {
         asm["requested_name"] = json!(agent);
     }
-    // Local inbound endpoint (contract inbound_ports single source of truth) —— three states ①: registered value = local endpoint.
+    // Local inbound endpoint (contract `inbound_port` single source) —— three states ①: registered value = local endpoint.
     // node host (node_entry) opAssemble is a shared library, does not guess platform ⇒ CLI injects contract facts
     // as parameters (`local_webhook_url`); published mail-core opAssemble already reads
     // this parameter (`args['local_webhook_url'] || args['webhook_url'] || ''`), in three states ① (key
     // absent) it is persisted as-is. python host (PY gate self-calculates local_webhook_url) and legacy path
     // (platform package self-calculates) unaffected —— hence only inject for node_entry, PY host envelope zero change.
+    // Owner ruling 2026-10-25: best-known injection is limited to `self_bind` hosts (dsh / pi) whose SDK owns the
+    // listener — the common default port is their preferred initial value; the confirmed callback
+    // (`--inbound-live --inbound-url`) is the authoritative endpoint for EVERY mode. Host-gateway hosts
+    // (hermes / deerflow / openclaw) carry no default in the contract: their adapter layer discovers the
+    // actual port and reports it via the confirmed callback.
     // Contract literal ratchet: port/path taken from contract single source of truth; host 127.0.0.1 = inbound listening convention
     // (consistent with legacy `inboundUrl(port, host='127.0.0.1')` default).
-    if matches!(host.lang(), crate::hosts::Lang::Node) {
-        if let Some(port) = crate::core::contract::inbound_port(platform) {
-            asm["local_webhook_url"] =
-                json!(format!("http://127.0.0.1:{}", port) + crate::core::contract::inbound_path());
-        }
+    if matches!(host.lang(), crate::hosts::Lang::Node)
+        && matches!(host.inbound_mode, crate::hosts::InboundMode::SelfBind)
+    {
+        let port = crate::core::contract::inbound_port();
+        asm["local_webhook_url"] =
+            json!(format!("http://127.0.0.1:{}", port) + crate::core::contract::inbound_path());
         // G1b(2026-10-13)→P3-C(2026-10-17):preset self-reported by SDK side(dsh register-cli
         // assembleExtra host layout data,10-11 three-source ruling 'host self-report/internal → SDK internal');
         // P3-F(2026-10-17): node host register.args removed -- CLI has no responsibility for fixed naming,

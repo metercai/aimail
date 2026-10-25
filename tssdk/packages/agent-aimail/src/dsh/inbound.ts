@@ -27,8 +27,8 @@ import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { processInboundMail, verifySignature, routeAddressFromHeaders, updateAgentConfig, loadAgentConfig, saveAgentConfig, startAgentPullEntries, setSoulProvider, setSkillsProvider, combineSkillNames, type AgentConfig, type AgentPullHandle, type AgentPullOverrides, INBOUND_PATH, INBOUND_PORTS, type InboundPayload, packageResourcesRoot} from '../core/index.js'
-import { notifyInboundForSystem, formatInboundNotifyLine, isInboundNotifyWarning } from '../core/index.js'
+import { processInboundMail, verifySignature, routeAddressFromHeaders, updateAgentConfig, loadAgentConfig, saveAgentConfig, startAgentPullEntries, setSoulProvider, setSkillsProvider, combineSkillNames, type AgentConfig, type AgentPullHandle, type AgentPullOverrides, INBOUND_PATH, INBOUND_PORT, type InboundPayload, packageResourcesRoot} from '../core/index.js'
+import { notifyInboundForSystem, formatInboundNotifyLine, isInboundNotifyWarning, listenWithRetry } from '../core/index.js'
 import { resolveDshSkillRoots } from './skills.js'
 import { ensureDefaultAgentBinding, type MailService } from './mail-service.js'
 
@@ -370,15 +370,8 @@ export function apply(ctx: Context, config: Config = {}): () => void {
     // non-fatal; retried on next plugin start
   }
   const host = config.host ?? '127.0.0.1'
-  const port = config.port ?? Number(process.env.AIMAIL_INBOUND_PORT ?? INBOUND_PORTS.dsh)
+  const port = config.port ?? Number(process.env.AIMAIL_INBOUND_PORT ?? INBOUND_PORT)
   const deliverPath = config.path ?? INBOUND_PATH
-  // Confirmed inbound URL (contract §4.3): the URL this listener ACTUALLY serves
-  // on — reported back to the CLI at `--inbound-live` so the CLI can pin the
-  // route to the deterministic port. Omitted for a wildcard bind (0.0.0.0 / ::),
-  // where the serving host is not concrete: the CLI then reconciles from the live
-  // topology instead of trusting a guessed host.
-  const confirmedUrl =
-    host === '0.0.0.0' || host === '::' ? '' : `http://${host}:${port}${deliverPath}`
 
   const server = createServer(createInboundHandler(ctx, mail, deliverPath))
 
@@ -392,42 +385,64 @@ export function apply(ctx: Context, config: Config = {}): () => void {
   // readiness gate then fails single-shot on "dsh binding not found" while the
   // port already answers. Gate the listen on the idempotent self-bind so that
   // "inbound port up" is a reliable readiness signal (binding + listener).
-  void ensureDefaultAgentBinding().then(() => {
-    server.listen(port, host, () => {
-      // Inbound notification (owner ruling 2026-09-28, SDK de-bridging): the listener is
-      // up, so this host tells the environment master (the `aimail` CLI) — once per
-      // address it serves — that inbound is live:
-      //     aimail address -a <addr> --inbound-live
-      // The CLI owns the environment (routes included) and decides what that means;
-      // the SDK speaks no bridge. Best-effort by contract: argv only, 4s timeout,
-      // never blocks this callback, never throws into the host (a missing CLI is one
-      // debug line — the host keeps serving and self-registering).
-      void notifyInboundForSystem('live', { inboundUrl: confirmedUrl })
-        .then((outcomes) => {
-          for (const o of outcomes) {
-            const line = `[agent-aimail] ${formatInboundNotifyLine(o, 'live')}`
-            if (isInboundNotifyWarning(o)) console.warn(line)
-            else console.log(line)
-          }
-        })
-        .catch((e: unknown) => {
-          console.warn(
-            `[agent-aimail] inbound notify failed (non-fatal): ${e instanceof Error ? e.message : String(e)}`,
-          )
-        })
+  void ensureDefaultAgentBinding().then(async () => {
+    // Conflict-tolerant bind (owner ruling 2026-10-25): all self-bind hosts
+    // share the common default port, so the ACTUAL bound port (the bind
+    // result) is the source of truth — re-select on EADDRINUSE, and compute
+    // the confirmed URL only from the port that really bound. A failed bind
+    // is a loud error: the host must not report inbound live for a port that
+    // never came up (that would pin a route to a dead endpoint).
+    const actualPort = await listenWithRetry(server, host, port)
+    // Confirmed inbound URL (contract §4.3): the URL this listener ACTUALLY
+    // serves on (the real bound port — owner ruling 2026-10-25: carried for
+    // every `live`, no exceptions, however the service was started).
+    const confirmedUrl = `http://${host}:${actualPort}${deliverPath}`
+    // Inbound notification (owner ruling 2026-09-28, SDK de-bridging): the
+    // listener is up, so this host tells the environment master (the `aimail`
+    // CLI) — once per address it serves — that inbound is live:
+    //     aimail address -a <addr> --inbound-live --inbound-url <url>
+    // The CLI owns the environment (routes included) and decides what that
+    // means; the SDK speaks no bridge. Best-effort by contract: argv only, 4s
+    // timeout, never blocks this callback, never throws into the host (a
+    // missing CLI is one debug line — the host keeps serving and
+    // self-registering).
+    void notifyInboundForSystem('live', { inboundUrl: confirmedUrl })
+      .then((outcomes) => {
+        for (const o of outcomes) {
+          const line = `[agent-aimail] ${formatInboundNotifyLine(o, 'live')}`
+          if (isInboundNotifyWarning(o)) console.warn(line)
+          else console.log(line)
+        }
+      })
+      .catch((e: unknown) => {
+        console.warn(
+          `[agent-aimail] inbound notify failed (non-fatal): ${e instanceof Error ? e.message : String(e)}`,
+        )
+      })
 
-      // Pull entry: inbound is live ⇒ the pulled mail can enter the same chain.
-      // Only agent-scope (address-code) bindings arm a loop (mail-core decides).
-      void startInboundPull(ctx, { log: (line) => console.log(line) })
-        .then((handles) => {
-          pullHandles = handles
-        })
-        .catch((e: unknown) => {
-          console.warn(
-            `[agent-aimail] pull entry failed to start: ${e instanceof Error ? e.message : String(e)}`,
-          )
-        })
-    })
+    // Pull entry: inbound is live ⇒ the pulled mail can enter the same chain.
+    // Only agent-scope (address-code) bindings arm a loop (mail-core decides).
+    void startInboundPull(ctx, { log: (line) => console.log(line) })
+      .then((handles) => {
+        pullHandles = handles
+      })
+      .catch((e: unknown) => {
+        console.warn(
+          `[agent-aimail] pull entry failed to start: ${e instanceof Error ? e.message : String(e)}`,
+        )
+      })
+  }).catch((e: unknown) => {
+    // A bind failure must be LOUD, not an uncaught-exception crash (owner
+    // ruling 2026-10-25): the process keeps running (the host is not our
+    // process to kill) but the inbound failure is visible on stderr.
+    console.error(
+      `[agent-aimail] inbound startup aborted: ${e instanceof Error ? e.message : String(e)}`,
+    )
+  })
+  server.on('error', (e) => {
+    console.error(
+      `[agent-aimail] inbound listener error: ${e instanceof Error ? e.message : String(e)}`,
+    )
   })
   return () => {
     // Inbound down (owner ruling 2026-09-28): this host stops serving, so it says

@@ -578,8 +578,9 @@ PY
     ok "send_mail exposed to webhook sessions (platform_toolsets.webhook ⊇ $TS)"
     ;;
   dsh|dsh-aimail|dsh-plugin)
-    # inbound = agent-aimail plugin's mail-inbound server (host lifecycle self-managed, server.listen
-    # starts with host). On registration localWebhook = inboundUrl (INBOUND_PORTS.dsh=9099) ⇒ bound
+    # inbound = agent-aimail plugin's mail-inbound server (host lifecycle self-managed;
+    # the shared listenWithRetry bind starts with the host). On registration
+    # localWebhook = inboundUrl (common default inbound_port=9099) ⇒ bound
     # webhook_url port = 9099 (default, unless overridden by AIMAIL_INBOUND_URL/PORT env).
     DSH_INBOUND_PORT="${AIMAIL_INBOUND_PORT:-9099}"
     DSH_HOME="$DSH_HOME" AIMAIL_HOME="${HOME}/.aimail" AIMAIL_INBOUND_PORT="$DSH_INBOUND_PORT" \

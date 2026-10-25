@@ -7,7 +7,7 @@
 use crate::hosts::exec::{EnvPairs, Profile, Register, RegisterAll, Step, When};
 use crate::hosts::health::{Health, HealthSpec};
 use crate::hosts::identity::{Detect, PointerKind};
-use crate::hosts::HostDef;
+use crate::hosts::{HostDef, InboundMode};
 
 pub static HERMES: HostDef = HostDef {
     id: "hermes",
@@ -16,6 +16,7 @@ pub static HERMES: HostDef = HostDef {
             markers: &["hermes-agent"],
         },
     pointer: PointerKind::RootOrProfiles,
+    inbound_mode: InboundMode::HostGateway,
     register: Register::PythonModule {
             module: "aimail_hermes",
             fn_name: "_auto_register_email",
