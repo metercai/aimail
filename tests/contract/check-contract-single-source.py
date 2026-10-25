@@ -67,7 +67,9 @@ GATE_DIR = "tests/contract/"          # The gate's own directory (including base
 # Same reason as the two above ⇒ similarly excluded from the "location count" ratchet. ⚠ Difference from the two above: it **does not have**
 # check-docs-consistency.py equivalent fallback ⇒ contract values in documentation drifting from source of truth are not constrained by this gate,
 # already registered in GAP (see DOCS_WHITELIST_GAPS).
-DOCS_WHITELIST = ("docs/agent-self-setup.md", "docs/agent-self-setup_zh.md",
+DOCS_WHITELIST = ("docs/agent-self-setup.md",
+                  # docs/agent-self-setup_zh.md removed 2026-10-25 (owner ruling: EN-only bootstrap
+                  # doc, single activation entry point) — whitelist entry retired with the file.
                   # 2026-10-06 added (owner signed contract v1.0): CLI↔SDK boundary specification document,
                   # must quote contract values verbatim (same as original cli/cli-sdk-bridge-boundaries.md fix A).
                   # 2026-10-08 moved from docs/contract-boundary_zh.md to cli/contract-boundary.md;

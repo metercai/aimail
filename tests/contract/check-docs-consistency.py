@@ -3,8 +3,9 @@
 """check-docs-consistency.py — Documentation ↔ Implementation Consistency Gate (L0).
 
 User ruling (2026-09-27): **Capabilities promised in documentation must be backed by implementation** —— every thing promised in the documentation
-must have a corresponding implementation, otherwise it is leading users into a pit. This script asserts three things for `docs/agent-self-setup.md` and
-`docs/agent-self-setup_zh.md` (only covering the agent-level activation code path):
+must have a corresponding implementation, otherwise it is leading users into a pit. This script asserts three things for `docs/agent-self-setup.md`
+(and its `docs/agent-self-setup_zh.md` pair when present; owner ruling 2026-10-25 made the bootstrap doc EN-only to keep a single
+activation entry point, so the zh pair is optional) — only covering the agent-level activation code path:
 
   (a) Symbol existence: identifiers wrapped in backticks in the documentation must be found in ``pysdk`` / ``tssdk``
       **defined** (function/class/module-level constant/interface field/type member), otherwise = documentation is teaching users to call
@@ -15,7 +16,9 @@ must have a corresponding implementation, otherwise it is leading users into a p
 
   (b) Bilingual structure consistency: the heading structure of the en/zh versions must be identical item by item —— on the same order,
       "level + sequence number" must be consistent (heading text is translation, so not compared literally), otherwise the two documents describe
-       about different things.
+       about different things. EN-only mode (owner ruling 2026-10-25: agent-self-setup ships EN-only to keep a single
+      activation entry point): when the zh doc is absent, rules (a)-zh and (b) are skipped and only the en doc is
+      fully checked — absence is a declared mode, not a violation, and not "cannot judge" either.
 
   (c) Contract values == single source of truth: contract values appearing in the documentation must be character-for-character equal to the single source of truth list
       ``contract/aimail-contract.json`` (prefixes separately reference TS-side constant source of truth).
@@ -329,7 +332,11 @@ def main(argv: list) -> int:
 
     try:
         text_en = _read(repo, args.en)
-        text_zh = _read(repo, args.zh)
+        # EN-only mode (2026-10-25): zh pair absent ⇒ declared single-entry doc,
+        # skip zh symbol check + structure check (not a violation, not rc=2).
+        text_zh = None
+        if args.zh and (repo / args.zh).is_file():
+            text_zh = _read(repo, args.zh)
         plat_en = _read(repo, args.platform_en)
         plat_zh = _read(repo, args.platform_zh)
         man = load_manifest(repo)
@@ -339,15 +346,18 @@ def main(argv: list) -> int:
         out(f"[docs] CANNOT JUDGE (rc=2): {e}")
         return 2
 
-    out(f"[docs] Docs checked: {args.en} / {args.zh}")
+    out(f"[docs] Docs checked: {args.en} / {args.zh if text_zh is not None else '(absent — EN-only mode)'}")
     out(f"[docs] Platform docs: {args.platform_en} / {args.platform_zh}")
     out(f"[docs] Symbol index: {len(idx)} definitions (from pysdk/ + tssdk/packages/)")
     out(f"[docs] Single source of truth: {MANIFEST_REL}")
 
     cannot: list = []
     for fn in (lambda: check_symbols(args.en, text_en, idx),
-               lambda: check_symbols(args.zh, text_zh, idx),
-               lambda: check_structure(args.en, text_en, args.zh, text_zh),
+               # EN-only mode: no zh pair ⇒ no zh symbol/structure checks to run.
+               (lambda: check_symbols(args.zh, text_zh, idx)) if text_zh is not None
+               else (lambda: out(f"[docs] (a) {args.zh}: skipped (EN-only mode)")),
+               (lambda: check_structure(args.en, text_en, args.zh, text_zh)) if text_zh is not None
+               else (lambda: out("[docs] (b) en/zh structure: skipped (EN-only mode)")),
                # Bootstrap doc = agent side: only check symbols + title isomorphism. Contract values belong to host facts,
                # single ownership in platform docs (next two) —— writing into bootstrap doc only creates ambiguity.
                lambda: out(f"[docs] (c) {args.en}: contract values not applicable"
