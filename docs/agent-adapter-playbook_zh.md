@@ -204,6 +204,37 @@ pysdk/
   注释里的工具**数量**会随增删漂移(如 `src/dsh/index.ts:6` 仍写
   "15",whoami 移除后实为 14)——数量只认 registry,注释不写死。
 
+#### P5b Toolset Provider(board ctx `{{TOOLSET_LIST}}`,2026-10-25)
+
+- **职责**:board 上下文模板 `{{TOOLSET_LIST}}` 的填充源——**该宿主上
+  当前 agent 实际注册的工具名**。适配层注入 toolset provider,core 在
+  `build_ctx` 里调用(`src/core/preprocess.ts:384`、
+  `pysdk/aimail_base.py:235`)。
+- **契约**(owner 裁决 2026-10-25):值 = **宿主实际状态**,与 SOUL/SKILLS
+  同语义。适配层在渲染时从宿主自身状态解析;无稳定工具内省锚点的宿主
+  **不注入 provider ⇒ `""`**(严禁回退静态常量)。`AGENT_TOOL_NAMES`
+  (py `pysdk/aimail_agent.py` / ts `src/core/agent-tools.ts`)仍是注册面
+  过滤的单一真源——它**不是** `{{TOOLSET_LIST}}` 的取值来源。
+- **已知锚点**(按宿主接口差异):
+  - hermes:宿主 registry 活体内省
+    `registry.get_tool_names_for_toolset(_TOOLSET)`(与 `_read_skills`
+    查宿主 skills 入口同一活体形态,
+    `pysdk/hermes/aimail_hermes.py:160-182`,注入 `:906`)。
+  - deer-flow:宿主自己的 extensions 配置——aimail 的 mcpServers 条目
+    及其暴露的工具列表(缺席/禁用 ⇒ `[]`),
+    `pysdk/deer-flow/aimail_deerflow.py:167`,注入 `:253`。
+  - pi:`pi.getActiveTools()` ∩ 适配层 `registeredToolNames`
+    (`src/pi/index.ts:258-272`)。
+  - openclaw:工厂报告宿主实际调用注册时产出的工具
+    (`src/openclaw/tools.ts:42-50`)。
+  - dsh:`apply()` 报告本次实际注册的工具(`src/dsh/tools.ts:108-116`)。
+- **实测快照(2026-10-25,本机)**:hermes 活体值 = registry 实际 aimail
+  集合(14 名;该宿主未注册 `role_calibrator` ⇒ 值不是 15 名常量——
+  证明取值源是活体状态);deer-flow 启用 = 15 MCP 工具 / 禁用 = 空。
+  数量随注册变化而漂移——只认活体内省。
+- **验证**:渲染出的 `{{TOOLSET_LIST}}` == 宿主自身内省对该 agent
+  返回的集合;宿主什么都没注册时渲染 `""`。
+
 ### P6 SOUL per-agent 解析
 
 - **职责**:board 上下文模板 `{{SOUL_MD_CONTENT}}` 的填充源。
@@ -300,17 +331,19 @@ pysdk/
   `_CONFIG_LOADER`(agent 配置加载 `/ () -> Optional[dict]`)、
   `_PROFILE_DIR_RESOLVER`(agent 目录 `/ () -> Optional[str]`)、
   `_PERSONAS_PROVIDER`(personas 配置)、`_SOUL_PROVIDER`、
-  `_SKILLS_PROVIDER`、`_BOARD_GATEWAY_SINK`(board 网关注册回调)、
+  `_SKILLS_PROVIDER`、`_TOOLSET_PROVIDER`(宿主上
+  实际注册的 toolset 名;未注入 ⇒ `""`,无常量回退)、
+  `_BOARD_GATEWAY_SINK`(board 网关注册回调)、
   `PERSONA_SUPPORTED`(能力开关,False → 归一化基址)、
   `_AGENT_IDENTITY_OVERRIDE`(出站身份头)、
   `_PERSONA_NAME_PROVIDER`(当前 persona 名)。
 - **已知方法**:
-  - TS:`setSoulProvider` / `setSkillsProvider`(
-    `src/core/preprocess.ts:392-401`)+ 入口内其余赋值
+  - TS:`setSoulProvider` / `setSkillsProvider` / `setToolsetProvider`
+    (`src/core/preprocess.ts:392-412`)+ 入口内其余赋值
     (如 `src/openclaw/index.ts:38-111`)。
   - py:模块级直接赋值,hermes 一屏可见
-    (`pysdk/hermes/aimail_hermes.py:876-889`);
-    deer-flow(`pysdk/deer-flow/aimail_deerflow.py:199-200`)。
+    (`pysdk/hermes/aimail_hermes.py:904-906`);
+    deer-flow(`pysdk/deer-flow/aimail_deerflow.py:251-253`)。
 - **纪律**:core 侧注入点默认值必须是**最坏情况持平**的
   (None → 空串/空列表),未注入不得硬断。
 

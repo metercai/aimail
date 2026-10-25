@@ -74,6 +74,13 @@
 |---|---|---|
 | `prompt-test` | CLI 传 `system_id` + 规则 + 文本；SDK 返 `name_ok` / 字段内或·字段间且的匹配结果 | **不落盘**；判定在 SDK，CLI 只传参、**不复刻谓词**（`cli/src/cmd/prompt.rs:8`、`:49`、`:86`） |
 
+**(1c) 模板变量 `{{TOOLSET_LIST}}` 的取值归属（owner 2026-10-25 裁定）**
+| 项 | 边界 |
+|---|---|
+| 取值语义 | **宿主实际状态**：当前 agent 在宿主上实际注册的 aimail 工具名，与 `SOUL_MD_CONTENT` / `SKILLS_LIST` 同语义；**不是 SDK 静态常量**，不存在"常量回退"路径 |
+| 取值落点 | SDK 适配层注入 provider（py `_TOOLSET_PROVIDER`、ts `setToolsetProvider`），core 渲染 `build_ctx` 时调用；无稳定锚点的宿主不注入 ⇒ **空串**（`pysdk/aimail_base.py:389-400`、`src/core/preprocess.ts:384-412`） |
+| CLI 边界 | CLI 只在 `prompt` 脚手架 help 里**列变量名**（`cli/src/cmd/prompt.rs:452`），**不解析、不取值、不编造工具名**；取值与空值判定全归 SDK 运行时 |
+
 **(2) 因 py / ts 环境差异**定向保留**
 - 传输形态（两种 transport 承载**同一套语义**）：
   - **python 侧**：经门 `<宿主解释器> -m aimail.sdk_ops <op>`。其中

@@ -247,6 +247,44 @@ pysdk/
   whoami's removal the truth is 14) — for counts, trust the registry
   only; never hardcode numbers in comments.
 
+#### P5b Toolset Provider (board ctx `{{TOOLSET_LIST}}`, 2026-10-25)
+
+- **Responsibility**: the fill source for the board context template
+  `{{TOOLSET_LIST}}` — the tool names **actually registered on this host
+  for this agent**. The adapter injects the toolset provider; core invokes
+  it in `build_ctx` (`src/core/preprocess.ts:384`,
+  `pysdk/aimail_base.py:235`).
+- **Contract** (owner ruling 2026-10-25): the value is **host actual
+  state** — same semantics as SOUL/SKILLS. The adapter resolves it from the
+  host's own state at render time; a host with no stable tool-introspection
+  anchor leaves the provider **uninjected ⇒ `""`** (never a static constant
+  fallback). `AGENT_TOOL_NAMES` (py `pysdk/aimail_agent.py` / ts
+  `src/core/agent-tools.ts`) stays the registry-side single source for
+  registration filtering — it is NOT the value source of
+  `{{TOOLSET_LIST}}`.
+- **Known anchors** (per host interface difference):
+  - hermes: live registry introspection
+    `registry.get_tool_names_for_toolset(_TOOLSET)` (the same live shape as
+    `_read_skills` querying the host skills entry;
+    `pysdk/hermes/aimail_hermes.py:160-182`, injection `:906`).
+  - deer-flow: the host's own extensions config — the mcpServers entry for
+    aimail and its exposed tool list (absent/disabled ⇒ `[]`),
+    `pysdk/deer-flow/aimail_deerflow.py:167`, injection `:253`.
+  - pi: `pi.getActiveTools()` ∩ the adapter's `registeredToolNames`
+    (`src/pi/index.ts:258-272`).
+  - openclaw: the factory reports the tools it actually produced when the
+    host invoked registration (`src/openclaw/tools.ts:42-50`).
+  - dsh: `apply()` reports the tools it actually registered
+    (`src/dsh/tools.ts:108-116`).
+- **Measured snapshot (2026-10-25, local)**: hermes live value = the
+  registry's actual aimail set (14 names; `role_calibrator` not registered
+  on that host ⇒ the value is NOT the 15-name constant — proof the source
+  is live state); deer-flow enabled = 15 MCP tools / disabled = empty.
+  Counts drift as registrations change — trust the live introspection.
+- **Verification**: rendered `{{TOOLSET_LIST}}` == what the host's own
+  introspection returns for this agent; a host where nothing is registered
+  renders `""`.
+
 ### P6 SOUL (per-agent) Resolution
 
 - **Responsibility**: the fill source for the board context template
@@ -354,17 +392,19 @@ pysdk/
   assignment): `_CONFIG_LOADER` (agent config loader `/ () ->
   Optional[dict]`), `_PROFILE_DIR_RESOLVER` (agent dir `/ () ->
   Optional[str]`), `_PERSONAS_PROVIDER` (personas config),
-  `_SOUL_PROVIDER`, `_SKILLS_PROVIDER`, `_BOARD_GATEWAY_SINK` (board
+  `_SOUL_PROVIDER`, `_SKILLS_PROVIDER`, `_TOOLSET_PROVIDER` (toolset names
+  actually registered on the host; uninjected ⇒ `""`, no constant
+  fallback), `_BOARD_GATEWAY_SINK` (board
   gateway registration callback), `PERSONA_SUPPORTED` (capability switch;
   False → normalized base address), `_AGENT_IDENTITY_OVERRIDE` (outbound
   identity header), `_PERSONA_NAME_PROVIDER` (current persona name).
 - **Known methods**:
-  - TS: `setSoulProvider` / `setSkillsProvider`
-    (`src/core/preprocess.ts:392-401`) + the remaining assignments inside
+  - TS: `setSoulProvider` / `setSkillsProvider` / `setToolsetProvider`
+    (`src/core/preprocess.ts:392-412`) + the remaining assignments inside
     the entry (e.g. `src/openclaw/index.ts:38-111`).
   - py: module-level direct assignment, hermes visible in one screen
-    (`pysdk/hermes/aimail_hermes.py:876-889`);
-    deer-flow (`pysdk/deer-flow/aimail_deerflow.py:199-200`).
+    (`pysdk/hermes/aimail_hermes.py:904-906`);
+    deer-flow (`pysdk/deer-flow/aimail_deerflow.py:251-253`).
 - **Discipline**: core-side injection-point defaults must be **parity with
   the worst case** (None → empty string/empty list); an uninjected host
   must not hard-fail.

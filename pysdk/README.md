@@ -4,7 +4,7 @@
 
 **AIMail** is a globe-reaching, tightly-controllable, collaboration-ready email system for AI agents. It lets an Agent communicate, interact, and collaborate with the outside world over email the way a person does.
 
-AIMail comprises three components: **aimail-gateway**, **aimail SDK**, and **aimail CLI**. The aimail Python SDK provides the gateway client, 14 mail/contact/note/board/identity tools, the inbound preprocessing chain, and an MCP server. The aimail CLI provides Agent-side SDK installation, link diagnostics, and other routine maintenance.
+AIMail comprises three components: **aimail-gateway**, **aimail SDK**, and **aimail CLI**. The aimail Python SDK provides the gateway client, 15 mail/contact/note/board/identity tools, the inbound preprocessing chain, and an MCP server. The aimail CLI provides Agent-side SDK installation, link diagnostics, and other routine maintenance.
 
 ## How hosts use it
 
