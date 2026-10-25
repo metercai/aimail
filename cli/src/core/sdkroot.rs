@@ -409,7 +409,10 @@ mod tests {
             .parent()
             .expect("repo root")
             .join("pysdk");
-        assert!(is_sdk_root(&repo), "the repo pysdk should contain aimail_base.py");
+        assert!(
+            is_sdk_root(&repo),
+            "the repo pysdk should contain aimail_base.py"
+        );
         for rel in [
             "hermes/register_profiles.py",
             "deer-flow/manage.py",
@@ -497,7 +500,10 @@ mod tests {
             py.to_string_lossy().to_string(),
             "bind_domain should return the host interpreter"
         );
-        assert_eq!(seen, got, "after binding python_bin() must read the same host interpreter");
+        assert_eq!(
+            seen, got,
+            "after binding python_bin() must read the same host interpreter"
+        );
     }
 
     #[test]

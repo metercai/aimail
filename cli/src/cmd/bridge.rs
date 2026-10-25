@@ -155,7 +155,10 @@ fn refresh(a: &Args, running: bool) -> i32 {
 
     let cfg_path = crate::core::config::gateway_config_path(&sid);
     if !cfg_path.is_file() {
-        return fail(&format!("System config does not exist: {}", cfg_path.display()));
+        return fail(&format!(
+            "System config does not exist: {}",
+            cfg_path.display()
+        ));
     }
     if !running {
         warn("bridge not running —— only updating local route table, no hot reload (run --restart first)");
@@ -192,12 +195,18 @@ fn refresh(a: &Args, running: bool) -> i32 {
             }
         } else {
             missing += 1;
-            warn(&format!("  ✗ {} route registration failed: {}", email, detail));
+            warn(&format!(
+                "  ✗ {} route registration failed: {}",
+                email, detail
+            ));
         }
     }
 
     if refreshed > 0 {
-        ok(&format!("Refresh complete: {} routes registered/confirmed", refreshed));
+        ok(&format!(
+            "Refresh complete: {} routes registered/confirmed",
+            refreshed
+        ));
     }
     if missing > 0 {
         warn(&format!("{} failed (check if bridge is running)", missing));

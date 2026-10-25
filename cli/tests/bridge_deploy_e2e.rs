@@ -178,7 +178,10 @@ fn deploy_reuses_existing_key_without_calling_gateway_then_mints_when_missing() 
         "the reuse path must not call the gateway"
     );
     let pid = home.join("bridge/bridge.pid");
-    assert!(pid.exists(), "the bridge should have started and written its pid");
+    assert!(
+        pid.exists(),
+        "the bridge should have started and written its pid"
+    );
 
     // ② no key => mint from the gateway (assert it receives POST /api/v1/admin/api-keys); the new key lands in the config
     std::fs::write(
@@ -210,7 +213,10 @@ fn upgrade_replaces_binary_and_restarts_then_noops_when_sha_matches() {
 
     assert_eq!(upgrade_bridge(), 0, "the upgrade should succeed");
     let bin = std::fs::read_to_string(home.join("bridge/bin/aimail-bridge")).unwrap();
-    assert!(bin.contains("--serve"), "the binary should have been replaced by the new piece: {bin}");
+    assert!(
+        bin.contains("--serve"),
+        "the binary should have been replaced by the new piece: {bin}"
+    );
     assert!(
         home.join("bridge/bridge.pid").exists(),
         "it should restart and write the pid after the upgrade"

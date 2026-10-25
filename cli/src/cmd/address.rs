@@ -282,7 +282,9 @@ pub fn run(args: Args) -> i32 {
     if args.inbound_live || args.inbound_down {
         // ①② Mutual exclusion + location (copied from the three messages in `cli/aimail:_cmd_inbound_route`)
         if args.inbound_live && args.inbound_down {
-            return crate::cmd::report::fail("inbound-live and inbound-down are mutually exclusive, pick only one");
+            return crate::cmd::report::fail(
+                "inbound-live and inbound-down are mutually exclusive, pick only one",
+            );
         }
         let loc = if args.email.is_some() {
             args.email.clone().unwrap_or_default()
@@ -428,7 +430,9 @@ pub fn run(args: Args) -> i32 {
             let agents = list_agents(&aimail_home, &sid, &cfg);
             let target = locate(&agents, &args);
             let Some(t) = target else {
-                return report::fail("this operation requires -a <agent> or -e <email> to locate the target address");
+                return report::fail(
+                    "this operation requires -a <agent> or -e <email> to locate the target address",
+                );
             };
             // Contract v1.0 §4.1: go through SDK gate update(action=set-manager)——judgment and persistence are in SDK, CLI does not read intermediate values.
             let res = match crate::core::sdk::sdk_ops_call(
@@ -452,7 +456,10 @@ pub fn run(args: Args) -> i32 {
                 }
             };
             let _ = &res;
-            report::ok(&format!("manager: {} → {} (cloud + local synced)", t.email, mgr));
+            report::ok(&format!(
+                "manager: {} → {} (cloud + local synced)",
+                t.email, mgr
+            ));
             0
         }
         "set-name" => {
@@ -462,7 +469,9 @@ pub fn run(args: Args) -> i32 {
             }
             let agents = list_agents(&aimail_home, &sid, &cfg);
             let Some(t) = locate(&agents, &args) else {
-                return report::fail("this operation requires -a <agent> or -e <email> to locate the target address");
+                return report::fail(
+                    "this operation requires -a <agent> or -e <email> to locate the target address",
+                );
             };
             // Rename = SDK's CRUD (owner adjudication): validation/derivation/conflict pre-check/cloud rename/whitelist cleanup/
             // local migration/pointers all in SDK; CLI only triggers, does not assemble names itself, does not bridge itself. **Do not replicate algorithm**.
@@ -508,7 +517,9 @@ pub fn run(args: Args) -> i32 {
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false)
             {
-                report::warn("Local migration failed (cloud renamed, rerun install to rebuild local)");
+                report::warn(
+                    "Local migration failed (cloud renamed, rerun install to rebuild local)",
+                );
             }
             report::ok(&format!(
                 "Address renamed: {} → {}",

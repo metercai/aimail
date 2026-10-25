@@ -97,7 +97,8 @@ fn register_executor_offline_behaviour() {
         &["--op", "assemble", "--args"],
         "{recorded:?}"
     );
-    let payload: Value = serde_json::from_str(lines[4]).expect("the op argument should be a single JSON");
+    let payload: Value =
+        serde_json::from_str(lines[4]).expect("the op argument should be a single JSON");
     assert_eq!(payload["system_id"], json!("s1"), "{payload:?}");
     assert_eq!(
         payload["manager_address"],
@@ -117,7 +118,8 @@ fn register_executor_offline_behaviour() {
     // — three-state ①: the registered value = the local endpoint. The expected value is built from contract constants (the contract literal ratchet: no literals).
     let expected_lw = format!(
         "http://127.0.0.1:{}",
-        aimail::core::contract::inbound_port("pi").expect("the contract should have a pi inbound port")
+        aimail::core::contract::inbound_port("pi")
+            .expect("the contract should have a pi inbound port")
     ) + aimail::core::contract::inbound_path();
     assert_eq!(
         payload["local_webhook_url"],
@@ -148,13 +150,15 @@ fn register_executor_offline_behaviour() {
     .expect("the dsh registration should succeed (stub node)");
     let recorded = fs::read_to_string(&record).unwrap();
     let lines: Vec<&str> = recorded.lines().collect();
-    let payload: Value = serde_json::from_str(lines[lines.len() - 1]).expect("the op argument should be JSON");
+    let payload: Value =
+        serde_json::from_str(lines[lines.len() - 1]).expect("the op argument should be JSON");
     assert_eq!(
         payload["local_webhook_url"],
         json!(
             format!(
                 "http://127.0.0.1:{}",
-                aimail::core::contract::inbound_port("dsh").expect("the contract should have a dsh inbound port")
+                aimail::core::contract::inbound_port("dsh")
+                    .expect("the contract should have a dsh inbound port")
             ) + aimail::core::contract::inbound_path()
         ),
         "the dsh envelope local_webhook_url should be the dsh contract port ({payload:?})"

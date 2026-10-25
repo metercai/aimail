@@ -144,8 +144,14 @@ fn domain_add_creates_and_rejects() {
     assert_eq!(m, "POST");
     assert_eq!(p, "/api/v1/admin/systems/s1/domains");
     assert!(b.contains(r#""domain":"new.test""#), "{b}");
-    assert!(b.contains(r#""id":"d"#), "an omitted id should generate d{{epoch}}: {b}");
-    assert!(!b.contains("webhook_url"), "no -w given, so the field must not be present: {b}");
+    assert!(
+        b.contains(r#""id":"d"#),
+        "an omitted id should generate d{{epoch}}: {b}"
+    );
+    assert!(
+        !b.contains("webhook_url"),
+        "no -w given, so the field must not be present: {b}"
+    );
 
     // ③ carried only when -w has a value; an explicit --id takes effect
     let (port3, rx3) = stub(r#"{"status":200}"#);

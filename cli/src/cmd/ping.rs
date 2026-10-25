@@ -192,7 +192,10 @@ pub fn run(a: &Args) -> i32 {
     let mut resp = crate::core::smtp::send_ping(&gw_url, &ak, &email, &manager, &ping_id, &edition);
     if !resp.starts_with("250") && edition == "advanced" {
         let head: String = resp.chars().take(50).collect();
-        println!("  ⚠ auth.local send failed ({}), falling back to the base allowlist direct send", head);
+        println!(
+            "  ⚠ auth.local send failed ({}), falling back to the base allowlist direct send",
+            head
+        );
         resp = crate::core::smtp::send_ping(&gw_url, &ak, &email, &manager, &ping_id, "base");
     }
     if !resp.starts_with("250") {

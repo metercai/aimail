@@ -264,7 +264,10 @@ fn renew_offline_paths_and_stub_gateway() {
     let tmp3 = fixture(&["s1"], &format!("http://127.0.0.1:{}", port2));
     let home3 = tmp3.path().join("ahome");
     let (rc, out) = run(&home3, &["renew", "-s", "s1", "-c", "BAD"]);
-    assert_eq!(rc, 0, "Python continues to the end after a renew failure and returns 0: {out}");
+    assert_eq!(
+        rc, 0,
+        "Python continues to the end after a renew failure and returns 0: {out}"
+    );
     assert!(
         out.contains("failed: {'status': 400, 'error': 'bad code'}")
             || out.contains("renew failed:"),

@@ -181,7 +181,9 @@ fn welcome_api_mode_end_to_end() {
     let (rc3, out3) = run(&tmp3.path().join("ahome"), &["welcome", "-s", "s1"]);
     assert_eq!(rc3, 1, "{out3}");
     assert!(
-        out3.contains("✗ aimail_gateway.json has no admin_key — API mode needs the system admin key"),
+        out3.contains(
+            "✗ aimail_gateway.json has no admin_key — API mode needs the system admin key"
+        ),
         "{out3}"
     );
 }

@@ -253,7 +253,10 @@ mod tests {
         let h = tmp("unknown");
         let err = detect_static(&h, Some("nope")).unwrap_err();
         assert!(err.contains("--platform 'nope' unknown"), "{err}");
-        assert!(err.contains("hermes"), "valid list should list platforms: {err}");
+        assert!(
+            err.contains("hermes"),
+            "valid list should list platforms: {err}"
+        );
     }
 
     #[test]
@@ -263,7 +266,10 @@ mod tests {
         std::fs::create_dir_all(nested.join("profiles")).unwrap();
         let info = detect_static(&h, Some("hermes")).unwrap();
         assert_eq!(info.platform, "hermes");
-        assert_eq!(info.home, nested, "when given parent dir, should land in <parent>/.hermes");
+        assert_eq!(
+            info.home, nested,
+            "when given parent dir, should land in <parent>/.hermes"
+        );
     }
 
     #[test]
@@ -290,7 +296,10 @@ mod tests {
         // dsh layout: profiles/<profile>/node_modules/agent-aimail/dist/dsh/register-cli.js
         touch(&h.join("profiles/web/node_modules/agent-aimail/dist/dsh/register-cli.js"));
         let info = detect_static(&h, None).unwrap();
-        assert_eq!(info.platform, "dsh", "installed components take precedence over feature markers");
+        assert_eq!(
+            info.platform, "dsh",
+            "installed components take precedence over feature markers"
+        );
         assert_eq!(info.transport, "node");
         assert!(info
             .entry

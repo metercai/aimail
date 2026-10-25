@@ -122,7 +122,10 @@ fn python_call(expr: &str) -> Option<Value> {
         .output()
         .ok()?;
     if !out.status.success() {
-        eprintln!("the python side failed: {}", String::from_utf8_lossy(&out.stderr));
+        eprintln!(
+            "the python side failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
         return None;
     }
     serde_json::from_slice(&out.stdout).ok()
@@ -160,7 +163,10 @@ fn whoami_request_and_result_match_python() {
         !rs_req.headers.contains_key("x-api-identity"),
         "an empty identity => the header is not sent"
     );
-    assert!(!py_req.headers.contains_key("x-api-identity"), "the same for Python");
+    assert!(
+        !py_req.headers.contains_key("x-api-identity"),
+        "the same for Python"
+    );
     for h in ["x-api-timestamp", "x-api-signature"] {
         assert!(py_req.headers.contains_key(h), "Python should send {h}");
         assert!(rs_req.headers.contains_key(h), "Rust should send {h}");
@@ -169,7 +175,10 @@ fn whoami_request_and_result_match_python() {
         println!("SKIP: the Python side is unavailable");
         return;
     };
-    assert_eq!(py_val, rs_val, "the whoami return body should be the same as Python");
+    assert_eq!(
+        py_val, rs_val,
+        "the whoami return body should be the same as Python"
+    );
 }
 
 #[test]
@@ -243,7 +252,10 @@ fn create_api_key_request_and_result_match_python() {
         println!("SKIP: the Python side is unavailable");
         return;
     };
-    assert_eq!(py_val, rs_val, "the create_api_key return body should be the same as Python");
+    assert_eq!(
+        py_val, rs_val,
+        "the create_api_key return body should be the same as Python"
+    );
 }
 
 #[test]
@@ -274,6 +286,9 @@ fn create_api_key_error_shape_matches_python() {
         serde_json::json!({"raw_key":"", "error":"denied", "detail":"why", "status":403})
     );
     if let Some(pv) = py_val {
-        assert_eq!(pv, rs_val, "the 4xx branch shape should be the same as Python");
+        assert_eq!(
+            pv, rs_val,
+            "the 4xx branch shape should be the same as Python"
+        );
     }
 }

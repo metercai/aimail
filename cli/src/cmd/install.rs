@@ -511,7 +511,10 @@ fn install_human(a: &Args) -> i32 {
     let system_home = if !a.home.is_empty() {
         crate::hosts::identity::normalize_platform_home(&home::expand_user(&a.home))
     } else if let Some(ah) = agent_home_env() {
-        println!("  --home resolved from the AGENT_HOME env var: {}", ah.to_string_lossy());
+        println!(
+            "  --home resolved from the AGENT_HOME env var: {}",
+            ah.to_string_lossy()
+        );
         ah
     } else if sid.is_empty() {
         return fail("install requires --home, the AGENT_HOME env var, or --system-id to look up --home from the local config");
@@ -523,7 +526,10 @@ fn install_human(a: &Args) -> i32 {
             ));
         }
         let p = PathBuf::from(&sh);
-        println!("  --home looked up from --system-id: {}", p.to_string_lossy());
+        println!(
+            "  --home looked up from --system-id: {}",
+            p.to_string_lossy()
+        );
         p
     };
     if sid.is_empty() && prod_code.is_empty() && adm_key.is_empty() {

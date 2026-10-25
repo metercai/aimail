@@ -230,7 +230,10 @@ fn sdk_install(
     ) {
         Ok(v) => v.as_i64().unwrap_or(0) as i32,
         Err(e) => {
-            warn(&format!("pysdk entry call failed: {}", e.display_like_python()));
+            warn(&format!(
+                "pysdk entry call failed: {}",
+                e.display_like_python()
+            ));
             1
         }
     }

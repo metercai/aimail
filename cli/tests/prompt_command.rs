@@ -114,17 +114,26 @@ fn prompt_faces_list_rm_createfile_and_command_surface() {
     assert_eq!(rc, 0, "rc={rc}\nout={out}\nerr={err}");
     let i30 = out.find("30_later").unwrap();
     let i10 = out.find("10_first").unwrap();
-    assert!(i10 < i30, "it should be ordered by name (10 before 30): {out}");
+    assert!(
+        i10 < i30,
+        "it should be ordered by name (10 before 30): {out}"
+    );
     assert!(
         out.contains("subject=[审批 | approve]; body=[x]"),
         "the field rendering: {out}"
     );
-    assert!(out.contains("file=first  [disabled]"), "the disabled marker: {out}");
+    assert!(
+        out.contains("file=first  [disabled]"),
+        "the disabled marker: {out}"
+    );
     assert!(
         out.contains("(NO FIELD — loader skips this rule)"),
         "the field-less line warning: {out}"
     );
-    assert!(out.contains("role_prompt/first.md"), "the address-level role: {out}");
+    assert!(
+        out.contains("role_prompt/first.md"),
+        "the address-level role: {out}"
+    );
     assert!(
         out.contains("common.md (common.md fallback)"),
         "the system-level common fallback: {out}"
@@ -333,7 +342,10 @@ fn prompt_test_walks_the_chain_and_matches_via_sdk() {
         out.contains("L5: no rule matched — chain falls through (default prompt)"),
         "{out}"
     );
-    assert!(!out.contains("L5 HIT 10_first"), "a disabled rule must not hit: {out}");
+    assert!(
+        !out.contains("L5 HIT 10_first"),
+        "a disabled rule must not hit: {out}"
+    );
     assert!(
         !out.contains("L5 miss 10_first"),
         "a disabled rule does not enter the matching loop: {out}"

@@ -92,7 +92,9 @@ pub fn register_agent(
     let domain = setup::pget(cfg, "domain");
     let system_name = setup::pget(cfg, "system_name");
     let Some(host) = crate::hosts::get(platform) else {
-        return Err(format!("Unknown platform {platform} (no such item in registry)"));
+        return Err(format!(
+            "Unknown platform {platform} (no such item in registry)"
+        ));
     };
     let rdef = crate::hosts::exec::register_json(host);
 
@@ -271,7 +273,9 @@ pub fn register_all(
     core_dir: &Path,
 ) -> Result<(), String> {
     let Some(host) = crate::hosts::get(platform) else {
-        warn(&format!("{platform} is not in the host table (register_all skipped)"));
+        warn(&format!(
+            "{platform} is not in the host table (register_all skipped)"
+        ));
         return Ok(());
     };
     let rall = crate::hosts::exec::register_all_json(host);

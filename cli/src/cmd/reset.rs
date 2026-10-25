@@ -47,7 +47,10 @@ pub fn run(a: &Args) -> i32 {
             ));
         }
         let p = std::path::PathBuf::from(&sh);
-        println!("  --home looked up from --system-id: {}", p.to_string_lossy());
+        println!(
+            "  --home looked up from --system-id: {}",
+            p.to_string_lossy()
+        );
         p
     } else {
         crate::hosts::identity::normalize_platform_home(&crate::core::home::expand_user(&a.home))

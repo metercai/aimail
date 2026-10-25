@@ -121,12 +121,18 @@ fn agentmail_backfill_writes_byte_identical_to_python() {
         &ah,
         &[("AIMAIL_HOME".to_string(), ah.to_string_lossy().to_string())],
     );
-    assert!(changed, "the rust side should report that there are changes");
+    assert!(
+        changed,
+        "the rust side should report that there are changes"
+    );
     let rs_bytes = binding_bytes(rs_root.path());
 
     // the old python CLI has been abandoned (starting from the end) => it is no longer used as a reference; instead assert the final state directly (after delegating to the SDK, consistency is guaranteed by construction)
     let v: Value = serde_json::from_slice(&rs_bytes).unwrap();
-    assert_eq!(v["system_name"], "e2e", "the backfilled field should come from the gateway config");
+    assert_eq!(
+        v["system_name"], "e2e",
+        "the backfilled field should come from the gateway config"
+    );
     assert_eq!(
         v["webhook_url"],
         format!("http://127.0.0.1:{port}{}", contract::inbound_path()),
@@ -143,11 +149,18 @@ fn agentmail_backfill_is_idempotent_and_no_route_means_no_write() {
     std::fs::remove_file(rs_root.path().join("aimail/bridge/aimail_routes.toml")).unwrap();
     let ah = rs_root.path().join("aimail");
     let env = vec![("AIMAIL_HOME".to_string(), ah.to_string_lossy().to_string())];
-    assert!(agentmail_backfill_with("s1", &ah, &env), "the first run should backfill");
+    assert!(
+        agentmail_backfill_with("s1", &ah, &env),
+        "the first run should backfill"
+    );
     let after_first = binding_bytes(rs_root.path());
     assert!(
         !agentmail_backfill_with("s1", &ah, &env),
         "the second run should produce no change (idempotent)"
     );
-    assert_eq!(after_first, binding_bytes(rs_root.path()), "idempotent: the content is unchanged");
+    assert_eq!(
+        after_first,
+        binding_bytes(rs_root.path()),
+        "idempotent: the content is unchanged"
+    );
 }

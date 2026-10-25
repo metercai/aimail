@@ -57,7 +57,10 @@ fn machine_channels_reject_the_other_side_and_exit_2() {
             err.contains(msg),
             "{args:?} stderr should contain {msg:?}, actual {err:?}"
         );
-        assert!(out.is_empty(), "{args:?} stdout should be empty when rejecting args");
+        assert!(
+            out.is_empty(),
+            "{args:?} stdout should be empty when rejecting args"
+        );
     }
 }
 
@@ -82,7 +85,11 @@ fn install_surfaces_behave_like_python() {
         out.trim().starts_with(r#"{"success": false, "error": "#),
         "should output Python-style single-line JSON envelope: {out:?}"
     );
-    assert_eq!(out.trim_end().lines().count(), 1, "stdout must be exactly one line");
+    assert_eq!(
+        out.trim_end().lines().count(),
+        1,
+        "stdout must be exactly one line"
+    );
     // Reached the active worker ⇒ implemented: when the gateway is unreachable, **continue and succeed** per Python semantics (warn only),
     // but must use `-g` to point to dead address to avoid network (default falls to production gateway).
     let home2 = d.path().join("h2");
@@ -240,7 +247,10 @@ fn welcome_auto_resolves_single_system_without_flag() {
     )
     .unwrap();
     let (rc, out, _err) = run_env(&prog, &["welcome"], &[("AGENT_HOME", "")]);
-    assert_eq!(rc, 1, "fixture empty gw_url ⇒ rc=1 (passed sid gate): {out:?}");
+    assert_eq!(
+        rc, 1,
+        "fixture empty gw_url ⇒ rc=1 (passed sid gate): {out:?}"
+    );
     assert!(
         out.contains("Missing gateway_url"),
         "Single system should auto-resolve to solo (passed unresolved gate, landed on missing gw_url): out={out:?}"
@@ -262,7 +272,10 @@ fn welcome_auto_resolves_single_system_without_flag() {
         .unwrap();
     }
     let (rc2, out2, _e2) = run_env(&prog2, &["welcome"], &[("AGENT_HOME", "")]);
-    assert_eq!(rc2, 1, "Multiple systems must not guess, must be non-zero: {out2:?}");
+    assert_eq!(
+        rc2, 1,
+        "Multiple systems must not guess, must be non-zero: {out2:?}"
+    );
     assert!(
         out2.contains("system_id unresolved"),
         "Multiple systems should loudly report system_id unresolved (do not guess): out={out2:?}"

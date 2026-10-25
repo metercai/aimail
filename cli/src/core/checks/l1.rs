@@ -244,7 +244,11 @@ mod tests {
         let mut c = Check::new();
         gateway(&mut c, "s1", &ctx);
         let names: Vec<&str> = c.checks.iter().map(|r| r.check.as_str()).collect();
-        assert_eq!(names, vec!["health"], "health failure should early exit: {names:?}");
+        assert_eq!(
+            names,
+            vec!["health"],
+            "health failure should early exit: {names:?}"
+        );
         assert!(!c.checks[0].pass);
         assert!(
             c.checks[0].detail.starts_with("HTTP 0: "),

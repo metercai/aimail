@@ -525,7 +525,10 @@ pub fn start_bridge(bin_path: &str, cfg_path: &str, pid_path: &str) -> bool {
         let st = bridge_status(bin_path, pid_path);
         if st.get("running").and_then(|v| v.as_bool()).unwrap_or(false) {
             let pid = st.get("pid").cloned().unwrap_or(serde_json::Value::Null);
-            crate::cmd::report::ok(&format!("Detected running bridge (pid={}) → graceful stop", pid));
+            crate::cmd::report::ok(&format!(
+                "Detected running bridge (pid={}) → graceful stop",
+                pid
+            ));
             let rc = bridge_stop(bin_path, pid_path);
             if rc != 0 {
                 warn(&format!(
@@ -1210,7 +1213,10 @@ pub fn upgrade_bridge() -> i32 {
 
     let cfg = crate::core::bridge_wire::bridge_cfg_file();
     if !cfg.exists() {
-        return fail(&format!("bridge configuration does not exist: {}(not deployed?)", cfg.display()));
+        return fail(&format!(
+            "bridge configuration does not exist: {}(not deployed?)",
+            cfg.display()
+        ));
     }
     let bin_path = crate::core::home::aimail_home().join("bridge/bin/aimail-bridge");
     let repo_bridge = crate::core::home::program_root().join("bridge");
@@ -1292,7 +1298,9 @@ pub fn upgrade_bridge() -> i32 {
         }
         if !bridge_cleanup_pids().is_empty() {
             let _ = std::fs::remove_dir_all(&td);
-            return fail("Bridge still running, aborting upgrade (to avoid replacing into dual instances)");
+            return fail(
+                "Bridge still running, aborting upgrade (to avoid replacing into dual instances)",
+            );
         }
     }
 

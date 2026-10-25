@@ -1199,7 +1199,11 @@ mod tests {
         let mut c = Check::new();
         let hint = run_l3_l4(&mut c, &ctx, "nope").expect("unknown should have hint line");
         assert!(hint.contains("Unknown agent platform"), "{hint}");
-        assert!(c.checks.is_empty(), "Unknown platform does not produce records: {:?}", c.checks);
+        assert!(
+            c.checks.is_empty(),
+            "Unknown platform does not produce records: {:?}",
+            c.checks
+        );
 
         // deerflow: registry agent_check_remote ⇒ another hint line (remote self-verification)
         let hint2 = run_l3_l4(&mut c, &ctx, "deerflow").expect("deerflow should have hint line");

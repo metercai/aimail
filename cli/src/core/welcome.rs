@@ -390,6 +390,10 @@ mod tests {
         // msg_id is in the form <welcome-<epoch>-<4hex>@aimail>
         let id_line = m.lines().find(|l| l.starts_with("Message-ID: ")).unwrap();
         assert!(id_line.ends_with("@aimail>"), "{id_line}");
-        assert_eq!(m.matches("\n\n").count(), 1, "Must have exactly one blank line separating headers and body");
+        assert_eq!(
+            m.matches("\n\n").count(),
+            1,
+            "Must have exactly one blank line separating headers and body"
+        );
     }
 }

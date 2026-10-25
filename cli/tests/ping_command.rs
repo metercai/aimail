@@ -138,7 +138,9 @@ fn watcher_verdicts_cover_three_event_chain_and_pong_status() {
     let (lines5, ok5) = w5.verdict(120, "/tmp/x.log");
     assert!(ok5, "{lines5:?}");
     assert!(
-        lines5.join("\n").contains("(pong_status absent, no verdict)"),
+        lines5
+            .join("\n")
+            .contains("(pong_status absent, no verdict)"),
         "{lines5:?}"
     );
 

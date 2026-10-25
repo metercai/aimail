@@ -195,7 +195,10 @@ fn inbound_faces_validate_and_finish_by_state() {
         &h2,
         &["address", "-s", "s1", "--inbound-down", "-a", "agent"],
     );
-    assert_eq!(rc, 0, "⑦ no_bridge should be silent rc=0\nout={out}\nerr={err}");
+    assert_eq!(
+        rc, 0,
+        "⑦ no_bridge should be silent rc=0\nout={out}\nerr={err}"
+    );
 
     // ⑧ down with a bridge declared + a row for this system in the table => row withdrawal + backlog + anchor already absent
     let (_t3, h3) = fixture(stub.port, true, "", Some(stub.port));
@@ -233,5 +236,8 @@ fn inbound_faces_validate_and_finish_by_state() {
             saw_delete = true;
         }
     }
-    assert!(saw_delete, "⑧ should really have sent the DELETE row withdrawal");
+    assert!(
+        saw_delete,
+        "⑧ should really have sent the DELETE row withdrawal"
+    );
 }

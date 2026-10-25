@@ -1813,7 +1813,10 @@ mod tests {
 { system_id = "s1", admin_key = "OLD", aimail_url = "http://x" }"#;
         let ra = replace_entry_admin_key(a, "s1", "NEW").expect("order ① should hit");
         assert!(ra.contains("admin_key = \"NEW\""), "{ra}");
-        assert!(ra.contains("system_id = \"s1\""), "system_id is not touched");
+        assert!(
+            ra.contains("system_id = \"s1\""),
+            "system_id is not touched"
+        );
         // field order ②: admin_key first
         let b = r#"[[pull.systems]]
 { admin_key = "OLD", system_id = "s1" }"#;
@@ -1845,7 +1848,11 @@ mod tests {
                 crate::cmd::check::engine(sid, ah, false).check
             },
         );
-        assert_eq!(std::fs::read(&ptr).unwrap(), orig, "an existing pointer is never overwritten");
+        assert_eq!(
+            std::fs::read(&ptr).unwrap(),
+            orig,
+            "an existing pointer is never overwritten"
+        );
         std::fs::remove_dir_all(&td).ok();
     }
 
@@ -1882,7 +1889,10 @@ mod tests {
                 .join(crate::core::contract::binding_file()),
         )
         .unwrap();
-        assert_eq!(before, after, "a corrupt file must not be rewritten/deleted");
+        assert_eq!(
+            before, after,
+            "a corrupt file must not be rewritten/deleted"
+        );
         std::fs::remove_dir_all(&td).ok();
     }
 
@@ -1997,7 +2007,10 @@ mod tests {
         std::fs::create_dir_all(&home).unwrap();
         // all resources missing => hermes's file-class checks should have hit failure items
         let missing = failing_file_checks("hermes", &home.to_string_lossy(), d.path());
-        assert!(!missing.is_empty(), "failure items should be reported when resources are missing");
+        assert!(
+            !missing.is_empty(),
+            "failure items should be reported when resources are missing"
+        );
         // the fix hint shipped with the registry must be readable as-is (for repair to print)
         assert!(missing
             .iter()
@@ -2078,13 +2091,19 @@ mod tests {
             v["system_home"], "/root/.hermes",
             "an existing system_home must not be overwritten"
         );
-        assert_eq!(v["system_name"], "keepme", "unrelated fields must be preserved");
+        assert_eq!(
+            v["system_name"], "keepme",
+            "unrelated fields must be preserved"
+        );
         // ② the file does not exist => fail loudly and do not touch disk
         let _ = std::fs::remove_file(&p);
         let rc = crate::core::repair::run("s1", false, false, "", |sid, home| {
             crate::cmd::check::engine(sid, home, false).check
         });
-        assert!(rc >= 0, "a missing cfg should fail loudly rather than panic");
+        assert!(
+            rc >= 0,
+            "a missing cfg should fail loudly rather than panic"
+        );
         assert!(!p.exists(), "a missing cfg must not create a new file");
         let _ = std::fs::remove_dir_all(&td);
         std::env::remove_var("AIMAIL_HOME");
@@ -2174,7 +2193,10 @@ mod tests {
         let changed = drain_stuck(&Some(client));
         stop.store(true, Ordering::Relaxed);
         h.join().ok();
-        assert!(changed, "stuck pendings present => should report them handled");
+        assert!(
+            changed,
+            "stuck pendings present => should report them handled"
+        );
         let log = seen.lock().unwrap().clone();
         assert!(
             log[0].starts_with("POST /api/v1/admin/pending ") && log[0].contains("\"filter\":[]"),

@@ -384,7 +384,10 @@ mod tests {
             }
         );
         // Caller message = same shape as Python's ({type(e).__name__}: {e})
-        assert_eq!(e.display_like_python(), "ManagerRequiredError: manager missing");
+        assert_eq!(
+            e.display_like_python(),
+            "ManagerRequiredError: manager missing"
+        );
     }
 
     #[test]
@@ -454,7 +457,10 @@ mod tests {
             "assemble",
             &json!({"a": 1}),
         );
-        assert!(node.is_err(), "missing node entry ⇒ explicit failure (do not guess): {node:?}");
+        assert!(
+            node.is_err(),
+            "missing node entry ⇒ explicit failure (do not guess): {node:?}"
+        );
         let py = op_argv("hermes", &[], "assemble", &json!({"a": 1})).expect("python gate");
         assert_eq!(py[1], "-m");
         assert_eq!(py[2], "aimail.sdk_ops");
@@ -475,7 +481,10 @@ mod tests {
             )],
         );
         match r {
-            Ok(Value::Array(items)) => assert!(items.is_empty(), "should not have bindings under fixture home"),
+            Ok(Value::Array(items)) => assert!(
+                items.is_empty(),
+                "should not have bindings under fixture home"
+            ),
             Ok(other) => panic!("iter_bindings should return array, got {other:?}"),
             Err(e) => println!("SKIP: python gate unavailable: {}", e.display_like_python()),
         }

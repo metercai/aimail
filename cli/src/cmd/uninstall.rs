@@ -158,7 +158,9 @@ pub fn run(a: &Args) -> i32 {
         Err(msg) => return fail(&msg),
     };
     if platform.is_empty() {
-        return fail(&format!("cannot determine platform (system {sid}) — specify the platform root with --home"));
+        return fail(&format!(
+            "cannot determine platform (system {sid}) — specify the platform root with --home"
+        ));
     }
 
     println!("  uninstall system={sid} platform={platform}");
@@ -185,7 +187,9 @@ pub fn run(a: &Args) -> i32 {
             ));
         }
     } else if !gw_cfg.is_empty() {
-        ok(&format!("gateway_url: {gw_cfg}(from cfg; can be overridden by -g)"));
+        ok(&format!(
+            "gateway_url: {gw_cfg}(from cfg; can be overridden by -g)"
+        ));
     } else {
         warn(
             "cfg missing gateway_url and -g not provided —— cannot determine deregistration target, skipping gateway-side deregistration (no production default fallback); local data will still be cleared",

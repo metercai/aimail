@@ -48,9 +48,15 @@ fn repair_dry_run_prints_plan_and_help_matches_python() {
         rc, 0,
         "dry-run should be rc=0 (no write step is executed): out={out} err={err}"
     );
-    assert!(out.contains("[dry-run] plan:"), "dry-run did not print the plan: {out}");
+    assert!(
+        out.contains("[dry-run] plan:"),
+        "dry-run did not print the plan: {out}"
+    );
     // the plan must show the ladder steps (using stable identifiers, to avoid coupling with the wording)
     for step in ["bridge", "route", "webhook"] {
-        assert!(out.to_lowercase().contains(step), "the plan is missing {step}: {out}");
+        assert!(
+            out.to_lowercase().contains(step),
+            "the plan is missing {step}: {out}"
+        );
     }
 }

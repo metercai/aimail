@@ -28,7 +28,11 @@ fn interpreter_chain_has_exactly_one_implementation() {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut files = Vec::new();
     rust_sources(&src, &mut files);
-    assert!(files.len() > 50, "source tree scan anomaly ({} .rs files)", files.len());
+    assert!(
+        files.len() > 50,
+        "source tree scan anomaly ({} .rs files)",
+        files.len()
+    );
 
     let needles = [
         "env::var(\"AIMAIL_PYTHON\")",

@@ -256,13 +256,19 @@ mod tests {
     #[test]
     fn registry_data_has_no_repo_layout_paths() {
         let raw = describe_all().to_string();
-        assert!(!raw.contains("\"pysdk/"), "Repository layout path found in registry data");
+        assert!(
+            !raw.contains("\"pysdk/"),
+            "Repository layout path found in registry data"
+        );
         for entry in [
             "hermes/register_profiles.py",
             "deer-flow/manage.py",
             "hermes",
         ] {
-            assert!(raw.contains(entry), "Registry should contain SDK root relative entry {entry}");
+            assert!(
+                raw.contains(entry),
+                "Registry should contain SDK root relative entry {entry}"
+            );
         }
     }
 
@@ -272,7 +278,11 @@ mod tests {
         for h in ALL {
             for st in h.install_plan().iter().chain(h.uninstall_plan()) {
                 let v = serde_json::to_value(st).expect("step serializes");
-                assert!(v.get("kind").is_some(), "{} steps missing kind: {v}", h.id());
+                assert!(
+                    v.get("kind").is_some(),
+                    "{} steps missing kind: {v}",
+                    h.id()
+                );
             }
         }
     }

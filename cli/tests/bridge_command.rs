@@ -45,14 +45,23 @@ fn status_refresh_and_deploy_flags_are_honest() {
     assert_eq!(rc, 0, "{out}");
     assert!(out.contains("  bridge status:"), "{out}");
     assert!(out.contains("process: not running"), "{out}");
-    assert!(out.contains("config: aimail_bridge.toml does not exist"), "{out}");
-    assert!(out.contains("route table is empty (aimail_routes.toml)"), "{out}");
+    assert!(
+        out.contains("config: aimail_bridge.toml does not exist"),
+        "{out}"
+    );
+    assert!(
+        out.contains("route table is empty (aimail_routes.toml)"),
+        "{out}"
+    );
 
     // 2) both deployment-surface flags are wired: this fixture has no bridge config / no bridge binary => both must **fail loudly** (rc=1),
     //    no silent 0 (`--upgrade` missing config = "bridge config does not exist"; `--restart` startup failure)
     let (rc, out, _) = run(&home, &["bridge", "--upgrade"]);
     assert_eq!(rc, 1, "--upgrade should be rc=1: {out}");
-    assert!(out.contains("bridge configuration does not exist"), "--upgrade output: {out}");
+    assert!(
+        out.contains("bridge configuration does not exist"),
+        "--upgrade output: {out}"
+    );
     let (rc, out, _) = run(&home, &["bridge", "--restart"]);
     assert!(
         rc == 1,
@@ -158,7 +167,10 @@ fn status_refresh_and_deploy_flags_are_honest() {
         )),
         "{out}"
     );
-    assert!(out.contains("Refresh complete: 1 routes registered/confirmed"), "{out}");
+    assert!(
+        out.contains("Refresh complete: 1 routes registered/confirmed"),
+        "{out}"
+    );
 
     let (method, path, body) = rx
         .recv_timeout(std::time::Duration::from_secs(5))

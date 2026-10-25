@@ -79,10 +79,16 @@ fn version_key_arch_pick_and_idempotent_extract() {
     std::env::set_var("AIMAIL_PROG_DIR", &root);
     let bin_dir = tmp.path().join("bridge/bin");
     let bin = bin_dir.join("aimail-bridge");
-    assert!(ensure_binary(&bin, &bin_dir), "the binary should be extracted from the zip");
+    assert!(
+        ensure_binary(&bin, &bin_dir),
+        "the binary should be extracted from the zip"
+    );
     assert!(is_executable(&bin));
     let body = std::fs::read_to_string(&bin).unwrap();
-    assert!(body.contains("v1.10.0"), "the extraction should be the selected version: {body}");
+    assert!(
+        body.contains("v1.10.0"),
+        "the extraction should be the selected version: {body}"
+    );
 
     // 4) idempotent: even a changed zip content is not re-extracted (in place => not touched at all)
     make_zip(
@@ -101,7 +107,10 @@ fn version_key_arch_pick_and_idempotent_extract() {
     std::env::set_var("AIMAIL_PROG_DIR", &empty_root);
     let bin2 = tmp.path().join("bridge2/bin/aimail-bridge");
     assert!(!ensure_binary(&bin2, &tmp.path().join("bridge2/bin")));
-    assert!(!bin2.exists(), "no half-file may remain when fetching fails");
+    assert!(
+        !bin2.exists(),
+        "no half-file may remain when fetching fails"
+    );
 }
 
 /// Merge semantics + **byte-for-byte equivalent to Python** (the expected text comes from `deploy_bridge.write_bridge_config`
@@ -163,7 +172,10 @@ fail_threshold = 6
 connect_timeout_sec = 3
 "#
     .replace("__LOG__", &log);
-    assert_eq!(got, want, "the output must be byte-for-byte identical to Python");
+    assert_eq!(
+        got, want,
+        "the output must be byte-for-byte identical to Python"
+    );
 
     use std::os::unix::fs::PermissionsExt;
     assert_eq!(

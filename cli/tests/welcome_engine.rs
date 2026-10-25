@@ -109,7 +109,10 @@ fn welcome_engine_offline() {
         w.contains("\n\nWelcome to the AIMail world!"),
         "Should be followed by exactly one blank line after headers"
     );
-    assert!(w.contains("active.\n\nTo verify"), "Preserve blank lines in body paragraphs");
+    assert!(
+        w.contains("active.\n\nTo verify"),
+        "Preserve blank lines in body paragraphs"
+    );
 
     let ap = approve_message("m@example.com", "a@example.test", "P", "S");
     assert!(

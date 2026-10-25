@@ -107,7 +107,7 @@ fn repr_str(s: &str) -> String {
     out
 }
 
-/// Equivalent of Python `str()` (what `{r.get('k')}` in an f-string prints): strings **without quotes**, 
+/// Equivalent of Python `str()` (what `{r.get('k')}` in an f-string prints): strings **without quotes**,
 /// `None`→"None", `True`→"True"; containers are the same as `repr`.
 pub fn str_python(v: Option<&Value>) -> String {
     match v {

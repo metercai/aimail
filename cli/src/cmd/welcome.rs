@@ -111,7 +111,9 @@ pub fn run(a: &Args) -> i32 {
 
     if !a.smtp {
         if admin_key.is_empty() {
-            println!("✗ aimail_gateway.json has no admin_key — API mode needs the system admin key");
+            println!(
+                "✗ aimail_gateway.json has no admin_key — API mode needs the system admin key"
+            );
             return 1;
         }
         println!("  Gateway:     {}", gw_url);
@@ -151,7 +153,9 @@ pub fn run(a: &Args) -> i32 {
 
     // ── SMTP mode (legacy, --smtp explicit) ──
     if manager.is_empty() {
-        println!("✗ SMTP mode requires manager address (sender): --manager or config.manager_address");
+        println!(
+            "✗ SMTP mode requires manager address (sender): --manager or config.manager_address"
+        );
         return 1;
     }
     let agent_dir = crate::core::bridge_wire::addr_clean(&recipient);
@@ -196,7 +200,10 @@ pub fn run(a: &Args) -> i32 {
     let mut resp = welcome::smtp_send(&gw_url, &ak, &recipient, &manager, &edition, &msg);
     if !resp.starts_with("250") && edition == "advanced" {
         let head: String = resp.chars().take(50).collect();
-        println!("  ⚠ auth.local send failed ({}), falling back to the base allowlist direct send", head);
+        println!(
+            "  ⚠ auth.local send failed ({}), falling back to the base allowlist direct send",
+            head
+        );
         resp = welcome::smtp_send(&gw_url, &ak, &recipient, &manager, "base", &msg);
     }
     if !resp.starts_with("250") {
@@ -254,7 +261,10 @@ fn approve_identity(gw_url: &str, api_key: &str, recipient: &str, manager: &str)
     if resp.starts_with("250") {
         let p36: String = per.chars().take(36).collect();
         let s28: String = sig.chars().take(28).collect();
-        println!("  ✓ Identity approval submitted (persona={}…, signature={}…)", p36, s28);
+        println!(
+            "  ✓ Identity approval submitted (persona={}…, signature={}…)",
+            p36, s28
+        );
         return 0;
     }
     let head: String = resp.chars().take(80).collect();

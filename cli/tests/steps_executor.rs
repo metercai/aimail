@@ -74,7 +74,8 @@ fn step_executor_offline_behaviour() {
                "ok_text": "spawned ok"}),
     ];
     let mut ctx = ctx_with(cfg.clone());
-    aimail::core::steps::run_steps("openclaw", &steps, &mut ctx, &core_dir()).expect("should succeed");
+    aimail::core::steps::run_steps("openclaw", &steps, &mut ctx, &core_dir())
+        .expect("should succeed");
     let recorded = fs::read_to_string(&rec).unwrap();
     assert!(
         recorded.contains("--name\ns1\n"),
@@ -93,7 +94,8 @@ fn step_executor_offline_behaviour() {
         "skip_if": {"argv": ["/bin/sh", "-c", "echo PRESENT"], "match": "present"}
     })];
     let mut ctx = ctx_with(cfg.clone());
-    aimail::core::steps::run_steps("openclaw", &steps, &mut ctx, &core_dir()).expect("should succeed");
+    aimail::core::steps::run_steps("openclaw", &steps, &mut ctx, &core_dir())
+        .expect("should succeed");
     assert!(
         fs::read_to_string(&rec).unwrap().is_empty(),
         "Probe says already present ⇒ should not run install again"
