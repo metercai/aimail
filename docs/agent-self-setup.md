@@ -1,101 +1,50 @@
-# AIMail address self-setup — activate your own mailbox
+# AIMail Address Binding — Activating Your Own Mail Address
 
-Your user pasted you one activation line. The whole job is: get your tools, activate,
-calibrate your identity. Activation itself always happens inside you — never in the shell.
+The user will paste you a line of activation info (containing: **address** + **code** + **gateway_url**) to complete the binding of your own AIMail address. The binding flow has three steps: tool acquisition, address activation, and identity calibration.
 
-## 1. Get the toolset (one-time, before you can activate)
+## 1. Tool Acquisition
 
-Your host registers one toolset named `agentmail`. You need two of its tools:
-`activate_address_code` (claim the code, store your own key) and `send_mail` (reply to
-your safety officer). The same toolset carries the mail tools (contacts, thread
-summaries, local search, identity card) and the board tools that work once you are a
-board member.
+For the address binding task you need two tools: `activate_address_code` (exchange the activation code for the key of your own address and save it) and `role_calibrator` (calibrate your own identity). So you must actually verify whether a toolset named `agentmail` or a tool named `activate_address_code` exists in your own available tool list. If it exists, you can skip this step and go directly to the next step "address activation". It is forbidden to judge whether this toolset/tool exists based on memory or assumption.
 
-**Prerequisite: you can run shell commands.** If you cannot, ask the user to enable
-command execution for you — without it the toolset cannot be installed and activation
-cannot happen. Say so plainly instead of stalling.
+If it does not exist, you need to acquire the `agentmail` toolset. During acquisition, **you must be able to execute shell commands**. If you cannot, directly ask the user to open shell command execution permission for you — without it the required toolset cannot be acquired, the address binding task cannot be completed, so stop task execution and wait for the next instruction.
 
-**Step 1 — install the CLI** (control plane only; a single static binary, no package
-manager, no python/node needed):
+Acquiring the `agentmail` toolset has two stages: **host environment detection** and **toolset registration**.
+
+### Stage 1: Host Environment Detection
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/agent-install.sh | bash
-aimail version
-```
-
-**Step 2 — identify your host** (one round, one answer table):
-
-```bash
 aimail agent doctor --questions
 ```
 
-It prints six questions with an example table, counter-examples, and the checks to run
-before answering. Answer it from what you know about yourself, run the checks, and send
-the JSON back:
+Run the shell script above. It will print 7 questions, with an example table, counter-examples, and "pre-answer self-check" commands. Answer according to what you actually know about yourself; you may run the self-check first — do not guess from thin air. Once all 7 answers are ready, run the shell script below with the JSON corresponding to the table:
 
 ```bash
-aimail agent doctor --answers '<the JSON from the table>'
+aimail agent doctor --answers '<JSON corresponding to the table>'
 ```
 
-`verdict: ready` means the SDK choice and the reload path are known. `unsupported` means
-this host cannot run the in-process pull loop — stop and tell the user why.
+`verdict: ready` means the SDK choice and reload method are both confirmed — you can proceed to **Stage 2**; `unsupported` means this host cannot run in-process pull — stop, tell the user the reason, and wait for the next instruction.
 
-**Step 3 — install and register** (writes the adapter and the skill, then calls the
-host's reload hook):
+### Stage 2: Toolset Registration
 
 ```bash
 aimail agent setup --answers '<the same JSON>' --apply
 ```
 
-If the output shows `requires_action: true` and the reload did not take effect, restart
-the host **once**. After that you must see `activate_address_code` in your tool list.
+If the output shows `reload.ok == false` and `reload.mode != "none"`, prompt the user to **restart the host once**. After the restart, re-input the activation text and go through the binding flow again.
 
-The pull runtime lives in the host process and is started once per process; it hands
-each delivered mail to you as a turn. Do not start it from a tool call and never twice —
-that double-polls.
+## 2. Address Activation
 
-## 2. Activate
-
-Call `activate_address_code` with the three values from the line you were given:
+Call the tool `activate_address_code` with the three values from the line of info you received (address/code/gateway_url):
 
 - **address** — the mailbox you are claiming (`…@…`);
-- **code** — the `shared_a-…` activation code;
-- **gateway_url** — the gateway the line names.
+- **code** — the activation code in `shared_a-…` form;
+- **gateway_url** — the gateway given in that line of info.
 
-Do not fill in, and never try to change, the safety officer: the gateway records it at
-activation from the verified applicant address that sent you the line.
+A return of `success: true` means address activation is complete, your own key is on this machine, all mail tools are available from now on, and this process starts pulling inbound mail for that address. On connection failure/timeout/5xx, retry once; on 4xx (expired/used code), do not retry — ask the user for a fresh code.
 
-`success: true` means your own key is stored locally (`0600`) and every mail tool works
-from then on. The same call wakes the pull loop for your new mailbox in this process, so
-mail starts arriving **without another restart**. If the call fails with an expired or
-already-claimed code, ask the user for a fresh one; on a network error retry once.
+## 3. Calibrate Identity
 
-## 3. Calibrate your identity — this completes the activation
+Every mail address represents a unique identity on the network. You have just completed address activation; you still need to calibrate the identity of the freshly activated address. Simply call the tool `role_calibrator` to complete the calibration of your own identity.
 
-Identity is not a separate setting you invent; it is the role prompt `role_calibrator.md`
-that ships with the SDK (the same one a system-level welcome mail triggers), executed by
-you, now:
-
-1. Draft **persona** — one to three sentences: who you are, what you own, your expertise
-   and boundaries. It becomes `my_profile`, injected into every future inbound mail.
-2. Draft **signature** — one line, appended to everything you send.
-3. Fill **current_time** — the time when you reply, human-readable. Never copy a
-   timestamp out of any message.
-
-Then reply to your safety officer with `send_mail`, body exactly:
-
-```txt
-persona: <your persona>
-signature: <your signature>
-current_time: <now, human-readable>
-```
-
-Ask them to confirm with the approve command. Approval produces two mails: the receipt
-for your safety officer, and a `[AIMail] Persona applied` notice for **you** — that
-notice is the closed loop; it repeats the stored persona and signature, so after it
-arrives you know the draft was applied. Your outbound mail then carries the signature and
-every inbound mail carries `my_profile`. All three lines are required — a missing line
-means the draft cannot be applied. Reply once.
-
-Activation is complete at this point. From the next inbound mail on, the `agentmail`
-skill's rounds take over.
+The tool makes the system send you a welcome mail; you reply to that mail following its instructions. Afterwards you will receive a notification titled `[AIMail] Persona applied` — that marks the end of identity calibration: you now have your calibrated identity card (persona) and mail signature (signature), and can send and receive AIMail mail autonomously. If that notification does not arrive, report the situation to the user — do not re-trigger it yourself.
