@@ -86,7 +86,12 @@ def test_missing_doc_cannot_judge():
     assert "CANNOT JUDGE" in out, out
 
 
-def test_zh_doc_exists_and_is_covered():
-    assert DOC_ZH.is_file(), "Chinese pair must exist (maintained as bilingual pairs)"
+def test_zh_doc_is_covered_when_present():
+    # Owner ruling 2026-10-25: agent-self-setup ships EN-only to keep a single
+    # activation entry point. The zh pair is therefore optional — when absent
+    # the gate runs in EN-only mode (no zh assertion); when present it must be
+    # non-empty so a half-removed pair cannot silently pass.
+    if not DOC_ZH.is_file():
+        return
     text = DOC_ZH.read_text(encoding="utf-8")
-    assert text.strip(), "Chinese pair cannot be an empty file"
+    assert text.strip(), "Chinese pair cannot be an empty file if present"

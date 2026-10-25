@@ -20,6 +20,17 @@ bash tests/cli/stage-resources.sh
 # (gateway/bridge) not covered in this batch, registered as GAP in script output (script item (a)).
 # ⚠ Must be placed after each package resource staging —— Rule ③ needs to read 3 in-package SKILL.md (generated artifacts).
 _css_rc=0
+# The contract gate judges the in-package SKILL.md frontmatter, which is a *generated*
+# artifact (tssdk prepack stages repo-root resources/ into the package; gitignored).
+# A fresh checkout therefore has no such file — stage it first, exactly as prepack does,
+# otherwise the gate can only answer CANNOT JUDGE (rc=2) and L0 fails closed on a clean tree.
+_st_rc=0
+node tssdk/packages/agent-aimail/scripts/stage-resources.mjs \
+  --dest tssdk/packages/agent-aimail/resources >/dev/null 2>&1 || _st_rc=$?
+if [ "$_st_rc" -ne 0 ]; then
+  echo "[L0] FAIL: stage-resources rc=$_st_rc (in-package SKILL.md cannot be produced; contract gate would be blind)"
+  exit 1
+fi
 python3 tests/contract/check-contract-single-source.py || _css_rc=$?
 if [ "$_css_rc" -ne 0 ]; then
   echo "[L0] FAIL: contract single-source check rc=$_css_rc (1=drift/violation, 2=cannot-judge; fail-closed)"
@@ -64,8 +75,9 @@ if [ "$_fo_rc" -ne 0 ]; then
 fi
 echo "[L0] file-ownership: CLI ↛ binding file / SDK ↛ system env (baseline empty)"
 # Documentation↔Implementation consistency (2026-09-27, user ruling "capabilities promised in docs must be backed by implementation"):
-# docs/agent-self-setup{,_zh}.md ① SDK symbols in backticks must actually have definitions
-# ② en/zh title structure item-by-item consistent ③ Contract values in docs must hit single source of truth checklist verbatim.
+# docs/agent-self-setup.md (EN-only since 2026-10-25; the _zh pair, when present, is checked too) ① SDK symbols in backticks must
+# actually have definitions ② en/zh title structure item-by-item consistent (skipped when the zh pair is absent) ③ contract values
+# in docs must hit the single source of truth checklist verbatim.
 # rc: 0=pass 1=violation (with file:line) 2=cannot-judge (docs/checklist unreadable) —— fail-closed.
 _doc_rc=0
 python3 tests/contract/check-docs-consistency.py || _doc_rc=$?
