@@ -22,7 +22,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
-import { notifyInboundForSystem, formatInboundNotifyLine, isInboundNotifyWarning, processInboundMail, releaseAllSystems, routeAddressFromHeaders, startAgentPullEntries, setSoulProvider, setSkillsProvider, listSkillNames, verifySignature, INBOUND_PATH, INBOUND_PORTS, type AgentConfig, type AgentPullHandle, type AgentPullOverrides, type InboundPayload, packageResourcesRoot } from '../core/index.js'
+import { notifyInboundForSystem, formatInboundNotifyLine, isInboundNotifyWarning, processInboundMail, releaseAllSystems, routeAddressFromHeaders, startAgentPullEntries, setSoulProvider, setSkillsProvider, setToolsetProvider, listSkillNames, verifySignature, INBOUND_PATH, INBOUND_PORTS, type AgentConfig, type AgentPullHandle, type AgentPullOverrides, type InboundPayload, packageResourcesRoot } from '../core/index.js'
 import { resolveByRecipient } from '../mail/index.js'
 import { agentIdentity, initIdentity, readPointer, setInboundEndpoint, tryAutoBindOnce } from './identity.js'
 import { buildPiTools } from './tools.js'
@@ -240,6 +240,7 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
   log.info(`[agent-aimail] identity ${agentIdentity()}`)
 
   // ── 14 mail/board tools (bare names, MAIL_TOOLS single source) ──
+  const registeredToolNames: string[] = []
   for (const tool of buildPiTools()) {
     pi.registerTool({
       name: tool.name,
@@ -253,7 +254,22 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
         return tool.execute(toolCallId, params, signal, ctx)
       },
     })
+    registeredToolNames.push(tool.name)
   }
+  // TOOLSET_LIST: host actual state (same semantics as SOUL/SKILLS). Live
+  // introspection via the host's own ExtensionAPI.getActiveTools() (the tool
+  // set declared to the model), intersected with what THIS adapter
+  // registered — so the report shrinks if the host narrows the active set,
+  // and never claims a tool the host does not actually expose. Host API
+  // unavailable (session not ready) ⇒ [] (no constant fallback).
+  setToolsetProvider(() => {
+    try {
+      const active = new Set(pi.getActiveTools())
+      return registeredToolNames.filter(n => active.has(n))
+    } catch {
+      return []
+    }
+  })
 
   // ── Inbound receiver (local listener; bridge push target) ──
   let server: http.Server | undefined

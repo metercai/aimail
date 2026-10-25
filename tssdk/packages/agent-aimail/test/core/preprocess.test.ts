@@ -20,6 +20,7 @@ import {
   baseEmail,
   PING_PREFIX,
   PONG_PREFIX,
+  setToolsetProvider,
 } from '../../src/core/preprocess.js'
 import { AGENT_TOOL_NAMES } from '../../src/core/agent-tools.js'
 import { cleanAddr } from '../../src/core/config.js'
@@ -268,7 +269,7 @@ describe('processInboundMail', () => {
     expect(r?._a2a_session_key).toBeUndefined()
   })
 
-  it('renders {{TOOLSET_LIST}} from the single-source AGENT_TOOL_NAMES (parity with pysdk build_ctx)', async () => {
+  it('renders {{TOOLSET_LIST}} from the host toolset provider (host actual state, parity with pysdk build_ctx)', async () => {
     const roleDir = path.join(home, 'systems', SYSTEM_ID, 'board', 'role_prompt')
     await fs.mkdir(roleDir, { recursive: true })
     await fs.writeFile(
@@ -276,8 +277,28 @@ describe('processInboundMail', () => {
       'tools: {{TOOLSET_LIST}}',
       'utf-8',
     )
-    const r = await processInboundMail(mail({ subject: '[WHOAMI] tools?' }), {}, CTX)
-    expect(r?._whoami_prompt).toBe(`tools: ${AGENT_TOOL_NAMES.join(', ')}`)
+    try {
+      // registered on the host ⇒ full list; proves the value is host-provided,
+      // not the static constant.
+      setToolsetProvider(() => [...AGENT_TOOL_NAMES])
+      const r = await processInboundMail(mail({ subject: '[WHOAMI] tools?' }), {}, CTX)
+      expect(r?._whoami_prompt).toBe(`tools: ${AGENT_TOOL_NAMES.join(', ')}`)
+    } finally {
+      setToolsetProvider(null)
+    }
+  })
+
+  it('renders {{TOOLSET_LIST}} empty when the host has not injected a provider (no constant fallback)', async () => {
+    const roleDir = path.join(home, 'systems', SYSTEM_ID, 'board', 'role_prompt')
+    await fs.mkdir(roleDir, { recursive: true })
+    await fs.writeFile(
+      path.join(roleDir, 'whoami.md'),
+      'tools: {{TOOLSET_LIST}}',
+      'utf-8',
+    )
+    setToolsetProvider(null)
+    const r = await processInboundMail(mail({ subject: '[WHOAMI] tools empty?' }), {}, CTX)
+    expect(r?._whoami_prompt).toBe('tools: ')
   })
 
   it('adds _a2a_session_key when board_id + board_role present', async () => {

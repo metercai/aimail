@@ -15,6 +15,7 @@ import {
   MAIL_TOOLS,
   setAgentIdentity,
   setAgentModel,
+  setToolsetProvider,
   type MailToolDef,
   type MailToolParam,
   type ToolCtx,
@@ -86,6 +87,7 @@ export function apply(ctx: Context, config: { identity?: string } = {}): void {
     return mail.resolveCtx(sessionId)
   }
 
+  const registered: string[] = []
   for (const tool of MAIL_TOOLS) {
     const { handler: _handler, ...semantic } = tool as MailToolDef
     void _handler
@@ -103,5 +105,13 @@ export function apply(ctx: Context, config: { identity?: string } = {}): void {
         return run(tool.handler(await resolve(exec), args))
       },
     }))
+    registered.push(semantic.name)
   }
+
+  // TOOLSET_LIST: host actual state (same semantics as SOUL/SKILLS). The dsh
+  // host exposes no tool-introspection API on ctx.tools, so the adapter
+  // reports the tools IT actually registered in THIS apply() — the real
+  // registration fact, not a core constant fallback. apply() not reached ⇒
+  // provider never set ⇒ empty.
+  setToolsetProvider(() => [...registered])
 }

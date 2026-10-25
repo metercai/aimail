@@ -6,7 +6,7 @@
  * Tool parameters are translated from the platform-neutral MailToolParam
  * shape to TypeBox schemas at registration time (mirrors dsh's toDshParam).
  */
-import { MAIL_TOOLS, toTypeBoxParams } from '../core/index.js'
+import { MAIL_TOOLS, setToolsetProvider, toTypeBoxParams } from '../core/index.js'
 import { jsonResult } from 'openclaw/plugin-sdk/tool-results'
 import type {
   AnyAgentTool,
@@ -24,7 +24,7 @@ import { setAgentModel } from '../core/index.js'
 export function createMailTools(
   ctx: OpenClawPluginToolContext,
 ): AnyAgentTool[] {
-  return MAIL_TOOLS.map(tool => ({
+  const tools: AnyAgentTool[] = MAIL_TOOLS.map(tool => ({
     name: tool.name,
     label: tool.name,
     description: tool.description,
@@ -41,4 +41,12 @@ export function createMailTools(
       return jsonResult(result)
     },
   }))
+  // TOOLSET_LIST: host actual state (same semantics as SOUL/SKILLS). The
+  // openclaw plugin SDK exposes no tool-introspection API on the plugin
+  // entry, so the adapter reports the tools IT actually produced when the
+  // host invoked this registration factory — the real registration fact,
+  // not a core constant fallback. Host never invoking the factory (tools not
+  // registered) ⇒ provider never set ⇒ empty.
+  setToolsetProvider(() => tools.map(t => t.name))
+  return tools
 }

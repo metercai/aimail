@@ -9,7 +9,6 @@
 import { promises as fsp } from 'node:fs'
 import * as path from 'node:path'
 import { createHmac, timingSafeEqual } from 'node:crypto'
-import { AGENT_TOOL_NAMES } from './agent-tools.js'
 import { GatewayClient } from './gateway.js'
 import { cleanAddr, loadAgentConfig, systemDir } from './config.js'
 import { sendMail, sanitizeMessageId } from './tools.js'
@@ -378,23 +377,27 @@ function buildBoardCtx(result: Record<string, unknown>, cfg: AgentConfig): Recor
     INQUIRY_SUBJECT: String(result.subject ?? ''),
     SOUL_MD_CONTENT: readSoulMd(cfg),
     SKILLS_LIST: readSkills(cfg).join(', '),
-    // SDK-self-aware (single source: agent-tools AGENT_TOOL_NAMES), not
-    // host-injected like SOUL/SKILLS — always non-empty.
-    TOOLSET_LIST: AGENT_TOOL_NAMES.join(', '),
+    // Host actual state (same semantics as SOUL/SKILLS): the tool names
+    // actually registered on this host, resolved by the adapter layer from
+    // the host's own state. Empty when nothing is registered or the state
+    // cannot be determined — no fallback to any static constant.
+    TOOLSET_LIST: readToolset(cfg).join(', '),
   }
 }
 
-// ── per-agent SOUL / skills providers (host adapters inject; mirror Python
-// _SOUL_PROVIDER/_SKILLS_PROVIDER) ─────────────────────────────────────────
+// ── per-agent SOUL / skills / toolset providers (host adapters inject; mirror
+// Python _SOUL_PROVIDER/_SKILLS_PROVIDER/_TOOLSET_PROVIDER) ────────────────
 // The core stays platform-agnostic: it passes the agent's loaded config
 // (agent_id / email / system_id — the identity of WHICH agent this inbound
 // mail belongs to) to the adapter-provided reader and renders whatever it
-// returns. Multi-agent hosts resolve per-agent SOUL.md / skills from that
-// identity (e.g. openclaw agents/{agent_id}/SOUL.md, dsh profiles/{profile}/,
-// hermes $HERMES_PROFILE_DIR/SOUL.md). Uninjected ⇒ empty (same shape as the
-// Python default: who has a SOUL fills it, the core never touches the FS).
+// returns. Multi-agent hosts resolve per-agent SOUL.md / skills / toolset
+// from that identity (e.g. openclaw agents/{agent_id}/SOUL.md, dsh
+// profiles/{profile}/, hermes $HERMES_PROFILE_DIR/SOUL.md). Uninjected ⇒
+// empty (same shape as the Python default: the core never touches the FS,
+// never falls back to a static constant).
 let soulProvider: ((cfg: AgentConfig) => string) | null = null
 let skillsProvider: ((cfg: AgentConfig) => string[]) | null = null
+let toolsetProvider: ((cfg: AgentConfig) => string[]) | null = null
 
 export function setSoulProvider(fn: ((cfg: AgentConfig) => string) | null): void {
   soulProvider = fn
@@ -402,6 +405,10 @@ export function setSoulProvider(fn: ((cfg: AgentConfig) => string) | null): void
 
 export function setSkillsProvider(fn: ((cfg: AgentConfig) => string[]) | null): void {
   skillsProvider = fn
+}
+
+export function setToolsetProvider(fn: ((cfg: AgentConfig) => string[]) | null): void {
+  toolsetProvider = fn
 }
 
 function readSoulMd(cfg: AgentConfig): string {
@@ -417,6 +424,16 @@ function readSkills(cfg: AgentConfig): string[] {
   if (!skillsProvider) return []
   try {
     const out = skillsProvider(cfg)
+    return Array.isArray(out) ? out : []
+  } catch {
+    return []
+  }
+}
+
+function readToolset(cfg: AgentConfig): string[] {
+  if (!toolsetProvider) return []
+  try {
+    const out = toolsetProvider(cfg)
     return Array.isArray(out) ? out : []
   } catch {
     return []

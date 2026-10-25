@@ -172,6 +172,7 @@ export {
   promptRuleMatches,
   setSoulProvider,
   setSkillsProvider,
+  setToolsetProvider,
 } from './preprocess.js'
 export { opAssemble, opUpdate, opTeardown, opPromptTest, UsageError } from './sdk-ops.js'
 export { ensureSkillToolExposure } from './skill-exposure.js'

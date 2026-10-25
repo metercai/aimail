@@ -157,6 +157,31 @@ def _read_skills(config=None) -> list[str]:
     return out
 
 
+def _read_toolset(config=None) -> list[str]:
+    """Tool names actually registered on this host under the aimail toolset
+    (contract value, see _TOOLSET).
+
+    Single source of truth = the host's own tool registry
+    (tools.registry.registry.get_tool_names_for_toolset) — the live,
+    authoritative "what is actually registered right now" entry point, the
+    same live-introspection shape as _read_skills querying the host
+    skills_list(). Queried at render time, so the value reflects the actual
+    registration state (e.g. a tool registered later shows up; nothing is
+    ever claimed that is not registered).
+
+    Falls back to [] when the host registry is unavailable (running outside
+    a Hermes process) — no fallback to any static constant.
+    """
+    try:
+        from tools.registry import registry
+    except Exception:
+        return []
+    try:
+        return list(registry.get_tool_names_for_toolset(_TOOLSET) or [])
+    except Exception:
+        return []
+
+
 def _resolve_profile_dir() -> Optional[str]:
     """Resolve Hermes profile directory via fallback chain.
 
@@ -878,6 +903,7 @@ core._CONFIG_LOADER = _load_profile_config
 core._PERSONAS_PROVIDER = _list_personas
 core._SOUL_PROVIDER = _read_soul_md
 core._SKILLS_PROVIDER = _read_skills
+core._TOOLSET_PROVIDER = _read_toolset
 core._BOARD_GATEWAY_SINK = _register_board_gateway
 # Post-injection self-check: when pointer cannot be resolved, inbound preprocessing degrades (email delivered as usual, loses album/attachment download),
 # leave a warn at startup, instead of reporting for every email.

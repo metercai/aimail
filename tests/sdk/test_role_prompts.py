@@ -123,8 +123,37 @@ def test_missing_role_file_does_not_fake_a_prompt(tmp_path, monkeypatch):
     assert "_role_prompt" not in r
 
 
-def test_build_ctx_carries_toolset_list():
-    """TOOLSET_LIST = single-source AGENT_TOOL_NAMES joined, SDK-self-aware (no host provider)."""
-    import aimail_agent as A
+def test_build_ctx_toolset_list_empty_without_provider():
+    """No host provider ⇒ TOOLSET_LIST is empty. No fallback to the AGENT_TOOL_NAMES
+    constant (2026-10-25 ruling: host actual state only, empty when undetermined)."""
+    monkeypatch_none_toolset()
     ctx = ab.build_ctx({}, {})
-    assert ctx["TOOLSET_LIST"] == ", ".join(A.AGENT_TOOL_NAMES)
+    assert ctx["TOOLSET_LIST"] == ""
+
+
+def test_build_ctx_toolset_list_from_host_provider():
+    """Host provider is the single source of the value: a registered subset is
+    reflected verbatim (proves the value is NOT the static constant)."""
+    import aimail_agent as A
+    subset = list(A.AGENT_TOOL_NAMES[:3])
+    ab._TOOLSET_PROVIDER = lambda config: subset
+    try:
+        ctx = ab.build_ctx({}, {})
+    finally:
+        ab._TOOLSET_PROVIDER = None
+    assert ctx["TOOLSET_LIST"] == ", ".join(subset)
+
+
+def test_build_ctx_toolset_list_empty_when_host_says_unregistered():
+    """Toolset not registered on this host ⇒ provider returns [] ⇒ empty (no constant fallback)."""
+    ab._TOOLSET_PROVIDER = lambda config: []
+    try:
+        ctx = ab.build_ctx({}, {})
+    finally:
+        ab._TOOLSET_PROVIDER = None
+    assert ctx["TOOLSET_LIST"] == ""
+
+
+def monkeypatch_none_toolset():
+    """Ensure no toolset provider leaks in from other tests."""
+    ab._TOOLSET_PROVIDER = None

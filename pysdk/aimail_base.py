@@ -218,7 +218,10 @@ def build_ctx(payload: dict, headers: dict, config: Optional[dict] = None) -> di
     """Build template context dict from available data.
 
     ``config`` is the current agent's loaded config (identity: email/agent_id/
-    system_id) — the per-agent anchor the SOUL/skills providers resolve from.
+    system_id) — the per-agent anchor the SOUL/skills/toolset providers resolve
+    from. SOUL_MD_CONTENT / SKILLS_LIST / TOOLSET_LIST all reflect the host's
+    actual state for this agent (host-injected; empty when the host injects
+    nothing or the value cannot be determined).
     """
     return {
         "AGENTMAIL_ADDRESS": payload.get("my_aimail_addr", ""),
@@ -229,20 +232,8 @@ def build_ctx(payload: dict, headers: dict, config: Optional[dict] = None) -> di
         "INQUIRY_SUBJECT": payload.get("subject", ""),
         "SOUL_MD_CONTENT": _read_soul_md(config),
         "SKILLS_LIST": ", ".join(_read_skills(config)),
-        "TOOLSET_LIST": _toolset_list(),
+        "TOOLSET_LIST": _read_toolset(config),
     }
-
-
-def _toolset_list() -> str:
-    """Agent-level tool names, comma-joined (single source: aimail_agent.AGENT_TOOL_NAMES).
-
-    SDK-self-aware by design: unlike SOUL/SKILLS (host-injected, empty when the
-    host injects nothing), the tool list is a fact of this SDK itself, so it is
-    always non-empty. Imported lazily to avoid a base→agent import cycle at
-    module load (aimail_agent imports aimail_base).
-    """
-    import aimail_agent as A
-    return ", ".join(A.AGENT_TOOL_NAMES)
 
 
 # ── Config helpers ──
@@ -360,14 +351,17 @@ def _load_gateway_config(system_id: str = "") -> Optional[dict]:
 #             DeerFlow → pysdk/deer-flow/aimail_deerflow.py）────────────
 # Platform differences (config source/personas/profile directory/board registration) are injected by the adapter layer,
 # the common core remains platform-agnostic. Safe defaults (None/empty/no-op) are used when not injected.
-# _SOUL/_SKILLS_PROVIDER receive the current agent's config (agent identity: email/agent_id/
-# system_id), the adaptation layer uses this to resolve the SOUL.md / skills of "this agent" — multi-agent platform
-# different agents have different SOULs. The core only passes identity, does not touch the file system.
+# _SOUL/_SKILLS/_TOOLSET_PROVIDER receive the current agent's config (agent identity: email/agent_id/
+# system_id), the adaptation layer uses this to resolve the SOUL.md / skills / toolset of "this agent"
+# — multi-agent platform different agents have different SOULs. The core only passes identity, does not
+# touch the file system. All three reflect the host's actual state: empty when the host injects nothing
+# or the value cannot be determined (no fallback to any static constant).
 _CONFIG_LOADER = None          # () -> Optional[dict]      agent config loader
 _PERSONAS_PROVIDER = None      # () -> dict                personas config
 _PROFILE_DIR_RESOLVER = None   # () -> Optional[str]       profile directory (gateway config location)
 _SOUL_PROVIDER = None          # (config) -> str           SOUL content (board ctx, resolved by agent identity)
 _SKILLS_PROVIDER = None        # (config) -> list[str]     skills list (board ctx, resolved by agent identity)
+_TOOLSET_PROVIDER = None       # (config) -> list[str]     toolset names actually registered on the host (board ctx)
 _BOARD_GATEWAY_SINK = None     # (board_id, gateway_url) -> None
 
 
@@ -390,6 +384,20 @@ def _read_skills(config: Optional[dict] = None) -> list:
         return list(out) if out else []
     except Exception:
         return []
+
+
+def _read_toolset(config: Optional[dict] = None) -> str:
+    """Agent-level tool names actually registered on this host, comma-joined (injection point,
+    resolved by agent identity). Injected by the adapter layer from the host's actual state;
+    empty when nothing is registered or the state cannot be determined. No fallback to any
+    static constant."""
+    if _TOOLSET_PROVIDER is None:
+        return ""
+    try:
+        out = _TOOLSET_PROVIDER(config)
+        return ", ".join(out) if out else ""
+    except Exception:
+        return ""
 
 
 def _load_profile_config() -> Optional[dict]:

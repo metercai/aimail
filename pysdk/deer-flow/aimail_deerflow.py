@@ -141,6 +141,56 @@ def _deerflow_skills(config=None) -> list:
         return []
 
 
+def _deerflow_extensions_config_path() -> Optional[str]:
+    """The extensions_config.json the DeerFlow runtime itself will read.
+
+    Mirrors the host's ExtensionsConfig.resolve_config_path order (the same
+    order install-mcp.sh writes to, so the writer and reader agree):
+      ① DEER_FLOW_EXT_CFG (ops override)
+      ② DEER_FLOW_EXTENSIONS_CONFIG_PATH (host's own env)
+      ③ project_root()/extensions_config.json (DEER_FLOW_PROJECT_ROOT or cwd)
+      ④ DEER_FLOW_HOME/extensions_config.json
+    """
+    for cand in (
+        os.environ.get("DEER_FLOW_EXT_CFG", ""),
+        os.environ.get("DEER_FLOW_EXTENSIONS_CONFIG_PATH", ""),
+        str(Path(os.environ.get("DEER_FLOW_PROJECT_ROOT", "") or os.getcwd()) / "extensions_config.json"),
+        str(Path(os.environ.get("DEER_FLOW_HOME", "") or Path.home() / "deer-flow") / "extensions_config.json"),
+    ):
+        if cand:
+            p = Path(cand).expanduser()
+            if p.is_file():
+                return str(p)
+    return None
+
+
+def _deerflow_toolset(config=None) -> list:
+    """Tool names this host actually exposes via the aimail MCP server.
+
+    DeerFlow exposes the aimail tools through the shared stdio MCP server
+    (aimail_mcp_server.TOOLS), wired by the host's extensions config
+    (mcpServers.aimail). Host actual state = whether that entry exists in
+    the config file the host itself reads (mirrored above). Enabled ⇒ the
+    MCP tools the agent can call; absent/disabled ⇒ [] (no constant
+    fallback).
+    """
+    path = _deerflow_extensions_config_path()
+    if not path:
+        return []
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    servers = data.get("mcpServers") or {}
+    if not isinstance(servers, dict) or "aimail" not in servers:
+        return []
+    try:
+        from aimail_mcp_server import TOOLS
+    except Exception:
+        return []
+    return [t["name"] for t in TOOLS if isinstance(t, dict) and t.get("name")]
+
+
 def set_agent_context(agent_id: str, system_id: str = "") -> None:
     """Attach current agent's config to public core injection point (forward shared implementation)."""
     _ab.set_agent_context(agent_id, system_id)
@@ -198,6 +248,9 @@ _ab._PROFILE_DIR_RESOLVER = _deerflow_profile_dir
 # agent address directory; skills enumerates subdirectories of that directory's skills/, missing ⇒ [])
 _ab._SOUL_PROVIDER = _deerflow_soul_md
 _ab._SKILLS_PROVIDER = _deerflow_skills
+# per-agent toolset: host actual state = the aimail MCP server entry in the host's own
+# extensions config (the channel through which this host exposes the tools)
+_ab._TOOLSET_PROVIDER = _deerflow_toolset
 # Post-injection self-check: when pointer resolution fails, inbound preprocessing degrades (email delivered as usual, profile/attachment download lost),
 # Leave a warn at startup, rather than reporting on every email.
 _ab.check_profile_pointer()

@@ -1,10 +1,15 @@
 /**
  * agent-tools — the single source for the agent-level tool name list.
  *
- * Dependency-free on purpose: both `agent-level.ts` (the toolset registry)
- * and `preprocess.ts` (the {{TOOLSET_LIST}} board-ctx variable) import it,
- * and `agent-level.ts` already imports `preprocess.ts` — putting the list
- * in either of those two modules would create a cycle.
+ * Dependency-free on purpose: `agent-level.ts` (the toolset registry)
+ * imports it, and `agent-level.ts` already imports `preprocess.ts` —
+ * putting the list in either of those two modules would create a cycle.
+ *
+ * This list is the registry-side single source (used to filter MAIL_TOOLS
+ * in agent-level.ts and in adapter-layer toolset providers). It is NOT
+ * the source of the {{TOOLSET_LIST}} board-ctx variable — that value is
+ * host actual state injected via setToolsetProvider (empty when the host
+ * has no stable anchor).
  */
 export const AGENT_TOOL_NAMES = [
   'activate_address_code',
