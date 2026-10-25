@@ -174,6 +174,8 @@ export {
   setSoulProvider,
   setSkillsProvider,
   setToolsetProvider,
+  setPersonaSupport,
+  setPersonasProvider,
 } from './preprocess.js'
 export { opAssemble, opUpdate, opTeardown, opPromptTest, UsageError } from './sdk-ops.js'
 export { ensureSkillToolExposure } from './skill-exposure.js'

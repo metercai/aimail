@@ -409,6 +409,8 @@ function buildBoardCtx(result: Record<string, unknown>, cfg: AgentConfig): Recor
 let soulProvider: ((cfg: AgentConfig) => string) | null = null
 let skillsProvider: ((cfg: AgentConfig) => string[]) | null = null
 let toolsetProvider: ((cfg: AgentConfig) => string[]) | null = null
+let personaSupportFn: ((cfg: AgentConfig) => boolean) | null = null
+let personasProvider: ((cfg: AgentConfig) => string[]) | null = null
 
 export function setSoulProvider(fn: ((cfg: AgentConfig) => string) | null): void {
   soulProvider = fn
@@ -420,6 +422,24 @@ export function setSkillsProvider(fn: ((cfg: AgentConfig) => string[]) | null): 
 
 export function setToolsetProvider(fn: ((cfg: AgentConfig) => string[]) | null): void {
   toolsetProvider = fn
+}
+
+/**
+ * Persona capability switch (host adapter injects; mirrors Python
+ * `aimail_base.PERSONA_SUPPORTED`, default false — the core never assumes a
+ * host capability). When true, the chain validates the persona from the 'to'
+ * address against `setPersonasProvider` (the `list_personas()` equivalent)
+ * and keeps the persona address on a hit; a miss warns and falls back to the
+ * base address. When false the recipient is normalized to the base address
+ * with no validation (parity with Python's PERSONA_SUPPORTED=False branch).
+ */
+export function setPersonaSupport(fn: ((cfg: AgentConfig) => boolean) | null): void {
+  personaSupportFn = fn
+}
+
+/** Configured persona names (the `list_personas()` equivalent); uninjected ⇒ []. */
+export function setPersonasProvider(fn: ((cfg: AgentConfig) => string[]) | null): void {
+  personasProvider = fn
 }
 
 function readSoulMd(cfg: AgentConfig): string {
@@ -555,7 +575,8 @@ export async function processInboundMail(
   const toBare = toNamed.length ? toNamed.map(x => x.email) : toRaw.map(a => a.toLowerCase())
   const ccBare = ccNamed.length ? ccNamed.map(x => x.email) : ccRaw.map(a => a.toLowerCase())
 
-  // step 7-8: persona (dsh: PERSONA_SUPPORTED=false → normalized base)
+  // step 7-8: persona (capability = host adapter hook, mirrors Python
+  // PERSONA_SUPPORTED + list_personas(); default false → normalize to base)
   const agentDomain = agentEmail.includes('@') ? agentEmail.split('@', 2)[1] ?? '' : ''
   let myToAddr = ''
   for (const addr of toBare) {
@@ -566,10 +587,38 @@ export async function processInboundMail(
   }
   const persona = myToAddr ? parseAimailPersona(myToAddr, systemName).persona : ''
   if (persona) {
-    // PERSONA_SUPPORTED=false: normalize recipient to base address
-    // (strip persona prefix, no config validation) — dsh contract
-    result.my_aimail_addr = agentEmail
-  } else {
+    let supported = false
+    if (personaSupportFn) {
+      try {
+        supported = personaSupportFn(cfg) === true
+      } catch {
+        supported = false
+      }
+    }
+    if (!supported) {
+      // persona not supported by this host: normalize recipient to base address
+      // (strip persona prefix, no config validation) — parity with Python
+      // PERSONA_SUPPORTED=False (my_aimail_addr = agent_email, no fall-through)
+      result.my_aimail_addr = agentEmail
+    } else {
+      // supported: validate against configured personas (list_personas() equivalent)
+      let configured: string[] = []
+      if (personasProvider) {
+        try {
+          configured = personasProvider(cfg) ?? []
+        } catch {
+          configured = []
+        }
+      }
+      if (configured.includes(persona)) {
+        result.my_aimail_addr = myToAddr
+      } else {
+        console.warn(`[aimail] Persona '${persona}' not found in configured personas — falling back to base address`)
+        result.my_aimail_addr = agentEmail
+      }
+    }
+  }
+  if (!result.my_aimail_addr) {
     result.my_aimail_addr = myToAddr || agentEmail
   }
 
