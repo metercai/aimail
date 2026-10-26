@@ -870,10 +870,12 @@ class _GatewayClient:
 
         Stream state: a ``mail`` event reuses the exact batch delivery +
         ack path of the Poll state (one shared ``_deliver_batches``).
-        Server closed at its max life ⇒ immediate reconnect (rotation);
+        Server closed at its max life ⇒ immediate reconnect (rotation,
+        and it RESETS the drop streak — only a healthy round breaks it);
         no data for ``PULL_STREAM_PING_TIMEOUT_S`` (dead/buffered link)
-        ⇒ Poll; transport drops ⇒ exponential backoff 1→30s, 3
-        consecutive ⇒ Poll.
+        ⇒ Poll; mid-stream transport drops ⇒ exponential backoff 1→30s
+        (the streak persists across reconnects), 3 consecutive ⇒ Poll;
+        re-probe recovery also resets the streak.
 
         Poll state: one long-pull round per iteration
         (``pull_list`` carries the ``timeout_ms`` hold). An EMPTY round
@@ -923,6 +925,7 @@ class _GatewayClient:
                     and (time.monotonic() - last_reprobe) >= PULL_REPROBE_INTERVAL_S:
                 last_reprobe = time.monotonic()
                 if self._probe_stream():
+                    stream_streak = 0  # recovery: fresh stream run starts clean
                     in_poll = False
                 else:
                     _poll_sleep(delay, stop_event)
@@ -934,7 +937,11 @@ class _GatewayClient:
                 if res == "stop":
                     break
                 if res == "stay":
-                    continue  # server max-life rotation: reconnect now
+                    # Server max-life rotation: a HEALTHY round. Only a
+                    # healthy rotation breaks the transport-error streak
+                    # (a fresh drop run starts from 1) — bridge parity.
+                    stream_streak = 0
+                    continue
                 if res == "error":
                     # Mid-stream transport drop: shared decision function
                     # (override "stream" never downgrades; auto gives up
@@ -967,7 +974,7 @@ class _GatewayClient:
                     stats["errors"] += 1
                     poll_failures += 1
                     _poll_sleep(
-                        float(pull_poll_backoff_secs(max(1, int(delay)), poll_failures)),
+                        float(pull_poll_backoff_secs(int(delay), poll_failures)),
                         stop_event)
                     continue
                 poll_failures = 0
@@ -986,7 +993,7 @@ class _GatewayClient:
                 stats["errors"] += 1
                 poll_failures += 1
                 _poll_sleep(
-                    float(pull_poll_backoff_secs(max(1, int(delay)), poll_failures)),
+                    float(pull_poll_backoff_secs(int(delay), poll_failures)),
                     stop_event)
         return stats
 

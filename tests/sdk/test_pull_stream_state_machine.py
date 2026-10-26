@@ -481,3 +481,38 @@ def test_empty_round_paces_the_interval():
         assert elapsed >= 0.8, "two empty rounds must pace ~0.5s each"
     finally:
         srv.shutdown()
+
+
+def test_healthy_rotation_resets_stream_streak(monkeypatch):
+    """auto: error, healthy rotation, error, error, error ⇒ the rotation
+    RESETS the drop streak (plan 0.3 B, bridge parity), so the 3
+    CONSECUTIVE drops only complete at the 5th stream attempt — without
+    the reset the downgrade would fire at the 4th."""
+    import aimail_tools as tools
+    monkeypatch.setattr(tools, "PULL_REPROBE_INTERVAL_S", 3600)
+    state = _State()
+    state.stream_available = False
+    state.pending = [[{"body": {}, "deliveries":
+                       [{"id": 9, "email": "a@x", "headers": {}}]}]]
+    srv = _make_server(state)
+    try:
+        c = _client_for(srv)
+        script = iter(["error", "stay", "error", "error", "error"])
+        calls = []
+
+        def fake_round(on_email, seen, stats, stop_event, ping_timeout):
+            calls.append(1)
+            return next(script)
+
+        c._stream_round = fake_round
+        got = []
+        t0 = time.monotonic()
+        stats = c.start_polling(got.append, interval=0.05, max_rounds=2,
+                                mode="auto")
+        elapsed = time.monotonic() - t0
+        assert [m["id"] for m in got] == [9], got  # delivered via poll fallback
+        assert stats["acked"] == 1
+        assert len(calls) == 5, "rotation must reset the streak (5 attempts)"
+        assert elapsed < 15  # backoffs 1+1+2s; no 600s re-probe wait
+    finally:
+        srv.shutdown()

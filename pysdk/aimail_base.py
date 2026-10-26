@@ -1997,9 +1997,10 @@ def pull_stream_backoff_secs(streak: int) -> int:
 def pull_poll_backoff_secs(interval_s: int, failures: int) -> int:
     """Poll failure backoff: interval_s * 2^failures, cap 300s (s).
 
-    Parity with bridge ``poll_backoff_secs(poll_interval_secs, failures)``.
+    Exact mirror of bridge ``poll_backoff_secs(poll_interval, failures)``:
+    ``interval * 2^failures``, cap 300s (no lower bound: interval 0 ⇒ backoff 0).
     """
-    return min(max(1, int(interval_s)) * (1 << min(max(0, failures), 6)), 300)
+    return min(max(0, int(interval_s)) * (1 << min(max(0, failures), 6)), 300)
 
 
 def pull_decide_next_mode(override_mode: str, probe, stream_fail_streak: int):
