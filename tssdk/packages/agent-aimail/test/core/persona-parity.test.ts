@@ -30,7 +30,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { processInboundMail, setPersonaSupport, setPersonasProvider } from '../../src/core/preprocess.js'
 import { cleanAddr } from '../../src/core/config.js'
-import { BINDING_FILE } from '../../src/core/contract.js'
+import { BINDING_FILE, POINTER_FILE } from '../../src/core/contract.js'
 import type { InboundPayload } from '../../src/core/types.js'
 
 const SYSTEM_ID = 'sys-p3'
@@ -142,7 +142,7 @@ function pyRun(
     input: PY_HELPER,
     encoding: 'utf-8',
     timeout: 30_000,
-    env: { ...process.env, AIMAIL_HOME: home, AIMAIL_REPO_ROOT: repoRoot() },
+    env: { ...process.env, AIMAIL_HOME: home, AIMAIL_REPO_ROOT: repoRoot(), POINTER_FILE: POINTER_FILE },
   })
   return JSON.parse(out.trim())
 }
@@ -221,7 +221,7 @@ ab._CONFIG_LOADER = lambda: {'email': EMAIL, 'system_id': SID, 'system_name': ''
                              'gateway_url': 'http://127.0.0.1:9', 'domain': DOMAIN}
 pdir = pathlib.Path(home) / 'profile'
 pdir.mkdir(parents=True, exist_ok=True)
-(pdir / '.agentmail').write_text(json.dumps({'system_id': SID, 'email': EMAIL}))
+(pdir / os.environ['POINTER_FILE']).write_text(json.dumps({'system_id': SID, 'email': EMAIL}))
 ab._PROFILE_DIR_RESOLVER = lambda: str(pdir)
 ab.PERSONA_SUPPORTED = bool(case.get('support'))
 ps = case.get('personas')
