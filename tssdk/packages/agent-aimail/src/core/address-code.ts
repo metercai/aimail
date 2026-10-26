@@ -18,6 +18,17 @@ import { promises as fs } from 'node:fs'
 import * as path from 'node:path'
 import { fireBindingCreated } from './binding-hooks.js'
 import {
+  PULL_HOLD_MAX_MS,
+  PULL_MODE_ENV,
+  PULL_REPROBE_INTERVAL_MS,
+  parsePullMode,
+  pullDecideNextMode,
+  pullPollBackoffSecs,
+  type PullBatch,
+  type PullMode,
+  type StreamRoundResult,
+} from './pull-contract.js'
+import {
   type AgentConfig,
 } from './types.js'
 import {
@@ -32,6 +43,10 @@ import type { GatewayResponse } from './types.js'
  * `baseUrl` is required: the persist chain derives `gateway_url` from it when
  * the caller omits `opts.gatewayUrl` — Python-side parity, where the binding
  * always carries the client's configured gateway URL.
+ *
+ * Stream methods are OPTIONAL: only the real GatewayClient implements them
+ * (fetch + ReadableStream). A client without them (test fakes, SSE-less
+ * hosts) is poll-only — the state machine goes straight to Poll.
  */
 export interface RequestClient {
   /** Base URL the client talks to (GatewayClient stores it without trailing slash). */
@@ -41,6 +56,14 @@ export interface RequestClient {
     path: string,
     body?: Record<string, unknown>,
   ): Promise<GatewayResponse>
+  /** `GET /stream` probe: true = 200 + text/event-stream (30s connect bound). */
+  streamProbe?(): Promise<boolean>
+  /** One SSE round; result semantics: see pull-contract.ts StreamRoundResult. */
+  streamRound?(
+    onBatches: (batches: PullBatch[]) => void | Promise<void>,
+    signal?: AbortSignal,
+    pingTimeoutMs?: number,
+  ): Promise<StreamRoundResult>
 }
 
 export interface ActivateAddressCodeResult {
@@ -241,16 +264,7 @@ export async function activateAddressCodePersist(
   }
 }
 
-export interface PullDelivery {
-  id: number
-  email: string
-  headers: unknown
-}
-
-export interface PullBatch {
-  body: unknown
-  deliveries: PullDelivery[]
-}
+export type { PullBatch, PullDelivery } from './pull-contract.js'
 
 /**
  * Agent-scope pull over the shared `/api/v1/admin/pending` endpoint. With an
@@ -264,6 +278,9 @@ export async function pullList(
 ): Promise<{ success: boolean; batches: PullBatch[]; error?: string }> {
   const res = await client.request('POST', '/api/v1/admin/pending', {
     limit: Math.max(1, Math.min(limit, 200)),
+    // Long-pull hold: an empty queue is held server-side up to PULL_HOLD_MAX_MS
+    // (old servers ignore the field ⇒ immediate answer).
+    timeout_ms: PULL_HOLD_MAX_MS,
   })
   if (res.status !== 200) {
     return { success: false, batches: [], error: String(res.error ?? 'pull list failed') }
@@ -292,8 +309,15 @@ export interface PollStats {
 export interface StartPollingOptions {
   intervalMs?: number
   limit?: number
-  /** Bounds the loop for tests (undefined = forever). */
+  /** Bounds the Poll rounds for tests (undefined = forever; probes/stream are not counted). */
   maxRounds?: number
+  /**
+   * Transport mode. Default: AIMAIL_PULL_MODE env or "auto".
+   * "poll" = kill switch (no probing); "stream" = forced (never downgrades).
+   */
+  mode?: PullMode
+  /** Per-read SSE timeout override in ms (default: min(30s ping, 90s read cap)). */
+  streamPingTimeoutMs?: number
   /**
    * Cooperative shutdown. When aborted the loop returns at the next
    * check with the stats accumulated so far (in-flight round included);
@@ -324,12 +348,87 @@ function pollSleep(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 /**
- * Poll → deliver → ack loop for the agent's own mailbox.
+ * Shared forward+ack path used by BOTH the Stream and the Poll transports
+ * (parity: py `_deliver_batches`). Dedup key = delivery id (stable and
+ * unique). An `onEmail` failure — sync throw OR rejected promise — leaves
+ * the id un-acked and removes it from the dedup set: the mail re-pulls next
+ * round (nothing is lost, §9 failover).
+ */
+async function deliverBatches(
+  client: RequestClient,
+  batches: PullBatch[],
+  onEmail: (mail: { id: number; email: string; headers: unknown; body: unknown }) => void | Promise<void>,
+  seen: Set<number>,
+  stats: PollStats,
+): Promise<void> {
+  const delivered: number[] = []
+  for (const batch of batches) {
+    let body: unknown = batch.body
+    if (typeof body === 'string') {
+      try {
+        body = JSON.parse(body) as unknown
+      } catch {
+        // keep the raw string — onEmail sees the wire shape
+      }
+    }
+    for (const d of batch.deliveries ?? []) {
+      if (seen.has(d.id)) continue
+      seen.add(d.id)
+      try {
+        // Awaited: an async delivery that rejects must count as a failure
+        // (un-acked ⇒ re-pull). Fire-and-forget would ack mail the agent
+        // never took.
+        await onEmail({ id: d.id, email: d.email, headers: d.headers, body })
+        delivered.push(d.id)
+        stats.pulled++
+      } catch {
+        // un-acked on purpose: re-pulls next round
+        seen.delete(d.id)
+        stats.errors++
+      }
+    }
+  }
+  if (delivered.length) {
+    const ack = await pullAck(client, delivered)
+    if (ack.success) stats.acked += ack.acked ?? 0
+  }
+}
+
+/**
+ * Stream (SSE) primary / long-pull fallback — state machine (three-client
+ * parity with the bridge `start_pull_loop` and py `start_polling`).
  *
- * Dedup key = delivery id (stable and unique). An `onEmail` failure — sync
- * throw OR rejected promise — leaves the id un-acked: the mail re-pulls next
- * round (nothing is lost, §9 failover). A failed pull round counts an error
- * and backs off one interval. `signal` stops the loop at the next check.
+ * Transport selection:
+ * * mode "auto" (default, or absent AIMAIL_PULL_MODE): the first stream
+ *   round doubles as the probe — available ⇒ Stream state; not available
+ *   (404/405/old server/transport failure) ⇒ Poll state. While in Poll the
+ *   stream is re-probed every PULL_REPROBE_INTERVAL_MS (server-upgrade
+ *   recovery) — NOT on every round.
+ * * mode "stream": always Stream; transport drops never downgrade
+ *   (reconnect with exponential backoff).
+ * * mode "poll": kill switch — long-pull only, no probing.
+ * A client WITHOUT stream methods (test fakes) is poll-only: straight to
+ * Poll, no probing.
+ *
+ * Stream state: a mail event reuses the exact batch delivery + ack path of
+ * the Poll state (one shared deliverBatches). Server closed at its max life
+ * ⇒ immediate reconnect (rotation — and it RESETS the drop streak, only a
+ * healthy round breaks it); no data within the ping window (dead/buffered
+ * link) ⇒ Poll; mid-stream transport drops ⇒ exponential backoff 1→30s
+ * (the streak persists across reconnects), 3 consecutive ⇒ Poll; re-probe
+ * recovery also resets the streak.
+ *
+ * Poll state: one long-pull round per iteration (pullList carries the
+ * timeout_ms hold). An EMPTY round already waited server-side for the hold
+ * ⇒ a plain interval sleep paces the next round; a NON-EMPTY round does NOT
+ * sleep (continuous mail flow is not throttled by the poll interval); a
+ * FAILED round backs off exponentially (interval*2^failures, cap 300s —
+ * bridge parity).
+ *
+ * Delivery semantics (unchanged from the legacy loop, item-by-item): dedup
+ * key = delivery id; an onEmail failure leaves the id un-acked; maxRounds
+ * bounds Poll rounds only (probes are not counted); signal stops the loop at
+ * the next check and interrupts any pending sleep.
  */
 export async function startPolling(
   client: RequestClient,
@@ -338,47 +437,103 @@ export async function startPolling(
 ): Promise<PollStats> {
   const intervalMs = opts.intervalMs ?? 30_000
   const limit = opts.limit ?? 20
+  const mode: PullMode = opts.mode ?? parsePullMode(process.env[PULL_MODE_ENV])
   const stats: PollStats = { pulled: 0, acked: 0, errors: 0 }
   const seen = new Set<number>()
   const sleep = (ms: number) => pollSleep(ms, opts.signal)
-  for (let round = 0; opts.maxRounds === undefined || round < opts.maxRounds; round++) {
+  // Explicit transport state: true while in the long-poll fallback.
+  // Auto starts optimistic (Stream); Poll is forced.
+  let inPoll = mode === 'poll'
+  let streamStreak = 0
+  let pollFailures = 0
+  // "Due immediately" so the first Poll round re-probes right away.
+  let lastReprobe = Date.now() - PULL_REPROBE_INTERVAL_MS
+  let rounds = 0
+  for (;;) {
     if (opts.signal?.aborted) break
-    try {
-      const lst = await pullList(client, limit)
-      if (!lst.success) {
-        stats.errors++
+    // ── Poll state: due re-probe of the stream endpoint ────────────
+    // Contract cadence (10 min), NOT every round — a streamless server
+    // costs one 404 per reprobe, not per poll. A failed probe sleeps the
+    // round out; a ready probe hands over to the stream branch below.
+    if (inPoll && mode !== 'poll' && Date.now() - lastReprobe >= PULL_REPROBE_INTERVAL_MS) {
+      lastReprobe = Date.now()
+      if (client.streamProbe && (await client.streamProbe())) {
+        streamStreak = 0 // recovery: a fresh stream run starts clean
+        inPoll = false
+      } else {
         await sleep(intervalMs)
         continue
       }
-      const delivered: number[] = []
-      for (const batch of lst.batches) {
-        for (const d of batch.deliveries ?? []) {
-          if (seen.has(d.id)) continue
-          seen.add(d.id)
-          try {
-            let body = batch.body
-            if (typeof body === 'string') body = JSON.parse(body) as unknown
-            // Awaited: an async delivery that rejects must count as a failure
-            // (un-acked ⇒ re-pull). Fire-and-forget would ack mail the agent
-            // never took.
-            await onEmail({ id: d.id, email: d.email, headers: d.headers, body })
-            delivered.push(d.id)
-            stats.pulled++
-          } catch {
-            // un-acked on purpose: re-pulls next round
-            seen.delete(d.id)
-            stats.errors++
-          }
+    }
+    // ── Stream state (auto/stream modes, not currently in poll) ────
+    if (!inPoll && client.streamRound) {
+      const res = await client.streamRound(
+        (batches) => deliverBatches(client, batches, onEmail, seen, stats),
+        opts.signal,
+        opts.streamPingTimeoutMs,
+      )
+      if (res === 'stop') break
+      if (res === 'stay') {
+        // Server max-life rotation: a HEALTHY round. Only a healthy
+        // rotation breaks the transport-error streak (a fresh drop run
+        // starts from 1) — bridge parity (plan 0.3 B).
+        streamStreak = 0
+        continue
+      }
+      if (res === 'error') {
+        // Mid-stream transport drop: shared decision function (override
+        // "stream" never downgrades; auto gives up after 3 consecutive).
+        streamStreak++
+        const [nextMode, backoff] = pullDecideNextMode(mode, null, streamStreak)
+        if (nextMode === 'poll') {
+          streamStreak = 0
+          inPoll = true
+          lastReprobe = Date.now()
+        } else {
+          if (backoff > 0) await sleep(backoff * 1000)
+          continue
         }
+      } else {
+        // 'drop': connect failed or stalled — no alternative transport;
+        // the Poll-state re-probe recovers later.
+        inPoll = true
+        lastReprobe = Date.now()
       }
-      if (delivered.length) {
-        const ack = await pullAck(client, delivered)
-        if (ack.success) stats.acked += ack.acked ?? 0
+    } else if (!inPoll) {
+      // Poll-only client (no stream methods): straight to Poll.
+      inPoll = true
+      lastReprobe = Date.now()
+    }
+    // ── Poll state: one long-pull round ─────────────────────────────
+    if (opts.maxRounds !== undefined && rounds >= opts.maxRounds) break
+    if (opts.signal?.aborted) break
+    rounds++
+    try {
+      const lst = await pullList(client, limit)
+      if (!lst.success) {
+        // Failed round: exponential backoff (bridge parity:
+        // interval*2^failures, cap 300s) — NOT the plain interval.
+        stats.errors++
+        pollFailures++
+        await sleep(pullPollBackoffSecs(Math.trunc(intervalMs / 1000), pollFailures) * 1000)
+        continue
       }
+      pollFailures = 0
+      const batches = lst.batches
+      if (!batches.length) {
+        // Empty round: the server held us for timeout_ms already, so a
+        // plain poll-interval sleep paces the next round.
+        await sleep(intervalMs)
+        continue
+      }
+      // Non-empty round: NO sleep — straight to the next round so a
+      // continuous mail flow is not throttled by the poll interval.
+      await deliverBatches(client, batches, onEmail, seen, stats)
     } catch {
       stats.errors++
+      pollFailures++
+      await sleep(pullPollBackoffSecs(Math.trunc(intervalMs / 1000), pollFailures) * 1000)
     }
-    await sleep(intervalMs)
   }
   return stats
 }

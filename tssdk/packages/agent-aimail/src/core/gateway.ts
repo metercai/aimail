@@ -7,6 +7,85 @@
  */
 import type { GatewayResponse, AttachmentSpec } from './types.js'
 import { computeApiSignature } from './api-signature.js'
+import {
+  PULL_STREAM_PATH,
+  PULL_STREAM_PING_TIMEOUT_MS,
+  PULL_STREAM_READ_TIMEOUT_MS,
+  type PullBatch,
+  type StreamRoundResult,
+} from './pull-contract.js'
+
+/**
+ * Incremental SSE frame parser (byte-parity with the bridge `SseParser`
+ * and py `_SseParser`). Feed arbitrary text chunks (TCP framing does not
+ * respect SSE frames); complete frames are returned as they cross a
+ * `\n\n` boundary, partial frames stay buffered. Frames with unparseable
+ * data are skipped (a bad frame must not kill the stream — the next mail
+ * frame must still arrive).
+ */
+export type SseEvent = ['mail', unknown] | ['ping', null]
+
+export class SseParser {
+  private buf = ''
+
+  /** Consume a chunk; return all complete events it completed. */
+  feed(chunk: string): SseEvent[] {
+    this.buf += chunk
+    const out: SseEvent[] = []
+    for (;;) {
+      const end = this.buf.indexOf('\n\n')
+      if (end < 0) return out
+      const frame = this.buf.slice(0, end)
+      this.buf = this.buf.slice(end + 2)
+      const ev = this.parseFrame(frame)
+      if (ev) out.push(ev)
+    }
+  }
+
+  private parseFrame(frame: string): SseEvent | null {
+    let eventName: string | null = null
+    const dataLines: string[] = []
+    let isComment = false
+    for (const rawLine of frame.split('\n')) {
+      const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine
+      if (line.startsWith(':')) {
+        isComment = true
+        continue
+      }
+      if (line.startsWith('event:')) eventName = line.slice('event:'.length).trim()
+      else if (line.startsWith('data:')) {
+        // SSE spec: multiple data lines join with '\n'.
+        dataLines.push(line.slice('data:'.length).replace(/^\s+/, ''))
+      }
+      // id:/retry: and unknown fields are ignored.
+    }
+    if (dataLines.length === 0) return isComment ? ['ping', null] : null
+    const data = dataLines.join('\n')
+    if (eventName !== 'mail') return null // unknown event name — ignore defensively
+    let env: unknown
+    try {
+      env = JSON.parse(data)
+    } catch {
+      return null // bad data — skip, keep the stream alive
+    }
+    if (typeof env !== 'object' || env === null || !Array.isArray((env as { batches?: unknown }).batches)) return null
+    return ['mail', (env as { batches: unknown[] }).batches]
+  }
+}
+
+/** Per-read SSE timeout fired with no frame in the window (stall detector). */
+class StreamReadTimeout extends Error {}
+
+/** Race a stream read against the per-read (ping) timeout. */
+function withReadTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new StreamReadTimeout()), ms)
+    void p.then(
+      (v) => { clearTimeout(t); resolve(v) },
+      (e) => { clearTimeout(t); reject(e) },
+    )
+  })
+}
 
 export class GatewayClient {
   readonly baseUrl: string
@@ -79,6 +158,108 @@ export class GatewayClient {
       }
     } catch (e) {
       return { status: 0, error: e instanceof Error ? e.message : String(e) }
+    }
+  }
+
+  // ── Stream (SSE) — primary transport (Phase 2) ─────
+
+  /**
+   * Signed `GET /stream` probe: true = 200 + text/event-stream.
+   * Only the CONNECT/header phase is bounded (30s) — the body is never
+   * consumed here. A streamless/old server (404/405/transport failure)
+   * ⇒ false ⇒ the state machine falls to long-pull.
+   */
+  async streamProbe(): Promise<boolean> {
+    const path = PULL_STREAM_PATH
+    try {
+      const resp = await fetch(`${this.baseUrl}${path}`, {
+        method: 'GET',
+        headers: {
+          Accept: 'text/event-stream',
+          ...this.signedHeaders('GET', path, new Uint8Array(0)),
+        },
+        signal: AbortSignal.timeout(30_000),
+      })
+      const ctype = (resp.headers.get('content-type') ?? '').toLowerCase()
+      const ok = resp.status === 200 && ctype.startsWith('text/event-stream')
+      if (resp.body) await resp.body.cancel().catch(() => {})
+      return ok
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * One stream round: open the SSE connection, read until it ends.
+   *
+   * Per-read timeout = min(pingTimeoutMs, PULL_STREAM_READ_TIMEOUT_MS)
+   * (default ping 30s; the server heartbeats every 15s, so a healthy
+   * stream always yields a frame in the window) — the dead-link /
+   * buffered-proxy detector.
+   *
+   * Returns 'stop' (signal aborted), 'stay' (server closed at its max
+   * life — reconnect), 'drop' (connect failed / stalled — no alternative
+   * transport, the caller drops straight to Poll), or 'error' (mid-stream
+   * transport error — the caller applies the decision function with the
+   * fail streak, bridge parity).
+   */
+  async streamRound(
+    onBatches: (batches: PullBatch[]) => void | Promise<void>,
+    signal?: AbortSignal,
+    pingTimeoutMs?: number,
+  ): Promise<StreamRoundResult> {
+    const path = PULL_STREAM_PATH
+    let resp: Response
+    try {
+      resp = await fetch(`${this.baseUrl}${path}`, {
+        method: 'GET',
+        headers: {
+          Accept: 'text/event-stream',
+          ...this.signedHeaders('GET', path, new Uint8Array(0)),
+        },
+      })
+    } catch {
+      return 'drop' // connect failed
+    }
+    const ctype = (resp.headers.get('content-type') ?? '').toLowerCase()
+    if (resp.status !== 200 || !ctype.startsWith('text/event-stream')) {
+      await resp.body?.cancel().catch(() => {})
+      return 'drop'
+    }
+    const body = resp.body
+    if (!body) return 'drop'
+    const reader = body.getReader()
+    const decoder = new TextDecoder()
+    const readTimeoutMs = Math.min(pingTimeoutMs ?? PULL_STREAM_PING_TIMEOUT_MS, PULL_STREAM_READ_TIMEOUT_MS)
+    const parser = new SseParser()
+    type ReadChunk = { done: boolean; value: Uint8Array | undefined }
+    try {
+      for (;;) {
+        if (signal?.aborted) return 'stop'
+        let chunk: ReadChunk
+        try {
+          chunk = await withReadTimeout(reader.read(), readTimeoutMs)
+        } catch (e) {
+          if (e instanceof StreamReadTimeout) return 'drop' // no data (heartbeat or mail) ⇒ stalled
+          return 'error' // mid-stream transport error (reset etc.)
+        }
+        if (chunk.done) return 'stay' // server closed (max-life rotation)
+        const text = decoder.decode(chunk.value ?? new Uint8Array(0), { stream: true })
+        if (text) {
+          for (const [kind, batches] of parser.feed(text)) {
+            if (kind === 'mail' && Array.isArray(batches) && batches.length > 0) {
+              await onBatches(batches as PullBatch[])
+            }
+          }
+        }
+      }
+    } finally {
+      try {
+        reader.releaseLock()
+      } catch {
+        // already released
+      }
+      await body.cancel().catch(() => {})
     }
   }
 

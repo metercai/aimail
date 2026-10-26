@@ -10,7 +10,7 @@ export { runOpEntry, type OpEntryHooks } from './cli-op-entry.js'
 export * from './typebox-params.js'
 export * from './contract.js'
 export * from './listen.js'
-export { GatewayClient } from './gateway.js'
+export { GatewayClient, SseParser, type SseEvent } from './gateway.js'
 export { computeApiSignature, sha256Hex } from './api-signature.js'
 export {
   AIMAIL_HOME,
@@ -65,6 +65,20 @@ export {
   pullAck,
   startPolling,
 } from './address-code.js'
+export {
+  PULL_STREAM_PATH,
+  PULL_HOLD_MAX_MS,
+  PULL_HTTP_TIMEOUT_MS,
+  PULL_STREAM_READ_TIMEOUT_MS,
+  PULL_STREAM_PING_TIMEOUT_MS,
+  PULL_REPROBE_INTERVAL_MS,
+  PULL_MODE_ENV,
+  parsePullMode,
+  pullStreamBackoffSecs,
+  pullPollBackoffSecs,
+  pullDecideNextMode,
+} from './pull-contract.js'
+export type { PullMode, StreamRoundResult } from './pull-contract.js'
 export {
   AGENT_TOOL_NAMES,
   agentTools,

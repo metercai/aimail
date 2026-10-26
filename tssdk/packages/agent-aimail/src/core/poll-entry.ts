@@ -28,6 +28,7 @@ import { GatewayClient } from './gateway.js'
 import { listAgentConfigs } from './config.js'
 import { listSystemDirs } from './auto-bind.js'
 import { startPolling, type PollStats, type RequestClient } from './address-code.js'
+import { PULL_HTTP_TIMEOUT_MS, PULL_MODE_ENV, parsePullMode, type PullMode } from './pull-contract.js'
 
 /**
  * System id prefix for address-level activation artifacts — gateway-side fact (evidence in module header):
@@ -68,12 +69,15 @@ export interface AgentPullSettings {
   reason: PullDecisionReason
   intervalMs: number
   limit: number
+  /** Resolved transport mode (AIMAIL_PULL_MODE; kill switch = "poll"). */
+  mode: PullMode
 }
 
 export interface AgentPullOverrides {
   enabled?: boolean
   intervalMs?: number
   limit?: number
+  mode?: PullMode
 }
 
 function envFlagOff(raw: string | undefined): boolean {
@@ -107,13 +111,14 @@ export function resolveAgentPullSettings(
     24 * 3600_000,
   )
   const limit = clampInt(overrides.limit ?? env[PULL_LIMIT_ENV], DEFAULT_PULL_LIMIT, 1, 200)
-  if (!cfg) return { enabled: false, reason: 'no-binding', intervalMs, limit }
+  const mode: PullMode = overrides.mode || parsePullMode(env[PULL_MODE_ENV])
+  if (!cfg) return { enabled: false, reason: 'no-binding', intervalMs, limit, mode }
   if (!isAgentScopeBinding(cfg)) {
-    return { enabled: false, reason: 'not-agent-scope', intervalMs, limit }
+    return { enabled: false, reason: 'not-agent-scope', intervalMs, limit, mode }
   }
   const off = overrides.enabled === undefined ? envFlagOff(env[PULL_ENABLE_ENV]) : overrides.enabled === false
-  if (off) return { enabled: false, reason: 'disabled-by-config', intervalMs, limit }
-  return { enabled: true, reason: 'enabled', intervalMs, limit }
+  if (off) return { enabled: false, reason: 'disabled-by-config', intervalMs, limit, mode }
+  return { enabled: true, reason: 'enabled', intervalMs, limit, mode }
 }
 
 /** One pulled delivery (batch body + its per-delivery routing facts). */
@@ -188,7 +193,7 @@ export async function startAgentPullEntry(
   }
   const client = opts.clientFor
     ? opts.clientFor(cfg)
-    : new GatewayClient(cfg.gateway_url, cfg.api_key, 30_000, cfg.email)
+    : new GatewayClient(cfg.gateway_url, cfg.api_key, PULL_HTTP_TIMEOUT_MS, cfg.email)
   const controller = new AbortController()
   const live: PollStats = { pulled: 0, acked: 0, errors: 0 }
   const done = startPolling(
