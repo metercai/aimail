@@ -19,7 +19,7 @@ import urllib.error
 from aimail_base import (
     _load_profile_config, list_personas,
     PULL_HOLD_MAX_MS, PULL_STREAM_PING_TIMEOUT_S, PULL_REPROBE_INTERVAL_S,
-    pull_decide_next_mode,
+    pull_decide_next_mode, pull_poll_backoff_secs,
 )
 import aimail_contract as _contract   # agent-side contract constants (pointer file name, etc., single source of truth)
 import urllib.parse
@@ -771,8 +771,10 @@ class _GatewayClient:
         the window) — the dead-link / buffered-proxy detector.
 
         Returns ``"stop"`` (stop_event set), ``"stay"`` (server closed at
-        its max life — reconnect), or ``"drop"`` (stalled / transport
-        error — the caller applies the decision function).
+        its max life — reconnect), ``"drop"`` (connect failed / stalled —
+        no alternative transport, the caller drops straight to Poll), or
+        ``"error"`` (mid-stream transport error — the caller applies the
+        decision function with the fail streak, bridge parity).
         """
         url = f"{self.gateway_url}{PULL_STREAM_PATH}"
         req = urllib.request.Request(url, headers={
@@ -795,13 +797,15 @@ class _GatewayClient:
                     chunk = resp.read(4096)  # blocks up to the read timeout
                 except socket.timeout:
                     return "drop"  # no data (heartbeat or mail) ⇒ stalled
+                except Exception:
+                    return "error"  # mid-stream transport error (reset etc.)
                 if not chunk:
                     return "stay"  # server closed (max-life rotation)
                 for kind, batches in parser.feed(chunk):
                     if kind == "mail" and batches:
                         self._deliver_batches(batches, on_email, seen, stats)
         except Exception:
-            return "drop"
+            return "error"
         finally:
             resp.close()
 
@@ -876,7 +880,8 @@ class _GatewayClient:
         already waited server-side for the hold ⇒ a plain
         ``interval`` sleep paces the next round; a NON-EMPTY round does
         NOT sleep (continuous mail flow is not throttled by the poll
-        interval).
+        interval); a FAILED round backs off exponentially
+        (``interval*2^failures``, cap 300s — bridge parity).
 
         Delivery semantics (unchanged from the legacy loop, item-by-item
         with TS ``startPolling``):
@@ -903,6 +908,7 @@ class _GatewayClient:
         # Auto starts optimistic (Stream); Poll is forced.
         in_poll = (mode == "poll")
         stream_streak = 0
+        poll_failures = 0
         # "Due immediately" so the first Poll round re-probes right away.
         last_reprobe = time.monotonic() - PULL_REPROBE_INTERVAL_S
         while True:
@@ -956,9 +962,15 @@ class _GatewayClient:
             try:
                 lst = self.pull_list(limit=limit)
                 if not lst.get("success"):
+                    # Failed round: exponential backoff (bridge parity:
+                    # interval*2^failures, cap 300s) — NOT the plain interval.
                     stats["errors"] += 1
-                    _poll_sleep(delay, stop_event)
+                    poll_failures += 1
+                    _poll_sleep(
+                        float(pull_poll_backoff_secs(max(1, int(delay)), poll_failures)),
+                        stop_event)
                     continue
+                poll_failures = 0
                 batches = lst.get("batches", [])
                 if not batches:
                     # Empty round: the server held us for `timeout_ms`
@@ -972,7 +984,10 @@ class _GatewayClient:
                 self._deliver_batches(batches, on_email, seen, stats)
             except Exception:
                 stats["errors"] += 1
-                _poll_sleep(delay, stop_event)
+                poll_failures += 1
+                _poll_sleep(
+                    float(pull_poll_backoff_secs(max(1, int(delay)), poll_failures)),
+                    stop_event)
         return stats
 
 
