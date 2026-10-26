@@ -33,7 +33,9 @@ pub enum WebhookPlan {
     /// S1 push via bridge: `webhook_host = BRIDGE_HOST` (`http(s)://host:port`, no path;
     /// GW fills to bridge, bridge appends agent real inbound path when forwarding).
     BridgePush { bridge_host: String },
-    /// S2 bridge pull: `webhook_host = ""` (empty string; GW side pending, bridge long-polls and pushes to agent).
+    /// S2 bridge pull: `webhook_host = ""` (empty string; GW side pending,
+    /// S2 = stream primary / long-pull fallback — the bridge's stream round is
+    /// the main transport, long-pull is the fallback, pushing to the agent).
     BridgePull,
     /// S3 direct push: `webhook_host` key absent (GW directly pushes to agent inbound endpoint, with path).
     Direct,
