@@ -1959,6 +1959,15 @@ MAX_PULL_INTERVAL_MS = 24 * 3600_000
 PULL_ENABLE_ENV = "AIMAIL_PULL"
 PULL_INTERVAL_ENV = "AIMAIL_PULL_INTERVAL_MS"
 PULL_LIMIT_ENV = "AIMAIL_PULL_LIMIT"
+PULL_MODE_ENV = "AIMAIL_PULL_MODE"
+
+#: Long-pull / push contract (gateway types.rs single source; ratchet-pinned in tests).
+#: hold = gateway max hold per long-pull round; client HTTP timeout must exceed it.
+PULL_HOLD_MAX_MS = 50_000
+PULL_HTTP_TIMEOUT_S = PULL_HOLD_MAX_MS // 1000 + 15  # 65s > 50s hold
+PULL_STREAM_READ_TIMEOUT_S = 90  # per-read bound on the SSE socket
+PULL_STREAM_PING_TIMEOUT_S = 30  # no frame (incl. ping) within ⇒ stream stalled
+PULL_REPROBE_INTERVAL_S = 600  # Poll ⇒ re-probe /stream every 10 min
 
 
 def _env_flag_off(raw) -> bool:
@@ -1966,6 +1975,53 @@ def _env_flag_off(raw) -> bool:
     if raw is None:
         return False
     return str(raw).strip().lower() in ("0", "false", "off", "no")
+
+
+def parse_pull_mode(raw) -> str:
+    """AIMAIL_PULL_MODE ⇒ "auto" (default) / "stream" / "poll". Unknown ⇒ "auto"."""
+    if raw is None:
+        return "auto"
+    v = str(raw).strip().lower()
+    if v in ("stream", "poll"):
+        return v
+    return "auto"
+
+
+def pull_stream_backoff_secs(streak: int) -> int:
+    """Stream re-backoff: 1,2,4,8,16,30 (s). Parity with bridge/ts."""
+    if streak <= 0:
+        return 0
+    return min(1 << min(streak - 1, 5), 30)
+
+
+def pull_poll_backoff_secs(interval_s: int, failures: int) -> int:
+    """Poll failure backoff: interval_s * 2^failures, cap 300s (s).
+
+    Parity with bridge ``poll_backoff_secs(poll_interval_secs, failures)``.
+    """
+    return min(max(1, int(interval_s)) * (1 << min(max(0, failures), 6)), 300)
+
+
+def pull_decide_next_mode(override_mode: str, probe, stream_fail_streak: int):
+    """Pure state-machine decision (three-client parity; probe ∈ {None, 'ready', 'unavailable'}).
+
+    Returns (mode, delay_s): mode ∈ {"stream", "poll"}.
+    - override "poll" ⇒ poll immediately (kill switch)
+    - probe ready ⇒ stream now; probe unavailable ⇒ poll (re-probe on schedule)
+    - probe None (last probe outcome): override "stream" ⇒ stay stream w/ backoff;
+      streak >= 3 ⇒ downgrade to poll; else retry stream w/ backoff
+    """
+    if override_mode == "poll":
+        return ("poll", 0)
+    if probe == "ready":
+        return ("stream", 0)
+    if probe == "unavailable":
+        return ("poll", 0)
+    if override_mode == "stream":
+        return ("stream", pull_stream_backoff_secs(stream_fail_streak))
+    if stream_fail_streak >= 3:
+        return ("poll", 0)
+    return ("stream", pull_stream_backoff_secs(stream_fail_streak))
 
 
 def _clamp_int(raw, default: int, lo: int, hi: int) -> int:
@@ -2006,9 +2062,10 @@ def resolve_agent_pull_settings(cfg, env=None, overrides=None) -> dict:
         DEFAULT_PULL_INTERVAL_MS, MIN_PULL_INTERVAL_MS, MAX_PULL_INTERVAL_MS)
     limit = _clamp_int(
         ov.get("limit", env.get(PULL_LIMIT_ENV)), DEFAULT_PULL_LIMIT, 1, 200)
+    mode = ov.get("mode") or parse_pull_mode(env.get(PULL_MODE_ENV))
     out = {"enabled": False, "reason": "no-binding",
            "interval_ms": interval_ms, "interval": interval_ms / 1000.0,
-           "limit": limit}
+           "limit": limit, "mode": mode}
     if not cfg:
         return out
     if not is_agent_scope_binding(cfg):
@@ -2248,7 +2305,7 @@ class AgentPullHandle:
 
 def start_agent_pull_entry(cfg: dict, on_email=None, env=None, overrides=None,
                            log=None, client_for=None, target_for=None,
-                           timeout: float = 15.0):
+                           timeout: float = PULL_HTTP_TIMEOUT_S):
     """Start a polling loop for **one** agent-scope binding — the minimal unit for hot-add.
 
     Address code activation occurs after the host process starts, while ``start_agent_pull_entries`` only
@@ -2337,7 +2394,7 @@ def start_agent_pull_entry(cfg: dict, on_email=None, env=None, overrides=None,
 
 def start_agent_pull_entries(system_id: str = "", on_email=None, env=None,
                              overrides=None, log=None, client_for=None,
-                             target_for=None, timeout: float = 15.0) -> list:
+                             target_for=None, timeout: float = PULL_HTTP_TIMEOUT_S) -> list:
     """Start a real polling loop for **every agent-scope binding**, delivering to the caller's inbound chain.
 
     - ``on_email(cfg, mail)``: the adapter's own inbound entry point (pull and push must share the same chain).

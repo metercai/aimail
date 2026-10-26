@@ -5,6 +5,7 @@ import sqlite3
 import logging
 import os
 import re
+import socket
 import subprocess
 import threading
 import time
@@ -15,7 +16,11 @@ from datetime import datetime
 import urllib.request
 import urllib.error
 
-from aimail_base import _load_profile_config, list_personas
+from aimail_base import (
+    _load_profile_config, list_personas,
+    PULL_HOLD_MAX_MS, PULL_STREAM_PING_TIMEOUT_S, PULL_REPROBE_INTERVAL_S,
+    pull_decide_next_mode,
+)
 import aimail_contract as _contract   # agent-side contract constants (pointer file name, etc., single source of truth)
 import urllib.parse
 
@@ -69,6 +74,70 @@ def _await_if_needed(fn: Callable, arg: Any) -> Any:
         if own_loop:
             asyncio.set_event_loop(None)
             loop.close()
+
+
+#: `GET` path of the SSE endpoint (also the signature path component).
+PULL_STREAM_PATH = "/api/v1/admin/pending/stream"
+
+
+class _SseParser:
+    """Incremental SSE frame parser (byte-parity with the bridge `SseParser`).
+
+    Feed arbitrary byte chunks (TCP framing does not respect SSE frames);
+    complete frames are returned as they cross a ``\\n\\n`` boundary,
+    partial frames stay buffered. Frames with unparseable ``data`` are
+    skipped (a bad frame must not kill the stream — the next mail frame
+    must still arrive).
+    """
+
+    def __init__(self) -> None:
+        self._buf = b""
+
+    def feed(self, chunk: bytes) -> list:
+        """Consume a chunk; return all complete events it completed.
+
+        Each event is ``("mail", batches)`` or ``("ping", None)``.
+        """
+        self._buf += chunk
+        out = []
+        while True:
+            end = self._buf.find(b"\n\n")
+            if end < 0:
+                return out
+            frame = self._buf[:end].decode("utf-8", "replace")
+            self._buf = self._buf[end + 2:]
+            ev = self._parse_frame(frame)
+            if ev is not None:
+                out.append(ev)
+
+    @staticmethod
+    def _parse_frame(frame: str):
+        event_name = None
+        data_lines = []
+        is_comment = False
+        for line in frame.split("\n"):
+            line = line.rstrip("\r")
+            if line.startswith(":"):
+                is_comment = True
+                continue
+            if line.startswith("event:"):
+                event_name = line[len("event:"):].strip()
+            elif line.startswith("data:"):
+                # SSE spec: multiple data lines join with '\n'.
+                data_lines.append(line[len("data:"):].lstrip())
+            # id:/retry: and unknown fields are ignored.
+        if not data_lines:
+            return ("ping", None) if is_comment else None
+        data = "\n".join(data_lines)
+        if event_name != "mail":
+            return None  # unknown event name — ignore defensively
+        try:
+            env = json.loads(data)
+        except Exception:
+            return None  # bad data — skip, keep the stream alive
+        if not isinstance(env, dict) or not isinstance(env.get("batches"), list):
+            return None
+        return ("mail", env["batches"])
 
 
 class _GatewayClient:
@@ -640,6 +709,7 @@ class _GatewayClient:
 
     # ── Pull (agent scope) ──────────────────────────────────────
 
+
     def pull_list(self, limit: int = 20) -> dict:
         """POST /api/v1/admin/pending with an agent-scope key — the gateway's
         advanced interception layer serves ONLY this key's own address
@@ -651,7 +721,11 @@ class _GatewayClient:
         [{id, email, headers}]}]}`` (payload-grouped, same shape as the
         bridge contract).
         """
-        result = self._request("POST", "/api/v1/admin/pending", body={"limit": max(1, min(limit, 200))})
+        # timeout_ms long-pull hold: an empty queue is held server-side up to
+        # PULL_HOLD_MAX_MS (old servers ignore the field ⇒ immediate answer).
+        result = self._request("POST", "/api/v1/admin/pending",
+                               body={"limit": max(1, min(limit, 200)),
+                                     "timeout_ms": PULL_HOLD_MAX_MS})
         if result.get("status") != 200:
             return {"success": False, "error": f"pull list failed: {result.get('error', result)}",
                     "status": result.get("status", 0)}
@@ -667,32 +741,215 @@ class _GatewayClient:
                     "status": result.get("status", 0)}
         return {"success": True, "acked": result.get("acked", 0)}
 
+    # ── Stream (SSE) path — primary transport ──────────────────────────
+
+    def _probe_stream(self) -> bool:
+        """Signed ``GET /stream`` probe: True = 200 + text/event-stream.
+
+        Only the CONNECT/header phase is bounded (30s) — urlopen returns
+        once the response headers arrive; the body is never consumed here.
+        A streamless/old server (404/405/transport failure) ⇒ False ⇒ the
+        state machine falls to long-pull.
+        """
+        url = f"{self.gateway_url}{PULL_STREAM_PATH}"
+        req = urllib.request.Request(url, headers={
+            "Accept": "text/event-stream",
+            **self._signed_headers("GET", PULL_STREAM_PATH, b"")})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                ctype = (resp.headers.get("Content-Type") or "").lower()
+                return ctype.startswith("text/event-stream")
+        except Exception:
+            return False
+
+    def _stream_round(self, on_email, seen, stats, stop_event,
+                      ping_timeout: float) -> str:
+        """One stream round: open the SSE connection, read until it ends.
+
+        Per-read timeout = ``ping_timeout`` (30s default; the server
+        heartbeats every 15s, so a healthy stream always yields a frame in
+        the window) — the dead-link / buffered-proxy detector.
+
+        Returns ``"stop"`` (stop_event set), ``"stay"`` (server closed at
+        its max life — reconnect), or ``"drop"`` (stalled / transport
+        error — the caller applies the decision function).
+        """
+        url = f"{self.gateway_url}{PULL_STREAM_PATH}"
+        req = urllib.request.Request(url, headers={
+            "Accept": "text/event-stream",
+            **self._signed_headers("GET", PULL_STREAM_PATH, b"")})
+        try:
+            resp = urllib.request.urlopen(req, timeout=ping_timeout)
+        except Exception:
+            return "drop"
+        ctype = (resp.headers.get("Content-Type") or "").lower()
+        if not ctype.startswith("text/event-stream"):
+            resp.close()
+            return "drop"
+        parser = _SseParser()
+        try:
+            while True:
+                if stop_event is not None and stop_event.is_set():
+                    return "stop"
+                try:
+                    chunk = resp.read(4096)  # blocks up to the read timeout
+                except socket.timeout:
+                    return "drop"  # no data (heartbeat or mail) ⇒ stalled
+                if not chunk:
+                    return "stay"  # server closed (max-life rotation)
+                for kind, batches in parser.feed(chunk):
+                    if kind == "mail" and batches:
+                        self._deliver_batches(batches, on_email, seen, stats)
+        except Exception:
+            return "drop"
+        finally:
+            resp.close()
+
+    # ── Shared forward+ack path (used by BOTH Stream and Poll) ─────────
+
+    def _deliver_batches(self, batches, on_email, seen, stats) -> None:
+        """Deliver every delivery in ``batches`` to ``on_email``, then ack
+        the delivered ids. Failure semantics identical to the legacy loop:
+        ``on_email`` failure ⇒ that id is NOT acked and is removed from
+        the dedup set ⇒ re-delivered next round; a dedup hit is skipped.
+        """
+        deliveries = []
+        for batch in batches:
+            body_obj = batch.get("body")
+            if isinstance(body_obj, str):
+                try:
+                    body_obj = json.loads(body_obj)
+                except Exception:
+                    pass  # keep the raw string — on_email sees the wire shape
+            for d in batch.get("deliveries", []):
+                did = d.get("id")
+                if did in seen:
+                    continue
+                seen.add(did)
+                try:
+                    _await_if_needed(on_email, {
+                        "id": did, "email": d.get("email", ""),
+                        "headers": d.get("headers", {}), "body": body_obj})
+                    deliveries.append(did)
+                    stats["pulled"] += 1
+                except Exception:
+                    # on_email failed → do NOT ack: drop the id from the
+                    # dedup set so the NEXT round re-pulls it (the mail is
+                    # still pending server-side; nothing is lost).
+                    seen.discard(did)
+                    stats["errors"] += 1
+        if deliveries:
+            ack = self.pull_ack([i for i in deliveries if i is not None])
+            if ack.get("success"):
+                stats["acked"] += ack.get("acked", 0)
+
     def start_polling(self, on_email: Callable[[dict], Any], interval: float = 30.0,
                       limit: int = 20, max_rounds: Optional[int] = None,
-                      stop_event: Optional["threading.Event"] = None) -> dict:
-        """Poll pull_list → deliver each pending email to ``on_email`` → ack
-        the delivered ids. Dedup key = delivery id (stable, unique).
+                      stop_event: Optional["threading.Event"] = None,
+                      mode: Optional[str] = None) -> dict:
+        """Stream (SSE) primary / long-pull fallback — state machine
+        (three-client parity with the bridge ``start_pull_loop`` and TS
+        ``startPolling``).
 
-        Semantics — **align item-by-item with TS mail-core address-code.ts:startPolling**:
+        Transport selection:
+        * ``mode`` = "auto" (default, or absent ``AIMAIL_PULL_MODE``): probe
+          ``GET /stream`` once at start — available ⇒ Stream state; not
+          available (404/405/old server/transport failure) ⇒ Poll state.
+          While in Poll the stream is re-probed every
+          ``PULL_REPROBE_INTERVAL_S`` (server-upgrade recovery) — NOT on
+          every round.
+        * ``mode`` = "stream": always Stream; transport drops never
+          downgrade (reconnect with exponential backoff).
+        * ``mode`` = "poll": kill switch — long-pull only, no probing.
+        ``AIMAIL_PULL`` (master switch) still wins: a disabled binding
+        never reaches this loop at all.
 
-        * ``on_email`` failure ⇒ **that delivery is not acked, and removed from the deduplication set** ⇒
-          next round re-fetches the same id (neither duplicate delivery of successful items, nor lost items). Previously the Python side only did
-          the first half: after failure the id still remains in ``seen`` ⇒ next round skips ⇒ gateway side did not ack,
-          Local **never redelivers** (email stuck). This is the semantic gap this function fixes.
-        * ``on_email`` can be an async function: when returning an awaitable, it is awaited to completion in the **thread-private event loop**
-          here await until completion —— async callback reject also counts as failure (no ack), same as TS's
-          synonymous with ``await onEmail(...)``; fire-and-forget would ack the mail the agent did not handle.
-        * ``stop_event`` (threading.Event, can stop): checked before each round, sleep uses
-          ``stop_event.wait(interval)`` ⇒ stop takes effect immediately (not waiting for a full interval).
-        * ``max_rounds`` is only for test loop convergence (None = run forever).
+        Stream state: a ``mail`` event reuses the exact batch delivery +
+        ack path of the Poll state (one shared ``_deliver_batches``).
+        Server closed at its max life ⇒ immediate reconnect (rotation);
+        no data for ``PULL_STREAM_PING_TIMEOUT_S`` (dead/buffered link)
+        ⇒ Poll; transport drops ⇒ exponential backoff 1→30s, 3
+        consecutive ⇒ Poll.
 
-        Blocking loop — run it in a worker thread (start_agent_pull_entries is responsible).
+        Poll state: one long-pull round per iteration
+        (``pull_list`` carries the ``timeout_ms`` hold). An EMPTY round
+        already waited server-side for the hold ⇒ a plain
+        ``interval`` sleep paces the next round; a NON-EMPTY round does
+        NOT sleep (continuous mail flow is not throttled by the poll
+        interval).
+
+        Delivery semantics (unchanged from the legacy loop, item-by-item
+        with TS ``startPolling``):
+        * dedup key = delivery id (stable, unique);
+        * ``on_email`` failure ⇒ that delivery is **not acked** and is
+          removed from the dedup set ⇒ re-delivered next round (neither
+          duplicate delivery of successful items, nor lost items);
+        * ``on_email`` may be async: an awaitable is run to completion in
+          a thread-private event loop (``_await_if_needed``) — a reject
+          counts as failure (no ack);
+        * ``stop_event`` aborts any sleep at once and stops the loop
+          before the next round;
+        * ``max_rounds`` bounds Poll rounds only (test convergence;
+          probes are not counted) — Stream state has no round concept.
         """
-        seen: set = set()
-        rounds = 0
-        stats = {"pulled": 0, "acked": 0, "errors": 0}
+        if mode is None:
+            from aimail_base import parse_pull_mode, PULL_MODE_ENV
+            mode = parse_pull_mode(os.environ.get(PULL_MODE_ENV))
         delay = max(0.0, float(interval))
-        while max_rounds is None or rounds < max_rounds:
+        seen: set = set()
+        stats = {"pulled": 0, "acked": 0, "errors": 0}
+        rounds = 0
+        # Explicit transport state: true while in the long-poll fallback.
+        # Auto starts optimistic (Stream); Poll is forced.
+        in_poll = (mode == "poll")
+        stream_streak = 0
+        # "Due immediately" so the first Poll round re-probes right away.
+        last_reprobe = time.monotonic() - PULL_REPROBE_INTERVAL_S
+        while True:
+            if stop_event is not None and stop_event.is_set():
+                break
+            # ── Poll state: due re-probe of the stream endpoint ───────
+            # Contract cadence (10 min), NOT every round — a streamless
+            # server costs one 404 per reprobe, not per poll. A failed
+            # probe sleeps the round out; a ready probe hands over to the
+            # stream branch below for one round.
+            if in_poll and mode != "poll" \
+                    and (time.monotonic() - last_reprobe) >= PULL_REPROBE_INTERVAL_S:
+                last_reprobe = time.monotonic()
+                if self._probe_stream():
+                    in_poll = False
+                else:
+                    _poll_sleep(delay, stop_event)
+                    continue
+            # ── Stream state (auto/stream modes, not currently in poll) ─
+            if not in_poll:
+                res = self._stream_round(on_email, seen, stats, stop_event,
+                                         PULL_STREAM_PING_TIMEOUT_S)
+                if res == "stop":
+                    break
+                if res == "stay":
+                    continue  # server max-life rotation: reconnect now
+                if res == "error":
+                    # Mid-stream transport drop: shared decision function
+                    # (override "stream" never downgrades; auto gives up
+                    # after 3 consecutive drops).
+                    stream_streak += 1
+                    next_mode, backoff = pull_decide_next_mode(mode, None, stream_streak)
+                    if next_mode == "poll":
+                        stream_streak = 0
+                        in_poll = True
+                        last_reprobe = time.monotonic()
+                    else:
+                        if backoff > 0:
+                            _poll_sleep(float(backoff), stop_event)
+                        continue
+                # res == "drop": connect failed or stalled — no alternative
+                # transport; the Poll-state re-probe recovers later.
+                in_poll = True
+                last_reprobe = time.monotonic()
+            # ── Poll state: one long-pull round ────────────────────────
+            if max_rounds is not None and rounds >= max_rounds:
+                break
             if stop_event is not None and stop_event.is_set():
                 break
             rounds += 1
@@ -702,34 +959,20 @@ class _GatewayClient:
                     stats["errors"] += 1
                     _poll_sleep(delay, stop_event)
                     continue
-                deliveries = []
-                for batch in lst.get("batches", []):
-                    for d in batch.get("deliveries", []):
-                        if d.get("id") in seen:
-                            continue
-                        seen.add(d.get("id"))
-                        try:
-                            body_obj = batch.get("body")
-                            if isinstance(body_obj, str):
-                                body_obj = json.loads(body_obj)
-                            _await_if_needed(on_email, {
-                                "id": d.get("id"), "email": d.get("email", ""),
-                                "headers": d.get("headers", {}), "body": body_obj})
-                            deliveries.append(d.get("id"))
-                            stats["pulled"] += 1
-                        except Exception:
-                            # on_email failed → do NOT ack: drop the id from the
-                            # dedup set so the NEXT round re-pulls it (the mail
-                            # is still pending server-side; nothing is lost).
-                            seen.discard(d.get("id"))
-                            stats["errors"] += 1
-                if deliveries:
-                    ack = self.pull_ack([i for i in deliveries if i is not None])
-                    if ack.get("success"):
-                        stats["acked"] += ack.get("acked", 0)
+                batches = lst.get("batches", [])
+                if not batches:
+                    # Empty round: the server held us for `timeout_ms`
+                    # already, so a plain poll-interval sleep paces the
+                    # next round (and any due re-probe at the top).
+                    _poll_sleep(delay, stop_event)
+                    continue
+                # Non-empty round: NO sleep — straight to the next round
+                # so a continuous mail flow is not throttled by the poll
+                # interval (each round is still one long-pull).
+                self._deliver_batches(batches, on_email, seen, stats)
             except Exception:
                 stats["errors"] += 1
-            _poll_sleep(delay, stop_event)
+                _poll_sleep(delay, stop_event)
         return stats
 
 

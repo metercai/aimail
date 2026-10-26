@@ -149,7 +149,7 @@ def test_enablement_no_binding_not_enabled(clean_env, cfg):
         "enabled": False, "reason": "no-binding",
         "interval_ms": base.DEFAULT_PULL_INTERVAL_MS,
         "interval": base.DEFAULT_PULL_INTERVAL_MS / 1000.0,
-        "limit": base.DEFAULT_PULL_LIMIT}
+        "limit": base.DEFAULT_PULL_LIMIT, "mode": "auto"}
 
 
 def test_enablement_agent_scope_without_key_not_enabled(clean_env):
@@ -192,6 +192,7 @@ def test_pull_env_names_match_the_cross_language_contract(clean_env):
     assert base.PULL_ENABLE_ENV == "AIMAIL_PULL"
     assert base.PULL_INTERVAL_ENV == "AIMAIL_PULL_INTERVAL_MS"
     assert base.PULL_LIMIT_ENV == "AIMAIL_PULL_LIMIT"
+    assert base.PULL_MODE_ENV == "AIMAIL_PULL_MODE"
 
 
 # ── 2. interval / batch size: defaults, overrides, clamping ────────────────
