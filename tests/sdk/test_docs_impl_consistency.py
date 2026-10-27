@@ -39,13 +39,13 @@ def test_docs_are_consistent():
 
 def test_bad_symbol_name_is_red_with_file_line(tmp_path):
     text = DOC_EN.read_text(encoding="utf-8")
-    assert "`activate_address_code`" in text, "Documentation should have a backtick reference to activate_address_code"
+    assert "`aimail_address`" in text, "Documentation should have a backtick reference to aimail_address"
     bad = tmp_path / "bad-doc.md"
-    bad.write_text(text.replace("`activate_address_code`",
-                                "`activate_address_code_typo`"), encoding="utf-8")
+    bad.write_text(text.replace("`aimail_address`",
+                                "`aimail_address_typo`"), encoding="utf-8")
     rc, out = _run("--en", str(bad))
     assert rc == 1, out
-    assert "activate_address_code_typo" in out, out
+    assert "aimail_address_typo" in out, out
     assert "bad-doc.md:" in out, out  # file:line must be provided
 
 

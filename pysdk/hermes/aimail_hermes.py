@@ -886,11 +886,16 @@ def _handle_search_mail(args, **_kw):
     ))
 
 
-def _handle_activate_address_code(args, **_kw):
-    """Address-level self-service activation (code → own agent key). Audit D1: fills missing first-class tool on Hermes side."""
-    return tool_result(tools.activate_address_code(
+def _handle_aimail_address(args, **_kw):
+    """Address-level mailbox lifecycle (bind/pause/resume/unbind).
+
+    The pointer is owned by THIS agent's profile — resolved from the
+    hermes runtime (HERMES_PROFILE_DIR → get_hermes_home() contextvar →
+    ~/.hermes), never passed by the agent (owner ruling 2026-10-27)."""
+    return tool_result(tools.aimail_address(
+        action=args.get("action", ""),
         code=args.get("code", ""),
-        address=args.get("address", ""),
+        email=args.get("email", ""),
         gateway_url=args.get("gateway_url"),
     ))
 
@@ -1232,34 +1237,43 @@ try:
 except Exception as _e:
     logger.warning("[aimail] set_email_summary registration failed: %s", _e)
 
-# 3b-bis. Identity first-class tools (Audit D1: Hermes previously registered only 13, inconsistent with the 15 declared in README/adapter-playbook
-#         the declared 15 and the TS side 15/15 mismatched — filling in these two; the descriptions align verbatim with MCP TOOLS).
+# 3b-bis. Address lifecycle first-class tool (the agent-visible face of the
+#         address-code chain — bind/pause/resume/unbind in one entry). The
+#         pointer belongs to the executing profile (auto-resolved; no
+#         profile parameter in the schema).
 try:
     registry.register(
-        name="activate_address_code",
+        name="aimail_address",
         toolset=_TOOLSET,
         schema={
-            "name": "activate_address_code",
+            "name": "aimail_address",
             "description": (
-                "Activate the AIMail mailbox your user gave you: exchange the one-time "
-                "activation code (shared_a-…) for your own key, store it locally and make "
-                "the other mail tools work. Address-level self-service — no CLI."
+                "Manage YOUR mailbox lifecycle (bind / pause / resume / unbind). "
+                "bind: activate with the one-time code (shared_a-…) — or, if this "
+                "mailbox was unbound before, restore it with NO code (idempotent: "
+                "an already-bound mailbox is returned as-is, never re-activated). "
+                "pause: stop receiving locally (the cloud key stays active). "
+                "resume: start receiving again. unbind: archive the local binding "
+                "(the key is kept, so a later code-less bind restores receiving). "
+                "Address-level self-service — no CLI."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "code": {"type": "string", "description": "One-time activation code (shared_a-…)"},
-                    "address": {"type": "string", "description": "The mailbox address it unlocks"},
-                    "gateway_url": {"type": "string", "description": "AIMail gateway URL (or set AIMAIL_GW_URL)"},
+                    "action": {"type": "string", "enum": ["bind", "pause", "resume", "unbind"],
+                               "description": "The lifecycle action to perform"},
+                    "code": {"type": "string", "description": "One-time activation code (shared_a-…) — bind only"},
+                    "email": {"type": "string", "description": "The mailbox address this acts on"},
+                    "gateway_url": {"type": "string", "description": "AIMail gateway URL (or set AIMAIL_GW_URL) — needed for a first-time cloud activation"},
                 },
-                "required": ["code", "address"],
+                "required": ["action", "email"],
             },
         },
-        handler=_handle_activate_address_code,
+        handler=_handle_aimail_address,
         emoji="🔑",
     )
 except Exception as _e:
-    logger.warning("[aimail] activate_address_code registration failed: %s", _e)
+    logger.warning("[aimail] aimail_address registration failed: %s", _e)
 
 # 3c. profile lifecycle hooks (automatic address registration/deregistration)
 register_profile_hook("profile_created", _auto_register_email)

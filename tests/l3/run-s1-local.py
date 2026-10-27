@@ -226,8 +226,8 @@ def main() -> int:
                 sh([py, "-c", (
                     "import json\n"
                     "from aimail.aimail_agent import agent_toolset\n"
-                    "tool = next(t for t in agent_toolset() if t['name'] == 'activate_address_code')\n"
-                    f"res = tool['handler']({{'code': {code!r}, 'address': {addr!r}, 'gateway_url': {fx.gw!r}}})\n"
+                    "tool = next(t for t in agent_toolset() if t['name'] == 'aimail_address')\n"
+                    f"res = tool['handler']({{'action': 'bind', 'code': {code!r}, 'email': {addr!r}, 'gateway_url': {fx.gw!r}}})\n"
                     "print(json.dumps(res, ensure_ascii=False, default=str))\n"
                 )], env={"HOME": str(work / "host-home"), "AIMAIL_HOME": str(work / "aimail-home")})[1])
         else:

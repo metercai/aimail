@@ -23,7 +23,7 @@ from aimail_mcp_server import HANDLERS, TOOLS
 
 #: Tools that are meaningful for an agent-level mailbox (board = member scope).
 AGENT_TOOL_NAMES = (
-    "activate_address_code",
+    "aimail_address",
     "role_calibrator",
     "send_mail",
     "manage_contacts",
@@ -142,8 +142,27 @@ def start_agent_level(skills_dir: str = "", on_email: Optional[Callable] = None,
     def _start_for(cfg: dict):
         email = str(cfg.get("email") or "")
         for h in handles:
-            if getattr(h, "email", "") == email:
+            if getattr(h, "email", "") != email:
+                continue
+            if h.alive():
                 return h  # already polling this binding (idempotent)
+            # A DEAD handle for this email: re-arm ONLY when the
+            # file-as-signal stopped it (binding archived/paused in
+            # flight) — that is what resume / re-bind re-fire relies on.
+            # A handle that died any other way (explicit stop, max_rounds
+            # test convergence) is never re-armed (idempotent).
+            if getattr(h, "_stop_reason", "") != "file":
+                return h
+            try:
+                fresh = base.start_agent_pull_entry(cfg, on_email=deliver,
+                                                    env=env, log=log,
+                                                    **pull_opts)
+            except Exception:  # noqa: BLE001 — re-arm failure must not break the hook
+                fresh = None
+            if fresh is not None:
+                handles[handles.index(h)] = fresh
+                return fresh
+            return h
         if not handles:
             _adopt(cfg)
         h = base.start_agent_pull_entry(cfg, on_email=deliver, env=env, log=log,
@@ -199,9 +218,9 @@ def _cmd_setup(args) -> int:
             "mcp": "python -m aimail_mcp_server",
             "in_process": "from aimail_agent import agent_toolset",
         },
-        "activate_tool_visible": "activate_address_code" in names,
+        "activate_tool_visible": "aimail_address" in names,
         "next": "register this toolset in the host, reload the agent, then call "
-                "activate_address_code from inside the agent",
+                "aimail_address (action=bind) from inside the agent",
     }
     print(json.dumps(out, ensure_ascii=False, indent=2))
     return 0 if out["activate_tool_visible"] else 1

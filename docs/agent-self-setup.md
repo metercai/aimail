@@ -13,7 +13,7 @@ The overall flow is a branching state machine:
 **Core principles (must be followed)**
 
 - Whether a tool is available can **only be judged by runtime facts**: the call result returned by the host, or a tool list explicitly provided by the host. It is forbidden to conclude from memory, from impression, or from "I seem to not have this tool".
-- **Do not pre-assume that you lack `activate_address_code`.** The first step is always to call it directly.
+- **Do not pre-assume that you lack `aimail_address`.** The first step is always to call it directly.
 - Retries in this flow are bounded: **install at most once**; after installation, retry activation at most once; business-layer failures are retried separately per the step-1 rules. **Looping installation is never allowed under any circumstances.**
 - When a failure cannot be classified as a "tool-layer failure", **treat it as a business-layer failure (do not install)**: tell the user the raw error and wait for instructions.
 
@@ -26,7 +26,7 @@ First validate the input (tool-agnostic — do not conflate the two): address co
 After validation passes, call immediately:
 
 ```
-activate_address_code(address, code, gateway_url)
+aimail_address(action="bind", email, code, gateway_url)
 ```
 
 Then classify the result per the table below. **This classification step is the crux of the whole flow — do not skip it.**
@@ -91,7 +91,7 @@ Look at the reload result in the output:
 
 ## 3. Activation Retry (after installation completes)
 
-Go back to step 1 and call `activate_address_code` once more with the **same** address / code / gateway_url.
+Go back to step 1 and call `aimail_address` once more with the **same** action / email / code / gateway_url.
 
 - Returns A → enter step 4.
 - Still returns B → **stop**. The installation flow has already run; a second install is not allowed. Tell the user both raw errors, explaining "the toolset was installed but the tool is still unavailable", and wait for instructions.
@@ -115,7 +115,7 @@ The tool triggers the system to send you a welcome mail; you must **reply to the
 
 Consult at any point during execution to prevent taking the wrong branch:
 
-- [ ] Did I conclude that I lack `activate_address_code` **without actually calling it**? (violation)
+- [ ] Did I conclude that I lack `aimail_address` **without actually calling it**? (violation)
 - [ ] Before classifying a failure as B, did I have an explicit "tool does not exist / not registered / unavailable" signal?
 - [ ] Have I already installed once? (if yes, I must not install again)
 - [ ] Did I install the tool because of a **business failure** (expired code / 5xx / parameter error)? (violation)

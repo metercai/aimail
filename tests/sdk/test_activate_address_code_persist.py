@@ -356,13 +356,20 @@ def test_mcp_tool_wrapper_drives_the_same_chain(hermes_home, gateway):
     assert _binding(hermes_home).is_file()
 
 
-def test_mcp_registry_advertises_profile_home(hermes_home):
-    """Discoverability: the tool list itself carries the home parameter."""
-    tool = next(t for t in mcp.TOOLS if t["name"] == "activate_address_code")
+def test_mcp_registry_advertises_aimail_address(hermes_home):
+    """Discoverability: the agent-visible tool is aimail_address and its
+    schema carries NO profile parameter (owner ruling 2026-10-27: the
+    pointer is owned by the executing profile, auto-resolved)."""
+    tool = next(t for t in mcp.TOOLS if t["name"] == "aimail_address")
     props = tool["inputSchema"]["properties"]
-    assert "profile_home" in props, sorted(props)
-    assert props["profile_home"]["type"] == "string"
-    assert tool["inputSchema"]["required"] == ["code", "address"]
+    assert set(props) == {"action", "code", "email", "gateway_url"}, sorted(props)
+    assert "profile" not in " ".join(props) and "profile_home" not in props
+    assert props["action"]["enum"] == ["bind", "pause", "resume", "unbind"]
+    assert tool["inputSchema"]["required"] == ["action", "email"]
+    # The legacy alias handler still exists (call-surface compatibility)
+    # but is NOT advertised as a tool.
+    assert "activate_address_code" in mcp.HANDLERS
+    assert not any(t["name"] == "activate_address_code" for t in mcp.TOOLS)
 
 
 # ── 5. manager = the value the gateway stored (first source) ───────────────

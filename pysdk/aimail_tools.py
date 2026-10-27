@@ -867,7 +867,7 @@ class _GatewayClient:
 
     def start_polling(self, on_email: Callable[[dict], Any], interval: float = 30.0,
                       limit: int = 20, max_rounds: Optional[int] = None,
-                      stop_event: Optional["threading.Event"] = None,
+                      stop_event: Optional[Any] = None,
                       mode: Optional[str] = None) -> dict:
         """Stream (SSE) primary / long-pull fallback — state machine
         (three-client parity with the bridge ``start_pull_loop`` and TS
@@ -1108,50 +1108,250 @@ def _agent_identity() -> str:
     return ident
 
 
+def _lifecycle_profile_dir(profile_home: Optional[str]) -> str:
+    """The profile dir that owns the discovery pointer for THIS call.
+
+    Owner ruling (2026-10-27): the pointer belongs to the agent that
+    executes the lifecycle action — "in whose dialog it runs is whose
+    pointer". Resolution is automatic, the agent never passes it: the
+    adapter layer (hermes / deer-flow) injects ``_PROFILE_DIR_RESOLVER``
+    at import time; the explicit ``profile_home`` argument (legacy
+    callers) still wins when given. Empty string = no pointer side
+    effect (generic host, degradation is the pre-existing semantic).
+    """
+    if profile_home is not None:
+        return str(profile_home or "")
+    import aimail_base as _abm
+    resolver = _abm._PROFILE_DIR_RESOLVER
+    if resolver is None:
+        return ""
+    try:
+        d = resolver()
+    except Exception:  # noqa: BLE001 — pointer is best-effort, never fail the action
+        return ""
+    return str(d or "")
+
+
+def _lifecycle_pointer_write(profile_dir: str, system_id: str, email: str) -> dict:
+    """Write ``{profile}/{POINTER_FILE}`` (bind's pointer half, best-effort)."""
+    import aimail_base as _abm
+    d = str(profile_dir or "").strip()
+    if not d:
+        return {"pointer_written": False, "pointer_path": ""}
+    try:
+        p = Path(os.path.expanduser(d))
+        if not p.is_absolute():
+            p = Path(os.path.abspath(d))
+        ptr = p / _contract.POINTER_FILE
+        _abm._write_pointer(ptr, system_id, email)
+        return {"pointer_written": True, "pointer_path": str(ptr)}
+    except Exception:  # noqa: BLE001 — same best-effort class as the persist chain
+        return {"pointer_written": False, "pointer_path": ""}
+
+
+def aimail_address(
+    action: str,
+    code: str = "",
+    email: str = "",
+    gateway_url: Optional[str] = None,
+    profile_home: Optional[str] = None,
+) -> dict:
+    """Address-level mailbox lifecycle — the single agent-facing entry.
+
+    ``action`` ∈ ``bind`` | ``pause`` | ``resume`` | ``unbind``:
+
+    - ``bind`` (D3 three modes, idempotent):
+      ① an active local binding already carries an api_key ⇒ ``already_bound`` —
+      no gateway call, a supplied code is NOT consumed, the key is never
+      rotated, the binding file is untouched;
+      ② no active binding but an archived one exists (the archived binding
+      copy, see ``BINDING_ARCHIVED_SUFFIX``) ⇒ restore by rename (0
+      gateway calls, cloud key untouched) + pointer;
+      ③ nothing local ⇒ cloud activation with the one-time code
+      (``POST /api/v1/activate-address-code`` + register-isomorphic persist).
+      A code together with an existing local binding is refused as
+      ``already_bound`` (the code stays unconsumed).
+    - ``pause`` / ``resume``: flip the local ``paused`` flag on the binding —
+      purely local, no gateway request, no cloud state change. resume also
+      re-fires the in-process hot-add so a running host starts the loop
+      without a restart. No local binding ⇒ ``not_bound`` (never guessed).
+    - ``unbind``: archive the binding (same-directory rename to the
+      archived copy, ``BINDING_ARCHIVED_SUFFIX`` — the key bytes survive,
+      that is what makes the code-less re-bind possible) + clear THIS
+      profile's pointer (only when the pointer's own email matches). No
+      gateway request.
+
+    The agent-visible schema carries NO profile parameter: the pointer is
+    owned by the executing agent's profile (auto-resolved via the adapter's
+    ``_PROFILE_DIR_RESOLVER``). ``profile_home`` is an internal compatibility
+    parameter (legacy callers), not part of the tool schema.
+
+    Returns ``{"success", "action", "reason", ...}``; ``success=False`` with
+    ``reason`` ∈ {bad-action, missing-email, not-bound, not-archived,
+    email-mismatch, already-bound, gateway-url-required, ...} — every
+    failure is explicit, nothing is silently skipped.
+    """
+    import aimail_base as _abm
+
+    act = str(action or "").strip().lower()
+    addr = str(email or "").strip()
+    if act not in ("bind", "pause", "resume", "unbind"):
+        return {"success": False, "action": act, "reason": "bad-action",
+                "error": "action must be one of bind|pause|resume|unbind"}
+    if not addr:
+        return {"success": False, "action": act, "reason": "missing-email",
+                "error": "email is required — the mailbox this acts on"}
+    addr = addr.lower()
+
+    found = _abm.find_binding_by_email(addr)
+    active = found.get("active")
+
+    if act == "bind":
+        # ── Mode ①: idempotent — a local key already exists ───────────
+        if active is not None and str(active.get("api_key") or "").strip():
+            # The pointer is still written: a bind guarantees the
+            # executing profile's pointer (self-heals a deleted pointer;
+            # same value, idempotent). No gateway call, code unconsumed,
+            # key untouched.
+            sid = str(active.get("system_id") or "")
+            ptr = _lifecycle_pointer_write(
+                _lifecycle_profile_dir(profile_home), sid, addr)
+            return {"success": True, "action": "bind",
+                    "reason": "already_bound", "email": addr,
+                    "system_id": sid,
+                    "path": found.get("active_path", ""),
+                    "gateway_calls": 0, **ptr,
+                    "note": "binding already carries a key — nothing was "
+                            "called, no code was consumed, the key is "
+                            "untouched"}
+        # ── Mode ②: local restore from the archive (code optional,
+        # unused) — 0 gateway calls ──────────────────────────────────────
+        if found.get("archived_path"):
+            # restore_binding resolves via ``_config_path`` (the ACTIVE
+            # filename); the archive is that name + suffix, so derive it.
+            _a = Path(found["archived_path"])
+            _active_path = _a.with_name(
+                _a.name[: -len(_abm.BINDING_ARCHIVED_SUFFIX)])
+            r = _abm.restore_binding({"_config_path": str(_active_path)}, addr)
+            if not r.get("success"):
+                return {"success": False, "action": "bind",
+                        "reason": r.get("reason", "restore-failed"),
+                        "email": addr, "path": r.get("path", "")}
+            # Re-read the restored file so the return shape carries the
+            # real system_id for the pointer.
+            try:
+                cfg = json.loads(Path(r["path"]).read_text(encoding="utf-8"))
+            except Exception:  # noqa: BLE001
+                cfg = {}
+            if str(cfg.get("email") or "").lower() != addr:
+                return {"success": False, "action": "bind",
+                        "reason": "email-mismatch", "email": addr,
+                        "path": r.get("path", "")}
+            sid = str(cfg.get("system_id") or "")
+            ptr = _lifecycle_pointer_write(
+                _lifecycle_profile_dir(profile_home), sid, addr)
+            try:
+                _abm.set_agent_context(addr.split("@")[0], sid)
+            except Exception:  # noqa: BLE001 — context injection is a convenience path
+                pass
+            return {"success": True, "action": "bind",
+                    "reason": "restored", "email": addr,
+                    "system_id": sid, "path": r.get("path", ""),
+                    "gateway_calls": 0, **ptr}
+        # ── Mode ③: cloud activation with the one-time code ───────────
+        if not str(code or "").strip():
+            return {"success": False, "action": "bind",
+                    "reason": "not-bound",
+                    "error": "no local binding (active or archived) for this "
+                             "address and no activation code given",
+                    "email": addr}
+        gw = str(gateway_url or os.environ.get("AIMAIL_GW_URL", "")).strip()
+        if not gw:
+            return {"success": False, "action": "bind",
+                    "reason": "gateway-url-required",
+                    "error": "gateway_url is required for cloud activation "
+                             "(or set AIMAIL_GW_URL)", "email": addr}
+        client = _GatewayClient(gw, "")
+        res = client.activate_address_code_persist(
+            str(code).strip(), addr,
+            profile_dir=_lifecycle_profile_dir(profile_home))
+        if res.get("success"):
+            try:
+                _abm.set_agent_context(addr.split("@")[0],
+                                       str(res.get("system_id") or ""))
+            except Exception:  # noqa: BLE001 — context injection is a convenience path
+                pass
+        return res
+
+    # pause / resume / unbind all need an ACTIVE local binding.
+    if active is None:
+        extra = (" (an archived binding exists — use bind to restore it)"
+                 if found.get("archived_path") else "")
+        return {"success": False, "action": act, "reason": "not-bound",
+                "error": "no active local binding for %s%s" % (addr, extra),
+                "email": addr}
+
+    if act == "pause":
+        r = _abm.set_binding_paused(active, True, addr)
+        r["action"] = "pause"
+        r["email"] = addr
+        if r.get("success") and r.get("reason") == "paused":
+            r["note"] = "receiving stopped locally; the cloud key is " \
+                        "untouched — resume to continue"
+        return r
+
+    if act == "resume":
+        r = _abm.set_binding_paused(active, False, addr)
+        r["action"] = "resume"
+        r["email"] = addr
+        if r.get("success") and r.get("reason") == "resumed":
+            # Hot-add: a host running in THIS process starts the loop for
+            # the restored flag without a restart (same hook the bind
+            # persist chain fires). A host that has no runtime registered
+            # simply picks the binding up at its next start.
+            try:
+                _abm._fire_binding_created(dict(active))
+            except Exception:  # noqa: BLE001 — the file state is already correct
+                pass
+            r["note"] = "receiving resumed locally (0 gateway calls)"
+        return r
+
+    # unbind — D2 archive + this profile's pointer
+    r = _abm.archive_binding(active, addr)
+    r["action"] = "unbind"
+    r["email"] = addr
+    if r.get("success") and r.get("reason") == "archived":
+        pd = _lifecycle_profile_dir(profile_home)
+        pc = _abm.clear_pointer_if_email_match(pd, addr) if pd else {
+            "cleared": False, "reason": "no-profile"}
+        r["pointer_cleared"] = bool(pc.get("cleared"))
+        r["pointer_path"] = pc.get("path", "")
+        r["note"] = "binding archived locally (key bytes kept for a code-less " \
+                    "re-bind); the cloud key is untouched — bind restores " \
+                    "receiving"
+    return r
+
+
 def activate_address_code(
     code: str,
     address: str,
     gateway_url: Optional[str] = None,
     profile_home: Optional[str] = None,
 ) -> dict:
-    """Activate an AIMail mailbox you were given (address-level self-service).
+    """Legacy alias of ``aimail_address(action="bind")`` — kept for the
+    existing call surface; the agent-visible tool is now ``aimail_address``.
 
-    Your user forwards an activation message: the mailbox address, a
-    one-time activation code (`shared_a-…`) and the gateway URL. This
-    exchanges the code for YOUR OWN agent key — never the system admin
-    key — persists it locally (agentmail.json, 0600, register-isomorphic
-    fields + expires_at, plus the `.agentmail` identity pointer) and
-    makes every other mail tool work for that mailbox.
-
-    ``profile_home`` = your own platform home directory (the dir that
-    holds the discovery pointer, e.g. ``~/.deer-flow`` or a hermes
-    profile dir). ``~`` is expanded and a relative path is made absolute
-    before the pointer is written; when omitted the binding is still
-    written but no pointer is created (discovery/log naming then degrade).
-
-    No CLI, no product code, no admin credentials: the code authorizes
-    exactly one address, once, until it expires.
+    See ``aimail_address`` for the full contract (three bind modes,
+    idempotency, pointer ownership). Behavior is unchanged for the
+    activation path; a code supplied while a local binding already exists
+    is refused (``already_bound``) instead of hitting the gateway.
     """
-    gw = (gateway_url or os.environ.get("AIMAIL_GW_URL", "")).strip()
-    if not gw:
+    res = aimail_address("bind", code=code, email=address,
+                         gateway_url=gateway_url, profile_home=profile_home)
+    if res.get("reason") == "gateway-url-required":
+        # Old contract: a missing gateway raised ValueError (tests +
+        # adapters rely on the exception, not a result dict).
         raise ValueError("gateway_url is required (or set AIMAIL_GW_URL)")
-    client = _GatewayClient(gw, "")
-    res = client.activate_address_code_persist(
-        code, address, profile_dir=(profile_home or ""))
-    if res.get("success"):
-        # In generic hosts (no platform adaptation layer), no other code calls the injection point ⇒ activation persistence success
-        # is the moment "this address belongs to this agent": hand over the context to the shared core, so subsequent
-        # pull / send_mail / manage_contacts are directly available (adaptation layer explicitly calling again is idempotent).
-        # Injection failure only degrades to "requires explicit set_agent_context", does not judge completed activation as failure.
-        try:
-            import aimail_base as _abm
-            email = str(res.get("email_address") or "")
-            _abm.set_agent_context(email.split("@")[0], str(res.get("system_id") or ""))
-        except Exception as e:  # noqa: BLE001 — context injection is a convenience path, not part of activation
-            logger.warning(
-                "[aimail] activation succeeded but agent context injection failed (%s); "
-                "call aimail_base.set_agent_context(...) explicitly before using the mail "
-                "tools", e)
     return res
 
 

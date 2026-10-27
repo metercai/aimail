@@ -135,6 +135,17 @@ def tool_role_calibrator(args: dict) -> dict:
     return _safe(fn)
 
 
+def tool_aimail_address(args: dict) -> dict:
+    def fn():
+        return _tools.aimail_address(
+            action=args.get("action", ""),
+            code=args.get("code", ""),
+            email=args.get("email", ""),
+            gateway_url=args.get("gateway_url"),
+        )
+    return _safe(fn)
+
+
 def tool_activate_address_code(args: dict) -> dict:
     def fn():
         return _tools.activate_address_code(
@@ -315,22 +326,29 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {
          "board": {"type": "string", "description": "Board ID (b_ prefix)"},
          "role": {"type": "string", "description": "Filter by role name"}}, "required": ["board"]}},
-    {"name": "activate_address_code", "description": (
-        "Activate the AIMail mailbox your user gave you: exchange the one-time "
-        "activation code (shared_a-…) for your own key, store it locally and make "
-        "the other mail tools work. Address-level self-service — no CLI."),
+    {"name": "aimail_address", "description": (
+        "Manage YOUR mailbox lifecycle (bind / pause / resume / unbind). "
+        "bind: activate with the one-time code (shared_a-…) — or, if this "
+        "mailbox was unbound before, restore it with NO code (idempotent: an "
+        "already-bound mailbox is returned as-is, never re-activated). "
+        "pause: stop receiving locally (the cloud key stays active). "
+        "resume: start receiving again. unbind: archive the local binding "
+        "(the key is kept, so a later code-less bind restores receiving). "
+        "Address-level self-service — no CLI."),
      "inputSchema": {"type": "object", "properties": {
-         "code": {"type": "string", "description": "One-time activation code (shared_a-…)"},
-         "address": {"type": "string", "description": "The mailbox address it unlocks"},
-         "gateway_url": {"type": "string", "description": "AIMail gateway URL (or set AIMAIL_GW_URL)"},
-         "profile_home": {"type": "string", "description": "Your platform home directory where the local discovery pointer is written (e.g. ~/.deer-flow); ~ is expanded, relative paths are made absolute. Omit to skip pointer creation."}},
-         "required": ["code", "address"]}},
+         "action": {"type": "string", "enum": ["bind", "pause", "resume", "unbind"],
+                    "description": "The lifecycle action to perform"},
+         "code": {"type": "string", "description": "One-time activation code (shared_a-…) — bind only"},
+         "email": {"type": "string", "description": "The mailbox address this acts on"},
+         "gateway_url": {"type": "string", "description": "AIMail gateway URL (or set AIMAIL_GW_URL) — needed for a first-time cloud activation"}},
+         "required": ["action", "email"]}},
     {"name": "role_calibrator", "description": (
         "Trigger the identity-calibration welcome mail for your own address: "
         "the system welcomes YOUR mailbox (persona/signature/current_time reply "
         "instructions) and cc's your manager for approval. Requires "
-        "activate_address_code to have run first. Reply to the welcome mail when "
-        "it arrives — the [AIMail] Persona applied notification closes the loop."),
+        "aimail_address (action=bind) to have run first. Reply to the welcome "
+        "mail when it arrives — the [AIMail] Persona applied notification "
+        "closes the loop."),
      "inputSchema": {"type": "object", "properties": {}}},
 ]
 
@@ -349,6 +367,7 @@ HANDLERS = {
     "board_members": tool_board_members,
     "board_roles": tool_board_roles,
     "role_calibrator": tool_role_calibrator,
+    "aimail_address": tool_aimail_address,
     "activate_address_code": tool_activate_address_code,
 }
 

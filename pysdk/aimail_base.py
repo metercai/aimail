@@ -14,7 +14,7 @@ import urllib.request
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Callable, Dict, List
-from aimail_contract import POINTER_FILE
+from aimail_contract import POINTER_FILE, BINDING_FILE
 
 
 logger = logging.getLogger(__name__)
@@ -2053,7 +2053,7 @@ def resolve_agent_pull_settings(cfg, env=None, overrides=None) -> dict:
 
     Priority: explicit override > env > default. ``enabled`` is bound to agent-scope by default as
     true for agent-scope bindings (that is their **only** inbound path), and is never true when there are **no** agent-scope bindings.
-    reason ∈ {enabled, no-binding, not-agent-scope, disabled-by-config} (logs and
+    reason ∈ {enabled, no-binding, not-agent-scope, disabled-by-config, paused} (logs and
     unit tests assert on this, same set as TS PullDecisionReason).
     """
     env = os.environ if env is None else env
@@ -2071,6 +2071,12 @@ def resolve_agent_pull_settings(cfg, env=None, overrides=None) -> dict:
         return out
     if not is_agent_scope_binding(cfg):
         out["reason"] = "not-agent-scope"
+        return out
+    if cfg.get("paused") is True:
+        # Local lifecycle switch (address pause): the mailbox stays bound
+        # (key intact) but this profile must not poll it — purely local,
+        # no cloud involvement.
+        out["reason"] = "paused"
         return out
     if ov.get("enabled") is None:
         off = _env_flag_off(env.get(PULL_ENABLE_ENV))
@@ -2216,6 +2222,272 @@ def ensure_binding_webhook_secret(cfg) -> dict:
             "reason": "provisioned", "detail": ""}
 
 
+# ═══════════════════════════════════════════════════════════════
+# Address-level local lifecycle (pause / resume / unbind-archive /
+# re-bind restore) — owner rulings 2026-10-27.
+#
+# Purely local: the cloud key stays `active` the whole time (hash-only
+# storage server-side; the plaintext key exists ONLY in this binding
+# file). "Unbinding" therefore CANNOT destroy the file — it ARCHIVES
+# it (same-directory rename, 0600 preserved) so the key bytes survive
+# and a code-less re-bind restores receiving. No gateway call, no new
+# endpoint.
+# ═══════════════════════════════════════════════════════════════
+
+#: Suffix that archives a binding out of the active scan (D2 ruling).
+#: Derived from the contract binding filename, never spelled out alone.
+BINDING_ARCHIVED_SUFFIX = ".unbound"
+
+
+def archived_binding_path(path):
+    """The archive name for a binding path (same directory, 0600 on rename)."""
+    p = Path(path)
+    return p.with_name(p.name + BINDING_ARCHIVED_SUFFIX)
+
+
+def binding_alive(cfg) -> dict:
+    """Current local state of a binding — the file IS the signal.
+
+    Returns ``{"state", "path", "archived"}`` where state ∈
+    {alive, paused, archived, missing}:
+
+    - ``alive`` — the binding file is present (``paused`` flag false/absent).
+    - ``paused`` — file present but its ``paused`` flag is true.
+    - ``archived`` — file absent, the archived copy (binding file name +
+      ``BINDING_ARCHIVED_SUFFIX``) present (unbind performed; key bytes
+      still on disk).
+    - ``missing`` — neither file present (never activated / destroyed).
+
+    A running pull/stream loop re-checks this on every natural beat
+    (poll interval / stream round): archived ⇒ the file is gone ⇒ stop;
+    paused ⇒ stop. No cross-process hook is needed — the file itself is
+    the single source of truth a CLI in another process can rename.
+    """
+    src = cfg if isinstance(cfg, dict) else {}
+    p = binding_config_path(src)
+    if p is None:
+        return {"state": "missing", "path": "", "archived": ""}
+    p = Path(p)
+    if p.is_file():
+        try:
+            d = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001 — unreadable ⇒ treat as alive (fail closed to current behaviour)
+            d = {}
+        if isinstance(d, dict) and d.get("paused") is True:
+            return {"state": "paused", "path": str(p),
+                    "archived": str(archived_binding_path(p))}
+        return {"state": "alive", "path": str(p),
+                "archived": str(archived_binding_path(p))}
+    a = archived_binding_path(p)
+    if a.is_file():
+        return {"state": "archived", "path": str(p), "archived": str(a)}
+    return {"state": "missing", "path": str(p), "archived": str(a)}
+
+
+def _binding_email_matches(p, email: str) -> bool:
+    """Second-check guard (R2): the file's own ``email`` field must equal the
+    requested address before any rename — never archive on path alone."""
+    try:
+        d = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return False
+    return isinstance(d, dict) and str(d.get("email") or "") == email
+
+
+def archive_binding(cfg, email: str = "") -> dict:
+    """Unbind (D2): rename the binding file in place to the archived copy
+    (binding file name + ``BINDING_ARCHIVED_SUFFIX``; atomic same-directory
+    rename; 0600 preserved).
+
+    The key bytes survive — that is what makes a code-less re-bind
+    possible (cloud hash is one-way, the activation code is consumed).
+    Refuses (``reason="not-bound"``) when no active file exists; when an
+    archive already exists, ``reason="already-archived"`` (idempotent).
+    ``email`` given ⇒ the file's own email field must match first (R2).
+    No gateway request is made.
+    """
+    src = cfg if isinstance(cfg, dict) else {}
+    p = binding_config_path(src)
+    if p is None:
+        return {"success": False, "reason": "not-bound",
+                "path": "", "archived": ""}
+    p = Path(p)
+    a = archived_binding_path(p)
+    if a.is_file() and not p.is_file():
+        return {"success": True, "reason": "already-archived",
+                "path": str(p), "archived": str(a)}
+    if not p.is_file():
+        return {"success": False, "reason": "not-bound",
+                "path": str(p), "archived": str(a)}
+    if email and not _binding_email_matches(p, email):
+        return {"success": False, "reason": "email-mismatch",
+                "path": str(p), "archived": str(a)}
+    try:
+        os.rename(p, a)
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "reason": "rename-failed",
+                "path": str(p), "archived": str(a),
+                "detail": e.__class__.__name__}
+    return {"success": True, "reason": "archived",
+            "path": str(p), "archived": str(a)}
+
+
+def restore_binding(cfg, email: str = "") -> dict:
+    """Re-bind (D2): rename the archived copy (binding file name +
+    ``BINDING_ARCHIVED_SUFFIX``) back to the active binding file and
+    clear the ``paused`` flag — 0 gateway calls, cloud key untouched.
+
+    Refuses when no archive exists (``reason="not-archived"``); when the
+    binding is already active, ``reason="already-active"`` (idempotent).
+    ``email`` given ⇒ the archive's own email field must match first (R2).
+    """
+    src = cfg if isinstance(cfg, dict) else {}
+    p = binding_config_path(src)
+    if p is None:
+        return {"success": False, "reason": "not-bound",
+                "path": "", "archived": ""}
+    p = Path(p)
+    a = archived_binding_path(p)
+    if p.is_file() and not a.is_file():
+        return {"success": True, "reason": "already-active",
+                "path": str(p), "archived": str(a)}
+    if not a.is_file():
+        return {"success": False, "reason": "not-archived",
+                "path": str(p), "archived": str(a)}
+    if email and not _binding_email_matches(a, email):
+        return {"success": False, "reason": "email-mismatch",
+                "path": str(p), "archived": str(a)}
+    try:
+        os.rename(a, p)
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "reason": "rename-failed",
+                "path": str(p), "archived": str(a),
+                "detail": e.__class__.__name__}
+    # Clear the paused flag so the restored mailbox receives again
+    # (pause state never survives an unbind/re-bind cycle).
+    try:
+        d = json.loads(p.read_text(encoding="utf-8"))
+        if isinstance(d, dict) and d.get("paused") is True:
+            d.pop("paused", None)
+            write_binding_config(p, d)
+    except Exception:  # noqa: BLE001 — restore succeeded; a stale paused flag is loud via the pull decision
+        pass
+    return {"success": True, "reason": "restored",
+            "path": str(p), "archived": str(a)}
+
+
+def set_binding_paused(cfg, paused: bool, email: str = "") -> dict:
+    """Pause / resume: flip the local ``paused`` flag (atomic rewrite).
+
+    Purely local — no gateway request, no cloud state change. Reads the
+    file FRESH (not the in-memory cfg) so a concurrent writer's fields
+    are not clobbered. Idempotent: flipping an already-set state reports
+    ``already-paused`` / ``already-active``.
+    """
+    src = cfg if isinstance(cfg, dict) else {}
+    p = binding_config_path(src)
+    if p is None:
+        return {"success": False, "reason": "not-bound", "path": ""}
+    p = Path(p)
+    if not p.is_file():
+        return {"success": False, "reason": "not-bound", "path": str(p)}
+    try:
+        d = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return {"success": False, "reason": "unreadable", "path": str(p)}
+    if not isinstance(d, dict):
+        return {"success": False, "reason": "unreadable", "path": str(p)}
+    if email and str(d.get("email") or "") != email:
+        return {"success": False, "reason": "email-mismatch", "path": str(p)}
+    if paused == (d.get("paused") is True):
+        return {"success": True,
+                "reason": "already-paused" if paused else "already-active",
+                "path": str(p)}
+    if paused:
+        d["paused"] = True
+    else:
+        d.pop("paused", None)
+    try:
+        write_binding_config(p, d)
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "reason": "write-failed", "path": str(p),
+                "detail": e.__class__.__name__}
+    return {"success": True, "reason": "paused" if paused else "resumed",
+            "path": str(p)}
+
+
+def clear_pointer_if_email_match(profile_dir: str, email: str) -> dict:
+    """Unbind's pointer half: remove ``{profile}/{POINTER_FILE}`` ONLY when
+    the pointer's own email equals the unbound address — another mailbox's
+    pointer in this profile is never touched. No gateway request.
+    """
+    d = str(profile_dir or "").strip()
+    if not d:
+        return {"cleared": False, "reason": "no-profile"}
+    ptr = Path(os.path.expanduser(d)) / POINTER_FILE
+    if not ptr.is_file():
+        return {"cleared": False, "reason": "absent"}
+    try:
+        data = json.loads(ptr.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return {"cleared": False, "reason": "unreadable"}
+    if not isinstance(data, dict) or str(data.get("email") or "") != email:
+        return {"cleared": False, "reason": "email-mismatch"}
+    try:
+        ptr.unlink()
+    except Exception:  # noqa: BLE001
+        return {"cleared": False, "reason": "unlink-failed"}
+    return {"cleared": True, "reason": "cleared", "path": str(ptr)}
+
+
+def pointer_view(profile_dir: str) -> dict:
+    """The profile's pointer as a dict (``{system_id, email}``), ``{}`` when
+    absent/corrupt — read-only, for the unified tool return shape."""
+    d = str(profile_dir or "").strip()
+    if not d:
+        return {}
+    return _read_pointer(Path(os.path.expanduser(d)) / POINTER_FILE)
+
+
+def find_binding_by_email(email: str) -> dict:
+    """Locate every LOCAL trace of one address: the active binding AND its
+    archive (if any). The directory name is the cleaned address (single rule
+    shared with the register chain), so no full scan is needed — the
+    candidate dir is ``systems/{sid}/{cleaned}`` for each system.
+
+    Email comparison is case-insensitive (the gateway stores the address
+    lowercased; the file's own ``email`` field must match — R2 double-check).
+
+    Returns ``{"active": cfg|None, "active_path": str, "archived_path": str}``
+    (empty strings when absent). Used by the lifecycle tool to decide the
+    bind mode (D3) without guessing.
+    """
+    base = aimail_home() / "systems"
+    cleaned = _clean_agent_dir_name(email)
+    want = str(email or "").strip().lower()
+    active_cfg, active_path, archived_path = None, "", ""
+    try:
+        roots = sorted(p for p in base.iterdir() if p.is_dir())
+    except Exception:
+        roots = []
+    for root in roots:
+        cand = root / cleaned
+        p = cand / BINDING_FILE
+        if p.is_file():
+            try:
+                d = json.loads(p.read_text(encoding="utf-8"))
+            except Exception:  # noqa: BLE001
+                d = None
+            if isinstance(d, dict) and str(d.get("email") or "").lower() == want:
+                d["_config_path"] = str(p)
+                active_cfg, active_path = d, str(p)
+        a = cand / (BINDING_FILE + BINDING_ARCHIVED_SUFFIX)
+        if a.is_file() and not archived_path:
+            archived_path = str(a)
+    return {"active": active_cfg, "active_path": active_path,
+            "archived_path": archived_path}
+
+
 
 def replay_inbound_delivery(cfg, mail: dict, url: str, secret: str,
                             timeout: float = 15.0) -> dict:
@@ -2281,6 +2553,7 @@ class AgentPullHandle:
         self.limit = settings.get("limit", DEFAULT_PULL_LIMIT)
         self._thread = thread
         self._stop_event = stop_event
+        self._stop_reason = ""  # "file" = the file-as-signal stopped it (archived/paused/missing)
         self._stats: dict = {"pulled": 0, "acked": 0, "errors": 0}
 
     def stop(self) -> None:
@@ -2302,6 +2575,66 @@ class AgentPullHandle:
     def __repr__(self) -> str:  # pragma: no cover - for diagnostics
         return "<AgentPullHandle %s %s every %dms>" % (
             self.email, self.reason, self.interval_ms)
+
+
+class _BindingWatchedStop:
+    """``stop_event`` proxy that makes the loop's OWN natural beats the
+    binding-file re-check (file-as-signal, no cross-process hook).
+
+    ``is_set()`` is true when the base event is set OR the binding file
+    no longer backs this loop: archived/missing (unbind renamed it away)
+    or paused (local lifecycle switch). The loop already calls ``is_set()``
+    on every round and between stream chunks (SSE heartbeat ≤15s), so the
+    release delay after a cross-process unbind is bounded by one natural
+    beat; ``wait()`` slices the sleep into ≤0.5s steps so a paused/archived
+    file also interrupts the interval sleep without a watcher thread.
+    """
+
+    def __init__(self, base_event, cfg, handle=None):
+        self._base = base_event
+        self._cfg = cfg
+        self._handle = handle
+
+    def is_set(self) -> bool:
+        if self._base.is_set():
+            return True
+        # File-as-signal applies ONLY to bindings with a known
+        # persistence path. A memory-constructed cfg (test seams, some
+        # adapters) has no file to watch — watching would stop it on the
+        # first beat (path unknown ⇒ "missing" ⇒ false file-signal).
+        if binding_config_path(self._cfg) is None:
+            return self._base.is_set()
+        try:
+            state = binding_alive(self._cfg).get("state")
+        except Exception:  # noqa: BLE001 — a re-check failure must not kill the loop
+            return self._base.is_set()
+        if state in ("archived", "missing", "paused"):
+            # Record WHY the loop is stopping: a file-signal stop is
+            # re-armable (resume / re-bind re-fires the hot-add hook);
+            # an explicit stop (runtime teardown, max_rounds test
+            # convergence) is not.
+            if self._handle is not None:
+                self._handle._stop_reason = "file"
+            return True
+        return self._base.is_set()
+
+    def wait(self, timeout=None) -> bool:
+        if timeout is None:
+            while True:
+                if self.is_set():
+                    return True
+                self._base.wait(0.5)
+        deadline = time.monotonic() + max(0.0, float(timeout))
+        while True:
+            if self.is_set():
+                return True
+            left = deadline - time.monotonic()
+            if left <= 0:
+                return self._base.is_set()
+            self._base.wait(min(0.5, left))
+
+    def set(self) -> None:
+        self._base.set()
 
 
 def start_agent_pull_entry(cfg: dict, on_email=None, env=None, overrides=None,
@@ -2371,13 +2704,18 @@ def start_agent_pull_entry(cfg: dict, on_email=None, env=None, overrides=None,
     stop_event = threading.Event()
     handle = AgentPullHandle(email, str(cfg.get("system_id") or ""),
                              settings, None, stop_event)
+    # File-as-signal: the loop re-checks its own binding file (archived /
+    # paused / missing ⇒ stop) on every natural beat, so a cross-process
+    # unbind (CLI rename) releases this handle without any IPC hook. The
+    # proxy marks the handle when it is the file that stops the loop.
+    watched_stop = _BindingWatchedStop(stop_event, cfg, handle)
 
     def _live(_c, mail, _h=handle, _cb=cb):  # real-time count (failures still raise ⇒ no ack)
         _h._stats["pulled"] += 1
         return _cb(_c, mail)
 
     def _run(_client=client, _cfg=cfg, _settings=settings,
-             _live=_live, _handle=handle, _stop=stop_event):
+             _live=_live, _handle=handle, _stop=watched_stop):
         stats = _client.start_polling(
             (lambda mail: _live(_cfg, mail)),
             interval=_settings["interval"], limit=_settings["limit"],
