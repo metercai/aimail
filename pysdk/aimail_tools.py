@@ -19,7 +19,7 @@ import urllib.error
 from aimail_base import (
     _load_profile_config, list_personas,
     PULL_HOLD_MAX_MS, PULL_STREAM_PING_TIMEOUT_S, PULL_REPROBE_INTERVAL_S,
-    pull_decide_next_mode, pull_poll_backoff_secs,
+    pull_decide_next_mode, pull_poll_backoff_secs, pull_stream_backoff_secs,
 )
 import aimail_contract as _contract   # agent-side contract constants (pointer file name, etc., single source of truth)
 import urllib.parse
@@ -27,6 +27,14 @@ import urllib.parse
 
 logger = logging.getLogger(__name__)
 _TOOLSET = "agentmail"
+
+# Stable-per-process client identity for the gateway single-slot mailbox
+# lock (RFC 4122 v4). Generated ONCE per process; the gateway treats it as
+# an opaque, equality-compared string — first connection wins, the same id
+# re-acquires (rotation / reconnect), a different id gets 409 occupied.
+# Three-client parity: bridge `client_id()` (sha2-derived), TS
+# `_clientId` (crypto.randomUUID).
+_CLIENT_ID = uuid.uuid4().hex
 
 
 def _poll_sleep(seconds: float, stop_event: Optional[threading.Event] = None) -> None:
@@ -187,6 +195,8 @@ class _GatewayClient:
 
         # v1 API signature (raw key stays offline).
         req_headers.update(self._signed_headers(method, path, data))
+        # Single-slot client identity (stable per process — parity bridge/TS).
+        req_headers["X-Aimail-Client"] = _CLIENT_ID
         if headers:
             req_headers.update(headers)
 
@@ -771,17 +781,25 @@ class _GatewayClient:
         the window) — the dead-link / buffered-proxy detector.
 
         Returns ``"stop"`` (stop_event set), ``"stay"`` (server closed at
-        its max life — reconnect), ``"drop"`` (connect failed / stalled —
-        no alternative transport, the caller drops straight to Poll), or
-        ``"error"`` (mid-stream transport error — the caller applies the
-        decision function with the fail streak, bridge parity).
+        its max life — reconnect), ``"occupied"`` (409 — another client
+        holds this key's single-slot mailbox; the caller stays in the
+        current mode and backoffs against the SAME endpoint, bridge
+        parity), ``"drop"`` (connect failed / stalled — no alternative
+        transport, the caller drops straight to Poll), or ``"error"``
+        (mid-stream transport error — the caller applies the decision
+        function with the fail streak, bridge parity).
         """
         url = f"{self.gateway_url}{PULL_STREAM_PATH}"
         req = urllib.request.Request(url, headers={
             "Accept": "text/event-stream",
+            "X-Aimail-Client": _CLIENT_ID,
             **self._signed_headers("GET", PULL_STREAM_PATH, b"")})
         try:
             resp = urllib.request.urlopen(req, timeout=ping_timeout)
+        except urllib.error.HTTPError as e:
+            if e.code == 409:
+                return "occupied"  # single-slot lock held by another client
+            return "drop"
         except Exception:
             return "drop"
         ctype = (resp.headers.get("Content-Type") or "").lower()
@@ -910,6 +928,7 @@ class _GatewayClient:
         # Auto starts optimistic (Stream); Poll is forced.
         in_poll = (mode == "poll")
         stream_streak = 0
+        occupied_streak = 0
         poll_failures = 0
         # "Due immediately" so the first Poll round re-probes right away.
         last_reprobe = time.monotonic() - PULL_REPROBE_INTERVAL_S
@@ -938,9 +957,21 @@ class _GatewayClient:
                     break
                 if res == "stay":
                     # Server max-life rotation: a HEALTHY round. Only a
-                    # healthy rotation breaks the transport-error streak
-                    # (a fresh drop run starts from 1) — bridge parity.
+                    # healthy round breaks the streaks (a fresh run starts
+                    # from 1) — bridge parity.
                     stream_streak = 0
+                    occupied_streak = 0
+                    continue
+                if res == "occupied":
+                    # Single-slot lock held by ANOTHER client: stay in the
+                    # current mode (NO downgrade — the slot frees via the
+                    # holder's lease/grace) and retry the SAME endpoint
+                    # with the stream backoff ramp. Not a transport error ⇒
+                    # the transport streak is untouched (bridge parity).
+                    backoff = pull_stream_backoff_secs(occupied_streak + 1)
+                    occupied_streak += 1
+                    if backoff > 0:
+                        _poll_sleep(float(backoff), stop_event)
                     continue
                 if res == "error":
                     # Mid-stream transport drop: shared decision function

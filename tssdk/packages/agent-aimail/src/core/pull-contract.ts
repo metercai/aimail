@@ -49,10 +49,12 @@ export type PullMode = 'auto' | 'stream' | 'poll'
 /**
  * Result of one SSE round (parity: py `_stream_round` return values).
  * 'stop' = abort signal; 'stay' = server closed at max life (reconnect now);
+ * 'occupied' = 409, another client holds this key's single-slot mailbox
+ * (caller stays in the current mode and backoffs against the SAME endpoint);
  * 'drop' = connect failed / stalled (caller drops straight to Poll);
  * 'error' = mid-stream transport error (caller applies the decision fn).
  */
-export type StreamRoundResult = 'stop' | 'stay' | 'drop' | 'error'
+export type StreamRoundResult = 'stop' | 'stay' | 'occupied' | 'drop' | 'error'
 
 /** One delivery (envelope metadata): no mail body. */
 export interface PullDelivery {

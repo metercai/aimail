@@ -282,6 +282,45 @@ describe('startPolling state machine', () => {
     expect(stats.acked).toBe(1)
   })
 
+  it('auto: repeated 409 occupied stays in stream, NEVER downgrades', async () => {
+    // The single-slot lock is held by ANOTHER client: every stream round
+    // reports 'occupied'. The loop stays in the current mode and backs off
+    // against the SAME endpoint (the slot frees via the holder's lease/grace)
+    // — occupied is NOT a transport error, so the drop streak never accrues
+    // and the poll branch is never entered. Contrast the 3-error downgrade
+    // above: with maxRounds=2 an error script would already be in poll; the
+    // occupied script must still be holding the stream endpoint (no pending
+    // hits, no downgrade).
+    const c = makeClient(['occupied', 'occupied', 'occupied'], [B1])
+    const ac = new AbortController()
+    const run = startPolling(c, () => {}, { intervalMs: 5, mode: 'auto', signal: ac.signal })
+    const deadline = Date.now() + 10_000
+    while (c.counters.streamCalls < 3 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 25))
+    }
+    ac.abort()
+    await run
+    expect(c.counters.streamCalls).toBeGreaterThanOrEqual(3)
+    expect(c.counters.pendingHits).toBe(0) // never fell to the poll branch
+  }, 15_000)
+
+  it('a healthy rotation resets BOTH streaks (occupied + transport)', async () => {
+    // occupied, stay, occupied: the healthy rotation breaks the occupied
+    // run (fresh backoff ramp). Pins the `stay` reset of occupiedStreak —
+    // without it the 3rd occupied would ramp from a higher backoff.
+    const c = makeClient(['occupied', 'stay', 'occupied'], [B1])
+    const ac = new AbortController()
+    const run = startPolling(c, () => {}, { intervalMs: 5, mode: 'auto', signal: ac.signal })
+    const deadline = Date.now() + 10_000
+    while (c.counters.streamCalls < 3 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 25))
+    }
+    ac.abort()
+    await run
+    expect(c.counters.streamCalls).toBeGreaterThanOrEqual(3)
+    expect(c.counters.pendingHits).toBe(0)
+  }, 15_000)
+
   it('a client without stream methods is poll-only (no probing)', async () => {
     const c = makeClient([], [B1], false)
     const got: number[] = []

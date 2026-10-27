@@ -45,6 +45,7 @@ class _State:
         self.lock = threading.Lock()
         self.stream_hits = 0
         self.stream_available = True
+        self.stream_occupied = False      # 409: single-slot lock held by another
         self.stream_stall_after_header = False  # headers only, then silence
         self.stream_first_mail = None           # bytes sent on connection 1
         self.pending = []                       # batches served by POST /pending
@@ -96,6 +97,10 @@ def _make_server(state: _State):
                 state.stream_hits += 1
                 first = (state.stream_first_mail is not None
                          and state.stream_hits == 1)
+            if state.stream_occupied:
+                self._send_json(409, {"error": "occupied",
+                                      "detail": "single-slot lock held by another client"})
+                return
             if not state.stream_available:
                 self._send_json(404, {"error": "stream not implemented"})
                 return
@@ -412,6 +417,66 @@ def test_auto_mode_three_transport_drops_downgrade_to_poll():
         assert calls == [1, 1, 1], "exactly 3 drop attempts before downgrade"
         assert [m["id"] for m in got] == [9] and stats["acked"] == 1  # poll branch delivered
         assert elapsed < 10  # backoff 1s + 2s, not 600s
+    finally:
+        srv.shutdown()
+
+
+def test_stream_409_is_occupied_not_drop():
+    """409 occupied (single-slot lock held by ANOTHER client) is its own
+    outcome — NOT a transport drop. The stream round must report 'occupied'
+    so the caller stays in stream mode and backoffs the SAME endpoint (no
+    downgrade to poll, bridge/py parity). A 409 falling into the generic
+    exception path would return 'drop' ⇒ downgrade ⇒ this test is red."""
+    state = _State()
+    state.stream_occupied = True
+    srv = _make_server(state)
+    try:
+        c = _client_for(srv)
+        res = c._stream_round(lambda m: None, set(),
+                              {"pulled": 0, "acked": 0, "errors": 0},
+                              threading.Event(), base.PULL_STREAM_PING_TIMEOUT_S)
+        assert res == "occupied", res
+        assert state.stream_hits == 1
+    finally:
+        srv.shutdown()
+
+
+def test_occupied_never_downgrades_stays_in_stream(monkeypatch):
+    """auto + repeated 409 occupied: the loop STAYS in stream mode and backs
+    off against the SAME endpoint forever — occupied is not a transport
+    error, so the drop streak never accrues and the poll branch is never
+    entered (single-slot lock frees via the holder's lease/grace). Contrast
+    with test_auto_mode_three_transport_drops_downgrade_to_poll (error ⇒
+    downgrade at the 3rd)."""
+    import aimail_tools as tools
+    monkeypatch.setattr(tools, "PULL_REPROBE_INTERVAL_S", 3600)
+    state = _State()
+    state.stream_occupied = True
+    state.pending = [[{"body": {}, "deliveries":
+                       [{"id": 9, "email": "a@x", "headers": {}}]}]]
+    srv = _make_server(state)
+    try:
+        c = _client_for(srv)
+        calls = []
+
+        def fake_round(on_email, seen, stats, stop_event, ping_timeout):
+            calls.append(1)
+            return "occupied"
+
+        c._stream_round = fake_round
+        stop = threading.Event()
+        th = threading.Thread(
+            target=lambda: c.start_polling(lambda m: None, interval=0.05,
+                                           mode="auto", stop_event=stop),
+            daemon=True)
+        th.start()
+        # backoff ramp 1s,2s,4s ⇒ ~7s to 4 attempts
+        time.sleep(8.0)
+        stop.set()
+        th.join(5)
+        assert len(calls) >= 3, "occupied keeps retrying the stream endpoint"
+        assert state.post_bodies == [], "never fell to the poll branch (no downgrade)"
+        assert state.stream_hits == 0, "fake_round: no real stream connects"
     finally:
         srv.shutdown()
 

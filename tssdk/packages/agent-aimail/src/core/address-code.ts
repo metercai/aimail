@@ -24,6 +24,7 @@ import {
   parsePullMode,
   pullDecideNextMode,
   pullPollBackoffSecs,
+  pullStreamBackoffSecs,
   type PullBatch,
   type PullMode,
   type StreamRoundResult,
@@ -445,6 +446,7 @@ export async function startPolling(
   // Auto starts optimistic (Stream); Poll is forced.
   let inPoll = mode === 'poll'
   let streamStreak = 0
+  let occupiedStreak = 0
   let pollFailures = 0
   // "Due immediately" so the first Poll round re-probes right away.
   let lastReprobe = Date.now() - PULL_REPROBE_INTERVAL_MS
@@ -475,9 +477,21 @@ export async function startPolling(
       if (res === 'stop') break
       if (res === 'stay') {
         // Server max-life rotation: a HEALTHY round. Only a healthy
-        // rotation breaks the transport-error streak (a fresh drop run
-        // starts from 1) — bridge parity (plan 0.3 B).
+        // rotation breaks the streaks (a fresh run starts from 1) —
+        // bridge parity (plan 0.3 B).
         streamStreak = 0
+        occupiedStreak = 0
+        continue
+      }
+      if (res === 'occupied') {
+        // Single-slot lock held by ANOTHER client: stay in the current
+        // mode (NO downgrade — the slot frees via the holder's lease/grace)
+        // and retry the SAME endpoint with the stream backoff ramp. Not a
+        // transport error ⇒ the transport streak is untouched (bridge/py
+        // parity).
+        const backoff = pullStreamBackoffSecs(occupiedStreak + 1)
+        occupiedStreak++
+        if (backoff > 0) await sleep(backoff * 1000)
         continue
       }
       if (res === 'error') {

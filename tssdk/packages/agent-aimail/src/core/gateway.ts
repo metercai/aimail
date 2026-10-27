@@ -7,6 +7,17 @@
  */
 import type { GatewayResponse, AttachmentSpec } from './types.js'
 import { computeApiSignature } from './api-signature.js'
+import { randomUUID } from 'node:crypto'
+
+/**
+ * Stable-per-process client identity for the gateway single-slot mailbox
+ * lock (RFC 4122 v4). Generated ONCE per process; the gateway treats it as
+ * an opaque, equality-compared string — first connection wins, the same id
+ * re-acquires (rotation / reconnect), a different id gets 409 occupied.
+ * Parity: py `_CLIENT_ID` (uuid.uuid4), bridge `client_id()` (sha2-derived).
+ */
+const CLIENT_ID: string = randomUUID()
+const CLIENT_ID_HEADER = 'X-Aimail-Client'
 import {
   PULL_STREAM_PATH,
   PULL_STREAM_PING_TIMEOUT_MS,
@@ -123,7 +134,10 @@ export class GatewayClient {
     rawBody?: Uint8Array,
   ): Promise<GatewayResponse> {
     const url = `${this.baseUrl}${path}`
-    const reqHeaders: Record<string, string> = { Accept: 'application/json' }
+    const reqHeaders: Record<string, string> = {
+      Accept: 'application/json',
+      [CLIENT_ID_HEADER]: CLIENT_ID,
+    }
 
     let data: Uint8Array | undefined
     if (rawBody) {
@@ -176,6 +190,7 @@ export class GatewayClient {
         method: 'GET',
         headers: {
           Accept: 'text/event-stream',
+          [CLIENT_ID_HEADER]: CLIENT_ID,
           ...this.signedHeaders('GET', path, new Uint8Array(0)),
         },
         signal: AbortSignal.timeout(30_000),
@@ -215,11 +230,19 @@ export class GatewayClient {
         method: 'GET',
         headers: {
           Accept: 'text/event-stream',
+          [CLIENT_ID_HEADER]: CLIENT_ID,
           ...this.signedHeaders('GET', path, new Uint8Array(0)),
         },
       })
     } catch {
       return 'drop' // connect failed
+    }
+    if (resp.status === 409) {
+      // Single-slot lock held by ANOTHER client: the caller stays in the
+      // current mode and backoffs against the SAME endpoint (no downgrade,
+      // no transport streak — bridge/py parity).
+      await resp.body?.cancel().catch(() => {})
+      return 'occupied'
     }
     const ctype = (resp.headers.get('content-type') ?? '').toLowerCase()
     if (resp.status !== 200 || !ctype.startsWith('text/event-stream')) {
