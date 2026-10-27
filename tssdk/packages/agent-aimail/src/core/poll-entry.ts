@@ -244,22 +244,53 @@ export async function startAgentPullEntry(
  * Start one poll loop per **agent-scope** binding, delivering into the
  * caller's inbound chain. Returns the handles (empty ⇒ nothing enabled,
  * which is the push/systems case) — never throws for the disabled case.
+ *
+ * An UNSCOPED call (`systemId` empty ⇒ the profile's pointer is missing)
+ * forbids a silent full-scan fan-out (task-3 O1): exactly ONE agent-scope
+ * binding on disk is unambiguous and starts; two or more ⇒ loud log + NO
+ * loop (mail stays pending on the gateway rather than being replayed into
+ * the wrong profile's inbound). A scoped call is unambiguous by definition.
  */
 export async function startAgentPullEntries(
   opts: StartAgentPullEntriesOptions,
 ): Promise<AgentPullHandle[]> {
   const log = opts.log ?? ((line: string) => console.log(line))
-  const sids = opts.systemId ? [opts.systemId] : await listSystemDirs()
-  const bindings: AgentConfig[] = []
-  for (const sid of sids) {
-    for (const cfg of await listAgentConfigs(sid)) bindings.push(cfg)
-  }
   const handles: AgentPullHandle[] = []
-  for (const cfg of bindings) {
-    const h = await startAgentPullEntry(cfg, opts)
-    if (h !== null) handles.push(h)
+  let unscopedRefused = false
+  if (opts.systemId) {
+    // Scoped call: the pointer (or an explicit scope) names this profile's
+    // system — per-binding decisions proceed exactly as before.
+    for (const cfg of await listAgentConfigs(opts.systemId)) {
+      const h = await startAgentPullEntry(cfg, opts)
+      if (h !== null) handles.push(h)
+    }
+  } else {
+    const all: AgentConfig[] = []
+    for (const sid of await listSystemDirs()) {
+      for (const cfg of await listAgentConfigs(sid)) all.push(cfg)
+    }
+    const agentScope = all.filter((c) => isAgentScopeBinding(c))
+    if (agentScope.length === 1) {
+      log(
+        `[aimail-pull] no profile pointer — exactly one agent-scope ` +
+          `binding on disk (${agentScope[0].email}); starting it (unambiguous)`,
+      )
+      const h = await startAgentPullEntry(agentScope[0], opts)
+      if (h !== null) handles.push(h)
+    } else if (agentScope.length > 1) {
+      unscopedRefused = true
+      log(
+        `[aimail-pull] NO profile pointer and ${agentScope.length} agent-scope ` +
+          'bindings on disk — refusing to start: with no pointer the ' +
+          "profile's own mailbox cannot be located, and a full scan would " +
+          "replay every mailbox into THIS profile's inbound (wrong routing, " +
+          '401, never acked). Mail stays pending on the gateway. Re-run ' +
+          '`aimail agent bind` (or restore the pointer) to pick a mailbox; ' +
+          'restart the host afterwards.',
+      )
+    }
   }
-  if (handles.length === 0) {
+  if (handles.length === 0 && !unscopedRefused) {
     log(
       '[aimail-pull] no agent-scope binding — polling not started ' +
         '(push path unchanged; address-code activation enables it)',

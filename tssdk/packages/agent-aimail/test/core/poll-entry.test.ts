@@ -230,8 +230,22 @@ describe('startAgentPullEntries — real loop starts/stops by binding', () => {
     expect(delivered).toBe(0)
     expect(client.calls).toHaveLength(0)
     const log = lines.join('\n')
-    expect(log).toContain('not-agent-scope')
+    // Unscoped call over a push-only disk: the O1 gate counts agent-scope
+    // bindings only (zero) ⇒ nothing starts; the per-binding reason is
+    // reported by a scoped call, which the adapter would make next.
     expect(log).toContain('no agent-scope binding')
+
+    // Scoped call: the per-binding decision still reports not-agent-scope.
+    const scopedLines: string[] = []
+    const scopedHandles = await startAgentPullEntries({
+      systemId: PUSH_SID,
+      env: {},
+      log: (l) => scopedLines.push(l),
+      onEmail: () => {},
+      clientFor: () => client,
+    })
+    expect(scopedHandles).toHaveLength(0)
+    expect(scopedLines.join('\n')).toContain('not-agent-scope')
   })
 
   it('② After activation ⇒ self-fetches pending and acks, handle.stop() ends the loop', async () => {
@@ -322,7 +336,7 @@ describe('startAgentPullEntries — real loop starts/stops by binding', () => {
     expect(client.listCalls).toBe(after)
   })
 
-  it('⑤ One loop per agent-level binding; systemId limits scope; stop is idempotent', async () => {
+  it('⑤ One loop per agent-level binding when SCOPED; unscoped with ≥2 bindings ⇒ refusal', async () => {
     await saveAgentConfig(binding({ email: 'a@e2e.local' }), AGENT_SID)
     await saveAgentConfig(binding({ email: 'b@e2e.local' }), AGENT_SID)
     await saveAgentConfig(binding({ email: 'agent@other.local', system_id: `${AGENT_SCOPE_SYSTEM_PREFIX}other` }), `${AGENT_SCOPE_SYSTEM_PREFIX}other`)
@@ -332,33 +346,62 @@ describe('startAgentPullEntries — real loop starts/stops by binding', () => {
       clients.push(c)
       return c
     }
-    const all = await startAgentPullEntries({
+
+    // Unscoped (pointer missing) with ≥2 agent-scope bindings ⇒ O1 refusal:
+    // no fan-out, no clients built, loud log.
+    const unscoped: string[] = []
+    const refused = await startAgentPullEntries({
       env: {},
-      log: () => {},
+      log: (l) => unscoped.push(l),
       clientFor: mk,
       onEmail: () => {
         throw new Error('no delivery expected from an empty batch')
       },
     })
-    expect(all.map((h) => h.email).sort()).toEqual(['a@e2e.local', 'agent@other.local', 'b@e2e.local'])
+    expect(refused).toHaveLength(0)
+    expect(clients).toHaveLength(0) // nothing built for a refused fan-out
+    expect(unscoped.join('\n')).toContain('refusing to start')
+    expect(unscoped.join('\n')).toContain('3 agent-scope bindings')
+    expect(unscoped.join('\n')).not.toContain('no agent-scope binding')
 
-    const scoped = await startAgentPullEntries({
+    // Scoped call is unambiguous: every binding in the named system gets its loop.
+    const scoped: string[] = []
+    const scopedHandles = await startAgentPullEntries({
       systemId: AGENT_SID,
       env: {},
-      log: () => {},
+      log: (l) => scoped.push(l),
       clientFor: mk,
       onEmail: () => {
         throw new Error('no delivery expected from an empty batch')
       },
     })
-    expect(scoped.map((h) => h.email).sort()).toEqual(['a@e2e.local', 'b@e2e.local'])
+    expect(scopedHandles.map((h) => h.email).sort()).toEqual(['a@e2e.local', 'b@e2e.local'])
+    expect(scoped.join('\n')).not.toContain('refusing to start')
 
-    stopAgentPullEntries(all)
-    stopAgentPullEntries(all) // idempotent
-    stopAgentPullEntries(scoped)
-    for (const h of [...all, ...scoped]) {
+    stopAgentPullEntries(scopedHandles)
+    stopAgentPullEntries(scopedHandles) // idempotent
+    for (const h of scopedHandles) {
       await h.done
       expect(h.stats().errors).toBe(0)
     }
+  })
+
+  it('⑥ Unscoped with exactly ONE agent-scope binding ⇒ unambiguous ⇒ starts', async () => {
+    await saveAgentConfig(binding({ email: 'solo@e2e.local' }), AGENT_SID)
+    await saveAgentConfig(binding({ email: 'push@e2e.local', system_id: PUSH_SID }), PUSH_SID)
+    const client = new FakeGateway([])
+    const lines: string[] = []
+    const handles = await startAgentPullEntries({
+      env: {},
+      log: (l) => lines.push(l),
+      clientFor: () => client,
+      onEmail: () => {
+        throw new Error('no delivery expected from an empty batch')
+      },
+    })
+    expect(handles.map((h) => h.email)).toEqual(['solo@e2e.local'])
+    expect(lines.join('\n')).toContain('exactly one agent-scope binding')
+    handles.forEach((h) => h.stop())
+    for (const h of handles) await h.done
   })
 })

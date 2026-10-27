@@ -2402,17 +2402,51 @@ def start_agent_pull_entries(system_id: str = "", on_email=None, env=None,
     - ``target_for``: target resolver for pre-check + built-in callbacks. Bindings with ok=False are **not started**.
     - ``client_for``: test seam — create a request client for the binding (default _GatewayClient).
     - Returns list of handles (empty = no agent-scope bindings to poll); disabled scenarios **do not raise**.
+
+    Unscoped call (``system_id == ""`` ⇒ the profile's pointer is missing):
+    the profile's own mailbox cannot be located, so a **silent full scan is
+    forbidden** (task-3 O1): exactly ONE agent-scope binding on disk starts
+    (unambiguous); two or more ⇒ loud log + NO loop (mail stays pending on
+    the gateway rather than being replayed into the wrong profile's inbound).
+    A scoped call (``system_id`` set) is unambiguous by definition ⇒ unchanged.
     """
     env = os.environ if env is None else env
     log = log or (lambda line: logger.info("%s", line))
     handles: list = []
-    for cfg in iter_agentmail_configs(system_id):
-        handle = start_agent_pull_entry(
-            cfg, on_email=on_email, env=env, overrides=overrides, log=log,
-            client_for=client_for, target_for=target_for, timeout=timeout)
-        if handle is not None:
-            handles.append(handle)
-    if not handles:
+    unscoped_refused = False
+    if system_id:
+        # Scoped call: the pointer (or an explicit scope) names this profile's
+        # system — per-binding decisions proceed exactly as before.
+        for cfg in iter_agentmail_configs(system_id):
+            handle = start_agent_pull_entry(
+                cfg, on_email=on_email, env=env, overrides=overrides, log=log,
+                client_for=client_for, target_for=target_for, timeout=timeout)
+            if handle is not None:
+                handles.append(handle)
+    else:
+        cfgs = [c for c in iter_agentmail_configs("")
+                if is_agent_scope_binding(c)]
+        if len(cfgs) == 1:
+            log("[aimail-pull] no profile pointer — exactly one agent-scope "
+                "binding on disk (%s); starting it (unambiguous)"
+                % (cfgs[0].get("email", ""),))
+            handle = start_agent_pull_entry(
+                cfgs[0], on_email=on_email, env=env, overrides=overrides,
+                log=log, client_for=client_for, target_for=target_for,
+                timeout=timeout)
+            if handle is not None:
+                handles.append(handle)
+        elif len(cfgs) > 1:
+            unscoped_refused = True
+            log("[aimail-pull] NO profile pointer and %d agent-scope bindings "
+                "on disk — refusing to start: with no pointer the profile's "
+                "own mailbox cannot be located, and a full scan would replay "
+                "every mailbox into THIS profile's inbound (wrong routing, "
+                "401, never acked). Mail stays pending on the gateway. "
+                "Re-run `aimail agent bind` (or restore the pointer) to pick "
+                "a mailbox; restart the host afterwards."
+                % len(cfgs))
+    if not handles and not unscoped_refused:
         log("[aimail-pull] no agent-scope binding — polling not started "
             "(push path unchanged; address-code activation enables it)")
     return handles

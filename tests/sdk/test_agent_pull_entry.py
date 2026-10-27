@@ -341,11 +341,21 @@ def test_entries_plain_system_id_not_started(clean_env, tmp_path, monkeypatch):
     def _boom(_cfg):            # must never be reached for a push binding
         raise AssertionError("client built for a non-agent-scope binding")
 
+    # Unscoped (missing pointer): only agent-scope bindings can start — a
+    # push-only disk starts nothing.
     handles = base.start_agent_pull_entries(
         system_id="", on_email=lambda c, m: {}, env={}, log=lines.append,
         client_for=_boom)
     assert handles == []
-    assert any("not-agent-scope" in ln for ln in lines), lines
+    assert any("no agent-scope binding" in ln for ln in lines), lines
+
+    # Scoped call: the per-binding decision still reports not-agent-scope.
+    lines2 = []
+    handles2 = base.start_agent_pull_entries(
+        system_id=PLAIN_SID, on_email=lambda c, m: {}, env={}, log=lines2.append,
+        client_for=_boom)
+    assert handles2 == []
+    assert any("not-agent-scope" in ln for ln in lines2), lines2
 
 
 def test_entries_agent_scope_without_target_not_started(clean_env, tmp_path, monkeypatch):
@@ -430,6 +440,109 @@ def test_entries_starts_loop_delivers_acks_and_stops(clean_env, tmp_path, monkey
 def test_stop_agent_pull_entries_is_idempotent(clean_env):
     base.stop_agent_pull_entries([])
     base.stop_agent_pull_entries(None)
+
+
+# ── 5b. unscoped (missing pointer) fan-out gate (task-3 O1) ────────────────
+#
+# An unscoped call (system_id == "" ⇒ the profile's pointer is missing) must
+# NOT silently fan out over every agent-scope binding on disk: exactly one is
+# unambiguous and starts; two or more ⇒ loud refusal, no loop, mail stays
+# pending on the gateway.
+
+def _good_target(_cfg=None):
+    return {"url": "http://127.0.0.1:1/inbound", "secret": "s",
+            "ok": True, "reason": ""}
+
+
+def test_unscoped_missing_pointer_single_binding_starts(clean_env,
+                                                       tmp_path, monkeypatch):
+    """Exactly one agent-scope binding on disk ⇒ unambiguous ⇒ starts."""
+    monkeypatch.setenv("AIMAIL_HOME", str(tmp_path))
+    _write_binding(tmp_path, AGENT_SCOPE_SID, "agent.demo",
+                   _agent_scope_cfg(email="agent.demo@example.test"))
+    lines = []
+    handles = base.start_agent_pull_entries(
+        system_id="", on_email=lambda c, m: {}, env={}, log=lines.append,
+        target_for=_good_target, client_for=lambda _cfg: FakePullClient([]))
+    try:
+        assert len(handles) == 1
+        assert handles[0].email == "agent.demo@example.test"
+        assert any("exactly one agent-scope binding" in ln for ln in lines), lines
+    finally:
+        base.stop_agent_pull_entries(handles)
+        for h in handles:
+            h.join(3.0)
+
+
+def test_unscoped_missing_pointer_two_bindings_refused(clean_env,
+                                                       tmp_path, monkeypatch):
+    """Two agent-scope bindings + no pointer ⇒ loud refusal, NO loop."""
+    monkeypatch.setenv("AIMAIL_HOME", str(tmp_path))
+    _write_binding(tmp_path, AGENT_SCOPE_SID, "agent.a",
+                   _agent_scope_cfg(email="a@example.test"))
+    _write_binding(tmp_path, AGENT_SCOPE_SID, "agent.b",
+                   _agent_scope_cfg(email="b@example.test"))
+    lines = []
+    built = []
+    handles = base.start_agent_pull_entries(
+        system_id="", on_email=lambda c, m: {}, env={}, log=lines.append,
+        target_for=_good_target,
+        client_for=lambda cfg: built.append(cfg.get("email"))
+        or FakePullClient([]))
+    assert handles == [], "refusal must start no loop"
+    assert built == [], "no client may even be built for a refused fan-out"
+    joined = "\n".join(lines)
+    assert "refusing to start" in joined, lines
+    assert "2 agent-scope bindings" in joined, lines
+    # The refusal is the ONLY explanation — the misleading
+    # "no agent-scope binding" tail must not follow it.
+    assert "no agent-scope binding" not in joined, lines
+
+
+def test_unscoped_refusal_ignores_push_bindings_in_the_count(clean_env,
+                                                             tmp_path,
+                                                             monkeypatch):
+    """The count is over AGENT-SCOPE bindings only; push bindings never
+    arm a loop and never tip the ambiguity."""
+    monkeypatch.setenv("AIMAIL_HOME", str(tmp_path))
+    _write_binding(tmp_path, AGENT_SCOPE_SID, "agent.a",
+                   _agent_scope_cfg(email="a@example.test"))
+    _write_binding(tmp_path, PLAIN_SID, "push.a",
+                   {"system_id": PLAIN_SID, "api_key": "k", "email": "p1@example.test"})
+    _write_binding(tmp_path, PLAIN_SID, "push.b",
+                   {"system_id": PLAIN_SID, "api_key": "k", "email": "p2@example.test"})
+    lines = []
+    handles = base.start_agent_pull_entries(
+        system_id="", on_email=lambda c, m: {}, env={}, log=lines.append,
+        target_for=_good_target, client_for=lambda _cfg: FakePullClient([]))
+    try:
+        assert len(handles) == 1, "one agent-scope binding + push noise ⇒ starts"
+    finally:
+        base.stop_agent_pull_entries(handles)
+        for h in handles:
+            h.join(3.0)
+
+
+def test_scoped_call_keeps_full_fanout(clean_env, tmp_path, monkeypatch):
+    """A scoped (pointer-resolved) call is unambiguous: every binding in the
+    named system still gets its own loop (unchanged behaviour)."""
+    monkeypatch.setenv("AIMAIL_HOME", str(tmp_path))
+    _write_binding(tmp_path, AGENT_SCOPE_SID, "agent.a",
+                   _agent_scope_cfg(email="a@example.test"))
+    _write_binding(tmp_path, AGENT_SCOPE_SID, "agent.b",
+                   _agent_scope_cfg(email="b@example.test"))
+    lines = []
+    handles = base.start_agent_pull_entries(
+        system_id=AGENT_SCOPE_SID, on_email=lambda c, m: {}, env={},
+        log=lines.append, target_for=_good_target,
+        client_for=lambda _cfg: FakePullClient([]))
+    try:
+        assert sorted(h.email for h in handles) == ["a@example.test", "b@example.test"]
+        assert "refusing to start" not in "\n".join(lines), lines
+    finally:
+        base.stop_agent_pull_entries(handles)
+        for h in handles:
+            h.join(3.0)
 
 
 def test_list_agent_scope_bindings_filters_the_filesystem(clean_env, tmp_path, monkeypatch):
