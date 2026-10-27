@@ -281,6 +281,9 @@ export async function startInboundPull(
     // Scope = the plugin's own system when it has one, else every system
     // (the per-address binding file is the authority — single source).
     systemId: opts.systemId ?? mail.systemId,
+    // dsh has no address-identity source (no pointer; scope = the plugin's
+    // system) ⇒ no filter passed: declared fan-out; per-address routing stays
+    // authoritative on the inbound side.
     ...(opts.log ? { log: opts.log } : {}),
     ...(opts.env ? { env: opts.env } : {}),
     ...(opts.overrides ? { overrides: opts.overrides } : {}),

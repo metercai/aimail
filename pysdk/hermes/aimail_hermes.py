@@ -1370,8 +1370,15 @@ def start_agent_pull(env=None, overrides=None, log=None) -> list:
     with _pull_lock:
         if _PULL_HANDLES:
             return _PULL_HANDLES
+        # Hermes is a single-agent host: pin the pull to the pointer's own
+        # address (never fan out over other addresses in the shared system).
+        # Pointer missing/corrupt ⇒ empty string = no filter ⇒ the unscoped
+        # branch's fail-closed gate applies (no new failure mode).
+        _pd = _resolve_profile_dir() or ""
+        _ptr = core._read_pointer(Path(_pd) / _contract.POINTER_FILE) if _pd else {}
         _PULL_HANDLES = core.start_agent_pull_entries(
             system_id=_pull_system_id(),
+            only_email=str(_ptr.get("email") or ""),
             on_email=_on_pull_email,
             target_for=_pull_replay_target,
             env=env, overrides=overrides, log=log,

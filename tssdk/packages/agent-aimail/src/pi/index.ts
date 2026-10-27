@@ -146,6 +146,9 @@ export async function startInboundPull(
   const ptr = readPointer()
   return await startAgentPullEntries({
     systemId: opts.systemId ?? ptr.system_id ?? '',
+    // Pi is a single-agent host: pin the pull to the pointer's own address
+    // (never fan out over other addresses in the shared system).
+    ...(ptr.email ? { onlyEmail: ptr.email } : {}),
     ...(opts.log ? { log: opts.log.info } : {}),
     ...(opts.env ? { env: opts.env } : {}),
     ...(opts.overrides ? { overrides: opts.overrides } : {}),

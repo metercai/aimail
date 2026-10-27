@@ -417,6 +417,10 @@ def start_pull_on_startup(app) -> bool:
         try:
             handles.extend(_ab.start_agent_pull_entries(
                 system_id=_pull_system_id(),
+                # Deer-flow has no address-identity source (scope =
+                # detect_system_id(), system-level) ⇒ no filter passed:
+                # declared fan-out; per-address routing stays authoritative
+                # on the inbound side.
                 on_email=_on_pull_email,
                 target_for=_pull_replay_target,
                 log=lambda line: logger.info("%s", line),

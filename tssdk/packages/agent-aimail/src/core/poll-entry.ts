@@ -151,6 +151,15 @@ export interface StartAgentPullEntriesOptions {
   /** System scope: '' ⇒ every system under ~/.aimail/systems. */
   systemId?: string
   /**
+   * Explicit single-address filter (the host declares itself single-agent).
+   * Undefined/empty ⇒ no filter (a scoped call starts one loop per
+   * agent-scope binding in the system — declared fan-out). Non-empty ⇒
+   * exactly ONE loop for the agent-scope binding whose address matches
+   * (case-insensitive, deduped over copied files); zero matches ⇒ loud log +
+   * NO loop (never a silent fallback to the full scan).
+   */
+  onlyEmail?: string
+  /**
    * Delivery into THIS adapter's existing inbound chain. Receives the
    * binding it belongs to (so per-address routing stays authoritative).
    */
@@ -164,7 +173,7 @@ export interface StartAgentPullEntriesOptions {
 }
 
 /** Options for one binding (same knobs as the batch starter, minus enumeration). */
-export type StartAgentPullEntryOptions = Omit<StartAgentPullEntriesOptions, 'systemId'>
+export type StartAgentPullEntryOptions = Omit<StartAgentPullEntriesOptions, 'systemId' | 'onlyEmail'>
 
 /**
  * Start the poll loop for ONE agent-scope binding — the hot-add unit.
@@ -241,53 +250,126 @@ export async function startAgentPullEntry(
 }
 
 /**
- * Start one poll loop per **agent-scope** binding, delivering into the
+ * Start one poll loop per agent-scope binding, delivering into the
  * caller's inbound chain. Returns the handles (empty ⇒ nothing enabled,
  * which is the push/systems case) — never throws for the disabled case.
  *
+ * `onlyEmail` (the host declares itself single-agent): empty/undefined ⇒ no
+ * filter (a scoped call is a declared fan-out); non-empty ⇒ exactly ONE loop
+ * for the matching address (case-insensitive, deduped over copied files);
+ * zero matches ⇒ loud log + NO loop (never a silent fallback to the full
+ * scan).
+ *
  * An UNSCOPED call (`systemId` empty ⇒ the profile's pointer is missing)
- * forbids a silent full-scan fan-out (task-3 O1): exactly ONE agent-scope
- * binding on disk is unambiguous and starts; two or more ⇒ loud log + NO
- * loop (mail stays pending on the gateway rather than being replayed into
- * the wrong profile's inbound). A scoped call is unambiguous by definition.
+ * forbids a silent full-scan fan-out (task-3 O1): without `onlyEmail` exactly
+ * ONE agent-scope binding on disk is unambiguous and starts; two or more ⇒
+ * loud log + NO loop (mail stays pending on the gateway rather than being
+ * replayed into the wrong profile's inbound).
+ *
+ * Every started loop emits one audit line (py/TS verbatim):
+ * `[aimail-pull] pull scope: system=<sid> email=<email> fanout=<true|false>`.
  */
 export async function startAgentPullEntries(
   opts: StartAgentPullEntriesOptions,
 ): Promise<AgentPullHandle[]> {
   const log = opts.log ?? ((line: string) => console.log(line))
+  const only = (opts.onlyEmail ?? '').trim().toLowerCase()
   const handles: AgentPullHandle[] = []
   let unscopedRefused = false
+
+  // Agent-scope bindings in `pool` whose address matches `only`, deduped
+  // over copied files for the same address (first in sort order).
+  const targeted = (pool: AgentConfig[]): AgentConfig[] => {
+    const matches = pool.filter((c) => (c.email ?? '').toLowerCase() === only)
+    const seen = new Set<string>()
+    const uniq: AgentConfig[] = []
+    for (const c of matches) {
+      const e = (c.email ?? '').toLowerCase()
+      if (!seen.has(e)) {
+        seen.add(e)
+        uniq.push(c)
+      }
+    }
+    return uniq
+  }
+
   if (opts.systemId) {
-    // Scoped call: the pointer (or an explicit scope) names this profile's
-    // system — per-binding decisions proceed exactly as before.
-    for (const cfg of await listAgentConfigs(opts.systemId)) {
-      const h = await startAgentPullEntry(cfg, opts)
-      if (h !== null) handles.push(h)
+    if (only) {
+      // Host declared single-agent: pin to the one matching address.
+      const pool = (await listAgentConfigs(opts.systemId)).filter(isAgentScopeBinding)
+      const uniq = targeted(pool)
+      if (uniq.length === 0) {
+        log(
+          `[aimail-pull] pull scope: system=${opts.systemId} only_email=${opts.onlyEmail} — ` +
+            'no binding matches; starting NO loop (mail stays ' +
+            `pending; check pointer/binding) candidates=${pool.length}`,
+        )
+        return handles
+      }
+      const h = await startAgentPullEntry(uniq[0], opts)
+      if (h !== null) {
+        handles.push(h)
+        log(`[aimail-pull] pull scope: system=${opts.systemId} email=${h.email} fanout=false`)
+      }
+    } else {
+      // Scoped, no filter: declared fan-out over the system's bindings.
+      for (const cfg of await listAgentConfigs(opts.systemId)) {
+        const h = await startAgentPullEntry(cfg, opts)
+        if (h !== null) {
+          handles.push(h)
+          log(`[aimail-pull] pull scope: system=${opts.systemId} email=${h.email} fanout=true`)
+        }
+      }
     }
   } else {
-    const all: AgentConfig[] = []
-    for (const sid of await listSystemDirs()) {
-      for (const cfg of await listAgentConfigs(sid)) all.push(cfg)
-    }
-    const agentScope = all.filter((c) => isAgentScopeBinding(c))
-    if (agentScope.length === 1) {
-      log(
-        `[aimail-pull] no profile pointer — exactly one agent-scope ` +
-          `binding on disk (${agentScope[0].email}); starting it (unambiguous)`,
-      )
-      const h = await startAgentPullEntry(agentScope[0], opts)
-      if (h !== null) handles.push(h)
-    } else if (agentScope.length > 1) {
-      unscopedRefused = true
-      log(
-        `[aimail-pull] NO profile pointer and ${agentScope.length} agent-scope ` +
-          'bindings on disk — refusing to start: with no pointer the ' +
-          "profile's own mailbox cannot be located, and a full scan would " +
-          "replay every mailbox into THIS profile's inbound (wrong routing, " +
-          '401, never acked). Mail stays pending on the gateway. Re-run ' +
-          '`aimail agent bind` (or restore the pointer) to pick a mailbox; ' +
-          'restart the host afterwards.',
-      )
+    if (only) {
+      const all: AgentConfig[] = []
+      for (const sid of await listSystemDirs()) {
+        for (const cfg of await listAgentConfigs(sid)) all.push(cfg)
+      }
+      const pool = all.filter(isAgentScopeBinding)
+      const uniq = targeted(pool)
+      if (uniq.length === 0) {
+        log(
+          `[aimail-pull] pull scope: system= only_email=${opts.onlyEmail} — ` +
+            'no binding matches; starting NO loop (mail stays ' +
+            `pending; check pointer/binding) candidates=${pool.length}`,
+        )
+        return handles
+      }
+      const h = await startAgentPullEntry(uniq[0], opts)
+      if (h !== null) {
+        handles.push(h)
+        log(`[aimail-pull] pull scope: system= email=${h.email} fanout=false`)
+      }
+    } else {
+      const all: AgentConfig[] = []
+      for (const sid of await listSystemDirs()) {
+        for (const cfg of await listAgentConfigs(sid)) all.push(cfg)
+      }
+      const agentScope = all.filter(isAgentScopeBinding)
+      if (agentScope.length === 1) {
+        log(
+          `[aimail-pull] no profile pointer — exactly one agent-scope ` +
+            `binding on disk (${agentScope[0].email}); starting it (unambiguous)`,
+        )
+        const h = await startAgentPullEntry(agentScope[0], opts)
+        if (h !== null) {
+          handles.push(h)
+          log(`[aimail-pull] pull scope: system= email=${h.email} fanout=false`)
+        }
+      } else if (agentScope.length > 1) {
+        unscopedRefused = true
+        log(
+          `[aimail-pull] NO profile pointer and ${agentScope.length} agent-scope ` +
+            'bindings on disk — refusing to start: with no pointer the ' +
+            "profile's own mailbox cannot be located, and a full scan would " +
+            "replay every mailbox into THIS profile's inbound (wrong routing, " +
+            '401, never acked). Mail stays pending on the gateway. Re-run ' +
+            '`aimail agent bind` (or restore the pointer) to pick a mailbox; ' +
+            'restart the host afterwards.',
+        )
+      }
     }
   }
   if (handles.length === 0 && !unscopedRefused) {

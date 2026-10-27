@@ -545,6 +545,147 @@ def test_scoped_call_keeps_full_fanout(clean_env, tmp_path, monkeypatch):
             h.join(3.0)
 
 
+# ── 5c. only_email single-address filter (QA HOLD 2026-10-27) ───────────────
+#
+# A host that declares itself single-agent pins the pull to its own address:
+# scoped + only_email ⇒ exactly ONE loop for the matching binding; zero
+# matches ⇒ loud log + NO loop (never a silent fallback to the full scan);
+# scoped without only_email keeps the declared fan-out.
+
+def test_scoped_only_email_starts_exactly_one_loop(clean_env, tmp_path, monkeypatch):
+    """QA 4.A-1: scoped + only_email=agenta ⇒ 1 loop for agenta only."""
+    monkeypatch.setenv("AIMAIL_HOME", str(tmp_path))
+    _write_binding(tmp_path, AGENT_SCOPE_SID, "agent.a",
+                   _agent_scope_cfg(email="a@example.test"))
+    _write_binding(tmp_path, AGENT_SCOPE_SID, "agent.b",
+                   _agent_scope_cfg(email="b@example.test"))
+    lines = []
+    handles = base.start_agent_pull_entries(
+        system_id=AGENT_SCOPE_SID, only_email="a@example.test",
+        on_email=lambda c, m: {}, env={}, log=lines.append,
+        target_for=_good_target, client_for=lambda _cfg: FakePullClient([]))
+    try:
+        assert [h.email for h in handles] == ["a@example.test"], lines
+        assert any("pull scope: system=%s email=%s fanout=false"
+                   % (AGENT_SCOPE_SID, "a@example.test") in ln for ln in lines), lines
+    finally:
+        base.stop_agent_pull_entries(handles)
+        for h in handles:
+            h.join(3.0)
+
+
+def test_scoped_only_email_omitted_keeps_fanout(clean_env, tmp_path, monkeypatch):
+    """QA 4.A-2: scoped + only_email omitted ⇒ fan-out preserved (2 loops);
+    the audit line marks fanout=true."""
+    monkeypatch.setenv("AIMAIL_HOME", str(tmp_path))
+    _write_binding(tmp_path, AGENT_SCOPE_SID, "agent.a",
+                   _agent_scope_cfg(email="a@example.test"))
+    _write_binding(tmp_path, AGENT_SCOPE_SID, "agent.b",
+                   _agent_scope_cfg(email="b@example.test"))
+    lines = []
+    handles = base.start_agent_pull_entries(
+        system_id=AGENT_SCOPE_SID, on_email=lambda c, m: {}, env={},
+        log=lines.append, target_for=_good_target,
+        client_for=lambda _cfg: FakePullClient([]))
+    try:
+        assert sorted(h.email for h in handles) == ["a@example.test", "b@example.test"]
+        audit = [ln for ln in lines if "pull scope:" in ln]
+        assert len(audit) == 2 and all("fanout=true" in ln for ln in audit), lines
+    finally:
+        base.stop_agent_pull_entries(handles)
+        for h in handles:
+            h.join(3.0)
+
+
+def test_scoped_only_email_no_match_starts_nothing(clean_env, tmp_path, monkeypatch):
+    """QA 4.A-3: only_email with zero matches ⇒ NO loop + loud log (the address
+    and the candidate count); never a silent full-scan fallback."""
+    monkeypatch.setenv("AIMAIL_HOME", str(tmp_path))
+    _write_binding(tmp_path, AGENT_SCOPE_SID, "agent.a",
+                   _agent_scope_cfg(email="a@example.test"))
+    _write_binding(tmp_path, AGENT_SCOPE_SID, "agent.b",
+                   _agent_scope_cfg(email="b@example.test"))
+    lines = []
+    built = []
+    handles = base.start_agent_pull_entries(
+        system_id=AGENT_SCOPE_SID, only_email="ghost@example.test",
+        on_email=lambda c, m: {}, env={}, log=lines.append,
+        target_for=_good_target,
+        client_for=lambda cfg: built.append(cfg.get("email"))
+        or FakePullClient([]))
+    assert handles == []
+    assert built == [], "no client may be built when the filter matches nothing"
+    joined = "\n".join(lines)
+    assert "only_email=ghost@example.test" in joined, lines
+    assert "no binding matches" in joined, lines
+    assert "candidates=2" in joined, lines
+    assert "fanout=" not in joined, lines  # no audit line ⇒ no loop started
+    assert "no agent-scope binding" not in joined, lines
+
+
+def test_unscoped_only_email_pins_to_the_match(clean_env, tmp_path, monkeypatch):
+    """QA 4.A-4: unscoped + only_email ⇒ the matching address starts (1 loop)."""
+    monkeypatch.setenv("AIMAIL_HOME", str(tmp_path))
+    _write_binding(tmp_path, AGENT_SCOPE_SID, "agent.a",
+                   _agent_scope_cfg(email="a@example.test"))
+    _write_binding(tmp_path, AGENT_SCOPE_SID, "agent.b",
+                   _agent_scope_cfg(email="b@example.test"))
+    lines = []
+    handles = base.start_agent_pull_entries(
+        system_id="", only_email="b@example.test",
+        on_email=lambda c, m: {}, env={}, log=lines.append,
+        target_for=_good_target, client_for=lambda _cfg: FakePullClient([]))
+    try:
+        assert [h.email for h in handles] == ["b@example.test"]
+        assert any("pull scope: system= email=b@example.test fanout=false"
+                   in ln for ln in lines), lines
+    finally:
+        base.stop_agent_pull_entries(handles)
+        for h in handles:
+            h.join(3.0)
+
+
+def test_only_email_match_is_case_insensitive(clean_env, tmp_path, monkeypatch):
+    """QA 4.A-5: the filter matches case-insensitively."""
+    monkeypatch.setenv("AIMAIL_HOME", str(tmp_path))
+    _write_binding(tmp_path, AGENT_SCOPE_SID, "agent.a",
+                   _agent_scope_cfg(email="a@example.test"))
+    _write_binding(tmp_path, AGENT_SCOPE_SID, "agent.b",
+                   _agent_scope_cfg(email="b@example.test"))
+    lines = []
+    handles = base.start_agent_pull_entries(
+        system_id=AGENT_SCOPE_SID, only_email="A@EXAMPLE.TEST",
+        on_email=lambda c, m: {}, env={}, log=lines.append,
+        target_for=_good_target, client_for=lambda _cfg: FakePullClient([]))
+    try:
+        assert [h.email for h in handles] == ["a@example.test"]
+    finally:
+        base.stop_agent_pull_entries(handles)
+        for h in handles:
+            h.join(3.0)
+
+
+def test_only_email_dedupes_copied_binding_files(clean_env, tmp_path, monkeypatch):
+    """QA 4.D: the same address under two binding files ⇒ still ONE loop."""
+    monkeypatch.setenv("AIMAIL_HOME", str(tmp_path))
+    _write_binding(tmp_path, AGENT_SCOPE_SID, "agent.a",
+                   _agent_scope_cfg(email="a@example.test"))
+    _write_binding(tmp_path, AGENT_SCOPE_SID, "agent.a-copy",
+                   _agent_scope_cfg(email="a@example.test"))
+    lines = []
+    handles = base.start_agent_pull_entries(
+        system_id=AGENT_SCOPE_SID, only_email="a@example.test",
+        on_email=lambda c, m: {}, env={}, log=lines.append,
+        target_for=_good_target, client_for=lambda _cfg: FakePullClient([]))
+    try:
+        assert [h.email for h in handles] == ["a@example.test"]
+        assert sum(1 for ln in lines if "fanout=false" in ln) == 1, lines
+    finally:
+        base.stop_agent_pull_entries(handles)
+        for h in handles:
+            h.join(3.0)
+
+
 def test_list_agent_scope_bindings_filters_the_filesystem(clean_env, tmp_path, monkeypatch):
     monkeypatch.setenv("AIMAIL_HOME", str(tmp_path))
     _write_binding(tmp_path, AGENT_SCOPE_SID, "agent.demo", _agent_scope_cfg())
