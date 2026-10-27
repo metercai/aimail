@@ -29,15 +29,16 @@ const EXPECTED_NAMES = [
   'board_heartbeat',
   'board_members',
   'board_roles',
-  'activate_address_code',
+  'aimail_address',
   'role_calibrator',
 ] as const
 
 /** Monorepo layout: tssdk/packages/<pkg> and pysdk/ share the repo root —
- * parity stays live against pysdk. */
+ * parity stays live against pysdk (5 levels up from test/core = repo root).
+ * In a standalone install (no sibling pysdk) the check skips. */
 const PY_REGISTRY = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  '..', '..', '..', '..', 'pysdk', 'aimail_mcp_server.py',
+  '..', '..', '..', '..', '..', 'pysdk', 'aimail_mcp_server.py',
 )
 
 interface PyParam { type?: string; enum?: string[]; description?: string }

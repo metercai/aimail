@@ -61,6 +61,14 @@ export type { EnsureAgentBindingOptions, EnsureAgentBindingResult } from './ensu
 export {
   activateAddressCode,
   activateAddressCodePersist,
+  aimailAddress,
+  setProfileDirResolver,
+  findBindingByEmail,
+  setBindingPaused,
+  archiveBinding,
+  restoreBinding,
+  clearPointerIfEmailMatch,
+  BINDING_ARCHIVED_SUFFIX,
   pullList,
   pullAck,
   startPolling,
@@ -113,6 +121,10 @@ export type {
   ActivateAddressCodeResult,
   ActivateAddressCodePersistOptions,
   ActivateAddressCodePersistResult,
+  AimailAddressArgs,
+  AimailAddressResult,
+  BindingLocate,
+  LifecycleResult,
   PullBatch,
   PullDelivery,
   PollStats,
@@ -137,8 +149,10 @@ export {
   emailSummary,
   setEmailSummary,
   searchMail,
+  aimailAddressTool,
+  roleCalibrator,
 } from './tools.js'
-export type { ToolCtx, ToolResult, SendMailArgs, ManageContactsArgs, ContactProfileArgs, EmailSummaryArgs, SearchMailArgs } from './tools.js'
+export type { ToolCtx, ToolResult, SendMailArgs, ManageContactsArgs, ContactProfileArgs, EmailSummaryArgs, SearchMailArgs, ActivateAddressCodeArgs, AimailAddressToolArgs } from './tools.js'
 export {
   indexSnapshotRecord,
   collectAttachmentsMd,

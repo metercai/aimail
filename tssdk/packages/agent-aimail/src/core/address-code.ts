@@ -15,6 +15,7 @@
  * (tools, preprocess, pull) works with zero changes.
  */
 import { promises as fs } from 'node:fs'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import { fireBindingCreated } from './binding-hooks.js'
 import {
@@ -33,10 +34,13 @@ import {
   type AgentConfig,
 } from './types.js'
 import {
+  AIMAIL_HOME,
+  cleanAddr,
   gatewayConfigPath,
   saveAgentConfig,
 } from './config.js'
-import { POINTER_FILE } from './contract.js'
+import { BINDING_FILE, POINTER_FILE } from './contract.js'
+import { GatewayClient } from './gateway.js'
 import type { GatewayResponse } from './types.js'
 
 /**
@@ -550,4 +554,546 @@ export async function startPolling(
     }
   }
   return stats
+}
+
+// ────────────────────── address lifecycle (bind/pause/resume/unbind) ──────────────────────
+//
+// Parity port of the Python `aimail_address(action=...)` single entry
+// (pysdk/aimail_tools.py + aimail_base.py lifecycle helpers). Pure local
+// file operations + one direct gateway call for the cloud-activation
+// mode — the file IS the signal a cross-process CLI flips (owner plan
+// 2026-10-27, D2/D3/D5):
+//
+//   bind   (1) active binding already carries a key => `already_bound`
+//            (idempotent: no call, no code consumed, key untouched);
+//          (2) an archived copy exists => rename back (0 gateway calls) +
+//            pointer => `restored`;
+//          (3) nothing local => cloud activation with the one-time code
+//            (POST /api/v1/activate-address-code + register-isomorphic
+//            persist) => the persist result is returned verbatim.
+//   pause/resume  flip the local `paused` flag (atomic rewrite; purely
+//            local, no gateway request). resume re-fires the in-process
+//            hot-add so a running host starts the loop without a restart.
+//   unbind  archive the binding (same-directory rename to
+//            `{BINDING_FILE}` + BINDING_ARCHIVED_SUFFIX — the key bytes
+//            survive, which is what makes a code-less re-bind possible)
+//            + clear this profile's pointer (only when its own email
+//            matches). No gateway request.
+//
+// The agent-visible schema carries NO profile parameter: the pointer is
+// owned by the executing agent's profile, auto-resolved via an
+// adapter-injected resolver (setProfileDirResolver — parity with the
+// Python _PROFILE_DIR_RESOLVER). No resolver + no explicit profileHome =>
+// no pointer side effect (degradation is the pre-existing semantic).
+
+/** Archive suffix appended to the binding file name (single source;
+ *  mirrors py `aimail_base.BINDING_ARCHIVED_SUFFIX` and the CLI's local
+ *  constant). */
+export const BINDING_ARCHIVED_SUFFIX = '.unbound'
+
+/** The archive name for a binding path (same directory; 0600 preserved on rename). */
+export function archivedBindingPath(p: string): string {
+  return path.join(path.dirname(p), path.basename(p) + BINDING_ARCHIVED_SUFFIX)
+}
+
+/** Expand a leading `~` and make the path absolute (a relative profile
+ *  dir must never land against whatever cwd the process happens to have). */
+function expandHome(dir: string): string {
+  const expanded = dir === '~' || dir.startsWith('~/')
+    ? path.join(os.homedir(), dir.slice(1))
+    : dir
+  return path.resolve(expanded)
+}
+
+export interface LifecycleResult {
+  success: boolean
+  reason: string
+  path?: string
+  archived?: string
+  detail?: string
+  [k: string]: unknown
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+/** R2 double-check: the file's own `email` field must EQUAL the requested
+ *  address before any rename — never act on the path alone. EXACT
+ *  comparison (parity: py `_binding_email_matches`) — discovery is
+ *  case-insensitive, this gate is not: a case-differing file is refused. */
+async function bindingEmailMatches(p: string, email: string): Promise<boolean> {
+  try {
+    const d = JSON.parse(await fs.readFile(p, 'utf8')) as unknown
+    return isPlainObject(d) && String(d.email ?? '') === email
+  } catch {
+    return false
+  }
+}
+
+/** Locate every LOCAL trace of one address: the active binding AND its
+ *  archive (if any). The directory name is the cleaned address (single rule
+ *  shared with the register chain), so no full scan — the candidate dir is
+ *  `systems/{sid}/{cleaned}` for each system. Email comparison is
+ *  case-insensitive (the gateway stores the address lowercased; the file's
+ *  own email field is still double-checked — R2). */
+export interface BindingLocate {
+  active: AgentConfig | null
+  activePath: string
+  archivedPath: string
+}
+
+export async function findBindingByEmail(email: string): Promise<BindingLocate> {
+  const base = path.join(AIMAIL_HOME(), 'systems')
+  const cleaned = cleanAddr(email)
+  const want = String(email ?? '').trim().toLowerCase()
+  let active: AgentConfig | null = null
+  let activePath = ''
+  let archivedPath = ''
+  let roots: string[] = []
+  try {
+    roots = await fs.readdir(base)
+  } catch {
+    roots = []
+  }
+  roots.sort()
+  for (const root of roots) {
+    const rootDir = path.join(base, root)
+    let isDir = false
+    try {
+      isDir = (await fs.stat(rootDir)).isDirectory()
+    } catch {
+      continue
+    }
+    if (!isDir) continue
+    const p = path.join(rootDir, cleaned, BINDING_FILE)
+    try {
+      const d = JSON.parse(await fs.readFile(p, 'utf8')) as unknown
+      if (isPlainObject(d) && String(d.email ?? '').toLowerCase() === want) {
+        active = d as unknown as AgentConfig
+        activePath = p
+      }
+    } catch {
+      /* absent/corrupt — not the active binding */
+    }
+    if (!archivedPath) {
+      const a = path.join(rootDir, cleaned, BINDING_FILE + BINDING_ARCHIVED_SUFFIX)
+      try {
+        await fs.access(a)
+        archivedPath = a
+      } catch {
+        /* no archive here */
+      }
+    }
+  }
+  return { active, activePath, archivedPath }
+}
+
+/** Pause / resume: flip the local `paused` flag (atomic rewrite). Purely
+ *  local — no gateway request, no cloud state change. Reads the file FRESH
+ *  (not an in-memory cfg) so a concurrent writer's fields are not
+ *  clobbered. Idempotent: flipping an already-set state reports
+ *  `already-paused` / `already-active`. */
+export async function setBindingPaused(
+  cfgPath: string,
+  paused: boolean,
+  email: string,
+): Promise<LifecycleResult> {
+  if (!cfgPath) return { success: false, reason: 'not-bound', path: '' }
+  let raw: string
+  try {
+    raw = await fs.readFile(cfgPath, 'utf8')
+  } catch {
+    return { success: false, reason: 'not-bound', path: cfgPath }
+  }
+  let d: Record<string, unknown>
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!isPlainObject(parsed)) return { success: false, reason: 'unreadable', path: cfgPath }
+    d = parsed
+  } catch {
+    return { success: false, reason: 'unreadable', path: cfgPath }
+  }
+  if (email && String(d.email ?? '') !== email) {
+    return { success: false, reason: 'email-mismatch', path: cfgPath }
+  }
+  if (paused === (d.paused === true)) {
+    return { success: true, reason: paused ? 'already-paused' : 'already-active', path: cfgPath }
+  }
+  if (paused) d.paused = true
+  else delete d.paused
+  try {
+    const tmp = `${cfgPath}.tmp`
+    await fs.writeFile(tmp, JSON.stringify(d, null, 2) + '\n', { mode: 0o600 })
+    await fs.rename(tmp, cfgPath)
+    await fs.chmod(cfgPath, 0o600)
+  } catch (e) {
+    return {
+      success: false, reason: 'write-failed', path: cfgPath,
+      detail: (e as Error).constructor.name,
+    }
+  }
+  return { success: true, reason: paused ? 'paused' : 'resumed', path: cfgPath }
+}
+
+/** Unbind (D2): rename the binding file in place to the archived copy
+ *  (atomic same-directory rename; 0600 preserved). The key bytes survive.
+ *  Refuses (`not-bound`) when no active file exists; an existing archive =>
+ *  `already-archived` (idempotent). `email` given => the file's own email
+ *  must match first (R2). No gateway request. */
+export async function archiveBinding(cfgPath: string, email: string): Promise<LifecycleResult> {
+  if (!cfgPath) return { success: false, reason: 'not-bound', path: '', archived: '' }
+  const a = archivedBindingPath(cfgPath)
+  let activeExists = false
+  let archivedExists = false
+  try { await fs.access(cfgPath); activeExists = true } catch { /* absent */ }
+  try { await fs.access(a); archivedExists = true } catch { /* absent */ }
+  if (archivedExists && !activeExists) {
+    return { success: true, reason: 'already-archived', path: cfgPath, archived: a }
+  }
+  if (!activeExists) {
+    return { success: false, reason: 'not-bound', path: cfgPath, archived: a }
+  }
+  if (email && !(await bindingEmailMatches(cfgPath, email))) {
+    return { success: false, reason: 'email-mismatch', path: cfgPath, archived: a }
+  }
+  try {
+    await fs.rename(cfgPath, a)
+  } catch (e) {
+    return {
+      success: false, reason: 'rename-failed', path: cfgPath, archived: a,
+      detail: (e as Error).constructor.name,
+    }
+  }
+  return { success: true, reason: 'archived', path: cfgPath, archived: a }
+}
+
+/** Re-bind (D2): rename the archived copy back to the active binding file
+ *  and clear the `paused` flag — 0 gateway calls, cloud key untouched.
+ *  Refuses when no archive exists (`not-archived`); an active binding =>
+ *  `already-active` (idempotent). `email` given => the archive's own email
+ *  must match first (R2). */
+export async function restoreBinding(cfgPath: string, email: string): Promise<LifecycleResult> {
+  if (!cfgPath) return { success: false, reason: 'not-bound', path: '', archived: '' }
+  const a = archivedBindingPath(cfgPath)
+  let activeExists = false
+  let archivedExists = false
+  try { await fs.access(cfgPath); activeExists = true } catch { /* absent */ }
+  try { await fs.access(a); archivedExists = true } catch { /* absent */ }
+  if (activeExists && !archivedExists) {
+    return { success: true, reason: 'already-active', path: cfgPath, archived: a }
+  }
+  if (!archivedExists) {
+    return { success: false, reason: 'not-archived', path: cfgPath, archived: a }
+  }
+  if (email && !(await bindingEmailMatches(a, email))) {
+    return { success: false, reason: 'email-mismatch', path: cfgPath, archived: a }
+  }
+  try {
+    await fs.rename(a, cfgPath)
+  } catch (e) {
+    return {
+      success: false, reason: 'rename-failed', path: cfgPath, archived: a,
+      detail: (e as Error).constructor.name,
+    }
+  }
+  // Clear the paused flag so the restored mailbox receives again (pause
+  // state never survives an unbind/re-bind cycle).
+  try {
+    const d = JSON.parse(await fs.readFile(cfgPath, 'utf8')) as unknown
+    if (isPlainObject(d) && d.paused === true) {
+      delete d.paused
+      const tmp = `${cfgPath}.tmp`
+      await fs.writeFile(tmp, JSON.stringify(d, null, 2) + '\n', { mode: 0o600 })
+      await fs.rename(tmp, cfgPath)
+      await fs.chmod(cfgPath, 0o600)
+    }
+  } catch {
+    /* restore succeeded; a stale paused flag is loud via the pull decision */
+  }
+  return { success: true, reason: 'restored', path: cfgPath, archived: a }
+}
+
+/** Unbind's pointer half: remove `{profile}/{POINTER_FILE}` ONLY when the
+ *  pointer's own email equals the unbound address — another mailbox's
+ *  pointer in this profile is never touched. No gateway request. */
+export async function clearPointerIfEmailMatch(
+  profileDir: string,
+  email: string,
+): Promise<{ cleared: boolean; reason: string; path?: string }> {
+  const d = String(profileDir ?? '').trim()
+  if (!d) return { cleared: false, reason: 'no-profile' }
+  const ptr = path.join(expandHome(d), POINTER_FILE)
+  try { await fs.access(ptr) } catch { return { cleared: false, reason: 'absent' } }
+  let data: Record<string, unknown>
+  try {
+    const parsed: unknown = JSON.parse(await fs.readFile(ptr, 'utf8'))
+    if (!isPlainObject(parsed)) return { cleared: false, reason: 'unreadable' }
+    data = parsed
+  } catch {
+    return { cleared: false, reason: 'unreadable' }
+  }
+  if (String(data.email ?? '') !== email) {
+    return { cleared: false, reason: 'email-mismatch' }
+  }
+  try {
+    await fs.unlink(ptr)
+  } catch {
+    return { cleared: false, reason: 'unlink-failed' }
+  }
+  return { cleared: true, reason: 'cleared', path: ptr }
+}
+
+// ── profile-dir resolver (the pointer's owner) ────────────────────────────
+//
+// The discovery pointer belongs to the agent that EXECUTES the lifecycle
+// action ("in whose dialog it runs is whose pointer" — owner ruling
+// 2026-10-27). Resolution is automatic: the adapter layer injects a
+// resolver (parity with the Python `_PROFILE_DIR_RESOLVER`); the explicit
+// `profileHome` argument (legacy callers) wins when given. No resolver + no
+// explicit value => no pointer side effect.
+
+let profileDirResolver: (() => string | undefined) | undefined
+
+/** Inject (or clear) the profile-dir resolver — adapter layer only. */
+export function setProfileDirResolver(fn: (() => string | undefined) | undefined): void {
+  profileDirResolver = fn
+}
+
+function lifecycleProfileDir(profileHome?: string): string {
+  if (profileHome !== undefined) return String(profileHome ?? '')
+  const resolver = profileDirResolver
+  if (!resolver) return ''
+  try {
+    const d = resolver()
+    return String(d ?? '')
+  } catch {
+    return ''
+  }
+}
+
+/** Write `{profile}/{POINTER_FILE}` = {system_id, email} (bind's pointer
+ *  half, best-effort — discovery degrades, the binding is intact). */
+async function lifecyclePointerWrite(
+  profileDir: string,
+  systemId: string,
+  email: string,
+): Promise<{ pointer_written: boolean; pointer_path: string }> {
+  const d = String(profileDir ?? '').trim()
+  if (!d) return { pointer_written: false, pointer_path: '' }
+  try {
+    const ptr = path.join(expandHome(d), POINTER_FILE)
+    await fs.mkdir(path.dirname(ptr), { recursive: true, mode: 0o700 })
+    const tmp = `${ptr}.tmp`
+    await fs.writeFile(tmp, JSON.stringify({ system_id: systemId, email }, null, 2) + '\n', { mode: 0o600 })
+    await fs.rename(tmp, ptr)
+    return { pointer_written: true, pointer_path: ptr }
+  } catch {
+    return { pointer_written: false, pointer_path: '' }
+  }
+}
+
+// ── the single agent-facing entry ─────────────────────────────────────────
+
+export interface AimailAddressArgs {
+  action: string
+  code?: string
+  email: string
+  /** AIMail gateway URL (cloud-activation mode only). */
+  gatewayUrl?: string
+  /** Internal compatibility parameter (legacy callers); NOT part of the
+   *  agent-visible schema — the resolver owns the pointer. */
+  profileHome?: string
+}
+
+export interface AimailAddressResult {
+  success: boolean
+  action?: string
+  reason?: string
+  email?: string
+  system_id?: string
+  path?: string
+  archived?: string
+  note?: string
+  error?: string
+  detail?: string
+  gateway_calls?: number
+  pointer_written?: boolean
+  pointer_path?: string
+  pointer_cleared?: boolean
+  [k: string]: unknown
+}
+
+/**
+ * Address-level mailbox lifecycle — the single agent-facing entry
+ * (parity: Python `aimail_address`).
+ *
+ * `action` in `bind` | `pause` | `resume` | `unbind`:
+ * - `bind` (three modes, idempotent): (1) an active local binding already
+ *   carries an api_key => `already_bound` — no gateway call, a supplied code
+ *   is NOT consumed, the key is never rotated, the binding file is
+ *   untouched; (2) no active binding but an archived one exists => restore
+ *   by rename (0 gateway calls, cloud key untouched) + pointer; (3) nothing
+ *   local => cloud activation with the one-time code. A code together with
+ *   an existing local binding is refused as `already_bound` (the code stays
+ *   unconsumed).
+ * - `pause` / `resume`: flip the local `paused` flag — purely local, no
+ *   gateway request. resume re-fires the in-process hot-add. No local
+ *   binding => `not-bound` (never guessed).
+ * - `unbind`: archive the binding + clear this profile's pointer (only
+ *   when its own email matches). No gateway request.
+ *
+ * Returns `{success, action, reason, ...}`; every failure is explicit,
+ * nothing is silently skipped.
+ */
+export async function aimailAddress(args: AimailAddressArgs): Promise<AimailAddressResult> {
+  const act = String(args.action ?? '').trim().toLowerCase()
+  let addr = String(args.email ?? '').trim()
+  if (!['bind', 'pause', 'resume', 'unbind'].includes(act)) {
+    return {
+      success: false, action: act, reason: 'bad-action',
+      error: 'action must be one of bind|pause|resume|unbind',
+    }
+  }
+  if (!addr) {
+    return {
+      success: false, action: act, reason: 'missing-email',
+      error: 'email is required — the mailbox this acts on',
+    }
+  }
+  addr = addr.toLowerCase()
+
+  const found = await findBindingByEmail(addr)
+  const active = found.active
+
+  if (act === 'bind') {
+    // ── Mode (1): idempotent — a local key already exists ───────────
+    if (active && String(active.api_key ?? '').trim()) {
+      const sid = String(active.system_id ?? '')
+      const ptr = await lifecyclePointerWrite(lifecycleProfileDir(args.profileHome), sid, addr)
+      return {
+        success: true, action: 'bind', reason: 'already_bound', email: addr,
+        system_id: sid, path: found.activePath, gateway_calls: 0, ...ptr,
+        note: 'binding already carries a key — nothing was called, no code was ' +
+              'consumed, the key is untouched',
+      }
+    }
+    // ── Mode (2): local restore from the archive (code optional, unused) ──
+    if (found.archivedPath) {
+      // restoreBinding resolves via the ACTIVE filename; the archive is that
+      // name + suffix, so derive it.
+      const activePath = path.join(
+        path.dirname(found.archivedPath),
+        path.basename(found.archivedPath).slice(0, -BINDING_ARCHIVED_SUFFIX.length),
+      )
+      const r = await restoreBinding(activePath, addr)
+      if (!r.success) {
+        return {
+          success: false, action: 'bind', reason: r.reason,
+          email: addr, path: r.path ?? '',
+        }
+      }
+      // Re-read the restored file so the return shape carries the real
+      // system_id for the pointer.
+      let cfg: Record<string, unknown> = {}
+      try {
+        cfg = JSON.parse(await fs.readFile(String(r.path), 'utf8')) as Record<string, unknown>
+      } catch {
+        cfg = {}
+      }
+      if (String(cfg.email ?? '').toLowerCase() !== addr) {
+        return {
+          success: false, action: 'bind', reason: 'email-mismatch',
+          email: addr, path: r.path ?? '',
+        }
+      }
+      const sid = String(cfg.system_id ?? '')
+      const ptr = await lifecyclePointerWrite(lifecycleProfileDir(args.profileHome), sid, addr)
+      return {
+        success: true, action: 'bind', reason: 'restored', email: addr,
+        system_id: sid, path: r.path ?? '', gateway_calls: 0, ...ptr,
+      }
+    }
+    // ── Mode (3): cloud activation with the one-time code ───────────
+    if (!String(args.code ?? '').trim()) {
+      return {
+        success: false, action: 'bind', reason: 'not-bound',
+        error: 'no local binding (active or archived) for this address and no ' +
+               'activation code given',
+        email: addr,
+      }
+    }
+    const gw = String(args.gatewayUrl ?? process.env.AIMAIL_GW_URL ?? '').trim()
+    if (!gw) {
+      return {
+        success: false, action: 'bind', reason: 'gateway-url-required',
+        error: 'gateway_url is required for cloud activation (or set AIMAIL_GW_URL)',
+        email: addr,
+      }
+    }
+    const client = new GatewayClient(gw, '', 30_000)
+    const profileDir = lifecycleProfileDir(args.profileHome)
+    const res = await activateAddressCodePersist(client, String(args.code).trim(), addr, {
+      gatewayUrl: gw,
+      ...(profileDir ? { platformHome: profileDir } : {}),
+    })
+    return res as unknown as AimailAddressResult
+  }
+
+  // pause / resume / unbind all need an ACTIVE local binding.
+  if (!active) {
+    const extra = found.archivedPath
+      ? ' (an archived binding exists — use bind to restore it)'
+      : ''
+    return {
+      success: false, action: act, reason: 'not-bound',
+      error: `no active local binding for ${addr}${extra}`,
+      email: addr,
+    }
+  }
+
+  if (act === 'pause') {
+    const r = await setBindingPaused(found.activePath, true, addr)
+    r.action = 'pause'
+    r.email = addr
+    if (r.success && r.reason === 'paused') {
+      r.note = 'receiving stopped locally; the cloud key is untouched — resume to continue'
+    }
+    return r
+  }
+
+  if (act === 'resume') {
+    const r = await setBindingPaused(found.activePath, false, addr)
+    r.action = 'resume'
+    r.email = addr
+    if (r.success && r.reason === 'resumed') {
+      // Hot-add: a host running in THIS process starts the loop for the
+      // restored flag without a restart (same hook the bind persist chain
+      // fires). A host with no runtime registered simply picks the binding
+      // up at its next start.
+      try {
+        await fireBindingCreated(active)
+      } catch {
+        /* the file state is already correct */
+      }
+      r.note = 'receiving resumed locally (0 gateway calls)'
+    }
+    return r
+  }
+
+  // unbind — archive + this profile's pointer
+  const r = await archiveBinding(found.activePath, addr)
+  r.action = 'unbind'
+  r.email = addr
+  if (r.success && r.reason === 'archived') {
+    const pd = lifecycleProfileDir(args.profileHome)
+    const pc = pd
+      ? await clearPointerIfEmailMatch(pd, addr)
+      : { cleared: false, reason: 'no-profile' }
+    r.pointer_cleared = Boolean(pc.cleared)
+    r.pointer_path = pc.path ?? ''
+    r.note = 'binding archived locally (key bytes kept for a code-less re-bind); ' +
+             'the cloud key is untouched — bind restores receiving'
+  }
+  return r
 }

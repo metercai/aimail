@@ -42,7 +42,7 @@ import {
   type BoardMembersArgs,
   type BoardRolesArgs,
 } from './board.js'
-import { activateAddressCode, roleCalibrator, type ActivateAddressCodeArgs } from './tools.js'
+import { aimailAddressTool, roleCalibrator, type AimailAddressToolArgs } from './tools.js'
 
 /** Platform-neutral parameter descriptor (no framework types). */
 export interface MailToolParam {
@@ -193,19 +193,19 @@ export const MAIL_TOOLS: readonly MailToolDef[] = [
     handler: (ctx, args) => boardRoles(ctx, args as unknown as BoardRolesArgs),
   },
   {
-    name: 'activate_address_code',
-    description: 'Activate the AIMail mailbox your user gave you: exchange the one-time activation code (shared_a-…) for your own key, store it locally and make the other mail tools work. Address-level self-service — no CLI.',
+    name: 'aimail_address',
+    description: 'Manage YOUR mailbox lifecycle (bind / pause / resume / unbind). bind: activate with the one-time code (shared_a-…) — or, if this mailbox was unbound before, restore it with NO code (idempotent: an already-bound mailbox is returned as-is, never re-activated). pause: stop receiving locally (the cloud key stays active). resume: start receiving again. unbind: archive the local binding (the key is kept, so a later code-less bind restores receiving). Address-level self-service — no CLI.',
     parameters: {
-      code: { type: 'string', description: 'One-time activation code (shared_a-…)', required: true },
-      address: { type: 'string', description: 'The mailbox address it unlocks', required: true },
-      gateway_url: { type: 'string', description: 'AIMail gateway URL (or set AIMAIL_GW_URL)' },
-      profile_home: { type: 'string', description: 'Your platform home directory where the local discovery pointer is written (e.g. ~/.deer-flow); ~ is expanded, relative paths are made absolute. Omit to skip pointer creation.' },
+      action: { type: 'string', enum: ['bind', 'pause', 'resume', 'unbind'], description: 'The lifecycle action to perform', required: true },
+      code: { type: 'string', description: 'One-time activation code (shared_a-…) — bind only' },
+      email: { type: 'string', description: 'The mailbox address this acts on', required: true },
+      gateway_url: { type: 'string', description: 'AIMail gateway URL (or set AIMAIL_GW_URL) — needed for a first-time cloud activation' },
     },
-    handler: (_ctx, args) => activateAddressCode(args as unknown as ActivateAddressCodeArgs),
+    handler: (_ctx, args) => aimailAddressTool(args as unknown as AimailAddressToolArgs),
   },
   {
     name: 'role_calibrator',
-    description: 'Trigger the identity-calibration welcome mail for your own address: the system welcomes YOUR mailbox (persona/signature/current_time reply instructions) and cc\'s your manager for approval. Requires activate_address_code to have run first. Reply to the welcome mail when it arrives — the [AIMail] Persona applied notification closes the loop.',
+    description: 'Trigger the identity-calibration welcome mail for your own address: the system welcomes YOUR mailbox (persona/signature/current_time reply instructions) and cc\'s your manager for approval. Requires aimail_address (action=bind) to have run first. Reply to the welcome mail when it arrives — the [AIMail] Persona applied notification closes the loop.',
     parameters: {},
     handler: (ctx) => roleCalibrator(ctx),
   },

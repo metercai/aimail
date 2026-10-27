@@ -15,7 +15,7 @@ import { AIMAIL_HOME, loadAgentConfig } from './config.js'
 import { readLocalMeta, saveLocalMeta, saveOutboundSnapshot, resolveThreadId, threadPath } from './meta.js'
 import { logAimailOutbound } from './log.js'
 import type { AgentConfig } from './types.js'
-import { activateAddressCodePersist } from './address-code.js'
+import { activateAddressCodePersist, aimailAddress } from './address-code.js'
 
 export interface ActivateAddressCodeArgs {
   code: string
@@ -64,6 +64,49 @@ export async function activateAddressCode(
   const res = await activateAddressCodePersist(client, args.code, args.address, {
     gatewayUrl: args.gatewayUrl,
     ...(home ? { platformHome: resolvePlatformHome(home) } : {}),
+  })
+  return res as unknown as ToolResult
+}
+
+/**
+ * Wire-shaped args for the `aimail_address` tool. The snake_case keys are
+ * contract (the cross-language parity gate compares the parameter key sets
+ * verbatim against the Python MCP tool), not style. The camelCase keys are
+ * programmatic aliases for direct (non-LLM) callers.
+ */
+export interface AimailAddressToolArgs {
+  action: string
+  code?: string
+  email: string
+  gateway_url?: string
+  /** Internal compatibility parameter (legacy callers) — NOT in the
+   *  agent-visible schema; the adapter-injected resolver owns the pointer. */
+  profile_home?: string
+  gatewayUrl?: string
+  profileHome?: string
+}
+
+/**
+ * Manage YOUR mailbox lifecycle (bind / pause / resume / unbind) — the
+ * single agent-facing entry (parity: Python `aimail_address`). Reads the
+ * wire parameter names and delegates to the core state machine in
+ * address-code.ts. No CLI, no admin key.
+ *
+ * `profile_home` is an internal compatibility parameter (legacy callers);
+ * the pointer is owned by the executing agent's profile and auto-resolved
+ * via the adapter-injected resolver (setProfileDirResolver). Omitted and no
+ * resolver ⇒ the pointer side effect is skipped (degradation is the
+ * pre-existing semantic).
+ */
+export async function aimailAddressTool(
+  args: AimailAddressToolArgs,
+): Promise<ToolResult> {
+  const res = await aimailAddress({
+    action: args.action,
+    email: args.email,
+    ...(args.code !== undefined ? { code: args.code } : {}),
+    ...(args.gateway_url ?? args.gatewayUrl ? { gatewayUrl: args.gateway_url ?? args.gatewayUrl } : {}),
+    ...(args.profile_home ?? args.profileHome ? { profileHome: args.profile_home ?? args.profileHome } : {}),
   })
   return res as unknown as ToolResult
 }

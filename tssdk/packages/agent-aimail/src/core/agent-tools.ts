@@ -12,7 +12,7 @@
  * has no stable anchor).
  */
 export const AGENT_TOOL_NAMES = [
-  'activate_address_code',
+  'aimail_address',
   'role_calibrator',
   'send_mail',
   'manage_contacts',

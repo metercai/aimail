@@ -45,6 +45,13 @@ export interface AgentConfig {
   expires_at?: string
   /** internal: absolute path of this config file */
   _config_path?: string
+  /**
+   * Local receive gate (lifecycle pause/resume). `true` = receiving is
+   * stopped locally; the cloud key stays active (the file IS the signal a
+   * cross-process CLI flips — the pull loop re-checks it every beat).
+   * Absent/false = receiving. Written by `setBindingPaused`.
+   */
+  paused?: boolean
 }
 
 /** Gateway HTTP response shape (Python _GatewayClient compatible). */
