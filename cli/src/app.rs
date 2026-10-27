@@ -92,7 +92,7 @@ const SUBCOMMANDS: &[(&str, &str)] = &[
     ),
     (
         "agent",
-        "address-level bootstrap: host profile + SDK choice (control plane)",
+        "address-level bootstrap + mailbox lifecycle: bind / pause / resume / unbind",
     ),
 ];
 
@@ -783,6 +783,84 @@ fn agent_args(cmd: Command) -> Command {
                         .help("host name used at setup time"),
                 ),
         )
+        .subcommand(
+            Command::new("bind")
+                .about(
+                    "bind a mailbox to this machine (idempotent: no-op if already bound; \
+                     restores an archived binding; or activates a one-time code)",
+                )
+                .arg(
+                    Arg::new("email")
+                        .long("email")
+                        .value_name("ADDR")
+                        .required(true)
+                        .help("the mailbox address to bind"),
+                )
+                .arg(
+                    Arg::new("code")
+                        .long("code")
+                        .value_name("CODE")
+                        .help("one-time activation code (only for a brand-new bind; never consumed when already bound)"),
+                )
+                .arg(
+                    Arg::new("profile")
+                        .long("profile")
+                        .value_name("DIR")
+                        .help("profile dir to write the discovery pointer (manual migration; omit = no pointer)"),
+                )
+                .arg(
+                    Arg::new("gateway-url")
+                        .long("gateway-url")
+                        .value_name("URL")
+                        .help("gateway base URL for cloud activation (default: AIMAIL_GW_URL)"),
+                ),
+        )
+        .subcommand(
+            Command::new("pause")
+                .about(
+                    "stop receiving locally (local `paused` flag; the cloud key is untouched)",
+                )
+                .arg(
+                    Arg::new("email")
+                        .long("email")
+                        .value_name("ADDR")
+                        .required(true)
+                        .help("the mailbox address to pause"),
+                ),
+        )
+        .subcommand(
+            Command::new("resume")
+                .about(
+                    "resume receiving locally (clears the `paused` flag; idempotent)",
+                )
+                .arg(
+                    Arg::new("email")
+                        .long("email")
+                        .value_name("ADDR")
+                        .required(true)
+                        .help("the mailbox address to resume"),
+                ),
+        )
+        .subcommand(
+            Command::new("unbind")
+                .about(
+                    "unbind locally: archive the binding (key bytes retained for a code-less re-bind); \
+                     the cloud key is untouched",
+                )
+                .arg(
+                    Arg::new("email")
+                        .long("email")
+                        .value_name("ADDR")
+                        .required(true)
+                        .help("the mailbox address to unbind"),
+                )
+                .arg(
+                    Arg::new("profile")
+                        .long("profile")
+                        .value_name("DIR")
+                        .help("profile dir whose matching pointer is cleared (omit = no pointer touched)"),
+                ),
+        )
 }
 
 /// Process entry point: parse argv and dispatch, return exit code.
@@ -817,6 +895,20 @@ pub fn run() -> i32 {
                 "uninstall" => crate::cmd::agent::uninstall(&crate::cmd::agent::UninstallArgs {
                     host: am.get_one::<String>("host").cloned(),
                 }),
+                "bind" | "pause" | "resume" | "unbind" => {
+                    let la = crate::cmd::agent::LifecycleArgs {
+                        email: am.get_one::<String>("email").cloned().unwrap_or_default(),
+                        profile: am.get_one::<String>("profile").cloned(),
+                        code: am.get_one::<String>("code").cloned(),
+                        gateway_url: am.get_one::<String>("gateway-url").cloned(),
+                    };
+                    match action {
+                        "bind" => crate::cmd::agent::bind(&la),
+                        "pause" => crate::cmd::agent::pause(&la),
+                        "resume" => crate::cmd::agent::resume(&la),
+                        _ => crate::cmd::agent::unbind(&la),
+                    }
+                }
                 _ => 2,
             }
         }

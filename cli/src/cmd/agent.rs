@@ -968,3 +968,835 @@ fn all_restart_hints(host: &str, ctx: &serde_json::Map<String, Value>) -> Vec<St
     }
     out
 }
+
+// ────────────────────── address lifecycle (bind/pause/resume/unbind) ──────────────────────
+//
+// Owner plan 2026-10-27 (D5): `aimail agent bind|pause|resume|unbind --email`.
+// Pure Rust, zero environment dependencies (no python gate): file ops
+// (atomic tmp+rename+0600, same layout as `address.rs` / pysdk `save_agent_config`)
+// + a direct gateway `POST /api/v1/activate-address-code` for the code path.
+//
+// The on-disk layout is the cross-surface single source of truth shared with the
+// pysdk pull loop under `~/.aimail` (file names from the contract, not literals):
+//   active   = systems/{sid}/{cleaned}/<contract::binding_file()>
+//   archived = systems/{sid}/{cleaned}/<binding_file()> + ARCHIVE_SUFFIX
+//   pointer  = {profile}/<the file named by contract::pointer_file()>
+// `pause`/`resume` = flip the local `paused` flag (no gateway call, cloud untouched);
+// `unbind` = rename active → archived (the key bytes survive ⇒ code-less re-bind);
+// `bind` = ① idempotent (active ⇒ no-op) ② restore archive (0 gateway calls)
+// ③ cloud activation with the one-time code (1 gateway call + persist).
+
+/// Archive suffix on the binding file name. Single source of truth = pysdk
+/// `aimail_base.BINDING_ARCHIVED_SUFFIX` (the Python pull loop's
+/// `archived_binding_path` is `binding_file() + this`); the I-domain e2e is the
+/// real CLI↔pysdk interop gate that catches any drift.
+const ARCHIVE_SUFFIX: &str = ".unbound";
+
+pub struct LifecycleArgs {
+    pub email: String,
+    pub profile: Option<String>,
+    pub code: Option<String>,
+    pub gateway_url: Option<String>,
+}
+
+/// Locate every local trace of one address: the active binding AND its archive.
+/// Returns `(active_path, archived_path)` (None when absent). The directory name
+/// is the cleaned address (single rule shared with the register chain), so the
+/// candidate dir is `systems/{sid}/{cleaned}` for each system; the file's own
+/// `email` field must match (R2 double-check, case-insensitive).
+fn find_binding(home: &Path, email: &str) -> (Option<PathBuf>, Option<PathBuf>) {
+    let want = email.trim().to_lowercase();
+    let cleaned = crate::core::config::clean_agent_dir_name(&want);
+    let base = crate::core::config::systems_root_in(home);
+    let bfile = crate::core::contract::binding_file();
+    let afile = format!("{bfile}{ARCHIVE_SUFFIX}");
+    let mut active: Option<PathBuf> = None;
+    let mut archived: Option<PathBuf> = None;
+    if let Ok(roots) = std::fs::read_dir(&base) {
+        let mut dirs: Vec<PathBuf> = roots
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_dir())
+            .collect();
+        dirs.sort();
+        for dir in dirs {
+            let cand = dir.join(&cleaned);
+            let ap = cand.join(bfile);
+            if ap.is_file() && binding_email_matches(&ap, &want) {
+                active = Some(ap);
+            }
+            if archived.is_none() {
+                let a = cand.join(&afile);
+                if a.is_file() {
+                    archived = Some(a);
+                }
+            }
+        }
+    }
+    (active, archived)
+}
+
+/// R2 guard: the file's own `email` field must equal the requested address
+/// (case-insensitive) before any rename — never act on path alone.
+fn binding_email_matches(path: &Path, want_lc: &str) -> bool {
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    let Ok(v) = serde_json::from_str::<Value>(&raw) else {
+        return false;
+    };
+    v.get("email")
+        .and_then(|e| e.as_str())
+        .map(|e| e.trim().to_lowercase() == want_lc)
+        .unwrap_or(false)
+}
+
+fn read_binding(path: &Path) -> Option<Value> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+/// Atomic write of a binding file (parity with pysdk `write_binding_config` /
+/// TS `saveBinding`): JSON indent=2 + trailing newline, tmp+rename, 0600, and
+/// the address dir 0700 (it holds the api_key).
+fn write_binding_atomic(path: &Path, cfg: &Value) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
+        }
+    }
+    let text = format!(
+        "{}\n",
+        serde_json::to_string_pretty(cfg).map_err(std::io::Error::other)?
+    );
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, text.as_bytes())?;
+    let _ = crate::core::perms::set_user_only(&tmp);
+    std::fs::rename(&tmp, path)
+}
+
+/// 32 random bytes → 64 hex chars (parity with pysdk `secrets.token_hex(32)` /
+/// `aimail_base.new_webhook_secret`). The secret is **local-only** — it signs
+/// the loopback replay hop and never crosses the wire. Source = /dev/urandom
+/// (unix); a documented fallback covers the Windows target the dev gate skips.
+fn webhook_secret() -> Result<String, String> {
+    let mut buf = [0u8; 32];
+    #[cfg(unix)]
+    {
+        use std::io::Read;
+        let mut f = std::fs::File::open("/dev/urandom")
+            .map_err(|e| format!("cannot open /dev/urandom: {e}"))?;
+        f.read_exact(&mut buf)
+            .map_err(|e| format!("cannot read /dev/urandom: {e}"))?;
+    }
+    #[cfg(not(unix))]
+    {
+        // Non-full-chain target (Windows, excluded from the dev/release gate):
+        // time^pid seed. Not the release path; kept so the crate compiles.
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let s = t ^ (std::process::id() as u128);
+        for (i, b) in buf.iter_mut().enumerate() {
+            *b = (s >> (8 * i)) as u8;
+        }
+    }
+    Ok(buf.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// Pointer path for a profile dir (contract file name, never a literal).
+fn pointer_path(profile_dir: &Path) -> PathBuf {
+    profile_dir.join(crate::core::contract::pointer_file())
+}
+
+/// Write the discovery pointer (the file named by `contract::pointer_file()`,
+/// inside `profile_dir`) as `{"system_id","email"}` (atomic, 0600) —
+/// parity with pysdk `_write_pointer`.
+fn write_pointer(profile_dir: &Path, system_id: &str, email: &str) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(profile_dir)
+        .map_err(|e| format!("cannot create {}: {e}", profile_dir.display()))?;
+    let ptr = pointer_path(profile_dir);
+    let text = format!(
+        "{}\n",
+        serde_json::to_string_pretty(&json!({
+            "system_id": system_id,
+            "email": email,
+        }))
+        .map_err(|e| e.to_string())?
+    );
+    let tmp = ptr.with_extension("tmp");
+    std::fs::write(&tmp, text.as_bytes()).map_err(|e| format!("cannot write pointer: {e}"))?;
+    let _ = crate::core::perms::set_user_only(&tmp);
+    std::fs::rename(&tmp, &ptr).map_err(|e| format!("cannot finalize pointer: {e}"))?;
+    Ok(ptr)
+}
+
+/// Remove the profile's discovery pointer (the file named by
+/// `contract::pointer_file()`) ONLY when its own `email` equals the unbound
+/// address (another mailbox's pointer in this profile is never touched).
+fn clear_pointer_if_match(profile_dir: &Path, email: &str) -> bool {
+    let ptr = pointer_path(profile_dir);
+    if !ptr.is_file() {
+        return false;
+    }
+    let Ok(raw) = std::fs::read_to_string(&ptr) else {
+        return false;
+    };
+    let Ok(v) = serde_json::from_str::<Value>(&raw) else {
+        return false;
+    };
+    let matches = v
+        .get("email")
+        .and_then(|e| e.as_str())
+        .map(|e| e.trim().to_lowercase() == email.trim().to_lowercase())
+        .unwrap_or(false);
+    if !matches {
+        return false;
+    }
+    std::fs::remove_file(&ptr).is_ok()
+}
+
+fn expand_profile(p: &str) -> PathBuf {
+    crate::core::home::expand_user(p)
+}
+
+fn gateway_url_or_env(args: &LifecycleArgs) -> String {
+    if let Some(g) = &args.gateway_url {
+        if !g.trim().is_empty() {
+            return g.trim().to_string();
+        }
+    }
+    std::env::var("AIMAIL_GW_URL").unwrap_or_default()
+}
+
+// ── bind ──
+
+pub fn bind(args: &LifecycleArgs) -> i32 {
+    let email = args.email.trim().to_lowercase();
+    if email.is_empty() {
+        eprintln!("usage: aimail agent bind --email <addr> [--profile <dir>] [--code <code>] [--gateway-url <url>]");
+        return 2;
+    }
+    let home = crate::core::home::aimail_home();
+    let (active, archived) = find_binding(&home, &email);
+    let profile = args.profile.as_deref().map(expand_profile);
+
+    // Mode ①: idempotent — an active binding already carries a key.
+    if let Some(p) = &active {
+        if let Some(cfg) = read_binding(p) {
+            let has_key = cfg
+                .get("api_key")
+                .and_then(|k| k.as_str())
+                .map(|k| !k.trim().is_empty())
+                .unwrap_or(false);
+            if has_key {
+                let sid = cfg
+                    .get("system_id")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let mut ptr_note = String::new();
+                if let Some(pd) = &profile {
+                    match write_pointer(pd, &sid, &email) {
+                        Ok(ptr) => ptr_note = format!("; pointer {}", ptr.display()),
+                        Err(e) => {
+                            crate::cmd::report::warn(&format!("pointer not written: {e}"));
+                        }
+                    }
+                }
+                crate::cmd::report::ok(&format!(
+                    "already bound: {email} (key untouched, no code consumed, 0 gateway calls{ptr_note})"
+                ));
+                return 0;
+            }
+        }
+    }
+
+    // Mode ②: local restore from the archive — 0 gateway calls.
+    if let Some(a) = &archived {
+        if !binding_email_matches(a, &email) {
+            return crate::cmd::report::fail(&format!(
+                "archive email mismatch for {email} (refusing to restore a foreign key)"
+            ));
+        }
+        let active_path = a
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|n| {
+                n.strip_suffix(ARCHIVE_SUFFIX)
+                    .map(|s| a.with_file_name(s))
+                    .unwrap_or_else(|| a.clone())
+            })
+            .unwrap_or_else(|| a.clone());
+        if std::fs::rename(a, &active_path).is_err() {
+            return crate::cmd::report::fail(&format!(
+                "restore failed: cannot rename {} back",
+                a.display()
+            ));
+        }
+        // Clear a stale paused flag so the restored mailbox receives again.
+        if let Some(mut cfg) = read_binding(&active_path) {
+            if let Some(o) = cfg.as_object_mut() {
+                if o.get("paused").and_then(|p| p.as_bool()) == Some(true) {
+                    o.remove("paused");
+                    let _ = write_binding_atomic(&active_path, &cfg);
+                }
+            }
+            let sid = cfg
+                .get("system_id")
+                .and_then(|s| s.as_str())
+                .unwrap_or("")
+                .to_string();
+            let mut ptr_note = String::new();
+            if let Some(pd) = &profile {
+                match write_pointer(pd, &sid, &email) {
+                    Ok(ptr) => ptr_note = format!("; pointer {}", ptr.display()),
+                    Err(e) => crate::cmd::report::warn(&format!("pointer not written: {e}")),
+                }
+            }
+            crate::cmd::report::ok(&format!(
+                "re-bound: {email} restored from archive (0 gateway calls, key untouched{ptr_note})"
+            ));
+            return 0;
+        }
+        return crate::cmd::report::fail(&format!(
+            "restore failed: unreadable binding at {}",
+            active_path.display()
+        ));
+    }
+
+    // Mode ③: cloud activation with the one-time code.
+    let code = args.code.as_deref().unwrap_or("").trim().to_string();
+    if code.is_empty() {
+        return crate::cmd::report::fail(&format!(
+            "no local binding (active or archived) for {email} and no --code given — nothing to bind"
+        ));
+    }
+    let gw = gateway_url_or_env(args);
+    if gw.is_empty() {
+        return crate::cmd::report::fail(
+            "cloud activation needs a gateway URL: pass --gateway-url (or set AIMAIL_GW_URL)",
+        );
+    }
+    match activate_and_persist(&home, &code, &email, &gw, profile.as_deref()) {
+        Ok(out) => {
+            let ptr = out.get("pointer").and_then(|p| p.as_str()).unwrap_or("");
+            let ptr_note = if ptr.is_empty() {
+                String::new()
+            } else {
+                format!("; pointer {ptr}")
+            };
+            crate::cmd::report::ok(&format!(
+                "bound: {email} activated (system {}) — binding {}{ptr_note}",
+                out.get("system_id").and_then(|s| s.as_str()).unwrap_or("?"),
+                out.get("config_path")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("?"),
+            ));
+            0
+        }
+        Err(e) => crate::cmd::report::fail(&e),
+    }
+}
+
+/// The code path of bind: direct `POST /api/v1/activate-address-code` (the one-time
+/// code IS the credential — no auth header) + register-isomorphic persist.
+fn activate_and_persist(
+    home: &Path,
+    code: &str,
+    email: &str,
+    gw: &str,
+    profile: Option<&Path>,
+) -> Result<Value, String> {
+    let url = format!("{}/api/v1/activate-address-code", gw.trim_end_matches('/'));
+    let body = json!({ "code": code, "email_address": email });
+    let body_bytes = body.to_string().into_bytes();
+    let headers: Vec<(&str, String)> = vec![
+        ("Content-Type", "application/json".to_string()),
+        ("Accept", "application/json".to_string()),
+    ];
+    let (status, resp) =
+        crate::core::http::json_req(&url, &headers, Some(&body_bytes), Some("POST"), 30);
+    let raw_key = resp
+        .get("raw_key")
+        .and_then(|k| k.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if raw_key.is_empty() || !(200..300).contains(&status) {
+        let err = resp
+            .get("error")
+            .and_then(|e| e.as_str())
+            .or_else(|| resp.get("detail").and_then(|d| d.as_str()))
+            .unwrap_or("");
+        return Err(format!("activation failed (HTTP {status}): {err}"));
+    }
+    persist_activation(home, &resp, email, gw, profile)
+}
+
+/// Pure half of the code path: given a successful activation response, persist
+/// the register-isomorphic binding + gateway-connection file + pointer.
+/// (Unit-tested with a synthetic response — no network.)
+fn persist_activation(
+    home: &Path,
+    resp: &Value,
+    email: &str,
+    gw: &str,
+    profile: Option<&Path>,
+) -> Result<Value, String> {
+    let sid = resp
+        .get("system_id")
+        .and_then(|s| s.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let raw_key = resp
+        .get("raw_key")
+        .and_then(|k| k.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if sid.is_empty() || raw_key.is_empty() {
+        return Err("activation response missing system_id or raw_key".into());
+    }
+    let domain = email.rsplit('@').next().unwrap_or("").to_string();
+    let agent_id = email.split('@').next().unwrap_or("").to_string();
+
+    let secret = webhook_secret()?;
+
+    // 1. Address-keyed binding (register-isomorphic field order).
+    let mut cfg = serde_json::Map::new();
+    cfg.insert("agent_id".into(), json!(agent_id));
+    cfg.insert("email".into(), json!(email));
+    cfg.insert("gateway_url".into(), json!(gw.trim_end_matches('/')));
+    cfg.insert("domain".into(), json!(domain));
+    cfg.insert("system_id".into(), json!(sid));
+    cfg.insert("api_key".into(), json!(raw_key));
+    cfg.insert("webhook_secret".into(), json!(secret));
+    if let Some(exp) = resp.get("expires_at").and_then(|e| e.as_str()) {
+        if !exp.trim().is_empty() {
+            cfg.insert("expires_at".into(), json!(exp));
+        }
+    }
+    if let Some(mgr) = resp.get("manager_address").and_then(|m| m.as_str()) {
+        if !mgr.trim().is_empty() {
+            cfg.insert("manager_address".into(), json!(mgr));
+        }
+    }
+    let binding_path = crate::core::config::binding_file_path_in(home, &sid, email);
+    write_binding_atomic(&binding_path, &Value::Object(cfg))
+        .map_err(|e| format!("cannot write binding {}: {e}", binding_path.display()))?;
+
+    // 2. Gateway-connection file — create-if-absent only, agent scope
+    //    (the agent key lives only in the binding, never duplicated here).
+    let gw_cfg = crate::core::config::gateway_config_path_in(home, &sid);
+    if !gw_cfg.is_file() {
+        let g = json!({
+            "gateway_url": gw.trim_end_matches('/'),
+            "system_id": sid,
+            "domain": domain,
+            "scope": "agent",
+        });
+        crate::core::config::write_private_json(&gw_cfg, &g)
+            .map_err(|e| format!("cannot write gateway config {}: {e}", gw_cfg.display()))?;
+    }
+
+    // 3. Discovery pointer (only when a profile was given).
+    let mut pointer = String::new();
+    if let Some(pd) = profile {
+        match write_pointer(pd, &sid, email) {
+            Ok(p) => pointer = p.to_string_lossy().to_string(),
+            Err(e) => crate::cmd::report::warn(&format!("pointer not written: {e}")),
+        }
+    }
+
+    Ok(json!({
+        "system_id": sid,
+        "config_path": binding_path.to_string_lossy(),
+        "pointer": pointer,
+    }))
+}
+
+// ── pause / resume / unbind ──
+
+fn flip_paused(args: &LifecycleArgs, want_paused: bool) -> i32 {
+    let action = if want_paused { "pause" } else { "resume" };
+    let email = args.email.trim().to_lowercase();
+    if email.is_empty() {
+        eprintln!("usage: aimail agent {action} --email <addr>");
+        return 2;
+    }
+    let home = crate::core::home::aimail_home();
+    let (active, archived) = find_binding(&home, &email);
+    let Some(p) = active else {
+        let extra = if archived.is_some() {
+            " (an archived binding exists — use `aimail agent bind` to restore it)"
+        } else {
+            ""
+        };
+        return crate::cmd::report::fail(&format!(
+            "not bound: no active local binding for {email}{extra}"
+        ));
+    };
+    let Some(cfg) = read_binding(&p) else {
+        return crate::cmd::report::fail(&format!(
+            "not bound: unreadable binding at {}",
+            p.display()
+        ));
+    };
+    if !binding_email_matches(&p, &email) {
+        return crate::cmd::report::fail(&format!(
+            "email mismatch: binding at {} is not for {email}",
+            p.display()
+        ));
+    }
+    let is_paused = cfg.get("paused").and_then(|p| p.as_bool()) == Some(true);
+    if is_paused == want_paused {
+        if want_paused {
+            crate::cmd::report::ok(&format!("already paused: {email} (no change)"));
+        } else {
+            crate::cmd::report::ok(&format!("already active: {email} (no change)"));
+        }
+        return 0;
+    }
+    let mut obj = match cfg.as_object() {
+        Some(o) => o.clone(),
+        None => {
+            return crate::cmd::report::fail("not bound: binding is not a JSON object");
+        }
+    };
+    if want_paused {
+        obj.insert("paused".into(), json!(true));
+    } else {
+        obj.remove("paused");
+    }
+    if let Err(e) = write_binding_atomic(&p, &Value::Object(obj)) {
+        return crate::cmd::report::fail(&format!("write failed: {e}"));
+    }
+    if want_paused {
+        crate::cmd::report::ok(&format!(
+            "paused: {email} — receiving stopped locally, the cloud key is untouched (resume to continue)"
+        ));
+    } else {
+        crate::cmd::report::ok(&format!(
+            "resumed: {email} — receiving continues locally (the cloud key was never touched)"
+        ));
+    }
+    0
+}
+
+pub fn pause(args: &LifecycleArgs) -> i32 {
+    flip_paused(args, true)
+}
+
+pub fn resume(args: &LifecycleArgs) -> i32 {
+    flip_paused(args, false)
+}
+
+pub fn unbind(args: &LifecycleArgs) -> i32 {
+    let email = args.email.trim().to_lowercase();
+    if email.is_empty() {
+        eprintln!("usage: aimail agent unbind --email <addr> [--profile <dir>]");
+        return 2;
+    }
+    let home = crate::core::home::aimail_home();
+    let (active, archived) = find_binding(&home, &email);
+    // Idempotent: already archived.
+    if active.is_none() {
+        if archived.is_some() {
+            crate::cmd::report::ok(&format!(
+                "already unbound: {email} (archive retained; `aimail agent bind` restores it)"
+            ));
+            return 0;
+        }
+        return crate::cmd::report::fail(&format!(
+            "not bound: no local binding for {email} to unbind"
+        ));
+    }
+    let p = active.unwrap();
+    if !binding_email_matches(&p, &email) {
+        return crate::cmd::report::fail(&format!(
+            "email mismatch: binding at {} is not for {email} (refusing)",
+            p.display()
+        ));
+    }
+    let a = p.with_extension(format!("json{ARCHIVE_SUFFIX}"));
+    if std::fs::rename(&p, &a).is_err() {
+        return crate::cmd::report::fail(&format!("unbind failed: cannot archive {}", p.display()));
+    }
+    // Clear THIS profile's pointer only when its own email matches.
+    let mut ptr_note = String::new();
+    if let Some(pd) = &args.profile {
+        let pd = expand_profile(pd);
+        if clear_pointer_if_match(&pd, &email) {
+            ptr_note = format!("; pointer {}", pointer_path(&pd).display());
+        }
+    }
+    crate::cmd::report::ok(&format!(
+        "unbound: {email} archived to {} (key bytes retained, cloud untouched{ptr_note})",
+        a.display()
+    ));
+    0
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn tmp_home() -> PathBuf {
+        let d = std::env::temp_dir().join(format!(
+            "aimail-lc-{}-{}-{}",
+            std::process::id(),
+            crate::core::time::now_secs(),
+            rand_suffix()
+        ));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join("systems").join("s1")).unwrap();
+        d
+    }
+
+    fn rand_suffix() -> u128 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    }
+
+    fn write_binding(home: &Path, email: &str, body: &str, archived: bool) -> PathBuf {
+        let name = if archived {
+            format!("{}{ARCHIVE_SUFFIX}", crate::core::contract::binding_file())
+        } else {
+            crate::core::contract::binding_file().to_string()
+        };
+        let cleaned = crate::core::config::clean_agent_dir_name(&email.to_lowercase());
+        let p = home.join("systems").join("s1").join(&cleaned).join(name);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, body).unwrap();
+        p
+    }
+
+    const CFG: &str = r#"{"agent_id":"a","email":"a@x.test","system_id":"s1","api_key":"sk-1","webhook_secret":"s"
+}"#;
+
+    fn args(email: &str) -> LifecycleArgs {
+        LifecycleArgs {
+            email: email.to_string(),
+            profile: None,
+            code: None,
+            gateway_url: None,
+        }
+    }
+
+    #[test]
+    fn pause_resume_flip_local_flag_only() {
+        let home = tmp_home();
+        let p = write_binding(&home, "a@x.test", CFG, false);
+        let home_env = env::aimail_home(&home);
+        pause(&args("a@x.test"));
+        let body = std::fs::read_to_string(&p).unwrap();
+        assert!(body.contains("\"paused\": true"), "{body}");
+        // idempotent: second pause = no change, rc 0
+        assert_eq!(pause(&args("a@x.test")), 0);
+        resume(&args("a@x.test"));
+        let body = std::fs::read_to_string(&p).unwrap();
+        assert!(!body.contains("paused"), "{body}");
+        assert_eq!(resume(&args("a@x.test")), 0);
+        drop(home_env);
+    }
+
+    #[test]
+    fn pause_resume_refuse_when_not_bound() {
+        let home = tmp_home();
+        let home_env = env::aimail_home(&home);
+        assert_eq!(pause(&args("ghost@x.test")), 1);
+        assert_eq!(resume(&args("ghost@x.test")), 1);
+        drop(home_env);
+    }
+
+    #[test]
+    fn unbind_archives_and_idempotent() {
+        let home = tmp_home();
+        let p = write_binding(&home, "a@x.test", CFG, false);
+        let a = p.with_extension(format!("json{ARCHIVE_SUFFIX}"));
+        let home_env = env::aimail_home(&home);
+        assert_eq!(unbind(&args("a@x.test")), 0);
+        assert!(!p.exists(), "active file must be gone");
+        assert!(a.exists(), "archive must exist with the key bytes");
+        assert!(
+            std::fs::read_to_string(&a).unwrap().contains("sk-1"),
+            "key bytes survive"
+        );
+        // idempotent: second unbind = already unbound, rc 0
+        assert_eq!(unbind(&args("a@x.test")), 0);
+        // restore via bind (mode ②, 0 gateway calls)
+        assert_eq!(bind(&args("a@x.test")), 0);
+        assert!(p.exists(), "restore must bring the active file back");
+        assert!(!a.exists());
+        drop(home_env);
+    }
+
+    #[test]
+    fn unbind_refuses_foreign_email() {
+        let home = tmp_home();
+        write_binding(&home, "a@x.test", CFG, false);
+        let home_env = env::aimail_home(&home);
+        // The binding file's email is a@x.test; a different address must never
+        // resolve to it (dir name differs ⇒ find_binding finds nothing).
+        assert_eq!(unbind(&args("b@x.test")), 1);
+        drop(home_env);
+    }
+
+    #[test]
+    fn bind_idempotent_when_key_present() {
+        let home = tmp_home();
+        write_binding(&home, "a@x.test", CFG, false);
+        let home_env = env::aimail_home(&home);
+        // No code, no gateway: an active binding must short-circuit.
+        assert_eq!(bind(&args("a@x.test")), 0);
+        drop(home_env);
+    }
+
+    #[test]
+    fn bind_no_local_trace_no_code_fails() {
+        let home = tmp_home();
+        let home_env = env::aimail_home(&home);
+        assert_eq!(bind(&args("ghost@x.test")), 1);
+        drop(home_env);
+    }
+
+    #[test]
+    fn bind_no_gateway_url_fails() {
+        let home = tmp_home();
+        // Clear the env fallback BEFORE taking the guard (the guard holds the
+        // process env lock for its whole lifetime; a nested lock would deadlock).
+        {
+            let _g = crate::core::testutil::ENV_LOCK.lock().unwrap();
+            std::env::remove_var("AIMAIL_GW_URL");
+        }
+        let home_env = env::aimail_home(&home);
+        let mut a = args("ghost@x.test");
+        a.code = Some("shared_a-1".into());
+        a.gateway_url = None;
+        assert_eq!(bind(&a), 1);
+        drop(home_env);
+    }
+
+    #[test]
+    fn missing_email_is_usage_error() {
+        let home = tmp_home();
+        let home_env = env::aimail_home(&home);
+        assert_eq!(bind(&args("")), 2);
+        assert_eq!(pause(&args("")), 2);
+        assert_eq!(resume(&args("")), 2);
+        assert_eq!(unbind(&args("")), 2);
+        drop(home_env);
+    }
+
+    #[test]
+    fn persist_activation_writes_register_isomorphic_files() {
+        let home = tmp_home();
+        let resp = json!({
+            "system_id": "s9",
+            "raw_key": "sk-abc",
+            "email_address": "m@x.test",
+            "expires_at": "2027-01-01T00:00:00Z",
+            "manager_address": "mgr@x.test"
+        });
+        let profile = home.join("profiles").join("p1");
+        persist_activation(
+            &home,
+            &resp,
+            "m@x.test",
+            "https://gw.example/",
+            Some(&profile),
+        )
+        .expect("persist must succeed");
+        let binding = home
+            .join("systems")
+            .join("s9")
+            .join(crate::core::config::clean_agent_dir_name("m@x.test"))
+            .join(crate::core::contract::binding_file());
+        let body = std::fs::read_to_string(&binding).unwrap();
+        let v: Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(v["email"], "m@x.test");
+        assert_eq!(v["system_id"], "s9");
+        assert_eq!(v["api_key"], "sk-abc");
+        assert_eq!(v["agent_id"], "m");
+        assert_eq!(v["domain"], "x.test");
+        assert_eq!(v["gateway_url"], "https://gw.example");
+        assert_eq!(v["manager_address"], "mgr@x.test");
+        assert_eq!(v["expires_at"], "2027-01-01T00:00:00Z");
+        let secret = v["webhook_secret"].as_str().unwrap().to_string();
+        assert_eq!(secret.len(), 64, "token_hex(32) = 64 hex chars: {secret}");
+        assert!(secret.chars().all(|c| c.is_ascii_hexdigit()));
+        // webhook_secret sits right after api_key (register-chain relative position)
+        let keys: Vec<&str> = v.as_object().unwrap().keys().map(|k| k.as_str()).collect();
+        let ai = keys.iter().position(|k| *k == "api_key").unwrap();
+        assert_eq!(keys[ai + 1], "webhook_secret", "{keys:?}");
+        // gateway-connection file created (agent scope)
+        let gw_cfg = crate::core::config::gateway_config_path_in(&home, "s9");
+        let g: Value = serde_json::from_str(&std::fs::read_to_string(gw_cfg).unwrap()).unwrap();
+        assert_eq!(g["system_id"], "s9");
+        assert_eq!(g["scope"], "agent");
+        assert!(g.get("admin_key").is_none() || g["admin_key"].is_null());
+        // pointer written
+        let ptr = profile.join(crate::core::contract::pointer_file());
+        let pv: Value = serde_json::from_str(&std::fs::read_to_string(ptr).unwrap()).unwrap();
+        assert_eq!(pv["system_id"], "s9");
+        assert_eq!(pv["email"], "m@x.test");
+    }
+
+    #[test]
+    fn persist_activation_never_overwrites_existing_gateway_config() {
+        let home = tmp_home();
+        let gw_cfg = crate::core::config::gateway_config_path_in(&home, "s9");
+        std::fs::create_dir_all(gw_cfg.parent().unwrap()).unwrap();
+        std::fs::write(
+            &gw_cfg,
+            r#"{"gateway_url":"https://old.example/","system_id":"s9","admin_key":"admin-1"}"#,
+        )
+        .unwrap();
+        let resp = json!({"system_id": "s9", "raw_key": "sk-abc"});
+        persist_activation(&home, &resp, "m@x.test", "https://gw.example/", None)
+            .expect("persist must succeed");
+        let g: Value = serde_json::from_str(&std::fs::read_to_string(gw_cfg).unwrap()).unwrap();
+        assert_eq!(
+            g["gateway_url"], "https://old.example/",
+            "existing system config must be untouched"
+        );
+        assert_eq!(g["admin_key"], "admin-1");
+    }
+
+    mod env {
+        /// Scoped AIMAIL_HOME. Holds the process env lock for the guard's
+        /// whole lifetime: the value must stay stable across the operate
+        /// sequence (set → under-test reads → restore) or parallel tests
+        /// clobber each other's home (testutil P8). The lock is the LAST
+        /// field, so it is released only after `Drop` restores the env.
+        pub struct HomeGuard {
+            pub dir: std::path::PathBuf,
+            _lock: std::sync::MutexGuard<'static, ()>,
+        }
+        impl HomeGuard {
+            pub fn new(dir: std::path::PathBuf) -> Self {
+                let _lock = crate::core::testutil::ENV_LOCK.lock().unwrap();
+                std::env::set_var("AIMAIL_HOME", &dir);
+                Self { dir, _lock }
+            }
+        }
+        impl Drop for HomeGuard {
+            fn drop(&mut self) {
+                std::env::remove_var("AIMAIL_HOME");
+                let _ = std::fs::remove_dir_all(&self.dir);
+            }
+        }
+        pub fn aimail_home(dir: &std::path::Path) -> HomeGuard {
+            HomeGuard::new(dir.to_path_buf())
+        }
+    }
+}
