@@ -411,6 +411,17 @@ def _op_assemble(args):
     target_email_pre = email or plan.get("email") or ""
     reg_run = _run_registrar(args.get("register_spec") or {}, {
         "name": (plan.get("reg_as") if _non_main else "agent"),
+        # _expand()'s contract lists {name}/{agent}/{sid}/{system_id}/{manager}/
+        # {home}/{email}/{domain}; passing only "name" left every other
+        # placeholder literal in the registrar argv (measured 2026-10-28:
+        # args_template ["--system-id","{sid}"] reached the command verbatim).
+        "agent": _aid,
+        "sid": system_id,
+        "system_id": system_id,
+        "manager": syscfg.get("manager_address") or "",
+        "home": args.get("home") or args.get("profile_dir") or "",
+        "email": target_email_pre,
+        "domain": args.get("domain") or syscfg.get("domain") or "",
         "profile_dir": args.get("profile_dir") or args.get("home") or "",
         "config": {
             "gateway_url": args.get("gateway_url") or syscfg.get("gateway_url") or "",
@@ -545,6 +556,11 @@ def _op_update(args):
         if action == "prompt":
             _rules = _pick("prompt_rules")
             # prompt_rules = list of rule dicts; name validation takes each item's name (same shape as TS gate opUpdate)
+            if _rules is not None and not isinstance(_rules, list):
+                raise UsageError(
+                    "update action=prompt: prompt_rules must be a list of rule objects "
+                    f"(got {type(_rules).__name__}); a non-list value is ignored by the reader "
+                    "and would leave a corrupt binding")
             if isinstance(_rules, list):
                 _ok = getattr(base, "prompt_rule_name_ok", None)
                 for _r in _rules:
