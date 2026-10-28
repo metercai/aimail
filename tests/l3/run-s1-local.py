@@ -95,8 +95,8 @@ def find_python(host_home: Path) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", required=True, choices=["hermes", "dsh"])
-    ap.add_argument("--sdk-wheel", default="", help="预发布注入: py wheel(发布前验新流程)")
-    ap.add_argument("--sdk-tarball", default="", help="预发布注入: ts tarball")
+    ap.add_argument("--sdk-wheel", default="", help="pre-release injection: py wheel (verify the new flow before release)")
+    ap.add_argument("--sdk-tarball", default="", help="pre-release injection: ts tarball")
     ap.add_argument("--adv-bin", required=True)
     ap.add_argument("--aimail-bin", required=True)
     ap.add_argument("--evidence", default="/tmp/s1-local")
@@ -189,8 +189,8 @@ def main() -> int:
         applied = '"applied": true' in out_s or "'applied': True" in out_s
         r.rec("S1-03", "agent setup --host … --apply installs tools", rc_s == 0 and applied, out_s[-300:])
 
-        # 预发布注入（可选）：发布前用工作树构建物验 role_calibrator 这类新流程；
-        # 正式上线后回归不带这两个参数，装的就是 registry 上的发布产物。
+        # Pre-release injection (optional): before release, exercise new flows such as role_calibrator with worktree-built artifacts;
+        # post-release regressions omit these two flags so that what gets installed is exactly the registry release artifact.
         if a.host == "hermes" and a.sdk_wheel:
             _py_impl = find_python(host_home) or "python3"
             _impl = sh([_py_impl, "-m", "pip", "install", "-q", "--force-reinstall", "--no-deps", a.sdk_wheel],
@@ -329,8 +329,8 @@ def main() -> int:
             "    return json.loads(_CFG)\n"
             "_T._load_profile_config.__globals__['_CONFIG_LOADER'] = _loader\n"
         )
-        # ── 身份校准：agent 侧只需调 role_calibrator（系统发 welcome 信，manager 进 cc）；
-        #    收件人由 key 的绑定地址派生，body.to 被忽略。契约见 docs/agent-self-setup.md:48-50。
+        # ── Identity calibration: the agent side only calls role_calibrator (the system sends the welcome mail, manager goes into cc);
+        #    the recipient is derived from the key's bound address; body.to is ignored. Contract: docs/agent-self-setup.md:48-50.
         py_cal = py_cfg + (
             "from aimail.aimail_agent import agent_toolset\n"
             "t = {x['name']: x for x in agent_toolset()}\n"
@@ -352,7 +352,7 @@ def main() -> int:
         r.rec("S1-12", "welcome mail cc's the security officer (approval path)",
               mgr.lower() in _flat, out_cal[-260:])
 
-        # welcome 信必须落到**自己**的邮箱，且正文带三行填写说明 + reply-all 指示
+        # the welcome mail must land in **its own** mailbox, with a three-line fill-in note + reply-all instruction in the body
         welcome = ""
         deadline = time.time() + 30
         while time.time() < deadline and not welcome:
@@ -368,7 +368,7 @@ def main() -> int:
         r.rec("S1-13", "welcome mail carries the three labelled reply lines",
               bool(welcome) and "reply-all" in welcome.lower(), welcome[:200])
 
-        # agent 按指示 reply-all：回给 noreply@<domain>，三行照抄
+        # the agent reply-alls per the instruction: to noreply@<domain>, copying the three lines verbatim
         py_reply = py_cfg + (
             "from aimail.aimail_agent import agent_toolset\n"
             "t = {x['name']: x for x in agent_toolset()}\n"
