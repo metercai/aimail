@@ -44,11 +44,7 @@ fn register_executor_offline_behaviour() {
     );
     let old_path = std::env::var("PATH").unwrap_or_default();
     std::env::set_var("PATH", format!("{}:{}", bin.display(), old_path));
-    for k in [
-        "AIMAIL_MANAGER",
-        "AIMAIL_MANAGER_ADDRESS",
-        "INTEGRATE_MANAGER_ADDRESS",
-    ] {
+    for k in ["AIMAIL_MANAGER", "AIMAIL_MANAGER_ADDRESS"] {
         std::env::remove_var(k);
     }
     // AIMAIL_HOME must be isolated too: a machine-level `.env` would be read as a fallback by `env_val` (otherwise the "missing manager" case

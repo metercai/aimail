@@ -348,9 +348,8 @@ def reconcile(system_id: str = "", manager: str = "", dry_run: bool = False) -> 
     # 2. Local registry
     local = _local_agents(system_id)
 
-    # Name mutual recognition fallback (AIMAIL_MANAGER_ADDRESS /
-    # INTEGRATE_MANAGER_ADDRESS)—— historical bare name AIMAIL_MANAGER has been retired (2026-10-17),
-    # an old bug that only recognized the bare name caused reconcile to always get '' and write empty values into the whitelist (forensics P1 main hop).
+    # Single contract env name fallback (AIMAIL_MANAGER_ADDRESS) — historical bare name AIMAIL_MANAGER
+    # has been retired (2026-10-17); INTEGRATE_* names removed with no compatibility.
     # If still empty after resolution, register_agent_email's hard gate raises an error (no silent registration).
     manager = _core.resolve_manager_address(manager)
     client = _tools._GatewayClient(gw["gateway_url"], gw.get("admin_key", ""))

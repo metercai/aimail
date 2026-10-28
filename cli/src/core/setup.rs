@@ -484,6 +484,17 @@ pub fn init_system(
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
+    // System-level default manager from the activation response (type 1/2
+    // activation codes persist the code's delivery address as the system
+    // default manager, same mechanism as the type-3 address code). Used as
+    // the manager default when the caller did not set one explicitly —
+    // an explicit AIMAIL_MANAGER_ADDRESS / -m always wins.
+    let resp_manager = result
+        .get("manager_address")
+        .and_then(Value::as_str)
+        .filter(|m| !m.is_empty())
+        .unwrap_or("")
+        .to_string();
     let created_system_id = result
         .get("system_id")
         .and_then(Value::as_str)
@@ -514,7 +525,9 @@ pub fn init_system(
         system_name: sys_name_final.clone(),
         save_raw_snapshots,
         domain: created_domain.clone(),
-        manager_address: manager_address.to_string(),
+        // Explicit value wins; otherwise use the activation response's
+        // system default manager.
+        manager_address: prefer_explicit_manager(manager_address, &resp_manager),
         // webhook_host tri-state: single source of truth = webhookplan (backfilled after install probe); at activation time, key is always absent
         webhook_host: None,
         system_home: if system_home.is_empty() {
@@ -564,10 +577,10 @@ pub fn display_json(result: &Value) -> String {
     serde_json::to_string_pretty(&Value::Object(map)).unwrap_or_else(|_| "{}".to_string())
 }
 
-/// manager env name mutual recognition: external input `AIMAIL_MANAGER_ADDRESS` + historical integration contract
-/// `INTEGRATE_MANAGER_ADDRESS` (2026-10-17 owner ruling: historical bare name `AIMAIL_MANAGER`
-/// retired, treated as non-existent).
-pub const MANAGER_ENV_NAMES: [&str; 2] = ["AIMAIL_MANAGER_ADDRESS", "INTEGRATE_MANAGER_ADDRESS"];
+/// manager env name: `AIMAIL_MANAGER_ADDRESS` is the single contract name.
+/// (2026-10-17 owner ruling: historical bare name `AIMAIL_MANAGER` retired,
+/// treated as non-existent; INTEGRATE_* names removed with no compatibility.)
+pub const MANAGER_ENV_NAMES: [&str; 1] = ["AIMAIL_MANAGER_ADDRESS"];
 
 /// Get string field from cfg (default empty string) -- equivalent to Python `cfg.get(k, "")`.
 pub fn pget(cfg: &Value, key: &str) -> String {
@@ -583,7 +596,7 @@ pub fn python_bin() -> String {
     crate::core::sdkroot::python_bin()
 }
 
-/// `_resolve_mgr`: manager resolution chain = explicit parameter (must contain `@`) → cfg → env **three names mutually recognized**.
+/// `_resolve_mgr`: manager resolution chain = explicit parameter (must contain `@`) → cfg → env `AIMAIL_MANAGER_ADDRESS` (single contract name).
 /// Empty string indicates unresolved (caller handles as hard gate: registration/whitelist writing does not accept empty values).
 pub fn resolve_mgr(manager: &str, cfg: &Value) -> String {
     if !manager.is_empty() && manager.contains('@') {
@@ -600,4 +613,43 @@ pub fn resolve_mgr(manager: &str, cfg: &Value) -> String {
         }
     }
     String::new()
+}
+
+/// Manager written into the system config at activation: an explicit value
+/// (arg / `AIMAIL_MANAGER_ADDRESS`) always wins; when the caller gave none,
+/// the activation response's system default manager is used — that default is
+/// the activation code's delivery address, persisted server-side at
+/// activation (same mechanism as the type-3 address code).
+pub fn prefer_explicit_manager(explicit: &str, from_activation: &str) -> String {
+    if explicit.is_empty() {
+        from_activation.to_string()
+    } else {
+        explicit.to_string()
+    }
+}
+
+#[cfg(test)]
+mod manager_default_tests {
+    use super::prefer_explicit_manager;
+
+    #[test]
+    fn explicit_manager_wins_over_activation_default() {
+        assert_eq!(
+            prefer_explicit_manager("explicit@x.com", "delivery@x.com"),
+            "explicit@x.com"
+        );
+    }
+
+    #[test]
+    fn activation_default_used_when_caller_gave_none() {
+        assert_eq!(
+            prefer_explicit_manager("", "delivery@x.com"),
+            "delivery@x.com"
+        );
+    }
+
+    #[test]
+    fn no_source_stays_empty() {
+        assert_eq!(prefer_explicit_manager("", ""), "");
+    }
 }

@@ -51,11 +51,7 @@ fn step_executor_offline_behaviour() {
     write_exec(&bin.join("fail.sh"), "#!/bin/sh\nexit 7\n");
     let old_path = std::env::var("PATH").unwrap_or_default();
     std::env::set_var("PATH", format!("{}:{}", bin.display(), old_path));
-    for k in [
-        "AIMAIL_MANAGER",
-        "AIMAIL_MANAGER_ADDRESS",
-        "INTEGRATE_MANAGER_ADDRESS",
-    ] {
+    for k in ["AIMAIL_MANAGER", "AIMAIL_MANAGER_ADDRESS"] {
         std::env::remove_var(k);
     }
     let ahome = tmp.path().join("ahome");

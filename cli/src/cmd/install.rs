@@ -681,6 +681,15 @@ fn install_human(a: &Args) -> i32 {
         if !c.domain.is_empty() {
             system_domain = c.domain.clone();
         }
+        // Manager → AIMAIL_MANAGER_ADDRESS write-back for the platform
+        // registrar subprocesses (they resolve manager from the env only and
+        // hard-fail on empty, owner contract 2026-09-30). cfg already applied
+        // the precedence (explicit -m/AIMAIL_MANAGER_ADDRESS > activation
+        // response's system default), so exporting it keeps an explicit value
+        // winning while letting the activation default reach the SDK path.
+        if !c.manager_address.is_empty() {
+            std::env::set_var("AIMAIL_MANAGER_ADDRESS", &c.manager_address);
+        }
         cfg2 = Some(c);
     }
 

@@ -259,8 +259,9 @@ async function cleanupSystemWhitelists(
 }
 
 // ── manager resolution (mirrors pysdk resolve_manager_address: explicit > env)────────────
+// Single contract env name: AIMAIL_MANAGER_ADDRESS (INTEGRATE_* removed, no compatibility).
 
-const MANAGER_ENV_VARS = ['AIMAIL_MANAGER_ADDRESS', 'INTEGRATE_MANAGER_ADDRESS'] as const
+const MANAGER_ENV_VARS = ['AIMAIL_MANAGER_ADDRESS'] as const
 function resolveManager(explicit: string, syscfg: Record<string, unknown>): string {
   const v = String(explicit || '').trim()
   if (v) return v

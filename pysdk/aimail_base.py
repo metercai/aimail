@@ -2930,13 +2930,10 @@ def resolve_register_webhook_url(gw: dict, local_webhook_url: str) -> str:
 # ═══════════════════════════════════════════════════════════════
 # manager resolution + registration/whitelist write hard gate (P1, owner decision 2026-09-30)
 # ═══════════════════════════════════════════════════════════════
-# Two existing env names **mutually recognized**, no third name added: SDK contract export
-# `AIMAIL_MANAGER_ADDRESS`, CLI integration contract export `INTEGRATE_MANAGER_ADDRESS`.
-# Historical bare name `AIMAIL_MANAGER` has been retired (2026-10-17 owner ruling: treat as non-existent) ——
-# The chaos of old three-name mutual recognition is one of the root causes of deerflow whitelist line landing as `value=''`
-# (forensics p1-p2-forensics-20260930.md).
-MANAGER_ENV_VARS = ("AIMAIL_MANAGER_ADDRESS",
-                    "INTEGRATE_MANAGER_ADDRESS")
+# Single contract env name: `AIMAIL_MANAGER_ADDRESS`.
+# (INTEGRATE_* names removed with no compatibility; historical bare name
+# `AIMAIL_MANAGER` retired 2026-10-17 owner ruling: treat as non-existent.)
+MANAGER_ENV_VARS = ("AIMAIL_MANAGER_ADDRESS",)
 
 
 class ManagerRequiredError(RuntimeError):
