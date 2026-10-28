@@ -812,7 +812,15 @@ class _GatewayClient:
                 if stop_event is not None and stop_event.is_set():
                     return "stop"
                 try:
-                    chunk = resp.read(4096)  # blocks up to the read timeout
+                    # read1 (NOT read): on a chunked response read(amt) keeps
+                    # consuming across chunk boundaries until amt bytes are
+                    # collected, so a frame smaller than amt (every real SSE
+                    # frame) would be held back while the stream stays open —
+                    # and each arriving heartbeat resets the socket timeout,
+                    # so it never fires either. read1 returns as soon as one
+                    # underlying read yields data, keeping the per-read
+                    # timeout meaningful (A1 L2-10 py hang, 2026-10-28).
+                    chunk = resp.read1(4096)
                 except socket.timeout:
                     return "drop"  # no data (heartbeat or mail) ⇒ stalled
                 except Exception:
