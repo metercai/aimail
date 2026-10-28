@@ -299,7 +299,8 @@ def main() -> int:
         # ── 7) manager round-trip → identity card + email signature (the real endpoint of activation) ──────────────
         # Contract see docs/agent-self-setup.md §3:
         #   agent sends persona/signature/current_time three items to the security officer;
-        #   Security officer replies "approve persona" + persona:/signature: sections → gateway persists to DB;
+        #   Security officer replies with subject `[CMD] approve persona` + persona:/signature:
+        #   sections in the body → gateway persists to DB;
         #   agent receives the "[AIMail] Persona applied" closed-loop message; thereafter, outbound messages carry the signature, and inbound messages carry my_profile.
         def _run_door_script(name: str, body_py: str, body_ts: str) -> str:
             if a.host == "hermes":
@@ -387,9 +388,11 @@ def main() -> int:
         r.rec("S1-14", "agent replies all with persona / signature / current_time",
               '"success":true' in out_reply.replace(" ", "").lower(), out_reply[-220:])
 
-        # Security officer approval (real manager instruction message)
-        fx.smtp_send(sender=mgr, to=addr, subject="re: Welcome to the AIMail world!",
-                     body=f"approve persona\npersona: {persona}\nsignature: {signature}")
+        # Security officer approval (real manager instruction mail).
+        # Subject-trigger contract: the subject carries `[CMD] approve persona`;
+        # the body carries the persona:/signature: payload sections.
+        fx.smtp_send(sender=mgr, to=addr, subject="[CMD] approve persona",
+                     body=f"persona: {persona}\nsignature: {signature}")
         notice = ""
         deadline = time.time() + 30
         while time.time() < deadline and not notice:

@@ -527,7 +527,9 @@ export async function manageContacts(ctx: ToolCtx, args: ManageContactsArgs): Pr
         to: managerAddr,
         subject: `[AIMail] Contact request: ${args.address}`,
         body: `Please add ${args.address} to ${emailAddr}'s contacts with direction=${direction}.${descLine}\n\n` +
-              `To approve, reply to this email with:\nadd ${args.address} to my contacts with direction=${direction}`,
+              `To approve, reply to this email with the subject set exactly to:\n` +
+              `[CMD] add contact\n` +
+              `and the body:\nadd ${args.address} to my contacts with direction=${direction}`,
       })
       if (r.status >= 200 && r.status < 300) {
         return { success: true, note: `Approval request sent to manager (${managerAddr})` }

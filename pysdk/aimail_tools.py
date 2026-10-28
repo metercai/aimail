@@ -1655,8 +1655,9 @@ def manage_contacts(
             return {"success": False, "error": "address is required for add"}
         # Agent cannot directly add to whitelist.
         # Instead, send a request email to the manager for approval.
-        # The manager replies with "add X to my contacts" which is processed
-        # by webhook.rs handle_manager_commands.
+        # The manager replies with subject `[CMD] add contact` and the payload
+        # line `add X to my contacts` in the body, processed by
+        # webhook.rs handle_manager_commands (subject-trigger).
         manager_addr = config.get("manager_address", "")
         if not manager_addr:
             return {"success": False, "error": "No manager_address configured — cannot send approval request"}
@@ -1667,7 +1668,9 @@ def manage_contacts(
             to=manager_addr,
             subject=f"[AIMail] Contact request: {address}",
             body=f"Please add {address} to {email_addr}'s contacts with direction={direction}.{desc_line}\n\n"
-                 f"To approve, reply to this email with:\nadd {address} to my contacts with direction={direction}",
+                 f"To approve, reply to this email with the subject set exactly to:\n"
+                 f"[CMD] add contact\n"
+                 f"and the body:\nadd {address} to my contacts with direction={direction}",
         )
         status = result.get("status", 0)
         if 200 <= status < 300:

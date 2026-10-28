@@ -306,16 +306,15 @@ pub fn parse_draft_from_reply(agent_email: &str) -> serde_json::Value {
     serde_json::json!({})
 }
 
-/// Approval letter body used by `_approve_identity` (first line of body `approve persona` is the gateway trigger word).
+/// Approval letter used by `_approve_identity`. The gateway triggers on the
+/// **subject** (`[CMD] approve persona`); the body carries the `persona:` /
+/// `signature:` payload lines.
 pub fn approve_message(manager: &str, recipient: &str, persona: &str, signature: &str) -> String {
     rfc5322_message(
         manager,
         recipient,
-        "approve persona",
-        &format!(
-            "approve persona\npersona: {}\nsignature: {}\n",
-            persona, signature
-        ),
+        "[CMD] approve persona",
+        &format!("persona: {}\nsignature: {}\n", persona, signature),
         "approve",
     )
 }
@@ -346,8 +345,12 @@ following three lines, exactly as labelled:
   current_time: <the current time when you reply, in a human-readable form,
                  e.g. 2026-09-28 12:05 UTC>
 
-Your manager will review and apply the approved persona and signature to your
-account. Nothing else changes.
+Your manager will review your draft and approve it by replying with the
+subject set exactly to:
+
+  [CMD] approve persona
+
+The approved persona and signature lines go in the body. Nothing else changes.
 
 Best regards,
 __MANAGER__
@@ -394,6 +397,37 @@ mod tests {
             m.matches("\n\n").count(),
             1,
             "Must have exactly one blank line separating headers and body"
+        );
+    }
+
+    // The approval mail is subject-triggered: the Subject header must carry the
+    // `[CMD] approve persona` trigger, and the body must carry the persona:/
+    // signature: payload (no legacy body trigger line).
+    #[test]
+    fn approve_message_is_subject_triggered() {
+        let m = approve_message(
+            "mgr@example.com",
+            "agent@example.test",
+            "I am an assistant.",
+            "Best regards",
+        );
+        assert!(m.contains("Subject: [CMD] approve persona\n"), "{m}");
+        assert!(m.contains("persona: I am an assistant.\n"), "{m}");
+        assert!(m.contains("signature: Best regards\n"), "{m}");
+        // the body must NOT start with the legacy bare trigger line
+        let body = m.split("\n\n").nth(1).unwrap_or("");
+        assert!(!body.starts_with("approve persona"), "{m}");
+    }
+
+    // The SMTP-mode welcome body must remind the manager to set the approval
+    // reply's subject to `[CMD] approve persona` (same reminder as the
+    // gateway's system welcome).
+    #[test]
+    fn welcome_message_reminds_manager_of_cmd_subject() {
+        let m = welcome_message("mgr@example.com", "agent@example.test");
+        assert!(
+            m.contains("[CMD] approve persona"),
+            "welcome body must carry the [CMD] approve persona reminder: {m}"
         );
     }
 }

@@ -115,8 +115,10 @@ fn welcome_engine_offline() {
     );
 
     let ap = approve_message("m@example.com", "a@example.test", "P", "S");
+    // subject-triggered: the Subject header carries `[CMD] approve persona`; the
+    // body carries only the persona:/signature: payload lines (no legacy trigger line)
     assert!(
-        ap.contains("\nSubject: approve persona\n\napprove persona\npersona: P\nsignature: S\n"),
+        ap.contains("\nSubject: [CMD] approve persona\n\npersona: P\nsignature: S\n"),
         "{ap}"
     );
     assert!(
