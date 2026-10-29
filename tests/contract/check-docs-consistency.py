@@ -76,6 +76,11 @@ NON_SYMBOLS = {
     # Gateway-side request/activation response field names (consumed only in cli/aimail in this repo, not defined by pysdk/tssdk
     #): documentation explaining "mailbox validity period criteria" must state this.
     "validity_days": "Gateway activation response field name (not defined by SDK, see consumption in cli/aimail)",
+    # Re-activation outcome **reason value** (not a symbol): returned as
+    # {"reason": "already_bound"} by pysdk activate_address_code / tssdk
+    # address-code bind when the local binding already carries a key
+    # (local short-circuit, code unconsumed, zero gateway calls).
+    "already_bound": "Re-activation reason value (returned in `reason` field, not a defined symbol)",
 }
 
  # ── Output ───────────────────────────────────────────────────────────────────

@@ -250,6 +250,47 @@ def test_register_agent_email_builds_client_from_gw(sdk, monkeypatch):
     }
 
 
+def test_assemble_carries_syscfg_manager_to_registrar(tmp_path, monkeypatch):
+    """P1 (2026-10-29 QA): with the system config holding manager_address and the
+    env empty, `_op_assemble` must carry the syscfg value into the `config` dict
+    handed to the platform registrar (the python_module / hermes seam) — parity
+    with the ts `resolveManager` (explicit → env → syscfg).
+
+    Before the fix the `config` dict had NO manager_address key, so a host-side
+    assemble not driven by the CLI (no env, no `-m`) hard-failed on the py side
+    while the node side resolved the syscfg default. env + explicit are both
+    empty here, so the syscfg value is the only legitimate source.
+    """
+    import sdk_ops
+
+    for k in _MGR_ENV_KEYS:
+        monkeypatch.delenv(k, raising=False)
+    captured: dict = {}
+
+    def fake_run_registrar(spec, values):
+        captured.update(values or {})
+        return {"rc": 0, "stdout_tail": "ok", "mode": "stub"}
+
+    monkeypatch.setattr(sdk_ops, "_run_registrar", fake_run_registrar)
+    out = sdk_ops._op_assemble(
+        {
+            "system_id": "s1",
+            "email": "agent@x.test",
+            "system_cfg": {
+                "gateway_url": "http://127.0.0.1:1",
+                "admin_key": "k",
+                "domain": "x.test",
+                "system_name": "",
+                "manager_address": "boss@x.test",
+            },
+            "register_spec": {"kind": "python_module", "module": "probe", "fn": "install"},
+        }
+    )
+    assert out["ok"] is True, out
+    # The fix: the registrar config now carries the syscfg manager (explicit + env empty).
+    assert captured["config"].get("manager_address") == "boss@x.test", captured["config"]
+
+
 def test_backfill_binding_returns_path_string(sdk):
     mod, calls, fake = sdk
     fake("backfill_binding", Path("/tmp/x") / BINDING_FILE)

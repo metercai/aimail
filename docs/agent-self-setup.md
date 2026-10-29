@@ -43,6 +43,10 @@ Then classify the result per the table below. **This classification step is the 
 - 4xx (expired / already used): **do not retry**; ask the user for a fresh activation code.
 - Parameter-class error: first check whether you passed the parameters wrong; go to the user only once you have confirmed the parameters are correct.
 
+**Idempotent re-activation (`already_bound`)**
+
+If the address is already bound on this machine (an active binding that already carries an API key), calling `aimail_address` again with the same action / email / code returns `success: true` with `reason: "already_bound"`. This is a **local short-circuit**: it makes **no gateway call**, the supplied code is **not** consumed, the key is **not** rotated, and the binding file is left untouched. Treat this as **success** — go straight to step 4. It is *not* a business-layer failure, and it does *not* mean the code was used or expired.
+
 > Optional optimization: if the host explicitly provides a "list currently available tools" capability and its result is trustworthy, you may consult it once as a pre-check — if the tool is absent from the list, skip directly to step 2, saving one failed call. But **when the list result conflicts with the call result, the call result wins**; not having such a capability and calling directly is not a violation.
 
 ---

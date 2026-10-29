@@ -428,6 +428,15 @@ def _op_assemble(args):
             "admin_key": args.get("admin_key") or syscfg.get("admin_key") or "",
             "domain": args.get("domain") or syscfg.get("domain") or "",
             "system_id": system_id,
+            # P1: the python_module adapter (hermes) resolves its manager from
+            # config["manager_address"] (aimail_hermes.py), then falls back to
+            # env via require_manager_address. Without this key the py side
+            # could ONLY come from env, diverging from ts resolveManager
+            # (explicit → env → syscfg) — a host-side assemble not driven by
+            # the CLI would hard-fail where the node side resolves the syscfg
+            # default. Carry the syscfg value (explicit arg wins) so both
+            # sides agree; the empty-still-fails hard gate is unchanged.
+            "manager_address": args.get("manager_address") or syscfg.get("manager_address") or "",
         },
     })
     renamed = None

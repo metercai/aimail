@@ -197,6 +197,34 @@ describe('three-op node door', () => {
     vi.unstubAllGlobals()
   })
 
+  test('assemble: syscfg manager_address is used when env + explicit are empty (P1 py/ts parity)', async () => {
+    // seedSystem writes aimail_gateway.json carrying manager_address: 'mgr@ext.test'.
+    seedSystem('sys-p1', 'example.com', 'sysx')
+    // env empty: drop the single manager contract env so the syscfg value is the
+    // only legitimate source (resolveManager: explicit → env → syscfg).
+    const prev = process.env.AIMAIL_MANAGER_ADDRESS
+    delete process.env.AIMAIL_MANAGER_ADDRESS
+    const calls = stubGateway()
+    try {
+      // NO manager_address in args (explicit empty) ⇒ must fall back to the system config.
+      const r = await opAssemble({
+        system_id: 'sys-p1',
+        domain: 'example.com',
+        system_name: 'sysx',
+        home: tmpHome,
+      })
+      expect(r['ok']).toBe(true)
+      const reg = calls.find((c) => c.url.includes('/addresses?generate_code=true'))
+      expect(reg, 'register call missing').toBeTruthy()
+      // The registration POST really carried the syscfg manager (not an empty value).
+      expect(JSON.parse(reg!.body)['manager_address']).toBe('mgr@ext.test')
+    } finally {
+      if (prev === undefined) delete process.env.AIMAIL_MANAGER_ADDRESS
+      else process.env.AIMAIL_MANAGER_ADDRESS = prev
+    }
+    vi.unstubAllGlobals()
+  })
+
   test('update action=set-manager: rewrites manager + persists (binding_path returned)', async () => {
     seedSystem('sys-sm', 'example.com', 'sysx')
     // a binding to update
