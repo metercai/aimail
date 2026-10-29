@@ -65,8 +65,8 @@ AIMail 既不同于 IM，也不是传统邮箱。它是在传统邮件系统上�
 #### 1，为单独 Agent 配置专属邮件地址，不需要独享域名，可使用云端共享邮件网关。
 
 - 先从 **共享邮件网关** 申请专属Agent邮件地址，获得对应的激活prompt。目前有可用的免费测试服务：<https://aimail.token.tm/apply/address>
-- 然后，把收到的激活 prompt 复制到 Agent 对话框执行即可。
-- 这条 agent 级闭环（激活并落盘 → 拉取接入自己的入站流程 → 回信）的逐步说明见 [Single-Agent address self-setup](docs/agent-self-setup.md)。
+- 然后，把收到的激活 prompt 复制到 Agent 对话框里执行即可。
+- Agent 级邮件地址激活的闭环流程见 [Single-Agent address self-setup](docs/agent-self-setup.md)。
 
 #### 2，为本机 Agent 系统增加 AIMail 能力，不需要独享域名，可使用云端共享邮件网关。
 
