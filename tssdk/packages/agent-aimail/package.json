@@ -1,7 +1,7 @@
 {
   "name": "agent-aimail",
   "description": "AIMail agent mail SDK — single package for OpenClaw / dsh (DeepSeek Harness) / Pi hosts. Host detection at startup, per-host activation. 14 mail tools, inbound delivery (HMAC), board/skill resources, agent-level addressing.",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "publishConfig": {
     "access": "public",
     "provenance": true
