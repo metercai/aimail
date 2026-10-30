@@ -56,7 +56,7 @@ Subject: [A2A] approve T1
 To:      web-redesign.a2a@company.com
 Subject: [A2A] reject T1
 
-{"comment": "移动端方案缺少横屏适配"}
+{"reason": "移动端方案缺少横屏适配"}
 ```
 
 **5. 全部 task done 后，最终放行：**

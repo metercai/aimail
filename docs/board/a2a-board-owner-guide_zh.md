@@ -18,30 +18,26 @@ Owner 是 A2A Board 项目的发起人和最终决策者，通常是人类（不
 
 ## 2. 组队创建 Board
 
-发送邮件给 Orchestrator：
+发送邮件给 Orchestrator（TO 必须为 orchestrator；verifier 须出现在 TO 或 CC；sender 必须声明为 owner 成员）：
 
 ```
 To:      pm@company.com
+CC:      qa@company.com
 Subject: [A2A] new web-redesign: 官网改版项目
 
 {
   "members": [
+    {"email": "owner@company.com",  "role": "owner",        "display_name": "Owner"},
     {"email": "pm@company.com",     "role": "orchestrator", "display_name": "PM"},
     {"email": "qa@company.com",     "role": "verifier",     "display_name": "QA"},
     {"email": "dev@company.com",    "role": "worker",       "display_name": "Dev"},
-    {"email": "design@company.com", "role": "designer",     "display_name": "Design"}
-  ],
-  "role_permissions": [
-    {"role": "orchestrator", "verbs": ["create","assign","review","block","unblock","cancel","edit","deadline","notify","members","list","show","heartbeat"]},
-    {"role": "verifier",     "verbs": ["verify","approve","reject","output","comment","list","show","heartbeat"]},
-    {"role": "worker",       "verbs": ["complete","commit","heartbeat","comment","list","show"]},
-    {"role": "designer",     "verbs": ["edit","output","comment","list","show","heartbeat"]}
+    {"email": "design@company.com", "role": "worker",       "display_name": "Design"}
   ]
 }
 ```
 
-必含：members 中必须有 orchestrator 和 verifier，sender 必须是 owner。
-`role_permissions` 可选，缺省使用安全默认值。
+必含：members 中必须有 orchestrator 和 verifier，且只能使用四个内置角色（owner / orchestrator / verifier / worker）。
+`role_permissions` 可选，缺省使用安全默认值；提供时与默认权限取并集（只能追加 verb，不能削减）。
 
 系统自动创建 Board Email，全员收到初始化通知（含项目信息、成员列表）。
 
@@ -109,13 +105,13 @@ Subject: [A2A] refresh
     {"email": "pm@company.com",     "role": "orchestrator", "display_name": "PM"},
     {"email": "qa@company.com",     "role": "verifier",     "display_name": "QA"},
     {"email": "dev@company.com",    "role": "worker",       "display_name": "Dev"},
-    {"email": "design@company.com", "role": "designer",     "display_name": "Design"},
-    {"email": "design2@company.com","role": "designer",     "display_name": "Design2"}
+    {"email": "design@company.com", "role": "worker",       "display_name": "Design"},
+    {"email": "design2@company.com","role": "worker",       "display_name": "Design2"}
   ]
 }
 ```
 
-members 为增量更新：新增/更新列出的成员，不在列表中的成员保留。role_permissions 可选增量覆盖。
+members 为增量更新：新增/更新列出的成员，不在列表中的成员保留。role_permissions 可选，与默认权限取并集（只能追加 verb，不能削减）。
 
 ---
 

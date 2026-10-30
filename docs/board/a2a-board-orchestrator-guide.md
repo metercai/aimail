@@ -23,8 +23,19 @@ The Orchestrator drives the project — planning, task breakdown, execution trac
 6. Handle blockers with `[A2A] block` / `[A2A] unblock`
 7. Phase reports via the session flow (`[Report] <board> Phase <N>: <title>`, CC the board address)
 
-## 3. Rules
+## 3. Responding to Notifications
+
+| Notification | Action |
+|-------------|--------|
+| `blocked` | Intervene: coordinate with the parties or unblock |
+| `review-needed` | Note it; follow the review outcome |
+| `output` | Confirm project completion |
+| `assigned` | Note it (you are not the executor) |
+
+## 4. Rules
 
 - Plan before creating tasks
 - Owner approval required before execution
 - Communicate before arbitrating
+- Use `board_status()` to check overall health
+- Use `board_roles()` to verify permission assignment

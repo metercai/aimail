@@ -21,9 +21,9 @@
 
 | 概念 | 说明 |
 |------|------|
-| **Board** | 项目看板。生命周期：active → awaiting_owner(output 提交) → completed(Owner 确认) |
-| **Task** | 任务单元。状态：Ready → Running → Reviewing → Done（reject 仅限 Reviewing，退回 Running；reopen 为板级驳回——仅当 Board 处于 awaiting_owner，把全部 Done 任务重置 Running） |
-| **Board Email** | `{short_id}.a2a@{domain}` 格式（short_id 限 5-16 位字母数字/连字符/下划线） |
+| **Board** | 项目看板。生命周期：active → awaiting_owner(output 提交) → completed(Owner 确认)，完成后由系统扫描归档 |
+| **Task** | 任务单元。主流程：Ready → Running → Reviewing → Done（reject 仅限 Reviewing，退回 Running；reopen 为板级驳回——仅当 Board 处于 awaiting_owner，把全部 Done 任务重置 Running）。未分配的任务处于 triage；父任务未完成的任务处于 todo |
+| **Board Email** | `{short_id}.a2a@{domain}` 格式（short_id 限 5-16 位字母数字/连字符/下划线）；共享域系统为 `{short_id}.{system_name}.a2a@{shared_domain}` |
 | **指令流** | `[A2A]` 前缀的指令邮件，Rust 闭环处理。`board_id` 由系统自动注入，无需在邮件正文中传 |
 | **会话流** | 成员互发 + CC Board 地址，自动注入 `board_id`/`board_role`/`from_role` |
 | **通知流** | 项目事件（分配/审阅/阻塞…）自动通知相关成员 |
@@ -35,30 +35,26 @@
 
 以下用一个完整的项目案例，展示从组队到归档的全流程。
 
-**项目背景：** 公司要做官网改版，Owner 发起，由 PM（orchestrator）、设计师（designer）、前端（dev）、测试（qa）协作完成。
+**项目背景：** 公司要做官网改版，Owner 发起，由 PM（orchestrator）、设计师（worker 角色）、前端（dev）、测试（qa）协作完成。
 
 ---
 
 ### 阶段一：Owner 组队，创建 Board
 
-Owner（项目发起人）发送组队邮件给 PM：
+Owner（项目发起人）发送组队邮件给 PM（TO 必须为 orchestrator；verifier 须出现在 TO 或 CC；sender 必须声明为 owner 成员）：
 
 ```
 To:      pm@company.com
+CC:      qa@company.com
 Subject: [A2A] new web-redesign: 官网改版项目
 
 {
   "members": [
+    {"email": "owner@company.com",  "role": "owner",        "display_name": "Owner"},
     {"email": "pm@company.com",     "role": "orchestrator", "display_name": "PM"},
     {"email": "qa@company.com",     "role": "verifier",     "display_name": "QA"},
     {"email": "dev@company.com",    "role": "worker",       "display_name": "Dev"},
-    {"email": "design@company.com", "role": "designer",     "display_name": "Design"}
-  ],
-  "role_permissions": [
-    {"role": "orchestrator", "verbs": ["create","assign","review","block","unblock","cancel","edit","deadline","notify","members","list","show","heartbeat"]},
-    {"role": "verifier",     "verbs": ["verify","approve","reject","output","list","show","heartbeat"]},
-    {"role": "worker",       "verbs": ["complete","commit","heartbeat","comment","list","show"]},
-    {"role": "designer",     "verbs": ["edit","output","comment","list","show","heartbeat"]}
+    {"email": "design@company.com", "role": "worker",       "display_name": "Design"}
   ]
 }
 ```
@@ -76,7 +72,7 @@ Board ID: abc123def45678901234
   PM (pm@company.com) — orchestrator
   QA (qa@company.com) — verifier
   Dev (dev@company.com) — worker
-  Design (design@company.com) — designer
+  Design (design@company.com) — worker
 
 请将团队成员的邮件地址加入你的联系人中。
 ```
@@ -99,7 +95,7 @@ Subject: [WHOAMI]
 To:      design@company.com
 Subject: [WHOAMI]
 ```
-→ Agent 返回：`Role: designer, Skills: UI设计, Figma/Sketch`
+→ Agent 返回：`Role: worker, Skills: UI设计, Figma/Sketch`
 
 PM 了解各成员能力后，通过会话流向团队发布项目方案：
 
@@ -110,9 +106,9 @@ CC:   web-redesign.a2a@company.com
 Subject: [Proposal] web-redesign 方案 v1——请各位审阅
 
 方案概要：
-- 首页重新设计（designer 主导）
+- 首页重新设计（Design 主导）
 - 产品页重构（dev 主导）
-- 统一品牌色系（designer + dev 协作）
+- 统一品牌色系（Design + dev 协作）
 ```
 
 成员们通过会话流讨论方案细节，所有讨论自动关联 Board 上下文。
@@ -194,14 +190,14 @@ Subject: [A2A] list
 
 返回所有任务及状态。
 
-**5.2 查看 Board 状态总览（管线+依赖+负责人）：**
+**5.2 查看 Board 状态总览（目标 + 各状态管线 + 负责人）：**
 
 ```
 To:      web-redesign.a2a@company.com
 Subject: [A2A] status
 ```
 
-**5.3 设计师完成 T3，提交产出：**（前提：T3 已 complete、经 QA approve 至 Done；designer 建板时已被授予 `output` 权限，可提交已完成任务的产出）
+**5.3 QA 完成 T3 验收后，提交该任务产出：**（前提：T3 已 complete、经 QA approve 至 Done；output 由具 output 权限者（常见 verifier）提交）
 
 ```
 To:      web-redesign.a2a@company.com
@@ -219,7 +215,7 @@ Subject: [A2A] block T2
 {"reason": "等待第三方 API 文档更新"}
 ```
 
-阻塞通知发给被分配者和 orchestrator。
+阻塞通知发给全体 orchestrator 和发起阻塞的成员。
 
 **5.5 细节讨论（会话流）：**
 
@@ -250,7 +246,7 @@ QA 对各任务进行最终验收：
 To:      web-redesign.a2a@company.com
 Subject: [A2A] approve T1
 
-{"comment": "3 方案均已提交，暗色模式兼容完成"}
+3 方案均已提交，暗色模式兼容完成
 ```
 
 全部任务验收完毕后，Verifier 提交最终产出并请求 Owner 验收：
@@ -285,7 +281,7 @@ Subject: [Confirm] output web-redesign
 
 > **附：Owner 更新 Board 成员**  
 
-项目中期加入一位设计师。Owner 发送更新指令（`[A2A] refresh` 是 owner 硬编码专属指令）：
+项目中期加入一位设计师。Owner 发送更新指令（`[A2A] refresh` 是 owner 硬编码专属指令；成员增量更新——只增/改列出的成员，不删除既有成员；role_permissions 与默认权限取并集，只能加 verb、不能减）：
 
 ```
 To:      web-redesign.a2a@company.com
@@ -296,10 +292,7 @@ Subject: [A2A] refresh
     {"email": "pm@company.com",     "role": "orchestrator", "display_name": "PM"},
     {"email": "qa@company.com",     "role": "verifier",     "display_name": "QA"},
     {"email": "dev@company.com",    "role": "worker",       "display_name": "Dev"},
-    {"email": "design@company.com", "role": "designer",     "display_name": "Design"}
-  ],
-  "role_permissions": [
-    {"role": "designer", "verbs": ["edit","comment","list","show","heartbeat"]}
+    {"email": "design@company.com", "role": "worker",       "display_name": "Design"}
   ]
 }
 ```
@@ -335,22 +328,18 @@ Subject: [WHOAMI]
 | 审批验收标准 | `[Confirm] criteria v{N}` | Owner | TO 含 board 地址，自动写入 criteria_version/criteria_text/criteria_confirmed_at |
 | 审批产出物 | `[Confirm] output {board}` | Owner | TO 含 board 地址，board.status→completed，全员通知 |
 
-`role_permissions` 可选，缺省使用安全默认值，有则增量覆盖。`[A2A] new` 和 `[A2A] refresh` 不在 `role_permissions` 中，为 owner 硬编码专属指令，不可修改。
+`role_permissions` 可选，缺省使用安全默认值；提供时与默认权限取**并集**（只能给内置角色追加 verb，不能削减默认权限；role/verb 均须在已知列表内）。`[A2A] new` 和 `[A2A] refresh` 不在 `role_permissions` 中，为 owner 硬编码专属指令，不可修改。
 
 ### 4.3 角色与权限
 
 | 角色 | 默认权限 |
 |------|---------|
-| **orchestrator** | tasks, create, assign, review, block, unblock, cancel, reassign, edit, deadline, output, notify, members, config, arbitrate, comment, list, show, roles, status, heartbeat |
-| **verifier** | verify, approve, reject, output, comment, list, show, roles, members, status, heartbeat |
-| **worker** | complete, commit, block, heartbeat, comment, list, show, roles, members, status |
-| **owner** | tasks, create, unblock, reassign, reopen, comment, list, show, status, members, roles, heartbeat |
+| **orchestrator** | tasks, create, assign, review, block, unblock, cancel, reassign, edit, deadline, output, notify, members, config, arbitrate, continue, comment, list, show, roles, status, heartbeat |
+| **verifier** | verify, approve, reject, output, continue, comment, list, show, roles, members, status, heartbeat |
+| **worker** | complete, commit, block, heartbeat, continue, comment, list, show, roles, members, status |
+| **owner** | tasks, create, unblock, reassign, reopen, continue, comment, list, show, status, members, roles, heartbeat |
 
-**新增 role：**
-
-1. 在 `[A2A] new` 的 `members` 数组中添加成员，指定新的 `role` 名（如 `"designer"`）
-2. 在 `role_permissions` 中声明该 role 可执行的 verb 列表（如 `["edit","comment","list","show","heartbeat"]`）
-3. 在 `~/.aimail/{system_id}/board/role_prompt/` 目录下创建 `{role}.md`，编写该角色的 prompt 模板。若未提供 `{role}.md`，系统自动回退到 `common.md` 通用模板。
+仅支持以上四个内置角色，自定义角色名（如 `designer`）会被拒绝。`continue` 为进度汇报动词：assignee 对运行中的任务汇报中期进度。
 
 
 ### 4.4 指令流全部动词
@@ -360,7 +349,7 @@ Subject: [WHOAMI]
 | 动词 | 发送者 | 说明 |
 |------|--------|------|
 | `create` | orch, owner | 创建 Task |
-| `assign` | orch | 分配/重新分配任务（参数: `{"new_assignee":"..."}`）|
+| `assign` | orch | 分配/重新分配任务（参数: `{"assignee":"..."}`，assignee 必须是 board 成员）|
 | `review` | orch | 设置审阅者（参数: `{"reviewer":"..."}`）|
 | `complete` | worker | 完成任务 |
 | `cancel` | orch | 取消任务 |
@@ -370,6 +359,7 @@ Subject: [WHOAMI]
 | `block` / `unblock` | assignee/orch, orch/owner | 阻塞/解除 |
 | `verify` / `approve` / `reject` | verifier | 审阅流程 |
 | `output` | 具 output 权限者（常见 verifier） | 产出确认：task 完成后由具 output 权限者提交产出 |
+| `continue` | assignee | 汇报运行中任务的中期进度（参数: `{"progress":"..."}`）|
 | `reopen` | owner | 驳回产出，重置所有完成的任务 |
 | `comment` | 所有人 | 评论 |
 | `arbitrate` | orch, verifier | 请求仲裁 |
@@ -378,7 +368,7 @@ Subject: [WHOAMI]
 **Notes（动词细节）：**
 - **heartbeat**：assignee 专有。首次调用将 Ready → Running；非 assignee 或任务非 Ready/Running 状态时拒绝。
 - **cancel**：仅用于 Blocked 状态。block → cancel 表示彻底放弃该任务。
-- **notify 为权限动词**：全员通知经 notify 权限发送，无独立的 notify_all 指令。
+- **notify 为权限动词**：全员广播（`[A2A] notice: {board} {message}`）由 owner 执行 `[A2A] refresh` 时发送，无独立的 notify_all 指令。
 
 ### 4.5 会话流
 
@@ -399,9 +389,10 @@ Subject: [WHOAMI]
 
 | 通知 | 场景 | 内容 |
 |------|------|------|
+| `init` | board 创建 | Subject: `[A2A] notice: Board {board} created — {描述}`，Body 含项目信息 + 成员列表 |
 | `notify_invite` | board 创建，邀请 member | Subject: `[A2A] invite: {board}`，Body 含 API URL + 个人 Token |
 
-通知邮件由 Board 自动发送给相关成员。From 为 Board Email，Subject 以 `[A2A]` 标记。
+通知邮件由 Board 自动发送给相关成员。From 为 Board Email，Subject 以 `[A2A]` 标记。每条发送至 Board 的指令还会收到 `[A2A-RESULT] {verb} ok|error` 回执（仅 board 成员，按回执策略）。
 
 **`assigned`** — 任务分配（create / assign）→ 被分配者
 ```
@@ -413,7 +404,7 @@ board: {board_id}
 创建人: {created_by}
 ```
 
-**`review-needed`** — 待审阅（review）→ 审阅者
+**`review-needed`** — 待审阅（complete 后任务有审阅者）→ 审阅者
 ```
 task_id: {id}
 完成人: {assignee}
@@ -437,7 +428,7 @@ task_id: {id}
 状态: 已退回，请修订后重新 [A2A] complete {short_id}。
 ```
 
-**`blocked`** — 任务阻塞（block）→ 被分配者 + orchestrator
+**`blocked`** — 任务阻塞（block）→ 全体 orchestrator + 发起阻塞的成员
 ```
 task_id: {id}
 阻挡人: {blocker}
@@ -459,7 +450,6 @@ task_id: {id}
 
 **`output`** — 项目输出（output）→ Owner（请求验收）
 ```
-output by: verifier
 board: {short_id}
 task: {short_id}
 最终输出: {title}
@@ -475,12 +465,12 @@ task_id: {id}
 评论: {text}
 ```
 
-**`notify_all`** — 全员通知（refresh / 手动）→ 全员（经 notify 权限发送，无独立 notify_all 指令）
+**`notify_all`** — 全员通知（refresh）→ 全员（无独立 notify_all 指令）
 ```
 {自定义 message}
 ```
 
-**`arbitrate`** — 仲裁请求（arbitrate）→ Admin + 请求者
+**`arbitrate`** — 仲裁请求（arbitrate）→ 请求者（Admin 收件人待接入：Board 尚无 admin 字段）
 ```
 仲裁请求来自: {requester}
 {task_info}
@@ -493,26 +483,28 @@ Agent 在会话流中可使用以下工具与 Board 交互：
 
 | 工具 | 参数 | 说明 |
 |------|------|------|
-| `board_task_list` | board/task 标识 | 列出/过滤任务（`status?`, `assignee?`） |
-| `board_task_show` | board/task 标识 | 查看任务详情 |
-| `board_members` | board/task 标识 | 列出成员，可选按 email 过滤 |
-| `board_roles` | board/task 标识 | 查角色权限表。带 `role` 则返回该角色的成员和 verbs |
-| `board_status` | board/task 标识 | 状态总览：管线分布 + 依赖关系 + 负责人 |
-| `board_heartbeat` | board/task 标识 | 更新任务心跳（长任务定期调用，不发邮件） |
+| `board_task_list` | board 标识（+ 可选 `status`/`assignee` 过滤） | 列出/过滤任务（`status?`, `assignee?`） |
+| `board_task_show` | task 标识（short_id 或完整 id） | 查看任务详情 + 父任务摘要 |
+| `board_members` | board 标识（+ 可选 email 过滤） | 列出成员，可选按 email 过滤 |
+| `board_roles` | board 标识 | 查角色权限表（role → verbs 映射） |
+| `board_status` | board 标识 | 状态总览：目标 + 各状态管线分布（每状态任务数 + 负责人） |
+| `board_heartbeat` | task 标识（short_id 或完整 id） | 更新任务心跳（长任务定期调用，不发邮件） |
 
-> 注：指令邮件与工具中的任务/看板目标均使用 short_id 形态（如 `abc123`）。平台注册 6 个 board 工具：status / task_list / task_show / heartbeat / members / roles。
+> 注：指令邮件以 short_id 指代任务（如 `T1`）；工具同样接受完整 task id（如 `t_T1_a3f8c21b`）。看板目标为 20 位十六进制 board ID（如 `a3f8c21b9d4e73b2f0c1`）。平台注册 6 个 board 工具：status / task_list / task_show / heartbeat / members / roles。
 
 **调用示例：**
 
 ```
-board_status("abc123")
-→ {board: {description, plan_version, criteria_version...}, pipeline: {...}, dependencies: {T1: {assignee, reviewer, parents, children}, ...}}
+board_status("a3f8c21b9d4e73b2f0c1")
+→ {board: {id, short_id, status, goal, plan_version, plan_confirmed_at, output_task_id},
+   pipeline: {triage: {count, tasks}, todo: {...}, ready: {...}, running: {...},
+              reviewing: {...}, done: {...}, blocked: {...}, cancelled: {...}, archived: {...}}}
 
-board_roles("abc123", "worker")
-→ {role: "worker", members: ["dev@company.com"], verbs: ["complete","commit","block","heartbeat",...]}
+board_roles("a3f8c21b9d4e73b2f0c1")
+→ {roles: {worker: ["complete","commit","block","heartbeat","continue","comment","list","show","roles","members","status"], ...}}
 
-board_members("abc123", "design@company.com")
-→ {members: [{email: "design@company.com", role: "designer", display_name: "Design"}]}
+board_members("a3f8c21b9d4e73b2f0c1", "design@company.com")
+→ {members: [{email: "design@company.com", role: "worker", display_name: "Design"}]}
 ```
 
 ---

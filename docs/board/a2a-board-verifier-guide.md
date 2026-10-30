@@ -20,8 +20,20 @@ The Verifier is the quality guardian — criteria definition, deliverable review
 4. Approve or reject with comment
 5. When all done: `[A2A] output` for Owner sign-off
 
-## 3. Rules
+## 3. Tool Quick Reference
 
-- Only review tasks assigned to you
-- Must include reason when rejecting
+| Tool | Use |
+|------|-----|
+| `board_task_show(task_id)` | Task details |
+| `board_task_list(board_id)` | List tasks |
+| `board_members(board_id)` | List members |
+| `board_status(board_id)` | Pipeline overview |
+| `board_roles(board_id)` | Role permissions |
+
+## 4. Rules
+
+- Criteria require Owner approval before execution
+- Only review tasks assigned to you (the reviewer field contains your email)
+- Review against the task body and the criteria, not opinion
+- Before `output`: all tasks done, no blockers, flow compliant
 - Verify pipeline integrity before output

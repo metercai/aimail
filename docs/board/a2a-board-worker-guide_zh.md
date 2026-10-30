@@ -13,7 +13,6 @@ Worker 是项目执行者，负责完成任务、遇到困难主动上报、保�
 | 遇到阻碍 | `[A2A] block T1` | 描述原因，主动上报 |
 | 任务讨论 | `[Discuss] T1 方案选择` | CC Board，与其他成员沟通 |
 | 长任务 | `board_heartbeat(task_id)` | 定期发心跳，不发邮件 |
-
 ---
 
 ## 2. 日常操作流程
@@ -65,7 +64,7 @@ Subject: [Discuss] T1 暗色模式方案选择
 | `board_task_list(board_id)` | 列出任务 |
 | `board_members(board_id)` | 查看成员 |
 | `board_status(board_id)` | Board 状态总览 |
-| `board_heartbeat(task_id, note?)` | 长任务心跳 |
+| `board_heartbeat(task_id)` | 长任务心跳 |
 
 ---
 
@@ -74,5 +73,5 @@ Subject: [Discuss] T1 暗色模式方案选择
 | 操作 | 原因 |
 |------|------|
 | assign / review / create / cancel | Orchestrator 职责 |
-| approve / reject / output | Verifier 职责 |
-| arbitrate | 由 Orchestrator 发起 |
+| approve / reject / output / verify | Verifier 职责 |
+| arbitrate | Orchestrator 或 Verifier 发起 |

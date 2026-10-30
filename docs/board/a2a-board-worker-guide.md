@@ -19,7 +19,20 @@ The Worker executes tasks, reports blockers, maintains progress visibility.
 4. On blocker: `[A2A] block T1` immediately
 5. Long task: periodic `board_heartbeat(task_id)`
 
-## 3. Cannot Do
+## 3. Tool Quick Reference
 
-- assign / review / create / cancel (Orchestrator)
-- approve / reject / output / verify (Verifier)
+| Tool | Use |
+|------|-----|
+| `board_task_show(task_id)` | Task details |
+| `board_task_list(board_id)` | List tasks |
+| `board_members(board_id)` | List members |
+| `board_status(board_id)` | Board status overview |
+| `board_heartbeat(task_id)` | Long-task heartbeat |
+
+## 4. Cannot Do
+
+| Operation | Why |
+|-----------|-----|
+| assign / review / create / cancel | Orchestrator duties |
+| approve / reject / output / verify | Verifier duties |
+| arbitrate | Orchestrator or Verifier initiate |
