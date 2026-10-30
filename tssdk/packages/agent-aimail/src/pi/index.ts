@@ -3,7 +3,7 @@
  *
  * Same capability surface as dsh-aimail / openclaw-aimail, adapted to pi's
  * extension API:
- * - 14 mail/board tools via MAIL_TOOLS (single TS semantic source), bare
+ * - 15 mail/board tools via MAIL_TOOLS (single TS semantic source), bare
  *   names, registered with pi.registerTool (TypeBox parameters).
  * - Inbound receiver: pi has no HTTP route registration, so the extension
  *   owns a local listener (127.0.0.1:9099 by default — the common inbound_port) that the bridge pushes
@@ -242,7 +242,7 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
   }
   log.info(`[agent-aimail] identity ${agentIdentity()}`)
 
-  // ── 14 mail/board tools (bare names, MAIL_TOOLS single source) ──
+  // ── 15 mail/board tools (bare names, MAIL_TOOLS single source) ──
   const registeredToolNames: string[] = []
   for (const tool of buildPiTools()) {
     pi.registerTool({
