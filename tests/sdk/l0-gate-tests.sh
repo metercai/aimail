@@ -89,7 +89,7 @@ if [ "$_doc_rc" -ne 0 ]; then
 fi
 echo "[L0] docs↔impl: symbols defined; en/zh heading structure equal; contract values == manifest"
 # Platform boundary gate: CLI code must not contain platform literal branches (adding platform/multi-agent registration only changes
-# platform-boundary (CLI contains no platform literals) migrated to CLI domain gate: tests/cli/run-cli-gates.sh
+# platform-boundary (CLI contains no platform literals) migrated to the CLI domain gate (closed repo: aimail-advanced/tests/cli-domain/run-cli-gates.sh)
 # Core runtime modules: strict (no unused/undefined). Deploy-time patch
 # scripts (hermes/patch_* etc.) intentionally import `aimail` for
 # side-effect/eval use — syntax-check only those.

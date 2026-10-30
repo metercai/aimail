@@ -11,7 +11,7 @@ Migration source (assertion semantics unchanged):
   · test_hermes_toolset_ensure.py (Section 3)     → write/read same-source yaml_toolsets glob
   · test_register_name_token_registry.py       → dsh/pi register template {name} token + planning plane
 
-Prerequisite: rust battery has built `cli/target/debug/aimail` (run-cli-gates.sh order guarantees this).
+Prerequisite: rust battery has built `cli/target/debug/aimail` (the CLI domain gate in the closed repo builds it first).
 Missing binary ⇒ loud failure (no SKIP: registry shape is a gate for this domain, not an environment option).
 """
 import glob

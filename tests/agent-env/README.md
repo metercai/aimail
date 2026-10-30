@@ -61,25 +61,29 @@ An environment produced by `prepare.sh` must satisfy all of:
 agent-env/
   README.md            this contract
   pins.env             the pinned versions the tests run against (single source)
-  update-pins.sh       move the pins to the current latest (maintenance only, no gates)
   prepare.sh <agent>   official install + base env + gates off + LLM config (idempotent)
   verify.sh  <agent>   the contract checks above (exit 0 pass / 1 red / 2 cannot judge)
   lib/llm-config.py    the ONE LLM-config writer/verifier for all five agents
   docker/Dockerfile.<agent>  the five host images (build the environment, nothing else)
-  docker/build.sh            build + tag aimail-host-<agent>[:native] (fail-closed)
 ```
+
+> **2026-10-30**: `update-pins.sh` and `docker/build.sh` moved to the closed-source repo
+> (`aimail-advanced/tests/env-tools/` → `update-pins.sh`, `build-hosts.sh`) because the public
+> CI never calls them. Everything they operate on (`pins.env`, `prepare.sh`, `verify.sh`,
+> `lib/`, `docker/Dockerfile.*`) stays here; both tools take `AIMAIL_REPO` (default
+> `/home/ubuntu/aimail`).
 
 ## Usage
 
 ```sh
-# image world (docker hosts used by the CLI gate ladder)
-bash tests/agent-env/docker/build.sh                 # all five
-bash tests/agent-env/docker/build.sh hermes dsh      # a subset
-bash tests/agent-env/docker/build.sh --assets <dir>  # add the harness regression scripts
+# image world (docker hosts used by the CLI gate ladder) — tools live in the closed repo
+bash ../aimail-advanced/tests/env-tools/build-hosts.sh                 # all five
+bash ../aimail-advanced/tests/env-tools/build-hosts.sh hermes dsh      # a subset
+bash ../aimail-advanced/tests/env-tools/build-hosts.sh --assets <dir>  # add the harness scripts
 
 # pinned versions: inspect what the current latest is, then bump deliberately
-bash tests/agent-env/update-pins.sh --dry-run
-bash tests/agent-env/update-pins.sh              # rewrites pins.env; rebuild + re-accept after
+bash ../aimail-advanced/tests/env-tools/update-pins.sh --dry-run
+bash ../aimail-advanced/tests/env-tools/update-pins.sh   # rewrites pins.env; rebuild + re-accept after
 
 # host world (L3 runners): prepare, then judge
 bash tests/agent-env/prepare.sh hermes --home "$HOME/.hermes" \
