@@ -27,7 +27,7 @@
    preprocessing → ping/pong interception → delivery). The adapter only
    "plugs the request into this function".
 4. **Tools have a single source of truth**: `MAIL_TOOLS`
-   (`src/core/tool-registry.ts:66`, 14 tools). The adapter only translates
+   (`src/core/tool-registry.ts:66`, 15 tools). The adapter only translates
    "registry entry → host tool format"; it never keeps its own tool table.
 5. **Contract constants have a single source of truth**: repo-root
    `contract/aimail-contract.json` → `src/core/contract.ts` (hardcoded +
@@ -108,7 +108,7 @@ tssdk/packages/agent-aimail/
 └── test/            # per-host sandbox unit tests
 pysdk/
 ├── aimail_base.py   # core: injection-point group + process_inbound_mail
-├── aimail_tools.py  # core: 14 tool implementations
+├── aimail_tools.py  # core: tool implementations (spec: aimail_mcp_server.py TOOLS, 15 tools)
 ├── hosts/           # registry + detect + activate (ported)
 ├── hermes/          # adapter: aimail_hermes + patch/ensure family
 └── deer-flow/       # adapter: aimail_deerflow + manage + inbound
@@ -231,11 +231,11 @@ pysdk/
 
 ### P5 Tool Registration
 
-- **Responsibility**: translate `MAIL_TOOLS` (14: send_mail,
+- **Responsibility**: translate `MAIL_TOOLS` (15: send_mail,
   manage_contacts, contact_profile, set_contact_profile, email_summary,
   set_email_summary, search_mail, board_status, board_task_list,
   board_task_show, board_heartbeat, board_members, board_roles,
-  activate_address_code — single source
+  aimail_address, role_calibrator — single source
   `src/core/tool-registry.ts:66`) into the host tool format and register
   them.
 - **Known methods**:
@@ -436,7 +436,7 @@ pysdk/
 | P6 SOUL | `{workspaceDir(agentId)}/SOUL.md` | `~/.dsh/profiles/{DSH_PROFILE}/SOUL.md` | `~/.pi/agent/SOUL.md` | `{HERMES_HOME}/SOUL.md` (env→live→~/.hermes) | `systems/{sid}/{cleaned}/SOUL.md` |
 | P7 skills | mirrors resolveWorkspaceSkillSourcePlan (86 local) | mirrors FileSystemSkillProvider.roots (32 local) | `~/.pi/agent/skills/` (0 local) | imports host `tools/skills_tool` (147 local) | `systems/{sid}/{cleaned}/skills/` |
 | P8 resources | `~/.openclaw/skills/agentmail/` | `<dshHome>/skills/agentmail/` | `~/.pi/agent/skills/agentmail/` | `_release_hermes_skills` | — |
-| P9 injection | in index.ts register | in inbound.ts startup | in index.ts | aimail_hermes.py:876-889 | aimail_deerflow.py:199-200 |
+| P9 injection | in index.ts register | in inbound.ts startup | in index.ts | aimail_hermes.py:909-911 (core `_SOUL/_SKILLS/_TOOLSET_PROVIDER`) | aimail_deerflow.py:193-195 (`set_agent_context`) |
 | P10 pull | startAgentPullEntries | same | same | — (hermes uses webhook push) | — |
 
 ## 4. New-Host Onboarding Checklist

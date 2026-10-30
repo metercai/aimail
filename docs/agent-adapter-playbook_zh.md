@@ -18,7 +18,7 @@
 3. **入站单入口**:所有宿主、所有入站路径都汇入同一个
    `processInboundMail` / `process_inbound_mail`(HMAC 验签 → 预处理 →
    ping/pong 拦截 → 投递)。适配层只负责"把请求接到这个函数上"。
-4. **工具单一真源**:`MAIL_TOOLS`(`src/core/tool-registry.ts:66`,14 个工具)。
+4. **工具单一真源**:`MAIL_TOOLS`(`src/core/tool-registry.ts:66`,15 个工具)。
    适配层只做"registry 条目 → 宿主工具格式"的翻译,不各自维护工具表。
 5. **契约常量单一真源**:仓根 `contract/aimail-contract.json` →
    `src/core/contract.ts`(硬编码 + L0 门禁断言相等)→
@@ -87,7 +87,7 @@ tssdk/packages/agent-aimail/
 └── test/            # 每宿主沙箱单测
 pysdk/
 ├── aimail_base.py   # core: 注入点组 + process_inbound_mail
-├── aimail_tools.py  # core: 14 工具实现
+├── aimail_tools.py  # core: 工具实现(规格: aimail_mcp_server.py TOOLS,15 个)
 ├── hosts/           # registry + detect + activate(移植)
 ├── hermes/          # 适配层: aimail_hermes + patch/ensure 族
 └── deer-flow/       # 适配层: aimail_deerflow + manage + inbound
@@ -188,11 +188,11 @@ pysdk/
 
 ### P5 工具注册
 
-- **职责**:把 `MAIL_TOOLS`(14 个:send_mail, manage_contacts,
+- **职责**:把 `MAIL_TOOLS`(15 个:send_mail, manage_contacts,
   contact_profile, set_contact_profile, email_summary,
   set_email_summary, search_mail, board_status, board_task_list,
   board_task_show, board_heartbeat, board_members, board_roles,
-  activate_address_code — 单真源 `src/core/tool-registry.ts:66`)
+  aimail_address, role_calibrator — 单真源 `src/core/tool-registry.ts:66`)
   翻译成宿主工具格式并注册。
 - **已知方法**:
   - openclaw:`definePluginEntry` factory 形式迭代 `MAIL_TOOLS`
@@ -371,7 +371,7 @@ pysdk/
 | P6 SOUL | `{workspaceDir(agentId)}/SOUL.md` | `~/.dsh/profiles/{DSH_PROFILE}/SOUL.md` | `~/.pi/agent/SOUL.md` | `{HERMES_HOME}/SOUL.md`(env→live→~/.hermes) | `systems/{sid}/{cleaned}/SOUL.md` |
 | P7 skills | 镜像 resolveWorkspaceSkillSourcePlan(本机 86) | 镜像 FileSystemSkillProvider.roots(本机 32) | `~/.pi/agent/skills/`(本机 0) | import host `tools/skills_tool`(本机 147) | `systems/{sid}/{cleaned}/skills/` |
 | P8 资源 | `~/.openclaw/skills/agentmail/` | `<dshHome>/skills/agentmail/` | `~/.pi/agent/skills/agentmail/` | `_release_hermes_skills` | — |
-| P9 注入 | index.ts register 内 | inbound.ts 启动内 | index.ts 内 | aimail_hermes.py:876-889 | aimail_deerflow.py:199-200 |
+| P9 注入 | index.ts register 内 | inbound.ts 启动内 | index.ts 内 | aimail_hermes.py:909-911(core `_SOUL/_SKILLS/_TOOLSET_PROVIDER`) | aimail_deerflow.py:193-195(`set_agent_context`) |
 | P10 pull | startAgentPullEntries | 同 | 同 | —(hermes 走 webhook push) | — |
 
 ## 4. 新宿主接入 checklist

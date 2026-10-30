@@ -14,7 +14,7 @@
 | SPF | sender-domain TXT | declares which servers may send as this domain | strongly recommended |
 | DKIM | `{selector}._domainkey` TXT | publishes the signing public key; receivers verify the mail is unmodified | recommended (essential for direct sending) |
 | DMARC | `_dmarc` TXT | tells receivers what to do when SPF/DKIM both fail, and collects reports | recommended |
-| rDNS / PTR | reverse zone of the server IP | makes the IP resolve back to a name | receiver-dependent |
+| rDNS / PTR | reverse zone of the server IP | makes the IP resolve back to a name | recommended |
 
 ## 1. SPF (sender authorization)
 
