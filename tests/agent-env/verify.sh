@@ -275,14 +275,14 @@ else
   esac
   if [ -z "$_want_ver" ]; then skip "no version pin recorded for $AGENT"
   elif [ "$_got_ver" = "$_want_ver" ]; then pass "pinned version installed: $AGENT $_got_ver"
-  else red "version drift: $AGENT installed='${_got_ver:-none}' pinned=$_want_ver (bump deliberately with update-pins.sh)"; fi
+  else red "version drift: $AGENT installed='${_got_ver:-none}' pinned=$_want_ver (bump deliberately with aimail-advanced/tests/env-tools/update-pins.sh)"; fi
   # pnpm is pinned only where WE install it (dsh). Elsewhere pnpm comes with the base
   # image, and that is already pinned by the base digest — asserting its version here would
   # red on a base-provided pnpm we do not control.
   if [ "$AGENT" = dsh ] && command -v pnpm >/dev/null 2>&1 && [ -n "${PNPM_VERSION:-}" ]; then
     _pv="$(pnpm --version 2>/dev/null | tr -d 'v')"
     [ "$_pv" = "$PNPM_VERSION" ] && pass "pinned pnpm: $_pv" \
-      || red "pnpm version drift: installed='${_pv:-none}' pinned=$PNPM_VERSION (bump deliberately with update-pins.sh)"
+      || red "pnpm version drift: installed='${_pv:-none}' pinned=$PNPM_VERSION (bump deliberately with aimail-advanced/tests/env-tools/update-pins.sh)"
   fi
 fi
 
