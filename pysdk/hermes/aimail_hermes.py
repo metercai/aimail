@@ -981,7 +981,7 @@ if registry is not None:
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "board": {"type": "string", "description": "Board ID (b_ prefix)"},
+                        "board": {"type": "string", "description": "Board ID (20-hex, no prefix)"},
                         "status": {"type": "string", "description": "Filter by task status"},
                         "assignee": {"type": "string", "description": "Filter by assignee email"}
                     },
@@ -1001,7 +1001,7 @@ if registry is not None:
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "board": {"type": "string", "description": "Board ID (b_ prefix)"}
+                        "board": {"type": "string", "description": "Board ID (20-hex, no prefix)"}
                     },
                     "required": ["board"]
                 }
@@ -1019,7 +1019,7 @@ if registry is not None:
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "board": {"type": "string", "description": "Board ID (b_ prefix)"},
+                        "board": {"type": "string", "description": "Board ID (20-hex, no prefix)"},
                         "role": {"type": "string", "description": "Filter by role name"}
                     },
                     "required": ["board"]
@@ -1038,7 +1038,7 @@ if registry is not None:
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "board": {"type": "string", "description": "Board ID (b_ prefix)"}
+                        "board": {"type": "string", "description": "Board ID (20-hex, no prefix)"}
                     },
                     "required": ["board"]
                 }

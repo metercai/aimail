@@ -144,7 +144,7 @@ export const MAIL_TOOLS: readonly MailToolDef[] = [
     name: 'board_status',
     description: "Get a board's working status: goal, progress per status with assignees, and blockers.",
     parameters: {
-      board: { type: 'string', description: 'Board ID (b_ prefix)', required: true },
+      board: { type: 'string', description: 'Board ID (20-hex, no prefix)', required: true },
     },
     handler: (ctx, args) => boardStatus(ctx, args as unknown as BoardStatusArgs),
   },
@@ -152,7 +152,7 @@ export const MAIL_TOOLS: readonly MailToolDef[] = [
     name: 'board_task_list',
     description: "List a board's tasks, optionally filtered by status or assignee.",
     parameters: {
-      board: { type: 'string', description: 'Board ID (b_ prefix)', required: true },
+      board: { type: 'string', description: 'Board ID (20-hex, no prefix)', required: true },
       status: { type: 'string', description: 'Filter by task status' },
       assignee: { type: 'string', description: 'Filter by assignee email' },
     },
@@ -179,7 +179,7 @@ export const MAIL_TOOLS: readonly MailToolDef[] = [
     name: 'board_members',
     description: "List a board's members and their roles.",
     parameters: {
-      board: { type: 'string', description: 'Board ID (b_ prefix)', required: true },
+      board: { type: 'string', description: 'Board ID (20-hex, no prefix)', required: true },
       email: { type: 'string', description: 'Filter by member email' },
     },
     handler: (ctx, args) => boardMembers(ctx, args as unknown as BoardMembersArgs),
@@ -188,7 +188,7 @@ export const MAIL_TOOLS: readonly MailToolDef[] = [
     name: 'board_roles',
     description: "List a board's role permissions (optionally one role's members and verbs).",
     parameters: {
-      board: { type: 'string', description: 'Board ID (b_ prefix)', required: true },
+      board: { type: 'string', description: 'Board ID (20-hex, no prefix)', required: true },
       role: { type: 'string', description: 'Filter by role name' },
     },
     handler: (ctx, args) => boardRoles(ctx, args as unknown as BoardRolesArgs),

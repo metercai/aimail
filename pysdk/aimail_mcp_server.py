@@ -303,10 +303,10 @@ TOOLS = [
         "Get a board's working status: goal, progress per status "
         "with assignees, and blockers."),
      "inputSchema": {"type": "object", "properties": {
-         "board": {"type": "string", "description": "Board ID (b_ prefix)"}}, "required": ["board"]}},
+         "board": {"type": "string", "description": "Board ID (20-hex, no prefix)"}}, "required": ["board"]}},
     {"name": "board_task_list", "description": "List a board's tasks, optionally filtered by status or assignee.",
      "inputSchema": {"type": "object", "properties": {
-         "board": {"type": "string", "description": "Board ID (b_ prefix)"},
+         "board": {"type": "string", "description": "Board ID (20-hex, no prefix)"},
          "status": {"type": "string", "description": "Filter by task status"},
          "assignee": {"type": "string", "description": "Filter by assignee email"}}, "required": ["board"]}},
     {"name": "board_task_show", "description": "Show one task's full details, including parent-task context.",
@@ -320,11 +320,11 @@ TOOLS = [
                      "required": ["task_id"]}},
     {"name": "board_members", "description": "List a board's members and their roles.",
      "inputSchema": {"type": "object", "properties": {
-         "board": {"type": "string", "description": "Board ID (b_ prefix)"},
+         "board": {"type": "string", "description": "Board ID (20-hex, no prefix)"},
          "email": {"type": "string", "description": "Filter by member email"}}, "required": ["board"]}},
     {"name": "board_roles", "description": "List a board's role permissions (optionally one role's members and verbs).",
      "inputSchema": {"type": "object", "properties": {
-         "board": {"type": "string", "description": "Board ID (b_ prefix)"},
+         "board": {"type": "string", "description": "Board ID (20-hex, no prefix)"},
          "role": {"type": "string", "description": "Filter by role name"}}, "required": ["board"]}},
     {"name": "aimail_address", "description": (
         "Manage YOUR mailbox lifecycle (bind / pause / resume / unbind). "
