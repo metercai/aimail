@@ -1,7 +1,7 @@
 //! clap command tree + dispatch (S1: command surface registration + honest exits).
 //!
 //! The command surface is a **frozen surface** (boundary finalization §1; changes
-//! require owner sign-off): 16 top-level subcommand names + `prompt`'s 5 nested
+//! require owner sign-off): 17 top-level subcommand names + `prompt`'s 5 nested
 //! subcommands + install's only hidden machine-surface argument (`--system-only`).
 //! The frozen criterion is a set comparison between `tests/test_cli_parity.py`
 //! and the Python side's `--help`.
@@ -27,10 +27,11 @@ const EPILOG: &str = "scenario groups:
   operate    daily status, lifecycle, exams and flows: stats / renew / version / check / repair / ping / welcome
   resources  system-scoped resources: domain / address / bridge";
 
-/// The 16 top-level subcommands -- the first 15 match the Python side's
+/// The 17 top-level subcommands -- the first 15 match the Python side's
 /// `add_parser` declaration order (help grouping order);
 /// the trailing `platform` (added 2026-10-11, owner sign-off) is the machine
-/// export surface, with no Python-side counterpart.
+/// export surface, with no Python-side counterpart; the trailing `agent`
+/// (added 2026-10-19) is the address-level bootstrap surface.
 const SUBCOMMANDS: &[(&str, &str)] = &[
     (
         "install",

@@ -236,7 +236,7 @@ aimail repair [--system-id <sid>] [--home <root>] [--deep] [--dry-run]
 | 查看域名      | `aimail domain -s <sid>`                                         | 非共享系统可持多个裸域;任一个裸域都可承载续期码领取                          |
 | 续期        | `aimail renew -s <sid> -c <码>`                                   | 叠加式 `max(now,当前)+validity`,配额 max 合并,自动解除挂起         |
 | 到期查看      | `aimail renew -s <sid> --status`                                 | 只读,不耗码                                              |
-| Agent 地址  | `aimail address -s <sid> [-a agent -n 新地址名\|-m manager]`      | 查看/地址改名(set-name,服务端资源全继承)/设 manager        |
+| Agent 地址  | `aimail address -s <sid> [-a agent -n 新地址名\|-m manager]`      | 查看/地址改名(set-name,服务端资源全继承)/设安全员        |
 | 重置配置      | `aimail reset -H <root> -s <sid>`                                | 只走 admin-key 路径,key 不动                              |
 | bridge 维护 | `aimail bridge` / `--restart` / `-s <sid>`                       | 状态 / 单实例重启 / 重刷路由                                   |
 | 卸载        | `aimail uninstall -s <sid> [-H <root>] [-y]`                     | 网关注销 → 平台清理 → 本机数据;幂等                               |
@@ -253,7 +253,7 @@ add(domain)/agent 名(address)· `-t` status(renew)或 timeout(ping)·
 
 ## 5. 命令速查
 
-子命令按场景分组(`aimail --help` 即此布局),每条附一句话说明:
+子命令按场景分组(`aimail --help` 为全量清单),每条附一句话说明:
 
 ```
 setup      机器准备与平台对接
@@ -273,10 +273,11 @@ operate    日常状态与生命周期,以及体检与流程
 
 resources  系统级资源
   domain          列出 / 新增系统自有域名
-  address         查看 / 维护系统内 agent 地址(改名 / 设 manager)
+  address         查看 / 维护系统内 agent 地址(改名 / 设安全员)
   prompt          维护 agent 提示规则:subject/body/sender/recipient → 角色文件
   bridge          本机桥:状态 / 重刷路由 / 重启 / 升级
   platform        导出宿主静态知识表(+ 给定 home 的探测结果;门禁与夹具的唯一入口)
+  agent           地址级自举 + 邮箱生命周期(bind / pause / resume / unbind)
 ```
 
 平台判定顺序:`pi`(`~/.pi` 且含 `agent/`)→ `dsh`(`~/.dsh` 且含

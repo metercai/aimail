@@ -288,7 +288,7 @@ new address name (address) / dry-run (repair) · `-d` domain (install) ·
 
 ## 5. Quick Reference
 
-Subcommands grouped by scenario (`aimail --help` shows this), one line each:
+Subcommands grouped by scenario (`aimail --help` is the full list), one line each:
 
 ```
 setup      machine prep and platform integration
@@ -312,6 +312,7 @@ resources  system-scoped resources
   prompt          maintain agent prompt rules: subject/body/sender/recipient → role file
   bridge          local bridge: status / refresh routes / restart / upgrade
   platform        export the host knowledge table (+ detection for a given home; gate/fixture entry)
+  agent           address-level bootstrap + mailbox lifecycle (bind / pause / resume / unbind)
 ```
 
 Platform detection order: `pi` (`~/.pi` with `agent/`) → `dsh` (`~/.dsh` with

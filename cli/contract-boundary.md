@@ -7,12 +7,12 @@
 **CLI (`cli/`)**
 - Target form: **pure-Rust single binary** (platform static knowledge = probe-module constants + contract constants + host self-report; **no cross-platform data files**, see §5); no Python; does not produce `bin/aimail-src` or `bin/mcp`.
 - Responsibility: install / detect / wire / self-check / maintenance; **invokes only, never implements** platform adaptation or SDK logic.
-- Command surface (**16**, measured from `aimail --help`, re-verified 2026-10-11): address · bridge · check · domain · install · persona · ping · **platform** · prompt · renew · repair · reset · stats · uninstall · version · welcome. (`mod.rs`, `stub.rs`, `report.rs` (the user-facing output helpers `ok/warn/fail`) are internal files, not commands; 2026-10-11 correction: the old table mislisted the internal helper `report` as a command and was missing `platform`)
-- **bridge (hard boundary)**: `bridge restart` may only be executed by the CLI; **the implementation and maintenance of the bridge live entirely in the CLI**. The SDK side has **zero bridge symbols at the code level** (ratchet `tests/contract/check-zero-bridge.py`, in force at L0); but the webhook semantics **take value per mode** — the SDK decides `webhook_url` from the `webhook_host` tri-state given by the CLI: ① **key absent** = direct push (registered as the agent's local inbound endpoint, the port is confirmed at inbound-up time, see §4.2 inbound-up feedback); ② **empty string** = bridge pull (registered empty, the bridge fetches via long-poll); ③ **URL value** = bridge push (registered as the BRIDGE_HOST URL, `host:port` with no path). **Single-agent pull is a binding-level self-contained path** (bindings under the `shared_addr_` prefix); it is **not** a system-level `webhook_host` state, and the SDK does **not** parse the gateway's NULL parameter to recognize it (`pysdk/deer-flow/manage.py:383`, `:397`). It is possible for the SDK, during a reverse call into the CLI, to **indirectly** trigger a bridge subcommand.
+- Command surface (**17**, measured from `aimail --help`, re-verified 2026-10-30): address · agent · bridge · check · domain · install · persona · ping · **platform** · prompt · renew · repair · reset · stats · uninstall · version · welcome. (`mod.rs`, `stub.rs`, `report.rs` (the user-facing output helpers `ok/warn/fail`) are internal files, not commands; 2026-10-11 correction: the old table mislisted the internal helper `report` as a command and was missing `platform`; 2026-10-30 correction: `agent` (address-level bootstrap, added 2026-10-19) was missing)
+- **bridge (hard boundary)**: `bridge restart` may only be executed by the CLI; **the implementation and maintenance of the bridge live entirely in the CLI**. The SDK side has **zero bridge symbols at the code level** (ratchet `tests/contract/check-zero-bridge.py`, in force at L0); but the webhook semantics **take value per mode** — the SDK decides `webhook_url` from the `webhook_host` tri-state given by the CLI: ① **key absent** = direct push (registered as the agent's local inbound endpoint, the port is confirmed at inbound-up time, see §4.2 inbound-up feedback); ② **empty string** = bridge pull (registered empty, the bridge fetches via SSE stream with a long-poll fallback); ③ **URL value** = bridge push (registered as the BRIDGE_HOST URL, `host:port` with no path). **Single-agent pull is a binding-level self-contained path** (bindings under the `shared_addr_` prefix); it is **not** a system-level `webhook_host` state, and the SDK does **not** parse the gateway's NULL parameter to recognize it (tri-state decision: `aimail_base.py:2895` `resolve_register_webhook_url`; deer-flow wiring `pysdk/deer-flow/manage.py:387-390`). It is possible for the SDK, during a reverse call into the CLI, to **indirectly** trigger a bridge subcommand.
 
-**SDK (`pysdk/` = Python, `tssdk/` = TypeScript source of truth; published as PyPI `agent-aimail` + 5 npm packages)**
+**SDK (`pysdk/` = Python, `tssdk/` = TypeScript source of truth; published as PyPI `agent-aimail` + npm `agent-aimail` — the npm side was merged from 4 packages into this single package on 2026-10-22)**
 - Responsibility: the runtime **implementation** layer — naming / registration / renaming / binding content / inbound implementation / send-receive / webhook / preprocessing / tools.
-- Packaged separately per platform, with independent version numbers, **installed by the agent host's own installation step**; not provided by the CLI. Does not write system-level configuration; has no awareness of the bridge.
+- Packaged as a single package per language (PyPI `agent-aimail` wheel / npm `agent-aimail` tarball — one package, all host adapters inside), **installed by the agent host's own installation step**; not provided by the CLI. Does not write system-level configuration; has no awareness of the bridge.
 
 **Assembly ownership (determined by the platform host's capability, independent of the SDK language)**
 - Can self-assemble (node hosts: pi, dsh, openclaw): the host package manager installs the extension, which carries its own registrar ⇒ use `node_entry` (standalone executable entry `<pkg>/dist/register-cli.js`); **no** SDK-side assembly function needed.
@@ -20,17 +20,17 @@
 
 **Where the ownership lands (evidence added 2026-10-11)**
 - A node host's assembly implementation lives **only inside that platform's own package**: the assembly logic is shared (the assembly steps in `mail-core`), and the host layout data is provided by that package (dsh: `tssdk/packages/agent-aimail/src/dsh/register-cli.ts`).
-- `pysdk/` assembles python hosts (hermes/deerflow) only; **no node-host assembly entry or payload may reappear** (ratchet: `tests/sdk/test_sdk_install_step_contract.py`).
+- `pysdk/` assembles python hosts (hermes/deerflow) only; **no node-host assembly entry or payload may reappear** (ratchet: `tests/sdk/test_hosts_layer.py` `test_registry_keys_are_the_two_python_hosts` — the registry key set is pinned to exactly hermes/deerflow).
 
 ## 2 Write-surface boundary and the CLI's read scope
 
 **Writing (hard boundaries)**
 
-This table lists only the **two hard boundaries that may not be written across domains**; the other landing points under `systems/<sid>/` (such as `webhook_host`) are held by the owning side, and the CLI may both read and write them (`cli/src/core/bridge_deploy.rs:861`, `:902`).
+This table lists only the **two hard boundaries that may not be written across domains**; the other landing points under `systems/<sid>/` (such as `webhook_host`) are held by the owning side, and the CLI may both read and write them (`cli/src/core/bridge_deploy.rs:1143-1151` writes back `webhook_host` only when it is a deliverable absolute URL).
 | File | Maintainer | Reader |
 |---|---|---|
-| `~/.aimail/systems/<sid>/aimail_gateway.json` | **CLI writes only** (setup.rs:181/565) | SDK reads only (deer-flow/manage.py:192) |
-| per-agent `agentmail.json` (binding file) | **SDK writes only** (aimail_base.py:455; thin entry points :485/:496/:505) | CLI reads only; **CLI is forbidden to write** (aimail_base.py:477-484) |
+| `~/.aimail/systems/<sid>/aimail_gateway.json` | **CLI writes only** (core/setup.rs:181/:542) | SDK reads only (deer-flow/manage.py:193) |
+| per-agent `agentmail.json` (binding file) | **SDK writes only** (aimail_base.py:510 `save_agent_config`; semantic thin entry points :540/:551/:560) | CLI reads only; **CLI is forbidden to write** (layering ruling block aimail_base.py:533-541) |
 
 **The CLI's read scope (completeness premise)**: reads the system-level `aimail_gateway.json` (gateway_url / admin_key / system_id / domain / system_name / manager_address / runtime); reads the per-agent `agentmail.json` (webhook_url / api_key / persona / prompt_rules / manager_address, **read-only**); the gateway state is queried **directly** by the CLI's own HMAC client (evidence `welcome.rs:63-106`, `ping.rs:129-180`). ⇒ the value retrieval of `check`/`repair`/`stats` needs **no** SDK interface.
 
@@ -49,7 +49,7 @@ This table lists only the **two hard boundaries that may not be written across d
 > Current state (refactored 2026-10): `bootstrap.sh` has zero python dependencies and fetches a single Rust binary from the GitHub Release by OS/arch; machine-level gateway locking / bridge deployment belongs to `aimail install` (local gateway → direct, remote → bridge).
 
 **Stage 3: SDK install (one step, two entry points: `aimail install --home <agent-root>` / host-plugin self-install)**
-- Two layers, with a **hard timing constraint: activate first, then adapt**, controlled by the CLI flow: ① system-level activation (the resolver judges the agent environment: parser / package manager / SDK root; produces `system_id` / domain / system-level key ⇒ writes `aimail_gateway.json`; install.rs:824) ② platform adaptation (the CLI dispatches steps per the registry; install.rs:944. The step `when: cfg_complete` is the embodiment of that timing dependency).
+- Two layers, with a **hard timing constraint: activate first, then adapt**, controlled by the CLI flow: ① system-level activation (the resolver judges the agent environment: parser / package manager / SDK root; produces `system_id` / domain / system-level key ⇒ writes `aimail_gateway.json`; core/setup.rs:457/:542) ② platform adaptation (the CLI dispatches the registry `install_steps`; cmd/install.rs:887. The step `when: cfg_complete` is the embodiment of that timing dependency, core/steps.rs:75).
 - **The two entry points run the same sub-flow (identical step set); the differences are exactly two**: the trigger differs (CLI / host package manager); the executor of system-level activation differs (inside CLI install / on the plugin path the SDK reverse-calls `install --system-only`).
 - **SDK installation is executed by the host package manager and its timing is controlled by the CLI**: `pip install agent-aimail` / `dsh plugin add agent-aimail` / `pi install npm:agent-aimail` / `openclaw plugins install …`; the SDK **needs no install touchpoint**.
 
@@ -78,13 +78,13 @@ This table lists only the **two hard boundaries that may not be written across d
 | Item | Boundary |
 |---|---|
 | Value semantics | **the host's actual state**: the aimail tool names actually registered on the host for the current agent, same semantics as `SOUL_MD_CONTENT` / `SKILLS_LIST`; **not an SDK static constant**, and there is no "constant fallback" path |
-| Where the value is produced | the SDK adapter layer injects a provider (py `_TOOLSET_PROVIDER`, ts `setToolsetProvider`); core invokes it during `build_ctx`; a host with no stable anchor injects nothing ⇒ **empty string** (`pysdk/aimail_base.py:389-400`, `src/core/preprocess.ts:384-412`) |
+| Where the value is produced | the SDK adapter layer injects a provider (py `_TOOLSET_PROVIDER`, ts `setToolsetProvider`); core invokes it during `build_ctx`; a host with no stable anchor injects nothing ⇒ **empty string** (`pysdk/aimail_base.py:405-417`, `src/core/preprocess.ts:464-472`) |
 | CLI boundary | the CLI only **lists the variable name** in the `prompt` scaffold help (`cli/src/cmd/prompt.rs:452`); it **does not parse, does not fetch a value, does not fabricate tool names**; value retrieval and empty-value judgment all belong to the SDK runtime |
 
 **(2) Retained due to py / ts environment differences**
 - Transport form (the two transports carry **the same set of semantics**):
   - **python side**: through the door `<host-interpreter> -m aimail.sdk_ops <op>`. Where
-    · `<op>` action-class **= the 3 in §4.1(1)**: `assemble` / `update` / `teardown`; read-only class **= 1**: `prompt-test` (§4.1(1b)); plus 6 **tool/value ops** (`version` / `iter_bindings` / `ensure_webhook_secret` / `resolve_register_webhook_url` / `register_agent_email` / `backfill_binding`) — the tool/value class does not belong to the standard action ops (as defined in §4.1(1)). The full op set inside the door: `pysdk/sdk_ops.py:638-651`;
+    · `<op>` action-class **= the 3 in §4.1(1)**: `assemble` / `update` / `teardown`; read-only class **= 1**: `prompt-test` (§4.1(1b)); plus 6 **tool/value ops** (`version` / `iter_bindings` / `ensure_webhook_secret` / `resolve_register_webhook_url` / `register_agent_email` / `backfill_binding`) — the tool/value class does not belong to the standard action ops (as defined in §4.1(1)). The full op set inside the door: `pysdk/sdk_ops.py:680-693`;
     · `<host-interpreter>` **must be the environment configured by the agent host itself** (e.g. the venv of hermes / deerflow), **not** the python bundled with the CLI ✗ — the CLI is only responsible for **locating** it (`$AIMAIL_PYTHON` → host-venv probe outside `~/.aimail/bin` → PATH `python3`; the locating method is a transport detail of this contract). When the host self-installs the SDK package, it must install it into the **same** interpreter.
     · **Registration and assembly also go through the door (`assemble`)**: the CLI **must not** call host modules/scripts directly (calls like hermes `_auto_register_email` or deerflow `manage.py` are all moved into the door; owner ruling 2026-10-11).
   - **node side**: **always** through the platform registrar (`node_entry`, standalone executable entry `<pkg>/dist/register-cli.js`, **does not load host plugins** ⇒ lifecycle diagnostics must not enter stdout); it carries the same semantics as above (owner ruling 2026-10-11: the `host_command` form is retired).
@@ -92,16 +92,16 @@ This table lists only the **two hard boundaries that may not be written across d
 - python host assembly: hermes / deerflow are kept via `sdk_install` (invoking the SDK-side install function) for now — a targeted retention under "the host has no plugin hook"; removable once the host provides an install hook.
 - platform extension installation: executed by the **host package manager** (the CLI triggers it via `spawn`) ⇒ **not part of the SDK interface**.
 - host interpreter locating contract (**priority semantics**; single source of truth `cli/src/core/sdkroot.rs::probe_in_domain`): `$AIMAIL_PYTHON` → static candidates → **nested-venv probe inside the host tree** → **PROBE_SH** → **live-process probe** → PATH `python3` (evidence added 2026-10-11; details take that function as the single source of truth).
-- CLI locating contract: `$AIMAIL_BIN` → `~/.aimail/bin/aimail` → PATH (aimail_base.py:1708-1719).
+- CLI locating contract: `$AIMAIL_BIN` → `~/.aimail/bin/aimail` → PATH (aimail_base.py:1767-1779).
 
 ### 4.2 SDK → CLI (reverse-call ABI)
 
 **(1) Standard common**
 | Scenario | CLI command | Evidence |
 |---|---|---|
-| system-level activation | `aimail install --system-only` (L1-only) | gateway_api.py:90 · mail-service.ts:123 · aimail_base.py:2612-2658 · hermes/aimail_hermes.py:422 |
-| uninstall | `aimail uninstall` | pysdk/install.py:540 |
-| inbound up / down | `aimail address -a <addr> --inbound-live --inbound-url <confirmed-inbound-URL>` / `--inbound-down` | dsh-aimail/inbound.ts:361/:394 · register-cli.ts:142 |
+| system-level activation | `aimail install --system-only` (L1-only) | core/setup.rs:457 (POST `activate-system`) · mail-service.ts:132 (`ensureDefaultAgentBinding`) · aimail_base.py:3213 (`ensure_system`) · hermes/aimail_hermes.py:490-501 (`trigger_profile_hooks`) |
+| uninstall | `aimail uninstall` | pysdk/install.py:413/:534 (per-host `uninstall_*` steps) |
+| inbound up / down | `aimail address -a <addr> --inbound-live --inbound-url <confirmed-inbound-URL>` / `--inbound-down` | dsh/inbound.ts:412 (`notifyInboundForSystem`) · core/inbound-notify.ts:156 · dsh/register-cli.ts:166-168 |
 | **Reserved**: agent add / remove | part of the `address` subcommand (the SDK currently has no entry) | owner ruling 2026-10-06 |
 
 **(2) py / ts differences**: **none** — both environments invoke the same CLI command; the only difference is "how the CLI is located" (see the last item in §4.1(2)).
