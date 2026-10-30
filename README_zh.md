@@ -23,7 +23,7 @@ AIMail 既不同于 IM，也不是传统邮箱。它是在传统邮件系统上�
 | **身份标识** | 地址全网唯一，开放/自主             | 地址全网唯一，开放/自主    | 平台内有效，封闭/受限   |
 | **内容形式** | 规整、结构化、正式                | 规整、结构化、正式       | 离散、碎片化、非正式    |
 | **存储接入** | 可编程API，内容本地存储            | 依赖服务商 POP3/IMAP | 依赖平台 API/SDK  |
-| **实时性**  | Webhook 推送，时延低，资源消耗小     | 定时轮询，时延高，资源消耗大  | 高实时，资源消耗大     |
+| **实时性**  | Webhook/SSE 推送，时延低，资源消耗小     | 定时轮询，时延高，资源消耗大  | 高实时，资源消耗大     |
 | **访问控制** | 联系人双向受控，策略灵活             | 开放访问，易受垃圾邮件侵扰   | 通讯录 + 群组权限，受控 |
 | **内容检索** | 本地预建索引，有完善的检索工具支持        | 依赖服务商的检索API     | 翻阅历史，无检索API   |
 | **多人协作** | 带协作看板和任务引擎，支持多角色跨系统A2A协作 | 靠转发与抄送，线索追溯难    | 依赖群聊，无序，无法跨系统 |
@@ -35,7 +35,7 @@ AIMail 既不同于 IM，也不是传统邮箱。它是在传统邮件系统上�
 ## 优势特性
 
 1. **SMTP-HTTP 双向转发，内外有别，进出有序**\
-   SMTP 收信、Webhook 推送、HTTP 发信、SMTP 外投——两入两出，统一调度，内转外投，收发自如，全链路日志可追溯。
+   SMTP 收信、Webhook/SSE 推送、HTTP 发信、SMTP 外投——两入两出，统一调度，内转外投，收发自如，全链路日志可追溯。
 2. **安全员和白名单多重配置，访问安全可管可控**\
    默认启用白名单联系人，非授权无法触达，非授权无法外发，双向管控，安全闭环。关键操作需绑定的安全员确认，做安全兜底。
 3. **内容格式自动转换，LLM 阅读友好**\
@@ -55,44 +55,44 @@ AIMail 既不同于 IM，也不是传统邮箱。它是在传统邮件系统上�
 
 ## 快速开始
 
-支持在终端命令行上的**系统级安装**，为Agent系统添加AIMail能力，让所有 Agent 都可以拥有邮件地址和收发能力；同时，也支持在对话框里为单独 Agent 激活专属邮件地址的简洁模式。
+支持在终端命令行上的**系统级安装**，让 Agent 系统上所有 Agent 都可以拥有邮件地址和收发能力；同时，也支持在 Agent 对话框内激活专属邮件地址的**地址级激活**的简洁模式。
 
 - 前置准备： **已安装好 Agent 系统**，最好是下面所列的已适配 Agent 系统，推荐 **Hermes** 或 **DSH**。
 - 已适配 Agent 系统：[Hermes](https://github.com/NousResearch/hermes-agent)、[DSH](https://github.com/deepseek-ai/deepseek-harness)、[Pi](https://github.com/earendil-works/pi)、[OpenClaw](https://github.com/openclaw/openclaw)、[DeerFlow](https://github.com/bytedance/deer-flow)
 
 ### 四种安装场景
 
-#### 1，为单独 Agent 配置专属邮件地址，不需要独享域名，可使用云端共享邮件网关。
+#### 1，为 Agent 配置专属邮件地址，不需要独享域名，可使用云端共享邮件网关。
 
-- 先从 **共享邮件网关** 申请专属Agent邮件地址，获得对应的激活prompt。目前有可用的免费测试服务：<https://aimail.token.tm/apply/address>
+- 先从 **共享邮件网关** 申请专属 Agent 邮件地址，获得对应的激活 prompt。目前有可用的免费测试服务：<https://aimail.token.tm/apply/address>
 - 然后，把收到的激活 prompt 复制到 Agent 对话框里执行即可。
-- Agent 级邮件地址激活的闭环流程见 [Single-Agent address self-setup](docs/agent-self-setup.md)。
+- Agent 邮件地址激活的闭环流程见 [Single-Agent address self-setup](docs/agent-self-setup.md)。
 
-#### 2，为本机 Agent 系统增加 AIMail 能力，不需要独享域名，可使用云端共享邮件网关。
+#### 2，为本地 Agent 系统增加 AIMail 能力，不需要独享域名，可使用云端共享邮件网关。
 
 - 先从 **共享邮件网关** 申请Agent系统专属的共享域的系统标识名和系统激活码。目前有可用的免费测试服务：<https://aimail.token.tm/apply/system>
-- 然后，将收到的系统标识名和激活码等信息设置环境变量，并执行AIMail的自举安装脚本，完成本地环境的初始化。例如：
+- 然后，将收到的系统标识名和激活码等信息设置环境变量，并执行 AIMail 的自举安装脚本，完成本地环境的初始化。例如：
 
 ```bash
 export AIMAIL_GW_URL=https://aimail.token.tm      # 云端网关地址
 export AIMAIL_PRODUCT_CODE=<激活码>                # 云端领取的激活码
 export AIMAIL_SYSTEM_NAME=<你的标识名>             # 共享域系统: agent.<标识名>@<共享域名>
-export AIMAIL_MANAGER_ADDRESS=you@example.com     # 管理agent的默认安全员邮件，可每个agent不一样
+#export AIMAIL_MANAGER_ADDRESS=you@example.com     # 管理agent的默认安全员邮件，缺省为激活码收件地址，可每个agent不一样
 #export AIMAIL_BRIDGE_HOST=<domain/ip:port>        # 指定桥接地址，用于Gateway的Push的透明转发，可选
 #export AIMAIL_AGENT_HOST=<domain/ip:port>         # 指定本机Agent地址，用于直接接收Gateway的Push，可选
 curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
 ```
 
-- 自举成功后，配置Agent系统目录的环境变量，就可以用aimail命令行安装，或Agent的插件安装（需Agent自身支持）。任何一种都可完成与本地Agent适配对接。
+- 自举成功后，配置 Agent 系统目录的环境变量，就可以用 aimail 命令行安装，或 Agent 的插件安装（需 Agent 自身支持）。任何一种都可完成与本地 Agent 系统的适配对接。
 
-**aimail命令行安装**:
+**aimail 命令行安装**:
 
 ```bash
-export AGENT_HOME=~/.hermes   # Agent的主目录，亦可 ~/.dsh、~/.openclaw、~/.pi、~/.deer-flow
+export AGENT_HOME=~/.hermes   # Agent 的主目录，亦可 ~/.dsh、~/.openclaw、~/.pi、~/.deer-flow
 aimail install  
 ```
 
-**或 Agent的插件安装**
+**或 Agent 的插件安装** DSH/Pi/Openclaw
 
 ```bash
 dsh plugin --profile web add agent-aimail
@@ -103,21 +103,21 @@ dsh plugin --profile web add agent-aimail
 - 安装成功后，可进行闭环验证或问题检测
 
 ```bash
-aimail welcome       # 网关向Agent和安全员发欢迎邮件，Agent回复到安全员，实现端到端的邮件打通证明
+aimail welcome       # 网关向 Agent 和安全员发欢迎邮件，Agent 回复到安全员，实现端到端的邮件打通证明
 #aimail check         # 全面体检(配置 → 运行时资源 → 链路);有问题先跑它
 #aimail stats         # 系统 / agent / 邮件的状态总览
 ```
 
-#### 3，为本机的 Agent 系统增加独享域名的 AIMail 能力，可使用云端共享邮件网关。
+#### 3，为本地 Agent 系统增加独享域名的 AIMail 能力，可使用云端共享邮件网关。
 
 - 先从 **共享邮件网关** 申请Agent系统专属独享域的系统激活码。目前有可用的免费测试服务：<https://aimail.token.tm/apply/dedicated>
-- 然后，将收到的系统激活码等相关信息设置环境变量，并执行AIMail的自举安装脚本，完成本地环境的初始化。例如：
+- 然后，将收到的系统激活码等相关信息设置环境变量，并执行 AIMail 的自举安装脚本，完成本地环境的初始化。例如：
 
 ```bash
 export AIMAIL_GW_URL=https://aimail.token.tm     # 云端网关地址
 export AIMAIL_PRODUCT_CODE=<激活码>            # 云端领取的激活码
 export AIMAIL_DOMAIN=<你的域名>                # 独享域名: agent@<独享域名>
-export AIMAIL_MANAGER_ADDRESS=you@example.com # 管理agent的默认安全员邮件地址，可每个agent不一样
+#export AIMAIL_MANAGER_ADDRESS=you@example.com # 管理agent的默认安全员邮件地址，缺省为激活码收件地址，可每个agent不一样
 #export AIMAIL_BRIDGE_HOST=<domain/ip:port>        # 指定桥接地址，用于Gateway的Push的透明转发，可选
 #export AIMAIL_AGENT_HOST=<domain/ip:port>         # 指定本机Agent地址，用于直接接收Gateway的Push，可选
 curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
@@ -125,10 +125,10 @@ curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootst
 
 - 自举成功后，可参照前面所述的共享域的步骤，完成本地Agent系统的适配对接和闭环检测。
 
-#### 4，自建独享域名的邮件网关对接Agent系统，AIMail全系统自建和运维。
+#### 4，自建独享域名的邮件网关对接 Agent 系统，AIMail 全系统自建和运维。
 
 - 安装自己的 aimail-gateway 独立网关服务。仓库地址：<https://github.com/metercai/aimail-gateway>
-- 然后，将系统级 key 等相关信息设置环境变量，并执行AIMail的自举安装脚本，完成本地环境的初始化。例如：
+- 然后，将系统级 key 等相关信息设置环境变量，并执行 AIMail 的自举安装脚本，完成本地环境的初始化。例如：
 
 ```bash
 export AIMAIL_GW_URL=<你的网关地址>                # 自主独立安装的网关地址，如 https://mail.example.com
@@ -144,15 +144,15 @@ curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootst
 
 #### 提示：
 
-- `AIMAIL_ADMIN_KEY` 填**系统级 key**：自建网关用启动时打印的 `<storage>/<系统 ID>.system.key`，云端用激活下发的 key；网关自身的 admin key 只留在网关侧。
-- 支持本地多系统安装，即支持单机多Agent平台，修改环境变量后（新系统要用新的激活码或系统级 key），指定不同的`--home`，执行SDK或插件安装。
+- `AIMAIL_ADMIN_KEY` 填**系统级 key**：自建网关用启动时打印的 `<storage>/<系统 ID>.system.key`，云端用激活下发的 key。
+- 支持本地多系统安装，即支持单机多 Agent 平台，修改环境变量后（新系统要用新的激活码或系统级 key），指定不同的`--home`，执行SDK或插件安装。
 - 对已安装系统，指定相同的 `--home` 或环境变量 `AGENT_HOME` 保持一致即可用不同参数重复安装。
 
 ***
 
 ## 系统架构
 
-AIMail 核心由**aimail-gateway**（邮件网关）和 Agent 内的 **aimail SDK**两大部件组成。在复杂网络环境下需要**aimail-bridge**的配合进行穿透，让收发邮件安全高效流转。aimail 命令行则提供了Agent侧的SDK安装、链路检测等日常维护工具，方便使用和维护。
+AIMail 核心由**aimail-gateway**（邮件网关）和 Agent 内的 **agent-aimail SDK**两大部件组成。在复杂网络环境下需要**aimail-bridge**的配合进行穿透，让收发邮件安全高效流转。aimail 命令行则提供了Agent侧的SDK安装、链路检测等日常维护工具，方便使用和维护。
 
 ```
                      ┌────────────────────┐

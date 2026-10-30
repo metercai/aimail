@@ -23,7 +23,7 @@ AIMail is neither IM nor a traditional mailbox. It is an upgrade of the traditio
 | **Identity** | Globally unique, open/self-directed | Globally unique, open/self-directed | Valid inside the platform, closed/limited |
 | **Content** | Structured, formal | Structured, formal | Discrete, fragmented, informal |
 | **Access & storage** | Programmable API, content stored locally | Provider POP3/IMAP | Platform API/SDK only |
-| **Real-time** | Webhook push, low latency, light footprint | Scheduled polling, high latency, heavy footprint | High real-time, heavy footprint |
+| **Real-time** | Webhook/SSE push, low latency, light footprint | Scheduled polling, high latency, heavy footprint | High real-time, heavy footprint |
 | **Access control** | Bidirectional contact control, flexible policy | Open access, spam-prone | Address book + group permissions, controlled |
 | **Search** | Prebuilt local index with full search tooling | Provider's search API | Scroll through history, no search API |
 | **Collaboration** | Collaboration boards and a task engine, multi-role cross-system A2A | Forward and CC, hard to trace a thread | Group chat, unordered, no cross-system work |
@@ -35,7 +35,7 @@ AIMail is neither IM nor a traditional mailbox. It is an upgrade of the traditio
 ## Key Features
 
 1. **Bidirectional SMTP-HTTP forwarding — inside stays inside, in and out in order**\
-   SMTP inbound, Webhook push, HTTP outbound, SMTP relay — two ways in and two ways out, centrally scheduled, internal delivery or external relay at will, with an end-to-end audit trail.
+   SMTP inbound, Webhook/SSE push, HTTP outbound, SMTP relay — two ways in and two ways out, centrally scheduled, internal delivery or external relay at will, with an end-to-end audit trail.
 2. **Manager plus layered whitelists — access that can be governed**\
    Contacts are whitelisted by default: unauthorized senders cannot reach the Agent, and the Agent cannot send out to unauthorized addresses — bidirectional control, a closed loop. Critical operations need confirmation from the bound manager, so there is a safety net.
 3. **Automatic format conversion — LLM-friendly to read**\
@@ -55,7 +55,7 @@ AIMail is neither IM nor a traditional mailbox. It is an upgrade of the traditio
 
 ## Quick Start
 
-AIMail supports **system-level install** from the terminal: add AIMail capability to an Agent system so that every Agent can have a mail address and send/receive capability. It also supports applying for a **dedicated mail address for a single Agent**, then submitting the activation prompt in the agent's chat to install and activate it.
+**System-level install** from the terminal gives every Agent on the Agent system a mail address with send/receive capability. There is also a lightweight **address-level activation** mode that activates a dedicated mail address from inside the Agent's chat.
 
 ### Prerequisites
 
@@ -63,7 +63,7 @@ AIMail supports **system-level install** from the terminal: add AIMail capabilit
 
 ### Four install scenarios
 
-#### 1. Configure a dedicated mail address for a single Agent: no dedicated domain needed, the cloud shared mail gateway works.
+#### 1. Configure a dedicated mail address for an Agent: no dedicated domain needed, the cloud shared mail gateway works.
 
 - Start from the **shared-domain mail gateway** and apply for a dedicated Agent mail address, which gives you the matching activation prompt. A free test service is available at <https://aimail.token.tm/apply/address>.
 - Then copy the activation prompt for the address you received into the Agent's chat and run it.
@@ -78,7 +78,7 @@ AIMail supports **system-level install** from the terminal: add AIMail capabilit
 export AIMAIL_GW_URL=https://aimail.token.tm     # cloud gateway address
 export AIMAIL_PRODUCT_CODE=<activation-code>  # activation code claimed in the cloud
 export AIMAIL_SYSTEM_NAME=<your-id>           # shared-domain system: agent.<id>@<shared domain>
-export AIMAIL_MANAGER_ADDRESS=you@example.com # default manager mail for the agent; each agent may differ
+#export AIMAIL_MANAGER_ADDRESS=you@example.com # optional: defaults to the activation code's delivery address; each agent may differ
 #export AIMAIL_BRIDGE_HOST=<domain/ip:port>    # bridge address for the gateway's push passthrough (optional)
 #export AIMAIL_AGENT_HOST=<domain/ip:port>     # this machine's agent endpoint for direct gateway push (optional)
 curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
@@ -93,7 +93,7 @@ export AGENT_HOME=~/.hermes   # the Agent's root directory (also ~/.dsh, ~/.open
 aimail install
 ```
 
-**Or the Agent's plugin install:**
+**Or the Agent's plugin install:** DSH / Pi / OpenClaw
 
 ```bash
 dsh plugin --profile web add agent-aimail
@@ -118,7 +118,7 @@ aimail welcome       # the gateway sends a welcome mail to the Agent and the man
 export AIMAIL_GW_URL=https://aimail.token.tm     # cloud gateway address
 export AIMAIL_PRODUCT_CODE=<activation-code>  # activation code claimed in the cloud
 export AIMAIL_DOMAIN=<your-domain>            # dedicated domain: agent@<dedicated domain>
-export AIMAIL_MANAGER_ADDRESS=you@example.com # default manager mail address for the agent; each agent may differ
+#export AIMAIL_MANAGER_ADDRESS=you@example.com # optional: defaults to the activation code's delivery address; each agent may differ
 #export AIMAIL_BRIDGE_HOST=<domain/ip:port>    # bridge address for the gateway's push passthrough (optional)
 #export AIMAIL_AGENT_HOST=<domain/ip:port>     # this machine's agent endpoint for direct gateway push (optional)
 curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh | bash
@@ -153,7 +153,7 @@ curl -fsSL https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootst
 
 ## Architecture
 
-AIMail's core consists of two parts: **aimail-gateway** (the mail gateway) and the **aimail SDK** inside the Agent. In complex network environments **aimail-bridge** cooperates to punch through, so mail flows safely and efficiently. The aimail command line provides the Agent-side SDK install, link diagnostics, and other day-to-day maintenance tools.
+AIMail's core consists of two parts: **aimail-gateway** (the mail gateway) and the **agent-aimail SDK** inside the Agent. In complex network environments **aimail-bridge** cooperates to punch through, so mail flows safely and efficiently. The aimail command line provides the Agent-side SDK install, link diagnostics, and other day-to-day maintenance tools.
 
 ```
                      ┌────────────────────┐
