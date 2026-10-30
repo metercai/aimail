@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# @level L0
+# @scenario any
 # ▓ CLI domain gate (owner 2026-10-04 ruling: CLI and SDK gates are split, each in its own place)
 #
 # This script only contains checks where **the main subject is CLI**:

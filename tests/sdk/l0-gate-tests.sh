@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# @level L0
+# @scenario any
 # Release gate L0 — full test sweep before ANY publish (local + CI).
 # Run from repo root (or anywhere; script locates the root itself).
 set -euo pipefail

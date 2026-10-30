@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# @level L3
+# @scenario 1,2,3
 # ═══════════════════════════════════════════════════════════════════════
 # run-l3.sh — L3 integration closed-loop regression (driven by the matrix in l3.yml).
 #

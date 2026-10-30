@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# @level L3
+# @scenario 1
 # run-s1-local.sh — Scenario 1 (Single Agent Dedicated Address) **post-release local regression**.
 #
 # Why only run locally: aimail-advanced is closed-source, cannot enter GitHub Actions runner.
