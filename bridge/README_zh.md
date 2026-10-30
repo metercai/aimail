@@ -18,7 +18,7 @@
 agent 即时可达。启用 TLS+ACME 时另需开放端口 80（仅 HTTP-01 挑战用）。
 
 **痛点 2 — 零依赖邮件入站**：没有公网 IP？没有端口映射？pull 模式只需要一条**出站
-HTTP 轮询（每 10s）**连接 —— bridge 主动从 gateway 拉取投递并扇出到本地各 webhook 端口。
+连接（SSE 流，自动降级 long-poll，默认间隔 10s）** —— bridge 主动从 gateway 拉取投递并扇出到本地各 webhook 端口。
 **零公网端口**——仅回环 admin API，无任何外部入站邮件流量，完全穿透 NAT/防火墙。
 
 ---
@@ -93,7 +93,7 @@ gateway ──POST──►      │                                  │
 ```
 gateway (公网)                              NAT/防火墙内
   │                                          │
-  │◄── POST /api/v1/admin/pending (poll 每 10s) │ bridge (出站，无需开放端口)
+  │◄── GET /api/v1/admin/pending/stream (SSE 流；long-poll 降级,默认 10s) │ bridge (出站，无需开放端口)
   │                                          │
   │── batches [{body, deliveries}] ─────────►│
   │                                          │
@@ -116,11 +116,11 @@ gateway (公网)                              NAT/防火墙内
 
 ```bash
 # 解压对应平台的 zip 文件（四选一）：
-#   aimail-bridge-v0.7.3-linux-amd64.zip
-#   aimail-bridge-v0.7.3-linux-arm64.zip
-#   aimail-bridge-v0.7.3-macos-arm64.zip
-#   aimail-bridge-v0.7.3-windows-amd64.zip
-VER=v0.7.3
+#   aimail-bridge-v0.7.6-linux-amd64.zip
+#   aimail-bridge-v0.7.6-linux-arm64.zip
+#   aimail-bridge-v0.7.6-macos-arm64.zip
+#   aimail-bridge-v0.7.6-windows-amd64.zip
+VER=v0.7.6
 unzip aimail-bridge-${VER}-linux-amd64.zip
 mv aimail-bridge-${VER}-linux-amd64 aimail-bridge
 chmod +x aimail-bridge
@@ -158,7 +158,7 @@ EOF
 
 # 检查健康状态
 curl http://localhost:38080/health
-# {"status":"ok","uptime_secs":42,"version":"0.7.3"}
+# {"status":"ok","uptime_secs":42,"version":"0.7.6"}
 ```
 ## 配置参考
 
@@ -254,7 +254,7 @@ hermes_home（配置字段，默认 `~/.hermes`）
 | 场景 | 模式 | 说明 |
 |---|---|---|
 | gateway+agent 同机 | Push | bridge 单端口转发到本地各 webhook 端口 |
-| gateway 在公网，agent 在 NAT 后 | Pull | bridge 出站轮询 gateway，无公网入站端口 |
+| gateway 在公网，agent 在 NAT 后 | Pull | bridge 出站拉取（SSE 流，long-poll 降级），无公网入站端口 |
 | 公网 VPS 部署 bridge | Push + TLS | `hostname = "bridge.example.com"`，ACME 自动证书，双端口 |
 
 ---

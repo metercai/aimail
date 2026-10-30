@@ -20,7 +20,8 @@ webhook — open just one port, all agents instantly reachable. When TLS + ACME 
 enabled, port 80 must also be opened (HTTP-01 challenge only).
 
 **Pain 2 — Zero-dependency email inbound**: No public IP? No port forwarding? Pull mode
-uses a single **outbound HTTP poll (every 10s)** — bridge actively fetches deliveries from
+uses a single **outbound connection (SSE stream, with an automatic long-poll fallback,
+default interval 10s)** — bridge actively fetches deliveries from
 the gateway and fans out to local webhook ports. **Zero public ports** — loopback admin
 API only, no external inbound mail traffic; complete NAT/firewall bypass.
 
@@ -99,7 +100,7 @@ gateway ──POST──►      │                                  │
 ```
 gateway (public)                              behind NAT/firewall
   │                                               │
-  │◄── POST /api/v1/admin/pending (poll every 10s)│ bridge (outbound only)
+  │◄── GET /api/v1/admin/pending/stream (SSE; long-poll fallback, 10s)│ bridge (outbound only)
   │                                               │
   │── batches [{body, deliveries}] ──────────────►│
   │                                               │
@@ -122,11 +123,11 @@ gateway (public)                              behind NAT/firewall
 
 ```bash
 # Unzip the zip for your platform (pick one):
-#   aimail-bridge-v0.7.3-linux-amd64.zip
-#   aimail-bridge-v0.7.3-linux-arm64.zip
-#   aimail-bridge-v0.7.3-macos-arm64.zip
-#   aimail-bridge-v0.7.3-windows-amd64.zip
-VER=v0.7.3
+#   aimail-bridge-v0.7.6-linux-amd64.zip
+#   aimail-bridge-v0.7.6-linux-arm64.zip
+#   aimail-bridge-v0.7.6-macos-arm64.zip
+#   aimail-bridge-v0.7.6-windows-amd64.zip
+VER=v0.7.6
 unzip aimail-bridge-${VER}-linux-amd64.zip
 mv aimail-bridge-${VER}-linux-amd64 aimail-bridge
 chmod +x aimail-bridge
@@ -164,7 +165,7 @@ EOF
 
 # Check health
 curl http://localhost:38080/health
-# {"status":"ok","uptime_secs":42,"version":"0.7.3"}
+# {"status":"ok","uptime_secs":42,"version":"0.7.6"}
 ```
 ## Configuration
 
@@ -210,7 +211,7 @@ poll_interval_sec = 10               # poll interval in seconds (default: 10)
 ### Pull — multi-system
 
 One bridge serving several systems (the production shape: a single gateway
-hosting multiple `shared-token-*` systems). Each entry polls its own
+hosting multiple `shared-token-*` systems). Each entry pulls its own
 system's pending deliveries with its own key; `aimail_url` may omit the
 scheme (`http://` is added automatically).
 
@@ -261,7 +262,7 @@ hermes_home (config field, default `~/.hermes`)
 | Scenario | Mode | Notes |
 |---|---|---|
 | gateway + agents on same machine | Push | Bridge proxies single port to local webhook ports |
-| gateway public, agents behind NAT | Pull | Bridge polls gateway outbound, no public inbound ports |
+| gateway public, agents behind NAT | Pull | Bridge pulls outbound (SSE stream, long-poll fallback), no public inbound ports |
 | Bridge on public VPS | Push + TLS | `hostname = "bridge.example.com"`, ACME auto-cert, dual-port |
 
 
