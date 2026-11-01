@@ -188,10 +188,13 @@ export async function registerAddress(
   }
   const client: AdminClientLike =
     opts.transport ??
-    // identity left empty: gateway selects key by signature (empty-identity fallback). Passing user-side
-    // systemId will cause gateway list_api_keys_by_identity to not find it (admin key's identity
-    // is gateway internal system id) → 401 Invalid X-Api-Signature (exposed by actual docker regression)
-    new GatewayClient(gatewayUrl, adminKey, opts.timeoutMs ?? 30_000)
+    // identity = the user-side systemId. In the product flow the system
+    // config's admin_key is the agent-side system key, whose identity in the
+    // gateway is exactly this systemId, so list_api_keys_by_identity(systemId)
+    // matches it. The empty-identity full-table fallback no longer exists
+    // (removed for security: an empty X-Api-Identity now 401s identity_required
+    // before any key lookup), so the identity must be supplied.
+    new GatewayClient(gatewayUrl, adminKey, opts.timeoutMs ?? 30_000, opts.systemId)
 
   const result = await client.request(
     'POST',
@@ -340,7 +343,7 @@ export async function syncAddressWebhook(
   const adminKey = opts.adminKey ?? gw.admin_key ?? ''
   if (!gatewayUrl || !adminKey) return { ok: false, reason: 'no-admin-credentials' }
   const client: AdminClientLike =
-    opts.transport ?? new GatewayClient(gatewayUrl, adminKey, opts.timeoutMs ?? 30_000)
+    opts.transport ?? new GatewayClient(gatewayUrl, adminKey, opts.timeoutMs ?? 30_000, opts.systemId)
   try {
     const domains = await client.request(
       'GET',

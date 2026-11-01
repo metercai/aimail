@@ -113,8 +113,11 @@ function gwClient(syscfg: Record<string, unknown>): GatewayClient {
   if (!url || !key) {
     throw new UsageError('System-level configuration missing gateway_url/admin_key — run aimail install first')
   }
-  // identity left blank: gateway picks key by signature (same convention as auto-bind registerAddress)
-  return new GatewayClient(url, key, 30_000)
+  // identity = the user-side system_id (the system key's own identity in the
+  // gateway). The empty-identity full-table fallback was removed for security
+  // (an empty X-Api-Identity now 401s identity_required before any key is
+  // looked up), so it must be supplied for system-level admin calls.
+  return new GatewayClient(url, key, 30_000, String(syscfg['system_id'] || ''))
 }
 
 // ── admin endpoints (mirrors pysdk/aimail_tools.py _GatewayClient)──────────────────
