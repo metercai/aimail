@@ -62,7 +62,11 @@ pub fn setup(a: &SetupArgs) -> Value {
     // ── Path A: admin_key (reuse/reset for activated systems) ──────────────────────────────
     if !a.admin_key.is_empty() {
         let mut system_id = a.system_id.clone();
-        let me = crate::core::gateway::whoami(&a.gateway_url, &a.admin_key, "");
+        // D1: the admin_key is system-level ⇒ identity = system_id. When the
+        // caller did not give one, whoami 401s under D1 and returns {} — the
+        // existing warning branch below handles that (and the `system_id is
+        // required` error at the end still fires).
+        let me = crate::core::gateway::whoami(&a.gateway_url, &a.admin_key, &system_id);
         let me_empty = matches!(&me, Value::Object(m) if m.is_empty());
         if !me_empty {
             let cat = me
@@ -355,7 +359,9 @@ pub fn downgrade_to_domain_admin_key(
 
     // 0b) Config already stores **this domain's** domain-level key ⇒ reuse without rotation
     if !domain.is_empty() && !existing_key.is_empty() && existing_key != system_admin_key {
-        let ex = crate::core::gateway::whoami(gateway_url, existing_key, "");
+        // D1: `existing_key` is (if valid) the **domain-level** key of this
+        // domain ⇒ identity = its email = `domain` (checked just below).
+        let ex = crate::core::gateway::whoami(gateway_url, existing_key, domain);
         let ex_ok = ex
             .get("category")
             .and_then(Value::as_str)
@@ -445,6 +451,10 @@ pub fn init_system(
     if product_code.is_empty() {
         return err("product_code is required");
     }
+    // `/api/v1/activate-system` is a **public** endpoint (outside the gateway
+    // auth layer; the product code IS the credential), so it carries no API
+    // key and — deliberately — no identity. Do not "fix" this to a derived
+    // identity: the client is unsigned here and D1 does not apply.
     let client = crate::core::gateway::GatewayClient::new(gateway_url, "", "", 30);
     let mut body = Map::new();
     body.insert("code".into(), Value::String(product_code.to_string()));

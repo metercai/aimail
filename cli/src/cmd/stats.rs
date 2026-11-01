@@ -99,7 +99,8 @@ fn platform_label(home: &str, fallback: &str) -> String {
 fn quota_probe(gw: &config::GatewayConfig, sid: &str) -> Result<(String, String), ()> {
     let mut cloud_status = "ok".to_string();
     if !gw.gateway_url.is_empty() && !gw.admin_key.is_empty() {
-        let client = GatewayClient::with_defaults(&gw.gateway_url, &gw.admin_key);
+        // D1: the key is the system-level admin_key ⇒ identity = system_id.
+        let client = GatewayClient::with_defaults(&gw.gateway_url, &gw.admin_key, sid);
         let qr = client.get("/api/v1/quotas");
         let status = qr.get("status").and_then(Value::as_u64).unwrap_or(0);
         if status == 200 {

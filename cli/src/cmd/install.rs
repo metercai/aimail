@@ -424,7 +424,7 @@ fn ensure_domain(gw_url: &str, admin_key: &str, sid: &str, want_domain: &str, to
         }
     };
     let path = format!("/api/v1/admin/systems/{sid}/domains");
-    let headers = crate::core::sig::signed_headers(admin_key, "GET", &path, None, "");
+    let headers = crate::core::sig::signed_headers(admin_key, "GET", &path, None, sid);
     let url = format!("{}{}", gw_url.trim_end_matches('/'), path);
     let (status, body) = crate::core::http::json_req(&url, &headers, None, Some("GET"), 15);
     if !(200..300).contains(&status) {
@@ -466,7 +466,7 @@ fn ensure_domain(gw_url: &str, admin_key: &str, sid: &str, want_domain: &str, to
         "POST",
         &path,
         Some(body_req.to_string().as_bytes()),
-        "",
+        sid,
     );
     let (st2, body2) = crate::core::http::json_req(
         &url,

@@ -47,9 +47,12 @@ impl GatewayClient {
         }
     }
 
-    /// Default timeout (Python `_GatewayClient(..., timeout=30)`).
-    pub fn with_defaults(gateway_url: &str, api_key: &str) -> Self {
-        Self::new(gateway_url, api_key, "", 30)
+    /// Default timeout (Python `_GatewayClient(..., timeout=30)`). `identity` is the
+    /// key's identity (D1, gateway >= 1.0.1: empty identity on a signed request is
+    /// refused with 401 `identity_required`) — for every current caller the key is
+    /// system-level, so `identity = system_id`.
+    pub fn with_defaults(gateway_url: &str, api_key: &str, identity: &str) -> Self {
+        Self::new(gateway_url, api_key, identity, 30)
     }
 
     /// GET (no body).
@@ -272,10 +275,48 @@ mod tests {
     #[test]
     fn connection_refused_is_status_zero_not_a_panic() {
         // Local port with no listener ⇒ transmission failure ⇒ {"status": 0, "error": ...}
-        let c = GatewayClient::new("http://127.0.0.1:1", "k", "", 5);
+        let c = GatewayClient::new("http://127.0.0.1:1", "k", "sys1", 5);
         let r = c.get("/api/v1/quotas");
         assert_eq!(r.get("status").and_then(Value::as_u64), Some(0), "{r}");
         assert!(r.get("error").and_then(Value::as_str).is_some(), "{r}");
+    }
+
+    #[test]
+    fn signed_key_without_identity_is_not_gated_client_side() {
+        // No client-side gate: a signed key with an empty identity still goes
+        // out on the wire (without the X-Api-Identity header). The gateway
+        // decides — since the full-table-scan fallback was removed for
+        // security, an empty identity is always answered 401
+        // identity_required. Client-side refusal would duplicate a policy
+        // that belongs to the server.
+        let c = GatewayClient::new("http://127.0.0.1:1", "k", "", 5);
+        let r = c.get("/api/v1/quotas");
+        // transport failure (no listener) — NOT a client-side refusal
+        assert_eq!(r.get("status").and_then(Value::as_u64), Some(0), "{r}");
+        assert!(
+            !r.get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .contains("identity_required"),
+            "{r}"
+        );
+    }
+
+    #[test]
+    fn unsigned_key_with_empty_identity_is_allowed() {
+        // Public endpoints (code IS the credential) send no key and no
+        // identity — nothing on the client side may intercept them.
+        let c = GatewayClient::new("http://127.0.0.1:1", "", "", 5);
+        let r = c.get("/api/v1/quotas");
+        // transport failure (no listener), NOT an identity error
+        assert_eq!(r.get("status").and_then(Value::as_u64), Some(0), "{r}");
+        assert!(
+            !r.get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .contains("identity_required"),
+            "{r}"
+        );
     }
 
     #[test]
@@ -316,5 +357,76 @@ mod tests {
             Some("route not registered")
         );
         assert_eq!(v.get("detail").and_then(Value::as_str), Some("x"));
+    }
+
+    // ── Wire-header capture tests (acceptance #1/#2) ──────────────────────────────
+
+    /// One-shot local listener: captures the raw request (line + headers) and
+    /// answers with a fixed 200 JSON body, then closes.
+    fn one_shot_capture() -> (
+        String,
+        std::sync::Arc<std::sync::Mutex<String>>,
+        std::thread::JoinHandle<()>,
+    ) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let s = seen.clone();
+        let h = std::thread::spawn(move || {
+            let (mut sock, _) = match listener.accept() {
+                Ok(v) => v,
+                Err(_) => return,
+            };
+            let mut raw = Vec::new();
+            let mut chunk = [0u8; 2048];
+            loop {
+                match sock.read(&mut chunk) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        raw.extend_from_slice(&chunk[..n]);
+                        if raw.windows(4).any(|w| w == b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+            *s.lock().unwrap() = String::from_utf8_lossy(&raw).to_string();
+            let payload = "{\"ok\":true}";
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+                payload.len(),
+                payload
+            );
+            let _ = sock.write_all(resp.as_bytes());
+            let _ = sock.flush();
+        });
+        (addr, seen, h)
+    }
+
+    #[test]
+    fn address_level_key_sends_identity_header_with_email() {
+        // Acceptance #1: a signed request carries `X-Api-Identity`; for an
+        // address-level key the value is the key's email.
+        let (addr, seen, h) = one_shot_capture();
+        let c = GatewayClient::new(&format!("http://{addr}"), "key", "agent@example.test", 5);
+        let r = c.get("/api/v1/whoami");
+        assert_eq!(r.get("status").and_then(Value::as_u64), Some(200), "{r}");
+        h.join().ok();
+        let raw = seen.lock().unwrap().clone();
+        assert!(raw.contains("X-Api-Identity: agent@example.test"), "{raw}");
+    }
+
+    #[test]
+    fn system_level_key_sends_identity_header_with_system_id() {
+        // Acceptance #2 (regression): a system-level key names its system_id.
+        let (addr, seen, h) = one_shot_capture();
+        let c = GatewayClient::with_defaults(&format!("http://{addr}"), "key", "sys-1");
+        let r = c.get("/api/v1/quotas");
+        assert_eq!(r.get("status").and_then(Value::as_u64), Some(200), "{r}");
+        h.join().ok();
+        let raw = seen.lock().unwrap().clone();
+        assert!(raw.contains("X-Api-Identity: sys-1"), "{raw}");
     }
 }

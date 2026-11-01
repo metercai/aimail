@@ -115,7 +115,12 @@ pub fn gateway_backlog_count(cfg: &Value, emails: &[String]) -> Option<usize> {
         return None;
     }
     let body = json!({"filter": [], "emails": emails});
-    let client = crate::core::gateway::GatewayClient::with_defaults(&gw, &ak);
+    // D1: the key is the system-level admin_key ⇒ identity = system_id.
+    let client = crate::core::gateway::GatewayClient::with_defaults(
+        &gw,
+        &ak,
+        cfg.get("system_id").and_then(|v| v.as_str()).unwrap_or(""),
+    );
     let res = client.post("/api/v1/admin/pending", &body);
     if res.get("status").and_then(|v| v.as_i64()).unwrap_or(0) != 200 {
         return None;
@@ -235,7 +240,8 @@ fn s3_refresh_webhook(
             "no gateway_url/admin_key in system config to refresh the address webhook",
         );
     }
-    let client = crate::core::gateway::GatewayClient::with_defaults(gw, ak);
+    // D1: the key is the system-level admin_key ⇒ identity = system_id.
+    let client = crate::core::gateway::GatewayClient::with_defaults(gw, ak, sid);
     // 1) Get per-address record id
     let list = client.get(&format!("/api/v1/admin/systems/{sid}/domains"));
     let arr = list.get("data").and_then(|v| v.as_array());

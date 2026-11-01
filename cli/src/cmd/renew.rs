@@ -32,7 +32,8 @@ pub fn run(a: &Args) -> i32 {
             return 1; // Divergence point: Python continues here and hits the production gateway (see file header)
         }
     };
-    let client = GatewayClient::with_defaults(&gw_url, &admin_key);
+    // D1: the key is the system-level admin_key ⇒ identity = system_id.
+    let client = GatewayClient::with_defaults(&gw_url, &admin_key, &sid);
 
     let want_status = a.status || a.code.is_none();
     if want_status {

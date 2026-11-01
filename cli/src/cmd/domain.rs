@@ -55,7 +55,8 @@ pub fn run(args: Args) -> i32 {
         if !args.webhook_url.is_empty() {
             body["webhook_url"] = Value::String(args.webhook_url.clone());
         }
-        let client = GatewayClient::with_defaults(gw, &cfg.admin_key);
+        // D1: the key is the system-level admin_key ⇒ identity = system_id.
+        let client = GatewayClient::with_defaults(gw, &cfg.admin_key, &sid);
         let result = client.post(&format!("/api/v1/admin/systems/{sid}/domains"), &body);
         if let Some(err) = result.get("error").filter(|v| !v.is_null()) {
             let detail = result.get("detail").and_then(|v| v.as_str()).unwrap_or("");
@@ -70,7 +71,8 @@ pub fn run(args: Args) -> i32 {
         return 0;
     }
 
-    let client = GatewayClient::with_defaults(gw, &cfg.admin_key);
+    // D1: the key is the system-level admin_key ⇒ identity = system_id.
+    let client = GatewayClient::with_defaults(gw, &cfg.admin_key, &sid);
     let result = client.get(&format!("/api/v1/admin/systems/{sid}/domains"));
     // Replicate list_system_domains: if `data` exists take `data`, else whole payload; non-array ⇒ empty table
     let payload = match result.get("data") {

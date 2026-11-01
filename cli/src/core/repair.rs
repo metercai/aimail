@@ -1372,7 +1372,9 @@ pub fn gateway_client(sid: &str) -> Option<crate::core::gateway::GatewayClient> 
     if url.is_empty() || key.is_empty() {
         return None;
     }
-    Some(crate::core::gateway::GatewayClient::with_defaults(url, key))
+    // D1: the key is the system-level admin_key ⇒ identity = system_id.
+    let client = crate::core::gateway::GatewayClient::with_defaults(url, key, sid);
+    Some(client)
 }
 
 /// The pending-query response body -> the `batches` list (`repair.py:281`: `pend["batches"]`, falling back to the top-level array / `data`).
@@ -2189,6 +2191,7 @@ mod tests {
         let client = crate::core::gateway::GatewayClient::with_defaults(
             &format!("http://127.0.0.1:{port}"),
             "k",
+            "sys1",
         );
         let changed = drain_stuck(&Some(client));
         stop.store(true, Ordering::Relaxed);

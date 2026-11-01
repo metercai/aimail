@@ -96,7 +96,8 @@ def main(argv):
             spec = v["__client__"] or {}
             from aimail_tools import _GatewayClient  # noqa: PLC0415
 
-            return _GatewayClient(spec.get("gateway_url", ""), spec.get("admin_key", ""))
+            return _GatewayClient(spec.get("gateway_url", ""), spec.get("admin_key", ""),
+                                  identity=spec.get("system_id", ""))
         return v
 
     positional = [_materialize(v) for v in positional]
