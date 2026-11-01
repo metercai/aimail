@@ -121,7 +121,8 @@ def _gateway_client(gw: dict):
     """Build gateway client based on `gateway_url` / `admin_key` (full set of `aimail_tools._GatewayClient`)."""
     from aimail_tools import _GatewayClient  # noqa: PLC0415
 
-    return _GatewayClient(gw.get("gateway_url", ""), gw.get("admin_key", ""))
+    return _GatewayClient(gw.get("gateway_url", ""), gw.get("admin_key", ""),
+                          identity=gw.get("system_id", ""))
 
 
 # ── ops ─────────────────────────────────────────────────────────────────────
@@ -268,7 +269,8 @@ def _load_system(system_id, override=None):
             f"(system_id={system_id!r}) —— run aimail install first")
     try:
         from aimail_tools import _GatewayClient
-        client = _GatewayClient(cfg.get("gateway_url"), cfg.get("admin_key"))
+        client = _GatewayClient(cfg.get("gateway_url"), cfg.get("admin_key"),
+                                identity=str(cfg.get("system_id") or system_id or ""))
     except Exception as e:
         raise RuntimeError(f"Failed to construct gateway client: {e}")
     return base, cfg, client

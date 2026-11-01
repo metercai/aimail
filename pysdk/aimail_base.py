@@ -632,7 +632,7 @@ def rename_address(system_id: str, old_email: str, new_name: str, cfg: dict) -> 
             raise ValueError(
                 f"new address name {name!r} conflicts with registered address {em}")
     from aimail_tools import _GatewayClient
-    client = _GatewayClient(gw, ak)
+    client = _GatewayClient(gw, ak, identity=system_id)
     # 2) Cloud rename —— server-side validates old exists (404 ⇒ throw), local unchanged
     try:
         client._request("POST", f"/api/v1/admin/systems/{system_id}/addresses/rename",
@@ -766,7 +766,7 @@ def set_agent_manager(system_id: str, email: str, manager: str,
         raise ValueError("system config lacks gateway_url/admin_key")
     from aimail_tools import _GatewayClient
     try:
-        _GatewayClient(gw, ak)._request(
+        _GatewayClient(gw, ak, identity=system_id)._request(
             "PUT", f"/api/v1/admin/agent-meta/{email}",
             body={"manager_address": mgr})
     except Exception as e:  # noqa: BLE001

@@ -571,7 +571,7 @@ def _auto_register_email(name: str, profile_dir: str, config: dict) -> None:
         logger.warning("[aimail_gateway] Cannot auto-register: system_id not configured")
         return
 
-    client = _GatewayClient(gateway_url, admin_key)
+    client = _GatewayClient(gateway_url, admin_key, identity=system_id)
     system_name = config.get("system_name", "") or ""
     # Address derivation uniformly uses public email_for_agent (Hermes default name default → agent; others keep original name;
     # Illegal character cleaning '.' → '_'; compliance standard validated by gateway register_address——http.rs)
@@ -789,7 +789,7 @@ def _auto_deregister_email(name: str, profile_dir: str, config: dict) -> None:
     email = core.email_for_agent(name, domain, system_name)
 
     try:
-        client = _GatewayClient(gateway_url, admin_key)
+        client = _GatewayClient(gateway_url, admin_key, identity=system_id)
         status = core.deregister_agent_email(
             client, system_id, email,
             manager_address=config.get("manager_address", ""),

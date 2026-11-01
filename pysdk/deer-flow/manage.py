@@ -200,7 +200,8 @@ def register_agents(manager: str = "", system_id: str = "", agent: str = "",
                          + " / ".join(_core.MANAGER_ENV_VARS)
                          + " (approval contact; three names mutually recognized, owner contract 2026-09-30)")
 
-    client = _tools._GatewayClient(gw["gateway_url"], gw.get("admin_key", ""))
+    client = _tools._GatewayClient(gw["gateway_url"], gw.get("admin_key", ""),
+                                   identity=system_id)
     agents = discover_deerflow_agents() if agent == "all" else [agent]
     if not agents:
         agents = ["default"]
@@ -352,7 +353,8 @@ def reconcile(system_id: str = "", manager: str = "", dry_run: bool = False) -> 
     # has been retired (2026-10-17); INTEGRATE_* names removed with no compatibility.
     # If still empty after resolution, register_agent_email's hard gate raises an error (no silent registration).
     manager = _core.resolve_manager_address(manager)
-    client = _tools._GatewayClient(gw["gateway_url"], gw.get("admin_key", ""))
+    client = _tools._GatewayClient(gw["gateway_url"], gw.get("admin_key", ""),
+                                   identity=system_id)
 
     changes = 0
     for agent_id, meta in desired.items():
@@ -477,7 +479,8 @@ def deregister_agents(agent: str, manager: str = "", system_id: str = "") -> int
     email = cfg.get("email", "")
     manager = manager or cfg.get("manager_address", "") or os.environ.get("AIMAIL_MANAGER_ADDRESS", "")
 
-    client = _tools._GatewayClient(gw["gateway_url"], gw.get("admin_key", ""))
+    client = _tools._GatewayClient(gw["gateway_url"], gw.get("admin_key", ""),
+                                   identity=system_id)
     result = _base.deregister_agent_email(client, system_id, email, manager)
     print(f"  deregister {agent} ({email}): {json.dumps(result, ensure_ascii=False)}")
 

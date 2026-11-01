@@ -218,8 +218,9 @@ def test_register_agent_email_builds_client_from_gw(sdk, monkeypatch):
     seen = {}
 
     class FakeClient:
-        def __init__(self, url, key):
+        def __init__(self, url, key, identity=""):
             seen["url"], seen["key"] = url, key
+            seen["identity"] = identity
 
     monkeypatch.setattr(aimail_tools, "_GatewayClient", FakeClient)
     fake("register_agent_email", {"api_key": "ak", "activation_code": "code"})
@@ -240,7 +241,10 @@ def test_register_agent_email_builds_client_from_gw(sdk, monkeypatch):
         ]
     )
     assert rc == 0
-    assert seen == {"url": "http://gw.test", "key": "AK"}
+    # gw dict here carries no system_id (this test pins the plumbing, not the
+    # identity value) ⇒ identity resolves to "". Real CLI callers pass
+    # system_id in the gw dict (see the register_agent_email op contract).
+    assert seen == {"url": "http://gw.test", "key": "AK", "identity": ""}
     a, kw = calls["register_agent_email"]
     assert a[1:] == ("s1", "a@x")
     assert kw == {

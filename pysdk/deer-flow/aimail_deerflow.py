@@ -204,7 +204,7 @@ def make_client(api_key: str = "", system_id: str = ""):
     cfg = load_agent_config_for_key(system_id)
     gw_url = (cfg or {}).get("gateway_url", "")
     key = api_key or ((cfg or {}).get("api_key", ""))
-    return _tools._GatewayClient(gw_url, key)
+    return _tools._GatewayClient(gw_url, key, identity=system_id)
 
 
 def load_agent_config_for_key(system_id: str = "") -> Optional[dict]:

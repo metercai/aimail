@@ -182,7 +182,7 @@ class _GatewayClient:
         raw_body: Optional[bytes] = None,
         headers: Optional[dict] = None,
     ) -> dict:
-        """"Make an HTTP request to the gateway API. Returns parsed JSON or error dict."""
+        """Make an HTTP request to the gateway API. Returns parsed JSON or error dict."""
         url = f"{self.gateway_url}{path}"
         req_headers = {"Accept": "application/json"}
 
@@ -628,7 +628,11 @@ class _GatewayClient:
         # key prefers self.api_key (caller may hold system/platform key, if it can align then it truly aligns), falls back to agent key only if empty.
         try:
             _sync_key = str(getattr(self, "api_key", "") or "") or str(cfg.get("api_key") or "")
-            _sync_cli = _GatewayClient(self.gateway_url, _sync_key)
+            # identity = sid resolves both a system-level key (system_id=sid)
+            # and the just-activated agent key (also carries system_id=sid) —
+            # the gateway matches `domain_addr=? OR system_id=?`. Without it
+            # D1 refuses the signed request with 401 identity_required.
+            _sync_cli = _GatewayClient(self.gateway_url, _sync_key, identity=sid)
             _rows = _sync_cli.list_system_domains(sid) or []
             _synced = False
             for _d in _rows:
@@ -1379,7 +1383,8 @@ def role_calibrator() -> dict:
     config = _load_profile_config()
     if not config or not config.get("api_key"):
         return {"success": False, "error": "not activated"}
-    client = _GatewayClient(config["gateway_url"], config["api_key"])
+    client = _GatewayClient(config["gateway_url"], config["api_key"],
+                            identity=config.get("email", ""))
     res = client._request("POST", "/api/v1/system/welcome", body={"to": []})
     status = int(res.get("status") or 0)
     if 200 <= status < 300:
@@ -1437,7 +1442,8 @@ def send_mail(
     if not base_email:
         return {"success": False, "error": "aimail email not configured for this profile — cannot send"}
 
-    client = _GatewayClient(config["gateway_url"], config["api_key"])
+    client = _GatewayClient(config["gateway_url"], config["api_key"],
+                            identity=config.get("email", ""))
 
     # ── Resolve message metadata once (avoids duplicate HTTP round-trip) ──
     msg_meta = _load_message_meta(message_id) if message_id else None
@@ -1642,7 +1648,8 @@ def manage_contacts(
     if not config:
         return {"success": False, "error": "aimail not configured for this profile"}
 
-    client = _GatewayClient(config["gateway_url"], config["api_key"])
+    client = _GatewayClient(config["gateway_url"], config["api_key"],
+                            identity=config.get("email", ""))
     # Agent whitelist is per-profile, not per-domain.
     # domain_addr = aimail address (agent-1@mail.project.com)
     email_addr = config.get("email", "")
@@ -1669,7 +1676,8 @@ def manage_contacts(
         manager_addr = config.get("manager_address", "")
         if not manager_addr:
             return {"success": False, "error": "No manager_address configured — cannot send approval request"}
-        client_mgr = _GatewayClient(config["gateway_url"], config["api_key"])
+        client_mgr = _GatewayClient(config["gateway_url"], config["api_key"],
+                                    identity=config.get("email", ""))
         description = kwargs.get("description", "") if kwargs else ""
         desc_line = f"\ndescription: {description}" if description else ""
         result = client_mgr.send_mail(
@@ -1732,7 +1740,8 @@ def contact_profile(address: str = "", name: str = "") -> dict:
     config = _load_profile_config()
     if not config:
         return {"address": address, "profile": None}
-    client = _GatewayClient(config["gateway_url"], config["api_key"])
+    client = _GatewayClient(config["gateway_url"], config["api_key"],
+                            identity=config.get("email", ""))
 
     # Search by address (exact match) — semantic endpoint
     if address:
@@ -1758,7 +1767,8 @@ def set_contact_profile(address: str, profile: str) -> dict:
     config = _load_profile_config()
     if not config:
         return {"success": False, "error": "no profile config"}
-    client = _GatewayClient(config["gateway_url"], config["api_key"])
+    client = _GatewayClient(config["gateway_url"], config["api_key"],
+                            identity=config.get("email", ""))
     return client.put_contact(address, profile)
 
 # ═══════════════════════════════════════════════════════════════

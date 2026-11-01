@@ -81,7 +81,8 @@ def _board_client(board_key: str, cfg: dict):
     token = _get_board_token(board_id) if board_id else None
     if token:
         return _GatewayClient(gateway_url, ""), token
-    return _GatewayClient(gateway_url, cfg.get("api_key", "")), token
+    return _GatewayClient(gateway_url, cfg.get("api_key", ""),
+                          identity=cfg.get("email", "")), token
 
 
 def board_task_show(task_id: str) -> str:

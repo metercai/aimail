@@ -30,8 +30,8 @@ class _FakeGateway:
     """Gateway stub: already holds a **different** secret (preset), records all update writes."""
     writes: list = []
 
-    def __init__(self, url="", key=""):
-        self.url, self.key = url, key
+    def __init__(self, url="", key="", identity=""):
+        self.url, self.key, self.identity = url, key, identity
 
     def list_system_domains(self, sid):
         return [{"id": "9", "domain": EMAIL}]
