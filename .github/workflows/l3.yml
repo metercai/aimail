@@ -88,14 +88,26 @@ jobs:
           - { platform: windows-amd64, os: windows-latest, agent: dsh-plugin }
 
     timeout-minutes: 45
-    # 手动 dispatch 可只跑一格；workflow_call / schedule 不受影响（非 dispatch 一律全跑）
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.cell == '' || inputs.cell == format('{0}/{1}', matrix.platform, matrix.agent) }}
     env:
       LLM_API_KEY: ${{ secrets.XIAOMI_API_KEY }}
       # 留空 => 脚本内 ${WELCOME_TIMEOUT:-120} 生效（arm64 分支另有 300）
       WELCOME_TIMEOUT: ${{ inputs.welcome_timeout }}
     steps:
+      - name: Dispatch filter (only when workflow_dispatch passes a cell)
+        id: filter
+        shell: bash
+        run: |
+          CELL="${{ inputs.cell }}"
+          if [ -z "$CELL" ] || [ "$CELL" = "${{ matrix.platform }}/${{ matrix.agent }}" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "cell=${{ matrix.platform }}/${{ matrix.agent }} will run (filter='${CELL}')"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::skipped by dispatch filter: filter='${CELL}', this cell=${{ matrix.platform }}/${{ matrix.agent }}"
+          fi
+
       - name: Checkout aimail (scripts + L3 tests)
+        if: steps.filter.outputs.run == 'true'
         uses: actions/checkout@v4
         with:
           path: aimail
@@ -105,6 +117,7 @@ jobs:
       # and the triggering repo's GITHUB_TOKEN cannot access it (measured 404); also, L3's principle is that artifacts under test never come from the working tree.
 
       - name: L3 gate (agent env → published CLI+gateway → closed loop)
+        if: steps.filter.outputs.run == 'true'
         shell: bash
         run: |
           # bash on windows-latest is git-bash; set PATH for the agent toolchains.
@@ -124,6 +137,7 @@ jobs:
           exit "$rc"
 
       - name: Upload L3 artifacts (logs)
+        if: steps.filter.outputs.run == 'true'
         if: always()
         uses: actions/upload-artifact@v4
         with:
