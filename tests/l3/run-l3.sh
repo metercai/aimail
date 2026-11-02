@@ -57,6 +57,28 @@ gap() { printf '\033[35m⊘ ENV GAP: %s\n' "$*"; exit 2; }
 # and l3-logs artifacts. Three hops = ① gateway delivery ② inbound ledger (agentmail.log) ③ host original words (agent host log);
 # Also attach "which interpreter the SDK lands in" and hermes's platform_toolsets (historically known gap: missing it ⇒ agent
  # it can receive but not send out). Previously it only printed "no reply" ⇒ we could only guess; in practice the cause was undeterminable.
+archive_agent_state() {
+  # Bounded snapshot of what the agent actually persisted. Runs on failure AND
+  # on success: a green cell needs the same evidence to prove *why* it was green
+  # (e.g. did it look the mail up at all?), otherwise red/green differences get
+  # attributed to the platform or the install path instead of to behaviour.
+  [ -n "${L3_LOG_ARCHIVE:-}" ] || return 0
+  [ -n "${_L3_ARCHIVED:-}" ] && return 0
+  _L3_ARCHIVED=1
+  local arch="$L3_LOG_ARCHIVE/state-archive" d
+  mkdir -p "$arch" 2>/dev/null
+  for d in "${DSH_HOME:-$HOME/.dsh}/storages" "${DSH_HOME:-$HOME/.dsh}/logs" \
+           "${DSH_HOME:-$HOME/.dsh}/sessions" "$HOME/.aimail/systems"; do
+    [ -d "$d" ] || continue
+    ( cd "$(dirname "$d")" && tar czf "$arch/$(basename "$d").tgz" --exclude='*.db' --exclude='*.db-wal' --exclude='*.db-shm' "$(basename "$d")" 2>/dev/null )
+  done
+  find "$HOME/.aimail/systems" -maxdepth 4 -name '*.log' -size -2M 2>/dev/null | while read -r f; do
+    mkdir -p "$arch/aimail-logs/$(dirname "${f#$HOME/.aimail/systems/}")" 2>/dev/null
+    cp "$f" "$arch/aimail-logs/${f#$HOME/.aimail/systems/}" 2>/dev/null
+  done
+  echo "  [archive] state archived to $arch"
+}
+
 dump_failure_evidence() {
   local h g f found_am=0 skill pat
   # Single source of truth for contract constants: SKILL names in search terms **are read from the manifest** — hardcoded literals will collide with contract literal ratchets
@@ -69,26 +91,7 @@ PY
   pat="Response for webhook|toolset|not registered|unknown name|send_mail|ImportError|ModuleNotFound"
   [ -n "$skill" ] && pat="$pat|$skill"
   echo "  ────────── Failure forensics dump ──────────"
-  # Full state archive (bounded): the dsh session file only persists summary rows
-  # (title/titleInput + token accounting + turn outline) — message bodies and tool
-  # call arguments/results are NOT in it, so a turn that ends without an outbound
-  # leave no trace in the text dump. Copy the raw state trees instead of guessing.
-  if [ -n "${L3_LOG_ARCHIVE:-}" ]; then
-    local arch="$L3_LOG_ARCHIVE/state-archive"
-    mkdir -p "$arch" 2>/dev/null
-    for d in "${DSH_HOME:-$HOME/.dsh}/storages" "${DSH_HOME:-$HOME/.dsh}/logs" \
-             "${DSH_HOME:-$HOME/.dsh}/sessions" "$HOME/.aimail/systems"; do
-      [ -d "$d" ] || continue
-      ( cd "$(dirname "$d")" && tar czf "$arch/$(basename "$d").tgz" --exclude='*.db' --exclude='*.db-wal' --exclude='*.db-shm' "$(basename "$d")" 2>/dev/null )
-    done
-    # per-address aimail logs (the agent's own outbound/send trail)
-    find "$HOME/.aimail/systems" -maxdepth 4 -name '*.log' -size -2M 2>/dev/null | while read -r f; do
-      mkdir -p "$arch/aimail-logs/$(dirname "${f#$HOME/.aimail/systems/}")" 2>/dev/null
-      cp "$f" "$arch/aimail-logs/${f#$HOME/.aimail/systems/}" 2>/dev/null
-    done
-    echo "  [archive] state archived to $arch:"
-    ls -la "$arch" 2>/dev/null | sed 's/^/    /' | head -12
-  fi
+  archive_agent_state
   for h in "$WORK"/*-host.log; do
     [ -f "$h" ] || continue
     echo "  [③Host original words] $h (tail -40)"
@@ -256,7 +259,7 @@ LOG="$WORK/l3.log"
 # Log archive: on failure workflow uploads $HOME/l3-logs (full OS deterministic path); EXIT trap fallback lands final log
 LOG_ARCHIVE="${L3_LOG_ARCHIVE:-$HOME/l3-logs}"
 mkdir -p "$LOG_ARCHIVE" 2>/dev/null || true
-trap 'cp -f "$WORK"/* "$LOG_ARCHIVE/" 2>/dev/null; cp -f "$LOG" "$LOG_ARCHIVE/" 2>/dev/null; true' EXIT
+trap 'archive_agent_state; cp -f "$WORK"/* "$LOG_ARCHIVE/" 2>/dev/null; cp -f "$LOG" "$LOG_ARCHIVE/" 2>/dev/null; true' EXIT
 
 # Asset name platform → release asset suffix
 asset_suffix() {
