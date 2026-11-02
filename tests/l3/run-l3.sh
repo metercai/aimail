@@ -365,6 +365,11 @@ path = ${GW_PATH_TOML}
 level = "info"
 [admin]
 email = "admin@l3.local"
+# L3 在单机 CI 上跑：agent inbound 是 127.0.0.1，属私有部署。
+# 网关默认拒绝私网/回环 webhook 目标（SSRF 防护），这里必须显式放开，
+# 否则 agent 注册会以 webhook_target_not_allowed 失败 → welcome 400。
+[webhook]
+allow_private_targets = true
 EOF
 say "starting gateway…"
 "$GW_BIN" --config "$GW_HOME/config.toml" > "$GW_HOME/boot.log" 2>&1 &
