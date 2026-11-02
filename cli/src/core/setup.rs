@@ -63,10 +63,17 @@ pub fn setup(a: &SetupArgs) -> Value {
     if !a.admin_key.is_empty() {
         let mut system_id = a.system_id.clone();
         // D1: the admin_key is system-level ⇒ identity = system_id. When the
-        // caller did not give one, whoami 401s under D1 and returns {} — the
-        // existing warning branch below handles that (and the `system_id is
-        // required` error at the end still fires).
-        let me = crate::core::gateway::whoami(&a.gateway_url, &a.admin_key, &system_id);
+        // caller did not give one, authenticate with the agent-side system
+        // key's fixed identity (SYSTEM_KEY_DOMAIN_ADDR — its provisioned
+        // domain_addr) so whoami resolves the key and returns its real
+        // system_id, adopted below (L3 2026-11-02: empty identity 401s under
+        // D1, and the plugin path carries no --system-id).
+        let discovery_identity = if system_id.is_empty() {
+            crate::core::gateway::SYSTEM_KEY_DOMAIN_ADDR
+        } else {
+            system_id.as_str()
+        };
+        let me = crate::core::gateway::whoami(&a.gateway_url, &a.admin_key, discovery_identity);
         let me_empty = matches!(&me, Value::Object(m) if m.is_empty());
         if !me_empty {
             let cat = me

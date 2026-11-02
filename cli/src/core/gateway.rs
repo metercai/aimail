@@ -25,6 +25,16 @@ use crate::core::sig;
 use serde_json::{json, Map, Value};
 use std::time::Duration;
 
+/// Fixed identity of the agent-side system key, as provisioned by the
+/// gateway (`SYSTEM_KEY_DOMAIN_ADDR`, gateway server.rs). The key's
+/// `domain_addr` is this literal, so D1's identity lookup
+/// (`domain_addr = ? OR system_id = ?`) resolves it with identity = `.system`
+/// and whoami returns the key's real system_id — the discovery path the
+/// setup worker uses when the caller gave no system_id (L3 2026-11-02:
+/// dsh-plugin install --system-only, no --system-id flag, env five-piece set
+/// only).
+pub const SYSTEM_KEY_DOMAIN_ADDR: &str = ".system";
+
 /// Gateway client (reusable for stats / domain / renew / welcome / check cloud probes).
 pub struct GatewayClient {
     base: String,
