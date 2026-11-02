@@ -69,6 +69,26 @@ PY
   pat="Response for webhook|toolset|not registered|unknown name|send_mail|ImportError|ModuleNotFound"
   [ -n "$skill" ] && pat="$pat|$skill"
   echo "  ────────── Failure forensics dump ──────────"
+  # Full state archive (bounded): the dsh session file only persists summary rows
+  # (title/titleInput + token accounting + turn outline) — message bodies and tool
+  # call arguments/results are NOT in it, so a turn that ends without an outbound
+  # leave no trace in the text dump. Copy the raw state trees instead of guessing.
+  if [ -n "${L3_LOG_ARCHIVE:-}" ]; then
+    local arch="$L3_LOG_ARCHIVE/state-archive"
+    mkdir -p "$arch" 2>/dev/null
+    for d in "${DSH_HOME:-$HOME/.dsh}/storages" "${DSH_HOME:-$HOME/.dsh}/logs" \
+             "${DSH_HOME:-$HOME/.dsh}/sessions" "$HOME/.aimail/systems"; do
+      [ -d "$d" ] || continue
+      ( cd "$(dirname "$d")" && tar czf "$arch/$(basename "$d").tgz" --exclude='*.db' --exclude='*.db-wal' --exclude='*.db-shm' "$(basename "$d")" 2>/dev/null )
+    done
+    # per-address aimail logs (the agent's own outbound/send trail)
+    find "$HOME/.aimail/systems" -maxdepth 4 -name '*.log' -size -2M 2>/dev/null | while read -r f; do
+      mkdir -p "$arch/aimail-logs/$(dirname "${f#$HOME/.aimail/systems/}")" 2>/dev/null
+      cp "$f" "$arch/aimail-logs/${f#$HOME/.aimail/systems/}" 2>/dev/null
+    done
+    echo "  [archive] state archived to $arch:"
+    ls -la "$arch" 2>/dev/null | sed 's/^/    /' | head -12
+  fi
   for h in "$WORK"/*-host.log; do
     [ -f "$h" ] || continue
     echo "  [③Host original words] $h (tail -40)"
