@@ -137,8 +137,7 @@ jobs:
           exit "$rc"
 
       - name: Upload L3 artifacts (logs)
-        if: steps.filter.outputs.run == 'true'
-        if: always()
+        if: always() && steps.filter.outputs.run == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: l3-${{ matrix.platform }}-${{ matrix.agent }}-logs
