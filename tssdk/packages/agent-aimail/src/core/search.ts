@@ -292,21 +292,24 @@ export async function searchLocalMail(email: string, opts: SearchOptions = {}): 
         }
       }
       if (!usedFts) {
+        // words=[] with filters must not emit a leading ' AND '
+        // (L3 2026-11-02: `FROM emails AND dir=?` syntax error swallowed below).
         const likeCols = ['subject', 'body', 'att_text']
+        const likeConds: string[] = []
         const likeParams: unknown[] = []
-        let likeWhere = ''
         if (words.length) {
-          const perWord: string[] = []
           for (const w of words) {
-            perWord.push('(' + likeCols.map(c => `${c} LIKE ?`).join(' OR ') + ')')
+            likeConds.push('(' + likeCols.map(c => `${c} LIKE ?`).join(' OR ') + ')')
             likeCols.forEach(() => likeParams.push(`%${w}%`))
           }
-          likeWhere = ' WHERE ' + perWord.join(' AND ')
         }
+        const allConds = [...likeConds, ...where]
+        const allParams = [...likeParams, ...params]
+        const whereSql = allConds.length ? ' WHERE ' + allConds.join(' AND ') : ''
         rows = db.prepare(
           'SELECT mid,dir,ts,subject,from_addr,to_json,body,att_text,thread_id FROM emails' +
-          `${likeWhere}${cond} ORDER BY ts DESC LIMIT ?`,
-        ).all(...likeParams, ...params, limit)
+          `${whereSql} ORDER BY ts DESC LIMIT ?`,
+        ).all(...allParams, limit)
         usedFts = true
       }
     } catch (e) {
