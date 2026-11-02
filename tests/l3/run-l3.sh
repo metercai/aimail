@@ -415,7 +415,7 @@ export AIMAIL_MANAGER_ADDRESS="manager@l3-mgr.example"
 # Window itself is in published CLI (welcome poll_reply, --timeout flag configurable,
 # default 120 unchanged) ⇒ this line requires corresponding CLI release to take effect in L3.
 case "${L3_PLATFORM:-}" in
-  linux-arm64|macos-arm64) WELCOME_TIMEOUT=300 ;;
+  linux-arm64|macos-arm64) WELCOME_TIMEOUT="${WELCOME_TIMEOUT:-300}" ;;   # explicit value (e.g. workflow dispatch welcome_timeout) wins
 esac
 curl -fsSL "https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh" | bash \
   || die "online bootstrap failed (published CLI unavailable)"

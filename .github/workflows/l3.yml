@@ -39,7 +39,16 @@ on:
   workflow_call:          # invoked by publish.yml after a successful release
   schedule:
     - cron: "17 3 * * *"  # nightly — catches "post-release drift"
-  workflow_dispatch: {}   # explicit empty object — a null value makes GitHub not register the trigger (dispatch API 422)
+  workflow_dispatch:       # explicit object (a null value makes GitHub not register the trigger: dispatch API 422)
+    inputs:
+      cell:
+        description: "只跑一格：<platform>/<agent>，如 linux-amd64/dsh-aimail；留空 = 全矩阵"
+        required: false
+        default: ""
+      welcome_timeout:
+        description: "welcome 回复等待秒数（留空 = 脚本默认：arm64 300 / 其他 120）"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -79,8 +88,12 @@ jobs:
           - { platform: windows-amd64, os: windows-latest, agent: dsh-plugin }
 
     timeout-minutes: 45
+    # 手动 dispatch 可只跑一格；workflow_call / schedule 不受影响（非 dispatch 一律全跑）
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.cell == '' || inputs.cell == format('{0}/{1}', matrix.platform, matrix.agent) }}
     env:
       LLM_API_KEY: ${{ secrets.XIAOMI_API_KEY }}
+      # 留空 => 脚本内 ${WELCOME_TIMEOUT:-120} 生效（arm64 分支另有 300）
+      WELCOME_TIMEOUT: ${{ inputs.welcome_timeout }}
     steps:
       - name: Checkout aimail (scripts + L3 tests)
         uses: actions/checkout@v4
