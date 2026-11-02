@@ -93,7 +93,7 @@ gateway ──POST──►      │                                  │
 ```
 gateway (公网)                              NAT/防火墙内
   │                                          │
-  │◄── GET /api/v1/admin/pending/stream (SSE 流；long-poll 降级,默认 10s) │ bridge (出站，无需开放端口)
+  │◄── GET /api/v1/admin/pending/stream (SSE with Polling Fallback) │ bridge (出站，无需开放端口)
   │                                          │
   │── batches [{body, deliveries}] ─────────►│
   │                                          │

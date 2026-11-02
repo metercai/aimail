@@ -100,7 +100,7 @@ gateway ──POST──►      │                                  │
 ```
 gateway (public)                              behind NAT/firewall
   │                                               │
-  │◄── GET /api/v1/admin/pending/stream (SSE; long-poll fallback, 10s)│ bridge (outbound only)
+  │◄── GET /api/v1/admin/pending/stream (SSE with Polling Fallback)│ bridge (outbound only)
   │                                               │
   │── batches [{body, deliveries}] ──────────────►│
   │                                               │
