@@ -446,7 +446,11 @@ case "$AGENT" in
     ;;
   dsh-aimail|hermes)
     # README: aimail install (AGENT_HOME env provides home; shared with welcome)
-    "$AIMAIL_BIN" install \
+    # --system-id: the key handed in by the operator belongs to a system the script
+    # already knows (step ② printed it). Since the gateway requires X-Api-Identity on
+    # every signed call, the CLI cannot probe an unknown key to discover its system, so
+    # the id has to be supplied — otherwise install stops at "system_id is required".
+    "$AIMAIL_BIN" install --system-id "$SYSTEM_ID" \
       || die "aimail install failed (README CLI path)"
     ;;
 esac
