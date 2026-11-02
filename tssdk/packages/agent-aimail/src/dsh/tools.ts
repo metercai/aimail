@@ -53,12 +53,28 @@ const run = <T>(p: Promise<T>): Promise<JsonValue> => p as unknown as Promise<Js
  */
 function toDshParam(p: MailToolParam): ParameterPropertySpec {
   const base: Record<string, unknown> = {}
-  if (p.type === 'string') {
-    base.type = 'string'
-    if (p.enum !== undefined) base.enum = p.enum
-  } else {
-    base.type = 'array'
-    if (p.items !== undefined) base.items = { type: p.items.type }
+  switch (p.type) {
+    case 'string':
+      base.type = 'string'
+      if (p.enum !== undefined) base.enum = p.enum
+      break
+    case 'integer':
+      // 2026-11-02 L3 defect F: search_mail.limit used to be exposed as an
+      // array (non-string ⇒ `array`), so the model's scalar limit was rejected
+      // with '"limit" must be an array'.
+      base.type = 'integer'
+      if (p.default !== undefined) base.default = p.default
+      break
+    case 'number':
+      base.type = 'number'
+      break
+    case 'boolean':
+      base.type = 'boolean'
+      break
+    case 'array':
+      base.type = 'array'
+      if (p.items !== undefined) base.items = { type: p.items.type }
+      break
   }
   if (p.description !== undefined) base.description = p.description
   // Audit 2026-09-21: default must also be passed through to the host schema (same standard as mail-core TypeBox conversion)

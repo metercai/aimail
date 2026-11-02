@@ -4,7 +4,10 @@
  * preprocess_mail_payload / process_inbound_mail / handle_ping_pong.
  *
  * dsh differences (explicit in contract): no persona (PERSONA_SUPPORTED=false
- * → my_aimail_addr = base email); no raw snapshot; log events MUST be kept.
+ * → my_aimail_addr = base email); log events MUST be kept.
+ * (Inbound snapshot + FTS index ARE written — step 14c, mirror Python
+ * store_inbound_message; the former "no raw snapshot" line is retired,
+ * 2026-11-02 L3, because it had become the reason inbound went un-indexed.)
  */
 import { promises as fsp } from 'node:fs'
 import * as path from 'node:path'
@@ -13,7 +16,7 @@ import { GatewayClient } from './gateway.js'
 import { cleanAddr, loadAgentConfig, systemDir } from './config.js'
 import { sendMail, sanitizeMessageId } from './tools.js'
 import { appendLog } from './log.js'
-import { saveLocalMeta, threadPath, agentMailDir } from './meta.js'
+import { saveLocalMeta, saveInboundSnapshot, threadPath, agentMailDir } from './meta.js'
 import { boardInviteFrom, registerBoardGateway } from './board.js'
 import type { AgentConfig, EnrichedPayload, InboundPayload } from './types.js'
 import type { ToolCtx, ToolResult } from './tools.js'
@@ -719,13 +722,23 @@ export async function processInboundMail(
     )
   }
 
-  // step 14c: always-write local meta for inbound (reply chain dependency, not controlled by snapshot switch
-  // ) — mirror Python store_inbound_message (meta/{xx}/{mid}.json).
+  // step 14c: local meta + optional raw snapshot + FTS index for inbound —
+  // mirror Python store_inbound_message (aimail_base.py:1479), which lives in
+  // the SHARED preprocess pipeline: meta always written (reply-chain
+  // dependency), snapshot + index gated by save_raw_snapshots (default on).
+  // 2026-11-02 L3: before this, only saveLocalMeta ran here and the snapshot+
+  // index call was stranded in core/agent-level.ts (scenario-1 chain only), so
+  // the dsh/openclaw/pi shared chain NEVER indexed inbound — search_mail
+  // could not see delivered mail (QA: 3 platforms red, "no local mail index yet").
   const midRaw = (result.message_id as string) ?? ''
   const myAddrMeta = result.my_aimail_addr as string
   if (midRaw && myAddrMeta) {
-    const refs = Array.isArray(payload.references) ? payload.references : []
-    await saveLocalMeta(cfg.email, midRaw, refs, myAddrMeta, 'inbound')
+    const refs = Array.isArray(payload.references) ? payload.references : undefined
+    if (cfg.save_raw_snapshots !== false) {
+      await saveInboundSnapshot(cfg.email, midRaw, result, refs, myAddrMeta)
+    } else {
+      await saveLocalMeta(cfg.email, midRaw, refs, myAddrMeta, 'inbound')
+    }
   }
 
   // step 15: inbound log

@@ -13,6 +13,14 @@ export function toTypeBoxParam (p: MailToolParam): TSchema {
   let base: TSchema
   if (p.type === 'array') {
     base = Type.Array(Type.String())
+  } else if (p.type === 'integer') {
+    // 2026-11-02 L3: limit (search_mail) was exposed as Type.String() — the
+    // model was told to pass a string for a numeric field.
+    base = Type.Integer()
+  } else if (p.type === 'number') {
+    base = Type.Number()
+  } else if (p.type === 'boolean') {
+    base = Type.Boolean()
   } else if (p.enum && p.enum.length > 0) {
     base = Type.Union([...p.enum.map(e => Type.Literal(e))])
   } else {

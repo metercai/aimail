@@ -19,7 +19,6 @@ import * as path from 'node:path'
 
 import { AGENT_SKILL_NAME } from './contract.js'
 import { AGENT_TOOL_NAMES } from './agent-tools.js'
-import { saveInboundSnapshot, saveLocalMeta } from './meta.js'
 import {
   processInboundMail,
 } from './preprocess.js'
@@ -134,24 +133,10 @@ export async function startAgentLevel(
       )
       // null = the pipeline consumed the frame (ping/pong): no agent turn.
       if (enriched === null) return
-      // Snapshot parity with the Python chain (store_inbound_message): local
-      // meta always, the snapshot when save_raw_snapshots is on. Without it the
-      // local search tool could never see inbound mail.
-      const mid = String((enriched as Record<string, unknown>)['message_id'] ?? '')
-      if (mid) {
-        if (cfg.save_raw_snapshots !== false) {
-          await saveInboundSnapshot(
-            cfg.email, mid, enriched as unknown as Record<string, unknown>,
-            (enriched as Record<string, unknown>)['references'] as string | string[] | undefined,
-            cfg.email,
-          )
-        } else {
-          // snapshot off ⇒ still record meta (threading depends on it)
-          await saveLocalMeta(cfg.email, mid,
-            (enriched as Record<string, unknown>)['references'] as string | string[] | undefined,
-            cfg.email, 'inbound')
-        }
-      }
+      // 2026-11-02 L3: meta + snapshot + FTS index now happen INSIDE
+      // processInboundMail (step 14c, mirror Python store_inbound_message) —
+      // the former explicit saveInboundSnapshot/saveLocalMeta block here was
+      // removed (double write).
       if (opts.onAgent) await opts.onAgent(enriched, cfg, mail)
     })
   const entryOpts: StartAgentPullEntryOptions = { onEmail: deliver }

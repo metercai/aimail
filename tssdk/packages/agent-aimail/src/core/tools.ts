@@ -230,6 +230,21 @@ function buildMessageId(cfg: AgentConfig): string {
 export { sanitizeMessageId } from './meta.js'
 import type { LocalMeta } from './meta.js'
 
+/**
+ * Normalize a message_id at the tool boundary (2026-11-02 L3 defect E).
+ * Some model routes HTML-escape the angle brackets when copying the id from
+ * the prompt (&lt;…@domain&gt;); the sanitized meta key and the FTS index row
+ * store the RAW id, so the escaped form never matches. Unescape the entities
+ * and trim stray outer whitespace; sanitizeMessageId then canonicalizes.
+ */
+export function normalizeMessageId(mid: string): string {
+  let s = (mid || '').trim()
+  if (s.includes('&lt;') || s.includes('&gt;') || s.includes('&amp;')) {
+    s = s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+  }
+  return s.trim()
+}
+
 // ── message meta (LOCAL meta/{xx}/{mid}.json, always written) ─────
 // Replaces the former gateway agent_state msg:{mid} key (removed gateway-side
 // in the 2026-08-24 localization refactor). Zero HTTP round-trips.
@@ -334,6 +349,9 @@ export interface SendMailArgs {
 export async function sendMail(ctx: ToolCtx, args: SendMailArgs): Promise<ToolResult> {
   const cfg = await requireConfig(ctx.systemId, ctx.email)
   const client = new GatewayClient(cfg.gateway_url, cfg.api_key, 30_000, cfg.email)
+  // 2026-11-02 L3 defect E: some model routes HTML-escape the copied id;
+  // normalize once so threading/reply references match the stored raw id.
+  if (args.message_id !== undefined) args.message_id = normalizeMessageId(args.message_id)
 
   // Recipients kept as lists end-to-end (no join→split round-trip); joined
   // with ',' only at send time (mirrors Python to_list/cc_list).
@@ -618,15 +636,21 @@ export interface EmailSummaryArgs {
 export async function emailSummary(ctx: ToolCtx, args: EmailSummaryArgs): Promise<ToolResult> {
   const cfg = await requireConfig(ctx.systemId, ctx.email)
   const email = cfg.email
-  const mid = (args.message_id || '').trim()
+  // 2026-11-02 L3 defect E: accept HTML-escaped ids too (see normalizeMessageId)
+  const mid = normalizeMessageId(args.message_id)
   const threadId = mid ? await resolveThreadId(email, mid) : ''
-  if (!threadId) return { success: true, thread_id: '', summary: '' }
+  if (!threadId) return { success: true, thread_id: '', summary: '', found: false }
+  // 2026-11-02 L3 criterion ③: `found` tells the model whether this id exists in
+  // the LOCAL mailbox (meta hit) — so "no summary yet" (found=true, summary='')
+  // is distinguishable from "this id is not here" (found=false). Additive field;
+  // thread_id/summary shapes are unchanged.
+  const found = !!(mid && (await readLocalMeta(email, mid)) !== undefined)
   try {
     const raw = await fsp.readFile(threadPath(email, threadId), 'utf-8')
     const data = JSON.parse(raw) as { summary?: string }
-    return { success: true, thread_id: threadId, summary: data.summary ?? '' }
+    return { success: true, thread_id: threadId, summary: data.summary ?? '', found }
   } catch {
-    return { success: true, thread_id: threadId, summary: '' }
+    return { success: true, thread_id: threadId, summary: '', found }
   }
 }
 
@@ -642,8 +666,8 @@ export async function setEmailSummary(ctx: ToolCtx, args: { message_id: string; 
   if (args.summary.length > 2000) {
     return { success: false, error_code: 'SUMMARY_TOO_LONG', max_length: 2000 }
   }
-
-  const threadId = await resolveThreadId(email, args.message_id)
+  // 2026-11-02 L3 defect E: accept HTML-escaped ids too (see normalizeMessageId)
+  const threadId = await resolveThreadId(email, normalizeMessageId(args.message_id))
   if (!args.summary.trim()) {
     // Empty summary = delete thread file (consistent with original gateway semantics)
     try {

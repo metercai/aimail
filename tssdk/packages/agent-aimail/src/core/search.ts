@@ -1,5 +1,5 @@
 /**
- * Local mail full-text search — outbound snapshot FTS5 index + searchMail.
+ * Local mail full-text search — snapshot FTS5 index + searchMail.
  * 1:1 semantic port of Python aimail_tools search_mail / _index_* (2026-09-05).
  *
  * Contract: snapshot file lands on disk FIRST, then an incremental FTS5 row
@@ -9,10 +9,12 @@
  * identical filtering semantics. Failures are silent (warn-only), never
  * blocking mail flow.
  *
- * NOTE: on TS platforms inbound mail intentionally has NO raw snapshot
- * (mail-core preprocess.ts: 'no raw snapshot; log events MUST be kept'), so
- * the TS index covers outbound snapshots only — Python platforms (hermes,
- * deer-flow) index inbound + outbound.
+ * Inbound + outbound are both indexed on TS: processInboundMail (shared
+ * pipeline, mirror of Python store_inbound_message) writes the inbound
+ * snapshot + FTS row for dsh/openclaw/pi/agent-level alike. A header here
+ * once claimed "TS inbound has no snapshot" — stale since the inbound
+ * snapshot call existed in agent-level.ts; 2026-11-02 L3 moved it into the
+ * shared pipeline so every host's inbound is searchable.
  */
 import { promises as fsp } from 'node:fs'
 import * as fs from 'node:fs'

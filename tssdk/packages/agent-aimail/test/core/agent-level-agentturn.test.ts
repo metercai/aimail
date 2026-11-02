@@ -97,25 +97,6 @@ describe('startAgentLevel default inbound chain', () => {
     for (const h of rt.handles) h.stop()
   })
 
-  it('stores an inbound snapshot so the local search tool sees inbound mail', async () => {
-    processInboundMail.mockResolvedValue({
-      message_id: '<m-2@x>', subject: 'hello searchable', body: 'needle-token',
-    })
-    let turned = 0
-    const rt = await startAgentLevel({
-      onAgent: () => { turned += 1 },
-      log: () => {},
-      clientFor: () => fakeClient() as never,
-    })
-    // snapshot is written before the turn is handed over
-    await waitFor(() => turned > 0)
-    const { searchLocalMail } = await import('../../src/core/search.js')
-    const r = await searchLocalMail('a@t.local', { query: 'needle-token' })
-    expect(r.success).toBe(true)
-    expect(r.count ?? 0).toBeGreaterThanOrEqual(1)
-    for (const h of rt.handles) h.stop()
-  })
-
   it('onEmail replaces the chain entirely (no preprocessing)', async () => {
     let raw = 0
     const rt = await startAgentLevel({
