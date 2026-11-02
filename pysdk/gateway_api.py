@@ -115,12 +115,33 @@ class GatewayClient:
 # Standalone API functions (no client instance needed)
 # ═══════════════════════════════════════════════════════════════
 
-def whoami(gw: str, ak: str, identity: str = "") -> dict:
-    """GET /api/v1/whoami — return API key metadata."""
+def whoami(gw: str, ak: str, identity: Optional[str] = None) -> dict:
+    """GET /api/v1/whoami — return API key metadata.
+
+    ``identity`` is **not optional** (gateway >= 1.0.2 contract): it must be
+    the key's email (address-scoped) or its system_id (system key). Omitting
+    it raises TypeError before any request; a blank one raises ValueError —
+    the gateway answers an empty ``X-Api-Identity`` with 401
+    ``identity_required`` and has no server-side key-scan fallback, so an
+    empty identity can never succeed. This SDK does NOT use whoami to
+    discover identity — pass it in.
+
+    (``Optional[str]`` rather than ``str | None``: the package supports
+    Python >= 3.9, where the union syntax is not evaluated lazily.)
+    """
+    if identity is None:
+        raise TypeError(
+            "whoami() missing required argument: 'identity' "
+            "(the key's email or system_id)"
+        )
+    if not identity.strip():
+        raise ValueError(
+            "whoami: identity must not be empty (the key's email or "
+            "system_id). Gateway >= 1.0.2 rejects an empty X-Api-Identity "
+            "with 401 identity_required; there is no server-side key lookup."
+        )
     path = "/api/v1/whoami"
-    headers = {}
-    if identity:
-        headers["X-Api-Identity"] = identity
+    headers = {"X-Api-Identity": identity}
     headers.update(compute_api_signature(ak, "GET", path, b"") or {})
     req = urllib.request.Request(f"{gw}{path}", headers=headers)
     try:

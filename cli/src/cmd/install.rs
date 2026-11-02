@@ -702,6 +702,8 @@ fn install_human(a: &Args) -> i32 {
     // in place (product code path activated, admin_key backfilled), full probe possible ⇒ provide "best known" tri-state.
     // Fail ⇒ loud abort (bridge required but not deployable / GW unreachable), never silent degradation.
     // Probe uses **system-level raw key** (`probe-webhook` requires system scope; domain-level agent key may not have it).
+    // Identity = `sid2` (gateway 1.0.2: X-Api-Identity is mandatory on every API call —
+    // empty identity ⇒ 401, no server-side key-scan fallback).
     let probe_key = {
         let raw = crate::core::config::read_system_raw_key(&sid2);
         if raw.is_empty() {
@@ -710,7 +712,7 @@ fn install_human(a: &Args) -> i32 {
             raw
         }
     };
-    let plan = crate::core::webhookplan::plan_inbound(&gw_url, &probe_key);
+    let plan = crate::core::webhookplan::plan_inbound(&gw_url, &probe_key, &sid2);
     match &plan {
         crate::core::webhookplan::WebhookPlan::Fail { reason } => {
             return fail(&format!("inbound webhook plan failed: {reason}"));

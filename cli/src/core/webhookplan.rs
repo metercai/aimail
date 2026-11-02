@@ -63,8 +63,14 @@ impl WebhookPlan {
 /// Determination inputs (all collected by caller and injected).
 #[derive(Debug, Clone)]
 pub struct PlanInputs {
-    /// Precondition: GW is reachable from local machine.
+    /// Precondition: GW is reachable from local machine (an HTTP response of any status
+    /// counts as reachable; no response at all ⇒ false).
     pub gw_reachable: bool,
+    /// GW answered the whoami probe but rejected it with this HTTP status
+    /// (401 = identity/key mismatch — gateway 1.0.2 requires `X-Api-Identity`).
+    /// `Some` implies `gw_reachable == true`; used to separate "identity rejected"
+    /// from "gateway not reachable" in the Fail reason.
+    pub gw_rejected: Option<u16>,
     /// `AIMAIL_BRIDGE_HOST` (parsed successfully; missing/invalid ⇒ None).
     pub bridge_host: Option<String>,
     /// probe1: probe BRIDGE_HOST from GW perspective (no bridge_host ⇒ None).
@@ -91,10 +97,27 @@ fn inbound_path_open(p: &ProbeResult) -> bool {
 
 /// Single decision function.
 pub fn plan(i: &PlanInputs) -> WebhookPlan {
-    // Precondition: all states depend on GW.
+    // Precondition: all states depend on GW. A gateway that answered with a
+    // rejection (401) is reachable but its identity/key pair was refused —
+    // report that distinctly (owner §C-2: do not surface this as "not reachable").
     if !i.gw_reachable {
         return WebhookPlan::Fail {
             reason: "gateway is not reachable from this machine".into(),
+        };
+    }
+    if let Some(code) = i.gw_rejected {
+        if code == 401 {
+            return WebhookPlan::Fail {
+                reason: "gateway rejected the identity (HTTP 401) — check that the key \
+                          belongs to this system (compare the key's email/system_id with \
+                          --system-id and the gateway's system.id)"
+                    .into(),
+            };
+        }
+        return WebhookPlan::Fail {
+            reason: format!(
+                "gateway rejected the probe (HTTP {code}) — check the key/identity pairing"
+            ),
         };
     }
 
@@ -205,7 +228,7 @@ pub fn parse_probe(v: &serde_json::Value) -> Option<ProbeResult> {
 
 /// GW perspective probes a `host:port` (`POST /api/v1/admin/probe-webhook`, system-scope key).
 /// GW unreachable/unauthenticated/non-object ⇒ `None` (caller degrades to "not probed").
-pub fn probe_gw(gw_url: &str, admin_key: &str, addr: &str) -> Option<ProbeResult> {
+pub fn probe_gw(gw_url: &str, admin_key: &str, identity: &str, addr: &str) -> Option<ProbeResult> {
     if admin_key.is_empty() {
         return None;
     }
@@ -213,7 +236,7 @@ pub fn probe_gw(gw_url: &str, admin_key: &str, addr: &str) -> Option<ProbeResult
     let path = "/api/v1/admin/probe-webhook";
     let body = serde_json::json!({ "addr": addr }).to_string();
     let headers =
-        crate::core::sig::signed_headers(admin_key, "POST", path, Some(body.as_bytes()), "");
+        crate::core::sig::signed_headers(admin_key, "POST", path, Some(body.as_bytes()), identity);
     let (code, resp) = crate::core::http::json_req(
         &format!("{base}{path}"),
         &headers,
@@ -279,16 +302,18 @@ pub fn env_agent_host() -> Option<String> {
 }
 
 /// install inbound mode decision: collect env + local facts + probes, run `plan`.
-/// `gw_reachable` is determined by the response from the GW admin endpoint (GET /admin/systems with system key).
-pub fn plan_inbound(gw_url: &str, admin_key: &str) -> WebhookPlan {
-    let gw_reachable = gw_admin_reachable(gw_url, admin_key);
+/// `gw_reachable` is determined by the response from the GW admin endpoint (GET /whoami with the
+/// system key + its identity); `gw_rejected` records a non-2xx answer (401 = identity/key mismatch).
+pub fn plan_inbound(gw_url: &str, admin_key: &str, identity: &str) -> WebhookPlan {
+    let (gw_reachable, gw_rejected) = gw_admin_reachable(gw_url, admin_key, identity);
     let bridge_host = env_bridge_host();
     let agent_host = env_agent_host();
 
     // probe1: GW perspective probes bridge service (bridge alive = connected).
     let probe_gw_to_bridge = bridge_host.as_ref().and_then(|h| {
-        crate::core::netenv::parse_bridge_host(h)
-            .and_then(|(host, port)| probe_gw(gw_url, admin_key, &format!("{host}:{port}")))
+        crate::core::netenv::parse_bridge_host(h).and_then(|(host, port)| {
+            probe_gw(gw_url, admin_key, identity, &format!("{host}:{port}"))
+        })
     });
     // probe2: bridge perspective probes agent inbound (second hop). Only runs when both bridge+agent are present.
     // Probe endpoint = the bridge's own admin (S1 external bridge / S2 local bridge), not GW.
@@ -302,14 +327,16 @@ pub fn plan_inbound(gw_url: &str, admin_key: &str) -> WebhookPlan {
     };
     // R: GW-side probe of agent inbound (path-level).
     let probe_gw_to_agent = agent_host.as_ref().and_then(|ah| {
-        crate::core::netenv::parse_hostport(ah)
-            .and_then(|(host, port)| probe_gw(gw_url, admin_key, &format!("{host}:{port}")))
+        crate::core::netenv::parse_hostport(ah).and_then(|(host, port)| {
+            probe_gw(gw_url, admin_key, identity, &format!("{host}:{port}"))
+        })
     });
     let gw_is_local = crate::core::gateway::is_local_gateway(gw_url);
     let bridge_deployable = crate::core::bridge_deploy::bridge_deployable();
 
     plan(&PlanInputs {
         gw_reachable,
+        gw_rejected,
         bridge_host,
         probe_gw_to_bridge,
         probe_bridge_to_agent,
@@ -319,30 +346,42 @@ pub fn plan_inbound(gw_url: &str, admin_key: &str) -> WebhookPlan {
     })
 }
 
-/// GW admin endpoint reachability (GET with key; 2xx = reachable).
+/// GW admin endpoint reachability probe, tri-state.
 ///
-/// Probe = `GET /api/v1/whoami` (existing CLI reachability criterion in `pysdk/gateway_api.py:118`):
-/// Any authenticated key returns 200, no scope threshold ⇒ only expresses "gateway is alive and this key is valid", does not mix in
-/// any admin permission assumption. **Do not** use `/api/v1/admin/systems` (this route does not exist ⇒ always 404).
-pub fn gw_admin_reachable(gw_url: &str, admin_key: &str) -> bool {
+/// Probe = `GET /api/v1/whoami` (existing CLI reachability criterion in `pysdk/gateway_api.py`):
+/// any authenticated key returns 2xx; identity mismatch returns 401 (gateway 1.0.2
+/// requires `X-Api-Identity` — **no** server-side key-scan fallback). **Do not** use
+/// `/api/v1/admin/systems` (that route does not exist ⇒ always 404).
+pub fn gw_admin_reachable(gw_url: &str, admin_key: &str, identity: &str) -> (bool, Option<u16>) {
     if admin_key.is_empty() {
         // No key (e.g., reuse path did not obtain one) ⇒ degrade to TCP reachability.
         let Ok(u) = crate::core::bridge_wire::parse_abs_url(gw_url) else {
-            return false;
+            return (false, None);
         };
         let port = u.port.unwrap_or(if u.scheme == "https" { 443 } else { 80 });
-        return crate::core::bridge_wire::tcp_open(
+        let open = crate::core::bridge_wire::tcp_open(
             &u.hostname,
             port,
             std::time::Duration::from_millis(1500),
         );
+        return (open, None);
     }
     let base = gw_url.trim_end_matches('/');
     let path = "/api/v1/whoami";
-    let headers = crate::core::sig::signed_headers(admin_key, "GET", path, None, "");
+    let headers = crate::core::sig::signed_headers(admin_key, "GET", path, None, identity);
     let (code, _) =
         crate::core::http::json_req(&format!("{base}{path}"), &headers, None, Some("GET"), 8);
-    (200..300).contains(&code)
+    // code 0 = no HTTP response at all (connection refused/timeout/DNS) ⇒ not reachable,
+    // and there is no rejection code to record. Any real HTTP status ⇒ the gateway is
+    // up; non-2xx is recorded as the rejection code so the caller can tell
+    // "identity rejected (401)" from "not reachable".
+    let reachable = code != 0;
+    let rejected = if code == 0 || (200..300).contains(&code) {
+        None
+    } else {
+        Some(code)
+    };
+    (reachable, rejected)
 }
 
 #[cfg(test)]
@@ -372,6 +411,7 @@ mod tests {
     fn base() -> PlanInputs {
         PlanInputs {
             gw_reachable: true,
+            gw_rejected: None,
             bridge_host: None,
             probe_gw_to_bridge: None,
             probe_bridge_to_agent: None,
@@ -385,7 +425,43 @@ mod tests {
     fn gw_unreachable_fails_all_states() {
         let mut i = base();
         i.gw_reachable = false;
-        assert!(plan(&i).is_fail());
+        match plan(&i) {
+            WebhookPlan::Fail { reason } => {
+                assert!(reason.contains("not reachable"), "{reason}");
+            }
+            other => panic!("expected Fail, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn gw_rejected_401_is_identity_error_not_unreachable() {
+        // Gateway answered the whoami probe with 401 (identity required/mismatch):
+        // the gateway IS up — the Fail reason must point at the key/identity pairing,
+        // never at "not reachable" (owner §C-2: 401 must not surface as unreachable).
+        let mut i = base();
+        i.gw_reachable = true;
+        i.gw_rejected = Some(401);
+        match plan(&i) {
+            WebhookPlan::Fail { reason } => {
+                assert!(reason.contains("401"), "{reason}");
+                assert!(reason.contains("identity"), "{reason}");
+                assert!(!reason.contains("not reachable"), "{reason}");
+            }
+            other => panic!("expected Fail, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn gw_rejected_other_code_reports_code() {
+        let mut i = base();
+        i.gw_reachable = true;
+        i.gw_rejected = Some(403);
+        match plan(&i) {
+            WebhookPlan::Fail { reason } => {
+                assert!(reason.contains("403"), "{reason}");
+            }
+            other => panic!("expected Fail, got {other:?}"),
+        }
     }
 
     #[test]

@@ -138,6 +138,29 @@ fn replies(map: &[(&str, u16, &str)]) -> BTreeMap<String, (u16, String)> {
 }
 
 #[test]
+fn whoami_empty_identity_fails_before_any_request() {
+    // Python side (owner §C-3): an empty identity raises ValueError BEFORE
+    // any request goes out — there is no request shape to compare, and the
+    // stub must see zero requests.
+    let rp = replies(&[(
+        "/api/v1/whoami",
+        200,
+        r#"{"category":"system_admin","scope":"system","system_id":"s1"}"#,
+    )]);
+    let (purl, prx) = stub_gateway(rp, 1);
+    let py_val = python_call(&format!("ga.whoami({purl:?}, 'k', '')"));
+    assert!(
+        py_val.is_none(),
+        "empty identity must raise before any request (python side fails)"
+    );
+    assert!(
+        prx.recv_timeout(std::time::Duration::from_millis(500))
+            .is_err(),
+        "no request may reach the gateway with an empty identity"
+    );
+}
+
+#[test]
 fn whoami_request_and_result_match_python() {
     let rp = replies(&[(
         "/api/v1/whoami",
@@ -146,26 +169,30 @@ fn whoami_request_and_result_match_python() {
     )]);
     // the Python side
     let (purl, prx) = stub_gateway(rp.clone(), 1);
-    let py_val = python_call(&format!("ga.whoami({purl:?}, 'k', '')"));
+    let py_val = python_call(&format!("ga.whoami({purl:?}, 'k', 's1')"));
     let py_req = prx
         .recv_timeout(std::time::Duration::from_secs(5))
         .expect("the py request");
     // the Rust side
     let (rurl, rrx) = stub_gateway(rp, 1);
-    let rs_val = aimail::core::gateway::whoami(&rurl, "k", "");
+    let rs_val = aimail::core::gateway::whoami(&rurl, "k", "s1");
     let rs_req = rrx
         .recv_timeout(std::time::Duration::from_secs(5))
         .expect("the rs request");
 
     assert_eq!(py_req.method, rs_req.method, "method");
     assert_eq!(py_req.path, rs_req.path, "path");
-    assert!(
-        !rs_req.headers.contains_key("x-api-identity"),
-        "an empty identity => the header is not sent"
+    // Both sides must name the identity on the wire (gateway >= 1.0.2 requires
+    // it; an empty identity is refused client-side on the Python leg).
+    assert_eq!(
+        rs_req.headers.get("x-api-identity"),
+        Some(&"s1".to_string()),
+        "rust sends the identity header"
     );
-    assert!(
-        !py_req.headers.contains_key("x-api-identity"),
-        "the same for Python"
+    assert_eq!(
+        py_req.headers.get("x-api-identity"),
+        Some(&"s1".to_string()),
+        "python sends the identity header"
     );
     for h in ["x-api-timestamp", "x-api-signature"] {
         assert!(py_req.headers.contains_key(h), "Python should send {h}");
@@ -185,10 +212,10 @@ fn whoami_request_and_result_match_python() {
 fn whoami_swallows_http_error_to_empty_object() {
     let rp = replies(&[("/api/v1/whoami", 403, r#"{"error":"nope"}"#)]);
     let (purl, prx) = stub_gateway(rp.clone(), 1);
-    let py_val = python_call(&format!("ga.whoami({purl:?}, 'k', '')"));
+    let py_val = python_call(&format!("ga.whoami({purl:?}, 'k', 's1')"));
     let _ = prx.recv_timeout(std::time::Duration::from_secs(5));
     let (rurl, rrx) = stub_gateway(rp, 1);
-    let rs_val = aimail::core::gateway::whoami(&rurl, "k", "");
+    let rs_val = aimail::core::gateway::whoami(&rurl, "k", "s1");
     let _ = rrx.recv_timeout(std::time::Duration::from_secs(5));
     assert_eq!(rs_val, serde_json::json!({}), "4xx => an empty object");
     if let Some(pv) = py_val {

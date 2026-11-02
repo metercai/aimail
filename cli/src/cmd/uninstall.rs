@@ -97,9 +97,11 @@ fn confirm(msg: &str, yes: bool) -> bool {
 }
 
 /// `list_system_domains` (`aimail_tools._GatewayClient`): GET domain table → array or `data` array.
+/// `sid` doubles as `X-Api-Identity` (gateway 1.0.2 requires it on every API call;
+/// the caller guarantees a non-empty sid before reaching here).
 fn list_system_domains(gw_url: &str, admin_key: &str, sid: &str) -> Option<Vec<Value>> {
     let path = format!("/api/v1/admin/systems/{sid}/domains");
-    let headers = crate::core::sig::signed_headers(admin_key, "GET", &path, None, "");
+    let headers = crate::core::sig::signed_headers(admin_key, "GET", &path, None, sid);
     let url = format!("{}{}", gw_url.trim_end_matches('/'), path);
     let (status, body) = crate::core::http::json_req(&url, &headers, None, Some("GET"), 15);
     if !(200..300).contains(&status) {
