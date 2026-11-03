@@ -351,7 +351,9 @@ export async function sendMail(ctx: ToolCtx, args: SendMailArgs): Promise<ToolRe
   const client = new GatewayClient(cfg.gateway_url, cfg.api_key, 30_000, cfg.email)
   // 2026-11-02 L3 defect E: some model routes HTML-escape the copied id;
   // normalize once so threading/reply references match the stored raw id.
-  if (args.message_id !== undefined) args.message_id = normalizeMessageId(args.message_id)
+  // 2026-11-03: host (dsh) passes args as a FROZEN object — never write back
+  // into args; carry the normalized value in a local (QA regression).
+  const messageId = args.message_id !== undefined ? normalizeMessageId(args.message_id) : undefined
 
   // Recipients kept as lists end-to-end (no join→split round-trip); joined
   // with ',' only at send time (mirrors Python to_list/cc_list).
@@ -361,7 +363,7 @@ export async function sendMail(ctx: ToolCtx, args: SendMailArgs): Promise<ToolRe
     : (Array.isArray(args.cc) ? args.cc : String(args.cc).split(',')).map(s => s.trim()).filter(Boolean)
 
   // Resolve message meta once (threading + persona sender)
-  const msgMeta = args.message_id ? await loadMessageMeta(cfg.email, args.message_id) : undefined
+  const msgMeta = messageId ? await loadMessageMeta(cfg.email, messageId) : undefined
 
   // sender: dsh has no persona — base email (persona normalization contract)
   let sender = cfg.email
@@ -369,17 +371,17 @@ export async function sendMail(ctx: ToolCtx, args: SendMailArgs): Promise<ToolRe
     sender = msgMeta.my_aimail_addr
   }
 
-  const isForward = Boolean(args.message_id && args.subject && args.subject.toLowerCase().startsWith('fw:'))
+  const isForward = Boolean(messageId && args.subject && args.subject.toLowerCase().startsWith('fw:'))
 
   let inReplyTo: string | undefined
   let references: string | undefined
-  if (args.message_id) {
-    if (!isForward) inReplyTo = args.message_id
+  if (messageId) {
+    if (!isForward) inReplyTo = messageId
     if (msgMeta) {
-      const refs = [...(msgMeta.references ?? []), args.message_id]
+      const refs = [...(msgMeta.references ?? []), messageId]
       references = [...new Set(refs)].join(' ')
     } else {
-      references = args.message_id
+      references = messageId
     }
   }
 
@@ -478,7 +480,7 @@ export async function sendMail(ctx: ToolCtx, args: SendMailArgs): Promise<ToolRe
   // auto-bootstrap thread summary for new (non-reply) emails — keyed on the
   // local generated mid (mirrors Python: `if not message_id:`)
   let threadBootstrapped = false
-  if (!args.message_id) {
+  if (!messageId) {
     try {
       await setEmailSummary(ctx, { message_id: generatedMid, summary: `Subject: ${args.subject}\nStatus: awaiting response` })
       threadBootstrapped = true

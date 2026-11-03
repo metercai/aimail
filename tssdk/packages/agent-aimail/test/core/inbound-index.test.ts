@@ -160,17 +160,27 @@ describe('defect E: message_id normalization at the tool boundary (QA ⑤⑥)', 
     expect(orphan.found).toBe(false)
   })
 
-  it('send_mail threads through an HTML-escaped message_id (QA ⑤⑥)', async () => {
+  it('send_mail threads through an HTML-escaped message_id WITHOUT writing back into args (QA ⑤⑥ + 2026-11-03 frozen-args regression)', async () => {
     // The send fails (no gateway), but the outbound meta — written BEFORE the
     // network call — records the threaded references. With the escaped input,
     // pre-fix the references stored the escaped form (threading broken);
-    // post-fix they carry the raw mid. GatewayClient.sendMail is stubbed so
+    // post-fix they carry the raw mid.
+    //
+    // 2026-11-03 regression (QA, run 41553978770): dsh passes args as a
+    // FROZEN object; the original fix wrote back into args
+    // (`args.message_id = normalizeMessageId(...)`) → TypeError on every
+    // send_mail call. args is frozen here so this test fails if any tool
+    // ever mutates its input again (criterion ①); the refs assertions pin
+    // the normalization (criterion ②). GatewayClient.sendMail is stubbed so
     // the failed send returns instantly (status 400 = terminal, no retry
     // backoff — status 0 is retryable and would sleep ~15s).
     const gw = await import('../../src/core/gateway.js')
     vi.spyOn(gw.GatewayClient.prototype, 'sendMail').mockResolvedValue({ status: 400, error: 'stub' } as never)
     await processInboundMail(inboundMail(), {}, CTX)
-    await sendMail(CTX, { to: ['x@y.z'], subject: 're', body: 'b', message_id: ESC_MID })
+    const frozenArgs = Object.freeze({ to: ['x@y.z'], subject: 're', body: 'b', message_id: ESC_MID })
+    expect(Object.isFrozen(frozenArgs)).toBe(true)
+    const r = await sendMail(CTX, frozenArgs as never) // must NOT throw
+    expect(r.success).toBe(false) // stubbed terminal failure — threading already done
     const metaDir = path.join(agentMailDir(AGENT_EMAIL), 'meta')
     const files = ((await fs.readdir(metaDir, { recursive: true }).catch(() => [])) as unknown as string[])
       .filter((f) => f.endsWith('.json'))
@@ -183,6 +193,8 @@ describe('defect E: message_id normalization at the tool boundary (QA ⑤⑥)', 
     const refs = Array.isArray(outbound!.references) ? outbound!.references : [outbound!.references]
     expect(refs).toContain(MID)
     expect(JSON.stringify(outbound!.references)).not.toContain('&lt;')
+    // the caller's args object is untouched (read-only contract)
+    expect(frozenArgs.message_id).toBe(ESC_MID)
     vi.restoreAllMocks()
   })
 })
