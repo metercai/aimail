@@ -123,6 +123,16 @@ for pkg in packages/*/; do
 done
 [ "$orphans" -eq 0 ] || { echo "[L0] FAIL: $orphans orphan artifact(s) in lib/dist"; exit 1; }
 echo "[L0] orphan-artifact guard: all lib/dist artifacts have corresponding src"
+
+# generated code (tool-spec.ts) must never be tracked — the canonical source is
+# pysdk/tool-spec.json, and the package copy is produced at build/prepack time
+# exactly like the staged resources/. A tracked copy would drift from the spec.
+tracked_gen=$(git ls-files "tssdk/packages/agent-aimail/src/generated" | wc -l)
+[ "$tracked_gen" -eq 0 ] || {
+    echo "  ✗ generated artifact is tracked ($tracked_gen file(s)) — canonical is pysdk/tool-spec.json"
+    exit 1
+}
+echo "[L0] generated-artifact guard: src/generated is untracked (canonical = pysdk/tool-spec.json)"
 pnpm test 2>&1 | tail -2
 
 echo "═══ [L0] PASS — all gates green ═══"
