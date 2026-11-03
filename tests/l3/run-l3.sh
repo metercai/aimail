@@ -437,8 +437,14 @@ export AIMAIL_MANAGER_ADDRESS="manager@l3-mgr.example"
 # tokens/step 6/llmRetry empty), turn falls outside (120s,140s] window ⇒ not product regression.
 # Window itself is in published CLI (welcome poll_reply, --timeout flag configurable,
 # default 120 unchanged) ⇒ this line requires corresponding CLI release to take effect in L3.
+# 2026-11-02 (L3 runs 41553978770 / 41557017040 / 41465247989): the 120s window is
+# not an arm64 property. On loaded runners the same cell passes at 300s on
+# linux-amd64 (41557017040 success) and windows-amd64 (41465247989 success) while
+# failing at 120s. Window is a wait budget, not an assertion: unify at 300s for
+# every platform so a red means "the loop did not close", not "the runner was busy".
+# An explicit WELCOME_TIMEOUT (e.g. workflow dispatch welcome_timeout) still wins.
 case "${L3_PLATFORM:-}" in
-  linux-arm64|macos-arm64) WELCOME_TIMEOUT="${WELCOME_TIMEOUT:-300}" ;;   # explicit value (e.g. workflow dispatch welcome_timeout) wins
+  *) WELCOME_TIMEOUT="${WELCOME_TIMEOUT:-300}" ;;
 esac
 curl -fsSL "https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh" | bash \
   || die "online bootstrap failed (published CLI unavailable)"
