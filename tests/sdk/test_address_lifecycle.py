@@ -303,6 +303,33 @@ def test_paused_binding_not_polled(env_home):
     assert d["enabled"] is False and d["reason"] == "paused", d
 
 
+# ── failure feedback: the typed envelope (design 2026-11-03 §1) ────────────
+
+def test_bind_no_local_trace_no_code_is_no_activation_context(env_home):
+    """Tool level: nothing local + no code ⇒ NO_ACTIVATION_CONTEXT (retryable
+    False). The envelope carries the stable code + a behaviour hint — the LLM
+    must not retry or try other paths."""
+    from aimail_tools import aimail_address
+    r = aimail_address("bind", email=ADDR)
+
+    assert r["success"] is False
+    assert r["reason"] == "not-bound", r
+    assert r["error_code"] == "NO_ACTIVATION_CONTEXT", r
+    assert r["retryable"] is False, r
+    assert r["hint"], r
+
+
+def test_bind_no_activation_context_writes_nothing(env_home):
+    """④ no write on the failure path: no binding, no archive, no pointer."""
+    from aimail_tools import aimail_address
+    r = aimail_address("bind", email=ADDR, profile_home=str(env_home["a"]))
+
+    assert r["success"] is False
+    assert r["error_code"] == "NO_ACTIVATION_CONTEXT", r
+    assert not (env_home["aimail"] / "systems").exists()
+    assert list(Path(env_home["a"]).rglob("*")) == []
+
+
 def test_file_as_signal_stops_the_loop_on_pause(env_home):
     """The running loop re-checks its own binding file on every natural
     beat: pausing the binding stops the loop within one interval (no

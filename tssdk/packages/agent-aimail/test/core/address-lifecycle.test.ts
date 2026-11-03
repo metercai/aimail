@@ -213,10 +213,14 @@ describe('aimailAddress — bind', () => {
     }
   })
 
-  it('no local trace + no code ⇒ not-bound (never guessed)', async () => {
+  it('no local trace + no code ⇒ not-bound + NO_ACTIVATION_CONTEXT envelope', async () => {
     const r = await aimailAddressTool({ action: 'bind', email: ADDR })
     expect(r.success).toBe(false)
     expect(r.reason).toBe('not-bound')
+    // typed envelope: stable code + behaviour hint, never retryable
+    expect(r.error_code).toBe('NO_ACTIVATION_CONTEXT')
+    expect(r.retryable).toBe(false)
+    expect(r.hint).toBeTruthy()
   })
 
   it('no local trace + code but no gateway URL ⇒ gateway-url-required', async () => {

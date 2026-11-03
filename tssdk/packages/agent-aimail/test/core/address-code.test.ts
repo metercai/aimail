@@ -93,6 +93,74 @@ describe('activateAddressCode', () => {
     expect(r.success).toBe(false)
     expect(r.status).toBe(403)
     expect(r.error).toContain('pre-bound')
+    // typed envelope: the stable code + behaviour hint, never retryable
+    expect(r.error_code).toBe('CODE_ADDRESS_MISMATCH')
+    expect(r.retryable).toBe(false)
+    expect(r.hint).toBeTruthy()
+  })
+})
+
+/** The stable failure classes (design 2026-11-03 §1.3). Kept independent of
+ *  the implementation on purpose (gate expectation must not read product
+ *  data) and identical to the Python set (test_address_code_error_envelope.py). */
+const EXPECTED_ERROR_CODES = new Set([
+  'NO_ACTIVATION_CONTEXT',
+  'ADDRESS_CODE_UNAVAILABLE',
+  'CODE_INVALID',
+  'CODE_ADDRESS_MISMATCH',
+  'ADDRESS_ACTIVE',
+  'GATEWAY_ERROR',
+  'NETWORK',
+])
+
+describe('activateAddressCode failure → typed envelope', () => {
+  it.each([
+    [404, 'ADDRESS_CODE_UNAVAILABLE'],
+    [400, 'CODE_INVALID'],
+    [403, 'CODE_ADDRESS_MISMATCH'],
+    [409, 'ADDRESS_ACTIVE'],
+    [500, 'GATEWAY_ERROR'],
+    [0, 'NETWORK'],
+  ] as Array<[number, string]>)('status %i ⇒ %s (retryable=%s)', async (status, code) => {
+    const c = new MockClient()
+    c.responses.push({ status, error: 'gateway said no' })
+    const r = await activateAddressCode(c, 'c', 'a@b.test')
+    expect(r.success).toBe(false)
+    expect(r.error_code).toBe(code)
+    expect(r.status).toBe(status)
+    // only the network class (status 0) is retryable
+    expect(r.retryable).toBe(status === 0)
+    expect(r.hint).toBeTruthy()
+    expect(r.error).toContain('gateway said no')
+  })
+
+  it('the emitted error-code set equals the design table (parity)', async () => {
+    const statuses = [404, 400, 403, 409, 500, 0]
+    const emitted = new Set<string>()
+    for (const status of statuses) {
+      const c = new MockClient()
+      c.responses.push({ status, error: 'x' })
+      const r = await activateAddressCode(c, 'c', 'a@b.test')
+      emitted.add(r.error_code!)
+    }
+    // NO_ACTIVATION_CONTEXT is produced at the tool level (asserted in
+    // address-lifecycle.test.ts); the client layer covers the other six.
+    expect(emitted).toEqual(
+      new Set([...EXPECTED_ERROR_CODES].filter((x) => x !== 'NO_ACTIVATION_CONTEXT')),
+    )
+  })
+
+  it('a 2xx success envelope is untouched (no new required fields)', async () => {
+    const c = new MockClient()
+    c.responses.push({
+      status: 200, raw_key: 'rk-1', system_id: 'shared_addr_x',
+      email_address: 'a@b.test', expires_at: '2026-12-31T00:00:00Z',
+    })
+    const r = await activateAddressCode(c, 'c', 'a@b.test')
+    expect(r.success).toBe(true)
+    expect(r.raw_key).toBe('rk-1')
+    expect(r.error_code).toBeUndefined()
+    expect(r.hint).toBeUndefined()
   })
 })
 

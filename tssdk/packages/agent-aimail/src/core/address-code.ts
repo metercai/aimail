@@ -83,9 +83,68 @@ export interface ActivateAddressCodeResult {
    * same mailbox the gateway recorded; empty when the gateway has none.
    */
   manager_address?: string | undefined
-  error?: string | undefined
+  /** Raw HTTP status of the gateway response (0 = network unreachable). */
   status?: number | undefined
+  /** The gateway's own failure wording (present on success too, undefined). */
+  error?: string | undefined
+  /**
+   * Stable failure class (design 2026-11-03 §1): the agent stops instead of
+   * guessing. Present only on failure.
+   */
+  error_code?: string | undefined
+  /** Behaviour hint for the agent (present only on failure). */
+  hint?: string | undefined
+  /** Whether retrying the SAME call can succeed (only NETWORK is true). */
+  retryable?: boolean | undefined
 }
+
+/**
+ * Map a failed activate-address-code response onto the typed envelope
+ * (design 2026-11-03 §1). The transport layer's raw status → a stable
+ * error_code + a behaviour hint, so the agent stops instead of guessing.
+ * Only the network-unreachable class (status 0) is retryable. Codes and
+ * hints are scenario-neutral — no base/advanced wording.
+ */
+const ACTIVATE_ERROR_MAP: Record<number, [string, string]> = {
+  0: ['NETWORK', 'gateway unreachable; retry later'],
+  400: [
+    'CODE_INVALID',
+    'the code was rejected (invalid or expired); request a new one from your administrator',
+  ],
+  403: [
+    'CODE_ADDRESS_MISMATCH',
+    'this code was issued for a different address — check the address/code pairing; do not retry other paths',
+  ],
+  404: [
+    'ADDRESS_CODE_UNAVAILABLE',
+    'this gateway has no address-code service — do not retry other paths',
+  ],
+  409: [
+    'ADDRESS_ACTIVE',
+    'this address is already active — the code cannot redeem it. Do not retry or try other paths; surface this to the user and stop',
+  ],
+}
+// Any other non-2xx (5xx, or an unexpected status) ⇒ surface and stop.
+const ACTIVATE_FALLBACK: [string, string] = [
+  'GATEWAY_ERROR',
+  'internal gateway failure — surface and stop; do not retry from here',
+]
+
+function activateFailureEnvelope(
+  res: GatewayResponse,
+): ActivateAddressCodeResult {
+  const status = typeof res.status === 'number' ? res.status : 0
+  const [code, hint] = ACTIVATE_ERROR_MAP[status] ?? ACTIVATE_FALLBACK
+  return {
+    success: false,
+    status,
+    error: String(res.error ?? `activation failed (status ${status})`),
+    error_code: code,
+    hint,
+    retryable: status === 0,
+  }
+}
+
 
 /**
  * Activate a shared_addr address code. The email is lowercased before
@@ -104,11 +163,7 @@ export async function activateAddressCode(
   })
   const rawKey = res.raw_key as string | undefined
   if (!rawKey) {
-    return {
-      success: false,
-      error: String(res.error ?? 'activation failed'),
-      status: typeof res.status === 'number' ? res.status : undefined,
-    }
+    return activateFailureEnvelope(res)
   }
   return {
     success: true,
@@ -1018,8 +1073,11 @@ export async function aimailAddress(args: AimailAddressArgs): Promise<AimailAddr
     if (!String(args.code ?? '').trim()) {
       return {
         success: false, action: 'bind', reason: 'not-bound',
+        error_code: 'NO_ACTIVATION_CONTEXT',
         error: 'no local binding (active or archived) for this address and no ' +
                'activation code given',
+        hint: 'binding happens during install; nothing to do in this conversation',
+        retryable: false,
         email: addr,
       }
     }

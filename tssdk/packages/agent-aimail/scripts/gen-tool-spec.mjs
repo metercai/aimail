@@ -9,6 +9,10 @@
  * text, three projections — drift is structurally impossible and the parity
  * gate asserts the projection equals the spec.
  *
+ * Usage:  node scripts/gen-tool-spec.mjs [--canon <spec.json>] [--dest <out.ts>]
+ *         (CLI shape mirrors scripts/stage-resources.mjs)
+ * Defaults: canon = <repo>/pysdk/tool-spec.json, dest = src/generated/tool-spec.ts
+ *
  * The generated file is a build artifact (gitignored) — tsc emits it into
  * dist/ like any other src file, so the npm package ships it.
  */
@@ -18,14 +22,20 @@ import { fileURLToPath } from 'node:url'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const pkgRoot = path.resolve(here, '..')
+
+function argOf(flag) {
+  const i = process.argv.indexOf(flag)
+  return i >= 0 ? process.argv[i + 1] : undefined
+}
+
 // Monorepo layout: <repo>/tssdk/packages/agent-aimail/scripts → pkg root is
 // packages/agent-aimail; 3 up from there = repo root.
-const specPath = path.resolve(pkgRoot, '..', '..', '..', 'pysdk', 'tool-spec.json')
-const outPath = path.resolve(pkgRoot, 'src', 'generated', 'tool-spec.ts')
+const canon = argOf('--canon') || path.resolve(pkgRoot, '..', '..', '..', 'pysdk', 'tool-spec.json')
+const dest = argOf('--dest') || path.resolve(pkgRoot, 'src', 'generated', 'tool-spec.ts')
 
-const spec = JSON.parse(readFileSync(specPath, 'utf-8'))
+const spec = JSON.parse(readFileSync(canon, 'utf-8'))
 if (!Array.isArray(spec) || spec.length === 0) {
-  console.error(`gen-tool-spec: malformed spec at ${specPath}`)
+  console.error(`gen-tool-spec: malformed spec at ${canon}`)
   process.exit(1)
 }
 
@@ -56,6 +66,6 @@ export interface ToolSpecEntry {
 
 export const TOOL_SPEC: readonly ToolSpecEntry[] = ${json} as const
 `
-mkdirSync(path.dirname(outPath), { recursive: true })
-writeFileSync(outPath, out)
-console.log(`gen-tool-spec: ${spec.length} tools → ${path.relative(pkgRoot, outPath)}`)
+mkdirSync(path.dirname(dest), { recursive: true })
+writeFileSync(dest, out)
+console.log(`gen-tool-spec: ${spec.length} tools → ${path.relative(pkgRoot, dest)}`)

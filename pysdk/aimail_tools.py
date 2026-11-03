@@ -148,6 +148,54 @@ class _SseParser:
         return ("mail", env["batches"])
 
 
+# ── Address-code failure feedback (design 2026-11-03 §1) ────────────────────
+# The gateway's raw HTTP status → a stable error_code + a behaviour hint, so
+# the agent stops instead of guessing (换参数/换路径). Only the
+# network-unreachable class (status 0) is retryable. Codes + hints are
+# scenario-neutral — no base/advanced wording.
+_ACTIVATE_ERROR_MAP = {
+    0: ("NETWORK", "gateway unreachable; retry later"),
+    400: ("CODE_INVALID",
+          "the code was rejected (invalid or expired); request a new one "
+          "from your administrator"),
+    403: ("CODE_ADDRESS_MISMATCH",
+          "this code was issued for a different address — check the "
+          "address/code pairing; do not retry other paths"),
+    404: ("ADDRESS_CODE_UNAVAILABLE",
+          "this gateway has no address-code service — do not retry other paths"),
+    409: ("ADDRESS_ACTIVE",
+          "this address is already active — the code cannot redeem it. Do "
+          "not retry or try other paths; surface this to the user and stop"),
+}
+# Any other non-2xx (5xx, or an unexpected status) ⇒ surface and stop, never
+# retry. This is the catch-all that keeps the emitted code set exactly the
+# seven design classes.
+_ACTIVATE_FALLBACK = ("GATEWAY_ERROR",
+                      "internal gateway failure — surface and stop; "
+                      "do not retry from here")
+
+
+def _activate_failure_envelope(result: dict) -> dict:
+    """Map a failed activate-address-code response onto the typed envelope.
+
+    ``result`` is the transport layer's parsed failure dict (``status`` +
+    ``error``); ``status`` 0 = network unreachable. Returns
+    ``{success, error_code, error, hint, retryable, status}`` — the stable
+    code, the gateway's own wording (``error``), a behaviour ``hint``, and
+    ``retryable`` (true only for the network class).
+    """
+    status = int(result.get("status") or 0)
+    code, hint = _ACTIVATE_ERROR_MAP.get(status, _ACTIVATE_FALLBACK)
+    return {
+        "success": False,
+        "error_code": code,
+        "error": result.get("error") or "activation failed (status %d)" % status,
+        "hint": hint,
+        "retryable": status == 0,
+        "status": status,
+    }
+
+
 class _GatewayClient:
     def __init__(self, gateway_url: str, api_key: str, timeout: int = 30,
                  identity: str = ""):
@@ -491,16 +539,18 @@ class _GatewayClient:
 
     def activate_address_code(self, code: str, email_address: str) -> dict:
         """POST /api/v1/activate-address-code -- activate a shared_addr address
-        code (open-application plan §2.4). Advanced-only endpoint.
+        code (open-application plan §2.4).
 
         The email is lowercased before sending: the gateway stores the key's
         address lowercased and pull matches on exact email SQL — a case
         mismatch would silently orphan the agent's mail.
 
         Returns ``{"success": True, "raw_key", "system_id", "email_address",
-        "expires_at"}`` on success; ``{"success": False, "error", "status"}``
-        otherwise (400 invalid/expired code, 403 pre-bind mismatch,
-        409 address already active).
+        "expires_at", "manager_address"}`` on success. On failure returns the
+        typed envelope ``{"success": False, "error_code", "error", "hint",
+        "retryable", "status"}`` — the stable code + a behaviour hint so the
+        agent stops instead of guessing (design 2026-11-03 §1). Only the
+        network-unreachable class (status 0) is retryable.
         """
         result = self._request(
             "POST",
@@ -509,11 +559,7 @@ class _GatewayClient:
         )
         raw_key = result.get("raw_key", "")
         if not raw_key:
-            return {
-                "success": False,
-                "error": f"activation failed: {result.get('error', result)}",
-                "status": result.get("status", 0),
-            }
+            return _activate_failure_envelope(result)
         return {
             "success": True,
             "raw_key": raw_key,
@@ -726,7 +772,7 @@ class _GatewayClient:
 
     def pull_list(self, limit: int = 20) -> dict:
         """POST /api/v1/admin/pending with an agent-scope key — the gateway's
-        advanced interception layer serves ONLY this key's own address
+        agent-scope interception serves ONLY this key's own address
         (scope IS the range, open-application plan §2.5). The ``emails``
         request field is accepted for shape compatibility but ignored by
         the server for agent keys.
@@ -1274,8 +1320,12 @@ def aimail_address(
         if not str(code or "").strip():
             return {"success": False, "action": "bind",
                     "reason": "not-bound",
+                    "error_code": "NO_ACTIVATION_CONTEXT",
                     "error": "no local binding (active or archived) for this "
                              "address and no activation code given",
+                    "hint": "binding happens during install; nothing to do "
+                            "in this conversation",
+                    "retryable": False,
                     "email": addr}
         gw = str(gateway_url or os.environ.get("AIMAIL_GW_URL", "")).strip()
         if not gw:
