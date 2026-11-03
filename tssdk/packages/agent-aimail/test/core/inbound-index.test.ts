@@ -32,6 +32,7 @@ import { processInboundMail } from '../../src/core/preprocess.js'
 import { agentMailDir, saveLocalMeta } from '../../src/core/meta.js'
 import { searchLocalMail, searchIndexPath } from '../../src/core/search.js'
 import { searchMail, emailSummary, normalizeMessageId, sendMail } from '../../src/core/tools.js'
+import { BINDING_FILE } from '../../src/core/contract.js'
 import { toTypeBoxParams } from '../../src/core/typebox-params.js'
 import { MAIL_TOOLS } from '../../src/core/tool-registry.js'
 import { cleanAddr } from '../../src/core/config.js'
@@ -53,7 +54,7 @@ async function writeAgentConfig(email: string, extra: Record<string, unknown> = 
   }
   const dir = path.join(home, 'systems', SYSTEM_ID, cleanAddr(email))
   await fs.mkdir(dir, { recursive: true, mode: 0o700 })
-  await fs.writeFile(path.join(dir, 'agentmail.json'), JSON.stringify(cfg, null, 2) + '\n', { mode: 0o600 })
+  await fs.writeFile(path.join(dir, BINDING_FILE), JSON.stringify(cfg, null, 2) + '\n', { mode: 0o600 })
 }
 
 function inboundMail(): InboundPayload {
@@ -77,7 +78,7 @@ async function indexRowCount(email: string): Promise<number> {
 }
 
 beforeAll(async () => {
-  home = await fs.mkdtemp(path.join(os.tmpdir(), 'aimail-inbound-index-'))
+  home = await fs.mkdtemp(path.join(os.tmpdir(), 'aimail-inbound-index-'))  // contract-allowed: temp dir prefix, not the hermes route registration name
   process.env.AIMAIL_HOME = home
 })
 beforeEach(async () => {
