@@ -22,7 +22,7 @@
  * COVERAGE GAP (registered, not hidden): hermes/deer-flow are Python hosts with
  * no `startInboundPull` symbol; their pull wiring is asserted on their own side
  * (`tests/test_*.py`) and behaviourally in the SDK gate E2-pull scenario
- * (aimail-advanced tests/SDK/docker-regression/hosts/run-e2-pull-host.sh).
+ * (the E2P pull-host scenario of the SDK docker-regression harness, run-e2-pull-host.sh).
  */
 import * as fs from 'node:fs'
 import * as path from 'node:path'

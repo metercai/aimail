@@ -166,7 +166,7 @@
   },
   {
     "name": "aimail_address",
-    "description": "Manage your own mailbox: bind it, pause it, resume it, or unbind it. bind: activate with your one-time code (shared_a-…). If you unbound this mailbox before, bind restores it with no code. An already-bound mailbox is returned as-is. pause: stop receiving locally; the cloud key stays active. resume: start receiving again. unbind: detach this mailbox from your agent — you stop receiving new mail for it; bind it again to restore. Self-service — no CLI needed.",
+    "description": "Manage your own mailbox. bind: connect this mailbox to your agent so it receives mail — a fresh mailbox needs the one-time code (shared_a-…). pause: temporarily stop receiving mail for it. resume: resume receiving mail for it. unbind: disconnect this mailbox from your agent — it stops receiving. Self-service — no CLI needed.",
     "parameters": {
       "type": "object",
       "properties": {

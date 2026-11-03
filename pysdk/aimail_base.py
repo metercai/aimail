@@ -1921,9 +1921,9 @@ def iter_agentmail_configs(system_id: str = "") -> list:
 # TS mail-core `src/poll-entry.ts`:
 #
 #   - **Enabled only for agent-level activation artifacts**: binding system_id starts with `shared_addr_`.
-#     This is a ready-made fact on the gateway side (only activation codes under that host system can be redeemed —— advanced
-#     `src/advanced/api/address.rs`: `if !sid.starts_with("shared_addr_")
-#     { return Ok(Err(ActErr::Invalid)); }`), platform registration/product creation paths **never** produce
+#     This is a ready-made fact on the gateway side: address codes can only be redeemed under a
+#     `shared_addr_*` host system (a gateway-side guard rejects every other system_id at redemption),
+#     while platform registration/product creation paths **never** produce
 #     that prefix ⇒ system/bridge bindings (using push) will not be misjudged.
 #   - **No ack on failure / deduplication**: guaranteed by start_polling (on_email throws ⇒ no ack +
 #     re-fetch next round; dedup key = delivery id).

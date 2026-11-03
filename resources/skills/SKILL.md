@@ -33,7 +33,7 @@ Each inbound email arrives as a JSON message. Key fields:
 | `direct_message` | `true` = you're the only recipient. `false` = group conversation. |
 | `mentioned` | Someone wrote `@your-name` in the body (only meaningful when `direct_message: false`). |
 | `thread_summary` | Snapshot of active topics, decisions, and pending actions from previous exchanges. Pre-loaded from the last `set_email_summary` call; call `email_summary` only to re-read it mid-processing. |
-| `attachments` | Local file paths. DOCX/XLSX/HTML/PDF have extracted `.md` versions alongside. Use `read_file` to inspect. |
+| `attachments` | When the host can convert them, a .md version is placed alongside the DOCX/XLSX/HTML file — read that .md file, or read the original with read_file. |
 
 ---
 
@@ -135,9 +135,6 @@ Compose. Pass the inbound message_id for threading — the tool resolves headers
 - Frustration or repeated follow-up: acknowledge the delay first, then a concrete
   resolution time or escalation.
 - Cannot fulfil: state the blocker, propose an alternative, ask for guidance.
-- When forwarding: lead with why the recipient is getting
-  it, name the blocker or decision for escalations, make A2A instructions explicit, and say
-  when no action is required.
 
 Quality standards.
 
