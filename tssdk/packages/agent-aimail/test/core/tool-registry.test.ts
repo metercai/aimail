@@ -1,19 +1,52 @@
 /**
- * MAIL_TOOLS contract tests:
- *   - structural: 15 tools, exact names/order, non-empty semantic text
- *   - parity (best-effort): names + descriptions + parameter text must match
- *     the shared tool spec materialized in aimail/pysdk/aimail_mcp_server.py.
- *     That file is the Python-platform MCP fallback; the TS SDK embeds tools
- *     natively and uses no MCP service — it only serves as the parity source.
- *     Skipped when the sibling repo or python3 is unavailable.
+ * MAIL_TOOLS contract tests — SSOT parity (2026-11-03).
+ *
+ * Single source of truth: `pysdk/tool-spec.json` (repo root). The TS SDK
+ * projects it in two steps at build time:
+ *   1. scripts/gen-tool-spec.mjs codegens `src/generated/tool-spec.ts`
+ *   2. tool-registry.ts flattens it into the adapter-facing MAIL_TOOLS shape
+ * This test pins BOTH steps to the JSON file:
+ *   - the codegen artifact must equal the spec (names/order/text/params)
+ *   - the flattened MAIL_TOOLS must equal the spec (per-param mapping)
+ * Drift anywhere in the chain turns L0 red. The Python side pins its two
+ * projections (MCP TOOLS, hermes schemas) against the same file in
+ * tests/sdk/test_tool_spec_sot.py — three projections, one text.
  */
 import { describe, it, expect } from 'vitest'
-import { execFileSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { MAIL_TOOLS } from '../../src/core/tool-registry.js'
-import type { MailToolDef } from '../../src/core/tool-registry.js'
+import type { MailToolDef, MailToolParam } from '../../src/core/tool-registry.js'
+import { TOOL_SPEC } from '../../src/generated/tool-spec.js'
+
+/** Repo root: tssdk/packages/agent-aimail/test/core → 5 up. In a standalone
+ * npm install there is no sibling pysdk — the spec pin then degrades to
+ * codegen-vs-registry only (still catches TS-side drift). */
+const SPEC_JSON = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..', '..', '..', '..', '..', 'pysdk', 'tool-spec.json',
+)
+
+interface SpecParam {
+  type: string
+  items?: { type: string }
+  enum?: string[]
+  default?: string | number | boolean
+  description?: string
+}
+interface SpecEntry {
+  name: string
+  description: string
+  parameters: { type: 'object'; properties: Record<string, SpecParam>; required?: string[] }
+}
+
+function loadSpec(): SpecEntry[] | undefined {
+  if (!existsSync(SPEC_JSON)) return undefined
+  return JSON.parse(readFileSync(SPEC_JSON, 'utf-8')) as SpecEntry[]
+}
+
+const spec = loadSpec()
 
 const EXPECTED_NAMES = [
   'send_mail',
@@ -33,40 +66,6 @@ const EXPECTED_NAMES = [
   'role_calibrator',
 ] as const
 
-/** Monorepo layout: tssdk/packages/<pkg> and pysdk/ share the repo root —
- * parity stays live against pysdk (5 levels up from test/core = repo root).
- * In a standalone install (no sibling pysdk) the check skips. */
-const PY_REGISTRY = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '..', '..', '..', '..', '..', 'pysdk', 'aimail_mcp_server.py',
-)
-
-interface PyParam { type?: string; enum?: string[]; description?: string }
-interface PyTool { name: string; description: string; inputSchema: { properties: Record<string, PyParam>; required?: string[] } }
-
-function loadPythonTools(): PyTool[] | undefined {
-  if (!existsSync(PY_REGISTRY)) return undefined
-  // Exec ONLY the SCHEMA_STR + TOOLS assignments (literal expressions —
-  // no calls), so importing the server module side effects never run.
-  const script = `
-import ast, json
-src = open(${JSON.stringify(PY_REGISTRY)}).read()
-ns = {}
-for node in ast.parse(src).body:
-    if isinstance(node, ast.Assign):
-        for t in node.targets:
-            if isinstance(t, ast.Name) and t.id in ('SCHEMA_STR', 'TOOLS'):
-                ns[t.id] = eval(compile(ast.Expression(node.value), '<x>', 'eval'), {'__builtins__': {}}, ns)
-print(json.dumps(ns['TOOLS']))
-`
-  try {
-    const out = execFileSync('python3', ['-c', script], { encoding: 'utf-8', timeout: 10_000 })
-    return JSON.parse(out.trim())
-  } catch {
-    return undefined
-  }
-}
-
 describe('MAIL_TOOLS structure', () => {
   it('registers exactly the 15 bare tool names, in order', () => {
     expect(MAIL_TOOLS.map(t => t.name)).toEqual([...EXPECTED_NAMES])
@@ -75,9 +74,6 @@ describe('MAIL_TOOLS structure', () => {
   it('every tool has a non-empty description; tools with parameters have ≥1 typed parameter', () => {
     for (const t of MAIL_TOOLS) {
       expect(t.description.length, `${t.name} description`).toBeGreaterThan(0)
-      if (Object.keys(t.parameters).length > 0) {
-        expect(Object.keys(t.parameters).length, `${t.name} parameters`).toBeGreaterThanOrEqual(1)
-      }
       for (const [k, p] of Object.entries(t.parameters)) {
         expect(p.type, `${t.name}.${k} type`).toMatch(/^(string|array|integer|number|boolean)$/)
         if (p.type === 'array') expect(p.items, `${t.name}.${k} items`).toEqual({ type: 'string' })
@@ -92,39 +88,48 @@ describe('MAIL_TOOLS structure', () => {
   })
 })
 
-describe('MAIL_TOOLS ↔ Python registry parity', () => {
-  const py = loadPythonTools()
-  if (!py) {
-    it.skip('python registry available (aimail repo + python3)', () => {})
+describe('codegen artifact ↔ spec JSON', () => {
+  it('TOOL_SPEC equals the spec file, verbatim, in order', () => {
+    if (!spec) {
+      // standalone install: still pin the shape
+      expect(TOOL_SPEC.map(t => t.name)).toEqual([...EXPECTED_NAMES])
+      return
+    }
+    expect(TOOL_SPEC).toEqual(spec)
+  })
+})
+
+describe('MAIL_TOOLS ↔ spec JSON (flat projection)', () => {
+  if (!spec) {
+    it.skip('spec JSON available (aimail repo checkout)', () => {})
     return
   }
 
   it('has the same 15 tools with identical names and descriptions', () => {
-    expect(py.map(t => t.name)).toEqual([...EXPECTED_NAMES])
-    py.forEach((pt, i) => {
-      const tt = MAIL_TOOLS[i]
-      expect(tt.name).toBe(pt.name)
-      expect(tt.description, `${pt.name} description`).toBe(pt.description)
+    expect(MAIL_TOOLS.map(t => t.name)).toEqual(spec.map(t => t.name))
+    spec.forEach((st, i) => {
+      const tt = MAIL_TOOLS[i] as MailToolDef
+      expect(tt.description, `${st.name} description`).toBe(st.description)
     })
   })
 
-  it('parameter types/enums/descriptions match; required flags match', () => {
-    for (const pt of py) {
-      const tt = MAIL_TOOLS.find(t => t.name === pt.name)!
-      const pyProps = pt.inputSchema.properties
-      const tsParams = tt.parameters
-      expect(Object.keys(tsParams).sort()).toEqual(Object.keys(pyProps).sort())
-      for (const [k, pp] of Object.entries(pyProps)) {
-        const tp = tsParams[k]
-        expect(tp?.type, `${pt.name}.${k} type`).toBe(pp.type)
-        if (pp.enum) expect(tp?.enum, `${pt.name}.${k} enum`).toEqual(pp.enum)
-        // Audit 2026-09-21: default is also part of the two-end contract (previously missed comparison → conversion layer lost default without anyone noticing)
-        if (pp.default !== undefined) {
-          expect(tp?.default, `${pt.name}.${k} default`).toBe(pp.default)
+  it('parameter types/enums/defaults/descriptions/required match the spec', () => {
+    for (const st of spec) {
+      const tt = MAIL_TOOLS.find(t => t.name === st.name)!
+      const props = st.parameters.properties
+      const required = new Set(st.parameters.required ?? [])
+      // exact key set, no invented params, no dropped params
+      expect(Object.keys(tt.parameters).sort()).toEqual(Object.keys(props).sort())
+      for (const [k, sp] of Object.entries(props)) {
+        const tp: MailToolParam = tt.parameters[k]
+        expect(tp.type, `${st.name}.${k} type`).toBe(sp.type)
+        if (sp.items) expect(tp.items, `${st.name}.${k} items`).toEqual({ type: sp.items.type })
+        if (sp.enum !== undefined) expect(tp.enum, `${st.name}.${k} enum`).toEqual([...sp.enum])
+        if (sp.default !== undefined) expect(tp.default, `${st.name}.${k} default`).toBe(sp.default)
+        if (sp.description !== undefined) {
+          expect(tp.description, `${st.name}.${k} description`).toBe(sp.description)
         }
-        expect(tp?.description, `${pt.name}.${k} description`).toBe(pp.description)
-        expect(!!tp?.required, `${pt.name}.${k} required`)
-          .toBe((pt.inputSchema.required ?? []).includes(k))
+        expect(!!tp.required, `${st.name}.${k} required`).toBe(required.has(k))
       }
     }
   })

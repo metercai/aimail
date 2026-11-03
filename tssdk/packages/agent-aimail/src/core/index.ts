@@ -174,7 +174,8 @@ export type { LocalMeta } from './meta.js'
 export {
   registerBoardGateway,
   boardGatewayUrl,
-  resolveBoard,
+  deriveBoardIdFromAddress,
+  normalizeBoardHandle,
   boardStatus,
   boardTaskList,
   boardTaskShow,

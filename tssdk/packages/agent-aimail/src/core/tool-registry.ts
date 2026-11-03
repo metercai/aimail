@@ -1,18 +1,21 @@
 /**
- * MAIL_TOOLS — the single TS source of truth for the 15 AIMail tool
- * semantic definitions (names, descriptions, parameter descriptions).
+ * MAIL_TOOLS — the 15 AIMail tool semantic definitions, projected from the
+ * shared SSOT spec.
  *
- * Contract: text is verbatim from the shared AIMail tool spec, which is
- * currently materialized in the `TOOLS` registry of
- * `pysdk/aimail_mcp_server.py` (aimail repo). That file exists as the
- * **Python-platform MCP fallback** only — the platform adapters
- * (`src/dsh`, `src/openclaw`, `src/pi`) iterate this array
- * and bind each entry's `handler` to their own identity resolution — no
- * adapter re-declares semantic text.
+ * Single source of truth (2026-11-03): `pysdk/tool-spec.json` — one text,
+ * three projections:
+ *   - TS (this file):  scripts/gen-tool-spec.mjs emits src/generated/tool-spec.ts
+ *                      (build artifact), MAIL_TOOLS = projection + handler binding.
+ *   - Python MCP:      pysdk/tool_spec.mcp_tools() → aimail_mcp_server.TOOLS
+ *   - hermes adapter:  pysdk/tool_spec.hermes_schemas() → registry.register schemas
+ * Drift is structurally impossible; test/core/tool-registry.test.ts asserts
+ * this projection equals the spec file (and the Py side asserts its two
+ * projections against the same file).
  *
- * Parameter schema uses the platform-neutral shape below; platform-specific
- * details (dsh output.schema/render, openclaw TypeBox) are translated by the
- * adapter at registration time.
+ * Parameter schema: the spec stores the platform-neutral JSON Schema form
+ * (`properties` + `required` array); this file flattens it to the
+ * `MailToolParam` shape the platform adapters have always consumed (dsh
+ * `toDshParam`, openclaw/pi `toTypeBoxParams`) — the adapters are untouched.
  */
 import {
   sendMail,
@@ -44,6 +47,7 @@ import {
   type BoardRolesArgs,
 } from './board.js'
 import { aimailAddressTool, roleCalibrator, type AimailAddressToolArgs } from './tools.js'
+import { TOOL_SPEC, type ToolSpecEntry } from '../generated/tool-spec.js'
 
 /** Platform-neutral parameter descriptor (no framework types). */
 export interface MailToolParam {
@@ -64,150 +68,41 @@ export interface MailToolDef {
   handler: (ctx: ToolCtx, args: Record<string, unknown>) => Promise<ToolResult>
 }
 
-export const MAIL_TOOLS: readonly MailToolDef[] = [
-  // ── mail tools (6) ──────────────────────────────────────────
-  {
-    name: 'send_mail',
-    description: 'Send an email from your aimail address. Returns delivery status.',
-    parameters: {
-      to: { type: 'string', description: 'Comma-separated recipients', required: true },
-      subject: { type: 'string', required: true },
-      body: { type: 'string', description: 'Markdown body', required: true },
-      cc: { type: 'string', description: 'Comma-separated CC recipients' },
-      attachments: { type: 'array', items: { type: 'string' }, description: 'Local file paths to attach' },
-      message_id: { type: 'string', description: 'Inbound message_id to reply to (threads the reply)' },
-    },
-    handler: (ctx, args) => sendMail(ctx, args as unknown as SendMailArgs),
-  },
-  {
-    name: 'manage_contacts',
-    description: 'Manage your contact whitelist: check if an address is allowed, add, remove, or update entries.',
-    parameters: {
-      action: { type: 'string', enum: ['check', 'add', 'remove', 'update'], description: 'Action to perform', required: true },
-      address: { type: 'string', description: 'Email address' },
-      direction: { type: 'string', enum: ['from', 'to', 'all'], default: 'all', description: 'Whitelist direction' },
-    },
-    handler: (ctx, args) => manageContacts(ctx, args as unknown as ManageContactsArgs),
-  },
-  {
-    name: 'contact_profile',
-    description: "Look up a contact's profile.",
-    parameters: {
-      address: { type: 'string', description: 'Email address' },
-      name: { type: 'string', description: 'Contact name' },
-    },
-    handler: (ctx, args) => contactProfile(ctx, args as unknown as ContactProfileArgs),
-  },
-  {
-    name: 'set_contact_profile',
-    description: "Store or update a contact's profile.",
-    parameters: {
-      address: { type: 'string', description: 'Email address', required: true },
-      profile: { type: 'string', description: 'Profile fields as JSON string', required: true },
-    },
-    handler: (ctx, args) => setContactProfile(ctx, args as { address: string; profile: string }),
-  },
-  {
-    name: 'email_summary',
-    description: 'Read the stored summary of an email thread.',
-    parameters: {
-      message_id: { type: 'string', description: 'Thread message_id', required: true },
-    },
-    handler: (ctx, args) => emailSummary(ctx, args as { message_id: string }),
-  },
-  {
-    name: 'set_email_summary',
-    description: 'Save the summary of an email thread.',
-    parameters: {
-      message_id: { type: 'string', description: 'Thread message_id', required: true },
-      summary: { type: 'string', description: 'Thread summary text (max 2000 chars)', required: true },
-    },
-    handler: (ctx, args) => setEmailSummary(ctx, args as { message_id: string; summary: string }),
-  },
+/** Execution handlers, bound by tool name (the only TS-side data). */
+const HANDLERS: Record<string, (ctx: ToolCtx, args: Record<string, unknown>) => Promise<ToolResult>> = {
+  send_mail: (ctx, args) => sendMail(ctx, args as unknown as SendMailArgs),
+  manage_contacts: (ctx, args) => manageContacts(ctx, args as unknown as ManageContactsArgs),
+  contact_profile: (ctx, args) => contactProfile(ctx, args as unknown as ContactProfileArgs),
+  set_contact_profile: (ctx, args) => setContactProfile(ctx, args as { address: string; profile: string }),
+  email_summary: (ctx, args) => emailSummary(ctx, args as { message_id: string }),
+  set_email_summary: (ctx, args) => setEmailSummary(ctx, args as { message_id: string; summary: string }),
+  search_mail: (ctx, args) => searchMail(ctx, args as unknown as SearchMailArgs),
+  board_status: (ctx, args) => boardStatus(ctx, args as unknown as BoardStatusArgs),
+  board_task_list: (ctx, args) => boardTaskList(ctx, args as unknown as BoardTaskListArgs),
+  board_task_show: (ctx, args) => boardTaskShow(ctx, args as unknown as BoardTaskShowArgs),
+  board_heartbeat: (ctx, args) => boardHeartbeat(ctx, args as unknown as BoardHeartbeatArgs),
+  board_members: (ctx, args) => boardMembers(ctx, args as unknown as BoardMembersArgs),
+  board_roles: (ctx, args) => boardRoles(ctx, args as unknown as BoardRolesArgs),
+  aimail_address: (_ctx, args) => aimailAddressTool(args as unknown as AimailAddressToolArgs),
+  role_calibrator: (ctx) => roleCalibrator(ctx),
+}
 
-  // ── local search ─────────────────────────────────────────────
-  {
-    name: 'search_mail',
-    description: 'Search YOUR OWN locally stored mail (offline, no network). Matches keywords in subject/body/attachment text; filter by mailbox (inbound/outbound/all), time window (since/until YYYY-MM-DD) and sender (from, substring). Use it to recall past conversations, find when an event happened, or recover attachment content.',
-    parameters: {
-      query: { type: 'string', description: 'Space-separated keywords (AND); empty = browse by filters' },
-      scope: { type: 'string', enum: ['all', 'inbound', 'outbound'], default: 'all', description: 'Mailbox scope' },
-      since: { type: 'string', description: 'Start date YYYY-MM-DD (inclusive)' },
-      until: { type: 'string', description: 'End date YYYY-MM-DD (inclusive)' },
-      from: { type: 'string', description: 'Sender substring filter (case-insensitive)' },
-      limit: { type: 'integer', description: 'Max results 1-50 (default 20)' },
-    },
-    handler: (ctx, args) => searchMail(ctx, args as unknown as SearchMailArgs),
-  },
-  // ── board tools (6) ─────────────────────────────────────────
-  {
-    name: 'board_status',
-    description: "Get a board's working status: goal, progress per status with assignees, and blockers.",
-    parameters: {
-      board: { type: 'string', description: 'Board ID (20-hex, no prefix)', required: true },
-    },
-    handler: (ctx, args) => boardStatus(ctx, args as unknown as BoardStatusArgs),
-  },
-  {
-    name: 'board_task_list',
-    description: "List a board's tasks, optionally filtered by status or assignee.",
-    parameters: {
-      board: { type: 'string', description: 'Board ID (20-hex, no prefix)', required: true },
-      status: { type: 'string', description: 'Filter by task status' },
-      assignee: { type: 'string', description: 'Filter by assignee email' },
-    },
-    handler: (ctx, args) => boardTaskList(ctx, args as unknown as BoardTaskListArgs),
-  },
-  {
-    name: 'board_task_show',
-    description: "Show one task's full details, including parent-task context.",
-    parameters: {
-      task_id: { type: 'string', description: 'Task ID (t_<board>_<id>)', required: true },
-    },
-    handler: (ctx, args) => boardTaskShow(ctx, args as unknown as BoardTaskShowArgs),
-  },
-  {
-    name: 'board_heartbeat',
-    description: 'Signal your task is still in progress (a ready task advances to running).',
-    parameters: {
-      task_id: { type: 'string', description: 'Task ID (t_<board>_<id>)', required: true },
-      note: { type: 'string', description: 'Progress note (optional)' },
-    },
-    handler: (ctx, args) => boardHeartbeat(ctx, args as unknown as BoardHeartbeatArgs),
-  },
-  {
-    name: 'board_members',
-    description: "List a board's members and their roles.",
-    parameters: {
-      board: { type: 'string', description: 'Board ID (20-hex, no prefix)', required: true },
-      email: { type: 'string', description: 'Filter by member email' },
-    },
-    handler: (ctx, args) => boardMembers(ctx, args as unknown as BoardMembersArgs),
-  },
-  {
-    name: 'board_roles',
-    description: "List a board's role permissions (optionally one role's members and verbs).",
-    parameters: {
-      board: { type: 'string', description: 'Board ID (20-hex, no prefix)', required: true },
-      role: { type: 'string', description: 'Filter by role name' },
-    },
-    handler: (ctx, args) => boardRoles(ctx, args as unknown as BoardRolesArgs),
-  },
-  {
-    name: 'aimail_address',
-    description: 'Manage YOUR mailbox lifecycle (bind / pause / resume / unbind). bind: activate with the one-time code (shared_a-…) — or, if this mailbox was unbound before, restore it with NO code (idempotent: an already-bound mailbox is returned as-is, never re-activated). pause: stop receiving locally (the cloud key stays active). resume: start receiving again. unbind: archive the local binding (the key is kept, so a later code-less bind restores receiving). Address-level self-service — no CLI.',
-    parameters: {
-      action: { type: 'string', enum: ['bind', 'pause', 'resume', 'unbind'], description: 'The lifecycle action to perform', required: true },
-      code: { type: 'string', description: 'One-time activation code (shared_a-…) — bind only' },
-      email: { type: 'string', description: 'The mailbox address this acts on', required: true },
-      gateway_url: { type: 'string', description: 'AIMail gateway URL (or set AIMAIL_GW_URL) — needed for a first-time cloud activation' },
-    },
-    handler: (_ctx, args) => aimailAddressTool(args as unknown as AimailAddressToolArgs),
-  },
-  {
-    name: 'role_calibrator',
-    description: 'Trigger the identity-calibration welcome mail for your own address: the system welcomes YOUR mailbox (persona/signature/current_time reply instructions) and cc\'s your manager for approval. Requires aimail_address (action=bind) to have run first. Reply to the welcome mail when it arrives — the [AIMail] Persona applied notification closes the loop.',
-    parameters: {},
-    handler: (ctx) => roleCalibrator(ctx),
-  },
-]
+/** Flatten one spec entry (JSON Schema form) into the adapter-facing shape. */
+function toMailToolDef(entry: ToolSpecEntry): MailToolDef {
+  const handler = HANDLERS[entry.name]
+  if (!handler) throw new Error(`tool spec entry has no handler: ${entry.name}`)
+  const parameters: Record<string, MailToolParam> = {}
+  const required = new Set(entry.parameters.required)
+  for (const [key, p] of Object.entries(entry.parameters.properties)) {
+    const param: MailToolParam = { type: p.type }
+    if (p.items) param.items = { type: p.items.type }
+    if (p.enum !== undefined) param.enum = [...p.enum]
+    if (p.default !== undefined) param.default = p.default
+    if (p.description !== undefined) param.description = p.description
+    if (required.has(key)) param.required = true
+    parameters[key] = param
+  }
+  return { name: entry.name, description: entry.description, parameters, handler }
+}
+
+export const MAIL_TOOLS: readonly MailToolDef[] = TOOL_SPEC.map(toMailToolDef)

@@ -8,8 +8,9 @@
     "node": ">=20"
   },
   "scripts": {
+    "pretest": "node packages/agent-aimail/scripts/gen-tool-spec.mjs",
     "test": "vitest run",
-    "build": "pnpm exec tsc -b packages/agent-aimail",
+    "build": "node packages/agent-aimail/scripts/gen-tool-spec.mjs && pnpm exec tsc -b packages/agent-aimail",
     "publish": "bash ../scripts/publish-npm.sh packages/agent-aimail"
   },
   "devDependencies": {

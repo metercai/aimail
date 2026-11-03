@@ -2,6 +2,13 @@
  * Board tools (A2A) — mirror aimail_board.py. Dual-credential auth:
  * board token (board_creds.json) when present, else agent api_key; member
  * email passed as query param on every board API call.
+ *
+ * B1 (2026-11-03): the agent-facing board handle is the board's email
+ * address. The internal 20-hex board_id is derived locally
+ * (`sha256(lower(address))[:20]`, identical to the gateway's
+ * `derive_board_id`) and never appears in tool arguments. The 20-hex id
+ * still keys board_creds.json and fills the gateway URL path — zero
+ * gateway change.
  */
 import { promises as fsp } from 'node:fs'
 import { createHash } from 'node:crypto'
@@ -24,17 +31,32 @@ export function boardGatewayUrl(boardId: string, cfg: AgentConfig): string {
   return boardGateways.get(boardId) || cfg.gateway_url
 }
 
-/** Extract board_id from task_id (t_<board>_<id> / board:<board>:<id>). */
-export function resolveBoard(taskId: string): string {
-  if (taskId.startsWith('t_')) {
-    const parts = taskId.split('_', 2)
-    if (parts.length >= 2) return parts[1] ?? ''
+/**
+ * Internal board id from the board's email address — `sha256(lower(addr))[:20]`,
+ * byte-identical to the gateway's `derive_board_id` (board/models.rs).
+ * Pure and deterministic; the same address always yields the same id.
+ */
+export function deriveBoardIdFromAddress(address: string): string {
+  const addr = address.trim().toLowerCase()
+  if (!addr) return ''
+  return createHash('sha256').update(addr, 'utf-8').digest('hex').slice(0, 20)
+}
+
+/**
+ * Validate an agent-supplied board handle. Accepts a board address
+ * (`.a2a@domain`); anything else is rejected up front (a 20-hex id or a
+ * task id passed here would silently target a nonexistent board before).
+ */
+export function normalizeBoardHandle(handle: string): { ok: true; boardId: string } | { ok: false; error: string } {
+  const h = (handle ?? '').trim()
+  if (!h) return { ok: false, error: 'board (the board\'s .a2a@ address) is required' }
+  if (/[0-9a-fA-F]{20}/.test(h) || h.startsWith('t_') || h.startsWith('b_')) {
+    return { ok: false, error: `board must be the board's .a2a@ address (got "${h}"; pass the address shown in the board invitation, not a board id or task id)` }
   }
-  if (taskId.startsWith('board:')) {
-    const parts = taskId.split(':', 2)
-    if (parts.length >= 2) return parts[1] ?? ''
+  if (!/\.a2a@/i.test(h)) {
+    return { ok: false, error: `board must be a board address like xk9mp2q.a2a@mail.example.com (got "${h}")` }
   }
-  return ''
+  return { ok: true, boardId: deriveBoardIdFromAddress(h) }
 }
 
 /** board_creds.json at systems/{sid}/{cleaned_addr}/board_creds.json. */
@@ -45,12 +67,11 @@ function boardCredsPath(systemId: string, email: string): string {
 /**
  * Fields of a board invite mail.
  *
- * The board id is stated by the gateway (`Board ID:`) — authoritative. The
- * fallback mirrors the gateway's `derive_board_id` (sha256 of the FULL board
- * address [:20]); that address carries the MAIL domain of the sender, never the
- * gateway host — they differ whenever the gateway is not served on the mail
- * domain, and keying board_creds.json with the wrong id makes every board call
- * answer 401.
+ * The board address in the From header is the single board handle (B1):
+ * the 20-hex id is derived locally from it (same algorithm as the
+ * gateway's `derive_board_id`), so the `Board ID:` line the gateway used
+ * to print is no longer read. Keying board_creds.json with the derived id
+ * matches the gateway's storage layout exactly.
  */
 export function boardInviteFrom(
   body: string,
@@ -60,13 +81,9 @@ export function boardInviteFrom(
   if (!gw?.[1]) return null
   const gatewayUrl = gw[1].replace(/\/+$/, '')
   const token = (/Token:\s*(bdt_\S+)/.exec(body)?.[1] ?? '').trim()
-  const stated = /Board ID:\s*([0-9a-f]{20})/i.exec(body)?.[1] ?? ''
   const addr = /([A-Za-z0-9._-]+\.a2a@[A-Za-z0-9._-]+)/.exec(fromRaw)?.[1] ?? ''
   const boardEmail = addr.toLowerCase()
-  let boardId = stated.toLowerCase()
-  if (!boardId && boardEmail) {
-    boardId = createHash('sha256').update(boardEmail, 'utf-8').digest('hex').slice(0, 20)
-  }
+  const boardId = deriveBoardIdFromAddress(boardEmail)
   if (!boardId) return null
   return { boardId, boardEmail, gatewayUrl, token }
 }
@@ -95,6 +112,17 @@ async function boardClient(
   return { client, email: cfg.email }
 }
 
+/** Resolve the agent-supplied board handle into a client, or a ToolResult error. */
+async function boardClientOrError(
+  ctx: ToolCtx,
+  handle: string,
+): Promise<{ client: GatewayClient; boardId: string; email: string } | { error: ToolResult }> {
+  const n = normalizeBoardHandle(handle)
+  if (!n.ok) return { error: { success: false, error: n.error } }
+  const { client, email } = await boardClient(ctx, n.boardId)
+  return { client, boardId: n.boardId, email }
+}
+
 function toResult(r: Awaited<ReturnType<GatewayClient['boardStatus']>>): ToolResult {
   if (r.status >= 200 && r.status < 300) return { success: true, ...r }
   return { success: false, error: r.error ?? `HTTP ${r.status}` }
@@ -107,8 +135,9 @@ export interface BoardStatusArgs {
 }
 
 export async function boardStatus(ctx: ToolCtx, args: BoardStatusArgs): Promise<ToolResult> {
-  const { client, email } = await boardClient(ctx, args.board)
-  return toResult(await client.boardStatus(args.board, email))
+  const r = await boardClientOrError(ctx, args.board)
+  if ('error' in r) return r.error
+  return toResult(await r.client.boardStatus(r.boardId, r.email))
 }
 
 export interface BoardTaskListArgs {
@@ -118,31 +147,32 @@ export interface BoardTaskListArgs {
 }
 
 export async function boardTaskList(ctx: ToolCtx, args: BoardTaskListArgs): Promise<ToolResult> {
-  const { client, email } = await boardClient(ctx, args.board)
-  return toResult(await client.boardTaskList(args.board, email, args.status ?? '', args.assignee ?? ''))
+  const r = await boardClientOrError(ctx, args.board)
+  if ('error' in r) return r.error
+  return toResult(await r.client.boardTaskList(r.boardId, r.email, args.status ?? '', args.assignee ?? ''))
 }
 
 export interface BoardTaskShowArgs {
   task_id: string
+  board: string
 }
 
 export async function boardTaskShow(ctx: ToolCtx, args: BoardTaskShowArgs): Promise<ToolResult> {
-  const boardId = resolveBoard(args.task_id)
-  if (!boardId) return { success: false, error: `cannot resolve board_id from task_id ${args.task_id}` }
-  const { client, email } = await boardClient(ctx, boardId)
-  return toResult(await client.boardTaskShow(args.task_id, boardId, email))
+  const r = await boardClientOrError(ctx, args.board)
+  if ('error' in r) return r.error
+  return toResult(await r.client.boardTaskShow(args.task_id, r.boardId, r.email))
 }
 
 export interface BoardHeartbeatArgs {
   task_id: string
+  board: string
   note?: string
 }
 
 export async function boardHeartbeat(ctx: ToolCtx, args: BoardHeartbeatArgs): Promise<ToolResult> {
-  const boardId = resolveBoard(args.task_id)
-  if (!boardId) return { success: false, error: `cannot resolve board_id from task_id ${args.task_id}` }
-  const { client, email } = await boardClient(ctx, boardId)
-  return toResult(await client.boardHeartbeat(boardId, args.task_id, email, args.note ?? ''))
+  const r = await boardClientOrError(ctx, args.board)
+  if ('error' in r) return r.error
+  return toResult(await r.client.boardHeartbeat(r.boardId, args.task_id, r.email, args.note ?? ''))
 }
 
 export interface BoardMembersArgs {
@@ -151,8 +181,9 @@ export interface BoardMembersArgs {
 }
 
 export async function boardMembers(ctx: ToolCtx, args: BoardMembersArgs): Promise<ToolResult> {
-  const { client, email } = await boardClient(ctx, args.board)
-  return toResult(await client.boardMembers(args.board, email, args.email ?? ''))
+  const r = await boardClientOrError(ctx, args.board)
+  if ('error' in r) return r.error
+  return toResult(await r.client.boardMembers(r.boardId, r.email, args.email ?? ''))
 }
 
 export interface BoardRolesArgs {
@@ -161,8 +192,7 @@ export interface BoardRolesArgs {
 }
 
 export async function boardRoles(ctx: ToolCtx, args: BoardRolesArgs): Promise<ToolResult> {
-  const { client, email } = await boardClient(ctx, args.board)
-  return toResult(await client.boardRoles(args.board, email, args.role ?? ''))
+  const r = await boardClientOrError(ctx, args.board)
+  if ('error' in r) return r.error
+  return toResult(await r.client.boardRoles(r.boardId, r.email, args.role ?? ''))
 }
-
-

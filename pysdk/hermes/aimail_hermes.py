@@ -33,6 +33,11 @@ if _HERMES_TOOLS_DIR not in sys.path:
 import aimail_base as core
 import aimail_tools as tools
 import aimail_board as board
+# SSOT (2026-11-03): shared tool spec (pysdk/tool-spec.json) — the single
+# source of the registration schemas below. Sits next to the flat core
+# modules, so the top-level import works in both layouts (repo: L29-31
+# puts pysdk/ on sys.path; pip: aimail/ package dir).
+import tool_spec as _tool_spec
 # agent-side contract constants (dsh/pi/deer-flow/hermes share the same copy; single source = repo root
 # contract/aimail-contract.json, gate tests/contract/check-contract-single-source.py)
 import aimail_contract as _contract
@@ -81,13 +86,6 @@ set_contact_profile = tools.set_contact_profile
 email_summary = tools.email_summary
 set_email_summary = tools.set_email_summary
 search_mail = tools.search_mail
-# A2A Board tool function bodies (registry registered handler bare calls)
-board_task_show = board.board_task_show
-board_task_list = board.board_task_list
-board_members = board.board_members
-board_roles = board.board_roles
-board_status = board.board_status
-board_heartbeat = board.board_heartbeat
 _TOOLSET = _contract.AGENT_TOOLSET_NAME  # Contract value "agentmail" (not external brand aimail)
 
 logger = logging.getLogger(__name__)
@@ -932,7 +930,16 @@ try:
 except ImportError:
     pass
 
-# 3b. tools registry (6 email tools + board tools)
+# 3b. tools registry — SSOT projection (2026-11-03)
+#
+# All 15 tool schemas come from the shared spec (``_tool_spec.hermes_schemas()``
+# — source: pysdk/tool-spec.json). No semantic text lives in this file anymore;
+# the per-host artifacts here are handler wiring (name → callable + emoji) only.
+#
+# The host dispatches ``entry.handler(args, **kwargs)`` with ``args`` as the
+# model's dict, so every handler takes ``(args, **_kw)`` and pulls its own
+# params. Board tools take the board's .a2a@ address (B1): the 20-hex id is
+# derived locally inside aimail_board._normalize_board, never stated.
 try:
     from tools.registry import registry, tool_result
 except ImportError:
@@ -950,330 +957,79 @@ if registry is not None:
         registry = _DummyRegistry()  # type: ignore
         def tool_result(x): return x
 
+    # ── board tool handlers (B1: board param = .a2a@ address) ──────
+    def _handle_board_status(args, **_kw):
+        return tool_result(board.board_status(board=args.get("board", "")))
+
+    def _handle_board_task_list(args, **_kw):
+        return tool_result(board.board_task_list(
+            board=args.get("board", ""),
+            status=args.get("status", ""),
+            assignee=args.get("assignee", ""),
+        ))
+
+    def _handle_board_task_show(args, **_kw):
+        return tool_result(board.board_task_show(
+            task_id=args.get("task_id", ""),
+            board=args.get("board", ""),
+        ))
+
+    def _handle_board_heartbeat(args, **_kw):
+        return tool_result(board.board_heartbeat(
+            task_id=args.get("task_id", ""),
+            board=args.get("board", ""),
+            note=args.get("note", ""),
+        ))
+
+    def _handle_board_members(args, **_kw):
+        return tool_result(board.board_members(
+            board=args.get("board", ""),
+            email=args.get("email", ""),
+        ))
+
+    def _handle_board_roles(args, **_kw):
+        return tool_result(board.board_roles(
+            board=args.get("board", ""),
+            role=args.get("role", ""),
+        ))
+
+    def _handle_role_calibrator(args, **_kw):
+        return tool_result(tools.role_calibrator())
+
+    _HANDLERS = {
+        "send_mail": (_handle_send_mail, "📧"),
+        "manage_contacts": (_handle_manage_contacts, "📇"),
+        "contact_profile": (_handle_contact_profile, "👤"),
+        "set_contact_profile": (_handle_set_contact_profile, "✍️"),
+        "email_summary": (_handle_email_summary, "📝"),
+        "set_email_summary": (_handle_set_email_summary, "🗂️"),
+        "search_mail": (_handle_search_mail, "🔎"),
+        "aimail_address": (_handle_aimail_address, "🔑"),
+        "role_calibrator": (_handle_role_calibrator, "🪞"),
+        "board_status": (_handle_board_status, "📊"),
+        "board_task_list": (_handle_board_task_list, "📋"),
+        "board_task_show": (_handle_board_task_show, "📋"),
+        "board_heartbeat": (_handle_board_heartbeat, "💓"),
+        "board_members": (_handle_board_members, "👥"),
+        "board_roles": (_handle_board_roles, "🎭"),
+    }
+
     try:
-        registry.register(
-            name="board_task_show",
-            toolset=_TOOLSET,
-            schema={
-                "name": "a2a_show",
-                "description": "Show one task's full details, including parent-task context.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "task_id": {
-                            "type": "string",
-                            "description": "Task ID (t_<board>_<id>)"
-                        }
-                    },
-                    "required": ["task_id"]
-                }
-            },
-            handler=board_task_show,
-            emoji="📋",
-        )
-
-        registry.register(
-            name="board_task_list",
-            toolset=_TOOLSET,
-            schema={
-                "name": "a2a_list",
-                "description": "List a board's tasks, optionally filtered by status or assignee.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "board": {"type": "string", "description": "Board ID (20-hex, no prefix)"},
-                        "status": {"type": "string", "description": "Filter by task status"},
-                        "assignee": {"type": "string", "description": "Filter by assignee email"}
-                    },
-                    "required": ["board"]
-                }
-            },
-            handler=board_task_list,
-            emoji="📋",
-        )
-
-        registry.register(
-            name="board_members",
-            toolset=_TOOLSET,
-            schema={
-                "name": "a2a_members",
-                "description": "List a board's members and their roles.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "board": {"type": "string", "description": "Board ID (20-hex, no prefix)"}
-                    },
-                    "required": ["board"]
-                }
-            },
-            handler=board_members,
-            emoji="👥",
-        )
-
-        registry.register(
-            name="board_roles",
-            toolset=_TOOLSET,
-            schema={
-                "name": "a2a_roles",
-                "description": "List a board's role permissions (optionally one role's members and verbs).",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "board": {"type": "string", "description": "Board ID (20-hex, no prefix)"},
-                        "role": {"type": "string", "description": "Filter by role name"}
-                    },
-                    "required": ["board"]
-                }
-            },
-            handler=board_roles,
-            emoji="🎭",
-        )
-
-        registry.register(
-            name="board_status",
-            toolset=_TOOLSET,
-            schema={
-                "name": "a2a_status",
-                "description": "Get a board's working status: goal, progress per status with assignees, and blockers.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "board": {"type": "string", "description": "Board ID (20-hex, no prefix)"}
-                    },
-                    "required": ["board"]
-                }
-            },
-            handler=board_status,
-            emoji="📊",
-        )
-
-        registry.register(
-            name="board_heartbeat",
-            toolset=_TOOLSET,
-            schema={
-                "name": "a2a_heartbeat",
-                "description": "Signal your task is still in progress (a ready task advances to running).",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "task_id": {"type": "string", "description": "Task ID (t_<board>_<id>)"},
-                        "note": {"type": "string", "description": "Progress note (optional)"}
-                    },
-                    "required": ["task_id"]
-                }
-            },
-            handler=board_heartbeat,
-            emoji="💓",
-        )
+        _schemas = _tool_spec.hermes_schemas()
+        for _name in _tool_spec.tool_names():
+            try:
+                _handler, _emoji = _HANDLERS[_name]
+                registry.register(
+                    name=_name,
+                    toolset=_TOOLSET,
+                    schema=_schemas[_name],
+                    handler=_handler,
+                    emoji=_emoji,
+                )
+            except Exception as _e:
+                logger.warning("[aimail] %s registration failed: %s", _name, _e)
     except Exception as _e:
-        logger.warning("[a2a_board] tool registration failed: %s", _e)
-
-# 3b.2 Email tool registration (6: send_mail / contacts / summary)
-# Same mechanism as the board tool: registry.register runs at import time,
-# the name must match the entries in toolsets.py _HERMES_CORE_TOOLS.
-try:
-    registry.register(
-        name="send_mail",
-        toolset=_TOOLSET,
-        schema={
-            "name": "send_mail",
-            "description": "Send an email via your aimail address. For replies, pass the original email's message_id to thread automatically (In-Reply-To/References/persona).",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "to": {"type": "string", "description": "Recipient address(es); comma-separated for multiple"},
-                    "subject": {"type": "string", "description": "Email subject"},
-                    "body": {"type": "string", "description": "Email body (plain text)"},
-                    "cc": {"type": "string", "description": "CC address(es); comma-separated"},
-                    "attachments": {"type": "array", "items": {"type": "string"}, "description": "Local file paths to attach"},
-                    "message_id": {"type": "string", "description": "Original message_id when replying — threads the reply"},
-                },
-                "required": ["to", "subject", "body"],
-            },
-        },
-        handler=_handle_send_mail,
-        emoji="📧",
-    )
-except Exception as _e:
-    logger.warning("[aimail] send_mail registration failed: %s", _e)
-
-try:
-    registry.register(
-        name="search_mail",
-        toolset=_TOOLSET,
-        schema={
-            "name": "search_mail",
-            "description": "Search YOUR OWN locally stored mail (offline, no network). "
-                           "Matches keywords in subject/body/attachment text; filter by "
-                           "mailbox (inbound/outbound/all), time window (since/until) and "
-                           "sender (from). Use it to recall past conversations, find when "
-                           "an event happened, or recover attachment content.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Space-separated keywords (AND); empty = browse by filters only"},
-                    "scope": {"type": "string", "enum": ["all", "inbound", "outbound"], "description": "Mailbox scope (default all)"},
-                    "since": {"type": "string", "description": "Start date YYYY-MM-DD (inclusive)"},
-                    "until": {"type": "string", "description": "End date YYYY-MM-DD (inclusive)"},
-                    "from": {"type": "string", "description": "Sender substring filter (case-insensitive)"},
-                    "limit": {"type": "integer", "description": "Max results 1-50 (default 20)"},
-                },
-                "required": [],
-            },
-        },
-        handler=_handle_search_mail,
-        emoji="🔎",
-    )
-except Exception as _e:
-    logger.warning("[aimail] search_mail registration failed: %s", _e)
-
-try:
-    registry.register(
-        name="manage_contacts",
-        toolset=_TOOLSET,
-        schema={
-            "name": "manage_contacts",
-            "description": "Manage your address book (whitelist): check/add/remove contacts with direction control.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "action": {"type": "string", "enum": ["check", "add", "remove"], "description": "check/add/remove"},
-                    "address": {"type": "string", "description": "Email address (required for add/remove)"},
-                    "direction": {"type": "string", "enum": ["all", "from", "to"], "description": "Direction filter (default all)"},
-                },
-                "required": ["action"],
-            },
-        },
-        handler=_handle_manage_contacts,
-        emoji="📇",
-    )
-except Exception as _e:
-    logger.warning("[aimail] manage_contacts registration failed: %s", _e)
-
-try:
-    registry.register(
-        name="contact_profile",
-        toolset=_TOOLSET,
-        schema={
-            "name": "contact_profile",
-            "description": "Look up a contact profile by address or name.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "address": {"type": "string", "description": "Exact email address lookup"},
-                    "name": {"type": "string", "description": "Server-side search by name"},
-                },
-                "required": [],
-            },
-        },
-        handler=_handle_contact_profile,
-        emoji="👤",
-    )
-except Exception as _e:
-    logger.warning("[aimail] contact_profile registration failed: %s", _e)
-
-try:
-    registry.register(
-        name="set_contact_profile",
-        toolset=_TOOLSET,
-        schema={
-            "name": "set_contact_profile",
-            "description": "Store or update a contact profile (JSON string; gateway merges and maintains the name index).",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "address": {"type": "string", "description": "Contact email address"},
-                    "profile": {"type": "string", "description": "JSON-formatted profile fields (name/title/location/relationship/focus/close_contacts/style)"},
-                },
-                "required": ["address", "profile"],
-            },
-        },
-        handler=_handle_set_contact_profile,
-        emoji="✍️",
-    )
-except Exception as _e:
-    logger.warning("[aimail] set_contact_profile registration failed: %s", _e)
-
-try:
-    registry.register(
-        name="email_summary",
-        toolset=_TOOLSET,
-        schema={
-            "name": "email_summary",
-            "description": "Retrieve the stored thread summary for the email thread containing this message.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "message_id": {"type": "string", "description": "Message id of any email in the thread"},
-                },
-                "required": ["message_id"],
-            },
-        },
-        handler=_handle_email_summary,
-        emoji="📝",
-    )
-except Exception as _e:
-    logger.warning("[aimail] email_summary registration failed: %s", _e)
-
-try:
-    registry.register(
-        name="set_email_summary",
-        toolset=_TOOLSET,
-        schema={
-            "name": "set_email_summary",
-            "description": "Save the updated thread summary after replying (status/next steps per active topic).",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "message_id": {"type": "string", "description": "Message id of the email just replied to or sent"},
-                    "summary": {"type": "string", "description": "Fresh snapshot of active topics/decisions/pending actions"},
-                },
-                "required": ["message_id", "summary"],
-            },
-        },
-        handler=_handle_set_email_summary,
-        emoji="🗂️",
-    )
-except Exception as _e:
-    logger.warning("[aimail] set_email_summary registration failed: %s", _e)
-
-# 3b-bis. Address lifecycle first-class tool (the agent-visible face of the
-#         address-code chain — bind/pause/resume/unbind in one entry). The
-#         pointer belongs to the executing profile (auto-resolved; no
-#         profile parameter in the schema).
-try:
-    registry.register(
-        name="aimail_address",
-        toolset=_TOOLSET,
-        schema={
-            "name": "aimail_address",
-            "description": (
-                "Manage YOUR mailbox lifecycle (bind / pause / resume / unbind). "
-                "bind: activate with the one-time code (shared_a-…) — or, if this "
-                "mailbox was unbound before, restore it with NO code (idempotent: "
-                "an already-bound mailbox is returned as-is, never re-activated). "
-                "pause: stop receiving locally (the cloud key stays active). "
-                "resume: start receiving again. unbind: archive the local binding "
-                "(the key is kept, so a later code-less bind restores receiving). "
-                "Address-level self-service — no CLI."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "action": {"type": "string", "enum": ["bind", "pause", "resume", "unbind"],
-                               "description": "The lifecycle action to perform"},
-                    "code": {"type": "string", "description": "One-time activation code (shared_a-…) — bind only"},
-                    "email": {"type": "string", "description": "The mailbox address this acts on"},
-                    "gateway_url": {"type": "string", "description": "AIMail gateway URL (or set AIMAIL_GW_URL) — needed for a first-time cloud activation"},
-                },
-                "required": ["action", "email"],
-            },
-        },
-        handler=_handle_aimail_address,
-        emoji="🔑",
-    )
-except Exception as _e:
-    logger.warning("[aimail] aimail_address registration failed: %s", _e)
+        logger.warning("[aimail] tool registration failed: %s", _e)
 
 # 3c. profile lifecycle hooks (automatic address registration/deregistration)
 register_profile_hook("profile_created", _auto_register_email)

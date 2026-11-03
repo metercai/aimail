@@ -1649,20 +1649,17 @@ def _extract_board_gateway(payload: dict):
     if not gw_match:
         return
     gateway_url = gw_match.group(1).rstrip()
-    # Board ID: the invite states it — authoritative. Fallback = the gateway's
-    # derive_board_id: sha256(FULL board address)[:20]. The address carries the
-    # MAIL domain of the sender, never the gateway host — they differ whenever
-    # the gateway is not served on the mail domain (that mismatch used to key
-    # board_creds.json with an id the gateway never knew, so every board call
-    # answered 401).
-    bid_match = re.search(r'Board ID:\s*([0-9a-f]{20})', body)
+    # B1 (2026-11-03): the board address in the From header is the single
+    # board handle. The 20-hex board_id is derived locally —
+    # ``sha256(lower(address))[:20]``, byte-identical to the gateway's
+    # ``derive_board_id`` (board/models.rs) — so the ``Board ID:`` line the
+    # gateway used to print is no longer read. Keying board_creds.json with
+    # the derived id matches the gateway's storage layout exactly.
     addr_match = re.search(r'([A-Za-z0-9._\-]+\.a2a@[A-Za-z0-9._\-]+)', from_addr)
     board_email = addr_match.group(1).lower() if addr_match else ""
-    board_id = bid_match.group(1).lower() if bid_match else ""
-    if not board_id and board_email:
-        board_id = hashlib.sha256(board_email.encode()).hexdigest()[:20]
-    if not board_id:
+    if not board_email:
         return
+    board_id = hashlib.sha256(board_email.encode("utf-8")).hexdigest()[:20]
     _register_board_gateway(board_id, gateway_url)
     if token_match:
         token = token_match.group(1).rstrip()

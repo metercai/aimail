@@ -26,6 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import aimail_base as _base            # noqa: E402
 import aimail_tools as _tools          # noqa: E402
 import aimail_board as _board          # noqa: E402
+import tool_spec as _tool_spec         # noqa: E402  (SSOT: pysdk/tool-spec.json)
 
 # Platform identity injection: shared MCP server does not import platform adaptation layer (platform-agnostic),
 # identity is injected by platform install scripts (install-mcp.sh etc.) via env with real detection results
@@ -222,13 +223,16 @@ def tool_board_task_list(args: dict) -> dict:
 
 def tool_board_task_show(args: dict) -> dict:
     def fn():
-        return {"task": _board.board_task_show(args.get("task_id", ""))}
+        return {"task": _board.board_task_show(args.get("task_id", ""),
+                                               args.get("board", ""))}
     return _safe(fn)
 
 
 def tool_board_heartbeat(args: dict) -> dict:
     def fn():
-        return {"result": _board.board_heartbeat(args.get("task_id", ""), args.get("note", ""))}
+        return {"result": _board.board_heartbeat(args.get("task_id", ""),
+                                                 args.get("board", ""),
+                                                 args.get("note", ""))}
     return _safe(fn)
 
 
@@ -245,112 +249,12 @@ def tool_board_roles(args: dict) -> dict:
 
 
 # ── Tool registry ──────────────────────────────────────────────────
+# SSOT (2026-11-03): semantic text no longer lives here. TOOLS is a
+# projection of the shared spec (pysdk/tool-spec.json via tool_spec.py) —
+# the same file the hermes adapter and the TS SDK project from, so the
+# three registration surfaces can never drift.
 
-SCHEMA_STR = {"type": "string"}
-TOOLS = [
-    {"name": "send_mail", "description": "Send an email from your aimail address. Returns delivery status.",
-     "inputSchema": {"type": "object", "properties": {
-         "to": {"type": "string", "description": "Comma-separated recipients"},
-         "subject": SCHEMA_STR, "body": {"type": "string", "description": "Markdown body"},
-         "cc": {"type": "string", "description": "Comma-separated CC recipients"},
-         "attachments": {"type": "array", "items": {"type": "string"},
-                         "description": "Local file paths to attach"},
-         "message_id": {"type": "string", "description": "Inbound message_id to reply to (threads the reply)"},
-     }, "required": ["to", "subject", "body"]}},
-    {"name": "manage_contacts", "description": (
-        "Manage your contact whitelist: check if an address is allowed, "
-        "add, remove, or update entries."),
-     "inputSchema": {"type": "object", "properties": {
-         "action": {"type": "string", "enum": ["check", "add", "remove", "update"],
-                    "description": "Action to perform"},
-         "address": {"type": "string", "description": "Email address"},
-         "direction": {"type": "string", "enum": ["from", "to", "all"], "default": "all",
-                       "description": "Whitelist direction"},
-     }, "required": ["action"]}},
-    {"name": "contact_profile", "description": "Look up a contact's profile.",
-     "inputSchema": {"type": "object", "properties": {
-         "address": {"type": "string", "description": "Email address"},
-         "name": {"type": "string", "description": "Contact name"}}, "required": []}},
-    {"name": "set_contact_profile", "description": "Store or update a contact's profile.",
-     "inputSchema": {"type": "object", "properties": {
-         "address": {"type": "string", "description": "Email address"},
-         "profile": {"type": "string", "description": "Profile fields as JSON string"}},
-         "required": ["address", "profile"]}},
-    {"name": "email_summary", "description": "Read the stored summary of an email thread.",
-     "inputSchema": {"type": "object", "properties": {"message_id": {"type": "string", "description": "Thread message_id"}},
-                     "required": ["message_id"]}},
-    {"name": "set_email_summary", "description": "Save the summary of an email thread.",
-     "inputSchema": {"type": "object", "properties": {
-         "message_id": {"type": "string", "description": "Thread message_id"},
-         "summary": {"type": "string", "description": "Thread summary text (max 2000 chars)"}},
-         "required": ["message_id", "summary"]}},
-    {"name": "search_mail", "description": (
-        "Search YOUR OWN locally stored mail (offline, no network). Matches "
-        "keywords in subject/body/attachment text; filter by mailbox "
-        "(inbound/outbound/all), time window (since/until YYYY-MM-DD) and "
-        "sender (from, substring). Use it to recall past conversations, find "
-        "when an event happened, or recover attachment content."),
-     "inputSchema": {"type": "object", "properties": {
-         "query": {"type": "string", "description": "Space-separated keywords (AND); empty = browse by filters"},
-         "scope": {"type": "string", "enum": ["all", "inbound", "outbound"], "default": "all",
-                   "description": "Mailbox scope"},
-         "since": {"type": "string", "description": "Start date YYYY-MM-DD (inclusive)"},
-         "until": {"type": "string", "description": "End date YYYY-MM-DD (inclusive)"},
-         "from": {"type": "string", "description": "Sender substring filter (case-insensitive)"},
-         "limit": {"type": "integer", "description": "Max results 1-50 (default 20)"}},
-         "required": []}},
-    {"name": "board_status", "description": (
-        "Get a board's working status: goal, progress per status "
-        "with assignees, and blockers."),
-     "inputSchema": {"type": "object", "properties": {
-         "board": {"type": "string", "description": "Board ID (20-hex, no prefix)"}}, "required": ["board"]}},
-    {"name": "board_task_list", "description": "List a board's tasks, optionally filtered by status or assignee.",
-     "inputSchema": {"type": "object", "properties": {
-         "board": {"type": "string", "description": "Board ID (20-hex, no prefix)"},
-         "status": {"type": "string", "description": "Filter by task status"},
-         "assignee": {"type": "string", "description": "Filter by assignee email"}}, "required": ["board"]}},
-    {"name": "board_task_show", "description": "Show one task's full details, including parent-task context.",
-     "inputSchema": {"type": "object", "properties": {
-         "task_id": {"type": "string", "description": "Task ID (t_<board>_<id>)"}}, "required": ["task_id"]}},
-    {"name": "board_heartbeat", "description": (
-        "Signal your task is still in progress (a ready task advances to running)."),
-     "inputSchema": {"type": "object", "properties": {
-         "task_id": {"type": "string", "description": "Task ID (t_<board>_<id>)"},
-         "note": {"type": "string", "description": "Progress note (optional)"}},
-                     "required": ["task_id"]}},
-    {"name": "board_members", "description": "List a board's members and their roles.",
-     "inputSchema": {"type": "object", "properties": {
-         "board": {"type": "string", "description": "Board ID (20-hex, no prefix)"},
-         "email": {"type": "string", "description": "Filter by member email"}}, "required": ["board"]}},
-    {"name": "board_roles", "description": "List a board's role permissions (optionally one role's members and verbs).",
-     "inputSchema": {"type": "object", "properties": {
-         "board": {"type": "string", "description": "Board ID (20-hex, no prefix)"},
-         "role": {"type": "string", "description": "Filter by role name"}}, "required": ["board"]}},
-    {"name": "aimail_address", "description": (
-        "Manage YOUR mailbox lifecycle (bind / pause / resume / unbind). "
-        "bind: activate with the one-time code (shared_a-…) — or, if this "
-        "mailbox was unbound before, restore it with NO code (idempotent: an "
-        "already-bound mailbox is returned as-is, never re-activated). "
-        "pause: stop receiving locally (the cloud key stays active). "
-        "resume: start receiving again. unbind: archive the local binding "
-        "(the key is kept, so a later code-less bind restores receiving). "
-        "Address-level self-service — no CLI."),
-     "inputSchema": {"type": "object", "properties": {
-         "action": {"type": "string", "enum": ["bind", "pause", "resume", "unbind"],
-                    "description": "The lifecycle action to perform"},
-         "code": {"type": "string", "description": "One-time activation code (shared_a-…) — bind only"},
-         "email": {"type": "string", "description": "The mailbox address this acts on"},
-         "gateway_url": {"type": "string", "description": "AIMail gateway URL (or set AIMAIL_GW_URL) — needed for a first-time cloud activation"}},
-         "required": ["action", "email"]}},
-    {"name": "role_calibrator", "description": (
-        "Trigger the identity-calibration welcome mail for your own address: "
-        "the system welcomes YOUR mailbox (persona/signature/current_time reply "
-        "instructions) and cc's your manager for approval. Requires "
-        "aimail_address (action=bind) to have run first. Reply to the welcome "
-        "mail when it arrives — the [AIMail] Persona applied notification "
-        "closes the loop."),
-     "inputSchema": {"type": "object", "properties": {}}},
-]
+TOOLS = _tool_spec.mcp_tools()
 
 HANDLERS = {
     "send_mail": tool_send_mail,

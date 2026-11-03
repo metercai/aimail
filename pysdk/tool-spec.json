@@ -1,0 +1,190 @@
+[
+  {
+    "name": "send_mail",
+    "description": "Send an email from your aimail address. Returns delivery status. To reply, pass the original message_id (the reply is threaded). To forward, pass the original message_id and start the subject with \"Fw:\".",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "to": { "type": "string", "description": "Recipient address(es): a comma-separated string or an array." },
+        "subject": { "type": "string", "description": "Subject line. On a reply keep the original subject and prefix \"Re:\"; on a forward prefix \"Fw:\"." },
+        "body": { "type": "string", "description": "Markdown body." },
+        "cc": { "type": "string", "description": "CC address(es): a comma-separated string or an array." },
+        "attachments": { "type": "array", "items": { "type": "string" }, "description": "Local file paths to attach" },
+        "message_id": { "type": "string", "description": "Original message_id to reply to (threads the reply) or to forward." }
+      },
+      "required": ["to", "subject", "body"]
+    }
+  },
+  {
+    "name": "manage_contacts",
+    "description": "Manage your contact whitelist: check if an address is allowed, add, remove, or update entries. `update` changes an existing entry's direction.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "action": { "type": "string", "enum": ["check", "add", "remove", "update"], "description": "Action to perform (update = change direction of an existing entry)." },
+        "address": { "type": "string", "description": "Email address (required for check/add/remove/update)." },
+        "direction": { "type": "string", "enum": ["from", "to", "all"], "default": "all", "description": "Whitelist direction (for update, the new direction)." }
+      },
+      "required": ["action"]
+    }
+  },
+  {
+    "name": "contact_profile",
+    "description": "Look up a contact's profile. Pass address (exact) or name (server-side search) — at least one is required.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "address": { "type": "string", "description": "Exact email address." },
+        "name": { "type": "string", "description": "Contact name (server-side search)." }
+      },
+      "required": []
+    }
+  },
+  {
+    "name": "set_contact_profile",
+    "description": "Store or update a contact's profile.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "address": { "type": "string", "description": "Email address." },
+        "profile": { "type": "string", "description": "Profile fields as JSON string (name/title/location/relationship/focus/close_contacts/style)." }
+      },
+      "required": ["address", "profile"]
+    }
+  },
+  {
+    "name": "email_summary",
+    "description": "Read the stored summary of an email thread. Returns found:false when the message_id is unknown to the local mailbox (found:true with an empty summary = stored but empty).",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "message_id": { "type": "string", "description": "Thread message_id." }
+      },
+      "required": ["message_id"]
+    }
+  },
+  {
+    "name": "set_email_summary",
+    "description": "Save the summary of an email thread.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "message_id": { "type": "string", "description": "Thread message_id." },
+        "summary": { "type": "string", "description": "Thread summary text (max 2000 chars)." }
+      },
+      "required": ["message_id", "summary"]
+    }
+  },
+  {
+    "name": "search_mail",
+    "description": "Search YOUR OWN locally stored mail (offline, no network). Matches keywords in subject/body/attachment text; filter by mailbox (inbound/outbound/all), time window (since/until YYYY-MM-DD) and sender (from, substring). Use it to recall past conversations, find when an event happened, or recover attachment content.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": { "type": "string", "description": "Space-separated keywords (AND); empty = browse by filters" },
+        "scope": { "type": "string", "enum": ["all", "inbound", "outbound"], "default": "all", "description": "Mailbox scope" },
+        "since": { "type": "string", "description": "Start date YYYY-MM-DD (inclusive)" },
+        "until": { "type": "string", "description": "End date YYYY-MM-DD (inclusive)" },
+        "from": { "type": "string", "description": "Sender substring filter (case-insensitive)" },
+        "limit": { "type": "integer", "description": "Max results 1-50 (default 20)" }
+      },
+      "required": []
+    }
+  },
+  {
+    "name": "board_status",
+    "description": "Get a board's working status: goal, progress per status with assignees, and blockers.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "board": { "type": "string", "description": "Board address (e.g. xk9mp2q.a2a@mail.hermes.io)" }
+      },
+      "required": ["board"]
+    }
+  },
+  {
+    "name": "board_task_list",
+    "description": "List a board's tasks, optionally filtered by status or assignee.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "board": { "type": "string", "description": "Board address (e.g. xk9mp2q.a2a@mail.hermes.io)" },
+        "status": { "type": "string", "description": "Filter by task status" },
+        "assignee": { "type": "string", "description": "Filter by assignee email" }
+      },
+      "required": ["board"]
+    }
+  },
+  {
+    "name": "board_task_show",
+    "description": "Show one task's full details, including parent-task context.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "task_id": { "type": "string", "description": "Task ID (t_<short>_<board8>, or the short_id from the task mail, e.g. T1)" },
+        "board": { "type": "string", "description": "Board address (e.g. xk9mp2q.a2a@mail.hermes.io)" }
+      },
+      "required": ["task_id", "board"]
+    }
+  },
+  {
+    "name": "board_heartbeat",
+    "description": "Signal your task is still in progress (a ready task advances to running).",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "task_id": { "type": "string", "description": "Task ID (t_<short>_<board8>, or the short_id from the task mail, e.g. T1)" },
+        "board": { "type": "string", "description": "Board address (e.g. xk9mp2q.a2a@mail.hermes.io)" },
+        "note": { "type": "string", "description": "Progress note (optional)" }
+      },
+      "required": ["task_id", "board"]
+    }
+  },
+  {
+    "name": "board_members",
+    "description": "List a board's members and their roles.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "board": { "type": "string", "description": "Board address (e.g. xk9mp2q.a2a@mail.hermes.io)" },
+        "email": { "type": "string", "description": "Filter by member email" }
+      },
+      "required": ["board"]
+    }
+  },
+  {
+    "name": "board_roles",
+    "description": "List a board's role permissions (optionally one role's members and verbs).",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "board": { "type": "string", "description": "Board address (e.g. xk9mp2q.a2a@mail.hermes.io)" },
+        "role": { "type": "string", "description": "Filter by role name" }
+      },
+      "required": ["board"]
+    }
+  },
+  {
+    "name": "aimail_address",
+    "description": "Manage your own mailbox: bind it, pause it, resume it, or unbind it. bind: activate with your one-time code (shared_a-…). If you unbound this mailbox before, bind restores it with no code. An already-bound mailbox is returned as-is. pause: stop receiving locally; the cloud key stays active. resume: start receiving again. unbind: detach this mailbox from your agent — you stop receiving new mail for it; bind it again to restore. Self-service — no CLI needed.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "action": { "type": "string", "enum": ["bind", "pause", "resume", "unbind"], "description": "The lifecycle action to perform" },
+        "code": { "type": "string", "description": "One-time activation code (shared_a-…) — bind only" },
+        "email": { "type": "string", "description": "The mailbox address this acts on" },
+        "gateway_url": { "type": "string", "description": "AIMail gateway URL (or set AIMAIL_GW_URL) — needed for a first-time cloud activation" }
+      },
+      "required": ["action", "email"]
+    }
+  },
+  {
+    "name": "role_calibrator",
+    "description": "Reset your identity card based on your configuration and history.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  }
+]

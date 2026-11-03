@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agent-aimail"
-version = "0.2.6"
+version = "0.2.7"
 description = "AIMail runtime SDK (Python): gateway client, platform adapters, resources. Provisioning tools stay in the aimail repository."
 # PyPI long description = the SDK-facing README (pysdk/README.md). The repo
 # root README stays the repository homepage.
@@ -72,6 +72,11 @@ packages = []
 "pysdk/aimail_base.py" = "aimail/aimail_base.py"
 "pysdk/aimail_tools.py" = "aimail/aimail_tools.py"
 "pysdk/aimail_board.py" = "aimail/aimail_board.py"
+# SSOT (2026-11-03): the shared 15-tool spec (JSON) + its zero-side-effect
+# projection module. Every registration surface (MCP TOOLS, hermes schemas)
+# reads through tool_spec.SPEC_PATH, so both must ship in the wheel.
+"pysdk/tool-spec.json" = "aimail/tool-spec.json"
+"pysdk/tool_spec.py" = "aimail/tool_spec.py"
 # Agent-side contract constants (inbound path / ports / skill name) — both the adapter layer and the session tools import it bare.
 "pysdk/aimail_contract.py" = "aimail/aimail_contract.py"
 "pysdk/gateway_api.py" = "aimail/gateway_api.py"

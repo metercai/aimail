@@ -2258,17 +2258,22 @@ def email_summary(message_id: str) -> dict:
     """Look up the stored summary for the email thread containing this message.
 
     Resolves message_id → thread_id via local meta (meta/{xx}/), then reads
-    threads/{xx}/{thread_id}.json. Returns {"thread_id": ..., "summary": ...}.
+    threads/{xx}/{thread_id}.json. Returns {"thread_id": ..., "summary": ...,
+    "found": ...}. ``found`` tells the caller whether this id exists in the
+    LOCAL mailbox (meta hit) — so "no summary yet" (found=True, summary="")
+    is distinguishable from "this id is not here" (found=False). Mirrors the
+    TS SDK (L3 defect E, 2026-11-02); additive field, thread_id/summary
+    shapes unchanged.
     """
     mid = (message_id or "").strip()
     thread_id = _resolve_thread_id(mid) if mid else ""
     if not thread_id:
-        return {"thread_id": "", "summary": ""}
+        return {"thread_id": "", "summary": "", "found": False}
     try:
         data = json.loads(_thread_path(thread_id).read_text(encoding="utf-8"))
-        return {"thread_id": thread_id, "summary": data.get("summary", "")}
+        return {"thread_id": thread_id, "summary": data.get("summary", ""), "found": True}
     except Exception:
-        return {"thread_id": thread_id, "summary": ""}
+        return {"thread_id": thread_id, "summary": "", "found": True}
 
 
 def set_email_summary(message_id: str, summary: str) -> dict:
