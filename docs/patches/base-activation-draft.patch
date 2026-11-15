@@ -1,5 +1,5 @@
 diff --git a/src/core/api/activation.rs b/src/core/api/activation.rs
-index a84a41f..d4e9896 100644
+index a84a41f..24a8cb2 100644
 --- a/src/core/api/activation.rs
 +++ b/src/core/api/activation.rs
 @@ -3,7 +3,9 @@
@@ -35,7 +35,7 @@ index a84a41f..d4e9896 100644
  }
  
  // ── Rate limiter for public activation endpoint ──────────────────
-@@ -400,6 +403,469 @@ pub async fn activate_address_handler(
+@@ -400,6 +403,505 @@ pub async fn activate_address_handler(
      Ok((StatusCode::OK, body))
  }
  
@@ -279,9 +279,10 @@ index a84a41f..d4e9896 100644
 +    db.upsert_email_verification(&email, &hash, &expires)
 +        .await
 +        .map_err(|e| activation_error(StatusCode::INTERNAL_SERVER_ERROR, "database error", Some(e.to_string())))?;
-+    db.insert_mock_mail(&email, "AIMail verification code", &verification_email_body(&code))
-+        .await
-+        .map_err(|e| activation_error(StatusCode::INTERNAL_SERVER_ERROR, "database error", Some(e.to_string())))?;
++    if let Err(e) = enqueue_apply_email(&state, &email, "AIMail verification code", &verification_email_body(&code)).await {
++        db.clear_email_verification(&email).await.ok();
++        return Err(e);
++    }
 +    Ok((StatusCode::OK, Json(serde_json::json!({
 +        "status": "sent",
 +        "email": email,
@@ -295,6 +296,39 @@ index a84a41f..d4e9896 100644
 +        'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '_' | '.' | '@' => c.to_string(),
 +        _ => format!("%{:02X}", c as u32),
 +    }).collect()
++}
++
++/// Queue an application email through the real outbound pipeline (the
++/// advanced gateway's pattern): create_outbound + first-delivery trigger.
++/// The pilot's simulated inbox reads these queued rows back by recipient.
++async fn enqueue_apply_email(
++    state: &HttpState,
++    to_email: &str,
++    subject: &str,
++    body: &str,
++) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
++    let from = state.config.system_sender();
++    let recipients = serde_json::json!({ "to": [to_email], "cc": [] }).to_string();
++    let id = format!("apply-{}", uuid::Uuid::new_v4());
++    state
++        .factories
++        .email
++        .create_outbound(
++            &id,
++            "admin",
++            &from,
++            &recipients,
++            subject,
++            body,
++            None,
++            None,
++            None,
++            state.config.retry.max_attempts as i32,
++        )
++        .await
++        .map_err(|e| activation_error(StatusCode::BAD_GATEWAY, "failed to queue email", Some(e.to_string())))?;
++    state.dispatch_first_delivery(&id);
++    Ok(())
 +}
 +
 +/// POST /api/v1/public/email-verify/check {email, code}
@@ -333,7 +367,7 @@ index a84a41f..d4e9896 100644
 +        return Err(activation_error(StatusCode::BAD_REQUEST, "email is required", None));
 +    }
 +    let mail = state.factories.email.env_factory.db
-+        .list_mock_mail(&email, 20)
++        .list_outbound_for_recipient(&email, 20)
 +        .await
 +        .map_err(|e| activation_error(StatusCode::INTERNAL_SERVER_ERROR, "database error", Some(e.to_string())))?;
 +    let items: Vec<serde_json::Value> = mail.into_iter().map(|(id, subject, body, created_at)| serde_json::json!({
@@ -396,10 +430,11 @@ index a84a41f..d4e9896 100644
 +    db.insert_activation_code(&hash, &code, "product", &sid, &domain, "", Some(&expires))
 +        .await
 +        .map_err(|e| activation_error(StatusCode::INTERNAL_SERVER_ERROR, "database error", Some(e.to_string())))?;
-+    db.insert_mock_mail(&email, "AIMail system activation code",
-+        &format!("Hi {name},\n\nSystem activation code for {domain}:\n\n{code}\n\nUse it in the dsh aimail_system tool. It expires in 7 days."))
-+        .await
-+        .map_err(|e| activation_error(StatusCode::INTERNAL_SERVER_ERROR, "database error", Some(e.to_string())))?;
++    if let Err(e) = enqueue_apply_email(&state, &email, "AIMail system activation code",
++        &format!("Hi {name},\n\nSystem activation code for {domain}:\n\n{code}\n\nUse it in the dsh aimail_system tool. It expires in 7 days.")).await {
++        db.delete_activation_code(&hash).await.ok();
++        return Err(e);
++    }
 +    db.clear_email_verification(&email).await.ok();
 +    Ok((StatusCode::CREATED, Json(serde_json::json!({
 +        "status": "created", "email": email, "system_id": sid, "domain": domain, "activation_code": code,
@@ -434,10 +469,11 @@ index a84a41f..d4e9896 100644
 +        .await
 +        .map_err(|e| activation_error(StatusCode::INTERNAL_SERVER_ERROR, "database error", Some(e.to_string())))?;
 +    let code = codes.into_iter().next().unwrap_or_default();
-+    db.insert_mock_mail(&email, "AIMail address activation code",
-+        &format!("Hi {name},\n\nAddress activation code for {address}:\n\n{code}\n\nUse it in the dsh aimail_address tool. It expires in 7 days."))
-+        .await
-+        .map_err(|e| activation_error(StatusCode::INTERNAL_SERVER_ERROR, "database error", Some(e.to_string())))?;
++    if let Err(e) = enqueue_apply_email(&state, &email, "AIMail address activation code",
++        &format!("Hi {name},\n\nAddress activation code for {address}:\n\n{code}\n\nUse it in the dsh aimail_address tool. It expires in 7 days.")).await {
++        db.delete_activation_code(&crate::core::api::auth::sha256_hex(&code)).await.ok();
++        return Err(e);
++    }
 +    db.clear_email_verification(&email).await.ok();
 +    Ok((StatusCode::CREATED, Json(serde_json::json!({
 +        "status": "created", "email": email, "system_id": sid, "domain": domain, "address": address, "activation_code": code,
@@ -585,7 +621,7 @@ index 78485d0..a4f28f7 100644
          &self,
          system_id: &str,
 diff --git a/src/core/storage.rs b/src/core/storage.rs
-index 998db51..86528c1 100644
+index 998db51..3ffce15 100644
 --- a/src/core/storage.rs
 +++ b/src/core/storage.rs
 @@ -474,6 +474,24 @@ fn run_migrations(conn: &Connection) -> AppResult<()> {
@@ -684,7 +720,7 @@ index 998db51..86528c1 100644
      pub async fn insert_api_key(
          &self,
          system_id: &str,
-@@ -1839,6 +1921,104 @@ impl Database {
+@@ -1839,6 +1921,127 @@ impl Database {
          self.pool.clone()
      }
  
@@ -742,6 +778,29 @@ index 998db51..86528c1 100644
 +        }).await
 +    }
 +
++    /// Simulated inbox for the pilot: read actual queued outbound emails by
++    /// recipient (the advanced pattern queues via create_outbound).
++    pub async fn list_outbound_for_recipient(
++        &self,
++        to_addr: &str,
++        limit: i64,
++    ) -> AppResult<Vec<(String, String, String, String)>> {
++        let (to_addr, limit) = (to_addr.to_string(), limit.clamp(1, 50));
++        self.call(move |conn| {
++            let mut stmt = conn.prepare(
++                "SELECT id, subject, body, created_at FROM emails
++                 WHERE direction = 'outbound' AND recipients LIKE '%' || ?1 || '%'
++                 ORDER BY created_at DESC LIMIT ?2",
++            )?;
++            let mut rows = stmt.query(params![to_addr, limit])?;
++            let mut out = Vec::new();
++            while let Some(row) = rows.next()? {
++                out.push((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?));
++            }
++            Ok(out)
++        }).await
++    }
++
 +    pub async fn insert_mock_mail(&self, to_addr: &str, subject: &str, body: &str) -> AppResult<()> {
 +        let (to_addr, subject, body) = (to_addr.to_string(), subject.to_string(), body.to_string());
 +        self.call(move |conn| {
@@ -789,7 +848,7 @@ index 998db51..86528c1 100644
      // ── Activation Codes ──────────────────────────────────────────────
  
      /// Insert a new activation code. Returns the row ID.
-@@ -1899,6 +2079,35 @@ impl Database {
+@@ -1899,6 +2102,35 @@ impl Database {
          .await
      }
  
