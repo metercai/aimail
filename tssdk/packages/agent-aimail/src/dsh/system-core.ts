@@ -229,6 +229,9 @@ export async function provisionSystem(
   if (existing && existing.cfg.gateway_url.replace(/\/+$/, '') !== gatewayUrl) {
     return failure('gateway_mismatch', `already provisioned for gateway ${existing.cfg.gateway_url}`)
   }
+  if (existing && pre.system_id && pre.system_id !== existing.sid) {
+    return failure('system_conflict', `already provisioned for system ${existing.sid}`)
+  }
   const boundDomain = domain || pre.domain || ''
   const boundName = systemName || pre.system_name || ''
   if (pre.domain && domain && pre.domain.toLowerCase() !== domain) {
