@@ -36,7 +36,9 @@ function handler(req: IncomingMessage, res: ServerResponse): void {
     }
     if (url === '/api/v1/public/activation-code/preflight') {
       const code = String((JSON.parse(body || '{}') as { code?: string }).code ?? '')
-      if (code.startsWith('sys-')) {
+      if (code.startsWith('shared-sys-')) {
+        send({ valid: true, code_type: 'product', scope: 'system', domain: 'shared.test', system_name: 'pub', claimed: false })
+      } else if (code.startsWith('sys-')) {
         send({ valid: true, code_type: 'product', scope: 'system', domain: 'a.com', system_name: '', claimed: false })
       } else if (code.startsWith('shared-')) {
         send({ valid: true, code_type: 'address', scope: 'shared', system_id: 'shared_addr_x', domain: 'shared.test', email_address: 'me@shared.test', claimed: false })
@@ -46,7 +48,12 @@ function handler(req: IncomingMessage, res: ServerResponse): void {
       return
     }
     if (url === '/api/v1/activate-system') {
-      send({ raw_key: 'SYS_RAW', system_id: 'sys-1', domain: 'a.com', domains: ['a.com', 'b.com'], system_name: '', manager_address: 'mgr@a.com', kind: 'new' })
+      const parsed = JSON.parse(body || '{}') as { code?: string }
+      if (parsed.code?.startsWith('shared-sys-')) {
+        send({ raw_key: 'SYS_SHARED', system_id: 'sys-shared', domain: 'shared.test', domains: ['shared.test'], system_name: 'pub', manager_address: 'mgr@shared.test', kind: 'new' })
+      } else {
+        send({ raw_key: 'SYS_RAW', system_id: 'sys-1', domain: 'a.com', domains: ['a.com', 'b.com'], system_name: '', manager_address: 'mgr@a.com', kind: 'new' })
+      }
       return
     }
     if (url === '/api/v1/activate-address-code') {
@@ -156,6 +163,16 @@ describe('system onboarding', () => {
     const r = await provisionSystem(ctx, { action: 'bind', code: 'sys-code', gateway_url: gateway, system_name: 's', domain: 'a.com' })
     expect(r.success).toBe(false)
     expect(r.error_code).toBe('bad_args')
+  })
+
+  test('scene 5 shared: code + system_name binds agent.<system_name>@shared', async () => {
+    const ctx = fakeCtx() as never
+    const r = await provisionSystem(ctx, { action: 'bind', code: 'shared-sys-1', gateway_url: gateway, system_name: 'pub' })
+    expect(r.success).toBe(true)
+    expect(r.system_id).toBe('sys-shared')
+    expect(r.default_email).toBe('agent.pub@shared.test')
+    const binding = await loadAgentConfig('sys-shared', 'agent.pub@shared.test')
+    expect(binding?.workspace_path).toBe(await fs.realpath(path.join(dsh, 'default-workspace')))
   })
 
   test('a system code in the address tool is rejected', async () => {

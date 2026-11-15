@@ -140,7 +140,7 @@ export async function provisionSystem(
   if (pre.system_name && domain) {
     return failure('system_mismatch', `activation code is bound to shared system ${pre.system_name}; omit domain`)
   }
-  if (pre.domain && systemName) {
+  if (!pre.system_name && pre.domain && systemName) {
     return failure('system_mismatch', `activation code is bound to dedicated domain ${pre.domain}; omit system_name`)
   }
   if (!boundDomain && !boundName) {

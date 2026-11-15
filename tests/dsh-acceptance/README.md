@@ -2,7 +2,7 @@
 
 本目录是跨仓验收夹具：**base 网关 + advanced 网关 + tssdk dsh 插件**。
 
-> 场景口径（1–6）见 **[SCENARIOS.md](SCENARIOS.md)**；场景 1 与 6 的前置/地址格式不同，测试时不要混用。
+> 场景口径（1–6）见 **[SCENARIOS.md](SCENARIOS.md)**；CLI 2/3/4 的覆盖/退役边界见 **[CLI-COVERAGE.md](CLI-COVERAGE.md)**。场景 1 与 6 的前置/地址格式不同，测试时不要混用。
 不依赖 DSH Web UI；用 fake ctx 驱动 tssdk 的真实适配层，用 Mailpit 模拟收件人/SMTP 出口。
 
 ## 1. 目录与前置
