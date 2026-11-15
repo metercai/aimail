@@ -11,7 +11,7 @@ hostname = "advanced.test"
 path = "/data"
 
 [relay]
-smtp_server = "smtp://mailpit:1025"
+smtp_server = "mailpit:1025"
 
 [admin]
 email = "admin@advanced.test"

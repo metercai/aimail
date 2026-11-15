@@ -13,7 +13,7 @@ path = "/data"
 # All verification/activation-code mails go to Mailpit (simulated recipient),
 # using the same outbound queue as production SMTP.
 [relay]
-smtp_server = "smtp://mailpit:1025"
+smtp_server = "mailpit:1025"
 
 [admin]
 email = "admin@test.local"
