@@ -8,7 +8,7 @@
 | **2** | 命令行 | 共享域 | 系统激活码 | `aimail install` / bootstrap（**不是 DSH 工具**） | 系统级，CLI 维护；DSH 场景 5 是它的 agent 对话等价入口 |
 | **3** | 命令行 | 独享域 | 系统激活码 | `aimail install` / bootstrap（**不是 DSH 工具**） | 系统级，CLI 维护 |
 | **4** | 命令行 | 独立网关/独享域 | 已有 system key | `AIMAIL_ADMIN_KEY=<system key>` + `aimail install`（**不是 DSH 工具**） | 自建网关；不需要产品激活码 |
-| **5** | Agent 对话，系统级 | 共享域 / 独享域 / 独立网关 | 共享/独享：系统激活码；独立：已有 system key | `aimail_system bind{...}` | 共享：`code+system_name`；独享：`code+domain`；独立：`system_key+system_id+domain`；不接受 email |
+| **5** | Agent 对话，系统级 | 共享域 / 独享域 / 独立网关 | 共享/独享/**独立网关**都由网关 `/apply` 页面申领**系统激活码** | `aimail_system bind{...}` | 共享：`code+system_name`；独享/独立：`code+domain`；不接受 email / admin-key / system-key |
 | **6** | Agent 对话，地址级，**系统对接后** | 共享域 / 独享域 / 独立网关 | 共享域：用 system 的 domain key（**不要用场景 1 的 shared code**）；独享/独立：地址码可选 | `aimail_address bind{email,code?}` | **必须有 system config**；共享域地址形如 `name.system_name@shared`；独享/独立形如 `name@domain` |
 
 ## 场景 1 与场景 6 的区别（重点）
@@ -28,18 +28,16 @@
 |---|---|---|
 | 共享域系统 | `code`, `system_name`, `gateway_url` | 系统码绑定 `system_name`；默认工作员 `agent.<system_name>@shared` |
 | 独享域系统 | `code`, `domain`, `gateway_url` | 系统码绑定 domain；默认工作员 `agent@domain` |
-| 独立网关 | `system_key`, `system_id`, `domain`, `gateway_url` | 不消耗产品码；`whoami` 校验 system key；默认工作员 `agent@domain` |
+| 独立网关 | `code`, `domain`, `gateway_url` | 在自建 base 的 `/apply` 申领系统码；码兑换 system key；默认工作员 `agent@domain` |
 
-- `code` 与 `system_key` **互斥**，必须且只能给一个；否则 `bad_args`。
-- 独立网关的 `system_id` 来自网关启动输出 / `<storage>/system.id`，不能省略。
+- 所有场景 5 都用 `code`；**admin-key / system-key 永远不会进入 agent 对话**。
+- 独立网关的码同样来自该 base 的 `/apply` 页面（`apply-system`）。
 - `manager` 可选，只影响系统默认 manager；不是收码邮箱。
 
 ## 校验顺序（避免“先消费码再报错”）
 
 `aimail_system`：
-1. `code` XOR `system_key`。
-2. 有 code：preflight；`code_type` 必须是 system/product；绑定必须与 `system_name`/`domain` 一致；否则在激活前拒绝。
-3. 有 system_key：`whoami` 校验 key 与 `system_id`；地址级 key 拒绝。
+1. 有 code：preflight；`code_type` 必须是 system/product；绑定必须与 `system_name`/`domain` 一致；否则在激活前拒绝。
 4. 已有 config：同 gateway 可重绑；跨 gateway `gateway_mismatch`；已有地址绑定但无 system `binding_conflict`。
 
 `aimail_address`：

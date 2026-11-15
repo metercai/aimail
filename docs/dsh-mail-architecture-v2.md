@@ -51,7 +51,7 @@ base 与 advanced 是**两套独立实现**，只共享同一份对外 API 契�
 
 - **场景 1 ≠ 场景 6**：场景 1 没有 system，共享域地址是 `name@shared`；场景 6 已有 system，共享域地址是 `name.system_name@shared`，独享/独立是 `name@domain`。
 - 场景 2/3/4 是 CLI；DSH 不调用 CLI，场景 5 是它们的 agent 对话等价入口，不要混写。
-- 场景 5 的独立网关子形态用 `system_key + system_id + domain`，不消耗产品激活码。
+- 场景 5 的共享域、独享域、独立网关**都由该网关 `/apply` 页面申领系统激活码**；admin-key/system-key 永远不进入 agent 对话。
 - 地址工具判定：有 system → B1（场景 6）；无 system + `scope=shared` → B2（场景 1）；有 system + shared 码 / 无 system + 非 shared 码均在激活前拒绝。
 
 ---
@@ -130,12 +130,11 @@ gateway_url: https://aimail.token.tm
 manager: <可选；整个系统的默认安全员，不是收码邮箱；不填则用收码邮箱>
 ```
 
-独立网关（场景 5 的独立子形态，无产品码）：
+独立网关（场景 5 的独立子形态，同样用系统激活码）：
 
 ```text
 gateway_url: <自建网关>
-system_key: <网关启动时打印的 system key>
-system_id: <网关启动时打印的 system id，如 system-xxxx>
+系统激活码: <在该 base 的 /apply 页面申领的 sys-...>
 domain: <独享域>
 manager: <可选>
 ```
@@ -146,9 +145,7 @@ manager: <可选>
 |---|---|---|
 | `action` | 是 | `bind` / `status` |
 | `gateway_url` | 首次 | 激活信息；已有 config 时可省略 |
-| `code` | 与 `system_key` 二选一 | 一次性系统激活码（共享/独享云网关） |
-| `system_key` | 与 `code` 二选一 | 独立网关已有的 system-level key |
-| `system_id` | `system_key` 时必填 | 独立网关启动打印的 system id |
+| `code` | bind 必填 | 一次性系统激活码；在网关 `/apply` 页面申领（共享/独享/独立网关同一入口） |
 | `system_name` | 绑定未定才填 | 共享域系统名；必须与激活码绑定一致；base 无此项 |
 | `domain` | 绑定未定才填 | 独享域；base 多 domain 时选其一；必须与激活码绑定一致 |
 | `manager` | 可选 | **仅系统对接**；整个系统的默认安全员，**不是收码邮箱**；网关校验/白名单 |
@@ -159,8 +156,7 @@ manager: <可选>
 
 ### 5.3 校验（preflight 先行）
 
-0. `code` 与 `system_key` 必须且只能有一个；独立网关用 `system_key + system_id + domain`。
-1. 有 code：`POST /api/v1/public/activation-code/preflight {code}`：
+1. `POST /api/v1/public/activation-code/preflight {code}`：
    - 返回 `code_type/scope/system_id/domain/system_name/email_address/expires_at/claimed/is_shipped`；
    - 不消费 code。
 2. `code_type` 必须是 `product`/system；address code → `wrong-tool`。
@@ -170,7 +166,6 @@ manager: <可选>
    - 不同 gateway → `gateway_mismatch`。
    - 已有 B2 地址 binding、无 system → `binding_conflict`（一个 profile 不同时跑两种模式；提示删除该共享地址 binding 或换 profile——工具不提供 unbind）。
 5. `manager` 可选；不传则网关默认 = 收码邮箱（申请人邮箱）；传了则作为整个系统的默认安全员。**不需要管理员/收码邮箱确认**，插件直接传、网关直接写。申领页本身不写 manager。
-6. 独立网关：`whoami` 校验 `system_key` 与 `system_id`；地址级 key 拒绝；domain 必填。
 
 ### 5.4 流程
 
@@ -190,15 +185,12 @@ manager: <可选>
 
 ### 5.5 独立网关（场景 5 的独立子形态）
 
-不消耗产品码：
+与共享/独享**同一入口**：
 
-1. `whoami`（`system_key` + `system_id`）→ 校验 system 级 key、取 `system_id`；
-2. 写 `aimail_gateway.json`（`admin_key` 先为 system key）；
-3. 列出 system 的 domains，为每个 domain 铸 domain key；
-4. 默认工作员 `agent@{domain}` 绑默认工作区；
-5. `kind="key"`，返回 `degraded`（若 domain key 未铸成功则继续用 system key）。
-
-地址级 key、跨 gateway、`system_id` 不匹配、缺 domain 均在写配置前拒绝。
+1. 在自建 base 的 `/apply` 页面申领 `sys-...` 系统激活码；
+2. `aimail_system` 用 `code + domain`；
+3. 写 config、per-domain key、默认工作员、默认工作区；
+4. 不需要、也不接受 admin-key/system-key。
 
 ### 5.6 默认工作员与默认工作区
 
@@ -215,7 +207,7 @@ manager: <可选>
 { "success": true, "scope": "system", "system_id": "…", "domain": "…",
   "system_name": "…", "default_email": "agent@…",
   "workspace": { "id": "…", "path": "/…/default-workspace", "title": "default-workspace" },
-  "kind": "new|renewal|rotation|key", "degraded": false }
+  "kind": "new|renewal|rotation", "degraded": false }
 ```
 
 - 带 code 的重复 bind：preflight 匹配后重新激活；gateway 返回 `kind`；更新 keys/expiry；不静默跳过。

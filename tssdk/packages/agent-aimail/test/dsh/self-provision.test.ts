@@ -62,10 +62,6 @@ function handler(req: IncomingMessage, res: ServerResponse): void {
       send({ status: 200 })
       return
     }
-    if (url === '/api/v1/whoami') {
-      send({ status: 200, scope: 'system', system_id: 'sys-1', email: '', category: 'system', key_prefix: 'abc' })
-      return
-    }
     if (url === '/api/v1/admin/api-keys') {
       const parsed = JSON.parse(body || '{}') as { email_address?: string; category?: string }
       send({ raw_key: `KEY_${parsed.category}_${parsed.email_address}` })
@@ -155,52 +151,18 @@ describe('system onboarding', () => {
     expect(JSON.parse(activate!.body).manager).toBe('boss@a.com')
   })
 
-  test('a system code in the address tool is rejected', async () => {
-    const ctx = fakeCtx() as never
-    const r = await runAddressTool(ctx, { agent: { id: 'sess-1' } }, { action: 'bind', email: 'x@a.com', code: 'sys-code', gateway_url: gateway })
-    expect(r.success).toBe(false)
-    expect(r.error_code).toBe('wrong_tool')
-  })
-})
-
-describe('scenario 5: independent gateway (system key)', () => {
-  test('binds with system_key + system_id without an activation code', async () => {
-    const ctx = fakeCtx() as never
-    const r = await provisionSystem(ctx, {
-      action: 'bind',
-      system_key: 'SYS_KEY',
-      system_id: 'sys-1',
-      gateway_url: gateway,
-      domain: 'a.com',
-    })
-    expect(r.success).toBe(true)
-    expect(r.kind).toBe('key')
-    const cfg = await readSystemGatewayConfig('sys-1')
-    expect(cfg?.admin_key).toBe('KEY_domain_a.com')
-    expect(cfg?.domain_keys?.['a.com']).toBe('KEY_domain_a.com')
-    const binding = await loadAgentConfig('sys-1', 'agent@a.com')
-    expect(binding?.workspace_path).toBe(await fs.realpath(path.join(dsh, 'default-workspace')))
-  })
-
-  test('system_key without system_id is rejected', async () => {
-    const ctx = fakeCtx() as never
-    const r = await provisionSystem(ctx, { action: 'bind', system_key: 'SYS_KEY', gateway_url: gateway, domain: 'a.com' })
-    expect(r.success).toBe(false)
-    expect(r.error_code).toBe('bad_args')
-  })
-
-  test('code and system_key are mutually exclusive', async () => {
-    const ctx = fakeCtx() as never
-    const r = await provisionSystem(ctx, { action: 'bind', code: 'sys-code', system_key: 'SYS_KEY', system_id: 'sys-1', gateway_url: gateway, domain: 'a.com' })
-    expect(r.success).toBe(false)
-    expect(r.error_code).toBe('bad_args')
-  })
-
   test('system_name and domain are mutually exclusive', async () => {
     const ctx = fakeCtx() as never
     const r = await provisionSystem(ctx, { action: 'bind', code: 'sys-code', gateway_url: gateway, system_name: 's', domain: 'a.com' })
     expect(r.success).toBe(false)
     expect(r.error_code).toBe('bad_args')
+  })
+
+  test('a system code in the address tool is rejected', async () => {
+    const ctx = fakeCtx() as never
+    const r = await runAddressTool(ctx, { agent: { id: 'sess-1' } }, { action: 'bind', email: 'x@a.com', code: 'sys-code', gateway_url: gateway })
+    expect(r.success).toBe(false)
+    expect(r.error_code).toBe('wrong_tool')
   })
 })
 

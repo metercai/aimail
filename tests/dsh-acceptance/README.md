@@ -95,9 +95,9 @@ docker compose ps
 ./scripts/run-base-independent.sh
 ```
 
-- 从 base 数据卷读取 `<sid>.system.key` 与 `system.id`；
-- `aimail_system` 用 **system_key + system_id + domain**（不消耗产品码）；
-- 再用 `aimail_address` 无码绑定 `agent@test.local`（场景 6，domain key 注册）。
+- 在自建 base 的 `/apply` 申领**系统激活码**（admin/system key 不进入对话）；
+- `aimail_system` 用 **code + domain**（与共享/独享同一入口）；
+- 再用 `aimail_address` 无码绑定 `worker@test.local`（场景 6，domain key 注册）。
 
 ### 3.5 base 生命周期/轮换
 
@@ -141,7 +141,7 @@ Mailpit UI `http://127.0.0.1:8025` 可看原始邮件（验证码/激活码）�
 | B4 | base 多 domain | `second.test` 绑定 | `domain_keys` 选对；绑定成功 | `.data/address2.json` |
 | B5 | base 收信 | SMTP + `dsh-harness hub` | `followups>=1`，session cwd=workspace | `.data/hub.json` |
 | B6 | 场景 6 无码绑定 | `alice@test.local` 已 system 对接 | `mode=register`；domain key 注册 | `run-base-independent`/手工 |
-| B7 | 场景 5 独立网关 | `system_key+system_id` | `kind=key`；默认工作员 | `run-base-independent.sh` |
+| B7 | 场景 5 独立网关 | `/apply` 系统码 + `code+domain` | `success=true`；默认工作员 | `run-base-independent.sh` |
 | B8 | 重复绑定/轮换 | 对同一地址再 claim 一次 | 返回 `kind=rotation`；旧 key 失效 | `run-base-rotation.sh` |
 | B9 | pause/resume | `aimail_address pause/resume` | paused 不 ack；resume 补收 | `run-base-lifecycle.sh` |
 | B10 | no unbind | `action=unbind` | `bad_args` | `run-base-lifecycle.sh` |

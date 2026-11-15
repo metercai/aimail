@@ -176,29 +176,6 @@ export async function activateSystem(opts: {
   }
 }
 
-export interface Whoami {
-  status: number
-  scope?: string | undefined
-  system_id?: string | undefined
-  email?: string | undefined
-  category?: string | undefined
-  manager_address?: string | undefined
-}
-
-/** Validate a system-level key and discover its system id (independent gw). */
-export async function whoami(gatewayUrl: string, systemKey: string, identity: string): Promise<Whoami> {
-  const client = new GatewayClient(gatewayUrl.replace(/\/+$/, ''), systemKey, 30_000, identity)
-  const res = asRecord(await client.request('GET', '/api/v1/whoami'))
-  return {
-    status: Number(res.status ?? 0),
-    scope: str(res.scope) || undefined,
-    system_id: str(res.system_id) || undefined,
-    email: str(res.email) || undefined,
-    category: str(res.category) || undefined,
-    manager_address: str(res.manager_address) || undefined,
-  }
-}
-
 export async function activateAddressCode(opts: {
   gatewayUrl: string
   code: string

@@ -9,7 +9,6 @@
  *
  * Usage:
  *   node dsh-harness.mjs system  --gateway URL --code CODE --domain D [--home DIR]
- *   node dsh-harness.mjs system  --gateway URL --system_key KEY --system_id SID --domain D [--home DIR]
  *   node dsh-harness.mjs address --gateway URL --email E --code CODE --workspace DIR [--home DIR]
  *   node dsh-harness.mjs lifecycle --email E --action pause|resume|unbind [--home DIR]
  *   node dsh-harness.mjs hub     --gateway URL --email E --timeout SEC [--home DIR]
@@ -80,8 +79,6 @@ async function main() {
       ...(arg('domain') ? { domain: arg('domain') } : {}),
       ...(arg('system_name') ? { system_name: arg('system_name') } : {}),
       ...(arg('manager') ? { manager: arg('manager') } : {}),
-      ...(arg('system_key') ? { system_key: arg('system_key') } : {}),
-      ...(arg('system_id') ? { system_id: arg('system_id') } : {}),
     })
     console.log(JSON.stringify(r, null, 2))
     process.exit(r.success ? 0 : 1)
