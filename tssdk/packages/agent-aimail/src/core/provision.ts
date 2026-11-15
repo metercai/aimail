@@ -19,6 +19,7 @@ import * as os from 'node:os'
 
 import { GatewayClient } from './gateway.js'
 import { AIMAIL_HOME, gatewayConfigPath, systemDir } from './config.js'
+import { POINTER_FILE } from './contract.js'
 import { emailForAgent } from './auto-bind.js'
 
 export interface ActivationPreflight {
@@ -335,7 +336,7 @@ export function systemHome(): string {
 }
 
 export async function writeAgentmailPointer(systemId: string, email?: string): Promise<void> {
-  const p = path.join(systemHome(), '.agentmail')
+  const p = path.join(systemHome(), POINTER_FILE)
   await fs.mkdir(path.dirname(p), { recursive: true, mode: 0o700 })
   const tmp = `${p}.tmp`
   await fs.writeFile(tmp, JSON.stringify({ system_id: systemId, ...(email ? { email } : {}) }, null, 2) + '\n', { mode: 0o600 })
@@ -345,7 +346,7 @@ export async function writeAgentmailPointer(systemId: string, email?: string): P
 
 export async function readAgentmailPointer(): Promise<{ system_id?: string; email?: string } | undefined> {
   try {
-    return JSON.parse(await fs.readFile(path.join(systemHome(), '.agentmail'), 'utf-8'))
+    return JSON.parse(await fs.readFile(path.join(systemHome(), POINTER_FILE), 'utf-8'))
   } catch {
     return undefined
   }

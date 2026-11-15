@@ -171,7 +171,7 @@ Mailpit UI `http://127.0.0.1:8025` 可看原始邮件（验证码/激活码）�
   ```bash
   curl -X POST "$BASE/api/v1/whitelists" -H 'content-type: application/json' -d '{"system_id":"'$SID'","domain_addr":"agent@test.local","direction":"from","value":"qa-manager@example.com"}'
   ```
-- **F5 时延**：`claim-advanced.sh` 会打印 `apply_ms`；API 应秒级返回，激活码邮件异步到 Mailpit（等待上限 240s）。若 `apply_ms` 本身 >5s，按产品缺陷记录，不要只归因于邮件延迟。
+- **F5 时延**：`claim-advanced.sh` 会打印 `apply_ms`；API 应秒级返回，激活码邮件异步到 Mailpit（等待上限 240s）。compose 已给 Mailpit 加 healthcheck，base/advanced 改为 `depends_on: condition: service_healthy`，避免网关先启动、首次 SMTP 投递失败后等重试。若 `apply_ms` 本身 >5s，按产品缺陷记录；若仍出现分钟级投递延迟，记录网关日志中的首次 SMTP 失败原因。
 - **模拟收件箱**：base 的 `/api/v1/public/mock-inbox` 读取真实 outbound 邮件（不是假表）；仅试点，生产不应暴露。
 - **真实 DSH agent**：本夹具用 fake ctx 验证适配层；真实 DSH 插件加载/L3 仍需单独跑（见 `docs/agent-self-setup.md`）。
 - **advanced B2**：需 advanced 仓构建成功；若私有仓无权限，先在有权限的机器构建镜像。

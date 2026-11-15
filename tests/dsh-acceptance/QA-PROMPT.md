@@ -70,7 +70,7 @@ docker compose ps
 1. 邮箱验证（验证码在 Mailpit `http://127.0.0.1:8025` 或页面模拟收件箱）。
 2. 申领系统码 `sys-...` → 交给 `aimail_system`。
 3. 申领地址码 `addr-...` → 交给 `aimail_address`。
-4. 确认 `aimail_gateway.json` 0600、无 `webhook_host/bridge_key`；`agentmail.json` 0600；无 9099 监听。
+4. 确认 `aimail_gateway.json` 0600、无 `webhook_host/bridge_key`；`agentmail.json` 0600；无 9099 监听。 <!-- contract-allowed: design/acceptance doc must quote the contract surface verbatim -->
 
 场景 1/6 的区别、CLI 2/3/4 的覆盖边界见：
 - `tests/dsh-acceptance/SCENARIOS.md`

@@ -15,6 +15,7 @@ import { provisionSystem } from '../../src/dsh/system-core.js'
 import { runAddressTool } from '../../src/dsh/address.js'
 import { readSystemGatewayConfig } from '../../src/core/provision.js'
 import { loadAgentConfig } from '../../src/core/index.js'
+import { POINTER_FILE } from '../../src/core/contract.js'
 
 interface FakeCall { method: string; url: string; body: string; identity: string }
 const calls: FakeCall[] = []
@@ -152,7 +153,7 @@ describe('system onboarding', () => {
     expect(binding?.workspace_path).toBe(await fs.realpath(path.join(dsh, 'default-workspace')))
     expect(binding?.api_key).toMatch(/^KEY_agent_agent@a\.com$/)
     expect(binding?.webhook_url).toBeUndefined()
-    expect(JSON.parse(await fs.readFile(path.join(dsh, '.agentmail'), 'utf-8')).system_id).toBe('sys-1')
+    expect(JSON.parse(await fs.readFile(path.join(dsh, POINTER_FILE), 'utf-8')).system_id).toBe('sys-1')
     // manager override reached the activation request
     const activate = calls.find((c) => c.url === '/api/v1/activate-system')
     expect(JSON.parse(activate!.body).manager).toBe('boss@a.com')

@@ -179,7 +179,7 @@ manager: <可选>
 | 6 | 读响应 `domains`（base 多 domain）或 `domain`；选中 domain |
 | 7 | **为每个 domain 铸 domain key**（`POST /admin/api-keys` category=domain, email=domain, scopes=["system"]）；`admin_key`=选中 domain 的 key，其余存 `domain_keys` |
 | 8 | `/whoami` 校验选中 domain key；删 raw key |
-| 9 | **默认工作员**：`emailForAgent('agent', 选中 domain, system_name)` → 注册（pull，无 webhook）+ 铸 agent key + 写 `agentmail.json` |
+| 9 | **默认工作员**：`emailForAgent('agent', 选中 domain, system_name)` → 注册（pull，无 webhook）+ 铸 agent key + 写 `agentmail.json` | <!-- contract-allowed: design/acceptance doc must quote the contract surface verbatim -->
 | 10 | **绑定到 DSH 默认工作区**（不是当前工作区；见 §5.5） |
 | 11 | pointer/status；Hub 开 1 条 domain key system 流 |
 
@@ -347,7 +347,7 @@ gateway_url: <场景 1 必填；场景 6 可选，若给必须与已记录一致
 - 插件的写操作走契约例外：`file-ownership-allowed: dsh self-provisioning; CLI remains read-only`。
 - **试点目标**：dsh 完全在插件内闭环，不依赖 CLI；成功后 dsh 可弃用 CLI 维护（CLI 仅保留给其他宿主/遗留）。
 
-### 9.2 `agentmail.json`（0600）
+### 9.2 `agentmail.json`（0600） <!-- contract-allowed: design/acceptance doc must quote the contract surface verbatim -->
 
 ```jsonc
 { "email": "…", "gateway_url": "…", "system_id": "…", "domain": "…",
@@ -558,7 +558,7 @@ dsh 的改动必须是**增量、可选、宿主隔离**的；pysdk（Hermes/dee
 stat -f '%Sp' ~/.aimail/systems/<sid>/aimail_gateway.json   # -rw-------
 jq '{system_id,domain,system_name,admin_key:(.admin_key|length),webhook_host,bridge_key}'   ~/.aimail/systems/<sid>/aimail_gateway.json
 test ! -e ~/.aimail/systems/<sid>/.system_raw_key.key && echo raw-key-removed
-jq '{email,system_id,workspace_path,webhook_url,paused,expires_at}'   ~/.aimail/systems/<sid>/<addr>/agentmail.json
+jq '{email,system_id,workspace_path,webhook_url,paused,expires_at}'   ~/.aimail/systems/<sid>/<addr>/agentmail.json <!-- contract-allowed: design/acceptance doc must quote the contract surface verbatim -->
 jq '{mode,connected,streams,routes,paused}' ~/.dsh/profiles/<profile>/aimail/status.json
 lsof -nP -iTCP:9099 -sTCP:LISTEN || echo no-inbound-port
 ```
@@ -575,7 +575,7 @@ lsof -nP -iTCP:9099 -sTCP:LISTEN || echo no-inbound-port
 |---|---|
 | 公共 API 契约 | `apply-system/apply-address/email-verify/preflight/activate-system/activate-address-code` 的路径、请求/响应字段、错误码、`kind` |
 | 工具契约 | `aimail_system`/`aimail_address` 的 schema、prompt、结果 envelope |
-| 配置契约 | `aimail_gateway.json`/`agentmail.json` 字段（无 webhook/session） |
+| 配置契约 | `aimail_gateway.json`/`agentmail.json` 字段（无 webhook/session） | <!-- contract-allowed: design/acceptance doc must quote the contract surface verbatim -->
 | 夹具 | fake gateway（base/advanced 两套响应）+ fake ctx/agents，供插件单测 |
 | 契约测试 | 字段/路径/错误码 pin；base/advanced 响应与插件解析的 conformance |
 
@@ -745,7 +745,7 @@ W0 契约冻结
 
 仓库的 `tests/contract/check-file-ownership.py` 是一个 **CI 静态门禁**：
 
-- 规则：`aimail_gateway.json`（系统级环境文件）只能由 CLI 写；`tssdk/**` 只读；`agentmail.json` 只能由 SDK 写。
+- 规则：`aimail_gateway.json`（系统级环境文件）只能由 CLI 写；`tssdk/**` 只读；`agentmail.json` 只能由 SDK 写。 <!-- contract-allowed: design/acceptance doc must quote the contract surface verbatim -->
 - 影响：dsh 插件要在无 CLI 的情况下写 `aimail_gateway.json`，不改就会 **CI/契约测试失败**，PR 不能合。
 - 解决：在写调用处加 `file-ownership-allowed: dsh self-provisioning; CLI remains read-only` 标记（checker 列为 allowed 并单独打印），或 baseline 白名单。**只影响 CI/审计，不影响运行时**；CLI 仍只读。
 - 推荐 marker（可见、可审计、无需维护 baseline）。

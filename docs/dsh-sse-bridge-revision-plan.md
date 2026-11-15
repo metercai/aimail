@@ -57,7 +57,7 @@
 - `tssdk/packages/agent-aimail/`：单个 npm 包，同时服务 openclaw / dsh / pi：
   - `src/core/`：host 无关核心（网关客户端、15 个工具、入站预处理、HMAC、auto-bind、地址生命周期、SSE/poll 拉流）；
   - `src/openclaw/`、`src/dsh/`、`src/pi/`：各宿主适配层；
-  - `resources/`：board 角色提示词 + agentmail skill，打包时 stage 进来。
+  - `resources/`：board 角色提示词 + agentmail skill，打包时 stage 进来。 <!-- contract-allowed: design/acceptance doc must quote the contract surface verbatim -->
 - `contract/`：跨语言契约（路径、端口、字段）。
 - `docs/agent-adapter-playbook*.md`：新增宿主适配的规范；dsh 的 3 个 bundle 子路径（`mail-service` / `tools` / `inbound`）就是在 `cordis.patch.yml` 里自挂载的。
 
@@ -138,7 +138,7 @@ aimail_address(bind)
 > 证据强度：**已验证**（代码路径 + 本机 `aimail_gateway.json` 无 admin_key）。
 > 说明：这一条解释的是「bind 无效」，不是「长时间等待」；后者主要由 B、D 解释。
 
-证据：本机 `~/.aimail/systems/shared_addr_default/aimail_gateway.json` 只有 `scope: agent`，没有 admin_key；`agentmail.json` 里也没有 `session_id`。
+证据：本机 `~/.aimail/systems/shared_addr_default/aimail_gateway.json` 只有 `scope: agent`，没有 admin_key；`agentmail.json` 里也没有 `session_id`。 <!-- contract-allowed: design/acceptance doc must quote the contract surface verbatim -->
 
 ### 根因 B：`already_bound` 是假成功，binding 与 session 没有关联
 
@@ -530,7 +530,7 @@ ctx.on('session/event', (session, event) => {
 ## 11. 兼容 / 迁移 / 风险
 
 **兼容**
-- 不改网关协议、不改 `/aimail/inbound` 路径、不改 9099 默认端口、不改 address-code 激活 API。
+- 不改网关协议、不改 `/aimail/inbound` 路径、不改 9099 默认端口、不改 address-code 激活 API。 <!-- contract-allowed: design/acceptance doc must quote the contract surface verbatim -->
 - openclaw/pi 仍用现有 `startAgentLevel`/`startInboundPull`；core 的新增参数全部可选。
 - 老 binding（无 `session_id`）通过 §6.6 的「收养」逻辑继续可用。
 
