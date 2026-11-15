@@ -10,6 +10,7 @@
  * Usage:
  *   node dsh-harness.mjs system  --gateway URL --code CODE --domain D [--home DIR]
  *   node dsh-harness.mjs address --gateway URL --email E --code CODE --workspace DIR [--home DIR]
+ *   node dsh-harness.mjs lifecycle --email E --action pause|resume|unbind [--home DIR]
  *   node dsh-harness.mjs hub     --gateway URL --email E --timeout SEC [--home DIR]
  *
  * Output is one JSON object on stdout; exit != 0 means the assertion failed.
@@ -92,6 +93,15 @@ async function main() {
     })
     console.log(JSON.stringify(r, null, 2))
     process.exit(r.success ? 0 : 1)
+  }
+  if (cmd === 'lifecycle') {
+    const { ctx: c } = ctx()
+    const r = await runAddressTool(c, { agent: { id: 'sess-accept' } }, {
+      action: arg('action'),
+      email: arg('email'),
+    })
+    console.log(JSON.stringify(r, null, 2))
+    process.exit(r.success || arg('action') === 'unbind' ? 0 : 1)
   }
   if (cmd === 'hub') {
     const { ctx: c, followups } = ctx()
