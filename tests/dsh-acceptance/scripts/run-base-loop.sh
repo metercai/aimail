@@ -10,6 +10,10 @@ HOME_DIR="${HOME_DIR:-$HERE/../.data/qa-home}"
 rm -rf "$HOME_DIR"; mkdir -p "$HOME_DIR"
 COMPOSE=(docker compose -f "$HERE/../docker-compose.yml")
 
+echo "== wait mailpit"
+for i in $(seq 1 60); do curl -fsS "$MAILPIT_URL/api/v1/messages" >/dev/null 2>&1 && break; sleep 1; done
+curl -fsS "$MAILPIT_URL/api/v1/messages" >/dev/null
+
 echo "== wait base"
 for i in $(seq 1 90); do curl -fsS "$BASE_URL/health" >/dev/null 2>&1 && break; sleep 1; done
 curl -fsS "$BASE_URL/apply" >/dev/null
