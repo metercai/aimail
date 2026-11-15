@@ -115,6 +115,8 @@ async function provisionWithSystemKey(
     return failure('system_key_invalid', 'this is an address-scoped key; a system-level key is required for system onboarding')
   }
   const sid = who.system_id ?? requestedSid
+  const discovered = await listSystemDomains({ gatewayUrl, adminKey: systemKey, identity: sid, systemId: sid })
+  const domains = discovered.length > 0 ? discovered : [domain]
   const initial: SystemGatewayConfig = {
     gateway_url: gatewayUrl,
     admin_key: systemKey,
@@ -124,14 +126,16 @@ async function provisionWithSystemKey(
     ...(manager || who.manager_address ? { manager_address: manager || who.manager_address } : {}),
     save_raw_snapshots: true,
     system_home: (process.env.DSH_HOME || path.join(process.env.HOME || '', '.dsh')).replace(/\/+$/, ''),
-    domains: [domain],
+    domains,
   }
   await writeSystemGatewayConfig(sid, initial)
   const domainKeys: Record<string, string> = {}
-  try {
-    domainKeys[domain] = await createApiKey({ gatewayUrl, adminKey: systemKey, identity: sid, systemId: sid, email: domain, scopes: ['system'], category: 'domain' })
-  } catch {
-    /* degraded: use the supplied system key */
+  for (const d of domains) {
+    try {
+      domainKeys[d] = await createApiKey({ gatewayUrl, adminKey: systemKey, identity: sid, systemId: sid, email: d, scopes: ['system'], category: 'domain' })
+    } catch {
+      /* degraded: keep the supplied system key */
+    }
   }
   const selectedKey = domainKeys[domain] || systemKey
   await writeSystemGatewayConfig(sid, { ...initial, admin_key: selectedKey, ...(Object.keys(domainKeys).length ? { domain_keys: domainKeys } : {}) })
@@ -170,7 +174,7 @@ async function provisionWithSystemKey(
       return { success: true, scope: 'system', system_id: sid, domain, default_email: defaultEmail, workspace, kind: 'key', degraded: true, reason: e instanceof Error ? e.message : String(e) }
     }
   }
-  return { success: true, scope: 'system', system_id: sid, domain, system_name: systemName, manager_address: initial.manager_address, domains: [domain], default_email: defaultEmail, workspace, kind: 'key', degraded: selectedKey === systemKey }
+  return { success: true, scope: 'system', system_id: sid, domain, system_name: systemName, manager_address: initial.manager_address, domains, default_email: defaultEmail, workspace, kind: 'key', degraded: selectedKey === systemKey }
 }
 
 export async function provisionSystem(
