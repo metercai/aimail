@@ -21,7 +21,7 @@ The overall flow is a branching state machine:
 
 ## 1. Address Activation Attempt (doubles as the tool-availability probe)
 
-First validate the input (tool-agnostic — do not conflate the two): address contains `@`, code is in `shared_a-…` form, gateway_url is non-empty. Non-conforming → go straight to the user to confirm, **do not** enter the tool-acquisition flow.
+First validate the input (tool-agnostic — do not conflate the two): address contains `@`, code is in `addr-…` form, gateway_url is non-empty. Non-conforming → go straight to the user to confirm, **do not** enter the tool-acquisition flow.
 
 After validation passes, call immediately:
 

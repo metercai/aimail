@@ -4,7 +4,7 @@
 
 | 场景 | 入口 | 域 | 激活凭据 | DSH 工具/路径 | 关键判定 |
 |---|---|---|---|---|---|
-| **1** | Agent 对话，地址级 | 共享域 | 地址激活码 `shared_a-…` | `aimail_address bind{email,code,gateway_url}` | **没有 system**；地址形如 `name@shared`；preflight `code_type=address, scope=shared` |
+| **1** | Agent 对话，地址级 | 共享域 | 地址激活码 `addr-…` | `aimail_address bind{email,code,gateway_url}` | **没有 system**；地址形如 `name@shared`；preflight `code_type=address, scope=shared` |
 | **2** | 命令行 | 共享域 | 系统激活码 | `aimail install` / bootstrap（**不是 DSH 工具**） | 系统级，CLI 维护；DSH 场景 5 是它的 agent 对话等价入口 |
 | **3** | 命令行 | 独享域 | 系统激活码 | `aimail install` / bootstrap（**不是 DSH 工具**） | 系统级，CLI 维护 |
 | **4** | 命令行 | 独立网关/独享域 | 已有 system key | `AIMAIL_ADMIN_KEY=<system key>` + `aimail install`（**不是 DSH 工具**） | 自建网关；不需要产品激活码 |

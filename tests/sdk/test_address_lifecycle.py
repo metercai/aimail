@@ -124,7 +124,7 @@ def test_bind_idempotent_never_calls_gateway(env_home):
     p = _write_binding(home, key="sk-keep-me")
     before = p.read_text()
 
-    res = aimail_address("bind", code="shared_a-NEW-CODE", email=ADDR)
+    res = aimail_address("bind", code="addr-NEW-CODE", email=ADDR)
 
     assert res["success"] is True, res
     assert res["reason"] == "already_bound", res
@@ -171,7 +171,7 @@ def test_bind_cloud_activation_requires_code_and_gateway(env_home):
     assert res["reason"] == "not-bound", res
 
     # code given but no gateway url (and no env) ⇒ explicit failure
-    res = aimail_address("bind", code="shared_a-X", email=ADDR)
+    res = aimail_address("bind", code="addr-X", email=ADDR)
     assert res["success"] is False
     assert res["reason"] == "gateway-url-required", res
 

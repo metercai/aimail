@@ -1,7 +1,7 @@
 """Address-code activation self-service chain — **hermetic** (2026-09-27).
 
 The agent-facing ``activate_address_code`` tool is the only path by which an
-agent turns a one-time code (``shared_a-…``) into a working mailbox with **no
+agent turns a one-time code (``addr-…``) into a working mailbox with **no
 CLI and no admin credentials**.  This file pins the whole local landing:
 
 1. the address-keyed binding file (``BINDING_FILE``) is written **0600** in a
@@ -161,7 +161,7 @@ def test_activation_lands_private_binding_with_register_isomorphic_fields(
     url, seen = gateway
     pf = hermes_home["tmp"] / "deer" / ".deer-flow"
 
-    res = activate_address_code("shared_a-CODE", ADDR, gateway_url=url,
+    res = activate_address_code("addr-CODE", ADDR, gateway_url=url,
                                 profile_home=str(pf))
 
     assert res["success"] is True, res
@@ -176,7 +176,7 @@ def test_activation_lands_private_binding_with_register_isomorphic_fields(
     # First call (activation) asserts no change; second call must be PUT system-domains and **carry the same secret persisted to disk**.
     assert len(seen) == 2, seen
     assert seen[0]["path"] == "/api/v1/activate-address-code"
-    assert seen[0]["body"] == {"code": "shared_a-CODE",
+    assert seen[0]["body"] == {"code": "addr-CODE",
                                "email_address": ADDR.lower()}
     assert seen[1]["path"] == "/api/v1/admin/system-domains/1", seen[1]
     assert seen[1]["body"].get("webhook_secret") == \
@@ -344,7 +344,7 @@ def test_mcp_tool_wrapper_drives_the_same_chain(hermes_home, gateway):
     pf = hermes_home["tmp"] / "mcp-home"
 
     out = mcp.tool_activate_address_code({
-        "code": "shared_a-CODE", "address": ADDR,
+        "code": "addr-CODE", "address": ADDR,
         "gateway_url": url, "profile_home": str(pf),
     })
 

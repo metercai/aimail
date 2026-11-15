@@ -44,7 +44,7 @@ while time.time() < deadline:
                 if hit:
                     print(hit.group(1)); sys.exit(0)
             else:
-                hit = re.search(r'\b((?:sys|addr)-[A-Za-z0-9-]+)\b', text)
+                hit = re.search(r'\b((?:sys|addr)-(?:[0-9a-f]{4}-){5}[0-9a-f]{4})\b', text)
                 if hit:
                     print(hit.group(1)); sys.exit(0)
     except Exception:

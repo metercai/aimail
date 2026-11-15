@@ -108,7 +108,15 @@ docker compose ps
 
 `run-base-lifecycle.sh` 依赖 `run-base-loop.sh` 已创建 alice 绑定。
 
-### 3.6 原生网关单测
+### 3.6 V6 清表
+
+```bash
+./scripts/reset-codes.sh
+```
+
+清空 base/advanced 的 `activation_codes`；之后旧码激活应返回 400/404。
+
+### 3.7 原生网关单测
 
 ```bash
 ./scripts/run-gateway-tests.sh

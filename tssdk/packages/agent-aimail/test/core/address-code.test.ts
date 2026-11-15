@@ -77,7 +77,7 @@ describe('activateAddressCode', () => {
       email_address: 'e2e-agent@e2e.local',
       expires_at: '2026-09-13T00:00:00Z',
     })
-    const r = await activateAddressCode(c, 'shared_a-x', 'E2E-Agent@E2E.local')
+    const r = await activateAddressCode(c, 'addr-x', 'E2E-Agent@E2E.local')
     expect(c.calls[0].path).toBe('/api/v1/activate-address-code')
     expect(c.calls[0].body?.email_address).toBe('e2e-agent@e2e.local')
     expect(r.success).toBe(true)
@@ -176,7 +176,7 @@ describe('activateAddressCodePersist', () => {
       manager_address: 'mgr@e2e.local',
     })
     const platformHome = await fs.mkdtemp(path.join(os.tmpdir(), 'plat-'))
-    const r = await activateAddressCodePersist(c, 'shared_a-y', 'e2e-agent2@e2e.local', {
+    const r = await activateAddressCodePersist(c, 'addr-y', 'e2e-agent2@e2e.local', {
       gatewayUrl: 'http://127.0.0.1:38080',
       platformHome,
     })

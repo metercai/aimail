@@ -166,12 +166,12 @@
   },
   {
     "name": "aimail_address",
-    "description": "Manage your own mailbox. bind: connect this mailbox to your agent so it receives mail — a fresh mailbox needs the one-time code (shared_a-…). pause: temporarily stop receiving mail for it. resume: resume receiving mail for it. unbind: disconnect this mailbox from your agent — it stops receiving. Self-service — no CLI needed.",
+    "description": "Manage your own mailbox. bind: connect this mailbox to your agent so it receives mail — a fresh mailbox needs the one-time code (addr-…). pause: temporarily stop receiving mail for it. resume: resume receiving mail for it. unbind: disconnect this mailbox from your agent — it stops receiving. Self-service — no CLI needed.",
     "parameters": {
       "type": "object",
       "properties": {
         "action": { "type": "string", "enum": ["bind", "pause", "resume", "unbind"], "description": "The lifecycle action to perform" },
-        "code": { "type": "string", "description": "One-time activation code (shared_a-…) — bind only" },
+        "code": { "type": "string", "description": "One-time activation code (addr-…) — bind only" },
         "email": { "type": "string", "description": "The mailbox address this acts on" },
         "gateway_url": { "type": "string", "description": "AIMail gateway URL (or set AIMAIL_GW_URL) — needed for a first-time cloud activation" }
       },

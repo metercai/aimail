@@ -91,7 +91,7 @@ def test_gateway_failure_maps_to_the_typed_envelope(gateway, status, body,
     _FakeGateway.status = status
     _FakeGateway.response = body
     res = _GatewayClient(gateway, "").activate_address_code(
-        "shared_a-x", "agent.demo@example.test")
+        "addr-x", "agent.demo@example.test")
 
     assert res["success"] is False
     assert res["error_code"] == error_code, res
@@ -107,7 +107,7 @@ def test_network_unreachable_maps_to_retryable_network():
     # port 1 on loopback: nothing listens ⇒ connection refused ⇒ the
     # transport layer's status-0 shape (the same shape a timeout produces).
     res = _GatewayClient("http://127.0.0.1:1", "").activate_address_code(
-        "shared_a-x", "agent.demo@example.test")
+        "addr-x", "agent.demo@example.test")
 
     assert res["success"] is False
     assert res["error_code"] == "NETWORK", res
@@ -148,7 +148,7 @@ def test_success_envelope_is_untouched(gateway):
         "email_address": "a@b.test", "expires_at": "2026-12-31T00:00:00Z",
     }
     res = _GatewayClient(gateway, "").activate_address_code(
-        "shared_a-x", "a@b.test")
+        "addr-x", "a@b.test")
 
     assert res["success"] is True
     assert res["raw_key"] == "rk-1"

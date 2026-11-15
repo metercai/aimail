@@ -127,13 +127,13 @@ describe('aimailAddress — bind', () => {
     try {
       const pf = path.join(home, 'pf')
       const r = await aimailAddressTool({
-        action: 'bind', code: 'shared_a-ts', email: ADDR, gateway_url: gw.url, profile_home: pf,
+        action: 'bind', code: 'addr-ts', email: ADDR, gateway_url: gw.url, profile_home: pf,
       })
       expect(r.success, JSON.stringify(r)).toBe(true)
       expect(r.system_id).toBe(SID)
       expect(gw.seen).toHaveLength(1)
       expect(gw.seen[0].path).toBe('/api/v1/activate-address-code')
-      expect(gw.seen[0].body).toEqual({ code: 'shared_a-ts', email_address: ADDR })
+      expect(gw.seen[0].body).toEqual({ code: 'addr-ts', email_address: ADDR })
 
       const bp = bindingPath()
       const cfg = JSON.parse(await fs.readFile(bp, 'utf8')) as Record<string, unknown>
@@ -152,7 +152,7 @@ describe('aimailAddress — bind', () => {
     try {
       const pf = path.join(home, 'pf')
       const first = await aimailAddressTool({
-        action: 'bind', code: 'shared_a-ts', email: ADDR, gateway_url: gw.url, profile_home: pf,
+        action: 'bind', code: 'addr-ts', email: ADDR, gateway_url: gw.url, profile_home: pf,
       })
       expect(first.success, JSON.stringify(first)).toBe(true)
       const hash1 = await sha256(bindingPath())
@@ -179,9 +179,9 @@ describe('aimailAddress — bind', () => {
   it('① a supplied code with an existing binding is refused as already_bound (unconsumed)', async () => {
     const gw = await startGateway(ok)
     try {
-      await aimailAddressTool({ action: 'bind', code: 'shared_a-1', email: ADDR, gateway_url: gw.url })
+      await aimailAddressTool({ action: 'bind', code: 'addr-1', email: ADDR, gateway_url: gw.url })
       const r = await aimailAddressTool({
-        action: 'bind', code: 'shared_a-2', email: ADDR, gateway_url: gw.url,
+        action: 'bind', code: 'addr-2', email: ADDR, gateway_url: gw.url,
       })
       expect(r.success).toBe(true)
       expect(r.reason).toBe('already_bound')
@@ -194,7 +194,7 @@ describe('aimailAddress — bind', () => {
   it('② restore from the archive: no code, 0 gateway calls, pointer lands', async () => {
     const gw = await startGateway(ok)
     try {
-      await aimailAddressTool({ action: 'bind', code: 'shared_a-ts', email: ADDR, gateway_url: gw.url })
+      await aimailAddressTool({ action: 'bind', code: 'addr-ts', email: ADDR, gateway_url: gw.url })
       await aimailAddressTool({ action: 'unbind', email: ADDR })
       expect(gw.seen).toHaveLength(1) // unbind made no gateway call
 
@@ -224,7 +224,7 @@ describe('aimailAddress — bind', () => {
   })
 
   it('no local trace + code but no gateway URL ⇒ gateway-url-required', async () => {
-    const r = await aimailAddressTool({ action: 'bind', code: 'shared_a-x', email: ADDR })
+    const r = await aimailAddressTool({ action: 'bind', code: 'addr-x', email: ADDR })
     expect(r.success).toBe(false)
     expect(r.reason).toBe('gateway-url-required')
   })
@@ -233,7 +233,7 @@ describe('aimailAddress — bind', () => {
     const gw = await startGateway(ok)
     try {
       process.env.AIMAIL_GW_URL = gw.url
-      const r = await aimailAddressTool({ action: 'bind', code: 'shared_a-ts', email: ADDR })
+      const r = await aimailAddressTool({ action: 'bind', code: 'addr-ts', email: ADDR })
       expect(r.success, JSON.stringify(r)).toBe(true)
       expect(gw.seen).toHaveLength(1)
     } finally {
@@ -246,7 +246,7 @@ describe('aimailAddress — bind', () => {
     try {
       const pf = path.join(home, 'resolved')
       setProfileDirResolver(() => pf)
-      const r = await aimailAddressTool({ action: 'bind', code: 'shared_a-ts', email: ADDR, gateway_url: gw.url })
+      const r = await aimailAddressTool({ action: 'bind', code: 'addr-ts', email: ADDR, gateway_url: gw.url })
       expect(r.success, JSON.stringify(r)).toBe(true)
       expect(r.pointer_written).toBe(true)
       expect(r.pointer_path).toBe(path.join(pf, POINTER_FILE))
@@ -261,7 +261,7 @@ describe('aimailAddress — bind', () => {
       setProfileDirResolver(() => path.join(home, 'resolver-should-lose'))
       const explicit = path.join(home, 'explicit')
       const r = await aimailAddressTool({
-        action: 'bind', code: 'shared_a-ts', email: ADDR, gateway_url: gw.url, profile_home: explicit,
+        action: 'bind', code: 'addr-ts', email: ADDR, gateway_url: gw.url, profile_home: explicit,
       })
       expect(r.success, JSON.stringify(r)).toBe(true)
       expect(r.pointer_path).toBe(path.join(explicit, POINTER_FILE))
@@ -273,7 +273,7 @@ describe('aimailAddress — bind', () => {
   it('no resolver + no explicit home ⇒ no pointer side effect (binding still lands)', async () => {
     const gw = await startGateway(ok)
     try {
-      const r = await aimailAddressTool({ action: 'bind', code: 'shared_a-ts', email: ADDR, gateway_url: gw.url })
+      const r = await aimailAddressTool({ action: 'bind', code: 'addr-ts', email: ADDR, gateway_url: gw.url })
       expect(r.success, JSON.stringify(r)).toBe(true)
       expect(r.pointer_written).toBe(false)
       expect(r.pointer_path).toBe('')
@@ -285,7 +285,7 @@ describe('aimailAddress — bind', () => {
 
 describe('aimailAddress — pause / resume', () => {
   async function bindViaCode (url: string): Promise<void> {
-    const r = await aimailAddressTool({ action: 'bind', code: 'shared_a-ts', email: ADDR, gateway_url: url })
+    const r = await aimailAddressTool({ action: 'bind', code: 'addr-ts', email: ADDR, gateway_url: url })
     expect(r.success, JSON.stringify(r)).toBe(true)
   }
 
@@ -363,7 +363,7 @@ describe('aimailAddress — unbind', () => {
     try {
       const pf = path.join(home, 'pf')
       await aimailAddressTool({
-        action: 'bind', code: 'shared_a-ts', email: ADDR, gateway_url: gw.url, profile_home: pf,
+        action: 'bind', code: 'addr-ts', email: ADDR, gateway_url: gw.url, profile_home: pf,
       })
       expect(gw.seen).toHaveLength(1)
 
@@ -398,7 +398,7 @@ describe('aimailAddress — unbind', () => {
     try {
       const pf = path.join(home, 'pf')
       await aimailAddressTool({
-        action: 'bind', code: 'shared_a-ts', email: ADDR, gateway_url: gw.url, profile_home: pf,
+        action: 'bind', code: 'addr-ts', email: ADDR, gateway_url: gw.url, profile_home: pf,
       })
       // overwrite the pointer with a FOREIGN mailbox (the profile now "is" someone else)
       const foreign = { system_id: 'shared_addr_other', email: 'other@e2e.local' }
@@ -417,7 +417,7 @@ describe('aimailAddress — unbind', () => {
   it('R2 gate: the helper refuses to archive a file whose own email differs (exact match)', async () => {
     const gw = await startGateway(ok)
     try {
-      await aimailAddressTool({ action: 'bind', code: 'shared_a-ts', email: ADDR, gateway_url: gw.url })
+      await aimailAddressTool({ action: 'bind', code: 'addr-ts', email: ADDR, gateway_url: gw.url })
       // plant a foreign binding's email field inside the SAME binding dir
       // (discovery would already refuse it at the tool level; the R2 gate is
       // the helper-level defence that the rename never trusts the path alone)
@@ -441,7 +441,7 @@ describe('aimailAddress — unbind', () => {
   it('a foreign email in the binding dir is refused as not-bound at the tool level (discovery filter)', async () => {
     const gw = await startGateway(ok)
     try {
-      await aimailAddressTool({ action: 'bind', code: 'shared_a-ts', email: ADDR, gateway_url: gw.url })
+      await aimailAddressTool({ action: 'bind', code: 'addr-ts', email: ADDR, gateway_url: gw.url })
       const bp = bindingPath()
       const foreign = {
         email: 'impostor@e2e.local', gateway_url: 'http://x', domain: 'e2e.local',

@@ -94,7 +94,7 @@ describe('activate_address_code tool — profile_home', () => {
     try {
       const pf = path.join(home, 'deer', '.deer-flow')
       const r = await activateAddressCode({
-        code: 'shared_a-ts', address: ADDR, gatewayUrl: gw.url, profile_home: pf,
+        code: 'addr-ts', address: ADDR, gatewayUrl: gw.url, profile_home: pf,
       })
 
       expect(r.success, JSON.stringify(r)).toBe(true)
@@ -105,7 +105,7 @@ describe('activate_address_code tool — profile_home', () => {
       // the wire call is real, and the email is lowercased
       expect(gw.seen).toHaveLength(1)
       expect(gw.seen[0].path).toBe('/api/v1/activate-address-code')
-      expect(gw.seen[0].body).toEqual({ code: 'shared_a-ts', email_address: ADDR })
+      expect(gw.seen[0].body).toEqual({ code: 'addr-ts', email_address: ADDR })
 
       const ptr = path.join(pf, POINTER_FILE)
       expect(JSON.parse(await fs.readFile(ptr, 'utf8'))).toEqual({ system_id: SID, email: ADDR })
