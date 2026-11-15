@@ -89,7 +89,17 @@ docker compose ps
 - `vitest run test/dsh test/openclaw test/pi`
 - `check-file-ownership.py`、`check-zero-bridge.py`、`check-contract-single-source.py`
 
-### 3.4 base 生命周期/轮换
+### 3.4 场景 5 独立网关 + 场景 6 无码地址
+
+```bash
+./scripts/run-base-independent.sh
+```
+
+- 从 base 数据卷读取 `<sid>.system.key` 与 `system.id`；
+- `aimail_system` 用 **system_key + system_id + domain**（不消耗产品码）；
+- 再用 `aimail_address` 无码绑定 `agent@test.local`（场景 6，domain key 注册）。
+
+### 3.5 base 生命周期/轮换
 
 ```bash
 ./scripts/run-base-lifecycle.sh   # pause -> resume -> unbind rejected
@@ -98,7 +108,7 @@ docker compose ps
 
 `run-base-lifecycle.sh` 依赖 `run-base-loop.sh` 已创建 alice 绑定。
 
-### 3.5 原生网关单测
+### 3.6 原生网关单测
 
 ```bash
 ./scripts/run-gateway-tests.sh
