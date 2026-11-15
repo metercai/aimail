@@ -118,7 +118,7 @@ export function apply(ctx: Context, config: { identity?: string } = {}): void {
     if (semantic.name === 'aimail_address') {
       // dsh override: no unbind, no manager; binds to the CURRENT workspace.
       parameters.action = { type: 'string', enum: ['bind', 'pause', 'resume'], description: 'bind: connect this mailbox to the current workspace; pause: stop receiving; resume: resume + drain pending', required: true } as ParameterPropertySpec
-      description = 'Manage your own mailbox in this dsh profile. bind: connect the address to the current workspace (a shared-domain address needs its address code; a local address may use the system key). pause: temporarily stop receiving mail. resume: resume receiving and drain pending mail. No unbind: termination is decided by the gateway. No manager parameter; the address manager defaults to the code recipient.'
+      description = 'Manage your own mailbox in this dsh profile. bind: connect the address to the current workspace. Scenario 1 (no system, shared domain): provide the address code. Scenario 6 (after system onboarding): omit the code and use the system domain key; shared-domain systems use name.system_name@shared, dedicated/independent gateways use name@domain. pause/resume: local. No unbind: termination is decided by the gateway. No manager parameter.'
     }
     ctx.tools.register(defineTool({
       name: semantic.name,
