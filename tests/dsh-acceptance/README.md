@@ -147,18 +147,31 @@ Mailpit UI `http://127.0.0.1:8025` 可看原始邮件（验证码/激活码）�
 - **真实 DSH agent**：本夹具用 fake ctx 验证适配层；真实 DSH 插件加载/L3 仍需单独跑（见 `docs/agent-self-setup.md`）。
 - **advanced B2**：需 advanced 仓构建成功；若私有仓无权限，先在有权限的机器构建镜像。
 
-## 8. 清理
+## 8. 真实 DSH agent（可选 L3）
+
+自动化夹具用 fake ctx 验证适配层；真实 DSH 需要桌面/CLI：
+
+1. 构建 tssdk：`cd tssdk && pnpm install && pnpm build`。
+2. 在测试 profile 安装插件（二选一）：
+   - 插件入口：`dsh plugin --profile qa add <aimail/tssdk/packages/agent-aimail>`；
+   - 或桌面/CLI 的插件安装入口。
+3. 用 `fixtures/prompt-system.txt` 走系统对接；默认工作员应绑到 **DSH 默认工作区**。
+4. 用 `fixtures/prompt-address.txt` 绑定地址；从 Mailpit 取地址码。
+5. 用 base SMTP（12525）发外部信到绑定地址；真实 agent 应在对应 workspace/session 收到并回复。
+6. 断言：`~/.dsh/profiles/<profile>/aimail/status.json` 有 `mode=sse`、streams；无 9099 监听；`lsof -iTCP:9099 -sTCP:LISTEN` 为空。
+
+## 9. 清理
 
 ```bash
 docker compose down -v
 rm -rf .data
 ```
 
-## 9. 记录模板
+## 10. 记录模板
 
 ```text
 日期/执行人：
-commit: aimail=6d6b873 base=... advanced=...
+commit: aimail=4527668 base=28bdc7b advanced=c650ab1
 Docker/OS/Rust/Node:
 B1..B5: PASS/FAIL + 证据文件
 A1..A3: PASS/FAIL
