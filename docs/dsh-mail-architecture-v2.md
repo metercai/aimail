@@ -188,7 +188,19 @@ manager: <可选>
 | 10 | **绑定到 DSH 默认工作区**（不是当前工作区；见 §5.5） |
 | 11 | pointer/status；Hub 开 1 条 domain key system 流 |
 
-### 5.5 默认工作员与默认工作区
+### 5.5 独立网关（场景 5 的独立子形态）
+
+不消耗产品码：
+
+1. `whoami`（`system_key` + `system_id`）→ 校验 system 级 key、取 `system_id`；
+2. 写 `aimail_gateway.json`（`admin_key` 先为 system key）；
+3. 列出 system 的 domains，为每个 domain 铸 domain key；
+4. 默认工作员 `agent@{domain}` 绑默认工作区；
+5. `kind="key"`，返回 `degraded`（若 domain key 未铸成功则继续用 system key）。
+
+地址级 key、跨 gateway、`system_id` 不匹配、缺 domain 均在写配置前拒绝。
+
+### 5.6 默认工作员与默认工作区
 
 - 地址：base 为 `agent@{选中 domain}`（多 domain 时以激活码/申领选择为准）；advanced 独享域同左，共享域为 `agent.{system_name}@{共享域}`。
 - **绑定到 DSH 默认工作区**：`workspace.json` 的 `global.defaultWorkspaceId`（`default-workspace`）。
@@ -197,13 +209,13 @@ manager: <可选>
 - 若默认地址已有 binding：不覆盖其 workspace；结果返回现有 workspace。
 - 若默认地址已在网关存在但本地无 key：domain key 铸新 agent key，写 binding。
 
-### 5.6 结果 / 重复
+### 5.7 结果 / 重复
 
 ```jsonc
 { "success": true, "scope": "system", "system_id": "…", "domain": "…",
   "system_name": "…", "default_email": "agent@…",
   "workspace": { "id": "…", "path": "/…/default-workspace", "title": "default-workspace" },
-  "kind": "new|renewal|rotation", "degraded": false }
+  "kind": "new|renewal|rotation|key", "degraded": false }
 ```
 
 - 带 code 的重复 bind：preflight 匹配后重新激活；gateway 返回 `kind`；更新 keys/expiry；不静默跳过。
