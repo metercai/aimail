@@ -357,6 +357,32 @@ gateway_url: <场景 1 必填；场景 6 可选，若给必须与已记录一致
 
 - 不写 webhook/session/preset；旧字段只读忽略。
 
+### 9.3 CLI 2/3/4 的覆盖与退役边界
+
+场景 5/6 是 **DSH 试点**对 CLI 2/3/4 的对话内替代，不是立即全量删除 CLI：
+
+| CLI | DSH 等价 | 状态 |
+|---|---|---|
+| 2 共享域系统 | 场景 5 `code+system_name` | 核心覆盖 |
+| 3 独享域系统 | 场景 5 `code+domain` | 核心覆盖（base live） |
+| 4 独立网关 | 场景 5：该 base `/apply` 的 system code + `domain`；**不用 system key** | 核心覆盖（base live） |
+| 地址激活/绑定 | 场景 1（无 system）/ 场景 6（有 system） | 覆盖 |
+| `welcome`/`check`/`stats`/`repair` | 插件暂无等价，只有 status/hub | 未覆盖 |
+| 其他 host / 多 system / bridge | 仍由 SDK/CLI/宿主负责 | DSH 外 |
+
+**DSH 试点结论**：不再需要 `aimail install` 做系统/地址接入；`cordis.patch.yml` 不挂 `mail-inbound`/`register-cli`，system/address/hub 都不 spawn CLI。
+
+**全量 CLI 退役前置**（满足后才可删 CLI）：
+
+1. pysdk/openclaw/pi 也有对话内 onboarding/地址入口；
+2. welcome/check/stats/repair 有插件/管理面替代或明确取消；
+3. DSH 多 profile/多 system 作用域；
+4. base 的启动/建域/管理员入口保留在运维面；
+5. push/bridge 宿主仍由 CLI 服务，直到其迁到 SSE/插件；
+6. CLI 门禁、test-matrix、L3 `dsh-aimail` cell 同步迁移。
+
+详细覆盖矩阵见 `tests/dsh-acceptance/CLI-COVERAGE.md`。
+
 ---
 
 ## 10. base 网关改造（单系统、多独享域）
