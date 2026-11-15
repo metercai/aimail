@@ -1,0 +1,153 @@
+diff --git a/src/advanced/api/activation.rs b/src/advanced/api/activation.rs
+index 6034f1c..4fdb501 100644
+--- a/src/advanced/api/activation.rs
++++ b/src/advanced/api/activation.rs
+@@ -997,9 +997,13 @@ pub async fn activate_system(
+     // applicant mailbox (the delivery recipient); `email_address` is only
+     // used by address-level codes and is NULL here. Empty when the code was
+     // issued without either (admin/panel-shipped codes).
+-    let default_manager = code_record
+-        .applicant_email
++    // Explicit `manager` from the activation request wins; otherwise the
++    // code delivery address is the default (no approval step).
++    let default_manager = req
++        .manager
+         .clone()
++        .filter(|m| !m.is_empty())
++        .or_else(|| code_record.applicant_email.clone())
+         .or_else(|| code_record.email_address.clone())
+         .filter(|e| !e.is_empty());
+     let default_manager = default_manager.as_deref().unwrap_or("");
+diff --git a/src/advanced/api/address.rs b/src/advanced/api/address.rs
+index 85470a1..cbedd2e 100644
+--- a/src/advanced/api/address.rs
++++ b/src/advanced/api/address.rs
+@@ -152,6 +152,7 @@ struct ActivationOutcome {
+     /// the gateway wrote instead of inferring it later (whoami is only
+     /// readable after activation).
+     manager_address: String,
++    kind: String,
+ }
+ 
+ impl std::fmt::Debug for ActivationOutcome {
+@@ -170,7 +171,6 @@ enum ActErr {
+     BoundToOther,
+     NoBareDomain,
+     DomainConflict(String),
+-    AlreadyActive,
+     Db(String),
+ }
+ 
+@@ -192,7 +192,6 @@ fn act_err_to_app(e: ActErr) -> aimail_base::core::errors::AppError {
+         ActErr::DomainConflict(sid) => {
+             AppError::Validation(format!("address domain belongs to system '{}'", sid))
+         }
+-        ActErr::AlreadyActive => AppError::Conflict("address already has an active key".into()),
+         ActErr::Db(m) => AppError::Internal(m),
+     }
+ }
+@@ -261,6 +260,7 @@ pub async fn activate_address_code(
+                 "email_address": o.email_address,
+                 "expires_at": o.expires_at,
+                 "manager_address": o.manager_address,
++                "kind": o.kind,
+             })))
+         }
+         Err(e) => Err(match e {
+@@ -348,9 +348,16 @@ fn act_in_tx(
+                 rusqlite::params![sid, email_address],
+                 |r| r.get(0),
+             )?;
+-            if active > 0 {
+-                return Ok(Err(ActErr::AlreadyActive));
+-            }
++            // Active address + a new code = renewal, not a conflict. The
++            // key UPSERT below rotates the material in place; the old key is
++            // invalid immediately. Shared domains are renewal semantics
++            // (extend expiry); dedicated domains are key rotation.
++            let renewing = active > 0;
++            let kind = if renewing {
++                if sid.starts_with("shared_") || sid.starts_with("shared-") { "renewal" } else { "rotation" }
++            } else {
++                "new"
++            };
+ 
+             // 5. Create the agent key — same generation as base
+             //    activate_address_code (activation.rs:68).
+@@ -489,6 +496,7 @@ fn act_in_tx(
+                 email_address: email_address.to_string(),
+                 expires_at: expires_param,
+                 manager_address: effective_manager.unwrap_or_default(),
++                kind: kind.to_string(),
+             }))
+     };
+ 
+@@ -830,7 +838,6 @@ mod tests {
+             (ActErr::BoundToOther, StatusCode::FORBIDDEN),
+             (ActErr::NoBareDomain, StatusCode::BAD_REQUEST),
+             (ActErr::DomainConflict("x".into()), StatusCode::BAD_REQUEST),
+-            (ActErr::AlreadyActive, StatusCode::CONFLICT),
+             (ActErr::Db("boom".into()), StatusCode::INTERNAL_SERVER_ERROR),
+         ];
+         for (err, want) in cases {
+@@ -893,23 +900,40 @@ mod tests {
+     }
+ 
+     #[test]
+-    fn double_activation_of_same_address_fails() {
++    fn renewal_of_active_shared_address_rotates_the_key() {
+         let (_p, storage) = setup_db();
+         let c1 = seed_code(&storage, "shared_addr_d1", "d1.test", "a@d1.test");
+         let c2 = seed_code(&storage, "shared_addr_d1", "d1.test", "a@d1.test");
+-        activate(&storage, &c1, "a@d1.test", &validity("d1.test", 0)).unwrap();
+-        // Second code, same address → AlreadyActive; code NOT consumed.
+-        let err = activate(&storage, &c2, "a@d1.test", &validity("d1.test", 0)).unwrap_err();
+-        assert!(matches!(err, ActErr::AlreadyActive));
++        let first = activate(&storage, &c1, "a@d1.test", &validity("d1.test", 0)).unwrap();
+         let rt = tokio::runtime::Runtime::new().unwrap();
++        let old_hash = rt.block_on(async {
++            storage
++                .list_agent_keys_by_address("shared_addr_d1", "a@d1.test")
++                .await
++                .unwrap()[0]
++                .key_hash
++                .clone()
++        });
++        // Second code, same active address → renewal, not a conflict.
++        let second = activate(&storage, &c2, "a@d1.test", &validity("d1.test", 30)).unwrap();
++        assert_eq!(second.kind, "renewal");
++        assert_ne!(first.raw_key, second.raw_key);
+         rt.block_on(async {
++            let keys = storage
++                .list_agent_keys_by_address("shared_addr_d1", "a@d1.test")
++                .await
++                .unwrap();
++            assert_eq!(keys.len(), 1, "UPSERT keeps one row");
++            assert!(keys[0].is_active);
++            assert_ne!(keys[0].key_hash, old_hash, "key material rotated");
++            assert!(keys[0].expires_at.is_some(), "renewal extended expiry");
+             assert!(
+                 storage
+                     .find_activation_code_by_hash(&sha256_hex(&c2))
+                     .await
+                     .unwrap()
+-                    .is_some(),
+-                "failed activation must NOT consume the code (tx rollback)"
++                    .is_none(),
++                "renewal consumed the code"
+             );
+         });
+     }
+diff --git a/src/advanced/api/types.rs b/src/advanced/api/types.rs
+index bb822b1..3936fe4 100644
+--- a/src/advanced/api/types.rs
++++ b/src/advanced/api/types.rs
+@@ -101,6 +101,8 @@ pub struct ActivateSystemRequest {
+     pub system_name: Option<String>,
+     pub webhook_url: Option<String>,
+     pub webhook_secret: Option<String>,
++    /// Optional system default manager override (does not need approval).
++    pub manager: Option<String>,
+ }
+ 
+ fn default_max_domains() -> i64 {

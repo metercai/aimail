@@ -19,8 +19,10 @@ import {
   type MailToolDef,
   type MailToolParam,
   type ToolCtx,
+  type ToolResult,
 } from '../core/index.js'
 import type { MailService } from './mail-service.js'
+import { runAddressTool } from './address.js'
 
 export const name = 'tool-mail'
 export const inject = ['tools', 'mail']
@@ -112,12 +114,24 @@ export function apply(ctx: Context, config: { identity?: string } = {}): void {
     for (const [key, p] of Object.entries(semantic.parameters)) {
       parameters[key] = toDshParam(p)
     }
+    let description = semantic.description
+    if (semantic.name === 'aimail_address') {
+      // dsh override: no unbind, no manager; binds to the CURRENT workspace.
+      parameters.action = { type: 'string', enum: ['bind', 'pause', 'resume'], description: 'bind: connect this mailbox to the current workspace; pause: stop receiving; resume: resume + drain pending', required: true } as ParameterPropertySpec
+      description = 'Manage your own mailbox in this dsh profile. bind: connect the address to the current workspace (a shared-domain address needs its address code; a local address may use the system key). pause: temporarily stop receiving mail. resume: resume receiving and drain pending mail. No unbind: termination is decided by the gateway. No manager parameter; the address manager defaults to the code recipient.'
+    }
     ctx.tools.register(defineTool({
       name: semantic.name,
-      description: semantic.description,
+      description,
       parameters,
       output: jsonOutput,
       async execute(args, exec) {
+        // The address lifecycle tool owns its own workspace/session resolution;
+        // it must NOT be gated behind mail.resolveCtx (an unbound session has to
+        // be able to bind its first address).
+        if (semantic.name === 'aimail_address') {
+          return run(runAddressTool(ctx, exec, args) as Promise<ToolResult>)
+        }
         return run(tool.handler(await resolve(exec), args))
       },
     }))

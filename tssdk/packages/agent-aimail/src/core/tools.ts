@@ -12,7 +12,7 @@ import * as path from 'node:path'
 import { existsSync, readFileSync } from 'node:fs'
 import { GatewayClient } from './gateway.js'
 import { AIMAIL_HOME, loadAgentConfig } from './config.js'
-import { readLocalMeta, saveLocalMeta, saveOutboundSnapshot, resolveThreadId, threadPath } from './meta.js'
+import { readLocalMeta, saveLocalMeta, saveOutboundSnapshot, resolveThreadId, threadPath, stampSessionMeta } from './meta.js'
 import { logAimailOutbound } from './log.js'
 import type { AgentConfig } from './types.js'
 import { activateAddressCodePersist, aimailAddress } from './address-code.js'
@@ -216,6 +216,10 @@ async function requireConfig(systemId: string, email?: string): Promise<AgentCon
 export interface ToolCtx {
   systemId: string
   email?: string
+  /** dsh: the session that issued the tool call (optional for other hosts). */
+  sessionId?: string
+  /** dsh: workspace path of that session (optional for other hosts). */
+  workspacePath?: string
 }
 
 // ── message id helpers (mirror _build_message_id / _sanitize_message_id) ──
@@ -420,6 +424,9 @@ export async function sendMail(ctx: ToolCtx, args: SendMailArgs): Promise<ToolRe
   // Message-ID generated locally and passed to gateway, local value is the online value (no longer backfilling API return value).
   const generatedMid = buildMessageId(cfg)
   await storeMessageMeta(cfg.email, generatedMid, references, sender, 'outbound')
+  if (ctx.sessionId) {
+    await stampSessionMeta(cfg.email, generatedMid, { sessionId: ctx.sessionId, ...(ctx.workspacePath ? { workspacePath: ctx.workspacePath } : {}) })
+  }
   if (cfg.save_raw_snapshots !== false) {
     await saveOutboundSnapshot(cfg.email, generatedMid, sender, toList.join(','), args.subject, args.body,
       ccList ?? [], resolvedPaths, attachmentIds, inReplyTo ?? '', references ?? '')

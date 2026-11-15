@@ -55,6 +55,10 @@ export interface LocalMeta {
   my_aimail_addr: string
   direction: string
   at: string
+  /** dsh: the session that owns this thread (stamped after delivery). */
+  session_id?: string
+  /** dsh: workspace path of that session (validation/audit). */
+  workspace_path?: string
   [k: string]: unknown
 }
 
@@ -115,6 +119,41 @@ export async function readLocalMeta(
   } catch {
     return undefined
   }
+}
+
+/**
+ * Stamp the owning dsh session onto one message's local meta (read-merge-write).
+ * Used by both inbound delivery and outbound send_mail so replies can be routed
+ * back to the same conversation via References/In-Reply-To.
+ */
+export async function stampSessionMeta(
+  email: string,
+  messageId: string,
+  patch: { sessionId?: string; workspacePath?: string },
+): Promise<void> {
+  const mid = (messageId || '').trim()
+  if (!mid) return
+  const p = localMetaPath(email, mid)
+  let meta: LocalMeta | undefined
+  try {
+    meta = JSON.parse(await fs.readFile(p, 'utf-8')) as LocalMeta
+  } catch {
+    meta = undefined
+  }
+  const next: LocalMeta = meta ?? {
+    message_id: mid,
+    references: [],
+    thread_id: mid,
+    my_aimail_addr: email,
+    direction: 'inbound',
+    at: new Date().toISOString(),
+  }
+  if (patch.sessionId) next.session_id = patch.sessionId
+  if (patch.workspacePath) next.workspace_path = patch.workspacePath
+  await fs.mkdir(path.dirname(p), { recursive: true })
+  const tmp = `${p}.tmp`
+  await fs.writeFile(tmp, JSON.stringify(next, null, 2) + String.fromCharCode(10), { encoding: 'utf-8', mode: 0o600 })
+  await fs.rename(tmp, p)
 }
 
 /** thread_id = first References entry (thread root), else the message_id itself. */

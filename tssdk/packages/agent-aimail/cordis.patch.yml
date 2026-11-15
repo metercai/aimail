@@ -26,13 +26,14 @@
     - id: mail
       name: 'agent-aimail/mail-service'
 
-    # AIMail inbound endpoint (node:http + session delivery). Port is fixed:
-    # single consumer (this profile); the local bridge routes here.
-    - id: mail-inbound
-      name: 'agent-aimail/inbound'
-      config:
-        port: 9099
-
-    # AIMail tools (14 bare names, semantics from @aimail/mail-core)
+    # AIMail tools (15 bare names, semantics from @aimail/mail-core)
     - id: tool-mail
       name: 'agent-aimail/tools'
+
+    # dsh-only system onboarding tool (activation code → config/keys/default worker)
+    - id: mail-system
+      name: 'agent-aimail/system'
+
+    # SSE pull hub: one system stream (domain key) or per-address agent streams.
+    - id: mail-hub
+      name: 'agent-aimail/mail-hub'

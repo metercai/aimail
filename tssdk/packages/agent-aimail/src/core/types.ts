@@ -30,10 +30,20 @@ export interface AgentConfig {
   agent_id?: string
   /** DeerFlow assistant definition id */
   assistant_id?: string
-  /** dsh: session id (instance identity; 1 address per session) */
+  /** dsh legacy: last session hint (read-only; thread meta is authoritative) */
   session_id?: string
   /** dsh: preset name (definition layer) */
   preset?: string
+  /** dsh: workspace registry id (cache; workspace_path is the truth) */
+  workspace_id?: string
+  /** dsh: canonical workspace path this mailbox is bound to */
+  workspace_path?: string
+  /** dsh: workspace display title */
+  workspace_title?: string
+  /** dsh base multi-domain: per-domain domain keys */
+  domain_keys?: Record<string, string>
+  /** dsh base multi-domain: all domains of the system */
+  domains?: string[]
   /** gate for raw out-/in- snapshot writes (default false); meta is ALWAYS written */
   save_raw_snapshots?: boolean
   /**

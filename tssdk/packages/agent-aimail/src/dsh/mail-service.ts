@@ -192,7 +192,8 @@ export function apply(ctx: Context, config: { systemId?: string } = {}): void {
     resolveConfig: (sessionId) => resolveOrAutoBindSession(sessionId),
     resolveCtx: async (sessionId) => {
       const cfg = await resolveOrAutoBindSession(sessionId)
-      return { systemId: cfg.system_id, email: cfg.email }
+      const cwd = (ctx.get('sessions') as { get(id: string): { header?: { cwd?: string } } | undefined } | undefined)?.get(sessionId)?.header?.cwd
+      return { systemId: cfg.system_id, email: cfg.email, sessionId, ...(cwd ? { workspacePath: cwd } : {}) }
     },
     resolveByEmail: (email) => resolveByEmail(email),
     resolveByRecipient: (email) => resolveByRecipient(email),
