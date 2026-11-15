@@ -21,7 +21,12 @@ CODE_READER="$HERE/../harness/mailpit_code.py"
 curl -fsS -X POST "$GATEWAY/api/v1/public/email-verify/send" \
   -H 'content-type: application/json' --data "{\"email\":\"$EMAIL\"}" >/dev/null
 VCODE=$(python3 "$CODE_READER" --url "$MAILPIT" --to "$EMAIL" --kind verify --timeout 60)
+START_MS=$(python3 -c 'import time; print(int(time.time()*1000))')
 curl -fsS -X POST "$GATEWAY/api/v1/apply-address" \
   -H 'content-type: application/json' \
   --data "{\"applicant_name\":\"$NAME\",\"applicant_email\":\"$EMAIL\",\"email_verify_code\":\"$VCODE\",\"agentname\":\"$AGENT\",\"shared_domain\":\"$SHARED\"}" >/dev/null
-python3 "$CODE_READER" --url "$MAILPIT" --to "$EMAIL" --kind activation --contains "$AGENT@$SHARED" --timeout 90
+END_MS=$(python3 -c 'import time; print(int(time.time()*1000))')
+echo "apply_ms=$((END_MS-START_MS))" >&2
+# The API must return quickly after enqueue; the code mail is async. Give the
+# scheduler/Mailpit enough time in constrained QA networks.
+python3 "$CODE_READER" --url "$MAILPIT" --to "$EMAIL" --kind activation --contains "$AGENT@$SHARED" --timeout 240

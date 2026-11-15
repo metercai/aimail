@@ -28,3 +28,7 @@ max_daily_emails = 1000
 
 [webhook]
 allow_private_targets = true
+
+[retry]
+poll_interval_secs = 1
+initial_backoff_secs = 1

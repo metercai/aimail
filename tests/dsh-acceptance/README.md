@@ -157,7 +157,7 @@ Mailpit UI `http://127.0.0.1:8025` 可看原始邮件（验证码/激活码）�
 
 - 网关配置：`config/base.toml`、`config/advanced.toml`
 - 测试域：`test.local`、`second.test`（base）；`shared.test`（advanced）
-- 测试账号：`admin@test.local`、`user@test.local`、`alice@test.local`、`bob@second.test`、`applicant@example.com`、`alice@shared.test`
+- 测试账号：`qa-admin@example.com`、`qa-user@example.com`、`qa-user2@example.com`、`qa-manager@example.com`（申请/管理邮箱）；`agent@test.local`、`alice@test.local`、`bob@second.test`（地址）；`applicant@example.com`、`alice@shared.test`（advanced）
 - 外部发件人：`sender@external.test`（base 脚本会加白名单；advanced 用申请人 manager 自动白名单）
 - 所有验证码/激活码从 Mailpit 读取，不写死
 - `harness/dsh-harness.mjs` 的 fake ctx 输出 followup，用于断言“SSE → workspace session”
@@ -166,7 +166,8 @@ Mailpit UI `http://127.0.0.1:8025` 可看原始邮件（验证码/激活码）�
 
 - **advanced `machine_code`**：Linux 需要可读 `/etc/machine-id`；容器/精简系统缺失时 9 个用例失败，属环境问题。
 - **Docker 构建**：advanced 需要 `additional_contexts.gateway`；Compose 版本 <2.17 不支持，请升级。
-- **Mailpit**：仅测试用；生产把 `relay.smtp_server` 指向真实 SMTP 即可，base 的 `/apply` API 不变。
+- **Mailpit**：仅测试用；生产把 `relay.smtp_server` 指向真实 SMTP 即可，base 的 `/apply` API 不变。模拟收件箱只用于本地域，夹具的申请邮箱使用 `qa-*@example.com` 外部域，避免被 base 判定为内部投递。
+- **whitelist**：base loop 不再依赖 whitelist；默认工作员的 manager（`qa-manager@example.com`）在注册时自动加白名单。若手工调用 `POST /api/v1/whitelists`，使用 **JSON body**（`system_id/domain_addr/direction/value`），不要用 query，且用 platform/system key。
 - **模拟收件箱**：base 的 `/api/v1/public/mock-inbox` 读取真实 outbound 邮件（不是假表）；仅试点，生产不应暴露。
 - **真实 DSH agent**：本夹具用 fake ctx 验证适配层；真实 DSH 插件加载/L3 仍需单独跑（见 `docs/agent-self-setup.md`）。
 - **advanced B2**：需 advanced 仓构建成功；若私有仓无权限，先在有权限的机器构建镜像。

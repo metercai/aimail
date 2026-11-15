@@ -13,9 +13,9 @@ rm -rf "$HOME_DIR"; mkdir -p "$HOME_DIR"
 for i in $(seq 1 90); do curl -fsS "$BASE_URL/health" >/dev/null 2>&1 && break; sleep 1; done
 
 echo "== claim a system code on the self-hosted /apply page"
-SYSCODE=$(bash "$HERE/claim-base.sh" --gateway "$BASE_URL" --mailpit "$MAILPIT_URL" --email admin@test.local --name Admin --kind system --domain test.local)
+SYSCODE=$(bash "$HERE/claim-base.sh" --gateway "$BASE_URL" --mailpit "$MAILPIT_URL" --email qa-admin@example.com --name Admin --kind system --domain test.local)
 echo "system code=$SYSCODE"
-node "$HERE/../harness/dsh-harness.mjs" system --gateway "$BASE_URL" --code "$SYSCODE" --domain test.local --home "$HOME_DIR" | tee "$HERE/../.data/independent-system.json"
+node "$HERE/../harness/dsh-harness.mjs" system --gateway "$BASE_URL" --code "$SYSCODE" --domain test.local --manager qa-manager@example.com --home "$HOME_DIR" | tee "$HERE/../.data/independent-system.json"
 grep -q '"success": true' "$HERE/../.data/independent-system.json"
 grep -q '"kind": "new"' "$HERE/../.data/independent-system.json"
 

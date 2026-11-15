@@ -25,6 +25,9 @@ services:
     restart: unless-stopped
 
   base:
+    # Test-only: named volumes are root-owned; the runtime user must be able to
+    # write /data. Production should use a properly chowned volume instead.
+    user: "0:0"
     build:
       context: ../../../aimail-gateway
       dockerfile: Dockerfile
@@ -40,6 +43,7 @@ services:
     restart: unless-stopped
 
   advanced:
+    user: "0:0"
     build:
       context: ../../../aimail-advanced
       dockerfile: Dockerfile
