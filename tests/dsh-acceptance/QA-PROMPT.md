@@ -14,7 +14,7 @@ git clone https://github.com/metercai/aimail-advanced.git   # 私有仓，需授
 
 ```text
 <work>/
-  aimail/                 # HEAD 应为 2014048
+  aimail/                 # HEAD = 交接消息里给出的 aimail commit
   aimail-gateway/         # HEAD 应为 28bdc7b
   aimail-advanced/        # HEAD 应为 c650ab1
 ```
@@ -23,6 +23,7 @@ git clone https://github.com/metercai/aimail-advanced.git   # 私有仓，需授
 
 ```bash
 git rev-parse --short HEAD
+git log -1 --oneline
 git status --short     # 必须干净（不能带着测试期改动）
 ```
 
