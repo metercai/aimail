@@ -1,0 +1,30 @@
+# Advanced gateway — one shared domain for B2.
+[http]
+bind = "0.0.0.0:8080"
+hostname = "advanced.test"
+
+[smtp]
+bind = "0.0.0.0:25"
+hostname = "advanced.test"
+
+[storage]
+path = "/data"
+
+[relay]
+smtp_server = "smtp://mailpit:1025"
+
+[admin]
+email = "admin@advanced.test"
+manager_default = "admin@advanced.test"
+
+# Address-code host system `shared_addr-public` is created at startup.
+[[admin.shared_domains]]
+name = "public"
+domain = "shared.test"
+validity_days = 30
+code_validity_mins = 1440
+max_addresses = 500
+max_daily_emails = 1000
+
+[webhook]
+allow_private_targets = true

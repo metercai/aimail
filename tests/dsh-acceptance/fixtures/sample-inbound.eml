@@ -1,0 +1,8 @@
+From: sender@external.test
+To: alice@test.local
+Subject: Acceptance loop
+Date: Sat, 15 Nov 2026 10:00:00 +0800
+Message-ID: <acceptance-1@external.test>
+Content-Type: text/plain; charset=utf-8
+
+hello acceptance

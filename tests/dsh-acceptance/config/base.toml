@@ -1,0 +1,23 @@
+# Base gateway — single system, one dedicated domain (test.local).
+[http]
+bind = "0.0.0.0:8080"
+hostname = "gateway.test"
+
+[smtp]
+bind = "0.0.0.0:25"
+hostname = "gateway.test"
+
+[storage]
+path = "/data"
+
+# All verification/activation-code mails go to Mailpit (simulated recipient),
+# using the same outbound queue as production SMTP.
+[relay]
+smtp_server = "smtp://mailpit:1025"
+
+[admin]
+email = "admin@test.local"
+manager_default = "admin@test.local"
+
+[webhook]
+allow_private_targets = true

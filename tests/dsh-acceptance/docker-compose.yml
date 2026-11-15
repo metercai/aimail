@@ -1,0 +1,70 @@
+# DSH AIMail acceptance stack (Linux/Docker).
+#
+# Layout expected by default:
+#   chains/aimail              (this repo)
+#   chains/aimail-gateway      (base)
+#   chains/aimail-advanced     (advanced; private)
+#
+#   cd tests/dsh-acceptance
+#   docker compose up -d --build
+#   ./scripts/run-base-loop.sh
+#   ./scripts/run-advanced-b2.sh
+#   ./scripts/run-tssdk-tests.sh
+#
+# Mailpit is the simulated recipient/SMTP sink for BOTH gateways. It captures
+# the real outbound verification/activation-code mails; no mock-inbox table is
+# used by this stack.
+name: aimail-dsh-acceptance
+
+services:
+  mailpit:
+    image: axllent/mailpit:v1.21
+    ports:
+      - "1025:1025"   # SMTP
+      - "8025:8025"   # HTTP/UI/API
+    restart: unless-stopped
+
+  base:
+    build:
+      context: ../../../aimail-gateway
+      dockerfile: Dockerfile
+    command: ["-c", "/etc/aimail/config.toml", "start"]
+    volumes:
+      - base-data:/data
+      - ./config/base.toml:/etc/aimail/config.toml:ro
+    ports:
+      - "18080:8080"
+      - "12525:25"
+    depends_on:
+      - mailpit
+    restart: unless-stopped
+
+  advanced:
+    build:
+      context: ../../../aimail-advanced
+      dockerfile: Dockerfile
+      additional_contexts:
+        gateway: ../../../aimail-gateway
+    command: ["-c", "/etc/aimail/config.toml", "start"]
+    volumes:
+      - advanced-data:/data
+      - ./config/advanced.toml:/etc/aimail/config.toml:ro
+    ports:
+      - "18081:8080"
+      - "12526:25"
+    depends_on:
+      - mailpit
+    restart: unless-stopped
+
+  # Root helper for reading the 0600 admin/system key files from the volumes.
+  # The gateway runtime images are distroless/Chainguard (no shell).
+  tools:
+    image: alpine:3.20
+    command: ["sleep", "infinity"]
+    volumes:
+      - base-data:/data/base
+      - advanced-data:/data/advanced
+
+volumes:
+  base-data:
+  advanced-data:

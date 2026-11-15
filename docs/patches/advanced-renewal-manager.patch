@@ -19,10 +19,60 @@ index 6034f1c..4fdb501 100644
          .filter(|e| !e.is_empty());
      let default_manager = default_manager.as_deref().unwrap_or("");
 diff --git a/src/advanced/api/address.rs b/src/advanced/api/address.rs
-index 85470a1..cbedd2e 100644
+index 85470a1..4bc015a 100644
 --- a/src/advanced/api/address.rs
 +++ b/src/advanced/api/address.rs
-@@ -152,6 +152,7 @@ struct ActivationOutcome {
+@@ -94,6 +94,49 @@ pub struct AddressStateRequest {
+     pub agentname: String,
+ }
+ 
++/// POST /api/v1/public/activation-code/preflight {code}
++/// Returns metadata WITHOUT consuming the code (agent B2 detection).
++pub async fn activation_code_preflight(
++    State(state): State<AdvancedState>,
++    Json(req): Json<serde_json::Value>,
++) -> Json<serde_json::Value> {
++    let code = req.get("code").and_then(|v| v.as_str()).unwrap_or("").trim();
++    if code.is_empty() {
++        return Json(serde_json::json!({"valid": false, "error": "code is required"}));
++    }
++    let record = state
++        .storage
++        .find_activation_code_by_hash(&sha256_hex(code))
++        .await
++        .ok()
++        .flatten();
++    let Some(c) = record else {
++        return Json(serde_json::json!({"valid": false, "error": "unknown activation code"}));
++    };
++    let expired = c
++        .expires_at
++        .as_deref()
++        .map(|e| e < crate::advanced::storage::expiry_millis(&chrono::Utc::now()).as_str())
++        .unwrap_or(false);
++    let sid = c.system_id.unwrap_or_default();
++    let scope = if sid.starts_with("shared_") || sid.starts_with("shared-") { "shared" } else { "system" };
++    Json(serde_json::json!({
++        "valid": c.claimed == 0 && c.is_frozen == 0 && !expired,
++        "code_type": c.code_type,
++        "scope": scope,
++        "system_id": sid,
++        "domain": c.domain.unwrap_or_default(),
++        "system_name": "",
++        "email_address": c.email_address.unwrap_or_default(),
++        "applicant_email": c.applicant_email.unwrap_or_default(),
++        "claimed": c.claimed != 0,
++        "is_frozen": c.is_frozen != 0,
++        "is_shipped": c.is_shipped != 0,
++        "expires_at": c.expires_at,
++        "error": if c.claimed != 0 { "already claimed" } else if expired { "expired" } else { "" },
++    }))
++}
++
+ /// POST /api/v1/public/address-state {shared_domain, agentname}
+ /// → {state: "free"|"active"|"expired", address}
+ pub async fn address_state(
+@@ -152,6 +195,7 @@ struct ActivationOutcome {
      /// the gateway wrote instead of inferring it later (whoami is only
      /// readable after activation).
      manager_address: String,
@@ -30,7 +80,7 @@ index 85470a1..cbedd2e 100644
  }
  
  impl std::fmt::Debug for ActivationOutcome {
-@@ -170,7 +171,6 @@ enum ActErr {
+@@ -170,7 +214,6 @@ enum ActErr {
      BoundToOther,
      NoBareDomain,
      DomainConflict(String),
@@ -38,7 +88,7 @@ index 85470a1..cbedd2e 100644
      Db(String),
  }
  
-@@ -192,7 +192,6 @@ fn act_err_to_app(e: ActErr) -> aimail_base::core::errors::AppError {
+@@ -192,7 +235,6 @@ fn act_err_to_app(e: ActErr) -> aimail_base::core::errors::AppError {
          ActErr::DomainConflict(sid) => {
              AppError::Validation(format!("address domain belongs to system '{}'", sid))
          }
@@ -46,7 +96,7 @@ index 85470a1..cbedd2e 100644
          ActErr::Db(m) => AppError::Internal(m),
      }
  }
-@@ -261,6 +260,7 @@ pub async fn activate_address_code(
+@@ -261,6 +303,7 @@ pub async fn activate_address_code(
                  "email_address": o.email_address,
                  "expires_at": o.expires_at,
                  "manager_address": o.manager_address,
@@ -54,7 +104,7 @@ index 85470a1..cbedd2e 100644
              })))
          }
          Err(e) => Err(match e {
-@@ -348,9 +348,16 @@ fn act_in_tx(
+@@ -348,9 +391,16 @@ fn act_in_tx(
                  rusqlite::params![sid, email_address],
                  |r| r.get(0),
              )?;
@@ -74,7 +124,7 @@ index 85470a1..cbedd2e 100644
  
              // 5. Create the agent key — same generation as base
              //    activate_address_code (activation.rs:68).
-@@ -489,6 +496,7 @@ fn act_in_tx(
+@@ -489,6 +539,7 @@ fn act_in_tx(
                  email_address: email_address.to_string(),
                  expires_at: expires_param,
                  manager_address: effective_manager.unwrap_or_default(),
@@ -82,7 +132,7 @@ index 85470a1..cbedd2e 100644
              }))
      };
  
-@@ -830,7 +838,6 @@ mod tests {
+@@ -830,7 +881,6 @@ mod tests {
              (ActErr::BoundToOther, StatusCode::FORBIDDEN),
              (ActErr::NoBareDomain, StatusCode::BAD_REQUEST),
              (ActErr::DomainConflict("x".into()), StatusCode::BAD_REQUEST),
@@ -90,7 +140,7 @@ index 85470a1..cbedd2e 100644
              (ActErr::Db("boom".into()), StatusCode::INTERNAL_SERVER_ERROR),
          ];
          for (err, want) in cases {
-@@ -893,23 +900,40 @@ mod tests {
+@@ -893,23 +943,40 @@ mod tests {
      }
  
      #[test]
@@ -151,3 +201,18 @@ index bb822b1..3936fe4 100644
  }
  
  fn default_max_domains() -> i64 {
+diff --git a/src/advanced/strategy.rs b/src/advanced/strategy.rs
+index b45056f..4092c32 100644
+--- a/src/advanced/strategy.rs
++++ b/src/advanced/strategy.rs
+@@ -1279,6 +1279,10 @@ impl RouterHook for AdvancedRouterHook {
+                 "/api/v1/public/address-state",
+                 post(crate::advanced::api::address::address_state),
+             )
++            .route(
++                "/api/v1/public/activation-code/preflight",
++                post(crate::advanced::api::address::activation_code_preflight),
++            )
+             .route(
+                 "/api/v1/public/shared-domains",
+                 get(crate::advanced::api::address::list_shared_domains),

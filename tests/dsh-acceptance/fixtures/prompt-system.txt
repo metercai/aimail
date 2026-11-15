@@ -1,0 +1,7 @@
+【AIMail 系统接入】
+请在本机 dsh 内完成 AIMail 系统对接，不要调用 aimail CLI。
+
+gateway_url: http://127.0.0.1:18080
+系统激活码: <从 /apply 申领到的 sys-...>
+域名: test.local
+manager: <可选；系统默认安全员，不填则用收码邮箱>

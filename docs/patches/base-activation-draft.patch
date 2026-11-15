@@ -1,5 +1,5 @@
 diff --git a/src/core/api/activation.rs b/src/core/api/activation.rs
-index a84a41f..24a8cb2 100644
+index a84a41f..596a239 100644
 --- a/src/core/api/activation.rs
 +++ b/src/core/api/activation.rs
 @@ -3,7 +3,9 @@
@@ -35,7 +35,7 @@ index a84a41f..24a8cb2 100644
  }
  
  // ── Rate limiter for public activation endpoint ──────────────────
-@@ -400,6 +403,505 @@ pub async fn activate_address_handler(
+@@ -400,6 +403,516 @@ pub async fn activate_address_handler(
      Ok((StatusCode::OK, body))
  }
  
@@ -223,6 +223,17 @@ index a84a41f..24a8cb2 100644
 +    if claimed || frozen || is_expired(expires_at.as_deref()) {
 +        return Err(activation_error(StatusCode::GONE, "activation code is not redeemable", None));
 +    }
++    // A live agent key for the same address means this redemption rotates it.
++    let already_active = state
++        .factories
++        .email
++        .env_factory
++        .db
++        .get_api_key_by_email(&email)
++        .await
++        .ok()
++        .flatten()
++        .is_some();
 +    let (raw_key, _key_id) = activate_address_code(
 +        &state.factories.email.env_factory.db,
 +        code,
@@ -237,7 +248,7 @@ index a84a41f..24a8cb2 100644
 +        "raw_key": raw_key,
 +        "system_id": sid,
 +        "email_address": email,
-+        "kind": "new",
++        "kind": if already_active { "rotation" } else { "new" },
 +        "expires_at": expires_at,
 +    }))))
 +}

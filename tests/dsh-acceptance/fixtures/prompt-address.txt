@@ -1,0 +1,6 @@
+【AIMail 地址绑定】
+请把下面的邮箱绑定到当前工作区。
+
+邮箱: alice@test.local
+地址激活码: <从 /apply 申领到的 addr-...>
+gateway_url: http://127.0.0.1:18080
