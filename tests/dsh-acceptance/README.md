@@ -167,7 +167,11 @@ Mailpit UI `http://127.0.0.1:8025` 可看原始邮件（验证码/激活码）�
 - **advanced `machine_code`**：Linux 需要可读 `/etc/machine-id`；容器/精简系统缺失时 9 个用例失败，属环境问题。
 - **Docker 构建**：advanced 需要 `additional_contexts.gateway`；Compose 版本 <2.17 不支持，请升级。
 - **Mailpit**：仅测试用；生产把 `relay.smtp_server` 指向真实 SMTP 即可，base 的 `/apply` API 不变。模拟收件箱只用于本地域，夹具的申请邮箱使用 `qa-*@example.com` 外部域，避免被 base 判定为内部投递。
-- **whitelist**：base loop 不再依赖 whitelist；默认工作员的 manager（`qa-manager@example.com`）在注册时自动加白名单。若手工调用 `POST /api/v1/whitelists`，使用 **JSON body**（`system_id/domain_addr/direction/value`），不要用 query，且用 platform/system key。
+- **whitelist**：base loop 不再依赖 whitelist；默认工作员的 manager（`qa-manager@example.com`）在注册时自动加白名单。若手工调用 `POST /api/v1/whitelists`，使用 **JSON body**（`system_id/domain_addr/direction/value`），不要用 query，且用 platform/system key。示例：
+  ```bash
+  curl -X POST "$BASE/api/v1/whitelists" -H 'content-type: application/json' -d '{"system_id":"'$SID'","domain_addr":"agent@test.local","direction":"from","value":"qa-manager@example.com"}'
+  ```
+- **F5 时延**：`claim-advanced.sh` 会打印 `apply_ms`；API 应秒级返回，激活码邮件异步到 Mailpit（等待上限 240s）。若 `apply_ms` 本身 >5s，按产品缺陷记录，不要只归因于邮件延迟。
 - **模拟收件箱**：base 的 `/api/v1/public/mock-inbox` 读取真实 outbound 邮件（不是假表）；仅试点，生产不应暴露。
 - **真实 DSH agent**：本夹具用 fake ctx 验证适配层；真实 DSH 插件加载/L3 仍需单独跑（见 `docs/agent-self-setup.md`）。
 - **advanced B2**：需 advanced 仓构建成功；若私有仓无权限，先在有权限的机器构建镜像。
