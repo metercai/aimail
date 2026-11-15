@@ -9,7 +9,7 @@
 | **3** | 命令行 | 独享域 | 系统激活码 | `aimail install` / bootstrap（**不是 DSH 工具**） | 系统级，CLI 维护 |
 | **4** | 命令行 | 独立网关/独享域 | 已有 system key | `AIMAIL_ADMIN_KEY=<system key>` + `aimail install`（**不是 DSH 工具**） | 自建网关；不需要产品激活码 |
 | **5** | Agent 对话，系统级 | 共享域 / 独享域 / 独立网关 | 共享/独享：系统激活码；独立：已有 system key | `aimail_system bind{...}` | 共享：`code+system_name`；独享：`code+domain`；独立：`system_key+system_id+domain`；不接受 email |
-| **6** | Agent 对话，地址级，**系统对接后** | 共享域 / 独享域 / 独立网关 | 地址码可选；无码时用 system 的 domain key 注册 | `aimail_address bind{email,code?}` | **必须有 system config**；共享域地址形如 `name.system_name@shared`；独享/独立形如 `name@domain` |
+| **6** | Agent 对话，地址级，**系统对接后** | 共享域 / 独享域 / 独立网关 | 共享域：用 system 的 domain key（**不要用场景 1 的 shared code**）；独享/独立：地址码可选 | `aimail_address bind{email,code?}` | **必须有 system config**；共享域地址形如 `name.system_name@shared`；独享/独立形如 `name@domain` |
 
 ## 场景 1 与场景 6 的区别（重点）
 
@@ -18,7 +18,7 @@
 | 前置 | 无 system | 已有 system（场景 5/2/3/4 之后） |
 | 域 | 共享域 | 共享/独享/独立 |
 | 地址 | `name@shared` | 共享：`name.system_name@shared`；独享/独立：`name@domain` |
-| 凭据 | 地址激活码（必须） | 地址码（可选）或 system domain key（无码） |
+| 凭据 | 地址激活码（必须） | 共享域：system domain key；独享/独立：地址码可选或 domain key |
 | 工具判定 | preflight `scope=shared` + 无 system | system config 存在 + preflight `system_id` 匹配 |
 | 禁止 | 已有 system 再绑共享地址码（`system_mismatch`） | 无 system 直接绑本域地址（`needs_system`） |
 
