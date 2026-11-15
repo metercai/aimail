@@ -87,7 +87,16 @@ docker compose ps
 - `vitest run test/dsh test/openclaw test/pi`
 - `check-file-ownership.py`、`check-zero-bridge.py`、`check-contract-single-source.py`
 
-### 3.4 原生网关单测
+### 3.4 base 生命周期/轮换
+
+```bash
+./scripts/run-base-lifecycle.sh   # pause -> resume -> unbind rejected
+./scripts/run-base-rotation.sh    # same address + new code -> kind=rotation
+```
+
+`run-base-lifecycle.sh` 依赖 `run-base-loop.sh` 已创建 alice 绑定。
+
+### 3.5 原生网关单测
 
 ```bash
 ./scripts/run-gateway-tests.sh
