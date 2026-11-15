@@ -20,6 +20,7 @@ import {
   readSystemGatewayConfig,
   registerPullAddress,
   removeRawSystemKey,
+  whoami,
   writeAgentmailPointer,
   writeRawSystemKey,
   writeSystemGatewayConfig,
@@ -40,6 +41,10 @@ export interface Args {
   system_name?: string
   domain?: string
   manager?: string
+  /** Independent gateway (scenario 5): existing system-level key. */
+  system_key?: string
+  /** Independent gateway: system id printed by the gateway at start. */
+  system_id?: string
 }
 
 function failure(errorCode: string, error: string, retryable = false): Record<string, unknown> {
@@ -79,6 +84,95 @@ export async function systemStatus(): Promise<Record<string, unknown>> {
   }
 }
 
+async function provisionWithSystemKey(
+  ctx: Context,
+  args: Args,
+  gatewayUrl: string,
+  systemKey: string,
+  existing: { sid: string; cfg: SystemGatewayConfig } | undefined,
+): Promise<Record<string, unknown>> {
+  const requestedSid = String(args.system_id ?? '').trim()
+  const domain = String(args.domain ?? existing?.cfg.domain ?? '').trim().toLowerCase()
+  const systemName = String(args.system_name ?? '').trim()
+  const manager = String(args.manager ?? '').trim()
+  if (!requestedSid) {
+    return failure('bad_args', 'system_id is required with system_key (printed by the gateway at start, e.g. system-xxxx)')
+  }
+  if (!domain) return failure('bad_args', 'domain is required with system_key')
+  if (existing && existing.cfg.gateway_url.replace(/\/+$/, '') !== gatewayUrl) {
+    return failure('gateway_mismatch', `already provisioned for gateway ${existing.cfg.gateway_url}`)
+  }
+  let who
+  try {
+    who = await whoami(gatewayUrl, systemKey, requestedSid)
+  } catch (e) {
+    return failure('system_key_invalid', e instanceof Error ? e.message : String(e))
+  }
+  if (who.status !== 200 || who.system_id !== requestedSid) {
+    return failure('system_key_invalid', 'system_key does not authenticate for this system_id')
+  }
+  if (who.email) {
+    return failure('system_key_invalid', 'this is an address-scoped key; a system-level key is required for system onboarding')
+  }
+  const sid = who.system_id ?? requestedSid
+  const initial: SystemGatewayConfig = {
+    gateway_url: gatewayUrl,
+    admin_key: systemKey,
+    system_id: sid,
+    ...(systemName ? { system_name: systemName } : {}),
+    domain,
+    ...(manager || who.manager_address ? { manager_address: manager || who.manager_address } : {}),
+    save_raw_snapshots: true,
+    system_home: (process.env.DSH_HOME || path.join(process.env.HOME || '', '.dsh')).replace(/\/+$/, ''),
+    domains: [domain],
+  }
+  await writeSystemGatewayConfig(sid, initial)
+  const domainKeys: Record<string, string> = {}
+  try {
+    domainKeys[domain] = await createApiKey({ gatewayUrl, adminKey: systemKey, identity: sid, systemId: sid, email: domain, scopes: ['system'], category: 'domain' })
+  } catch {
+    /* degraded: use the supplied system key */
+  }
+  const selectedKey = domainKeys[domain] || systemKey
+  await writeSystemGatewayConfig(sid, { ...initial, admin_key: selectedKey, ...(Object.keys(domainKeys).length ? { domain_keys: domainKeys } : {}) })
+  await writeAgentmailPointer(sid)
+
+  let defaultEmail = ''
+  let workspace: { id: string; path: string; title?: string } | undefined
+  defaultEmail = defaultWorkerEmail(domain, systemName)
+  const ws = await defaultWorkspace(ctx)
+  if (!ws) return failure('workspace_invalid', 'DSH default workspace not found — create/open the default workspace first')
+  workspace = await ensureWorkspace(ctx, ws.path)
+  const existingBinding = await loadAgentConfig(sid, defaultEmail)
+  if (!existingBinding) {
+    try {
+      const agentKey = await registerPullAddress({
+        gatewayUrl,
+        adminKey: selectedKey,
+        identity: sid,
+        systemId: sid,
+        email: defaultEmail,
+        ...(initial.manager_address ? { manager: initial.manager_address } : {}),
+      })
+      await saveAgentConfig({
+        email: defaultEmail,
+        gateway_url: gatewayUrl,
+        system_id: sid,
+        domain,
+        ...(systemName ? { system_name: systemName } : {}),
+        api_key: agentKey,
+        workspace_id: workspace.id,
+        workspace_path: workspace.path,
+        ...(workspace.title ? { workspace_title: workspace.title } : {}),
+        paused: false,
+      } as never, sid)
+    } catch (e) {
+      return { success: true, scope: 'system', system_id: sid, domain, default_email: defaultEmail, workspace, kind: 'key', degraded: true, reason: e instanceof Error ? e.message : String(e) }
+    }
+  }
+  return { success: true, scope: 'system', system_id: sid, domain, system_name: systemName, manager_address: initial.manager_address, domains: [domain], default_email: defaultEmail, workspace, kind: 'key', degraded: selectedKey === systemKey }
+}
+
 export async function provisionSystem(
   ctx: Context,
   args: Args,
@@ -93,11 +187,23 @@ export async function provisionSystem(
   const domain = String(args.domain ?? '').trim().toLowerCase()
   const manager = String(args.manager ?? '').trim()
 
+  const systemKey = String(args.system_key ?? '').trim()
+  if (systemName && domain) {
+    return failure('bad_args', 'provide exactly one of system_name (shared domain) or domain (dedicated), not both')
+  }
   const existing = await findExistingSystem()
-  if (existing && !code) {
+  if (existing && !code && !systemKey) {
     return { ...(await systemStatus()), reason: 'already_provisioned' }
   }
-  if (!code) return failure('bad_args', 'code is required for bind')
+  if (!!code === !!systemKey) {
+    return failure('bad_args', 'provide exactly one of code (cloud activation) or system_key (independent gateway)')
+  }
+  if (systemKey && systemName) {
+    return failure('bad_args', 'independent gateway uses domain, not system_name')
+  }
+  if (systemKey) {
+    return await provisionWithSystemKey(ctx, args, gatewayUrl, systemKey, existing)
+  }
 
   // A profile runs either system mode or shared-address mode, never both.
   if (!existing) {
@@ -130,6 +236,12 @@ export async function provisionSystem(
   }
   if (pre.system_name && systemName && pre.system_name !== systemName) {
     return failure('system_mismatch', `activation code is bound to system ${pre.system_name}`)
+  }
+  if (pre.system_name && domain) {
+    return failure('system_mismatch', `activation code is bound to shared system ${pre.system_name}; omit domain`)
+  }
+  if (pre.domain && systemName) {
+    return failure('system_mismatch', `activation code is bound to dedicated domain ${pre.domain}; omit system_name`)
   }
   if (!boundDomain && !boundName) {
     return failure('bad_args', 'provide exactly one of domain or system_name when the code is not bound')

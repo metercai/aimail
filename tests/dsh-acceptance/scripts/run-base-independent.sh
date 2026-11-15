@@ -17,7 +17,7 @@ grep -q '"success": true' "$HERE/../.data/independent-system.json"
 grep -q '"kind": "key"' "$HERE/../.data/independent-system.json"
 
 # Scenario 6: address after system onboarding, no address code -> domain key registers it.
-node "$HERE/../harness/dsh-harness.mjs" address --gateway "$BASE_URL" --email agent@test.local --workspace "$HOME_DIR/workspace" --home "$HOME_DIR" | tee "$HERE/../.data/independent-address.json"
+node "$HERE/../harness/dsh-harness.mjs" address --gateway "$BASE_URL" --email worker@test.local --workspace "$HOME_DIR/workspace" --home "$HOME_DIR" | tee "$HERE/../.data/independent-address.json"
 grep -q '"success": true' "$HERE/../.data/independent-address.json"
 grep -q '"mode": "register"' "$HERE/../.data/independent-address.json"
 echo "== independent/scene-6 PASS"

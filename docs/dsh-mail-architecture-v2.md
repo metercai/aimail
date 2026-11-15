@@ -38,6 +38,22 @@ base 与 advanced 是**两套独立实现**，只共享同一份对外 API 契�
 - **domain key**：`category=domain`、`scope=system`、`email=domain`；注册地址、铸 agent key、改本域 webhook。
 - **agent key**：`category=agent`、`scope=agent`、`email=地址`；只收发自己邮件。
 
+### 2.1 场景口径（1–6，与 README 对齐）
+
+| 场景 | 入口 | 域/网关 | 凭据 | DSH 工具 |
+|---|---|---|---|---|
+| 1 | 地址级 agent 对话 | 共享域，**无 system** | 地址激活码 | `aimail_address`（B2） |
+| 2 | 系统级 CLI | 共享域 | 系统激活码 | `aimail install`（不是 DSH） |
+| 3 | 系统级 CLI | 独享域 | 系统激活码 | `aimail install`（不是 DSH） |
+| 4 | 系统级 CLI | 独立网关 | 已有 system key | `aimail install`（不是 DSH） |
+| 5 | 系统级 agent 对话 | 共享/独享/独立 | 共享/独享：系统码；独立：system key | `aimail_system` |
+| 6 | 系统对接后地址级 agent 对话 | 共享/独享/独立 | 地址码可选；无码用 domain key | `aimail_address`（B1） |
+
+- **场景 1 ≠ 场景 6**：场景 1 没有 system，共享域地址是 `name@shared`；场景 6 已有 system，共享域地址是 `name.system_name@shared`，独享/独立是 `name@domain`。
+- 场景 2/3/4 是 CLI；DSH 不调用 CLI，场景 5 是它们的 agent 对话等价入口，不要混写。
+- 场景 5 的独立网关子形态用 `system_key + system_id + domain`，不消耗产品激活码。
+- 地址工具判定：有 system → B1（场景 6）；无 system + `scope=shared` → B2（场景 1）；有 system + shared 码 / 无 system + 非 shared 码均在激活前拒绝。
+
 ---
 
 ## 3. 网关现状（代码事实）
@@ -114,13 +130,25 @@ gateway_url: https://aimail.token.tm
 manager: <可选；整个系统的默认安全员，不是收码邮箱；不填则用收码邮箱>
 ```
 
+独立网关（场景 5 的独立子形态，无产品码）：
+
+```text
+gateway_url: <自建网关>
+system_key: <网关启动时打印的 system key>
+system_id: <网关启动时打印的 system id，如 system-xxxx>
+domain: <独享域>
+manager: <可选>
+```
+
 ### 5.2 参数
 
 | 参数 | 必填 | 说明 |
 |---|---|---|
 | `action` | 是 | `bind` / `status` |
 | `gateway_url` | 首次 | 激活信息；已有 config 时可省略 |
-| `code` | bind 必填 | 一次性系统激活码（`code_type=product`） |
+| `code` | 与 `system_key` 二选一 | 一次性系统激活码（共享/独享云网关） |
+| `system_key` | 与 `code` 二选一 | 独立网关已有的 system-level key |
+| `system_id` | `system_key` 时必填 | 独立网关启动打印的 system id |
 | `system_name` | 绑定未定才填 | 共享域系统名；必须与激活码绑定一致；base 无此项 |
 | `domain` | 绑定未定才填 | 独享域；base 多 domain 时选其一；必须与激活码绑定一致 |
 | `manager` | 可选 | **仅系统对接**；整个系统的默认安全员，**不是收码邮箱**；网关校验/白名单 |
@@ -131,7 +159,8 @@ manager: <可选；整个系统的默认安全员，不是收码邮箱；不填�
 
 ### 5.3 校验（preflight 先行）
 
-1. `POST /api/v1/public/activation-code/preflight {code}`：
+0. `code` 与 `system_key` 必须且只能有一个；独立网关用 `system_key + system_id + domain`。
+1. 有 code：`POST /api/v1/public/activation-code/preflight {code}`：
    - 返回 `code_type/scope/system_id/domain/system_name/email_address/expires_at/claimed/is_shipped`；
    - 不消费 code。
 2. `code_type` 必须是 `product`/system；address code → `wrong-tool`。
@@ -141,6 +170,7 @@ manager: <可选；整个系统的默认安全员，不是收码邮箱；不填�
    - 不同 gateway → `gateway_mismatch`。
    - 已有 B2 地址 binding、无 system → `binding_conflict`（一个 profile 不同时跑两种模式；提示删除该共享地址 binding 或换 profile——工具不提供 unbind）。
 5. `manager` 可选；不传则网关默认 = 收码邮箱（申请人邮箱）；传了则作为整个系统的默认安全员。**不需要管理员/收码邮箱确认**，插件直接传、网关直接写。申领页本身不写 manager。
+6. 独立网关：`whoami` 校验 `system_key` 与 `system_id`；地址级 key 拒绝；domain 必填。
 
 ### 5.4 流程
 
@@ -191,11 +221,15 @@ manager: <可选；整个系统的默认安全员，不是收码邮箱；不填�
 请把下面的邮箱绑定到当前工作区。
 
 邮箱: meterv@aimail.token.tm
-地址激活码: <B2 必填；B1 可省略>
-gateway_url: <B2 必填；B1 可省略，若给必须与已记录一致>
+地址激活码: <场景 1 必填；场景 6 可选（省略则用 system domain key 注册）>
+gateway_url: <场景 1 必填；场景 6 可选，若给必须与已记录一致>
 ```
 
 ### 6.2 参数 / 场景
+
+> 本工具覆盖 **场景 1（无 system + 共享域地址码）** 与 **场景 6（有 system 后绑定）**。
+> 场景 6 的共享域地址是 `name.system_name@shared`，独享/独立是 `name@domain`；场景 1 是 `name@shared`。
+> 场景 2/3/4 是 CLI，不属于本工具。
 
 | 参数 | 必填 | 说明 |
 |---|---|---|
