@@ -210,7 +210,7 @@ export function apply(ctx: Context, config: { systemId?: string } = {}): void {
    * Stable address ↔ workspace mapping: a new inbound session is created with
    * the binding's workspace as its cwd. Resolve that binding from the
    * workspace, NOT from a persisted session_id (session ids are disposable and
-   * must never drift into agentmail.json).
+   * must never drift into the binding file).
    */
   const resolveByWorkspace = async (sessionId: string): Promise<AgentConfig | undefined> => {
     const cwd = (ctx.get('sessions') as { get(id: string): { header?: { cwd?: string } } | undefined } | undefined)
