@@ -654,6 +654,25 @@ PY
     done
     [ "$UP" = 1 ] || { tail -15 "$WORK/dsh-host.log" | sed 's/^/    /'; [ -f "$DSH_STATUS" ] && sed 's/^/    status: /' "$DSH_STATUS"; die "dsh SSE hub not connected in 120s"; }
     ok "dsh SSE hub connected (status.json mode=sse, streams non-empty)"
+    # Regression guard: an SSE binding must not carry a webhook_url. A
+    # non-empty value makes the gateway push welcome to the retired inbound
+    # port instead of inserting pending_deliveries for this stream.
+    DSH_BIND="$(ls "${HOME}/.aimail/systems/${SYSTEM_ID}"/*/agentmail.json 2>/dev/null | head -1)"  # contract-allowed: shell probe glob real disk binding file
+    [ -n "$DSH_BIND" ] || die "dsh binding not found under ${HOME}/.aimail/systems/${SYSTEM_ID}"
+    DSH_BIND_PY="$DSH_BIND"
+    case "$(uname -s)" in
+      MINGW*|MSYS*|CYGWIN*) DSH_BIND_PY="$(cygpath -m "$DSH_BIND")" ;;
+    esac
+    python3 - "$DSH_BIND_PY" <<'PY'
+import json, sys
+b = json.load(open(sys.argv[1], encoding="utf-8"))
+u = b.get("webhook_url") or ""
+if u:
+    print(f"SSE binding has webhook_url={u!r}; welcome would bypass pending/SSE", file=sys.stderr)
+    sys.exit(1)
+print("SSE binding has no webhook_url (welcome goes pending/SSE)")
+PY
+    [ $? -eq 0 ] || die "dsh binding still carries a webhook_url (SSE regression)"
     ;;
 esac
 
