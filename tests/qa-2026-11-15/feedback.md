@@ -101,3 +101,23 @@ V7 端到端      run-base-loop、run-advanced-b2 通过（F7 关闭）
 tssdk 需先 pnpm install --frozen-lockfile && pnpm build（dist 不存在时 harness 无法运行）
 gateway-tests 需同级仓布局（../../../aimail-gateway），worktree 下用 symlink 补齐
 ```
+
+## 8 V6 复验与夹具修复（QA 自查，2026-11-15）
+
+```
+N1 reset-codes.sh 原实现：容器内 apk add sqlite（无网络/DNS）⇒ rc=1  ⇒ 已修
+   改为 python:3.11-alpine（stdlib 自带 sqlite3）+ 从运行容器读取 compose project 推导卷名，
+   不再依赖容器内联网
+N2 旧码断言：原脚本无端点  ⇒ 已补
+   端点 /api/v1/public/activation-code/preflight
+   语义：无效码返回 **HTTP 200 + {"valid":false,"error":"unknown activation code"}**
+        （不是 400/404）⇒ 断言改为校验 JSON body.valid === false
+结果：reset-codes.sh 实跑 rc=0，"V6 PASS: old code rejected (valid=false)"
+```
+
+验证输出：
+```
+cleared /base/aimail.db 1 rows · cleared /adv/aimail.db 0 rows
+preflight(sys-55c79006d5b44e34) -> 200 {"error":"unknown activation code","valid":false}
+V6 PASS: old code rejected (valid=false)
+```
