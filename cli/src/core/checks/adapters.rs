@@ -797,7 +797,44 @@ pub fn dsh_list_agents(ctx: &Ctx) -> Vec<Agent> {
     agents
 }
 
-pub fn dsh_check_config(c: &mut Check, _ctx: &Ctx, agent: &Agent) {
+/// Pull/SSE detection: no webhook_url on the binding and the plugin hub has
+/// published at least one active stream in any `profiles/*/aimail/status.json`.
+fn dsh_pull_mode(ctx: &Ctx, binding: &Value) -> bool {
+    if binding
+        .get("webhook_url")
+        .and_then(Value::as_str)
+        .is_some_and(|u| !u.is_empty())
+    {
+        return false;
+    }
+    let root = if !ctx.agent_home.as_os_str().is_empty() {
+        ctx.agent_home.to_path_buf()
+    } else {
+        ctx.user_home.join(".dsh")
+    };
+    let Ok(profiles) = std::fs::read_dir(root.join("profiles")) else {
+        return false;
+    };
+    for p in profiles.flatten() {
+        let status = p.path().join("aimail").join("status.json");
+        let Ok(text) = std::fs::read_to_string(&status) else {
+            continue;
+        };
+        let Ok(v) = serde_json::from_str::<Value>(&text) else {
+            continue;
+        };
+        if v.get("mode").and_then(Value::as_str) == Some("sse")
+            && v.get("streams")
+                .and_then(Value::as_array)
+                .is_some_and(|a| !a.is_empty())
+        {
+            return true;
+        }
+    }
+    false
+}
+
+pub fn dsh_check_config(c: &mut Check, ctx: &Ctx, agent: &Agent) {
     let d = agent
         .binding
         .as_ref()
@@ -810,6 +847,7 @@ pub fn dsh_check_config(c: &mut Check, _ctx: &Ctx, agent: &Agent) {
             .map(str::to_string)
             .unwrap_or_default()
     };
+    let pull = d.as_ref().is_some_and(|v| dsh_pull_mode(ctx, v));
     let api_key = get("api_key");
     let wh_url = get("webhook_url");
     let wh_secret = get("webhook_secret");
@@ -823,26 +861,36 @@ pub fn dsh_check_config(c: &mut Check, _ctx: &Ctx, agent: &Agent) {
         "Run: aimail address -s <sid> -a agent (or auto-bind inside a dsh session)",
     );
 
-    let wh_ok = !wh_url.is_empty() && !wh_secret.is_empty();
-    c.add(
-        "agent",
-        "webhook",
-        wh_ok,
-        &format!(
-            "webhook_url={}{}",
-            if wh_url.is_empty() {
-                "(missing)"
-            } else {
-                wh_url.as_str()
-            },
-            if wh_secret.is_empty() {
-                ", secret MISSING"
-            } else {
-                ", secret ✓"
-            }
-        ),
-        "registration chain persisted webhook_url + webhook_secret (aimail address / agent-aimail register-cli)",
-    );
+    if pull {
+        c.add(
+            "agent",
+            "webhook",
+            true,
+            "n/a (pull mode: SSE streams; no webhook_url)",
+            "",
+        );
+    } else {
+        let wh_ok = !wh_url.is_empty() && !wh_secret.is_empty();
+        c.add(
+            "agent",
+            "webhook",
+            wh_ok,
+            &format!(
+                "webhook_url={}{}",
+                if wh_url.is_empty() {
+                    "(missing)"
+                } else {
+                    wh_url.as_str()
+                },
+                if wh_secret.is_empty() {
+                    ", secret MISSING"
+                } else {
+                    ", secret ✓"
+                }
+            ),
+            "registration chain persisted webhook_url + webhook_secret (aimail address / agent-aimail register-cli)",
+        );
+    }
 
     // session_id is transient (one disposable session per inbound mail since 0.1.14) ⇒ criterion only recognizes preset
     let sess_ok = !preset.is_empty();
@@ -870,12 +918,24 @@ pub fn dsh_check_config(c: &mut Check, _ctx: &Ctx, agent: &Agent) {
     );
 }
 
-pub fn dsh_check_hook(c: &mut Check, _ctx: &Ctx, agent: &Agent) {
-    let wh_url = agent
+pub fn dsh_check_hook(c: &mut Check, ctx: &Ctx, agent: &Agent) {
+    let binding = agent
         .binding
         .as_ref()
         .filter(|p| p.is_file())
-        .and_then(|p| read_json(p))
+        .and_then(|p| read_json(p));
+    if binding.as_ref().is_some_and(|v| dsh_pull_mode(ctx, v)) {
+        c.add(
+            "agent",
+            "hook",
+            true,
+            "n/a (pull mode: SSE streams; no inbound hook)",
+            "",
+        );
+        return;
+    }
+    let wh_url = binding
+        .as_ref()
         .and_then(|v| {
             v.get("webhook_url")
                 .and_then(Value::as_str)
@@ -1187,6 +1247,39 @@ mod tests {
         assert!(session.pass, "Pass if preset is non-empty: {session:?}");
         let apikey = c.checks.iter().find(|r| r.check == "name_apikey").unwrap();
         assert!(!apikey.pass, "no api_key ⇒ failure");
+    }
+
+    #[test]
+    fn dsh_pull_mode_webhook_and_hook_are_na() {
+        let tmp = TempDir::new("adapters-dsh-pull");
+        let systems = tmp.path().join("aimail/systems");
+        let dir = systems.join("s1").join("a_example.test");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(contract::binding_file()),
+            r#"{"email":"a@example.test","gateway_url":"http://127.0.0.1:1","domain":"example.test","system_id":"s1","system_name":"s1","manager_address":"m@example.test","api_key":"k","webhook_secret":"sec","agent_id":"a"}"#,
+        )
+        .unwrap();
+        let ah = tmp.path().join(".dsh");
+        let status = ah.join("profiles/web/aimail/status.json");
+        std::fs::create_dir_all(status.parent().unwrap()).unwrap();
+        std::fs::write(
+            &status,
+            r#"{"mode":"sse","connected":true,"streams":["system:s1"]}"#,
+        )
+        .unwrap();
+        let ctx = ctx_of(&tmp, &ah, &systems, "s1");
+        let agents = dsh_list_agents(&ctx);
+        assert_eq!(agents.len(), 1);
+        let mut c = Check::new();
+        dsh_check_config(&mut c, &ctx, &agents[0]);
+        dsh_check_hook(&mut c, &ctx, &agents[0]);
+        let webhook = c.checks.iter().find(|r| r.check == "webhook").unwrap();
+        let hook = c.checks.iter().find(|r| r.check == "hook").unwrap();
+        assert!(webhook.pass, "{webhook:?}");
+        assert!(hook.pass, "{hook:?}");
+        assert!(webhook.detail.contains("n/a"), "{webhook:?}");
+        assert!(hook.detail.contains("n/a"), "{hook:?}");
     }
 
     #[test]

@@ -195,6 +195,35 @@ pub fn l0_configs(c: &mut Check, sid: &str, ctx: &Ctx) {
     );
 }
 
+/// Pull/SSE detection for L0: no webhook_url + at least one active stream in
+/// any `~/.dsh/profiles/*/aimail/status.json`.
+fn dsh_pull_mode(ctx: &Ctx, binding: &Value) -> bool {
+    if !field_str(binding, "webhook_url").is_empty() {
+        return false;
+    }
+    let profiles = ctx.user_home.join(".dsh").join("profiles");
+    let Ok(entries) = std::fs::read_dir(profiles) else {
+        return false;
+    };
+    for p in entries.flatten() {
+        let status = p.path().join("aimail").join("status.json");
+        let Ok(text) = std::fs::read_to_string(&status) else {
+            continue;
+        };
+        let Ok(v) = serde_json::from_str::<Value>(&text) else {
+            continue;
+        };
+        if v.get("mode").and_then(Value::as_str) == Some("sse")
+            && v.get("streams")
+                .and_then(Value::as_array)
+                .is_some_and(|a| !a.is_empty())
+        {
+            return true;
+        }
+    }
+    false
+}
+
 /// L0 extension: per-agent binding file completeness + internal consistency.
 pub fn agentmail_json(c: &mut Check, sid: &str, ctx: &Ctx) {
     let sysdir = ctx.aimail_home.join("systems").join(sid);
@@ -233,7 +262,17 @@ pub fn agentmail_json(c: &mut Check, sid: &str, ctx: &Ctx) {
             }
         };
 
-        let missing: Vec<&str> = BINDING_REQUIRED
+        let pull = dsh_pull_mode(ctx, &d);
+        let required: Vec<&str> = if pull {
+            BINDING_REQUIRED
+                .iter()
+                .filter(|k| !matches!(**k, "system_name" | "webhook_url"))
+                .copied()
+                .collect()
+        } else {
+            BINDING_REQUIRED.to_vec()
+        };
+        let missing: Vec<&str> = required
             .iter()
             .filter(|k| is_falsy(d.get(**k)))
             .copied()
@@ -243,7 +282,11 @@ pub fn agentmail_json(c: &mut Check, sid: &str, ctx: &Ctx) {
             "config-complete",
             missing.is_empty(),
             &if missing.is_empty() {
-                format!("{name}: all {} fields present", BINDING_REQUIRED.len())
+                format!(
+                    "{name}: all {} fields present{}",
+                    required.len(),
+                    if pull { " (pull/SSE mode)" } else { "" }
+                )
             } else {
                 format!("{name}: missing fields: {}", missing.join(", "))
             },
@@ -707,6 +750,30 @@ mod tests {
             consistency[0].contains("gateway_url differs from"),
             "{consistency:?}"
         );
+    }
+
+    #[test]
+    fn pull_mode_config_does_not_require_webhook_or_system_name() {
+        let (_t, ctx, sid) = fixture("l0-pull");
+        write_agent(
+            &ctx,
+            &sid,
+            "a_example.test",
+            r#"{"email":"a@example.test","gateway_url":"http://127.0.0.1:1","domain":"example.test","system_id":"s1","manager_address":"m@example.test","api_key":"k","webhook_secret":"sec","agent_id":"a"}"#,
+        );
+        let status = ctx.user_home.join(".dsh/profiles/web/aimail/status.json");
+        std::fs::create_dir_all(status.parent().unwrap()).unwrap();
+        std::fs::write(
+            &status,
+            r#"{"mode":"sse","connected":true,"streams":["system:s1"]}"#,
+        )
+        .unwrap();
+        let mut c = Check::new();
+        agentmail_json(&mut c, &sid, &ctx);
+        let complete = details(&c, "agent", "config-complete");
+        assert_eq!(complete.len(), 1);
+        assert!(complete[0].contains("pull/SSE mode"), "{complete:?}");
+        assert!(complete[0].contains("all"), "{complete:?}");
     }
 
     #[test]
