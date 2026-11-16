@@ -78,9 +78,9 @@ jobs:
           - { platform: linux-arm64, os: ubuntu-24.04-arm, agent: dsh-aimail }
           - { platform: linux-arm64, os: ubuntu-24.04-arm, agent: dsh-plugin }
           # ── macOS ──
-          - { platform: macos-arm64, os: macos-14,        agent: hermes }
-          - { platform: macos-arm64, os: macos-14,        agent: dsh-aimail }
-          - { platform: macos-arm64, os: macos-14,        agent: dsh-plugin }
+          - { platform: macos-arm64, os: macos-latest,        agent: hermes }
+          - { platform: macos-arm64, os: macos-latest,        agent: dsh-aimail }
+          - { platform: macos-arm64, os: macos-latest,        agent: dsh-plugin }
           # ── Windows ──
           # restore 3 cells = 12 jobs once the CLI Windows port completes (2026-10-17).
           - { platform: windows-amd64, os: windows-latest, agent: hermes }

@@ -633,46 +633,41 @@ PY
       LLM_API_KEY="$LLM_API_KEY" \
       nohup dsh --profile web --port 0 --no-open > "$WORK/dsh-host.log" 2>&1 &
     HOST_PID=$!
+    DSH_INBOUND_PORT="${AIMAIL_INBOUND_PORT:-9099}"
     say "dsh host starting (SSE mode, no inbound port)…"
-    DSH_STATUS="$DSH_HOME/profiles/web/aimail/status.json"
+    STATUS_FILE="$DSH_HOME/profiles/web/aimail/status.json"
     UP=0
-    _i=0
-    for _i in $(seq 1 120); do
-      if [ -f "$DSH_STATUS" ]; then
-        if python3 - "$DSH_STATUS" <<'PY'
-import json, sys
-try:
-    st = json.load(open(sys.argv[1], encoding="utf-8"))
-except Exception:
-    sys.exit(1)
-sys.exit(0 if st.get("mode") == "sse" and st.get("connected") is True and bool(st.get("streams")) else 1)
-PY
-        then UP=1; break; fi
+    for _ in $(seq 1 120); do
+      kill -0 "$HOST_PID" 2>/dev/null || { tail -15 "$WORK/dsh-host.log" | sed 's/^/    /'; die "dsh host exited before SSE streams were established"; }
+      if [ -f "$STATUS_FILE" ] && python3 -c "import json,sys;d=json.load(open(sys.argv[1]));sys.exit(0 if d.get('mode')=='sse' and (d.get('streams') or []) else 1)" "$STATUS_FILE" 2>/dev/null; then
+        UP=1; break
       fi
-      kill -0 "$HOST_PID" 2>/dev/null || { tail -15 "$WORK/dsh-host.log" | sed 's/^/    /'; die "dsh host exited before SSE hub was ready"; }
       sleep 1
     done
-    [ "$UP" = 1 ] || { tail -15 "$WORK/dsh-host.log" | sed 's/^/    /'; [ -f "$DSH_STATUS" ] && sed 's/^/    status: /' "$DSH_STATUS"; die "dsh SSE hub not connected in 120s"; }
-    ok "dsh SSE hub connected (status.json mode=sse, streams non-empty)"
-    # Regression guard: an SSE binding must not carry a webhook_url. A
-    # non-empty value makes the gateway push welcome to the retired inbound
-    # port instead of inserting pending_deliveries for this stream.
-    DSH_BIND="$(ls "${HOME}/.aimail/systems/${SYSTEM_ID}"/*/agentmail.json 2>/dev/null | head -1)"  # contract-allowed: shell probe glob real disk binding file
-    [ -n "$DSH_BIND" ] || die "dsh binding not found under ${HOME}/.aimail/systems/${SYSTEM_ID}"
-    DSH_BIND_PY="$DSH_BIND"
-    case "$(uname -s)" in
-      MINGW*|MSYS*|CYGWIN*) DSH_BIND_PY="$(cygpath -m "$DSH_BIND")" ;;
-    esac
-    python3 - "$DSH_BIND_PY" <<'PY'
+    [ "$UP" = 1 ] || { tail -20 "$WORK/dsh-host.log" | sed 's/^/    /'; die "dsh SSE streams not established in 120s (status=$STATUS_FILE)"; }
+    if python3 -c "import socket,sys;s=socket.socket();sys.exit(s.connect_ex(('127.0.0.1',$DSH_INBOUND_PORT)))" 2>/dev/null; then
+      die "inbound port $DSH_INBOUND_PORT still listening — push endpoint was not removed"
+    fi
+    GW_CFG="$(find "${HOME}/.aimail" -name aimail_gateway.json 2>/dev/null | head -1)"
+    AGENT_CFG="$(find "${HOME}/.aimail" -name agentmail.json 2>/dev/null | head -1)"
+    [ -f "$GW_CFG" ] || die "plugin did not write $GW_CFG (closed loop broken)"
+    [ -f "$AGENT_CFG" ] || die "plugin did not write $AGENT_CFG (closed loop broken)"
+    for _f in "$GW_CFG" "$AGENT_CFG"; do
+      _m="$(stat -c %a "$_f" 2>/dev/null || stat -f %Lp "$_f" 2>/dev/null)"
+      [ "$_m" = "600" ] || die "$_f mode=$_m (expected 600)"
+    done
+    # SSE binding must not carry a webhook URL; otherwise welcome is pushed to
+    # the retired inbound endpoint instead of pending/SSE.
+    python3 - "$AGENT_CFG" <<'PY'
 import json, sys
 b = json.load(open(sys.argv[1], encoding="utf-8"))
 u = b.get("webhook_url") or ""
 if u:
     print(f"SSE binding has webhook_url={u!r}; welcome would bypass pending/SSE", file=sys.stderr)
     sys.exit(1)
-print("SSE binding has no webhook_url (welcome goes pending/SSE)")
 PY
     [ $? -eq 0 ] || die "dsh binding still carries a webhook_url (SSE regression)"
+    ok "dsh SSE pull ready · inbound :$DSH_INBOUND_PORT closed · dual config written (0600)"
     ;;
 esac
 
