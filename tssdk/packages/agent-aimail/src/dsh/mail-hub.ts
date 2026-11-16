@@ -22,6 +22,7 @@ import {
   loadAgentConfig,
   processInboundMail,
   pullAck,
+  updateAgentConfig,
   pullList,
   readLocalMeta,
   listAgentConfigs,
@@ -309,7 +310,22 @@ export class MailHub {
         /* fall through to default */
       }
     }
-    return await defaultWorkspace(this.ctx)
+    const ws = await defaultWorkspace(this.ctx)
+    if (ws) {
+      // First inbound on a CLI/plugin-created binding may not carry a
+      // workspace yet. Persist the stable workspace before creating the
+      // session so later tool calls resolve this address by workspace.
+      try {
+        await updateAgentConfig(cfg.system_id, cfg.email, {
+          workspace_id: ws.id,
+          workspace_path: ws.path,
+          ...(ws.title ? { workspace_title: ws.title } : {}),
+        })
+      } catch {
+        /* binding update is best-effort; session still gets the workspace */
+      }
+    }
+    return ws
   }
 
   private async deliver(cfg: AgentConfig, body: unknown, headers: Record<string, unknown>, recipient: string): Promise<boolean> {

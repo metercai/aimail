@@ -25,8 +25,8 @@ vi.mock('../../src/mail/index.js', () => ({
   resolveByRecipient: async () => undefined,
 }))
 
-import { apply } from '../../src/dsh/mail-service.js'
-import { saveAgentConfig } from '../../src/core/index.js'
+import { apply, ensureDefaultAgentBinding } from '../../src/dsh/mail-service.js'
+import { loadAgentConfig, saveAgentConfig } from '../../src/core/index.js'
 
 let home = ''
 let dsh = ''
@@ -79,5 +79,29 @@ describe('dsh mailbox resolution by workspace', () => {
     const got = await service!.resolveCtx('new-session-id')
     expect(got.email).toBe('agent@l3.local')
     expect(got.systemId).toBe('sys-1')
+  })
+
+  test('startup ensure persists the default workspace onto the CLI-created binding', async () => {
+    const workspace = path.join(dsh, 'default-workspace')
+    await fs.mkdir(workspace, { recursive: true })
+    await saveAgentConfig({
+      email: 'agent@l3.local',
+      gateway_url: 'http://127.0.0.1:1',
+      system_id: 'sys-1',
+      domain: 'l3.local',
+      api_key: 'k',
+      paused: false,
+    }, 'sys-1')
+    ensureAgentBinding.mockResolvedValue({ ok: true, systemId: 'sys-1', email: 'agent@l3.local' })
+    const ctx = {
+      get: (k: string) => {
+        if (k === 'workspaceRegistry') return { list: () => [{ id: 'w', path: workspace, title: 'default-workspace' }] }
+        return undefined
+      },
+    }
+    await ensureDefaultAgentBinding(ctx as never)
+    const cfg = await loadAgentConfig('sys-1', 'agent@l3.local')
+    expect(cfg?.workspace_id).toBe('w')
+    expect(cfg?.workspace_path).toBe(workspace)
   })
 })

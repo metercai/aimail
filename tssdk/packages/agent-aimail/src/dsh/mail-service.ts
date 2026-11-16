@@ -15,6 +15,7 @@
  */
 import { activateHost } from '../hosts/activate.js'
 import { writeAgentmailPointer } from '../core/provision.js'
+import { defaultWorkspace } from './workspace.js'
 import type { Context } from '@deepseek-ai/cordis'
 import {
   resolveByRecipient,
@@ -33,6 +34,7 @@ import {
   listSystemDirs,
   readSystemConfig,
   releaseAllSystems,
+  updateAgentConfig,
   type AgentConfig, packageResourcesRoot} from '../core/index.js'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -132,7 +134,7 @@ function platformHome(): string {
  *
  * Never throws — failures warn and leave the host to its usual unbound path.
  */
-export async function ensureDefaultAgentBinding(): Promise<void> {
+export async function ensureDefaultAgentBinding(ctx?: Context): Promise<void> {
   // Single-source default-agent binding (mail-core ensureAgentBinding):
   // system readiness (owning system short-circuit, else CLI L1 reverse-call)
   // → address derivation → idempotent autoBind (adopt-existing by agent_id,
@@ -155,7 +157,25 @@ export async function ensureDefaultAgentBinding(): Promise<void> {
     return
   }
   if (r.systemId && r.email) {
-    // CLI install/register can fail soft (register_default is warn-only).
+    // Stable address ↔ workspace: CLI install/register can fail soft and
+    // writes no workspace. Bind the default workspace here; inbound mail must
+    // resolve the mailbox by this durable workspace, never by session_id.
+    if (ctx) {
+      try {
+        const ws = await defaultWorkspace(ctx)
+        if (ws) {
+          await updateAgentConfig(r.systemId, r.email, {
+            workspace_id: ws.id,
+            workspace_path: ws.path,
+            ...(ws.title ? { workspace_title: ws.title } : {}),
+          })
+        } else {
+          console.warn('[agent-aimail] default workspace not found; inbound workspace mapping may be incomplete')
+        }
+      } catch (e) {
+        console.warn(`[agent-aimail] workspace binding failed: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
     // Writing the pointer here keeps `aimail welcome` / `aimail check`
     // resolvable even when only the plugin path ran.
     try {
@@ -261,7 +281,7 @@ export function apply(ctx: Context, config: { systemId?: string } = {}): void {
   // SSE pilot: this is the replacement for the removed mail-inbound entry's
   // ensure call. The host may start before CLI registration wrote a binding;
   // bind here, then nudge the hub to open the address stream.
-  void ensureDefaultAgentBinding().then(() => {
+  void ensureDefaultAgentBinding(ctx).then(() => {
     const hub = ctx.get('mailHub') as { reconcile?: () => Promise<void> } | undefined
     if (hub?.reconcile) void hub.reconcile().catch(() => undefined)
   })
