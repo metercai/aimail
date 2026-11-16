@@ -27,7 +27,7 @@ import {
   type SystemGatewayConfig,
 } from '../core/provision.js'
 import { listAgentConfigs, loadAgentConfig, listSystemDirs, saveAgentConfig } from '../core/index.js'
-import { defaultWorkspace, ensureWorkspace } from './workspace.js'
+import { defaultWorkspaceOrCreate, ensureWorkspace } from './workspace.js'
 
 export interface Config {
   gatewayUrl?: string
@@ -199,8 +199,7 @@ export async function provisionSystem(
   let workspace: { id: string; path: string; title?: string } | undefined
   if (selectedDomain) {
     defaultEmail = defaultWorkerEmail(selectedDomain, finalCfg.system_name)
-    const ws = await defaultWorkspace(ctx)
-    if (!ws) return failure('workspace_invalid', 'DSH default workspace not found — create/open the default workspace first')
+    const ws = await defaultWorkspaceOrCreate(ctx)
     workspace = await ensureWorkspace(ctx, ws.path)
     const existingBinding = await loadAgentConfig(sid, defaultEmail)
     if (!existingBinding) {

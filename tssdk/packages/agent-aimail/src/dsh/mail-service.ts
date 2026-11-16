@@ -15,7 +15,7 @@
  */
 import { activateHost } from '../hosts/activate.js'
 import { writeAgentmailPointer } from '../core/provision.js'
-import { defaultWorkspace } from './workspace.js'
+import { defaultWorkspaceOrCreate } from './workspace.js'
 import type { Context } from '@deepseek-ai/cordis'
 import {
   resolveByRecipient,
@@ -162,7 +162,7 @@ export async function ensureDefaultAgentBinding(ctx?: Context): Promise<void> {
     // resolve the mailbox by this durable workspace, never by session_id.
     if (ctx) {
       try {
-        const ws = await defaultWorkspace(ctx)
+        const ws = await defaultWorkspaceOrCreate(ctx)
         if (ws) {
           await updateAgentConfig(r.systemId, r.email, {
             workspace_id: ws.id,

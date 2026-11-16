@@ -31,7 +31,7 @@ import {
 } from '../core/index.js'
 import { stampSessionMeta } from '../core/meta.js'
 import { readSystemGatewayConfig } from '../core/provision.js'
-import { defaultWorkspace, statusPath } from './workspace.js'
+import { defaultWorkspaceOrCreate, statusPath } from './workspace.js'
 
 export const name = 'mail-hub'
 export const inject = ['mail', 'agents']
@@ -310,7 +310,7 @@ export class MailHub {
         /* fall through to default */
       }
     }
-    const ws = await defaultWorkspace(this.ctx)
+    const ws = await defaultWorkspaceOrCreate(this.ctx)
     if (ws) {
       // First inbound on a CLI/plugin-created binding may not carry a
       // workspace yet. Persist the stable workspace before creating the

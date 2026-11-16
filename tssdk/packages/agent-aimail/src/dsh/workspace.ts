@@ -61,6 +61,17 @@ export async function defaultWorkspace(ctx: Context): Promise<WorkspaceRef | und
   return fallback ? { id: fallback.id, path: fallback.path, ...(fallback.title ? { title: fallback.title } : {}) } : undefined
 }
 
+/** Default workspace, creating the conventional `~/.dsh/default-workspace`
+ *  when a fresh host has no workspace registry yet. A mailbox must always have
+ *  a stable workspace even on first boot. */
+export async function defaultWorkspaceOrCreate(ctx: Context): Promise<WorkspaceRef> {
+  const existing = await defaultWorkspace(ctx)
+  if (existing) return existing
+  const dir = path.join(dshHome(), 'default-workspace')
+  await fs.mkdir(dir, { recursive: true })
+  return await ensureWorkspace(ctx, dir)
+}
+
 /** Ensure a registry entry exists for a path (project selection / default). */
 export async function ensureWorkspace(ctx: Context, p: string): Promise<WorkspaceRef> {
   const registry = ctx.get('workspaceRegistry') as
