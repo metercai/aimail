@@ -15,8 +15,8 @@ git clone https://github.com/metercai/aimail-advanced.git   # 私有仓，需授
 ```text
 <work>/
   aimail/                 # HEAD = 交接消息里给出的 aimail commit
-  aimail-gateway/         # HEAD 应为 b3c3d88
-  aimail-advanced/        # HEAD 应为 77ac301
+  aimail-gateway/         # HEAD 应为 a637edb
+  aimail-advanced/        # HEAD 应为 47d1d8d
 ```
 
 逐仓执行：
