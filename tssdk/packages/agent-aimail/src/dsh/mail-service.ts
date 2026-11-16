@@ -144,7 +144,7 @@ export async function ensureDefaultAgentBinding(): Promise<void> {
     writeAgentId: false,
     // SSE pilot: no local inbound listener. Registering/persisting an
     // empty webhook is the pull-mode contract; the hub reads the same
-    // binding from agentmail.json.
+    // binding from agentmail.json.  // contract-allowed: mail-service ensures binding+pointer at startup (F8 pull-mode fix)
     webhookUrl: '',
     log: (l) => console.log(`[agent-aimail] ${l}`),
   })
