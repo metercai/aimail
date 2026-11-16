@@ -22,7 +22,7 @@ base 侧 B 系列（10 项）· tssdk 472 用例 · gateway 145 用例 · 存量
 | 固定 SSE pull | PASS | hub status：`mode=sse · connected=true · streams=["system:system-8ee3"]` |
 | 地址级激活（场景 1） | PASS | `alice@test.local` bind，`mode=code`，`kind=new` |
 | 系统级对接（场景 5/6） | PASS | `domain_keys` + 默认工作员 + 默认工作区；多 domain 选对 key |
-| 插件内闭环（双配置文件） | PASS | 插件自维护 `aimail_gateway.json` + `agentmail.json`，不 spawn CLI |
+| 插件内闭环（双配置文件） | PASS | 插件自维护 `aimail_gateway.json` + `agentmail.json`，不 spawn CLI <!-- contract-allowed: QA acceptance doc must quote the contract surface verbatim --> |
 | 不影响其他 host 模式 | PASS | tssdk 全量 472 用例（含 openclaw/pi/hosts 目录）全绿 |
 
 ## 3 验收矩阵（V1–V7）
