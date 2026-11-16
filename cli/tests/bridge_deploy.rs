@@ -14,9 +14,9 @@ use std::io::Write;
 use std::path::Path;
 
 use aimail::core::bridge_deploy::{
-    announced_url, bind_address, config_lines, ensure_binary, format_webhook_host, is_executable,
-    judge_deliverable, latest_bridge_zip, normalize_announced, split_host_port, version_key,
-    write_bridge_config, BridgeConfigSpec, DEFAULT_BIND_PORT,
+    announced_url, arch_name, bind_address, config_lines, ensure_binary, format_webhook_host,
+    is_executable, judge_deliverable, latest_bridge_zip, normalize_announced, split_host_port,
+    version_key, write_bridge_config, BridgeConfigSpec, DEFAULT_BIND_PORT,
 };
 
 fn make_zip(path: &Path, entry: &str, content: &str, mode: u32) {
@@ -44,34 +44,35 @@ fn version_key_arch_pick_and_idempotent_extract() {
     std::fs::create_dir_all(&zdir).unwrap();
     std::fs::create_dir_all(root.join("ahome")).unwrap();
 
-    // 2) take the newest: semantic version wins (v1.10.0 beats v1.2.3), and the architecture suffix must match
+    let arch = arch_name();
+    let other = if arch == "arm64" { "amd64" } else { "arm64" };
     make_zip(
-        &zdir.join("aimail-bridge-v1.2.3-linux-amd64.zip"),
-        "aimail-bridge-v1.2.3-amd64",
+        &zdir.join(format!("aimail-bridge-v1.2.3-linux-{arch}.zip")),
+        &format!("aimail-bridge-v1.2.3-{arch}"),
         "#!/bin/sh\necho v1.2.3\n",
         0o755,
     );
     make_zip(
-        &zdir.join("aimail-bridge-v1.2-linux-amd64.zip"),
-        "aimail-bridge-v1.2-amd64",
+        &zdir.join(format!("aimail-bridge-v1.2-linux-{arch}.zip")),
+        &format!("aimail-bridge-v1.2-{arch}"),
         "#!/bin/sh\necho v1.2\n",
         0o755,
     );
     make_zip(
-        &zdir.join("aimail-bridge-v1.10.0-linux-amd64.zip"),
-        "aimail-bridge-v1.10.0-amd64",
+        &zdir.join(format!("aimail-bridge-v1.10.0-linux-{arch}.zip")),
+        &format!("aimail-bridge-v1.10.0-{arch}"),
         "#!/bin/sh\necho v1.10.0\n",
         0o755,
     );
     make_zip(
-        &zdir.join("aimail-bridge-v9.9.9-linux-arm64.zip"),
-        "aimail-bridge-v9.9.9-arm64",
-        "#!/bin/sh\necho arm\n",
+        &zdir.join(format!("aimail-bridge-v9.9.9-linux-{other}.zip")),
+        &format!("aimail-bridge-v9.9.9-{other}"),
+        "#!/bin/sh\necho other\n",
         0o755,
     );
-    let picked = latest_bridge_zip(&zdir, "amd64");
+    let picked = latest_bridge_zip(&zdir, arch);
     assert!(
-        picked.ends_with("aimail-bridge-v1.10.0-linux-amd64.zip"),
+        picked.ends_with(&format!("aimail-bridge-v1.10.0-linux-{arch}.zip")),
         "{picked}"
     );
 
@@ -92,8 +93,8 @@ fn version_key_arch_pick_and_idempotent_extract() {
 
     // 4) idempotent: even a changed zip content is not re-extracted (in place => not touched at all)
     make_zip(
-        &zdir.join("aimail-bridge-v1.10.0-linux-amd64.zip"),
-        "aimail-bridge-v1.10.0-amd64",
+        &zdir.join(format!("aimail-bridge-v1.10.0-linux-{arch}.zip")),
+        &format!("aimail-bridge-v1.10.0-{arch}"),
         "#!/bin/sh\necho changed\n",
         0o755,
     );

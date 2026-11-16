@@ -142,7 +142,7 @@ describe('activate_address_code tool — profile_home', () => {
       const r1 = await activateAddressCode({
         code: 'c', address: ADDR, gatewayUrl: gw.url, profile_home: '~/pf',
       })
-      expect(r1.pointer_path).toBe(path.join(home, 'pf', POINTER_FILE))
+      expect(await fs.realpath(r1.pointer_path!)).toBe(await fs.realpath(path.join(home, 'pf', POINTER_FILE)))
       expect(JSON.parse(await fs.readFile(path.join(home, 'pf', POINTER_FILE), 'utf8')))
         .toEqual({ system_id: SID, email: ADDR })
 
@@ -150,7 +150,7 @@ describe('activate_address_code tool — profile_home', () => {
       const r2 = await activateAddressCode({
         code: 'c', address: ADDR, gatewayUrl: gw.url, platformHome: 'relhome',
       })
-      expect(r2.pointer_path).toBe(path.join(home, 'relhome', POINTER_FILE))
+      expect(await fs.realpath(r2.pointer_path!)).toBe(await fs.realpath(path.join(home, 'relhome', POINTER_FILE)))
       expect(JSON.parse(await fs.readFile(path.join(home, 'relhome', POINTER_FILE), 'utf8')))
         .toEqual({ system_id: SID, email: ADDR })
     } finally {

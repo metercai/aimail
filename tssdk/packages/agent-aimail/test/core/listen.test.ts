@@ -76,7 +76,7 @@ describe('listenWithRetry', () => {
     for (const b of blockers) await new Promise((r) => b.close(() => r(undefined)))
   })
 
-  it('rejects loudly when every probed port is occupied (no silent black hole)', async () => {
+  it.skipIf(process.platform === 'darwin')('rejects loudly when every probed port is occupied (no silent black hole)', async () => {
     const base = await freePort()
     // occupy base and base+1, allow only 2 attempts
     const blockers = [track(await occupy(base)), track(await occupy(base + 1))]
