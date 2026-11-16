@@ -130,9 +130,10 @@ fn register_executor_offline_behaviour() {
         "pi does not declare preset => the envelope must not carry that field ({payload:?})"
     );
 
-    // 1b) dsh (node_entry, self_bind): local_webhook_url uses the SAME common
-    // default port as pi (owner ruling 2026-10-25: one common default for all
-    // self_bind hosts; the runtime bind probe re-selects on conflict).
+    // 1b) dsh (node_entry, SSE pull): there is no local inbound endpoint, so
+    // the envelope must NOT carry local_webhook_url (the absence is the
+    // transport contract; the SDK persists no webhook and the plugin hub
+    // pulls from /admin/pending/stream).
     // P3-C (2026-10-17): preset is now self-reported by the SDK side (dsh register-cli assembleExtra,
     // the 10-11 three-source ruling "host self-report/internal => inside the SDK") => the CLI envelope no longer carries preset
     // (the old assertion "the value comes from the register.args --preset declaration" became void with the deletion of the G1b extraction channel).
@@ -152,15 +153,13 @@ fn register_executor_offline_behaviour() {
     let lines: Vec<&str> = recorded.lines().collect();
     let payload: Value =
         serde_json::from_str(lines[lines.len() - 1]).expect("the op argument should be JSON");
-    assert_eq!(
-        payload["local_webhook_url"],
-        json!(
-            format!(
-                "http://127.0.0.1:{}",
-                aimail::core::contract::inbound_port()
-            ) + aimail::core::contract::inbound_path()
-        ),
-        "the dsh envelope local_webhook_url should be the common default port ({payload:?})"
+    assert!(
+        payload.get("local_webhook_url").is_none(),
+        "dsh is SSE pull: the envelope must omit local_webhook_url ({payload:?})"
+    );
+    assert!(
+        payload.get("webhook_url").is_none(),
+        "dsh is SSE pull: the envelope must omit webhook_url ({payload:?})"
     );
     assert!(
         payload.get("preset").is_none(),
