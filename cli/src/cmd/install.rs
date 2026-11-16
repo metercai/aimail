@@ -578,6 +578,8 @@ fn install_human(a: &Args) -> i32 {
     if let Some(msg) = pointer_conflict_in(&crate::core::home::aimail_home(), &system_home, &sid) {
         return fail(&msg);
     }
+    let pull_mode = crate::hosts::get(&platform)
+        .is_some_and(|h| h.inbound_mode == crate::hosts::InboundMode::Pull);
     let mut line = format!(
         "  install platform={platform} system_home={} system_id={}",
         system_home.to_string_lossy(),
@@ -712,27 +714,40 @@ fn install_human(a: &Args) -> i32 {
             raw
         }
     };
-    let plan = crate::core::webhookplan::plan_inbound(&gw_url, &probe_key, &sid2);
-    match &plan {
-        crate::core::webhookplan::WebhookPlan::Fail { reason } => {
-            return fail(&format!("inbound webhook plan failed: {reason}"));
+    // Pull/SSE hosts (dsh) have no local inbound listener: do not plan a
+    // webhook or start a bridge. The gateway queues inbound mail and the host
+    // pulls it from /admin/pending/stream.
+    let plan = if pull_mode {
+        None
+    } else {
+        Some(crate::core::webhookplan::plan_inbound(
+            &gw_url, &probe_key, &sid2,
+        ))
+    };
+    if let Some(plan) = &plan {
+        match plan {
+            crate::core::webhookplan::WebhookPlan::Fail { reason } => {
+                return fail(&format!("inbound webhook plan failed: {reason}"));
+            }
+            crate::core::webhookplan::WebhookPlan::BridgePush { bridge_host } => {
+                ok(&format!(
+                    "inbound plan: S1 bridge push -> {bridge_host} (external bridge)"
+                ));
+            }
+            crate::core::webhookplan::WebhookPlan::BridgePull => {
+                ok("inbound plan: S2 bridge pull (local bridge)");
+            }
+            crate::core::webhookplan::WebhookPlan::Direct => {
+                ok("inbound plan: S3 direct push (local gateway / agent reachable)");
+            }
         }
-        crate::core::webhookplan::WebhookPlan::BridgePush { bridge_host } => {
-            ok(&format!(
-                "inbound plan: S1 bridge push -> {bridge_host} (external bridge)"
-            ));
-        }
-        crate::core::webhookplan::WebhookPlan::BridgePull => {
-            ok("inbound plan: S2 bridge pull (local bridge)");
-        }
-        crate::core::webhookplan::WebhookPlan::Direct => {
-            ok("inbound plan: S3 direct push (local gateway / agent reachable)");
-        }
+    } else {
+        ok("inbound plan: S0 SSE pull (no webhook, no bridge)");
     }
     // Write tri-state back to config (S1 Some(url) / S2 Some("") / S3 None key absent).
     // install provides "best known", inbound up callback (`address --inbound-live --inbound-url`) is the confirmed value.
     if !sid2.is_empty() {
-        let wh = plan.webhook_host();
+        let wh = plan.as_ref().and_then(|p| p.webhook_host());
         if let Err(e) = config::update_gateway_config_in(&home::aimail_home(), &sid2, |c| {
             c.webhook_host = wh.clone();
         }) {
@@ -741,41 +756,44 @@ fn install_human(a: &Args) -> i32 {
     }
 
     // 2) Bridge: dispatch by determination state (S1 external bridge not deployed / S2 local deployment and start bridge / S3 no bridge)
-    match &plan {
-        crate::core::webhookplan::WebhookPlan::BridgePush { bridge_host } => {
-            // S1: push via external bridge —— do not deploy local bridge, webhook_host already points to BRIDGE_HOST.
-            // Route pre-registration (POST /routes to external bridge admin) is best-effort, see ensure_inbound_routes.
-            ok(&format!(
-                "bridge: external (S1) {bridge_host} — no local bridge deployed"
-            ));
-        }
-        crate::core::webhookplan::WebhookPlan::BridgePull => {
-            // S2: Deploy local bridge (pull) —— binary in place → config merge → start bridge
-            let cfg_wh_host = config::load_gateway_config(&sid2)
-                .map(|c| c.webhook_host.unwrap_or_default())
-                .unwrap_or_default();
-            let rc = crate::core::bridge_deploy::deploy(&crate::core::bridge_deploy::DeploySpec {
-                gateway_url: gw_url.clone(),
-                admin_key: env_admin_key.clone(),
-                system_id: sid2.clone(),
-                domain: system_domain.clone(),
-                webhook_mode_bridge: true, // S2 = pull mode
-                announce_arg: String::new(),
-                cfg_webhook_host: cfg_wh_host,
-            });
-            if rc == 0 {
-                ok("bridge deployed");
-            } else {
-                warn(&format!(
-                    "bridge deploy failed (exit {}) -- see the deploy output",
-                    rc
+    if let Some(plan) = &plan {
+        match plan {
+            crate::core::webhookplan::WebhookPlan::BridgePush { bridge_host } => {
+                // S1: push via external bridge —— do not deploy local bridge, webhook_host already points to BRIDGE_HOST.
+                // Route pre-registration (POST /routes to external bridge admin) is best-effort, see ensure_inbound_routes.
+                ok(&format!(
+                    "bridge: external (S1) {bridge_host} — no local bridge deployed"
                 ));
             }
+            crate::core::webhookplan::WebhookPlan::BridgePull => {
+                // S2: Deploy local bridge (pull) —— binary in place → config merge → start bridge
+                let cfg_wh_host = config::load_gateway_config(&sid2)
+                    .map(|c| c.webhook_host.unwrap_or_default())
+                    .unwrap_or_default();
+                let rc =
+                    crate::core::bridge_deploy::deploy(&crate::core::bridge_deploy::DeploySpec {
+                        gateway_url: gw_url.clone(),
+                        admin_key: env_admin_key.clone(),
+                        system_id: sid2.clone(),
+                        domain: system_domain.clone(),
+                        webhook_mode_bridge: true, // S2 = pull mode
+                        announce_arg: String::new(),
+                        cfg_webhook_host: cfg_wh_host,
+                    });
+                if rc == 0 {
+                    ok("bridge deployed");
+                } else {
+                    warn(&format!(
+                        "bridge deploy failed (exit {}) -- see the deploy output",
+                        rc
+                    ));
+                }
+            }
+            crate::core::webhookplan::WebhookPlan::Direct => {
+                ok("bridge: S3 direct — no bridge needed");
+            }
+            crate::core::webhookplan::WebhookPlan::Fail { .. } => unreachable!(),
         }
-        crate::core::webhookplan::WebhookPlan::Direct => {
-            ok("bridge: S3 direct — no bridge needed");
-        }
-        crate::core::webhookplan::WebhookPlan::Fail { .. } => unreachable!(),
     }
 
     // 3) Platform adaptation (registry install_steps action table driven)
@@ -891,8 +909,11 @@ fn install_human(a: &Args) -> i32 {
     }
 
     // Routing side: bridge routes for each address are ensured after platform steps (bridge not ported ⇒ explicit warning)
-    // Route reconciliation (`_ensure_inbound_routes`): best-effort, never changes rc
-    crate::core::bridge_wire::ensure_inbound_routes(&sid2);
+    // Route reconciliation (`_ensure_inbound_routes`): best-effort, never changes rc.
+    // Pull/SSE hosts have no bridge route to reconcile.
+    if !pull_mode {
+        crate::core::bridge_wire::ensure_inbound_routes(&sid2);
+    }
 
     let tail = if a.system_id.is_empty() {
         String::new()

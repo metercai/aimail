@@ -477,6 +477,13 @@ case "$AGENT" in
     # README: dsh plugin --profile web add agent-aimail (Agent plugin entry)
     DSH_HOME="$DSH_HOME" dsh plugin --profile web add agent-aimail \
       || die "dsh plugin add agent-aimail failed (README plugin path)"
+    # L3 bootstrap only: after the plugin entry is proven, seed the same
+    # system/address config that the plugin would obtain through scene 5/6
+    # onboarding. There is no inbound auto-ensure in SSE mode, so without a
+    # system binding the hub has nothing to stream. This is *not* the product
+    # plugin-only onboarding path (QA covers scene 5/6 separately).
+    "$AIMAIL_BIN" install --system-id "$SYSTEM_ID" \
+      || die "aimail install failed (dsh-plugin L3 bootstrap)"
     ;;
   dsh-aimail|hermes)
     # README: aimail install (AGENT_HOME env provides home; shared with welcome)
@@ -491,8 +498,9 @@ esac
 ok "install done (system activated + platform adapted)"
 
 # ── ④b Start agent host (receive and reply to mail) ────────────────────────────────────
-# welcome closed loop requires the host to be **alive**: the gateway POSTs the welcome message to the bound webhook_url,
-# the host's LLM turn calls send_mail to reply, and the CLI polls until three labels are present to approve.
+# welcome closed loop requires the host to be **alive**: in SSE mode the gateway queues the welcome in pending_deliveries,
+# the plugin hub pulls it from the same SSE stream, the host's LLM turn calls send_mail to reply, and the CLI polls
+# until three labels are present to approve. No webhook_url / inbound port is involved.
 # Installing without starting ⇒ welcome times out at 120s (first run will definitely be red). The inbound endpoint is wired by the registration step of install,
 # here we only start the host + wait for the port to be ready (waiting for the **same port written into the binding during registration**).
 echo "── [4b/6] agent host up (inbound endpoint ready)"
@@ -618,55 +626,34 @@ PY
     ok "send_mail exposed to webhook sessions (platform_toolsets.webhook ⊇ $TS)"
     ;;
   dsh|dsh-aimail|dsh-plugin)
-    # inbound = agent-aimail plugin's mail-inbound server (host lifecycle self-managed;
-    # the shared listenWithRetry bind starts with the host). On registration
-    # localWebhook = inboundUrl (common default inbound_port=9099) ⇒ bound
-    # webhook_url port = 9099 (default, unless overridden by AIMAIL_INBOUND_URL/PORT env).
-    DSH_INBOUND_PORT="${AIMAIL_INBOUND_PORT:-9099}"
-    DSH_HOME="$DSH_HOME" AIMAIL_HOME="${HOME}/.aimail" AIMAIL_INBOUND_PORT="$DSH_INBOUND_PORT" \
+    # SSE mode: there is no mail-inbound listener and no webhook. The host
+    # starts, the plugin hub opens its system/address SSE streams, and the
+    # gateway delivers welcome through pending_deliveries → SSE.
+    DSH_HOME="$DSH_HOME" AIMAIL_HOME="${HOME}/.aimail" \
       LLM_API_KEY="$LLM_API_KEY" \
       nohup dsh --profile web --port 0 --no-open > "$WORK/dsh-host.log" 2>&1 &
     HOST_PID=$!
-    say "dsh host starting (inbound port $DSH_INBOUND_PORT)…"
+    say "dsh host starting (SSE mode, no inbound port)…"
+    DSH_STATUS="$DSH_HOME/profiles/web/aimail/status.json"
     UP=0
-    for _ in $(seq 1 120); do
-      python3 -c "import socket,sys;s=socket.socket();sys.exit(s.connect_ex(('127.0.0.1',$DSH_INBOUND_PORT)))" 2>/dev/null && { UP=1; break; }
-      kill -0 "$HOST_PID" 2>/dev/null || { tail -15 "$WORK/dsh-host.log" | sed 's/^/    /'; die "dsh host exited before inbound port $DSH_INBOUND_PORT was ready"; }
+    _i=0
+    for _i in $(seq 1 120); do
+      if [ -f "$DSH_STATUS" ]; then
+        if python3 - "$DSH_STATUS" <<'PY'
+import json, sys
+try:
+    st = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception:
+    sys.exit(1)
+sys.exit(0 if st.get("mode") == "sse" and st.get("connected") is True and bool(st.get("streams")) else 1)
+PY
+        then UP=1; break; fi
+      fi
+      kill -0 "$HOST_PID" 2>/dev/null || { tail -15 "$WORK/dsh-host.log" | sed 's/^/    /'; die "dsh host exited before SSE hub was ready"; }
       sleep 1
     done
-    [ "$UP" = 1 ] || { tail -15 "$WORK/dsh-host.log" | sed 's/^/    /'; die "dsh inbound port $DSH_INBOUND_PORT not up in 120s"; }
-    ok "dsh host up (inbound :$DSH_INBOUND_PORT)"
-    # ── Plugin inbound route readiness gate (V7, L2 same source: J4e flaky mechanism 2026-10-13)──────────────
-    # Port listening ≠ plugin route mounting: agent-aimail plugin's mail-inbound route mounts later than host port,
-    # if gateway welcome first push falls in unmounted window ⇒ 404 ⇒ 3 retries (5s/15s/40s) exhausted ⇒ permanent loss
-    # (L2 j4e6 evidence: 360s zero reply). L3 runs each cell once ⇒ must ensure mounting before welcome.
-    # Criterion (L2 journey same source): unsigned POST to bound webhook_url —— handler resolve precedes signature verification,
-    # empty body ⇒ 200 no_agent = mounted; 404 = host present but route not mounted; 000 = connection refused.
-    # Target to probe = bound webhook_url (the same URL the gateway pushes welcome to, single source of truth, no guessing).
-    # Binding filename = contract binding_file constant; shell has no import constant module, only literal glob possible.
-    DSH_BIND="$(ls "${HOME}/.aimail/systems/${SYSTEM_ID}"/*/agentmail.json 2>/dev/null | head -1)"  # contract-allowed: shell probe glob real disk binding file (contract binding_file); shell has no import constant module, literal is only way
-    [ -n "$DSH_BIND" ] || die "dsh binding not found under ${HOME}/.aimail/systems/${SYSTEM_ID} (install did not write it)"
-    # Windows git-bash: ls glob returns MSYS form /c/Users/.../agentmail.json, native  # contract-allowed: L3 comment references contract binding filename
-    # Windows python does not recognize /c/ prefix (treats as relative path) ⇒ open fails (L3 2026-10-17 evidence:
-    # FileNotFoundError '/c/Users/runneradmin/.aimail/...' ⇒ misjudged as no webhook_url).
-    # cygpath -m converts to C:/Users/... (forward slashes): Windows API accepts, and python string has no
-    # backslash escape surface (-w's C:\Users in python source \U is unicode escape ⇒ SyntaxError).
-    # unix branch unchanged.
-    case "$(uname -s)" in
-      MINGW*|MSYS*|CYGWIN*) DSH_BIND_PY="$(cygpath -m "$DSH_BIND")" ;;
-      *) DSH_BIND_PY="$DSH_BIND" ;;
-    esac
-    DSH_BIND_URL="$(python3 -c "import json;print(json.load(open('$DSH_BIND_PY', encoding='utf-8')).get('webhook_url') or '')")"
-    [ -n "$DSH_BIND_URL" ] || die "dsh binding has no webhook_url (pull mode — welcome push cannot be judged)"
-    say "dsh inbound route readiness: probing $DSH_BIND_URL (mounted = 200 no_agent; 404 = not mounted)"
-    RDY=0; _i=0
-    for _i in $(seq 1 120); do
-      _code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 -X POST "$DSH_BIND_URL" -H 'content-type: application/json' -d '{}')"
-      case "$_code" in 200|401|403) RDY=1; break ;; esac
-      sleep 2
-    done
-    [ "$RDY" = 1 ] || { tail -15 "$WORK/dsh-host.log" | sed 's/^/    /'; die "dsh plugin inbound route not mounted in 240s (last probe code=$_code, URL=$DSH_BIND_URL) — welcome would race the gateway's 3 retries"; }
-    ok "dsh inbound route mounted (probe code=$_code, ready time ≈$((_i * 2))s)"
+    [ "$UP" = 1 ] || { tail -15 "$WORK/dsh-host.log" | sed 's/^/    /'; [ -f "$DSH_STATUS" ] && sed 's/^/    status: /' "$DSH_STATUS"; die "dsh SSE hub not connected in 120s"; }
+    ok "dsh SSE hub connected (status.json mode=sse, streams non-empty)"
     ;;
 esac
 

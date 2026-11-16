@@ -15,7 +15,7 @@ pub static DSH: HostDef = HostDef {
             markers: &["profiles"],
         },
     pointer: PointerKind::Root,
-    inbound_mode: InboundMode::SelfBind,
+    inbound_mode: InboundMode::Pull,
     register: Register::NodeEntry {
             node_path: "{home}/profiles/*/node_modules/agent-aimail/dist/dsh/register-cli.js",
             fail_hint:

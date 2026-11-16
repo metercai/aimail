@@ -50,6 +50,9 @@ pub use identity::Lang;
 pub enum InboundMode {
     SelfBind,
     HostGateway,
+    /// The host uses the gateway's SSE pull stream and has no local inbound
+    /// listener/webhook. Install must not plan a webhook or start a bridge.
+    Pull,
 }
 
 /// The full capability surface of a host system.
