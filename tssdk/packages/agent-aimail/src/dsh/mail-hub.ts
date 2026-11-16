@@ -21,8 +21,6 @@ import {
   listSystemDirs,
   loadAgentConfig,
   processInboundMail,
-  saveAgentConfig,
-  updateAgentConfig,
   pullAck,
   pullList,
   readLocalMeta,
@@ -353,29 +351,9 @@ export class MailHub {
     }
     const newId = randomUUID()
     try {
-      // The mail tools resolve credentials by session id; the old inbound
-      // entry rebound agentmail.json before creating the session. The SSE hub
-      // must do the same, otherwise send_mail inside the turn is unbound and
-      // the welcome loop never produces a reply.
-      await updateAgentConfig(cfg.system_id, cfg.email, { session_id: newId })
       const handle = await agents.create({ sessionId: newId, meta: { cwd: workspace.path }, agentOptions: this.agentOptions() })
       handle.agent.followup(message)
       await stampSessionMeta(recipient, str(payload.message_id), { sessionId: newId, workspacePath: workspace.path })
-      // Disposable session: clear the binding once the turn settles, but only
-      // if a concurrent mail has not rebound it (same rule as the old inbound).
-      const whenIdle = (handle.agent as { whenIdle?: () => Promise<void> }).whenIdle
-      if (whenIdle) {
-        void whenIdle.call(handle.agent)
-          .then(async () => {
-            const cur = await loadAgentConfig(cfg.system_id, cfg.email)
-            if (cur && cur.session_id === newId) {
-              const { session_id: _drop, ...rest } = cur
-              await saveAgentConfig(rest as typeof cur, cfg.system_id)
-            }
-          })
-          .then(() => handle.dispose())
-          .catch(() => {})
-      }
       return true
     } catch (e) {
       this.lastError = e instanceof Error ? e.message : String(e)

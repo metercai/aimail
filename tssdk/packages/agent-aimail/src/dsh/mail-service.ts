@@ -28,6 +28,7 @@ import {
   ensureAgentBinding,
   hasAnySystem,
   INBOUND_PATH,
+  listAgentConfigs,
   INBOUND_PORT,
   listSystemDirs,
   readSystemConfig,
@@ -35,6 +36,7 @@ import {
   type AgentConfig, packageResourcesRoot} from '../core/index.js'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { promises as fs } from 'node:fs'
 
 
 export const name = 'mail'
@@ -184,12 +186,54 @@ export function apply(ctx: Context, config: { systemId?: string } = {}): void {
    * Resolve a session config; on an unbound miss with a machine system
    * config present, auto-bind that session once and retry.
    */
+  /**
+   * Stable address ↔ workspace mapping: a new inbound session is created with
+   * the binding's workspace as its cwd. Resolve that binding from the
+   * workspace, NOT from a persisted session_id (session ids are disposable and
+   * must never drift into agentmail.json).
+   */
+  const resolveByWorkspace = async (sessionId: string): Promise<AgentConfig | undefined> => {
+    const cwd = (ctx.get('sessions') as { get(id: string): { header?: { cwd?: string } } | undefined } | undefined)
+      ?.get(sessionId)?.header?.cwd
+    if (!cwd) return undefined
+    let target: string
+    try {
+      target = await fs.realpath(cwd)
+    } catch {
+      target = path.resolve(cwd)
+    }
+    const sids = systemId ? [systemId] : await listSystemDirs()
+    for (const sid of sids) {
+      let configs: AgentConfig[]
+      try {
+        configs = await listAgentConfigs(sid)
+      } catch {
+        continue
+      }
+      for (const cfg of configs) {
+        if (!cfg.api_key || cfg.paused || !cfg.workspace_path) continue
+        let real: string
+        try {
+          real = await fs.realpath(cfg.workspace_path)
+        } catch {
+          continue
+        }
+        if (real === target) return cfg
+      }
+    }
+    return undefined
+  }
+
   const resolveOrAutoBindSession = async (sessionId: string): Promise<AgentConfig> => {
     if (!sessionId) throw new Error('no session id to resolve aimail config')
     try {
       return await resolveBySessionId(sessionId, { systemId })
     } catch (e) {
       if (!hasAnySystem()) throw e
+      // New inbound sessions carry no session_id by design. Resolve their
+      // address through the stable workspace mapping before any auto-bind.
+      const byWorkspace = await resolveByWorkspace(sessionId)
+      if (byWorkspace) return byWorkspace
       let target = systemId || process.env.AIMAIL_SYSTEM_ID || ''
       if (!target) {
         const sids = await listSystemDirs()
