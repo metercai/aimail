@@ -548,94 +548,21 @@ PY
     HERMES_HOME="$HERMES_HOME" nohup "$HERMES_BIN" gateway run > "$WORK/hermes-host.log" 2>&1 &
     HOST_PID=$!
     say "hermes host starting (webhook port $HERMES_PORT)…"
+    # SSE pilot: push inbound is removed by design; the plugin pulls via SSE.
+    STATUS_FILE="$DSH_HOME/profiles/web/aimail/status.json"
     UP=0
     for _ in $(seq 1 120); do
-      python3 -c "import socket,sys;s=socket.socket();sys.exit(s.connect_ex(('127.0.0.1',$HERMES_PORT)))" 2>/dev/null && { UP=1; break; }
-      kill -0 "$HOST_PID" 2>/dev/null || { tail -15 "$WORK/hermes-host.log" | sed 's/^/    /'; die "hermes host exited before inbound port $HERMES_PORT was ready"; }
+      kill -0 "$HOST_PID" 2>/dev/null || { tail -15 "$WORK/dsh-host.log" | sed 's/^/    /'; die "dsh host exited before SSE streams were established"; }
+      if [ -f "$STATUS_FILE" ] && python3 -c "import json,sys;d=json.load(open(sys.argv[1]));sys.exit(0 if d.get('mode')=='sse' and (d.get('streams') or []) else 1)" "$STATUS_FILE" 2>/dev/null; then
+        UP=1; break
+      fi
       sleep 1
     done
-    [ "$UP" = 1 ] || { tail -15 "$WORK/hermes-host.log" | sed 's/^/    /'; die "hermes inbound port $HERMES_PORT not up in 120s"; }
-    ok "hermes host up (inbound :$HERMES_PORT)"
-    # ── send_mail tool exposure assertion (after install, before welcome) ──────────────────────
-    # send_mail exposure in webhook session = platform_toolsets.webhook in config.yaml
-    # contains the contract toolset (read during hermes boot, written by install's ensure_config).
-    # Inbound port being alive only proves the host started, not that the tool is exposed —— known historical root cause
-    # (ensure_config.py:4-11 "receives but cannot send out"): missing it ⇒ webhook session has no send_mail ⇒
-    # after welcome trigger, agent cannot reply ⇒ 120s timeout. Fail loudly here, don't let welcome take the blame.
-    # dsh cell does not need an equivalent assertion: send_mail (tool-mail) and mail-inbound are the same atomic bundle
-    # (cordis.patch.yml), boot fail-loud ⇒ the V7 inbound routing gate above (routing already mounted) has transitively
-    # guaranteed tool-mail registration; a duplicate probe is redundant.
-    # toolset name is read from the contract (literal ratchet: hardcoding contract values is forbidden, same as dump_failure_evidence taking skill).
-    TS="$(python3 - "${AIMAIL_REPO:-}/contract/aimail-contract.json" <<'PY'
-import json, sys
-print(json.load(open(sys.argv[1], encoding="utf-8"))["agent_toolset_name"])
-PY
-)" || die "cannot read agent_toolset_name from contract"
-    [ -n "$TS" ] || die "empty agent_toolset_name from contract"
-    PT="$(python3 - "$HERMES_HOME/config.yaml" <<'PY'
-import sys
-# No PyYAML (L3 container macOS system python3 has none) ⇒ pure standard library text parsing, same discipline as the port parsing above.
-# Compatible with three yaml.safe_dump forms: sibling block list (default, 2 spaces, same level as webhook:),
-# nested block list (4 spaces), flow list ([a, b]).
-tools = []
-lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
-n = len(lines)
-i = 0
-while i < n and not (lines[i].strip() == "platform_toolsets:" and not lines[i].startswith(" ")):
-    i += 1
-i += 1  # enter platform_toolsets block
-web_indent = None
-while i < n:
-    ln = lines[i]
-    s = ln.strip()
-    if not s or s.startswith("#"):
-        i += 1
-        continue
-    ind = len(ln) - len(ln.lstrip(" "))
-    if ind == 0:
-        break  # leave platform_toolsets block
-    if web_indent is None and ind == 2 and s.startswith("webhook:"):
-        web_indent = ind
-        rest = s[len("webhook:"):].strip()
-        if rest.startswith("["):
-            tools = [x.strip().strip('"').strip("'") for x in rest.strip("[]").split(",") if x.strip()]
-        i += 1
-        continue
-    if web_indent is not None and s.startswith("- ") and ind >= web_indent:
-        tools.append(s[2:].strip().strip('"').strip("'"))
-        i += 1
-        continue
-    if web_indent is not None and ind <= web_indent:
-        break  # next sibling key (webhook list ends)
-    i += 1
-print(" ".join(tools))
-PY
-)" || die "cannot read hermes platform_toolsets.webhook from $HERMES_HOME/config.yaml"
-    case " $PT " in
-      *" $TS "*) : ;;
-      *) die "send_mail not exposed to webhook sessions: platform_toolsets.webhook=[$PT] (missing $TS) — install's ensure_config did not wire the toolset; welcome cannot reply" ;;
-    esac
-    ok "send_mail exposed to webhook sessions (platform_toolsets.webhook ⊇ $TS)"
-    ;;
-  dsh|dsh-aimail|dsh-plugin)
-    # inbound = agent-aimail plugin's mail-inbound server (host lifecycle self-managed;
-    # the shared listenWithRetry bind starts with the host). On registration
-    # localWebhook = inboundUrl (common default inbound_port=9099) ⇒ bound
-    # webhook_url port = 9099 (default, unless overridden by AIMAIL_INBOUND_URL/PORT env).
-    DSH_INBOUND_PORT="${AIMAIL_INBOUND_PORT:-9099}"
-    DSH_HOME="$DSH_HOME" AIMAIL_HOME="${HOME}/.aimail" AIMAIL_INBOUND_PORT="$DSH_INBOUND_PORT" \
-      LLM_API_KEY="$LLM_API_KEY" \
-      nohup dsh --profile web --port 0 --no-open > "$WORK/dsh-host.log" 2>&1 &
-    HOST_PID=$!
-    say "dsh host starting (inbound port $DSH_INBOUND_PORT)…"
-    UP=0
-    for _ in $(seq 1 120); do
-      python3 -c "import socket,sys;s=socket.socket();sys.exit(s.connect_ex(('127.0.0.1',$DSH_INBOUND_PORT)))" 2>/dev/null && { UP=1; break; }
-      kill -0 "$HOST_PID" 2>/dev/null || { tail -15 "$WORK/dsh-host.log" | sed 's/^/    /'; die "dsh host exited before inbound port $DSH_INBOUND_PORT was ready"; }
-      sleep 1
-    done
-    [ "$UP" = 1 ] || { tail -15 "$WORK/dsh-host.log" | sed 's/^/    /'; die "dsh inbound port $DSH_INBOUND_PORT not up in 120s"; }
-    ok "dsh host up (inbound :$DSH_INBOUND_PORT)"
+    [ "$UP" = 1 ] || { tail -20 "$WORK/dsh-host.log" | sed 's/^/    /'; die "dsh SSE streams not established in 120s (status=$STATUS_FILE)"; }
+    if python3 -c "import socket,sys;s=socket.socket();sys.exit(s.connect_ex(('127.0.0.1',$DSH_INBOUND_PORT)))" 2>/dev/null; then
+      die "inbound port $DSH_INBOUND_PORT still listening — push endpoint was not removed"
+    fi
+    ok "dsh host up · SSE mode established · inbound :$DSH_INBOUND_PORT closed (push removed)"
     # ── Plugin inbound route readiness gate (V7, L2 same source: J4e flaky mechanism 2026-10-13)──────────────
     # Port listening ≠ plugin route mounting: agent-aimail plugin's mail-inbound route mounts later than host port,
     # if gateway welcome first push falls in unmounted window ⇒ 404 ⇒ 3 retries (5s/15s/40s) exhausted ⇒ permanent loss
@@ -656,17 +583,24 @@ PY
       MINGW*|MSYS*|CYGWIN*) DSH_BIND_PY="$(cygpath -m "$DSH_BIND")" ;;
       *) DSH_BIND_PY="$DSH_BIND" ;;
     esac
-    DSH_BIND_URL="$(python3 -c "import json;print(json.load(open('$DSH_BIND_PY', encoding='utf-8')).get('webhook_url') or '')")"
-    [ -n "$DSH_BIND_URL" ] || die "dsh binding has no webhook_url (pull mode — welcome push cannot be judged)"
-    say "dsh inbound route readiness: probing $DSH_BIND_URL (mounted = 200 no_agent; 404 = not mounted)"
-    RDY=0; _i=0
-    for _i in $(seq 1 120); do
-      _code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 -X POST "$DSH_BIND_URL" -H 'content-type: application/json' -d '{}')"
-      case "$_code" in 200|401|403) RDY=1; break ;; esac
-      sleep 2
+    # SSE pilot: no inbound route to probe; assert the plugin's own closed loop instead.
+    STATUS_FILE="$DSH_HOME/profiles/web/aimail/status.json"
+    python3 - "$STATUS_FILE" <<'PY' || die "status.json is not in SSE pull mode"
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d.get("mode") == "sse", d
+assert len(d.get("streams") or []) >= 1, d
+print("ok: mode=sse streams=%d" % len(d["streams"]))
+PY
+    GW_CFG="${HOME}/.aimail/aimail_gateway.json"
+    AGENT_CFG="${HOME}/.aimail/agentmail.json"
+    [ -f "$GW_CFG" ] || die "plugin did not write $GW_CFG (closed loop broken)"
+    [ -f "$AGENT_CFG" ] || die "plugin did not write $AGENT_CFG (closed loop broken)"
+    for _f in "$GW_CFG" "$AGENT_CFG"; do
+      _m="$(stat -c %a "$_f" 2>/dev/null || stat -f %Lp "$_f" 2>/dev/null)"
+      [ "$_m" = "600" ] || die "$_f mode=$_m (expected 600)"
     done
-    [ "$RDY" = 1 ] || { tail -15 "$WORK/dsh-host.log" | sed 's/^/    /'; die "dsh plugin inbound route not mounted in 240s (last probe code=$_code, URL=$DSH_BIND_URL) — welcome would race the gateway's 3 retries"; }
-    ok "dsh inbound route mounted (probe code=$_code, ready time ≈$((_i * 2))s)"
+    ok "dsh SSE pull ready · dual config written by plugin (0600)"
     ;;
 esac
 
