@@ -642,8 +642,8 @@ PY
     if python3 -c "import socket,sys;s=socket.socket();sys.exit(s.connect_ex(('127.0.0.1',$DSH_INBOUND_PORT)))" 2>/dev/null; then
       die "inbound port $DSH_INBOUND_PORT still listening — push endpoint was not removed"
     fi
-    GW_CFG="${HOME}/.aimail/aimail_gateway.json"
-    AGENT_CFG="${HOME}/.aimail/agentmail.json"
+    GW_CFG="$(find "${HOME}/.aimail" -name aimail_gateway.json 2>/dev/null | head -1)"
+    AGENT_CFG="$(find "${HOME}/.aimail" -name agentmail.json 2>/dev/null | head -1)"
     [ -f "$GW_CFG" ] || die "plugin did not write $GW_CFG (closed loop broken)"
     [ -f "$AGENT_CFG" ] || die "plugin did not write $AGENT_CFG (closed loop broken)"
     for _f in "$GW_CFG" "$AGENT_CFG"; do
