@@ -652,9 +652,29 @@ PY
     AGENT_CFG="$(find "${HOME}/.aimail" -name agentmail.json 2>/dev/null | head -1)"  # contract-allowed: L3 locates the real binding file for dual-config/mode assertions
     [ -f "$GW_CFG" ] || die "plugin did not write $GW_CFG (closed loop broken)"
     [ -f "$AGENT_CFG" ] || die "plugin did not write $AGENT_CFG (closed loop broken)"
+    # Credential files must be readable by the owner only. POSIX expresses that
+    # as 0600; NTFS carries no POSIX mode at all — the writer's chmod is a
+    # documented no-op there (cli/src/core/perms.rs: non-unix = no-op, "user
+    # private" delegated to the inherited ACL), and MSYS reports 644 for every
+    # file regardless of what the writer did. Measured 2026-11-17: both windows
+    # dsh cells died here with mode=644 on files the product had chmod'ed,
+    # while all 9 POSIX cells passed the same assertion ⇒ `stat -c %a` cannot
+    # judge this property on Windows (the check, not the product, was wrong).
+    # The intent is therefore asserted through each platform's own mechanism:
+    # on Windows no ACE may grant a non-owner principal read/modify/full.
     for _f in "$GW_CFG" "$AGENT_CFG"; do
-      _m="$(stat -c %a "$_f" 2>/dev/null || stat -f %Lp "$_f" 2>/dev/null)"
-      [ "$_m" = "600" ] || die "$_f mode=$_m (expected 600)"
+      case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*)
+          _acl="$(icacls "$(cygpath -w "$_f")" 2>/dev/null)" \
+            || die "$_f: cannot judge owner-only (icacls unavailable)"
+          _broad="$(printf '%s\n' "$_acl" | grep -iE '(\\Everyone|BUILTIN\\Users|Authenticated Users|\\INTERACTIVE):\(' || true)"
+          [ -z "$_broad" ] || die "$_f is readable beyond the owner (NTFS ACL): $(printf '%s' "$_broad" | tr -s ' ')"
+          ;;
+        *)
+          _m="$(stat -c %a "$_f" 2>/dev/null || stat -f %Lp "$_f" 2>/dev/null)"
+          [ "$_m" = "600" ] || die "$_f mode=$_m (expected 600)"
+          ;;
+      esac
     done
     # SSE binding must not carry a webhook URL; otherwise welcome is pushed to
     # the retired inbound endpoint instead of pending/SSE.
@@ -667,7 +687,7 @@ if u:
     sys.exit(1)
 PY
     [ $? -eq 0 ] || die "dsh binding still carries a webhook_url (SSE regression)"
-    ok "dsh SSE pull ready · inbound :$DSH_INBOUND_PORT closed · dual config written (0600)"
+    ok "dsh SSE pull ready · inbound :$DSH_INBOUND_PORT closed · dual config written (owner-only: 0600 / NTFS ACL)"
     ;;
 esac
 
