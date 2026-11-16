@@ -14,6 +14,7 @@
  * is rethrown for the caller to handle.
  */
 import { activateHost } from '../hosts/activate.js'
+import { writeAgentmailPointer } from '../core/provision.js'
 import type { Context } from '@deepseek-ai/cordis'
 import {
   resolveByRecipient,
@@ -141,11 +142,25 @@ export async function ensureDefaultAgentBinding(): Promise<void> {
     home: platformHome(),
     agentId: 'agent',
     writeAgentId: false,
-    webhookUrl: inboundWebhookUrl(),
+    // SSE pilot: no local inbound listener. Registering/persisting an
+    // empty webhook is the pull-mode contract; the hub reads the same
+    // binding from agentmail.json.
+    webhookUrl: '',
     log: (l) => console.log(`[agent-aimail] ${l}`),
   })
   if (!r.ok) {
     console.warn(`[agent-aimail] default agent binding failed: ${r.error ?? 'unknown'}`)
+    return
+  }
+  if (r.systemId && r.email) {
+    // CLI install/register can fail soft (register_default is warn-only).
+    // Writing the pointer here keeps `aimail welcome` / `aimail check`
+    // resolvable even when only the plugin path ran.
+    try {
+      await writeAgentmailPointer(r.systemId, r.email)
+    } catch (e) {
+      console.warn(`[agent-aimail] pointer write failed: ${e instanceof Error ? e.message : String(e)}`)
+    }
   }
 }
 
@@ -199,6 +214,13 @@ export function apply(ctx: Context, config: { systemId?: string } = {}): void {
     resolveByRecipient: (email) => resolveByRecipient(email),
   }
   ctx.provide('mail', service)
+  // SSE pilot: this is the replacement for the removed mail-inbound entry's
+  // ensure call. The host may start before CLI registration wrote a binding;
+  // bind here, then nudge the hub to open the address stream.
+  void ensureDefaultAgentBinding().then(() => {
+    const hub = ctx.get('mailHub') as { reconcile?: () => Promise<void> } | undefined
+    if (hub?.reconcile) void hub.reconcile().catch(() => undefined)
+  })
 }
 
 // Host identification (#5): dsh loads this bundle's entries; assert the

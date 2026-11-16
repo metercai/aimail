@@ -9,7 +9,6 @@
 // mail-core ensureAgentBinding (single source); this test only verifies dsh's thin shell: calls single source with correct parameters,
 // failure does not crash host, success/failure logs readable. Single source's own semantics are covered by mail-core/ensure-binding.test.ts.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { INBOUND_PATH } from '../../src/core/index.js'
 
 const ensureAgentBinding = vi.fn()
 
@@ -37,7 +36,7 @@ vi.mock('../../src/mail/index.js', () => ({
   },
 }))
 
-import { ensureDefaultAgentBinding } from '../../src/dsh/mail-service.js'
+import { apply, ensureDefaultAgentBinding } from '../../src/dsh/mail-service.js'
 
 describe('dsh-aimail startup self-bootstrap + default agent binding', () => {
   beforeEach(() => {
@@ -45,13 +44,13 @@ describe('dsh-aimail startup self-bootstrap + default agent binding', () => {
     ensureAgentBinding.mockResolvedValue({ ok: true, email: 'agent@l3.local', exists: false })
   })
 
-  it('calls the single-source binder with home + default agent id + inbound webhook', async () => {
+  it('calls the single-source binder with home + default agent id + SSE empty webhook', async () => {
     await ensureDefaultAgentBinding()
     expect(ensureAgentBinding).toHaveBeenCalledWith(
       expect.objectContaining({
         home: expect.any(String),
         agentId: 'agent',
-        webhookUrl: expect.stringContaining(INBOUND_PATH),
+        webhookUrl: '',
         log: expect.any(Function),
       }),
     )
@@ -76,5 +75,15 @@ describe('dsh-aimail startup self-bootstrap + default agent binding', () => {
     expect(warn.mock.calls.map((c) => String(c[0])).join('\n')).toContain('default agent binding failed')
     expect(warn.mock.calls.map((c) => String(c[0])).join('\n')).toContain('gateway unreachable')
     warn.mockRestore()
+  })
+
+  it('mail-service apply starts the default binding at host startup', async () => {
+    const ctx = { provide: () => {}, get: () => undefined }
+    apply(ctx as never, {})
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(ensureAgentBinding).toHaveBeenCalledWith(
+      expect.objectContaining({ agentId: 'agent', webhookUrl: '' }),
+    )
   })
 })
