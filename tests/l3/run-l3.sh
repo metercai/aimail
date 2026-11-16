@@ -649,7 +649,7 @@ PY
       die "inbound port $DSH_INBOUND_PORT still listening — push endpoint was not removed"
     fi
     GW_CFG="$(find "${HOME}/.aimail" -name aimail_gateway.json 2>/dev/null | head -1)"
-    AGENT_CFG="$(find "${HOME}/.aimail" -name agentmail.json 2>/dev/null | head -1)"
+    AGENT_CFG="$(find "${HOME}/.aimail" -name agentmail.json 2>/dev/null | head -1)"  # contract-allowed: L3 locates the real binding file for dual-config/mode assertions
     [ -f "$GW_CFG" ] || die "plugin did not write $GW_CFG (closed loop broken)"
     [ -f "$AGENT_CFG" ] || die "plugin did not write $AGENT_CFG (closed loop broken)"
     for _f in "$GW_CFG" "$AGENT_CFG"; do
