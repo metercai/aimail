@@ -141,6 +141,9 @@ jobs:
           cd "$GITHUB_WORKSPACE/aimail/tssdk"
           pnpm install --frozen-lockfile
           pnpm build
+          # resources/ inside the package is a prepack-staged artifact (gitignored);
+          # without it the extension logs "skill resource missing" at load.
+          node packages/agent-aimail/scripts/stage-resources.mjs --dest packages/agent-aimail/resources
           echo "AIMAIL_SDK_DIR=$GITHUB_WORKSPACE/aimail/tssdk/packages/agent-aimail" >> "$GITHUB_ENV"
           echo "[l3] pi cell will install the worktree build: $GITHUB_WORKSPACE/aimail/tssdk/packages/agent-aimail"
 

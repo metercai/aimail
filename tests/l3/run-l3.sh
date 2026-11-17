@@ -672,8 +672,13 @@ PY
     # send_user_message when a welcome arrives.
     WORKSPACE="${AIMAIL_WORKSPACE:-$WORK/ws}"
     mkdir -p "$WORKSPACE"
+    # rpc mode reads commands from stdin: with stdin on /dev/null pi exits at once
+    # (measured 2026-11-18: "pi host exited before the SSE pull came up"). Hold the
+    # write end open for the duration of the cell.
+    PI_IN="$WORK/pi.stdin"; mkfifo "$PI_IN"
+    ( sleep 900 > "$PI_IN" & ) &
     ( cd "$WORKSPACE" && HOME="$HOME" AIMAIL_HOME="${HOME}/.aimail" AIMAIL_TRANSPORT=sse \
-        nohup "$PI_BIN" --mode rpc > "$WORK/pi-host.log" 2>&1 & echo $! > "$WORK/pi.pid" )
+        nohup "$PI_BIN" --mode rpc < "$PI_IN" > "$WORK/pi-host.log" 2>&1 & echo $! > "$WORK/pi.pid" )
     HOST_PID="$(cat "$WORK/pi.pid")"
     say "pi host starting (SSE mode, rpc session)…"
     UP=0
