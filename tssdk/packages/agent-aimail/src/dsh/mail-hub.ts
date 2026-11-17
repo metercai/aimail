@@ -30,6 +30,7 @@ import {
   type InboundPayload,
 } from '../core/index.js'
 import { stampSessionMeta } from '../core/meta.js'
+import { planStreams } from '../runtime/stream/plan.js'
 import { readSystemGatewayConfig } from '../core/provision.js'
 import { defaultWorkspaceOrCreate, statusPath } from './workspace.js'
 
@@ -135,39 +136,26 @@ export class MailHub {
     this.stopAll()
     if (this.ctrl.signal.aborted) return
     const sids = await listSystemDirs()
-    // One stream per credential scope. All addresses of a system share the
-    // system stream; the hub routes each delivery by recipient. Multiple
-    // systems (even on one gateway) need one stream per system key, because a
-    // system key cannot observe another system's pending queue.
     const systems: Array<{ sid: string; cfg: Awaited<ReturnType<typeof readSystemGatewayConfig>> }> = []
+    const bindings: AgentConfig[] = []
     for (const sid of sids) {
       const cfg = await readSystemGatewayConfig(sid)
       if (cfg?.admin_key) systems.push({ sid, cfg })
+      bindings.push(...(await this.listBindings(sid)))
     }
-    if (systems.length > 0) {
-      for (const systemCfg of systems) {
-        const handle = this.startStream({
-          email: `system:${systemCfg.sid}`,
-          gatewayUrl: systemCfg.cfg!.gateway_url,
-          apiKey: systemCfg.cfg!.admin_key,
-          identity: systemCfg.sid,
-        })
-        this.handles.push(handle)
-      }
-    } else {
-      for (const sid of sids) {
-        const configs = await this.listBindings(sid)
-        for (const cfg of configs) {
-          if (!cfg.api_key || cfg.paused) continue
-          const handle = this.startStream({
-            email: cfg.email,
-            gatewayUrl: cfg.gateway_url,
-            apiKey: cfg.api_key,
-            identity: cfg.email,
-          })
-          this.handles.push(handle)
-        }
-      }
+    // Shared-gateway planning is host-neutral: one stream per credential
+    // scope, per-address fallback only when no system key covers the set.
+    const plans = planStreams(
+      systems.map(({ sid, cfg }) => ({ systemId: sid, gatewayUrl: cfg!.gateway_url, apiKey: cfg!.admin_key })),
+      bindings.map((b) => ({ email: b.email, gatewayUrl: b.gateway_url, apiKey: b.api_key, paused: b.paused === true })),
+    )
+    for (const plan of plans) {
+      this.handles.push(this.startStream({
+        email: plan.scope === 'system' ? `system:${plan.identity}` : plan.identity,
+        gatewayUrl: plan.gatewayUrl,
+        apiKey: plan.apiKey,
+        identity: plan.identity,
+      }))
     }
     await this.writeStatus()
   }
