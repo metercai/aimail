@@ -15,3 +15,5 @@ export { provisionSystem, systemStatus, findExistingSystem } from './activation/
 export type { SystemArgs, SystemWorkspaceHost } from './activation/system.js'
 export { SYSTEM_TOOL_PARAMS, SYSTEM_TOOL_DESCRIPTION, runSystemTool } from './activation/system-tool.js'
 export { pinWorkspaceToBinding } from './binding/workspace.js'
+export { planStreams } from './stream/plan.js'
+export type { StreamSystem, StreamBinding, StreamPlan } from './stream/plan.js'
