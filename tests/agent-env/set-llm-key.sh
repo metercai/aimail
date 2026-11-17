@@ -39,8 +39,12 @@ print(f"  ✓ pi: apiKey injected into {p}")
 PY
     ;;
   openclaw)
+    seen=""
     for f in "$HOME/.openclaw/openclaw.json" /app/.openclaw/openclaw.json; do
       [ -f "$f" ] || continue
+      r="$(readlink -f "$f" 2>/dev/null || echo "$f")"
+      [ "$r" = "$seen" ] && continue
+      seen="$r"
       python3 - "$f" "$KEY" <<'PY'
 import json, sys
 p, key = sys.argv[1], sys.argv[2]

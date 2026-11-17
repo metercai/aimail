@@ -23,6 +23,8 @@ EXPECT_MODEL="${LLM_MODEL:-mimo-v2.6-flash}"
 [ ${#SPECS[@]} -eq 0 ] && SPECS=(aimail-host-pi:pi aimail-host-dsh:dsh aimail-host-openclaw:openclaw aimail-host-hermes:hermes)
 
 PROBE="$(mktemp)"; trap 'rm -f "$PROBE"' EXIT
+# 0600 from mktemp is unreadable for images that run as a non-root user (openclaw = node)
+chmod 644 "$PROBE"
 cat > "$PROBE" <<'PY'
 import json, os, re, sys, urllib.request
 plat = os.environ.get("PLAT", ""); home = os.path.expanduser("~")
