@@ -1,11 +1,11 @@
 /**
- * MAIL_TOOLS — the 15 AIMail tool semantic definitions, projected from the
- * shared SSOT spec.
+ * AIMail tool semantic definitions, grouped by capability and projected from
+ * the shared SSOT spec.
  *
  * Single source of truth (2026-11-03): `pysdk/tool-spec.json` — one text,
  * three projections:
  *   - TS (this file):  scripts/gen-tool-spec.mjs emits src/generated/tool-spec.ts
- *                      (build artifact), MAIL_TOOLS = projection + handler binding.
+ *                      (build artifact), grouped definitions = projection + handler binding.
  *   - Python MCP:      pysdk/tool_spec.mcp_tools() → aimail_mcp_server.TOOLS
  *   - hermes adapter:  pysdk/tool_spec.hermes_schemas() → registry.register schemas
  * Drift is structurally impossible; test/core/tool-registry.test.ts asserts
@@ -48,6 +48,7 @@ import {
 } from './board.js'
 import { aimailAddressTool, roleCalibrator, type AimailAddressToolArgs } from './tools.js'
 import { TOOL_SPEC, type ToolSpecEntry } from '../generated/tool-spec.js'
+import { MAIL_TOOL_NAMES, MAIL_BOARD_NAMES, MAIL_ADMIN_NAMES } from './agent-tools.js'
 
 /** Platform-neutral parameter descriptor (no framework types). */
 export interface MailToolParam {
@@ -105,4 +106,25 @@ function toMailToolDef(entry: ToolSpecEntry): MailToolDef {
   return { name: entry.name, description: entry.description, parameters, handler }
 }
 
-export const MAIL_TOOLS: readonly MailToolDef[] = TOOL_SPEC.map(toMailToolDef)
+const ALL_DEFS: readonly MailToolDef[] = TOOL_SPEC.map(toMailToolDef)
+
+const HAS = (names: readonly string[], name: string): boolean => names.includes(name)
+
+/** Mail read/write tools (7). */
+export const MAIL_TOOLS: readonly MailToolDef[] = ALL_DEFS.filter((t) =>
+  HAS(MAIL_TOOL_NAMES, t.name),
+)
+
+/** Board membership/A2A tools, including role_calibrator (7). */
+export const MAIL_BOARD: readonly MailToolDef[] = ALL_DEFS.filter((t) =>
+  HAS(MAIL_BOARD_NAMES, t.name),
+)
+
+/** Admin tools with a spec-backed definition (aimail_address). The DSH-only
+ *  aimail_system is registered by its own tool entry. */
+export const MAIL_ADMIN: readonly MailToolDef[] = ALL_DEFS.filter((t) =>
+  HAS(MAIL_ADMIN_NAMES, t.name),
+)
+
+/** All 15 spec-backed tools exposed by the adapters, in SSOT order. */
+export const AGENT_TOOL_DEFS: readonly MailToolDef[] = ALL_DEFS

@@ -5,7 +5,7 @@
  *  - deregisterAgentEmail 3-step idempotent chain (MockClient, P2 acceptance)
  */
 import { describe, it, expect } from 'vitest'
-import { MAIL_TOOLS, toTypeBoxParam, toTypeBoxParams, emailForAgent } from '../../src/core/index.js'
+import { AGENT_TOOL_DEFS, toTypeBoxParam, toTypeBoxParams, emailForAgent } from '../../src/core/index.js'
 import { createMailTools } from '../../src/openclaw/tools.js'
 import { deregisterAgentEmail, type AdminClient } from '../../src/openclaw/commands.js'
 
@@ -55,7 +55,7 @@ describe('toTypeBoxParam', () => {
   })
 
   it('builds an object schema with additionalProperties false', () => {
-    const schema = toTypeBoxParams(MAIL_TOOLS[0].parameters)
+    const schema = toTypeBoxParams(AGENT_TOOL_DEFS[0].parameters)
     const raw = JSON.parse(JSON.stringify(schema))
     expect(raw.type).toBe('object')
     expect(raw.additionalProperties).toBe(false)
@@ -64,13 +64,13 @@ describe('toTypeBoxParam', () => {
   })
 })
 
-// ── MAIL_TOOLS iteration (D7: single source, 15 bare names) ───────────────
+// ── AGENT_TOOL_DEFS iteration (D7: single source, 15 bare names) ───────────────
 
 describe('createMailTools', () => {
-  it('registers exactly the 15 MAIL_TOOLS bare names', () => {
+  it('registers exactly the 15 AGENT_TOOL_DEFS bare names', () => {
     const tools = createMailTools({} as never)
     expect(tools).toHaveLength(15)
-    expect(tools.map(t => t.name)).toEqual(MAIL_TOOLS.map(t => t.name))
+    expect(tools.map(t => t.name)).toEqual(AGENT_TOOL_DEFS.map(t => t.name))
     for (const t of tools) {
       expect(t.name).not.toMatch(/^aimail__/)
     }

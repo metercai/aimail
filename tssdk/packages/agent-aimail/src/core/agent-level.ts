@@ -33,7 +33,7 @@ import {
   type PulledMail,
   type StartAgentPullEntriesOptions,
 } from './poll-entry.js'
-import { MAIL_TOOLS, type MailToolDef } from './tool-registry.js'
+import { AGENT_TOOL_DEFS, type MailToolDef } from './tool-registry.js'
 import type { AgentConfig, EnrichedPayload, InboundPayload } from './types.js'
 
 /** Tools that are meaningful for an agent-level mailbox (member-scope board). */
@@ -43,11 +43,11 @@ const AGENT_TOOL_SET: ReadonlySet<string> = new Set(AGENT_TOOL_NAMES)
 
 /**
  * The agent-level toolset, ready to register with the host: same entries as
- * `MAIL_TOOLS` (name/description/parameters/handler), filtered to the tools an
+ * `AGENT_TOOL_DEFS` (name/description/parameters/handler), filtered to the tools an
  * address-code mailbox can actually execute.
  */
 export function agentTools(): MailToolDef[] {
-  return MAIL_TOOLS.filter((tool) => AGENT_TOOL_SET.has(tool.name))
+  return AGENT_TOOL_DEFS.filter((tool) => AGENT_TOOL_SET.has(tool.name))
 }
 
 export interface InstallAgentSkillResult {

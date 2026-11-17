@@ -1,7 +1,7 @@
 // pi-aimail regression guard (completed in audit 2026-09-21: this package previously had zero tests).
 //
 // Covers two types of items that previously really had problems/no one guarded:
-//   1. Registration surface = full set of MAIL_TOOLS (adapter only binds identity, must not miss/over-register)
+//   1. Registration surface = full set of AGENT_TOOL_DEFS (adapter only binds identity, must not miss/over-register)
 //   2. **the pi manifest must be in place**: the pi host `readPiManifest()` reads package.json's
 //      `pi` key; when missing it auto-discovers only by the agreed directories (extensions/skills/prompts/themes);
 //      both none ⇒ `pi install npm:pi-aimail` installs **zero resources** (silently registers no tools).
@@ -10,16 +10,16 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { MAIL_TOOLS } from '../../src/core/index.js'
+import { AGENT_TOOL_DEFS } from '../../src/core/index.js'
 import { buildPiTools } from '../../src/pi/tools.js'
 
 const pkgDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 
 describe('pi-aimail tool registration', () => {
-  it('buildPiTools() covers every MAIL_TOOLS entry exactly once', () => {
+  it('buildPiTools() covers every AGENT_TOOL_DEFS entry exactly once', () => {
     const built = buildPiTools()
-    expect(built.length).toBe(MAIL_TOOLS.length)
-    expect(built.map(t => t.name).sort()).toEqual(MAIL_TOOLS.map(t => t.name).sort())
+    expect(built.length).toBe(AGENT_TOOL_DEFS.length)
+    expect(built.map(t => t.name).sort()).toEqual(AGENT_TOOL_DEFS.map(t => t.name).sort())
     expect(built.length).toBe(15)
   })
 

@@ -93,6 +93,12 @@ export {
   installAgentSkill,
   startAgentLevel,
 } from './agent-level.js'
+export {
+  ALL_AGENT_TOOL_NAMES,
+  MAIL_TOOL_NAMES,
+  MAIL_BOARD_NAMES,
+  MAIL_ADMIN_NAMES,
+} from './agent-tools.js'
 export type {
   AgentLevelOptions,
   AgentLevelRuntime,
@@ -184,7 +190,7 @@ export {
   boardRoles,
 } from './board.js'
 export type { BoardStatusArgs, BoardTaskListArgs, BoardTaskShowArgs, BoardHeartbeatArgs, BoardMembersArgs, BoardRolesArgs } from './board.js'
-export { MAIL_TOOLS } from './tool-registry.js'
+export { MAIL_TOOLS, MAIL_BOARD, MAIL_ADMIN, AGENT_TOOL_DEFS } from './tool-registry.js'
 export type { MailToolDef, MailToolParam } from './tool-registry.js'
 export {
   PING_PREFIX,

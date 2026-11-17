@@ -1,6 +1,6 @@
 /**
  * pi-aimail tools — registers the 15 AIMail tools by iterating the
- * SINGLE MAIL_TOOLS source from @aimail/mail-core (same as dsh/openclaw:
+ * SINGLE AGENT_TOOL_DEFS source from @aimail/mail-core (same as dsh/openclaw:
  * semantic text defined once; the adapter only binds platform identity).
  *
  * pi ToolDefinition: parameters are TypeBox; execute returns
@@ -9,7 +9,7 @@
  * build the shape directly).
  */
 import type { TSchema } from 'typebox'
-import { MAIL_TOOLS, toTypeBoxParams } from '../core/index.js'
+import { AGENT_TOOL_DEFS, toTypeBoxParams } from '../core/index.js'
 import { resolveConfig } from './identity.js'
 import { setAgentModel } from '../core/index.js'
 
@@ -51,7 +51,7 @@ export function buildPiTools(): Array<{
     ctx: unknown,
   ) => Promise<PiToolResult>
 }> {
-  return MAIL_TOOLS.map(tool => ({
+  return AGENT_TOOL_DEFS.map(tool => ({
     name: tool.name,
     label: tool.name,
     description: tool.description,

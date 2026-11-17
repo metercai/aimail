@@ -1,13 +1,13 @@
 /**
- * MAIL_TOOLS contract tests — SSOT parity (2026-11-03).
+ * AGENT_TOOL_DEFS contract tests — SSOT parity (2026-11-03).
  *
  * Single source of truth: `pysdk/tool-spec.json` (repo root). The TS SDK
  * projects it in two steps at build time:
  *   1. scripts/gen-tool-spec.mjs codegens `src/generated/tool-spec.ts`
- *   2. tool-registry.ts flattens it into the adapter-facing MAIL_TOOLS shape
+ *   2. tool-registry.ts flattens it into the adapter-facing AGENT_TOOL_DEFS shape
  * This test pins BOTH steps to the JSON file:
  *   - the codegen artifact must equal the spec (names/order/text/params)
- *   - the flattened MAIL_TOOLS must equal the spec (per-param mapping)
+ *   - the flattened AGENT_TOOL_DEFS must equal the spec (per-param mapping)
  * Drift anywhere in the chain turns L0 red. The Python side pins its two
  * projections (MCP TOOLS, hermes schemas) against the same file in
  * tests/sdk/test_tool_spec_sot.py — three projections, one text.
@@ -16,7 +16,8 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync, existsSync } from 'node:fs'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { MAIL_TOOLS } from '../../src/core/tool-registry.js'
+import { AGENT_TOOL_DEFS, MAIL_TOOLS, MAIL_BOARD, MAIL_ADMIN } from '../../src/core/tool-registry.js'
+import { MAIL_TOOL_NAMES, MAIL_BOARD_NAMES, MAIL_ADMIN_NAMES } from '../../src/core/agent-tools.js'
 import type { MailToolDef, MailToolParam } from '../../src/core/tool-registry.js'
 import { TOOL_SPEC } from '../../src/generated/tool-spec.js'
 
@@ -66,13 +67,13 @@ const EXPECTED_NAMES = [
   'role_calibrator',
 ] as const
 
-describe('MAIL_TOOLS structure', () => {
+describe('AGENT_TOOL_DEFS structure', () => {
   it('registers exactly the 15 bare tool names, in order', () => {
-    expect(MAIL_TOOLS.map(t => t.name)).toEqual([...EXPECTED_NAMES])
+    expect(AGENT_TOOL_DEFS.map(t => t.name)).toEqual([...EXPECTED_NAMES])
   })
 
   it('every tool has a non-empty description; tools with parameters have ≥1 typed parameter', () => {
-    for (const t of MAIL_TOOLS) {
+    for (const t of AGENT_TOOL_DEFS) {
       expect(t.description.length, `${t.name} description`).toBeGreaterThan(0)
       for (const [k, p] of Object.entries(t.parameters)) {
         expect(p.type, `${t.name}.${k} type`).toMatch(/^(string|array|integer|number|boolean)$/)
@@ -82,7 +83,7 @@ describe('MAIL_TOOLS structure', () => {
   })
 
   it('every handler is a function bound to the tool', () => {
-    for (const t of MAIL_TOOLS) {
+    for (const t of AGENT_TOOL_DEFS) {
       expect(typeof t.handler, `${t.name} handler`).toBe('function')
     }
   })
@@ -99,23 +100,45 @@ describe('codegen artifact ↔ spec JSON', () => {
   })
 })
 
-describe('MAIL_TOOLS ↔ spec JSON (flat projection)', () => {
+describe('grouped tool definitions', () => {
+  it('MAIL_TOOLS is the 7 mail tools', () => {
+    expect(MAIL_TOOLS.map(t => t.name)).toEqual([...MAIL_TOOL_NAMES])
+    expect(MAIL_TOOLS).toHaveLength(7)
+  })
+
+  it('MAIL_BOARD is the 7 board/agent tools', () => {
+    expect(MAIL_BOARD.map(t => t.name)).toEqual([...MAIL_BOARD_NAMES])
+    expect(MAIL_BOARD).toHaveLength(7)
+  })
+
+  it('MAIL_ADMIN is the address binding tool; system onboarding is DSH-only', () => {
+    expect(MAIL_ADMIN.map(t => t.name)).toEqual(['aimail_address'])
+    expect(MAIL_ADMIN_NAMES).toEqual(['aimail_address', 'aimail_system'])
+  })
+
+  it('the three groups cover the full spec-backed set', () => {
+    const grouped = [...MAIL_TOOLS, ...MAIL_BOARD, ...MAIL_ADMIN].map(t => t.name).sort()
+    expect(grouped).toEqual(AGENT_TOOL_DEFS.map(t => t.name).sort())
+  })
+})
+
+describe('AGENT_TOOL_DEFS ↔ spec JSON (flat projection)', () => {
   if (!spec) {
     it.skip('spec JSON available (aimail repo checkout)', () => {})
     return
   }
 
   it('has the same 15 tools with identical names and descriptions', () => {
-    expect(MAIL_TOOLS.map(t => t.name)).toEqual(spec.map(t => t.name))
+    expect(AGENT_TOOL_DEFS.map(t => t.name)).toEqual(spec.map(t => t.name))
     spec.forEach((st, i) => {
-      const tt = MAIL_TOOLS[i] as MailToolDef
+      const tt = AGENT_TOOL_DEFS[i] as MailToolDef
       expect(tt.description, `${st.name} description`).toBe(st.description)
     })
   })
 
   it('parameter types/enums/defaults/descriptions/required match the spec', () => {
     for (const st of spec) {
-      const tt = MAIL_TOOLS.find(t => t.name === st.name)!
+      const tt = AGENT_TOOL_DEFS.find(t => t.name === st.name)!
       const props = st.parameters.properties
       const required = new Set(st.parameters.required ?? [])
       // exact key set, no invented params, no dropped params

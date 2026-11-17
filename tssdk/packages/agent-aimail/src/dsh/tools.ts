@@ -2,17 +2,17 @@
  * dsh-aimail tools — registers the 15 AIMail bare tools for this profile.
  *
  * Semantic text (names, descriptions, parameter descriptions) comes from
- * the shared MAIL_TOOLS registry in @aimail/mail-core (single source of
+ * the shared AIMail tool registry in @aimail/mail-core (single source of
  * truth, parity-tested against the shared tool spec in
  * pysdk/aimail_mcp_server.py). No MCP service is used by this TS adapter.
  * This adapter only:
- *   - iterates MAIL_TOOLS, translating each entry to a dsh defineTool
+ *   - iterates AGENT_TOOL_DEFS, translating each entry to a dsh defineTool
  *   - binds execution: exec.agent.id (dsh session uuid) → ctx.mail.resolveCtx
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool, type ParameterPropertySpec } from '@deepseek-ai/dsh-tools'
 import {
-  MAIL_TOOLS,
+  AGENT_TOOL_DEFS,
   setAgentIdentity,
   setAgentModel,
   setToolsetProvider,
@@ -107,7 +107,7 @@ export function apply(ctx: Context, config: { identity?: string } = {}): void {
   }
 
   const registered: string[] = []
-  for (const tool of MAIL_TOOLS) {
+  for (const tool of AGENT_TOOL_DEFS) {
     const { handler: _handler, ...semantic } = tool as MailToolDef
     void _handler
     // Translate the neutral parameter schema into dsh's spec shape.

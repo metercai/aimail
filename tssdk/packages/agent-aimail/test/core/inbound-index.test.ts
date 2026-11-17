@@ -34,7 +34,7 @@ import { searchLocalMail, searchIndexPath } from '../../src/core/search.js'
 import { searchMail, emailSummary, normalizeMessageId, sendMail } from '../../src/core/tools.js'
 import { BINDING_FILE } from '../../src/core/contract.js'
 import { toTypeBoxParams } from '../../src/core/typebox-params.js'
-import { MAIL_TOOLS } from '../../src/core/tool-registry.js'
+import { AGENT_TOOL_DEFS } from '../../src/core/tool-registry.js'
 import { cleanAddr } from '../../src/core/config.js'
 import type { InboundPayload } from '../../src/core/types.js'
 
@@ -221,7 +221,7 @@ describe('defect F: search_mail.limit is a scalar integer', () => {
   })
 
   it('TypeBox adapter exposes limit as integer (openclaw/pi)', () => {
-    const tool = MAIL_TOOLS.find((t) => t.name === 'search_mail')!
+    const tool = AGENT_TOOL_DEFS.find((t) => t.name === 'search_mail')!
     const schema = toTypeBoxParams(tool.parameters) as { properties: Record<string, { anyOf?: { type: string }[]; type?: string }> }
     const limit = schema.properties['limit']
     const types = (limit?.anyOf ?? [limit]).map((x) => x?.type)

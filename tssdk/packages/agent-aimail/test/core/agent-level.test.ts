@@ -19,7 +19,7 @@ import {
   installAgentSkill,
   startAgentLevel,
 } from '../../src/core/agent-level.js'
-import { MAIL_TOOLS } from '../../src/core/tool-registry.js'
+import { AGENT_TOOL_DEFS } from '../../src/core/tool-registry.js'
 import { AGENT_SKILL_NAME, BINDING_FILE } from '../../src/core/contract.js'
 
 const PKG = path.resolve(__dirname, '..', '..')
@@ -60,7 +60,7 @@ describe('agentTools', () => {
     // every entry is executable (handler travels with the definition)
     for (const tool of agentTools()) expect(typeof tool.handler).toBe('function')
     // the agent-level set is the whole registry
-    expect(agentTools().length).toBe(MAIL_TOOLS.length)
+    expect(agentTools().length).toBe(AGENT_TOOL_DEFS.length)
   })
 })
 

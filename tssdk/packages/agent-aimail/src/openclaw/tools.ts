@@ -1,12 +1,12 @@
 /**
  * openclaw-aimail tools — registers the 15 AIMail tools by iterating the
- * SINGLE MAIL_TOOLS source from @aimail/mail-core (D7: semantic text defined
+ * SINGLE AGENT_TOOL_DEFS source from @aimail/mail-core (D7: semantic text defined
  * once; each adapter only binds the platform execute/identity context).
  *
  * Tool parameters are translated from the platform-neutral MailToolParam
  * shape to TypeBox schemas at registration time (mirrors dsh's toDshParam).
  */
-import { MAIL_TOOLS, setToolsetProvider, toTypeBoxParams } from '../core/index.js'
+import { AGENT_TOOL_DEFS, setToolsetProvider, toTypeBoxParams } from '../core/index.js'
 import { jsonResult } from 'openclaw/plugin-sdk/tool-results'
 import type {
   AnyAgentTool,
@@ -24,7 +24,7 @@ import { setAgentModel } from '../core/index.js'
 export function createMailTools(
   ctx: OpenClawPluginToolContext,
 ): AnyAgentTool[] {
-  const tools: AnyAgentTool[] = MAIL_TOOLS.map(tool => ({
+  const tools: AnyAgentTool[] = AGENT_TOOL_DEFS.map(tool => ({
     name: tool.name,
     label: tool.name,
     description: tool.description,

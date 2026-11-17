@@ -1,6 +1,6 @@
 // dsh-aimail regression guard (filled in during the 2026-09-21 audit: this package previously had zero tests).
 //
-// drive apply() with a minimal-stub cordis ctx, asserting the registered tool set == the full MAIL_TOOLS set
+// drive apply() with a minimal-stub cordis ctx, asserting the registered tool set == the full AGENT_TOOL_DEFS set
 // (the adapter only does "translate schema + bind identity"; it must not miss-register or over-register).
 //
 // Note: The host package @deepseek-ai/dsh-tools transitively depends on the uninstalled @deepseek-ai/dsh-scope,
@@ -12,11 +12,11 @@ vi.mock('@deepseek-ai/dsh-tools', () => ({
   defineTool: (spec: unknown) => spec,
 }))
 
-import { MAIL_TOOLS } from '../../src/core/index.js'
+import { AGENT_TOOL_DEFS } from '../../src/core/index.js'
 import { apply } from '../../src/dsh/tools.js'
 
 describe('dsh-aimail tool registration', () => {
-  it('apply() registers every MAIL_TOOLS entry exactly once', () => {
+  it('apply() registers every AGENT_TOOL_DEFS entry exactly once', () => {
     const registered: string[] = []
     const ctx = {
       get: (key: string) =>
@@ -26,9 +26,9 @@ describe('dsh-aimail tool registration', () => {
       tools: { register: (tool: { name: string }) => registered.push(tool.name) },
     }
     apply(ctx as never)
-    expect(registered.length).toBe(MAIL_TOOLS.length + 1)
+    expect(registered.length).toBe(AGENT_TOOL_DEFS.length + 1)
     expect(registered.length).toBe(16)
-    expect([...registered].sort()).toEqual([...MAIL_TOOLS.map(t => t.name), 'aimail_system'].sort())
+    expect([...registered].sort()).toEqual([...AGENT_TOOL_DEFS.map(t => t.name), 'aimail_system'].sort())
   })
 
   it('apply() fails loudly when the mail service is not mounted', () => {
