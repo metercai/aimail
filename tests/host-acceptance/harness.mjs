@@ -32,8 +32,8 @@ const manager = arg('manager')
 const delivery = process.argv.includes('--delivery')
 
 if (!['pi', 'openclaw'].includes(host)) { console.error('host must be pi|openclaw'); process.exit(2) }
-if (!systemCode || !addressCode || !email) {
-  console.error('missing --system-code/--address-code/--email'); process.exit(2)
+if (!systemCode || !email) {
+  console.error('missing --system-code/--email'); process.exit(2)
 }
 await fs.mkdir(path.join(home, 'aimail'), { recursive: true })
 await fs.mkdir(workspace, { recursive: true })
@@ -70,8 +70,8 @@ console.log(JSON.stringify({ step: 'system', result: sysDetail }))
 if (sysDetail?.success !== true) process.exit(1)
 
 const addr = host === 'pi'
-  ? await address.execute('addr', { action: 'bind', email, code: addressCode, gateway_url: gateway }, undefined, { cwd: workspace })
-  : await address.execute('addr', { action: 'bind', email, code: addressCode, gateway_url: gateway })
+  ? await address.execute('addr', { action: 'bind', email, ...(addressCode ? { code: addressCode } : {}), gateway_url: gateway }, undefined, { cwd: workspace })
+  : await address.execute('addr', { action: 'bind', email, ...(addressCode ? { code: addressCode } : {}), gateway_url: gateway })
 const addrDetail = addr.details ?? addr
 console.log(JSON.stringify({ step: 'address', result: addrDetail }))
 if (addrDetail?.success !== true) process.exit(1)

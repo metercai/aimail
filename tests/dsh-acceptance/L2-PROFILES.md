@@ -64,3 +64,23 @@ host context, then assert the binding workspace and no `webhook_url`.
 
 Set `DELIVERY=1` to also send a live gateway welcome and verify it arrives
 through the host's SSE pull path into the binding workspace.
+
+
+## Self-hosted gateway fixture (closed loop)
+
+The host L2s can start the repository's existing gateway fixture and claim
+their own system code from `/apply` (via Mailpit) — no external gateway or
+pre-issued codes:
+
+```bash
+./tests/host-acceptance/run-l2-fixture.sh pi
+./tests/host-acceptance/run-l2-fixture.sh openclaw
+```
+
+Each invocation resets the fixture volume, claims a fresh system code, runs
+`aimail_system` + `aimail_address` (scenario-6 register) and the live welcome
+check through the host SSE path.
+
+Requires Docker; the local macOS workspace used for this session has no Docker,
+so the script was syntax-checked but not executed here. The Linux QA fixture
+has Docker.
