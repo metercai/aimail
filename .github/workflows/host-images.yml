@@ -1,0 +1,81 @@
+name: host-images
+
+# Host-environment gate (owner 2026-11-18): the agent test hosts must be
+#   [1] clean — no SDK of ours baked in, not even a cache entry, and
+#   [2] able to answer — the same OpenAI-compatible endpoint as L3, with the key
+#       coming from CI secrets (never baked into an image).
+#
+# This workflow is the only place the real credential exists, so it is where the
+# "LLM really answers" claim is proven. It is manual: image builds are minutes each.
+
+on:
+  workflow_dispatch:
+    inputs:
+      agents:
+        description: 'Space-separated hosts to build+audit (pi dsh openclaw hermes)'
+        required: false
+        default: 'pi dsh openclaw hermes'
+
+permissions:
+  contents: read
+
+jobs:
+  hosts:
+    name: build + audit host images
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout aimail
+        uses: actions/checkout@v4
+
+      - name: Free disk space (four host images + bases do not fit otherwise)
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL || true
+          df -h /
+
+      - name: Build host images (endpoint = gate endpoint, no key baked)
+        env:
+          LLM_BASE_URL: https://api.xiaomimimo.com/v1
+          LLM_MODEL: mimo-v2.6-flash
+        run: |
+          set -euo pipefail
+          . tests/agent-env/pins.env
+          for a in ${{ inputs.agents }}; do
+            case "$a" in
+              hermes)   BASE="$BASE_HERMES" ;;
+              openclaw) BASE="$BASE_OPENCLAW" ;;
+              pi|dsh)   BASE="$BASE_NODE" ;;
+              *) echo "::error::unknown host $a"; exit 2 ;;
+            esac
+            CTX="$(mktemp -d)"
+            mkdir -p "$CTX/agent-env/lib" "$CTX/extras"
+            cp tests/agent-env/prepare.sh tests/agent-env/verify.sh tests/agent-env/pins.env \
+               tests/agent-env/agent-paths.sh tests/agent-env/set-llm-key.sh "$CTX/agent-env/"
+            cp tests/agent-env/lib/llm-config.py "$CTX/agent-env/lib/"
+            cp "tests/agent-env/docker/Dockerfile.$a" "$CTX/Dockerfile"
+            echo "── build $a (base=$BASE)"
+            docker build --network host -t "aimail-host-$a:latest" \
+              --build-arg BASE_IMG="$BASE" \
+              --build-arg LLM_BASE_URL="$LLM_BASE_URL" --build-arg LLM_MODEL="$LLM_MODEL" \
+              -f "$CTX/Dockerfile" "$CTX"
+            rm -rf "$CTX"
+          done
+
+      - name: Audit hosts (clean + LLM answers with the CI key)
+        env:
+          LLM_API_KEY: ${{ secrets.XIAOMI_API_KEY }}
+          LLM_BASE_URL: https://api.xiaomimimo.com/v1
+          LLM_MODEL: mimo-v2.6-flash
+        run: |
+          set -euo pipefail
+          SPECS=""
+          for a in ${{ inputs.agents }}; do SPECS="$SPECS aimail-host-$a:$a"; done
+          bash tests/agent-env/audit-hosts.sh $SPECS
+
+      - name: Upload audit logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: host-audit-logs
+          path: /tmp/host-audit-*.log
+          if-no-files-found: warn

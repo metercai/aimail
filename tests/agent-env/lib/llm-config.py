@@ -56,6 +56,10 @@ import sys
 from pathlib import Path
 
 DEFAULT_API_KEY = "local-qwen-dummy"
+# Env indirection for gate images (owner 2026-11-18): no secret is baked into an
+# image; when no live key is supplied the writers emit this placeholder and the run
+# injects the real value with tests/agent-env/set-llm-key.sh (LLM_API_KEY).
+ENV_PLACEHOLDER = "__LLM_API_KEY__"
 
 
 def _provider_id(base_url: str) -> str:
@@ -121,7 +125,8 @@ def write_openclaw(home: Path, base_url: str, model: str, api_key: str) -> list[
     # undefined`. These fields are copied from the LLM-configured package that was
     # verified working on 2026-09-26, not invented.
     models.setdefault("providers", {})[pid] = {
-        "baseUrl": base_url, "api": "openai-completions", "apiKey": api_key,
+        "baseUrl": base_url, "api": "openai-completions",
+        "apiKey": api_key if (api_key and api_key != DEFAULT_API_KEY) else ENV_PLACEHOLDER,
         "models": [{
             "id": model,
             "name": f"{model} (journey llama-server)",
@@ -154,7 +159,8 @@ def write_pi(home: Path, base_url: str, model: str, api_key: str) -> list[Path]:
     cfg = _load_json(p)
     pid = "qwen-local" if "127.0.0.1:8000" in base_url else _provider_id(base_url)
     cfg.setdefault("providers", {})[pid] = {
-        "baseUrl": base_url, "api": "openai-completions", "apiKey": api_key,
+        "baseUrl": base_url, "api": "openai-completions",
+        "apiKey": api_key if (api_key and api_key != DEFAULT_API_KEY) else ENV_PLACEHOLDER,
         "models": [{"id": model}],
     }
     _write_json(p, cfg)
@@ -218,6 +224,9 @@ def write_hermes(home: Path, base_url: str, model: str, api_key: str,
         keys = {"provider": "custom", "default": model, "base_url": base_url}
         if api_key and api_key != DEFAULT_API_KEY:
             keys["api_key"] = api_key
+        else:
+            # no live key at image build time: name the env var, never bake a key
+            keys["api_key_env"] = "LLM_API_KEY"
         if p.is_file():
             bak = p.with_suffix(p.suffix + ".pre-llm.bak")
             if not bak.exists():

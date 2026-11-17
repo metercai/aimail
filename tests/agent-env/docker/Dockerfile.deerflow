@@ -15,8 +15,8 @@ RUN apt-get update \
 RUN python3 -m pip install -q --no-cache-dir PyYAML==6.0.2 \
     || python3 -m pip install -q --no-cache-dir --break-system-packages PyYAML==6.0.2
 
-ARG LLM_BASE_URL=http://127.0.0.1:8000/v1
-ARG LLM_MODEL=Qwen3.8-27B-UD-Q4_K_M
+ARG LLM_BASE_URL=https://api.xiaomimimo.com/v1
+ARG LLM_MODEL=mimo-v2.6-flash
 
 COPY agent-env /opt/agent-env
 
