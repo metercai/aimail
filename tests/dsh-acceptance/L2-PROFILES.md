@@ -60,5 +60,7 @@ EMAIL=alice@test.local DOMAIN=test.local WORKSPACE=/tmp/workspace \
 ```
 
 They drive the real `aimail_system` + `aimail_address` host tools with a fake
-host context, then assert the binding workspace and no `webhook_url`. They do
-not yet cover live welcome/SSE delivery; that remains the next L2 layer.
+host context, then assert the binding workspace and no `webhook_url`.
+
+Set `DELIVERY=1` to also send a live gateway welcome and verify it arrives
+through the host's SSE pull path into the binding workspace.

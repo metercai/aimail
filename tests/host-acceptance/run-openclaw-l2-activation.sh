@@ -5,4 +5,5 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${DOMAIN:=}"
 ARGS=(--gateway "$GATEWAY_URL" --system-code "$SYSTEM_CODE" --address-code "$ADDRESS_CODE" --email "$EMAIL" --workspace "$WORKSPACE")
 [ -n "$DOMAIN" ] && ARGS+=(--domain "$DOMAIN")
+[ "${DELIVERY:-0}" = 1 ] && ARGS+=(--delivery)
 exec node "$HERE/harness.mjs" openclaw "${ARGS[@]}"

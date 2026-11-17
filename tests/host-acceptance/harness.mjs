@@ -29,6 +29,7 @@ const home = arg('home', path.join(os.tmpdir(), `aimail-host-l2-${Date.now()}`))
 const domain = arg('domain')
 const systemName = arg('system-name')
 const manager = arg('manager')
+const delivery = process.argv.includes('--delivery')
 
 if (!['pi', 'openclaw'].includes(host)) { console.error('host must be pi|openclaw'); process.exit(2) }
 if (!systemCode || !addressCode || !email) {
@@ -86,3 +87,35 @@ if (path.resolve(String(cfg.workspace_path ?? '')) !== workspace) {
 }
 if (cfg.webhook_url) { console.error('binding still has webhook_url'); process.exit(1) }
 console.log(JSON.stringify({ step: 'assert', ok: true, workspace: cfg.workspace_path, host }))
+
+if (delivery) {
+  const { startAgentPullEntries, GatewayClient } = await import(path.join(dist, 'core/index.js'))
+  const cfgPath = path.join(process.env.AIMAIL_HOME, 'systems', sid, 'aimail_gateway.json')
+  const sysCfg = JSON.parse(await fs.readFile(cfgPath, 'utf-8'))
+  const seen = []
+  const handles = await startAgentPullEntries({
+    systemId: sid,
+    onlyEmail: email,
+    onEmail: async (c, mail) => {
+      seen.push({ id: mail.id, email: mail.email, workspace: c.workspace_path })
+    },
+  })
+  try {
+    const client = new GatewayClient(sysCfg.gateway_url, String(sysCfg.admin_key), 30_000, sid)
+    const r = await client.request('POST', '/api/v1/system/welcome', { to: [email] })
+    if (!(r.status >= 200 && r.status < 300)) {
+      console.error(`welcome failed: ${r.status} ${JSON.stringify(r)}`)
+      process.exit(1)
+    }
+    const deadline = Date.now() + 20_000
+    while (seen.length === 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 250))
+  } finally {
+    for (const h of handles) h.stop()
+  }
+  if (seen.length === 0) { console.error('no SSE delivery received'); process.exit(1) }
+  if (path.resolve(seen[0].workspace) !== workspace) {
+    console.error(`delivery workspace mismatch: ${seen[0].workspace} want ${workspace}`)
+    process.exit(1)
+  }
+  console.log(JSON.stringify({ step: 'delivery', ok: true, seen }))
+}
