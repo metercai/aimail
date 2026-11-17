@@ -74,6 +74,9 @@ jobs:
           - { platform: linux-amd64, os: ubuntu-latest,   agent: hermes }
           - { platform: linux-amd64, os: ubuntu-latest,   agent: dsh-aimail }
           - { platform: linux-amd64, os: ubuntu-latest,   agent: dsh-plugin }
+          # host cells (0.4.0): real Pi process — extension pulls the system SSE
+          # stream and wakes a session on inbound (no listener/webhook).
+          - { platform: linux-amd64, os: ubuntu-latest,   agent: pi }
           - { platform: linux-arm64, os: ubuntu-24.04-arm, agent: hermes }
           - { platform: linux-arm64, os: ubuntu-24.04-arm, agent: dsh-aimail }
           - { platform: linux-arm64, os: ubuntu-24.04-arm, agent: dsh-plugin }
@@ -115,6 +118,26 @@ jobs:
       # L3's entire dependency on advanced = tests/agent-env/** (the single source of environment prep: prepare/verify +
       # llm-config.py, now self-contained in the aimail repo, pure stdlib) — no more cross-repo checkout: advanced is private,
       # and the triggering repo's GITHUB_TOKEN cannot access it (measured 404); also, L3's principle is that artifacts under test never come from the working tree.
+
+      # ── Host cells (pi): the SDK under review must be the one built from THIS
+      # tree, not npm "latest" — otherwise a pre-release run silently tests the
+      # previously published version. Only the pi cell needs node/pnpm here.
+      - name: Setup Node for the pi host cell
+        if: steps.filter.outputs.run == 'true' && matrix.agent == 'pi'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Build the SDK under review (pi cell)
+        if: steps.filter.outputs.run == 'true' && matrix.agent == 'pi'
+        shell: bash
+        run: |
+          npm install -g pnpm@9 >/dev/null
+          cd "$GITHUB_WORKSPACE/aimail/tssdk"
+          pnpm install --frozen-lockfile
+          pnpm build
+          echo "AIMAIL_SDK_DIR=$GITHUB_WORKSPACE/aimail/tssdk/packages/agent-aimail" >> "$GITHUB_ENV"
+          echo "[l3] pi cell will install the worktree build: $GITHUB_WORKSPACE/aimail/tssdk/packages/agent-aimail"
 
       - name: L3 gate (agent env → published CLI+gateway → closed loop)
         if: steps.filter.outputs.run == 'true'

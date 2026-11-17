@@ -311,6 +311,23 @@ case "$AGENT" in
     VERIFY_EXTRA=()
     ok "dsh env ready (official npm + pnpm + profile warmed + LLM configured; single source)"
     ;;
+  pi)
+    # 0.4.0 host cell (2026-11-18): real pi process, SSE pull, no CLI inbound.
+    # Model config = single source llm-config.py (writes ~/.pi/agent/models.json:
+    # providers.<id>.{baseUrl,api:openai-completions,apiKey,models[]}).
+    PI_HOME="${HOME}/.pi"
+    AGENT_HOME="$PI_HOME"
+    bash "$AGENT_ENV/prepare.sh" pi --home "$PI_HOME" \
+      --llm-url "$LLM_BASE_URL" --llm-model "$LLM_MODEL" --llm-key "$LLM_API_KEY" \
+      || die "pi env prepare failed (single source: tests/agent-env)"
+    VERIFY_HOME="$PI_HOME"
+    VERIFY_EXTRA=()
+    # shellcheck source=../agent-env/agent-paths.sh
+    . "$AGENT_ENV/agent-paths.sh"
+    PI_BIN="$(agent_launcher pi "$PI_HOME" || true)"
+    [ -n "$PI_BIN" ] || die "pi launcher not found after prepare (agent-paths single source)"
+    ok "pi env ready (official npm + models.json written; single source)"
+    ;;
   *) die "unknown agent $AGENT" ;;
 esac
 
@@ -485,6 +502,21 @@ case "$AGENT" in
     "$AIMAIL_BIN" install --system-id "$SYSTEM_ID" \
       || die "aimail install failed (dsh-plugin L3 bootstrap)"
     ;;
+  pi)
+    # 1) CLI entry (README shape): registers the system into the pi home and writes
+    #    the binding/pointer that the extension's identity chain reads.
+    "$AIMAIL_BIN" install --system-id "$SYSTEM_ID" \
+      || die "aimail install failed (pi L3 bootstrap)"
+    # 2) Pre-release honesty: the CLI installs npm "latest", so when this tree's
+    #    artifact is provided, install it over the top — the cell must test the
+    #    build under review, not the previous release.
+    if [ -n "${AIMAIL_SDK_DIR:-}" ]; then
+      HOME="$HOME" "$PI_BIN" install "$AIMAIL_SDK_DIR" || die "pi install $AIMAIL_SDK_DIR failed"
+      HOME="$HOME" "$PI_BIN" list > "$WORK/pi-list.log" 2>&1 || die "pi list failed"
+      grep -q "agent-aimail" "$WORK/pi-list.log" || { cat "$WORK/pi-list.log"; die "aimail extension not installed for pi"; }
+      ok "pi extension overridden with the worktree build: $AIMAIL_SDK_DIR"
+    fi
+    ;;
   dsh-aimail|hermes)
     # README: aimail install (AGENT_HOME env provides home; shared with welcome)
     # --system-id: the key handed in by the operator belongs to a system the script
@@ -624,6 +656,27 @@ PY
       *) die "send_mail not exposed to webhook sessions: platform_toolsets.webhook=[$PT] (missing $TS) — install's ensure_config did not wire the toolset; welcome cannot reply" ;;
     esac
     ok "send_mail exposed to webhook sessions (platform_toolsets.webhook ⊇ $TS)"
+    ;;
+  pi)
+    # Real pi process, SSE mode: the extension pulls the system stream and wakes a
+    # session on inbound — no listener, no webhook, no CLI runtime call.
+    # Measured 2026-11-18 (local probe): the extension logs "identity pi/<ver>",
+    # "transport=sse (no listener/CLI)", "default agent bound: …" and fires
+    # send_user_message when a welcome arrives.
+    WORKSPACE="${AIMAIL_WORKSPACE:-$WORK/ws}"
+    mkdir -p "$WORKSPACE"
+    ( cd "$WORKSPACE" && HOME="$HOME" AIMAIL_HOME="${HOME}/.aimail" AIMAIL_TRANSPORT=sse \
+        nohup "$PI_BIN" --mode rpc > "$WORK/pi-host.log" 2>&1 & echo $! > "$WORK/pi.pid" )
+    HOST_PID="$(cat "$WORK/pi.pid")"
+    say "pi host starting (SSE mode, rpc session)…"
+    UP=0
+    for _ in $(seq 1 120); do
+      kill -0 "$HOST_PID" 2>/dev/null || { tail -20 "$WORK/pi-host.log" | sed 's/^/    /'; die "pi host exited before the SSE pull came up"; }
+      if grep -q "default agent bound" "$WORK/pi-host.log" 2>/dev/null; then UP=1; break; fi
+      sleep 1
+    done
+    [ "$UP" = 1 ] || { tail -25 "$WORK/pi-host.log" | sed 's/^/    /'; die "pi extension did not bind a default agent in 120s (no SSE pull)"; }
+    ok "pi host up (extension loaded, SSE pull, session ready)"
     ;;
   dsh|dsh-aimail|dsh-plugin)
     # SSE mode: there is no mail-inbound listener and no webhook. The host
