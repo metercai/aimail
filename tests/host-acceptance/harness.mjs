@@ -88,6 +88,20 @@ if (path.resolve(String(cfg.workspace_path ?? '')) !== workspace) {
 if (cfg.webhook_url) { console.error('binding still has webhook_url'); process.exit(1) }
 console.log(JSON.stringify({ step: 'assert', ok: true, workspace: cfg.workspace_path, host }))
 
+// Shared-stream plan must cover the activated address with a system stream.
+const { planStreams } = await import(path.join(dist, 'runtime/index.js'))
+const sysCfgPath = path.join(process.env.AIMAIL_HOME, 'systems', sid, 'aimail_gateway.json')
+const sysCfg = JSON.parse(await fs.readFile(sysCfgPath, 'utf-8'))
+const plans = planStreams(
+  [{ systemId: sid, gatewayUrl: sysCfg.gateway_url, apiKey: sysCfg.admin_key }],
+  [{ email, gatewayUrl: cfg.gateway_url, apiKey: cfg.api_key, system_id: sid }],
+)
+if (plans.length !== 1 || plans[0].scope !== 'system' || !plans[0].emails.includes(email)) {
+  console.error('shared stream plan mismatch: ' + JSON.stringify(plans))
+  process.exit(1)
+}
+console.log(JSON.stringify({ step: 'stream-plan', ok: true, plan: plans[0] }))
+
 if (delivery) {
   const { startAgentPullEntries, GatewayClient } = await import(path.join(dist, 'core/index.js'))
   const cfgPath = path.join(process.env.AIMAIL_HOME, 'systems', sid, 'aimail_gateway.json')
