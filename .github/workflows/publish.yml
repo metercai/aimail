@@ -380,8 +380,36 @@ jobs:
         with:
           packages-dir: dist/
 
+  # Post-publish availability gate (2026-11-17 measured): the npm job can be green while the
+  # **tarball** is still 404 on the CDN edge — the version document is served earlier than the
+  # packument a client downloads. L3 installs `agent-aimail` from the registry, so the first
+  # 0.3.1 run had all 6 dsh cells die with `ERR_PNPM_TARBALL_HTTP_STATUS 404` and read like a
+  # product defect. L3 now starts only after the exact URL consumers fetch returns 200.
+  registry-ready:
+    needs: [npm]
+    if: ${{ inputs.dry_run != 'true' && needs.npm.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wait until the published tarball is fetchable
+        shell: bash
+        run: |
+          ver=$(python3 -c "import json;print(json.load(open('tssdk/packages/agent-aimail/package.json'))['version'])")
+          url="https://registry.npmjs.org/agent-aimail/-/agent-aimail-${ver}.tgz"
+          code=""
+          for i in $(seq 1 90); do                      # 900s: covers the measured >3 min drift
+            code=$(curl -s -o /dev/null -w '%{http_code}' "${url}?t=$(date +%s%N)" || true)
+            [ "$code" = "200" ] && { echo "tarball ready: $url (HTTP 200, try $i)"; exit 0; }
+            echo "  try $i: HTTP $code"
+            sleep 10
+          done
+          echo "::error::agent-aimail@${ver} tarball still not served after 900s (last HTTP $code) — L3 would install a 404"
+          exit 1
+
   l3:
-    needs: [cli-release, npm, pypi]
+    needs: [cli-release, npm, pypi, registry-ready]
     if: ${{ inputs.dry_run != 'true' }}
     uses: ./.github/workflows/l3.yml
     secrets: inherit
