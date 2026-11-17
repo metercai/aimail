@@ -103,15 +103,16 @@ if (plans.length !== 1 || plans[0].scope !== 'system' || !plans[0].emails.includ
 console.log(JSON.stringify({ step: 'stream-plan', ok: true, plan: plans[0] }))
 
 if (delivery) {
-  const { startAgentPullEntries, GatewayClient } = await import(path.join(dist, 'core/index.js'))
+  const { startSystemPull, GatewayClient } = await import(path.join(dist, 'core/index.js'))
   const cfgPath = path.join(process.env.AIMAIL_HOME, 'systems', sid, 'aimail_gateway.json')
   const sysCfg = JSON.parse(await fs.readFile(cfgPath, 'utf-8'))
   const seen = []
-  const handles = await startAgentPullEntries({
+  const handle = await startSystemPull({
     systemId: sid,
-    onlyEmail: email,
-    onEmail: async (c, mail) => {
-      seen.push({ id: mail.id, email: mail.email, workspace: c.workspace_path })
+    gatewayUrl: sysCfg.gateway_url,
+    apiKey: sysCfg.admin_key,
+    onEmail: async (mail) => {
+      seen.push({ id: mail.id, email: mail.email, workspace: cfg.workspace_path })
     },
   })
   try {
@@ -124,7 +125,7 @@ if (delivery) {
     const deadline = Date.now() + 20_000
     while (seen.length === 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 250))
   } finally {
-    for (const h of handles) h.stop()
+    handle.stop()
   }
   if (seen.length === 0) { console.error('no SSE delivery received'); process.exit(1) }
   if (path.resolve(seen[0].workspace) !== workspace) {
