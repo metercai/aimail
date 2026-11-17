@@ -25,7 +25,7 @@
 # Exit: 0 PASS · 1 FAIL · 2 GAP/prerequisite missing
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$HERE/../.." && pwd)"
+ROOT="$(cd "$HERE/../../.." && pwd)"   # scripts/ -> dsh-acceptance/ -> tests/ -> repo root (2026-11-17: was one level short, so the default TSSDK_DIST pointed at tests/tssdk/... and the script could not run as documented)
 HARNESS="$HERE/../harness/dsh-harness.mjs"
 GATEWAY_URL="${GATEWAY_URL:-}"
 SYSTEM_CODE="${SYSTEM_CODE:-}"

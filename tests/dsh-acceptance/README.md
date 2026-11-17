@@ -41,7 +41,7 @@ docker compose ps
 | Mailpit UI/API | http://127.0.0.1:8025 | 模拟收件箱、验证码/激活码 |
 | Mailpit SMTP | 127.0.0.1:1025 | 两个网关的 outbound relay |
 
-两个网关都配置 `relay.smtp_server = smtp://mailpit:1025`；验证码/激活码走**真实 outbound 队列**，Mailpit 是模拟收件人。base 的 `/apply` 页面可人工操作，也可用脚本。
+两个网关都配置 `relay.smtp_server = mailpit:1025`（**纯 host:port**；传输层只剥离 `smtps://` 与 `smtp+starttls://`，写 `smtp://mailpit:1025` 会把 `smtp://mailpit` 当成主机名 → `Name or service not known`，验证码全部投递失败；2026-11-17 实测）；验证码/激活码走**真实 outbound 队列**，Mailpit 是模拟收件人。base 的 `/apply` 页面可人工操作，也可用脚本。
 
 ## 3. 自动化脚本
 
