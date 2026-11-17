@@ -422,6 +422,9 @@ possible):
 
 A host that passes C1–C10 may call itself **AIMail Host SSE v1 conformant**.
 
+The multi-host tssdk unification plan (review draft) is in
+[`docs/tssdk-sse-unification-plan.md`](tssdk-sse-unification-plan.md).
+
 The DSH reference has two L2 profiles during the transition:
 [`tests/dsh-acceptance/L2-PROFILES.md`](../tests/dsh-acceptance/L2-PROFILES.md)
 — legacy CLI/push L2 and the new SSE L2 (no CLI).
