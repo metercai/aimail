@@ -22,6 +22,7 @@
 
 ```text
 7f96931 fix(dsh): disable the CLI fallback on the no-CLI SSE path
+41c2fbb fix(dsh): share one SSE stream per credential scope and document it
 3028b69 test(l2): add DSH SSE L2 profile without CLI steps
 f6c630f docs: add host-neutral AIMail SSE activation contract
 c65ed44 refactor(tools): split MAIL_TOOLS, MAIL_BOARD and MAIL_ADMIN groups
