@@ -16,6 +16,8 @@ export interface StreamBinding {
   email: string
   gatewayUrl: string
   apiKey: string
+  /** Owning system; absent only for legacy callers. */
+  system_id?: string
   paused?: boolean
 }
 
@@ -37,7 +39,8 @@ export function planStreams(
     const key = `${s.gatewayUrl}\n${s.systemId}`
     if (bySystem.has(key)) continue
     const emails = bindings
-      .filter((b) => !b.paused && b.gatewayUrl === s.gatewayUrl)
+      .filter((b) => !b.paused && b.gatewayUrl === s.gatewayUrl
+        && (!b.system_id || b.system_id === s.systemId))
       .map((b) => b.email)
     bySystem.set(key, {
       scope: 'system', identity: s.systemId, gatewayUrl: s.gatewayUrl,

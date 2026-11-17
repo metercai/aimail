@@ -15,6 +15,20 @@ describe('shared SSE planning', () => {
     expect(plans[0]).toMatchObject({ scope: 'system', identity: 's1', emails: ['a@x', 'b@x'] })
   })
 
+  it('does not mix addresses from different systems on the same gateway', () => {
+    const plans = planStreams(
+      [
+        { systemId: 's1', gatewayUrl: 'http://gw', apiKey: 'K1' },
+        { systemId: 's2', gatewayUrl: 'http://gw', apiKey: 'K2' },
+      ],
+      [
+        { email: 'a@x', gatewayUrl: 'http://gw', apiKey: 'a', system_id: 's1' },
+        { email: 'b@x', gatewayUrl: 'http://gw', apiKey: 'b', system_id: 's2' },
+      ],
+    )
+    expect(plans.map(p => p.emails).sort()).toEqual([['a@x'], ['b@x']].sort())
+  })
+
   it('falls back to per-address streams when no system key exists', () => {
     const plans = planStreams([], [
       { email: 'a@x', gatewayUrl: 'http://gw', apiKey: 'a' },

@@ -147,7 +147,7 @@ export class MailHub {
     // scope, per-address fallback only when no system key covers the set.
     const plans = planStreams(
       systems.map(({ sid, cfg }) => ({ systemId: sid, gatewayUrl: cfg!.gateway_url, apiKey: cfg!.admin_key })),
-      bindings.map((b) => ({ email: b.email, gatewayUrl: b.gateway_url, apiKey: b.api_key, paused: b.paused === true })),
+      bindings.map((b) => ({ email: b.email, gatewayUrl: b.gateway_url, apiKey: b.api_key, paused: b.paused === true, system_id: b.system_id })),
     )
     for (const plan of plans) {
       this.handles.push(this.startStream({
