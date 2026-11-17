@@ -39,4 +39,14 @@ RUN cp -f /opt/agent-env/lib/llm-config.py /opt/regression/llm-config.py \
 RUN LLM_CONFIG_PRE_INSTALL=1 bash /opt/agent-env/verify.sh hermes --home "${HERMES_HOME:-/opt/data}" \
       --llm-url "$LLM_BASE_URL" --llm-model "$LLM_MODEL" --offline
 
+# Cache residue must go (measured 2026-11-18): the release-age-gate step resolves the
+# SDK name against PyPI, leaving /root/.cache/uv/{simple-v27,wheels-v7}/pypi/agent-aimail*
+# in the image. verify.sh checks "no distribution installed" and passes, but a cached
+# wheel is not a clean host: a later install can resolve from it instead of the registry.
+# Purge, then fail the build if anything aimail-ish is still cached.
+RUN rm -rf /root/.cache/uv/simple-v27/pypi/agent-aimail.rkyv \
+           /root/.cache/uv/wheels-v7/pypi/agent-aimail \
+    && ! find /root/.cache /root/.npm -iname '*agent-aimail*' -o -iname '*aimailsdk*' 2>/dev/null | grep -q . \
+    || { echo "✗ aimail cache residue survived the purge" >&2; exit 1; }
+
 CMD ["sleep", "infinity"]
