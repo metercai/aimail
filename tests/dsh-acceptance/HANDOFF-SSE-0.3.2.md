@@ -198,3 +198,5 @@ npm view agent-aimail version   # 0.3.2
 - macOS 默认 Node 23 缺 FTS5；L0 必须用 Node 24。
 - 旧 L2 仍使用 CLI/push，仅用于旧 host 回归，不代表 SSE 试点。
 - 回滚：npm 回退上一稳定 `agent-aimail` 版本，并恢复旧 L2；网关数据不迁移。
+- advanced `1.0.11` 仍内嵌 gateway `1.0.7`；若 advanced 的 relay 路径也需要
+  `smtp://` 修复，需基于 gateway `1.0.8` 重建并发布 advanced。
