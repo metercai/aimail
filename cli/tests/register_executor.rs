@@ -110,19 +110,16 @@ fn register_executor_offline_behaviour() {
         payload.get("register_spec").is_none(),
         "a node host does not run an external registrar => no register_spec may be carried ({payload:?})"
     );
-    // G1a (2026-10-13) + owner ruling 2026-10-25: the node_entry envelope of a
-    // self_bind host carries the local inbound endpoint (the contract `inbound_port`
-    // common default single source) — three-state ①: the registered value = the local
-    // endpoint (best-known; the confirmed callback is the authoritative pin).
-    // The expected value is built from contract constants (the contract literal ratchet: no literals).
-    let expected_lw = format!(
-        "http://127.0.0.1:{}",
-        aimail::core::contract::inbound_port()
-    ) + aimail::core::contract::inbound_path();
-    assert_eq!(
-        payload["local_webhook_url"],
-        json!(expected_lw),
-        "the node_entry envelope should carry local_webhook_url ({payload:?})"
+    // G1a (2026-10-13) + owner ruling 2026-10-25 + pull switch (2026-11-18): a
+    // self_bind host carried the local inbound endpoint here; pull hosts do not.
+    // The expected value was built from contract constants (the contract literal ratchet: no literals).
+    // Pull platforms receive mail by pulling the gateway stream (pi became
+    // InboundMode::Pull on 2026-11-18, same as dsh): the envelope must NOT carry a
+    // local inbound endpoint. Planning one here is exactly what made the gateway
+    // push into a closed port (127.0.0.1:9099) and drop the welcome mail.
+    assert!(
+        payload.get("local_webhook_url").is_none(),
+        "pi is SSE pull: the envelope must omit local_webhook_url ({payload:?})"
     );
     // pi does not declare --preset (register.args has no such flag) => the envelope must not carry preset.
     assert!(
