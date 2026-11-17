@@ -11,6 +11,7 @@
  *   node dsh-harness.mjs system  --gateway URL --code CODE --domain D [--home DIR]
  *   node dsh-harness.mjs address --gateway URL --email E --code CODE --workspace DIR [--home DIR]
  *   node dsh-harness.mjs lifecycle --email E --action pause|resume|unbind [--home DIR]
+ *   node dsh-harness.mjs welcome --gateway URL --system SID --email E [--home DIR]
  *   node dsh-harness.mjs hub     --gateway URL --email E --timeout SEC [--home DIR]
  *
  * Output is one JSON object on stdout; exit != 0 means the assertion failed.
@@ -22,7 +23,7 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
 const DIST = process.env.TSSDK_DIST || path.join(ROOT, 'tssdk/packages/agent-aimail/dist')
-const { provisionSystem, runAddressTool, MailHub } = await import(path.join(DIST, 'dsh/index.js'))
+const { provisionSystem, runAddressTool, MailHub, GatewayClient } = await import(path.join(DIST, 'dsh/index.js'))
 
 function arg(name, fallback = '') {
   const i = process.argv.indexOf(`--${name}`)
@@ -102,6 +103,17 @@ async function main() {
     })
     console.log(JSON.stringify(r, null, 2))
     process.exit(r.success || arg('action') === 'unbind' ? 0 : 1)
+  }
+  if (cmd === 'welcome') {
+    const sid = arg('system')
+    const email = arg('email')
+    if (!sid || !email) { console.error('welcome: --system and --email are required'); process.exit(2) }
+    const cfgPath = path.join(aimailHome, 'systems', sid, 'aimail_gateway.json')
+    const cfg = JSON.parse(await fs.readFile(cfgPath, 'utf-8'))
+    const client = new GatewayClient(String(cfg.gateway_url || gateway), String(cfg.admin_key || ''), 30_000, sid)
+    const r = await client.request('POST', '/api/v1/system/welcome', { to: [email] })
+    console.log(JSON.stringify({ status: r.status, ...r }, null, 2))
+    process.exit(r.status >= 200 && r.status < 300 ? 0 : 1)
   }
   if (cmd === 'hub') {
     const { ctx: c, followups } = ctx()

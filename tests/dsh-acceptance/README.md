@@ -79,6 +79,17 @@ docker compose ps
 3. `dsh-harness address`：无 system、共享域 B2 绑定。
 4. 申请人（默认 manager，自动白名单）发 SMTP 到 `alice@shared.test`；hub 必须收到 followup。
 
+### 3.2b New SSE L2（无 CLI）
+
+见 [L2-PROFILES.md](L2-PROFILES.md)：
+
+```bash
+GATEWAY_URL=... SYSTEM_CODE=... ADDRESS_CODE=... EMAIL=... \
+DOMAIN=... WORKSPACE=... ./scripts/run-dsh-l2-sse.sh
+```
+
+旧 L2（CLI/push）保留在 advanced 的 `run-host-regression.sh`；两套并存。
+
 ### 3.3 tssdk / 兼容 / 契约
 
 ```bash
