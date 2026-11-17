@@ -24,7 +24,8 @@ describe('openclaw-aimail op-path stdout cleanliness (Contract §4.1(2))', () =>
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
-    const mod = (await import('../../src/openclaw/index.js')) as {
+    process.env.AIMAIL_TRANSPORT = 'push'
+      const mod = (await import('../../src/openclaw/index.js')) as {
       default?: { register?: (api: unknown) => void }
     }
     const entry = mod.default

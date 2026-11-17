@@ -282,7 +282,7 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
   // ── Inbound receiver (local listener; bridge push target) ──
   let server: http.Server | undefined
   let pullHandles: AgentPullHandle[] = []
-  const transport = options.transport ?? 'push'
+  const transport = options.transport ?? 'sse'
   const startInbound = () => {
     if (transport === 'sse') {
       // SSE contract: no local listener, no HMAC push endpoint, no CLI.

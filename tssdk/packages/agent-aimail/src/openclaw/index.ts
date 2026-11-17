@@ -30,7 +30,7 @@ import { activateHost } from '../hosts/activate.js'
 // SDK-shipped board resources (role prompts/souls) live at the package root.
 const boardRoot = path.join(packageResourcesRoot(), 'board')
 
-const transport = process.env.AIMAIL_TRANSPORT === 'sse' ? 'sse' : 'push'
+const transport = process.env.AIMAIL_TRANSPORT === 'push' ? 'push' : 'sse'
 const entry: OpenClawPluginDefinition = definePluginEntry({
   id: 'agent-aimail',
   name: 'AIMail',

@@ -45,7 +45,9 @@ explicitly in release automation.
 
 ## Pi / OpenClaw activation L2 (new)
 
-Host-specific activation-only L2 harnesses (no CLI, no listener):
+Pi and OpenClaw now default to SSE; set `AIMAIL_TRANSPORT=push` (or Pi
+`transport: 'push'`) only for legacy compatibility. Host-specific
+activation-only L2 harnesses (no CLI, no listener):
 
 ```bash
 GATEWAY_URL=... SYSTEM_CODE=... ADDRESS_CODE=... \

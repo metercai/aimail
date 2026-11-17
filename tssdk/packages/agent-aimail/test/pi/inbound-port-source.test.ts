@@ -83,7 +83,7 @@ describe('pi-aimail: binding carries the REAL bound port, not the default', () =
   it('webhook_url == the port the listener actually bound', async () => {
     capturedWebhook = undefined
     const mod = (await import('../../src/pi/index.js')) as {
-      default: (pi: unknown, opts?: { inboundPort?: number }) => void
+      default: (pi: unknown, opts?: { inboundPort?: number; transport?: 'push' | 'sse' }) => void
     }
     const api = {
       registerTool() {},
@@ -92,7 +92,7 @@ describe('pi-aimail: binding carries the REAL bound port, not the default', () =
       on() {},
     }
     // preferred = the 9099 default; the listener re-selects REAL_PORT
-    mod.default(api, { inboundPort: 9099 })
+    mod.default(api, { inboundPort: 9099, transport: 'push' })
     // the doListen chain is async (void) — wait for the binder to be invoked
     await vi.waitFor(() => expect(capturedWebhook).toBeDefined(), {
       timeout: 2000,

@@ -6,7 +6,7 @@ Only capabilities verified from installed type definitions are marked â€œknownâ€
 
 | Capability | DSH | Pi | OpenClaw |
 |---|---|---|---|
-| Plugin lifecycle | Cordis entries; background services OK (known) | Extension `apply(api)`; event handlers (known) | Plugin entry (known); background consumer TBD |
+| Plugin lifecycle | Cordis entries; background services OK (known) | Extension `apply(api)`; SSE pull default, listener legacy (known) | Plugin entry; SSE default, listener legacy (known); shared consumer TBD |
 | Workspace | `workspaceRegistry` + `default-workspace` (known) | `ExtensionContext.cwd`; workspace is the current project directory; registry/list TBD | Per-agent workspace/agentDir (known from existing adapter); resolver TBD |
 | Session handle | `ctx.agents.create/get/resume`, `agent.followup` (known) | `ExtensionCommandContext.newSession/switchSession`, `sendUserMessage` (known; command vs background context TBD) | Agent/session API TBD |
 | Wake a turn | `agent.followup` (known) | `sendUserMessage` / `sendMessage(triggerTurn)` (known) | TBD |

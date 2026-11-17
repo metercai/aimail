@@ -6,7 +6,8 @@ import { describe, it, expect } from 'vitest'
 
 describe('openclaw-aimail entry smoke', () => {
   it('registers 14 tools, 1 route, 1 command', async () => {
-    const mod = (await import('../../src/openclaw/index.js')) as {
+    process.env.AIMAIL_TRANSPORT = 'push'
+      const mod = (await import('../../src/openclaw/index.js')) as {
       default?: { register?: (api: unknown) => void }
     }
     const entry = mod.default
