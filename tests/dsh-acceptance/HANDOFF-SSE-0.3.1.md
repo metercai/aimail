@@ -13,6 +13,7 @@
 | 系统对接 | `aimail_system` 合并进 DSH tool entry，工具列表可见 |
 | 工具分组 | `MAIL_TOOLS`(7) / `MAIL_BOARD`(7) / `MAIL_ADMIN`(2) |
 | 地址工作区 | 地址激活的工作区不再被启动 ensure 覆盖；SSE 按 workspace 解析 |
+| 共享 SSE | 同一 `gateway_url` + credential scope 复用一条 SSE，多地址按 recipient 路由到 workspace/session |
 | 无 CLI | DSH 启动绑定禁止 `ensureSystem` 反向调用 CLI |
 | L2 | 新增无 CLI 的 DSH SSE L2；旧 CLI/push L2 保留 |
 | 版本 | `agent-aimail@0.3.1` |
@@ -158,6 +159,7 @@ WORKSPACE=/tmp/dsh-l2-workspace \
 | C7 manager 回复同 workspace | L3 / thread meta 单测 | live 待 L3 |
 | C8 pause/resume | `dsh-harness lifecycle` + 单测 | 代码通过 |
 | C9 ack/重连幂等 | mail-hub 单测 + L3 | 代码通过 |
+| C11 共享 SSE | 同一 gateway/scope 复用一条流；多地址按 recipient 路由 | 代码/契约已列；live 待 QA |
 | C10 密钥/文件边界 | L0 contract/file-ownership | PASS |
 
 ## 6. 发版顺序

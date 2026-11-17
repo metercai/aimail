@@ -306,6 +306,28 @@ POST /api/v1/admin/pending/ack  { ids: [...] }
 - Deduplicate/ack duplicates idempotently by message id/thread.
 - Delivery is at-least-once; the host must tolerate replay after reconnect.
 
+### 7.0 Shared-stream invariant
+
+The SSE endpoint is a **gateway-level multiplexer**, not a per-mailbox or
+per-workspace connection.
+
+- All bindings with the **same `gateway_url` and the same credential scope**
+  MUST share one SSE consumer/connection.
+- One connection carries deliveries for multiple addresses; each delivery is
+  routed by recipient → binding → workspace → session.
+- A host MUST NOT open one SSE stream per mailbox, per workspace or per session.
+- Changing `gateway_url` (or credential scope) is the only reason to open a
+  second stream for a different gateway.
+- The same rule applies after reconnect and after address bind/pause/resume:
+  reuse/reconcile the existing gateway stream; do not stack duplicate streams.
+
+Scope caveat: a gateway key is scoped (system/domain vs address). Where a
+system/domain key covers all target addresses, one stream is mandatory. If a
+B2 deployment only has per-address agent keys, those keys cannot observe each
+other; per-address streams are a **fallback until the gateway provides a
+covering scope key**, and even then the host keeps one router and never opens a
+stream per workspace/session.
+
 ### 7.3 Stream selection
 
 | Host state | Stream |
@@ -396,6 +418,7 @@ possible):
 | C8 | Pause/resume | Paused mail is not acked; resume drains pending once. |
 | C9 | Ack/restart | Reconnect/replay is idempotent; unhandled items remain pending; no duplicate session/ack. |
 | C10 | Boundary/security | No admin/domain/system/bridge key in dialog; 0600/0700 files; no secrets in logs. |
+| C11 | Shared SSE | Same gateway + credential scope reuses one stream; multiple addresses route to their own workspace/session; no per-workspace/session stream. |
 
 A host that passes C1–C10 may call itself **AIMail Host SSE v1 conformant**.
 

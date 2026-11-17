@@ -135,22 +135,25 @@ export class MailHub {
     this.stopAll()
     if (this.ctrl.signal.aborted) return
     const sids = await listSystemDirs()
-    let systemCfg: { sid: string; cfg: Awaited<ReturnType<typeof readSystemGatewayConfig>> } | undefined
+    // One stream per credential scope. All addresses of a system share the
+    // system stream; the hub routes each delivery by recipient. Multiple
+    // systems (even on one gateway) need one stream per system key, because a
+    // system key cannot observe another system's pending queue.
+    const systems: Array<{ sid: string; cfg: Awaited<ReturnType<typeof readSystemGatewayConfig>> }> = []
     for (const sid of sids) {
       const cfg = await readSystemGatewayConfig(sid)
-      if (cfg?.admin_key) {
-        systemCfg = { sid, cfg }
-        break
-      }
+      if (cfg?.admin_key) systems.push({ sid, cfg })
     }
-    if (systemCfg?.cfg) {
-      const handle = this.startStream({
-        email: `system:${systemCfg.sid}`,
-        gatewayUrl: systemCfg.cfg.gateway_url,
-        apiKey: systemCfg.cfg.admin_key,
-        identity: systemCfg.sid,
-      })
-      this.handles.push(handle)
+    if (systems.length > 0) {
+      for (const systemCfg of systems) {
+        const handle = this.startStream({
+          email: `system:${systemCfg.sid}`,
+          gatewayUrl: systemCfg.cfg!.gateway_url,
+          apiKey: systemCfg.cfg!.admin_key,
+          identity: systemCfg.sid,
+        })
+        this.handles.push(handle)
+      }
     } else {
       for (const sid of sids) {
         const configs = await this.listBindings(sid)
