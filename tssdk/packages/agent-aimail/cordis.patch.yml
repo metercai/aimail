@@ -26,13 +26,10 @@
     - id: mail
       name: 'agent-aimail/mail-service'
 
-    # AIMail tools (15 bare names, semantics from @aimail/mail-core)
+    # AIMail tools (15 mail tools + dsh-only aimail_system onboarding)
     - id: tool-mail
       name: 'agent-aimail/tools'
 
-    # dsh-only system onboarding tool (activation code → config/keys/default worker)
-    - id: mail-system
-      name: 'agent-aimail/system'
 
     # SSE pull hub: one system stream (domain key) or per-address agent streams.
     - id: mail-hub
