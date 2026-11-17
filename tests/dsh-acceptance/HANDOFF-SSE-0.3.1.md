@@ -2,7 +2,7 @@
 
 - 交接对象：QA / 发布
 - 目标版本：`agent-aimail@0.3.1`（npm）、CLI `0.1.64`
-- 关联网关：base `1.0.7`、advanced `1.0.11`（本轮不改网关）
+- 关联网关：base **`1.0.8`**（SMTP relay 修复）、advanced `1.0.11`
 - 规范：[`docs/aimail-host-sse-contract.md`](../../docs/aimail-host-sse-contract.md)
 - 两套 L2：[`L2-PROFILES.md`](L2-PROFILES.md)
 
@@ -11,7 +11,7 @@
 | 项 | 内容 |
 |---|---|
 | 系统对接 | `aimail_system` 合并进 DSH tool entry，工具列表可见 |
-| 工具分组 | `MAIL_TOOLS`(7) / `MAIL_BOARD`(7) / `MAIL_ADMIN`(2) |
+| 工具分组 | `MAIL_TOOLS`(7) / `MAIL_BOARD`(7) / `MAIL_ADMIN`(1 spec-backed；names 含 `aimail_system`) |
 | 地址工作区 | 地址激活的工作区不再被启动 ensure 覆盖；SSE 按 workspace 解析 |
 | 共享 SSE | 同一 `gateway_url` + credential scope 复用一条 SSE，多地址按 recipient 路由到 workspace/session |
 | 无 CLI | DSH 启动绑定禁止 `ensureSystem` 反向调用 CLI |
@@ -21,6 +21,7 @@
 提交：
 
 ```text
+852a051 fix(smtp): accept smtp:// relay URLs and reject unknown schemes at startup
 7f96931 fix(dsh): disable the CLI fallback on the no-CLI SSE path
 41c2fbb fix(dsh): share one SSE stream per credential scope and document it
 3028b69 test(l2): add DSH SSE L2 profile without CLI steps
@@ -70,7 +71,7 @@ bash tests/sdk/l0-gate-tests.sh
 ```text
 L0 PASS (rc=0)
 pytest 435 passed
-tssdk vitest 480 passed | 1 skipped
+tssdk vitest: Linux 481 passed / 0 skipped；macOS 480 passed / 1 skipped
 ```
 
 跳过项：macOS Node 的“端口全部耗尽”监听用例；SSE 不需要 listener。
@@ -85,6 +86,18 @@ cargo clippy --manifest-path cli/Cargo.toml --all-targets --no-deps -- -D warnin
 ```
 
 结果：全绿（0 failed / fmt / clippy PASS）。
+
+### Gateway（SMTP relay fix）
+
+```bash
+cd aimail-gateway
+cargo test --lib core::smtp::transport
+cargo fmt --check
+cargo clippy --all-targets --no-deps -- -D warnings
+```
+
+结果：5 transport tests PASS；fmt/clippy PASS。`smtp://` 现在按 plain
+SMTP 解析；未知 `://` scheme 在启动时返回配置错误，不再变成运行期 DNS 噪音。
 
 ### npm dry run
 
@@ -147,7 +160,7 @@ WORKSPACE=/tmp/dsh-l2-workspace \
 说明：新 L2 用 fake Cordis Agent session，不跑真实 LLM；真实 welcome 回复/manager
 批复仍由 L3 真 LLM 负责。
 
-## 5. 契约验收矩阵（C1–C10）
+## 5. 契约验收矩阵（C1–C11）
 
 | ID | 本轮证据 | 状态 |
 |---|---|---|
@@ -160,16 +173,17 @@ WORKSPACE=/tmp/dsh-l2-workspace \
 | C7 manager 回复同 workspace | L3 / thread meta 单测 | live 待 L3 |
 | C8 pause/resume | `dsh-harness lifecycle` + 单测 | 代码通过 |
 | C9 ack/重连幂等 | mail-hub 单测 + L3 | 代码通过 |
-| C11 共享 SSE | 同一 gateway/scope 复用一条流；多地址按 recipient 路由 | 代码/契约已列；live 待 QA |
 | C10 密钥/文件边界 | L0 contract/file-ownership | PASS |
+| C11 共享 SSE | 同一 gateway/scope 复用一条流；多地址按 recipient 路由 | 代码/契约已列；live 待 QA |
 
 ## 6. 发版顺序
 
 1. 发布 `agent-aimail@0.3.1`（npm）。
-2. 确认 CLI `0.1.64` 已发布（pull-mode check）。
-3. 跑新 L2（4.2）。
-4. 跑 L3 `dsh-aimail` / `dsh-plugin`（真 LLM）。
-5. 通过后再做试点签字；旧 L2 结果不计入 SSE 试点。
+2. 发布/更新 base gateway `1.0.8`（smtp:// relay 修复）。
+3. 确认 CLI `0.1.64` 已发布（pull-mode check）。
+4. 跑新 L2（4.2）。
+5. 跑 L3 `dsh-aimail` / `dsh-plugin`（真 LLM）。
+6. 通过后再做试点签字；旧 L2 结果不计入 SSE 试点。
 
 发布后核对：
 
