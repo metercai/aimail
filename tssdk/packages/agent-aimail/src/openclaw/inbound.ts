@@ -22,6 +22,7 @@ import {
   routeAddressFromHeaders,
   logAimailDispatch,
   startAgentPullEntries,
+  startSystemPull,
   AGENT_SCOPE_SYSTEM_PREFIX,
   type AgentConfig,
   type AgentPullHandle,
@@ -31,6 +32,7 @@ import {
 } from '../core/index.js'
 import type { OpenClawPluginApi } from 'openclaw/plugin-sdk/plugin-entry'
 import { resolveByRecipient } from '../mail/index.js'
+import { readSystemGatewayConfig } from '../core/provision.js'
 import {
   configuredAgentIds,
   gatewayPort,
@@ -277,6 +279,31 @@ export async function startInboundPull(
   } = {},
 ): Promise<AgentPullHandle[]> {
   const ptr = await readPointer()
+  const sid = opts.systemId ?? ptr.system_id ?? ''
+  const sys = sid ? await readSystemGatewayConfig(sid).catch(() => undefined) : undefined
+  if (sys?.admin_key) {
+    const h = await startSystemPull({
+      systemId: sid,
+      gatewayUrl: sys.gateway_url,
+      apiKey: sys.admin_key,
+      ...(opts.log ? { log: opts.log } : {}),
+      onEmail: async (mail) => {
+        if (typeof mail.body !== 'object' || mail.body === null) {
+          throw new Error(`pulled delivery ${mail.id} for ${mail.email} carries no JSON payload — not acking`)
+        }
+        const headers: Record<string, unknown> = { ...(mail.headers ?? {}), 'x-aimail-email': mail.email }
+        const target = await resolveInboundTarget(mail.body as InboundPayload, headers)
+        if (!target) throw new Error(`pulled delivery ${mail.id}: no binding for ${mail.email} — not acking`)
+        const out = await deliverInbound(api, target, mail.body as InboundPayload, headers)
+        if (!out.ok) throw new Error(`pulled delivery ${mail.id}: inbound chain did not deliver (${out.status}: ${out.detail ?? ''}) — not acking`)
+      },
+    })
+    return [{
+      email: `system:${sid}`, started: true, reason: 'enabled', intervalMs: 0, limit: 0,
+      stop: h.stop, done: h.done as Promise<import('../core/index.js').PollStats>,
+      stats: () => ({ pulled: 0, acked: 0, errors: 0 }),
+    }]
+  }
   return await startAgentPullEntries({
     systemId: opts.systemId ?? ptr.system_id ?? '',
     ...(opts.log ? { log: opts.log } : {}),
