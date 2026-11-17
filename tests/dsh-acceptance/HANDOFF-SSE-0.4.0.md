@@ -192,6 +192,23 @@ WORKSPACE=/tmp/dsh-l2-workspace \
 npm view agent-aimail version   # 0.3.2
 ```
 
+## 6b. 当前实现进度（goal 进行中）
+
+已合入：
+
+- `runtime` 公开入口（HostAdapter / thread routing / planStreams / system tool）；
+- DSH `mail-hub` 使用共享 planner，并按 system 隔离；
+- Pi/OpenClaw 默认 SSE（push 仅显式兼容）；
+- Pi/OpenClaw `aimail_system` + 无 binding 地址激活 + workspace pin；
+- host L2 activation / 可选 live welcome harness。
+
+尚未完成（不得据此验收）：
+
+- Pi/OpenClaw pull 入口尚未消费 `planStreams`；
+- 真实 Pi/OpenClaw live L2/L3 未跑；
+- DSH activation 尚未完全物理迁入 `runtime/`；
+- 共享 SSE 的实际单连接行为没有 live 证据。
+
 ## 7. 已知限制 / 回滚
 
 - 0.2.19 之前的旧 binding 若被启动 ensure 覆盖过 workspace，需要重新执行一次
