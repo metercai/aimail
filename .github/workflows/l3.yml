@@ -66,10 +66,11 @@ jobs:
   l3:
     name: L3 ${{ matrix.platform }} / ${{ matrix.agent }}
     runs-on: ${{ matrix.os }}
-    # Filter at JOB level: an in-job filter still occupies a runner slot (measured
-    # 2026-11-18: two macos cells sat "queued" for 15+ min and held the whole l3
-    # concurrency group, blocking the next single-cell dispatch).
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.cell == '' || inputs.cell == format('{0}/{1}', matrix.platform, matrix.agent) }}
+    # NOTE: the dispatch-cell filter has to stay INSIDE the job (the `matrix`
+    # context is not available in a job-level `if`, and using it there makes the
+    # whole workflow undispatchable: 422). Cost, measured 2026-11-18: filtered
+    # cells still take a runner slot, so a single-cell dispatch can queue behind
+    # two macos cells. Acceptable; do not "optimise" this back into a job-level if.
     strategy:
       fail-fast: false   # one red platform does not cancel the rest — verdicts from all 8 cells must be visible
       matrix:
