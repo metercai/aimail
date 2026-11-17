@@ -204,10 +204,11 @@ npm view agent-aimail version   # 0.3.2
 
 尚未完成（不得据此验收）：
 
-- Pi/OpenClaw pull 入口尚未消费 `planStreams`；
+- Pi/OpenClaw pull 入口已接 system-scoped shared stream（`startSystemPull`）；
 - 真实 Pi/OpenClaw live L2/L3 未跑；
 - DSH activation 尚未完全物理迁入 `runtime/`；
-- 共享 SSE 的实际单连接行为没有 live 证据。
+- 共享 SSE 的实际单连接行为没有 live 证据；
+- Pi/OpenClaw 的 L2 激活/流计划 harness 已存在，live 运行仍缺 gateway + 激活码。
 
 ## 7. 已知限制 / 回滚
 
