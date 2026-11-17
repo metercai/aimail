@@ -511,14 +511,17 @@ case "$AGENT" in
     #    artifact is provided, install it over the top — the cell must test the
     #    build under review, not the previous release.
     if [ -n "${AIMAIL_SDK_DIR:-}" ]; then
-      # The CLI already installed the npm "latest" extension; two copies would
-      # both load and collide on every tool name (measured 2026-11-18:
-      # 'Tool "send_mail" conflicts with …'). Drop the npm copy first.
-      HOME="$HOME" "$PI_BIN" remove agent-aimail >/dev/null 2>&1 || true
-      HOME="$HOME" "$PI_BIN" install "$AIMAIL_SDK_DIR" || die "pi install $AIMAIL_SDK_DIR failed"
-      HOME="$HOME" "$PI_BIN" list > "$WORK/pi-list.log" 2>&1 || die "pi list failed"
-      grep -q "agent-aimail" "$WORK/pi-list.log" || { cat "$WORK/pi-list.log"; die "aimail extension not installed for pi"; }
-      ok "pi extension overridden with the worktree build: $AIMAIL_SDK_DIR"
+      # The CLI installed npm "latest" into the pi home; a second install would
+      # make pi load both copies and collide on every tool name (measured
+      # 2026-11-18: 'Tool "send_mail" conflicts with …'). Replace that copy in
+      # place instead: same package name/path for pi's settings, code = the
+      # artifact under review.
+      PI_EXT="$(find "$HOME/.pi" -maxdepth 6 -type d -name agent-aimail -path '*node_modules*' 2>/dev/null | head -1)"
+      [ -n "$PI_EXT" ] || die "cannot locate the npm-installed pi extension to override (searched $HOME/.pi)"
+      rm -rf "$PI_EXT" && mkdir -p "$PI_EXT"
+      ( cd "$AIMAIL_SDK_DIR" && tar cf - --exclude=node_modules --exclude=.git . ) | ( cd "$PI_EXT" && tar xf - ) \
+        || die "override copy failed: $AIMAIL_SDK_DIR -> $PI_EXT"
+      ok "pi extension replaced in place with the worktree build: $PI_EXT"
     fi
     ;;
   dsh-aimail|hermes)
