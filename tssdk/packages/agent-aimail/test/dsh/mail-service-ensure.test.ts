@@ -51,6 +51,7 @@ describe('dsh-aimail startup self-bootstrap + default agent binding', () => {
         home: expect.any(String),
         agentId: 'agent',
         webhookUrl: '',
+        allowCli: false,
         log: expect.any(Function),
       }),
     )

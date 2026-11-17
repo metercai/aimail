@@ -75,6 +75,9 @@ export interface EnsureAgentBindingOptions {
   adminKey?: string
   /** test seam: exec override for the CLI reverse-call (ensureSystem). */
   exec?: (cmd: string, args: string[]) => Promise<{ code: number; stdout: string }>
+  /** When false, never fall back to the CLI ABI; the host must have an owned
+   *  system (or onboard it through its Agent tool). Default true for other hosts. */
+  allowCli?: boolean
 }
 
 export interface EnsureAgentBindingResult {
@@ -108,6 +111,12 @@ export async function ensureAgentBinding(
     if (owned) {
       systemId = owned
     } else {
+      if (opts.allowCli === false) {
+        return {
+          ok: false,
+          error: 'no owned AIMail system; onboard it through the Agent system tool (CLI disabled)',
+        }
+      }
       const r = await ensureSystem(
         opts.exec ? { systemHome: home, exec: opts.exec } : { systemHome: home },
       )

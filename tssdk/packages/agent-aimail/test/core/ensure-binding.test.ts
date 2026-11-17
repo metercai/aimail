@@ -75,6 +75,17 @@ describe('ensureAgentBinding (single-source host default-agent binding)', () => 
     expect(r.error).toBeTruthy()
   })
 
+  test('allowCli=false never invokes the CLI when no owning system exists', async () => {
+    const home = path.join(iso, 'host')
+    fs.mkdirSync(home, { recursive: true })
+    let called = false
+    const exec = async () => { called = true; return { code: 0, stdout: '' } }
+    const r = await ensureAgentBinding({ home, exec, allowCli: false, transport: registerTransport() })
+    expect(r.ok).toBe(false)
+    expect(called).toBe(false)
+    expect(String(r.error)).toContain('CLI disabled')
+  })
+
   test('owning system, no binding → registers + writes binding, exists=false, agent_id persisted', async () => {
     const home = path.join(iso, 'host')
     const sid = 'sys-a'

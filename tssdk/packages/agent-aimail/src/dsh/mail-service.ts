@@ -151,6 +151,7 @@ export async function ensureDefaultAgentBinding(ctx?: Context): Promise<void> {
     // empty webhook is the pull-mode contract; the hub reads the same
     // binding from agentmail.json.  // contract-allowed: mail-service ensures binding+pointer at startup (F8 pull-mode fix)
     webhookUrl: '',
+    allowCli: false,
     log: (l) => console.log(`[agent-aimail] ${l}`),
   })
   if (!r.ok) {
