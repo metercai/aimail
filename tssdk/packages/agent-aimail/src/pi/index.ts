@@ -33,8 +33,13 @@ export { INBOUND_PATH }
 const DEFAULT_INBOUND_PORT = INBOUND_PORT
 
 export interface PiAimailOptions {
-  /** Inbound listener port (default 9099 — the common inbound_port). */
+  /** Inbound listener port (legacy push mode only). */
   inboundPort?: number
+  /**
+   * `sse` (default) = pending SSE pull only, no listener/CLI.
+   * `push` = legacy local listener + push bridge compatibility.
+   */
+  transport?: 'sse' | 'push'
 }
 
 /** The resolved target of one inbound payload (binding + routed address). */
@@ -277,7 +282,18 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
   // ── Inbound receiver (local listener; bridge push target) ──
   let server: http.Server | undefined
   let pullHandles: AgentPullHandle[] = []
+  const transport = options.transport ?? 'push'
   const startInbound = () => {
+    if (transport === 'sse') {
+      // SSE contract: no local listener, no HMAC push endpoint, no CLI.
+      void tryAutoBindOnce({ allowCli: false, webhookUrl: '' })
+        .catch((e: unknown) => log.warn(`[agent-aimail] eager binding failed: ${e instanceof Error ? e.message : String(e)}`))
+        .then(() => startInboundPull(pi, { log }))
+        .then((handles) => { pullHandles = handles })
+        .catch((e: unknown) => log.warn(`[agent-aimail] SSE pull failed to start: ${e instanceof Error ? e.message : String(e)}`))
+      log.info('[agent-aimail] transport=sse (no listener/CLI)')
+      return
+    }
     if (server) return
     server = http.createServer((req, res) => {
       const json = (code: number, body: unknown) => {

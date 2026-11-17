@@ -33,6 +33,13 @@ export interface Config {
   gatewayUrl?: string
 }
 
+/** Host-neutral workspace primitives for system onboarding (non-DSH hosts). */
+export interface SystemWorkspaceHost {
+  defaultWorkspace(): Promise<{ id: string; path: string; title?: string }>
+  ensureWorkspace(path: string): Promise<{ id: string; path: string; title?: string }>
+  systemHome(): string
+}
+
 export interface Args {
   action?: string
   code?: string
@@ -80,8 +87,9 @@ export async function systemStatus(): Promise<Record<string, unknown>> {
 }
 
 export async function provisionSystem(
-  ctx: Context,
+  ctx: Context | undefined,
   args: Args,
+  host?: SystemWorkspaceHost,
 ): Promise<Record<string, unknown>> {
   const action = String(args.action ?? 'bind').toLowerCase()
   if (action === 'status') return await systemStatus()
@@ -167,7 +175,8 @@ export async function provisionSystem(
     ...(selectedDomain ? { domain: selectedDomain } : {}),
     ...(activated.manager_address ? { manager_address: activated.manager_address } : {}),
     save_raw_snapshots: true,
-    system_home: (process.env.DSH_HOME || path.join(process.env.HOME || '', '.dsh')).replace(/\/+$/, ''),
+    system_home: host?.systemHome()
+      ?? (process.env.DSH_HOME || path.join(process.env.HOME || '', '.dsh')).replace(/\/+$/, ''),
     ...(activated.domains.length ? { domains: activated.domains } : {}),
   }
   await writeRawSystemKey(sid, rawKey)
@@ -199,8 +208,8 @@ export async function provisionSystem(
   let workspace: { id: string; path: string; title?: string } | undefined
   if (selectedDomain) {
     defaultEmail = defaultWorkerEmail(selectedDomain, finalCfg.system_name)
-    const ws = await defaultWorkspaceOrCreate(ctx)
-    workspace = await ensureWorkspace(ctx, ws.path)
+    const ws = host ? await host.defaultWorkspace() : await defaultWorkspaceOrCreate(ctx!)
+    workspace = host ? await host.ensureWorkspace(ws.path) : await ensureWorkspace(ctx!, ws.path)
     const existingBinding = await loadAgentConfig(sid, defaultEmail)
     if (!existingBinding) {
       try {

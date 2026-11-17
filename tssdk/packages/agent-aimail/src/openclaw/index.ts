@@ -30,6 +30,7 @@ import { activateHost } from '../hosts/activate.js'
 // SDK-shipped board resources (role prompts/souls) live at the package root.
 const boardRoot = path.join(packageResourcesRoot(), 'board')
 
+const transport = process.env.AIMAIL_TRANSPORT === 'sse' ? 'sse' : 'push'
 const entry: OpenClawPluginDefinition = definePluginEntry({
   id: 'agent-aimail',
   name: 'AIMail',
@@ -128,16 +129,18 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
     }
 
     // 15 bare-name tools (MAIL_TOOLS single source; identity from ctx.agentId)
-    api.registerTool(createMailTools)
+    api.registerTool((ctx) => createMailTools(ctx, resolveAgentWorkspaceDir))
 
     // Inbound delivery route (in-gateway, no new port; auth=plugin, HMAC is
     // the trust boundary per R2)
-    api.registerHttpRoute({
-      path: INBOUND_PATH,
-      auth: 'plugin',
-      match: 'exact',
-      handler: createInboundHandler(api),
-    })
+    if (transport === 'push') {
+      api.registerHttpRoute({
+        path: INBOUND_PATH,
+        auth: 'plugin',
+        match: 'exact',
+        handler: createInboundHandler(api),
+      })
+    }
 
     // Eager default-agent binding (dsh parity, 2026-10-16 batch): the
     // `openclaw plugins install` path never runs the CLI's register_default
@@ -154,7 +157,7 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
     {
       void (async () => {
         const agentId = resolveAgentId() || DEFAULT_AGENT_ID
-        await tryAutoBindOnce(agentId)
+        await tryAutoBindOnce(agentId, transport === 'sse' ? { allowCli: false, webhookUrl: '' } : {})
         // Pull entry (2026-09-27): an address activated by an activation CODE
         // has no push path (the gateway stores webhook_url=NULL for it), so
         // this host must fetch its own mail on a timer. Started AFTER the
@@ -189,7 +192,7 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
         // ruling 2026-10-25: every host carries its real serving endpoint, no
         // exceptions). Best-effort and never fatal (argv, 4s timeout, no CLI ⇒
         // one log line).
-        void notifyInboundForSystem('live', { inboundUrl: openclawWebhookUrl() })
+        if (transport === 'push') void notifyInboundForSystem('live', { inboundUrl: openclawWebhookUrl() })
           .then((outcomes) => {
             for (const o of outcomes) {
               const line = `[agent-aimail] ${formatInboundNotifyLine(o, 'live')}`
@@ -210,7 +213,9 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
       })
     }
 
-    // Registration / status commands
+    // Registration / status commands are legacy CLI surface; the SSE profile
+    // uses the Agent tool surface instead.
+    if (transport === 'push') {
     for (const command of createAimailCommands()) {
       api.registerCommand(command)
     }
@@ -262,6 +267,7 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
           }],
         },
       )
+    }
     }
   },
 })

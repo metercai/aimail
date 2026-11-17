@@ -29,7 +29,7 @@ describe('openclaw-aimail entry smoke', () => {
       },
     }
     entry!.register!(api)
-    expect(tools).toBe(15)
+    expect(tools).toBe(16)
     expect(routes).toBe(1)
     expect(commands).toBe(1)
   })

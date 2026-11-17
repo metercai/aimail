@@ -147,13 +147,19 @@ export function resetAutoBindOnce(): void {
  * write). Never throws — failures warn and fall through to the caller's
  * own error.
  */
-export async function tryAutoBindOnce(): Promise<AgentConfig | undefined> {
+export async function tryAutoBindOnce(opts: {
+  /** SSE-only hosts must never reverse-call the CLI ABI. */
+  allowCli?: boolean
+  /** Explicit inbound URL; SSE-only passes '' (no listener). */
+  webhookUrl?: string
+} = {}): Promise<AgentConfig | undefined> {
   if (_autoBindAttempted) return undefined
   _autoBindAttempted = true
   const r = await ensureAgentBinding({
     home: path.dirname(POINTER_PATH),
     agentId: DEFAULT_AGENT_ID,
-    webhookUrl: inboundWebhookUrl(),
+    webhookUrl: opts.webhookUrl ?? inboundWebhookUrl(),
+    allowCli: opts.allowCli ?? true,
     log: (l) => console.warn(`[agent-aimail] ${l}`),
   })
   if (!r.ok || !r.email || !r.systemId) {

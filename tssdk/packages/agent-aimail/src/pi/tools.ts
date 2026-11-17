@@ -8,10 +8,13 @@
  * textResult-equivalent here (pi has no jsonResult helper export, so we
  * build the shape directly).
  */
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 import type { TSchema } from 'typebox'
 import { AGENT_TOOL_DEFS, toTypeBoxParams } from '../core/index.js'
 import { resolveConfig } from './identity.js'
 import { setAgentModel } from '../core/index.js'
+import { SYSTEM_TOOL_DESCRIPTION, SYSTEM_TOOL_PARAMS, pinWorkspaceToBinding, runSystemTool } from '../runtime/index.js'
 
 /** pi AgentToolResult content block. */
 interface TextBlock {
@@ -51,7 +54,13 @@ export function buildPiTools(): Array<{
     ctx: unknown,
   ) => Promise<PiToolResult>
 }> {
-  return AGENT_TOOL_DEFS.map(tool => ({
+  const tools: Array<{
+    name: string
+    label: string
+    description: string
+    parameters: TSchema
+    execute: (toolCallId: string, params: unknown, signal: AbortSignal | undefined, ctx: unknown) => Promise<PiToolResult>
+  }> = AGENT_TOOL_DEFS.map(tool => ({
     name: tool.name,
     label: tool.name,
     description: tool.description,
@@ -60,12 +69,36 @@ export function buildPiTools(): Array<{
       // Primary model at call time (pi ExtensionContext.model.id)
       const m = (ctx as { model?: { id?: string } } | undefined)?.model
       setAgentModel(m?.id)
-      const cfg = await resolveConfig()
+      const args = (params ?? {}) as Record<string, unknown>
+      // Activation tools must work before a binding exists.
+      const needsConfig = tool.name !== 'aimail_address' && tool.name !== 'aimail_system'
+      const cfg = needsConfig ? await resolveConfig() : undefined
       const result = await tool.handler(
-        { systemId: cfg.system_id, email: cfg.email },
-        (params ?? {}) as Record<string, unknown>,
+        cfg ? { systemId: cfg.system_id, email: cfg.email } : { systemId: '' },
+        args,
       )
+      if (tool.name === 'aimail_address' && result.success && args.action === 'bind' && args.email) {
+        const cwd = (ctx as { cwd?: string } | undefined)?.cwd || process.cwd()
+        await pinWorkspaceToBinding(String(args.email), { id: cwd, path: cwd })
+      }
       return toPiResult(result)
     },
   }))
+  tools.push({
+    name: 'aimail_system',
+    label: 'aimail_system',
+    description: SYSTEM_TOOL_DESCRIPTION,
+    parameters: toTypeBoxParams(SYSTEM_TOOL_PARAMS),
+    async execute(_toolCallId, params, _signal, ctx) {
+      const cwd = (ctx as { cwd?: string } | undefined)?.cwd || process.cwd()
+      fs.mkdirSync(cwd, { recursive: true })
+      const r = await runSystemTool((params ?? {}) as Record<string, unknown>, {
+        defaultWorkspace: async () => ({ id: cwd, path: cwd, title: path.basename(cwd) }),
+        ensureWorkspace: async (p) => ({ id: p, path: p, title: path.basename(p) }),
+        systemHome: () => path.join(process.env.HOME || '', '.pi'),
+      })
+      return toPiResult(r)
+    },
+  })
+  return tools
 }

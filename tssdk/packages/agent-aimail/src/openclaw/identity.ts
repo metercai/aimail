@@ -260,14 +260,18 @@ export function resetAutoBindOnce(): void {
  * register chain. Never throws — failures warn and fall through to the
  * caller's own error.
  */
-export async function tryAutoBindOnce(agentId: string): Promise<AgentConfig | undefined> {
+export async function tryAutoBindOnce(
+  agentId: string,
+  opts: { allowCli?: boolean; webhookUrl?: string } = {},
+): Promise<AgentConfig | undefined> {
   if (_autoBindAttempted) return undefined
   _autoBindAttempted = true
   const r = await ensureAgentBinding({
     home: path.join(openclawHome(), '.openclaw'),
     agentId,
     aliases: ADDRESS_ALIASES,
-    webhookUrl: openclawWebhookUrl(),
+    webhookUrl: opts.webhookUrl ?? openclawWebhookUrl(),
+    allowCli: opts.allowCli ?? true,
     log: (l) => console.warn(`[agent-aimail] ${l}`),
   })
   if (!r.ok || !r.email || !r.systemId) {

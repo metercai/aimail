@@ -69,8 +69,8 @@ describe('toTypeBoxParam', () => {
 describe('createMailTools', () => {
   it('registers exactly the 15 AGENT_TOOL_DEFS bare names', () => {
     const tools = createMailTools({} as never)
-    expect(tools).toHaveLength(15)
-    expect(tools.map(t => t.name)).toEqual(AGENT_TOOL_DEFS.map(t => t.name))
+    expect(tools).toHaveLength(16)
+    expect(tools.filter(t => t.name !== 'aimail_system').map(t => t.name)).toEqual(AGENT_TOOL_DEFS.map(t => t.name))
     for (const t of tools) {
       expect(t.name).not.toMatch(/^aimail__/)
     }

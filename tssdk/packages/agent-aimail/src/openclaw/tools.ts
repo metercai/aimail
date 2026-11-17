@@ -6,7 +6,10 @@
  * Tool parameters are translated from the platform-neutral MailToolParam
  * shape to TypeBox schemas at registration time (mirrors dsh's toDshParam).
  */
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 import { AGENT_TOOL_DEFS, setToolsetProvider, toTypeBoxParams } from '../core/index.js'
+import { SYSTEM_TOOL_DESCRIPTION, SYSTEM_TOOL_PARAMS, pinWorkspaceToBinding, runSystemTool } from '../runtime/index.js'
 import { jsonResult } from 'openclaw/plugin-sdk/tool-results'
 import type {
   AnyAgentTool,
@@ -23,7 +26,9 @@ import { setAgentModel } from '../core/index.js'
  */
 export function createMailTools(
   ctx: OpenClawPluginToolContext,
+  workspaceFor?: (agentId: string) => string,
 ): AnyAgentTool[] {
+  const workspace = workspaceFor ? workspaceFor(ctx.agentId ?? 'main') : process.cwd()
   const tools: AnyAgentTool[] = AGENT_TOOL_DEFS.map(tool => ({
     name: tool.name,
     label: tool.name,
@@ -33,14 +38,34 @@ export function createMailTools(
       // Primary model at call time (runtime-supplied metadata, informational)
       const am = (ctx as { activeModel?: { modelId?: string; modelRef?: string } }).activeModel
       setAgentModel(am?.modelId ?? am?.modelRef)
-      const cfg = await resolveConfigForAgent(ctx.agentId)
+      const args = (params ?? {}) as Record<string, unknown>
+      const needsConfig = tool.name !== 'aimail_address'
+      const cfg = needsConfig ? await resolveConfigForAgent(ctx.agentId) : undefined
       const result = await tool.handler(
-        { systemId: cfg.system_id, email: cfg.email },
-        (params ?? {}) as Record<string, unknown>,
+        cfg ? { systemId: cfg.system_id, email: cfg.email } : { systemId: '' },
+        args,
       )
+      if (tool.name === 'aimail_address' && result.success && args.action === 'bind' && args.email) {
+        await pinWorkspaceToBinding(String(args.email), { id: workspace, path: workspace })
+      }
       return jsonResult(result)
     },
   }))
+  tools.push({
+    name: 'aimail_system',
+    label: 'aimail_system',
+    description: SYSTEM_TOOL_DESCRIPTION,
+    parameters: toTypeBoxParams(SYSTEM_TOOL_PARAMS),
+    async execute(_toolCallId: string, params: unknown) {
+      fs.mkdirSync(workspace, { recursive: true })
+      const r = await runSystemTool((params ?? {}) as Record<string, unknown>, {
+        defaultWorkspace: async () => ({ id: workspace, path: workspace, title: path.basename(workspace) }),
+        ensureWorkspace: async (p) => ({ id: p, path: p, title: path.basename(p) }),
+        systemHome: () => path.join(process.env.HOME || '', '.openclaw'),
+      })
+      return jsonResult(r)
+    },
+  })
   // TOOLSET_LIST: host actual state (same semantics as SOUL/SKILLS). The
   // openclaw plugin SDK exposes no tool-introspection API on the plugin
   // entry, so the adapter reports the tools IT actually produced when the

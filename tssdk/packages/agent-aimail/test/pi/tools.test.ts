@@ -18,9 +18,11 @@ const pkgDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 describe('pi-aimail tool registration', () => {
   it('buildPiTools() covers every AGENT_TOOL_DEFS entry exactly once', () => {
     const built = buildPiTools()
-    expect(built.length).toBe(AGENT_TOOL_DEFS.length)
-    expect(built.map(t => t.name).sort()).toEqual(AGENT_TOOL_DEFS.map(t => t.name).sort())
-    expect(built.length).toBe(15)
+    expect(built.length).toBe(AGENT_TOOL_DEFS.length + 1)
+    expect(built.filter(t => t.name !== 'aimail_system').map(t => t.name).sort())
+      .toEqual(AGENT_TOOL_DEFS.map(t => t.name).sort())
+    expect(built.some(t => t.name === 'aimail_system')).toBe(true)
+    expect(built.length).toBe(16)
   })
 
   it('package.json declares a pi manifest whose extensions resolve', () => {
