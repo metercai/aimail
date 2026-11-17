@@ -42,3 +42,21 @@ real LLM; L3 remains the live-LLM end-to-end profile.
 The old script remains the reference for push-era hosts and CLI install/register
 regression. Do not delete it when changing the SSE profile; select the profile
 explicitly in release automation.
+
+## Pi / OpenClaw activation L2 (new)
+
+Host-specific activation-only L2 harnesses (no CLI, no listener):
+
+```bash
+GATEWAY_URL=... SYSTEM_CODE=... ADDRESS_CODE=... \
+EMAIL=alice@test.local DOMAIN=test.local WORKSPACE=/tmp/workspace \
+./tests/host-acceptance/run-pi-l2-activation.sh
+
+GATEWAY_URL=... SYSTEM_CODE=... ADDRESS_CODE=... \
+EMAIL=alice@test.local DOMAIN=test.local WORKSPACE=/tmp/workspace \
+./tests/host-acceptance/run-openclaw-l2-activation.sh
+```
+
+They drive the real `aimail_system` + `aimail_address` host tools with a fake
+host context, then assert the binding workspace and no `webhook_url`. They do
+not yet cover live welcome/SSE delivery; that remains the next L2 layer.
