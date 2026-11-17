@@ -511,6 +511,10 @@ case "$AGENT" in
     #    artifact is provided, install it over the top — the cell must test the
     #    build under review, not the previous release.
     if [ -n "${AIMAIL_SDK_DIR:-}" ]; then
+      # The CLI already installed the npm "latest" extension; two copies would
+      # both load and collide on every tool name (measured 2026-11-18:
+      # 'Tool "send_mail" conflicts with …'). Drop the npm copy first.
+      HOME="$HOME" "$PI_BIN" remove agent-aimail >/dev/null 2>&1 || true
       HOME="$HOME" "$PI_BIN" install "$AIMAIL_SDK_DIR" || die "pi install $AIMAIL_SDK_DIR failed"
       HOME="$HOME" "$PI_BIN" list > "$WORK/pi-list.log" 2>&1 || die "pi list failed"
       grep -q "agent-aimail" "$WORK/pi-list.log" || { cat "$WORK/pi-list.log"; die "aimail extension not installed for pi"; }
