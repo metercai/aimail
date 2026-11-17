@@ -108,8 +108,9 @@ DRY_RUN=1 bash scripts/publish-npm.sh packages/agent-aimail
 结果：
 
 ```text
-+ agent-aimail@0.3.2
-=== publish-npm.sh: OK ===
++ agent-aimail@0.4.0
+
+`npm pack --dry-run` also PASS (292 files, 294.9 kB).
 ```
 
 ## 4. QA 需要执行的两种 L2
