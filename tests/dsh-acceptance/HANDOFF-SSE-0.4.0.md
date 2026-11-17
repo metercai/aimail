@@ -192,6 +192,22 @@ WORKSPACE=/tmp/dsh-l2-workspace \
 npm view agent-aimail version   # 0.3.2
 ```
 
+## 6a. Self-hosted local-fixture L2 evidence (2026-11-18)
+
+Executed against the real base gateway binary plus the local SMTP sink
+(`tests/host-acceptance/run-l2-local-gateway.sh`), no external gateway:
+
+```text
+pi        L2-LOCAL-GATEWAY PASS
+openclaw  L2-LOCAL-GATEWAY PASS
+dsh       L2-LOCAL-GATEWAY PASS
+```
+
+Each run: self-claimed system code from `/apply`, host `aimail_system`, host
+`aimail_address`, binding workspace assertion, shared system-stream plan, and
+live welcome delivery with `cwd == activation workspace`. 0.4.0 tarball:
+296 files, `npm pack --dry-run` PASS.
+
 ## 6b. 当前实现进度（goal 进行中）
 
 已合入：
