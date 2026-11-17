@@ -222,3 +222,5 @@ export { onBindingCreated, fireBindingCreated, type BindingCreatedHook } from '.
 export { startAgentPullEntry, type StartAgentPullEntryOptions } from './poll-entry.js'
 
 export { packageResourcesRoot } from './resources-root.js'
+export { startSystemPull } from './system-pull.js'
+export type { SystemPullMail, SystemPullOptions, SystemPullHandle } from './system-pull.js'
