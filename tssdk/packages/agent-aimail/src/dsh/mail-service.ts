@@ -30,6 +30,7 @@ import {
   hasAnySystem,
   INBOUND_PATH,
   listAgentConfigs,
+  loadAgentConfig,
   INBOUND_PORT,
   listSystemDirs,
   readSystemConfig,
@@ -162,15 +163,20 @@ export async function ensureDefaultAgentBinding(ctx?: Context): Promise<void> {
     // resolve the mailbox by this durable workspace, never by session_id.
     if (ctx) {
       try {
-        const ws = await defaultWorkspaceOrCreate(ctx)
-        if (ws) {
-          await updateAgentConfig(r.systemId, r.email, {
-            workspace_id: ws.id,
-            workspace_path: ws.path,
-            ...(ws.title ? { workspace_title: ws.title } : {}),
-          })
-        } else {
-          console.warn('[agent-aimail] default workspace not found; inbound workspace mapping may be incomplete')
+        // Never overwrite a workspace chosen by an address-binding prompt.
+        // Only CLI/plugin-created bindings with no workspace need the default.
+        const existing = await loadAgentConfig(r.systemId, r.email)
+        if (!existing?.workspace_path) {
+          const ws = await defaultWorkspaceOrCreate(ctx)
+          if (ws) {
+            await updateAgentConfig(r.systemId, r.email, {
+              workspace_id: ws.id,
+              workspace_path: ws.path,
+              ...(ws.title ? { workspace_title: ws.title } : {}),
+            })
+          } else {
+            console.warn('[agent-aimail] default workspace not found; inbound workspace mapping may be incomplete')
+          }
         }
       } catch (e) {
         console.warn(`[agent-aimail] workspace binding failed: ${e instanceof Error ? e.message : String(e)}`)

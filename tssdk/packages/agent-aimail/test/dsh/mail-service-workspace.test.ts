@@ -104,4 +104,32 @@ describe('dsh mailbox resolution by workspace', () => {
     expect(cfg?.workspace_id).toBe('w')
     expect(cfg?.workspace_path).toBe(workspace)
   })
+
+  test('startup ensure does not overwrite the workspace chosen by address activation', async () => {
+    const chosen = path.join(dsh, 'chosen-workspace')
+    const fallback = path.join(dsh, 'default-workspace')
+    await fs.mkdir(chosen, { recursive: true })
+    await fs.mkdir(fallback, { recursive: true })
+    await saveAgentConfig({
+      email: 'agent@l3.local',
+      gateway_url: 'http://127.0.0.1:1',
+      system_id: 'sys-1',
+      domain: 'l3.local',
+      api_key: 'k',
+      workspace_id: 'chosen',
+      workspace_path: chosen,
+      paused: false,
+    }, 'sys-1')
+    ensureAgentBinding.mockResolvedValue({ ok: true, systemId: 'sys-1', email: 'agent@l3.local' })
+    const ctx = {
+      get: (k: string) => {
+        if (k === 'workspaceRegistry') return { list: () => [{ id: 'default', path: fallback, title: 'default-workspace' }] }
+        return undefined
+      },
+    }
+    await ensureDefaultAgentBinding(ctx as never)
+    const cfg = await loadAgentConfig('sys-1', 'agent@l3.local')
+    expect(cfg?.workspace_id).toBe('chosen')
+    expect(cfg?.workspace_path).toBe(chosen)
+  })
 })
