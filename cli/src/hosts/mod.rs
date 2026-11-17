@@ -38,12 +38,11 @@ pub use identity::Lang;
 /// Who owns the inbound listener (owner ruling 2026-10-25: inbound port/path
 /// acquisition is per-host adaptation, NOT a static contract default).
 ///
-/// - [`SelfBind`]: the SDK owns a local listener (dsh / pi). The common default
+/// - [`SelfBind`]: the SDK owns a local listener (legacy push hosts only). The common default
 ///   port (`contract::inbound_port`, 9099) is the preferred initial value; on
 ///   conflict the runtime re-selects an available port (bind probe = source of
 ///   truth) and the confirmed callback pins the real endpoint.
-/// - [`HostGateway`]: the host's own gateway serves inbound (hermes / deerflow /
-///   openclaw). The contract carries **no** default port for these hosts — the
+/// - [`HostGateway`]: the host's own gateway serves inbound (hermes / deerflow). The contract carries **no** default port for these hosts — the
 ///   adapter layer discovers the actual port per host (probe / host config /
 ///   SDK-managed port) and the confirmed callback always reports the real URL.
 #[derive(Clone, Copy, PartialEq, Eq)]

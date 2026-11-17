@@ -229,8 +229,8 @@ pub fn register_agent(
     // this parameter (`args['local_webhook_url'] || args['webhook_url'] || ''`), in three states ① (key
     // absent) it is persisted as-is. python host (PY gate self-calculates local_webhook_url) and legacy path
     // (platform package self-calculates) unaffected —— hence only inject for node_entry, PY host envelope zero change.
-    // Owner ruling 2026-10-25: best-known injection is limited to `self_bind` hosts (dsh / pi) whose SDK owns the
-    // listener — the common default port is their preferred initial value; the confirmed callback
+    // Owner ruling 2026-10-25: best-known injection is limited to `self_bind` hosts whose SDK owns the
+    // listener (legacy push; dsh/pi/openclaw are Pull and receive no webhook) — the common default port is their preferred initial value; the confirmed callback
     // (`--inbound-live --inbound-url`) is the authoritative endpoint for EVERY mode. Host-gateway hosts
     // (hermes / deerflow / openclaw) carry no default in the contract: their adapter layer discovers the
     // actual port and reports it via the confirmed callback.
