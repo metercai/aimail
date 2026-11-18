@@ -157,7 +157,8 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
     {
       void (async () => {
         const agentId = resolveAgentId() || DEFAULT_AGENT_ID
-        await tryAutoBindOnce(agentId, transport === 'sse' ? { allowCli: false, webhookUrl: '' } : {})
+        if (transport !== 'sse') await tryAutoBindOnce(agentId)
+        // SSE startup never creates a mailbox; aimail_system/aimail_address do.
         // Pull entry (2026-09-27): an address activated by an activation CODE
         // has no push path (the gateway stores webhook_url=NULL for it), so
         // this host must fetch its own mail on a timer. Started AFTER the

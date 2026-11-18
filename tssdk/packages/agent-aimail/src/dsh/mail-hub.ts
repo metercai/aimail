@@ -22,7 +22,6 @@ import {
   loadAgentConfig,
   processInboundMail,
   pullAck,
-  updateAgentConfig,
   pullList,
   readLocalMeta,
   listAgentConfigs,
@@ -31,8 +30,9 @@ import {
 } from '../core/index.js'
 import { stampSessionMeta } from '../core/meta.js'
 import { planStreams } from '../runtime/stream/plan.js'
+import { routeThread } from '../runtime/session-router.js'
 import { readSystemGatewayConfig } from '../core/provision.js'
-import { defaultWorkspaceOrCreate, statusPath } from './workspace.js'
+import { statusPath } from './workspace.js'
 
 export const name = 'mail-hub'
 export const inject = ['mail', 'agents']
@@ -301,22 +301,8 @@ export class MailHub {
         /* fall through to default */
       }
     }
-    const ws = await defaultWorkspaceOrCreate(this.ctx)
-    if (ws) {
-      // First inbound on a CLI/plugin-created binding may not carry a
-      // workspace yet. Persist the stable workspace before creating the
-      // session so later tool calls resolve this address by workspace.
-      try {
-        await updateAgentConfig(cfg.system_id, cfg.email, {
-          workspace_id: ws.id,
-          workspace_path: ws.path,
-          ...(ws.title ? { workspace_title: ws.title } : {}),
-        })
-      } catch {
-        /* binding update is best-effort; session still gets the workspace */
-      }
-    }
-    return ws
+    // Contract §7.2: no workspace ⇒ do NOT ack; never invent a default.
+    return undefined
   }
 
   private async deliver(cfg: AgentConfig, body: unknown, headers: Record<string, unknown>, recipient: string): Promise<boolean> {
@@ -330,11 +316,9 @@ export class MailHub {
       return false
     }
     const root = (Array.isArray(payload.references) && payload.references[0]) || str(headers.in_reply_to) || str(payload.message_id)
-    let sessionId = ''
-    if (root) {
-      const meta = await readLocalMeta(recipient, root)
-      sessionId = str(meta?.session_id)
-    }
+    const meta = root ? await readLocalMeta(recipient, root) : undefined
+    const target = routeThread(payload as never, { id: workspace.id, path: workspace.path }, meta as never, headers)
+    const sessionId = target.kind === 'followup' ? String(target.sessionId ?? '') : ''
     const message = createUserMessage({
       content: [{ type: 'text', text: messageText(enriched as Record<string, unknown>, recipient) }],
       source: { kind: 'user' },

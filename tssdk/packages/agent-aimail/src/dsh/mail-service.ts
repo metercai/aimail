@@ -24,16 +24,11 @@ import {
   type MailToolCtx,
 } from '../mail/index.js'
 import {
-  autoBind,
-  emailForAgent,
   ensureAgentBinding,
   hasAnySystem,
-  INBOUND_PATH,
   listAgentConfigs,
   loadAgentConfig,
-  INBOUND_PORT,
   listSystemDirs,
-  readSystemConfig,
   releaseAllSystems,
   updateAgentConfig,
   type AgentConfig, packageResourcesRoot} from '../core/index.js'
@@ -59,16 +54,6 @@ export interface MailService {
   resolveByRecipient(email: string): Promise<AgentConfig | undefined>
 }
 
-/** The local receive endpoint registered as this session's webhook_url.
- * Path/port contract constants single copy = @aimail/mail-core (contract/aimail-contract.json). */
-function inboundWebhookUrl(): string {
-  const fromEnv = (process.env.AIMAIL_INBOUND_URL ?? '').trim()
-  if (fromEnv) return fromEnv.replace(/\/+$/, '') + INBOUND_PATH
-  const port = Number(process.env.AIMAIL_INBOUND_PORT ?? INBOUND_PORT)
-  const p = Number.isInteger(port) && port > 0 ? port : INBOUND_PORT
-  return `http://127.0.0.1:${p}${INBOUND_PATH}`
-}
-
 /** Process once-guard per (system, session): at most one auto-bind attempt. */
 const _autoBindAttempted = new Set<string>()
 
@@ -81,38 +66,6 @@ export function resetAutoBindOnce(): void {
  * One-shot per-session auto-bind. Never throws — failures warn and fall
  * through to the caller's original unbound error.
  */
-async function tryAutoBindSession(
-  systemId: string,
-  sessionId: string,
-): Promise<AgentConfig | undefined> {
-  const key = `${systemId}:${sessionId}`
-  if (_autoBindAttempted.has(key)) return undefined
-  _autoBindAttempted.add(key)
-  try {
-    const gw = await readSystemConfig(systemId)
-    if (!gw.domain) return undefined
-    const short = sessionId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8) || 'session'
-    const email = emailForAgent(`agent-${short}`, gw.domain, gw.system_name ?? '')
-    const res = await autoBind({
-      systemId,
-      email,
-      webhookUrl: inboundWebhookUrl(),
-      extraFields: {
-        session_id: sessionId,
-        preset: process.env.AIMAIL_PRESET ?? 'mail',
-      },
-    })
-    if (!(res.registered || res.exists)) return undefined
-    // Re-resolve: the binding now carries this session_id.
-    return await resolveBySessionId(sessionId, { systemId })
-  } catch (e) {
-    console.warn(
-      `[agent-aimail] session auto-bind failed for ${sessionId}: ${e instanceof Error ? e.message : String(e)}`,
-    )
-    return undefined
-  }
-}
-
 /** Self-determined platform/agent home root (the single source the plugin uses). */
 function platformHome(): string {
   return (
@@ -261,14 +214,7 @@ export function apply(ctx: Context, config: { systemId?: string } = {}): void {
       // address through the stable workspace mapping before any auto-bind.
       const byWorkspace = await resolveByWorkspace(sessionId)
       if (byWorkspace) return byWorkspace
-      let target = systemId || process.env.AIMAIL_SYSTEM_ID || ''
-      if (!target) {
-        const sids = await listSystemDirs()
-        if (sids.length !== 1) throw e // ambiguous scope — caller's error stands
-        target = sids[0] as string
-      }
-      const cfg = await tryAutoBindSession(target, sessionId)
-      if (cfg) return cfg
+      // Startup/tool resolution must never invent a mailbox (contract §5.1).
       throw e
     }
   }
@@ -288,10 +234,9 @@ export function apply(ctx: Context, config: { systemId?: string } = {}): void {
   // SSE pilot: this is the replacement for the removed mail-inbound entry's
   // ensure call. The host may start before CLI registration wrote a binding;
   // bind here, then nudge the hub to open the address stream.
-  void ensureDefaultAgentBinding(ctx).then(() => {
-    const hub = ctx.get('mailHub') as { reconcile?: () => Promise<void> } | undefined
-    if (hub?.reconcile) void hub.reconcile().catch(() => undefined)
-  })
+  // SSE contract: startup only opens streams for existing bindings.
+  const hub = ctx.get('mailHub') as { reconcile?: () => Promise<void> } | undefined
+  if (hub?.reconcile) void hub.reconcile().catch(() => undefined)
 }
 
 // Host identification (#5): dsh loads this bundle's entries; assert the

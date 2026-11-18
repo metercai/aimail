@@ -59,7 +59,6 @@ async function legacyBind(argv: string[]): Promise<number> {
   const nameArg = arg(argv, '--name')
   const emailArg = arg(argv, '--email')
   const manager = arg(argv, '--manager')
-  const sessionId = arg(argv, '--session-id')
   const preset = arg(argv, '--preset') || 'mail'
   const localWebhook =
     arg(argv, '--local-webhook') || inboundUrl(INBOUND_PORT)
@@ -107,10 +106,7 @@ async function legacyBind(argv: string[]): Promise<number> {
         email,
         webhookUrl: localWebhook,
         ...(manager ? { managerAddress: manager } : {}),
-        extraFields: {
-          session_id: sessionId || randomUUID().replace(/-/g, ''),
-          preset,
-        },
+        extraFields: { preset },
       })
       console.log(
         JSON.stringify({
@@ -134,7 +130,7 @@ async function legacyBind(argv: string[]): Promise<number> {
         email,
         webhookUrl: localWebhook,
         ...(manager ? { managerAddress: manager } : {}),
-        extraFields: { session_id: sessionId || randomUUID().replace(/-/g, ''), preset },
+        extraFields: { preset },
       })
       console.log(JSON.stringify({ ok: true, email, system_id: systemId, registered: true, ...(res.config_path ? { config_path: res.config_path } : {}) }))
       return 0
@@ -160,7 +156,7 @@ async function legacyBind(argv: string[]): Promise<number> {
       webhookUrl: localWebhook,
       webhookSecret,
       ...(manager ? { managerAddress: manager } : {}),
-      extra: { session_id: sessionId || randomUUID().replace(/-/g, ''), preset },
+      extra: { preset },
       gateway: gw,
     })
     // SDK de-bridging (owner decision 2026-09-28): no route step here — the SDK speaks no

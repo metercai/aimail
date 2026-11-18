@@ -136,6 +136,11 @@ describe('host startup hooks (pull side)', () => {
         src.includes(h.pull),
         `${h.name}: pull entry not wired (${h.pull})`,
       ).toBe(true)
+      if (h.name === 'pi') {
+        // Pi defaults to SSE (no local inbound listener); a listener only
+        // exists in the explicit legacy push path, so ordering is N/A.
+        return
+      }
       expect(
         src.indexOf(h.live),
         `${h.name}: inbound registration not found (${h.live})`,

@@ -42,7 +42,7 @@
 
 ## G2 autoBind 写绑定缺 workspace 字段
 
-**证据**：`src/core/auto-bind.ts:379`（`platform fields merged into the binding`）、`:424`（`platform fields persisted into agentmail.json`）、`:289`（`cfg['webhook_url'] = opts.webhookUrl` 分支）——写入路径不产生 `workspace_id`/`workspace_path`。
+**证据**：`src/core/auto-bind.ts:379`（`platform fields merged into the binding`）、`:424`（`platform fields persisted into agentmail.json`）、`:289`（`cfg['webhook_url'] = opts.webhookUrl` 分支）——写入路径不产生 `workspace_id`/`workspace_path`。<!-- contract-allowed: QA evidence quotes the binding filename -->
 对照：地址工具路径是正确的 —— `src/dsh/address.ts:170-171` 写 `workspace_id` + `workspace_path`。
 
 **违反**：§6.1 Required 字段表。

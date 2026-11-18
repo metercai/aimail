@@ -78,13 +78,11 @@ describe('dsh-aimail startup self-bootstrap + default agent binding', () => {
     warn.mockRestore()
   })
 
-  it('mail-service apply starts the default binding at host startup', async () => {
+  it('mail-service apply does NOT create a default binding at host startup', async () => {
     const ctx = { provide: () => {}, get: () => undefined }
     apply(ctx as never, {})
     await Promise.resolve()
     await Promise.resolve()
-    expect(ensureAgentBinding).toHaveBeenCalledWith(
-      expect.objectContaining({ agentId: 'agent', webhookUrl: '' }),
-    )
+    expect(ensureAgentBinding).not.toHaveBeenCalled()
   })
 })
