@@ -6,6 +6,7 @@
  * after a successful bind so a restart cannot route the mailbox elsewhere.
  */
 import { findBindingByEmail, loadAgentConfig, saveAgentConfig } from '../../core/index.js'
+import { BINDING_FILE } from '../../core/contract.js'
 import type { WorkspaceRef } from '../types.js'
 
 export async function pinWorkspaceToBinding(email: string, workspace: WorkspaceRef): Promise<boolean> {
@@ -35,7 +36,7 @@ export async function findOtherActiveAddress(email: string): Promise<string | un
     for (const e of entries) {
       if (!e.isDirectory()) continue
       try {
-        const cfg = JSON.parse(await fsp.readFile(path.join(base, root, e.name, 'agentmail.json'), 'utf-8')) as Record<string, unknown>
+        const cfg = JSON.parse(await fsp.readFile(path.join(base, root, e.name, BINDING_FILE), 'utf-8')) as Record<string, unknown>
         const em = String(cfg.email ?? '').toLowerCase()
         if (em && em !== want && cfg.api_key && cfg.paused !== true) return em
       } catch { /* skip */ }
