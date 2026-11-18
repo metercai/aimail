@@ -30,3 +30,14 @@ Only capabilities verified from installed type definitions are marked â€œknownâ€
    SSE reconnect/ownership.
 
 Until these are verified, Pi/OpenClaw adapters MUST NOT be claimed conformant.
+
+## Latest checks (2026-11-18)
+
+- Pi `@earendil-works/pi-coding-agent@1.5.2` (latest): `ExtensionAPI` still has
+  no `newSession`; it remains only on `ExtensionCommandContext`, created for
+  command handlers. Background extension code cannot create a session.
+- OpenClaw `2026.11.5`: `/hooks/agent` can accept a caller `sessionKey` only when
+  `hooks.allowRequestSessionKey=true` (optionally constrained by
+  `hooks.allowedSessionKeyPrefixes`). The adapter now sends a thread-stable
+  `agent:<agentId>:aimail:<hash>` key only when that flag is enabled; otherwise
+  it omits the key and the host creates a fresh hook session.

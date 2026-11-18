@@ -29,3 +29,13 @@
 
 - Pi/OpenClaw still do not call `routeThread`; only DSH hub does. Their
   session/new-session behavior remains host-API constrained.
+
+## Latest host findings (2026-11-18)
+
+- Pi latest is 1.5.2; it still exposes `newSession` only on
+  `ExtensionCommandContext`, not on the background `ExtensionAPI`. G4 Pi remains
+  blocked on an upstream background-session API.
+- OpenClaw hooks support `sessionKey` when
+  `hooks.allowRequestSessionKey=true`; the adapter now sends a thread-stable
+  `agent:<agentId>:aimail:<hash>` key in that mode, otherwise omits it.
+- G2/G5 fixes are in `auto-bind.ts` and Pi/OpenClaw identity resolvers.

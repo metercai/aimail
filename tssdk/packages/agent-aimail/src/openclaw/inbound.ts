@@ -32,6 +32,8 @@ import {
 } from '../core/index.js'
 import type { OpenClawPluginApi } from 'openclaw/plugin-sdk/plugin-entry'
 import { resolveByRecipient } from '../mail/index.js'
+import { threadRoot } from '../runtime/session-router.js'
+import { createHash } from 'node:crypto'
 import { readSystemGatewayConfig } from '../core/provision.js'
 import {
   configuredAgentIds,
@@ -70,7 +72,7 @@ function readBody(req: IncomingMessage): Promise<Buffer> {
  */
 export async function deliverToAgent(
   api: OpenClawPluginApi,
-  opts: { agentId: string; message: string },
+  opts: { agentId: string; message: string; sessionKey?: string },
 ): Promise<{ status: string; detail: string }> {
   void api
   const hooksToken = readHooksToken()
@@ -88,7 +90,9 @@ export async function deliverToAgent(
       // "agentId ... Must name a configured agent"、"Required when no implicit/retained
       // owner can be resolved", not providing it results in 400 (tested: endpoint exists, auth passed, still 400).
       agentId,
-      // S1e (2026-09-27): **Do not send caller sessionKey**. Direct /agent calls with caller's own key require host
+      ...(opts.sessionKey ? { sessionKey: opts.sessionKey } : {}),
+      // S1e (2026-09-27): **Do not send caller sessionKey** unless the host
+      // explicitly enables hooks.allowRequestSessionKey (checked below). Direct /agent calls with caller's own key require host
       // explicit allowRequestSessionKey + prefix whitelist (documentation "Hook session and agent policy"),
       // Otherwise return 400 per contract (routing/session policy). Omitted => host generates hook:<uuid>,
       // each email is a clean new turn (this integration does not need session reuse).
@@ -109,17 +113,24 @@ export async function deliverToAgent(
   return { status: 'delivered', detail: 'hooks/agent accepted' }
 }
 
-function readHooksToken(): string {
+function readHooksConfig(): { token: string; allowSessionKey: boolean } {
   try {
     const home = process.env.HOME ?? process.env.USERPROFILE ?? ''
-    const cfgPath = path.join(home, '.openclaw', 'openclaw.json')
-    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8')) as {
-      hooks?: { token?: string }
-    }
-    return String(cfg.hooks?.token ?? '')
+    const raw = fs.readFileSync(path.join(home, '.openclaw', 'openclaw.json'), 'utf-8')
+    const cfg = JSON.parse(raw) as { hooks?: { token?: string; allowRequestSessionKey?: boolean } }
+    return { token: String(cfg.hooks?.token ?? ''), allowSessionKey: cfg.hooks?.allowRequestSessionKey === true }
   } catch {
-    return ''
+    return { token: '', allowSessionKey: false }
   }
+}
+
+function threadSessionKey(agentId: string, payload: InboundPayload, headers: Record<string, unknown>): string {
+  const root = threadRoot(payload as never, headers) || String(payload.message_id ?? '')
+  return `agent:${agentId}:aimail:${createHash('sha256').update(root).digest('hex').slice(0, 24)}`
+}
+
+function readHooksToken(): string {
+  return readHooksConfig().token
 }
 
 /** The resolved target of one inbound payload (binding + routed address). */
@@ -245,9 +256,11 @@ export async function deliverInbound(
   // host's agent namespace (address-level bindings must not hand the host an
   // address local part — the 0.1.25 E2-pull defect). One rule, both entries.
   const agentId = resolveDispatchAgentId(cfg, agentAddr)
+  const policy = readHooksConfig()
   const out = await deliverToAgent(api, {
     agentId,
     message: JSON.stringify({ ...result, to: agentAddr }),
+    ...(policy.allowSessionKey ? { sessionKey: threadSessionKey(agentId, payload, headers) } : {}),
   })
   // E3-① (owner ruling 2026-09-27): record the dispatch outcome in the SAME per-agent
   // log the inbound line goes to. Measured on the CLI gate's J4e: without this line a
