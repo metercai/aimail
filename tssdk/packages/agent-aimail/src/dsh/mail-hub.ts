@@ -149,6 +149,7 @@ export class MailHub {
       systems.map(({ sid, cfg }) => ({ systemId: sid, gatewayUrl: cfg!.gateway_url, apiKey: cfg!.admin_key })),
       bindings.map((b) => ({ email: b.email, gatewayUrl: b.gateway_url, apiKey: b.api_key, paused: b.paused === true, system_id: b.system_id })),
     )
+    console.error(`[agent-aimail] SSE reconcile: ${plans.length} stream(s) from ${systems.length} system(s), ${bindings.length} binding(s)`)
     for (const plan of plans) {
       this.handles.push(this.startStream({
         email: plan.scope === 'system' ? `system:${plan.identity}` : plan.identity,
@@ -388,7 +389,14 @@ export function apply(ctx: Context, config: Config = {}): void {
     status: () => hub.status(),
   } satisfies HubService)
   ctx.effect(() => {
-    void hub.start().catch((e) => {
+    void hub.start().then(() => {
+      // Read-on-boot: an address binding written by an external/headless
+      // activator may land just after the first reconcile. Re-arm once.
+      const t = setTimeout(() => {
+        void hub.reconcile().catch(() => undefined)
+      }, 2_000)
+      t.unref?.()
+    }).catch((e) => {
       console.warn(`[aimail-hub] start failed: ${e instanceof Error ? e.message : String(e)}`)
     })
     return () => hub.dispose()

@@ -68,6 +68,12 @@ wait for the LLM turn to complete. `workspaceFor` no longer invents a workspace
 and missing workspace returns false (no ack), which fixes G7's ack-on-miss
 behavior. A full turn-completion-before-ack assertion is not provided.
 
+### F7a — G8 read-on-boot arming
+
+DSH now logs `SSE reconcile: … stream(s)` and re-runs reconcile 2s after startup.
+This covers bindings written by an out-of-process activator before restart.
+Re-test G8 with a real DSH restart before declaring it fixed.
+
 ### F7 — real-host pull did not produce an agent turn (QA 2026-11-18)
 
 Latest QA handoff (`07a8b2c`) reports that with the same gateway/system key:

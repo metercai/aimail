@@ -328,6 +328,18 @@ other; per-address streams are a **fallback until the gateway provides a
 covering scope key**, and even then the host keeps one router and never opens a
 stream per workspace/session.
 
+### 7.2b Read-on-boot arming
+
+A host MUST arm streams for **existing on-disk bindings** during startup, not
+only after an in-process `aimail_address`/`aimail_system` call. A headless/out-of-
+process activator may write the binding before the host starts; requiring a
+second in-host activation is a contract violation.
+
+- DSH reconciles the hub at `mail-hub` start and re-arms once after startup.
+- Pi/OpenClaw read the pointer/bindings at startup and arm their pull loops.
+- Startup MUST log an "SSE armed/reconcile" evidence line (no credentials).
+- If no binding exists, startup still succeeds with zero streams.
+
 ### 7.3 Stream selection
 
 | Host state | Stream |
