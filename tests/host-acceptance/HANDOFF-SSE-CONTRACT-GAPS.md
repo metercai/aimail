@@ -200,3 +200,24 @@ stub LLM 里产生一次 turn（含唯一串），且 ack 发生在 turn 之后�
 
 补充（openclaw）：其 `/hooks/agent` 可创建/继续会话，理论上可作为"进程内激活"入口；
 验证方将先用该入口尝试（stub 返回 `aimail_address` 的 tool_calls），若可行则 openclaw 不需要改产品。
+
+## G9 —— openclaw 会话工具面里没有 agent-aimail 的工具，导致"对话框绑定"无法执行（2026-11-18，验证方）
+
+现象（Docker，openclaw 2026.11.5，SDK 0.4.1 本地构建）：
+- 插件已安装并启用：`openclaw plugins enable agent-aimail --accept-capabilities` → `plugins.entries` 有值、hooks 接线成功（`{"enabled":true,"hasToken":true,"path":"/hooks"}`）；
+- 通过宿主自己的对话入口（`POST /hooks/agent`，等价"在 agent 对话框输入"）提交激活 prompt，宿主接受：
+  `HTTP 200 {"ok":true,"runId":"6cb8ab0d-…"}`，且 stub LLM 收到 **5 次**请求、prompt 文本命中 4 次；
+- **但请求体里的 `tools` 只有宿主内置工具**：
+  `apply_patch dispatch_action edit exec github_publish ls message openclaw process read sessions_yield tool_describe tool_search`
+  **没有任何 aimail 工具**（`aimail_address` / `aimail_system` 等 15 个 MAIL_TOOLS 均不在其中）。
+- 结果：agent 无法按 prompt 调 `aimail_address` → 绑定不会在宿主内发生 → pull 不 arm → 注入邮件不产生 turn。
+
+代码位置：`tssdk/packages/agent-aimail/src/openclaw/index.ts:136`
+`api.registerTool((ctx) => createMailTools(ctx, resolveAgentWorkspaceDir))` —— 插件的 15 个工具确实注册了，但没有出现在会话的工具面里。
+
+需要开发确认/修：
+1）插件工具进入 openclaw 会话工具面是否需要额外的能力授予/策略（`--accept-capabilities` 是否覆盖"tools"这一类）？
+2）是否需要 per-agent 的 `tools` 允许列表或 plugin→agent 绑定？
+3）若这是预期（工具只在特定 agent 上下文可见），请给出无头环境下的正确开启方式；否则这是缺陷。
+
+判据（拿到修法后验证方会跑）：对话入口提交"绑定地址 X"的 prompt 后，会话工具面应包含 `aimail_address`；agent 调用后宿主出现绑定/激活证据；随后注入邮件在 stub 产生 turn（含唯一串），并且 ack 在 turn 之后。
