@@ -68,7 +68,16 @@ wait for the LLM turn to complete. `workspaceFor` no longer invents a workspace
 and missing workspace returns false (no ack), which fixes G7's ack-on-miss
 behavior. A full turn-completion-before-ack assertion is not provided.
 
-### F7 — `ensureDefaultAgentBinding` still auto-binds when explicitly called
+### F7 — real-host pull did not produce an agent turn (QA 2026-11-18)
+
+Latest QA handoff (`07a8b2c`) reports that with the same gateway/system key:
+Pi produced a turn, but DSH and OpenClaw did not. DSH hub showed
+`connected:true`, `streams:["system:..."]`, `lastEventAt:""`; OpenClaw hooks
+were enabled but no turn. The same key works through `startSystemPull()`
+directly. This is a real-host delivery/agent-turn gap beyond the fake-ctx local
+L2, and is still open.
+
+### F8 — `ensureDefaultAgentBinding` still auto-binds when explicitly called
 
 Startup no longer calls it, and SSE startup does not auto-bind, but the exported
 function still performs system/binding creation if an external caller invokes
@@ -90,6 +99,7 @@ OpenClaw tests 43/43
 Not “zero deviation”. The transport, no-CLI startup, workspace binding, Pi
 single-address profile, shared system stream, and local-fixture L2 are
 implemented and tested. The remaining literal deviations are F4 (Pi/OpenClaw
-routeThread), F5 (legacy DSH inbound source), F6 (turn-completion ack), and F7
-(auto-bind API still exported). F1/F3 are explicit host capability exceptions in
+routeThread), F5 (legacy DSH inbound source), F6 (turn-completion ack), F7
+(real-host DSH/OpenClaw no turn in pull mode), and F8 (auto-bind API still
+exported). F1/F3 are explicit host capability exceptions in
 the contract appendices, not silent claims.
