@@ -203,6 +203,24 @@ not from the Agent dialog.
 
 A code-less bind is a **workspace link** update, not a new mailbox registration.
 
+### 5.2a Single activation entry (normative)
+
+The SSE profile has exactly one activation path:
+
+1. the host is running;
+2. a session/Agent invokes `aimail_system bind` or `aimail_address bind`;
+3. the tool writes the binding + pointer and arms the stream.
+
+Out-of-process writes, pre-seeded binding files, CLI registration and test
+fixtures are **not activation entries**. They MUST NOT be documented or accepted
+as a way to activate a mailbox.
+
+Read-on-boot arming is only recovery for a binding that was already created by
+the normative in-host tool path; it does not create or re-activate a binding.
+
+Any second activation path requires an explicit scenario, owner approval and a
+contract change.
+
 ### 5.3 Pause / resume
 
 - `pause` sets the local binding paused and stops acking/delivering.

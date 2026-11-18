@@ -68,7 +68,14 @@ wait for the LLM turn to complete. `workspaceFor` no longer invents a workspace
 and missing workspace returns false (no ack), which fixes G7's ack-on-miss
 behavior. A full turn-completion-before-ack assertion is not provided.
 
-### F7a — G8 read-on-boot arming
+### F7a — G8 activation-path boundary
+
+The G8 fixture wrote a binding from outside the host. That is not a supported
+activation path (contract §5.2a). Read-on-boot only recovers an already
+legitimately activated binding. G8 should be re-tested by driving an in-host
+tool call, not by pre-writing `agentmail.json`.
+
+### F7b — read-on-boot arming
 
 DSH now logs `SSE reconcile: … stream(s)` and re-runs reconcile 2s after startup.
 This covers bindings written by an out-of-process activator before restart.
