@@ -28,7 +28,11 @@ export function createMailTools(
   ctx: OpenClawPluginToolContext,
   workspaceFor?: (agentId: string) => string,
 ): AnyAgentTool[] {
-  const workspace = workspaceFor ? workspaceFor(ctx.agentId ?? 'main') : process.cwd()
+  const agentId = ctx.agentId ?? 'main'
+  const workspace = workspaceFor ? workspaceFor(agentId) : process.cwd()
+  // OpenClaw's agentId is the isolated workspace/container; the address
+  // binding points at that workspace, while the path is the agent workspace.
+  const workspaceRef = { id: agentId, path: workspace, title: agentId }
   const tools: AnyAgentTool[] = AGENT_TOOL_DEFS.map(tool => ({
     name: tool.name,
     label: tool.name,
@@ -46,7 +50,7 @@ export function createMailTools(
         args,
       )
       if (tool.name === 'aimail_address' && result.success && args.action === 'bind' && args.email) {
-        await pinWorkspaceToBinding(String(args.email), { id: workspace, path: workspace })
+        await pinWorkspaceToBinding(String(args.email), workspaceRef)
       }
       return jsonResult(result)
     },
@@ -59,8 +63,8 @@ export function createMailTools(
     async execute(_toolCallId: string, params: unknown) {
       fs.mkdirSync(workspace, { recursive: true })
       const r = await runSystemTool((params ?? {}) as Record<string, unknown>, {
-        defaultWorkspace: async () => ({ id: workspace, path: workspace, title: path.basename(workspace) }),
-        ensureWorkspace: async (p) => ({ id: p, path: p, title: path.basename(p) }),
+        defaultWorkspace: async () => workspaceRef,
+        ensureWorkspace: async (p) => ({ id: agentId, path: p, title: agentId }),
         systemHome: () => path.join(process.env.HOME || '', '.openclaw'),
       })
       return jsonResult(r)
