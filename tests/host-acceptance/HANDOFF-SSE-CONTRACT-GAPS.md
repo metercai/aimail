@@ -176,3 +176,27 @@ HOME=/tmp/l2d/home AIMAIL_REPO=<aimail 工作树> SDK_PACK_DIR=/tmp/sdkpack E3_S
   bash run-hosts-from-host.sh dsh|openclaw system-4b28 http://127.0.0.1:18080 l2.local
 ```
 期望：SMTP 注入后 120s 内 stub 命中新增且请求体含唯一串（pi 已达标）。
+
+## G8 —— 无头环境缺少"宿主内激活"入口，pull 无法 arm（2026-11-18，验证方）
+
+现象：地址经夹具在**宿主外**绑定（工具模块直接调用，写入 workspace=… 后重启宿主），
+宿主启动成功、插件已加载（`dump-config` 可见 `mail-hub`，Docker 内实测 `grep -c mail-hub` = 2），
+但宿主日志除 `dsh web: …` 外没有任何 `[agent-aimail]` 激活行，SMTP 注入被接受后
+**stub LLM 零命中**（无 agent turn）；同一网关同一系统密钥用 SDK `startSystemPull()` 直连可正常回调。
+
+对照：pi 在相同夹具下 13/13 绿（单地址模型，启动即按指针 arm）。
+
+结论：按 `fix(hosts): re-arm pull after in-agent activation` 的设计，pull 只在
+**宿主进程内发生激活**（agent 调 `aimail_address`）后才被 arm；外部预写绑定 + 重启不触发 arm。
+
+请开发在下列两种做法中选一，并把结论写进 `docs/aimail-host-sse-contract.md`：
+1. 提供**无头激活入口**：`dsh` 侧给出可在宿主进程内触发 `aimail_address` 的 API/CLI
+   （现有 `dsh headless "<task>"` 是独立进程，无法作用于正在运行的 web 进程的 hub）；
+2. 或**支持"绑定已存在时重启即 arm"**（read-on-boot 后主动 arm 一次），并明确该行为对
+   dsh / openclaw 都成立。
+
+判据：在宿主外完成绑定并重启后，宿主日志出现 pull 已 arm 的证据，注入的邮件在
+stub LLM 里产生一次 turn（含唯一串），且 ack 发生在 turn 之后。
+
+补充（openclaw）：其 `/hooks/agent` 可创建/继续会话，理论上可作为"进程内激活"入口；
+验证方将先用该入口尝试（stub 返回 `aimail_address` 的 tool_calls），若可行则 openclaw 不需要改产品。
