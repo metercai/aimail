@@ -8,13 +8,11 @@
  * textResult-equivalent here (pi has no jsonResult helper export, so we
  * build the shape directly).
  */
-import * as fs from 'node:fs'
-import * as path from 'node:path'
 import type { TSchema } from 'typebox'
 import { AGENT_TOOL_DEFS, toTypeBoxParams } from '../core/index.js'
 import { resolveConfig } from './identity.js'
 import { setAgentModel } from '../core/index.js'
-import { SYSTEM_TOOL_DESCRIPTION, SYSTEM_TOOL_PARAMS, pinWorkspaceToBinding, runSystemTool } from '../runtime/index.js'
+import { pinWorkspaceToBinding } from '../runtime/index.js'
 
 /** pi AgentToolResult content block. */
 interface TextBlock {
@@ -71,7 +69,7 @@ export function buildPiTools(): Array<{
       setAgentModel(m?.id)
       const args = (params ?? {}) as Record<string, unknown>
       // Activation tools must work before a binding exists.
-      const needsConfig = tool.name !== 'aimail_address' && tool.name !== 'aimail_system'
+      const needsConfig = tool.name !== 'aimail_address'
       const cfg = needsConfig ? await resolveConfig() : undefined
       const result = await tool.handler(
         cfg ? { systemId: cfg.system_id, email: cfg.email } : { systemId: '' },
@@ -84,21 +82,5 @@ export function buildPiTools(): Array<{
       return toPiResult(result)
     },
   }))
-  tools.push({
-    name: 'aimail_system',
-    label: 'aimail_system',
-    description: SYSTEM_TOOL_DESCRIPTION,
-    parameters: toTypeBoxParams(SYSTEM_TOOL_PARAMS),
-    async execute(_toolCallId, params, _signal, ctx) {
-      const cwd = (ctx as { cwd?: string } | undefined)?.cwd || process.cwd()
-      fs.mkdirSync(cwd, { recursive: true })
-      const r = await runSystemTool((params ?? {}) as Record<string, unknown>, {
-        defaultWorkspace: async () => ({ id: cwd, path: cwd, title: path.basename(cwd) }),
-        ensureWorkspace: async (p) => ({ id: p, path: p, title: path.basename(p) }),
-        systemHome: () => path.join(process.env.HOME || '', '.pi'),
-      })
-      return toPiResult(r)
-    },
-  })
   return tools
 }

@@ -31,6 +31,12 @@ Only capabilities verified from installed type definitions are marked â€œknownâ€
 
 Until these are verified, Pi/OpenClaw adapters MUST NOT be claimed conformant.
 
+## Profile boundaries (2026-11-18)
+
+- **Pi**: single-address only; `aimail_system` is intentionally not exposed.
+- **OpenClaw**: workspace/agentId routing always; thread session continuity only
+  when `hooks.allowRequestSessionKey=true` and the prefix matches.
+
 ## Latest checks (2026-11-18)
 
 - Pi `@earendil-works/pi-coding-agent@1.5.2` (latest): `ExtensionAPI` still has

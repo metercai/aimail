@@ -459,3 +459,55 @@ The DSH reference implementation demonstrates:
 - Fresh-host fallback: create the host's default workspace, then persist it, so
   the first welcome has a stable destination.
 - Regression tests for startup workspace preservation and welcome SSE delivery.
+
+---
+
+## Appendix A — Pi single-address profile
+
+Pi exposes project/`cwd` as a de-facto workspace (sessions are stored under
+`~/.pi/agent/sessions/<encoded-cwd>/` and each session records its cwd), but its
+public extension API has no background session creation or `deliverToSession`.
+`newSession` exists only on `ExtensionCommandContext`; `sendUserMessage` targets
+the current session.
+
+Therefore Pi is a **single-address host** in this profile:
+
+- `aimail_system` MUST NOT be exposed on Pi (no system-level onboarding).
+- One Pi process/workspace MAY have at most one active address.
+- The address binding workspace MUST equal the running Pi cwd.
+- Pi consumes only its pointer's address; no fan-out over other addresses.
+- Multi-address/system onboarding is a DSH/OpenClaw capability, not Pi.
+- Pi's inbound delivery remains current-session; thread/session isolation is
+  unsupported until Pi provides a background session API.
+
+This is a deliberate degradation, not an SSE transport limitation.
+
+## Appendix B — OpenClaw thread session key
+
+OpenClaw `/hooks/agent` accepts a caller `sessionKey` only when the host enables:
+
+```json
+{
+  "hooks": {
+    "allowRequestSessionKey": true,
+    "allowedSessionKeyPrefixes": ["agent:main:aimail:"]
+  }
+}
+```
+
+The adapter sends a thread-stable key:
+
+```text
+agent:<agentId>:aimail:<sha256(threadRoot).slice(0,24)>
+```
+
+- Same thread → same session; new thread → new session.
+- If the flag is disabled or the key does not match an allowed prefix, the
+  adapter omits `sessionKey`; OpenClaw creates a fresh hook session per delivery
+  (workspace routing still works, thread continuity does not).
+- This does not change the binding contract: only workspace is persisted; the
+  session key is per-delivery host metadata, never written to the binding.
+
+Risk note: enabling `allowRequestSessionKey` lets hook-token holders choose a
+session key (message injection into that session). Restrict prefixes, protect
+the hook token, and plan session retention/cleanup.

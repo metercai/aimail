@@ -32,7 +32,7 @@ const manager = arg('manager')
 const delivery = process.argv.includes('--delivery')
 
 if (!['pi', 'openclaw'].includes(host)) { console.error('host must be pi|openclaw'); process.exit(2) }
-if (!systemCode || !email) {
+if ((host !== 'pi' && !systemCode) || !email) {
   console.error('missing --system-code/--email'); process.exit(2)
 }
 await fs.mkdir(path.join(home, 'aimail'), { recursive: true })
@@ -54,31 +54,34 @@ async function toolMap() {
 }
 
 const tools = await toolMap()
-const system = tools.get('aimail_system')
 const address = tools.get('aimail_address')
-if (!system || !address) { console.error('activation tools missing'); process.exit(1) }
-
-const sysArgs = { action: 'bind', code: systemCode, gateway_url: gateway }
-if (domain) sysArgs.domain = domain
-if (systemName) sysArgs.system_name = systemName
-if (manager) sysArgs.manager = manager
-const sys = host === 'pi'
-  ? await system.execute('sys', sysArgs, undefined, { cwd: workspace })
-  : await system.execute('sys', sysArgs)
-const sysDetail = sys.details ?? sys
-console.log(JSON.stringify({ step: 'system', result: sysDetail }))
-if (sysDetail?.success !== true) process.exit(1)
-
-const addr = host === 'pi'
-  ? await address.execute('addr', { action: 'bind', email, ...(addressCode ? { code: addressCode } : {}), gateway_url: gateway }, undefined, { cwd: workspace })
-  : await address.execute('addr', { action: 'bind', email, ...(addressCode ? { code: addressCode } : {}), gateway_url: gateway })
-const addrDetail = addr.details ?? addr
+if (!address) { console.error('aimail_address missing'); process.exit(1) }
+let sysDetail = { success: true }
+let addrDetail
+if (host === 'pi') {
+  const r = await address.execute('addr', {
+    action: 'bind', email, ...(addressCode ? { code: addressCode } : {}), gateway_url: gateway,
+  }, undefined, { cwd: workspace })
+  addrDetail = r.details ?? r
+} else {
+  const system = tools.get('aimail_system')
+  if (!system) { console.error('aimail_system missing'); process.exit(1) }
+  const sysArgs = { action: 'bind', code: systemCode, gateway_url: gateway }
+  if (domain) sysArgs.domain = domain
+  if (systemName) sysArgs.system_name = systemName
+  if (manager) sysArgs.manager = manager
+  const sys = await system.execute('sys', sysArgs)
+  sysDetail = sys.details ?? sys
+  const r = await address.execute('addr', {
+    action: 'bind', email, ...(addressCode ? { code: addressCode } : {}), gateway_url: gateway,
+  })
+  addrDetail = r.details ?? r
+}
+console.log(JSON.stringify({ step: host === 'pi' ? 'address-only' : 'system', result: sysDetail }))
 console.log(JSON.stringify({ step: 'address', result: addrDetail }))
 if (addrDetail?.success !== true) process.exit(1)
-
-// Binding is the contract: workspace must be the activation workspace.
 const { loadAgentConfig } = await import(path.join(dist, 'core/index.js'))
-const sid = String(sysDetail.system_id ?? '')
+const sid = String(addrDetail.system_id ?? sysDetail.system_id ?? '')
 const cfg = sid ? await loadAgentConfig(sid, email).catch(() => undefined) : undefined
 if (!cfg) { console.error('binding missing'); process.exit(1) }
 if (path.resolve(String(cfg.workspace_path ?? '')) !== workspace) {
@@ -91,33 +94,45 @@ console.log(JSON.stringify({ step: 'assert', ok: true, workspace: cfg.workspace_
 // Shared-stream plan must cover the activated address with a system stream.
 const { planStreams } = await import(path.join(dist, 'runtime/index.js'))
 const sysCfgPath = path.join(process.env.AIMAIL_HOME, 'systems', sid, 'aimail_gateway.json')
-const sysCfg = JSON.parse(await fs.readFile(sysCfgPath, 'utf-8'))
-const plans = planStreams(
-  [{ systemId: sid, gatewayUrl: sysCfg.gateway_url, apiKey: sysCfg.admin_key }],
-  [{ email, gatewayUrl: cfg.gateway_url, apiKey: cfg.api_key, system_id: sid }],
-)
-if (plans.length !== 1 || plans[0].scope !== 'system' || !plans[0].emails.includes(email)) {
+const sysCfg = host === 'pi'
+  ? { admin_key: '', gateway_url: cfg.gateway_url }
+  : JSON.parse(await fs.readFile(sysCfgPath, 'utf-8'))
+const plans = host === 'pi'
+  ? planStreams([], [{ email, gatewayUrl: cfg.gateway_url, apiKey: cfg.api_key, system_id: sid }])
+  : planStreams(
+      [{ systemId: sid, gatewayUrl: sysCfg.gateway_url, apiKey: sysCfg.admin_key }],
+      [{ email, gatewayUrl: cfg.gateway_url, apiKey: cfg.api_key, system_id: sid }],
+    )
+const wantScope = host === 'pi' ? 'address' : 'system'
+if (plans.length !== 1 || plans[0].scope !== wantScope || !plans[0].emails.includes(email)) {
   console.error('shared stream plan mismatch: ' + JSON.stringify(plans))
   process.exit(1)
 }
 console.log(JSON.stringify({ step: 'stream-plan', ok: true, plan: plans[0] }))
 
 if (delivery) {
-  const { startSystemPull, GatewayClient } = await import(path.join(dist, 'core/index.js'))
-  const cfgPath = path.join(process.env.AIMAIL_HOME, 'systems', sid, 'aimail_gateway.json')
-  const sysCfg = JSON.parse(await fs.readFile(cfgPath, 'utf-8'))
+  const { startSystemPull, startAgentPullEntries, GatewayClient } = await import(path.join(dist, 'core/index.js'))
   const seen = []
-  const handle = await startSystemPull({
-    systemId: sid,
-    gatewayUrl: sysCfg.gateway_url,
-    apiKey: sysCfg.admin_key,
-    onEmail: async (mail) => {
-      seen.push({ id: mail.id, email: mail.email, workspace: cfg.workspace_path })
-    },
-  })
+  const handles = host === 'pi'
+    ? [await startSystemPull({
+        systemId: email,
+        gatewayUrl: cfg.gateway_url,
+        apiKey: cfg.api_key,
+        onEmail: async (mail) => {
+          seen.push({ id: mail.id, email: mail.email, workspace: cfg.workspace_path })
+        },
+      })]
+    : [await startSystemPull({
+        systemId: sid,
+        gatewayUrl: JSON.parse(await fs.readFile(path.join(process.env.AIMAIL_HOME, 'systems', sid, 'aimail_gateway.json'), 'utf-8')).gateway_url,
+        apiKey: JSON.parse(await fs.readFile(path.join(process.env.AIMAIL_HOME, 'systems', sid, 'aimail_gateway.json'), 'utf-8')).admin_key,
+        onEmail: async (mail) => {
+          seen.push({ id: mail.id, email: mail.email, workspace: cfg.workspace_path })
+        },
+      })]
   try {
-    const client = new GatewayClient(sysCfg.gateway_url, String(sysCfg.admin_key), 30_000, sid)
-    const r = await client.request('POST', '/api/v1/system/welcome', { to: [email] })
+    const client = new GatewayClient(cfg.gateway_url, cfg.api_key, 30_000, email)
+    const r = await client.request('POST', '/api/v1/system/welcome', host === 'pi' ? { to: [] } : { to: [email] })
     if (!(r.status >= 200 && r.status < 300)) {
       console.error(`welcome failed: ${r.status} ${JSON.stringify(r)}`)
       process.exit(1)
@@ -125,7 +140,7 @@ if (delivery) {
     const deadline = Date.now() + 20_000
     while (seen.length === 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 250))
   } finally {
-    handle.stop()
+    for (const h of handles) h.stop()
   }
   if (seen.length === 0) { console.error('no SSE delivery received'); process.exit(1) }
   if (path.resolve(seen[0].workspace) !== workspace) {
