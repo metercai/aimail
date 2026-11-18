@@ -306,3 +306,33 @@ session/prompt              → {"ok":true,"value":{"accepted":true}}
 候选：`session/control`（未见 request 类型定义）、或必须先建立流式订阅
 （`session/observeState` / `session.observeEvent` / `session/events`）。
 判据不变：出现 ≥1 次 LLM 请求且 `tools[]` 含 `aimail_address` → 绑定/激活证据 → 注入邮件后 turn（含唯一串）→ ack 在 turn 后。
+
+#### G8 复验（2026-11-18 深夜，最终证据链）
+
+无 UI 条件下，dsh 的会话链路每一步都成功，但 **agent 始终不启动**（stub LLM 请求数 = 0）：
+
+```
+GET  /connect?token=…                                   → cookie                        ✓
+POST /api/session/create            args={request:{cwd}}                                → sessionId, agentPreset=standard ✓
+POST /api/session/initializeDefaultModel  args={}                                        → {"ok":true}                     ✓
+POST /api/session/observeState      (流式, 保持打开)                                      → 连接建立                         ✓
+POST /api/session/control           (流式, args={}, 保持打开)                             → 连接建立                         ✓
+POST /api/session/modelCatalog      args={}                                              → default={provider:stub,model:stub-model},
+                                                                                            routableProviders=[deepseek-official, stub] ✓
+POST /api/session/prompt            args={request:{requestId,sessionId,mode:'queue',content:[{type:'text',text:…}]}}
+                                                                                         → {"ok":true,"value":{"accepted":true}} ✓
+stub LLM 请求数（激活后）                                                                  → 0  ✗
+```
+
+客户端的 chat 请求在 `dsh-client-connection/lib/client.node.js` 里是
+`{type:"client-request", rpcId, method:<ns>/<method>, payload:{args:{…}}}`，
+`payload` 必须恰好一个 `args` 字段；`initializeDefaultModel` / `modelCatalog` 的 args 必须为空对象。
+
+问题：prompt 被接受到 agent inbox，但没有任何 agent 去消费它 —— 即使
+会话已初始化默认模型、catalog 的 default 指向我们的 stub 且 stub 可路由、
+并同时保持了 `observeState` 与 `control` 两条流。
+
+需要开发回答（一条即可）：**无 UI 时，谁负责把 inbox 里的 prompt 变成一次 agent turn？**
+（是否需要 client-connection 的 WS attach / 某个 control 帧 / 某个未文档化的 start 调用。）
+判据不变：prompt 后 stub 至少命中一次且 `tools[]` 含 `aimail_address` → 绑定/激活证据 →
+注入邮件后出现含唯一串的 turn，且 ack 在 turn 之后。
