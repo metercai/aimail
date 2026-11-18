@@ -12,7 +12,7 @@ import type { TSchema } from 'typebox'
 import { AGENT_TOOL_DEFS, toTypeBoxParams } from '../core/index.js'
 import { resolveConfig } from './identity.js'
 import { setAgentModel } from '../core/index.js'
-import { pinWorkspaceToBinding } from '../runtime/index.js'
+import { findOtherActiveAddress, pinWorkspaceToBinding } from '../runtime/index.js'
 
 /** pi AgentToolResult content block. */
 interface TextBlock {
@@ -68,6 +68,15 @@ export function buildPiTools(): Array<{
       const m = (ctx as { model?: { id?: string } } | undefined)?.model
       setAgentModel(m?.id)
       const args = (params ?? {}) as Record<string, unknown>
+      if (tool.name === 'aimail_address' && args.action === 'bind' && args.email) {
+        const other = await findOtherActiveAddress(String(args.email))
+        if (other) {
+          return toPiResult({
+            success: false, action: 'bind', email: String(args.email),
+            error: `Pi is single-address: already receiving ${other}; pause/unbind it first`,
+          })
+        }
+      }
       // Activation tools must work before a binding exists.
       const needsConfig = tool.name !== 'aimail_address'
       const cfg = needsConfig ? await resolveConfig() : undefined

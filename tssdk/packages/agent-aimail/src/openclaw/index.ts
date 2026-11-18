@@ -11,6 +11,7 @@ import {
   formatInboundNotifyLine,
   isInboundNotifyWarning,
   releaseAllSystems,
+  setProfileDirResolver,
   setAgentIdentity,
   setSoulProvider,
   setSkillsProvider,
@@ -40,6 +41,7 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
     // Host identification (#5): this entry is loaded by OpenClaw's plugin
     // loader; verify the environment matches before activating.
     activateHost('openclaw')
+    setProfileDirResolver(() => path.join(os.homedir(), '.openclaw'))
 
     // Outbound X-AIMail-Agent header (real detected host version, no guess)
     setAgentIdentity(agentIdentity())

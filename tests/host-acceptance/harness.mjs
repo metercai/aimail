@@ -43,6 +43,8 @@ if (host === 'pi') process.env.AIMAIL_TRANSPORT = 'sse'
 else process.env.AIMAIL_TRANSPORT = 'sse'
 
 const dist = process.env.TSSDK_DIST ?? path.resolve(import.meta.dirname, '../../tssdk/packages/agent-aimail/dist')
+const core = await import(path.join(dist, 'core/index.js'))
+core.setProfileDirResolver(() => host === 'pi' ? path.join(home, '.pi') : path.join(home, '.openclaw'))
 
 async function toolMap() {
   if (host === 'pi') {

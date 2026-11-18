@@ -19,3 +19,27 @@ export async function pinWorkspaceToBinding(email: string, workspace: WorkspaceR
   await saveAgentConfig(cfg, cfg.system_id)
   return true
 }
+
+/** Pi single-address guard: find another active address (if any). */
+export async function findOtherActiveAddress(email: string): Promise<string | undefined> {
+  const { promises: fsp } = await import('node:fs')
+  const path = await import('node:path')
+  const { AIMAIL_HOME } = await import('../../core/index.js')
+  const base = path.join(AIMAIL_HOME(), 'systems')
+  let roots: string[] = []
+  try { roots = await fsp.readdir(base) } catch { return undefined }
+  const want = email.toLowerCase()
+  for (const root of roots) {
+    let entries: import('node:fs').Dirent[] = []
+    try { entries = await fsp.readdir(path.join(base, root), { withFileTypes: true }) } catch { continue }
+    for (const e of entries) {
+      if (!e.isDirectory()) continue
+      try {
+        const cfg = JSON.parse(await fsp.readFile(path.join(base, root, e.name, 'agentmail.json'), 'utf-8')) as Record<string, unknown>
+        const em = String(cfg.email ?? '').toLowerCase()
+        if (em && em !== want && cfg.api_key && cfg.paused !== true) return em
+      } catch { /* skip */ }
+    }
+  }
+  return undefined
+}
