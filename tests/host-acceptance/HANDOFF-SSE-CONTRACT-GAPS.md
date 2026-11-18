@@ -152,3 +152,27 @@ stub LLM 命中: 0 → 0（无 agent turn）
 （并移除随之无用的 `inboundWebhookUrl` 助手与 `INBOUND_PATH`/`INBOUND_PORT` import）
 
 验证基线：`pnpm build` 绿、`pnpm test` **489 passed / 55 files**（2026-11-18 实测）。
+
+## G7-续 —— 跨宿主：pull 形态下 pi 之外两个宿主不产生 agent turn（2026-11-18 复测）
+
+同一网关（gateway-852a051）、同一系统密钥、同一夹具（SDK L2，已发 CLI 0.1.65 + 本地 0.4.1
+tarball），三宿主结果：
+
+| 宿主 | 网关是否接受投递 | 适配器/流状态 | agent turn |
+|---|---|---|---|
+| pi | ✓ | `transport=sse`，`pull scope … only_email=…` | **✓**（stub 命中 +1，请求体含唯一串） |
+| dsh | ✓ | hub `{"connected":true,"streams":["system:system-4b28"]}`，`lastEventAt` 始终为空 | ✗ |
+| openclaw | ✓ | `plugins.entries` 已启用；`hooks` 已接线 `{"enabled":true,"hasToken":true,"path":"/hooks"}` | ✗ |
+
+判定依据（同一把钥匙在同一网关上是通的）：
+`startSystemPull({systemId, gatewayUrl, apiKey})` 在容器内直连同一网关，能正常收到
+`[PULLED] 18 agent@l2.local`；`GET /api/v1/admin/pending/stream` 带系统身份时保持长连接。
+⇒ 网关/流/签名/scope 均正常，差异在 dsh 与 openclaw 各自的消费→交付实现，
+   §8 第 8 步（投递进会话并 ack）未真正发生；dsh 侧还出现"队列被消费但 `lastEventAt` 为空"。
+
+复现（本机，夹具在私有仓）：
+```
+HOME=/tmp/l2d/home AIMAIL_REPO=<aimail 工作树> SDK_PACK_DIR=/tmp/sdkpack E3_SMTP_PORT=12525 \
+  bash run-hosts-from-host.sh dsh|openclaw system-4b28 http://127.0.0.1:18080 l2.local
+```
+期望：SMTP 注入后 120s 内 stub 命中新增且请求体含唯一串（pi 已达标）。
