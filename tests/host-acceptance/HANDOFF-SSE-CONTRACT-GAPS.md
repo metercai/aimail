@@ -262,3 +262,29 @@ stub LLM 里产生一次 turn（含唯一串），且 ack 发生在 turn 之后�
 - `openclaw config schema` 中 `toolPolicy` 仅出现在 `channels/discord/voice/realtime` 下，与 agent 无关。
 ⇒ 结论：**插件声明的 tool 能力没有进入会话工具面**，且宿主的 schema 里没有"agent 级 toolPolicy"可用。
 请开发给出：插件工具进入会话工具面的正确开关（能力名/配置路径），或确认这是宿主的工具暴露缺陷。
+
+### G8 最终证据（2026-11-18，验证方）
+
+宿主内对话链路已在无 UI 条件下跑通并被受理（不是猜测，逐条实测）：
+
+```
+GET  /connect?token=…                                  → cookie
+POST /api/session/create  payload={"args":{"request":{"cwd":"/root"}}}
+  → {"ok":true,"value":{"sessionId":"session-…","agentPreset":"standard"}}
+POST /api/session/follow  {"args":{"request":{"sessionId":…}}}                → ok
+POST /api/session/initializeDefaultModel {"args":{"request":{"sessionId":…}}} → ok
+POST /api/session/prompt  {"args":{"request":{"requestId":…,"sessionId":…,
+     "mode":"queue","content":[{"type":"text","text":"AIMAIL_ACTIVATE bind <email>"}]}}}
+  → {"ok":true,"value":{"accepted":true}}
+```
+
+**断点**：prompt 仅进入 Agent inbox；**stub LLM 请求数 = 0**，即 agent 未被启动，
+因此既无 tool_call（`aimail_address`）也无 turn。已暴露的 session 方法里没有明显的 "start"：
+`session/{create,list,page,search,rename,fork,follow,events,observeEvent,observeProjections,observeState,projections,control,cancel,attachment,openWorkspacePath,canOpenWorkspacePath,modelCatalog,initializeDefaultModel,prompt}`，
+且 `session/control` 无对应 request 类型定义。
+
+**问题（需开发回答，属自动化所必需）**：无 UI 时，`session/prompt` 之后应调用什么来启动 agent 并消费 inbox？
+候选：`session/control`（请给 request 结构）或先建立某个流式订阅（`session/observeState`/`observeEvent`/`events`）。
+
+**判据**：prompt 后应出现 ≥1 次 LLM 请求，且 `tools[]` 含 `aimail_address`；agent 调用后宿主出现绑定/激活证据；
+注入邮件后出现 turn（含唯一串），ack 在 turn 之后。
