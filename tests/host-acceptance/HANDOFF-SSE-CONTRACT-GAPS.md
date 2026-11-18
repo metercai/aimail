@@ -251,3 +251,14 @@ stub LLM 里产生一次 turn（含唯一串），且 ack 发生在 turn 之后�
 > 不得再用"宿主外写 binding + 重启"伪造激活。
 
 配套的验收判据不变：in-host prompt 之后，绑定/激活证据出现在宿主侧 → 注入邮件产生 agent turn（含唯一串）→ ack 在 turn 之后。
+
+### G9 补充（2026-11-18 自查，验证方）
+
+- 插件侧无问题：`openclaw.plugin.json` 声明 `activation.onCapabilities:["tool"]` 与 `contracts.tools`（14 个），
+  运行时 `api.registerTool(...)` 注册 15 个；`plugins enable --accept-capabilities` 已执行。
+- 会话工具面仍只有内建工具（`apply_patch/exec/ls/read/message/...`），无 `aimail_*`。
+- 尝试用配置放开：`agents.defaults.toolPolicy` → 拒绝（Unrecognized key）；
+  `agents.entries.main.toolPolicy` → 拒绝（Unrecognized key）。
+- `openclaw config schema` 中 `toolPolicy` 仅出现在 `channels/discord/voice/realtime` 下，与 agent 无关。
+⇒ 结论：**插件声明的 tool 能力没有进入会话工具面**，且宿主的 schema 里没有"agent 级 toolPolicy"可用。
+请开发给出：插件工具进入会话工具面的正确开关（能力名/配置路径），或确认这是宿主的工具暴露缺陷。
