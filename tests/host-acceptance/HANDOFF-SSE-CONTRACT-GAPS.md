@@ -288,3 +288,21 @@ POST /api/session/prompt  {"args":{"request":{"requestId":…,"sessionId":…,
 
 **判据**：prompt 后应出现 ≥1 次 LLM 请求，且 `tools[]` 含 `aimail_address`；agent 调用后宿主出现绑定/激活证据；
 注入邮件后出现 turn（含唯一串），ack 在 turn 之后。
+
+#### G8 复验更新（2026-11-18，同日晚）
+
+`session/initializeDefaultModel` 的 args 必须为空对象（代码：`typert.remote-client.d.ts` → `initializeDefaultModel: () => Promise<RemoteResult<void>>`）。
+修正后完整链路均成功：
+
+```
+session/create              → ok, sessionId=…, agentPreset=standard
+session/follow              → ok
+session/initializeDefaultModel (args={})  → {"ok":true}
+session/prompt              → {"ok":true,"value":{"accepted":true}}
+但 stub LLM 请求数 = 0（agent 仍未启动，inbox 未被消费）
+```
+
+因此问题精确化为：**无 UI 时，prompt 进入 inbox 后由什么驱动 agent 消费**？
+候选：`session/control`（未见 request 类型定义）、或必须先建立流式订阅
+（`session/observeState` / `session.observeEvent` / `session/events`）。
+判据不变：出现 ≥1 次 LLM 请求且 `tools[]` 含 `aimail_address` → 绑定/激活证据 → 注入邮件后 turn（含唯一串）→ ack 在 turn 后。
