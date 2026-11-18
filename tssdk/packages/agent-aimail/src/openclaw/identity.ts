@@ -20,8 +20,8 @@ import { randomBytes } from 'node:crypto'
 import * as path from 'node:path'
 import {
   ensureAgentBinding,
-  hasAnySystem,
   loadConfigByAgentId,
+  loadConfigByEmail,
   type AgentConfig,
 } from '../core/index.js'
 import { INBOUND_PATH } from './inbound.js'
@@ -292,25 +292,19 @@ export async function tryAutoBindOnce(
 export async function resolveConfigForAgent(
   agentId: string | undefined,
 ): Promise<AgentConfig> {
-  const id = agentId && agentId.trim() ? agentId.trim() : DEFAULT_AGENT_ID
+  void agentId
   const ptr = await readPointer()
   const systemId = ptr.system_id ?? ''
-  if (!systemId) {
-    if (hasAnySystem()) {
-      const cfg = await tryAutoBindOnce(id)
-      if (cfg) return cfg
-    }
-    const fix = hasAnySystem()
-      ? 'Run: aimail install --home ~/.openclaw (or openclaw aimail register)'
-      : 'Machine has no aimail environment yet. Run: aimail install --home ~/.openclaw (or restart the host so auto-ensure via `aimail install --system-only` kicks in)'
+  if (!systemId || !ptr.email) {
     throw new Error(
-      `aimail not configured for this agent — no ~/.openclaw/.agentmail pointer. ${fix}`,
+      'aimail not configured for this agent — no ~/.openclaw/.agentmail pointer with system_id+email. Run: openclaw aimail register',
     )
   }
-  const cfg = await loadConfigByAgentId(systemId, id)
+  // Binding identity is the ADDRESS (+ workspace), not the host agent id.
+  const cfg = await loadConfigByEmail(ptr.email, systemId)
   if (!cfg) {
     throw new Error(
-      `aimail not configured for agent '${id}' (system ${systemId}). Run: openclaw aimail register`,
+      `aimail not configured for ${ptr.email} (system ${systemId}). Run: openclaw aimail register`,
     )
   }
   return cfg

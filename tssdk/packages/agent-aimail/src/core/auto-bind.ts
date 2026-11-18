@@ -376,7 +376,10 @@ export interface SaveBindingOptions {
   webhookUrl?: string
   webhookSecret?: string
   managerAddress?: string
-  /** platform fields merged into the binding (agent_id/session_id/preset/...). */
+  /** Required SSE routing fields. */
+  workspaceId?: string
+  workspacePath?: string
+  /** platform fields merged into the binding (agent_id/preset/...). */
   extra?: Record<string, unknown>
   /** explicit gateway facts (defaults: readSystemConfig). */
   gateway?: SystemGatewayConfig
@@ -402,6 +405,8 @@ export async function saveBinding(opts: SaveBindingOptions): Promise<string> {
   if (opts.managerAddress) cfg['manager_address'] = opts.managerAddress
   if (opts.webhookUrl) cfg['webhook_url'] = opts.webhookUrl
   if (opts.webhookSecret) cfg['webhook_secret'] = opts.webhookSecret
+  cfg['workspace_id'] = opts.workspaceId ?? opts.workspacePath ?? process.cwd()
+  cfg['workspace_path'] = opts.workspacePath ?? opts.workspaceId ?? process.cwd()
   if (opts.extra) {
     for (const [k, v] of Object.entries(opts.extra)) {
       if (v !== undefined) cfg[k] = v
@@ -421,7 +426,10 @@ export interface AutoBindOptions {
   /** default: fresh 64-hex secret. */
   webhookSecret?: string
   managerAddress?: string
-  /** platform fields persisted into agentmail.json (agent_id/session_id/...). */
+  /** Required SSE routing fields; default to the process workspace. */
+  workspaceId?: string
+  workspacePath?: string
+  /** platform fields persisted into agentmail.json (agent_id/preset/...). */
   extraFields?: Record<string, unknown>
   /** test seams (bypass network / override config). */
   transport?: AdminClientLike
@@ -614,6 +622,8 @@ export async function autoBind(opts: AutoBindOptions): Promise<AutoBindResult> {
     webhookUrl: localWebhook,
     webhookSecret,
     managerAddress,
+    workspaceId: opts.workspaceId ?? process.cwd(),
+    workspacePath: opts.workspacePath ?? process.cwd(),
     ...(opts.extraFields !== undefined ? { extra: opts.extraFields } : {}),
     gateway: gw,
   })

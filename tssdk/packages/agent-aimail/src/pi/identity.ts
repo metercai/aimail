@@ -23,7 +23,6 @@ import {
   INBOUND_PATH,
   INBOUND_PORT,
   POINTER_FILE,
-  loadConfigByAgentId,
   loadConfigByEmail,
   setAgentIdentity,
   type AgentConfig,
@@ -183,17 +182,10 @@ export async function resolveConfig(): Promise<AgentConfig> {
   const ptr = readPointer()
   const systemId = ptr.system_id ?? ''
   // dsh style: **per-address binding file is the sole authority**; pointer is only for system scope and rebuildable cache.
-  if (systemId) {
-    const byAgent = await loadConfigByAgentId(systemId, DEFAULT_AGENT_ID)
-    if (byAgent) return byAgent
-  }
+  // Binding identity is the ADDRESS (+ workspace), never the host agent id.
   if (ptr.email && systemId) {
     const byEmail = await loadConfigByEmail(ptr.email, systemId)
     if (byEmail) return byEmail
-  }
-  if (hasAnySystem()) {
-    const cfg = await tryAutoBindOnce()
-    if (cfg) return cfg
   }
   throw new Error(
     (hasAnySystem()

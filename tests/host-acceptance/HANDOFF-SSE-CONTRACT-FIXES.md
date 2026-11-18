@@ -27,8 +27,5 @@
 
 ## Still open / not claimed
 
-- G2 `autoBind` legacy registration path still does not add workspace fields;
-  SSE startup no longer uses it, but CLI legacy registration can still write
-  workspace-less bindings.
-- G5 binding discovery is not yet unified across all three hosts.
-- Pi/OpenClaw still do not call `routeThread`; only DSH hub does.
+- Pi/OpenClaw still do not call `routeThread`; only DSH hub does. Their
+  session/new-session behavior remains host-API constrained.
