@@ -16,6 +16,7 @@
 | G4 | `runtime/session-router.ts::routeThread` 没有任何宿主消费 —— §8 实际未实现 | §8 | 高 |
 | G5 | 三个宿主的绑定发现键不一致（pi 按 `agent_id`、dsh 按 `session_id`/邮箱、openclaw 自有映射） | §2.3 / §8 | 中 |
 | G6 | 无绑定时是否仍应起 SSE 路由 / 入站该在哪工作区起新会话，三宿主行为不一致 | §3 / §8 | 中 |
+| G7 | dsh hub 收到投递、无 agent turn、却已 ack（无 workspace 时本应留 pending） | §7.2 / §8 | 高 |
 
 ## G1 启动期 autoBind 自行创建默认工作员
 
@@ -91,6 +92,28 @@
 - dsh：无绑定 → 报错并（本轮）阻断绑定链。
 **违反**：§3（SSE consumer 能力）+ §8 第 2 步（无绑定 ⇒ 不 ack、留在 pending）。
 **判据**：无绑定时宿主应"起流但无可投递目标"，网关侧该地址邮件保持 pending（不得 ack、不得被自动回执）。
+
+## G7 —— dsh mail-hub：收到投递、无 agent turn、却被 ack（新，2026-11-18 实测）
+
+**现象**（本轮 dsh SDK L2，宿主 `profile=web`，系统流 `system:system-4b28`）
+```
+hub 状态(投递前): {"connected":true,"streams":["system:system-4b28"],"lastEventAt":"","lastError":""}
+hub 状态(投递后): {"connected":true,"streams":["system:system-4b28"],"lastEventAt":"2026-11-18T03:32:32.507Z","lastError":""}
+stub LLM 命中: 0 → 0（无 agent turn）
+网关侧: pending_deliveries 中该行已消失（被消费/ack）
+```
+对照：同一网关、同一系统密钥，直接用 SDK `startSystemPull()` 拉取同一封信，`onEmail` **正常回调**（`[PULLED] 18 agent@l2.local`）——说明网关、流接口、scope、签名都正确，问题在 dsh hub 的投递处理。
+
+**违反**
+- §7.2："Ack only after the host accepts the payload into a session… **Do not ack on binding miss, workspace miss, paused, or Agent creation failure.**"
+- §8 第 8 步："Deliver the processed inbound message into that session; stamp local meta with session id/workspace path; **ack**."
+
+**推断**（需开发确认）：绑定当前没有 `workspace_id`/`workspace_path`（G2），hub 在路由时命中 "workspace miss"，按契约应**不 ack 并留 pending**；实测却被 ack 且未建会话、未产生 turn。
+
+**判据**
+1. 同一封信投递后：stub LLM 命中 +1 且新增请求体含唯一串（agent turn 真的发生）；
+2. 只有在该 turn 完成后该 pending 行才消失（ack 在投递之后）；
+3. workspace 缺失时该行必须留在 pending（不得 ack），日志给出 workspace miss 原因。
 
 ## 夹具侧（验证方自行修正，不需开发处理）
 
