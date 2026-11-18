@@ -234,3 +234,20 @@ stub LLM 里产生一次 turn（含唯一串），且 ack 发生在 turn 之后�
 - 结论：验证方无法在无头环境"像用户在对话框输入 prompt"一样触发 in-agent 激活。
   需要（任一）：① document web chat API（含 token 用法）；② 让 headless 接受 profile 的 LLM 配置；
   ③ 支持"绑定已存在时重启即 arm pull"。
+
+### G8 更正（owner 裁决，2026-11-18）
+
+边界以 owner 裁决为准，本段覆盖上文 G8 的措辞：
+
+- **不提供宿主外写 binding 的激活**；
+- **不提供 headless 激活入口**；
+- **唯一激活路径**：宿主内 prompt → Agent 调用 `aimail_system` / `aimail_address`；
+- `read-on-boot` 只是"已合法激活的 binding"的**重启恢复**，**不是**第二种激活方式。
+
+因此验证方的诉求收窄为一条（属"可测性/文档"，不是产品功能）：
+
+> 请给出**向运行中的宿主提交一条对话 prompt** 的稳定方式（dsh：`dsh web` 的 chat API 路由与 token 用法；
+> openclaw：`/hooks/agent` 已在用，已验证可用）。L2 夹具必须走这条 in-host prompt 路径完成激活，
+> 不得再用"宿主外写 binding + 重启"伪造激活。
+
+配套的验收判据不变：in-host prompt 之后，绑定/激活证据出现在宿主侧 → 注入邮件产生 agent turn（含唯一串）→ ack 在 turn 之后。
