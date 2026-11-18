@@ -1,7 +1,7 @@
 {
   "id": "agent-aimail",
   "name": "AIMail",
-  "description": "AIMail email capability for OpenClaw: 14 mail/board tools, inbound email delivery with HMAC verification, and register/register-all/deregister/status commands.",
+  "description": "AIMail email capability for OpenClaw: mail/board tools plus in-agent aimail_address/aimail_system activation.",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -10,7 +10,9 @@
   "enabledByDefault": false,
   "activation": {
     "onStartup": true,
-    "onCapabilities": ["tool"]
+    "onCapabilities": [
+      "tool"
+    ]
   },
   "contracts": {
     "tools": [
@@ -27,7 +29,9 @@
       "board_heartbeat",
       "board_members",
       "board_roles",
-      "activate_address_code"
+      "role_calibrator",
+      "aimail_address",
+      "aimail_system"
     ]
   }
 }
