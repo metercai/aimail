@@ -221,3 +221,16 @@ stub LLM 里产生一次 turn（含唯一串），且 ack 发生在 turn 之后�
 3）若这是预期（工具只在特定 agent 上下文可见），请给出无头环境下的正确开启方式；否则这是缺陷。
 
 判据（拿到修法后验证方会跑）：对话入口提交"绑定地址 X"的 prompt 后，会话工具面应包含 `aimail_address`；agent 调用后宿主出现绑定/激活证据；随后注入邮件在 stub 产生 turn（含唯一串），并且 ack 在 turn 之后。
+
+### G8 补充（2026-11-18 复验）
+
+- `dsh --profile web --dump-config` 能查到 `mail-hub`（容器内 `grep -c mail-hub` = 2），宿主启动静默，
+  说明插件已加载；缺的是"宿主内激活"事件。
+- 无头对话入口现状（`dsh headless "<prompt>"`）：
+  `dsh: MISSING_CREDENTIAL: llm-deepseek: no API key for provider route "deepseek-official";
+   store DEEPSEEK_API_KEY through the credentials service`
+  ⇒ headless 不读 web profile 里配置的 LLM（我们指向 stub），直接找 provider 凭据；
+  而 `dsh web` 的 chat API 没有文档化路由。
+- 结论：验证方无法在无头环境"像用户在对话框输入 prompt"一样触发 in-agent 激活。
+  需要（任一）：① document web chat API（含 token 用法）；② 让 headless 接受 profile 的 LLM 配置；
+  ③ 支持"绑定已存在时重启即 arm pull"。
