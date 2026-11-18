@@ -113,14 +113,22 @@ export async function deliverToAgent(
   return { status: 'delivered', detail: 'hooks/agent accepted' }
 }
 
-function readHooksConfig(): { token: string; allowSessionKey: boolean } {
+function readHooksConfig(): { token: string; allowSessionKey: boolean; prefixes: string[] } {
   try {
     const home = process.env.HOME ?? process.env.USERPROFILE ?? ''
     const raw = fs.readFileSync(path.join(home, '.openclaw', 'openclaw.json'), 'utf-8')
-    const cfg = JSON.parse(raw) as { hooks?: { token?: string; allowRequestSessionKey?: boolean } }
-    return { token: String(cfg.hooks?.token ?? ''), allowSessionKey: cfg.hooks?.allowRequestSessionKey === true }
+    const cfg = JSON.parse(raw) as {
+      hooks?: { token?: string; allowRequestSessionKey?: boolean; allowedSessionKeyPrefixes?: string[] }
+    }
+    return {
+      token: String(cfg.hooks?.token ?? ''),
+      allowSessionKey: cfg.hooks?.allowRequestSessionKey === true,
+      prefixes: Array.isArray(cfg.hooks?.allowedSessionKeyPrefixes)
+        ? cfg.hooks!.allowedSessionKeyPrefixes!.filter((p): p is string => typeof p === 'string')
+        : [],
+    }
   } catch {
-    return { token: '', allowSessionKey: false }
+    return { token: '', allowSessionKey: false, prefixes: [] }
   }
 }
 
@@ -257,10 +265,13 @@ export async function deliverInbound(
   // address local part — the 0.1.25 E2-pull defect). One rule, both entries.
   const agentId = resolveDispatchAgentId(cfg, agentAddr)
   const policy = readHooksConfig()
+  const sessionKey = threadSessionKey(agentId, payload, headers)
+  const prefixAllowed = policy.prefixes.length === 0
+    || policy.prefixes.some((p) => sessionKey.startsWith(p))
   const out = await deliverToAgent(api, {
     agentId,
     message: JSON.stringify({ ...result, to: agentAddr }),
-    ...(policy.allowSessionKey ? { sessionKey: threadSessionKey(agentId, payload, headers) } : {}),
+    ...(policy.allowSessionKey && prefixAllowed ? { sessionKey } : {}),
   })
   // E3-① (owner ruling 2026-09-27): record the dispatch outcome in the SAME per-agent
   // log the inbound line goes to. Measured on the CLI gate's J4e: without this line a

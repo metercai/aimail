@@ -41,3 +41,21 @@ Until these are verified, Pi/OpenClaw adapters MUST NOT be claimed conformant.
   `hooks.allowedSessionKeyPrefixes`). The adapter now sends a thread-stable
   `agent:<agentId>:aimail:<hash>` key only when that flag is enabled; otherwise
   it omits the key and the host creates a fresh hook session.
+
+### OpenClaw sessionKey configuration
+
+To make a reply return to the originating thread's session, enable the host
+policy and constrain the prefix:
+
+```json
+{
+  "hooks": {
+    "allowRequestSessionKey": true,
+    "allowedSessionKeyPrefixes": ["agent:main:aimail:"]
+  }
+}
+```
+
+The adapter sends `agent:<agentId>:aimail:<thread-hash>` only when the flag is
+true and the key matches an allowed prefix. Otherwise it omits `sessionKey` and
+OpenClaw creates a fresh hook session (no contract break; no session targeting).
