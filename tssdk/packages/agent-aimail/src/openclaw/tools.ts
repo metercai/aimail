@@ -15,7 +15,7 @@ import type {
   AnyAgentTool,
   OpenClawPluginToolContext,
 } from 'openclaw/plugin-sdk/plugin-entry'
-import { resolveConfigForAgent } from './identity.js'
+import { resolveConfigForAgent, writePointer } from './identity.js'
 import { setAgentModel } from '../core/index.js'
 
 
@@ -67,6 +67,9 @@ export function createMailTools(
         ensureWorkspace: async (p) => ({ id: agentId, path: p, title: agentId }),
         systemHome: () => path.join(process.env.HOME || '', '.openclaw'),
       })
+      if (r.success && r.system_id) {
+        await writePointer({ system_id: String(r.system_id), email: String(r.default_email ?? '') })
+      }
       return jsonResult(r)
     },
   })

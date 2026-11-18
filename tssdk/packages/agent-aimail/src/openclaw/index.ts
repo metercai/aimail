@@ -11,6 +11,7 @@ import {
   formatInboundNotifyLine,
   isInboundNotifyWarning,
   releaseAllSystems,
+  onBindingCreated,
   setProfileDirResolver,
   setAgentIdentity,
   setSoulProvider,
@@ -32,6 +33,7 @@ import { activateHost } from '../hosts/activate.js'
 const boardRoot = path.join(packageResourcesRoot(), 'board')
 
 const transport = process.env.AIMAIL_TRANSPORT === 'push' ? 'push' : 'sse'
+let pullHandles: Array<{ stop: () => void }> = []
 const entry: OpenClawPluginDefinition = definePluginEntry({
   id: 'agent-aimail',
   name: 'AIMail',
@@ -215,6 +217,15 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
         )
       })
     }
+
+    // Hot-add after in-agent address/system activation.
+    onBindingCreated(async () => {
+      for (const h of pullHandles) h.stop()
+      pullHandles = []
+      try {
+        pullHandles = await startInboundPull(api, { log: (line: string) => console.error(line) })
+      } catch { /* next restart retries */ }
+    })
 
     // Registration / status commands are legacy CLI surface; the SSE profile
     // uses the Agent tool surface instead.

@@ -22,7 +22,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
-import { notifyInboundForSystem, formatInboundNotifyLine, isInboundNotifyWarning, listenWithRetry, processInboundMail, releaseAllSystems, routeAddressFromHeaders, startAgentPullEntries, startSystemPull, setProfileDirResolver, setSoulProvider, setSkillsProvider, setToolsetProvider, listSkillNames, verifySignature, INBOUND_PATH, INBOUND_PORT, type AgentConfig, type AgentPullHandle, type AgentPullOverrides, type InboundPayload, packageResourcesRoot } from '../core/index.js'
+import { notifyInboundForSystem, formatInboundNotifyLine, isInboundNotifyWarning, listenWithRetry, processInboundMail, releaseAllSystems, routeAddressFromHeaders, startAgentPullEntries, startSystemPull, onBindingCreated, setProfileDirResolver, setSoulProvider, setSkillsProvider, setToolsetProvider, listSkillNames, verifySignature, INBOUND_PATH, INBOUND_PORT, type AgentConfig, type AgentPullHandle, type AgentPullOverrides, type InboundPayload, packageResourcesRoot } from '../core/index.js'
 import { resolveByRecipient } from '../mail/index.js'
 import { readSystemGatewayConfig } from '../core/provision.js'
 import { agentIdentity, initIdentity, readPointer, setInboundEndpoint, tryAutoBindOnce } from './identity.js'
@@ -458,6 +458,14 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
   }
   startInbound()
 
+  // Hot-add: an address activation after the session started must arm its
+  // pull loop without requiring a Pi restart.
+  const offBinding = onBindingCreated(async () => {
+    for (const h of pullHandles) h.stop()
+    pullHandles = []
+    try { pullHandles = await startInboundPull(pi, { log }) } catch { /* next restart retries */ }
+  })
+
   // Listener lifecycle follows the session (pull loops stop with it).
   pi.on('session_shutdown', () => {
     // Shutdown notification (2026-09-28): per address `aimail address -a <addr> --inbound-down`,
@@ -475,6 +483,7 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
           `[agent-aimail] inbound down notify failed (non-fatal): ${e instanceof Error ? e.message : String(e)}`,
         )
       })
+    offBinding()
     for (const h of pullHandles) h.stop()
     pullHandles = []
     server?.close()

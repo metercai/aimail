@@ -1,5 +1,7 @@
 import type { MailToolParam } from '../../core/tool-registry.js'
 import { provisionSystem, type SystemArgs, type SystemWorkspaceHost } from './system.js'
+import { loadAgentConfig } from '../../core/index.js'
+import { fireBindingCreated } from '../../core/binding-hooks.js'
 
 export const SYSTEM_TOOL_PARAMS: Record<string, MailToolParam> = {
   action: { type: 'string', enum: ['bind', 'status'], required: true, description: 'bind: onboard; status: read current system' },
@@ -17,5 +19,10 @@ export async function runSystemTool(
   args: Record<string, unknown>,
   host: SystemWorkspaceHost,
 ): Promise<Record<string, unknown>> {
-  return await provisionSystem(undefined, (args ?? {}) as SystemArgs, host)
+  const r = await provisionSystem(undefined, (args ?? {}) as SystemArgs, host)
+  if (r.success && r.system_id && r.default_email) {
+    const cfg = await loadAgentConfig(String(r.system_id), String(r.default_email)).catch(() => undefined)
+    if (cfg) await fireBindingCreated(cfg)
+  }
+  return r
 }

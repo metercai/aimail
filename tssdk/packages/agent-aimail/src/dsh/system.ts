@@ -26,7 +26,12 @@ export function apply(ctx: Context): void {
     parameters: params,
     output: { schema: { type: 'json' as const }, render: (_a: unknown, v: unknown) => [{ type: 'text' as const, text: JSON.stringify(v) }] },
     async execute(args: unknown) {
-      return await provisionSystem(ctx, (args ?? {}) as Args) as never
+      const r = await provisionSystem(ctx, (args ?? {}) as Args)
+      if ((r as { success?: boolean }).success) {
+        const hub = ctx.get('mailHub') as { reconcile?: () => Promise<void> } | undefined
+        void hub?.reconcile?.().catch(() => undefined)
+      }
+      return r as never
     },
   }))
 }

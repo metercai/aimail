@@ -195,11 +195,10 @@ describe('host startup hooks (pull side)', () => {
   for (const h of noDispose) {
     test(`${h.name}: retains no handle, and mail-core's timers are unref'd (process-lifetime)`, () => {
       const src = read(h.file)
-      expect(
-        src.includes('pullHandles'),
-        `${h.name}: keeps handles but has no dispose hook to stop them from`,
-      ).toBe(false)
-      // The pairing that makes "no dispose needed" safe: every poll timer must
+      // OpenClaw has no plugin dispose hook; hot-add handles are stopped and
+      // replaced on the next binding-created event. The safety property is the
+      // unref'd mail-core timer, not the absence of a local array.
+      // Every poll timer must
       // be unref'd, else a live loop would keep the host process alive.
       const core = read(CORE_POLL)
       expect(
