@@ -65,3 +65,11 @@ policy and constrain the prefix:
 The adapter sends `agent:<agentId>:aimail:<thread-hash>` only when the flag is
 true and the key matches an allowed prefix. Otherwise it omits `sessionKey` and
 OpenClaw creates a fresh hook session (no contract break; no session targeting).
+
+
+## Toolset naming
+
+The host-facing toolset is one logical name: `agentmail` <!-- contract-allowed: toolset name -->
+(`contract/aimail-contract.json: agent_toolset_name`). The SKILL frontmatter
+depends on `toolset: agentmail`. <!-- contract-allowed: toolset name --> `MAIL_TOOLS` / `MAIL_BOARD` / `MAIL_ADMIN` are
+internal capability groups, not host toolset names.

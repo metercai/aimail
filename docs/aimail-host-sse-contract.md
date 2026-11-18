@@ -89,8 +89,14 @@ directory, but MUST still provide a stable identifier/path and the same
 
 ## 4. Tool surface
 
-The Adapter MUST expose these semantic groups. Grouping is part of the contract;
-the implementation may keep them in one entry or several.
+The Adapter MUST expose these semantic groups. Grouping is part of the contract
+as **capability categories**; the implementation may keep them in one entry or
+several.
+
+The single host-facing **toolset name** is `agentmail` (the manifest's <!-- contract-allowed: toolset name -->
+`agent_toolset_name`). `MAIL_TOOLS`, `MAIL_BOARD` and `MAIL_ADMIN` are internal
+category names, not separate toolsets. A SKILL dependency MUST reference
+`agentmail`, not one of the category names. <!-- contract-allowed: toolset name -->
 
 ### 4.1 `MAIL_TOOLS` (7)
 
