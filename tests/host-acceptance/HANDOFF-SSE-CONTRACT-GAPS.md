@@ -528,3 +528,28 @@ for (const t of createMailTools(ctx, resolveAgentWorkspaceDir)) api.registerTool
 2）会话 `tools[]` 含 `aimail_address`；
 3）宿主内 prompt 调用后出现 `[aimail-pull] polling started`；
 4）注入邮件 → stub turn 含唯一串 → ack 在 turn 之后。
+
+#### G9 追加实验（2026-11-19）：改成"每个工具注册一次"仍然 names=[]
+
+在不改仓库源码的前提下，把 0.4.2 的 dist 复制到 /tmp 做了一次**一次性实验**（未提交、不进入产品）：
+```js
+// 原：api.registerTool((ctx) => createMailTools(ctx, resolveAgentWorkspaceDir))   // 返回数组
+for (const _t of createMailTools({}, resolveAgentWorkspaceDir)) api.registerTool(() => _t)
+```
+结果（同一 2026.11.5 镜像、`plugins install <tgz>`）：
+```
+plugins inspect agent-aimail --runtime --json
+→ tools: [ {names:[]}, {names:[]}, … ] × 16        ← 变成 16 条，但每条名字仍为空
+```
+对照：`memory-core` 是 `[{names:["memory_search"]}, {names:["memory_get"]}, {names:["intent"]}]`。
+
+工具对象本身形状正常（直调工厂可见）：
+```
+keys: [ 'name', 'label', 'description', 'parameters', 'execute' ]
+sample: {"name":"send_mail","label":"send_mail","description":"…","parameters":{...}}
+```
+⇒ 说明：宿主接受了 16 次注册调用，但**没有从工厂返回值里取到 name**；
+即 `api.registerTool(factory)` 的契约与插件用法不一致（宿主自带示例为 `registerTool((r) => ({...}))`，且 memory-core 的条目能取到名字）。
+
+**请 dev 给出**：2026.11.5 上 `registerTool` 的准确调用契约（工厂返回单对象？直接传对象？是否需要 `{name, description, inputSchema, handler}` 字段名？），
+按该契约修改后，`tools[].names` 应出现 16 个名字。验证方已把两次实验的可复现步骤写在上文，可直接照做。
