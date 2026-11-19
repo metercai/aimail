@@ -618,6 +618,21 @@ L2 openclaw: PASS
 L0: PASS
 ```
 
+### 同 Gateway 双地址聚合 L2
+
+- OpenClaw 在同一 Gateway 激活 alice/bob 两个地址；
+- 两个地址属于同一 AgentSystemId；
+- 一条聚合 SSE 同时收到两封 welcome；
+- 两条 delivery 都路由到 workspace；
+- 结果：PASS（seen=2）。
+
+证据：
+
+```text
+aimail 14b941d test(l2): two-address aggregate delivery
+L0: PASS
+```
+
 ### 已知环境问题
 
 - advanced `cargo test` 在本机有 9 个 machine_code 测试失败，
