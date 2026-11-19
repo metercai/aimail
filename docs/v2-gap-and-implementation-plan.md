@@ -491,6 +491,29 @@ L0: PASS
 - 聚合 SSE/ack 未实现；
 - 三类地址端到端 L2。
 
+### 批次 C — 起步
+
+- tssdk 在地址激活时发送 `X-Agent-System-Id`；
+- base gateway 新增 `agent_system_addresses` 归属表；
+- 地址激活成功后写入 `AgentSystemId ↔ address ↔ GatewaySystemId`；
+- 为下一步聚合 pending/ack 提供数据基础。
+
+证据：
+
+```text
+gateway b8b7e64 feat(agent-system): record address ownership by AgentSystemId
+aimail  ad39e29 feat(activation): carry AgentSystemId on address activation
+cargo test activation: 11 passed
+L0: PASS
+```
+
+未完成：
+
+- advanced 归属写入；
+- 按 AgentSystemId 的聚合 pending/ack；
+- 聚合 SSE；
+- A/B 隔离与多 Gateway L2。
+
 ### 已知环境问题
 
 - advanced `cargo test` 在本机有 9 个 machine_code 测试失败，
