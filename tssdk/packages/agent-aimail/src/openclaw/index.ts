@@ -7,6 +7,7 @@
  */
 import type { OpenClawPluginDefinition } from 'openclaw/plugin-sdk/plugin-entry'
 import {
+  AGENT_TOOL_DEFS,
   notifyInboundForSystem,
   formatInboundNotifyLine,
   isInboundNotifyWarning,
@@ -141,8 +142,12 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
       console.error(`[agent-aimail] skill release failed: ${String(e)}`)
     }
 
-    // 15 bare-name tools (MAIL_TOOLS single source; identity from ctx.agentId)
-    api.registerTool((ctx) => createMailTools(ctx, resolveAgentWorkspaceDir))
+    // 15 bare-name tools + aimail_system. The host needs explicit `names`
+    // metadata when a factory returns an array; without it every name is
+    // registered as an empty tool surface entry.
+    api.registerTool((ctx) => createMailTools(ctx, resolveAgentWorkspaceDir), {
+      names: [...AGENT_TOOL_DEFS.map((t) => t.name), 'aimail_system'],
+    })
 
     // Inbound delivery route (in-gateway, no new port; auth=plugin, HMAC is
     // the trust boundary per R2)
