@@ -582,3 +582,27 @@ openclaw plugins inspect agent-aimail --runtime --json
 16 个名字全部出现，与 manifest `contracts.tools` 一致。
 
 后续链路（会话 tools[] → 宿主内 prompt → polling started → 邮件 → turn）验证方用同一份实验包继续跑，结果另行追加。
+
+#### G9/G10 复验（3）：openclaw 调用链已打通，绑定未成功
+
+已确认可用（原始输出）：
+- 加载：`loadFailedCount=0 registerFailedCount=0`，`http server listening (2 plugins)`
+- 注册：实验包加 `{ names: [...16] }` 后 `inspect --runtime` 返回 16 个名字
+- 调用：宿主执行了插件工具，返回体为
+```
+{"tool":{"id":"openclaw:agent-aimail:aimail_address","name":"aimail_address","source":"openclaw"},
+ "result":{"content":[{"type":"text","text":"{\"success\": false, \"action\": \"bind\",
+   \"reason\": \"missing-email\", \"error\": \"email is required — the mailbox this acts on\"}"}]}}
+```
+（当时 stub 未传 email；夹具已修：`export E3_BIND_EMAIL="$EMAIL"`）
+
+仍未达成：
+- 修 email 后的一轮：激活 prompt 期间 35 次 LLM 请求（agent 在重试），
+  宿主日志仍 `[aimail-pull] no agent-scope binding — polling not started`，注入邮件无 turn。
+- 说明 `aimail_address bind` 还缺参数或需要不同 action 语义（非 email 缺项）。
+
+下一步（夹具侧，逐变量）：
+1）以最小 prompt 直接驱动 `dispatch_action{id:"aimail_address", args:{action:"bind", email:"<addr>"}}`，读取返回体确认剩余必填项；
+2）按需补 `address_code` / `manager` / `workspace`；
+3）成功判据：返回 `{"success": true}` + 宿主日志 `[aimail-pull] polling started`；
+4）再验证注入邮件 → turn（含唯一串）→ ack。
