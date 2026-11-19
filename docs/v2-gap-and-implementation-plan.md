@@ -735,6 +735,19 @@ aimail 4968fcb test(openclaw): pin sessionKey opt-in
 L0: PASS
 ```
 
+### advanced E2E 尝试
+
+- advanced binary 已成功构建；
+- `e2e-open-apply.py` 在 apply-address 链路通过；
+- 在 whitelist create 处失败：
+
+```text
+401 identity_required: X-Api-Identity must name a system or address
+```
+
+- 这是 advanced 旧 E2E helper 未发送 `X-Api-Identity`，属于测试夹具与新鉴权要求的错位；
+- 三类地址端到端测试尚未完成。
+
 ### 已知环境问题
 
 - advanced `cargo test` 在本机有 9 个 machine_code 测试失败，
