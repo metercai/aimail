@@ -634,3 +634,36 @@ Some(ref r) if r.webhook_url.as_deref().unwrap_or("").is_empty() => return Err((
 3）并说明是否必须经由 `/apply` 公开流程（含 manager 审批）才能取码——若是，L2 夹具需按该流程构造（验证方可以配合）。
 
 判据（修完复验）：宿主内 `aimail_address(action=activate, code, email)` 返回 `success:true` → 日志 `[aimail-pull] polling started` → 注入邮件 → turn 含唯一串 → ack。
+
+#### G12（新）：全新地址首次 bind 即返回 `already_bound`，激活码未被兑换 → 拉取永不启动
+
+复现（标准流程，全部公开接口 + 宿主内工具调用）：
+1）`/apply` 公开流程取码（契约 §1）：
+```
+POST /api/v1/public/email-verify/send {email}          → 200（验证码进 mock-inbox）
+GET  /api/v1/public/mock-inbox?email=…                 → 读到 6 位验证码
+POST /api/v1/public/email-verify/check {email,code}    → 200
+POST /api/v1/public/apply-address {email,name,agentname,domain}
+  → 201 {"activation_code":"addr-…","address":"oc20733@l2.local", …}
+```
+2）宿主内（openclaw）prompt 驱动工具：
+```
+aimail_address({action:"bind", code:"addr-…", email:"oc20733@l2.local",
+                gateway_url:"http://127.0.0.1:18080"})
+→ {"success": true, "action": "bind", "reason": "already_bound",
+   "email": "oc20733@l2.local",
+   "path": "/app/.aimail/systems/system-4b28/oc20733_l2.local/agentmail.json",
+   "gateway_calls": 0, "pointer_written": true,
+   "note": "binding already carries a key — nothing was called, no code was consumed, …"}
+```
+3）宿主重启后适配器仍：
+```
+[aimail-pull] no agent-scope binding — polling not started (address-code activation enables it)
+```
+
+问题：该地址是**本次 /apply 刚生成的、从未绑定过**，却判 `already_bound` 且 `gateway_calls=0` ⇒ 激活码从未被兑换 ⇒ 没有 agent-scope key ⇒ 拉取永不启动。
+请产品侧确认：`already_bound` 判定依据（是否误用指针/上一个地址的绑定、或 /apply 预写了 agentmail.json），以及为何在有 `code` 时仍不兑换。
+
+判据（修完复验）：全新 /apply 地址首次 `bind(code)` → `gateway_calls ≥ 1`、返回 agent-scope key（`already_bound` 不应出现）→ 重启后 `polling started` → 注入邮件 → turn 含唯一串 → ack。
+
+附：工具 action 集合实测为 `bind|pause|resume|unbind`（无 `activate`），激活码随 `bind` 传入 —— 这点与实现一致，无需改。
