@@ -531,6 +531,7 @@ POST /api/v1/agent-system/pending/ack
 
 ```text
 gateway d4eab17 feat(agent-system): add aggregate pending and ack endpoints
+gateway e3589d6 feat(agent-system): add aggregate SSE stream
 advanced d780769 feat(agent-system): record advanced address ownership
 gateway http tests: 51 passed
 L0: PASS
@@ -538,7 +539,7 @@ L0: PASS
 
 未完成：
 
-- SSE 聚合端点（当前聚合是 POST long-poll）；
+- ~~SSE 聚合端点~~（已加 `GET /api/v1/agent-system/pending/stream`）；
 - tssdk 切换到聚合接口；
 - A/B 隔离与多 Gateway L2。
 
