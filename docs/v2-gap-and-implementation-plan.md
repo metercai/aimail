@@ -670,6 +670,27 @@ gateway 58df8cd test(agent-system): isolate pending across gateways
 L0: PASS
 ```
 
+### 两 Gateway 真实 L2
+
+- 启动两个真实 base gateway；
+- 同一 AgentSystemId 在两个 Gateway 各激活一个地址；
+- 每个 Gateway 一条 aggregate SSE；
+- 两个 Gateway 各自返回自己的 welcome；
+- 结果：PASS（seen=2，互不串信）。
+
+运行：
+
+```bash
+./tests/host-acceptance/run-l2-two-gateways.sh
+```
+
+证据：
+
+```text
+aimail <two-gw> test(l2): real two-gateway AgentSystemId delivery
+L0: PASS
+```
+
 ### 已知环境问题
 
 - advanced `cargo test` 在本机有 9 个 machine_code 测试失败，
