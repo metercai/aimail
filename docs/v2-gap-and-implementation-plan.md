@@ -393,6 +393,79 @@ advanced 一个地址申请页支持三种地址形式；standalone 只保留独
 
 ---
 
+## 9.1 执行证据（滚动）
+
+### 批次 A — 部分完成
+
+- base gateway 去掉无 webhook 申请前置；
+- `/apply` 删除系统码入口/按钮，地址域选择当前 domains；
+- 地址邮件 prompt 与 V2 一致；
+- 地址-only 本地 L2 通过。
+
+证据：
+
+```text
+gateway: bda201c feat(activation): allow pull addresses and remove system claim UI
+gateway: 4252839 fix(activation): silence unused manager warning
+aimail:  38aa1eb test(v2): exercise address-only pull activation
+cargo test --lib: 401 passed
+L2 pi: PASS
+L2 openclaw: PASS
+L0: PASS
+```
+
+未完成：
+
+- fresh `/apply` 的 `already_bound` 场景仍需复现与回归；
+- advanced/standalone 三类地址申请页未完成。
+
+### 批次 C/D/E — 部分完成
+
+- 新增本地 AgentSystemId 派生与测试；
+- binding 写入 `agent_system_id`；
+- DSH/OpenClaw 工具面收敛为 15 个，移除 `aimail_system`；
+- activation SKILL 在 DSH/Pi/OpenClaw 启动时独立安装；
+- 测试通过。
+
+证据：
+
+```text
+aimail: 74ae2ee feat(v2): add AgentSystemId and address-only tool surface
+aimail: 3779e8e test(skill): verify separate activation skill install
+vitest core/dsh/pi/openclaw: 446 passed | 1 skipped
+```
+
+未完成：
+
+- Gateway/advanced 尚未按 AgentSystemId 聚合/授权；
+- tssdk 仍按 system/address 建流，未接 `(AgentSystemId,Gateway)`；
+- 多 Gateway/多地址 L2 未建立；
+- DSH L2 仍走旧 system 路径。
+
+### 批次 B — 部分完成
+
+- advanced 地址激活邮件已改为统一 prompt。
+
+证据：
+
+```text
+advanced: 328dd74 feat(email): use unified address-only activation prompt
+```
+
+未完成：
+
+- advanced 统一三类地址申请页/API；
+- standalone 只保留独享域；
+- 三类地址 L2。
+
+### 已知环境问题
+
+- advanced `cargo test` 在本机有 9 个 machine_code 测试失败，
+  原因是 macOS 无 `/etc/machine-id`，与本次邮件改动无关；
+  需在 Linux CI 复验。
+
+---
+
 ## 10. 依赖与风险
 
 | 风险 | 影响 | 缓解 |
