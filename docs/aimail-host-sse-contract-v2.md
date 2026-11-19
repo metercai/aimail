@@ -562,17 +562,126 @@ MUST 具备：
 
 ---
 
-## Appendix A — activation prompt
+## Appendix A — 真实地址激活邮件与 prompt
+
+以下文本来自 Gateway 当前的地址激活邮件模板
+（`aimail-gateway/src/core/api/activation.rs` 的 address application email）；
+花括号变量由 Gateway 在发送时替换，不是示例占位符之外的另一套格式。
+
+邮件标题：
 
 ```text
-请调用 aimail_address 完成地址激活：
-action="bind"
-email="alice@example.com"
-code="addr-..."
-gateway_url="https://gateway.example.com"
+AIMail address activation code for {address}
 ```
 
-## Appendix B — 用户可见概念
+邮件正文：
+
+```text
+{greeting}
+
+An AIMail mailbox is ready for your agent:
+
+  address: {address}
+
+Please activate it within 24 hours.
+
+Copy the message below into your agent's conversation and let the agent bind the address:
+
+Activate my AIMail mailbox {address} using the activation code {code}. My safety officer (manager) is {manager}. AIMail gateway is at {gateway_url}. Follow the step-by-step instructions at https://raw.githubusercontent.com/metercai/aimail/main/docs/agent-self-setup.md
+
+This code is sent only once - please keep this email.
+Please do not reply to this email - it is sent automatically.
+
+Best regards,
+AIMail Team
+```
+
+用户复制的是正文中 `Activate my AIMail mailbox ...` 这一段。Agent 从中提取：
+
+```text
+email       = {address}
+code        = {code}
+gateway_url = {gateway_url}
+```
+
+然后 MUST 调用：
+
+```ts
+aimail_address({
+  action: 'bind',
+  email: '{address}',
+  code: '{code}',
+  gateway_url: '{gateway_url}',
+})
+```
+
+注意：
+
+- 邮件中的 `manager` 是 Gateway 申请时确定的安全员信息，只用于说明；
+  `aimail_address` MUST NOT 接受 `manager` 参数；
+- 本地不执行系统对接；
+- 不需要 `system_code`；
+- 不需要 raw key。
+
+## Appendix B — 地址激活 SKILL 索引
+
+输入 activation prompt 后，Agent 应按下表找到对应的执行规范。
+
+| 文件 | 作用 | 关键内容 |
+|---|---|---|
+| [`docs/agent-self-setup.md`](agent-self-setup.md) | **地址激活 SKILL（规范入口）** | 步骤 1 调用 `aimail_address`；成功/工具缺失/业务失败分支；`already_bound` 幂等；重试上限；身份校准 |
+| [`tssdk/packages/agent-aimail/resources/skills/SKILL.md`](../tssdk/packages/agent-aimail/resources/skills/SKILL.md) | 工具使用 SKILL（随包安装） | 工具名、何时调用、邮件会话协议；不替代地址激活状态机 |
+| [`docs/agent-adapter-playbook.md`](agent-adapter-playbook.md) | 适配层实现说明 | 宿主如何注册工具、处理 SSE 与 binding |
+
+### B.1 执行流程
+
+```text
+读取 activation prompt
+  → 校验 email/code/gateway_url
+  → 调 aimail_address(bind)
+      ├─ success → 进入身份校准/welcome
+      ├─ tool unavailable → 安装 toolset（最多一次）→ 重试一次
+      └─ business failure → 按 4xx/5xx/超时处理，不循环安装
+```
+
+### B.2 `already_bound`
+
+如果本机已有该地址的 active binding 和 key，`aimail_address` 返回：
+
+```json
+{
+  "success": true,
+  "reason": "already_bound"
+}
+```
+
+这是本地幂等结果：
+
+- 不调用 Gateway；
+- 不消费 code；
+- 不轮换 key；
+- 不修改 binding；
+- Agent MUST 视为成功，不报“激活码已使用”。
+
+### B.3 失败分类
+
+| 结果 | 处理 |
+|---|---|
+| tool unknown/not registered | 进入 toolset 安装流程，最多安装一次 |
+| 4xx（过期/已用/地址不匹配） | 不重试，向用户要新激活码 |
+| 5xx/连接失败/超时 | 最多重试一次，再失败停止 |
+| 参数错误 | 先检查 email/code/gateway_url，再询问用户 |
+| `success:false` 业务错误 | 不安装 toolset |
+
+### B.4 禁止
+
+- 不预先假设工具不存在；
+- 不循环安装 toolset；
+- 不把业务失败当成工具缺失；
+- 不调用 CLI/外部脚本完成激活；
+- 不把 manager/raw key 传给 `aimail_address`。
+
+## Appendix C — 用户可见概念
 
 1. 我的邮件地址；
 2. 申请页/邮件给的地址激活 prompt。
