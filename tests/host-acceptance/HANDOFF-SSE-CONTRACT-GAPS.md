@@ -397,3 +397,44 @@ manifest 侧声明的是 `activation.onCapabilities: ["tool"]`，而宿主 compa
 需要开发确认：0.4.x 的 openclaw 插件是否需要显式声明能力体（如 `capabilities.tool` / `openclaw.compat.pluginApi` 版本段），
 否则会被当作 legacy non-capability 插件加载、工具永不注册。
 判据不变：`shape` 不再是 `non-capability`、`tools[].names` 非空、会话 `tools[]` 出现 `aimail_address`。
+
+### G9 定稿 + G10（2026-11-19，验证方；需产品侧修订）
+
+**G9（openclaw 插件在镜像里加载不到运行时代码，宿主静默降级）**
+
+证据链（同一镜像，2026.11.5）：
+1. 直接导入插件入口：
+   `Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'openclaw' imported from …/agent-aimail/dist/openclaw/index.js`
+   镜像里 openclaw 是 `/app` 打包体（`/app/package.json` 的 `name: "openclaw"`，`exports` 含 `.`/`./plugin-sdk/*`），
+   **没有 `/app/node_modules/openclaw`**；插件装在 `/app/.openclaw/extensions/agent-aimail`，逐级上溯找不到该包。
+2. 后果（宿主自检）：
+   `plugins inspect agent-aimail --runtime --json` → `shape=non-capability`, `capabilityMode=none`,
+   `tools=[{names:[],optional:false}]`, `commands=[]`；会话 `tools[]` 无任何 `aimail_*`。
+3. 加入解析后（仅环境层，未改任何产品代码）：
+   `mkdir -p /app/node_modules && ln -sfn /app /app/node_modules/openclaw`
+   宿主日志：
+   `startup trace: plugins.gateway-load.plugin.agent-aimail … loadFailedCount=0.0 registerFailedCount=0.0`
+   `http server listening (2 plugins: agent-aimail, memory-core)`
+   ⇒ 插件加载与注册恢复正常。
+
+**需要产品侧修订（二选一）**：镜像自带 `/app/node_modules/openclaw` 解析（或打包时提供等效 link）；
+或插件入口改用可解析的 specifier（如 `openclaw/plugin-sdk/*`）并声明对应 peer/依赖。
+
+**G10（openclaw 的绑定入口与契约工具名不一致）**
+
+证据：
+- manifest `contracts.tools` 列表包含 `activate_address_code`，**不含 `aimail_address` / `aimail_system`**。
+- 加载成功后适配器立即打印：
+  `[aimail-pull] no agent-scope binding — polling not started (push path unchanged; address-code activation enables it)`
+
+契约要求：会话内可被调用的工具是 `aimail_address`（系统级为 `aimail_system`）；绑定必须由宿主内 prompt 驱动该工具完成。
+当前 openclaw 只认 `activate_address_code` 且未声明 `aimail_address`，导致契约路径无法建立 agent-scope 绑定 → 拉取不启动 → 邮件不产生 turn。
+
+**需要产品侧修订**：把 `aimail_address`（及 `aimail_system`）纳入 manifest `contracts.tools` 并在会话工具面暴露；
+绑定成功后应启动拉取（`[aimail-pull] polling started …`）。
+
+判据（复验用）：
+1）`plugins inspect --runtime --json` 的 `tools[].names` 含 `aimail_address`；
+2）会话 `tools[]` 含 `aimail_address`；
+3）宿主内 prompt 调用该工具后日志出现 polling started + 绑定文件含 workspace；
+4）注入邮件后 stub 出现含唯一串的 turn，且 ack 在 turn 之后。
