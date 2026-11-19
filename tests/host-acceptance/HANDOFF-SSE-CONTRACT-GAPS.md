@@ -336,3 +336,18 @@ stub LLM 请求数（激活后）                                               
 （是否需要 client-connection 的 WS attach / 某个 control 帧 / 某个未文档化的 start 调用。）
 判据不变：prompt 后 stub 至少命中一次且 `tools[]` 含 `aimail_address` → 绑定/激活证据 →
 注入邮件后出现含唯一串的 turn，且 ack 在 turn 之后。
+
+### G9 撤回（2026-11-19，owner 指出为夹具配置问题）
+
+结论：G9 不成立。插件工具没进会话工具面，是我这套夹具的 openclaw 配置缺了两项，而不是产品缺陷。
+按官方文档（docs.openclaw.ai/tools/plugin）配置后即可：
+
+```json5
+{ plugins: { enabled: true, allow: ["agent-aimail"],
+             entries: { "agent-aimail": { enabled: true } } },
+  tools: { profile: "coding",
+           alsoAllow: ["send_mail","manage_contacts",...(15 个)...,"aimail_address","aimail_system"] } }
+```
+
+要点（文档原文）：`plugins.allow` 非空时限定可加载插件；**插件自有工具即使在 `tools.allow` 含 `"*"` 时也不可用**——插件激活与工具可用性是两项独立策略；工具还需要 `tools.allow`/`alsoAllow` 的许可。
+夹具已按此写入（`install-sdk.sh` openclaw 分支），复跑验证工具面与 turn。
