@@ -25,6 +25,7 @@ contract: PASS
 L2 dsh: PASS
 L2 pi: PASS
 L2 openclaw: PASS
+L2 two gateways: PASS
 OpenClaw 双地址聚合 L2: PASS
 DSH 双地址聚合 L2: PASS
 A/B pending/ack 隔离: PASS
