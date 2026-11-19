@@ -1,3 +1,5 @@
+> **Legacy（非 V2 主路径）**：本文件是旧 CLI/系统对接指引。V2 激活入口是地址激活邮件 + `aimail_address` + activation SKILL；本文件仅保留给旧宿主/旧测试。
+
 # AIMail Address Binding — Activating Your Own Mail Address
 
 The user will paste you a line of activation info (containing: **address** + **code** + **gateway_url**) to complete the binding of your own AIMail address.
