@@ -17,6 +17,7 @@ import {
   AGENT_TOOL_NAMES,
   agentTools,
   installAgentSkill,
+  installActivationSkill,
   startAgentLevel,
 } from '../../src/core/agent-level.js'
 import { AGENT_TOOL_DEFS } from '../../src/core/tool-registry.js'
@@ -24,6 +25,7 @@ import { AGENT_SKILL_NAME, BINDING_FILE } from '../../src/core/contract.js'
 
 const PKG = path.resolve(__dirname, '..', '..')
 const RESOURCE_SKILL = path.join(PKG, 'resources', 'skills', 'SKILL.md')
+const RESOURCE_ACTIVATION = path.join(PKG, 'resources', 'skills', 'activation', 'SKILL.md')
 
 let tmp: string
 let prevHome: string | undefined
@@ -75,6 +77,18 @@ describe('installAgentSkill', () => {
     )
     const second = await installAgentSkill(skills)
     expect(second.installed).toBe(false)
+  })
+
+  it('installs the activation skill separately and never overwrites the mail skill', async () => {
+    const skills = path.join(tmp, 'skills')
+    await installAgentSkill(skills)
+    const r = await installActivationSkill(skills)
+    expect(r.path).toBe(path.join(skills, 'agentmail-activation', 'SKILL.md'))
+    expect(await fs.readFile(r.path, 'utf-8')).toBe(await fs.readFile(RESOURCE_ACTIVATION, 'utf-8'))
+    expect(await fs.readFile(path.join(skills, 'agentmail', 'SKILL.md'), 'utf-8'))
+      .toBe(await fs.readFile(RESOURCE_SKILL, 'utf-8'))
+    const again = await installActivationSkill(skills)
+    expect(again.installed).toBe(false)
   })
 
   it('honours a custom subdir', async () => {
