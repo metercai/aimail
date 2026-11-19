@@ -691,6 +691,29 @@ aimail <two-gw> test(l2): real two-gateway AgentSystemId delivery
 L0: PASS
 ```
 
+### V2 表面一致性测试
+
+新增：
+
+```text
+tests/sdk/test_v2_contract_surface.py
+```
+
+检查：
+
+- 地址激活 prompt 含安装/工具指令，不含旧 self-setup；
+- base `/apply` 无系统码入口；
+- advanced 支持 shared/shared_system/dedicated；
+- standalone dedicated-only；
+- SDK 0.5.0 / manifest 15 工具、无 aimail_system。
+
+证据：
+
+```text
+aimail <v2-surface> test(v2): enforce prompt/page/tool surface
+L0: PASS
+```
+
 ### 已知环境问题
 
 - advanced `cargo test` 在本机有 9 个 machine_code 测试失败，
