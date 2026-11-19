@@ -633,6 +633,23 @@ aimail 14b941d test(l2): two-address aggregate delivery
 L0: PASS
 ```
 
+### DSH 双地址聚合 L2
+
+- DSH 同一 Gateway 激活 alice/bob；
+- 同一 AgentSystemId；
+- 一条聚合流（`1 gateway stream from 2 bindings`）；
+- 两封 welcome 各生成一个 followup；
+- 结果：PASS（followups=2）。
+
+证据：
+
+```text
+aimail f77e76e test(l2): DSH two-address aggregate delivery
+L2 dsh: PASS
+L2 pi: PASS
+L2 openclaw: PASS
+```
+
 ### 已知环境问题
 
 - advanced `cargo test` 在本机有 9 个 machine_code 测试失败，
