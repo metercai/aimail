@@ -1,475 +1,424 @@
-# AIMail V2 契约差距与实施计划
+# AIMail V2 契约差距与分批次实施计划
 
 依据：[`aimail-host-sse-contract-v2.md`](aimail-host-sse-contract-v2.md)  
-范围：base gateway、advanced gateway、tssdk 三宿主、测试夹具、发布流程  
-原则：先让 V2 主路径可测可发；CLI/pysdk 旧路径从主路径断开，不阻塞 V2。
+范围：base gateway、advanced gateway、standalone、tssdk（DSH/OpenClaw/Pi）、测试夹具、发布与 legacy 路径  
+目标：按批次可执行、可检查，不让未完成项进入 V2 发版。
 
 ---
 
-## 0. 结论
+## 0. 执行约定
 
-当前代码已经具备：
+### 0.1 固定概念
 
-- 地址码直接绑定（tssdk `aimail_address`）；
-- GatewaySystemId 作为 binding 的 `system_id`；
-- DSH/OpenClaw/Pi 的 SSE/拉取基础；
-- 本地真实 gateway + SMTP 夹具；
-- 地址激活 SKILL 文件和真实邮件 prompt。
+- 地址激活只有一种：`aimail_address` + activation prompt；
+- 不区分系统模式，不由用户选择；
+- `GatewaySystemId` 由 Gateway 在地址激活时返回，作为 binding 分组；
+- `AgentSystemId` 由本地派生，作为 SSE 聚合身份；
+- 每个 `(AgentSystemId, Gateway)` 一条 SSE；
+- CLI/pysdk 不在 V2 主路径；只做 legacy 维护。
 
-V2 尚缺的**关键闭环**：
-
-1. Gateway/Advanced 允许“无 webhook 的拉取地址”申请/兑换激活码；
-2. AgentSystemId 的生成、注册、认证与多地址聚合；
-3. tssdk 按 `(AgentSystemId, Gateway)` 建一条 SSE，去掉按地址/系统分散建流；
-4. binding 增加 `agent_system_id`，目录按 GatewaySystemId 分组；
-5. 唯一工具面 `aimail_address`，移除独立 `aimail_system`；
-6. 宿主安装器安装 activation SKILL；
-7. 真实多 Gateway/多地址/混合态测试；
-8. CLI/pysdk 从 V2 主路径断开。
-
----
-
-## 1. 差距矩阵
-
-| # | 组件 | 差距 | 证据 | 严重度 |
-|---|---|---|---|---|
-| G-01 | base gateway | 无 webhook 地址无法申请激活码；拉取地址被 412 | `aimail-gateway/src/core/api/activation.rs` webhook 检查 | 阻断 V2 |
-| G-02 | base gateway | 地址激活邮件 prompt 刚更新，需回归测试 | `activation.rs` 地址模板 | 中 |
-| G-03 | base gateway | 无 AgentSystemId 注册/认证/聚合 | 代码中无 AgentSystemId | 阻断 V2 |
-| G-04 | base gateway | 新 `/apply` 地址可能返回 `already_bound` 且不兑换 code | QA G12 观察 | 高 |
-| A-01 | advanced | 地址申请/兑换需验证无 webhook 拉取 | `aimail-advanced/src/advanced/api/*` | 阻断 V2 |
-| A-02 | advanced | 无 AgentSystemId 聚合 | 代码中无 | 阻断 V2 |
-| A-03 | advanced | 地址激活邮件 prompt 未对齐 V2 | advanced 邮件模板 | 中 |
-| T-01 | tssdk | 仍有独立 `aimail_system` 工具 | `src/dsh/system.ts`、`src/openclaw/tools.ts` | 高 |
-| T-02 | tssdk | binding 无 `agent_system_id` | `src/core/address-code.ts`/config | 高 |
-| T-03 | tssdk | SSE 按 system/address 起流，不按 AgentSystemId | `src/dsh/mail-hub.ts`、`src/core/system-pull.ts` | 阻断 V2 |
-| T-04 | tssdk | 无 AgentSystemId 派生/注册 | 代码中无 | 阻断 V2 |
-| T-05 | tssdk | 目录已按 `system_id` 分组，但需明确 GatewaySystemId | binding/目录 | 中 |
-| T-06 | tssdk | 解绑/迁移动作不完整 | `aimail_address` 仅部分动作 | 中 |
-| T-07 | tssdk | activation SKILL 未由宿主安装器安装 | `resources/skills/activation` vs host installers | 中 |
-| H-01 | DSH | 多地址/多 Gateway 需重构 hub 聚合 | `mail-hub.ts` | 高 |
-| H-02 | OpenClaw | 工具面/工厂 names、AgentSystemId、sessionKey 条件 | `openclaw.plugin.json`、`tools.ts` | 高 |
-| H-03 | Pi | 单地址能力已收窄，需确保拒绝多地址 | `src/pi/tools.ts` | 中 |
-| Q-01 | 测试 | 夹具没有 AgentSystemId/多 Gateway/无 webhook 拉取 | `tests/host-acceptance` | 高 |
-| Q-02 | 测试 | L3 仍用外部/旧路径，未验证 V2 激活 prompt | QA G8/G9/G10 | 高 |
-| L-01 | CLI/pysdk | 旧 CLI/system 指引与 V2 主路径混杂 | `docs/agent-self-setup.md`、pysdk | 中 |
-
----
-
-## 2. 目标架构落地顺序
+### 0.2 每个批次的完成定义
 
 ```text
-Phase 1  Gateway/Advanced 地址激活解阻
-Phase 2  AgentSystemId 协议与聚合授权
-Phase 3  tssdk binding / SSE / 地址唯一入口
-Phase 4  三宿主适配与 SKILL 安装
-Phase 5  夹具、L2/L3、回归与发版
-Phase 6  CLI/pysdk 主路径断开（legacy）
+1. 代码/文档已合并
+2. 对应单测/集成测试通过
+3. L0 不回归
+4. 该批次验收清单全部勾选
+5. 有可复现命令与证据
+6. 未完成项明确列出，不隐藏
 ```
 
-每个 Phase 完成后必须保持已有测试可运行；不允许“等全部做完再验证”。
+### 0.3 公共门禁
+
+```bash
+# 全量 L0
+cd aimail && bash tests/sdk/l0-gate-tests.sh
+
+# 契约单源
+python3 tests/contract/check-contract-single-source.py
+
+# 本地真实 gateway L2
+./tests/host-acceptance/run-l2-local-gateway.sh dsh
+./tests/host-acceptance/run-l2-local-gateway.sh pi
+./tests/host-acceptance/run-l2-local-gateway.sh openclaw
+```
 
 ---
 
-## 3. Phase 1 — Gateway / Advanced 地址激活
+## 1. 当前差距（代码快照）
 
-### 3.1 G-01 允许拉取地址申请激活码
-
-**目标**：地址不需要 webhook 也能申请/兑换 activation code。
-
-实施：
-
-- 去掉 `webhook_url` 非空作为申请激活码的前置条件；
-- 只在“推送模式”要求 webhook；拉取模式允许空；
-- 申请响应/邮件仍包含地址、Gateway URL、code；
-- 兑换后创建 agent-scope key；
-- 保持权限/一次性/过期语义。
-
-测试：
-
-- 新建无 webhook 地址，`/apply` 申请 code；
-- tssdk `aimail_address` 兑换成功；
-- 重启后 pull 能取到欢迎邮件；
-- 有 webhook 的旧地址行为不回归。
-
-验收：
-
-```text
-POST /apply-address (pull address) → code
-aimail_address(bind) → success + agent key
-```
-
-### 3.2 G-04 `already_bound` / code 未兑换
-
-**目标**：全新 `/apply` 地址的首次 `bind(code)` 必须兑换，不得被本地旧 binding 短路。
-
-实施：
-
-- 检查 `aimail_address` 的 `already_bound` 条件：
-  - 仅在 active binding 的 email 与请求 email 完全一致、且凭据有效时短路；
-  - 不得因 pointer/旧地址/system 扫描命中；
-  - 有 code 时，如果 binding 不是该 code 对应地址，必须走 gateway；
-- 清理 `/apply` 预写或测试夹具写入的 binding；
-- 增加回归：fresh code + empty home → gateway_calls ≥1。
-
-### 3.3 G-02/A-03 激活邮件 prompt
-
-**目标**：base/advanced 都下发同一 V2 prompt，不使用 SKILL URL。
-
-文本：
-
-```text
-Activate and bind my AIMail mailbox address {address} with activation code {code} at gateway {gateway_url} using `aimail_address`. If `aimail_address` is unavailable or not registered, install the `agent_aimail` plugin SDK first: from PyPI via pip for Python, or from npm for Node.js. Then retry `aimail_address` with the same parameters.
-```
-
-实施：
-
-- base 已更新；
-- advanced 对齐同一模板；
-- 邮件只包含地址、code、gateway、安装提示；
-- 不含 system_code、manager 参数、raw key、SKILL URL。
-
-测试：
-
-- 两种 gateway 的邮件正文逐字匹配；
-- 用户复制整段可直接触发。
-
-### 3.4 激活码申请页改造
-
-申请页只负责生成**地址激活码**；不再提供系统激活码入口，也不让用户选择
-系统模式。
-
-#### base gateway
-
-- 删除 `apply-system` 公网入口和“Claim system code”按钮；
-- 只保留地址申请；
-- 地址 domain 下拉必须来自**当前 gateway 支持的 domain**
-  （`current_system_domains`），不允许任意填写；
-- 生成地址 code 后下发统一 activation prompt；
-- 不显示 system_name/manager/系统模式选项。
-
-#### advanced gateway
-
-统一为一个地址申请页，支持三种地址形式：
-
-| 类型 | 用户输入 | 归属 |
+| 组件 | 现状 | V2 缺口 |
 |---|---|---|
-| 共享域地址 | 共享域 + agentname | 现有 shared domain 的 `shared_addr_{name}` |
-| 带系统标识名的共享域地址 | 共享域 + 系统标识名 + agentname | 按 advanced 既有系统标识名规则归属 |
+| base gateway | `apply-system` 仍存在；地址申请要求 webhook | 无 webhook 地址无法申请/兑换；页面有系统码入口 |
+| advanced | `ApplyAddressRequest` 目前以 shared_domain 为主 | 缺统一三类地址申请页；缺独享域/系统标识名表单 |
+| standalone | 共享域/独享域边界需按版本收窄 | 需只保留独享域地址申请 |
+| gateway/advanced | 无 AgentSystemId | 无法按客户端实例聚合多地址 |
+| tssdk | 仍有 `aimail_system`；SSE 按 system/address | 需唯一 `aimail_address`；需按 `(AgentSystemId,Gateway)` 聚合 |
+| tssdk binding | `system_id` 已用于目录；无 `agent_system_id` | 需补客户端身份；明确 GatewaySystemId 分组 |
+| DSH | hub 按 system 流 | 需 AgentSystemId 聚合 |
+| OpenClaw | 工具面/manifest/工厂 names 仍是风险点 | 需自包含入口、16 工具、names 元数据 |
+| Pi | 单地址已收窄 | 需拒绝第二地址并有测试 |
+| 宿主安装器 | 只安装邮件 SKILL | 需安装 activation SKILL 为独立 skill |
+| 测试 | 本地夹具已能跑三宿主 L2 | 缺无 webhook、多 Gateway、AgentSystemId 隔离 |
+| CLI/pysdk | 旧 self-setup 仍在 | 需从 V2 主路径断开 |
+
+---
+
+## 2. 批次总览
+
+| 批次 | 主题 | 主要组件 | 阻塞关系 |
+|---|---|---|---|
+| A | base 地址激活解阻 + 申请页 | base gateway | V2 第一阻断 |
+| B | advanced/standalone 地址申请页 | advanced/standalone | 依赖 A 的 prompt/兑换语义 |
+| C | AgentSystemId 协议与聚合 | gateway/advanced/tssdk | 依赖 A/B 地址激活 |
+| D | tssdk 核心 + DSH | tssdk/DSH | 依赖 C 协议 |
+| E | OpenClaw/Pi + SKILL | tssdk/宿主 | 依赖 D 公共层 |
+| F | 生命周期 + 多 Gateway + L2 | tssdk/夹具 | 依赖 D/E |
+| G | L3、发布、legacy 断开 | 全链路 | 依赖 F |
+
+---
+
+## 3. 批次 A — base gateway 地址激活解阻 + 申请页
+
+### A.1 目标
+
+- 无 webhook 地址也能申请/兑换地址激活码；
+- 首次 `/apply` 地址的 `bind(code)` 必须真正兑换；
+- base 申请页只保留地址申请；
+- 地址 domain 只能从当前 gateway 支持的 domains 选择；
+- 下发统一 activation prompt。
+
+### A.2 任务
+
+| ID | 文件/区域 | 实施 |
+|---|---|---|
+| A-01 | `aimail-gateway/src/core/api/activation.rs` | 移除“address has no webhook routing configured”作为地址申请/兑换前置；拉取地址允许空 webhook |
+| A-02 | 同上 | 确保地址激活返回 `GatewaySystemId`、地址凭据、manager（如适用） |
+| A-03 | 同上 | 修复 fresh `/apply` 地址误判 `already_bound`：有 code 且无匹配 active binding 时必须走 Gateway |
+| A-04 | `/apply` HTML/JS | 删除 “Claim system code”和 `apply-system` 公网入口 |
+| A-05 | `/apply` HTML/JS | 地址 domain 选择器绑定 `current_system_domains`，禁止手填 |
+| A-06 | 邮件模板 | 使用统一 activation prompt（见 Appendix A） |
+| A-07 | 测试夹具 | 增加无 webhook 地址申请/兑换用例 |
+
+### A.3 实施步骤
+
+1. 先加失败测试：
+   - 创建无 webhook 地址 → `/apply-address` 当前返回 412；
+   - fresh 地址 → `aimail_address(bind)` 当前可能 `already_bound`。
+2. 修改申请/兑换条件：只校验地址存在、域 active、code 归属，不要求 webhook。
+3. 修改页面：删除系统码 section；domain 来自 API。
+4. 更新邮件模板并断言正文。
+5. 跑 L0 + base gateway 单测 + 无 webhook L2。
+
+### A.4 验收
+
+```text
+[ ] base /apply 无系统码入口/按钮
+[ ] 地址 domain 只能选当前支持域
+[ ] 无 webhook 地址可申请 code
+[ ] 同一 code 可被 aimail_address 兑换
+[ ] fresh 地址 gateway_calls >= 1，不出现 already_bound
+[ ] 邮件 prompt 与 Appendix A 一致
+[ ] L0 PASS
+```
+
+---
+
+## 4. 批次 B — advanced/standalone 统一申请页
+
+### B.1 目标
+
+advanced 一个地址申请页支持三种地址形式；standalone 只保留独享域。
+
+### B.2 三种地址形式
+
+| 类型 | 用户输入 | Gateway 归属 |
+|---|---|---|
+| 共享域地址 | 共享域 + agentname | 现有 shared domain 的宿主系统 |
+| 带系统标识名的共享域地址 | 共享域 + 系统标识名 + agentname | 按 advanced 既有系统标识名规则 |
 | 独享域地址 | 独享域 + agentname | 对应独享 system/domain |
 
-要求：
-
-- 一个页面、一个表单、一个提交入口；
-- 三种类型最终都只生成**地址激活码**；
-- 不生成/不要求 system code；
-- 域选择来自当前 advanced 支持的共享域/独享域；
-- 系统标识名只在第二种类型出现，且由 advanced 规则校验；
-- 生成的 activation prompt 与 base 完全一致；
-- 不出现 manager/raw key/system code。
-
-#### standalone
-
-- 只保留**独享域地址**申请；
-- 隐藏/拒绝共享域、系统标识名类型；
-- 其他流程与 advanced 独享域一致。
-
-#### 任务
-
-| ID | 组件 | 任务 | 验收 |
-|---|---|---|---|
-| GW-PAGE-01 | base | 删除 apply-system 公网页与按钮 | 页面无系统码入口 |
-| GW-PAGE-02 | base | 地址 domain 选择器绑定当前 domains | 只能选已支持域 |
-| AD-PAGE-01 | advanced | 统一地址申请页支持三种类型 | 三种都能出地址码 |
-| AD-PAGE-02 | advanced | 系统标识名/独享域校验与归属 | 归属正确，错误拒绝 |
-| SA-PAGE-01 | standalone | 仅独享域地址申请 | 共享域/系统名不可用 |
-| PAGE-04 | all | 统一 activation prompt | 三种类型邮件正文一致 |
-
-测试：
-
-- base 申请页不存在系统码 API/按钮；
-- base 地址申请只列出当前 domain；
-- advanced 三种类型各生成地址码并可用 `aimail_address` 兑换；
-- standalone 只允许独享域；
-- 三种邮件 prompt 均不含 system_code/manager 参数/raw key/SKILL URL；
-- 页面和邮件都不要求用户理解系统模式。
-
----
-
-## 4. Phase 2 — AgentSystemId 与聚合授权
-
-### 4.1 T-04 本地生成 AgentSystemId
-
-**目标**：本地稳定、全局唯一的客户端 ID。
-
-实施：
-
-- 新增 `AgentSystemId` 生成器：
-  - 输入：agent home、机器硬件指纹；
-  - 输出：稳定 ID（不可含 secret）；
-  - 同机同 home 重复生成一致；
-  - 提供测试 seam 以固定指纹。
-- 持久化只作为缓存，不能改变派生结果；
-- home/硬件变化 → 新 ID。
-
-测试：
-
-- 两次生成一致；
-- 改 home/指纹 → 不同；
-- 不写入 binding 的 session。
-
-### 4.2 G-03/A-02 Gateway 注册与授权
-
-**目标**：Gateway 记录 AgentSystemId，并只授权它聚合自己激活的地址。
-
-实施：
-
-- 新增 AgentSystemId 注册/刷新接口；
-- 地址激活时携带 AgentSystemId；
-- Gateway 建立 `AgentSystemId ↔ address` 归属；
-- SSE 认证使用 AgentSystemId 凭据；
-- pending 查询按归属过滤；
-- 地址新增/暂停/解绑更新授权；
-- 不同 AgentSystemId 不串信。
-
-测试：
-
-- Agent A 不能拉取 Agent B 的地址；
-- 同一 Agent 多地址聚合正确；
-- 多 Gateway 各自独立。
-
-### 4.3 Gateway 协议设计点（需在实现前定稿）
-
-- 注册接口和凭据形式；
-- SSE 认证头/身份；
-- 聚合查询参数；
-- ack 是否带 AgentSystemId；
-- 地址归属表结构/迁移；
-- 旧地址/system key 兼容。
-
-测试先行：用两个假 AgentSystemId 验证隔离。
-
----
-
-## 5. Phase 3 — tssdk 核心改造
-
-### 5.1 T-01 唯一 `aimail_address`
-
-实施：
-
-- 从 DSH `system.ts` 移除独立工具注册；
-- 从 OpenClaw `tools.ts` 移除 `aimail_system`；
-- 从 toolset/group 移除独立 system；
-- `aimail_address` 参数只保留：
-  ```ts
-  action, email, code?, gateway_url?, workspace_path?
-  ```
-- 不接收 `system_code`/manager/domain/system_name；
-- 保留 `role_calibrator` 作为邮件工具，不被误认为激活工具。
-
-测试：
-
-- 三宿主工具面没有 `aimail_system`；
-- `aimail_address` 可完成绑定；
-- SKILL 不需要 system 工具。
-
-### 5.2 T-02 binding 增加 agent_system_id
-
-实施：
-
-- binding schema 增加 `agent_system_id`；
-- 目录继续按 `system_id`（GatewaySystemId）分组；
-- B2 也有 GatewaySystemId；
-- 禁止 session_id；
-- 旧 binding 启动时补 `agent_system_id`（仅本地派生，不调用 Gateway）。
-
-### 5.3 T-03 SSE 聚合
-
-实施：
-
-- 按 `(AgentSystemId, gateway_url)` 维护一条连接；
-- 连接内按 recipient 查 binding；
-- 不再按地址/系统分别建流；
-- 多 Gateway 各自连接；
-- 断线重连恢复聚合；
-- 无 binding/paused/workspace miss 不 ack。
-
-测试：
-
-- 同一 Gateway 多地址只建一条连接；
-- 两个 Gateway 两条连接；
-- Agent A/B 隔离；
-- 重启恢复。
-
-### 5.4 T-06 生命周期
-
-实施：
-
-- `pause/resume` 从聚合集合增删；
-- `unbind` 停路由/聚合/pointer，远端 key 不自动删；
-- `move` 更新 workspace，不换 code、不新建 SSE；
-- 跨 Gateway/AgentSystemId 重新激活。
-
-### 5.5 T-07 activation SKILL 安装
-
-实施：
-
-- 宿主安装器把 `resources/skills/activation/SKILL.md` 安装到独立
-  `skills/agentmail-activation/`（或 host 等价目录）；
-- 不覆盖邮件 SKILL；
-- 工具名 `aimail_address` 作为 SKILL 触发；
-- board SKILL 预留独立目录。
-
----
-
-## 6. Phase 4 — 三宿主
-
-### DSH
-
-- workspace/Session 已具备；
-- hub 改为 AgentSystemId 聚合；
-- 删除 `main` 路径上的 system 工具；
-- 启动读 binding + arm；
-- 测试多地址、多 Gateway、混合。
-
-### OpenClaw
-
-- agentId 作为 workspace；
-- `registerTool` 工厂返回数组时必须提供 `names` 元数据；
-- 插件入口自包含，不依赖镜像解析 `openclaw`；
-- manifest `contracts.tools` 必须是实际 16 个；
-- sessionKey 仅在使用 `hooks.allowRequestSessionKey` 时发送；
-- 测试 inspect runtime → 会话 tools → bind → turn。
-
-### Pi
-
-- 单地址；
-- 无 `aimail_system`；
-- 拒绝第二地址；
-- 地址绑定 cwd；
-- 测试单地址激活、welcome、身份校准。
-
----
-
-## 7. Phase 5 — 测试/发布
-
-### 7.1 夹具升级
-
-`tests/host-acceptance/run-l2-local-gateway.sh`：
-
-- 支持无 webhook 地址；
-- 支持 AgentSystemId 注册；
-- 两个 Gateway 夹具（多 Gateway）；
-- 验证聚合只返回该 AgentSystemId 的地址；
-- 不再用外部预写 binding 作为激活；
-- 安装 activation SKILL（或模拟 host）。
-
-### 7.2 L2 必测
-
-| 用例 | 目标 |
-|---|---|
-| L2-1 | 无 webhook 地址申请/兑换 |
-| L2-2 | 单 Gateway 多地址共享一条 SSE |
-| L2-3 | 多 Gateway 各自 SSE |
-| L2-4 | Agent A/B 隔离 |
-| L2-5 | DSH/OpenClaw/Pi 工具面 |
-| L2-6 | binding 目录按 GatewaySystemId |
-| L2-7 | unbind/move |
-| L2-8 | activation SKILL 安装与触发 |
-
-### 7.3 L3 回归
-
-- 真实宿主 prompt → 安装 → `aimail_address` → identity calibration；
-- stub LLM turn 含唯一串；
-- ack 在 turn 之后；
-- 多 Gateway/多地址核心用例；
-- 不复用旧 CLI/self-setup 路径。
-
-### 7.4 发布顺序
-
-1. base gateway（pull 地址激活 + AgentSystemId）；
-2. advanced gateway；
-3. tssdk（0.5.x）；
-4. CLI 不参与 V2 主路径，仅 legacy；
-5. L2/L3。
-
----
-
-## 8. Phase 6 — CLI/pysdk 断开
-
-目标：不阻塞 V2。
-
-实施：
-
-- `docs/agent-self-setup.md` 标记 legacy，不再被 V2 引用；
-- `pysdk`/CLI 安装路径不进入 V2 验收；
-- CLI 仍可服务旧宿主/旧版本；
-- V2 宿主安装通过 host 插件/扩展 + activation prompt；
-- 测试矩阵分开：
-  - V2：tssdk + gateway fixture + prompt；
-  - legacy：CLI/pysdk 旧测试，不阻塞 V2 发布。
-
-禁止：
-
-- 在 V2 主路径调用 `aimail install`；
-- 用 CLI 写 binding；
-- 用 `docs/agent-self-setup.md` 作为 V2 激活入口。
-
----
-
-## 9. 任务清单（可直接建 issue）
-
-| ID | 组件 | 任务 | 依赖 | 验收 |
-|---|---|---|---|---|
-| GW-01 | base | 允许无 webhook 地址申请 code | — | pull 地址 code 生成 |
-| GW-PAGE-01 | base | 删除系统码申请页 | — | 页面无系统码 |
-| GW-PAGE-02 | base | domain 选择器绑定当前 domains | — | 仅支持域可选 |
-| AD-PAGE-01 | advanced | 统一三类地址申请页 | — | 三种均可申请 |
-| SA-PAGE-01 | standalone | 仅独享域地址申请 | — | 共享域不可用 |
-| GW-02 | base | 修复 fresh bind 误 already_bound | GW-01 | gateway_calls≥1 |
-| GW-03 | base | AgentSystemId 注册/聚合授权 | 协议定稿 | A/B 隔离 |
-| AD-01 | advanced | 无 webhook 地址激活 | GW-01 | 同 base |
-| AD-02 | advanced | AgentSystemId 聚合 | GW-03 | 同 base |
-| AD-03 | advanced | 邮件 prompt 对齐 | — | 逐字一致 |
-| TS-01 | tssdk | 移除 aimail_system | — | 三宿主无 |
-| TS-02 | tssdk | agent_system_id binding | TS-01 | binding 含 |
-| TS-03 | tssdk | 聚合 SSE | GW-03 | 一条/Gateway |
-| TS-04 | tssdk | 生命周期 | TS-02 | pause/unbind/move |
-| TS-05 | tssdk | 安装 activation SKILL | — | 独立 skill |
-| H-DSH | host | hub 聚合 | TS-03 | 多地址/多 GW |
-| H-OC | host | names/manifest/自包含 | — | runtime tools 16 |
-| H-PI | host | 单地址拒绝 | — | 第二地址失败 |
-| QA-01 | test | 夹具 pull/AgentSystemId | GW/AD | L2 |
-| QA-02 | test | L3 in-host prompt | all | turn+ack |
-
----
-
-## 10. 风险
-
-- AgentSystemId 认证协议若设计过重，可能拖慢网关；建议先做最小注册/聚合表；
-- 无 webhook 激活会改变旧安全假设，需要权限测试；
-- 多 Gateway 聚合可能导致重复 delivery，需要幂等；
-- Pi 单地址限制必须在 UI/工具层同时拒绝；
-- activation SKILL 安装器尚未覆盖，需 host 适配；
-- CLI/pysdk 断开后，旧宿主仍依赖旧包，必须保留 legacy 分支。
-
----
-
-## 11. 实施步骤（按周/批次）
-
-1. **批次 A**：GW-01/GW-02 + 夹具无 webhook；跑通 `aimail_address` 单地址。
-2. **批次 B**：AgentSystemId 协议 + GW-03/AD-02 最小聚合；A/B 隔离测试。
-3. **批次 C**：TS-01/TS-02/TS-03；DSH 先接入，保持 L0/L2。
-4. **批次 D**：OpenClaw/Pi 适配；工具面/单地址测试。
-5. **批次 E**：TS-04/TS-05；解绑迁移/SKILL 安装。
-6. **批次 F**：QA-01/QA-02；多 Gateway L3；发版。
-7. **批次 G**：CLI/pysdk legacy 断开与文档清理。
-
-每批次结束条件：
+### B.3 任务
+
+| ID | 组件 | 实施 |
+|---|---|---|
+| B-01 | advanced API | 扩展 `ApplyAddressRequest`/页面接口，支持三种类型 |
+| B-02 | advanced API | 校验系统标识名、独享域归属、agentname 规则 |
+| B-03 | advanced 页面 | 一个表单、类型切换、域/系统名联动 |
+| B-04 | advanced 邮件 | 统一 activation prompt；不出现 system_code/manager 参数 |
+| B-05 | standalone | 只保留独享域表单；共享域/系统名拒绝 |
+| B-06 | 测试 | 三种类型各生成 code，均可用 aimail_address 兑换 |
+
+### B.4 实施步骤
+
+1. 先定义三种请求字段和地址归属结果；
+2. 页面按类型显示最小字段，避免用户看到系统模式概念；
+3. 统一调用地址申请 API，不在页面生成 system code；
+4. 邮件 prompt 走同一模板；
+5. 对 standalone 做能力开关/编译/配置收窄。
+
+### B.5 验收
 
 ```text
-L0 PASS
-对应 L2 PASS
-无新增 raw key/session_id
-新契约 C1–C13 子集通过
+[ ] advanced 只有一个地址申请入口
+[ ] 三种类型都能出地址激活码
+[ ] 独享域不落到 shared_addr_*
+[ ] 带系统标识名的共享域归属正确
+[ ] standalone 拒绝共享域/系统名
+[ ] 三种邮件 prompt 完全一致
+[ ] advanced/standalone 测试通过
 ```
+
+---
+
+## 5. 批次 C — AgentSystemId 协议与聚合
+
+### C.1 目标
+
+- 本地生成稳定 AgentSystemId；
+- Gateway/advanced 注册并授权；
+- 只聚合该 AgentSystemId 激活/绑定的地址；
+- 多 Gateway 独立；
+- SSE 认证/ack 可按 AgentSystemId 隔离。
+
+### C.2 协议最小集（实现前先冻结 ADR）
+
+必须定义：
+
+```text
+1. AgentSystemId 的派生算法/测试 seam
+2. 注册/刷新接口
+3. SSE 认证头或凭据
+4. pending 查询的 AgentSystemId 过滤
+5. ack 的归属校验
+6. 地址 ↔ AgentSystemId 归属表
+7. 旧地址/旧 key 的兼容策略
+```
+
+### C.3 任务
+
+| ID | 组件 | 实施 |
+|---|---|---|
+| C-01 | tssdk core | AgentSystemId 派生函数、稳定性测试、home/硬件变化测试 |
+| C-02 | base gateway | 注册/归属/聚合查询/ack 校验 |
+| C-03 | advanced | 同 C-02，复用 base 存储/协议 |
+| C-04 | tssdk | binding 增加 `agent_system_id`；生成/复用 |
+| C-05 | 测试 | 两个 AgentSystemId 隔离；同 Agent 多地址聚合；多 Gateway 独立 |
+| C-06 | 迁移 | 旧 binding 无 agent_system_id 的补写规则（不调用 Gateway） |
+
+### C.4 验收
+
+```text
+[ ] 同机同 home 两次生成相同；换 home/指纹不同
+[ ] Agent A 不能拉 Agent B 的 pending
+[ ] 同 Agent 多地址出现在同一聚合 batch
+[ ] 两个 Gateway 的 pending/ack 不混
+[ ] 旧 binding 启动可补字段且不误路由
+[ ] 单测 + 集成测试通过
+```
+
+---
+
+## 6. 批次 D — tssdk 核心 + DSH
+
+### D.1 目标
+
+- 唯一 `aimail_address`；
+- binding 目录按 GatewaySystemId；
+- SSE 按 `(AgentSystemId,Gateway)` 聚合；
+- DSH 多地址/多 Gateway 路由可用；
+- 无 workspace miss ack。
+
+### D.2 任务
+
+| ID | 组件 | 实施 |
+|---|---|---|
+| D-01 | tssdk | 移除独立 `aimail_system` 工具和 groups |
+| D-02 | tssdk | `aimail_address` 只接受 address code；无 system_code/manager |
+| D-03 | tssdk | binding 必填 `agent_system_id`；目录按 `GatewaySystemId` |
+| D-04 | tssdk | SSE 聚合层：一个 `(AgentSystemId,Gateway)` 一条连接；按 recipient 路由 |
+| D-05 | DSH | hub 接入聚合层；workspace/session 路由；启动 read-on-boot |
+| D-06 | DSH | workspace miss 不 ack；pause/unbind 从聚合移除 |
+| D-07 | 测试 | DSH 单地址/多地址/多 Gateway/重启 |
+
+### D.3 实施步骤
+
+1. 先移除工具面上的 system，跑现有 host tests；
+2. 给 binding 加字段，旧 binding 补写；
+3. 实现聚合 SSE，保留 per-address fallback 仅作为过渡；
+4. DSH hub 切到聚合层；
+5. 用本地夹具验证；
+6. 删除旧 per-system 分支。
+
+### D.4 验收
+
+```text
+[ ] DSH 工具面无 aimail_system
+[ ] binding 含有 agent_system_id
+[ ] 目录路径 systems/<GatewaySystemId>/<address>
+[ ] 同 Gateway 多地址只有一条 SSE
+[ ] 两个 Gateway 两条 SSE
+[ ] workspace miss 不 ack/留 pending
+[ ] L0 + DSH host tests + DSH L2 PASS
+```
+
+---
+
+## 7. 批次 E — OpenClaw / Pi / SKILL 安装
+
+### E.1 OpenClaw
+
+| ID | 实施 |
+|---|---|
+| E-01 | 插件入口自包含，不依赖镜像解析 `openclaw` |
+| E-02 | manifest `contracts.tools` 等于实际工具集合（含 aimail_address） |
+| E-03 | `registerTool` 工厂返回数组时提供 `names` 元数据 |
+| E-04 | agentId 作为 workspace；绑定 workspace_path |
+| E-05 | sessionKey 仅在 `hooks.allowRequestSessionKey=true` 且前缀匹配时发送 |
+| E-06 | 测试：runtime names / 会话 tools / bind / turn |
+
+### E.2 Pi
+
+| ID | 实施 |
+|---|---|
+| E-07 | 单地址：第二地址拒绝 |
+| E-08 | 无 `aimail_system` |
+| E-09 | 地址绑定 cwd；pull 按当前地址 |
+| E-10 | 测试：单地址激活、welcome、identity calibration |
+
+### E.3 SKILL 安装
+
+| ID | 实施 |
+|---|---|
+| E-11 | 安装器把 activation SKILL 安装为独立 `agentmail-activation` |
+| E-12 | 不覆盖邮件 SKILL；board SKILL 预留 |
+| E-13 | 测试：skill 目录存在、触发词 `aimail_address` |
+
+### E.4 验收
+
+```text
+[ ] OpenClaw inspect runtime names 含 aimail_address
+[ ] 会话 tools 含 aimail_address
+[ ] 插件加载无需 host package link
+[ ] Pi 第二地址失败
+[ ] activation SKILL 独立安装
+[ ] 三宿主 L0/host tests PASS
+```
+
+---
+
+## 8. 批次 F — 生命周期 + 多 Gateway + L2
+
+### F.1 生命周期任务
+
+| ID | 行为 | 验收 |
+|---|---|---|
+| F-01 | pause | 从聚合移除，不 ack |
+| F-02 | resume | 重新纳入并 drain |
+| F-03 | unbind | 停路由/聚合/pointer；远端 key 不自动删 |
+| F-04 | move workspace | 同 AgentSystemId 不换 code/不新建 SSE |
+| F-05 | 跨 Gateway/AgentSystemId | unbind + 重新激活 |
+| F-06 | home/硬件变化 | 新 AgentSystemId，旧 binding 失效 |
+
+### F.2 夹具/测试任务
+
+| ID | 内容 |
+|---|---|
+| F-07 | 夹具支持无 webhook 地址 |
+| F-08 | 夹具支持 AgentSystemId 注册/隔离 |
+| F-09 | 夹具支持两个 Gateway |
+| F-10 | L2 覆盖 S0–S10 混合态 |
+| F-11 | 安全：raw key/code 不进日志；外部预写不算激活 |
+
+### F.3 必测用例
+
+```text
+[ ] 单 Gateway 多地址共享一条 SSE
+[ ] 两 Gateway 各自 SSE，不串 pending/ack
+[ ] Agent A/B 隔离
+[ ] 同 thread followup / 新 thread 新 session
+[ ] workspace miss 不 ack
+[ ] pause/resume/unbind/move
+[ ] 重启 read-on-boot
+[ ] 混合地址/系统
+```
+
+---
+
+## 9. 批次 G — L3、发布、legacy 断开
+
+### G.1 L3
+
+- 真实宿主内 prompt：安装/确认 `aimail_address`；
+- 绑定 → identity calibration；
+- welcome/manager 回复；
+- stub/真实 turn 含唯一串；
+- ack 在 turn 之后；
+- 三宿主核心用例；
+- 多 Gateway 核心用例。
+
+### G.2 发布
+
+```text
+1. base gateway
+2. advanced gateway
+3. standalone（如独立发布）
+4. tssdk 新版本
+5. 确认 activation SKILL 随包
+6. 公告：CLI/pysdk 为 legacy，不在 V2 主路径
+```
+
+### G.3 CLI/pysdk 断开
+
+- V2 主路径禁止 `aimail install`、`agent-install.sh`、旧 self-setup；
+- pysdk/CLI 旧测试单独标记 legacy；
+- 旧宿主固定旧版本；
+- 不删除旧代码，但不再被新流程引用；
+- 文档只保留 V2 activation prompt + activation SKILL。
+
+### G.4 发布前检查清单
+
+```text
+[ ] C1–C13（V2 契约）覆盖
+[ ] L0 PASS
+[ ] 三宿主 L2 PASS
+[ ] L3 核心 PASS
+[ ] 无 raw key/code 日志
+[ ] binding 无 session_id/无旧 system 工具
+[ ] activation SKILL 独立存在
+[ ] 版本/变更记录/回滚方案
+```
+
+---
+
+## 10. 依赖与风险
+
+| 风险 | 影响 | 缓解 |
+|---|---|---|
+| AgentSystemId 协议未定 | C/D 批次无法开工 | 先做 C-ADR，1 页冻结 |
+| 无 webhook 激活改动 | 旧推送安全假设变化 | 仅允许拉取地址；保留推送校验 |
+| 多 Gateway 重复投递 | 重复 turn/ack | 幂等 key = gateway+message/thread |
+| OpenClaw 工具面 | 工具不出现 | manifest/names/自包含入口三件套 |
+| Pi 无后台 session | 多地址不可行 | 单地址 profile；拒绝第二地址 |
+| CLI/pysdk 断开 | 旧宿主失效 | legacy 分支/版本固定 |
+| SKILL 安装器未覆盖 | Agent 不知道激活流程 | E-11/E-12；测试 skill 目录 |
+
+---
+
+## 11. 批次执行顺序（最短路径）
+
+```text
+A → B → C → D → E → F → G
+```
+
+每批次完成后写一条 evidence：
+
+```text
+批次 X:
+- commits:
+- tests:
+- acceptance:
+- known gaps:
+```
+
+没有 evidence 的批次不进入下一阶段。
