@@ -486,3 +486,45 @@ hooks run 仍报 `the same aimail_address call failed 3 times (unknown tool)`。
 本机日志里同时存在：
 `[plugins] OpenClaw can't verify where this plugin came from … reason=provenance-invalid; installSource="archive"`
 ——怀疑 archive 安装导致插件按 non-capability 加载、工具不注册。
+
+#### G9 定位到可修的根因（2026-11-19，验证方，0.4.2）
+
+对比实验（同一镜像、同一次 inspect）：
+
+```
+memory-core (bundled)   → tools: [ {names:["memory_search"]}, {names:["memory_get"]}, {names:["intent"]}, … ]
+agent-aimail (0.4.2)    → tools: [ {names:[], optional:false} ]
+```
+⇒ `shape=non-capability` 是**正常形态**（memory-core 也是），差别只在"注册出来几个工具名"。
+
+直接调用插件工厂（不经过宿主）：
+```
+createMailTools(ctx, () => '/root')  → count: 16
+names: send_mail manage_contacts contact_profile set_contact_profile email_summary
+       set_email_summary search_mail board_status board_task_list board_task_show
+       board_heartbeat board_members board_roles aimail_address role_calibrator aimail_system
+```
+⇒ 工厂本身没问题，16 个工具齐全。
+
+宿主侧注册 API 的用法（宿主自带 SDK 原文 `/app/dist/plugin-sdk/meeting-runtime.js:4955`）：
+```js
+t.registerTool((r) => ({ ... }))     // 工厂返回「单个」工具描述
+```
+而本插件（`dist/openclaw/index.js:124`）是：
+```js
+api.registerTool((ctx) => createMailTools(ctx, resolveAgentWorkspaceDir))   // 工厂返回「数组」
+```
+**假设（高置信）**：openclaw 2026.11.5 的 `registerTool(factory)` 期望工厂返回单个工具描述；返回数组时该次注册被丢弃（不报错），
+于是 `tools.names=[]`、会话工具面无 `aimail_*`、agent 调用被判 `unknown tool`。
+
+**建议修法（产品侧，一行级）**：改为每个工具注册一次
+```js
+for (const t of createMailTools(ctx, resolveAgentWorkspaceDir)) api.registerTool(() => t)
+```
+或使用宿主提供的复数注册 API（若有）。
+
+判据（修完应满足）：
+1）`plugins inspect agent-aimail --runtime --json` → `tools[].names` 含 16 个工具名（含 `aimail_address`/`aimail_system`）；
+2）会话 `tools[]` 含 `aimail_address`；
+3）宿主内 prompt 调用后出现 `[aimail-pull] polling started`；
+4）注入邮件 → stub turn 含唯一串 → ack 在 turn 之后。
