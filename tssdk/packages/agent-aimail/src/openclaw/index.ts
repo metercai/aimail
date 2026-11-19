@@ -5,7 +5,7 @@
  * HTTP route + register/deregister/status commands. No plugin-level config
  * schema — identity stays pointer + agentmail.json (single source of truth).
  */
-import { definePluginEntry, type OpenClawPluginDefinition } from 'openclaw/plugin-sdk/plugin-entry'
+import type { OpenClawPluginDefinition } from 'openclaw/plugin-sdk/plugin-entry'
 import {
   notifyInboundForSystem,
   formatInboundNotifyLine,
@@ -31,6 +31,15 @@ import { activateHost } from '../hosts/activate.js'
 
 // SDK-shipped board resources (role prompts/souls) live at the package root.
 const boardRoot = path.join(packageResourcesRoot(), 'board')
+
+function definePluginEntry<T extends object & { configSchema?: unknown }>(entry: T): T {
+  return {
+    ...entry,
+    get configSchema() {
+      return entry.configSchema ?? { type: 'object', properties: {}, additionalProperties: false }
+    },
+  } as T
+}
 
 const transport = process.env.AIMAIL_TRANSPORT === 'push' ? 'push' : 'sse'
 let pullHandles: Array<{ stop: () => void }> = []

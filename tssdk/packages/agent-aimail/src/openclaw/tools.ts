@@ -10,13 +10,19 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { AGENT_TOOL_DEFS, setToolsetProvider, toTypeBoxParams } from '../core/index.js'
 import { SYSTEM_TOOL_DESCRIPTION, SYSTEM_TOOL_PARAMS, pinWorkspaceToBinding, runSystemTool } from '../runtime/index.js'
-import { jsonResult } from 'openclaw/plugin-sdk/tool-results'
 import type {
   AnyAgentTool,
   OpenClawPluginToolContext,
 } from 'openclaw/plugin-sdk/plugin-entry'
 import { resolveConfigForAgent, writePointer } from './identity.js'
 import { setAgentModel } from '../core/index.js'
+
+function jsonResult(payload: unknown) {
+  return {
+    content: [{ type: 'text' as const, text: JSON.stringify(payload, null, 2) }],
+    details: payload,
+  }
+}
 
 
 /**
