@@ -351,3 +351,24 @@ stub LLM 请求数（激活后）                                               
 
 要点（文档原文）：`plugins.allow` 非空时限定可加载插件；**插件自有工具即使在 `tools.allow` 含 `"*"` 时也不可用**——插件激活与工具可用性是两项独立策略；工具还需要 `tools.allow`/`alsoAllow` 的许可。
 夹具已按此写入（`install-sdk.sh` openclaw 分支），复跑验证工具面与 turn。
+
+### G9 重开（2026-11-19，按官方文档配置后仍为空）
+
+配置已按官方文档（docs.openclaw.ai/gateway/config-tools/tool-policy）改为：
+- `plugins.enabled=true`, `plugins.allow=["agent-aimail"]`, `plugins.entries["agent-aimail"].enabled=true`
+- `tools.profile="full"`（文档原文：only the full profile **selects optional plugin tools**）
+（`tools.allow`/`alsoAllow` 不可与 profile 同 scope 并用；插件 configSchema 为 `properties:{}`，不接受任何配置键）
+
+仍观察到：
+```
+openclaw plugins inspect agent-aimail --runtime --json
+→ capabilities: []
+→ tools: [ { "names": [], "optional": false } ]
+
+会话 tools[]（tools.profile=full）:
+apply_patch dispatch_action edit exec github_publish ls message openclaw process read sessions_yield tool_describe tool_search write
+（无 aimail_*）
+```
+manifest 声明：`activation.onCapabilities:["tool"]`、`contracts.tools`（14 个）。
+
+判据：`plugins inspect --runtime` 的 `tools[].names` 非空；会话 `tools[]` 出现 `aimail_address`/`aimail_system`；随后 prompt 驱动 agent 调 `aimail_address` 完成绑定并 arm pull。
