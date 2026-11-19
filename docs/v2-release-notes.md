@@ -46,3 +46,11 @@ A/B pending/ack 隔离: PASS
 - OpenClaw 多地址真实 sessionKey 路由未做 L2；
 - DSH/OpenClaw/Pi 的部分旧代码仍保留 legacy 分支；
 - 发布推送受本机 GitHub 凭据影响时需先恢复凭据。
+
+## 一键发布门禁
+
+```bash
+./tests/host-acceptance/run-v2-release-gate.sh
+```
+
+覆盖 L0、三宿主 L2、真实双 Gateway L2；本机已通过。
