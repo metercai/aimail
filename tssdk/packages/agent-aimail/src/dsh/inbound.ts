@@ -18,6 +18,7 @@
  * (`deliverInbound`). Enabled only for agent-scope bindings — the decision and
  * the loop live in mail-core (`startAgentPullEntries` / `startPolling`).
  */
+import { installActivationSkillSync } from '../core/agent-level.js'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -369,6 +370,7 @@ export function apply(ctx: Context, config: Config = {}): () => void {
       if (fs.existsSync(to) && fs.readFileSync(from).equals(fs.readFileSync(to))) continue
       fs.copyFileSync(from, to)
     }
+    installActivationSkillSync(path.join(dshHome, 'skills'))
   } catch {
     // non-fatal; retried on next plugin start
   }

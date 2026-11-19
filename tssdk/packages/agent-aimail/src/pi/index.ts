@@ -15,6 +15,7 @@
  * Install: copy/symlink into ~/.pi/agent/extensions/ (or ship as a pi
  * package). Binding: create ~/.pi/.agentmail with {system_id, email}.
  */
+import { installActivationSkillSync } from '../core/agent-level.js'
 import { activateHost } from '../hosts/activate.js'
 import * as fs from 'node:fs'
 import * as http from 'node:http'
@@ -262,6 +263,7 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
       if (fs.existsSync(to) && fs.readFileSync(from).equals(fs.readFileSync(to))) continue
       fs.copyFileSync(from, to)
     }
+    installActivationSkillSync(path.join(os.homedir(), '.pi', 'agent', 'skills'))
   } catch (e) {
     // non-fatal (next plugin start retries), but never silent
     console.error(`[agent-aimail] skill release failed: ${String(e)}`)

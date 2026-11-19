@@ -13,6 +13,8 @@ export interface AgentConfig {
   domain: string
   /** system identifier (directory key) */
   system_id: string
+  /** stable local Agent-system instance identity (SSE aggregation) */
+  agent_system_id?: string
   /** system name (shared-domain address segment) */
   system_name?: string
   /** manager address (inbound whitelist, welcome recipient) */

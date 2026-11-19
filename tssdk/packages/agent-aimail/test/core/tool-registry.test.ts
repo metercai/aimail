@@ -113,7 +113,7 @@ describe('grouped tool definitions', () => {
 
   it('MAIL_ADMIN is the address binding tool; system onboarding is DSH-only', () => {
     expect(MAIL_ADMIN.map(t => t.name)).toEqual(['aimail_address'])
-    expect(MAIL_ADMIN_NAMES).toEqual(['aimail_address', 'aimail_system'])
+    expect(MAIL_ADMIN_NAMES).toEqual(['aimail_address'])
   })
 
   it('the three groups cover the full spec-backed set', () => {

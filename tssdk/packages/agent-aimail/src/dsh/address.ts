@@ -108,7 +108,7 @@ export async function runAddressTool(
       throw e
     }
     if (!pre.valid || pre.claimed) return fail('activation_invalid', pre.error ?? 'activation code is invalid or already claimed')
-    if (pre.code_type !== 'address') return fail('wrong_tool', 'this is a system activation code — use aimail_system bind')
+    if (pre.code_type !== 'address') return fail('wrong_tool', 'this is not an address activation code')
     if (pre.email_address && pre.email_address.toLowerCase() !== email) {
       return fail('activation_invalid', `activation code is bound to ${pre.email_address}`)
     }

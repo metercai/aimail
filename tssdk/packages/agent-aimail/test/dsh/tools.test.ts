@@ -26,9 +26,9 @@ describe('dsh-aimail tool registration', () => {
       tools: { register: (tool: { name: string }) => registered.push(tool.name) },
     }
     apply(ctx as never)
-    expect(registered.length).toBe(AGENT_TOOL_DEFS.length + 1)
-    expect(registered.length).toBe(16)
-    expect([...registered].sort()).toEqual([...AGENT_TOOL_DEFS.map(t => t.name), 'aimail_system'].sort())
+    expect(registered.length).toBe(AGENT_TOOL_DEFS.length)
+    expect(registered.length).toBe(15)
+    expect([...registered].sort()).toEqual([...AGENT_TOOL_DEFS.map(t => t.name)].sort())
   })
 
   it('apply() fails loudly when the mail service is not mounted', () => {

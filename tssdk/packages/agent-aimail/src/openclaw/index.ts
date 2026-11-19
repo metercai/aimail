@@ -5,6 +5,7 @@
  * HTTP route + register/deregister/status commands. No plugin-level config
  * schema — identity stays pointer + agentmail.json (single source of truth).
  */
+import { installActivationSkillSync } from '../core/agent-level.js'
 import type { OpenClawPluginDefinition } from 'openclaw/plugin-sdk/plugin-entry'
 import {
   AGENT_TOOL_DEFS,
@@ -137,16 +138,17 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
         if (fs.existsSync(to) && fs.readFileSync(from).equals(fs.readFileSync(to))) continue
         fs.copyFileSync(from, to)
       }
+      installActivationSkillSync(path.join(os.homedir(), '.openclaw', 'skills'))
     } catch (e) {
       // non-fatal (next plugin start retries), but never silent
       console.error(`[agent-aimail] skill release failed: ${String(e)}`)
     }
 
-    // 15 bare-name tools + aimail_system. The host needs explicit `names`
+    // 15 bare-name tools. The host needs explicit `names`
     // metadata when a factory returns an array; without it every name is
     // registered as an empty tool surface entry.
     api.registerTool((ctx) => createMailTools(ctx, resolveAgentWorkspaceDir), {
-      names: [...AGENT_TOOL_DEFS.map((t) => t.name), 'aimail_system'],
+      names: [...AGENT_TOOL_DEFS.map((t) => t.name)],
     })
 
     // Inbound delivery route (in-gateway, no new port; auth=plugin, HMAC is
@@ -176,7 +178,7 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
       void (async () => {
         const agentId = resolveAgentId() || DEFAULT_AGENT_ID
         if (transport !== 'sse') await tryAutoBindOnce(agentId)
-        // SSE startup never creates a mailbox; aimail_system/aimail_address do.
+        // SSE startup never creates a mailbox; aimail_address does.
         // Pull entry (2026-09-27): an address activated by an activation CODE
         // has no push path (the gateway stores webhook_url=NULL for it), so
         // this host must fetch its own mail on a timer. Started AFTER the

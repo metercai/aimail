@@ -23,7 +23,6 @@ import {
 } from '../core/index.js'
 import type { MailService } from './mail-service.js'
 import { runAddressTool } from './address.js'
-import { apply as applySystemTool } from './system.js'
 
 export const name = 'tool-mail'
 export const inject = ['tools', 'mail']
@@ -142,9 +141,6 @@ export function apply(ctx: Context, config: { identity?: string } = {}): void {
   // System onboarding is a DSH-only tool. Register it in this same entry so
   // it is part of the agent-visible tool set (the separate `mail-system`
   // Cordis row was not exposed in the tool list on installed profiles).
-  applySystemTool(ctx)
-  registered.push('aimail_system')
-
   // TOOLSET_LIST: host actual state (same semantics as SOUL/SKILLS). The dsh
   // host exposes no tool-introspection API on ctx.tools, so the adapter
   // reports the tools IT actually registered in THIS apply() — the real

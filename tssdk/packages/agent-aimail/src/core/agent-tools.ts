@@ -33,7 +33,6 @@ export const MAIL_BOARD_NAMES = [
 
 export const MAIL_ADMIN_NAMES = [
   'aimail_address',
-  'aimail_system',
 ] as const
 
 /** Agent-level toolset: mail + board + address (system onboarding is

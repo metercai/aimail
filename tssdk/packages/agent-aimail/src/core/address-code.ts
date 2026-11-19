@@ -17,6 +17,7 @@
 import { promises as fs } from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { getAgentSystemId } from './agent-system-id.js'
 import { fireBindingCreated } from './binding-hooks.js'
 import {
   PULL_HOLD_MAX_MS,
@@ -246,6 +247,7 @@ export async function activateAddressCodePersist(
     gateway_url: gatewayUrl,
     domain,
     system_id: sid,
+    agent_system_id: await getAgentSystemId(),
     api_key: act.raw_key,
     agent_id: agentId,
   }

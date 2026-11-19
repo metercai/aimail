@@ -22,7 +22,7 @@ describe('openclaw-aimail SSE entry smoke', () => {
         registerCommand() { commands++ },
       }
       mod.default!.register!(api)
-      expect(tools).toBe(16)
+      expect(tools).toBe(15)
       expect(routes).toBe(0)
       expect(commands).toBe(0)
     } finally {

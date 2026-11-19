@@ -18,6 +18,7 @@
  * the network when a binding file for the address already exists.
  */
 import { randomUUID } from 'node:crypto'
+import { getAgentSystemId } from './agent-system-id.js'
 import { promises as fs } from 'node:fs'
 import * as path from 'node:path'
 import { AIMAIL_HOME, gatewayConfigPath } from './config.js'
@@ -371,6 +372,8 @@ export async function syncAddressWebhook(
 
 export interface SaveBindingOptions {
   systemId: string
+  /** default: derived stable AgentSystemId for this host. */
+  agentSystemId?: string
   email: string
   apiKey: string
   webhookUrl?: string
@@ -398,6 +401,7 @@ export async function saveBinding(opts: SaveBindingOptions): Promise<string> {
     gateway_url: gw.gateway_url ?? '',
     domain: gw.domain ?? '',
     system_id: opts.systemId,
+    agent_system_id: opts.agentSystemId ?? await getAgentSystemId(),
     api_key: opts.apiKey,
   }
   if (gw.system_name) cfg['system_name'] = gw.system_name

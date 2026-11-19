@@ -6,15 +6,13 @@
  * Tool parameters are translated from the platform-neutral MailToolParam
  * shape to TypeBox schemas at registration time (mirrors dsh's toDshParam).
  */
-import * as fs from 'node:fs'
-import * as path from 'node:path'
 import { AGENT_TOOL_DEFS, setToolsetProvider, toTypeBoxParams } from '../core/index.js'
-import { SYSTEM_TOOL_DESCRIPTION, SYSTEM_TOOL_PARAMS, pinWorkspaceToBinding, runSystemTool } from '../runtime/index.js'
+import { pinWorkspaceToBinding } from '../runtime/index.js'
 import type {
   AnyAgentTool,
   OpenClawPluginToolContext,
 } from 'openclaw/plugin-sdk/plugin-entry'
-import { resolveConfigForAgent, writePointer } from './identity.js'
+import { resolveConfigForAgent } from './identity.js'
 import { setAgentModel } from '../core/index.js'
 
 function jsonResult(payload: unknown) {
@@ -61,24 +59,8 @@ export function createMailTools(
       return jsonResult(result)
     },
   }))
-  tools.push({
-    name: 'aimail_system',
-    label: 'aimail_system',
-    description: SYSTEM_TOOL_DESCRIPTION,
-    parameters: toTypeBoxParams(SYSTEM_TOOL_PARAMS),
-    async execute(_toolCallId: string, params: unknown) {
-      fs.mkdirSync(workspace, { recursive: true })
-      const r = await runSystemTool((params ?? {}) as Record<string, unknown>, {
-        defaultWorkspace: async () => workspaceRef,
-        ensureWorkspace: async (p) => ({ id: agentId, path: p, title: agentId }),
-        systemHome: () => path.join(process.env.HOME || '', '.openclaw'),
-      })
-      if (r.success && r.system_id) {
-        await writePointer({ system_id: String(r.system_id), email: String(r.default_email ?? '') })
-      }
-      return jsonResult(r)
-    },
-  })
+
+
   // TOOLSET_LIST: host actual state (same semantics as SOUL/SKILLS). The
   // openclaw plugin SDK exposes no tool-introspection API on the plugin
   // entry, so the adapter reports the tools IT actually produced when the

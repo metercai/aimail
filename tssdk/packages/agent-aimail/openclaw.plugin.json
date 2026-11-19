@@ -1,7 +1,7 @@
 {
   "id": "agent-aimail",
   "name": "AIMail",
-  "description": "AIMail email capability for OpenClaw: mail/board tools plus in-agent aimail_address/aimail_system activation.",
+  "description": "AIMail email capability for OpenClaw: mail/board tools plus in-agent aimail_address activation.",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -30,8 +30,7 @@
       "board_members",
       "board_roles",
       "role_calibrator",
-      "aimail_address",
-      "aimail_system"
+      "aimail_address"
     ]
   }
 }

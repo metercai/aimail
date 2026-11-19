@@ -13,6 +13,7 @@
  * grants 0 boards), so the tools are member-scope only.
  */
 import { promises as fs } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { packageResourcesRoot } from './resources-root.js'
 import * as path from 'node:path'
 
@@ -76,6 +77,41 @@ export async function installAgentSkill(
   if (!same) {
     await fs.mkdir(path.dirname(dest), { recursive: true })
     await fs.writeFile(dest, text)
+  }
+  return { path: dest, installed: !same }
+}
+
+/** Separate address-activation skill; never overwrite the mail skill. */
+export const ACTIVATION_SKILL_NAME = 'agentmail-activation'
+
+export async function installActivationSkill(
+  skillsDir: string,
+): Promise<InstallAgentSkillResult> {
+  const src = path.join(packageResourcesRoot(), 'skills', 'activation', 'SKILL.md')
+  const text = await fs.readFile(src, 'utf-8')
+  const dest = path.join(skillsDir, ACTIVATION_SKILL_NAME, 'SKILL.md')
+  let same = false
+  try {
+    same = (await fs.readFile(dest, 'utf-8')) === text
+  } catch {
+    same = false
+  }
+  if (!same) {
+    await fs.mkdir(path.dirname(dest), { recursive: true })
+    await fs.writeFile(dest, text)
+  }
+  return { path: dest, installed: !same }
+}
+
+/** Synchronous variant for host startup functions that are not async. */
+export function installActivationSkillSync(skillsDir: string): InstallAgentSkillResult {
+  const src = path.join(packageResourcesRoot(), 'skills', 'activation', 'SKILL.md')
+  const text = readFileSync(src, 'utf-8')
+  const dest = path.join(skillsDir, ACTIVATION_SKILL_NAME, 'SKILL.md')
+  const same = existsSync(dest) && readFileSync(dest, 'utf-8') === text
+  if (!same) {
+    mkdirSync(path.dirname(dest), { recursive: true })
+    writeFileSync(dest, text)
   }
   return { path: dest, installed: !same }
 }
