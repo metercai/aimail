@@ -47,3 +47,20 @@ def test_sdk_is_v2_and_no_system_tool():
     assert "aimail_address" in tools
     assert "aimail_system" not in tools
     assert len(tools) == 15
+
+
+def test_address_tool_has_no_system_onboarding_params():
+    import json
+    spec = json.loads(_read(REPO / "pysdk/tool-spec.json"))
+    tool = next(t for t in spec if t["name"] == "aimail_address")
+    props = tool["parameters"]["properties"]
+    for forbidden in ("system_code", "manager", "system_name", "domain"):
+        assert forbidden not in props
+    assert set(props) == {"action", "code", "email", "gateway_url", "workspace_path"}
+
+
+def test_v2_docs_do_not_advertise_legacy_install():
+    for rel in ("docs/aimail-host-sse-contract-v2.md", "docs/v2-release-notes.md"):
+        text = _read(REPO / rel)
+        assert "agent-install.sh" not in text
+        assert "Follow the step-by-step" not in text
