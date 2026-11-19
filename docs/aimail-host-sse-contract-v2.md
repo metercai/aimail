@@ -587,7 +587,7 @@ Please activate it within 24 hours.
 
 Copy the message below into your agent's conversation and let the agent bind the address:
 
-Activate my AIMail mailbox {address} using the activation code {code}. My safety officer (manager) is {manager}. AIMail gateway is at {gateway_url}. Follow the step-by-step instructions at https://raw.githubusercontent.com/metercai/aimail/main/docs/agent-self-setup.md
+Activate my AIMail mailbox {address} using the activation code {code}. My safety officer (manager) is {manager}. AIMail gateway is at {gateway_url}. Follow the address activation SKILL at https://raw.githubusercontent.com/metercai/aimail/main/resources/skills/activation/SKILL.md
 
 This code is sent only once - please keep this email.
 Please do not reply to this email - it is sent automatically.
@@ -673,9 +673,7 @@ aimail_address({
 
 ## Appendix D — 实现备注
 
-- 当前 Gateway 的地址激活邮件 URL 仍指向旧的 `docs/agent-self-setup.md`；
-  V2 规范入口是 `resources/skills/activation/SKILL.md`。Gateway 模板应改为指向
-  该 activation SKILL；在模板更新前，Agent 仍按 activation SKILL 执行。
+- Gateway 地址激活邮件已指向 `resources/skills/activation/SKILL.md`。
 - activation SKILL 已随 package resources 提供；宿主安装器需要把它安装为
   独立 skill（不能覆盖邮件处理 SKILL）。
 - board SKILL 尚未发布，文件路径保留为 planned。
