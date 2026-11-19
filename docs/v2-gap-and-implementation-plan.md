@@ -444,21 +444,28 @@ vitest agent-aimail: 461 passed | 1 skipped
 - 多 Gateway/多地址 L2 未建立；
 - DSH L2 仍走旧 system 路径。
 
-### 批次 B — 部分完成
+### 批次 B — 完成（页面/API 层面）
 
-- advanced 地址激活邮件已改为统一 prompt。
+- advanced 统一地址申请页支持共享域、带系统标识名共享域、独享域；
+- 新增 `/api/v1/public/address-domains` 独享域列表；
+- standalone 强制 dedicated-only；
+- advanced 激活邮件统一 prompt。
 
 证据：
 
 ```text
 advanced: 328dd74 feat(email): use unified address-only activation prompt
+advanced: d9cee59 feat(apply): unify shared, system-name, and dedicated address applications
+advanced: 16118c5 feat(app): standalone only applies for dedicated addresses
+cargo check: PASS
+open_apply tests: 7 passed
+email_notify tests: 3 passed
 ```
 
 未完成：
 
-- advanced 统一三类地址申请页/API；
-- standalone 只保留独享域；
-- 三类地址 L2。
+- 三类地址端到端 L2（需 email verification/fixture）；
+- 独享域配额/审计策略仍需产品确认。
 
 ### 已知环境问题
 
