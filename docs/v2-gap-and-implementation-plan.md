@@ -714,6 +714,27 @@ aimail <v2-surface> test(v2): enforce prompt/page/tool surface
 L0: PASS
 ```
 
+### OpenClaw sessionKey 条件发送
+
+新增测试：
+
+```text
+with host opt-in, the caller sessionKey is carried verbatim
+```
+
+确认：
+
+- 未开启 `hooks.allowRequestSessionKey` 时不发送 caller sessionKey；
+- 开启后同 thread 的 sessionKey 可原样发送；
+- 前缀白名单逻辑仍由 inbound policy 控制。
+
+证据：
+
+```text
+aimail 4968fcb test(openclaw): pin sessionKey opt-in
+L0: PASS
+```
+
 ### 已知环境问题
 
 - advanced `cargo test` 在本机有 9 个 machine_code 测试失败，
