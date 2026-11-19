@@ -90,6 +90,17 @@ describe('dispatch contract (/hooks/agent) — L1', () => {
     expect(seen[0].sessionKey).toBeUndefined()
   })
 
+  it('with host opt-in, the caller sessionKey is carried verbatim', async () => {
+    allowRequestSessionKey = true
+    const out = await deliverToAgent({} as never, {
+      agentId: 'main',
+      message: 'hello',
+      sessionKey: 'agent:main:aimail:thread-1',
+    })
+    expect(out.status).toBe('delivered')
+    expect(seen[0].sessionKey).toBe('agent:main:aimail:thread-1')
+  })
+
   it('a caller sessionKey without opt-in is refused, and the reason survives (S1d/S1e pin)', async () => {
     // Simulate "someone added the caller key back": stub returns 400 per docs, adapter must surface the host's reason.
     const { hooksPath } = await import('../../src/openclaw/identity.js')
