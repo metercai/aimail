@@ -600,6 +600,24 @@ aimail b7d436c feat(openclaw): use aggregate stream for B2 address
 vitest openclaw: 44 passed
 ```
 
+### DSH 聚合 L2
+
+- DSH B2 不再要求 shared-domain scope，任意地址码都可绑定；
+- DSH 特定激活路径传入 AgentSystemId；
+- DSH L2 使用 address-only + 聚合 hub + welcome API；
+- 结果：PASS（1 stream，followup 1）。
+
+证据：
+
+```text
+aimail 7d8f666 feat(dsh): persist AgentSystemId and add aggregate L2
+aimail 0bf9d46 test(dsh): align B2 address-only and L2
+L2 dsh: PASS
+L2 pi: PASS
+L2 openclaw: PASS
+L0: PASS
+```
+
 ### 已知环境问题
 
 - advanced `cargo test` 在本机有 9 个 machine_code 测试失败，
