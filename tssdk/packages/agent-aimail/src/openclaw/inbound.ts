@@ -22,6 +22,7 @@ import {
   routeAddressFromHeaders,
   logAimailDispatch,
   startAgentPullEntries,
+  loadAgentConfig,
   startSystemPull,
   AGENT_SCOPE_SYSTEM_PREFIX,
   type AgentConfig,
@@ -32,6 +33,7 @@ import {
 } from '../core/index.js'
 import type { OpenClawPluginApi } from 'openclaw/plugin-sdk/plugin-entry'
 import { resolveByRecipient } from '../mail/index.js'
+import { getAgentSystemId } from '../core/agent-system-id.js'
 import { threadRoot } from '../runtime/session-router.js'
 import { createHash } from 'node:crypto'
 import { readSystemGatewayConfig } from '../core/provision.js'
@@ -324,6 +326,36 @@ export async function startInboundPull(
     })
     return [{
       email: `system:${sid}`, started: true, reason: 'enabled', intervalMs: 0, limit: 0,
+      stop: h.stop, done: h.done as Promise<import('../core/index.js').PollStats>,
+      stats: () => ({ pulled: 0, acked: 0, errors: 0 }),
+    }]
+  }
+  // B2 (no system): one AgentSystemId aggregate stream. The first bound
+  // address supplies the address-scoped credential; the gateway authorizes
+  // every address owned by this AgentSystemId.
+  const ptrCfg = ptr.system_id && ptr.email
+    ? await loadAgentConfig(ptr.system_id, ptr.email).catch(() => undefined)
+    : undefined
+  if (ptrCfg?.api_key) {
+    const h = await startSystemPull({
+      systemId: ptrCfg.email,
+      agentSystemId: await getAgentSystemId(),
+      gatewayUrl: ptrCfg.gateway_url,
+      apiKey: ptrCfg.api_key,
+      ...(opts.log ? { log: opts.log } : {}),
+      onEmail: async (mail) => {
+        if (typeof mail.body !== 'object' || mail.body === null) {
+          throw new Error(`pulled delivery ${mail.id} for ${mail.email} carries no JSON payload — not acking`)
+        }
+        const headers: Record<string, unknown> = { ...(mail.headers ?? {}), 'x-aimail-email': mail.email }
+        const target = await resolveInboundTarget(mail.body as InboundPayload, headers)
+        if (!target) throw new Error(`pulled delivery ${mail.id}: no binding for ${mail.email} — not acking`)
+        const out = await deliverInbound(api, target, mail.body as InboundPayload, headers)
+        if (!out.ok) throw new Error(`pulled delivery ${mail.id}: inbound chain did not deliver (${out.status}: ${out.detail ?? ''}) — not acking`)
+      },
+    })
+    return [{
+      email: `agent:${ptrCfg.email}`, started: true, reason: 'enabled', intervalMs: 0, limit: 0,
       stop: h.stop, done: h.done as Promise<import('../core/index.js').PollStats>,
       stats: () => ({ pulled: 0, acked: 0, errors: 0 }),
     }]
