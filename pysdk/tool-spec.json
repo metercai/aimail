@@ -5,14 +5,39 @@
     "parameters": {
       "type": "object",
       "properties": {
-        "to": { "type": "string", "description": "Recipient address(es): a comma-separated string or an array." },
-        "subject": { "type": "string", "description": "Subject line. On a reply keep the original subject and prefix \"Re:\"; on a forward prefix \"Fw:\"." },
-        "body": { "type": "string", "description": "Markdown body." },
-        "cc": { "type": "string", "description": "CC address(es): a comma-separated string or an array." },
-        "attachments": { "type": "array", "items": { "type": "string" }, "description": "Local file paths to attach" },
-        "message_id": { "type": "string", "description": "Original message_id to reply to (threads the reply) or to forward." }
+        "to": {
+          "type": "string",
+          "description": "Recipient address(es): a comma-separated string or an array."
+        },
+        "subject": {
+          "type": "string",
+          "description": "Subject line. On a reply keep the original subject and prefix \"Re:\"; on a forward prefix \"Fw:\"."
+        },
+        "body": {
+          "type": "string",
+          "description": "Markdown body."
+        },
+        "cc": {
+          "type": "string",
+          "description": "CC address(es): a comma-separated string or an array."
+        },
+        "attachments": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Local file paths to attach"
+        },
+        "message_id": {
+          "type": "string",
+          "description": "Original message_id to reply to (threads the reply) or to forward."
+        }
       },
-      "required": ["to", "subject", "body"]
+      "required": [
+        "to",
+        "subject",
+        "body"
+      ]
     }
   },
   {
@@ -21,21 +46,50 @@
     "parameters": {
       "type": "object",
       "properties": {
-        "action": { "type": "string", "enum": ["check", "add", "remove", "update"], "description": "Action to perform (update = change direction of an existing entry)." },
-        "address": { "type": "string", "description": "Email address (required for check/add/remove/update)." },
-        "direction": { "type": "string", "enum": ["from", "to", "all"], "default": "all", "description": "Whitelist direction (for update, the new direction)." }
+        "action": {
+          "type": "string",
+          "enum": [
+            "check",
+            "add",
+            "remove",
+            "update"
+          ],
+          "description": "Action to perform (update = change direction of an existing entry)."
+        },
+        "address": {
+          "type": "string",
+          "description": "Email address (required for check/add/remove/update)."
+        },
+        "direction": {
+          "type": "string",
+          "enum": [
+            "from",
+            "to",
+            "all"
+          ],
+          "default": "all",
+          "description": "Whitelist direction (for update, the new direction)."
+        }
       },
-      "required": ["action"]
+      "required": [
+        "action"
+      ]
     }
   },
   {
     "name": "contact_profile",
-    "description": "Look up a contact's profile. Pass address (exact) or name (server-side search) — at least one is required.",
+    "description": "Look up a contact's profile. Pass address (exact) or name (server-side search) \u2014 at least one is required.",
     "parameters": {
       "type": "object",
       "properties": {
-        "address": { "type": "string", "description": "Exact email address." },
-        "name": { "type": "string", "description": "Contact name (server-side search)." }
+        "address": {
+          "type": "string",
+          "description": "Exact email address."
+        },
+        "name": {
+          "type": "string",
+          "description": "Contact name (server-side search)."
+        }
       },
       "required": []
     }
@@ -46,10 +100,19 @@
     "parameters": {
       "type": "object",
       "properties": {
-        "address": { "type": "string", "description": "Email address." },
-        "profile": { "type": "string", "description": "Profile fields as JSON string (name/title/location/relationship/focus/close_contacts/style)." }
+        "address": {
+          "type": "string",
+          "description": "Email address."
+        },
+        "profile": {
+          "type": "string",
+          "description": "Profile fields as JSON string (name/title/location/relationship/focus/close_contacts/style)."
+        }
       },
-      "required": ["address", "profile"]
+      "required": [
+        "address",
+        "profile"
+      ]
     }
   },
   {
@@ -58,9 +121,14 @@
     "parameters": {
       "type": "object",
       "properties": {
-        "message_id": { "type": "string", "description": "Thread message_id." }
+        "message_id": {
+          "type": "string",
+          "description": "Thread message_id."
+        }
       },
-      "required": ["message_id"]
+      "required": [
+        "message_id"
+      ]
     }
   },
   {
@@ -69,10 +137,19 @@
     "parameters": {
       "type": "object",
       "properties": {
-        "message_id": { "type": "string", "description": "Thread message_id." },
-        "summary": { "type": "string", "description": "Thread summary text (max 2000 chars)." }
+        "message_id": {
+          "type": "string",
+          "description": "Thread message_id."
+        },
+        "summary": {
+          "type": "string",
+          "description": "Thread summary text (max 2000 chars)."
+        }
       },
-      "required": ["message_id", "summary"]
+      "required": [
+        "message_id",
+        "summary"
+      ]
     }
   },
   {
@@ -81,12 +158,36 @@
     "parameters": {
       "type": "object",
       "properties": {
-        "query": { "type": "string", "description": "Space-separated keywords (AND); empty = browse by filters" },
-        "scope": { "type": "string", "enum": ["all", "inbound", "outbound"], "default": "all", "description": "Mailbox scope" },
-        "since": { "type": "string", "description": "Start date YYYY-MM-DD (inclusive)" },
-        "until": { "type": "string", "description": "End date YYYY-MM-DD (inclusive)" },
-        "from": { "type": "string", "description": "Sender substring filter (case-insensitive)" },
-        "limit": { "type": "integer", "description": "Max results 1-50 (default 20)" }
+        "query": {
+          "type": "string",
+          "description": "Space-separated keywords (AND); empty = browse by filters"
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "all",
+            "inbound",
+            "outbound"
+          ],
+          "default": "all",
+          "description": "Mailbox scope"
+        },
+        "since": {
+          "type": "string",
+          "description": "Start date YYYY-MM-DD (inclusive)"
+        },
+        "until": {
+          "type": "string",
+          "description": "End date YYYY-MM-DD (inclusive)"
+        },
+        "from": {
+          "type": "string",
+          "description": "Sender substring filter (case-insensitive)"
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Max results 1-50 (default 20)"
+        }
       },
       "required": []
     }
@@ -97,9 +198,14 @@
     "parameters": {
       "type": "object",
       "properties": {
-        "board": { "type": "string", "description": "Board address (e.g. xk9mp2q.a2a@mail.hermes.io)" }
+        "board": {
+          "type": "string",
+          "description": "Board address (e.g. xk9mp2q.a2a@mail.hermes.io)"
+        }
       },
-      "required": ["board"]
+      "required": [
+        "board"
+      ]
     }
   },
   {
@@ -108,11 +214,22 @@
     "parameters": {
       "type": "object",
       "properties": {
-        "board": { "type": "string", "description": "Board address (e.g. xk9mp2q.a2a@mail.hermes.io)" },
-        "status": { "type": "string", "description": "Filter by task status" },
-        "assignee": { "type": "string", "description": "Filter by assignee email" }
+        "board": {
+          "type": "string",
+          "description": "Board address (e.g. xk9mp2q.a2a@mail.hermes.io)"
+        },
+        "status": {
+          "type": "string",
+          "description": "Filter by task status"
+        },
+        "assignee": {
+          "type": "string",
+          "description": "Filter by assignee email"
+        }
       },
-      "required": ["board"]
+      "required": [
+        "board"
+      ]
     }
   },
   {
@@ -121,10 +238,19 @@
     "parameters": {
       "type": "object",
       "properties": {
-        "task_id": { "type": "string", "description": "Task ID (t_<short>_<board8>, or the short_id from the task mail, e.g. T1)" },
-        "board": { "type": "string", "description": "Board address (e.g. xk9mp2q.a2a@mail.hermes.io)" }
+        "task_id": {
+          "type": "string",
+          "description": "Task ID (t_<short>_<board8>, or the short_id from the task mail, e.g. T1)"
+        },
+        "board": {
+          "type": "string",
+          "description": "Board address (e.g. xk9mp2q.a2a@mail.hermes.io)"
+        }
       },
-      "required": ["task_id", "board"]
+      "required": [
+        "task_id",
+        "board"
+      ]
     }
   },
   {
@@ -133,11 +259,23 @@
     "parameters": {
       "type": "object",
       "properties": {
-        "task_id": { "type": "string", "description": "Task ID (t_<short>_<board8>, or the short_id from the task mail, e.g. T1)" },
-        "board": { "type": "string", "description": "Board address (e.g. xk9mp2q.a2a@mail.hermes.io)" },
-        "note": { "type": "string", "description": "Progress note (optional)" }
+        "task_id": {
+          "type": "string",
+          "description": "Task ID (t_<short>_<board8>, or the short_id from the task mail, e.g. T1)"
+        },
+        "board": {
+          "type": "string",
+          "description": "Board address (e.g. xk9mp2q.a2a@mail.hermes.io)"
+        },
+        "note": {
+          "type": "string",
+          "description": "Progress note (optional)"
+        }
       },
-      "required": ["task_id", "board"]
+      "required": [
+        "task_id",
+        "board"
+      ]
     }
   },
   {
@@ -146,10 +284,18 @@
     "parameters": {
       "type": "object",
       "properties": {
-        "board": { "type": "string", "description": "Board address (e.g. xk9mp2q.a2a@mail.hermes.io)" },
-        "email": { "type": "string", "description": "Filter by member email" }
+        "board": {
+          "type": "string",
+          "description": "Board address (e.g. xk9mp2q.a2a@mail.hermes.io)"
+        },
+        "email": {
+          "type": "string",
+          "description": "Filter by member email"
+        }
       },
-      "required": ["board"]
+      "required": [
+        "board"
+      ]
     }
   },
   {
@@ -158,24 +304,58 @@
     "parameters": {
       "type": "object",
       "properties": {
-        "board": { "type": "string", "description": "Board address (e.g. xk9mp2q.a2a@mail.hermes.io)" },
-        "role": { "type": "string", "description": "Filter by role name" }
+        "board": {
+          "type": "string",
+          "description": "Board address (e.g. xk9mp2q.a2a@mail.hermes.io)"
+        },
+        "role": {
+          "type": "string",
+          "description": "Filter by role name"
+        }
       },
-      "required": ["board"]
+      "required": [
+        "board"
+      ]
     }
   },
   {
     "name": "aimail_address",
-    "description": "Manage your own mailbox. bind: connect this mailbox to your agent so it receives mail — a fresh mailbox needs the one-time code (addr-…). pause: temporarily stop receiving mail for it. resume: resume receiving mail for it. unbind: disconnect this mailbox from your agent — it stops receiving. Self-service — no CLI needed.",
+    "description": "Manage your own mailbox. bind: connect this mailbox to your agent so it receives mail \u2014 a fresh mailbox needs the one-time code (addr-\u2026). pause: temporarily stop receiving mail for it. resume: resume receiving mail for it. unbind: disconnect this mailbox from your agent \u2014 it stops receiving. move: move the binding to another agent workspace without re-activation. Self-service \u2014 no CLI needed.",
     "parameters": {
       "type": "object",
       "properties": {
-        "action": { "type": "string", "enum": ["bind", "pause", "resume", "unbind"], "description": "The lifecycle action to perform" },
-        "code": { "type": "string", "description": "One-time activation code (addr-…) — bind only" },
-        "email": { "type": "string", "description": "The mailbox address this acts on" },
-        "gateway_url": { "type": "string", "description": "AIMail gateway URL (or set AIMAIL_GW_URL) — needed for a first-time cloud activation" }
+        "action": {
+          "type": "string",
+          "enum": [
+            "bind",
+            "pause",
+            "resume",
+            "unbind",
+            "move"
+          ],
+          "description": "The lifecycle action to perform"
+        },
+        "code": {
+          "type": "string",
+          "description": "One-time activation code (addr-\u2026) \u2014 bind only"
+        },
+        "email": {
+          "type": "string",
+          "description": "The mailbox address this acts on"
+        },
+        "gateway_url": {
+          "type": "string",
+          "description": "AIMail gateway URL (or set AIMAIL_GW_URL) \u2014 needed for a first-time cloud activation"
+        },
+        "workspace_path": {
+          "type": "string",
+          "description": "Target agent workspace for move"
+        }
       },
-      "required": ["action", "email"]
+      "required": [
+        "action",
+        "email"
+      ]
     }
   },
   {

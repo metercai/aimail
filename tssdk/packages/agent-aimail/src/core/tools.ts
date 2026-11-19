@@ -79,6 +79,7 @@ export interface AimailAddressToolArgs {
   code?: string
   email: string
   gateway_url?: string
+  workspace_path?: string
   /** Internal compatibility parameter (legacy callers) — NOT in the
    *  agent-visible schema; the adapter-injected resolver owns the pointer. */
   profile_home?: string
@@ -105,6 +106,7 @@ export async function aimailAddressTool(
     action: args.action,
     email: args.email,
     ...(args.code !== undefined ? { code: args.code } : {}),
+    ...(args.workspace_path !== undefined ? { workspacePath: args.workspace_path } : {}),
     ...(args.gateway_url ?? args.gatewayUrl ? { gatewayUrl: args.gateway_url ?? args.gatewayUrl } : {}),
     ...(args.profile_home ?? args.profileHome ? { profileHome: args.profile_home ?? args.profileHome } : {}),
   })

@@ -116,9 +116,10 @@ export function apply(ctx: Context, config: { identity?: string } = {}): void {
     }
     let description = semantic.description
     if (semantic.name === 'aimail_address') {
-      // dsh override: no unbind, no manager; binds to the CURRENT workspace.
-      parameters.action = { type: 'string', enum: ['bind', 'pause', 'resume'], description: 'bind: connect this mailbox to the current workspace; pause: stop receiving; resume: resume + drain pending', required: true } as ParameterPropertySpec
-      description = 'Manage your own mailbox in this dsh profile. bind: connect the address to the current workspace. Scenario 1 (no system, shared domain): provide the address code. Scenario 6 (after system onboarding): omit the code and use the system domain key; shared-domain systems use name.system_name@shared, dedicated/independent gateways use name@domain. pause/resume: local. No unbind: termination is decided by the gateway. No manager parameter.'
+      // dsh override: no manager; binds to the CURRENT workspace.
+      parameters.action = { type: 'string', enum: ['bind', 'pause', 'resume', 'unbind', 'move'], description: 'bind: connect this mailbox to the current workspace; pause: stop receiving; resume: resume + drain pending; unbind: disconnect locally; move: move binding to workspace_path', required: true } as ParameterPropertySpec
+      parameters.workspace_path = { type: 'string', description: 'Target workspace for move' } as ParameterPropertySpec
+      description = 'Manage your own mailbox in this dsh profile. bind: connect the address to the current workspace. Scenario 1 (no system, shared domain): provide the address code. Scenario 6 (after system onboarding): omit the code and use the system domain key; shared-domain systems use name.system_name@shared, dedicated/independent gateways use name@domain. pause/resume/unbind/move: local. No manager parameter.'
     }
     ctx.tools.register(defineTool({
       name: semantic.name,

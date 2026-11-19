@@ -956,6 +956,8 @@ export interface AimailAddressArgs {
   action: string
   code?: string
   email: string
+  /** move: target agent workspace (absolute path preferred). */
+  workspacePath?: string
   /** AIMail gateway URL (cloud-activation mode only). */
   gatewayUrl?: string
   /** Internal compatibility parameter (legacy callers); NOT part of the
@@ -1006,10 +1008,10 @@ export interface AimailAddressResult {
 export async function aimailAddress(args: AimailAddressArgs): Promise<AimailAddressResult> {
   const act = String(args.action ?? '').trim().toLowerCase()
   let addr = String(args.email ?? '').trim()
-  if (!['bind', 'pause', 'resume', 'unbind'].includes(act)) {
+  if (!['bind', 'pause', 'resume', 'unbind', 'move'].includes(act)) {
     return {
       success: false, action: act, reason: 'bad-action',
-      error: 'action must be one of bind|pause|resume|unbind',
+      error: 'action must be one of bind|pause|resume|unbind|move',
     }
   }
   if (!addr) {
@@ -1109,6 +1111,21 @@ export async function aimailAddress(args: AimailAddressArgs): Promise<AimailAddr
       success: false, action: act, reason: 'not-bound',
       error: `no active local binding for ${addr}${extra}`,
       email: addr,
+    }
+  }
+
+  if (act === 'move') {
+    const target = String(args.workspacePath ?? '').trim()
+    if (!target) {
+      return { success: false, action: 'move', reason: 'bad-args', error: 'workspace_path is required for move', email: addr }
+    }
+    const next = { ...active, workspace_id: target, workspace_path: target }
+    await saveAgentConfig(next, active.system_id)
+    return {
+      success: true, action: 'move', reason: 'moved', email: addr,
+      system_id: active.system_id, path: found.activePath,
+      workspace_id: target, workspace_path: target,
+      note: 'future mail routes to the new workspace; existing sessions are not migrated',
     }
   }
 

@@ -438,6 +438,22 @@ describe('aimailAddress — unbind', () => {
     }
   })
 
+  it('move updates the binding workspace without a gateway call', async () => {
+    const gw = await startGateway(ok)
+    try {
+      await aimailAddressTool({ action: 'bind', code: 'addr-ts', email: ADDR, gateway_url: gw.url })
+      const target = path.join(home, 'new-workspace')
+      const r = await aimailAddressTool({ action: 'move', email: ADDR, workspace_path: target })
+      expect(r.success).toBe(true)
+      expect(r.action).toBe('move')
+      const cfg = JSON.parse(await fs.readFile(bindingPath(), 'utf8')) as Record<string, string>
+      expect(cfg.workspace_path).toBe(target)
+      expect(cfg.workspace_id).toBe(target)
+    } finally {
+      await gw.close()
+    }
+  })
+
   it('a foreign email in the binding dir is refused as not-bound at the tool level (discovery filter)', async () => {
     const gw = await startGateway(ok)
     try {

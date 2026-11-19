@@ -19,7 +19,7 @@ import {
   ProvisionError,
   type SystemGatewayConfig,
 } from '../core/provision.js'
-import { loadAgentConfig, listSystemDirs, saveAgentConfig, updateAgentConfig } from '../core/index.js'
+import { aimailAddress, loadAgentConfig, listSystemDirs, saveAgentConfig, updateAgentConfig } from '../core/index.js'
 import type { AgentConfig } from '../core/index.js'
 import { currentWorkspacePath, ensureWorkspace } from './workspace.js'
 import { findExistingSystem } from './system-core.js'
@@ -30,6 +30,7 @@ interface Args {
   code?: string
   gateway_url?: string
   manager?: string
+  workspace_path?: string
 }
 
 interface HubService {
@@ -72,11 +73,25 @@ export async function runAddressTool(
   const email = String(args.email ?? '').trim().toLowerCase()
   if (!email || !email.includes('@')) return fail('bad_args', 'email is required')
   if (args.manager) return fail('bad_args', 'address binding does not accept manager')
-  if (!['bind', 'pause', 'resume'].includes(action)) {
-    return fail('bad_args', 'action must be bind|pause|resume (unbind is not supported)')
+  if (!['bind', 'pause', 'resume', 'unbind', 'move'].includes(action)) {
+    return fail('bad_args', 'action must be bind|pause|resume|unbind|move')
   }
 
   const found = await findBinding(email)
+  if (action === 'unbind') {
+    if (!found) return fail('not-bound', `no binding for ${email}`)
+    const r = await aimailAddress({ action: 'unbind', email })
+    return r as unknown as Record<string, unknown>
+  }
+  if (action === 'move') {
+    if (!found) return fail('not-bound', `no binding for ${email}`)
+    const target = String(args.workspace_path ?? '').trim()
+    if (!target) return fail('bad_args', 'workspace_path is required for move')
+    await updateAgentConfig(found.sid, email, { workspace_id: target, workspace_path: target })
+    const hub = ctx.get('mailHub') as HubService | undefined
+    void hub?.reconcile?.()
+    return { success: true, scope: 'address', email, system_id: found.sid, workspace: workspaceRef(target, target), mode: 'move' }
+  }
   if (action === 'pause' || action === 'resume') {
     if (!found) return fail('not-bound', `no binding for ${email}`)
     const paused = action === 'pause'
