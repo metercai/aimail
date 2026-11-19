@@ -19,6 +19,8 @@ export interface SystemPullMail {
 
 export interface SystemPullOptions {
   systemId: string
+  /** Aggregate by local AgentSystemId instead of one system/address. */
+  agentSystemId?: string
   gatewayUrl: string
   apiKey: string
   onEmail: (mail: SystemPullMail) => void | Promise<void>
@@ -35,7 +37,14 @@ export interface SystemPullHandle {
 
 export async function startSystemPull(opts: SystemPullOptions): Promise<SystemPullHandle> {
   const client = opts.client
-    ?? new GatewayClient(opts.gatewayUrl, opts.apiKey, PULL_HTTP_TIMEOUT_MS, opts.systemId)
+    ?? (opts.agentSystemId
+      ? new GatewayClient(opts.gatewayUrl, opts.apiKey, PULL_HTTP_TIMEOUT_MS, opts.systemId, {
+          streamPath: '/api/v1/agent-system/pending/stream',
+          pendingPath: '/api/v1/agent-system/pending',
+          ackPath: '/api/v1/agent-system/pending/ack',
+          extraHeaders: { 'X-Agent-System-Id': opts.agentSystemId },
+        })
+      : new GatewayClient(opts.gatewayUrl, opts.apiKey, PULL_HTTP_TIMEOUT_MS, opts.systemId))
   const controller = new AbortController()
   const signal = opts.signal
   const onAbort = () => controller.abort()

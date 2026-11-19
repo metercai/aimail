@@ -98,18 +98,36 @@ function withReadTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   })
 }
 
+export interface GatewayClientOptions {
+  /** SSE endpoint override (AgentSystemId aggregation). */
+  streamPath?: string
+  /** Pending/ack endpoint overrides (AgentSystemId aggregation). */
+  pendingPath?: string
+  ackPath?: string
+  /** Extra signed headers (e.g. X-Agent-System-Id). */
+  extraHeaders?: Record<string, string>
+}
+
 export class GatewayClient {
   readonly baseUrl: string
   readonly apiKey: string
   readonly timeoutMs: number
   /** v1 identity: key's email (address-scoped) or its system_id (system keys). */
   readonly identity: string
+  readonly streamPath: string
+  readonly pendingPath: string
+  readonly ackPath: string
+  readonly extraHeaders: Record<string, string>
 
-  constructor(gatewayUrl: string, apiKey: string, timeoutMs = 30_000, identity = '') {
+  constructor(gatewayUrl: string, apiKey: string, timeoutMs = 30_000, identity = '', opts: GatewayClientOptions = {}) {
     this.baseUrl = gatewayUrl.replace(/\/+$/, '')
     this.apiKey = apiKey
     this.timeoutMs = timeoutMs
     this.identity = identity
+    this.streamPath = opts.streamPath ?? PULL_STREAM_PATH
+    this.pendingPath = opts.pendingPath ?? '/api/v1/admin/pending'
+    this.ackPath = opts.ackPath ?? '/api/v1/admin/pending/ack'
+    this.extraHeaders = opts.extraHeaders ?? {}
   }
 
   /** v1 signature headers for a request (empty when no key). */
@@ -149,6 +167,7 @@ export class GatewayClient {
 
     // v1 API signature (raw key stays offline).
     Object.assign(reqHeaders, this.signedHeaders(method, path, data))
+    Object.assign(reqHeaders, this.extraHeaders)
     if (headers) Object.assign(reqHeaders, headers)
 
     try {
@@ -184,7 +203,7 @@ export class GatewayClient {
    * ⇒ false ⇒ the state machine falls to long-pull.
    */
   async streamProbe(): Promise<boolean> {
-    const path = PULL_STREAM_PATH
+    const path = this.streamPath
     try {
       const resp = await fetch(`${this.baseUrl}${path}`, {
         method: 'GET',
@@ -192,6 +211,7 @@ export class GatewayClient {
           Accept: 'text/event-stream',
           [CLIENT_ID_HEADER]: CLIENT_ID,
           ...this.signedHeaders('GET', path, new Uint8Array(0)),
+          ...this.extraHeaders,
         },
         signal: AbortSignal.timeout(30_000),
       })
@@ -223,7 +243,7 @@ export class GatewayClient {
     signal?: AbortSignal,
     pingTimeoutMs?: number,
   ): Promise<StreamRoundResult> {
-    const path = PULL_STREAM_PATH
+    const path = this.streamPath
     let resp: Response
     try {
       resp = await fetch(`${this.baseUrl}${path}`, {
@@ -232,6 +252,7 @@ export class GatewayClient {
           Accept: 'text/event-stream',
           [CLIENT_ID_HEADER]: CLIENT_ID,
           ...this.signedHeaders('GET', path, new Uint8Array(0)),
+          ...this.extraHeaders,
         },
       })
     } catch {

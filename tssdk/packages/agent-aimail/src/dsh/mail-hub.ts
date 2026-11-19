@@ -29,7 +29,7 @@ import {
   type InboundPayload,
 } from '../core/index.js'
 import { stampSessionMeta } from '../core/meta.js'
-import { planStreams } from '../runtime/stream/plan.js'
+import { getAgentSystemId } from '../core/agent-system-id.js'
 import { routeThread } from '../runtime/session-router.js'
 import { readSystemGatewayConfig } from '../core/provision.js'
 import { statusPath } from './workspace.js'
@@ -143,19 +143,24 @@ export class MailHub {
       if (cfg?.admin_key) systems.push({ sid, cfg })
       bindings.push(...(await this.listBindings(sid)))
     }
-    // Shared-gateway planning is host-neutral: one stream per credential
-    // scope, per-address fallback only when no system key covers the set.
-    const plans = planStreams(
-      systems.map(({ sid, cfg }) => ({ systemId: sid, gatewayUrl: cfg!.gateway_url, apiKey: cfg!.admin_key })),
-      bindings.map((b) => ({ email: b.email, gatewayUrl: b.gateway_url, apiKey: b.api_key, paused: b.paused === true, system_id: b.system_id })),
-    )
-    console.error(`[agent-aimail] SSE reconcile: ${plans.length} stream(s) from ${systems.length} system(s), ${bindings.length} binding(s)`)
-    for (const plan of plans) {
+    // V2: one stream per (AgentSystemId, Gateway), not per system/address.
+    // The first active binding on each gateway supplies the address-scoped
+    // credential; the aggregate endpoint authorizes all addresses owned by
+    // this AgentSystemId.
+    const agentSystemId = await getAgentSystemId()
+    const byGateway = new Map<string, AgentConfig>()
+    for (const b of bindings) {
+      if (b.paused === true || !b.api_key) continue
+      if (!byGateway.has(b.gateway_url)) byGateway.set(b.gateway_url, b)
+    }
+    console.error(`[agent-aimail] SSE reconcile: ${byGateway.size} gateway stream(s) from ${bindings.length} binding(s)`)
+    for (const [gatewayUrl, b] of byGateway) {
       this.handles.push(this.startStream({
-        email: plan.scope === 'system' ? `system:${plan.identity}` : plan.identity,
-        gatewayUrl: plan.gatewayUrl,
-        apiKey: plan.apiKey,
-        identity: plan.identity,
+        email: b.email,
+        gatewayUrl,
+        apiKey: b.api_key,
+        identity: b.email,
+        agentSystemId,
       }))
     }
     await this.writeStatus()
@@ -202,11 +207,16 @@ export class MailHub {
     return undefined
   }
 
-  private startStream(opts: { email: string; gatewayUrl: string; apiKey: string; identity: string }): StreamHandle {
+  private startStream(opts: { email: string; gatewayUrl: string; apiKey: string; identity: string; agentSystemId?: string }): StreamHandle {
     const ctrl = new AbortController()
     const onAbort = (): void => ctrl.abort()
     this.ctrl.signal.addEventListener('abort', onAbort, { once: true })
-    const client = new GatewayClient(opts.gatewayUrl, opts.apiKey, 30_000, opts.identity)
+    const client = new GatewayClient(opts.gatewayUrl, opts.apiKey, 30_000, opts.identity, opts.agentSystemId ? {
+      streamPath: '/api/v1/agent-system/pending/stream',
+      pendingPath: '/api/v1/agent-system/pending',
+      ackPath: '/api/v1/agent-system/pending/ack',
+      extraHeaders: { 'X-Agent-System-Id': opts.agentSystemId },
+    } : {})
     const run = async (): Promise<void> => {
       let streak = 0
       while (!ctrl.signal.aborted && !this.ctrl.signal.aborted) {

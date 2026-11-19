@@ -224,3 +224,5 @@ export { startAgentPullEntry, type StartAgentPullEntryOptions } from './poll-ent
 export { packageResourcesRoot } from './resources-root.js'
 export { startSystemPull } from './system-pull.js'
 export type { SystemPullMail, SystemPullOptions, SystemPullHandle } from './system-pull.js'
+
+export { getAgentSystemId, deriveAgentSystemId, resetAgentSystemIdForTests } from './agent-system-id.js'
