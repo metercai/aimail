@@ -553,3 +553,32 @@ sample: {"name":"send_mail","label":"send_mail","description":"…","parameters"
 
 **请 dev 给出**：2026.11.5 上 `registerTool` 的准确调用契约（工厂返回单对象？直接传对象？是否需要 `{name, description, inputSchema, handler}` 字段名？），
 按该契约修改后，`tools[].names` 应出现 16 个名字。验证方已把两次实验的可复现步骤写在上文，可直接照做。
+
+#### G9 解决方案已实测验证（2026-11-19，验证方；一行级产品改动）
+
+宿主源码（`/app/dist/registry-CMeTSFMr.mjs`）里 `registerTool` 的实现：
+```js
+registerTool = (r, i, o) => {
+  …
+  const u = [...o?.names ?? [], ...o?.name ? [o.name] : []];   // ← 工具名来自第三个参数
+  const d = o?.optional === true;
+  …
+}
+```
+⇒ 注册项的工具名**不是**从工厂返回值里取的，而是从第三个参数 `{ names } / { name }` 取；
+本插件（`dist/openclaw/index.js:124`）只传了工厂、没传元数据 ⇒ 注册项 `names: []`。
+
+**修法（一行）**：
+```js
+api.registerTool((ctx) => createMailTools(ctx, resolveAgentWorkspaceDir), { names: MAIL_TOOL_NAMES })
+```
+（或逐工具注册：`api.registerTool(() => t, { name: t.name })`）
+
+**验证（未改仓库，仅 /tmp 复制 dist 做实验）**：
+```
+openclaw plugins inspect agent-aimail --runtime --json
+→ tools: [{ names: ["send_mail","manage_contacts",…,"aimail_address","aimail_system"], optional:false }]
+```
+16 个名字全部出现，与 manifest `contracts.tools` 一致。
+
+后续链路（会话 tools[] → 宿主内 prompt → polling started → 邮件 → turn）验证方用同一份实验包继续跑，结果另行追加。
