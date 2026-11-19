@@ -209,12 +209,12 @@ describe('address binding', () => {
     expect(binding?.workspace_path).toBe(await fs.realpath(path.join(dsh, 'proj')))
   })
 
-  test('B2 without a system and a non-shared code is rejected before activation', async () => {
+  test('B2 without a system accepts any address code (V2 address-only)', async () => {
     const ctx = fakeCtx() as never
     const r = await runAddressTool(ctx, { agent: { id: 'sess-1' } }, { action: 'bind', email: 'user1@a.com', code: 'addr-code', gateway_url: gateway })
-    expect(r.success).toBe(false)
-    expect(r.error_code).toBe('needs_system')
-    expect(calls.some((c) => c.url === '/api/v1/activate-address-code')).toBe(false)
+    expect(r.success).toBe(true)
+    expect(r.mode).toBe('code')
+    expect(calls.some((c) => c.url === '/api/v1/activate-address-code')).toBe(true)
   })
 
   test('system onboarded + shared code is rejected before activation', async () => {

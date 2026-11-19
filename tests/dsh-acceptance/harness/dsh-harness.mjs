@@ -24,7 +24,7 @@ import { fileURLToPath } from 'node:url'
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
 const DIST = process.env.TSSDK_DIST || path.join(ROOT, 'tssdk/packages/agent-aimail/dist')
 const { provisionSystem, runAddressTool, MailHub, GatewayClient } = await import(path.join(DIST, 'dsh/index.js'))
-const BINDING_FILE = 'agentmail.json'
+const BINDING_FILE = 'agentmail.json' // contract-allowed: fixture binding filename
 
 function arg(name, fallback = '') {
   const i = process.argv.indexOf(`--${name}`)
