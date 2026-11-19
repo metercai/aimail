@@ -64,11 +64,15 @@ if [ "$HOST" = "dsh" ]; then
   if ! node "$H" address --gateway "http://127.0.0.1:$HTTP_PORT" --email alice@test.local --code "$ADDR_CODE" --workspace "$WORK/workspace" --home "$WORK/home" > "$WORK/dsh-address.json" 2> "$WORK/dsh-address.err"; then
     echo "dsh address failed"; cat "$WORK/dsh-address.json" "$WORK/dsh-address.err"; exit 1
   fi
+  if ! node "$H" address --gateway "http://127.0.0.1:$HTTP_PORT" --email bob@test.local --code "$ADDR_CODE2" --workspace "$WORK/workspace" --home "$WORK/home" > "$WORK/dsh-address2.json" 2> "$WORK/dsh-address2.err"; then
+    echo "dsh second address failed"; cat "$WORK/dsh-address2.json" "$WORK/dsh-address2.err"; exit 1
+  fi
   node "$H" hub --gateway "http://127.0.0.1:$HTTP_PORT" --email alice@test.local --timeout 30 --home "$WORK/home" > "$WORK/dsh-hub.json" &
   HP=$!; sleep 2
   node "$H" welcome --gateway "http://127.0.0.1:$HTTP_PORT" --email alice@test.local --home "$WORK/home" > "$WORK/dsh-welcome.json"
+  node "$H" welcome --gateway "http://127.0.0.1:$HTTP_PORT" --email bob@test.local --home "$WORK/home" > "$WORK/dsh-welcome2.json"
   wait "$HP"
-  python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));assert d["status"]["mode"]=="sse";assert d["followups"];print(json.dumps(d))' "$WORK/dsh-hub.json"
+  python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));assert d["status"]["mode"]=="sse";assert len(d["followups"])>=2;print(json.dumps(d))' "$WORK/dsh-hub.json"
 else
   EXTRA=""
   if [ "$HOST" = "openclaw" ]; then
