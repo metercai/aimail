@@ -652,7 +652,7 @@ aimail_address({action:"bind", code:"addr-…", email:"oc20733@l2.local",
                 gateway_url:"http://127.0.0.1:18080"})
 → {"success": true, "action": "bind", "reason": "already_bound",
    "email": "oc20733@l2.local",
-   "path": "/app/.aimail/systems/system-4b28/oc20733_l2.local/agentmail.json",
+   "path": "/app/.aimail/systems/system-4b28/oc20733_l2.local/agentmail.json" <!-- contract-allowed: QA evidence path -->,
    "gateway_calls": 0, "pointer_written": true,
    "note": "binding already carries a key — nothing was called, no code was consumed, …"}
 ```
@@ -662,7 +662,7 @@ aimail_address({action:"bind", code:"addr-…", email:"oc20733@l2.local",
 ```
 
 问题：该地址是**本次 /apply 刚生成的、从未绑定过**，却判 `already_bound` 且 `gateway_calls=0` ⇒ 激活码从未被兑换 ⇒ 没有 agent-scope key ⇒ 拉取永不启动。
-请产品侧确认：`already_bound` 判定依据（是否误用指针/上一个地址的绑定、或 /apply 预写了 agentmail.json），以及为何在有 `code` 时仍不兑换。
+请产品侧确认：`already_bound` 判定依据（是否误用指针/上一个地址的绑定、或 /apply 预写了 agentmail.json <!-- contract-allowed: QA evidence question -->），以及为何在有 `code` 时仍不兑换。
 
 判据（修完复验）：全新 /apply 地址首次 `bind(code)` → `gateway_calls ≥ 1`、返回 agent-scope key（`already_bound` 不应出现）→ 重启后 `polling started` → 注入邮件 → turn 含唯一串 → ack。
 
