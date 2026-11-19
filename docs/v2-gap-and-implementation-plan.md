@@ -543,6 +543,29 @@ L0: PASS
 - tssdk 切换到聚合接口；
 - A/B 隔离与多 Gateway L2。
 
+### 批次 C/D — 聚合消费起步
+
+- `GatewayClient` 支持自定义 SSE/pending/ack path 和额外签名头；
+- `startSystemPull` 支持 `agentSystemId`，自动使用：
+  - `/api/v1/agent-system/pending/stream`
+  - `/api/v1/agent-system/pending`
+  - `/api/v1/agent-system/pending/ack`
+- DSH hub 改为每个 Gateway 一条 AgentSystemId 流。
+
+证据：
+
+```text
+aimail 849c3c9 feat(agent-system): wire aggregate transport into tssdk
+vitest core+dsh: 401 passed | 1 skipped
+L0: PASS
+```
+
+已知问题：
+
+- 聚合 L2 仍未通过：本地 aggregate SSE 未收到欢迎邮件；
+- 为保持基线，host L2 harness 暂回退到单地址流；
+- 需先定位 aggregate SSE 的 ownership/认证/查询问题。
+
 ### 已知环境问题
 
 - advanced `cargo test` 在本机有 9 个 machine_code 测试失败，
