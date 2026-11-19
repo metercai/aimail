@@ -92,8 +92,10 @@ console.log(JSON.stringify({ step: 'stream-plan', ok: true, plan: plans[0] }))
 if (delivery) {
   const { startSystemPull, startAgentPullEntries, GatewayClient } = await import(path.join(dist, 'core/index.js'))
   const seen = []
+  const agentSystemId = await core.getAgentSystemId()
   const handles = [await startSystemPull({
         systemId: email,
+        agentSystemId,
         gatewayUrl: cfg.gateway_url,
         apiKey: cfg.api_key,
         onEmail: async (mail) => {
