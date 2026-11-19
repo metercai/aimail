@@ -560,11 +560,18 @@ vitest core+dsh: 401 passed | 1 skipped
 L0: PASS
 ```
 
-已知问题：
+已验证：
 
-- 聚合 L2 仍未通过：本地 aggregate SSE 未收到欢迎邮件；
-- 为保持基线，host L2 harness 暂回退到单地址流；
-- 需先定位 aggregate SSE 的 ownership/认证/查询问题。
+- 兼容激活路由写入归属（`94f81ce`）；
+- Pi 聚合 SSE L2：PASS；
+- OpenClaw 聚合 SSE L2：PASS；
+- A/B pending/ack 隔离测试：PASS（`614c420`）。
+
+仍待：
+
+- DSH 聚合 L2（当前 L2 脚本未支持 dsh）；
+- 多 Gateway 聚合 L2；
+- 多地址同一 AgentSystemId 的聚合 L2（当前每宿主单地址）。
 
 ### 已知环境问题
 
