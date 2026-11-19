@@ -565,8 +565,8 @@ MUST 具备：
 ## Appendix A — 真实地址激活邮件与 prompt
 
 以下文本来自 Gateway 当前的地址激活邮件模板
-（`aimail-gateway/src/core/api/activation.rs` 的 address application email）；
-花括号变量由 Gateway 在发送时替换，不是示例占位符之外的另一套格式。
+（`aimail-gateway/src/core/api/activation.rs` 的 address application email）。
+花括号变量由 Gateway 发送时替换。
 
 邮件标题：
 
@@ -585,9 +585,16 @@ An AIMail mailbox is ready for your agent:
 
 Please activate it within 24 hours.
 
-Copy the message below into your agent's conversation and let the agent bind the address:
+If your agent does not have aimail_address, install or enable the AIMail plugin through your host's normal plugin/extension mechanism (not the aimail install CLI).
 
-Activate my AIMail mailbox {address} using the activation code {code}. My safety officer (manager) is {manager}. AIMail gateway is at {gateway_url}. Follow the address activation SKILL at https://raw.githubusercontent.com/metercai/aimail/main/resources/skills/activation/SKILL.md
+Copy the message below into your agent's conversation:
+
+[AIMAIL-ACTIVATE]
+My AIMail mailbox: {address}
+Activation code: {code}
+Safety officer: {manager}
+Gateway: {gateway_url}
+Use the AIMail address-activation skill; do not use system onboarding.
 
 This code is sent only once - please keep this email.
 Please do not reply to this email - it is sent automatically.
@@ -596,73 +603,80 @@ Best regards,
 AIMail Team
 ```
 
-用户复制的是正文中 `Activate my AIMail mailbox ...` 这一段。Agent 从中提取：
+用户复制的是从 `[AIMAIL-ACTIVATE]` 开始的整块内容。
+
+流程：
+
+1. 用户看到 prompt 中的安装提示；
+2. 如果 `aimail_address` 不存在，先按宿主自己的插件/扩展机制安装或启用
+   AIMail toolset（不使用 `aimail install` CLI）；
+3. 确认 `aimail_address` 可用；
+4. `[AIMAIL-ACTIVATE]` 触发地址激活 SKILL；
+5. SKILL 从 prompt 提取 `address/code/gateway_url`，调用
+   `aimail_address(bind)`；
+6. 绑定成功后，SKILL 调用 `role_calibrator` 并完成身份校准。
+
+SKILL 不得依赖 prompt 中的 URL 来加载；专属触发短语是：
 
 ```text
-email       = {address}
-code        = {code}
-gateway_url = {gateway_url}
+AIMAIL-ACTIVATE
 ```
-
-然后 MUST 调用：
-
-```ts
-aimail_address({
-  action: 'bind',
-  email: '{address}',
-  code: '{code}',
-  gateway_url: '{gateway_url}',
-})
-```
-
-注意：
-
-- 邮件中的 `manager` 是 Gateway 申请时确定的安全员信息，只用于说明；
-  `aimail_address` MUST NOT 接受 `manager` 参数；
-- 本地不执行系统对接；
-- 不需要 `system_code`；
-- 不需要 raw key。
 
 ## Appendix B — SKILL 索引
 
-地址激活绑定、邮件收发、board 协作是三个独立 SKILL。它们共享同一个
-`agentmail` toolset，但触发条件和职责不同。 <!-- contract-allowed: toolset name -->
+三个独立 SKILL，共享同一个 `agentmail` toolset，但触发条件和职责不同。 <!-- contract-allowed: toolset dependency name -->
 
-| SKILL | 文件 | 职责 |
-|---|---|---|
-| 地址激活绑定 | [`resources/skills/activation/SKILL.md`](../resources/skills/activation/SKILL.md) | 从 activation prompt 调 `aimail_address`，完成绑定；不处理日常邮件 |
-| 邮件收发 | [`resources/skills/SKILL.md`](../resources/skills/SKILL.md) | 收发、回复、联系人、摘要、搜索等邮件会话 |
-| board 协作（planned） | `resources/skills/board/SKILL.md` | Board/A2A 任务与角色协作；尚未随本契约发布 |
+| SKILL | 文件 | 触发 | 职责 |
+|---|---|---|---|
+| 地址激活/生命周期 | [`resources/skills/activation/SKILL.md`](../resources/skills/activation/SKILL.md) | `AIMAIL-ACTIVATE` | bind、identity calibration、pause/resume/unbind/move |
+| 邮件收发 | [`resources/skills/SKILL.md`](../resources/skills/SKILL.md) | 邮件/收发意图 | 收发、回复、联系人、摘要、搜索 |
+| board 协作（planned） | `resources/skills/board/SKILL.md` | board/A2A 意图 | Board 任务与角色协作 |
 
 包内副本：
 
 - `tssdk/packages/agent-aimail/resources/skills/activation/SKILL.md`
 - `tssdk/packages/agent-aimail/resources/skills/SKILL.md`
 
-### B.1 地址激活流程
+### B.1 完整地址激活流程
 
 ```text
 用户粘贴 activation prompt
-  → 读取 email/code/gateway_url
-  → 调 aimail_address(bind)
-      ├─ success → 绑定完成，等待 welcome（SSE）
-      ├─ already_bound → 视为成功
-      ├─ tool unavailable → 请用户启用 toolset，不循环安装
-      └─ business failure → 4xx 不重试；5xx/超时最多重试一次
+  → 如果 aimail_address 不存在：按宿主机制安装/启用插件（一次）
+  → 确认 aimail_address 可用
+  → 加载 AIMAIL-ACTIVATE SKILL
+  → 解析 address/code/gateway_url
+  → aimail_address(action="bind")
+      ├─ success → role_calibrator
+      ├─ already_bound → role_calibrator
+      ├─ tool unavailable → 安装/启用一次后重试一次
+      └─ business failure → 4xx 不重试；5xx/超时重试一次
+  → welcome mail（SSE）
+  → 按 welcome 指示回复
+  → 等待 [AIMail] Persona applied
+  → 激活完成
 ```
 
-### B.2 边界
+### B.2 SKILL 生命周期
 
-地址激活 SKILL：
+地址激活 SKILL 负责：
 
-- 只调用 `aimail_address`；
-- 不需要 `system_code`；
-- 不接受 manager/raw key；
-- 不写 binding 文件；
-- 不调用 CLI/外部安装器；
-- 不冒充邮件处理或 board SKILL。
+- `bind`：地址激活绑定；
+- identity calibration：`role_calibrator` → welcome reply → persona applied；
+- `pause` / `resume`；
+- `unbind`：本地归档、停止聚合、按条件清 pointer；
+- `move`：同 AgentSystemId 换 workspace；
+- 错误分类与重试边界。
 
-邮件 SKILL 负责绑定成功后的收发；board SKILL 负责 board 任务，不参与激活。
+它不负责日常邮件内容，也不负责 board 任务。
+
+### B.3 禁止
+
+- 用 URL 直接加载 SKILL；
+- 用 CLI/外部安装器完成地址激活；
+- 写 binding 文件；
+- 传 manager/raw key/system_code；
+- 循环安装/激活；
+- 未收到 `[AIMail] Persona applied` 就声称校准完成。
 
 ## Appendix C — 用户可见概念
 
@@ -673,7 +687,9 @@ aimail_address({
 
 ## Appendix D — 实现备注
 
-- Gateway 地址激活邮件已指向 `resources/skills/activation/SKILL.md`。
-- activation SKILL 已随 package resources 提供；宿主安装器需要把它安装为
-  独立 skill（不能覆盖邮件处理 SKILL）。
-- board SKILL 尚未发布，文件路径保留为 planned。
+- 地址激活邮件已改为触发短语 `AIMAIL-ACTIVATE`，不再用 URL 加载 SKILL；
+- activation SKILL 已提供；宿主安装器必须把它安装为独立 skill，不能覆盖
+  邮件处理 SKILL；
+- board SKILL 尚未发布，路径保留 planned；
+- 旧 `docs/agent-self-setup.md` 不再作为 V2 激活入口；其安装内容已进入
+  激活 prompt，工具参数与 identity calibration 已进入 activation SKILL。
