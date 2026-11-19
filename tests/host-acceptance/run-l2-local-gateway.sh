@@ -54,9 +54,6 @@ curl -fsS "http://127.0.0.1:$HTTP_PORT/health" >/dev/null
 ADMIN="$(cat "$WORK/storage/aimail.db.admin_key")"
 SID="$(cat "$WORK/storage/system.id")"
 node "$ROOT/tests/dsh-acceptance/harness/admin.mjs" --gateway "http://127.0.0.1:$HTTP_PORT"   --key "$ADMIN" --identity "$SID" --system "$SID" --domain test.local
-CLAIM=$(python3 "$HERE/fixture/claim_local.py" --gateway "http://127.0.0.1:$HTTP_PORT" --spool "$SPOOL" --email "qa-$HOST@example.com" --name "QA $HOST" --domain test.local)
-SYS_CODE=$(printf '%s' "$CLAIM" | python3 -c 'import json,sys;print(json.load(sys.stdin)["activation_code"])')
-echo "local fixture system code: $SYS_CODE"
 ACLAIM=$(python3 "$HERE/fixture/claim_local.py" --gateway "http://127.0.0.1:$HTTP_PORT" --spool "$SPOOL" --email "qa-$HOST-addr@example.com" --name "QA $HOST" --domain test.local --kind address --agentname alice)
 ADDR_CODE=$(printf '%s' "$ACLAIM" | python3 -c 'import json,sys;print(json.load(sys.stdin)["activation_code"])')
 echo "local fixture address code: $ADDR_CODE"
@@ -72,7 +69,7 @@ if [ "$HOST" = "dsh" ]; then
   python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));assert d["status"]["mode"]=="sse";assert d["followups"];print(json.dumps(d))' "$WORK/dsh-hub.json"
 else
   DELIVERY=1 node "$HERE/harness.mjs" "$HOST" \
-    --gateway "http://127.0.0.1:$HTTP_PORT" --system-code "$SYS_CODE" \
+    --gateway "http://127.0.0.1:$HTTP_PORT" \
     --email alice@test.local --workspace "$WORK/workspace" --home "$WORK/home" \
     --domain test.local --address-code "$ADDR_CODE" --delivery
 fi

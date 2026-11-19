@@ -23,7 +23,7 @@ CANON = REPO / "resources"
 TARGETS = {
     "agent-aimail": REPO / "tssdk" / "packages" / "agent-aimail" / "resources",
 }
-EXPECTED_FILE_COUNT = 8  # 6 board role prompts(role_prompt/) + 2 skills
+EXPECTED_FILE_COUNT = 9  # 6 board role prompts + mail skill (2) + activation skill
 
 
 def _fingerprint(d: Path) -> dict:
@@ -51,6 +51,7 @@ def test_canonical_source_exists_and_is_complete():
         assert (CANON / "board" / sub).is_dir(), f"True source missing board/{sub}/"
     for f in ("SKILL.md", "DESCRIPTION.md"):
         assert (CANON / "skills" / f).is_file(), f"True source missing skills/{f}"
+    assert (CANON / "skills" / "activation" / "SKILL.md").is_file(), "True source missing activation SKILL.md"
 
 
 def test_generated_copies_are_not_tracked_by_git():
