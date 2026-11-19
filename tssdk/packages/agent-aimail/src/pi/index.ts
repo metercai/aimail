@@ -23,8 +23,9 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
-import { notifyInboundForSystem, formatInboundNotifyLine, isInboundNotifyWarning, listenWithRetry, processInboundMail, releaseAllSystems, routeAddressFromHeaders, startAgentPullEntries, startSystemPull, onBindingCreated, setProfileDirResolver, setSoulProvider, setSkillsProvider, setToolsetProvider, listSkillNames, verifySignature, INBOUND_PATH, INBOUND_PORT, type AgentConfig, type AgentPullHandle, type AgentPullOverrides, type InboundPayload, packageResourcesRoot } from '../core/index.js'
+import { notifyInboundForSystem, formatInboundNotifyLine, isInboundNotifyWarning, listenWithRetry, processInboundMail, releaseAllSystems, routeAddressFromHeaders, loadAgentConfig, startAgentPullEntries, startSystemPull, onBindingCreated, setProfileDirResolver, setSoulProvider, setSkillsProvider, setToolsetProvider, listSkillNames, verifySignature, INBOUND_PATH, INBOUND_PORT, type AgentConfig, type AgentPullHandle, type AgentPullOverrides, type InboundPayload, packageResourcesRoot } from '../core/index.js'
 import { resolveByRecipient } from '../mail/index.js'
+import { getAgentSystemId } from '../core/agent-system-id.js'
 import { readSystemGatewayConfig } from '../core/provision.js'
 import { agentIdentity, initIdentity, readPointer, setInboundEndpoint, tryAutoBindOnce } from './identity.js'
 import { buildPiTools } from './tools.js'
@@ -172,6 +173,34 @@ export async function startInboundPull(
     })
     return [{
       email: `system:${sid}`, started: true, reason: 'enabled', intervalMs: 0, limit: 0,
+      stop: h.stop, done: h.done as Promise<import('../core/index.js').PollStats>, stats: () => ({ pulled: 0, acked: 0, errors: 0 }),
+    }]
+  }
+  // B2 (no system): one AgentSystemId aggregate stream for the pointer's
+  // address. Pi is single-address, so this is exactly one stream, not fanout.
+  const ptrCfg = ptr.system_id && ptr.email
+    ? await loadAgentConfig(ptr.system_id, ptr.email).catch(() => undefined)
+    : undefined
+  if (ptrCfg?.api_key) {
+    const h = await startSystemPull({
+      systemId: ptrCfg.email,
+      agentSystemId: await getAgentSystemId(),
+      gatewayUrl: ptrCfg.gateway_url,
+      apiKey: ptrCfg.api_key,
+      ...(opts.log ? { log: opts.log.info } : {}),
+      onEmail: async (mail) => {
+        if (typeof mail.body !== 'object' || mail.body === null) {
+          throw new Error(`pulled delivery ${mail.id} for ${mail.email} carries no JSON payload — not acking`)
+        }
+        const headers: Record<string, unknown> = { ...(mail.headers ?? {}), 'x-aimail-email': mail.email }
+        const target = await resolvePiTarget(mail.body as InboundPayload, headers)
+        if (!target) throw new Error(`pulled delivery ${mail.id}: no binding for ${mail.email} — not acking`)
+        const out = await deliverPiInbound(pi, target, mail.body as InboundPayload, headers)
+        if (!out.ok) throw new Error(`pulled delivery ${mail.id}: inbound chain did not deliver (${out.status}) — not acking`)
+      },
+    })
+    return [{
+      email: `agent:${ptrCfg.email}`, started: true, reason: 'enabled', intervalMs: 0, limit: 0,
       stop: h.stop, done: h.done as Promise<import('../core/index.js').PollStats>, stats: () => ({ pulled: 0, acked: 0, errors: 0 }),
     }]
   }
