@@ -362,9 +362,9 @@ def test_mcp_registry_advertises_aimail_address(hermes_home):
     pointer is owned by the executing profile, auto-resolved)."""
     tool = next(t for t in mcp.TOOLS if t["name"] == "aimail_address")
     props = tool["inputSchema"]["properties"]
-    assert set(props) == {"action", "code", "email", "gateway_url"}, sorted(props)
+    assert set(props) == {"action", "code", "email", "gateway_url", "workspace_path"}, sorted(props)
     assert "profile" not in " ".join(props) and "profile_home" not in props
-    assert props["action"]["enum"] == ["bind", "pause", "resume", "unbind"]
+    assert props["action"]["enum"] == ["bind", "pause", "resume", "unbind", "move"]
     assert tool["inputSchema"]["required"] == ["action", "email"]
     # The legacy alias handler still exists (call-surface compatibility)
     # but is NOT advertised as a tool.

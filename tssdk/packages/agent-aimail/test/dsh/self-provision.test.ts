@@ -240,7 +240,7 @@ describe('address binding', () => {
     const ctx = fakeCtx() as never
     const unbind = await runAddressTool(ctx, { agent: { id: 'sess-1' } }, { action: 'unbind', email: 'user1@a.com' })
     expect(unbind.success).toBe(false)
-    expect(unbind.error_code).toBe('bad_args')
+    expect(unbind.error_code).toBe('not-bound')
     const manager = await runAddressTool(ctx, { agent: { id: 'sess-1' } }, { action: 'bind', email: 'user1@a.com', manager: 'x@y' })
     expect(manager.success).toBe(false)
     expect(manager.error_code).toBe('bad_args')
