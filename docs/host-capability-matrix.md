@@ -67,6 +67,11 @@ true and the key matches an allowed prefix. Otherwise it omits `sessionKey` and
 OpenClaw creates a fresh hook session (no contract break; no session targeting).
 
 
+## Contract version
+
+Current target: [`aimail-host-sse-contract-v2.md`](aimail-host-sse-contract-v2.md)
+(AgentSystemId aggregation, B1/B2, single vs multi-address).
+
 ## Toolset naming
 
 The host-facing toolset is one logical name: `agentmail` <!-- contract-allowed: toolset name -->

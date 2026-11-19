@@ -1,3 +1,5 @@
+> **Superseded by [AIMail Host SSE Activation Contract v2](aimail-host-sse-contract-v2.md).**
+
 # AIMail Host SSE Activation Contract v1
 
 > Status: normative profile for Agent hosts that use **SSE pull only**.
