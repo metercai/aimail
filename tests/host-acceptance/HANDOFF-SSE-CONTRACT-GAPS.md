@@ -372,3 +372,28 @@ apply_patch dispatch_action edit exec github_publish ls message openclaw process
 manifest 声明：`activation.onCapabilities:["tool"]`、`contracts.tools`（14 个）。
 
 判据：`plugins inspect --runtime` 的 `tools[].names` 非空；会话 `tools[]` 出现 `aimail_address`/`aimail_system`；随后 prompt 驱动 agent 调 `aimail_address` 完成绑定并 arm pull。
+
+#### G9 关键证据（2026-11-19，宿主自检）
+
+`openclaw plugins inspect agent-aimail --runtime --json` 的关键字段：
+
+```
+shape            = "non-capability"
+capabilityMode   = "none"
+capabilityCount  = 0
+capabilities     = []
+typedHooks       = []
+customHooks      = []
+commands         = []
+tools            = [ { names: [], optional: false } ]
+plugin.compat    = ["activation-capability-hint"]
+plugin.version   = 0.4.1
+```
+
+即宿主把这个插件按**非能力型（non-capability）**加载，`api.registerTool(...)` 根本没有被执行——
+所以 `tools[].names` 为空、`hooks` 也为空（与"hooks 已接线"的早期观察不矛盾：那条是 `plugins enable` 写的配置，不是插件运行期注册）。
+
+manifest 侧声明的是 `activation.onCapabilities: ["tool"]`，而宿主 compat 只回报 `activation-capability-hint`。
+需要开发确认：0.4.x 的 openclaw 插件是否需要显式声明能力体（如 `capabilities.tool` / `openclaw.compat.pluginApi` 版本段），
+否则会被当作 legacy non-capability 插件加载、工具永不注册。
+判据不变：`shape` 不再是 `non-capability`、`tools[].names` 非空、会话 `tools[]` 出现 `aimail_address`。
