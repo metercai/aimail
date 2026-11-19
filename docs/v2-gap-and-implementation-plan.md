@@ -748,6 +748,23 @@ L0: PASS
 - 这是 advanced 旧 E2E helper 未发送 `X-Api-Identity`，属于测试夹具与新鉴权要求的错位；
 - 三类地址端到端测试尚未完成。
 
+### advanced E2E 已恢复
+
+`tests/advanced/e2e-open-apply.py` 已修到 V2：
+
+- `X-Api-Identity` 覆盖 agent/system/platform；
+- 激活邮件断言改为 V2 prompt（manager 不再进入工具参数）；
+- renewal 邮件同样使用 V2 prompt；
+- lifecycle 全链路通过。
+
+结果：
+
+```text
+RESULT: 53 PASS, 0 FAIL
+```
+
+注意：该 E2E 仍覆盖 shared 地址；three-type（shared_system/dedicated）尚未加入。
+
 ### 已知环境问题
 
 - advanced `cargo test` 在本机有 9 个 machine_code 测试失败，
