@@ -573,6 +573,20 @@ L0: PASS
 - 多 Gateway 聚合 L2；
 - 多地址同一 AgentSystemId 的聚合 L2（当前每宿主单地址）。
 
+### 生产 Pi 聚合
+
+- Pi B2（无 system）改用一条 AgentSystemId 聚合流；
+- 单地址模式，不 fanout；
+- 客户端使用 aggregate SSE/pending/ack path。
+
+证据：
+
+```text
+aimail d897736 feat(pi): use aggregate stream for B2 address
+vitest pi: 3 passed
+Pi/OpenClaw aggregate L2: PASS
+```
+
 ### 已知环境问题
 
 - advanced `cargo test` 在本机有 9 个 machine_code 测试失败，
