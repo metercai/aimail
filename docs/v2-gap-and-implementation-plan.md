@@ -408,6 +408,8 @@ advanced 一个地址申请页支持三种地址形式；standalone 只保留独
 gateway: bda201c feat(activation): allow pull addresses and remove system claim UI
 gateway: 4252839 fix(activation): silence unused manager warning
 aimail:  38aa1eb test(v2): exercise address-only pull activation
+aimail:  6f039c1 test(l2): address-only fixture for pi/openclaw
+gateway: 3f8c44a refactor(activation): drop dead system apply handler
 cargo test --lib: 401 passed
 L2 pi: PASS
 L2 openclaw: PASS
@@ -432,7 +434,7 @@ L0: PASS
 ```text
 aimail: 74ae2ee feat(v2): add AgentSystemId and address-only tool surface
 aimail: 3779e8e test(skill): verify separate activation skill install
-vitest core/dsh/pi/openclaw: 446 passed | 1 skipped
+vitest agent-aimail: 461 passed | 1 skipped
 ```
 
 未完成：
