@@ -57,6 +57,8 @@ node "$ROOT/tests/dsh-acceptance/harness/admin.mjs" --gateway "http://127.0.0.1:
 ACLAIM=$(python3 "$HERE/fixture/claim_local.py" --gateway "http://127.0.0.1:$HTTP_PORT" --spool "$SPOOL" --email "qa-$HOST-addr@example.com" --name "QA $HOST" --domain test.local --kind address --agentname alice)
 ADDR_CODE=$(printf '%s' "$ACLAIM" | python3 -c 'import json,sys;print(json.load(sys.stdin)["activation_code"])')
 echo "local fixture address code: $ADDR_CODE"
+ACLAIM2=$(python3 "$HERE/fixture/claim_local.py" --gateway "http://127.0.0.1:$HTTP_PORT" --spool "$SPOOL" --email "qa-$HOST-addr2@example.com" --name "QA $HOST 2" --domain test.local --kind address --agentname bob)
+ADDR_CODE2=$(printf '%s' "$ACLAIM2" | python3 -c 'import json,sys;print(json.load(sys.stdin)["activation_code"])')
 if [ "$HOST" = "dsh" ]; then
   H="$ROOT/tests/dsh-acceptance/harness/dsh-harness.mjs"
   if ! node "$H" address --gateway "http://127.0.0.1:$HTTP_PORT" --email alice@test.local --code "$ADDR_CODE" --workspace "$WORK/workspace" --home "$WORK/home" > "$WORK/dsh-address.json" 2> "$WORK/dsh-address.err"; then
@@ -68,9 +70,13 @@ if [ "$HOST" = "dsh" ]; then
   wait "$HP"
   python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));assert d["status"]["mode"]=="sse";assert d["followups"];print(json.dumps(d))' "$WORK/dsh-hub.json"
 else
+  EXTRA=""
+  if [ "$HOST" = "openclaw" ]; then
+    EXTRA="--second-email bob@test.local --second-code $ADDR_CODE2"
+  fi
   DELIVERY=1 node "$HERE/harness.mjs" "$HOST" \
     --gateway "http://127.0.0.1:$HTTP_PORT" \
     --email alice@test.local --workspace "$WORK/workspace" --home "$WORK/home" \
-    --domain test.local --address-code "$ADDR_CODE" --delivery
+    --domain test.local --address-code "$ADDR_CODE" $EXTRA --delivery
 fi
 echo "L2-LOCAL-GATEWAY PASS ($HOST)"

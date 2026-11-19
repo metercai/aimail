@@ -23,6 +23,8 @@ const gateway = arg('gateway', 'http://127.0.0.1:18080')
 const systemCode = arg('system-code')
 const addressCode = arg('address-code')
 const email = arg('email')
+const secondEmail = arg('second-email')
+const secondCode = arg('second-code')
 const workspace = path.resolve(arg('workspace', path.join(process.cwd(), 'workspace')))
 const home = arg('home', path.join(os.tmpdir(), `aimail-host-l2-${Date.now()}`))
 const domain = arg('domain')
@@ -80,14 +82,28 @@ if (path.resolve(String(cfg.workspace_path ?? '')) !== workspace) {
 if (cfg.webhook_url) { console.error('binding still has webhook_url'); process.exit(1) }
 console.log(JSON.stringify({ step: 'assert', ok: true, workspace: cfg.workspace_path, host }))
 
+let cfg2
+if (secondEmail) {
+  if (!secondCode) { console.error('second-code required with second-email'); process.exit(2) }
+  const r2 = host === 'pi'
+    ? await address.execute('addr2', { action: 'bind', email: secondEmail, code: secondCode, gateway_url: gateway }, undefined, { cwd: workspace })
+    : await address.execute('addr2', { action: 'bind', email: secondEmail, code: secondCode, gateway_url: gateway })
+  const d2 = r2.details ?? r2
+  if (d2?.success !== true) { console.error('second bind failed: ' + JSON.stringify(d2)); process.exit(1) }
+  cfg2 = await loadAgentConfig(String(d2.system_id ?? ''), secondEmail).catch(() => undefined)
+  if (!cfg2) { console.error('second binding missing'); process.exit(1) }
+}
+
 // Shared-stream plan must cover the activated address with a system stream.
 const { planStreams } = await import(path.join(dist, 'runtime/index.js'))
-const plans = planStreams([], [{ email, gatewayUrl: cfg.gateway_url, apiKey: cfg.api_key, system_id: sid }])
-if (plans.length !== 1 || plans[0].scope !== 'address' || !plans[0].emails.includes(email)) {
+const planAddresses = [{ email, gatewayUrl: cfg.gateway_url, apiKey: cfg.api_key, system_id: sid }]
+if (secondEmail) planAddresses.push({ email: secondEmail, gatewayUrl: cfg.gateway_url, apiKey: cfg.api_key, system_id: sid })
+const plans = planStreams([], planAddresses)
+if (!secondEmail && (plans.length !== 1 || plans[0].scope !== 'address' || !plans[0].emails.includes(email))) {
   console.error('shared stream plan mismatch: ' + JSON.stringify(plans))
   process.exit(1)
 }
-console.log(JSON.stringify({ step: 'stream-plan', ok: true, plan: plans[0] }))
+console.log(JSON.stringify({ step: 'stream-plan', ok: true, plans: plans.length }))
 
 if (delivery) {
   const { startSystemPull, startAgentPullEntries, GatewayClient } = await import(path.join(dist, 'core/index.js'))
@@ -109,12 +125,21 @@ if (delivery) {
       console.error(`welcome failed: ${r.status} ${JSON.stringify(r)}`)
       process.exit(1)
     }
+    if (cfg2) {
+      const c2 = new GatewayClient(cfg2.gateway_url, cfg2.api_key, 30_000, secondEmail)
+      const r2 = await c2.request('POST', '/api/v1/system/welcome', { to: [] })
+      if (!(r2.status >= 200 && r2.status < 300)) {
+        console.error(`second welcome failed: ${r2.status} ${JSON.stringify(r2)}`)
+        process.exit(1)
+      }
+    }
+    const want = secondEmail ? 2 : 1
     const deadline = Date.now() + 20_000
-    while (seen.length === 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 250))
+    while (seen.length < want && Date.now() < deadline) await new Promise((r) => setTimeout(r, 250))
   } finally {
     for (const h of handles) h.stop()
   }
-  if (seen.length === 0) { console.error('no SSE delivery received'); process.exit(1) }
+  if (seen.length < (secondEmail ? 2 : 1)) { console.error('no SSE delivery received'); process.exit(1) }
   if (path.resolve(seen[0].workspace) !== workspace) {
     console.error(`delivery workspace mismatch: ${seen[0].workspace} want ${workspace}`)
     process.exit(1)
