@@ -12,10 +12,11 @@ metadata:
 
 # AIMail Address Activation & Lifecycle
 
-Trigger phrase: **AIMAIL-ACTIVATE**
+Trigger: **`aimail_address`** (the tool name is the trigger phrase)
 
 Use this skill when the user pastes an AIMail activation prompt or asks to
-pause/resume/unbind/move an AIMail address. This skill is separate from the
+pause/resume/unbind/move an AIMail address. The model invokes `aimail_address`;
+that tool name is the skill trigger. This skill is separate from the
 mail-handling skill and the future board skill.
 
 ## 1. Preconditions

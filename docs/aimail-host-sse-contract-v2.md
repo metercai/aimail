@@ -589,12 +589,7 @@ If your agent does not have aimail_address, install or enable the AIMail plugin 
 
 Copy the message below into your agent's conversation:
 
-[AIMAIL-ACTIVATE]
-My AIMail mailbox: {address}
-Activation code: {code}
-Safety officer: {manager}
-Gateway: {gateway_url}
-Use the AIMail address-activation skill; do not use system onboarding.
+Activate and bind my AIMail mailbox address {address} with activation code {code} at gateway {gateway_url} using `aimail_address`. If `aimail_address` is unavailable or not registered, install the `agent_aimail` plugin SDK first: from PyPI via pip for Python, or from npm for Node.js. Then retry `aimail_address` with the same parameters.
 
 This code is sent only once - please keep this email.
 Please do not reply to this email - it is sent automatically.
@@ -603,7 +598,7 @@ Best regards,
 AIMail Team
 ```
 
-用户复制的是从 `[AIMAIL-ACTIVATE]` 开始的整块内容。
+用户复制的是邮件正文中 `Activate and bind my AIMail mailbox ...` 这一段。
 
 流程：
 
@@ -611,15 +606,15 @@ AIMail Team
 2. 如果 `aimail_address` 不存在，先按宿主自己的插件/扩展机制安装或启用
    AIMail toolset（不使用 `aimail install` CLI）；
 3. 确认 `aimail_address` 可用；
-4. `[AIMAIL-ACTIVATE]` 触发地址激活 SKILL；
+4. 模型调用 `aimail_address`；工具名就是 SKILL 触发词；
 5. SKILL 从 prompt 提取 `address/code/gateway_url`，调用
    `aimail_address(bind)`；
 6. 绑定成功后，SKILL 调用 `role_calibrator` 并完成身份校准。
 
-SKILL 不得依赖 prompt 中的 URL 来加载；专属触发短语是：
+SKILL 不得依赖 prompt 中的 URL 来加载；触发词就是工具名：
 
 ```text
-AIMAIL-ACTIVATE
+aimail_address
 ```
 
 ## Appendix B — SKILL 索引
@@ -628,7 +623,7 @@ AIMAIL-ACTIVATE
 
 | SKILL | 文件 | 触发 | 职责 |
 |---|---|---|---|
-| 地址激活/生命周期 | [`resources/skills/activation/SKILL.md`](../resources/skills/activation/SKILL.md) | `AIMAIL-ACTIVATE` | bind、identity calibration、pause/resume/unbind/move |
+| 地址激活/生命周期 | [`resources/skills/activation/SKILL.md`](../resources/skills/activation/SKILL.md) | `aimail_address` | bind、identity calibration、pause/resume/unbind/move |
 | 邮件收发 | [`resources/skills/SKILL.md`](../resources/skills/SKILL.md) | 邮件/收发意图 | 收发、回复、联系人、摘要、搜索 |
 | board 协作（planned） | `resources/skills/board/SKILL.md` | board/A2A 意图 | Board 任务与角色协作 |
 
@@ -643,7 +638,7 @@ AIMAIL-ACTIVATE
 用户粘贴 activation prompt
   → 如果 aimail_address 不存在：按宿主机制安装/启用插件（一次）
   → 确认 aimail_address 可用
-  → 加载 AIMAIL-ACTIVATE SKILL
+  → 调用 aimail_address（工具名即 SKILL 触发词）
   → 解析 address/code/gateway_url
   → aimail_address(action="bind")
       ├─ success → role_calibrator
@@ -687,7 +682,7 @@ AIMAIL-ACTIVATE
 
 ## Appendix D — 实现备注
 
-- 地址激活邮件已改为触发短语 `AIMAIL-ACTIVATE`，不再用 URL 加载 SKILL；
+- 地址激活邮件使用工具名 `aimail_address` 作为 SKILL 触发词，不再用 URL 加载 SKILL；
 - activation SKILL 已提供；宿主安装器必须把它安装为独立 skill，不能覆盖
   邮件处理 SKILL；
 - board SKILL 尚未发布，路径保留 planned；
