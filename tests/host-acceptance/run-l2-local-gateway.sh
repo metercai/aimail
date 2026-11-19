@@ -57,20 +57,8 @@ node "$ROOT/tests/dsh-acceptance/harness/admin.mjs" --gateway "http://127.0.0.1:
 ACLAIM=$(python3 "$HERE/fixture/claim_local.py" --gateway "http://127.0.0.1:$HTTP_PORT" --spool "$SPOOL" --email "qa-$HOST-addr@example.com" --name "QA $HOST" --domain test.local --kind address --agentname alice)
 ADDR_CODE=$(printf '%s' "$ACLAIM" | python3 -c 'import json,sys;print(json.load(sys.stdin)["activation_code"])')
 echo "local fixture address code: $ADDR_CODE"
-if [ "$HOST" = "dsh" ]; then
-  H="$ROOT/tests/dsh-acceptance/harness/dsh-harness.mjs"
-  node "$H" system --gateway "http://127.0.0.1:$HTTP_PORT" --code "$SYS_CODE" --domain test.local --home "$WORK/home" > "$WORK/dsh-system.json"
-  SID=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["system_id"])' "$WORK/dsh-system.json")
-  node "$H" address --gateway "http://127.0.0.1:$HTTP_PORT" --email alice@test.local --code "$ADDR_CODE" --workspace "$WORK/workspace" --home "$WORK/home" > "$WORK/dsh-address.json"
-  node "$H" hub --gateway "http://127.0.0.1:$HTTP_PORT" --email alice@test.local --timeout 30 --home "$WORK/home" > "$WORK/dsh-hub.json" &
-  HP=$!; sleep 2
-  node "$H" welcome --gateway "http://127.0.0.1:$HTTP_PORT" --system "$SID" --email alice@test.local --home "$WORK/home" > "$WORK/dsh-welcome.json"
-  wait "$HP"
-  python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));assert d["status"]["mode"]=="sse";assert d["followups"];print(json.dumps(d))' "$WORK/dsh-hub.json"
-else
-  DELIVERY=1 node "$HERE/harness.mjs" "$HOST" \
-    --gateway "http://127.0.0.1:$HTTP_PORT" \
-    --email alice@test.local --workspace "$WORK/workspace" --home "$WORK/home" \
-    --domain test.local --address-code "$ADDR_CODE" --delivery
-fi
+DELIVERY=1 node "$HERE/harness.mjs" "$HOST" \
+  --gateway "http://127.0.0.1:$HTTP_PORT" \
+  --email alice@test.local --workspace "$WORK/workspace" --home "$WORK/home" \
+  --domain test.local --address-code "$ADDR_CODE" --delivery
 echo "L2-LOCAL-GATEWAY PASS ($HOST)"
