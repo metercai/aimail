@@ -31,14 +31,16 @@
 ### 0.3 公共门禁
 
 ```bash
+# 在仓库根目录执行
+cd /Users/metercai/Desktop/chains/aimail
+
 # 全量 L0
-cd aimail && bash tests/sdk/l0-gate-tests.sh
+bash tests/sdk/l0-gate-tests.sh
 
 # 契约单源
 python3 tests/contract/check-contract-single-source.py
 
-# 本地真实 gateway L2
-./tests/host-acceptance/run-l2-local-gateway.sh dsh
+# 本地真实 gateway L2（当前脚本支持 pi/openclaw；dsh 在批次 F 补齐）
 ./tests/host-acceptance/run-l2-local-gateway.sh pi
 ./tests/host-acceptance/run-l2-local-gateway.sh openclaw
 ```
