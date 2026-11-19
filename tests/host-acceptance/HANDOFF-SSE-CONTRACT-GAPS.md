@@ -438,3 +438,30 @@ manifest 侧声明的是 `activation.onCapabilities: ["tool"]`，而宿主 compa
 2）会话 `tools[]` 含 `aimail_address`；
 3）宿主内 prompt 调用该工具后日志出现 polling started + 绑定文件含 workspace；
 4）注入邮件后 stub 出现含唯一串的 turn，且 ack 在 turn 之后。
+
+### G9/G10 复验（2026-11-19，dev fix 18f65cc + SDK 0.4.2）
+
+已按 dev 指引验证（无任何源码/产品改动，仅夹具）：
+
+1）新 SDK 0.4.2 本地构建：`pnpm build` 绿、`pnpm test` **490 passed**、`npm pack` → `agent-aimail-0.4.2.tgz`。
+2）**不再需要 `/app/node_modules/openclaw` 链接**（已从夹具删除）：
+   `export … dist/openclaw/index.js` → `exports:['default']`, `id=agent-aimail`, `register` 存在；无 ERR_MODULE_NOT_FOUND。
+3）宿主加载/注册：
+```
+startup trace: plugins.gateway-load.plugin.agent-aimail
+  loadFailedCount=0.0 registerFailedCount=0.0 registerMs=21.5
+http server listening (2 plugins: agent-aimail, memory-core)
+```
+4）manifest 已含 `aimail_address` / `aimail_system`（`contracts.tools` 16 项）。
+5）**仍然为红**（会话工具面 + turn）：
+```
+会话 tools[] = apply_patch dispatch_action edit exec github_publish ls message openclaw
+               process read sessions_yield tool_describe tool_search write     ← 无 aimail_*
+hooks agent run: status=error
+  summary=OpenClaw stopped this turn: the same aimail_address call failed 3 times (unknown tool)
+```
+ 即：插件加载/注册成功，但 **会话工具面里没有 `aimail_address`**，agent 调用被判 `unknown tool`。
+ `plugins inspect agent-aimail --runtime --json` 仍是 `shape=non-capability, capabilityMode=none, tools=[{names:[]}]`。
+
+**需要 dev 确认（一条即可）**：0.4.2 在 openclaw 2026.11.5 上，工具注册后的**实际工具 id** 是什么（是否带命名空间前缀），以及它们在会话 `tools[]` 出现的条件（是否需要 `plugins.entries["agent-aimail"].capabilities=["tool"]` 或宿主策略键）。
+我方已试过：`tools.profile=full`（文档称只有 full 选可选插件工具）、`tools.allow=[16 个裸名]`、`tools.alsoAllow=[16 个裸名]`——三种都拿不到 `aimail_*`；`tools.allow` 反而把工具面压到只剩 3 个 meta 工具，说明**裸名与宿主注册 id 不匹配**。
