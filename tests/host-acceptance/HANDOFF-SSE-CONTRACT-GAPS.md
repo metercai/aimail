@@ -606,3 +606,31 @@ openclaw plugins inspect agent-aimail --runtime --json
 2）按需补 `address_code` / `manager` / `workspace`；
 3）成功判据：返回 `{"success": true}` + 宿主日志 `[aimail-pull] polling started`；
 4）再验证注入邮件 → turn（含唯一串）→ ack。
+
+#### G11（新）：pull 地址无法取得激活码 —— 标准"申请码→agent 激活"流程被网关阻断
+
+契约原文（`docs/aimail-host-sse-contract.md` §1）：
+> Activation code: One-time `sys-`/`addr-` code **claimed from the gateway's `/apply` page**.
+
+实测（base gateway 1.0.8，system 身份签名客户端）：
+```
+POST /api/v1/admin/activation-codes/batch {code_type:"address",system_id,domain,email_address}
+→ 412 {"error":"Cannot generate activation code: address has no webhook routing configured"}
+```
+源码：`aimail-gateway/src/core/api/activation.rs:246`
+```rust
+Some(ref r) if r.webhook_url.as_deref().unwrap_or("").is_empty() => return Err((StatusCode::PRECONDITION_FAILED, …))
+```
+即：**无 webhook 的地址（= SSE/pull 形态，契约第 2 条要求）不能生成激活码**。
+另一条路（注册时 `POST /api/v1/admin/systems/{sid}/addresses?generate_code=true`，`http.rs:705`）会返回 `activation_code`，
+但 SDK 的 autoBind 会立即用它调 `/api/v1/activate-address` 并写绑定——该绑定写在宿主之外，宿主适配器仍报
+`[aimail-pull] no agent-scope binding — polling not started`。
+
+因此当前**无法在 pull 平台上执行契约规定的宿主内激活**（agent 侧 `aimail_address(action=activate, code=…)` 拿不到码）。
+
+请产品侧确认并择一修订：
+1）`activation-codes` 端点对 `webhook_url` 为空的地址放行（pull 地址同样可发码）；
+2）或明确 pull 地址的激活只允许"注册时返回的码"，并提供一个**不自动消费该码**的注册路径/参数（供宿主内 agent 兑换）；
+3）并说明是否必须经由 `/apply` 公开流程（含 manager 审批）才能取码——若是，L2 夹具需按该流程构造（验证方可以配合）。
+
+判据（修完复验）：宿主内 `aimail_address(action=activate, code, email)` 返回 `success:true` → 日志 `[aimail-pull] polling started` → 注入邮件 → turn 含唯一串 → ack。
