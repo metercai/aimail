@@ -765,6 +765,24 @@ RESULT: 53 PASS, 0 FAIL
 
 注意：该 E2E 仍覆盖 shared 地址；three-type（shared_system/dedicated）尚未加入。
 
+### 三类地址端到端完成
+
+`tests/advanced/e2e-open-apply.py` 已加入：
+
+```text
+shared
+shared_system -> charlie.sys1@e2e.local
+dedicated     -> dave@dedicated.e2e.local
+```
+
+结果：
+
+```text
+RESULT: 55 PASS, 0 FAIL
+```
+
+同时保持已有 apply/activate/SDK pull/SSE/ack/lifecycle/license 全链路。
+
 ### 已知环境问题
 
 - advanced `cargo test` 在本机有 9 个 machine_code 测试失败，
