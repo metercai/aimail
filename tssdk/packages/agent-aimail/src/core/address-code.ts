@@ -61,6 +61,7 @@ export interface RequestClient {
     method: string,
     path: string,
     body?: Record<string, unknown>,
+    headers?: Record<string, string>,
   ): Promise<GatewayResponse>
   /** `GET /stream` probe: true = 200 + text/event-stream (30s connect bound). */
   streamProbe?(): Promise<boolean>
@@ -157,11 +158,13 @@ export async function activateAddressCode(
   client: RequestClient,
   code: string,
   emailAddress: string,
+  opts: { agentSystemId?: string } = {},
 ): Promise<ActivateAddressCodeResult> {
+  const systemId = opts.agentSystemId?.trim()
   const res = await client.request('POST', '/api/v1/activate-address-code', {
     code,
     email_address: emailAddress.trim().toLowerCase(),
-  })
+  }, systemId ? { 'X-Agent-System-Id': systemId } : undefined)
   const rawKey = res.raw_key as string | undefined
   if (!rawKey) {
     return activateFailureEnvelope(res)
@@ -232,7 +235,9 @@ export async function activateAddressCodePersist(
         'baseUrl — refusing to persist a binding without it (contract: 7 fields)',
     }
   }
-  const act = await activateAddressCode(client, code, emailAddress)
+  const act = await activateAddressCode(client, code, emailAddress, {
+    agentSystemId: await getAgentSystemId(),
+  })
   if (!act.success || !act.raw_key || !act.system_id || !act.email_address) {
     return act
   }
