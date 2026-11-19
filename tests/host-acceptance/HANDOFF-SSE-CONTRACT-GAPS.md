@@ -465,3 +465,24 @@ hooks agent run: status=error
 
 **需要 dev 确认（一条即可）**：0.4.2 在 openclaw 2026.11.5 上，工具注册后的**实际工具 id** 是什么（是否带命名空间前缀），以及它们在会话 `tools[]` 出现的条件（是否需要 `plugins.entries["agent-aimail"].capabilities=["tool"]` 或宿主策略键）。
 我方已试过：`tools.profile=full`（文档称只有 full 选可选插件工具）、`tools.allow=[16 个裸名]`、`tools.alsoAllow=[16 个裸名]`——三种都拿不到 `aimail_*`；`tools.allow` 反而把工具面压到只剩 3 个 meta 工具，说明**裸名与宿主注册 id 不匹配**。
+
+#### G9/G10 复验（2）：dev 的第 3 步在本机不成立
+
+dev 给的验收步骤 1、2 通过，**第 3 步失败**：
+
+| 步骤 | 期望 | 实测 |
+|---|---|---|
+| 1 装/载 dev SDK | 无需 link | ✓ 0.4.2 直接 import 成功（`exports:['default']`, `id=agent-aimail`, `register` 存在） |
+| 2 load/register | `loadFailedCount=0 registerFailedCount=0` | ✓ 均 0（registerMs=21.5，`http server listening (2 plugins: agent-aimail, memory-core)`） |
+| 3 inspect | `shape=capability`，`tools[].names` 含 `aimail_address`/`aimail_system` | ✗ `shape=non-capability`, `capabilityMode=none`, `tools=[{names:[],optional:false}]` |
+| 4 会话工具面 | `tools[]` 含 `aimail_address` | ✗ 只有内置/元工具；agent 调用被判 `unknown tool` |
+
+补充：openclaw 2026.11.5 本会话工具面是"元工具 + 动态检索"形态（`tool_search`/`tool_describe`/`dispatch_action`）。
+验证方已尝试：让 agent 先 `tool_search("aimail_address")` 再调用 —— 检索结果也不会把该工具放进可用集，
+hooks run 仍报 `the same aimail_address call failed 3 times (unknown tool)`。
+
+**请 dev 说明**：他们验证第 3 步时用的宿主版本/安装方式（是否同一 2026.11.5 镜像、`plugins install <tgz>` 还是 registry 安装），
+以及 `shape=capability` 由什么决定（manifest 字段？安装记录/信任状态？provenance-invalid 是否会导致降级为 non-capability）。
+本机日志里同时存在：
+`[plugins] OpenClaw can't verify where this plugin came from … reason=provenance-invalid; installSource="archive"`
+——怀疑 archive 安装导致插件按 non-capability 加载、工具不注册。
