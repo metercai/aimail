@@ -248,6 +248,7 @@ Deploy your own [aimail-gateway](https://github.com/metercai/aimail-gateway), or
 - [aimail CLI (installation & maintenance)](cli/README.md)
 - [Agent Adapter Playbook](docs/agent-adapter-playbook.md)
 - [AIMail Host SSE Activation Contract v2](docs/aimail-host-sse-contract-v2.md)
+- [V2 gap and implementation plan](docs/v2-gap-and-implementation-plan.md)
 - [AIMail Host SSE Activation Contract v1 (historical)](docs/aimail-host-sse-contract.md)
 - [tssdk SSE Unification Plan (review draft)](docs/tssdk-sse-unification-plan.md)
 - [Host capability matrix](docs/host-capability-matrix.md)
