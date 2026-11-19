@@ -54,3 +54,10 @@ A/B pending/ack 隔离: PASS
 ```
 
 覆盖 L0、三宿主 L2、真实双 Gateway L2；本机已通过。
+
+## 发布状态
+
+- 一键发布门禁在本机 PASS；
+- agent-aimail 0.5.0 已就绪；
+- `aimail` 本地仍有未推送提交，受 GitHub HTTPS 凭据缺失影响；
+- advanced 三类地址端到端 L2 尚未自动化，是发布前最后一个功能验证缺口。
