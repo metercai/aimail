@@ -587,6 +587,19 @@ vitest pi: 3 passed
 Pi/OpenClaw aggregate L2: PASS
 ```
 
+### 生产 OpenClaw 聚合
+
+- OpenClaw B2（无 system）改用一条 AgentSystemId 聚合流；
+- 首个绑定地址作为认证 key，Gateway 按 AgentSystemId 授权其余地址；
+- 单地址/多地址均走同一 aggregate 端点。
+
+证据：
+
+```text
+aimail b7d436c feat(openclaw): use aggregate stream for B2 address
+vitest openclaw: 44 passed
+```
+
 ### 已知环境问题
 
 - advanced `cargo test` 在本机有 9 个 machine_code 测试失败，
