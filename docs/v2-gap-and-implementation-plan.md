@@ -467,6 +467,30 @@ email_notify tests: 3 passed
 - 三类地址端到端 L2（需 email verification/fixture）；
 - 独享域配额/审计策略仍需产品确认。
 
+### 批次 B/C/F — 本轮新增
+
+- advanced 统一三类地址页面/API、独享域列表、standalone dedicated-only；
+- `aimail_address` 增加 `move`，DSH 增加 `unbind`；
+- 激活请求携带 `X-Agent-System-Id`，为 Gateway 聚合铺路；
+- 工具 spec/DSH schema/测试同步。
+
+证据：
+
+```text
+advanced d9cee59 / 16118c5
+aimail   badf320 feat(address): add move and DSH unbind lifecycle
+aimail   4e6d6be style(spec): preserve compact tool-spec formatting
+aimail   5c07c94 test(address): cover move schema and DSH unbind
+aimail   ad39e29 feat(activation): carry AgentSystemId on address activation
+L0: PASS
+```
+
+未完成：
+
+- Gateway/advanced 尚未落库 AgentSystemId 归属；
+- 聚合 SSE/ack 未实现；
+- 三类地址端到端 L2。
+
 ### 已知环境问题
 
 - advanced `cargo test` 在本机有 9 个 machine_code 测试失败，
