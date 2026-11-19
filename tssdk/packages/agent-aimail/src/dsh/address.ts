@@ -22,6 +22,7 @@ import {
 import { aimailAddress, loadAgentConfig, listSystemDirs, saveAgentConfig, updateAgentConfig } from '../core/index.js'
 import type { AgentConfig } from '../core/index.js'
 import { currentWorkspacePath, ensureWorkspace } from './workspace.js'
+import { getAgentSystemId } from '../core/agent-system-id.js'
 import { findExistingSystem } from './system-core.js'
 
 interface Args {
@@ -161,7 +162,7 @@ export async function runAddressTool(
     let expiresAt: string | undefined
     if (code) {
       try {
-        const act = await activateAddressCode({ gatewayUrl: system.cfg.gateway_url, code, email })
+        const act = await activateAddressCode({ gatewayUrl: system.cfg.gateway_url, code, email, agentSystemId: await getAgentSystemId() })
         key = act.raw_key
         kind = act.kind
         expiresAt = act.expires_at
@@ -213,13 +214,16 @@ export async function runAddressTool(
 
   // B2 — no system; shared-domain address code only.
   if (!code) return fail('needs_system', 'no system onboarded; a shared-domain address requires an address activation code')
-  if (!pre || pre.scope !== 'shared') {
-    return fail('needs_system', 'this address is not a shared-domain address; onboard its system first')
+  // V2: address code is the only activation prerequisite. The code's
+  // system/domain association is carried by the activation response; no
+  // local system onboarding is required for any address form.
+  if (!pre) {
+    return fail('needs_system', 'address activation code is required')
   }
   if (!gatewayUrlArg) return fail('bad_args', 'gateway_url is required for a shared-domain address')
   let act
   try {
-    act = await activateAddressCode({ gatewayUrl: gatewayUrlArg, code, email })
+    act = await activateAddressCode({ gatewayUrl: gatewayUrlArg, code, email, agentSystemId: await getAgentSystemId() })
   } catch (e) {
     if (e instanceof ProvisionError) return fail(e.errorCode, e.message, e.retryable)
     throw e

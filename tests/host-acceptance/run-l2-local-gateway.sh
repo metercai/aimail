@@ -4,10 +4,10 @@
 # starts the built base gateway, claims a system code via /apply, then runs the
 # host activation + SSE welcome path.
 #
-# usage: run-l2-local-gateway.sh <pi|openclaw>
+# usage: run-l2-local-gateway.sh <pi|openclaw|dsh>
 # env: AIMAIL_GATEWAY_BIN (default ../aimail-gateway/target/debug/aimail-gateway)
 set -euo pipefail
-HOST="${1:?usage: run-l2-local-gateway.sh <pi|openclaw>}"
+HOST="${1:?usage: run-l2-local-gateway.sh <pi|openclaw|dsh>}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 BIN="${AIMAIL_GATEWAY_BIN:-$ROOT/../aimail-gateway/target/debug/aimail-gateway}"
@@ -57,8 +57,20 @@ node "$ROOT/tests/dsh-acceptance/harness/admin.mjs" --gateway "http://127.0.0.1:
 ACLAIM=$(python3 "$HERE/fixture/claim_local.py" --gateway "http://127.0.0.1:$HTTP_PORT" --spool "$SPOOL" --email "qa-$HOST-addr@example.com" --name "QA $HOST" --domain test.local --kind address --agentname alice)
 ADDR_CODE=$(printf '%s' "$ACLAIM" | python3 -c 'import json,sys;print(json.load(sys.stdin)["activation_code"])')
 echo "local fixture address code: $ADDR_CODE"
-DELIVERY=1 node "$HERE/harness.mjs" "$HOST" \
-  --gateway "http://127.0.0.1:$HTTP_PORT" \
-  --email alice@test.local --workspace "$WORK/workspace" --home "$WORK/home" \
-  --domain test.local --address-code "$ADDR_CODE" --delivery
+if [ "$HOST" = "dsh" ]; then
+  H="$ROOT/tests/dsh-acceptance/harness/dsh-harness.mjs"
+  if ! node "$H" address --gateway "http://127.0.0.1:$HTTP_PORT" --email alice@test.local --code "$ADDR_CODE" --workspace "$WORK/workspace" --home "$WORK/home" > "$WORK/dsh-address.json" 2> "$WORK/dsh-address.err"; then
+    echo "dsh address failed"; cat "$WORK/dsh-address.json" "$WORK/dsh-address.err"; exit 1
+  fi
+  node "$H" hub --gateway "http://127.0.0.1:$HTTP_PORT" --email alice@test.local --timeout 30 --home "$WORK/home" > "$WORK/dsh-hub.json" &
+  HP=$!; sleep 2
+  node "$H" welcome --gateway "http://127.0.0.1:$HTTP_PORT" --email alice@test.local --home "$WORK/home" > "$WORK/dsh-welcome.json"
+  wait "$HP"
+  python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));assert d["status"]["mode"]=="sse";assert d["followups"];print(json.dumps(d))' "$WORK/dsh-hub.json"
+else
+  DELIVERY=1 node "$HERE/harness.mjs" "$HOST" \
+    --gateway "http://127.0.0.1:$HTTP_PORT" \
+    --email alice@test.local --workspace "$WORK/workspace" --home "$WORK/home" \
+    --domain test.local --address-code "$ADDR_CODE" --delivery
+fi
 echo "L2-LOCAL-GATEWAY PASS ($HOST)"

@@ -24,6 +24,7 @@ import { fileURLToPath } from 'node:url'
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
 const DIST = process.env.TSSDK_DIST || path.join(ROOT, 'tssdk/packages/agent-aimail/dist')
 const { provisionSystem, runAddressTool, MailHub, GatewayClient } = await import(path.join(DIST, 'dsh/index.js'))
+const BINDING_FILE = 'agentmail.json'
 
 function arg(name, fallback = '') {
   const i = process.argv.indexOf(`--${name}`)
@@ -107,11 +108,35 @@ async function main() {
   if (cmd === 'welcome') {
     const sid = arg('system')
     const email = arg('email')
-    if (!sid || !email) { console.error('welcome: --system and --email are required'); process.exit(2) }
-    const cfgPath = path.join(aimailHome, 'systems', sid, 'aimail_gateway.json')
-    const cfg = JSON.parse(await fs.readFile(cfgPath, 'utf-8'))
-    const client = new GatewayClient(String(cfg.gateway_url || gateway), String(cfg.admin_key || ''), 30_000, sid)
-    const r = await client.request('POST', '/api/v1/system/welcome', { to: [email] })
+    if (!email) { console.error('welcome: --email is required'); process.exit(2) }
+    let gatewayUrl = gateway
+    let apiKey = ''
+    let identity = email
+    let to = [email]
+    if (sid) {
+      const cfgPath = path.join(aimailHome, 'systems', sid, 'aimail_gateway.json')
+      const cfg = JSON.parse(await fs.readFile(cfgPath, 'utf-8'))
+      gatewayUrl = String(cfg.gateway_url || gateway)
+      apiKey = String(cfg.admin_key || '')
+      identity = sid
+    } else {
+      // Address-only binding: use the agent key; welcome targets self ([]).
+      const systems = await fs.readdir(path.join(aimailHome, 'systems')).catch(() => [])
+      outer: for (const s of systems) {
+        const addrDir = path.join(aimailHome, 'systems', s, email.replace('@', '_'))
+        try {
+          const cfg = JSON.parse(await fs.readFile(path.join(addrDir, BINDING_FILE), 'utf-8'))
+          gatewayUrl = String(cfg.gateway_url || gateway)
+          apiKey = String(cfg.api_key || '')
+          identity = email
+          to = []
+          break outer
+        } catch { /* next */ }
+      }
+    }
+    if (!apiKey) { console.error('welcome: no credential found'); process.exit(2) }
+    const client = new GatewayClient(gatewayUrl, apiKey, 30_000, identity)
+    const r = await client.request('POST', '/api/v1/system/welcome', { to })
     console.log(JSON.stringify({ status: r.status, ...r }, null, 2))
     process.exit(r.status >= 200 && r.status < 300 ? 0 : 1)
   }

@@ -92,9 +92,14 @@ function str(v: unknown): string {
 }
 
 /** Unsigned public POST (activation code is the credential). */
-async function publicPost(gatewayUrl: string, pathname: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+async function publicPost(
+  gatewayUrl: string,
+  pathname: string,
+  body: Record<string, unknown>,
+  headers?: Record<string, string>,
+): Promise<Record<string, unknown>> {
   const client = new GatewayClient(gatewayUrl.replace(/\/+$/, ''), '', 30_000)
-  return asRecord(await client.request('POST', pathname, body))
+  return asRecord(await client.request('POST', pathname, body, headers))
 }
 
 async function signedRequest(
@@ -181,11 +186,17 @@ export async function activateAddressCode(opts: {
   gatewayUrl: string
   code: string
   email: string
+  agentSystemId?: string
 }): Promise<ActivatedAddress> {
-  const res = await publicPost(opts.gatewayUrl, '/api/v1/activate-address-code', {
-    code: opts.code,
-    email_address: opts.email.trim().toLowerCase(),
-  })
+  const res = await publicPost(
+    opts.gatewayUrl,
+    '/api/v1/activate-address-code',
+    {
+      code: opts.code,
+      email_address: opts.email.trim().toLowerCase(),
+    },
+    opts.agentSystemId ? { 'X-Agent-System-Id': opts.agentSystemId } : undefined,
+  )
   const status = Number(res.status ?? 0)
   const raw = str(res.raw_key)
   const sid = str(res.system_id)
