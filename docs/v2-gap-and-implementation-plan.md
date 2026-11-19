@@ -514,6 +514,34 @@ L0: PASS
 - 聚合 SSE；
 - A/B 隔离与多 Gateway L2。
 
+### 批次 C — 聚合接口起步
+
+- base gateway 新增：
+
+```text
+POST /api/v1/agent-system/pending
+POST /api/v1/agent-system/pending/ack
+```
+
+- 只允许地址 key 且该地址确属 `X-Agent-System-Id` 时访问；
+- storage 提供地址集合 pending/ack；
+- advanced 激活也写入 AgentSystemId 归属。
+
+证据：
+
+```text
+gateway d4eab17 feat(agent-system): add aggregate pending and ack endpoints
+advanced d780769 feat(agent-system): record advanced address ownership
+gateway http tests: 51 passed
+L0: PASS
+```
+
+未完成：
+
+- SSE 聚合端点（当前聚合是 POST long-poll）；
+- tssdk 切换到聚合接口；
+- A/B 隔离与多 Gateway L2。
+
 ### 已知环境问题
 
 - advanced `cargo test` 在本机有 9 个 machine_code 测试失败，
