@@ -134,6 +134,66 @@ Activate and bind my AIMail mailbox address {address} with activation code {code
 - 两种 gateway 的邮件正文逐字匹配；
 - 用户复制整段可直接触发。
 
+### 3.4 激活码申请页改造
+
+申请页只负责生成**地址激活码**；不再提供系统激活码入口，也不让用户选择
+系统模式。
+
+#### base gateway
+
+- 删除 `apply-system` 公网入口和“Claim system code”按钮；
+- 只保留地址申请；
+- 地址 domain 下拉必须来自**当前 gateway 支持的 domain**
+  （`current_system_domains`），不允许任意填写；
+- 生成地址 code 后下发统一 activation prompt；
+- 不显示 system_name/manager/系统模式选项。
+
+#### advanced gateway
+
+统一为一个地址申请页，支持三种地址形式：
+
+| 类型 | 用户输入 | 归属 |
+|---|---|---|
+| 共享域地址 | 共享域 + agentname | 现有 shared domain 的 `shared_addr_{name}` |
+| 带系统标识名的共享域地址 | 共享域 + 系统标识名 + agentname | 按 advanced 既有系统标识名规则归属 |
+| 独享域地址 | 独享域 + agentname | 对应独享 system/domain |
+
+要求：
+
+- 一个页面、一个表单、一个提交入口；
+- 三种类型最终都只生成**地址激活码**；
+- 不生成/不要求 system code；
+- 域选择来自当前 advanced 支持的共享域/独享域；
+- 系统标识名只在第二种类型出现，且由 advanced 规则校验；
+- 生成的 activation prompt 与 base 完全一致；
+- 不出现 manager/raw key/system code。
+
+#### standalone
+
+- 只保留**独享域地址**申请；
+- 隐藏/拒绝共享域、系统标识名类型；
+- 其他流程与 advanced 独享域一致。
+
+#### 任务
+
+| ID | 组件 | 任务 | 验收 |
+|---|---|---|---|
+| GW-PAGE-01 | base | 删除 apply-system 公网页与按钮 | 页面无系统码入口 |
+| GW-PAGE-02 | base | 地址 domain 选择器绑定当前 domains | 只能选已支持域 |
+| AD-PAGE-01 | advanced | 统一地址申请页支持三种类型 | 三种都能出地址码 |
+| AD-PAGE-02 | advanced | 系统标识名/独享域校验与归属 | 归属正确，错误拒绝 |
+| SA-PAGE-01 | standalone | 仅独享域地址申请 | 共享域/系统名不可用 |
+| PAGE-04 | all | 统一 activation prompt | 三种类型邮件正文一致 |
+
+测试：
+
+- base 申请页不存在系统码 API/按钮；
+- base 地址申请只列出当前 domain；
+- advanced 三种类型各生成地址码并可用 `aimail_address` 兑换；
+- standalone 只允许独享域；
+- 三种邮件 prompt 均不含 system_code/manager 参数/raw key/SKILL URL；
+- 页面和邮件都不要求用户理解系统模式。
+
 ---
 
 ## 4. Phase 2 — AgentSystemId 与聚合授权
@@ -362,6 +422,10 @@ Activate and bind my AIMail mailbox address {address} with activation code {code
 | ID | 组件 | 任务 | 依赖 | 验收 |
 |---|---|---|---|---|
 | GW-01 | base | 允许无 webhook 地址申请 code | — | pull 地址 code 生成 |
+| GW-PAGE-01 | base | 删除系统码申请页 | — | 页面无系统码 |
+| GW-PAGE-02 | base | domain 选择器绑定当前 domains | — | 仅支持域可选 |
+| AD-PAGE-01 | advanced | 统一三类地址申请页 | — | 三种均可申请 |
+| SA-PAGE-01 | standalone | 仅独享域地址申请 | — | 共享域不可用 |
 | GW-02 | base | 修复 fresh bind 误 already_bound | GW-01 | gateway_calls≥1 |
 | GW-03 | base | AgentSystemId 注册/聚合授权 | 协议定稿 | A/B 隔离 |
 | AD-01 | advanced | 无 webhook 地址激活 | GW-01 | 同 base |
