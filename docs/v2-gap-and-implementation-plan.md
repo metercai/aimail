@@ -650,6 +650,26 @@ L2 pi: PASS
 L2 openclaw: PASS
 ```
 
+### 跨 Gateway 隔离
+
+新增两数据库测试：
+
+```text
+agent_system_pending_is_isolated_across_gateway_databases
+```
+
+- 同一 AgentSystemId、同一地址，在两个 Gateway DB 中各自 pending；
+- A 的聚合查询只返回 A；
+- B 的聚合查询只返回 B；
+- A ack 自己的行不影响 B。
+
+证据：
+
+```text
+gateway 58df8cd test(agent-system): isolate pending across gateways
+L0: PASS
+```
+
 ### 已知环境问题
 
 - advanced `cargo test` 在本机有 9 个 machine_code 测试失败，
