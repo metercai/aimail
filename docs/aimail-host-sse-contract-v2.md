@@ -63,18 +63,10 @@ Gateway
 
 ---
 
-## 2.1 Gateway 申请页
-
-申请页只生成**地址激活码**，不生成系统激活码，也不要求用户选择系统模式。
-
-| 版本 | 地址申请类型 |
-|---|---|
-| base | 仅地址；domain 来自当前 gateway 支持的 domains |
-| advanced | 统一页面，支持共享域地址、带系统标识名的共享域地址、独享域地址 |
-| standalone | 仅独享域地址 |
-
-所有类型最终都生成同一种 address activation prompt；系统归属由 Gateway
-根据选择的域/系统标识名确定，用户不感知。
+申请页的版本、入口和页面分类属于产品/部署实现，不是本契约的一部分。
+本契约只约束最终下发的 activation prompt 内容，以及 Agent 收到 prompt 后的
+`aimail_address` 行为。无论 code 来自哪个版本或哪个入口，prompt 都必须符合
+Appendix A，且后续激活流程一致。
 
 ---
 
