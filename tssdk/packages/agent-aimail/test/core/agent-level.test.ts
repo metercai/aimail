@@ -18,6 +18,7 @@ import {
   agentTools,
   installAgentSkill,
   installActivationSkill,
+  ACTIVATION_SKILL_NAME,
   startAgentLevel,
 } from '../../src/core/agent-level.js'
 import { AGENT_TOOL_DEFS } from '../../src/core/tool-registry.js'
@@ -83,9 +84,9 @@ describe('installAgentSkill', () => {
     const skills = path.join(tmp, 'skills')
     await installAgentSkill(skills)
     const r = await installActivationSkill(skills)
-    expect(r.path).toBe(path.join(skills, 'agentmail-activation', 'SKILL.md'))
+    expect(r.path).toBe(path.join(skills, ACTIVATION_SKILL_NAME, 'SKILL.md'))
     expect(await fs.readFile(r.path, 'utf-8')).toBe(await fs.readFile(RESOURCE_ACTIVATION, 'utf-8'))
-    expect(await fs.readFile(path.join(skills, 'agentmail', 'SKILL.md'), 'utf-8'))
+    expect(await fs.readFile(path.join(skills, AGENT_SKILL_NAME, 'SKILL.md'), 'utf-8'))
       .toBe(await fs.readFile(RESOURCE_SKILL, 'utf-8'))
     const again = await installActivationSkill(skills)
     expect(again.installed).toBe(false)
