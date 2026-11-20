@@ -157,3 +157,33 @@ selectModel → {"selected":{"provider":"xiaomi","model":"mimo-v2.6-flash"}}
 - 三宿主均**未**在本轮证明「入站邮件 → 真实 turn（含唯一串）→ ack 顺序」；
   openclaw 上一轮观察为 armed 但 30s 内 `pending_deliveries` 仍 pending。
   这是本轮唯一剩下的功能缺口，需要产品侧确认拉取触发条件（restart 后 arm 与实际 drain 的关系）。
+
+### 8.5 DSH 长窗口复测（2026-11-20 晚）
+
+同一夹具，把 mux 读取窗口从 25s 延长到 300s，并在 prompt 后保活 240s，观察到的帧：
+```
+item turn/start
+item step/start
+（无 tool/* 帧，无 binding 落盘）
+modelCatalog: routableProviders=["xiaomi"]；selectModel → xiaomi/mimo-v2.6-flash
+session/prompt → accepted:true
+```
+即：**真实模型确实开始跑 turn，但没有发起 `aimail_address` 调用**，因此没有 binding。
+
+请开发确认（DSH，V2）：
+1. 通过 HTTP `session/create` + mux `session/follow(activate:true)` + `session/prompt` 这条链建立的会话，
+   插件工具（mail 15 件）是否会进入该会话的工具面？本次 turn 内未出现任何 tool 帧。
+2. 若需要额外步骤（例如 agentPreset / tool 注册 / session 级 allow），请给出最小复现命令。
+参考：同一镜像 `dsh headless` 走的是 `llm-deepseek` 默认路由（无 key → MISSING_CREDENTIAL），
+说明 headless 与 web 的默认模型来源不同；web profile 的 `agent-default-model=xiaomi/mimo-v2.6-flash` 已生效。
+
+### 8.6 目前结论（真实宿主）
+
+| 宿主 | 工具面 | 激活（bind） | 拉取 armed | 入站→turn→ack |
+|---|---|---|---|---|
+| Pi（1.5.2） | 14 mail tools 注册 | ✅ binding 正确 | 未见（进程短命） | 未证 |
+| OpenClaw（2026.11.5） | 插件加载（2 plugins） | ✅ binding 正确（hooks 路径） | ✅ armed（重启后） | 未证（pending 未 drain） |
+| DSH（0.1.7-rc.1） | 未观测到 tool 帧 | ✗ 未落 binding | — | 未证 |
+
+结论：V2 的"激活 → binding"在 Pi / OpenClaw 已由真实宿主 + 小米模型完成；
+"入站 → turn → ack" 三宿主均未证；DSH 的会话工具面需要开发给出配置口径。
