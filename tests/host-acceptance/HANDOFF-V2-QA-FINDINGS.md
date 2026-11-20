@@ -278,3 +278,37 @@ return !!cfg.agent_system_id            // 或 cfg.agent_system_id?.startsWith('
 1. agent-scope 轮询走的 endpoint 与鉴权头（`/api/v1/agent-system/pending` + `X-Agent-System-Id`？）；
 2. 首次轮询的触发时机（是否有 30s 延迟 + 失败静默重试）；
 3. 若首轮 401/409，日志是否会打印（本次日志只有 enabled/scope 两行，无取件记录）。
+
+### 8.12 第二层根因（源码级）：适配器构造的 pull client 没带 agent-scope 选项
+
+`tssdk/packages/agent-aimail/src/core/poll-entry.ts:202-204`
+```ts
+const client = opts.clientFor
+  ? opts.clientFor(cfg)
+  : new GatewayClient(cfg.gateway_url, cfg.api_key, PULL_HTTP_TIMEOUT_MS, cfg.email)
+                                    // ↑ 没有 pendingPath / X-Agent-System-Id
+```
+而 V2 聚合取件在 `core/system-pull.ts`（`startSystemPull`）里是这样构造的：
+```ts
+new GatewayClient(url, key, PULL_HTTP_TIMEOUT_MS, systemId, {
+  streamPath: '/api/v1/agent-system/pending/stream',
+  pendingPath: '/api/v1/agent-system/pending',
+  ackPath: '/api/v1/agent-system/pending/ack',
+  extraHeaders: { 'X-Agent-System-Id': agentSystemId },
+})
+```
+⇒ 适配器走的是默认 `/api/v1/admin/pending`（地址级队列），V2 的聚合 pending 永远取不到。
+
+验证方对照实验（同一 gateway、同一 binding、同一封 welcome）：
+- 直接调 `startSystemPull(...)`（带 agent-scope 选项）：`onEmail fired: id=4`，该 pending 行随后消失（已 ack）✅
+- 走适配器 `startAgentPullEntry(...)`：`polling enabled every 30000ms`，240s 后该行仍 `pending` ❌
+
+### 8.13 实验：两处一起修（dist 一次性实验包）
+
+补丁 A（§8.9）：`isAgentScopeBinding` → `!!cfg.agent_system_id`
+补丁 B（§8.12）：pull client 补上 agent-system 三路径 + `X-Agent-System-Id`
+结果：`polling enabled` + `pull scope: system= email=… fanout=false` 出现（A 生效），
+但 240s 内该 pending 行仍未 drain（B 单独不足或还有第三处差异，例如 `startPolling` 的首轮触发/错误静默）。
+
+请开发据此定位第三处差异（建议在 `startPolling` 的首轮请求与错误分支加一行日志），
+并给出判据：注入入站邮件后 30–60s 内 `pending_deliveries` 行应消失（acked）、且宿主产生 turn。
