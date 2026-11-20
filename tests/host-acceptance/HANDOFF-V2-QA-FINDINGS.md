@@ -214,3 +214,41 @@ binding 落在 `/app/.aimail/systems/system-b237/ocdel_test.local/agentmail.json
 3. 若需要 pointer 之外的条件（如 gateway 侧注册回执），请给出最小判据。
 
 对照：同一镜像内 `/hooks/agent` 能正常跑真实模型并完成 bind（`status=ok`），说明不是模型/工具面问题。
+
+### 8.9 根因定位（P1）：`isAgentScopeBinding` 仍用 V1 前缀判断，V2 binding 永远被判"非 agent-scope"
+
+源码（`tssdk/packages/agent-aimail/src/core/poll-entry.ts`）：
+```ts
+export const AGENT_SCOPE_SYSTEM_PREFIX = 'shared_addr_'          // :36  ← V1 遗留
+
+export function isAgentScopeBinding(cfg: AgentConfig | undefined | null): boolean {
+  if (!cfg) return false
+  if (!cfg.system_id || !cfg.api_key) return false
+  return cfg.system_id.startsWith(AGENT_SCOPE_SYSTEM_PREFIX)     // :56  ← 判的是 system_id
+}
+```
+V2 实际落盘的 binding（Pi / OpenClaw 实测）：
+```json
+{"email":"ocdel@test.local","system_id":"system-b237",            // GatewaySystemId
+ "agent_system_id":"asid_d8e22f4…","gateway_url":"http://127.0.0.1:18080"}
+```
+`system_id` 是 **GatewaySystemId**，永远不以 `shared_addr_` 开头 ⇒ 谓词恒 false ⇒
+`startAgentPullEntries` 认为"没有 agent-scope binding"⇒ 不启动任何拉取 ⇒ 入站邮件永远 pending。
+这解释了本轮三宿主"绑定成功但 polling 不启动 / 邮件不 drain"的全部现象。
+
+同类用法还有一处：`src/openclaw/inbound.ts:232`
+```ts
+const addressScope = !!cfg.system_id && cfg.system_id.startsWith(AGENT_SCOPE_SYSTEM_PREFIX)
+```
+
+建议修法（V2 语义）：判据改为"这是地址级激活产物"，即
+```ts
+return !!cfg.agent_system_id            // 或 cfg.agent_system_id?.startsWith('asid_')
+```
+并把 `AGENT_SCOPE_SYSTEM_PREFIX` 及其在 inbound.ts 的用法一并按 V2 字段（`agent_system_id`）改写；
+相关单测（poll-entry / inbound）需同步更新，避免用 V1 夹具把错误语义锁死。
+
+判据（修完复验）：
+1. 三宿主激活后重启 → 日志出现 `pull scope: … email=<addr>` / `polling started`；
+2. 注入入站邮件 → 产生真实 turn（含唯一串）→ `pending_deliveries` 转 acked；
+3. Pi 单地址、OpenClaw 多地址、DSH 多地址三种形态各测一次。
