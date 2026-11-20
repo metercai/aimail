@@ -576,3 +576,239 @@ one gateway process → serves every profile
 7. **若产品要求一个 host 一条 SSE，另立 Hermes host-level coordinator 项目**。
 
 该方案不依赖 Hermes 源码 patch，不使用 AIMail CLI，不使用本地 webhook 端口，符合 multiplex 的官方边界。
+
+---
+
+## 10. 三个关键问题
+
+### 10.1 gateway 进程和 profile 进程是否仍然独立？
+
+不是（正常 multiplex 拓扑下）。
+
+Hermes 最新代码的模型是：
+
+```text
+一个 host
+  └── 一个 gateway 进程
+        ├── profile A runtime scope（同进程，contextvar + HERMES_HOME override）
+        ├── profile B runtime scope
+        └── ...
+```
+
+依据：
+
+- [`gateway/run.py`](https://github.com/NousResearch/hermes-agent/blob/main/gateway/run.py) 中的
+  `_multiplex_profile_homes`、`_profile_runtime_scope`、`_async_profile_runtime_scope`；
+- 一个进程内按 profile 切换：
+  - config；
+  - secrets；
+  - skills；
+  - memory；
+  - session authorities；
+  - adapters。
+
+所以：
+
+- profile 不是独立进程；
+- profile 是同一 gateway 进程内的隔离 runtime scope；
+- agent/tool 可能在 executor 线程执行，但不是“每 profile 一个 gateway 进程”；
+- `gateway.standalone: true` 才是临时回到 per-profile gateway 进程的 shim，不是推荐拓扑。
+
+### 10.2 gateway 收到的 message 如何进入 profile 的 session？
+
+按“是否新建 session”和“是否跨 profile”分：
+
+#### 方法 A：Platform Adapter（推荐）
+
+插件注册 platform adapter：
+
+```python
+ctx.register_platform(
+    name="aimail",
+    label="AIMail",
+    adapter_factory=AIMailAdapter,
+    # 服务型入站，无人类 sender
+    # 具体字段以当前 Hermes 的 PlatformEntry 为准
+)
+```
+
+adapter 内部：
+
+```python
+await self.handle_message(MessageEvent(...))
+```
+
+特点：
+
+- 走 gateway 正常 platform inbound；
+- gateway 自行创建/复用 session；
+- 适合“新的邮件 thread”；
+- profile 隔离由 adapter 所属 profile 决定；
+- 不绑定端口；
+- 这是 AIMail SSE 入站最合适的路径。
+
+#### 方法 B：Plugin `ctx.inject_message`
+
+```python
+ctx.inject_message(
+    content,
+    role="user",
+    session_key=...,
+    # 或 origin=...
+)
+```
+
+限制：
+
+- 需要 plugin 开启：
+
+```yaml
+plugins:
+  entries:
+    aimail:
+      allow_gateway_injection: true
+```
+
+- `session_key` 必须是**当前 profile 已存在的 live session**；
+- `origin` 面向已存在/已接入的 chat，不是任意新邮件 thread 的创建入口；
+- keyless 模式只选择当前 profile 的本地 CLI session；
+- 不能跨 profile；
+- 因此它适合“把提醒/补充内容塞进已有会话”，不适合作为邮件入站主路径。
+
+#### 方法 C：Gateway local session RPC
+
+Hermes 的 gateway-owned fresh local sessions 提供：
+
+```text
+session.create
+session.resume
+session.prompt
+```
+
+特点：
+
+- 由 gateway runner 自己执行 turn；
+- 可以创建 fresh CLI/TUI/GUI-policy session；
+- 需要本地认证和 `session:create` 权限；
+- 通常按调用方 profile 作用域；
+- 适合 host 级 router/测试工具，不是普通 plugin 的通用跨 profile API。
+
+参考：
+
+- [Gateway local sessions](https://hermes-agent.nousresearch.com/docs/developer-guide/gateway-local-sessions)
+- [Programmatic integration](https://hermes-agent.nousresearch.com/docs/developer-guide/programmatic-integration)
+
+#### 方法 D：HTTP inbound `/p/<profile>/...`
+
+multiplex 下二级 profile 的平台 callback 走默认 listener：
+
+```text
+/p/<profile>/...
+```
+
+但：
+
+- 二级 profile 禁止启用 port-binding platform；
+- 不能靠每 profile 一个 webhook 端口；
+- 对 AIMail 来说这不是主路径，V2 要的是 SSE 内部闭环。
+
+#### 方法 E：Hermes 进程内部 API
+
+`GatewayRunner` / `SessionAuthority` / `_admit_plugin_injection` 等内部方法确实能把消息放进指定 session，但：
+
+- 不是公共插件 API；
+- 跨 profile 受 authority/home 约束；
+- 不建议 SDK 直接依赖。
+
+### 10.3 一个 SSE 路由到多个 profile 的可行性
+
+#### AIMail 协议侧
+
+**可以。**
+
+V2 聚合 SSE 的 delivery 带地址；远端 AIMail Gateway 只要求：
+
+```text
+(AgentSystemId, Gateway) 一条 SSE
+```
+
+一个 AgentSystemId 可以绑定多个地址，地址可以属于不同 profile。  
+所以“一个远端 AIMail gateway 一条 SSE”在 AIMail 侧没有障碍。
+
+#### Hermes 侧：当前版本有宿主 API 障碍
+
+障碍不是 AIMail 协议，而是 Hermes 的 profile 隔离：
+
+1. **插件上下文按 profile 隔离**
+   - 每个 profile 的 plugin 有独立 home/context；
+   - 不能拿 A profile 的 ctx 给 B profile 创建 session。
+
+2. **`ctx.inject_message` 不能跨 profile**
+   - `plugin_home` 固定为当前 profile；
+   - `session_key` 必须是本 profile 的 live session；
+   - `origin` 不是任意新 thread 的入口。
+
+3. **platform adapter 注册也是 profile 级**
+   - 一个 adapter 实例天然属于一个 profile；
+   - 没有一个公共参数可以指定“把这条 event 投到另一个 profile”。
+
+4. **session authority 按 profile/home 解析**
+   - 默认 profile 的 runner/adapter 不能直接向另一个 profile 的 authority 提交。
+
+5. **新 thread 需要 gateway 创建 session**
+   - `inject_message` 主要面向已有 session；
+   - 新邮件 thread 需要 platform adapter 或本地 `session.create` 这类宿主路径。
+
+6. **生命周期/安全**
+   - 一个 SSE 的所有者必须是单例；
+   - 地址→profile 映射必须权威；
+   - profile 下线/删除时不能把邮件投到错误 profile；
+   - ack 必须在目标 profile 接受后才发生。
+
+#### 可行方案：Host-level AIMail Router
+
+如果产品坚持“一个 Hermes gateway + 一个 AgentSystemId + 一条 SSE”，建议单独做一个 host-level router：
+
+```text
+Default profile / host service
+  └── AIMail Router
+        ├── 唯一 SSE（AgentSystemId, remote Gateway）
+        ├── address -> profile 路由表
+        └── per-profile endpoint (Unix socket / host bus)
+              ├── profile A AIMailAdapter.handle_message
+              ├── profile B AIMailAdapter.handle_message
+              └── ...
+```
+
+关键设计：
+
+- Router 只跑在默认 profile 或 host service；
+- 每个 profile 跑轻量 `AIMailProfileEndpoint`，向 router 注册：
+  - profile id；
+  - binding address；
+  - handler；
+- Router 收到 delivery 后：
+  1. 解析 `GatewaySystemId + address`；
+  2. 查 address→profile；
+  3. 把原始 delivery 交给对应 endpoint；
+  4. endpoint 在**自己的 profile** 调 adapter/`session.create`；
+  5. endpoint 接受后 router 才 ack；
+- 进程间通道优先 Unix domain socket（0600），不开 TCP 端口；
+- 或者等待 Hermes 增加正式的 host-level profile dispatch API。
+
+这个方案在 AIMail 协议上成立，在 Hermes 当前公共插件 API 上**不能只靠普通插件完成**，需要：
+
+- host-level router 权限；或
+- 默认 profile 的 router + 各 profile endpoint 的本地 IPC；或
+- Hermes 核心新增 `dispatch_to_profile` 类能力。
+
+#### 推荐落地顺序
+
+1. **先做 profile-scoped SSE**（本方案第 3–6 节）：
+   - 无跨 profile API 障碍；
+   - 直接符合 multiplex；
+   - 每 profile 一个 AgentSystemId。
+2. 如果产品最终必须“一个 host 一个 AgentSystemId / 一条 SSE”：
+   - 另立 Host-level AIMail Router 项目；
+   - 单独做 address→profile 路由、IPC、单例、ack、安全测试；
+   - 不要把它伪装成普通 Hermes plugin。
