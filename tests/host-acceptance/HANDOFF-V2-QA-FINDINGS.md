@@ -252,3 +252,29 @@ return !!cfg.agent_system_id            // 或 cfg.agent_system_id?.startsWith('
 1. 三宿主激活后重启 → 日志出现 `pull scope: … email=<addr>` / `polling started`；
 2. 注入入站邮件 → 产生真实 turn（含唯一串）→ `pending_deliveries` 转 acked；
 3. Pi 单地址、OpenClaw 多地址、DSH 多地址三种形态各测一次。
+
+### 8.10 实验验证：改掉 `isAgentScopeBinding` 后轮询确实启动（只改 dist，未进仓库）
+
+把 0.5.0 的 `dist/core/poll-entry.js` 里 `cfg.system_id.startsWith(AGENT_SCOPE_SYSTEM_PREFIX)`
+改成 `!!cfg.agent_system_id`（/tmp 一次性实验包），装入同一 `aimail-host-openclaw:latest` 后：
+
+修复前：
+```
+[aimail-pull] no agent-scope binding — polling not started (push path unchanged; address-code activation enables it)
+```
+修复后（同一镜像、同一激活流程）：
+```
+[aimail-pull] no profile pointer — exactly one agent-scope binding on disk (ocfix@test.local); starting it (unambiguous)
+[aimail-pull] ocfix@test.local: polling enabled every 30000ms (limit 20, agent-scope key)
+[aimail-pull] pull scope: system= email=ocfix@test.local fanout=false
+```
+⇒ §8.9 的根因判断成立，且修法有效（一行）。
+
+### 8.11 仍未闭合（第二层）：轮询已 enabled，但 120s 内 pending 未 drain
+
+同一轮里注入的外部入站邮件（白名单 201、SMTP 250）在 120s 后仍为
+`pending_deliveries.status = pending`（轮询间隔 30s，窗口足够）。
+即：**polling 启动了，但拉取没有把消息取走/确认**。请开发确认：
+1. agent-scope 轮询走的 endpoint 与鉴权头（`/api/v1/agent-system/pending` + `X-Agent-System-Id`？）；
+2. 首次轮询的触发时机（是否有 30s 延迟 + 失败静默重试）；
+3. 若首轮 401/409，日志是否会打印（本次日志只有 enabled/scope 两行，无取件记录）。
