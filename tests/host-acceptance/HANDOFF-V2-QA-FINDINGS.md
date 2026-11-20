@@ -357,3 +357,24 @@ new GatewayClient(url, key, PULL_HTTP_TIMEOUT_MS, systemId, {
 但同一时间段日志里出现了针对该地址的 `GET /api/v1/contacts?addresses=ext-sender@example.com,ocq@test.local`
 （说明消息内容已被插件读到）。即：**"流已连、消息已读、但未 ack"**。
 请开发按此定位 ack 分支（`pullAck` → `/api/v1/agent-system/pending/ack`）在该路径上是否被调用/是否 200。
+
+### 8.16 最终定位（420s 窗口复跑）：流已通、消息已读、**未交给 agent**，因此按 C9 正确地没有 ack
+
+同一 `aimail-host-openclaw:latest`，补丁 A+B，窗口 420s：
+```
+[qa-poll] loop entering / round 0 inPoll=false hasStream=function hasProbe=function aborted=false
+[qa-gw] STREAM /api/v1/agent-system/pending/stream status=200 ctype=text/event-stream
+… 注入入站邮件后 …
+[qa-gw] GET /api/v1/contacts?addresses=ext-sender@example.com,ocfin@test.local   ← 消息内容已被读到
+（无 turn、无 POST /api/v1/agent-system/pending/ack）
+240s / 420s 两轮结束时 pending_deliveries.id=11 仍为 pending
+```
+结论：
+1. **拉取链路成立**（补丁 A+B 后）：聚合流 200 建立、邮件被读到并做联系人解析。
+2. **ack 没发生是正确的**：契约 §8.3 要求"只有成功接受进 Session 后才 ack"，
+   本轮邮件没有进入 agent session（无 turn），所以不 ack 符合契约，**不是 ack 缺陷**。
+3. **真正缺口**：OpenClaw 适配器把入站邮件交给 agent session 的那一步没有发生
+   （日志里没有 turn、也没有 session 相关错误）。这正是 §6.4 路由链的最后一跳。
+
+请开发据此定位：openclaw 的 inbound → session 交付路径（`hooks`/`agentId` 空间解析、
+以及 `deliverToSession` 失败时是否静默）。判据不变：注入邮件 → turn（含唯一串）→ 随后 ack。
