@@ -6,6 +6,21 @@
 
 ---
 
+## 0. 先决条件：当前 V2 独立 QA 结论为 HOLD
+
+在实施本方案前，必须先修复当前 V2 的 QA 阻断项（见
+`tests/host-acceptance/HANDOFF-V2-QA-FINDINGS.md`）：
+
+- **B1**：`isAgentScopeBinding` 仍按 V1 `shared_addr_` 前缀判断；
+- **B2**：适配器构造的 pull client 缺 aggregate path 与 `X-Agent-System-Id`；
+- **B3**：OpenClaw 读到邮件但没有进入 agent session（不 ack 是符合契约的）；
+- **B4**：DSH 会话工具面为空，需确认会话创建后的工具加载口径。
+
+Hermes 的 SSE runtime 也会复用同一 pull/client 核心，因此 B1/B2 必须先修，
+B3/B4 的宿主交付口径也必须先明确，否则 Hermes 方案无法进入实现验收。
+
+---
+
 ## 1. 调研结论：Hermes 已改为“一条 gateway 服务多个 profile”
 
 ### 1.1 官方文档与代码确认
