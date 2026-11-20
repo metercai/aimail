@@ -312,3 +312,27 @@ new GatewayClient(url, key, PULL_HTTP_TIMEOUT_MS, systemId, {
 
 请开发据此定位第三处差异（建议在 `startPolling` 的首轮请求与错误分支加一行日志），
 并给出判据：注入入站邮件后 30–60s 内 `pending_deliveries` 行应消失（acked）、且宿主产生 turn。
+
+### 8.14 第三处（关键）：日志说 "polling enabled"，但 240s 内**一个 HTTP 请求都没发**
+
+为定位取件失败，在一次性实验包（dist）里给 `GatewayClient.request()` 与 `streamProbe()` 都加了
+`[qa-gw] <method> <path>` 埋点（仅 /tmp 实验，未进仓库）。同一 `aimail-host-openclaw:latest` 实测：
+
+```
+[qa-gw] POST /api/v1/whitelists            ← 埋点生效（我方的辅助调用被记录）
+[aimail-pull] ocdbg@test.local: polling enabled every 30000ms (limit 20, agent-scope key)
+[aimail-pull] pull scope: system= email=ocdbg@test.local fanout=false
+…（之后 240s 内：0 条 [qa-gw]，既无 STREAM-PROBE 也无 pullList）
+```
+
+即：`startAgentPullEntry` 打印了 `polling enabled`，但 `startPolling` 的循环体**一次都没执行**
+（连首轮 `streamProbe()` 都没有）。这解释了为什么 §8.12 的 client 选项补丁也无效——
+请求根本没发出。
+
+请开发检查 `startPolling`（`dist/core/address-code.js`）在该调用点是否：
+1. 因 `opts.signal` 已 abort / `mode` 判定 / 首轮 `await pollSleep()` 前的早退而直接返回；
+2. 是否被 `void`/`unref` 的定时器 + 宿主事件循环策略吞掉（OpenClaw gateway 进程内）；
+3. 是否需要在 `startAgentPullEntry` 里 `await` 首轮（当前只拿到 handle）。
+
+判据（修完复验，仍是 §8.11 的三条）：注入入站邮件后 30–60s 内出现 `[qa-gw] POST /api/v1/agent-system/pending`
+→ `pending_deliveries` 行消失（acked）→ 宿主产生真实 turn。
