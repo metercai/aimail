@@ -39,6 +39,62 @@
 - `set_agent_context` 使用进程全局配置，多地址并发有串线风险；
 - 没有单 SSE 生命周期。
 
+### 1.1 地址绑定在哪个层级
+
+DeerFlow 里地址绑定在 **agent / assistant 层**，不是 Gateway、thread 或 workspace。
+
+层级：
+
+```text
+DeerFlow Gateway
+  └── user（多用户部署时）
+        └── agent / assistant       <-- AIMail 地址绑定在这一层
+              ├── thread 1          （session + workspace）
+              ├── thread 2
+              └── ...
+```
+
+对应关系：
+
+| 层 | 含义 |
+|---|---|
+| Gateway | 进程/API/运行时 |
+| user | 多用户部署时的 agent/thread 归属 |
+| agent / assistant | AIMail 地址绑定的 agent 身份 |
+| thread | 一次持久化对话 session |
+| workspace | thread 的工作目录/资源空间 |
+
+关键点：
+
+- 地址不绑定 thread；
+- 地址不绑定 workspace；
+- 地址绑定 agent/assistant；
+- thread 在 agent 下动态创建；
+- 每个 thread 自带 workspace；
+- 所以一个地址可以有多个 thread，也就有多个 thread workspace。
+
+当前 adapter 里：
+
+- `_find_agent_config(email)` 按收件地址找 binding；
+- binding 里有 `agent_id` / `assistant_id`；
+- `set_agent_context(agent_id, system_id)` 选择 agent；
+- `start_run(assistant_id=cfg.assistant_id, thread_id=...)` 在该 agent 下运行 thread。
+
+当前实现把 `thread_id` 固定成：
+
+```text
+uuid5("aimail", email)
+```
+
+所以实际表现是“一地址一 thread”，但这只是当前实现的简化，不是 DeerFlow 架构强制。
+
+V2 目标应是：
+
+```text
+地址 -> agent/assistant
+邮件 thread -> thread_id（同一 agent 下多个 thread）
+```
+
 ---
 
 ## 2. DeerFlow 当前模型
