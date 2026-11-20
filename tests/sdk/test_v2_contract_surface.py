@@ -1,9 +1,27 @@
 """V2 surface conformance: activation prompt, tool surface, address types."""
 from pathlib import Path
 
+import os
+
 REPO = Path(__file__).resolve().parents[2]
-GATEWAY = REPO.parent / "aimail-gateway"
-ADVANCED = REPO.parent / "aimail-advanced"
+
+
+def _sibling(name: str, env: str) -> Path:
+    """Locate a sibling repo: explicit env override → sibling of REPO → ~/<name>."""
+    override = os.environ.get(env)
+    if override:
+        return Path(override).expanduser().resolve()
+    candidate = REPO.parent / name
+    if candidate.exists():
+        return candidate
+    fallback = Path.home() / name
+    if fallback.exists():
+        return fallback
+    return candidate
+
+
+GATEWAY = _sibling("aimail-gateway", "AIMAIL_GATEWAY_DIR")
+ADVANCED = _sibling("aimail-advanced", "AIMAIL_ADVANCED_DIR")
 
 
 def _read(p: Path) -> str:
