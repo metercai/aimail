@@ -296,7 +296,7 @@ provides_tools:
 - 指针：
 
 ```text
-<profile_home>/.agentmail
+<profile_home>/.agentmail <!-- contract-allowed: design doc must quote the pointer filename -->
 ```
 
 - 禁止从进程全局读取“另一个 profile”的配置。
