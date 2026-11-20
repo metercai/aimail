@@ -336,3 +336,24 @@ new GatewayClient(url, key, PULL_HTTP_TIMEOUT_MS, systemId, {
 
 判据（修完复验，仍是 §8.11 的三条）：注入入站邮件后 30–60s 内出现 `[qa-gw] POST /api/v1/agent-system/pending`
 → `pending_deliveries` 行消失（acked）→ 宿主产生真实 turn。
+
+### 8.15 更正 §8.14：轮询循环确实在跑，STREAM 也连上了（此前判断有误）
+
+把埋点日志过滤条件补全后（之前只 grep 了 `aimail` 前缀，`[qa-poll]/[qa-gw]` 行被自己的过滤器漏掉），
+同一镜像、同一流程的真实输出：
+```
+[qa-gw] POST /api/v1/activate-address-code
+[qa-poll] loop entering
+[qa-poll] round 0 inPoll=false hasStream=function hasProbe=function aborted=false
+[aimail-pull] ocq@test.local: polling enabled every 30000ms (limit 20, agent-scope key)
+[aimail-pull] pull scope: system= email=ocq@test.local fanout=false
+[qa-gw] STREAM /api/v1/agent-system/pending/stream status=200 ctype=text/event-stream
+```
+⇒ §8.14 的"240s 零请求"是**验证方日志过滤器的误判**，撤回。真实情况是：
+- 补丁 A（`isAgentScopeBinding` → `agent_system_id`）+ 补丁 B（client 带 agent-system 三路径 + `X-Agent-System-Id`）之后，
+  适配器**确实发起了聚合流**，且网关返回 `200 text/event-stream`。
+
+仍未闭合：注入的入站邮件（`pending_deliveries.id=10`）在该轮结束后仍为 `pending`，
+但同一时间段日志里出现了针对该地址的 `GET /api/v1/contacts?addresses=ext-sender@example.com,ocq@test.local`
+（说明消息内容已被插件读到）。即：**"流已连、消息已读、但未 ack"**。
+请开发按此定位 ack 分支（`pullAck` → `/api/v1/agent-system/pending/ack`）在该路径上是否被调用/是否 200。
