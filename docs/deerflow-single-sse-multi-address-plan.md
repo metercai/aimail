@@ -147,7 +147,7 @@ DeerFlow 没有“每 profile 一个进程/authority”的墙，因此单 SSE �
 ```text
 AIMail Gateway
   -> bridge
-  -> POST /aimail/inbound
+  -> POST /aimail/inbound <!-- contract-allowed: design doc must quote the contract inbound path -->
   -> HMAC 校验
   -> 共享 process_inbound_mail
   -> start_run()
@@ -190,7 +190,7 @@ os.environ["AIMAIL_AGENT_EMAIL"]
 
 这是进程级全局状态。
 
-当前 HTTP 模式下，每个 `/aimail/inbound` 请求都会重设它；如果多个请求并发：
+当前 HTTP 模式下，每个 `/aimail/inbound` 请求都会重设它；如果多个请求并发： <!-- contract-allowed: design doc must quote the contract inbound path -->
 
 ```text
 request A: set agent A
@@ -276,7 +276,7 @@ start_run rejected / busy / no binding
 当前：
 
 ```text
-/aimail/inbound
+/aimail/inbound <!-- contract-allowed: design doc must quote the contract inbound path -->
 X-Webhook-Signature
 per-address secret
 local inbound URL
@@ -391,7 +391,7 @@ DeerFlow thread
 
 `aimail_inbound.py` 依赖：
 
-- `/aimail/inbound` HTTP route；
+- `/aimail/inbound` HTTP route； <!-- contract-allowed: design doc must quote the contract inbound path -->
 - `X-Webhook-Signature`；
 - per-address webhook secret；
 - bridge/本地 inbound URL。
@@ -631,7 +631,7 @@ async def deliver(delivery):
 
 ### 7.7 Legacy
 
-- 旧 `/aimail/inbound` + webhook 仅作为 legacy；
+- 旧 `/aimail/inbound` + webhook 仅作为 legacy； <!-- contract-allowed: design doc must quote the contract inbound path -->
 - V2 SSE 与 legacy 不能同时消费同一地址；
 - 切换需要显式迁移。
 
