@@ -455,6 +455,97 @@ pending remains
 
 ---
 
+## 7.1 入站预处理放在哪里
+
+结论：
+
+```text
+在目标 profile 的 AIMail runtime 内做
+在 AIMailAdapter.handle_message() 之前做
+不在 agent session/turn 内做
+不在全局 SSE router 里替某个 profile 做
+```
+
+完整顺序：
+
+```text
+V2 SSE
+  -> recipient / binding / dedupe
+  -> 路由到目标 profile runtime
+  -> AIMail 预处理
+  -> AIMailAdapter.handle_message()
+  -> gateway 创建/复用 session
+  -> agent turn
+```
+
+### 为什么必须在 handle_message 之前
+
+1. **thread 信息决定 chat_id/session**
+   - `In-Reply-To` / `References` 必须在 adapter 之前解析；
+   - 新邮件/回复必须先生成稳定 chat_id；
+   - 否则 adapter 无法区分新 session 和回复 session。
+
+2. **ping/pong、重复、拦截类邮件不能创建 session**
+   - 预处理会拦截 ping/pong、重复投递、无效邮件；
+   - 如果先进 session 再预处理，会产生空 session/无效 turn。
+
+3. **附件、persona、enrichment 需要进入最终 MessageEvent**
+   - 预处理结果就是 agent 看到的 content；
+   - 放在 session 内会变成二次处理，增加延迟和失败面。
+
+4. **ack 语义**
+   - 预处理失败 ⇒ 不创建 session，也不 ack；
+   - 只有 adapter 接受后才 ack。
+
+### 为什么必须在目标 profile runtime 内
+
+- binding、persona、SOUL、skills、附件目录都属于 profile；
+- 默认 profile/router 不应读取其他 profile 的配置；
+- 单 SSE 多 profile 场景下必须先路由到目标 profile，再预处理；
+- Hermes 的 profile-scoped SSE 天然满足；
+- DeerFlow 没有 profile，预处理在 delivery 的 binding/assistant 上下文中做，仍在 `start_run` 之前。
+
+### 分层职责
+
+| 层 | 负责 |
+|---|---|
+| SSE runtime | recipient、binding、dedupe、路由、ack |
+| profile AIMail runtime | identity/thread/persona/enrichment/attachment/ping-pong |
+| AIMailAdapter.handle_message | 构造 MessageEvent，进入 host session |
+| host session/agent | 业务推理、工具调用、回复 |
+
+### Hermes
+
+```text
+profile plugin runtime
+  -> preprocess
+  -> adapter.handle_message
+  -> session
+```
+
+预处理在 profile 插件内，但仍在 `handle_message` 之前。
+
+### DeerFlow
+
+```text
+Gateway SSE runtime
+  -> binding/assistant context
+  -> preprocess
+  -> start_run
+  -> thread
+```
+
+预处理在 `start_run` 之前；不能放进 thread/agent 执行阶段。
+
+### 禁止
+
+- 在 `handle_message`/`start_run` 之后再做 AIMail 预处理；
+- 在 default profile 里用全局配置替其他 profile 预处理；
+- 在 agent session 里下载附件/解析 thread/做 persona 规范化；
+- 读取即 ack 后再预处理。
+
+---
+
 ## 8. 分阶段实施
 
 ### Phase 0 — QA 前置
