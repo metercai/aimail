@@ -80,6 +80,20 @@ agent:<profile>:...
 - **Hermes profile**：隔离的配置/技能/记忆/凭据/session 空间；
 - **AIMail AgentSystemId**：本地 AIMail 客户端实例身份，用于 Gateway 聚合。
 
+绑定粒度采用：
+
+```text
+profile = workspace = AIMail 绑定单元
+one profile = one address
+```
+
+因此：
+
+- 地址绑在 profile 层，不再往下拆 DSH workspace；
+- 一个 profile 对一个 Gateway 一条 SSE；
+- 一个地址对应一个 profile，所以实际呈现为“一地址一 SSE”；
+- 一个 profile 内多地址聚合不属于 Hermes 当前模型，V2 的聚合能力在此退化为单地址。
+
 在当前 Hermes 公共插件 API 下，推荐：
 
 ```text
@@ -732,7 +746,8 @@ V2 聚合 SSE 的 delivery 带地址；远端 AIMail Gateway 只要求：
 (AgentSystemId, Gateway) 一条 SSE
 ```
 
-一个 AgentSystemId 可以绑定多个地址，地址可以属于不同 profile。  
+单 SSE 方案下，一个 host 级 AgentSystemId 可以覆盖多个 profile 的地址；  
+但每个 profile 仍然只绑定一个地址，不存在 profile 内多地址聚合。  
 所以“一个远端 AIMail gateway 一条 SSE”在 AIMail 侧没有障碍。
 
 #### Hermes 侧：当前版本有宿主 API 障碍

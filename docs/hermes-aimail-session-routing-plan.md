@@ -34,6 +34,26 @@ Hermes 一个 gateway 进程
 6. 未成功进入目标 session 时不得 ack；
 7. 不依赖 AIMail CLI，不依赖 per-profile webhook 端口。
 
+### 1.1 绑定粒度：one profile = one address
+
+Hermes 采用：
+
+```text
+profile = AIMail 绑定单元 = DSH workspace 的等价空间
+```
+
+因此：
+
+- 地址绑定在 **profile 层**，不再往下拆 DSH workspace；
+- 当前产品模型是 **一个 profile 一个 AIMail 地址**；
+- 一个 profile 对一个 Gateway 一条 SSE；
+- 因为一个 profile 只有一个地址，所以实际呈现为“一个地址一条 SSE”；
+- 这是 profile=workspace 模型的自然结果，不是 V2 契约强制“按地址建 SSE”。
+
+Hermes profile 内部确实有 `workspace/` 目录（文件/工具工作目录），但它不是第二个 AIMail 绑定层级。AIMail 的绑定对象是 profile，不是 profile 内的 workspace 目录。
+
+V2 的 AgentSystemId 技术上可以聚合多个地址，但 Hermes 当前模型不需要、也不启用 profile 内多地址聚合。
+
 ---
 
 ## 2. 核心结论
@@ -52,8 +72,10 @@ V2 的 SSE 单位是：
 (address, Gateway)
 ```
 
-所以一个 AgentSystemId 可以覆盖多个地址，地址再路由到不同 profile。  
+所以单 SSE 模型下，一个 AgentSystemId 可以覆盖多个地址；地址再按“一地址一 profile”路由到不同 profile。  
 AIMail Gateway 不需要知道 Hermes profile。
+
+但这不是 Hermes 的 profile 内多地址聚合：每个 profile 仍然只绑定一个地址。
 
 ### 2.2 真正的难点是 Hermes 的“新 session vs 原 session”
 
