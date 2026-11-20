@@ -141,7 +141,7 @@ binding: {'email':'ocreal@test.local','system_id':'system-b237',
 ```
 未观测到 `polling started`：宿主在绑定前已启动，绑定后需重启宿主（按开发既有裁决）。
 
-### 8.3 DSH（`aimail-host-dsh:latest`，dsh 0.1.7-rc.1）
+### 8.3 DSH（`aimail-host-dsh:latest`，dsh **0.2.2-rc.1**（pins.env 钉版））
 
 插件装入 profile web；`session/modelCatalog` 证明真实模型可路由：
 ```
@@ -183,7 +183,34 @@ session/prompt → accepted:true
 |---|---|---|---|---|
 | Pi（1.5.2） | 14 mail tools 注册 | ✅ binding 正确 | 未见（进程短命） | 未证 |
 | OpenClaw（2026.11.5） | 插件加载（2 plugins） | ✅ binding 正确（hooks 路径） | ✅ armed（重启后） | 未证（pending 未 drain） |
-| DSH（0.1.7-rc.1） | 未观测到 tool 帧 | ✗ 未落 binding | — | 未证 |
+| DSH（0.2.2-rc.1） | 未观测到 tool 帧 | ✗ 未落 binding | — | 未证 |
 
 结论：V2 的"激活 → binding"在 Pi / OpenClaw 已由真实宿主 + 小米模型完成；
 "入站 → turn → ack" 三宿主均未证；DSH 的会话工具面需要开发给出配置口径。
+
+### 8.7 镜像版本核对（验证方实测）
+
+| 镜像 | 版本 |
+|---|---|
+| aimail-host-pi:latest | pi 1.5.2 |
+| aimail-host-openclaw:latest | OpenClaw 2026.11.5 (e13cf15) |
+| aimail-host-dsh:latest | dsh 0.2.2-rc.1（与 `tests/agent-env/pins.env` 一致） |
+
+（更正：§8.3 初稿把宿主 CLI 的 `0.1.7-rc.1` 误写成镜像版本；实际容器内为 `0.2.2-rc.1`。）
+
+### 8.8 OpenClaw 投递复测（镜像内，2026-11-20 晚）
+
+同一次运行内：`/hooks/agent` 激活成功（`status=ok model=mimo-v2.6-flash`）→
+binding 落在 `/app/.aimail/systems/system-b237/ocdel_test.local/agentmail.json` →
+白名单 201 → **重启 gateway** 后日志仍为：
+```
+[aimail-pull] no agent-scope binding — polling not started (push path unchanged; address-code activation enables it)
+```
+即"绑定文件已在、重启后仍判定无 agent-scope 绑定"，因此拉取不启动、入站邮件不会 drain。
+
+请开发确认（OpenClaw 2026.11.5，V2）：
+1. 适配器发现 agent-scope binding 的依据（目录扫描？pointer？`agent_system_id` 与本地派生值比对？）；
+2. 本次 binding 的 `agent_system_id` 与容器内即时派生值是否可能不一致（同一容器内重启，理应稳定）；
+3. 若需要 pointer 之外的条件（如 gateway 侧注册回执），请给出最小判据。
+
+对照：同一镜像内 `/hooks/agent` 能正常跑真实模型并完成 bind（`status=ok`），说明不是模型/工具面问题。
