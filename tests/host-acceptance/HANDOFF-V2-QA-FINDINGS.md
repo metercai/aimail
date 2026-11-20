@@ -110,3 +110,50 @@ binding 落盘（`~/.aimail/systems/system-b237/ocreal_test.local/agentmail.json
 因此上述真实宿主跑的是本机 OpenAI 兼容端点（Qwen3.8-27B），**不是**小米端点。
 要做与生产一致的（小米 `mimo-v2.6-flash`）三宿主真实 L2，需要 Owner 提供 `LLM_API_KEY`
 （或在 CI 侧触发同一条注入路径）。
+
+## 8. 验证方补充（2026-11-20，真实宿主 + 小米 LLM）
+
+密钥来源：`XIAOMI_API_KEY`（验证方环境 `~/.hermes/profiles/verifier/.env`，运行期注入为 `LLM_API_KEY`，
+镜像内不烧 secret）。三个镜像的 provider 端点已逐一核对：`https://api.xiaomimimo.com/v1` + `mimo-v2.6-flash`。
+
+### 8.1 Pi（`aimail-host-pi:latest`，pi 1.5.2）
+
+真实模型（mimo-v2.6-flash）走完激活：
+```
+[agent-aimail] registered 14 mail tools + local inbound receiver
+[agent-aimail] transport=sse (no listener/CLI)
+Mailbox activated and bound successfully:
+- Address: pireal@test.local
+- System ID: system-b237
+- Config: /root/.aimail/systems/system-b237/pireal_test.local/agentmail.json
+- Pointer: /root/.pi/.agentmail
+```
+binding：`system_id=system-b237`、`agent_system_id=asid_5850…`、`workspace_path=/root/ws`、无 `webhook_url`。
+⚠ 附带一条：`[agent-aimail] inbound down not reported … spawn aimail ENOENT`（pull 模式下仍尝试拉起 legacy `aimail` 进程）。
+
+### 8.2 OpenClaw（`aimail-host-openclaw:latest`，OpenClaw 2026.11.5）
+
+`plugins install 0.5.0 --force --accept-capabilities` + `plugins enable`；`/hooks/agent` 提交激活 prompt：
+```
+{"ok":true,"runId":"67a4a29b-…"}
+binding: {'email':'ocreal@test.local','system_id':'system-b237',
+          'agent_system_id':'asid_d8e22f4…','workspace_path':'/app/.openclaw/workspace','webhook_url':None}
+```
+未观测到 `polling started`：宿主在绑定前已启动，绑定后需重启宿主（按开发既有裁决）。
+
+### 8.3 DSH（`aimail-host-dsh:latest`，dsh 0.1.7-rc.1）
+
+插件装入 profile web；`session/modelCatalog` 证明真实模型可路由：
+```
+{"default":{"provider":"xiaomi","model":"mimo-v2.6-flash"},
+ "routableProviders":["xiaomi"], "groups":[{"id":"xiaomi",…"models":[{"id":"mimo-v2.6-flash"}]}]}
+selectModel → {"selected":{"provider":"xiaomi","model":"mimo-v2.6-flash"}}
+```
+`session/prompt` 返回 `accepted:true`，但两轮（各 180s）均未产生 `aimail_address` 工具帧，也未落 binding。
+需与开发确认：dsh web 的 mux `session/follow(activate)` + prompt 组合在 V2 插件下是否还需要额外的会话事件驱动。
+
+### 8.4 未完成项（真实宿主）
+
+- 三宿主均**未**在本轮证明「入站邮件 → 真实 turn（含唯一串）→ ack 顺序」；
+  openclaw 上一轮观察为 armed 但 30s 内 `pending_deliveries` 仍 pending。
+  这是本轮唯一剩下的功能缺口，需要产品侧确认拉取触发条件（restart 后 arm 与实际 drain 的关系）。
