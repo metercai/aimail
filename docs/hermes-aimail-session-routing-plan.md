@@ -34,6 +34,42 @@ Hermes 一个 gateway 进程
 6. 未成功进入目标 session 时不得 ack；
 7. 不依赖 AIMail CLI，不依赖 per-profile webhook 端口。
 
+### 1.0 Session 归属层级
+
+Hermes 的 session **归属在 profile 下，不在 profile 的 workspace 目录下**。
+
+依据：
+
+- canonical session store 是 `<profile_home>/state.db`；
+- named profile 有独立 `state.db`，session 不跨 profile；
+- profile 目录下 `sessions/` 与 `workspace/` 是兄弟目录；
+- `sessions` 表里 `cwd` / `git_branch` / `git_repo_root` 是 workspace 字段；
+- 用户选择的 workspace/cwd 作为 session 属性持久化，不是 session 的父容器；
+- session key 带 profile：`agent:<profile>:...`。
+
+对比 DSH：
+
+```text
+DSH:    workspace
+          └── session
+
+Hermes: profile
+          ├── state.db（session 容器）
+          ├── sessions/
+          └── workspace/（文件/工具工作目录，不是 session 容器）
+```
+
+因此按“DSH workspace = Hermes profile”做映射时：
+
+- session 的父层级是 profile；
+- AIMail 地址绑定在 profile；
+- profile 内部的 `workspace/` 只是文件资源目录，不参与地址/session 归属。
+
+参考：
+
+- [Session Storage](https://hermes-agent.nousresearch.com/docs/developer-guide/session-storage)
+- [`gateway/mirror.py`](https://github.com/NousResearch/hermes-agent/blob/main/gateway/mirror.py)
+
 ### 1.1 绑定粒度：one profile = one address
 
 Hermes 采用：
