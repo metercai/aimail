@@ -251,6 +251,7 @@ Deploy your own [aimail-gateway](https://github.com/metercai/aimail-gateway), or
 - [V2 gap and implementation plan](docs/v2-gap-and-implementation-plan.md)
 - [V2 release notes](docs/v2-release-notes.md)
 - [V2 QA release handoff](docs/v2-qa-release-handoff.md)
+- [Hermes multiplex V2 refactor plan](docs/hermes-multiplex-v2-refactor-plan.md)
 - [AIMail Host SSE Activation Contract v1 (historical)](docs/aimail-host-sse-contract.md)
 - [tssdk SSE Unification Plan (review draft)](docs/tssdk-sse-unification-plan.md)
 - [Host capability matrix](docs/host-capability-matrix.md)
