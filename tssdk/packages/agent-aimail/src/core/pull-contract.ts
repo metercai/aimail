@@ -52,9 +52,23 @@ export type PullMode = 'auto' | 'stream' | 'poll'
  * 'occupied' = 409, another client holds this key's single-slot mailbox
  * (caller stays in the current mode and backoffs against the SAME endpoint);
  * 'drop' = connect failed / stalled (caller drops straight to Poll);
- * 'error' = mid-stream transport error (caller applies the decision fn).
+ * 'error' = mid-stream transport error (caller applies the decision fn);
+ * {auth} = the endpoint rejected this key (401/403) — an AUTH failure, not a
+ * transport failure. Carries the real HTTP status so the caller can report it
+ * exactly (no fixed 401 stand-in) and drive the 3-strike fatal (PullAuthError).
  */
-export type StreamRoundResult = 'stop' | 'stay' | 'occupied' | 'drop' | 'error'
+export type StreamRoundResult =
+  | 'stop'
+  | 'stay'
+  | 'occupied'
+  | 'drop'
+  | 'error'
+  | { auth: 401 | 403 }
+
+/** True when an SSE round result is an auth rejection (401/403). */
+export function isAuthResult(res: StreamRoundResult): res is { auth: 401 | 403 } {
+  return typeof res === 'object' && (res.auth === 401 || res.auth === 403)
+}
 
 /** One delivery (envelope metadata): no mail body. */
 export interface PullDelivery {

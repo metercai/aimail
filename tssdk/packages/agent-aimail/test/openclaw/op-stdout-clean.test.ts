@@ -12,11 +12,31 @@
 //   ① register(api) throughout (including async settle) **must not call console.log** (stdout clean);
 //   ② Diagnostic lines are allowed to go to console.error (stderr) — the contract only constrains stdout.
 //   op result JSON goes through the command action's process.stdout.write, not on this register path.
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import * as fs from 'node:fs'
+import * as os from 'node:os'
+import * as path from 'node:path'
 
 describe('openclaw-aimail op-path stdout cleanliness (Contract §4.1(2))', () => {
+  let tmpHome: string
+  const prevHome = process.env.HOME
+  beforeEach(() => {
+    // Isolate HOME: register() now performs filesystem effects (hooks
+    // wiring, board release, skill copy) under $HOME/.openclaw.
+    tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-opclean-'))
+    fs.mkdirSync(path.join(tmpHome, '.openclaw'), { recursive: true })
+    fs.writeFileSync(
+      path.join(tmpHome, '.openclaw', 'openclaw.json'),
+      JSON.stringify({ gateway: { mode: 'local', bind: 'loopback', port: 18789 }, agents: { defaults: { sessionStore: { agentId: 'main' } } } }),
+      { mode: 0o600 },
+    )
+    process.env.HOME = tmpHome
+  })
   afterEach(() => {
     vi.restoreAllMocks()
+    if (prevHome === undefined) delete process.env.HOME
+    else process.env.HOME = prevHome
+    fs.rmSync(tmpHome, { recursive: true, force: true })
   })
 
   it('register(api) emits ZERO console.log (stdout stays clean for the op path)', async () => {

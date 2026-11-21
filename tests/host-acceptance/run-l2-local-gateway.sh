@@ -54,6 +54,14 @@ curl -fsS "http://127.0.0.1:$HTTP_PORT/health" >/dev/null
 ADMIN="$(cat "$WORK/storage/aimail.db.admin_key")"
 SID="$(cat "$WORK/storage/system.id")"
 node "$ROOT/tests/dsh-acceptance/harness/admin.mjs" --gateway "http://127.0.0.1:$HTTP_PORT"   --key "$ADMIN" --identity "$SID" --system "$SID" --domain test.local
+# NO_POINTER=1 reproduces the QA real host: pysdk external activation wrote no
+# platform pointer, so the host restart lands on the no-pointer tier-3 fallback.
+# On a pre-fix build (0.5.0) the tier-3 V1 predicate rejects the V2 binding
+# (no pull armed) => the harness MUST exit non-zero (the B1/B2 negative
+# evidence). On the fixed build (0.5.1, grouping) it arms one aggregate stream
+# per (AgentSystemId, Gateway) and delivery is received => green.
+NOPTR_FLAG=""
+if [ "${NO_POINTER:-0}" = "1" ]; then NOPTR_FLAG="--no-pointer"; fi
 ACLAIM=$(python3 "$HERE/fixture/claim_local.py" --gateway "http://127.0.0.1:$HTTP_PORT" --spool "$SPOOL" --email "qa-$HOST-addr@example.com" --name "QA $HOST" --domain test.local --kind address --agentname alice)
 ADDR_CODE=$(printf '%s' "$ACLAIM" | python3 -c 'import json,sys;print(json.load(sys.stdin)["activation_code"])')
 echo "local fixture address code: $ADDR_CODE"
@@ -81,6 +89,6 @@ else
   DELIVERY=1 node "$HERE/harness.mjs" "$HOST" \
     --gateway "http://127.0.0.1:$HTTP_PORT" \
     --email alice@test.local --workspace "$WORK/workspace" --home "$WORK/home" \
-    --domain test.local --address-code "$ADDR_CODE" $EXTRA --delivery
+    --domain test.local --address-code "$ADDR_CODE" $EXTRA $NOPTR_FLAG --delivery
 fi
-echo "L2-LOCAL-GATEWAY PASS ($HOST)"
+[ -n "$NOPTR_FLAG" ] && echo "L2-LOCAL-GATEWAY PASS ($HOST, no-pointer)" || echo "L2-LOCAL-GATEWAY PASS ($HOST)"

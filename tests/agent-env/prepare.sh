@@ -89,7 +89,12 @@ npm_install_pinned() {
     say "$cmd already at pinned $ver"; return 0
   fi
   say "npm install -g $pkg@$ver${have:+ (replacing $have)}"
-  npm install -g "$pkg@$ver" --no-audit --no-fund || die "npm install $pkg@$ver failed"
+  # A pre-existing non-npm-owned shim (corepack's pnpm.js symlink is the known
+  # case) makes npm refuse the bin with EEXIST without touching the package
+  # itself; retry once with --force so the pinned binary actually lands.
+  npm install -g "$pkg@$ver" --no-audit --no-fund \
+    || { say "$cmd bin path likely held by a non-npm shim — retrying with --force"
+         npm install -g "$pkg@$ver" --no-audit --no-fund --force || die "npm install $pkg@$ver failed"; }
 }
 
 install_hermes() {

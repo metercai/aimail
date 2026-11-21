@@ -23,12 +23,18 @@ import {
   logAimailDispatch,
   startAgentPullEntries,
   loadAgentConfig,
+  listAgentConfigs,
+  listSystemDirs,
   startSystemPull,
+  resolveAgentPullSettings,
+  startAgentSystemGroups,
+  freshDeliveryTarget,
   AGENT_SCOPE_SYSTEM_PREFIX,
   type AgentConfig,
   type AgentPullHandle,
   type AgentPullOverrides,
   type InboundPayload,
+  type RequestClient,
   INBOUND_PATH,
 } from '../core/index.js'
 import type { OpenClawPluginApi } from 'openclaw/plugin-sdk/plugin-entry'
@@ -295,6 +301,55 @@ export async function deliverInbound(
  * here. Returns the handles; the host stops them on its own shutdown (the
  * timers are unref'd, so the process can always exit).
  */
+/**
+ * Shared pulled-delivery chain (tier-1/tier-2/no-pointer all funnel here):
+ * body shape check → recipient routing → inbound chain. A non-JSON body is a
+ * MALFORMED delivery (a real error: throw ⇒ un-acked ⇒ re-pull); a missing
+ * target or a failed inbound chain is likewise not-acked (re-pulled) — never
+ * silently dropped. The delivery-level skip (paused/unknown) is NOT here: it
+ * is the caller's typed-result concern (P1-A), decided from a FRESH binding
+ * lookup before this chain runs.
+ */
+async function deliverPulled(
+  api: OpenClawPluginApi,
+  mail: { id: number; email: string; headers: Record<string, unknown>; body: unknown },
+): Promise<void> {
+  if (typeof mail.body !== 'object' || mail.body === null) {
+    throw new Error(`pulled delivery ${mail.id} for ${mail.email} carries no JSON payload — not acking`)
+  }
+  const headers: Record<string, unknown> = {
+    ...(mail.headers ?? {}),
+    'x-aimail-email': mail.email,
+  }
+  const target = await resolveInboundTarget(mail.body as InboundPayload, headers)
+  if (!target) {
+    throw new Error(`pulled delivery ${mail.id}: no binding for ${mail.email} — not acking`)
+  }
+  const out = await deliverInbound(api, target, mail.body as InboundPayload, headers)
+  if (!out.ok) {
+    throw new Error(
+      `pulled delivery ${mail.id}: inbound chain did not deliver (${out.status}: ${out.detail ?? ''}) — not acking`,
+    )
+  }
+}
+
+/**
+ * Pull entry (agent-scope bindings only) — the missing production wire for the
+ * address-code flow: an address activated by an activation code has NO push
+ * path (the gateway stores `webhook_url = NULL` for it), so the adapter must
+ * fetch its own mail on a timer. Pulled mail enters `deliverInbound`, i.e. the
+ * very same chain pushed mail takes.
+ *
+ * Tier decision (V2 contract §9):
+ *   - system admin_key present ⇒ tier-1 system aggregate (unchanged);
+ *   - pointer binding present ⇒ tier-2 AgentSystemId aggregate — with the
+ *     §6.4 decision tree (P0-6/P0-7): disabled ⇒ 0 stream; paused ⇒ active
+ *     sibling pool (0 stream if empty, else the group aggregate, pointer
+ *     excluded); active ⇒ the existing tier-2 stream with settings + the
+ *     delivery-level fresh lookup;
+ *   - else ⇒ no-pointer fallback: startAgentPullEntries (branch guard: V2
+ *     aggregate groups / V1 per-binding, plan §6.5).
+ */
 export async function startInboundPull(
   api: OpenClawPluginApi,
   opts: {
@@ -302,6 +357,8 @@ export async function startInboundPull(
     env?: NodeJS.ProcessEnv
     overrides?: AgentPullOverrides
     systemId?: string
+    /** Test seam: build the aggregate/per-binding client (real path unchanged). */
+    clientFor?: (rep: AgentConfig) => RequestClient
   } = {},
 ): Promise<AgentPullHandle[]> {
   const ptr = await readPointer()
@@ -313,16 +370,7 @@ export async function startInboundPull(
       gatewayUrl: sys.gateway_url,
       apiKey: sys.admin_key,
       ...(opts.log ? { log: opts.log } : {}),
-      onEmail: async (mail) => {
-        if (typeof mail.body !== 'object' || mail.body === null) {
-          throw new Error(`pulled delivery ${mail.id} for ${mail.email} carries no JSON payload — not acking`)
-        }
-        const headers: Record<string, unknown> = { ...(mail.headers ?? {}), 'x-aimail-email': mail.email }
-        const target = await resolveInboundTarget(mail.body as InboundPayload, headers)
-        if (!target) throw new Error(`pulled delivery ${mail.id}: no binding for ${mail.email} — not acking`)
-        const out = await deliverInbound(api, target, mail.body as InboundPayload, headers)
-        if (!out.ok) throw new Error(`pulled delivery ${mail.id}: inbound chain did not deliver (${out.status}: ${out.detail ?? ''}) — not acking`)
-      },
+      onEmail: (mail) => deliverPulled(api, mail),
     })
     return [{
       email: `system:${sid}`, started: true, reason: 'enabled', intervalMs: 0, limit: 0,
@@ -330,32 +378,100 @@ export async function startInboundPull(
       stats: () => ({ pulled: 0, acked: 0, errors: 0 }),
     }]
   }
-  // B2 (no system): one AgentSystemId aggregate stream. The first bound
-  // address supplies the address-scoped credential; the gateway authorizes
-  // every address owned by this AgentSystemId.
+  // B2 (no system): one AgentSystemId aggregate stream (tier-2 / pointer).
+  // The pointer is a DISCOVERY entry, not an agent switch (P0-7): a paused
+  // pointer address must NOT starve the other active addresses of the same
+  // (AgentSystemId, Gateway) — they keep exactly ONE aggregate stream (rep =
+  // an active sibling), and the pointer's own mail is skipped at delivery
+  // (fresh lookup ⇒ skip('paused'), left pending until resume).
   const ptrCfg = ptr.system_id && ptr.email
     ? await loadAgentConfig(ptr.system_id, ptr.email).catch(() => undefined)
     : undefined
   if (ptrCfg?.api_key) {
+    const env = opts.env ?? process.env
+    const settings = resolveAgentPullSettings(ptrCfg, env, opts.overrides ?? {})
+    if (!settings.enabled) {
+      // Global switch (AIMAIL_PULL=0 / disabled): one decision for the whole
+      // profile — tier-2, grouping and per-binding all honor the same env.
+      opts.log?.(
+        `[aimail-pull] pointer agent:${ptrCfg.email} pull disabled by config ` +
+          `(${settings.reason}) — no stream`,
+      )
+      return []
+    }
+    if (ptrCfg.paused === true) {
+      // P0-7: pause the address, not the AgentSystemId. Scan the active
+      // sibling pool of this (AgentSystemId, Gateway) and keep ONE aggregate
+      // stream for it (the pointer's own mail is skipped at delivery level).
+      const asid = ptrCfg.agent_system_id ?? (await getAgentSystemId())
+      const rawPool: AgentConfig[] = []
+      const sids = opts.systemId ? [opts.systemId] : await listSystemDirs()
+      for (const s of sids) {
+        for (const c of await listAgentConfigs(s)) {
+          const isSelf =
+            c.system_id === ptrCfg.system_id &&
+            (c.email ?? '').toLowerCase() === (ptrCfg.email ?? '').toLowerCase()
+          if (isSelf) continue
+          if (c.paused === true || !c.api_key) continue
+          if (c.agent_system_id !== asid) continue
+          if (c.gateway_url !== ptrCfg.gateway_url) continue
+          rawPool.push(c)
+        }
+      }
+      const poolSeen = new Set<string>()
+      const pool: AgentConfig[] = []
+      for (const c of rawPool) {
+        const e = (c.email ?? '').toLowerCase()
+        if (!e || poolSeen.has(e)) continue
+        poolSeen.add(e)
+        pool.push(c)
+      }
+      if (pool.length === 0) {
+        opts.log?.(
+          `[aimail-pull] pointer agent:${ptrCfg.email} paused, no active ` +
+            'sibling — no stream (resume re-arms in-process)',
+        )
+        return []
+      }
+      const handles = await startAgentSystemGroups(pool, {
+        onEmail: (_cfg, mail) => deliverPulled(api, mail),
+        ...(opts.log ? { log: opts.log } : {}),
+        ...(opts.env ? { env: opts.env } : {}),
+        ...(opts.overrides ? { overrides: opts.overrides } : {}),
+        ...(opts.clientFor ? { clientFor: opts.clientFor } : {}),
+      })
+      opts.log?.(
+        `[aimail-pull] pointer agent:${ptrCfg.email} paused — aggregate via ` +
+          `agent:${asid} gw=${ptrCfg.gateway_url} ` +
+          `members=[${pool.map((m) => m.email).join(', ')}] (pointer excluded)`,
+      )
+      return handles
+    }
+    // Normal branch: the pointer address is active — the existing tier-2
+    // aggregate stream (rep = pointer), now wired with the resolved settings
+    // (P0-5/P1-C) and the delivery-level fresh lookup (P0-6).
     const h = await startSystemPull({
       systemId: ptrCfg.email,
-      agentSystemId: await getAgentSystemId(),
+      agentSystemId: ptrCfg.agent_system_id ?? (await getAgentSystemId()),
       gatewayUrl: ptrCfg.gateway_url,
       apiKey: ptrCfg.api_key,
       ...(opts.log ? { log: opts.log } : {}),
+      ...(opts.clientFor ? { client: opts.clientFor(ptrCfg) } : {}),
+      intervalMs: settings.intervalMs,
+      limit: settings.limit,
+      mode: settings.mode,
       onEmail: async (mail) => {
-        if (typeof mail.body !== 'object' || mail.body === null) {
-          throw new Error(`pulled delivery ${mail.id} for ${mail.email} carries no JSON payload — not acking`)
-        }
-        const headers: Record<string, unknown> = { ...(mail.headers ?? {}), 'x-aimail-email': mail.email }
-        const target = await resolveInboundTarget(mail.body as InboundPayload, headers)
-        if (!target) throw new Error(`pulled delivery ${mail.id}: no binding for ${mail.email} — not acking`)
-        const out = await deliverInbound(api, target, mail.body as InboundPayload, headers)
-        if (!out.ok) throw new Error(`pulled delivery ${mail.id}: inbound chain did not deliver (${out.status}: ${out.detail ?? ''}) — not acking`)
+        // Delivery-level fresh lookup (P0-6): a runtime pause/archive takes
+        // effect on the very next delivery — paused ⇒ skip('paused'),
+        // unknown ⇒ skip('unknown') (typed result, not a throw).
+        const { skip } = await freshDeliveryTarget(mail.email)
+        if (skip) return skip
+        await deliverPulled(api, mail)
       },
     })
     return [{
-      email: `agent:${ptrCfg.email}`, started: true, reason: 'enabled', intervalMs: 0, limit: 0,
+      email: `agent:${ptrCfg.email}`, started: true, reason: 'enabled',
+      intervalMs: settings.intervalMs, limit: settings.limit,
       stop: h.stop, done: h.done as Promise<import('../core/index.js').PollStats>,
       stats: () => ({ pulled: 0, acked: 0, errors: 0 }),
     }]
@@ -365,33 +481,10 @@ export async function startInboundPull(
     ...(opts.log ? { log: opts.log } : {}),
     ...(opts.env ? { env: opts.env } : {}),
     ...(opts.overrides ? { overrides: opts.overrides } : {}),
-    onEmail: async (cfg, mail) => {
-      if (typeof mail.body !== 'object' || mail.body === null) {
-        throw new Error(
-          `pulled delivery ${mail.id} for ${cfg.email} carries no JSON payload — not acking`,
-        )
-      }
-      // The delivery's own address is authoritative for routing (it is what
-      // the agent-scope key was verified against server-side).
-      const headers: Record<string, unknown> = {
-        ...(mail.headers ?? {}),
-        'x-aimail-email': mail.email,
-      }
-      const target = await resolveInboundTarget(mail.body as InboundPayload, headers)
-      if (!target) {
-        throw new Error(
-          `pulled delivery ${mail.id}: no binding for ${mail.email} — not acking`,
-        )
-      }
-      const out = await deliverInbound(api, target, mail.body as InboundPayload, headers)
-      if (!out.ok) {
-        throw new Error(
-          `pulled delivery ${mail.id}: inbound chain did not deliver (${out.status}: ${out.detail ?? ''}) — not acking`,
-        )
-      }
-    },
+    onEmail: (_cfg, mail) => deliverPulled(api, mail),
   })
 }
+
 
 export function createInboundHandler(api: OpenClawPluginApi) {
   return async (

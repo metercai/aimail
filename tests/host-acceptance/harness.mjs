@@ -105,19 +105,77 @@ if (!secondEmail && (plans.length !== 1 || plans[0].scope !== 'address' || !plan
 }
 console.log(JSON.stringify({ step: 'stream-plan', ok: true, plans: plans.length }))
 
+// ── delivery: exercise the REAL host entry (the adapter's startInboundPull),
+// NOT a hand-rolled startSystemPull. The hand-rolled version armed the correct
+// aggregate tier-2 directly, bypassing the host's tier decision — so a build
+// with the no-pointer/tier-3 defect (B1/B2) still passed the gate ("false
+// green"). The real entry runs the host's actual tier decision:
+//   pointer present  → tier-2 aggregate (startSystemPull)
+//   no pointer       → tier-3 (startAgentPullEntries / grouping)
+// `--no-pointer` reproduces the QA real host (pysdk external activation wrote
+// no pointer) — the B1/B2 scenario: on 0.5.0 the tier-3 V1 predicate rejects
+// the V2 binding (no pull armed) ⇒ the gate MUST go red; on 0.5.1 (grouping)
+// it arms one aggregate stream per (AgentSystemId, Gateway) ⇒ green.
 if (delivery) {
-  const { startSystemPull, startAgentPullEntries, GatewayClient } = await import(path.join(dist, 'core/index.js'))
-  const seen = []
-  const agentSystemId = await core.getAgentSystemId()
-  const handles = [await startSystemPull({
-        systemId: email,
-        agentSystemId,
-        gatewayUrl: cfg.gateway_url,
-        apiKey: cfg.api_key,
-        onEmail: async (mail) => {
-          seen.push({ id: mail.id, email: mail.email, workspace: cfg.workspace_path })
-        },
-      })]
+  const noPointer = process.argv.includes('--no-pointer')
+  const { GatewayClient } = await import(path.join(dist, 'core/index.js'))
+
+  if (noPointer) {
+    // pointer file name comes from the contract single source (POINTER_FILE),
+    // not a literal — the L0 literal ratchet forbids new contract-value locations.
+    const ptrPath = path.join(home, host === 'pi' ? '.pi' : '.openclaw', core.POINTER_FILE)
+    await fs.rm(ptrPath, { force: true })
+    console.log(JSON.stringify({ step: 'no-pointer', removed: ptrPath }))
+  }
+
+  // Delivery observation at the real delivery point: the host hands the
+  // enriched mail to the owning agent's session. openclaw → POST /hooks/agent
+  // (fake endpoint, since L2 has no real openclaw gateway); pi → sendUserMessage.
+  const delivered = []
+  let api
+  let hookServer
+  if (host === 'openclaw') {
+    const http = await import('node:http')
+    hookServer = http.createServer((req, res) => {
+      if (req.method === 'POST' && (req.url ?? '').startsWith('/hooks/agent')) {
+        let body = ''
+        req.on('data', (c) => (body += c))
+        req.on('end', () => {
+          try { delivered.push(JSON.parse(body)) } catch { delivered.push({ raw: body.slice(0, 200) }) }
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ ok: true }))
+        })
+      } else {
+        res.writeHead(404, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ status: 'not_found' }))
+      }
+    })
+    await new Promise((r) => hookServer.listen(0, '127.0.0.1', r))
+    const hookPort = hookServer.address().port
+    const ocHome = path.join(home, '.openclaw')
+    await fs.mkdir(ocHome, { recursive: true })
+    await fs.writeFile(path.join(ocHome, 'openclaw.json'), JSON.stringify({
+      gateway: { port: hookPort },
+      hooks: { path: '/hooks', token: 'l2-fixture-token', enabled: true },
+      agents: { entries: { main: {} } },
+    }, null, 2))
+    api = {} // deliverToAgent ignores api (void api); it fetches the hooks endpoint directly
+  } else {
+    api = {
+      sendUserMessage: (msg) => {
+        try { delivered.push(JSON.parse(msg)) } catch { delivered.push({ raw: String(msg).slice(0, 200) }) }
+      },
+    }
+  }
+
+  // Real host entry (adapter), not a hand-rolled pull.
+  const adapter = host === 'pi'
+    ? await import(path.join(dist, 'pi/index.js'))
+    : await import(path.join(dist, 'openclaw/inbound.js'))
+  const logLines = []
+  const handles = await adapter.startInboundPull(api, { log: (l) => { logLines.push(l) } })
+    .catch((e) => { console.error('startInboundPull threw:', e?.message ?? e); return [] })
+
   try {
     const client = new GatewayClient(cfg.gateway_url, cfg.api_key, 30_000, email)
     const r = await client.request('POST', '/api/v1/system/welcome', { to: [] })
@@ -135,14 +193,28 @@ if (delivery) {
     }
     const want = secondEmail ? 2 : 1
     const deadline = Date.now() + 20_000
-    while (seen.length < want && Date.now() < deadline) await new Promise((r) => setTimeout(r, 250))
+    while (delivered.length < want && Date.now() < deadline) await new Promise((r) => setTimeout(r, 250))
   } finally {
-    for (const h of handles) h.stop()
+    for (const h of handles) { try { h.stop() } catch { /* already stopped */ } }
+    if (hookServer) await new Promise((r) => hookServer.close(r))
   }
-  if (seen.length < (secondEmail ? 2 : 1)) { console.error('no SSE delivery received'); process.exit(1) }
-  if (path.resolve(seen[0].workspace) !== workspace) {
-    console.error(`delivery workspace mismatch: ${seen[0].workspace} want ${workspace}`)
+
+  const armed = handles.some((h) => h.started === true)
+  console.log(JSON.stringify({
+    step: 'pull-handles', noPointer, armed,
+    handles: handles.map((h) => ({ email: h.email, started: h.started, reason: h.reason })),
+    log: logLines,
+  }))
+  // The pull must be ARMED (≥1 started handle). On 0.5.0 + no-pointer the tier-3
+  // V1 predicate rejects the V2 binding ⇒ no handle ⇒ this is the B1 negative
+  // evidence (the gate MUST go red here on a pre-fix build).
+  if (!armed) {
+    console.error('pull not armed (no started handle) — no-pointer V2 binding not pulled (B1)')
     process.exit(1)
   }
-  console.log(JSON.stringify({ step: 'delivery', ok: true, seen }))
+  if (delivered.length < (secondEmail ? 2 : 1)) {
+    console.error(`no SSE delivery received (got ${delivered.length}) — pull armed but delivery chain broken (B1/B2)`)
+    process.exit(1)
+  }
+  console.log(JSON.stringify({ step: 'delivery', ok: true, delivered: delivered.length, handles: handles.length, noPointer }))
 }

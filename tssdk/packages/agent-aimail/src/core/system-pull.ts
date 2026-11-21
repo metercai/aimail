@@ -7,8 +7,13 @@
  * after the callback resolves, so a routing/delivery failure stays pending.
  */
 import { GatewayClient } from './gateway.js'
-import { startPolling, type RequestClient } from './address-code.js'
-import { PULL_HTTP_TIMEOUT_MS } from './pull-contract.js'
+import {
+  startPolling,
+  AUTH_FATAL_STREAK,
+  type PullDeliveryResult,
+  type RequestClient,
+} from './address-code.js'
+import { PULL_HTTP_TIMEOUT_MS, type PullMode } from './pull-contract.js'
 
 export interface SystemPullMail {
   id: number
@@ -23,10 +28,24 @@ export interface SystemPullOptions {
   agentSystemId?: string
   gatewayUrl: string
   apiKey: string
-  onEmail: (mail: SystemPullMail) => void | Promise<void>
+  onEmail: (mail: SystemPullMail) => void | Promise<void | PullDeliveryResult>
   log?: (line: string) => void
   client?: RequestClient
   signal?: AbortSignal
+  /**
+   * Pull cadence (M3: the tier-2 / grouping callers wire their resolved
+   * settings here so the stream respects AIMAIL_PULL interval/limit/mode —
+   * previously the stream fell to startPolling defaults regardless).
+   */
+  intervalMs?: number
+  limit?: number
+  mode?: PullMode
+  /**
+   * Per-strike auth rejection (401/403) visibility (P1-B §5.2.4): the first
+   * strike logs a group-failure line so a dead key is observable immediately,
+   * not only when the loop goes fatal at AUTH_FATAL_STREAK.
+   */
+  onAuthFailure?: (status: number, streak: number) => void
 }
 
 export interface SystemPullHandle {
@@ -52,16 +71,42 @@ export async function startSystemPull(opts: SystemPullOptions): Promise<SystemPu
     if (signal.aborted) controller.abort()
     else signal.addEventListener('abort', onAbort, { once: true })
   }
-  const done = startPolling(client, async (mail) => {
-    await opts.onEmail({
-      id: mail.id,
-      email: mail.email,
-      headers: (mail.headers ?? {}) as Record<string, unknown>,
-      body: mail.body,
-    })
-  }, { signal: controller.signal })
+  const done = startPolling(
+    client,
+    async (mail) => {
+      // RETURN the host's typed result (P1-A): a skip must reach
+      // deliverBatches or the mail would be acked despite the decline.
+      return opts.onEmail({
+        id: mail.id,
+        email: mail.email,
+        headers: (mail.headers ?? {}) as Record<string, unknown>,
+        body: mail.body,
+      })
+    },
+    {
+      signal: controller.signal,
+      ...(opts.intervalMs !== undefined ? { intervalMs: opts.intervalMs } : {}),
+      ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
+      ...(opts.mode !== undefined ? { mode: opts.mode } : {}),
+      ...(opts.onAuthFailure !== undefined
+        ? {
+            onAuthFailure: (status: number, streak: number) => {
+              opts.log?.(
+                `[aimail-pull] system ${opts.systemId}: auth rejection (${status}) ` +
+                  `strike ${streak} of ${AUTH_FATAL_STREAK}`,
+              )
+              opts.onAuthFailure!(status, streak)
+            },
+          }
+        : {}),
+    },
+  )
     .catch((e: unknown) => {
+      // Settle done with the error value (P1-B): an auth fatal (PullAuthError)
+      // or any loop failure must be observable via `await handle.done`, not
+      // silently swallowed into an undefined resolution.
       opts.log?.(`[aimail-pull] system ${opts.systemId}: ${e instanceof Error ? e.message : String(e)}`)
+      return e as unknown
     })
     .finally(() => signal?.removeEventListener('abort', onAbort))
   return { identity: opts.systemId, stop: () => controller.abort(), done }

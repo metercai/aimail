@@ -23,6 +23,7 @@ import {
   PULL_HOLD_MAX_MS,
   PULL_MODE_ENV,
   PULL_REPROBE_INTERVAL_MS,
+  isAuthResult,
   parsePullMode,
   pullDecideNextMode,
   pullPollBackoffSecs,
@@ -199,7 +200,8 @@ export interface ActivateAddressCodePersistOptions {
   platformHome?: string
 }
 
-export interface ActivateAddressCodePersistResult extends ActivateAddressCodeResult {
+export interface ActivateAddressCodePersistResult
+  extends Omit<ActivateAddressCodeResult, 'raw_key'> {
   config_path?: string | undefined
   pointer_written?: boolean | undefined
   /** Absolute path of the landed pointer ('' when none was written). */
@@ -241,8 +243,18 @@ export async function activateAddressCodePersist(
   const act = await activateAddressCode(client, code, emailAddress, {
     agentSystemId: await getAgentSystemId(),
   })
-  if (!act.success || !act.raw_key || !act.system_id || !act.email_address) {
-    return act
+  if (!act.success || !act.raw_key) {
+    return act // failure envelope: no raw_key by construction
+  }
+  if (!act.system_id || !act.email_address) {
+    // Key present but identity incomplete: persisting would orphan the key
+    // and echoing it back would leak it into the agent context (F1). Discard
+    // it and fail cleanly — the binding is not written on this path.
+    return {
+      success: false,
+      error: 'activation returned a key without a complete identity ' +
+        '(system_id/email_address missing); nothing was persisted, key discarded',
+    }
   }
   const sid = act.system_id
   const email = act.email_address
@@ -324,7 +336,8 @@ export async function activateAddressCodePersist(
 
   return {
     success: true,
-    raw_key: act.raw_key,
+    // No raw_key here on purpose (F1): the key is already persisted in the
+    // binding file above and must not travel back into the agent context.
     system_id: sid,
     email_address: email,
     expires_at: act.expires_at,
@@ -345,7 +358,7 @@ export type { PullBatch, PullDelivery } from './pull-contract.js'
 export async function pullList(
   client: RequestClient,
   limit = 20,
-): Promise<{ success: boolean; batches: PullBatch[]; error?: string }> {
+): Promise<{ success: boolean; batches: PullBatch[]; error?: string; status?: number }> {
   const res = await client.request('POST', client.pendingPath ?? '/api/v1/admin/pending', {
     limit: Math.max(1, Math.min(limit, 200)),
     // Long-pull hold: an empty queue is held server-side up to PULL_HOLD_MAX_MS
@@ -353,7 +366,9 @@ export async function pullList(
     timeout_ms: PULL_HOLD_MAX_MS,
   })
   if (res.status !== 200) {
-    return { success: false, batches: [], error: String(res.error ?? 'pull list failed') }
+    // Surface the real HTTP status: the auth-fatal path (401/403) needs it to
+    // report exactly and stop the loop, not retry forever.
+    return { success: false, batches: [], error: String(res.error ?? 'pull list failed'), status: res.status }
   }
   return { success: true, batches: (res.batches as PullBatch[]) ?? [] }
 }
@@ -376,6 +391,32 @@ export interface PollStats {
   errors: number
 }
 
+/**
+ * Outcome of one delivery into the host's inbound chain.
+ * 'accepted' = the host took the mail (acked); 'skip' = the host declined on
+ * purpose (paused / unknown target) — NOT an error: the mail is left pending
+ * (re-pulled next round), never acked, and never counted as an error. A
+ * callback that returns void/undefined is 'accepted' (backward compatible
+ * with every pre-existing onEmail).
+ */
+export type PullDeliveryResult =
+  | { status: 'accepted' }
+  | { status: 'skip'; reason: 'paused' | 'unknown' }
+
+/**
+ * Auth fatal: the gateway rejected the key N consecutive times (401/403).
+ * A dead/misconfigured key would otherwise backoff-loop forever and masquerade
+ * as "no mail". Carries the REAL HTTP status (never a fixed 401 stand-in).
+ */
+export class PullAuthError extends Error {
+  readonly status: number
+  constructor(status: number) {
+    super(`auth failure (${status}) — key rejected by the gateway`)
+    this.name = 'PullAuthError'
+    this.status = status
+  }
+}
+
 export interface StartPollingOptions {
   intervalMs?: number
   limit?: number
@@ -395,7 +436,18 @@ export interface StartPollingOptions {
    * signal of their own lifecycle so no timer outlives the process.
    */
   signal?: AbortSignal
+  /**
+   * Auth-fatal callback (401/403). Called with the REAL status + the
+   * consecutive-failure streak on every auth rejection. The loop itself
+   * throws PullAuthError at AUTH_FATAL_STREAK; this hook lets the caller
+   * log a group-failure line as soon as the FIRST rejection happens
+   * (visibility before the loop is torn down).
+   */
+  onAuthFailure?: (status: number, streak: number) => void
 }
+
+/** Consecutive 401/403 failures before a pull loop goes fatal (PullAuthError). */
+export const AUTH_FATAL_STREAK = 3
 
 /** Abortable interval sleep. The timer is unref'd so a polling loop can
  *  never be the handle that keeps a host process alive ("stop on process exit"):
@@ -420,14 +472,18 @@ function pollSleep(ms: number, signal?: AbortSignal): Promise<void> {
 /**
  * Shared forward+ack path used by BOTH the Stream and the Poll transports
  * (parity: py `_deliver_batches`). Dedup key = delivery id (stable and
- * unique). An `onEmail` failure — sync throw OR rejected promise — leaves
- * the id un-acked and removes it from the dedup set: the mail re-pulls next
- * round (nothing is lost, §9 failover).
+ * unique). Delivery outcomes:
+ *   - void/undefined / {status:'accepted'} → acked (the host took it);
+ *   - {status:'skip'} → left PENDING on purpose (paused/unknown target):
+ *     NOT acked, NOT an error, removed from the dedup set so it re-pulls
+ *     next round and is re-evaluated (a resumed address can then be taken);
+ *   - a throw (sync or rejected) → left un-acked (re-pulled) + counted as
+ *     an error (a genuine delivery failure, distinct from a skip).
  */
 async function deliverBatches(
   client: RequestClient,
   batches: PullBatch[],
-  onEmail: (mail: { id: number; email: string; headers: unknown; body: unknown }) => void | Promise<void>,
+  onEmail: (mail: { id: number; email: string; headers: unknown; body: unknown }) => void | Promise<void | PullDeliveryResult>,
   seen: Set<number>,
   stats: PollStats,
 ): Promise<void> {
@@ -448,7 +504,14 @@ async function deliverBatches(
         // Awaited: an async delivery that rejects must count as a failure
         // (un-acked ⇒ re-pull). Fire-and-forget would ack mail the agent
         // never took.
-        await onEmail({ id: d.id, email: d.email, headers: d.headers, body })
+        const r = await onEmail({ id: d.id, email: d.email, headers: d.headers, body })
+        if (r && typeof r === 'object' && 'status' in r && r.status === 'skip') {
+          // Deliberate skip (paused/unknown): leave pending, no ack, no error.
+          // Remove from the dedup set so the id is re-pulled next round.
+          seen.delete(d.id)
+          continue
+        }
+        // void/undefined or {status:'accepted'} → accepted.
         delivered.push(d.id)
         stats.pulled++
       } catch {
@@ -502,7 +565,7 @@ async function deliverBatches(
  */
 export async function startPolling(
   client: RequestClient,
-  onEmail: (mail: { id: number; email: string; headers: unknown; body: unknown }) => void | Promise<void>,
+  onEmail: (mail: { id: number; email: string; headers: unknown; body: unknown }) => void | Promise<void | PullDeliveryResult>,
   opts: StartPollingOptions = {},
 ): Promise<PollStats> {
   const intervalMs = opts.intervalMs ?? 30_000
@@ -517,9 +580,18 @@ export async function startPolling(
   let streamStreak = 0
   let occupiedStreak = 0
   let pollFailures = 0
+  // Consecutive 401/403 rejections (stream or poll). Any successful round
+  // clears it; AUTH_FATAL_STREAK consecutive ⇒ throw PullAuthError (fatal).
+  let authStreak = 0
   // "Due immediately" so the first Poll round re-probes right away.
   let lastReprobe = Date.now() - PULL_REPROBE_INTERVAL_MS
   let rounds = 0
+  // Report one auth rejection: callback (first-strike visibility) + streak.
+  // At the fatal threshold the loop stops (throw) instead of sleeping.
+  const handleAuthFailure = (status: number): void => {
+    authStreak++
+    opts.onAuthFailure?.(status, authStreak)
+  }
   for (;;) {
     if (opts.signal?.aborted) break
     // ── Poll state: due re-probe of the stream endpoint ────────────
@@ -544,12 +616,23 @@ export async function startPolling(
         opts.streamPingTimeoutMs,
       )
       if (res === 'stop') break
+      if (isAuthResult(res)) {
+        // Key rejected (401/403): a config problem, not a transport failure.
+        // Report (first strike ⇒ group-failure line) and pace retries via the
+        // Poll backoff; AUTH_FATAL_STREAK consecutive ⇒ fatal (throw).
+        handleAuthFailure(res.auth)
+        if (authStreak >= AUTH_FATAL_STREAK) throw new PullAuthError(res.auth)
+        inPoll = true
+        lastReprobe = Date.now()
+        continue
+      }
       if (res === 'stay') {
         // Server max-life rotation: a HEALTHY round. Only a healthy
         // rotation breaks the streaks (a fresh run starts from 1) —
         // bridge parity (plan 0.3 B).
         streamStreak = 0
         occupiedStreak = 0
+        authStreak = 0 // the key is valid (a round completed) — clear auth streak
         continue
       }
       if (res === 'occupied') {
@@ -558,6 +641,7 @@ export async function startPolling(
         // and retry the SAME endpoint with the stream backoff ramp. Not a
         // transport error ⇒ the transport streak is untouched (bridge/py
         // parity).
+        authStreak = 0 // 409 is post-auth — the key is valid, clear auth streak
         const backoff = pullStreamBackoffSecs(occupiedStreak + 1)
         occupiedStreak++
         if (backoff > 0) await sleep(backoff * 1000)
@@ -594,6 +678,19 @@ export async function startPolling(
     try {
       const lst = await pullList(client, limit)
       if (!lst.success) {
+        // Auth rejection (401/403) is FATAL-ish: report it and, at
+        // AUTH_FATAL_STREAK consecutive, stop the loop (throw). Other
+        // failures (5xx/404/transport) keep the legacy exponential
+        // backoff and never go fatal (regression guard).
+        const st = lst.status
+        if (st === 401 || st === 403) {
+          stats.errors++
+          handleAuthFailure(st)
+          if (authStreak >= AUTH_FATAL_STREAK) throw new PullAuthError(st)
+          pollFailures++
+          await sleep(pullPollBackoffSecs(Math.trunc(intervalMs / 1000), pollFailures) * 1000)
+          continue
+        }
         // Failed round: exponential backoff (bridge parity:
         // interval*2^failures, cap 300s) — NOT the plain interval.
         stats.errors++
@@ -602,6 +699,7 @@ export async function startPolling(
         continue
       }
       pollFailures = 0
+      authStreak = 0 // a successful round proves the key is valid
       const batches = lst.batches
       if (!batches.length) {
         // Empty round: the server held us for timeout_ms already, so a
@@ -612,7 +710,10 @@ export async function startPolling(
       // Non-empty round: NO sleep — straight to the next round so a
       // continuous mail flow is not throttled by the poll interval.
       await deliverBatches(client, batches, onEmail, seen, stats)
-    } catch {
+    } catch (e) {
+      // A PullAuthError from the loop's own fatal check must propagate
+      // (settle done to the error); everything else is a round failure.
+      if (e instanceof PullAuthError) throw e
       stats.errors++
       pollFailures++
       await sleep(pullPollBackoffSecs(Math.trunc(intervalMs / 1000), pollFailures) * 1000)

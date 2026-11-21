@@ -28,6 +28,7 @@ import {
   startAgentPullEntry,
   startAgentPullEntries,
   stopAgentPullEntries,
+  isV2AgentScopeBinding,
   type AgentPullHandle,
   type StartAgentPullEntryOptions,
   type AgentPullOverrides,
@@ -185,7 +186,23 @@ export async function startAgentLevel(
 
   // Hot-add: the normal agent-level order is "host boots (0 bindings) →
   // activation later". Start a loop for the binding the moment it is persisted.
+  //
+  // V2 (P1-1, plan §6.5): a V2 binding must pull through the (AgentSystemId,
+  // Gateway) aggregate, so a V2 hot-add RE-ARMS the pool (stop every handle +
+  // startAgentPullEntries re-scans ⇒ the new asid group joins, or the existing
+  // group expands) — never a per-binding startAgentPullEntry (that entry now
+  // refuses V2 and would be a second stream anyway). Same mechanism the hosts
+  // use in their onBindingCreated (stop + startInboundPull). V1 keeps the
+  // legacy per-binding hot-add.
   const off = onBindingCreated(async (cfg: AgentConfig) => {
+    if (isV2AgentScopeBinding(cfg)) {
+      stopAgentPullEntries(handles)
+      handles.length = 0
+      for (const h of await startAgentPullEntries(entryOpts as StartAgentPullEntriesOptions)) {
+        handles.push(h)
+      }
+      return
+    }
     if (handles.some((h) => h.email === cfg.email)) return
     const h = await startAgentPullEntry(cfg, entryOpts)
     if (h) handles.push(h)

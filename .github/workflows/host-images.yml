@@ -48,10 +48,13 @@ jobs:
               *) echo "::error::unknown host $a"; exit 2 ;;
             esac
             CTX="$(mktemp -d)"
-            mkdir -p "$CTX/agent-env/lib" "$CTX/extras"
+            mkdir -p "$CTX/agent-env/lib" "$CTX/extras" "$CTX/docker"
             cp tests/agent-env/prepare.sh tests/agent-env/verify.sh tests/agent-env/pins.env \
                tests/agent-env/agent-paths.sh tests/agent-env/set-llm-key.sh "$CTX/agent-env/"
             cp tests/agent-env/lib/llm-config.py "$CTX/agent-env/lib/"
+            # Dockerfile.dsh COPYs docker/pnpm-warm.json (the pnpm store warm set) —
+            # ship it into the build context for every host (harmless where unused).
+            cp tests/agent-env/docker/pnpm-warm.json "$CTX/docker/"
             cp "tests/agent-env/docker/Dockerfile.$a" "$CTX/Dockerfile"
             echo "── build $a (base=$BASE)"
             docker build --network host -t "aimail-host-$a:latest" \

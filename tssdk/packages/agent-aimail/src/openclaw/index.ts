@@ -27,7 +27,7 @@ import * as path from 'node:path'
 import { createMailTools } from './tools.js'
 import { createInboundHandler, startInboundPull, INBOUND_PATH } from './inbound.js'
 import { createAimailCommands } from './commands.js'
-import { agentIdentity, resolveAgentId, tryAutoBindOnce, DEFAULT_AGENT_ID, openclawWebhookUrl } from './identity.js'
+import { agentIdentity, ensureHooksWiring, resolveAgentId, tryAutoBindOnce, DEFAULT_AGENT_ID, openclawWebhookUrl } from './identity.js'
 import { resolveOpenclawSkillRoots } from './skills.js'
 import { activateHost } from '../hosts/activate.js'
 
@@ -58,6 +58,31 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
 
     // Outbound X-AIMail-Agent header (real detected host version, no guess)
     setAgentIdentity(agentIdentity())
+
+    // B3 layer fix (2026-11-21, QA findings B3): the inbound→session hop
+    // dispatches to the host's internal /hooks/agent, whose endpoint EXISTs only
+    // when the host config has hooks.enabled=true (openclaw dist
+    // resolveHooksConfig: hooks.enabled !== true ⇒ null ⇒ 404 fall-through).
+    // On a CLI-registered host the `aimail register`/`status` commands call
+    // ensureHooksWiring(), but the SSE profile registers NO CLI commands (see
+    // below: transport === 'push' guard), so a pure-SSE-activated host never
+    // gets hooks.token + hooks.enabled written — pulled mail is read (pending
+    // 200) but the dispatch POST 404s and is never acked (re-pulled forever).
+    // Wire it here, exactly as the CLI path does (idempotent: 'kept' when
+    // already present, never clobbers an admin's enabled=false).
+    try {
+      const w = ensureHooksWiring()
+      if (w === 'created') {
+        console.error('[agent-aimail] hooks wiring created (hooks.token + hooks.enabled=true) — /hooks/agent dispatch now enabled')
+      } else if (w === 'disabled') {
+        console.error('[agent-aimail] hooks DISABLED by host config (hooks.enabled=false) — inbound mail cannot reach the agent; enable it in openclaw.json')
+      } else if (w === 'no-config') {
+        console.error('[agent-aimail] no openclaw.json found — hooks wiring skipped (inbound dispatch will 404 until the host config exists)')
+      }
+    } catch (e) {
+      // Non-fatal (a config race at boot): the next register/restart retries.
+      console.error(`[agent-aimail] hooks wiring check failed (non-fatal): ${e instanceof Error ? e.message : String(e)}`)
+    }
 
     // Per-agent SOUL.md: resolve from the OWNING agent's workspace, mirroring
     // openclaw's own resolveAgentWorkspaceDir(cfg, agentId) contract:

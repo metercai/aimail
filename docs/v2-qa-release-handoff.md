@@ -1,6 +1,6 @@
 # AIMail V2 发版前 QA 交接文档
 
-版本：`agent-aimail 0.5.0`  
+版本：`agent-aimail 0.5.1`  
 交接日期：2026-11-20  
 用途：提交给 QA 做发版前最后一次独立验证  
 状态：开发侧本地验收已通过；**尚未执行 npm publish**
@@ -138,7 +138,7 @@ cd ../aimail-advanced && cargo build
 
 ```bash
 node -e "console.log(require('/Users/metercai/Desktop/chains/aimail/tssdk/packages/agent-aimail/package.json').version)"
-# 期望 0.5.0
+# 期望 0.5.1
 ```
 
 ### 5.2 L0
@@ -166,6 +166,8 @@ bash tests/sdk/l0-gate-tests.sh
 L2 dsh: PASS
 L2 pi: PASS
 L2 openclaw: PASS
+PI A2 ARMING PASS
+OPENCLAW A2 ARMING (multi-address) PASS
 L2-TWO-GATEWAYS PASS
 V2 RELEASE GATE PASS
 ```
@@ -175,8 +177,16 @@ V2 RELEASE GATE PASS
 - DSH 单/双地址聚合；
 - Pi 单地址聚合；
 - OpenClaw 单/双地址聚合；
+- **真实宿主 A2 武装**(pi 单地址 + openclaw 多地址,no-pointer 条件 ⇒ 各恰好 1 条 aggregate 流;`run-real-host-arming.sh`)；
 - 真实两个 base gateway + 同一 AgentSystemId；
 - 每 Gateway 一条聚合 SSE。
+
+> **真实宿主 A2 步的环境要求**：需要本地 docker 镜像 `aimail-host-pi:latest` /
+> `aimail-host-openclaw:latest`（`host-images.yml` 构建）。缺镜像时该步 exit 2
+> （ENV GAP，非产品红）。§6.1 复验判据注记：字面 `polling enabled` 为 V1
+> per-binding 行；V2 binding 必走 AgentSystemId 聚合，武装审计行为
+> `no pointer — aggregate agent:<asid> … members=[<addr>…]` +
+> `pull scope … fanout=true`（门禁即按此断言）。
 
 ### 5.4 Advanced 三类地址 E2E
 
@@ -254,7 +264,7 @@ python3 -m pytest tests/sdk/test_v2_contract_surface.py -q
 ## 7. 已知限制 / QA 不要误判
 
 1. **未执行 npm publish**  
-   0.5.0 只是准备好；QA 验证的是本地/打包前代码，不是 registry 上的版本。
+   0.5.1 只是准备好；QA 验证的是本地/打包前代码，不是 registry 上的版本。
 
 2. **CLI/pysdk 未物理删除**  
    V2 主路径不依赖；旧文档标记 Legacy。若 QA 发现旧 CLI 仍可运行，不是 V2 回退。
@@ -311,7 +321,7 @@ advanced e9f7cef test(e2e): cover shared_system and dedicated address types
 版本：
 
 ```text
-agent-aimail 0.5.0
+agent-aimail 0.5.1
 ```
 
 > QA 验收以实际 `git rev-parse HEAD` 为准；如 HEAD 与快照不同，以提交说明和 `git diff` 复核。

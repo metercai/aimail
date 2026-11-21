@@ -59,7 +59,9 @@ def test_advanced_address_types_and_standalone_guard():
 def test_sdk_is_v2_and_no_system_tool():
     import json
     pkg = json.loads(_read(REPO / "tssdk/packages/agent-aimail/package.json"))
-    assert pkg["version"] == "0.5.0"
+    # M6: the release candidate is 0.5.1 (0.5.0 was never published — it was the
+    # pre-fix dev version; the gate asserts the actual package version).
+    assert pkg["version"] == "0.5.1"
     manifest = json.loads(_read(REPO / "tssdk/packages/agent-aimail/openclaw.plugin.json"))
     tools = manifest["contracts"]["tools"]
     assert "aimail_address" in tools

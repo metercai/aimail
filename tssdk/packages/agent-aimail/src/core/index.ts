@@ -72,6 +72,8 @@ export {
   pullList,
   pullAck,
   startPolling,
+  PullAuthError,
+  AUTH_FATAL_STREAK,
 } from './address-code.js'
 export {
   PULL_STREAM_PATH,
@@ -87,6 +89,8 @@ export {
   pullDecideNextMode,
 } from './pull-contract.js'
 export type { PullMode, StreamRoundResult } from './pull-contract.js'
+export { isAuthResult } from './pull-contract.js'
+export type { PullDeliveryResult } from './address-code.js'
 export {
   AGENT_TOOL_NAMES,
   agentTools,
@@ -109,9 +113,15 @@ export {
   DEFAULT_PULL_INTERVAL_MS,
   DEFAULT_PULL_LIMIT,
   isAgentScopeBinding,
+  isV1AgentScopeBinding,
+  isV2AgentScopeBinding,
   resolveAgentPullSettings,
   startAgentPullEntries,
   stopAgentPullEntries,
+  startAgentSystemGroups,
+  buildAgentSystemClient,
+  freshDeliveryTarget,
+  deliverySkipCheck,
 } from './poll-entry.js'
 export type {
   AgentPullHandle,
@@ -121,6 +131,7 @@ export type {
   PulledMail,
   PullInboundDelivery,
   StartAgentPullEntriesOptions,
+  StartAgentSystemGroupsOptions,
 } from './poll-entry.js'
 export type {
   RequestClient,

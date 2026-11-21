@@ -88,6 +88,16 @@ if [ "$_doc_rc" -ne 0 ]; then
   exit 1
 fi
 echo "[L0] docs↔impl: symbols defined; en/zh heading structure equal; contract values == manifest"
+# pnpm warm-set single source (dsh host image offline plugin install): the dsh host image
+# preheats the pnpm store from docker/pnpm-warm.json and runs offline (PNPM_CONFIG_OFFLINE),
+# so the manifest must stay equal to the plugin's runtime deps — drift breaks the offline
+# `dsh plugin add` at QA time, not at build time.
+_wd_rc=0
+python3 tests/agent-env/check-warm-deps.py || _wd_rc=$?
+if [ "$_wd_rc" -ne 0 ]; then
+  echo "[L0] FAIL: pnpm warm-deps rc=$_wd_rc (1=drift, 2=cannot-judge; fail-closed)"
+  exit 1
+fi
 # Platform boundary gate: CLI code must not contain platform literal branches (adding platform/multi-agent registration only changes
 # platform-boundary (CLI contains no platform literals) migrated to the CLI domain gate (closed repo: aimail-advanced/tests/cli-domain/run-cli-gates.sh)
 # Core runtime modules: strict (no unused/undefined). Deploy-time patch

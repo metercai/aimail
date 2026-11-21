@@ -352,15 +352,33 @@ def _dsh_upsert_row(lines: list[str], row_id: str, body: list[str]) -> list[str]
 
     The loader replaces a targeted row's config wholesale, so in-place whole-row rewrite
     is the only form that can't be lost to a later same-id row. The body is the exact
-    text (comment lines allowed) between the `- id:` line and the next top-level row."""
-    span = _dsh_row_span_id(lines, row_id)
+    text (comment lines allowed) between the `- id:` line and the next top-level row.
+
+    F3 guard (2026-11-20 QA): a stale duplicate for the same id (an older writer state
+    or a hand edit already carried in the profile layer) is dropped in the same pass —
+    the loader applies the LAST row per id, so a second row would silently override the
+    one this writer just fixed. Convergence to exactly one row is the contract."""
+    pat = re.compile(rf"^- id:\s*{re.escape(row_id)}\s*$")
+    spans: list[tuple[int, int]] = []
+    for i, ln in enumerate(lines):
+        if pat.match(ln.rstrip("\n")):
+            j = i + 1
+            while j < len(lines) and not _DSH_TOP_ROW_RE.match(lines[j]):
+                j += 1
+            spans.append((i, j))
     block = [f"- id: {row_id}\n"] + body
-    if span is None:
+    if not spans:
         if lines and not lines[-1].endswith("\n"):
             lines[-1] += "\n"
         lines += block
         return lines
-    return lines[:span[0]] + block + lines[span[1]:]
+    # drop every span back-to-front (later deletions shift no earlier index),
+    # then write the block once, at the first span's position — rows between
+    # duplicates are preserved
+    for s, e in reversed(spans):
+        del lines[s:e]
+    lines[spans[0][0]:spans[0][0]] = block
+    return lines
 
 
 def _dsh_baseurl_for(base_url: str) -> str:
@@ -576,6 +594,18 @@ UNIMPLEMENTED: dict[str, str] = {}
 
 
 # ── verify: re-read the files and check the values independently ──────────────
+def _dsh_duplicate_rows(lines: list[str], row_id: str) -> int:
+    """Top-level `- id: <row_id>` rows beyond the first (F3, 2026-11-20 QA).
+
+    The loader applies the LAST row per id: a stale duplicate silently overrides the
+    operator's real configuration, so more than one row per managed id is a real red —
+    never a same-value no-op the check may wave through."""
+    return sum(
+        1 for ln in lines
+        if re.match(rf"^- id:\s*{re.escape(row_id)}\s*$", ln.rstrip("\n"))
+    ) - 1
+
+
 def verify_openclaw(home: Path, base_url: str, model: str) -> list[str]:
     cfg = _load_json(home / "openclaw.json")
     pid = _provider_id(base_url)
@@ -699,6 +729,11 @@ def verify_dsh(home: Path, base_url: str, model: str) -> list[str]:
             # Check the rows the inbound turn actually composes from: the pi-ai provider
             # row (api protocol / baseURL / credential NAME / the target model present)
             # and the agent-default-model override pointing at it.
+            for dup_id in (_DSH_PI_PLUGIN_ID, _DSH_DEFAULT_MODEL_ID):
+                n = _dsh_duplicate_rows(lines, dup_id)
+                if n:
+                    bad.append(f"{p} carries {n + 1} `- id: {dup_id}` rows — the loader applies the "
+                               f"LAST one, so a stale duplicate silently overrides this config (F3)")
             ps = _dsh_row_span_id(lines, _DSH_PI_PLUGIN_ID)
             if ps is None:
                 bad.append(f"{p} has no `- id: {_DSH_PI_PLUGIN_ID}` patch row (OpenAI endpoint needs it)")
@@ -728,6 +763,10 @@ def verify_dsh(home: Path, base_url: str, model: str) -> list[str]:
         if span is None:
             bad.append(f"{p} has no `- id: {_DSH_PLUGIN_ID}` patch row")
             continue
+        n = _dsh_duplicate_rows(lines, _DSH_PLUGIN_ID)
+        if n:
+            bad.append(f"{p} carries {n + 1} `- id: {_DSH_PLUGIN_ID}` rows — the loader applies the "
+                       f"LAST one, so a stale duplicate silently overrides this config (F3)")
         got = _dsh_config_value(lines, span, "baseURL")
         want = _dsh_baseurl_for(base_url)
         if got != want:

@@ -37,6 +37,27 @@ It covers contract C1/C3/C5/C6 (system onboarding, address activation,
 workspace preservation, welcome SSE → session). It deliberately does not use a
 real LLM; L3 remains the live-LLM end-to-end profile.
 
+## L2 vs L3 (owner ruling 2026-11-21 — do not conflate)
+
+| | **L2** | **L3** |
+|---|---|---|
+| plugin | installed BEFORE the test, from the **current development build** | none at start; the agent installs the **latest published** version during the test, guided by the activation prompt |
+| purpose | test the build under review | test the published artifact + the agent's self-install journey |
+
+The real-host dsh tool-surface gate (B4) is an L2 step: the dev plugin must be
+installed into the profile the web server boots with, because the 15 mail tools
+reach a session's tool surface ONLY through the plugin's `tool-mail` row (global
+layer; `view()` seeds every scope from the global layer). A host booted without
+the plugin in that profile runs model turns but exposes ZERO mail tools (B4).
+
+```bash
+# L2 real-host dsh tool-surface gate (no LLM, no gateway; pinned host from
+# agent-env single source; dev source = repo tree / DSH_L2_DEV_TGZ / DSH_L2_DEV_DIR)
+./tests/host-acceptance/run-l2-dsh-real-host.sh
+# DSH_L2_LIVE=0 skips the live web-host probe (structural gate only).
+# DSH_L2_CLEAN_ONLY=1 runs the negative control (gate MUST fail — CI self-check).
+```
+
 ## Legacy L2
 
 The old script remains the reference for push-era hosts and CLI install/register

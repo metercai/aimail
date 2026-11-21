@@ -23,7 +23,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
-import { notifyInboundForSystem, formatInboundNotifyLine, isInboundNotifyWarning, listenWithRetry, processInboundMail, releaseAllSystems, routeAddressFromHeaders, loadAgentConfig, startAgentPullEntries, startSystemPull, onBindingCreated, setProfileDirResolver, setSoulProvider, setSkillsProvider, setToolsetProvider, listSkillNames, verifySignature, INBOUND_PATH, INBOUND_PORT, type AgentConfig, type AgentPullHandle, type AgentPullOverrides, type InboundPayload, packageResourcesRoot } from '../core/index.js'
+import { notifyInboundForSystem, formatInboundNotifyLine, isInboundNotifyWarning, listenWithRetry, processInboundMail, releaseAllSystems, routeAddressFromHeaders, loadAgentConfig, startAgentPullEntries, startSystemPull, startAgentSystemGroups, resolveAgentPullSettings, freshDeliveryTarget, listAgentConfigs, listSystemDirs, onBindingCreated, setProfileDirResolver, setSoulProvider, setSkillsProvider, setToolsetProvider, listSkillNames, verifySignature, INBOUND_PATH, INBOUND_PORT, type AgentConfig, type AgentPullHandle, type AgentPullOverrides, type InboundPayload, packageResourcesRoot } from '../core/index.js'
 import { resolveByRecipient } from '../mail/index.js'
 import { getAgentSystemId } from '../core/agent-system-id.js'
 import { readSystemGatewayConfig } from '../core/provision.js'
@@ -149,6 +149,8 @@ export async function startInboundPull(
     env?: NodeJS.ProcessEnv
     overrides?: AgentPullOverrides
     systemId?: string
+    /** Test seam: build the aggregate/per-binding client (real path unchanged). */
+    clientFor?: (rep: AgentConfig) => import('../core/index.js').RequestClient
   } = {},
 ): Promise<AgentPullHandle[]> {
   const ptr = readPointer()
@@ -176,31 +178,101 @@ export async function startInboundPull(
       stop: h.stop, done: h.done as Promise<import('../core/index.js').PollStats>, stats: () => ({ pulled: 0, acked: 0, errors: 0 }),
     }]
   }
-  // B2 (no system): one AgentSystemId aggregate stream for the pointer's
-  // address. Pi is single-address, so this is exactly one stream, not fanout.
+  // B2 (no system): one AgentSystemId aggregate stream (tier-2 / pointer).
+  // The pointer is a DISCOVERY entry, not an agent switch (P0-7): a paused
+  // pointer address must NOT starve the other active addresses of the same
+  // (AgentSystemId, Gateway) — they keep exactly ONE aggregate stream (rep =
+  // an active sibling), and the pointer's own mail is skipped at delivery
+  // (fresh lookup ⇒ skip('paused'), left pending until resume). Pi is a
+  // single-agent host, so the pool is normally the pointer's own addresses.
   const ptrCfg = ptr.system_id && ptr.email
     ? await loadAgentConfig(ptr.system_id, ptr.email).catch(() => undefined)
     : undefined
   if (ptrCfg?.api_key) {
+    const env = opts.env ?? process.env
+    const settings = resolveAgentPullSettings(ptrCfg, env, opts.overrides ?? {})
+    if (!settings.enabled) {
+      // Global switch (AIMAIL_PULL=0 / disabled): one decision for the whole
+      // profile — tier-2, grouping and per-binding all honor the same env.
+      opts.log?.info(
+        `[aimail-pull] pointer agent:${ptrCfg.email} pull disabled by config ` +
+          `(${settings.reason}) — no stream`,
+      )
+      return []
+    }
+    if (ptrCfg.paused === true) {
+      // P0-7: pause the address, not the AgentSystemId. Scan the active
+      // sibling pool of this (AgentSystemId, Gateway) and keep ONE aggregate
+      // stream for it (the pointer's own mail is skipped at delivery level).
+      const asid = ptrCfg.agent_system_id ?? (await getAgentSystemId())
+      const rawPool: AgentConfig[] = []
+      const sids = opts.systemId ? [opts.systemId] : await listSystemDirs()
+      for (const s of sids) {
+        for (const c of await listAgentConfigs(s)) {
+          const isSelf =
+            c.system_id === ptrCfg.system_id &&
+            (c.email ?? '').toLowerCase() === (ptrCfg.email ?? '').toLowerCase()
+          if (isSelf) continue
+          if (c.paused === true || !c.api_key) continue
+          if (c.agent_system_id !== asid) continue
+          if (c.gateway_url !== ptrCfg.gateway_url) continue
+          rawPool.push(c)
+        }
+      }
+      const poolSeen = new Set<string>()
+      const pool: AgentConfig[] = []
+      for (const c of rawPool) {
+        const e = (c.email ?? '').toLowerCase()
+        if (!e || poolSeen.has(e)) continue
+        poolSeen.add(e)
+        pool.push(c)
+      }
+      if (pool.length === 0) {
+        opts.log?.info(
+          `[aimail-pull] pointer agent:${ptrCfg.email} paused, no active ` +
+            'sibling — no stream (resume re-arms in-process)',
+        )
+        return []
+      }
+      const handles = await startAgentSystemGroups(pool, {
+        onEmail: (_cfg, mail) => deliverPiPulled(pi, mail),
+        ...(opts.log ? { log: opts.log.info } : {}),
+        ...(opts.env ? { env: opts.env } : {}),
+        ...(opts.overrides ? { overrides: opts.overrides } : {}),
+        ...(opts.clientFor ? { clientFor: opts.clientFor } : {}),
+      })
+      opts.log?.info(
+        `[aimail-pull] pointer agent:${ptrCfg.email} paused — aggregate via ` +
+          `agent:${asid} gw=${ptrCfg.gateway_url} ` +
+          `members=[${pool.map((m) => m.email).join(', ')}] (pointer excluded)`,
+      )
+      return handles
+    }
+    // Normal branch: the pointer address is active — the existing tier-2
+    // aggregate stream (rep = pointer), now wired with the resolved settings
+    // (P0-5/P1-C) and the delivery-level fresh lookup (P0-6).
     const h = await startSystemPull({
       systemId: ptrCfg.email,
-      agentSystemId: await getAgentSystemId(),
+      agentSystemId: ptrCfg.agent_system_id ?? (await getAgentSystemId()),
       gatewayUrl: ptrCfg.gateway_url,
       apiKey: ptrCfg.api_key,
       ...(opts.log ? { log: opts.log.info } : {}),
+      ...(opts.clientFor ? { client: opts.clientFor(ptrCfg) } : {}),
+      intervalMs: settings.intervalMs,
+      limit: settings.limit,
+      mode: settings.mode,
       onEmail: async (mail) => {
-        if (typeof mail.body !== 'object' || mail.body === null) {
-          throw new Error(`pulled delivery ${mail.id} for ${mail.email} carries no JSON payload — not acking`)
-        }
-        const headers: Record<string, unknown> = { ...(mail.headers ?? {}), 'x-aimail-email': mail.email }
-        const target = await resolvePiTarget(mail.body as InboundPayload, headers)
-        if (!target) throw new Error(`pulled delivery ${mail.id}: no binding for ${mail.email} — not acking`)
-        const out = await deliverPiInbound(pi, target, mail.body as InboundPayload, headers)
-        if (!out.ok) throw new Error(`pulled delivery ${mail.id}: inbound chain did not deliver (${out.status}) — not acking`)
+        // Delivery-level fresh lookup (P0-6): a runtime pause/archive takes
+        // effect on the very next delivery — paused ⇒ skip('paused'),
+        // unknown ⇒ skip('unknown') (typed result, not a throw).
+        const { skip } = await freshDeliveryTarget(mail.email)
+        if (skip) return skip
+        await deliverPiPulled(pi, mail)
       },
     })
     return [{
-      email: `agent:${ptrCfg.email}`, started: true, reason: 'enabled', intervalMs: 0, limit: 0,
+      email: `agent:${ptrCfg.email}`, started: true, reason: 'enabled',
+      intervalMs: settings.intervalMs, limit: settings.limit,
       stop: h.stop, done: h.done as Promise<import('../core/index.js').PollStats>, stats: () => ({ pulled: 0, acked: 0, errors: 0 }),
     }]
   }
@@ -212,31 +284,41 @@ export async function startInboundPull(
     ...(opts.log ? { log: opts.log.info } : {}),
     ...(opts.env ? { env: opts.env } : {}),
     ...(opts.overrides ? { overrides: opts.overrides } : {}),
-    onEmail: async (cfg, pulled) => {
-      if (typeof pulled.body !== 'object' || pulled.body === null) {
-        throw new Error(
-          `pulled delivery ${pulled.id} for ${cfg.email} carries no JSON payload — not acking`,
-        )
-      }
-      // The delivery's own address is authoritative for routing (it is what the
-      // agent-scope key was verified against server-side).
-      const headers: Record<string, unknown> = {
-        ...(pulled.headers ?? {}),
-        'x-aimail-email': pulled.email,
-      }
-      const target = await resolvePiTarget(pulled.body as InboundPayload, headers)
-      if (!target) {
-        throw new Error(`pulled delivery ${pulled.id}: no binding for ${pulled.email} — not acking`)
-      }
-      const out = await deliverPiInbound(pi, target, pulled.body as InboundPayload, headers)
-      if (!out.ok) {
-        throw new Error(
-          `pulled delivery ${pulled.id}: inbound chain did not deliver (${out.status}) — not acking`,
-        )
-      }
-    },
+    onEmail: (_cfg, mail) => deliverPiPulled(pi, mail),
   })
 }
+
+/**
+ * Shared pulled-delivery chain for pi (tier-2 + no-pointer funnel here):
+ * body shape check → recipient routing → inbound chain. A non-JSON body is a
+ * MALFORMED delivery (a real error: throw ⇒ un-acked ⇒ re-pull); a missing
+ * target or a failed inbound chain is likewise not-acked (re-pulled). The
+ * delivery-level skip (paused/unknown) is the caller's typed-result concern
+ * (P1-A), decided from a FRESH binding lookup before this chain runs.
+ */
+async function deliverPiPulled(
+  pi: ExtensionAPI,
+  mail: { id: number; email: string; headers: Record<string, unknown>; body: unknown },
+): Promise<void> {
+  if (typeof mail.body !== 'object' || mail.body === null) {
+    throw new Error(`pulled delivery ${mail.id} for ${mail.email} carries no JSON payload — not acking`)
+  }
+  const headers: Record<string, unknown> = {
+    ...(mail.headers ?? {}),
+    'x-aimail-email': mail.email,
+  }
+  const target = await resolvePiTarget(mail.body as InboundPayload, headers)
+  if (!target) {
+    throw new Error(`pulled delivery ${mail.id}: no binding for ${mail.email} — not acking`)
+  }
+  const out = await deliverPiInbound(pi, target, mail.body as InboundPayload, headers)
+  if (!out.ok) {
+    throw new Error(
+      `pulled delivery ${mail.id}: inbound chain did not deliver (${out.status}) — not acking`,
+    )
+  }
+}
+
 
 export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {}) {
   // Host identification (#5): verify environment before activating.

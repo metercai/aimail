@@ -22,6 +22,30 @@ ENV PNPM_CONFIG_MINIMUM_RELEASE_AGE=0
 RUN bash /opt/agent-env/prepare.sh dsh --home /root/.dsh \
       --llm-url "$LLM_BASE_URL" --llm-model "$LLM_MODEL" --no-verify
 
+# Preheat the pnpm store with the agent-aimail plugin's runtime deps (single source:
+# docker/pnpm-warm.json, pinned by the L0 gate tests/agent-env/check-warm-deps.py).
+# The image is pure native — the plugin itself is installed by the test — but its
+# declared runtime deps must be resolvable OFFLINE later (see PNPM_CONFIG_OFFLINE above),
+# so their store content + registry metadata are baked in here at build time, when the
+# network is available.
+COPY docker/pnpm-warm.json /opt/agent-env/pnpm-warm.json
+RUN set -e; \
+    tmp=$(mktemp -d); \
+    cp /opt/agent-env/pnpm-warm.json "$tmp/package.json"; \
+    cd "$tmp"; \
+    pnpm install; \
+    rm -rf "$tmp"
+
+# OFFLINE for the CONTAINER runtime only — it must come AFTER the warm step above,
+# which needs the network to bake the store + metadata. The real-host journey then
+# installs the plugin from a local tarball inside this image with no network: `dsh
+# plugin add` runs pnpm, which would otherwise resolve the plugin's declared runtime
+# deps through the registry and fail. offline=true makes every pnpm operation resolve
+# purely from the store + metadata cache baked in above — exactly what a tarball-based
+# install needs (the tgz is read from disk; only its declared deps come from the store).
+# The warm set is pinned by the L0 gate tests/agent-env/check-warm-deps.py.
+ENV PNPM_CONFIG_OFFLINE=true
+
 COPY extras /opt/regression
 # the harness scripts inside the container read the LLM writer from this path — serve it
 # from the single source rather than a second copy in the tree

@@ -236,7 +236,9 @@ export class GatewayClient {
    * life — reconnect), 'drop' (connect failed / stalled — no alternative
    * transport, the caller drops straight to Poll), or 'error' (mid-stream
    * transport error — the caller applies the decision function with the
-   * fail streak, bridge parity).
+   * fail streak, bridge parity). A 401/403 connect rejection returns
+   * {auth} with the REAL status (the caller's auth-fatal path — distinct
+   * from a transport drop, which would mask a dead key behind retries).
    */
   async streamRound(
     onBatches: (batches: PullBatch[]) => void | Promise<void>,
@@ -264,6 +266,13 @@ export class GatewayClient {
       // no transport streak — bridge/py parity).
       await resp.body?.cancel().catch(() => {})
       return 'occupied'
+    }
+    if (resp.status === 401 || resp.status === 403) {
+      // Key rejected: a config problem, not a transport failure. Surface the
+      // exact status so the caller can report it and go fatal (3 strikes)
+      // instead of silently backoff-looping forever.
+      await resp.body?.cancel().catch(() => {})
+      return { auth: resp.status }
     }
     const ctype = (resp.headers.get('content-type') ?? '').toLowerCase()
     if (resp.status !== 200 || !ctype.startsWith('text/event-stream')) {

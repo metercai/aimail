@@ -182,6 +182,9 @@ describe('activateAddressCodePersist', () => {
     })
     expect(r.success).toBe(true)
     expect(r.pointer_written).toBe(true)
+    // F1 (2026-11-20 QA): the agent key must not ride back into the agent
+    // context — it lives in the binding file only.
+    expect('raw_key' in r).toBe(false)
 
     const cfgPath = path.join(
       home, 'systems', 'shared_addr_e2e', 'e2e-agent2_e2e.local', 'agentmail.json',

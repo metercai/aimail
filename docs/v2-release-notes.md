@@ -1,6 +1,6 @@
 # AIMail Host SSE V2 — Release Notes
 
-版本：`agent-aimail 0.5.0`  
+版本：`agent-aimail 0.5.1`  
 契约：[`aimail-host-sse-contract-v2.md`](aimail-host-sse-contract-v2.md)
 
 ## 主要变化
@@ -58,6 +58,6 @@ A/B pending/ack 隔离: PASS
 ## 发布状态
 
 - 一键发布门禁在本机 PASS；
-- agent-aimail 0.5.0 已就绪；
+- agent-aimail 0.5.1 已就绪；
 - `aimail` 本地仍有未推送提交，受 GitHub HTTPS 凭据缺失影响；
 - advanced 三类地址端到端 L2 尚未自动化，是发布前最后一个功能验证缺口。
