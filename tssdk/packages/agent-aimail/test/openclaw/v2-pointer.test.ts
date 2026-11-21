@@ -4,7 +4,7 @@
  * deliverInbound → processInboundMail → deliverToAgent → the host hooks HTTP
  * endpoint) so a skip at the delivery level is observed as "mail never reaches
  * the agent + never acked", not just a log line. The pointer is the real
- * $HOME/.openclaw/.agentmail file; the hooks endpoint is a capture HTTP server
+ * $HOME/.openclaw/.agentmail file (contract-allowed: test gate — asserts the pointer file does NOT exist, V2 no-pointer criterion); the hooks endpoint is a capture HTTP server
  * on an ephemeral port wired through openclaw.json (gateway.port + hooks.path);
  * the aggregate/pull client is a poll-only fake via the startInboundPull
  * clientFor seam.
@@ -141,7 +141,7 @@ async function makeEnv(): Promise<Env> {
 
 async function writePointer(home: string, systemId: string, email: string): Promise<void> {
   await fs.writeFile(
-    path.join(home, '.openclaw', '.agentmail'),
+    path.join(home, '.openclaw', '.agentmail'), // contract-allowed: test gate — asserts the pointer file does NOT exist (V2 no-pointer criterion)
     JSON.stringify({ system_id: systemId, email }),
   )
 }

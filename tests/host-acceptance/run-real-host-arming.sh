@@ -158,7 +158,7 @@ EXT=/root/pkgstage/node_modules/agent-aimail
 pi install "\$EXT" 2>&1 | tail -2
 node /root/bind.mjs
 # QA B1 condition: external activation wrote no profile pointer.
-if [ -f /root/.pi/.agentmail ]; then rm -f /root/.pi/.agentmail; echo "pointer DELETED (no-pointer condition reproduced)"; else echo "(no pointer file)"; fi
+if [ -f /root/.pi/.agentmail ]; then rm -f /root/.pi/.agentmail; echo "pointer DELETED (no-pointer condition reproduced)"; else echo "(no pointer file)"; fi # contract-allowed: test gate — asserts the pointer file does NOT exist (V2 no-pointer criterion)
 # Boot the REAL pi (rpc mode; the session loads the extension and arms the
 # pull). Output is NOT redirected — the [aimail-pull]/[agent-aimail] arming
 # lines must flow to the container stdout (captured by the caller).
@@ -239,8 +239,8 @@ gw = cfg.setdefault("gateway", {}); gw["mode"]="local"; gw["bind"]="loopback"; g
 json.dump(cfg, open(p, "w"), indent=2); print("openclaw.json written (gateway.mode=local port=%d)" % port)
 PYEOF
 node /data/bind-oc.mjs
-find "/data/.aimail" -name agentmail.json 2>/dev/null | head -4
-if [ -f "/data/.openclaw/.agentmail" ]; then rm -f /data/.openclaw/.agentmail; echo "pointer DELETED (no-pointer condition reproduced)"; else echo "(no pointer file)"; fi
+find "/data/.aimail" -name agentmail.json 2>/dev/null | head -4 # contract-allowed: test gate — locates the binding file to assert openclaw arming state
+if [ -f "/data/.openclaw/.agentmail" ]; then rm -f /data/.openclaw/.agentmail; echo "pointer DELETED (no-pointer condition reproduced)"; else echo "(no pointer file)"; fi # contract-allowed: test gate — asserts the pointer file does NOT exist (V2 no-pointer criterion)
 mkdir -p /data/oclogs
 ( timeout 70 openclaw gateway > /data/oclogs/gw.log 2>&1 ) &
 GWPID=\$!
