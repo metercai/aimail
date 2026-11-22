@@ -382,6 +382,33 @@ if [ -z "$GW_DOWNLOADED" ]; then
     || die "gateway download failed"
 fi
 chmod +x "$GW_BIN"
+# ── pinned published gateway (owner rule 5: L2/L3 both test the PUBLISHED gateway) ──
+# pins.env is the single source; when it names a version we use exactly that asset and
+# verify its sha256 — "releases/latest" is only a fallback for an unpinned checkout.
+PINS_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/agent-env/pins.env"
+PIN_TAG=""; PIN_SHA=""
+if [ -f "$PINS_FILE" ]; then
+  PIN_TAG="$(grep -E '^GATEWAY_VERSION=' "$PINS_FILE" | head -1 | cut -d= -f2-)"
+  PIN_SHA="$(grep -E "^GATEWAY_SHA256_${PLATFORM}=" "$PINS_FILE" | head -1 | cut -d= -f2-)"
+fi
+if [ -n "$PIN_TAG" ]; then
+  if [ "${GW_TAG:-}" != "$PIN_TAG" ]; then
+    say "pinned gateway differs from latest (${GW_TAG:-none} → $PIN_TAG): re-fetching pinned asset"
+    curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 \
+      "https://github.com/metercai/aimail-gateway/releases/download/${PIN_TAG}/aimail-gateway-$ASSET$EXT" \
+      -o "$GW_BIN" || die "pinned gateway download failed ($PIN_TAG/$PLATFORM)"
+    chmod +x "$GW_BIN"
+  fi
+  if [ -n "$PIN_SHA" ]; then
+    GOT_SHA="$(sha256sum "$GW_BIN" 2>/dev/null | cut -d' ' -f1 || shasum -a 256 "$GW_BIN" | cut -d' ' -f1)"
+    [ "$GOT_SHA" = "$PIN_SHA" ] || die "gateway sha256 mismatch for $PIN_TAG/$PLATFORM ($GOT_SHA != $PIN_SHA)"
+    say "gateway pinned ok: $PIN_TAG sha256=${PIN_SHA:0:12}…"
+  fi
+  echo "{\"gateway_tag\":\"$PIN_TAG\",\"gateway_sha256\":\"${PIN_SHA:-unknown}\",\"platform\":\"$PLATFORM\"}" >"$LOGDIR/gateway.json" 2>/dev/null || true
+else
+  warn "pins.env has no GATEWAY_VERSION — L3 is tracking releases/latest (not reproducible)"
+fi
+
 
 # Minimal config (local loopback, port auto-selected to avoid host processes —— see advanced agent-turn criteria)
 GW_HTTP_PORT=18123; GW_SMTP_PORT=12526
