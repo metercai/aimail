@@ -13,13 +13,17 @@
 #   ⑥ Identity assertion: SDK isomorphic send_mail sends one query → whoami reads back the identity card (agent_persona)
 #      + email signature (agent_signature) is effective (whoami.rs:44-52, welcome approve UPSERT read-back point)
 #
-# Activation flow: only goes through **admin-key** (basic version gateway); does not test activation code (advanced version).
+# Activation flow: the dsh cell runs the full V2 activation-code journey (external
+# applicant verifies email → applies an address code → the host agent binds over
+# its web API) — dsh-v2.sh. The CLI cells (hermes/pi) use the admin-key path.
 # Test targets: all from published channels (GitHub Release / PyPI / npm), never from the working tree.
 #
 # Environment (injected by workflow):
 #   L3_PLATFORM  linux-amd64|linux-arm64|macos-arm64|windows-amd64
-#   L3_AGENT     hermes | dsh-aimail | dsh-plugin
-#                (dsh two README published paths each one slot: AGENT_HOME env + aimail install / dsh plugin add)
+#   L3_AGENT     hermes (pysdk, V1 CLI path) | dsh (SSE V2, activation-code journey) | pi
+#                (U1 ruling 2026-11-22: the two former dsh cells — CLI entry vs plugin entry —
+#                collapsed into one, because the V2 dsh host has exactly one legal install
+#                path: the host's plugin mechanism, guided by the activation prompt)
 #   AIMAIL_REPO  aimail repo checkout (environment preparation single source + llm-config.py both in tests/agent-env/)
 #   LLM_BASE_URL / LLM_MODEL / LLM_API_KEY
 #
@@ -463,6 +467,11 @@ export AIMAIL_MANAGER_ADDRESS="manager@l3-mgr.example"
 case "${L3_PLATFORM:-}" in
   *) WELCOME_TIMEOUT="${WELCOME_TIMEOUT:-300}" ;;
 esac
+# The dsh cell is V2-only (activation code → host plugin bind): it has NO aimail
+# CLI — the host plugin is the only legal install path (SKILL §6) and the whole
+# journey runs through the host's web API. The published-CLI bootstrap below is
+# for the CLI cells (hermes/pi) only.
+if [ "$AGENT" != "dsh" ]; then
 curl -fsSL "https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh" | bash \
   || die "online bootstrap failed (published CLI unavailable)"
 # bootstrap landing point ~/.local/bin relies on PATH reachability (product contract: bootstrap log self-proves
@@ -478,6 +487,44 @@ esac
 AIMAIL_BIN="$(command -v aimail || echo "$HOME/.local/bin/aimail")"
 [ -x "$AIMAIL_BIN" ] || die "aimail binary not on PATH after bootstrap: $AIMAIL_BIN"
 ok "published CLI: $( "$AIMAIL_BIN" version 2>/dev/null | head -1 )"
+fi
+
+# ── dsh V2 journey (self-contained: dsh-v2.sh [0]-[7]) ────────────────────────
+# V2 (owner ruling 2026-11-22): the dsh cell runs the full user journey —
+# external applicant verifies email + applies the address code (D1: the code and
+# the prompt come from the mailbox, never the DB), the real web host's agent
+# binds through the LLM turn (D2), the user installs the plugin via the host's
+# normal mechanism + restart, then the welcome/approval loop closes. dsh-v2.sh
+# takes over the gateway from ② (GW_PID_L3): [0] restarts it WITH the [relay]
+# wiring (external-domain mail → sink) and kills it on exit.
+if [ "$AGENT" = "dsh" ]; then
+  echo "── [4/6] dsh V2 journey (activation code → host agent bind → welcome loop)"
+  # dsh-v2.sh runs as a CHILD process (bash …) ⇒ it only inherits EXPORTED
+  # variables. run-l3.sh assigns the journey's inputs as shell locals; export
+  # the whole dependency set here (single point — keeps the child's contract
+  # explicit instead of relying on scattered exports).
+  export GW_BIN GW_HOME GW_URL GW_HTTP_PORT GW_SMTP_PORT
+  export SYSTEM_ID ADMIN_KEY
+  export LLM_API_KEY LLM_BASE_URL LLM_MODEL
+  export WORK AIMAIL_REPO WELCOME_TIMEOUT
+  export GW_PID_L3="$GW_PID"
+  export DSH_HOME="${HOME}/.dsh"
+  bash "$(dirname "${BASH_SOURCE[0]}")/dsh-v2.sh"
+  V2_RC=$?
+  if [ "$V2_RC" -ne 0 ]; then
+    # rc=2 is an ENV GAP (dsh-v2.sh gap() = exit 2, same contract as run-l3.sh
+    # gap()) — report it distinctly but still RED: a gap is an incomplete
+    # environment, not a pass. rc=1 is an assertion failure.
+    dump_failure_evidence
+    [ "$V2_RC" -eq 2 ] && die "dsh V2 journey aborted on ENV GAP (rc=2) — environment incomplete" \
+      || die "dsh V2 journey failed (rc=$V2_RC)"
+  fi
+  echo
+  ok "════ L3 PASS: $PLATFORM / dsh — V2 activation code → host bind → welcome loop closed"
+  # the journey killed ②'s gateway itself (GW_PID_L3); ②'s pid is already gone
+  GW_PID=""
+  exit 0
+fi
 
 # ── ④ aimail install / dsh plugin add (the two entry points published in README) ──────
 # README: "install either through the aimail command line or through the Agent's
@@ -490,18 +537,6 @@ ok "published CLI: $( "$AIMAIL_BIN" version 2>/dev/null | head -1 )"
 echo "── [4/6] SDK install (README command shape)"
 export AGENT_HOME="$AGENT_HOME"
 case "$AGENT" in
-  dsh-plugin)
-    # README: dsh plugin --profile web add agent-aimail (Agent plugin entry)
-    DSH_HOME="$DSH_HOME" dsh plugin --profile web add agent-aimail \
-      || die "dsh plugin add agent-aimail failed (README plugin path)"
-    # L3 bootstrap only: after the plugin entry is proven, seed the same
-    # system/address config that the plugin would obtain through scene 5/6
-    # onboarding. There is no inbound auto-ensure in SSE mode, so without a
-    # system binding the hub has nothing to stream. This is *not* the product
-    # plugin-only onboarding path (QA covers scene 5/6 separately).
-    "$AIMAIL_BIN" install --system-id "$SYSTEM_ID" \
-      || die "aimail install failed (dsh-plugin L3 bootstrap)"
-    ;;
   pi)
     # 1) CLI entry (README shape): registers the system into the pi home and writes
     #    the binding/pointer that the extension's identity chain reads.
@@ -689,70 +724,6 @@ PY
     done
     [ "$UP" = 1 ] || { tail -25 "$WORK/pi-host.log" | sed 's/^/    /'; die "pi extension did not bind a default agent in 120s (no SSE pull)"; }
     ok "pi host up (extension loaded, SSE pull, session ready)"
-    ;;
-  dsh|dsh-aimail|dsh-plugin)
-    # SSE mode: there is no mail-inbound listener and no webhook. The host
-    # starts, the plugin hub opens its system/address SSE streams, and the
-    # gateway delivers welcome through pending_deliveries → SSE.
-    DSH_HOME="$DSH_HOME" AIMAIL_HOME="${HOME}/.aimail" \
-      LLM_API_KEY="$LLM_API_KEY" \
-      nohup dsh --profile web --port 0 --no-open > "$WORK/dsh-host.log" 2>&1 &
-    HOST_PID=$!
-    DSH_INBOUND_PORT="${AIMAIL_INBOUND_PORT:-9099}"
-    say "dsh host starting (SSE mode, no inbound port)…"
-    STATUS_FILE="$DSH_HOME/profiles/web/aimail/status.json"
-    UP=0
-    for _ in $(seq 1 120); do
-      kill -0 "$HOST_PID" 2>/dev/null || { tail -15 "$WORK/dsh-host.log" | sed 's/^/    /'; die "dsh host exited before SSE streams were established"; }
-      if [ -f "$STATUS_FILE" ] && python3 -c "import json,sys;d=json.load(open(sys.argv[1]));sys.exit(0 if d.get('mode')=='sse' and (d.get('streams') or []) else 1)" "$STATUS_FILE" 2>/dev/null; then
-        UP=1; break
-      fi
-      sleep 1
-    done
-    [ "$UP" = 1 ] || { tail -20 "$WORK/dsh-host.log" | sed 's/^/    /'; die "dsh SSE streams not established in 120s (status=$STATUS_FILE)"; }
-    if python3 -c "import socket,sys;s=socket.socket();sys.exit(s.connect_ex(('127.0.0.1',$DSH_INBOUND_PORT)))" 2>/dev/null; then
-      die "inbound port $DSH_INBOUND_PORT still listening — push endpoint was not removed"
-    fi
-    GW_CFG="$(find "${HOME}/.aimail" -name aimail_gateway.json 2>/dev/null | head -1)"
-    AGENT_CFG="$(find "${HOME}/.aimail" -name agentmail.json 2>/dev/null | head -1)"  # contract-allowed: L3 locates the real binding file for dual-config/mode assertions
-    [ -f "$GW_CFG" ] || die "plugin did not write $GW_CFG (closed loop broken)"
-    [ -f "$AGENT_CFG" ] || die "plugin did not write $AGENT_CFG (closed loop broken)"
-    # Credential files must be readable by the owner only. POSIX expresses that
-    # as 0600; NTFS carries no POSIX mode at all — the writer's chmod is a
-    # documented no-op there (cli/src/core/perms.rs: non-unix = no-op, "user
-    # private" delegated to the inherited ACL), and MSYS reports 644 for every
-    # file regardless of what the writer did. Measured 2026-11-17: both windows
-    # dsh cells died here with mode=644 on files the product had chmod'ed,
-    # while all 9 POSIX cells passed the same assertion ⇒ `stat -c %a` cannot
-    # judge this property on Windows (the check, not the product, was wrong).
-    # The intent is therefore asserted through each platform's own mechanism:
-    # on Windows no ACE may grant a non-owner principal read/modify/full.
-    for _f in "$GW_CFG" "$AGENT_CFG"; do
-      case "$(uname -s)" in
-        MINGW*|MSYS*|CYGWIN*)
-          _acl="$(icacls "$(cygpath -w "$_f")" 2>/dev/null)" \
-            || die "$_f: cannot judge owner-only (icacls unavailable)"
-          _broad="$(printf '%s\n' "$_acl" | grep -iE '(\\Everyone|BUILTIN\\Users|Authenticated Users|\\INTERACTIVE):\(' || true)"
-          [ -z "$_broad" ] || die "$_f is readable beyond the owner (NTFS ACL): $(printf '%s' "$_broad" | tr -s ' ')"
-          ;;
-        *)
-          _m="$(stat -c %a "$_f" 2>/dev/null || stat -f %Lp "$_f" 2>/dev/null)"
-          [ "$_m" = "600" ] || die "$_f mode=$_m (expected 600)"
-          ;;
-      esac
-    done
-    # SSE binding must not carry a webhook URL; otherwise welcome is pushed to
-    # the retired inbound endpoint instead of pending/SSE.
-    python3 - "$AGENT_CFG" <<'PY'
-import json, sys
-b = json.load(open(sys.argv[1], encoding="utf-8"))
-u = b.get("webhook_url") or ""
-if u:
-    print(f"SSE binding has webhook_url={u!r}; welcome would bypass pending/SSE", file=sys.stderr)
-    sys.exit(1)
-PY
-    [ $? -eq 0 ] || die "dsh binding still carries a webhook_url (SSE regression)"
-    ok "dsh SSE pull ready · inbound :$DSH_INBOUND_PORT closed · dual config written (owner-only: 0600 / NTFS ACL)"
     ;;
 esac
 

@@ -18,13 +18,18 @@ name: l3
 #   formerly triggered by workflow_run of the three release workflows — one release fanned out 7 L3 runs (mostly
 #   skipped/cancelled), unreadable status, and it fired even on a failed release; now the caller controls it with needs/if.
 #
-# Matrix = 3 platforms × 3 agent cells = 9 jobs (regression content identical, see run-l3.sh):
-#   platforms: linux-amd64 / linux-arm64 (native ARM) / macos-arm64
-#   (Windows: the CLI port is incomplete; not run until the port lands; once restored = 4 platforms × 3 cells = 12 jobs)
-#   agent cells: hermes (pysdk path) / dsh-aimail (CLI entry: aimail install --home ~/.dsh)
-#             / dsh-plugin (plugin entry: dsh plugin --profile web add dsh-aimail).
-#   dsh's two README-published paths (README lines 90/96, "pick one of the two") each take a cell,
-#   with independent failure points: the aimail install path goes through CLI detect/platform adaptation; the plugin path goes straight to the dsh manager.
+# Matrix = 3 platforms + windows × agent cells (regression content identical, see run-l3.sh):
+#   platforms: linux-amd64 / linux-arm64 (native ARM) / macos-arm64 / windows-amd64
+#   agent cells: hermes (pysdk, old-CLI path — owner ruling: keeps V1 CLI)
+#             / dsh (SSE V2, single cell — owner ruling 2026-11-22 U1: the two former
+#               dsh cells (CLI entry vs plugin entry) collapsed into one, because the
+#               V2 dsh host has exactly one legal install path — the agent is guided by
+#               the activation prompt to install via the host's plugin mechanism, no CLI)
+#             / pi (V1 host cell).
+#   dsh's V2 journey (run-l3.sh ④-⑤): applicant verifies email → applies an address
+#   code → the real host agent is driven over its web API through LLM turns; the
+#   plugin is installed by the (simulated) user via `dsh plugin add` + host restart
+#   when the agent reports the tool missing (SKILL §1), never pre-installed.
 #
 # Each job in three steps (D3 ruling):
 #   ① install the target agent + configure the LLM (Xiaomi OpenAI-compatible endpoint, secret XIAOMI_API_KEY) + verify it runs
@@ -42,7 +47,7 @@ on:
   workflow_dispatch:       # explicit object (a null value makes GitHub not register the trigger: dispatch API 422)
     inputs:
       cell:
-        description: "只跑一格：<platform>/<agent>，如 linux-amd64/dsh-aimail；留空 = 全矩阵"
+        description: "只跑一格：<platform>/<agent>，如 linux-amd64/dsh；留空 = 全矩阵"
         required: false
         default: ""
       welcome_timeout:
@@ -72,28 +77,25 @@ jobs:
     # cells still take a runner slot, so a single-cell dispatch can queue behind
     # two macos cells. Acceptable; do not "optimise" this back into a job-level if.
     strategy:
-      fail-fast: false   # one red platform does not cancel the rest — verdicts from all 8 cells must be visible
+      fail-fast: false   # one red platform does not cancel the rest — verdicts from all 9 cells must be visible
       matrix:
         include:
           # ── Linux ──
           - { platform: linux-amd64, os: ubuntu-latest,   agent: hermes }
-          - { platform: linux-amd64, os: ubuntu-latest,   agent: dsh-aimail }
-          - { platform: linux-amd64, os: ubuntu-latest,   agent: dsh-plugin }
+          - { platform: linux-amd64, os: ubuntu-latest,   agent: dsh }
           # host cells (0.4.0): real Pi process — extension pulls the system SSE
           # stream and wakes a session on inbound (no listener/webhook).
           - { platform: linux-amd64, os: ubuntu-latest,   agent: pi }
           - { platform: linux-arm64, os: ubuntu-24.04-arm, agent: hermes }
-          - { platform: linux-arm64, os: ubuntu-24.04-arm, agent: dsh-aimail }
-          - { platform: linux-arm64, os: ubuntu-24.04-arm, agent: dsh-plugin }
+          - { platform: linux-arm64, os: ubuntu-24.04-arm, agent: dsh }
           # ── macOS ──
           - { platform: macos-arm64, os: macos-latest,        agent: hermes }
-          - { platform: macos-arm64, os: macos-latest,        agent: dsh-aimail }
-          - { platform: macos-arm64, os: macos-latest,        agent: dsh-plugin }
+          - { platform: macos-arm64, os: macos-latest,        agent: dsh }
           # ── Windows ──
-          # restore 3 cells = 12 jobs once the CLI Windows port completes (2026-10-17).
+          # V2 dsh cells run on Windows too (no CLI dependency in the V2 path);
+          # the hermes cell stays until the CLI Windows port completes.
           - { platform: windows-amd64, os: windows-latest, agent: hermes }
-          - { platform: windows-amd64, os: windows-latest, agent: dsh-aimail }
-          - { platform: windows-amd64, os: windows-latest, agent: dsh-plugin }
+          - { platform: windows-amd64, os: windows-latest, agent: dsh }
 
     timeout-minutes: 45
     env:
