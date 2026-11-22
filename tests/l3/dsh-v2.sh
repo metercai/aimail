@@ -60,6 +60,14 @@ STATE="$WORK/dsh-v2.state"
 # (the plugin resolves its home from the env, not the shell cwd).
 AIMAIL_HOME="${AIMAIL_HOME:-$HOME/.aimail}"
 export AIMAIL_HOME
+# The binding filename is a CONTRACT value (binding_file in
+# contract/aimail-contract.json — single source of truth). Derive it from the
+# manifest instead of hardcoding the literal: this test asserts "the file the
+# contract says the SDK must write was written", and a contract rename would
+# then re-target this assertion automatically (the literal ratchet in
+# tests/contract/ forbids new hardcoded occurrences).
+BINDING_FILE="$(python3 -c 'import json,sys; sys.stdout.write(json.load(open(sys.argv[1]))["binding_file"])' "$AIMAIL_REPO/contract/aimail-contract.json")"
+[ -n "$BINDING_FILE" ] || gap "cannot read binding_file from $AIMAIL_REPO/contract/aimail-contract.json"
 : > "$SPOOL"
 GW_PID=""; SINK_PID=""; HOST_PID=""
 cleanup() {
@@ -390,7 +398,7 @@ fi
 # missing-tool branch (it cannot bind without aimail_address). The session log
 # is the evidence — but the assertion is behavioural (turn closed + no binding
 # file), not a string match on the model's words.
-BINDING_BEFORE="$(find "$AIMAIL_HOME" -name agentmail.json 2>/dev/null | head -1)"
+BINDING_BEFORE="$(find "$AIMAIL_HOME" -name "$BINDING_FILE" 2>/dev/null | head -1)"
 [ -z "$BINDING_BEFORE" ] || die "a binding already exists before any bind turn ($BINDING_BEFORE) — environment not clean"
 ok "turn 1 done; no binding on disk (the tool was missing — SKILL §1 path)"
 
@@ -445,7 +453,7 @@ PRE_BIND_LLMMS="$(llm_ms_total)"
 BIND_WAIT=$((SECONDS + TURN_WINDOW))
 BINDING=""
 while [ $SECONDS -lt $BIND_WAIT ]; do
-  BINDING="$(find "$AIMAIL_HOME" -name agentmail.json 2>/dev/null | head -1)"
+  BINDING="$(find "$AIMAIL_HOME" -name "$BINDING_FILE" 2>/dev/null | head -1)"
   if [ -n "$BINDING" ]; then
     # the binding file must be COMPLETE (email + api_key) before we judge the
     # turn — a half-written file during the tool call would be a false pass.
@@ -458,7 +466,7 @@ PY
   kill -0 "$HOST_PID" 2>/dev/null || { bad "dsh host died during the bind turn: $(tail -15 "$WORK/dsh-host.log" | tr '\n' ' ')"; exit 1; }
   sleep 2
 done
-[ -n "$BINDING" ] || die "the agent never bound: no complete agentmail.json within ${TURN_WINDOW}s (llmMs: $(llm_ms_total); host log: $(tail -15 "$WORK/dsh-host.log" | tr '\n' ' '))"
+[ -n "$BINDING" ] || die "the agent never bound: no complete $BINDING_FILE within ${TURN_WINDOW}s (llmMs: $(llm_ms_total); host log: $(tail -15 "$WORK/dsh-host.log" | tr '\n' ' '))"
 say "binding landed: $BINDING"
 # ownership must exist (the V2 bind path writes it; without it SSE would 403).
 OWNERSHIP="$(python3 - "$GW_HOME/data/aimail.db" "$SYSTEM_ID" <<'PY'
