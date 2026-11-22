@@ -11,7 +11,7 @@
 
 SDK/gateway/advanced 的**自测口径全绿**，但把同一份 0.5.0 放进真实宿主后，
 **"入站邮件 → agent turn → ack"这条主链在 Pi / OpenClaw / DSH 三边都没跑通**；
-其中两条是产品代码的确定性缺陷（各一行级），另外两条需要开发补日志/口径后复验。
+其中两条是产品代码的确定性缺陷（各一行级），另外两条需要开发补日志/口径后复验；此外 V2 自助激活缺少 manager/白名单写入（B5，对 V1 的功能回退）。
 因此本轮不能签字发版。
 
 ---
@@ -116,6 +116,52 @@ session/prompt → accepted:true
 请确认：HTTP `session/create` + mux `session/follow(activate:true)` + `session/prompt` 建立的会话，
 是否需要额外步骤（agentPreset / session 级工具开关）才能看到 mail 15 件工具，并给最小复现命令。
 （参考：`dsh headless` 走 `llm-deepseek` 默认路由，与 web profile 的 xiaomi 默认模型不同源。）
+
+### B5（P1，验证方复查意见）V2 自助激活只建 system_domains，不写 manager、不建白名单
+
+代码事实（gateway `58df8cd`）：
+| 路径 | 位置 | 写 system_domains | 写 domain_addr_meta(manager) | 建 whitelists |
+|---|---|---|---|---|
+| V1 管理端 `register_address` | `src/core/api/http.rs:690-712` | ✅ | ✅ `upsert_domain_addr_meta(…, Some(effective_manager), …)` | ✅ `create_whitelist_entry(email,'all',manager,…)` |
+| V2 自助激活 `activate_address_code` → `ensure_agent_address_domain` | `src/core/api/activation.rs:117-119` → `src/core/storage.rs:1670-1689` | ✅（`INSERT OR IGNORE`，webhook NULL） | ❌ | ❌ |
+
+配套事实：
+- `activation_codes` 表无 manager 列；公开 `apply-address` 只收 `{email,name,agentname,domain}` ⇒ 自助流程里没有 manager 输入。
+- 激活响应无 `manager_address` 字段（`activation.rs:750-764`），而契约 §7.1 要求 binding 可带 manager。
+- 入站 SMTP 对未白名单发件人直接拒：`src/core/smtp/receiver.rs:555` → `550 Sender not whitelisted`
+  （验证方实测：自助激活的地址收到外部邮件即 550，手工加 from 白名单后才 250）。
+
+影响（按契约条款）：
+1. §10「manager cc/回复是普通 inbound；welcome 的 persona/signature 与 manager 指令保持语义」→ 无 manager 写入 ⇒ persona 审批（`[CMD] approve persona`）无审批人；
+2. §8/§9 入站投递 → 外部邮件 550，自助地址事实上收不到任何外部邮件；
+3. §7.1 binding 的 `manager_address` → 响应不返回，客户端无从写入。
+
+对"这是标准动作、与 SSE-V2 改造无关"的评审意见：
+- **同意**的一半：manager/白名单与 SSE/聚合拉取无关，不影响 B1/B2 的传输修复；
+- **不同意**的一半：这不是"与 V2 无关"，而是 **V2 自助激活对 V1 的功能回退**——它直接违背 §7.1/§8/§10 的三条承诺，
+  且验证方已在真实链路观测到 550。属于 P1，应随本次发布修，不能留给"以后统一"。
+
+建议修法（V2 激活路径内，保持幂等、不覆盖既有显式 manager）：
+```rust
+// src/core/api/activation.rs，ensure_agent_address_domain 之后
+let existing = db.get_domain_addr_meta(&email).await.ok().flatten();
+let manager = existing.filter(|m| !m.manager_address.is_empty())
+    .map(|m| m.manager_address)
+    .or_else(|| effective_manager(&state));            // 复用 V1 的 effective_manager（显式 → 系统默认 → 配置默认）
+if let Some(m) = manager.as_deref() {
+    let _ = db.upsert_domain_addr_meta(&email, &sid, Some(m), None, None).await;
+    if let Err(e) = factory.create_whitelist_entry(&email, "all", m, Some("Agent <-> Manager (auto-created)")).await {
+        warn!(operation = "auto_whitelist_failed", email = %email, error = %e);
+    }
+}
+// 响应补 "manager_address": <m>
+```
+
+判据（复验）：
+1. 自助激活后 `domain_addr_meta.manager_address = <默认管理员>`，`whitelists` 有 `(email,'all',manager)`；
+2. 该 manager 发外部邮件 → SMTP 250（不再 550）；welcome cc manager；`[CMD] approve persona` 能生效；
+3. 重复激活/换码激活幂等：不产生重复行、不覆盖管理员显式设置的 manager；
+4. 激活响应含 `manager_address`，binding 落盘后 §7.1 字段齐全。
 
 ---
 
