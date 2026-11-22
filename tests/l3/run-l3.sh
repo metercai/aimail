@@ -263,7 +263,57 @@ LOG="$WORK/l3.log"
 # Log archive: on failure workflow uploads $HOME/l3-logs (full OS deterministic path); EXIT trap fallback lands final log
 LOG_ARCHIVE="${L3_LOG_ARCHIVE:-$HOME/l3-logs}"
 mkdir -p "$LOG_ARCHIVE" 2>/dev/null || true
-trap 'archive_agent_state; cp -f "$WORK"/* "$LOG_ARCHIVE/" 2>/dev/null; cp -f "$LOG" "$LOG_ARCHIVE/" 2>/dev/null; true' EXIT
+trap 'L3_RC=$?; archive_agent_state; cp -f "$WORK"/* "$LOG_ARCHIVE/" 2>/dev/null; cp -f "$LOG" "$LOG_ARCHIVE/" 2>/dev/null; if [ "$L3_RC" -eq 0 ] && ! teardown_fixture 2>/dev/null; then L3_RC=1; fi; exit "$L3_RC"' EXIT
+
+# Launch a fixture process in its OWN process group (setsid) so teardown can
+# kill the whole tree — dsh web / hermes spawn node children; a bare
+# `kill $PID` orphans them (observed 2026-11-22: a leaked fixture listener
+# then shadowed ports for later jobs on the pooled runner). PGID == the
+# setsid'd PID. Fallback without setsid (git-bash on Windows): plain nohup,
+# PID-level kill only.
+start_group() { # start_group <logfile> <cmd...> → sets LAST_PID / LAST_PGID
+  local log="$1"; shift
+  if command -v setsid >/dev/null 2>&1; then
+    setsid "$@" > "$log" 2>&1 &
+    LAST_PGID=$!
+  else
+    nohup "$@" > "$log" 2>&1 &
+    LAST_PGID=""
+  fi
+  LAST_PID=$!
+}
+teardown_fixture() {
+  # returns 1 ONLY when a fixture listener survived (leak detected); 0 otherwise
+  [ -n "${GW_PGID:-}" ] && kill -- -"$GW_PGID" 2>/dev/null
+  [ -n "${HOST_PGID:-}" ] && kill -- -"$HOST_PGID" 2>/dev/null
+  [ -n "${FIFO_PID:-}" ] && kill "$FIFO_PID" 2>/dev/null
+  sleep 1
+  [ -n "${GW_PID:-}" ] && kill -9 "$GW_PID" 2>/dev/null
+  [ -n "${HOST_PID:-}" ] && kill -9 "$HOST_PID" 2>/dev/null
+  # terminal-state assertion: no fixture listener may survive the cell — a
+  # leaked one shadows ports for whatever runs next on this runner.
+  # A PASSED cell that leaks is a FAILURE (red).
+  if python3 - "${GW_HTTP_PORT:-}" "${GW_SMTP_PORT:-}" 39801 12528 "${HERMES_PORT:-}" <<'PY'
+import socket, sys
+leaked = []
+for port in dict.fromkeys(p for p in sys.argv[1:] if p):
+    s = socket.socket(); s.settimeout(1)
+    try:
+        s.connect(("127.0.0.1", int(port))); leaked.append(port)
+    except OSError:
+        pass
+    finally:
+        s.close()
+if leaked:
+    print(f"  ✗ LEAK: fixture port(s) still serving after teardown: {leaked}", file=sys.stderr)
+    sys.exit(1)
+PY
+  then
+    return 0
+  else
+    return 1
+  fi
+}
 
 # Asset name platform → release asset suffix
 asset_suffix() {
@@ -415,9 +465,20 @@ email = "admin@l3.local"
 [webhook]
 allow_private_targets = true
 EOF
+# Pre-sweep: a leaked fixture from a PREVIOUS cell/run on this pooled runner
+# (PPID=1 orphans that survived a crashed teardown) holds the fixed fixture
+# ports and would EADDRINUSE the new gateway/sink/host. Kill by our own
+# signatures (spool paths under /tmp/l3-* + the sink's port flag) — never
+# by bare port, so we cannot touch a runner service.
+if command -v setsid >/dev/null 2>&1; then
+  pkill -f "smtp_sink.py --port (12526|12528|18123) --spool /tmp/l3-" 2>/dev/null || true
+  pkill -f "dsh web --port (39801|12526|12528) --no-open" 2>/dev/null || true
+  pkill -f "aimail-gateway --config /tmp/l3-" 2>/dev/null || true
+  sleep 1
+fi
 say "starting gateway…"
-"$GW_BIN" --config "$GW_HOME/config.toml" > "$GW_HOME/boot.log" 2>&1 &
-GW_PID=$!
+start_group "$GW_HOME/boot.log" "$GW_BIN" --config "$GW_HOME/config.toml"
+GW_PID=$LAST_PID; GW_PGID=$LAST_PGID
 # Wait for system key to be persisted (setup_admin_key prints once + persists)
 for i in $(seq 1 30); do
   if ls "$GW_HOME/data"/*.system.key >/dev/null 2>&1; then break; fi
@@ -627,8 +688,8 @@ PY
     . "$(dirname "${BASH_SOURCE[0]}")/../agent-env/agent-paths.sh"
     HERMES_BIN="$(agent_launcher hermes "${HERMES_HOME:-}" || true)"
     [ -x "$HERMES_BIN" ] || die "hermes launcher not found after install (searched <home>/hermes-agent/.hermes/bin, /opt/hermes/bin, <home>/.local/bin, PATH)"
-    HERMES_HOME="$HERMES_HOME" nohup "$HERMES_BIN" gateway run > "$WORK/hermes-host.log" 2>&1 &
-    HOST_PID=$!
+    HERMES_HOME="$HERMES_HOME" start_group "$WORK/hermes-host.log" "$HERMES_BIN" gateway run
+    HOST_PID=$LAST_PID; HOST_PGID=$LAST_PGID
     say "hermes host starting (webhook port $HERMES_PORT)…"
     UP=0
     for _ in $(seq 1 120); do
@@ -711,10 +772,18 @@ PY
     # (measured 2026-11-18: "pi host exited before the SSE pull came up"). Hold the
     # write end open for the duration of the cell.
     PI_IN="$WORK/pi.stdin"; mkfifo "$PI_IN"
-    ( sleep 900 > "$PI_IN" & ) &
+    # keeper holds the fifo's write end open for the cell's duration (pi rpc
+    # reads commands from stdin; on /dev/null it exits at once). Direct
+    # background job so FIFO_PID is the real sleep (killable at teardown);
+    # it blocks on the fifo open until pi (reader) boots — deadlock-free.
+    sleep 900 > "$PI_IN" &
+    FIFO_PID=$!
     ( cd "$WORKSPACE" && HOME="$HOME" AIMAIL_HOME="${HOME}/.aimail" AIMAIL_TRANSPORT=sse \
-        nohup "$PI_BIN" --mode rpc < "$PI_IN" > "$WORK/pi-host.log" 2>&1 & echo $! > "$WORK/pi.pid" )
-    HOST_PID="$(cat "$WORK/pi.pid")"
+        start_group "$WORK/pi-host.log" "$PI_BIN" --mode rpc < "$PI_IN"
+      printf '%s %s\n' "$LAST_PID" "$LAST_PGID" > "$WORK/pi.pids" )
+    HOST_PID="$(cut -d' ' -f1 "$WORK/pi.pids" 2>/dev/null)"
+    HOST_PGID="$(cut -d' ' -f2 "$WORK/pi.pids" 2>/dev/null)"
+    [ -n "${HOST_PID:-}" ] || die "pi host did not start (no pid captured)"
     say "pi host starting (SSE mode, rpc session)…"
     UP=0
     for _ in $(seq 1 120); do

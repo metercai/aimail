@@ -70,12 +70,59 @@ BINDING_FILE="$(python3 -c 'import json,sys; sys.stdout.write(json.load(open(sys
 [ -n "$BINDING_FILE" ] || gap "cannot read binding_file from $AIMAIL_REPO/contract/aimail-contract.json"
 : > "$SPOOL"
 GW_PID=""; SINK_PID=""; HOST_PID=""
+GW_PGID=""; SINK_PGID=""; HOST_PGID=""; GW_PID_L3="${GW_PID_L3:-}"
+# Launch a fixture process in its OWN process group (setsid) so teardown can
+# kill the whole tree — dsh web spawns node children; a bare `kill $PID`
+# orphans them (observed 2026-11-22: leaked smtp_sink/dsh children on pooled
+# CI runners then shadowed ports for later jobs). PGID == the setsid'd PID.
+# Fallback (no setsid, e.g. git-bash on Windows): plain nohup, PID-level kill.
+start_group() { # start_group <logfile> <cmd...> → sets LAST_PID / LAST_PGID
+  local log="$1"; shift
+  if command -v setsid >/dev/null 2>&1; then
+    setsid "$@" > "$log" 2>&1 &
+    LAST_PGID=$!
+  else
+    nohup "$@" > "$log" 2>&1 &
+    LAST_PGID=""
+  fi
+  LAST_PID=$!
+}
 cleanup() {
-  [ -n "${HOST_PID:-}" ] && kill "$HOST_PID" >/dev/null 2>&1 || true
-  [ -n "${SINK_PID:-}" ] && kill "$SINK_PID" >/dev/null 2>&1 || true
-  # the [relay]-reconfigured gateway is ours (run-l3.sh's ② instance was
-  # replaced in [0]) — kill it so the cell leaves no orphans.
-  [ -n "${GW_PID:-}" ] && kill "$GW_PID" >/dev/null 2>&1 || true
+  local rc=$?
+  [ -n "${HOST_PGID:-}" ] && kill -- -"$HOST_PGID" 2>/dev/null || true
+  [ -n "${SINK_PGID:-}" ] && kill -- -"$SINK_PGID" 2>/dev/null || true
+  [ -n "${GW_PGID:-}" ] && kill -- -"$GW_PGID" 2>/dev/null || true
+  # inherited ② gateway (run-l3.sh): not ours to group-kill, PID-level
+  [ -z "${GW_PGID:-}" ] && [ -n "${GW_PID_L3:-}" ] && kill "$GW_PID_L3" 2>/dev/null
+  sleep 1
+  for p in ${HOST_PID:-} ${SINK_PID:-} ${GW_PID_L3:-}; do
+    [ -n "$p" ] && kill -9 "$p" 2>/dev/null || true
+  done
+  # terminal-state assertion: no fixture process may survive the cell — a
+  # leaked listener shadows ports for whatever runs next on this runner.
+  # A PASSED journey that leaks is a FAILURE (red), so the cell cannot pass
+  # while dirtying the runner.
+  if ! python3 - "$DSH_WEB_PORT" "$SINK_PORT" "${GW_HTTP_PORT:-}" "${GW_SMTP_PORT:-}" <<'PY'
+import socket, sys
+leaked = []
+for port in dict.fromkeys(p for p in sys.argv[1:] if p):
+    s = socket.socket()
+    s.settimeout(1)
+    try:
+        s.connect(("127.0.0.1", int(port)))
+        leaked.append(port)
+    except OSError:
+        pass
+    finally:
+        s.close()
+if leaked:
+    print(f"  ✗ LEAK: fixture port(s) still serving after teardown: {leaked}", file=sys.stderr)
+    sys.exit(1)
+PY
+  then
+    [ "$rc" -eq 0 ] && rc=1
+  fi
+  exit "$rc"
 }
 trap cleanup EXIT
 
@@ -99,8 +146,9 @@ except OSError as e:
 finally:
     s.close()
 PY
-python3 "$AIMAIL_REPO/tests/host-acceptance/fixture/smtp_sink.py" \
-  --port "$SINK_PORT" --spool "$SPOOL" > "$GW_HOME/sink.log" 2>&1 & SINK_PID=$!
+start_group "$GW_HOME/sink.log" \
+  python3 "$AIMAIL_REPO/tests/host-acceptance/fixture/smtp_sink.py" \
+  --port "$SINK_PORT" --spool "$SPOOL"; SINK_PID=$LAST_PID; SINK_PGID=$LAST_PGID
 sleep 1
 kill -0 "$SINK_PID" 2>/dev/null || { bad "sink died: $(tail -5 "$GW_HOME/sink.log")"; exit 1; }
 # gateway config: add [relay] + fast retry (mail must land in the spool within the test window)
@@ -113,7 +161,8 @@ if "[retry]" not in cfg:
     cfg += '\n[retry]\npoll_interval_secs = 1\ninitial_backoff_secs = 1\n'
 open(sys.argv[1], "w", encoding="utf-8").write(cfg)
 PY
-"$GW_BIN" --config "$GW_HOME/config.toml" > "$GW_HOME/boot.log" 2>&1 & GW_PID=$!
+start_group "$GW_HOME/boot.log" "$GW_BIN" --config "$GW_HOME/config.toml"
+GW_PID=$LAST_PID; GW_PGID=$LAST_PGID
 GW_URL="http://127.0.0.1:${GW_HTTP_PORT}"
 for _ in $(seq 1 30); do
   curl -fsS "$GW_URL/health" >/dev/null 2>&1 && break
@@ -240,9 +289,8 @@ web_start_host() {
   DSH_HOME="$DSH_HOME" AIMAIL_HOME="$AIMAIL_HOME" \
     DSH_PERMISSION_MODE=danger-full-access \
     LLM_API_KEY="${LLM_API_KEY:-}" DEEPSEEK_API_KEY="${LLM_API_KEY:-}" \
-    nohup dsh web --port "$DSH_WEB_PORT" --no-open \
-    > "$WORK/dsh-host.log" 2>&1 &
-  HOST_PID=$!
+    start_group "$WORK/dsh-host.log" dsh web --port "$DSH_WEB_PORT" --no-open
+  HOST_PID=$LAST_PID; HOST_PGID=$LAST_PGID
   WEB_BASE="http://127.0.0.1:$DSH_WEB_PORT"
   WEB_COOKIES="$WORK/cookies.txt"
   local tok=""
@@ -422,10 +470,11 @@ ok "composed profile carries the tool-mail row (global layer, count=$MAIL_ROWS)"
 
 # ═══ [4] host restart (a plugin install applies on the NEXT boot) ══════════════
 say "[4/7] host restart (plugin installs take effect on the next boot)"
-kill "$HOST_PID" 2>/dev/null || true
+# group-kill: `dsh web` spawns node children; a bare `kill $PID` orphans them
+[ -n "${HOST_PGID:-}" ] && kill -- -"$HOST_PGID" 2>/dev/null || kill "$HOST_PID" 2>/dev/null
 for _ in $(seq 1 20); do kill -0 "$HOST_PID" 2>/dev/null || break; sleep 0.5; done
 kill -0 "$HOST_PID" 2>/dev/null && kill -9 "$HOST_PID" 2>/dev/null
-HOST_PID=""
+HOST_PID=""; HOST_PGID=""
 web_start_host || die "web host restart after plugin install failed"
 ok "host restarted (plugin now in the booted tree)"
 
