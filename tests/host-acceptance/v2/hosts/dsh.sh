@@ -40,7 +40,7 @@ host_s1_activate() {
       for i in $(seq 1 60); do ls /root/.aimail/systems/*/*/agentmail.json >/dev/null 2>&1 && break; sleep 2; done
       B=$(ls /root/.aimail/systems/*/*/agentmail.json 2>/dev/null | head -1)
       echo "binding=${B:-none}"
-      [ -n "$B" ] && cp "$B" /out/binding.json
+      [ -n "$B" ] && { stat -c %a "$B" > /out/mode; install -m 644 "$B" /out/binding.json; }
       tail -n 400 /tmp/web.log > /out/host.log 2>/dev/null || true
       [ -n "$B" ] || tail -n 80 /tmp/act.log > /out/act.log 2>/dev/null || true
       # S2: restart so the binding arms the pull

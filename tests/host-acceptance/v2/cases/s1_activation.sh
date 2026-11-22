@@ -31,5 +31,5 @@ while read -r st name; do
   [ "$st" = "OK" ] && pass "$name" || red "$name"
 done <"$out/binding.assert"
 
-mode="$(stat -c '%a' "$out/binding.json" 2>/dev/null || echo '?')"
-[ "$mode" = "600" ] && pass "binding mode 0600" || red "binding mode $mode"
+mode="$(cat "$out/mode" 2>/dev/null || echo '?')"
+[ "$mode" = "600" ] && pass "binding mode 0600 (in-host)" || red "binding mode $mode (in-host)"

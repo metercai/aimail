@@ -26,7 +26,7 @@ PY
       timeout 300 pi -p "Activate and bind my AIMail mailbox address $AH with activation code $AC at gateway $GWURL using aimail_address." >/tmp/act.log 2>&1 || true
       B=$(ls /root/.aimail/systems/*/*/agentmail.json 2>/dev/null | head -1)
       echo "binding=${B:-none}"
-      [ -n "$B" ] && install -m 644 "$B" /out/binding.json
+      [ -n "$B" ] && { stat -c %a "$B" > /out/mode; install -m 644 "$B" /out/binding.json; }
       tail -n 300 /tmp/act.log > /out/host.log 2>/dev/null || true
       [ -n "$B" ]
     ' >"$out/rc" 2>&1

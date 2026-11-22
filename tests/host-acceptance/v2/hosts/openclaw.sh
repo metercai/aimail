@@ -37,7 +37,7 @@ PY
       for i in $(seq 1 80); do ls /app/.aimail/systems/*/*/agentmail.json >/dev/null 2>&1 && break; sleep 3; done
       B=$(ls /app/.aimail/systems/*/*/agentmail.json 2>/dev/null | head -1)
       echo "binding=${B:-none}"
-      [ -n "$B" ] && cp "$B" /out/binding.json
+      [ -n "$B" ] && { stat -c %a "$B" > /out/mode; install -m 644 "$B" /out/binding.json; }
       # S2: restart so the binding arms the pull
       pkill -f "openclaw gateway" 2>/dev/null; sleep 3
       setsid nohup openclaw gateway >>/tmp/gw.log 2>&1 &
