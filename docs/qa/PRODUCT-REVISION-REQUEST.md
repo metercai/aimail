@@ -147,3 +147,25 @@ bash tests/l3/run-v2.sh --cell linux-amd64/dsh
 
 结果口径：`PASS / RED（产品缺陷）/ GAP（夹具缺陷）/ SKIP_LEGACY（pysdk，不计判定）`；
 退出码在 `RED>0 或 GAP>0` 时非 0。**不接受 skip 冒充绿**。
+
+---
+
+## REQ-11（P1，tssdk·pi 打包）`typebox` 被列入 dependencies，pi 1.5.2 直接拒绝加载插件
+
+**现象**（L2 pi 实测，0.5.1）
+```
+Host-provided extension packages must be declared in peerDependencies with a "*" range,
+not dependencies: typebox.
+```
+pi 随后报 `No API key found for the selected model` 并**不加载插件** → 会话里没有任何邮件工具 → 绑定不可能发生。
+
+**证据**：`tssdk/packages/agent-aimail/package.json`
+```json
+"dependencies": { "typebox": "^1.3.6" }
+```
+**回归**：同版本流程在 0.5.0 的 pi cell 上是绿的（工具注册 14 件、绑定成功）；0.5.1 把 `typebox` 放进 dependencies 后 pi 端失效。
+
+**修法**：把 `typebox` 移到 `peerDependencies: { "typebox": "*" }`，并加 `peerDependenciesMeta.typebox.optional = true`；
+若确实需要运行期依赖，则改为宿主注入（pi 的 extension loader 明确禁止自带 host-provided 模块）。
+
+**判据（L2 pi S1/S2）**：`pi install <tgz>` 不再报该错；宿主日志出现工具注册；S1 8 条断言全绿。

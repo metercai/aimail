@@ -24,9 +24,21 @@ _pi_run() {  # _pi_run <out> <prompt>
       python3 - <<PY
 import json, os, pathlib
 p = pathlib.Path("/root/.pi/agent/models.json")
-d = json.loads(p.read_text())
-for prov in ((d.get("providers") or {}) or {}).values():
+p.parent.mkdir(parents=True, exist_ok=True)
+try:
+    d = json.loads(p.read_text())
+except Exception:
+    d = {"providers": {}}
+provs = d.setdefault("providers", {})
+if not provs:
+    provs["custom-api-xiaomimimo-com"] = {
+        "baseUrl": "https://api.xiaomimimo.com/v1",
+        "api": "openai-completions",
+        "models": [{"id": "mimo-v2.6-flash"}],
+    }
+for prov in provs.values():
     prov["apiKey"] = os.environ["LLM_API_KEY"]
+d.setdefault("defaultModel", "custom-api-xiaomimimo-com/mimo-v2.6-flash")
 p.write_text(json.dumps(d, indent=2))
 PY
       TGZ="$(ls /opt/sdk/*.tgz | head -1)"
