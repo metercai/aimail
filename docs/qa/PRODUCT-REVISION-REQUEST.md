@@ -150,7 +150,7 @@ bash tests/host-acceptance/v2/run-matrix.sh --host all --stages "s1 s2 s3 s4 s5 
 
 ---
 
-## REQ-11（P1，tssdk·pi 打包）— **验证方已代修，待复验**`typebox` 被列入 dependencies，pi 1.5.2 直接拒绝加载插件
+## REQ-11（P1，tssdk·打包冲突：pi 与 dsh 对 `typebox` 的要求相反）`typebox` 被列入 dependencies，pi 1.5.2 直接拒绝加载插件
 
 **现象**（L2 pi 实测，0.5.1）
 ```
@@ -170,6 +170,14 @@ pi 随后报 `No API key found for the selected model` 并**不加载插件** �
 
 **判据（L2 pi S1/S2）**：`pi install <tgz>` 不再报该错；宿主日志出现工具注册；S1 8 条断言全绿。
 
-**验证方改动**（2026-11-23，已提交）：`typebox` 从 `dependencies` 移到
-`peerDependencies: "*"` + `peerDependenciesMeta.optional`，并保留 `devDependencies` 供构建；
-`pnpm -r build` 通过。请开发确认该改动符合发布策略，并在 0.5.2 中包含。
+**验证方已实测该修法并回滚（重要）**：把 `typebox` 从 `dependencies` 移到
+`peerDependencies: "*"`（+optional）后：
+- **pi**：插件正常加载，L2 `S1 7/7 + S2 2/2 + NEG 2/2 = 11 PASS / 0 RED` ✅
+- **dsh**：立刻回归 —— `S1 no binding`、日志 `Cannot find package 'typebox'` ❌（dsh 不提供该宿主模块）
+
+⇒ 单纯移动声明**不可发布**。可选修法（请开发选一并实现）：
+1. **打包内置**：构建时把 `typebox` 内联进 `dist`（当前是 `tsc -b`，需加 bundler/或对该模块做内联步骤）；
+2. **去掉运行期依赖**：`typebox-params.js` 改为直接产出 JSON Schema（不 import typebox）；
+3. **双入口**：`pi` 专用入口声明 peer，`dsh/openclaw` 入口保留 dependencies。
+
+**判据**：pi L2（S1/S2/NEG）与 dsh L2（S1/S2/S4/S5/NEG）同时保持绿。
