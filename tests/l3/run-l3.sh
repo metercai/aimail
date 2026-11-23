@@ -404,7 +404,7 @@ if [ -n "$PIN_TAG" ]; then
     [ "$GOT_SHA" = "$PIN_SHA" ] || die "gateway sha256 mismatch for $PIN_TAG/$PLATFORM ($GOT_SHA != $PIN_SHA)"
     say "gateway pinned ok: $PIN_TAG sha256=${PIN_SHA:0:12}…"
   fi
-  echo "{\"gateway_tag\":\"$PIN_TAG\",\"gateway_sha256\":\"${PIN_SHA:-unknown}\",\"platform\":\"$PLATFORM\"}" >"$LOGDIR/gateway.json" 2>/dev/null || true
+  echo "{\"gateway_tag\":\"$PIN_TAG\",\"gateway_sha256\":\"${PIN_SHA:-unknown}\",\"platform\":\"$PLATFORM\"}" >"$LOG_ARCHIVE/gateway.json" 2>/dev/null || true
 else
   warn "pins.env has no GATEWAY_VERSION — L3 is tracking releases/latest (not reproducible)"
 fi
