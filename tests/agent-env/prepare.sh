@@ -168,9 +168,41 @@ require_deerflow_base() {
   ok "deerflow base present (source-rebuilt)"
 }
 
+# ── clean plugin/binding state from a previous journey ────────────────────────────────
+# L3 requires a CLEAN agent environment: an agent-aimail left in a profile (or a binding left in
+# ~/.aimail) from an earlier cell makes the self-bootstrap unattributable — measured 2026-11-23,
+# where run N+1 failed with "agent-aimail was already installed before the agent's bootstrap".
+# This is environment prep (verifier-owned), not a product behaviour.
+clean_plugin_state() {
+  local prof
+  for prof in "$HOME"/.dsh/profiles/*/; do
+    [ -d "$prof" ] || continue
+    rm -rf "$prof/node_modules/agent-aimail" 2>/dev/null || true
+    if [ -f "$prof/package.json" ] && grep -q 'agent-aimail' "$prof/package.json" 2>/dev/null; then
+      python3 - "$prof/package.json" <<'PY' || true
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+for k in ("dependencies", "devDependencies", "peerDependencies"):
+    if isinstance(d.get(k), dict) and "agent-aimail" in d[k]:
+        d[k].pop("agent-aimail", None)
+json.dump(d, open(p, "w"), indent=2)
+PY
+    fi
+    if [ -f "$prof/pnpm-lock.yaml" ] && grep -q 'agent-aimail' "$prof/pnpm-lock.yaml" 2>/dev/null; then
+      rm -f "$prof/pnpm-lock.yaml"   # let the agent's own install regenerate it
+    fi
+  done
+  if [ -d "$HOME/.aimail" ]; then
+    mv "$HOME/.aimail" "$HOME/.aimail.bak-$(date +%s)" 2>/dev/null || true
+  fi
+  ok "clean state: no agent-aimail in any dsh profile; previous ~/.aimail archived"
+}
+
 case "$AGENT" in
   hermes)   install_hermes ;;
-  dsh)      install_dsh ;;
+  dsh)      install_dsh ; clean_plugin_state ;;
+  pi|openclaw) : ;;   # no plugin-state reset yet (journeys not wired); see tests/l3/GATE.md §8
   pi)       install_pi ;;
   openclaw) install_openclaw ;;
   deerflow) require_deerflow_base ;;
