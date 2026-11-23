@@ -15,22 +15,25 @@
 #
 # Activation flow: the dsh cell runs the full V2 activation-code journey (external
 # applicant verifies email → applies an address code → the host agent binds over
-# its web API) — dsh-v2.sh. The CLI cells (hermes/pi) use the admin-key path.
-# Test targets: all from published channels (GitHub Release / PyPI / npm), never from the working tree.
+# its web API) — dsh-v2.sh. There is no second flow: the L3 matrix is dsh-only.
+# Test targets: all from published channels (GitHub Release / npm), never from the working tree.
 #
 # Environment (injected by workflow):
 #   L3_PLATFORM  linux-amd64|linux-arm64|macos-arm64|windows-amd64
-#   L3_AGENT     hermes (pysdk, V1 CLI path) | dsh (SSE V2, activation-code journey) | pi
-#                (U1 ruling 2026-11-22: the two former dsh cells — CLI entry vs plugin entry —
-#                collapsed into one, because the V2 dsh host has exactly one legal install
-#                path: the host's plugin mechanism, guided by the activation prompt)
+#   L3_AGENT     dsh — the ONLY cell on the tssdk path.
+#                Owner ruling 2026-11-23: L3 = published SDK, installed by the agent
+#                itself, dsh only. Retired cells and why:
+#                  dsh-aimail  CLI entry (`aimail install`) is no longer shipped
+#                  hermes      pysdk not migrated to SSE-V2 ⇒ SKIP_LEGACY, never green
+#                  pi/openclaw L2 scope (local platform), not L3
+#                Any other L3_AGENT is refused at the top of this script rather than
+#                silently reused.
 #   AIMAIL_REPO  aimail repo checkout (environment preparation single source + llm-config.py both in tests/agent-env/)
 #   LLM_BASE_URL / LLM_MODEL / LLM_API_KEY
 #
-# Process contract (README Quick Start scenario 4, reproduced as-is, strictly no self-adjustment):
-#   ③ env four-piece set (AIMAIL_GW_URL/ADMIN_KEY/DOMAIN/MANAGER_ADDRESS) + online bootstrap curl|bash
-#   ④ dsh plugin --profile web add agent-aimail (host plugin mechanism; no SDK CLI)
-#   ⑤ aimail welcome (AGENT_HOME env → .agentmail pointer resolves system parameters)  # contract-allowed: L3 comment references contract pointer filename
+# Process contract (README Quick Start scenario 4 for the host plugin mechanism):
+#   ③ env four-piece set (AIMAIL_GW_URL/ADMIN_KEY/DOMAIN/MANAGER_ADDRESS) — dsh needs no published CLI
+#   ④ dsh plugin --profile web add agent-aimail (host plugin mechanism; inside dsh-v2.sh)
 #
 # Exit codes: 0=green (closed loop complete) · 1=red (assertion failed in some stage, reason printed) · 2=environment missing prerequisites
 # ═══════════════════════════════════════════════════════════════════════
@@ -238,28 +241,28 @@ except urllib.error.HTTPError as e:
 except Exception as e:
     print(f"  ✗ LLM probe: {type(e).__name__} in {time.time()-t0:.1f}s — {str(e)[:120]}")
 PY
-  # Product's own criteria (historically in L2 it reported '✗ toolset: … platform_toolsets MISSING')
-  [ -x "${AIMAIL_BIN:-/nonexistent}" ] && { echo "  [Product Self-Check] aimail check:"; "$AIMAIL_BIN" check 2>&1 | tail -30 | sed 's/^/    /'; }
+  # Product's own criteria (historically in L2 it reported '✗ toolset: … platform_toolsets MISSING').
+  # No CLI self-check here: the dsh cell ships no aimail CLI (install path retired); its
+  # product-side criteria are asserted in dsh-v2.sh against the gateway + host state.
   echo "  ──────────────────────────────────"
 }
 
 PLATFORM="${L3_PLATFORM:?L3_PLATFORM not set}"
-# ── host version must match the pin (a stale host CLI would fake green) ──────────
-PINS_HOST="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/agent-env/pins.env"
-if [ -f "$PINS_HOST" ]; then
-  case "$AGENT" in
-    dsh)   WANT="$(grep -E '^DSH_VERSION=' "$PINS_HOST" | head -1 | cut -d= -f2-)"
-           GOT="$(dsh --version 2>/dev/null | head -1 | tr -d '[:space:]')" ;;
-    pi)    WANT="$(grep -E '^PI_VERSION=' "$PINS_HOST" | head -1 | cut -d= -f2-)"
-           GOT="$(pi --version 2>/dev/null | head -1 | tr -d '[:space:]')" ;;
-    *)     WANT=""; GOT="" ;;
-  esac
-  if [ -n "$WANT" ] && [ "$GOT" != "$WANT" ]; then
-    gap "host version mismatch for $AGENT: got '$GOT', pin '$WANT' — refusing to judge"
-  fi
-fi
 AGENT="${L3_AGENT:?L3_AGENT not set}"
 AIMAIL_REPO="${AIMAIL_REPO:?AIMAIL_REPO not set}"
+# ── matrix scope (owner ruling 2026-11-23): the tssdk L3 path is dsh-only ──────────
+# Refuse anything else up front. Rationale per retired cell:
+#   dsh-aimail  the CLI entry no longer exists (`aimail install` retired)
+#   hermes      pysdk has not migrated to SSE-V2 ⇒ SKIP_LEGACY, never counted green
+#   pi/openclaw L2 scope (local platform), not an L3 cell
+case "$AGENT" in
+  dsh) : ;;
+  *)   die "L3 matrix is dsh-only on the tssdk path; agent '$AGENT' is retired or out of scope (see tests/l3/GATE.md)" ;;
+esac
+# Host-version pin check lives AFTER ① (see below): it is only meaningful once ① has
+# installed the pinned host. Placing it here read $AGENT before assignment and killed
+# every cell with 'AGENT: unbound variable' under `set -u`.
+
 # Environment preparation single source = aimail repo tests/agent-env/ (official install + basic environment + disable package manager age gate + LLM config;
 # contract see tests/agent-env/README.md). LLM writer is also only that one copy.
 AGENT_ENV="$AIMAIL_REPO/tests/agent-env"
@@ -298,25 +301,7 @@ echo "════ L3: $PLATFORM / $AGENT  (LLM=$LLM_MODEL @ $LLM_BASE_URL)"
 # ── ① Install agent + configure LLM + verify runnable ─────────────────────────────
 echo "── [1/6] agent env: $AGENT"
 case "$AGENT" in
-  hermes)
-    # Official install (source tree+venv, **not pip**) + disable age gate + LLM config all in single source prepare.sh:
-    # CLI adapter's health_checks checks source file {home}/hermes-agent/gateway/platforms/webhook.py
-    # and hermes_cli/profiles.py ⇒ pip wheel layout must fail; hermes tree's own pyproject.toml has
-    # `[tool.uv] exclude-newer="14 days"`, uv discovers it upwards from CWD ⇒ installing SDK will silently fall back to old version.
-    HERMES_HOME="${HOME}/.hermes"
-     export HERMES_HOME   # child processes (prepare/verify) locate the install tree/launcher via the host's real home
-    AGENT_HOME="$HERMES_HOME"
-    # LLM dual write (journey J4b authoritative form): --home lands in scratch (verify reads it, not read by host process),
-    # --extra-home lands in real $HERMES_HOME (host process reads it).
-    bash "$AGENT_ENV/prepare.sh" hermes \
-      --home "$WORK/llm-scratch" --extra-home "$HERMES_HOME" \
-      --llm-url "$LLM_BASE_URL" --llm-model "$LLM_MODEL" --llm-key "$LLM_API_KEY" \
-      || die "hermes env prepare failed (single source: tests/agent-env)"
-    VERIFY_HOME="$WORK/llm-scratch"
-    VERIFY_EXTRA=(--extra-home "$HERMES_HOME")
-    ok "hermes env ready (official install + LLM configured; single source)"
-    ;;
-  dsh|dsh-aimail|dsh-plugin)
+  dsh)
     # Official npm install dsh + pnpm (part of dsh's own base environment, must be pre-installed: cold container first call will fetch pnpm from network,
     # hangs on probe if network is bad; CI runner has no pnpm ⇒ plugin install will fail) + profile warm-up (profiles/web/
     # cordis.patch.yml is the landing point for LLM writes and plugin installs) + disable age gate + LLM config = single-source prepare.sh.
@@ -329,25 +314,26 @@ case "$AGENT" in
     VERIFY_EXTRA=()
     ok "dsh env ready (official npm + pnpm + profile warmed + LLM configured; single source)"
     ;;
-  pi)
-    # 0.4.0 host cell (2026-11-18): real pi process, SSE pull, no CLI inbound.
-    # Model config = single source llm-config.py (writes ~/.pi/agent/models.json:
-    # providers.<id>.{baseUrl,api:openai-completions,apiKey,models[]}).
-    PI_HOME="${HOME}/.pi"
-    AGENT_HOME="$PI_HOME"
-    bash "$AGENT_ENV/prepare.sh" pi --home "$PI_HOME" \
-      --llm-url "$LLM_BASE_URL" --llm-model "$LLM_MODEL" --llm-key "$LLM_API_KEY" \
-      || die "pi env prepare failed (single source: tests/agent-env)"
-    VERIFY_HOME="$PI_HOME"
-    VERIFY_EXTRA=()
-    # shellcheck source=../agent-env/agent-paths.sh
-    . "$AGENT_ENV/agent-paths.sh"
-    PI_BIN="$(agent_launcher pi "$PI_HOME" || true)"
-    [ -n "$PI_BIN" ] || die "pi launcher not found after prepare (agent-paths single source)"
-    ok "pi env ready (official npm + models.json written; single source)"
+  *)
+    # hermes / pi / anything else: unreachable — the matrix-scope guard above already
+    # refused them. Keep the branch so a future edit cannot silently fall through.
+    die "no environment-prepare branch for agent '$AGENT' (L3 matrix is dsh-only)"
     ;;
-  *) die "unknown agent $AGENT" ;;
 esac
+
+# ── host version must match the pin (a stale host would fake green) ───────────────
+# Runs AFTER ① on purpose: prepare.sh installs the pinned host, so this is the first
+# moment the version can be read. (Historically placed before ① ⇒ it read $AGENT
+# before assignment under `set -u` ⇒ every cell died at ① with rc=127.)
+PINS_HOST="$AIMAIL_REPO/tests/agent-env/pins.env"
+if [ -f "$PINS_HOST" ]; then
+  WANT="$(grep -E '^DSH_VERSION=' "$PINS_HOST" | head -1 | cut -d= -f2-)"
+  GOT="$(dsh --version 2>/dev/null | head -1 | tr -d '[:space:]')"
+  if [ -n "$WANT" ] && [ "$GOT" != "$WANT" ]; then
+    gap "host version mismatch for dsh: got '$GOT', pin '$WANT' — refusing to judge"
+  fi
+  ok "host version matches the pin ($GOT)"
+fi
 
 # The agent itself is runnable (D3 prerequisite): probe that the LLM endpoint is reachable + the agent version can be printed
 say "verifying agent runs + LLM endpoint reachable…"
@@ -361,7 +347,7 @@ ok "agent env ready: $AGENT"
 echo "── [2/6] published gateway (basic edition, $PLATFORM)"
 # Primary path for asset discovery = github.com releases/latest redirect (web endpoint, CDN distribution,
 # not subject to api.github.com unauthenticated IP rate limit 60/h constraint). api.github.com is only a fallback:
-# Under 9-cell matrix concurrency, unauthenticated calls will hit rate limit (403, observed 2026-10-09 macos two cells),
+# Under matrix concurrency, unauthenticated calls will hit rate limit (403, observed 2026-10-09 macos two cells),
 # and rate limit responses must be distinguished from "asset missing" —— false positive ENV GAP would mask the real cause of death.
 GW_TAG=""
 GW_TAG_URL="$(curl -sIL -o /dev/null -w '%{url_effective}' --connect-timeout 15 --max-time 30 \
@@ -508,27 +494,10 @@ export AIMAIL_MANAGER_ADDRESS="manager@l3-mgr.example"
 case "${L3_PLATFORM:-}" in
   *) WELCOME_TIMEOUT="${WELCOME_TIMEOUT:-300}" ;;
 esac
-# The dsh cell is V2-only (activation code → host plugin bind): it has NO aimail
-# CLI — the host plugin is the only legal install path (SKILL §6) and the whole
-# journey runs through the host's web API. The published-CLI bootstrap below is
-# for the CLI cells (hermes/pi) only.
-if [ "$AGENT" != "dsh" ]; then
-curl -fsSL "https://raw.githubusercontent.com/metercai/aimail/main/scripts/bootstrap.sh" | bash \
-  || die "online bootstrap failed (published CLI unavailable)"
-# bootstrap landing point ~/.local/bin relies on PATH reachability (product contract: bootstrap log self-proves
-# "⚠ add to PATH: export PATH=~/.local/bin:$PATH"). unix runner default PATH already includes it;
-# Windows git-bash default PATH does not include it ⇒ node side execFile('aimail') ENOENT
-# (L3 2026-10-17 empirical: dsh-host.log "aimail CLI not found ('aimail')",
-# same cell linux green = default PATH includes it). Explicit export = reproducing the contract published by bootstrap, not a product change.
-case "$(uname -s)" in
-  MINGW*|MSYS*|CYGWIN*)
-    export PATH="$HOME/.local/bin:$PATH"
-    ;;
-esac
-AIMAIL_BIN="$(command -v aimail || echo "$HOME/.local/bin/aimail")"
-[ -x "$AIMAIL_BIN" ] || die "aimail binary not on PATH after bootstrap: $AIMAIL_BIN"
-ok "published CLI: $( "$AIMAIL_BIN" version 2>/dev/null | head -1 )"
-fi
+# The dsh cell is V2-only and needs no published CLI: the activation prompt is applied
+# inside the host, the plugin is installed by the host's plugin mechanism, and the
+# welcome/approval steps run against the gateway's HTTP API (dsh-v2.sh). The former
+# `curl bootstrap.sh` CLI stage belonged to the retired CLI cells and is gone with them.
 
 # ── dsh V2 journey (self-contained: dsh-v2.sh [0]-[7]) ────────────────────────
 # V2 (owner ruling 2026-11-22): the dsh cell runs the full user journey —
@@ -567,283 +536,10 @@ if [ "$AGENT" = "dsh" ]; then
   exit 0
 fi
 
-# ── ④ host plugin install (the only supported entry point; SDK CLI retired) ───────────
-# README: "install either through the aimail command line or through the Agent's
-# plugin — pick one of the two". Both paths are publicly published ⇒ both are tested (matrix agent dimension
-# extension: hermes / dsh-aimail / dsh-plugin). Command form = exactly as in README:
-#   CLI entry point = `aimail install` (home is provided by export AGENT_HOME starting with ④, 
-#   Shares the same env as ⑤ welcome; no --home flag).
-#   Plugin entry = `dsh plugin --profile web add agent-aimail` (no AGENT_HOME dependency).
-# env has been persisted by ③ to ~/.aimail/.env + exported in this shell.
-echo "── [4/6] SDK install (host plugin mechanism only — the SDK CLI install path is retired)"
-# Owner ruling: the SDK ships no CLI; a host installs it as a plugin/extension.
-# `aimail install` is therefore NOT a supported entry point and must not be used here.
-case "$AGENT" in
-  dsh)
-    dsh plugin --profile web add agent-aimail \
-      || die "dsh plugin add agent-aimail failed (host plugin install)"
-    ;;
-  pi)
-    die "pi is L2 scope (three-host L2); the L3 matrix is dsh-only per owner ruling"
-    ;;
-  *)
-    die "agent $AGENT is not part of the V2 L3 gate (legacy/pysdk = SKIP_LEGACY)"
-    ;;
-esac
-ok "install done (system activated + platform adapted)"
-
-# ── ④b Start agent host (receive and reply to mail) ────────────────────────────────────
-# welcome closed loop requires the host to be **alive**: in SSE mode the gateway queues the welcome in pending_deliveries,
-# the plugin hub pulls it from the same SSE stream, the host's LLM turn calls send_mail to reply, and the CLI polls
-# until three labels are present to approve. No webhook_url / inbound port is involved.
-# Installing without starting ⇒ welcome times out at 120s (first run will definitely be red). The inbound endpoint is wired by the registration step of install,
-# here we only start the host + wait for the port to be ready (waiting for the **same port written into the binding during registration**).
-echo "── [4b/6] agent host up (inbound endpoint ready)"
-HOST_PID=""
-case "$AGENT" in
-  hermes)
-    # The host process reads $HERMES_HOME/config.yaml (install registration step has already written platforms.webhook).
-    # webhook port = extra.port written by _next_available_webhook_port(base 8644) during registration;
-    # gateway listens on the same port when starting the platform ⇒ read it back from config, do not guess or hardcode.
-    # Pure standard library text reading (macOS system python3 has no PyYAML): find the top-level platforms: block
-    # webhook: extra: port (active lines only, comment lines ignored). The install registration step writes
-    # platforms.webhook.{enabled, extra:{host,port,secret}}(aimail_hermes.py)。
-    HERMES_PORT="$(python3 - "$HERMES_HOME/config.yaml" <<'PY'
-import re, sys
-port = 0
-lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
-in_plat = in_wh = in_extra = False
-for ln in lines:
-    s = ln.strip()
-    if s.startswith("#"):
-        continue
-    if not ln.startswith(" "):
-        in_plat = (s == "platforms:")
-        in_wh = in_extra = False
-        continue
-    if in_plat and ln.startswith("  ") and not ln.startswith("   "):
-        in_wh = (s == "webhook:")
-        in_extra = False
-        continue
-    if in_wh and ln.startswith("    ") and not ln.startswith("     "):
-        if s == "extra:":
-            in_extra = True
-        elif s.startswith("port:"):
-            port = int(re.match(r"port:\s*(\d+)", s).group(1))
-            in_extra = False
-        else:
-            in_extra = False
-        continue
-    if in_extra and ln.startswith("      ") and s.startswith("port:"):
-        port = int(re.match(r"port:\s*(\d+)", s).group(1))
-print(port)
-PY
-)" || die "cannot read hermes webhook port"
-    [ "${HERMES_PORT:-0}" -gt 0 ] 2>/dev/null || die "hermes platforms.webhook.port not set (install did not wire the webhook)"
-    # launcher uses the single source of truth (tests/agent-env/agent-paths.sh). Previously this block had its own assignment + `[ -x ]` guard,
-    # 2026-10-11 was incidentally deleted when wired to single-source agent-env, leaving only the consumer below ⇒ CI reports
-    # `HERMES_BIN: unbound variable` (set -u interrupts directly; hermes host never started, port 8644 never ready,
-    # L3 9/9 red). The guard is restored together: if the launcher is not found, it must fail loudly, not silently start an empty command.
-    # shellcheck source=../agent-env/agent-paths.sh
-    . "$(dirname "${BASH_SOURCE[0]}")/../agent-env/agent-paths.sh"
-    HERMES_BIN="$(agent_launcher hermes "${HERMES_HOME:-}" || true)"
-    [ -x "$HERMES_BIN" ] || die "hermes launcher not found after install (searched <home>/hermes-agent/.hermes/bin, /opt/hermes/bin, <home>/.local/bin, PATH)"
-    HERMES_HOME="$HERMES_HOME" nohup "$HERMES_BIN" gateway run > "$WORK/hermes-host.log" 2>&1 &
-    HOST_PID=$!
-    say "hermes host starting (webhook port $HERMES_PORT)…"
-    UP=0
-    for _ in $(seq 1 120); do
-      python3 -c "import socket,sys;s=socket.socket();sys.exit(s.connect_ex(('127.0.0.1',$HERMES_PORT)))" 2>/dev/null && { UP=1; break; }
-      kill -0 "$HOST_PID" 2>/dev/null || { tail -15 "$WORK/hermes-host.log" | sed 's/^/    /'; die "hermes host exited before inbound port $HERMES_PORT was ready"; }
-      sleep 1
-    done
-    [ "$UP" = 1 ] || { tail -15 "$WORK/hermes-host.log" | sed 's/^/    /'; die "hermes inbound port $HERMES_PORT not up in 120s"; }
-    ok "hermes host up (inbound :$HERMES_PORT)"
-    # ── send_mail tool exposure assertion (after install, before welcome) ──────────────────────
-    # send_mail exposure in webhook session = platform_toolsets.webhook in config.yaml
-    # contains the contract toolset (read during hermes boot, written by install's ensure_config).
-    # Inbound port being alive only proves the host started, not that the tool is exposed —— known historical root cause
-    # (ensure_config.py:4-11 "receives but cannot send out"): missing it ⇒ webhook session has no send_mail ⇒
-    # after welcome trigger, agent cannot reply ⇒ 120s timeout. Fail loudly here, don't let welcome take the blame.
-    # dsh cell does not need an equivalent assertion: send_mail (tool-mail) and mail-inbound are the same atomic bundle
-    # (cordis.patch.yml), boot fail-loud ⇒ the V7 inbound routing gate above (routing already mounted) has transitively
-    # guaranteed tool-mail registration; a duplicate probe is redundant.
-    # toolset name is read from the contract (literal ratchet: hardcoding contract values is forbidden, same as dump_failure_evidence taking skill).
-    TS="$(python3 - "${AIMAIL_REPO:-}/contract/aimail-contract.json" <<'PY'
-import json, sys
-print(json.load(open(sys.argv[1], encoding="utf-8"))["agent_toolset_name"])
-PY
-)" || die "cannot read agent_toolset_name from contract"
-    [ -n "$TS" ] || die "empty agent_toolset_name from contract"
-    PT="$(python3 - "$HERMES_HOME/config.yaml" <<'PY'
-import sys
-# No PyYAML (L3 container macOS system python3 has none) ⇒ pure standard library text parsing, same discipline as the port parsing above.
-# Compatible with three yaml.safe_dump forms: sibling block list (default, 2 spaces, same level as webhook:),
-# nested block list (4 spaces), flow list ([a, b]).
-tools = []
-lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
-n = len(lines)
-i = 0
-while i < n and not (lines[i].strip() == "platform_toolsets:" and not lines[i].startswith(" ")):
-    i += 1
-i += 1  # enter platform_toolsets block
-web_indent = None
-while i < n:
-    ln = lines[i]
-    s = ln.strip()
-    if not s or s.startswith("#"):
-        i += 1
-        continue
-    ind = len(ln) - len(ln.lstrip(" "))
-    if ind == 0:
-        break  # leave platform_toolsets block
-    if web_indent is None and ind == 2 and s.startswith("webhook:"):
-        web_indent = ind
-        rest = s[len("webhook:"):].strip()
-        if rest.startswith("["):
-            tools = [x.strip().strip('"').strip("'") for x in rest.strip("[]").split(",") if x.strip()]
-        i += 1
-        continue
-    if web_indent is not None and s.startswith("- ") and ind >= web_indent:
-        tools.append(s[2:].strip().strip('"').strip("'"))
-        i += 1
-        continue
-    if web_indent is not None and ind <= web_indent:
-        break  # next sibling key (webhook list ends)
-    i += 1
-print(" ".join(tools))
-PY
-)" || die "cannot read hermes platform_toolsets.webhook from $HERMES_HOME/config.yaml"
-    case " $PT " in
-      *" $TS "*) : ;;
-      *) die "send_mail not exposed to webhook sessions: platform_toolsets.webhook=[$PT] (missing $TS) — install's ensure_config did not wire the toolset; welcome cannot reply" ;;
-    esac
-    ok "send_mail exposed to webhook sessions (platform_toolsets.webhook ⊇ $TS)"
-    ;;
-  pi)
-    # Real pi process, SSE mode: the extension pulls the system stream and wakes a
-    # session on inbound — no listener, no webhook, no CLI runtime call.
-    # Measured 2026-11-18 (local probe): the extension logs "identity pi/<ver>",
-    # "transport=sse (no listener/CLI)", "default agent bound: …" and fires
-    # send_user_message when a welcome arrives.
-    WORKSPACE="${AIMAIL_WORKSPACE:-$WORK/ws}"
-    mkdir -p "$WORKSPACE"
-    # rpc mode reads commands from stdin: with stdin on /dev/null pi exits at once
-    # (measured 2026-11-18: "pi host exited before the SSE pull came up"). Hold the
-    # write end open for the duration of the cell.
-    PI_IN="$WORK/pi.stdin"; mkfifo "$PI_IN"
-    ( sleep 900 > "$PI_IN" & ) &
-    ( cd "$WORKSPACE" && HOME="$HOME" AIMAIL_HOME="${HOME}/.aimail" AIMAIL_TRANSPORT=sse \
-        nohup "$PI_BIN" --mode rpc < "$PI_IN" > "$WORK/pi-host.log" 2>&1 & echo $! > "$WORK/pi.pid" )
-    HOST_PID="$(cat "$WORK/pi.pid")"
-    say "pi host starting (SSE mode, rpc session)…"
-    UP=0
-    for _ in $(seq 1 120); do
-      kill -0 "$HOST_PID" 2>/dev/null || { tail -20 "$WORK/pi-host.log" | sed 's/^/    /'; die "pi host exited before the SSE pull came up"; }
-      if grep -q "default agent bound" "$WORK/pi-host.log" 2>/dev/null; then UP=1; break; fi
-      sleep 1
-    done
-    [ "$UP" = 1 ] || { tail -25 "$WORK/pi-host.log" | sed 's/^/    /'; die "pi extension did not bind a default agent in 120s (no SSE pull)"; }
-    ok "pi host up (extension loaded, SSE pull, session ready)"
-    ;;
-esac
-
-# ── ⑤ welcome closed loop (welcome → agent replies three tags → manager approve)──
-echo "── [5/6] welcome closed loop (manager approves identity card + signature)"
-# README as-is: `aimail welcome`. Context resolution chain (welcome.rs:25-91):
-#   sid:      AGENT_HOME env (④ already exported, shared by install and welcome)
-#             → {AGENT_HOME}/.agentmail pointer (written during install/plugin registration) → end;  # contract-allowed: L3 comment references contract pointer filename
-#             user does not know system_id, does not pass --system-id.
-#   manager:  -m flag → AIMAIL_MANAGER_ADDRESS env (③ already exported + bootstrap persisted to .env)
-#             → config.manager_address。
-#   admin_key: systems/<sid>/aimail_gateway.json (written by install, welcome.rs:102).
-# Requires agent inbound endpoint started (install already wired), and agent+LLM can generate three-tag reply.
-"$AIMAIL_BIN" welcome --timeout "${WELCOME_TIMEOUT:-120}" 2>&1 | tee "$WORK/welcome.log"
-WELC_RC=${PIPESTATUS[0]}
-[ "$WELC_RC" -eq 0 ] || { dump_failure_evidence; die "welcome closed loop failed (rc=$WELC_RC) — $(tail -12 "$WORK/welcome.log")"; }
-ok "welcome loop complete (identity card + signature approved)"
-
-# ── ⑥ Query mail signature assertion ─────────────────────────────────────────
-echo "── [6/6] query-mail signature assertion"
-# Use the address-level key from the agent binding to send a **query email** (POST /api/v1/send, SDK send_mail same shape,
-# v1 signature protocol), then whoami reads back gateway-side effective identity card (agent_persona) + mail signature
-# (agent_signature) —— authoritative assertion point for UPSERT to domain_addr_meta after welcome approve
-# (whoami.rs:44-52; CLI check/l1 same source).
-# Windows: [6/6] last line print contains ✓ (U+2713), pipe stdout default cp1252 cannot encode
-# (L3 2026-10-17 evidence: UnicodeEncodeError '\u2713' position 2 —— persona/signature
-# already read back, only last line missing). PYTHONIOENCODING=utf-8 overrides stdout/stderr encoding;
-# unix default is UTF-8 ⇒ behavior unchanged.
-PYTHONPATH="$AIMAIL_REPO" PYTHONIOENCODING=utf-8 python3 - "$GW_URL" "$SYSTEM_ID" "$AIMAIL_MANAGER_ADDRESS" <<'PYEOF' || die "signature assertion failed"
-import sys, json, os, time, urllib.request, urllib.error
-import hashlib, hmac
-
-gw_url, system_id, manager_addr = sys.argv[1], sys.argv[2], sys.argv[3]
-
-# ── 1) Locate agent binding file (single source of truth dropped by install, check/l0 same source) ──
-# Layout: ~/.aimail/systems/<sid>/*/agentmail.json —— fields email/api_key required  # contract-allowed: L3 validates install written contract binding file
-# (BINDING_REQUIRED, cli/src/core/checks/l0.rs:36)。
-home = os.path.expanduser("~/.aimail")
-binding = None
-base = os.path.join(home, "systems", system_id)
-for entry in sorted(os.listdir(base)) if os.path.isdir(base) else []:
-    aj = os.path.join(base, entry, "agentmail.json")  # contract-allowed: L3 reads contract binding file
-    if os.path.isfile(aj):
-        binding = json.load(open(aj, encoding="utf-8"))
-        break
-if not binding:
-    print(f"  ✗ no agentmail.json under {base} (install did not adapt the platform)"); sys.exit(1)  # contract-allowed: L3 error references contract-bound filename
-email, key = binding.get("email", ""), binding.get("api_key", "")
-if not email or not key:
-    print(f"  ✗ binding missing email/api_key: {list(binding.keys())}"); sys.exit(1)
-print(f"  agent address : {email}")
-
-# ── 2) Send a query email (SDK send_mail isomorphic: POST /api/v1/send, agent key) ──
-# v1 signature protocol (aimail_base.py:29-59 exact replica): HMAC key = sha256(raw_key),
-# base = METHOD\npath\nms_timestamp\nsha256(body); Identity header X-Api-Identity = email of the address-level key.
-def signed(method, path, body_obj=None, api_key=key, identity=email):
-    body = json.dumps(body_obj).encode() if body_obj is not None else b""
-    ts = str(int(time.time() * 1000))
-    body_hash = hashlib.sha256(body).hexdigest()
-    key_hash = hashlib.sha256(api_key.encode("utf-8")).hexdigest()
-    base_str = f"{method.upper()}\n{path}\n{ts}\n{body_hash}"
-    sig = hmac.new(key_hash.encode("utf-8"), base_str.encode("utf-8"), hashlib.sha256).hexdigest()
-    req = urllib.request.Request(gw_url.rstrip("/") + path, data=body or None, method=method)
-    req.add_header("Content-Type", "application/json")
-    req.add_header("X-Api-Identity", identity)
-    req.add_header("X-Api-Timestamp", ts)
-    req.add_header("X-Api-Signature", sig)
-    try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            return r.status, json.load(r)
-    except urllib.error.HTTPError as e:
-        return e.code, (e.read() or b"").decode(errors="replace")
-
-marker = f"L3SIG-{int(time.time())}"
-st, resp = signed("POST", "/api/v1/send",
-                  {"to": manager_addr, "subject": f"query {marker}",
-                   "markdown": f"query {marker}: identity + signature check"})
-if st not in (200, 201, 202):
-    print(f"  ✗ query mail send failed: HTTP {st} {str(resp)[:200]}"); sys.exit(1)
-print(f"  query mail sent (HTTP {st}) — persona/signature are applied by the gateway")
-
-# ── 3) Assertion: whoami reads back identity card (agent_persona) + email signature (agent_signature) ──
-# whoami.rs:44-52 —— after welcome approve, gateway UPSERTs to domain_addr_meta, whoami reads back.
-# This is the authoritative assertion point for "identity card + email signature is effective" (same source as CLI check/l1, checks/l1.rs:130).
-st, who = signed("GET", "/api/v1/whoami")
-if st != 200:
-    print(f"  ✗ whoami failed: HTTP {st} {str(who)[:200]}"); sys.exit(1)
-persona = (who.get("agent_persona") or "").strip()
-sig     = (who.get("agent_signature") or "").strip()
-print(f"  agent_persona    : {persona[:60] or '(empty)'}")
-print(f"  agent_signature  : {sig[:60] or '(empty)'}")
-if not persona or not sig:
-    print("  ✗ identity card / signature not in effect after welcome approve"); sys.exit(1)
-print("  ✓ identity card (persona) + email signature in effect")
-PYEOF
-
-echo
-ok "════ L3 PASS: $PLATFORM / $AGENT — CLI×SDK×gateway integration loop completed"
-# teardown
-kill "$GW_PID" 2>/dev/null || true
-[ -n "${HOST_PID:-}" ] && kill "$HOST_PID" 2>/dev/null || true
-exit 0
+# ── end of the dsh cell ──────────────────────────────────────────────────────────────
+# Everything below this point used to be the CLI-cell tail (aimail install → host
+# webhook up → CLI `aimail welcome` → CLI signature probe). It was unreachable once the
+# matrix became dsh-only and it depended on the retired CLI install path, so it was
+# deleted (commit history keeps it). Reaching this line means the dsh journey fell
+# through without exiting — that is a gate bug, not a pass.
+die "internal: agent '$AGENT' reached the end of run-l3.sh without completing the dsh V2 journey"

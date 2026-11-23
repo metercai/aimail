@@ -114,7 +114,13 @@ B5 背景:QA 独立质检(`tests/host-acceptance/HANDOFF-V2-QA-FINDINGS.md` §4)
 | **L0** | 契约单真源棘轮(`tests/contract/check-contract-single-source.py`)+ pytest `tests/sdk/` + vitest(tssdk 全量) | push → `ci` workflow `sdk-gates` job | 契约字面量白名单只减不增;pytest/vitest 全绿 |
 | **L2 dsh SSE** | `tests/dsh-acceptance/scripts/run-dsh-l2-sse.sh` + base/advanced/rotation 等 10 脚本 | 手动 / 门禁 | 无 CLI、无 register-cli、无 listener/webhook;SSE pending 交付 |
 | **L2 real-host** | `tests/host-acceptance/run-l2-dsh-real-host.sh`(B4 工具面)+ `harness.mjs` | CI `host-acceptance` | 开发构建插件装入 web 宿主 profile ⇒ 合成工具面含 mail 行 |
-| **L3** | `.github/workflows/l3.yml` **9 cell**(linux-amd64/arm64、macos-arm64、windows-amd64 × hermes/dsh;pi 仅 linux 两平台) | `workflow_call`(publish 后)/ nightly / `workflow_dispatch`(可选 `cell=<platform>/<agent>`) | **release 二进制 + 真实 LLM**(xiaomi,OpenAI 路由);dsh cell 跑完整 V2 旅程 |
+| **L3** | `.github/workflows/l3.yml` **4 cell**(4 平台 × dsh:linux-amd64/arm64、macos-arm64、windows-amd64) | `workflow_call`(publish 后)/ nightly / `workflow_dispatch`(可选 `cell=<platform>/<agent>`) | **release 二进制 + 真实 LLM**(xiaomi,OpenAI 路由);dsh cell 跑完整 V2 旅程 |
+
+**L3 只测 dsh(owner 裁决 11-23,tssdk 路径)**:矩阵 4 平台 × dsh = 4 cell,
+单一真源 `tests/l3/GATE.md`。退役 cell:`dsh-aimail`(CLI 入口已不发)、
+`hermes`(pysdk 未迁移 SSE-V2 ⇒ `SKIP_LEGACY`,不执行、不计绿)、
+`pi`/`openclaw`(L2 本机范围)。`tests/l3/run-l3.sh` 对非 dsh 的 `L3_AGENT` 直接拒绝
+(rc=1),改矩阵无法悄悄复活退役路径。
 
 **L2 vs L3 口径(owner 裁决 11-21,勿混)**:
 - L2 = 测试**前**把**开发构建**插件装入宿主 profile,测该开发构建;
@@ -175,15 +181,15 @@ pytest tests/sdk/ -q && cd tssdk && pnpm -r test         # 期望全绿
 gh workflow run l3.yml -f cell="linux-amd64/dsh"
 #    判据:日志 "dsh V2 JOURNEY PASS"(含 [0]-[7] 全 ✓ 与 whoami 签名断言)
 
-# 3) 全矩阵(9 cell 并行,~20-30min)
+# 3) 全矩阵(4 cell 并行,~20-30min;dsh-only)
 gh workflow run l3.yml
-#    当前期望:见 §5#1 —— dsh linux×2 应绿;hermes/pi/dsh-windows 若红,
-#    按 §5#1 签名核对(legacy HMAC 404 / no SSE pull / llmMs 0→0),
-#    勿判为 sse-v2 回归。
+#    判据:4 个 dsh cell 全绿 = L3 绿;任一红按 §5#1 签名核对后定性。
+#    hermes/pi 已不在矩阵(见 §4 L3 口径),不要再按旧 9 cell 读数。
 
-# 4) 绿基线证据(无需重跑,直接看)
+# 4) 绿基线证据(历史,9 cell 时代的读数;该矩阵已缩为 4 cell dsh-only)
 #    run 45041546371(sha 1affaa1)9/9 success + linux-amd64/dsh 日志取证
-#    (artifact l3-linux-amd64-dsh-logs)
+#    (artifact l3-linux-amd64-dsh-logs) —— 仅作 dsh 旅程曾闭环保绿的留存,
+#    不能当作当前 4 cell 矩阵的证据;当前矩阵需新跑一次。
 
 # 5) gateway 发布件核对
 #    release v1.0.11 四资产与 L3 ① 段下载一致(run 日志 "fetching gateway")
@@ -201,7 +207,7 @@ gh workflow run l3.yml
 | B4 根因与门禁说明 | `tests/host-acceptance/run-l2-dsh-real-host.sh` 头部 |
 | L3 旅程脚本 | `tests/l3/dsh-v2.sh`([0]-[7] 带行内注释) |
 | L3 主 runner | `tests/l3/run-l3.sh`(dsh 早退块) |
-| CI 矩阵 | `.github/workflows/l3.yml`(9 cell,dispatch cell 过滤) |
+| CI 矩阵 | `.github/workflows/l3.yml`(4 cell,dsh only,dispatch cell 过滤) |
 | 回归留痕 | commit `5db76e2` + `d415e72`(revert);CI run 45053595295 / 45057579223 / 45062883460 各 job 日志 |
 
 ## 9. 不在本次范围 / 待方案(冻结项,勿越界)

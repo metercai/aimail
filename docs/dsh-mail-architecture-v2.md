@@ -633,7 +633,7 @@ W0 契约冻结
 | **advanced**（私有） | 三层门禁（本地跑，无 GH Actions）：`tests/advanced/run-advanced-gate.sh [--release]` → `tests/run-e2e.sh --tier l0|l1|l2` | **base 仓 clean（zero-diff）** + **base 二进制新鲜**；L0 = 两仓 fmt/clippy/cargo test；L1 = base API/契约 + panel-smoke + dispatch-contract；L2 = gateway 全套 + advanced category-21..25 + open-apply + 面板 + warning-gate + SDK agent-level |
 | **SDK/tssdk** | `tests/sdk/l0-gate-tests.sh`（pyflakes + pytest + tssdk `tsc` + `vitest`）；`SDK/sdk-e2e`；`SDK/docker-regression`（hermes/deer-flow/openclaw/pi）；`check-versions.sh` | 版本闸 + 五包发布批次；tssdk 变更必须过 tsc/vitest |
 | **CLI** | `tests/cli/run-cli-gate.sh` L0/L1/L2；`check-route-contract.py`、registry、dsh host 安装 | 删除 CLI dsh 路径会改这些门禁 |
-| **L3** | `.github/workflows/l3.yml` / `tests/l3/run-l3.sh`：hermes / dsh-aimail（CLI 入口）/ dsh-plugin（插件入口） | 发布后 released artifacts；当前只测 base admin-key 激活 |
+| **L3** | `.github/workflows/l3.yml` / `tests/l3/run-l3.sh`：**4 平台 × dsh = 4 cell**（dsh-plugin 插件入口，V2 激活码旅程）；口径真源 `tests/l3/GATE.md` | 发布后 released artifacts；dsh-only（owner 裁决 11-23）。退役：`dsh-aimail`（CLI 入口）、`hermes`（pysdk 未迁移 ⇒ SKIP_LEGACY）、`pi`/`openclaw`（L2 本机） |
 | **测试注册表** | `tests/test-matrix.json` + `check-test-matrix.py`（`run-e2e.sh` 预检；新增一级脚本未登记即红） | 新套件/脚本必须登记 level/scenario |
 
 关键机制：
@@ -709,8 +709,7 @@ W0 契约冻结
     └─ 发布 SDK
           ↓
 [4] L3（released artifacts）
-    ├─ hermes / dsh-plugin（plugin-only，新闭环）
-    ├─ 去掉/替换 dsh-aimail（CLI 入口）
+    └─ dsh × 4 平台（插件入口，V2 激活码闭环；hermes/pi/dsh-aimail 已退役）
     └─ base/advanced 的 code 申领/激活闭环（post-release）
 ```
 

@@ -51,7 +51,8 @@ a run with skips is not a green run, it is a green run *for its scope*.
 - **L3** = published SDK, installed by the agent inside the journey, `dsh` across platforms.
   L3 runs **after** a release and is executed by the verifier only; a developer's
   deliverable is judged by L2, never by L3.
-- `hermes` / `deerflow` (pysdk) are `SKIP_LEGACY`: executed only with `--include-legacy`, never counted.
+- `hermes` / `deerflow` (pysdk) are `SKIP_LEGACY`: reported, never executed, never counted.
+  L3 scope is stated once in `tests/l3/GATE.md` (4 platforms × dsh).
 - Both layers download the **published** gateway pinned in `pins.env` (sha256 verified).
 - **Install path = host plugin mechanism only** (`dsh plugin add` / `pi install` /
   `openclaw plugins install`). The SDK ships no CLI and `aimail install` is retired;

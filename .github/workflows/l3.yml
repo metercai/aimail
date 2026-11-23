@@ -18,14 +18,17 @@ name: l3
 #   formerly triggered by workflow_run of the three release workflows — one release fanned out 7 L3 runs (mostly
 #   skipped/cancelled), unreadable status, and it fired even on a failed release; now the caller controls it with needs/if.
 #
-# Matrix = 3 platforms + windows × agent cells (regression content identical, see run-l3.sh):
+# Matrix = 4 platforms x 1 agent cell (regression content identical, see run-l3.sh):
 #   platforms: linux-amd64 / linux-arm64 (native ARM) / macos-arm64 / windows-amd64
-#   agent cells: hermes (pysdk, old-CLI path — owner ruling: keeps V1 CLI)
-#             / dsh (SSE V2, single cell — owner ruling 2026-11-22 U1: the two former
-#               dsh cells (CLI entry vs plugin entry) collapsed into one, because the
-#               V2 dsh host has exactly one legal install path — the agent is guided by
-#               the activation prompt to install via the host's plugin mechanism, no CLI)
-#             / pi (V1 host cell).
+#   agent cell: dsh (SSE V2, activation-code journey) — the ONLY cell on the tssdk path.
+#     Owner ruling 2026-11-23: L3 = the published SDK, installed by the agent itself,
+#     closed-loop, dsh only. Retired cells:
+#       dsh-aimail   the CLI entry (`aimail install`) is no longer shipped
+#       hermes       pysdk not migrated to SSE-V2 ⇒ SKIP_LEGACY in tests/l3/run-v2.sh,
+#                    never counted green
+#       pi / openclaw  L2 scope (this machine's OS+CPU), not an L3 cell
+#     run-l3.sh refuses any other L3_AGENT, so a matrix edit cannot silently re-enable a
+#     retired path.
 #   dsh's V2 journey (run-l3.sh ④-⑤): applicant verifies email → applies an address
 #   code → the real host agent is driven over its web API through LLM turns; the
 #   plugin is installed by the (simulated) user via `dsh plugin add` + host restart
@@ -33,12 +36,11 @@ name: l3
 #
 # Each job in three steps (D3 ruling):
 #   ① install the target agent + configure the LLM (Xiaomi OpenAI-compatible endpoint, secret XIAOMI_API_KEY) + verify it runs
-#   ② fetch the released CLI (bootstrap.sh online, the user's real entry) + the released gateway (Release binary)
-#   ③ the same regression: aimail install (admin-key activation) → welcome loop → mail-query signature assertion
-#
-# Activation flow: only **admin-key** activation is tested (base gateway); activation codes (advanced) are not.
-#   (the gateway releases in the aimail-gateway repo; cross-repo workflow_run is not possible; L3 takes its newest Release directly,
-#    erroring loudly when it is missing, never guessing.)
+#   ② fetch the published gateway (Release binary, sha256-pinned in tests/agent-env/pins.env)
+#   ③ the same regression: activation code → prompt → plugin install → bind → welcome loop → identity card + signature
+
+# Activation flow: only the V2 activation-code journey is tested (the dsh cell's own
+# path through dsh-v2.sh). The retired admin-key CLI flow is not part of L3 any more.
 # ═══════════════════════════════════════════════════════════════════════
 on:
   workflow_call:          # invoked by publish.yml after a successful release
@@ -77,24 +79,14 @@ jobs:
     # cells still take a runner slot, so a single-cell dispatch can queue behind
     # two macos cells. Acceptable; do not "optimise" this back into a job-level if.
     strategy:
-      fail-fast: false   # one red platform does not cancel the rest — verdicts from all 9 cells must be visible
+      fail-fast: false   # one red platform does not cancel the rest — verdicts from all cells must be visible
       matrix:
         include:
-          # ── Linux ──
-          - { platform: linux-amd64, os: ubuntu-latest,   agent: hermes }
+          # dsh only (owner ruling 2026-11-23, tssdk path): 4 platforms x 1 cell = 4 cells.
+          # Windows included: the V2 dsh path has no CLI dependency.
           - { platform: linux-amd64, os: ubuntu-latest,   agent: dsh }
-          # host cells (0.4.0): real Pi process — extension pulls the system SSE
-          # stream and wakes a session on inbound (no listener/webhook).
-          - { platform: linux-amd64, os: ubuntu-latest,   agent: pi }
-          - { platform: linux-arm64, os: ubuntu-24.04-arm, agent: hermes }
           - { platform: linux-arm64, os: ubuntu-24.04-arm, agent: dsh }
-          # ── macOS ──
-          - { platform: macos-arm64, os: macos-latest,        agent: hermes }
           - { platform: macos-arm64, os: macos-latest,        agent: dsh }
-          # ── Windows ──
-          # V2 dsh cells run on Windows too (no CLI dependency in the V2 path);
-          # the hermes cell stays until the CLI Windows port completes.
-          - { platform: windows-amd64, os: windows-latest, agent: hermes }
           - { platform: windows-amd64, os: windows-latest, agent: dsh }
 
     timeout-minutes: 45
@@ -126,30 +118,7 @@ jobs:
       # llm-config.py, now self-contained in the aimail repo, pure stdlib) — no more cross-repo checkout: advanced is private,
       # and the triggering repo's GITHUB_TOKEN cannot access it (measured 404); also, L3's principle is that artifacts under test never come from the working tree.
 
-      # ── Host cells (pi): the SDK under review must be the one built from THIS
-      # tree, not npm "latest" — otherwise a pre-release run silently tests the
-      # previously published version. Only the pi cell needs node/pnpm here.
-      - name: Setup Node for the pi host cell
-        if: steps.filter.outputs.run == 'true' && matrix.agent == 'pi'
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      - name: Build the SDK under review (pi cell)
-        if: steps.filter.outputs.run == 'true' && matrix.agent == 'pi'
-        shell: bash
-        run: |
-          npm install -g pnpm@9 >/dev/null
-          cd "$GITHUB_WORKSPACE/aimail/tssdk"
-          pnpm install --frozen-lockfile
-          pnpm build
-          # resources/ inside the package is a prepack-staged artifact (gitignored);
-          # without it the extension logs "skill resource missing" at load.
-          node packages/agent-aimail/scripts/stage-resources.mjs --dest packages/agent-aimail/resources
-          echo "AIMAIL_SDK_DIR=$GITHUB_WORKSPACE/aimail/tssdk/packages/agent-aimail" >> "$GITHUB_ENV"
-          echo "[l3] pi cell will install the worktree build: $GITHUB_WORKSPACE/aimail/tssdk/packages/agent-aimail"
-
-      - name: L3 gate (agent env → published CLI+gateway → closed loop)
+      - name: L3 gate (agent env → published gateway → dsh V2 closed loop)
         if: steps.filter.outputs.run == 'true'
         shell: bash
         run: |

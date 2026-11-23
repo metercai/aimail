@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
+# @level L3
+# @scenario 1
 # L3 V2 gate wrapper.
 #
 # Owner doctrine (2026-11-23):
 #   L3 = published SDK, installed BY THE AGENT during the journey; closed-loop
 #        regression only (code → prompt → install → activate → bind → welcome →
 #        identity card + signature).
-#   Cross-platform representativeness: dsh (tssdk) + hermes (pysdk).
-#   L3 covers dsh only; pi/openclaw are covered by L2 on the local platform.
-#   hermes is NOT migrated yet → executed only with --include-legacy and always
-#   reported as SKIP_LEGACY (never counted as green).
+#   L3 covers dsh (tssdk) only, on 4 platforms; pi/openclaw are covered by L2 on the
+#   local platform. hermes (pysdk) is not migrated to SSE-V2 and its CLI install path
+#   is retired ⇒ reported as SKIP_LEGACY, never executed, never counted as green.
 #
-#   run-v2.sh [--cell platform/agent] [--include-legacy]
+#   run-v2.sh [--cell platform/agent] [--include-legacy (obsolete, kept for compat)]
 #
 # Per-cell evidence is written next to the L3 logs (gateway pin + versions).
 set -uo pipefail
@@ -34,35 +35,38 @@ GW_VER="$(pin GATEWAY_VERSION)"
 echo "── L3 V2 gate  published SDK=$NPM_VER  gateway=$GW_VER  dsh=$(pin DSH_VERSION)  pi=$(pin PI_VERSION)"
 
 PASS=0; FAIL=0; SKIP=0
-run_cell() {
-  local plat="$1" agent="$2" kind="$3"   # kind: v2 | legacy
+[ "$INCLUDE_LEGACY" = 1 ] && echo "note: --include-legacy is obsolete — the legacy CLI install path was retired (2026-11-23); hermes is reported as SKIP_LEGACY only"
+skip_legacy() {   # never counted as green
+  local plat="$1" agent="$2" why="$3"
   echo
-  echo "== cell $plat/$agent ($kind)"
-  if [ "$kind" = legacy ] && [ "$INCLUDE_LEGACY" != 1 ]; then
-    echo "SKIP_LEGACY $plat/$agent — pysdk not migrated to SSE-V2 (run with --include-legacy to execute)"
-    SKIP=$((SKIP+1)); return 0
-  fi
+  echo "SKIP_LEGACY $plat/$agent — $why"
+  SKIP=$((SKIP+1))
+}
+run_cell() {
+  local plat="$1" agent="$2"
+  echo
+  echo "== cell $plat/$agent (v2)"
   local log="/tmp/l3-${plat}-${agent}.log"
   if L3_PLATFORM="$plat" L3_AGENT="$agent" bash "$HERE/run-l3.sh" >"$log" 2>&1; then
     echo "PASS $plat/$agent"
-    if [ "$kind" = legacy ]; then SKIP=$((SKIP+1)); else PASS=$((PASS+1)); fi
+    PASS=$((PASS+1))
   else
     echo "FAIL $plat/$agent (see $log)"
-    [ "$kind" = legacy ] && SKIP=$((SKIP+1)) || FAIL=$((FAIL+1))
+    FAIL=$((FAIL+1))
   fi
 }
 
 if [ -n "$CELL" ]; then
   p="${CELL%%/*}"; a="${CELL##*/}"
   case "$a" in
-    dsh) run_cell "$p" "$a" v2 ;;
-    pi|openclaw) echo "note: $a is L2 scope (not part of the L3 matrix)"; return 0 ;;
-    hermes) run_cell "$p" "$a" legacy ;;
+    dsh) run_cell "$p" "$a" ;;
+    pi|openclaw) echo "note: $a is L2 scope (not part of the L3 matrix)" ;;
+    hermes) skip_legacy "$p" "$a" "pysdk not migrated to SSE-V2; the CLI install path is retired — L3 is dsh-only" ;;
     *) echo "unknown agent $a"; exit 2 ;;
   esac
 else
-  for p in $PLATFORMS; do run_cell "$p" dsh v2; done
-  for p in $PLATFORMS; do run_cell "$p" hermes legacy; done
+  for p in $PLATFORMS; do run_cell "$p" dsh; done
+  for p in $PLATFORMS; do skip_legacy "$p" hermes "pysdk not migrated to SSE-V2; the CLI install path is retired — L3 is dsh-only"; done
 fi
 
 echo
