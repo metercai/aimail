@@ -94,7 +94,8 @@ rustfmt --check src/advanced/api/email_notify.rs  PASS
 
 | 旅程 | 结果 | 归属 |
 |---|---|---|
-| `--host all --stages "s1 s2 s3"` | PASS=34 **RED=0** GAP=1（旧） | dsh/openclaw s1/s2/s3 全绿；旧 GAP = pi s3 |
+| DSH `s1 s2`（gateway **v1.0.14**） | **PASS=10 RED=0 GAP=0** | 第二版发布后的 smoke；证据 `dsh-s1s2-gateway-v1.0.14.log` |
+| `--host all --stages "s1 s2 s3"`（v1.0.13） | PASS=34 **RED=0** GAP=1（旧） | dsh/openclaw s1/s2/s3 全绿；旧 GAP = pi s3 |
 | pi `s3`（`7fbcee8` 后复跑） | **PASS=3 RED=0 GAP=0** | 长驻 rpc 夹具已关闭 GAP |
 | `--host all --stages "s4 neg"` | 首次 RED=1/GAP=1 → 隔离复跑 PASS | openclaw s4 = F5 flake；无产品 RED |
 | `--host all --stages "s5"` | 首次 RED=2 → 复跑 PASS | dsh s5 = F1（模型未调工具）；无产品 RED |
