@@ -60,6 +60,19 @@ for h in $HOSTS; do
   addr="$(printf '%s' "$apply_out" | python3 -c 'import json,sys;print(json.load(sys.stdin)["address"])')"
   code="$(printf '%s' "$apply_out" | python3 -c 'import json,sys;print(json.load(sys.stdin)["activation_code"])')"
   token="L2TOK-$h-$(date +%s)-$RANDOM"
+  S4_ADDR=""; S4_CODE=""; LIFECYCLE=0
+  case " $STAGES " in *" s4 "*)
+    if [ "$h" != pi ]; then
+      a2="$(python3 "$V2/lib/gw.py" apply --gateway "$GW_URL" --email "l2-$h-2-$RANDOM@example.com" \
+            --name "L2 $h 2" --agentname "l2${h}2" --domain test.local --spool "$WORK/gw/mail.spool")"
+      printf '%s' "$a2" | grep -q '"ok": true' && {
+        S4_ADDR="$(printf '%s' "$a2" | python3 -c 'import json,sys;print(json.load(sys.stdin)["address"])')"
+        S4_CODE="$(printf '%s' "$a2" | python3 -c 'import json,sys;print(json.load(sys.stdin)["activation_code"])')"
+      }
+    fi ;;
+  esac
+  case " $STAGES " in *" s5 "*) LIFECYCLE=1 ;; esac
+  export S4_ADDR S4_CODE LIFECYCLE
   echo "── $h → $addr"
   ev_init; ev_meta host "$h"; ev_meta sdk_version "$SDK_VER"; ev_meta gateway_version "$GATEWAY_VERSION"; ev_meta address "$addr"
   host_journey "$out" "$addr" "$code" "$token"
@@ -68,6 +81,8 @@ for h in $HOSTS; do
       s1) . "$V2/cases/s1_activation.sh" "$out" ;;
       s2) . "$V2/cases/s2_arming.sh" "$out" ;;
       s3) . "$V2/cases/s3_delivery.sh" "$out" ;;
+      s4) . "$V2/cases/s4_multiaddr.sh" "$out" "$h" ;;
+      s5) . "$V2/cases/s5_lifecycle.sh" "$out" ;;
     esac
   done
   ev_log "$out/host.log" 300

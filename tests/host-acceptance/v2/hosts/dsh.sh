@@ -17,7 +17,7 @@ host_journey() {
   local prompt="Activate and bind my AIMail mailbox address $addr with activation code $code at gateway ${GW_URL} using aimail_address."
   docker run --rm --network host --name "l2dsh-$$" \
     -e "LLM_API_KEY=${LLM_API_KEY:?}" -e "AH=$addr" -e "AC=$code" -e "APROMPT=$prompt" \
-    -e "TOKEN=$token" -e "GWSMTP=$((GW_SMTP + 1))" \
+    -e "TOKEN=$token" -e "GWSMTP=$((GW_SMTP + 1))" -e "AH2=${S4_ADDR:-}" -e "AC2=${S4_CODE:-}" -e "LIFECYCLE=${LIFECYCLE:-0}" \
     -v "$V2_ROOT/lib:/opt/v2lib:ro" -v "${SDK_TARBALL_DIR:?}:/opt/sdk:ro" \
     -v "${GW_WORK}:/gw:ro" -v "$out:/out" \
     --entrypoint bash "$DSH_IMAGE" -lc '
@@ -64,8 +64,36 @@ for i in range(120):
 else:
     print("not_acked seen=%d" % seen)
 PY
+      # ── S4: second address in the same host lifetime (tssdk hosts are multi-address)
+      if [ -n "${AH2:-}" ] && [ -n "${AC2:-}" ]; then
+        python3 /opt/v2lib/dsh_activate.py "$URL" /root/ws \
+          "Activate and bind my AIMail mailbox address $AH2 with activation code $AC2 at gateway $GWURL using aimail_address." \
+          >/tmp/act2.log 2>&1 || true
+        for i in $(seq 1 45); do
+          n=$(ls /root/.aimail/systems/*/*/agentmail.json 2>/dev/null | wc -l)
+          [ "$n" -ge 2 ] && break; sleep 2
+        done
+        ls /root/.aimail/systems/*/*/agentmail.json 2>/dev/null | wc -l > /out/bindings_count
+        tail -n 80 /tmp/act2.log >> /out/act.log 2>/dev/null || true
+      fi
+      # ── S5: lifecycle — pause must stop delivery, unbind must remove the binding
+      if [ "${LIFECYCLE:-0}" = "1" ]; then
+        python3 /opt/v2lib/dsh_activate.py "$URL" /root/ws \
+          "Pause my AIMail mailbox $AH with aimail_address action=pause." >/tmp/act3.log 2>&1 || true
+        sleep 8
+        python3 - <<PY > /out/paused 2>/dev/null || echo unknown > /out/paused
+import json, glob
+p = glob.glob("/root/.aimail/systems/*/*/agentmail.json")[0]
+print(json.load(open(p)).get("paused"))
+PY
+        python3 /opt/v2lib/dsh_activate.py "$URL" /root/ws \
+          "Unbind my AIMail mailbox $AH with aimail_address action=unbind." >/tmp/act4.log 2>&1 || true
+        sleep 8
+        ls /root/.aimail/systems/*/*/agentmail.json 2>/dev/null | wc -l > /out/bindings_after_unbind
+        tail -n 60 /tmp/act3.log /tmp/act4.log >> /out/act.log 2>/dev/null || true
+      fi
       tail -n 300 /tmp/web.log /tmp/web2.log > /out/host.log 2>/dev/null || true
-      tail -n 120 /tmp/act.log > /out/act.log 2>/dev/null || true
+      tail -n 200 /tmp/act.log > /out/act.log 2>/dev/null || true
     ' >"$out/rc" 2>&1 &
   local pid=$!
   # host side: wait for readiness, then whitelist + inject the inbound mail
