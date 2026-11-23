@@ -95,6 +95,19 @@ TOML
   GW_SINK_PID=$!
   "$bin" -c "$work/config.toml" start >"$work/gateway.log" 2>&1 &
   GW_PID=$!
+  # A leftover instance of the same workdir holds the binary's single-instance lock while
+  # its port is already free, so the port probe above cannot see it. Clear it once, retry.
+  sleep 3
+  if grep -q "Server is already running" "$work/gateway.log" 2>/dev/null; then
+    _stale="$(sed -nE 's/.*PID: ([0-9]+).*/\1/p' "$work/gateway.log" | head -1)"
+    if [ -n "${_stale:-}" ]; then
+      echo "  stale gateway PID $_stale holds this workdir — terminating it and retrying once"
+      kill "$_stale" 2>/dev/null || true
+      sleep 2
+      "$bin" -c "$work/config.toml" start >"$work/gateway.log" 2>&1 &
+      GW_PID=$!
+    fi
+  fi
   local i
   for i in $(seq 1 120); do
     curl -fsS "http://127.0.0.1:$http/health" >/dev/null 2>&1 && break
@@ -113,8 +126,19 @@ TOML
 }
 
 gw_down() {
+  # Kill both the children we started and anything else still holding our fixture ports: a
+  # leftover instance keeps the binary's own single-instance lock ("Server is already
+  # running (PID ...)") and can answer a later probe itself (a stale sink returning 250
+  # made openclaw read emails=0 on 2026-11-23). Best-effort, never fatal.
   [ -n "${GW_PID:-}" ] && kill "$GW_PID" 2>/dev/null || true
   [ -n "${GW_SINK_PID:-}" ] && kill "$GW_SINK_PID" 2>/dev/null || true
+  sleep 1
+  pkill -f "aimail-gateway-linux-amd64 -c ${GW_WORK:-/nonexistent}" 2>/dev/null || true
+  pkill -f "smtp_sink.py --port ${GW_SMTP:-0} " 2>/dev/null || true
+  for _ in 1 2 3 4 5; do
+    pgrep -f "aimail-gateway-linux-amd64 -c ${GW_WORK:-/nonexistent}" >/dev/null 2>&1 || break
+    sleep 1
+  done
   wait 2>/dev/null || true
 }
 

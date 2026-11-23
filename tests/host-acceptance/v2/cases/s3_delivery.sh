@@ -7,7 +7,15 @@ set -uo pipefail
 CASE="S3 delivery"
 out="$1"
 
-[ -f "$out/inject.log" ] || { gap "no injection evidence — journey never reached the mail stage"; return 0; }
+# The probe is sent by the host adapter asynchronously; on openclaw it can land AFTER the
+# journey returns (measured 2026-11-23: inject.log with `emails=0` appeared post-hoc while
+# the case had already reported GAP). Wait for the evidence, then judge — do not GAP early.
+for _ in $(seq 1 90); do
+  [ -f "$out/inject.log" ] && grep -qa "emails=" "$out/inject.log" && break
+  sleep 2
+done
+[ -f "$out/inject.log" ] || { gap "no injection evidence after 180s — journey never reached the mail stage"; return 0; }
+grep -qa "emails=" "$out/inject.log" || { gap "injection started but the ledger probe never finished (see $out/inject.log)"; return 0; }
 
 if grep -qa "whitelist failed" "$out/inject.log"; then
   red "whitelist entry missing: $(grep -a 'whitelist failed' "$out/inject.log" | head -1)"
