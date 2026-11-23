@@ -8,8 +8,8 @@ out="$1"
 log="$out/host.log"
 [ -f "$log" ] || { gap "no host log captured"; return 0; }
 
-assert_grep "polling enabled|pull scope" "$log" "pull armed"
-if awk '/no agent-scope binding/{last=NR} /polling enabled|pull scope/{arm=NR} END{exit !(arm>last)}' "$log"; then
+assert_grep "polling enabled|pull scope|SSE reconcile: [1-9]" "$log" "pull armed"
+if awk '/no agent-scope binding/{last=NR} /polling enabled|pull scope|SSE reconcile: [1-9]/{arm=NR} END{exit !(arm>last)}' "$log"; then
   pass "armed after the last missing-binding boot"
 else
   red "arming line precedes/absent after the last 'no agent-scope binding'"

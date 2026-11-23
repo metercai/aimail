@@ -1,58 +1,102 @@
 #!/usr/bin/env bash
-# DSH host adapter (containerised, pinned image; L2 = dev build pre-installed).
+# DSH host adapter (containerised, pinned image) — ONE host lifetime for the whole journey.
 #
-# Contract: implements the same 3 entry points as every host adapter, so case
-# scripts stay host-agnostic:
-#   host_s1_activate <outdir> <addr> <code>   -> writes $outdir/{binding.json,host.log,rc}
-#   host_s2_arming   <outdir>                 -> restarts the host, greps the arming log
-#   host_stop                                  -> no-op for the one-shot container model
+#   host_journey <out> <addr> <code> <token>
+#     install dev build -> boot -> activate via in-host prompt -> binding
+#     -> restart (arm) -> wait for the host to drain the injected mail (ack)
+#   The host side injects the mail once <out>/ready appears; this function blocks
+#   until the container exits, so S1/S2/S3 all observe the same host process.
 set -uo pipefail
-
 HOST_NAME=dsh
 DSH_IMAGE="${DSH_IMAGE:-aimail-host-dsh:latest}"
 V2_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-_dsh_prompt() {
-  printf 'Activate and bind my AIMail mailbox address %s with activation code %s at gateway %s using aimail_address.' "$1" "$2" "${GW_URL:-http://127.0.0.1:18080}"
-}
-
-# one container: install dev build, boot web host, drive the in-host bind, restart, arm
-host_s1_activate() {
-  local out="$1" addr="$2" code="$3"
+host_journey() {
+  local out="$1" addr="$2" code="$3" token="$4"
   mkdir -p "$out"
-  local prompt; prompt="$(_dsh_prompt "$addr" "$code")"
-  docker run --rm --network host \
+  local prompt="Activate and bind my AIMail mailbox address $addr with activation code $code at gateway ${GW_URL} using aimail_address."
+  docker run --rm --network host --name "l2dsh-$$" \
     -e "LLM_API_KEY=${LLM_API_KEY:?}" -e "AH=$addr" -e "AC=$code" -e "APROMPT=$prompt" \
-    -v "$V2_ROOT/lib:/opt/v2lib:ro" -v "${SDK_TARBALL_DIR:?}:/opt/sdk:ro" -v "$out:/out" \
+    -e "TOKEN=$token" -e "GWSMTP=${GW_SMTP}" \
+    -v "$V2_ROOT/lib:/opt/v2lib:ro" -v "${SDK_TARBALL_DIR:?}:/opt/sdk:ro" \
+    -v "${GW_WORK}:/gw:ro" -v "$out:/out" \
     --entrypoint bash "$DSH_IMAGE" -lc '
       set -u
       export HOME=/root
-      mkdir -p /opt/sdkx && tar -xzf /opt/sdk/*.tgz -C /opt/sdkx
-      dsh plugin --profile web add /opt/sdkx/package >/tmp/plugin.log 2>&1 || { echo "plugin add failed"; cat /tmp/plugin.log; exit 3; }
-      setsid nohup dsh --profile web >/tmp/web.log 2>&1 &
+      TGZ="$(ls /opt/sdk/*.tgz | head -1)"
+      dsh plugin --profile web add "$TGZ" >/tmp/plugin.log 2>&1 || { echo "plugin add failed"; tail -5 /tmp/plugin.log; exit 3; }
+      dsh --profile web --dump-config >/tmp/tree.txt 2>/dev/null || true
+      grep -c "^- id: tool-mail" /tmp/tree.txt > /out/mail_rows 2>/dev/null || echo 0 > /out/mail_rows
+      export DSH_PERMISSION_MODE=danger-full-access DSH_HOME=/root/.dsh AIMAIL_HOME=/root/.aimail
+      export DEEPSEEK_API_KEY="${LLM_API_KEY:-}"
+      setsid nohup dsh web --port 39123 --no-open >/tmp/web.log 2>&1 &
       URL=""
       for i in $(seq 1 120); do
         URL=$(grep -aoE "http://127\.0\.0\.1:[0-9]+/\?token=[A-Za-z0-9_-]+" /tmp/web.log | head -1)
         [ -n "$URL" ] && break; sleep 1
       done
       [ -n "$URL" ] || { echo "no web url"; tail -20 /tmp/web.log; exit 4; }
-      python3 /opt/v2lib/dsh_activate.py "$URL" /root/ws "$APROMPT" >/tmp/act.log 2>&1
+      python3 /opt/v2lib/dsh_activate.py "$URL" /root/ws "$APROMPT" >/tmp/act.log 2>&1 || true
       for i in $(seq 1 60); do ls /root/.aimail/systems/*/*/agentmail.json >/dev/null 2>&1 && break; sleep 2; done
       B=$(ls /root/.aimail/systems/*/*/agentmail.json 2>/dev/null | head -1)
-      echo "binding=${B:-none}"
       [ -n "$B" ] && { stat -c %a "$B" > /out/mode; install -m 644 "$B" /out/binding.json; }
-      tail -n 400 /tmp/web.log > /out/host.log 2>/dev/null || true
-      [ -n "$B" ] || tail -n 80 /tmp/act.log > /out/act.log 2>/dev/null || true
-      # S2: restart so the binding arms the pull
-      pkill -f "dsh --profile web" 2>/dev/null; sleep 2
-      setsid nohup dsh --profile web >>/tmp/web2.log 2>&1 &
-      sleep 25
-      tail -n 400 /tmp/web2.log >> /out/host.log 2>/dev/null || true
-      [ -n "$B" ]
-    ' >"$out/rc" 2>&1
-  echo $? >"$out/code"
+      echo "binding=${B:-none}"
+      # arm: restart so the plugin reconciles the stream from the new binding
+      pkill -f "dsh web --port 39123" 2>/dev/null; sleep 3
+      setsid nohup dsh web --port 39123 --no-open >>/tmp/web2.log 2>&1 &
+      sleep 20
+      # signal the host side that the mailbox is live and waiting for mail
+      date +%s > /out/ready
+      # wait for the pull to drain (ack removes the pending row)
+      python3 - <<PY
+import sqlite3, os, time
+db="/gw/storage/aimail.db"; addr=os.environ["AH"]; seen=0
+for i in range(120):
+    try:
+        n=sqlite3.connect(f"file:{db}?mode=ro", uri=True).execute(
+            "select count(*) from pending_deliveries where email=?", (addr,)).fetchone()[0]
+    except Exception:
+        n=-1
+    seen=max(seen,n)
+    if seen>0 and n==0:
+        print("acked_after_s=%d" % (i*2)); break
+    time.sleep(2)
+else:
+    print("not_acked seen=%d" % seen)
+PY
+      tail -n 300 /tmp/web.log /tmp/web2.log > /out/host.log 2>/dev/null || true
+      tail -n 120 /tmp/act.log > /out/act.log 2>/dev/null || true
+    ' >"$out/rc" 2>&1 &
+  local pid=$!
+  # host side: wait for readiness, then whitelist + inject the inbound mail
+  for i in $(seq 1 240); do [ -f "$out/ready" ] && break; sleep 2; done
+  if [ -f "$out/ready" ]; then
+    python3 "$V2_ROOT/lib/gw.py" wl --gateway "$GW_URL" --key "$GW_ADMIN" --identity "$GW_SID" \
+      --system "$GW_SID" --addr "$addr" --sender ext-sender@example.com >/dev/null 2>&1 || true
+    python3 - "$addr" "$token" "$GW_SMTP" <<'PY' >>"$out/inject.log" 2>&1
+import smtplib, sys
+from email.message import EmailMessage
+addr, token, port = sys.argv[1], sys.argv[2], int(sys.argv[3])
+m = EmailMessage(); m["From"] = "ext-sender@example.com"; m["To"] = addr
+m["Subject"] = "L2 delivery probe"; m["Message-ID"] = "<l2-s3@example.com>"
+m.set_content("delivery probe token " + token)
+s = smtplib.SMTP("127.0.0.1", port, timeout=20); s.send_message(m); s.quit(); print("sent")
+PY
+    # observe the queue transition from the host side (the pull may drain in <2s)
+    _max=0; _final=0
+    for _i in $(seq 1 150); do
+      _n="$(gw_pending_rows "$addr")"; _n="${_n:-0}"
+      [ "$_n" -gt "$_max" ] 2>/dev/null && _max="$_n"
+      _final="$_n"
+      if [ "$_max" -gt 0 ] && [ "$_final" = 0 ]; then echo "acked_after_poll=$_i" >>"$out/inject.log"; break; fi
+      sleep 0.2
+    done
+    echo "observed max=$_max final=$_final" >>"$out/inject.log"
+  fi
+  wait "$pid"
   return 0
 }
 
-host_s2_arming() { :; }   # restart happens inside host_s1_activate
-host_stop() { :; }
+host_s1_activate() { host_journey "$1" "$2" "$3" "${4:-NONE}"; }
+host_s3_delivery() { :; }   # delivery happens inside host_journey
+host_stop() { docker rm -f "l2dsh-$$" >/dev/null 2>&1 || true; }

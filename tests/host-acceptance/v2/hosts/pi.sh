@@ -48,4 +48,5 @@ host_s2_arming() {
   return 0
 }
 
+host_journey() { host_s1_activate "$1" "$2" "$3"; }   # S3 (delivery) not wired for this adapter yet
 host_stop() { :; }

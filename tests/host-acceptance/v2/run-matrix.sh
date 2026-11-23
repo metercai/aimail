@@ -14,7 +14,7 @@ AIMAIL_ROOT="$(cd "$V2/../.." && pwd)"
 . "$V2/lib/evidence.sh"
 . "$V2/lib/gw.sh"
 
-HOSTS="all"; STAGES="${STAGES:-s1 s2}"
+HOSTS="all"; STAGES="${STAGES:-s1 s2 s3}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --host) HOSTS="$2"; shift 2 ;;
@@ -54,20 +54,26 @@ for h in $HOSTS; do
   out="$WORK/$h"; mkdir -p "$out"
   apply_out="$(python3 "$V2/lib/gw.py" apply --gateway "$GW_URL" \
       --email "l2-$h-$RANDOM@example.com" --name "L2 $h" --agentname "l2$h" --domain test.local --spool "$WORK/gw/mail.spool")"
-  echo "$apply_out" | grep -q '"ok": true' || { echo "GAP($h): /apply failed: $apply_out"; N_GAP=$((N_GAP+1)); continue; }
+  if ! printf '%s' "$apply_out" | grep -q '"ok": true'; then
+    CASE="$h apply"; gap "/apply failed: $apply_out"; continue
+  fi
   addr="$(printf '%s' "$apply_out" | python3 -c 'import json,sys;print(json.load(sys.stdin)["address"])')"
   code="$(printf '%s' "$apply_out" | python3 -c 'import json,sys;print(json.load(sys.stdin)["activation_code"])')"
+  token="L2TOK-$h-$(date +%s)-$RANDOM"
   echo "── $h → $addr"
   ev_init; ev_meta host "$h"; ev_meta sdk_version "$SDK_VER"; ev_meta gateway_version "$GATEWAY_VERSION"; ev_meta address "$addr"
+  host_journey "$out" "$addr" "$code" "$token"
   for st in $STAGES; do
     case "$st" in
-      s1) . "$V2/cases/s1_activation.sh" "$out" "$addr" "$code" ;;
+      s1) . "$V2/cases/s1_activation.sh" "$out" ;;
       s2) . "$V2/cases/s2_arming.sh" "$out" ;;
+      s3) . "$V2/cases/s3_delivery.sh" "$out" ;;
     esac
   done
   ev_log "$out/host.log" 300
   ev_binding "$out/binding.json"
+  host_stop || true
 done
 echo
-echo "not yet covered in round 1: s3 delivery · s4 multi-address · s5 lifecycle · negatives"
+echo "not yet covered: s4 multi-address · s5 lifecycle · negatives"
 summary
