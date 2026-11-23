@@ -196,14 +196,37 @@ PY
   if [ -d "$HOME/.aimail" ]; then
     mv "$HOME/.aimail" "$HOME/.aimail.bak-$(date +%s)" 2>/dev/null || true
   fi
-  ok "clean state: no agent-aimail in any dsh profile; previous ~/.aimail archived"
+  # pi/openclaw keep their npm tree inside their own home (pi: agent/npm/node_modules), and an L2
+  # run leaves agent-aimail there — that made the L3 clean-state assertion fire (measured
+  # 2026-11-23: "agent-aimail already installed before the journey
+  # (~/.pi/agent/npm/node_modules/agent-aimail/package.json)").
+  local h pkg
+  for h in "$HOME/.pi" "$HOME/.openclaw"; do
+    [ -d "$h" ] || continue
+    find "$h" -maxdepth 7 -type d -name agent-aimail -path '*node_modules*' 2>/dev/null | while read -r pkg; do
+      rm -rf "$pkg" 2>/dev/null || true
+    done
+    find "$h" -maxdepth 4 -name package.json -not -path '*node_modules*' 2>/dev/null | while read -r pkg; do
+      grep -q 'agent-aimail' "$pkg" 2>/dev/null || continue
+      python3 - "$pkg" <<'PY' || true
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+for k in ("dependencies", "devDependencies", "optionalDependencies"):
+    if isinstance(d.get(k), dict) and "agent-aimail" in d[k]:
+        d[k].pop("agent-aimail", None)
+json.dump(d, open(p, "w"), indent=2)
+PY
+    done
+  done
+  ok "clean state: no agent-aimail in dsh profiles / pi home / openclaw home; previous ~/.aimail archived"
 }
 
 case "$AGENT" in
   hermes)   install_hermes ;;
   dsh)      install_dsh ; clean_plugin_state ;;
-  pi)       install_pi ;;
-  openclaw) install_openclaw ;;
+  pi)       install_pi ; clean_plugin_state ;;
+  openclaw) install_openclaw ; clean_plugin_state ;;
   deerflow) require_deerflow_base ;;
   *) die "unknown agent: $AGENT" ;;
 esac

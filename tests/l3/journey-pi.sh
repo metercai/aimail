@@ -16,7 +16,9 @@ gap() { printf '  \033[35m⊘ ENV GAP: %s\n' "$*" >&2; exit 2; }
 [ -x "$GW_BIN" ] || gap "gateway binary not executable: $GW_BIN"
 command -v pi >/dev/null 2>&1 || gap "pi not on PATH (prepare.sh pi failed upstream)"
 
+V2_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TURN_WINDOW="${WELCOME_TIMEOUT:-600}"      # budget, not an assertion
+SINK_PORT="${SINK_PORT:-12528}"
 PI_PROBE_PORT="${PI_PROBE_PORT:-39802}"
 SPOOL="$GW_HOME/mail.spool"
 STATE="$WORK/pi-v2.state"
