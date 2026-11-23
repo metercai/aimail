@@ -151,3 +151,23 @@ journey is rewritten to the same shape.
 A cell enters `l3.yml` only after its journey passes once locally. A cell that can only die is
 noise, not coverage. Platform-inapplicable gates (POSIX modes on Windows, llmMs counters the
 host does not expose) are reported as skipped-with-reason and never counted as passes.
+
+### 8.5 dsh self-bootstrap: first PASS under the doctrine (2026-11-23, local linux-amd64)
+
+```
+[1] 申请人在网关申请激活码（走邮件），正文原样作为用户消息
+[2] 干净 profile（无插件、无 binding）收到正文
+[3] ✓ clean state confirmed
+    user nudge（纯文字）→ ✓ agent bootstrapped the plugin itself:
+      agent-aimail@0.5.2 (= npm latest), installed_by=agent, fixture ran no install
+    transcript 证据: plugin_manager {"action":"install_bundle","target":"agent-aimail"}
+[4] ✓ 重启宿主（插件在下一次启动生效）
+[5] ✓ binding 落地 / ownership row / mode 600 / no webhook_url / SSE streams non-empty
+[6] ✓ welcome 入队 → manager approve → persona-applied
+[7] ✓ whoami: persona='L3 dsh V2 regression persona', signature='-- L3 dsh V2'
+VERDICT: PASS
+```
+pins: gateway v1.0.14, npm agent-aimail 0.5.2, dsh 0.2.2-rc.1.
+
+判决条件（不得放宽）：安装必须是 agent 自己发起（宿主 plugin_manager 工具、或宿主的 CLI、或 npm/pnpm 命令），
+夹具零 install；环境必须在安装前干净；夹具泄露（transcript 出现 tests/l3）⇒ INVALID，不判产品。
