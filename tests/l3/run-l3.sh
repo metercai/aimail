@@ -244,6 +244,20 @@ PY
 }
 
 PLATFORM="${L3_PLATFORM:?L3_PLATFORM not set}"
+# ── host version must match the pin (a stale host CLI would fake green) ──────────
+PINS_HOST="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/agent-env/pins.env"
+if [ -f "$PINS_HOST" ]; then
+  case "$AGENT" in
+    dsh)   WANT="$(grep -E '^DSH_VERSION=' "$PINS_HOST" | head -1 | cut -d= -f2-)"
+           GOT="$(dsh --version 2>/dev/null | head -1 | tr -d '[:space:]')" ;;
+    pi)    WANT="$(grep -E '^PI_VERSION=' "$PINS_HOST" | head -1 | cut -d= -f2-)"
+           GOT="$(pi --version 2>/dev/null | head -1 | tr -d '[:space:]')" ;;
+    *)     WANT=""; GOT="" ;;
+  esac
+  if [ -n "$WANT" ] && [ "$GOT" != "$WANT" ]; then
+    gap "host version mismatch for $AGENT: got '$GOT', pin '$WANT' — refusing to judge"
+  fi
+fi
 AGENT="${L3_AGENT:?L3_AGENT not set}"
 AIMAIL_REPO="${AIMAIL_REPO:?AIMAIL_REPO not set}"
 # Environment preparation single source = aimail repo tests/agent-env/ (official install + basic environment + disable package manager age gate + LLM config;

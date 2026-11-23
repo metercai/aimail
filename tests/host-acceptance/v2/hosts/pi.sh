@@ -12,7 +12,10 @@ V2_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 _pi_run() {  # _pi_run <out> <prompt>
   local out="$1" prompt="$2"
-  docker run --rm --network host \
+  mkdir -p "$out/home"
+  # persistent HOME: pi keeps the binding under /root/.aimail — a fresh container
+  # per turn would lose it, so the journey shares one state directory.
+  docker run --rm --network host -v "$out/home:/root" \
     -e "LLM_API_KEY=${LLM_API_KEY:?}" -e "PROMPT=$prompt" \
     -v "$V2_ROOT/lib:/opt/v2lib:ro" -v "${SDK_TARBALL_DIR:?}:/opt/sdk:ro" -v "$out:/out" \
     --entrypoint bash "$PI_IMAGE" -lc '
