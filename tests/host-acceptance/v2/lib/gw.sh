@@ -57,11 +57,11 @@ gw_up() {
   cat >"$work/config.toml" <<TOML
 [http]
 bind = "127.0.0.1:$http"
-hostname = "gateway.test"
+hostname = "test.local"
 
 [smtp]
 bind = "127.0.0.1:$((smtp + 1))"
-hostname = "gateway.test"
+hostname = "test.local"
 
 [storage]
 path = "$work/storage"

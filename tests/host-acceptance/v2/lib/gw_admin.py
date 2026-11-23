@@ -27,7 +27,7 @@ def main():
     ap.add_argument("--manager", default="")
     a = ap.parse_args()
     path = f"/api/v1/admin/systems/{a.system}/domains"
-    body = json.dumps({"id": "dom-" + a.domain.replace(".", "-"),
+    body = json.dumps({"id": a.domain,   # the L3 fixture uses the domain itself as the row id
                        "domain": a.domain,
                        **({"manager_address": a.manager} if a.manager else {})}).encode()
     headers = {"content-type": "application/json", "X-Api-Identity": a.identity, **sign(a.key, "POST", path, body)}
