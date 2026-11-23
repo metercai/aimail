@@ -81,11 +81,7 @@ PY
         python3 /opt/v2lib/dsh_activate.py "$URL" /root/ws \
           "Pause my AIMail mailbox $AH with aimail_address action=pause." >/tmp/act3.log 2>&1 || true
         sleep 8
-        python3 - <<PY > /out/paused 2>/dev/null || echo unknown > /out/paused
-import json, glob
-p = glob.glob("/root/.aimail/systems/*/*/agentmail.json")[0]
-print(json.load(open(p)).get("paused"))
-PY
+        python3 /opt/v2lib/dsh_state.py /root/.aimail paused > /out/paused 2>/dev/null || echo unknown > /out/paused
         python3 /opt/v2lib/dsh_activate.py "$URL" /root/ws \
           "Unbind my AIMail mailbox $AH with aimail_address action=unbind." >/tmp/act4.log 2>&1 || true
         sleep 8
