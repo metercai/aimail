@@ -368,10 +368,24 @@ echo "── [2/6] published gateway (basic edition, $PLATFORM)"
 # not subject to api.github.com unauthenticated IP rate limit 60/h constraint). api.github.com is only a fallback:
 # Under matrix concurrency, unauthenticated calls will hit rate limit (403, observed 2026-10-09 macos two cells),
 # and rate limit responses must be distinguished from "asset missing" —— false positive ENV GAP would mask the real cause of death.
+# Version pairing: L3 must judge the PINNED gateway, not whatever "latest" happens to be.
+# tests/agent-env/pins.env carries GATEWAY_VERSION + per-platform sha256; that pair is the
+# release coordinate. "latest" stays only as a fallback when the pin file is missing.
 GW_TAG=""
-GW_TAG_URL="$(curl -sIL -o /dev/null -w '%{url_effective}' --connect-timeout 15 --max-time 30 \
-  "https://github.com/metercai/aimail-gateway/releases/latest" 2>/dev/null)"
-case "$GW_TAG_URL" in *"/releases/tag/"*) GW_TAG="${GW_TAG_URL##*/releases/tag/}";; esac
+GW_WANT_SHA=""
+if [ -f "$PINS_HOST" ]; then
+  GW_TAG="$(grep -E '^GATEWAY_VERSION=' "$PINS_HOST" | head -1 | cut -d= -f2-)"
+  _k="$(printf '%s' "$PLATFORM" | tr '-' '_')"
+  GW_WANT_SHA="$(grep -E "^GATEWAY_SHA256_${_k}=" "$PINS_HOST" | head -1 | cut -d= -f2-)"
+fi
+if [ -n "$GW_TAG" ]; then
+  say "gateway pinned by pins.env: $GW_TAG (${GW_WANT_SHA:0:12}…)"
+else
+  GW_TAG_URL="$(curl -sIL -o /dev/null -w '%{url_effective}' --connect-timeout 15 --max-time 30 \
+    "https://github.com/metercai/aimail-gateway/releases/latest" 2>/dev/null)"
+  case "$GW_TAG_URL" in *"/releases/tag/"*) GW_TAG="${GW_TAG_URL##*/releases/tag/}";; esac
+  say "no gateway pin in $PINS_HOST — falling back to latest ($GW_TAG)"
+fi
 GW_DOWNLOADED=""
 if [ -n "$GW_TAG" ]; then
   GW_URL_ASSET="https://github.com/metercai/aimail-gateway/releases/download/${GW_TAG}/aimail-gateway-$ASSET$EXT"

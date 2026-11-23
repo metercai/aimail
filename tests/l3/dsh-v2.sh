@@ -120,7 +120,21 @@ if "[retry]" not in cfg:
     cfg += '\n[retry]\npoll_interval_secs = 1\ninitial_backoff_secs = 1\n'
 open(sys.argv[1], "w", encoding="utf-8").write(cfg)
 PY
+# A leftover gateway for this workdir holds the binary's single-instance lock and the new
+# process exits with Config("Server is already running (PID …)") — measured 2026-11-23, which
+# burned a whole L3 cell. Stop it first, and retry once if the lock is still held.
+"$GW_BIN" stop >/dev/null 2>&1 || true
+pkill -f "$GW_BIN --config $GW_HOME/config.toml" >/dev/null 2>&1 || true
+sleep 1
 "$GW_BIN" --config "$GW_HOME/config.toml" > "$GW_HOME/boot.log" 2>&1 & GW_PID=$!
+sleep 3
+if grep -qa "Server is already running" "$GW_HOME/boot.log" 2>/dev/null; then
+  _stale="$(sed -n 's/.*Server is already running (PID: \([0-9]*\)).*/\1/p' "$GW_HOME/boot.log" | head -1)"
+  say "  stale gateway instance ${_stale:-?} held the lock — stopping it and retrying once"
+  [ -n "$_stale" ] && kill "$_stale" >/dev/null 2>&1 || true
+  sleep 2
+  "$GW_BIN" --config "$GW_HOME/config.toml" > "$GW_HOME/boot.log" 2>&1 & GW_PID=$!
+fi
 GW_URL="http://127.0.0.1:${GW_HTTP_PORT}"
 for _ in $(seq 1 30); do
   curl -fsS "$GW_URL/health" >/dev/null 2>&1 && break
