@@ -2,8 +2,8 @@
 
 - 日期：2026-11-23（第二次修订：REQ-1 结案改写、新增 REQ-13、补齐 L2 自检包与门禁口径）
 - 范围：**`tssdk/packages/agent-aimail`（dsh / pi / openclaw 三宿主）与 `aimail-gateway`**
-- 明确不含：pysdk 的 SSE-V2 改造（hermes / deerflow 在 L2/L3 中计为 `SKIP_LEGACY`，不参与判定）
-- 最终目标：**tssdk 三宿主通过 L2（`tests/host-acceptance/v2/`）**；**L3（`tests/l3/run-v2.sh`）为 dsh × 4 平台，仅验真值**
+- 明确不含：pysdk 的 SSE-V2 改造（hermes / deerflow 在 L2 中计为 `SKIP_LEGACY`，不参与判定）
+- 最终目标：**tssdk 三宿主通过 L2（`tests/host-acceptance/v2/`）**。L3 不在本文件范围，也不在开发职责内。
 - 执行纪律：验证方不改 `src/`；每项修完按"判据"在框架内自测，再交回复验（新 SHA，全量重跑）
 
 ---
@@ -13,12 +13,13 @@
 | 条目 | 状态 | 谁动 |
 |---|---|---|
 | REQ-1 入站被转发 relay | **结案：判定错误**。产品路径不存在；症状真因是我方夹具端口 off-by-one，已由验证方修复 | 已关闭 |
-| REQ-13 入站台账行被删（pull 模式） | **产品缺陷，已修在 gateway main `0c46b38`，未发布**；且该提交 `cargo fmt --check` 红，发版前置未满足 | 开发（fmt + 发版） |
+| REQ-13 入站台账行被删（pull 模式） | **已修并已发版**：`0c46b38`（逻辑）→ `v1.0.12`；四资产已核 sha256，`pins.env` 已 pin v1.0.12 | 已完成 |
 | REQ-11 pi `typebox` 打包冲突 | 仍有效，未修 | 开发 |
 | REQ-12 SDK 仍留 CLI 入口面 | 仍有效，未修 | 开发 |
 | REQ-2…REQ-10 | 仍有效（P1/P2/P3 不等） | 开发 |
-| L2 自检包 | 已就绪，可交付开发自跑（`s1 s2 s4 s5 neg`；`s3` 等 REQ-13 发版） | 验证方（已完成） |
-| L3 矩阵 | 已收敛为 dsh × 4 平台（4 格），非 dsh 的 `L3_AGENT` 由脚本直接拒绝 | 验证方（已完成） |
+| L2 自检包 | 已就绪；gateway v1.0.12 起 `s3` 也纳入默认自检 | 验证方（已完成） |
+| SDK L1 | **不存在（放空）**，不新建；SSE-V2 覆盖由 L0 契约 + L2 宿主实测承担 | 已定 |
+| SDK L0 判定范围 | SSE-V2/契约/文档/tssdk 构建为判定项；pysdk+CLI 套件 `SKIP_LEGACY`（清单 `tests/sdk/legacy-suites.txt`） | 验证方（已完成） |
 
 ---
 
@@ -77,57 +78,72 @@ B. 同一封信发到正确入站口 12661（= GW_SMTP+1）：
 **验证方已核**：`0c46b38` 存在、改动落在 `flows.rs` + `storage.rs`（`count_pending_for_mail_id`）、
 带 4 个单测；`cargo test --lib` **415 passed / 0 failed**；`cargo clippy --all-targets -D warnings` **干净**。
 
-**发版阻塞（必须先清）**：`0c46b38` 上 `cargo fmt --all --check` **rc=1**，
-命中 `src/core/scheduler/flows.rs:563`、`:572`（新加测试块的换行）。上一版 `v1.0.11` 是 fmt 干净的，
-所以这是本次提交带进来的。release workflow 的 `gate` job 第一项就是 Format ⇒ 现在打 tag 一定红。
+**发版记录（已完成）**
+- `0c46b38` 曾因新测试块未 rustfmt（`flows.rs:563`/`:572`）导致 `cargo fmt --all --check` rc=1；
+  已做**仅格式**修正并证明语义等价：`tr -d '[:space:]' | sha256sum` 修正前后同为
+  `0b76d967…b052fe77`（TOKEN_STREAM_IDENTICAL），提交 `166b6bf`，`fmt/clippy/test` 全绿（415 passed）。
+- 已发 **`v1.0.12`**；release run 全绿（gate / windows check / 4 build / release），四资产验证：
 
-**最小清关动作**：`cargo fmt --all` → 提交 → push（**只动格式，不改逻辑**）。验证方按 §2.1 口径核对
-"去空白后 token 流一致"，然后发版。
+| 资产 | 字节 | sha256 |
+|---|---|---|
+| `aimail-gateway-linux-amd64` | 17,786,552 | `3ba969132067c03785fad26f29ed53382fe6b10a5b72b848529a18ec8881e628` |
+| `aimail-gateway-linux-arm64` | 14,714,832 | `e33f108c29fdc7acbfb3bc3526bd64eb6a0b84dc62d686d0807de3cde6244618` |
+| `aimail-gateway-macos-arm64` | 14,470,656 | `b3007f87552856c0201a442179f0e9e9c1fb489bc61f14aa246fa481539db853` |
+| `aimail-gateway-windows-amd64.exe` | 19,561,984 | `f28935db095f937131207791d5dcbc0d483c07c355caafc0c1be1bc80b3538db` |
+
+  `./aimail-gateway-linux-amd64 --version` → `aimail-gateway 1.0.12`；`tests/agent-env/pins.env`
+  已更新为 `v1.0.12` + 上述四值（L2 日志会打印 `published gateway v1.0.12`，可据此核对）。
 
 **发版后判据（L2 S3，三宿主各一份）**：
 入站 → `emails`≥1 且 `status='delivered'` + `pending`≥1 → 宿主取走 → `pending=0`、台账行保留至 retention
 → relay spool 无该入站原信。
 
-**发版后我方动作**：更新 `tests/agent-env/pins.env`（`GATEWAY_VERSION` + 四平台 sha256）→ 重跑 L2 → 重跑 L3 dsh。
+**发版后我方动作（已完成）**：`pins.env` 已 pin v1.0.12 + 四平台 sha256 → 重跑 L2。
 
 ---
 
-## 附：L2 自检包（开发交付前请自跑，验证方会复核）
+## 自检入口（只有这几条，别找别的）
 
-**前提**
-```bash
-# 1) LLM key（xiaomi，OpenAI 兼容路由）
-export LLM_API_KEY=<xiaomi key>
-# 2) 宿主镜像（本机已有则跳过；缺了用 host-images.yml 构建）
-docker images | grep aimail-host-      # dsh / pi / openclaw
-# 3) 网关不用自己起：pins.env 的已发布二进制会自动下载并校验 sha256
-```
-
-**命令**
-```bash
-# 三宿主全量（今天可判定：s1 s2 s4 s5 neg）
-bash tests/host-acceptance/v2/run-matrix.sh --host all --stages "s1 s2 s4 s5 neg"
-# 单宿主
-bash tests/host-acceptance/v2/run-matrix.sh --host dsh --stages "s1 s2 s4 s5 neg"
-```
-
-**今天的结果预期（务必区分三类，不要互相顶替）**
-
-| 阶段 | 预期 | 若不符合 |
+| 层 | 命令 | 判定范围 / 说明 |
 |---|---|---|
-| `s1` 激活 → bind | 三宿主绿（pi 受 REQ-11 阻塞，见下） | 产品缺陷，退回 |
-| `s2` 重启后 arming | dsh 绿；openclaw 未 arm（已知项） | 产品缺陷，退回 |
-| `s4` 双地址 / `s5` pause·unbind / `neg` | 按 GATE.md | 产品缺陷，退回 |
-| `s3` 入站投递 | **在 pin=v1.0.11 时必然 RED**（REQ-13 未发布） | **不是你的 bug**，不要改夹具 |
+| **L0** | `bash tests/sdk/l0-gate-tests.sh` | SSE-V2 / 契约 / 文档 / tssdk 构建 = 判定项；pysdk+CLI 套件按 `tests/sdk/legacy-suites.txt` 逐条打印 `SKIP_LEGACY`，**不计绿**（`AIMAIL_LEGACY=1` 才执行，仅供排查） |
+| **L1** | **无（放空）** | 本仓不存在 L1 runner，**也不新建**。SSE-V2 的黑盒覆盖由 L0 契约闸 + L2 宿主实测承担 —— 不要找 L1，也不要为它准备任何东西 |
+| **L2** | 见下 | 交付判据 |
 
-**已知产品阻塞**：pi 在 0.5.1 上 `typebox` 打包冲突（REQ-11），L2 pi 无法通过 —— 交付时请注明"pi 待 REQ-11"。
+### L2（交付判据）
 
-**结果口径**：`PASS / RED（产品缺陷）/ GAP（夹具缺陷）/ SKIP_LEGACY（pysdk，不计判定）`；
-`RED>0 或 GAP>0` 退出码非 0。每次运行把 `PASS/RED/GAP` 行落到 `evidence/l2/<时间>-<host>/results.txt`，
-`run.json` 记 host / SDK 版本 / gateway pin —— 交付时请把这个目录一并给出，不要只贴一行"通过"。
+前提：
+```bash
+export LLM_API_KEY=<xiaomi key>            # OpenAI 兼容路由
+docker images | grep aimail-host-          # dsh / pi / openclaw 三个宿主镜像
+# 网关不用自己起：pins.env 的已发布二进制自动下载并校验 sha256（当前 v1.0.12）
+```
 
-**L3 不在开发职责内**：L3 只能由验证方在发布件上执行（dsh × 4 平台，口径见 `tests/l3/GATE.md`），
-开发不得运行 L3，也不得以 L3 结果作为交付依据。
+命令：
+```bash
+bash tests/host-acceptance/v2/run-matrix.sh --host all --stages "s1 s2 s3 s4 s5 neg"
+# 单宿主：--host dsh|pi|openclaw
+
+# s3 与 s5 必须分两次跑（s5 的 pause/unbind 会拆掉绑定，runner 因此在含 s5 的那次旅程里
+# 不做入站注入 —— 这是设计，不是夹具坏了）：
+bash tests/host-acceptance/v2/run-matrix.sh --host dsh --stages "s1 s2 s3 s4 neg"   # 投递证据
+bash tests/host-acceptance/v2/run-matrix.sh --host dsh --stages "s5"                 # 生命周期
+```
+
+预期（gateway v1.0.12 起）：
+
+| 阶段 | 预期 | 说明 |
+|---|---|---|
+| `s1` 激活 → bind | dsh / openclaw 绿 | pi 待 REQ-11 |
+| `s2` 重启后 arming | dsh 绿 | openclaw 未 arm 属已知项（REQ-3） |
+| `s3` 入站投递 | dsh 绿 | `emails≥1(status=delivered)` + `pending≥1` → 宿主取走 → `pending=0`、台账行保留至 retention；relay spool 无该原信 |
+| `s4` 双地址 / `s5` pause·unbind / `neg` | 按 `GATE.md` | pi 只允许单地址 |
+
+交付时给：`evidence/l2/<时间>-<host>/`（`run.json` + `results.txt` + `host.log`），不要只贴一行"通过"。
+口径：`PASS / RED（产品缺陷）/ GAP（夹具缺陷）/ SKIP_LEGACY（pysdk，不计判定）`；`RED>0 或 GAP>0` 退出码非 0。
+
+`s3` 若在本地红，**先看 `run.json.gateway_version`**：不是 `v1.0.12` 就是 pin 没更新（表现为 `emails=0`，
+即 REQ-13 未生效），不是你的改动。
 
 ---
 
@@ -203,7 +219,7 @@ ack：`accepted/intercepted/deferred → ack`；`rejected → 不 ack`。
 ## REQ-8（P2，tssdk·openclaw）aggregate handle 的 stats 恒 0
 
 **修法**：透传 `system-pull` 实际统计（至少 round / delivery / ack 计数）。
-**判据**：L2/L3 证据里的 stats 与实际投递数一致。
+**判据**：L2 证据里的 stats 与实际投递数一致。
 
 ---
 
@@ -271,27 +287,22 @@ package.json                   bin: null（未发布 CLI 二进制，这一点�
 **修法（建议）**
 1. 删除三个 `register-cli.ts` 与 `core/cli-op-entry.ts`，并把 `sdk-ops.ts` 的 op* 收敛为内部 API（仅宿主插件调用）；
 2. README/契约文档同步：安装只有"宿主插件机制"一种；
-3. 如短期必须保留，至少在包内标注 legacy 并在文档中标注"不受支持、L2/L3 不覆盖"。
+3. 如短期必须保留，至少在包内标注 legacy 并在文档中标注"不受支持、L2 不覆盖"。
 
 **判据**
 - `grep -r "aimail install" docs/ README*` 无命中；
 - 包内无 CLI 入口（bin 为空、无 register-cli 导出）；
-- L2 三宿主 + L3 dsh 在**纯插件安装**下全绿。
+- L2 三宿主在**纯插件安装**下全绿。
 
 ---
 
-## 附二：SDK 门禁（L0/L1）与 CLI 依赖 —— 本轮查验结论
+## 附二：SDK 门禁与 CLI 依赖（已实施）
 
-**已清（验证方，机械依赖）**
-- `tests/cli/stage-resources.sh` → `tests/sdk/stage-resources.sh`：它是 tssdk 包资源 staging 的辅助脚本，
-  只被 SDK L0 调用，放在 `tests/cli/` 下造成"SDK 门禁依赖 CLI 域"的误读。调用点已同步，
-  `tests/sdk/l0-gate-tests.sh` 全文再无 `tests/cli/` 路径、无 CLI 二进制调用。
+- **L0 无 CLI 依赖**：`tests/cli/stage-resources.sh` → `tests/sdk/stage-resources.sh`（只被 L0 调用，
+  内容是 tssdk 包资源 staging）；`tests/sdk/l0-gate-tests.sh` 全文无 `tests/cli/` 路径、不执行任何
+  CLI 二进制、不解析任何 CLI 产物。
+- **L0 判定范围 = SSE-V2**：pysdk/CLI 套件（37 个文件：31 个 `import aimail` + deerflow/hermes/
+  bridge/hosts-layer/CLI-boundary 主题）统一列在 `tests/sdk/legacy-suites.txt`，逐条打印
+  `SKIP_LEGACY`，不计绿；套件只能在两个集合间移动的唯一方式是改这份清单，范围不会悄悄漂移。
+- **L1 = 空**：不新建、不占位。SSE-V2 的黑盒证据来自 L0 契约闸与 L2 宿主旅程。
 
-**待裁定（会影响门禁认证范围，需 Owner 一句话确认）**
-`tests/sdk/` 下 44 个 pytest 文件中，31 个直接 `import aimail`（pysdk），另有一批以宿主为主题的
-pysdk 用例（`test_deerflow_*`、`test_hermes_patch_roundtrip`、`test_sdk_cli_boundary`、
-`test_bridge_route_side` —— 其中 `test_bridge_route_side.py:19,80-92` 断言的就是
-`AIMAIL_BIN → ~/.aimail/bin/aimail → PATH` 的 CLI 解析链）。这些用例锁的是 pysdk/CLI 行为，
-与 SSE-V2 无关。**我不擅自把它们从判定里摘掉**（摘掉=改变门禁认证范围），
-请裁定：是否把它们统一标为 `SKIP_LEGACY`（打印条数、不计绿、`AIMAIL_LEGACY=1` 才执行）。
-裁定后我按同一口径改 `l0-gate-tests.sh` 并在 `GATE.md` 记录。

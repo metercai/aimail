@@ -64,3 +64,24 @@ a run with skips is not a green run, it is a green run *for its scope*.
 |---|---|
 | `ING-1` gateway relays inbound SMTP to the outbound relay instead of storing it | `s3` cannot pass; `emails=0` is the signature. Reported for the product fix. |
 | pi live delivery | not wired (needs a long-lived pi process); `s3` reports that limitation instead of faking green |
+
+## Journey scoping (measured 2026-11-23, gateway v1.0.12)
+
+A single `run-matrix.sh` invocation cannot carry every stage. The runner derives the
+journey from `--stages`, and two stages change the journey itself:
+
+| if the stage list contains | the journey does | consequence |
+|---|---|---|
+| `s5` | `LIFECYCLE=1` — pause/unbind, and the host-side mail injection is **skipped by design** (there is no binding left to deliver to) | `s3` reports `GAP: no injection evidence` in that run — run it separately |
+| `s3` + `s4` together | mail is injected after 2 bindings exist and the negative step restarts the host afterwards | on 2026-11-23 the `neg` stage ended with `GAP: negative stage did not complete (rc: no web url)` — the neg host did not come up; `RED=0` throughout, so this is a fixture-completion gap, not a product red |
+
+Recommended split (each invocation is one journey):
+
+```bash
+bash tests/host-acceptance/v2/run-matrix.sh --host dsh --stages "s1 s2 s3 s4 neg"   # delivery evidence
+bash tests/host-acceptance/v2/run-matrix.sh --host dsh --stages "s5"                 # lifecycle
+```
+
+A GAP is not a pass: the gate stays non-zero. It is also not a product defect — do not
+"fix" a GAP by relaxing an assertion; either complete the fixture or re-run the stage in
+the scoping above.

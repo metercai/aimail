@@ -52,6 +52,17 @@ gw_fetch() {
 
 gw_up() {
   local work="${1:?workdir}" http="${2:-18080}" smtp="${3:-12525}"
+  # Fail closed on an occupied port: a stale gateway/sink from a previous run keeps
+  # answering /health while the new process dies, so the rest of the fixture then reads
+  # DB files from the NEW workdir that the OLD process never wrote
+  # ("cat: .../storage/aimail.db.admin_key: No such file or directory"). Observed
+  # 2026-11-23 after a background run whose teardown did not fire.
+  local p
+  for p in "$http" "$smtp" "$((smtp + 1))"; do
+    if python3 -c 'import socket,sys; s=socket.socket(); s.settimeout(1); sys.exit(0 if s.connect_ex(("127.0.0.1", int(sys.argv[1])))==0 else 1)' "$p"; then
+      echo "GAP: port $p already in use — a stale gateway/sink is holding it; free it or set GW_HTTP_PORT/GW_SMTP_PORT"; return 2
+    fi
+  done
   local bin; bin="$(gw_fetch)" || return $?
   mkdir -p "$work/storage" "$work/workspace" "$work/home"
   cat >"$work/config.toml" <<TOML
