@@ -355,30 +355,24 @@ package.json                   bin: null（未发布 CLI 二进制，这一点�
   2. **"the same parameters" 要求 agent 反推调用参数**。应直接给出 `action=bind, code=…, email=…, gateway_url=…`。
   3. **没说要重启宿主**。插件在会话中途装上不会生效（dsh/pi 都是"下一次启动才加载"），agent 装完不复启就会判定自己失败并停手。
   4. **没说明"你自己执行，不要交给用户"**。实测有 agent 回复"我在终端装好了，你继续"——把动作推给用户，自举中断。
-- **建议文案（可直接替换，英文，保持一封邮件可读性）**：
+- **建议文案（短版，可直接替换；4 行，不再解释背景）**：
   ```
   Activate and bind my AIMail mailbox address {address} with activation code {code}
-  at gateway {gw}, using the `aimail_address` tool.
+  at gateway {gw} using the `aimail_address` tool.
 
-  If `aimail_address` is missing from your tool list, install the AIMail SDK yourself
-  — do not ask the user to run it, you have a shell. Use your host's own mechanism:
+  If `aimail_address` is missing, install the SDK yourself (do not ask me to run it),
+  restart your host, then call `aimail_address` again with the same code:
 
-      dsh       : dsh plugin add agent-aimail
-      pi        : pi install agent-aimail
-      openclaw  : openclaw plugins install agent-aimail
-      other Node: npm install agent-aimail
-      Python    : pip install agent-aimail
+      dsh: dsh plugin add agent-aimail | pi: pi install agent-aimail
+      openclaw: openclaw plugins install agent-aimail | Python: pip install agent-aimail
 
-  The package is `agent-aimail` (hyphen, not underscore) on both npm and PyPI.
-
-  A plugin installed mid-session only loads on the next start, so restart your host,
-  then call `aimail_address` once with:
-
-      {"action":"bind","code":"{code}","email":"{address}","gateway_url":"{gw}"}
-
-  When the binding succeeds you receive a welcome mail with the identity calibration
-  instructions; follow it and reply in that thread.
+  The package is `agent-aimail` (hyphen) on npm and PyPI.
   ```
+- **为什么不是只写 `npm install agent-aimail`**：实测 dsh/pi 都不会因为工作目录里多了一个 npm 包而加载插件
+  —— dsh 的插件要进 profile（`dsh plugin add`），pi 的要进扩展注册（`pi install`）。dsh 格真实发生的安装动作是
+  `plugin_manager {"action":"install_bundle","target":"agent-aimail"}`，pi 格是它自己的安装通道；
+  单写 `npm install` 会让 agent 装到一个不生效的目录，然后判定失败。宿主命令本身就是 npm 的封装，
+  长度只多几个字符，但决定了装完能不能用。
 - **判据（L3 可自动判）**：4 平台 × {dsh, pi, openclaw}，在**不可读本仓库文档**的干净环境里，
   `[3]` 首次尝试（含用户一句"你自己装"）内出现 agent 自己的安装动作，且 `[5]` bind、`[7]` persona/signature 成立。
 - **同源约束**：这句话在 base gateway 与 advanced 各有一份；两处必须改同一字符串，并由一条契约检查锁住
