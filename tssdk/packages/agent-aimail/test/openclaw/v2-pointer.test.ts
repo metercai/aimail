@@ -117,7 +117,14 @@ async function makeEnv(): Promise<Env> {
   await fs.mkdir(path.join(home, '.openclaw'), { recursive: true })
   await fs.writeFile(
     path.join(home, '.openclaw', 'openclaw.json'),
-    JSON.stringify({ gateway: { port }, hooks: { path: '/hooks' } }),
+    // REQ-3: dispatcher only hands the host an agent it actually configures.
+    // These address-level tests model a host that has `a`/`b`/`main`; the
+    // unknown-local-part fallback is covered by dispatch-target.test.ts.
+    JSON.stringify({
+      gateway: { port },
+      hooks: { path: '/hooks' },
+      agents: { entries: { a: {}, b: {}, main: {} } },
+    }),
   )
   // Inbound providers (processInboundMail needs them to build the prompt).
   setSoulProvider(() => 'soul')

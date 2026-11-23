@@ -30,6 +30,28 @@ function freePort(): Promise<number> {
   })
 }
 
+/**
+ * Find `n` CONSECUTIVE free loopback ports. The old tests assumed p+1/p+2
+ * were free; on a busy machine that is not guaranteed (REQ-10 flake). We
+ * reserve the block while probing and release it before the test binds.
+ */
+async function freeRange(n: number): Promise<number> {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const base = await freePort()
+    if (base + n >= 65536) continue
+    const held: Server[] = []
+    try {
+      for (let i = 0; i < n; i++) held.push(await occupy(base + i))
+      return base
+    } catch {
+      /* one of the ports is taken — try another base */
+    } finally {
+      for (const s of held) await new Promise((r) => s.close(() => r(undefined)))
+    }
+  }
+  throw new Error(`no ${n} consecutive free loopback ports`)
+}
+
 /** Occupy a port for the duration of a test. */
 function occupy(port: number): Promise<Server> {
   return new Promise((resolve, reject) => {
@@ -58,7 +80,7 @@ describe('listenWithRetry', () => {
   })
 
   it('re-selects port+1 when the preferred port is occupied (actual port is truth)', async () => {
-    const p = await freePort()
+    const p = await freeRange(2)
     const blocker = track(await occupy(p))
     const server = createServer()
     track(server)
@@ -67,7 +89,7 @@ describe('listenWithRetry', () => {
   })
 
   it('walks past N occupied ports to the first free one', async () => {
-    const base = await freePort()
+    const base = await freeRange(3)
     const blockers = [track(await occupy(base)), track(await occupy(base + 1))]
     const server = createServer()
     track(server)
@@ -77,7 +99,7 @@ describe('listenWithRetry', () => {
   })
 
   it.skipIf(process.platform === 'darwin')('rejects loudly when every probed port is occupied (no silent black hole)', async () => {
-    const base = await freePort()
+    const base = await freeRange(2)
     // occupy base and base+1, allow only 2 attempts
     const blockers = [track(await occupy(base)), track(await occupy(base + 1))]
     const server = createServer()
@@ -109,7 +131,7 @@ describe('listenWithRetry', () => {
   })
 
   it('two concurrent starters on the same preferred port land on different ports', async () => {
-    const p = await freePort()
+    const p = await freeRange(2)
     const a = createServer()
     const b = createServer()
     track(a)

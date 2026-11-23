@@ -24,6 +24,8 @@ import {
 import type { MailService } from './mail-service.js'
 import { runAddressTool } from './address.js'
 
+import { agentHome } from './workspace.js'
+import { setAgentHomeResolver } from '../core/index.js'
 export const name = 'tool-mail'
 export const inject = ['tools', 'mail']
 
@@ -90,6 +92,10 @@ export function apply(ctx: Context, config: { identity?: string } = {}): void {
   if (mail === undefined) {
     throw new Error('tool-mail requires the mail service: mount dsh-aimail/mail-service first')
   }
+  // CR-1: any tool call (including the first bind) must derive the ASID from
+  // this DSH profile's home. mail-hub sets the same resolver at boot; setting
+  // it here keeps the tool path independent of row load order.
+  setAgentHomeResolver(agentHome)
   if (config.identity) setAgentIdentity(config.identity)
   // Primary model: same deployment default the inbound router uses for
   // agents.create() (cordis 'agentDefaultModel' service).
@@ -148,4 +154,5 @@ export function apply(ctx: Context, config: { identity?: string } = {}): void {
   // registration fact, not a core constant fallback. apply() not reached ⇒
   // provider never set ⇒ empty.
   setToolsetProvider(() => [...registered])
+  console.error(`[agent-aimail] mail tools: ${registered.length}`)
 }

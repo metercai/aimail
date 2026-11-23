@@ -29,10 +29,12 @@ import {
   type InboundPayload,
 } from '../core/index.js'
 import { stampSessionMeta } from '../core/meta.js'
-import { getAgentSystemId } from '../core/agent-system-id.js'
+import { getAgentSystemId, setAgentHomeResolver } from '../core/agent-system-id.js'
 import { routeThread } from '../runtime/session-router.js'
+import { isV2AgentScopeBinding } from '../core/poll-entry.js'
+import { isAckedInboundResult, type InboundResult } from '../core/index.js'
 import { readSystemGatewayConfig } from '../core/provision.js'
-import { statusPath } from './workspace.js'
+import { agentHome, statusPath } from './workspace.js'
 
 export const name = 'mail-hub'
 export const inject = ['mail', 'agents']
@@ -44,6 +46,7 @@ export interface Config {
 
 interface StreamHandle {
   email: string
+  gatewayUrl: string
   stop(): void
 }
 
@@ -89,6 +92,7 @@ export class MailHub {
   private started = false
   private lastEventAt = ''
   private lastError = ''
+  private agentSystemId = ''
   private statusTimer: NodeJS.Timeout | undefined
 
   constructor(ctx: Context, _config: Config = {}) {
@@ -143,24 +147,53 @@ export class MailHub {
       if (cfg?.admin_key) systems.push({ sid, cfg })
       bindings.push(...(await this.listBindings(sid)))
     }
-    // V2: one stream per (AgentSystemId, Gateway), not per system/address.
-    // The first active binding on each gateway supplies the address-scoped
-    // credential; the aggregate endpoint authorizes all addresses owned by
-    // this AgentSystemId.
+    // V2: one stream per (AgentSystemId, Gateway). Only bindings owned by
+    // THIS AgentSystemId may supply the aggregate credential: a V1 key (no
+    // ASID row at the gateway) would 403 the whole stream, and another
+    // instance's binding must never be aggregated here.
     const agentSystemId = await getAgentSystemId()
-    const byGateway = new Map<string, AgentConfig>()
+    this.agentSystemId = agentSystemId
+    const v2ByGateway = new Map<string, AgentConfig>()
+    const legacy: AgentConfig[] = []
+    let activeBindings = 0
     for (const b of bindings) {
       if (b.paused === true || !b.api_key) continue
-      if (!byGateway.has(b.gateway_url)) byGateway.set(b.gateway_url, b)
+      activeBindings++
+      if (!isV2AgentScopeBinding(b)) {
+        // V1 binding: the gateway has no ASID ownership row for it. Keep the
+        // legacy per-address pull alive instead of 403ing an aggregate.
+        legacy.push(b)
+        continue
+      }
+      if (b.agent_system_id !== agentSystemId) {
+        // Another instance/profile owns this address. Do not pull it; the
+        // owner must re-activate after an identity change (contract §5.3).
+        console.error(
+          `[agent-aimail] skip binding ${b.email}: agent_system_id ${b.agent_system_id} != ${agentSystemId} (re-activate)`,
+        )
+        continue
+      }
+      const gw = (b.gateway_url ?? '').replace(/\/+$/, '')
+      if (!v2ByGateway.has(gw)) v2ByGateway.set(gw, b)
     }
-    console.error(`[agent-aimail] SSE reconcile: ${byGateway.size} gateway stream(s) from ${bindings.length} binding(s)`)
-    for (const [gatewayUrl, b] of byGateway) {
+    const streams = v2ByGateway.size + legacy.length
+    console.error(`[agent-aimail] SSE reconcile: ${streams} gateway stream(s) from ${activeBindings} binding(s)`)
+    for (const [gatewayUrl, b] of v2ByGateway) {
       this.handles.push(this.startStream({
         email: b.email,
         gatewayUrl,
         apiKey: b.api_key,
         identity: b.email,
         agentSystemId,
+      }))
+    }
+    for (const b of legacy) {
+      console.error(`[agent-aimail] V1 binding ${b.email}: per-address pull (re-activate to join the aggregate)`)
+      this.handles.push(this.startStream({
+        email: b.email,
+        gatewayUrl: b.gateway_url,
+        apiKey: b.api_key,
+        identity: b.email,
       }))
     }
     await this.writeStatus()
@@ -184,25 +217,54 @@ export class MailHub {
     })
   }
 
-  async status(): Promise<Record<string, unknown>> {
+  /**
+   * Contract §8.4 status shape: mode/agentSystemId/gateways[]. The legacy
+   * `streams` list stays for existing evidence readers; it contains only
+   * addresses (no key/code/body).
+   */
+  private statusBody(): Record<string, unknown> {
+    const connected = this.handles.length > 0 && !this.ctrl.signal.aborted
+    const seen = new Set<string>()
+    const gateways: Array<Record<string, unknown>> = []
+    for (const h of this.handles) {
+      if (seen.has(h.gatewayUrl)) continue
+      seen.add(h.gatewayUrl)
+      gateways.push({
+        gatewayUrl: h.gatewayUrl,
+        connected,
+        lastEventAt: this.lastEventAt,
+        lastError: this.lastError,
+      })
+    }
     return {
       mode: 'sse',
-      connected: this.handles.length > 0 && !this.ctrl.signal.aborted,
+      agentSystemId: this.agentSystemId,
+      connected,
       streams: this.handles.map((h) => h.email),
+      gateways,
       lastEventAt: this.lastEventAt,
       lastError: this.lastError,
     }
+  }
+
+  async status(): Promise<Record<string, unknown>> {
+    return this.statusBody()
   }
 
   private async listBindings(sid: string): Promise<AgentConfig[]> {
     return await listAgentConfigs(sid)
   }
 
-  private async findBinding(email: string): Promise<{ sid: string; cfg: AgentConfig } | undefined> {
+  private async findBinding(email: string, gatewayUrl?: string): Promise<{ sid: string; cfg: AgentConfig } | undefined> {
     const target = email.toLowerCase()
+    const wantGateway = (gatewayUrl ?? '').replace(/\/+$/, '')
     for (const sid of await listSystemDirs()) {
       const cfg = await loadAgentConfig(sid, target)
-      if (cfg) return { sid, cfg }
+      if (!cfg) continue
+      // §9.1: route by gateway_url + recipient. A same-named address on another
+      // gateway must not receive this delivery.
+      if (wantGateway && (cfg.gateway_url ?? '').replace(/\/+$/, '') !== wantGateway) continue
+      return { sid, cfg }
     }
     return undefined
   }
@@ -253,6 +315,7 @@ export class MailHub {
     })
     return {
       email: opts.email,
+      gatewayUrl: opts.gatewayUrl,
       stop: () => {
         ctrl.abort()
         this.ctrl.signal.removeEventListener('abort', onAbort)
@@ -269,12 +332,13 @@ export class MailHub {
     for (const d of deliveries) {
       const recipient = str(d.email).toLowerCase()
       if (!recipient) continue
-      const found = await this.findBinding(recipient)
+      const found = await this.findBinding(recipient, client.baseUrl)
       if (!found) continue // system stream may carry other agents' mail — do not ack/steal
       if (found.cfg.paused) continue // leave pending for resume
       const headers = { ...headersOf(d.headers), 'x-aimail-email': recipient }
-      const ok = await this.deliver(found.cfg, batch.body, headers, recipient)
-      if (ok) ack.push(Number(d.id))
+      const result = await this.deliver(found.cfg, batch.body, headers, recipient)
+      if (isAckedInboundResult(result)) ack.push(Number(d.id))
+      else if (result.detail) this.lastError = `${recipient}: ${result.status}: ${result.detail}`
     }
     if (ack.length > 0) {
       try {
@@ -298,7 +362,7 @@ export class MailHub {
     }
   }
 
-  async deliverOne(cfg: AgentConfig, body: unknown, headers: Record<string, unknown>, recipient: string): Promise<boolean> {
+  async deliverOne(cfg: AgentConfig, body: unknown, headers: Record<string, unknown>, recipient: string): Promise<InboundResult> {
     return await this.deliver(cfg, body, headers, recipient)
   }
 
@@ -316,16 +380,23 @@ export class MailHub {
     return undefined
   }
 
-  private async deliver(cfg: AgentConfig, body: unknown, headers: Record<string, unknown>, recipient: string): Promise<boolean> {
-    if (typeof body !== 'object' || body === null) return false
+  private async deliver(cfg: AgentConfig, body: unknown, headers: Record<string, unknown>, recipient: string): Promise<InboundResult> {
+    if (typeof body !== 'object' || body === null) {
+      return { status: 'rejected', detail: 'payload is not an object' }
+    }
     const payload = body as InboundPayload
-    const enriched = await processInboundMail(payload, headers as Record<string, string>, { systemId: cfg.system_id, email: cfg.email })
-    if (enriched === null) return true // ping/pong consumed
+    // REQ-2: workspace preflight BEFORE the heavy inbound pipeline. The
+    // pipeline writes meta/snapshots/FTS and downloads attachments; doing it
+    // first means a workspace miss leaves dirty side effects even though the
+    // delivery is not acked.
     const workspace = await this.workspaceFor(cfg)
     if (!workspace) {
-      this.lastError = `no workspace for ${recipient}`
-      return false
+      const detail = `no workspace for ${recipient}`
+      this.lastError = detail
+      return { status: 'rejected', detail }
     }
+    const enriched = await processInboundMail(payload, headers as Record<string, string>, { systemId: cfg.system_id, email: cfg.email })
+    if (enriched === null) return { status: 'intercepted', detail: 'ping/pong consumed' }
     const root = (Array.isArray(payload.references) && payload.references[0]) || str(headers.in_reply_to) || str(payload.message_id)
     const meta = root ? await readLocalMeta(recipient, root) : undefined
     const target = routeThread(payload as never, { id: workspace.id, path: workspace.path }, meta as never, headers)
@@ -340,13 +411,13 @@ export class MailHub {
       if (live) {
         live.followup(message)
         await stampSessionMeta(recipient, str(payload.message_id), { sessionId, workspacePath: workspace.path })
-        return true
+        return { status: 'accepted', detail: `followup ${sessionId}` }
       }
       try {
         const handle = await agents.resume({ resumeSessionId: sessionId, agentOptions: this.agentOptions() })
         handle.agent.followup(message)
         await stampSessionMeta(recipient, str(payload.message_id), { sessionId, workspacePath: workspace.path })
-        return true
+        return { status: 'accepted', detail: `resumed ${sessionId}` }
       } catch {
         /* fall through to new session */
       }
@@ -356,10 +427,11 @@ export class MailHub {
       const handle = await agents.create({ sessionId: newId, meta: { cwd: workspace.path }, agentOptions: this.agentOptions() })
       handle.agent.followup(message)
       await stampSessionMeta(recipient, str(payload.message_id), { sessionId: newId, workspacePath: workspace.path })
-      return true
+      return { status: 'accepted', detail: `created ${newId}` }
     } catch (e) {
-      this.lastError = e instanceof Error ? e.message : String(e)
-      return false
+      const detail = e instanceof Error ? e.message : String(e)
+      this.lastError = detail
+      return { status: 'rejected', detail: `session create failed: ${detail}` }
     }
   }
 
@@ -377,13 +449,7 @@ export class MailHub {
   private async writeStatus(): Promise<void> {
     const p = statusPath()
     await fs.mkdir(path.dirname(p), { recursive: true })
-    const body = {
-      mode: 'sse',
-      connected: this.handles.length > 0 && !this.ctrl.signal.aborted,
-      streams: this.handles.map((h) => h.email),
-      lastEventAt: this.lastEventAt,
-      lastError: this.lastError,
-    }
+    const body = this.statusBody()
     const tmp = `${p}.tmp`
     await fs.writeFile(tmp, JSON.stringify(body, null, 2) + '\n', { mode: 0o600 })
     await fs.rename(tmp, p)
@@ -391,6 +457,9 @@ export class MailHub {
 }
 
 export function apply(ctx: Context, config: Config = {}): void {
+  // CR-1: derive the AgentSystemId from this DSH profile's home, not the OS
+  // user's home (otherwise DSH/Pi/OpenClaw on one machine merge).
+  setAgentHomeResolver(agentHome)
   const hub = new MailHub(ctx, config)
   ctx.provide('mailHub', {
     reconcile: () => hub.reconcile(),

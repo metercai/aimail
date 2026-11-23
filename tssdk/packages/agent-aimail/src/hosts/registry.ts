@@ -26,8 +26,6 @@ export interface HostSpec {
   configDir: string
   /** the entry subpath the host loader consumes (contract, mirrored in CLI). */
   entry: string
-  /** register-cli subpath (CLI registration command entry, contract mirrored in hosts.rs). */
-  registerCli: string
   /** the peer dependency the host must provide (all optional at install). */
   peer: string
 }
@@ -39,7 +37,6 @@ export const HOSTS: Record<string, HostSpec> = {
     sdkSpecs: ['openclaw/plugin-sdk/plugin-entry'],
     configDir: '.openclaw',
     entry: 'dist/openclaw/index.js',
-    registerCli: 'dist/openclaw/register-cli.js',
     peer: 'openclaw',
   },
   dsh: {
@@ -48,7 +45,6 @@ export const HOSTS: Record<string, HostSpec> = {
     sdkSpecs: ['@deepseek-ai/cordis', '@deepseek-ai/dsh-agent'],
     configDir: '.dsh',
     entry: 'dist/dsh/index.js',
-    registerCli: 'dist/dsh/register-cli.js',
     peer: '@deepseek-ai/cordis',
   },
   pi: {
@@ -57,7 +53,6 @@ export const HOSTS: Record<string, HostSpec> = {
     sdkSpecs: ['@earendil-works/pi-coding-agent'],
     configDir: '.pi',
     entry: 'dist/pi/index.js',
-    registerCli: 'dist/pi/register-cli.js',
     peer: '@earendil-works/pi-coding-agent',
   },
 }

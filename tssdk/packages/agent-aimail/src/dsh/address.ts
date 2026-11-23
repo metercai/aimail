@@ -11,13 +11,12 @@
  * re-binds with the gateway's renewal/rotation semantics.
  */
 import type { Context } from '@deepseek-ai/cordis'
+import { promises as fs } from 'node:fs'
 
 import {
   activateAddressCode,
   preflightActivationCode,
-  registerPullAddress,
   ProvisionError,
-  type SystemGatewayConfig,
 } from '../core/provision.js'
 import { aimailAddress, loadAgentConfig, listSystemDirs, saveAgentConfig, updateAgentConfig } from '../core/index.js'
 import type { AgentConfig } from '../core/index.js'
@@ -56,9 +55,6 @@ function domainOf(email: string): string {
   return email.includes('@') ? (email.split('@').pop() ?? '').toLowerCase() : ''
 }
 
-function domainKeyFor(cfg: SystemGatewayConfig, domain: string): string {
-  return cfg.domain_keys?.[domain] ?? (String(cfg.domain ?? '').toLowerCase() === domain ? cfg.admin_key : '')
-}
 
 function workspaceRef(path: string, id: string, title?: string): { id: string; path: string; title?: string } {
   return { id, path, ...(title ? { title } : {}) }
@@ -82,15 +78,23 @@ export async function runAddressTool(
   if (action === 'unbind') {
     if (!found) return fail('not-bound', `no binding for ${email}`)
     const r = await aimailAddress({ action: 'unbind', email })
+    // §13.2: re-arm with the remaining addresses (or stop the stream when
+    // this was the only one) — no host restart required.
+    const hub = ctx.get('mailHub') as HubService | undefined
+    void hub?.reconcile?.()
     return r as unknown as Record<string, unknown>
   }
   if (action === 'move') {
     if (!found) return fail('not-bound', `no binding for ${email}`)
     const target = String(args.workspace_path ?? '').trim()
     if (!target) return fail('bad_args', 'workspace_path is required for move')
+    try {
+      if (!(await fs.stat(target)).isDirectory()) return fail('workspace_invalid', `workspace is not a directory: ${target}`)
+    } catch {
+      return fail('workspace_invalid', `workspace does not exist: ${target}`)
+    }
     await updateAgentConfig(found.sid, email, { workspace_id: target, workspace_path: target })
-    const hub = ctx.get('mailHub') as HubService | undefined
-    void hub?.reconcile?.()
+    // §13.3: same (AgentSystemId, Gateway) — no new code, no new SSE.
     return { success: true, scope: 'address', email, system_id: found.sid, workspace: workspaceRef(target, target), mode: 'move' }
   }
   if (action === 'pause' || action === 'resume') {
@@ -113,131 +117,70 @@ export async function runAddressTool(
   const system = await findExistingSystem()
   const gatewayUrlArg = String(args.gateway_url ?? '').replace(/\/+$/, '')
 
-  let pre
-  if (code) {
-    const gw = system?.cfg.gateway_url ?? gatewayUrlArg
-    if (!gw) return fail('bad_args', 'gateway_url is required when no system is provisioned')
-    try {
-      pre = await preflightActivationCode(gw, code)
-    } catch (e) {
-      if (e instanceof ProvisionError) return fail(e.errorCode, e.message, e.retryable)
-      throw e
-    }
-    if (!pre.valid || pre.claimed) return fail('activation_invalid', pre.error ?? 'activation code is invalid or already claimed')
-    if (pre.code_type !== 'address') return fail('wrong_tool', 'this is not an address activation code')
-    if (pre.email_address && pre.email_address.toLowerCase() !== email) {
-      return fail('activation_invalid', `activation code is bound to ${pre.email_address}`)
-    }
-  }
-
-  if (system) {
-    // B1 — local-domain address.
-    if (gatewayUrlArg && gatewayUrlArg !== system.cfg.gateway_url.replace(/\/+$/, '')) {
-      return fail('gateway_mismatch', `gateway is ${system.cfg.gateway_url}`)
-    }
-    const domain = domainOf(email)
-    if (pre?.system_id && pre.system_id !== system.sid) {
-      return fail('system_mismatch', `activation code belongs to system ${pre.system_id}`)
-    }
-    if (pre?.domain && pre.domain.toLowerCase() !== domain) {
-      return fail('system_mismatch', `activation code is bound to domain ${pre.domain}`)
-    }
-    if (pre?.scope && pre.scope === 'shared') {
-      return fail('system_mismatch', 'shared-domain address cannot be bound inside an onboarded system')
-    }
-    if (system.cfg.system_name) {
-      const suffix = `.${system.cfg.system_name}@${String(system.cfg.domain ?? '').toLowerCase()}`
-      if (!email.endsWith(suffix)) return fail('system_mismatch', `address must be <name>${suffix}`)
-    } else {
-      const known = new Set<string>([
-        String(system.cfg.domain ?? '').toLowerCase(),
-        ...(system.cfg.domains ?? []).map((d) => d.toLowerCase()),
-        ...Object.keys(system.cfg.domain_keys ?? {}).map((d) => d.toLowerCase()),
-      ].filter(Boolean))
-      if (!known.has(domain)) return fail('system_mismatch', `address domain must be one of ${[...known].join(', ')}`)
-    }
-
-    let key = ''
-    let kind = 'link'
-    let expiresAt: string | undefined
-    if (code) {
-      try {
-        const act = await activateAddressCode({ gatewayUrl: system.cfg.gateway_url, code, email, agentSystemId: await getAgentSystemId() })
-        key = act.raw_key
-        kind = act.kind
-        expiresAt = act.expires_at
-      } catch (e) {
-        if (e instanceof ProvisionError) return fail(e.errorCode, e.message, e.retryable)
-        throw e
-      }
-    } else if (!found) {
-      const domainKey = domainKeyFor(system.cfg, domain)
-      if (!domainKey) return fail('domain_key_missing', `no domain key for ${domain}; re-run system onboarding with a new code`)
-      try {
-        key = await registerPullAddress({ gatewayUrl: system.cfg.gateway_url, adminKey: domainKey, identity: system.sid, systemId: system.sid, email })
-        kind = 'register'
-      } catch (e) {
-        if (e instanceof ProvisionError) return fail(e.errorCode, e.message, e.retryable)
-        throw e
-      }
-    } else {
+  // V2: the addres code is the ONLY activation prerequisite. There is no
+  // local system/domain/key registration path (§3.1/§14): a system config may
+  // only supply the gateway URL, never an admin/domain key.
+  if (!code) {
+    if (found) {
       // No code + existing binding → only update the workspace (link).
-      await updateAgentConfig(system.sid, email, {
+      await updateAgentConfig(found.sid, email, {
         workspace_id: workspace.id,
         workspace_path: workspace.path,
         ...(workspace.title ? { workspace_title: workspace.title } : {}),
       })
       const hub = ctx.get('mailHub') as HubService | undefined
       void hub?.reconcile?.()
-      return { success: true, scope: 'address', email, system_id: system.sid, workspace, mode: 'link', paused: Boolean(found.cfg.paused) }
+      return { success: true, scope: 'address', email, system_id: found.sid, workspace, mode: 'link', paused: Boolean(found.cfg.paused) }
     }
-
-    const next: AgentConfig = {
-      ...(found?.cfg ?? {}),
-      email,
-      gateway_url: system.cfg.gateway_url,
-      system_id: system.sid,
-      domain,
-      api_key: key,
-      ...(system.cfg.system_name ? { system_name: system.cfg.system_name } : {}),
-      workspace_id: workspace.id,
-      workspace_path: workspace.path,
-      ...(workspace.title ? { workspace_title: workspace.title } : {}),
-      paused: false,
-      ...(expiresAt ? { expires_at: expiresAt } : {}),
-    } as AgentConfig
-    await saveAgentConfig(next, system.sid)
-    const hub = ctx.get('mailHub') as HubService | undefined
-    void hub?.reconcile?.()
-    return { success: true, scope: 'address', email, system_id: system.sid, workspace, mode: code ? 'code' : kind, kind, paused: false, ...(expiresAt ? { expires_at: expiresAt } : {}) }
+    return fail(
+      'code_required',
+      'an address activation code is required to bind this address; system/domain keys are not an activation path',
+    )
   }
 
-  // B2 — no system; shared-domain address code only.
-  if (!code) return fail('needs_system', 'no system onboarded; a shared-domain address requires an address activation code')
-  // V2: address code is the only activation prerequisite. The code's
-  // system/domain association is carried by the activation response; no
-  // local system onboarding is required for any address form.
-  if (!pre) {
-    return fail('needs_system', 'address activation code is required')
-  }
-  if (!gatewayUrlArg) return fail('bad_args', 'gateway_url is required for a shared-domain address')
-  let act
+  const gw = gatewayUrlArg || String(system?.cfg.gateway_url ?? '').replace(/\/+$/, '')
+  if (!gw) return fail('bad_args', 'gateway_url is required to redeem an address activation code')
+  let pre
   try {
-    act = await activateAddressCode({ gatewayUrl: gatewayUrlArg, code, email, agentSystemId: await getAgentSystemId() })
+    pre = await preflightActivationCode(gw, code)
   } catch (e) {
     if (e instanceof ProvisionError) return fail(e.errorCode, e.message, e.retryable)
     throw e
   }
+  if (!pre.valid || pre.claimed) return fail('activation_invalid', pre.error ?? 'activation code is invalid or already claimed')
+  if (pre.code_type !== 'address') return fail('wrong_tool', 'this is not an address activation code')
+  if (pre.email_address && pre.email_address.toLowerCase() !== email) {
+    return fail('activation_invalid', `activation code is bound to ${pre.email_address}`)
+  }
+
+  let act
+  try {
+    act = await activateAddressCode({ gatewayUrl: gw, code, email, agentSystemId: await getAgentSystemId() })
+  } catch (e) {
+    if (e instanceof ProvisionError) return fail(e.errorCode, e.message, e.retryable)
+    throw e
+  }
+
+  // Re-activation/migration: if the address already lives under another
+  // GatewaySystemId, archive the old binding only AFTER the new code was
+  // accepted. Mail data stays where it is; the directory grouping changes.
+  if (found && found.sid !== act.system_id) {
+    await aimailAddress({ action: 'unbind', email })
+  }
+
   const next: AgentConfig = {
+    ...(found && found.sid === act.system_id ? found.cfg : {}),
     email,
-    gateway_url: gatewayUrlArg,
+    gateway_url: gw,
     system_id: act.system_id,
     domain: domainOf(email),
     api_key: act.raw_key,
+    agent_system_id: await getAgentSystemId(),
     workspace_id: workspace.id,
     workspace_path: workspace.path,
     ...(workspace.title ? { workspace_title: workspace.title } : {}),
     paused: false,
+    ...(act.manager_address ? { manager_address: act.manager_address } : {}),
     ...(act.expires_at ? { expires_at: act.expires_at } : {}),
   } as AgentConfig
   await saveAgentConfig(next, act.system_id)

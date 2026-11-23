@@ -16,14 +16,7 @@ describe('hosts registry (single source of truth)', () => {
       expect(spec.sdkSpecs.length).toBeGreaterThan(0)
       expect(spec.configDir).toMatch(/^\./)
       expect(spec.entry).toMatch(/^dist\/[a-z]+\/index\.js$/)
-      expect(spec.registerCli).toMatch(/^dist\/[a-z]+\/register-cli\.js$/)
       expect(spec.peer).toBeTruthy()
-    }
-    // entry + registerCli must agree on the host subdir
-    for (const spec of entries) {
-      const entryHost = spec.entry.split('/')[1]
-      const cliHost = spec.registerCli.split('/')[1]
-      expect(entryHost, spec.host).toBe(cliHost)
     }
   })
 })

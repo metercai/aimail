@@ -68,5 +68,6 @@ export function createMailTools(
   // not a core constant fallback. Host never invoking the factory (tools not
   // registered) ⇒ provider never set ⇒ empty.
   setToolsetProvider(() => tools.map(t => t.name))
+  console.error(`[agent-aimail] mail tools: ${tools.length}`)
   return tools
 }

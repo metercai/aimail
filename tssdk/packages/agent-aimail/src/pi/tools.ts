@@ -2,19 +2,15 @@
  * pi-aimail tools — registers the 15 AIMail tools by iterating the
  * SINGLE AGENT_TOOL_DEFS source from @aimail/mail-core (same as dsh/openclaw:
  * semantic text defined once; the adapter only binds platform identity).
- *
- * pi ToolDefinition: parameters are TypeBox; execute returns
- * AgentToolResult { content, details } — plain values are wrapped via
- * textResult-equivalent here (pi has no jsonResult helper export, so we
- * build the shape directly).
+ * pi ToolDefinition: parameters are JSON Schema (REQ-11: no runtime
+ * `typebox` import); execute returns AgentToolResult { content, details } —
+ * plain values are wrapped via textResult-equivalent here (pi has no
+ * jsonResult helper export, so we build the shape directly).
  */
-import type { TSchema } from 'typebox'
-import { AGENT_TOOL_DEFS, toTypeBoxParams } from '../core/index.js'
+import { AGENT_TOOL_DEFS, toTypeBoxParams, type JsonSchema } from '../core/index.js'
 import { resolveConfig } from './identity.js'
 import { setAgentModel } from '../core/index.js'
 import { findOtherActiveAddress, pinWorkspaceToBinding } from '../runtime/index.js'
-
-/** pi AgentToolResult content block. */
 interface TextBlock {
   type: 'text'
   text: string
@@ -44,7 +40,7 @@ export function buildPiTools(): Array<{
   name: string
   label: string
   description: string
-  parameters: TSchema
+  parameters: JsonSchema
   execute: (
     toolCallId: string,
     params: unknown,
@@ -56,7 +52,7 @@ export function buildPiTools(): Array<{
     name: string
     label: string
     description: string
-    parameters: TSchema
+    parameters: JsonSchema
     execute: (toolCallId: string, params: unknown, signal: AbortSignal | undefined, ctx: unknown) => Promise<PiToolResult>
   }> = AGENT_TOOL_DEFS.map(tool => ({
     name: tool.name,

@@ -24,6 +24,11 @@ function profile(): string {
   return process.env.DSH_PROFILE?.trim() || 'web'
 }
 
+/** Agent instance home for this DSH process (profile-scoped, CR-1). */
+export function agentHome(): string {
+  return path.join(dshHome(), 'profiles', profile())
+}
+
 export async function canonicalPath(p: string): Promise<string> {
   return await fs.realpath(p)
 }

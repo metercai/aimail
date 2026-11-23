@@ -5,8 +5,6 @@
  * can import this package directly without touching dsh adapter packages.
  */
 export * from './types.js'
-export { arg as cliArg, flag as cliFlag, emit as cliEmit } from './cli-arg.js'
-export { runOpEntry, type OpEntryHooks } from './cli-op-entry.js'
 export * from './typebox-params.js'
 export * from './contract.js'
 export * from './listen.js'
@@ -122,6 +120,7 @@ export {
   buildAgentSystemClient,
   freshDeliveryTarget,
   deliverySkipCheck,
+  countActiveAgentSystemBindings,
 } from './poll-entry.js'
 export type {
   AgentPullHandle,
@@ -229,11 +228,11 @@ export { listSkillNames, combineSkillNames } from './skill-roots.js'
 export { logAimailDispatch } from './log.js'
 
 /** Hot-add seam: fired after a binding is persisted (activation). */
-export { onBindingCreated, fireBindingCreated, type BindingCreatedHook } from './binding-hooks.js'
+export { onBindingCreated, fireBindingCreated, onBindingRemoved, fireBindingRemoved, type BindingCreatedHook, type BindingRemovedHook } from './binding-hooks.js'
 export { startAgentPullEntry, type StartAgentPullEntryOptions } from './poll-entry.js'
 
 export { packageResourcesRoot } from './resources-root.js'
 export { startSystemPull } from './system-pull.js'
 export type { SystemPullMail, SystemPullOptions, SystemPullHandle } from './system-pull.js'
 
-export { getAgentSystemId, deriveAgentSystemId, resetAgentSystemIdForTests } from './agent-system-id.js'
+export { getAgentSystemId, deriveAgentSystemId, setAgentHomeResolver, resetAgentSystemIdForTests } from './agent-system-id.js'

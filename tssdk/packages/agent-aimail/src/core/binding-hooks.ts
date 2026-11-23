@@ -33,3 +33,27 @@ export async function fireBindingCreated(cfg: AgentConfig): Promise<void> {
     }
   }
 }
+
+export type BindingRemovedHook = (cfg: AgentConfig) => void | Promise<void>
+
+const removedHooks: BindingRemovedHook[] = []
+
+/** Register a hook fired after a binding is archived (unbind). */
+export function onBindingRemoved(fn: BindingRemovedHook): () => void {
+  removedHooks.push(fn)
+  return () => {
+    const i = removedHooks.indexOf(fn)
+    if (i >= 0) removedHooks.splice(i, 1)
+  }
+}
+
+/** Fire the removal hooks. A throwing hook must never break the lifecycle. */
+export async function fireBindingRemoved(cfg: AgentConfig): Promise<void> {
+  for (const fn of [...removedHooks]) {
+    try {
+      await fn(cfg)
+    } catch (e: unknown) {
+      console.warn(`[aimail] binding-removed hook failed: ${String(e)}`)
+    }
+  }
+}

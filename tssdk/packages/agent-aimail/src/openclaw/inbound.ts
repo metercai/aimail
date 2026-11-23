@@ -29,6 +29,7 @@ import {
   resolveAgentPullSettings,
   startAgentSystemGroups,
   freshDeliveryTarget,
+  countActiveAgentSystemBindings,
   AGENT_SCOPE_SYSTEM_PREFIX,
   type AgentConfig,
   type AgentPullHandle,
@@ -198,13 +199,6 @@ export async function resolveInboundTarget(
       break
     }
   }
-  if (!cfg) {
-    // Fall back to the pointer email when no recipient matched (e.g. the
-    // bridge forwarded a bare address) — keep no_agent intercept semantics.
-    const ptr = await readPointer()
-    if (ptr.email) cfg = await resolveByRecipient(ptr.email)
-    if (cfg && !agentAddr) agentAddr = ptr.email ?? ''
-  }
   return cfg ? { cfg, agentAddr } : undefined
 }
 
@@ -235,7 +229,11 @@ export function resolveDispatchAgentId(cfg: AgentConfig, agentAddr: string): str
   const fromBinding = (cfg.agent_id ?? '').trim()
   // Same fact mail-core's pull gate uses (poll-entry.ts isAgentScopeBinding):
   // `shared_addr_*` ⇔ activation-code product ⇔ address-scope binding.
-  const addressScope = !!cfg.system_id && cfg.system_id.startsWith(AGENT_SCOPE_SYSTEM_PREFIX)
+  // V2 fact: `agent_system_id` marks an address-level (aggregation) binding.
+  // V1 kept the `shared_addr_*` prefix as the same signal; accept both so an
+  // upgrade does not change dispatch behavior.
+  const addressScope = Boolean(cfg.agent_system_id)
+    || (!!cfg.system_id && cfg.system_id.startsWith(AGENT_SCOPE_SYSTEM_PREFIX))
   if (!addressScope) return fromBinding
   const addr = String(agentAddr ?? '')
   const local = (addr.includes('@') ? addr.split('@')[0] ?? '' : addr).trim()
@@ -285,7 +283,14 @@ export async function deliverInbound(
   // log the inbound line goes to. Measured on the CLI gate's J4e: without this line a
   // refused/suppressed dispatch was invisible — the log showed only {"event":"inbound"}
   // and nothing told the operator that no agent ever took the mail.
-  await logAimailDispatch(cfg.email, out.status, out.detail, agentAddr)
+  await logAimailDispatch(cfg.email, out.status, out.detail, agentAddr, {
+    agentId,
+    sessionKey,
+    sessionKeyRequested: policy.allowSessionKey && prefixAllowed,
+    bindingAgentId: cfg.agent_id ?? '',
+    bindingSystemId: cfg.system_id,
+    agentSystemId: cfg.agent_system_id ?? '',
+  })
   return { status: out.status, detail: out.detail, ok: out.status === 'delivered' }
 }
 
@@ -350,7 +355,7 @@ async function deliverPulled(
  *   - else ⇒ no-pointer fallback: startAgentPullEntries (branch guard: V2
  *     aggregate groups / V1 per-binding, plan §6.5).
  */
-export async function startInboundPull(
+async function startInboundPullInner(
   api: OpenClawPluginApi,
   opts: {
     log?: (line: string) => void
@@ -375,7 +380,7 @@ export async function startInboundPull(
     return [{
       email: `system:${sid}`, started: true, reason: 'enabled', intervalMs: 0, limit: 0,
       stop: h.stop, done: h.done as Promise<import('../core/index.js').PollStats>,
-      stats: () => ({ pulled: 0, acked: 0, errors: 0 }),
+      stats: () => h.stats(),
     }]
   }
   // B2 (no system): one AgentSystemId aggregate stream (tier-2 / pointer).
@@ -473,7 +478,7 @@ export async function startInboundPull(
       email: `agent:${ptrCfg.email}`, started: true, reason: 'enabled',
       intervalMs: settings.intervalMs, limit: settings.limit,
       stop: h.stop, done: h.done as Promise<import('../core/index.js').PollStats>,
-      stats: () => ({ pulled: 0, acked: 0, errors: 0 }),
+      stats: () => h.stats(),
     }]
   }
   return await startAgentPullEntries({
@@ -483,6 +488,33 @@ export async function startInboundPull(
     ...(opts.overrides ? { overrides: opts.overrides } : {}),
     onEmail: (_cfg, mail) => deliverPulled(api, mail),
   })
+}
+
+/**
+ * Public pull entry: emit the standardized reconcile line L2 S2/S4 read.
+ * `bindings` counts this AgentSystemId's active V2 bindings (paused/keyless
+ * excluded), so a two-address host reports `from 2 binding(s)` while still
+ * running one aggregate stream.
+ */
+export async function startInboundPull(
+  api: OpenClawPluginApi,
+  opts: {
+    log?: (line: string) => void
+    env?: NodeJS.ProcessEnv
+    overrides?: AgentPullOverrides
+    systemId?: string
+    clientFor?: (rep: AgentConfig) => RequestClient
+  } = {},
+): Promise<AgentPullHandle[]> {
+  const handles = await startInboundPullInner(api, opts)
+  if (handles.length > 0) {
+    const asid = await getAgentSystemId()
+    const bindings = await countActiveAgentSystemBindings(asid)
+    opts.log?.(
+      `[aimail-pull] SSE reconcile: ${handles.length} gateway stream(s) from ${bindings} binding(s)`,
+    )
+  }
+  return handles
 }
 
 

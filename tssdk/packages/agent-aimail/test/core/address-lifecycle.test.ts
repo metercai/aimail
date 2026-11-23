@@ -443,6 +443,8 @@ describe('aimailAddress — unbind', () => {
     try {
       await aimailAddressTool({ action: 'bind', code: 'addr-ts', email: ADDR, gateway_url: gw.url })
       const target = path.join(home, 'new-workspace')
+      // §13.3: the target workspace must exist.
+      await fs.mkdir(target, { recursive: true })
       const r = await aimailAddressTool({ action: 'move', email: ADDR, workspace_path: target })
       expect(r.success).toBe(true)
       expect(r.action).toBe('move')

@@ -24,6 +24,8 @@ import * as path from 'node:path'
 
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
 import { notifyInboundForSystem, formatInboundNotifyLine, isInboundNotifyWarning, listenWithRetry, processInboundMail, releaseAllSystems, routeAddressFromHeaders, loadAgentConfig, startAgentPullEntries, startSystemPull, startAgentSystemGroups, resolveAgentPullSettings, freshDeliveryTarget, listAgentConfigs, listSystemDirs, onBindingCreated, setProfileDirResolver, setSoulProvider, setSkillsProvider, setToolsetProvider, listSkillNames, verifySignature, INBOUND_PATH, INBOUND_PORT, type AgentConfig, type AgentPullHandle, type AgentPullOverrides, type InboundPayload, packageResourcesRoot } from '../core/index.js'
+import { countActiveAgentSystemBindings } from '../core/index.js'
+import { setAgentHomeResolver } from '../core/index.js'
 import { resolveByRecipient } from '../mail/index.js'
 import { getAgentSystemId } from '../core/agent-system-id.js'
 import { readSystemGatewayConfig } from '../core/provision.js'
@@ -92,15 +94,6 @@ export async function resolvePiTarget(
       }
     } catch { /* try next candidate */ }
   }
-  if (!cfg) {
-    const ptr = readPointer()
-    if (ptr.email) {
-      try {
-        cfg = await resolveByRecipient(ptr.email)
-        if (cfg && !agentAddr) agentAddr = ptr.email
-      } catch { /* fallthrough */ }
-    }
-  }
   return cfg ? { cfg, agentAddr } : undefined
 }
 
@@ -142,7 +135,7 @@ export async function deliverPiInbound(
  * very same chain pushed mail takes. Never started for system/bridge bindings —
  * the decision lives in mail-core (`startAgentPullEntries`).
  */
-export async function startInboundPull(
+async function startInboundPullInner(
   pi: ExtensionAPI,
   opts: {
     log?: { info: (m: string) => void; warn: (m: string) => void; error: (m: string) => void }
@@ -175,7 +168,7 @@ export async function startInboundPull(
     })
     return [{
       email: `system:${sid}`, started: true, reason: 'enabled', intervalMs: 0, limit: 0,
-      stop: h.stop, done: h.done as Promise<import('../core/index.js').PollStats>, stats: () => ({ pulled: 0, acked: 0, errors: 0 }),
+      stop: h.stop, done: h.done as Promise<import('../core/index.js').PollStats>, stats: () => h.stats(),
     }]
   }
   // B2 (no system): one AgentSystemId aggregate stream (tier-2 / pointer).
@@ -273,7 +266,7 @@ export async function startInboundPull(
     return [{
       email: `agent:${ptrCfg.email}`, started: true, reason: 'enabled',
       intervalMs: settings.intervalMs, limit: settings.limit,
-      stop: h.stop, done: h.done as Promise<import('../core/index.js').PollStats>, stats: () => ({ pulled: 0, acked: 0, errors: 0 }),
+      stop: h.stop, done: h.done as Promise<import('../core/index.js').PollStats>, stats: () => h.stats(),
     }]
   }
   return await startAgentPullEntries({
@@ -286,6 +279,35 @@ export async function startInboundPull(
     ...(opts.overrides ? { overrides: opts.overrides } : {}),
     onEmail: (_cfg, mail) => deliverPiPulled(pi, mail),
   })
+}
+
+/**
+ * Public pull entry: start the loops, then emit the standardized reconcile
+ * line L2 S2/S4 read:
+ *   `SSE reconcile: <streams> gateway stream(s) from <bindings> binding(s)`
+ * `bindings` counts this AgentSystemId's active V2 bindings (paused/keyless
+ * excluded), so a two-address host reports `from 2 binding(s)` while still
+ * running one aggregate stream.
+ */
+export async function startInboundPull(
+  pi: ExtensionAPI,
+  opts: {
+    log?: { info: (m: string) => void; warn: (m: string) => void; error: (m: string) => void }
+    env?: NodeJS.ProcessEnv
+    overrides?: AgentPullOverrides
+    systemId?: string
+    clientFor?: (rep: AgentConfig) => import('../core/index.js').RequestClient
+  } = {},
+): Promise<AgentPullHandle[]> {
+  const handles = await startInboundPullInner(pi, opts)
+  if (handles.length > 0) {
+    const asid = await getAgentSystemId()
+    const bindings = await countActiveAgentSystemBindings(asid)
+    opts.log?.info(
+      `[aimail-pull] SSE reconcile: ${handles.length} gateway stream(s) from ${bindings} binding(s)`,
+    )
+  }
+  return handles
 }
 
 /**
@@ -325,6 +347,9 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
   activateHost('pi')
   initIdentity()
   setProfileDirResolver(() => path.join(os.homedir(), '.pi'))
+  // CR-1: the AgentSystemId is per agent instance, not the OS user. Pi's
+  // agent home is ~/.pi, so DSH/OpenClaw on the same machine do not share it.
+  setAgentHomeResolver(() => path.join(os.homedir(), '.pi'))
 
   // Per-agent SOUL.md: pi is a single-agent host (agent_id 'agent'), and
   // ~/.pi/agent/ IS the per-agent dir (extensions/ skills/ sessions/ all live
@@ -393,7 +418,10 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
       name: tool.name,
       label: tool.label,
       description: tool.description,
-      parameters: tool.parameters,
+      // REQ-11: parameters are plain JSON Schema; pi's ToolDefinition type
+      // constrains TSchema (TypeBox). The runtime consumes JSON Schema, so
+      // this boundary cast does not pull typebox into the package.
+      parameters: tool.parameters as never,
       async execute (toolCallId, params, signal, _onUpdate, ctx) {
         void toolCallId
         void signal
@@ -403,6 +431,7 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
     })
     registeredToolNames.push(tool.name)
   }
+  log.info(`[agent-aimail] mail tools: ${registeredToolNames.length}`)
   // TOOLSET_LIST: host actual state (same semantics as SOUL/SKILLS). Live
   // introspection via the host's own ExtensionAPI.getActiveTools() (the tool
   // set declared to the model), intersected with what THIS adapter

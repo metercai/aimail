@@ -127,3 +127,22 @@ export interface EnrichedPayload extends Record<string, unknown> {
   /** B2 thread_summary preload (existing threads only). */
   thread_summary?: string
 }
+
+/**
+ * Typed inbound delivery outcome (REQ-4).
+ *
+ * Only `accepted` (taken into a session) and `intercepted` (ping/pong or
+ * another handled frame that needs no session) may be acked. `deferred`
+ * (temporarily cannot deliver) and `rejected` (bad target/payload/session
+ * creation failure) stay pending for a later round.
+ */
+export type InboundResult =
+  | { status: 'accepted'; detail?: string }
+  | { status: 'intercepted'; detail?: string }
+  | { status: 'deferred'; detail?: string }
+  | { status: 'rejected'; detail?: string }
+
+/** Ack rule in one place: accepted/intercepted only. */
+export function isAckedInboundResult(result: InboundResult): boolean {
+  return result.status === 'accepted' || result.status === 'intercepted'
+}

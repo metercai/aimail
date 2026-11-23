@@ -120,8 +120,7 @@ export const MAIL_BOARD: readonly MailToolDef[] = ALL_DEFS.filter((t) =>
   HAS(MAIL_BOARD_NAMES, t.name),
 )
 
-/** Admin tools with a spec-backed definition (aimail_address). The DSH-only
- *  aimail_system is registered by its own tool entry. */
+/** Admin tools with a spec-backed definition (aimail_address only). */
 export const MAIL_ADMIN: readonly MailToolDef[] = ALL_DEFS.filter((t) =>
   HAS(MAIL_ADMIN_NAMES, t.name),
 )

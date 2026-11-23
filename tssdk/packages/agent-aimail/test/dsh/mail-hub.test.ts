@@ -78,7 +78,7 @@ describe('mail hub delivery', () => {
       references: [],
       headers: {},
     }, {}, 'u@a.com')
-    expect(ok).toBe(true)
+    expect(ok.status).toBe('accepted')
     expect(created).toHaveLength(1)
     expect(created[0]?.cwd).toBe(await fs.realpath(path.join(dsh, 'default-workspace')))
     expect(followups).toHaveLength(1)
@@ -105,12 +105,12 @@ test('a reply whose thread meta points at a live session is delivered to it', as
   const first = await hub.deliverOne(cfg, {
     message_id: 'm1', from: 's@example.com', to: ['u@a.com'], subject: 'Hi', body: 'one', references: [], headers: {},
   }, {}, 'u@a.com')
-  expect(first).toBe(true)
+  expect(first.status).toBe('accepted')
   liveId = created[0]!.sessionId
   const second = await hub.deliverOne(cfg, {
     message_id: 'm2', from: 's@example.com', to: ['u@a.com'], subject: 'Re: Hi', body: 'two', references: ['m1'], headers: { in_reply_to: 'm1' },
   }, {}, 'u@a.com')
-  expect(second).toBe(true)
+  expect(second.status).toBe('accepted')
   expect(created).toHaveLength(1)
   expect(followups).toHaveLength(2)
   const meta = await readLocalMeta('u@a.com', 'm2')

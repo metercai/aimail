@@ -78,8 +78,9 @@ export async function openSearchIndex(email: string): Promise<any | null> {
     const mod: any = await import('node:sqlite')
     const DatabaseSync = mod.DatabaseSync
     const p = searchIndexPath(email)
-    await fsp.mkdir(path.dirname(p), { recursive: true })
+    await fsp.mkdir(path.dirname(p), { recursive: true, mode: 0o700 })
     const db = new DatabaseSync(p)
+    try { await fsp.chmod(p, 0o600) } catch { /* best-effort */ }
     try {
       db.exec(
         'CREATE TABLE IF NOT EXISTS emails(' +

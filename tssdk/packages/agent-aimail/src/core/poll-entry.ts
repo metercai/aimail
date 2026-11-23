@@ -109,6 +109,34 @@ export function buildAgentSystemClient(
 }
 
 /**
+ * Count the ACTIVE V2 bindings this AgentSystemId owns (optionally on one
+ * gateway). Hosts use this for the standardized reconcile log line
+ * `SSE reconcile: <streams> gateway stream(s) from <bindings> binding(s)`
+ * (L2 S2/S4 read this line; REQ-6 diagnostics). Paused addresses and
+ * bindings without a key are not active; copied binding files are deduped by
+ * address.
+ */
+export async function countActiveAgentSystemBindings(
+  agentSystemId: string,
+  gatewayUrl?: string,
+): Promise<number> {
+  const asid = String(agentSystemId ?? '').trim()
+  if (!asid) return 0
+  const wantGateway = (gatewayUrl ?? '').replace(/\/+$/, '')
+  const seen = new Set<string>()
+  for (const sid of await listSystemDirs()) {
+    for (const c of await listAgentConfigs(sid)) {
+      if (!isV2AgentScopeBinding(c) || c.agent_system_id !== asid) continue
+      if (c.paused === true || !c.api_key) continue
+      if (wantGateway && (c.gateway_url ?? '').replace(/\/+$/, '') !== wantGateway) continue
+      const email = String(c.email ?? '').trim().toLowerCase()
+      if (email) seen.add(email)
+    }
+  }
+  return seen.size
+}
+
+/**
  * A' grouping (V2, plan §6.1/§6.2): the ONE production entry for
  * AgentSystemId aggregate pulls. Groups the given V2 agent-scope bindings
  * by (AgentSystemId, gateway_url) and starts ONE `startSystemPull` per group

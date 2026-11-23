@@ -11,6 +11,7 @@ import {
   startPolling,
   AUTH_FATAL_STREAK,
   type PullDeliveryResult,
+  type PollStats,
   type RequestClient,
 } from './address-code.js'
 import { PULL_HTTP_TIMEOUT_MS, type PullMode } from './pull-contract.js'
@@ -52,6 +53,8 @@ export interface SystemPullHandle {
   identity: string
   stop: () => void
   done: Promise<unknown>
+  /** Live pull/ack/error counters (C3: evidence must match delivery). */
+  stats: () => PollStats
 }
 
 export async function startSystemPull(opts: SystemPullOptions): Promise<SystemPullHandle> {
@@ -71,6 +74,7 @@ export async function startSystemPull(opts: SystemPullOptions): Promise<SystemPu
     if (signal.aborted) controller.abort()
     else signal.addEventListener('abort', onAbort, { once: true })
   }
+  const stats: PollStats = { pulled: 0, acked: 0, errors: 0 }
   const done = startPolling(
     client,
     async (mail) => {
@@ -84,6 +88,7 @@ export async function startSystemPull(opts: SystemPullOptions): Promise<SystemPu
       })
     },
     {
+      stats,
       signal: controller.signal,
       ...(opts.intervalMs !== undefined ? { intervalMs: opts.intervalMs } : {}),
       ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
@@ -109,5 +114,5 @@ export async function startSystemPull(opts: SystemPullOptions): Promise<SystemPu
       return e as unknown
     })
     .finally(() => signal?.removeEventListener('abort', onAbort))
-  return { identity: opts.systemId, stop: () => controller.abort(), done }
+  return { identity: opts.systemId, stop: () => controller.abort(), done, stats: () => ({ ...stats }) }
 }

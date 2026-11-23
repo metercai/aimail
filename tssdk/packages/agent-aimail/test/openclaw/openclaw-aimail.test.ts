@@ -37,9 +37,8 @@ describe('toTypeBoxParam', () => {
       required: true,
     })
     const raw = JSON.parse(JSON.stringify(schema))
-    // TypeBox Union serializes as anyOf (standard JSON Schema, validated by
-    // typebox Value.Check at tool-param time)
-    expect(raw.anyOf?.map((a: { const?: string }) => a.const)).toEqual([
+    // REQ-11: plain JSON Schema (no TypeBox): enum is an enum array.
+    expect(raw.enum).toEqual([
       'check',
       'add',
       'remove',

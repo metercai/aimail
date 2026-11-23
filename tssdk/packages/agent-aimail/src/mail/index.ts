@@ -36,7 +36,7 @@ function systemIdFrom(opts: ResolveOptions): string {
 }
 
 function unbound(what: string): Error {
-  return new Error(`no aimail binding for ${what} — run 'aimail reset' (registration chain) or the platform register-cli first`)
+  return new Error(`no aimail binding for ${what} — activate an address with aimail_address (host plugin path) first`)
 }
 
 /** Scan one system dir (or all systems) for every bound AgentConfig. */

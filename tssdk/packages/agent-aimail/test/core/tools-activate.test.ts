@@ -99,6 +99,9 @@ describe('activate_address_code tool — profile_home', () => {
 
       expect(r.success, JSON.stringify(r)).toBe(true)
       expect(r.system_id).toBe(SID)
+      // REQ-5: the key is persisted in the binding, never echoed to the model.
+      expect(r).not.toHaveProperty('raw_key')
+      expect(r).not.toHaveProperty('api_key')
       expect(r.pointer_written).toBe(true)
       expect(r.pointer_path).toBe(path.join(pf, POINTER_FILE))
 

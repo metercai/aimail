@@ -476,11 +476,10 @@ describe('§6.7 core — A\' grouping + typed skip + auth fatal', () => {
     await saveAgentConfig(v1('agent@e2e.local'), V1_SID) // active on disk
     const client = new FakePoll([
       batch(1, 'agent@e2e.local'), // round 1: active ⇒ delivered
-      batch(1, 'agent@e2e.local'), // round 2: now paused ⇒ skipped (re-pulled)
     ])
     const delivered: string[] = []
     const h = (await startAgentPullEntry(v1('agent@e2e.local'), {
-      env: {},
+      env: { AIMAIL_PULL_INTERVAL_MS: '50' },
       log: () => {},
       onEmail: (_c, mail) => {
         delivered.push(mail.email)
@@ -491,6 +490,10 @@ describe('§6.7 core — A\' grouping + typed skip + auth fatal', () => {
     // Now pause it mid-run; the NEXT delivery of the same id must be skipped.
     const loc = await findBindingByEmail('agent@e2e.local')
     await setBindingPaused(loc.activePath!, true, 'agent@e2e.local')
+    // Hand the SAME delivery id back only AFTER the pause is on disk — the old
+    // fixture queued both rounds up front, so a fast non-empty round could
+    // deliver round 2 before the pause and make this test timing-dependent.
+    client.queue.push(batch(1, 'agent@e2e.local'))
     await waitFor(() => client.listCalls >= 2, 6000, 'the re-pulled (paused) round')
     // Still exactly one delivery (the pre-pause one); the paused re-pull is skipped.
     expect(delivered).toEqual(['agent@e2e.local'])

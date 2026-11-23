@@ -62,13 +62,31 @@ export async function hardwareFingerprint(): Promise<string> {
 }
 
 let cached: string | undefined
+let agentHomeResolver: (() => string | undefined) | undefined
+
+/**
+ * Host seam: the AgentSystemId is derived from the AGENT home (e.g.
+ * ~/.dsh/profiles/web, ~/.pi, ~/.openclaw), not the OS user's home. Without
+ * this, DSH + Pi + OpenClaw (and multiple DSH profiles) on one machine share
+ * one identity and the Gateway aggregates their mailboxes together.
+ */
+export function setAgentHomeResolver(fn: (() => string | undefined) | undefined): void {
+  agentHomeResolver = fn
+  cached = undefined
+}
 
 /** Cached process-level AgentSystemId (derivation is deterministic anyway). */
 export async function getAgentSystemId(): Promise<string> {
   const override = process.env.AIMAIL_AGENT_SYSTEM_ID?.trim()
   if (override) return override
   if (cached) return cached
-  const agentHome = process.env.AIMAIL_AGENT_HOME?.trim() || os.homedir()
+  let resolved = ''
+  try {
+    resolved = String(agentHomeResolver?.() ?? '').trim()
+  } catch {
+    /* a broken resolver degrades to the OS home, never breaks the host */
+  }
+  const agentHome = process.env.AIMAIL_AGENT_HOME?.trim() || resolved || os.homedir()
   cached = deriveAgentSystemId({
     agentHome,
     hardwareFingerprint: await hardwareFingerprint(),
@@ -76,7 +94,7 @@ export async function getAgentSystemId(): Promise<string> {
   return cached
 }
 
-/** Test seam: clear the process cache after changing env. */
+/** Test seam: clear the process cache after changing env/resolver. */
 export function resetAgentSystemIdForTests(): void {
   cached = undefined
 }

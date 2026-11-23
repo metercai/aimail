@@ -18,7 +18,7 @@ import { promises as fs } from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { getAgentSystemId } from './agent-system-id.js'
-import { fireBindingCreated } from './binding-hooks.js'
+import { fireBindingCreated, fireBindingRemoved } from './binding-hooks.js'
 import {
   PULL_HOLD_MAX_MS,
   PULL_MODE_ENV,
@@ -128,6 +128,10 @@ const ACTIVATE_ERROR_MAP: Record<number, [string, string]> = {
   409: [
     'ADDRESS_ACTIVE',
     'this address is already active — the code cannot redeem it. Do not retry or try other paths; surface this to the user and stop',
+  ],
+  410: [
+    'CODE_GONE',
+    'the code is no longer redeemable (expired, used or frozen) — request a new code; do not retry',
   ],
 }
 // Any other non-2xx (5xx, or an unexpected status) ⇒ surface and stop.
@@ -400,7 +404,10 @@ export interface PollStats {
  * with every pre-existing onEmail).
  */
 export type PullDeliveryResult =
-  | { status: 'accepted' }
+  | { status: 'accepted'; detail?: string }
+  | { status: 'intercepted'; detail?: string }
+  | { status: 'deferred'; detail?: string }
+  | { status: 'rejected'; detail?: string }
   | { status: 'skip'; reason: 'paused' | 'unknown' }
 
 /**
@@ -444,6 +451,8 @@ export interface StartPollingOptions {
    * (visibility before the loop is torn down).
    */
   onAuthFailure?: (status: number, streak: number) => void
+  /** Live stats object the caller can read while the loop runs (C3). */
+  stats?: PollStats
 }
 
 /** Consecutive 401/403 failures before a pull loop goes fatal (PullAuthError). */
@@ -505,13 +514,20 @@ async function deliverBatches(
         // (un-acked ⇒ re-pull). Fire-and-forget would ack mail the agent
         // never took.
         const r = await onEmail({ id: d.id, email: d.email, headers: d.headers, body })
-        if (r && typeof r === 'object' && 'status' in r && r.status === 'skip') {
-          // Deliberate skip (paused/unknown): leave pending, no ack, no error.
-          // Remove from the dedup set so the id is re-pulled next round.
-          seen.delete(d.id)
+        if (r && typeof r === 'object' && 'status' in r) {
+          // Only accepted/intercepted may be acked. skip/deferred/rejected
+          // leave the delivery pending and remove it from the dedup set so a
+          // later round re-evaluates it (REQ-4).
+          if (r.status === 'accepted' || r.status === 'intercepted') {
+            delivered.push(d.id)
+            stats.pulled++
+          } else {
+            seen.delete(d.id)
+            if (r.status === 'rejected') stats.errors++
+          }
           continue
         }
-        // void/undefined or {status:'accepted'} → accepted.
+        // void/undefined → accepted (backward-compatible hosts).
         delivered.push(d.id)
         stats.pulled++
       } catch {
@@ -571,7 +587,7 @@ export async function startPolling(
   const intervalMs = opts.intervalMs ?? 30_000
   const limit = opts.limit ?? 20
   const mode: PullMode = opts.mode ?? parsePullMode(process.env[PULL_MODE_ENV])
-  const stats: PollStats = { pulled: 0, acked: 0, errors: 0 }
+  const stats: PollStats = opts.stats ?? { pulled: 0, acked: 0, errors: 0 }
   const seen = new Set<number>()
   const sleep = (ms: number) => pollSleep(ms, opts.signal)
   // Explicit transport state: true while in the long-poll fallback.
@@ -1146,8 +1162,11 @@ export async function aimailAddress(args: AimailAddressArgs): Promise<AimailAddr
               'consumed, the key is untouched',
       }
     }
-    // ── Mode (2): local restore from the archive (code optional, unused) ──
-    if (found.archivedPath) {
+    // ── Mode (2): local restore from the archive (NO code only) ──────
+    // A supplied code always wins: restore is the code-less convenience
+    // path; re-activation/migration after unbind must redeem the new code
+    // instead of silently reusing the archived key (contract §13.4).
+    if (!String(args.code ?? '').trim() && found.archivedPath) {
       // restoreBinding resolves via the ACTIVE filename; the archive is that
       // name + suffix, so derive it.
       const activePath = path.join(
@@ -1228,6 +1247,13 @@ export async function aimailAddress(args: AimailAddressArgs): Promise<AimailAddr
     if (!target) {
       return { success: false, action: 'move', reason: 'bad-args', error: 'workspace_path is required for move', email: addr }
     }
+    try {
+      if (!(await fs.stat(target)).isDirectory()) {
+        return { success: false, action: 'move', reason: 'workspace-invalid', error: `workspace is not a directory: ${target}`, email: addr }
+      }
+    } catch {
+      return { success: false, action: 'move', reason: 'workspace-invalid', error: `workspace does not exist: ${target}`, email: addr }
+    }
     const next = { ...active, workspace_id: target, workspace_path: target }
     await saveAgentConfig(next, active.system_id)
     return {
@@ -1278,6 +1304,9 @@ export async function aimailAddress(args: AimailAddressArgs): Promise<AimailAddr
       : { cleared: false, reason: 'no-profile' }
     r.pointer_cleared = Boolean(pc.cleared)
     r.pointer_path = pc.path ?? ''
+    // §13.2: removal must be visible to the running runtime so it stops the
+    // stream (or re-arms the remaining addresses) without a restart.
+    await fireBindingRemoved(active)
     r.note = 'binding archived locally (key bytes kept for a code-less re-bind); ' +
              'the cloud key is untouched — bind restores receiving'
   }

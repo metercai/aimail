@@ -97,9 +97,10 @@ export async function saveLocalMeta(
   }
   try {
     const p = localMetaPath(email, mid)
-    await fs.mkdir(path.dirname(p), { recursive: true })
+    await fs.mkdir(path.dirname(p), { recursive: true, mode: 0o700 })
     const tmp = `${p}.tmp`
-    await fs.writeFile(tmp, JSON.stringify(payload, null, 2), 'utf-8')
+    await fs.writeFile(tmp, JSON.stringify(payload, null, 2), { encoding: 'utf-8', mode: 0o600 })
+    await fs.chmod(tmp, 0o600)
     await fs.rename(tmp, p)
   } catch (e) {
     console.warn(`Failed to save local meta for ${mid}: ${e instanceof Error ? e.message : String(e)}`)
@@ -192,12 +193,13 @@ export async function saveOutboundSnapshot(
   if (resolvedPaths.length) {
     const attchDir = path.join(snapshotDir, 'attch', safeMid)
     try {
-      await fs.mkdir(attchDir, { recursive: true })
+      await fs.mkdir(attchDir, { recursive: true, mode: 0o700 })
       for (const src of resolvedPaths) {
         try {
           const name = path.basename(src)
           const dest = path.join(attchDir, name)
           await fs.copyFile(src, dest)
+          await fs.chmod(dest, 0o600)
           localAtts.push(dest)
         } catch {
           /* skip unreadable */
@@ -225,9 +227,10 @@ export async function saveOutboundSnapshot(
   }
   if (attMd.length) payload.attachments_md = attMd
   try {
-    await fs.mkdir(snapshotDir, { recursive: true })
+    await fs.mkdir(snapshotDir, { recursive: true, mode: 0o700 })
     const tmp = `${snapshotPath}.tmp`
-    await fs.writeFile(tmp, JSON.stringify(payload, null, 2), 'utf-8')
+    await fs.writeFile(tmp, JSON.stringify(payload, null, 2), { encoding: 'utf-8', mode: 0o600 })
+    await fs.chmod(tmp, 0o600)
     await fs.rename(tmp, snapshotPath)
     // Incremental FTS5 index AFTER the snapshot file is on disk.
     const toList = to.split(',').map(t => t.trim()).filter(Boolean).concat(ccList)
@@ -270,9 +273,10 @@ export async function saveInboundSnapshot(
   const snapshotDir = path.join(agentMailDir(email), yyyymm)
   const snapshotPath = path.join(snapshotDir, `in-${safeMid}.json`)
   try {
-    await fs.mkdir(snapshotDir, { recursive: true })
+    await fs.mkdir(snapshotDir, { recursive: true, mode: 0o700 })
     const tmp = `${snapshotPath}.tmp`
-    await fs.writeFile(tmp, JSON.stringify(payload, null, 2), 'utf-8')
+    await fs.writeFile(tmp, JSON.stringify(payload, null, 2), { encoding: 'utf-8', mode: 0o600 })
+    await fs.chmod(tmp, 0o600)
     await fs.rename(tmp, snapshotPath)
     // Incremental FTS5 index AFTER the snapshot file is on disk.
     await indexSnapshotRecord(email, {

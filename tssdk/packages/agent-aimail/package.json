@@ -55,10 +55,6 @@
       "types": "./dist/dsh/inbound.d.ts",
       "default": "./dist/dsh/inbound.js"
     },
-    "./system": {
-      "types": "./dist/dsh/system.d.ts",
-      "default": "./dist/dsh/system.js"
-    },
     "./mail-hub": {
       "types": "./dist/dsh/mail-hub.d.ts",
       "default": "./dist/dsh/mail-hub.js"
@@ -76,9 +72,7 @@
     "resources/**",
     "README.md"
   ],
-  "dependencies": {
-    "typebox": "^1.3.6"
-  },
+  "dependencies": {},
   "peerDependencies": {
     "openclaw": "*",
     "@deepseek-ai/cordis": "^4.0.1",

@@ -26,7 +26,7 @@
     - id: mail
       name: 'agent-aimail/mail-service'
 
-    # AIMail tools (15 mail tools + dsh-only aimail_system onboarding)
+    # AIMail tools (15 mail/board/address tools; no system-onboarding tool)
     - id: tool-mail
       name: 'agent-aimail/tools'
 

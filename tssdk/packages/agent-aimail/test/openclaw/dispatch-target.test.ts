@@ -130,6 +130,20 @@ describe('resolveDispatchAgentId — address-level bindings do not pass address 
     expect(resolveDispatchAgentId(SYSTEM_SCOPE, SYSTEM_SCOPE.email as string)).toBe('support')
   })
 
+  it('③b V2 binding (agent_system_id, plain GatewaySystemId) is also address-scope', () => {
+    const V2_SCOPE: AgentConfig = {
+      system_id: 'system-d0a7',
+      agent_system_id: 'asid_abcdef0123456789abcdef0123456789',
+      email: ADDR,
+      agent_id: 'agenta',
+      api_key: 'k',
+      gateway_url: 'http://127.0.0.1:1',
+    } as AgentConfig
+    expect(resolveDispatchAgentId(V2_SCOPE, ADDR)).toBe('main')
+    writeHostConfig(['agenta', 'main'])
+    expect(resolveDispatchAgentId(V2_SCOPE, ADDR)).toBe('agenta')
+  })
+
   it('④ Host config missing ⇒ empty string (do not guess), and never passes address local part', () => {
     writeHostConfig(null)
     const id = resolveDispatchAgentId(ADDRESS_SCOPE, ADDR)

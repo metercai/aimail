@@ -15,6 +15,7 @@ import {
   releaseAllSystems,
   onBindingCreated,
   setProfileDirResolver,
+  setAgentHomeResolver,
   setAgentIdentity,
   setSoulProvider,
   setSkillsProvider,
@@ -55,6 +56,8 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
     // loader; verify the environment matches before activating.
     activateHost('openclaw')
     setProfileDirResolver(() => path.join(os.homedir(), '.openclaw'))
+    // CR-1: AgentSystemId is per agent instance, not the OS user.
+    setAgentHomeResolver(() => path.join(os.homedir(), '.openclaw'))
 
     // Outbound X-AIMail-Agent header (real detected host version, no guess)
     setAgentIdentity(agentIdentity())
