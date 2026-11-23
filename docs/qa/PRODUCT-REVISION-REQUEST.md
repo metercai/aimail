@@ -1,77 +1,149 @@
-# 产品代码修订建议书（V2 · 由验证方出，开发执行）
+# 产品修订建议书（tssdk + gateway）
 
-- 日期：2026-11-23
-- 来源：L2/L3 重构期间的独立质检（真实宿主 + 已发布 gateway v1.0.11 + 小米 LLM）
-- 边界：验证方只出建议，不改 `src/`；修完按每条"判据"复验。
+- 日期：2026-11-23（合并 `docs/tssdk-v2-revision-plan.md` 逐条复核后重写）
+- 范围：**仅 `tssdk/packages/agent-aimail`（dsh / pi / openclaw 三宿主）与 `aimail-gateway`**
+- 明确不含：pysdk 的 SSE-V2 改造（hermes / deerflow 在 L2/L3 中计为 `SKIP_LEGACY`，不参与判定）
+- 最终目标：**tssdk 三宿主全部通过新 L2（`tests/host-acceptance/v2/`）与 L3（`tests/l3/run-v2.sh`，dsh×4）**
+- 执行纪律：验证方不改 `src/`；每项修完按"判据"在框架内自测，再交回复验
 
 ---
 
-## REQ-1（P1，阻断）SMTP 入站被转发到出站 relay，未入库
+## 0. 复核结论（原 `tssdk-v2-revision-plan.md`）
 
-**现象**
-外部发件人 → 本地 pull 地址，网关 SMTP 返回 250，但 `emails` / `pending_deliveries` 均 0 行；
-同一封信出现在 `[relay] smtp_server` 的 spool。
+| 原条目 | 现状（0.5.1 实测/读码） | 处置 |
+|---|---|---|
+| 3.1 `isAgentScopeBinding` V1 前缀 | **已修**：现同时接受 V1/V2；dsh 实测 `SSE reconcile: 1 gateway stream(s)` | 关闭 |
+| 3.2 pull client 缺 aggregate path/header | **已修**：新增 `buildAgentSystemClient` + `startAgentPullWithClient` | 关闭 |
+| 3.3 OpenClaw 读到邮件未进 session | 未验证（旧夹具证据，需在 ING-1 修复后复测） | **并入 REQ-3** |
+| 3.4 DSH 预处理早于 workspace preflight | **仍有效**：`dsh/mail-hub.ts:322 processInboundMail` 先于 `:324 workspaceFor` | **并入 REQ-2** |
+| 3.5 ack 语义未类型化 | **仍有效**：仍以 boolean 表达投递结果 | **并入 REQ-4** |
+| 3.6 DSH 会话工具面 | **撤回为缺陷**（真因是我方夹具：装解包目录 + 未设审批模式）；保留"可诊断性"诉求 | **并入 REQ-6（P2）** |
+| 3.7 `agent-level` onEmail 逃生口 | **仍有效**：`core/agent-level.ts` 仍接受 `onEmail` 绕过预处理 | **并入 REQ-7** |
+| 3.8 OpenClaw stats 恒 0 | **仍有效**：`openclaw/inbound.ts` `stats: () => ({pulled:0,acked:0,errors:0})` | **并入 REQ-8** |
+| 3.9 多地址路由边界 | **部分有效**：已有 `resolveByRecipient`（exact → persona 兜底），仍需"不得静默取首 binding" | **并入 REQ-9** |
+| F1 bind 返回 `raw_key` | **仍有效** | **并入 REQ-5** |
 
-**分层排查（按规范顺序，逐层实证）**
-1. 发件人非内部 host 地址（内部地址会被 `550 Internal sender address rejected on inbound path`，未出现）
-2. 白名单已建（`whitelists`：manager 自动一条 + 外部发件人一条）
-3. `emails` = 0 ⇒ 入站流程未完成
-4. `pending_deliveries` = 0 ⇒ 未到 pull/webhook 层
+---
 
-**环境（确认正确）**：`system_domains` 含域与地址两行；`domain_addr_meta` 有 manager；
-`agent_system_addresses` 有归属；`[smtp] hostname` = 测试域；域 id = 域名；注入到网关 SMTP 口。
+## REQ-1（P1，gateway 阻断）SMTP 入站被转发到出站 relay，未入库
+
+**现象**：外部发件人 → 本地 pull 地址，SMTP 返回 250，但 `emails` 0 行、`pending_deliveries` 0 行；
+同一封信出现在 `[relay] smtp_server` spool。
+
+**按规范四层排查（逐层实证）**：① 发件人非内部 host 地址（内部会被 `550 Internal sender …` 拒，未出现）；
+② 白名单两条在库（manager 自动 + 外部发件人）；③ `emails` 0 ⇒ 入站未完成；④ `pending_deliveries` 0。
+环境侧已确认正确：`system_domains` 含域与地址、`domain_addr_meta` 有 manager、`agent_system_addresses` 有归属、
+`[smtp] hostname`=测试域、域 id=域名、注入到网关 SMTP 监听口。
 
 **判定**：系统设计不存在"SMTP 入站 → SMTP 出站"路径，属缺陷（Owner 判定）。
 
-**建议修法**
-- 入站（RCPT 命中 `system_domains`/`domain_addr_meta` 的本地地址）只走 `create_inbound` + 本地队列；
-  `relay.smtp_server` 仅用于**出站**（含 DSN/回复），不得承接入站原始邮件。
-- 若现有代码在"无 webhook 的地址"分支误落到 relay，请把该分支改为写 `pending_deliveries`。
+**修法**：入站（RCPT 命中本地地址）只走 `create_inbound` + 本地队列；`relay.smtp_server` 仅用于出站（含 DSN/回复）。
 
-**判据**
-1. 入站后 `emails` 出现 1 行（含 `direction=inbound`），`pending_deliveries` 出现 1 行
-2. 宿主流取走后该行消失，且 ack 时间 > turn 完成时间
-3. sink spool **不得**出现该入站原始邮件
+**判据（L2 S3 / L3 welcome）**：入站后 `emails` 出现 1 行、`pending_deliveries` 出现 1 行 → 宿主流取走 → 行消失且 ack 晚于 turn；
+**sink spool 不得出现该入站原信**。
 
 ---
 
-## REQ-2（P2，安全）`aimail_address` 工具结果回传 `raw_key`
+## REQ-2（P1，tssdk·dsh）预处理早于 workspace preflight
 
-**现象**：bind 成功的工具结果包含地址凭据 `raw_key`（实测输出可见）。
-**影响**：凭据进入模型上下文/宿主日志，违反"密钥不入对话/日志"的卫生要求。
-**建议**：工具结果只回 `{success, action, email, system_id, agent_system_id, workspace_path}`；
-密钥仅落 binding 文件（0600），需要时由宿主内部读取。
-**判据**：同一 bind 流程的工具结果与宿主日志中均无 `raw_key`/`api_key` 明文；binding 仍为 0600 且可用。
+**位置**：`src/dsh/mail-hub.ts:319-331`（`deliver()`）
+
+```text
+processInboundMail(payload,…)   // :322 附件下载 / meta / snapshot / FTS 等副作用
+workspaceFor(cfg)               // :324 目标可能不存在
+routeThread(...)                // :331
+```
+
+**影响**：workspace 不存在时已经产生副作用，再返回 false 不 ack —— 数据脏、重投不可幂等。
+**修法**：`binding → workspaceFor → preflight(session/workspace) → processInboundMail → session`；只有目标确定存在后才做重型预处理。
+**判据（L2 S3）**：workspace 缺失场景下 `emails`/附件/索引均无新增，且不 ack；正常场景 S3 绿。
 
 ---
 
-## REQ-3（P3，测试稳定性）`listen.test.ts` 端口断言偶发
+## REQ-3（P1，tssdk·openclaw）读到邮件但未交付 session（需先加证据再修）
 
-**现象**：偶发 `expected [p, p+2]`（端口被宿主进程占用）。
-**建议**：断言放宽到契约允许的端口集合，或改为"端口来自配置/环境"的语义断言。
+**现状**：STREAM 200、`GET /contacts` 已读，但无 turn、无 ack、pending 仍在（旧夹具证据）。
+**修法**：
+1. `deliverInbound` 的每个失败分支记录 `status / detail / agentId / sessionKey / binding address`；
+2. `logAimailDispatch` 覆盖 pull 路径；
+3. `resolveDispatchAgentId` 去掉 V1 prefix 依赖，改判 `Boolean(cfg.agent_system_id)`；
+4. 单测：`ok=false` 绝不 ack。
+**判据（L2 S3 on openclaw）**：入站 → turn（含唯一串）→ ack；失败时必须有一条可定位的日志。
+
+---
+
+## REQ-4（P1，tssdk·三宿主）入站结果类型化 + ack 规则
+
+**现状**：boolean 表达投递结果，`delivered`/`intercepted`/`failed`/`no-binding` 不可区分。
+**修法**：
+
+```ts
+type InboundResult =
+  | { status: 'accepted' }
+  | { status: 'intercepted' }
+  | { status: 'deferred' }
+  | { status: 'rejected'; detail?: string }
+```
+ack：`accepted/intercepted/deferred → ack`；`rejected → 不 ack`。
+**判据（L2 S3）**：`rejected` 场景 pending 保留；其余三态 ack；三种情况各有断言。
+
+---
+
+## REQ-5（P2，tssdk）`aimail_address` 工具结果回传 `raw_key`
+
+**修法**：工具结果只回 `{success, action, email, system_id, agent_system_id, workspace_path}`；密钥仅落 binding（0600）。
+**判据**：bind 结果与宿主日志无 `raw_key`/`api_key` 明文；binding 仍 0600 可用（L2 S1 保持绿）。
+
+---
+
+## REQ-6（P2，tssdk·dsh）会话工具面可诊断（不是缺陷，是可见性）
+
+**诉求**：宿主 adapter 启动/建会话时打印"该 session 是否拿到 mail toolset（15 件）"，
+并把 `session tools 列表` 落到日志；不要把"会话创建成功"当成"工具可用"。
+**原因**：本次 S4/S5（第二地址绑定、pause/unbind）连续两轮无 tool 帧，无法从日志区分"工具面没注入"与"模型没调用"。
+**判据**：日志中能直接看到 `mail tools: 15` 或 `mail tools: 0`；据此判定 S4/S5 归属。
+
+---
+
+## REQ-7（P2，tssdk）`agent-level` 的 `onEmail` 逃生口
+
+**修法**：标注为 raw escape hatch（生产禁用）；或改名 `onRawDelivery` 且必须显式 opt-in。
+**判据**：默认路径不再能绕过 `processInboundMail`。
+
+---
+
+## REQ-8（P2，tssdk·openclaw）aggregate handle 的 stats 恒 0
+
+**修法**：透传 `system-pull` 实际统计（至少 round / delivery / ack 计数）。
+**判据**：L2/L3 证据里的 stats 与实际投递数一致。
+
+---
+
+## REQ-9（P2，tssdk·pi/openclaw）多地址路由边界
+
+**现状**：已有 `resolveByRecipient`（exact → persona 兜底），但仍存在"未命中回退 pointer 地址"的路径。
+**修法**：pi 只允许单个地址；openclaw 多地址必须按 recipient 命中，未命中显式报错，**不得静默取第一个 binding**；日志记录 recipient/binding/agentId。
+**判据（L2 S4）**：两地址各自只收到自己的邮件；未命中场景有明确错误码。
+
+---
+
+## REQ-10（P3，tssdk 测试）`listen.test.ts` 端口断言偶发
+
+**修法**：断言放宽到契约允许的端口集合，或改为"端口来自配置"的语义断言。
 **判据**：连续 20 次单测无红。
 
 ---
 
-## REQ-4（信息项，pysdk 范围）hermes 的 legacy HMAC 被 gateway 拒
+## 附：框架内自测方式（开发交付前请自跑）
 
-**现象**：L3 hermes cell `Route 'aimail-inbound' sent legacy body-only HMAC … require X-Webhook-Signature-V2` → 404。
-**性质**：pysdk 0.2.9 未迁移 SSE-V2（L3 中已标 `SKIP_LEGACY`，不计入 V2 判定）。
-**建议**：随 pysdk 迁移一并处理；迁移前不要以 hermes 的成败判定本次交付。
+```bash
+# L2（dev 构建，三宿主，本机平台）
+export LLM_API_KEY=…
+bash tests/host-acceptance/v2/run-matrix.sh --host all --stages "s1 s2 s3 s4 s5 neg"
 
----
+# L3（已发布件；本机单格）
+bash tests/l3/run-v2.sh --cell linux-amd64/dsh
+```
 
-## REQ-5（信息项）contract 文档与矩阵口径
-
-**建议**：在 `docs/aimail-host-sse-contract-v2.md` 或验收文档中写明：
-L2 覆盖 dsh/pi/openclaw（本机平台、dev 构建）；L3 只覆盖 dsh（跨平台、已发布件）；hermes/deerflow 属 pysdk legacy，不进 V2 判定。
-**理由**：避免后续把 L3 的 hermes 红cell 当成本次交付缺陷。
-
----
-
-## 附：本轮已由验证方修复的夹具侧问题（无需开发处理）
-
-1. 插件必须用 **tarball** 安装（装解包目录会缺 `typebox`，插件不加载）
-2. dsh 必须 `DSH_PERMISSION_MODE=danger-full-access`，否则工具调用挂在审批
-3. 断言去宿主化：dsh 不持久化 `agent_system_id`；拉起日志为 `SSE reconcile: N gateway stream(s)`
-4. L2 gateway fixture 与 L3 cell 对齐（hostname=测试域、域 id=域名、注入走网关 SMTP 口、钉版+sha256）
+结果口径：`PASS / RED（产品缺陷）/ GAP（夹具缺陷）/ SKIP_LEGACY（pysdk，不计判定）`；
+退出码在 `RED>0 或 GAP>0` 时非 0。**不接受 skip 冒充绿**。
