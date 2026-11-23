@@ -654,7 +654,10 @@ ok "persona-applied notice delivered (pending row $APPLIED_ROW; llmMs: ${PRE_REP
 
 # ═══ [7] query-mail signature assertion (whoami readback) ═════════════════════
 say "[7/7] query-mail signature assertion (whoami readback)"
-python3 - "$GW_URL" "$BINDING" "$APPLICANT" <<'PY' || die "signature assertion failed"
+# PYTHONIOENCODING: the final line prints a check mark; windows runners default stdout to
+# cp1252 and the UnicodeEncodeError turned a PASSING assertion into "signature assertion
+# failed" (run 45164123142: persona + signature were both read back before the crash).
+PYTHONIOENCODING=utf-8 python3 - "$GW_URL" "$BINDING" "$APPLICANT" <<'PY' || die "signature assertion failed"
 import sys, json, time, urllib.request, urllib.error, hashlib, hmac
 gw_url, binding_file, manager_addr = sys.argv[1], sys.argv[2], sys.argv[3]
 b = json.load(open(binding_file, encoding="utf-8"))
