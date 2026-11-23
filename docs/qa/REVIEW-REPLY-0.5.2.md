@@ -107,6 +107,15 @@ tssdk         0.5.2 不变
 | pins | v1.0.14 |
 | tssdk | 0.5.2（未变） |
 
+base 四资产（下载后自算，与 GitHub API `digest` 逐项一致）：
+
+| 资产 | sha256 |
+|---|---|
+| linux-amd64 | `7702ca1ea1206da544c189e93e01777f9780ce726b17af316c28173aa9668ea2` |
+| linux-arm64 | `68aa3593c1ad79a630609c04f3f06225a7225fa391ce880f158c8a3f5795a08e` |
+| macos-arm64 | `3f65543753ffae77ea08f8dc74a07e46289635f2b0bbde71374b3de01c93f790` |
+| windows-amd64.exe | `ef9336a42f228017ba8f37f08a4709e037ebf29ea659b1cd5dd53fab4454fe68` |
+
 ---
 
 ## 1. 静态/单测：全部与交接文档一致（我重跑，不看结论）
