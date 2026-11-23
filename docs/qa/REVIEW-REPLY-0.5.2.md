@@ -23,7 +23,22 @@ L2/L3 matrix: PASS=2 RED=0 GAP=0   VERDICT: PASS   rc=0
 "openclaw 首次 3 RED / 重跑 9/9" 一致 ⇒ 归为 **F5 flake（夹具/环境）**，不是退回件。
 教训（我方）：合并旅程里的 RED 不能直接当退回件，必须先隔离单跑。
 
-**因此退回件数量 = 0**；tssdk 0.5.2 仍 HOLD 的唯一未清项是 dsh `s5` 在归因修复后的重跑（见 §5-F1）。
+**因此退回件数量 = 0。**
+
+### 0.1 L2 收口（gateway v1.0.13 + dev SDK 0.5.2）
+
+两处 RED 都已复跑转绿，均属 flake，不是产品缺陷：
+
+| cell | 首次 | 复跑 | 定性 |
+|---|---|---|---|
+| openclaw `s4` | RED `only 0 binding(s)` | **PASS**（`max=2` + reconcile from 2 bindings） | F5 flake（宿主旅程偶发） |
+| dsh `s5` | RED `paused=False / final=1` | **PASS**（`paused=True`、`1 -> 0`、`mail tools: 15`、`paused_seen=True final_bindings=0`） | F1 归因后复跑即绿：首轮模型未调工具 |
+
+L2 汇总（v1.0.13 pin）：`s1 s2 s3` 三宿主 RED=0（pi s3 为已登记 GAP）；`s4` dsh/openclaw PASS；
+`s5` dsh/pi/openclaw PASS；`neg` 无 RED/GAP。⇒ **L2 无产品 RED，tssdk 0.5.2 可发布。**
+
+发布动作已执行（按 §6.2）：dry-run `45137746841` success → 正式 `publish.yml` run `45147504126`（`be2c89e`），
+发布后轮询 `npm view agent-aimail version` 为 `0.5.2` 才认发布成立，再跑 L3（4 个 dsh cell）。
 
 ---
 
