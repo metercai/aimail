@@ -71,6 +71,13 @@ of L3 is context, not evidence.
 
 A run with `SKIP_LEGACY` is green **for its scope**, not a green run.
 
+### 5.1 A filtered cell's `success` means "not run"
+
+With `workflow_dispatch -f cell=<platform>/<agent>`, the other cells keep a runner slot but
+every step is skipped, so the job reports `success`. Their log says
+`::notice::skipped by dispatch filter`. Count only the dispatched cell; never read a
+one-cell dispatch as "4/4 green".
+
 ## 6. Evidence per cell
 
 - `l3-<platform>-<agent>-logs` artifact: full stdout, gateway log, dsh host log, session
@@ -87,6 +94,8 @@ A run with `SKIP_LEGACY` is green **for its scope**, not a green run.
 | every cell died at ① with `AGENT: unbound variable`, rc=127 | the host-version pin check sat **before** `AGENT=` was assigned, under `set -u`; it also read `dsh --version` before ① installed dsh | pin check moved after ①; assigning `AGENT` precedes any use |
 | 9 cells advertised, 5 of them re-running a retired CLI path | matrix was never reduced when the install path was retired | matrix is 4 dsh cells; `run-l3.sh` refuses other agents |
 | two "install semantics" (CLI vs plugin) in one gate | the CLI tail (④ install → ④b webhook host → ⑤ `aimail welcome` → ⑥ CLI signature probe) outlived the CLI | CLI tail deleted; `run-l3.sh` fails loudly if the journey ever falls through |
+| every cell died at ② with `LOGDIR: unbound variable` | the per-cell gateway-pin evidence redirected to `$LOGDIR`, never assigned; `set -u` makes that fatal right after the gateway sha256 check | writes to `$LOG_ARCHIVE`; observed in run 45109593307 / job 137478660334 |
+| `pins.env: line 27: GATEWAY_SHA256_linux-amd64=…: command not found` (×4) in every run | the file is *sourced*; `-` in a key is not a valid assignment, so bash executed the line — rc=127 aborts `host-images.yml` under `set -e`, and only polluted L3 | keys renamed to `GATEWAY_SHA256_linux_amd64` / `_linux_arm64` / `_macos_arm64` / `_windows_amd64`; the two grep consumers translate with `${plat//-/_}` |
 
 Known accepted flake: a single Windows cell red with `No reply within …s` plus gateway
 `partial MX delivery failure` — record it, rerun once, escalate on a repeat.
