@@ -676,7 +676,12 @@ WELCOME_ROW=""
 wait_welcome() { # $1=iterations — returns 0 when a welcome row exists
   local _
   for _ in $(seq 1 "$1"); do
-    WELCOME_ROW="$(dbq "SELECT id FROM pending_deliveries WHERE email='$ADDR' AND payload LIKE '%Welcome to the AIMail world%' LIMIT 1" || true)"
+    # The welcome may already be delivered+acked by the time we look: the pending row is deleted
+    # on ack, so a pending-only query reports "no welcome" while the agent correctly calibrated
+    # (measured 2026-11-24, pi: the ledger had 'Welcome to AIMail World, l3agent, since …',
+    # status=delivered, and pending_deliveries was empty). Check the delivered ledger first.
+    WELCOME_ROW="$(dbq "SELECT id FROM emails WHERE lower(subject) LIKE '%welcome to aimail%' AND recipients LIKE '%$ADDR%' LIMIT 1" || true)"
+    [ -n "$WELCOME_ROW" ] || WELCOME_ROW="$(dbq "SELECT id FROM pending_deliveries WHERE email='$ADDR' AND payload LIKE '%Welcome to the AIMail world%' LIMIT 1" || true)"
     [ -n "$WELCOME_ROW" ] && return 0
     kill -0 "$HOST_PID" 2>/dev/null || return 1
     sleep 2
