@@ -255,9 +255,14 @@ AIMAIL_REPO="${AIMAIL_REPO:?AIMAIL_REPO not set}"
 #   dsh-aimail  the CLI entry no longer exists (`aimail install` retired)
 #   hermes      pysdk has not migrated to SSE-V2 ⇒ SKIP_LEGACY, never counted green
 #   pi/openclaw L2 scope (local platform), not an L3 cell
+# Matrix scope: dsh is shipped; pi/openclaw are being added (tests/l3/GATE.md §8) and are
+# accepted here only when their journey exists — an unimplemented host must fail loudly, not
+# run a dsh journey under another name.
 case "$AGENT" in
-  dsh) : ;;
-  *)   die "L3 matrix is dsh-only on the tssdk path; agent '$AGENT' is retired or out of scope (see tests/l3/GATE.md)" ;;
+  dsh|dsh-plugin) : ;;
+  pi|openclaw)    [ -f "$(dirname "${BASH_SOURCE[0]}")/journey-$AGENT.sh" ] \
+                    || die "agent '$AGENT' has no L3 journey yet (tests/l3/journey-$AGENT.sh) — see GATE.md §8; not running a substitute journey" ;;
+  *)              die "agent '$AGENT' is retired or out of scope for L3 (see tests/l3/GATE.md)" ;;
 esac
 # Host-version pin check lives AFTER ① (see below): it is only meaningful once ① has
 # installed the pinned host. Placing it here read $AGENT before assignment and killed
@@ -314,10 +319,24 @@ case "$AGENT" in
     VERIFY_EXTRA=()
     ok "dsh env ready (official npm + pnpm + profile warmed + LLM configured; single source)"
     ;;
+  pi)
+    PI_HOME="${HOME}/.pi"; AGENT_HOME="$PI_HOME"
+    bash "$AGENT_ENV/prepare.sh" pi --home "$PI_HOME" \
+      --llm-url "$LLM_BASE_URL" --llm-model "$LLM_MODEL" --llm-key "$LLM_API_KEY" \
+      || die "pi env prepare failed (single source: tests/agent-env)"
+    VERIFY_HOME="$PI_HOME"; VERIFY_EXTRA=()
+    ok "pi env ready (npm-installed host + models.json; single source)"
+    ;;
+  openclaw)
+    OPENCLAW_HOME="${HOME}/.openclaw"; AGENT_HOME="$OPENCLAW_HOME"
+    bash "$AGENT_ENV/prepare.sh" openclaw --home "$OPENCLAW_HOME" \
+      --llm-url "$LLM_BASE_URL" --llm-model "$LLM_MODEL" --llm-key "$LLM_API_KEY" \
+      || die "openclaw env prepare failed (single source: tests/agent-env)"
+    VERIFY_HOME="$OPENCLAW_HOME"; VERIFY_EXTRA=()
+    ok "openclaw env ready (npm-installed host; single source)"
+    ;;
   *)
-    # hermes / pi / anything else: unreachable — the matrix-scope guard above already
-    # refused them. Keep the branch so a future edit cannot silently fall through.
-    die "no environment-prepare branch for agent '$AGENT' (L3 matrix is dsh-only)"
+    die "no environment-prepare branch for agent '$AGENT'"
     ;;
 esac
 

@@ -99,3 +99,28 @@ one-cell dispatch as "4/4 green".
 
 Known accepted flake: a single Windows cell red with `No reply within …s` plus gateway
 `partial MX delivery failure` — record it, rerun once, escalate on a repeat.
+
+## 8. Matrix expansion: pi / openclaw (in progress, not yet cells)
+
+L3 currently ships 4 dsh cells because `dsh-v2.sh` is a **dsh-web-API** journey. Adding a host
+is not a matrix edit: it needs a journey that can prove the same closed loop on that host.
+
+Per host, the journey must supply (everything else is host-agnostic and reusable):
+
+| step | dsh (today) | pi | openclaw |
+|---|---|---|---|
+| install the published SDK | `dsh plugin add agent-aimail` (npm latest) | `pi install agent-aimail@<latest>` | `openclaw plugins install agent-aimail@<latest>` |
+| user turn channel | dsh web API (`--dump-config`, session RPC) | `pi -p "<prompt>"` (one process per turn) | `openclaw agent --local "<prompt>"` |
+| "install applied" | restart the host | next `pi` process picks it up | `openclaw` reload/next run |
+| bind evidence | binding file + `status.json` SSE streams | binding file + plugin log (`identity pi/`, `transport=sse`) | binding file + `SSE reconcile: N … from M binding(s)` |
+| LLM-turn evidence | `sessionStats.llmMs` in the session json | assistant text in the turn output (no llmMs counter) | turn output + dispatch log |
+| welcome nudge | dsh web API turn | `pi -p` nudge turn | `openclaw agent --local` nudge turn |
+
+Rules for adding a cell (do not relax):
+1. the journey must assert the **closed loop**: activation code → plugin installed from the
+   registry → bind → welcome queued → applicant approves → `whoami` persona + signature;
+2. no cell is added to `l3.yml` before its journey passes once locally (a cell that can only
+   die is not coverage, it is noise);
+3. per-platform gates that make no sense on that OS (POSIX file modes on Windows, llmMs
+   counters the host does not expose) must be reported as skipped-with-reason, never counted
+   as passes.
