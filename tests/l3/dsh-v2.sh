@@ -443,7 +443,10 @@ _sess="$(ls -t "$DSH_HOME"/sessions/*/*/session.v4.jsonl.zstd 2>/dev/null | head
 _leak=0
 if [ -n "$_sess" ]; then
   if command -v zstdcat >/dev/null 2>&1; then
-    zstdcat "$_sess" 2>/dev/null | grep -qaE "tests/l3/|dsh-v2\.sh|run-l3\.sh|run-v2\.sh" && _leak=1
+    # Repo docs count as the harness too: an agent that reads docs/dsh-mail-architecture-v2.md has
+    # been told how to install, which is exactly what the activation prompt is supposed to convey.
+    # CI proved the difference: same journey, no repo on the agent's path -> no install at all.
+    zstdcat "$_sess" 2>/dev/null | grep -qaE "tests/l3/|dsh-v2\.sh|run-l3\.sh|run-v2\.sh|aimail/docs/|docs/dsh-mail|docs/aimail-host-sse" && _leak=1
   elif python3 -c "import zstandard" >/dev/null 2>&1; then
     python3 - "$_sess" <<'PY' && _leak=1
 import sys, zstandard

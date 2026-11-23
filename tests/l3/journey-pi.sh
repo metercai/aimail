@@ -44,6 +44,17 @@ llm_ms_total() { echo 0; }   # pi exposes no llmMs counter; the turn output is t
 binding_path() { ls "$AIMAIL_HOME"/systems/*/*/"$BINDING_FILE" 2>/dev/null | head -1; }
 plugin_pkg()   { find "$PI_HOME" -maxdepth 7 -path '*agent-aimail/package.json' 2>/dev/null | head -1; }
 
+# integrity: the agent must not read this repo (fixture or docs). CI showed the difference: with no
+# repo on its path the agent did not install at all, so a repo-reading run is not a product verdict.
+pi_leak_check() {
+  local f hit=0
+  for f in $(ls -t "$PI_HOME"/agent/sessions/*/*.jsonl 2>/dev/null | head -3); do
+    grep -qaE "tests/l3/|journey-pi|run-l3\.sh|aimail/docs/|docs/dsh-mail" "$f" 2>/dev/null && hit=1
+  done
+  [ "$hit" = 0 ] || die "INVALID cell: the agent read the L3 harness or repo docs — the run is open-book and cannot judge the product"
+}
+pi_leak_check
+
 echo "════ pi V2 journey: activation code → agent self-install → bind → welcome loop (journey-pi [0]-[7])"
 # ═══ [0] fixture: sink + gateway [relay] + LLM proxy + domain offer ═══════════
 # Stop the gateway run-l3.sh ② started and bring it back WITH the relay wiring
