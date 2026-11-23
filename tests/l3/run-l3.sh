@@ -346,12 +346,24 @@ esac
 # before assignment under `set -u` ⇒ every cell died at ① with rc=127.)
 PINS_HOST="$AIMAIL_REPO/tests/agent-env/pins.env"
 if [ -f "$PINS_HOST" ]; then
-  WANT="$(grep -E '^DSH_VERSION=' "$PINS_HOST" | head -1 | cut -d= -f2-)"
-  GOT="$(dsh --version 2>/dev/null | head -1 | tr -d '[:space:]')"
-  if [ -n "$WANT" ] && [ "$GOT" != "$WANT" ]; then
-    gap "host version mismatch for dsh: got '$GOT', pin '$WANT' — refusing to judge"
+  # The pin key follows the AGENT: hardcoding dsh made every pi/openclaw cell die with
+  # "host version mismatch for dsh: got ''" (2026-11-24, whole pi rows red on CI).
+  case "$AGENT" in
+    dsh|dsh-plugin) _pin_key=DSH_VERSION;       _pin_bin=dsh ;;
+    pi)             _pin_key=PI_VERSION;        _pin_bin=pi ;;
+    openclaw)       _pin_key=OPENCLAW_VERSION;  _pin_bin=openclaw ;;
+    *)              _pin_key="";                _pin_bin="$AGENT" ;;
+  esac
+  if [ -n "$_pin_key" ]; then
+    WANT="$(grep -E "^${_pin_key}=" "$PINS_HOST" | head -1 | cut -d= -f2-)"
+    GOT="$("$_pin_bin" --version 2>/dev/null | head -1 | tr -d '[:space:]')"
+    if [ -n "$WANT" ] && [ "$GOT" != "$WANT" ]; then
+      gap "host version mismatch for $AGENT: got '$GOT', pin '$WANT' — refusing to judge"
+    fi
+    ok "host version matches the pin ($AGENT $GOT)"
+  else
+    warn "no pin key for agent '$AGENT' — host version not checked"
   fi
-  ok "host version matches the pin ($GOT)"
 fi
 
 # The agent itself is runnable (D3 prerequisite): probe that the LLM endpoint is reachable + the agent version can be printed

@@ -519,9 +519,13 @@ if [ -n "${_sess:-}" ] && [ -f "$_sess" ]; then
   else
     _tx=""
   fi
-  [ -n "$_tx" ] && printf '%s' "$_tx" | grep -qaE "$_pat" && _DONE_BY_AGENT=1
-  # the transcript may have grown since the tripwire read it (the nudge turn installs)
-  [ "$_DONE_BY_AGENT" = 1 ] || { printf '%s' "${_tx:-}" | grep -qaE "$_pat" && _DONE_BY_AGENT=1; }
+  # NEVER pipe a large string into `grep -q`: grep exits at the first match, printf gets SIGPIPE,
+  # and with `set -o pipefail` the pipeline reports failure even though the pattern matched — on CI
+  # that turned a real agent install into "cannot prove self-bootstrap" (2026-11-24, plus the
+  # "printf: write error: Broken pipe" lines in the log). Write once, grep the file.
+  _txfile="$WORK/transcript.txt"
+  if [ -n "$_tx" ]; then printf '%s' "$_tx" > "$_txfile" 2>/dev/null || true; fi
+  [ -s "$_txfile" ] && grep -qaE "$_pat" "$_txfile" && _DONE_BY_AGENT=1
 fi
 for _f in "$WORK"/session-*.json "$WORK/dsh-host.log"; do
   [ -f "$_f" ] || continue
