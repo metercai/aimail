@@ -1,8 +1,11 @@
-# 评审反馈回复件 — tssdk 0.5.2 / gateway v1.0.13（质检方 → 开发）
+# 评审反馈回复件 — tssdk 0.5.2 / gateway v1.0.14 / advanced v1.0.13（质检方 → 开发）
 
 - 日期：2026-11-23
 - 针对：`docs/qa/HANDOFF-TSSDK-GATEWAY-0.5.2.md`（开发交接）
-- 结论：**gateway v1.0.13 已发版并可推广；tssdk 0.5.2 HOLD（不发布）**，原因见 §3（1 条产品嫌疑待退、1 条夹具缺陷已修）
+- 结论：**gateway base v1.0.14 已发版；advanced v1.0.13 已发版并部署；tssdk 0.5.2 已发布；L3 4/4 dsh cells PASS（v1.0.13 批次）。**
+
+> **文档状态说明**：§0.3 是当前最终发布收口结论；§0 / §0.2 是 v1.0.13 第一版记录，§3–§6 保留了早批“HOLD / R-1 待定”的过程记录，**不再代表当前结论**：R-1 已在 §0 撤回；pi s3 的已知 GAP 已由 `7fbcee8` 的长驻 rpc 夹具关闭。
+
 
 ---
 
@@ -42,7 +45,7 @@ L2 汇总（v1.0.13 pin）：`s1 s2 s3` 三宿主 RED=0（pi s3 为已登记 GAP
 
 ---
 
-## 0.2 最终结论（发布收口）
+## 0.2 第一版发布收口（v1.0.13，历史）
 
 ```
 VERDICT: PASS
@@ -73,6 +76,36 @@ npm `0.5.2` + gateway pin `v1.0.13`）。
 
 回滚点：`pins.env` 可退回 v1.0.12（`15d6d9c`）；gateway `v1.0.13` tag 保留；npm 侧如需回退用 dist-tag，
 不删除已发布版本。
+
+---
+
+## 0.3 第二版发布收口（2026-11-23，邮件包名修正）
+
+开发按 owner 要求把下发邮件正文里的 `agent_aimail` 改为 **`agent-aimail`**，base 与 advanced 同步，随后重新发版。
+
+```text
+VERDICT: PASS（第二版）
+gateway base  1.0.14 @ df52649 · tag v1.0.14 · 四资产已发布
+pins.env      v1.0.14（sha256 下载后自算）
+advanced      1.0.13 @ 66a4c2d · release/1.0.13 · 已部署
+tssdk         0.5.2 不变
+```
+
+验证：
+
+- base：`cargo test --lib` 416 passed、`cargo fmt --check`、`cargo clippy --all-targets -- -D warnings` 全绿；release 二进制 `--version` = 1.0.14。
+- advanced：`cargo test` 146 passed、fmt/clippy 全绿；release 二进制 `--version` = 1.0.13；远端 systemd `active`，部署前备份 `/usr/local/bin/aimail-advanced.bak-20261123`。
+- L2 smoke：gateway v1.0.14 + SDK 0.5.2，DSH `s1 s2` = **PASS=10 RED=0 GAP=0**。
+- L3：4/4 结果仍是 v1.0.13 批次；v1.0.14 只改邮件正文/版本号，建议 verifier 用新 pin 复跑 4 格（或至少 linux-amd64）确认。
+
+版本坐标：
+
+| 组件 | 版本 / 提交 |
+|---|---|
+| base | v1.0.14 / `df52649` |
+| advanced | v1.0.13 / `66a4c2d` |
+| pins | v1.0.14 |
+| tssdk | 0.5.2（未变） |
 
 ---
 
@@ -119,9 +152,11 @@ npm `0.5.2` + gateway pin `v1.0.13`）。
 
 证据：`/tmp/l2v5-{a,b,c}.log` + `evidence/l2/<ts>-{dsh,openclaw,pi}-*/`（`run.json` / `results.txt` / `host.log` 逐轮落盘）。
 
+> 上表的 pi s3 GAP 已被后续 `7fbcee8`（pi 长驻 rpc 夹具）关闭；开发侧在 v1.0.13 + 0.5.2 下独立复跑 `pi s3` = PASS=3 / RED=0 / GAP=0。
+
 ## 4. 退回件：0 条（R-1 已撤回，见 §0）
 
-### R-1（P1，tssdk·openclaw）第二次激活不写绑定 —— 多地址路径不可用
+### R-1（已撤回）openclaw 第二次激活不写绑定 —— 隔离复跑证明是 F5 flake
 
 **现象**：openclaw `s4`（同一宿主声明两个地址）连续两批观测到"第二次激活后没有第二个绑定"：
 - 上一批（0.5.1 dev）：`only 1 binding(s) after the second activation`
@@ -145,9 +180,11 @@ npm `0.5.2` + gateway pin `v1.0.13`）。
 - **F3 门禁可诊断性**：`l0-gate-tests.sh` 原来只 `tail -2` pytest 输出，CI 日志看不出哪个用例红；改为 `-q --tb=line` + `tail -25`。
 - **F4 更早的四处**（`d67feb4` / `7ca8a9d`）：残留 gateway 持单实例锁、`gw_down` 清理不彻底、`s3` 抢跑判 GAP、`agent_system_id` 允许空值（假绿）。
 
-## 6. 发布决定与下一步
+## 6. 发布决定与下一步（历史记录；最终结论见 §0.2）
 
-- **gateway v1.0.13**：可推广（L2 在 v1.0.13 上 dsh/openclaw 的 s1/s2/s3 全绿，pi s3 为已知 GAP）。
-- **tssdk 0.5.2**：**HOLD**。按交接文档 §5.3「RED>0 ⇒ 停止发版」。解除条件：R-1 定性（产品则开发修、我复验；夹具则我修），并在同 pin 下重跑 `s4` / `s5` 全绿。
-- 干跑 `45137746841`（`22b1fbf`）只作为打包/门禁旁证，**不作为发布放行依据**；正式 `npm publish` 与 L3（4 个 dsh cell）都在 R-1 清关后才执行。
+> 本节是 R-1 撤回前的 HOLD 记录，仅用于审计；当前状态以 §0 / §0.2 为准：gateway v1.0.13 已发布，tssdk 0.5.2 已发布，L3 4/4 PASS。
+
+- **gateway v1.0.13**：已发布并可推广（L2 在 v1.0.13 上 dsh/openclaw 的 s1/s2/s3 全绿）。
+- **tssdk 0.5.2（历史 HOLD → 已解除）**：当时按「RED>0 ⇒ 停止发版」暂缓；R-1 撤回、s4/s5 复跑全绿后已发布（`npm view agent-aimail version` = 0.5.2）。
+- 干跑 `45137746841`（`22b1fbf`）只作为打包/门禁旁证；正式 `npm publish` 与 L3 在 R-1 清关后执行，最终结果见 §0.2。
 - 回滚点保留：`pins.env` 可回 `v1.0.12`（`e390e1c` 之后的 `15d6d9c` 状态）；gateway v1.0.13 tag 保留。

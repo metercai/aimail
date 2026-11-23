@@ -341,7 +341,7 @@ node -e "pkg.dependencies"                      {}
 | C4 路由边界 | Pi/OpenClaw `resolveInboundTarget`/`resolvePiTarget` 删除 pointer fallback：未命中 recipient 直接 no-target（不 ack），不再静默投给 pointer 地址 | openclaw 12 文件 52 项通过 |
 | C5 CLI 入口清理 | 删除 `dsh/pi/openclaw register-cli.ts`、`core/cli-op-entry.ts`、`core/cli-arg.ts`；移除 `registerCli` registry 字段与导出；`sdk-ops` op* 保留为内部 API（仅测试/宿主内部调用） | `pnpm build` / L0 通过；tarball `register-cli` 文件数 **0** |
 | C6 listen 测试 | `listen.test.ts` 新增 `freeRange(n)`，所有 `p+1/p+2` 假设改为连续空闲端口块 | 7 项通过（可重复） |
-| Gateway D1（源码） | base `aimail-gateway` legacy `/api/v1/activate-address` 响应补 `system_id`；base + advanced 激活邮件补 Appendix A 的 host-plugin 安装提示（未发版；L2 仍用 pinned v1.0.12） | `cargo fmt --check`；base `cargo test --lib` **415 passed**；advanced `cargo check` + `cargo test email_notify` 3 passed |
+| Gateway D1（已发版） | base `aimail-gateway` legacy `/api/v1/activate-address` 响应补 `system_id`；base + advanced 激活邮件补 Appendix A 的 host-plugin 安装提示 | `cargo fmt --check`；base `cargo test --lib` **416 passed**；advanced `cargo test email_notify` 3 passed；随 v1.0.13 发布 |
 
 ### 10.2 当前验证
 
@@ -364,20 +364,20 @@ cd aimail-advanced && cargo test email_notify   3 passed
 | 注册失败可观测 | `bind_agent_system_address` 的 `.ok()` 改为 `map_err(tracing::warn!)`，激活成功但归属写入失败不再静默 |
 | 测试 | 新增 `agent_system_ownership_is_removed_only_after_last_agent_key`；gateway `cargo test --lib` **416 passed** |
 
-> D2 仍未发版；`pins.env` 仍是 v1.0.12。发版后必须更新 pin 并重跑 L2/L3。
+> D2 已随 gateway **v1.0.13** 发布；`pins.env` 已 pin v1.0.13。L2/L3 已在新 pin 下收口。
 
 ### 10.4 仍未完成
 
 | 项 | 原因 / 下一步 |
 |---|---|
-| L2 实机矩阵 | 已用 verifier 的 Xiaomi key 跑完 s1/s2/s3/s4/s5/neg；结果见 §11。pi s3 是已知 fixture 限制（无 live delivery），不是产品 RED |
+| L2 实机矩阵 | 已用 verifier 的 Xiaomi key 跑完 s1/s2/s3/s4/s5/neg；结果见 §11。pi s3 后由 `7fbcee8` 长驻 rpc 夹具关闭（PASS=3） |
 | `aimail_system` 文档/旧 acceptance 脚本 | 代码入口已删；旧 `tests/dsh-acceptance` 文档仍描述历史场景，需归档 |
 | CR-11 外部预写 binding | 需要 gateway 侧归属校验端点；本地无法仅凭文件证明“不是外部预写” |
 | CR-13 address ledger / legacy session_id | 无 ledger 文件格式定义；legacy `dsh/inbound.ts` 未挂载但未删 |
 
 ## 11. L2 实机结果（2026-11-23，已执行）
 
-环境：本机 linux-amd64；SDK dev build **0.5.1**；published gateway **v1.0.12**；真实 Xiaomi LLM key；三宿主 Docker 镜像。
+第一轮环境（历史）：本机 linux-amd64；SDK dev build **0.5.1**；published gateway **v1.0.12**；真实 Xiaomi LLM key；三宿主 Docker 镜像。最终 v1.0.13 + 0.5.2 见 §12。
 
 | run | 命令 | 结果 |
 |---|---|---|
@@ -386,8 +386,43 @@ cd aimail-advanced && cargo test email_notify   3 passed
 | OpenClaw s1/s2 | `--host openclaw --stages "s1 s2"`（重跑） | **PASS=9 RED=0 GAP=0** |
 | all s4+neg | `--host all --stages "s4 neg"` | **PASS=9 RED=0 GAP=0** |
 | all s5 | `--host all --stages "s5"` | **PASS=6 RED=0 GAP=0** |
-| all s3 | `--host all --stages "s3"` | **PASS=6 RED=0 GAP=1**；GAP = pi s3 known fixture（无 live delivery） |
+| all s3 | `--host all --stages "s3"` | **PASS=6 RED=0 GAP=1**（v1.0.12）；GAP = pi s3。后续 `7fbcee8` 长驻 rpc 夹具关闭，v1.0.13 下 pi s3 = **PASS=3 RED=0 GAP=0** |
 
 OpenClaw 首次 s1/s2（06:39Z）出现 3 RED：容器 turn 报 gateway connection failed，gateway 日志显示脚本退出后 22s 正常 shutdown；无代码变更，06:42Z 重跑 **9/9 PASS**，证据保留为 `openclaw-s1s2-first-attempt.log`，归类为 fixture 瞬时问题。
 
 证据目录：`evidence/l2/round2-20261123/`。最后的 `system-core` 清理后 DSH s1/s2 重跑 **PASS=10**（`dsh-s1s2-final.log`）。
+
+---
+
+## 12. 最终发布收口（2026-11-23）
+
+| 组件 | 坐标 / 结论 |
+|---|---|
+| gateway base | **v1.0.13** @ `5001812`；4 平台资产已发布；`pins.env` 已 pin |
+| tssdk | **agent-aimail 0.5.2** @ `be2c89e`；npm latest = 0.5.2 |
+| L2 | 产品 RED=0；旧 openclaw s4 / dsh s5 RED 均为 flake，隔离复跑 PASS |
+| pi s3 | `7fbcee8` 长驻 rpc 夹具关闭；v1.0.13 + 0.5.2 下 PASS=3 / RED=0 / GAP=0 |
+| L3 | 4/4 dsh cells PASS（linux-amd64 / linux-arm64 / macos-arm64 / windows-amd64） |
+| advanced | `email_notify` 文案提交 `89bd7de`，**未 bump / 未部署**，单独发布项 |
+
+未完成/残留：CR-11 外部预写 binding、CR-13 ledger/legacy session_id、旧 `aimail_system` 文档归档、advanced 部署；均不影响 0.5.2 / v1.0.13 放行。
+
+最终交接文档：`docs/qa/HANDOFF-TSSDK-GATEWAY-0.5.2.md`；质检反馈：`docs/qa/REVIEW-REPLY-0.5.2.md`。
+
+---
+
+## 13. 第二版发布（2026-11-23，邮件包名修正）
+
+Owner 要求把 base/advanced 下发邮件正文里的 `agent_aimail` 改为 **`agent-aimail`**，随后重新发版。
+
+| 组件 | 坐标 / 结论 |
+|---|---|
+| gateway base | **v1.0.14** @ `df52649`；tag `v1.0.14`；四资产已发布；pins 已更新 |
+| advanced | **v1.0.13** @ `66a4c2d`；分支 `release/1.0.13`；release 二进制已部署，备份 `.bak-20261123` |
+| tssdk | 0.5.2 不变（本次未改 SDK） |
+| L2 smoke | gateway v1.0.14 + SDK 0.5.2，DSH `s1 s2` = **PASS=10 RED=0 GAP=0** |
+| L3 | 4/4 结果仍为 v1.0.13 批次；v1.0.14 仅邮件文案/版本号，建议 QA 用新 pin 复跑 |
+
+验证：base 416 tests / fmt / clippy；advanced 146 tests / fmt / clippy；两侧 release `--version` 分别为 1.0.14 / 1.0.13。
+
+证据：`evidence/l2/round2-20261123/dsh-s1s2-gateway-v1.0.14.log`。
