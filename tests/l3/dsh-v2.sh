@@ -517,7 +517,18 @@ GW_CFG=""
 for _f in "$GW_CFG" "$BINDING"; do
   [ -n "$_f" ] || continue
   _m="$(stat -c %a "$_f" 2>/dev/null || stat -f %Lp "$_f" 2>/dev/null)"
-  case "$_m" in 600) : ;; *) die "$_f mode=$_m (expected owner-only 600)" ;; esac
+  # POSIX modes do not exist on Windows/NTFS: git-bash reports 644 for every file a native
+  # Windows process creates, and Node's chmod on Windows can only toggle the read-only
+  # attribute. The check is therefore INAPPLICABLE there, not failed — report it and do not
+  # count it as a pass (windows cell, 2026-11-23: mode=644 while llmMs=42124 and the bind
+  # had in fact landed).
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)
+      warn "binding mode check skipped: POSIX modes do not exist on Windows/NTFS (mode=$_m) — not counted as a pass" ;;
+    *)
+      case "$_m" in 600) : ;; *) die "$_f mode=$_m (expected owner-only 600)" ;; esac
+      ok "binding mode owner-only (600): $_f" ;;
+  esac
 done
 python3 - "$BINDING" <<'PY' || die "SSE binding carries a webhook_url (regression)"
 import json, sys
