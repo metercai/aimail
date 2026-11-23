@@ -16,7 +16,7 @@ host_journey() {
   mkdir -p "$out"
   local prompt="Activate and bind my AIMail mailbox address $addr with activation code $code at gateway ${GW_URL} using aimail_address."
   docker run --rm --network host --name "l2dsh-$$" \
-    -e "LLM_API_KEY=${LLM_API_KEY:?}" -e "AH=$addr" -e "AC=$code" -e "APROMPT=$prompt" \
+    -e "LLM_API_KEY=${LLM_API_KEY:?}" -e "AH=$addr" -e "AC=$code" -e "APROMPT=$prompt" -e "GWURL=${GW_URL}" \
     -e "TOKEN=$token" -e "GWSMTP=$((GW_SMTP + 1))" -e "AH2=${S4_ADDR:-}" -e "AC2=${S4_CODE:-}" -e "LIFECYCLE=${LIFECYCLE:-0}" \
     -v "$V2_ROOT/lib:/opt/v2lib:ro" -v "${SDK_TARBALL_DIR:?}:/opt/sdk:ro" \
     -v "${GW_WORK}:/gw:ro" -v "$out:/out" \

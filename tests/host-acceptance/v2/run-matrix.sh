@@ -65,6 +65,7 @@ for h in $HOSTS; do
     if [ "$h" != pi ]; then
       a2="$(python3 "$V2/lib/gw.py" apply --gateway "$GW_URL" --email "l2-$h-2-$RANDOM@example.com" \
             --name "L2 $h 2" --agentname "l2${h}2" --domain test.local --spool "$WORK/gw/mail.spool")"
+      printf '%s' "$a2" | grep -q '"ok": true' || echo "   (S4 second claim failed: $a2)" >&2
       printf '%s' "$a2" | grep -q '"ok": true' && {
         S4_ADDR="$(printf '%s' "$a2" | python3 -c 'import json,sys;print(json.load(sys.stdin)["address"])')"
         S4_CODE="$(printf '%s' "$a2" | python3 -c 'import json,sys;print(json.load(sys.stdin)["activation_code"])')"
