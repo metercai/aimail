@@ -14,5 +14,10 @@ fi
 paused="$(sed -n 's/.*paused_seen=\([A-Za-z]*\).*/\1/p' <<<"$state")"
 final="$(sed -n 's/.*final_bindings=\([0-9]*\).*/\1/p' <<<"$state")"
 
+maxb="$(sed -n 's/.*max_bindings=\([0-9]*\).*/\1/p' <<<"$state")"
 [ "$paused" = "True" ] && pass "pause marked the binding (paused=True)" || red "pause did not mark the binding (paused=$paused)"
-[ "${final:-9}" = "0" ] && pass "unbind removed the binding" || red "binding still present after unbind (final=$final)"
+if [ "${final:-9}" -lt "${maxb:-0}" ]; then
+  pass "unbind removed the binding ($maxb -> $final)"
+else
+  red "unbind did not remove a binding (final=$final, max=$maxb)"
+fi

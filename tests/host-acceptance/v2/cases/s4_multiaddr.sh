@@ -25,6 +25,8 @@ else
   red "only $maxb binding(s) after the second activation"
 fi
 
-grep -qaE "SSE reconcile: [2-9] gateway stream" "$out/host.log" 2>/dev/null \
-  && pass "two aggregate streams reconciled" \
-  || gap "two-address stream count not observed in the log tail"
+# one aggregate stream per (AgentSystemId, Gateway) covers all of its addresses,
+# so the evidence is "from N binding(s)" with N>=2 (not N separate streams).
+grep -qaE "from [2-9] binding|SSE reconcile: [2-9] gateway stream" "$out/host.log" 2>/dev/null \
+  && pass "aggregate stream reconciled from 2+ bindings" \
+  || gap "reconcile line for 2 bindings not in the log tail"

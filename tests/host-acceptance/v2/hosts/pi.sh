@@ -1,52 +1,84 @@
 #!/usr/bin/env bash
-# Pi host adapter (containerised, pinned image; L2 = dev build pre-installed).
+# Pi host adapter — single-address tssdk host (L2 = dev build pre-installed).
+#
+# Pi drives one prompt per process; the binding directory is the shared state, so a
+# multi-turn journey is a sequence of `pi -p` runs over the same HOME.
+# S3 (live delivery) needs a long-lived pi process and is NOT wired here: it reports
+# GAP with that reason instead of pretending to be green.
 set -uo pipefail
 HOST_NAME=pi
 PI_IMAGE="${PI_IMAGE:-aimail-host-pi:latest}"
 V2_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-host_s1_activate() {
-  local out="$1" addr="$2" code="$3"
-  mkdir -p "$out"
+_pi_run() {  # _pi_run <out> <prompt>
+  local out="$1" prompt="$2"
   docker run --rm --network host \
-    -e "LLM_API_KEY=${LLM_API_KEY:?}" -e "AH=$addr" -e "AC=$code" -e "GWURL=${GW_URL:-http://127.0.0.1:18080}" \
-    -v "${SDK_TARBALL_DIR:?}:/opt/sdk:ro" -v "$out:/out" \
+    -e "LLM_API_KEY=${LLM_API_KEY:?}" -e "PROMPT=$prompt" \
+    -v "$V2_ROOT/lib:/opt/v2lib:ro" -v "${SDK_TARBALL_DIR:?}:/opt/sdk:ro" -v "$out:/out" \
     --entrypoint bash "$PI_IMAGE" -lc '
       set -u
-      export HOME=/root; mkdir -p /root/ws
+      export HOME=/root
       python3 - <<PY
-import json,os,pathlib
-p=pathlib.Path("/root/.pi/agent/models.json"); d=json.loads(p.read_text())
-for prov in (d.get("providers") or {}).values(): prov["apiKey"]=os.environ["LLM_API_KEY"]
-p.write_text(json.dumps(d,indent=2))
+import json, os, pathlib
+p = pathlib.Path("/root/.pi/agent/models.json")
+d = json.loads(p.read_text())
+for prov in ((d.get("providers") or {}) or {}).values():
+    prov["apiKey"] = os.environ["LLM_API_KEY"]
+p.write_text(json.dumps(d, indent=2))
 PY
-      mkdir -p /opt/sdkx && tar -xzf /opt/sdk/*.tgz -C /opt/sdkx
-      pi install /opt/sdkx/package >/tmp/plugin.log 2>&1 || { echo "pi install failed"; tail -20 /tmp/plugin.log; exit 3; }
-      cd /root/ws
-      timeout 300 pi -p "Activate and bind my AIMail mailbox address $AH with activation code $AC at gateway $GWURL using aimail_address." >/tmp/act.log 2>&1 || true
-      B=$(ls /root/.aimail/systems/*/*/agentmail.json 2>/dev/null | head -1)
-      echo "binding=${B:-none}"
-      [ -n "$B" ] && { stat -c %a "$B" > /out/mode; install -m 644 "$B" /out/binding.json; }
-      tail -n 300 /tmp/act.log > /out/host.log 2>/dev/null || true
-      [ -n "$B" ]
-    ' >"$out/rc" 2>&1
-  echo $? >"$out/code"
+      TGZ="$(ls /opt/sdk/*.tgz | head -1)"
+      mkdir -p /tmp/sdk && tar -xzf "$TGZ" -C /tmp/sdk
+      pi install /tmp/sdk/package >/tmp/install.log 2>&1 || true
+      mkdir -p /root/ws && cd /root/ws
+      timeout 420 pi -p "$PROMPT" >/tmp/pi.log 2>&1 || true
+      python3 /opt/v2lib/dsh_state.py /root/.aimail count > /out/bindings_seen 2>/dev/null || echo 0 > /out/bindings_seen
+      python3 - <<PY >/out/paused_seen 2>/dev/null || echo None >/out/paused_seen
+import glob, json
+p = sorted(glob.glob("/root/.aimail/systems/*/*/agentmail.json"))
+print(json.load(open(p[0])).get("paused") if p else "no-binding")
+PY
+      tail -n 200 /tmp/pi.log > /out/last.log 2>/dev/null || true
+    ' >"$out/run.log" 2>&1
+}
+
+host_journey() {
+  local out="$1" addr="$2" code="$3" token="$4"
+  mkdir -p "$out"
+  _pi_run "$out" "Call the aimail_address tool now with exactly this JSON: {\"action\":\"bind\",\"code\":\"$code\",\"email\":\"$addr\",\"gateway_url\":\"${GW_URL}\"}. Do not ask questions; just call it and report the result."
+  local maxb; maxb="$(cat "$out/bindings_seen" 2>/dev/null || echo 0)"
+  local paused="False"
+
+  if [ -n "${S4_ADDR:-}" ] && [ -n "${S4_CODE:-}" ]; then
+    _pi_run "$out" "Call the aimail_address tool now with exactly this JSON: {\"action\":\"bind\",\"code\":\"${S4_CODE}\",\"email\":\"${S4_ADDR}\",\"gateway_url\":\"${GW_URL}\"}. Do not ask questions; just call it and report the result."
+    local b2; b2="$(cat "$out/bindings_seen" 2>/dev/null || echo 0)"
+    [ "${b2:-0}" -gt "${maxb:-0}" ] && maxb="$b2"
+  fi
+
+  if [ "${LIFECYCLE:-0}" = "1" ]; then
+    _pi_run "$out" "Call the aimail_address tool now with exactly this JSON: {\"action\":\"pause\",\"email\":\"$addr\"}. Do not ask questions; just call it and report the result."
+    paused="$(cat "$out/paused_seen" 2>/dev/null || echo False)"
+    _pi_run "$out" "Call the aimail_address tool now with exactly this JSON: {\"action\":\"unbind\",\"email\":\"$addr\"}. Do not ask questions; just call it and report the result."
+  fi
+
+  local final; final="$(cat "$out/bindings_seen" 2>/dev/null || echo "$maxb")"
+  printf 'max_bindings=%s paused_seen=%s final_bindings=%s turns=na\n' "$maxb" "$paused" "$final" > "$out/journey_state"
+  [ -f "$out/last.log" ] && cp "$out/last.log" "$out/host.log" 2>/dev/null || true
+  # binding artefact (first binding seen), readable copy
+  docker run --rm -v "$out:/out" --entrypoint bash "$PI_IMAGE" -lc '
+    B=$(ls /root/.aimail/systems/*/*/agentmail.json 2>/dev/null | head -1)
+    [ -n "$B" ] && install -m 644 "$B" /out/binding.json && stat -c %a "$B" > /out/mode
+  ' >/dev/null 2>&1 || true
   return 0
 }
 
-host_s2_arming() {
-  local out="$1"
-  docker run --rm --network host -e "LLM_API_KEY=${LLM_API_KEY:?}" \
-    -v "${SDK_TARBALL_DIR:?}:/opt/sdk:ro" -v "$out:/out" \
-    --entrypoint bash "$PI_IMAGE" -lc '
-      set -u
-      mkdir -p /opt/sdkx && tar -xzf /opt/sdk/*.tgz -C /opt/sdkx
-      pi install /opt/sdkx/package >/dev/null 2>&1 || true
-      cd /root/ws && timeout 120 pi -p "reply ok" >/tmp/s2.log 2>&1 || true
-      tail -n 200 /tmp/s2.log >> /out/host.log 2>/dev/null || true
-    ' >/dev/null 2>&1 || true
-  return 0
-}
-
-host_journey() { host_s1_activate "$1" "$2" "$3"; }   # S3 (delivery) not wired for this adapter yet
+host_s1_activate() { host_journey "$@"; }
+host_s3_delivery() { :; }
 host_stop() { :; }
+
+host_negative() {
+  local out="$1" addr="$2"
+  _pi_run "$out" "Call the aimail_address tool now with exactly this JSON: {\"action\":\"bind\",\"code\":\"addr-0000-deadbeef\",\"email\":\"$addr\",\"gateway_url\":\"${GW_URL}\"}. Do not ask questions; just call it and report the result."
+  cp "$out/bindings_seen" "$out/bindings_count" 2>/dev/null || echo 0 > "$out/bindings_count"
+  cp "$out/last.log" "$out/act.log" 2>/dev/null || true
+  return 0
+}

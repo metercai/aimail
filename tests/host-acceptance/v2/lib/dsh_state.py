@@ -15,7 +15,8 @@ def summarize(outdir: str) -> int:
         except Exception:
             pass
     max_b = max((s.get("bindings") or 0 for s in states), default=0)
-    paused = next((s.get("paused") for s in states if s.get("paused") in (True, False)), None)
+    # 'pause' is proven if ANY turn observed paused=True; the last turn may have unbound it
+    paused = any(s.get("paused") is True for s in states)
     after = states[-1].get("bindings") if states else None
     line = f"max_bindings={max_b} paused_seen={paused} final_bindings={after} turns={len(states)}"
     print(line)
