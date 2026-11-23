@@ -389,7 +389,7 @@ PINS_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/agent-env/pins.env"
 PIN_TAG=""; PIN_SHA=""
 if [ -f "$PINS_FILE" ]; then
   PIN_TAG="$(grep -E '^GATEWAY_VERSION=' "$PINS_FILE" | head -1 | cut -d= -f2-)"
-  PIN_SHA="$(grep -E "^GATEWAY_SHA256_${PLATFORM}=" "$PINS_FILE" | head -1 | cut -d= -f2-)"
+  PIN_SHA="$(grep -E "^GATEWAY_SHA256_${PLATFORM//-/_}=" "$PINS_FILE" | head -1 | cut -d= -f2-)"
 fi
 if [ -n "$PIN_TAG" ]; then
   if [ "${GW_TAG:-}" != "$PIN_TAG" ]; then

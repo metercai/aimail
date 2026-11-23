@@ -33,7 +33,7 @@ gw_fetch() {
   local plat bin ver sha cache
   plat="$(gw_platform)"
   [ "$plat" != unsupported ] || { echo "GAP: unsupported platform $(uname -s)/$(uname -m)"; return 2; }
-  ver="$(_gw_pin GATEWAY_VERSION)"; sha="$(_gw_pin "GATEWAY_SHA256_${plat}")"
+  ver="$(_gw_pin GATEWAY_VERSION)"; sha="$(_gw_pin "GATEWAY_SHA256_${plat//-/_}")"
   [ -n "$ver" ] && [ -n "$sha" ] || { echo "GAP: pins.env missing GATEWAY_VERSION/SHA256 for $plat"; return 2; }
   cache="${AIMAIL_GW_CACHE:-$HOME/.cache/aimail-gateway}/$ver"
   mkdir -p "$cache"
