@@ -53,6 +53,9 @@ a run with skips is not a green run, it is a green run *for its scope*.
   deliverable is judged by L2, never by L3.
 - `hermes` / `deerflow` (pysdk) are `SKIP_LEGACY`: executed only with `--include-legacy`, never counted.
 - Both layers download the **published** gateway pinned in `pins.env` (sha256 verified).
+- **Install path = host plugin mechanism only** (`dsh plugin add` / `pi install` /
+  `openclaw plugins install`). The SDK ships no CLI and `aimail install` is retired;
+  no gate step may invoke an SDK CLI subcommand (see REQ-12).
 
 ## Known open items (not fixture defects)
 

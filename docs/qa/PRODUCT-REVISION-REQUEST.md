@@ -181,3 +181,36 @@ pi 随后报 `No API key found for the selected model` 并**不加载插件** �
 3. **双入口**：`pi` 专用入口声明 peer，`dsh/openclaw` 入口保留 dependencies。
 
 **判据**：pi L2（S1/S2/NEG）与 dsh L2（S1/S2/S4/S5/NEG）同时保持绿。
+
+---
+
+## REQ-12（P1，tssdk 架构收敛）SDK 仍保留 CLI 入口面（register-cli / cli-op-entry）
+
+**背景（Owner 裁定）**：SSE-V2 的 SDK **对 CLI 无依赖**，宿主只通过"插件/扩展"方式安装；
+`aimail install` 这类 CLI 安装入口已不存在，不得再作为验收路径。
+
+**现状（0.5.1 读码）**
+```
+src/dsh/register-cli.ts        （CLI-spawnable 绑定入口，注释指向 CLI 平台注册表）
+src/pi/register-cli.ts
+src/openclaw/register-cli.ts
+src/core/cli-op-entry.ts       （`node <register-cli.js> --op <op> --args '<json>'`，契约 v1.0 §4.1(2)）
+src/core/sdk-ops.ts:749        opAssemble/opUpdate/opTeardown 仍由 register-cli 调用
+package.json                   bin: null（未发布 CLI 二进制，这一点已符合）
+```
+
+**影响**
+- L2/L3 的安装路径已按裁定改为**宿主插件安装**（`dsh plugin add` / `pi install` / `openclaw plugins install`），
+  不再调用任何 SDK CLI；
+- 但产品里仍留有 CLI op 入口，任何人按旧文档仍会走 `aimail install` 路径，形成"两套安装语义"，
+  且 L3 历史上正是被这条路径污染（本次已从 `run-l3.sh` 移除，含 pi 的 override 补丁）。
+
+**修法（建议）**
+1. 删除三个 `register-cli.ts` 与 `core/cli-op-entry.ts`，并把 `sdk-ops.ts` 的 op* 收敛为内部 API（仅宿主插件调用）；
+2. README/契约文档同步：安装只有"宿主插件机制"一种；
+3. 如短期必须保留，至少在包内标注 legacy 并在文档中标注"不受支持、L2/L3 不覆盖"。
+
+**判据**
+- `grep -r "aimail install" docs/ README*` 无命中；
+- 包内无 CLI 入口（bin 为空、无 register-cli 导出）；
+- L2 三宿主 + L3 dsh 在**纯插件安装**下全绿。

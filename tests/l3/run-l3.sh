@@ -8,7 +8,7 @@
 #   ① Install target agent system + configure LLM (deepseek-flash) + verify agent itself can run
 #   ② Get published gateway (basic version, GitHub Release binary) and start it, capture system/admin key
 #   ③ Get published CLI (bootstrap.sh online = real user entry point)
-#   ④ SDK installation (README original commands: aimail install (home provided by AGENT_HOME env) / dsh plugin add)
+#   ④ SDK installation: host plugin mechanism only (dsh plugin add); the SDK CLI install path is retired
 #   ⑤ welcome closed loop: welcome → agent replies with three tags → manager (security officer) approves persona
 #   ⑥ Identity assertion: SDK isomorphic send_mail sends one query → whoami reads back the identity card (agent_persona)
 #      + email signature (agent_signature) is effective (whoami.rs:44-52, welcome approve UPSERT read-back point)
@@ -29,7 +29,7 @@
 #
 # Process contract (README Quick Start scenario 4, reproduced as-is, strictly no self-adjustment):
 #   ③ env four-piece set (AIMAIL_GW_URL/ADMIN_KEY/DOMAIN/MANAGER_ADDRESS) + online bootstrap curl|bash
-#   ④ aimail install (home provided by AGENT_HOME env, no --home flag) or dsh plugin --profile web add agent-aimail
+#   ④ dsh plugin --profile web add agent-aimail (host plugin mechanism; no SDK CLI)
 #   ⑤ aimail welcome (AGENT_HOME env → .agentmail pointer resolves system parameters)  # contract-allowed: L3 comment references contract pointer filename
 #
 # Exit codes: 0=green (closed loop complete) · 1=red (assertion failed in some stage, reason printed) · 2=environment missing prerequisites
@@ -567,7 +567,7 @@ if [ "$AGENT" = "dsh" ]; then
   exit 0
 fi
 
-# ── ④ aimail install / dsh plugin add (the two entry points published in README) ──────
+# ── ④ host plugin install (the only supported entry point; SDK CLI retired) ───────────
 # README: "install either through the aimail command line or through the Agent's
 # plugin — pick one of the two". Both paths are publicly published ⇒ both are tested (matrix agent dimension
 # extension: hermes / dsh-aimail / dsh-plugin). Command form = exactly as in README:
@@ -575,39 +575,19 @@ fi
 #   Shares the same env as ⑤ welcome; no --home flag).
 #   Plugin entry = `dsh plugin --profile web add agent-aimail` (no AGENT_HOME dependency).
 # env has been persisted by ③ to ~/.aimail/.env + exported in this shell.
-echo "── [4/6] SDK install (README command shape)"
-export AGENT_HOME="$AGENT_HOME"
+echo "── [4/6] SDK install (host plugin mechanism only — the SDK CLI install path is retired)"
+# Owner ruling: the SDK ships no CLI; a host installs it as a plugin/extension.
+# `aimail install` is therefore NOT a supported entry point and must not be used here.
 case "$AGENT" in
-  pi)
-    # 1) CLI entry (README shape): registers the system into the pi home and writes
-    #    the binding/pointer that the extension's identity chain reads.
-    "$AIMAIL_BIN" install --system-id "$SYSTEM_ID" \
-      || die "aimail install failed (pi L3 bootstrap)"
-    # 2) Pre-release honesty: the CLI installs npm "latest", so when this tree's
-    #    artifact is provided, install it over the top — the cell must test the
-    #    build under review, not the previous release.
-    if [ -n "${AIMAIL_SDK_DIR:-}" ]; then
-      # The CLI installed npm "latest" into the pi home; a second install would
-      # make pi load both copies and collide on every tool name (measured
-      # 2026-11-18: 'Tool "send_mail" conflicts with …'). Replace that copy in
-      # place instead: same package name/path for pi's settings, code = the
-      # artifact under review.
-      PI_EXT="$(find "$HOME/.pi" -maxdepth 6 -type d -name agent-aimail -path '*node_modules*' 2>/dev/null | head -1)"
-      [ -n "$PI_EXT" ] || die "cannot locate the npm-installed pi extension to override (searched $HOME/.pi)"
-      rm -rf "$PI_EXT" && mkdir -p "$PI_EXT"
-      ( cd "$AIMAIL_SDK_DIR" && tar cf - --exclude=node_modules --exclude=.git . ) | ( cd "$PI_EXT" && tar xf - ) \
-        || die "override copy failed: $AIMAIL_SDK_DIR -> $PI_EXT"
-      ok "pi extension replaced in place with the worktree build: $PI_EXT"
-    fi
+  dsh)
+    dsh plugin --profile web add agent-aimail \
+      || die "dsh plugin add agent-aimail failed (host plugin install)"
     ;;
-  dsh-aimail|hermes)
-    # README: aimail install (AGENT_HOME env provides home; shared with welcome)
-    # --system-id: the key handed in by the operator belongs to a system the script
-    # already knows (step ② printed it). Since the gateway requires X-Api-Identity on
-    # every signed call, the CLI cannot probe an unknown key to discover its system, so
-    # the id has to be supplied — otherwise install stops at "system_id is required".
-    "$AIMAIL_BIN" install --system-id "$SYSTEM_ID" \
-      || die "aimail install failed (README CLI path)"
+  pi)
+    die "pi is L2 scope (three-host L2); the L3 matrix is dsh-only per owner ruling"
+    ;;
+  *)
+    die "agent $AGENT is not part of the V2 L3 gate (legacy/pysdk = SKIP_LEGACY)"
     ;;
 esac
 ok "install done (system activated + platform adapted)"
