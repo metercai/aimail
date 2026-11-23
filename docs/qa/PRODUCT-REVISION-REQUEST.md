@@ -377,3 +377,61 @@ package.json                   bin: null（未发布 CLI 二进制，这一点�
   `[3]` 首次尝试（含用户一句"你自己装"）内出现 agent 自己的安装动作，且 `[5]` bind、`[7]` persona/signature 成立。
 - **同源约束**：这句话在 base gateway 与 advanced 各有一份；两处必须改同一字符串，并由一条契约检查锁住
   （避免再出现"一处改成 agent-aimail、另一处还是 agent_aimail"）。
+
+### REQ-15 备选方案 B（Owner 提议，2026-11-24）：让宿主向 gateway 取"自己的"安装命令
+
+**提议**：邮件不枚举宿主命令，只让 agent 带上宿主标识访问一次 gateway，由 gateway 返回该宿主的
+确切安装命令 + 重启语义 + 配套版本号。邮件保持 2 行，新增宿主只改服务端一张表。
+
+**评估：可行，且比静态文案多两个实质收益**
+
+1. **单一真源**：现在这句话在 base gateway 与 advanced 各存一份，正是这个双份让 `agent_aimail`
+   只被改了一处（REQ-14）。改为服务端返回后，表只存在一处，advanced 复用同一接口。
+2. **版本配对**：响应里可以直接给出"与本 gateway 配套的 SDK 版本"，把"agent 装到 latest、而 gateway
+   期望 0.5.x"这一类漂移从根上消掉（今天靠 pins.env 只在验证侧兜着，用户侧没有）。
+
+**接口形状（建议）**
+```
+GET {gw}/api/v1/public/sdk-install            # 无需鉴权（绑定前 agent 没有任何凭据）
+  ?host=dsh|pi|openclaw|python|unknown        # 可选，未知值必须走 fallback 而不是空响应
+  &sdk=latest|<x.y.z>                         # 可选
+→ 200 application/json
+{
+  "package": "agent-aimail",
+  "registries": {"npm": "agent-aimail", "pypi": "agent-aimail"},   # 连字符，两处同名
+  "version": "0.5.2",                                             # 与 gateway 配对
+  "hosts": {
+    "dsh":      {"install": "dsh plugin add agent-aimail",              "restart": "restart dsh"},
+    "pi":       {"install": "pi install agent-aimail",                  "restart": "next pi process"},
+    "openclaw": {"install": "openclaw plugins install agent-aimail",     "restart": "next openclaw run"},
+    "python":   {"install": "pip install agent-aimail",                 "restart": "restart the host process"},
+    "unknown":  {"install": "npm install agent-aimail",                 "restart": "restart the host"}
+  },
+  "then": "call aimail_address with {action:bind, code, email, gateway_url}"
+}
+```
+**邮件正文（2 行）**
+```
+If `aimail_address` is missing, fetch {gw}/api/v1/public/sdk-install?host=<your host>,
+run the install command it returns, restart your host, then call `aimail_address` again.
+```
+（`<your host>` 由 agent 自己判断：`command -v dsh|pi|openclaw`；判断不出就传 `unknown`，
+服务端回退到 `npm install agent-aimail`。）
+
+**必须守住的三条**
+1. **保留离线/降级路径**：邮件里仍要留一句 `npm install agent-aimail` 作为 plan B——gateway 不可达、
+   或 agent 不会解析 JSON 时，链路不能整段死掉。这一点是硬要求：L3 会把"gateway 不可达"也测一次。
+2. **响应只能是静态、版本化的内容**：不允许把请求参数回显进命令里（避免变成命令注入面），也不建议
+   默认给 `curl … | sh`；表里的命令行必须是常量。
+3. **未知宿主必须显式 fallback**：返回 `unknown` 行 + `npm install agent-aimail`，不能返回空 `install`
+   （空值等于让 agent 猜，和现在的问题一样）。
+
+**验证方会怎么测（可自动化）**
+- 契约测试（无 LLM）：五个 host 值 + 未知值，逐条断言 `install` 非空、包名连字符、`version` 等于 pins；
+- L3：4 平台 × {dsh, pi, openclaw}，在**不可读仓库文档**的干净环境里断言 transcript 里出现
+  "取 sdk-install → 按返回命令安装"的动作（或走了 fallback 仍装成功）；
+- 负向：起一个不返回该接口的 gateway，断言 agent 走 plan B 仍能装成功。
+
+**与方案 A（静态 4 行文案）的取舍**：A 零新增接口、零网络依赖、今天就能发；B 多一个公开端点，
+但换来单一真源 + 版本配对 + 新增宿主免发版。**建议先发 A（解 CI 红），B 作为下一版设计**，
+两者不冲突：A 的文案在 B 落地后可以只保留一行"取接口 + plan B"。
