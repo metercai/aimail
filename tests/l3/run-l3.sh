@@ -559,6 +559,29 @@ esac
 # normal mechanism + restart, then the welcome/approval loop closes. dsh-v2.sh
 # takes over the gateway from ② (GW_PID_L3): [0] restarts it WITH the [relay]
 # wiring (external-domain mail → sink) and kills it on exit.
+# ── other hosts (pi / openclaw): same doctrine, own journey script ────────────────────
+if [ "$AGENT" != "dsh" ]; then
+  echo "── [4/6] $AGENT V2 journey (activation code → agent self-install → bind → welcome loop)"
+  export GW_BIN GW_HOME GW_URL GW_HTTP_PORT GW_SMTP_PORT
+  export SYSTEM_ID ADMIN_KEY
+  export LLM_API_KEY LLM_BASE_URL LLM_MODEL
+  export WORK AIMAIL_REPO WELCOME_TIMEOUT
+  export GW_PID_L3="$GW_PID"
+  export PI_HOME="${PI_HOME:-$HOME/.pi}"
+  export OPENCLAW_HOME="${OPENCLAW_HOME:-$HOME/.openclaw}"
+  export L3_LOG_ARCHIVE
+  bash "$(dirname "${BASH_SOURCE[0]}")/journey-$AGENT.sh"
+  V2_RC=$?
+  if [ "$V2_RC" -ne 0 ]; then
+    [ "$V2_RC" -eq 2 ] && die "$AGENT V2 journey aborted on ENV GAP (rc=2) — environment incomplete" \
+      || die "$AGENT V2 journey failed (rc=$V2_RC)"
+  fi
+  echo
+  ok "════ L3 PASS: $PLATFORM / $AGENT — V2 activation code → agent self-install → bind → welcome loop closed"
+  GW_PID=""
+  exit 0
+fi
+
 if [ "$AGENT" = "dsh" ]; then
   echo "── [4/6] dsh V2 journey (activation code → host agent bind → welcome loop)"
   # dsh-v2.sh runs as a CHILD process (bash …) ⇒ it only inherits EXPORTED

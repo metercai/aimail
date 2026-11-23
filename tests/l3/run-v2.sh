@@ -63,7 +63,13 @@ if [ -n "$CELL" ]; then
   p="${CELL%%/*}"; a="${CELL##*/}"
   case "$a" in
     dsh) run_cell "$p" "$a" ;;
-    pi|openclaw) echo "note: $a is L2 scope (not part of the L3 matrix)" ;;
+    pi|openclaw)
+      if [ -f "$(dirname "${BASH_SOURCE[0]}")/journey-$a.sh" ]; then
+        run_cell "$p" "$a"
+      else
+        echo "note: $a has no L3 journey yet (tests/l3/journey-$a.sh) — not counted"
+        SKIP=$((SKIP+1))
+      fi ;;
     hermes) skip_legacy "$p" "$a" "pysdk not migrated to SSE-V2; the CLI install path is retired — L3 is dsh-only" ;;
     *) echo "unknown agent $a"; exit 2 ;;
   esac
@@ -75,4 +81,12 @@ fi
 echo
 echo "──────────────────────────────────────────────────────────"
 printf 'L3 V2 gate: PASS=%d FAIL=%d SKIP_LEGACY=%d (published sdk=%s, gateway=%s)\n' "$PASS" "$FAIL" "$SKIP" "$NPM_VER" "$GW_VER"
-[ "$FAIL" -gt 0 ] && { echo "VERDICT: FAIL"; exit 1; } || { echo "VERDICT: PASS"; exit 0; }
+if [ "$FAIL" -gt 0 ]; then
+  echo "VERDICT: FAIL"; exit 1
+fi
+# A matrix that ran nothing is NOT a pass: this exact shape (PASS=0 FAIL=0 -> PASS) hid a
+# skipped pi cell on 2026-11-23 and would let a filtered dispatch look green.
+if [ "$PASS" -eq 0 ]; then
+  echo "VERDICT: FAIL — no cell actually ran (PASS=0); a skip is not a pass"; exit 1
+fi
+echo "VERDICT: PASS"; exit 0

@@ -202,7 +202,6 @@ PY
 case "$AGENT" in
   hermes)   install_hermes ;;
   dsh)      install_dsh ; clean_plugin_state ;;
-  pi|openclaw) : ;;   # no plugin-state reset yet (journeys not wired); see tests/l3/GATE.md §8
   pi)       install_pi ;;
   openclaw) install_openclaw ;;
   deerflow) require_deerflow_base ;;
