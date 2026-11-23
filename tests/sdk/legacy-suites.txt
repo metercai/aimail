@@ -1,0 +1,46 @@
+# SDK L0 — legacy (pysdk / CLI) suites, NOT part of the SSE-V2 verdict.
+#
+# Owner ruling: the SDK supports the SSE-V2 host-plugin path only. These files pin
+# pysdk/CLI behaviour (some import `aimail`, some only target deerflow/hermes/bridge/
+# hosts-layer/CLI-boundary). They are reported as SKIP_LEGACY by l0-gate-tests.sh and are
+# executed only with AIMAIL_LEGACY=1 — their failures are context, never a green.
+#
+# One file per line, relative to the repo root. Adding a pysdk/CLI-topic suite means
+# adding it here in the same change.
+tests/sdk/test_activate_address_code_persist.py
+tests/sdk/test_activation_secret_converges.py
+tests/sdk/test_address_code_error_envelope.py
+tests/sdk/test_address_lifecycle.py
+tests/sdk/test_agent_level_runtime.py
+tests/sdk/test_agent_pull_entry.py
+tests/sdk/test_binding_owner_entrypoints.py
+tests/sdk/test_board_invite_creds.py
+tests/sdk/test_bridge_route_side.py
+tests/sdk/test_deerflow_inbound_route.py
+tests/sdk/test_deerflow_mcp_env.py
+tests/sdk/test_deerflow_pull_wiring.py
+tests/sdk/test_deerflow_register_name.py
+tests/sdk/test_deregister_whitelist_contract.py
+tests/sdk/test_gateway_config_degrade.py
+tests/sdk/test_hermes_patch_roundtrip.py
+tests/sdk/test_hermes_toolset_ensure.py
+tests/sdk/test_hosts_layer.py
+tests/sdk/test_identity_header_contract.py
+tests/sdk/test_local_mail_search.py
+tests/sdk/test_mcp_agent_ctx.py
+tests/sdk/test_plan_address_name.py
+tests/sdk/test_private_writes_and_release.py
+tests/sdk/test_prompt_rules.py
+tests/sdk/test_pull_stream_chunked_read.py
+tests/sdk/test_pull_stream_state_machine.py
+tests/sdk/test_register_webhook_url.py
+tests/sdk/test_registration_chain.py
+tests/sdk/test_registration_secret_never_nulled.py
+tests/sdk/test_registration_secret_single_source.py
+tests/sdk/test_role_calibrator.py
+tests/sdk/test_role_prompts.py
+tests/sdk/test_sdk_cli_boundary.py
+tests/sdk/test_sdk_ops_entry.py
+tests/sdk/test_snapshot_default_on.py
+tests/sdk/test_start_polling.py
+tests/sdk/test_tool_spec_sot.py

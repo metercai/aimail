@@ -110,7 +110,34 @@ python3 -m pyflakes pysdk/aimail_base.py pysdk/aimail_board.py pysdk/aimail_tool
 for f in $(find pysdk -name '*.py' -not -path '*__pycache__*'); do
   python3 -m py_compile "$f" || { echo "[L0] FAIL: py_compile $f"; exit 1; }
 done
-python3 -m pytest tests/sdk/ -q 2>&1 | tail -2
+
+# ── pytest scope (owner ruling: the SDK supports the SSE-V2 path only) ───────────────
+# The verdict covers the SSE-V2/contract suites. pysdk + CLI-topic suites are listed in
+# tests/sdk/legacy-suites.txt and are printed as SKIP_LEGACY (never counted green); set
+# AIMAIL_LEGACY=1 to execute them as context. A suite can only move between the two sets
+# by editing that one list, so the scope cannot drift silently.
+LEGACY_LIST="tests/sdk/legacy-suites.txt"
+[ -f "$LEGACY_LIST" ] || { echo "[L0] FAIL: $LEGACY_LIST missing — cannot judge the pytest scope"; exit 1; }
+_legacy_files="$(grep -vE '^\s*(#|$)' "$LEGACY_LIST")"
+_ignore=""
+_n_legacy=0
+for f in $_legacy_files; do
+  [ -f "$f" ] || { echo "[L0] FAIL: legacy list names a missing file: $f"; exit 1; }
+  _ignore="$_ignore --ignore=$f"
+  _n_legacy=$((_n_legacy+1))
+done
+_n_total=$(ls tests/sdk/test_*.py | wc -l)
+_n_sse=$((_n_total - _n_legacy))
+echo "[L0] pytest scope: SSE-V2/contract ${_n_sse} suite(s) blocking · legacy ${_n_legacy} suite(s) SKIP_LEGACY (pysdk/CLI; AIMAIL_LEGACY=1 to execute)"
+python3 -m pytest tests/sdk/ -q $_ignore 2>&1 | tail -2
+_pytest_rc=${PIPESTATUS[0]}
+[ "$_pytest_rc" -eq 0 ] || { echo "[L0] FAIL: pytest (SSE-V2 scope) rc=$_pytest_rc"; exit 1; }
+if [ "${AIMAIL_LEGACY:-0}" = "1" ]; then
+  echo "[L0] legacy suites (AIMAIL_LEGACY=1, context only — failures do not turn this gate green):"
+  python3 -m pytest tests/sdk/ -q 2>&1 | tail -2 || true
+else
+  for f in $_legacy_files; do echo "SKIP_LEGACY $(basename "$f")"; done
+fi
 
 echo "═══ [L0] tssdk: build (pnpm build) + orphan guard + vitest ═══"
 cd tssdk
