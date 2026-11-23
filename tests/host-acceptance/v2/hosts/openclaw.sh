@@ -47,7 +47,7 @@ PY
       _turn() {
         pkill -f "openclaw gateway" 2>/dev/null; sleep 2
         timeout 420 openclaw agent --local --message "$1" >/tmp/turn.log 2>&1 || true
-        echo "turn: $(tail -3 /tmp/turn.log | tr '\n' ' ' | cut -c1-200)"
+        echo "turn: $(tail -3 /tmp/turn.log | tr "\n" " " | cut -c1-200)"
       }
       # openclaw exposes plugin tools through the meta-tool surface: the model must
       # dispatch by id (dispatch_action), not call aimail_address directly.
