@@ -6,6 +6,7 @@
 #        regression only (code → prompt → install → activate → bind → welcome →
 #        identity card + signature).
 #   Cross-platform representativeness: dsh (tssdk) + hermes (pysdk).
+#   L3 covers dsh only; pi/openclaw are covered by L2 on the local platform.
 #   hermes is NOT migrated yet → executed only with --include-legacy and always
 #   reported as SKIP_LEGACY (never counted as green).
 #
@@ -54,7 +55,8 @@ run_cell() {
 if [ -n "$CELL" ]; then
   p="${CELL%%/*}"; a="${CELL##*/}"
   case "$a" in
-    dsh|pi) run_cell "$p" "$a" v2 ;;
+    dsh) run_cell "$p" "$a" v2 ;;
+    pi|openclaw) echo "note: $a is L2 scope (not part of the L3 matrix)"; return 0 ;;
     hermes) run_cell "$p" "$a" legacy ;;
     *) echo "unknown agent $a"; exit 2 ;;
   esac

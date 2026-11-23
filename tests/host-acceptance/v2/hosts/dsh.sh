@@ -17,7 +17,7 @@ host_journey() {
   local prompt="Activate and bind my AIMail mailbox address $addr with activation code $code at gateway ${GW_URL} using aimail_address."
   docker run --rm --network host --name "l2dsh-$$" \
     -e "LLM_API_KEY=${LLM_API_KEY:?}" -e "AH=$addr" -e "AC=$code" -e "APROMPT=$prompt" \
-    -e "TOKEN=$token" -e "GWSMTP=${GW_SMTP}" \
+    -e "TOKEN=$token" -e "GWSMTP=$((GW_SMTP + 1))" \
     -v "$V2_ROOT/lib:/opt/v2lib:ro" -v "${SDK_TARBALL_DIR:?}:/opt/sdk:ro" \
     -v "${GW_WORK}:/gw:ro" -v "$out:/out" \
     --entrypoint bash "$DSH_IMAGE" -lc '
@@ -72,7 +72,8 @@ PY
   for i in $(seq 1 240); do [ -f "$out/ready" ] && break; sleep 2; done
   if [ -f "$out/ready" ]; then
     python3 "$V2_ROOT/lib/gw.py" wl --gateway "$GW_URL" --key "$GW_ADMIN" --identity "$GW_SID" \
-      --system "$GW_SID" --addr "$addr" --sender ext-sender@example.com >/dev/null 2>&1 || true
+      --system "$GW_SID" --addr "$addr" --sender ext-sender@example.com >"$out/whitelist.json" 2>&1 || true
+    grep -q '"ok": true' "$out/whitelist.json" || echo "whitelist failed: $(cat "$out/whitelist.json")" >>"$out/inject.log"
     python3 - "$addr" "$token" "$GW_SMTP" <<'PY' >>"$out/inject.log" 2>&1
 import smtplib, sys
 from email.message import EmailMessage
@@ -92,6 +93,7 @@ PY
       sleep 0.2
     done
     echo "observed max=$_max final=$_final" >>"$out/inject.log"
+    echo "emails=$(gw_sql "SELECT COUNT(*) FROM emails;")" >>"$out/inject.log"
   fi
   wait "$pid"
   return 0

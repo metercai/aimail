@@ -1,19 +1,32 @@
 #!/usr/bin/env bash
-# S3 — delivery: the host side injects a whitelisted inbound mail and watches the
-# gateway queue transition (row appears -> row disappears = acked after accept).
+# S3 — delivery. Troubleshooting ladder (owner rule): internal-host sender first,
+# then whitelist, then the inbound ledger (emails), then the pull queue
+# (pending_deliveries). SSE-V2 does not change the inbound flow; it only changes the
+# final push/pull transport, so an empty ledger means inbound never completed.
 set -uo pipefail
 CASE="S3 delivery"
 out="$1"
 
-if [ ! -f "$out/inject.log" ]; then
-  gap "no injection evidence — the journey never reached the mail stage"
+[ -f "$out/inject.log" ] || { gap "no injection evidence — journey never reached the mail stage"; return 0; }
+
+if grep -qa "whitelist failed" "$out/inject.log"; then
+  red "whitelist entry missing: $(grep -a 'whitelist failed' "$out/inject.log" | head -1)"
+else
+  pass "sender whitelisted before inbound"
+fi
+
+emails="$(sed -n 's/.*emails=\([0-9]*\).*/\1/p' "$out/inject.log" | tail -1)"
+if [ -z "$emails" ]; then
+  gap "inbound ledger not captured"
+elif [ "$emails" -ge 1 ]; then
+  pass "inbound stored (emails=$emails) — the inbound flow completed"
+else
+  red "inbound never stored (emails=0) — the inbound flow did not complete (not a pull/SSE issue)"
   return 0
 fi
+
 if grep -qa "acked_after_poll=" "$out/inject.log"; then
-  pass "inbound queued then acked (host accepted the mail)"
-elif grep -qa "observed max=0" "$out/inject.log"; then
-  red "inbound never queued (gateway refused it): $(grep -a 'observed' "$out/inject.log" | head -1)"
+  pass "queued then acked (host accepted the mail)"
 else
-  red "inbound queued but not acked: $(grep -a 'observed' "$out/inject.log" | head -1)"
+  red "$(grep -a 'observed' "$out/inject.log" | head -1)"
 fi
-if grep -qa "sent" "$out/inject.log"; then pass "smtp injection accepted by the gateway"; else gap "smtp inject did not run"; fi
