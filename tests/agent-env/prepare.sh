@@ -219,6 +219,29 @@ json.dump(d, open(p, "w"), indent=2)
 PY
     done
   done
+  # pi/packages are DECLARATIVE: a settings entry re-installs the package on the next start, so a
+  # leftover "npm:agent-aimail" in settings.json makes the environment unclean even after the tree
+  # is removed (measured 2026-11-24: node_modules reappeared at 06:36:45 while the agent ran no
+  # install command — pi restored it from settings).
+  for _cfg in "$HOME/.pi/agent/settings.json" "$HOME/.openclaw/settings.json" "$HOME/.openclaw/config.json"; do
+    [ -f "$_cfg" ] || continue
+    grep -q 'agent-aimail' "$_cfg" 2>/dev/null || continue
+    python3 - "$_cfg" <<'PY' || true
+import json, sys
+p = sys.argv[1]
+try:
+    d = json.load(open(p))
+except Exception:
+    sys.exit(0)
+changed = False
+if isinstance(d.get("packages"), list):
+    keep = [x for x in d["packages"] if "agent-aimail" not in str(x)]
+    if keep != d["packages"]:
+        d["packages"] = keep; changed = True
+if changed:
+    json.dump(d, open(p, "w"), indent=2)
+PY
+  done
   ok "clean state: no agent-aimail in dsh profiles / pi home / openclaw home; previous ~/.aimail archived"
 }
 

@@ -199,6 +199,8 @@ ok "applicant: email verified + address applied ($ADDR) + prompt from mail body"
 # ═══ [2] turn 1: clean pi environment receives the activation mail body ══════════════
 say "[2/7] turn 1 — clean pi environment (no plugin) receives the activation prompt"
 [ -z "$(plugin_pkg)" ] || die "agent-aimail already installed before the journey ($(plugin_pkg)) — environment not clean"
+grep -qa 'agent-aimail' "$PI_HOME/agent/settings.json" 2>/dev/null \
+  && die "pi settings still declare npm:agent-aimail ($PI_HOME/agent/settings.json) — pi would re-install it by itself, so the bootstrap could not be attributed to the agent"
 [ -z "$(binding_path)" ] || die "a binding already exists before any bind turn ($(binding_path)) — environment not clean"
 cp "$SPOOL.prompt.txt" "$WORK/turn1-prompt.txt"
 pi_host_turn "$WORK/turn1-prompt.txt" || say "  turn 1 exited non-zero (detail in $WORK/pi-turns.log)"
@@ -224,8 +226,15 @@ GOT_SDK="$(node -e 'process.stdout.write(require(process.argv[1]).version)' "$PK
 if [ -n "$WANT_SDK" ] && [ "$GOT_SDK" != "$WANT_SDK" ]; then
   die "installed SDK version $GOT_SDK != npm latest $WANT_SDK (registry moved mid-run? re-run)"
 fi
-grep -qaE 'install.{0,40}agent-aimail|agent-aimail.{0,40}(install|add)' "$WORK/pi-turns.log" 2>/dev/null \
-  || die "the plugin appeared but no agent-side install action is in the turn log ($WORK/pi-turns.log) — cannot prove self-bootstrap"
+# The agent's own action must be visible. Two sources: the turn stdout, and pi's session log
+# ($PI_HOME/agent/sessions/<cwd>/<ts>.jsonl), which is where tool calls live.
+_pi_sess="$(ls -t "$PI_HOME"/agent/sessions/*/*.jsonl 2>/dev/null | head -1)"
+_attrib=0
+grep -qaE 'install.{0,40}agent-aimail|agent-aimail.{0,40}(install|add)' "$WORK/pi-turns.log" 2>/dev/null && _attrib=1
+if [ "$_attrib" = 0 ] && [ -n "$_pi_sess" ] && [ -f "$_pi_sess" ]; then
+  grep -qaE 'install.{0,60}agent-aimail|agent-aimail.{0,60}(install|add)' "$_pi_sess" && _attrib=1
+fi
+[ "$_attrib" = 1 ] || die "the plugin appeared but no agent-side install action is in the turn log or pi session ($_pi_sess) — cannot prove self-bootstrap (a declarative settings entry would look exactly like this)"
 ok "agent bootstrapped the plugin itself: agent-aimail@$GOT_SDK (= npm latest) at $PKG (fixture ran no install)"
 echo "{\"sdk\":\"agent-aimail\",\"npm_latest\":\"${WANT_SDK:-unknown}\",\"installed\":\"$GOT_SDK\",\"path\":\"$PKG\",\"installed_by\":\"agent\"}" \
   > "${L3_LOG_ARCHIVE:-$WORK}/sdk.json" 2>/dev/null || true
