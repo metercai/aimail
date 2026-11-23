@@ -338,3 +338,48 @@ package.json                   bin: null（未发布 CLI 二进制，这一点�
 - **同源待同步**：`docs/aimail-host-sse-contract-v2.md:599`、`docs/v2-qa-release-handoff.md:92`
   抄了同一句错误文案，改代码时一并改；`tests/sdk/test_v2_contract_surface.py:58` 目前断言源码里含
   `agent_aimail` 这个拼写，需要复核它锁的到底是 import 名还是发行名。
+
+## REQ-15（P1，advanced + gateway 文案）激活邮件无法稳定驱动 agent 自举安装 SDK —— 附可直接替换的文案
+
+- **现象（CI，干净 runner，2026-11-24，run 45286838741）**：
+  ```
+  dsh linux-amd64 : ✗ the agent never installed agent-aimail（激活邮件驱动下未发生安装）
+  pi  macos-arm64 : ✗ the agent never installed agent-aimail
+  pi  linux-amd64 : ✓ 成功      dsh macos-arm64 : ✓ 成功
+  ```
+  同一文案、同一旅程，不同格结果相反 ⇒ 不是平台能力问题，是**指令不足以稳定驱动**（模型行为有波动）。
+- **现有文案（`advanced/src/advanced/api/email_notify.rs:149`，base gateway 有一份同源拷贝）**：
+  > …install the `agent-aimail` plugin SDK first: from PyPI via pip for Python, or from npm for Node.js. Then retry `aimail_address` with the same parameters.
+- **四个具体缺陷**（每条都有实测支撑）：
+  1. **没给宿主对应的安装命令**。三个宿主各有自己的插件机制（`dsh plugin add` / `pi install` / `openclaw plugins install`），只给"from npm"等于让 agent 自己猜；CI 上它选择结束回合。
+  2. **"the same parameters" 要求 agent 反推调用参数**。应直接给出 `action=bind, code=…, email=…, gateway_url=…`。
+  3. **没说要重启宿主**。插件在会话中途装上不会生效（dsh/pi 都是"下一次启动才加载"），agent 装完不复启就会判定自己失败并停手。
+  4. **没说明"你自己执行，不要交给用户"**。实测有 agent 回复"我在终端装好了，你继续"——把动作推给用户，自举中断。
+- **建议文案（可直接替换，英文，保持一封邮件可读性）**：
+  ```
+  Activate and bind my AIMail mailbox address {address} with activation code {code}
+  at gateway {gw}, using the `aimail_address` tool.
+
+  If `aimail_address` is missing from your tool list, install the AIMail SDK yourself
+  — do not ask the user to run it, you have a shell. Use your host's own mechanism:
+
+      dsh       : dsh plugin add agent-aimail
+      pi        : pi install agent-aimail
+      openclaw  : openclaw plugins install agent-aimail
+      other Node: npm install agent-aimail
+      Python    : pip install agent-aimail
+
+  The package is `agent-aimail` (hyphen, not underscore) on both npm and PyPI.
+
+  A plugin installed mid-session only loads on the next start, so restart your host,
+  then call `aimail_address` once with:
+
+      {"action":"bind","code":"{code}","email":"{address}","gateway_url":"{gw}"}
+
+  When the binding succeeds you receive a welcome mail with the identity calibration
+  instructions; follow it and reply in that thread.
+  ```
+- **判据（L3 可自动判）**：4 平台 × {dsh, pi, openclaw}，在**不可读本仓库文档**的干净环境里，
+  `[3]` 首次尝试（含用户一句"你自己装"）内出现 agent 自己的安装动作，且 `[5]` bind、`[7]` persona/signature 成立。
+- **同源约束**：这句话在 base gateway 与 advanced 各有一份；两处必须改同一字符串，并由一条契约检查锁住
+  （避免再出现"一处改成 agent-aimail、另一处还是 agent_aimail"）。
