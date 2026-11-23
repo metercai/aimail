@@ -171,3 +171,25 @@ pins: gateway v1.0.14, npm agent-aimail 0.5.2, dsh 0.2.2-rc.1.
 
 判决条件（不得放宽）：安装必须是 agent 自己发起（宿主 plugin_manager 工具、或宿主的 CLI、或 npm/pnpm 命令），
 夹具零 install；环境必须在安装前干净；夹具泄露（transcript 出现 tests/l3）⇒ INVALID，不判产品。
+
+### 8.6 pi self-bootstrap: PASS (2026-11-24, local linux-amd64)
+
+```
+[2] clean pi env (no plugin, no binding, no settings reference)
+[3] ✓ agent bootstrapped the plugin itself: agent-aimail@0.5.2 (= npm latest), installed_by=agent
+[4] next pi process picks it up
+[5] ✓ binding landed (agent_system_id=asid_…, gateway_url, no webhook_url)
+[6] ✓ welcome queued → applicant approves → persona applied
+[7] ✓ whoami: persona + signature in effect
+VERDICT: PASS
+```
+Host hooks: `pi_host_turn` (one `pi -p` per user turn), `plugin_pkg` (find under `$PI_HOME`),
+no llmMs counter (turn output is the evidence), no daemon to restart.
+
+Traps this brought out, all fixture-side (each one would have produced a wrong verdict):
+1. `pi`'s settings are **declarative** (`packages: ["npm:agent-aimail"]`): pi re-installs the package
+   by itself on start, so a leftover settings entry is indistinguishable from an agent self-bootstrap.
+   Clean state now includes clearing that reference, and the clean-state assertion rejects it.
+2. a welcome that is delivered+acked leaves no `pending_deliveries` row; querying only the queue made
+   a correct calibration look like a failure (false RED). The evidence now comes from `emails` first.
+3. `run-v2.sh` reported PASS with zero cells after silently skipping pi — zero cells now exit FAIL.
