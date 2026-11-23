@@ -503,7 +503,11 @@ fi
 # this check grepped $WORK, where no transcript is ever written, so a successful bootstrap was
 # reported as "cannot prove self-bootstrap" (measured 2026-11-23).
 _DONE_BY_AGENT=0
-_pat='plugin[^"]{0,24}add[^"]{0,24}agent-aimail|npm (i|install|add) [^"]{0,60}agent-aimail|pnpm (add|i|install) [^"]{0,60}agent-aimail'
+# The agent may install through the host's OWN plugin mechanism rather than a shell command —
+# measured 2026-11-23: dsh's plugin_manager tool with {"action":"install_bundle","target":
+# "agent-aimail"}. That IS the doctrine (the host's normal mechanism, driven by the agent), so
+# the attribution must accept it alongside bash/npm/pnpm forms.
+_pat='install_bundle.{0,160}agent-aimail|install_plugin.{0,160}agent-aimail|agent-aimail.{0,160}(install_bundle|install_plugin)|plugin.{0,24}add.{0,24}agent-aimail|npm (i|install|add) .{0,60}agent-aimail|pnpm (add|i|install) .{0,60}agent-aimail'
 # the nudge opens a NEW session, so re-resolve the transcript(s) here instead of reusing the
 # one the tripwire read earlier
 _sess="$(ls -t "$DSH_HOME"/sessions/*/*/session.v4.jsonl.zstd 2>/dev/null | head -1)"
