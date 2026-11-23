@@ -433,6 +433,29 @@ ok "turn 1 done; no binding on disk (the tool was missing — SKILL §1 path)"
 
 # ═══ [3] the user installs the plugin (the host's normal plugin mechanism) ═════
 say "[3/7] the agent installs the plugin itself (the activation mail told it to)"
+# ── integrity tripwire ────────────────────────────────────────────────────────────────
+# Measured 2026-11-23: turn 1 spent its last three steps running
+#   sed -n 1,150p /home/ubuntu/aimail/tests/l3/dsh-v2.sh
+# i.e. the host could read this fixture and "solved" the task open-book. A cell whose agent
+# has seen the harness cannot judge the product, so it must be reported as INVALID (neither
+# green nor a product RED). The structural fix is host isolation; this is the tripwire.
+_sess="$(ls -t "$DSH_HOME"/sessions/*/*/session.v4.jsonl.zstd 2>/dev/null | head -1)"
+_leak=0
+if [ -n "$_sess" ]; then
+  if command -v zstdcat >/dev/null 2>&1; then
+    zstdcat "$_sess" 2>/dev/null | grep -qaE "tests/l3/|dsh-v2\.sh|run-l3\.sh|run-v2\.sh" && _leak=1
+  elif python3 -c "import zstandard" >/dev/null 2>&1; then
+    python3 - "$_sess" <<'PY' && _leak=1
+import sys, zstandard
+d = zstandard.ZstdDecompressor().stream_reader(open(sys.argv[1], 'rb')).read().decode('utf-8', 'replace')
+needles = ('tests/l3/', 'dsh-v2.sh', 'run-l3.sh', 'run-v2.sh')
+sys.exit(0 if any(n in d for n in needles) else 1)
+PY
+  else
+    warn "integrity tripwire skipped: no zstdcat / python-zstandard on this host (recorded, not counted as a pass)"
+  fi
+fi
+[ "$_leak" = 0 ] || die "INVALID cell: the agent read the L3 harness (transcript mentions tests/l3) — the host can see this checkout, so the run is open-book and cannot judge the product. Isolate the host, then re-run."
 # Owner ruling 2026-11-23: L3 simulates a user. Installing the published SDK is the AGENT's
 # own bootstrap, triggered by the activation prompt (advanced email_notify.rs:149: "if
 # aimail_address is unavailable or not registered, install the agent_aimail plugin SDK
@@ -451,6 +474,9 @@ ok "clean state confirmed: no agent-aimail in the profile before the bootstrap"
 # the turn without installing, partly because the mail names the PyPI package
 # (`agent_aimail`) and says "from npm", where the npm package is `agent-aimail`.
 if [ -z "$(find "$DSH_HOME" -maxdepth 6 -path '*node_modules/agent-aimail/package.json' 2>/dev/null | head -1)" ]; then
+  # the nudge is a NEW user turn: closing the current one first is what a real user waits for
+  # (measured: injecting mid-turn meant the nudge was never consumed)
+  wait_turn_done "$SID1" 60 || say "  turn 1 did not close within 60s — nudging anyway"
   say "plugin not installed yet after turn 1 — user nudge (words only; the agent must run the install)"
   cat > "$WORK/turn1b-nudge.txt" <<PROMPT
 Go ahead and install the AIMail plugin SDK yourself now (the Node/npm one for this host),
