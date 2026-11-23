@@ -42,6 +42,40 @@ L2 汇总（v1.0.13 pin）：`s1 s2 s3` 三宿主 RED=0（pi s3 为已登记 GAP
 
 ---
 
+## 0.2 最终结论（发布收口）
+
+```
+VERDICT: PASS
+gateway  base 1.0.13 @ 5001812 · tag v1.0.13   （四资产 sha256 亲核，pins.env 已 pin）
+tssdk    agent-aimail 0.5.2 @ be2c89e          （npm 已发布，发布件核验通过）
+advanced email_notify hint @ 89bd7de           （仅提交到分支，未 bump、未部署）
+L3       4/4 dsh cells PASS（published artifacts，gateway pin v1.0.13）
+```
+
+L3 逐格（`tests/l3/GATE.md` 口径，hermes/deerflow 只打 SKIP_LEGACY，不计绿不执行）：
+
+| cell | run | 结论 | 关键证据 |
+|---|---|---|---|
+| linux-amd64 / dsh | 45147504126 | **PASS** | 旅程 [0]-[7] 全 ✓ |
+| linux-arm64 / dsh | 45147504126 | **PASS** | 同上 |
+| macos-arm64 / dsh | 45147504126 | **PASS** | 同上 |
+| windows-amd64 / dsh | 45167142107 | **PASS** | llmMs 9720 → 45017 → 113658；persona/signature 读回；`L3 PASS: windows-amd64 / dsh` |
+
+前 3 格取自 publish run（`be2c89e`）；windows 格取自重跑（`65c6c5b`，差异只在门禁脚本，被测产物同为
+npm `0.5.2` + gateway pin `v1.0.13`）。
+
+**windows 这一格的教训（全部是验证方夹具缺陷，产品零缺陷）**：连续 4 次红，每次签名都不同，逐个修掉：
+1. `llmMs=0` → `llm_ms_total` 把 git-bash 的 `/c/Users/...` 交给原生 Python glob（`46d264d`）；
+2. `mode=644 vs 600` → NTFS 没有 POSIX 模式位，判据不适用（`3742108`，改为报告且不计绿）；
+3. `turn 1 > 300s` → 实测 283s 真实 decode，windows 等待预算 300→600s（`a553fd5`，预算非阈值）；
+4. 末行 `✓` 打印 → cp1252 编码崩，断言其实已通过（`65c6c5b`，强制 `PYTHONIOENCODING=utf-8`）。
+每一轮日志里的产品证据都一致：bind landed + 真实 llmMs + welcome queued + persona-applied。
+
+回滚点：`pins.env` 可退回 v1.0.12（`15d6d9c`）；gateway `v1.0.13` tag 保留；npm 侧如需回退用 dist-tag，
+不删除已发布版本。
+
+---
+
 ## 1. 静态/单测：全部与交接文档一致（我重跑，不看结论）
 
 | 项 | 我跑的结果 | 与交接是否一致 |
