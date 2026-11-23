@@ -43,21 +43,11 @@ PY
       openclaw plugins install "$TGZ" --force --accept-capabilities >/tmp/plugin.log 2>&1 || { echo "plugin install failed"; tail -8 /tmp/plugin.log; exit 3; }
       openclaw plugins enable agent-aimail --accept-capabilities >/tmp/enable.log 2>&1 || true
       pkill -f "openclaw gateway" 2>/dev/null; sleep 2
-      setsid nohup openclaw gateway >/tmp/gw.log 2>&1 &
-      for i in $(seq 1 90); do grep -qa "listening" /tmp/gw.log && break; sleep 2; done
+      echo "boot: embedded agent mode (no gateway during turns)" >/tmp/gw.log
       _turn() {
-        python3 - "$1" <<PY
-import json, sys, urllib.request
-prompt = sys.argv[1]
-body = json.dumps({"message": prompt}).encode()
-req = urllib.request.Request("http://127.0.0.1:39200/hooks/agent", data=body,
-    headers={"content-type": "application/json", "authorization": "Bearer l2-hook-token"}, method="POST")
-try:
-    with urllib.request.urlopen(req, timeout=300) as r:
-        print("turn:", r.read(200).decode())
-except Exception as e:
-    print("turn error:", type(e).__name__, str(e)[:160])
-PY
+        pkill -f "openclaw gateway" 2>/dev/null; sleep 2
+        timeout 420 openclaw agent --local --message "$1" >/tmp/turn.log 2>&1 || true
+        echo "turn: $(tail -3 /tmp/turn.log | tr '\n' ' ' | cut -c1-200)"
       }
       # openclaw exposes plugin tools through the meta-tool surface: the model must
       # dispatch by id (dispatch_action), not call aimail_address directly.
@@ -172,8 +162,7 @@ PY
       openclaw plugins install "$TGZ" --force --accept-capabilities >/tmp/plugin.log 2>&1 || { echo "install failed"; tail -8 /tmp/plugin.log; exit 3; }
       openclaw plugins enable agent-aimail --accept-capabilities >/tmp/enable.log 2>&1 || true
       pkill -f "openclaw gateway" 2>/dev/null; sleep 2
-      setsid nohup openclaw gateway >/tmp/gw.log 2>&1 &
-      for i in $(seq 1 90); do grep -qa "listening" /tmp/gw.log && break; sleep 2; done
+      echo "boot: embedded agent mode (no gateway during turns)" >/tmp/gw.log
       python3 - <<PY
 import json, urllib.request
 body = json.dumps({"message": "Call the aimail_address tool now with exactly this JSON: {\"action\":\"bind\",\"code\":\"addr-0000-deadbeef\",\"email\":\"" + __import__("os").environ["AH"] + "\",\"gateway_url\":\"" + __import__("os").environ["GWURL"] + "\"}. Do not ask questions; just call it and report the result."}).encode()
