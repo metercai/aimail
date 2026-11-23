@@ -65,7 +65,7 @@ PY
         _turn "Use the dispatch_action tool with id \"aimail_address\" and args {\"action\":\"unbind\",\"email\":\"$AH\"}. Do not ask questions; just dispatch it and report the result."
         python3 /opt/v2lib/dsh_state.py /app/.aimail count > /out/b3 2>/dev/null || echo 0 > /out/b3
       fi
-      B=$(ls /app/.aimail/systems/*/*/agentmail.json 2>/dev/null | head -1)
+      B=$(ls /app/.aimail/systems/*/*/agentmail.json 2>/dev/null | head -1)  # contract-allowed: fixture globs the SDK binding file; the repo contract is not mounted inside the host image
       [ -n "$B" ] && { install -m 644 "$B" /out/binding.json; stat -c %a "$B" > /out/mode; }
       python3 /opt/v2lib/dsh_state.py /app/.aimail count > /out/bindings_count 2>/dev/null || echo 0 > /out/bindings_count
       if [ -n "$B" ] && [ "$LIFECYCLE" != "1" ]; then
@@ -100,7 +100,9 @@ PY
   if [ -f "$out/ready" ] && [ "${LIFECYCLE:-0}" != "1" ]; then
     python3 "$V2_ROOT/lib/gw.py" wl --gateway "$GW_URL" --key "$GW_ADMIN" --identity "$GW_SID" \
       --system "$GW_SID" --addr "$addr" --sender ext-sender@example.com >"$out/whitelist.json" 2>&1 || true
-    python3 - "$addr" "$token" "$GW_SMTP" <<'PY' >>"$out/inject.log" 2>&1
+    # Same port fix as hosts/dsh.sh: the inbound listener is $((GW_SMTP + 1)), GW_SMTP is
+    # the sink. See the comment there and REQ1-ingress-evidence.md §3.
+    python3 - "$addr" "$token" "$((GW_SMTP + 1))" <<'PY' >>"$out/inject.log" 2>&1
 import smtplib, sys
 from email.message import EmailMessage
 addr, token, port = sys.argv[1], sys.argv[2], int(sys.argv[3])

@@ -29,7 +29,7 @@ def main() -> int:
         return summarize(sys.argv[1])
     home = sys.argv[1] if len(sys.argv) > 1 else "/root/.aimail"
     mode = sys.argv[2] if len(sys.argv) > 2 else "paused"
-    paths = sorted(glob.glob(home + "/systems/*/*/agentmail.json"))
+    paths = sorted(glob.glob(home + "/systems/*/*/agentmail.json"))  # contract-allowed: fixture globs the SDK binding file; the repo contract is not mounted inside the host image
     if mode == "count":
         print(len(paths))
         return 0

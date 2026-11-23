@@ -13,7 +13,7 @@ echo "═══ [L0] python lint + unit tests ═══"
 # tarball can only pack files within the package directory, so staging is part of each package's packaging process, no repo-level unified script.
 # pysdk side does not need a copy: in repo checkout, SDK reads repo root resources/ directly (_resources_release.resources_root).
 # The gate here stages the copy for each of the 3 packages, so that contract rule ③ can read it (in a clean clone, the generated artifact does not exist).
-bash tests/cli/stage-resources.sh
+bash tests/sdk/stage-resources.sh
 # Contract single true source gate (2026-09-27): agent internal contract surface (skill/toolset registration names, binding file names,
 # Single source of truth for (pointer filename, inbound path) =
 # contract/aimail-contract.json; guarded by ① two constant modules (pysdk/aimail_contract.py +

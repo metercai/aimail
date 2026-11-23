@@ -48,11 +48,11 @@ PY
       mkdir -p /root/ws && cd /root/ws
       timeout 420 pi -p "$PROMPT" >/tmp/pi.log 2>&1 || true
       python3 /opt/v2lib/dsh_state.py /root/.aimail count > /out/bindings_seen 2>/dev/null || echo 0 > /out/bindings_seen
-      B=$(ls /root/.aimail/systems/*/*/agentmail.json 2>/dev/null | head -1)
+      B=$(ls /root/.aimail/systems/*/*/agentmail.json 2>/dev/null | head -1)  # contract-allowed: fixture globs the SDK binding file; the repo contract is not mounted inside the host image
       if [ -n "$B" ]; then install -m 644 "$B" /out/binding.json; stat -c %a "$B" > /out/mode; fi
       python3 - <<PY >/out/paused_seen 2>/dev/null || echo None >/out/paused_seen
 import glob, json
-p = sorted(glob.glob("/root/.aimail/systems/*/*/agentmail.json"))
+p = sorted(glob.glob("/root/.aimail/systems/*/*/agentmail.json"))  # contract-allowed: fixture globs the SDK binding file; the repo contract is not mounted inside the host image
 print(json.load(open(p[0])).get("paused") if p else "no-binding")
 PY
       tail -n 200 /tmp/pi.log > /out/last.log 2>/dev/null || true

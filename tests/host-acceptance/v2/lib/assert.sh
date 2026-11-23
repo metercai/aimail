@@ -12,7 +12,7 @@ set -uo pipefail
 N_PASS=${N_PASS:-0}; N_RED=${N_RED:-0}; N_GAP=${N_GAP:-0}; N_SKIP=${N_SKIP:-0}
 RESULT_LINES=${RESULT_LINES:-}
 
-_row() { printf '%-6s %-28s %-24s %s\n' "$1" "$2" "${3:-}" "${4:-}"; }
+_row() { printf '%-6s %-28s %-24s %s\n' "$1" "$2" "${3:-}" "${4:-}"; RESULT_LINES="${RESULT_LINES}${RESULT_LINES:+$'\n'}$(printf '%-6s %-28s %-24s %s' "$1" "$2" "${3:-}" "${4:-}")"; }
 
 pass() { N_PASS=$((N_PASS+1)); _row PASS "$CASE" "${1:-}"; }
 red()  { N_RED=$((N_RED+1));   _row RED  "$CASE" "${1:-}"; }

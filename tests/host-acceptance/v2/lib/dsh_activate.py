@@ -99,7 +99,7 @@ def main() -> int:
     def _snapshot():
         import glob as _g, json as _j, os as _o
         home = _o.environ.get("AIMAIL_HOME", "/root/.aimail")
-        paths = sorted(_g.glob(home + "/systems/*/*/agentmail.json"))
+        paths = sorted(_g.glob(home + "/systems/*/*/agentmail.json"))  # contract-allowed: fixture globs the SDK binding file; the repo contract is not mounted inside the host image
         paused = None
         for pth in paths:
             try:

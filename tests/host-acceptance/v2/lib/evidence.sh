@@ -3,6 +3,7 @@
 # (or red) is auditable without re-running.
 #
 #   EV_DIR/run.json      host, versions, gateway pin, timings
+#   EV_DIR/results.txt   the PASS/RED/GAP rows of every stage this host ran
 #   EV_DIR/host.log      host tail (sanitised)
 #   EV_DIR/binding.json  binding without the key
 set -uo pipefail
@@ -27,6 +28,11 @@ PY
 ev_log() {  # ev_log <src> [max lines]
   local src="$1" n="${2:-200}"
   [ -f "$src" ] && tail -n "$n" "$src" | sed -E 's/(api[_-]?key|token|raw_key)"?[:=][[:space:]]*"?[A-Za-z0-9_\-\.]{8,}/\1=[REDACTED]/gi' >"$EV_DIR/host.log" 2>/dev/null || true
+}
+
+ev_results() {  # persist the rows this host produced (RESULT_LINES is per-host reset by the runner)
+  [ -n "${EV_DIR:-}" ] || return 0
+  printf '%s\n' "${RESULT_LINES:-}" >"$EV_DIR/results.txt" 2>/dev/null || true
 }
 
 ev_binding() {  # ev_binding <path>

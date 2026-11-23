@@ -87,10 +87,13 @@ for h in $HOSTS; do
       neg) host_negative "$out" "$addr"; . "$V2/cases/negatives.sh" "$out" "$addr" ;;
     esac
   done
+  ev_results          # persist this host's PASS/RED/GAP rows (evidence/l2/<ts>-<host>/results.txt)
+  RESULT_LINES=""
   ev_log "$out/host.log" 300
   ev_binding "$out/binding.json"
   host_stop || true
 done
 echo
-echo "not yet covered: s4 multi-address · s5 lifecycle · negatives"
+echo "stages run: $STAGES  (s3 needs a gateway release that contains the pull-mode ledger fix —"
+echo "see docs/qa/REQ1-ingress-evidence.md §4/§5; with pinned v1.0.11 it is expected RED)"
 summary

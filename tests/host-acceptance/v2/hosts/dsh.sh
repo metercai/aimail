@@ -48,8 +48,8 @@ host_journey() {
         python3 /opt/v2lib/dsh_activate.py "$URL" /root/ws /tmp/prompts.txt >/tmp/act.log 2>&1 || true
       # aggregate the per-turn snapshots
       python3 /opt/v2lib/dsh_state.py /out summarize > /out/journey_state 2>/dev/null || true
-      stat -c %a "$(ls /root/.aimail/systems/*/*/agentmail.json 2>/dev/null | head -1)" > /out/mode 2>/dev/null || echo none > /out/mode
-      B=$(ls /root/.aimail/systems/*/*/agentmail.json 2>/dev/null | head -1)
+      stat -c %a "$(ls /root/.aimail/systems/*/*/agentmail.json 2>/dev/null | head -1)" > /out/mode  # contract-allowed: in-container fixture glob; repo contract is not mounted in the host image 2>/dev/null || echo none > /out/mode
+      B=$(ls /root/.aimail/systems/*/*/agentmail.json 2>/dev/null | head -1)  # contract-allowed: in-container fixture glob; repo contract is not mounted in the host image
       [ -n "$B" ] && install -m 644 "$B" /out/binding.json
       echo "binding=${B:-none}"
       # arm + delivery only when the mailbox is still bound (no unbind stage)
@@ -86,7 +86,13 @@ PY
     python3 "$V2_ROOT/lib/gw.py" wl --gateway "$GW_URL" --key "$GW_ADMIN" --identity "$GW_SID" \
       --system "$GW_SID" --addr "$addr" --sender ext-sender@example.com >"$out/whitelist.json" 2>&1 || true
     grep -q '"ok": true' "$out/whitelist.json" || echo "whitelist failed: $(cat "$out/whitelist.json")" >>"$out/inject.log"
-    python3 - "$addr" "$token" "$GW_SMTP" <<'PY' >>"$out/inject.log" 2>&1
+    # Port fix (2026-11-23): the gateway's inbound listener is $((GW_SMTP + 1)); GW_SMTP
+    # itself is the sink (relay peer) — `gw.sh:63` binds the gateway at smtp+1 and
+    # `gw.sh:70` points [relay] at smtp. Sending to "$GW_SMTP" delivered the probe
+    # straight to the sink, which spooled the original and answered 250 while the
+    # gateway never saw the mail ⇒ S3 read emails=0/pending=0 and looked like the
+    # gateway was relaying inbound. Container side above already used +1.
+    python3 - "$addr" "$token" "$((GW_SMTP + 1))" <<'PY' >>"$out/inject.log" 2>&1
 import smtplib, sys
 from email.message import EmailMessage
 addr, token, port = sys.argv[1], sys.argv[2], int(sys.argv[3])
@@ -137,7 +143,7 @@ host_negative() {
       printf "Call the aimail_address tool now with exactly this JSON: {\"action\":\"bind\",\"code\":\"addr-0000-deadbeef\",\"email\":\"%s\",\"gateway_url\":\"%s\"}. Do not ask questions; just call it and report the result.\n" "$AH" "$GWURL" > /tmp/neg.txt
       DSH_READ_SECS=120 DSH_KEEPALIVE_TICKS=1 python3 /opt/v2lib/dsh_activate.py "$URL" /root/ws /tmp/neg.txt >/tmp/neg.log 2>&1 || true
       sleep 10
-      ls /root/.aimail/systems/*/*/agentmail.json 2>/dev/null | wc -l > /out/bindings_count
+      ls /root/.aimail/systems/*/*/agentmail.json 2>/dev/null | wc -l > /out/bindings_count  # contract-allowed: in-container fixture glob; the repo contract is not mounted in the host image
       tail -n 150 /tmp/neg.log > /out/act.log 2>/dev/null || true
     ' >"$out/rc" 2>&1
   return 0
