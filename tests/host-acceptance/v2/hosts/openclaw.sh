@@ -34,7 +34,7 @@ prov["apiKey"] = os.environ["LLM_API_KEY"]
 c.setdefault("agents", {}).setdefault("defaults", {})["model"] = "custom-api-xiaomimimo-com/mimo-v2.6-flash"
 c.setdefault("plugins", {}).update({"enabled": True, "allow": ["agent-aimail"]})
 c["plugins"].setdefault("entries", {})["agent-aimail"] = {"enabled": True}
-c.setdefault("tools", {})["alsoAllow"] = ["send_mail","reply_mail","forward_mail","list_mail","read_mail","search_mail","delete_mail","mark_mail","download_attachment","get_mailbox_info","manage_mailbox","role_calibrator","aimail_address","aimail_system","aimail_contacts","aimail_preferences"]
+# capability-registered tools: no tools.alsoAllow (a stale allow-list hides them)
 c.setdefault("hooks", {}).update({"enabled": True, "token": "l2-hook-token"})
 c.setdefault("gateway", {}).update({"mode": "local", "port": 39200, "auth": {"token": "l2-oc-token"}})
 p.parent.mkdir(parents=True, exist_ok=True); p.write_text(json.dumps(c, indent=2))
@@ -59,7 +59,9 @@ except Exception as e:
     print("turn error:", type(e).__name__, str(e)[:160])
 PY
       }
-      _bind() { _turn "Call the aimail_address tool now with exactly this JSON: {\"action\":\"bind\",\"code\":\"$2\",\"email\":\"$1\",\"gateway_url\":\"$GWURL\"}. Do not ask questions; just call it and report the result."; }
+      # openclaw exposes plugin tools through the meta-tool surface: the model must
+      # dispatch by id (dispatch_action), not call aimail_address directly.
+      _bind() { _turn "Use the dispatch_action tool with id \"aimail_address\" and args {\"action\":\"bind\",\"code\":\"$2\",\"email\":\"$1\",\"gateway_url\":\"$GWURL\"}. Do not ask questions; just dispatch it and report the result."; }
       _bind "$AH" "$AC"
       python3 /opt/v2lib/dsh_state.py /app/.aimail count > /out/b1 2>/dev/null || echo 0 > /out/b1
       if [ -n "$SECOND" ]; then
@@ -68,9 +70,9 @@ PY
         python3 /opt/v2lib/dsh_state.py /app/.aimail count > /out/b2 2>/dev/null || echo 0 > /out/b2
       fi
       if [ "$LIFECYCLE" = "1" ]; then
-        _turn "Call the aimail_address tool now with exactly this JSON: {\"action\":\"pause\",\"email\":\"$AH\"}. Do not ask questions; just call it and report the result."
+        _turn "Use the dispatch_action tool with id \"aimail_address\" and args {\"action\":\"pause\",\"email\":\"$AH\"}. Do not ask questions; just dispatch it and report the result."
         python3 /opt/v2lib/dsh_state.py /app/.aimail paused > /out/paused 2>/dev/null || echo unknown > /out/paused
-        _turn "Call the aimail_address tool now with exactly this JSON: {\"action\":\"unbind\",\"email\":\"$AH\"}. Do not ask questions; just call it and report the result."
+        _turn "Use the dispatch_action tool with id \"aimail_address\" and args {\"action\":\"unbind\",\"email\":\"$AH\"}. Do not ask questions; just dispatch it and report the result."
         python3 /opt/v2lib/dsh_state.py /app/.aimail count > /out/b3 2>/dev/null || echo 0 > /out/b3
       fi
       B=$(ls /app/.aimail/systems/*/*/agentmail.json 2>/dev/null | head -1)
@@ -100,7 +102,8 @@ PY
       else
         date +%s > /out/ready
       fi
-      tail -n 300 /tmp/gw.log /tmp/gw2.log > /out/host.log 2>/dev/null || true
+      grep -a "agent-aimail\|aimail-pull" /tmp/gw.log /tmp/gw2.log > /out/host.log 2>/dev/null || true
+      tail -n 200 /tmp/gw.log /tmp/gw2.log >> /out/host.log 2>/dev/null || true
     ' >"$out/rc" 2>&1 &
   local pid=$!
   for i in $(seq 1 300); do [ -f "$out/ready" ] && break; sleep 2; done
@@ -160,7 +163,7 @@ c.setdefault("models", {}).setdefault("providers", {}).setdefault("custom-api-xi
 c.setdefault("agents", {}).setdefault("defaults", {})["model"] = "custom-api-xiaomimimo-com/mimo-v2.6-flash"
 c.setdefault("plugins", {}).update({"enabled": True, "allow": ["agent-aimail"]})
 c["plugins"].setdefault("entries", {})["agent-aimail"] = {"enabled": True}
-c.setdefault("tools", {})["alsoAllow"] = ["aimail_address","aimail_system"]
+# capability-registered tools: no allow-list
 c.setdefault("hooks", {}).update({"enabled": True, "token": "l2-hook-token"})
 c.setdefault("gateway", {}).update({"mode": "local", "port": 39201, "auth": {"token": "l2-oc-token"}})
 p.parent.mkdir(parents=True, exist_ok=True); p.write_text(json.dumps(c, indent=2))
