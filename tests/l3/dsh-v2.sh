@@ -408,10 +408,24 @@ say "[3/7] user installs the plugin (dsh plugin add — the host's normal mechan
 # normal plugin/extension mechanism; §6 forbids aimail install / shell
 # installers / file writes. The user runs the dsh plugin manager — exactly the
 # command a user would run in their terminal.
+# The artifact under test must be named, not implied: `dsh plugin add agent-aimail`
+# resolves npm "latest", so record what that resolved to and assert the installed copy
+# is that exact version. Without this an L3 verdict cannot say which SDK it signed.
+WANT_SDK="$(npm view agent-aimail version 2>/dev/null || true)"
+say "published SDK under test: agent-aimail@${WANT_SDK:-<npm view failed>}"
 DSH_HOME="$DSH_HOME" dsh plugin --profile web add agent-aimail \
   > "$WORK/plugin-add.log" 2>&1 \
   || { bad "dsh plugin add failed: $(tail -10 "$WORK/plugin-add.log")"; exit 1; }
-ok "plugin installed into profile 'web' (npm latest = the released SDK)"
+SDK_PKG="$(find "$DSH_HOME" -maxdepth 6 -path '*node_modules/agent-aimail/package.json' 2>/dev/null | head -1)"
+[ -n "$SDK_PKG" ] || { bad "plugin installed but no agent-aimail/package.json under $DSH_HOME (install landed elsewhere)"; exit 1; }
+GOT_SDK="$(node -e 'process.stdout.write(require(process.argv[1]).version)' "$SDK_PKG" 2>/dev/null || true)"
+[ -n "$GOT_SDK" ] || { bad "cannot read the installed SDK version from $SDK_PKG"; exit 1; }
+if [ -n "$WANT_SDK" ] && [ "$GOT_SDK" != "$WANT_SDK" ]; then
+  bad "installed SDK version $GOT_SDK != npm latest $WANT_SDK (registry moved mid-run? re-run)"; exit 1
+fi
+ok "plugin installed into profile 'web': agent-aimail@$GOT_SDK (= npm latest) at $SDK_PKG"
+echo "{\"sdk\":\"agent-aimail\",\"npm_latest\":\"${WANT_SDK:-unknown}\",\"installed\":\"$GOT_SDK\",\"path\":\"$SDK_PKG\"}" \
+  > "${L3_LOG_ARCHIVE:-$WORK}/sdk.json" 2>/dev/null || true
 # the composed tree must now carry the mail tool row in the GLOBAL layer
 # (L2 gate mechanism: tool-mail is what reaches every session's surface).
 DSH_HOME="$DSH_HOME" dsh --profile web --dump-config > "$WORK/post-tree.txt" 2>/dev/null \
