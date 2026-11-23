@@ -323,7 +323,13 @@ PRE_REPLY_LLMMS="$(llm_ms_total)"
 # persona:/signature: sections in the body (webhook.rs parse_persona_approval).
 # Persona/signature values: fixed test identity (the manager's own choice — in a
 # real deployment the manager types whatever they want).
-python3 - "$GW_SMTP_PORT" "$APPLICANT" "$ADDR" <<'PY' || die "manager [CMD] approve persona SMTP send failed"
+# The approval is an ordinary inbound mail. Retry briefly (the gateway may still be settling)
+# and, on failure, state the port + whether anything is listening — a bare "connection refused"
+# cost a whole cell on 2026-11-24.
+_approve_try=0
+while [ "$_approve_try" -lt 10 ]; do
+  if python3 - "$GW_SMTP_PORT" "$APPLICANT" "$ADDR" <<'PY'
+import sys, smtplib
 import sys, smtplib
 port, applicant, addr = int(sys.argv[1]), sys.argv[2], sys.argv[3]
 msg = (f"From: {applicant}\r\nTo: {addr}\r\nSubject: [CMD] approve persona\r\n\r\n"
@@ -333,6 +339,13 @@ with smtplib.SMTP("127.0.0.1", port, timeout=15) as s:
     s.sendmail(applicant, [addr], msg)
 print("  manager [CMD] approve persona sent via SMTP inbound")
 PY
+  then _approve_try=99; break; fi
+  _approve_try=$((_approve_try+1)); sleep 2
+done
+if [ "$_approve_try" -ne 99 ]; then
+  bad "manager [CMD] approve persona SMTP send failed: port ${GW_SMTP_PORT} not accepting after 20s (listening: $(ss -ltn 2>/dev/null | grep -c ":$GW_SMTP_PORT ") ; gateway log: $(tail -3 "$GW_HOME/boot.log" | tr '\n' ' '))"
+  exit 1
+fi
 # wait for the approval to process: gateway log line + meta row updated.
 APPROVED=""
 META_PERSONA=""
