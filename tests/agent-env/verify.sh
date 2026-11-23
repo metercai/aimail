@@ -153,8 +153,24 @@ fi
 echo "── [4] negative: nothing of ours is pre-installed"
 if command -v aimail >/dev/null 2>&1; then red "aimail CLI already on PATH: $(command -v aimail)"
 else pass "no aimail CLI on PATH"; fi
-_hits="$(find / -xdev -type f -name 'aimail' -not -path '/proc/*' -not -path '/opt/agent-env/*' 2>/dev/null | head -3)"
-[ -z "$_hits" ] && pass "no aimail CLI binary on disk" || red "aimail CLI binary present: $_hits"
+# What matters is that the AGENT cannot find our CLI: its search path and the standard
+# install prefixes. Scanning the whole filesystem (the old `find / -name aimail`) flagged
+# unrelated scratch copies left by earlier CLI-domain tests, which made a local L3 run
+# impossible on a machine that had ever run them (measured 2026-11-23: /tmp/aimail-x-*).
+_scan_dirs="$HOME/.local/bin /usr/local/bin /usr/bin /bin $HOME/.cargo/bin"
+# npm >= 10 removed `npm bin`; use the global prefix's bin dir
+_gbin="$(npm prefix -g 2>/dev/null || true)"; [ -n "$_gbin" ] && _scan_dirs="$_scan_dirs $_gbin/bin"
+_hits=""
+for _d in $_scan_dirs; do
+  [ -d "$_d" ] || continue
+  _h="$(find "$_d" -maxdepth 1 -type f -name aimail 2>/dev/null | head -1)"
+  [ -n "$_h" ] && _hits="$_hits $_h"
+done
+[ -z "$_hits" ] && pass "no aimail CLI binary in the agent's search path ($_scan_dirs)" \
+  || red "aimail CLI binary present in the agent's search path:$_hits"
+# informational only: stray copies elsewhere (a scratch tree the agent cannot reach)
+_stray="$(find /tmp -maxdepth 4 -type f -name aimail -perm -u+x 2>/dev/null | head -3)"
+[ -n "$_stray" ] && say "note: stray aimail binaries outside the search path (not counted): $(echo $_stray | tr ' ' ',')"
 _py_hits=""
 for c in python3 /opt/hermes/.venv/bin/python3 /app/backend/.venv/bin/python; do
   command -v "$c" >/dev/null 2>&1 || [ -x "$c" ] || continue

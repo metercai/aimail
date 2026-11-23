@@ -417,35 +417,62 @@ BINDING_BEFORE="$(find "$AIMAIL_HOME" -name "$BINDING_FILE" 2>/dev/null | head -
 ok "turn 1 done; no binding on disk (the tool was missing — SKILL §1 path)"
 
 # ═══ [3] the user installs the plugin (the host's normal plugin mechanism) ═════
-say "[3/7] user installs the plugin (dsh plugin add — the host's normal mechanism)"
-# SKILL §1: the agent asked the user to install the AIMail plugin via the host's
-# normal plugin/extension mechanism; §6 forbids aimail install / shell
-# installers / file writes. The user runs the dsh plugin manager — exactly the
-# command a user would run in their terminal.
-# The artifact under test must be named, not implied: `dsh plugin add agent-aimail`
-# resolves npm "latest", so record what that resolved to and assert the installed copy
-# is that exact version. Without this an L3 verdict cannot say which SDK it signed.
+say "[3/7] the agent installs the plugin itself (the activation mail told it to)"
+# Owner ruling 2026-11-23: L3 simulates a user. Installing the published SDK is the AGENT's
+# own bootstrap, triggered by the activation prompt (advanced email_notify.rs:149: "if
+# aimail_address is unavailable or not registered, install the agent_aimail plugin SDK
+# first"). The fixture must not install anything — a fixture-side install is a fake pass.
 WANT_SDK="$(npm view agent-aimail version 2>/dev/null || true)"
 say "published SDK under test: agent-aimail@${WANT_SDK:-<npm view failed>}"
-DSH_HOME="$DSH_HOME" dsh plugin --profile web add agent-aimail \
-  > "$WORK/plugin-add.log" 2>&1 \
-  || { bad "dsh plugin add failed: $(tail -10 "$WORK/plugin-add.log")"; exit 1; }
+# (1) the environment must still be clean: the fixture never installed anything, and the
+#     agent's turn 1 had no plugin to call.
 SDK_PKG="$(find "$DSH_HOME" -maxdepth 6 -path '*node_modules/agent-aimail/package.json' 2>/dev/null | head -1)"
-[ -n "$SDK_PKG" ] || { bad "plugin installed but no agent-aimail/package.json under $DSH_HOME (install landed elsewhere)"; exit 1; }
+[ -z "$SDK_PKG" ] || { bad "agent-aimail was already installed before the agent's bootstrap ($SDK_PKG) — environment not clean, cannot attribute the install to the agent"; exit 1; }
+ok "clean state confirmed: no agent-aimail in the profile before the bootstrap"
+# (2) after the turn the agent must have installed it, from the registry
+# A real user, seeing the agent stop after reading the mail, would say "go ahead" — words,
+# never commands run by the fixture. Measured 2026-11-23: with the current mail text the
+# agent investigated for 9 steps (plugin_manager, gateway probe, PyPI wheel, npm) and ended
+# the turn without installing, partly because the mail names the PyPI package
+# (`agent_aimail`) and says "from npm", where the npm package is `agent-aimail`.
+if [ -z "$(find "$DSH_HOME" -maxdepth 6 -path '*node_modules/agent-aimail/package.json' 2>/dev/null | head -1)" ]; then
+  say "plugin not installed yet after turn 1 — user nudge (words only; the agent must run the install)"
+  cat > "$WORK/turn1b-nudge.txt" <<PROMPT
+Go ahead and install the AIMail plugin SDK yourself now (the Node/npm one for this host),
+then retry the activation with the same code. I do not have a terminal here — you run it.
+PROMPT
+  web_send_prompt "$SID1" "$WORK/turn1b-nudge.txt" || say "nudge could not be injected (turn may be closed)"
+fi
+# bounded wait: the agent may still be working through its install command when turn 1's
+# LLM counter moves (wait budget, not a relaxed assertion)
+for _w in $(seq 1 60); do
+  SDK_PKG="$(find "$DSH_HOME" -maxdepth 6 -path '*node_modules/agent-aimail/package.json' 2>/dev/null | head -1)"
+  [ -n "$SDK_PKG" ] && break
+  kill -0 "$HOST_PID" 2>/dev/null || break
+  sleep 3
+done
+[ -n "$SDK_PKG" ] || { bad "the agent never installed agent-aimail: the activation prompt did not drive the bootstrap (no agent-aimail/package.json under $DSH_HOME; host log: $(tail -8 "$WORK/dsh-host.log" | tr '\n' ' '))"; exit 1; }
 GOT_SDK="$(node -e 'process.stdout.write(require(process.argv[1]).version)' "$SDK_PKG" 2>/dev/null || true)"
 [ -n "$GOT_SDK" ] || { bad "cannot read the installed SDK version from $SDK_PKG"; exit 1; }
 if [ -n "$WANT_SDK" ] && [ "$GOT_SDK" != "$WANT_SDK" ]; then
   bad "installed SDK version $GOT_SDK != npm latest $WANT_SDK (registry moved mid-run? re-run)"; exit 1
 fi
-ok "plugin installed into profile 'web': agent-aimail@$GOT_SDK (= npm latest) at $SDK_PKG"
-echo "{\"sdk\":\"agent-aimail\",\"npm_latest\":\"${WANT_SDK:-unknown}\",\"installed\":\"$GOT_SDK\",\"path\":\"$SDK_PKG\"}" \
+# (3) the install must be visible as the AGENT's own command, not ours
+_DONE_BY_AGENT=0
+for _f in "$WORK"/session-*.json "$WORK/dsh-host.log"; do
+  [ -f "$_f" ] || continue
+  grep -qaE "plugin[^\"]{0,20}add[^\"]{0,20}agent-aimail|npm i(nstall)? [^\"]{0,40}agent-aimail|dsh plugin --profile web add agent-aimail" "$_f" && _DONE_BY_AGENT=1 && break
+done
+[ "$_DONE_BY_AGENT" = 1 ] || { bad "the plugin appeared but no agent-side install command is in the transcript (session/host log) — cannot prove self-bootstrap"; exit 1; }
+ok "agent bootstrapped the plugin itself: agent-aimail@$GOT_SDK (= npm latest) at $SDK_PKG (fixture ran no install)"
+echo "{\"sdk\":\"agent-aimail\",\"npm_latest\":\"${WANT_SDK:-unknown}\",\"installed\":\"$GOT_SDK\",\"path\":\"$SDK_PKG\",\"installed_by\":\"agent\"}" \
   > "${L3_LOG_ARCHIVE:-$WORK}/sdk.json" 2>/dev/null || true
 # the composed tree must now carry the mail tool row in the GLOBAL layer
 # (L2 gate mechanism: tool-mail is what reaches every session's surface).
 DSH_HOME="$DSH_HOME" dsh --profile web --dump-config > "$WORK/post-tree.txt" 2>/dev/null \
-  || die "dump-config after plugin install failed"
+  || die "dump-config after the agent's install failed"
 MAIL_ROWS="$(grep -c '^- id: tool-mail' "$WORK/post-tree.txt" || true)"
-[ "${MAIL_ROWS:-0}" -ge 1 ] || { bad "no tool-mail row in the composed profile tree after install (tree: $WORK/post-tree.txt)"; exit 1; }
+[ "${MAIL_ROWS:-0}" -ge 1 ] || { bad "no tool-mail row in the composed profile tree after the agent's install (tree: $WORK/post-tree.txt)"; exit 1; }
 ok "composed profile carries the tool-mail row (global layer, count=$MAIL_ROWS)"
 
 # ═══ [4] host restart (a plugin install applies on the NEXT boot) ══════════════
@@ -464,8 +491,8 @@ say "[5/7] turn 2 — 'installed, continue'; the agent binds via aimail_address"
 SID2="$(web_create_session)" || die "session/create (post-restart) failed"
 say "session: $SID2"
 cat > "$WORK/turn2-prompt.txt" <<PROMPT
-I installed the AIMail plugin in my terminal and restarted the app. Continue
-with the activation I sent you earlier — here is the activation prompt again:
+I restarted the app after your setup step. Continue with the activation I sent
+you earlier — here is the activation prompt again:
 
 $(cat "$SPOOL.prompt.txt")
 PROMPT

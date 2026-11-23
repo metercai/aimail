@@ -20,6 +20,9 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 PINS="$ROOT/tests/agent-env/pins.env"
 
 PLATFORMS="${PLATFORMS:-linux-amd64 linux-arm64 macos-arm64 windows-amd64}"
+# the local wrapper knows where the checkout is; CI passes AIMAIL_REPO explicitly
+AIMAIL_REPO="${AIMAIL_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+export AIMAIL_REPO
 CELL=""; INCLUDE_LEGACY=0
 while [ $# -gt 0 ]; do
   case "$1" in
