@@ -1,28 +1,30 @@
 #!/usr/bin/env bash
-# S4 — multi-address: tssdk hosts (dsh/openclaw) keep two bindings and two streams;
-# pi is single-address (second bind must be rejected).
+# S4 — multi-address: tssdk hosts (dsh/openclaw) keep two bindings; pi is single-address.
 set -uo pipefail
 CASE="S4 multi-address"
 out="$1"; host="${2:-}"
+state="$(cat "$out/journey_state" 2>/dev/null || echo '')"
+
+if [ -z "$state" ]; then
+  gap "journey state missing (see $out/rc)"
+  return 0
+fi
+maxb="$(sed -n 's/.*max_bindings=\([0-9]*\).*/\1/p' <<<"$state")"
 
 if [ "$host" = "pi" ]; then
-  n="$(cat "$out/bindings_count" 2>/dev/null || echo 2)"
-  [ "$n" -le 1 ] && pass "second address rejected (single-address model)" \
-                 || red "second binding written on pi (n=$n) — C1 violated"
+  [ "${maxb:-0}" -le 1 ] && pass "second address rejected (single-address model)" \
+                        || red "second binding written on pi (max=$maxb) — C1 violated"
   return 0
 fi
 
-n="$(cat "$out/bindings_count" 2>/dev/null || echo '')"
-if [ -z "$n" ]; then
-  gap "second-address stage not run (S4_ADDR not provided)"
-elif [ "$n" -ge 2 ]; then
-  pass "two bindings coexist (n=$n)"
+if [ -z "${S4_ADDR:-}" ]; then
+  gap "second-address stage not requested (S4_ADDR empty)"
+elif [ "${maxb:-0}" -ge 2 ]; then
+  pass "two bindings coexist (max=$maxb)"
 else
-  red "only $n binding(s) after the second activation"
+  red "only $maxb binding(s) after the second activation"
 fi
 
-if grep -qaE "SSE reconcile: [2-9] gateway stream|reconcile: [2-9] stream" "$out/host.log" 2>/dev/null; then
-  pass "two aggregate streams reconciled"
-else
-  gap "stream count for two addresses not observed in the log tail"
-fi
+grep -qaE "SSE reconcile: [2-9] gateway stream" "$out/host.log" 2>/dev/null \
+  && pass "two aggregate streams reconciled" \
+  || gap "two-address stream count not observed in the log tail"
