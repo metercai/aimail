@@ -84,6 +84,7 @@ for h in $HOSTS; do
       s3) . "$V2/cases/s3_delivery.sh" "$out" ;;
       s4) . "$V2/cases/s4_multiaddr.sh" "$out" "$h" ;;
       s5) . "$V2/cases/s5_lifecycle.sh" "$out" ;;
+      neg) host_negative "$out" "$addr"; . "$V2/cases/negatives.sh" "$out" "$addr" ;;
     esac
   done
   ev_log "$out/host.log" 300

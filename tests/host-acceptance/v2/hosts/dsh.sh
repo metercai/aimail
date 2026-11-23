@@ -66,8 +66,8 @@ else:
 PY
       # ── S4: second address in the same host lifetime (tssdk hosts are multi-address)
       if [ -n "${AH2:-}" ] && [ -n "${AC2:-}" ]; then
-        python3 /opt/v2lib/dsh_activate.py "$URL" /root/ws \
-          "Activate and bind my AIMail mailbox address $AH2 with activation code $AC2 at gateway $GWURL using aimail_address." \
+        DSH_KEEPALIVE_TICKS=8 DSH_READ_SECS=150 python3 /opt/v2lib/dsh_activate.py "$URL" /root/ws \
+          "Call the aimail_address tool now with exactly this JSON: {\"action\":\"bind\",\"code\":\"$AC2\",\"email\":\"$AH2\",\"gateway_url\":\"$GWURL\"}. Do not ask questions; just call it and report the result." \
           >/tmp/act2.log 2>&1 || true
         for i in $(seq 1 45); do
           n=$(ls /root/.aimail/systems/*/*/agentmail.json 2>/dev/null | wc -l)
@@ -78,12 +78,12 @@ PY
       fi
       # ── S5: lifecycle — pause must stop delivery, unbind must remove the binding
       if [ "${LIFECYCLE:-0}" = "1" ]; then
-        python3 /opt/v2lib/dsh_activate.py "$URL" /root/ws \
-          "Pause my AIMail mailbox $AH with aimail_address action=pause." >/tmp/act3.log 2>&1 || true
+        DSH_KEEPALIVE_TICKS=8 DSH_READ_SECS=120 python3 /opt/v2lib/dsh_activate.py "$URL" /root/ws \
+          "Call the aimail_address tool now with exactly this JSON: {\"action\":\"pause\",\"email\":\"$AH\"}. Do not ask questions; just call it and report the result." >/tmp/act3.log 2>&1 || true
         sleep 8
         python3 /opt/v2lib/dsh_state.py /root/.aimail paused > /out/paused 2>/dev/null || echo unknown > /out/paused
-        python3 /opt/v2lib/dsh_activate.py "$URL" /root/ws \
-          "Unbind my AIMail mailbox $AH with aimail_address action=unbind." >/tmp/act4.log 2>&1 || true
+        DSH_KEEPALIVE_TICKS=8 DSH_READ_SECS=120 python3 /opt/v2lib/dsh_activate.py "$URL" /root/ws \
+          "Call the aimail_address tool now with exactly this JSON: {\"action\":\"unbind\",\"email\":\"$AH\"}. Do not ask questions; just call it and report the result." >/tmp/act4.log 2>&1 || true
         sleep 8
         ls /root/.aimail/systems/*/*/agentmail.json 2>/dev/null | wc -l > /out/bindings_after_unbind
         tail -n 60 /tmp/act3.log /tmp/act4.log >> /out/act.log 2>/dev/null || true
@@ -126,3 +126,32 @@ PY
 host_s1_activate() { host_journey "$1" "$2" "$3" "${4:-NONE}"; }
 host_s3_delivery() { :; }   # delivery happens inside host_journey
 host_stop() { docker rm -f "l2dsh-$$" >/dev/null 2>&1 || true; }
+
+# Negatives: an invalid code must not write a binding and must not arm.
+host_negative() {
+  local out="$1" addr="$2"
+  docker run --rm --network host \
+    -e "LLM_API_KEY=${LLM_API_KEY:?}" -e "AH=$addr" -e "GWURL=${GW_URL}" \
+    -e "APROMPT=Call the aimail_address tool now with exactly this JSON: {\"action\":\"bind\",\"code\":\"addr-0000-deadbeef\",\"email\":\"$addr\",\"gateway_url\":\"${GW_URL}\"}. Do not ask questions; just call it and report the result." \
+    -v "$V2_ROOT/lib:/opt/v2lib:ro" -v "${SDK_TARBALL_DIR:?}:/opt/sdk:ro" -v "$out:/out" \
+    --entrypoint bash "$DSH_IMAGE" -lc '
+      set -u
+      export HOME=/root
+      TGZ="$(ls /opt/sdk/*.tgz | head -1)"
+      dsh plugin --profile web add "$TGZ" >/tmp/plugin.log 2>&1 || { echo "plugin add failed"; exit 3; }
+      export DSH_PERMISSION_MODE=danger-full-access DSH_HOME=/root/.dsh AIMAIL_HOME=/root/.aimail
+      export DEEPSEEK_API_KEY="${LLM_API_KEY:-}"
+      setsid nohup dsh web --port 39124 --no-open >/tmp/web.log 2>&1 &
+      URL=""
+      for i in $(seq 1 120); do
+        URL=$(grep -aoE "http://127\.0\.0\.1:[0-9]+/\?token=[A-Za-z0-9_-]+" /tmp/web.log | head -1)
+        [ -n "$URL" ] && break; sleep 1
+      done
+      [ -n "$URL" ] || { echo "no web url"; exit 4; }
+      DSH_KEEPALIVE_TICKS=6 DSH_READ_SECS=90 python3 /opt/v2lib/dsh_activate.py "$URL" /root/ws "$APROMPT" >/tmp/neg.log 2>&1 || true
+      sleep 10
+      ls /root/.aimail/systems/*/*/agentmail.json 2>/dev/null | wc -l > /out/bindings_count
+      tail -n 120 /tmp/neg.log > /out/act.log 2>/dev/null || true
+    ' >"$out/rc" 2>&1
+  return 0
+}
