@@ -306,3 +306,35 @@ package.json                   bin: null（未发布 CLI 二进制，这一点�
   `SKIP_LEGACY`，不计绿；套件只能在两个集合间移动的唯一方式是改这份清单，范围不会悄悄漂移。
 - **L1 = 空**：不新建、不占位。SSE-V2 的黑盒证据来自 L0 契约闸与 L2 宿主旅程。
 
+## REQ-14（P1，advanced 文案 + 文档）激活邮件的安装提示把 npm 包名写错，agent 因此自举失败
+
+- **现象（L3 实测，2026-11-23，linux-amd64/dsh，published 0.5.2 + gateway v1.0.13）**：
+  干净环境的 agent 收到激活邮件正文后，9 步 / 185s 内查不到可安装目标并结束回合，未安装 SDK。
+  它的原话：*"PyPI is reachable and `agent_aimail` exists there; npm has no such package."*
+- **根因**：`src/advanced/api/email_notify.rs:149` 的正文写
+  `install the `agent_aimail` plugin SDK first: from PyPI via pip for Python, or from npm for Node.js`。
+  `agent_aimail`（下划线）在 PyPI 上**能解析**（PEP 503 归一化，`-`/`_`/`.` 等价，canonical 名就是
+  `agent-aimail`），但 **npm 没有归一化**：`npm view agent_aimail` → 404，只有 `agent-aimail` 存在。
+  dsh / pi / openclaw 都是 Node 宿主，正文却只给了 Python 侧拼写 ⇒ 字面 404。
+- **实测事实**：
+  ```
+  PyPI  agent-aimail  → canonical agent-aimail 0.2.9
+  PyPI  agent_aimail  → canonical agent-aimail 0.2.9   （同一工程，非两个包）
+  npm   agent-aimail  → 0.5.2
+  npm   agent_aimail  → 404
+  仓库  pyproject name = "agent-aimail"；npm name = "agent-aimail"（两处本来就是连字符）
+  ```
+- **修法（不新增包、不改名、不改 import）**：正文统一用 `agent-aimail`，并按宿主给命令：
+  ```
+  dsh       → dsh plugin add agent-aimail
+  pi        → pi install agent-aimail
+  openclaw  → openclaw plugins install agent-aimail
+  Python    → pip install agent-aimail      （PyPI 归一化，连字符同样可装）
+  ```
+  Python 的 **import 名仍是 `aimail`**（`import aimail`），与发行名无关，不要动。
+- **不要**为了"统一"去 npm 发一个 `agent_aimail` 别名包：两套供应链、两个版本号、两份审计面，归一化已经足够。
+- **判据**：L3 中 agent 在**第一轮**就定位到正确包并完成安装（transcript 出现对应宿主的安装命令）；
+  邮件正文里的包名在 npm 与 PyPI 上都能直接命中。
+- **同源待同步**：`docs/aimail-host-sse-contract-v2.md:599`、`docs/v2-qa-release-handoff.md:92`
+  抄了同一句错误文案，改代码时一并改；`tests/sdk/test_v2_contract_surface.py:58` 目前断言源码里含
+  `agent_aimail` 这个拼写，需要复核它锁的到底是 import 名还是发行名。
