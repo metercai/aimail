@@ -498,11 +498,31 @@ GOT_SDK="$(node -e 'process.stdout.write(require(process.argv[1]).version)' "$SD
 if [ -n "$WANT_SDK" ] && [ "$GOT_SDK" != "$WANT_SDK" ]; then
   bad "installed SDK version $GOT_SDK != npm latest $WANT_SDK (registry moved mid-run? re-run)"; exit 1
 fi
-# (3) the install must be visible as the AGENT's own command, not ours
+# (3) the install must be visible as the AGENT's own command, not ours.
+# The transcript lives under $DSH_HOME/sessions/…/session.v4.jsonl.zstd — the earlier version of
+# this check grepped $WORK, where no transcript is ever written, so a successful bootstrap was
+# reported as "cannot prove self-bootstrap" (measured 2026-11-23).
 _DONE_BY_AGENT=0
+_pat='plugin[^"]{0,24}add[^"]{0,24}agent-aimail|npm (i|install|add) [^"]{0,60}agent-aimail|pnpm (add|i|install) [^"]{0,60}agent-aimail'
+# the nudge opens a NEW session, so re-resolve the transcript(s) here instead of reusing the
+# one the tripwire read earlier
+_sess="$(ls -t "$DSH_HOME"/sessions/*/*/session.v4.jsonl.zstd 2>/dev/null | head -1)"
+if [ -n "${_sess:-}" ] && [ -f "$_sess" ]; then
+  if command -v zstdcat >/dev/null 2>&1; then
+    _tx="$(zstdcat "$_sess" 2>/dev/null)"
+  elif python3 -c "import zstandard" >/dev/null 2>&1; then
+    _tx="$(python3 -c "import sys,zstandard;sys.stdout.write(zstandard.ZstdDecompressor().stream_reader(open(sys.argv[1],'rb')).read().decode('utf-8','replace'))" "$_sess" 2>/dev/null)"
+  else
+    _tx=""
+  fi
+  [ -n "$_tx" ] && printf '%s' "$_tx" | grep -qaE "$_pat" && _DONE_BY_AGENT=1
+  # the transcript may have grown since the tripwire read it (the nudge turn installs)
+  [ "$_DONE_BY_AGENT" = 1 ] || { printf '%s' "${_tx:-}" | grep -qaE "$_pat" && _DONE_BY_AGENT=1; }
+fi
 for _f in "$WORK"/session-*.json "$WORK/dsh-host.log"; do
   [ -f "$_f" ] || continue
-  grep -qaE "plugin[^\"]{0,20}add[^\"]{0,20}agent-aimail|npm i(nstall)? [^\"]{0,40}agent-aimail|dsh plugin --profile web add agent-aimail" "$_f" && _DONE_BY_AGENT=1 && break
+  [ "$_DONE_BY_AGENT" = 1 ] && break
+  grep -qaE "$_pat" "$_f" && _DONE_BY_AGENT=1
 done
 [ "$_DONE_BY_AGENT" = 1 ] || { bad "the plugin appeared but no agent-side install command is in the transcript (session/host log) — cannot prove self-bootstrap"; exit 1; }
 ok "agent bootstrapped the plugin itself: agent-aimail@$GOT_SDK (= npm latest) at $SDK_PKG (fixture ran no install)"
