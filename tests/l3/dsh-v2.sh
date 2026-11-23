@@ -52,7 +52,14 @@ command -v python3 >/dev/null 2>&1 || gap "python3 not on PATH"
 
 SINK_PORT="${SINK_PORT:-12528}"
 DSH_WEB_PORT="${DSH_WEB_PORT:-39801}"
-TURN_WINDOW="${WELCOME_TIMEOUT:-300}"
+# Wait BUDGET, not an assertion (same doctrine as the welcome window): windows runners have
+# been measured at ~283 s of real decode for turn 1 (run 45160974047: llmMs 283453, the turn
+# completed after the 300 s budget expired), while linux completes the same turn in ~42 s.
+# Keep the assertion strict (llmMs>0 + closed turn), give windows a larger budget.
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) TURN_WINDOW="${WELCOME_TIMEOUT:-600}" ;;
+  *)                    TURN_WINDOW="${WELCOME_TIMEOUT:-300}" ;;
+esac
 SPOOL="$GW_HOME/mail.spool"
 STATE="$WORK/dsh-v2.state"
 # the SDK's config/binding root — same value run-l3.sh ④b feeds the old dsh
