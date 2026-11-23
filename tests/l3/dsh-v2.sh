@@ -124,7 +124,8 @@ PY
 # process exits with Config("Server is already running (PID …)") — measured 2026-11-23, which
 # burned a whole L3 cell. Stop it first, and retry once if the lock is still held.
 "$GW_BIN" stop >/dev/null 2>&1 || true
-pkill -f "$GW_BIN --config $GW_HOME/config.toml" >/dev/null 2>&1 || true
+# the lock is per binary: a leftover from another workdir (e.g. an L2 run) blocks this boot too
+for _p in $(pgrep -f "$GW_BIN" 2>/dev/null); do kill "$_p" 2>/dev/null || true; done
 sleep 1
 "$GW_BIN" --config "$GW_HOME/config.toml" > "$GW_HOME/boot.log" 2>&1 & GW_PID=$!
 sleep 3

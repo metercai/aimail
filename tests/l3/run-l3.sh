@@ -476,8 +476,27 @@ email = "admin@l3.local"
 allow_private_targets = true
 EOF
 say "starting gateway…"
+# The binary's single-instance lock is per BINARY, not per workdir: a leftover instance from an
+# L2 run (…/aimail-l2-*/gw/config.toml) blocks every later start with Config("Server is already
+# running (PID …)") — measured 2026-11-23, killed two L3 cells. Clear any process running this
+# binary, then start; retry once by PID if the lock is still held.
+_clear_gw() {
+  "$GW_BIN" stop >/dev/null 2>&1 || true
+  for _p in $(pgrep -f "$GW_BIN" 2>/dev/null); do kill "$_p" 2>/dev/null || true; done
+  sleep 1
+}
+_clear_gw
 "$GW_BIN" --config "$GW_HOME/config.toml" > "$GW_HOME/boot.log" 2>&1 &
 GW_PID=$!
+sleep 3
+if grep -qa "Server is already running" "$GW_HOME/boot.log" 2>/dev/null; then
+  _stale="$(sed -n 's/.*Server is already running (PID: \([0-9]*\)).*/\1/p' "$GW_HOME/boot.log" | head -1)"
+  say "  stale gateway ${_stale:-?} held the binary lock — stopping it and retrying once"
+  [ -n "$_stale" ] && kill "$_stale" >/dev/null 2>&1 || true
+  sleep 2
+  "$GW_BIN" --config "$GW_HOME/config.toml" > "$GW_HOME/boot.log" 2>&1 &
+  GW_PID=$!
+fi
 # Wait for system key to be persisted (setup_admin_key prints once + persists)
 for i in $(seq 1 30); do
   if ls "$GW_HOME/data"/*.system.key >/dev/null 2>&1; then break; fi
