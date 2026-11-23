@@ -100,27 +100,54 @@ one-cell dispatch as "4/4 green".
 Known accepted flake: a single Windows cell red with `No reply within …s` plus gateway
 `partial MX delivery failure` — record it, rerun once, escalate on a repeat.
 
-## 8. Matrix expansion: pi / openclaw (in progress, not yet cells)
+## 8. Matrix expansion: pi / openclaw — and the bootstrap doctrine
 
-L3 currently ships 4 dsh cells because `dsh-v2.sh` is a **dsh-web-API** journey. Adding a host
-is not a matrix edit: it needs a journey that can prove the same closed loop on that host.
+### 8.1 What L3 must simulate (owner ruling 2026-11-23)
 
-Per host, the journey must supply (everything else is host-agnostic and reusable):
+L3 is a **user**, not a test harness. The journey starts with an applicant asking the gateway
+for an activation code over the mail path, and the agent environment starts **clean** (no SDK,
+no plugin). Installing the published SDK is **the agent's own bootstrap**, triggered by the
+activation prompt — the fixture must never run the install.
 
-| step | dsh (today) | pi | openclaw |
+The activation mail body already carries the instruction (advanced `email_notify.rs:149`):
+> Activate and bind my AIMail mailbox address {address} with activation code {raw_code} at
+> gateway {gw} using `aimail_address`. If `aimail_address` is unavailable or not registered,
+> install the `agent_aimail` plugin SDK first: from PyPI via pip for Python, or from npm for
+> Node.js. Then retry `aimail_address` with the same parameters.
+
+So the fixture's only jobs are: apply for the code, hand the mail body over verbatim as a user
+turn, and verify what happened. Anything the fixture installs itself is a **fake pass**.
+
+### 8.2 Assertions that make "self-bootstrap" provable
+
+1. before the turn: no `agent-aimail` in the host's plugin registry and no binding on disk
+   (a pre-existing plugin means the environment was not clean — GAP, not PASS);
+2. after the turn: the registry contains `agent-aimail@<npm latest>` installed **during the
+   turn**, and the host transcript shows the agent's own install command (bash/tool call);
+   the fixture's own command log must show no install;
+3. then the bind: binding file with `agent_system_id=asid_…`, `gateway_url`, no `webhook_url`;
+4. then the closed loop: welcome queued → applicant approves → `whoami` returns persona +
+   signature;
+5. install evidence and bind evidence are asserted separately, so "agent installed but never
+   bound" cannot be reported as a generic failure.
+
+### 8.3 Per-host mechanics (everything else is shared with the dsh journey)
+
+| step | dsh (today: **fixture installs — to be reconciled**) | pi | openclaw |
 |---|---|---|---|
-| install the published SDK | `dsh plugin add agent-aimail` (npm latest) | `pi install agent-aimail@<latest>` | `openclaw plugins install agent-aimail@<latest>` |
-| user turn channel | dsh web API (`--dump-config`, session RPC) | `pi -p "<prompt>"` (one process per turn) | `openclaw agent --local "<prompt>"` |
-| "install applied" | restart the host | next `pi` process picks it up | `openclaw` reload/next run |
-| bind evidence | binding file + `status.json` SSE streams | binding file + plugin log (`identity pi/`, `transport=sse`) | binding file + `SSE reconcile: N … from M binding(s)` |
-| LLM-turn evidence | `sessionStats.llmMs` in the session json | assistant text in the turn output (no llmMs counter) | turn output + dispatch log |
-| welcome nudge | dsh web API turn | `pi -p` nudge turn | `openclaw agent --local` nudge turn |
+| install by the agent | `dsh plugin add agent-aimail` must move into the agent's shell turn | agent runs `pi install agent-aimail@latest` (or npm) in its bash tool | agent runs `openclaw plugins install agent-aimail@latest` |
+| user turn channel | dsh web API session RPC | `pi -p "<mail body>"` | `openclaw agent --local "<mail body>"` |
+| install applied | host restart | next `pi` process | next `openclaw` run |
+| bind evidence | binding file + `status.json` SSE | binding file + plugin log | binding file + `SSE reconcile` |
+| LLM evidence | `sessionStats.llmMs` | assistant text in the turn output | turn output + dispatch log |
 
-Rules for adding a cell (do not relax):
-1. the journey must assert the **closed loop**: activation code → plugin installed from the
-   registry → bind → welcome queued → applicant approves → `whoami` persona + signature;
-2. no cell is added to `l3.yml` before its journey passes once locally (a cell that can only
-   die is not coverage, it is noise);
-3. per-platform gates that make no sense on that OS (POSIX file modes on Windows, llmMs
-   counters the host does not expose) must be reported as skipped-with-reason, never counted
-   as passes.
+**Deviation to fix on dsh**: `dsh-v2.sh` step [3] has the *user* run `dsh plugin add` and step
+[4] restarts the host. Under 8.1 that install must be the agent's own action; dsh stays green
+either way, so this is a doctrine alignment, not a blocker — track it here until the dsh
+journey is rewritten to the same shape.
+
+### 8.4 Rule for adding cells
+
+A cell enters `l3.yml` only after its journey passes once locally. A cell that can only die is
+noise, not coverage. Platform-inapplicable gates (POSIX modes on Windows, llmMs counters the
+host does not expose) are reported as skipped-with-reason and never counted as passes.
