@@ -35,6 +35,14 @@ fi
 
 if grep -qa "acked_after_poll=" "$out/inject.log"; then
   pass "queued then acked (host accepted the mail)"
+elif grep -qa "arming_seen=0" "$out/inject.log"; then
+  # injected, but the fixture never observed the host's pull client attaching: a missing
+  # ack cannot be blamed on the product. GAP with the reason, never green.
+  gap "probe stored but not acked, and no arming evidence (arming_seen=0) — fixture never attached the pull client"
+elif grep -qa "^observed " "$out/inject.log"; then
+  # arming was observed and the queue still did not drain: product-shaped RED
+  red "$(grep -a '^observed' "$out/inject.log" | head -1)"
 else
-  red "$(grep -a 'observed' "$out/inject.log" | head -1)"
+  # no observed line at all => the probe/arming never finished: fixture GAP, not product
+  gap "queue state was never observed (see $out/inject.log) — probe/arming did not complete"
 fi

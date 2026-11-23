@@ -80,6 +80,7 @@ for h in $HOSTS; do
   export S4_ADDR S4_CODE LIFECYCLE
   echo "── $h → $addr"
   ev_init; ev_meta host "$h"; ev_meta sdk_version "$SDK_VER"; ev_meta gateway_version "$GATEWAY_VERSION"; ev_meta address "$addr"
+  export STAGES   # adapters need to know whether s3 (live delivery) is in this journey
   host_journey "$out" "$addr" "$code" "$token"
   for st in $STAGES; do
     case "$st" in
