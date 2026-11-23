@@ -32,10 +32,14 @@ export GW_HTTP_PORT="${GW_HTTP_PORT:-18080}" GW_SMTP_PORT="${GW_SMTP_PORT:-12525
 if [ -z "${SDK_TARBALL_DIR:-}" ]; then
   SDK_TARBALL_DIR="$WORK/sdkpack"; mkdir -p "$SDK_TARBALL_DIR"
   echo "── building dev SDK (pnpm build + pack)"
-  ( cd "$AIMAIL_ROOT/tssdk" && pnpm install --frozen-lockfile >/dev/null 2>&1 && pnpm build >/dev/null 2>&1 ) \
-    || { echo "GAP: dev SDK build failed"; exit 2; }
+  # Never swallow the reason: a frozen-lockfile mismatch or a tsc error must be readable
+  # in the log, otherwise the only output is "GAP: dev SDK build failed" (hit 2026-11-23
+  # when package.json dependencies changed but pnpm-lock.yaml did not).
+  _sdk_build_log="$WORK/sdk-build.log"
+  ( cd "$AIMAIL_ROOT/tssdk" && pnpm install --frozen-lockfile && pnpm build ) >"$_sdk_build_log" 2>&1 \
+    || { echo "GAP: dev SDK build failed — tail of pnpm install/build ($_sdk_build_log):"; tail -12 "$_sdk_build_log" | sed 's/^/    /'; exit 2; }
   ( cd "$AIMAIL_ROOT/tssdk/packages/agent-aimail" && npm pack --pack-destination "$SDK_TARBALL_DIR" >/dev/null 2>&1 ) \
-    || { echo "GAP: npm pack failed"; exit 2; }
+    || { echo "GAP: npm pack failed for agent-aimail"; exit 2; }
 fi
 export SDK_TARBALL_DIR
 SDK_VER="$(cd "$AIMAIL_ROOT/tssdk/packages/agent-aimail" && node -p "require('./package.json').version")"

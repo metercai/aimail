@@ -16,8 +16,10 @@ d = json.load(open(sys.argv[1]))
 sid = str(d.get("system_id", ""))
 checks = {
     "system_id_is_gateway": sid.startswith("system-") or sid.startswith("system_"),
-    "agent_system_id": (str(d.get("agent_system_id", "")).startswith("asid_")
-                        or not d.get("agent_system_id")),   # dsh derives it at runtime
+    # Strict since 2026-11-23: the binding MUST carry the AgentSystemId the host derived
+    # (agent-system-id.ts -> `asid_<32 hex>`). The earlier "or empty is fine" form let a
+    # missing field read as PASS — the dev's own finding. Do not relax it back.
+    "agent_system_id": str(d.get("agent_system_id", "")).startswith("asid_"),
     "workspace_path": bool(d.get("workspace_path") or d.get("workspace_id")),
     "no_webhook": not d.get("webhook_url"),
     "has_key": bool(d.get("api_key")),
