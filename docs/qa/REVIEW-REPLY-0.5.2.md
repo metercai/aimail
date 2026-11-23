@@ -6,6 +6,27 @@
 
 ---
 
+## 0. 更新：R-1 撤回（openclaw s4 隔离复跑 PASS）
+
+原 §4 的 R-1「openclaw 第二次激活不写绑定」**不是产品缺陷，已撤回**。隔离单跑
+`--host openclaw --stages "s4"`（dev SDK 0.5.2 + gateway v1.0.13，日志 `/tmp/l2v6-openclaw-s4.log`）：
+
+```
+b1=1  b2=2  bindings_count=2
+binding.json = l2openclaw2@test.local  agent_system_id=asid_67c946d777e5bec6bb789aedf0dc1e44
+PASS  S4 multi-address  two bindings coexist (max=2)
+PASS  S4 multi-address  aggregate stream reconciled from 2+ bindings
+L2/L3 matrix: PASS=2 RED=0 GAP=0   VERDICT: PASS   rc=0
+```
+
+同一 pin、同一代码下隔离即绿；原 `only 0 binding(s)` 只出现一次，签名与交接文档 §4 记录的
+"openclaw 首次 3 RED / 重跑 9/9" 一致 ⇒ 归为 **F5 flake（夹具/环境）**，不是退回件。
+教训（我方）：合并旅程里的 RED 不能直接当退回件，必须先隔离单跑。
+
+**因此退回件数量 = 0**；tssdk 0.5.2 仍 HOLD 的唯一未清项是 dsh `s5` 在归因修复后的重跑（见 §5-F1）。
+
+---
+
 ## 1. 静态/单测：全部与交接文档一致（我重跑，不看结论）
 
 | 项 | 我跑的结果 | 与交接是否一致 |
@@ -49,7 +70,7 @@
 
 证据：`/tmp/l2v5-{a,b,c}.log` + `evidence/l2/<ts>-{dsh,openclaw,pi}-*/`（`run.json` / `results.txt` / `host.log` 逐轮落盘）。
 
-## 4. 退回件（产品侧，1 条待确认）
+## 4. 退回件：0 条（R-1 已撤回，见 §0）
 
 ### R-1（P1，tssdk·openclaw）第二次激活不写绑定 —— 多地址路径不可用
 
