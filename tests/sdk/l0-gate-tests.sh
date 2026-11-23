@@ -129,7 +129,9 @@ done
 _n_total=$(ls tests/sdk/test_*.py | wc -l)
 _n_sse=$((_n_total - _n_legacy))
 echo "[L0] pytest scope: SSE-V2/contract ${_n_sse} suite(s) blocking · legacy ${_n_legacy} suite(s) SKIP_LEGACY (pysdk/CLI; AIMAIL_LEGACY=1 to execute)"
-python3 -m pytest tests/sdk/ -q $_ignore 2>&1 | tail -2
+# `tail -2` used to hide WHICH test failed (a CI-only failure cost a full log dig);
+# keep the traceback short but name the failing tests.
+python3 -m pytest tests/sdk/ -q --tb=line $_ignore 2>&1 | tail -25
 _pytest_rc=${PIPESTATUS[0]}
 [ "$_pytest_rc" -eq 0 ] || { echo "[L0] FAIL: pytest (SSE-V2 scope) rc=$_pytest_rc"; exit 1; }
 if [ "${AIMAIL_LEGACY:-0}" = "1" ]; then
