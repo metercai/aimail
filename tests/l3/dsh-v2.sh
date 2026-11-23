@@ -322,9 +322,16 @@ llm_ms_total() { # total llmMs across every session of this host (the host is
   # dedicated to this journey; inbound SSE reply turns may attach to any of its
   # sessions, so the host-wide sum is the stable LLM-time evidence)
   python3 -c "
-import json, glob
+import json, glob, re
+home = '$DSH_HOME'
+paths = glob.glob(home + '/storages/session_projcache/sessions/*.json')
+if not paths and re.match(r'^/[A-Za-z]/', home):
+    # git-bash hands /c/Users/... to a native Python, which cannot see that path; the shell
+    # 'find' in the forensic dump did (windows cell, 2026-11-23) and the sessions were there
+    # with llmMs 23783 / 15300 while this sum reported 0.
+    paths = glob.glob(home[1].upper() + ':' + home[2:] + '/storages/session_projcache/sessions/*.json')
 total = 0
-for f in glob.glob('$DSH_HOME/storages/session_projcache/sessions/*.json'):
+for f in paths:
     try:
         v = json.load(open(f))['record']['rows'].get('sessionStats', {}).get('val', {})
         total += int(v.get('llmMs', 0))
