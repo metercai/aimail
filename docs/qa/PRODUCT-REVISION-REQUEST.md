@@ -137,20 +137,20 @@ ack：`accepted/intercepted/deferred → ack`；`rejected → 不 ack`。
 ## 附：框架内自测方式（开发交付前请自跑）
 
 ```bash
-# L2（dev 构建，三宿主，本机平台）
+# 开发只跑 L2（dev 构建，三宿主，本机平台）
 export LLM_API_KEY=…
 bash tests/host-acceptance/v2/run-matrix.sh --host all --stages "s1 s2 s3 s4 s5 neg"
-
-# L3（已发布件；本机单格）
-bash tests/l3/run-v2.sh --cell linux-amd64/dsh
 ```
+
+**L3 不在开发职责内**：L3 是发版后回归，只能由验证方在发布件上执行；
+开发不得运行 L3，也不得以 L3 结果作为交付依据。
 
 结果口径：`PASS / RED（产品缺陷）/ GAP（夹具缺陷）/ SKIP_LEGACY（pysdk，不计判定）`；
 退出码在 `RED>0 或 GAP>0` 时非 0。**不接受 skip 冒充绿**。
 
 ---
 
-## REQ-11（P1，tssdk·pi 打包）`typebox` 被列入 dependencies，pi 1.5.2 直接拒绝加载插件
+## REQ-11（P1，tssdk·pi 打包）— **验证方已代修，待复验**`typebox` 被列入 dependencies，pi 1.5.2 直接拒绝加载插件
 
 **现象**（L2 pi 实测，0.5.1）
 ```
@@ -169,3 +169,7 @@ pi 随后报 `No API key found for the selected model` 并**不加载插件** �
 若确实需要运行期依赖，则改为宿主注入（pi 的 extension loader 明确禁止自带 host-provided 模块）。
 
 **判据（L2 pi S1/S2）**：`pi install <tgz>` 不再报该错；宿主日志出现工具注册；S1 8 条断言全绿。
+
+**验证方改动**（2026-11-23，已提交）：`typebox` 从 `dependencies` 移到
+`peerDependencies: "*"` + `peerDependenciesMeta.optional`，并保留 `devDependencies` 供构建；
+`pnpm -r build` 通过。请开发确认该改动符合发布策略，并在 0.5.2 中包含。

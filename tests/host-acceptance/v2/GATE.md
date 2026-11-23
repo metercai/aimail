@@ -17,6 +17,7 @@ bash tests/host-acceptance/v2/run-matrix.sh --host all \
      --stages "s1 s2 s3 s4 s5 neg"
 
 # L3 — published SDK installed by the agent, cross-platform, dsh only
+#      *** verifier-only (post-release regression). Developers must not run L3. ***
 bash tests/l3/run-v2.sh                     # all dsh cells + hermes as SKIP_LEGACY
 bash tests/l3/run-v2.sh --cell linux-amd64/dsh   # one cell, local
 ```
@@ -48,6 +49,8 @@ a run with skips is not a green run, it is a green run *for its scope*.
 
 - **L2** = current dev build, pre-installed, three hosts (dsh / pi / openclaw), local platform.
 - **L3** = published SDK, installed by the agent inside the journey, `dsh` across platforms.
+  L3 runs **after** a release and is executed by the verifier only; a developer's
+  deliverable is judged by L2, never by L3.
 - `hermes` / `deerflow` (pysdk) are `SKIP_LEGACY`: executed only with `--include-legacy`, never counted.
 - Both layers download the **published** gateway pinned in `pins.env` (sha256 verified).
 

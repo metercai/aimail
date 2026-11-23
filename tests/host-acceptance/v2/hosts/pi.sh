@@ -12,10 +12,11 @@ V2_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 _pi_run() {  # _pi_run <out> <prompt>
   local out="$1" prompt="$2"
-  mkdir -p "$out/home"
+  local hdir="$out/home${PI_HOME_SUFFIX:+_$PI_HOME_SUFFIX}"
+  mkdir -p "$hdir"
   # persistent HOME: pi keeps the binding under /root/.aimail — a fresh container
   # per turn would lose it, so the journey shares one state directory.
-  docker run --rm --network host -v "$out/home:/root" \
+  docker run --rm --network host -v "$hdir:/root" \
     -e "LLM_API_KEY=${LLM_API_KEY:?}" -e "PROMPT=$prompt" \
     -v "$V2_ROOT/lib:/opt/v2lib:ro" -v "${SDK_TARBALL_DIR:?}:/opt/sdk:ro" -v "$out:/out" \
     --entrypoint bash "$PI_IMAGE" -lc '
@@ -47,6 +48,8 @@ PY
       mkdir -p /root/ws && cd /root/ws
       timeout 420 pi -p "$PROMPT" >/tmp/pi.log 2>&1 || true
       python3 /opt/v2lib/dsh_state.py /root/.aimail count > /out/bindings_seen 2>/dev/null || echo 0 > /out/bindings_seen
+      B=$(ls /root/.aimail/systems/*/*/agentmail.json 2>/dev/null | head -1)
+      if [ -n "$B" ]; then install -m 644 "$B" /out/binding.json; stat -c %a "$B" > /out/mode; fi
       python3 - <<PY >/out/paused_seen 2>/dev/null || echo None >/out/paused_seen
 import glob, json
 p = sorted(glob.glob("/root/.aimail/systems/*/*/agentmail.json"))
@@ -78,11 +81,7 @@ host_journey() {
   local final; final="$(cat "$out/bindings_seen" 2>/dev/null || echo "$maxb")"
   printf 'max_bindings=%s paused_seen=%s final_bindings=%s turns=na\n' "$maxb" "$paused" "$final" > "$out/journey_state"
   [ -f "$out/last.log" ] && cp "$out/last.log" "$out/host.log" 2>/dev/null || true
-  # binding artefact (first binding seen), readable copy
-  docker run --rm -v "$out:/out" --entrypoint bash "$PI_IMAGE" -lc '
-    B=$(ls /root/.aimail/systems/*/*/agentmail.json 2>/dev/null | head -1)
-    [ -n "$B" ] && install -m 644 "$B" /out/binding.json && stat -c %a "$B" > /out/mode
-  ' >/dev/null 2>&1 || true
+  # binding artefact is captured inside _pi_run (it owns the persistent HOME)
   return 0
 }
 
@@ -92,7 +91,7 @@ host_stop() { :; }
 
 host_negative() {
   local out="$1" addr="$2"
-  _pi_run "$out" "Call the aimail_address tool now with exactly this JSON: {\"action\":\"bind\",\"code\":\"addr-0000-deadbeef\",\"email\":\"$addr\",\"gateway_url\":\"${GW_URL}\"}. Do not ask questions; just call it and report the result."
+  PI_HOME_SUFFIX=neg _pi_run "$out" "Call the aimail_address tool now with exactly this JSON: {\"action\":\"bind\",\"code\":\"addr-0000-deadbeef\",\"email\":\"$addr\",\"gateway_url\":\"${GW_URL}\"}. Do not ask questions; just call it and report the result."
   cp "$out/bindings_seen" "$out/bindings_count" 2>/dev/null || echo 0 > "$out/bindings_count"
   cp "$out/last.log" "$out/act.log" 2>/dev/null || true
   return 0
