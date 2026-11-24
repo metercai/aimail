@@ -1,19 +1,40 @@
 # 评审意见 — pysdk SSE-V2 重构 / 0.3.0（质检把关）
 
 - 日期：2026-11-24
-- 对象：`docs/qa/HANDOFF-PYSDK-0.3.0-V2.md`（开发交接）+ 当前工作树（基线 `9b96630`，本轮改动未提交）
-- 结论：**GO（附 2 条件）** —— 两条阻断已在 `4128390` 清掉，Q5 五轮全绿
+- 对象：`docs/qa/HANDOFF-PYSDK-0.3.0-V2.md`（开发交接）+ 发版坐标 `a20ff61`
+- 结论：**已发布（PASS）** —— PyPI `agent-aimail 0.3.0` 上线，产物与我签署的 wheel 逐字节一致
 
 ```
-VERDICT: GO（条件见 §2′）
-B-1 已收敛：实测"5 个 patch 模块确实不在 wheel"（README 的措辞本来是准的），但
-    install.py / sdk_ops.py / hermes/aimail_hermes.py 仍在包内且可导入 —— 交接 G-2 的
-    "已移出 wheel" 表述不准确。已改 README 写明事实，并加 test_legacy_surface_pin.py 双向钉住。
-B-2 已清：批次已提交为 4128390（作者标注开发、验证方复核），wheel 从该 SHA 重建。
-Q5 已完：见 §4，五轮全绿，且 inject.log 证明是"真 ack"而非 0→0 假象。
+VERDICT: PASS（已发布）
+TARGET : agent-aimail 0.3.0 @ a20ff61   publish run 45354719299  tag pysdk-v0.3.0
+GATES  : L0 PASS · pytest 520 passed (+2 SKIP_LEGACY) · hermes L2 PASS=14/2 · deerflow L2 PASS=15/2
+ARTIFACT: agent_aimail-0.3.0-py3-none-any.whl  258,435 B
+          sha256 40e5d1597407605682418139aecd418788a5508e8e97d571732c0bb8f3df7182
+          PyPI 声明摘要 == 我下载到的字节 == 我签署的值（三者相同）
+          provenance: workflow=publish.yml · environment=pypi-release · repo=metercai/aimail
+UNVERIFIED: C8 宿主侧（回复我们的回复留在同一 session）—— s6 夹具为 0.3.1 强制项
+RISK   : 回滚到 0.2.9 需连宿主一起退（0.2.9 依赖本轮已移除的 webhook/patch 面）
 ```
+
+发布后回读（不认流水线颜色）：
+
+| 检查 | 结果 |
+|---|---|
+| PyPI JSON 的 `digests.sha256` | `40e5d159…f3df7182` |
+| 我下载该文件的字节 hash | 同上（258,435 B） |
+| 我发布前签署的 wheel hash | 同上 |
+| 干净 venv 安装 | `__version__ == "0.3.0"`；v2 六模块可导入 |
+| patch 面 | `patch_webhook / patch_profiles / ensure_config / register_profiles / toolsets` **全部 ModuleNotFoundError**（breaking 声明成立） |
+| provenance | `workflow=publish.yml` · `environment=pypi-release` · `repo=metercai/aimail` |
+| simple index | 已列出 `agent_aimail-0.3.0-py3-none-any.whl`（首次 `pip download` 曾因 CDN 边缘滞后报 0.2.9，改用 JSON API 的文件 URL 直取后一致，随后索引也更新） |
+
+**L2 证据（坐标 `a20ff61`，宿主无 patch）**：hermes `s1 s2 s3 s4 neg` PASS=14 / `s5` PASS=2；
+deerflow `s1 s2 s3 s4 neg` PASS=15 / `s5` PASS=2；`inject.log` 均出现
+`sent_before_boot … acked_after_poll=NN observed max=1 final=0 emails=1`（真 ack，非 0→0）。
 
 ---
+
+## 0. 评审过程补记（当时的历史结论，保留以便追溯）
 
 ## 1. 已完成并可签的复验项
 
