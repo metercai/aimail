@@ -62,11 +62,36 @@ def collect(dist: str) -> list:
     return entries
 
 
+def stamp_time() -> str:
+    import datetime
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def git_sha(start: str) -> str:
+    """Best-effort: the commit the artifact was built from, so the pairing is recorded at build time."""
+    import subprocess
+    d = start
+    for _ in range(6):
+        try:
+            r = subprocess.run(["git", "-C", d, "rev-parse", "HEAD"],
+                               capture_output=True, text=True, timeout=10)
+            if r.returncode == 0:
+                return r.stdout.strip()
+        except Exception:
+            pass
+        d = os.path.dirname(d)
+    return ""
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dist", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--plug-package", default="", help="plugin package.json (version cross-check)")
+    ap.add_argument("--sdk-package", default="",
+                    help="package.json of the SDK that gets bundled; its name+version are stamped")
+    ap.add_argument("--stamp-name", default="build.json",
+                    help="name of the build stamp written into the archive root")
     a = ap.parse_args()
 
     dist = os.path.abspath(a.dist)
@@ -100,6 +125,23 @@ def main() -> int:
     if total > MAX_BYTES:
         fail("%d bytes exceeds the host limit %d" % (total, MAX_BYTES))
 
+    # Build stamp: the artifact must say which SDK it embeds. Without this, rebuilding the plugin at
+    # the same version after an SDK change yields a different file under an identical name and the
+    # pairing can only be recovered from git history. Packaging owns this, not the product build.
+    stamp = {
+        "plugin": plug_id,
+        "pluginVersion": version,
+        "builtAt": stamp_time(),
+        "gitSha": git_sha(os.path.dirname(os.path.abspath(a.dist))),
+    }
+    if a.sdk_package:
+        sdk = json.load(open(a.sdk_package))
+        stamp["sdk"] = sdk.get("name")
+        stamp["sdkVersion"] = sdk.get("version")
+    stamp_bytes = (json.dumps(stamp, indent=2, sort_keys=True) + "\n").encode()
+    if forbidden(a.stamp_name):
+        fail("stamp name is a forbidden entry: " + a.stamp_name)
+
     os.makedirs(a.out, exist_ok=True)
     name = "%s-%s.piplug" % (plug_id, version)
     out = os.path.join(a.out, name)
@@ -110,6 +152,10 @@ def main() -> int:
             zi.external_attr = 0o644 << 16
             with open(src, "rb") as fh:
                 z.writestr(zi, fh.read())
+        zi = zipfile.ZipInfo(a.stamp_name, date_time=(1980, 1, 1, 0, 0, 0))
+        zi.compress_type = zipfile.ZIP_STORED
+        zi.external_attr = 0o644 << 16
+        z.writestr(zi, stamp_bytes)
 
     # verify by re-reading: same checks the host's extractor makes
     with zipfile.ZipFile(out) as z:
@@ -127,6 +173,13 @@ def main() -> int:
         for n in names:
             if forbidden(n):
                 fail("forbidden entry survived: " + n)
+        if a.stamp_name not in names:
+            fail("build stamp missing from the archive: " + a.stamp_name)
+        got = json.loads(z.read(a.stamp_name))
+        if got.get("pluginVersion") != version:
+            fail("stamp pluginVersion %s != manifest %s" % (got.get("pluginVersion"), version))
+        if a.sdk_package and not got.get("sdkVersion"):
+            fail("stamp carries no sdkVersion although --sdk-package was given")
 
     digest = hashlib.sha256(open(out, "rb").read()).hexdigest()
     with open(out + ".sha256", "w") as fh:
@@ -136,6 +189,7 @@ def main() -> int:
     print("  entries=%d bytes_archive=%d bytes_payload=%d method=store" %
           (len(entries), os.path.getsize(out), total))
     print("  sha256=%s" % digest)
+    print("  stamp: " + json.dumps(stamp, sort_keys=True))
     print("  files: " + ", ".join(sorted(n for n in names)))
     return 0
 

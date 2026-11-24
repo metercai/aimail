@@ -87,10 +87,19 @@ fi
 step "6/6 pack .piplug (store-only) and re-read the archive"
 rm -rf "$OUT"
 python3 "$REPO/tests/release/pack-piplug.py" --dist "$PLUGIN/dist" --out "$OUT" \
-  --plug-package "$PLUGIN/package.json" >/tmp/gate-piplug-pack.log 2>&1
+  --plug-package "$PLUGIN/package.json" \
+  --sdk-package "$TSSDK/packages/agent-aimail/package.json" >/tmp/gate-piplug-pack.log 2>&1
 if [ $? -eq 0 ]; then
   ok "$(head -1 /tmp/gate-piplug-pack.log | sed 's/^PACK OK //')"
   sed -n '2,3p' /tmp/gate-piplug-pack.log | sed 's/^/    /'
+  # the stamp is what makes "which SDK is inside this artifact" answerable without git archaeology
+  STAMP_LINE="$(grep '^  stamp:' /tmp/gate-piplug-pack.log | sed 's/^  stamp: //')"
+  SDK_VER="$(python3 -c "import json;print(json.load(open('$TSSDK/packages/agent-aimail/package.json'))['version'])")"
+  if [ -n "$STAMP_LINE" ] && printf '%s' "$STAMP_LINE" | grep -q "\"sdkVersion\": \"$SDK_VER\""; then
+    ok "stamped sdkVersion=$SDK_VER"
+  else
+    bad "artifact stamp missing or does not match agent-aimail $SDK_VER (stamp: ${STAMP_LINE:-none})"
+  fi
 else
   bad "pack failed:"; cat /tmp/gate-piplug-pack.log
 fi
