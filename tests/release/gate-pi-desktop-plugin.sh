@@ -88,7 +88,9 @@ step "6/6 pack .piplug (store-only) and re-read the archive"
 rm -rf "$OUT"
 python3 "$REPO/tests/release/pack-piplug.py" --dist "$PLUGIN/dist" --out "$OUT" \
   --plug-package "$PLUGIN/package.json" \
-  --sdk-package "$TSSDK/packages/agent-aimail/package.json" >/tmp/gate-piplug-pack.log 2>&1
+  --sdk-package "$TSSDK/packages/agent-aimail/package.json" \
+  --dirty-paths "tssdk/packages/aimail-desktop-plugin/src,tssdk/packages/aimail-desktop-plugin/scripts,tssdk/packages/aimail-desktop-plugin/manifest.json,tssdk/packages/aimail-desktop-plugin/package.json,tssdk/packages/agent-aimail/src,tssdk/packages/agent-aimail/package.json" \
+  >/tmp/gate-piplug-pack.log 2>&1
 if [ $? -eq 0 ]; then
   ok "$(head -1 /tmp/gate-piplug-pack.log | sed 's/^PACK OK //')"
   sed -n '2,3p' /tmp/gate-piplug-pack.log | sed 's/^/    /'

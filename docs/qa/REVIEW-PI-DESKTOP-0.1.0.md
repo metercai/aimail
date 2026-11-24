@@ -2,16 +2,19 @@
 
 - 日期：2026-11-24
 - 对象：`docs/qa/HANDOFF-PI-DESKTOP-PLUGIN.md` + 工作树批次
-- 当前版本：**0.1.2** · tag `plugin-v0.1.2` @ `1ddfa0d` · CI `plugin-gate` **45502986902 (success)**
-- 历史：0.1.0（首个可发产物）→ 0.1.1（加版本戳，但戳里含墙钟时间，产物不可复现，已标记 superseded）
-  → **0.1.2（戳改用 git 提交日期，本地与 CI 逐字节一致）**
-- 结论：**GO — 0.1.2 已发布；封装/发版由验证方负责，SDK 版本戳已内置在产物里**
+- 当前版本：**0.2.0** · tag `plugin-v0.2.0` @ `635faa5` · CI `plugin-gate` **45503953752 (success)**
+- 命名（Owner 要求与产品同名）：宿主 id 校验器 `PLUGIN_ID_PATTERN=/^[a-z0-9]+(\.[a-z0-9_-]+)+$/`
+  （`packages/plugin-sdk/src/index.ts:55`）要求**小写且带点**，所以裸 `agent-aimail` 非法，
+  取 `agent-aimail.desktop`（产品.面），产物随之命名为 `agent-aimail.desktop-0.2.0.piplug`。
+- 历史：0.1.0（首个可发）→ 0.1.1（戳含墙钟时间，不可复现，superseded）→ 0.1.2（戳用提交日期）
+  → **0.2.0（改名为 agent-aimail.desktop，插件 id 变更属 breaking）**
+- 结论：**GO — 0.2.0 已由 CI 产出并 release 到 GitHub；封装/发版属验证方职责**
 
 ```
 VERDICT: PASS (artifact released)
 TARGET : aimail.desktop 0.1.0 @ 0d2b635 · tag plugin-v0.1.0 · CI 45422540935
-ARTIFACT: aimail.desktop-0.1.2.piplug  125,7xx B
-          sha256 cf1d5388abb3d7e1f3eff7c8c30af2364835aa987a14e0faa5bcd97e06184d58
+ARTIFACT: agent-aimail.desktop-0.2.0.piplug  125,743 B
+          sha256 fd1f298b31ad77cc88dd3a093627a6d9ce0dae4bf49ebe306156b4ad078f620d
           release asset == 本机构建 == CI 构建（同一 hash；同 commit 连构两次亦同）
           build.json ⊃ {"sdk":"agent-aimail","sdkVersion":"0.5.2","gitSha","sourceDate"}
 UNVERIFIED: 真机安装（权限授予 + service 启动）—— 见 F-3
@@ -103,3 +106,19 @@ Owner 指出封装发版属验证方职责，因此版本戳做在**发布工装
 （实测本地 `4e460898…` vs CI `53d5eb06…`）；0.1.2 改用 `git log -1 --format=%cI` 的提交日期，
 同 commit 连构两次 hash 相同，且 CI 与本地一致。0.1.1 未删除，release 注记标为 superseded——
 已发布的产物不做静默消失。
+
+## 7. 由 CI 产出并 release（Owner 要求）— 已成立
+
+- 工作流 `.github/workflows/plugin-gate.yml`：插件相关路径变更/PR 跑门禁；推 `plugin-v*` tag 时
+  **打包并把 `*.piplug` + `*.sha256` 附到对应 GitHub Release**（`gh release upload --clobber`）。
+- 本轮证据：`plugin-gate 45503953752 success` → release `plugin-v0.2.0` 含
+  `agent-aimail.desktop-0.2.0.piplug`（125,743 B）与 `.sha256`（100 B）。
+- 回读：从 release 下载得 `fd1f298b…f620d`；**在该 tag 的提交上重建**亦得同一 hash。
+
+## 8. 我第二次踩的坑（已加护栏）
+
+0.2.0 首次本地构建得到 `61504d0b…`，与 CI 的 `fd1f298b…` 不一致。原因不是随机性：
+我**在提交之前**构建，戳里的 `gitSha` 指向父提交，字节自然不同。规则是"**先提交，再从该提交构建**"。
+为了让这条不靠自觉，`pack-piplug.py` 现在带 `--dirty-paths`：打包输入（plugin 的 src/scripts/
+manifest/package 与 agent-aimail 的 src/package）只要有未提交改动就**拒绝打包**，并说明
+"戳里的 gitSha 会指向不包含这些字节的提交"；README/文档这类不影响字节的改动不在此列。

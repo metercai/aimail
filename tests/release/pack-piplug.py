@@ -103,6 +103,9 @@ def main() -> int:
     ap.add_argument("--plug-package", default="", help="plugin package.json (version cross-check)")
     ap.add_argument("--sdk-package", default="",
                     help="package.json of the SDK that gets bundled; its name+version are stamped")
+    ap.add_argument("--dirty-paths", default="",
+                    help="repo-relative paths to check for uncommitted changes; dirty => refuse (unless --allow-dirty)")
+    ap.add_argument("--allow-dirty", action="store_true")
     ap.add_argument("--stamp-name", default="build.json",
                     help="name of the build stamp written into the archive root")
     a = ap.parse_args()
@@ -137,6 +140,29 @@ def main() -> int:
     total = sum(os.path.getsize(src) for src, _ in entries)
     if total > MAX_BYTES:
         fail("%d bytes exceeds the host limit %d" % (total, MAX_BYTES))
+
+    # Refuse to stamp a dirty tree: the stamp's gitSha would then name a commit that does not contain
+    # the bytes in the archive. Paid for: 0.2.0 was first built before committing, so local and CI
+    # hashes disagreed (61504d0b… vs fd1f298b…) purely because the local gitSha was the parent commit.
+    if a.dirty_paths and not a.allow_dirty:
+        import subprocess
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(a.dist))))
+        for _ in range(6):
+            if os.path.isdir(os.path.join(root, ".git")):
+                break
+            root = os.path.dirname(root)
+        dirty = []
+        for rel in a.dirty_paths.split(","):
+            rel = rel.strip()
+            if not rel:
+                continue
+            r = subprocess.run(["git", "-C", root, "status", "--porcelain", "--untracked-files=no", "--", rel],
+                               capture_output=True, text=True)
+            dirty += [l for l in r.stdout.splitlines() if l.strip()]
+        if dirty:
+            fail("working tree has uncommitted changes under the packaged paths; the stamp's gitSha would "
+                 "name a commit that does not contain these bytes:\n  " + "\n  ".join(dirty) +
+                 "\nCommit first, or pass --allow-dirty to package an explicitly unversioned build.")
 
     # Build stamp: the artifact must say which SDK it embeds. Without this, rebuilding the plugin at
     # the same version after an SDK change yields a different file under an identical name and the
