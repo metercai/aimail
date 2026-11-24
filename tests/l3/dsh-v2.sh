@@ -36,6 +36,21 @@
 # Exit: 0 = loop closed · 1 = assertion failed · 2 = env gap
 set -uo pipefail
 
+# decompress a session transcript; on hosts without zstd, install the python module once.
+_tx_read() {  # _tx_read <file>
+  local f="$1" out=""
+  [ -f "$f" ] || return 1
+  if command -v zstdcat >/dev/null 2>&1; then out="$(zstdcat "$f" 2>/dev/null)"
+  elif python3 -c "import zstandard" >/dev/null 2>&1; then
+    out="$(python3 -c "import sys,zstandard;sys.stdout.write(zstandard.ZstdDecompressor().stream_reader(open(sys.argv[1],'rb')).read().decode('utf-8','replace'))" "$f" 2>/dev/null)"
+  else
+    python3 -m pip install --quiet zstandard >/dev/null 2>&1 || true
+    out="$(python3 -c "import sys,zstandard;sys.stdout.write(zstandard.ZstdDecompressor().stream_reader(open(sys.argv[1],'rb')).read().decode('utf-8','replace'))" "$f" 2>/dev/null)"
+  fi
+  printf '%s' "$out"
+  [ -n "$out" ]
+}
+
 say() { printf '  %s\n' "$*"; }
 ok()  { printf '  \033[32m✓\033[0m %s\n' "$*"; }
 bad() { printf '  \033[31m✗ %s\n' "$*" >&2; }
@@ -446,7 +461,7 @@ if [ -n "$_sess" ]; then
     # Repo docs count as the harness too: an agent that reads docs/dsh-mail-architecture-v2.md has
     # been told how to install, which is exactly what the activation prompt is supposed to convey.
     # CI proved the difference: same journey, no repo on the agent's path -> no install at all.
-    zstdcat "$_sess" 2>/dev/null | grep -qaE "tests/l3/|dsh-v2\.sh|run-l3\.sh|run-v2\.sh|aimail/docs/|docs/dsh-mail|docs/aimail-host-sse" && _leak=1
+    _tx_read "$_sess" 2>/dev/null | grep -qaE "tests/l3/|dsh-v2\.sh|run-l3\.sh|run-v2\.sh|aimail/docs/|docs/dsh-mail|docs/aimail-host-sse" && _leak=1
   elif python3 -c "import zstandard" >/dev/null 2>&1; then
     python3 - "$_sess" <<'PY' && _leak=1
 import sys, zstandard
@@ -515,17 +530,12 @@ _pat='install_bundle.{0,160}agent-aimail|install_plugin.{0,160}agent-aimail|agen
 # one the tripwire read earlier
 _sess="$(ls -t "$DSH_HOME"/sessions/*/*/session.v4.jsonl.zstd 2>/dev/null | head -1)"
 if [ -n "${_sess:-}" ] && [ -f "$_sess" ]; then
-  if command -v zstdcat >/dev/null 2>&1; then
-    _tx="$(zstdcat "$_sess" 2>/dev/null)"
-  elif python3 -c "import zstandard" >/dev/null 2>&1; then
-    _tx="$(python3 -c "import sys,zstandard;sys.stdout.write(zstandard.ZstdDecompressor().stream_reader(open(sys.argv[1],'rb')).read().decode('utf-8','replace'))" "$_sess" 2>/dev/null)"
-  else
-    _tx=""
-  fi
+  _tx="$(_tx_read "$_sess")" || _tx=""
   # NEVER pipe a large string into `grep -q`: grep exits at the first match, printf gets SIGPIPE,
   # and with `set -o pipefail` the pipeline reports failure even though the pattern matched — on CI
   # that turned a real agent install into "cannot prove self-bootstrap" (2026-11-24, plus the
   # "printf: write error: Broken pipe" lines in the log). Write once, grep the file.
+  [ -n "$_tx" ] || gap "cannot read the session transcript ($_sess) — no zstd/zstandard on this host, so the install cannot be attributed (this is a fixture gap, not a product verdict)"
   _txfile="$WORK/transcript.txt"
   if [ -n "$_tx" ]; then printf '%s' "$_tx" > "$_txfile" 2>/dev/null || true; fi
   [ -s "$_txfile" ] && grep -qaE "$_pat" "$_txfile" && _DONE_BY_AGENT=1

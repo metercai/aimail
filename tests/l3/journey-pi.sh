@@ -4,6 +4,21 @@
 # keeps refusing pi cells until this journey passes locally.
 set -uo pipefail
 HOST_NAME=pi
+# decompress a session transcript; on hosts without zstd, install the python module once.
+_tx_read() {  # _tx_read <file>
+  local f="$1" out=""
+  [ -f "$f" ] || return 1
+  if command -v zstdcat >/dev/null 2>&1; then out="$(zstdcat "$f" 2>/dev/null)"
+  elif python3 -c "import zstandard" >/dev/null 2>&1; then
+    out="$(python3 -c "import sys,zstandard;sys.stdout.write(zstandard.ZstdDecompressor().stream_reader(open(sys.argv[1],'rb')).read().decode('utf-8','replace'))" "$f" 2>/dev/null)"
+  else
+    python3 -m pip install --quiet zstandard >/dev/null 2>&1 || true
+    out="$(python3 -c "import sys,zstandard;sys.stdout.write(zstandard.ZstdDecompressor().stream_reader(open(sys.argv[1],'rb')).read().decode('utf-8','replace'))" "$f" 2>/dev/null)"
+  fi
+  printf '%s' "$out"
+  [ -n "$out" ]
+}
+
 say() { printf '  %s\n' "$*"; }
 ok()  { printf '  \033[32m✓\033[0m %s\n' "$*"; }
 bad() { printf '  \033[31m✗ %s\n' "$*" >&2; }
