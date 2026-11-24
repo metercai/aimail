@@ -43,13 +43,27 @@ modules = [
     "aimail.gateway_api", "aimail.aimail_mcp_server", "aimail.install",
     "aimail.sdk_ops",
     "aimail._resources_release", "aimail._aimail_bootstrap",
-    "aimail.hermes.aimail_hermes", "aimail.hermes.patch_webhook",
-    "aimail.hermes.patch_profiles", "aimail.hermes.ensure_config",
-    "aimail.hermes.register_profiles", "aimail.hermes.toolsets",
+    "aimail.hermes.aimail_hermes",
     "aimail.deer-flow.manage", "aimail.deer-flow.aimail_deerflow",
 ]
 for m in modules:
     importlib.import_module(m)
+
+# 0.3.0 breaking surface: the five patch-era modules are NOT shipped any more. This used to be part
+# of the list above, which made every 0.3.x release die at "import surface" (measured 2026-11-24,
+# pypi-build run 45353491562: ModuleNotFoundError: aimail.hermes.patch_webhook). Asserting ABSENCE
+# keeps the gate honest in the other direction too — a patch-era module coming back fails here.
+removed_in_030 = [
+    "aimail.hermes.patch_webhook", "aimail.hermes.patch_profiles",
+    "aimail.hermes.ensure_config", "aimail.hermes.register_profiles",
+    "aimail.hermes.toolsets",
+]
+for m in removed_in_030:
+    try:
+        importlib.import_module(m)
+    except ModuleNotFoundError:
+        continue
+    raise SystemExit(f"::error::{m} is back in the wheel — 0.3.0 removed the patch surface on purpose")
 # path helpers resolve to real files inside the wheel
 for d in (aimail.skills_dir(), aimail.board_role_prompt_dir()):
     assert os.path.isdir(d), f"missing dir: {d}"
