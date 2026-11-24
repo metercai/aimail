@@ -1,0 +1,86 @@
+{
+  "_comment": "Contract C8 (docs/aimail-host-sse-contract-v2.md:519) thread-identity vectors. Single source for BOTH SDKs: pysdk tests/sdk/test_c8_thread_parity.py reads this file; the tssdk suite (packages/agent-aimail/test/core/runtime-router.test.ts) should read the same file instead of keeping a private copy of these cases.",
+  "thread_root": [
+    {
+      "why": "references[0] wins over in_reply_to and message_id",
+      "payload": {
+        "message_id": "m",
+        "in_reply_to": "r",
+        "references": [
+          "ref",
+          "r"
+        ]
+      },
+      "headers": {},
+      "expect": "ref"
+    },
+    {
+      "why": "no references -> in_reply_to",
+      "payload": {
+        "message_id": "m",
+        "in_reply_to": "r"
+      },
+      "headers": {},
+      "expect": "r"
+    },
+    {
+      "why": "fresh mail -> its own message_id",
+      "payload": {
+        "message_id": "m"
+      },
+      "headers": {},
+      "expect": "m"
+    },
+    {
+      "why": "hosts that only expose raw headers (in-reply-to)",
+      "payload": {},
+      "headers": {
+        "in-reply-to": "h"
+      },
+      "expect": "h"
+    },
+    {
+      "why": "angle brackets and multi-ref strings must not leak into the session key",
+      "payload": {},
+      "headers": {
+        "References": "<root@x> <second@x>"
+      },
+      "expect": "root@x"
+    }
+  ],
+  "route": [
+    {
+      "why": "recorded session in the same workspace -> follow up",
+      "meta": {
+        "session_id": "s1",
+        "workspace_path": "/ws"
+      },
+      "workspace_path": "/ws",
+      "expect": {
+        "kind": "followup",
+        "session_id": "s1"
+      }
+    },
+    {
+      "why": "no mapping -> new session",
+      "meta": {},
+      "workspace_path": "/ws",
+      "expect": {
+        "kind": "new",
+        "session_id": ""
+      }
+    },
+    {
+      "why": "workspace moved -> new session (contract: space = cwd)",
+      "meta": {
+        "session_id": "s1",
+        "workspace_path": "/old"
+      },
+      "workspace_path": "/ws",
+      "expect": {
+        "kind": "new",
+        "session_id": ""
+      }
+    }
+  ]
+}
