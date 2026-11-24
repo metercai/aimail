@@ -134,6 +134,7 @@ key 生成/存储哈希唯一真源：base `generate_key_material()`；base/adva
 base:     416 tests / fmt / clippy PASS；release --version = 1.0.15
 advanced: 146 tests / fmt / clippy PASS；release --version = 1.0.14
 remote:   aimail-advanced 1.0.14, systemd active；strings 含新 prompt
+L2 smoke: DSH s1 s2 = PASS=10 RED=0 GAP=0（gateway v1.0.15）
 ```
 
 L2 smoke 与 v1.0.15 pin 结果见交接文档 §3.2。
