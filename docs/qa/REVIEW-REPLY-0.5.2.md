@@ -1,10 +1,10 @@
-# 评审反馈回复件 — tssdk 0.5.2 / gateway v1.0.14 / advanced v1.0.13（质检方 → 开发）
+# 评审反馈回复件 — tssdk 0.5.2 / gateway v1.0.15 / advanced v1.0.14（质检方 → 开发）
 
 - 日期：2026-11-23
 - 针对：`docs/qa/HANDOFF-TSSDK-GATEWAY-0.5.2.md`（开发交接）
-- 结论：**gateway base v1.0.14 已发版；advanced v1.0.13 已发版并部署；tssdk 0.5.2 已发布；L3 4/4 dsh cells PASS（v1.0.13 批次）。**
+- 结论：**gateway base v1.0.15 已发版；advanced v1.0.14 已发版并部署；tssdk 0.5.2 已发布；L3 4/4 dsh cells PASS（v1.0.13 批次）。**
 
-> **文档状态说明**：§0.3 是当前最终发布收口结论；§0 / §0.2 是 v1.0.13 第一版记录，§3–§6 保留了早批“HOLD / R-1 待定”的过程记录，**不再代表当前结论**：R-1 已在 §0 撤回；pi s3 的已知 GAP 已由 `7fbcee8` 的长驻 rpc 夹具关闭。
+> **文档状态说明**：§0.4 是当前最终发布收口结论；§0 / §0.2 是 v1.0.13 第一版记录，§3–§6 保留了早批“HOLD / R-1 待定”的过程记录，**不再代表当前结论**：R-1 已在 §0 撤回；pi s3 的已知 GAP 已由 `7fbcee8` 的长驻 rpc 夹具关闭。
 
 
 ---
@@ -115,6 +115,28 @@ base 四资产（下载后自算，与 GitHub API `digest` 逐项一致）：
 | linux-arm64 | `68aa3593c1ad79a630609c04f3f06225a7225fa391ce880f158c8a3f5795a08e` |
 | macos-arm64 | `3f65543753ffae77ea08f8dc74a07e46289635f2b0bbde71374b3de01c93f790` |
 | windows-amd64.exe | `ef9336a42f228017ba8f37f08a4709e037ebf29ea659b1cd5dd53fab4454fe68` |
+
+---
+
+## 0.4 第三版发布收口（2026-11-23，prompt 修订 + 复用审计）
+
+- base **v1.0.15** @ `c65823d`，tag `v1.0.15`，四资产已发布。
+- advanced **v1.0.14** @ `60ea90a`，分支 `release/1.0.13`，已部署；备份 `/usr/local/bin/aimail-advanced.bak-20261123-v1.0.13`。
+- tssdk 0.5.2 不变。
+
+prompt 唯一真源：base `address_activation_prompt()`；base/advanced 共用。  
+key 生成/存储哈希唯一真源：base `generate_key_material()`；base/advanced 共用。  
+审计结论：advanced **不能**直接调用 base `activate_address_code`（事务/续期/裸域语义不同），详见 `docs/qa/ACTIVATION-REUSE-AUDIT.md`。
+
+验证：
+
+```text
+base:     416 tests / fmt / clippy PASS；release --version = 1.0.15
+advanced: 146 tests / fmt / clippy PASS；release --version = 1.0.14
+remote:   aimail-advanced 1.0.14, systemd active；strings 含新 prompt
+```
+
+L2 smoke 与 v1.0.15 pin 结果见交接文档 §3.2。
 
 ---
 

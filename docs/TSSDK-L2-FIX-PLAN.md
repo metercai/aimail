@@ -426,3 +426,18 @@ Owner 要求把 base/advanced 下发邮件正文里的 `agent_aimail` 改为 **`
 验证：base 416 tests / fmt / clippy；advanced 146 tests / fmt / clippy；两侧 release `--version` 分别为 1.0.14 / 1.0.13。
 
 证据：`evidence/l2/round2-20261123/dsh-s1s2-gateway-v1.0.14.log`。
+
+
+---
+
+## 14. 第三版发布（2026-11-23，prompt 修订 + 激活逻辑复用）
+
+| 项 | 落地 |
+|---|---|
+| 邮件 prompt | base `address_activation_prompt()` 为唯一真源；base/advanced 共用新文案 |
+| key 生成 | base `generate_key_material()` 为唯一真源；base/advanced 共用，统一 sealed hash 策略 |
+| advanced 直接复用 base `activate_address_code` | **不可行**：事务/续期/裸域语义不同；审计见 `docs/qa/ACTIVATION-REUSE-AUDIT.md` |
+| base | **v1.0.15** @ `c65823d`，tag `v1.0.15`，四资产已发布 |
+| advanced | **v1.0.14** @ `60ea90a`，已构建并部署；备份 `.bak-20261123-v1.0.13` |
+| pins | v1.0.15 |
+| 验证 | base 416 / advanced 146 tests + fmt/clippy；L2 smoke 见交接文档 |

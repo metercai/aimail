@@ -1,4 +1,4 @@
-# 交接（最终收口）：tssdk 0.5.2 + gateway v1.0.14 / advanced v1.0.13
+# 交接（最终收口）：tssdk 0.5.2 + gateway v1.0.15 / advanced v1.0.14
 
 日期：2026-11-23  
 交接方：开发（PI-Desktop）  
@@ -11,17 +11,17 @@
 
 ```text
 VERDICT: PASS
-gateway  base 1.0.14 @ df52649 · tag v1.0.14 · pins.env = v1.0.14
+gateway  base 1.0.15 @ c65823d · tag v1.0.15 · pins.env = v1.0.15
 tssdk    agent-aimail 0.5.2 @ be2c89e · npm latest = 0.5.2
-advanced 1.0.13 @ 66a4c2d · 已部署（备份 aimail-advanced.bak-20261123）
-L3       4/4 dsh cells PASS（v1.0.13 批次；v1.0.14 仅邮件文案+版本号，待 QA 复跑）
+advanced 1.0.14 @ 60ea90a · 已部署（备份 aimail-advanced.bak-20261123-v1.0.13）
+L3       4/4 dsh cells PASS（v1.0.13 批次；v1.0.15 为 prompt/复用重构，待 QA 复跑）
 ```
 
 - L2 产品 RED = 0。
 - R-1（openclaw s4 第二次激活）已撤回：隔离单跑 `max=2` + `from 2 binding(s)`，是 F5 flake。
 - dsh s5 首次 `paused=False` 已归因为模型未调工具（F1 夹具/LLM），复跑 PASS。
 - pi s3 的旧“已知 GAP”已关闭：`7fbcee8` 增加长驻 `pi --mode rpc` 会话；开发侧在 gateway v1.0.13 + SDK 0.5.2 下复跑为 `PASS=3 RED=0 GAP=0`。
-- base v1.0.14 与 advanced v1.0.13 已完成邮件包名修正并部署；v1.0.14 仅改邮件正文/版本号。
+- base v1.0.15 与 advanced v1.0.14 已完成 prompt 修订、共享 base 的 prompt/key 生成逻辑并部署；详见 `docs/qa/ACTIVATION-REUSE-AUDIT.md`。
 
 ---
 
@@ -94,7 +94,7 @@ rustfmt --check src/advanced/api/email_notify.rs  PASS
 
 | 旅程 | 结果 | 归属 |
 |---|---|---|
-| DSH `s1 s2`（gateway **v1.0.14**） | **PASS=10 RED=0 GAP=0** | 第二版发布后的 smoke；证据 `dsh-s1s2-gateway-v1.0.14.log` |
+| DSH `s1 s2`（gateway **v1.0.15**） | **PASS=10 RED=0 GAP=0** | 第三版发布后的 smoke；证据 `dsh-s1s2-gateway-v1.0.15.log` |
 | `--host all --stages "s1 s2 s3"`（v1.0.13） | PASS=34 **RED=0** GAP=1（旧） | dsh/openclaw s1/s2/s3 全绿；旧 GAP = pi s3 |
 | pi `s3`（`7fbcee8` 后复跑） | **PASS=3 RED=0 GAP=0** | 长驻 rpc 夹具已关闭 GAP |
 | `--host all --stages "s4 neg"` | 首次 RED=1/GAP=1 → 隔离复跑 PASS | openclaw s4 = F5 flake；无产品 RED |
@@ -132,12 +132,12 @@ evidence/l2/round2-20261123/pi-s3-final-gateway-v1.0.13.log
 
 | 组件 | 坐标 |
 |---|---|
-| gateway base | `df52649` · tag `v1.0.14` |
+| gateway base | `c65823d` · tag `v1.0.15` |
 | gateway 资产 | linux-amd64 / linux-arm64 / macos-arm64 / windows-amd64.exe；sha256 见 `REVIEW-REPLY-0.5.2.md` §2 |
-| pins | `tests/agent-env/pins.env` = v1.0.14（本轮更新） |
+| pins | `tests/agent-env/pins.env` = v1.0.15（本轮更新） |
 | tssdk | `be2c89e` · npm `agent-aimail@0.5.2` |
 | tssdk 收口 | `8ef6fd0`（0.5.2 批次）、`2965598`（发布坐标）、`22b1fbf`（版本断言/门禁输出） |
-| advanced | `66a4c2d`（分支 `release/1.0.13`，已部署） |
+| advanced | `60ea90a`（分支 `release/1.0.13`，已部署） |
 
 ---
 
@@ -173,14 +173,14 @@ bash tests/l3/run-v2.sh
 
 ## 6. advanced 发布记录
 
-- 版本：**1.0.13**；提交 `66a4c2d`，分支 `release/1.0.13`。
-- 已构建 release 二进制并部署到生产；部署前备份 `/usr/local/bin/aimail-advanced.bak-20261123`。
-- 远端 `aimail-advanced --version` = **1.0.13**，systemd `active`。
+- 版本：**1.0.14**；提交 `60ea90a`，分支 `release/1.0.13`。
+- 已构建 release 二进制并部署到生产；部署前备份 `/usr/local/bin/aimail-advanced.bak-20261123-v1.0.13`（上一版 v1.0.13）。
+- 远端 `aimail-advanced --version` = **1.0.14**，systemd `active`。
 - 邮件正文包名已改为 `agent-aimail`；base 与 advanced 使用同一句提示。
 
 ---
 
-## 7. 已知残留（不影响 0.5.2 / v1.0.14 放行）
+## 7. 已知残留（不影响 0.5.2 / v1.0.15 放行）
 
 | 项 | 状态 |
 |---|---|
@@ -194,7 +194,7 @@ bash tests/l3/run-v2.sh
 
 ## 8. 回滚
 
-- gateway：`pins.env` 可回 v1.0.13（上一稳定版）；v1.0.14 tag 保留，不删除。
+- gateway：`pins.env` 可回 v1.0.14（上一稳定版）；v1.0.15 tag 保留，不删除。
 - tssdk：npm dist-tag 回退到上一稳定版；不删除已发布版本。
-- advanced：生产备份 `/usr/local/bin/aimail-advanced.bak-20261123`（v1.0.12）；需要时 stop → 覆盖 → start。
+- advanced：生产备份 `/usr/local/bin/aimail-advanced.bak-20261123-v1.0.13`（v1.0.13）；需要时 stop → 覆盖 → start。
 - 任何 key 只从 `~/.hermes/profiles/verifier/.env` 运行时读取，不进入仓库、日志、证据文件。
