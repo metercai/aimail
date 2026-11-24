@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "id": "agent-aimail.desktop",
+  "id": "aimail.pi-desktop",
   "name": "AIMail",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Receive AIMail at your agent addresses: each thread lands in its own PI-Desktop session, and a mail is acknowledged only after the host accepted it.",
   "author": "AIMail",
   "homepage": "https://github.com/metercai/aimail",
