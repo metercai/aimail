@@ -2,15 +2,18 @@
 
 - 日期：2026-11-24
 - 对象：`docs/qa/HANDOFF-PI-DESKTOP-PLUGIN.md` + 工作树批次
-- 坐标：`0d2b635` · tag `plugin-v0.1.0` · CI `plugin-gate` run **45422540935 (success)**
-- 结论：**GO — 已发布到 release（产物与本地签署值逐字节一致）**
+- 当前版本：**0.1.2** · tag `plugin-v0.1.2` @ `1ddfa0d` · CI `plugin-gate` **45502986902 (success)**
+- 历史：0.1.0（首个可发产物）→ 0.1.1（加版本戳，但戳里含墙钟时间，产物不可复现，已标记 superseded）
+  → **0.1.2（戳改用 git 提交日期，本地与 CI 逐字节一致）**
+- 结论：**GO — 0.1.2 已发布；封装/发版由验证方负责，SDK 版本戳已内置在产物里**
 
 ```
 VERDICT: PASS (artifact released)
 TARGET : aimail.desktop 0.1.0 @ 0d2b635 · tag plugin-v0.1.0 · CI 45422540935
-ARTIFACT: aimail.desktop-0.1.0.piplug  125,423 B
-          sha256 ab5de3145239b51b3edc83215d4fa8c31807b8a77173768bd37dacc5ee6637e9
-          release asset == 本机构建 == CI 构建（同一 hash，跨 node 22/24 可复现）
+ARTIFACT: aimail.desktop-0.1.2.piplug  125,7xx B
+          sha256 cf1d5388abb3d7e1f3eff7c8c30af2364835aa987a14e0faa5bcd97e06184d58
+          release asset == 本机构建 == CI 构建（同一 hash；同 commit 连构两次亦同）
+          build.json ⊃ {"sdk":"agent-aimail","sdkVersion":"0.5.2","gitSha","sourceDate"}
 UNVERIFIED: 真机安装（权限授予 + service 启动）—— 见 F-3
 ```
 
@@ -85,3 +88,18 @@ CI 上失败并留下半写 `node_modules`。改为**只装一次 `--frozen-lock
 REQ-16（建议，成本极低）：构建时把 `{sdk:"agent-aimail", sdkVersion, gitSha, builtAt}` 写成
 `build.json` 放进 `dist/`（或 `define` 注入 bundle），门禁断言其存在且与 lockfile 一致；
 发版注记自动带 `⊃ agent-aimail@<sdkVersion>`。这样"产物 ↔ SDK"的配对不再依赖 git 考古。
+
+## 6. 版本戳与可复现性（由验证方实现，不是开发任务）
+
+Owner 指出封装发版属验证方职责，因此版本戳做在**发布工装**里，未改产品源码：
+
+- `pack-piplug.py --sdk-package <agent-aimail/package.json>` 把
+  `{"plugin","pluginVersion","sdk","sdkVersion","gitSha","sourceDate"}` 作为 `build.json`
+  写入归档根（store-only，与其他条目同法），并在重新打开时校验：缺戳、戳的 pluginVersion 与
+  manifest 不一致、给了 `--sdk-package` 却没有 `sdkVersion`，一律 pack 失败。
+- 门禁断言戳里的 `sdkVersion` 与 workspace 实际构建用的一致（输出 `✓ stamped sdkVersion=0.5.2`）。
+
+**我自己犯的错，也记在这里**：0.1.1 的戳用了墙钟 `builtAt`，导致同一 commit 每次都产生不同字节
+（实测本地 `4e460898…` vs CI `53d5eb06…`）；0.1.2 改用 `git log -1 --format=%cI` 的提交日期，
+同 commit 连构两次 hash 相同，且 CI 与本地一致。0.1.1 未删除，release 注记标为 superseded——
+已发布的产物不做静默消失。
