@@ -60,3 +60,26 @@ CI 上失败并留下半写 `node_modules`。改为**只装一次 `--frozen-lock
 - 产物：`plugin-v0.1.0` release 附 `aimail.desktop-0.1.0.piplug` + `.piplug.sha256`（由 `plugin-gate` 上传，工单见 CI）。
 - 回滚：删除 release/tag 即可（本插件不进 npm，不存在"已发布不可撤回"）；对已安装用户，宿主侧卸载插件。
 - 版本策略：插件 `0.1.0` 与 `agent-aimail 0.5.2` 相互独立；`agent-aimail` 是否升 `0.5.3`（为 `./desktop` exports）留待 owner。
+
+## 5. 交付形态：桌面是独立产物，不是 npm 上的同一个包（Owner 已于 2026-11-24 确认）
+
+这是**两条供应链**，不是"同一个包的不同装法"：
+
+| 宿主 | 安装单位 | 版本来源 | 升级方式 |
+|---|---|---|---|
+| dsh / pi / openclaw | npm 包 `agent-aimail@<sdk版本>` | npm 版本号 | 宿主插件命令装新版本 |
+| **PI-Desktop** | **`.piplug` 归档**（`aimail.desktop@<插件版本>`） | 插件版本号（0.1.0） | 从 release 取件，宿主插件中心导入 |
+
+所以：
+- `.piplug` **专供 PI-Desktop**，宿主只认这种归档（`manifest.json` 在根 + store-only + `require`-able `main.js`）；
+- 其余宿主装的是**同一个 npm 包**，升级粒度是 SDK 版本；
+- 插件包 `private: true`，不进 npm；`agent-aimail` 的 `./desktop` 导出是给**源码消费者**的，`.piplug` 不需要它（SDK 已被 esbuild 打进 `main.js`）。
+
+**由此产生的配对义务（本轮暴露的真实缺口，记 REQ-16）**：`.piplug` 里没有 SDK 版本痕迹——
+我核过产物：`main.js` 内 `agent-aimail` 出现 40 次，但 `0.5.x` 版本串 **0 次**。于是
+"这个 `.piplug` 到底内嵌了哪个 SDK"只能靠 git 反查。本版可反查：tag `plugin-v0.1.0` @ `0d2b635`
+的 `agent-aimail` 版本为 **0.5.2**（即 `.piplug 0.1.0` ⊃ `agent-aimail 0.5.2`），已写入 tag 注记。
+
+REQ-16（建议，成本极低）：构建时把 `{sdk:"agent-aimail", sdkVersion, gitSha, builtAt}` 写成
+`build.json` 放进 `dist/`（或 `define` 注入 bundle），门禁断言其存在且与 lockfile 一致；
+发版注记自动带 `⊃ agent-aimail@<sdkVersion>`。这样"产物 ↔ SDK"的配对不再依赖 git 考古。
