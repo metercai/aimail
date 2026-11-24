@@ -122,6 +122,27 @@ Measurement traps paid for here (do not repeat): the store is `$HERMES_HOME/sess
 must mean "the session that handled the reply", never "the key that newly appeared", or a correctly
 reused session reads as a violation.
 
-**Still to cover:** deerflow (observe its `thread_id` store), then the tssdk hosts (dsh / openclaw).
+**deerflow (pysdk) — PASS, measured 2026-11-24 (run 4):**
+```
+step1 3 threads  mail A (new thread)      -> new thread 7b1a2a03-bdba-5901-a538-01d0769b93d8
+step2 3 threads  reply (References: [A])  -> no new thread (3 -> 3)      ← same host thread
+step3 4 threads  mail B (new thread)      -> new thread cdb60deb-…      ← new host thread
+acked [true,true,true]; space = /app
+```
+Three fixture defects were paid for on the way, all of them mine — worth knowing before touching
+this host:
+1. **`$!` is not the listener.** Phase 1 killed `$!` and phase 2 still hit
+   `EADDRINUSE`; `port_free_after=60` proved the port never freed, the app lost its channel manager
+   (`SSE reconcile: 0`) and no mail was ever delivered. The listener is now killed from OUTSIDE the
+   container by process name.
+2. **No single quotes inside the `docker exec … bash -lc '…'` body.** One `awk '…'` terminated the
+   string and phase 1 died with zero evidence (my run 3). `bash -n` does not catch this.
+3. Session identity must be read from the host store (`/app/backend/.deer-flow/data/deerflow.db`,
+   tables matching `*thread*`), not computed in the fixture — the uuid5 thread id is derivable, but
+   deriving it would only verify my own arithmetic.
+
+**Still to cover:** the tssdk hosts (dsh / openclaw) — dsh reads `sessions/<ws>/*.jsonl`, openclaw its
+own session store — and the tssdk unit suite should consume `contract/c8-thread-vectors.json` instead
+of keeping a private copy of the C8 cases.
 Also outstanding: the tssdk unit suite should consume `contract/c8-thread-vectors.json` instead of
 keeping its own copy of the C8 cases.

@@ -149,6 +149,18 @@ PYCFG
       bindings | wc -l > /out/bindings_count_final
     fi
     [ -n "${_DF_PID:-}" ] && kill "$_DF_PID" 2>/dev/null || true
+    # `$!` was not the listener (measured: port_free_after=60 ⇒ the port never freed, phase 2 died
+    # with EADDRINUSE and the app ended up with no channel manager ⇒ no SSE stream ⇒ s6 mails never
+    # delivered). Kill by PORT, which is unambiguous, then wait for release.
+    # Wait for the port to be released: a fixed `sleep 2` raced here and phase 2 then died with
+    # "address already in use", leaving the app with no channel manager and thus no SSE stream —
+    # measured 2026-11-24 (s6 run 1: only one [pull] delivery, then "SSE reconcile: 0").
+    i=0
+    while [ $i -lt 60 ]; do
+      ./.venv/bin/python -c "import socket,sys; s=socket.socket(); s.settimeout(0.3); sys.exit(0 if s.connect_ex(('127.0.0.1', $DF_PORT))!=0 else 1)" 2>/dev/null && break
+      i=$((i+1)); sleep 0.5
+    done
+    echo port_free_after=$i > /out/port_wait
     echo phase1_done > /out/phase1
   ' >"$out/phase1.log" 2>&1 || true
 
@@ -188,6 +200,14 @@ PYINJ
   ) &
   _ackwatch_pid=$!
 
+  # Kill the phase-1 listener by PROCESS NAME from outside the container: `$!` inside the exec body
+  # was not the listener (port_free_after=60 proved the port never freed, so phase 2 hit EADDRINUSE
+  # and the app lost its channel manager ⇒ no SSE stream ⇒ s6 mails were never delivered).
+  # Done here, not inside, because the in-body script is single-quoted and any quoting trick there
+  # terminates the docker exec string.
+  docker exec "$name" pkill -f "uvicorn app.gateway.app" >/dev/null 2>&1 || true
+  sleep 2
+
   # ── phase 2: boot again — the extension installs and its stream drains the queue ──
   docker exec "$name" bash -lc '
     set -u
@@ -197,10 +217,26 @@ PYINJ
     export AIMAIL_DEERFLOW_API="http://127.0.0.1:'"$DF_API_PORT"'"
     nohup ./.venv/bin/python -m uvicorn app.gateway.app:app --host 127.0.0.1 \
       --port "'"$DF_API_PORT"'" >/tmp/df2.log 2>&1 &
-    i=0
-    while [ $i -lt 150 ]; do
-      grep -qE "SSE reconcile|installed \(tools=|Uvicorn running" /tmp/df2.log 2>/dev/null && break
-      i=$((i+1)); sleep 2
+    _try=0
+    while [ $_try -lt 4 ]; do
+      i=0
+      while [ $i -lt 150 ]; do
+        grep -qE "SSE reconcile|installed \(tools=|Uvicorn running" /tmp/df2.log 2>/dev/null && break
+        grep -q "address already in use" /tmp/df2.log 2>/dev/null && break
+        i=$((i+1)); sleep 2
+      done
+      grep -q "address already in use" /tmp/df2.log 2>/dev/null || break
+      # the port was still held: wait for it, then boot once more
+      _try=$((_try+1))
+      echo "phase2 EADDRINUSE, retry $_try" >> /out/phase2_retries
+      python3 -c "import socket,time
+for _ in range(120):
+    s=socket.socket(); s.settimeout(0.3)
+    if s.connect_ex(('127.0.0.1', '"$DF_API_PORT"'))!=0: break
+    time.sleep(0.5)" 2>/dev/null || true
+      : > /tmp/df2.log
+      nohup ./.venv/bin/python -m uvicorn app.gateway.app:app --host 127.0.0.1 \
+        --port "'"$DF_API_PORT"'" >/tmp/df2.log 2>&1 &
     done
     echo phase2_done > /out/phase2
   ' >"$out/phase2.log" 2>&1 || true
@@ -213,6 +249,104 @@ PYINJ
   else
     kill "$_ackwatch_pid" 2>/dev/null || true
   fi
+
+  # ── phase 3 (optional): contract C8 host side — same thread ⇒ same host thread ─────
+  # deerflow keeps its threads in the app's own store (tables named *thread*), so the judgement
+  # reads THOSE rows. Discovery is deliberate: the schema is not part of the contract, so the
+  # fixture finds the store instead of hard-coding a path (hermes cost me two runs by guessing).
+  case " ${STAGES:-} " in
+  *" s6 "*)
+    _s6_inject() {
+      python3 - "$addr" "$((GW_SMTP + 1))" "$1" "$2" "$3" <<'PY6' >>"$out/inject.log" 2>&1
+import smtplib, sys
+from email.message import EmailMessage
+addr, port, mid, irt, refs = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4], sys.argv[5]
+m = EmailMessage()
+m["From"] = "ext-sender@example.com"; m["To"] = addr
+m["Subject"] = "C8 threading probe"; m["Message-ID"] = mid
+if irt:  m["In-Reply-To"] = irt
+if refs: m["References"] = refs
+m.set_content("threading probe " + mid)
+s = smtplib.SMTP("127.0.0.1", port, timeout=20); s.send_message(m); s.quit()
+print("s6_sent " + mid)
+PY6
+    }
+    _s6_wait_ack() {
+      local i n max=0
+      for i in $(seq 1 900); do
+        n="$(gw_pending_rows "$addr")"; n="${n:-0}"
+        [ "$n" -gt "$max" ] 2>/dev/null && max="$n"
+        if [ "$max" -gt 0 ] && [ "$n" = 0 ]; then return 0; fi
+        sleep 0.2
+      done
+      return 1
+    }
+    _s6_threads() {  # print one thread id per line, read from the HOST store
+      docker exec "$name" bash -lc '
+        for db in $(find /app -maxdepth 6 \( -name "*.sqlite" -o -name "*.sqlite3" -o -name "*.db" \) 2>/dev/null | head -6); do
+          DB="$db" /app/backend/.venv/bin/python - <<PY 2>/dev/null
+import os, sqlite3
+try: c = sqlite3.connect(os.environ["DB"]); c.execute("select 1")
+except Exception: raise SystemExit
+for (t,) in c.execute("select name from sqlite_master where type=\"table\""):
+    if "thread" not in t.lower(): continue
+    cols = [r[1] for r in c.execute("pragma table_info(%s)" % t)]
+    key = "thread_id" if "thread_id" in cols else ("id" if "id" in cols else None)
+    if not key: continue
+    for (v,) in c.execute("select %s from %s" % (key, t)):
+        print(v)
+PY
+        done | sort -u
+      ' 2>/dev/null || :
+    }
+    _s6_snap() {
+      _s6_threads > "$out/s6_threads_$1.txt" 2>/dev/null || :
+      docker exec "$name" bash -lc 'find /app -maxdepth 5 -newermt "-3 minutes" -type f 2>/dev/null | head -40' > "$out/s6_files_$1.txt" 2>/dev/null || :
+    }
+
+    _s6_snap 0
+    _s6_inject "<s6-a@example.com>" "" "" >/dev/null 2>&1
+    if _s6_wait_ack; then A1=1; else A1=0; fi
+    sleep 20; _s6_snap 1
+    _s6_inject "<s6-reply@example.com>" "<s6-a@example.com>" "<s6-a@example.com>" >/dev/null 2>&1
+    if _s6_wait_ack; then A2=1; else A2=0; fi
+    sleep 20; _s6_snap 2
+    _s6_inject "<s6-b@example.com>" "" "" >/dev/null 2>&1
+    if _s6_wait_ack; then A3=1; else A3=0; fi
+    sleep 20; _s6_snap 3
+
+    python3 - "$out" "$A1" "$A2" "$A3" <<'PY6JSON' > "$out/s6.json" 2>"$out/s6.err" || true
+import json, os, sys
+out, a1, a2, a3 = sys.argv[1:5]
+def ids(i):
+    p = os.path.join(out, "s6_threads_%s.txt" % i)
+    if not os.path.exists(p): return None
+    return [l.strip() for l in open(p, encoding="utf-8", errors="replace") if l.strip()]
+k0, k1, k2, k3 = ids(0), ids(1), ids(2), ids(3)
+def new(before, after):
+    if before is None or after is None: return []
+    return [x for x in after if x not in before]
+n1, n2, n3 = new(k0, k1), new(k1, k2), new(k2, k3)
+doc = {
+  "acked": [a1 == "1", a2 == "1", a3 == "1"],
+  "root1": "s6-a@example.com", "root2": "s6-a@example.com", "root3": "s6-b@example.com",
+  "session1": n1[0] if n1 else "-",
+  "session2": n2[0] if n2 else (n1[0] if n1 else "-"),
+  "session3": n3[0] if n3 else "-",
+  "new_on_reply": len(n2), "new_on_newthread": len(n3),
+  "sessions1": len(k1) if k1 is not None else -1,
+  "sessions2": len(k2) if k2 is not None else -1,
+  "sessions3": len(k3) if k3 is not None else -1,
+  "workspace": "",
+}
+try:
+    b = json.load(open(os.path.join(out, "binding.json")))
+    doc["workspace"] = b.get("workspace_path") or ""
+except Exception: pass
+print(json.dumps(doc, indent=2))
+PY6JSON
+    ;;
+  esac
 
   docker exec "$name" bash -lc 'cat /tmp/df.log /tmp/df2.log > /out/host.log 2>/dev/null || true; for f in /out/turn_*.log; do [ -f "$f" ] && cat "$f" >> /out/host.log; done; true' >/dev/null 2>&1 || true
   docker rm -f "$name" >/dev/null 2>&1 || true
@@ -235,6 +369,7 @@ PYINJ
 
 host_s1_activate() { host_journey "$1" "$2" "$3" "${4:-NONE}"; }
 host_s3_delivery() { :; }
+host_s6_threading() { :; }   # evidence is produced inside the s1 journey (same container ⇒ binding survives)
 host_stop() { docker rm -f "l2df-$$" >/dev/null 2>&1 || true; }
 
 host_negative() {
