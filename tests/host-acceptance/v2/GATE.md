@@ -141,8 +141,26 @@ this host:
    tables matching `*thread*`), not computed in the fixture — the uuid5 thread id is derivable, but
    deriving it would only verify my own arithmetic.
 
-**Still to cover:** the tssdk hosts (dsh / openclaw) — dsh reads `sessions/<ws>/*.jsonl`, openclaw its
-own session store — and the tssdk unit suite should consume `contract/c8-thread-vectors.json` instead
-of keeping a private copy of the C8 cases.
+**dsh (tssdk) — PASS, measured 2026-11-24 (run 4):**
+```
+mail A (new thread)     -> host session 3a1b5575-f0d8-42f3-8db8-8255506a6a40 (3 sessions)
+reply (References: [A]) -> no new session (3 -> 3)                        ← same host session
+mail B (new thread)     -> host session 7f3c2355-5b80-40cd-830f-212a47dfc5cb (3 -> 4)
+acked [true,true,true]; space = /root/ws
+```
+Session identity comes from the host's own store directories under `$DSH_HOME/sessions/<ws>/<id>/`.
+Four fixture defects were paid for here, all mine — the dsh adapter is a one-shot container with two
+startup branches, so read this before touching it:
+1. **The container is one-shot.** `docker exec` after it exits has nowhere to go, so the probe cannot
+   run from outside (run 1: `acked=[true,false,false]`, empty snapshots).
+2. **A single quote anywhere in the `bash -lc '…'` body kills the body.** Same class as deerflow.
+3. **Don't compute the stage flag with nested quotes**: `-e "S6=$(case … esac)"` collapsed to 0 and the
+   whole driver was skipped silently (run 2). Compute it in the outer shell.
+4. **Put the probe after the `if/else`, not inside a branch.** The adapter has two startup paths; my
+   block lived in the branch these runs never take (run 3: `ready` existed, `s6_drive.log` did not).
+   The probe now lives in `lib/s6_drive.py`, bind-mounted, so it also avoids quoting entirely.
+
+**Still to cover:** openclaw (its own session store), and the tssdk unit suite should consume
+`contract/c8-thread-vectors.json` instead of keeping a private copy of the C8 cases.
 Also outstanding: the tssdk unit suite should consume `contract/c8-thread-vectors.json` instead of
 keeping its own copy of the C8 cases.

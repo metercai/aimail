@@ -13,10 +13,13 @@ V2_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 host_journey() {
   local out="$1" addr="$2" code="$3" token="$4"
   mkdir -p "$out"
+  S6FLAG=0
+  case " ${STAGES:-} " in *" s6 "*) S6FLAG=1 ;; esac
   docker run --rm --network host --name "l2dsh-$$" \
     -e "LLM_API_KEY=${LLM_API_KEY:?}" -e "AH=$addr" -e "AC=$code" -e "GWURL=${GW_URL}" \
     -e "TOKEN=$token" -e "GWSMTP=$((GW_SMTP + 1))" \
     -e "AH2=${S4_ADDR:-}" -e "AC2=${S4_CODE:-}" -e "LIFECYCLE=${LIFECYCLE:-0}" \
+    -e "S6=$S6FLAG" \
     -v "$V2_ROOT/lib:/opt/v2lib:ro" -v "${SDK_TARBALL_DIR:?}:/opt/sdk:ro" \
     -v "${GW_WORK}:/gw:ro" -v "$out:/out" \
     --entrypoint bash "$DSH_IMAGE" -lc '
@@ -77,6 +80,16 @@ PY
       else
         date +%s > /out/ready
       fi
+      # s6 (contract C8) — placed AFTER the if/else: the branch above differs per configuration and
+      # the first attempt sat in the branch that these runs never take (measured: ready existed,
+      # acked_after_s=18 came from the other branch, and s6_drive.log was never created).
+      if [ "${S6:-0}" = "1" ]; then
+        i=0
+        while [ ! -f /out/s6_go ] && [ $i -lt 300 ]; do i=$((i+1)); sleep 1; done
+        python3 /opt/v2lib/s6_drive.py --addr "$AH" --smtp-port "$GWSMTP" \
+          --db /gw/storage/aimail.db --out /out \
+          --session-root /root/.dsh/sessions --depth 2 >> /out/s6_drive.log 2>&1 || true
+      fi
       tail -n 400 /tmp/web.log /tmp/web2.log > /out/host.log 2>/dev/null || true
       tail -n 300 /tmp/act.log > /out/act.log 2>/dev/null || true
     ' >"$out/rc" 2>&1 &
@@ -112,11 +125,21 @@ PY
     echo "observed max=$_max final=$_final" >>"$out/inject.log"
     echo "emails=$(gw_sql "SELECT COUNT(*) FROM emails;")" >>"$out/inject.log"
   fi
+
+  # s6: whitelist is in place now, so let the in-container driver run the three-mail probe.
+  case " ${STAGES:-} " in
+  *" s6 "*)
+    : > "$out/s6_go"
+    for _i in $(seq 1 600); do [ -f "$out/s6.json" ] && break; sleep 1; done
+    [ -f "$out/s6.json" ] || echo "s6 driver produced no evidence (see s6_drive.log)" > "$out/s6_missing"
+    ;;
+  esac
   wait "$pid"
   return 0
 }
 
 host_s1_activate() { host_journey "$1" "$2" "$3" "${4:-NONE}"; }
+host_s6_threading() { :; }   # evidence is produced inside host_journey (same container)
 host_s3_delivery() { :; }
 host_stop() { docker rm -f "l2dsh-$$" >/dev/null 2>&1 || true; }
 
