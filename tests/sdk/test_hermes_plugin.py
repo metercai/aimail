@@ -7,7 +7,7 @@ surface the plugin is allowed to touch — `register_platform`, `register_tool`,
 `_gateway_accepted` — and assert the plugin's behaviour through it. That is also how the
 ack rule is pinned: a host that does NOT set the flag must never produce an ack.
 """
-from aimail.contract import AGENT_TOOLSET_NAME, BINDING_FILE
+from aimail_contract import AGENT_TOOLSET_NAME, BINDING_FILE
 import asyncio
 import types
 

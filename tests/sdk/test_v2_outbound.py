@@ -5,7 +5,7 @@ The fact these cases are built on: a reply to OUR reply carries our own outbound
 Message-ID as ``references[0]``, so without an alias the thread root — and therefore the
 host session — changes on every round trip.
 """
-from aimail.contract import BINDING_FILE
+from aimail_contract import BINDING_FILE
 import json
 import sys
 from pathlib import Path
