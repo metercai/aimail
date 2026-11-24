@@ -14,9 +14,12 @@ host_journey() {
   mkdir -p "$out"
   local second="" lifecycle="${LIFECYCLE:-0}"
   if [ -n "${S4_ADDR:-}" ] && [ -n "${S4_CODE:-}" ]; then second="${S4_ADDR}|${S4_CODE}"; fi
+  S6FLAG=0
+  case " ${STAGES:-} " in *" s6 "*) S6FLAG=1 ;; esac
   docker run --rm --network host --name "l2oc-$$" \
     -e "LLM_API_KEY=${LLM_API_KEY:?}" -e "AH=$addr" -e "AC=$code" -e "GWURL=${GW_URL}" \
     -e "SECOND=$second" -e "LIFECYCLE=$lifecycle" -e "TOKEN=$token" -e "GWSMTP=$((GW_SMTP + 1))" \
+    -e "S6=$S6FLAG" \
     -v "$V2_ROOT/lib:/opt/v2lib:ro" -v "${SDK_TARBALL_DIR:?}:/opt/sdk:ro" \
     -v "${GW_WORK}:/gw:ro" -v "$out:/out" \
     --entrypoint bash "$OC_IMAGE" -lc '
@@ -94,6 +97,17 @@ PY
       fi
       grep -a "agent-aimail\|aimail-pull" /tmp/gw.log /tmp/gw2.log > /out/host.log 2>/dev/null || true
       tail -n 200 /tmp/gw.log /tmp/gw2.log >> /out/host.log 2>/dev/null || true
+      # s6 (contract C8): openclaw keeps transcripts in sqlite, so the driver discovers the store
+      # (session-named dirs + session tables) rather than guessing a path. Placed after the if/else
+      # so it does not depend on which startup branch the adapter took (that cost dsh a run).
+      if [ "${S6:-0}" = "1" ]; then
+        i=0
+        while [ ! -f /out/s6_go ] && [ $i -lt 300 ]; do i=$((i+1)); sleep 1; done
+        python3 /opt/v2lib/s6_drive.py --addr "$AH" --smtp-port "$GWSMTP" \
+          --db /gw/storage/aimail.db --out /out \
+          --session-cmd "openclaw sessions --json --limit all 2>/dev/null" \
+          --session-root /app --settle 25 >> /out/s6_drive.log 2>&1 || true
+      fi
     ' >"$out/rc" 2>&1 &
   local pid=$!
   for i in $(seq 1 300); do [ -f "$out/ready" ] && break; sleep 2; done
@@ -122,6 +136,14 @@ PY
     echo "observed max=$_max final=$_final" >>"$out/inject.log"
     echo "emails=$(gw_sql "SELECT COUNT(*) FROM emails;")" >>"$out/inject.log"
   fi
+
+  case " ${STAGES:-} " in
+  *" s6 "*)
+    : > "$out/s6_go"
+    for _i in $(seq 1 900); do [ -f "$out/s6.json" ] && break; sleep 1; done
+    [ -f "$out/s6.json" ] || echo "s6 driver produced no evidence (see s6_drive.log)" > "$out/s6_missing"
+    ;;
+  esac
   wait "$pid"
   # aggregate state for the cases
   local maxb final p
@@ -133,6 +155,7 @@ PY
 }
 
 host_s1_activate() { host_journey "$@"; }
+host_s6_threading() { :; }   # evidence is produced inside host_journey (same container)
 host_s3_delivery() { :; }
 host_stop() { docker rm -f "l2oc-$$" >/dev/null 2>&1 || true; }
 

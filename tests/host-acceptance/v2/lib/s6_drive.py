@@ -84,6 +84,105 @@ def snapshot(root: str, depth: int) -> list:
     return sorted(set(out))
 
 
+def _sqlite_ids(path: str) -> list:
+    """Identity of the host's SESSIONS, not of its transcript events.
+
+    First attempt read every table whose name mentioned "session" and unioned the rows, so
+    `session_transcript_active_events` (one row per event) dominated: counts went 43 → 59 → 87 and
+    the run looked like a C8 violation while nothing had actually been created. Identity now comes
+    from a session-id COLUMN, distinct — event/transcript tables contribute their session_id, which
+    is the same identity the host uses.
+    """
+    out = []
+    ID_COLS = ("session_id", "sessionId", "chat_id", "chatId", "thread_id", "threadId", "key")
+    try:
+        c = sqlite3.connect("file:%s?mode=ro" % path, uri=True, timeout=3)
+        tables = [r[0] for r in c.execute("select name from sqlite_master where type='table'")]
+        for t in tables:
+            low = t.lower()
+            if "session" not in low:
+                continue
+            try:
+                cols = [r[1] for r in c.execute("pragma table_info(%s)" % t)]
+            except Exception:
+                continue
+            col = next((c0 for c0 in ID_COLS if c0 in cols), None)
+            if not col and "id" in cols and "event" not in low and "entry" not in low:
+                col = "id"
+            if not col:
+                continue
+            try:
+                for (v,) in c.execute("select distinct %s from %s limit 500" % (col, t)):
+                    if v is None:
+                        continue
+                    out.append("db:%s:%s" % (os.path.basename(path), v))
+            except Exception:
+                continue
+        c.close()
+    except Exception:
+        return []
+    return out
+
+
+def session_ids_from_cmd(cmd: str) -> list:
+    """Ask the host itself for its session list (authoritative), instead of interpreting its DB.
+
+    openclaw exposes `openclaw sessions --json`, and reading its sqlite directly mixed several
+    id-spaces (row ids like "3", chat ids, and 40-bit counters), which produced meaningless counts
+    (22 → 25 → 32) that looked like C8 violations.
+    """
+    import subprocess
+    try:
+        r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=60)
+    except Exception:
+        return []
+    raw = (r.stdout or "").strip()
+    if not raw:
+        return []
+    try:
+        doc = json.loads(raw)
+    except Exception:
+        return [l.strip() for l in raw.splitlines() if l.strip()]
+    if isinstance(doc, dict):
+        doc = doc.get("sessions") or doc.get("items") or doc.get("data") or []
+    out = []
+    for e in doc if isinstance(doc, list) else []:
+        if isinstance(e, dict):
+            for k in ("sessionId", "session_id", "id", "key", "chatId", "threadId"):
+                if e.get(k):
+                    out.append(str(e[k]))
+                    break
+            else:
+                out.append(json.dumps(e, sort_keys=True))
+        else:
+            out.append(str(e))
+    return out
+
+
+def snapshot_discover(root: str) -> list:
+    """Layout-agnostic snapshot: session-named directories plus session tables in any sqlite file.
+
+    openclaw keeps transcripts in sqlite and does not document the path, so the fixture discovers
+    instead of guessing (guessing cost hermes two runs).
+    """
+    out = []
+    root = os.path.expanduser(root)
+    if not os.path.isdir(root):
+        return out
+    for dirpath, dirnames, files in os.walk(root):
+        rel = os.path.relpath(dirpath, root)
+        depth = 0 if rel == "." else rel.count(os.sep) + 1
+        if depth > 5:
+            dirnames[:] = []
+            continue
+        if depth > 0 and "session" in os.path.basename(dirpath).lower():
+            out.append("dir:" + rel)
+        for f in files:
+            if f.endswith((".sqlite", ".sqlite3", ".db")):
+                out.extend(_sqlite_ids(os.path.join(dirpath, f)))
+    return sorted(set(out))
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--addr", required=True)
@@ -93,23 +192,34 @@ def main() -> int:
     ap.add_argument("--session-root", required=True, help="host session directory to snapshot")
     ap.add_argument("--depth", type=int, default=2, help="how deep the session ids live")
     ap.add_argument("--settle", type=float, default=15.0, help="seconds to let the host materialise a session")
+    ap.add_argument("--session-cmd", default="",
+                    help="command whose JSON output lists the host's sessions (authoritative)")
+    ap.add_argument("--discover", action="store_true",
+                    help="ignore --depth and discover session dirs / session tables under --session-root")
     a = ap.parse_args()
 
     steps = [("<s6-a@example.com>", "", ""),
              ("<s6-reply@example.com>", "<s6-a@example.com>", "<s6-a@example.com>"),
              ("<s6-b@example.com>", "", "")]
-    acked, snaps = [], [snapshot(a.session_root, a.depth)]
+    def snap() -> list:
+        if a.session_cmd:
+            return sorted(set(session_ids_from_cmd(a.session_cmd)))
+        if a.discover:
+            return snapshot_discover(a.session_root)
+        return snapshot(a.session_root, a.depth)
+
+    acked, snaps = [], [snap()]
     for mid, irt, refs in steps:
         try:
             send(a.addr, a.smtp_port, mid, irt, refs)
         except Exception as e:  # noqa: BLE001 — a failed send is a fixture fact, not a verdict
             print("s6_send_failed %s: %s" % (mid, e), flush=True)
             acked.append(False)
-            snaps.append(snapshot(a.session_root, a.depth))
+            snaps.append(snap())
             continue
         acked.append(wait_ack(a.db, a.addr))
         time.sleep(a.settle)
-        snaps.append(snapshot(a.session_root, a.depth))
+        snaps.append(snap())
 
     def new(before, after):
         return [x for x in after if x not in before]

@@ -160,7 +160,32 @@ startup branches, so read this before touching it:
    block lived in the branch these runs never take (run 3: `ready` existed, `s6_drive.log` did not).
    The probe now lives in `lib/s6_drive.py`, bind-mounted, so it also avoids quoting entirely.
 
-**Still to cover:** openclaw (its own session store), and the tssdk unit suite should consume
+**openclaw (tssdk) — OPEN FINDING, not yet a verdict (2026-11-24):**
+
+Measured from the host's own list (`openclaw sessions --json --limit all`), which is the only
+readable identity here:
+```
+mail A (new thread)     -> session c3f8a845-…  (3 sessions)
+reply (References: [A]) -> NEW session 48c7ca14-…  (3 -> 4)   ← C8 first half does NOT hold
+mail B (new thread)     -> new session 44939e83-…  (4 -> 5)
+acked [true,true,true]; space = /app/.openclaw/workspace
+```
+Two causes must be separated before this is called a product defect, and the current evidence does
+not separate them:
+1. the reply may not have carried `In-Reply-To`/`References` into the plugin on this host (the case
+   currently ASSERTS root1 == root2 from the fixture instead of measuring the plugin's view — a
+   weakness of my judgement, not of the product);
+2. openclaw assigns session ids itself (its own chat/session semantics), in which case our
+   thread-root routing cannot control session identity there — a contract gap needing a decision,
+   not a code fix.
+
+Measurement traps paid for here (do not repeat):
+* reading `openclaw-agent.sqlite` directly mixes id-spaces (row ids like "3", chat ids, 40-bit
+  counters): counts read 22 → 25 → 32 and looked like a violation. Use the host's own command.
+* `session_transcript_active_events` is one row per transcript event (16–28 per mail), never a
+  session count.
+
+**Still to cover:** the openclaw verdict above, and the tssdk unit suite should consume
 `contract/c8-thread-vectors.json` instead of keeping a private copy of the C8 cases.
 Also outstanding: the tssdk unit suite should consume `contract/c8-thread-vectors.json` instead of
 keeping its own copy of the C8 cases.
