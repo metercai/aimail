@@ -45,6 +45,10 @@ on:
         options:
           - 'false'
           - 'true'
+      allow_already_published:
+        description: 'true = a run whose version is already on the registry may report success (re-dispatch); false = that is a FAILURE'
+        required: false
+        default: 'false'
       release-type:
         description: 'Release type to enforce: rc (iteration) or stable (go-live). Empty = derive from package versions.'
         required: false
@@ -369,6 +373,14 @@ jobs:
           if curl -fsS "https://pypi.org/pypi/agent-aimail/$VER/json" >/dev/null 2>&1; then
             echo "aimail $VER already published — nothing to do"
             echo "published=true" >> "$GITHUB_OUTPUT"
+            # 2026-11-24: this step made a run look green while it published NOTHING (the version bump
+            # never reached the commit, the built wheel was 0.2.9, the skip matched and the job still
+            # reported success; PyPI had no 0.3.0). A release run that skips is a failure unless the
+            # dispatcher explicitly says the version is expected to be there already.
+            if [ "${{ inputs.allow_already_published }}" != "true" ]; then
+              echo "::error::agent-aimail $VER is already on PyPI — this run published nothing. If that is intended (re-dispatch), pass allow_already_published=true."
+              exit 1
+            fi
           else
             echo "published=false" >> "$GITHUB_OUTPUT"
           fi
