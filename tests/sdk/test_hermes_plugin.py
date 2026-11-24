@@ -7,6 +7,7 @@ surface the plugin is allowed to touch — `register_platform`, `register_tool`,
 `_gateway_accepted` — and assert the plugin's behaviour through it. That is also how the
 ack rule is pinned: a host that does NOT set the flag must never produce an ack.
 """
+from aimail.contract import AGENT_TOOLSET_NAME, BINDING_FILE
 import asyncio
 import types
 
@@ -162,7 +163,7 @@ def test_register_wires_platform_tools_and_unload(home):
     assert callable(platform["adapter_factory"])
     assert ctx.tools, "no tools registered"
     assert "aimail_address" in [t["name"] for t in ctx.tools]
-    assert all(t["toolset"] == "agentmail" for t in ctx.tools)
+    assert all(t["toolset"] == AGENT_TOOLSET_NAME for t in ctx.tools)
     assert ctx.unload, "no unload hook (streams would outlive the plugin)"
 
 
@@ -280,7 +281,7 @@ def test_runtime_keeps_a_reply_to_our_reply_in_the_same_session(home):
     rt = HermesRuntime(bridge, agent_home=str(home), agent_system_id=ASID)
     binding_dir = str(Path(home) / "aimail" / "systems" / "system-1" / "a_test.local")
     cfg = {"email": "a@test.local", "gateway_url": "http://gw", "system_id": "system-1",
-           "config_path": str(Path(binding_dir) / "agentmail.json")}
+           "config_path": str(Path(binding_dir) / BINDING_FILE)}
 
     first = {"subject": "Question", "from": "ext@outside", "body": "q",
              "message_id": "<a@ext>"}

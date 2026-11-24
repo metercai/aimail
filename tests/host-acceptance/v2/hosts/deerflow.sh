@@ -116,7 +116,7 @@ PYCFG
       python3 /opt/v2lib/deerflow_drive.py --url "http://127.0.0.1:$AP" \
         turn --thread "$2" --text "$3" --wait 300 --tail 1500 >"/out/turn_$1.log" 2>&1 || true
     }
-    bindings() { ls /app/.aimail/systems/*/*/agentmail.json 2>/dev/null; }
+    bindings() { ls /app/.aimail/systems/*/*/agentmail.json 2>/dev/null; }  # contract-allowed: shell glob inside the host container; the canonical value is asserted by run-matrix via BINDING_FILE derived from contract/aimail-contract.json
 
     echo s1_bind > /out/step
     _turn bind "aimail-bind-$$" "Use the AIMail mailbox tool whose purpose is to bind an AIMail address, with this JSON: {\"action\":\"bind\",\"code\":\"$AC\",\"email\":\"$AH\",\"gateway_url\":\"$GWURL\"}. Call it once, do not retry, then report the result verbatim."
@@ -270,7 +270,7 @@ PYCFG
         --text "Use the AIMail mailbox bind tool with this JSON: {\"action\":\"bind\",\"code\":\"addr-0000-deadbeef\",\"email\":\"$AH\",\"gateway_url\":\"$GWURL\"}. Call it once, then report the result verbatim." \
         --wait 300 --tail 800 > /opt/act.log 2>&1 || true
       sleep 3
-      ls /app/.aimail/systems/*/*/agentmail.json 2>/dev/null | wc -l > /out/bindings_count
+      ls /app/.aimail/systems/*/*/agentmail.json 2>/dev/null | wc -l > /out/bindings_count  # contract-allowed: shell glob inside the host container; the canonical value is asserted by run-matrix via BINDING_FILE derived from contract/aimail-contract.json
       tail -n 150 /opt/act.log > /out/act.log 2>/dev/null || true
     ' >"$out/rc" 2>&1
   rm -f "$jour/bindings_count" 2>/dev/null || true

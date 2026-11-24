@@ -88,8 +88,8 @@ host_journey() {
     step() { echo "$1" > /out/step; }
     turn() { timeout 420 /opt/hermes/bin/hermes --yolo -z "$2" >"/out/turn_$1.log" 2>&1 || echo "turn_timeout_$1=1" >> "/out/turn_$1.log"; }
     bindings() {
-      ls "$H"/.aimail/systems/*/*/agentmail.json 2>/dev/null
-      ls /opt/data/.aimail/systems/*/*/agentmail.json 2>/dev/null
+      ls "$H"/.aimail/systems/*/*/agentmail.json 2>/dev/null  # contract-allowed: shell glob inside the host container; the canonical value is asserted by run-matrix via BINDING_FILE derived from contract/aimail-contract.json
+      ls /opt/data/.aimail/systems/*/*/agentmail.json 2>/dev/null  # contract-allowed: shell glob inside the host container; the canonical value is asserted by run-matrix via BINDING_FILE derived from contract/aimail-contract.json
     }
     wait_binding() { local i=0; while [ $i -lt "$1" ]; do bindings | head -1 | grep -q . && return 0; i=$((i+1)); sleep 2; done; return 1; }
 
@@ -224,7 +224,7 @@ host_negative() {
       export HERMES_HOME="$H" AIMAIL_HOME=/opt/data/.aimail
       timeout 420 /opt/hermes/bin/hermes --yolo -z "Call the aimail_address tool now with exactly this JSON: {\"action\":\"bind\",\"code\":\"addr-0000-deadbeef\",\"email\":\"$AH\",\"gateway_url\":\"$GWURL\"}. Call it exactly once, do not retry; report the tool result verbatim and stop." > /opt/act.log 2>&1 || true
       sleep 3
-      ls "$H"/.aimail/systems/*/*/agentmail.json 2>/dev/null | wc -l > /out/bindings_count
+      ls "$H"/.aimail/systems/*/*/agentmail.json 2>/dev/null | wc -l > /out/bindings_count  # contract-allowed: shell glob inside the host container; the canonical value is asserted by run-matrix via BINDING_FILE derived from contract/aimail-contract.json
       tail -n 150 /opt/act.log > /out/act.log 2>/dev/null || true
     ' >"$out/rc" 2>&1
   rm -f "$jour/bindings_count" 2>/dev/null || true

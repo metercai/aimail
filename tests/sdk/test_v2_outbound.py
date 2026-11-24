@@ -5,6 +5,7 @@ The fact these cases are built on: a reply to OUR reply carries our own outbound
 Message-ID as ``references[0]``, so without an alias the thread root — and therefore the
 host session — changes on every round trip.
 """
+from aimail.contract import BINDING_FILE
 import json
 import sys
 from pathlib import Path
@@ -21,7 +22,7 @@ def _binding(home: Path, addr: str = "agent@test.local") -> dict:
     """A binding config shaped like the ones activation writes."""
     d = home / "systems" / "system-abc" / addr.replace("@", "_")
     d.mkdir(parents=True, exist_ok=True)
-    p = d / "agentmail.json"
+    p = d / BINDING_FILE
     p.write_text(json.dumps({"email": addr, "system_id": "system-abc"}), encoding="utf-8")
     return {"email": addr, "system_id": "system-abc", "config_path": str(p)}
 
