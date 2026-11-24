@@ -1,7 +1,7 @@
 {
   "name": "@aimail/desktop-plugin",
   "private": true,
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "AIMail as a PI-Desktop plugin: one session per thread, acknowledged only after the host accepted the mail.",
   "type": "module",
   "scripts": {

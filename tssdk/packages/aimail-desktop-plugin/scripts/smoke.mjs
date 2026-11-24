@@ -41,7 +41,7 @@ function makePi(scenario) {
   let served = 0
   const pi = {
     plugin: {
-      getId: () => 'aimail.desktop',
+      getId: () => 'agent-aimail.desktop',
       getSettings: async () => settings,
       getDataPath: async () => '/tmp',
     },
