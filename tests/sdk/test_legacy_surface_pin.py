@@ -34,9 +34,18 @@ def test_patch_era_modules_are_really_gone_from_the_source_tree():
 
 
 def test_no_cli_entry_point_for_the_legacy_installer():
+    """Only aimail-agent may be installed as a console script; no `aimail` CLI, no installer."""
     txt = (ROOT / "pyproject.toml").read_text()
-    for banned in ("aimail = aimail.install", "scripts]", "aimail-install"):
-        assert banned not in txt, f"legacy CLI wiring reappeared in pyproject.toml: {banned!r}"
+    # isolate the console-script table instead of grepping the whole file ("[project.scripts]" is
+    # legitimate for aimail-agent — my first version failed on its own over-broad assertion).
+    block = ""
+    for marker in ("[project.scripts]", "[project.entry-points.console_scripts]"):
+        if marker in txt:
+            rest = txt.split(marker, 1)[1]
+            block += rest.split("\n[", 1)[0]
+    assert "aimail-agent" in block or "[project.scripts]" in txt, "runtime entry point aimail-agent missing"
+    for banned in ("aimail = ", "aimail-install", "install = "):
+        assert banned not in block, f"legacy CLI wiring reappeared: {banned!r} in {block!r}"
 
 
 def test_readme_does_not_claim_the_whole_legacy_surface_is_gone():
