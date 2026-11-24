@@ -39,6 +39,14 @@ c.setdefault("plugins", {}).update({"enabled": True, "allow": ["agent-aimail"]})
 c["plugins"].setdefault("entries", {})["agent-aimail"] = {"enabled": True}
 # capability-registered tools: no tools.alsoAllow (a stale allow-list hides them)
 c.setdefault("hooks", {}).update({"enabled": True, "token": "l2-hook-token"})
+# C8 (same thread ⇒ same host session) is OPT-IN on this host: the plugin only forwards its
+# thread-derived sessionKey when the host allows request session keys and the prefix is whitelisted
+# (tssdk .../openclaw/inbound.ts:274-280). Without this the host mints hook:<uuid> per email and every
+# mail looks like a new session — measured 3 → 4 → 5 before this line existed.
+# Gated on S6: enabling this broke DELIVERY in the s6 run (acked=false for all three mails, one
+# session in the host list), so it must not silently change the s1-s5 path before that is understood.
+if os.environ.get("S6") == "1":
+    c["hooks"].update({"allowRequestSessionKey": True, "allowedSessionKeyPrefixes": ["agent:"]})
 c.setdefault("gateway", {}).update({"mode": "local", "port": 39200, "auth": {"token": "l2-oc-token"}})
 p.parent.mkdir(parents=True, exist_ok=True); p.write_text(json.dumps(c, indent=2))
 PY
