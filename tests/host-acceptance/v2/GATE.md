@@ -87,3 +87,41 @@ bash tests/host-acceptance/v2/run-matrix.sh --host dsh --stages "s5"            
 A GAP is not a pass: the gate stays non-zero. It is also not a product defect — do not
 "fix" a GAP by relaxing an assertion; either complete the fixture or re-run the stage in
 the scoping above.
+
+### s6 — contract C8 host-side evidence (added 2026-11-24)
+
+C8 (`docs/aimail-host-sse-contract-v2.md:519`: same thread ⇒ same session, new thread ⇒ new session,
+space = cwd) had **no host-side evidence in either SDK** — no L2/L3 stage ever sent
+`In-Reply-To`/`References`, and both SDKs only pinned the decision logic in unit tests.
+
+`s6` closes that. It runs inside the same journey container (so the binding survives), injects three
+mails — a new thread, a reply to it, then a second new thread — and judges the HOST's own session
+store rather than the plugin's arithmetic:
+
+```
+same thread  ⇒ no NEW session key for the reply, session count unchanged
+new thread   ⇒ exactly one new key
+no readable session evidence ⇒ FIXTURE GAP (never a pass)
+no workspace reported by the host ⇒ the "space = cwd" half stays GAP
+```
+
+Evidence produced by the host adapter into `<journey>/s6.json`; the judgement lives in
+`cases/s6_threading.sh` and is itself tested offline by `selftest-s6-case.sh`
+(GOOD evidence ⇒ 0 RED, BAD evidence ⇒ 3 RED).
+
+**hermes (pysdk) — PASS, measured 2026-11-24:**
+```
+step0 3 sessions
+mail A (new thread)      -> 4 sessions, new key agent:main:aimail:dm:aimail:376d41b55841
+reply (References: [A])  -> 4 sessions, no new key            ← same session reused
+mail B (new thread)      -> 5 sessions, new key …449a808598a7  ← new session
+all three mails acked by the host; space reported /opt/l2home
+```
+Measurement traps paid for here (do not repeat): the store is `$HERMES_HOME/sessions/sessions.json`
+(one JSON, keyed by chat_id) — `HERMES_HOME` is `/opt/l2home`, **not** `/opt/data`; and "session2"
+must mean "the session that handled the reply", never "the key that newly appeared", or a correctly
+reused session reads as a violation.
+
+**Still to cover:** deerflow (observe its `thread_id` store), then the tssdk hosts (dsh / openclaw).
+Also outstanding: the tssdk unit suite should consume `contract/c8-thread-vectors.json` instead of
+keeping its own copy of the C8 cases.
