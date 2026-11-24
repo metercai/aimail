@@ -101,6 +101,7 @@ for h in $HOSTS; do
       s3) . "$V2/cases/s3_delivery.sh" "$out" ;;
       s4) . "$V2/cases/s4_multiaddr.sh" "$out" "$h" ;;
       s5) . "$V2/cases/s5_lifecycle.sh" "$out" ;;
+      s6) . "$V2/cases/s6_threading.sh" "$out" ;;   # contract C8 host side (evidence from host_journey)
       neg) host_negative "$out" "$addr"; . "$V2/cases/negatives.sh" "$out" "$addr" ;;
     esac
   done

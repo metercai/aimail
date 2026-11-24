@@ -174,6 +174,133 @@ PYINJ
     echo "emails=$(gw_sql "SELECT COUNT(*) FROM emails;")" >>"$out/inject.log"
   fi
 
+  # ── phase 3 (optional): contract C8 host side — same thread ⇒ same session ─────────
+  # Runs inside the SAME container so the binding survives. Measured: the profile's session store
+  # is $HERMES_HOME/sessions/sessions.json (ONE json file holding every session keyed by chat_id).
+  # So "session count" must come from parsing that file — counting file paths (my first attempt)
+  # measured nothing at all and produced four meaningless REDs.
+  case " ${STAGES:-} " in
+  *" s6 "*)
+    _s6_inject() {  # $1 msg-id  $2 in-reply-to  $3 references
+      python3 - "$addr" "$((GW_SMTP + 1))" "$1" "$2" "$3" <<'PY6' >>"$out/inject.log" 2>&1
+import smtplib, sys
+from email.message import EmailMessage
+addr, port, mid, irt, refs = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4], sys.argv[5]
+m = EmailMessage()
+m["From"] = "ext-sender@example.com"; m["To"] = addr
+m["Subject"] = "C8 threading probe"
+m["Message-ID"] = mid
+if irt:  m["In-Reply-To"] = irt
+if refs: m["References"] = refs
+m.set_content("threading probe " + mid)
+s = smtplib.SMTP("127.0.0.1", port, timeout=20); s.send_message(m); s.quit()
+print("s6_sent " + mid)
+PY6
+    }
+    _s6_wait_ack() {
+      local i n max=0
+      for i in $(seq 1 600); do
+        n="$(gw_pending_rows "$addr")"; n="${n:-0}"
+        [ "$n" -gt "$max" ] 2>/dev/null && max="$n"
+        if [ "$max" -gt 0 ] && [ "$n" = 0 ]; then return 0; fi
+        sleep 0.2
+      done
+      return 1
+    }
+    _s6_sessions() { docker exec "$name" bash -lc 'cat /opt/l2home/sessions/sessions.json 2>/dev/null' 2>/dev/null; }
+    _s6_count() {   # number of sessions the HOST has, parsed from its own store
+      _s6_sessions | python3 -c '
+import json,sys
+raw=sys.stdin.read().strip()
+if not raw: print(-1); raise SystemExit
+try: d=json.loads(raw)
+except Exception: print(-1); raise SystemExit
+v=d.get("sessions") if isinstance(d,dict) and isinstance(d.get("sessions"),(dict,list)) else d
+print(len(v) if hasattr(v,"__len__") else -1)
+'
+    }
+    _s6_settle() {  # wait for the host to materialise the delivery into a session
+      local want_below="$1" i c
+      for i in $(seq 1 120); do
+        c="$(_s6_count)"
+        [ -n "$c" ] && [ "$c" -gt "$want_below" ] 2>/dev/null && return 0
+        sleep 0.5
+      done
+      return 1
+    }
+    _s6_snap() {
+      _s6_sessions > "$out/s6_sessions_$1.json" 2>/dev/null || :
+      docker exec "$name" bash -lc 'ls -l /opt/l2home/sessions 2>/dev/null' > "$out/s6_ls_$1.txt" 2>/dev/null || :
+    }
+
+    _s6_snap 0; C0="$(_s6_count)"
+    _s6_inject "<s6-a@example.com>" "" "" >/dev/null 2>&1
+    if _s6_wait_ack; then A1=1; else A1=0; fi
+    _s6_settle "${C0:--1}" || true
+    _s6_snap 1; C1="$(_s6_count)"
+
+    _s6_inject "<s6-reply@example.com>" "<s6-a@example.com>" "<s6-a@example.com>" >/dev/null 2>&1
+    if _s6_wait_ack; then A2=1; else A2=0; fi
+    sleep 5   # a same-thread reply must NOT need a new session; give the host time to (not) create one
+    _s6_snap 2; C2="$(_s6_count)"
+
+    _s6_inject "<s6-b@example.com>" "" "" >/dev/null 2>&1
+    if _s6_wait_ack; then A3=1; else A3=0; fi
+    _s6_settle "${C2:--1}" || true
+    _s6_snap 3; C3="$(_s6_count)"
+
+    python3 - "$out" "$A1" "$A2" "$A3" "$C0" "$C1" "$C2" "$C3" <<'PY6JSON' > "$out/s6.json" 2>"$out/s6.err" || true
+import json, os, sys
+out, a1, a2, a3, c0, c1, c2, c3 = sys.argv[1:9]
+def keys(i):
+    p = os.path.join(out, "s6_sessions_%s.json" % i)
+    if not os.path.exists(p): return None
+    raw = open(p, encoding="utf-8", errors="replace").read().strip()
+    if not raw: return None
+    try: d = json.loads(raw)
+    except Exception: return None
+    v = d.get("sessions") if isinstance(d, dict) and isinstance(d.get("sessions"), (dict, list)) else d
+    if isinstance(v, dict): return sorted(v.keys())
+    if isinstance(v, list):
+        ids = []
+        for e in v:
+            if isinstance(e, dict):
+                ids.append(str(e.get("chat_id") or e.get("id") or e.get("session_id") or "?"))
+            else: ids.append(str(e))
+        return sorted(ids)
+    return None
+k0, k1, k2, k3 = keys(0), keys(1), keys(2), keys(3)
+def new(before, after):
+    if before is None or after is None: return []
+    return [x for x in after if x not in before]
+def key(before, after):
+    n = new(before, after)
+    return n[0] if n else "-"
+new1, new2, new3 = new(k0, k1), new(k1, k2), new(k2, k3)
+doc = {
+  "acked": [a1 == "1", a2 == "1", a3 == "1"],
+  "root1": "s6-a@example.com", "root2": "s6-a@example.com", "root3": "s6-b@example.com",
+  # session2 = the session that handled the reply: the newly created one if the host (wrongly)
+  # opened a new one, otherwise the thread's own session (i.e. it was reused).
+  "session1": new1[0] if new1 else "-",
+  "session2": new2[0] if new2 else (new1[0] if new1 else "-"),
+  "session3": new3[0] if new3 else "-",
+  "new_on_reply": len(new2),
+  "new_on_newthread": len(new3),
+  "sessions1": int(c1) if c1.lstrip("-").isdigit() else -1,
+  "sessions2": int(c2) if c2.lstrip("-").isdigit() else -1,
+  "sessions3": int(c3) if c3.lstrip("-").isdigit() else -1,
+  "workspace": "",
+}
+try:
+    b = json.load(open(os.path.join(out, "binding.json")))
+    doc["workspace"] = b.get("workspace_path") or ""
+except Exception: pass
+print(json.dumps(doc, indent=2))
+PY6JSON
+    ;;
+  esac
+
   # collect logs from the still-running container, then drop it
   docker exec "$name" bash -lc 'cp /opt/l2home/logs/agent.log /out/agent.log 2>/dev/null || true; cp /opt/l2home/logs/gateway.log /out/gateway.log 2>/dev/null || true; tail -n 200 /tmp/gw.log >> /out/host.log 2>/dev/null || true; tail -n 300 /out/agent.log >> /out/host.log 2>/dev/null || true; for f in /out/turn_*.log; do [ -f "$f" ] && cat "$f" >> /out/host.log; done; true' >/dev/null 2>&1 || true
   docker rm -f "$name" >/dev/null 2>&1 || true
@@ -198,6 +325,7 @@ PYINJ
 
 host_s1_activate() { host_journey "$1" "$2" "$3" "${4:-NONE}"; }
 host_s3_delivery() { :; }
+host_s6_threading() { :; }   # evidence is produced inside the s1 journey (same container ⇒ binding survives)
 host_stop() { docker rm -f "l2hermes-$$" >/dev/null 2>&1 || true; }
 
 host_negative() {
