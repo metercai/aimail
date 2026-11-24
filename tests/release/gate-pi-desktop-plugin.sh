@@ -25,9 +25,14 @@ FAILED=0
 
 step "1/6 install (workspace link for the new plugin package)"
 if [ "$SKIP_INSTALL" = "0" ]; then
-  ( cd "$TSSDK" && pnpm install --offline >/tmp/gate-piplug-install.log 2>&1 \
-      || pnpm install >/tmp/gate-piplug-install.log 2>&1 )
-  if [ $? -eq 0 ]; then ok "pnpm install"; else bad "pnpm install failed (see /tmp/gate-piplug-install.log)"; fi
+  # A failed `--offline` attempt followed by a normal install left a half-written node_modules on CI
+  # and produced type errors that do not exist in a clean environment (same node/pnpm/lockfile in a
+  # container: clean). Install ONCE, from the lockfile, and judge strictly on its exit code.
+  (
+    cd "$TSSDK" || exit 1
+    if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; else pnpm install; fi
+  ) >/tmp/gate-piplug-install.log 2>&1
+  if [ $? -eq 0 ]; then ok "pnpm install --frozen-lockfile"; else bad "pnpm install failed (see /tmp/gate-piplug-install.log)"; fi
 else
   ok "install skipped on request"
 fi
@@ -44,6 +49,10 @@ if [ ! -f "$TSC_BIN" ]; then
   bad "workspace TypeScript missing at $TSC_BIN (install step did not run?)"
 else
   TSVER="$(node "$TSC_BIN" --version 2>/dev/null | tail -1)"
+  # the package's own build is `node scripts/gen-tool-spec.mjs && tsc -b`; running bare tsc would
+  # judge a file set the product never builds
+  ( cd "$TSSDK/packages/agent-aimail" && node scripts/gen-tool-spec.mjs >/tmp/gate-piplug-gen.log 2>&1 ) \
+    || bad "codegen failed (see /tmp/gate-piplug-gen.log)"
   ( cd "$TSSDK" && node "$TSC_BIN" -b packages/agent-aimail --force >/tmp/gate-piplug-tsc.log 2>&1 )
   if [ $? -eq 0 ]; then ok "tsc -b packages/agent-aimail --force clean ($TSVER)"; else bad "tsc -b failed ($TSVER):"; tail -6 /tmp/gate-piplug-tsc.log; fi
   ( cd "$PLUGIN" && node "$TSC_BIN" -p tsconfig.json --noEmit >/tmp/gate-piplug-tsc2.log 2>&1 )
