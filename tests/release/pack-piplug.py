@@ -25,11 +25,17 @@ import fnmatch
 import hashlib
 import json
 import os
+import re
 import sys
 import zipfile
 
 FORBIDDEN_DIRS = {".git", "node_modules"}
 FORBIDDEN_FILES = [".env", ".env.*", ".npmrc", "*.pem", "*.key"]
+# Mirrors the host's PLUGIN_ID_PATTERN (packages/plugin-sdk/src/index.ts). Note the FIRST segment
+# allows no hyphen/underscore — only later segments do — which is why "agent-aimail.desktop" is
+# rejected by the installer even though it looks reasonable. If the host changes the pattern, this
+# must follow; the gate would otherwise bless an artifact that installs nowhere.
+PLUGIN_ID_RE = re.compile(r"^[a-z0-9]+(\.[a-z0-9_-]+)+$")
 MAX_ENTRIES = 2000
 MAX_BYTES = 50 * 1024 * 1024
 
@@ -119,6 +125,9 @@ def main() -> int:
     version = str(manifest.get("version") or "").strip()
     if not plug_id or not version:
         fail("manifest.json needs both id and version")
+    if not PLUGIN_ID_RE.match(plug_id):
+        fail("manifest.id %r violates the host pattern %s (first segment: lowercase letters/digits only; "
+             "hyphens are allowed only in later segments)" % (plug_id, PLUGIN_ID_RE.pattern))
 
     # the bundle must be require-able: the package root is "type": "module", so dist carries its own
     pj = os.path.join(dist, "package.json")
