@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agent-aimail"
-version = "0.2.9"
+version = "0.3.0"
 description = "AIMail runtime SDK (Python): gateway client, platform adapters, resources. Provisioning tools stay in the aimail repository."
 # PyPI long description = the SDK-facing README (pysdk/README.md). The repo
 # root README stays the repository homepage.
@@ -61,7 +61,17 @@ Repository = "https://github.com/metercai/aimail"
 # resolution (root/resources/...) work identically for pip and repo.
 [project.scripts]
 aimail-agent = "aimail.aimail_agent:main"
-# Minimal bootstrap surface (activate / pull) for hosts without a toolset. Hosts with a toolset use the tools, not this.
+# Minimal bootstrap surface (activate / pull) for hosts without a toolset. Hosts with a
+# toolset use the tools, not this.
+
+# Hermes plugin entry point: the host loads plugins from this group and calls register(ctx).
+# Declared here (not in host config) so `pip install` IS the install — no CLI, no patch.
+[project.entry-points."hermes_agent.plugins"]
+aimail = "aimail.hermes_plugin:register"
+# DeerFlow extension entry point: the host loads extensions from this group
+# (`deerflow.extensions`) and calls install(registry, config).
+[project.entry-points."deerflow.extensions"]
+aimail = "aimail.deerflow_plugin:install"
 
 [tool.hatch.build.targets.wheel]
 packages = []
@@ -90,15 +100,40 @@ packages = []
 "pysdk/_resources_release.py" = "aimail/_resources_release.py"
 # hosts identification layer (ported from the tssdk trio) — registry / detection / activation, single source for hosts.
 "pysdk/hosts/__init__.py" = "aimail/hosts/__init__.py"
+# V2 shared core (SSE aggregation, AgentSystemId, grouping, skip/ack). Both pysdk host
+# adapters import this layer, so it must ship in the wheel beside the flat core modules
+# its bootstrap puts on sys.path.
+"pysdk/v2/__init__.py" = "aimail/v2/__init__.py"
+"pysdk/v2/agent_system_id.py" = "aimail/v2/agent_system_id.py"
+"pysdk/v2/binding.py" = "aimail/v2/binding.py"
+"pysdk/v2/thread.py" = "aimail/v2/thread.py"
+# Hermes plugin (SSE-V2): platform adapter + runtime + tool registration + manifest.
+# The wheel is the whole install story — a pip install makes the host discover it via the
+# ``hermes_agent.plugins`` entry point below (no CLI, no source patch).
+"pysdk/hermes_plugin/__init__.py" = "aimail/hermes_plugin/__init__.py"
+"pysdk/hermes_plugin/plugin.yaml" = "aimail/hermes_plugin/plugin.yaml"
+"pysdk/hermes_plugin/adapter.py" = "aimail/hermes_plugin/adapter.py"
+"pysdk/hermes_plugin/runtime.py" = "aimail/hermes_plugin/runtime.py"
+"pysdk/hermes_plugin/identity.py" = "aimail/hermes_plugin/identity.py"
+"pysdk/hermes_plugin/tools.py" = "aimail/hermes_plugin/tools.py"
+# DeerFlow extension (SSE-V2): tools via PluginContribution + one aggregate stream per
+# (AgentSystemId, Gateway). `deerflow.extensions` is the host's own discovery group, so a
+# pip install is the whole installation.
+"pysdk/deerflow_plugin/__init__.py" = "aimail/deerflow_plugin/__init__.py"
+"pysdk/deerflow_plugin/tools.py" = "aimail/deerflow_plugin/tools.py"
+"pysdk/deerflow_plugin/runtime.py" = "aimail/deerflow_plugin/runtime.py"
+"pysdk/deerflow_plugin/identity.py" = "aimail/deerflow_plugin/identity.py"
+"pysdk/v2/pull_client.py" = "aimail/v2/pull_client.py"
+"pysdk/v2/system_pull.py" = "aimail/v2/system_pull.py"
+"pysdk/v2/outbound.py" = "aimail/v2/outbound.py"
 "pysdk/hosts/registry.py" = "aimail/hosts/registry.py"
 "pysdk/hosts/detect.py" = "aimail/hosts/detect.py"
 "pysdk/hosts/activate.py" = "aimail/hosts/activate.py"
 "pysdk/hermes/aimail_hermes.py" = "aimail/hermes/aimail_hermes.py"
-"pysdk/hermes/patch_webhook.py" = "aimail/hermes/patch_webhook.py"
-"pysdk/hermes/patch_profiles.py" = "aimail/hermes/patch_profiles.py"
-"pysdk/hermes/ensure_config.py" = "aimail/hermes/ensure_config.py"
-"pysdk/hermes/register_profiles.py" = "aimail/hermes/register_profiles.py"
-"pysdk/hermes/toolsets.py" = "aimail/hermes/toolsets.py"
+# Legacy source-patch era (0.2.x) — NOT shipped in 0.3.0 (§6.8 of the V2 plan). The files
+# stay in the tree for history and for the "explicit switch only" audit, but the published
+# package must carry no webhook patcher, no toolsets patcher and no profile registrar:
+# installation is a pip install + the host's own plugin mechanism, nothing else.
 "pysdk/deer-flow/aimail_inbound.py" = "aimail/deer-flow/aimail_inbound.py"
 "pysdk/deer-flow/aimail_deerflow.py" = "aimail/deer-flow/aimail_deerflow.py"
 "pysdk/deer-flow/manage.py" = "aimail/deer-flow/manage.py"
