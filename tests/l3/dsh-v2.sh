@@ -228,16 +228,18 @@ def spool_wait(email, pattern, timeout=60):
                     return part, m.group(0)
         time.sleep(0.5)
     return None, None
-st, r = post("/api/v1/public/email-verify/send", {"email": applicant})
+L3_NAME = "L3 User"   # the name the submit below uses; verification is name+email+code
+st, r = post("/api/v1/public/email-verify/send", {"email": applicant, "name": L3_NAME})
 assert st in (200, 201), f"verify/send HTTP {st}: {r}"
 print(f"  verify/send: {st}")
 part, vcode = spool_wait(applicant, r"(?<!\d)(\d{6})(?!\d)")
 assert vcode, "no 6-digit verification code in the applicant mailbox (sink/relay)"
 print(f"  mailbox: verification code received ({vcode})")
-st, r = post("/api/v1/public/email-verify/check", {"email": applicant, "code": vcode})
+st, r = post("/api/v1/public/email-verify/check",
+              {"email": applicant, "name": L3_NAME, "code": vcode})
 assert st in (200, 201) and r.get("ok") is not False, f"verify/check HTTP {st}: {r}"
 print(f"  verify/check: {st}")
-st, r = post("/api/v1/public/apply-address", {"email": applicant, "name": "L3 User",
+st, r = post("/api/v1/public/apply-address", {"email": applicant, "name": L3_NAME,
               "agentname": "l3agent", "domain": "l3.local", "email_verify_code": vcode})
 assert st in (200, 201) and r.get("address"), f"apply-address HTTP {st}: {r}"
 addr = r["address"]
