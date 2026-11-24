@@ -62,9 +62,22 @@ def collect(dist: str) -> list:
     return entries
 
 
-def stamp_time() -> str:
-    import datetime
-    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+def source_date(start: str) -> str:
+    """Commit date, not wall-clock: a stamp with `builtAt = now()` makes the archive irreproducible —
+    the local build and the CI build of the same commit then differ (caught by comparing the release
+    asset hash with the hash I had signed)."""
+    import subprocess
+    d = start
+    for _ in range(6):
+        try:
+            r = subprocess.run(["git", "-C", d, "log", "-1", "--format=%cI"],
+                               capture_output=True, text=True, timeout=10)
+            if r.returncode == 0 and r.stdout.strip():
+                return r.stdout.strip()
+        except Exception:
+            pass
+        d = os.path.dirname(d)
+    return ""
 
 
 def git_sha(start: str) -> str:
@@ -131,7 +144,7 @@ def main() -> int:
     stamp = {
         "plugin": plug_id,
         "pluginVersion": version,
-        "builtAt": stamp_time(),
+        "sourceDate": source_date(os.path.dirname(os.path.abspath(a.dist))),
         "gitSha": git_sha(os.path.dirname(os.path.abspath(a.dist))),
     }
     if a.sdk_package:
