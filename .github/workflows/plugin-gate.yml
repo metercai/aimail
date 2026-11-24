@@ -40,6 +40,18 @@ jobs:
       - name: gate (install, types, surface tests, build, smoke, pack)
         run: bash tests/release/gate-pi-desktop-plugin.sh
 
+      - name: diagnose a red gate (toolchain + type resolution)
+        if: failure()
+        run: |
+          echo "node: $(node -v)  pnpm: $(pnpm -v)"
+          echo "tsc: $(node tssdk/node_modules/typescript/bin/tsc --version)"
+          cd tssdk
+          pnpm list typescript @sinclair/typebox --depth 1 || true
+          echo "--- declaration of the offending expression ---"
+          node node_modules/typescript/bin/tsc --noEmit --pretty false             --strict packages/agent-aimail/src/core/tool-registry.ts 2>&1 | head -20 || true
+          echo "--- does the package build alone? ---"
+          node node_modules/typescript/bin/tsc -b packages/agent-aimail --force --verbose 2>&1 | tail -20 || true
+
       - name: show artifact
         run: ls -l dist-piplug && cat dist-piplug/*.sha256
 
