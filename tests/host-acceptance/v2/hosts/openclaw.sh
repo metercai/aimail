@@ -46,7 +46,12 @@ c.setdefault("hooks", {}).update({"enabled": True, "token": "l2-hook-token"})
 # Gated on S6: enabling this broke DELIVERY in the s6 run (acked=false for all three mails, one
 # session in the host list), so it must not silently change the s1-s5 path before that is understood.
 if os.environ.get("S6") == "1":
-    c["hooks"].update({"allowRequestSessionKey": True, "allowedSessionKeyPrefixes": ["agent:"]})
+    # The gateway REFUSES TO START unless the whitelist also carries "hook:" (verified in-container:
+    # "hooks.allowedSessionKeyPrefixes must include 'hook:' when hooks.defaultSessionKey is unset").
+    # With only "agent:" the gateway never came up, so nothing was pulled and all three s6 mails stayed
+    # unacked — that is what the earlier "switch on ⇒ delivery stops" measurement actually was.
+    c["hooks"].update({"allowRequestSessionKey": True,
+                       "allowedSessionKeyPrefixes": ["agent:", "hook:"]})
 c.setdefault("gateway", {}).update({"mode": "local", "port": 39200, "auth": {"token": "l2-oc-token"}})
 p.parent.mkdir(parents=True, exist_ok=True); p.write_text(json.dumps(c, indent=2))
 PY
@@ -103,6 +108,13 @@ PY
       else
         date +%s > /out/ready
       fi
+      # the plugin keeps a per-agent JSONL (core/log.ts) that records, per dispatch,
+      # sessionKeyRequested + the sessionKey it asked the host for — without it, "did the plugin
+      # even ask for session reuse?" is unanswerable from the outside.
+      # core/log.ts writes to $AIMAIL_HOME/systems/<system>/<addr>/agentmail.log (not a "logs" dir —
+      # my first attempt copied a path that never exists and silently produced an empty directory)
+      mkdir -p /out/aimail-logs 2>/dev/null || true
+      find /app/.aimail/systems -name 'agentmail.log' -exec cp {} /out/aimail-logs/ \; 2>/dev/null || true
       grep -a "agent-aimail\|aimail-pull" /tmp/gw.log /tmp/gw2.log > /out/host.log 2>/dev/null || true
       tail -n 200 /tmp/gw.log /tmp/gw2.log >> /out/host.log 2>/dev/null || true
       # s6 (contract C8): openclaw keeps transcripts in sqlite, so the driver discovers the store

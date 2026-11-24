@@ -90,8 +90,8 @@ the scoping above.
 
 ### s6 — contract C8 host-side evidence (added 2026-11-24)
 
-C8 (`docs/aimail-host-sse-contract-v2.md:519`: same thread ⇒ same session, new thread ⇒ new session,
-space = cwd) had **no host-side evidence in either SDK** — no L2/L3 stage ever sent
+C8 (`docs/aimail-host-sse-contract-v2.md` §16 C8 / §9: same thread ⇒ same session, new thread ⇒ new session,
+space = the bound host space) had **no host-side evidence in either SDK** — no L2/L3 stage ever sent
 `In-Reply-To`/`References`, and both SDKs only pinned the decision logic in unit tests.
 
 `s6` closes that. It runs inside the same journey container (so the binding survives), injects three
@@ -160,7 +160,31 @@ startup branches, so read this before touching it:
    block lived in the branch these runs never take (run 3: `ready` existed, `s6_drive.log` did not).
    The probe now lives in `lib/s6_drive.py`, bind-mounted, so it also avoids quoting entirely.
 
-**openclaw (tssdk) — OPEN FINDING, not yet a verdict (2026-11-24):**
+**openclaw (tssdk) — RESOLVED as a HOST LIMITATION, not our defect (2026-11-24):**
+
+Four experiments, in order:
+1. fixture config with only `agent:` in `allowedSessionKeyPrefixes` → gateway refuses to start:
+   `hooks.allowedSessionKeyPrefixes must include 'hook:' when hooks.defaultSessionKey is unset`.
+   That — not the product — is why "switch on ⇒ nothing acked".
+2. isolated POST /hooks/agent: `agent:main:aimail:<hash>` → 200; `badkey` → 400
+   `sessionKey must start with one of: agent:, hook:`. So the host accepts our key shape.
+3. the plugin's own dispatch log (`$AIMAIL_HOME/systems/<sid>/<addr>/agentmail.log`) shows it really
+   asks for reuse: `"sessionKeyRequested": true, "sessionKey": "agent::aimail:17cab5d7…"`.
+4. two identical POSTs with the SAME key, twice each shape:
+      agent::aimail:aaaa     → 200, 200  → sessions 0 → 2
+      agent:main:aimail:bbbb → 200, 503  → sessions 2 → 4
+   The host creates a NEW session per hook run even for an identical caller key, and those sessions are
+   not even listed under an `aimail` key. So on this host `sessionKey` is not a session-identity key.
+
+Verdict: C8's first half cannot hold on openclaw through the hook surface — a host capability gap, not a
+plugin defect. Recorded as a contract exception pending an owner ruling (accept it in the contract, or
+pursue a host-side feature).
+
+Separate product nit found on the way: our dispatch carries `agentId: ""`, so the key degenerates to
+`agent::aimail:<hash>` (double colon) while the host's own keys look like `agent:main:cron:<uuid>`.
+Even on a host that honored keys, that empty segment would collapse every agent into one namespace.
+
+**Earlier note (superseded by the above):**
 
 Measured from the host's own list (`openclaw sessions --json --limit all`), which is the only
 readable identity here:
