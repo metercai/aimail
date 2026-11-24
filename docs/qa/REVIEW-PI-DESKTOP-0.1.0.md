@@ -2,6 +2,12 @@
 
 - 日期：2026-11-24
 - 对象：`docs/qa/HANDOFF-PI-DESKTOP-PLUGIN.md` + 工作树批次
+- 当前版本：**0.2.1** · tag `plugin-v0.2.1` @ `82c1ab4` · CI `plugin-gate` **45506324793 (success)**
+- **宿主 id 规则（我踩了两次）**：`PLUGIN_ID_PATTERN=/^[a-z0-9]+(\.[a-z0-9_-]+)+$/` —— **首段不允许连字符**，
+  只有后续段可以。实测：`aimail.desktop` OK · `aimail.pi-desktop` OK · `agent-aimail.desktop` **BAD**
+  · `agent-aimail.pi-desktop` **BAD**。`aimail.pi-desktop` 是能保住"pi-desktop 面名"的合法形式。
+  **0.2.0 用的是非法 id，已标 BROKEN-ID（不可安装）**；0.2.1 修正。
+- 结论：**GO — 0.2.1 已由 CI 产出并 release；打包器现在自己校验该 id 规则，非法 id 无法再被打包**
 - 当前版本：**0.2.0** · tag `plugin-v0.2.0` @ `635faa5` · CI `plugin-gate` **45503953752 (success)**
 - 命名（Owner 要求与产品同名）：宿主 id 校验器 `PLUGIN_ID_PATTERN=/^[a-z0-9]+(\.[a-z0-9_-]+)+$/`
   （`packages/plugin-sdk/src/index.ts:55`）要求**小写且带点**，所以裸 `agent-aimail` 非法，
@@ -13,8 +19,9 @@
 ```
 VERDICT: PASS (artifact released)
 TARGET : aimail.desktop 0.1.0 @ 0d2b635 · tag plugin-v0.1.0 · CI 45422540935
-ARTIFACT: agent-aimail.desktop-0.2.0.piplug  125,743 B
-          sha256 fd1f298b31ad77cc88dd3a093627a6d9ce0dae4bf49ebe306156b4ad078f620d
+ARTIFACT: aimail.pi-desktop-0.2.1.piplug  125,687 B
+          sha256 f07e07c034ee4adff4e6b36fbe9feeca95ae02941d5279b3308a290d1e197967
+          release 下载 == 本机构建（同 commit）
           release asset == 本机构建 == CI 构建（同一 hash；同 commit 连构两次亦同）
           build.json ⊃ {"sdk":"agent-aimail","sdkVersion":"0.5.2","gitSha","sourceDate"}
 UNVERIFIED: 真机安装（权限授予 + service 启动）—— 见 F-3
