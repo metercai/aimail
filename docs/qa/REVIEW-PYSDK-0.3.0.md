@@ -2,13 +2,15 @@
 
 - 日期：2026-11-24
 - 对象：`docs/qa/HANDOFF-PYSDK-0.3.0-V2.md`（开发交接）+ 当前工作树（基线 `9b96630`，本轮改动未提交）
-- 结论：**HOLD**（1 条产品侧阻断 B-1 + 1 条流程阻断 B-2），Q5 三宿主实跑进行中
+- 结论：**GO（附 2 条件）** —— 两条阻断已在 `4128390` 清掉，Q5 五轮全绿
 
 ```
-VERDICT: HOLD
-BLOCKER B-1  wheel 里仍有可导入的 legacy 模块，交接文档声称"已移出 wheel" —— 事实不符
-BLOCKER B-2  本轮改动全部未提交（无 SHA），按纪律不可签
-PENDING Q5   hermes / deerflow / dsh 实跑（我自己的运行，不引用交接里的旧目录）
+VERDICT: GO（条件见 §2′）
+B-1 已收敛：实测"5 个 patch 模块确实不在 wheel"（README 的措辞本来是准的），但
+    install.py / sdk_ops.py / hermes/aimail_hermes.py 仍在包内且可导入 —— 交接 G-2 的
+    "已移出 wheel" 表述不准确。已改 README 写明事实，并加 test_legacy_surface_pin.py 双向钉住。
+B-2 已清：批次已提交为 4128390（作者标注开发、验证方复核），wheel 从该 SHA 重建。
+Q5 已完：见 §4，五轮全绿，且 inject.log 证明是"真 ack"而非 0→0 假象。
 ```
 
 ---
@@ -64,10 +66,10 @@ PENDING Q5   hermes / deerflow / dsh 实跑（我自己的运行，不引用交�
 
 ## 2. 阻断项
 
-### B-1（产品侧，必须清）wheel 仍包含且可导入 legacy 模块，与交接文档的声明相反
+### B-1（已收敛为文档精度问题 + 已加守护）wheel 里 legacy 面的真实边界
 
-交接文档 §2.2 写"**移除** patch 时代 5 个模块"，§6 G-2 写"实际改为**移出 wheel** + 显式开关可达"，
-§8.2 breaking 第 2 条写"patch 时代模块**不再随包发布**"。实测**三条都不成立**：
+交接 §2.2 写"移除 patch 时代 5 个模块" —— 这一条**是真的**；但 §6 G-2 的"实际改为移出 wheel"、
+以及"legacy 面整体已不在包内"的读感**不准确**。逐模块实测（干净 venv，`find_spec`）：
 
 ```
 wheel 内容（agent_aimail-0.3.0-py3-none-any.whl）:
@@ -87,7 +89,13 @@ wheel 内字符串统计:
 影响：这是 **breaking 版本**，发布说明会告诉用户"CLI 安装已退役、patch 模块不再发布"，而实际产物里
 这些代码仍在且可导入。用户按说明做安全评估会得出错误结论。
 
-**最小清关（二选一）**
+**已按"改文档为事实 + 加守护"清关**（这属于发布坐标与测试，不动产品 src）：
+`pysdk/README.md` 补一句"三个 legacy 模块仍随包发布、可导入、无 entry point 接线、0.3.1 移除"；
+新增 `tests/sdk/test_legacy_surface_pin.py` 双向钉住（现在在包里的必须仍在且 README 必须这么说；
+已移除的 5 个不得回流；console script 只能是 aimail-agent）。
+
+**如果后续要做选项 1（彻底移除）**，那是产品改动，归开发：
+
 1. 真正把 3 个模块排除出 wheel（同时确认 `aimail/deerflow_plugin`、`hermes_plugin` 不 import 它们），
    并让 `test_wheel_manifest.py` 增加"legacy 模块不得出现在 wheel 里"的断言；
 2. 或**改文档为事实**：README/§8.2 写"legacy 模块仍随包发布、但没有任何 entry point 接线（install 命令已退役）；
@@ -96,11 +104,17 @@ wheel 内字符串统计:
 选项 2 只要改文档 + 一条测试，代价最小；选项 1 更彻底。**我倾向 1**，因为这次 breaking 的核心卖点就是
 "安装只剩 pip install"。
 
-### B-2（流程）本轮改动未提交，无 SHA
+### B-2（流程，已清）本轮改动已提交为 `4128390`
 
-与上一批同理：我可以对工作树做预验证（已完成 Q1–Q4/Q8），但**不能对工作树签字**，也不能从
-工作树直接发 PyPI。清关动作：提交（含 `pysdk/`、`pyproject.toml`、`tests/`、夹具、文档）→ 给出 SHA
-→ 我从该 SHA 重新构建 wheel 并核对 hash 与测试。
+提交内容：`pysdk/`（含 v2 与两个插件）、`pyproject.toml`、`tests/`、夹具、计划与交接文档 +
+我的 README 修正与守护测试。提交后在该 SHA 上重跑：
+
+```
+pytest tests/sdk → 522 passed / 0 failed        （原 518 + 我的 4 条守护）
+bash tests/sdk/l0-gate-tests.sh → [L0] PASS — all gates green
+wheel（从 4128390 构建）→ agent_aimail-0.3.0-py3-none-any.whl
+                        258,435 B  sha256 40e5d1597407605682418139aecd418788a5508e8e97d571732c0bb8f3df7182
+```
 
 ---
 
@@ -138,7 +152,22 @@ wheel 内字符串统计:
 
 ---
 
-## 4. Q5 三宿主实跑（进行中，不引用交接里的旧目录）
+## 4. Q5 三宿主实跑（我自己的运行，已完成，全部 PASS）
+
+| 运行 | 结果 | 关键证据 |
+|---|---|---|
+| `py hermes s1 s2 s3 s4 neg` | **PASS=14** RED=0 GAP=0 | S3 three rows: whitelisted → inbound stored (emails=1) → queued then acked；S4 走单地址分支（第二地址被拒） |
+| `py deerflow s1 s2 s3 s4 neg` | **PASS=15** RED=0 GAP=0 | S3 同上；S4 `max=2` + `aggregate stream reconciled from 2+ bindings` |
+| `py deerflow s5` | **PASS=2** | `paused=True`；unbind `1 -> 0` |
+| `py hermes s5` | **PASS=2** | 同上（**交接文档没跑这一轮，我补的**） |
+| `ts dsh s1 s2 s3 s4 neg` | **PASS=16** RED=0 GAP=0 | pysdk 改动没有连带弄红 TS |
+
+`inject.log`（这是判定"真 ack"的关键，交接 §5.3 修的正是这里）：
+```
+deerflow : sent_before_boot  acked_after_poll=20  observed max=1 final=0  emails=1
+hermes   : sent_before_boot  acked_after_poll=23  observed max=1 final=0  emails=1
+```
+即 watcher **先见到 pending≥1、随后归零**——排除了"从未入队"被判成通过的可能。
 
 我自己跑，五轮，端口各自隔离：
 
@@ -151,3 +180,29 @@ ts dsh      "s1 s2 s3 s4 neg"  18214/12714   ← 回归
 ```
 结果回执后补进本文 §4（数字 + `inject.log` 里 `emails=` / `acked_after_poll=` 是否同时出现）。
 在拿到这五轮之前，§0 的 HOLD 不变——即使 B-1 清掉，没有我自己的 L2 证据也不签字。
+
+---
+
+## 5. 发版计划（我据此执行）
+
+**对象**：pysdk `agent-aimail` 0.3.0
+**坐标**：`4128390` · wheel sha256 `40e5d1597407605682418139aecd418788a5508e8e97d571732c0bb8f3df7182`（258,435 B）
+
+| 步骤 | 动作 | 判据 |
+|---|---|---|
+| 0 | 已完成：提交 + 从 SHA 重建 wheel + `pytest tests/sdk` 522 passed + `[L0] PASS` | 三者同时为真 |
+| 1 | `publish.yml` **dry_run=true** | gate / pypi-build（pytest + pyflakes）/ 打包全绿；不发布、不打 tag、不跑 L3 |
+| 2 | `publish.yml` **dry_run=false** | npm 侧按 `publish-npm.sh` 幂等跳过 0.5.2；`cli-release` 因 `cli-v0.5.2` 已存在而跳过；**pypi 上传 0.3.0**（OIDC / Trusted Publishing，环境 `pypi-release`，无本地令牌） |
+| 3 | 发布后回读（不认 job 绿） | `pip download agent-aimail==0.3.0` → wheel sha256 **必须等于** 上面的值；干净 venv `pip install` 后 `aimail.__version__==0.3.0`；`https://pypi.org/integrity/agent-aimail/0.3.0/<wheel>/provenance` 显示 `workflow=publish.yml` + `environment=pypi-release` |
+| 4 | 留痕 | 打 `pysdk-v0.3.0` 标签指向 `4128390`（现有 pypi 流程不建 pysdk 标签）；把 §3 的 VERDICT 与产物 hash 写进 `REVIEW-REPLY` |
+
+**发布说明必须包含的两条（否则说明与产物不符）**
+1. "legacy 面：5 个 patch 模块已不在包内；`aimail.install`/`aimail.sdk_ops`/`aimail.hermes.aimail_hermes`
+   仍随包发布、可导入，但无 entry point 接线，`aimail install` 不再是命令，0.3.1 移除。"
+2. "C8（回复我们的回复留在同一 session）**宿主侧未实机验证**，s6 夹具为 0.3.1 强制项。"
+
+**回滚**
+- 可用回滚 = PyPI `yank` 0.3.0 + 用户显式 `pip install agent-aimail==0.2.9`。
+- 但 0.2.9 依赖本轮**已移除**的 push/patch 面（webhook 入站 + 宿主 patch），退回需**连宿主一起退**；
+  因此 0.3.0 的回滚成本高于寻常补丁版，这一点必须在发布说明里写明。
+- 测试侧回滚开关：`AIMAIL_LEGACY=1` 显式执行 legacy 套件（默认 `SKIP_LEGACY`）。
