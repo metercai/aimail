@@ -1,0 +1,30 @@
+name: aimail
+version: "0.3.0"
+manifest_version: 2
+kind: platform
+description: AIMail inbound over one aggregate SSE stream per (AgentSystemId, Gateway)
+author: AIMail
+homepage: https://github.com/metercai/aimail
+license: GPL-3.0-or-later
+# Tools are registered by register(ctx) from the shared JSON spec (tool-spec.json); the
+# manifest deliberately lists none so the two surfaces cannot drift.
+provides_tools: []
+# No host config is required: bindings are the activation artefacts (contract §3).
+# These settings are read through ctx.get_config, never os.environ (multiplex safety).
+config_schema:
+  AIMAIL_PULL:
+    type: bool
+    default: true
+    description: Master switch for inbound pulling. Off = no stream at all.
+  AIMAIL_PULL_MODE:
+    type: string
+    default: auto
+    description: "Transport: auto (probe once, SSE primary) | stream (forced) | poll (kill switch)."
+  AIMAIL_PULL_INTERVAL_MS:
+    type: integer
+    default: 30000
+    description: Long-pull cadence (ms); SSE heartbeats are independent of this.
+  AIMAIL_PULL_LIMIT:
+    type: integer
+    default: 20
+    description: Max deliveries per pull round (gateway caps at 200).

@@ -17,10 +17,23 @@
 set -uo pipefail
 
 SPECS=("$@")
-: "${LLM_API_KEY:?LLM_API_KEY is required (CI secret XIAOMI_API_KEY) — without it this gate cannot judge}"
+CLEAN_ONLY=0
+_args=()
+for a in "$@"; do
+  case "$a" in
+    --clean-only) CLEAN_ONLY=1 ;;
+    *) _args+=("$a") ;;
+  esac
+done
+SPECS=(${_args[@]+"${_args[@]}"})
+# The LLM half needs the live credential; the cleanliness half does not (E-track can audit
+# an image before any key exists, which is exactly when images get built).
+if [ "$CLEAN_ONLY" = 0 ]; then
+  : "${LLM_API_KEY:?LLM_API_KEY is required (CI secret XIAOMI_API_KEY) — without it this gate cannot judge; pass --clean-only to audit cleanliness only}"
+fi
 EXPECT_BASE="${LLM_BASE_URL:-https://api.xiaomimimo.com/v1}"
 EXPECT_MODEL="${LLM_MODEL:-mimo-v2.6-flash}"
-[ ${#SPECS[@]} -eq 0 ] && SPECS=(aimail-host-pi:pi aimail-host-dsh:dsh aimail-host-openclaw:openclaw aimail-host-hermes:hermes)
+[ ${#SPECS[@]} -eq 0 ] && SPECS=(aimail-host-pi:pi aimail-host-dsh:dsh aimail-host-openclaw:openclaw aimail-host-hermes:hermes aimail-host-deerflow:deerflow)
 
 PROBE="$(mktemp)"; trap 'rm -f "$PROBE"' EXIT
 # 0600 from mktemp is unreadable for images that run as a non-root user (openclaw = node)
@@ -58,6 +71,16 @@ elif plat == "dsh":
         m = re.search(r"baseURL:\s*(\S+)", t); base = q(m.group(1)) if m else None
         m = re.search(r"apiKeyEnv:\s*(\S+)", t); key = os.environ.get(q(m.group(1)) if m else "", "dummy")
         m = re.search(r"model:\s*(\S+)", t); model = q(m.group(1)) if m else "default"
+elif plat == "deerflow":
+    # deerflow validates /app/config.yaml as a whole at boot; models[0] carries the
+    # endpoint/model/key. System python3 in that image has no PyYAML ⇒ regex only.
+    for p in [os.environ.get("DEERFLOW_HOME", "/app") + "/config.yaml", "/app/config.yaml"]:
+        if os.path.exists(p):
+            cfg_used = p; t = open(p).read()
+            m = re.search(r"base_url:\s*(\S+)", t); base = q(m.group(1)) if m else None
+            m = re.search(r"^\s*model:\s*(\S+)", t, re.M); model = q(m.group(1)) if m else None
+            m = re.search(r"^\s*api_key:\s*(\S+)", t, re.M); key = q(m.group(1)) if m else None
+            break
 else:
     for p in [os.path.join(home, ".hermes/config.yaml"), "/opt/data/.hermes/config.yaml"]:
         if os.path.exists(p):
@@ -95,7 +118,8 @@ FAILED=0
 for spec in "${SPECS[@]}"; do
   img="${spec%%:*}"; plat="${spec##*:}"
   echo "════════ $img  (platform=$plat)"
-  docker run --rm --network host -e PLAT="$plat" -e LLM_API_KEY="$LLM_API_KEY" \
+  docker run --rm --network host -e PLAT="$plat" -e LLM_API_KEY="${LLM_API_KEY:-}" \
+    -e CLEAN_ONLY="$CLEAN_ONLY" \
     -e EXPECT_BASE="$EXPECT_BASE" -e EXPECT_MODEL="$EXPECT_MODEL" \
     -v "$PROBE:/opt/probe.py:ro" --entrypoint bash "$img" -lc '
     set +e
@@ -104,13 +128,34 @@ for spec in "${SPECS[@]}"; do
     g=$(npm ls -g --depth=0 2>/dev/null | grep -iE "agent-aimail|@aimail/"); [ -n "$g" ] && echo "  ✗ npm: $g" || echo "  ✓ npm global: no aimail"
     p=$(pnpm ls -g --depth 0 2>/dev/null | grep -iE "agent-aimail|@aimail/"); [ -n "$p" ] && echo "  ✗ pnpm: $p" || echo "  ✓ pnpm global: no aimail"
     python3 -c "import aimail" 2>/dev/null && echo "  ✗ python aimail importable" || echo "  ✓ python cannot import aimail"
+    # deerflow runs the host from its own venv: a wheel installed THERE is what the host
+    # actually imports, so the cleanliness check must cover it too.
+    if [ -x /app/backend/.venv/bin/python ]; then
+      /app/backend/.venv/bin/python -c "import aimail" 2>/dev/null \
+        && echo "  ✗ deerflow venv can import aimail" || echo "  ✓ deerflow venv cannot import aimail"
+    fi
     r=$(find /root /app /opt /home -maxdepth 8 \( -name "agent-aimail" -o -iname "*agent-aimail*" -o -iname "*aimailsdk*" \) -not -path "*/agent-env/*" -not -path "/opt/regression/*" -not -path "/proc/*" 2>/dev/null | head -5); [ -n "$r" ] && echo "  ✗ residue: $r" || echo "  ✓ no agent-aimail dirs or cache entries"
+    if [ "${CLEAN_ONLY:-0}" = 1 ]; then
+      echo "── [2] LLM config skipped (--clean-only: no credential in play)"
+      echo "RESULT: CLEAN-ONLY"
+      exit 0
+    fi
     echo "── [2] LLM config (gate endpoint) + real completion with the CI key"
     bash /opt/agent-env/set-llm-key.sh "$PLAT" 2>&1 | sed "s/^/  /"
     python3 /opt/probe.py 2>&1 | sed "s/^/  /"
   ' 2>&1 | tee "/tmp/host-audit-$plat.log" | tail -18
   grep -q "✗" "/tmp/host-audit-$plat.log" && FAILED=1
-  grep -q "RESULT: PASS" "/tmp/host-audit-$plat.log" || FAILED=1
+  if [ "$CLEAN_ONLY" = 1 ]; then
+    grep -q "RESULT: CLEAN-ONLY" "/tmp/host-audit-$plat.log" || FAILED=1
+  else
+    grep -q "RESULT: PASS" "/tmp/host-audit-$plat.log" || FAILED=1
+  fi
 done
-[ "$FAILED" = 0 ] && echo "── AUDIT PASS (all hosts clean + LLM answers)" || echo "── AUDIT FAIL (see ✗ / RESULT lines above)"
+if [ "$FAILED" = 0 ]; then
+  [ "$CLEAN_ONLY" = 1 ] \
+    && echo "── AUDIT PASS (cleanliness only — LLM half not judged)" \
+    || echo "── AUDIT PASS (all hosts clean + LLM answers)"
+else
+  echo "── AUDIT FAIL (see ✗ / RESULT lines above)"
+fi
 exit "$FAILED"

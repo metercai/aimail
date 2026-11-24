@@ -11,9 +11,16 @@ if [ -z "$state" ]; then
 fi
 maxb="$(sed -n 's/.*max_bindings=\([0-9]*\).*/\1/p' <<<"$state")"
 
-if [ "$host" = "pi" ]; then
-  [ "${maxb:-0}" -le 1 ] && pass "second address rejected (single-address model)" \
-                        || red "second binding written on pi (max=$maxb) — C1 violated"
+# Host capability decides which branch applies. `HOST_ADDRESS_MODEL` is exported by the
+# host adapter (pi/hermes = single, dsh/openclaw/deerflow = multi); the earlier hardcoded
+# `host = pi` test mis-labelled any other single-address host as a multi-address one.
+_model="${HOST_ADDRESS_MODEL:-}"
+if [ -z "$_model" ]; then
+  case "$host" in pi|hermes) _model=single ;; *) _model=multi ;; esac
+fi
+if [ "$_model" = "single" ]; then
+  [ "${maxb:-0}" -le 1 ] && pass "second address rejected (single-address model, $host)" \
+                        || red "second binding written on $host (max=$maxb) — C1 violated"
   return 0
 fi
 

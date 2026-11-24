@@ -42,6 +42,9 @@ def test_atomic_write_private_keeps_host_dir_mode_when_none(tmp_path):
     """Host-owned directories (e.g., hermes profile) are not chmod'd, only ensure file is 0600."""
     d = tmp_path / "host"
     d.mkdir(mode=0o755)
+    # mkdir(mode=...) is masked by the umask (a runner umask of 077 turns 0755 into 0700),
+    # and the case is about the WRITE not chmod-ing the host dir — set it outright.
+    os.chmod(d, 0o755)
     p = d / "config.yaml"
     base.atomic_write_private(p, "x: 1\n", ensure_dir_mode=None)
     assert _mode(p) == 0o600

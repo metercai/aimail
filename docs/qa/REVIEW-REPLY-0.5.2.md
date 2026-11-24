@@ -123,6 +123,7 @@ base 四资产（下载后自算，与 GitHub API `digest` 逐项一致）：
 - base **v1.0.15** @ `c65823d`，tag `v1.0.15`，四资产已发布。
 - advanced **v1.0.14** @ `60ea90a`，分支 `release/1.0.13`，已部署；备份 `/usr/local/bin/aimail-advanced.bak-20261123-v1.0.13`。
 - tssdk 0.5.2 不变。
+- **未发版后继修订**：prompt 安装句改为 “using your platform's plugin install command”；base/advanced 新增共享 `generate_activation_code()` / `valid_agentname()`。工作树 ahead，未 bump/未发版。
 
 prompt 唯一真源：base `address_activation_prompt()`；base/advanced 共用。  
 key 生成/存储哈希唯一真源：base `generate_key_material()`；base/advanced 共用。  

@@ -53,12 +53,18 @@ def _sibling_src(repo: Path, rel: str, env: str) -> str:
 
 def test_address_activation_prompt_is_install_and_tool_only():
     src = _sibling_src(GATEWAY, "src/core/api/activation.rs", "AIMAIL_GATEWAY_DIR")
-    assert "Activate and bind my AIMail mailbox address {address}" in src
-    assert "using `aimail_address`" in src
-    assert "agent_aimail" in src
+    # The activation mail must send the agent to the TOOL and to the host's own plugin
+    # mechanism — never to a CLI. The sentences themselves live in the gateway repo and do
+    # change (v1.0.15 reworded the prompt: "Use `aimail_address` to activate and bind the
+    # dedicated AIMail mailbox {address}"), so pin the INVARIANTS, not a copy: a pinned
+    # sentence turns every gateway wording fix into an SDK red (measured 2026-11-24).
+    assert "aimail_address" in src
+    assert "agent_aimail" in src or "agent-aimail" in src
+    assert "activate" in src and "bind" in src
     addr_start = src.index("An AIMail mailbox is ready for your agent")
     addr_end = src.index("This code is sent only once", addr_start)
     addr_block = src[addr_start:addr_end]
+    assert "plugin" in addr_block.lower()          # install = the host's plugin mechanism
     assert "agent-self-setup.md" not in addr_block
     assert "{manager}" not in addr_block
 

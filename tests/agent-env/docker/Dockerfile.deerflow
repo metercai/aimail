@@ -2,11 +2,18 @@
 #
 # The base MUST be a source-rebuilt deer-flow-gateway image (src-<rev>): the published
 # :latest layer predates DEER_FLOW_AUTH_DISABLED and answers inbound POSTs with 403 in
-# the CSRF middleware — a stale artefact under test. build.sh resolves the newest src-*.
+# the CSRF middleware — a stale artefact under test.
+#
+# BASE_IMG MUST be produced by docker/rebuild-deerflow-base.sh from the pinned checkout
+# and MUST equal pins.env BASE_DEERFLOW; DEERFLOW_REV must equal pins.env DEERFLOW_REV.
+# `docker/rebuild-deerflow-base.sh --check` verifies pins ⇄ source ⇄ local image.
 # This thin layer adds procps (a normal host has it) + PyYAML (the single-source LLM
 # writer reads /app/config.yaml) and prepares the environment.
 ARG BASE_IMG=deer-flow-gateway:src-fc26204d
 FROM ${BASE_IMG}
+
+ARG DEERFLOW_REV=fc26204d
+LABEL org.opencontainers.image.version="deerflow-${DEERFLOW_REV}"
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends procps \
@@ -31,5 +38,22 @@ RUN cp -f /opt/agent-env/lib/llm-config.py /opt/regression/llm-config.py \
 
 RUN LLM_CONFIG_PRE_INSTALL=1 bash /opt/agent-env/verify.sh deerflow --home /app \
       --llm-url "$LLM_BASE_URL" --llm-model "$LLM_MODEL" --offline
+
+# ── Cleanliness (owner rule 2026-11-18: a host image must not carry our SDK, "not even a
+# cache entry"). Measured 2026-11-23: the source-rebuilt base carried BOTH our PyPI names
+# (`aimailsdk`, `agent-aimail`) in /root/.cache/uv — the base rebuild mounts the host uv
+# cache, and this repo builds its own wheel there. So a housekeeping layer is part of the
+# definition of a clean host, not an optional tidy-up. Fail-closed: the build aborts if
+# any of our distribution names survive anywhere in the caches or the tree.
+# `.aimail` is the runtime home (created by a bound host, never by a clean image) — it is
+# deliberately not part of this scan, otherwise the audit would flag legitimate run state.
+RUN set -eu; \
+    find /root/.cache -maxdepth 6 -iname '*aimail*' -prune -exec rm -rf {} + 2>/dev/null || true; \
+    rm -rf /root/.cache/pip /root/.pip; \
+    left="$(find /root/.cache /app /opt -maxdepth 7 -iname '*aimail*' \
+              -not -name '.aimail' -not -path '*/.aimail/*' \
+              -not -path '/opt/agent-env/*' -not -path '/opt/regression/*' 2>/dev/null | head -5)"; \
+    if [ -n "$left" ]; then echo "NOT CLEAN: $left" >&2; exit 1; fi; \
+    echo "clean: no SDK artefacts in image caches"
 
 CMD ["sleep", "infinity"]

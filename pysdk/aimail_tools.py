@@ -198,7 +198,9 @@ def _activate_failure_envelope(result: dict) -> dict:
 
 class _GatewayClient:
     def __init__(self, gateway_url: str, api_key: str, timeout: int = 30,
-                 identity: str = ""):
+                 identity: str = "", *, stream_path: str = "",
+                 pending_path: str = "", ack_path: str = "",
+                 extra_headers: Optional[Dict[str, str]] = None):
         self.gateway_url = gateway_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
@@ -206,6 +208,14 @@ class _GatewayClient:
         # system_id (system-level). Sent as X-Api-Identity; the raw key stays
         # offline and only the derived signature crosses the wire.
         self.identity = identity
+        # V2 aggregation (parity: TS GatewayClient opts): the aggregate pull lives under
+        # different paths and needs an extra header. Overriding them here — and ONLY
+        # here — is what keeps a second hand-built client from silently hitting the
+        # per-address endpoint (that was QA defect B2 on the TS side).
+        self.stream_path = stream_path or PULL_STREAM_PATH
+        self.pending_path = pending_path or "/api/v1/admin/pending"
+        self.ack_path = ack_path or "/api/v1/admin/pending/ack"
+        self.extra_headers: Dict[str, str] = dict(extra_headers or {})
 
     def _signed_headers(self, method: str, path: str,
                         data: Optional[bytes]) -> Dict[str, str]:
@@ -220,6 +230,10 @@ class _GatewayClient:
                                     data or b"")
         if sig:
             h.update(sig)
+        # Aggregation header rides on every leg (stream/pending/ack): the gateway
+        # authorizes the AgentSystemId per request, so a client that sets it on only
+        # one endpoint is broken by construction.
+        h.update(self.extra_headers)
         return h
 
     def _request(
@@ -537,7 +551,8 @@ class _GatewayClient:
             "api_key_id": result.get("api_key_id", ""),
         }
 
-    def activate_address_code(self, code: str, email_address: str) -> dict:
+    def activate_address_code(self, code: str, email_address: str,
+                              agent_system_id: str = "") -> dict:
         """POST /api/v1/activate-address-code -- activate a shared_addr address
         code (open-application plan §2.4).
 
@@ -551,11 +566,19 @@ class _GatewayClient:
         "retryable", "status"}`` — the stable code + a behaviour hint so the
         agent stops instead of guessing (design 2026-11-03 §1). Only the
         network-unreachable class (status 0) is retryable.
+
+        The AgentSystemId header (contract §5.2) must ride on the activation call: the
+        gateway records the address's AgentSystemId ownership at redemption time, and the
+        aggregate SSE authorizes only addresses carrying that row. Activating without it
+        produces a binding whose aggregate stream is refused (403) — the V2 counterpart of
+        the TS client's missing-header defect.
         """
         result = self._request(
             "POST",
             "/api/v1/activate-address-code",
             body={"code": code, "email_address": (email_address or "").strip().lower()},
+            headers=({"X-Agent-System-Id": agent_system_id}
+                     if str(agent_system_id or "").strip() else None),
         )
         raw_key = result.get("raw_key", "")
         if not raw_key:
@@ -574,7 +597,8 @@ class _GatewayClient:
 
     def activate_address_code_persist(
         self, code: str, email_address: str, agent_id: str = "",
-        profile_dir: str = "",
+        profile_dir: str = "", *, agent_system_id: str = "",
+        workspace_path: str = "",
     ) -> dict:
         """Activate AND persist — the agent self-service consumption chain
         (open-application plan §2.4/§C.1 item 7: persisted structure is
@@ -615,7 +639,11 @@ class _GatewayClient:
         activateAddressCode flow has no separate agent concept — the
         mailbox IS the agent).
         """
-        act = self.activate_address_code(code, email_address)
+        asid = str(agent_system_id or "").strip()
+        # V1 callers keep the exact 2-arg seam (monkeypatched fakes in older host code);
+        # only a V2 activation passes the AgentSystemId through.
+        act = (self.activate_address_code(code, email_address, agent_system_id=asid)
+               if asid else self.activate_address_code(code, email_address))
         if not act.get("success"):
             return act
 
@@ -636,15 +664,22 @@ class _GatewayClient:
             "system_id": sid,
             "api_key": act["raw_key"],
         }
-        # 1b. Local inbound signing secret — address-level activation **has no system-level installation**, no one will do it for it
-        #     Generate: while "putting pulled mail back into the local inbound endpoint" must be paired (url, secret)
-        #     ⇒ when secret is missing, the pull loop does not start at all (pull-entry checks no-secret and skips). Only
-        #     generated under **local** semantics (reusing the same secrets.token_hex(32) mechanism/format as the install chain),
-        #     does not request the gateway, does not change the cloud contract; if the same address already has a secret ⇒ reuse without overwriting (repeated activation
-        #     does not churn the keys of existing host routes).
-        cfg["webhook_secret"] = (
-            _abm.existing_binding_webhook_secret(sid, email)
-            or _abm.new_webhook_secret())
+        if asid:
+            # V2 binding (contract §7.1): the AgentSystemId is what the aggregate SSE
+            # authorizes, and workspace_path is the routing space. Both are written here,
+            # by the activation path, so no second process has to guess them.
+            cfg["agent_system_id"] = asid
+        ws = str(workspace_path or "").strip()
+        if ws:
+            cfg["workspace_path"] = ws
+        if not asid:
+            # Local inbound signing secret — V1 (push/replay) only. A V2 binding has no
+            # local inbound endpoint at all (SSE + host plugin), so generating a secret
+            # here would be a dead field that invites the old replay path back. Legacy
+            # bindings keep their existing secret (reused, never churned).
+            cfg["webhook_secret"] = (
+                _abm.existing_binding_webhook_secret(sid, email)
+                or _abm.new_webhook_secret())
         if act.get("expires_at"):
             cfg["expires_at"] = act["expires_at"]
         # 1c. Security officer (manager) = the value **actually written** by the gateway in the activation transaction (returned as-is in the activation response).
@@ -683,10 +718,14 @@ class _GatewayClient:
             _synced = False
             for _d in _rows:
                 if isinstance(_d, dict) and _d.get("domain") == email:
-                    _sync_cli.update_system_domain(
-                        str(_d.get("id", "")),
-                        str(cfg.get("webhook_url") or ""),
-                        str(cfg.get("webhook_secret") or ""))
+                    # Never push empty values back: a V2 binding has no webhook fields at
+                    # all (SSE + host plugin), and blanking the cloud row would destroy a
+                    # legacy/replay configuration that another consumer may still use.
+                    _push_url = str(cfg.get("webhook_url") or "").strip()
+                    _push_secret = str(cfg.get("webhook_secret") or "").strip()
+                    if _push_url or _push_secret:
+                        _sync_cli.update_system_domain(
+                            str(_d.get("id", "")), _push_url, _push_secret)
                     _synced = True
                     break
             if not _synced:
@@ -783,7 +822,7 @@ class _GatewayClient:
         """
         # timeout_ms long-pull hold: an empty queue is held server-side up to
         # PULL_HOLD_MAX_MS (old servers ignore the field ⇒ immediate answer).
-        result = self._request("POST", "/api/v1/admin/pending",
+        result = self._request("POST", self.pending_path,
                                body={"limit": max(1, min(limit, 200)),
                                      "timeout_ms": PULL_HOLD_MAX_MS})
         if result.get("status") != 200:
@@ -795,7 +834,7 @@ class _GatewayClient:
         """POST /api/v1/admin/pending/ack with an agent-scope key — deletes
         only rows whose email matches this key's address; cross-address ids
         affect 0 rows (ownership enforced server-side, §2.5)."""
-        result = self._request("POST", "/api/v1/admin/pending/ack", body={"ids": [int(i) for i in ids]})
+        result = self._request("POST", self.ack_path, body={"ids": [int(i) for i in ids]})
         if result.get("status") != 200:
             return {"success": False, "error": f"ack failed: {result.get('error', result)}",
                     "status": result.get("status", 0)}
@@ -811,10 +850,10 @@ class _GatewayClient:
         A streamless/old server (404/405/transport failure) ⇒ False ⇒ the
         state machine falls to long-pull.
         """
-        url = f"{self.gateway_url}{PULL_STREAM_PATH}"
+        url = f"{self.gateway_url}{self.stream_path}"
         req = urllib.request.Request(url, headers={
             "Accept": "text/event-stream",
-            **self._signed_headers("GET", PULL_STREAM_PATH, b"")})
+            **self._signed_headers("GET", self.stream_path, b"")})
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 ctype = (resp.headers.get("Content-Type") or "").lower()
@@ -839,11 +878,11 @@ class _GatewayClient:
         (mid-stream transport error — the caller applies the decision
         function with the fail streak, bridge parity).
         """
-        url = f"{self.gateway_url}{PULL_STREAM_PATH}"
+        url = f"{self.gateway_url}{self.stream_path}"
         req = urllib.request.Request(url, headers={
             "Accept": "text/event-stream",
             "X-Aimail-Client": _CLIENT_ID,
-            **self._signed_headers("GET", PULL_STREAM_PATH, b"")})
+            **self._signed_headers("GET", self.stream_path, b"")})
         try:
             resp = urllib.request.urlopen(req, timeout=ping_timeout)
         except urllib.error.HTTPError as e:
@@ -888,10 +927,21 @@ class _GatewayClient:
     # ── Shared forward+ack path (used by BOTH Stream and Poll) ─────────
 
     def _deliver_batches(self, batches, on_email, seen, stats) -> None:
-        """Deliver every delivery in ``batches`` to ``on_email``, then ack
-        the delivered ids. Failure semantics identical to the legacy loop:
-        ``on_email`` failure ⇒ that id is NOT acked and is removed from
-        the dedup set ⇒ re-delivered next round; a dedup hit is skipped.
+        """Deliver every delivery in ``batches`` to ``on_email``, then ack the accepted ids.
+
+        Three outcomes, mirroring the TS ``deliverBatches`` contract (three-client
+        parity; ``PullDeliveryResult``):
+
+        * ``None``/void or ``{"status": "accepted"}`` ⇒ ack (the host took the mail);
+        * ``{"status": "skip", "reason": "paused"|"unknown"}`` ⇒ **not** acked, **not**
+          an error, and dropped from the dedup set so the next round re-evaluates it
+          (a paused address that gets resumed must be able to take the mail later);
+        * a raise (sync or rejected awaitable) ⇒ not acked, counted as an error,
+          re-pulled next round (the mail stays pending server-side; nothing is lost).
+
+        Without the skip outcome a paused/unknown target would look like a delivery
+        failure and be retried as an error forever — the Python side's version of the
+        defect the TS client fixed when ``skip`` was introduced.
         """
         deliveries = []
         for batch in batches:
@@ -907,17 +957,27 @@ class _GatewayClient:
                     continue
                 seen.add(did)
                 try:
-                    _await_if_needed(on_email, {
+                    res = _await_if_needed(on_email, {
                         "id": did, "email": d.get("email", ""),
                         "headers": d.get("headers", {}), "body": body_obj})
-                    deliveries.append(did)
-                    stats["pulled"] += 1
-                except Exception:
-                    # on_email failed → do NOT ack: drop the id from the
-                    # dedup set so the NEXT round re-pulls it (the mail is
-                    # still pending server-side; nothing is lost).
+                except Exception as exc:  # noqa: BLE001 — one bad mail never stops the loop
                     seen.discard(did)
                     stats["errors"] += 1
+                    # Loud, not silent: an unaccepted delivery is retried next round, so a
+                    # hidden error here looks exactly like "the host never saw the mail"
+                    # (L2 S3: delivery fetched, no run, no ack, nothing in the log).
+                    logger.warning("[aimail-pull] delivery id=%s to=%s not accepted: %s: %s",
+                                   did, d.get("email", ""), type(exc).__name__, exc)
+                    continue
+                if isinstance(res, dict) and str(res.get("status", "")) == "skip":
+                    # Deliberate decline (paused / unknown target): leave the mail
+                    # pending and let the next round decide again.
+                    seen.discard(did)
+                    stats.setdefault("skipped", 0)
+                    stats["skipped"] += 1
+                    continue
+                deliveries.append(did)
+                stats["pulled"] += 1
         if deliveries:
             ack = self.pull_ack([i for i in deliveries if i is not None])
             if ack.get("success"):
@@ -1317,6 +1377,30 @@ def aimail_address(
                     "system_id": sid, "path": r.get("path", ""),
                     "gateway_calls": 0, **ptr}
         # ── Mode ③: cloud activation with the one-time code ───────────
+        # ── Contract C1: a single-address host must refuse the SECOND address ───────
+        # The host capability comes from the bound provider (host plugin); when it says
+        # "single", an active binding for a DIFFERENT address means this bind would
+        # violate §11.2. Refuse locally with a stable reason BEFORE spending the code —
+        # a consumed code cannot be re-issued, so refusing early is the only safe order.
+        _ctx_caps = _abm.get_binding_context()
+        if str(_ctx_caps.get("address_model") or "") == "single":
+            try:
+                _others = [c for c in _abm.iter_agentmail_configs("")
+                           if _abm.is_agent_scope_binding(c)
+                           and str(c.get("email") or "").lower() != addr
+                           and c.get("paused") is not True]
+            except Exception:  # noqa: BLE001 — enumeration failure must not block a bind
+                _others = []
+            if _others:
+                return {"success": False, "action": "bind",
+                        "reason": "second-address",
+                        "error_code": "SINGLE_ADDRESS_HOST",
+                        "error": "this is a single-address host and it already carries "
+                                 "another mailbox (%s)" % str(_others[0].get("email") or ""),
+                        "hint": "unbind the current mailbox first, or run on a multi-address "
+                                "host; the activation code was NOT consumed",
+                        "retryable": False, "email": addr,
+                        "existing_emails": [str(c.get("email") or "") for c in _others]}
         if not str(code or "").strip():
             return {"success": False, "action": "bind",
                     "reason": "not-bound",
@@ -1334,9 +1418,15 @@ def aimail_address(
                     "error": "gateway_url is required for cloud activation "
                              "(or set AIMAIL_GW_URL)", "email": addr}
         client = _GatewayClient(gw, "")
+        # Contract §7.1: a V2 binding carries the local AgentSystemId (what the aggregate
+        # stream authorizes) and the routing space. The host plugin supplies them; core
+        # never imports the host layer (provider injection, see aimail_base).
+        _ctx_vals = _abm.get_binding_context()
         res = client.activate_address_code_persist(
             str(code).strip(), addr,
-            profile_dir=_lifecycle_profile_dir(profile_home))
+            profile_dir=_lifecycle_profile_dir(profile_home),
+            agent_system_id=str(_ctx_vals.get("agent_system_id") or ""),
+            workspace_path=str(_ctx_vals.get("workspace_path") or ""))
         if res.get("success"):
             try:
                 _abm.set_agent_context(addr.split("@")[0],
@@ -1580,6 +1670,10 @@ def send_mail(
     # Explicit false still turns it off (test_local_mail_search off assertion unaffected).
     generated_mid = _build_message_id(config)
     _store_message_meta(generated_mid, references, my_aimail_addr=sender)
+    # P4 (contract §6.6): remember which conversation this outbound mail belongs to, so a
+    # reply to it returns to the same host thread instead of opening a new one. Scoped to
+    # the binding that sent it — an alias must never resolve across profiles.
+    _record_outbound_alias(config, generated_mid, references, in_reply_to, message_id)
     if config.get("save_raw_snapshots", True):
         _save_outbound_snapshot(generated_mid, sender, sender, to, subject, body,
                                 cc_list or [], resolved_paths or [], attachment_ids or [],
@@ -2296,6 +2390,37 @@ def _store_message_meta(message_id: str, references: Optional[str] = None,
                         my_aimail_addr: str = "") -> None:
     """Store outbound message metadata locally for future replies (always write)."""
     _save_local_meta(message_id, references, my_aimail_addr, direction="outbound")
+
+
+def _record_outbound_alias(config: dict, generated_mid: str,
+                           references: Any = None, in_reply_to: Any = None,
+                           parent_mid: Any = None) -> None:
+    """Record ``our message-id → thread root`` next to the binding that sent it (§6.6).
+
+    Why this exists: the external party's reply carries OUR Message-ID as
+    ``references[0]``, so without this alias every reply-to-our-reply would resolve to a
+    different thread root and open a new host session (contract C8). The store is the
+    binding's own directory, so an address under another profile can never resolve here.
+
+    Root order matches ``v2.thread.thread_root``: first reference → in-reply-to → the
+    mail we answer → our own id (a brand-new conversation).
+    """
+    try:
+        from v2 import outbound as _outbound
+    except Exception:  # noqa: BLE001 — an old/broken install must not break sending
+        return
+    try:
+        if isinstance(references, (list, tuple)):
+            refs = [str(r).strip() for r in references if str(r).strip()]
+        else:
+            refs = [r for r in str(references or "").split() if r.strip()]
+        root = (_outbound.normalize(refs[0] if refs else "")
+                or _outbound.normalize(in_reply_to)
+                or _outbound.normalize(parent_mid)
+                or _outbound.normalize(generated_mid))
+        _outbound.record(_outbound.binding_dir(config), generated_mid, root)
+    except Exception as e:  # noqa: BLE001 — threading is best-effort, never fail a send
+        logger.warning("Failed to record outbound alias for %s: %s", generated_mid, e)
 
 
 # ═══════════════════════════════════════════════════════════════

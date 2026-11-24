@@ -22,6 +22,7 @@ L3       4/4 dsh cells PASS（v1.0.13 批次；v1.0.15 为 prompt/复用重构�
 - dsh s5 首次 `paused=False` 已归因为模型未调工具（F1 夹具/LLM），复跑 PASS。
 - pi s3 的旧“已知 GAP”已关闭：`7fbcee8` 增加长驻 `pi --mode rpc` 会话；开发侧在 gateway v1.0.13 + SDK 0.5.2 下复跑为 `PASS=3 RED=0 GAP=0`。
 - base v1.0.15 与 advanced v1.0.14 已完成 prompt 修订、共享 base 的 prompt/key 生成逻辑并部署；详见 `docs/qa/ACTIVATION-REUSE-AUDIT.md`。
+- **未发版的后继修订（2026-11-23）**：prompt 中的安装句改为 “using your platform's plugin install command”；新增共享 `generate_activation_code()` / `valid_agentname()`。这些改动只在工作树，部署的仍是 v1.0.15 / v1.0.14；按 owner 要求等汇总后统一发版。
 
 ---
 

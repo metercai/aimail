@@ -89,5 +89,32 @@ PY
     # process environment, so exporting it for the host process is the whole job.
     echo "  ✓ dsh: apiKeyEnv=LLM_API_KEY — export LLM_API_KEY to the host process"
     ;;
+  deerflow)
+    # deerflow validates config.yaml as a whole at boot and reads models[].api_key, so
+    # the credential is a file value (not an env var). `/app/config.yaml` is the host
+    # home; an explicit DEERFLOW_HOME wins when set.
+    seen=""
+    for f in "${DEERFLOW_HOME:-/app}/config.yaml" /app/config.yaml; do
+      [ -f "$f" ] || continue
+      r="$(readlink -f "$f" 2>/dev/null || echo "$f")"
+      [ "$r" = "$seen" ] && continue
+      seen="$r"
+      python3 - "$f" "$KEY" <<'PY'
+import re, sys
+p, key = sys.argv[1], sys.argv[2]
+lines = open(p).read().splitlines()
+out, n = [], 0
+for ln in lines:
+    m = re.match(r"^(\s*-?\s*api_key:\s*)(.*)$", ln)
+    if m:
+        out.append(m.group(1) + key)
+        n += 1
+    else:
+        out.append(ln)
+open(p, "w").write("\n".join(out) + "\n")
+print(f"  {'✓' if n else '✗'} deerflow: patched {n} api_key line(s) in {p}")
+PY
+    done
+    ;;
   *) echo "✗ unsupported platform: $PLAT" >&2; exit 1 ;;
 esac

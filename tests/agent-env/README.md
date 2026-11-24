@@ -73,6 +73,16 @@ agent-env/
 > `lib/`, `docker/Dockerfile.*`) stays here; both tools take `AIMAIL_REPO` (default
 > `/home/ubuntu/aimail`).
 
+**deerflow exception (2026-11-23):** `docker/rebuild-deerflow-base.sh` lives **in this
+repo**, not in the closed tooling. Its base image must be rebuilt from a source checkout
+(the published layer predates `DEER_FLOW_AUTH_DISABLED`, so inbound calls are answered
+with a CSRF 403), and that rebuild has to be reproducible for anyone running the L2 gate.
+It is parameterized (`DEERFLOW_SRC`, `DEERFLOW_FLOOR_IMAGE`, `UV_CACHE_HOST_DIR`,
+`DEERFLOW_BASE_TAG`) and `--check` verifies `pins.env DEERFLOW_REV` ⇄ checkout ⇄ local
+image. The environment gate that consumes it is
+`tests/host-acceptance/v2/lib/deerflow-env-gate.sh` (pin ↔ cleanliness ↔ endpoint ↔ boot ↔
+extension load ↔ run API ↔ model tool call).
+
 ## Usage
 
 ```sh

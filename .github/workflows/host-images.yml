@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       agents:
-        description: 'Space-separated hosts to build+audit (pi dsh openclaw hermes)'
+        description: 'Space-separated hosts to build+audit (pi dsh openclaw hermes deerflow; deerflow needs a prebuilt $BASE_DEERFLOW on the runner — see the deerflow case below)'
         required: false
         default: 'pi dsh openclaw hermes'
 
@@ -45,6 +45,20 @@ jobs:
               hermes)   BASE="$BASE_HERMES" ;;
               openclaw) BASE="$BASE_OPENCLAW" ;;
               pi|dsh)   BASE="$BASE_NODE" ;;
+              deerflow)
+                # deer-flow's base is rebuilt from source (docker/rebuild-deerflow-base.sh)
+                # because the published layer predates DEER_FLOW_AUTH_DISABLED; a runner has
+                # no deer-flow checkout, so this cell REQUIRES a prebuilt/provided base image.
+                # Fail-closed: never silently substitute :latest (that is the stale artefact
+                # the whole rebuild exists to avoid).
+                BASE="$BASE_DEERFLOW"
+                docker image inspect "$BASE" >/dev/null 2>&1 || {
+                  echo "::error::deerflow base '$BASE' is not present on this runner."
+                  echo "Build it first: bash tests/agent-env/docker/rebuild-deerflow-base.sh"
+                  echo "or publish it to the registry and pull it into this job."
+                  exit 2
+                }
+                ;;
               *) echo "::error::unknown host $a"; exit 2 ;;
             esac
             CTX="$(mktemp -d)"
@@ -56,10 +70,13 @@ jobs:
             # ship it into the build context for every host (harmless where unused).
             cp tests/agent-env/docker/pnpm-warm.json "$CTX/docker/"
             cp "tests/agent-env/docker/Dockerfile.$a" "$CTX/Dockerfile"
+            EXTRA_ARGS=()
+            [ "$a" = deerflow ] && EXTRA_ARGS=(--build-arg "DEERFLOW_REV=$DEERFLOW_REV")
             echo "── build $a (base=$BASE)"
             docker build --network host -t "aimail-host-$a:latest" \
               --build-arg BASE_IMG="$BASE" \
               --build-arg LLM_BASE_URL="$LLM_BASE_URL" --build-arg LLM_MODEL="$LLM_MODEL" \
+              ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} \
               -f "$CTX/Dockerfile" "$CTX"
             rm -rf "$CTX"
           done

@@ -93,18 +93,20 @@ initial_backoff_secs = 1
 TOML
   python3 "$AIMAIL_ROOT/tests/host-acceptance/fixture/smtp_sink.py" --port "$smtp" --spool "$work/mail.spool" >"$work/smtp.log" 2>&1 &
   GW_SINK_PID=$!
-  "$bin" -c "$work/config.toml" start >"$work/gateway.log" 2>&1 &
+  local pidf="$work/gateway.pid"
+  "$bin" -c "$work/config.toml" --pid-file "$pidf" start >"$work/gateway.log" 2>&1 &
   GW_PID=$!
-  # A leftover instance of the same workdir holds the binary's single-instance lock while
-  # its port is already free, so the port probe above cannot see it. Clear it once, retry.
+  # This workdir's own leftover instance (crash without teardown) still holds OUR pid file
+  # while its port may already be free, so the port probe above cannot see it. Clear that
+  # one and retry. Other runs hold their OWN pid files now, so they are never touched.
   sleep 3
   if grep -q "Server is already running" "$work/gateway.log" 2>/dev/null; then
     _stale="$(sed -nE 's/.*PID: ([0-9]+).*/\1/p' "$work/gateway.log" | head -1)"
     if [ -n "${_stale:-}" ]; then
-      echo "  stale gateway PID $_stale holds this workdir — terminating it and retrying once"
+      echo "  stale gateway PID $_stale holds THIS workdir - terminating it and retrying once"
       kill "$_stale" 2>/dev/null || true
       sleep 2
-      "$bin" -c "$work/config.toml" start >"$work/gateway.log" 2>&1 &
+      "$bin" -c "$work/config.toml" --pid-file "$pidf" start >"$work/gateway.log" 2>&1 &
       GW_PID=$!
     fi
   fi
@@ -130,6 +132,11 @@ gw_down() {
   # leftover instance keeps the binary's own single-instance lock ("Server is already
   # running (PID ...)") and can answer a later probe itself (a stale sink returning 250
   # made openclaw read emails=0 on 2026-11-23). Best-effort, never fatal.
+  # Stop through OUR pid file when it exists (the binary's own graceful path), then fall
+  # back to the PID/port sweeps below for the crash case.
+  if [ -n "${GW_WORK:-}" ] && [ -f "$GW_WORK/gateway.pid" ]; then
+    kill "$(cat "$GW_WORK/gateway.pid" 2>/dev/null)" 2>/dev/null || true
+  fi
   [ -n "${GW_PID:-}" ] && kill "$GW_PID" 2>/dev/null || true
   [ -n "${GW_SINK_PID:-}" ] && kill "$GW_SINK_PID" 2>/dev/null || true
   sleep 1

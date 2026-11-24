@@ -28,7 +28,9 @@ if [ -n "${_tools:-}" ] && [ "${_tools:-0}" -eq 0 ]; then
   red "mail tool surface missing (mail tools: 0) — the plugin exposed no tools, pause/unbind cannot run"
   return 0
 fi
-if [ "${_toolcalls:-0}" -eq 0 ] && [ "$paused" != "True" ]; then
+# Frame evidence (dsh event frames) only exists on the ts hosts; a host that reports the
+# lifecycle OUTCOME in journey_state must be judged on that outcome, not on frame counts.
+if [ "${HOST_FRAME_EVIDENCE:-0}" = "0" ] && [ "${_toolcalls:-0}" -eq 0 ] && [ "$paused" != "True" ]; then
   gap "the session made no tool call (0 frames) although the surface was present (mail tools: ${_tools:-unknown}) — the model never asked for pause/unbind; fixture/LLM GAP, not a product defect"
   return 0
 fi

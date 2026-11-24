@@ -2035,14 +2035,70 @@ def _clamp_int(raw, default: int, lo: int, hi: int) -> int:
     return int(max(lo, min(int(n), hi)))
 
 
-def is_agent_scope_binding(cfg) -> bool:
-    """Is this binding an artifact of address-level activation (agent scope) — determined by existing facts, not guesswork."""
+# ── binding context provider (host seam) ────────────────────────────────────────────
+# Contract §7.1 requires every V2 binding to carry the local ``agent_system_id`` and the
+# routing space. Those values belong to the HOST (profile home / gateway home), and core
+# must not import the host layer — so a host plugin installs a provider here at
+# registration time and the activation path reads it. With no provider the fields are
+# simply absent, which is exactly the V1 shape.
+_BINDING_CONTEXT_PROVIDER = None
+
+
+def set_binding_context_provider(fn) -> None:
+    """Install ``fn() -> {"agent_system_id": str, "workspace_path": str}`` (host plugin)."""
+    global _BINDING_CONTEXT_PROVIDER
+    _BINDING_CONTEXT_PROVIDER = fn
+
+
+def get_binding_context() -> dict:
+    """Current host context for a new binding (empty when no provider is installed)."""
+    fn = _BINDING_CONTEXT_PROVIDER
+    if not callable(fn):
+        return {}
+    try:
+        got = fn() or {}
+    except Exception as e:  # noqa: BLE001 — activation must not fail on a probe
+        logger.warning("[aimail] binding context provider failed: %s", e)
+        return {}
+    return dict(got) if isinstance(got, dict) else {}
+
+
+def is_v1_agent_scope_binding(cfg) -> bool:
+    """V1 predicate: the address was activated under a ``shared_addr_*`` host system.
+
+    That prefix is a gateway-side fact (codes can only be redeemed under such a system),
+    so it keeps identifying genuinely V1 artefacts.
+    """
     if not isinstance(cfg, dict):
         return False
-    sid = str(cfg.get("system_id") or "")
-    if not sid or not str(cfg.get("api_key") or ""):
+    return bool(str(cfg.get("system_id") or "").startswith(AGENT_SCOPE_SYSTEM_PREFIX))
+
+
+def is_v2_agent_scope_binding(cfg) -> bool:
+    """V2 predicate (contract §5): the binding was activated under an AgentSystemId.
+
+    A V2 address's ``system_id`` is a plain GatewaySystemId (``system-*``), which never
+    starts with the V1 prefix — so the V1 predicate alone structurally rejected every V2
+    binding and its pull never armed (QA defect B1 on the TS side). The durable fact is
+    the presence of ``agent_system_id``.
+    """
+    if not isinstance(cfg, dict):
         return False
-    return sid.startswith(AGENT_SCOPE_SYSTEM_PREFIX)
+    return bool(str(cfg.get("agent_system_id") or "").strip())
+
+
+def is_agent_scope_binding(cfg) -> bool:
+    """Is this binding inbound material at all — a V1 activation artefact or a V2 binding.
+
+    Callers that need to know WHICH contract a binding follows must ask
+    ``is_v2_agent_scope_binding``: aggregation, the AgentSystemId header and the V2 ack
+    semantics apply only to V2.
+    """
+    if not isinstance(cfg, dict):
+        return False
+    if not str(cfg.get("system_id") or "") or not str(cfg.get("api_key") or ""):
+        return False
+    return is_v1_agent_scope_binding(cfg) or is_v2_agent_scope_binding(cfg)
 
 
 def resolve_agent_pull_settings(cfg, env=None, overrides=None) -> dict:

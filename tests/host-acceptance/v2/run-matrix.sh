@@ -14,22 +14,30 @@ AIMAIL_ROOT="$(cd "$V2/../.." && pwd)"
 . "$V2/lib/evidence.sh"
 . "$V2/lib/gw.sh"
 
-HOSTS="all"; STAGES="${STAGES:-s1 s2 s3}"
+HOSTS="all"; STAGES="${STAGES:-s1 s2 s3}"; SDK_KIND="${SDK_KIND:-ts}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --host) HOSTS="$2"; shift 2 ;;
     --stages) STAGES="$2"; shift 2 ;;
+    --sdk) SDK_KIND="$2"; shift 2 ;;
     *) echo "unknown arg $1"; exit 2 ;;
   esac
 done
-[ "$HOSTS" = all ] && HOSTS="dsh pi openclaw"
-
+case "$SDK_KIND" in
+  ts) [ "$HOSTS" = all ] && HOSTS="dsh pi openclaw" ;;
+  py) [ "$HOSTS" = all ] && HOSTS="hermes deerflow" ;;
+  *) echo "unknown --sdk $SDK_KIND (ts|py)"; exit 2 ;;
+esac
 : "${LLM_API_KEY:?LLM_API_KEY (XIAOMI_API_KEY) must be exported for real-host L2}"
 WORK="$(mktemp -d -t aimail-l2-XXXXXX)"
 export GW_HTTP_PORT="${GW_HTTP_PORT:-18080}" GW_SMTP_PORT="${GW_SMTP_PORT:-12525}"
 
 # ── dev build (L2 = current dev SDK) ──────────────────────────────────────────────
-if [ -z "${SDK_TARBALL_DIR:-}" ]; then
+if [ "$SDK_KIND" = py ]; then
+  # pysdk hosts: the wheel IS the dev build (L2 rule: current working tree, pre-installed).
+  . "$V2/lib/pysdk.sh"
+  pysdk_build "$WORK" || exit 2
+elif [ -z "${SDK_TARBALL_DIR:-}" ]; then
   SDK_TARBALL_DIR="$WORK/sdkpack"; mkdir -p "$SDK_TARBALL_DIR"
   echo "── building dev SDK (pnpm build + pack)"
   # Never swallow the reason: a frozen-lockfile mismatch or a tsc error must be readable
@@ -42,8 +50,12 @@ if [ -z "${SDK_TARBALL_DIR:-}" ]; then
     || { echo "GAP: npm pack failed for agent-aimail"; exit 2; }
 fi
 export SDK_TARBALL_DIR
-SDK_VER="$(cd "$AIMAIL_ROOT/tssdk/packages/agent-aimail" && node -p "require('./package.json').version")"
-echo "── L2 dev SDK $SDK_VER  ($(ls "$SDK_TARBALL_DIR" | head -1))"
+if [ "$SDK_KIND" = py ]; then
+  echo "── L2 dev SDK $SDK_VER  ($(basename "$SDK_FILE"))  [pysdk]"
+else
+  SDK_VER="$(cd "$AIMAIL_ROOT/tssdk/packages/agent-aimail" && node -p "require('./package.json').version")"
+  echo "── L2 dev SDK $SDK_VER  ($(ls "$SDK_TARBALL_DIR" | head -1))"
+fi
 
 # ── published gateway (both layers, owner rule 5) ─────────────────────────────────
 GATEWAY_VERSION="$(_gw_pin GATEWAY_VERSION)"
@@ -79,7 +91,7 @@ for h in $HOSTS; do
   case " $STAGES " in *" s5 "*) LIFECYCLE=1 ;; esac
   export S4_ADDR S4_CODE LIFECYCLE
   echo "── $h → $addr"
-  ev_init; ev_meta host "$h"; ev_meta sdk_version "$SDK_VER"; ev_meta gateway_version "$GATEWAY_VERSION"; ev_meta address "$addr"
+  ev_init; ev_meta host "$h"; ev_meta sdk_version "$SDK_VER"; ev_meta sdk_kind "$SDK_KIND"; ev_meta gateway_version "$GATEWAY_VERSION"; ev_meta address "$addr"
   export STAGES   # adapters need to know whether s3 (live delivery) is in this journey
   host_journey "$out" "$addr" "$code" "$token"
   for st in $STAGES; do

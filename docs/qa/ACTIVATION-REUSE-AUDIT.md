@@ -3,6 +3,8 @@
 日期：2026-11-23  
 范围：`aimail-gateway/src/core/api/activation.rs`、`aimail-advanced/src/advanced/api/address.rs`
 
+域名来源与三种地址类型的现状见 `docs/qa/ACTIVATION-DOMAIN-AUDIT.md`。
+
 ---
 
 ## 1. 结论
@@ -14,8 +16,10 @@
 
 1. `address_activation_prompt()`：激活邮件 prompt 的唯一真源，base/advanced 共用。
 2. `generate_key_material()`：agent key 生成 + `seal::store_hash` 存储哈希策略，base/advanced 共用。
+3. `generate_activation_code()`：激活码随机格式的唯一实现，base/advanced 共用。
+4. `valid_agentname()`：agentname 规则唯一实现，base/advanced 共用。
 
-事务体（`act_in_tx`）仍保留在 advanced，原因是它必须在一个 SQLite 写事务内完成 advanced 特有的检查与写入。
+事务体（`act_in_tx`）仍保留在 advanced，原因是它必须在一个 SQLite 写事务内完成 advanced 特有的检查与写入。这是**服务/事务策略**的保留，不是工具函数重复。
 
 ---
 
@@ -53,7 +57,11 @@ pub fn address_activation_prompt(address, gateway_url, code) -> String
 base 的 `address_activation_email` 与 advanced 的 `send_address_code_email` 都调用它。  
 以后改文案只改这一处，不会再出现 base/advanced 文案漂移。
 
-### 3.2 agent key 生成 + 存储哈希
+### 3.2 激活码生成
+
+base 新增 `generate_activation_code(prefix)`，base 的 `random_code()` 只是它的薄包装；advanced 删除本地同名实现，直接 `pub(crate) use` base 函数。
+
+### 3.3 agent key 生成 + 存储哈希
 
 base 新增：
 
@@ -67,6 +75,10 @@ pub fn generate_key_material() -> (raw_key, stored_hash, prefix)
 - `verify_api_key` 同时接受 sealed 和历史 plaintext，兼容旧数据。
 
 这消除了此前 base 写 plaintext、advanced 写 sealed 的潜在漂移。
+
+### 3.4 agentname 规则
+
+base 的 `apply_address_public` 与 advanced 的 `open_apply` 共用 `valid_agentname()`；advanced 不再维护第二套正则/长度规则。
 
 ---
 
@@ -90,6 +102,7 @@ pub fn generate_key_material() -> (raw_key, stored_hash, prefix)
 
 1. 文案/格式：只允许通过 `address_activation_prompt()`，禁止再复制字符串。
 2. key 生成：只允许通过 `generate_key_material()`，禁止在激活路径手写 `rand/hex/store_hash`。
+3. 激活码/agentname：只允许通过 `generate_activation_code()` / `valid_agentname()`，禁止再写第二套格式规则。
 3. 任何 base/advanced 激活语义变更，必须同时跑：
    - base `cargo test --lib`
    - advanced `cargo test`

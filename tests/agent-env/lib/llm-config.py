@@ -181,8 +181,12 @@ def write_deerflow(home: Path, base_url: str, model: str, api_key: str) -> list[
         sb.setdefault("allow_host_bash", False)
         cfg["sandbox"] = sb
     entry = {
-        "name": model, "display_name": f"{model} (journey llama-server)", "use":
-        "langchain_openai:ChatOpenAI", "model": model, "api_key": api_key,
+        "name": model, "display_name": model, "use":
+        "langchain_openai:ChatOpenAI", "model": model,
+        # Gate-image doctrine (owner 2026-11-18): never bake a secret. A placeholder is
+        # written here and `set-llm-key.sh deerflow` replaces it at run time — a dummy key
+        # baked into the image makes an unauthenticated host look configured.
+        "api_key": api_key if (api_key and api_key != DEFAULT_API_KEY) else ENV_PLACEHOLDER,
         "base_url": base_url, "request_timeout": 600.0, "max_retries": 2,
         "supports_vision": False,
     }

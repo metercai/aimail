@@ -61,7 +61,10 @@ def inbox(gateway, email):
 
 
 def cmd_apply(a):
-    st, _ = call(a.gateway, "POST", "/api/v1/public/email-verify/send", {"email": a.email})
+    # The gateway verifies name+email+code as one identity (unified activation
+    # reform): the code request carries the same name the submit will use.
+    st, _ = call(a.gateway, "POST", "/api/v1/public/email-verify/send",
+                 {"email": a.email, "name": a.name})
     if st not in (200, 201, 204):
         return {"ok": False, "stage": "verify-send", "status": st}
     codes = []
@@ -100,7 +103,7 @@ def cmd_apply(a):
     checked = None
     for c in cands[:3]:                # the endpoint has a small attempt budget
         st, _ = call(a.gateway, "POST", "/api/v1/public/email-verify/check",
-                     {"email": a.email, "code": c})
+                     {"email": a.email, "name": a.name, "code": c})
         if st in (200, 201, 204):
             checked = c
             break
