@@ -42,6 +42,7 @@ import {
   saveAgentConfig,
 } from './config.js'
 import { BINDING_FILE, POINTER_FILE } from './contract.js'
+import { getAddressModel, otherActiveAddress } from './host-capabilities.js'
 import { GatewayClient } from './gateway.js'
 import type { GatewayResponse } from './types.js'
 
@@ -1150,6 +1151,21 @@ export async function aimailAddress(args: AimailAddressArgs): Promise<AimailAddr
   const found = await findBindingByEmail(addr)
   const active = found.active
 
+  // ── Single-address hosts: refuse a SECOND address before any gateway call ─────
+  // (contract §11.3 / C1). Without this the second activation silently shadows the
+  // first — and burns a one-time code for a mailbox the host can never serve.
+  if (act === 'bind' && getAddressModel() === 'single') {
+    const other = await otherActiveAddress(addr)
+    if (other) {
+      return {
+        success: false, action: 'bind', reason: 'second-address',
+        error_code: 'SINGLE_ADDRESS_HOST',
+        error: `this host holds a single active address (${other}); unbind it before binding ` +
+               `${addr} — no activation code was consumed`,
+        existing_email: other,
+      }
+    }
+  }
   if (act === 'bind') {
     // ── Mode (1): idempotent — a local key already exists ───────────
     if (active && String(active.api_key ?? '').trim()) {

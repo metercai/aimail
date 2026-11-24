@@ -337,16 +337,23 @@ delivery.gateway_url + recipient
 
 ## 9. 入站路由与 Session
 
-1. `gateway_url + recipient` 查找 binding；
-2. 无 binding/paused：不 ack；
-3. 解析 binding 的 workspace；
-4. thread root：`references[0]` → `in_reply_to` → `message_id`；
-5. 读本地 thread meta 的 Session；
-6. 同 workspace 且 Session 可用：followup；
-7. 否则新建 Session，cwd=workspace_path；
-8. 投递成功写 meta 并 ack；
-9. Session 可弃用；binding 不保存 Session；
-10. 多 Gateway 的 thread meta 不跨 Gateway 混用。
+1. `gateway_url + recipient` 查找 binding；无 binding / paused ⇒ 不 ack；
+2. 解析 binding 绑定的**空间**（workspace / project / profile / 目录，宿主而定）；
+3. 判定**直接回复**：取**立即父消息** = `In-Reply-To`（无则 `References` 的最后一项，**不是** `[0]`），
+   用出站索引 `outbound[messageId] → session` 查询；命中 ⇒ **必须**投递到该 Session，**禁止降级**
+   （`In-Reply-To` 存在但未命中，视为"回复的是别人的信"，属 thread 级，不得回退到引用链）；
+4. 非直接回复：thread root = `references[0]` → `in_reply_to` → `message_id`，读本地 thread meta 的 Session；
+   命中且同空间 ⇒ 复用（thread 可跨 Session）；
+5. 否则新建 Session（cwd/空间 = 绑定的空间）；宿主无 create 能力时用其 import 能力（见 §11.5）；
+   创建失败 ⇒ 退到当前活跃 Session（仅记日志）；
+   再无可用 Session ⇒ 不 ack，留 pending 重试；
+6. 投递成功 ⇒ 写 thread meta 与出站索引并 ack；
+7. Session 可弃用；binding 不保存 Session；多 Gateway 的 thread meta 不跨 Gateway 混用。
+
+### 9.1 出站索引（使"直接回复"可判定）
+
+`send_mail` 发出时必须记录 `outbound[message_id] = { address, gateway, session_id, space, thread_root }`。
+没有它，宿主只能按 thread 猜测，无法满足"直接回复必须同 Session"的硬约束。
 
 ---
 
@@ -362,36 +369,65 @@ delivery.gateway_url + recipient
 
 ---
 
-## 11. 单地址与多地址宿主
+## 11. 宿主能力与单/多地址判定
 
-### 11.1 多地址
+### 11.1 三条能力轴
 
-MUST 具备：
+| 轴 | 取值 | 说明 |
+|---|---|---|
+| 空间 | `stable` / `none` | 是否有可持久绑定的中间层容器（workspace / project / profile / 目录） |
+| 会话创建 | `external` / `user-only` | 能否由**入站路径**创建新 Session |
+| 会话唤起 | `stable` / `unstable` / `none` | 能否把消息送进**指定**的既有 Session，且"可确定成功或可确定推迟、绝不双写" |
 
-- 稳定 Agent 空间；
-- 多 Session 创建/调用；
-- 地址绑定空间；
-- thread→Session 路由。
+### 11.2 多地址（M）的前置条件 —— 四项全满足
 
-### 11.2 单地址
+- 空间 `stable`，且地址绑定在该空间上；
+- 会话创建 `external`；
+- 会话唤起 `stable`；
+- 上述能力可由入站路径触发（宿主 API / 插件 API / 协议）。
 
-没有稳定空间，或不能主动创建/调用目标 Session：
+### 11.3 单地址（S）
 
-- 整个实例最多一个 active 地址；
-- 入站进入当前 Session；
-- 拒绝第二个地址；
-- 无系统级工具。
+任一前置条件不满足：
 
-### 11.3 矩阵
+- 整个实例最多一个 active 地址；入站进入当前 Session；
+- 拒绝第二个地址（不消耗激活码）；无系统级工具。
 
-| 能力 | 多地址 | 单地址 |
+> 判定必须来自**能力探测**，不得来自引擎名/宿主名。同一引擎的不同承载形态能力可以不同
+> （例：裸 pi 的会话唤醒无锁 ⇒ `unstable` ⇒ S；PI-Desktop 的宿主租约 + 排队 ⇒ `stable` ⇒ M）。
+
+### 11.4 矩阵
+
+| 能力 | M（多地址） | S（单地址） |
 |---|---|---|
 | 多地址绑定 | 允许 | 禁止 |
-| 地址→空间 | 必须 | 固定当前空间 |
-| 新 thread 新 Session | 必须 | 不支持 |
-| 回复回原 Session | 必须 | 当前 Session |
+| 地址→空间 | 必须（绑空间） | 固定当前空间 |
+| 新 thread 新 Session | 必须（失败可回退当前 Session） | 不支持 |
+| 直接回复回原 Session | **必须，禁止降级** | 当前 Session |
+| 会话唤起稳定性 | 必须 `stable` | 不要求 |
 | AgentSystemId | 必须 | 必须 |
-| 每 Gateway 一条 SSE | 必须 | 必须 |
+| 每 (AgentSystemId, Gateway) 一条 SSE | 必须 | 必须 |
+
+### 11.5 无 `session.create` 的宿主：新 thread 走 import（PI-Desktop）
+
+有的宿主把"建会话"留给用户，插件面只开放 `import`（导入既有 transcript）。这不影响 M 判定 —— §11.2 要的是
+"入站路径能创建新 Session"，import 满足该要求，只是留下可观测痕迹，须按本节记账。
+
+1. **分配**：新 thread 的第一封信用 `import` **一次**完成"建会话 + 投递首信"，`messages` 里带的就是这封信；
+   不建空会话，也不留"先创建、后投递"的中间窗口。
+2. **origin 标注**：该 Session 的 `originKind` 为 `imported`（而非 `created`）。这是能力差异不是缺陷；契约要求
+   标题携带 thread root（`AIMail <thread_root>`，受宿主 200 字符上限），保证人可辨。
+3. **幂等锚点取自"这封信"**：`externalId` = `Message-ID`（缺失时正文指纹），**不是** thread root。宿主按
+   `(plugin, source, externalId)` 去重，重试同一封信得到 `skipped: true` + 同一 SessionId ⇒ **视为投递成功**
+   （该 Session 已含此信），不重复写。同 thread 后续信件走既有 Session（由路由层的 thread→Session 索引决定）。
+4. **既有 Session 的投递**：`appendMessage` 必须带**确定性消息 id**（同源派生）。宿主把 message id 视为全局
+   唯一，重复 id 视为"已落库" ⇒ 崩溃重试不双写。这是该平台唯一可用的投递幂等，不得省略。
+5. **ack 语义不变**：能力缺失、载荷越界、宿主拒绝（权限 / `NOT_FOUND` / 抛错）一律**不 ack**，留 pending；
+   只有宿主明确接受（返回 sessionId，或幂等 `skipped`）才 ack。
+6. **空间是元数据**：`projectId` 报 `NOT_FOUND` 时**去掉绑定重投一次**，不因空间失效丢信；此时记账
+   `projectDropped`。
+7. **同 thread 并发首信必须单飞**：端口无法替调用方去重 thread（两次 import 会产生两个 Session）。路由层对
+   同一 thread root 的首信串行化，是本条的调用方义务。
 
 ---
 

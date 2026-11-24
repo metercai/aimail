@@ -9,6 +9,7 @@ export * from './typebox-params.js'
 export * from './contract.js'
 export * from './listen.js'
 export { GatewayClient, SseParser, type SseEvent } from './gateway.js'
+export type { GatewayClientOptions, GatewayFetchImpl } from './gateway.js'
 export { computeApiSignature, sha256Hex } from './api-signature.js'
 export {
   AIMAIL_HOME,

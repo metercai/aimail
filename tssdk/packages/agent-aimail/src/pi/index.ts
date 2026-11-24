@@ -31,6 +31,16 @@ import { getAgentSystemId } from '../core/agent-system-id.js'
 import { readSystemGatewayConfig } from '../core/provision.js'
 import { agentIdentity, initIdentity, readPointer, setInboundEndpoint, tryAutoBindOnce } from './identity.js'
 import { buildPiTools } from './tools.js'
+import { setAddressModel } from '../core/host-capabilities.js'
+
+// Capability declaration (contract §11): pi/TUI gives no way to wake a *different*
+// session safely — its session files carry no lock and a foreign writer cannot be
+// detected — so it stays a single-address host. Declaring it here is what makes the
+// SDK refuse a second address before consuming an activation code, instead of
+// silently shadowing the first one.
+setAddressModel('single')
+// Env mirror: survives a bundled duplicate of the capabilities module (see its docstring).
+process.env.AIMAIL_HOST_ADDRESS_MODEL = 'single'
 
 // Contract constants single copy = @aimail/mail-core(src/contract.ts ← contract/aimail-contract.json).
 // re-export here to maintain this module's existing public surface (dist/index.d.ts previously exported INBOUND_PATH).

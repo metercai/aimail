@@ -1,0 +1,19 @@
+{
+  "name": "@aimail/desktop-plugin",
+  "private": true,
+  "version": "0.1.0",
+  "description": "AIMail as a PI-Desktop plugin: one session per thread, acknowledged only after the host accepted the mail.",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "agent-aimail": "workspace:*"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  },
+  "license": "MIT"
+}

@@ -51,6 +51,19 @@ importers:
         specifier: ^3.0.0
         version: 3.2.7(@types/node@26.2.0)(jiti@2.7.0)(yaml@2.9.0)
 
+  packages/aimail-desktop-plugin:
+    dependencies:
+      agent-aimail:
+        specifier: workspace:*
+        version: link:../agent-aimail
+    devDependencies:
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+
 packages:
 
   '@agentclientprotocol/sdk@1.1.0':

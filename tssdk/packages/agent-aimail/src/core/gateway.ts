@@ -106,7 +106,23 @@ export interface GatewayClientOptions {
   ackPath?: string
   /** Extra signed headers (e.g. X-Agent-System-Id). */
   extraHeaders?: Record<string, string>
+  /**
+   * Transport override. The default is the global `fetch`; a plugin sandbox has
+   * no such global and must route egress through its host broker
+   * (`pi.net.fetch`), which is request/response only — hence no stream support
+   * there, and `mode: 'poll'` on the caller side.
+   */
+  fetchImpl?: GatewayFetchImpl
 }
+
+/**
+ * The slice of `fetch` this client uses, narrowed to what a host broker can
+ * implement: no streaming body, no `duplex`, text out.
+ */
+export type GatewayFetchImpl = (
+  url: string,
+  init: { method: string; headers: Record<string, string>; body?: Uint8Array },
+) => Promise<{ status: number; text(): Promise<string>; headers?: { get(name: string): string | null } }>
 
 export class GatewayClient {
   readonly baseUrl: string
@@ -118,6 +134,10 @@ export class GatewayClient {
   readonly pendingPath: string
   readonly ackPath: string
   readonly extraHeaders: Record<string, string>
+  /** Transport: the global `fetch` unless the caller supplied one (plugin hosts). */
+  readonly fetchImpl: GatewayFetchImpl
+  /** False when the transport was injected: a broker cannot stream a body. */
+  readonly streamCapable: boolean
 
   constructor(gatewayUrl: string, apiKey: string, timeoutMs = 30_000, identity = '', opts: GatewayClientOptions = {}) {
     this.baseUrl = gatewayUrl.replace(/\/+$/, '')
@@ -128,6 +148,16 @@ export class GatewayClient {
     this.pendingPath = opts.pendingPath ?? '/api/v1/admin/pending'
     this.ackPath = opts.ackPath ?? '/api/v1/admin/pending/ack'
     this.extraHeaders = opts.extraHeaders ?? {}
+    this.fetchImpl =
+      opts.fetchImpl ??
+      ((url, init) =>
+        fetch(url, {
+          method: init.method,
+          headers: init.headers,
+          ...(init.body ? { body: init.body as BodyInit } : {}),
+          signal: AbortSignal.timeout(this.timeoutMs),
+        }))
+    this.streamCapable = opts.fetchImpl === undefined
   }
 
   /** v1 signature headers for a request (empty when no key). */
@@ -171,13 +201,12 @@ export class GatewayClient {
     if (headers) Object.assign(reqHeaders, headers)
 
     try {
-      const init: RequestInit = {
+      const init: { method: string; headers: Record<string, string>; body?: Uint8Array } = {
         method,
         headers: reqHeaders,
-        signal: AbortSignal.timeout(this.timeoutMs),
+        ...(data ? { body: data } : {}),
       }
-      if (data) init.body = data as BodyInit
-      const resp = await fetch(url, init)
+      const resp = await this.fetchImpl(url, init)
       const text = await resp.text()
       const status = resp.status
       try {
@@ -203,6 +232,8 @@ export class GatewayClient {
    * ⇒ false ⇒ the state machine falls to long-pull.
    */
   async streamProbe(): Promise<boolean> {
+    // An injected transport answers whole responses: there is no body to stream.
+    if (!this.streamCapable) return false
     const path = this.streamPath
     try {
       const resp = await fetch(`${this.baseUrl}${path}`, {

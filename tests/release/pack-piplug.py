@@ -1,0 +1,144 @@
+#!/usr/bin/env python3
+"""Pack a PI-Desktop plugin directory into a `.piplug` (store-only zip) and verify it.
+
+Why a script instead of `zip -r`: the host rejects anything that is not store-only
+(`extract_zip_bytes`, ADR 0007). `zip -r` defaults to deflate, so a package built that way
+installs nowhere. This writes every entry with ZIP_STORED and then re-opens the archive to prove it
+— the reader is the same code path the host uses (name, method, size), so a bug here fails here.
+
+Constraints enforced (from the handoff's §7.2 and the host's walk.ts / MAX_PACKAGE_*):
+  * layout       : manifest.json at the archive ROOT, next to main.js
+  * methods      : ZIP_STORED only
+  * limits       : <= 2000 entries, <= 50 MiB uncompressed, no symlinks
+  * never packed : .git/, node_modules/, .env*, .npmrc, *.pem, *.key
+  * integrity    : sha256 over the archive BYTES, written next to it
+  * naming       : <id>-<version>.piplug   (id/version come from manifest.json)
+  * one version  : manifest.version == package.json version (the build step also refuses otherwise)
+
+Usage: pack-piplug.py --dist <dir> --out <dir> [--plug-package <package.json>]
+Exit codes: 0 packed and verified · 2 usage · 3 constraint violated
+"""
+from __future__ import annotations
+
+import argparse
+import fnmatch
+import hashlib
+import json
+import os
+import sys
+import zipfile
+
+FORBIDDEN_DIRS = {".git", "node_modules"}
+FORBIDDEN_FILES = [".env", ".env.*", ".npmrc", "*.pem", "*.key"]
+MAX_ENTRIES = 2000
+MAX_BYTES = 50 * 1024 * 1024
+
+
+def fail(msg: str) -> "None":
+    print("PACK FAIL: " + msg, file=sys.stderr)
+    raise SystemExit(3)
+
+
+def forbidden(rel: str) -> bool:
+    parts = rel.split("/")
+    if any(p in FORBIDDEN_DIRS for p in parts):
+        return True
+    base = parts[-1]
+    return any(fnmatch.fnmatch(base, pat) for pat in FORBIDDEN_FILES)
+
+
+def collect(dist: str) -> list:
+    entries = []
+    for root, dirs, files in os.walk(dist):
+        dirs.sort()
+        for name in sorted(files):
+            src = os.path.join(root, name)
+            rel = os.path.relpath(src, dist).replace(os.sep, "/")
+            if os.path.islink(src):
+                fail("symlink in package: " + rel)
+            if forbidden(rel):
+                fail("forbidden entry in package: " + rel)
+            entries.append((src, rel))
+    return entries
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--dist", required=True)
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--plug-package", default="", help="plugin package.json (version cross-check)")
+    a = ap.parse_args()
+
+    dist = os.path.abspath(a.dist)
+    manifest_path = os.path.join(dist, "manifest.json")
+    if not os.path.isfile(manifest_path):
+        fail("manifest.json must sit at the package root: " + manifest_path)
+    manifest = json.load(open(manifest_path))
+    plug_id = str(manifest.get("id") or "").strip()
+    version = str(manifest.get("version") or "").strip()
+    if not plug_id or not version:
+        fail("manifest.json needs both id and version")
+
+    # the bundle must be require-able: the package root is "type": "module", so dist carries its own
+    pj = os.path.join(dist, "package.json")
+    if not os.path.isfile(pj):
+        fail("dist/package.json missing (the host require()s main.js; without {\"type\":\"commonjs\"} it is parsed as ESM)")
+    if json.load(open(pj)).get("type") != "commonjs":
+        fail("dist/package.json must declare \"type\": \"commonjs\"")
+    if not os.path.isfile(os.path.join(dist, "main.js")):
+        fail("dist/main.js missing")
+
+    if a.plug_package:
+        pv = json.load(open(a.plug_package)).get("version")
+        if pv and pv != version:
+            fail("manifest.version %s != package.json version %s (single source of truth)" % (version, pv))
+
+    entries = collect(dist)
+    if len(entries) > MAX_ENTRIES:
+        fail("%d entries exceeds the host limit %d" % (len(entries), MAX_ENTRIES))
+    total = sum(os.path.getsize(src) for src, _ in entries)
+    if total > MAX_BYTES:
+        fail("%d bytes exceeds the host limit %d" % (total, MAX_BYTES))
+
+    os.makedirs(a.out, exist_ok=True)
+    name = "%s-%s.piplug" % (plug_id, version)
+    out = os.path.join(a.out, name)
+    with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_STORED) as z:
+        for src, rel in entries:
+            zi = zipfile.ZipInfo(rel, date_time=(1980, 1, 1, 0, 0, 0))
+            zi.compress_type = zipfile.ZIP_STORED
+            zi.external_attr = 0o644 << 16
+            with open(src, "rb") as fh:
+                z.writestr(zi, fh.read())
+
+    # verify by re-reading: same checks the host's extractor makes
+    with zipfile.ZipFile(out) as z:
+        bad = z.testzip()
+        if bad:
+            fail("corrupt entry after write: " + bad)
+        names = z.namelist()
+        if "manifest.json" not in names:
+            fail("manifest.json is not at the archive root")
+        methods = {i.compress_type for i in z.infolist()}
+        if methods != {zipfile.ZIP_STORED}:
+            fail("archive is not store-only (methods seen: %s)" % sorted(methods))
+        if any(n.startswith("/") or ".." in n.split("/") for n in names):
+            fail("unsafe path inside archive")
+        for n in names:
+            if forbidden(n):
+                fail("forbidden entry survived: " + n)
+
+    digest = hashlib.sha256(open(out, "rb").read()).hexdigest()
+    with open(out + ".sha256", "w") as fh:
+        fh.write("%s  %s\n" % (digest, name))
+
+    print("PACK OK %s" % out)
+    print("  entries=%d bytes_archive=%d bytes_payload=%d method=store" %
+          (len(entries), os.path.getsize(out), total))
+    print("  sha256=%s" % digest)
+    print("  files: " + ", ".join(sorted(n for n in names)))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

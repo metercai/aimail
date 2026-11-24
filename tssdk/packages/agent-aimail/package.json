@@ -38,6 +38,10 @@
       "types": "./dist/pi/index.d.ts",
       "default": "./dist/pi/index.js"
     },
+    "./desktop": {
+      "types": "./dist/desktop/index.d.ts",
+      "default": "./dist/desktop/index.js"
+    },
     "./package.json": "./package.json",
     "./runtime": {
       "types": "./dist/runtime/index.d.ts",
