@@ -33,14 +33,25 @@ else
 fi
 
 step "2/6 type check (agent-aimail build + plugin noEmit)"
-( cd "$TSSDK" && npx tsc -b packages/agent-aimail >/tmp/gate-piplug-tsc.log 2>&1 )
-if [ $? -eq 0 ]; then ok "tsc -b packages/agent-aimail clean"; else bad "tsc -b failed:"; tail -5 /tmp/gate-piplug-tsc.log; fi
-# .bin/tsc is a launcher script, not a JS module: run it, don't hand it to node
-( cd "$PLUGIN" && "$TSSDK/node_modules/.bin/tsc" -p tsconfig.json --noEmit >/tmp/gate-piplug-tsc2.log 2>&1 )
-if [ $? -eq 0 ]; then ok "plugin tsc --noEmit clean"; else bad "plugin tsc failed:"; tail -5 /tmp/gate-piplug-tsc2.log; fi
+# Two traps paid for in CI:
+#   1. `npx tsc` can resolve a DIFFERENT TypeScript than the workspace's (this repo's lockfile carries
+#      both 6.0.3 and 7.0.2). The batch type-checks under 7.0.2 and fails under 6.0.3 with TS18046 —
+#      so the gate must use the workspace compiler, and say which version it used.
+#   2. `tsc -b` without --force is a no-op when a tsbuildinfo exists: my first local run was "clean"
+#      only because the build info was stale. The gate always rebuilds.
+TSC_BIN="$TSSDK/node_modules/typescript/bin/tsc"
+if [ ! -f "$TSC_BIN" ]; then
+  bad "workspace TypeScript missing at $TSC_BIN (install step did not run?)"
+else
+  TSVER="$(node "$TSC_BIN" --version 2>/dev/null | tail -1)"
+  ( cd "$TSSDK" && node "$TSC_BIN" -b packages/agent-aimail --force >/tmp/gate-piplug-tsc.log 2>&1 )
+  if [ $? -eq 0 ]; then ok "tsc -b packages/agent-aimail --force clean ($TSVER)"; else bad "tsc -b failed ($TSVER):"; tail -6 /tmp/gate-piplug-tsc.log; fi
+  ( cd "$PLUGIN" && node "$TSC_BIN" -p tsconfig.json --noEmit >/tmp/gate-piplug-tsc2.log 2>&1 )
+  if [ $? -eq 0 ]; then ok "plugin tsc --noEmit clean ($TSVER)"; else bad "plugin tsc failed ($TSVER):"; tail -6 /tmp/gate-piplug-tsc2.log; fi
+fi
 
 step "3/6 unit tests for this surface (desktop/* + injected fetch)"
-( cd "$TSSDK" && npx vitest run packages/agent-aimail/test/desktop \
+( cd "$TSSDK" && node "$TSSDK/node_modules/vitest/vitest.mjs" run packages/agent-aimail/test/desktop \
     packages/agent-aimail/test/core/gateway-injected-fetch.test.ts >/tmp/gate-piplug-vitest.log 2>&1 )
 if [ $? -eq 0 ]; then
   ok "$(grep -aE 'Tests +[0-9]+ passed' /tmp/gate-piplug-vitest.log | tail -1 | sed 's/^ *//')"
