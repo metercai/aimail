@@ -144,6 +144,15 @@ def point_at_missing_session(aimail_home: str) -> str:
                 hits += 1
             except Exception as e:
                 log("rewrite %s failed: %s" % (cfg, e))
+    if hits == 0:
+        # Say WHY: absent field vs null vs nested key. Saves a 12-minute run to find out.
+        for f in glob.glob(os.path.join(os.path.expanduser(a.aimail_home),
+                                        "systems", "*", "*", "agentmail.json")):
+            try:
+                d = json.load(open(f, encoding="utf-8"))
+                log("config keys (%s): %s" % (os.path.basename(os.path.dirname(f)), sorted(d.keys())))
+            except Exception as e:
+                log("config unreadable: %s (%s)" % (f, e))
     log("point_at_missing_session: rewrote %d config(s) -> %s" % (hits, new_id))
     return new_id if hits else ""
 
