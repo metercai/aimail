@@ -94,7 +94,7 @@ owner 已裁定按 §9.3 的"重挂 + 投递成功 + 记账"全合规执行。
 |---|---|---|
 | R0.1–R0.5 | ✅ 已具备 | 见 `tests/release/*`、`plugin-gate.yml`、`publish.yml` 守卫 |
 | R1 | ✅ | `[L0] PASS`（本轮改动后重跑） |
-| R2 | ⏳ 待跑 | 需要 5 个宿主的完整回归（等 owner 批准启动） |
+| R2 | ⏳ (需在最新树上重跑) 待跑 | 需要 5 个宿主的完整回归（等 owner 批准启动） |
 | R3 | ⏳ | `s4` 已接受结构化证据；需在单地址宿主（pi/hermes）实跑确认 |
 | R4 | ❌ **不满足（产品缺陷 S1，按 T2 修复）** | dsh 实测：删掉 thread 会话后回信 `acked=true` 但**零会话被写入** ⇒ 静默丢信。修复要求按 §9.3/§9.5 全合规（存在性检查 + 重挂 + `session-gone` + 落地后才 ack），汇入 `docs/qa/REPAIR-TASK-2026-11-25.md`。见 `DEFECT-C17-SESSION-GONE.md` |
 | R5 | ✅ | 契约测试绿 |
@@ -102,3 +102,19 @@ owner 已裁定按 §9.3 的"重挂 + 投递成功 + 记账"全合规执行。
 | R7 | ✅ | `aimail.pi-desktop-0.2.1` 全部满足（hash 本地==CI） |
 | R8 | ❌ 未执行 | 需人工在真机按 runbook 走一遍 |
 | R9 | ⏳ | 8 格矩阵需连续两次全绿 |
+
+## 状态刷新（2026-11-25 晚，针对 REPLY/RESPONSE 两轮）
+
+| 判据 | 状态 | 依据 |
+|---|---|---|
+| R2 L2 矩阵 | ⏳ **待重跑**（dsh 路由与 meta 均已改，上一轮全量批基于旧树） | — |
+| C8 · openclaw | ✅ PASS | L2 s6 全绿 + `sessionModeRequested:"persistent"`；**此前"宿主限制"的判定已撤回** |
+| C8 分配半条 · pi | ✅ N/A（owner 裁定） | 依据已核：`ExtensionCommandContext` "only safe in user-initiated commands" |
+| C17 · pi | ✅ N/A（owner 裁定） | 同上，obligation vacuous |
+| P1-1 | ✅ PASS | 日志 `dispatchAgentIdRaw`，键的 agent 段为 main |
+| C17 · dsh | ❌ RED（行为✅/证据❌） | 附 F：`agentmail.log` 无 dispatch/reason 行 |
+| C17 · hermes/deerflow | ❌ RED | 实测 ack-零落地；`unconfirmed` 受判，不 N/A |
+| C17 · openclaw | ⏳ GAP | `unconfirmed`，缺证据 |
+| 真机安装（.piplug） | ⏳ 未执行 | RUNBOOK 8 步 |
+
+**关于 openclaw/C8 的 EXEMPTED 申请：撤回。** 该红是本方案缺 `sessionMode` 所致，产品已修，不需要 owner 签字。

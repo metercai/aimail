@@ -137,12 +137,12 @@ PASS  the thread root survived the re-attach
 RED   downgrade reason '' does not name session-gone
 探针：aimail_home=/root/.aimail exists=True
       systems/system-9f3a -> ['board','l2dsh_test.local']
-      glob hits=1  pattern=/root/.aimail/systems/*/*/agentmail.json
+      glob hits=1  pattern=/root/.aimail/systems/*/*/agentmail.json  <!-- contract-allowed: QA 文档引用 binding 文件名以定位证据 -->
       rewrote 0 config(s)          <- 配置文件存在，但里面没有 session_id
 ```
 
 **推论（需开发确认）**：`dsh/inbound.ts:197` 的 `updateAgentConfig(..., { session_id })` 没有把
-`session_id` 落进 `agentmail.json`。于是：
+`session_id` 落进 `agentmail.json`。于是：  <!-- contract-allowed: QA 文档引用 binding 文件名以定位证据 -->
 
 1. `cfg.session_id` 恒为空 ⇒ `agents.resume(boundId)` 分支**永不执行** ⇒ 新加的
    `session_gone_redirected` 产者**在真实流程里不可达**；
@@ -186,3 +186,27 @@ pi 则是根本没有"插件指定会话"的接口。
 
 处理建议：`pi / C8 → N/A`、`pi / C17 → N/A`（附本节证据），记入 `GATE.md` 已知项；
 未签字前矩阵保持 OPEN，不计绿。
+
+
+## 附 F：dsh 的降级原因在实时路径没有落账（v9 实证，2026-11-25）
+
+```
+log files=1  lines=11
+last = {"ts":"2026-11-25T07:36:07.255Z","event":"inbound","from":"ext-sender@example.com",
+        "to":"l2dsh@test.local","subject":"C8 threading probe"}
+dispatch_reasons=[]        # 11 行里没有 "reason" 键，也没有 event:"dispatch"
+```
+对照：单测 `test/dsh/inbound-session-gone.test.ts:121` 读**同一个文件**
+（`fs.readFile(aimailLogPath(EMAIL))`）并断言含 `"reason":"session-gone"`，且通过。
+
+**结论**：分支逻辑本身没问题（单测证），但**实时路径不写这一行**。
+这已是同类模式的第三例：
+1. `runtime/routing.ts` 无宿主调用（改在未接线处）→ 本轮已由 dsh 接线解决；
+2. `cfg.session_id` 从不落盘（改在不存在的字段上）→ 本轮已由 `saveLocalMeta` 读-合并-写解决；
+3. **`logAimailDispatch` 在实时路径不执行**（测在未调用处）← 本附。
+
+**问一句就够**：L2 的 pull→adapter 回调是否经过加了 `logDispatch` 的那个函数？
+- 经过 ⇒ 为什么 `agentmail.log` 没有 `event:"dispatch"` 行（`appendLog` 失败是静默的，需要打点）；
+- 不经过 ⇒ `reason` 挂到真正执行的路径，或把单测改成走实时路径。
+
+**当前判定**：dsh C17 = 行为 ✅（ack / 新会话 / root 保住）+ 证据 ❌（reason 不可见）⇒ RED（1 条），归因产品。

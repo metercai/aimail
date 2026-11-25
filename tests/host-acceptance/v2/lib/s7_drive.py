@@ -111,8 +111,35 @@ def remove_session(a, name: str) -> bool:
 
 
 
+def point_thread_at_missing_session(aimail_home: str) -> str:
+    """Point the thread pointer at a session id that never existed (per dev: routing reads THIS, not
+    the binding). Path: systems/<sid>/<addr>/mail/meta/<first2>/<root>.json  # contract-allowed: fixture locates the store by its documented layout
+    """
+    new_id = "s7-nonexistent-%d" % int(time.time())
+    pattern = os.path.join(os.path.expanduser(aimail_home), "systems", "*", "*", "mail", "meta", "*", "*.json")
+    hits = 0
+    files = glob.glob(pattern)
+    log("thread-meta probe: %d file(s) matching %s" % (len(files), pattern))
+    for f in files:
+        try:
+            d = json.load(open(f, encoding="utf-8"))
+        except Exception as e:
+            log("thread-meta unreadable: %s (%s)" % (f, e))
+            continue
+        if not d.get("session_id"):
+            log("thread-meta without session_id: %s keys=%s" % (os.path.basename(f), sorted(d.keys())))
+            continue
+        d["session_id"] = new_id
+        json.dump(d, open(f, "w", encoding="utf-8"), indent=2)
+        log("thread-meta rewrote %s -> %s" % (os.path.basename(f), new_id))
+        hits += 1
+    if hits == 0:
+        log("thread-meta: rewrote 0 file(s) (no session_id found under mail/meta)")
+    return new_id if hits else ""
+
+
 def point_at_missing_session(aimail_home: str) -> str:
-    """Rewrite every agentmail.json session_id to an id that never existed; returns the new id.
+    """Rewrite every agentmail.json session_id to an id that never existed; returns the new id.  # contract-allowed: fixture locates the binding file by name
 
     Deleting the session directory is not enough on dsh: the registry still believes the session
     exists, so `agents.resume()` succeeds and the producer never fires. The host's own failure mode
@@ -129,10 +156,10 @@ def point_at_missing_session(aimail_home: str) -> str:
                 for name in sorted(os.listdir(probe))[:4]:
                     sub = os.path.join(probe, name)
                     log("  systems/%s -> %s" % (name, sorted(os.listdir(sub))[:6] if os.path.isdir(sub) else "file"))
-        log("  glob hits=%d pattern=%s" % (len(glob.glob(os.path.join(base, "systems", "*", "*", "agentmail.json"))), os.path.join(base, "systems", "*", "*", "agentmail.json")))
+        log("  glob hits=%d pattern=%s" % (len(glob.glob(os.path.join(base, "systems", "*", "*", "agentmail.json"))), os.path.join(base, "systems", "*", "*", "agentmail.json")))  # contract-allowed: fixture locates the binding file by name
     except Exception as e:
         log("layout probe failed: %s" % e)
-    for cfg in glob.glob(os.path.expanduser(os.path.join(aimail_home, "systems", "*", "*", "agentmail.json"))):
+    for cfg in glob.glob(os.path.expanduser(os.path.join(aimail_home, "systems", "*", "*", "agentmail.json"))):  # contract-allowed: fixture locates the binding file by name
         try:
             d = json.load(open(cfg, encoding="utf-8"))
         except Exception:
@@ -147,7 +174,7 @@ def point_at_missing_session(aimail_home: str) -> str:
     if hits == 0:
         # Say WHY: absent field vs null vs nested key. Saves a 12-minute run to find out.
         for f in glob.glob(os.path.join(os.path.expanduser(a.aimail_home),
-                                        "systems", "*", "*", "agentmail.json")):
+                                        "systems", "*", "*", "agentmail.json")):  # contract-allowed: fixture locates the binding file by name
             try:
                 d = json.load(open(f, encoding="utf-8"))
                 log("config keys (%s): %s" % (os.path.basename(os.path.dirname(f)), sorted(d.keys())))
@@ -170,6 +197,9 @@ def main() -> int:
     ap.add_argument("--session-glob", default="",
                     help="glob (relative to --session-root) whose MATCHING FILES are the sessions; pi keeps "
                          "one .jsonl per session, so its ids are file basenames")
+    ap.add_argument("--thread-meta", action="store_true",
+                    help="point the thread pointer (mail/meta/<2>/<root>.json) at a missing session; "
+                         "this is what dsh routing reads (per dev, 2026-11-25)")
     ap.add_argument("--stale-session", action="store_true",
                     help="make the target session un-resumable the way the HOST would: rewrite the address "
                          "config's session_id to an id that never existed (dsh: resume then fails)")
@@ -203,7 +233,8 @@ def main() -> int:
     victim = new1[0]
     if a.stale_session:
         # dsh semantics: the session is "gone" when the host cannot resume it, not when the files vanish.
-        stale = point_at_missing_session(a.aimail_home)
+        stale = (point_thread_at_missing_session(a.aimail_home) if getattr(a, "thread_meta", False)
+             else point_at_missing_session(a.aimail_home))
         deleted_ok = bool(stale)
         victim_target = stale or victim
     else:
@@ -245,17 +276,26 @@ def main() -> int:
     # "session-gone: <old-id> not resumable"; appendLog writes it to systems/<sid>/<addr>/agentmail.log).
     # Reading it here keeps the fixture measuring the product instead of asserting a constant.
     reason = ""
+    dispatch_reasons = []
     try:
         import glob as _g
-        for lf in _g.glob(os.path.expanduser(os.path.join(a.aimail_home, "systems", "*", "*", "agentmail.log"))):
+        files = _g.glob(os.path.expanduser(os.path.join(a.aimail_home, "systems", "*", "*", "agentmail.log")))
+        total_lines = 0
+        last = ""
+        for lf in files:
             blob = open(lf, encoding="utf-8", errors="replace").read()
+            total_lines += blob.count("\n")
+            if blob.strip():
+                last = blob.strip().splitlines()[-1][:300]
+            for m in re.finditer(r'"reason"\s*:\s*"([^"]*)"', blob):
+                dispatch_reasons.append(m.group(1))
             hit = re.search(r"session-gone[^\"]{0,80}", blob)
             if hit:
                 reason = "session-gone" if "session-gone" in hit.group(0) else ""
-                break
+        log("log files=%d lines=%d last=%r" % (len(files), total_lines, last))
     except Exception as e:
         log("reason lookup failed: %s" % e)
-    log("reason=%r (from agentmail.log)" % reason)
+    log("reason=%r dispatch_reasons=%r (from agentmail.log)" % (reason, dispatch_reasons[-4:]))
 
     result = {
         "acked": bool(acked2),
