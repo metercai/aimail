@@ -89,7 +89,42 @@ C17 未修完就发 npm，等于把"审批回信可能被吞"的路径推给所�
 
 ---
 
-## 附：本轮 L2 回归发现（跑完后补全）
+## 附 A：本轮 L2 回归结果（5 宿主）
 
-> 见文末表格；本轮命令：`/tmp/l2-v23-batch.sh`，证据 `/tmp/l2-v23/*.log`。
-> 判据：每宿主 `RED=0 GAP=0 SKIP_LEGACY=0`。
+判据：每宿主 `RED=0 GAP=0 SKIP_LEGACY=0`。证据 `/tmp/l2-v23/*.log`、`/tmp/l2-fix/*.log`。
+
+| 宿主 | 阶段 | PASS | RED | GAP | 归属 |
+|---|---|---|---|---|---|
+| ts / dsh | s1 s2 s3 s4 s6 neg | 26 | 0 | 0 | ✅ 干净 |
+| ts / pi | s1 s2 s3 s4 neg | 18 | 0 | 0 | ✅ 干净（无 s6 钩子） |
+| py / hermes | s1 s2 s3 s4 s6 neg | 24 | 0 | 0 | ✅ 干净 |
+| py / deerflow | s1 s2 s3 s4 s6 neg | 25 | 0 | 0 | ✅ 干净（首跑 1 RED 是夹具时序，已修） |
+| ts / openclaw | s1 s2 s3 s4 s6 neg | 15 | 0 | 2 | ⚠️ **夹具/环境**，未定性完成（见附 C） |
+
+**产品侧本批没有新增缺陷。**
+
+## 附 B：s7（C17）跨宿主实测
+
+| 宿主 | 结果 | 证据 |
+|---|---|---|
+| dsh | **RED（产品）** | `acked=true, used='', delivered_anywhere=false` |
+| hermes | **RED（产品，同签名）** | `acked=true, used='', reason=''` |
+| deerflow | **RED（产品，同签名）** | 18 PASS / 3 RED（ack 通过 + 落地/原因/root 三条红） |
+| pi | 待做（需两轮形态） | 投递只发生在轮次运行期间，不能照抄 dsh 形状 |
+| openclaw | **N/A** | `openclaw sessions` 无 delete 子命令；且会话身份由宿主分配（C8 已实测不支持 caller key） |
+
+三宿主同签名 ⇒ 缺陷在 **SDK 公共路由**（`runtime/routing.ts`），与宿主无关。这正是 P0-1。
+
+## 附 C：openclaw L2 的 2 个 GAP（未定性完成，**不得算产品红**）
+
+现象：`s6_drive.log` 三封均为 `550 Sender not whitelisted`；证据目录有 `ready`，但**没有**
+`whitelist.json` 与 `inject.log`；`rc` 首行是 `turn error: URLError <urlopen error [Errno 111]
+Connection refused>`。
+
+判断：宿主轮次期间**网关不可达**（连接被拒），因此白名单与 s3 注入都没执行——属夹具/环境，
+非产品。已做的一处修复（s6 交接块服从 `ready && LIFECYCLE!=1` 门）未解决，需要再一轮定位：
+1. 确认该轮 gateway 进程是否真的起来（查该 run 的 `GW_WORK/gateway.log` 起始行）；
+2. 若网关未起，检查端口分配与上一轮残留容器；
+3. 修好后重跑该格，`GAP` 才可消失。
+
+在此之前 openclaw 的 L2 **不能记绿也不能记产品红**——记为 `INCONCLUSIVE（夹具/环境）`。

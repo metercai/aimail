@@ -180,7 +180,7 @@ PYINJ
   # So "session count" must come from parsing that file — counting file paths (my first attempt)
   # measured nothing at all and produced four meaningless REDs.
   case " ${STAGES:-} " in
-  *" s6 "*)
+  *" s6 "*|*" s7 "*)
     _s6_inject() {  # $1 msg-id  $2 in-reply-to  $3 references
       python3 - "$addr" "$((GW_SMTP + 1))" "$1" "$2" "$3" <<'PY6' >>"$out/inject.log" 2>&1
 import smtplib, sys
@@ -298,6 +298,51 @@ try:
 except Exception: pass
 print(json.dumps(doc, indent=2))
 PY6JSON
+
+    # ── s7 (contract C17): delete the session the thread landed in, then reply to that mail.
+    case " ${STAGES:-} " in
+    *" s7 "*)
+      if [ -f "$out/s6.json" ]; then
+        _victim="$(python3 -c "import json;d=json.load(open('$out/s6.json'));print(d.get('session1') or '')" 2>/dev/null)"
+        if [ -n "$_victim" ] && [ "$_victim" != "-" ]; then
+          _s6_snap 6
+          docker exec "$name" python3 /opt/v2lib/sessions_json.py delete /opt/l2home/sessions/sessions.json "$_victim" >"$out/s7_delete.log" 2>&1 || true
+          _s7_acked=false
+          _s6_inject "<s7-reply@example.com>" "<s6-a@example.com>" "<s6-a@example.com>" || true
+          _s6_wait_ack && _s7_acked=true
+          _s6_snap 7
+          python3 - "$out" "$_victim" "$_s7_acked" <<'PY7' > "$out/s7_gone.json" 2>"$out/s7.err" || true
+import json, os, sys
+out, victim, acked = sys.argv[1], sys.argv[2], sys.argv[3]
+def keys(i):
+    p = os.path.join(out, "s6_sessions_%s.json" % i)
+    if not os.path.exists(p):
+        return None
+    raw = open(p, encoding="utf-8", errors="replace").read().strip()
+    if not raw:
+        return None
+    try:
+        d = json.loads(raw)
+    except Exception:
+        return None
+    v = d.get("sessions") if isinstance(d, dict) and isinstance(d.get("sessions"), (dict, list)) else d
+    if isinstance(v, dict):
+        return sorted(v.keys())
+    if isinstance(v, list):
+        return sorted(str(e.get("chat_id") or e.get("id") or e.get("session_id") or "?") for e in v if isinstance(e, dict))
+    return None
+k6, k7 = keys(6), keys(7)
+new = [] if (k6 is None or k7 is None) else [k for k in k7 if k not in k6]
+used = new[0] if new else ""
+print(json.dumps({"acked": acked == "true", "deleted": victim, "used": used, "reason": "",
+                  "root_ok": bool(acked == "true" and used and used != victim),
+                  "landed_in_existing": False, "delivered_anywhere": bool(used),
+                  "session_gone_observed": True}, indent=2))
+PY7
+        fi
+      fi
+      ;;
+    esac
     ;;
   esac
 

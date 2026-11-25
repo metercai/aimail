@@ -20,7 +20,7 @@ set -uo pipefail
 _dir="${1:-}"
 [ -n "$_dir" ] || { echo "usage: s7_session_gone.sh <journey-dir>"; return 2 2>/dev/null || exit 2; }
 _f="$_dir/s7_gone.json"
-CASE="${CASE:-S7 session-gone}"
+CASE="S7 session-gone"   # never inherit the previous label
 
 if [ ! -f "$_f" ]; then
   gap "S7 session-gone — no s7_gone.json: host hook 'host_s7_session_gone' not implemented, C17 unproven"

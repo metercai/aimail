@@ -157,11 +157,16 @@ PY
     echo "emails=$(gw_sql "SELECT COUNT(*) FROM emails;")" >>"$out/inject.log"
   fi
 
+  # The handover MUST obey the same gate as the whitelist above: with LIFECYCLE=1 (second boot) the
+  # whitelist is skipped, and releasing s6 anyway sent three mails the gateway rejected with
+  # "550 Sender not whitelisted" — which then looked like a C8 gap in the product.
   case " ${STAGES:-} " in
   *" s6 "*)
+    if [ -f "$out/ready" ] && [ "${LIFECYCLE:-0}" != "1" ]; then
     : > "$out/s6_go"
     for _i in $(seq 1 900); do [ -f "$out/s6.json" ] && break; sleep 1; done
     [ -f "$out/s6.json" ] || echo "s6 driver produced no evidence (see s6_drive.log)" > "$out/s6_missing"
+    fi
     ;;
   esac
   wait "$pid"

@@ -27,6 +27,7 @@
 #   * same thread  ⇒ identical session key AND the host session count must NOT grow
 #   * new thread   ⇒ different session key AND the count must grow by exactly one
 #   * with no session evidence at all (file absent / unparsable) this is a FIXTURE GAP, never a pass
+CASE="S6 threading"   # set unconditionally: inheriting the previous case label
 set -uo pipefail
 
 _dir="${1:-}"

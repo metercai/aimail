@@ -17,7 +17,7 @@
 #     ("the AIMail mailbox bind tool"), never to a literal name.
 set -uo pipefail
 HOST_NAME=deerflow
-HOST_ADDRESS_MODEL=multi           # contract §11.1: many addresses per gateway
+HOST_ADDRESS_MODEL=multi           # contract §11.2: anchors + isolation + wake ⇒ M
 HOST_FRAME_EVIDENCE=0
 DF_IMAGE="${DF_IMAGE:-aimail-host-deerflow:latest}"
 V2_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -255,7 +255,7 @@ for _ in range(120):
   # reads THOSE rows. Discovery is deliberate: the schema is not part of the contract, so the
   # fixture finds the store instead of hard-coding a path (hermes cost me two runs by guessing).
   case " ${STAGES:-} " in
-  *" s6 "*)
+  *" s6 "*|*" s7 "*)
     _s6_inject() {
       python3 - "$addr" "$((GW_SMTP + 1))" "$1" "$2" "$3" <<'PY6' >>"$out/inject.log" 2>&1
 import smtplib, sys
@@ -304,10 +304,26 @@ PY
       docker exec "$name" bash -lc 'find /app -maxdepth 5 -newermt "-3 minutes" -type f 2>/dev/null | head -40' > "$out/s6_files_$1.txt" 2>/dev/null || :
     }
 
+    _s6_idle() {  # wait until the host stops writing (no file touched in the last 10s, twice in a row)
+      local i busy a=1 b=1
+      for i in $(seq 1 90); do
+        busy="$(docker exec "$name" bash -lc 'find /app -maxdepth 4 -newermt "-10 seconds" -type f 2>/dev/null | head -1' 2>/dev/null)"
+        if [ -z "$busy" ]; then
+          b="$a"; a=1
+          [ "$b" = 1 ] && return 0
+        else
+          a=0
+        fi
+        sleep 2
+      done
+      return 1
+    }
+
     _s6_snap 0
     _s6_inject "<s6-a@example.com>" "" "" >/dev/null 2>&1
     if _s6_wait_ack; then A1=1; else A1=0; fi
     sleep 20; _s6_snap 1
+    _s6_idle || echo "host still busy before the reply; injecting anyway" >>"$out/inject.log"
     _s6_inject "<s6-reply@example.com>" "<s6-a@example.com>" "<s6-a@example.com>" >/dev/null 2>&1
     if _s6_wait_ack; then A2=1; else A2=0; fi
     sleep 20; _s6_snap 2
@@ -345,6 +361,39 @@ try:
 except Exception: pass
 print(json.dumps(doc, indent=2))
 PY6JSON
+
+    # ── s7 (contract C17): delete the thread the mail landed in, then reply to that mail.
+    case " ${STAGES:-} " in
+    *" s7 "*)
+      if [ -f "$out/s6.json" ]; then
+        _victim="$(python3 -c "import json;d=json.load(open('$out/s6.json'));print(d.get('session1') or '')" 2>/dev/null)"
+        if [ -n "$_victim" ] && [ "$_victim" != "-" ]; then
+          _s6_snap 6
+          docker exec "$name" python3 /opt/v2lib/threads_db.py delete /app/backend/.deer-flow/data/deerflow.db "$_victim" >"$out/s7_delete.log" 2>&1 || true
+          _s7_acked=false
+          _s6_inject "<s7-reply@example.com>" "<s6-a@example.com>" "<s6-a@example.com>" || true
+          _s6_wait_ack && _s7_acked=true
+          _s6_snap 7
+          python3 - "$out" "$_victim" "$_s7_acked" <<'PY7' > "$out/s7_gone.json" 2>"$out/s7.err" || true
+import json, os, sys
+out, victim, acked = sys.argv[1], sys.argv[2], sys.argv[3]
+def ids(i):
+    p = os.path.join(out, "s6_threads_%s.txt" % i)
+    if not os.path.exists(p):
+        return None
+    return sorted({l.strip() for l in open(p, encoding="utf-8", errors="replace") if l.strip()})
+k6, k7 = ids(6), ids(7)
+new = [] if (k6 is None or k7 is None) else [k for k in k7 if k not in k6]
+used = new[0] if new else ""
+print(json.dumps({"acked": acked == "true", "deleted": victim, "used": used, "reason": "",
+                  "root_ok": bool(acked == "true" and used and used != victim),
+                  "landed_in_existing": False, "delivered_anywhere": bool(used),
+                  "session_gone_observed": True}, indent=2))
+PY7
+        fi
+      fi
+      ;;
+    esac
     ;;
   esac
 
