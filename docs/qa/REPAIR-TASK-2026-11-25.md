@@ -137,9 +137,23 @@ $out/home/.pi/agent/settings.json  →  {"packages": ["../../../tmp/sdk/package"
 `settings.json` 里记的是**宿主侧相对路径**，在容器内（cwd `/root/ws`，SDK 挂在 `/opt/sdk`）解析不到
 ⇒ 扩展不加载 ⇒ 没有 SSE 拉取。s3 能过是因为它的投递发生在 s1 旅程内、安装刚做完的那一刻。
 
-下一步（我方）：
-1. 在 threading 容器启动后**先按容器内路径安装**（`pi install /opt/sdk/package`）再注入；
-2. 或让 s1 旅程写**容器内绝对路径**进 settings.json；
-3. 修好后重跑 `--stages "s1 s6"`，再 `s1 s6 s7`。
+已试过的四条路（全部失败，已写进 hosts/pi.sh 注释）：
+1. 独立容器 + 命名管道 stdin（open() 死锁，`pi-th.log` 0 字节）；
+2. 进程替换替代管道（仍 0 字节）；
+3. 启动前把 settings 指向 `/opt/sdk/package`（**pi 启动时把 settings 重写回相对路径**，改动不生效）；
+4. 补挂 `/tmp/sdk` 让相对路径可解析（网关侧 `domain not found`，因为该轮 s1 未完成绑定）。
 
-在此之前 pi 的 C8/C17 记 **OPEN（夹具）**，不得写绿也不得写产品红。
+**现行设计（第 6 版）**：`_pi_threading_seq` 不再自起容器，改由 `_pi_delivery` 在**拆除常驻 rpc 容器之前**
+调用——那是 pi 投递唯一被证明可行的配置（s3 在此通过）。s6/s7 现在隐含触发该投递路径。
+
+**当前阻塞（不是夹具，是工作树）**：共享工作树里 `tssdk/packages/agent-aimail/src/pi/index.ts` 处于
+**未提交的编辑中**状态，导致 SDK 构建失败：
+```
+src/pi/index.ts(139,33): error TS2353: Object literal may only specify known properties,
+and 'detail' does not exist in type 'PiInboundOutcome'
+```
+（开发正在给 `deliverPiInbound` 的返回值加 `detail: 'admission-only: …'`，但类型未同步。）
+⇒ 在该编辑完成并重新构建通过之前，**pi 的任何门禁结果都无效**。修法：`PiInboundOutcome` 增加
+`detail?: string`（或去掉该字段）。修好后我跑 `--stages "s1 s6"`、再 `s1 s6 s7`。
+
+在此之前 pi 的 C8/C17 记 **OPEN（夹具已就绪，验证被构建阻塞）**，不得写绿也不得写产品红。

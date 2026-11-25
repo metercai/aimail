@@ -13,6 +13,7 @@ HOST_NAME=pi
 # Capability declaration (contract §11.1 L3-wake): pi/TUI cannot wake a *different* session safely
 # (no session-file lock, no way to detect a foreign writer) ⇒ single-address host.
 HOST_ADDRESS_MODEL=single
+HOST_DELIVERY_CONFIRMATION=admission-only  # 附 E: sendUserMessage fire-and-forget；pi 为 S ⇒ C17 N/A
 PI_IMAGE="${PI_IMAGE:-aimail-host-pi:latest}"
 V2_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -83,7 +84,8 @@ _pi_delivery() {  # _pi_delivery <out> <addr> <token>
   # fifo keeps the session alive.
   docker run --rm -i --network host --name "l2pi-live-$$" \
     -e "LLM_API_KEY=${LLM_API_KEY:?}" \
-    -v "$hdir:/root" -v "$V2_ROOT/lib:/opt/v2lib:ro" -v "${SDK_TARBALL_DIR:?}:/opt/sdk:ro" -v "$out:/out" \
+    -v "$hdir:/root" -v "$V2_ROOT/lib:/opt/v2lib:ro" -v "${SDK_TARBALL_DIR:?}:/opt/sdk:ro" \
+    -v "${SDK_TARBALL_DIR:?}:/tmp/sdk:ro" -v "$out:/out" \
     --entrypoint bash "$PI_IMAGE" -lc '
       set -u
       export HOME=/root
@@ -151,6 +153,14 @@ PY
     echo "arming_seen=${up:-0}"
     [ "${acked:-0}" -gt 0 ] && echo "acked_after_poll=$acked"
   } >> "$out/inject.log"
+  # threading runs while this container is still attached: that is the only configuration where pi's
+  # delivery has ever been demonstrated (s3 passes here, and fails in a second container).
+  case " ${STAGES:-} " in
+    *" s6 "*) _pi_threading_seq "$out" "$addr" s6 ;;
+  esac
+  case " ${STAGES:-} " in
+    *" s7 "*) _pi_threading_seq "$out" "$addr" s7 ;;
+  esac
   kill "$pid" 2>/dev/null || true
   sleep 1
   docker rm -f "l2pi-live-$$" >/dev/null 2>&1 || true
@@ -179,14 +189,9 @@ host_journey() {
   # independent cases on purpose: a `case` stops at the first match, so "s6 s7" in one run would only
   # execute s6 and the s7 case would then report a fixture GAP with no evidence behind it.
   case " ${STAGES:-} " in
-    *" s3 "*) _pi_delivery "$out" "$addr" "$token" ;;   # live delivery needs the long session
+    *" s3 "*|*" s6 "*|*" s7 "*) _pi_delivery "$out" "$addr" "$token" ;;   # s6/s7 ride the live session
   esac
-  case " ${STAGES:-} " in
-    *" s6 "*) _pi_threading "$out" "$addr" "$token" s6 ;;
-  esac
-  case " ${STAGES:-} " in
-    *" s7 "*) _pi_threading "$out" "$addr" "$token" s7 ;;
-  esac
+  # s6/s7 run inside the live container that s3 already started (see _pi_threading_seq)
 
   local final; final="$(cat "$out/bindings_seen" 2>/dev/null || echo "$maxb")"
   printf 'max_bindings=%s paused_seen=%s final_bindings=%s turns=na\n' "$maxb" "$paused" "$final" > "$out/journey_state"
@@ -196,52 +201,29 @@ host_journey() {
 }
 
 
-# ── threading (C8 / C17) for pi ────────────────────────────────────────────────────────────────
-# pi keeps a LIVE rpc session (`pi --mode rpc` + fifo), so the delivery path stays attached while the
-# fixture injects — the same shape as dsh/hermes, not the "one turn per mail" shape I first assumed.
-# Sessions are files in the mounted home ($hdir/.pi/agent/sessions/<ws>/<ts>_<uuid>.jsonl), so the
-# fixture can list and delete them from the HOST side; no docker exec needed.
-#   mode s6: A → reply → B            (C8: same thread reuses, new thread creates)
-#   mode s7: A → delete A's session → reply   (C17: must re-attach, stay acked, record session-gone)
-_pi_threading() {  # _pi_threading <out> <addr> <token> <mode>
-  local out="$1" addr="$2" token="$3" mode="$4"
-  local hdir="$out/home" sess="$out/home/.pi/agent/sessions"
-  mkdir -p "$hdir"
-  # Two measured traps on the first attempts:
-  #  * one stream per binding — a stale client steals the slot, so clear leftovers and let the gateway see
-  #    zero streams before attaching;
-  #  * a NAMED FIFO for stdin deadlocks the launcher: the redirect blocks in open() until a writer appears,
-  #    so `$!` looks alive while pi never actually started (pi-th.log was 0 bytes and the gateway saw no
-  #    stream). Process substitution keeps stdin open without ever blocking the launcher.
-  docker ps -q -f "name=l2pi" 2>/dev/null | xargs -r docker rm -f >/dev/null 2>&1 || true
-  sleep 5
-  docker run --rm -i --network host --name "l2pi-th-$$" \
-    -e "LLM_API_KEY=${LLM_API_KEY:?}" \
-    -v "$hdir:/root" -v "$V2_ROOT/lib:/opt/v2lib:ro" -v "${SDK_TARBALL_DIR:?}:/opt/sdk:ro" -v "$out:/out" \
-    --entrypoint bash "$PI_IMAGE" -lc '
-      set -u
-      export HOME=/root
-      mkdir -p /root/ws && cd /root/ws
-      exec pi --mode rpc
-    ' >"$out/pi-th.log" 2>&1 < <(exec sleep 900) &
-  local pid=$! _i
-  for _i in $(seq 1 10); do kill -0 "$pid" 2>/dev/null || break; sleep 5; done
-  if ! kill -0 "$pid" 2>/dev/null; then
-    echo "threading: live session exited during boot (see $out/pi-th.log)" >> "$out/inject.log"
-    return 0
-  fi
-
+# ── threading (C8 / C17) for pi ───────────────────────────────────────────────────────────────
+# Runs INSIDE the live container that _pi_delivery already started, because that is the configuration in
+# which pi's delivery is proven to work. A second container was tried four times and each attempt failed
+# on a different fixture layer (settings path rewritten by pi, stream slot, gateway state); this keeps the
+# one variable that matters — the attachment — identical to the passing s3 probe.
+#   mode s6: A → reply → B                     (C8)
+#   mode s7: A → delete A's session → reply     (C17)
+_pi_threading_seq() {  # <out> <addr> <mode>
+  local out="$1" addr="$2" mode="$3"
+  local sess="$out/home/.pi/agent/sessions"
   _th_snap() { ls -1 "$sess"/*/*.jsonl 2>/dev/null | xargs -r -n1 basename | sort; }
-  _th_inject() {  # <mid> <in-reply-to> <references>
-    python3 - "$addr" "$((GW_SMTP + 1))" "$1" "$2" "$3" <<'PYTH'
+  _th_inject() {
+    python3 - "$addr" "$((GW_SMTP + 1))" "$1" "$2" "$3" <<'PYTH' >>"$out/inject.log" 2>&1
 import smtplib, sys
 from email.message import EmailMessage
 addr, port, mid, irt, refs = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4], sys.argv[5]
 m = EmailMessage()
 m["From"] = "ext-sender@example.com"; m["To"] = addr
 m["Subject"] = "C8/C17 probe"; m["Message-ID"] = mid
-if irt:  m["In-Reply-To"] = irt
-if refs: m["References"] = refs
+if irt:
+    m["In-Reply-To"] = irt
+if refs:
+    m["References"] = refs
 m.set_content("probe " + mid)
 try:
     with smtplib.SMTP("127.0.0.1", port, timeout=20) as s:
@@ -251,7 +233,7 @@ except Exception as e:
     print("send failed %s: %s" % (type(e).__name__, e))
 PYTH
   }
-  _th_acked() {  # 0/1: pending dropped to 0 after having been seen, or emails grew
+  _th_ack() {
     local i n max=0
     for i in $(seq 1 120); do
       n="$(gw_pending_rows "$addr" 2>/dev/null || echo 1)"; n="${n:-1}"
@@ -261,39 +243,30 @@ PYTH
     done
     echo 0
   }
-  _th_settle() {  # wait for a new session file (or, for the reply, for none to appear)
-    local before="$1" want="$2" i c
-    for i in $(seq 1 60); do
-      c="$(_th_snap | wc -l)"
-      if [ "$want" = "grow" ] && [ "$c" -gt "$before" ]; then return 0; fi
-      if [ "$want" = "quiet" ] && [ "$i" -ge 10 ]; then return 0; fi
-      sleep 1
-    done
-  }
+  _th_settle() { local before="$1" i c; for i in $(seq 1 60); do c="$(_th_snap | wc -l)"; [ "$c" -gt "$before" ] && return 0; sleep 1; done; return 1; }
 
-  python3 "$V2_ROOT/lib/gw.py" wl --gateway "$GW_URL" --key "$GW_ADMIN" --identity "$GW_SID" \
-    --system "$GW_SID" --addr "$addr" --sender ext-sender@example.com >"$out/whitelist.json" 2>&1 || true
-  grep -q '"ok": true' "$out/whitelist.json" || echo "whitelist failed: $(cat "$out/whitelist.json")" >>"$out/inject.log"
-
-  _th_snap > "$out/th_0.txt"
-  local n0 n1 n2 n3 a1 a2 a3 victim used
+  local n0 n1 n2 a1 a2 a3 victim used
   n0="$(_th_snap | wc -l)"
-  _th_inject "<s6-a@example.com>" "" "" >>"$out/inject.log" 2>&1
-  a1="$(_th_acked)"
-  _th_settle "$n0" grow
-  _th_snap > "$out/th_1.txt"
-  n1="$(_th_snap | wc -l)"
+  _th_inject "<s6-a@example.com>" "" ""
+  a1="$(_th_ack)"; _th_settle "$n0" || true
+  _th_snap > "$out/th_1.txt"; n1="$(_th_snap | wc -l)"
 
   if [ "$mode" = "s7" ]; then
-    victim="$(comm -13 "$out/th_0.txt" "$out/th_1.txt" 2>/dev/null | head -1)"
+    victim="$(comm -13 <(_th_snap > /dev/null; head -0 /dev/null) /dev/null 2>/dev/null | head -1)"
+    # the session created by mail A is the one that appeared after it
+    victim="$(python3 - "$out" <<'PYV'
+import os, sys
+out = sys.argv[1]
+cur = sorted({l.strip() for l in open(os.path.join(out, "th_1.txt"), encoding="utf-8") if l.strip()})
+print(cur[-1] if cur else "")
+PYV
+)"
     if [ -n "$victim" ]; then rm -f "$sess"/*/"$victim"; fi
-    echo "threading: deleted session $victim" >>"$out/inject.log"
+    echo "threading: deleted session '${victim}'" >>"$out/inject.log"
     _th_snap > "$out/th_2.txt"
-    _th_inject "<s7-reply@example.com>" "<s6-a@example.com>" "<s6-a@example.com>" >>"$out/inject.log" 2>&1
-    a2="$(_th_acked)"
-    _th_settle "$((n1 - 1))" grow
+    _th_inject "<s7-reply@example.com>" "<s6-a@example.com>" "<s6-a@example.com>"
+    a2="$(_th_ack)"; sleep 15
     _th_snap > "$out/th_3.txt"
-    n3="$(_th_snap | wc -l)"
     python3 - "$out" "$victim" "$a2" <<'PYJ' > "$out/s7_gone.json" 2>"$out/s7.err" || true
 import json, os, sys
 out, victim, acked = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -309,16 +282,13 @@ print(json.dumps({"acked": acked == "1", "deleted": victim, "used": used, "reaso
                   "session_gone_observed": bool(victim)}, indent=2))
 PYJ
   else
-    _th_inject "<s6-reply@example.com>" "<s6-a@example.com>" "<s6-a@example.com>" >>"$out/inject.log" 2>&1
-    a2="$(_th_acked)"
-    _th_settle "$n1" quiet
-    _th_snap > "$out/th_2.txt"
-    n2="$(_th_snap | wc -l)"
-    _th_inject "<s6-b@example.com>" "" "" >>"$out/inject.log" 2>&1
-    a3="$(_th_acked)"
-    _th_settle "$n2" grow
+    _th_snap > "$out/th_0.txt"
+    _th_inject "<s6-reply@example.com>" "<s6-a@example.com>" "<s6-a@example.com>"
+    a2="$(_th_ack)"; sleep 10
+    _th_snap > "$out/th_2.txt"; n2="$(_th_snap | wc -l)"
+    _th_inject "<s6-b@example.com>" "" ""
+    a3="$(_th_ack)"; _th_settle "$n2" || true
     _th_snap > "$out/th_3.txt"
-    n3="$(_th_snap | wc -l)"
     python3 - "$out" "$a1" "$a2" "$a3" <<'PYJ' > "$out/s6.json" 2>"$out/s6.err" || true
 import json, os, sys
 out, a1, a2, a3 = sys.argv[1:5]
@@ -337,8 +307,6 @@ print(json.dumps({"acked": [a1 == "1", a2 == "1", a3 == "1"],
                   "workspace": "/root/ws"}, indent=2))
 PYJ
   fi
-  kill "$pid" 2>/dev/null || true
-  docker rm -f "l2pi-th-$$" >/dev/null 2>&1 || true
   return 0
 }
 
