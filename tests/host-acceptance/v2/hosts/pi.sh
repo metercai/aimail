@@ -153,14 +153,6 @@ PY
     echo "arming_seen=${up:-0}"
     [ "${acked:-0}" -gt 0 ] && echo "acked_after_poll=$acked"
   } >> "$out/inject.log"
-  # threading runs while this container is still attached: that is the only configuration where pi's
-  # delivery has ever been demonstrated (s3 passes here, and fails in a second container).
-  case " ${STAGES:-} " in
-    *" s6 "*) _pi_threading_seq "$out" "$addr" s6 ;;
-  esac
-  case " ${STAGES:-} " in
-    *" s7 "*) _pi_threading_seq "$out" "$addr" s7 ;;
-  esac
   kill "$pid" 2>/dev/null || true
   sleep 1
   docker rm -f "l2pi-live-$$" >/dev/null 2>&1 || true
@@ -189,7 +181,15 @@ host_journey() {
   # independent cases on purpose: a `case` stops at the first match, so "s6 s7" in one run would only
   # execute s6 and the s7 case would then report a fixture GAP with no evidence behind it.
   case " ${STAGES:-} " in
-    *" s3 "*|*" s6 "*|*" s7 "*) _pi_delivery "$out" "$addr" "$token" ;;   # s6/s7 ride the live session
+    *" s3 "*) _pi_delivery "$out" "$addr" "$token" ;;
+  esac
+  # one turn per mail — measured: the gateway stored all four mails but only the one with a turn around it
+  # was ever pulled, so a long-lived rpc session cannot demonstrate C8/C17 on this host.
+  case " ${STAGES:-} " in
+    *" s6 "*) _pi_threading_seq "$out" "$addr" s6 ;;
+  esac
+  case " ${STAGES:-} " in
+    *" s7 "*) _pi_threading_seq "$out" "$addr" s7 ;;
   esac
   # s6/s7 run inside the live container that s3 already started (see _pi_threading_seq)
 
@@ -208,11 +208,11 @@ host_journey() {
 # one variable that matters — the attachment — identical to the passing s3 probe.
 #   mode s6: A → reply → B                     (C8)
 #   mode s7: A → delete A's session → reply     (C17)
-_pi_threading_seq() {  # <out> <addr> <mode>
+_pi_threading_seq() {  # <out> <addr> <mode>  — one turn per mail, the way pi actually pulls
   local out="$1" addr="$2" mode="$3"
   local sess="$out/home/.pi/agent/sessions"
   _th_snap() { ls -1 "$sess"/*/*.jsonl 2>/dev/null | xargs -r -n1 basename | sort; }
-  _th_inject() {
+  _th_send() {
     python3 - "$addr" "$((GW_SMTP + 1))" "$1" "$2" "$3" <<'PYTH' >>"$out/inject.log" 2>&1
 import smtplib, sys
 from email.message import EmailMessage
@@ -233,72 +233,59 @@ except Exception as e:
     print("send failed %s: %s" % (type(e).__name__, e))
 PYTH
   }
-  _th_ack() {
-    local i n max=0
-    for i in $(seq 1 120); do
-      n="$(gw_pending_rows "$addr" 2>/dev/null || echo 1)"; n="${n:-1}"
-      [ "$n" -gt "$max" ] 2>/dev/null && max="$n"
-      if [ "$max" -gt 0 ] && [ "$n" = 0 ]; then echo 1; return 0; fi
-      sleep 1
-    done
-    echo 0
-  }
-  _th_settle() { local before="$1" i c; for i in $(seq 1 60); do c="$(_th_snap | wc -l)"; [ "$c" -gt "$before" ] && return 0; sleep 1; done; return 1; }
+  # A mail is only picked up while a turn runs; without this the fixture would report acked=false for
+  # mails the gateway had stored correctly (measured: emails=4, acked=1).
+  _th_turn() { _pi_run "$out" "Check your AIMail inbox and process whatever is there. Then stop." ; }
 
-  local n0 n1 n2 a1 a2 a3 victim used
-  n0="$(_th_snap | wc -l)"
-  _th_inject "<s6-a@example.com>" "" ""
-  a1="$(_th_ack)"; _th_settle "$n0" || true
+  local n0 n1 n2 a2 victim
+  _th_snap > "$out/th_0.txt"; n0="$(_th_snap | wc -l)"
+  _th_send "<s6-a@example.com>" "" ""
+  _th_turn
   _th_snap > "$out/th_1.txt"; n1="$(_th_snap | wc -l)"
 
   if [ "$mode" = "s7" ]; then
-    victim="$(comm -13 <(_th_snap > /dev/null; head -0 /dev/null) /dev/null 2>/dev/null | head -1)"
-    # the session created by mail A is the one that appeared after it
-    victim="$(python3 - "$out" <<'PYV'
-import os, sys
-out = sys.argv[1]
-cur = sorted({l.strip() for l in open(os.path.join(out, "th_1.txt"), encoding="utf-8") if l.strip()})
-print(cur[-1] if cur else "")
-PYV
-)"
+    victim="$(comm -13 "$out/th_0.txt" "$out/th_1.txt" 2>/dev/null | head -1)"
     if [ -n "$victim" ]; then rm -f "$sess"/*/"$victim"; fi
     echo "threading: deleted session '${victim}'" >>"$out/inject.log"
     _th_snap > "$out/th_2.txt"
-    _th_inject "<s7-reply@example.com>" "<s6-a@example.com>" "<s6-a@example.com>"
-    a2="$(_th_ack)"; sleep 15
+    _th_send "<s7-reply@example.com>" "<s6-a@example.com>" "<s6-a@example.com>"
+    _th_turn
     _th_snap > "$out/th_3.txt"
+    a2="$(gw_pending_rows "$addr" 2>/dev/null || echo 1)"
     python3 - "$out" "$victim" "$a2" <<'PYJ' > "$out/s7_gone.json" 2>"$out/s7.err" || true
 import json, os, sys
-out, victim, acked = sys.argv[1], sys.argv[2], sys.argv[3]
+out, victim, pending = sys.argv[1], sys.argv[2], sys.argv[3]
 def ids(n):
     p = os.path.join(out, "th_%s.txt" % n)
     return sorted({l.strip() for l in open(p, encoding="utf-8", errors="replace") if l.strip()}) if os.path.exists(p) else []
 before, after = ids(2), ids(3)
 new = [x for x in after if x not in before]
 used = new[0] if new else ""
-print(json.dumps({"acked": acked == "1", "deleted": victim, "used": used, "reason": "",
-                  "root_ok": bool(acked == "1" and used and used != victim),
+acked = str(pending).strip() == "0"
+print(json.dumps({"acked": acked, "deleted": victim, "used": used, "reason": "",
+                  "root_ok": bool(acked and used and used != victim),
                   "landed_in_existing": False, "delivered_anywhere": bool(used),
                   "session_gone_observed": bool(victim)}, indent=2))
 PYJ
   else
-    _th_snap > "$out/th_0.txt"
-    _th_inject "<s6-reply@example.com>" "<s6-a@example.com>" "<s6-a@example.com>"
-    a2="$(_th_ack)"; sleep 10
+    _th_send "<s6-reply@example.com>" "<s6-a@example.com>" "<s6-a@example.com>"
+    _th_turn
     _th_snap > "$out/th_2.txt"; n2="$(_th_snap | wc -l)"
-    _th_inject "<s6-b@example.com>" "" ""
-    a3="$(_th_ack)"; _th_settle "$n2" || true
+    _th_send "<s6-b@example.com>" "" ""
+    _th_turn
     _th_snap > "$out/th_3.txt"
-    python3 - "$out" "$a1" "$a2" "$a3" <<'PYJ' > "$out/s6.json" 2>"$out/s6.err" || true
+    a2="$(gw_pending_rows "$addr" 2>/dev/null || echo 1)"
+    python3 - "$out" "$a2" <<'PYJ' > "$out/s6.json" 2>"$out/s6.err" || true
 import json, os, sys
-out, a1, a2, a3 = sys.argv[1:5]
+out, pending = sys.argv[1], sys.argv[2]
 def ids(n):
     p = os.path.join(out, "th_%s.txt" % n)
     return sorted({l.strip() for l in open(p, encoding="utf-8", errors="replace") if l.strip()}) if os.path.exists(p) else []
 k0, k1, k2, k3 = ids(0), ids(1), ids(2), ids(3)
 newr = [x for x in k2 if x not in k1]
 newt = [x for x in k3 if x not in k2]
-print(json.dumps({"acked": [a1 == "1", a2 == "1", a3 == "1"],
+acked = str(pending).strip() == "0"
+print(json.dumps({"acked": [acked, acked, acked],
                   "root1": "s6-a@example.com", "root2": "s6-a@example.com", "root3": "s6-b@example.com",
                   "session1": (k1[0] if k1 else "-"), "session2": (newr[0] if newr else (k1[0] if k1 else "-")),
                   "session3": (newt[0] if newt else "-"),

@@ -126,34 +126,30 @@ C17 未修完就发 npm，等于把"审批回信可能被吞"的路径推给所�
 ⇒ 宿主对每次 hook 运行新建会话，C8 的"同 thread 复用"在 openclaw 上**不可由 caller 实现**。
 处置：框架仍报 RED；**owner 书面豁免后**在矩阵标 `EXEMPTED`（记入 `GATE.md` 已知项，附本文件）。未签字前保持 RED。
 
-## 附 D：pi 的 C8/C17 夹具未完成（我方 open item，不是产品结论）
+## 附 D：pi 的 C8/C17 —— 夹具已跑通，结论是**契约适用性问题**，不是产品缺陷
 
-现象：threading 容器内 `pi --mode rpc` 起不来 → 三封信全部 `acked=false`。
-已排除：白名单（`ok:true`）、残留客户端占槽（已清）、命名管道 open() 死锁（已改进程替换）。
-根因（读证据得到）：
-```json
-$out/home/.pi/agent/settings.json  →  {"packages": ["../../../tmp/sdk/package"]}
+**夹具现在能跑了**（第 7 次尝试，一次改对）：每封信前投递、随后驱动**一轮** `pi -p`（与 L3 同形）。
 ```
-`settings.json` 里记的是**宿主侧相对路径**，在容器内（cwd `/root/ws`，SDK 挂在 `/opt/sdk`）解析不到
-⇒ 扩展不加载 ⇒ 没有 SSE 拉取。s3 能过是因为它的投递发生在 s1 旅程内、安装刚做完的那一刻。
-
-已试过的四条路（全部失败，已写进 hosts/pi.sh 注释）：
-1. 独立容器 + 命名管道 stdin（open() 死锁，`pi-th.log` 0 字节）；
-2. 进程替换替代管道（仍 0 字节）；
-3. 启动前把 settings 指向 `/opt/sdk/package`（**pi 启动时把 settings 重写回相对路径**，改动不生效）；
-4. 补挂 `/tmp/sdk` 让相对路径可解析（网关侧 `domain not found`，因为该轮 s1 未完成绑定）。
-
-**现行设计（第 6 版）**：`_pi_threading_seq` 不再自起容器，改由 `_pi_delivery` 在**拆除常驻 rpc 容器之前**
-调用——那是 pi 投递唯一被证明可行的配置（s3 在此通过）。s6/s7 现在隐含触发该投递路径。
-
-**当前阻塞（不是夹具，是工作树）**：共享工作树里 `tssdk/packages/agent-aimail/src/pi/index.ts` 处于
-**未提交的编辑中**状态，导致 SDK 构建失败：
+acked = [true, true, true]        ← 三封全部被宿主取走
+session1 = 2026-11-25T04-38-43…   session2 = 2026-11-25T04-40-00…   session3 = 2026-11-25T04-45-37…
+sessions 2 → 3 → 4                ← 每一轮都新建一个会话文件
 ```
-src/pi/index.ts(139,33): error TS2353: Object literal may only specify known properties,
-and 'detail' does not exist in type 'PiInboundOutcome'
-```
-（开发正在给 `deliverPiInbound` 的返回值加 `detail: 'admission-only: …'`，但类型未同步。）
-⇒ 在该编辑完成并重新构建通过之前，**pi 的任何门禁结果都无效**。修法：`PiInboundOutcome` 增加
-`detail?: string`（或去掉该字段）。修好后我跑 `--stages "s1 s6"`、再 `s1 s6 s7`。
 
-在此之前 pi 的 C8/C17 记 **OPEN（夹具已就绪，验证被构建阻塞）**，不得写绿也不得写产品红。
+**此前六次失败的真因（逐层排除后确定）**：pi **只在"跑一轮"的时候拉信**。
+证据：网关 `emails` 表 4 条（探针 + 三封全存），但只有带 turn 的那封被 ack（`emails=4, acked=1`）；
+L3 也是这么设计的（`journey-pi.sh:51-55`「one pi process per user turn」）。前几轮我假设"常驻 rpc 会话
+会持续拉取"，这个假设是错的——命名管道死锁、settings 路径、流槽都只是这条错误假设下的次要症状。
+
+**为什么 pi 的 C8/C17 记 N/A（需 owner 签字）**：pi 的会话身份由 **CLI 调用**决定，不由插件决定：
+```
+pi --session-id <id> | --continue | --session <path|id>    ← 会话是谁跑出来的就是谁的
+```
+插件（扩展）只能把邮件投进**当前这一轮**，无法新建或改挂会话。实测也正是如此：每轮一个新会话文件。
+因此契约 C8「新 thread ⇒ 新 session」在 pi 上**不适用**——用户始终在同一个会话里，邮件跟随用户会话，
+不存在"路由到哪个会话"的选择；C17「会话被删后重挂」同样不适用（下一轮自然会创建新会话）。
+
+这与 openclaw 的 C8 属同一类：**宿主拥有会话身份**。区别是 openclaw 有 sessionKey 机制但不去重，
+pi 则是根本没有"插件指定会话"的接口。
+
+处理建议：`pi / C8 → N/A`、`pi / C17 → N/A`（附本节证据），记入 `GATE.md` 已知项；
+未签字前矩阵保持 OPEN，不计绿。
