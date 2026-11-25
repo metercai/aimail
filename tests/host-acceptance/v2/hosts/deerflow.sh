@@ -19,6 +19,7 @@ set -uo pipefail
 HOST_NAME=deerflow
 HOST_ADDRESS_MODEL=multi           # contract §11.2: anchors + isolation + wake ⇒ M
 HOST_DELIVERY_CONFIRMATION=probe      # 附 E: 投递后回读 run/thread（runtime.py），落地不可证即不 ack
+HOST_SESSION_MODEL=deterministic-thread      # session id is derived from the thread root; a new id cannot occur
 HOST_FRAME_EVIDENCE=0
 DF_IMAGE="${DF_IMAGE:-aimail-host-deerflow:latest}"
 V2_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

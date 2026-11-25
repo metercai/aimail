@@ -124,6 +124,14 @@ PY
     # straight to the sink, which spooled the original and answered 250 while the
     # gateway never saw the mail ⇒ S3 read emails=0/pending=0 and looked like the
     # gateway was relaying inbound. Container side above already used +1.
+    # Attribution probe (env-gated, default off): the v2.4 gateway enforces the binding's anchor on
+    # every authenticated write. If a host pulls nothing while an anchor is recorded, dropping the
+    # anchor for this one run and re-injecting isolates "anchor enforcement" from every other cause.
+    if [ "${AIMAIL_L2_DROP_ANCHOR:-0}" = "1" ]; then
+      gw_sql "DELETE FROM address_anchor;" >/dev/null 2>&1 || true
+      echo "A/B: dropped address_anchor rows, now=$(gw_sql 'SELECT COUNT(*) FROM address_anchor;')" >>"$out/inject.log"
+    fi
+
     python3 - "$addr" "$token" "$((GW_SMTP + 1))" <<'PY' >>"$out/inject.log" 2>&1
 import smtplib, sys
 from email.message import EmailMessage
