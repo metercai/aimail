@@ -110,6 +110,7 @@ def main() -> int:
     gone = victim not in s2
     log("deleted %s ok=%s gone_from_store=%s" % (victim, deleted_ok, gone))
 
+    before_reply = mtimes()
     send(a.addr, a.smtp_port, root_reply, root_a, root_a)
     acked2 = wait_ack(a)
     settle(a)
@@ -118,6 +119,36 @@ def main() -> int:
     used = new3[0] if new3 else ""
     log("after reply: acked=%s new=%s" % (acked2, new3))
 
+    # An ack is not proof of delivery: the gateway stops retrying once acked, so "acked but landed
+    # nowhere" would silently lose an owner's approval. Session transcripts are compressed (zstd), so
+    # searching for the Message-ID does not work; instead diff the session store by mtime — the session
+    # that was written after the reply is the one that received it.
+    def mtimes() -> dict:
+        out = {}
+        root = os.path.expanduser(a.session_root)
+        for dirpath, _dirs, files in os.walk(root):
+            for f in files:
+                fp = os.path.join(dirpath, f)
+                try:
+                    out[fp] = os.path.getmtime(fp)
+                except OSError:
+                    pass
+        return out
+
+    landed = ""
+    touched = [fp for fp, mt in mtimes().items() if mt > before_reply.get(fp, 0) + 0.5]
+    for fp in sorted(touched):
+        parts = fp.split(os.sep)
+        for part in reversed(parts[:-1]):
+            if part and part not in ("sessions",) and len(part) > 8:
+                landed = part
+                break
+        if landed:
+            break
+    if landed:
+        used = landed
+    log("reply touched %d file(s); session inferred: %s" % (len(touched), landed or "NONE"))
+
     result = {
         "acked": bool(acked2),
         "deleted": victim,
@@ -125,6 +156,8 @@ def main() -> int:
         "reason": "",          # no producer in the SDK; the case must judge this, not the driver
         "root_ok": bool(acked2 and used and used != victim),
         "redirected": bool(acked2 and used and used != victim),
+        "landed_in_existing": bool(landed and landed in s2),
+        "delivered_anywhere": bool(landed),
         "session_gone_observed": bool(gone),
     }
     json.dump(result, open(os.path.join(a.out, "s7_gone.json"), "w"), indent=2)
