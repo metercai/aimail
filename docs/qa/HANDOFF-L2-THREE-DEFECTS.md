@@ -82,3 +82,25 @@ RED   thread root changed on re-attach; E2 lineage lost
 2. **dsh 锚点 A/B 探针**（`AIMAIL_L2_DROP_ANCHOR=1`，默认关闭）：用于证明/排除锚点强制；
 3. s6/s7 的 `CASE` 标签、空值解析（管道分隔）、`sessions_json.py`/`threads_db.py` 等挂载助手。
 
+
+
+---
+
+# 复验结果（2026-11-25 夜，坐标 a07a592a + gateway v1.0.17）
+
+三条修复**全部验证通过**：
+
+| # | 项 | 复验证据 |
+|---|---|---|
+| 1 | dsh 锚点投递 | `s1 s2 s3 s6 s7 s8` → **PASS=31 RED=0 GAP=0**（s3 三封全 ack；s8 锚点隔离含 anchor-moved 记录） |
+| 2 | deerflow 落地 | `s1 s2 s3 s7` → **19/0/0**（ack + 着陆 + `session-gone` 齐备） |
+| 3 | pi 锚点 | `s1 s2 s3 s7 s8` → 15/0/0，**s8 可判**（`address_anchor` 已写入） |
+
+## 复验期间发现的三处**夹具**缺陷（已修，与产品无关）
+1. **幽灵会话**：两个 37–38 小时的遗留容器仍在拉取，各自落信 → s6 读成"新建会话"。run-matrix 现在每次 journey 前按镜像清容器。
+2. **s7 的 reason 被写死空值**：驱动解析出 `session-gone` 却把 `""` 写入结果 → 三个宿主都被误判为"无降级记录"。已改为真实值；dsh 现在把插件日志打成证据包。
+3. **模型 key 覆盖**：dsh 镜像主模型走 Xiaomi（`LLM_API_KEY`），会话标题走 DeepSeek；适配器把 `DEEPSEEK_API_KEY` 覆盖成主 key → 每轮 401、绑定失败。已分别注入。
+
+## 对上一版本文档的更正
+- "锚点强制破坏 dsh 的 C8 会话复用" —— **撤回**，实为遗留容器。
+- "C17 的 reason 没有生产者" —— **撤回**，实为驱动丢值。
