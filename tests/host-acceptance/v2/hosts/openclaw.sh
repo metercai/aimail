@@ -130,7 +130,10 @@ PY
       fi
     ' >"$out/rc" 2>&1 &
   local pid=$!
-  for i in $(seq 1 300); do [ -f "$out/ready" ] && break; sleep 2; done
+  # 900s, not 600s: measured cold start for this image was ~15 min (gateway "http server listening" at
+  # 10:29 for a 10:14 run). The old 10-minute window expired first, so `ready` was absent when the
+  # whitelist block was evaluated and every later mail was rejected 550 "Sender not whitelisted".
+  for i in $(seq 1 450); do [ -f "$out/ready" ] && break; sleep 2; done
   if [ -f "$out/ready" ] && [ "${LIFECYCLE:-0}" != "1" ]; then
     python3 "$V2_ROOT/lib/gw.py" wl --gateway "$GW_URL" --key "$GW_ADMIN" --identity "$GW_SID" \
       --system "$GW_SID" --addr "$addr" --sender ext-sender@example.com >"$out/whitelist.json" 2>&1 || true
@@ -162,7 +165,7 @@ PY
   # "550 Sender not whitelisted" — which then looked like a C8 gap in the product.
   case " ${STAGES:-} " in
   *" s6 "*)
-    if [ -f "$out/ready" ] && [ "${LIFECYCLE:-0}" != "1" ]; then
+    if [ -f "$out/whitelist.json" ] && [ "${LIFECYCLE:-0}" != "1" ]; then
     : > "$out/s6_go"
     for _i in $(seq 1 900); do [ -f "$out/s6.json" ] && break; sleep 1; done
     [ -f "$out/s6.json" ] || echo "s6 driver produced no evidence (see s6_drive.log)" > "$out/s6_missing"

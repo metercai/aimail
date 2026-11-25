@@ -64,6 +64,9 @@ fi
 
 [ "$_ok" = "1" ] && pass "S6 threading — all three mails were accepted by the host (acked)" \
                  || red "S6 threading — the host did not accept every mail (acked=$_ok); session identity cannot be judged"
+# Nothing delivered ⇒ there is no identity to judge. Without this, pi printed three PASS lines about
+# session reuse off two snapshots that these mails never wrote (acked was 0 for all three).
+if [ "$_ok" != "1" ]; then return 0 2>/dev/null || exit 0; fi
 
 # 1) same thread ⇒ same session, no new session created
 if [ "$_root1" = "$_root2" ]; then
