@@ -4,6 +4,9 @@ This is the **gate** contract: what to run, what the results mean, and what is
 deliberately out of scope. Doctrine lives in `tests/agent-env/pins.env` and
 `tests/host-acceptance/v2/README.md`.
 
+> 续做与发版前置条件见 `docs/qa/HANDOFF-L2-FIXTURE-CONTINUATION.md`（本轮契约 v2.3 之后的夹具清单：
+> `s7`/C17 需宿主钩子、C16 需决策、`s4`/C18 的证据分级）。
+
 ## Commands
 
 ```bash
@@ -41,8 +44,10 @@ a run with skips is not a green run, it is a green run *for its scope*.
 | `s1` | public `/apply` code → in-host `aimail_address(bind)` → binding 0600 with GatewaySystemId / AgentSystemId / workspace, no webhook, composed profile carries `tool-mail` |
 | `s2` | after restart the aggregate pull arms (`polling enabled` / `pull scope` / `SSE reconcile: N … from M binding(s)`) and it arms *after* the last "no agent-scope binding" boot |
 | `s3` | whitelisted inbound → `emails` row → `pending_deliveries` row → drained (ack) — the inbound ladder; nothing asserted about model wording |
-| `s4` | two addresses coexist on dsh/openclaw (one aggregate stream covers both); pi rejects the second (C1) |
+| `s4` | two addresses coexist on multi-address hosts (one aggregate stream covers both); a single-address host rejects the second with the **failed layer** (`C1` + `C18`: `failed: "wake"`). A paraphrase-only log is accepted but reported as the weaker evidence, never as C18 |
 | `s5` | `pause` marks the binding paused; `unbind` removes it |
+| `s6` | contract C8/§9 host side: new thread ⇒ new session, reply ⇒ same session (E3/E1+E2), all sessions in the binding's anchor |
+| `s7` | contract C17/§9.3: after the target session is deleted, a reply is redirected to a new session, acked, and recorded as `session-gone` (needs host hook `host_s7_session_gone`; GAP until wired) |
 | `neg` | an invalid activation code writes no binding and does not arm |
 
 ## Scope
@@ -65,6 +70,8 @@ a run with skips is not a green run, it is a green run *for its scope*.
 | id | effect on the gate |
 |---|---|
 | `ING-1` gateway relays inbound SMTP to the outbound relay instead of storing it | `s3` cannot pass; `emails=0` is the signature. Reported for the product fix. |
+| `S7-HOOK-1` no host implements `host_s7_session_gone` yet | the `s7` stage reports `GAP: C17 unproven`. The case already consumes `/out/s7_gone.json` (`{acked, deleted, used, reason, root_ok}`), so wiring one host turns it green without touching the assertions. `s7` is opt-in (default stages stay `s1 s2 s3`), so an unimplemented hook does not poison the C8 stage. |
+| `S7-HOOK-2` no host implements a cross-anchor fixture (`host_s6_anchor_isolation`) | C16 (a delivery must never cross anchors: E1 target in another anchor ⇒ re-route in the current one) is **unproven at L2**. Needs a host that can bind the address to anchor A while a session exists in anchor B — a fixture capability, not a product verdict. |
 | ~~pi live delivery~~ **wired 2026-11-23** | `hosts/pi.sh` `_pi_delivery` now runs one long-lived `pi --mode rpc` session in the journey HOME (docker `-i` is required, otherwise the container gets /dev/null on stdin and pi exits at once), injects into `$((GW_SMTP+1))` and waits for the pull queue to drain. Evidence: pi `s1 s2 s3` = PASS=12 RED=0 GAP=0, `inject.log` = `sent / observed max=1 final=0 / emails=1 / acked_after_poll=1`. Attribution rule: `arming_seen=1` + not acked ⇒ RED (product); `arming_seen=0` + not acked ⇒ GAP (fixture never attached the pull client). |
 
 ## Journey scoping (measured 2026-11-23, gateway v1.0.12)
@@ -90,8 +97,9 @@ the scoping above.
 
 ### s6 — contract C8 host-side evidence (added 2026-11-24)
 
-C8 (`docs/aimail-host-sse-contract-v2.md` §16 C8 / §9: same thread ⇒ same session, new thread ⇒ new session,
-space = the bound host space) had **no host-side evidence in either SDK** — no L2/L3 stage ever sent
+C8 (`docs/aimail-host-sse-contract-v2.md` §16 C8 / §9, v2.3: **E1 direct reply > E2 thread > E3 alloc**;
+E1 hard inside the anchor, E2 may re-attach, E3 prefers a new session and may fall back to the anchor's
+current one) had **no host-side evidence in either SDK** — no L2/L3 stage ever sent
 `In-Reply-To`/`References`, and both SDKs only pinned the decision logic in unit tests.
 
 `s6` closes that. It runs inside the same journey container (so the binding survives), injects three
@@ -213,3 +221,22 @@ Measurement traps paid for here (do not repeat):
 `contract/c8-thread-vectors.json` instead of keeping a private copy of the C8 cases.
 Also outstanding: the tssdk unit suite should consume `contract/c8-thread-vectors.json` instead of
 keeping its own copy of the C8 cases.
+
+### s7 — C17 first real measurement (dsh, 2026-11-25): RED, product defect
+
+Hook implemented (`lib/s7_drive.py`): send mail A in a new thread → delete the session it landed in
+(host store) → reply to A → record ack / where it actually landed / root survival. Three runs, same
+outcome:
+
+```
+mail A → session 7cf927e4… ; deleted ; reply → acked=True ; new sessions: none ; files written: 0
+```
+
+So the reply is ACKED and then dropped — and an ack stops the gateway retrying, which means an owner's
+approval reply can vanish silently. Filed as `docs/qa/DEFECT-C17-SESSION-GONE.md` (S1). Root cause is
+in the SDK: `runtime/routing.ts` returns `direct` from the meta index without checking that the session
+still exists, there is no `session-gone` producer anywhere in `src/`, and the pull path acks on the
+plugin's "delivered", which is itself just the host's HTTP 200.
+
+`reason` is deliberately left empty by the driver: inventing it would hide exactly the gap the case exists
+to expose.

@@ -94,7 +94,7 @@ R3，只可作为"待收紧"记录。
 | R1 | ✅ | `[L0] PASS`（本轮改动后重跑） |
 | R2 | ⏳ 待跑 | 需要 5 个宿主的完整回归（等 owner 批准启动） |
 | R3 | ⏳ | `s4` 已接受结构化证据；需在单地址宿主（pi/hermes）实跑确认 |
-| R4 | ⏳ 部分 | dsh 钩子已实现并首跑；`reason=session-gone` 无产品生产者（见 R4 说明） |
+| R4 | ❌ **不满足（产品缺陷 S1）** | dsh 实测：删掉 thread 会话后回信 `acked=true` 但**零会话被写入**（`delivered_anywhere=false`）⇒ 静默丢信。根因：`runtime/routing.ts` 的 `direct` 分支不校验会话是否存在、无 `session-gone` 产者，且 ack 只与 HTTP 200 绑定。见 `docs/qa/DEFECT-C17-SESSION-GONE.md` |
 | R5 | ✅ | 契约测试绿 |
 | R6 | ✅ | 契约面测试守 |
 | R7 | ✅ | `aimail.pi-desktop-0.2.1` 全部满足（hash 本地==CI） |
