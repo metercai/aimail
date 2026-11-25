@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -38,6 +39,10 @@ def log(msg: str) -> None:
 
 
 def snap(a) -> list:
+    if a.session_glob:
+        import glob as _g
+        pat = os.path.join(os.path.expanduser(a.session_root), a.session_glob)
+        return sorted(os.path.basename(p) for p in _g.glob(pat))
     if a.session_cmd:
         return sorted(set(session_ids_from_cmd(a.session_cmd)))
     if a.discover:
@@ -54,9 +59,33 @@ def settle(a) -> None:
     time.sleep(a.settle)
 
 
+def mtimes(root: str) -> dict:
+    """{file: mtime} over the host's session store — used to see WHICH session a reply touched."""
+    out = {}
+    for dirpath, _dirs, files in os.walk(os.path.expanduser(root)):
+        for f in files:
+            fp = os.path.join(dirpath, f)
+            try:
+                out[fp] = os.path.getmtime(fp)
+            except OSError:
+                pass
+    return out
+
+
 def remove_session(a, name: str) -> bool:
-    """Delete one session from the HOST's own store (file-based hosts only)."""
+    """Delete one session from the HOST's own store.
+
+    `--delete-cmd` wins when given: each host stores sessions differently (a dir per session, one JSON
+    keyed by chat id, a sqlite row), and guessing a filesystem layout is how fixtures end up measuring
+    the wrong thing.
+    """
     import shutil
+    import subprocess as _sp
+    if a.delete_cmd:
+        cmd = a.delete_cmd.replace("{id}", name)
+        r = _sp.run(cmd, shell=True, capture_output=True, text=True)
+        log("delete-cmd rc=%s %s" % (r.returncode, (r.stdout + r.stderr).strip()[:160]))
+        return r.returncode == 0
     if a.session_cmd:
         log("cannot delete a session through --session-cmd; s7 needs a file-based store")
         return False
@@ -64,8 +93,16 @@ def remove_session(a, name: str) -> bool:
     for dirpath, dirnames, _files in os.walk(root):
         base = os.path.basename(dirpath)
         if base == name or name in base:
-            log("deleting session dir %s" % dirpath)
-            shutil.rmtree(dirpath, ignore_errors=True)
+            if os.path.isdir(dirpath):
+                log("deleting session dir %s" % dirpath)
+                shutil.rmtree(dirpath, ignore_errors=True)
+            else:
+                log("deleting session file %s" % dirpath)
+                try:
+                    os.remove(dirpath)
+                except OSError as e:
+                    log("delete failed: %s" % e)
+                    return False
             return True
     log("session %s not found under %s" % (name, root))
     return False
@@ -81,6 +118,14 @@ def main() -> int:
     ap.add_argument("--depth", type=int, default=2)
     ap.add_argument("--session-cmd", default="")
     ap.add_argument("--discover", action="store_true")
+    ap.add_argument("--session-glob", default="",
+                    help="glob (relative to --session-root) whose MATCHING FILES are the sessions; pi keeps "
+                         "one .jsonl per session, so its ids are file basenames")
+    ap.add_argument("--aimail-home", default=os.environ.get("AIMAIL_HOME", "/root/.aimail"),
+                    help="where the SDK writes systems/<sid>/<addr>/agentmail.log (for the session-gone reason)")
+    ap.add_argument("--delete-cmd", default="",
+                    help="shell command that deletes one session; {id} is substituted (default: remove the "
+                         "matching file/dir under --session-root, which only works for file-based stores)")
     ap.add_argument("--settle", type=float, default=15.0)
     ap.add_argument("--ack-timeout", type=float, default=120.0)
     a = ap.parse_args()
@@ -98,7 +143,7 @@ def main() -> int:
     new1 = [x for x in s1 if x not in s0]
     log("after mail A: acked=%s new=%s" % (acked1, new1))
     if not new1:
-        json.dump({"acked": False, "deleted": "", "used": "", "reason": "",
+        json.dump({"acked": False, "deleted": "", "used": "", "reason": reason,
                    "root_ok": False, "error": "mail A produced no new session"},
                   open(os.path.join(a.out, "s7_gone.json"), "w"), indent=2)
         return 0
@@ -110,7 +155,7 @@ def main() -> int:
     gone = victim not in s2
     log("deleted %s ok=%s gone_from_store=%s" % (victim, deleted_ok, gone))
 
-    before_reply = mtimes()
+    before_reply = mtimes(a.session_root)
     send(a.addr, a.smtp_port, root_reply, root_a, root_a)
     acked2 = wait_ack(a)
     settle(a)
@@ -123,20 +168,8 @@ def main() -> int:
     # nowhere" would silently lose an owner's approval. Session transcripts are compressed (zstd), so
     # searching for the Message-ID does not work; instead diff the session store by mtime — the session
     # that was written after the reply is the one that received it.
-    def mtimes() -> dict:
-        out = {}
-        root = os.path.expanduser(a.session_root)
-        for dirpath, _dirs, files in os.walk(root):
-            for f in files:
-                fp = os.path.join(dirpath, f)
-                try:
-                    out[fp] = os.path.getmtime(fp)
-                except OSError:
-                    pass
-        return out
-
     landed = ""
-    touched = [fp for fp, mt in mtimes().items() if mt > before_reply.get(fp, 0) + 0.5]
+    touched = [fp for fp, mt in mtimes(a.session_root).items() if mt > before_reply.get(fp, 0) + 0.5]
     for fp in sorted(touched):
         parts = fp.split(os.sep)
         for part in reversed(parts[:-1]):
@@ -148,6 +181,22 @@ def main() -> int:
     if landed:
         used = landed
     log("reply touched %d file(s); session inferred: %s" % (len(touched), landed or "NONE"))
+
+    # The producer now exists (dsh: resume failure ⇒ status=session_gone_redirected, detail carries
+    # "session-gone: <old-id> not resumable"; appendLog writes it to systems/<sid>/<addr>/agentmail.log).
+    # Reading it here keeps the fixture measuring the product instead of asserting a constant.
+    reason = ""
+    try:
+        import glob as _g
+        for lf in _g.glob(os.path.expanduser(os.path.join(a.aimail_home, "systems", "*", "*", "agentmail.log"))):
+            blob = open(lf, encoding="utf-8", errors="replace").read()
+            hit = re.search(r"session-gone[^\"]{0,80}", blob)
+            if hit:
+                reason = "session-gone" if "session-gone" in hit.group(0) else ""
+                break
+    except Exception as e:
+        log("reason lookup failed: %s" % e)
+    log("reason=%r (from agentmail.log)" % reason)
 
     result = {
         "acked": bool(acked2),
