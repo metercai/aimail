@@ -87,6 +87,9 @@ export interface AimailAddressToolArgs {
    *  agent-visible schema; the adapter-injected resolver owns the pointer. */
   profile_home?: string
   gatewayUrl?: string
+  /** CamelCase alias of `workspace_path` — the anchor the activation registers (§7.1). Host
+   *  adapters inject this one (pi: the agent dir, openclaw: the agent workspace). */
+  workspacePath?: string
   profileHome?: string
 }
 
@@ -109,7 +112,12 @@ export async function aimailAddressTool(
     action: args.action,
     email: args.email,
     ...(args.code !== undefined ? { code: args.code } : {}),
-    ...(args.workspace_path !== undefined ? { workspacePath: args.workspace_path } : {}),
+    // Both spellings: the wire/LLM name is `workspace_path`, host adapters inject the camelCase
+    // programmatic alias. Dropping the alias silently un-anchored pi and openclaw (L2 defect 3) —
+    // the activation then carried no `anchor_id`, so the gateway had nothing to enforce.
+    ...(args.workspace_path ?? args.workspacePath
+      ? { workspacePath: (args.workspace_path ?? args.workspacePath) as string }
+      : {}),
     ...(args.gateway_url ?? args.gatewayUrl ? { gatewayUrl: args.gateway_url ?? args.gatewayUrl } : {}),
     ...(args.profile_home ?? args.profileHome ? { profileHome: args.profile_home ?? args.profileHome } : {}),
   })

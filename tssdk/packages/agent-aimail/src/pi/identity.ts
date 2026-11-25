@@ -16,6 +16,7 @@
  * package.json (@earendil-works/pi-coding-agent); detect, never guess.
  */
 import * as fs from 'node:fs'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import {
   hasAnySystem,
@@ -42,6 +43,31 @@ const POINTER_PATH = path.join(
  */
 export const DEFAULT_AGENT_ID = 'agent'
 
+
+/**
+ * pi's ANCHOR (contract §7.1) — the whole agent: `~/.pi/agent` holds SOUL, skills, sessions and
+ * config, so it identifies "this agent" and nothing narrower.
+ *
+ * Rules this satisfies (owner ruling 2026-11-25 — pi is single-address with no workspace, but the
+ * agent itself is the anchor):
+ *   * STABLE: no cwd, no session id, no session file, no timestamp — a new session in another
+ *     directory must not change it, otherwise the gateway would refuse every pull after a restart;
+ *   * CANONICAL: `~` is realpath'd first, so `~/.pi/agent` and `/home/u/.pi/agent` hash the same;
+ *   * EXISTENCE-INDEPENDENT: computed from the home dir, so activation (possibly before the agent
+ *     dir is created) and every later pull agree by construction.
+ *
+ * It is also what lands in the binding's `workspace_path`, which is what `anchorHeader()` hashes —
+ * one value, one source.
+ */
+export function piAnchor(): string {
+  let home = ''
+  try {
+    home = fs.realpathSync(os.homedir())
+  } catch {
+    home = os.homedir() // no home dir to canonicalise: fall back to the raw value
+  }
+  return path.join(home, '.pi', 'agent')
+}
 export interface SystemPointer {
   system_id?: string
   email?: string

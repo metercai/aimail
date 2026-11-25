@@ -6,7 +6,12 @@
  * each delivery to the caller for recipient routing. `startPolling` acks only
  * after the callback resolves, so a routing/delivery failure stays pending.
  */
-import { GatewayClient } from './gateway.js'
+import { GatewayClient, type GatewayFetchImpl } from './gateway.js'
+import type { AgentConfig } from './types.js'
+import {
+  buildAgentSystemClient,
+  resolveAgentSystemMembers,
+} from './agent-system-client.js'
 import {
   startPolling,
   AUTH_FATAL_STREAK,
@@ -27,12 +32,20 @@ export interface SystemPullOptions {
   systemId: string
   /** Aggregate by local AgentSystemId instead of one system/address. */
   agentSystemId?: string
+  /** The gateway this group lives on (the anchor claims are scoped to it). */
   gatewayUrl: string
+  /**
+   * This group's bindings. Their anchors are claimed on every aggregate request (§7.1); omitted ⇒
+   * resolved from the binding store for this `(agentSystemId, gatewayUrl)`.
+   */
+  members?: readonly Pick<AgentConfig, 'email' | 'workspace_path'>[]
   apiKey: string
   onEmail: (mail: SystemPullMail) => void | Promise<void | PullDeliveryResult>
   log?: (line: string) => void
   client?: RequestClient
   signal?: AbortSignal
+  /** Transport seam (plugin hosts without a global `fetch`): forwarded to the constructed client. */
+  fetchImpl?: GatewayFetchImpl
   /**
    * Pull cadence (M3: the tier-2 / grouping callers wire their resolved
    * settings here so the stream respects AIMAIL_PULL interval/limit/mode —
@@ -60,12 +73,17 @@ export interface SystemPullHandle {
 export async function startSystemPull(opts: SystemPullOptions): Promise<SystemPullHandle> {
   const client = opts.client
     ?? (opts.agentSystemId
-      ? new GatewayClient(opts.gatewayUrl, opts.apiKey, PULL_HTTP_TIMEOUT_MS, opts.systemId, {
-          streamPath: '/api/v1/agent-system/pending/stream',
-          pendingPath: '/api/v1/agent-system/pending',
-          ackPath: '/api/v1/agent-system/pending/ack',
-          extraHeaders: { 'X-Agent-System-Id': opts.agentSystemId },
-        })
+      ? buildAgentSystemClient(
+          opts.gatewayUrl,
+          opts.apiKey,
+          opts.agentSystemId,
+          opts.systemId,
+          // Resolved HERE when the caller omits them on purpose: an aggregate request without
+          // anchor claims is refused (403 `anchor_mismatch`) the moment the address has a recorded
+          // anchor, and the refusal used to look like a dead key (silent zero delivery).
+          opts.members ?? (await resolveAgentSystemMembers(opts.agentSystemId, opts.gatewayUrl)),
+          opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {},
+        )
       : new GatewayClient(opts.gatewayUrl, opts.apiKey, PULL_HTTP_TIMEOUT_MS, opts.systemId))
   const controller = new AbortController()
   const signal = opts.signal

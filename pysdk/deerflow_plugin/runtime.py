@@ -106,6 +106,36 @@ def _landing_problem(record: Any) -> str:
     return ""
 
 
+def _detail(body: Any) -> str:
+    """The host's own words for a refusal (lowercased), for telling "not found" cases apart.
+
+    A 404 is ambiguous: deerflow answers ``{"detail": "Thread not found"}`` for a deleted thread and
+    ``{"detail": "Not Found"}`` for a route the deployment does not have. Only the first is a
+    session-gone signal; treating the second as one would invent redirects that never happened.
+    """
+    if isinstance(body, dict):
+        for key in ("detail", "error", "message"):
+            val = body.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip().lower()
+    return ""
+
+
+def _thread_presence(api_base: str, thread_id: str) -> str:
+    """Has the host got this thread at all: ``present`` | ``gone`` | ``unknown``.
+
+    C17 (§9.3) wants the session-gone redirect to be *observable*, not inferred: every delivery used
+    to POST the thread unconditionally (the host's create is idempotent), so the plugin never knew a
+    thread had been deleted and could not say so. This probe is what turns "re-attached" into a fact
+    with a reason attached. An auth refusal, or a host without the route, is ``unknown`` — never
+    ``gone``.
+    """
+    status, body = _get("%s/api/threads/%s" % (api_base, thread_id))
+    if status == 200:
+        return "present"
+    if status == 404 and "thread" in _detail(body):
+        return "gone"
+    return "unknown"
 def _post_when_ready(url: str, payload: dict, *, headers: Optional[dict] = None,
                      deadline_s: float = 60.0) -> tuple:
     """POST to the host's own API, waiting out its startup window.
@@ -189,6 +219,15 @@ class DeerFlowRuntime:
             self._log("[aimail-deerflow] %s: consumed by the inbound pipeline (no run)" % address)
             return _binding.accepted_result("consumed-by-pipeline")
 
+        # C17 §9.3: ask BEFORE re-creating whether the thread is still there. The create below is
+        # idempotent, so without this probe the plugin cannot tell "re-attached after the session was
+        # deleted" from "the usual delivery" — and ops end up with a silent redirect.
+        presence = _thread_presence(self.api_base, thread_id) if _landing_verification_enabled() else "unknown"
+        if presence == "gone":
+            self._log("[aimail-deerflow] session-gone: thread %s is gone (root %s) — re-attaching in "
+                      "place for %s (contract §9.3, reason=session-gone)"
+                      % (thread_id, root or "(none)", address))
+
         # The thread must exist before a run names it; the host's create is idempotent.
         status, body = _post_when_ready("%s/api/threads" % self.api_base,
                                         {"thread_id": thread_id,
@@ -212,15 +251,24 @@ class DeerFlowRuntime:
             if _landing_verification_enabled():
                 check_status, record = _get(
                     "%s/api/threads/%s/runs/%s" % (self.api_base, thread_id, run_id))
-                if check_status in (401, 403, 404):
-                    # The read-back is unavailable, not the delivery: this one run may be older
-                    # than the route, or the deployment may disable auth (DEER_FLOW_AUTH_DISABLED=1,
-                    # which is what makes our own POST pass) while a read stays scoped to another
-                    # owner. The host already answered 200/201 with a durable run id, so accepting
-                    # on admission is the honest reading — but say so, so the gap stays visible.
-                    self._log("[aimail-deerflow] landing-unverified for run %s (read-back status=%s) "
-                              "— accepting on admission; set AIMAIL_DEERFLOW_VERIFY_LANDING=0 to silence"
+                if check_status in (401, 403):
+                    # Auth/scope, not delivery: the deployment may disable auth
+                    # (DEER_FLOW_AUTH_DISABLED=1, which is what makes our own POST pass) while a
+                    # read stays scoped to another owner. Accept on admission, and say so.
+                    self._log("[aimail-deerflow] landing-unverified for run %s (read-back status=%s)"
+                              " — accepting on admission; set AIMAIL_DEERFLOW_VERIFY_LANDING=0 to silence"
                               % (run_id, check_status))
+                elif check_status == 404 and "run" in _detail(record):
+                    # The thread create AND the run POST both answered 2xx from this same app, so
+                    # the route exists: a 404 naming the RUN means the run we were handed is not
+                    # there. That is the "acked and dropped" case — refuse to ack, let it be re-pulled.
+                    raise RuntimeError("run %s is not readable after a 2xx admission (read-back 404)"
+                                       " — not acking" % run_id)
+                elif check_status == 404:
+                    # Route absent (older host): nothing to verify against, not a delivery verdict.
+                    self._log("[aimail-deerflow] landing-unverified for run %s (no read-back route)"
+                              " — accepting on admission; set AIMAIL_DEERFLOW_VERIFY_LANDING=0 to silence"
+                              % run_id)
                 elif check_status != 200:
                     raise RuntimeError("landing unverified for run %s (read-back status=%s)"
                                        % (run_id, check_status))

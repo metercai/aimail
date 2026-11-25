@@ -258,6 +258,15 @@ export async function activateAddressCodePersist(
     }
   }
   const anchoredWorkspace = String(opts.workspacePath ?? '').trim()
+  if (!anchoredWorkspace) {
+    // Never silent: an activation without an anchor leaves the gateway with nothing to enforce, so
+    // this address could later be re-pointed by editing the binding file. Hosts know their anchor
+    // (dsh/openclaw: the workspace, pi: ~/.pi/agent) — only the raw tool path cannot.
+    console.error(
+      `[aimail] activation for ${emailAddress} carries NO anchor — the gateway cannot enforce ` +
+      'contract §7.1 for this address; pass workspacePath from the host adapter',
+    )
+  }
   const act = await activateAddressCode(client, code, emailAddress, {
     agentSystemId: await getAgentSystemId(),
     ...(anchoredWorkspace ? { anchorId: anchorId(emailAddress, anchoredWorkspace) } : {}),
@@ -288,6 +297,13 @@ export async function activateAddressCodePersist(
     system_id: sid,
     agent_system_id: await getAgentSystemId(),
     api_key: act.raw_key,
+    // The anchor that was hashed into `anchor_id` is persisted HERE: the pull side re-hashes
+    // `workspace_path`, so a binding without it would present an empty claim and be refused (403)
+    // by the very registration it just made. One value, one writer.
+    ...(anchoredWorkspace ? { workspace_path: anchoredWorkspace } : {}),
+    // `workspace_path`, so a binding without it would present an empty claim and be refused (403)
+    // by the very registration it just made. One value, one writer.
+    ...(anchoredWorkspace ? { workspace_path: anchoredWorkspace } : {}),
     agent_id: agentId,
     // Provenance: this is the ONLY place a binding is minted. A hand-written file has no way to
     // produce a matching key (the gateway issues it), and core/binding-provenance.ts reports any

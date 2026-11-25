@@ -15,6 +15,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 
 import {
+  buildAgentSystemClient,
   GatewayClient,
   isAckedInboundResult,
   listAgentConfigs,
@@ -30,6 +31,7 @@ import { getAgentSystemId, setAgentHomeResolver } from '../core/agent-system-id.
 import { isV2AgentScopeBinding } from '../core/poll-entry.js'
 import { deliverInbound, installDshInboundProviders, toInboundResult } from './inbound.js'
 import { readSystemGatewayConfig } from '../core/provision.js'
+import { ANCHOR_HEADER, anchorHeader } from '../core/anchor-id.js'
 import { agentHome, statusPath } from './workspace.js'
 export interface Config {
   /** AIMAIL_PULL_MODE equivalent: auto|stream|poll. */
@@ -72,9 +74,20 @@ function str(v: unknown): string {
 function headersOf(v: unknown): Record<string, unknown> {
   return typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : {}
 }
-
-
-
+/**
+ * One visible line for a gateway auth refusal. The gateway deliberately logs nothing for 401/403
+ * (it is the client's key/anchor problem), so without this a refused pull looks like an idle
+ * mailbox — the exact blind spot that hid L2 defect 1.
+ */
+function authFailureLine(email: string, status: number): string {
+  if (status === 403) {
+    return (
+      `[agent-aimail] anchor refused by gateway for ${email}: this address is registered to a ` +
+      'different anchor — re-activate it (contract §13.3); mail stays pending until then'
+    )
+  }
+  return `[agent-aimail] pull rejected by gateway for ${email}: HTTP ${status} — the key was not accepted (re-activate)`
+}
 export class MailHub {
   private readonly ctx: Context
   private readonly ctrl = new AbortController()
@@ -147,7 +160,7 @@ export class MailHub {
     // instance's binding must never be aggregated here.
     const agentSystemId = await getAgentSystemId()
     this.agentSystemId = agentSystemId
-    const v2ByGateway = new Map<string, AgentConfig>()
+    const v2ByGateway = new Map<string, AgentConfig[]>()
     const legacy: AgentConfig[] = []
     let activeBindings = 0
     for (const b of bindings) {
@@ -168,17 +181,23 @@ export class MailHub {
         continue
       }
       const gw = (b.gateway_url ?? '').replace(/\/+$/, '')
-      if (!v2ByGateway.has(gw)) v2ByGateway.set(gw, b)
+      const group = v2ByGateway.get(gw)
+      if (group) group.push(b)
+      else v2ByGateway.set(gw, [b])
     }
     const streams = v2ByGateway.size + legacy.length
     console.error(`[agent-aimail] SSE reconcile: ${streams} gateway stream(s) from ${activeBindings} binding(s)`)
-    for (const [gatewayUrl, b] of v2ByGateway) {
+    for (const [gatewayUrl, members] of v2ByGateway) {
+      const rep = members[0]
       this.handles.push(this.startStream({
-        email: b.email,
+        email: rep.email,
         gatewayUrl,
-        apiKey: b.api_key,
-        identity: b.email,
+        apiKey: rep.api_key,
+        identity: rep.email,
         agentSystemId,
+        // Every address of the group rides along: the gateway checks each recorded anchor (§7.1),
+        // so a partial claim list is refused exactly like a missing one.
+        members,
       }))
     }
     for (const b of legacy) {
@@ -188,6 +207,7 @@ export class MailHub {
         gatewayUrl: b.gateway_url,
         apiKey: b.api_key,
         identity: b.email,
+        members: [b],
       }))
     }
     await this.writeStatus()
@@ -263,16 +283,46 @@ export class MailHub {
     return undefined
   }
 
-  private startStream(opts: { email: string; gatewayUrl: string; apiKey: string; identity: string; agentSystemId?: string }): StreamHandle {
+  /** Per-address (V1) client: no ASID header — but the anchor claim still rides along. */
+  private perAddressClient(
+    gatewayUrl: string,
+    apiKey: string,
+    identity: string,
+    members: readonly AgentConfig[],
+  ): GatewayClient {
+    const claim = anchorHeader(members)
+    return new GatewayClient(
+      gatewayUrl,
+      apiKey,
+      30_000,
+      identity,
+      claim ? { extraHeaders: { [ANCHOR_HEADER]: claim } } : {},
+    )
+  }
+
+  private startStream(opts: {
+    email: string
+    gatewayUrl: string
+    apiKey: string
+    identity: string
+    agentSystemId?: string
+    /** This group's bindings — their anchor claims ride on every request (contract §7.1). */
+    members?: readonly AgentConfig[]
+  }): StreamHandle {
     const ctrl = new AbortController()
     const onAbort = (): void => ctrl.abort()
     this.ctrl.signal.addEventListener('abort', onAbort, { once: true })
-    const client = new GatewayClient(opts.gatewayUrl, opts.apiKey, 30_000, opts.identity, opts.agentSystemId ? {
-      streamPath: '/api/v1/agent-system/pending/stream',
-      pendingPath: '/api/v1/agent-system/pending',
-      ackPath: '/api/v1/agent-system/pending/ack',
-      extraHeaders: { 'X-Agent-System-Id': opts.agentSystemId },
-    } : {})
+    // Aggregate ⇒ the ONE constructor (ASID + anchor claims). Hand-building it here is what made
+    // dsh pull zero mail once its address had a recorded anchor (L2 defect 1, 2026-11-25).
+    const client = opts.agentSystemId
+      ? buildAgentSystemClient(
+          opts.gatewayUrl,
+          opts.apiKey,
+          opts.agentSystemId,
+          opts.identity,
+          opts.members ?? [],
+        )
+      : this.perAddressClient(opts.gatewayUrl, opts.apiKey, opts.identity, opts.members ?? [])
     const run = async (): Promise<void> => {
       let streak = 0
       while (!ctrl.signal.aborted && !this.ctrl.signal.aborted) {
@@ -282,6 +332,16 @@ export class MailHub {
               await this.handleBatch(client, batch as never)
             }
           }, ctrl.signal)
+          if (typeof result === 'object' && 'auth' in result) {
+            // 401/403 from the gateway does NOT get logged gateway-side: without this line a
+            // refused pull is indistinguishable from an idle mailbox. 403 = anchor mismatch.
+            const status = (result as { auth: number }).auth
+            this.lastError = authFailureLine(opts.email, status)
+            console.error(this.lastError)
+            streak++
+            await sleep(Math.min(30_000, 1000 * 2 ** Math.min(streak, 5)), ctrl.signal)
+            continue
+          }
           if (result === 'stop') break
           if (result === 'stay') {
             streak = 0
@@ -413,9 +473,21 @@ export class MailHub {
   private async drain(email: string): Promise<void> {
     const found = await this.findBinding(email)
     if (!found) return
-    const client = new GatewayClient(found.cfg.gateway_url, found.cfg.api_key, 30_000, found.cfg.email)
+    const client = this.perAddressClient(
+      found.cfg.gateway_url,
+      found.cfg.api_key,
+      found.cfg.email,
+      [found.cfg],
+    )
     const listed = await pullList(client, 20)
-    if (!listed.success) return
+    if (!listed.success) {
+      if (listed.status === 401 || listed.status === 403) {
+        // Same blindness as the stream: the gateway logs nothing for an auth refusal.
+        this.lastError = authFailureLine(found.cfg.email, listed.status)
+        console.error(this.lastError)
+      }
+      return
+    }
     for (const batch of listed.batches) {
       await this.handleBatch(client, batch as never)
     }

@@ -6,7 +6,7 @@
 
 ---
 
-## Q1 `session_id` 为什么没有落盘到 `agentmail.json`？
+## Q1 `session_id` 为什么没有落盘到绑定文件？
 
 ### 答案：它本来就不是"路由指针"，而且被两处主动抹掉
 
@@ -33,7 +33,7 @@ cd tssdk/packages/agent-aimail && npx vitest run test/core/meta.test.ts   # 16 p
 ```
 
 > 关于你列的判据（"`updateAgentConfig({session_id})` 之后文件里非空"）：**该判据仍然不成立，且我不打算让它成立**——
-> `agentmail.json` 的 `session_id` 是"当前正在跑的那一轮"的凭据指针，idle 即失效；把它当路由键正是 Q2 要改的东西。
+> 绑定文件里的 `session_id` 是"当前正在跑的那一轮"的凭据指针，idle 即失效；把它当路由键正是 Q2 要改的东西。
 > 新的路由键在 `mail/meta/<first2>/<root>.json` 的 `session_id`（下一节）。
 
 ---

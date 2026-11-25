@@ -3,7 +3,7 @@
  *
  * What this file is really about: a binding file is a CACHE of a capability, not the capability
  * itself. The capability is the agent-scope key the gateway issued when an activation code was
- * consumed, and every pull is authenticated with it — so a hand-written `agentmail.json` buys
+ * consumed, and every pull is authenticated with it — so a hand-written binding file buys
  * nothing: without a real key the gateway answers 401, and with a real key for that address it is
  * exactly what an activation would have granted (the gateway resolves the address from the key, so
  * a forged `email` field fetches nothing).

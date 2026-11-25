@@ -6,7 +6,7 @@
 # 地址 ↔ 锚点关系：不可再"改一行字段就改绑"（2026-11-25）
 
 owner 指出：**激活绑定的核心语义是地址与锚点（dsh 里是 workspace）的一对一关系**；而当时这个关系
-只存在于 `agentmail.json` 里，任何人（包括 agent 自己）改一个字段就把邮箱搬到了另一个 workspace，
+只存在于绑定文件里，任何人（包括 agent 自己）改一个字段就把邮箱搬到了另一个 workspace，
 邮件从此进入另一个项目的会话，且没有任何地方发现。
 
 本文记录：这个关系现在由谁保管、哪几条合法路径能改它、以及还差什么（需要网关配合）。
@@ -23,7 +23,7 @@ owner 指出：**激活绑定的核心语义是地址与锚点（dsh 里是 work
 
 | 路径 | 现在的处置 |
 |---|---|
-| 手改 `agentmail.json` | **拒绝布防**（本条新增，见 §2） |
+| 手改绑定文件 | **拒绝布防**（本条新增，见 §2） |
 | 工具 `aimail_address(action:'move')` | 保留，但**必须同时改写锚点记录**、留 `source: move` 审计（内核与 dsh 两处实现都改了） |
 | 宿主适配层 `pinWorkspaceToBinding()`（pi/openclaw 绑定后回填当前 workspace） | 改为 **fill-only**：只在绑定还没有锚点时填，已锚定则拒绝并打印 `refusing to re-anchor …` |
 | 激活 `activateAddressCodePersist` | 唯一的"铸造"路径，写入绑定 + 锚点记录（`source: activation`） |

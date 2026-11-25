@@ -376,6 +376,9 @@ PY6JSON
           _s6_inject "<s7-reply@example.com>" "<s6-a@example.com>" "<s6-a@example.com>" || true
           _s6_wait_ack && _s7_acked=true
           _s6_snap 7
+          # Capture the host's own log NOW: the session-gone marker (§9.3) is only in the window
+          # right after the delivery — the evidence collector at the end of the run reads a later one.
+          docker exec "$name" bash -lc 'cat /tmp/df.log /tmp/df2.log 2>/dev/null; true' >"$out/s7_hostlog.txt" 2>/dev/null || true
           python3 - "$out" "$_victim" "$_s7_acked" <<'PY7' > "$out/s7_gone.json" 2>"$out/s7.err" || true
 import json, os, sys
 out, victim, acked = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -385,12 +388,25 @@ def ids(i):
         return None
     return sorted({l.strip() for l in open(p, encoding="utf-8", errors="replace") if l.strip()})
 k6, k7 = ids(6), ids(7)
+# Landing, NOT novelty. The thread id is derived from (system, address, root), so re-attaching
+# after a delete recreates the SAME id — "a new id appeared" can never be the landing criterion.
+# That older version reported used='' while the mail was sitting in the recreated thread (and
+# therefore called a healthy re-attach "acked and dropped").
+recreated = bool(victim and k7 and victim in k7)
 new = [] if (k6 is None or k7 is None) else [k for k in k7 if k not in k6]
-used = new[0] if new else ""
-print(json.dumps({"acked": acked == "true", "deleted": victim, "used": used, "reason": "",
-                  "root_ok": bool(acked == "true" and used and used != victim),
-                  "landed_in_existing": False, "delivered_anywhere": bool(used),
-                  "session_gone_observed": True}, indent=2))
+used = victim if recreated else (new[0] if new else "")
+# The reason comes from the host's own dispatch line, never invented here: a hardcoded "" made this
+# assertion impossible to pass (it was red regardless of what the product did).
+try:
+    log = open(os.path.join(out, "s7_hostlog.txt"), encoding="utf-8", errors="replace").read()
+except Exception:
+    log = ""
+reason = "session-gone" if "session-gone" in log else ""
+root_ok = bool(recreated and victim)
+print(json.dumps({"acked": acked == "true", "deleted": victim, "used": used, "reason": reason,
+                  "root_ok": root_ok, "landed_in_existing": recreated,
+                  "delivered_anywhere": bool(used),
+                  "session_gone_observed": reason == "session-gone"}, indent=2))
 PY7
         fi
       fi

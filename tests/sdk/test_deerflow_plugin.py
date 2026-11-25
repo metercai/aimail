@@ -298,3 +298,60 @@ def test_unreadable_read_back_accepts_on_admission(home, monkeypatch, code):
     assert res["status"] == "accepted"
     assert any("landing-unverified" in line and str(code) in line for line in logs)
 
+
+
+# ── C17 §9.3: the session-gone redirect must be observable, not inferred ───────
+
+def test_thread_probe_tells_a_deleted_thread_from_a_missing_route(monkeypatch):
+    """404 naming the thread = gone; a generic 404 (no route) or an auth refusal = unknown."""
+    from deerflow_plugin import runtime as runtime_mod
+
+    monkeypatch.setattr(runtime_mod, "_get",
+                        lambda url, timeout=30.0: (404, {"detail": "Thread not found"}))
+    assert runtime_mod._thread_presence("http://api", "t1") == "gone"
+
+    monkeypatch.setattr(runtime_mod, "_get",
+                        lambda url, timeout=30.0: (404, {"detail": "Not Found"}))
+    assert runtime_mod._thread_presence("http://api", "t1") == "unknown"
+
+    monkeypatch.setattr(runtime_mod, "_get", lambda url, timeout=30.0: (403, {"detail": "nope"}))
+    assert runtime_mod._thread_presence("http://api", "t1") == "unknown"
+
+
+def test_deliver_records_session_gone_when_the_thread_was_deleted(home, monkeypatch):
+    """The probe fires before the (idempotent) create, so the re-attach carries a reason."""
+    cfg = _seed(home, monkeypatch)
+    logs = []
+    seen = []
+
+    def fake_get(url, timeout=30.0):
+        seen.append(url)
+        return (200, {"status": "running"}) if "/runs/" in url else (404, {"detail": "Thread not found"})
+
+    monkeypatch.setattr("deerflow_plugin.runtime._post", _run_ok_post([]))
+    monkeypatch.setattr("deerflow_plugin.runtime._get", fake_get)
+    rt = DeerFlowRuntime({"api_base": "http://api"}, agent_home=str(home), log=logs.append)
+    res = rt.deliver(cfg, {"id": 21, "email": "a@test.local", "headers": {},
+                           "body": {"message_id": "<m21@x>"}})
+    assert res["status"] == "accepted"
+    thread_url = next(url for url in seen if "/runs/" not in url)
+    tid = thread_url.rsplit("/", 1)[-1]
+    assert any("session-gone" in line and tid in line for line in logs), logs
+    # Order matters: the probe must happen BEFORE the create, otherwise the redirect is invisible.
+    assert seen[0] == thread_url
+
+
+def test_deliver_does_not_ack_a_run_that_is_missing_after_admission(home, monkeypatch):
+    """2xx admission + a 404 naming the RUN = "acked and dropped": refuse to ack, let it re-pull."""
+    cfg = _seed(home, monkeypatch)
+
+    def fake_get(url, timeout=30.0):
+        return (200, {"thread_id": "t"}) if "/runs/" not in url else (404, {"detail": "Run not found"})
+
+    monkeypatch.setattr("deerflow_plugin.runtime._post", _run_ok_post([]))
+    monkeypatch.setattr("deerflow_plugin.runtime._get", fake_get)
+    rt = DeerFlowRuntime({"api_base": "http://api"}, agent_home=str(home))
+    with pytest.raises(RuntimeError) as e:
+        rt.deliver(cfg, {"id": 22, "email": "a@test.local", "headers": {},
+                         "body": {"message_id": "<m22@x>"}})
+    assert "not readable" in str(e.value)

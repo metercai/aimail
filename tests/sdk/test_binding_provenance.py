@@ -1,4 +1,4 @@
-"""Binding provenance — can this ``agentmail.json`` be trusted to arm a mailbox?
+"""Binding provenance — can this binding file be trusted to arm a mailbox?
 
 The file is a CACHE of a capability, not the capability: the authority is the agent-scope key the
 gateway issued when an activation code was consumed (``activate-address-code``), and every pull is

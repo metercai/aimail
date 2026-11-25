@@ -39,7 +39,7 @@ import {
   isRefusedByGateway,
   refuseBindingAfterGatewayRejection,
 } from './binding-provenance.js'
-import { anchorHeader } from './anchor-id.js'
+import { buildAgentSystemClient, isV2AgentScopeBinding } from './agent-system-client.js'
 import { PULL_HTTP_TIMEOUT_MS, PULL_MODE_ENV, parsePullMode, type PullMode } from './pull-contract.js'
 import { getAgentSystemId } from './agent-system-id.js'
 
@@ -86,42 +86,11 @@ export function isV1AgentScopeBinding(cfg: AgentConfig | undefined | null): bool
   return !!cfg.system_id && cfg.system_id.startsWith(AGENT_SCOPE_SYSTEM_PREFIX)
 }
 
-/** V2 predicate: the binding is activated under an AgentSystemId. */
-export function isV2AgentScopeBinding(cfg: AgentConfig | undefined | null): boolean {
-  if (!cfg) return false
-  return typeof cfg.agent_system_id === 'string' && cfg.agent_system_id.length > 0
-}
-
-/**
- * ONE constructor for the AgentSystemId aggregate client (V2 fix, B2): the
- * aggregate SSE/pending/ack paths + the `X-Agent-System-Id` header. Every
- * aggregate pull entry (tier-2, no-pointer grouping, host pull entries) must
- * build its client through here — the defect B2 was exactly that a second
- * entry built a plain client and hit the per-address endpoint without the
- * header, so the aggregate stream never delivered.
- */
-export function buildAgentSystemClient(
-  gatewayUrl: string,
-  apiKey: string,
-  agentSystemId: string,
-  identity: string,
-  /** Bindings of this group — their anchors ride along so the gateway can verify them (§7.1). */
-  members: readonly Pick<AgentConfig, 'email' | 'workspace_path'>[] = [],
-): GatewayClient {
-  const anchors = anchorHeader(members)
-  return new GatewayClient(gatewayUrl, apiKey, PULL_HTTP_TIMEOUT_MS, identity, {
-    streamPath: '/api/v1/agent-system/pending/stream',
-    pendingPath: '/api/v1/agent-system/pending',
-    ackPath: '/api/v1/agent-system/pending/ack',
-    extraHeaders: {
-      'X-Agent-System-Id': agentSystemId,
-      // The anchor identifier the gateway recorded at activation: `email;sha256`, comma separated.
-      // It is not a secret (the anchor is the agent's own workspace) — it is the claim the gateway
-      // checks, which is what stops a locally edited binding from moving a mailbox.
-      ...(anchors ? { 'X-Aimail-Anchor': anchors } : {}),
-    },
-  })
-}
+// The aggregate client constructor and the V2 predicate live in `agent-system-client.ts`: one
+// construction point for every aggregate pull (its header set — ASID + anchor claims — is the
+// contract, not a local detail). Defect 1 (2026-11-25) was a second, hand-built aggregate client
+// without the anchor header ⇒ 403 and zero delivery.
+export { buildAgentSystemClient, isV2AgentScopeBinding }
 
 /**
  * Count the ACTIVE V2 bindings this AgentSystemId owns (optionally on one

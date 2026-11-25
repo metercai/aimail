@@ -1,7 +1,7 @@
-# 地址绑定的信任链与"手写 agentmail.json"防线（2026-11-25）
+# 地址绑定的信任链与"手写绑定文件"防线（2026-11-25）
 
 问题："如何确保绑定都通过 `aimail_address` → `activateAddressCode` → `activateAddressCodePersist`，
-而不是手写 `agentmail.json` 就绑上了？"
+而不是手写绑定文件就绑上了？"
 
 答案分两半：**文件不是权威（这一点已经由网关保证），我们补的是"未证明来路的绑定必须被看见/被拒绝"。**
 
@@ -10,12 +10,12 @@
 ```
 激活码 ──POST /api/v1/activate-address-code──▶ 网关签发 per-address agent-scope key
                                              │
-                    activateAddressCodePersist│ 把 key 落到 agentmail.json（0600，tmp+rename）
+                    activateAddressCodePersist│ 把 key 落到绑定文件（0600，tmp+rename）
                                              ▼
 宿主插件 ── 每封邮件的拉取/ack 都用这把 key 签名 ──▶ 网关校验：key 有效？属于该 agent/system？过期？
 ```
 
-因此手写一份 `agentmail.json` 能拿到什么：
+因此手写一份绑定文件能拿到什么：
 
 | 手写内容 | 结果 |
 |---|---|
@@ -50,7 +50,7 @@
 ## 3. 已加的机制（本轮实现）
 
 **写入侧只有一条路**：`activateAddressCodePersist`（TS）与 `activate_address_code_persist`
-（Python）在写 `agentmail.json` 时盖两个章：
+（Python）在写绑定文件时盖两个章：
 
 ```json
 { "binding_source": "activate-address-code", "activated_at": "2026-11-25T10:00:00.000Z", ... }
@@ -84,7 +84,7 @@ per-delivery 也会再判一次（`freshDeliveryTarget`）：即使流已布防�
    （写侧 0600/tmp+rename；读侧目前**不**复验权限——可作为下一步）。
 2. **真 key 泄漏**：拿到有效 key 的人就等于拿到了那次激活的能力，这与"手写文件"是同一个问题，
    只能靠网关侧吊销（`expires_at` / 重新激活）解决。
-3. **PI-Desktop 面**：它的 key 来自插件设置（用户手填），不经 `agentmail.json`，也不走这条激活链；
+3. **PI-Desktop 面**：它的 key 来自插件设置（用户手填），不经绑定文件，也不走这条激活链；
    它的校验在插件设置的 schema 里，不在这道闸里。
 4. **网关侧不校验绑定文件名/路径**：网关只认 key。所以"文件从哪来"永远是本地约定，我们能做的是
    让违反约定的绑定**失效并说明原因**（默认即硬拒）。

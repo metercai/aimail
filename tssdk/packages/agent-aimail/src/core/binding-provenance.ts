@@ -1,5 +1,5 @@
 /**
- * binding-provenance — can this `agentmail.json` be trusted to arm a mailbox?
+ * binding-provenance — can this binding file be trusted to arm a mailbox?
  *
  * The binding file is a CACHE, not the authority: the authority is the agent-scope key the
  * gateway issued when an activation code was consumed (`POST /api/v1/activate-address-code`),

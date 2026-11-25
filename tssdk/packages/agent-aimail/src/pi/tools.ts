@@ -8,7 +8,7 @@
  * jsonResult helper export, so we build the shape directly).
  */
 import { AGENT_TOOL_DEFS, toTypeBoxParams, type JsonSchema } from '../core/index.js'
-import { resolveConfig } from './identity.js'
+import { piAnchor, resolveConfig } from './identity.js'
 import { setAgentModel } from '../core/index.js'
 import { findOtherActiveAddress, pinWorkspaceToBinding } from '../runtime/index.js'
 interface TextBlock {
@@ -73,11 +73,13 @@ export function buildPiTools(): Array<{
       const m = (ctx as { model?: { id?: string } } | undefined)?.model
       setAgentModel(m?.id)
       const rawArgs = (params ?? {}) as Record<string, unknown>
-      // The anchor (pi: the session cwd) must be known AT activation: it is hashed with the address
-      // and registered with the gateway, which then checks it on every pull (contract §7.1).
+      // The anchor (pi: the WHOLE AGENT, `~/.pi/agent`) must be known AT activation: it is hashed
+      // with the address and registered with the gateway, which re-checks it on every pull
+      // (contract §7.1). It is deliberately NOT the session cwd — a cwd-anchored address would be
+      // refused the moment the agent is started from another directory (owner ruling 2026-11-25).
       const args: Record<string, unknown> =
         tool.name === 'aimail_address' && rawArgs.action === 'bind'
-          ? { ...rawArgs, workspacePath: (ctx as { cwd?: string } | undefined)?.cwd || process.cwd() }
+          ? { ...rawArgs, workspacePath: piAnchor() }
           : rawArgs
       if (tool.name === 'aimail_address' && args.action === 'bind' && args.email) {
         const other = await findOtherActiveAddress(String(args.email))
@@ -113,8 +115,10 @@ export function buildPiTools(): Array<{
         args,
       )
       if (tool.name === 'aimail_address' && result.success && args.action === 'bind' && args.email) {
-        const cwd = (ctx as { cwd?: string } | undefined)?.cwd || process.cwd()
-        await pinWorkspaceToBinding(String(args.email), { id: cwd, path: cwd })
+        // Pin the SAME anchor that was just registered: a cwd here would make the pull hash a
+        // different value than the gateway stored and every pull would be refused (contract §13.3).
+        const anchor = piAnchor()
+        await pinWorkspaceToBinding(String(args.email), { id: anchor, path: anchor })
       }
       return toPiResult(result)
     },
