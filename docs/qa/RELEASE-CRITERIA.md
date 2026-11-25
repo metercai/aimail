@@ -38,9 +38,11 @@ ts: dsh / pi / openclaw    py: hermes / deerflow
 `s4` 必须出现**结构化**拒绝证据（`failed=wake|L3`）。仅模型转述（paraphrased）**不足以**满足
 R3，只可作为"待收紧"记录。
 
-## R4 C17 降级（至少 1 个宿主证明）
+## R4 C17 降级（至少 1 个宿主证明；**按 T2 全合规要求，T1 止血不算达成**）
 
-`s7`：删除 thread 命中会话后，对同一 thread 的回信仍被 **ack**，落到**新会话**，且 thread root 未丢。
+`s7`：删除 thread 命中会话后，对同一 thread 的回信必须同时满足四条 —— `acked=true`、落到**新会话**、
+`reason` 含 `session-gone`、**thread root 未丢**。只做 T1（不 ack、留 pending）**不满足 R4**：
+owner 已裁定按 §9.3 的"重挂 + 投递成功 + 记账"全合规执行。
 - `acked=false` 或 `used==deleted` ⇒ **RED（产品缺陷：审批回信会永久挂住）**；
 - 无 `s7_gone.json` ⇒ GAP（钩子缺失），不满足 R4；
 - `reason` 必须含 `session-gone`。**当前产品无该字符串的生产者**（`runtime/routing.ts` 只返回
@@ -94,7 +96,7 @@ R3，只可作为"待收紧"记录。
 | R1 | ✅ | `[L0] PASS`（本轮改动后重跑） |
 | R2 | ⏳ 待跑 | 需要 5 个宿主的完整回归（等 owner 批准启动） |
 | R3 | ⏳ | `s4` 已接受结构化证据；需在单地址宿主（pi/hermes）实跑确认 |
-| R4 | ❌ **不满足（产品缺陷 S1）** | dsh 实测：删掉 thread 会话后回信 `acked=true` 但**零会话被写入**（`delivered_anywhere=false`）⇒ 静默丢信。根因：`runtime/routing.ts` 的 `direct` 分支不校验会话是否存在、无 `session-gone` 产者，且 ack 只与 HTTP 200 绑定。见 `docs/qa/DEFECT-C17-SESSION-GONE.md` |
+| R4 | ❌ **不满足（产品缺陷 S1，按 T2 修复）** | dsh 实测：删掉 thread 会话后回信 `acked=true` 但**零会话被写入** ⇒ 静默丢信。修复要求按 §9.3/§9.5 全合规（存在性检查 + 重挂 + `session-gone` + 落地后才 ack），汇入 `docs/qa/REPAIR-TASK-2026-11-25.md`。见 `DEFECT-C17-SESSION-GONE.md` |
 | R5 | ✅ | 契约测试绿 |
 | R6 | ✅ | 契约面测试守 |
 | R7 | ✅ | `aimail.pi-desktop-0.2.1` 全部满足（hash 本地==CI） |

@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
-# s6 — contract C8 host side: "同 thread followup，新 thread 新 session，空间=cwd"
-# (docs/aimail-host-sse-contract-v2.md:519)
+# s6 — contract C8 host side: the mapping priority of §9 (E1 direct reply > E2 thread > E3 alloc).
+#
+# v2.3: C8 no longer means "thread ⇒ same session, space = cwd". It means:
+#   * E1 (reply to one of our messages) lands in that message's session — hard, in-anchor;
+#   * E2 (thread lineage) reuses the thread's active session in the same anchor;
+#   * E3 (new thread) prefers a new session, and may fall back to the anchor's current session.
+# The three mails below exercise E3 (new thread), E1/E2 (reply), E3 (second thread).
 #
 # What this case demands from the host hook (hosts/<host>.sh → host_s6_threading):
 #   /out/s6.json  — one JSON object, measured inside the host, not inferred by the fixture:
@@ -33,7 +38,9 @@ if [ ! -f "$_f" ]; then
   return 0 2>/dev/null || exit 0
 fi
 
-read -r _ok _root1 _root2 _root3 _s1 _s2 _s3 _n1 _n2 _n3 _newr _newt _ws < <(python3 - "$_f" <<'PY'
+# Pipe-delimited: with spaces, an EMPTY field collapses and every later variable shifts — the same
+# class of bug that made s7 report "used a new session" while nothing had been written.
+IFS='|' read -r _ok _root1 _root2 _root3 _s1 _s2 _s3 _n1 _n2 _n3 _newr _newt _ws < <(python3 - "$_f" <<'PY'
 import json,sys
 d=json.load(open(sys.argv[1]))
 acked=d.get("acked") or []
@@ -43,7 +50,7 @@ vals = [ok, d.get("root1","-"), d.get("root2","-"), d.get("root3","-"),
         str(d.get("sessions1",-1)), str(d.get("sessions2",-1)), str(d.get("sessions3",-1)),
         str(d.get("new_on_reply",-1)), str(d.get("new_on_newthread",-1)),
         d.get("workspace","-")]
-print(" ".join(v.replace(" ", "_") for v in vals))   # one line: read(1) must not split values
+print("|".join(v.replace("|", "/").replace("\n", " ") for v in vals))   # one line: read(1) must not split values
 PY
 ) || { gap "S6 threading — s6.json unparsable"; return 0 2>/dev/null || exit 0; }
 
@@ -89,10 +96,11 @@ else
   red "S6 threading — session count went $_n2 -> $_n3 for one new thread (expected +1)"
 fi
 
-# 3) workspace stays the binding's workspace (contract: 空间=cwd)
+# 3) every session above must live in the binding's anchor (§9.2 I2: no cross-anchor delivery)
 if [ "$_ws" != "-" ] && [ -n "$_ws" ]; then
-  pass "S6 threading — session space reported by the host: $_ws"
+  pass "S6 threading — all three sessions live in the binding's anchor: $_ws"
 else
-  gap "S6 threading — host did not report a workspace; the 'space = cwd' half of C8 is unproven"
+  gap "S6 threading — host did not report its anchor; the 'in-anchor' half of C8 is unproven"
 fi
+
 return 0 2>/dev/null || exit 0
