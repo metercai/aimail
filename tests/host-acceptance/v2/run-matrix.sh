@@ -97,6 +97,9 @@ for h in $HOSTS; do
   echo "── $h → $addr"
   ev_init; ev_meta host "$h"; ev_meta sdk_version "$SDK_VER"; ev_meta sdk_kind "$SDK_KIND"; ev_meta gateway_version "$GATEWAY_VERSION"; ev_meta address "$addr"
   export STAGES   # adapters need to know whether s3 (live delivery) is in this journey
+  # A container left over from an earlier run keeps pulling and lands mail in *its own* session, which
+  # shows up as a phantom new session in s6 (seen 2026-11-25: two 37h-old containers, sessions 8->9->12).
+  docker ps -q --filter "ancestor=aimail-host-$host" 2>/dev/null | xargs -r docker rm -f >/dev/null 2>&1 || true
   host_journey "$out" "$addr" "$code" "$token"
   for st in $STAGES; do
     case "$st" in
