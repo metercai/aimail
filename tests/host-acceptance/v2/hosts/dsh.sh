@@ -19,7 +19,7 @@ host_journey() {
   case " ${STAGES:-} " in *" s7 "*) S7FLAG=1 ;; esac
   case " ${STAGES:-} " in *" s8 "*) S8FLAG=1 ;; esac
   docker run --rm --network host --name "l2dsh-$$" \
-    -e "LLM_API_KEY=${LLM_API_KEY:?}" -e "AH=$addr" -e "AC=$code" -e "GWURL=${GW_URL}" \
+    -e "LLM_API_KEY=${LLM_API_KEY:?}" -e "DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}" -e "AH=$addr" -e "AC=$code" -e "GWURL=${GW_URL}" \
     -e "TOKEN=$token" -e "GWSMTP=$((GW_SMTP + 1))" \
     -e "AH2=${S4_ADDR:-}" -e "AC2=${S4_CODE:-}" -e "LIFECYCLE=${LIFECYCLE:-0}" \
     -e "S6=$S6FLAG" -e "S7=$S7FLAG" -e "S8=$S8FLAG" \
@@ -33,7 +33,7 @@ host_journey() {
       dsh --profile web --dump-config >/tmp/tree.txt 2>/dev/null || true
       grep -c "^- id: tool-mail" /tmp/tree.txt > /out/mail_rows 2>/dev/null || echo 0 > /out/mail_rows
       export DSH_PERMISSION_MODE=danger-full-access DSH_HOME=/root/.dsh AIMAIL_HOME=/root/.aimail
-      export DEEPSEEK_API_KEY="${LLM_API_KEY:-}"
+      export DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY:-}"
       setsid nohup dsh web --port 39123 --no-open >/tmp/web.log 2>&1 &
       URL=""
       for i in $(seq 1 120); do
@@ -175,7 +175,7 @@ host_stop() { docker rm -f "l2dsh-$$" >/dev/null 2>&1 || true; }
 host_negative() {
   local out="$1" addr="$2"
   docker run --rm --network host \
-    -e "LLM_API_KEY=${LLM_API_KEY:?}" -e "AH=$addr" -e "GWURL=${GW_URL}" \
+    -e "LLM_API_KEY=${LLM_API_KEY:?}" -e "DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}" -e "AH=$addr" -e "GWURL=${GW_URL}" \
     -v "$V2_ROOT/lib:/opt/v2lib:ro" -v "${SDK_TARBALL_DIR:?}:/opt/sdk:ro" -v "$out:/out" \
     --entrypoint bash "$DSH_IMAGE" -lc '
       set -u
@@ -183,7 +183,7 @@ host_negative() {
       TGZ="$(ls /opt/sdk/*.tgz | head -1)"
       dsh plugin --profile web add "$TGZ" >/tmp/plugin.log 2>&1 || { echo "plugin add failed"; exit 3; }
       export DSH_PERMISSION_MODE=danger-full-access DSH_HOME=/root/.dsh AIMAIL_HOME=/root/.aimail
-      export DEEPSEEK_API_KEY="${LLM_API_KEY:-}"
+      export DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY:-}"
       setsid nohup dsh web --port 39124 --no-open >/tmp/web.log 2>&1 &
       URL=""
       for i in $(seq 1 120); do
