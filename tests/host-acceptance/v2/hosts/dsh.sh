@@ -109,6 +109,7 @@ PY
           --session-root /root/.dsh/sessions --depth 2 --settle 20 --aimail-home /root/.aimail \
           >> /out/s8_drive.log 2>&1 || true
       fi
+      tar -cf /out/aimail-logs.tar -C /root/.aimail systems 2>/dev/null || true
       tail -n 400 /tmp/web.log /tmp/web2.log > /out/host.log 2>/dev/null || true
       tail -n 300 /tmp/act.log > /out/act.log 2>/dev/null || true
     ' >"$out/rc" 2>&1 &

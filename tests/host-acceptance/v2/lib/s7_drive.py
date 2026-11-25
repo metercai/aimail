@@ -301,7 +301,7 @@ def main() -> int:
         "acked": bool(acked2),
         "deleted": victim,
         "used": used,
-        "reason": "",          # no producer in the SDK; the case must judge this, not the driver
+        "reason": reason,          # read from the plugin's own dispatch line (session-gone when redirected)
         "root_ok": bool(acked2 and used and used != victim),
         "redirected": bool(acked2 and used and used != victim),
         "landed_in_existing": bool(landed and landed in s2),
