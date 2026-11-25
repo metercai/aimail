@@ -126,6 +126,39 @@ C17 未修完就发 npm，等于把"审批回信可能被吞"的路径推给所�
 ⇒ 宿主对每次 hook 运行新建会话，C8 的"同 thread 复用"在 openclaw 上**不可由 caller 实现**。
 处置：框架仍报 RED；**owner 书面豁免后**在矩阵标 `EXEMPTED`（记入 `GATE.md` 已知项，附本文件）。未签字前保持 RED。
 
+## 附 E：dsh 的 `session-gone` 产者在真实流程里不可达（v6 实测，2026-11-25）
+
+**现象**（`/tmp/verify-dsh-s7-v6.log`，端口 18448）：
+
+```
+PASS  reply was acked
+PASS  delivery used a new session (fced0c9a-… -> de8c58a9-…)
+PASS  the thread root survived the re-attach
+RED   downgrade reason '' does not name session-gone
+探针：aimail_home=/root/.aimail exists=True
+      systems/system-9f3a -> ['board','l2dsh_test.local']
+      glob hits=1  pattern=/root/.aimail/systems/*/*/agentmail.json
+      rewrote 0 config(s)          <- 配置文件存在，但里面没有 session_id
+```
+
+**推论（需开发确认）**：`dsh/inbound.ts:197` 的 `updateAgentConfig(..., { session_id })` 没有把
+`session_id` 落进 `agentmail.json`。于是：
+
+1. `cfg.session_id` 恒为空 ⇒ `agents.resume(boundId)` 分支**永不执行** ⇒ 新加的
+   `session_gone_redirected` 产者**在真实流程里不可达**；
+2. 同 thread 复用实际走 thread/meta 路径（s6 能过就是这个原因）；
+3. 我先前"删目录 ⇒ resume 成功 ⇒ 写成空"的现象，是"没有 session_id 时"的另一种坏法。
+
+**这与"改了不生效的地方"是同一类问题**（第一次是 `routing.ts` 未被调用）。请确认二者之一：
+
+- (a) 为什么 `session_id` 没有写入（只在 followup 成功后写？被别的路径覆盖？）；
+- (b) 或把 `session-gone` 挂到**实际生效的 thread/meta 路径**：thread 指向的会话不可用
+  （文件消失 / 注册表陈旧）⇒ 新建 + 记录 `session-gone`。
+
+在此之前，C17 在 dsh 上只能记"逻辑已由单测证明、真实流程不可达"，不得记作已修复。
+
+---
+
 ## 附 D：pi 的 C8/C17 —— 夹具已跑通，结论是**契约适用性问题**，不是产品缺陷
 
 **夹具现在能跑了**（第 7 次尝试，一次改对）：每封信前投递、随后驱动**一轮** `pi -p`（与 L3 同形）。

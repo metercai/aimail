@@ -7,6 +7,7 @@
 #   Optional (env): S4_ADDR/S4_CODE (second address), LIFECYCLE=1 (pause/unbind).
 set -uo pipefail
 HOST_NAME=dsh
+HOST_DELIVERY_CONFIRMATION=probe      # 附 E: 会话注册表可查 + resume 失败即 session-gone ⇒ C17 可证
 DSH_IMAGE="${DSH_IMAGE:-aimail-host-dsh:latest}"
 V2_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -96,7 +97,7 @@ PY
       if [ "${S7:-0}" = "1" ]; then
         python3 /opt/v2lib/s7_drive.py --addr "$AH" --smtp-port "$GWSMTP" \
           --db /gw/storage/aimail.db --out /out \
-          --session-root /root/.dsh/sessions --depth 2 --settle 20 \
+          --session-root /root/.dsh/sessions --depth 2 --settle 20 --stale-session \
           >> /out/s7_drive.log 2>&1 || true
       fi
       tail -n 400 /tmp/web.log /tmp/web2.log > /out/host.log 2>/dev/null || true

@@ -18,6 +18,8 @@ reason separately; an empty reason must fail loudly there rather than be invente
 from __future__ import annotations
 
 import argparse
+import glob
+import time
 import json
 import os
 import re
@@ -108,6 +110,44 @@ def remove_session(a, name: str) -> bool:
     return False
 
 
+
+def point_at_missing_session(aimail_home: str) -> str:
+    """Rewrite every agentmail.json session_id to an id that never existed; returns the new id.
+
+    Deleting the session directory is not enough on dsh: the registry still believes the session
+    exists, so `agents.resume()` succeeds and the producer never fires. The host's own failure mode
+    is a stale/unresumable id, which is what this produces.
+    """
+    new_id = "s7-nonexistent-%d" % int(time.time())
+    hits = 0
+    # Instrument before claiming "0 configs": the store layout is what it is, not what I assume it is.
+    try:
+        base = os.path.expanduser(aimail_home)
+        log("aimail_home=%s exists=%s" % (base, os.path.isdir(base)))
+        for probe, depth in ((os.path.join(base, "systems"), 1),):
+            if os.path.isdir(probe):
+                for name in sorted(os.listdir(probe))[:4]:
+                    sub = os.path.join(probe, name)
+                    log("  systems/%s -> %s" % (name, sorted(os.listdir(sub))[:6] if os.path.isdir(sub) else "file"))
+        log("  glob hits=%d pattern=%s" % (len(glob.glob(os.path.join(base, "systems", "*", "*", "agentmail.json"))), os.path.join(base, "systems", "*", "*", "agentmail.json")))
+    except Exception as e:
+        log("layout probe failed: %s" % e)
+    for cfg in glob.glob(os.path.expanduser(os.path.join(aimail_home, "systems", "*", "*", "agentmail.json"))):
+        try:
+            d = json.load(open(cfg, encoding="utf-8"))
+        except Exception:
+            continue
+        if "session_id" in d and d.get("session_id"):
+            d["session_id"] = new_id
+            try:
+                json.dump(d, open(cfg, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+                hits += 1
+            except Exception as e:
+                log("rewrite %s failed: %s" % (cfg, e))
+    log("point_at_missing_session: rewrote %d config(s) -> %s" % (hits, new_id))
+    return new_id if hits else ""
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--addr", required=True)
@@ -121,6 +161,9 @@ def main() -> int:
     ap.add_argument("--session-glob", default="",
                     help="glob (relative to --session-root) whose MATCHING FILES are the sessions; pi keeps "
                          "one .jsonl per session, so its ids are file basenames")
+    ap.add_argument("--stale-session", action="store_true",
+                    help="make the target session un-resumable the way the HOST would: rewrite the address "
+                         "config's session_id to an id that never existed (dsh: resume then fails)")
     ap.add_argument("--aimail-home", default=os.environ.get("AIMAIL_HOME", "/root/.aimail"),
                     help="where the SDK writes systems/<sid>/<addr>/agentmail.log (for the session-gone reason)")
     ap.add_argument("--delete-cmd", default="",
@@ -149,10 +192,17 @@ def main() -> int:
         return 0
 
     victim = new1[0]
-    deleted_ok = remove_session(a, victim.split(":")[-1] if a.discover else victim)
+    if a.stale_session:
+        # dsh semantics: the session is "gone" when the host cannot resume it, not when the files vanish.
+        stale = point_at_missing_session(a.aimail_home)
+        deleted_ok = bool(stale)
+        victim_target = stale or victim
+    else:
+        deleted_ok = remove_session(a, victim.split(":")[-1] if a.discover else victim)
+        victim_target = victim
     settle(a)
     s2 = snap(a)
-    gone = victim not in s2
+    gone = (victim_target not in s2) if not a.stale_session else bool(deleted_ok)
     log("deleted %s ok=%s gone_from_store=%s" % (victim, deleted_ok, gone))
 
     before_reply = mtimes(a.session_root)
