@@ -145,6 +145,9 @@ def test_deliver_creates_thread_then_run_with_idempotency_key(home, monkeypatch)
         return 200, {"run_id": "run-1", "status": "pending"}
 
     monkeypatch.setattr("deerflow_plugin.runtime._post", fake_post)
+    # Post-delivery read-back (landing verification): the run record is healthy.
+    monkeypatch.setattr("deerflow_plugin.runtime._get",
+                        lambda url, timeout=30.0: (200, {"run_id": "run-1", "status": "pending"}))
     rt = DeerFlowRuntime({"api_base": "http://api"}, agent_home=str(home))
     payload = {"subject": "Hi", "from": "x@ext", "body": "b", "message_id": "<m1@ext>"}
     res = rt.deliver(cfg, {"id": 7, "email": "a@test.local", "headers": {}, "body": payload})
@@ -165,6 +168,8 @@ def test_deliver_raises_when_the_run_is_refused(home, monkeypatch):
         return 500, {"error": "boom"}
 
     monkeypatch.setattr("deerflow_plugin.runtime._post", fake_post)
+    monkeypatch.setattr("deerflow_plugin.runtime._get",
+                        lambda url, timeout=30.0: (200, {"run_id": "run-1", "status": "pending"}))
     rt = DeerFlowRuntime({"api_base": "http://api"}, agent_home=str(home))
     with pytest.raises(RuntimeError):
         rt.deliver(cfg, {"id": 8, "email": "a@test.local", "headers": {}, "body": {"message_id": "<m@x>"}})
@@ -185,3 +190,111 @@ def test_consumed_pipeline_is_accepted_without_a_run(home, monkeypatch):
 def test_render_inbound_marks_external_provenance():
     text = render_inbound({"subject": "s", "from": "x@ext", "body": "b"})
     assert text.startswith("[AIMail inbound]") and text.rstrip().endswith("b")
+
+
+def _run_ok_post(calls):
+    def fake_post(url, payload, headers=None, timeout=60.0):
+        calls.append(url)
+        if url.endswith("/api/threads"):
+            return 200, {"thread_id": payload["thread_id"]}
+        return 200, {"run_id": "run-9", "status": "pending"}
+    return fake_post
+
+
+def test_deliver_reads_back_the_run_before_acking(home, monkeypatch):
+    """Landing verification: a persisted, healthy run record ⇒ accepted."""
+    cfg = _seed(home, monkeypatch)
+    calls = []
+    gets = []
+    monkeypatch.setattr("deerflow_plugin.runtime._post", _run_ok_post(calls))
+    monkeypatch.setattr("deerflow_plugin.runtime._get",
+                        lambda url, timeout=30.0: gets.append(url) or (200, {"status": "running"}))
+    rt = DeerFlowRuntime({"api_base": "http://api"}, agent_home=str(home))
+    res = rt.deliver(cfg, {"id": 11, "email": "a@test.local", "headers": {},
+                           "body": {"message_id": "<m11@x>"}})
+    assert res["status"] == "accepted"
+    assert gets and gets[-1].endswith("/api/threads/%s/runs/run-9"
+                                      % thread_mod.thread_id_for("system-1", "a@test.local", "m11@x"))
+
+
+def test_deliver_does_not_ack_a_run_the_host_marked_failed(home, monkeypatch):
+    """A run row exists but is terminal-failed: the mail did not land ⇒ raise (no ack)."""
+    cfg = _seed(home, monkeypatch)
+    monkeypatch.setattr("deerflow_plugin.runtime._post", _run_ok_post([]))
+    monkeypatch.setattr("deerflow_plugin.runtime._get",
+                        lambda url, timeout=30.0: (200, {"status": "failed"}))
+    rt = DeerFlowRuntime({"api_base": "http://api"}, agent_home=str(home))
+    with pytest.raises(RuntimeError) as e:
+        rt.deliver(cfg, {"id": 12, "email": "a@test.local", "headers": {},
+                         "body": {"message_id": "<m12@x>"}})
+    assert "did not land" in str(e.value)
+
+
+def test_deliver_does_not_ack_when_the_read_back_errors(home, monkeypatch):
+    cfg = _seed(home, monkeypatch)
+    monkeypatch.setattr("deerflow_plugin.runtime._post", _run_ok_post([]))
+    monkeypatch.setattr("deerflow_plugin.runtime._get",
+                        lambda url, timeout=30.0: (500, {"error": "boom"}))
+    rt = DeerFlowRuntime({"api_base": "http://api"}, agent_home=str(home))
+    with pytest.raises(RuntimeError) as e:
+        rt.deliver(cfg, {"id": 13, "email": "a@test.local", "headers": {},
+                         "body": {"message_id": "<m13@x>"}})
+    assert "landing unverified" in str(e.value)
+
+
+def test_missing_read_back_route_falls_back_with_a_visible_marker(home, monkeypatch):
+    """Older host without the route: accept, but log that landing was not verified."""
+    cfg = _seed(home, monkeypatch)
+    logs = []
+    monkeypatch.setattr("deerflow_plugin.runtime._post", _run_ok_post([]))
+    monkeypatch.setattr("deerflow_plugin.runtime._get",
+                        lambda url, timeout=30.0: (404, {"error": "no route"}))
+    rt = DeerFlowRuntime({"api_base": "http://api"}, agent_home=str(home), log=logs.append)
+    res = rt.deliver(cfg, {"id": 14, "email": "a@test.local", "headers": {},
+                           "body": {"message_id": "<m14@x>"}})
+    assert res["status"] == "accepted"
+    assert any("landing-unverified" in line for line in logs)
+
+
+def test_landing_verification_can_be_disabled(home, monkeypatch):
+    cfg = _seed(home, monkeypatch)
+    monkeypatch.setenv("AIMAIL_DEERFLOW_VERIFY_LANDING", "0")
+    monkeypatch.setattr("deerflow_plugin.runtime._post", _run_ok_post([]))
+
+    def boom(url, timeout=30.0):
+        raise AssertionError("read-back must not run when verification is disabled")
+
+    monkeypatch.setattr("deerflow_plugin.runtime._get", boom)
+    rt = DeerFlowRuntime({"api_base": "http://api"}, agent_home=str(home))
+    assert rt.deliver(cfg, {"id": 15, "email": "a@test.local", "headers": {},
+                            "body": {"message_id": "<m15@x>"}})["status"] == "accepted"
+
+
+@pytest.mark.parametrize("status", ["timeout", "interrupted"])
+def test_deliver_does_not_ack_host_terminal_failure_statuses(home, monkeypatch, status):
+    """DeerFlow's RunStatus spells failure as timeout/interrupted too, not just error."""
+    cfg = _seed(home, monkeypatch)
+    monkeypatch.setattr("deerflow_plugin.runtime._post", _run_ok_post([]))
+    monkeypatch.setattr("deerflow_plugin.runtime._get",
+                        lambda url, timeout=30.0: (200, {"status": status}))
+    rt = DeerFlowRuntime({"api_base": "http://api"}, agent_home=str(home))
+    with pytest.raises(RuntimeError) as e:
+        rt.deliver(cfg, {"id": 16, "email": "a@test.local", "headers": {},
+                         "body": {"message_id": "<m16@x>"}})
+    assert "did not land" in str(e.value) and status in str(e.value)
+
+
+@pytest.mark.parametrize("code", [401, 403])
+def test_unreadable_read_back_accepts_on_admission(home, monkeypatch, code):
+    """No read grant (auth-scoped deployment) must not strand the mail: accept, but log it."""
+    cfg = _seed(home, monkeypatch)
+    logs = []
+    monkeypatch.setattr("deerflow_plugin.runtime._post", _run_ok_post([]))
+    monkeypatch.setattr("deerflow_plugin.runtime._get",
+                        lambda url, timeout=30.0: (code, {"detail": "nope"}))
+    rt = DeerFlowRuntime({"api_base": "http://api"}, agent_home=str(home), log=logs.append)
+    res = rt.deliver(cfg, {"id": 17, "email": "a@test.local", "headers": {},
+                           "body": {"message_id": "<m17@x>"}})
+    assert res["status"] == "accepted"
+    assert any("landing-unverified" in line and str(code) in line for line in logs)
+

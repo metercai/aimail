@@ -78,7 +78,11 @@ for h in $HOSTS; do
   token="L2TOK-$h-$(date +%s)-$RANDOM"
   S4_ADDR=""; S4_CODE=""; LIFECYCLE=0
   case " $STAGES " in *" s4 "*)
-    if [ "$h" != pi ]; then
+    # EVERY host gets a second code, including the single-address ones: C1 is exactly
+    # "refuse the second address WITHOUT consuming the code", and a host that is never
+    # asked cannot demonstrate it. pi used to be skipped here, so its s4 assertion was a
+    # trivial pass that never reached the refusal path.
+    if true; then
       a2="$(python3 "$V2/lib/gw.py" apply --gateway "$GW_URL" --email "l2-$h-2-$RANDOM@example.com" \
             --name "L2 $h 2" --agentname "l2${h}2" --domain test.local --spool "$WORK/gw/mail.spool")"
       printf '%s' "$a2" | grep -q '"ok": true' || echo "   (S4 second claim failed: $a2)" >&2
@@ -102,6 +106,8 @@ for h in $HOSTS; do
       s4) . "$V2/cases/s4_multiaddr.sh" "$out" "$h" ;;
       s5) . "$V2/cases/s5_lifecycle.sh" "$out" ;;
       s6) . "$V2/cases/s6_threading.sh" "$out" ;;   # contract C8 host side (evidence from host_journey)
+      s7) . "$V2/cases/s7_session_gone.sh" "$out" ;;  # contract C17 session-gone downgrade (host hook)
+      s8) . "$V2/cases/s8_anchor_isolation.sh" "$out" ;;  # contract C16 anchor isolation (host hook)
       neg) host_negative "$out" "$addr"; . "$V2/cases/negatives.sh" "$out" "$addr" ;;
     esac
   done

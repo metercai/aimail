@@ -46,9 +46,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 REQUIRED_KEYS = (
-    "inbound_path", "hermes_inbound_path", "hermes_route_name",
+    # 2026-11-25 trims: the v1 hermes webhook pair left with its adapter, then the loopback listener
+    # keys (`inbound_path` / `inbound_port`) left when SSE-V2 stopped binding local ports. What
+    # remains is the naming surface only; re-adding an endpoint key fails here (no mirror constant).
     "agent_skill_name", "agent_toolset_name", "binding_file", "pointer_file",
-    "inbound_port",
 )
 
 # ── Whitelist (files where literals are allowed; paths relative to repo root) ──────────────────────────────
@@ -101,15 +102,12 @@ SKILL_MATERIALIZED = (
 )
 
 # Manifest key → (TS constant name, Python constant name)
+# Manifest key → (TS constant name, Python constant name)
 CONST_MAP = {
-    "inbound_path": ("INBOUND_PATH", "INBOUND_PATH"),
-    "hermes_inbound_path": ("HERMES_INBOUND_PATH", "HERMES_INBOUND_PATH"),
-    "hermes_route_name": ("HERMES_ROUTE_NAME", "HERMES_ROUTE_NAME"),
     "agent_skill_name": ("AGENT_SKILL_NAME", "AGENT_SKILL_NAME"),
     "agent_toolset_name": ("AGENT_TOOLSET_NAME", "AGENT_TOOLSET_NAME"),
     "binding_file": ("BINDING_FILE", "BINDING_FILE"),
     "pointer_file": ("POINTER_FILE", "POINTER_FILE"),
-    "inbound_port": ("INBOUND_PORT", "INBOUND_PORT"),
 }
 
 # Literal scanning strategy: path/filename type = substring count; single token skill/toolset name =
@@ -165,9 +163,6 @@ def load_manifest() -> tuple[dict, str]:
     missing = [k for k in REQUIRED_KEYS if k not in man]
     if missing:
         raise CannotJudge(f"Manifest missing contract keys: {path} missing {missing}")
-    port = man["inbound_port"]
-    if not isinstance(port, int) or isinstance(port, bool) or not (0 < port < 65536):
-        raise CannotJudge(f"Manifest inbound_port is not a valid port number: {path} ({port!r})")
     return man, str(path)
 
 
@@ -254,7 +249,7 @@ def check_constants(man: dict) -> None:
 def literal_specs(man: dict) -> dict:
     """Manifest key → literal value (deduplicate same values; merge same values into the same logical literal).
 
-    Non-string contract values (``inbound_port`` is a number) do not participate in
+    Non-string contract values do not participate in
     literal scanning —— only the string surface is scanned.
     """
     specs: dict = {}

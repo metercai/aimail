@@ -19,16 +19,14 @@ from __future__ import annotations
 import json
 import os
 
-# ── Contract values (must equal contract/aimail-contract.json)─────────────────────────
-
-#: Fixed inbound paths for the four platforms (openclaw / dsh / pi / deer-flow).
-INBOUND_PATH = "/aimail/inbound"
-
-#: hermes is the only exception: inbound is hooked onto the hermes gateway's own webhook routing.
-HERMES_INBOUND_PATH = "/webhooks/aimail-inbound"
-
-#: hermes gateway route name (route key in webhook_subscriptions.json).
-HERMES_ROUTE_NAME = "aimail-inbound"
+# ── Naming contract values (must equal contract/aimail-contract.json)──────────────────
+#
+# Scope (trim 2026-11-25): this module carries NAMING values only. How a host must deliver mail
+# lives in docs/aimail-host-sse-contract-v2.md (SSE + long-poll, §9 mapping edges).
+#
+# History, both retired the same day: the v1 hermes webhook path pair (with its adapter) and the
+# loopback listener constants INBOUND_PATH / INBOUND_PORT + inbound_url() — SSE-V2 delivers by
+# pulling, so no adapter binds a local port and there is no endpoint to name.
 
 #: Internal agent skill registration name == SKILL.md frontmatter ``name:`` (directory name is the same).
 AGENT_SKILL_NAME = "agentmail"
@@ -43,14 +41,6 @@ BINDING_FILE = "agentmail.json"
 #: System pointer file name (e.g., ~/.hermes/.agentmail, ~/.deer-flow/.agentmail).
 POINTER_FILE = ".agentmail"
 
-#: Common default inbound listening port for hosts whose SDK owns the listener
-#: (dsh/pi) — **port is configurable, path is immutable**. On conflict the
-#: runtime re-selects an available port (bind probe = source of truth); the
-#: confirmed callback (`--inbound-live --inbound-url`) pins the real endpoint.
-#: Hosts where the host gateway owns the port (hermes/deerflow/openclaw) carry
-#: no default here — per-host adaptation discovers the actual port.
-INBOUND_PORT = 9099
-
 # Note: The former BRIDGE_DEFAULT_PATH constant was retired with the SDK de-bridging (owner decision 2026-09-28)—— SDK
 # is bridge-agnostic, routing is self-held by CLI (cli/bridge_wire.py); contract true source no longer contains bridge keys.
 
@@ -59,25 +49,11 @@ MANIFEST_REL_PATH = os.path.join("contract", "aimail-contract.json")
 
 # Manifest key → module attribute (for constant consistency assertion; Rust side not covered in this batch = GAP).
 MANIFEST_MAP = {
-    "inbound_path": "INBOUND_PATH",
-    "hermes_inbound_path": "HERMES_INBOUND_PATH",
-    "hermes_route_name": "HERMES_ROUTE_NAME",
     "agent_skill_name": "AGENT_SKILL_NAME",
     "agent_toolset_name": "AGENT_TOOLSET_NAME",
     "binding_file": "BINDING_FILE",
     "pointer_file": "POINTER_FILE",
-    "inbound_port": "INBOUND_PORT",
 }
-
-
-def inbound_url(port: int, host: str = "127.0.0.1") -> str:
-    """Build local inbound receiving endpoint (non-hermes platforms)."""
-    return "http://%s:%d%s" % (host, int(port), INBOUND_PATH)
-
-
-def hermes_inbound_url(port: int, host: str = "127.0.0.1") -> str:
-    """Build hermes in-process inbound receiving endpoint."""
-    return "http://%s:%d%s" % (host, int(port), HERMES_INBOUND_PATH)
 
 
 def load_manifest(path: str | None = None) -> dict:

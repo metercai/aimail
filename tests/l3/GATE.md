@@ -110,10 +110,15 @@ no plugin). Installing the published SDK is **the agent's own bootstrap**, trigg
 activation prompt — the fixture must never run the install.
 
 The activation mail body already carries the instruction (advanced `email_notify.rs:149`):
-> Activate and bind my AIMail mailbox address {address} with activation code {raw_code} at
-> gateway {gw} using `aimail_address`. If `aimail_address` is unavailable or not registered,
-> install the `agent_aimail` plugin SDK first: from PyPI via pip for Python, or from npm for
-> Node.js. Then retry `aimail_address` with the same parameters.
+> Use `aimail_address` to activate and bind the dedicated AIMail mailbox {address} for this
+> agent (gateway: {gw}; activation code: {raw_code}). If `aimail_address` is unavailable or
+> unregistered, install the `agent-aimail` plugin using your platform's plugin install
+> command, then try `aimail_address` again for activation and binding. If it is still
+> unavailable, stop and tell the user to restart the agent runtime to load the plugin and
+> retry activation and binding afterward; no reinstallation is needed.
+
+Canonical text: `docs/aimail-host-sse-contract-v2.md` Appendix A (do not re-copy it elsewhere;
+quote by section so a wording change cannot leave this gate stale again).
 
 So the fixture's only jobs are: apply for the code, hand the mail body over verbatim as a user
 turn, and verify what happened. Anything the fixture installs itself is a **fake pass**.

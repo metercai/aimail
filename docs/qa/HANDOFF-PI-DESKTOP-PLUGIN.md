@@ -32,7 +32,7 @@ VERDICT(开发自评，非质检结论): PASS
 
 ## 1. 背景与判定：为什么桌面是"多地址（M）"宿主
 
-判据见 `docs/aimail-host-sse-contract-v2.md` §11.1–§11.4（三条能力轴，**必须来自能力探测，不得来自引擎名**）：
+判据见 `docs/aimail-host-sse-contract-v2.md` §11.1–§11.4（三层判定：**锚定点 / 锚点内隔离 / 会话调用能力**；判定必须来自探测，不得来自引擎名）：
 
 | 判据 | 裸 pi（S） | PI-Desktop（M） |
 |---|---|---|
@@ -77,12 +77,25 @@ VERDICT(开发自评，非质检结论): PASS
 
 | 文件 | 改动 |
 |---|---|
-| `docs/aimail-host-sse-contract-v2.md` | §9 步 5 指向 import 路径；**新增 §11.5**"无 `session.create` 的宿主：新 thread 走 import"（7 条：分配 / origin 标注 / 幂等锚点 / 既有会话投递幂等 / ack 语义不变 / 空间失效重投 / 同 thread 首信单飞） |
+| `docs/aimail-host-sse-contract-v2.md` | **§9 重写为三条映射边**（E1 直属 / E2 thread / E3 分配，E1>E2>E3）；**§11 重写为三层判定**（L1 锚点 / L2 隔离 / L3 调用）；**§11.5 = 创建能力的等价形式：导入**（7 条：一次性完成 / 来源标注 / 幂等锚点 / 写入幂等 / ack 不变 / 容器失效重投 / 首信单飞）；正文不再点名具体宿主（实例在附 E） |
 | `docs/pi-host-integration-plan.md` | §11.4 载荷实测表；**新增 §11.6**"插件源码落地；打包由质检驱动"（含 §7 那张约束表） |
 
 ### 2.5 依赖与锁文件
 
 `tssdk/pnpm-lock.yaml` **+13 行**：新增 workspace 包 `@aimail/desktop-plugin`（依赖 `agent-aimail`、devDeps `esbuild`、`typescript`）。无新增第三方运行时依赖。
+
+### 2.6 形态：代码统一管理，产物按宿主分开（owner 2026-11-24 决定）
+
+这是**有意的分层**，不是误放——质检复核时请按此判断，不要要求把 `desktop/` 搬进插件包：
+
+| 层 | 归属 | 说明 |
+|---|---|---|
+| 契约级逻辑 | `agent-aimail`（npm 包） | 载荷形状、确定性 id 幂等、ack 语义、thread→session 规则。与宿主无关，和 `./pi`、`./dsh`、`./openclaw` 共用同一套类型与门禁测试 |
+| 宿主接线 | `@aimail/desktop-plugin`（独立产物） | 只做 `pi` API → SDK 的转接，构建时把 `agent-aimail/{core,desktop}` 打进 `.piplug`，**不走 npm 分发** |
+
+同一个 npm 包里放多个面是既有形态：`package.json` 用 `pi.extensions`（裸 pi）、`openclaw.extensions`（openclaw）、`dsh.bundle.patch`（dsh）分别声明，各宿主各取所需；PI-Desktop 的加载机制是 `manifest.json` + `main.js`，因此产出物必然是另一个文件，但**代码仍只有一份**。
+
+已核对：`agent-aimail/desktop` 目前**只被** `@aimail/desktop-plugin` 引用，其它面不依赖它。
 
 ---
 
@@ -152,7 +165,7 @@ cd tssdk && npx vitest run packages/agent-aimail/test/desktop \
 
 ```bash
 cd tssdk/packages/aimail-desktop-plugin
-node scripts/build.mjs      # 期望：build: aimail.desktop@0.1.0 → main.js
+node scripts/build.mjs      # 期望：build: aimail.pi-desktop@<当前版本> → main.js
 ls -l dist                 # 期望：main.js（~122 KB）、manifest.json、package.json{type:commonjs}
 node scripts/smoke.mjs     # 期望两行 ok，退出码 0
 ```
@@ -203,11 +216,11 @@ cd /tmp/pi-desktop-src && awk '/export const PLUGIN_PERMISSIONS/,/\] as const/' 
 
 | 契约条目 | 本轮如何满足 | 证据 |
 |---|---|---|
-| §9 步 3 直接回复必须同 session | 桌面面**没有**出站索引（它归 agent 侧所有），因此不做"直接回复判到别的会话"；凡未能识别的父消息一律按 thread 路由，**绝不降级到他人会话** | `inbox.ts` `selectTargetSession`；§8 已列为已知边界 |
-| §9 步 5 新 thread 新 session，失败退当前 | 宿主无 `session.create` ⇒ 走 `import`（§11.5 第 1 条），一次调用完成建会话+首信 | `delivery.ts` `importSession()` |
-| §9 未被识别的投递不得 ack | 全部拒绝路径 `skip`/抛错 | `delivery.ts` `refusalOf`/`thrownRefusal`；`main.ts` `onEmail` |
+| §9.2 I1 直属回复必须回原 Session（锚点内） | 桌面面**没有**出站索引（它归 agent 侧所有），因此不做"直属判到别的会话"；凡未能识别的父消息一律按 E2 处理，**绝不跨锚点改投** | `inbox.ts` `selectTargetSession`；§8 已列为已知边界 |
+| §9 E3 新 thread 优先新 Session，失败退当前 | 宿主无 `session.create` ⇒ 走 `import`（§11.5 第 1 条），一次调用完成建会话+首信 | `delivery.ts` `importSession()` |
+| §9.5 未被识别的投递不得 ack（Target 且投递成功才 ack） | 全部拒绝路径 `skip`/抛错 | `delivery.ts` `refusalOf`/`thrownRefusal`；`main.ts` `onEmail` |
 | §11 判定来自能力探测 | `desktopCapabilities()` 只看方法是否存在；`create` 缺失自动落到 `import` | `delivery.ts` 顶部注释 + 测试 "skips when neither create nor import exists" |
-| §11.5 幂等锚点 / ack 语义 / 空间失效 | 逐条实现见 §3.2、§3.4；空间 `NOT_FOUND` 去绑定重投并记 `projectDropped` | `delivery.ts` `importSession()`；测试 "drops a stale space binding rather than losing the mail" |
+| §11.5 幂等锚点 / ack 语义 / 容器失效 | 逐条实现见 §3.2、§3.4；空间 `NOT_FOUND` 去绑定重投并记 `projectDropped` | `delivery.ts` `importSession()`；测试 "drops a stale space binding rather than losing the mail" |
 
 ---
 
@@ -243,7 +256,7 @@ tssdk/packages/aimail-desktop-plugin/dist/
 | 上限 | ≤ 2000 文件、≤ 50 MiB、**无符号链接** | `plugin-devkit/src/walk.ts`（对应 host-core `MAX_PACKAGE_FILES/BYTES`） |
 | 不得入包 | `.git/`、`node_modules/`、`.env*`、`.npmrc`、`*.pem`、`*.key` | 同上 |
 | 完整性 | 对归档**字节**取 sha256（安装期校验用它比较） | `plugin-devkit/src/pack.ts` |
-| 命名 | `<id>-<version>.piplug`，如 `aimail.desktop-0.1.0.piplug` | 同上 |
+| 命名 | `<id>-<version>.piplug`，如 `aimail.pi-desktop-0.2.1.piplug`（id 已由质检改为 `aimail.pi-desktop`：`aimail.desktop` 被宿主判为非法 id） | 同上 + commit `ee3446e` |
 | 版本单一来源 | `manifest.version` 必须等于 `package.json` version（**构建脚本会因此拒绝**） | `scripts/build.mjs` |
 
 **一处最容易踩的**：包内 `main.js` 必须能被 `require`，而本包 `package.json` 是 `"type": "module"`。`dist/package.json` 里的 `{"type":"commonjs"}` 就是为此存在——打包时不能丢、也不能把它换成 `"module"`。
@@ -261,7 +274,7 @@ tssdk/packages/aimail-desktop-plugin/dist/
 
 ### 7.4 发版前建议先做的一件事
 
-本轮改动**全在工作树未提交**。建议质检复检通过后：先提交这批文件（`git add` 上述 §2 列表，注意**不要**把 `dist/`、`evidence/`、他人在改的 `tests/l3/*`、`docs/TSSDK-L2-FIX-PLAN.md` 一起带进去），再打 tag 触发打包。版本号：插件 `0.1.0` 与 `agent-aimail 0.5.2` 相互独立（本插件不走 npm 分发），是否需要同步升版请质检/owner 定。
+本轮改动**全在工作树未提交**。建议质检复检通过后：先提交这批文件（`git add` 上述 §2 列表，注意**不要**把 `dist/`、`evidence/`、他人在改的 `tests/l3/*`、`docs/TSSDK-L2-FIX-PLAN.md` 一起带进去），再打 tag 触发打包。版本号：插件版本（当前 `0.2.1`）与 `agent-aimail` 相互独立（本插件不走 npm 分发），升版由质检/owner 定。
 
 ---
 
@@ -290,7 +303,7 @@ tssdk/packages/aimail-desktop-plugin/dist/
 
 ## 10. 阅读顺序（给质检的索引）
 
-1. `docs/aimail-host-sse-contract-v2.md` §11（能力轴与判定）、**§11.5**（无 create 宿主的注记）、§9（路由与 ack）
+1. `docs/aimail-host-sse-contract-v2.md` §11（三层判定）、**§11.5**（创建能力的等价形式：导入）、§9（三条映射边与 ack）
 2. `docs/pi-host-integration-plan.md` §11.3（步 0 桌面三验实测）、§11.4（载荷实测）、**§11.6**（本轮落地 + 打包约束）
 3. `tssdk/packages/agent-aimail/src/desktop/delivery.ts` 顶部注释（为什么这么写）→ `inbox.ts`
 4. `tssdk/packages/aimail-desktop-plugin/README.md`（构建 / 打包归属 / 宿主契约表 / 已知限制）

@@ -1,0 +1,6 @@
+{
+  "address": "l2dsh@test.local",
+  "gateway_version": "v1.0.12",
+  "host": "dsh",
+  "sdk_version": "0.5.1"
+}

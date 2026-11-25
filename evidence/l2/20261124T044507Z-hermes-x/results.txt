@@ -1,0 +1,5 @@
+RED    S1 activation                no binding written (see /tmp/aimail-l2-ygunaA/hermes/rc) 
+RED    S2 arming                    pull armed (no /polling enabled|pull scope|SSE reconcile: [1-9]/ in /tmp/aimail-l2-ygunaA/hermes/host.log) 
+RED    S2 arming                    arming line precedes/absent after the last 'no agent-scope binding' 
+PASS   S3 delivery                  sender whitelisted before inbound 
+RED    S3 delivery                  inbound never stored (emails=0) — the inbound flow did not complete (not a pull/SSE issue) 

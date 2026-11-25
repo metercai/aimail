@@ -12,7 +12,7 @@ import time
 import uuid
 from pathlib import Path
 from typing import Optional, Dict, List, Any, Union, Callable
-from datetime import datetime
+from datetime import datetime, timezone
 import urllib.request
 import urllib.error
 
@@ -552,7 +552,7 @@ class _GatewayClient:
         }
 
     def activate_address_code(self, code: str, email_address: str,
-                              agent_system_id: str = "") -> dict:
+                              agent_system_id: str = "", anchor_id: str = "") -> dict:
         """POST /api/v1/activate-address-code -- activate a shared_addr address
         code (open-application plan §2.4).
 
@@ -573,10 +573,15 @@ class _GatewayClient:
         produces a binding whose aggregate stream is refused (403) — the V2 counterpart of
         the TS client's missing-header defect.
         """
+        body = {"code": code, "email_address": (email_address or "").strip().lower()}
+        if str(anchor_id or "").strip():
+            # Registered with the gateway so every later pull can be checked against it (contract
+            # §7.1): sha256(email + anchor). The gateway never sees the anchor itself.
+            body["anchor_id"] = str(anchor_id).strip().lower()
         result = self._request(
             "POST",
             "/api/v1/activate-address-code",
-            body={"code": code, "email_address": (email_address or "").strip().lower()},
+            body=body,
             headers=({"X-Agent-System-Id": agent_system_id}
                      if str(agent_system_id or "").strip() else None),
         )
@@ -642,8 +647,24 @@ class _GatewayClient:
         asid = str(agent_system_id or "").strip()
         # V1 callers keep the exact 2-arg seam (monkeypatched fakes in older host code);
         # only a V2 activation passes the AgentSystemId through.
-        act = (self.activate_address_code(code, email_address, agent_system_id=asid)
-               if asid else self.activate_address_code(code, email_address))
+        anchor = ""
+        try:
+            import v2.anchor as _anchor_mod
+            anchor = _anchor_mod.anchor_id(email_address, str(workspace_path or ""))
+        except Exception:  # noqa: BLE001 — no anchor claimed is always allowed
+            anchor = ""
+        # Hosts (and their older test fakes) may override the 2-arg seam; fall back to it rather
+        # than break activation. The anchor claim is then absent — the gateway simply has nothing to
+        # compare for this address (documented behaviour, not a silent downgrade of an active check).
+        _kw = {}
+        if asid:
+            _kw["agent_system_id"] = asid
+        if anchor:
+            _kw["anchor_id"] = anchor
+        try:
+            act = self.activate_address_code(code, email_address, **_kw)
+        except TypeError:
+            act = self.activate_address_code(code, email_address)
         if not act.get("success"):
             return act
 
@@ -680,6 +701,11 @@ class _GatewayClient:
             cfg["webhook_secret"] = (
                 _abm.existing_binding_webhook_secret(sid, email)
                 or _abm.new_webhook_secret())
+        # Provenance (2026-11-25): this is the ONLY place a binding is minted. A hand-written
+        # agentmail.json cannot produce a key the gateway accepts, and pysdk/v2/binding.py reports
+        # any file that lacks this stamp (strict mode refuses it outright).
+        cfg["binding_source"] = "activate-address-code"
+        cfg["activated_at"] = datetime.now(tz=timezone.utc).isoformat().replace("+00:00", "Z")
         if act.get("expires_at"):
             cfg["expires_at"] = act["expires_at"]
         # 1c. Security officer (manager) = the value **actually written** by the gateway in the activation transaction (returned as-is in the activation response).
@@ -1395,6 +1421,8 @@ def aimail_address(
                 return {"success": False, "action": "bind",
                         "reason": "second-address",
                         "error_code": "SINGLE_ADDRESS_HOST",
+                        # Contract C18: name the first unmet layer of §11.2.
+                        "failed": "wake",
                         "error": "this is a single-address host and it already carries "
                                  "another mailbox (%s)" % str(_others[0].get("email") or ""),
                         "hint": "unbind the current mailbox first, or run on a multi-address "

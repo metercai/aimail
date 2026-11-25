@@ -1,0 +1,2 @@
+RED    S1 activation                no binding written (see /tmp/aimail-l2-1EXDZl/openclaw/rc) 
+GAP    S6 threading                 S6 threading — the host produced no readable session evidence (sessions1=1, key=-); fixture capability, not a C8 verdict 

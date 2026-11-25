@@ -3,8 +3,6 @@
  * Keeping this file free of host APIs makes the routing contract testable and
  * prevents workspace/session semantics from drifting per host.
  */
-import type { DeliveryTarget, ThreadMetaLike, WorkspaceRef } from './types.js'
-
 export interface RoutingPayload {
   message_id?: string
   references?: unknown
@@ -19,27 +17,12 @@ export function threadRoot(payload: RoutingPayload, headers: Record<string, unkn
   const inReplyTo = String(payload.in_reply_to ?? headers['in-reply-to'] ?? '')
   return String(first || inReplyTo || payload.message_id || '').trim()
 }
-
-/**
- * Decide whether an inbound mail follows up an existing session or starts a
- * disposable session in the binding workspace.
- */
-export function routeThread(
-  payload: RoutingPayload,
-  workspace: WorkspaceRef,
-  meta: ThreadMetaLike | undefined,
-  headers: Record<string, unknown> = {},
-): DeliveryTarget {
-  const root = threadRoot(payload, headers)
-  const sessionId = String(meta?.session_id ?? '').trim()
-  const metaWorkspace = String(meta?.workspace_path ?? '').trim()
-  if (root && sessionId && (!metaWorkspace || metaWorkspace === workspace.path)) {
-    return { kind: 'followup', sessionId, workspace }
-  }
-  return { kind: 'new', workspace }
-}
-
-// ── direct reply: "the mail I am answering was sent by one of our sessions" ──
+// ── routing lives in ONE place ───────────────────────────────────────────────
+//
+// `routeThread()` used to sit here: a thread-level-only rule with a workspace check. dsh's shipped
+// hub used it while the fixtures exercised `decideInboundDelivery()` (E1/E2/E3 + C16 + C17), so the
+// shipped path had no direct-reply edge and no observable reason. It was deleted on 2026-11-25 and
+// every adapter now calls `decideInboundDelivery()` (./routing.ts) — one decision, one place.
 //
 // Contract §9. A reply whose immediate parent is an OUTBOUND mail we minted must
 // go back to the session that minted it — that is the one hard routing rule, so it

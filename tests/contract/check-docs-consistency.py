@@ -65,8 +65,12 @@ PREFIX_CONST = "AGENT_SCOPE_SYSTEM_PREFIX"
 CONTRACT_KEYS = (
     "agent_skill_name", "binding_file", "pointer_file",
 )
-#: Host-side contract values that platform documentation must quote verbatim (inbound path + ports for each platform).
-PLATFORM_CONTRACT_KEYS = ("inbound_path", "hermes_inbound_path")
+#: Host-side contract values that platform documentation must quote verbatim.
+#: Empty since 2026-11-25: the endpoint keys left the naming contract (v1 hermes webhook pair with
+#: its adapter, then the loopback listener path/port when SSE-V2 stopped binding local ports). The
+#: platform docs still describe how each host receives mail — that is contract v2's job now, and
+#: this gate only pins NAMING values (CONTRACT_KEYS below).
+PLATFORM_CONTRACT_KEYS: tuple[str, ...] = ()
 
 # ── Non-symbol name whitelist (short; each entry with reason)──────────────────────────────────────────
 NON_SYMBOLS = {
@@ -259,7 +263,7 @@ def load_manifest(repo: Path) -> dict:
         raise CannotJudge(f"Single source of truth list cannot be read: {path} ({e.__class__.__name__}: {e})") from e
     except ValueError as e:
         raise CannotJudge(f"List is not valid JSON: {path} ({e})") from e
-    missing = [k for k in CONTRACT_KEYS + ("inbound_port",) if k not in man]
+    missing = [k for k in CONTRACT_KEYS + PLATFORM_CONTRACT_KEYS if k not in man]
     if missing:
         raise CannotJudge(f"List missing contract keys: {path} missing {missing}")
     return man
@@ -291,17 +295,9 @@ def check_contract_values(rel: str, text: str, man: dict, prefix: str,
         viol("c", f"{rel}:1 (full text {nlines} lines no match) missing contract value {key}={val!r} "
                   f"← single source of truth {MANIFEST_REL}; value written in docs must equal source verbatim")
         out(f"  ✗ {rel}: full text no match for contract value {key}={val!r}")
-    if ports:
-        # Owner ruling 2026-10-25: ONE common default port (inbound_port, self_bind
-        # hosts) — the platform docs must quote that single value verbatim.
-        port = man["inbound_port"]
-        if str(port) in text:
-            hits += 1
-        else:
-            viol("c", f"{rel}:1 (full text {nlines} lines no match) missing manifest common inbound port "
-                      f"={port} ← Single Source of Truth {MANIFEST_REL}[inbound_port]")
-            out(f"  ✗ {rel}: full text no match for common inbound port ={port}")
-    total = len(keys) + (1 if ports else 0)
+    # `ports` used to require the manifest's common inbound port verbatim. That key is gone
+    # (2026-11-25): no adapter binds a local port, so there is no port value to pin in the docs.
+    total = len(keys)
     if require_prefix:
         total += 1
         if prefix in text:
@@ -371,7 +367,7 @@ def main(argv: list) -> int:
                            "(bootstrap doc does not carry host infrastructure names, see platform docs)"),
                lambda: check_contract_values(
                    args.platform_en, plat_en, man, prefix,
-                   keys=CONTRACT_KEYS + PLATFORM_CONTRACT_KEYS, ports=True),
+                   keys=CONTRACT_KEYS + PLATFORM_CONTRACT_KEYS, ports=False),
                lambda: check_contract_values(
                    args.platform_zh, plat_zh, man, prefix,
                    keys=CONTRACT_KEYS + PLATFORM_CONTRACT_KEYS, ports=True)):

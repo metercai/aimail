@@ -10,35 +10,27 @@
  */
 import { promises as fs } from 'node:fs'
 import * as path from 'node:path'
-import { randomUUID } from 'node:crypto'
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
 
 import {
   GatewayClient,
+  isAckedInboundResult,
+  listAgentConfigs,
   listSystemDirs,
   loadAgentConfig,
-  processInboundMail,
   pullAck,
   pullList,
-  readLocalMeta,
-  listAgentConfigs,
   type AgentConfig,
   type InboundPayload,
+  type InboundResult,
 } from '../core/index.js'
-import { stampSessionMeta } from '../core/meta.js'
 import { getAgentSystemId, setAgentHomeResolver } from '../core/agent-system-id.js'
-import { routeThread } from '../runtime/session-router.js'
 import { isV2AgentScopeBinding } from '../core/poll-entry.js'
-import { isAckedInboundResult, type InboundResult } from '../core/index.js'
+import { deliverInbound, installDshInboundProviders, toInboundResult } from './inbound.js'
 import { readSystemGatewayConfig } from '../core/provision.js'
 import { agentHome, statusPath } from './workspace.js'
-
-export const name = 'mail-hub'
-export const inject = ['mail', 'agents']
-
 export interface Config {
   /** AIMAIL_PULL_MODE equivalent: auto|stream|poll. */
   mode?: string
@@ -81,9 +73,7 @@ function headersOf(v: unknown): Record<string, unknown> {
   return typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : {}
 }
 
-function messageText(enriched: Record<string, unknown>, to: string): string {
-  return JSON.stringify({ ...enriched, to })
-}
+
 
 export class MailHub {
   private readonly ctx: Context
@@ -116,6 +106,10 @@ export class MailHub {
   async start(): Promise<void> {
     if (this.started) return
     this.started = true
+    // SOUL/skills providers + the activation skill staging used to live in the `inbound` plugin,
+    // which `cordis.patch.yml` never mounts — so on a shipped dsh the prompt rendered without SOUL
+    // and skills were never enumerated. They belong to the host boot, i.e. here.
+    installDshInboundProviders()
     await this.reconcile()
     this.statusTimer = setInterval(() => void this.writeStatus().catch(() => undefined), 30_000)
     this.statusTimer.unref?.()
@@ -385,54 +379,35 @@ export class MailHub {
       return { status: 'rejected', detail: 'payload is not an object' }
     }
     const payload = body as InboundPayload
-    // REQ-2: workspace preflight BEFORE the heavy inbound pipeline. The
-    // pipeline writes meta/snapshots/FTS and downloads attachments; doing it
-    // first means a workspace miss leaves dirty side effects even though the
-    // delivery is not acked.
+    // REQ-2: workspace preflight BEFORE the heavy inbound pipeline. The pipeline writes
+    // meta/snapshots/FTS and downloads attachments, so doing it first would leave dirty side effects
+    // even though the delivery is not acked.
     const workspace = await this.workspaceFor(cfg)
     if (!workspace) {
       const detail = `no workspace for ${recipient}`
       this.lastError = detail
       return { status: 'rejected', detail }
     }
-    const enriched = await processInboundMail(payload, headers as Record<string, string>, { systemId: cfg.system_id, email: cfg.email })
-    if (enriched === null) return { status: 'intercepted', detail: 'ping/pong consumed' }
-    const root = (Array.isArray(payload.references) && payload.references[0]) || str(headers.in_reply_to) || str(payload.message_id)
-    const meta = root ? await readLocalMeta(recipient, root) : undefined
-    const target = routeThread(payload as never, { id: workspace.id, path: workspace.path }, meta as never, headers)
-    const sessionId = target.kind === 'followup' ? String(target.sessionId ?? '') : ''
-    const message = createUserMessage({
-      content: [{ type: 'text', text: messageText(enriched as Record<string, unknown>, recipient) }],
-      source: { kind: 'user' },
-    })
-    const agents = this.agents()
-    if (sessionId && (await this.sessionInWorkspace(sessionId, workspace.path))) {
-      const live = agents.get(sessionId)
-      if (live) {
-        live.followup(message)
-        await stampSessionMeta(recipient, str(payload.message_id), { sessionId, workspacePath: workspace.path })
-        return { status: 'accepted', detail: `followup ${sessionId}` }
-      }
-      try {
-        const handle = await agents.resume({ resumeSessionId: sessionId, agentOptions: this.agentOptions() })
-        handle.agent.followup(message)
-        await stampSessionMeta(recipient, str(payload.message_id), { sessionId, workspacePath: workspace.path })
-        return { status: 'accepted', detail: `resumed ${sessionId}` }
-      } catch {
-        /* fall through to new session */
-      }
-    }
-    const newId = randomUUID()
-    try {
-      const handle = await agents.create({ sessionId: newId, meta: { cwd: workspace.path }, agentOptions: this.agentOptions() })
-      handle.agent.followup(message)
-      await stampSessionMeta(recipient, str(payload.message_id), { sessionId: newId, workspacePath: workspace.path })
-      return { status: 'accepted', detail: `created ${newId}` }
-    } catch (e) {
-      const detail = e instanceof Error ? e.message : String(e)
-      this.lastError = detail
-      return { status: 'rejected', detail: `session create failed: ${detail}` }
-    }
+    // ONE delivery implementation (§9 E1/E2/E3 + C16 + C17 live in `deliverInbound`). Before this
+    // the hub had its own weaker router: thread-level reuse only, no direct-reply edge, and no
+    // dispatch line — so the shipped dsh path could not honour E1 and the s7/s8 evidence had no
+    // producer. The workspace and the agents service are resolved HERE (realpath of the binding's
+    // workspace), so the anchor has a single source of truth.
+    const out = await deliverInbound(
+      this.ctx,
+      { cfg, agentAddr: recipient },
+      payload,
+      headers,
+      {
+        workspace: { id: workspace.id, path: workspace.path },
+        agents: this.agents(),
+        agentOptions: this.agentOptions(),
+        sessionExists: (id: string) => this.sessionInWorkspace(id, workspace.path),
+      },
+    )
+    const result = toInboundResult(out)
+    if (result.status === 'rejected' && out.detail) this.lastError = out.detail
+    return result
   }
 
   private async drain(email: string): Promise<void> {

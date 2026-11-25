@@ -79,7 +79,10 @@ REF_SCAN_EXT = (".py", ".ts", ".sh", ".md")
 REF_SCAN_EXTENSIONLESS = True
 REF_SCAN_MAX_BYTES = 1_000_000
 #: Do not scan generated artifacts/third-party (source of truth is in src/; see docstring).
-REF_SKIP_DIRS = {"node_modules", "__pycache__", ".git", "lib", "dist", "build"}
+#: `.pnpm-store` / `.pnpm` are the same class as `node_modules` (pnpm's content-addressable cache,
+#: created inside the tree when no store-dir is configured): scanning them counts binary store files
+#: as bridge references and floods the "unreadable" list.
+REF_SKIP_DIRS = {"node_modules", "__pycache__", ".git", "lib", "dist", "build", ".pnpm-store", ".pnpm"}
 #: Escape hatch marker: only if the line contains this explicit comment is "mentioning retired symbols" allowed (description lines / symbol tables), printed in a separate section.
 ESCAPE_MARKER = "retired:"
 #: "String call name" form: symbol name is taken as **call/attribute name** in string form (dynamic call), not as data.

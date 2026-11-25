@@ -88,14 +88,56 @@ describe('decideInboundDelivery', () => {
     expect(route).toEqual({ kind: 'followup', sessionId: 'session-3', workspace: WS, root: 'root@ext' })
   })
 
-  it('starts a new session when the thread session lives in another space', async () => {
+  it('starts a new session when the thread session lives in another space (§16 C16)', async () => {
     await seed('root@ext', { direction: 'inbound', session_id: 'session-4', workspace_path: '/work/other' })
     const route = await decideInboundDelivery({
       email: EMAIL,
       workspace: WS,
       payload: { message_id: 'next@ext', references: ['<root@ext>'] },
     })
-    expect(route).toEqual({ kind: 'new', workspace: WS, root: 'root@ext' })
+    expect(route).toEqual({
+      kind: 'new',
+      workspace: WS,
+      root: 'root@ext',
+      // The refusal is reported, not silent: ops must see WHY the thread session was skipped.
+      anchorMoved: { sessionId: 'session-4', space: '/work/other', edge: 'thread' },
+    })
+  })
+
+  it('never delivers a direct reply into a session of another anchor (§16 C16 / I2)', async () => {
+    // The parent mail WAS ours, but the session that sent it lives in another workspace (the address
+    // was re-bound elsewhere since). I2 (no cross-anchor delivery) outranks I1: E1 is abandoned.
+    await seed('out-99@ext', {
+      direction: 'outbound',
+      session_id: 'session-foreign',
+      workspace_path: '/work/other',
+    })
+    const route = await decideInboundDelivery({
+      email: EMAIL,
+      workspace: WS,
+      payload: { message_id: 'reply@ext', in_reply_to: '<out-99@ext>' },
+    })
+    expect(route.kind).toBe('new')
+    expect('sessionId' in route).toBe(false) // nothing may receive it from the foreign anchor
+    expect(route.anchorMoved).toEqual({
+      sessionId: 'session-foreign',
+      space: '/work/other',
+      edge: 'direct',
+    })
+  })
+
+  it('keeps the direct reply in its session when both anchors agree', async () => {
+    await seed('out-100@ext', {
+      direction: 'outbound',
+      session_id: 'session-home',
+      workspace_path: '/work/project',
+    })
+    const route = await decideInboundDelivery({
+      email: EMAIL,
+      workspace: WS,
+      payload: { message_id: 'reply2@ext', in_reply_to: '<out-100@ext>' },
+    })
+    expect(route).toEqual({ kind: 'direct', sessionId: 'session-home', parent: 'out-100@ext', workspace: WS })
   })
 
   it('starts a new session for a brand-new mail', async () => {
@@ -116,3 +158,66 @@ describe('decideInboundDelivery', () => {
     expect(route.kind).toBe('new')
   })
 })
+
+describe('session existence (§9.3 session-gone / C17)', () => {
+  it('a recorded session the host no longer has becomes `gone`, not a silent delivery', async () => {
+    await seed('out-gone@aimail', { direction: 'outbound', session_id: 'session-deleted' })
+    const route = await decideInboundDelivery({
+      email: EMAIL,
+      workspace: WS,
+      payload: { message_id: '<reply@gone>', in_reply_to: '<out-gone@aimail>' },
+      sessionExists: async (id) => id !== 'session-deleted',
+    })
+    expect(route).toMatchObject({
+      kind: 'gone',
+      previousSessionId: 'session-deleted',
+      parent: 'out-gone@aimail',
+    })
+  })
+
+  it('applies to thread records too (a deleted thread session does not absorb new mail)', async () => {
+    await seed('root-gone@aimail', { direction: 'inbound', session_id: 'session-deleted' })
+    const route = await decideInboundDelivery({
+      email: EMAIL,
+      workspace: WS,
+      payload: { message_id: '<m@x>', references: ['<root-gone@aimail>'] },
+      sessionExists: async (id) => id !== 'session-deleted',
+    })
+    expect(route).toMatchObject({ kind: 'gone', previousSessionId: 'session-deleted' })
+  })
+
+  it('a live session still routes as before (the probe does not disturb the happy path)', async () => {
+    await seed('out-live@aimail', { direction: 'outbound', session_id: 'session-live' })
+    const route = await decideInboundDelivery({
+      email: EMAIL,
+      workspace: WS,
+      payload: { message_id: '<reply@live>', in_reply_to: '<out-live@aimail>' },
+      sessionExists: async () => true,
+    })
+    expect(route).toMatchObject({ kind: 'direct', sessionId: 'session-live' })
+  })
+
+  it('a probe that throws counts as "alive" (a flaky probe must not fork a live thread)', async () => {
+    await seed('out-flaky@aimail', { direction: 'outbound', session_id: 'session-live' })
+    const route = await decideInboundDelivery({
+      email: EMAIL,
+      workspace: WS,
+      payload: { message_id: '<reply@flaky>', in_reply_to: '<out-flaky@aimail>' },
+      sessionExists: async () => {
+        throw new Error('registry unavailable')
+      },
+    })
+    expect(route).toMatchObject({ kind: 'direct', sessionId: 'session-live' })
+  })
+
+  it('without a probe the decision is unchanged (hosts that cannot answer)', async () => {
+    await seed('out-noprobe@aimail', { direction: 'outbound', session_id: 'session-x' })
+    const route = await decideInboundDelivery({
+      email: EMAIL,
+      workspace: WS,
+      payload: { message_id: '<reply@np>', in_reply_to: '<out-noprobe@aimail>' },
+    })
+    expect(route).toMatchObject({ kind: 'direct', sessionId: 'session-x' })
+  })
+})
+

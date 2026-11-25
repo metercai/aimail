@@ -6,6 +6,8 @@
 #     -> restart (arm) -> wait for the injected mail to be acked.
 set -uo pipefail
 HOST_NAME=openclaw
+HOST_DELIVERY_CONFIRMATION=unconfirmed  # 附 E: 200＝cron job 入队，无 run/session 查询；C17 仍受判（需证据，缺则 GAP）
+HOST_RISK_ACCEPTED="owner 2026-11-25: openclaw 200=入队、无 run 查询；接受 ack-未落地风险"
 OC_IMAGE="${OC_IMAGE:-aimail-host-openclaw:latest}"
 V2_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 

@@ -1,0 +1,3 @@
+RED    S1 activation                no binding written (see /tmp/aimail-l2-pB09jV/openclaw/rc) 
+RED    S2 arming                    pull armed (no /polling enabled|pull scope|SSE reconcile: [1-9]/ in /tmp/aimail-l2-pB09jV/openclaw/host.log) 
+RED    S2 arming                    arming line precedes/absent after the last 'no agent-scope binding' 

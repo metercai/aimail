@@ -1,0 +1,3 @@
+RED    S4 multi-address             only 0 binding(s) after the second activation 
+GAP    S4 multi-address             reconcile line for 2 bindings not in the log tail 
+PASS   NEG invalid code             no binding written for an invalid code 

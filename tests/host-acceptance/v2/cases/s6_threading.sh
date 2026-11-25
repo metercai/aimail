@@ -34,6 +34,18 @@ _dir="${1:-}"
 [ -n "$_dir" ] || { echo "usage: s6_threading.sh <journey-dir>"; return 2 2>/dev/null || exit 2; }
 _f="$_dir/s6.json"
 
+# Contract §16 C8 证明范围: the *allocation* half ("new thread ⇒ new session") only exists on hosts
+# whose inbound path can allocate/re-attach a session. On a host where the CLI decides the session and
+# the plugin only holds the current one (附 E `HOST_CAN_ALLOCATE_SESSION=0`), that half has no referent —
+# but "the mail reached the current session and was acked" is still a real claim (C9), so it is judged.
+AWAIT_ALLOC=1
+case "${HOST_CAN_ALLOCATE_SESSION:-1}" in
+  0) AWAIT_ALLOC=0 ;;
+  1|"") : ;;
+  *) gap "S6 threading — unknown HOST_CAN_ALLOCATE_SESSION='${HOST_CAN_ALLOCATE_SESSION}' (expected 0|1)"
+     return 0 2>/dev/null || exit 0 ;;
+esac
+
 if [ ! -f "$_f" ]; then
   gap "S6 threading — host produced no s6.json (session evidence missing); fixture capability, not a product verdict"
   return 0 2>/dev/null || exit 0
@@ -77,24 +89,32 @@ fi
 # The decisive fact is "no NEW session was created for a same-thread reply". Comparing two derived
 # keys looked strict but was definition-dependent: a reused session produces no new key at all, so
 # the first version of this case reported RED on correct product behaviour.
-if [ "${_newr:-9}" = "0" ] && [ "$_s2" = "$_s1" ]; then
+if [ "$AWAIT_ALLOC" = "0" ]; then
+  na_scope "S6 threading — reply session identity (C8 allocation half): host session is decided by CLI, plugin holds only the current one"
+elif [ "${_newr:-9}" = "0" ] && [ "$_s2" = "$_s1" ]; then
   pass "S6 threading — reply reused the thread's session ($_s1); no new session was created"
 else
   red "S6 threading — reply created a new host session ($_s1 -> $_s2, new=$_newr); C8 violated"
 fi
-if [ "$_n1" -gt 0 ] 2>/dev/null && [ "$_n1" = "$_n2" ]; then
+if [ "$AWAIT_ALLOC" = "0" ]; then
+  na_scope "S6 threading — session count on reply: per-run session files make the count meaningless"
+elif [ "$_n1" -gt 0 ] 2>/dev/null && [ "$_n1" = "$_n2" ]; then
   pass "S6 threading — host session count did not grow on the reply ($_n1)"
 else
   red "S6 threading — host session count grew on a same-thread reply ($_n1 -> $_n2); a new session was created"
 fi
 
 # 2) new thread ⇒ new session (and exactly one)
-if [ "$_root3" != "$_root1" ] && [ "$_s3" != "$_s1" ] && [ "${_newt:-0}" -ge 1 ] 2>/dev/null; then
+if [ "$AWAIT_ALLOC" = "0" ]; then
+  na_scope "S6 threading — new thread ⇒ new session (C8 allocation half): no allocation API on this host"
+elif [ "$_root3" != "$_root1" ] && [ "$_s3" != "$_s1" ] && [ "${_newt:-0}" -ge 1 ] 2>/dev/null; then
   pass "S6 threading — a new thread started a new host session ($_s3)"
 else
   red "S6 threading — a new thread reused the old session root/​key ($_root3 / $_s3); C8 violated"
 fi
-if [ "$_n3" -eq $(( ${_n2:-0} + 1 )) ] 2>/dev/null; then
+if [ "$AWAIT_ALLOC" = "0" ]; then
+  na_scope "S6 threading — session count +1 on a new thread: same reason as above"
+elif [ "$_n3" -eq $(( ${_n2:-0} + 1 )) ] 2>/dev/null; then
   pass "S6 threading — host session count grew by exactly one for the new thread ($_n2 -> $_n3)"
 else
   red "S6 threading — session count went $_n2 -> $_n3 for one new thread (expected +1)"

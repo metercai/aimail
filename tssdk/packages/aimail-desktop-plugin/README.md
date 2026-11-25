@@ -11,6 +11,14 @@ SDK is bundled at build time (`agent-aimail/desktop` + `agent-aimail/core`) and
 the artifact is a `.piplug` — a store-only zip whose root holds `manifest.json`
 and `main.js`.
 
+That is the deliberate split (owner 2026-11-24): **one codebase, several
+artifacts**. The contract-level rules stay in `agent-aimail` — the same package
+already declares `pi.extensions` for bare Pi, `openclaw.extensions` and
+`dsh.bundle.patch` for the other hosts — while each host's *loading mechanism*
+decides the artifact. PI-Desktop loads `manifest.json` + `main.js`, so its
+artifact is a `.piplug` and it is not published to npm; this package holds only
+the wiring (`pi` API → SDK) and the manifest.
+
 ## Build and smoke
 
 ```bash

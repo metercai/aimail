@@ -1,0 +1,7 @@
+RED    S1 activation                no binding written (see /tmp/aimail-l2-bRvctz/pi/rc) 
+RED    S2 arming                    pull armed (no /polling enabled|pull scope|SSE reconcile: [1-9]/ in /tmp/aimail-l2-bRvctz/pi/host.log) 
+RED    S2 arming                    arming line precedes/absent after the last 'no agent-scope binding' 
+RED    S3 delivery                  whitelist entry missing: whitelist failed: {"ok": false, "status": 401, "body": {"error": "Invalid X-Api-Signature", "detail": null}} 
+RED    S3 delivery                  inbound never stored (emails=0) — the inbound flow did not complete (not a pull/SSE issue) 
+RED    S4 multi-address             no typed second-address refusal in the evidence — the host either shadowed the first address silently or never attempted the bind (C1 unproven) 
+PASS   NEG invalid code             no binding written for an invalid code 

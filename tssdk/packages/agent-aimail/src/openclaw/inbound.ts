@@ -13,11 +13,9 @@
  * Delivery: api.runtime.subagent.run (session-scoped run) primary,
  * api.runtime.gateway.request (explicit agent targeting) fallback (R3).
  */
-import type { IncomingMessage, ServerResponse } from 'node:http'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import {
-  verifySignature,
   processInboundMail,
   routeAddressFromHeaders,
   logAimailDispatch,
@@ -36,8 +34,10 @@ import {
   type AgentPullOverrides,
   type InboundPayload,
   type RequestClient,
-  INBOUND_PATH,
+  readLocalMeta,
+  stampSessionMeta,
 } from '../core/index.js'
+import { parentMessageId } from '../runtime/index.js'
 import type { OpenClawPluginApi } from 'openclaw/plugin-sdk/plugin-entry'
 import { resolveByRecipient } from '../mail/index.js'
 import { getAgentSystemId } from '../core/agent-system-id.js'
@@ -52,22 +52,70 @@ import {
   resolveAgentId,
 } from './identity.js'
 
-// Single source of truth for contract constants = @aimail/mail-core(src/contract.ts <- contract/aimail-contract.json).
-// this re-export keeps the module's existing public surface (identity.ts / index.ts take it from './inbound.js').
-export { INBOUND_PATH }
-
-function writeJson(res: ServerResponse, code: number, body: unknown): void {
-  res.writeHead(code, { 'Content-Type': 'application/json' })
-  res.end(JSON.stringify(body))
+/**
+ * Host-side dedupe key for one dispatch.
+ *
+ * openclaw keys its replay cache on the dispatch scope, which includes the target session — so
+ * a key that ignores the target would make a retry *after the target changed* (e.g. the recorded
+ * session was deleted and we re-route) return the cached 200 **without running anything**: the
+ * pull loop then acks a mail that never landed. The target is part of the key for that reason.
+ */
+export function dispatchIdempotencyKey(messageId: string, sessionKey: string | undefined): string {
+  const mid = String(messageId ?? '').trim()
+  if (!mid) return ''
+  return `${mid}|${sessionKey ? `session:${sessionKey}` : 'isolated'}`.slice(0, 128)
 }
 
-function readBody(req: IncomingMessage): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = []
-    req.on('data', (c: Buffer) => chunks.push(c))
-    req.on('end', () => resolve(Buffer.concat(chunks)))
-    req.on('error', reject)
-  })
+/** Hooks policy the session-key decision needs (matches `readHooksConfig`). */
+export interface HookSessionPolicy {
+  allowSessionKey: boolean
+  prefixes: string[]
+}
+
+/**
+ * Which session one inbound mail belongs to — the §9 edge decision, host-side.
+ *
+ * E1 (direct reply) wins when the immediate parent is a mail WE sent **and** that mail's meta
+ * records the routable handle of the session that sent it. E2 (thread lineage) is the fallback:
+ * a deterministic key derived from the thread root, so a whole conversation stays in one session
+ * even when nobody can name the original one.
+ *
+ * A direct hit whose key is outside the host's allowed prefixes is NOT forced (the host would
+ * answer 400): the decision degrades to E2 and says so, so the drop is visible instead of silent.
+ */
+export function selectSessionKey(args: {
+  agentId: string
+  payload: unknown
+  headers: Record<string, unknown>
+  policy: HookSessionPolicy
+  parentMeta?: { session_key?: string }
+}): { sessionKey: string; source: 'direct-reply' | 'thread'; dropped?: string } {
+  const payload = args.payload as Parameters<typeof parentMessageId>[0]
+  const derivedKey = threadSessionKey(args.agentId, payload as never, args.headers)
+  const parent = parentMessageId(payload, args.headers)
+  const recorded = parent ? String(args.parentMeta?.session_key ?? '').trim() : ''
+  const allowed = (key: string): boolean =>
+    args.policy.prefixes.length === 0 || args.policy.prefixes.some((p) => key.startsWith(p))
+  if (recorded && allowed(recorded)) return { sessionKey: recorded, source: 'direct-reply' }
+  return {
+    sessionKey: derivedKey,
+    source: 'thread',
+    ...(recorded ? { dropped: 'sessionKey-not-in-allowed-prefixes' } : {}),
+  }
+}
+
+/**
+ * The agent id used for BOTH the session key and the dispatch body.
+ *
+ * `resolveDispatchAgentId` returns `''` when the host config names no agent (its own test ④
+ * pins that "do not guess"). Passing that empty value into the session key produced
+ * `agent::aimail:<hash>` — a key for an agent that does not exist — while the dispatch body
+ * was silently defaulted to `main`, so the key and the run disagreed. One resolution, used
+ * twice, is what keeps them equal.
+ */
+export function effectiveDispatchAgentId(agentId: string | undefined): string {
+  const given = String(agentId ?? '').trim()
+  return given || resolveAgentId() || 'main'
 }
 
 /**
@@ -81,11 +129,24 @@ function readBody(req: IncomingMessage): Promise<Buffer> {
  */
 export async function deliverToAgent(
   api: OpenClawPluginApi,
-  opts: { agentId: string; message: string; sessionKey?: string },
+  opts: {
+    agentId: string
+    message: string
+    sessionKey?: string
+    /**
+     * Ask the host to REUSE the resolved session across runs (`sessionMode: "persistent"`).
+     * Without it the host defaults to `isolated` — a fresh run session per call — so a
+     * caller-supplied key alone does NOT bring a reply back to the session that sent the mail
+     * (contract §9 E1). Only meaningful with `sessionKey`: the host answers 400 otherwise.
+     */
+    persist?: boolean
+    /** Host-side dedupe so a retried pull round does not run the same mail twice. */
+    idempotencyKey?: string
+  },
 ): Promise<{ status: string; detail: string }> {
   void api
   const hooksToken = readHooksToken()
-  const agentId = opts.agentId || resolveAgentId() || 'main'
+  const agentId = effectiveDispatchAgentId(opts.agentId)
   const r = await fetch(`http://127.0.0.1:${gatewayPort()}${hooksPath()}/agent`, {
     method: 'POST',
     headers: {
@@ -100,11 +161,18 @@ export async function deliverToAgent(
       // owner can be resolved", not providing it results in 400 (tested: endpoint exists, auth passed, still 400).
       agentId,
       ...(opts.sessionKey ? { sessionKey: opts.sessionKey } : {}),
-      // S1e (2026-09-27): **Do not send caller sessionKey** unless the host
-      // explicitly enables hooks.allowRequestSessionKey (checked below). Direct /agent calls with caller's own key require host
-      // explicit allowRequestSessionKey + prefix whitelist (documentation "Hook session and agent policy"),
-      // Otherwise return 400 per contract (routing/session policy). Omitted => host generates hook:<uuid>,
-      // each email is a clean new turn (this integration does not need session reuse).
+      // Session reuse (contract §9 E1): the host's `sessionMode` defaults to `isolated` — a fresh
+      // run session per call, measured on openclaw 2026.11.5 (`sessionTarget: isolated`,
+      // gateway/hooks.ts). Carrying the key is therefore NOT enough for a reply to land back in
+      // its own session; the caller must also ask for `persistent`. The host requires a key with
+      // it (400 "sessionKey is required when sessionMode is persistent"), hence both are
+      // conditional on the key.
+      ...(opts.sessionKey && opts.persist ? { sessionMode: 'persistent' } : {}),
+      ...(opts.idempotencyKey ? { idempotencyKey: opts.idempotencyKey } : {}),
+      // S1e (2026-09-27): **Do not send caller sessionKey** unless the host explicitly enables
+      // hooks.allowRequestSessionKey (checked at the call site). Direct /agent calls with the
+      // caller's own key require allowRequestSessionKey + a prefix whitelist ("Hook session and
+      // agent policy"); otherwise the host answers 400.
       deliver: false,
     }),
   })
@@ -270,27 +338,68 @@ export async function deliverInbound(
   // host's agent namespace (address-level bindings must not hand the host an
   // address local part — the 0.1.25 E2-pull defect). One rule, both entries.
   const agentId = resolveDispatchAgentId(cfg, agentAddr)
+  // The key must name the agent the dispatch will actually run under (P1-1: an empty id made
+  // the key `agent::aimail:…` while the body fell back to `main`).
+  const keyAgentId = effectiveDispatchAgentId(agentId)
   const policy = readHooksConfig()
-  const sessionKey = threadSessionKey(agentId, payload, headers)
-  const prefixAllowed = policy.prefixes.length === 0
-    || policy.prefixes.some((p) => sessionKey.startsWith(p))
+  // §9.2 I1 first: when the mail answers one WE sent, it must land in the session that sent it.
+  // The parent's local meta carries that session's routable handle (`session_key`, stamped by
+  // send_mail); an unknown parent is not a direct reply (never inferred from the reference chain).
+  const parent = parentMessageId(payload as never, headers)
+  const parentMeta = parent ? await readLocalMeta(cfg.email, parent) : undefined
+  const decision = selectSessionKey({ agentId: keyAgentId, payload, headers, policy, ...(parentMeta ? { parentMeta } : {}) })
+  const sessionKey = decision.sessionKey
+  const requestKey = policy.allowSessionKey
+    && (policy.prefixes.length === 0 || policy.prefixes.some((p) => sessionKey.startsWith(p)))
+  const idempotencyKey = dispatchIdempotencyKey(
+    String(payload.message_id ?? ''),
+    requestKey ? sessionKey : undefined,
+  )
   const out = await deliverToAgent(api, {
     agentId,
     message: JSON.stringify({ ...result, to: agentAddr }),
-    ...(policy.allowSessionKey && prefixAllowed ? { sessionKey } : {}),
+    // The key locates the session; `persist` is what makes the host REUSE it instead of
+    // opening a fresh isolated run (C8 / §9 E1). Both travel only when the host opted in.
+    ...(requestKey ? { sessionKey, persist: true } : {}),
+    // A pull retry must not run the same mail twice — but the key includes the target, so a retry
+    // after the target changed is NOT served from the host's replay cache (see
+    // dispatchIdempotencyKey: that cache hit was an ack with zero landing).
+    ...(idempotencyKey ? { idempotencyKey } : {}),
   })
   // E3-① (owner ruling 2026-09-27): record the dispatch outcome in the SAME per-agent
   // log the inbound line goes to. Measured on the CLI gate's J4e: without this line a
   // refused/suppressed dispatch was invisible — the log showed only {"event":"inbound"}
   // and nothing told the operator that no agent ever took the mail.
   await logAimailDispatch(cfg.email, out.status, out.detail, agentAddr, {
-    agentId,
+    // The EFFECTIVE id, i.e. the one the dispatch body actually carried. Logging the raw value here
+    // made the log disagree with the request it described (`agentId: ""` next to a key naming
+    // `main`) — QA flagged it; both facts are useful, so keep the raw one under its own name.
+    agentId: keyAgentId,
+    dispatchAgentIdRaw: agentId,
+    // QA P1-1: say WHERE the id came from — a binding-derived id and the default-agent fallback
+    // look identical in the log otherwise.
+    resolvedFrom: agentId ? 'binding' : 'default',
     sessionKey,
-    sessionKeyRequested: policy.allowSessionKey && prefixAllowed,
+    sessionKeyRequested: requestKey,
+    // Evidence for C8: a reply can only return to its session when the host reused it.
+    sessionModeRequested: requestKey ? 'persistent' : 'isolated',
+    // Which edge chose the session: E1 (direct reply to a mail we sent) or E2 (thread lineage).
+    sessionKeySource: decision.source,
+    ...(decision.dropped ? { directReplyDropped: decision.dropped } : {}),
+    // Contract §16 C17 证明范围 / 附 E: this host's 200 means "queued", not "landed". Recording it
+    // keeps the ack honest — nothing here may be read as proof that the turn ran.
+    deliveryConfirmation: 'admission-only',
     bindingAgentId: cfg.agent_id ?? '',
     bindingSystemId: cfg.system_id,
     agentSystemId: cfg.agent_system_id ?? '',
   })
+  if (out.status === 'delivered' && String(payload.message_id ?? '').trim()) {
+    // Remember where this mail landed: the next reply to it is a direct reply (E1), not a
+    // thread guess. Best-effort — a meta write must never fail a delivery.
+    await stampSessionMeta(cfg.email, String(payload.message_id), {
+      ...(requestKey ? { sessionKey } : {}),
+    }).catch(() => {})
+  }
   return { status: out.status, detail: out.detail, ok: out.status === 'delivered' }
 }
 
@@ -518,52 +627,5 @@ export async function startInboundPull(
 }
 
 
-export function createInboundHandler(api: OpenClawPluginApi) {
-  return async (
-    req: IncomingMessage,
-    res: ServerResponse,
-  ): Promise<void> => {
-    try {
-      if (req.method !== 'POST') {
-        writeJson(res, 405, { status: 'method_not_allowed' })
-        return
-      }
-      const rawBody = await readBody(req)
-      let payload: InboundPayload
-      try {
-        payload = JSON.parse(rawBody.toString('utf-8')) as InboundPayload
-      } catch {
-        writeJson(res, 400, { status: 'bad_json' })
-        return
-      }
-
-      const headers = {
-        ...(req.headers as Record<string, string | string[]>),
-        ...(payload.headers ?? {}),
-      } as Record<string, unknown>
-
-      const target = await resolveInboundTarget(payload, headers)
-      if (!target) {
-        writeJson(res, 200, { status: 'no_agent', detail: 'no binding' })
-        return
-      }
-
-      // HMAC verify (per-address webhook_secret) — the bridge↔endpoint trust
-      // boundary. Pulled mail carries no bridge, so this step is push-only
-      // (the gateway authenticated the agent-scope key instead).
-      const sig = (req.headers['x-webhook-signature'] as string) ?? ''
-      if (!verifySignature(rawBody, sig, target.cfg.webhook_secret ?? '')) {
-        writeJson(res, 401, { status: 'bad_signature' })
-        return
-      }
-
-      const out = await deliverInbound(api, target, payload, headers)
-      writeJson(res, 200, { status: out.status, detail: out.detail })
-    } catch (e) {
-      writeJson(res, 500, {
-        status: 'error',
-        detail: e instanceof Error ? e.message : String(e),
-      })
-    }
-  }
-}
+// No HTTP inbound handler: the in-gateway push route was retired 2026-11-25 (SSE/pull only).
+// Mail arrives through `startInboundPull` above; there is no endpoint to expose and no HMAC step.

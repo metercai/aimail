@@ -29,7 +29,8 @@ AGENT_SYSTEM_HEADER = "X-Agent-System-Id"
 
 
 def build_agent_system_client(gateway_url: str, api_key: str, agent_system_id: str,
-                              identity: str = "", timeout: Optional[float] = None):
+                              identity: str = "", timeout: Optional[float] = None,
+                              members=None):
     """Aggregate pull client for one ``(AgentSystemId, Gateway)`` pair.
 
     ``identity`` is the signing identity (the representative address), NOT the
@@ -49,8 +50,24 @@ def build_agent_system_client(gateway_url: str, api_key: str, agent_system_id: s
         stream_path=AGENT_SYSTEM_STREAM_PATH,
         pending_path=AGENT_SYSTEM_PENDING_PATH,
         ack_path=AGENT_SYSTEM_ACK_PATH,
-        extra_headers={AGENT_SYSTEM_HEADER: asid},
+        extra_headers={
+            AGENT_SYSTEM_HEADER: asid,
+            # The anchor identifier the gateway recorded at activation (`email;sha256`, comma
+            # separated). Not a secret — it is the claim the gateway verifies, which is what stops a
+            # locally edited binding from moving a mailbox (contract §7.1).
+            **_anchor_headers(members),
+        },
     )
+
+
+def _anchor_headers(members) -> dict:
+    """``{X-Aimail-Anchor: ...}`` for a group's members ({} when nothing to claim)."""
+    try:
+        import v2.anchor as _anchor
+        value = _anchor.anchor_header(members or [])
+    except Exception:  # noqa: BLE001 — a missing claim is allowed, never fatal
+        value = ""
+    return {_anchor.ANCHOR_HEADER: value} if value else {}
 
 
 def is_aggregate_client(client) -> bool:

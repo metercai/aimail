@@ -11,7 +11,6 @@ export type {
 } from './types.js'
 export {
   threadRoot,
-  routeThread,
   normalizeMessageId,
   referencesList,
   parentMessageId,

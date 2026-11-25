@@ -1,0 +1,12 @@
+{
+  "api_key": "<redacted>",
+  "domain": "test.local",
+  "email": "l2dsh@test.local",
+  "expires_at": "2026-11-24T00:09:16.522Z",
+  "gateway_url": "http://127.0.0.1:18080",
+  "paused": false,
+  "system_id": "system-1b11",
+  "workspace_id": "ab6407e3-48a1-4b57-8e63-f90487b2f31a",
+  "workspace_path": "/root/ws",
+  "workspace_title": "ws"
+}

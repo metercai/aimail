@@ -13,7 +13,8 @@ HOST_NAME=pi
 # Capability declaration (contract §11.1 L3-wake): pi/TUI cannot wake a *different* session safely
 # (no session-file lock, no way to detect a foreign writer) ⇒ single-address host.
 HOST_ADDRESS_MODEL=single
-HOST_DELIVERY_CONFIRMATION=admission-only  # 附 E: sendUserMessage fire-and-forget；pi 为 S ⇒ C17 N/A
+HOST_DELIVERY_CONFIRMATION=no-session-model  # 附 E: 会话身份由 CLI 决定，入站无分配/改挂入口 ⇒ C17 义务为空
+HOST_CAN_ALLOCATE_SESSION=0  # 附 E/C8 证明范围: CLI 决定会话，插件只持有当前会话（newSession 只在 command ctx）
 PI_IMAGE="${PI_IMAGE:-aimail-host-pi:latest}"
 V2_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 

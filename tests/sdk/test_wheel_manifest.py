@@ -63,31 +63,31 @@ def test_force_include_has_no_dangling_sources():
 
 #: 0.2.x source-patch era. Installation is now a pip install + the host's own plugin
 #: mechanism, so none of these may reach the published package (§6.8): a shipped
-#: ``patch_webhook`` is exactly the "SDK has no CLI, no source patch" promise being broken.
-LEGACY_SOURCES = (
+#: 0.2.x source-patch era, **retired 2026-11-25** (owner go-ahead): the v1 hermes adapter and its
+#: patchers are gone from the tree, not just from the wheel. Installation is `pip install
+#: agent-aimail` + the host's own plugin entry point, so nothing may bring them back.
+RETIRED_SOURCES = (
     "pysdk/hermes/patch_webhook.py",
     "pysdk/hermes/patch_profiles.py",
     "pysdk/hermes/ensure_config.py",
     "pysdk/hermes/register_profiles.py",
     "pysdk/hermes/toolsets.py",
+    "pysdk/hermes/aimail_hermes.py",
 )
 
 
-def test_legacy_patch_modules_are_not_shipped():
+def test_legacy_patch_modules_are_gone_from_the_tree_and_the_wheel():
     rows = _force_include_rows()
-    shipped = [s for s in LEGACY_SOURCES if s in rows]
-    assert not shipped, (
-        "legacy source-patch modules are back in the wheel — installation must be pip + "
-        "the host plugin only: %s" % ", ".join(shipped))
+    shipped = [s for s in RETIRED_SOURCES if s in rows]
+    assert not shipped, "retired v1 hermes sources are back in the wheel: %s" % ", ".join(shipped)
+    back = [s for s in RETIRED_SOURCES if (ROOT / s).is_file()]
+    assert not back, "retired v1 hermes sources are back in the tree: %s" % ", ".join(back)
 
 
-def test_legacy_files_still_exist_for_the_explicit_switch_audit():
-    """They leave the WHEEL, not the tree: their tests keep proving they stay inert."""
-    gone = [s for s in LEGACY_SOURCES if not (ROOT / s).is_file()]
-    assert not gone, "legacy modules were deleted instead of unshipped: %s" % gone
-
-
-def test_host_registration_module_still_ships():
-    """`hosts/registry.py` names ``aimail_hermes`` as the hermes register entry point."""
+def test_host_plugins_ship_and_the_v1_host_layer_does_not():
+    """The wheel carries the two v2 host plugins; `pysdk/hosts/` (v1 host registry) is gone."""
     rows = _force_include_rows()
-    assert "pysdk/hermes/aimail_hermes.py" in rows
+    assert "pysdk/hermes_plugin/__init__.py" in rows
+    assert "pysdk/deerflow_plugin/__init__.py" in rows
+    assert not (ROOT / "pysdk" / "hosts").exists(), "v1 host registry is back"
+    assert not any(r.startswith("pysdk/hosts/") for r in rows), "v1 host registry is back in the wheel"

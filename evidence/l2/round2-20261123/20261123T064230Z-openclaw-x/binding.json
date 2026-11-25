@@ -1,0 +1,14 @@
+{
+  "agent_id": "l2openclaw",
+  "agent_system_id": "asid_67c946d777e5bec6bb789aedf0dc1e44",
+  "api_key": "<redacted>",
+  "domain": "test.local",
+  "email": "l2openclaw@test.local",
+  "expires_at": "2026-11-24T06:42:30.490Z",
+  "gateway_url": "http://127.0.0.1:28080",
+  "manager_address": "l2-openclaw-13378@example.com",
+  "system_id": "system-90a5",
+  "workspace_id": "main",
+  "workspace_path": "/app/.openclaw/workspace",
+  "workspace_title": "main"
+}

@@ -19,6 +19,7 @@ import {
   saveLocalMeta,
   readLocalMeta,
   resolveThreadId,
+  stampSessionMeta,
 } from '../../src/core/meta.js'
 import { cleanAddr } from '../../src/core/config.js'
 
@@ -124,3 +125,45 @@ describe('resolveThreadId', () => {
     expect(await resolveThreadId(EMAIL, '<orphan@token.tm>')).toBe('<orphan@token.tm>')
   })
 })
+
+describe('stampSessionMeta — the routable session handle (contract §9.1)', () => {
+  it('stores session_key next to session_id so a reply can reach the sending session', async () => {
+    const mid = '<stamp-1@local>'
+    await saveLocalMeta(EMAIL, mid, [], EMAIL, 'outbound')
+    await stampSessionMeta(EMAIL, mid, { sessionId: 'sess-1', sessionKey: 'agent:main:main' })
+    const meta = await readLocalMeta(EMAIL, mid)
+    expect(meta?.session_id).toBe('sess-1')
+    // OpenClaw addresses sessions by key; its session id is ephemeral, so both are kept.
+    expect(meta?.session_key).toBe('agent:main:main')
+  })
+
+  it('merges into an existing meta without dropping references or thread_id', async () => {
+    const mid = '<stamp-2@local>'
+    await saveLocalMeta(EMAIL, mid, ['<root@x>'], EMAIL, 'outbound')
+    await stampSessionMeta(EMAIL, mid, { sessionKey: 'agent:main:chat-7' })
+    const meta = await readLocalMeta(EMAIL, mid)
+    expect(meta?.references).toEqual(['<root@x>'])
+    expect(meta?.thread_id).toBe('<root@x>')
+    expect(meta?.session_key).toBe('agent:main:chat-7')
+    expect(meta?.session_id).toBeUndefined()
+  })
+})
+
+describe('saveLocalMeta preserves session ownership (§9.4)', () => {
+  it('an inbound rewrite must not erase the session that owns the thread', async () => {
+    // QA's Q1/Q2 finding: every inbound preprocess called saveLocalMeta and silently dropped
+    // session_id, so the thread pointer never survived and C17's producer was unreachable.
+    const mid = '<preserve-1@local>'
+    await saveLocalMeta(EMAIL, mid, [], EMAIL, 'inbound')
+    await stampSessionMeta(EMAIL, mid, { sessionId: 'sess-owner', sessionKey: 'agent:main:main', workspacePath: '/w' })
+    await saveLocalMeta(EMAIL, mid, ['<root@x>'], EMAIL, 'inbound')
+    const meta = await readLocalMeta(EMAIL, mid)
+    expect(meta?.session_id).toBe('sess-owner')
+    expect(meta?.session_key).toBe('agent:main:main')
+    expect(meta?.workspace_path).toBe('/w')
+    // …while the mail's own facts are refreshed
+    expect(meta?.references).toEqual(['<root@x>'])
+    expect(meta?.thread_id).toBe('<root@x>')
+  })
+})
+

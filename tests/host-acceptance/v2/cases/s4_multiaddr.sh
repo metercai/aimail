@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
-# S4 — multi-address: tssdk hosts (dsh/openclaw) keep two bindings; pi is single-address.
+# S4 — multi-address: multi-address hosts keep two bindings; single-address hosts refuse the second.
+#
+# Contract v2.3 mapping:
+#   * C1  — the second address is refused before any gateway call (code not consumed).
+#   * C18 — the refusal names the FIRST unmet layer of §11.2; for a host that cannot wake a
+#           different session that layer is `wake` (the SDK emits `failed: "wake"`).
+#   * M is not "has two bindings": §11.2 requires anchors + isolation + wake; the wake half is
+#     exercised by `s6` (a reply must land back in its own session), so s4 alone never proves M.
 set -uo pipefail
 CASE="S4 multi-address"
 out="$1"; host="${2:-}"
@@ -19,8 +26,26 @@ if [ -z "$_model" ]; then
   case "$host" in pi|hermes) _model=single ;; *) _model=multi ;; esac
 fi
 if [ "$_model" = "single" ]; then
-  [ "${maxb:-0}" -le 1 ] && pass "second address rejected (single-address model, $host)" \
-                        || red "second binding written on $host (max=$maxb) — C1 violated"
+  # C1 is not merely "one binding survived": the host must REFUSE the second address in a
+  # typed way (so the one-time code is demonstrably not consumed). A run where the second
+  # bind was never attempted cannot prove C1 — treat it as RED, because it would equally
+  # hide a host that silently shadows the first address.
+  if [ "${maxb:-0}" -gt 1 ]; then
+    red "second binding written on $host (max=$maxb) — C1 violated"
+  # Accept the raw codes OR the natural-language paraphrase: the tool result reaches the
+  # log through the model, which routinely restates it ("already bound … only supports one
+  # address"). What must NOT be accepted is a successful second bind — that is the silent
+  # shadowing this case exists to catch.
+  # C18 wants the layer: `failed=<layer>` or `failed[0]=…` in the structured result. The log is
+  # written by the model, which may restate the answer instead of quoting it — so a paraphrase is
+  # accepted, but reported as the weaker evidence it is (never silently counted as C18).
+  elif grep -qaE 'failed[^a-zA-Z]{0,8}(wake|L3)' "$out"/*.log 2>/dev/null; then
+    pass "second address rejected with the failed layer (C1 + C18: failed=wake), code not consumed ($host)"
+  elif grep -qaiE "SINGLE_ADDRESS_HOST|second-address|only supports one address|already bound" "$out"/*.log 2>/dev/null; then
+    pass "second address rejected (typed refusal, code not consumed) — C18 layer not visible in the model-written log (paraphrased)"
+  else
+    red "no typed second-address refusal in the evidence — the host either shadowed the first address silently or never attempted the bind (C1 unproven)"
+  fi
   return 0
 fi
 

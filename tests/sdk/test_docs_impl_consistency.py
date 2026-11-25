@@ -65,19 +65,24 @@ def test_wrong_contract_value_is_red(tmp_path):
     assert "binding_file" in out, out  # report names which source of truth value is missing
 
 
-def test_platform_doc_path_drift_is_red(tmp_path):
-    """Host-side facts (inbound path + ports) are pinned to the platform doc:
-    a typo there must stay red even though the self-setup doc is clean."""
+def test_platform_doc_drift_is_red(tmp_path):
+    """Naming values are pinned to the platform doc: a typo there must stay red even though the
+    self-setup doc is clean.
+
+    This used to drift the inbound PATH. That key left the contract on 2026-11-25 (no adapter binds
+    a local endpoint any more), so the probe now uses a naming value that still exists.
+    """
     man = json.loads(MANIFEST.read_text(encoding="utf-8"))
     text = PLATFORM_EN.read_text(encoding="utf-8")
-    assert man["inbound_path"] in text, "Precondition: the platform documentation already references the true source path"
-    bad_text = text.replace(man["inbound_path"], man["inbound_path"].replace("/", "_"))
-    assert man["inbound_path"] not in bad_text
+    key = "binding_file"
+    assert man[key] in text, f"Precondition: the platform documentation references {key}"
+    bad_text = text.replace(man[key], man[key].replace(".", "_"))
+    assert man[key] not in bad_text
     bad = tmp_path / "bad-platform.md"
     bad.write_text(bad_text, encoding="utf-8")
     rc, out = _run("--platform-en", str(bad))
     assert rc == 1, out
-    assert "inbound_path" in out, out
+    assert key in out, out
 
 
 def test_missing_doc_cannot_judge():

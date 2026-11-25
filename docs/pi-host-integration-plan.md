@@ -155,8 +155,8 @@ agent-aimail (npm)
    - 能创建新会话或唤起当前会话；
    - 上述能力可由入站路径触发。
    任一条不满足 ⇒ S。
-2. **§9 路由**改为 §5.1 的五步（含 `In-Reply-To` / `References[last]` 的判定与"新 thread 新 session、失败回退当前会话"）。
-3. **§11.3 矩阵**：保持两列（M/S），宿主归类修正为 **裸 pi = S、PI-Desktop = M**。
+2. **§9 映射**改为三条边（E1 直属 > E2 thread > E3 分配；E1 锚点内硬性、E2 可跨 Session 重挂、E3 优先新会话）。
+3. **§11 判定**改为三层（L1 锚点 / L2 隔离 / L3 调用），宿主归类修正为 **裸 pi = S、PI-Desktop = M**。
 4. 新增注记：多地址宿主的"唤起"能力由**宿主**提供（桌面 = 插件会话 API / RACP），扩展层不承担会话生命周期。
 
 ---
@@ -320,6 +320,10 @@ PASS  session/history readable
 `tssdk/packages/aimail-desktop-plugin/`：`manifest.json` + `src/main.ts`（`onLoad` 注册 `contributes.services`
 服务，`start` 里起 `startSystemPull`，`mode:'poll'` 因为 `pi.net.fetch` 只能整包响应），路由/投递全部复用
 `agent-aimail/desktop`（`delivery.ts` + `inbox.ts`），构建产物是单文件 CJS `dist/main.js`。
+
+**形态（owner 2026-11-24 定）**：代码统一管理、产物按宿主分开 —— 契约级规则留在 `agent-aimail`（与 `./pi`、
+`./dsh`、`./openclaw` 共用同一套类型与门禁测试），只有宿主接线在插件包里；PI-Desktop 的加载机制决定产出物是
+`.piplug` 而非 npm 包。`agent-aimail/desktop` 目前只被插件包引用，不需要搬动。
 
 **打包不是我做的**（owner 2026-11-24：打包由质检驱动）。我只保证两件事：
 

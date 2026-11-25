@@ -1,0 +1,13 @@
+{
+  "agent_id": "l2pi",
+  "agent_system_id": "asid_068e31c6804870511d5f4adc9c9293c2",
+  "api_key": "<redacted>",
+  "domain": "test.local",
+  "email": "l2pi@test.local",
+  "expires_at": "2026-11-24T08:35:55.407Z",
+  "gateway_url": "http://127.0.0.1:18080",
+  "manager_address": "l2-pi-3501@example.com",
+  "system_id": "system-8e3e",
+  "workspace_id": "/root/ws",
+  "workspace_path": "/root/ws"
+}

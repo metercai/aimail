@@ -1,4 +1,4 @@
-"""SSE-primary / long-pull fallback state machine (Phase 2, contract §0.3/0.4).
+"""SSE-primary / long-pull fallback state machine (Phase 2, contract §8.2).
 
 Pins:
 1. _SseParser — incremental frame parsing (multi-chunk, multi-line data,

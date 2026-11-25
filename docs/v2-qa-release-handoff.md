@@ -88,9 +88,12 @@
 1. **唯一激活工具**：`aimail_address`；不再有 `aimail_system`。
 2. **激活 prompt**：
 
-```text
-Activate and bind my AIMail mailbox address {address} with activation code {code} at gateway {gateway_url} using `aimail_address`. If `aimail_address` is unavailable or not registered, install the `agent_aimail` plugin SDK first: from PyPI via pip for Python, or from npm for Node.js. Then retry `aimail_address` with the same parameters.
-```
+以契约 `docs/aimail-host-sse-contract-v2.md` **Appendix A** 为准（Gateway v1.0.16 实文）：
+"Use `aimail_address` to activate and bind the dedicated AIMail mailbox {address} for this agent
+(gateway: {gateway_url}; activation code: {code}). … install the `agent-aimail` plugin using your
+platform's plugin install command … no reinstallation is needed."
+
+> 本文不再复制完整 prompt：上一版复制后随网关改动变成了陈旧副本。引用段落号即可。
 
 3. **GatewaySystemId**：激活返回，作为 `.aimail/systems/<GatewaySystemId>/<address>` 分组。
 4. **AgentSystemId**：本地派生；SSE/聚合身份；不是 Gateway system_id。

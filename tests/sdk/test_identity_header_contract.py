@@ -57,14 +57,13 @@ import aimail_base as ab
 import aimail_board as B
 import aimail_tools as T
 
-import sdk_ops as SO
 
 REPO = _REPO
-HERMES_SRC = REPO / "pysdk" / "hermes" / "aimail_hermes.py"
+HERMES_PLUGIN = REPO / "pysdk" / "hermes_plugin"  # v1 adapter (pysdk/hermes/) retired 2026-11-25
 
 # Guard: this test must exercise the REPO sources, not a pip-installed
 # agent-aimail wheel. Fail loudly instead of silently testing old code.
-for _m in (ab, B, T, SO):
+for _m in (ab, B, T):
     assert str(_m.__file__).startswith(str(REPO)), (
         f"{_m.__name__} resolved to {_m.__file__} — the installed agent-aimail "
         f"package is shadowing the repo sources; this test must run against "
@@ -253,37 +252,6 @@ def test_set_agent_manager_passes_identity_system_id(monkeypatch, tmp_path):
     assert body == {"manager_address": "mgr@a1.local"}
 
 
-def test_sdk_ops_gateway_client_passes_identity_from_gw(monkeypatch):
-    calls = []
-
-    class _FakeClient:
-        def __init__(self, url, key, *a, **kw):
-            calls.append((url, key, kw))
-
-    monkeypatch.setattr(T, "_GatewayClient", _FakeClient)
-    gw = {"gateway_url": "http://127.0.0.1:9", "admin_key": "adminkey1",
-          "system_id": "sys1"}
-    SO._gateway_client(gw)
-    assert calls[0][2].get("identity") == "sys1"
-
-
-def test_deerflow_make_client_passes_identity_system_id(monkeypatch, tmp_path):
-    import importlib
-    df = importlib.import_module("aimail_deerflow")
-    calls = []
-
-    class _FakeClient:
-        def __init__(self, url, key, *a, **kw):
-            calls.append((url, key, kw))
-
-    monkeypatch.setattr(df._tools, "_GatewayClient", _FakeClient)
-    monkeypatch.setattr(df, "load_agent_config_for_key",
-                        lambda sid: {"gateway_url": "http://127.0.0.1:9",
-                                     "api_key": "agentkey1"})
-    df.make_client(system_id="sys1")
-    assert calls[0][2].get("identity") == "sys1"
-
-
 def test_board_client_agent_key_passes_identity_email(monkeypatch, tmp_path):
     calls = []
 
@@ -305,19 +273,21 @@ def test_board_client_agent_key_passes_identity_email(monkeypatch, tmp_path):
     assert calls[0][1] == ""
 
 
-# ── 4. Hermes adapter: source-level invariants (heavy host wiring) ───────────
+# ── 4. Hermes v2 plugin: identity invariants ─────────────────────────────────
+#
+# The v1 adapter (`pysdk/hermes/aimail_hermes.py`) was retired 2026-11-25, so its source-level pins
+# are gone with it. What must still hold: the v2 plugin never re-implements the gateway client and
+# never registers a webhook endpoint of its own (endpoint scope is gated by
+# tests/contract/check-legacy-push-scope.py; delivery behaviour by tests/sdk/test_hermes_plugin.py).
 
 
-def test_hermes_admin_key_sites_pass_identity_system_id():
-    src = HERMES_SRC.read_text()
-    # both admin_key paths (auto-register :574 / auto-deregister :792) must
-    # name the system
-    assert src.count("_GatewayClient(gateway_url, admin_key, identity=system_id)") >= 2
-    # the empty-key public activation site stays identity-free
-    m = re.search(r"_GatewayClient\(config\.get\(\"gateway_url\".*?\)\,\s*\"\", timeout=5\)", src)
-    assert m, "empty-key activation site unexpectedly changed shape"
-
-
-def test_hermes_client_alias_resolves_to_tools_client():
-    # The adapter aliases the shared core client (single source) — pin by source.
-    assert "_GatewayClient = tools._GatewayClient" in HERMES_SRC.read_text()
+def test_hermes_v2_plugin_reuses_the_shared_gateway_client():
+    plugin = HERMES_PLUGIN
+    offenders = []
+    for path in sorted(plugin.rglob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        if "class _GatewayClient" in text or "class GatewayClient" in text:
+            offenders.append(path.name)
+        if "register_webhook" in text or "webhook_url =" in text:
+            offenders.append(f"{path.name} (webhook endpoint)")
+    assert not offenders, f"v2 hermes plugin re-implements transport/webhook: {offenders}"

@@ -19,6 +19,8 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { getAgentSystemId } from './agent-system-id.js'
 import { fireBindingCreated, fireBindingRemoved } from './binding-hooks.js'
+import { BINDING_SOURCE_ACTIVATION } from './binding-provenance.js'
+import { anchorId } from './anchor-id.js'
 import {
   PULL_HOLD_MAX_MS,
   PULL_MODE_ENV,
@@ -167,12 +169,16 @@ export async function activateAddressCode(
   client: RequestClient,
   code: string,
   emailAddress: string,
-  opts: { agentSystemId?: string } = {},
+  opts: { agentSystemId?: string; anchorId?: string } = {},
 ): Promise<ActivateAddressCodeResult> {
   const systemId = opts.agentSystemId?.trim()
+  const anchor = String(opts.anchorId ?? '').trim()
   const res = await client.request('POST', '/api/v1/activate-address-code', {
     code,
     email_address: emailAddress.trim().toLowerCase(),
+    // Registered with the gateway so every later pull can be checked against it (contract §7.1):
+    // sha256(email + anchor). The gateway never sees the anchor itself.
+    ...(anchor ? { anchor_id: anchor } : {}),
   }, systemId ? { 'X-Agent-System-Id': systemId } : undefined)
   const rawKey = res.raw_key as string | undefined
   if (!rawKey) {
@@ -203,6 +209,12 @@ export interface ActivateAddressCodePersistOptions {
   agentId?: string
   /** Platform home dir; when set, the `.agentmail` discovery pointer is written there. */
   platformHome?: string
+  /**
+   * The agent-side anchor this address is being bound to (dsh: workspace path, pi: cwd, openclaw:
+   * agent workspace). When present it is hashed together with the address and registered with the
+   * gateway (contract §7.1), so every later pull is checked against it.
+   */
+  workspacePath?: string
 }
 
 export interface ActivateAddressCodePersistResult
@@ -245,8 +257,10 @@ export async function activateAddressCodePersist(
         'baseUrl — refusing to persist a binding without it (contract: 7 fields)',
     }
   }
+  const anchoredWorkspace = String(opts.workspacePath ?? '').trim()
   const act = await activateAddressCode(client, code, emailAddress, {
     agentSystemId: await getAgentSystemId(),
+    ...(anchoredWorkspace ? { anchorId: anchorId(emailAddress, anchoredWorkspace) } : {}),
   })
   if (!act.success || !act.raw_key) {
     return act // failure envelope: no raw_key by construction
@@ -275,6 +289,11 @@ export async function activateAddressCodePersist(
     agent_system_id: await getAgentSystemId(),
     api_key: act.raw_key,
     agent_id: agentId,
+    // Provenance: this is the ONLY place a binding is minted. A hand-written file has no way to
+    // produce a matching key (the gateway issues it), and core/binding-provenance.ts reports any
+    // file that lacks this stamp.
+    binding_source: BINDING_SOURCE_ACTIVATION,
+    activated_at: new Date().toISOString(),
   }
   if (act.expires_at) cfg.expires_at = act.expires_at
   // Manager = what the gateway actually stored during activation (read back
@@ -409,7 +428,7 @@ export type PullDeliveryResult =
   | { status: 'intercepted'; detail?: string }
   | { status: 'deferred'; detail?: string }
   | { status: 'rejected'; detail?: string }
-  | { status: 'skip'; reason: 'paused' | 'unknown' }
+  | { status: 'skip'; reason: 'paused' | 'unknown' | 'unproven' }
 
 /**
  * Auth fatal: the gateway rejected the key N consecutive times (401/403).
@@ -1160,6 +1179,9 @@ export async function aimailAddress(args: AimailAddressArgs): Promise<AimailAddr
       return {
         success: false, action: 'bind', reason: 'second-address',
         error_code: 'SINGLE_ADDRESS_HOST',
+        // Contract C18: the refusal names the first unmet layer of §11.2. A single-address
+        // declaration means "cannot wake a *different* session reliably", not "no anchors".
+        failed: 'wake',
         error: `this host holds a single active address (${other}); unbind it before binding ` +
                `${addr} — no activation code was consumed`,
         existing_email: other,
@@ -1242,6 +1264,7 @@ export async function aimailAddress(args: AimailAddressArgs): Promise<AimailAddr
     const res = await activateAddressCodePersist(client, String(args.code).trim(), addr, {
       gatewayUrl: gw,
       ...(profileDir ? { platformHome: profileDir } : {}),
+      ...(args.workspacePath ? { workspacePath: String(args.workspacePath) } : {}),
     })
     return res as unknown as AimailAddressResult
   }
@@ -1270,13 +1293,19 @@ export async function aimailAddress(args: AimailAddressArgs): Promise<AimailAddr
     } catch {
       return { success: false, action: 'move', reason: 'workspace-invalid', error: `workspace does not exist: ${target}`, email: addr }
     }
-    const next = { ...active, workspace_id: target, workspace_path: target }
-    await saveAgentConfig(next, active.system_id)
+    // Re-anchoring is NOT a local edit any more: the gateway holds the anchor identifier it received
+    // at activation and refuses pulls that present a different one (contract §13.3). Writing the new
+    // workspace here would leave the address permanently unpullable, so this action tells the caller
+    // what actually moves an address: a new activation code.
+    const registered = String(active.workspace_path ?? '').trim()
     return {
-      success: true, action: 'move', reason: 'moved', email: addr,
-      system_id: active.system_id, path: found.activePath,
-      workspace_id: target, workspace_path: target,
-      note: 'future mail routes to the new workspace; existing sessions are not migrated',
+      success: false, action: 'move', reason: 're-activation-required', email: addr,
+      error:
+        `this address is bound to ${registered || '(no anchor)'} and the gateway keeps that anchor; ` +
+        'moving it requires re-activation (a new address code) — editing the binding locally only ' +
+        'makes the pull fail with anchor_mismatch',
+      system_id: active.system_id,
+      workspace_id: active.workspace_id, workspace_path: registered,
     }
   }
 

@@ -14,14 +14,15 @@ V2_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 host_journey() {
   local out="$1" addr="$2" code="$3" token="$4"
   mkdir -p "$out"
-  S6FLAG=0; S7FLAG=0
+  S6FLAG=0; S7FLAG=0; S8FLAG=0
   case " ${STAGES:-} " in *" s6 "*) S6FLAG=1 ;; esac
   case " ${STAGES:-} " in *" s7 "*) S7FLAG=1 ;; esac
+  case " ${STAGES:-} " in *" s8 "*) S8FLAG=1 ;; esac
   docker run --rm --network host --name "l2dsh-$$" \
     -e "LLM_API_KEY=${LLM_API_KEY:?}" -e "AH=$addr" -e "AC=$code" -e "GWURL=${GW_URL}" \
     -e "TOKEN=$token" -e "GWSMTP=$((GW_SMTP + 1))" \
     -e "AH2=${S4_ADDR:-}" -e "AC2=${S4_CODE:-}" -e "LIFECYCLE=${LIFECYCLE:-0}" \
-    -e "S6=$S6FLAG" -e "S7=$S7FLAG" \
+    -e "S6=$S6FLAG" -e "S7=$S7FLAG" -e "S8=$S8FLAG" \
     -v "$V2_ROOT/lib:/opt/v2lib:ro" -v "${SDK_TARBALL_DIR:?}:/opt/sdk:ro" \
     -v "${GW_WORK}:/gw:ro" -v "$out:/out" \
     --entrypoint bash "$DSH_IMAGE" -lc '
@@ -97,8 +98,16 @@ PY
       if [ "${S7:-0}" = "1" ]; then
         python3 /opt/v2lib/s7_drive.py --addr "$AH" --smtp-port "$GWSMTP" \
           --db /gw/storage/aimail.db --out /out \
-          --session-root /root/.dsh/sessions --depth 2 --settle 20 --stale-session \
+          --session-root /root/.dsh/sessions --depth 2 --settle 20 --stale-session --thread-meta \
           >> /out/s7_drive.log 2>&1 || true
+      fi
+      # s8 (contract C16): point the thread at a session that belongs to ANOTHER anchor, then reply.
+      # The recorded session stays LIVE on purpose — only the anchor check can refuse it.
+      if [ "${S8:-0}" = "1" ]; then
+        python3 /opt/v2lib/s8_drive.py --addr "$AH" --smtp-port "$GWSMTP" \
+          --db /gw/storage/aimail.db --out /out \
+          --session-root /root/.dsh/sessions --depth 2 --settle 20 --aimail-home /root/.aimail \
+          >> /out/s8_drive.log 2>&1 || true
       fi
       tail -n 400 /tmp/web.log /tmp/web2.log > /out/host.log 2>/dev/null || true
       tail -n 300 /tmp/act.log > /out/act.log 2>/dev/null || true

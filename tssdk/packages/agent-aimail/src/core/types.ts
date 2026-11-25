@@ -49,6 +49,14 @@ export interface AgentConfig {
   /** gate for raw out-/in- snapshot writes (default false); meta is ALWAYS written */
   save_raw_snapshots?: boolean
   /**
+   * Provenance stamp — written ONLY by the activation chain (activateAddressCodePersist).
+   * Absence means "this binding was not produced by consuming an activation code"; see
+   * core/binding-provenance.ts for how that is judged (strict vs report-only).
+   */
+  binding_source?: string
+  /** RFC3339 instant at which the activation code was consumed (provenance, not expiry). */
+  activated_at?: string
+  /**
    * Address validity end (RFC3339) — written by the address-code
    * consumption chain (activateAddressCodePersist). Present only for
    * addresses bound via an activation code; the register path leaves it

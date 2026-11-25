@@ -441,3 +441,6 @@ Owner 要求把 base/advanced 下发邮件正文里的 `agent_aimail` 改为 **`
 | advanced | **v1.0.14** @ `60ea90a`，已构建并部署；备份 `.bak-20261123-v1.0.13` |
 | pins | v1.0.15 |
 | 验证 | base 416 / advanced 146 tests + fmt/clippy；L2 smoke 见交接文档 |
+
+
+> 2026-11-23 后继未发版修订：prompt 安装句改为 “using your platform's plugin install command”；新增共享 `generate_activation_code()` / `valid_agentname()`。base/advanced 工作树 ahead，按 owner 要求汇总后统一发版。

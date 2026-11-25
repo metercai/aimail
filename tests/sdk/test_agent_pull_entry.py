@@ -37,6 +37,7 @@ import aimail_base as base  # noqa: E402
 import aimail_contract as contract  # noqa: E402
 from aimail_contract import BINDING_FILE  # noqa: E402
 from aimail_tools import _GatewayClient, _poll_sleep  # noqa: E402
+from _v1_route import V1_INBOUND_URL  # v1-only route (not a contract value any more)
 
 AGENT_SCOPE_SID = "shared_addr_abc123"
 PLAIN_SID = "shared-token-40b34a66"
@@ -713,7 +714,7 @@ def _mode(p: Path) -> int:
     return stat.S_IMODE(p.stat().st_mode)
 
 
-DEFAULT_INBOUND_URL = contract.inbound_url(contract.INBOUND_PORT)
+DEFAULT_INBOUND_URL = V1_INBOUND_URL
 
 
 def test_provision_lands_secret_in_the_shared_binding_format(tmp_path, monkeypatch):
@@ -849,47 +850,12 @@ def test_replay_target_prefers_the_live_route_secret_when_the_host_verifies_out_
     assert h2["secret"] == binding_secret
 
 
-def test_hermes_adapter_wires_the_route_secret_precedence():
-    """Source-level proof of the wire (importing the adapter would leak its
-    profile-dir resolver into the whole pytest process — see section 6)."""
-    src = (Path(__file__).resolve().parents[2] / "pysdk" / "hermes"
-           / "aimail_hermes.py").read_text(encoding="utf-8")
-    block = src.split("def _pull_replay_target(", 1)[1].split("\ndef ", 1)[0]
-    assert "prefer_route_secret=True" in block, block
+# The v1 adapter's `_pull_replay_target(prefer_route_secret=True)` wiring pin left with the adapter
+# (retired 2026-11-25). The v2 plugin resolves the secret through pysdk/v2/binding.py, and that
+# precedence is covered there (tests/sdk/test_v2_binding_and_identity.py).
 
 
-# ── 7. adapter seam: import-safe, never raises, idempotent stop ────────────
-
-def test_hermes_adapter_seam_is_inert_without_bindings(tmp_path):
-    """`ensure_agent_pull_started()` is the host wiring point: with no
-    agent-scope binding it returns [] and **never raises** (a wiring mistake
-    must not kill gateway startup); stop is idempotent.
-
-    Runs in a SUBPROCESS on purpose: importing the hermes adapter installs a
-    process-wide profile-dir resolver
-    (`aimail_hermes.py:833  core._PROFILE_DIR_RESOLVER = _resolve_profile_dir`),
-    which makes `aimail_base.resolve_system_id_for_email()` fall back to the
-    *host's* real profile pointer — that leaks this machine's sid into every
-    later hermetic test (observed: `test_local_mail_search` then writes to
-    `systems/<host-sid>/…` instead of `systems/_unassigned/…` and fails).
-    Same reason the rest of the suite keeps the adapter out of the pytest
-    process. The subprocess gets a scratch HOME + AIMAIL_HOME.
-    """
-    repo = Path(__file__).resolve().parents[2]
-    env = {k: v for k, v in os.environ.items() if not k.startswith("AIMAIL_PULL")}
-    env["HOME"] = str(tmp_path)
-    env["AIMAIL_HOME"] = str(tmp_path / "aimail-home")
-    code = (
-        "import sys;"
-        "sys.path[:0] = [%r, %r];"
-        "import aimail_hermes as h;"
-        "print('HANDLES', h.ensure_agent_pull_started(env={}));"
-        "h.stop_agent_pull();"
-        "h.stop_agent_pull();"
-        "print('AFTER', h._PULL_HANDLES)"
-        % (str(repo / "pysdk"), str(repo / "pysdk" / "hermes"))
-    )
-    r = subprocess.run([sys.executable, "-c", code], env=env,
-                       capture_output=True, text=True, timeout=120)
-    assert r.returncode == 0, r.stderr
-    assert "HANDLES []" in r.stdout and "AFTER []" in r.stdout, r.stdout
+# ── 7. adapter seam ────────────────────────────────────────────────────────
+# The v1 hermes adapter's `ensure_agent_pull_started()` seam was retired with the adapter
+# (2026-11-25). The v2 equivalent is covered end-to-end by tests/sdk/test_hermes_plugin.py, which
+# drives the real `hermes_plugin` entry point against a stub host instead of importing a seam.

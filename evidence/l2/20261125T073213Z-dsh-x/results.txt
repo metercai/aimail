@@ -1,0 +1,22 @@
+PASS   S1 activation                binding written          
+PASS   S1 activation                expires_at present       
+PASS   S1 activation                system_id_is_gateway     
+PASS   S1 activation                agent_system_id          
+PASS   S1 activation                workspace_path           
+PASS   S1 activation                no_webhook               
+PASS   S1 activation                has_key                  
+PASS   S1 activation                email                    
+PASS   S1 activation                domain                   
+PASS   S1 activation                binding mode 0600 (in-host) 
+PASS   S1 activation                composed profile carries tool-mail (rows=1) 
+PASS   S6 threading                 S6 threading — all three mails were accepted by the host (acked) 
+PASS   S6 threading                 S6 threading — the reply resolves to the same thread root as the mail it answers 
+PASS   S6 threading                 S6 threading — reply reused the thread's session (c0ea3a0e-94f0-41f1-a30b-0efa83cd0e82); no new session was created 
+PASS   S6 threading                 S6 threading — host session count did not grow on the reply (3) 
+PASS   S6 threading                 S6 threading — a new thread started a new host session (271553d6-9d15-4bb0-8561-3bdce86b4837) 
+PASS   S6 threading                 S6 threading — host session count grew by exactly one for the new thread (3 -> 4) 
+PASS   S6 threading                 S6 threading — all three sessions live in the binding's anchor: /root/ws 
+PASS   S7 session-gone              S7 session-gone — reply was acked (not left pending) 
+PASS   S7 session-gone              S7 session-gone — delivery used a new session (70258e88-8428-4318-afda-97a3aebae475 -> c0ea3a0e-94f0-41f1-a30b-0efa83cd0e82) 
+RED    S7 session-gone              S7 session-gone — downgrade reason '' does not name session-gone; the redirect is unobservable to ops 
+PASS   S7 session-gone              S7 session-gone — the thread root survived the re-attach 

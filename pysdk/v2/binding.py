@@ -26,6 +26,44 @@ import aimail_base as _base
 SKIP_PAUSED = "paused"
 SKIP_UNKNOWN = "unknown"
 
+#: The only value a real activation writes into ``binding_source`` (parity: TS
+#: ``BINDING_SOURCE_ACTIVATION``). A binding is a CACHE of the capability the gateway issued at
+#: activation; a hand-written file is useless without that key, and this stamp is what lets the SDK
+#: report the ones that were not produced by ``activate_address_code_persist``.
+BINDING_SOURCE_ACTIVATION = "activate-address-code"
+
+#: The seven fields a V2 binding must carry (contract §7.1).
+REQUIRED_BINDING_FIELDS = ("email", "gateway_url", "domain", "system_id",
+                           "agent_system_id", "api_key", "agent_id")
+
+
+def binding_provenance(cfg) -> tuple:
+    """Judge one binding's provenance. Returns ``(ok, reason)``; never raises.
+
+    The judgement is unconditional: nothing has shipped yet, so an unstamped binding cannot be a
+    legacy artefact — it is hand-written or a writer bug. ``is_armable`` refuses it and says why.
+    """
+    if not isinstance(cfg, dict):
+        return (False, "no binding")
+    missing = [f for f in REQUIRED_BINDING_FIELDS if not str(cfg.get(f) or "").strip()]
+    if missing:
+        return (False, "missing required field(s): " + ", ".join(missing))
+    source = str(cfg.get("binding_source") or "").strip()
+    if not source:
+        return (False, "no activation stamp (binding_source) — this file was not written by "
+                       "activate_address_code_persist; re-bind with an activation code")
+    if source != BINDING_SOURCE_ACTIVATION:
+        return (False, "unknown binding_source %r (expected %s)" % (source, BINDING_SOURCE_ACTIVATION))
+    at = str(cfg.get("activated_at") or "").strip()
+    if not at:
+        return (False, "activated_at is missing")
+    try:
+        from datetime import datetime as _dt
+        _dt.fromisoformat(at.replace("Z", "+00:00"))
+    except Exception:  # noqa: BLE001
+        return (False, "activated_at is not a timestamp (%r)" % at)
+    return (True, "")
+
 
 def is_v2(cfg: dict) -> bool:
     """A V2 binding — the aggregate/ack rules apply only to these."""
@@ -37,6 +75,46 @@ def is_v1(cfg: dict) -> bool:
     return _base.is_v1_agent_scope_binding(cfg)
 
 
+def _report_provenance(cfg: dict, reason: str) -> None:
+    """Say it once per process per address — a silent refusal looks like "mail stopped"."""
+    email = str(cfg.get("email") or "").strip().lower()
+    key = (email, reason)
+    if key in _REPORTED_PROVENANCE:
+        return
+    _REPORTED_PROVENANCE.add(key)
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "[aimail] %s: binding REFUSED — provenance not proven (%s); "
+        "re-bind with an activation code (aimail_address)",
+        email or "<no address>", reason)
+
+
+#: (address, reason) tuples already reported — one line per case per process.
+_REPORTED_PROVENANCE: set = set()
+
+#: Addresses whose key the GATEWAY already rejected (401/403, auth-fatal) in this process.
+#: The local stamp is self-consistency; the authority is the gateway, and when it says no the
+#: binding must not be re-armed (otherwise the runtime keeps retrying a key that was refused).
+_REFUSED_BY_GATEWAY: set = set()
+
+
+def refuse_after_gateway_rejection(email: str) -> None:
+    """Remember that the gateway rejected this address's key (call on an auth-fatal pull error)."""
+    e = str(email or "").strip().lower()
+    if e:
+        _REFUSED_BY_GATEWAY.add(e)
+
+
+def is_refused_by_gateway(email: str) -> bool:
+    """Did the gateway already reject this address in this process?"""
+    return str(email or "").strip().lower() in _REFUSED_BY_GATEWAY
+
+
+def reset_gateway_rejections() -> None:
+    """Test hook: forget gateway verdicts."""
+    _REFUSED_BY_GATEWAY.clear()
+
+
 def is_armable(cfg: dict, agent_system_id: str = "") -> bool:
     """Can this binding supply or join an aggregate stream for *agent_system_id*?"""
     if not is_v2(cfg):
@@ -46,9 +124,21 @@ def is_armable(cfg: dict, agent_system_id: str = "") -> bool:
     if cfg.get("paused") is True:
         return False
     want = str(agent_system_id or "").strip()
-    if not want:
-        return True
-    return str(cfg.get("agent_system_id") or "").strip() == want
+    if want and str(cfg.get("agent_system_id") or "").strip() != want:
+        return False
+    if is_refused_by_gateway(cfg.get("email")):
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            "[aimail] %s: binding REFUSED — the gateway already rejected this key (401/403); "
+            "re-bind with an activation code (aimail_address)", str(cfg.get("email") or ""))
+        return False
+    # Provenance is enforced at ARMING, the point where a file turns into "we accept mail for this
+    # address". No switch: an unstamped binding never arms, and the refusal names the reason.
+    ok, reason = binding_provenance(cfg)
+    if not ok:
+        _report_provenance(cfg, reason)
+        return False
+    return True
 
 
 def iter_active(agent_system_id: str, gateway_url: str = "",

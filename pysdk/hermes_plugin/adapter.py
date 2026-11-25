@@ -20,8 +20,6 @@ import asyncio
 import threading
 from typing import Any, Dict, Optional
 
-import aimail_base as _base
-
 #: Delivery timeout when the pull thread waits for the gateway loop.
 DELIVER_TIMEOUT_S = 120.0
 

@@ -1,0 +1,17 @@
+PASS   S1 activation                binding written          
+PASS   S1 activation                expires_at present       
+PASS   S1 activation                system_id_is_gateway     
+PASS   S1 activation                agent_system_id          
+PASS   S1 activation                workspace_path           
+PASS   S1 activation                no_webhook               
+PASS   S1 activation                has_key                  
+PASS   S1 activation                email                    
+PASS   S1 activation                domain                   
+PASS   S1 activation                binding mode 0600 (in-host) 
+PASS   S6 threading                 S6 threading — all three mails were accepted by the host (acked) 
+PASS   S6 threading                 S6 threading — the reply resolves to the same thread root as the mail it answers 
+N/A    S6 threading                 S6 threading — reply session identity (C8 allocation half): host session is decided by CLI, plugin holds only the current one 
+N/A    S6 threading                 S6 threading — session count on reply: per-run session files make the count meaningless 
+N/A    S6 threading                 S6 threading — new thread ⇒ new session (C8 allocation half): no allocation API on this host 
+N/A    S6 threading                 S6 threading — session count +1 on a new thread: same reason as above 
+PASS   S6 threading                 S6 threading — all three sessions live in the binding's anchor: /opt/l2home 

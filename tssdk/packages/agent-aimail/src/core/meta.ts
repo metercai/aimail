@@ -55,8 +55,15 @@ export interface LocalMeta {
   my_aimail_addr: string
   direction: string
   at: string
-  /** dsh: the session that owns this thread (stamped after delivery). */
+  /** The host session that owns this message (stamped on send and after delivery). */
   session_id?: string
+  /**
+   * Host-specific *routable* session handle, when the host's session id is not itself
+   * addressable. OpenClaw's `sessionKey` is the handle its `/hooks/agent` accepts, so it is
+   * stored verbatim; inbox routing reads it back to answer in the session that sent the mail
+   * (contract §9.2 I1).
+   */
+  session_key?: string
   /** dsh: workspace path of that session (validation/audit). */
   workspace_path?: string
   [k: string]: unknown
@@ -87,6 +94,11 @@ export async function saveLocalMeta(
   const mid = (messageId || '').trim()
   if (!mid) return
   const refs = normalizeRefs(references)
+  // Read-merge-write, not replace: this record is also where routing stores WHICH SESSION owns the
+  // message (`stampSessionMeta`). Rewriting it wholesale on every inbound delivery silently erased
+  // that pointer — measured as "the session id never survives into the binding file / thread reuse lost after one
+  // mail" (QA Q1/Q2). Ownership fields survive; the mail's own facts are refreshed.
+  const existing = await readLocalMeta(email, mid).catch(() => undefined)
   const payload: LocalMeta = {
     message_id: mid,
     references: refs,
@@ -94,6 +106,9 @@ export async function saveLocalMeta(
     my_aimail_addr: myAimailAddr || '',
     direction,
     at: new Date().toISOString(),
+    ...(existing?.session_id ? { session_id: existing.session_id } : {}),
+    ...(existing?.session_key ? { session_key: existing.session_key } : {}),
+    ...(existing?.workspace_path ? { workspace_path: existing.workspace_path } : {}),
   }
   try {
     const p = localMetaPath(email, mid)
@@ -130,7 +145,7 @@ export async function readLocalMeta(
 export async function stampSessionMeta(
   email: string,
   messageId: string,
-  patch: { sessionId?: string; workspacePath?: string },
+  patch: { sessionId?: string; sessionKey?: string; workspacePath?: string },
 ): Promise<void> {
   const mid = (messageId || '').trim()
   if (!mid) return
@@ -150,6 +165,7 @@ export async function stampSessionMeta(
     at: new Date().toISOString(),
   }
   if (patch.sessionId) next.session_id = patch.sessionId
+  if (patch.sessionKey) next.session_key = patch.sessionKey
   if (patch.workspacePath) next.workspace_path = patch.workspacePath
   await fs.mkdir(path.dirname(p), { recursive: true })
   const tmp = `${p}.tmp`

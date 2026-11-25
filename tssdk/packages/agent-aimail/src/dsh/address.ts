@@ -11,7 +11,6 @@
  * re-binds with the gateway's renewal/rotation semantics.
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { promises as fs } from 'node:fs'
 
 import {
   activateAddressCode,
@@ -20,6 +19,7 @@ import {
 } from '../core/provision.js'
 import { aimailAddress, loadAgentConfig, listSystemDirs, saveAgentConfig, updateAgentConfig } from '../core/index.js'
 import type { AgentConfig } from '../core/index.js'
+import { anchorId } from '../core/anchor-id.js'
 import { currentWorkspacePath, ensureWorkspace } from './workspace.js'
 import { getAgentSystemId } from '../core/agent-system-id.js'
 import { findExistingSystem } from './system-core.js'
@@ -88,14 +88,15 @@ export async function runAddressTool(
     if (!found) return fail('not-bound', `no binding for ${email}`)
     const target = String(args.workspace_path ?? '').trim()
     if (!target) return fail('bad_args', 'workspace_path is required for move')
-    try {
-      if (!(await fs.stat(target)).isDirectory()) return fail('workspace_invalid', `workspace is not a directory: ${target}`)
-    } catch {
-      return fail('workspace_invalid', `workspace does not exist: ${target}`)
-    }
-    await updateAgentConfig(found.sid, email, { workspace_id: target, workspace_path: target })
-    // §13.3: same (AgentSystemId, Gateway) — no new code, no new SSE.
-    return { success: true, scope: 'address', email, system_id: found.sid, workspace: workspaceRef(target, target), mode: 'move' }
+    // §13.3 + §7.1: the gateway holds the anchor identifier registered at activation and refuses a
+    // pull that presents a different one, so a "move" that only rewrote local state would brick the
+    // address (anchor_mismatch). An anchor change therefore goes through re-activation.
+    void target
+    return fail(
+      're-activation-required',
+      `this address is bound to ${String(found.cfg.workspace_path ?? '').trim() || '(no anchor)'} ` +
+        'and the gateway keeps that anchor; moving it requires re-activation (a new address code)',
+    )
   }
   if (action === 'pause' || action === 'resume') {
     if (!found) return fail('not-bound', `no binding for ${email}`)
@@ -155,7 +156,15 @@ export async function runAddressTool(
 
   let act
   try {
-    act = await activateAddressCode({ gatewayUrl: gw, code, email, agentSystemId: await getAgentSystemId() })
+    act = await activateAddressCode({
+      gatewayUrl: gw,
+      code,
+      email,
+      agentSystemId: await getAgentSystemId(),
+      // The gateway records this and every pull must present it again — that is what stops a
+      // locally edited binding from moving the mailbox to another workspace.
+      anchorId: anchorId(email, workspace.path),
+    })
   } catch (e) {
     if (e instanceof ProvisionError) return fail(e.errorCode, e.message, e.retryable)
     throw e

@@ -111,7 +111,8 @@ def start_system_pull(*, agent_system_id: str, gateway_url: str, api_key: str,
             % (asid, gw, resolved.get("reason", "")))
         return handle
 
-    client = client or _pull_client.build_agent_system_client(gw, api_key, asid, identity=rep)
+    client = client or _pull_client.build_agent_system_client(
+        gw, api_key, asid, identity=rep, members=members)
     stop_event = stop_event if stop_event is not None else threading.Event()
     handle._stop = stop_event
 
@@ -154,6 +155,17 @@ def start_system_pull(*, agent_system_id: str, gateway_url: str, api_key: str,
             handle._fatal = str(e)
             if "auth" in str(e).lower():
                 log(AUTH_FATAL_LINE % (gw, getattr(e, "status", "n/a"), AUTH_FATAL_STREAK))
+                # The gateway is the authority on a binding's claims: it rejected this key, so the
+                # members stop being armable in this process (parity: tssdk poll-entry).
+                try:
+                    import v2.binding as _binding_mod
+                    for _m in (members or []):
+                        _binding_mod.refuse_after_gateway_rejection(str(_m.get("email") or ""))
+                    log("[aimail-v2] gw=%s: gateway rejected the key — members=%s are no longer "
+                        "armed; re-bind with an activation code"
+                        % (gw, ",".join(str(m.get("email") or "") for m in (members or []))))
+                except Exception:  # noqa: BLE001 — bookkeeping must not mask the fatal
+                    pass
             else:
                 log("[aimail-v2] stream failed on gw=%s: %s" % (gw, e))
 

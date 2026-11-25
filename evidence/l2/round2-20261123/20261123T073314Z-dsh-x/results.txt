@@ -1,0 +1,3 @@
+PASS   S3 delivery                  sender whitelisted before inbound 
+PASS   S3 delivery                  inbound stored (emails=2) — the inbound flow completed 
+PASS   S3 delivery                  queued then acked (host accepted the mail) 

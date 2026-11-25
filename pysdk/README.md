@@ -54,14 +54,14 @@ gateway  ──SSE /stream──▶  one aggregate stream per (AgentSystemId, Ga
 This release replaces the webhook/push transport with the SSE-V2 contract. Upgrading from
 0.2.x:
 
-* **push/webhook is gone.** No inbound HTTP listener, no `webhook_*` binding fields, no
-  patch of the host's webhook module. Mail arrives by pulling the gateway's own stream.
-* **`aimail install` is retired.** The host discovers the plugin through its entry point;
-  the source-patch helpers (`patch_webhook`, `patch_profiles`, `register_profiles`,
-  `ensure_config`, `toolsets`) are **no longer shipped in the wheel**. They remain in the
-  repository for the audit trail only. Three legacy modules still ship and are importable for
-  compatibility (`aimail.install`, `aimail.sdk_ops`, `aimail.hermes.aimail_hermes`); no console
-  entry point wires them and `aimail install` is not a command any more — removal in 0.3.1.
+* **The v1 push/CLI surface is no longer shipped (2026-11-25).** The host discovers the plugin through its own entry
+  point (`hermes_agent.plugins` / `deerflow.extensions`); the installer, the door-ops entry
+  (`sdk_ops`) and the v1 deer-flow adapter left the tree and the wheel with the whole push/CLI
+  surface. Nothing in the package patches a host or spawns a CLI any more.
+* **The v1 hermes adapter is gone (2026-11-25).** `pysdk/hermes/` was deleted, so the wheel no
+  longer carries `aimail.hermes.aimail_hermes` and hermes needs no source patch at all: install is
+  `pip install agent-aimail` and the host loads the `hermes_agent.plugins` entry point. The same
+  applies to deer-flow: `pysdk/deer-flow/` left too, and the host loads `deerflow.extensions`.
 * **Activation is code-only.** `aimail_address(action="bind", code=…)` returns a binding
   that carries `agent_system_id` and `workspace_path`; a single-address host refuses a
   second address instead of silently replacing the first.

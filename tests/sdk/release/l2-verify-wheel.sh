@@ -40,23 +40,28 @@ import aimail
 
 modules = [
     "aimail.aimail_base", "aimail.aimail_tools", "aimail.aimail_board",
-    "aimail.gateway_api", "aimail.aimail_mcp_server", "aimail.install",
-    "aimail.sdk_ops",
+    "aimail.gateway_api", "aimail.aimail_mcp_server", "aimail.aimail_agent",
+    "aimail.aimail_contract",
     "aimail._resources_release", "aimail._aimail_bootstrap",
-    "aimail.hermes.aimail_hermes",
-    "aimail.deer-flow.manage", "aimail.deer-flow.aimail_deerflow",
+    "aimail.v2.binding", "aimail.hermes_plugin", "aimail.deerflow_plugin",
 ]
 for m in modules:
     importlib.import_module(m)
 
-# 0.3.0 breaking surface: the five patch-era modules are NOT shipped any more. This used to be part
-# of the list above, which made every 0.3.x release die at "import surface" (measured 2026-11-24,
-# pypi-build run 45353491562: ModuleNotFoundError: aimail.hermes.patch_webhook). Asserting ABSENCE
-# keeps the gate honest in the other direction too — a patch-era module coming back fails here.
+# 0.3.0 breaking surface: the patch-era modules are NOT shipped any more. This used to be part of the
+# list above, which made every 0.3.x release die at "import surface" (measured 2026-11-24, pypi-build
+# run 45353491562: ModuleNotFoundError: aimail.hermes.patch_webhook). Asserting ABSENCE keeps the gate
+# honest in the other direction too — a retired module coming back fails here.
 removed_in_030 = [
     "aimail.hermes.patch_webhook", "aimail.hermes.patch_profiles",
     "aimail.hermes.ensure_config", "aimail.hermes.register_profiles",
     "aimail.hermes.toolsets",
+    # v1 hermes adapter itself — retired 2026-11-25 (v2 = hermes_agent.plugins entry point).
+    "aimail.hermes.aimail_hermes",
+    # v1 push/CLI surface — retired 2026-11-25 ("keep only SSE-V2" ruling).
+    "aimail.install", "aimail.sdk_ops", "aimail.hosts.registry",
+    "aimail.deer-flow.aimail_inbound", "aimail.deer-flow.aimail_deerflow",
+    "aimail.deer-flow.manage",
 ]
 for m in removed_in_030:
     try:
@@ -68,36 +73,16 @@ for m in removed_in_030:
 for d in (aimail.skills_dir(), aimail.board_role_prompt_dir()):
     assert os.path.isdir(d), f"missing dir: {d}"
 assert os.path.isfile(aimail.mcp_server_path())
-# Audit D4: The two installation scripts of deer-flow must be distributed with the wheel (CLI spawns them with {sdk}=package directory)
+# The v1 deer-flow install scripts are gone with the adapter; the v2 extension needs no scripts.
 import importlib.resources as _ir
-_pkg_dir = _ir.files("aimail") / "deer-flow"
-for _sh in ("install-mcp.sh", "install-skill.sh"):
-    assert (_pkg_dir / _sh).is_file(), f"missing in wheel: aimail/deer-flow/{_sh}"
-print(f"   OK: {len(modules)} modules + resource paths + deer-flow install scripts (aimail {aimail.__version__})")
+assert not (_ir.files("aimail") / "deer-flow").is_dir(), "v1 deer-flow dir is back in the wheel"
+print(f"   OK: {len(modules)} v2 modules + resource paths (aimail {aimail.__version__})")
 PY
 
-echo "== 4/5 install entry contract"
-"$VENV_DIR/bin/python" -m aimail.install --help >/dev/null
-"$VENV_DIR/bin/python" -m aimail.install check-env --type hermes --home /nonexistent \
-    >/dev/null 2>&1 && { echo "   check-env should fail on missing host"; exit 1; } || true
-echo "   OK: aimail.install entry works"
-
-echo "== 4b/5 sdk_ops entry contract (one-line JSON ABI)"
-"$VENV_DIR/bin/python" -m aimail.sdk_ops --help >/dev/null
-# Contract: stdout exactly one line JSON, exit 0, usage error exit 2 (empty system table ⇒ ok:true and result is list)
-_SDK_OPS_OUT="$("$VENV_DIR/bin/python" -m aimail.sdk_ops iter_bindings --args '{"system_id":""}')" || {
-    echo "   sdk_ops iter_bindings failed"; exit 1; }
-[ "$(printf '%s\n' "$_SDK_OPS_OUT" | wc -l | tr -d ' ')" = "1" ] || {
-    echo "   sdk_ops stdout must be exactly one line"; exit 1; }
-printf '%s' "$_SDK_OPS_OUT" | "$VENV_DIR/bin/python" -c \
-    'import json,sys; d=json.loads(sys.stdin.read()); assert d.get("ok") is True and isinstance(d.get("result"), list), d'
-# Usage error must exit 2 —— under set -e non-zero commands abort script directly, so turn off then on(2026-10-04 tested pitfall)
-set +e
-"$VENV_DIR/bin/python" -m aimail.sdk_ops nope --args '{}' >/dev/null 2>&1
-_USAGE_RC=$?
-set -e
-[ "$_USAGE_RC" -eq 2 ] || { echo "   usage error must exit 2 (got $_USAGE_RC)"; exit 1; }
-echo "   OK: aimail.sdk_ops entry works (one-line JSON, exit 0/2)"
+echo "== 4/5 retired entry points are absent"
+"$VENV_DIR/bin/python" -c "import importlib; [importlib.import_module(m) for m in ('aimail.install','aimail.sdk_ops')]" \
+    2>/dev/null && { echo "   retired CLI entries are still importable"; exit 1; } || true
+echo "   OK: aimail.install / aimail.sdk_ops absent"
 
 echo "== 5/5 version metadata"
 EXPECT_VER="$("$PY" -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"

@@ -71,6 +71,41 @@ def _post(url: str, payload: dict, *, headers: Optional[dict] = None,
         return 0, {"error": "%s: %s" % (type(e).__name__, e)}
 
 
+def _get(url: str, *, timeout: float = 30.0) -> tuple:
+    """GET one host resource. Same envelope as ``_post`` (status, parsed body)."""
+    req = urllib.request.Request(url, method="GET", headers={"accept": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, json.loads(resp.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, json.loads(e.read() or b"{}")
+        except Exception:  # noqa: BLE001
+            return e.code, {}
+    except Exception as e:  # noqa: BLE001 — transport failure is the caller's signal
+        return 0, {"error": "%s: %s" % (type(e).__name__, e)}
+
+
+def _landing_verification_enabled() -> bool:
+    """Read-back verification is on unless explicitly disabled (old hosts may lack the route)."""
+    raw = str(os.environ.get("AIMAIL_DEERFLOW_VERIFY_LANDING", "")).strip().lower()
+    return raw not in ("0", "false", "off", "no")
+
+
+def _landing_problem(record: Any) -> str:
+    """Why one persisted run record still means "not delivered" (empty = fine).
+
+    DeerFlow persists a run row before executing it, and its ``RunStatus`` enum is
+    ``pending | running | success | error | timeout | interrupted``: a 200 carrying a terminal
+    *failure* status is the host telling us the message will never be processed, so acking it
+    would drop the mail. ``failed``/``cancelled`` stay in the set for hosts that spell it so.
+    """
+    status = str((record or {}).get("status") or "").strip().lower() if isinstance(record, dict) else ""
+    if status in ("error", "timeout", "interrupted", "failed", "cancelled", "canceled"):
+        return "run status=%s" % status
+    return ""
+
+
 def _post_when_ready(url: str, payload: dict, *, headers: Optional[dict] = None,
                      deadline_s: float = 60.0) -> tuple:
     """POST to the host's own API, waiting out its startup window.
@@ -170,8 +205,31 @@ class DeerFlowRuntime:
         status, run = _post_when_ready("%s/api/threads/%s/runs" % (self.api_base, thread_id),
                                        run_body, headers={"Idempotency-Key": idem})
         if status in (200, 201) and isinstance(run, dict) and run.get("run_id"):
+            run_id = str(run.get("run_id"))
+            # §8.3 "已投递" vs "宿主已接管": DeerFlow returns a durable run id and exposes a
+            # read-back for it, so ask the host what became of the run it just accepted. A healthy
+            # record ⇒ ack; a terminal-failure status ⇒ raise (no ack), so the mail is retried.
+            if _landing_verification_enabled():
+                check_status, record = _get(
+                    "%s/api/threads/%s/runs/%s" % (self.api_base, thread_id, run_id))
+                if check_status in (401, 403, 404):
+                    # The read-back is unavailable, not the delivery: this one run may be older
+                    # than the route, or the deployment may disable auth (DEER_FLOW_AUTH_DISABLED=1,
+                    # which is what makes our own POST pass) while a read stays scoped to another
+                    # owner. The host already answered 200/201 with a durable run id, so accepting
+                    # on admission is the honest reading — but say so, so the gap stays visible.
+                    self._log("[aimail-deerflow] landing-unverified for run %s (read-back status=%s) "
+                              "— accepting on admission; set AIMAIL_DEERFLOW_VERIFY_LANDING=0 to silence"
+                              % (run_id, check_status))
+                elif check_status != 200:
+                    raise RuntimeError("landing unverified for run %s (read-back status=%s)"
+                                       % (run_id, check_status))
+                else:
+                    problem = _landing_problem(record)
+                    if problem:
+                        raise RuntimeError("run %s did not land (%s)" % (run_id, problem))
             self._log("[aimail-deerflow] run %s accepted for %s (thread %s)"
-                      % (run.get("run_id"), address, thread_id))
+                      % (run_id, address, thread_id))
             return _binding.accepted_result(thread_id)
         # A refusal must not return normally: the shared client acks every normal return.
         raise RuntimeError("run rejected for %s (status=%s body=%s)"

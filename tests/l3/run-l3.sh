@@ -133,47 +133,24 @@ PY
   done
   echo "  [agentmail.log location] $(find "$HOME" -name 'agentmail.log' 2>/dev/null | head -5 | tr '\n' ' ') (empty = SDK never wrote this log)"
   if [ -n "${HERMES_HOME:-}" ]; then
-    # Print the entire block (previously -A3 truncated ⇒ cannot see if the webhook: key is present, and its absence is exactly
-    # ensure_config.py:4-11 Remember the root cause of "can receive but cannot send out": webhook session fallback lacks the default toolset with send_mail)
-    echo "  [hermes config] $HERMES_HOME/config.yaml: platform_toolsets / platforms.webhook whole block"
-    sed -n '/^platform_toolsets:/,/^[a-z_]*:/p' "$HERMES_HOME/config.yaml" 2>/dev/null | head -30 | sed 's/^/    /'
-    sed -n '/^platforms:/,/^[a-z_]*:/p' "$HERMES_HOME/config.yaml" 2>/dev/null | head -30 | sed 's/^/    /'
-    grep -aqE "^\s*webhook:" <(sed -n '/^platform_toolsets:/,/^[a-z_]*:/p' "$HERMES_HOME/config.yaml") \
-      && echo "    ✓ platform_toolsets.webhook exists" \
-      || echo "    ✗ platform_toolsets.webhook missing —— known root cause in ensure_config.py:4-11 (agent 'received but cannot reply')"
-    # Reply protocol injection channel: skills field of webhook route (webhook.py:853 injects by route skills
-    # SKILL content into prompt; missing contract skill name ⇒ agent has send_mail tool but no reply protocol).
-    # Route table lands in {HERMES_HOME}/webhook_subscriptions.json (written by _ensure_webhook_route).
-    # Route name/skill name read from contract single source of truth (literal ratchet: no new hardcoded locations allowed).
-    CONTRACT_JSON="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/contract/aimail-contract.json"
-    SUBS="$HERMES_HOME/webhook_subscriptions.json"
-    # Both places possible: gateway runtime reads get_hermes_home() (= $HERMES_HOME), while
-    # _ensure_webhook_route writes to the profile directory when profile_dir is non-empty — check both places.
-    for SUBS in "$HERMES_HOME/webhook_subscriptions.json" \
-                "$HERMES_HOME/profiles/agent/webhook_subscriptions.json"; do
-      if [ -f "$SUBS" ]; then
-        echo "  [hermes webhook route] $SUBS (skills field = reply protocol injection)"
-        python3 - "$SUBS" "$CONTRACT_JSON" <<'PY' | sed 's/^/    /'
-import json, sys
-d = json.load(open(sys.argv[1], encoding="utf-8"))
+    # v1 hermes retired 2026-11-25: the source-patch adapter is gone, so there is no webhook
+    # platform block, no platform_toolsets patching and no webhook_subscriptions route to inspect.
+    # What still matters for a v2 hermes host is whether the plugin is discoverable, i.e. whether the
+    # `hermes_agent.plugins` entry point resolves in the interpreter the host actually runs.
+    echo "  [hermes v2] plugin entry point (source-patch adapter retired 2026-11-25)"
+    for p in "$(command -v python3)" "$HOME"/.hermes/hermes-agent/venv/bin/python3 \
+             "$HOME"/.hermes/hermes-agent/.venv/bin/python3; do
+      [ -x "$p" ] || continue
+      printf '    %-62s ' "$p"
+      "$p" - <<'PY' 2>&1 | tail -1
+from importlib.metadata import entry_points
 try:
-    c = json.load(open(sys.argv[2], encoding="utf-8"))
-    route, skill = c["hermes_route_name"], c["agent_skill_name"]
+    eps = list(entry_points().select(group="hermes_agent.plugins"))
 except Exception:
-    route = skill = None
-for name, r in d.items():
-    print(f"  route {name}: skills={r.get('skills')} preprocess={r.get('preprocess')} deliver={r.get('deliver')}")
-    if route and name == route:
-        sk = r.get("skills") or []
-        if skill in sk:
-            print(f"  ✓ route {route} skills contains {skill} =", sk)
-        else:
-            print(f"  ✗ route {route} skills={sk} missing {skill} —— webhook session cannot get reply protocol")
+    eps = []
+print("entries=" + (", ".join(e.value for e in eps) if eps else "NONE (plugin not installed)"))
 PY
-      fi
     done
-    [ -f "$HERMES_HOME/webhook_subscriptions.json" ] || [ -f "$HERMES_HOME/profiles/agent/webhook_subscriptions.json" ] \
-      || echo "  ✗ webhook_subscriptions.json does not exist in either location —— _ensure_webhook_route was not executed (install path broken)"
   fi
   # dsh grid forensics blind spot: host agent conversations do not go through stdout (dsh-host.log only has startup frames, historically proven 4 lines),
   # session persistence is in $DSH_HOME/storages/ (workspace.json: global.sessionIds + tables;

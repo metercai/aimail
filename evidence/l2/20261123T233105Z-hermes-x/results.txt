@@ -1,0 +1,4 @@
+PASS   S4 multi-address             second address rejected (single-address model, hermes) 
+PASS   S5 lifecycle                 pause marked the binding (paused=True) 
+PASS   S5 lifecycle                 unbind removed the binding (1 -> 0) 
+RED    NEG invalid code             binding written for an invalid code (n=1) 

@@ -1,0 +1,2 @@
+RED    S1 activation                no binding written (see /tmp/aimail-l2-pBnH4p/pi/rc) 
+RED    S6 threading                 S6 threading — the host did not accept every mail (acked=0); session identity cannot be judged 

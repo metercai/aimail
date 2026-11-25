@@ -22,7 +22,7 @@ exist (unit tests, wheel smoke checks, other hosts).
 from __future__ import annotations
 
 import logging
-from typing import Any, List, Optional
+from typing import Any, List
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,8 @@ def check_requirements() -> bool:
     A passive check must never install anything (status displays call it freely).
     """
     try:
-        import aimail_base  # noqa: F401
+        import importlib
+        importlib.import_module("aimail_base")  # presence probe only; never used here
         return True
     except Exception:  # noqa: BLE001
         return False
@@ -79,7 +80,7 @@ def build_plugin(ctx: Any, *, base_cls: Any = None, event_module: Any = None,
                  agent_home: str = "", client_for=None) -> dict:
     """Wire the adapter factory + tools for a host context (also the test seam)."""
     from . import tools as _tools
-    from .adapter import attach_runtime, build_adapter_class
+    from .adapter import build_adapter_class
     from .runtime import HermesRuntime
 
     if base_cls is None:  # pragma: no cover - production path

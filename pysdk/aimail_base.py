@@ -341,8 +341,9 @@ def _load_gateway_config(system_id: str = "") -> Optional[dict]:
             # self-check see check_profile_pointer().
             logger.warning(
                 "[aimail_gateway] gateway config unresolvable: no system_id and no "
-                "platform .agentmail pointer (profile dir %r) — run `aimail install` "
-                "or inject _PROFILE_DIR_RESOLVER; gateway-dependent enrichment is skipped",
+                "platform .agentmail pointer (profile dir %r) — bind an address with an "
+                "activation code (the aimail_address tool writes the pointer); "
+                "gateway-dependent enrichment is skipped",
                 _PROFILE_DIR_RESOLVER() if _PROFILE_DIR_RESOLVER else None,
             )
             return None
@@ -451,8 +452,8 @@ def check_profile_pointer() -> bool:
     if not ok:
         logger.warning(
             "[aimail_gateway] no resolvable .agentmail pointer (profile dir %r) — "
-            "aimail is not installed for this profile; inbound preprocessing degrades "
-            "(no contact profiles / attachment download) until `aimail install` runs",
+            "this profile has no bound address yet; inbound preprocessing degrades "
+            "(no contact profiles / attachment download) until an activation code is consumed",
             profile_dir,
         )
     return ok
@@ -2974,8 +2975,8 @@ def resolve_register_webhook_url(gw: dict, local_webhook_url: str) -> str:
     logger.warning(
         "[aimail] webhook_host %r is not an absolute http(s) URL — the cloud cannot "
         "POST to it (builder error), so the local endpoint %r is registered instead. "
-        "For a bridged deployment register the bridge's own URL "
-        "(http://<host>/webhooks/aimail-inbound), not a bare host:port.",
+        "For a bridged deployment register the bridge's own deliverable URL "
+        "(http://<host>/<bridge-route>), not a bare host:port.",
         declared, local_webhook_url)
     return local_webhook_url                         # ③' not deliverable ⇒ fallback to local endpoint
 
@@ -3262,59 +3263,3 @@ def _system_home_owned(system_home: str) -> str:
             found = d.name
     return found
 
-
-def ensure_system(system_home: str = "", cli: str = "aimail",
-                  timeout: int = 60) -> dict:
-    """Ensure a system exists for this host — REVERSE-CALL to the CLI's
-    L1-only `aimail install --system-only` (the single activation implementation;
-    SDKs never carry the protocol). Parity with tssdk ensureSystem.
-
-    Ownership short-circuit: with a system_home, only an OWNING system
-    (cfg.system_home matches) short-circuits — on multi-platform machines
-    another platform's system must NOT block this one's activation. Without
-    a home, any local system short-circuits.
-
-    Returns {ok, system_id?, activated?, error?, hint?}. Never raises.
-    """
-    import subprocess as _sp
-    # 1) ownership short-circuit (pure local reads)
-    owned = _system_home_owned(system_home) if system_home else ""
-    if owned:
-        return {"ok": True, "system_id": owned, "activated": False}
-    if not system_home:
-        base = aimail_home() / "systems"
-        if base.is_dir():
-            sids = [d.name for d in sorted(base.iterdir())
-                    if d.is_dir() and (d / "aimail_gateway.json").is_file()]
-            if sids:
-                sid = sids[0] if len(sids) == 1 else ""
-                return {"ok": True, "system_id": sid, "activated": False}
-
-    # 2) reverse-call the CLI L1 ABI (single activation implementation)
-    #    B ruling 2026-09-23: the standalone subcommand is gone — the ABI is
-    #    `aimail install --system-only` now (mirror: tssdk ensure-system.ts).
-    argv = [cli, "install", "--system-only"]
-    if system_home:
-        argv += ["-H", system_home]
-    try:
-        out = _sp.run(argv, capture_output=True, text=True, timeout=timeout)
-    except FileNotFoundError:
-        return {"ok": False,
-                "error": f"aimail CLI not found ('{cli}') — run bootstrap first",
-                "hint": "run the aimail bootstrap first, then retry"}
-    except Exception as e:  # noqa: BLE001
-        return {"ok": False, "error": str(e)}
-    try:
-        parsed = json.loads(out.stdout.strip() or "{}")
-    except Exception:
-        return {"ok": False,
-                "error": f"aimail install --system-only returned unparsable output (exit {out.returncode})",
-                "hint": "run `aimail install --home <root>` manually to see the error"}
-    if parsed.get("success") is not True or out.returncode != 0:
-        r = {"ok": False, "error": str(parsed.get("error") or f"install --system-only failed (exit {out.returncode})")}
-        if parsed.get("hint"):
-            r["hint"] = str(parsed["hint"])
-        return r
-    return {"ok": True,
-            "system_id": str(parsed.get("system_id", "")),
-            "activated": parsed.get("path") == "activation"}

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""P4 — outbound Message-ID aliases: replies stay in their thread (contract §6.6/C8).
+"""P4 — outbound Message-ID aliases: replies stay in their thread (contract §9.1 / §16 C8).
 
 The fact these cases are built on: a reply to OUR reply carries our own outbound
 Message-ID as ``references[0]``, so without an alias the thread root — and therefore the

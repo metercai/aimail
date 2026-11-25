@@ -86,9 +86,9 @@ class GatewayClient:
                         domain: str = "") -> dict:
         """POST /api/v1/activate-system (public — no auth).
 
-        CLI L1-ONLY: The sole implementation of system activation is in the CLI (cli/setup_system.py shares this via
-        client call); SDK always reverse-calls `aimail install --system-only`, must not directly connect to this method
-        (AUDIT-1 P2-2). Distributed with the wheel only for CLI to share the same read library.
+        Legacy: system activation is a CLI-side operation. Nothing in the SSE-V2 runtime calls this
+        (a host's system is created by consuming an activation code); the method ships only because
+        this module is the shared gateway read library.
         """
         body = {"code": code}
         if system_name:

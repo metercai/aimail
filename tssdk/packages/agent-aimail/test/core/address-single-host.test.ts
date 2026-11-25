@@ -3,6 +3,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
+import { BINDING_FILE } from '../../src/core/contract.js'
 import { aimailAddress } from '../../src/core/address-code.js'
 import { setAddressModel } from '../../src/core/host-capabilities.js'
 import { setProfileDirResolver } from '../../src/core/index.js'
@@ -25,7 +26,7 @@ let prevHome: string | undefined
 let prevAimail: string | undefined
 
 function bindingFile(email: string): string {
-  return path.join(process.env.AIMAIL_HOME!, 'systems', SID, email.replace('@', '_'), 'agentmail.json')
+  return path.join(process.env.AIMAIL_HOME!, 'systems', SID, email.replace('@', '_'), BINDING_FILE)
 }
 
 function seedActive(email: string, extra: Record<string, unknown> = {}) {
@@ -65,6 +66,8 @@ describe('single-address host (pi)', () => {
     expect(res.success).toBe(false)
     expect(res.reason).toBe('second-address')
     expect(res.error_code).toBe('SINGLE_ADDRESS_HOST')
+    // Contract C18: the refusal says WHICH layer failed, not just "refused".
+    expect(res.failed).toBe('wake')
     expect(String(res.error)).toContain(FIRST)
     // The refusal must not have created anything for the second address.
     expect(fs.existsSync(bindingFile(SECOND))).toBe(false)

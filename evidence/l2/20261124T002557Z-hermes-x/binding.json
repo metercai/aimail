@@ -1,0 +1,12 @@
+{
+  "agent_id": "l2hermes",
+  "agent_system_id": "asid_280ab1146ede4353f2d3afd6f72a2ab2",
+  "api_key": "<redacted>",
+  "domain": "test.local",
+  "email": "l2hermes@test.local",
+  "expires_at": "2026-11-25T00:25:57.085Z",
+  "gateway_url": "http://127.0.0.1:18200",
+  "manager_address": "l2-hermes-2343@example.com",
+  "system_id": "system-9b34",
+  "workspace_path": "/opt/l2home"
+}

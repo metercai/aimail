@@ -200,7 +200,14 @@ def test_activation_lands_private_binding_with_register_isomorphic_fields(
         # the pull loop never starts (a replay needs url+secret as a pair).
         "webhook_secret": cfg["webhook_secret"],
         "expires_at": "2026-12-31T00:00:00Z",
+        # Provenance stamp (2026-11-25): activation is the only path that mints a binding, and the
+        # stamp is what lets pysdk/v2/binding.py report a hand-written file.
+        "binding_source": "activate-address-code",
+        "activated_at": cfg["activated_at"],
     }
+    # a real RFC3339 instant, not a constant
+    from datetime import datetime
+    datetime.fromisoformat(cfg["activated_at"].replace("Z", "+00:00"))
     # a real locally-generated secret, in the install chain's format (64 hex)
     assert len(cfg["webhook_secret"]) == base.WEBHOOK_SECRET_HEX_BYTES * 2
     assert all(c in "0123456789abcdef" for c in cfg["webhook_secret"])

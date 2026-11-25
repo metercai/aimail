@@ -13,7 +13,6 @@ Resolution order (most specific first):
   1. AIMAIL_RUNTIME_DIR env var (explicit override)
   2. the directory above the entry point (bundle / site-packages layout:
      adapter dirs sit directly under the core dir; the dir-name whitelist is
-     derived from the hosts registry — single source)
   3. the entry point's own directory (flat layout: entry lives in core)
 
 The repo checkout is deliberately NOT a path fallback: installed runtimes
@@ -49,25 +48,10 @@ def _core_ok(d):
     return bool(d) and os.path.isfile(os.path.join(d, "aimail_base.py"))
 
 
-def _adapter_dir_names():
-    """adapter directory name whitelist —— derived from the hosts registry (single source of truth).
-
-    The old hardcoded ``("openclaw", "deer-flow", "hermes")`` included openclaw as a node host
-    dead branch (pysdk has no openclaw/ directory, assembly belongs to the tssdk package); since 2026-10-21 it is
-    derived from the registry's adapter_dir. Falls back to the minimal set when the registry is unavailable (extreme bootstrap early stage).
-    """
-    try:
-        import hosts.registry as _hr  # repo form: pysdk/ is on sys.path
-        return tuple((_hr.get_host(h) or {}).get("adapter_dir", "")
-                     for h in _hr.host_ids())
-    except ImportError:
-        pass
-    try:
-        from aimail.hosts import registry as _hr  # pip form
-        return tuple((_hr.get_host(h) or {}).get("adapter_dir", "")
-                     for h in _hr.host_ids())
-    except ImportError:
-        return ("hermes", "deer-flow")
+# Note (2026-11-25): the adapter-directory whitelist is gone with the v1 flat adapters
+# (`hermes/`, `deer-flow/`). The only Python entry points left are real packages
+# (`hermes_plugin`, `deerflow_plugin`), so the "core sits above my adapter dir" step below can no
+# longer fire — an adapter dir never appears on sys.path as a parent lookup target.
 
 
 def ensure_core(self_dir=None):
@@ -87,10 +71,6 @@ def ensure_core(self_dir=None):
         if _core_ok(d):
             core = d
     # 2. parent dir (adapter layout: core sits above the adapter dir)
-    if core is None and os.path.basename(here) in _adapter_dir_names():
-        d = os.path.dirname(here)
-        if _core_ok(d):
-            core = d
     # 3. own dir (flat layout: entry point lives in the core dir)
     if core is None and _core_ok(here):
         core = here

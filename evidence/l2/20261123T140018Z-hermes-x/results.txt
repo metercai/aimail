@@ -1,0 +1,2 @@
+RED    S1 activation                no binding written (see /tmp/aimail-l2-A2xzNg/hermes/rc) 
+PASS   NEG invalid code             no binding written for an invalid code 

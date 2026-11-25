@@ -22,7 +22,11 @@ tests/host-acceptance/v2/
   lib/assert.sh      PASS / RED / GAP / SKIP_LEGACY + exit code
   lib/evidence.sh    per-run evidence (run.json, host.log, binding.json sanitised)
   hosts/<host>.sh    adapter: boot / install / prompt / restart / log  (only place host names appear)
-  cases/s1_activation.sh  s2_arming.sh  (s3 delivery, s4 multi-address, s5 lifecycle, negatives: next)
+  cases/s1_activation.sh  s2_arming.sh  s3_delivery.sh
+  cases/s4_multiaddr.sh   (C1 + C18: refusal must name the failed layer)
+  cases/s5_lifecycle.sh   s6_threading.sh   (C8 / §9 mapping priority, host-side)
+  cases/s7_session_gone.sh (C17 / §9.3 downgrade; needs host hook, GAP until wired)
+  cases/negatives.sh
   run-matrix.sh      --host dsh|pi|openclaw|all  --stages "s1 s2"
 ```
 

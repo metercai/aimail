@@ -27,6 +27,9 @@
 set -uo pipefail
 HOST_NAME=hermes
 HOST_ADDRESS_MODEL=single          # one profile = one address (contract §11.2)
+HOST_DELIVERY_CONFIRMATION=unconfirmed  # 附 E: pysdk 宿主，无落地确认；已实测 ack-未落地 ⇒ C17 仍受判
+HOST_RISK_ACCEPTED="owner 2026-11-25: hermes 无公开落地 API；接受 ack-未落地风险"
+HOST_CAN_ALLOCATE_SESSION=0  # 单 profile=单会话（S）：入站无分配接口
 HOST_FRAME_EVIDENCE=0              # no dsh-style event frames; judge on journey_state
 HERMES_IMAGE="${HERMES_IMAGE:-aimail-host-hermes:latest}"
 V2_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

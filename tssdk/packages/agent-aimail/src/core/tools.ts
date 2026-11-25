@@ -64,6 +64,9 @@ export async function activateAddressCode(
   const res = await activateAddressCodePersist(client, args.code, args.address, {
     gatewayUrl: args.gatewayUrl,
     ...(home ? { platformHome: resolvePlatformHome(home) } : {}),
+    // NOTE: the anchor is NOT a tool parameter (the tool schema is parity-checked against the Python
+    // MCP surface). Host adapters that know the workspace pass it into `aimailAddress(...)` instead,
+    // which registers the anchor with the gateway at activation.
   })
   return res as unknown as ToolResult
 }
@@ -218,8 +221,10 @@ async function requireConfig(systemId: string, email?: string): Promise<AgentCon
 export interface ToolCtx {
   systemId: string
   email?: string
-  /** dsh: the session that issued the tool call (optional for other hosts). */
+  /** The host session that issued the tool call (optional for other hosts). */
   sessionId?: string
+  /** Routable session handle when the host's id is not addressable (OpenClaw `sessionKey`). */
+  sessionKey?: string
   /** dsh: workspace path of that session (optional for other hosts). */
   workspacePath?: string
 }
@@ -426,8 +431,12 @@ export async function sendMail(ctx: ToolCtx, args: SendMailArgs): Promise<ToolRe
   // Message-ID generated locally and passed to gateway, local value is the online value (no longer backfilling API return value).
   const generatedMid = buildMessageId(cfg)
   await storeMessageMeta(cfg.email, generatedMid, references, sender, 'outbound')
-  if (ctx.sessionId) {
-    await stampSessionMeta(cfg.email, generatedMid, { sessionId: ctx.sessionId, ...(ctx.workspacePath ? { workspacePath: ctx.workspacePath } : {}) })
+  if (ctx.sessionId || ctx.sessionKey || ctx.workspacePath) {
+    await stampSessionMeta(cfg.email, generatedMid, {
+      ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
+      ...(ctx.sessionKey ? { sessionKey: ctx.sessionKey } : {}),
+      ...(ctx.workspacePath ? { workspacePath: ctx.workspacePath } : {}),
+    })
   }
   if (cfg.save_raw_snapshots !== false) {
     await saveOutboundSnapshot(cfg.email, generatedMid, sender, toList.join(','), args.subject, args.body,

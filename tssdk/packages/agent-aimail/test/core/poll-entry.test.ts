@@ -47,6 +47,10 @@ function binding(over: Partial<AgentConfig> = {}): AgentConfig {
     system_id: AGENT_SID,
     api_key: 'deadbeef',
     agent_id: 'agent',
+    // Provenance stamp: fixtures model what activateAddressCodePersist writes (see
+    // core/binding-provenance.ts — an unstamped binding never arms).
+    binding_source: 'activate-address-code',
+    activated_at: '2026-11-25T10:00:00.000Z',
     ...over,
   }
 }

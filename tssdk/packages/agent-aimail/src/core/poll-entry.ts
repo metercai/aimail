@@ -26,7 +26,7 @@ import type { AgentConfig } from './types.js'
 import { GatewayClient } from './gateway.js'
 import { listAgentConfigs } from './config.js'
 import { findBindingByEmail } from './address-code.js'
-import { listSystemDirs } from './auto-bind.js'
+import { listSystemDirs } from './system-config.js'
 import {
   startPolling,
   type PollStats,
@@ -34,6 +34,12 @@ import {
   type RequestClient,
 } from './address-code.js'
 import { startSystemPull } from './system-pull.js'
+import {
+  bindingProvenance,
+  isRefusedByGateway,
+  refuseBindingAfterGatewayRejection,
+} from './binding-provenance.js'
+import { anchorHeader } from './anchor-id.js'
 import { PULL_HTTP_TIMEOUT_MS, PULL_MODE_ENV, parsePullMode, type PullMode } from './pull-contract.js'
 import { getAgentSystemId } from './agent-system-id.js'
 
@@ -99,12 +105,21 @@ export function buildAgentSystemClient(
   apiKey: string,
   agentSystemId: string,
   identity: string,
+  /** Bindings of this group — their anchors ride along so the gateway can verify them (§7.1). */
+  members: readonly Pick<AgentConfig, 'email' | 'workspace_path'>[] = [],
 ): GatewayClient {
+  const anchors = anchorHeader(members)
   return new GatewayClient(gatewayUrl, apiKey, PULL_HTTP_TIMEOUT_MS, identity, {
     streamPath: '/api/v1/agent-system/pending/stream',
     pendingPath: '/api/v1/agent-system/pending',
     ackPath: '/api/v1/agent-system/pending/ack',
-    extraHeaders: { 'X-Agent-System-Id': agentSystemId },
+    extraHeaders: {
+      'X-Agent-System-Id': agentSystemId,
+      // The anchor identifier the gateway recorded at activation: `email;sha256`, comma separated.
+      // It is not a secret (the anchor is the agent's own workspace) — it is the claim the gateway
+      // checks, which is what stops a locally edited binding from moving a mailbox.
+      ...(anchors ? { 'X-Aimail-Anchor': anchors } : {}),
+    },
   })
 }
 
@@ -206,7 +221,7 @@ export async function startAgentSystemGroups(
     }
     const client = opts.clientFor
       ? opts.clientFor(rep)
-      : buildAgentSystemClient(rep.gateway_url, rep.api_key, asid, rep.email)
+      : buildAgentSystemClient(rep.gateway_url, rep.api_key, asid, rep.email, members)
     const pullHandle = await startSystemPull({
       systemId: rep.email,
       agentSystemId: asid,
@@ -237,6 +252,20 @@ export async function startAgentSystemGroups(
         live.pulled = s.pulled
         live.acked = s.acked
         live.errors = s.errors
+        return
+      }
+      // The pull settled with a failure value. An auth fatal means the GATEWAY rejected this
+      // group's key: that is the authoritative verdict on the binding's claims, so the members stop
+      // being armable in this process instead of being retried forever as "configured".
+      if (stats instanceof Error && stats.name === 'PullAuthError') {
+        for (const m of members) {
+          refuseBindingAfterGatewayRejection(m.email)
+        }
+        log(
+          `[aimail-pull] agent:${asid} gw=${rep.gateway_url}: gateway rejected the key ` +
+            `(${stats.message}) — members=[${members.map((m) => m.email).join(', ')}] are no longer ` +
+            'armed; re-bind with an activation code',
+        )
       }
     })
     log(
@@ -279,6 +308,17 @@ export async function freshDeliveryTarget(
   const loc = await findBindingByEmail(want)
   if (!loc.active) return { cfg: null, skip: { status: 'skip', reason: 'unknown' } }
   if (loc.active.paused === true) return { cfg: loc.active, skip: { status: 'skip', reason: 'paused' } }
+  // A V2 binding that was not minted by the activation chain never receives mail, even if a stream
+  // was armed before the file was swapped underneath us (this lookup is the per-delivery re-read).
+  // The §7.1 shape (seven fields + stamp) is the V2 contract; a V1-shaped binding has no aggregate
+  // stream to arm and is out of scope here.
+  if (isV2AgentScopeBinding(loc.active)) {
+    if (isRefusedByGateway(loc.active.email)) {
+      return { cfg: null, skip: { status: 'skip', reason: 'unproven' } }
+    }
+    const verdict = bindingProvenance(loc.active as unknown as Record<string, unknown>)
+    if (!verdict.ok) return { cfg: null, skip: { status: 'skip', reason: 'unproven' } }
+  }
   return { cfg: loc.active, skip: null }
 }
 
@@ -564,6 +604,11 @@ export async function startAgentPullEntries(
 
   // V2 subset of a pool: V2 bindings scoped to THIS profile's
   // AgentSystemId (never another profile's mailboxes), deduped by address.
+  //
+  // …and the ONE place provenance is enforced, because arming is the point where a binding turns
+  // into "we will accept mail for this address". A file that was not minted by
+  // activateAddressCodePersist is REFUSED — no switch, no compat mode (nothing has shipped yet, so
+  // an unstamped binding is hand-written or a writer bug), and the refusal names the reason.
   const v2Pool = async (pool: AgentConfig[]): Promise<AgentConfig[]> => {
     const asid = await getAgentSystemId()
     const seen = new Set<string>()
@@ -573,6 +618,23 @@ export async function startAgentPullEntries(
       const e = (c.email ?? '').toLowerCase()
       if (seen.has(e)) continue
       seen.add(e)
+      if (isRefusedByGateway(c.email)) {
+        log(
+          `[aimail-pull] ${e}: binding REFUSED — the gateway already rejected this key ` +
+            '(401/403); re-bind with an activation code (aimail_address)',
+        )
+        continue
+      }
+      const verdict = bindingProvenance(c as unknown as Record<string, unknown>)
+      if (!verdict.ok) {
+        // No compatibility mode: an unstamped binding cannot be a legacy artefact (nothing shipped
+        // yet), so it is either hand-written or a writer bug. Refuse it and say why.
+        log(
+          `[aimail-pull] ${e}: binding REFUSED — provenance not proven (${verdict.reason}); ` +
+            're-bind with an activation code (aimail_address)',
+        )
+        continue
+      }
       out.push(c)
     }
     return out

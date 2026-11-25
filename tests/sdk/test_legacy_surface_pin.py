@@ -1,58 +1,54 @@
-"""Pin the 0.3.0 legacy surface exactly as the built wheel behaves (measured, not assumed).
+"""Pin the shipped surface: on the SSE-V2 line, nothing of the v1 push/CLI era ships any more.
 
-Measured on agent_aimail-0.3.0-py3-none-any.whl in a clean venv (2026-11-24):
-  absent : patch_webhook, patch_profiles, register_profiles, ensure_config, toolsets
-  present: install.py, sdk_ops.py, hermes/aimail_hermes.py   (importable)
-  scripts: aimail-agent only  (no `aimail` CLI entry point)
+Measured on agent_aimail-0.3.0-py3-none-any.whl (2026-11-24) and then revised twice on 2026-11-25:
+the v1 hermes adapter left first (owner go-ahead), then the CLI-era installer, the door-ops entry and
+the v1 deer-flow adapter left with the "keep only SSE-V2" ruling.
 
-The handoff's G-2 said the legacy surface was "moved out of the wheel"; the artifact says only the
-five patch modules left. This test keeps the doc and the artifact from drifting apart again:
-removing one of the present modules without updating README/§8.2 fails here, and re-introducing one of
-the absent patch modules fails too.
+  absent  : pysdk/hermes/ (adapter + patchers), pysdk/install.py, pysdk/sdk_ops.py,
+            pysdk/deer-flow/ (inbound router + manage + install scripts), pysdk/hosts/
+  present : the v2 runtime — flat core modules, v2/, hermes_plugin/, deerflow_plugin/
+  scripts : aimail-agent (the activate/pull bootstrap helper the v2 plugins import)
+
+This test keeps the doc and the tree from drifting apart: any retired module coming back fails here.
 """
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SDK = ROOT / "pysdk"
 
-SHIPPED_LEGACY = {"install.py", "sdk_ops.py", "hermes/aimail_hermes.py"}
-ABSENT_PATCH = {"patch_webhook.py", "patch_profiles.py", "register_profiles.py",
-                "ensure_config.py", "toolsets.py"}
+#: Gone from the tree AND the wheel: the whole v1 push/CLI surface.
+RETIRED = (
+    "hermes",
+    "deer-flow",
+    "hosts",
+    "install.py",
+    "sdk_ops.py",
+)
+#: The v2 surface that must exist (a missing one means the wheel cannot deliver mail at all).
+PRESENT = (
+    "aimail_base.py",
+    "aimail_contract.py",
+    "aimail_agent.py",
+    "v2/__init__.py",
+    "hermes_plugin/__init__.py",
+    "deerflow_plugin/__init__.py",
+)
 
 
-def test_legacy_modules_that_ship_are_the_measured_ones():
-    missing = sorted(m for m in SHIPPED_LEGACY if not (SDK / m).is_file())
-    assert not missing, (
-        f"{missing} vanished — that is a product change: update pysdk/README.md '0.3.0 — breaking', "
-        "the handoff G-2 and this list in the same commit"
+def test_the_v1_push_and_cli_surface_is_gone():
+    back = sorted(m for m in RETIRED if (SDK / m).exists())
+    assert not back, (
+        f"retired v1 surface came back: {back} — SSE-V2 hosts deliver by pulling and bind only "
+        "through an activation code; see docs/qa/KEEP-ONLY-SSE-V2-2026-11-25.md"
     )
 
 
-def test_patch_era_modules_are_really_gone_from_the_source_tree():
-    still = sorted(m for m in ABSENT_PATCH if (SDK / m).is_file())
-    assert not still, f"patch-era module(s) came back: {still}"
+def test_the_v2_runtime_is_present():
+    missing = sorted(m for m in PRESENT if not (SDK / m).is_file())
+    assert not missing, f"v2 runtime modules missing: {missing}"
 
 
-def test_no_cli_entry_point_for_the_legacy_installer():
-    """Only aimail-agent may be installed as a console script; no `aimail` CLI, no installer."""
-    txt = (ROOT / "pyproject.toml").read_text()
-    # isolate the console-script table instead of grepping the whole file ("[project.scripts]" is
-    # legitimate for aimail-agent — my first version failed on its own over-broad assertion).
-    block = ""
-    for marker in ("[project.scripts]", "[project.entry-points.console_scripts]"):
-        if marker in txt:
-            rest = txt.split(marker, 1)[1]
-            block += rest.split("\n[", 1)[0]
-    assert "aimail-agent" in block or "[project.scripts]" in txt, "runtime entry point aimail-agent missing"
-    for banned in ("aimail = ", "aimail-install", "install = "):
-        assert banned not in block, f"legacy CLI wiring reappeared: {banned!r} in {block!r}"
-
-
-def test_readme_does_not_claim_the_whole_legacy_surface_is_gone():
-    readme = (SDK / "README.md").read_text().lower()
+def test_readme_does_not_claim_the_retired_surface_still_ships():
+    readme = (SDK / "README.md").read_text(encoding="utf-8").lower()
     assert "no longer shipped" in readme
-    # the five patch helpers are covered by that sentence; the remaining three still ship, and the
-    # README must not imply otherwise without saying so.
-    assert ("still ship" in readme) or ("still present" in readme) or ("removal in 0.3.1" in readme), (
-        "README must state that install.py / sdk_ops.py / hermes/aimail_hermes.py still ship"
-    )
+    assert "hermes adapter is gone" in readme

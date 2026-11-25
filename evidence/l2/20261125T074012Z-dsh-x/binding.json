@@ -1,0 +1,14 @@
+{
+  "agent_system_id": "asid_f7c9743be21fae11710bad7d4a0bccff",
+  "api_key": "<redacted>",
+  "domain": "test.local",
+  "email": "l2dsh2@test.local",
+  "expires_at": "2026-11-26T07:40:12.115Z",
+  "gateway_url": "http://127.0.0.1:18442",
+  "manager_address": "l2-dsh-2-13032@example.com",
+  "paused": false,
+  "system_id": "system-8515",
+  "workspace_id": "c09e9c91-988a-4cb1-baac-a40e24a7b82a",
+  "workspace_path": "/root/ws",
+  "workspace_title": "ws"
+}

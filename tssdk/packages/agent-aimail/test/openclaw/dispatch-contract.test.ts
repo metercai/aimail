@@ -52,6 +52,10 @@ function startStub(): Promise<number> {
         if (body.sessionKey !== undefined && !allowRequestSessionKey) {
           return send(400, { error: 'request session key requires allowRequestSessionKey' })
         }
+        // openclaw 2026.11.5: persistent without a key is a 400 (hooks-request-handler.ts).
+        if (body.sessionMode === 'persistent' && body.sessionKey === undefined) {
+          return send(400, { error: 'sessionKey is required when sessionMode is persistent' })
+        }
         return send(200, { ok: true, runId: 'run-1' })
       })
     })
@@ -99,6 +103,44 @@ describe('dispatch contract (/hooks/agent) — L1', () => {
     })
     expect(out.status).toBe('delivered')
     expect(seen[0].sessionKey).toBe('agent:main:aimail:thread-1')
+    // Carrying the key alone leaves the host on `isolated` (fresh run session per call), which is
+    // what broke C8 on L2. Reuse must be asked for explicitly.
+    expect(seen[0].sessionMode).toBeUndefined()
+  })
+
+  it('asks for session reuse (sessionMode=persistent) only together with the key', async () => {
+    allowRequestSessionKey = true
+    const withKey = await deliverToAgent({} as never, {
+      agentId: 'main',
+      message: 'hello',
+      sessionKey: 'agent:main:aimail:thread-1',
+      persist: true,
+      idempotencyKey: '<m-1@x>',
+    })
+    expect(withKey.status).toBe('delivered')
+    expect(seen.at(-1)).toMatchObject({
+      sessionKey: 'agent:main:aimail:thread-1',
+      sessionMode: 'persistent',
+      idempotencyKey: '<m-1@x>',
+    })
+
+    // No key ⇒ no sessionMode: the host rejects persistent-without-key (400), and there is no
+    // session to reuse anyway.
+    const noKey = await deliverToAgent({} as never, { agentId: 'main', message: 'hi', persist: true })
+    expect(noKey.status).toBe('delivered')
+    expect(seen.at(-1)?.sessionMode).toBeUndefined()
+  })
+
+  it('without host opt-in nothing session-related is sent, so the host opens a fresh run', async () => {
+    const out = await deliverToAgent({} as never, {
+      agentId: 'main',
+      message: 'hello',
+      persist: true,
+      idempotencyKey: '<m-2@x>',
+    })
+    expect(out.status).toBe('delivered')
+    expect(seen.at(-1)?.sessionKey).toBeUndefined()
+    expect(seen.at(-1)?.sessionMode).toBeUndefined()
   })
 
   it('a caller sessionKey without opt-in is refused, and the reason survives (S1d/S1e pin)', async () => {

@@ -9,9 +9,6 @@ import { installActivationSkillSync } from '../core/agent-level.js'
 import type { OpenClawPluginDefinition } from 'openclaw/plugin-sdk/plugin-entry'
 import {
   AGENT_TOOL_DEFS,
-  notifyInboundForSystem,
-  formatInboundNotifyLine,
-  isInboundNotifyWarning,
   releaseAllSystems,
   onBindingCreated,
   setProfileDirResolver,
@@ -26,9 +23,8 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 import { createMailTools } from './tools.js'
-import { createInboundHandler, startInboundPull, INBOUND_PATH } from './inbound.js'
-import { createAimailCommands } from './commands.js'
-import { agentIdentity, ensureHooksWiring, resolveAgentId, tryAutoBindOnce, DEFAULT_AGENT_ID, openclawWebhookUrl } from './identity.js'
+import { startInboundPull } from './inbound.js'
+import { agentIdentity, ensureHooksWiring } from './identity.js'
 import { resolveOpenclawSkillRoots } from './skills.js'
 import { activateHost } from '../hosts/activate.js'
 
@@ -44,7 +40,9 @@ function definePluginEntry<T extends object & { configSchema?: unknown }>(entry:
   } as T
 }
 
-const transport = process.env.AIMAIL_TRANSPORT === 'push' ? 'push' : 'sse'
+// 2026-11-25: all push-era / CLI-era switches are gone (no listener, no in-gateway route, no
+// `aimail` subcommand). A binding is created by an ACTIVATION CODE via `aimail_address`, and nothing
+// at startup can create one.
 let pullHandles: Array<{ stop: () => void }> = []
 const entry: OpenClawPluginDefinition = definePluginEntry({
   id: 'agent-aimail',
@@ -68,7 +66,7 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
     // resolveHooksConfig: hooks.enabled !== true ⇒ null ⇒ 404 fall-through).
     // On a CLI-registered host the `aimail register`/`status` commands call
     // ensureHooksWiring(), but the SSE profile registers NO CLI commands (see
-    // below: transport === 'push' guard), so a pure-SSE-activated host never
+    // below: the legacy CLI flag), so a host in normal SSE mode never
     // gets hooks.token + hooks.enabled written — pulled mail is read (pending
     // 200) but the dispatch POST 404s and is never acked (re-pulled forever).
     // Wire it here, exactly as the CLI path does (idempotent: 'kept' when
@@ -179,34 +177,15 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
       names: [...AGENT_TOOL_DEFS.map((t) => t.name)],
     })
 
-    // Inbound delivery route (in-gateway, no new port; auth=plugin, HMAC is
-    // the trust boundary per R2)
-    if (transport === 'push') {
-      api.registerHttpRoute({
-        path: INBOUND_PATH,
-        auth: 'plugin',
-        match: 'exact',
-        handler: createInboundHandler(api),
-      })
-    }
+    // No inbound HTTP route: the in-gateway push endpoint was retired 2026-11-25. Mail arrives
+    // through `startInboundPull` below (SSE/pull), so there is nothing to register and no HMAC step.
 
-    // Eager default-agent binding (dsh parity, 2026-10-16 batch): the
-    // `openclaw plugins install` path never runs the CLI's register_default
-    // step, so nothing else writes the default agent's binding — without a
-    // proactive bind a plugin-installed host has a system but no binding, and
-    // the gateway can dispatch/welcome no mail. One call covers system
-    // readiness (owning system short-circuit, else CLI L1 reverse-call) + the
-    // idempotent bind. It runs AFTER the in-gateway route below is registered
-    // (the pulled mail enters that same chain), and arms the pull entry + live
-    // notify only once the default agent is bound. The agent id is the host's
-    // own (resolveAgentId; default 'main') — the same id the inbound dispatch
-    // sends to /hooks/agent. Never fatal: on failure the host degrades to the
-    // unbound path (the lazy tool path retries).
+    // Binding comes from an ACTIVATION CODE (aimail_address bind), never from installing the plugin:
+    // there is no eager default-agent bind any more (owner 2026-11-25: "不存在自动默认绑定，都需要激活码").
+    // What remains here is arming the pull entry for whatever bindings exist.
     {
       void (async () => {
-        const agentId = resolveAgentId() || DEFAULT_AGENT_ID
-        if (transport !== 'sse') await tryAutoBindOnce(agentId)
-        // SSE startup never creates a mailbox; aimail_address does.
+        // Startup never creates a mailbox; an activation code does.
         // Pull entry (2026-09-27): an address activated by an activation CODE
         // has no push path (the gateway stores webhook_url=NULL for it), so
         // this host must fetch its own mail on a timer. Started AFTER the
@@ -241,20 +220,6 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
         // ruling 2026-10-25: every host carries its real serving endpoint, no
         // exceptions). Best-effort and never fatal (argv, 4s timeout, no CLI ⇒
         // one log line).
-        if (transport === 'push') void notifyInboundForSystem('live', { inboundUrl: openclawWebhookUrl() })
-          .then((outcomes) => {
-            for (const o of outcomes) {
-              const line = `[agent-aimail] ${formatInboundNotifyLine(o, 'live')}`
-              // Diagnostic line ⇒ stderr (warning/normal split, contract "failure is warning line"): op path stdout exactly one line JSON (§4.1(2))
-              if (isInboundNotifyWarning(o)) console.warn(line)
-              else console.error(line)
-            }
-          })
-          .catch((e: unknown) => {
-            console.warn(
-              `[agent-aimail] inbound notify failed (non-fatal): ${e instanceof Error ? e.message : String(e)}`,
-            )
-          })
       })().catch((e: unknown) => {
         console.warn(
           `[agent-aimail] eager binding gate failed (degraded to unbound path): ${e instanceof Error ? e.message : String(e)}`,
@@ -271,62 +236,6 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
       } catch { /* next restart retries */ }
     })
 
-    // Registration / status commands are legacy CLI surface; the SSE profile
-    // uses the Agent tool surface instead.
-    if (transport === 'push') {
-    for (const command of createAimailCommands()) {
-      api.registerCommand(command)
-    }
-
-    // CLI surface: manifest cliCommands is help-metadata only — the actual
-    // `openclaw aimail ...` dispatch registers via api.registerCli.
-    if (typeof (api as { registerCli?: unknown }).registerCli === 'function') {
-      api.registerCli(
-        (cliCtx) => {
-        const program = cliCtx.program as unknown as {
-          command: (name: string, opts?: { hidden?: boolean }) => {
-            description: (d: string) => unknown
-            action: (fn: (...args: unknown[]) => void) => unknown
-          }
-        }
-        const cmd = program.command('aimail [args...]') as unknown as {
-          description: (d: string) => {
-            allowUnknownOption: (v?: boolean) => {
-              action: (fn: (...args: unknown[]) => void) => unknown
-            }
-          }
-        }
-        ;(cmd
-          .description('AIMail registration and status: register|register-all|deregister|status')
-          .allowUnknownOption(true) as {
-          action: (fn: (...args: unknown[]) => void) => unknown
-        }).action(async (...args: unknown[]) => {
-            const { handleCommand } = await import('./commands.js')
-            const argv = (args[0] as string[] | undefined) ?? []
-            // CLI call is isomorphic to chat command: args string + senderIsOwner (local operator)
-            const result = await handleCommand({
-              args: argv.join(' '),
-              channel: 'cli',
-              isAuthorizedSender: true,
-              senderIsOwner: true,
-            } as never)
-            const text = result && typeof result === 'object' && 'text' in (result as Record<string, unknown>)
-              ? String((result as Record<string, unknown>).text)
-              : JSON.stringify(result)
-            process.stdout.write(text + '\n')
-          })
-        },
-        {
-          commands: ['aimail'],
-          descriptors: [{
-            name: 'aimail',
-            description: 'AIMail registration and status: register|register-all|deregister|status',
-            hasSubcommands: true,
-          }],
-        },
-      )
-    }
-    }
   },
 })
 

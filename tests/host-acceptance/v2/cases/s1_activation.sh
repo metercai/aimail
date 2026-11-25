@@ -23,12 +23,22 @@ checks = {
     "workspace_path": bool(d.get("workspace_path") or d.get("workspace_id")),
     "no_webhook": not d.get("webhook_url"),
     "has_key": bool(d.get("api_key")),
+    # Contract §7.1: `email`/`domain` are MUST, so they are judged; `expires_at` is SHOULD, so it is
+    # reported as NOTE (visible when the gateway/activation drops it) but never turns the stage red.
+    "email": bool(d.get("email")),
+    "domain": bool(d.get("domain")) and "@" in str(d.get("email", "")),
 }
+print(("NOTE expires_at " + ("present" if d.get("expires_at") else "absent (SHOULD, §7.1)")))
 for k, v in checks.items():
     print(("OK " if v else "FAIL ") + k)
 PY
-while read -r st name; do
-  [ "$st" = "OK" ] && pass "$name" || red "$name"
+while read -r st name extra; do
+  case "$st" in
+    OK)  pass "$name" ;;
+    FAIL) red "$name" ;;
+    NOTE) pass "$name $extra" ;;   # SHOULD-level observation, not a verdict on a MUST
+    *) : ;;
+  esac
 done <"$out/binding.assert"
 
 mode="$(cat "$out/mode" 2>/dev/null || echo '?')"

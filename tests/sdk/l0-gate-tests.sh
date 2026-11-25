@@ -39,6 +39,16 @@ if [ "$_css_rc" -ne 0 ]; then
   exit 1
 fi
 echo "[L0] contract single-source: consts == manifest; frontmatter 5/5; literal ratchet clean"
+# No-local-endpoint gate (2026-11-25): the naming contract carries NAMES only. The v1 hermes webhook
+# pair left with its adapter, then the loopback listener keys left when SSE-V2 stopped binding local
+# ports. This gate fails if an endpoint key/constant comes back, if a listener symbol or inbound
+# route literal reappears, or if the retired v1 adapter directory returns.
+_lps_rc=0
+python3 tests/contract/check-legacy-push-scope.py || _lps_rc=$?
+if [ "$_lps_rc" -ne 0 ]; then
+  echo "[L0] FAIL: legacy-push scope rc=$_lps_rc (1=regressed, 2=cannot-judge; fail-closed)"
+  exit 1
+fi
 # Zero-bridge symbol ratchet (2026-09-28 SDK de-bridging, owner ruling): Environment (bridge/routing) is self-held by CLI ——
 # SDK only does best-effort "inbound live/down" notification (`aimail address -a <addr> --inbound-live`).
 # Static negative assertions four (hit = 0): ① AST identifiers in pysdk/**/*.py ② tssdk/packages/*/src + test
@@ -101,11 +111,11 @@ fi
 # Platform boundary gate: CLI code must not contain platform literal branches (adding platform/multi-agent registration only changes
 # platform-boundary (CLI contains no platform literals) migrated to the CLI domain gate (closed repo: aimail-advanced/tests/cli-domain/run-cli-gates.sh)
 # Core runtime modules: strict (no unused/undefined). Deploy-time patch
-# scripts (hermes/patch_* etc.) intentionally import `aimail` for
-# side-effect/eval use — syntax-check only those.
+# v2 runtime modules: strict (no unused/undefined). The whole v1 push/CLI surface (hermes adapter,
+# install.py, sdk_ops.py, deer-flow adapter, hosts registry) was retired on 2026-11-25.
 python3 -m pyflakes pysdk/aimail_base.py pysdk/aimail_board.py pysdk/aimail_tools.py \
-  pysdk/aimail_mcp_server.py pysdk/aimail_agent.py pysdk/hermes/aimail_hermes.py \
-  pysdk/deer-flow/*.py 2>/dev/null \
+  pysdk/aimail_mcp_server.py pysdk/aimail_agent.py pysdk/aimail_contract.py \
+  pysdk/v2/*.py pysdk/hermes_plugin/*.py pysdk/deerflow_plugin/*.py 2>/dev/null \
   || { echo "[L0] FAIL: pyflakes (core)"; exit 1; }
 for f in $(find pysdk -name '*.py' -not -path '*__pycache__*'); do
   python3 -m py_compile "$f" || { echo "[L0] FAIL: py_compile $f"; exit 1; }

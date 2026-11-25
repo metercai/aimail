@@ -1,0 +1,1 @@
+GAP    S3 delivery                  no injection evidence after 180s — journey never reached the mail stage 

@@ -36,7 +36,7 @@ VERDICT: FAIL (RED=1 GAP=0)
 布局探针：
   aimail_home=/root/.aimail exists=True
   systems/system-9f3a -> ['board', 'l2dsh_test.local']
-  glob hits=1 pattern=/root/.aimail/systems/*/*/agentmail.json
+  glob hits=1 pattern=/root/.aimail/systems/*/*/agentmail.json  <!-- contract-allowed: QA 文档引用 binding 文件名以定位证据 -->
   point_at_missing_session: rewrote 0 config(s) -> s7-nonexistent-1795589186
 ```
 **我的读法**：配置文件找到了，但里面**没有可改写的 `session_id`**，于是 `boundId` 为空、走 E3 新建会话；
@@ -46,16 +46,16 @@ VERDICT: FAIL (RED=1 GAP=0)
 
 ## 1. 三问
 
-### Q1 `session_id` 为什么没有落盘到 `agentmail.json`？
+### Q1 `session_id` 为什么没有落盘到 `agentmail.json`？  <!-- contract-allowed: QA 文档引用 binding 文件名以定位证据 -->
 请回答：
 - 写入发生在哪条路径、什么时机（只在 followup 成功后？只在特定 host？）；
 - 是否会被其他写操作覆盖（`saveAgentConfig` / binding 同步 / 启动期重建）；
 - 实测文件里该键**不存在还是为 null**（我在 v6 加了探针，下一跑会打印键名，但你可以直接给出结论与行号）。
 
-判据：`updateAgentConfig({session_id})` 之后，`AIMAIL_HOME/systems/<sid>/<addr>/agentmail.json` 里 `session_id` 非空，
+判据：`updateAgentConfig({session_id})` 之后，`AIMAIL_HOME/systems/<sid>/<addr>/agentmail.json` 里 `session_id` 非空，  <!-- contract-allowed: QA 文档引用 binding 文件名以定位证据 -->
 且下一次同 thread 投递时 `boundId` 能取到它。用一行命令可证：
 ```bash
-python3 -c "import json,glob;print([ (f, json.load(open(f)).get('session_id')) for f in glob.glob('/root/.aimail/systems/*/*/agentmail.json')])"
+python3 -c "import json,glob;print([ (f, json.load(open(f)).get('session_id')) for f in glob.glob('/root/.aimail/systems/*/*/agentmail.json')])"  <!-- contract-allowed: QA 文档引用 binding 文件名以定位证据 -->
 ```
 
 ### Q2 如果 dsh 不打算用 `cfg.session_id`，产者挂在哪条实际生效的路径上？

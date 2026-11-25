@@ -15,13 +15,19 @@ import aimail_tools as tools
 from v2 import binding as binding_mod
 from v2 import pull_client as pull_client_mod
 from v2 import system_pull as system_pull_mod
+from _anchor import ACTIVATION_STAMP, ANCHOR_PATH  # noqa: E402
 
 ASID = "asid_0123456789abcdef0123456789abcdef"
 
 
 def _cfg(**over):
+    """A binding as the ACTIVATION chain writes it (provenance stamp included) — see
+    tests/sdk/test_binding_provenance.py for the refusal rule this fixture satisfies."""
     cfg = {"email": "a@test.local", "gateway_url": "http://gw", "system_id": "system-1",
-           "api_key": "sk-x", "agent_system_id": ASID}
+           "domain": "test.local", "agent_id": "a",
+           "workspace_id": ANCHOR_PATH, "workspace_path": ANCHOR_PATH,
+           "api_key": "sk-x", "agent_system_id": ASID,
+           "binding_source": "activate-address-code", "activated_at": "2026-11-25T10:00:00Z"}
     cfg.update(over)
     return cfg
 
@@ -105,6 +111,9 @@ def _seed(tmp_path, monkeypatch, cfgs):
     monkeypatch.setenv("AIMAIL_HOME", str(tmp_path))
     for cfg in cfgs:
         base.save_agent_config(str(cfg["email"]).split("@")[0], cfg, cfg["system_id"])
+        # activation records the anchor relation next to the binding (pysdk/v2/anchor.py);
+        # without it the binding is refused at arming — which is the point of the rule.
+        
 
 
 def test_reconcile_arms_one_stream_per_gateway(tmp_path, monkeypatch):

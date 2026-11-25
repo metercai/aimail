@@ -7,7 +7,8 @@
 #
 # Usage:  bash tests/host-acceptance/v2/run-release-gate.sh [--only dsh,hermes] [--quick]
 set -uo pipefail
-cd "$(dirname "$0")/../.." || exit 1
+V2="$(cd "$(dirname "$0")" && pwd)"
+cd "$V2/../../.." || exit 1
 ROOT="$(pwd)"
 set -a; [ -f /home/ubuntu/.hermes/profiles/verifier/.env ] && . /home/ubuntu/.hermes/profiles/verifier/.env; set +a
 export LLM_API_KEY="${LLM_API_KEY:-$XIAOMI_API_KEY}"
@@ -29,7 +30,7 @@ row() {  # row <sdk> <host> <stages> <label>
   local log="$OUT/$sdk-$host-$label.log"
   echo "── $sdk / $host  [$label]  stages=[$stages]  ports $hp/$sp"
   GW_HTTP_PORT=$hp GW_SMTP_PORT=$sp timeout 3000 \
-    bash tests/host-acceptance/v2/run-matrix.sh --sdk "$sdk" --host "$host" --stages "$stages" >"$log" 2>&1
+    bash "$V2/run-matrix.sh" --sdk "$sdk" --host "$host" --stages "$stages" >"$log" 2>&1
   local rc=$?
   printf '   rc=%s  %s\n' "$rc" "$(grep -aoE 'PASS=[0-9]+ RED=[0-9]+ GAP=[0-9]+ SKIP_LEGACY=[0-9]+' "$log" | tail -1)"
 }

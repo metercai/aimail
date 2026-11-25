@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """Contract C8 — thread identity parity, driven by the shared vector file.
 
-C8 is a PRODUCT CONTRACT requirement (docs/aimail-host-sse-contract-v2.md:519:
-"同 thread followup，新 thread 新 session，空间=cwd"). Both SDKs implement it
+C8 is a PRODUCT CONTRACT requirement (docs/aimail-host-sse-contract-v2.md §16 C8 / §9:
+"同 thread 复用 Session，新 thread 新 Session，空间 = 绑定的宿主空间"). Both SDKs implement it
 (tssdk runtime/session-router.ts, pysdk v2/thread.py) and both only had their own private
 unit expectations — a change on one side could silently break parity.
 

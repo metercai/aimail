@@ -9,6 +9,7 @@
  * the aggregate/pull client is a poll-only fake via the startInboundPull
  * clientFor seam.
  */
+import { ACTIVATION_STAMP } from '../helpers/anchor.js'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { promises as fs } from 'node:fs'
 import * as http from 'node:http'
@@ -41,8 +42,18 @@ function v2(email: string, over: Partial<AgentConfig> = {}): AgentConfig {
     api_key: 'key-' + email,
     agent_id: email.split('@')[0],
     agent_system_id: ASID,
+    workspace_id: '/tmp/aimail-anchor-ws',
+    workspace_path: '/tmp/aimail-anchor-ws',
+    // Provenance stamp (activateAddressCodePersist writes it); the anchor record is written by
+    // saveV2() below.
+    ...ACTIVATION_STAMP,
     ...over,
   }
+}
+
+/** Save a V2 binding the way activation leaves it (the stamp is in the object itself). */
+async function saveV2(cfg: AgentConfig, sid = SID): Promise<void> {
+  await saveAgentConfig(cfg, sid)
 }
 
 class FakePoll implements RequestClient {
@@ -187,7 +198,7 @@ describe('§6.7 #10-#13 — tier-2 pointer decision tree (openclaw)', () => {
       process.env.HOME = env.home
       process.env.AIMAIL_HOME = env.aimailHome
       const a = v2('a@e2e.local')
-      await saveAgentConfig(a, SID)
+      await saveV2(a)
       await writePointer(env.home, SID, 'a@e2e.local')
       let built = 0
       const lines: string[] = []
@@ -213,7 +224,7 @@ describe('§6.7 #10-#13 — tier-2 pointer decision tree (openclaw)', () => {
       process.env.HOME = env.home
       process.env.AIMAIL_HOME = env.aimailHome
       const a = v2('a@e2e.local', { paused: true })
-      await saveAgentConfig(a, SID)
+      await saveV2(a)
       await writePointer(env.home, SID, 'a@e2e.local')
       let built = 0
       const lines: string[] = []
@@ -238,8 +249,8 @@ describe('§6.7 #10-#13 — tier-2 pointer decision tree (openclaw)', () => {
     try {
       process.env.HOME = env.home
       process.env.AIMAIL_HOME = env.aimailHome
-      await saveAgentConfig(v2('a@e2e.local', { paused: true }), SID)
-      await saveAgentConfig(v2('b@e2e.local'), SID)
+      await saveV2(v2('a@e2e.local', { paused: true }))
+      await saveV2(v2('b@e2e.local'))
       await writePointer(env.home, SID, 'a@e2e.local')
       // One aggregate stream serves BOTH addresses (asid ownership). The queue
       // loops: first round [B, A] (B delivered, A skipped at fresh lookup);
@@ -289,8 +300,8 @@ describe('§6.7 #10-#13 — tier-2 pointer decision tree (openclaw)', () => {
     try {
       process.env.HOME = env.home
       process.env.AIMAIL_HOME = env.aimailHome
-      await saveAgentConfig(v2('a@e2e.local', { paused: true }), SID)
-      await saveAgentConfig(v2('b@e2e.local'), SID)
+      await saveV2(v2('a@e2e.local', { paused: true }))
+      await saveV2(v2('b@e2e.local'))
       await writePointer(env.home, SID, 'a@e2e.local')
       const clients: FakePoll[] = []
       const mk = () => {

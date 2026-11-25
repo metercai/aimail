@@ -52,7 +52,7 @@ side is chosen by the host's language):
 |---|---|---|
 | Published as | npm `agent-aimail` (`tssdk/packages/agent-aimail/`) | PyPI `agent-aimail` (`pysdk/`, in-wheel package name `aimail/`) |
 | Current hosts | openclaw / dsh / pi | hermes / deer-flow |
-| Entries | `dist/{host}/index.js` (consumed by the host loader) + `dist/{host}/register-cli.js` (spawned by the CLI) | per-host adapter module (registration) + `pysdk/sdk_ops.py` (process-command contract) |
+| Entries | `dist/{host}/index.js` (consumed by the host loader) | per-host plugin package (`hermes_plugin` / `deerflow_plugin`, discovered by the host) |
 | Host loader | npm extension mechanisms (plugin entry / cordis bundle / pi.extensions) | in-process import / host-source patches (see P4/P5) |
 
 Both packages share the name `agent-aimail` but live on separate registries
@@ -109,8 +109,7 @@ tssdk/packages/agent-aimail/
 pysdk/
 ├── aimail_base.py   # core: injection-point group + process_inbound_mail
 ├── aimail_tools.py  # core: tool implementations (spec: aimail_mcp_server.py TOOLS, 15 tools)
-├── hosts/           # registry + detect + activate (ported)
-├── hermes/          # adapter: aimail_hermes + patch/ensure family
+├── hermes_plugin/   # v2 hermes plugin (entry point hermes_agent.plugins) — v1 adapter retired 2026-11-25
 └── deer-flow/       # adapter: aimail_deerflow + manage + inbound
 ```
 
@@ -131,9 +130,10 @@ pysdk/
     (`dsh-aimail/mail-service` → `ctx.mail`; `/tools`; `/inbound` →
     node:http endpoint), see `src/dsh/index.ts:1-14`.
   - pi: package.json `pi.extensions` → `dist/pi/index.js`.
-  - hermes: does not use an npm extension surface; the SDK attaches by
-    **patching the host's source** (`pysdk/hermes/patch_*.py`, see P4/P5).
-- **Verification**: `detectHost()` (P2) + the entry's `activateHost()`
+  - hermes: no npm extension and **no host-source patch** any more — `pip install agent-aimail`
+    publishes the `hermes_agent.plugins` entry point and the host loads the v2 plugin
+    (`pysdk/hermes_plugin/`). The v1 patcher family was deleted on 2026-11-25.
+- **Verification**: both registries declare the same host set; a load probe
   assertion pass; the artifact `dist/{host}/index.js` exists.
 
 ### P2 Host Detection & Self-Check
@@ -189,42 +189,26 @@ pysdk/
 
 ### P4 Inbound Wiring
 
-- **Responsibility**: plug the host's inbound traffic into the single entry
-  function; attach ping/pong health probing.
-- **Contract**: path `INBOUND_PATH = /aimail/inbound` (immutable on all
-  platforms); hermes is the only exception,
-  `HERMES_INBOUND_PATH = /webhooks/aimail-inbound` (mounted on the hermes
-  gateway's own webhook route, route name `aimail-inbound`).
-  Ports: ONE common default `inbound_port = 9099` for the hosts whose SDK
-  owns the listener (dsh / pi) — **ports configurable, paths immutable**
-  (`src/core/contract.ts`). On a port collision the runtime re-selects an
-  available port (the ACTUAL bind result is the source of truth) and the
-  confirmed callback carries that real endpoint. Hosts whose gateway owns
-  the port (hermes, deer-flow, openclaw) carry NO contract default — the
-  adapter discovers the actual port and the confirmed callback always
-  carries the real URL.
-- **Known methods**:
-  - pi: in-extension node:http handler → `verifySignature` (HMAC,
-    per-address `webhook_secret`) → `routeAddressFromHeaders` →
-    `processInboundMail` (`src/pi/index.ts:66-114`).
-  - dsh: bundle subpath `dsh-aimail/inbound` (node:http endpoint +
-    delivery).
-  - openclaw: HTTP route registered inside the plugin `register(api)`
-    (`src/openclaw/index.ts:38`, inbound logic in
-    `src/openclaw/inbound.ts`).
-  - hermes: patch the hermes-agent distribution's
-    `gateway/platforms/webhook.py` (external file, not in this repo) to
-    add `PREPROCESS_REGISTRY` + `register_preprocessor()`, invoked by the
-    webhook handler before prompt rendering
-    (`pysdk/hermes/patch_webhook.py`); at the same time
-    `ensure_config.py` idempotently ensures the profile's
-    `platform_toolsets.webhook`/`cli` include `agentmail` (missing either
-    one is the "can receive but cannot reply" break).
-  - deer-flow: in the local gateway process, `POST /aimail/inbound` →
-    `process_inbound_mail` → ping/pong interception (swallowed with 200,
-    agent not triggered) → `start_run` (thread = `uuid5("aimail", email)`,
-    session stable per address) → immediate 200
-    (`pysdk/deer-flow/aimail_inbound.py:1-20`).
+- **Responsibility**: plug the host's inbound traffic into the single entry function; attach
+  ping/pong health probing.
+- **Contract**: there is **no endpoint any more**. Mail arrives by pulling the gateway stream
+  (SSE + long-poll, contract v2 §8): no adapter binds a loopback port, exposes an HTTP route,
+  verifies an HMAC push body, or reports an "inbound live" URL. `INBOUND_PATH` / `INBOUND_PORT`
+  left the naming contract on 2026-11-25 (they were never delivery semantics — a host answering on
+  a local port is not "more deliverable"), and the v1 hermes webhook path left with its adapter the
+  same day.
+- **Known methods** (all pull):
+  - pi: `startInboundPull` (mail-core) → `deliverPiInbound`; nothing listens.
+  - dsh: the `mail-hub` row owns the streams and calls `deliverInbound` — the ONE delivery path
+    (E1/E2/E3 + C16 + C17 + the dispatch line). Its former `inbound` row (node:http listener + a
+    second, weaker router) was dead in the shipped bundle and was removed on 2026-11-25.
+  - openclaw: `startInboundPull` → `deliverInbound`; the in-gateway route is gone.
+  - hermes: **retired (2026-11-25)** — the v1 adapter patched `gateway/platforms/webhook.py` and
+    rewrote `platform_toolsets`; both are gone. The v2 plugin is discovered through the
+    `hermes_agent.plugins` entry point (`pip install agent-aimail`) and pulls the gateway stream
+    itself, with no host-tree edit (see `pysdk/hermes_plugin/`).
+  - deer-flow (v1, still shipped): in-process `POST /aimail/inbound` inside the host's own gateway
+    process — the only surviving push surface, with its own route literal until that adapter retires.
 - **Verification**: gateway original → bodyproc → local entry full chain
   measured end-to-end; the ping/pong contract holds; inbound logs land in
   `~/.aimail/systems/{sid}/{cleaned_addr}/agentmail.log`.
@@ -431,13 +415,13 @@ pysdk/
 | P1 entry | plugin entry + extensions | cordis.patch.yml self-mounts 3 subpaths | pi.extensions | host-source patch family | local gateway process |
 | P2 self-check | activateHost('openclaw')@register | activateHost('dsh')@mail-service load | activateHost('pi')@entry | the process IS the host | the process IS the host |
 | P3 identity | `~/.openclaw/.agentmail` + auto-bind | exec.agent.id | `~/.pi/.agentmail` + auto-bind | the profile is the identity | `systems/{sid}/{cleaned_addr}/` dir is the agent |
-| P4 inbound | plugin HTTP route | bundle `/inbound` (node:http) | extension node:http (common :9099) | gateway webhook `/webhooks/aimail-inbound` | local gateway POST (discovered) |
-| P5 tools | iterate MAIL_TOOLS (factory) | iterate MAIL_TOOLS (defineTool) | iterate MAIL_TOOLS | patch toolsets.py (7 mail tools into _HERMES_CORE_TOOLS) | core tool functions exposed directly |
+| P4 inbound | pull (no route) | pull via `mail-hub` → `deliverInbound` (no listener) | pull (no listener) | pull only (no webhook, no port) | v1 in-process `POST` inside the host gateway |
+| P5 tools | iterate MAIL_TOOLS (factory) | iterate MAIL_TOOLS (defineTool) | iterate MAIL_TOOLS | plugin registers MAIL_TOOLS through the host plugin API | core tool functions exposed directly |
 | P6 SOUL | `{workspaceDir(agentId)}/SOUL.md` | `~/.dsh/profiles/{DSH_PROFILE}/SOUL.md` | `~/.pi/agent/SOUL.md` | `{HERMES_HOME}/SOUL.md` (env→live→~/.hermes) | `systems/{sid}/{cleaned}/SOUL.md` |
 | P7 skills | mirrors resolveWorkspaceSkillSourcePlan (86 local) | mirrors FileSystemSkillProvider.roots (32 local) | `~/.pi/agent/skills/` (0 local) | imports host `tools/skills_tool` (147 local) | `systems/{sid}/{cleaned}/skills/` |
-| P8 resources | `~/.openclaw/skills/agentmail/` | `<dshHome>/skills/agentmail/` | `~/.pi/agent/skills/agentmail/` | `_release_hermes_skills` | — |
-| P9 injection | in index.ts register | in inbound.ts startup | in index.ts | aimail_hermes.py:909-911 (core `_SOUL/_SKILLS/_TOOLSET_PROVIDER`) | aimail_deerflow.py:193-195 (`set_agent_context`) |
-| P10 pull | startAgentPullEntries | same | same | — (hermes uses webhook push) | — |
+| P8 resources | `~/.openclaw/skills/agentmail/` | `<dshHome>/skills/agentmail/` | `~/.pi/agent/skills/agentmail/` | shipped in the wheel (`resources/`), released by the plugin | — |
+| P9 injection | in index.ts register | in inbound.ts startup | in index.ts | `hermes_plugin/adapter.py` (host plugin API) | aimail_deerflow.py:193-195 (`set_agent_context`) |
+| P10 pull | startAgentPullEntries | same | same | aggregate pull via `pysdk/v2/system_pull.py` | — |
 
 ## 4. New-Host Onboarding Checklist
 

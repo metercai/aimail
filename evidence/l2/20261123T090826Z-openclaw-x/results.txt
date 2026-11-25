@@ -1,0 +1,2 @@
+PASS   S4 multi-address             two bindings coexist (max=2) 
+PASS   S4 multi-address             aggregate stream reconciled from 2+ bindings 

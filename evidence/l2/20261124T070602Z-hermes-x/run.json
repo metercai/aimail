@@ -1,0 +1,7 @@
+{
+  "address": "l2hermes@test.local",
+  "gateway_version": "v1.0.15",
+  "host": "hermes",
+  "sdk_kind": "py",
+  "sdk_version": "0.3.0"
+}

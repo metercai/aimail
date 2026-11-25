@@ -1,0 +1,1 @@
+PASS   NEG invalid code             no binding written for an invalid code 

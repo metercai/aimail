@@ -36,6 +36,15 @@ function toPiResult(result: Record<string, unknown>): PiToolResult {
  * Build the tool definitions for pi's registerTool(). Bare names — the
  * SKILL.md bare names resolve exactly on all platforms.
  */
+/** Read a host getter without letting a host-side throw break a tool call. */
+function safeCall<T>(fn: () => T | undefined): T | undefined {
+  try {
+    return fn()
+  } catch {
+    return undefined
+  }
+}
+
 export function buildPiTools(): Array<{
   name: string
   label: string
@@ -63,7 +72,13 @@ export function buildPiTools(): Array<{
       // Primary model at call time (pi ExtensionContext.model.id)
       const m = (ctx as { model?: { id?: string } } | undefined)?.model
       setAgentModel(m?.id)
-      const args = (params ?? {}) as Record<string, unknown>
+      const rawArgs = (params ?? {}) as Record<string, unknown>
+      // The anchor (pi: the session cwd) must be known AT activation: it is hashed with the address
+      // and registered with the gateway, which then checks it on every pull (contract §7.1).
+      const args: Record<string, unknown> =
+        tool.name === 'aimail_address' && rawArgs.action === 'bind'
+          ? { ...rawArgs, workspacePath: (ctx as { cwd?: string } | undefined)?.cwd || process.cwd() }
+          : rawArgs
       if (tool.name === 'aimail_address' && args.action === 'bind' && args.email) {
         const other = await findOtherActiveAddress(String(args.email))
         if (other) {
@@ -76,8 +91,25 @@ export function buildPiTools(): Array<{
       // Activation tools must work before a binding exists.
       const needsConfig = tool.name !== 'aimail_address'
       const cfg = needsConfig ? await resolveConfig() : undefined
+      // Session identity where the host exposes it. pi 1.5.2 puts a `sessionManager` on the tool
+      // context (`ReadonlySessionManager.getSessionId()/getSessionFile()`), and the bash tool
+      // mirrors it into PI_SESSION_ID/PI_SESSION_FILE. Recording it on the message lets anyone
+      // auditing an approval request see WHICH session asked — the background pull loop has no
+      // context handle, so the reply side can only be delivered to whatever session is running.
+      const sessionManager = (ctx as {
+        sessionManager?: { getSessionId?: () => string; getSessionFile?: () => string | undefined }
+      } | undefined)?.sessionManager
+      const sessionId = safeCall(() => sessionManager?.getSessionId?.()) || ''
+      const sessionKey = safeCall(() => sessionManager?.getSessionFile?.()) || ''
       const result = await tool.handler(
-        cfg ? { systemId: cfg.system_id, email: cfg.email } : { systemId: '' },
+        cfg
+          ? {
+              systemId: cfg.system_id,
+              email: cfg.email,
+              ...(sessionId ? { sessionId } : {}),
+              ...(sessionKey ? { sessionKey } : {}),
+            }
+          : { systemId: '' },
         args,
       )
       if (tool.name === 'aimail_address' && result.success && args.action === 'bind' && args.email) {

@@ -1,0 +1,14 @@
+PASS   S1 activation                binding written          
+PASS   S1 activation                system_id_is_gateway     
+PASS   S1 activation                agent_system_id          
+PASS   S1 activation                workspace_path           
+PASS   S1 activation                no_webhook               
+PASS   S1 activation                has_key                  
+PASS   S1 activation                binding mode 0600 (in-host) 
+PASS   S1 activation                S6 threading — all three mails were accepted by the host (acked) 
+PASS   S1 activation                S6 threading — the reply resolves to the same thread root as the mail it answers 
+RED    S1 activation                S6 threading — reply created a new host session (db:openclaw-agent.sqlite:session_transcript_active_events:4b2d36f4-1d54-462a-959a-4209b2f762eb -> db:openclaw-agent.sqlite:session_transcript_active_events:a45afb26-a92a-404d-a471-58444018be1f, new=16); C8 violated 
+RED    S1 activation                S6 threading — host session count grew on a same-thread reply (43 -> 59); a new session was created 
+PASS   S1 activation                S6 threading — a new thread started a new host session (db:openclaw-agent.sqlite:session_transcript_active_events:41815b5a-8dd9-4e7e-badb-1b31eaae49d7) 
+RED    S1 activation                S6 threading — session count went 59 -> 87 for one new thread (expected +1) 
+PASS   S1 activation                S6 threading — session space reported by the host: /app/.openclaw/workspace 

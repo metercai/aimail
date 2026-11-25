@@ -1,0 +1,16 @@
+PASS   S1 activation                binding written          
+PASS   S1 activation                expires_at present       
+PASS   S1 activation                system_id_is_gateway     
+PASS   S1 activation                agent_system_id          
+PASS   S1 activation                workspace_path           
+PASS   S1 activation                no_webhook               
+PASS   S1 activation                has_key                  
+PASS   S1 activation                email                    
+PASS   S1 activation                domain                   
+PASS   S1 activation                binding mode 0600 (in-host) 
+PASS   S2 arming                    pull armed               
+PASS   S2 arming                    armed after the last missing-binding boot 
+PASS   S3 delivery                  sender whitelisted before inbound 
+PASS   S3 delivery                  inbound stored (emails=1) — the inbound flow completed 
+PASS   S3 delivery                  queued then acked (host accepted the mail) 
+N/A    S7 session-gone              S7 session-gone — host has no allocatable session model (contract §16 C17 适用范围): the obligation is vacuous 

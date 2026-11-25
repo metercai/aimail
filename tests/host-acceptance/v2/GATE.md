@@ -5,7 +5,7 @@ deliberately out of scope. Doctrine lives in `tests/agent-env/pins.env` and
 `tests/host-acceptance/v2/README.md`.
 
 > 续做与发版前置条件见 `docs/qa/HANDOFF-L2-FIXTURE-CONTINUATION.md`（本轮契约 v2.3 之后的夹具清单：
-> `s7`/C17 需宿主钩子、C16 需决策、`s4`/C18 的证据分级）。
+> `s7`/C17 需宿主钩子、`s8`/C16 由 dsh 钩子提供证据（其余宿主记 GAP）、`s4`/C18 的证据分级）。
 
 ## Commands
 
@@ -33,6 +33,8 @@ bash tests/l3/run-v2.sh --cell linux-amd64/dsh   # one cell, local
 | `RED` | **product** defect | yes |
 | `GAP` | fixture/environment defect | yes (fix the fixture) |
 | `SKIP_LEGACY` | pysdk path, not migrated to SSE-V2 | no |
+| `N/A` | the obligation does not apply to this host (e.g. C17 on a `no-session-model` host, 附 E) — printed, never counted | no |
+| `RISK-ACCEPTED` | a measured defect the **owner has signed off** for this release (must carry `HOST_RISK_ACCEPTED` reference + printed evidence) — printed, never counted | no |
 
 `RED>0 or GAP>0` ⇒ exit code 1. `SKIP_LEGACY` is printed but never counted as green —
 a run with skips is not a green run, it is a green run *for its scope*.
@@ -42,12 +44,13 @@ a run with skips is not a green run, it is a green run *for its scope*.
 | stage | asserts |
 |---|---|
 | `s1` | public `/apply` code → in-host `aimail_address(bind)` → binding 0600 with GatewaySystemId / AgentSystemId / workspace, no webhook, composed profile carries `tool-mail` |
-| `s2` | after restart the aggregate pull arms (`polling enabled` / `pull scope` / `SSE reconcile: N … from M binding(s)`) and it arms *after* the last "no agent-scope binding" boot |
+| `s2` | after restart the aggregate pull arms (`polling enabled` / `pull scope` / `SSE reconcile: N … from M binding(s)`) and it arms *after* the last "no agent-scope binding" boot. **No local listener exists** (retired 2026-11-25): a binding carries no webhook_url and nothing answers on a loopback port |
 | `s3` | whitelisted inbound → `emails` row → `pending_deliveries` row → drained (ack) — the inbound ladder; nothing asserted about model wording |
 | `s4` | two addresses coexist on multi-address hosts (one aggregate stream covers both); a single-address host rejects the second with the **failed layer** (`C1` + `C18`: `failed: "wake"`). A paraphrase-only log is accepted but reported as the weaker evidence, never as C18 |
 | `s5` | `pause` marks the binding paused; `unbind` removes it |
-| `s6` | contract C8/§9 host side: new thread ⇒ new session, reply ⇒ same session (E3/E1+E2), all sessions in the binding's anchor |
-| `s7` | contract C17/§9.3: after the target session is deleted, a reply is redirected to a new session, acked, and recorded as `session-gone` (needs host hook `host_s7_session_gone`; GAP until wired) |
+| `s6` | contract C8/§9 host side: new thread ⇒ new session, reply ⇒ same session (E3/E1+E2), all sessions in the binding's anchor。按 `HOST_CAN_ALLOCATE_SESSION` 分支：`0` 的宿主（会话由 CLI 决定）只判"三封都被 ack + thread root"，分配半条记 `N/A`（§16 C8 证明范围） |
+| `s7` | contract C17/§9.3: after the target session is deleted, a reply is redirected to a new session, acked, and recorded as `session-gone`。按 `HOST_DELIVERY_CONFIRMATION` 分支：`no-session-model`（pi）记 `N/A`；`probe` / `unconfirmed` 都**受判**——缺 `s7_gone.json` 记 GAP，有证据则按 `used`/`reason` 判 RED（`unconfirmed` 不得用 N/A 掩盖实测丢信） |
+| `s8` | contract C16/§9.2 I2（锚点隔离）：把 thread 指针指向**另一个锚点**的会话（该会话仍然存活），回信必须被 ack、**落在当前锚点**、并在 dispatch 行记 `anchor: anchor-moved`（带被弃边与外来锚点）。`HOST_CAN_ALLOCATE_SESSION=0` 的宿主记 `N/A`（没有第二个锚点可跨）；缺 `s8_anchor.json` 记 GAP，`rewritten=0`（场景没搭起来）同样 GAP，绝不记绿 |
 | `neg` | an invalid activation code writes no binding and does not arm |
 
 ## Scope
@@ -70,8 +73,15 @@ a run with skips is not a green run, it is a green run *for its scope*.
 | id | effect on the gate |
 |---|---|
 | `ING-1` gateway relays inbound SMTP to the outbound relay instead of storing it | `s3` cannot pass; `emails=0` is the signature. Reported for the product fix. |
+| `C17-RISK-1` hermes / openclaw 的 C17 = `RISK-ACCEPTED`（owner 2026-11-25） | 这两家没有公开的落地确认 API（hermes 只有 `_gateway_accepted`；openclaw 的 200 是 cron 入队），且 rollout 方不会为我们开放接口。owner 书面接受"可能 ack 而未落地、系统不重投"的风险；`s7` 打印实测证据并记 `RISK-ACCEPTED`（不计绿/红）。deerflow 已改为 `probe`（投递后回读 run），不在此列 |
+| `C17-SCOPE-1` C17 的证据口径（三值） | `HOST_DELIVERY_CONFIRMATION`：`probe`（可查会话存在性）/ `unconfirmed`（只能确认接管，**仍受判**）/ `no-session-model`（无会话可分配，义务为空 ⇒ `N/A`）。只有后者可 N/A；`unconfirmed` 上实测 ack-零落地 = RED。见 `docs/qa/RESPONSE-TO-REVIEW-C8-P0-1-P1-1.md` |
+| `PI-C8-17-1` pi 的 C8 分配半条与 C17 = `N/A`（契约 §16 C8/C17 证明范围 + 附 E） | 依据（已核 pinned pi 1.5.2）：`newSession`/`fork`/`switchSession` 只存在于 `ExtensionCommandContext`（`dist/core/extensions/types.d.ts:303-336`，注释 "only safe in user-initiated commands"），后台投递只持有当前会话；会话身份由 CLI 调用（`--session-id` / `--continue` / `--session`）决定。**仍判**：三封信都被 ack、thread root 稳定、第二地址被拒（C1/C9）。s6 记 4 条 `N/A`，s7 记 `N/A` |
+| `ACK-1` ack 语义 vs 宿主能力（P0-1 未闭环项） | openclaw 的 200＝cron job 入队、pi 的返回＝交给宿主 API，二者都拿不到"已落进 transcript"的确认；插件面没有 run/session 查询。修复见 `docs/qa/HANDOFF-L2-FIXTURE-CONTINUATION.md` §4.6.1；**C17 的可证性取决于 owner 选择 A/B/C**，未选定前不要把 C17 记作已证明 |
+| `OC-C8-1` openclaw C8（会话复用）**不是宿主限制** | 宿主支持 `sessionKey` + `sessionMode:"persistent"`；默认 `isolated` 才会每次新开会话。适配器已修复：投递侧发 `sessionKey + persistent + idempotencyKey`，入站按 `selectSessionKey()` 先 E1（父信 meta 的 `session_key`）再 E2（thread 哈希）。见 `docs/qa/HANDOFF-L2-FIXTURE-CONTINUATION.md` §4.5。**不要按 EXEMPTED 处理**；重跑 s6 应看到 `sessionKeySource` 与 `sessionModeRequested: persistent` |
 | `S7-HOOK-1` no host implements `host_s7_session_gone` yet | the `s7` stage reports `GAP: C17 unproven`. The case already consumes `/out/s7_gone.json` (`{acked, deleted, used, reason, root_ok}`), so wiring one host turns it green without touching the assertions. `s7` is opt-in (default stages stay `s1 s2 s3`), so an unimplemented hook does not poison the C8 stage. |
-| `S7-HOOK-2` no host implements a cross-anchor fixture (`host_s6_anchor_isolation`) | C16 (a delivery must never cross anchors: E1 target in another anchor ⇒ re-route in the current one) is **unproven at L2**. Needs a host that can bind the address to anchor A while a session exists in anchor B — a fixture capability, not a product verdict. |
+| `DSH-ONE-PATH`（2026-11-25） | dsh 的出货投递路径与夹具此前不是同一条：bundle 只挂 `mail-service`/`tools`/`mail-hub`，而 `mail-hub` 用自己的 `routeThread`（只有 E2、无 dispatch 行），`dsh/inbound.ts`（E1/C16/C17 + 日志）根本没被挂载。现已统一：`mail-hub.deliver()` → `deliverInbound()`（`decideInboundDelivery` + `logAimailDispatch`），`routeThread` 删除。**s6/s7/s8 从此测的就是出货链路** |
+| `C16-DECIDED`（2026-11-25，开发裁定 + owner 口径） | **不签 N/A**：核查发现 E1（直接回复）此前**完全不校验锚点**——父信 meta 里 `workspace_path` 指向别的 workspace 时，回信会被直接投进那个外来会话（I2 违规）。已修：`runtime/routing.ts` 的 E1/E2 都做空间比对，命中外来锚点即放弃该边、在当前锚点重排，并带出 `anchorMoved{edge,space}`；dsh 把它写进 dispatch 行（`anchor: anchor-moved`）。判定口径：**能分配会话的宿主都受判**（`HOST_CAN_ALLOCATE_SESSION=0` 记 `N/A`，因为没有第二个锚点可跨），不再是"夹具能力待定"。单测已覆盖（routing 13 项 + dsh inbound 10 项），L2 证据由 `s8` 提供 |
+| `S8-HOOK-1` only `dsh` implements `host_s8_anchor_isolation` (2026-11-25) | Since the dsh unification (below) this hook finally exercises the **shipped** path: `mail-hub` calls `deliverInbound`, which is where `anchorMoved` is recorded. `s8` consumes `/out/s8_anchor.json` (`{acked, moved, edge, moved_from, rewritten, foreign_session, used, leaks}`); dsh drives it via `lib/s8_drive.py` (rewrites the thread pointer's `workspace_path` to a foreign anchor, keeps the session alive). Other hosts report `GAP: C16 unproven` — tracked, never green. Wiring one host's hook turns its row green without touching the assertions. `s8` is opt-in (default stages stay `s1 s2 s3`). |
 | ~~pi live delivery~~ **wired 2026-11-23** | `hosts/pi.sh` `_pi_delivery` now runs one long-lived `pi --mode rpc` session in the journey HOME (docker `-i` is required, otherwise the container gets /dev/null on stdin and pi exits at once), injects into `$((GW_SMTP+1))` and waits for the pull queue to drain. Evidence: pi `s1 s2 s3` = PASS=12 RED=0 GAP=0, `inject.log` = `sent / observed max=1 final=0 / emails=1 / acked_after_poll=1`. Attribution rule: `arming_seen=1` + not acked ⇒ RED (product); `arming_seen=0` + not acked ⇒ GAP (fixture never attached the pull client). |
 
 ## Journey scoping (measured 2026-11-23, gateway v1.0.12)

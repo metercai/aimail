@@ -34,12 +34,15 @@ Module layout inside the wheel mirrors the repository ``pysdk/`` directory
                              embed tools natively (currently deer-flow). TS
                              SDKs embed natively and do not use it.
     _aimail_bootstrap.py     location-agnostic sys.path bootstrap (runtime glue)
-    install.py               self-contained install/uninstall entry
-    sdk_ops.py               self-contained ops entry (one-line JSON ABI; the
-                             Python-side peer of the TS platforms' register-cli)
-    _resources_release.py    board/skills resource release (install-time)
-    hermes/                  Hermes adapter (6 modules, host-injected registry)
-    deer-flow/               DeerFlow adapter (inbound router / manage / base)
+    aimail_agent.py          agent-level runtime helpers (toolset/skill/pull wiring)
+    aimail_contract.py       naming contract mirror (contract/aimail-contract.json)
+    _resources_release.py    board/skills resource release
+    v2/                      SSE-V2 core: binding / pull client / aggregate streams / thread
+    hermes_plugin/           hermes plugin (discovered via hermes_agent.plugins)
+    deerflow_plugin/         deerflow extension (discovered via deerflow.extensions)
+
+    The v1 push/CLI surface — install.py, sdk_ops.py, hosts/, hermes/, deer-flow/ — was retired on
+    2026-11-25: SSE-V2 hosts deliver by pulling, and a binding is created only by an activation code.
     resources/
       skills/                aimail SKILL.md + DESCRIPTION.md
       board/role_prompt/     board role prompts (6 templates)

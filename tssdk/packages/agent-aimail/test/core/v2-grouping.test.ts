@@ -10,6 +10,7 @@
  * without stream methods goes straight to the long-poll path in startPolling)
  * + bindings on disk under a temp AIMAIL_HOME.
  */
+import { ACTIVATION_STAMP } from '../helpers/anchor.js'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { promises as fs } from 'node:fs'
 import * as os from 'node:os'
@@ -47,9 +48,24 @@ function v2(email: string, over: Partial<AgentConfig> = {}): AgentConfig {
     api_key: 'key-' + email,
     agent_id: email.split('@')[0],
     agent_system_id: ASID,
+    // The anchor (contract §7.1): the address ↔ workspace relation the routing edges are judged in.
+    // Its identifier is registered with the gateway at activation (core/anchor-id.ts); nothing is
+    // kept locally any more.
+    workspace_id: WS,
+    workspace_path: WS,
+    // Provenance stamp (what activateAddressCodePersist writes) — an unstamped V2 binding is
+    // refused by the arming gate, see core/binding-provenance.ts.
+    ...ACTIVATION_STAMP,
     ...over,
   }
 }
+const WS = '/tmp/aimail-anchor-ws'
+
+/** Save a V2 binding the way activation leaves it (the stamp is in the object itself). */
+async function saveV2(cfg: AgentConfig, sid = 'system-b237'): Promise<void> {
+  await saveAgentConfig(cfg, sid)
+}
+
 /** V1 binding (shared_addr_* host system ⇒ per-binding legacy loop). */
 function v1(email: string, over: Partial<AgentConfig> = {}): AgentConfig {
   return {
@@ -142,7 +158,7 @@ afterEach(async () => {
 
 describe('§6.7 core — A\' grouping + typed skip + auth fatal', () => {
   it('#1 AIMAIL_PULL=0 ⇒ 0 stream + audit (grouping path)', async () => {
-    await saveAgentConfig(v2('a@e2e.local'), 'system-b237')
+    await saveV2(v2('a@e2e.local'))
     let built = 0
     const lines: string[] = []
     const handles = await startAgentSystemGroups([v2('a@e2e.local')], {
@@ -177,8 +193,8 @@ describe('§6.7 core — A\' grouping + typed skip + auth fatal', () => {
   })
 
   it('#3 enabled+paused mixed group ⇒ only the enabled address is delivered+acked', async () => {
-    await saveAgentConfig(v2('a@e2e.local'), 'system-b237')
-    await saveAgentConfig(v2('b@e2e.local', { paused: true }), 'system-b237')
+    await saveV2(v2('a@e2e.local'))
+    await saveV2(v2('b@e2e.local', { paused: true }))
     const client = new FakePoll([
       batch(1, 'a@e2e.local'),
       batch(2, 'b@e2e.local'),
@@ -207,7 +223,7 @@ describe('§6.7 core — A\' grouping + typed skip + auth fatal', () => {
   })
 
   it('#4 unknown address (out-of-group delivery) ⇒ not acked, not stolen, not an error', async () => {
-    await saveAgentConfig(v2('a@e2e.local'), 'system-b237')
+    await saveV2(v2('a@e2e.local'))
     const client = new FakePoll([
       batch(7, 'ghost@e2e.local'), // no binding for this address
       batch(7, 'ghost@e2e.local'), // re-pulled (still pending)
@@ -231,8 +247,8 @@ describe('§6.7 core — A\' grouping + typed skip + auth fatal', () => {
   })
 
   it('#5 no-pointer + 2 V2 addresses (same asid) ⇒ exactly ONE aggregate stream; each delivery once; no dup ack', async () => {
-    await saveAgentConfig(v2('a@e2e.local'), 'system-b237')
-    await saveAgentConfig(v2('b@e2e.local'), 'system-b237')
+    await saveV2(v2('a@e2e.local'))
+    await saveV2(v2('b@e2e.local'))
     const client = new FakePoll([batch(1, 'a@e2e.local'), batch(2, 'b@e2e.local')])
     let built = 0
     const delivered: string[] = []
@@ -259,8 +275,8 @@ describe('§6.7 core — A\' grouping + typed skip + auth fatal', () => {
   })
 
   it('#6 hot-add: 2 start ⇒ add 3rd (same asid) ⇒ live stays 1 (re-arm, not stack); new address receives; re-arm audit members=3', async () => {
-    await saveAgentConfig(v2('a@e2e.local'), 'system-b237')
-    await saveAgentConfig(v2('b@e2e.local'), 'system-b237')
+    await saveV2(v2('a@e2e.local'))
+    await saveV2(v2('b@e2e.local'))
     // Re-arm builds a FRESH client; its queue only carries the NEW mail
     // (a/b were acked by the first loop, so the gateway never re-serves them).
     const cc = countingClients([
@@ -279,7 +295,7 @@ describe('§6.7 core — A\' grouping + typed skip + auth fatal', () => {
     })
     await waitFor(() => delivered.length >= 2, 4000, 'both initial addresses delivered')
     // Add the third address (same asid) → hot-add re-arms (stop + rescan).
-    await saveAgentConfig(v2('c@e2e.local'), 'system-b237')
+    await saveV2(v2('c@e2e.local'))
     await fireBindingCreated(v2('c@e2e.local'))
     await waitFor(() => cc.built() === 2, 4000, 'the re-arm to build a new client')
     await waitFor(() => delivered.includes('c@e2e.local'), 4000, 'the new address to receive')
@@ -361,8 +377,8 @@ describe('§6.7 core — A\' grouping + typed skip + auth fatal', () => {
   }, 45000)
 
   it('#14 startAgentPullEntries({systemId}) + 2 V2 addresses ⇒ exactly ONE aggregate stream (branch guard)', async () => {
-    await saveAgentConfig(v2('a@e2e.local'), 'system-b237')
-    await saveAgentConfig(v2('b@e2e.local'), 'system-b237')
+    await saveV2(v2('a@e2e.local'))
+    await saveV2(v2('b@e2e.local'))
     let built = 0
     const handles = await startAgentPullEntries({
       systemId: 'system-b237',
@@ -383,8 +399,8 @@ describe('§6.7 core — A\' grouping + typed skip + auth fatal', () => {
 
   it('#15 mixed V1+V2 fanout (systemId branch) ⇒ V1 per-binding + V2 exactly ONE group; total = 1 + V1 count', async () => {
     await saveAgentConfig(v1('x@e2e.local'), V1_SID)
-    await saveAgentConfig(v2('a@e2e.local'), 'system-b237')
-    await saveAgentConfig(v2('b@e2e.local'), 'system-b237')
+    await saveV2(v2('a@e2e.local'))
+    await saveV2(v2('b@e2e.local'))
     let built = 0
     const handles = await startAgentPullEntries({
       systemId: V1_SID,
@@ -417,7 +433,7 @@ describe('§6.7 core — A\' grouping + typed skip + auth fatal', () => {
 
   it('#17 startAgentLevel running, add a V2 address on a SECOND gateway (same asid) ⇒ re-arm ⇒ one stream PER (asid, gateway), not stacked per address; new address receives', async () => {
     const GW2 = 'http://127.0.0.1:2'
-    await saveAgentConfig(v2('a@e2e.local', { agent_system_id: ASID }), 'system-b237')
+    await saveV2(v2('a@e2e.local', { agent_system_id: ASID }))
     // Re-arm builds FRESH clients (one per (asid, gateway)): the re-scan finds
     // TWO groups now ⇒ TWO new clients. The a-group's new queue is empty (a was
     // acked); only the z-group (GW2) serves pending mail.
@@ -441,7 +457,7 @@ describe('§6.7 core — A\' grouping + typed skip + auth fatal', () => {
     // real production case. Hot-add re-arms (stop + rescan): now TWO
     // (asid, gateway) groups ⇒ TWO fresh clients, NOT a per-address stack.
     const z = v2('z@other.local', { agent_system_id: ASID, gateway_url: GW2 })
-    await saveAgentConfig(z, 'system-z999')
+    await saveV2(z, 'system-z999')
     await fireBindingCreated(z)
     await waitFor(() => cc.built() === 3, 6000, 'the re-arm to build the two group clients')
     await waitFor(() => delivered.includes('z@other.local'), 6000, 'the second-gateway address to receive')

@@ -13,11 +13,9 @@ import { promises as fsp } from 'node:fs'
 import * as path from 'node:path'
 
 import { AIMAIL_HOME } from './config.js'
+import { BINDING_FILE } from './contract.js'
 
 export type AddressModel = 'single' | 'multi'
-
-/** The binding file name inside `systems/<sid>/<addr>/` (single source: core/config). */
-const BINDING_FILE = 'agentmail.json'
 
 /**
  * Declared model. Two channels on purpose:

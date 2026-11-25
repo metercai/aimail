@@ -1,0 +1,3 @@
+RED    S4 multi-address             second binding written on hermes (max=2) — C1 violated 
+GAP    S5 lifecycle                 the session made no tool call (0 frames) although the surface was present (mail tools: unknown) — the model never asked for pause/unbind; fixture/LLM GAP, not a product defect 
+RED    NEG invalid code             binding written for an invalid code (n=1) 

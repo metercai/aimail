@@ -9,13 +9,10 @@
  * triggers one auto-bind attempt per (system, session) — register chain +
  * agentmail.json + bridge route via mail-core autoBind, deriving the address
  * `agent-<session8>.<system_name>@domain` — and retries the resolution. The
- * once-guard means a failed attempt (gateway unreachable, no system config)
- * never hammers the network on every tool call; the original unbound error
- * is rethrown for the caller to handle.
+ * There is no auto-bind on a resolve miss (owner 2026-11-25: a binding exists only because an
+ * activation code was consumed), so a miss simply rethrows the unbound error for the caller.
  */
 import { activateHost } from '../hosts/activate.js'
-import { writeAgentmailPointer } from '../core/provision.js'
-import { defaultWorkspaceOrCreate } from './workspace.js'
 import type { Context } from '@deepseek-ai/cordis'
 import {
   resolveByRecipient,
@@ -24,15 +21,11 @@ import {
   type MailToolCtx,
 } from '../mail/index.js'
 import {
-  ensureAgentBinding,
   hasAnySystem,
   listAgentConfigs,
-  loadAgentConfig,
   listSystemDirs,
   releaseAllSystems,
-  updateAgentConfig,
   type AgentConfig, packageResourcesRoot} from '../core/index.js'
-import * as os from 'node:os'
 import * as path from 'node:path'
 import { promises as fs } from 'node:fs'
 
@@ -66,85 +59,11 @@ export function resetAutoBindOnce(): void {
  * One-shot per-session auto-bind. Never throws — failures warn and fall
  * through to the caller's original unbound error.
  */
-/** Self-determined platform/agent home root (the single source the plugin uses). */
-function platformHome(): string {
-  return (
-    process.env.AIMAIL_SYSTEM_HOME?.trim() ||
-    process.env.DSH_HOME?.trim() ||
-    path.join(os.homedir(), '.dsh')
-  )
-}
-
-/**
- * Proactively ensure the system + the **default** agent binding for this home.
- *
- * The `dsh plugin add` install path never runs the CLI's `register_default`
- * step, so nothing else writes the default agent's binding file — without
- * this, a plugin-installed host has a system but no binding and the L3
- * readiness gate (`dsh binding not found`) fails. Idempotent: the system check
- * short-circuits on an owning system and autoBind short-circuits when the
- * binding already exists, so both install methods (CLI `aimail install` and
- * `dsh plugin add`) converge on the same bound state.
- *
- * Never throws — failures warn and leave the host to its usual unbound path.
- */
-export async function ensureDefaultAgentBinding(ctx?: Context): Promise<void> {
-  // Single-source default-agent binding (mail-core ensureAgentBinding):
-  // system readiness (owning system short-circuit, else CLI L1 reverse-call)
-  // → address derivation → idempotent autoBind (adopt-existing by agent_id,
-  // register+write binding otherwise). The `dsh plugin add` path never runs
-  // the CLI's register_default step, so this is what gives a plugin-installed
-  // host its default agent binding — the inbound listener is gated on it so
-  // "port up" = "binding written".
-  const r = await ensureAgentBinding({
-    home: platformHome(),
-    agentId: 'agent',
-    writeAgentId: false,
-    // SSE pilot: no local inbound listener. Registering/persisting an
-    // empty webhook is the pull-mode contract; the hub reads the same
-    // binding from agentmail.json.  // contract-allowed: mail-service ensures binding+pointer at startup (F8 pull-mode fix)
-    webhookUrl: '',
-    allowCli: false,
-    log: (l) => console.log(`[agent-aimail] ${l}`),
-  })
-  if (!r.ok) {
-    console.warn(`[agent-aimail] default agent binding failed: ${r.error ?? 'unknown'}`)
-    return
-  }
-  if (r.systemId && r.email) {
-    // Stable address ↔ workspace: CLI install/register can fail soft and
-    // writes no workspace. Bind the default workspace here; inbound mail must
-    // resolve the mailbox by this durable workspace, never by session_id.
-    if (ctx) {
-      try {
-        // Never overwrite a workspace chosen by an address-binding prompt.
-        // Only CLI/plugin-created bindings with no workspace need the default.
-        const existing = await loadAgentConfig(r.systemId, r.email)
-        if (!existing?.workspace_path) {
-          const ws = await defaultWorkspaceOrCreate(ctx)
-          if (ws) {
-            await updateAgentConfig(r.systemId, r.email, {
-              workspace_id: ws.id,
-              workspace_path: ws.path,
-              ...(ws.title ? { workspace_title: ws.title } : {}),
-            })
-          } else {
-            console.warn('[agent-aimail] default workspace not found; inbound workspace mapping may be incomplete')
-          }
-        }
-      } catch (e) {
-        console.warn(`[agent-aimail] workspace binding failed: ${e instanceof Error ? e.message : String(e)}`)
-      }
-    }
-    // Writing the pointer here keeps `aimail welcome` / `aimail check`
-    // resolvable even when only the plugin path ran.
-    try {
-      await writeAgentmailPointer(r.systemId, r.email)
-    } catch (e) {
-      console.warn(`[agent-aimail] pointer write failed: ${e instanceof Error ? e.message : String(e)}`)
-    }
-  }
-}
+// No default-agent binding at startup (owner 2026-11-25: 不存在自动默认绑定，都需要激活码激活绑定).
+// A binding exists only because an activation CODE was consumed (`aimail_address` →
+// `activateAddressCode`), which is also where the address ↔ workspace mapping is written. The old
+// `ensureDefaultAgentBinding()` — once-guard, pointer write, "default workspace" patch-up — went with
+// that rule.
 
 export function apply(ctx: Context, config: { systemId?: string } = {}): void {
   const systemId = config.systemId ?? process.env.AIMAIL_SYSTEM_ID ?? ''

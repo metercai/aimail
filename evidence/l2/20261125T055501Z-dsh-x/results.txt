@@ -1,0 +1,16 @@
+PASS   S1 activation                binding written          
+PASS   S1 activation                expires_at present       
+PASS   S1 activation                system_id_is_gateway     
+PASS   S1 activation                agent_system_id          
+PASS   S1 activation                workspace_path           
+PASS   S1 activation                no_webhook               
+PASS   S1 activation                has_key                  
+PASS   S1 activation                email                    
+PASS   S1 activation                domain                   
+PASS   S1 activation                binding mode 0600 (in-host) 
+PASS   S1 activation                composed profile carries tool-mail (rows=1) 
+GAP    S6 threading                 S6 threading — host produced no s6.json (session evidence missing); fixture capability, not a product verdict 
+PASS   S7 session-gone              S7 session-gone — reply was acked (not left pending) 
+RED    S7 session-gone              S7 session-gone — no session received the reply (used=''); the mail was acked and dropped 
+RED    S7 session-gone              S7 session-gone — downgrade reason '' does not name session-gone; the redirect is unobservable to ops 
+RED    S7 session-gone              S7 session-gone — thread root changed on re-attach; E2 lineage lost 

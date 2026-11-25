@@ -28,7 +28,10 @@ describe('openclaw-aimail entry smoke', () => {
     fs.rmSync(tmpHome, { recursive: true, force: true })
   })
 
-  it('registers 14 tools, 1 route, 1 command', async () => {
+  it('registers the mail tools and no inbound route (push retired 2026-11-25)', async () => {
+    // AIMAIL_TRANSPORT=push used to add the in-gateway HTTP route AND the legacy CLI commands. Both
+    // are gone: the flag now only produces a warning line. Asserting 0/0 is what keeps the endpoint
+    // and the mailbox-creating command surface from creeping back in.
     process.env.AIMAIL_TRANSPORT = 'push'
       const mod = (await import('../../src/openclaw/index.js')) as {
       default?: { register?: (api: unknown) => void }
@@ -54,7 +57,7 @@ describe('openclaw-aimail entry smoke', () => {
     }
     entry!.register!(api)
     expect(tools).toBe(15)
-    expect(routes).toBe(1)
-    expect(commands).toBe(1)
+    expect(routes).toBe(0)
+    expect(commands).toBe(0)
   })
 })

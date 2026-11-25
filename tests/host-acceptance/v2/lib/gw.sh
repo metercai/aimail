@@ -30,6 +30,13 @@ gw_platform() {
 _gw_pin() { grep -E "^$1=" "$PINS" | head -1 | cut -d= -f2-; }
 
 gw_fetch() {
+  # Pre-release path: a gateway built from the working tree cannot have a pinned sha256, so the
+  # only honest thing is to say so out loud and keep it out of release evidence for published
+  # binaries. Set GW_BIN to verify the SDK against an unreleased gateway (anchor protocol, §13.3).
+  if [ -n "${GW_BIN:-}" ] && [ -x "${GW_BIN}" ]; then
+    echo "LOCAL GATEWAY: $GW_BIN (sha256 not pinned — pre-release verification only)" >&2
+    echo "$GW_BIN"; return 0
+  fi
   local plat bin ver sha cache
   plat="$(gw_platform)"
   [ "$plat" != unsupported ] || { echo "GAP: unsupported platform $(uname -s)/$(uname -m)"; return 2; }

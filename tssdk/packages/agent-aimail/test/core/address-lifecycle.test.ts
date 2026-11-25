@@ -438,19 +438,23 @@ describe('aimailAddress — unbind', () => {
     }
   })
 
-  it('move updates the binding workspace without a gateway call', async () => {
+  it('move refuses locally and names re-activation as the way to re-anchor', async () => {
+    // §13.3 + §7.1 (2026-11-25): the gateway holds the anchor identifier registered at activation
+    // and refuses pulls that present a different one, so a local "move" would brick the address
+    // (anchor_mismatch forever). The tool therefore refuses and explains what actually moves it.
     const gw = await startGateway(ok)
     try {
       await aimailAddressTool({ action: 'bind', code: 'addr-ts', email: ADDR, gateway_url: gw.url })
       const target = path.join(home, 'new-workspace')
-      // §13.3: the target workspace must exist.
       await fs.mkdir(target, { recursive: true })
+      const before = JSON.parse(await fs.readFile(bindingPath(), 'utf8')) as Record<string, string>
       const r = await aimailAddressTool({ action: 'move', email: ADDR, workspace_path: target })
-      expect(r.success).toBe(true)
-      expect(r.action).toBe('move')
-      const cfg = JSON.parse(await fs.readFile(bindingPath(), 'utf8')) as Record<string, string>
-      expect(cfg.workspace_path).toBe(target)
-      expect(cfg.workspace_id).toBe(target)
+      expect(r.success).toBe(false)
+      expect(r.reason).toBe('re-activation-required')
+      expect(String(r.error)).toMatch(/re-activation/)
+      // the binding is untouched — no half-moved state
+      const after = JSON.parse(await fs.readFile(bindingPath(), 'utf8')) as Record<string, string>
+      expect(after.workspace_path).toBe(before.workspace_path)
     } finally {
       await gw.close()
     }

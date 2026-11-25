@@ -14,6 +14,17 @@ export async function pinWorkspaceToBinding(email: string, workspace: WorkspaceR
   if (!found.active || !found.active.system_id) return false
   const cfg = await loadAgentConfig(found.active.system_id, email)
   if (!cfg) return false
+  const have = String(cfg.workspace_path ?? '').trim()
+  if (have && have !== workspace.path) {
+    // FILL-ONLY. An address that already carries an anchor must not be moved by a host adapter (or
+    // by anything else that happens to run): the anchor is set by an activation, and changed only by
+    // the explicit `move` action, which also rewrites the anchor record.
+    console.error(
+      `[aimail] ${email}: refusing to re-anchor ${have} -> ${workspace.path} — the anchor is ` +
+        'registered with the gateway at activation; moving it needs re-activation',
+    )
+    return false
+  }
   cfg.workspace_id = workspace.id
   cfg.workspace_path = workspace.path
   if (workspace.title) cfg.workspace_title = workspace.title

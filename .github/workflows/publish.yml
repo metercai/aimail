@@ -318,15 +318,13 @@ jobs:
         run: |
           # Audit D8: gate deps pinned (same rationale as pinning npm@11.12.1 on the npm side); otherwise upstream
           # behavior changes would silently change the gate's verdict.
-          # PyYAML: tests/sdk/test_hermes_toolset_ensure.py imports yaml at module level
-          # (pyproject extra `hermes`; landed 2026-09-30, i.e. after v0.1.30, so the
-          # first tag since then hit a clean-environment collection error).
-          python3 -m pip install --quiet pytest==9.1.1 pyflakes==3.4.0 PyYAML==6.0.2
-          python3 -m pytest tests/sdk/ -q | tail -40   # the tail width only affects visibility; the rc stays faithful via pipefail (audit P0 unchanged)
-          # pyflakes checks only the core modules; the hermes helper scripts (patch_*/register_profiles/
-          # toolsets) deliberately `import aimail` (side-effect sys.path injection) and get a syntax check only.
+          # PyYAML is no longer needed: the v1 hermes adapter (its only consumer) was retired
+          # 2026-11-25, and the v2 plugins install with no runtime dependencies at all.
+          python3 -m pip install --quiet pytest==9.1.1 pyflakes==3.4.0
+          # pyflakes over the v2 runtime only — the v1 push/CLI surface is gone.
           python3 -m pyflakes pysdk/aimail_base.py pysdk/aimail_board.py pysdk/aimail_tools.py \
-            pysdk/aimail_mcp_server.py pysdk/hermes/aimail_hermes.py pysdk/deer-flow/*.py || exit 1
+            pysdk/aimail_mcp_server.py pysdk/aimail_agent.py pysdk/aimail_contract.py \
+            pysdk/v2/*.py pysdk/hermes_plugin/*.py pysdk/deerflow_plugin/*.py || exit 1
           for f in $(find pysdk -name '*.py' -not -path '*__pycache__*'); do
             python3 -m py_compile "$f" || exit 1
           done

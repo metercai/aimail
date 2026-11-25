@@ -1,0 +1,2 @@
+PASS   S5 lifecycle                 pause marked the binding (paused=True) 
+PASS   S5 lifecycle                 unbind removed the binding (1 -> 0) 

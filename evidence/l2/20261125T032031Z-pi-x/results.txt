@@ -1,0 +1,17 @@
+PASS   S1 activation                binding written          
+PASS   S1 activation                expires_at present       
+PASS   S1 activation                system_id_is_gateway     
+PASS   S1 activation                agent_system_id          
+PASS   S1 activation                workspace_path           
+PASS   S1 activation                no_webhook               
+PASS   S1 activation                has_key                  
+PASS   S1 activation                email                    
+PASS   S1 activation                domain                   
+PASS   S1 activation                binding mode 0600 (in-host) 
+RED    S6 threading                 S6 threading — the host did not accept every mail (acked=0); session identity cannot be judged 
+PASS   S6 threading                 S6 threading — the reply resolves to the same thread root as the mail it answers 
+PASS   S6 threading                 S6 threading — reply reused the thread's session (2026-11-25T03-20-32-430Z_01a210b8-21ae-7447-8a54-67638a94bdfa.jsonl); no new session was created 
+PASS   S6 threading                 S6 threading — host session count did not grow on the reply (1) 
+RED    S6 threading                 S6 threading — a new thread reused the old session root/​key (s6-b@example.com / -); C8 violated 
+RED    S6 threading                 S6 threading — session count went 1 -> 1 for one new thread (expected +1) 
+PASS   S6 threading                 S6 threading — all three sessions live in the binding's anchor: /root/ws 

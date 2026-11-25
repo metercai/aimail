@@ -13,6 +13,7 @@ import pytest
 import aimail_base as base
 from v2 import agent_system_id as asid_mod
 from v2 import binding as binding_mod
+from _anchor import ACTIVATION_STAMP, ANCHOR_PATH  # noqa: E402
 
 
 # ── AgentSystemId ────────────────────────────────────────────────────────────────
@@ -68,8 +69,15 @@ def test_home_resolver_is_the_host_seam(monkeypatch):
 # ── binding predicates (B1 regression) ───────────────────────────────────────────
 
 def _cfg(**over):
+    """A binding as the ACTIVATION chain writes it (provenance stamp included).
+
+    `is_armable` refuses anything without the stamp — that is the point of
+    tests/sdk/test_binding_provenance.py; fixtures here model the real thing.
+    """
     cfg = {"email": "a@test.local", "gateway_url": "http://gw", "system_id": "system-1",
-           "api_key": "sk-x"}
+           "domain": "test.local", "agent_id": "a", "api_key": "sk-x",
+           "workspace_id": ANCHOR_PATH, "workspace_path": ANCHOR_PATH,
+           "binding_source": "activate-address-code", "activated_at": "2026-11-25T10:00:00Z"}
     cfg.update(over)
     return cfg
 
@@ -97,7 +105,8 @@ def test_binding_without_key_or_system_is_not_agent_scope():
 
 # ── grouping / representative / counts ───────────────────────────────────────────
 
-def test_is_armable_filters_paused_keyless_and_foreign():
+def test_is_armable_filters_paused_keyless_and_foreign(tmp_path, monkeypatch):
+    monkeypatch.setenv("AIMAIL_HOME", str(tmp_path))
     asid = "asid_self"
     assert binding_mod.is_armable(_cfg(agent_system_id=asid), asid) is True
     assert binding_mod.is_armable(_cfg(agent_system_id=asid, paused=True), asid) is False
@@ -136,6 +145,7 @@ def test_iter_active_reads_disk_and_dedupes(tmp_path, monkeypatch):
     ):
         cfg = _cfg(email=addr, system_id=sid, **extra)
         base.save_agent_config(addr.split("@")[0], cfg, sid)
+          # activation records the anchor relation next to the binding
     got = [c["email"] for c in binding_mod.iter_active(asid)]
     assert got == ["a@test.local", "b@test.local"]  # deduped, sorted, paused/foreign dropped
     assert binding_mod.count_active(asid) == 2
@@ -158,7 +168,7 @@ def test_fresh_target_skip_reasons(tmp_path, monkeypatch):
     cfg, skip = binding_mod.fresh_target("nobody@test.local", "http://gw")
     assert cfg is None and skip == binding_mod.SKIP_UNKNOWN
 
-    # same address, another Gateway ⇒ this delivery is not addressed here (contract §9.1)
+    # same address, another Gateway ⇒ this delivery is not addressed here (contract §9.2 I2: keys carry the anchor + gateway)
     _, skip = binding_mod.fresh_target("a@test.local", "http://other-gw")
     assert skip == binding_mod.SKIP_UNKNOWN
 
@@ -195,4 +205,7 @@ def test_single_address_host_refuses_second_bind_without_spending_the_code(tmp_p
                                gateway_url="http://gw")
     assert out["success"] is False and out["reason"] == "second-address"
     assert out["error_code"] == "SINGLE_ADDRESS_HOST" and out["retryable"] is False
+    # Contract C18: the refusal names the first unmet layer of §11.2 (wake), so the user can
+    # tell "this host can never wake another session" from "this host has no anchors".
+    assert out["failed"] == "wake"
     assert calls == [], "the activation code must not be spent on a refused bind"

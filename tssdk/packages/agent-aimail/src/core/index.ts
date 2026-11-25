@@ -7,7 +7,6 @@
 export * from './types.js'
 export * from './typebox-params.js'
 export * from './contract.js'
-export * from './listen.js'
 export { GatewayClient, SseParser, type SseEvent } from './gateway.js'
 export type { GatewayClientOptions, GatewayFetchImpl } from './gateway.js'
 export { computeApiSignature, sha256Hex } from './api-signature.js'
@@ -25,38 +24,17 @@ export {
   updateAgentConfig,
 } from './config.js'
 export * from './release-resources.js'
+export { listSystemDirs, readSystemConfig } from './system-config.js'
 export {
-  listSystemDirs,
-  readSystemConfig,
-  emailForAgent,
-  resolveRegisterEmail,
-  registerAddress,
-  saveBinding,
-  resolveRegisterWebhook,
-  ensureBindingWebhookSecret,
-  syncAddressWebhook,
-  autoBind,
-} from './auto-bind.js'
-export {
-  INBOUND_STATE_FLAG,
-  resolveAimailBin,
-  notifyInboundState,
-  notifyInboundForSystem,
-  formatInboundNotifyLine,
-  isInboundNotifyWarning,
-  spawnRunner,
-} from './inbound-notify.js'
-export type {
-  InboundState,
-  InboundNotifyOutcome,
-  NotifyOptions,
-  CommandRunner,
-} from './inbound-notify.js'
+  BINDING_SOURCE_ACTIVATION,
+  REQUIRED_BINDING_FIELDS,
+  bindingProvenance,
+  refuseBindingAfterGatewayRejection,
+  isRefusedByGateway,
+  resetGatewayRejections,
+  type ProvenanceVerdict,
+} from './binding-provenance.js'
 export { listAgentConfigs } from './config.js'
-export { detectSystemForHome, ensureSystem } from './ensure-system.js'
-export type { EnsureSystemOptions, EnsureSystemResult } from './ensure-system.js'
-export { ensureAgentBinding } from './ensure-binding.js'
-export type { EnsureAgentBindingOptions, EnsureAgentBindingResult } from './ensure-binding.js'
 export {
   activateAddressCode,
   activateAddressCodePersist,
@@ -147,15 +125,7 @@ export type {
   PollStats,
   StartPollingOptions,
 } from './address-code.js'
-export type {
-  SystemGatewayConfig,
-  AdminClientLike,
-  RegisterAddressOptions,
-  RegisterAddressResult,
-  SaveBindingOptions,
-  AutoBindOptions,
-  AutoBindResult,
-} from './auto-bind.js'
+export type { SystemGatewayConfig } from './system-config.js'
 export {
   setAgentIdentity,
   setAgentModel,
@@ -183,6 +153,7 @@ export {
   threadPath,
   saveLocalMeta,
   readLocalMeta,
+  stampSessionMeta,
   resolveThreadId,
   saveOutboundSnapshot,
   saveInboundSnapshot,
@@ -223,7 +194,6 @@ export {
   setPersonaSupport,
   setPersonasProvider,
 } from './preprocess.js'
-export { opAssemble, opUpdate, opTeardown, opPromptTest, UsageError } from './sdk-ops.js'
 export { ensureSkillToolExposure } from './skill-exposure.js'
 export { listSkillNames, combineSkillNames } from './skill-roots.js'
 export { logAimailDispatch } from './log.js'

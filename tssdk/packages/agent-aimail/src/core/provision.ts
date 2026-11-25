@@ -18,9 +18,8 @@ import * as path from 'node:path'
 import * as os from 'node:os'
 
 import { GatewayClient } from './gateway.js'
-import { AIMAIL_HOME, gatewayConfigPath, systemDir } from './config.js'
+import { AIMAIL_HOME, gatewayConfigPath } from './config.js'
 import { POINTER_FILE } from './contract.js'
-import { emailForAgent } from './auto-bind.js'
 
 export interface ActivationPreflight {
   valid: boolean
@@ -143,57 +142,22 @@ export async function preflightActivationCode(
   }
 }
 
-export async function activateSystem(opts: {
-  gatewayUrl: string
-  code: string
-  systemName?: string
-  domain?: string | undefined
-  manager?: string
-}): Promise<ActivatedSystem> {
-  const body: Record<string, unknown> = { code: opts.code }
-  if (opts.systemName) body.system_name = opts.systemName
-  if (opts.domain) body.domain = opts.domain
-  if (opts.manager) body.manager = opts.manager
-  const res = await publicPost(opts.gatewayUrl, '/api/v1/activate-system', body)
-  const status = Number(res.status ?? 0)
-  const raw = str(res.raw_key)
-  const sid = str(res.system_id)
-  if (status !== 200 || !raw || !sid) {
-    throw new ProvisionError(
-      status === 0 ? 'gateway_unreachable' : status === 410 ? 'activation_invalid' : 'activation_failed',
-      str(res.error) || str(res.detail) || `activate-system failed (HTTP ${status})`,
-      status === 0,
-    )
-  }
-  const domains = Array.isArray(res.domains)
-    ? res.domains.map((d) => str(d)).filter(Boolean)
-    : str(res.domain)
-      ? [str(res.domain)]
-      : []
-  return {
-    success: true,
-    system_id: sid,
-    domain: str(res.domain) || domains[0] || undefined,
-    system_name: str(res.system_name) || opts.systemName || undefined,
-    manager_address: str(res.manager_address) || undefined,
-    domains,
-    raw_key: raw,
-    kind: str(res.kind) || 'new',
-  }
-}
-
 export async function activateAddressCode(opts: {
   gatewayUrl: string
   code: string
   email: string
   agentSystemId?: string
+  /** sha256(email + anchor) — the anchor relation registered with the gateway (contract §7.1). */
+  anchorId?: string
 }): Promise<ActivatedAddress> {
+  const anchor = String(opts.anchorId ?? '').trim()
   const res = await publicPost(
     opts.gatewayUrl,
     '/api/v1/activate-address-code',
     {
       code: opts.code,
       email_address: opts.email.trim().toLowerCase(),
+      ...(anchor ? { anchor_id: anchor } : {}),
     },
     opts.agentSystemId ? { 'X-Agent-System-Id': opts.agentSystemId } : undefined,
   )
@@ -218,40 +182,6 @@ export async function activateAddressCode(opts: {
   }
 }
 
-export async function createApiKey(opts: {
-  gatewayUrl: string
-  adminKey: string
-  identity: string
-  systemId: string
-  email: string
-  scopes: string[]
-  category: 'domain' | 'bridge' | 'agent' | 'system'
-}): Promise<string> {
-  const res = await signedRequest(
-    opts.gatewayUrl,
-    opts.adminKey,
-    opts.identity,
-    'POST',
-    '/api/v1/admin/api-keys',
-    {
-      system_id: opts.systemId,
-      email_address: opts.email,
-      scopes: opts.scopes,
-      category: opts.category,
-    },
-  )
-  const status = Number(res.status ?? 0)
-  const raw = str(res.raw_key)
-  if ((status !== 200 && status !== 201) || !raw) {
-    throw new ProvisionError(
-      status === 0 ? 'gateway_unreachable' : 'key_create_failed',
-      str(res.error) || str(res.detail) || `create key failed (HTTP ${status})`,
-      status === 0,
-    )
-  }
-  return raw
-}
-
 export async function listSystemDomains(opts: {
   gatewayUrl: string
   adminKey: string
@@ -273,50 +203,6 @@ export async function listSystemDomains(opts: {
 }
 
 /** Register an address in pull mode (no webhook) and mint its agent key. */
-export async function registerPullAddress(opts: {
-  gatewayUrl: string
-  adminKey: string
-  identity: string
-  systemId: string
-  email: string
-  manager?: string
-}): Promise<string> {
-  const body: Record<string, unknown> = {
-    id: `addr-${opts.email.replace(/@/g, '-at-')}-${Math.floor(Date.now() / 1000)}`,
-    email: opts.email,
-  }
-  if (opts.manager) body.manager_address = opts.manager
-  const res = await signedRequest(
-    opts.gatewayUrl,
-    opts.adminKey,
-    opts.identity,
-    'POST',
-    `/api/v1/admin/systems/${encodeURIComponent(opts.systemId)}/addresses`,
-    body,
-  )
-  const status = Number(res.status ?? 0)
-  if (status !== 200 && status !== 201) {
-    const detail = str(res.error) || str(res.detail)
-    // A remote address that already exists is fine: mint a fresh agent key.
-    if (!/already exists|exists|UNIQUE|unique|constraint/i.test(detail)) {
-      throw new ProvisionError(
-        status === 0 ? 'gateway_unreachable' : 'address_register_failed',
-        detail || `register address failed (HTTP ${status})`,
-        status === 0,
-      )
-    }
-  }
-  return await createApiKey({
-    gatewayUrl: opts.gatewayUrl,
-    adminKey: opts.adminKey,
-    identity: opts.identity,
-    systemId: opts.systemId,
-    email: opts.email,
-    scopes: ['agent'],
-    category: 'agent',
-  })
-}
-
 export async function readSystemGatewayConfig(systemId: string): Promise<SystemGatewayConfig | undefined> {
   try {
     const raw = await fs.readFile(gatewayConfigPath(systemId), 'utf-8')
@@ -326,33 +212,12 @@ export async function readSystemGatewayConfig(systemId: string): Promise<SystemG
   }
 }
 
-export async function writeSystemGatewayConfig(systemId: string, cfg: SystemGatewayConfig): Promise<string> {
-  const p = gatewayConfigPath(systemId)
-  await fs.mkdir(path.dirname(p), { recursive: true, mode: 0o700 })
-  const tmp = `${p}.tmp`
-  const text = JSON.stringify(cfg, null, 2) + '\n'
-  // file-ownership-allowed: dsh self-provisioning; CLI remains read-only
-  await fs.writeFile(tmp, text, { mode: 0o600 })
-  await fs.rename(tmp, p)
-  await fs.chmod(p, 0o600)
-  return p
-}
-
 export function aimailHome(): string {
   return AIMAIL_HOME()
 }
 
 export function systemHome(): string {
   return (process.env.AIMAIL_SYSTEM_HOME || process.env.DSH_HOME || path.join(os.homedir(), '.dsh')).replace(/\/+$/, '')
-}
-
-export async function writeAgentmailPointer(systemId: string, email?: string): Promise<void> {
-  const p = path.join(systemHome(), POINTER_FILE)
-  await fs.mkdir(path.dirname(p), { recursive: true, mode: 0o700 })
-  const tmp = `${p}.tmp`
-  await fs.writeFile(tmp, JSON.stringify({ system_id: systemId, ...(email ? { email } : {}) }, null, 2) + '\n', { mode: 0o600 })
-  await fs.rename(tmp, p)
-  await fs.chmod(p, 0o600)
 }
 
 export async function readAgentmailPointer(): Promise<{ system_id?: string; email?: string } | undefined> {
@@ -364,23 +229,4 @@ export async function readAgentmailPointer(): Promise<{ system_id?: string; emai
 }
 
 /** Resolve the default worker address for an activated system. */
-export function defaultWorkerEmail(domain: string, systemName?: string): string {
-  return emailForAgent('agent', domain, systemName ?? '')
-}
-
-export async function removeRawSystemKey(systemId: string): Promise<void> {
-  try {
-    await fs.unlink(path.join(systemDir(systemId), '.system_raw_key.key'))
-  } catch {
-    /* absent is fine */
-  }
-}
-
-export async function writeRawSystemKey(systemId: string, key: string): Promise<void> {
-  const p = path.join(systemDir(systemId), '.system_raw_key.key')
-  await fs.mkdir(path.dirname(p), { recursive: true, mode: 0o700 })
-  await fs.writeFile(p, key + '\n', { mode: 0o600 })
-  await fs.chmod(p, 0o600)
-}
-
 export const PROVIDER_NAME = 'dsh-self-provisioning'

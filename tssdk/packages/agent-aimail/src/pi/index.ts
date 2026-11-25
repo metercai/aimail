@@ -18,18 +18,17 @@
 import { installActivationSkillSync } from '../core/agent-level.js'
 import { activateHost } from '../hosts/activate.js'
 import * as fs from 'node:fs'
-import * as http from 'node:http'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
-import { notifyInboundForSystem, formatInboundNotifyLine, isInboundNotifyWarning, listenWithRetry, processInboundMail, releaseAllSystems, routeAddressFromHeaders, loadAgentConfig, startAgentPullEntries, startSystemPull, startAgentSystemGroups, resolveAgentPullSettings, freshDeliveryTarget, listAgentConfigs, listSystemDirs, onBindingCreated, setProfileDirResolver, setSoulProvider, setSkillsProvider, setToolsetProvider, listSkillNames, verifySignature, INBOUND_PATH, INBOUND_PORT, type AgentConfig, type AgentPullHandle, type AgentPullOverrides, type InboundPayload, packageResourcesRoot } from '../core/index.js'
+import { processInboundMail, releaseAllSystems, routeAddressFromHeaders, loadAgentConfig, startAgentPullEntries, startSystemPull, startAgentSystemGroups, resolveAgentPullSettings, freshDeliveryTarget, listAgentConfigs, listSystemDirs, onBindingCreated, setProfileDirResolver, setSoulProvider, setSkillsProvider, setToolsetProvider, listSkillNames, type AgentConfig, type AgentPullHandle, type AgentPullOverrides, type InboundPayload, packageResourcesRoot } from '../core/index.js'
 import { countActiveAgentSystemBindings } from '../core/index.js'
 import { setAgentHomeResolver } from '../core/index.js'
 import { resolveByRecipient } from '../mail/index.js'
 import { getAgentSystemId } from '../core/agent-system-id.js'
 import { readSystemGatewayConfig } from '../core/provision.js'
-import { agentIdentity, initIdentity, readPointer, setInboundEndpoint, tryAutoBindOnce } from './identity.js'
+import { agentIdentity, initIdentity, readPointer } from './identity.js'
 import { buildPiTools } from './tools.js'
 import { setAddressModel } from '../core/host-capabilities.js'
 
@@ -42,18 +41,11 @@ setAddressModel('single')
 // Env mirror: survives a bundled duplicate of the capabilities module (see its docstring).
 process.env.AIMAIL_HOST_ADDRESS_MODEL = 'single'
 
-// Contract constants single copy = @aimail/mail-core(src/contract.ts ← contract/aimail-contract.json).
-// re-export here to maintain this module's existing public surface (dist/index.d.ts previously exported INBOUND_PATH).
-export { INBOUND_PATH }
-const DEFAULT_INBOUND_PORT = INBOUND_PORT
-
+/** Options for the pi extension. There is nothing to configure for delivery any more: SSE/pull only. */
 export interface PiAimailOptions {
-  /** Inbound listener port (legacy push mode only). */
+  /** @deprecated 2026-11-25 — no listener exists; accepted and ignored so old configs do not crash. */
   inboundPort?: number
-  /**
-   * `sse` (default) = pending SSE pull only, no listener/CLI.
-   * `push` = legacy local listener + push bridge compatibility.
-   */
+  /** @deprecated 2026-11-25 — push is gone; any value is ignored (SSE/pull is the only transport). */
   transport?: 'sse' | 'push'
 }
 
@@ -71,6 +63,8 @@ export interface PiInboundOutcome {
    * acked (it re-pulls next round).
    */
   ok: boolean
+  /** Free-form evidence line (e.g. that delivery was a hand-off, not a landing). */
+  detail?: string
 }
 
 /**
@@ -134,7 +128,9 @@ export async function deliverPiInbound(
   pi.sendUserMessage(JSON.stringify({ ...result, to: agentAddr }), {
     deliverAs: 'steer',
   })
-  return { status: 'delivered', ok: true }
+  // `sendUserMessage` is fire-and-forget: this is the hand-off, not a landing. Contract 附 E marks
+  // pi as `admission-only` (and S, so C17 does not apply); the detail says so.
+  return { status: 'delivered', detail: 'admission-only: handed to pi.sendUserMessage', ok: true }
 }
 
 /**
@@ -353,6 +349,8 @@ async function deliverPiPulled(
 
 
 export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {}) {
+  // The only options left are deprecated no-ops; read them so a caller passing them is not a type error.
+  void options
   // Host identification (#5): verify environment before activating.
   activateHost('pi')
   initIdentity()
@@ -457,158 +455,22 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
     }
   })
 
-  // ── Inbound receiver (local listener; bridge push target) ──
-  let server: http.Server | undefined
+  // ── Inbound: SSE / pull only ──
+  //
+  // There is no local listener any more (retired 2026-11-25): SSE-V2 receives mail by pulling the
+  // gateway stream, so pi binds no port, exposes no HMAC push endpoint and reports no "inbound live"
+  // URL to the CLI. The deprecated `transport`/`inboundPort` options are accepted and ignored so an
+  // older host config does not crash — they cannot resurrect the listener.
   let pullHandles: AgentPullHandle[] = []
-  const transport = options.transport ?? 'sse'
-  const startInbound = () => {
-    if (transport === 'sse') {
-      // SSE contract: no local listener, no HMAC push endpoint, no CLI.
-      // Startup must not invent a mailbox (contract §5.1): only read existing
-      // bindings and open the SSE stream.
-      void startInboundPull(pi, { log })
-        .then((handles) => { pullHandles = handles })
-        .catch((e: unknown) => log.warn(`[agent-aimail] SSE pull failed to start: ${e instanceof Error ? e.message : String(e)}`))
-      log.info('[agent-aimail] transport=sse (no listener/CLI)')
-      return
-    }
-    if (server) return
-    server = http.createServer((req, res) => {
-      const json = (code: number, body: unknown) => {
-        res.writeHead(code, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify(body))
-      }
-      void (async () => {
-        try {
-          if (req.method !== 'POST') {
-            json(404, { status: 'not_found' })
-            return
-          }
-          const chunks: Buffer[] = []
-          for await (const c of req) chunks.push(c as Buffer)
-          const rawBody = Buffer.concat(chunks)
-          let payload: InboundPayload
-          try {
-            payload = JSON.parse(rawBody.toString('utf-8')) as InboundPayload
-          } catch {
-            json(400, { status: 'bad_json' })
-            return
-          }
-          const headers = {
-            ...(req.headers as Record<string, string | string[]>),
-            ...((payload.headers ?? {}) as Record<string, unknown>),
-          } as Record<string, unknown>
-          const target = await resolvePiTarget(payload, headers)
-          if (!target) {
-            json(200, { status: 'no_agent', detail: 'no binding' })
-            return
-          }
-          // HMAC verify — push-only trust step (pulled mail is authenticated by
-          // the gateway on the agent-scope key); same chain below.
-          const sig = String(req.headers['x-webhook-signature'] ?? '')
-          if (!verifySignature(rawBody, sig, target.cfg.webhook_secret ?? '')) {
-            json(401, { status: 'bad_signature' })
-            return
-          }
-          const out = await deliverPiInbound(pi, target, payload, headers)
-          json(200, { status: out.status })
-        } catch (e) {
-          log.error(`[agent-aimail] inbound error: ${e instanceof Error ? e.message : String(e)}`)
-          json(500, { status: 'error', detail: e instanceof Error ? e.message : String(e) })
-        }
-      })()
+  void startInboundPull(pi, { log })
+    .then((handles) => {
+      pullHandles = handles
     })
-    const port = options.inboundPort ?? DEFAULT_INBOUND_PORT
-    // Conflict-tolerant bind (owner ruling 2026-10-25): all self-bind hosts
-    // share the common default port (the contract inbound_port), so the
-    // ACTUAL bound port (the bind result) is the source of truth. On a real
-    // bind: the confirmed URL is computed from the actual port, the auto-bind
-    // endpoint is updated, and `--inbound-live` carries that real URL (no
-    // exceptions, owner ruling 2026-10-25). A failed bind is a LOUD error:
-    // the host must not report inbound live for a port that never came up
-    // (that would pin a route to a dead endpoint).
-    const doListen = (): Promise<void> => {
-      if (!server) return Promise.resolve()
-      return listenWithRetry(server, '127.0.0.1', port)
-        .then((actualPort) => {
-          const url = `http://127.0.0.1:${actualPort}${INBOUND_PATH}`
-          // Source of truth (owner ruling): the URL the OS ACTUALLY bound is
-          // the single port of record — never the preferred default (a
-          // collision re-selects port+1, so the preferred port may be dead).
-          // Set it BEFORE the eager bind so the binding's webhook_url carries
-          // the real port on its first write, and the `--inbound-live` report
-          // hands that same real URL to the CLI for its route table.
-          setInboundEndpoint(url)
-          log.info(`[agent-aimail] inbound listening on ${url}`)
-          // Eager default-agent binding (dsh parity, 2026-10-16 batch) runs
-          // AFTER the bind result is known: inboundWebhookUrl() returns the
-          // confirmed real port, so the binding's webhook_url is self-consistent
-          // on its first write — no stale default port to reconcile away.
-          // A bind failure degrades: the listener stays up (inbound live), no wedge.
-          return tryAutoBindOnce()
-            .catch((e: unknown) => {
-              log.warn(
-                `[agent-aimail] eager binding failed (inbound still live): ${e instanceof Error ? e.message : String(e)}`,
-              )
-            })
-            .then(() => {
-              // Inbound notification (owner decision 2026-09-28, SDK de-bridging):
-              // listen ready + binding written ⇒ tell the environment master
-              // (the `aimail` CLI) per address `aimail address -a <addr>
-              // --inbound-live --inbound-url <url>`. The confirmed URL is the
-              // REAL bound endpoint (owner ruling 2026-10-25) — the port
-              // source of truth is handed to the CLI for its route table.
-              // Best-effort: argv only, 4s timeout, never throws to the host.
-              void notifyInboundForSystem('live', { inboundUrl: url })
-                .then((outcomes) => {
-                  for (const o of outcomes) {
-                    const line = `[agent-aimail] ${formatInboundNotifyLine(o, 'live')}`
-                    if (isInboundNotifyWarning(o)) log.warn(line)
-                    else log.info(line)
-                  }
-                })
-                .catch((e: unknown) => {
-                  log.warn(
-                    `[agent-aimail] inbound notify failed (non-fatal): ${e instanceof Error ? e.message : String(e)}`,
-                  )
-                })
-              // Pull entry (2026-09-27): an address activated by an activation
-              // CODE has no push path (the gateway stores webhook_url=NULL for
-              // it), so this long-lived session fetches its own mail on a
-              // timer, delivering through the SAME chain (`deliverPiInbound`).
-              // Armed only for agent-scope bindings — the decision lives in
-              // mail-core, never here.
-              void startInboundPull(pi, { log })
-                .then((handles) => {
-                  pullHandles = handles
-                })
-                .catch((e: unknown) => {
-                  log.warn(`[agent-aimail] pull entry failed to start: ${e instanceof Error ? e.message : String(e)}`)
-                })
-            })
-        })
-        .catch((e: unknown) => {
-          // A bind failure is now LOUD (was: one log line + a dead listener,
-          // the silent black hole). The host process keeps running.
-          log.error(
-            `[agent-aimail] inbound listener FAILED to bind (preferred ${port}): ` +
-              `${e instanceof Error ? e.message : String(e)} — inbound NOT live`,
-          )
-        })
-    }
-    // LISTEN first, bind second (reordered per the port source-of-truth
-    // ruling): the actual bound port is only known once listenWithRetry
-    // resolves, and the binding's webhook_url must reflect it — so the eager
-    // self-bind (once-guarded, idempotent, shared with the lazy tool path)
-    // runs inside doListen's success path, after setInboundEndpoint.
-    void doListen()
-    server.on('error', (e) => {
-      log.error(
-        `[agent-aimail] inbound listener error: ${e instanceof Error ? e.message : String(e)}`,
-      )
-    })
-  }
-  startInbound()
+    .catch((e: unknown) =>
+      log.warn(`[agent-aimail] SSE pull failed to start: ${e instanceof Error ? e.message : String(e)}`),
+    )
+  log.info('[agent-aimail] SSE pull armed (no listener, no inbound endpoint)')
+
 
   // Hot-add: an address activation after the session started must arm its
   // pull loop without requiring a Pi restart.
@@ -618,29 +480,13 @@ export default function piAimail (pi: ExtensionAPI, options: PiAimailOptions = {
     try { pullHandles = await startInboundPull(pi, { log }) } catch { /* next restart retries */ }
   })
 
-  // Listener lifecycle follows the session (pull loops stop with it).
+  // Pull lifecycle follows the session (the loops stop with it).
   pi.on('session_shutdown', () => {
-    // Shutdown notification (2026-09-28): per address `aimail address -a <addr> --inbound-down`,
-    // also best-effort/non-blocking; CLI absent = nothing happens.
-    void notifyInboundForSystem('down')
-      .then((outcomes) => {
-        for (const o of outcomes) {
-          const line = `[agent-aimail] ${formatInboundNotifyLine(o, 'down')}`
-          if (isInboundNotifyWarning(o)) log.warn(line)
-          else log.info(line)
-        }
-      })
-      .catch((e: unknown) => {
-        log.warn(
-          `[agent-aimail] inbound down notify failed (non-fatal): ${e instanceof Error ? e.message : String(e)}`,
-        )
-      })
     offBinding()
     for (const h of pullHandles) h.stop()
     pullHandles = []
-    server?.close()
-    server = undefined
   })
 
-  log.info('[agent-aimail] registered 14 mail tools + local inbound receiver')
+  log.info('[agent-aimail] registered 14 mail tools + SSE pull (no inbound listener)')
 }
+

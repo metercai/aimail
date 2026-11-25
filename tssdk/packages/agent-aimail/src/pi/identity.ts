@@ -6,7 +6,7 @@
  *   → system_id scoped → @aimail/mail-core loadConfigByAgentId/loadConfigByEmail
  *
  * Auto-bind: system readiness + default-agent binding live ONCE in
- * mail-core `ensureAgentBinding` (single source; dsh/pi/openclaw parity,
+ * mail-core binding sources (dsh/pi/openclaw parity,
  * batch 2026-10-16). The host start entry calls it BEFORE the inbound
  * listener is gated up ("port up" = "binding written"); the lazy path here
  * is the same call for the tool-resolution flow. The pointer is package-
@@ -18,10 +18,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import {
-  ensureAgentBinding,
   hasAnySystem,
-  INBOUND_PATH,
-  INBOUND_PORT,
   POINTER_FILE,
   loadConfigByEmail,
   setAgentIdentity,
@@ -108,68 +105,12 @@ export function writePointer(ptr: SystemPointer): void {
   )
 }
 
-/**
- * pi inbound receive endpoint (the bridge push target). The listener is
- * owned by index.ts (default 127.0.0.1:9099 — the common inbound_port, path
-  * /aimail/inbound); the
- * extension sets the actual URL via setInboundEndpoint at startup.
- * AIMAIL_INBOUND_URL env overrides (python parity).
- */
-let _inboundEndpoint = ''
+// No inbound endpoint: pi has no listener any more (retired 2026-11-25). Mail arrives by pulling
+// the gateway stream, so a binding carries no webhook_url and no port to report.
 
-/** Record the listener URL the extension actually started on. */
-export function setInboundEndpoint(url: string): void {
-  _inboundEndpoint = url.replace(/\/+$/, '')
-}
-
-export function inboundWebhookUrl(): string {
-  const fromEnv = (process.env.AIMAIL_INBOUND_URL ?? '').trim()
-  if (fromEnv) return fromEnv.replace(/\/+$/, '') + INBOUND_PATH
-  if (_inboundEndpoint) return _inboundEndpoint
-  return `http://127.0.0.1:${INBOUND_PORT}${INBOUND_PATH}`
-}
-
-/** Process once-guard: auto-bind at most once per run. */
-let _autoBindAttempted = false
-
-/**
- * Reset the once-guard (test hook / after an operator fixed the environment
- * in the same process).
- */
-export function resetAutoBindOnce(): void {
-  _autoBindAttempted = false
-}
-
-/**
- * One-shot auto-bind for the default pi agent — thin wrapper over the
- * mail-core single source (system readiness + idempotent binding + pointer
- * write). Never throws — failures warn and fall through to the caller's
- * own error.
- */
-export async function tryAutoBindOnce(opts: {
-  /** SSE-only hosts must never reverse-call the CLI ABI. */
-  allowCli?: boolean
-  /** Explicit inbound URL; SSE-only passes '' (no listener). */
-  webhookUrl?: string
-} = {}): Promise<AgentConfig | undefined> {
-  if (_autoBindAttempted) return undefined
-  _autoBindAttempted = true
-  const r = await ensureAgentBinding({
-    home: path.dirname(POINTER_PATH),
-    agentId: DEFAULT_AGENT_ID,
-    webhookUrl: opts.webhookUrl ?? inboundWebhookUrl(),
-    allowCli: opts.allowCli ?? true,
-    log: (l) => console.warn(`[agent-aimail] ${l}`),
-  })
-  if (!r.ok || !r.email || !r.systemId) {
-    if (r.error) {
-      console.warn(`[agent-aimail] auto-bind failed: ${r.error}`)
-    }
-    return undefined
-  }
-  writePointer({ system_id: r.systemId, email: r.email })
-  return r.config ?? (await loadConfigByEmail(r.email, r.systemId).catch(() => undefined))
-}
+// No auto-bind: a binding is created by an ACTIVATION CODE (aimail_address bind), never by the
+// plugin starting up (owner 2026-11-25). The former once-guard + `tryAutoBindOnce` wrapper were
+// deleted with the eager bind they served.
 
 /**
  * Resolve the AIMail config for the running pi agent.
@@ -188,8 +129,11 @@ export async function resolveConfig(): Promise<AgentConfig> {
     if (byEmail) return byEmail
   }
   throw new Error(
-    (hasAnySystem()
-      ? `aimail not configured for pi — no binding for pointer ${POINTER_PATH} (email ${ptr.email || '-'}, system ${systemId || '-'}). Run: aimail install --home ~/.pi`
-      : 'Machine has no aimail environment yet. Run: aimail install --home ~/.pi (or restart the host so auto-ensure via `aimail install --system-only` kicks in)'),
+    hasAnySystem()
+      ? `aimail not configured for pi — no binding for pointer ${POINTER_PATH} (email ${ptr.email || '-'}, system ${systemId || '-'}). ` +
+        'Ask your gateway operator for an activation code and call the aimail_address tool with ' +
+        '{"action":"bind","code":"<code>"}; nothing is bound automatically.'
+      : 'This machine has no AIMail system yet. An address is created by consuming an activation code ' +
+        '(aimail_address tool, action "bind"); there is no installer and no automatic binding.',
   )
 }

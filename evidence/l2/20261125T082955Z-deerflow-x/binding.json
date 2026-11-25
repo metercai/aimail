@@ -1,0 +1,12 @@
+{
+  "agent_id": "l2deerflow",
+  "agent_system_id": "asid_8cddff22e23ba464fb4749ebac49f869",
+  "api_key": "<redacted>",
+  "domain": "test.local",
+  "email": "l2deerflow@test.local",
+  "expires_at": "2026-11-26T08:29:55.115Z",
+  "gateway_url": "http://127.0.0.1:18484",
+  "manager_address": "l2-deerflow-7116@example.com",
+  "system_id": "system-0139",
+  "workspace_path": "/app"
+}

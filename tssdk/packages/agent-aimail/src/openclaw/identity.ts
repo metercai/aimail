@@ -19,12 +19,9 @@ import * as fs from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import * as path from 'node:path'
 import {
-  ensureAgentBinding,
-  loadConfigByAgentId,
   loadConfigByEmail,
   type AgentConfig,
 } from '../core/index.js'
-import { INBOUND_PATH } from './inbound.js'
 
 /**
  * Default agent id (owner ruling 2026-10-16): openclaw is a MULTI-agent host
@@ -233,56 +230,12 @@ export function gatewayPort(): number {
   return 18789
 }
 
-/**
- * Local receive endpoint: the plugin's in-gateway HTTP route
- * (registerHttpRoute in index.ts) lives on the OpenClaw gateway HTTP server.
- */
-export function openclawWebhookUrl(): string {
-  return `http://127.0.0.1:${gatewayPort()}${INBOUND_PATH}`
-}
+// No receive endpoint: the in-gateway push route was retired 2026-11-25 (SSE/pull only), so a
+// binding carries no webhook_url and there is no port to report.
 
-/** Process once-guard: auto-bind at most once per run. */
-let _autoBindAttempted = false
-
-/**
- * Reset the once-guard (test hook / after an operator fixed the environment
- * in the same process).
- */
-export function resetAutoBindOnce(): void {
-  _autoBindAttempted = false
-}
-
-/**
- * One-shot auto-bind for an openclaw agent id — thin wrapper over the
- * mail-core single source (system readiness + idempotent binding + pointer
- * write). Adopts an existing binding for the id when present (the single
- * source does the adopt); otherwise derives the address and runs the
- * register chain. Never throws — failures warn and fall through to the
- * caller's own error.
- */
-export async function tryAutoBindOnce(
-  agentId: string,
-  opts: { allowCli?: boolean; webhookUrl?: string } = {},
-): Promise<AgentConfig | undefined> {
-  if (_autoBindAttempted) return undefined
-  _autoBindAttempted = true
-  const r = await ensureAgentBinding({
-    home: path.join(openclawHome(), '.openclaw'),
-    agentId,
-    aliases: ADDRESS_ALIASES,
-    webhookUrl: opts.webhookUrl ?? openclawWebhookUrl(),
-    allowCli: opts.allowCli ?? true,
-    log: (l) => console.warn(`[agent-aimail] ${l}`),
-  })
-  if (!r.ok || !r.email || !r.systemId) {
-    if (r.error) {
-      console.warn(`[agent-aimail] auto-bind failed: ${r.error}`)
-    }
-    return undefined
-  }
-  await writePointer({ system_id: r.systemId, email: r.email })
-  return r.config ?? (await loadConfigByAgentId(r.systemId, r.email).catch(() => undefined))
-}
+// No auto-bind: a binding is created by an ACTIVATION CODE (aimail_address bind), never by the
+// plugin starting up (owner 2026-11-25). The former once-guard + `tryAutoBindOnce` wrapper were
+// deleted with the eager bind they served.
 
 /**
  * Resolve the AIMail config for an openclaw agent id.

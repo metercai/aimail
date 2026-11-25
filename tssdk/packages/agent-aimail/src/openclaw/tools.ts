@@ -46,11 +46,28 @@ export function createMailTools(
       // Primary model at call time (runtime-supplied metadata, informational)
       const am = (ctx as { activeModel?: { modelId?: string; modelRef?: string } }).activeModel
       setAgentModel(am?.modelId ?? am?.modelRef)
-      const args = (params ?? {}) as Record<string, unknown>
+      const rawArgs = (params ?? {}) as Record<string, unknown>
+      // The anchor (openclaw: the agent workspace dir) must be known AT activation — it is hashed
+      // with the address and registered with the gateway, which re-checks it on every pull (§7.1).
+      const args: Record<string, unknown> =
+        tool.name === 'aimail_address' && rawArgs.action === 'bind'
+          ? { ...rawArgs, workspacePath: workspaceRef.path }
+          : rawArgs
       const needsConfig = tool.name !== 'aimail_address'
       const cfg = needsConfig ? await resolveConfigForAgent(ctx.agentId) : undefined
       const result = await tool.handler(
-        cfg ? { systemId: cfg.system_id, email: cfg.email } : { systemId: '' },
+        cfg
+          ? {
+              systemId: cfg.system_id,
+              email: cfg.email,
+              // The host hands the plugin its session handle at assembly time; carrying it into
+              // the handler is what lets `send_mail` record "this message was sent from that
+              // session", so an owner's reply can come back to it (contract §9.2 I1).
+              ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
+              ...(ctx.sessionKey ? { sessionKey: ctx.sessionKey } : {}),
+              ...(ctx.workspaceDir ? { workspacePath: ctx.workspaceDir } : {}),
+            }
+          : { systemId: '' },
         args,
       )
       if (tool.name === 'aimail_address' && result.success && args.action === 'bind' && args.email) {

@@ -22,6 +22,48 @@ _dir="${1:-}"
 _f="$_dir/s7_gone.json"
 CASE="S7 session-gone"   # never inherit the previous label
 
+# Contract §16 C17 scopes the *proof* to hosts that can tell whether a session still exists
+# (附 E `投递确认: probe`). An `admission-only` host's dispatch surface only says "accepted", so it
+# can never report "the target was gone": C17 is N/A there, not a failure. The host adapter declares
+# its capability; anything unknown is a fixture GAP (never a silent pass).
+# Three values, because "we cannot prove it" and "it does not apply" are different claims:
+#   probe            — the host can be asked whether a session exists ⇒ judge normally;
+#   unconfirmed      — no confirmation surface. C17 is STILL judged: a measured ack-with-nothing-
+#                      written is a drop, and "we cannot see it" must not become "we do not look"
+#                      (that is exactly how a measured loss would be laundered into N/A);
+#   no-session-model — the host has no session the inbound path could allocate or re-attach
+#                      (session identity belongs to the CLI) ⇒ the obligation is vacuous.
+case "${HOST_DELIVERY_CONFIRMATION:-probe}" in
+  no-session-model)
+    na_scope "S7 session-gone — host has no allocatable session model (contract §16 C17 适用范围): the obligation is vacuous"
+    return 0 2>/dev/null || exit 0
+    ;;
+  probe|unconfirmed|"") : ;;
+  *)
+    gap "S7 session-gone — unknown HOST_DELIVERY_CONFIRMATION='${HOST_DELIVERY_CONFIRMATION}' (expected probe|unconfirmed|no-session-model)"
+    return 0 2>/dev/null || exit 0
+    ;;
+esac
+
+# Owner ruling (2026-11-25): hosts without a public landing-confirmation API will not get one from
+# the host side, so "ack without landing" is an ACCEPTED RISK for those hosts. It must be signed
+# (HOST_RISK_ACCEPTED carries the reference) and it is printed with whatever evidence exists — the
+# check is not deleted, and the row is neither green nor red.
+if [ "${HOST_DELIVERY_CONFIRMATION:-probe}" = "unconfirmed" ] && [ -n "${HOST_RISK_ACCEPTED:-}" ]; then
+  _detail="signed: ${HOST_RISK_ACCEPTED}"
+  if [ -f "$_f" ]; then
+    _detail="$_detail; measured: $(python3 -c '
+import json,sys
+d=json.load(open(sys.argv[1]))
+print("acked=%s used=%r reason=%r" % (d.get("acked"), d.get("used"), d.get("reason")))
+' "$_f" 2>/dev/null || echo "s7_gone.json unreadable")"
+  else
+    _detail="$_detail; measured: no s7_gone.json (host hook absent)"
+  fi
+  risk_accepted "S7 session-gone — no public landing API; owner accepted 'acked but possibly not landed' ($_detail)"
+  return 0 2>/dev/null || exit 0
+fi
+
 if [ ! -f "$_f" ]; then
   gap "S7 session-gone — no s7_gone.json: host hook 'host_s7_session_gone' not implemented, C17 unproven"
   return 0 2>/dev/null || exit 0

@@ -23,17 +23,14 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
-# Runtime dependency note (2026-10-11, C-13): the hermes adapter must read AND
-# write the host's config.yaml (platforms.webhook + platform_toolsets) on the
-# install/register path, so a YAML parser has to exist in the interpreter the
-# SDK actually runs in. The official uv-managed host ships a bare CPython —
-# it carries its own ruamel-yaml but NO PyYAML — and the CLI installs the SDK
-# with `pip install agent-aimail` (no extras). PyYAML is therefore a hard dep
-# (cp314 wheels exist for every release platform). The remaining third-party
-# imports stay optional and host-gated: markitdown (docs extra) degrades to
-# keeping the original attachment, fastapi (deerflow extra) is a module-level
-# import of the DeerFlow adapter, which runs inside the DeerFlow host.
-dependencies = ["PyYAML>=6"]
+# Runtime dependency note (revised 2026-11-25, v1 hermes retirement): PyYAML used to be a hard
+# dependency because the v1 hermes adapter parsed and rewrote the host's config.yaml on the
+# install/register path. That adapter is gone (pysdk/hermes/), and the v2 hermes plugin talks to the
+# host through the `hermes_agent.plugins` entry point instead of editing YAML, so no shipped module
+# imports yaml any more. The remaining third-party imports stay optional and host-gated: markitdown
+# (docs extra) degrades to keeping the original attachment; the v1 deer-flow adapter (which needed
+# fastapi) was retired on 2026-11-25 together with the CLI installer.
+dependencies = []
 
 [project.optional-dependencies]
 # Document attachment -> markdown conversion (lazy import in core). NOTE: no
@@ -41,13 +38,10 @@ dependencies = ["PyYAML>=6"]
 # markitdown — the conversion silently does not happen (core keeps the original
 # file and the agent falls through to its PDF skill).
 docs = ["markitdown>=0.0.1"]
-# Kept for installs that select the extra explicitly; PyYAML is now also a hard
-# dependency (see the note above), because the host cannot be relied on for it.
-hermes = ["PyYAML>=6"]
-# DeerFlow inbound router (aimail/deer-flow/aimail_inbound.py) imports fastapi
-# at module level — loaded only inside the DeerFlow host, which already runs
-# FastAPI; declared here for installability outside that host.
-deerflow = ["fastapi>=0.100"]
+# v2 hermes plugin: no third-party runtime deps (it talks to the host through the plugin API).
+hermes = []
+# v2 deerflow extension (deerflow_plugin) needs no third-party runtime: it uses the host's own API.
+deerflow = []
 
 [project.urls]
 Homepage = "https://github.com/metercai/aimail"
@@ -93,19 +87,17 @@ packages = []
 "pysdk/aimail_mcp_server.py" = "aimail/aimail_mcp_server.py"
 # Agent-level runtime (scenario 1): toolset + skill install + pull startup; generic hosts call it directly.
 "pysdk/aimail_agent.py" = "aimail/aimail_agent.py"
-"pysdk/install.py" = "aimail/install.py"
 # SDK-side executable gate (process-command contract) — same class as install.py: spawnable by a caller in any language;
 # the result is a single line of JSON. The TS counterpart = the register-cli.js shipped with the platform package.
-"pysdk/sdk_ops.py" = "aimail/sdk_ops.py"
 "pysdk/_resources_release.py" = "aimail/_resources_release.py"
 # hosts identification layer (ported from the tssdk trio) — registry / detection / activation, single source for hosts.
-"pysdk/hosts/__init__.py" = "aimail/hosts/__init__.py"
 # V2 shared core (SSE aggregation, AgentSystemId, grouping, skip/ack). Both pysdk host
 # adapters import this layer, so it must ship in the wheel beside the flat core modules
 # its bootstrap puts on sys.path.
 "pysdk/v2/__init__.py" = "aimail/v2/__init__.py"
 "pysdk/v2/agent_system_id.py" = "aimail/v2/agent_system_id.py"
 "pysdk/v2/binding.py" = "aimail/v2/binding.py"
+"pysdk/v2/anchor.py" = "aimail/v2/anchor.py"
 "pysdk/v2/thread.py" = "aimail/v2/thread.py"
 # Hermes plugin (SSE-V2): platform adapter + runtime + tool registration + manifest.
 # The wheel is the whole install story — a pip install makes the host discover it via the
@@ -126,21 +118,15 @@ packages = []
 "pysdk/v2/pull_client.py" = "aimail/v2/pull_client.py"
 "pysdk/v2/system_pull.py" = "aimail/v2/system_pull.py"
 "pysdk/v2/outbound.py" = "aimail/v2/outbound.py"
-"pysdk/hosts/registry.py" = "aimail/hosts/registry.py"
-"pysdk/hosts/detect.py" = "aimail/hosts/detect.py"
-"pysdk/hosts/activate.py" = "aimail/hosts/activate.py"
-"pysdk/hermes/aimail_hermes.py" = "aimail/hermes/aimail_hermes.py"
+# v1 hermes adapter retired 2026-11-25 (owner go-ahead): no `aimail/hermes/` in the wheel, so no
+# `aimail.hermes.aimail_hermes` import path exists any more. The v2 surface is `hermes_plugin`
+# (above) + the `hermes_agent.plugins` entry point.
 # Legacy source-patch era (0.2.x) — NOT shipped in 0.3.0 (§6.8 of the V2 plan). The files
 # stay in the tree for history and for the "explicit switch only" audit, but the published
 # package must carry no webhook patcher, no toolsets patcher and no profile registrar:
 # installation is a pip install + the host's own plugin mechanism, nothing else.
-"pysdk/deer-flow/aimail_inbound.py" = "aimail/deer-flow/aimail_inbound.py"
-"pysdk/deer-flow/aimail_deerflow.py" = "aimail/deer-flow/aimail_deerflow.py"
-"pysdk/deer-flow/manage.py" = "aimail/deer-flow/manage.py"
 # Audit D4: the CLI platform install step calls these two scripts as {sdk}/deer-flow/install-*.sh; shipped with source only
 # means the pip layout can't find them (warn + degrade only) ⇒ also bundle them into the wheel (verify-wheel asserts this).
-"pysdk/deer-flow/install-mcp.sh" = "aimail/deer-flow/install-mcp.sh"
-"pysdk/deer-flow/install-skill.sh" = "aimail/deer-flow/install-skill.sh"
 # resources — released at install time to ~/.aimail/systems/{sid}/board/
 # and read from there at runtime (user-personalizable); zh/soul variants are
 # shipped for reference (default en).

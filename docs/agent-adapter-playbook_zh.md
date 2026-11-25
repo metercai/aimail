@@ -39,7 +39,7 @@
 |---|---|---|
 | 发行 | npm `agent-aimail`(`tssdk/packages/agent-aimail/`) | PyPI `agent-aimail`(`pysdk/`,wheel 内包名 `aimail/`) |
 | 现有宿主 | openclaw / dsh / pi | hermes / deer-flow |
-| 入口 | `dist/{host}/index.js`(宿主 loader 消费)+ `dist/{host}/register-cli.js`(CLI spawn) | per-host 适配模块(注册) + `pysdk/sdk_ops.py`(进程命令契约) |
+| 入口 | `dist/{host}/index.js`(宿主 loader 消费) | per-host 插件包(`hermes_plugin` / `deerflow_plugin`,宿主自行发现) |
 | 宿主 loader | npm 扩展机制(plugin entry / cordis bundle / pi.extensions) | 进程内 import / 宿主源码 patch(见 P4/P5) |
 
 两个包同名、分注册表(npm 与 PyPI),互不依赖。宿主语言定边:
@@ -158,31 +158,21 @@ pysdk/
 ### P4 入站接线
 
 - **职责**:把宿主入站流量接到单入口函数;挂 ping/pong 健康探测。
-- **契约**:路径 `INBOUND_PATH = /aimail/inbound`(全平台不可变);
-  hermes 唯一例外 `HERMES_INBOUND_PATH = /webhooks/aimail-inbound`
-  (挂在 hermes 网关自身 webhook 路由,route 名 `aimail-inbound`)。
-  端口:SDK 拥有监听器的宿主(dsh / pi)共用一个默认 `inbound_port = 9099`
-  — **端口可配,路径不可变**(`src/core/contract.ts`)。端口冲突时运行期重选
-  可用端口(**实际 bind 结果**为真源),confirmed 回调携带该真实端点。
-  gateway 拥有端口的宿主(hermes、deer-flow、openclaw)**不带**契约默认 ——
-  适配层自行探测实际端口,confirmed 回调一律携带真实 URL。
-- **已知方法**:
-  - pi:extension 内 node:http handler → `verifySignature`(HMAC,
-    per-address `webhook_secret`)→ `routeAddressFromHeaders` →
-    `processInboundMail`(`src/pi/index.ts:66-114`)。
-  - dsh:bundle 子路径 `dsh-aimail/inbound`(node:http 端点 + 投递)。
-  - openclaw:plugin `register(api)` 内注册 HTTP 路由
-    (`src/openclaw/index.ts:38`,inbound 逻辑在 `src/openclaw/inbound.ts`)。
-  - hermes:patch hermes-agent 发行版内 `gateway/platforms/webhook.py`
-    (外部文件,不在本仓)加 `PREPROCESS_REGISTRY` +
-    `register_preprocessor()`,webhook handler 在 prompt 渲染前调用
-    (`pysdk/hermes/patch_webhook.py`);同时 `ensure_config.py` 幂等确保
-    profile `platform_toolsets.webhook`/`cli` 含 `agentmail`
-    (缺任一项即"收得到回不出"断链)。
-  - deer-flow:本地 gateway 进程内 `POST /aimail/inbound` →
-    `process_inbound_mail` → ping/pong 拦截(200 吞掉不触发 agent)→
-    `start_run`(thread = `uuid5("aimail", email)`,会话按地址稳定)→
-    立即 200(`pysdk/deer-flow/aimail_inbound.py:1-20`)。
+- **契约**:**已经没有端点**。邮件靠拉取网关流到达(SSE + 长轮询,契约 v2 §8):适配层不绑回环端口、
+  不开 HTTP 路由、不校验 HMAC push body、也不上报"inbound live" URL。`INBOUND_PATH` / `INBOUND_PORT`
+  于 2026-11-25 退出命名契约(它们从来不是投递语义 —— 本地端口能应答并不等于"更能被投递"),
+  v1 hermes 的 webhook 路径同日随适配层退役。
+- **已知方法**(全部 pull):
+  - pi:`startInboundPull`(mail-core)→ `deliverPiInbound`;不再监听。
+  - dsh:`mail-hub` 那行拥有流,调用 `deliverInbound` —— **唯一**投递路径(E1/E2/E3 + C16 + C17 +
+    dispatch 行)。它原先的 `inbound` 行(node:http 监听 + 第二套更弱的路由)在出货 bundle 里根本没被挂载,
+  已于 2026-11-25 删除。
+  - openclaw:`startInboundPull` → `deliverInbound`;网关内路由已删。
+  - hermes:**已退役(2026-11-25)** —— v1 适配层 patch 宿主 `webhook.py` 并改写 `platform_toolsets`,
+    两者都不再存在。v2 插件通过 `hermes_agent.plugins` 入口点被发现(`pip install agent-aimail`),
+    自己拉网关的流,不改宿主树(见 `pysdk/hermes_plugin/`)。
+  - deer-flow(v1,仍在出货):宿主自己的 gateway 进程内 `POST /aimail/inbound` —— 唯一残留的 push 面,
+    路由字符串留在适配层本地,等该适配层退役。
 - **验证**:网关原件 → bodyproc → 本地入口全链实测,ping/pong
   契约成立;入站日志落 `~/.aimail/systems/{sid}/{cleaned_addr}/agentmail.log`。
 
@@ -363,11 +353,11 @@ pysdk/
 
 | 适配点 | openclaw (TS) | dsh (TS) | pi (TS) | hermes (py) | deer-flow (py) |
 |---|---|---|---|---|---|
-| P1 入口 | plugin entry + extensions | cordis.patch.yml 自挂载 3 子路径 | pi.extensions | patch 宿主源码族 | 本地 gateway 进程 |
+| P1 入口 | plugin entry + extensions | cordis.patch.yml 自挂载 3 子路径 | pi.extensions | 插件入口 `hermes_agent.plugins`(v1 补丁族已退役) | 本地 gateway 进程 |
 | P2 自检 | activateHost('openclaw')@register | activateHost('dsh')@mail-service 加载 | activateHost('pi')@入口 | 进程即宿主 | 进程即宿主 |
 | P3 身份 | `~/.openclaw/.agentmail` + auto-bind | exec.agent.id | `~/.pi/.agentmail` + auto-bind | profile 即身份 | `systems/{sid}/{cleaned_addr}/` 目录即 agent |
-| P4 入站 | plugin HTTP 路由 | bundle `/inbound`(node:http) | extension node:http(公共 :9099) | 网关 webhook `/webhooks/aimail-inbound` | 本地 gateway POST(探测) |
-| P5 工具 | 迭代 MAIL_TOOLS(factory) | 迭代 MAIL_TOOLS(defineTool) | 迭代 MAIL_TOOLS | patch toolsets.py(7 mail 工具入 _HERMES_CORE_TOOLS) | core 工具函数直接暴露 |
+| P4 入站 | pull(无路由) | 经 `mail-hub` → `deliverInbound` 拉取(无监听) | pull(无监听) | 只 pull(无 webhook、无端口) | 宿主 gateway 进程内 `POST`(v1) |
+| P5 工具 | 迭代 MAIL_TOOLS(factory) | 迭代 MAIL_TOOLS(defineTool) | 迭代 MAIL_TOOLS | 插件经宿主插件 API 注册 MAIL_TOOLS | core 工具函数直接暴露 |
 | P6 SOUL | `{workspaceDir(agentId)}/SOUL.md` | `~/.dsh/profiles/{DSH_PROFILE}/SOUL.md` | `~/.pi/agent/SOUL.md` | `{HERMES_HOME}/SOUL.md`(env→live→~/.hermes) | `systems/{sid}/{cleaned}/SOUL.md` |
 | P7 skills | 镜像 resolveWorkspaceSkillSourcePlan(本机 86) | 镜像 FileSystemSkillProvider.roots(本机 32) | `~/.pi/agent/skills/`(本机 0) | import host `tools/skills_tool`(本机 147) | `systems/{sid}/{cleaned}/skills/` |
 | P8 资源 | `~/.openclaw/skills/agentmail/` | `<dshHome>/skills/agentmail/` | `~/.pi/agent/skills/agentmail/` | `_release_hermes_skills` | — |
