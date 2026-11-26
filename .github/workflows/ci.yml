@@ -56,6 +56,9 @@ permissions:
 jobs:
   cli-gates:
     name: cli-gates (fmt + clippy + test)
+    # RETIRED 2026-11-25: the CLI component is deprecated and is no longer shipped (owner).
+    # Kept for history instead of deleting the job, so nobody mistakes a red for a silenced gate.
+    if: ${{ false }}
     runs-on: ubuntu-latest
     defaults:
       run:
