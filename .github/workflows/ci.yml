@@ -124,8 +124,9 @@ jobs:
 
   platform-check:
     name: build ${{ matrix.name }}
-    # always runs on push/PR; set to false when reused by publish.yml (its own cli-build is the same platform set).
-    if: ${{ github.event_name != 'workflow_call' || inputs.platforms }}
+    # RETIRED 2026-11-25 (owner ruling: CLI component removed). platform-check builds cli/ binaries on
+    # each OS; with cli/ deleted the job has no working directory. Kept as a visible stub, never runs.
+    if: ${{ false && (github.event_name != 'workflow_call' || inputs.platforms) }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
