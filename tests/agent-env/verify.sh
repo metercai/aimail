@@ -170,7 +170,7 @@ done
   || red "aimail CLI binary present in the agent's search path:$_hits"
 # informational only: stray copies elsewhere (a scratch tree the agent cannot reach)
 _stray="$(find /tmp -maxdepth 4 -type f -name aimail -perm -u+x 2>/dev/null | head -3)"
-[ -n "$_stray" ] && say "note: stray aimail binaries outside the search path (not counted): $(echo $_stray | tr ' ' ',')"
+[ -n "$_stray" ] && echo "  note: stray aimail binaries outside the search path (not counted): $(echo $_stray | tr ' ' ',')"
 _py_hits=""
 for c in python3 /opt/hermes/.venv/bin/python3 /app/backend/.venv/bin/python; do
   command -v "$c" >/dev/null 2>&1 || [ -x "$c" ] || continue
