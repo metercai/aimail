@@ -193,7 +193,7 @@ else:
     print("  [③ dsh LLM] ✗ host process environment has no LLM_API_KEY or it is empty —— MISSING_CREDENTIAL, root cause of turn dying in 0ms")
 PY
   else
-    echo "  [③ dsh LLM] ✗ host process ${HOST_PID:-?} is dead or environ is not readable —— cannot judge env propagation"
+    echo "  [③ dsh LLM] SKIP — host pid unavailable from this script (it lives in dsh-v2.sh, a subprocess); env propagation is judged by the endpoint probe below, not by reading another process's /proc"
   fi
   python3 - "$LLM_BASE_URL" "$LLM_MODEL" <<'PY' | sed 's/^/    /'
 import os, sys, json, time, urllib.request
