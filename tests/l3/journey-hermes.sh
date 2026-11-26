@@ -266,7 +266,7 @@ ok "turn 1 prompt injected (the activation mail body, verbatim)"
 
 # ═══ [3] the agent installs the SDK itself ══════════════════════════════════════════
 say "[3/7] the agent installs the plugin itself (the activation mail told it to)"
-WANT_SDK="$(npm view agent-aimail version 2>/dev/null || true)"
+WANT_SDK="$(python3 -c 'import json,urllib.request as u;print(json.load(u.urlopen("https://pypi.org/pypi/agent-aimail/json",timeout=20))["info"]["version"])' 2>/dev/null || true)"   # pysdk host: compare against PyPI, not npm
 say "published SDK under test: agent-aimail@${WANT_SDK:-<npm view failed>}"
 if [ -z "$(plugin_pkg)" ]; then
   say "plugin not installed after turn 1 — user nudge (words only; the agent must run the install)"
@@ -282,7 +282,7 @@ PKG="$(plugin_pkg)"
 GOT_SDK="$(sed -n 's/^Version: *//p' "$PKG/METADATA" 2>/dev/null | head -1)"
 [ -n "$GOT_SDK" ] || die "cannot read the installed SDK version from $PKG"
 if [ -n "$WANT_SDK" ] && [ "$GOT_SDK" != "$WANT_SDK" ]; then
-  die "installed SDK version $GOT_SDK != npm latest $WANT_SDK (registry moved mid-run? re-run)"
+  die "installed SDK version $GOT_SDK != PyPI latest $WANT_SDK (registry moved mid-run? re-run)"
 fi
 # The agent's own action must be visible. Two sources: the turn stdout, and pi's session log
 # ($HERMES_HOME/agent/sessions/<cwd>/<ts>.jsonl), which is where tool calls live.
@@ -293,7 +293,7 @@ if [ "$_attrib" = 0 ] && [ -n "$_pi_sess" ] && [ -f "$_pi_sess" ]; then
   grep -qaE 'install.{0,60}agent-aimail|agent-aimail.{0,60}(install|add)' "$_pi_sess" && _attrib=1
 fi
 [ "$_attrib" = 1 ] || die "the plugin appeared but no agent-side install action is in the turn log or pi session ($_pi_sess) — cannot prove self-bootstrap (a declarative settings entry would look exactly like this)"
-ok "agent bootstrapped the plugin itself: agent-aimail@$GOT_SDK (= npm latest) at $PKG (fixture ran no install)"
+ok "agent bootstrapped the plugin itself: agent-aimail@$GOT_SDK (= PyPI latest) at $PKG (fixture ran no install)"
 echo "{\"sdk\":\"agent-aimail\",\"npm_latest\":\"${WANT_SDK:-unknown}\",\"installed\":\"$GOT_SDK\",\"path\":\"$PKG\",\"installed_by\":\"agent\"}" \
   > "${L3_LOG_ARCHIVE:-$WORK}/sdk.json" 2>/dev/null || true
 
