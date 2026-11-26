@@ -83,7 +83,7 @@ host_journey() {
     H=/opt/l2home; rm -rf "$H"; mkdir -p "$H"
     cp /opt/data/.hermes/config.yaml "$H/config.yaml"
     printf "plugins:\\n  enabled:\\n  - aimail\\nplatforms:\\n  aimail:\\n    enabled: true\\n" >> "$H/config.yaml"
-    chown -R 10000:10000 "$H"; chmod -R 777 "$H"
+    chown -R 10000:10000 "$H"
     export HERMES_HOME="$H" AIMAIL_HOME=/opt/data/.aimail HERMES_PROFILE_HOME="$H"
 
     # Two independent facts, both from the host itself:
