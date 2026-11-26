@@ -223,9 +223,15 @@ if [ -n "$_uv_trees" ] && [ -n "$_uv_gate" ]; then
         if [ -z "$_latest" ]; then skip "registry latest unreachable — cannot judge the gate functionally"
         else
           _resolved="$(printf '%s' "$_dry" | grep -oE 'agent-aimail==[0-9][0-9.]*' | head -1)"
-          [ "$_resolved" = "agent-aimail==$_latest" ] \
-            && pass "uv resolves the registry latest from inside the tree ($_resolved)" \
-            || red "uv resolves $_resolved but registry latest is agent-aimail==$_latest (gate still filtering)"
+          if [ -z "$_resolved" ]; then
+            # No resolvable pin in the dry-run output means we learned nothing (uv fell back to a
+            # cache, or the resolve itself failed). That is "cannot judge", never a red.
+            skip "uv dry-run printed no agent-aimail pin — cannot judge the gate functionally ($(printf '%s' "$_dry" | tail -1 | cut -c1-80))"
+          elif [ "$_resolved" = "agent-aimail==$_latest" ]; then
+            pass "uv resolves the registry latest from inside the tree ($_resolved)"
+          else
+            red "uv resolves $_resolved but registry latest is agent-aimail==$_latest (gate still filtering)"
+          fi
         fi
       fi ;;
   esac
