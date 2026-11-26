@@ -338,7 +338,10 @@ if [ -f "$PINS_HOST" ]; then
   esac
   if [ -n "$_pin_key" ]; then
     WANT="$(grep -E "^${_pin_key}=" "$PINS_HOST" | head -1 | cut -d= -f2-)"
-    GOT="$("$_pin_bin" --version 2>/dev/null | head -1 | tr -d '[:space:]')"
+    # openclaw prints "OpenClaw 2026.11.5 (e13cf15)"; take the first semver, fall back to the raw line
+    _raw="$("$_pin_bin" --version 2>/dev/null | head -1)"
+    GOT="$(printf '%s' "$_raw" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+    [ -n "$GOT" ] || GOT="$(printf '%s' "$_raw" | tr -d '[:space:]')"
     if [ -n "$WANT" ] && [ "$GOT" != "$WANT" ]; then
       gap "host version mismatch for $AGENT: got '$GOT', pin '$WANT' — refusing to judge"
     fi
