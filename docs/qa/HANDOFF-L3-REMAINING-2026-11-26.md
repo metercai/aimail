@@ -70,3 +70,39 @@ GW_HTTP_PORT=18720 GW_SMTP_PORT=13120 \
   bash tests/host-acceptance/v2/run-matrix.sh --sdk none --host hermes --stages "s1"
 ```
 对照（应 PASS）：同样命令把 `--sdk none` 换成 `--sdk py`。
+
+## 4. hermes 最终定位（2026-11-26 收尾，对照实验）
+
+| 运行 | 结果 | 说明 |
+|---|---|---|
+| `--sdk py`（L2，预装 SDK） | **S1 PASS** | 证明 L2 与容器基座完好，我的改动未破坏它 |
+| `--sdk none`（L3，不预装） | S1 FAIL → 细分如下 | 唯一差别就是"装没装" |
+
+`--sdk none` 失败链已拆到底（三次递进）：
+
+1. 早期：网关因 `/opt/l2home` 权限起不来 —— 是我加的 `--user 0:0`/`chmod 777` 引入的，已全部回滚；
+2. 修正后：网关**正常启动**（host.log 每 60s 的 `mem_trim` 即证明），但仍无绑定；
+3. 真因（turn_bind.log 原文）：
+   ```
+   I could not call it: no `aimail_address` tool exists in this session
+   `command -v aimail_address` / `aimail`: no such executable
+   ```
+   **agent 去 PATH 上找 CLI，没找到就停止，没有执行 `pip install agent-aimail`。**
+
+### 需要开发回答（产品/文档缺口，L2 因夹具代装而看不见）
+
+激活邮件写的是"install the plugin **using your platform's plugin install command**"。
+对 pysdk 宿主，这句话不足以让 agent 执行 `pip install agent-aimail==<ver>`（它去找可执行文件了）。
+建议二选一：
+- (a) 邮件/文档给出**逐平台的可复制命令**（pysdk: `pip install agent-aimail`；npm: `npm i -g agent-aimail`；openclaw: `openclaw plugins install agent-aimail`）；
+- (b) 宿主适配层提供 `aimail_address` 的前置引导（如 hermes 的 `hermes plugins install` 索引项）。
+
+### 夹具待办（我方，未完成）
+
+- `wait_binding 90`（180 秒）对 L3 偏短：安装 + 绑定实测需要更长窗口，建议按 SDK_KIND=none 放宽到 600s；
+- openclaw / deerflow 的 `--sdk none` 分支尚未跑通（openclaw 曾装成 0.5.1 而非 registry 最新 0.6.0，需查版本来源）。
+
+### 验收（任一宿主）
+
+L3 判绿的唯一标准：**不给 nudge、单轮内**，宿主自行完成
+`安装 registry 最新版 → 调用 aimail_address 绑定 → 回信 acked → 会话/线程证据齐全`。
