@@ -113,7 +113,16 @@ def _write_json(path: Path, data: dict) -> None:
 
 
 # ── writers: each returns the list of files it wrote ──────────────────────────
+
+def _trace(msg):
+    try:
+        with open("/tmp/llmcfg-trace.log", "a") as fh:
+            fh.write(msg + "\n")
+    except Exception:
+        pass
+
 def write_openclaw(home: Path, base_url: str, model: str, api_key: str) -> list[Path]:
+    _trace("write_openclaw home=%s" % home)
     p = home / "openclaw.json"
     cfg = _load_json(p)
     pid = _provider_id(base_url)
@@ -127,19 +136,13 @@ def write_openclaw(home: Path, base_url: str, model: str, api_key: str) -> list[
     models.setdefault("providers", {})[pid] = {
         "baseUrl": base_url, "api": "openai-completions",
         "apiKey": api_key if (api_key and api_key != DEFAULT_API_KEY) else ENV_PLACEHOLDER,
-        "models": [{
-            "id": model,
-            "name": f"{model} (journey llama-server)",
-            "contextWindow": 128000,
-            "maxTokens": 4096,
-            "input": ["text"],
-            "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
-            "reasoning": False,
-        }],
+        # L2 shape (tests/host-acceptance/v2/hosts/openclaw.sh:34-39, verified working):
+        # a minimal entry + a STRING model selector. A richer entry / dict selector made
+        # `openclaw agent` answer "Unknown model: <pid>/<model>".
+        "models": [{"id": model}],
     }
     defaults = cfg.setdefault("agents", {}).setdefault("defaults", {})
-    defaults.setdefault("model", {})["primary"] = f"{pid}/{model}"
-    defaults.setdefault("models", {})[f"{pid}/{model}"] = {}
+    defaults["model"] = f"{pid}/{model}"
     # `gateway.mode` must be PRESENT: openclaw refuses to start without it ("existing
     # config is missing gateway.mode … suspicious or clobbered config", measured
     # 2026-09-27 in the journey). An image whose config already carries a `gateway`
@@ -611,6 +614,7 @@ def _dsh_duplicate_rows(lines: list[str], row_id: str) -> int:
 
 
 def verify_openclaw(home: Path, base_url: str, model: str) -> list[str]:
+    _trace("verify_openclaw home=%s exists=%s" % (home, (home / "openclaw.json").exists()))
     cfg = _load_json(home / "openclaw.json")
     pid = _provider_id(base_url)
     prov = (((cfg.get("models") or {}).get("providers") or {}).get(pid) or {})
@@ -625,13 +629,13 @@ def verify_openclaw(home: Path, base_url: str, model: str) -> list[str]:
     for entry in prov.get("models") or []:
         if not isinstance(entry, dict) or entry.get("id") != model:
             continue
-        for req in ("name", "contextWindow", "maxTokens", "input"):
-            if not entry.get(req):
-                bad.append(f"models.providers.{pid}.models[{model}].{req} is missing — "
-                           f"openclaw refuses to start in that state")
-    prim = ((cfg.get("agents") or {}).get("defaults") or {}).get("model", {}).get("primary")
-    if prim != f"{pid}/{model}":
-        bad.append(f"agents.defaults.model.primary={prim!r} != {f'{pid}/{model}'!r}")
+        # L2 evidence (hosts/openclaw.sh:34-39): a bare {"id"} entry is what the working
+        # config uses; the older "name/contextWindow required" claim was a 2026-09-27
+        # llama-server shape and does not hold for this provider.
+    prim = ((cfg.get("agents") or {}).get("defaults") or {}).get("model")
+    prim_id = prim.get("primary") if isinstance(prim, dict) else prim
+    if prim_id != f"{pid}/{model}":
+        bad.append(f"agents.defaults.model={prim_id!r} != {f'{pid}/{model}'!r}")
     # openclaw will not start without gateway.mode — a writer that leaves it empty has
     # produced an unusable config, so verify it here (learned from the 2026-09-27 run).
     mode = (cfg.get("gateway") or {}).get("mode")
