@@ -47,7 +47,7 @@ host_journey() {
   name="l2hermes-$$"
 
   docker run -d --rm --network host --user 0:0 --name "$name" \
-    -e "LLM_API_KEY=${LLM_API_KEY:?}" -e "AH=$addr" -e "AC=$code" -e "GWURL=${GW_URL}" \
+    -e "LLM_API_KEY=${LLM_API_KEY:?}" -e "AH=$addr" -e "AC=$code" -e "GWURL=${GW_URL}" -e "SDK_KIND=${SDK_KIND:-ts}" \
     -e "AH2=${S4_ADDR:-}" -e "AC2=${S4_CODE:-}" -e "LIFECYCLE=${LIFECYCLE:-0}" \
     -v "$V2_ROOT/lib:/opt/v2lib:ro" -v "${SDK_TARBALL_DIR:?}:/opt/sdk:ro" \
     -v "${GW_WORK}:/gw:ro" -v "$out:/out" \
@@ -82,7 +82,11 @@ host_journey() {
     # 1 platform(s)". The patch was compensating for a fixture-only discovery path.
     H=/opt/l2home; rm -rf "$H"; mkdir -p "$H"
     cp /opt/data/.hermes/config.yaml "$H/config.yaml"
-    printf "plugins:\\n  enabled:\\n  - aimail\\nplatforms:\\n  aimail:\\n    enabled: true\\n" >> "$H/config.yaml"
+    if [ "$SDK_KIND" = none ]; then
+      printf "platforms:\\n  aimail:\\n    enabled: true\\n" >> "$H/config.yaml"
+    else
+      printf "plugins:\\n  enabled:\\n  - aimail\\nplatforms:\\n  aimail:\\n    enabled: true\\n" >> "$H/config.yaml"
+    fi
     chown -R 10000:10000 "$H"
     export HERMES_HOME="$H" AIMAIL_HOME=/opt/data/.aimail HERMES_PROFILE_HOME="$H"
 
