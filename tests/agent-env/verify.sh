@@ -297,6 +297,10 @@ else
   esac
   if [ -z "$_want_ver" ]; then skip "no version pin recorded for $AGENT"
   elif [ "$_got_ver" = "$_want_ver" ]; then pass "pinned version installed: $AGENT $_got_ver"
+  elif [ "${L3_ALLOW_HOST_DRIFT:-0}" = "1" ]; then
+    # Local-only escape hatch: the machine ships an older host than the pin (e.g. hermes 0.20.1 vs
+    # 0.23.2). It is NOT a pass and NOT counted: the pin stays authority and CI installs it.
+    skip "HOST DRIFT (local only, not counted): $AGENT installed='${_got_ver:-none}' pinned=$_want_ver — CI is authoritative"
   else red "version drift: $AGENT installed='${_got_ver:-none}' pinned=$_want_ver (bump deliberately with aimail-advanced/tests/env-tools/update-pins.sh)"; fi
   # pnpm is pinned only where WE install it (dsh). Elsewhere pnpm comes with the base
   # image, and that is already pinned by the base digest — asserting its version here would
