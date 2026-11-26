@@ -57,9 +57,11 @@ if os.environ.get("S6") == "1":
 c.setdefault("gateway", {}).update({"mode": "local", "port": 39200, "auth": {"token": "l2-oc-token"}})
 p.parent.mkdir(parents=True, exist_ok=True); p.write_text(json.dumps(c, indent=2))
 PY
+      if [ "'${SDK_KIND:-ts}' " = none ]; then echo "L3: SDK install skipped (host must install the published package)" >>/tmp/plugin.log; else
       TGZ="$(ls /opt/sdk/*.tgz | head -1)"
       openclaw plugins install "$TGZ" --force --accept-capabilities >/tmp/plugin.log 2>&1 || { echo "plugin install failed"; tail -8 /tmp/plugin.log; exit 3; }
       openclaw plugins enable agent-aimail --accept-capabilities >/tmp/enable.log 2>&1 || true
+      fi
       pkill -f "openclaw gateway" 2>/dev/null; sleep 2
       echo "boot: embedded agent mode (no gateway during turns)" >/tmp/gw.log
       _turn() {

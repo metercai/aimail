@@ -26,7 +26,8 @@ done
 case "$SDK_KIND" in
   ts) [ "$HOSTS" = all ] && HOSTS="dsh pi openclaw" ;;
   py) [ "$HOSTS" = all ] && HOSTS="hermes deerflow" ;;
-  *) echo "unknown --sdk $SDK_KIND (ts|py)"; exit 2 ;;
+  none) [ "$HOSTS" = all ] && HOSTS="dsh pi openclaw hermes deerflow" ;;
+  *) echo "unknown --sdk $SDK_KIND (ts|py|none)"; exit 2 ;;
 esac
 : "${LLM_API_KEY:?LLM_API_KEY (XIAOMI_API_KEY) must be exported for real-host L2}"
 WORK="$(mktemp -d -t aimail-l2-XXXXXX)"

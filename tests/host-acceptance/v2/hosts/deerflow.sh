@@ -57,7 +57,11 @@ host_journey() {
     WHL="'"$whl"'"
     VPY=/app/backend/.venv/bin/python
     UV="$(command -v uv || ls -d /opt/hermes/tools/uv-*/uv 2>/dev/null | head -1)"
-    if [ -n "$UV" ]; then
+    # --sdk none = L3: skip ONLY the install; the host boots and installs the published
+    # package itself when the activation mail tells it to.
+    if [ "'"${SDK_KIND:-py}"'" = none ]; then
+      echo "L3: SDK install skipped" >/tmp/pip.log
+    elif [ -n "$UV" ]; then
       "$UV" pip install --python "$VPY" "/opt/sdk/$WHL" >/tmp/pip.log 2>&1 || true
     else
       "$VPY" -m pip install --no-input --no-cache-dir "/opt/sdk/$WHL" >/tmp/pip.log 2>&1 || true

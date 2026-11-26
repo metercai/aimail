@@ -46,7 +46,7 @@ host_journey() {
   whl="$(basename "${SDK_FILE:?SDK_FILE unset — build the wheel first}")"
   name="l2hermes-$$"
 
-  docker run -d --rm --network host --name "$name" \
+  docker run -d --rm --network host --user 0:0 --name "$name" \
     -e "LLM_API_KEY=${LLM_API_KEY:?}" -e "AH=$addr" -e "AC=$code" -e "GWURL=${GW_URL}" \
     -e "AH2=${S4_ADDR:-}" -e "AC2=${S4_CODE:-}" -e "LIFECYCLE=${LIFECYCLE:-0}" \
     -v "$V2_ROOT/lib:/opt/v2lib:ro" -v "${SDK_TARBALL_DIR:?}:/opt/sdk:ro" \
@@ -62,11 +62,17 @@ host_journey() {
     echo "interpreter=$PY" > /out/interpreter
     VPY=/opt/hermes/.venv/bin/python
     UV="$(ls -d /opt/hermes/tools/uv-*/uv 2>/dev/null | head -1)"
+    # --sdk none = L3: skip ONLY the install; the host still boots and must install the
+    # published package itself when the activation mail tells it to.
+    if [ "'"${SDK_KIND:-ts}"'" = none ]; then
+      echo "L3: SDK install skipped (the host installs the published package itself)" >/tmp/pip.log
+    else
     if [ -x "$VPY" ] && [ -n "$UV" ]; then
       "$UV" pip install --python "$VPY" "/opt/sdk/$WHL" >/tmp/pip-venv.log 2>&1 || true
     fi
     "$PY" -m pip install -q --no-input --no-cache-dir --break-system-packages "/opt/sdk/$WHL" 2>/tmp/pip.log || {
       echo "wheel install failed"; tail -5 /tmp/pip.log; exit 3; }
+    fi
 
     # Install story under test = what the wheel publicly promises: pip install + the host
     # own plugin entry point (hermes_agent.plugins). NOTHING is copied into the host
@@ -77,7 +83,7 @@ host_journey() {
     H=/opt/l2home; rm -rf "$H"; mkdir -p "$H"
     cp /opt/data/.hermes/config.yaml "$H/config.yaml"
     printf "plugins:\\n  enabled:\\n  - aimail\\nplatforms:\\n  aimail:\\n    enabled: true\\n" >> "$H/config.yaml"
-    chown -R 10000:10000 "$H"
+    chown -R 10000:10000 "$H"; chmod -R 777 "$H"
     export HERMES_HOME="$H" AIMAIL_HOME=/opt/data/.aimail HERMES_PROFILE_HOME="$H"
 
     # Two independent facts, both from the host itself:
