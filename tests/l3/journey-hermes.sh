@@ -57,7 +57,7 @@ pi_host_turn() {  # pi_host_turn <prompt-file>
 }
 llm_ms_total() { echo 0; }   # pi exposes no llmMs counter; the turn output is the evidence
 binding_path() { ls "$AIMAIL_HOME"/systems/*/*/"$BINDING_FILE" 2>/dev/null | head -1; }
-plugin_pkg()   { find "$HERMES_HOME" -maxdepth 8 -name 'agent_aimail-*.dist-info' -type d 2>/dev/null | head -1; }
+plugin_pkg()   { python3 -c "import importlib.metadata as m;print(m.distribution('agent-aimail')._path)" 2>/dev/null || find "$HOME/.local" "$HERMES_HOME" -maxdepth 9 -name 'agent_aimail-*.dist-info' -type d 2>/dev/null | head -1; }
 
 # integrity: the agent must not read this repo (fixture or docs). CI showed the difference: with no
 # repo on its path the agent did not install at all, so a repo-reading run is not a product verdict.
