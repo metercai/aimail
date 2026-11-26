@@ -74,16 +74,31 @@ function str(v: unknown): string {
 function headersOf(v: unknown): Record<string, unknown> {
   return typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : {}
 }
+
 /**
  * One visible line for a gateway auth refusal. The gateway deliberately logs nothing for 401/403
  * (it is the client's key/anchor problem), so without this a refused pull looks like an idle
- * mailbox — the exact blind spot that hid L2 defect 1.
+ * mailbox — the exact blind spot that hid L2 defect 1. Since v2.5 an anchor refusal is a hard
+ * refusal with three distinct codes, and each one wants a different operator action.
  */
-function authFailureLine(email: string, status: number): string {
+function authFailureLine(email: string, status: number, detail = ''): string {
   if (status === 403) {
+    if (detail === 'anchor_required') {
+      return (
+        `[agent-aimail] pull refused for ${email}: the request carried no X-Aimail-Anchor claim ` +
+        '(anchor_required) — this client/binding knows no anchor; re-activate the address'
+      )
+    }
+    if (detail === 'anchor_unregistered') {
+      return (
+        `[agent-aimail] pull refused for ${email}: this address was activated WITHOUT an anchor ` +
+        '(anchor_unregistered) — re-activate it with an anchor (contract §7.1)'
+      )
+    }
     return (
       `[agent-aimail] anchor refused by gateway for ${email}: this address is registered to a ` +
-      'different anchor — re-activate it (contract §13.3); mail stays pending until then'
+      `different anchor (${detail || 'anchor_mismatch'}) — re-activate it (contract §13.3); ` +
+      'mail stays pending until then'
     )
   }
   return `[agent-aimail] pull rejected by gateway for ${email}: HTTP ${status} — the key was not accepted (re-activate)`
@@ -334,9 +349,9 @@ export class MailHub {
           }, ctrl.signal)
           if (typeof result === 'object' && 'auth' in result) {
             // 401/403 from the gateway does NOT get logged gateway-side: without this line a
-            // refused pull is indistinguishable from an idle mailbox. 403 = anchor mismatch.
-            const status = (result as { auth: number }).auth
-            this.lastError = authFailureLine(opts.email, status)
+            // refused pull is indistinguishable from an idle mailbox. v2.5: 403 has three codes.
+            const { auth: status, detail } = result as { auth: number; detail?: string }
+            this.lastError = authFailureLine(opts.email, status, detail)
             console.error(this.lastError)
             streak++
             await sleep(Math.min(30_000, 1000 * 2 ** Math.min(streak, 5)), ctrl.signal)

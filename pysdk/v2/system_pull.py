@@ -111,6 +111,15 @@ def start_system_pull(*, agent_system_id: str, gateway_url: str, api_key: str,
             % (asid, gw, resolved.get("reason", "")))
         return handle
 
+
+    if members is None:
+        # Parity with tssdk `startSystemPull`: the group's bindings ARE the anchor claims, so a
+        # caller that forgets them would send an anchor-less aggregate pull — refused by the gateway
+        # with 403 `anchor_required` and indistinguishable from a dead key. Resolve them here.
+        try:
+            members = _binding.iter_active(asid)
+        except Exception:  # noqa: BLE001 — a broken systems dir must not stop arming
+            members = []
     client = client or _pull_client.build_agent_system_client(
         gw, api_key, asid, identity=rep, members=members)
     stop_event = stop_event if stop_event is not None else threading.Event()

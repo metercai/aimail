@@ -84,6 +84,25 @@ export class SseParser {
   }
 }
 
+/**
+ * The gateway's error CODE from a JSON error body (`{"error":"anchor_mismatch","detail":"…"}`).
+ *
+ * Only the code is kept: printable, bounded, no prose, no address, no hash. It exists because a
+ * 401/403 is answered without any gateway-side log line, so the client's own log is the only place
+ * `anchor_required` / `anchor_unregistered` / `anchor_mismatch` can be told apart (v2.5 makes all
+ * three hard refusals).
+ */
+function gatewayErrorCode(body: string): string {
+  if (!body) return ''
+  try {
+    const parsed = JSON.parse(body) as { error?: unknown }
+    const code = String(parsed?.error ?? '').trim()
+    return /^[A-Za-z0-9_.-]{1,64}$/.test(code) ? code : ''
+  } catch {
+    return ''
+  }
+}
+
 /** Per-read SSE timeout fired with no frame in the window (stall detector). */
 class StreamReadTimeout extends Error {}
 
@@ -299,11 +318,15 @@ export class GatewayClient {
       return 'occupied'
     }
     if (resp.status === 401 || resp.status === 403) {
-      // Key rejected: a config problem, not a transport failure. Surface the
-      // exact status so the caller can report it and go fatal (3 strikes)
-      // instead of silently backoff-looping forever.
+      // Key or anchor rejected: a config problem, not a transport failure. Surface the exact status
+      // AND the gateway's error code — the gateway writes no log line for 401/403, so
+      // `anchor_required` / `anchor_unregistered` / `anchor_mismatch` can only be told apart here.
+      const detail = await resp
+        .text()
+        .then((body) => gatewayErrorCode(body))
+        .catch(() => '')
       await resp.body?.cancel().catch(() => {})
-      return { auth: resp.status }
+      return detail ? { auth: resp.status, detail } : { auth: resp.status }
     }
     const ctype = (resp.headers.get('content-type') ?? '').toLowerCase()
     if (resp.status !== 200 || !ctype.startsWith('text/event-stream')) {

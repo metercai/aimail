@@ -1,6 +1,6 @@
 # AIMail Host SSE Contract
 
-状态：现行契约（**v2.4**，2026-11-25；v2.4 = C16 判定口径 + 锚点标识跨仓见证（§13.3）+ 本地端点退场；v2.3 修正 M 的硬性条件；v2.2 §9/§11 重写与正文/实例分离）
+状态：现行契约（**v2.5**，2026-11-25；v2.5 = 锚点拉取改为**硬性**（§13.3，无"未登记放行"档）+ pi 锚点=整个 agent/C17 观测口径 + L2 三缺陷修复；v2.4 = C16 判定口径 + 锚点标识跨仓见证 + 本地端点退场；v2.3 修正 M 的硬性条件；v2.2 §9/§11 重写与正文/实例分离）
 读者：Agent 宿主实现者、Gateway 实现者、QA
 规范词：MUST / SHOULD / MAY 按 RFC 2119 解释
 
@@ -263,7 +263,7 @@ Gateway MUST：
 | `expires_at` | SHOULD | 凭据续期窗口（激活响应回填，供 Agent 提示） |
 | `manager_address` | SHOULD | 安全员地址（激活响应回填；网关为权威） |
 | `paused` | MAY | 本地暂停标志（存在即暂停） |
-| `workspace_id` / `workspace_path` | 多地址宿主 MUST | 绑定空间；`move` 会把两者都写成目标路径 |
+| `workspace_id` / `workspace_path` | 多地址宿主 MUST | 绑定空间；`move` 会把两者都写成目标路径。**同时是锚点来源**：拉取时哈希的就是它（§13.3），所以激活 MUST 把它写成"参与哈希的那个值"，pi 取 `~/.pi/agent`（整个 agent，不是 cwd） |
 
 禁止：Session id、一次性 code、admin/domain/system 作用域密钥、用 workspace 之外的地址身份做路由。
 
@@ -559,13 +559,20 @@ M ⟺ L1 == stable ∧ L2 == yes ∧ 唤起 == stable ∧ 入站可达
   MUST 表现为该地址在拉取时被网关拒绝（403 `anchor_mismatch`），实现 MUST NOT 把它当成成功；
 - 不新建投递（同一 AgentSystemId、同一 Gateway）；
 - 已投递 Session 不迁移（映射记录按 §9.3 处理）；
-- **锚点标识**：锚点是**宿主侧**概念（dsh 为 workspace，pi 为 cwd，openclaw 为 agent workspace），
-  网关不理解它。实现 MUST 以 `sha256(lowercase(email) + "\0" + 锚点)` 作为**不透明标识**，在激活时
-  登记（`activate-address-code` 请求体 `anchor_id`，响应回显该值），并在**每次拉取**（SSE 连接 /
-  长轮询 / ack）以 `X-Aimail-Anchor: <email>;<hash>[,<email>;<hash>…]` 提交；网关 MUST 与实际登记值
-  比对，不一致或缺失（该地址已登记时）MUST 拒绝该请求（403 `anchor_mismatch`）且不投递任何邮件。
-  **锚点本身永不出宿主**；新增宿主类型无需网关改动，只需定义自己的锚点字符串；
-- 宿主适配层回填锚点 MUST 只填空值，MUST NOT 覆盖已确立的锚点（覆盖只会让拉取被拒）。
+- **锚点标识**：锚点是**宿主侧**概念（dsh 为绑定 workspace，openclaw 为 agent workspace，
+  **pi 为整个 agent（`~/.pi/agent`）**，hermes 为 profile home），网关不理解它。实现 MUST 以
+  `sha256(lowercase(email) + "\0" + 锚点)` 作为**不透明标识**，在激活时登记（`activate-address-code`
+  请求体 `anchor_id`，响应回显该值），并在**每次拉取**（SSE 连接 / 长轮询 / ack）以
+  `X-Aimail-Anchor: <email>;<hash>[,<email>;<hash>…]` 提交。
+- **强制（v2.5，owner 2026-11-25）**：拉取 MUST 带锚点声明，**没有"未登记就放行"这一档**——尚无生产
+  部署，不存在需要兼容的合法无锚点客户端。网关 MUST 拒绝且**不投递任何邮件**，三种原因分别返回 403：
+  `anchor_required`（请求完全没带声明）、`anchor_unregistered`（该 AgentSystemId 名下某地址从未登记
+  锚点，即激活时没带 `anchor_id`）、`anchor_mismatch`（声明与登记值不一致，或漏了该组某个地址）。
+  实现 MUST NOT 把 403 当成暂时故障静默退避，MUST 留一行可见日志并指向重新激活。
+  **锚点本身永不出宿主**；新增宿主类型无需网关改动，只需定义自己的锚点字符串，且该字符串 MUST 稳定
+  （MUST NOT 含 cwd / 会话 id / 会话文件路径），MUST 取 realpath。
+- 宿主适配层回填锚点 MUST 只填空值，MUST NOT 覆盖已确立的锚点（覆盖只会让拉取被拒）；激活时 MUST
+  把"参与哈希的那个锚点值"一并写进绑定（否则拉取侧算不出同一个 hash）。
 
 ### 13.4 move：换 GatewaySystemId / Gateway
 

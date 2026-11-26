@@ -1,0 +1,8 @@
+RED    S1 activation                no binding written (see /tmp/aimail-l2-LjDU9e/dsh/rc) 
+RED    S2 arming                    pull armed (no /polling enabled|pull scope|SSE reconcile: [1-9]/ in /tmp/aimail-l2-LjDU9e/dsh/host.log) 
+RED    S2 arming                    arming line precedes/absent after the last 'no agent-scope binding' 
+RED    S3 delivery                  whitelist entry missing: whitelist failed: Traceback (most recent call last): 
+RED    S3 delivery                  inbound never stored (emails=0) — the inbound flow did not complete (not a pull/SSE issue) 
+GAP    S6 threading                 S6 threading — the host produced no readable session evidence (sessions1=1, key=-); fixture capability, not a C8 verdict 
+GAP    S7 session-gone              S7 session-gone — no s7_gone.json: host hook 'host_s7_session_gone' not implemented, C17 unproven 
+GAP    S8 anchor isolation          S8 anchor isolation — no s8_anchor.json: host hook 'host_s8_anchor_isolation' not implemented, C16 unproven 

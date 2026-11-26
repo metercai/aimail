@@ -1,0 +1,15 @@
+{
+  "activated_at": "2026-11-25T14:56:10.330Z",
+  "agent_id": "l2pi",
+  "agent_system_id": "asid_068e31c6804870511d5f4adc9c9293c2",
+  "api_key": "<redacted>",
+  "binding_source": "activate-address-code",
+  "domain": "test.local",
+  "email": "l2pi@test.local",
+  "expires_at": "2026-11-26T14:56:05.492Z",
+  "gateway_url": "http://127.0.0.1:18602",
+  "manager_address": "l2-pi-28375@example.com",
+  "system_id": "system-1632",
+  "workspace_id": "/root/.pi/agent",
+  "workspace_path": "/root/.pi/agent"
+}

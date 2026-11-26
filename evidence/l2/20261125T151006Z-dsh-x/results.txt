@@ -1,0 +1,23 @@
+PASS   S1 activation                binding written          
+PASS   S1 activation                expires_at present       
+PASS   S1 activation                system_id_is_gateway     
+PASS   S1 activation                agent_system_id          
+PASS   S1 activation                workspace_path           
+PASS   S1 activation                no_webhook               
+PASS   S1 activation                has_key                  
+PASS   S1 activation                email                    
+PASS   S1 activation                domain                   
+PASS   S1 activation                binding mode 0600 (in-host) 
+PASS   S1 activation                composed profile carries tool-mail (rows=1) 
+PASS   S2 arming                    pull armed               
+PASS   S2 arming                    armed after the last missing-binding boot 
+PASS   S3 delivery                  sender whitelisted before inbound 
+PASS   S3 delivery                  inbound stored (emails=2) — the inbound flow completed 
+PASS   S3 delivery                  queued then acked (host accepted the mail) 
+PASS   S6 threading                 S6 threading — all three mails were accepted by the host (acked) 
+PASS   S6 threading                 S6 threading — the reply resolves to the same thread root as the mail it answers 
+PASS   S6 threading                 S6 threading — reply reused the thread's session (9d8d547f-e5af-49be-b804-b0a52fb0e6c8); no new session was created 
+PASS   S6 threading                 S6 threading — host session count did not grow on the reply (4) 
+PASS   S6 threading                 S6 threading — a new thread started a new host session (905d01e1-628f-4881-9144-f9dc2342ab48) 
+PASS   S6 threading                 S6 threading — host session count grew by exactly one for the new thread (4 -> 5) 
+PASS   S6 threading                 S6 threading — all three sessions live in the binding's anchor: /root/ws 

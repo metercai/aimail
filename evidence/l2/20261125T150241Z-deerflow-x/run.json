@@ -1,0 +1,7 @@
+{
+  "address": "l2deerflow@test.local",
+  "gateway_version": "v1.0.17",
+  "host": "deerflow",
+  "sdk_kind": "py",
+  "sdk_version": "0.3.0"
+}

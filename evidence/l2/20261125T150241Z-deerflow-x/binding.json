@@ -1,0 +1,14 @@
+{
+  "activated_at": "2026-11-25T15:03:05.426156Z",
+  "agent_id": "l2deerflow",
+  "agent_system_id": "asid_8cddff22e23ba464fb4749ebac49f869",
+  "api_key": "<redacted>",
+  "binding_source": "activate-address-code",
+  "domain": "test.local",
+  "email": "l2deerflow@test.local",
+  "expires_at": "2026-11-26T15:02:41.729Z",
+  "gateway_url": "http://127.0.0.1:18606",
+  "manager_address": "l2-deerflow-26148@example.com",
+  "system_id": "system-7528",
+  "workspace_path": "/app"
+}

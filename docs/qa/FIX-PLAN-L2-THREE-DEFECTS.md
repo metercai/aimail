@@ -180,7 +180,7 @@ C17/C8 记 N/A 的口径不变（pi 不能分配会话），但 **锚点强制�
 
 ## 待确认（不阻塞上述修复）
 - 质检文档第 33 行头名笔误（复数 → 单数）：请同步更正，避免下一个人按错的实现。
-- 网关"未登记锚点放行"仍是过渡态（一行判断）；全量登记完成后是否需要收紧为"未登记即拒"，等 owner 拍。
+- ~~网关"未登记锚点放行"是过渡态~~ → **owner 已拍（2026-11-25）：改成硬性**，见下节"v2.5 强制锚点"。
 - PI-Desktop 面（`./desktop`）用设置里的 key，不发锚点头；若要与裸 pi 一致，需要"项目路径 → 锚点"的定义，另议。
 
 ---
@@ -221,4 +221,76 @@ aimail pytest tests/sdk -q                                 441 passed           
 - **L2 全量复跑**（开发未跑）：`GW_BIN=… bash tests/host-acceptance/v2/run-release-gate.sh --only dsh,deerflow,pi,openclaw`。
   期望：dsh `s1 s2 s3` 恢复 PASS（不再 `final>0`）；`s6 s7 s8` 可判；deerflow `s7` 四条全绿（落地 + `reason=session-gone` + root 不变）；pi/openclaw 在**有锚点行**的前提下仍然 PASS（这条同时证明"共用的构造点真的带上了头"）。
 - 质检文档第 33 行的头名笔误（`X-Aimail-Anchors` → `X-Aimail-Anchor`）需要更正，否则下一个人会按错的实现。
-- 网关"未登记锚点放行"是否收紧为"未登记即拒"，等全量登记完成后由 owner 拍。
+- ~~是否收紧为"未登记即拒"~~ → owner 已拍：**已收紧**（v2.5，见下节），L2 需要按新语义重跑：删掉锚点行的 A/B 探针现在得到 `anchor_unregistered` 而不是"恢复投递"。
+
+---
+
+## v2.5 强制锚点（owner 2026-11-25 拍定，已实现）
+
+**决定**：网关拉邮件时**强制**带锚点；没有生产部署 ⇒ 不存在兼容包袱 ⇒ 不留"未登记就放行"这一档。
+
+### 网关（`aimail-gateway@ac30461` 之后）
+`enforce_anchor_binding` 改成三段式硬拒，仍挂在三个聚合端点（stream / pending / ack），**先于载荷构造**执行：
+
+| 403 code | 触发 | 运维要做什么 |
+|---|---|---|
+| `anchor_required` | 请求完全没带 `X-Aimail-Anchor` 声明 | 客户端/SDK 未上报锚点（或绑定没有锚点值）→ 重新激活 |
+| `anchor_unregistered` | 该 AgentSystemId 名下某地址**从未登记锚点**（激活没带 `anchor_id`） | 重新激活该地址（带锚点） |
+| `anchor_mismatch` | 声明与登记值不一致，或漏了该组某个地址 | 绑定被改过 → 重新激活 |
+
+实现细节：地址集合来自 `agent_system_addresses`（所以"没登记锚点"能被发现，而不是只看 `address_anchor`）；`addresses` 为空 ⇒ 该组没有地址、不可能有邮件 ⇒ 放行。载荷不变：`group_pending_batches(&records)` 的入参只有 DB 记录，`enforce` 的返回值只有 `Ok(())` 或 403 ⇒ **形状与不带锚点时逐字节一致**（回答质检"是否同一形状"：是）。
+
+测试：`anchor_enforcement_tests`（5 项：无声明 / 未登记 / 不匹配 / 漏地址 / 全proven 放行）+ 既有 `anchor_header_tests`(3) + `storage::anchor_tests`(3)。`cargo test --lib` **438 passed**，fmt/clippy clean。
+
+### SDK 侧同轮补齐
+- `StreamRoundResult` 的 auth 分支带 `detail`（网关对 401/403 不写日志，错误码只能在客户端日志里看见）；`gatewayErrorCode()` 只保留 `[A-Za-z0-9_.-]` 的码，不带正文/地址/hash。
+- dsh 的 `authFailureLine` 按三种码给不同提示（"没带声明" ≠ "没登记锚点" ≠ "锚点不符"）。
+- Python `start_system_pull(members=None)` 自己解析本组绑定（与 tssdk `startSystemPull` 同形），避免调用方漏传导致 `anchor_required`。
+
+### 语义变化（质检复跑须知）
+1. 删掉 `address_anchor` 行的 A/B 探针，现在得到的是 **`anchor_unregistered`**（而不是"恢复投递"）——这仍然证明"锚点行是变量"，但方向变了：现在两边都拒绝，区别在 reason。
+2. 任何**激活时没带锚点**的绑定，其所在组整体拉不到信（不是只影响自己）。L2 四个宿主都已带锚点，预期全绿。
+3. per-address `/api/v1/admin/pending`（V1 路径）**未**加这条强制；它随后 v1 退场一起消失。dsh 的 `drain` 走这条，已经带头，但网关目前不校验它。
+
+### 性能审查（拉邮件是高频持续行为）
+
+**结论：与改动前的基线同价（一次索引查询），不阻塞 reactor，不持有任何跨查询的锁。** 审查中发现并修掉了自己引入的两处损耗：
+
+| 问题 | 处置 |
+|---|---|
+| 第一版 `enforce` 打了**两条** SQL（`list_agent_system_addresses` + `list_agent_system_anchors`），把每次拉取的 DB 往返从 1 次变成 2 次 | 合成**一条** `LEFT JOIN`：`list_agent_system_address_anchors()` 一次返回 `(address, Option<anchor>)`，`unregistered`/`mismatch` 在一趟里分类。旧函数改为它的薄过滤，避免两条 SQL 漂移 |
+| 分类循环按地址 `to_lowercase()`（每地址 2 次分配），200 地址组实测 0.8ms | 改成一个复用 `String` 缓冲 + `make_ascii_lowercase()`（就地、零新增分配）；解析侧已经 lower，DB 侧写入也已 lower |
+| `unwrap_or_default()` 让 DB 出错时**放行**（fail-open，与 v2.5 硬性相悖） | 改成 fail-closed：DB 读不出见证 ⇒ 500，不放行（这条与性能无关，是严格性漏洞，顺手堵了） |
+
+**实测（`cargo test --release`，同一台机器；debug 数字不作数）**
+
+| 场景 | 耗时 | 说明 |
+|---|---|---|
+| `enforce`，1 地址组（真实规模） | **32.9 µs / 次** | 其中 33.3 µs 就是那条索引查询本身的耗时 ⇒ 解析+分类在噪声内 |
+| 同组只跑查询（对照） | 33.3 µs / 次 | 改动前后相等：一次 `agent_system_addresses(agent_system_id)` 索引扫描 + `address_anchor` 主键 JOIN |
+| 融合查询 vs 旧 JOIN 查询（200 地址组） | 345 µs vs 346 µs | 融合没有变慢 |
+| `parse_anchor_claims`，200 条声明（极端） | 82 µs | 真实场景是 1 个 header 值含 1–3 条声明（客户端 `anchorHeader()` 用逗号拼一个值），约 1–2 µs |
+
+**缓存（owner 2026-11-25 两次纠正后已实现）**：最初的判断"不缓存"是错的——锚点改写/删除概率极低，而拉取是持续高频，累积收益远大于尾部风险。现在按 AgentSystemId 缓存见证集：
+
+- `Database.anchor_cache: Arc<RwLock<HashMap<asid, Arc<Vec<(address, Option<anchor>)>>>>>`，命中 = 一次 `RwLock` 读 + `Arc` 克隆，**不碰连接池**；
+- **失效范围 = 受影响的单个 ASID**（不是全量清空）：一个地址只属于一个 AgentSystemId（`agent_system_addresses.address` 是主键），所以一次激活的爆炸半径就是那一个组，别的组继续命中；
+  - `bind_agent_system_address`：ASID 本来就在参数里，直接 `remove(asid)`；
+  - `set_address_anchor`：在**同一条连接、同一个闭包**里先 upsert 再按主键查出该地址的 ASID，再删那一个键 ⇒ **不增加任何连接池往返**；
+  - `remove_agent_system_address_if_unowned`：删除前用同一连接读出 ASID，删成功才失效；
+- **写入频率（澄清）**：`set_address_anchor` 并不比 `bind_agent_system_address` 更频繁——两者都是**激活**里的相邻两步（`activation.rs:934` bind → `:962` anchor，且仅在带 `anchor_id` 时写），一次激活各一次；`remove_..._if_unowned` 在注销/吊销路径（`keys.rs:786`）。全部是控制面操作，数据面（拉取）不写库；
+- 收益（release 实测）：
+
+| 场景 | 加缓存前 | 加缓存后 |
+|---|---|---|
+| `enforce`，3 地址组 | 32.9 µs | **1.46 µs（22×）** |
+| `enforce`，200 地址组（不存在，极端） | 1217 µs | **77.7 µs（15×）**（瓶颈已变成 header 解析） |
+| 激活之后 | — | **只有该组**下一次拉取回源一次（约 30 µs），其余组不受影响 |
+
+- 正确性回归：`cached_witnesses_are_invalidated_by_re_anchoring`、`..._by_binding_and_unbinding`、`invalidation_is_scoped_to_the_affected_agent_system`（用 `Arc::ptr_eq` 证明别的组**没有**回源）、`a_re_anchored_address_is_refused_on_the_next_pull`（缓存命中一次后改锚点，旧声明必须立刻被拒）。
+
+**校验点分布（重要，别记成"只在建连时"）**：`enforce_anchor_binding` 挂在三个端点——① `GET /agent-system/pending/stream`（**每次建连一次**，含 SSE 轮换/重连）；② `POST /agent-system/pending`（轮询模式下**每一轮一次**）；③ `POST /agent-system/pending/ack`（**每一批 ack 一次**）。连接建立之后、服务端沿已建流**主动推送**邮件的过程**不做任何锚点校验**（`sse_response_scoped` 里没有锚点逻辑）——所以长流维持期是零开销。客户端会在 SSE 与长轮询之间切换（`occupied` / `drop` / `stream stay`），实际频率取决于当前模式；加缓存后这三处都约 1.5 µs。
+
+**并发/阻塞面（关键）**：`Database::call` 是 `tokio::task::spawn_blocking` + r2d2 连接池，SQLite 读在阻塞线程池里跑，**不占 async reactor**；命中缓存时连池子都不碰。`enforce` 在三个端点上都在 `try_acquire(delivery_slot)` **之前**执行，所以不会拉长投递槽的持有时间；冷路径只持有一条连接、一次查询，无跨语句事务、无锁升级（`call` 不是 `call_tx`，不走 `BEGIN IMMEDIATE`）。网络侧没有新增 I/O。
+
+**SDK 侧**：请求头在 client 构造时算一次（`anchorHeader`），**不在每轮拉取里重算**；`resolveAgentSystemMembers` 的目录扫描只在 `startSystemPull` 拉流时发生（arm 时机：进程启动 / binding-created / pause-resume），不在每轮循环里；`streamRound` 仅在 401/403 时多读一次响应体（错误路径，且上限 64 字符的码）。

@@ -1,0 +1,31 @@
+PASS   S1 activation                binding written          
+PASS   S1 activation                expires_at present       
+PASS   S1 activation                system_id_is_gateway     
+PASS   S1 activation                agent_system_id          
+PASS   S1 activation                workspace_path           
+PASS   S1 activation                no_webhook               
+PASS   S1 activation                has_key                  
+PASS   S1 activation                email                    
+PASS   S1 activation                domain                   
+PASS   S1 activation                binding mode 0600 (in-host) 
+PASS   S1 activation                composed profile carries tool-mail (rows=1) 
+PASS   S2 arming                    pull armed               
+PASS   S2 arming                    armed after the last missing-binding boot 
+PASS   S3 delivery                  sender whitelisted before inbound 
+PASS   S3 delivery                  inbound stored (emails=3) — the inbound flow completed 
+PASS   S3 delivery                  queued then acked (host accepted the mail) 
+PASS   S6 threading                 S6 threading — all three mails were accepted by the host (acked) 
+PASS   S6 threading                 S6 threading — the reply resolves to the same thread root as the mail it answers 
+PASS   S6 threading                 S6 threading — reply reused the thread's session (97053d1e-c5f9-4b29-b1f7-ae4860d05c05); no new session was created 
+PASS   S6 threading                 S6 threading — host session count did not grow on the reply (5) 
+PASS   S6 threading                 S6 threading — a new thread started a new host session (bfde48ac-6383-4086-ac61-d98fce7731eb) 
+PASS   S6 threading                 S6 threading — host session count grew by exactly one for the new thread (5 -> 6) 
+PASS   S6 threading                 S6 threading — all three sessions live in the binding's anchor: /root/ws 
+PASS   S7 session-gone              S7 session-gone — reply was acked (not left pending) 
+PASS   S7 session-gone              S7 session-gone — delivery used a new session (2c919450-363f-4f38-88f3-a0938d5add7a -> 91200fa4-019b-4430-a845-7b57ca3dadf3) 
+PASS   S7 session-gone              S7 session-gone — the downgrade is recorded as 'session-gone' 
+PASS   S7 session-gone              S7 session-gone — the thread root survived the re-attach 
+PASS   S8 anchor isolation          S8 anchor isolation — the reply was acked after re-ranking (not left pending) 
+PASS   S8 anchor isolation          S8 anchor isolation — the abandonment is recorded as 'anchor-moved' (edge=thread, from=/work/foreign-anchor) 
+PASS   S8 anchor isolation          S8 anchor isolation — the marker names which edge was abandoned (thread) 
+PASS   S8 anchor isolation          S8 anchor isolation — delivery went to a session of the current anchor (70cca3cd-9b09-42a5-b396-39bfafdb76ac -> 718ff363-84bf-43a8-b6de-ae8aa2b9e6d2) 

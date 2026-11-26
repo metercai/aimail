@@ -63,10 +63,13 @@ export type StreamRoundResult =
   | 'occupied'
   | 'drop'
   | 'error'
-  | { auth: 401 | 403 }
+  // `detail` carries the gateway's own error code (`anchor_required` / `anchor_unregistered` /
+  // `anchor_mismatch`, `key_invalid`, …). The gateway deliberately logs nothing for 401/403, so this
+  // is the only place an operator can learn WHY a pull was refused — keep it in the log line.
+  | { auth: 401 | 403; detail?: string }
 
 /** True when an SSE round result is an auth rejection (401/403). */
-export function isAuthResult(res: StreamRoundResult): res is { auth: 401 | 403 } {
+export function isAuthResult(res: StreamRoundResult): res is { auth: 401 | 403; detail?: string } {
   return typeof res === 'object' && (res.auth === 401 || res.auth === 403)
 }
 
