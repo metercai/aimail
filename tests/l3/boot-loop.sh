@@ -44,6 +44,8 @@ echo "════ boot-loop: $HOST → $GW_URL （证据目录 $WORK）"
 # docker 模式：按 L2 的做法——容器用镜像自己的 ENTRYPOINT 起来（它负责把 LLM 配好并启动宿主），
 # 之后每一步都用 docker exec 在**同一个已配置的容器**里执行。直接 --entrypoint bash 会绕过 LLM 配置。
 CNAME="bootloop-$HOST-$$"
+# 驱动脚本随 /work 一起进容器（dsh 没有单发入口，必须走它的 web RPC）
+cp "$ROOT/tests/l3/lib/dsh-turn.sh" "$WORK/dsh-turn.sh" 2>/dev/null || true
 _cleanup_container() { [ -n "$IMAGE" ] && docker rm -f "$CNAME" >/dev/null 2>&1; }
 trap _cleanup_container EXIT
 
@@ -63,6 +65,7 @@ if [ -n "$IMAGE" ]; then
   # 也是这么起的（hosts/hermes.sh:49，--user 0:0 --entrypoint bash -lc 'sleep infinity'）。
   case "$HOST" in
     hermes) DR=(--user 0:0) ; DCMD=() ;;   # keep s6: it is what wires pnpm/PATH for the CLI
+    dsh)    DR=(--user 0:0) ; DCMD=() ;;
     *)      DR=(); DCMD=() ;;
   esac
   docker run -d --rm --network host --name "$CNAME" "${DR[@]}" \
@@ -185,6 +188,14 @@ case "$HOST" in
         > "$WORK/turn.log" 2>&1
       rc=$?
     fi ;;
+  dsh)
+    if [ -n "$IMAGE" ]; then
+      docker exec -i "$CNAME" bash -lc "$(host_prelude); mkdir -p /tmp/ws && cd /tmp/ws && LLM_API_KEY=\"$LLM_API_KEY\" bash /work/dsh-turn.sh /work/prompt.txt 39321 $TMO" \
+        > "$WORK/turn.log" 2>&1
+      rc=$?
+    else
+      bad "dsh 需要在宿主容器内驱动"; exit 2
+    fi ;;
   *) bad "unsupported host $HOST"; exit 2 ;;
 esac
 say "turn exited rc=$rc（日志 $WORK/turn.log）"
@@ -205,7 +216,9 @@ printf '  %s\n' "--- turn tail ---" ; tail -25 "$WORK/turn.log" | sed 's/^/    /
 echo
 [ "$A" = 1 ] && ok "A: agent 真的按 prompt 跑了 bootstrap 自举脚本（证据：${A_SRC}）" || bad "A: 没有任何自举痕迹（宿主 ~/.aimail/bootstrap.log 没长，回合日志也没有 URL/结论行）"
 [ "$B" = 1 ] && ok "B: agent 真的把 SDK 装上了（$(printf '%s' "$AFTER" | head -c 100)）" || bad "B: 宿主侧仍未出现 SDK"
-if [ "$A" = 1 ] && [ "$B" = 1 ]; then
-  echo "  ✅ boot-loop PASS — prompt 可以触发自举（证据 $WORK）"; exit 0
+if [ "$B" = 1 ]; then
+  # owner: 路线不限，装上就是成功；A 只用来记录"它走的是哪条路"
+  if [ "$A" = 1 ]; then ROUTE="网关自举脚本"; else ROUTE="宿主自带的插件安装路径"; fi
+  echo "  ✅ boot-loop PASS — prompt 触发了自举（路线：$ROUTE，证据 $WORK）"; exit 0
 fi
-echo "  ❌ boot-loop FAIL — 证据 $WORK" >&2; exit 1
+echo "  ❌ boot-loop FAIL — 宿主侧没有出现 SDK（证据 $WORK）" >&2; exit 1
