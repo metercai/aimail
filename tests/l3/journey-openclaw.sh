@@ -249,8 +249,8 @@ say "published SDK under test: agent-aimail@${WANT_SDK:-<npm view failed>}"
 if [ -z "$(plugin_pkg)" ]; then
   say "plugin not installed after turn 1 — user nudge (words only; the agent must run the install)"
   cat > "$WORK/turn1b-nudge.txt" <<PROMPT
-Go ahead and install the AIMail plugin SDK yourself now (the Node/npm one for this host),
-then retry the activation with the same code. I do not have a terminal here — you run it.
+Install the AIMail plugin SDK now by running exactly: openclaw plugins install agent-aimail .
+Then stop and reply DONE. Do not attempt to bind or send mail yet — that is a separate step.
 PROMPT
   oc_host_turn "$WORK/turn1b-nudge.txt" || say "  nudge turn exited non-zero"
 fi
