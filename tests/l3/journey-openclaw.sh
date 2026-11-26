@@ -51,11 +51,11 @@ trap cleanup EXIT
 # one openclaw process per user turn; the prompt file is the user's message verbatim
 oc_host_turn() {  # oc_host_turn <prompt-file>
   local f="$1"
-  mkdir -p "$WORK/ws"
-  # No --model override: openclaw validates that against a model registry that a clean home has
-  # not refreshed ("Unknown model"), while the config's agents.defaults.model is honoured as-is
-  # (verified standalone: same config, no flag → the turn answers).
-  ( cd "$WORK/ws" && timeout 900 openclaw agent --local --message-file "$f" ) >> "$WORK/oc-turns.log" 2>&1
+  # Run inside the clean HOME: openclaw resolves config relative to cwd first, and a cwd outside
+  # $HOME made the turn fall back to its built-in openai default even though the user config was
+  # correct (measured: same command from $HOME answered; from /tmp/<work>/ws it asked for openai).
+  mkdir -p "$HOME/ws"
+  ( cd "$HOME/ws" && timeout 900 openclaw agent --local --message-file "$f" ) >> "$WORK/oc-turns.log" 2>&1
   return $?
 }
 llm_ms_total() { echo 0; }   # openclaw exposes no llmMs counter; the turn output is the evidence
