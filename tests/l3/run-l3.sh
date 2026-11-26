@@ -235,9 +235,14 @@ AIMAIL_REPO="${AIMAIL_REPO:?AIMAIL_REPO not set}"
 # Matrix scope: dsh is shipped; pi/openclaw are being added (tests/l3/GATE.md §8) and are
 # accepted here only when their journey exists — an unimplemented host must fail loudly, not
 # run a dsh journey under another name.
+# Matrix scope (owner 2026-11-26): all five hosts get an L3 cell — dsh, pi, openclaw (tssdk) and
+# hermes, deerflow (pysdk). A host is accepted only when its journey exists; an unimplemented host must
+# fail loudly rather than run a substitute journey. (Supersedes the 2026-11-23 "dsh-only" ruling,
+# whose pysdk SKIP_LEGACY note no longer applies: the pysdk publishes hermes/deerflow entry points.)
 case "$AGENT" in
   dsh|dsh-plugin) : ;;
-  pi|openclaw)    [ -f "$(dirname "${BASH_SOURCE[0]}")/journey-$AGENT.sh" ] \
+  pi|openclaw|hermes|deerflow)
+                  [ -f "$(dirname "${BASH_SOURCE[0]}")/journey-$AGENT.sh" ] \
                     || die "agent '$AGENT' has no L3 journey yet (tests/l3/journey-$AGENT.sh) — see GATE.md §8; not running a substitute journey" ;;
   *)              die "agent '$AGENT' is retired or out of scope for L3 (see tests/l3/GATE.md)" ;;
 esac
