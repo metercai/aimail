@@ -52,10 +52,10 @@ trap cleanup EXIT
 oc_host_turn() {  # oc_host_turn <prompt-file>
   local f="$1"
   mkdir -p "$WORK/ws"
-  # the embedded agent defaults to its own model; pin the one the clean LLM config declares
-  _m="$(python3 -c "import json;d=json.load(open('$OPENCLAW_HOME/openclaw.json'));m=d.get('agents',{}).get('defaults',{}).get('model');print(m if isinstance(m,str) else (m or {}).get('primary',''))" 2>/dev/null)"
-  _marg=""; [ -n "$_m" ] && _marg="--model $_m"
-  ( cd "$WORK/ws" && timeout 900 openclaw agent --local $_marg --message-file "$f" ) >> "$WORK/oc-turns.log" 2>&1
+  # No --model override: openclaw validates that against a model registry that a clean home has
+  # not refreshed ("Unknown model"), while the config's agents.defaults.model is honoured as-is
+  # (verified standalone: same config, no flag → the turn answers).
+  ( cd "$WORK/ws" && timeout 900 openclaw agent --local --message-file "$f" ) >> "$WORK/oc-turns.log" 2>&1
   return $?
 }
 llm_ms_total() { echo 0; }   # openclaw exposes no llmMs counter; the turn output is the evidence
