@@ -317,8 +317,17 @@ case "$AGENT" in
     VERIFY_HOME="$OPENCLAW_HOME"; VERIFY_EXTRA=()
     ok "openclaw env ready (npm-installed host; single source)"
     ;;
-  *)
-    die "no environment-prepare branch for agent '$AGENT'"
+  hermes|deerflow)
+    # pysdk hosts: the plugin arrives as a pip package (see the wheel's entry points
+    # hermes_agent.plugins / deerflow.extensions), so there is no npm-side install here.
+    case "$AGENT" in
+      hermes)   H="$HOME/.hermes" ;;
+      deerflow) H="$HOME/.deerflow" ;;
+    esac
+    bash "$AGENT_ENV/prepare.sh" "$AGENT" --home "$H" --llm-url "$LLM_BASE_URL" --llm-model "$LLM_MODEL" --llm-key "$LLM_API_KEY" \
+      || die "$AGENT env prepare failed (single source: tests/agent-env)"
+    VERIFY_HOME="$H"; VERIFY_EXTRA=()
+    ok "$AGENT env ready (pysdk host; single source)"
     ;;
 esac
 
