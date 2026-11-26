@@ -55,7 +55,12 @@ oc_host_turn() {  # oc_host_turn <prompt-file>
   # $HOME made the turn fall back to its built-in openai default even though the user config was
   # correct (measured: same command from $HOME answered; from /tmp/<work>/ws it asked for openai).
   mkdir -p "$HOME/ws"
-  ( cd "$HOME/ws" && timeout 900 openclaw agent --local --message-file "$f" ) >> "$WORK/oc-turns.log" 2>&1
+  echo "turn-diag: HOME=$HOME OPENCLAW_HOME=${OPENCLAW_HOME:-unset} cfg=$([ -f "$HOME/.openclaw/openclaw.json" ] && echo present || echo MISSING) bin=$(command -v openclaw) ver=$(openclaw --version 2>/dev/null) model=$(python3 -c "import json;d=json.load(open('$HOME/.openclaw/openclaw.json'));m=d.get('agents',{}).get('defaults',{}).get('model');print(m if isinstance(m,str) else (m or {}).get('primary',''))" 2>/dev/null)" >> "$WORK/oc-turns.log"
+  # OPENCLAW_HOME must NOT reach the host process: openclaw treats it as its state root and then
+  # ignores the user config, falling back to its built-in openai default (reproduced standalone:
+  # same command + that one env var → "requested=openai/gpt-6-astra"). The fixture keeps the
+  # variable for its own file lookups; the child gets it removed.
+  ( cd "$HOME/ws" && env -u OPENCLAW_HOME timeout 900 openclaw agent --local --message-file "$f" ) >> "$WORK/oc-turns.log" 2>&1
   return $?
 }
 llm_ms_total() { echo 0; }   # openclaw exposes no llmMs counter; the turn output is the evidence
