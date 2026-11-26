@@ -366,8 +366,8 @@ import sys, smtplib
 import sys, smtplib
 port, applicant, addr = int(sys.argv[1]), sys.argv[2], sys.argv[3]
 msg = (f"From: {applicant}\r\nTo: {addr}\r\nSubject: [CMD] approve persona\r\n\r\n"
-       "persona: L3 dsh V2 regression persona\n"
-       "signature: -- L3 dsh V2\n")
+       "persona: L3 pi V2 regression persona\n"
+       "signature: -- L3 pi V2\n")
 with smtplib.SMTP("127.0.0.1", port, timeout=15) as s:
     s.sendmail(applicant, [addr], msg)
 print("  manager [CMD] approve persona sent via SMTP inbound")
