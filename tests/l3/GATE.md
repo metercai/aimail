@@ -215,3 +215,16 @@ The proven mechanics are already in `tests/host-acceptance/v2/hosts/openclaw.sh`
 
 L3 additions on top of that: clean plugin state, the standard activation prompt decoded from the
 mail (not the raw MIME message), and version compare against npm latest.
+
+## §10 L3 = the L2 harness minus the SDK install (do not rebuild environments)
+
+Owner (2026-11-26): L2 already solved clean-host + LLM config as images
+`aimail-host-<host>:latest`. L3 differs in one thing only: the SDK is not pre-installed.
+
+So: boot the same image, write the same LLM config, skip the install, then let the
+activation prompt drive `pip install agent-aimail` / `openclaw plugins install` / `pi install`.
+
+Concrete change: `run-matrix.sh --sdk none` (new value) = today's `--sdk ts|py` path with the
+install step skipped. No host-side rebuild, no git clone per cell, no chromium download.
+
+Acceptance: host installs the PUBLISHED SDK itself, binds, closes the welcome loop, no nudge.
