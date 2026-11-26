@@ -327,6 +327,9 @@ case "$AGENT" in
     bash "$AGENT_ENV/prepare.sh" "$AGENT" --home "$H" --llm-url "$LLM_BASE_URL" --llm-model "$LLM_MODEL" --llm-key "$LLM_API_KEY" \
       || die "$AGENT env prepare failed (single source: tests/agent-env)"
     VERIFY_HOME="$H/.hermes"; [ "$AGENT" = deerflow ] && VERIFY_HOME="/app"; VERIFY_EXTRA=()
+    # Keep the agent's `pip install` inside the scratch HOME. Without this it lands in the system
+    # interpreter, which both pollutes the machine and makes the next run fail its "clean" check.
+    export PIP_USER=1 PYTHONUSERBASE="$HOME/.local"
     ok "$AGENT env ready (pysdk host; single source)"
     ;;
 esac
