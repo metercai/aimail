@@ -99,6 +99,12 @@ npm_install_pinned() {
 
 install_hermes() {
   local hh="${HERMES_HOME:-$HOME/.hermes}"
+  # L3 = clean HOME + pre-installed LLM config: the HOST itself is part of the machine, not something
+  # a cell installs. Reinstalling it per cell cost 10-15 min (git clone + chromium) and is what made
+  # hermes L3 look stuck. Set AIMAIL_PREINSTALLED_HOST=1 to skip the install and use the host as-is.
+  if [ "${AIMAIL_PREINSTALLED_HOST:-0}" = "1" ] && command -v hermes >/dev/null 2>&1; then
+    say "AIMAIL_PREINSTALLED_HOST=1 — using the pre-installed host ($(command -v hermes))"; return 0
+  fi
   if [ -x /opt/hermes/bin/hermes ] || [ -x "$hh/hermes-agent/.hermes/bin/hermes" ] \
      || [ -f "$hh/bin/hermes.exe" ] || [ -f "$hh/hermes-agent/.hermes/bin/hermes.exe" ]; then
     say "hermes present (official layout) — skip install"; return 0
@@ -319,4 +325,5 @@ local_args=("$AGENT" --home "$HOME_DIR")
 [ -n "$LLM_MODEL" ] && local_args+=(--llm-model "$LLM_MODEL")
 [ -n "$LLM_KEY" ] && local_args+=(--llm-key "$LLM_KEY")
 for e in ${EXTRA_HOMES[@]+"${EXTRA_HOMES[@]}"}; do [ -n "$e" ] && local_args+=(--extra-home "$e"); done
+{ echo "== prepare verify debug: AGENT=$AGENT HOME_DIR=$HOME_DIR HOME=$HOME"; ls -la "$HOME_DIR" 2>&1 | head -6; echo "-- llm: $LLM_URL $LLM_MODEL set=${LLM_API_KEY:+yes}"; } >> /tmp/prep-debug.log 2>&1
 bash "$CTX/verify.sh" "${local_args[@]}"
