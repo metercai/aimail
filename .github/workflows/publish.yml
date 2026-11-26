@@ -294,7 +294,7 @@ jobs:
   # accept a reusable workflow as the binding object (warehouse#11096), and the Build Config URI in the certificate records the top-level caller
   # ⇒ the publish job must be in this file; the cloud-bound workflow name = publish.yml (see the file-header contract).
   pypi-build:
-    needs: [gate, meta]
+    needs: [gate]
     runs-on: ubuntu-latest
     permissions:
       contents: read   # audit D8: the build job only needs to read the repo (previously an undeclared default = overly broad permissions)
@@ -425,7 +425,7 @@ jobs:
           exit 1
 
   l3:
-    needs: [cli-release, npm, pypi, registry-ready]
+    needs: [npm, pypi, registry-ready]
     if: ${{ inputs.dry_run != 'true' }}
     uses: ./.github/workflows/l3.yml
     secrets: inherit
