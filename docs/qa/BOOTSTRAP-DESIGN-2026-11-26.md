@@ -1,0 +1,403 @@
+# SDK 自举方案讨论（L3 地基）：镜像事实 → 脚本方案 → 待定项
+
+- 日期：2026-11-26 · 状态：**讨论稿，未改代码**
+- 目的：让"激活 prompt → agent 自助装 SDK"在五类宿主 + 三平台上都可复现、可归因、无歧义
+
+---
+
+## 1. 镜像事实（本机实测，`docker run --entrypoint bash`）
+
+| 镜像 | 用户 | python (`python3`) | `python3 -m pip` | uv | node/npm/pnpm | 宿主 CLI | SDK 预装 | LLM 配置 |
+|---|---|---|---|---|---|---|---|---|
+| `aimail-host-dsh` | root(0) | 3.12 `/usr/local` | ✓ | ? | ✓/✓/✓ | `dsh` | **absent** | `/root/.dsh/profiles/web/cordis.patch.yml` |
+| `aimail-host-pi` | root | 3.12 `/usr/local` | ✓ | ? | ✓/✓/✓ | `pi` | **absent** | `/root/.pi/agent/models.json` |
+| `aimail-host-openclaw` | **node(1000)** | 3.13 `/usr/bin` | **✗ No module named pip** | ✗ | ✓/✓/✓ | `openclaw` | **absent** | `/app/.openclaw/openclaw.json` |
+| `aimail-host-hermes` | root | 3.14 `/opt/hermes/.venv` | **✗ No module named pip** | ✗ | ✓/✓/**✗** | `/opt/hermes/bin/hermes` | **absent** | `/opt/data/.hermes/config.yaml` |
+| `aimail-host-deerflow` | root | 3.12 `/usr/local` | ✓ (pip 25.0.1) | ✓ | `/usr/bin/node`、npm、**无 pnpm** | **无**（后端服务） | **absent** | `/app/config.yaml` |
+
+镜像都是自己生成的分层（`FROM` 官方基础镜像 + `prepare.sh` 写 LLM 端点/模型 + `verify.sh --offline` 验），`CMD ["sleep","infinity"]`，所以 **LLM 是"端点+模型已烘焙、key 运行时由 `LLM_API_KEY` 注入"**（hermes 的 `config.yaml` 里是 `api_key_env: "LLM_API_KEY"`）。L2 夹具用 `docker exec` 驱动，不是 entrypoint。
+
+### 1.1 两个直接推翻"单条命令"的发现
+
+1. **hermes 的 venv 里没有 pip**，PATH 上也没有 pip。真正能装的是它的 **tools python**：
+   ```
+   /opt/hermes/tools/python-3.14.9+20261021-linux-x64/bin/python3 -m pip   # pip 26.2.2 ✓
+   ```
+   所以之前配方里的 `pip install agent-aimail` 在 hermes 镜像里**根本跑不起来**（宿主机上它跑了，但落到 miniconda —— 同一个坑的两面）。
+2. **openclaw 跑在 uid 1000 且没有 python pip**：它是 JS 宿主，必须走 `openclaw plugins install`（npm），任何 pip 方案对它都无意义。
+
+### 1.2 容器内网络
+
+`getent hosts pypi.org` 在容器里解析不到 ⇒ 本地容器 loop **不能依赖 PyPI**，必须从**本地产物**装（L2 夹具正是挂 `/opt/sdk` 里的 wheel）；CI runner 有网，装注册表版本。
+
+---
+
+## 2. 每宿主的"真实"安装目标（按上表修正）
+
+| 宿主 | 安装命令（修正后） | 自检命令（同一解释器！） | 为什么 |
+|---|---|---|---|
+| dsh | `dsh plugin --profile web add agent-aimail` | `dsh plugin list \| grep aimail` | node 宿主，插件归 dsh 管 |
+| pi | `pi install npm:agent-aimail` | `grep -o '"@aimail[^"]*"' ~/.pi/agent/settings.json` | node 宿主 |
+| openclaw | `openclaw plugins install agent-aimail --force --accept-capabilities` | `openclaw plugins list \| grep -i aimail` | uid 1000、无 pip |
+| hermes | `"$(ls -d ~/.hermes/tools/python-*/bin/python3 \| head -1)" -m pip install agent-aimail` | 同一 `PY` 跑 `-c "import importlib.metadata…"` | venv 无 pip，tools python 才有 |
+| deerflow | `python3 -m pip install agent-aimail`（或 `uv pip install --system`） | `python3 -c "import importlib.metadata…"` | 后端就是系统 python |
+
+**结论：`install` 必须是"能定位解释器的一行"**，hermes 甚至要"先 glob 再装"——这已经不是"一条静态命令"能表达的了。
+
+---
+
+## 3. 方案：网关托管一个自举脚本（sh + ps1），端点只负责指路
+
+### 3.1 为什么选脚本（回答"能不能执行 shell"）
+
+能自举的 agent 一定能执行 shell（它本来就要跑 `pip`/`npm`）。脚本比静态命令多解决三件事：
+1. **解释器定位**（hermes 的 tools python glob、macOS 的 `python3` vs `pyenv`）；
+2. **装完自检**（同一解释器 verify，避免"装到别的 env 里还以为成功"——这正是我在宿主上踩到的）；
+3. **可更新的逻辑**：新增宿主/换包管理器只改网关，不改邮件、不改 prompt。
+
+代价是跨平台：Linux/macOS 用 POSIX `sh`，Windows 用 PowerShell。所以**两脚本同源生成**：
+
+```
+GET /api/v1/agent-setup/bootstrap.sh    → POSIX sh（linux/darwin）
+GET /api/v1/agent-setup/bootstrap.ps1   → PowerShell（windows）
+```
+两者都由**同一张配方表**生成（`agent_setup.rs` 里现在那张），保证不漂移；输出统一为机器可读：
+```
+AIMAIL_BOOTSTRAP ok host=hermes version=0.4.0 python=/opt/hermes/tools/python-…/bin/python3
+AIMAIL_BOOTSTRAP fail host=hermes reason=install-failed detail=…
+```
+
+### 3.2 提示词只留一行（保持你要的简短 + 泛化）
+
+```
+If `aimail_address` is unavailable, GET {gateway_url}/api/v1/agent-setup/install?host=<host>&os=<linux|darwin|windows>
+and run the command it returns — or, if you prefer one command, download and run its `script_url`
+(prints `AIMAIL_BOOTSTRAP ok|fail …`), then retry `aimail_address`.
+```
+- prompt 增量为 0（宿主清单、命令细节全在网关）；
+- agent 有两条路：直接跑 `install`（可解释），或跑脚本（含自检，成功率高）。
+
+### 3.3 宿主名歧义怎么消（回答第 2 问）
+
+三步，从"硬"到"软"：
+1. **端点不带 host** → 返回**探测表**：每宿主给 `markers`（环境变量 / 已知目录 / 可执行文件名），例如
+   `hermes: env HERMES_HOME | path ~/.hermes | cmd hermes`。agent 只需检查自己看得到的东西；
+2. **回填式探测**：`?probe=env:HERMES_HOME` 允许 agent 只报"我看到了哪个 marker"，由网关判定 `host`（agent 不必理解产品名）；
+3. **兜底**：`host` 未知 → 404 里带完整清单（现在就实现了）。
+
+不用"agent 自报名字"作为主路径——我刚实测到它会报自己的**机器名**（`llmlab`）。
+
+### 3.4 离线/内网怎么装（L3 本地 loop 的现实约束）
+
+容器无 DNS ⇒ 本地 loop 用**网关托管产物**：
+```
+GET /api/v1/agent-setup/sdk/agent_aimail-<ver>-py3-none-any.whl   (或 npm tarball)
+```
+脚本优先用 `AIMAIL_SDK_SOURCE` 环境变量 / `?source=` 指定的本地产物，其次才是注册表。CI（有网）走注册表。这样**同一套脚本**在本地与 CI 都能自举，且版本由网关/夹具指定，不随机漂移。
+
+---
+
+## 4. 五环境验证的顺序（方案确认后执行）
+
+| # | 宿主 | 本地 loop（容器，离线） | CI（有网） |
+|---|---|---|---|
+| 1 | dsh | `SDK_KIND=none` + 网关托管 npm tarball | 注册表 |
+| 2 | pi | 同上 | 注册表 |
+| 3 | openclaw | 同上（npm，无需 python） | 注册表 |
+| 4 | hermes | 网关托管 wheel + tools python | 注册表 |
+| 5 | deerflow | 网关托管 wheel + 系统 python | 注册表 |
+
+判据（每宿主同一套）：
+- **A**：turn 日志里出现 `GET /api/v1/agent-setup/install`（或脚本 URL）；
+- **B**：宿主**自己的发现面**能看到 SDK（`dsh plugin list` / `pi` settings / `openclaw plugins list` / `hermes plugins list` / deerflow extension registry），**不是**看某个 pip site-packages；
+- **C**：重启后 `aimail_address` 可用；
+- 记录：宿主版本、SDK 版本、解释器路径、turn 日志。
+
+---
+
+## 5. 需要 owner 拍的两点
+
+1. **允许"下载脚本再执行"这条路吗？**
+   - 方案 A（推荐）：端点返回 `install`（可解释的一行）+ `script_url`（可下载可摘读），prompt 让 agent 优选脚本；
+   - 方案 B：只给 `install` 一行，脚本仅作内部工具、不暴露给 agent（更保守，但 hermes 的解释器 glob 要写进 prompt，变长）。
+2. **Windows 的 L3 范围**：deerflow 在 Windows 上不现实（后端服务），是否 Windows 只覆盖 dsh/pi/openclaw 三个 node 宿主？（脚本的 `.ps1` 仍会提供，但只在这三个宿主上验。）
+
+---
+
+## 6. 四个决策的落地（2026-11-26 追加）
+
+### 6.1 镜像的坑：已修 + 已升版本
+
+| 项 | 处理 |
+|---|---|
+| **hermes venv 没有 pip**（`python3 -m pip` → "No module named pip"） | `Dockerfile.hermes` 增加 `RUN /opt/hermes/.venv/bin/python -m ensurepip --upgrade`；重建后实测 `pip 26.2.2` 就位，`pip install agent-aimail` 这条通用命令在 hermes 上成立 |
+| openclaw 没有 python pip | **不修**：它是 node 宿主，SDK 走 npm（`openclaw plugins install agent-aimail`）。这条写进配方，避免再有人用 pip 试它 |
+| 容器无 DNS（`getent hosts pypi.org` 空） | 本地 loop 从**网关托管的产物**装（wheel / npm tarball），CI 走注册表；脚本读 `AIMAIL_SDK_SOURCE` |
+| **agent 版本**（pins.env） | dsh `0.2.2-rc.1 → 0.2.2-rc.5`、pi `1.5.2 → 1.6.1`、openclaw `2026.11.5 → 2026.11.10`、hermes `0.23.2 → 0.23.4`（基础镜像 digest 同步 repin，upstream `8fc03744`） |
+| 重建工具 | 新增 `tests/agent-env/docker/rebuild-hosts.sh`（与 `host-images.yml` 同参数）；**离线兜底**：镜像仓库 HEAD 被墙时，用本地 tag 但**先校验本地 digest == pins 里的 digest**，不匹配就拒绝构建（不偷偷换底板） |
+
+hermes 已重建并验证：`Hermes Agent v0.23.4` + `pip 26.2.2`。dsh/pi/openclaw 的 npm 重建在本机后台进行（镜像仓库代理间歇 403，已用上面的兜底路径）。
+
+### 6.2 Windows / macOS / Linux 怎么区分（回答"HTTP 能不能辨识 OS"）
+
+**HTTP 本身不能可靠辨识 OS。** 具体：
+- 没有"OS"头；`User-Agent` 只反映 **HTTP 客户端库**（`python-requests/x`、`undici`、`node`），而同一个库在三个 OS 上完全相同；
+- `Accept-Language`/`Sec-CH-UA-Platform` 只有浏览器会发，CLI agent 不发；
+- 结论：**不能**用 HTTP 判定 OS，最多把它当"提示"（如 UA 里出现 `Windows` 极少见）。
+
+**可行的判定顺序**（脚本/agent 侧，都是确定性信号）：
+1. 脚本自身：跑的是 `sh` 还是 PowerShell —— **这本身就是 OS 判定**（Windows 上没有 POSIX sh；`cmd` 也跑不了 ps1）。所以"分两种脚本"天然消除了歧义，不需要 HTTP 参与；
+2. agent 报 `os`：`uname -s`（Darwin/Linux）或 `$env:OS -eq 'Windows_NT'`，一次调用即得；
+3. 端点把 `os` 当作**可选**参数：不传时返回 `{sh_url, ps1_url}` 两个入口 + 一句"按你的 shell 选"。
+
+对应 prompt 增量只有一句：`... or run the script for your shell (its URL is in `scripts`)` —— 不写 OS 判断逻辑给 agent 猜。
+
+### 6.3 openclaw 用 tssdk → npm（已并入配方）
+
+| 宿主 | SDK 形态 | 安装 |
+|---|---|---|
+| dsh / pi / openclaw | **tssdk（npm）** | 宿主插件命令 / `npm i -g`，**与 pip 无关** |
+| hermes / deerflow | pysdk（PyPI wheel） | `python -m pip install`（hermes 用其运行时 venv，现已补 pip） |
+
+### 6.4 Windows 覆盖范围
+
+除 **deerflow**（后端服务，Windows 不现实）外全覆盖：`dsh` / `pi` / `openclaw` / `hermes` 均上 Windows 矩阵；`hermes` 的 Windows 安装命令走 `py -3 -m pip`（`bootstrap.ps1` 里处理 py launcher 的解析）。
+
+---
+
+## 7. owner 追加拍板（2026-11-26）：只给一个 URL，OS 由脚本"试错"确定
+
+> **本节被 §8 修正**：`?host=` 参数已取消（agent 不该知道宿主类别），脚本自己判定宿主与环境。
+
+> owner：「很多工具的自举脚本都能自适应 OS，比如在脚本里先假定一个 OS 并执行特定命令，失败后主动跳转到另一套入口，这样通过失败的后处理来自适应 OS，只给一个 url 入口，避免让 agent 瞎猜。」
+
+这**取代**了 §6.2 的"两个脚本入口 + agent 自己选"结论：端点只暴露**一个** URL，平台差异全部由脚本内的"先试 A、失败转 B"消化。
+
+```
+GET /api/v1/agent-setup/bootstrap?host=<host>            → POSIX sh（默认）
+GET /api/v1/agent-setup/bootstrap?host=<host>&shell=ps1  → PowerShell 孪生体（同一个 URL 的变体，不是第二个入口）
+```
+
+`install` 端点返回的 `bootstrap`（一行 `curl -fsSL '…' | sh`）就是 agent 要执行的东西；prompt / 契约里不再出现"按你的 shell 选"。
+
+### 7.1 脚本里的四级自适配（全部是"先假定、失败换下一个"）
+
+| # | 步骤 | 假定 → 失败后转到 | 判定来自 |
+|---|---|---|---|
+| 1 | shell 方言 | 先按 POSIX 跑；`uname -s` 命中 `MINGW*/MSYS*/CYGWIN*/Windows*` ⇒ 把同一个 URL 加 `&shell=ps1` 交给 PowerShell 孪生体（`pwsh` → `powershell` → `cmd /c curl+powershell` 三级级联） | 运行环境本身，不是 HTTP |
+| 2 | 宿主 | `?host=` → `$AIMAIL_HOST` → 环境标记（`HERMES_HOME` …） → PATH 上的宿主 CLI；都不中 ⇒ `fail unknown_host` 带清单 | 网关配方表的 `markers` 列 |
+| 3 | 解释器 | `$AIMAIL_PYTHON` → 宿主自己的运行时（hermes venv / tools python、deerflow venv） → `python3` → `python`；每个都拿 `-c 'import sys'` 试跑 | 试跑成功才算数 |
+| 4 | 安装器 | pip → 没有 pip 则 `ensurepip` → 再没有则 `uv pip --python`；node 宿主 `npm -g` → 全局前缀不可写（EACCES）则 `--prefix ~/.local` | 每一步的真实退出码 |
+| 5 | 产物来源 | `$AIMAIL_SDK_URL`（本地 wheel/tgz，容器无 DNS 时必用；本地文件自动加 `--no-index`） → 否则公共注册表 | 文件是否存在 |
+
+统一输出（机器可读，L3 判定直接解析）：
+
+```
+AIMAIL_BOOTSTRAP ok host=hermes kind=python version=0.4.0 tool=/opt/hermes/.venv/bin/python3
+AIMAIL_BOOTSTRAP fail host=openclaw code=install_failed detail=…
+```
+
+### 7.2 实跑结果（本机 2026-11-26，`aimail-host-*:latest` + 网关 v1.0.20 未发布二进制）
+
+| 场景 | 命令要点 | 结果 |
+|---|---|---|
+| hermes 常规 | `AIMAIL_HOST=hermes AIMAIL_SDK_URL=<wheel>` | ✅ `ok … version=0.4.0 tool=/opt/hermes/.venv/bin/python3` |
+| 解释器级联 | `AIMAIL_PYTHON=/nope/python3`（故意坏） | ✅ 跳过坏解释器，落到 venv |
+| pip 缺失 | `python -m venv --without-pip` + `AIMAIL_PYTHON=<该 venv>` | ✅ `has no pip; trying ensurepip` → 装成 |
+| 不报宿主 | 无 `AIMAIL_HOST` | ✅ 自检为 `host=hermes` |
+| 未知宿主 | `AIMAIL_HOST=llmlab`（agent 常报机器名） | ✅ `fail … code=unknown_host` + 五宿主清单，可一轮自纠 |
+| openclaw（node, uid 1000） | `AIMAIL_SDK_URL=<npm tgz>` | ✅ 全局前缀 `EACCES` → 自动转 `--prefix /app/.local` → `ok … version=0.6.0 tool=/app/.local/lib/node_modules/agent-aimail`；随后 `openclaw plugins install`（无 DNS）失败**只告警不中断** |
+
+**过程中发现并修掉的两个真缺陷**（都是"没实跑就发现不了"的）：
+
+1. `HOST='${AIMAIL_HOST:-hermes}'` 用了单引号 ⇒ 变量永不展开，脚本第一句就以 `host=${AIMAIL_HOST:-hermes}` 报 `unknown_host`。已改为双引号，并在单测里断言"既烘焙进去、又仍可被环境变量覆盖"。
+2. node 宿主一律 `npm install -g` ⇒ 在 uid 1000 的 openclaw 容器里 `EACCES: /usr/local/lib/node_modules` 直接失败。已加"全局前缀失败 ⇒ 私有前缀 + PATH"的级联（ps1 孪生体同步）。
+
+单测：`agent_setup` 8 项（含 `sh -n` 语法校验、占位符零残留、每宿主 `markers`/解释器表齐全）。网关全量 **439 passed**。
+
+### 7.3 仍未验的部分（诚实边界）
+
+- **Windows 分支只做了静态校验**（`sh -n` 通过 + 分支逻辑审查），本机无 Windows，`.ps1` 未实跑；CI 的五宿主 × Windows 矩阵是它第一次真跑的地方。
+- `openclaw plugins install` 这一步在无 DNS 的本地容器里必然失败（它要连 clawhub）；脚本把它降级为告警是正确的，但"注册成功"这条只会在 CI 有网时被证。
+
+---
+
+## 8. 修正（2026-11-26，owner 复核后）：一个**无参数** URL，宿主判定也进脚本
+
+> owner：「没必要传 `host=` 这些参数，而是直接运行在 gw 上的 sdk 自举脚本，在自举脚本里先解决 OS 判别（通过试错方式），再解决宿主判定（即识别是哪个 agent），再找到宿主的环境目录（pip 别安装错环境），最后执行该宿主的 sdk 安装指令。这些都在这个自举脚本里解决。在激活 prompt 里是对 OS / 宿主类别 / 宿主环境 / 宿主的 sdk 安装指令都无感的，只知道在安装 sdk 而已。」
+
+### 8.0 补正（owner 追问两条）：`curl … | sh` 不是通用的；解释性括注删掉
+
+**问 1：`curl -fsSL '<url>' | sh` 在 Windows / macOS / Linux 都通用吗？——不通用，三处都会失手。**
+
+| 环境 | 事实 | 后果 |
+|---|---|---|
+| **Windows 原生**（cmd / PowerShell） | 没有 `sh`（除非 Git Bash / WSL）；且 **Windows PowerShell 5.1 把 `curl` 别名到 `Invoke-WebRequest`**，`-fsSL` 根本不是它的参数 | 命令直接报错，必须走 `iwr -useb '<url>?shell=ps1' \| iex` |
+| **Windows + Git Bash / WSL** | 有 `sh`，但它是 POSIX 模拟层 | 脚本自己 `uname` 命中 `MINGW*/MSYS*/CYGWIN*` 后转交 `.ps1`，这条路能用 |
+| **macOS** | 自带 `curl` 与 `/bin/sh` | ✅ 通用；`python3` 不一定有（要 Xcode CLT） |
+| **最小 Linux 镜像** | **deerflow 宿主镜像既没有 `curl` 也没有 `wget`**（实测）；hermes/openclaw 只有 `curl`，dsh/pi 两者都有 | `curl … \| sh` 在这一类镜像里跑不起来 |
+
+所以**"一条 fetch 命令打天下"是假的**。处理：URL 只有一个，**取法按能力分档**，由 agent 按自己环境挑（payload 里三条并列）：
+```
+bootstrap         curl -fsSL '<url>' | sh
+bootstrap_ps1     iwr -useb '<url>?shell=ps1' | iex
+bootstrap_python  python3 -c "import urllib.request as u;open('/tmp/aimail-bootstrap.sh','wb').write(u.urlopen('<url>').read())" && sh /tmp/aimail-bootstrap.sh
+```
+（`exec(u.urlopen(...).read())` 是错的——那会把 shell 脚本当 **Python** 执行；必须落盘再 `sh`。第一版就写错了，实跑才发现。）
+
+实测：deerflow 镜像（无 curl/wget）用 `bootstrap_python` 完整跑通 → `AIMAIL_BOOTSTRAP ok host=deerflow … tool=/app/backend/.venv/bin/python3`；hermes 镜像用 `bootstrap` 跑通。
+
+**问 2：括号里那句"It works out the platform, the runtime and the host's own install command itself; its last line says ok or fail"有必要吗？——没有，已删。**
+
+理由：agent 拿到的是**命令**，不是说明书；脚本自己会打印 `AIMAIL_BOOTSTRAP ok|fail`，解释只会稀释指令、还暗示"你可以不跑"。prompt 里只保留**意图 + 一个可执行命令 + 失败后的兜底动作**。
+
+### 8.1 prompt 收敛到一句（对四者全无感）
+
+```
+If `aimail_address` is unavailable or unregistered, install the AIMail SDK with
+`curl -fsSL '{gateway_url}/api/v1/agent-setup/bootstrap' | sh`
+(POSIX; on Windows use `iwr -useb '{gateway_url}/api/v1/agent-setup/bootstrap?shell=ps1' | iex`),
+then try `aimail_address` again for activation and binding. …
+```
+
+prompt 里不再出现 `host=`、不再出现宿主名、不再出现 `pip`/`npm`、不再出现解释器路径、**也不解释脚本怎么工作**。契约 §6 同步（v2.6）。
+
+### 8.2 脚本内的判定链（四级，全部"先假定、失败换下一个"）
+
+| 级 | 判什么 | 证据顺序（强 → 弱） |
+|---|---|---|
+| 1 | **OS / shell 方言** | 先按 POSIX 跑；`uname -s` ∈ `MINGW*/MSYS*/CYGWIN*/Windows*` ⇒ 把同一 URL 加 `&shell=ps1` 交给 PowerShell 孪生体（`pwsh` → `powershell` → `cmd /c curl` 级联） |
+| 2 | **哪个宿主** | ①运行时环境变量（`HERMES_HOME`/`DSH_HOME`/`PI_HOME`/`OPENCLAW_HOME`/`DEERFLOW_HOME`）②**当前进程的祖先进程命令行**（`/proc/<pid>/cmdline` 上溯 5 层，即"我跑在谁里面"）③宿主 CLI 在 PATH 上 ④全局 npm 包里有没有该宿主的包 ⑤宿主专属路径是否存在（`/opt/hermes`、`/app/backend/langgraph.json` …）⑥某个解释器里能否 import 宿主模块 |
+| 3 | **宿主的运行环境** | 每宿主自带解释器候选，**逐个试跑 `import sys`**：hermes=`/opt/hermes/.venv/bin/python3` → `/opt/hermes/tools/python-*/bin/python3`；deerflow=`/app/backend/.venv/bin/python{,3}`；node 宿主用 `npm root -g` 定位 |
+| 4 | **安装器 / 产物** | pip → `ensurepip` → `uv pip --python`；npm `-g` → 全局前缀不可写则 `--prefix ~/.local`；`$AIMAIL_SDK_URL`（本地 wheel/tgz）优先于注册表，本地文件自动加 `--no-index` |
+
+判定失败时输出**它看到了什么**，便于 agent 一轮自纠：
+
+```
+AIMAIL_BOOTSTRAP fail host=unknown code=unknown_host detail=cannot tell which host this is; saw: nothing; re-run with AIMAIL_HOST=<dsh pi openclaw hermes deerflow>
+```
+
+`AIMAIL_HOST` 仍保留为**人工覆盖**（调试用），但 prompt 不教它。
+
+### 8.3 五宿主实跑（本机，**零参数**、无 `AIMAIL_HOST`、容器无 DNS）
+
+| 镜像 | 命中证据 | 落点（宿主自己的环境） | 结果 |
+|---|---|---|---|
+| `aimail-host-hermes` | 路径 `/opt/hermes` | `/opt/hermes/.venv/bin/python3` | ✅ `ok … version=0.4.0` |
+| `aimail-host-openclaw` | PATH `openclaw` | `/app/.local/lib/node_modules`（全局前缀 EACCES → 私有前缀） | ✅ `ok … version=0.6.0` |
+| `aimail-host-pi` | PATH `pi` | `/usr/local/lib/node_modules` | ✅ `ok … version=0.6.0` |
+| `aimail-host-dsh` | PATH `dsh` | `/usr/local/lib/node_modules` | ✅ `ok … version=0.6.0` |
+| `aimail-host-deerflow` | 路径 `/app/backend/langgraph.json` | `/app/backend/.venv/bin/python3`（**该 venv 无 pip ⇒ ensurepip 顶上**） | ✅ `ok … version=0.4.0` |
+
+deerflow 这一条最能说明"宿主环境"为什么必须由脚本解决：镜像里系统 `python3` 有 pip，但**真正跑宿主的是 `/app/backend/.venv`，且它没有 pip**；装到系统 python 里宿主永远看不见。
+
+### 8.4 本轮修掉的判定缺陷
+
+1. `A || B && C` 优先级坑：deerflow 双环境变量那条在 `A` 成立时**不会**赋值 `HOST`（已用 `{ …; }` 括起）。
+2. 祖先进程匹配用裸子串会把 `pip install` 的 `pi` 命中成 pi 宿主 ⇒ 改为每个宿主显式 `proc_tokens`（如 `pi-coding-agent`、`/opt/hermes`），并对命令行两侧补空格。
+3. 路径证据原先只 `-d`（目录），deerflow 的 `langgraph.json` 是文件 ⇒ 改为 `-e`。
+4. `HOST='${AIMAIL_HOST:-x}'` 单引号导致变量永不展开（上一轮已修，单测钉住"可覆盖"）。
+
+单测 8 项（含 `sh -n` 语法校验、占位符零残留、`bootstrap` 指令必须不含 `host=`）；网关全量 **439 passed**。
+
+### 8.5 仍未验
+
+- Windows `.ps1` 分支只有语法级校验（无 Windows 机器），CI 的五宿主 × Windows 矩阵是它第一次真跑；
+- 无 DNS 容器里 `dsh plugin add` / `pi install npm:` / `openclaw plugins install` 必然连不上，脚本按"告警不中断"处理，**注册成功**只在有网 CI 上才会被证；
+- 多宿主共存时按证据强度取第一个（`saw:` 会列出全部），未做"选错则重试下一个"。
+
+---
+
+## 9. 补正（owner 第三次复核）：不许让 agent 猜平台，给它一条**探测命令**
+
+> owner：「这种表达是让 agent 自己去随机选择吗，agent 也不知道自己是 POSIX 还是 Windows。所以需要教给 agent 一个明确的探测 OS 的指令，然后根据探测结果（成功或失败）来选择执行哪个自举请求。」
+
+对。`(POSIX; on Windows use …)` 对 agent 等于抛硬币——它既不知道自己的 shell 是哪种，也无从判断。改成**先探测、按结果分支**，探测本身就是一个可执行、结果可观测的命令：
+
+```
+probe:  sh -c 'echo sh-ok'
+```
+
+| 探测结果 | agent 该做什么 |
+|---|---|
+| 打印 `sh-ok`（有 POSIX shell） | `curl -fsSL '<url>' \| sh`；没有 curl → `wget -qO- '<url>' \| sh`；两者都没有（deerflow 就是） → 用宿主的 python3 取回文件再 `sh /tmp/aimail-bootstrap.sh` |
+| 命令失败 / 报 “sh 不是可识别的命令”（无 POSIX shell） | `powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr -useb '<url>?shell=ps1' \| iex"` |
+
+要点：
+1. **探测的是"我有没有 sh"，不是"我是什么 OS"**——这是 agent 唯一能确定性回答的问题；OS 名字（Windows/Linux/macOS）反而要它去推断。
+2. 分支动作放同行，失败即换另一条，**没有"选择"这一步**；两个分支都不需要 agent 知道宿主类型。
+3. Git Bash / WSL 的 Windows agent 探测会成功 → 走 POSIX 分支 → 脚本内部 `uname` 命中 `MINGW*/MSYS*/CYGWIN*` 后自己转交 `.ps1`。所以 Windows 上两条路都到得了同一个终点。
+4. 探测命令已进 payload（`probe` 字段）和 prompt；单测钉住三件事：prompt 必须含探测串、必须含 `"iwr -useb` 可执行分支、**不得**含转义残留的反斜杠。
+
+实测：hermes 容器 `sh -c 'echo sh-ok'` → `sh-ok`（POSIX 分支成立）；把 `sh` 挪出 PATH 后同一命令报 `sh: not found`（Windows 分支即此情形），说明判据是"命令能不能跑"，与平台名字无关。Windows 分支本身仍只有语法级校验（本机无 Windows）。
+
+---
+
+## 10. 定稿（owner 给表达，2026-11-26）：以 `uname -s` 能否执行为判据
+
+采纳 owner 的表达，替换掉我上一版的 `sh -c 'echo sh-ok'` 探测（同一个思路，但更短、判据更硬）：
+
+```
+If `aimail_address` is unavailable or unregistered, install the AIMail SDK:
+if `uname -s` can be executed in the current shell,
+  run `curl -fsSL '{gateway_url}/api/v1/agent-setup/bootstrap?shell=sh' | sh`;
+otherwise,
+  run `powershell -NoProfile -ExecutionPolicy Bypass -Command
+      "iwr -Uri '{gateway_url}/api/v1/agent-setup/bootstrap?shell=ps1' -UseBasicParsing | iex"`
+```
+
+为什么这版更好：
+1. **判据即事实**：`uname` 是 POSIX 的一部分，能执行就说明当前 shell 是 POSIX；不能执行就只能是 Windows。不需要比较输出、不需要解析、不需要 agent 知道 OS 名字。
+2. **两个分支各自点名要哪个孪生体**（`?shell=sh` / `?shell=ps1`），URL 对称，端点只需按 `shell` 返回对应脚本——不再依赖"默认给 sh"的隐含约定。
+3. **PowerShell 侧用 `iwr -Uri … -UseBasicParsing`**：`-UseBasicParsing` 在 Windows PowerShell 5.1 上是必需的（5.1 无 Edge 引擎时 `iwr` 依赖 IE 解析），`-Uri` 也避免位置参数的歧义。`iwr -useb` 只在部分环境成立，换掉了。
+4. 句子从 4 行缩到 2 行，仍然一个 URL、一个判断、两个动作。
+
+实测：
+- `GET /api/v1/agent-setup/bootstrap?shell=sh` → `content-type: text/x-shellscript`，首行 `#!/bin/sh`；
+- `GET …?shell=ps1` → 首行 `# AIMail bootstrap (Windows) …`；
+- hermes 容器按 payload 原样执行 `uname -s`（输出 `Linux`）+ `curl … ?shell=sh | sh` → `AIMAIL_BOOTSTRAP ok host=hermes … tool=/opt/hermes/.venv/bin/python3`；
+- `uname` 不在 PATH 时该命令非零退出 ⇒ 正对应 Windows 分支的条件。
+
+payload 仍保留 `bootstrap_wget` 与 `bootstrap_python`（deerflow 镜像既无 curl 也无 wget，实测需要）；prompt 正文不提它们，避免变长。单测新增：prompt 必须含 `` `uname -s` can be executed``、必须同时含 `?shell=sh` 与 `?shell=ps1`、Windows 分支必须含 `-UseBasicParsing`。
+
+---
+
+## 11. 镜像重建落地（2026-11-26 夜）：三镜像已是最新，openclaw 底座换新
+
+### 11.1 做法：`setsid` 脱离会话（前两次失败的真正原因）
+
+前两次重建"跑了一小时什么都没有输出"，根因不是 docker 也不是网络：**后台进程随工具 shell 一起被杀**（`nohup … &` 仍在同一进程组）。这次改用
+
+```
+setsid nohup bash tests/agent-env/docker/rebuild-hosts.sh <hosts> > /tmp/log 2>&1 < /dev/null &
+```
+
+并用"构建客户端年龄 + 日志行数"两路轮询（`ps -eo etime,cmd | grep -F 'docker build --network host'`），每 60–150 秒看一次；dsh 全程 ~7 分钟，中间可看到 npm 的 `EBADENGINE`/`deprecated` 行，未再出现静默停滞。
+
+### 11.2 结果
+
+| 镜像 | agent 版本 | node | 内置校验门 | LLM 配置 | SDK |
+|---|---|---|---|---|---|
+| `aimail-host-dsh` (`cd94c3fc5e7c`) | **0.2.2-rc.5** ✓ | v22.23.2 | 15 passed / 0 failed | `cordis.patch.yml`：xiaomi provider、`apiKeyEnv: LLM_API_KEY`、`baseURL …/v1`、`mimo-v2.6-flash` | absent ✓ |
+| `aimail-host-pi` (`3120a0d986d3`) | **1.6.1** ✓ | v22.23.2 | 14 passed / 0 failed | `~/.pi/agent/models.json`：`baseUrl …/v1`、`api: openai-completions`、`apiKey: __LLM_API_KEY__`、`mimo-v2.6-flash` | absent ✓ |
+| `aimail-host-openclaw` (`21ceb122e358`) | **2026.11.10** ✓ | v24.22.1 | 12 passed / 0 failed | `/app/.openclaw/openclaw.json`：`baseUrl …/v1`、`model custom-api-xiaomimimo-com/mimo-v2.6-flash` | absent ✓ |
+
+三镜像零参数自举复测（新版脚本、本地产物、无 DNS）：
+```
+AIMAIL_BOOTSTRAP ok host=dsh      kind=node version=0.6.0 tool=/usr/local/lib/node_modules/agent-aimail
+AIMAIL_BOOTSTRAP ok host=pi       kind=node version=0.6.0 tool=/usr/local/lib/node_modules/agent-aimail
+AIMAIL_BOOTSTRAP ok host=openclaw kind=node version=0.6.0 tool=/app/.local/lib/node_modules/agent-aimail
+```
+
+### 11.3 openclaw 先前失败的真因：底座不是最新，不是 pins 写错
+
+第一次重建 openclaw 报 **`version drift: installed='2026.11.5' pinned=2026.11.10`**。查下来 pins 的 digest（`9c74476e…`）与本地底座**完全一致**——也就是说 pins 没错，是**那个 snapshot 本身只带 2026.11.5**。`docker pull ghcr.io/openclaw/openclaw:latest` 拿到新 digest `230afbdd…`，其内 `openclaw --version` = **2026.11.10**，于是：
+
+- `tests/agent-env/pins.env`：`BASE_OPENCLAW` digest `9c74476e…` → `230afbdd…`（已两处校验：pull 后 `RepoDigests` 与 pins 一致）
+- 重建通过：`✓ pinned version installed: openclaw 2026.11.10`，12 项校验全绿
+
+教训：**"pins 里的 digest"不等于"上游最新"**，pins 只保证"可复现"；要判"是否最新"必须真的拉一次 `:latest` 比对里面 agent 的版本（`verify.sh` 的 pinned-version 门正是干这个的，所以它救了这次）。
+
+### 11.4 记录在案、但本轮未改：node 22 vs dsh 要求的 node ≥24.9
+
+`npm view @deepseek-ai/dsh@0.2.2-rc.5 engines` → `{ node: '>=24.9.0' }`（rc.1 也是同一条），而 `BASE_NODE` 是 `python3.12-nodejs22`（node v22.23.2）。实跑后果：`npm install -g` 打 `EBADENGINE` 警告但装成功，`dsh --version` 与内置校验门（15 项）全过，L2 也一直跑在这个组合上。要彻底对齐需把 `BASE_NODE` 换成 `python3.12-nodejs24`：**本机拉不下来**（`registry-1.docker.io` 连接被 reset；`dockerproxy.net` 代理拉 1.5GB 超时），CI runner 有 Docker Hub 可以一条命令换。留作已知项，不在这台机器上硬改。
