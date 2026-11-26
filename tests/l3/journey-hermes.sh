@@ -225,7 +225,7 @@ source "$STATE"
 ok "applicant: email verified + address applied ($ADDR) + prompt from mail body"
 
 # ═══ [2] turn 1: clean pi environment receives the activation mail body ══════════════
-say "[2/7] turn 1 — clean pi environment (no plugin) receives the activation prompt"
+say "[2/7] turn 1 — clean hermes environment (no plugin) receives the activation prompt"
 [ -z "$(plugin_pkg)" ] || die "agent-aimail already installed before the journey ($(plugin_pkg)) — environment not clean"
 grep -qa 'agent-aimail' "$HERMES_HOME/agent/settings.json" 2>/dev/null \
   && die "pi settings still declare npm:agent-aimail ($HERMES_HOME/agent/settings.json) — pi would re-install it by itself, so the bootstrap could not be attributed to the agent"
@@ -241,8 +241,9 @@ say "published SDK under test: agent-aimail@${WANT_SDK:-<npm view failed>}"
 if [ -z "$(plugin_pkg)" ]; then
   say "plugin not installed after turn 1 — user nudge (words only; the agent must run the install)"
   cat > "$WORK/turn1b-nudge.txt" <<PROMPT
-Go ahead and install the AIMail plugin SDK yourself now (the Node/npm one for this host),
-then retry the activation with the same code. I do not have a terminal here — you run it.
+Go ahead and install the AIMail plugin SDK yourself now: run `pip install agent-aimail==${SDK_PIN:-0.4.0}`
+in this host's Python environment, then retry the activation with the same code. I do not have a
+terminal here — you run it.
 PROMPT
   pi_host_turn "$WORK/turn1b-nudge.txt" || say "  nudge turn exited non-zero"
 fi
