@@ -175,9 +175,8 @@ jobs:
 
   cli-release:
     # RETIRED 2026-11-25: CLI deprecated; the SDK release no longer depends on it.
-    if: ${{ false }}
+    if: ${{ false }}   # RETIRED 2026-11-25: CLI deprecated
     needs: [meta, cli-build]
-    if: ${{ inputs.dry_run != 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write   # create the tag + publish the GitHub Release
