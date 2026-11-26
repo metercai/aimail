@@ -321,12 +321,12 @@ case "$AGENT" in
     # pysdk hosts: the plugin arrives as a pip package (see the wheel's entry points
     # hermes_agent.plugins / deerflow.extensions), so there is no npm-side install here.
     case "$AGENT" in
-      hermes)   H="$HOME/.hermes" ;;
-      deerflow) H="$HOME/.deerflow" ;;
+      hermes)   H="$HOME" ;;          # prepare.sh --home is the PARENT for hermes (writes $HOME/.hermes)
+      deerflow) H="/app" ;;   # prepare.sh default_home(deerflow)=/app (container base)
     esac
     bash "$AGENT_ENV/prepare.sh" "$AGENT" --home "$H" --llm-url "$LLM_BASE_URL" --llm-model "$LLM_MODEL" --llm-key "$LLM_API_KEY" \
       || die "$AGENT env prepare failed (single source: tests/agent-env)"
-    VERIFY_HOME="$H"; VERIFY_EXTRA=()
+    VERIFY_HOME="$H/.hermes"; [ "$AGENT" = deerflow ] && VERIFY_HOME="/app"; VERIFY_EXTRA=()
     ok "$AGENT env ready (pysdk host; single source)"
     ;;
 esac
