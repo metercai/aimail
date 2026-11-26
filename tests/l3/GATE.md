@@ -198,3 +198,20 @@ Traps this brought out, all fixture-side (each one would have produced a wrong v
 2. a welcome that is delivered+acked leaves no `pending_deliveries` row; querying only the queue made
    a correct calibration look like a failure (false RED). The evidence now comes from `emails` first.
 3. `run-v2.sh` reported PASS with zero cells after silently skipping pi — zero cells now exit FAIL.
+## §9 openclaw L3 — reuse the L2 container base, do not rebuild it on the host
+
+Rebuilding openclaw on the host scratch HOME wasted a full session: state-lock contention,
+model-fallback aborts and `plugins install` argument ambiguity only exist outside its image.
+The proven mechanics are already in `tests/host-acceptance/v2/hosts/openclaw.sh`:
+
+1. run inside `aimail-host-openclaw:latest` (`docker run --rm --network host --entrypoint bash`),
+   same as the L2 adapter — only the pre-install differs (L2 installs the SDK, L3 leaves it out);
+2. install (agent-side, L3): `openclaw plugins install agent-aimail@latest --accept-capabilities`
+   then `openclaw plugins enable agent-aimail --accept-capabilities`;
+3. **binding goes through the meta-tool**: `dispatch_action` with id `aimail_address`
+   (`{"action":"bind","code":…,"email":…,"gateway_url":…}`) — a direct `aimail_address` call
+   does not exist on this host and can never bind;
+4. one turn = `pkill -f "openclaw gateway"; timeout 420 openclaw agent --local --message "<prompt>"`.
+
+L3 additions on top of that: clean plugin state, the standard activation prompt decoded from the
+mail (not the raw MIME message), and version compare against npm latest.
