@@ -462,7 +462,12 @@ def main(argv: list) -> int:
     if not (repo / "pysdk").is_dir():
         print(f"CANNOT JUDGE: {repo}/pysdk not found", file=sys.stderr)
         return 2
-    missing = [d for d in REF_SCAN_DIRS if not (repo / d).is_dir()]
+    # 2026-11-25: cli/ retired by owner ruling. Its absence is expected, not "cannot judge"; if it ever
+    # reappears it is still scanned (never quietly dropped from the roots).
+    retired = [d for d in REF_SCAN_DIRS if d in {"cli"} and not (repo / d).is_dir()]
+    if retired:
+        print(f"note: {retired} retired 2026-11-25 — not scanned", file=sys.stderr)
+    missing = [d for d in REF_SCAN_DIRS if not (repo / d).is_dir() and d not in retired]
     if missing:
         print(f"CANNOT JUDGE: reference-side scan needs {missing} under {repo}",
               file=sys.stderr)

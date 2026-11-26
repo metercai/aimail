@@ -225,7 +225,7 @@ aimail pytest tests/sdk -q                                 441 passed           
 
 ---
 
-## v2.5 强制锚点（owner 2026-11-25 拍定，已实现）
+## v2.5 强制锚点（owner 2026-11-25 拍定，已实现并提交：gateway `v1.0.18 @ e8b6b42`）
 
 **决定**：网关拉邮件时**强制**带锚点；没有生产部署 ⇒ 不存在兼容包袱 ⇒ 不留"未登记就放行"这一档。
 
@@ -271,23 +271,28 @@ aimail pytest tests/sdk -q                                 441 passed           
 | 融合查询 vs 旧 JOIN 查询（200 地址组） | 345 µs vs 346 µs | 融合没有变慢 |
 | `parse_anchor_claims`，200 条声明（极端） | 82 µs | 真实场景是 1 个 header 值含 1–3 条声明（客户端 `anchorHeader()` 用逗号拼一个值），约 1–2 µs |
 
-**缓存（owner 2026-11-25 两次纠正后已实现）**：最初的判断"不缓存"是错的——锚点改写/删除概率极低，而拉取是持续高频，累积收益远大于尾部风险。现在按 AgentSystemId 缓存见证集：
+**缓存（owner 2026-11-25 三轮纠正后的最终形态）**
 
-- `Database.anchor_cache: Arc<RwLock<HashMap<asid, Arc<Vec<(address, Option<anchor>)>>>>>`，命中 = 一次 `RwLock` 读 + `Arc` 克隆，**不碰连接池**；
-- **失效范围 = 受影响的单个 ASID**（不是全量清空）：一个地址只属于一个 AgentSystemId（`agent_system_addresses.address` 是主键），所以一次激活的爆炸半径就是那一个组，别的组继续命中；
-  - `bind_agent_system_address`：ASID 本来就在参数里，直接 `remove(asid)`；
-  - `set_address_anchor`：在**同一条连接、同一个闭包**里先 upsert 再按主键查出该地址的 ASID，再删那一个键 ⇒ **不增加任何连接池往返**；
-  - `remove_agent_system_address_if_unowned`：删除前用同一连接读出 ASID，删成功才失效；
-- **写入频率（澄清）**：`set_address_anchor` 并不比 `bind_agent_system_address` 更频繁——两者都是**激活**里的相邻两步（`activation.rs:934` bind → `:962` anchor，且仅在带 `anchor_id` 时写），一次激活各一次；`remove_..._if_unowned` 在注销/吊销路径（`keys.rs:786`）。全部是控制面操作，数据面（拉取）不写库；
-- 收益（release 实测）：
+我最初"不缓存"的判断是错的，随后"全量 clear"的形状也是错的，现在按 owner 的三条意见收敛成：
 
-| 场景 | 加缓存前 | 加缓存后 |
-|---|---|---|
-| `enforce`，3 地址组 | 32.9 µs | **1.46 µs（22×）** |
-| `enforce`，200 地址组（不存在，极端） | 1217 µs | **77.7 µs（15×）**（瓶颈已变成 header 解析） |
-| 激活之后 | — | **只有该组**下一次拉取回源一次（约 30 µs），其余组不受影响 |
+- **结构**：`anchor_cache: Arc<RwLock<HashMap<asid, (seq, Arc<Vec<(address, Option<anchor>)>>)>>>`。命中 = 一次 `RwLock` 读 + `Arc` 克隆，不碰连接池；
+- **写侧是 PATCH，不是 drop**：激活/换锚点/解绑只改动**那一个地址的槽位**（`Arc::make_mut`），该组的条目保持温热 ⇒ **激活之后的下一次拉取仍然是命中**；
+- **新增地址必须进集合**（这条是纠正 owner 假设的地方）：严格规则要求"每个已绑定地址都有锚点"，所以给一个已存在的组新增第二个地址**确实改变了该组要证明的集合**——如果忽略，网关就会把 `new` 的邮件交给一个还没锚定的地址，正是我们把"未登记放行"删掉要堵的洞。正确做法不是忽略、也不是丢弃整个条目，而是 **patch 进去（值为 None）**，随后 `set_address_anchor` 再 patch 成 hash；
+- **解绑**：patch 移除该地址；条目若与 DB 不一致（找不到该地址）则丢弃该条目（一次回源）作为安全阀；
+- **退出机制（owner 要求）**：`ANCHOR_CACHE_MAX = 4096`，插入时若超限淘汰**最老的插入**（近似 LRU——热路径不取写锁，所以命中不刷新时间戳）；组的内存量级 ≈ 每地址 150–200 B，3 地址组约 200 B，上限下最坏 < 1 MiB。解绑/注销会 patch 掉地址，条目自然变小；
+- **写入频率**：`set_address_anchor` 不比 `bind_agent_system_address` 频繁——两者是激活的相邻两步（`activation.rs:934` bind → `:962` anchor，仅在带 `anchor_id` 时写）；`remove_..._if_unowned` 在吊销路径（`keys.rs:786`）。全部控制面，数据面不写库；三条写路径各多一次**同连接的**主键查询（无额外池往返）。
 
-- 正确性回归：`cached_witnesses_are_invalidated_by_re_anchoring`、`..._by_binding_and_unbinding`、`invalidation_is_scoped_to_the_affected_agent_system`（用 `Arc::ptr_eq` 证明别的组**没有**回源）、`a_re_anchored_address_is_refused_on_the_next_pull`（缓存命中一次后改锚点，旧声明必须立刻被拒）。
+实测（release）：
+
+| 场景 | 数值 |
+|---|---|
+| 命中后的拉取 | **1.37 µs / 次** |
+| **激活之后立刻拉取**（bind + anchor 刚写完） | **1.56 µs / 次**（若 drop 会变成 ~33 µs 回源） |
+| 加缓存前 | 32.9 µs / 次 |
+| 冷路径（未命中） | 33 µs / 次（一次索引查询） |
+| 200 地址组（极端） | 77.7 µs，瓶颈已是 header 解析 |
+
+正确性回归（6 项）：`cached_witnesses_are_invalidated_by_re_anchoring`、`..._by_binding_and_unbinding`、`invalidation_is_scoped_to_the_affected_agent_system`（`Arc::ptr_eq` 证明无关组不回源）、`activation_patches_a_warm_group_instead_of_dropping_it`（patch 后内容与 DB 一致）、`anchor_cache_is_bounded_and_evicts_the_oldest_entry`、`a_re_anchored_address_is_refused_on_the_next_pull`（缓存命中后改锚点，旧声明必须立刻被拒）。
 
 **校验点分布（重要，别记成"只在建连时"）**：`enforce_anchor_binding` 挂在三个端点——① `GET /agent-system/pending/stream`（**每次建连一次**，含 SSE 轮换/重连）；② `POST /agent-system/pending`（轮询模式下**每一轮一次**）；③ `POST /agent-system/pending/ack`（**每一批 ack 一次**）。连接建立之后、服务端沿已建流**主动推送**邮件的过程**不做任何锚点校验**（`sse_response_scoped` 里没有锚点逻辑）——所以长流维持期是零开销。客户端会在 SSE 与长轮询之间切换（`occupied` / `drop` / `stream stay`），实际频率取决于当前模式；加缓存后这三处都约 1.5 µs。
 

@@ -143,7 +143,7 @@ bash tests/host-acceptance/v2/run-matrix.sh --sdk py --host deerflow --stages "s
 | `agent-aimail`（PyPI，`pyproject.toml`） | 0.3.0 | **0.4.0** | 破坏性：删 `install.py`/`sdk_ops.py`/`deer-flow`/`hosts`/`hermes` v1；`ensure_system` 删除；`move` 语义变更 |
 | `agent-aimail`（npm，tssdk） | 0.5.2 | **0.6.0** | 破坏性：删 `sdk-ops`/`ensure-system`/`auto-bind`/`inbound-notify`/`listen`、openclaw 命令面；`move` 语义变更 |
 | `aimail.pi-desktop`（插件） | 0.2.1 | 0.2.2 | 无行为改动，跟随 core |
-| gateway | 1.0.16 | **1.0.17** | 新表 + 激活字段 + 拉取校验（向后兼容） |
+| gateway | 1.0.16 | **1.0.18**（`e8b6b42`；1.0.17 `ac30461` 已被下述强制版取代） | 新表 + 激活字段 + 拉取**强制**校验（无"未登记放行"档）+ 按 ASID 缓存 |
 
 发版前必做：
 

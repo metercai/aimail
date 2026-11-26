@@ -413,8 +413,9 @@ def main(argv: list) -> int:
                     help="Only print the current hit baseline JSON skeleton (reason left as TODO, do not write file)")
     args = ap.parse_args(argv[1:])
     root = Path(args.repo).resolve()
-    if not (root / "pysdk").is_dir() or not (root / "cli").is_dir():
-        print(f"CANNOT JUDGE: {root} cannot find pysdk/ and cli/", file=sys.stderr)
+    # 2026-11-25: cli/ retired — pysdk stays a hard requirement, cli is only a requirement while it exists.
+    if not (root / "pysdk").is_dir():
+        print(f"CANNOT JUDGE: {root} cannot find pysdk/", file=sys.stderr)
         return 2
     try:
         baseline = load_baseline(root)

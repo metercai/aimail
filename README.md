@@ -245,7 +245,7 @@ Deploy your own [aimail-gateway](https://github.com/metercai/aimail-gateway), or
 
 ## Further Reading
 
-- [aimail CLI (installation & maintenance)](cli/README.md)
+- ~~[aimail CLI (installation & maintenance)](cli/README.md)~~ — retired 2026-11-25 (owner ruling); the component and its gate were removed, use the SDK + host install paths instead.
 - [Agent Adapter Playbook](docs/agent-adapter-playbook.md)
 - [AIMail Host SSE Activation Contract v2](docs/aimail-host-sse-contract-v2.md)
 - [V2 gap and implementation plan](docs/v2-gap-and-implementation-plan.md)

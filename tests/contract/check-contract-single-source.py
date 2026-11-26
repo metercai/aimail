@@ -75,7 +75,9 @@ DOCS_WHITELIST = ("docs/agent-self-setup.md",
                   # must quote contract values verbatim (same as original cli/cli-sdk-bridge-boundaries.md fix A).
                   # 2026-10-08 moved from docs/contract-boundary_zh.md to cli/contract-boundary.md;
                   # old cli/cli-sdk-bridge-boundaries.md (2026-10-03 boundary draft) has been replaced and deleted by v1.0 contract.
-                  "cli/contract-boundary.md")
+                  # 2026-11-25 CLI component retired (owner ruling): cli/contract-boundary.md
+                  # went away with cli/, so it is no longer scanned here.
+                  )
 #: 2026-10-23 addition: SDK adaptation layer sole maintenance document (original platform documentation retired
 #: deleted, its host-side contract facts migrated accordingly). Same reason as agent-self-setup:
 #: To clearly explain the adaptation contract surface (inbound paths/ports/bindings/pointer file names/registration names/agent-level prefixes), contract values must be quoted verbatim
