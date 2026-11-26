@@ -196,6 +196,36 @@ def spool_wait(email, pattern, timeout=60):
                     return part, m.group(0)
         time.sleep(0.5)
     return None, None
+def prompt_from_mail(raw_part):
+    """Decode the mail and keep only the standard activation instruction block.
+    Handing the raw MIME message to the agent (headers, boundary, quoted-printable) made
+    every host improvise; the documented prompt starts at "Use `aimail_address`"."""
+    import email as _email
+    text = ""
+    try:
+        msg = _email.message_from_string(raw_part)
+        if msg.is_multipart():
+            for p in msg.walk():
+                if p.get_content_type() == "text/plain":
+                    text = (p.get_payload(decode=True) or b"").decode("utf-8", "replace")
+                    break
+        else:
+            pay = msg.get_payload(decode=True)
+            text = pay.decode("utf-8", "replace") if pay else str(msg.get_payload())
+    except Exception:
+        text = ""
+    if not text.strip():
+        text = raw_part
+    # quoted-printable soft breaks survive get_payload(decode=True) when the CTE header did not
+    # survive the spool split; decode them explicitly before extracting the block.
+    if "=\n" in text or "=3D" in text:
+        import quopri
+        text = quopri.decodestring(text.encode("utf-8", "replace")).decode("utf-8", "replace")
+        text = text.replace("=\r\n", "").replace("=\n", "")
+    i = text.find("Use `aimail_address`")
+    if i >= 0:
+        text = text[i:]
+    return text.strip() + "\n"
 L3_NAME = "L3 User"   # the name the submit below uses; verification is name+email+code
 st, r = post("/api/v1/public/email-verify/send", {"email": applicant, "name": L3_NAME})
 assert st in (200, 201), f"verify/send HTTP {st}: {r}"
@@ -216,7 +246,7 @@ part, code = spool_wait(applicant, r"(addr-[0-9a-f]{4}(?:-[0-9a-f]{4}){5})")
 assert code, "no activation code in the applicant mailbox"
 assert len(code) == 34, f"activation code length {len(code)} (expect 34) — extraction truncated"
 # the FULL prompt is the mail body (D1: the user pastes exactly this into the agent)
-open(f"{spool}.prompt.txt", "w", encoding="utf-8").write(part)
+open(f"{spool}.prompt.txt", "w", encoding="utf-8").write(prompt_from_mail(part))
 print(f"  activation prompt captured from mail body (code len {len(code)})")
 open(sys.argv[4], "w", encoding="utf-8").write(f"APPLICANT={applicant}\nADDR={addr}\n")
 PY
