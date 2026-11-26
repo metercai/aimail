@@ -136,10 +136,15 @@ def write_openclaw(home: Path, base_url: str, model: str, api_key: str) -> list[
     models.setdefault("providers", {})[pid] = {
         "baseUrl": base_url, "api": "openai-completions",
         "apiKey": api_key if (api_key and api_key != DEFAULT_API_KEY) else ENV_PLACEHOLDER,
-        # L2 shape (tests/host-acceptance/v2/hosts/openclaw.sh:34-39, verified working):
-        # a minimal entry + a STRING model selector. A richer entry / dict selector made
-        # `openclaw agent` answer "Unknown model: <pid>/<model>".
-        "models": [{"id": model}],
+        # 2026.11.5 requires the full entry (models[0].name etc. — schema-validated) but takes a
+        # STRING model selector; the older minimal {id} shape came from the L2 host image.
+        "models": [{
+            "id": model,
+            "name": f"{model} (journey)",
+            "contextWindow": 128000,
+            "maxTokens": 4096,
+            "input": ["text"],
+        }],
     }
     defaults = cfg.setdefault("agents", {}).setdefault("defaults", {})
     defaults["model"] = f"{pid}/{model}"
@@ -629,9 +634,12 @@ def verify_openclaw(home: Path, base_url: str, model: str) -> list[str]:
     for entry in prov.get("models") or []:
         if not isinstance(entry, dict) or entry.get("id") != model:
             continue
-        # L2 evidence (hosts/openclaw.sh:34-39): a bare {"id"} entry is what the working
-        # config uses; the older "name/contextWindow required" claim was a 2026-09-27
-        # llama-server shape and does not hold for this provider.
+        # 2026.11.5 schema rejects a bare {id} entry (models[0].name: expected string); the
+        # L2 host image's minimal shape only held for its older openclaw.
+        for req in ("name", "contextWindow", "maxTokens", "input"):
+            if not entry.get(req):
+                bad.append(f"models.providers.{pid}.models[{model}].{req} is missing — "
+                           f"openclaw 2026.11.5 refuses to start in that state")
     prim = ((cfg.get("agents") or {}).get("defaults") or {}).get("model")
     prim_id = prim.get("primary") if isinstance(prim, dict) else prim
     if prim_id != f"{pid}/{model}":
