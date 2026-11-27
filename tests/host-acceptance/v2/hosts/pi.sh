@@ -57,6 +57,14 @@ PY
       timeout 420 pi -p "$PROMPT" >/tmp/pi.log 2>&1 || true
       python3 /opt/v2lib/dsh_state.py /root/.aimail count > /out/bindings_seen 2>/dev/null || echo 0 > /out/bindings_seen
       B=$(ls /root/.aimail/systems/*/*/agentmail.json 2>/dev/null | head -1)  # contract-allowed: fixture globs the SDK binding file; the repo contract is not mounted inside the host image
+      # A live model sometimes answers without dispatching the tool (measured 2026-11-27: S5 saw
+      # 0 frames, and two full runs lost the whole host to a single such turn). A real user simply
+      # asks again, so the fixture retries ONCE -- bounded, and the retry is recorded in the log.
+      if [ -z "$B" ]; then
+        echo "RETRY: no binding after the first turn, asking once more" >> /tmp/pi.log
+        timeout 420 pi -p "$PROMPT" >> /tmp/pi.log 2>&1 || true
+        B=$(ls /root/.aimail/systems/*/*/agentmail.json 2>/dev/null | head -1)
+      fi
       if [ -n "$B" ]; then install -m 644 "$B" /out/binding.json; stat -c %a "$B" > /out/mode; fi
       python3 - <<PY >/out/paused_seen 2>/dev/null || echo None >/out/paused_seen
 import glob, json
