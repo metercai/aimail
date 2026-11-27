@@ -729,3 +729,34 @@ RED   S8「reply was NOT accepted」
 - dsh：S6 ack 判据、S7 lineage、S8 ack（见上）
 - s5 需要单独一趟（`--stages "s5"`）
 - pi / openclaw 这一趟还在跑
+
+---
+
+## 20. 投递类一趟的结果（2026-11-27 深夜）
+
+### 20.1 dsh：**全绿**
+
+`--host dsh --stages "s1 s2 s3 s6 s7 s8 neg"` → `PASS=32 RED=0 GAP=0 VERDICT: PASS`
+（S6 三封全 ack / 回复复用同一会话 / 新 thread 新会话 / 会话数不增长；S7 重挂新会话且血缘保留；
+S8 anchor-moved 记录且投到当前锚点会话）。关键修复：驱动的"接受"判据改为**持久信号**
+（`emails` 行 `status=delivered` + 该地址 pending 归零），因为 SSE 拉取会在一个轮询间隔内完成 ack。
+
+### 20.2 pi：该趟同样干净
+
+`pi` 段 `PASS=21`，无 RED/GAP（S7/S8 按契约 N/A）。
+
+### 20.3 openclaw：卡在 `410 CODE_GONE`，但**不是产品拒绝**
+
+回合回复是 `HTTP 410 CODE_GONE（invalid or expired activation code）`。查网关库：
+两条 openclaw 码 `claimed=0`、`claimed_at=NULL`、`expires_at` 在未来 ⇒ **网关从未收到过这个码**。
+⇒ 模型在 `dispatch_action` 里把长码（`addr-f6f0-e77d-92e6-5dc7-9a5b-39f8`）抄错了，不是宿主拒绝。
+（同一批的 pi/dsh 用同样提示词都能绑上，所以是 openclaw 元工具的参数转写问题。）
+
+下一步：夹具在收到 410 时**重新签发一个新码并重试**（该地址可以多次签码），并在提示里要求模型
+先逐字回显再 dispatch —— 目标是把"模型抄写长串"的不确定性从判据里去掉。
+
+### 20.4 仍未做
+
+- `--stages "s5"` 单独一趟（pause/unbind）
+- openclaw 的 410 重试
+- 三宿主两趟全绿 → 才发版
