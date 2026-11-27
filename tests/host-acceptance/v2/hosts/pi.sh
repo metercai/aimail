@@ -183,20 +183,20 @@ PY
 host_journey() {
   local out="$1" addr="$2" code="$3" token="$4"
   mkdir -p "$out"
-  _pi_run "$out" "Call the aimail_address tool now with exactly this JSON: {\"action\":\"bind\",\"code\":\"$code\",\"email\":\"$addr\",\"gateway_url\":\"${GW_URL}\"}. Do not ask questions; just call it and report the result."
+  _pi_run "$out" "Call the aimail_address tool now with exactly this JSON: {\"action\":\"bind\",\"code\":\"$code\",\"email\":\"$addr\",\"gateway_url\":\"${GW_URL}\"}. Copy the code character by character (it contains dashes). Do not ask questions; just call it and report the result."
   local maxb; maxb="$(cat "$out/bindings_seen" 2>/dev/null || echo 0)"
   local paused="False"
 
   if [ -n "${S4_ADDR:-}" ] && [ -n "${S4_CODE:-}" ]; then
-    _pi_run "$out" "Call the aimail_address tool now with exactly this JSON: {\"action\":\"bind\",\"code\":\"${S4_CODE}\",\"email\":\"${S4_ADDR}\",\"gateway_url\":\"${GW_URL}\"}. Do not ask questions; just call it and report the result."
+    _pi_run "$out" "Call the aimail_address tool now with exactly this JSON: {\"action\":\"bind\",\"code\":\"${S4_CODE}\",\"email\":\"${S4_ADDR}\",\"gateway_url\":\"${GW_URL}\"}. Copy the code character by character (it contains dashes). Do not ask questions; just call it and report the result."
     local b2; b2="$(cat "$out/bindings_seen" 2>/dev/null || echo 0)"
     [ "${b2:-0}" -gt "${maxb:-0}" ] && maxb="$b2"
   fi
 
   if [ "${LIFECYCLE:-0}" = "1" ]; then
-    _pi_run "$out" "Call the aimail_address tool now with exactly this JSON: {\"action\":\"pause\",\"email\":\"$addr\"}. Do not ask questions; just call it and report the result."
+    _pi_run "$out" "Call the aimail_address tool now with exactly this JSON: {\"action\":\"pause\",\"email\":\"$addr\"}. Copy the code character by character (it contains dashes). Do not ask questions; just call it and report the result."
     paused="$(cat "$out/paused_seen" 2>/dev/null || echo False)"
-    _pi_run "$out" "Call the aimail_address tool now with exactly this JSON: {\"action\":\"unbind\",\"email\":\"$addr\"}. Do not ask questions; just call it and report the result."
+    _pi_run "$out" "Call the aimail_address tool now with exactly this JSON: {\"action\":\"unbind\",\"email\":\"$addr\"}. Copy the code character by character (it contains dashes). Do not ask questions; just call it and report the result."
   fi
 
   # independent cases on purpose: a `case` stops at the first match, so "s6 s7" in one run would only
@@ -324,7 +324,7 @@ host_stop() { :; }
 
 host_negative() {
   local out="$1" addr="$2"
-  PI_HOME_SUFFIX=neg _pi_run "$out" "Call the aimail_address tool now with exactly this JSON: {\"action\":\"bind\",\"code\":\"addr-0000-deadbeef\",\"email\":\"$addr\",\"gateway_url\":\"${GW_URL}\"}. Do not ask questions; just call it and report the result."
+  PI_HOME_SUFFIX=neg _pi_run "$out" "Call the aimail_address tool now with exactly this JSON: {\"action\":\"bind\",\"code\":\"addr-0000-deadbeef\",\"email\":\"$addr\",\"gateway_url\":\"${GW_URL}\"}. Copy the code character by character (it contains dashes). Do not ask questions; just call it and report the result."
   cp "$out/bindings_seen" "$out/bindings_count" 2>/dev/null || echo 0 > "$out/bindings_count"
   cp "$out/last.log" "$out/act.log" 2>/dev/null || true
   return 0

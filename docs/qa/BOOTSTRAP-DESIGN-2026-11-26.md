@@ -760,3 +760,40 @@ S8 anchor-moved 记录且投到当前锚点会话）。关键修复：驱动的"
 - `--stages "s5"` 单独一趟（pause/unbind）
 - openclaw 的 410 重试
 - 三宿主两趟全绿 → 才发版
+
+---
+
+## 21. openclaw 底座回滚（2026.11.10 → 2026.11.5）：对照实验结论
+
+同一夹具、同一网关、同一把 key，只改底座镜像：
+
+| 底座 | `s1 s2 s3` 结果 | 现象 |
+|---|---|---|
+| **2026.11.10**（我今天升上去的） | 绑不上 | 回合报 `HTTP 410 CODE_GONE` 或"gateway unreachable from the tool's perspective"，而网关库里那两个码 `claimed=0`、未过期 |
+| **2026.11.5**（回滚后） | **PASS=15 RED=0 GAP=0** | 正常绑定、arm、投递、ack |
+
+⇒ **是我把 base 升到 2026.11.10 破坏了插件的绑定路径**（两个底座"能注册插件"不代表"能绑定"——我先前只用
+`openclaw plugins install` + `plugins list` 验证了注册，这个验证不足）。
+
+处置：`pins.env` 的 `BASE_OPENCLAW` 与 `OPENCLAW_VERSION` **一起回滚到 2026.11.5**，重建镜像（版本门
+`✓ pinned version installed: openclaw 2026.11.5`、12 项校验全过）。**新的宿主版本绑不上就不叫"最新"，叫坏。**
+
+### 21.1 回滚后 openclaw 投递类一趟
+
+`--stages "s1 s2 s3 s4 s6 s7 s8 neg"` → `PASS=24 RED=1 GAP=1`：
+
+- **RED**：`S3 delivery observed max=1 final=1` —— pending 行创建了但窗口内没被拉走；
+- **GAP**：`S8 anchor isolation — no s8_anchor.json: host hook not implemented` —— openclaw 的 journey
+  里**没有 s8 驱动**（dsh 有 `s8_drive.py` 调用），需要补上同样的接线。
+
+### 21.2 当前三宿主（投递类一趟）
+
+| 宿主 | 结果 |
+|---|---|
+| dsh | **PASS=32 RED=0 GAP=0** |
+| pi | **PASS=21，无 RED/GAP** |
+| openclaw | PASS=24，剩 1 RED（S3 窗口）+ 1 GAP（S8 驱动未接线） |
+
+另：`run-matrix` 新增"缺 binding 就重签码重跑"的有界重试，但 `gw.py code` 对该地址返回
+`412 email address not registered`（该端点要求先注册），所以重试路径当前**不可用**，需要改用
+`gw.py apply`（新地址）或补一个针对已注册地址的签码调用。

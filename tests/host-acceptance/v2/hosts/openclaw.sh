@@ -77,7 +77,7 @@ PY
       # openclaw exposes plugin tools through the meta-tool surface: the model must
       # dispatch by id (dispatch_action), not call aimail_address directly.
       _bind() {
-        _turn "Use the dispatch_action tool with id \"aimail_address\" and args {\"action\":\"bind\",\"code\":\"$2\",\"email\":\"$1\",\"gateway_url\":\"$GWURL\"}. Do not ask questions; just dispatch it and report the result."
+        _turn "Use the dispatch_action tool with id \"aimail_address\" and args {\"action\":\"bind\",\"code\":\"$2\",\"email\":\"$1\",\"gateway_url\":\"$GWURL\"}. Copy the code character by character (it contains dashes). Do not ask questions; just dispatch it and report the result."
         # Bounded retry: a live model sometimes replies without dispatching (measured 2026-11-27,
         # where one such turn cost the whole host). The retry is recorded, never silent.
         if ! ls /app/.aimail/systems/*/*/agentmail.json >/dev/null 2>&1; then
@@ -93,9 +93,9 @@ PY
         python3 /opt/v2lib/dsh_state.py /app/.aimail count > /out/b2 2>/dev/null || echo 0 > /out/b2
       fi
       if [ "$LIFECYCLE" = "1" ]; then
-        _turn "Use the dispatch_action tool with id \"aimail_address\" and args {\"action\":\"pause\",\"email\":\"$AH\"}. Do not ask questions; just dispatch it and report the result."
+        _turn "Use the dispatch_action tool with id \"aimail_address\" and args {\"action\":\"pause\",\"email\":\"$AH\"}. Copy the code character by character (it contains dashes). Do not ask questions; just dispatch it and report the result."
         python3 /opt/v2lib/dsh_state.py /app/.aimail paused > /out/paused 2>/dev/null || echo unknown > /out/paused
-        _turn "Use the dispatch_action tool with id \"aimail_address\" and args {\"action\":\"unbind\",\"email\":\"$AH\"}. Do not ask questions; just dispatch it and report the result."
+        _turn "Use the dispatch_action tool with id \"aimail_address\" and args {\"action\":\"unbind\",\"email\":\"$AH\"}. Copy the code character by character (it contains dashes). Do not ask questions; just dispatch it and report the result."
         python3 /opt/v2lib/dsh_state.py /app/.aimail count > /out/b3 2>/dev/null || echo 0 > /out/b3
       fi
       B=$(ls /app/.aimail/systems/*/*/agentmail.json 2>/dev/null | head -1)  # contract-allowed: fixture globs the SDK binding file; the repo contract is not mounted inside the host image
@@ -263,7 +263,7 @@ PY
       echo "boot: embedded agent mode (no gateway during turns)" >/tmp/gw.log
       python3 - <<PY
 import json, urllib.request
-body = json.dumps({"message": "Call the aimail_address tool now with exactly this JSON: {\"action\":\"bind\",\"code\":\"addr-0000-deadbeef\",\"email\":\"" + __import__("os").environ["AH"] + "\",\"gateway_url\":\"" + __import__("os").environ["GWURL"] + "\"}. Do not ask questions; just call it and report the result."}).encode()
+body = json.dumps({"message": "Call the aimail_address tool now with exactly this JSON: {\"action\":\"bind\",\"code\":\"addr-0000-deadbeef\",\"email\":\"" + __import__("os").environ["AH"] + "\",\"gateway_url\":\"" + __import__("os").environ["GWURL"] + "\"}. Copy the code character by character (it contains dashes). Do not ask questions; just call it and report the result."}).encode()
 req = urllib.request.Request("http://127.0.0.1:39201/hooks/agent", data=body,
     headers={"content-type": "application/json", "authorization": "Bearer l2-hook-token"}, method="POST")
 try:
