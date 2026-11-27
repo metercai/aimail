@@ -124,9 +124,10 @@ PY
       mkdir -p /out/aimail-logs 2>/dev/null || true
       find /app/.aimail/systems -name 'agentmail.log' -exec cp {} /out/aimail-logs/ \; 2>/dev/null || true
       grep -a "agent-aimail\|aimail-pull" /tmp/gw.log /tmp/gw2.log > /out/host.log 2>/dev/null || true
-      # Without the gateway's own log a missing arming line cannot be classified: product (plugin
-      # never armed) vs fixture (gateway never started). Measured 2026-11-27: host.log held only the
-      # embedded-mode line and gw2.log was not preserved, so S2 RED was unattributable.
+      # Keep the gateway logs: without them a missing arming line cannot be classified as
+      # product (plugin never armed) vs fixture (gateway never started). Measured 2026-11-27:
+      # host.log held only the embedded-mode line and gw2.log was not preserved, so the S2 RED
+      # was unattributable. NOTE: no apostrophes here -- this block is a single-quoted -lc body.
       cp /tmp/gw.log /out/gw.log 2>/dev/null || true
       cp /tmp/gw2.log /out/gw2.log 2>/dev/null || true
       tail -n 200 /tmp/gw.log /tmp/gw2.log >> /out/host.log 2>/dev/null || true
