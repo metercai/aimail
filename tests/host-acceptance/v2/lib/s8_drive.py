@@ -127,7 +127,7 @@ def main() -> int:
     s0 = snap(a)
     log("baseline sessions: %d" % len(s0))
     send(a.addr, a.smtp_port, root_a, "", "")
-    acked1 = wait_ack(a)
+    acked1 = wait_ack(a, root_a)
     settle(a)
     s1 = snap(a)
     new1 = [x for x in s1 if x not in s0]
@@ -147,7 +147,7 @@ def main() -> int:
 
     before_reply = mtimes(a.session_root)
     send(a.addr, a.smtp_port, root_reply, root_a, root_a)
-    acked2 = wait_ack(a)
+    acked2 = wait_ack(a, root_reply)
     settle(a)
     s2 = snap(a)
     new2 = [x for x in s2 if x not in s1]

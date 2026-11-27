@@ -54,8 +54,27 @@ def pending(db: str, addr: str) -> int:
         return -1
 
 
-def wait_ack(db: str, addr: str, timeout_s: float = 180.0) -> bool:
-    """pending observed > 0 and back to 0 ⇒ the host took the mail."""
+def delivered(db: str, mid: str) -> bool:
+    """Durable acceptance: an inbound row for this Message-ID that the gateway marked delivered.
+
+    Needed because an active SSE pull can take the mail and ack it inside one poll interval:
+    measured 2026-11-27, the gateway log showed 18 received / 18 pending insertions while a
+    0.2s sampler never saw the transient, so every driver mail looked "not accepted" and S6/S7/S8
+    went RED on hosts that had in fact done the work.
+    """
+    try:
+        c = sqlite3.connect("file:%s?mode=ro" % db, uri=True, timeout=5)
+        row = c.execute(
+            "select count(*) from emails where direction='inbound' "
+            "and headers like ? and status='delivered'", ("%" + mid + "%",)).fetchone()
+        c.close()
+        return bool(row and row[0])
+    except Exception:
+        return False
+
+
+def wait_ack(db: str, addr: str, mid: str = "", timeout_s: float = 180.0) -> bool:
+    """The host took the mail: pending went 0 after being >0, or the durable proof says so."""
     deadline = time.monotonic() + timeout_s
     seen = 0
     while time.monotonic() < deadline:
@@ -63,6 +82,9 @@ def wait_ack(db: str, addr: str, timeout_s: float = 180.0) -> bool:
         if n > seen:
             seen = n
         if seen > 0 and n == 0:
+            return True
+        # durable fallback: the mail is in, delivered, and nothing is left pending for the address
+        if mid and delivered(db, mid) and n == 0:
             return True
         time.sleep(0.2)
     return False
@@ -217,7 +239,7 @@ def main() -> int:
             acked.append(False)
             snaps.append(snap())
             continue
-        acked.append(wait_ack(a.db, a.addr))
+        acked.append(wait_ack(a.db, a.addr, mid))
         time.sleep(a.settle)
         snaps.append(snap())
 
