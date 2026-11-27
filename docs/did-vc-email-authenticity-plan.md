@@ -225,8 +225,12 @@ C 的成立条件由 §14（`text/plain` = 存储正文逐字节原样）与 §1
         签                        不改不签                      验                    再验一遍，不过即拒收
 ```
 
-只做前半段而让 agent 无条件接收，等于把验证结果丢在地上。收件侧两道关：**MTA 验** + **SDK 独立复验**；
-后者不信任前者，只把它的结论当交叉校验的第二意见。
+只做前半段而让 agent 无条件接收，等于把验证结果丢在地上。收件侧两道关：
+
+- **MTA 只做地址维度**（§25）：查锚定、可归因时拒收；
+- **SDK 做完整性并裁决**（§26）：`Content-v1` 的唯一实现，不信任 MTA 的结论，只把它当第二意见。
+
+完整性**只有一份实现**（did-sdk），MTA 侧不做——这既是省算力，也是"字节契约只此一份"的一致性要求。
 
 ---
 
@@ -363,21 +367,36 @@ Part VIII 再把它们映射到代码，**且不引入任何这里没出现的�
 | R10 | 透传 `DID-Signature` | gateway | R8 | 加入出站头白名单，不剥不签 |
 | R11 | DKIM 只加头不改正文 | gateway transform | 原字节 | 改正文 → `error!` 日志 + 文档约束 |
 
-### 25. 接收链路（MTA 侧）
+### 25. 接收链路（MTA 侧）：只做地址维度（方案 B′）
+
+**完整性不在 MTA 做**——`Content-v1` 的重算（正文 + 逐附件哈希）只发生在收件 agent 的 SDK 里。
+MTA 在入口只回答一个问题：**这个 `From` 地址此刻是否真的绑在这个 `did:key` 上。**
 
 | # | 职责 | 执行方 | 输入 | 产出 / 失败语义 |
 |---|---|---|---|---|
 | R12 | 剥离邮件里已有的 `DID-Auth-Results` | gateway | `raw_data` | 外部结论一律不可信 |
-| R13 | 解析 `From` 与 `DID-Signature`；多地址逐个处理 | gateway | R12 输出 | 无头 → `did_absent` |
-| R14 | 离线解码 `did:key`、校验时间窗 | gateway | R13 | `did_unsupported` / `timestamp_out_of_window` |
-| R15 | 重算 `Content-v1`（`text/plain` + 逐附件部件字节） | gateway | 原始 MIME 在手 | 不符 → `body_hash_mismatch` |
-| R16 | 重算 `rh`（按原始 To/Cc 头） | gateway | MIME 头 | 不符 → `rcpt_hash_mismatch` |
-| R17 | Ed25519 验签 | gateway | R14–R16 | `signature_invalid` |
-| R18 | 锚定查询 + `payload_hash` 重建比对 | gateway（chain-sdk Verifier） | `vc=chain:<id>` | 六个 address reason |
-| R19 | 生成 `DID-Auth-Results` 并写入记录头 | gateway | R12–R18 | 每地址一个实例 |
-| R20 | 载荷构造：`body_signed` / `rcpt_*_raw` / 附件引用 / `results` | gateway | R19 + `record.body` | 仅 DID 记录追加（§38） |
+| R13 | 解析 `From` 与 `DID-Signature`；多地址逐个处理 | gateway | R12 输出 | 无头 → `did_absent`（照收） |
+| R14 | 离线解码 `did:key`；格式/时钟窗不过 → 标记后照收 | gateway | R13 | `did_unsupported` / `timestamp_out_of_window`：**收 + 标记**（拒收会被中间人利用） |
+| R15 | 查锚定 + 用 `(did, from, issuer_did)` 重建 `payload_hash` 比对 | gateway（chain-sdk Verifier） | `vc=chain:<id>` | `anchor_not_found` / `_type_mismatch` / `_hash_mismatch` / `_revoked` / `_expired` |
+| R16 | **失败路径归因**：仅当 R15 判定失败时，用头里的 `did/from/t/vc/bh/rh` 重建七行签名对象做一次 Ed25519 验签（**不碰正文与附件**） | gateway | R15 + 头 | 通过 → R15 的失败是发件人真实声称 → **SMTP 拒收**；不通过 → 头被改过 → 收 + 标记 |
+| R17 | 写 `DID-Auth-Results`（**只含 address 维度**） | gateway | R15/R16 | `result=unknown; integrity=delegated; address=…` |
+| R18 | 载荷构造：`body_signed` / `rcpt_*_raw` / 附件引用 / `results` / `gateway_time` | gateway | R17 + `record.body` | 仅 DID 记录追加（§38） |
 
-R12–R17 零网络；R18 一次查询，失败按 `chain_unavailable` 处理且**不拒收**（§51）。
+四条设计约束：
+
+1. **稳态零密码学**：锚定成立（绝大多数邮件）时，R16 不执行——每封只花一次**按 `anchor_id` 缓存**的查询。
+2. **不重算正文/附件**：MTA 从不算 `Content-v1`，所以没有第二份完整性实现，也不为附件哈希付代价。
+3. **`chain_unavailable` 不拒收**（可用性优先）；**`did_absent` 必须照收**（否则所有外部邮件全死）。
+4. **锚定查询防放大**：`anchor_id` 由发件人控制，攻击者可用海量随机 id 制造全 miss。
+   必须同时上负缓存（miss 也缓存）、每发件人/每 IP 限流、硬超时（≤1.5s，超时按 `chain_unavailable`）。
+   advanced 版的每系统入站限流在 R12 之前执行，天然挡掉一层。
+
+**为什么拒收要经过 R16**：MTA 不验完整性就无从区分"发件人真的用了失效锚定"与"中转方改掉了 `vc`"。
+不归因就拒收，等于给中间人一个"让任意合法邮件被拒"的开关。
+
+> **方案对照**：完整验签（原 C 方案）能额外给非 SDK 下游一个完整性结论，但代价是每封重算正文与全部附件
+> （按实测 1 MiB ≈ 0.8 ms、5 MiB ≈ 4 ms），并引入第二份完整性实现；且"签名失败"类缺陷同样**不能**安全拒收
+> （归因问题相同）。因此完整性结论作为**按域可选的增强**，默认关闭。
 
 ### 26. 接收链路（agent 侧，独立复验）
 
@@ -392,7 +411,7 @@ R12–R17 零网络；R18 一次查询，失败按 `chain_unavailable` 处理且
 | R27 | 用 `rcpt_*_raw` 重算 `rh` | SDK | R20 | `rcpt_hash_mismatch` |
 | R28 | Ed25519 验签 | SDK（经 did-sdk） | R23–R27 | `signature_invalid` |
 | R29 | 地址维度：复用 `results` 或自查锚定 | SDK | `did.results` / `vc` | 两种模式（§51） |
-| R30 | 双侧交叉校验 | SDK | R26–R29 | 不一致 → 告警，**以自己为准** |
+| R30 | 地址维度交叉校验（`selfcheck` 模式下 SDK 自查锚定 vs MTA 结论） | SDK | R29 | 不一致 → 告警，**以自己为准** |
 | R31 | 裁决 accept / reject / accept_flagged | SDK | R28–R30 + 策略 | 见 §51 |
 | R32 | 拒收：写审计副本 + 日志事件 + 吞掉 | SDK | R31 | 不进 LLM、不写常规索引 |
 | R33 | 放行：常规 preprocess → LLM | SDK | 既有链路 | — |
@@ -416,7 +435,7 @@ R12–R17 零网络；R18 一次查询，失败按 `chain_unavailable` 处理且
 |---|---|---|
 | R41 | 指标：`did_verified` / `did_failed_integrity` / `did_failed_address` / `did_absent` / `did_chain_error` / `did_not_verifiable` | gateway |
 | R42 | `aimail did status`：本地 VC / 签名 / 与网关比对（按需 GET，**不在发信路径**） | SDK |
-| R43 | 审计：拒收副本、双侧不一致事件 | SDK / gateway |
+| R43 | 审计：拒收副本、地址结论不一致事件 | SDK / gateway |
 
 ---
 
@@ -780,7 +799,7 @@ Authentication-Results 同构，且比 `base64url(JSON)` 更短。
 | ID | 不变量 | 怎么检验 |
 |---|---|---|
 | **N9** | 任何进入比对环节的 hash 都由验证方本地计算；**载荷里不出现 hash** | 代码审查 + 载荷 schema 断言 |
-| **N10** | 收件方不采信 MTA 的 `bh`/`rh`/签名结论，只用于交叉校验 | 单测：篡改 `results` 不影响 SDK 自己的判定 |
+| **N10** | 收件方不采信 MTA 的结论里的任何完整性含义；地址维度可用作交叉校验 | 单测：篡改 `results` 不影响 SDK 自己的完整性判定 |
 | **N11** | 载荷缺字段 / 附件取不回 / 超长 → `not_verifiable`，**永不等于 `verified`** | 单测（三种降级各一例） |
 | **N12** | 系统邮件（`X-AIMail-System`）只接受来自本地配置的网关地址 | 单测：伪造 from 的系统邮件被忽略 |
 
@@ -801,15 +820,30 @@ Authentication-Results 同构，且比 `base64url(JSON)` 更短。
 | **N18** | `DID-Signature` 不剥不改；入口必剥外部 `DID-Auth-Results` | e2e（预置伪造结论） |
 | **N19** | 多 `From` 逐地址判定：`From` 有 N 个地址、只有 M<N 个头 → 缺头者 `did_absent`，整封不得为 `verified` | 单测 + 向量 |
 | **N20** | DSN / `MAIL FROM:<>` 不参与验证 | 单测（退信路径不产生 `DID-Auth-Results`） |
-| **N21** | 双侧（MTA / SDK）独立算出的 `Content-v1` 逐字节相同 | 交叉校验用例；不一致即告警 |
+| **N21** | 完整性**只有 SDK 一处实现**：MTA 从不计算 `Content-v1`（方案 B′）；MTA 的 `integrity=delegated` 不得被解释为通过 | 代码审查：MTA 侧无正文/附件哈希调用；单测：`integrity=delegated` 时 SDK 必须自算 |
 
-### 51. 收件侧裁决策略（R31）
+### 51. 收件侧裁决策略
+
+**两级裁决，依据不同、粒度不同。**
+
+**第一级：MTA 入口（§25，只看地址维度）**
+
+| 入口结论 | 处置 |
+|---|---|
+| 锚定成立 | 放行，`address=verified` |
+| 锚定不存在／类型不符／哈希不符／已撤销／已过期，**且 R16 归因通过** | **SMTP 拒收（550）** |
+| 同上，但 R16 归因**不通过**（头被改过） | 放行 + 标记 |
+| `chain_unavailable` / 超时 | 放行 + 标记（可用性优先） |
+| 头格式非法 / 越窗 / 无头 | 放行 + 标记（**永不拒收**；否则被中间人利用成 DoS） |
+
+**第二级：收件 SDK（完整性 + 地址维度组合）**
 
 关键区分：**"没签名"与"签名验不过"是两件事**。前者是兼容性，后者是安全性。
 
 | 情形 | 判定 | 处置 |
 |---|---|---|
 | 外部客户端不支持 DID | `did_absent` | **照常收** |
+| MTA 只给了地址结论（`integrity=delegated`） | 正常态，SDK 自己算完整性 | 以自己的完整性结论为准 |
 | `did` 非 `did:key` / 格式非法 | `did_unsupported` | 照常收 + 告警 |
 | SDK 独立验签失败 | `signature_invalid` / `body_hash_mismatch` / `rcpt_hash_mismatch` / `timestamp_out_of_window` | **拒收** |
 | 锚定基础设施不可用 | `chain_unavailable` | 照常收 + 标记 |
@@ -999,7 +1033,7 @@ aimail-gateway/
 | **P3** 地址真实性 | R18 接 `Centralized` + 缓存 + 穿透 + 超时 + 指标 | 每封多一次 HTTP（≤1.5s） | 同上 | 六个 address reason + 缓存命中/穿透 |
 | **P4** 发件侧 | R4–R11；payload `did` 对象；`undelivered` + 通知邮件 | 出站组装、收件人回报、入站载荷均变 | `sign=False`；幂等补丁可留 | 端到端：SDK 签 → 纯转发 → 回灌 → **SDK 自己验出 verified** |
 | **P5** 移除服务端签名 | 删 `send.rs:100`、下线存储字段与 `whoami`/`agent-meta` 字段 | **破坏性** | 保留列与逻辑 | 双尾部/空尾部回归；非 SDK 调用方文档 |
-| **P6** 收件侧独立验签 | R21–R33（先 `record` 再 `enforce`）、R30 交叉校验、§52① 时钟 | agent 可能拒收（默认 `enforce`） | 策略切 `record`/`off` | N9–N12、N21；§51 全情形；**拒收必须由 SDK 自身验签触发** |
+| **P6** 收件侧独立验签 | R21–R33（先 `record` 再 `enforce`）、R30 地址交叉校验、§52① 时钟 | agent 可能拒收（默认 `enforce`） | 策略切 `record`/`off` | N9–N12、N21；§51 两级全情形；**SDK 拒收必须由自身验签触发，不得因 `integrity=delegated` 而放行** |
 | **P7** 发行侧 | R34–R40，含 R36a/R36b | 仅新增管理端点 + **域名接入运营要求**（发 TXT） | 端点级移除 | 绑定→`DomainControl`→`EmailBinding`→VC→落盘→发信 verified；缺 TXT 时创建失败 |
 | **P8** 策略与运营 | `policy=reject_failed`、灰度、看板 | 可拒绝投递（默认关） | 配置回退 | 灰度开关 + 指标快照 |
 
@@ -1028,7 +1062,7 @@ did-sdk `fmt`/`clippy`/`test --locked --all-features`/绑定测试。
 | 多地址只验一个就整体通过 | 伪造邮件被误判已验证 | N19 列为 P2 必测 |
 | **域名所有者不发 TXT** | `DomainControl` 校验不过 → EmailBinding 无法创建 | 接入流程列为必做步；返回 `domain_control_required`；提供一键打印待发布记录 |
 | DKIM 改正文 | 必失效 | 出站断言 + 文档约束 |
-| 两侧算法漂移 | 全量误判 | 同一份向量三端共用 + N21 交叉校验 |
+| 完整性实现漂移 | SDK 与 MTA 判断不一致 | B′ 下 MTA 不算完整性 ⇒ 只有一处实现；向量由三语言共用，N21 钉住 |
 | 跨仓版本锁 | 升级需两侧同步 | 写进 `scripts/check-versions.sh` |
 
 ### 61. 对规范的修订清单
@@ -1067,3 +1101,84 @@ did-sdk `fmt`/`clippy`/`test --locked --all-features`/绑定测试。
 
 **方案已无待确认项。** 下一步是 P0（§59）：契约文档 + 字节向量 + `did-mail` feature 骨架 + crate 骨架，
 不改任何现有行为。
+
+---
+
+## Part X 与 advanced 版的兼容性（含 SPF/DKIM/DMARC）
+
+`aimail-advanced` 是**独立 crate**，以 `aimail-gateway = { path = "../aimail-gateway" }` 依赖本仓的
+`aimail_base` 库，并通过策略 trait 注入企业能力。DID 特性要嵌进 advanced，先要回答"在哪一层、会不会被打断"。
+
+### 63. advanced 的介入点（读代码得到的事实）
+
+| 环节 | advanced 的做法 | 与 DID 的关系 |
+|---|---|---|
+| 出站字节 | `OutboundTransform::transform` → `dkim::sign_dkim()`，实现是**先拼 DKIM-Signature 头、再原样追加 `raw`**（`src/advanced/smtp/dkim.rs`） | **正文零改动** → 我们的 `bh` 不受影响。这正是我们要求的"DKIM 只加头" |
+| 入站顺序 | `data_end`：① 延迟白名单 → ② 每系统限流 → ③ **DKIM/DMARC 闸门**（`check_inbound_message`，只返回裁决、不改字节）→ ④ 附件限额 → ⑤ `core.process_data_end_post(...)` | 我们的 DID 检查在 ⑤ 内部 ⇒ **排在 DKIM/DMARC 之后** |
+| 入站改写 | 无。SPF/DKIM/DMARC 只做放行/拒收判定，**不注入 `Authentication-Results` 头**，不改正文 | 我们的 `DID-Auth-Results` 是**本生态第一个**验证结论头，不存在与既有头冲突 |
+| 配置 | `AdvancedConfig` 与 base `Config` **各自解析同一份 TOML，serde 忽略未知字段**（`src/advanced/config.rs` 注释明写"no conflict"） | 新增 `[did_mail]` 段不会破坏 advanced 的解析 |
+
+### 64. 三个真实冲突点与处置
+
+**① 特性没打开（最容易漏，且是静默的）**
+
+advanced 的依赖声明是 `aimail-gateway = { path = "../aimail-gateway" }`，**没有 feature 列表**。
+若不加 `features = ["did-mail"]`，advanced 编出来就是"没有 DID 的 DID 版"——而 advanced 才是实际部署形态，
+base 的单测全绿也发现不了。
+
+处置：advanced 的 `Cargo.toml` 显式开 feature；advanced 的 CI 加一条 `did-mail` 构建矩阵；
+发布前用 `aimail-gateway-health` 或启动日志打印 `did_mail.enabled` 实际值，避免"以为开了"。
+
+**② 拒收优先级：DID 不能越过 DKIM/DMARC**
+
+advanced 的闸门在 ③，我们的在 ⑤。所以一封"DMARC 失败但 DID 地址成立"的邮件会在 ③ 就被拒，
+DID 根本不会被看到。典型场景：企业中间件改写正文 → DKIM 破 → DMARC fail → 拒收。
+
+处置：**保持这个顺序，不允许 DID 豁免 DKIM/DMARC**。理由是两条：
+- 域级信任（谁被授权代表域发信）在语义上先于地址级；
+- 让 DID 能豁免 DMARC，等于给出一条绕过域策略的通道，攻击面大于收益。
+
+需要在文档里写明：**DID 是叠加层，不是豁免层**。若将来确有"已知 DID 对端可绕过 DMARC"的业务需求，
+应做成按对端的显式白名单，而不是默认行为。
+
+**③ 双份限流/拒绝路径，发件方看到的错误不一致**
+
+advanced 已有每系统入站限流（②），我们的锚定查询在 ⑤。好处：**限流天然挡在锚定查询之前**，
+缓解 §25 提到的"锚定查询放大"风险。代价：两类拒绝的 SMTP 码与文案不同，发件方难以区分。
+
+处置：DID 拒绝统一用 550 + 机器可读前缀（如 `5.7.1 DID anchor not found`），
+并在运维文档里给出错误码对照表。
+
+### 65. 安全信任模型的增益：两层正交，且 base 版缺一层
+
+| 层 | 谁提供 | 回答的问题 | 信任单位 |
+|---|---|---|---|
+| SPF / DKIM / DMARC | **仅 advanced** | 这个**域**是否授权了这封邮件 | 域 |
+| DID-Signature | base + advanced（开了 feature） | 这个**具体地址**此刻是否归这个 `did:key` | 地址 |
+
+三条结论：
+
+1. **互补而非重叠**。DKIM 通过的邮件仍可能是"任意 MTA 声称任意 `From` 地址"；DID 解决的正是这一点。
+   反过来，DID 不覆盖"发件域是否有权发信"，所以两者缺一不可。
+2. **base 版（无 advanced）没有任何域级防护**。此时 `did_absent` 的外部邮件完全没有可信信号，
+   只有 DID 邮件可验。这意味着 DID 特性在 base 版上的"边际价值"更高（它是唯一的真实性来源），
+   而在 advanced 版上是"在域级之上再加地址级"。
+3. **组合后的裁决空间**（供策略使用，不改变默认行为）：
+
+| DID | DKIM/DMARC | 含义 |
+|---|---|---|
+| `verified` | pass | 最强：地址与域双双成立 |
+| `verified` | fail | 地址成立但域策略不成立——常见于转发场景，**按 advanced 现有策略拒绝** |
+| `did_absent` | pass | 常规外部邮件，域级信任 |
+| `did_absent` | fail | 常规外部邮件，按域策略拒绝 |
+| `failed`（锚定不成立） | 任意 | 声称了却站不住 → §51 的入口拒收 |
+
+**没有"信用叠加"的自动降级路径**：不要设计"DKIM 通过就放宽 DID 检查"或反之。两层各自独立裁决，
+组合只出现在**策略层**（例如高风险动作要求 `DID=verified` 且 `DMARC=pass`），不下沉到验证实现里。
+
+### 66. 实施顺序上的一个副作用
+
+advanced 依赖 base 的 path，所以 base 的 `[workspace]` 变更对它透明（path 依赖可跨 workspace）。
+但**advanced 的 `Cargo.lock` 会因 base 新增依赖（chain-sdk / did-sdk）而重解析**，
+且这两个依赖会带进 `subxt`/`reqwest` 等较大树——需要确认 advanced 的发布构建（musl 静态）仍然通过。
+这条列入 P2 的验收项：**base 与 advanced 两个仓都要过 `cargo build --release --features did-mail`**。
