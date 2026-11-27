@@ -49,4 +49,11 @@ RUN rm -rf /root/.cache/uv/simple-v27/pypi/agent-aimail.rkyv \
     && ! find /root/.cache /root/.npm -iname '*agent-aimail*' -o -iname '*aimailsdk*' 2>/dev/null | grep -q . \
     || { echo "✗ aimail cache residue survived the purge" >&2; exit 1; }
 
+# The hermes venv ships WITHOUT pip (measured 2026-11-26: `python3 -m pip` → "No module named
+# pip"), so an agent told to `pip install agent-aimail` inside this host fails at the tool itself —
+# a fixture pit, not a product behaviour. Give the runtime interpreter a working pip so the
+# bootstrap command is the same shape as on any other Python host.
+RUN /opt/hermes/.venv/bin/python -m ensurepip --upgrade \
+ && /opt/hermes/.venv/bin/python -m pip --version
+
 CMD ["sleep", "infinity"]
