@@ -71,6 +71,7 @@ PY
       _turn() {
         pkill -f "openclaw gateway" 2>/dev/null; sleep 2
         timeout 420 openclaw agent --local --message "$1" >/tmp/turn.log 2>&1 || true
+        cat /tmp/turn.log >> /tmp/turns.log 2>/dev/null || true
         echo "turn: $(tail -3 /tmp/turn.log | tr "\n" " " | cut -c1-200)"
       }
       # openclaw exposes plugin tools through the meta-tool surface: the model must
@@ -95,7 +96,15 @@ PY
       if [ -n "$B" ] && [ "$LIFECYCLE" != "1" ]; then
         pkill -f "openclaw gateway" 2>/dev/null; sleep 4
         setsid nohup openclaw gateway >/tmp/gw2.log 2>&1 &
-        sleep 25
+        # A fixed sleep is wrong here: this image takes ~96s to finish its gateway startup
+        # (measured 2026-11-27: startup-maintenance total=96064ms), so 25s made the arming line
+        # look absent and S2/S3/S4-reconcile went RED for a host that arms fine. Wait for the
+        # plugin line itself, bounded.
+        i=0
+        while [ $i -lt 120 ]; do
+          grep -qaE "agent-aimail|aimail-pull" /tmp/gw2.log 2>/dev/null && break
+          i=$((i+1)); sleep 2
+        done
         date +%s > /out/ready
         python3 - <<PY
 import sqlite3, os, time
@@ -123,7 +132,13 @@ PY
       # my first attempt copied a path that never exists and silently produced an empty directory)
       mkdir -p /out/aimail-logs 2>/dev/null || true
       find /app/.aimail/systems -name 'agentmail.log' -exec cp {} /out/aimail-logs/ \; 2>/dev/null || true
-      grep -a "agent-aimail\|aimail-pull" /tmp/gw.log /tmp/gw2.log > /out/host.log 2>/dev/null || true
+      # The arming lines are written by the EMBEDDED agent turns (openclaw agent --local), not by
+      # the gateway: measured 2026-11-27, rc held "[aimail-pull] system l2openc..." while gw2.log
+      # did not exist. Grepping only the gateway logs made S2 flip green or red depending on which
+      # turn happened to be the last one in /tmp/turn.log. Collect the turns instead.
+      grep -a "agent-aimail\|aimail-pull\|polling enabled\|SSE reconcile" \
+        /tmp/turns.log /tmp/gw.log /tmp/gw2.log > /out/host.log 2>/dev/null || true
+      cp /tmp/turns.log /out/turns.log 2>/dev/null || true
       # Keep the gateway logs: without them a missing arming line cannot be classified as
       # product (plugin never armed) vs fixture (gateway never started). Measured 2026-11-27:
       # host.log held only the embedded-mode line and gw2.log was not preserved, so the S2 RED
