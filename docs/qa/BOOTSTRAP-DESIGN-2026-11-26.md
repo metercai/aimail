@@ -480,3 +480,40 @@ hermes 0.23.4 的 CLI 在容器里拒绝跑回合，按遇到的顺序：
 | 但 11-23 同样的告警下 L2 曾 PASS 过（binding written） | `evidence/l2/20261123T134902Z-hermes-x/results.txt` |
 
 ⇒ 结论分两层：**告警本身不致命**（11-23 带着它也能过），但**现在这个镜像里 CLI 回合会挂到超时**，所以凡是通过 `hermes -z` 驱动 hermes 的用例（L2 的 hermes 单元、C17 的 hermes 观测）都受影响，必须在 hermes 上改用 A 方案（gateway 会话）后才谈得上绿。这也意味着 hermes 的 L2 结果目前不可信，不能拿 11-23 的绿灯当现状。
+
+---
+
+## 14. 版本口径更正（owner 追问）：`(2026.9.24)` 不是构建日期；我们跑的是 latest，不是 newest
+
+### 14.1 三件不同的事，之前被我混为一谈
+
+| 概念 | 事实（2026-11-27 实测） |
+|---|---|
+| 版本串里的 `(2026.9.24)` | 上游的**发布列车代号**（tag 列表里有 `v2026.9.24`、`v2026.9.21` …），**不是**构建日期也不是发布日期 |
+| **稳定通道** `latest` | digest `sha256:ef0650d5…`，Hub 上 `last_updated=2026-11-24T08:17Z`；对应 release **v0.23.4**（2026-11-24 发布） |
+| **预发布通道** `canary` | digest `sha256:a4bae507…`（2026-11-25），另有当日构建 `canary.20261126T064809Z-v0.23.4`（2026-11-26）；容器内 `v0.23.4+canary.20261125T064800Z · upstream 24353849` |
+
+我们的 `BASE_HERMES` digest == 本地底座 digest == Hub 上 `latest` 的 digest，**逐字一致**。
+⇒ 我们跑的是**官方最新稳定镜像**，但**不是"最新发布"**：最新发布是 canary（每天构建）。之前我说"官方最新"少了这个限定，这里更正。
+
+### 14.2 canary 与 stable 的实测差异
+
+| | stable `latest` (v0.23.4) | canary (20261125) |
+|---|---|---|
+| `hermes --version` | 打印 `install out of sync (pnpm…)` | **不再打印** |
+| CLI 回合 | 挂到超时（RC=124），无输出 | 先报可操作的 provider 提示；配好 provider 后**同样无输出**（仍待解） |
+| 上游 commit | `8fc03744` | `24353849` |
+
+### 14.3 pnpm 缺口的正解（构建期可解，无需 canary）
+
+`hermes pm install pnpm`（构建期、有网）会把 pnpm 装进 **hermes 自己的 store**：
+```
+✓ pnpm
+InstalledPackage(path=/opt/data/tools/pnpm-12.15.0-linux-x64, version=12.15.0,
+                 binary=/opt/data/tools/pnpm-12.15.0-linux-x64/pnpm)
+```
+之后 `pm` 自检满足，**`install out of sync (pnpm…)` 告警消失**（实测）。
+对照：`npm i -g pnpm` / 独立二进制丢到 `/usr/local/bin` / `hermes pm install`（不带包名）**都不算数**——hermes 只认自己 receipt 里的 pnpm。
+
+因此镜像修法（尚未落地）：`Dockerfile.hermes` 增加 `RUN /opt/hermes/bin/hermes pm install pnpm`。
+稳定 vs canary 的选择：**建议留在稳定通道 + 补 pnpm**（canary 是预发布，不适合当回归底板），若要跟 canary 则需同时改 pins 与 CI。
