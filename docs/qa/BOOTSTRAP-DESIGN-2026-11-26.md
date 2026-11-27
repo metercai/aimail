@@ -690,3 +690,42 @@ L2/L3 matrix: PASS=50 RED=3 GAP=8  → VERDICT: FAIL
 `pi`、`openclaw` 的 bind 回合各加**一次有界重试**（模型没 dispatch 时再要求一次，并在日志里留
 `RETRY:` 标记）。理由：S5 的 GAP "模型整轮 0 次工具调用" 与 #1 里偶发的 S1 无 binding 是同一种
 模型行为抖动，真实用户也会重问一次。因余额耗尽，这次改动**尚未跑出绿**，等 key 恢复后需要验证。
+
+---
+
+## 19. L2 修复进展（2026-11-27 晚，余额恢复后）
+
+### 19.1 又一枚系统性假红：`s5` 与投递类 stage 不能同批跑
+
+`run-matrix` 只要 stage 里含 `s5` 就置 `LIFECYCLE=1`，而适配器在该分支**跳过白名单、S3 注入与网关启动**。
+于是"同一批里既有 s5 又有 s3/s6/s7/s8"时，投递类义务必然红（表现：S3 `journey never reached the mail stage`、
+S6 `acked=0`、S7/S8 `no evidence file`）。已加护栏：这种组合**直接 exit 2** 并打印两趟的正确命令。
+
+### 19.2 驱动发信人没进白名单（`550 Sender not whitelisted`）
+
+s6/s7/s8 驱动用 `s6-a@/s6-b@/s6-reply@/s7-*/s8-*` 发信，夹具只白名单了 `ext-sender@`，
+所以三封驱动邮件全被拒 ⇒ `acked=[false,false,false]`、`s7_gone.json`/`s8_anchor.json` 根本没生成。
+五个适配器改为**逐个 sender 循环调用**（一次调用里重复 `--sender` 无效：argparse 只保留最后一个）。
+
+### 19.3 修完后的 dsh 结果（同一批 `s1 s2 s3 s4 s6 s7 s8 neg`）
+
+```
+PASS  S1 全项 · S2 两项 · S3 三项(sender whitelisted / emails=1 / queued then acked)
+PASS  S4 两项(two bindings coexist / aggregate stream reconciled)
+PASS  S7「delivery used a new session」「downgrade recorded as session-gone」
+PASS  S8「anchor-moved recorded」「marker names the edge」「delivery to current anchor」
+RED   S6「host did not accept every mail (acked=0)」      ← 驱动自己的 ack 判据
+RED   S7「reply was NOT accepted after the downgrade」    ← 同上
+RED   S7「thread root changed on re-attach; E2 lineage lost」← **真产品信号，待 dev 判**
+RED   S8「reply was NOT accepted」
+```
+
+关键：`s6.json` 里 `sessions1=3`、`session1=345db2b2-…`（会话键已能读出 ⇒ 会话根路径回退是正确的一步），
+但 `acked=[false,false,false]`。⇒ 宿主其实**已经把这批邮件拉进会话**，红的是驱动对"是否被接受"的判据
+（它查 pending 行的方式与实际 ack 不同源）。下一轮先修判据，再判 `thread root changed` 是否真产品缺陷。
+
+### 19.4 当前仍未绿
+
+- dsh：S6 ack 判据、S7 lineage、S8 ack（见上）
+- s5 需要单独一趟（`--stages "s5"`）
+- pi / openclaw 这一趟还在跑

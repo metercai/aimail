@@ -99,6 +99,21 @@ for h in $HOSTS; do
     fi ;;
   esac
   case " $STAGES " in *" s5 "*) LIFECYCLE=1 ;; esac
+  # LIFECYCLE=1 is a JOURNEY VARIANT: the adapters then skip the whitelist, the S3 injection and
+  # the gateway boot (they only run the pause/unbind turns). Asking for s5 together with any
+  # stage that needs delivery/threading/anchor in the same pass therefore cannot work -- and it
+  # fails silently as RED/GAP (measured 2026-11-27: S3 'journey never reached the mail stage',
+  # S6 'acked=0', S7/S8 'no evidence file', all in a run whose stage list also contained s5).
+  # Refuse instead of mis-reporting.
+  if [ "$LIFECYCLE" = 1 ]; then
+    case " $STAGES " in
+      *" s3 "*|*" s6 "*|*" s7 "*|*" s8 "*)
+        echo "GAP: s5 (LIFECYCLE=1) cannot share a pass with s3/s6/s7/s8 — run them as two passes:" >&2
+        echo "       run-matrix.sh --stages \"s1 s2 s3 s4 s6 s7 s8 neg\"" >&2
+        echo "       run-matrix.sh --stages \"s5\"" >&2
+        exit 2 ;;
+    esac
+  fi
   export S4_ADDR S4_CODE LIFECYCLE
   echo "── $h → $addr"
   ev_init; ev_meta host "$h"; ev_meta sdk_version "$SDK_VER"; ev_meta sdk_kind "$SDK_KIND"; ev_meta gateway_version "$GATEWAY_VERSION"; ev_meta address "$addr"
