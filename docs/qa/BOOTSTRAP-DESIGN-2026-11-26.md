@@ -401,3 +401,44 @@ AIMAIL_BOOTSTRAP ok host=openclaw kind=node version=0.6.0 tool=/app/.local/lib/n
 ### 11.4 记录在案、但本轮未改：node 22 vs dsh 要求的 node ≥24.9
 
 `npm view @deepseek-ai/dsh@0.2.2-rc.5 engines` → `{ node: '>=24.9.0' }`（rc.1 也是同一条），而 `BASE_NODE` 是 `python3.12-nodejs22`（node v22.23.2）。实跑后果：`npm install -g` 打 `EBADENGINE` 警告但装成功，`dsh --version` 与内置校验门（15 项）全过，L2 也一直跑在这个组合上。要彻底对齐需把 `BASE_NODE` 换成 `python3.12-nodejs24`：**本机拉不下来**（`registry-1.docker.io` 连接被 reset；`dockerproxy.net` 代理拉 1.5GB 超时），CI runner 有 Docker Hub 可以一条命令换。留作已知项，不在这台机器上硬改。
+
+---
+
+## 12. prompt 驱动自举：五宿主实跑结果（2026-11-27）
+
+判据（owner 2026-11-27：**路线不限，装上即成功**）：`B = SDK 落进宿主自己的运行环境`；`A` 只用来记录路线。
+`A` 不得用"日志里出现自举 URL"——prompt 本身包含那条 URL，宿主回显 prompt 就会假绿（实测踩过，已修）。
+
+| 宿主 | 结果 | 路线（A） | SDK 落点 | 证据 |
+|---|---|---|---|---|
+| **pi** | ✅ PASS | 网关自举脚本（agent 自己 `uname -s` → `curl '<url>?shell=sh' \| sh`） | `/usr/local/lib/node_modules/agent-aimail` 0.6.0 | `/tmp/boot-loop-pi.8LrhjX` |
+| **openclaw** | ✅ PASS | 网关自举脚本 | `/app/.local/lib/node_modules/agent-aimail` 0.6.0 | `/tmp/boot-loop-openclaw.xOVs5u` |
+| **dsh** | ✅ PASS | 宿主自带机制（`dsh plugin add`） | `/usr/local/lib/node_modules/agent-aimail` 0.6.0 | `/tmp/boot-loop-dsh.CDhWct` |
+| **deerflow** | ❌ 结构上不可能 | — | — | `/tmp/boot-loop-deerflow.dajJCv` |
+| **hermes** | ❌ 未打通 | — | — | 见 §12.2 |
+
+### 12.1 deerflow：宿主设计上不给 agent 执行能力
+
+deerflow 的编排 agent 的工具集是**固定的四项**：`present_files`、`ask_clarification`、`review_skill_package`、`list_uploaded_files`
+（模型自己在回合里念出来的清单），**没有 shell、也没有可委派的执行子代理**（早期一次运行出现过 `do_task`，此配置下不再出现）。
+逐层排除过的"可能修法"：
+
+| 试过的 | 结果 |
+|---|---|
+| `sandbox.allow_host_bash: false → true`（镜像是 false） | 只是 sandbox 的开关，**不改变编排 agent 的工具清单** |
+| prompt 补一句"若本会话没有 shell，就交给你能调用的执行类工具/子代理" | 模型据此明确回答"no shell execution capability"，仍无执行路径 |
+| `python3 -m uvicorn app.gateway.app:app` + `deerflow_drive.py` 驱动（与 L2 夹具同法） | 回合正常跑、assistant 消息正常回，但只能回到"请重启宿主"这一结论 |
+
+结论：**deerflow 这类"锁定宿主"无法靠 prompt 自举**——产品口径应写成"该宿主需预装 SDK"，或由 deerflow 侧开放执行工具（安全姿态变更，需 owner 决定）。
+
+### 12.2 hermes：五道门，逐层剥到第五道
+
+hermes 0.23.4 的 CLI 在容器里拒绝跑回合，按遇到的顺序：
+
+1. `prepare.sh` 写的是 `model.provider: "custom"` —— hermes **不认识** `custom`；它认 `openai-api`（`hermes auth add openai-api …` 成功）。
+2. `/opt/data/.hermes` 只有 `config.yaml`、没有 `profiles/` —— 补 `profiles/verifier/config.yaml` 后 `profile_mismatch` **消失**（这一步是真修复）。
+3. 只有 `api_key_env` 不够 —— hermes 要求"已连接的 provider"；在 `$HERMES_HOME/.env` 写入 `LLM_API_KEY`/`OPENAI_API_KEY` 后，`not connected to any AI provider` **消失**。
+4. 镜像缺可用的 `pnpm`（hermes 自检 `install out of sync (pnpm…)`；镜像的 npm 拦 install scripts，`--allow-scripts=pnpm` 也没落地，应改走 corepack）。
+5. **最后一道**：`Error: Gateway inaccessible: service_manager_unavailable` —— CLI 需要一个在 s6 监管下运行的 hermes gateway（`HERMES_GATEWAY_NO_SUPERVISE=1` 与 `--no-supervise` 都没绕过）。
+
+前 4 道都已定位并有明确改法（provider 写 `openai-api`、构建期补 `profiles/<name>/`、运行期把 `LLM_API_KEY` 注入 `$HERMES_HOME/.env`、用 corepack 装 pnpm）；第 5 道是"CLI 必须在 s6 监管的 gateway 里跑"，需要把 L3 的驱动方式从 `docker exec hermes -z` 换成"经 gateway 的会话"（L2 夹具 phase 2 就是这么做的：`nohup hermes --yolo gateway run &` 之后走 webhook 入站）。
