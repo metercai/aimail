@@ -577,3 +577,39 @@ hermes 的最后一环是**权限**：venv 属 root，宿主以 uid 10000 运行
 4. 事件流里可见 `tool.start/tool.complete`（`uname -s` → `Linux`、`curl …?shell=sh | sh`）与 `AIMAIL_BOOTSTRAP ok`。
 
 顺带证明了 agent 的自纠能力：首轮 curl 失败后它自己把脚本下载到 `/tmp` 读源码、又去 `search_files` 掏 hermes 的 entry_points 机制。
+
+---
+
+## 17. 一次跑完的矩阵（`tests/l3/bootstrap-matrix.sh`）+ `.ps1` 真机解析
+
+### 17.1 矩阵脚本
+
+`tests/l3/bootstrap-matrix.sh`：自己起一个私有网关（临时端口 + 临时库），依次跑
+`boot-loop.sh --host <h>`，最后打印一张矩阵并把证据落在 `evidence/bootstrap-matrix/<UTC>/<host>/`。
+deerflow 按 owner 决定**跳过**（不是失败）。
+
+本次实跑（2026-11-27T05:17Z，LLM 真实回合）：
+
+```
+──────── matrix (20261127T051751Z)
+  PASS  pi        (路线：网关自举脚本, agent-aimail 0.6.0 -> /usr/local/lib/node_modules)
+  PASS  openclaw  (路线：网关自举脚本, agent-aimail 0.6.0 -> /app/.local/lib/node_modules)
+  PASS  dsh       (路线：网关自举脚本, agent-aimail 0.6.0 -> /usr/local/lib/node_modules)
+  PASS  hermes    (路线：网关自举脚本, agent-aimail 0.4.0 -> /opt/hermes/.venv)
+evidence: evidence/bootstrap-matrix/20261127T051751Z
+```
+
+值得记住的一点：**dsh 这次也走了网关自举脚本**（上次它是用宿主自带的 `dsh plugin add`）——
+说明 prompt 把两条路都打开了，agent 自己挑；判据只看"SDK 有没有落进宿主环境"，所以两种都算过。
+
+### 17.2 `.ps1` 不再是"只看一眼"
+
+本机没有 `pwsh`，但可以拉官方镜像做**真实 PowerShell 运行时**校验：
+
+| 检查 | 命令要点 | 结果 |
+|---|---|---|
+| 语法/AST 解析 | `[Parser]::ParseFile` | **PARSE OK（1016 tokens，0 错误）** |
+| 未知宿主 | `AIMAIL_HOST=llmlab pwsh -File b.ps1` | `AIMAIL_BOOTSTRAP fail … code=unknown_host` + 五宿主清单 |
+| 已知宿主但无解释器 | `AIMAIL_HOST=hermes pwsh -File b.ps1`（alpine 无 python） | `AIMAIL_BOOTSTRAP fail … code=no_python`，**干净失败不挂死** |
+
+仍未验的只剩"Windows 上真的装成"——那需要 Windows 执行器（CI 矩阵）。
