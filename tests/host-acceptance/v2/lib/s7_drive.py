@@ -52,8 +52,9 @@ def snap(a) -> list:
     return snapshot(a.session_root, a.depth)
 
 
-def wait_ack(a) -> bool:
-    return s6_wait_ack(a.db, a.addr, a.ack_timeout)
+def wait_ack(a, mid: str = "") -> bool:
+    # mid enables the durable fallback: an SSE pull can ack faster than any poll interval
+    return s6_wait_ack(a.db, a.addr, mid, a.ack_timeout)
 
 
 def settle(a) -> None:
@@ -219,7 +220,7 @@ def main() -> int:
     log("baseline sessions: %d" % len(s0))
 
     send(a.addr, a.smtp_port, root_a, "", "")
-    acked1 = wait_ack(a)
+    acked1 = wait_ack(a, root_a)
     settle(a)
     s1 = snap(a)
     new1 = [x for x in s1 if x not in s0]
@@ -247,7 +248,7 @@ def main() -> int:
 
     before_reply = mtimes(a.session_root)
     send(a.addr, a.smtp_port, root_reply, root_a, root_a)
-    acked2 = wait_ack(a)
+    acked2 = wait_ack(a, root_reply)
     settle(a)
     s3 = snap(a)
     new3 = [x for x in s3 if x not in s2]
