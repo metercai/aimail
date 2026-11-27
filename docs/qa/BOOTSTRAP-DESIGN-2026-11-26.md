@@ -548,3 +548,32 @@ provider 在 hermes 0.23.4 里是**三件套**，缺一不可：
 ### 15.3 仍卡住的一步（诚实边界）
 
 用**短提示词**（"reply with the single word pong"）回合正常返回 `pong`；换成我们的 **795 字节激活 prompt** 后，回合在 240s / 420s / 900s 内都没有任何输出（连 `install out of sync` 之外的行都没有），既没有自举痕迹也没有安装。⇒ hermes 的 CLI 单发回合能吃短 prompt、吃不下这条长 prompt，原因未定位。这正是 owner 选 A（经 gateway 会话）要解决的部分：把 prompt 作为**会话消息**投递，而不是作为 CLI 参数。
+
+---
+
+## 16. 结论：4 个可自举宿主全部通过（2026-11-27）
+
+owner 决策：deerflow 不做自举；hermes 走 A（网关会话）。按此完成：
+
+| 宿主 | 结果 | 路线 | SDK 落点 |
+|---|---|---|---|
+| **pi** | ✅ PASS | 网关自举脚本 | `/usr/local/lib/node_modules/agent-aimail` 0.6.0 |
+| **openclaw** | ✅ PASS | 网关自举脚本 | `/app/.local/lib/node_modules/agent-aimail` 0.6.0 |
+| **dsh** | ✅ PASS | 宿主自带 `dsh plugin add` | `/usr/local/lib/node_modules/agent-aimail` 0.6.0 |
+| **hermes** | ✅ PASS | 网关自举脚本（经 gateway 会话投递 prompt） | `/opt/hermes/.venv/bin/python3` 0.4.0 |
+| deerflow | **N/A**（owner 决定） | — | — |
+
+hermes 的最后一环是**权限**：venv 属 root，宿主以 uid 10000 运行 ⇒ `pip install` 写
+`/opt/hermes/.venv/lib/python3.14/site-packages/aimail` 被拒。修法两条（都已落地并重建验证）：
+- `Dockerfile.hermes`: `RUN chown -R hermes:hermes /opt/hermes/.venv`（宿主的运行环境必须归宿主所有，否则自举无从谈起）
+- 自举脚本 `record()`: 先 `mkdir -p` 痕迹目录（`~/.aimail` 不存在时痕迹会静默丢失，而它是 A 判据的唯一证据）
+
+### 16.1 A 方案的实现（hermes 专用驱动）
+
+`tests/l3/lib/hermes-gateway-turn.{sh,py}`：
+1. `hermes gateway attach --json --start` → `{url, ticket, protocols}`；
+2. 用 hermes 自己的 `GatewayClient` 连 `/api/ws`，JSON-RPC：`runtime.describe` → `session.create` → `prompt.submit`；
+3. provider 三件套（`model.provider=openai-api`、`model.base_url`、`model.default`）+ `/opt/data/.env` 里的 `OPENAI_API_KEY`；
+4. 事件流里可见 `tool.start/tool.complete`（`uname -s` → `Linux`、`curl …?shell=sh | sh`）与 `AIMAIL_BOOTSTRAP ok`。
+
+顺带证明了 agent 的自纠能力：首轮 curl 失败后它自己把脚本下载到 `/tmp` 读源码、又去 `search_files` 掏 hermes 的 entry_points 机制。
