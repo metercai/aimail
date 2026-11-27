@@ -668,3 +668,25 @@ L2/L3 matrix: PASS=50 RED=3 GAP=8  → VERDICT: FAIL
 - 网关启动由固定 `sleep 25` 改为**等 arm 行**（该镜像启动实测 ~96s）。
 
 复跑 openclaw（`s1 s2 s3`）：**PASS=15 RED=0 GAP=0 → VERDICT: PASS**（S1 全项、S2 两行、S3 三行）。
+
+### 18.4 基线 #2/#3 无效：LLM 账户余额耗尽（402）
+
+基线 #2（全量）`PASS=23 RED=10 GAP=10`、基线 #3（pi+openclaw）`PASS=0 RED=10 GAP=4`，看着像是
+产品大面积回归。实际根因在宿主的回合日志里：
+
+```
+402: {"code":"402","message":"Insufficient account balance","type":"insufficient_balance"}
+```
+
+直连复核（同一 key、同一端点）：`http=402 Insufficient account balance`。
+⇒ 所有 agent 回合都无法调模型 ⇒ 模型不会调 `aimail_address` ⇒ S1 无 binding ⇒ S2/S3/S4 全部连带 RED。
+**这两次基线不可用于任何判断，必须换 key/充值后重跑。**
+
+同时，唯一有效的一次基线（#1，余额尚存时）里那 3 条 RED 已被证明并修好（openclaw 的取证位置），
+修完实跑 `openclaw s1 s2 s3 → PASS=15 RED=0 GAP=0`。
+
+### 18.5 已加但未能验证的夹具健壮性
+
+`pi`、`openclaw` 的 bind 回合各加**一次有界重试**（模型没 dispatch 时再要求一次，并在日志里留
+`RETRY:` 标记）。理由：S5 的 GAP "模型整轮 0 次工具调用" 与 #1 里偶发的 S1 无 binding 是同一种
+模型行为抖动，真实用户也会重问一次。因余额耗尽，这次改动**尚未跑出绿**，等 key 恢复后需要验证。

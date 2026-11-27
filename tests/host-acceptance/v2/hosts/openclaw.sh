@@ -76,7 +76,15 @@ PY
       }
       # openclaw exposes plugin tools through the meta-tool surface: the model must
       # dispatch by id (dispatch_action), not call aimail_address directly.
-      _bind() { _turn "Use the dispatch_action tool with id \"aimail_address\" and args {\"action\":\"bind\",\"code\":\"$2\",\"email\":\"$1\",\"gateway_url\":\"$GWURL\"}. Do not ask questions; just dispatch it and report the result."; }
+      _bind() {
+        _turn "Use the dispatch_action tool with id \"aimail_address\" and args {\"action\":\"bind\",\"code\":\"$2\",\"email\":\"$1\",\"gateway_url\":\"$GWURL\"}. Do not ask questions; just dispatch it and report the result."
+        # Bounded retry: a live model sometimes replies without dispatching (measured 2026-11-27,
+        # where one such turn cost the whole host). The retry is recorded, never silent.
+        if ! ls /app/.aimail/systems/*/*/agentmail.json >/dev/null 2>&1; then
+          echo "RETRY: no binding after the first dispatch, asking once more" >> /tmp/turns.log
+          _turn "Use the dispatch_action tool with id \"aimail_address\" and args {\"action\":\"bind\",\"code\":\"$2\",\"email\":\"$1\",\"gateway_url\":\"$GWURL\"}. Dispatch it now and report the result."
+        fi
+      }
       _bind "$AH" "$AC"
       python3 /opt/v2lib/dsh_state.py /app/.aimail count > /out/b1 2>/dev/null || echo 0 > /out/b1
       if [ -n "$SECOND" ]; then
