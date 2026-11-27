@@ -128,8 +128,20 @@ _pi_delivery() {  # _pi_delivery <out> <addr> <token>
     #   not acked + no arming evidence -> GAP   (fixture never got the client attached)
     echo "arming_hint=absent (no pull line in the gateway log; see $out/pi-live.log)" >> "$out/inject.log"
   fi
-  python3 "$V2_ROOT/lib/gw.py" wl --gateway "$GW_URL" --key "$GW_ADMIN" --identity "$GW_SID" \
-    --system "$GW_SID" --addr "$addr" --sender ext-sender@example.com >"$out/whitelist.json" 2>&1 || true
+  # One sender is not enough: the s6/s7/s8 drivers send as s6-a@/s6-b@/s6-reply@/
+  # s7-a@/s7-reply@/s8-a@/s8-reply@, and an un-whitelisted sender makes every driver mail
+  # bounce with 550 "Sender not whitelisted" (measured 2026-11-27: s6 acked=[false,false,false],
+  # no s7_gone.json / s8_anchor.json at all, and S3 saw "journey never reached the mail stage").
+  # One sender is not enough: the s6/s7/s8 drivers send as s6-a@/s6-b@/s6-reply@/
+  # s7-a@/s7-reply@/s8-a@/s8-reply@. A single --sender left every driver mail bouncing
+  # with 550 "Sender not whitelisted" (measured 2026-11-27), and repeating the flags in
+  # ONE invocation does not help: argparse keeps only the last. Loop instead.
+  : >"$out/whitelist.json"
+  for _snd in ext-sender@example.com s6-a@example.com s6-b@example.com s6-reply@example.com s7-a@example.com s7-reply@example.com s8-a@example.com s8-reply@example.com; do
+    python3 "$V2_ROOT/lib/gw.py" wl --gateway "$GW_URL" --key "$GW_ADMIN" \
+      --identity "$GW_SID" --system "$GW_SID" --addr "$addr" --sender "$_snd" \
+      >>"$out/whitelist.json" 2>&1 || true
+  done
   grep -q '"ok": true' "$out/whitelist.json" || echo "whitelist failed: $(cat "$out/whitelist.json")" >>"$out/inject.log"
   python3 - "$addr" "$token" "$((GW_SMTP + 1))" <<'PY' >>"$out/inject.log" 2>&1
 import smtplib, sys

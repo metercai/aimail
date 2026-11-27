@@ -143,8 +143,16 @@ host_journey() {
   # ── host: whitelist + inject while the host is DOWN (no stream attached yet) ──────
   if [ "$(cat "$out/binding_path" 2>/dev/null || echo 'binding=none')" != "binding=none" ] \
      && [ "${LIFECYCLE:-0}" != "1" ]; then
-    python3 "$V2_ROOT/lib/gw.py" wl --gateway "$GW_URL" --key "$GW_ADMIN" --identity "$GW_SID" \
-      --system "$GW_SID" --addr "$addr" --sender ext-sender@example.com >"$out/whitelist.json" 2>&1 || true
+    # One sender is not enough: the s6/s7/s8 drivers send as s6-a@/s6-b@/s6-reply@/
+    # s7-a@/s7-reply@/s8-a@/s8-reply@. A single --sender left every driver mail bouncing
+    # with 550 "Sender not whitelisted" (measured 2026-11-27), and repeating the flags in
+    # ONE invocation does not help: argparse keeps only the last. Loop instead.
+    : >"$out/whitelist.json"
+    for _snd in ext-sender@example.com s6-a@example.com s6-b@example.com s6-reply@example.com s7-a@example.com s7-reply@example.com s8-a@example.com s8-reply@example.com; do
+      python3 "$V2_ROOT/lib/gw.py" wl --gateway "$GW_URL" --key "$GW_ADMIN" \
+        --identity "$GW_SID" --system "$GW_SID" --addr "$addr" --sender "$_snd" \
+        >>"$out/whitelist.json" 2>&1 || true
+    done
     grep -q '"ok": true' "$out/whitelist.json" || echo "whitelist failed: $(cat "$out/whitelist.json")" >>"$out/inject.log"
     python3 - "$addr" "$token" "$((GW_SMTP + 1))" <<'PYINJ' >>"$out/inject.log" 2>&1
 import smtplib, sys
