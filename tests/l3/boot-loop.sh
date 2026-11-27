@@ -47,6 +47,7 @@ CNAME="bootloop-$HOST-$$"
 # 驱动脚本随 /work 一起进容器（dsh 没有单发入口，必须走它的 web RPC）
 cp "$ROOT/tests/l3/lib/dsh-turn.sh" "$WORK/dsh-turn.sh" 2>/dev/null || true
 cp "$ROOT/tests/l3/lib/deerflow-turn.sh" "$WORK/deerflow-turn.sh" 2>/dev/null || true
+cp "$ROOT/tests/l3/lib/hermes-turn.sh" "$WORK/hermes-turn.sh" 2>/dev/null || true
 cp "$ROOT/tests/host-acceptance/v2/lib/deerflow_drive.py" "$WORK/deerflow_drive.py" 2>/dev/null || true
 # 用仓库里的 set-llm-key.sh（镜像里那份是构建时的旧快照，宿主平台探测缺 deerflow）
 cp "$ROOT/tests/agent-env/set-llm-key.sh" "$WORK/set-llm-key.sh" 2>/dev/null || true
@@ -78,7 +79,7 @@ if [ -n "$IMAGE" ]; then
     || { bad "docker run failed: $(tail -2 "$WORK/docker-run.log")"; exit 2; }
   ready=0
   case "$HOST" in
-    hermes)   READY_CMD='command -v /opt/hermes/bin/hermes >/dev/null' ;;
+    hermes)   READY_CMD='[ -x /opt/hermes/bin/hermes ]' ;;
     pi)       READY_CMD='command -v pi >/dev/null && pi --version >/dev/null 2>&1' ;;
     openclaw) READY_CMD='command -v openclaw >/dev/null && openclaw --version >/dev/null 2>&1' ;;
     dsh)      READY_CMD='command -v dsh >/dev/null && dsh --version >/dev/null 2>&1' ;;
@@ -112,9 +113,11 @@ fi
 host_prelude() {  # 打印该宿主在容器内的运行前置（与 L2 夹具一致）
   case "$HOST" in
     hermes) cat <<'PRE'
-# 用镜像自己的 profile（/opt/data/.hermes）：s6 起的 profile-gateways 就是按它注册的，
-# 换成自制目录会得到 `Gateway inaccessible: profile_mismatch`（实测）。
-export AIMAIL_HOME=/opt/data/.aimail HERMES_HOME=/opt/data/.hermes
+# hermes 自己的家 + 自己的用户（uid 10000）；不要复制 HOME、不要绕过 s6 的 profile 注册，
+# 否则 CLI 会 `profile_mismatch` 或写不进 /opt/data/.hermes/cron（实测两种都踩过）。
+export HERMES_HOME=/opt/data AIMAIL_HOME=/opt/data/.aimail
+export OPENAI_BASE_URL=${LLM_BASE_URL:-https://api.xiaomimimo.com/v1}
+export OPENAI_API_KEY=${LLM_API_KEY:-} LLM_API_KEY=${LLM_API_KEY:-}
 PRE
       ;;
     pi)     echo 'export HOME=/root' ;;
@@ -178,13 +181,16 @@ cat > "$WORK/prompt.txt" <<PROMPT
 Use \`aimail_address\` to activate and bind the dedicated AIMail mailbox $ADDR for this agent (gateway: $GW_URL; activation code: $CODE). If \`aimail_address\` is unavailable or unregistered, install the AIMail SDK: if \`uname -s\` can be executed in the current shell, run \`curl -fsSL '$GW_URL/api/v1/agent-setup/bootstrap?shell=sh' | sh\`; otherwise run \`powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr -Uri '$GW_URL/api/v1/agent-setup/bootstrap?shell=ps1' -UseBasicParsing | iex"\`. Then try \`aimail_address\` again for activation and binding. If it is still unavailable, stop and tell the user to restart the agent runtime to load the plugin and retry activation and binding afterward; no reinstallation is needed.
 PROMPT
 say "prompt: $(wc -c < "$WORK/prompt.txt") bytes（邮件原文，无额外 nudge）"
+# 容器里的宿主不一定以 root 跑（hermes 是 uid 10000）：/work 是 mktemp 的 0700，
+# 宿主读不到 prompt 时会拿到空串、静默掉进交互 TUI（实测踩过）。
+chmod -R a+rX "$WORK" 2>/dev/null || true
 
 # ── 3. 一次 agent 回合 ──────────────────────────────────────────────────
 mkdir -p "$WORK/ws"
 case "$HOST" in
   hermes)
     if [ -n "$IMAGE" ]; then
-      docker exec -i "$CNAME" bash -lc "$(host_prelude); mkdir -p /tmp/ws && cd /tmp/ws && timeout $TMO /opt/hermes/bin/hermes --yolo -z \"\$(cat /work/prompt.txt)\"" \
+      docker exec -i -e LLM_API_KEY="$LLM_API_KEY" "$CNAME" bash -lc "$(host_prelude); bash /work/hermes-turn.sh /work/prompt.txt $TMO" \
         > "$WORK/turn.log" 2>&1
       rc=$?
     else
