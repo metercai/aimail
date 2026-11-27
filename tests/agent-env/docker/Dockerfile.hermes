@@ -56,4 +56,10 @@ RUN rm -rf /root/.cache/uv/simple-v27/pypi/agent-aimail.rkyv \
 RUN /opt/hermes/.venv/bin/python -m ensurepip --upgrade \
  && /opt/hermes/.venv/bin/python -m pip --version
 
+# ...and hand that venv to the user the host actually runs as. Measured 2026-11-27: the venv is
+# root-owned while hermes runs as uid 10000, so an agent installing the SDK into its own runtime
+# failed with "Permission denied: /opt/hermes/.venv/lib/python3.14/site-packages/aimail" — the
+# runtime environment of a host must be writable by that host, or self-install cannot exist.
+RUN chown -R hermes:hermes /opt/hermes/.venv
+
 CMD ["sleep", "infinity"]

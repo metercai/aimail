@@ -48,6 +48,8 @@ CNAME="bootloop-$HOST-$$"
 cp "$ROOT/tests/l3/lib/dsh-turn.sh" "$WORK/dsh-turn.sh" 2>/dev/null || true
 cp "$ROOT/tests/l3/lib/deerflow-turn.sh" "$WORK/deerflow-turn.sh" 2>/dev/null || true
 cp "$ROOT/tests/l3/lib/hermes-turn.sh" "$WORK/hermes-turn.sh" 2>/dev/null || true
+cp "$ROOT/tests/l3/lib/hermes-gateway-turn.sh" "$WORK/hermes-gateway-turn.sh" 2>/dev/null || true
+cp "$ROOT/tests/l3/lib/hermes-gateway-turn.py" "$WORK/hermes-gateway-turn.py" 2>/dev/null || true
 cp "$ROOT/tests/host-acceptance/v2/lib/deerflow_drive.py" "$WORK/deerflow_drive.py" 2>/dev/null || true
 # 用仓库里的 set-llm-key.sh（镜像里那份是构建时的旧快照，宿主平台探测缺 deerflow）
 cp "$ROOT/tests/agent-env/set-llm-key.sh" "$WORK/set-llm-key.sh" 2>/dev/null || true
@@ -190,7 +192,8 @@ mkdir -p "$WORK/ws"
 case "$HOST" in
   hermes)
     if [ -n "$IMAGE" ]; then
-      docker exec -i -e LLM_API_KEY="$LLM_API_KEY" "$CNAME" bash -lc "$(host_prelude); bash /work/hermes-turn.sh /work/prompt.txt $TMO" \
+      # owner: option A — deliver the prompt as a gateway SESSION message, not as a CLI argument
+      docker exec -i -e LLM_API_KEY="$LLM_API_KEY" "$CNAME" bash -lc "$(host_prelude); bash /work/hermes-gateway-turn.sh /work/prompt.txt $TMO" \
         > "$WORK/turn.log" 2>&1
       rc=$?
     else
