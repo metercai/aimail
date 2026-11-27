@@ -649,3 +649,22 @@ L2/L3 matrix: PASS=50 RED=3 GAP=8  → VERDICT: FAIL
 | **GAP** | pi / openclaw `S5` | 模型整轮没调 `aimail_address`（pause/unbind），属模型行为/夹具提示，不是产品缺陷 |
 
 **结论：L2 未全绿 ⇒ 不发版。** 下一步顺序：① 用新取证把 openclaw S2 定性（产品 or 夹具）→ 修 → ② dsh/openclaw 的 S6 会话根路径 → ③ S7/S8 hook 接线（等容器写完再停）→ ④ S5 提示词或重试策略 → ⑤ 再跑全量。
+
+### 18.3 openclaw 的两条 RED 是夹具取证位置错了（已修）
+
+`S2 arming` / `S3 delivery` 的判据是"host.log 里有没有 arm 行"，而 openclaw 的 arm 行由
+**嵌入式回合**打印（`openclaw agent --local`），例如：
+
+```
+[aimail-pull] system l2opencl…   ← 在 /tmp/turn.log / rc 里，而不是网关日志
+```
+
+夹具只在 `/tmp/gw.log`、`/tmp/gw2.log` 里 grep ⇒ **最后一轮恰好带这行就绿，否则红**——这正是
+同一镜像、同一代码下 `PASS S1+S2` 与 `RED S2` 交替出现的原因。
+
+修法（`hosts/openclaw.sh`）：
+- `_turn()` 把每轮输出追加到 `/tmp/turns.log`（持久）；
+- `host.log` 改为从 `/tmp/turns.log` + 网关日志一起 grep，并把 `turns.log` 复制进证据；
+- 网关启动由固定 `sleep 25` 改为**等 arm 行**（该镜像启动实测 ~96s）。
+
+复跑 openclaw（`s1 s2 s3`）：**PASS=15 RED=0 GAP=0 → VERDICT: PASS**（S1 全项、S2 两行、S3 三行）。
