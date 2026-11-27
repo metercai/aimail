@@ -121,7 +121,29 @@ for h in $HOSTS; do
   # A container left over from an earlier run keeps pulling and lands mail in *its own* session, which
   # shows up as a phantom new session in s6 (seen 2026-11-25: two 37h-old containers, sessions 8->9->12).
   docker ps -q --filter "ancestor=aimail-host-$h" 2>/dev/null | xargs -r docker rm -f >/dev/null 2>&1 || true
-  host_journey "$out" "$addr" "$code" "$token"
+  # A live model occasionally mangles the long activation code (addr-xxxx-xxxx-xxxx-xxxx-xxxx)
+  # while re-serialising it into a tool argument: measured 2026-11-27 on openclaw, the turn got
+  # HTTP 410 CODE_GONE while the gateway showed the code UNCLAIMED and unexpired -- the code never
+  # arrived intact. That is not a product refusal, and it must not be judged as one: re-mint a code
+  # for the SAME address and run the journey again (bounded).
+  attempt=0
+  while : ; do
+    host_journey "$out" "$addr" "$code" "$token"
+    if [ -s "$out/binding.json" ] || [ "${LIFECYCLE:-0}" = 1 ]; then break; fi
+    attempt=$((attempt+1))
+    [ "$attempt" -le 2 ] || break
+    fresh="$(python3 "$V2/lib/gw.py" code --gateway "$GW_URL" --key "$GW_ADMIN" --identity "$GW_SID" \
+        --system "$GW_SID" --domain test.local --addr "$addr" 2>&1 || true)"
+    ncode="$(printf '%s' "$fresh" | python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("activation_code") or "")
+except Exception: print("")' 2>/dev/null)"
+    if [ -z "$ncode" ]; then
+      echo "no binding and no fresh code could be minted ($fresh)" >> "$out/inject.log"
+      break
+    fi
+    echo "retry $attempt: no binding after the journey, re-minted a code and re-running" >> "$out/inject.log"
+    code="$ncode"
+  done
   _wait_ev() {  # _wait_ev <file> <seconds>: wait for host-side evidence, bounded
     local f="$1" n="${2:-300}" i=0
     while [ "$i" -lt "$n" ]; do [ -s "$f" ] && return 0; i=$((i+1)); sleep 1; done
