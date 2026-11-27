@@ -67,6 +67,11 @@ echo "   gateway=$GW_URL system=$GW_SID"
 
 EV_ROOT="${EV_ROOT:-$AIMAIL_ROOT/evidence/l2}"; export EV_ROOT
 for h in $HOSTS; do
+  # Host capability vars must not leak from the previous host: hosts are SOURCED into this shell,
+  # so a value set by pi (single-address) was silently used to judge openclaw (multi-address) and
+  # produced a false C1 RED (measured 2026-11-27: b1=1, b2=2 coexisted yet the case took the
+  # single-address branch). Reset the trio before each host adapter is loaded.
+  unset HOST_ADDRESS_MODEL HOST_CAN_ALLOCATE_SESSION HOST_DELIVERY_CONFIRMATION
   . "$V2/hosts/$h.sh"
   out="$WORK/$h"; mkdir -p "$out"
   apply_out="$(python3 "$V2/lib/gw.py" apply --gateway "$GW_URL" \
