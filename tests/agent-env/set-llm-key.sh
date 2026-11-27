@@ -21,6 +21,9 @@ if [ -z "$PLAT" ]; then
     if [ -f "$HOME/.openclaw/openclaw.json" ] || [ -f /app/.openclaw/openclaw.json ]; then PLAT=openclaw; break; fi
     if [ -f "$HOME/.dsh/profiles/web/cordis.patch.yml" ]; then PLAT=dsh; break; fi
     if [ -f /opt/data/.hermes/config.yaml ] || [ -f "$HOME/.hermes/config.yaml" ]; then PLAT=hermes; break; fi
+    # deerflow: a backend service whose only config is /app/config.yaml (no CLI, no home dir),
+    # so a platform probe that only looks at agent homes cannot see it.
+    if [ -f /app/config.yaml ] && [ "$p" = deerflow ]; then PLAT=deerflow; break; fi
   done
 fi
 [ -n "$PLAT" ] || { echo "✗ cannot detect the host platform" >&2; exit 1; }

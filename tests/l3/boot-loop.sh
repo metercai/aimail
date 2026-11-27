@@ -46,6 +46,10 @@ echo "════ boot-loop: $HOST → $GW_URL （证据目录 $WORK）"
 CNAME="bootloop-$HOST-$$"
 # 驱动脚本随 /work 一起进容器（dsh 没有单发入口，必须走它的 web RPC）
 cp "$ROOT/tests/l3/lib/dsh-turn.sh" "$WORK/dsh-turn.sh" 2>/dev/null || true
+cp "$ROOT/tests/l3/lib/deerflow-turn.sh" "$WORK/deerflow-turn.sh" 2>/dev/null || true
+cp "$ROOT/tests/host-acceptance/v2/lib/deerflow_drive.py" "$WORK/deerflow_drive.py" 2>/dev/null || true
+# 用仓库里的 set-llm-key.sh（镜像里那份是构建时的旧快照，宿主平台探测缺 deerflow）
+cp "$ROOT/tests/agent-env/set-llm-key.sh" "$WORK/set-llm-key.sh" 2>/dev/null || true
 _cleanup_container() { [ -n "$IMAGE" ] && docker rm -f "$CNAME" >/dev/null 2>&1; }
 trap _cleanup_container EXIT
 
@@ -66,6 +70,7 @@ if [ -n "$IMAGE" ]; then
   case "$HOST" in
     hermes) DR=(--user 0:0) ; DCMD=() ;;   # keep s6: it is what wires pnpm/PATH for the CLI
     dsh)    DR=(--user 0:0) ; DCMD=() ;;
+    deerflow) DR=(--user 0:0) ; DCMD=(sleep infinity) ;;
     *)      DR=(); DCMD=() ;;
   esac
   docker run -d --rm --network host --name "$CNAME" "${DR[@]}" \
@@ -77,6 +82,7 @@ if [ -n "$IMAGE" ]; then
     pi)       READY_CMD='command -v pi >/dev/null && pi --version >/dev/null 2>&1' ;;
     openclaw) READY_CMD='command -v openclaw >/dev/null && openclaw --version >/dev/null 2>&1' ;;
     dsh)      READY_CMD='command -v dsh >/dev/null && dsh --version >/dev/null 2>&1' ;;
+    deerflow) READY_CMD='[ -x /app/backend/.venv/bin/python ]' ;;
     *)        READY_CMD='true' ;;
   esac
   for _ in $(seq 1 60); do
@@ -91,7 +97,7 @@ fi
 # 不注入就会得到 "401 Invalid API Key"，而且看起来像 prompt 失败——实测踩过。
 if [ -n "$IMAGE" ]; then
   if [ -n "${LLM_API_KEY:-}" ]; then
-    if docker exec -e LLM_API_KEY "$CNAME" bash -lc 'bash /opt/agent-env/set-llm-key.sh' > "$WORK/set-key.log" 2>&1; then
+    if docker exec -e LLM_API_KEY "$CNAME" bash -lc 'bash /work/set-llm-key.sh' > "$WORK/set-key.log" 2>&1; then
       ok "LLM key injected into the container ($(tail -1 "$WORK/set-key.log" | head -c 80))"
     else
       # hermes/dsh 用 api_key_env 指向环境变量，没有占位符可替换 ⇒ 脚本返回 1，属正常
@@ -114,7 +120,24 @@ PRE
     pi)     echo 'export HOME=/root' ;;
     openclaw) echo 'export HOME=/app' ;;
     dsh)    echo 'export HOME=/root' ;;
-    deerflow) echo 'export HOME=/root; cd /app 2>/dev/null || true' ;;
+    deerflow) cat <<'PRE'
+export HOME=/root
+# deerflow 默认 allow_host_bash: false —— 宿主**故意不给 agent shell**，于是 prompt 里的
+# `uname -s`/`curl | sh` 无处可跑（实测：编排 agent 只有文件/澄清/技能/上传四类工具）。
+# 自举的前提是能执行命令，所以 L3 环境打开它；生产默认关闭意味着锁定宿主必须预装 SDK。
+python3 - <<'PYEOF'
+import re
+p = '/app/config.yaml'
+s = open(p, encoding='utf-8').read()
+new, n = re.subn(r'(?m)^([ \t]*)allow_host_bash:[ \t]*false[ \t]*$', r'\1allow_host_bash: true', s)
+if n == 0 and 'allow_host_bash: true' not in s:
+    new = re.sub(r'(?m)^(sandbox:[ \t]*\n)', r'\1  allow_host_bash: true\n', s, count=1)
+open(p, 'w', encoding='utf-8').write(new)
+import sys; print("allow_host_bash:", [l.strip() for l in new.splitlines() if 'allow_host_bash' in l], file=sys.stderr)
+PYEOF
+cd /app 2>/dev/null || true
+PRE
+      ;;
   esac
 }
 
@@ -139,6 +162,8 @@ host_sdk_state() {  # 打印宿主侧 SDK 的存在证据（一行）
     # 全局 npm 树里有 agent-aimail，并且能读出它的版本。
     pi)       _in_env 'd="$(npm root -g 2>/dev/null)/agent-aimail"; [ -d "$d" ] && node -e "process.stdout.write(\"agent-aimail \"+require(\"$d/package.json\").version)" 2>/dev/null' ;;
     dsh)      _in_env 'd="$(npm root -g 2>/dev/null)/agent-aimail"; [ -d "$d" ] && node -e "process.stdout.write(\"agent-aimail \"+require(\"$d/package.json\").version)" 2>/dev/null' ;;
+    # deerflow 的 SDK 必须落在 /app/backend/.venv（系统 python 有 pip 但宿主看不见它）
+    deerflow) _in_env '/app/backend/.venv/bin/python3 -c "import importlib.metadata as m;print(\"agent-aimail\",m.version(\"agent-aimail\"))" 2>/dev/null' ;;
   esac
 }
 TRACE_BEFORE="$(_in_env 'cat "$HOME/.aimail/bootstrap.log" 2>/dev/null | tail -5')"
@@ -196,6 +221,14 @@ case "$HOST" in
     else
       bad "dsh 需要在宿主容器内驱动"; exit 2
     fi ;;
+  deerflow)
+    if [ -n "$IMAGE" ]; then
+      docker exec -i "$CNAME" bash -lc "$(host_prelude); bash /work/deerflow-turn.sh /work/prompt.txt /work/deerflow_drive.py 39201 $TMO" \
+        > "$WORK/turn.log" 2>&1
+      rc=$?
+    else
+      bad "deerflow 需要在宿主容器内驱动"; exit 2
+    fi ;;
   *) bad "unsupported host $HOST"; exit 2 ;;
 esac
 say "turn exited rc=$rc（日志 $WORK/turn.log）"
@@ -209,7 +242,8 @@ A=0; A_SRC=""
 TRACE_AFTER="$(_in_env 'cat "$HOME/.aimail/bootstrap.log" 2>/dev/null | tail -5')"
 if [ -n "$TRACE_AFTER" ] && [ "$TRACE_AFTER" != "${TRACE_BEFORE:-}" ]; then A=1; A_SRC="宿主自证痕迹: $(printf '%s' "$TRACE_AFTER" | tail -1)"; fi
 if [ "$A" = 0 ] && grep -q "AIMAIL_BOOTSTRAP" "$WORK/turn.log"; then A=1; A_SRC="回合日志里的脚本结论行"; fi
-if [ "$A" = 0 ] && grep -qi "agent-setup/bootstrap" "$WORK/turn.log"; then A=1; A_SRC="回合日志里出现了自举 URL"; fi
+# 不再用"日志里出现 URL"当判据：prompt 本身含这条 URL，宿主把 prompt 回显出来就假绿（实测踩过）。
+# 只认脚本自己留下的痕迹：结论行，或 ~/.aimail/bootstrap.log。
 B=0; AFTER="$(host_sdk_state)"; [ -n "$AFTER" ] && B=1
 printf '  %s\n' "--- turn tail ---" ; tail -25 "$WORK/turn.log" | sed 's/^/    /'
 
