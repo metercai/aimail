@@ -613,3 +613,39 @@ evidence: evidence/bootstrap-matrix/20261127T051751Z
 | 已知宿主但无解释器 | `AIMAIL_HOST=hermes pwsh -File b.ps1`（alpine 无 python） | `AIMAIL_BOOTSTRAP fail … code=no_python`，**干净失败不挂死** |
 
 仍未验的只剩"Windows 上真的装成"——那需要 Windows 执行器（CI 矩阵）。
+
+---
+
+## 18. L2 全量复跑（2026-11-27）：**不全绿，按约定不发版**
+
+命令：`run-matrix.sh --host all --sdk ts --stages "s1 s2 s3 s4 s5 s6 s7 s8 neg"`，`GW_BIN=` 指向未发版的本地网关（含锚点强制 v1.0.20）。
+
+```
+L2/L3 matrix: PASS=50 RED=3 GAP=8  → VERDICT: FAIL
+  dsh       21 PASS / 1 GAP / 0 RED / 6 N/A   （GAP: S5 模型没调工具）
+  pi        全 PASS（S7/S8 按契约 N/A）        （GAP: S5）
+  openclaw  8 PASS / 3 GAP / 3 RED             （RED: S2 arming ×2、S4 C1）
+```
+
+### 18.1 已定位并修好的一个假 RED（fixture）
+
+`S4 multi-address — second binding written on openclaw (max=2) — C1 violated` 是**误判**：
+宿主适配器变量在宿主之间泄漏——`hosts/*.sh` 是被 `source` 进同一个 shell 的，pi 的
+`HOST_ADDRESS_MODEL=single` 被 openclaw 继承，于是 openclaw 走了"单地址必须拒绝"的分支。
+实测 openclaw 同时存在两个 binding（`b1=1, b2=2`，布局 `/app/.aimail/systems/*/*/agentmail.json`）⇒ 它是 **multi**。
+
+两处修复：`hosts/openclaw.sh` 显式 `HOST_ADDRESS_MODEL=multi`；`run-matrix.sh` 每宿主前
+`unset HOST_ADDRESS_MODEL HOST_CAN_ALLOCATE_SESSION HOST_DELIVERY_CONFIRMATION`。
+复跑 openclaw：`PASS S4 multi-address two bindings coexist (max=2)` —— 假 RED 消除。
+
+### 18.2 仍然不是绿的部分
+
+| 类别 | 项 | 现状 |
+|---|---|---|
+| **RED** | openclaw `S2 arming` ×2 | 绑好之后 `openclaw gateway` 阶段没有出现任何 aimail/aimail-pull 行；下游 `S3 delivery`、`S4 reconcile` 均因此连带。夹具原先不保留 `gw2.log`，**无法区分"产品没 arm"还是"网关没起来"**——已补 `cp /tmp/gw2.log /out/`，下一轮即可定性 |
+| **GAP** | dsh `S3 delivery` | journey 没走到邮件阶段（与 openclaw 同源：投递侧没起来） |
+| **GAP** | dsh `S6` / openclaw `S6` | 会话证据读不到（`sessions1=1, key=-`）：夹具的会话根路径/解析与宿主不符 |
+| **GAP** | dsh `S7` / `S8` | 驱动脚本存在且会写 `s7_gone.json`/`s8_anchor.json`，但 dsh 的 journey 只在 `S7=1/S8=1` 时跑，且 case 侧没有对应 hook 等它写完、容器先被 `host_stop` 删掉 |
+| **GAP** | pi / openclaw `S5` | 模型整轮没调 `aimail_address`（pause/unbind），属模型行为/夹具提示，不是产品缺陷 |
+
+**结论：L2 未全绿 ⇒ 不发版。** 下一步顺序：① 用新取证把 openclaw S2 定性（产品 or 夹具）→ 修 → ② dsh/openclaw 的 S6 会话根路径 → ③ S7/S8 hook 接线（等容器写完再停）→ ④ S5 提示词或重试策略 → ⑤ 再跑全量。

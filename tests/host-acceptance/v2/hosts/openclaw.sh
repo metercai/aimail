@@ -6,6 +6,10 @@
 #     -> restart (arm) -> wait for the injected mail to be acked.
 set -uo pipefail
 HOST_NAME=openclaw
+# Measured 2026-11-27: two binding files coexisted (b1=1, b2=2) under
+# /app/.aimail/systems/*/*/agentmail.json — the multi-address layout. Declared explicitly so the
+# capability cannot be inherited from whichever host was sourced before this one.
+HOST_ADDRESS_MODEL=multi
 HOST_DELIVERY_CONFIRMATION=unconfirmed  # 附 E: 200＝cron job 入队，无 run/session 查询；C17 仍受判（需证据，缺则 GAP）
 HOST_RISK_ACCEPTED="owner 2026-11-25: openclaw 200=入队、无 run 查询；接受 ack-未落地风险"
 OC_IMAGE="${OC_IMAGE:-aimail-host-openclaw:latest}"
@@ -120,6 +124,11 @@ PY
       mkdir -p /out/aimail-logs 2>/dev/null || true
       find /app/.aimail/systems -name 'agentmail.log' -exec cp {} /out/aimail-logs/ \; 2>/dev/null || true
       grep -a "agent-aimail\|aimail-pull" /tmp/gw.log /tmp/gw2.log > /out/host.log 2>/dev/null || true
+      # Without the gateway's own log a missing arming line cannot be classified: product (plugin
+      # never armed) vs fixture (gateway never started). Measured 2026-11-27: host.log held only the
+      # embedded-mode line and gw2.log was not preserved, so S2 RED was unattributable.
+      cp /tmp/gw.log /out/gw.log 2>/dev/null || true
+      cp /tmp/gw2.log /out/gw2.log 2>/dev/null || true
       tail -n 200 /tmp/gw.log /tmp/gw2.log >> /out/host.log 2>/dev/null || true
       # s6 (contract C8): openclaw keeps transcripts in sqlite, so the driver discovers the store
       # (session-named dirs + session tables) rather than guessing a path. Placed after the if/else
