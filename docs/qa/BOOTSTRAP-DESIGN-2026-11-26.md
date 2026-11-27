@@ -517,3 +517,34 @@ InstalledPackage(path=/opt/data/tools/pnpm-12.15.0-linux-x64, version=12.15.0,
 
 因此镜像修法（尚未落地）：`Dockerfile.hermes` 增加 `RUN /opt/hermes/bin/hermes pm install pnpm`。
 稳定 vs canary 的选择：**建议留在稳定通道 + 补 pnpm**（canary 是预发布，不适合当回归底板），若要跟 canary 则需同时改 pins 与 CI。
+
+---
+
+## 15. 追问「hermes 是 Python agent，为什么要装 pnpm？」——不装，它是噪声
+
+- **pnpm 与我们的 SDK 无关**：pypi SDK 走 `pip install agent-aimail`（wheel）。pnpm 是 **hermes 自己**的依赖——官方安装是 "docker-managed"，`pm.activate()` 管的是它的 **JS 工作区（root / web / ui-tui）与 pm 工具包**；镜像不带 pnpm，于是每次启动自检打印一句。
+- **对照实验证明它不是阻塞点**：`hermes pm install pnpm` 装上后告警消失，但回合表现与不装时完全相同（canary 甚至本来就不打印告警）。⇒ 不为了它改镜像（owner 也确认留稳定通道，`BASE_HERMES` digest `ef0650d5…` 不动）。
+
+### 15.1 我自己踩的三个坑（比 pnpm 重要得多，全部已修）
+
+| # | 坑 | 现象 | 修法 |
+|---|---|---|---|
+| 1 | 临时探测容器用的是**默认 bridge（无 DNS）** | 模型域名解析不了 ⇒ 回合静默挂到超时，看起来像"hermes 挂死" | 一律 `--network host`（boot-loop 本来就用，我临时探测漏了） |
+| 2 | `/work` 是 `mktemp -d`（**0700**），而 hermes 以 **uid 10000** 运行 | 读不到 prompt ⇒ `-z` 收到空串 ⇒ **静默掉进交互 TUI** | boot-loop 在写好 prompt 后 `chmod -R a+rX "$WORK"` |
+| 3 | 把 prompt 拼进 `su -c "… -z \"$(cat …)\""` 的字符串里 | prompt 含反引号/引号，被二次解析 ⇒ 参数丢失 | 用**引号 heredoc 生成 runner 脚本**，prompt 只以文件路径出现在脚本里，运行时 `"$(cat file)"` |
+
+### 15.2 hermes 回合的正确配方（实测：输出 `pong`）
+
+provider 在 hermes 0.23.4 里是**三件套**，缺一不可：
+
+| 项 | 缺了会怎样 |
+|---|---|
+| `config model.provider = openai-api` | `ProviderNotConfiguredError: No LLM provider configured` |
+| `config model.base_url = <我们的端点>` | 内置 openai-api 去连 `api.openai.com` ⇒ `HTTP 403: Country, region, or territory not supported` |
+| `$HERMES_HOME/.env` 里 `OPENAI_API_KEY` | 命令行上有这个环境变量**也不算**：`No usable credentials found for provider 'openai-api'` |
+
+而且**生效的配置文件是 `/opt/data/config.yaml`**，`prepare.sh` 写的 `/opt/data/.hermes/config.yaml` 的 model 段 hermes 不读（这个错位让前面几轮修改全部无效）。
+
+### 15.3 仍卡住的一步（诚实边界）
+
+用**短提示词**（"reply with the single word pong"）回合正常返回 `pong`；换成我们的 **795 字节激活 prompt** 后，回合在 240s / 420s / 900s 内都没有任何输出（连 `install out of sync` 之外的行都没有），既没有自举痕迹也没有安装。⇒ hermes 的 CLI 单发回合能吃短 prompt、吃不下这条长 prompt，原因未定位。这正是 owner 选 A（经 gateway 会话）要解决的部分：把 prompt 作为**会话消息**投递，而不是作为 CLI 参数。
