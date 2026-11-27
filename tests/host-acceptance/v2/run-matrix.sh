@@ -107,6 +107,11 @@ for h in $HOSTS; do
   # shows up as a phantom new session in s6 (seen 2026-11-25: two 37h-old containers, sessions 8->9->12).
   docker ps -q --filter "ancestor=aimail-host-$h" 2>/dev/null | xargs -r docker rm -f >/dev/null 2>&1 || true
   host_journey "$out" "$addr" "$code" "$token"
+  _wait_ev() {  # _wait_ev <file> <seconds>: wait for host-side evidence, bounded
+    local f="$1" n="${2:-300}" i=0
+    while [ "$i" -lt "$n" ]; do [ -s "$f" ] && return 0; i=$((i+1)); sleep 1; done
+    return 1
+  }
   for st in $STAGES; do
     case "$st" in
       s1) . "$V2/cases/s1_activation.sh" "$out" ;;
@@ -114,9 +119,14 @@ for h in $HOSTS; do
       s3) . "$V2/cases/s3_delivery.sh" "$out" ;;
       s4) . "$V2/cases/s4_multiaddr.sh" "$out" "$h" ;;
       s5) . "$V2/cases/s5_lifecycle.sh" "$out" ;;
-      s6) . "$V2/cases/s6_threading.sh" "$out" ;;   # contract C8 host side (evidence from host_journey)
-      s7) . "$V2/cases/s7_session_gone.sh" "$out" ;;  # contract C17 session-gone downgrade (host hook)
-      s8) . "$V2/cases/s8_anchor_isolation.sh" "$out" ;;  # contract C16 anchor isolation (host hook)
+      # s6/s7/s8 evidence is written by the host_journey INSIDE the container, which keeps running
+      # after /out/ready: the drivers come after it (they need the binding, the whitelist and a live
+      # session store). The cases used to run the moment s5 finished, so the files were not there yet
+      # and every such obligation came back as GAP even on hosts that produce them. Wait for the file
+      # (bounded), never for a fixed sleep.
+      s6) _wait_ev "$out/s6.json" 420; . "$V2/cases/s6_threading.sh" "$out" ;;   # contract C8 host side (evidence from host_journey)
+      s7) _wait_ev "$out/s7_gone.json" 420; . "$V2/cases/s7_session_gone.sh" "$out" ;;  # contract C17 session-gone downgrade (host hook)
+      s8) _wait_ev "$out/s8_anchor.json" 420; . "$V2/cases/s8_anchor_isolation.sh" "$out" ;;  # contract C16 anchor isolation (host hook)
       neg) host_negative "$out" "$addr"; . "$V2/cases/negatives.sh" "$out" "$addr" ;;
     esac
   done
