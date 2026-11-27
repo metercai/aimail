@@ -20,12 +20,14 @@ host_journey() {
   mkdir -p "$out"
   local second="" lifecycle="${LIFECYCLE:-0}"
   if [ -n "${S4_ADDR:-}" ] && [ -n "${S4_CODE:-}" ]; then second="${S4_ADDR}|${S4_CODE}"; fi
-  S6FLAG=0
+  S6FLAG=0; S7FLAG=0; S8FLAG=0
+  case " ${STAGES:-} " in *" s7 "*) S7FLAG=1 ;; esac
+  case " ${STAGES:-} " in *" s8 "*) S8FLAG=1 ;; esac
   case " ${STAGES:-} " in *" s6 "*) S6FLAG=1 ;; esac
   docker run --rm --network host --name "l2oc-$$" \
     -e "LLM_API_KEY=${LLM_API_KEY:?}" -e "AH=$addr" -e "AC=$code" -e "GWURL=${GW_URL}" \
     -e "SECOND=$second" -e "LIFECYCLE=$lifecycle" -e "TOKEN=$token" -e "GWSMTP=$((GW_SMTP + 1))" \
-    -e "S6=$S6FLAG" \
+    -e "S6=$S6FLAG" -e "S7=$S7FLAG" -e "S8=$S8FLAG" \
     -v "$V2_ROOT/lib:/opt/v2lib:ro" -v "${SDK_TARBALL_DIR:?}:/opt/sdk:ro" \
     -v "${GW_WORK}:/gw:ro" -v "$out:/out" \
     --entrypoint bash "$OC_IMAGE" -lc '
@@ -164,6 +166,17 @@ PY
           --db /gw/storage/aimail.db --out /out \
           --session-cmd "openclaw sessions --json --limit all 2>/dev/null" \
           --session-root /app --settle 25 >> /out/s6_drive.log 2>&1 || true
+      fi
+      # s8 (contract C16 anchor isolation): same driver dsh uses. It needs the plugin home and the
+      # host session listing, because the check is whether the reply landed in a session of the
+      # CURRENT anchor while the thread pointer named a live session of ANOTHER anchor.
+      # Measured 2026-11-27: openclaw had no s8 driver at all, so C16 came back as GAP forever.
+      if [ "${S8:-0}" = "1" ]; then
+        python3 /opt/v2lib/s8_drive.py --addr "$AH" --smtp-port "$GWSMTP" \
+          --db /gw/storage/aimail.db --out /out \
+          --session-cmd "openclaw sessions --json --limit all 2>/dev/null" \
+          --session-root /app --settle 25 --aimail-home /app/.aimail \
+          >> /out/s8_drive.log 2>&1 || true
       fi
     ' >"$out/rc" 2>&1 &
   local pid=$!
