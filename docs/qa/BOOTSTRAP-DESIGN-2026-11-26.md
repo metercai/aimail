@@ -442,3 +442,41 @@ hermes 0.23.4 的 CLI 在容器里拒绝跑回合，按遇到的顺序：
 5. **最后一道**：`Error: Gateway inaccessible: service_manager_unavailable` —— CLI 需要一个在 s6 监管下运行的 hermes gateway（`HERMES_GATEWAY_NO_SUPERVISE=1` 与 `--no-supervise` 都没绕过）。
 
 前 4 道都已定位并有明确改法（provider 写 `openai-api`、构建期补 `profiles/<name>/`、运行期把 `LLM_API_KEY` 注入 `$HERMES_HOME/.env`、用 corepack 装 pnpm）；第 5 道是"CLI 必须在 s6 监管的 gateway 里跑"，需要把 L3 的驱动方式从 `docker exec hermes -z` 换成"经 gateway 的会话"（L2 夹具 phase 2 就是这么做的：`nohup hermes --yolo gateway run &` 之后走 webhook 入站）。
+
+---
+
+## 13. owner 决策（2026-11-27）+ hermes 镜像体检
+
+### 13.1 决策
+
+1. **deerflow 放弃 SDK 自举**（宿主无执行能力，见 §12.1）⇒ 该宿主在本议题下为 **N/A**，`boot-loop.sh --host deerflow` 现以退出码 2 明确标注 N/A，不再产出一条看起来"失败"的红。
+2. **hermes 走 A：经其 gateway 的会话**驱动（不走 `docker exec hermes -z`）。
+
+### 13.2 hermes 镜像是不是官方最新？——是
+
+| 检查 | 结果 |
+|---|---|
+| `pins.env` 的 `BASE_HERMES` digest | `sha256:ef0650d5…` |
+| 本地 base 镜像 `RepoDigests` | `sha256:ef0650d5…`（与 pins **逐字一致**） |
+| 容器内版本 | `Hermes Agent v0.23.4 (2026.9.24) · upstream 8fc03744`，`Install method: docker` |
+| 上游最新 release（GitHub `releases/latest`） | **`v0.23.4`**（published 2026-11-24） |
+
+结论：我们跑的就是官方最新镜像（v0.23.4），pins 也没漂。
+
+### 13.3 但镜像自身有一处上游缺口：pnpm
+
+- 每次调用 `hermes` 都会先打印 `⚠ install out of sync (pnpm: not installed or outdated) — this docker-managed install must rebuild the artifact to fix`；
+- 这不是我们构建引入的：**官方 base 镜像里就有**（`nousresearch/hermes-agent:latest` 直接跑也一样），L2 的 hermes 证据从 2026-11-23 起就带着这条告警；
+- 试过 `hermes pm install`（构建期、有网）→ 装了 cua-driver 等，**pnpm 仍然缺失**；`npm i -g pnpm` 被镜像的 `allowScripts` 拦；容器内无 DNS 更装不了。
+⇒ 这是官方 docker 镜像的自洽性缺口（它用 pnpm 管依赖，却不带 pnpm）。
+
+### 13.4 这个缺口影响其它用例吗？——会，且不是本次重建造成的
+
+| 观察 | 证据 |
+|---|---|
+| 纯 CLI 回合挂死：`hermes --yolo -z 'reply pong'` 只输出 pnpm 告警，然后到超时（**RC=124**） | 本机实测（`/opt/l2home` 接线，90s 超时） |
+| **新旧镜像一样挂**：v0.23.2（11-18 构建的 `:native`）与 v0.23.4（今天重建）表现相同 | 同上对比跑 |
+| 今天最近一次 L2 hermes 是红的，且日志里同样有那条告警 | `evidence/l2/20261126T101944Z-hermes-x/results.txt`：`RED S1 activation no binding written` |
+| 但 11-23 同样的告警下 L2 曾 PASS 过（binding written） | `evidence/l2/20261123T134902Z-hermes-x/results.txt` |
+
+⇒ 结论分两层：**告警本身不致命**（11-23 带着它也能过），但**现在这个镜像里 CLI 回合会挂到超时**，所以凡是通过 `hermes -z` 驱动 hermes 的用例（L2 的 hermes 单元、C17 的 hermes 观测）都受影响，必须在 hermes 上改用 A 方案（gateway 会话）后才谈得上绿。这也意味着 hermes 的 L2 结果目前不可信，不能拿 11-23 的绿灯当现状。

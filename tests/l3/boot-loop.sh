@@ -222,6 +222,9 @@ case "$HOST" in
       bad "dsh 需要在宿主容器内驱动"; exit 2
     fi ;;
   deerflow)
+    # owner 2026-11-27: deerflow 不做 SDK 自举（它的编排 agent 只有文件/澄清/技能/上传四类工具，
+    # 没有 shell 也没有可委派的执行子代理 ⇒ prompt 自举在这个宿主上结构上不可能）。
+    bad "deerflow 的 SDK 自举已由 owner 判定为不做（宿主无执行能力），本用例为 N/A"; exit 2
     if [ -n "$IMAGE" ]; then
       docker exec -i "$CNAME" bash -lc "$(host_prelude); bash /work/deerflow-turn.sh /work/prompt.txt /work/deerflow_drive.py 39201 $TMO" \
         > "$WORK/turn.log" 2>&1
