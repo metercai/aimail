@@ -66,9 +66,24 @@ PY
         B=$(ls /root/.aimail/systems/*/*/agentmail.json 2>/dev/null | head -1)  # contract-allowed: in-container fixture glob; the repo contract is not mounted in the host image
       fi
       if [ -n "$B" ]; then install -m 644 "$B" /out/binding.json; stat -c %a "$B" > /out/mode; fi
+      # `paused` is NOT necessarily in agentmail.json: setBindingPaused() writes it into the address
+      # config (cfgPath), and the two are different files on some hosts. Reading only the binding file
+      # reported paused=None on pi while the plugin log said "paused" (measured 2026-11-27). Scan the
+      # whole address directory and report True if ANY json carries paused=true.
       python3 - <<PY >/out/paused_seen 2>/dev/null || echo None >/out/paused_seen
 import glob, json
-print(json.load(open(p[0])).get("paused") if p else "no-binding")
+files = glob.glob("/root/.aimail/systems/*/*/*.json")
+seen = False
+found = False
+for f in files:
+    try:
+        d = json.load(open(f, encoding="utf-8"))
+    except Exception:
+        continue
+    found = True
+    if isinstance(d, dict) and d.get("paused") is True:
+        seen = True
+print("True" if seen else ("False" if found else "no-binding"))
 PY
       tail -n 200 /tmp/pi.log > /out/last.log 2>/dev/null || true
       # Per-turn evidence: last.log is overwritten by every turn, so a multi-turn journey
