@@ -36,14 +36,23 @@
 # Exit: 0 = loop closed · 1 = assertion failed · 2 = env gap
 set -uo pipefail
 
-# decompress a session transcript; on hosts without zstd, install the python module once.
+# decompress a session transcript. Three routes, none of them require the network:
+#  ① zstd/zstdcat if the host has the CLI
+#  ② node — dsh is a node host, so node is always present, and zlib.zstdDecompressSync
+#    exists since node 22.15/23 (windows-latest ships 24). Measured 2026-11-28: the
+#    pip route left windows without zstandard and the cell aborted on ENV GAP
+#    "cannot read the session transcript" — a fixture gap, not a product verdict.
+#  ③ python + zstandard, installing the module once when pip works
 _tx_read() {  # _tx_read <file>
   local f="$1" out="" py=""
   [ -f "$f" ] || return 1
   if command -v zstdcat >/dev/null 2>&1; then out="$(zstdcat "$f" 2>/dev/null)"; fi
+  if [ -z "$out" ] && command -v zstd >/dev/null 2>&1; then out="$(zstd -dc "$f" 2>/dev/null)"; fi
+  if [ -z "$out" ] && command -v node >/dev/null 2>&1; then
+    out="$(node -e 'const fs=require("fs"),z=require("zlib");if(!z.zstdDecompressSync)process.exit(3);process.stdout.write(z.zstdDecompressSync(fs.readFileSync(process.argv[1])).toString("utf8"))' "$f" 2>/dev/null)"
+  fi
   if [ -z "$out" ]; then
-    # git-bash on windows-latest has `python`, not `python3` (measured 2026-11-28: the whole cell
-    # aborted on ENV GAP "cannot read the session transcript — no zstd/zstandard on this host").
+    # git-bash on windows-latest has `python`, not `python3`
     for cand in python3 python; do
       command -v "$cand" >/dev/null 2>&1 || continue
       if "$cand" -c "import zstandard" >/dev/null 2>&1 \
@@ -58,11 +67,6 @@ _tx_read() {  # _tx_read <file>
   printf '%s' "$out"
   [ -n "$out" ]
 }
-
-say() { printf '  %s\n' "$*"; }
-ok()  { printf '  \033[32m✓\033[0m %s\n' "$*"; }
-bad() { printf '  \033[31m✗ %s\n' "$*" >&2; }
-die() { bad "$*"; exit 1; }
 gap() { printf '  \033[35m⊘ ENV GAP: %s\n' "$*" >&2; exit 2; }
 # `warn` was CALLED but never DEFINED here (measured 2026-11-28, windows-amd64: "dsh-v2.sh: line
 # 505: warn: command not found"), so the tripwire's explanation never reached the log.
@@ -506,20 +510,17 @@ say "[3/7] the agent installs the plugin itself (the activation mail told it to)
 _sess="$(ls -t "$DSH_HOME"/sessions/*/*/session.v4.jsonl.zstd 2>/dev/null | head -1)"
 _leak=0
 if [ -n "$_sess" ]; then
-  if command -v zstdcat >/dev/null 2>&1; then
-    # Repo docs count as the harness too: an agent that reads docs/dsh-mail-architecture-v2.md has
-    # been told how to install, which is exactly what the activation prompt is supposed to convey.
-    # CI proved the difference: same journey, no repo on the agent's path -> no install at all.
-    _tx_read "$_sess" 2>/dev/null | grep -qaE "tests/l3/|dsh-v2\.sh|run-l3\.sh|run-v2\.sh|aimail/docs/|docs/dsh-mail|docs/aimail-host-sse" && _leak=1
-  elif python3 -c "import zstandard" >/dev/null 2>&1; then
-    python3 - "$_sess" <<'PY' && _leak=1
-import sys, zstandard
-d = zstandard.ZstdDecompressor().stream_reader(open(sys.argv[1], 'rb')).read().decode('utf-8', 'replace')
-needles = ('tests/l3/', 'dsh-v2.sh', 'run-l3.sh', 'run-v2.sh')
-sys.exit(0 if any(n in d for n in needles) else 1)
-PY
+  # Repo docs count as the harness too: an agent that reads docs/dsh-mail-architecture-v2.md has
+  # been told how to install, which is exactly what the activation prompt is supposed to convey.
+  # CI proved the difference: same journey, no repo on the agent's path -> no install at all.
+  # One decompressor for the whole script (_tx_read), so the tripwire stays active on the
+  # windows cell as well instead of skipping itself for a missing zstdcat.
+  _txt="$(_tx_read "$_sess" 2>/dev/null)" || _txt=""
+  if [ -n "$_txt" ]; then
+    printf '%s' "$_txt" > "$WORK/transcript-tripwire.txt" 2>/dev/null || true
+    grep -qaE "tests/l3/|dsh-v2\.sh|run-l3\.sh|run-v2\.sh|aimail/docs/|docs/dsh-mail|docs/aimail-host-sse" "$WORK/transcript-tripwire.txt" 2>/dev/null && _leak=1
   else
-    warn "integrity tripwire skipped: no zstdcat / python-zstandard on this host (recorded, not counted as a pass)"
+    warn "integrity tripwire skipped: cannot decompress the transcript on this host (recorded, not counted as a pass)"
   fi
 fi
 [ "$_leak" = 0 ] || die "INVALID cell: the agent read the L3 harness (transcript mentions tests/l3) — the host can see this checkout, so the run is open-book and cannot judge the product. Isolate the host, then re-run."

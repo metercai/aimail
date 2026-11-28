@@ -19,16 +19,28 @@ run_timeout() {
   fi
 }
 HOST_NAME=pi
-# decompress a session transcript; on hosts without zstd, install the python module once.
+# decompress a session transcript without needing the network:
+#  ① zstd/zstdcat CLI ② node (pi is a node host; zlib.zstdDecompressSync since node 22.15/23)
+#  ③ python + zstandard, installing the module once when pip works
 _tx_read() {  # _tx_read <file>
-  local f="$1" out=""
+  local f="$1" out="" py=""
   [ -f "$f" ] || return 1
-  if command -v zstdcat >/dev/null 2>&1; then out="$(zstdcat "$f" 2>/dev/null)"
-  elif python3 -c "import zstandard" >/dev/null 2>&1; then
-    out="$(python3 -c "import sys,zstandard;sys.stdout.write(zstandard.ZstdDecompressor().stream_reader(open(sys.argv[1],'rb')).read().decode('utf-8','replace'))" "$f" 2>/dev/null)"
-  else
-    python3 -m pip install --quiet zstandard >/dev/null 2>&1 || true
-    out="$(python3 -c "import sys,zstandard;sys.stdout.write(zstandard.ZstdDecompressor().stream_reader(open(sys.argv[1],'rb')).read().decode('utf-8','replace'))" "$f" 2>/dev/null)"
+  if command -v zstdcat >/dev/null 2>&1; then out="$(zstdcat "$f" 2>/dev/null)"; fi
+  if [ -z "$out" ] && command -v zstd >/dev/null 2>&1; then out="$(zstd -dc "$f" 2>/dev/null)"; fi
+  if [ -z "$out" ] && command -v node >/dev/null 2>&1; then
+    out="$(node -e 'const fs=require("fs"),z=require("zlib");if(!z.zstdDecompressSync)process.exit(3);process.stdout.write(z.zstdDecompressSync(fs.readFileSync(process.argv[1])).toString("utf8"))' "$f" 2>/dev/null)"
+  fi
+  if [ -z "$out" ]; then
+    for cand in python3 python; do
+      command -v "$cand" >/dev/null 2>&1 || continue
+      if "$cand" -c "import zstandard" >/dev/null 2>&1 \
+         || { "$cand" -m pip install --quiet --user zstandard >/dev/null 2>&1 && "$cand" -c "import zstandard" >/dev/null 2>&1; }; then
+        py="$cand"; break
+      fi
+    done
+    if [ -n "$py" ]; then
+      out="$("$py" -c "import sys,zstandard;sys.stdout.write(zstandard.ZstdDecompressor().stream_reader(open(sys.argv[1],'rb')).read().decode('utf-8','replace'))" "$f" 2>/dev/null)"
+    fi
   fi
   printf '%s' "$out"
   [ -n "$out" ]
