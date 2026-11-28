@@ -34,12 +34,22 @@ from s7_drive import log, mtimes, settle, snap, wait_ack  # noqa: E402
 FOREIGN_ANCHOR = "/work/foreign-anchor"
 
 
-def point_thread_at_foreign_anchor(aimail_home: str, foreign: str) -> int:
-    """Rewrite the thread pointer's space, keeping its session_id (that session stays alive)."""
+def point_thread_at_foreign_anchor(aimail_home: str, foreign: str, wait_s: float = 0.0) -> int:
+    """Rewrite the thread pointer's space, keeping its session_id (that session stays alive).
+
+    The meta tree only exists once a delivery has been recorded, and the fixture used to look for
+    it at a fixed moment: measured 2026-11-27 the probe found zero files on one run and one file on
+    the next, which flipped the whole case between GAP ("scenario never set up") and a real verdict.
+    So wait (bounded) for the thread pointer to appear before deciding the scenario is absent.
+    """
     pattern = os.path.join(os.path.expanduser(aimail_home), "systems", "*", "*",
                            "mail", "meta", "*", "*.json")
     hits = 0
+    deadline = time.monotonic() + float(wait_s or 0.0)
     files = glob.glob(pattern)
+    while not files and time.monotonic() < deadline:
+        time.sleep(2.0)
+        files = glob.glob(pattern)
     log("thread-meta probe: %d file(s) matching %s" % (len(files), pattern))
     for f in files:
         try:
@@ -137,7 +147,8 @@ def main() -> int:
                       rewritten=0, foreign_session="", used="", landed="", leaks=False)
 
     victim = new1[0]
-    rewritten = point_thread_at_foreign_anchor(a.aimail_home, a.foreign_anchor)
+    rewritten = point_thread_at_foreign_anchor(a.aimail_home, a.foreign_anchor,
+                                               wait_s=float(os.environ.get("AIMAIL_S8_META_WAIT", "180")))
     if rewritten == 0:
         # No thread pointer ⇒ the scenario was never set up. Report it instead of judging a no-op.
         return finish(error="no thread pointer rewritten (mail/meta empty?) — C16 not exercised",
