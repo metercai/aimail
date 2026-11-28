@@ -833,3 +833,30 @@ RED  S8 anchor isolation — marker does not name the abandoned edge (edge='-')
 | openclaw | PASS=26 RED=3 GAP=0 | S8 两条 = 上面这个 P0；S3 一条 = `observed max=1 final=1`（pending 建了但窗口内没被拉走） |
 
 另：openclaw 的 bind 抖动本轮已由"3 次有界重试 + 字面量调用"压住（本轮 S1 通过）；`s5` 那一趟仍未跑。
+
+---
+
+## 23. 入站链一致性修复完成（owner 2026-11-27 追问后）
+
+owner 的判断是对的：**"SSE 收到邮件到调起 session 之前"必须是一条链，宿主只做地址路由与 session 映射的适配。**
+审计发现的真实分叉与修法：
+
+| 阶段 | dsh | pi | openclaw（修前 → 修后） |
+|---|---|---|---|
+| 预处理 13 步 | 共享 | 共享（经 agent-level） | 共享 → 共享 |
+| **路由决策 E1/E2/E3 + I2 锚点 + C17** | 共享 `decideInboundDelivery` | 无入站模块（结构性） | **自建 `selectSessionKey`（从不比较锚点）** → 共享 |
+| session 映射 | 宿主适配 | 宿主适配 | 宿主适配（route.kind → `session_key`） |
+
+三个产品侧修复（都在 `src/openclaw/inbound.ts`）：
+1. 路由改走共享 `decideInboundDelivery()`，dispatch 记录补 `anchor / anchorMovedEdge / anchorMovedFrom`；
+2. 记录**规范字段** `session_id` + `workspace_path`（共享层判锚点读的是它们，原先只写 `session_key`）；
+3. 这两个字段**无条件记录**（绑在"是否请求宿主持久会话"上时，根消息没有 `session_id`，路由看不到被改写的 thread 指针）。
+
+防回归：`test/core/inbound-pipeline-parity.test.ts`（9 项）——每个宿主入站模块必须调用共享决策、
+必须用 `route.kind` 映射、必须记录 anchor 记账；pi 的"无入站模块"被断言为结构性。
+
+夹具侧：`s8_drive.py` 改为**等 thread 指针出现**（`AIMAIL_S8_META_WAIT`，默认 180s）再判定，
+此前固定时刻探测会让同代码在 GAP 与结论之间反复跳。
+
+**结果**：openclaw `s1 s2 s8` → **PASS=16 RED=0 GAP=0 VERDICT: PASS**
+（`anchor-moved` 记录为 `edge=thread, from=/work/foreign-anchor`，投递落在当前锚点会话，且无 pending 遗留）。
