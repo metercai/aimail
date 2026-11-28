@@ -1,0 +1,35 @@
+  ✓ pi installed (official npm)
+  ✓ clean state: no agent-aimail in dsh profiles / pi home / openclaw home; previous ~/.aimail archived
+  ✓ LLM config written (pi home=/c/Users/runneradmin/.pi)
+  ✓ pi on PATH (1.6.1)
+  ✓ pi home skeleton present
+  ✓ interpreter: node v22.23.5
+  ✓ package manager: npm 10.9.9
+  ✓ LLM config in place and re-readable (single-source writer)
+  ✓ no aimail CLI on PATH
+  ✓ no aimail CLI binary in the agent's search path (/c/Users/runneradmin/.local/bin /usr/local/bin /usr/bin /bin /c/Users/runneradmin/.cargo/bin C:\npm\prefix/bin)
+  ✓ no interpreter can import the pysdk (aimail)
+  ✓ no agent-aimail distribution installed
+  ✓ no @aimail/* npm package installed globally
+  ✓ npm minimumReleaseAge disabled (value: undefined)
+  ✓ agent runs: 1.6.1
+  ✓ LLM answered (HTTP 200 with content)
+  ✓ pinned version installed: pi 1.6.1
+  ✓ pi env ready (npm-installed host + models.json; single source)
+  ✓ host version matches the pin (pi 1.6.1)
+  ✓ agent env ready: pi
+  ✓ l3.local mapped to loopback for this run (/c/Windows/System32/drivers/etc/hosts)
+  ✓ gateway up: http://127.0.0.1:18123 (system_id=system-1205)
+  ✓ gateway [relay]→sink up; LLM endpoint answering
+  ✓ fixture ready
+  ✓ applicant: email verified + address applied (l3agent@l3.local) + prompt from mail body
+  ✓ turn 1 prompt injected (the activation mail body, verbatim)
+  ✓ agent bootstrapped the plugin itself: agent-aimail@0.6.1 (= npm latest) at /c/Users/runneradmin/.pi/agent/npm/node_modules/agent-aimail/package.json (fixture ran no install)
+  ✓ binding landed: /c/Users/runneradmin/.aimail/systems/system-1205/l3agent_l3.local/agentmail.json (agent_system_id, gateway_url, no webhook_url)
+  ✓ welcome queued (ledger row 09eea144-c7b9-4b0c-8352-00abf474059a) — the agent calibrated
+  ✓ approval processed (manager_persona_approved; persona='L3 pi V2 regression persona')
+  ✓ persona-applied notice delivered via pending row (2; llmMs: 0 → 0)
+  ✓ identity card (persona) + email signature in effect
+  ✓ query-mail signature assertion passed
+  ✓ ════ pi V2 JOURNEY PASS — activation code → host agent bind → welcome loop closed (llm evidence: turn log)
+  ✓ ════ L3 PASS: windows-amd64 / pi — V2 activation code → agent self-install → bind → welcome loop closed

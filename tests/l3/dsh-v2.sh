@@ -848,8 +848,6 @@ done
 [ -n "$APPLIED_ROW" ] || die "the persona-applied confirmation never reached the agent's ledger (notify_agent_persona_applied queued nothing: no ledger line for [AIMail] Persona applied under $AIMAIL_HOME, no pending row)"
 POST_REPLY_LLMMS="$(llm_ms_total)"
 ok "persona-applied notice delivered via $APPLIED_VIA ($APPLIED_ROW; llmMs: ${PRE_REPLY_LLMMS:-0} → ${POST_REPLY_LLMMS:-0})"
-POST_REPLY_LLMMS="$(llm_ms_total)"
-ok "persona-applied notice delivered (pending row $APPLIED_ROW; llmMs: ${PRE_REPLY_LLMMS:-0} → ${POST_REPLY_LLMMS:-0})"
 
 # ═══ [7] query-mail signature assertion (whoami readback) ═════════════════════
 say "[7/7] query-mail signature assertion (whoami readback)"

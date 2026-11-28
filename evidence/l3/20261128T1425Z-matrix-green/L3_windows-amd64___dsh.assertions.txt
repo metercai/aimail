@@ -1,0 +1,47 @@
+  ✓ dsh installed (official npm) + pnpm present + profile warmed
+  ✓ clean state: no agent-aimail in dsh profiles / pi home / openclaw home; previous ~/.aimail archived
+  ✓ LLM config written (dsh home=/c/Users/runneradmin/.dsh)
+  ✓ dsh on PATH (0.2.2-rc.5)
+  ✓ dsh profile skeleton warmed
+  ✓ interpreter: node v22.23.5
+  ✓ package manager: pnpm 12.21.0
+  ✓ LLM config in place and re-readable (single-source writer)
+  ✓ no aimail CLI on PATH
+  ✓ no aimail CLI binary in the agent's search path (/c/Users/runneradmin/.local/bin /usr/local/bin /usr/bin /bin /c/Users/runneradmin/.cargo/bin C:\npm\prefix/bin)
+  ✓ no interpreter can import the pysdk (aimail)
+  ✓ no agent-aimail distribution installed
+  ✓ no @aimail/* npm package installed globally
+  ✓ pnpm minimumReleaseAge disabled (value: 0)
+  ✓ npm minimumReleaseAge disabled (value: undefined)
+  ✓ agent runs: 0.2.2-rc.5
+  ✓ LLM answered (HTTP 200 with content)
+  ✓ pinned version installed: dsh 0.2.2-rc.5
+  ✓ pinned pnpm: 12.21.0
+  ✓ dsh env ready (official npm + pnpm + profile warmed + LLM configured; single source)
+  ✓ host version matches the pin (dsh 0.2.2-rc.5)
+  ✓ agent env ready: dsh
+  ✓ l3.local mapped to loopback for this run (/c/Windows/System32/drivers/etc/hosts)
+  ✓ gateway up: http://127.0.0.1:18123 (system_id=system-45a3)
+  ✓ gateway [relay]→sink up; LLM endpoint answering
+  ✓ fixture ready
+  ✓ applicant: email verified + address applied (l3agent@l3.local) + prompt from mail body
+  ✓ web host up (token login 303)
+  ✓ turn 1 prompt injected (the activation mail body, verbatim)
+  ✓ turn 1 ran a real LLM turn (llmMs>0, progressed; it terminates with the [4] restart by design)
+  ✓ turn 1 done; no binding on disk (the tool was missing — SKILL §1 path)
+  ✓ clean state confirmed: no agent-aimail in the profile before the bootstrap
+  ✓ agent bootstrapped the plugin itself: agent-aimail@0.6.1 (= npm latest) at /c/Users/runneradmin/.dsh/profiles/web/node_modules/agent-aimail/package.json (fixture ran no install)
+  ✓ composed profile carries the tool-mail row (global layer, count=1)
+  ✓ host restarted (plugin now in the booted tree)
+  ✓ turn 2 prompt injected (user: installed, continue + the activation prompt)
+  ✓ ownership row present (agent_system_addresses: 1)
+  ✓ bind turn closed (llmMs: 180980); binding owner-only; no webhook_url
+  ✓ SSE streams up (mode=sse, streams non-empty)
+  ✓ welcome queued (ledger row b3a9aa6e-7313-413b-b186-1810f582cbda) — the agent calibrated
+  ✓ approval processed (manager_persona_approved; persona='L3 dsh V2 regression persona')
+  ✓ persona-applied notice delivered via agent ledger (inbound+dispatch; llmMs: 180980 → 180980)
+  ✓ persona-applied notice delivered (pending row inbound+dispatch; llmMs: 180980 → 180980)
+  ✓ identity card (persona) + email signature in effect
+  ✓ query-mail signature assertion passed
+  ✓ ════ dsh V2 JOURNEY PASS — activation code → host agent bind → welcome loop closed (llmMs: 180980)
+  ✓ ════ L3 PASS: windows-amd64 / dsh — V2 activation code → host bind → welcome loop closed

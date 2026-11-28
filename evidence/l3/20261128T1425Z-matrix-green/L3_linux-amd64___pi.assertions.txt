@@ -1,0 +1,35 @@
+  ✓ pi installed (official npm)
+  ✓ clean state: no agent-aimail in dsh profiles / pi home / openclaw home; previous ~/.aimail archived
+  ✓ LLM config written (pi home=/home/runner/.pi)
+  ✓ pi on PATH (1.6.1)
+  ✓ pi home skeleton present
+  ✓ interpreter: node v24.22.3
+  ✓ package manager: npm 11.19.1
+  ✓ LLM config in place and re-readable (single-source writer)
+  ✓ no aimail CLI on PATH
+  ✓ no aimail CLI binary in the agent's search path (/home/runner/.local/bin /usr/local/bin /usr/bin /bin /home/runner/.cargo/bin /usr/local/bin)
+  ✓ no interpreter can import the pysdk (aimail)
+  ✓ no agent-aimail distribution installed
+  ✓ no @aimail/* npm package installed globally
+  ✓ npm minimumReleaseAge disabled (value: undefined)
+  ✓ agent runs: 1.6.1
+  ✓ LLM answered (HTTP 200 with content)
+  ✓ pinned version installed: pi 1.6.1
+  ✓ pi env ready (npm-installed host + models.json; single source)
+  ✓ host version matches the pin (pi 1.6.1)
+  ✓ agent env ready: pi
+  ✓ l3.local mapped to loopback for this run (/etc/hosts)
+  ✓ gateway up: http://127.0.0.1:18123 (system_id=system-c97f)
+  ✓ gateway [relay]→sink up; LLM endpoint answering
+  ✓ fixture ready
+  ✓ applicant: email verified + address applied (l3agent@l3.local) + prompt from mail body
+  ✓ turn 1 prompt injected (the activation mail body, verbatim)
+  ✓ agent bootstrapped the plugin itself: agent-aimail@0.6.1 (= npm latest) at /home/runner/.pi/agent/npm/node_modules/agent-aimail/package.json (fixture ran no install)
+  ✓ binding landed: /home/runner/.aimail/systems/system-c97f/l3agent_l3.local/agentmail.json (agent_system_id, gateway_url, no webhook_url)
+  ✓ welcome queued (ledger row c3953886-a05f-4dea-9b21-2a04c62219f9) — the agent calibrated
+  ✓ approval processed (manager_persona_approved; persona='L3 pi V2 regression persona')
+  ✓ persona-applied notice delivered via pending row (2; llmMs: 0 → 0)
+  ✓ identity card (persona) + email signature in effect
+  ✓ query-mail signature assertion passed
+  ✓ ════ pi V2 JOURNEY PASS — activation code → host agent bind → welcome loop closed (llm evidence: turn log)
+  ✓ ════ L3 PASS: linux-amd64 / pi — V2 activation code → agent self-install → bind → welcome loop closed
