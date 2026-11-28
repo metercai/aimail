@@ -129,8 +129,11 @@ async function scenarioDelivers() {
   await waitFor(() => calls.ack.length > 0 || calls.toast.length > 0, 'the first pull round')
 
   if (calls.toast.length) failure(`service refused to start: ${JSON.stringify(calls.toast)}`)
-  if (!calls.fetch.some((url) => url.endsWith('/api/v1/admin/pending'))) {
-    failure('the pull must use the address-scoped pending path')
+  // The address-scoped admin path was RETIRED (owner ruling 2026-11-25, A: only the ASID
+  // aggregate remains; /api/v1/admin/pending now answers 410 pull_scope_retired). Asserting the old
+  // literal made this smoke fail against a correct plugin (measured 2026-11-28).
+  if (!calls.fetch.some((url) => url.endsWith('/api/v1/agent-system/pending'))) {
+    failure('the pull must use the agent-system (ASID aggregate) pending path')
   }
 
   const created = calls.import[0]

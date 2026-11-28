@@ -3,17 +3,52 @@
 # Work in progress: NOT wired into l3.yml and deliberately named *.sh.wip so run-l3.sh's guard
 # keeps refusing pi cells until this journey passes locally.
 set -uo pipefail
-HOST_NAME=pi
-# decompress a session transcript; on hosts without zstd, install the python module once.
-_tx_read() {  # _tx_read <file>
-  local f="$1" out=""
-  [ -f "$f" ] || return 1
-  if command -v zstdcat >/dev/null 2>&1; then out="$(zstdcat "$f" 2>/dev/null)"
-  elif python3 -c "import zstandard" >/dev/null 2>&1; then
-    out="$(python3 -c "import sys,zstandard;sys.stdout.write(zstandard.ZstdDecompressor().stream_reader(open(sys.argv[1],'rb')).read().decode('utf-8','replace'))" "$f" 2>/dev/null)"
+# Portable timeout: macOS runners ship no GNU `timeout` (run 46150466725 -> pi turns
+# died with "timeout: command not found" and the cell reported "the agent never
+# installed agent-aimail" while the agent had never been given a turn at all).
+run_timeout() {
+  local secs="$1"; shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$secs" "$@"
   else
-    python3 -m pip install --quiet zstandard >/dev/null 2>&1 || true
-    out="$(python3 -c "import sys,zstandard;sys.stdout.write(zstandard.ZstdDecompressor().stream_reader(open(sys.argv[1],'rb')).read().decode('utf-8','replace'))" "$f" 2>/dev/null)"
+    "$@" &
+    local pid=$!
+    for _ in $(seq 1 "$secs"); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
+    if kill -0 "$pid" 2>/dev/null; then kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; return 124; fi
+    wait "$pid"
+  fi
+}
+HOST_NAME=pi
+# decompress a session transcript without needing the network:
+#  ① zstd/zstdcat CLI ② node (pi is a node host; zlib.zstdDecompressSync since node 22.15/23)
+#  ③ python + zstandard, installing the module once when pip works
+# native binaries (node, python) cannot open a git-bash path like /c/Users/...
+_tx_path() {  # _tx_path <path> — /c/Users/... -> C:/Users/...
+  case "$1" in
+    /[A-Za-z]/*) printf '%s' "$(printf '%s' "${1:1:1}" | tr 'a-z' 'A-Z'):${1:2}" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+_tx_read() {  # _tx_read <file>
+  local f="$1" nf="" out="" py=""
+  [ -f "$f" ] || return 1
+  nf="$(_tx_path "$f")"
+  if command -v zstdcat >/dev/null 2>&1; then out="$(zstdcat "$f" 2>/dev/null)"; fi
+  if [ -z "$out" ] && command -v zstd >/dev/null 2>&1; then out="$(zstd -dc "$f" 2>/dev/null)"; fi
+  if [ -z "$out" ] && command -v node >/dev/null 2>&1; then
+    out="$(node -e 'const fs=require("fs"),z=require("zlib");if(!z.zstdDecompressSync)process.exit(3);process.stdout.write(z.zstdDecompressSync(fs.readFileSync(process.argv[1])).toString("utf8"))' "$nf" 2>/dev/null)"
+  fi
+  if [ -z "$out" ]; then
+    for cand in python3 python; do
+      command -v "$cand" >/dev/null 2>&1 || continue
+      if "$cand" -c "import zstandard" >/dev/null 2>&1 \
+         || { "$cand" -m pip install --quiet --user zstandard >/dev/null 2>&1 && "$cand" -c "import zstandard" >/dev/null 2>&1; }; then
+        py="$cand"; break
+      fi
+    done
+    if [ -n "$py" ]; then
+      out="$("$py" -c "import sys,zstandard;sys.stdout.write(zstandard.ZstdDecompressor().stream_reader(open(sys.argv[1],'rb')).read().decode('utf-8','replace'))" "$nf" 2>/dev/null)"
+    fi
   fi
   printf '%s' "$out"
   [ -n "$out" ]
@@ -52,7 +87,7 @@ trap cleanup EXIT
 pi_host_turn() {  # pi_host_turn <prompt-file>
   local f="$1"
   mkdir -p "$WORK/ws"
-  ( cd "$WORK/ws" && timeout 900 pi -p "$(cat "$f")" ) >> "$WORK/pi-turns.log" 2>&1
+  ( cd "$WORK/ws" && run_timeout 900 pi -p "$(cat "$f")" ) >> "$WORK/pi-turns.log" 2>&1
   return $?
 }
 llm_ms_total() { echo 0; }   # pi exposes no llmMs counter; the turn output is the evidence
@@ -423,18 +458,28 @@ done
 ok "approval processed (manager_persona_approved; persona='$META_PERSONA')"
 # the completion signal: the agent receives the persona-applied confirmation
 # (SKILL §3 completion signal — notify_agent_persona_applied queues it as an
-# inbound for the address). The ledger row's payload is the JSON envelope
-# (empirical: no subject column; the body text is the stable marker).
+# inbound for the address). The pending row is deleted on ack and the SSE stream
+# can consume it in milliseconds, so it cannot be the only evidence (same defect
+# as dsh, run 46150466725). Primary evidence: the agent's own durable ledger.
+ledger_has_persona_applied() {
+  local f
+  while IFS= read -r f; do
+    grep -aq '\[AIMail\] Persona applied' "$f" 2>/dev/null && return 0
+  done < <(find "$AIMAIL_HOME" -name 'agentmail.log' -type f 2>/dev/null)
+  return 1
+}
 APPLIED_ROW=""
+APPLIED_VIA=""
 for _ in $(seq 1 120); do
+  if ledger_has_persona_applied; then APPLIED_VIA="agent ledger"; APPLIED_ROW="inbound+dispatch"; break; fi
   APPLIED_ROW="$(dbq "SELECT id FROM pending_deliveries WHERE email='$ADDR' AND payload LIKE '%persona and signature are now active%' LIMIT 1" || true)"
-  [ -n "$APPLIED_ROW" ] && break
+  [ -n "$APPLIED_ROW" ] && { APPLIED_VIA="pending row"; break; }
   :  # pi has no daemon to keep alive between turns
   sleep 2
 done
-[ -n "$APPLIED_ROW" ] || die "the persona-applied confirmation never reached the agent's ledger (webhook.rs notify_agent_persona_applied did not queue)"
+[ -n "$APPLIED_ROW" ] || die "the persona-applied confirmation never reached the agent's ledger (notify_agent_persona_applied queued nothing: no ledger line for [AIMail] Persona applied under $AIMAIL_HOME, no pending row)"
 POST_REPLY_LLMMS="$(llm_ms_total)"
-ok "persona-applied notice delivered (pending row $APPLIED_ROW; llmMs: ${PRE_REPLY_LLMMS:-0} → ${POST_REPLY_LLMMS:-0})"
+ok "persona-applied notice delivered via $APPLIED_VIA ($APPLIED_ROW; llmMs: ${PRE_REPLY_LLMMS:-0} → ${POST_REPLY_LLMMS:-0})"
 
 # ═══ [7] query-mail signature assertion (whoami readback) ═════════════════════
 say "[7/7] query-mail signature assertion (whoami readback)"

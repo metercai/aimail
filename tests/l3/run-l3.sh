@@ -350,9 +350,14 @@ if [ -f "$PINS_HOST" ]; then
   esac
   if [ -n "$_pin_key" ]; then
     WANT="$(grep -E "^${_pin_key}=" "$PINS_HOST" | head -1 | cut -d= -f2-)"
-    # openclaw prints "OpenClaw 2026.11.5 (e13cf15)"; take the first semver, fall back to the raw line
+    # openclaw prints "OpenClaw 2026.11.5 (e13cf15)"; take the first semver, fall back to the raw line.
+    # The prerelease/build suffix is PART of the pin: `[0-9]+\.[0-9]+\.[0-9]+` matched only "0.2.2"
+    # out of "0.2.2-rc.5" and compared it with the pin "0.2.2-rc.5", so a correctly installed host was
+    # refused as "host version mismatch" (measured 2026-11-28 on the linux-arm64 cell: the install log
+    # showed npm install -g @deepseek-ai/dsh@0.2.2-rc.5 and verify printed "dsh on PATH (0.2.2-rc.5)"
+    # just before this line declared ENV GAP).
     _raw="$("$_pin_bin" --version 2>/dev/null | head -1)"
-    GOT="$(printf '%s' "$_raw" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+    GOT="$(printf '%s' "$_raw" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?' | head -1)"
     [ -n "$GOT" ] || GOT="$(printf '%s' "$_raw" | tr -d '[:space:]')"
     if [ -n "$WANT" ] && [ "$GOT" != "$WANT" ]; then
       gap "host version mismatch for $AGENT: got '$GOT', pin '$WANT' — refusing to judge"
@@ -484,6 +489,37 @@ email = "admin@l3.local"
 [webhook]
 allow_private_targets = true
 EOF
+# ── l3.local must RESOLVE on the runner ────────────────────────────────────────────────────────
+# The activation prompt the gateway mails carries `gateway: http://l3.local:<port>` (built from
+# [http] hostname, deliberately a real-looking domain), and the AGENT is the one that has to fetch
+# that URL. On a CI runner nothing resolves l3.local, so the agent reported "the gateway is
+# reachable at 127.0.0.1:18123 — only the l3.local hostname fails to resolve" and never bound
+# (measured 2026-11-28, every dsh cell; the containers used by L2 get this from their fixtures).
+# Map it to loopback the way a deployment would, platform by platform; if that is refused, say so
+# loudly instead of letting the bind failure look like a product defect.
+_ensure_l3_hosts() {
+  local entry="127.0.0.1 l3.local" hosts_file=""
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*|Windows*) hosts_file="/c/Windows/System32/drivers/etc/hosts" ;;
+    *)                             hosts_file="/etc/hosts" ;;
+  esac
+  if grep -qE "^[^#]*[[:space:]]l3\.local([[:space:]]|$)" "$hosts_file" 2>/dev/null; then
+    ok "l3.local already maps to loopback ($hosts_file)"
+    return 0
+  fi
+  if [ "$hosts_file" = "/etc/hosts" ]; then
+    printf '%s\n' "$entry" | sudo -n tee -a "$hosts_file" >/dev/null 2>&1 || true
+  else
+    printf '%s\r\n' "$entry" >> "$hosts_file" 2>/dev/null || true
+  fi
+  if grep -qE "^[^#]*[[:space:]]l3\.local([[:space:]]|$)" "$hosts_file" 2>/dev/null; then
+    ok "l3.local mapped to loopback for this run ($hosts_file)"
+  else
+    warn "could not map l3.local → 127.0.0.1 in $hosts_file (no privilege): the agent cannot fetch the gateway URL from the prompt"
+  fi
+}
+_ensure_l3_hosts
+
 say "starting gateway…"
 # The binary's single-instance lock is per BINARY, not per workdir: a leftover instance from an
 # L2 run (…/aimail-l2-*/gw/config.toml) blocks every later start with Config("Server is already

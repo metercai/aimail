@@ -36,26 +36,54 @@
 # Exit: 0 = loop closed · 1 = assertion failed · 2 = env gap
 set -uo pipefail
 
-# decompress a session transcript; on hosts without zstd, install the python module once.
+# decompress a session transcript. Three routes, none of them require the network:
+#  ① zstd/zstdcat if the host has the CLI
+#  ② node — dsh is a node host, so node is always present, and zlib.zstdDecompressSync
+#    exists since node 22.15/23 (windows-latest ships 24). Measured 2026-11-28: the
+#    pip route left windows without zstandard and the cell aborted on ENV GAP
+#    "cannot read the session transcript" — a fixture gap, not a product verdict.
+#  ③ python + zstandard, installing the module once when pip works
+# native binaries (node, python) cannot open a git-bash path like /c/Users/... — that is why the
+# pip route produced an empty result on the windows cell even when the module was installed.
+_tx_path() {  # _tx_path <path> — /c/Users/... -> C:/Users/...
+  case "$1" in
+    /[A-Za-z]/*) printf '%s' "$(printf '%s' "${1:1:1}" | tr 'a-z' 'A-Z'):${1:2}" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
 _tx_read() {  # _tx_read <file>
-  local f="$1" out=""
+  local f="$1" nf="" out="" py=""
   [ -f "$f" ] || return 1
-  if command -v zstdcat >/dev/null 2>&1; then out="$(zstdcat "$f" 2>/dev/null)"
-  elif python3 -c "import zstandard" >/dev/null 2>&1; then
-    out="$(python3 -c "import sys,zstandard;sys.stdout.write(zstandard.ZstdDecompressor().stream_reader(open(sys.argv[1],'rb')).read().decode('utf-8','replace'))" "$f" 2>/dev/null)"
-  else
-    python3 -m pip install --quiet zstandard >/dev/null 2>&1 || true
-    out="$(python3 -c "import sys,zstandard;sys.stdout.write(zstandard.ZstdDecompressor().stream_reader(open(sys.argv[1],'rb')).read().decode('utf-8','replace'))" "$f" 2>/dev/null)"
+  nf="$(_tx_path "$f")"
+  if command -v zstdcat >/dev/null 2>&1; then out="$(zstdcat "$f" 2>/dev/null)"; fi
+  if [ -z "$out" ] && command -v zstd >/dev/null 2>&1; then out="$(zstd -dc "$f" 2>/dev/null)"; fi
+  if [ -z "$out" ] && command -v node >/dev/null 2>&1; then
+    out="$(node -e 'const fs=require("fs"),z=require("zlib");if(!z.zstdDecompressSync)process.exit(3);process.stdout.write(z.zstdDecompressSync(fs.readFileSync(process.argv[1])).toString("utf8"))' "$nf" 2>/dev/null)"
+  fi
+  if [ -z "$out" ]; then
+    # git-bash on windows-latest has `python`, not `python3`
+    for cand in python3 python; do
+      command -v "$cand" >/dev/null 2>&1 || continue
+      if "$cand" -c "import zstandard" >/dev/null 2>&1 \
+         || { "$cand" -m pip install --quiet --user zstandard >/dev/null 2>&1 && "$cand" -c "import zstandard" >/dev/null 2>&1; }; then
+        py="$cand"; break
+      fi
+    done
+    if [ -n "$py" ]; then
+      out="$("$py" -c "import sys,zstandard;sys.stdout.write(zstandard.ZstdDecompressor().stream_reader(open(sys.argv[1],'rb')).read().decode('utf-8','replace'))" "$nf" 2>/dev/null)"
+    fi
   fi
   printf '%s' "$out"
   [ -n "$out" ]
 }
-
 say() { printf '  %s\n' "$*"; }
 ok()  { printf '  \033[32m✓\033[0m %s\n' "$*"; }
 bad() { printf '  \033[31m✗ %s\n' "$*" >&2; }
 die() { bad "$*"; exit 1; }
 gap() { printf '  \033[35m⊘ ENV GAP: %s\n' "$*" >&2; exit 2; }
+# `warn` was CALLED but never DEFINED here (measured 2026-11-28, windows-amd64: "dsh-v2.sh: line
+# 505: warn: command not found"), so the tripwire's explanation never reached the log.
+warn() { printf '  \033[33m! %s\033[0m\n' "$*" >&2; }
 
 [ -n "${GW_BIN:-}" ] || gap "GW_BIN not set"
 [ -n "${DSH_HOME:-}" ] || gap "DSH_HOME not set"
@@ -421,6 +449,12 @@ web_start_host || die "web host boot/login failed"
 ok "web host up (token login 303)"
 SID1="$(web_create_session)" || die "session/create failed (web API)"
 say "session: $SID1"
+# Cleanliness must be pinned BEFORE the agent is given the activation prompt: the
+# prompt itself tells the agent to install the SDK, so anything that appears from
+# here on is the agent's own bootstrap (owner ruling: the route is free, landing in
+# the host's own environment is the pass criterion).
+SDK_PKG_PRE="$(find "$DSH_HOME" -maxdepth 6 -path '*node_modules/agent-aimail/package.json' 2>/dev/null | head -1)"
+[ -z "$SDK_PKG_PRE" ] || die "agent-aimail was already installed before the agent's first turn ($SDK_PKG_PRE) — environment not clean, cannot attribute the install to the agent"
 # D2: the user pastes the mail body into the agent — exactly the prompt text
 # captured from the spool in [1] (no trimming, no reformatting).
 cp "$SPOOL.prompt.txt" "$WORK/turn1-prompt.txt"
@@ -489,20 +523,17 @@ say "[3/7] the agent installs the plugin itself (the activation mail told it to)
 _sess="$(ls -t "$DSH_HOME"/sessions/*/*/session.v4.jsonl.zstd 2>/dev/null | head -1)"
 _leak=0
 if [ -n "$_sess" ]; then
-  if command -v zstdcat >/dev/null 2>&1; then
-    # Repo docs count as the harness too: an agent that reads docs/dsh-mail-architecture-v2.md has
-    # been told how to install, which is exactly what the activation prompt is supposed to convey.
-    # CI proved the difference: same journey, no repo on the agent's path -> no install at all.
-    _tx_read "$_sess" 2>/dev/null | grep -qaE "tests/l3/|dsh-v2\.sh|run-l3\.sh|run-v2\.sh|aimail/docs/|docs/dsh-mail|docs/aimail-host-sse" && _leak=1
-  elif python3 -c "import zstandard" >/dev/null 2>&1; then
-    python3 - "$_sess" <<'PY' && _leak=1
-import sys, zstandard
-d = zstandard.ZstdDecompressor().stream_reader(open(sys.argv[1], 'rb')).read().decode('utf-8', 'replace')
-needles = ('tests/l3/', 'dsh-v2.sh', 'run-l3.sh', 'run-v2.sh')
-sys.exit(0 if any(n in d for n in needles) else 1)
-PY
+  # Repo docs count as the harness too: an agent that reads docs/dsh-mail-architecture-v2.md has
+  # been told how to install, which is exactly what the activation prompt is supposed to convey.
+  # CI proved the difference: same journey, no repo on the agent's path -> no install at all.
+  # One decompressor for the whole script (_tx_read), so the tripwire stays active on the
+  # windows cell as well instead of skipping itself for a missing zstdcat.
+  _txt="$(_tx_read "$_sess" 2>/dev/null)" || _txt=""
+  if [ -n "$_txt" ]; then
+    printf '%s' "$_txt" > "$WORK/transcript-tripwire.txt" 2>/dev/null || true
+    grep -qaE "tests/l3/|dsh-v2\.sh|run-l3\.sh|run-v2\.sh|aimail/docs/|docs/dsh-mail|docs/aimail-host-sse" "$WORK/transcript-tripwire.txt" 2>/dev/null && _leak=1
   else
-    warn "integrity tripwire skipped: no zstdcat / python-zstandard on this host (recorded, not counted as a pass)"
+    warn "integrity tripwire skipped: cannot decompress the transcript on this host (recorded, not counted as a pass)"
   fi
 fi
 [ "$_leak" = 0 ] || die "INVALID cell: the agent read the L3 harness (transcript mentions tests/l3) — the host can see this checkout, so the run is open-book and cannot judge the product. Isolate the host, then re-run."
@@ -512,11 +543,17 @@ fi
 # first"). The fixture must not install anything — a fixture-side install is a fake pass.
 WANT_SDK="$(npm view agent-aimail version 2>/dev/null || true)"
 say "published SDK under test: agent-aimail@${WANT_SDK:-<npm view failed>}"
-# (1) the environment must still be clean: the fixture never installed anything, and the
-#     agent's turn 1 had no plugin to call.
+# (1) cleanliness is judged on the capture taken BEFORE the agent's first turn
+#     (SDK_PKG_PRE, see [2]). A package that appears during turn 1 is the agent's
+#     own bootstrap — the activation prompt tells it to install — and judging it
+#     here read that as contamination (measured on macos-arm64, run 46150466725:
+#     turn 1 installed agent-aimail and this check aborted the cell).
 SDK_PKG="$(find "$DSH_HOME" -maxdepth 6 -path '*node_modules/agent-aimail/package.json' 2>/dev/null | head -1)"
-[ -z "$SDK_PKG" ] || { bad "agent-aimail was already installed before the agent's bootstrap ($SDK_PKG) — environment not clean, cannot attribute the install to the agent"; exit 1; }
-ok "clean state confirmed: no agent-aimail in the profile before the bootstrap"
+if [ -n "$SDK_PKG" ]; then
+  say "turn 1 bootstrapped the SDK itself ($SDK_PKG) — route recorded, the fixture installed nothing"
+else
+  ok "clean state confirmed: no agent-aimail in the profile before the bootstrap"
+fi
 # (2) after the turn the agent must have installed it, from the registry
 # A real user, seeing the agent stop after reading the mail, would say "go ahead" — words,
 # never commands run by the fixture. Measured 2026-11-23: with the current mail text the
@@ -785,18 +822,32 @@ done
 ok "approval processed (manager_persona_approved; persona='$META_PERSONA')"
 # the completion signal: the agent receives the persona-applied confirmation
 # (SKILL §3 completion signal — notify_agent_persona_applied queues it as an
-# inbound for the address). The ledger row's payload is the JSON envelope
-# (empirical: no subject column; the body text is the stable marker).
+# inbound for the address). The judgement cannot rest on the pending row: the
+# SSE stream acks the notice within one poll interval and the pending row is
+# deleted on ack (measured 9 ms on linux-amd64, run 46150466725 — the notice WAS
+# delivered, the ledger showed inbound + dispatch=delivered, and this loop saw an
+# empty pending table for 240 s). So the primary evidence is the durable one the
+# assertion name already promised: the agent's own ledger. The pending row stays
+# as a fallback for hosts slower than the first probe.
+ledger_has_persona_applied() {
+  local f
+  while IFS= read -r f; do
+    grep -aq '\[AIMail\] Persona applied' "$f" 2>/dev/null && return 0
+  done < <(find "$AIMAIL_HOME" -name 'agentmail.log' -type f 2>/dev/null)
+  return 1
+}
 APPLIED_ROW=""
+APPLIED_VIA=""
 for _ in $(seq 1 120); do
+  if ledger_has_persona_applied; then APPLIED_VIA="agent ledger"; APPLIED_ROW="inbound+dispatch"; break; fi
   APPLIED_ROW="$(dbq "SELECT id FROM pending_deliveries WHERE email='$ADDR' AND payload LIKE '%persona and signature are now active%' LIMIT 1" || true)"
-  [ -n "$APPLIED_ROW" ] && break
+  [ -n "$APPLIED_ROW" ] && { APPLIED_VIA="pending row"; break; }
   kill -0 "$HOST_PID" 2>/dev/null || { bad "dsh host died before the persona-applied notice"; exit 1; }
   sleep 2
 done
-[ -n "$APPLIED_ROW" ] || die "the persona-applied confirmation never reached the agent's ledger (webhook.rs notify_agent_persona_applied did not queue)"
+[ -n "$APPLIED_ROW" ] || die "the persona-applied confirmation never reached the agent's ledger (notify_agent_persona_applied queued nothing: no ledger line for [AIMail] Persona applied under $AIMAIL_HOME, no pending row)"
 POST_REPLY_LLMMS="$(llm_ms_total)"
-ok "persona-applied notice delivered (pending row $APPLIED_ROW; llmMs: ${PRE_REPLY_LLMMS:-0} → ${POST_REPLY_LLMMS:-0})"
+ok "persona-applied notice delivered via $APPLIED_VIA ($APPLIED_ROW; llmMs: ${PRE_REPLY_LLMMS:-0} → ${POST_REPLY_LLMMS:-0})"
 
 # ═══ [7] query-mail signature assertion (whoami readback) ═════════════════════
 say "[7/7] query-mail signature assertion (whoami readback)"
