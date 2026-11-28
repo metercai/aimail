@@ -1,6 +1,6 @@
 # AIMail Host SSE Contract
 
-状态：现行契约（**v2.5**，2026-11-25；v2.5 = 锚点拉取改为**硬性**（§13.3，无"未登记放行"档）+ pi 锚点=整个 agent/C17 观测口径 + L2 三缺陷修复；v2.4 = C16 判定口径 + 锚点标识跨仓见证 + 本地端点退场；v2.3 修正 M 的硬性条件；v2.2 §9/§11 重写与正文/实例分离）
+状态：现行契约（**v2.6**，2026-11-26；v2.6 = 自举走**一个无 host 参数 URL**，**以 `uname -s` 能否执行为判据**分支（`?shell=sh` / `?shell=ps1`），不靠 agent 猜平台（`/api/v1/agent-setup/bootstrap`；OS/宿主/宿主环境/安装指令全在脚本内判定，prompt 对四者无感）；v2.5 = 锚点拉取改为**硬性**（§13.3，无"未登记放行"档）+ pi 锚点=整个 agent/C17 观测口径 + L2 三缺陷修复；v2.4 = C16 判定口径 + 锚点标识跨仓见证 + 本地端点退场；v2.3 修正 M 的硬性条件；v2.2 §9/§11 重写与正文/实例分离）
 读者：Agent 宿主实现者、Gateway 实现者、QA
 规范词：MUST / SHOULD / MAY 按 RFC 2119 解释
 
@@ -678,7 +678,7 @@ An AIMail mailbox is ready for your agent:
 
 Please activate it within 24 hours.
 
-If your agent does not have aimail_address, install or enable the AIMail plugin through your host's normal plugin/extension mechanism (not the aimail install CLI).
+If your agent does not have aimail_address, it must install the AIMail SDK: if `uname -s` can be executed in the current shell, run `curl -fsSL '{gateway_url}/api/v1/agent-setup/bootstrap?shell=sh' | sh`; otherwise run `powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr -Uri '{gateway_url}/api/v1/agent-setup/bootstrap?shell=ps1' -UseBasicParsing | iex"`. That URL carries no host parameter and nothing about the agent: the script works out the OS, which agent host it is running in, that host's own environment and the host-specific install command. Neither the email nor the prompt names a host or an OS; the only decision asked of the agent is whether `uname -s` runs.
 
 Copy the message below into your agent's conversation and let the agent bind the address:
 
@@ -694,7 +694,7 @@ AIMail Team
 `{prompt}` 的规范原文（用户复制这一段）：
 
 ```text
-Use `aimail_address` to activate and bind the dedicated AIMail mailbox {address} for this agent (gateway: {gateway_url}; activation code: {code}). If `aimail_address` is unavailable or unregistered, install the `agent-aimail` plugin using your platform's plugin install command, then try `aimail_address` again for activation and binding. If it is still unavailable, stop and tell the user to restart the agent runtime to load the plugin and retry activation and binding afterward; no reinstallation is needed.
+Use `aimail_address` to activate and bind the dedicated AIMail mailbox {address} for this agent (gateway: {gateway_url}; activation code: {code}). If `aimail_address` is unavailable or unregistered, install the AIMail SDK: if `uname -s` can be executed in the current shell, run `curl -fsSL '{gateway_url}/api/v1/agent-setup/bootstrap?shell=sh' | sh`; otherwise run `powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr -Uri '{gateway_url}/api/v1/agent-setup/bootstrap?shell=ps1' -UseBasicParsing | iex"`. Then try `aimail_address` again for activation and binding. If it is still unavailable, stop and tell the user to restart the agent runtime to load the plugin and retry activation and binding afterward; no reinstallation is needed.
 ```
 
 激活后的链路：
