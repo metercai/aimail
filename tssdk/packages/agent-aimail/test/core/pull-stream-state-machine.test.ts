@@ -204,14 +204,14 @@ function makeClient(
     counters,
     async request(method, requestPath, body) {
       void method
-      if (requestPath === '/api/v1/admin/pending') {
+      if (requestPath === '/api/v1/agent-system/pending') {
         counters.pendingHits++
         counters.postBodies.push(body ?? {})
         const batches = pending[pendingIdx] ?? []
         pendingIdx++
         return { status: 200, batches }
       }
-      if (requestPath === '/api/v1/admin/pending/ack') {
+      if (requestPath === '/api/v1/agent-system/pending/ack') {
         const ids = ((body ?? {}) as { ids?: number[] }).ids ?? []
         counters.ackedIds.push(...ids)
         return { status: 200, acked: ids.length }

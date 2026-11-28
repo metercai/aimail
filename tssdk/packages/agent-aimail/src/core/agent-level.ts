@@ -25,7 +25,6 @@ import {
 } from './preprocess.js'
 import { onBindingCreated } from './binding-hooks.js'
 import {
-  startAgentPullEntry,
   startAgentPullEntries,
   stopAgentPullEntries,
   isV2AgentScopeBinding,
@@ -190,10 +189,8 @@ export async function startAgentLevel(
   // V2 (P1-1, plan §6.5): a V2 binding must pull through the (AgentSystemId,
   // Gateway) aggregate, so a V2 hot-add RE-ARMS the pool (stop every handle +
   // startAgentPullEntries re-scans ⇒ the new asid group joins, or the existing
-  // group expands) — never a per-binding startAgentPullEntry (that entry now
-  // refuses V2 and would be a second stream anyway). Same mechanism the hosts
-  // use in their onBindingCreated (stop + startInboundPull). V1 keeps the
-  // legacy per-binding hot-add.
+  // group expands) — there is no per-binding entry any more (the per-address pull endpoints were
+  // retired on 2026-11-26). Same mechanism the hosts use in their onBindingCreated.
   const off = onBindingCreated(async (cfg: AgentConfig) => {
     if (isV2AgentScopeBinding(cfg)) {
       stopAgentPullEntries(handles)
@@ -203,9 +200,12 @@ export async function startAgentLevel(
       }
       return
     }
-    if (handles.some((h) => h.email === cfg.email)) return
-    const h = await startAgentPullEntry(cfg, entryOpts)
-    if (h) handles.push(h)
+    // V1 has no aggregate scope and the per-address pull endpoints are retired: say so instead of
+    // opening a stream that the gateway would refuse anyway.
+    opts.log?.(
+      `[aimail-pull] ${cfg.email}: V1 binding — per-address pull is retired; re-activate to join ` +
+        'the aggregate (contract §5.3)',
+    )
   })
 
   const stop = () => {

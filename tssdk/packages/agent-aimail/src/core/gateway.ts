@@ -19,7 +19,9 @@ import { randomUUID } from 'node:crypto'
 const CLIENT_ID: string = randomUUID()
 const CLIENT_ID_HEADER = 'X-Aimail-Client'
 import {
-  PULL_STREAM_PATH,
+  AGENT_SYSTEM_ACK_PATH,
+  AGENT_SYSTEM_PENDING_PATH,
+  AGENT_SYSTEM_STREAM_PATH,
   PULL_STREAM_PING_TIMEOUT_MS,
   PULL_STREAM_READ_TIMEOUT_MS,
   type PullBatch,
@@ -163,9 +165,11 @@ export class GatewayClient {
     this.apiKey = apiKey
     this.timeoutMs = timeoutMs
     this.identity = identity
-    this.streamPath = opts.streamPath ?? PULL_STREAM_PATH
-    this.pendingPath = opts.pendingPath ?? '/api/v1/admin/pending'
-    this.ackPath = opts.ackPath ?? '/api/v1/admin/pending/ack'
+    // Aggregate-only defaults: the per-address pull endpoints are gone, so a client without
+    // explicit paths speaks the one surviving transport (and must send X-Agent-System-Id).
+    this.streamPath = opts.streamPath ?? AGENT_SYSTEM_STREAM_PATH
+    this.pendingPath = opts.pendingPath ?? AGENT_SYSTEM_PENDING_PATH
+    this.ackPath = opts.ackPath ?? AGENT_SYSTEM_ACK_PATH
     this.extraHeaders = opts.extraHeaders ?? {}
     this.fetchImpl =
       opts.fetchImpl ??

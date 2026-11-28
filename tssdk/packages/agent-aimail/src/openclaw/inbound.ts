@@ -37,13 +37,13 @@ import {
   readLocalMeta,
   stampSessionMeta,
 } from '../core/index.js'
-import { parentMessageId } from '../runtime/index.js'
+import { parentMessageId, decideInboundDelivery } from '../runtime/index.js'
+import type { WorkspaceRef } from '../runtime/types.js'
 import type { OpenClawPluginApi } from 'openclaw/plugin-sdk/plugin-entry'
 import { resolveByRecipient } from '../mail/index.js'
 import { getAgentSystemId } from '../core/agent-system-id.js'
 import { threadRoot } from '../runtime/session-router.js'
 import { createHash } from 'node:crypto'
-import { readSystemGatewayConfig } from '../core/provision.js'
 import {
   configuredAgentIds,
   gatewayPort,
@@ -73,36 +73,15 @@ export interface HookSessionPolicy {
 }
 
 /**
- * Which session one inbound mail belongs to — the §9 edge decision, host-side.
- *
- * E1 (direct reply) wins when the immediate parent is a mail WE sent **and** that mail's meta
- * records the routable handle of the session that sent it. E2 (thread lineage) is the fallback:
- * a deterministic key derived from the thread root, so a whole conversation stays in one session
- * even when nobody can name the original one.
- *
- * A direct hit whose key is outside the host's allowed prefixes is NOT forced (the host would
- * answer 400): the decision degrades to E2 and says so, so the drop is visible instead of silent.
+ * NOTE (owner 2026-11-27): routing is NOT decided here any more. This adapter used to keep
+ * `selectSessionKey()` — a local E1/E2 heuristic that never compared anchors, so a reply
+ * whose parent session lived in another anchor was dispatched into it (§9.2 I2 violation)
+ * and `anchor-moved` could never be recorded. The decision now comes from the shared
+ * `runtime/routing.ts decideInboundDelivery()`; this module only MAPPES the resulting
+ * route onto the host handle (`session_key`). Do not reintroduce a local ranking.
+ * The old behaviour (recorded handle wins over a thread guess) is covered by
+ * test/core/runtime-routing.test.ts, which owns the edge ranking for every host.
  */
-export function selectSessionKey(args: {
-  agentId: string
-  payload: unknown
-  headers: Record<string, unknown>
-  policy: HookSessionPolicy
-  parentMeta?: { session_key?: string }
-}): { sessionKey: string; source: 'direct-reply' | 'thread'; dropped?: string } {
-  const payload = args.payload as Parameters<typeof parentMessageId>[0]
-  const derivedKey = threadSessionKey(args.agentId, payload as never, args.headers)
-  const parent = parentMessageId(payload, args.headers)
-  const recorded = parent ? String(args.parentMeta?.session_key ?? '').trim() : ''
-  const allowed = (key: string): boolean =>
-    args.policy.prefixes.length === 0 || args.policy.prefixes.some((p) => key.startsWith(p))
-  if (recorded && allowed(recorded)) return { sessionKey: recorded, source: 'direct-reply' }
-  return {
-    sessionKey: derivedKey,
-    source: 'thread',
-    ...(recorded ? { dropped: 'sessionKey-not-in-allowed-prefixes' } : {}),
-  }
-}
 
 /**
  * The agent id used for BOTH the session key and the dispatch body.
@@ -347,8 +326,36 @@ export async function deliverInbound(
   // send_mail); an unknown parent is not a direct reply (never inferred from the reference chain).
   const parent = parentMessageId(payload as never, headers)
   const parentMeta = parent ? await readLocalMeta(cfg.email, parent) : undefined
-  const decision = selectSessionKey({ agentId: keyAgentId, payload, headers, policy, ...(parentMeta ? { parentMeta } : {}) })
-  const sessionKey = decision.sessionKey
+  // ONE decision for every host: runtime/routing.ts `decideInboundDelivery()` (E1/E2/E3 + C16/I2).
+  // This adapter used to keep its own `selectSessionKey()`, which only looked at the recorded
+  // session_key and never compared anchors — so a reply whose parent session lived in ANOTHER
+  // anchor was dispatched straight into it (contract §9.2 I2 forbids exactly that), and the
+  // `anchor-moved` bookkeeping could never appear (L2 S8: "no marker", "edge='-'").
+  const workspace: WorkspaceRef = {
+    id: String(cfg.workspace_id ?? '').trim() || String(cfg.workspace_path ?? '').trim(),
+    path: String(cfg.workspace_path ?? '').trim(),
+    ...(cfg.workspace_title ? { title: String(cfg.workspace_title) } : {}),
+  }
+  const route = await decideInboundDelivery({
+    email: cfg.email,
+    payload: payload as never,
+    headers,
+    workspace,
+  })
+  const derivedKey = threadSessionKey(keyAgentId, payload as never, headers)
+  const recordedKey = parentMeta?.session_key ? String(parentMeta.session_key).trim() : ''
+  // The host's routable handle for a recorded session is its session_key. After the anchor check a
+  // foreign session is no longer proposed at all (route becomes 'new'/'gone' with anchorMoved), so
+  // falling back to the thread-derived key is the correct re-rank inside the CURRENT anchor.
+  const sessionKey =
+    route.kind === 'direct' || route.kind === 'followup'
+      ? recordedKey || derivedKey
+      : derivedKey
+  const decision = {
+    sessionKey,
+    source: route.kind === 'direct' ? 'direct-reply' : 'thread',
+    ...(route.kind === 'direct' && !recordedKey ? { dropped: 'sessionKey-missing-in-meta' } : {}),
+  } as const
   const requestKey = policy.allowSessionKey
     && (policy.prefixes.length === 0 || policy.prefixes.some((p) => sessionKey.startsWith(p)))
   const idempotencyKey = dispatchIdempotencyKey(
@@ -385,6 +392,17 @@ export async function deliverInbound(
     sessionModeRequested: requestKey ? 'persistent' : 'isolated',
     // Which edge chose the session: E1 (direct reply to a mail we sent) or E2 (thread lineage).
     sessionKeySource: decision.source,
+    // §9.2 I2 / §9.3: the routing layer abandons an edge whose target lives in ANOTHER anchor and
+    // re-ranks here; the abandonment MUST be readable by ops and MUST name the edge + foreign anchor.
+    ...(route.kind === 'direct' || route.kind === 'followup' || route.kind === 'new' || route.kind === 'gone'
+      ? route.anchorMoved
+        ? {
+            anchor: 'anchor-moved',
+            anchorMovedEdge: route.anchorMoved.edge,
+            anchorMovedFrom: route.anchorMoved.space,
+          }
+        : {}
+      : {}),
     ...(decision.dropped ? { directReplyDropped: decision.dropped } : {}),
     // Contract §16 C17 证明范围 / 附 E: this host's 200 means "queued", not "landed". Recording it
     // keeps the ack honest — nothing here may be read as proof that the turn ran.
@@ -455,7 +473,7 @@ async function deliverPulled(
  * very same chain pushed mail takes.
  *
  * Tier decision (V2 contract §9):
- *   - system admin_key present ⇒ tier-1 system aggregate (unchanged);
+ *   - system-scope (admin_key) pull was RETIRED 2026-11-26: one transport, the ASID aggregate;
  *   - pointer binding present ⇒ tier-2 AgentSystemId aggregate — with the
  *     §6.4 decision tree (P0-6/P0-7): disabled ⇒ 0 stream; paused ⇒ active
  *     sibling pool (0 stream if empty, else the group aggregate, pointer
@@ -476,22 +494,6 @@ async function startInboundPullInner(
   } = {},
 ): Promise<AgentPullHandle[]> {
   const ptr = await readPointer()
-  const sid = opts.systemId ?? ptr.system_id ?? ''
-  const sys = sid ? await readSystemGatewayConfig(sid).catch(() => undefined) : undefined
-  if (sys?.admin_key) {
-    const h = await startSystemPull({
-      systemId: sid,
-      gatewayUrl: sys.gateway_url,
-      apiKey: sys.admin_key,
-      ...(opts.log ? { log: opts.log } : {}),
-      onEmail: (mail) => deliverPulled(api, mail),
-    })
-    return [{
-      email: `system:${sid}`, started: true, reason: 'enabled', intervalMs: 0, limit: 0,
-      stop: h.stop, done: h.done as Promise<import('../core/index.js').PollStats>,
-      stats: () => h.stats(),
-    }]
-  }
   // B2 (no system): one AgentSystemId aggregate stream (tier-2 / pointer).
   // The pointer is a DISCOVERY entry, not an agent switch (P0-7): a paused
   // pointer address must NOT starve the other active addresses of the same

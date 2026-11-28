@@ -28,6 +28,7 @@ import {
   resolveAgentPullSettings,
   startAgentPullEntries,
   stopAgentPullEntries,
+  resetAgentSystemIdForTests,
   saveAgentConfig,
   type AgentConfig,
   type GatewayResponse,
@@ -107,9 +108,14 @@ beforeEach(async () => {
   home = await fs.mkdtemp(path.join(os.tmpdir(), 'mail-core-poll-'))
   prevHome = process.env.AIMAIL_HOME
   process.env.AIMAIL_HOME = home
+  // The aggregator only arms bindings whose agent_system_id is THIS process' id.
+  process.env.AIMAIL_AGENT_SYSTEM_ID = 'as-e2e'
+  resetAgentSystemIdForTests()
 })
 
 afterEach(async () => {
+  delete process.env.AIMAIL_AGENT_SYSTEM_ID
+  resetAgentSystemIdForTests()
   if (prevHome === undefined) delete process.env.AIMAIL_HOME
   else process.env.AIMAIL_HOME = prevHome
   await fs.rm(home, { recursive: true, force: true })
@@ -211,344 +217,145 @@ describe('resolveAgentPullSettings — enablement judgment / interval / batch', 
   })
 })
 
-describe('startAgentPullEntries — real loop starts/stops by binding', () => {
-  it('① Not activated (no agent-level binding) ⇒ does not start polling, does not fetch any pending', async () => {
-    await saveAgentConfig(binding({ system_id: PUSH_SID }), PUSH_SID)
-    const client = new FakeGateway([batch(1), batch(2)])
-    let clientBuilt = 0
-    let delivered = 0
-    const lines: string[] = []
-    const handles = await startAgentPullEntries({
-      env: {},
-      log: (l) => lines.push(l),
-      onEmail: () => {
-        delivered += 1
-      },
-      clientFor: (cfg) => {
-        clientBuilt += 1
-        expect(cfg.system_id).toBe(AGENT_SID) // never reached for a push binding
-        return client
-      },
+describe('startAgentPullEntries — one aggregate stream per (AgentSystemId, Gateway)', () => {
+  // V2 fixture: the ONLY armable shape now that per-address pull is retired.
+  const v2b = (over: Partial<AgentConfig> = {}): AgentConfig =>
+    binding({
+      agent_system_id: 'as-e2e',
+      workspace_path: '/work/e2e',
+      ...over,
     })
-    expect(handles).toHaveLength(0)
-    expect(clientBuilt).toBe(0)
-    expect(delivered).toBe(0)
-    expect(client.calls).toHaveLength(0)
-    const log = lines.join('\n')
-    // Unscoped call over a push-only disk: the O1 gate counts agent-scope
-    // bindings only (zero) ⇒ nothing starts; the per-binding reason is
-    // reported by a scoped call, which the adapter would make next.
-    expect(log).toContain('no agent-scope binding')
 
-    // Scoped call: the per-binding decision still reports not-agent-scope.
-    const scopedLines: string[] = []
-    const scopedHandles = await startAgentPullEntries({
-      systemId: PUSH_SID,
-      env: {},
-      log: (l) => scopedLines.push(l),
-      onEmail: () => {},
-      clientFor: () => client,
-    })
-    expect(scopedHandles).toHaveLength(0)
-    expect(scopedLines.join('\n')).toContain('not-agent-scope')
-  })
-
-  it('② After activation ⇒ self-fetches pending and acks, handle.stop() ends the loop', async () => {
-    await saveAgentConfig(binding(), AGENT_SID)
-    const client = new FakeGateway([batch(11, { subject: 'self-pull' })])
-    const got: Array<{ id: number; email: string; body: unknown }> = []
-    const lines: string[] = []
-    const handles = await startAgentPullEntries({
-      env: {},
-      log: (l) => lines.push(l),
-      clientFor: () => client,
-      onEmail: (_cfg, mail) => {
-        got.push({ id: mail.id, email: mail.email, body: mail.body })
-      },
-    })
-    expect(handles).toHaveLength(1)
-    const h = handles[0]!
-    expect(h.email).toBe('agent@e2e.local')
-    expect(h.started).toBe(true)
-    expect(h.reason).toBe('enabled')
-    expect(h.intervalMs).toBe(DEFAULT_PULL_INTERVAL_MS)
-    expect(h.limit).toBe(DEFAULT_PULL_LIMIT)
-    expect(lines.join('\n')).toContain('polling enabled every 30000ms')
-
-    await waitFor(() => client.ackCalls.length === 1, 3000, 'ack of the pulled delivery')
-    expect(got).toEqual([{ id: 11, email: 'agent@e2e.local', body: { subject: 'self-pull' } }])
-    expect(client.ackCalls[0]).toEqual([11])
-
-    const atStop = client.listCalls
-    h.stop()
-    const stats = await h.done
-    expect(stats).toEqual({ pulled: 1, acked: 1, errors: 0 })
-    expect(h.stats()).toEqual({ pulled: 1, acked: 1, errors: 0 })
-    await new Promise((r) => setTimeout(r, 50))
-    expect(client.listCalls).toBe(atStop) // aborted ⇒ the loop really ended
-  })
-
-  it('③ Delivery failure (onEmail reject) ⇒ does not ack, next round re-fetches the same email', async () => {
-    await saveAgentConfig(binding(), AGENT_SID)
-    // Same delivery id twice: the first attempt fails, the second succeeds.
-    const client = new FakeGateway([batch(21), batch(21)])
-    const attempts: number[] = []
-    const handles = await startAgentPullEntries({
-      // Shortest legal interval so the re-pull lands inside the test window.
-      env: { AIMAIL_PULL_INTERVAL_MS: '1000' },
-      log: () => {},
-      clientFor: () => client,
-      onEmail: (_cfg, mail) => {
-        attempts.push(mail.id)
-        if (attempts.length === 1) throw new Error('inbound chain down (simulated)')
-      },
-    })
-    const h = handles[0]!
-    await waitFor(() => attempts.length >= 2, 3000, 'the failed delivery to be re-pulled')
-    expect(attempts).toEqual([21, 21])
-    await waitFor(() => client.ackCalls.length === 1, 3000, 'the successful attempt to be acked')
-    // Exactly one ack, and it carries only the successful id.
-    expect(client.ackCalls).toEqual([[21]])
-    h.stop()
-    const stats = await h.done
-    expect(stats.acked).toBe(1)
-    expect(stats.pulled).toBe(1)
-    expect(stats.errors).toBe(1) // the failure was counted, not swallowed
-  })
-
-  it('④ Interval lower bound clamping + AbortSignal interrupts sleep (does not wait for full interval)', async () => {
-    await saveAgentConfig(binding(), AGENT_SID)
-    const client = new FakeGateway([]) // always an empty batch
-    const handles = await startAgentPullEntries({
-      env: { AIMAIL_PULL_INTERVAL_MS: '10', AIMAIL_PULL_LIMIT: '3' },
-      log: () => {},
-      clientFor: () => client,
-      onEmail: () => {
-        throw new Error('no delivery expected from an empty batch')
-      },
-    })
-    const h = handles[0]!
-    expect(h.intervalMs).toBe(1000) // '10' clamped up to the 1s floor
-    expect(h.limit).toBe(3)
-    await waitFor(() => client.listCalls >= 1, 3000, 'first round')
-    const t0 = Date.now()
-    h.stop()
-    await h.done
-    // Without an interruptible sleep this would take the full 1000ms interval.
-    expect(Date.now() - t0).toBeLessThan(600)
-    const after = client.listCalls
-    await new Promise((r) => setTimeout(r, 100))
-    expect(client.listCalls).toBe(after)
-  })
-
-  it('⑤ One loop per agent-level binding when SCOPED; unscoped with ≥2 bindings ⇒ refusal', async () => {
-    await saveAgentConfig(binding({ email: 'a@e2e.local' }), AGENT_SID)
-    await saveAgentConfig(binding({ email: 'b@e2e.local' }), AGENT_SID)
-    await saveAgentConfig(binding({ email: 'agent@other.local', system_id: `${AGENT_SCOPE_SYSTEM_PREFIX}other` }), `${AGENT_SCOPE_SYSTEM_PREFIX}other`)
-    const clients: FakeGateway[] = []
-    const mk = (): FakeGateway => {
-      const c = new FakeGateway([])
-      clients.push(c)
-      return c
-    }
-
-    // Unscoped (pointer missing) with ≥2 agent-scope bindings ⇒ O1 refusal:
-    // no fan-out, no clients built, loud log.
-    const unscoped: string[] = []
-    const refused = await startAgentPullEntries({
-      env: {},
-      log: (l) => unscoped.push(l),
-      clientFor: mk,
-      onEmail: () => {
-        throw new Error('no delivery expected from an empty batch')
-      },
-    })
-    expect(refused).toHaveLength(0)
-    expect(clients).toHaveLength(0) // nothing built for a refused fan-out
-    expect(unscoped.join('\n')).toContain('refusing to start')
-    expect(unscoped.join('\n')).toContain('3 agent-scope bindings')
-    expect(unscoped.join('\n')).not.toContain('no agent-scope binding')
-
-    // Scoped call is unambiguous: every binding in the named system gets its loop.
-    const scoped: string[] = []
-    const scopedHandles = await startAgentPullEntries({
-      systemId: AGENT_SID,
-      env: {},
-      log: (l) => scoped.push(l),
-      clientFor: mk,
-      onEmail: () => {
-        throw new Error('no delivery expected from an empty batch')
-      },
-    })
-    expect(scopedHandles.map((h) => h.email).sort()).toEqual(['a@e2e.local', 'b@e2e.local'])
-    expect(scoped.join('\n')).not.toContain('refusing to start')
-
-    stopAgentPullEntries(scopedHandles)
-    stopAgentPullEntries(scopedHandles) // idempotent
-    for (const h of scopedHandles) {
-      await h.done
-      expect(h.stats().errors).toBe(0)
-    }
-  })
-
-  it('⑥ Unscoped with exactly ONE agent-scope binding ⇒ unambiguous ⇒ starts', async () => {
-    await saveAgentConfig(binding({ email: 'solo@e2e.local' }), AGENT_SID)
-    await saveAgentConfig(binding({ email: 'push@e2e.local', system_id: PUSH_SID }), PUSH_SID)
+  it('① no binding on disk ⇒ no stream and no fetch', async () => {
     const client = new FakeGateway([])
     const lines: string[] = []
     const handles = await startAgentPullEntries({
       env: {},
       log: (l) => lines.push(l),
+      onEmail: () => {},
       clientFor: () => client,
-      onEmail: () => {
-        throw new Error('no delivery expected from an empty batch')
-      },
-    })
-    expect(handles.map((h) => h.email)).toEqual(['solo@e2e.local'])
-    expect(lines.join('\n')).toContain('exactly one agent-scope binding')
-    handles.forEach((h) => h.stop())
-    for (const h of handles) await h.done
-  })
-
-  // 5c. onlyEmail single-address filter (QA HOLD 2026-10-27; py mirror in
-  // tests/sdk/test_agent_pull_entry.py 5c).
-
-  it('⑦ Scoped + onlyEmail ⇒ exactly ONE loop for the matching binding (QA 4.A-1)', async () => {
-    await saveAgentConfig(binding({ email: 'a@e2e.local' }), AGENT_SID)
-    await saveAgentConfig(binding({ email: 'b@e2e.local' }), AGENT_SID)
-    const clients: FakeGateway[] = []
-    const lines: string[] = []
-    const handles = await startAgentPullEntries({
-      systemId: AGENT_SID,
-      onlyEmail: 'a@e2e.local',
-      env: {},
-      log: (l) => lines.push(l),
-      clientFor: () => {
-        const c = new FakeGateway([])
-        clients.push(c)
-        return c
-      },
-      onEmail: () => {
-        throw new Error('no delivery expected from an empty batch')
-      },
-    })
-    expect(handles.map((h) => h.email)).toEqual(['a@e2e.local'])
-    expect(clients).toHaveLength(1)
-    expect(lines.join('\n')).toContain(
-      `pull scope: system=${AGENT_SID} email=a@e2e.local fanout=false`,
-    )
-    handles.forEach((h) => h.stop())
-    for (const h of handles) await h.done
-  })
-
-  it('⑧ Scoped without onlyEmail ⇒ fan-out preserved, audit lines fanout=true (QA 4.A-2)', async () => {
-    await saveAgentConfig(binding({ email: 'a@e2e.local' }), AGENT_SID)
-    await saveAgentConfig(binding({ email: 'b@e2e.local' }), AGENT_SID)
-    const lines: string[] = []
-    const handles = await startAgentPullEntries({
-      systemId: AGENT_SID,
-      env: {},
-      log: (l) => lines.push(l),
-      clientFor: () => new FakeGateway([]),
-      onEmail: () => {
-        throw new Error('no delivery expected from an empty batch')
-      },
-    })
-    expect(handles.map((h) => h.email).sort()).toEqual(['a@e2e.local', 'b@e2e.local'])
-    const audit = lines.filter((l) => l.includes('pull scope:'))
-    expect(audit).toHaveLength(2)
-    expect(audit.every((l) => l.includes('fanout=true'))).toBe(true)
-    handles.forEach((h) => h.stop())
-    for (const h of handles) await h.done
-  })
-
-  it('⑨ Scoped onlyEmail with zero matches ⇒ NO loop, loud log, no client built (QA 4.A-3)', async () => {
-    await saveAgentConfig(binding({ email: 'a@e2e.local' }), AGENT_SID)
-    await saveAgentConfig(binding({ email: 'b@e2e.local' }), AGENT_SID)
-    const clients: FakeGateway[] = []
-    const lines: string[] = []
-    const handles = await startAgentPullEntries({
-      systemId: AGENT_SID,
-      onlyEmail: 'ghost@e2e.local',
-      env: {},
-      log: (l) => lines.push(l),
-      clientFor: () => {
-        const c = new FakeGateway([])
-        clients.push(c)
-        return c
-      },
-      onEmail: () => {
-        throw new Error('no delivery expected from an empty batch')
-      },
     })
     expect(handles).toHaveLength(0)
-    expect(clients).toHaveLength(0) // nothing built when the filter matches nothing
-    const joined = lines.join('\n')
-    expect(joined).toContain('only_email=ghost@e2e.local')
-    expect(joined).toContain('no binding matches')
-    expect(joined).toContain('candidates=2')
-    expect(joined).not.toContain('fanout=') // no audit line ⇒ no loop started
-    expect(joined).not.toContain('no agent-scope binding')
+    expect(client.calls).toHaveLength(0)
+    expect(lines.join('\n')).toContain('no agent-scope binding')
   })
 
-  it('⑩ Unscoped + onlyEmail ⇒ the matching address starts (QA 4.A-4)', async () => {
-    await saveAgentConfig(binding({ email: 'a@e2e.local' }), AGENT_SID)
-    await saveAgentConfig(binding({ email: 'b@e2e.local' }), AGENT_SID)
-    const lines: string[] = []
+  it('② one V2 binding ⇒ one aggregate stream: pulls, acks, stop() ends the loop', async () => {
+    await saveAgentConfig(v2b(), AGENT_SID)
+    const client = new FakeGateway([batch(11)])
+    const got: Array<{ id: number; email: string }> = []
     const handles = await startAgentPullEntries({
-      onlyEmail: 'b@e2e.local',
+      env: {},
+      log: () => {},
+      clientFor: () => client,
+      onEmail: (_cfg, mail) => {
+        got.push({ id: mail.id, email: mail.email })
+      },
+    })
+    expect(handles).toHaveLength(1)
+    const h = handles[0]!
+    expect(h.email).toBe('agent:as-e2e') // the GROUP, not the address
+    expect(h.started).toBe(true)
+    await waitFor(() => client.ackCalls.length === 1, 3000, 'ack of the pulled delivery')
+    expect(got).toEqual([{ id: 11, email: 'agent@e2e.local' }])
+    expect(client.ackCalls[0]).toEqual([11])
+    const atStop = client.listCalls
+    h.stop()
+    const stats = await h.done
+    expect(stats).toEqual({ pulled: 1, acked: 1, errors: 0 })
+    await new Promise((r) => setTimeout(r, 50))
+    expect(client.listCalls).toBe(atStop) // aborted ⇒ the loop really ended
+  })
+
+  it('③ onEmail throws ⇒ no ack, the mail is re-pulled', async () => {
+    await saveAgentConfig(v2b(), AGENT_SID)
+    const client = new FakeGateway([batch(21), batch(21)])
+    let attempts = 0
+    const handles = await startAgentPullEntries({
+      env: { AIMAIL_PULL_INTERVAL_MS: '1000' },
+      log: () => {},
+      clientFor: () => client,
+      onEmail: () => {
+        attempts += 1
+        if (attempts === 1) throw new Error('delivery failed')
+      },
+    })
+    const h = handles[0]!
+    await waitFor(() => attempts >= 2, 5000, 'the re-pull after a failed delivery')
+    expect(client.ackCalls.flat()).toEqual([21]) // only the successful round acked
+    h.stop()
+    await h.done
+  })
+
+  it('④ interval is clamped to the legal minimum', async () => {
+    await saveAgentConfig(v2b(), AGENT_SID)
+    const handles = await startAgentPullEntries({
+      env: { AIMAIL_PULL_INTERVAL_MS: '1' }, // below the floor
+      log: () => {},
+      onEmail: () => {},
+      clientFor: () => new FakeGateway([]),
+    })
+    expect(handles[0]!.intervalMs).toBeGreaterThanOrEqual(1000)
+    handles.forEach((h) => h.stop())
+  })
+
+  it('⑤ two addresses of one group ⇒ exactly ONE stream; a V1 binding is refused', async () => {
+    await saveAgentConfig(v2b({ email: 'a@e2e.local' }), AGENT_SID)
+    await saveAgentConfig(v2b({ email: 'b@e2e.local' }), AGENT_SID)
+    await saveAgentConfig(binding({ email: 'v1@e2e.local' }), AGENT_SID) // no agent_system_id
+    const lines: string[] = []
+    let built = 0
+    const handles = await startAgentPullEntries({
       env: {},
       log: (l) => lines.push(l),
-      clientFor: () => new FakeGateway([]),
-      onEmail: () => {
-        throw new Error('no delivery expected from an empty batch')
+      onEmail: () => {},
+      clientFor: () => {
+        built += 1
+        return new FakeGateway([])
       },
     })
-    expect(handles.map((h) => h.email)).toEqual(['b@e2e.local'])
-    expect(lines.join('\n')).toContain('pull scope: system= email=b@e2e.local fanout=false')
+    expect(handles).toHaveLength(1)
+    expect(built).toBe(1)
+    expect(lines.join('\n')).toContain('per-address pull is retired')
     handles.forEach((h) => h.stop())
-    for (const h of handles) await h.done
   })
 
-  it('⑪ onlyEmail matches case-insensitively (QA 4.A-5)', async () => {
-    await saveAgentConfig(binding({ email: 'a@e2e.local' }), AGENT_SID)
-    await saveAgentConfig(binding({ email: 'b@e2e.local' }), AGENT_SID)
-    const handles = await startAgentPullEntries({
-      systemId: AGENT_SID,
-      onlyEmail: 'A@E2E.LOCAL',
+  it('⑥ onlyEmail selects the group that contains that address (case-insensitive)', async () => {
+    await saveAgentConfig(v2b({ email: 'a@e2e.local' }), AGENT_SID)
+    // Matching (case-insensitively) ⇒ the group stream is armed once.
+    for (const onlyEmail of ['A@E2E.LOCAL', 'a@e2e.local']) {
+      const handles = await startAgentPullEntries({
+        env: {},
+        onlyEmail,
+        log: () => {},
+        onEmail: () => {},
+        clientFor: () => new FakeGateway([]),
+      })
+      expect(handles).toHaveLength(1)
+      expect(handles[0]!.email).toBe('agent:as-e2e')
+      handles.forEach((h) => h.stop())
+    }
+    // No address matches ⇒ nothing is armed (the mail stays pending).
+    const none = await startAgentPullEntries({
       env: {},
+      onlyEmail: 'nobody@e2e.local',
+      log: () => {},
+      onEmail: () => {},
       clientFor: () => new FakeGateway([]),
-      onEmail: () => {
-        throw new Error('no delivery expected from an empty batch')
-      },
     })
-    expect(handles.map((h) => h.email)).toEqual(['a@e2e.local'])
-    handles.forEach((h) => h.stop())
-    for (const h of handles) await h.done
+    expect(none).toHaveLength(0)
   })
 
-  it('⑫ Same address under two binding files ⇒ still ONE loop (QA 4.D)', async () => {
-    await saveAgentConfig(binding({ email: 'a@e2e.local' }), AGENT_SID)
-    // The binding directory name is the cleanAddr slug (email with non-\w.-
-    // chars → '_'); copy the file under a second directory name.
-    const src = path.join(home, 'systems', AGENT_SID, 'a_e2e.local', BINDING_FILE)
-    const dstDir = path.join(home, 'systems', AGENT_SID, 'a_copy_e2e.local')
-    await fs.mkdir(dstDir, { recursive: true })
-    await fs.copyFile(src, path.join(dstDir, BINDING_FILE))
-    const lines: string[] = []
+  it('⑦ the same address in two binding files ⇒ still ONE stream', async () => {
+    await saveAgentConfig(v2b(), AGENT_SID)
+    await saveAgentConfig(v2b(), `${AGENT_SCOPE_SYSTEM_PREFIX}dup`)
     const handles = await startAgentPullEntries({
-      systemId: AGENT_SID,
-      onlyEmail: 'a@e2e.local',
       env: {},
-      log: (l) => lines.push(l),
+      log: () => {},
+      onEmail: () => {},
       clientFor: () => new FakeGateway([]),
-      onEmail: () => {
-        throw new Error('no delivery expected from an empty batch')
-      },
     })
-    expect(handles.map((h) => h.email)).toEqual(['a@e2e.local'])
-    expect(lines.filter((l) => l.includes('fanout=false'))).toHaveLength(1)
+    expect(handles).toHaveLength(1)
     handles.forEach((h) => h.stop())
-    for (const h of handles) await h.done
   })
 })
