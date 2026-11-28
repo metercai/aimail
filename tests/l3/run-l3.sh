@@ -350,9 +350,14 @@ if [ -f "$PINS_HOST" ]; then
   esac
   if [ -n "$_pin_key" ]; then
     WANT="$(grep -E "^${_pin_key}=" "$PINS_HOST" | head -1 | cut -d= -f2-)"
-    # openclaw prints "OpenClaw 2026.11.5 (e13cf15)"; take the first semver, fall back to the raw line
+    # openclaw prints "OpenClaw 2026.11.5 (e13cf15)"; take the first semver, fall back to the raw line.
+    # The prerelease/build suffix is PART of the pin: `[0-9]+\.[0-9]+\.[0-9]+` matched only "0.2.2"
+    # out of "0.2.2-rc.5" and compared it with the pin "0.2.2-rc.5", so a correctly installed host was
+    # refused as "host version mismatch" (measured 2026-11-28 on the linux-arm64 cell: the install log
+    # showed npm install -g @deepseek-ai/dsh@0.2.2-rc.5 and verify printed "dsh on PATH (0.2.2-rc.5)"
+    # just before this line declared ENV GAP).
     _raw="$("$_pin_bin" --version 2>/dev/null | head -1)"
-    GOT="$(printf '%s' "$_raw" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+    GOT="$(printf '%s' "$_raw" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?' | head -1)"
     [ -n "$GOT" ] || GOT="$(printf '%s' "$_raw" | tr -d '[:space:]')"
     if [ -n "$WANT" ] && [ "$GOT" != "$WANT" ]; then
       gap "host version mismatch for $AGENT: got '$GOT', pin '$WANT' — refusing to judge"
