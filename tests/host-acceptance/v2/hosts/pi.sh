@@ -63,7 +63,7 @@ PY
       if [ -z "$B" ]; then
         echo "RETRY: no binding after the first turn, asking once more" >> /tmp/pi.log
         timeout 420 pi -p "$PROMPT" >> /tmp/pi.log 2>&1 || true
-        B=$(ls /root/.aimail/systems/*/*/agentmail.json 2>/dev/null | head -1)
+        B=$(ls /root/.aimail/systems/*/*/agentmail.json 2>/dev/null | head -1)  # contract-allowed: in-container fixture glob; the repo contract is not mounted in the host image
       fi
       if [ -n "$B" ]; then install -m 644 "$B" /out/binding.json; stat -c %a "$B" > /out/mode; fi
       python3 - <<PY >/out/paused_seen 2>/dev/null || echo None >/out/paused_seen
