@@ -23,16 +23,10 @@
  *   - **No timer leaks**: One binding per loop, handle convergence at startup.
  */
 import type { AgentConfig } from './types.js'
-import { GatewayClient } from './gateway.js'
 import { listAgentConfigs } from './config.js'
 import { findBindingByEmail } from './address-code.js'
 import { listSystemDirs } from './system-config.js'
-import {
-  startPolling,
-  type PollStats,
-  type PullDeliveryResult,
-  type RequestClient,
-} from './address-code.js'
+import type { PollStats, PullDeliveryResult, RequestClient } from './address-code.js'
 import { startSystemPull } from './system-pull.js'
 import {
   bindingProvenance,
@@ -40,7 +34,7 @@ import {
   refuseBindingAfterGatewayRejection,
 } from './binding-provenance.js'
 import { buildAgentSystemClient, isV2AgentScopeBinding } from './agent-system-client.js'
-import { PULL_HTTP_TIMEOUT_MS, PULL_MODE_ENV, parsePullMode, type PullMode } from './pull-contract.js'
+import { PULL_MODE_ENV, parsePullMode, type PullMode } from './pull-contract.js'
 import { getAgentSystemId } from './agent-system-id.js'
 
 /**
@@ -415,107 +409,6 @@ export interface StartAgentPullEntriesOptions {
 /** Options for one binding (same knobs as the batch starter, minus enumeration). */
 export type StartAgentPullEntryOptions = Omit<StartAgentPullEntriesOptions, 'systemId' | 'onlyEmail'>
 
-/**
- * Start the poll loop for ONE agent-scope binding — the hot-add unit.
- *
- * Activation happens long after the host booted, and the batch starter only
- * enumerates bindings once. `startAgentLevel` calls this from the
- * `binding-created` hook so the new mailbox starts receiving in the SAME
- * process, without a host restart. Semantics match the batch version (disabled
- * ⇒ null, a throw from `onEmail` ⇒ no ack).
- */
-export async function startAgentPullEntry(
-  cfg: AgentConfig,
-  opts: StartAgentPullEntryOptions,
-): Promise<AgentPullHandle | null> {
-  const env = opts.env ?? process.env
-  const log = opts.log ?? ((line: string) => console.log(line))
-  // V2 REJECTION (P1-1, plan §6.5): a V2 binding must pull through the
-  // AgentSystemId aggregate (startAgentSystemGroups), never a per-binding
-  // loop — that would be a second stream for the same (AgentSystemId,
-  // Gateway). This is the hot-add unit for V1; V2 hot-adds re-arm the pool
-  // (stop + startAgentPullEntries) in their caller, and a direct call with a
-  // V2 cfg is refused, not delegated (this function cannot know which
-  // group stream already exists — delegating would start a duplicate).
-  if (isV2AgentScopeBinding(cfg)) {
-    log(
-      `[aimail-pull] ${cfg.email}: V2 binding — per-entry start refused ` +
-        '(V2 pulls aggregate by AgentSystemId; arm via startInboundPull / startAgentPullEntries)',
-    )
-    return null
-  }
-  const settings = resolveAgentPullSettings(cfg, env, opts.overrides ?? {})
-  if (!settings.enabled) {
-    // Only report the NOT-agent-scope decision for a binding that exists;
-    // silence for push-side bindings would hide a mis-wiring.
-    log(
-      `[aimail-pull] ${cfg.email}: not polling (${settings.reason}) — ` +
-        'push/system binding unchanged',
-    )
-    return null
-  }
-  // V1 per-binding paused (P1-2, plan §6.5): arm-level guard — a paused
-  // binding starts NO loop. A runtime pause (after arming) is enforced at
-  // the delivery level by the fresh lookup in the wrapper below.
-  if (cfg.paused === true) {
-    log(`[aimail-pull] ${cfg.email}: paused — not polling (resume re-arms)`)
-    return null
-  }
-  const client = opts.clientFor
-    ? opts.clientFor(cfg)
-    : new GatewayClient(cfg.gateway_url, cfg.api_key, PULL_HTTP_TIMEOUT_MS, cfg.email)
-  const controller = new AbortController()
-  const live: PollStats = { pulled: 0, acked: 0, errors: 0 }
-  const done = startPolling(
-    client,
-    async (mail) => {
-      // Delivery-level fresh lookup (P1-2, plan §6.5): a runtime pause or
-      // archive takes effect on the very next delivery without a re-arm —
-      // paused ⇒ skip('paused'), unknown ⇒ skip('unknown') (typed result,
-      // NOT a throw: no ack, no error, mail left pending). SDK-level, so
-      // the host's onEmail never sees a paused/unknown mail.
-      const { skip } = await freshDeliveryTarget(mail.email)
-      if (skip) return skip
-      // Count first: startPolling awaits this, a throw ⇒ un-acked ⇒ re-pull.
-      live.pulled += 1
-      await opts.onEmail(cfg, {
-        id: mail.id,
-        email: mail.email,
-        headers: (mail.headers ?? {}) as Record<string, unknown>,
-        body: mail.body,
-      })
-    },
-    {
-      intervalMs: settings.intervalMs,
-      limit: settings.limit,
-      signal: controller.signal,
-    },
-  )
-    .then((stats) => {
-      live.pulled = stats.pulled
-      live.acked = stats.acked
-      live.errors = stats.errors
-      return stats
-    })
-    .catch((e: unknown) => {
-      log(`[aimail-pull] ${cfg.email}: loop ended with error: ${String(e)}`)
-      return live
-    })
-  log(
-    `[aimail-pull] ${cfg.email}: polling enabled every ${settings.intervalMs}ms ` +
-      `(limit ${settings.limit}, agent-scope key)`,
-  )
-  return {
-    email: cfg.email,
-    started: true,
-    reason: settings.reason,
-    intervalMs: settings.intervalMs,
-    limit: settings.limit,
-    stop: () => controller.abort(),
-    done,
-    stats: () => ({ ...live }),
-  }
-}
 
 /**
  * Start pull loops for the agent-scope bindings, delivering into the
@@ -609,6 +502,19 @@ export async function startAgentPullEntries(
     return out
   }
 
+  /**
+   * V1 (pre-AgentSystemId) bindings have no aggregate scope, and the per-address pull endpoints
+   * were retired on 2026-11-26 — so the only honest outcome is "re-activate". Say it loudly and
+   * start no stream: silently falling back would be a second pull transport that no longer exists
+   * on the gateway.
+   */
+  const refuseV1 = (cfg: AgentConfig): void => {
+    log(
+      `[aimail-pull] ${cfg.email}: V1 binding (no agent_system_id) — per-address pull is retired; ` +
+        're-activate the address with an activation code to join the aggregate (contract §5.3)',
+    )
+  }
+
   // Start the V2 subset through the ONE aggregate entry (A' grouping).
   const startGroups = async (pool: AgentConfig[]): Promise<void> => {
     const g = await v2Pool(pool)
@@ -637,11 +543,7 @@ export async function startAgentPullEntries(
       if (isV2AgentScopeBinding(uniq[0])) {
         await startGroups(uniq)
       } else {
-        const h = await startAgentPullEntry(uniq[0], opts)
-        if (h !== null) {
-          handles.push(h)
-          log(`[aimail-pull] pull scope: system=${opts.systemId} email=${h.email} fanout=false`)
-        }
+        refuseV1(uniq[0])
       }
     } else {
       // Scoped, no filter: declared fan-out over the system's bindings.
@@ -651,11 +553,7 @@ export async function startAgentPullEntries(
       const allCfgs = await listAgentConfigs(opts.systemId)
       const v2cfgs = allCfgs.filter(isAgentScopeBinding)
       for (const cfg of allCfgs.filter((c) => !isV2AgentScopeBinding(c))) {
-        const h = await startAgentPullEntry(cfg, opts)
-        if (h !== null) {
-          handles.push(h)
-          log(`[aimail-pull] pull scope: system=${opts.systemId} email=${h.email} fanout=true`)
-        }
+        if (isAgentScopeBinding(cfg)) refuseV1(cfg)
       }
       await startGroups(v2cfgs)
     }
@@ -678,11 +576,7 @@ export async function startAgentPullEntries(
       if (isV2AgentScopeBinding(uniq[0])) {
         await startGroups(uniq)
       } else {
-        const h = await startAgentPullEntry(uniq[0], opts)
-        if (h !== null) {
-          handles.push(h)
-          log(`[aimail-pull] pull scope: system= email=${h.email} fanout=false`)
-        }
+        refuseV1(uniq[0])
       }
     } else {
       const all: AgentConfig[] = []
@@ -695,27 +589,9 @@ export async function startAgentPullEntries(
       await startGroups(agentScope)
       // V1: the pre-V2 unscoped rules are unchanged.
       const v1 = agentScope.filter((c) => !isV2AgentScopeBinding(c))
-      if (v1.length === 1) {
-        log(
-          `[aimail-pull] no profile pointer — exactly one agent-scope ` +
-            `binding on disk (${v1[0].email}); starting it (unambiguous)`,
-        )
-        const h = await startAgentPullEntry(v1[0], opts)
-        if (h !== null) {
-          handles.push(h)
-          log(`[aimail-pull] pull scope: system= email=${h.email} fanout=false`)
-        }
-      } else if (v1.length > 1) {
-        unscopedRefused = true
-        log(
-          `[aimail-pull] NO profile pointer and ${v1.length} agent-scope ` +
-            'bindings on disk — refusing to start: with no pointer the ' +
-            "profile's own mailbox cannot be located, and a full scan would " +
-            "replay every mailbox into THIS profile's inbound (wrong routing, " +
-            '401, never acked). Mail stays pending on the gateway. Re-run ' +
-            '`aimail agent bind` (or restore the pointer) to pick a mailbox; ' +
-            'restart the host afterwards.',
-        )
+      if (v1.length > 0) {
+        unscopedRefused = unscopedRefused || v1.length > 1
+        for (const cfg of v1) refuseV1(cfg)
       }
     }
   }

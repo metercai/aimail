@@ -13,6 +13,7 @@ import { promises as fs } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { resetAgentSystemIdForTests } from '../../src/core/agent-system-id.js'
 import {
   AGENT_TOOL_NAMES,
   agentTools,
@@ -44,9 +45,12 @@ beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-level-'))
   prevHome = process.env.AIMAIL_HOME
   process.env.AIMAIL_HOME = path.join(tmp, 'aimail')
+  process.env.AIMAIL_AGENT_SYSTEM_ID = 'as-e2e'
 })
 
 afterEach(async () => {
+  delete process.env.AIMAIL_AGENT_SYSTEM_ID
+  resetAgentSystemIdForTests()
   if (prevHome === undefined) delete process.env.AIMAIL_HOME
   else process.env.AIMAIL_HOME = prevHome
   await fs.rm(tmp, { recursive: true, force: true })
@@ -106,14 +110,32 @@ describe('startAgentLevel', () => {
     await fs.mkdir(dir, { recursive: true })
     await fs.writeFile(
       path.join(dir, BINDING_FILE),
-      JSON.stringify({ system_id: sid, email, gateway_url: 'http://127.0.0.1:1', api_key: 'k' }),
+      JSON.stringify({
+        system_id: sid,
+        email,
+        // §7.1 requires all seven fields (provenance is checked at arm time).
+        domain: 'e2e.local',
+        agent_id: 'agent',
+        gateway_url: 'http://127.0.0.1:1',
+        api_key: 'k',
+        // V2: the only armable shape (per-address pull is retired) — asid + provenance stamp.
+        agent_system_id: 'as-e2e',
+        workspace_path: '/work/e2e',
+        binding_source: 'activate-address-code',
+        activated_at: '2026-11-25T10:00:00.000Z',
+      }),
     )
 
+    // Minimal TS RequestClient surface: the loop is aggregate-only now, so the fake answers the
+    // aggregate legs (stream probe says "no stream" ⇒ long-poll; the poll returns nothing).
     const fake = {
-      start_polling: async (
-        _onEmail: unknown,
-        opts: { interval?: number; limit?: number },
-      ) => ({ rounds: 0, pulled: 0, acked: 0, errors: 0, interval: opts.interval, limit: opts.limit }),
+      baseUrl: 'http://127.0.0.1:1',
+      streamPath: '/api/v1/agent-system/pending/stream',
+      pendingPath: '/api/v1/agent-system/pending',
+      ackPath: '/api/v1/agent-system/pending/ack',
+      request: async () => ({ status: 200, batches: [] }),
+      streamRound: async () => 'stay',
+      streamProbe: async () => false,
     }
     const rt = await startAgentLevel({
       skillsDir: path.join(tmp, 'skills'),
@@ -124,7 +146,7 @@ describe('startAgentLevel', () => {
     expect(rt.skill?.installed).toBe(true)
     expect(rt.tools.map((t) => t.name)).toEqual(agentTools().map((t) => t.name))
     expect(rt.handles).toHaveLength(1)
-    expect(rt.handles[0].email).toBe(email)
+    expect(rt.handles[0].email).toBe('agent:as-e2e')
     for (const h of rt.handles) h.stop()
   })
 })

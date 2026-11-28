@@ -21,7 +21,6 @@ import {
   findBindingByEmail,
   setBindingPaused,
   startAgentSystemGroups,
-  startAgentPullEntry,
   startAgentPullEntries,
   startAgentLevel,
   startSystemPull,
@@ -338,18 +337,18 @@ describe('§6.7 core — A\' grouping + typed skip + auth fatal', () => {
     expect(client.ackCalls).toEqual([]) // mail never acked (stays pending)
   }, 20000)
 
-  it('#8 compat regression: startAgentPullEntry(V1 cfg) real call, onEmail void ⇒ ack + stats.pulled++', async () => {
-    await saveAgentConfig(v1('agent@e2e.local'), V1_SID)
+  it('#8 aggregate stream: onEmail void ⇒ ack + stats.pulled++ (single transport)', async () => {
+    await saveV2(v2('agent@e2e.local'))
     const client = new FakePoll([batch(11, 'agent@e2e.local')])
-    const h = await startAgentPullEntry(v1('agent@e2e.local'), {
+    const handles = await startAgentPullEntries({
       env: {},
       log: () => {},
       onEmail: () => {}, // void = accepted
       clientFor: () => client,
     })
-    expect(h).not.toBeNull()
-    const handle = h!
-    await waitFor(() => client.ackCalls.length >= 1, 4000, 'ack of the V1 delivery')
+    expect(handles).toHaveLength(1)
+    const handle = handles[0]!
+    await waitFor(() => client.ackCalls.length >= 1, 4000, 'ack of the delivery')
     expect(client.ackCalls.flat()).toEqual([11])
     handle.stop()
     const stats = await handle.done
@@ -358,14 +357,16 @@ describe('§6.7 core — A\' grouping + typed skip + auth fatal', () => {
   })
 
   it('#9 non-auth failure (500) ⇒ backoff, loop stays alive (NOT fatal) — regression guard', async () => {
-    await saveAgentConfig(v1('agent@e2e.local'), V1_SID)
+    await saveV2(v2('agent@e2e.local'))
     const client = new FakePoll([fail(500), fail(500), fail(500), batch(1, 'agent@e2e.local')])
-    const h = (await startAgentPullEntry(v1('agent@e2e.local'), {
+    const handles = await startAgentPullEntries({
       env: { AIMAIL_PULL_INTERVAL_MS: '1000' },
       log: () => {},
       onEmail: () => {},
       clientFor: () => client,
-    }))!
+    })
+    expect(handles).toHaveLength(1)
+    const h = handles[0]!
     // 3× 500: three failed rounds must hit the gateway, and the loop must
     // keep polling afterwards (NOT fatal, unlike 401/403).
     await waitFor(() => client.listCalls >= 3, 15000, 'three 500 rounds')
@@ -397,123 +398,84 @@ describe('§6.7 core — A\' grouping + typed skip + auth fatal', () => {
     for (const h of handles) await h.done
   })
 
-  it('#15 mixed V1+V2 fanout (systemId branch) ⇒ V1 per-binding + V2 exactly ONE group; total = 1 + V1 count', async () => {
+  it('#15 mixed V1+V2 ⇒ only the V2 group is armed; the V1 binding is told to re-activate', async () => {
     await saveAgentConfig(v1('x@e2e.local'), V1_SID)
     await saveV2(v2('a@e2e.local'))
     await saveV2(v2('b@e2e.local'))
+    const lines: string[] = []
     let built = 0
     const handles = await startAgentPullEntries({
-      systemId: V1_SID,
       env: {},
-      log: () => {},
+      log: (l) => lines.push(l),
       onEmail: () => {},
       clientFor: () => {
         built++
         return new FakePoll([])
       },
     })
-    // The V1 binding lives under V1_SID; the two V2 under system-b237.
-    // Scoped to V1_SID ⇒ only the V1 binding is enumerated here.
-    expect(handles.map((h) => h.email)).toEqual(['x@e2e.local'])
+    // One transport: the two V2 addresses share ONE aggregate stream; V1 arms nothing.
+    expect(handles).toHaveLength(1)
+    expect(handles[0]!.email).toBe(`agent:${ASID}`)
+    expect(built).toBe(1)
+    expect(lines.join('\n')).toContain('per-address pull is retired')
     handles.forEach((h) => h.stop())
     for (const h of handles) await h.done
   })
 
-  it('#16 startAgentPullEntry(V2 cfg) direct call ⇒ null + refusal audit; a group stream already up is not duplicated', async () => {
+  it('#16 a V1 binding alone arms nothing and says why (per-address pull retired)', async () => {
+    await saveAgentConfig(v1('solo@e2e.local'), V1_SID)
     const lines: string[] = []
-    const h = await startAgentPullEntry(v2('a@e2e.local'), {
+    let built = 0
+    const handles = await startAgentPullEntries({
+      systemId: V1_SID,
       env: {},
       log: (l) => lines.push(l),
       onEmail: () => {},
-      clientFor: () => new FakePoll([]),
+      clientFor: () => {
+        built++
+        return new FakePoll([])
+      },
     })
-    expect(h).toBeNull() // V2 per-entry start is refused
-    expect(lines.join('\n')).toContain('V2 binding — per-entry start refused')
+    expect(handles).toHaveLength(0)
+    expect(built).toBe(0)
+    expect(lines.join('\n')).toContain('per-address pull is retired')
   })
 
-  it('#17 startAgentLevel running, add a V2 address on a SECOND gateway (same asid) ⇒ re-arm ⇒ one stream PER (asid, gateway), not stacked per address; new address receives', async () => {
-    const GW2 = 'http://127.0.0.1:2'
-    await saveV2(v2('a@e2e.local', { agent_system_id: ASID }))
-    // Re-arm builds FRESH clients (one per (asid, gateway)): the re-scan finds
-    // TWO groups now ⇒ TWO new clients. The a-group's new queue is empty (a was
-    // acked); only the z-group (GW2) serves pending mail.
-    const cc = countingClients([
-      [batch(1, 'a@e2e.local')], // arm 1: one group (ASID, GW)
-      [], // re-arm group 1 (ASID, GW): a already acked ⇒ nothing pending
-      [batch(2, 'z@other.local')], // re-arm group 2 (ASID, GW2): the new address
-    ])
-    const delivered: string[] = []
+  it('#18 paused binding: an all-paused group arms nothing; a runtime pause skips the delivery', async () => {
+    // Arm level: every member paused ⇒ no stream (the group has nothing to serve).
+    await saveV2(v2('agent@e2e.local', { paused: true }))
     const lines: string[] = []
-    const rt = await startAgentLevel({
-      env: {},
-      log: (l) => lines.push(l),
-      onEmail: (_c, mail) => {
-        delivered.push(mail.email)
-      },
-      clientFor: cc.clientFor,
-    })
-    await waitFor(() => delivered.includes('a@e2e.local'), 4000, 'first group delivered')
-    // The host adds a binding on a SECOND gateway (same AgentSystemId) — a
-    // real production case. Hot-add re-arms (stop + rescan): now TWO
-    // (asid, gateway) groups ⇒ TWO fresh clients, NOT a per-address stack.
-    const z = v2('z@other.local', { agent_system_id: ASID, gateway_url: GW2 })
-    await saveV2(z, 'system-z999')
-    await fireBindingCreated(z)
-    await waitFor(() => cc.built() === 3, 6000, 'the re-arm to build the two group clients')
-    await waitFor(() => delivered.includes('z@other.local'), 6000, 'the second-gateway address to receive')
-    // The OLD loop is stopped (not stacked): its client goes quiet.
-    const oldCalls = cc.clients[0]!.listCalls
-    await new Promise((r) => setTimeout(r, 100))
-    expect(cc.clients[0]!.listCalls).toBe(oldCalls)
-    // Two distinct group audit lines, one per (asid, gateway).
-    const aggregate = lines.filter((l) => l.includes('aggregate agent:') && l.includes('members=['))
-    const gws = new Set(aggregate.map((l) => (l.match(/gw=(\S+)/) ?? [])[1]))
-    expect(gws.has(GW)).toBe(true)
-    expect(gws.has(GW2)).toBe(true)
-    expect(delivered.filter((e) => e === 'a@e2e.local')).toHaveLength(1) // no duplicate
-    expect(delivered).toContain('z@other.local')
-    rt.stop()
-  }, 25000)
-
-  it('#18 V1 shared_addr_ paused ⇒ NOT armed (arm-level null + audit); runtime pause ⇒ delivery-level skip; resume ⇒ delivers again', async () => {
-    const b = v1('agent@e2e.local', { paused: true })
-    const lines: string[] = []
-    // Arm-level: a paused V1 binding starts NO loop.
-    const h0 = await startAgentPullEntry(b, {
+    const none = await startAgentPullEntries({
       env: {},
       log: (l) => lines.push(l),
       onEmail: () => {},
       clientFor: () => new FakePoll([]),
     })
-    expect(h0).toBeNull()
-    expect(lines.join('\n')).toContain('paused — not polling')
+    expect(none).toHaveLength(0)
+    expect(lines.join('\n')).toMatch(/all members paused|no stream/)
 
-    // Runtime pause (already armed) ⇒ delivery-level skip: not delivered, not acked, errors 0, re-pullable.
-    await saveAgentConfig(v1('agent@e2e.local'), V1_SID) // active on disk
-    const client = new FakePoll([
-      batch(1, 'agent@e2e.local'), // round 1: active ⇒ delivered
-    ])
+    // Runtime pause (already armed) ⇒ delivery-level skip: not delivered, not acked, errors 0.
+    await saveV2(v2('agent@e2e.local')) // active on disk
+    const client = new FakePoll([batch(1, 'agent@e2e.local')])
     const delivered: string[] = []
-    const h = (await startAgentPullEntry(v1('agent@e2e.local'), {
+    const handles = await startAgentPullEntries({
       env: { AIMAIL_PULL_INTERVAL_MS: '50' },
       log: () => {},
       onEmail: (_c, mail) => {
         delivered.push(mail.email)
       },
       clientFor: () => client,
-    }))!
+    })
+    expect(handles).toHaveLength(1)
+    const h = handles[0]!
     await waitFor(() => delivered.length >= 1, 4000, 'first (active) delivery')
-    // Now pause it mid-run; the NEXT delivery of the same id must be skipped.
+    // Pause mid-run: the next delivery of the same id must be skipped, not acked.
     const loc = await findBindingByEmail('agent@e2e.local')
     await setBindingPaused(loc.activePath!, true, 'agent@e2e.local')
-    // Hand the SAME delivery id back only AFTER the pause is on disk — the old
-    // fixture queued both rounds up front, so a fast non-empty round could
-    // deliver round 2 before the pause and make this test timing-dependent.
     client.queue.push(batch(1, 'agent@e2e.local'))
     await waitFor(() => client.listCalls >= 2, 6000, 'the re-pulled (paused) round')
-    // Still exactly one delivery (the pre-pause one); the paused re-pull is skipped.
     expect(delivered).toEqual(['agent@e2e.local'])
-    expect(client.ackCalls.flat()).toEqual([1]) // only the active round acked
+    expect(client.ackCalls.flat()).toEqual([1])
     h.stop()
     const stats = await h.done
     expect(stats.errors).toBe(0) // skip is not an error

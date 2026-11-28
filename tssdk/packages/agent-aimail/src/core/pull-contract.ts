@@ -15,7 +15,12 @@
  */
 
 /** `GET` path of the SSE endpoint (also the signature path component). */
-export const PULL_STREAM_PATH = '/api/v1/admin/pending/stream'
+// Per-address / system-scope pull was retired (gateway v1.0.20, owner 2026-11-26): ONE pull
+// transport remains, the AgentSystemId aggregate. These are its three legs — a client built
+// without explicit paths is aggregate-only, so it must carry X-Agent-System-Id + anchors.
+export const AGENT_SYSTEM_STREAM_PATH = '/api/v1/agent-system/pending/stream'
+export const AGENT_SYSTEM_PENDING_PATH = '/api/v1/agent-system/pending'
+export const AGENT_SYSTEM_ACK_PATH = '/api/v1/agent-system/pending/ack'
 
 /** Long-pull server-side hold (ms): an empty queue is held up to this long. */
 export const PULL_HOLD_MAX_MS = 50_000

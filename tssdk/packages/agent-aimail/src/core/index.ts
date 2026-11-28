@@ -53,7 +53,9 @@ export {
   AUTH_FATAL_STREAK,
 } from './address-code.js'
 export {
-  PULL_STREAM_PATH,
+  AGENT_SYSTEM_STREAM_PATH,
+  AGENT_SYSTEM_PENDING_PATH,
+  AGENT_SYSTEM_ACK_PATH,
   PULL_HOLD_MAX_MS,
   PULL_HTTP_TIMEOUT_MS,
   PULL_STREAM_READ_TIMEOUT_MS,
@@ -200,7 +202,6 @@ export { logAimailDispatch } from './log.js'
 
 /** Hot-add seam: fired after a binding is persisted (activation). */
 export { onBindingCreated, fireBindingCreated, onBindingRemoved, fireBindingRemoved, type BindingCreatedHook, type BindingRemovedHook } from './binding-hooks.js'
-export { startAgentPullEntry, type StartAgentPullEntryOptions } from './poll-entry.js'
 
 export { packageResourcesRoot } from './resources-root.js'
 export { startSystemPull } from './system-pull.js'

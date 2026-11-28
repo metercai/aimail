@@ -30,8 +30,6 @@ import {
 import { getAgentSystemId, setAgentHomeResolver } from '../core/agent-system-id.js'
 import { isV2AgentScopeBinding } from '../core/poll-entry.js'
 import { deliverInbound, installDshInboundProviders, toInboundResult } from './inbound.js'
-import { readSystemGatewayConfig } from '../core/provision.js'
-import { ANCHOR_HEADER, anchorHeader } from '../core/anchor-id.js'
 import { agentHome, statusPath } from './workspace.js'
 export interface Config {
   /** AIMAIL_PULL_MODE equivalent: auto|stream|poll. */
@@ -66,6 +64,9 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
     signal?.addEventListener('abort', onAbort, { once: true })
   })
 }
+
+/** Monotonic per-process counter for `writeStatus()` temp names (see the ENOENT note there). */
+let writeStatusSeq = 0
 
 function str(v: unknown): string {
   return typeof v === 'string' ? v : ''
@@ -162,11 +163,8 @@ export class MailHub {
     this.stopAll()
     if (this.ctrl.signal.aborted) return
     const sids = await listSystemDirs()
-    const systems: Array<{ sid: string; cfg: Awaited<ReturnType<typeof readSystemGatewayConfig>> }> = []
     const bindings: AgentConfig[] = []
     for (const sid of sids) {
-      const cfg = await readSystemGatewayConfig(sid)
-      if (cfg?.admin_key) systems.push({ sid, cfg })
       bindings.push(...(await this.listBindings(sid)))
     }
     // V2: one stream per (AgentSystemId, Gateway). Only bindings owned by
@@ -182,8 +180,8 @@ export class MailHub {
       if (b.paused === true || !b.api_key) continue
       activeBindings++
       if (!isV2AgentScopeBinding(b)) {
-        // V1 binding: the gateway has no ASID ownership row for it. Keep the
-        // legacy per-address pull alive instead of 403ing an aggregate.
+        // V1 binding (no agent_system_id): the per-address pull endpoints were retired
+        // (gateway v1.0.20) — there is nothing to arm. Say it once, loudly, per reconcile.
         legacy.push(b)
         continue
       }
@@ -216,14 +214,10 @@ export class MailHub {
       }))
     }
     for (const b of legacy) {
-      console.error(`[agent-aimail] V1 binding ${b.email}: per-address pull (re-activate to join the aggregate)`)
-      this.handles.push(this.startStream({
-        email: b.email,
-        gatewayUrl: b.gateway_url,
-        apiKey: b.api_key,
-        identity: b.email,
-        members: [b],
-      }))
+      console.error(
+        `[agent-aimail] V1 binding ${b.email}: per-address pull is retired — re-activate the ` +
+          'address with a code to join the aggregate (contract §5.3)',
+      )
     }
     await this.writeStatus()
   }
@@ -298,22 +292,6 @@ export class MailHub {
     return undefined
   }
 
-  /** Per-address (V1) client: no ASID header — but the anchor claim still rides along. */
-  private perAddressClient(
-    gatewayUrl: string,
-    apiKey: string,
-    identity: string,
-    members: readonly AgentConfig[],
-  ): GatewayClient {
-    const claim = anchorHeader(members)
-    return new GatewayClient(
-      gatewayUrl,
-      apiKey,
-      30_000,
-      identity,
-      claim ? { extraHeaders: { [ANCHOR_HEADER]: claim } } : {},
-    )
-  }
 
   private startStream(opts: {
     email: string
@@ -329,20 +307,19 @@ export class MailHub {
     this.ctrl.signal.addEventListener('abort', onAbort, { once: true })
     // Aggregate ⇒ the ONE constructor (ASID + anchor claims). Hand-building it here is what made
     // dsh pull zero mail once its address had a recorded anchor (L2 defect 1, 2026-11-25).
-    const client = opts.agentSystemId
-      ? buildAgentSystemClient(
-          opts.gatewayUrl,
-          opts.apiKey,
-          opts.agentSystemId,
-          opts.identity,
-          opts.members ?? [],
-        )
-      : this.perAddressClient(opts.gatewayUrl, opts.apiKey, opts.identity, opts.members ?? [])
+    // One transport only (per-address pull retired): the client is always the aggregate one.
+    const client = buildAgentSystemClient(
+      opts.gatewayUrl,
+      opts.apiKey,
+      opts.agentSystemId ?? this.agentSystemId,
+      opts.identity,
+      opts.members ?? [],
+    )
     const run = async (): Promise<void> => {
       let streak = 0
       while (!ctrl.signal.aborted && !this.ctrl.signal.aborted) {
         try {
-          const result = await client.streamRound(async (batches) => {
+          const result = await client.streamRound(async (batches: unknown[]) => {
             for (const batch of batches) {
               await this.handleBatch(client, batch as never)
             }
@@ -488,9 +465,12 @@ export class MailHub {
   private async drain(email: string): Promise<void> {
     const found = await this.findBinding(email)
     if (!found) return
-    const client = this.perAddressClient(
+    // Aggregate only: the per-address pending endpoint is retired. The group's members are
+    // needed because the request must carry their anchor claims (§7.1).
+    const client = buildAgentSystemClient(
       found.cfg.gateway_url,
       found.cfg.api_key,
+      found.cfg.agent_system_id ?? this.agentSystemId,
       found.cfg.email,
       [found.cfg],
     )
@@ -512,9 +492,21 @@ export class MailHub {
     const p = statusPath()
     await fs.mkdir(path.dirname(p), { recursive: true })
     const body = this.statusBody()
-    const tmp = `${p}.tmp`
-    await fs.writeFile(tmp, JSON.stringify(body, null, 2) + '\n', { mode: 0o600 })
-    await fs.rename(tmp, p)
+    // Unique temp name per writer: `restart` (plugin install takes effect only after a restart)
+    // overlaps the old hub's final write with the new hub's first one, and a SHARED `${p}.tmp`
+    // makes the loser's rename fail with ENOENT — exactly what L3 hit on clean CI machines while
+    // local runs (faster, no overlap) passed. pid + a counter is enough: the writers are in-process
+    // timers and one short-lived predecessor, not separate machines.
+    writeStatusSeq += 1
+    const tmp = `${p}.${process.pid}.${writeStatusSeq}.tmp`
+    try {
+      await fs.writeFile(tmp, JSON.stringify(body, null, 2) + '\n', { mode: 0o600 })
+      await fs.rename(tmp, p)
+    } catch (e) {
+      // Never let bookkeeping kill the hub: a failed rename must not propagate to the timer.
+      await fs.unlink(tmp).catch(() => {})
+      throw e
+    }
   }
 }
 

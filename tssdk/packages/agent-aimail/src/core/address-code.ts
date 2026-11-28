@@ -399,7 +399,7 @@ export async function pullList(
   client: RequestClient,
   limit = 20,
 ): Promise<{ success: boolean; batches: PullBatch[]; error?: string; status?: number }> {
-  const res = await client.request('POST', client.pendingPath ?? '/api/v1/admin/pending', {
+  const res = await client.request('POST', client.pendingPath ?? '/api/v1/agent-system/pending', {
     limit: Math.max(1, Math.min(limit, 200)),
     // Long-pull hold: an empty queue is held server-side up to PULL_HOLD_MAX_MS
     // (old servers ignore the field ⇒ immediate answer).
@@ -418,7 +418,7 @@ export async function pullAck(
   client: RequestClient,
   ids: number[],
 ): Promise<{ success: boolean; acked?: number | undefined; error?: string | undefined }> {
-  const res = await client.request('POST', client.ackPath ?? '/api/v1/admin/pending/ack', { ids })
+  const res = await client.request('POST', client.ackPath ?? '/api/v1/agent-system/pending/ack', { ids })
   if (res.status !== 200) {
     return { success: false, error: String(res.error ?? 'ack failed') }
   }

@@ -315,7 +315,7 @@ describe('pullList / pullAck', () => {
     const r = await pullAck(c, [1, 2])
     expect(r.success).toBe(true)
     expect(r.acked).toBe(2)
-    expect(c.calls[0].path).toBe('/api/v1/admin/pending/ack')
+    expect(c.calls[0].path).toBe('/api/v1/agent-system/pending/ack')
   })
 })
 

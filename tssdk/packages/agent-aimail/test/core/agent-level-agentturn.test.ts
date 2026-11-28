@@ -15,6 +15,7 @@ vi.mock('../../src/core/preprocess.js', () => ({
 
 import { BINDING_FILE } from '../../src/core/contract.js'
 import { startAgentLevel } from '../../src/core/agent-level.js'
+import { resetAgentSystemIdForTests } from '../../src/core/agent-system-id.js'
 
 let tmp: string
 let prevHome: string | undefined
@@ -23,17 +24,22 @@ beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-turn-'))
   prevHome = process.env.AIMAIL_HOME
   process.env.AIMAIL_HOME = path.join(tmp, 'aimail')
+  process.env.AIMAIL_AGENT_SYSTEM_ID = 'as-e2e'
   const dir = path.join(process.env.AIMAIL_HOME, 'systems', 'shared_addr_t', 'a_t.local')
   await fs.mkdir(dir, { recursive: true })
   await fs.writeFile(
     path.join(dir, BINDING_FILE),
     JSON.stringify({ agent_id: 'a', system_id: 'shared_addr_t', email: 'a@t.local',
-      gateway_url: 'http://127.0.0.1:1', api_key: 'k' }),
+      gateway_url: 'http://127.0.0.1:1', api_key: 'k', domain: 't.local',
+      agent_system_id: 'as-e2e', workspace_path: '/work/t',
+      binding_source: 'activate-address-code', activated_at: '2026-11-25T10:00:00.000Z' }),
   )
   processInboundMail.mockReset()
 })
 
 afterEach(async () => {
+  delete process.env.AIMAIL_AGENT_SYSTEM_ID
+  resetAgentSystemIdForTests()
   if (prevHome === undefined) delete process.env.AIMAIL_HOME
   else process.env.AIMAIL_HOME = prevHome
   await fs.rm(tmp, { recursive: true, force: true })
@@ -43,8 +49,15 @@ afterEach(async () => {
 function fakeClient() {
   let round = 0
   return {
+    // Aggregate transport surface: no stream in this fake ⇒ the loop long-polls.
+    baseUrl: 'http://127.0.0.1:1',
+    streamPath: '/api/v1/agent-system/pending/stream',
+    pendingPath: '/api/v1/agent-system/pending',
+    ackPath: '/api/v1/agent-system/pending/ack',
+    streamRound: async () => 'drop',
+    streamProbe: async () => false,
     request: async (method: string, path: string, body?: Record<string, unknown>) => {
-      if (path === '/api/v1/admin/pending') {
+      if (path === '/api/v1/agent-system/pending') {
         round += 1
         if (round > 1) return { status: 200, batches: [] }
         return {
@@ -55,7 +68,7 @@ function fakeClient() {
           }],
         }
       }
-      if (path === '/api/v1/admin/pending/ack') {
+      if (path === '/api/v1/agent-system/pending/ack') {
         return { status: 200, acked: (body?.ids as number[] | undefined)?.length ?? 0 }
       }
       return { status: 404, error: 'unexpected ' + method + ' ' + path }
@@ -75,6 +88,9 @@ describe('startAgentLevel default inbound chain', () => {
     const rt = await startAgentLevel({
       onAgent: (enriched) => { turns.push(enriched as Record<string, unknown>) },
       log: () => {},
+      // The subject here is the INBOUND chain, not transport selection: force long-poll so the
+      // first round delivers immediately (auto would try the stream first and back off).
+      env: { AIMAIL_PULL_MODE: 'poll' },
       clientFor: () => fakeClient() as never,
     })
     await waitFor(() => turns.length > 0)
@@ -90,6 +106,9 @@ describe('startAgentLevel default inbound chain', () => {
     const rt = await startAgentLevel({
       onAgent: () => { called += 1 },
       log: () => {},
+      // The subject here is the INBOUND chain, not transport selection: force long-poll so the
+      // first round delivers immediately (auto would try the stream first and back off).
+      env: { AIMAIL_PULL_MODE: 'poll' },
       clientFor: () => fakeClient() as never,
     })
     await waitFor(() => processInboundMail.mock.calls.length > 0)
@@ -102,6 +121,9 @@ describe('startAgentLevel default inbound chain', () => {
     const rt = await startAgentLevel({
       onEmail: () => { raw += 1 },
       log: () => {},
+      // The subject here is the INBOUND chain, not transport selection: force long-poll so the
+      // first round delivers immediately (auto would try the stream first and back off).
+      env: { AIMAIL_PULL_MODE: 'poll' },
       clientFor: () => fakeClient() as never,
     })
     await waitFor(() => raw > 0)
