@@ -216,7 +216,10 @@ m.set_content("delivery probe token " + token)
 s = smtplib.SMTP("127.0.0.1", port, timeout=20); s.send_message(m); s.quit(); print("sent")
 PY
     _max=0; _final=0
-    for _i in $(seq 1 150); do
+    # 150 x 0.2s = 30s was too short: measured 2026-11-27 on openclaw, the pending row was
+    # created (max=1) and still present at the deadline (final=1) while the same fixture passes
+    # on other runs -- a host that is mid-turn simply acks later. 600 x 0.2s = 120s, still bounded.
+    for _i in $(seq 1 600); do
       _n="$(gw_pending_rows "$addr")"; _n="${_n:-0}"
       [ "$_n" -gt "$_max" ] 2>/dev/null && _max="$_n"
       _final="$_n"
