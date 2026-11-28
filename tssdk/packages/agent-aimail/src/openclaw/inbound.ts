@@ -416,6 +416,12 @@ export async function deliverInbound(
     // thread guess. Best-effort — a meta write must never fail a delivery.
     await stampSessionMeta(cfg.email, String(payload.message_id), {
       ...(requestKey ? { sessionKey } : {}),
+      // The shared routing layer reads the CANONICAL fields: `session_id` for the edge target and
+      // `workspace_path` for the anchor comparison (runtime/routing.ts `foreign()`). Recording only
+      // `session_key` made the anchor unjudgeable, which is why S8 saw moved:false / edge:'' even
+      // though the reply had been re-ranked correctly. The host handle stays in `session_key`.
+      ...(requestKey ? { sessionId: sessionKey } : {}),
+      ...(workspace.path ? { workspacePath: workspace.path } : {}),
     }).catch(() => {})
   }
   return { status: out.status, detail: out.detail, ok: out.status === 'delivered' }
