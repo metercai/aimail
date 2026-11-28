@@ -43,13 +43,22 @@ set -uo pipefail
 #    pip route left windows without zstandard and the cell aborted on ENV GAP
 #    "cannot read the session transcript" — a fixture gap, not a product verdict.
 #  ③ python + zstandard, installing the module once when pip works
+# native binaries (node, python) cannot open a git-bash path like /c/Users/... — that is why the
+# pip route produced an empty result on the windows cell even when the module was installed.
+_tx_path() {  # _tx_path <path> — /c/Users/... -> C:/Users/...
+  case "$1" in
+    /[A-Za-z]/*) printf '%s' "$(printf '%s' "${1:1:1}" | tr 'a-z' 'A-Z'):${1:2}" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
 _tx_read() {  # _tx_read <file>
-  local f="$1" out="" py=""
+  local f="$1" nf="" out="" py=""
   [ -f "$f" ] || return 1
+  nf="$(_tx_path "$f")"
   if command -v zstdcat >/dev/null 2>&1; then out="$(zstdcat "$f" 2>/dev/null)"; fi
   if [ -z "$out" ] && command -v zstd >/dev/null 2>&1; then out="$(zstd -dc "$f" 2>/dev/null)"; fi
   if [ -z "$out" ] && command -v node >/dev/null 2>&1; then
-    out="$(node -e 'const fs=require("fs"),z=require("zlib");if(!z.zstdDecompressSync)process.exit(3);process.stdout.write(z.zstdDecompressSync(fs.readFileSync(process.argv[1])).toString("utf8"))' "$f" 2>/dev/null)"
+    out="$(node -e 'const fs=require("fs"),z=require("zlib");if(!z.zstdDecompressSync)process.exit(3);process.stdout.write(z.zstdDecompressSync(fs.readFileSync(process.argv[1])).toString("utf8"))' "$nf" 2>/dev/null)"
   fi
   if [ -z "$out" ]; then
     # git-bash on windows-latest has `python`, not `python3`
@@ -61,12 +70,16 @@ _tx_read() {  # _tx_read <file>
       fi
     done
     if [ -n "$py" ]; then
-      out="$("$py" -c "import sys,zstandard;sys.stdout.write(zstandard.ZstdDecompressor().stream_reader(open(sys.argv[1],'rb')).read().decode('utf-8','replace'))" "$f" 2>/dev/null)"
+      out="$("$py" -c "import sys,zstandard;sys.stdout.write(zstandard.ZstdDecompressor().stream_reader(open(sys.argv[1],'rb')).read().decode('utf-8','replace'))" "$nf" 2>/dev/null)"
     fi
   fi
   printf '%s' "$out"
   [ -n "$out" ]
 }
+say() { printf '  %s\n' "$*"; }
+ok()  { printf '  \033[32m✓\033[0m %s\n' "$*"; }
+bad() { printf '  \033[31m✗ %s\n' "$*" >&2; }
+die() { bad "$*"; exit 1; }
 gap() { printf '  \033[35m⊘ ENV GAP: %s\n' "$*" >&2; exit 2; }
 # `warn` was CALLED but never DEFINED here (measured 2026-11-28, windows-amd64: "dsh-v2.sh: line
 # 505: warn: command not found"), so the tripwire's explanation never reached the log.
