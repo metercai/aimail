@@ -489,6 +489,37 @@ email = "admin@l3.local"
 [webhook]
 allow_private_targets = true
 EOF
+# ── l3.local must RESOLVE on the runner ────────────────────────────────────────────────────────
+# The activation prompt the gateway mails carries `gateway: http://l3.local:<port>` (built from
+# [http] hostname, deliberately a real-looking domain), and the AGENT is the one that has to fetch
+# that URL. On a CI runner nothing resolves l3.local, so the agent reported "the gateway is
+# reachable at 127.0.0.1:18123 — only the l3.local hostname fails to resolve" and never bound
+# (measured 2026-11-28, every dsh cell; the containers used by L2 get this from their fixtures).
+# Map it to loopback the way a deployment would, platform by platform; if that is refused, say so
+# loudly instead of letting the bind failure look like a product defect.
+_ensure_l3_hosts() {
+  local entry="127.0.0.1 l3.local" hosts_file=""
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*|Windows*) hosts_file="/c/Windows/System32/drivers/etc/hosts" ;;
+    *)                             hosts_file="/etc/hosts" ;;
+  esac
+  if grep -qE "^[^#]*[[:space:]]l3\.local([[:space:]]|$)" "$hosts_file" 2>/dev/null; then
+    ok "l3.local already maps to loopback ($hosts_file)"
+    return 0
+  fi
+  if [ "$hosts_file" = "/etc/hosts" ]; then
+    printf '%s\n' "$entry" | sudo -n tee -a "$hosts_file" >/dev/null 2>&1 || true
+  else
+    printf '%s\r\n' "$entry" >> "$hosts_file" 2>/dev/null || true
+  fi
+  if grep -qE "^[^#]*[[:space:]]l3\.local([[:space:]]|$)" "$hosts_file" 2>/dev/null; then
+    ok "l3.local mapped to loopback for this run ($hosts_file)"
+  else
+    warn "could not map l3.local → 127.0.0.1 in $hosts_file (no privilege): the agent cannot fetch the gateway URL from the prompt"
+  fi
+}
+_ensure_l3_hosts
+
 say "starting gateway…"
 # The binary's single-instance lock is per BINARY, not per workdir: a leftover instance from an
 # L2 run (…/aimail-l2-*/gw/config.toml) blocks every later start with Config("Server is already
