@@ -797,3 +797,39 @@ S8 anchor-moved 记录且投到当前锚点会话）。关键修复：驱动的"
 另：`run-matrix` 新增"缺 binding 就重签码重跑"的有界重试，但 `gw.py code` 对该地址返回
 `412 email address not registered`（该端点要求先注册），所以重试路径当前**不可用**，需要改用
 `gw.py apply`（新地址）或补一个针对已注册地址的签码调用。
+
+---
+
+## 22. **产品发现（P0）**：openclaw 的入站路径完全不做锚点判定
+
+L2 的 S8（C16 锚点隔离）在 openclaw 上给出两条 RED：
+
+```
+RED  S8 anchor isolation — no 'anchor-moved' marker on the dispatch line: a silent re-rank is unobservable to ops
+RED  S8 anchor isolation — marker does not name the abandoned edge (edge='-')
+```
+
+查代码，根因不是"少打了一行日志"，而是 **openclaw 的入站根本不看锚点**：
+
+| 文件 | `anchor` 出现次数 | 说明 |
+|---|---|---|
+| `src/dsh/inbound.ts` | **11** | 走 `routeInbound`，E1 有锚点校验，会返回 `route.anchorMoved` 并写 `anchor: 'anchor-moved'` + edge + from |
+| `src/openclaw/inbound.ts` | **0** | 自己的 `selectSessionKey()`：只按 `parentMeta.session_key` 或推导的 thread key 选会话，**没有任何锚点比较**，也没 import `runtime/routing` |
+
+⇒ 后果不只是"缺观测"：dsh 里 `foreign(sent.spacePath, …)` 会把"父邮件来自**另一个锚点**的会话"判成
+`anchorMoved` 并改判（I2 优先于 I1）；openclaw 没有这一步，因此**回信可能直接投进外来锚点的会话**——
+这是跨锚点泄漏风险，属于必须修的产品缺陷，而不是夹具问题。
+
+修法（给 dev）：把 openclaw 的入站改为复用 `runtime/routing.ts` 的 `routeInbound`（与 dsh 同一条决策链），
+并在 dispatch 记录里带上 `anchor`/`anchorMovedEdge`/`anchorMovedFrom`。这是有风险的改造（异步 + workspace +
+`alive()`），不在本轮收尾里动。
+
+### 22.1 当前三宿主（投递类一趟）
+
+| 宿主 | 结果 | 剩余 |
+|---|---|---|
+| dsh | **PASS=32 RED=0 GAP=0** | — |
+| pi | **PASS=21 RED=0 GAP=0** | — |
+| openclaw | PASS=26 RED=3 GAP=0 | S8 两条 = 上面这个 P0；S3 一条 = `observed max=1 final=1`（pending 建了但窗口内没被拉走） |
+
+另：openclaw 的 bind 抖动本轮已由"3 次有界重试 + 字面量调用"压住（本轮 S1 通过）；`s5` 那一趟仍未跑。
