@@ -432,6 +432,12 @@ web_start_host || die "web host boot/login failed"
 ok "web host up (token login 303)"
 SID1="$(web_create_session)" || die "session/create failed (web API)"
 say "session: $SID1"
+# Cleanliness must be pinned BEFORE the agent is given the activation prompt: the
+# prompt itself tells the agent to install the SDK, so anything that appears from
+# here on is the agent's own bootstrap (owner ruling: the route is free, landing in
+# the host's own environment is the pass criterion).
+SDK_PKG_PRE="$(find "$DSH_HOME" -maxdepth 6 -path '*node_modules/agent-aimail/package.json' 2>/dev/null | head -1)"
+[ -z "$SDK_PKG_PRE" ] || die "agent-aimail was already installed before the agent's first turn ($SDK_PKG_PRE) — environment not clean, cannot attribute the install to the agent"
 # D2: the user pastes the mail body into the agent — exactly the prompt text
 # captured from the spool in [1] (no trimming, no reformatting).
 cp "$SPOOL.prompt.txt" "$WORK/turn1-prompt.txt"
@@ -523,11 +529,17 @@ fi
 # first"). The fixture must not install anything — a fixture-side install is a fake pass.
 WANT_SDK="$(npm view agent-aimail version 2>/dev/null || true)"
 say "published SDK under test: agent-aimail@${WANT_SDK:-<npm view failed>}"
-# (1) the environment must still be clean: the fixture never installed anything, and the
-#     agent's turn 1 had no plugin to call.
+# (1) cleanliness is judged on the capture taken BEFORE the agent's first turn
+#     (SDK_PKG_PRE, see [2]). A package that appears during turn 1 is the agent's
+#     own bootstrap — the activation prompt tells it to install — and judging it
+#     here read that as contamination (measured on macos-arm64, run 46150466725:
+#     turn 1 installed agent-aimail and this check aborted the cell).
 SDK_PKG="$(find "$DSH_HOME" -maxdepth 6 -path '*node_modules/agent-aimail/package.json' 2>/dev/null | head -1)"
-[ -z "$SDK_PKG" ] || { bad "agent-aimail was already installed before the agent's bootstrap ($SDK_PKG) — environment not clean, cannot attribute the install to the agent"; exit 1; }
-ok "clean state confirmed: no agent-aimail in the profile before the bootstrap"
+if [ -n "$SDK_PKG" ]; then
+  say "turn 1 bootstrapped the SDK itself ($SDK_PKG) — route recorded, the fixture installed nothing"
+else
+  ok "clean state confirmed: no agent-aimail in the profile before the bootstrap"
+fi
 # (2) after the turn the agent must have installed it, from the registry
 # A real user, seeing the agent stop after reading the mail, would say "go ahead" — words,
 # never commands run by the fixture. Measured 2026-11-23: with the current mail text the
