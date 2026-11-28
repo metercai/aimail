@@ -423,7 +423,11 @@ export async function deliverInbound(
       // `workspace_path` for the anchor comparison (runtime/routing.ts `foreign()`). Recording only
       // `session_key` made the anchor unjudgeable, which is why S8 saw moved:false / edge:'' even
       // though the reply had been re-ranked correctly. The host handle stays in `session_key`.
-      ...(requestKey ? { sessionId: sessionKey } : {}),
+      // ALWAYS: these are routing bookkeeping (which session, which anchor), not host requests.
+      // Tying them to `requestKey` left the root mail without a session_id, so the shared router
+      // could not see the thread pointer the s8 driver rewrote and reported "not moved" — measured
+      // 2026-11-27 (dispatch line: sessionKeySource=thread, routingWorkspace set, anchorMoved none).
+      sessionId: sessionKey,
       ...(workspace.path ? { workspacePath: workspace.path } : {}),
     }).catch(() => {})
   }
