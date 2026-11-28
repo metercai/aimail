@@ -796,16 +796,32 @@ done
 ok "approval processed (manager_persona_approved; persona='$META_PERSONA')"
 # the completion signal: the agent receives the persona-applied confirmation
 # (SKILL §3 completion signal — notify_agent_persona_applied queues it as an
-# inbound for the address). The ledger row's payload is the JSON envelope
-# (empirical: no subject column; the body text is the stable marker).
+# inbound for the address). The judgement cannot rest on the pending row: the
+# SSE stream acks the notice within one poll interval and the pending row is
+# deleted on ack (measured 9 ms on linux-amd64, run 46150466725 — the notice WAS
+# delivered, the ledger showed inbound + dispatch=delivered, and this loop saw an
+# empty pending table for 240 s). So the primary evidence is the durable one the
+# assertion name already promised: the agent's own ledger. The pending row stays
+# as a fallback for hosts slower than the first probe.
+ledger_has_persona_applied() {
+  local f
+  while IFS= read -r f; do
+    grep -aq '\[AIMail\] Persona applied' "$f" 2>/dev/null && return 0
+  done < <(find "$AIMAIL_HOME" -name 'agentmail.log' -type f 2>/dev/null)
+  return 1
+}
 APPLIED_ROW=""
+APPLIED_VIA=""
 for _ in $(seq 1 120); do
+  if ledger_has_persona_applied; then APPLIED_VIA="agent ledger"; APPLIED_ROW="inbound+dispatch"; break; fi
   APPLIED_ROW="$(dbq "SELECT id FROM pending_deliveries WHERE email='$ADDR' AND payload LIKE '%persona and signature are now active%' LIMIT 1" || true)"
-  [ -n "$APPLIED_ROW" ] && break
+  [ -n "$APPLIED_ROW" ] && { APPLIED_VIA="pending row"; break; }
   kill -0 "$HOST_PID" 2>/dev/null || { bad "dsh host died before the persona-applied notice"; exit 1; }
   sleep 2
 done
-[ -n "$APPLIED_ROW" ] || die "the persona-applied confirmation never reached the agent's ledger (webhook.rs notify_agent_persona_applied did not queue)"
+[ -n "$APPLIED_ROW" ] || die "the persona-applied confirmation never reached the agent's ledger (notify_agent_persona_applied queued nothing: no ledger line for [AIMail] Persona applied under $AIMAIL_HOME, no pending row)"
+POST_REPLY_LLMMS="$(llm_ms_total)"
+ok "persona-applied notice delivered via $APPLIED_VIA ($APPLIED_ROW; llmMs: ${PRE_REPLY_LLMMS:-0} → ${POST_REPLY_LLMMS:-0})"
 POST_REPLY_LLMMS="$(llm_ms_total)"
 ok "persona-applied notice delivered (pending row $APPLIED_ROW; llmMs: ${PRE_REPLY_LLMMS:-0} → ${POST_REPLY_LLMMS:-0})"
 

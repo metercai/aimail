@@ -3,6 +3,21 @@
 # Work in progress: NOT wired into l3.yml and deliberately named *.sh.wip so run-l3.sh's guard
 # keeps refusing pi cells until this journey passes locally.
 set -uo pipefail
+# Portable timeout: macOS runners ship no GNU `timeout` (run 46150466725 -> pi turns
+# died with "timeout: command not found" and the cell reported "the agent never
+# installed agent-aimail" while the agent had never been given a turn at all).
+run_timeout() {
+  local secs="$1"; shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$secs" "$@"
+  else
+    "$@" &
+    local pid=$!
+    for _ in $(seq 1 "$secs"); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
+    if kill -0 "$pid" 2>/dev/null; then kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; return 124; fi
+    wait "$pid"
+  fi
+}
 HOST_NAME=pi
 # decompress a session transcript; on hosts without zstd, install the python module once.
 _tx_read() {  # _tx_read <file>
@@ -52,7 +67,7 @@ trap cleanup EXIT
 pi_host_turn() {  # pi_host_turn <prompt-file>
   local f="$1"
   mkdir -p "$WORK/ws"
-  ( cd "$WORK/ws" && timeout 900 pi -p "$(cat "$f")" ) >> "$WORK/pi-turns.log" 2>&1
+  ( cd "$WORK/ws" && run_timeout 900 pi -p "$(cat "$f")" ) >> "$WORK/pi-turns.log" 2>&1
   return $?
 }
 llm_ms_total() { echo 0; }   # pi exposes no llmMs counter; the turn output is the evidence
@@ -423,18 +438,28 @@ done
 ok "approval processed (manager_persona_approved; persona='$META_PERSONA')"
 # the completion signal: the agent receives the persona-applied confirmation
 # (SKILL §3 completion signal — notify_agent_persona_applied queues it as an
-# inbound for the address). The ledger row's payload is the JSON envelope
-# (empirical: no subject column; the body text is the stable marker).
+# inbound for the address). The pending row is deleted on ack and the SSE stream
+# can consume it in milliseconds, so it cannot be the only evidence (same defect
+# as dsh, run 46150466725). Primary evidence: the agent's own durable ledger.
+ledger_has_persona_applied() {
+  local f
+  while IFS= read -r f; do
+    grep -aq '\[AIMail\] Persona applied' "$f" 2>/dev/null && return 0
+  done < <(find "$AIMAIL_HOME" -name 'agentmail.log' -type f 2>/dev/null)
+  return 1
+}
 APPLIED_ROW=""
+APPLIED_VIA=""
 for _ in $(seq 1 120); do
+  if ledger_has_persona_applied; then APPLIED_VIA="agent ledger"; APPLIED_ROW="inbound+dispatch"; break; fi
   APPLIED_ROW="$(dbq "SELECT id FROM pending_deliveries WHERE email='$ADDR' AND payload LIKE '%persona and signature are now active%' LIMIT 1" || true)"
-  [ -n "$APPLIED_ROW" ] && break
+  [ -n "$APPLIED_ROW" ] && { APPLIED_VIA="pending row"; break; }
   :  # pi has no daemon to keep alive between turns
   sleep 2
 done
-[ -n "$APPLIED_ROW" ] || die "the persona-applied confirmation never reached the agent's ledger (webhook.rs notify_agent_persona_applied did not queue)"
+[ -n "$APPLIED_ROW" ] || die "the persona-applied confirmation never reached the agent's ledger (notify_agent_persona_applied queued nothing: no ledger line for [AIMail] Persona applied under $AIMAIL_HOME, no pending row)"
 POST_REPLY_LLMMS="$(llm_ms_total)"
-ok "persona-applied notice delivered (pending row $APPLIED_ROW; llmMs: ${PRE_REPLY_LLMMS:-0} → ${POST_REPLY_LLMMS:-0})"
+ok "persona-applied notice delivered via $APPLIED_VIA ($APPLIED_ROW; llmMs: ${PRE_REPLY_LLMMS:-0} → ${POST_REPLY_LLMMS:-0})"
 
 # ═══ [7] query-mail signature assertion (whoami readback) ═════════════════════
 say "[7/7] query-mail signature assertion (whoami readback)"
