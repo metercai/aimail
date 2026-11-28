@@ -299,3 +299,38 @@ aimail pytest tests/sdk -q                                 441 passed           
 **并发/阻塞面（关键）**：`Database::call` 是 `tokio::task::spawn_blocking` + r2d2 连接池，SQLite 读在阻塞线程池里跑，**不占 async reactor**；命中缓存时连池子都不碰。`enforce` 在三个端点上都在 `try_acquire(delivery_slot)` **之前**执行，所以不会拉长投递槽的持有时间；冷路径只持有一条连接、一次查询，无跨语句事务、无锁升级（`call` 不是 `call_tx`，不走 `BEGIN IMMEDIATE`）。网络侧没有新增 I/O。
 
 **SDK 侧**：请求头在 client 构造时算一次（`anchorHeader`），**不在每轮拉取里重算**；`resolveAgentSystemMembers` 的目录扫描只在 `startSystemPull` 拉流时发生（arm 时机：进程启动 / binding-created / pause-resume），不在每轮循环里；`streamRound` 仅在 401/403 时多读一次响应体（错误路径，且上限 64 字符的码）。
+
+---
+
+## v1.0.19 待发：SSE 从"心跳轮询"改为"事件驱动 + 心跳兜底"
+
+### 为什么改
+聚合流（SSE-V2 主链路）此前是 `sleep(15s)` → 查库 → 有则发/无则 ping。根因是 `PendingNotifier` 的 key 只有 `System(system_id)` 和 `Email{system_id,email}` 两种粒度，而聚合作用域是 **AgentSystemId（一组地址）** ⇒ 组内**非代表地址**来邮件时唤醒不到这条流，只能退回轮询。等于把 keep-alive 的心跳当成了轮询时钟，入站→宿主最坏延迟 **15 s**。
+
+### 改法（已实现）
+| 位置 | 改动 |
+|---|---|
+| `pending_notifier.rs` | 新增 `NotifyKey::AgentSystem(asid)` + `notify_agent_system(asid)` |
+| `api/webhook.rs`（入库处，pending 行 commit 之后） | `agent_system_id_for_address(addr)`（主键查询）→ `notify_agent_system`。每次投递多一次索引命中 |
+| `api/http.rs` 聚合流 | `sleep(heartbeat)` 换成 `wait_since(AgentSystem(asid), since, heartbeat)`；**heartbeat 退化为兜底**（保活 ping / 丢信号兜底），超时路径**不再查库** |
+
+### 实测（release，4096 条聚合流）
+| 指标 | 改造前 | 改造后 |
+|---|---|---|
+| 入站→宿主延迟 | 最坏 15 s | ~一次 DB 查询（通知已入库即唤醒；单测 `aggregate_stream_is_woken_by_ingest_not_by_the_clock` 用 30 s 心跳断言 2 s 内出帧） |
+| **空闲 CPU** | **12% of one core** | **1%**（心跳不再触发查询：273 q/s → 0） |
+| RSS | 224 MB（51 KB/流） | 224 MB（51 KB/流，未变） |
+| 空闲查询量 | 4096 × 1/15 s ≈ 273 q/s | 0（仅投递时各一次查询） |
+
+### 下行数据量修正（owner 补充：附件不在 SSE 载荷里）
+SSE 下发的是**不含附件内容的 JSON**（附件已拆成文件索引，走独立下载通道）。因此：
+- 单封 payload ≈ 正文 + headers + 附件索引，**几 KB 量级**，`smtp.max_message_size = 10 MB` 的上限**不适用于** SSE 载荷；
+- 之前"20 封 × 10 MB = 200 MB/流"的最坏估算作废；
+- `connect_snapshot_bytes = 32 KB` 实际覆盖 **约 3–15 封**，最坏单流峰值 ≈ `32 KB × 2（成帧复制） + 51 KB（连接基线） ≈ 115 KB`；
+- 4096 条流最坏 ≈ **~470 MB**（深队列），常态 **224 MB**。
+
+### 两个削峰参数（v1.0.19 之前已加）
+`[http] max_sse_connections`（默认 4096，0=不限，超限 503 `sse_capacity`）、`[http] connect_snapshot_bytes`（默认 32768，0=只按条数）；env：`AIMAILGW_MAX_SSE_CONNECTIONS` / `AIMAILGW_CONNECT_SNAPSHOT_BYTES`。
+
+### 同时修掉的查询计划缺陷
+`pending_deliveries` 原索引 `idx_pending_system(system_id, created_at)` 在同一部署（全表同 system_id）几乎没有选择性 ⇒ 每次拉取全表扫（含 payload）+ 临时 B-tree 排序。新增 `idx_pending_email(email, status, id)`，计划变为 `SEARCH p USING INDEX idx_pending_email (email=? AND status=?)`。**这是事件驱动能安全上线的前提**：否则投递高峰会把每次唤醒变成一次全表扫描。
