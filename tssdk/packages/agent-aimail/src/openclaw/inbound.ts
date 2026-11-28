@@ -392,6 +392,9 @@ export async function deliverInbound(
     sessionModeRequested: requestKey ? 'persistent' : 'isolated',
     // Which edge chose the session: E1 (direct reply to a mail we sent) or E2 (thread lineage).
     sessionKeySource: decision.source,
+    // The anchor the shared router compared against. Without it in the log, "moved:false" cannot be
+    // told apart from "the comparison had an empty side" (S8 on openclaw is exactly that question).
+    routingWorkspace: workspace.path,
     // §9.2 I2 / §9.3: the routing layer abandons an edge whose target lives in ANOTHER anchor and
     // re-ranks here; the abandonment MUST be readable by ops and MUST name the edge + foreign anchor.
     ...(route.kind === 'direct' || route.kind === 'followup' || route.kind === 'new' || route.kind === 'gone'
