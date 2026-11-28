@@ -194,9 +194,25 @@ host_journey() {
   fi
 
   if [ "${LIFECYCLE:-0}" = "1" ]; then
-    _pi_run "$out" "Call the aimail_address tool now with exactly this JSON: {\"action\":\"pause\",\"email\":\"$addr\"}. Copy the code character by character (it contains dashes). Do not ask questions; just call it and report the result."
-    paused="$(cat "$out/paused_seen" 2>/dev/null || echo False)"
-    _pi_run "$out" "Call the aimail_address tool now with exactly this JSON: {\"action\":\"unbind\",\"email\":\"$addr\"}. Copy the code character by character (it contains dashes). Do not ask questions; just call it and report the result."
+    # Bounded retries: pause/unbind are MODEL actions too, and a turn that answers without calling
+    # the tool silently produces paused=False (measured 2026-11-27: dsh and pi both came back with
+    # 'the model never asked for pause/unbind'). A real user would ask again; the retry is logged.
+    _a=0
+    while [ "$_a" -lt 3 ]; do
+      _a=$((_a+1))
+      _pi_run "$out" "Call the aimail_address tool now with exactly this JSON: {\"action\":\"pause\",\"email\":\"$addr\"}. Copy the code character by character (it contains dashes). Do not ask questions; just call it and report the result."
+      paused="$(cat "$out/paused_seen" 2>/dev/null || echo False)"
+      [ "$paused" = "True" ] && break
+      echo "RETRY $_a: pause did not take effect (paused=$paused)" >> "$out/inject.log"
+    done
+    _a=0
+    while [ "$_a" -lt 3 ]; do
+      _a=$((_a+1))
+      _pi_run "$out" "Call the aimail_address tool now with exactly this JSON: {\"action\":\"unbind\",\"email\":\"$addr\"}. Copy the code character by character (it contains dashes). Do not ask questions; just call it and report the result."
+      _now="$(cat "$out/bindings_seen" 2>/dev/null || echo 0)"
+      [ "${_now:-0}" -lt "${maxb:-0}" ] && break
+      echo "RETRY $_a: unbind did not remove a binding (still $_now)" >> "$out/inject.log"
+    done
   fi
 
   # independent cases on purpose: a `case` stops at the first match, so "s6 s7" in one run would only

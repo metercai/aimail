@@ -47,7 +47,11 @@ host_journey() {
         printf "Call the aimail_address tool now with exactly this JSON: {\"action\":\"bind\",\"code\":\"%s\",\"email\":\"%s\",\"gateway_url\":\"%s\"}. Do not ask questions; just call it and report the result.\n" "$AC2" "$AH2" "$GWURL" >> /tmp/prompts.txt
       fi
       if [ "${LIFECYCLE:-0}" = "1" ]; then
+        # The queue runs in one session, so a turn that answers without calling the tool cannot be
+        # retried afterwards. pause is idempotent (`already-paused`), so it is queued twice: a missed
+        # first dispatch still gets a second chance (measured 2026-11-27: paused_seen=False).
         printf "Call the aimail_address tool now with exactly this JSON: {\"action\":\"pause\",\"email\":\"%s\"}. Do not ask questions; just call it and report the result.\n" "$AH" >> /tmp/prompts.txt
+        printf "If the previous aimail_address pause did not run, call it now with exactly this JSON: {\"action\":\"pause\",\"email\":\"%s\"}. Do not ask questions; just call it and report the result.\n" "$AH" >> /tmp/prompts.txt
         printf "Call the aimail_address tool now with exactly this JSON: {\"action\":\"unbind\",\"email\":\"%s\"}. Do not ask questions; just call it and report the result.\n" "$AH" >> /tmp/prompts.txt
       fi
       DSH_STATE_DIR=/out DSH_TURN_GAP_SECS="${TURN_GAP:-100}" DSH_READ_SECS=420 DSH_KEEPALIVE_TICKS=1 \
