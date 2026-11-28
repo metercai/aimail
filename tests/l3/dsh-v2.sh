@@ -38,14 +38,22 @@ set -uo pipefail
 
 # decompress a session transcript; on hosts without zstd, install the python module once.
 _tx_read() {  # _tx_read <file>
-  local f="$1" out=""
+  local f="$1" out="" py=""
   [ -f "$f" ] || return 1
-  if command -v zstdcat >/dev/null 2>&1; then out="$(zstdcat "$f" 2>/dev/null)"
-  elif python3 -c "import zstandard" >/dev/null 2>&1; then
-    out="$(python3 -c "import sys,zstandard;sys.stdout.write(zstandard.ZstdDecompressor().stream_reader(open(sys.argv[1],'rb')).read().decode('utf-8','replace'))" "$f" 2>/dev/null)"
-  else
-    python3 -m pip install --quiet zstandard >/dev/null 2>&1 || true
-    out="$(python3 -c "import sys,zstandard;sys.stdout.write(zstandard.ZstdDecompressor().stream_reader(open(sys.argv[1],'rb')).read().decode('utf-8','replace'))" "$f" 2>/dev/null)"
+  if command -v zstdcat >/dev/null 2>&1; then out="$(zstdcat "$f" 2>/dev/null)"; fi
+  if [ -z "$out" ]; then
+    # git-bash on windows-latest has `python`, not `python3` (measured 2026-11-28: the whole cell
+    # aborted on ENV GAP "cannot read the session transcript — no zstd/zstandard on this host").
+    for cand in python3 python; do
+      command -v "$cand" >/dev/null 2>&1 || continue
+      if "$cand" -c "import zstandard" >/dev/null 2>&1 \
+         || { "$cand" -m pip install --quiet --user zstandard >/dev/null 2>&1 && "$cand" -c "import zstandard" >/dev/null 2>&1; }; then
+        py="$cand"; break
+      fi
+    done
+    if [ -n "$py" ]; then
+      out="$("$py" -c "import sys,zstandard;sys.stdout.write(zstandard.ZstdDecompressor().stream_reader(open(sys.argv[1],'rb')).read().decode('utf-8','replace'))" "$f" 2>/dev/null)"
+    fi
   fi
   printf '%s' "$out"
   [ -n "$out" ]
@@ -56,6 +64,9 @@ ok()  { printf '  \033[32m✓\033[0m %s\n' "$*"; }
 bad() { printf '  \033[31m✗ %s\n' "$*" >&2; }
 die() { bad "$*"; exit 1; }
 gap() { printf '  \033[35m⊘ ENV GAP: %s\n' "$*" >&2; exit 2; }
+# `warn` was CALLED but never DEFINED here (measured 2026-11-28, windows-amd64: "dsh-v2.sh: line
+# 505: warn: command not found"), so the tripwire's explanation never reached the log.
+warn() { printf '  \033[33m! %s\033[0m\n' "$*" >&2; }
 
 [ -n "${GW_BIN:-}" ] || gap "GW_BIN not set"
 [ -n "${DSH_HOME:-}" ] || gap "DSH_HOME not set"
