@@ -52,7 +52,11 @@ host_journey() {
         # first dispatch still gets a second chance (measured 2026-11-27: paused_seen=False).
         printf "Call the aimail_address tool now with exactly this JSON: {\"action\":\"pause\",\"email\":\"%s\"}. Do not ask questions; just call it and report the result.\n" "$AH" >> /tmp/prompts.txt
         printf "If the previous aimail_address pause did not run, call it now with exactly this JSON: {\"action\":\"pause\",\"email\":\"%s\"}. Do not ask questions; just call it and report the result.\n" "$AH" >> /tmp/prompts.txt
+        # Same reasoning as pause: a turn that answers without dispatching silently leaves the
+        # binding in place (measured 2026-11-27: unbind did not remove a binding, final=1 max=1).
+        # A second unbind is harmless (`not-bound`), so queue it too.
         printf "Call the aimail_address tool now with exactly this JSON: {\"action\":\"unbind\",\"email\":\"%s\"}. Do not ask questions; just call it and report the result.\n" "$AH" >> /tmp/prompts.txt
+        printf "If the binding for %s is still present, call aimail_address with exactly this JSON: {\"action\":\"unbind\",\"email\":\"%s\"}. Do not ask questions; just call it and report the result.\n" "$AH" "$AH" >> /tmp/prompts.txt
       fi
       DSH_STATE_DIR=/out DSH_TURN_GAP_SECS="${TURN_GAP:-100}" DSH_READ_SECS=420 DSH_KEEPALIVE_TICKS=1 \
         python3 /opt/v2lib/dsh_activate.py "$URL" /root/ws /tmp/prompts.txt >/tmp/act.log 2>&1 || true
