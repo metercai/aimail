@@ -66,8 +66,8 @@ PY
         B=$(ls /root/.aimail/systems/*/*/agentmail.json 2>/dev/null | head -1)  # contract-allowed: in-container fixture glob; the repo contract is not mounted in the host image
       fi
       if [ -n "$B" ]; then install -m 644 "$B" /out/binding.json; stat -c %a "$B" > /out/mode; fi
-      # `paused` is NOT necessarily in agentmail.json: setBindingPaused() writes it into the address
-      # config (cfgPath), and the two are different files on some hosts. Reading only the binding file
+      # `paused` is NOT necessarily in the binding file: setBindingPaused() writes it into the address
+      # config (cfgPath), and the two are different files on some hosts. Reading only the binding
       # reported paused=None on pi while the plugin log said "paused" (measured 2026-11-27). Scan the
       # whole address directory and report True if ANY json carries paused=true.
       python3 - <<PY >/out/paused_seen 2>/dev/null || echo None >/out/paused_seen

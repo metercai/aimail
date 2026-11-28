@@ -90,7 +90,7 @@ def test_sdk_is_v2_and_no_system_tool():
     pkg = json.loads(_read(REPO / "tssdk/packages/agent-aimail/package.json"))
     # The gate asserts the exact release coordinate, so a bump is deliberate and visible.
     # Moves with each release: 0.5.0 (never published) -> 0.5.1 -> 0.5.2.
-    assert pkg["version"] == "0.6.0"
+    assert pkg["version"] == "0.6.1"
     manifest = json.loads(_read(REPO / "tssdk/packages/agent-aimail/openclaw.plugin.json"))
     tools = manifest["contracts"]["tools"]
     assert "aimail_address" in tools
