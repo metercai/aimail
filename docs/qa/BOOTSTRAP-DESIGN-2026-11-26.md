@@ -632,7 +632,7 @@ L2/L3 matrix: PASS=50 RED=3 GAP=8  → VERDICT: FAIL
 `S4 multi-address — second binding written on openclaw (max=2) — C1 violated` 是**误判**：
 宿主适配器变量在宿主之间泄漏——`hosts/*.sh` 是被 `source` 进同一个 shell 的，pi 的
 `HOST_ADDRESS_MODEL=single` 被 openclaw 继承，于是 openclaw 走了"单地址必须拒绝"的分支。
-实测 openclaw 同时存在两个 binding（`b1=1, b2=2`，布局 `/app/.aimail/systems/*/*/agentmail.json`）⇒ 它是 **multi**。
+实测 openclaw 同时存在两个 binding（`b1=1, b2=2`，布局 `/app/.aimail/systems/*/*/agentmail.json`）⇒ 它是 **multi**。  <!-- contract-allowed: describing the in-container binding file layout that the fixtures glob; the repo contract is not mounted inside the host image -->
 
 两处修复：`hosts/openclaw.sh` 显式 `HOST_ADDRESS_MODEL=multi`；`run-matrix.sh` 每宿主前
 `unset HOST_ADDRESS_MODEL HOST_CAN_ALLOCATE_SESSION HOST_DELIVERY_CONFIRMATION`。

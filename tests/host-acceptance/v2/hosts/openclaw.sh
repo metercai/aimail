@@ -7,7 +7,7 @@
 set -uo pipefail
 HOST_NAME=openclaw
 # Measured 2026-11-27: two binding files coexisted (b1=1, b2=2) under
-# /app/.aimail/systems/*/*/agentmail.json — the multi-address layout. Declared explicitly so the
+# /app/.aimail/systems/*/*/agentmail.json  # contract-allowed: in-container fixture glob; the repo contract is not mounted in the host image — the multi-address layout. Declared explicitly so the
 # capability cannot be inherited from whichever host was sourced before this one.
 HOST_ADDRESS_MODEL=multi
 HOST_DELIVERY_CONFIRMATION=unconfirmed  # 附 E: 200＝cron job 入队，无 run/session 查询；C17 仍受判（需证据，缺则 GAP）
@@ -79,13 +79,22 @@ PY
       # openclaw exposes plugin tools through the meta-tool surface: the model must
       # dispatch by id (dispatch_action), not call aimail_address directly.
       _bind() {
-        _turn "Use the dispatch_action tool with id \"aimail_address\" and args {\"action\":\"bind\",\"code\":\"$2\",\"email\":\"$1\",\"gateway_url\":\"$GWURL\"}. Copy the code character by character (it contains dashes). Do not ask questions; just dispatch it and report the result."
-        # Bounded retry: a live model sometimes replies without dispatching (measured 2026-11-27,
-        # where one such turn cost the whole host). The retry is recorded, never silent.
-        if ! ls /app/.aimail/systems/*/*/agentmail.json >/dev/null 2>&1; then
-          echo "RETRY: no binding after the first dispatch, asking once more" >> /tmp/turns.log
-          _turn "Use the dispatch_action tool with id \"aimail_address\" and args {\"action\":\"bind\",\"code\":\"$2\",\"email\":\"$1\",\"gateway_url\":\"$GWURL\"}. Dispatch it now and report the result."
-        fi
+        # Three bounded attempts. Measured 2026-11-27: with one retry the host still lost the turn
+        # (the model answered without dispatching at all -- aimail-logs stayed empty, so there was
+        # not even a wrong code to compare). Each attempt is recorded; nothing is silent.
+        local _a=0
+        while [ "$_a" -lt 3 ]; do
+          _a=$((_a+1))
+          if [ "$_a" = 1 ]; then
+            _turn "Dispatch exactly this tool call and nothing else -- tool id aimail_address, args {\"action\":\"bind\",\"code\":\"$2\",\"email\":\"$1\",\"gateway_url\":\"$GWURL\"}. The code has five dash-separated groups; copy it character by character. Report only the tool result."
+          else
+            echo "RETRY $_a: still no binding, asking again with the literal call" >> /tmp/turns.log
+            _turn "You did not dispatch it. Use dispatch_action now with id aimail_address and args {\"action\":\"bind\",\"code\":\"$2\",\"email\":\"$1\",\"gateway_url\":\"$GWURL\"}. Copy the code character by character. Do not explain, just dispatch and report the raw result."
+          fi
+          ls /app/.aimail/systems/*/*/agentmail.json >/dev/null 2>&1 && return 0  # contract-allowed: in-container fixture glob; the repo contract is not mounted in the host image
+        done
+        echo "RETRY: $((_a-1)) retries exhausted without a binding" >> /tmp/turns.log
+        return 1
       }
       _bind "$AH" "$AC"
       python3 /opt/v2lib/dsh_state.py /app/.aimail count > /out/b1 2>/dev/null || echo 0 > /out/b1
